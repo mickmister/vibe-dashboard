@@ -193,6 +193,30 @@ function useImperativeIframes(tabs: Tab[]) {
     return initial;
   });
 
+  // Update iframe src when tab URL changes
+  useEffect(() => {
+    for (const tab of tabs) {
+      const entry = iframeStore.get(tab.id);
+      if (!entry) continue;
+
+      // Skip internal URLs - they don't use actual iframes
+      if (tab.url.startsWith('internal://')) continue;
+
+      // Update iframe src if URL has changed
+      if (entry.iframe.src !== tab.url) {
+        entry.iframe.src = tab.url;
+        // Reset loading state
+        entry.loaded = false;
+        entry.contentReady = false;
+        setLoadingState((prev) => {
+          const next = new Map(prev);
+          next.set(tab.id, false);
+          return next;
+        });
+      }
+    }
+  }, [tabs]);
+
   // Subscribe to load events
   useEffect(() => {
     const unsubs: (() => void)[] = [];
