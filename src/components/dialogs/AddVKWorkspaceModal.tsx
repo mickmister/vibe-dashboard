@@ -175,7 +175,7 @@ export function AddVKWorkspaceModal({
                 size="sm"
                 classNames={{
                   inputWrapper: 'bg-neutral-800 border-neutral-700 data-[hover=true]:bg-neutral-800 group-data-[focus=true]:bg-neutral-800',
-                  input: 'bg-transparent text-neutral-100',
+                  input: 'text-white',
                   label: 'text-neutral-300',
                 }}
               />
@@ -191,7 +191,7 @@ export function AddVKWorkspaceModal({
                 }}
                 classNames={{
                   inputWrapper: 'bg-neutral-800 border-neutral-700 data-[hover=true]:bg-neutral-800 group-data-[focus=true]:bg-neutral-800',
-                  input: 'bg-transparent text-neutral-100',
+                  input: 'text-white',
                   label: 'text-neutral-300',
                   description: 'text-neutral-500',
                 }}
@@ -208,7 +208,7 @@ export function AddVKWorkspaceModal({
                   size="sm"
                   classNames={{
                     inputWrapper: 'bg-neutral-800 border-neutral-700 data-[hover=true]:bg-neutral-800 group-data-[focus=true]:bg-neutral-800',
-                    input: 'bg-transparent text-neutral-100',
+                    input: 'text-white',
                   }}
                   className="flex-1"
                 />
