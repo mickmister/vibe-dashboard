@@ -130,14 +130,25 @@ export function useSessionWorkspaceNav(workspace: WorkspaceState, routeSpaceId?:
     const tabGroupExists = workspace.tabGroups.some(tg => tg.id === nav.activeTabGroupId);
 
     // Check if there are new tab groups not in activeItems
-    const hasNewTabGroups = workspace.tabGroups.some(tg => !(tg.id in nav.activeItems));
+    const newTabGroups = workspace.tabGroups.filter(tg => !(tg.id in nav.activeItems));
 
-    if (!spaceExists || !tabGroupExists || hasNewTabGroups) {
-      // Current selection is invalid or workspace has new tab groups, reload
-      const newNav = loadSessionNav(workspace);
+    if (!spaceExists || !tabGroupExists) {
+      // Current selection is invalid, reload nav
+      // Keep the current activeSpaceId when reloading
+      const newNav = loadSessionNav(workspace, routeSpaceId);
       setNav(newNav);
+    } else if (newTabGroups.length > 0) {
+      // Add missing tab groups to activeItems without reloading everything
+      setNav(prev => {
+        const updatedActiveItems = { ...prev.activeItems };
+        newTabGroups.forEach(tg => {
+          const firstItem = tg.tabs[0]?.id || tg.pairs[0]?.id || '';
+          updatedActiveItems[tg.id] = firstItem;
+        });
+        return { ...prev, activeItems: updatedActiveItems };
+      });
     }
-  }, [workspace.spaces, workspace.tabGroups, nav.activeSpaceId, nav.activeTabGroupId, nav.activeItems]);
+  }, [workspace.spaces, workspace.tabGroups, nav.activeSpaceId, nav.activeTabGroupId, nav.activeItems, routeSpaceId]);
 
   const selectSpace = (spaceId: string) => {
     const space = workspace.spaces.find(s => s.id === spaceId);
