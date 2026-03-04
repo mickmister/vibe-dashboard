@@ -2,7 +2,8 @@
 import '@vitejs/plugin-react/preamble';
 import './styles';
 
-import React from 'react';
+import React, { useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router';
 import { HeroUIProvider } from '@heroui/react';
 import { WorkspaceShell } from './components/WorkspaceShell';
 import { useSessionWorkspaceNav } from './sessionState';
@@ -284,9 +285,22 @@ springboard.registerModule('workspace', {rpcMode: 'remote'}, async (moduleAPI) =
     },
   });
 
-  moduleAPI.registerRoute('/', { hideApplicationShell: true }, () => {
+  // Shared route component with space parameter support
+  const WorkspaceRoute = () => {
     const workspace = workspaceState.useState();
-    const sessionNav = useSessionWorkspaceNav(workspace);
+    const { spaceId } = useParams<{ spaceId?: string }>();
+    const navigate = useNavigate();
+    const sessionNav = useSessionWorkspaceNav(workspace, spaceId);
+
+    // Navigate to URL when space changes (unless already there)
+    useEffect(() => {
+      const targetPath = sessionNav.activeSpaceId ? `/${sessionNav.activeSpaceId}` : '/';
+      const currentPath = spaceId ? `/${spaceId}` : '/';
+
+      if (targetPath !== currentPath) {
+        navigate(targetPath, { replace: true });
+      }
+    }, [sessionNav.activeSpaceId, spaceId, navigate]);
 
     // Wrap actions that need session parameters
     const wrappedActions = {
@@ -356,7 +370,11 @@ springboard.registerModule('workspace', {rpcMode: 'remote'}, async (moduleAPI) =
         </div>
       </>
     );
-  });
+  };
+
+  // Register routes for both root and space-specific paths
+  moduleAPI.registerRoute('/', { hideApplicationShell: true }, WorkspaceRoute);
+  moduleAPI.registerRoute('/:spaceId', { hideApplicationShell: true }, WorkspaceRoute);
 
   return {
     states: { workspace: workspaceState },

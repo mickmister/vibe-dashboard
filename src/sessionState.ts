@@ -3,7 +3,7 @@ import type { WorkspaceState } from './types';
 
 /**
  * Session-level workspace navigation state.
- * activeSpaceId is now managed via URL hash params, not sessionStorage.
+ * activeSpaceId is now managed via React Router path params, not sessionStorage.
  * Other navigation state remains in sessionStorage for per-window independence.
  */
 export interface SessionWorkspaceNav {
@@ -16,30 +16,11 @@ export interface SessionWorkspaceNav {
 const SESSION_KEY = 'workspace-nav';
 
 /**
- * Extract spaceId from URL hash (e.g., #/space_1 or #space_1)
- */
-function getSpaceIdFromUrl(): string | null {
-  const hash = window.location.hash;
-  if (!hash) return null;
-
-  // Handle both #/space_1 and #space_1 formats
-  const match = hash.match(/^#\/?(.+)$/);
-  return match ? match[1] : null;
-}
-
-/**
- * Update URL hash with spaceId
- */
-function setSpaceIdInUrl(spaceId: string) {
-  window.location.hash = `#/${spaceId}`;
-}
-
-/**
  * Load session navigation state.
- * activeSpaceId comes from URL hash, other state from sessionStorage.
+ * activeSpaceId comes from route params, other state from sessionStorage.
  * Falls back to first available space/tab group if stored values are invalid.
  */
-function loadSessionNav(workspace: WorkspaceState): SessionWorkspaceNav {
+function loadSessionNav(workspace: WorkspaceState, routeSpaceId?: string): SessionWorkspaceNav {
   // Build initial activeItems map from workspace state
   const activeItems: Record<string, string> = {};
   workspace.tabGroups.forEach(tg => {
@@ -48,9 +29,8 @@ function loadSessionNav(workspace: WorkspaceState): SessionWorkspaceNav {
     activeItems[tg.id] = firstItem;
   });
 
-  // Get spaceId from URL hash first
-  const urlSpaceId = getSpaceIdFromUrl();
-  const spaceExistsInUrl = urlSpaceId && workspace.spaces.some(s => s.id === urlSpaceId);
+  // Get spaceId from route params first
+  const spaceExistsInRoute = routeSpaceId && workspace.spaces.some(s => s.id === routeSpaceId);
 
   let activeSpaceId = '';
   let activeTabGroupId = '';
@@ -60,9 +40,9 @@ function loadSessionNav(workspace: WorkspaceState): SessionWorkspaceNav {
     if (stored) {
       const parsed = JSON.parse(stored) as Partial<SessionWorkspaceNav>;
 
-      // Use URL spaceId if valid, otherwise try sessionStorage
-      if (spaceExistsInUrl) {
-        activeSpaceId = urlSpaceId!;
+      // Use route spaceId if valid, otherwise try sessionStorage
+      if (spaceExistsInRoute) {
+        activeSpaceId = routeSpaceId!;
       } else if (parsed.activeSpaceId && workspace.spaces.some(s => s.id === parsed.activeSpaceId)) {
         activeSpaceId = parsed.activeSpaceId;
       }
@@ -90,7 +70,7 @@ function loadSessionNav(workspace: WorkspaceState): SessionWorkspaceNav {
     firstSpace.tabGroupIds.includes(tg.id)
   ) : workspace.tabGroups[0];
 
-  activeSpaceId = (spaceExistsInUrl ? urlSpaceId : firstSpace?.id) || '';
+  activeSpaceId = (spaceExistsInRoute ? routeSpaceId : firstSpace?.id) || '';
   activeTabGroupId = firstTabGroup?.id || '';
 
   return {
@@ -101,15 +81,11 @@ function loadSessionNav(workspace: WorkspaceState): SessionWorkspaceNav {
 }
 
 /**
- * Save session navigation state to sessionStorage and URL.
- * activeSpaceId is saved to URL hash, other state to sessionStorage.
+ * Save session navigation state to sessionStorage.
+ * activeSpaceId is managed via React Router, not sessionStorage.
  */
 function saveSessionNav(nav: SessionWorkspaceNav) {
   try {
-    // Save spaceId to URL hash
-    setSpaceIdInUrl(nav.activeSpaceId);
-
-    // Save other nav state to sessionStorage
     sessionStorage.setItem(SESSION_KEY, JSON.stringify({
       activeSpaceId: nav.activeSpaceId,
       activeTabGroupId: nav.activeTabGroupId,
@@ -122,38 +98,31 @@ function saveSessionNav(nav: SessionWorkspaceNav) {
 
 /**
  * Hook for managing per-window workspace navigation state.
- * activeSpaceId is synced with URL hash for shareable navigation.
- * Returns current active IDs and setters that persist to URL and sessionStorage.
+ * activeSpaceId is synced with React Router params for shareable navigation.
+ * Returns current active IDs and setters that persist to sessionStorage.
  */
-export function useSessionWorkspaceNav(workspace: WorkspaceState) {
-  const [nav, setNav] = useState<SessionWorkspaceNav>(() => loadSessionNav(workspace));
+export function useSessionWorkspaceNav(workspace: WorkspaceState, routeSpaceId?: string) {
+  const [nav, setNav] = useState<SessionWorkspaceNav>(() => loadSessionNav(workspace, routeSpaceId));
 
-  // Sync to URL and sessionStorage whenever nav changes
+  // Sync route param changes to nav state
+  useEffect(() => {
+    if (routeSpaceId && workspace.spaces.some(s => s.id === routeSpaceId)) {
+      setNav(prev => {
+        if (prev.activeSpaceId !== routeSpaceId) {
+          // Find first tab group in the new space
+          const space = workspace.spaces.find(s => s.id === routeSpaceId);
+          const firstTabGroupId = space?.tabGroupIds[0] || prev.activeTabGroupId;
+          return { ...prev, activeSpaceId: routeSpaceId, activeTabGroupId: firstTabGroupId };
+        }
+        return prev;
+      });
+    }
+  }, [routeSpaceId, workspace.spaces]);
+
+  // Sync to sessionStorage whenever nav changes
   useEffect(() => {
     saveSessionNav(nav);
   }, [nav]);
-
-  // Listen to hashchange for browser back/forward navigation
-  useEffect(() => {
-    const handleHashChange = () => {
-      const urlSpaceId = getSpaceIdFromUrl();
-      if (urlSpaceId && workspace.spaces.some(s => s.id === urlSpaceId)) {
-        // Only update if spaceId changed and is valid
-        setNav(prev => {
-          if (prev.activeSpaceId !== urlSpaceId) {
-            // Find first tab group in the new space
-            const space = workspace.spaces.find(s => s.id === urlSpaceId);
-            const firstTabGroupId = space?.tabGroupIds[0] || prev.activeTabGroupId;
-            return { ...prev, activeSpaceId: urlSpaceId, activeTabGroupId: firstTabGroupId };
-          }
-          return prev;
-        });
-      }
-    };
-
-    window.addEventListener('hashchange', handleHashChange);
-    return () => window.removeEventListener('hashchange', handleHashChange);
-  }, [workspace.spaces]);
 
   // Validate nav whenever workspace changes (e.g., space/tab group deleted or added)
   useEffect(() => {
