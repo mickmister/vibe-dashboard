@@ -345,6 +345,7 @@ class ChromeTabs {
   ) {
     const tabEl = this.createNewTabEl() as HTMLElement;
     tabEl.oncontextmenu = (event) => {
+      event.preventDefault();
       this.emit("contextmenu", { tabEl, event });
     };
     tabEl.addEventListener("mousedown", (e) => {
