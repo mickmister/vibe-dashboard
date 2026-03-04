@@ -15,6 +15,25 @@ import type { WorkspaceState } from './types';
 
 (globalThis as {useHashRouter?: boolean}).useHashRouter = true
 
+/**
+ * Get the base URL without port prefix for creating tab URLs.
+ * If running on port-{num}.domain.com, returns just the origin without the prefix.
+ */
+function getBaseOrigin(): string {
+  const { protocol, host } = window.location;
+
+  // Check if host matches port-{num}.domain.com pattern
+  const portPrefixMatch = host.match(/^port-\d+\.(.+)$/);
+
+  if (portPrefixMatch) {
+    // Return base domain without the port prefix
+    return `${protocol}//${portPrefixMatch[1]}`;
+  }
+
+  // Use origin as-is for normal hosts
+  return `${protocol}//${host}`;
+}
+
 console.log('outside of module')
 springboard.registerModule('workspace', {rpcMode: 'remote'}, async (moduleAPI) => {
   console.log('inside of module')
@@ -217,6 +236,9 @@ springboard.registerModule('workspace', {rpcMode: 'remote'}, async (moduleAPI) =
       let pairId: string | undefined;
       let agentTabId: string | undefined;
 
+      // Get base origin without port prefix for tab URLs
+      const baseOrigin = getBaseOrigin();
+
       workspaceState.setStateImmer((draft) => {
         const space = draft.spaces.find((s) => s.id === args.activeSpaceId);
         if (!space) return;
@@ -230,7 +252,7 @@ springboard.registerModule('workspace', {rpcMode: 'remote'}, async (moduleAPI) =
         // Store agent tab ID for return
         agentTabId = kanbanTabId;
 
-        // Create the new tab group
+        // Create the new tab group with base origin URLs (no port prefix)
         draft.tabGroups.push({
           id: tabGroupId,
           label: args.name.length > 30 ? args.name.substring(0, 27) + '...' : args.name,
@@ -238,12 +260,12 @@ springboard.registerModule('workspace', {rpcMode: 'remote'}, async (moduleAPI) =
             {
               id: kanbanTabId,
               title: 'Agent',
-              url: `/workspaces/${args.taskAttemptId}`,
+              url: `${baseOrigin}/workspaces/${args.taskAttemptId}`,
             },
             {
               id: codeTabId,
               title: 'Code',
-              url: `/?folder=${args.containerRef}`,
+              url: `${baseOrigin}/?folder=${args.containerRef}`,
             },
           ],
           pairs: [

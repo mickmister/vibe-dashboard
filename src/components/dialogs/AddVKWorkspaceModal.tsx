@@ -20,24 +20,6 @@ interface TaskAttempt {
   agent_working_dir: string | null;
 }
 
-/**
- * Get the API base URL, transforming port-{num}.domain.com to domain.com
- * This allows the vscode-web wrapper to connect to the main VK instance.
- */
-function getApiBaseUrl(): string {
-  const { protocol, host } = window.location;
-
-  // Check if host matches port-{num}.domain.com pattern
-  const portPrefixMatch = host.match(/^port-\d+\.(.+)$/);
-
-  if (portPrefixMatch) {
-    // Use the base domain without the port prefix
-    return `${protocol}//${portPrefixMatch[1]}`;
-  }
-
-  // Use origin as-is for normal hosts
-  return `${protocol}//${host}`;
-}
 
 interface AddVKWorkspaceModalProps {
   isOpen: boolean;
@@ -93,8 +75,7 @@ export function AddVKWorkspaceModal({
   }, [searchQuery, taskAttempts]);
 
   const refreshTaskAttemptContainerAndRefetchTaskAttempt = async (taskAttemptId: string) => {
-    const apiBase = getApiBaseUrl();
-    const response = await fetch(`${apiBase}/api/task-attempts/${taskAttemptId}/branch-status`);
+    const response = await fetch(`/api/task-attempts/${taskAttemptId}/branch-status`);
     if (!response.ok) {
       throw new Error(`Failed to fetch workspaces: ${response.statusText}`);
     }
@@ -102,7 +83,7 @@ export function AddVKWorkspaceModal({
     const data = await response.json();
     console.log(data);
 
-    const attempt = await fetch(`${apiBase}/api/task-attempts/${taskAttemptId}`).then(r => r.json());
+    const attempt = await fetch(`/api/task-attempts/${taskAttemptId}`).then(r => r.json());
     console.log(attempt);
     return attempt.data;
   };
@@ -111,8 +92,7 @@ export function AddVKWorkspaceModal({
     setLoading(true);
     setError(null);
     try {
-      const apiBase = getApiBaseUrl();
-      const response = await fetch(`${apiBase}/api/task-attempts`);
+      const response = await fetch('/api/task-attempts');
       if (!response.ok) {
         throw new Error(`Failed to fetch workspaces: ${response.statusText}`);
       }

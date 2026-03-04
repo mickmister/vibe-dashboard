@@ -9,10 +9,26 @@
 	@port_forward header_regexp port Host ^port-([0-9]+)\.
 
 	handle @port_forward {
-		reverse_proxy 127.0.0.1:{re.port.1} {
-			header_up Host {upstream_hostport}
-			header_up Upgrade {http.request.header.Upgrade}
-			header_up Connection {http.request.header.Connection}
+		# VK API routes should be proxied to main vibe-kanban instance (localhost:3007)
+		# instead of the dynamic port, so the wrapper can access task attempts
+		@vk_api_routes {
+			path /api/task-attempts
+			path /api/task-attempts/*
+		}
+
+		handle @vk_api_routes {
+			reverse_proxy localhost:3007 {
+				header_up Host {upstream_hostport}
+			}
+		}
+
+		# Default port forwarding for everything else
+		handle {
+			reverse_proxy 127.0.0.1:{re.port.1} {
+				header_up Host {upstream_hostport}
+				header_up Upgrade {http.request.header.Upgrade}
+				header_up Connection {http.request.header.Connection}
+			}
 		}
 	}
 
