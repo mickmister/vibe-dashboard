@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Button, Tooltip, Input } from '@heroui/react';
 import type { WorkspaceState, Space } from '../types';
 
@@ -31,6 +31,11 @@ export function Sidebar({
   const [newName, setNewName] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
+  const [contextMenu, setContextMenu] = useState<{
+    spaceId: string;
+    position: { x: number; y: number };
+  } | null>(null);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
 
   const handleAddSubmit = useCallback(() => {
     const name = newName.trim();
@@ -51,6 +56,49 @@ export function Sidebar({
     },
     [editName, onRenameSpace]
   );
+
+  const handleContextMenu = useCallback((e: React.MouseEvent, spaceId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenu({
+      spaceId,
+      position: { x: e.clientX, y: e.clientY },
+    });
+  }, []);
+
+  const handleDeleteSpace = useCallback(() => {
+    if (!contextMenu) return;
+
+    if (confirm(`Delete this space? All tab groups and tabs will be closed.`)) {
+      onDeleteSpace(contextMenu.spaceId);
+    }
+    setContextMenu(null);
+  }, [contextMenu, onDeleteSpace]);
+
+  // Close context menu when clicking outside
+  useEffect(() => {
+    if (!contextMenu) return;
+
+    const handleClickOutside = (e: MouseEvent) => {
+      if (contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node)) {
+        setContextMenu(null);
+      }
+    };
+
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setContextMenu(null);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleEscape);
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [contextMenu]);
 
   return (
     <div
@@ -91,6 +139,7 @@ export function Sidebar({
                 setEditingId(space.id);
                 setEditName(space.name);
               }}
+              onContextMenu={(e) => handleContextMenu(e, space.id)}
             >
               <span className="text-sm">
                 {SPACE_ICONS[space.icon] || SPACE_ICONS.default}
@@ -157,6 +206,31 @@ export function Sidebar({
           )}
         </div>
       </div>
+
+      {/* Context menu for space deletion */}
+      {contextMenu && (
+        <div
+          ref={contextMenuRef}
+          className="fixed z-[100] bg-neutral-800 border border-neutral-700 rounded-md shadow-xl py-1 min-w-[200px]"
+          style={{
+            left: `${contextMenu.position.x}px`,
+            top: `${contextMenu.position.y}px`,
+          }}
+        >
+          {workspace.spaces.length > 1 ? (
+            <button
+              className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-neutral-700 transition-colors"
+              onClick={handleDeleteSpace}
+            >
+              Delete Space
+            </button>
+          ) : (
+            <div className="px-4 py-2 text-sm text-neutral-500 italic">
+              Cannot delete last space
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
