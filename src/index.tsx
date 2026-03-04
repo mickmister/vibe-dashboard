@@ -231,13 +231,11 @@ springboard.registerModule('workspace', {rpcMode: 'remote'}, async (moduleAPI) =
       name: string;
       containerRef: string;
       activeSpaceId: string;
+      baseOrigin: string;
     }) => {
       let tabGroupId: string | undefined;
       let pairId: string | undefined;
       let agentTabId: string | undefined;
-
-      // Get base origin without port prefix for tab URLs
-      const baseOrigin = getBaseOrigin();
 
       workspaceState.setStateImmer((draft) => {
         const space = draft.spaces.find((s) => s.id === args.activeSpaceId);
@@ -260,12 +258,12 @@ springboard.registerModule('workspace', {rpcMode: 'remote'}, async (moduleAPI) =
             {
               id: kanbanTabId,
               title: 'Agent',
-              url: `${baseOrigin}/workspaces/${args.taskAttemptId}`,
+              url: `${args.baseOrigin}/workspaces/${args.taskAttemptId}`,
             },
             {
               id: codeTabId,
               title: 'Code',
-              url: `${baseOrigin}/?folder=${args.containerRef}`,
+              url: `${args.baseOrigin}/?folder=${args.containerRef}`,
             },
           ],
           pairs: [
@@ -404,7 +402,9 @@ springboard.registerModule('workspace', {rpcMode: 'remote'}, async (moduleAPI) =
         containerRef: string;
         activeSpaceId: string;
       }) => {
-        return actions.addVKWorkspace(args);
+        // Get base origin from client side before calling action
+        const baseOrigin = getBaseOrigin();
+        return actions.addVKWorkspace({ ...args, baseOrigin });
       },
     };
 

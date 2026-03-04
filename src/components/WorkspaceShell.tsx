@@ -96,11 +96,19 @@ export function WorkspaceShell({ workspace, session, actions, sessionActions }: 
     name: string,
     containerRef: string
   ) => {
+    // Get base origin without port prefix
+    const { protocol, host } = window.location;
+    const portPrefixMatch = host.match(/^port-\d+\.(.+)$/);
+    const baseOrigin = portPrefixMatch
+      ? `${protocol}//${portPrefixMatch[1]}`
+      : `${protocol}//${host}`;
+
     const result = await actions.addVKWorkspace({
       taskAttemptId,
       name,
       containerRef,
       activeSpaceId: session.activeSpaceId,
+      baseOrigin,
     });
 
     // Auto-select the Agent tab (not the pair)
