@@ -4,7 +4,7 @@ import type { TabProperties } from '../../react-chrome-tabs/src/chrome-tabs';
 import { AddressBar } from './AddressBar';
 import { IframePanel } from './IframePanel';
 import { TabContextMenu } from './TabContextMenu';
-import type { TabGroup } from '../types';
+import type { TabGroup, WorkspaceState } from '../types';
 import type { WorkspaceActions, SessionActions } from './WorkspaceShell';
 
 interface UnifiedTabViewProps {
@@ -15,6 +15,7 @@ interface UnifiedTabViewProps {
   actions: WorkspaceActions;
   sessionActions: SessionActions;
   onOpenAddTabModal: (tabGroupId: string) => void;
+  workspace: WorkspaceState;
 }
 
 /**
@@ -33,6 +34,7 @@ export function UnifiedTabView({
   actions,
   sessionActions,
   onOpenAddTabModal,
+  workspace,
 }: UnifiedTabViewProps) {
   const [isPinned, setIsPinned] = useState(false);
   const [isHovering, setIsHovering] = useState(false);
@@ -350,6 +352,11 @@ export function UnifiedTabView({
                 ratios,
               })
             }
+            workspace={workspace}
+            onNavigateToTabGroup={(spaceId, tabGroupId) => {
+              sessionActions.selectSpace(spaceId);
+              sessionActions.setActiveTabGroup(tabGroupId);
+            }}
           />
         ) : (
           <div className="flex-1 flex items-center justify-center text-neutral-500">

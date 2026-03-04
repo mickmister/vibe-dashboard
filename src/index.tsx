@@ -58,25 +58,32 @@ springboard.registerModule('workspace', {rpcMode: 'remote'}, async (moduleAPI) =
     },
 
     deleteSpace: async (args: { spaceId: string }) => {
+      let wasDeleted = false;
       workspaceState.setStateImmer((draft) => {
         const idx = draft.spaces.findIndex((s) => s.id === args.spaceId);
-        if (idx === -1 || draft.spaces.length <= 1) return { wasDeleted: false };
+        if (idx === -1 || draft.spaces.length <= 1) return;
 
         const space = draft.spaces[idx];
+        // Prevent deletion of system spaces (e.g., Home)
+        if (space.isSystem) return;
+
         draft.tabGroups = draft.tabGroups.filter(
-          (tg) => !space!.tabGroupIds.includes(tg.id)
+          (tg) => !space.tabGroupIds.includes(tg.id)
         );
         draft.spaces.splice(idx, 1);
-
+        wasDeleted = true;
       });
-      
-      return { wasDeleted: true, deletedSpaceId: args.spaceId };
+
+      return { wasDeleted, deletedSpaceId: args.spaceId };
     },
 
     renameSpace: async (args: { spaceId: string; name: string }) => {
       workspaceState.setStateImmer((draft) => {
         const space = draft.spaces.find((s) => s.id === args.spaceId);
-        if (space) space.name = args.name;
+        // Prevent renaming of system spaces (e.g., Home)
+        if (space && !space.isSystem) {
+          space.name = args.name;
+        }
       });
     },
 

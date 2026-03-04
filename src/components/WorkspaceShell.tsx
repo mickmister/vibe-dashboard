@@ -161,6 +161,7 @@ export function WorkspaceShell({ workspace, session, actions, sessionActions }: 
           onDragStart={handleDragStart}
           onDragOver={handleDragOver}
           onDrop={handleDrop}
+          workspace={workspace}
         />
       </div>
 

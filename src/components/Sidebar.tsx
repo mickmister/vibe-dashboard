@@ -215,36 +215,48 @@ export function Sidebar({
       </div>
 
       {/* Context menu for space management */}
-      {contextMenu && (
-        <div
-          ref={contextMenuRef}
-          className="fixed z-[100] bg-neutral-800 border border-neutral-700 rounded-md shadow-xl py-1 min-w-[200px]"
-          style={{
-            left: `${contextMenu.position.x}px`,
-            top: `${contextMenu.position.y}px`,
-          }}
-        >
-          <button
-            className="w-full text-left px-4 py-2 text-sm text-neutral-200 hover:bg-neutral-700 transition-colors"
-            onClick={handleRenameFromContextMenu}
+      {contextMenu && (() => {
+        const space = workspace.spaces.find((s) => s.id === contextMenu.spaceId);
+        const isSystemSpace = space?.isSystem;
+        const canDelete = workspace.spaces.length > 1 && !isSystemSpace;
+
+        return (
+          <div
+            ref={contextMenuRef}
+            className="fixed z-[100] bg-neutral-800 border border-neutral-700 rounded-md shadow-xl py-1 min-w-[200px]"
+            style={{
+              left: `${contextMenu.position.x}px`,
+              top: `${contextMenu.position.y}px`,
+            }}
           >
-            Rename Space
-          </button>
-          {workspace.spaces.length > 1 && <div className="border-t border-neutral-700 my-1" />}
-          {workspace.spaces.length > 1 ? (
-            <button
-              className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-neutral-700 transition-colors"
-              onClick={handleDeleteSpace}
-            >
-              Delete Space
-            </button>
-          ) : (
-            <div className="px-4 py-2 text-sm text-neutral-500 italic">
-              Cannot delete last space
-            </div>
-          )}
-        </div>
-      )}
+            {!isSystemSpace && (
+              <button
+                className="w-full text-left px-4 py-2 text-sm text-neutral-200 hover:bg-neutral-700 transition-colors"
+                onClick={handleRenameFromContextMenu}
+              >
+                Rename Space
+              </button>
+            )}
+            {!isSystemSpace && workspace.spaces.length > 1 && <div className="border-t border-neutral-700 my-1" />}
+            {canDelete ? (
+              <button
+                className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-neutral-700 transition-colors"
+                onClick={handleDeleteSpace}
+              >
+                Delete Space
+              </button>
+            ) : isSystemSpace ? (
+              <div className="px-4 py-2 text-sm text-neutral-500 italic">
+                System space cannot be modified
+              </div>
+            ) : (
+              <div className="px-4 py-2 text-sm text-neutral-500 italic">
+                Cannot delete last space
+              </div>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 }

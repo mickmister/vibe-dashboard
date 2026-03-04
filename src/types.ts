@@ -31,6 +31,8 @@ export interface Space {
   icon: string;
   /** Tab group IDs belonging to this space */
   tabGroupIds: string[];
+  /** If true, this space cannot be deleted or renamed (e.g., Home space) */
+  isSystem?: boolean;
 }
 
 export interface WorkspaceState {
@@ -48,17 +50,25 @@ export function createDefaultWorkspace(): WorkspaceState {
   return {
     spaces: [
       {
-        id: 'space_1',
-        name: 'Dev',
-        icon: 'code',
-        tabGroupIds: ['tg_1'],
+        id: 'space_home',
+        name: 'Home',
+        icon: 'home',
+        tabGroupIds: ['tg_home'],
+        isSystem: true,
       },
     ],
     tabGroups: [
       {
-        id: 'tg_1',
-        label: 'Editor',
-        tabs: [],
+        id: 'tg_home',
+        label: 'Overview',
+        tabs: [
+          {
+            id: 'tab_overview',
+            title: 'Spaces',
+            url: 'internal://spaces-overview',
+            pinned: true,
+          },
+        ],
         pairs: [],
         order: 0,
       },

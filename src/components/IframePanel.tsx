@@ -1,11 +1,14 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { Group, Panel, Separator } from 'react-resizable-panels';
 import type { TabGroup, Tab } from '../types';
+import type { WorkspaceState } from '../types';
 
 interface IframePanelProps {
   tabGroup: TabGroup;
   activeItemId: string;
   onUpdatePairRatios: (pairId: string, ratios: number[]) => void;
+  workspace?: WorkspaceState;
+  onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void;
 }
 
 /**
@@ -42,6 +45,29 @@ try {
 function getOrCreateIframe(tab: Tab): IframeEntry {
   const existing = iframeStore.get(tab.id);
   if (existing) return existing;
+
+  // Don't create iframes for internal URLs
+  if (tab.url.startsWith('internal://')) {
+    const container = document.createElement('div');
+    container.style.width = '100%';
+    container.style.height = '100%';
+    container.style.position = 'absolute';
+    container.style.inset = '0';
+
+    const iframe = document.createElement('iframe');
+    iframe.className = 'w-full h-full border-0';
+
+    const entry: IframeEntry = {
+      iframe,
+      container,
+      loaded: true,
+      contentReady: true,
+      listeners: new Set(),
+    };
+
+    iframeStore.set(tab.id, entry);
+    return entry;
+  }
 
   const container = document.createElement('div');
   container.style.width = '100%';
@@ -248,7 +274,13 @@ function IframeHost({ tabId, visible }: { tabId: string; visible: boolean }) {
   );
 }
 
-export function IframePanel({ tabGroup, activeItemId, onUpdatePairRatios }: IframePanelProps) {
+export function IframePanel({
+  tabGroup,
+  activeItemId,
+  onUpdatePairRatios,
+  workspace,
+  onNavigateToTabGroup,
+}: IframePanelProps) {
   const { loadingState } = useImperativeIframes(tabGroup.tabs);
 
   const activeTab = tabGroup.tabs.find(
@@ -280,7 +312,12 @@ export function IframePanel({ tabGroup, activeItemId, onUpdatePairRatios }: Ifra
           onUpdatePairRatios={onUpdatePairRatios}
         />
       ) : activeTab ? (
-        <SingleTabView activeTab={activeTab} loadingState={loadingState} />
+        <SingleTabView
+          activeTab={activeTab}
+          loadingState={loadingState}
+          workspace={workspace}
+          onNavigateToTabGroup={onNavigateToTabGroup}
+        />
       ) : (
         <EmptyView />
       )}
@@ -291,11 +328,32 @@ export function IframePanel({ tabGroup, activeItemId, onUpdatePairRatios }: Ifra
 function SingleTabView({
   activeTab,
   loadingState,
+  workspace,
+  onNavigateToTabGroup,
 }: {
   activeTab: Tab;
   loadingState: Map<string, boolean>;
+  workspace?: WorkspaceState;
+  onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void;
 }) {
   const isLoaded = loadingState.get(activeTab.id) ?? false;
+
+  // Check if this is an internal URL that should render a special component
+  if (activeTab.url.startsWith('internal://')) {
+    const internalPath = activeTab.url.replace('internal://', '');
+
+    if (internalPath === 'spaces-overview' && workspace && onNavigateToTabGroup) {
+      const { SpacesOverview } = require('./SpacesOverview');
+      return (
+        <div className="flex-1 min-h-0 relative h-full">
+          <SpacesOverview
+            workspace={workspace}
+            onNavigateToTabGroup={onNavigateToTabGroup}
+          />
+        </div>
+      );
+    }
+  }
 
   return (
     <div className="flex-1 min-h-0 relative h-full">
