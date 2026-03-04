@@ -323,8 +323,8 @@ springboard.registerModule('workspace', {rpcMode: 'remote'}, async (moduleAPI) =
 
     // Navigate to URL when space changes (unless already there)
     useEffect(() => {
-      const targetPath = sessionNav.activeSpaceId ? `/${sessionNav.activeSpaceId}` : '/';
-      const currentPath = spaceId ? `/${spaceId}` : '/';
+      const targetPath = sessionNav.activeSpaceId ? `/spaces/${sessionNav.activeSpaceId}` : '/';
+      const currentPath = spaceId ? `/spaces/${spaceId}` : '/';
 
       if (targetPath !== currentPath) {
         navigate(targetPath, { replace: true });
@@ -403,7 +403,7 @@ springboard.registerModule('workspace', {rpcMode: 'remote'}, async (moduleAPI) =
 
   // Register routes for both root and space-specific paths
   moduleAPI.registerRoute('/', { hideApplicationShell: true }, WorkspaceRoute);
-  moduleAPI.registerRoute('/:spaceId', { hideApplicationShell: true }, WorkspaceRoute);
+  moduleAPI.registerRoute('/spaces/:spaceId', { hideApplicationShell: true }, WorkspaceRoute);
 
   return {
     states: { workspace: workspaceState },
