@@ -10,6 +10,8 @@ import type { WorkspaceActions, SessionActions } from './WorkspaceShell';
 interface UnifiedTabViewProps {
   tabGroups: TabGroup[];
   activeTabGroupId: string;
+  activeSpaceId: string;
+  spacesCount: number;
   actions: WorkspaceActions;
   sessionActions: SessionActions;
   onOpenAddTabModal: (tabGroupId: string) => void;
@@ -26,6 +28,8 @@ interface UnifiedTabViewProps {
 export function UnifiedTabView({
   tabGroups,
   activeTabGroupId,
+  activeSpaceId,
+  spacesCount,
   actions,
   sessionActions,
   onOpenAddTabModal,
@@ -149,9 +153,7 @@ export function UnifiedTabView({
   const handleContextMenu = (tabId: string, event: MouseEvent) => {
     event.preventDefault();
 
-    // Don't show context menu for group labels
-    if (tabId.startsWith('group-label-')) return;
-
+    // Allow context menu for both tabs and group labels
     setContextMenu({
       tabId,
       position: { x: event.clientX, y: event.clientY },
@@ -187,7 +189,7 @@ export function UnifiedTabView({
 
       if (tabElement) {
         const tabId = tabElement.getAttribute('data-tab-id');
-        if (tabId && !tabId.startsWith('group-label-')) {
+        if (tabId) {
           longPressTabIdRef.current = tabId;
 
           // Start long-press timer (500ms)
@@ -353,20 +355,41 @@ export function UnifiedTabView({
       </div>
 
       {/* Context menu */}
-      {contextMenu && activeTabGroup && (
-        <TabContextMenu
-          position={contextMenu.position}
-          tabId={contextMenu.tabId}
-          tabGroup={activeTabGroup}
-          activeItemId={sessionActions.getActiveItem(activeTabGroup.id)}
-          onClose={() => setContextMenu(null)}
-          onCreatePair={handleCreatePair}
-          onCloseTab={(tabId) =>
-            actions.closeTab({ tabGroupId: activeTabGroup.id, tabId })
-          }
-          onSplitPair={handleSplitPair}
-        />
-      )}
+      {contextMenu && (() => {
+        // For group labels, find the tab group from the label ID
+        const isGroupLabel = contextMenu.tabId.startsWith('group-label-');
+        const tabGroup = isGroupLabel
+          ? tabGroups.find(tg => `group-label-${tg.id}` === contextMenu.tabId)
+          : activeTabGroup;
+
+        if (!tabGroup) return null;
+
+        return (
+          <TabContextMenu
+            position={contextMenu.position}
+            tabId={contextMenu.tabId}
+            tabGroup={tabGroup}
+            activeItemId={sessionActions.getActiveItem(tabGroup.id)}
+            activeSpaceId={activeSpaceId}
+            spacesCount={spacesCount}
+            onClose={() => setContextMenu(null)}
+            onCreatePair={handleCreatePair}
+            onCloseTab={(tabId) =>
+              actions.closeTab({ tabGroupId: tabGroup.id, tabId })
+            }
+            onSplitPair={handleSplitPair}
+            onDeleteTabGroup={async (spaceId, tabGroupId) => {
+              const result = await actions.deleteTabGroup({ spaceId, tabGroupId });
+              if (result?.wasDeleted && result.nextTabGroupId) {
+                sessionActions.setActiveTabGroup(result.nextTabGroupId);
+              }
+            }}
+            onDeleteSpace={async (spaceId) => {
+              await actions.deleteSpace({ spaceId });
+            }}
+          />
+        );
+      })()}
     </div>
   );
 }

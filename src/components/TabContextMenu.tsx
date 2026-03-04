@@ -4,12 +4,16 @@ import type { TabGroup } from '../types';
 interface TabContextMenuProps {
   /** Position to show the menu */
   position: { x: number; y: number };
-  /** The tab that was right-clicked */
+  /** The tab/group label that was right-clicked */
   tabId: string;
-  /** The tab group containing the tab */
+  /** The tab group containing the tab (or the group itself for group labels) */
   tabGroup: TabGroup;
   /** The currently active item ID */
   activeItemId: string;
+  /** The active space ID (for space deletion) */
+  activeSpaceId: string;
+  /** The number of spaces (to prevent deleting last space) */
+  spacesCount: number;
   /** Called when user wants to close the menu */
   onClose: () => void;
   /** Called when user selects a tab to pair with */
@@ -18,6 +22,10 @@ interface TabContextMenuProps {
   onCloseTab: (tabId: string) => void;
   /** Called when user wants to split a pair */
   onSplitPair?: (pairId: string) => void;
+  /** Called when user wants to delete a tab group */
+  onDeleteTabGroup?: (spaceId: string, tabGroupId: string) => void;
+  /** Called when user wants to delete a space */
+  onDeleteSpace?: (spaceId: string) => void;
 }
 
 export function TabContextMenu({
@@ -25,10 +33,14 @@ export function TabContextMenu({
   tabId,
   tabGroup,
   activeItemId,
+  activeSpaceId,
+  spacesCount,
   onClose,
   onCreatePair,
   onCloseTab,
   onSplitPair,
+  onDeleteTabGroup,
+  onDeleteSpace,
 }: TabContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -55,10 +67,11 @@ export function TabContextMenu({
     };
   }, [onClose]);
 
-  // Check if this is a pair or a regular tab
-  const isPair = tabGroup.pairs.some((p) => p.id === tabId);
-  const tab = tabGroup.tabs.find((t) => t.id === tabId);
-  const pair = tabGroup.pairs.find((p) => p.id === tabId);
+  // Check if this is a group label, pair, or regular tab
+  const isGroupLabel = tabId.startsWith('group-label-');
+  const isPair = !isGroupLabel && tabGroup.pairs.some((p) => p.id === tabId);
+  const tab = !isGroupLabel ? tabGroup.tabs.find((t) => t.id === tabId) : undefined;
+  const pair = !isGroupLabel ? tabGroup.pairs.find((p) => p.id === tabId) : undefined;
 
   // Get other tabs that can be paired with (exclude current tab and tabs already in pairs)
   const tabsInPairs = new Set(tabGroup.pairs.flatMap((p) => p.tabIds));
@@ -95,6 +108,20 @@ export function TabContextMenu({
     }
   };
 
+  const handleDeleteTabGroup = () => {
+    if (onDeleteTabGroup && confirm(`Delete tab group "${tabGroup.label}"? All tabs in this group will be closed.`)) {
+      onDeleteTabGroup(activeSpaceId, tabGroup.id);
+      onClose();
+    }
+  };
+
+  const handleDeleteSpace = () => {
+    if (onDeleteSpace && confirm(`Delete this space? All tab groups and tabs will be closed.`)) {
+      onDeleteSpace(activeSpaceId);
+      onClose();
+    }
+  };
+
   return (
     <div
       ref={menuRef}
@@ -104,6 +131,33 @@ export function TabContextMenu({
         top: `${adjustedPosition.y}px`,
       }}
     >
+      {/* If it's a group label, show group and space management options */}
+      {isGroupLabel && (
+        <>
+          {onDeleteTabGroup && (
+            <button
+              className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-neutral-700 transition-colors"
+              onClick={handleDeleteTabGroup}
+            >
+              Delete Tab Group
+            </button>
+          )}
+          {onDeleteSpace && spacesCount > 1 && (
+            <button
+              className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-neutral-700 transition-colors"
+              onClick={handleDeleteSpace}
+            >
+              Delete Space
+            </button>
+          )}
+          {onDeleteSpace && spacesCount <= 1 && (
+            <div className="px-4 py-2 text-sm text-neutral-500 italic">
+              Cannot delete last space
+            </div>
+          )}
+        </>
+      )}
+
       {/* If it's a pair, show split option */}
       {isPair && onSplitPair && (
         <>
@@ -118,7 +172,7 @@ export function TabContextMenu({
       )}
 
       {/* If it's a regular tab, show pair options */}
-      {!isPair && availableTabs.length > 0 && (
+      {!isGroupLabel && !isPair && availableTabs.length > 0 && (
         <>
           <div className="px-4 py-2 text-xs text-neutral-500 uppercase tracking-wider">
             Open with...
@@ -138,7 +192,7 @@ export function TabContextMenu({
       )}
 
       {/* Close tab option (if not pinned) */}
-      {!isPair && tab && !tab.pinned && (
+      {!isGroupLabel && !isPair && tab && !tab.pinned && (
         <button
           className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-neutral-700 transition-colors"
           onClick={handleCloseTab}
@@ -148,7 +202,7 @@ export function TabContextMenu({
       )}
 
       {/* If no actions available */}
-      {!isPair && availableTabs.length === 0 && (!tab || tab.pinned) && (
+      {!isGroupLabel && !isPair && availableTabs.length === 0 && (!tab || tab.pinned) && (
         <div className="px-4 py-2 text-sm text-neutral-500 italic">
           No actions available
         </div>

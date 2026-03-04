@@ -10,6 +10,7 @@ export type WorkspaceActions = {
   deleteSpace: (args: { spaceId: string }) => Promise<{ wasDeleted: boolean; deletedSpaceId?: string } | undefined>;
   renameSpace: (args: { spaceId: string; name: string }) => void;
   addTabGroup: (args: { spaceId: string; label: string }) => void;
+  deleteTabGroup: (args: { spaceId: string; tabGroupId: string }) => Promise<{ wasDeleted: boolean; deletedTabGroupId?: string; nextTabGroupId?: string } | undefined>;
   closeTab: (args: { tabGroupId: string; tabId: string }) => void;
   addTab: (args: { tabGroupId: string; title: string; url: string }) => void;
   createPair: (args: { tabGroupId: string; tabIds: string[] }) => void;
@@ -152,6 +153,8 @@ export function WorkspaceShell({ workspace, session, actions, sessionActions }: 
         <WorkspaceContentView
           activeTabGroups={activeTabGroups}
           activeTabGroupId={session.activeTabGroupId}
+          activeSpaceId={session.activeSpaceId}
+          spacesCount={workspace.spaces.length}
           actions={actions}
           sessionActions={sessionActions}
           onOpenAddTabModal={openAddTabModal}

@@ -114,17 +114,6 @@ export function Sidebar({
               ) : (
                 <span className="text-sm flex-1 truncate">{space.name}</span>
               )}
-              {workspace.spaces.length > 1 && (
-                <button
-                  className="opacity-0 group-hover:opacity-100 text-neutral-500 hover:text-red-400 text-xs transition-opacity"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDeleteSpace(space.id);
-                  }}
-                >
-                  ×
-                </button>
-              )}
             </div>
           ))}
         </div>

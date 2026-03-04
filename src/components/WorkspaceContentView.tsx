@@ -6,6 +6,8 @@ import type { WorkspaceActions, SessionActions } from './WorkspaceShell';
 interface WorkspaceContentViewProps {
   activeTabGroups: TabGroup[];
   activeTabGroupId: string;
+  activeSpaceId: string;
+  spacesCount: number;
   actions: WorkspaceActions;
   sessionActions: SessionActions;
   onOpenAddTabModal: (tabGroupId: string) => void;
@@ -17,6 +19,8 @@ interface WorkspaceContentViewProps {
 export function WorkspaceContentView({
   activeTabGroups,
   activeTabGroupId,
+  activeSpaceId,
+  spacesCount,
   actions,
   sessionActions,
   onOpenAddTabModal,
@@ -38,6 +42,8 @@ export function WorkspaceContentView({
     <UnifiedTabView
       tabGroups={activeTabGroups}
       activeTabGroupId={activeTabGroupId}
+      activeSpaceId={activeSpaceId}
+      spacesCount={spacesCount}
       actions={actions}
       sessionActions={sessionActions}
       onOpenAddTabModal={onOpenAddTabModal}

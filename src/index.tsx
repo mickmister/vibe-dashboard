@@ -103,6 +103,35 @@ springboard.registerModule('workspace', {rpcMode: 'remote'}, async (moduleAPI) =
       return { tabGroupId, spaceId: args.spaceId };
     },
 
+    deleteTabGroup: async (args: { spaceId: string; tabGroupId: string }) => {
+      let wasDeleted = false;
+      let nextTabGroupId: string | undefined;
+
+      workspaceState.setStateImmer((draft) => {
+        const space = draft.spaces.find((s) => s.id === args.spaceId);
+        if (!space) return;
+
+        // Prevent deletion if it's the last tab group in the space
+        if (space.tabGroupIds.length <= 1) return;
+
+        const tabGroupIndex = space.tabGroupIds.indexOf(args.tabGroupId);
+        if (tabGroupIndex === -1) return;
+
+        // Remove tab group ID from space
+        space.tabGroupIds.splice(tabGroupIndex, 1);
+
+        // Remove the tab group itself (this also removes all tabs and pairs)
+        draft.tabGroups = draft.tabGroups.filter((tg) => tg.id !== args.tabGroupId);
+
+        // Determine next tab group to select
+        nextTabGroupId = space.tabGroupIds[Math.max(0, tabGroupIndex - 1)] || space.tabGroupIds[0];
+
+        wasDeleted = true;
+      });
+
+      return { wasDeleted, deletedTabGroupId: args.tabGroupId, nextTabGroupId };
+    },
+
     closeTab: async (args: { tabGroupId: string; tabId: string }) => {
       workspaceState.setStateImmer((draft) => {
         const tg = draft.tabGroups.find((g) => g.id === args.tabGroupId);
