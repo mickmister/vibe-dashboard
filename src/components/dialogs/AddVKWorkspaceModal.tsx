@@ -154,10 +154,10 @@ export function AddVKWorkspaceModal({
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} size="2xl">
-      <ModalContent>
-        <ModalHeader className="flex flex-col gap-1">
-          <h2 className="text-lg font-semibold">Add VK Workspace</h2>
+    <Modal isOpen={isOpen} onClose={onClose} size="2xl" backdrop="blur">
+      <ModalContent className="bg-neutral-900 border border-neutral-800 text-neutral-100">
+        <ModalHeader className="flex flex-col gap-1 border-b border-neutral-800">
+          <h2 className="text-lg font-semibold text-white">Add VK Workspace</h2>
           <p className="text-sm text-neutral-400 font-normal">
             {showPathInput
               ? 'Enter workspace path or directory'
@@ -174,7 +174,8 @@ export function AddVKWorkspaceModal({
                 onChange={(e) => setCustomName(e.target.value)}
                 size="sm"
                 classNames={{
-                  inputWrapper: 'bg-neutral-800',
+                  inputWrapper: 'bg-neutral-800 border-neutral-700',
+                  label: 'text-neutral-300',
                 }}
               />
               <Input
@@ -188,7 +189,9 @@ export function AddVKWorkspaceModal({
                   if (e.key === 'Enter') handleAddWithPath();
                 }}
                 classNames={{
-                  inputWrapper: 'bg-neutral-800',
+                  inputWrapper: 'bg-neutral-800 border-neutral-700',
+                  label: 'text-neutral-300',
+                  description: 'text-neutral-500',
                 }}
                 description="Provide an absolute directory path or VK workspace ID/URL"
               />
@@ -202,7 +205,7 @@ export function AddVKWorkspaceModal({
                   onChange={(e) => setSearchQuery(e.target.value)}
                   size="sm"
                   classNames={{
-                    inputWrapper: 'bg-neutral-800',
+                    inputWrapper: 'bg-neutral-800 border-neutral-700',
                   }}
                   className="flex-1"
                 />
@@ -272,17 +275,18 @@ export function AddVKWorkspaceModal({
             </>
           )}
         </ModalBody>
-        <ModalFooter>
+        <ModalFooter className="border-t border-neutral-800">
           {showPathInput && (
             <Button
               size="sm"
               variant="flat"
               onPress={() => setShowPathInput(false)}
+              className="bg-neutral-800 text-neutral-200"
             >
               Back
             </Button>
           )}
-          <Button color="default" variant="light" onPress={onClose}>
+          <Button color="default" variant="light" onPress={onClose} className="text-neutral-300">
             Cancel
           </Button>
           <Button

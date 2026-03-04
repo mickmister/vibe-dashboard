@@ -123,8 +123,8 @@ export function AddTabModal({ isOpen, onClose, onAdd, onAddVKWorkspace, onAddTab
   return (
     <>
       <Modal isOpen={isOpen} onClose={handleClose} size="sm" backdrop="blur">
-        <ModalContent className="bg-neutral-900 border border-neutral-800">
-          <ModalHeader className="text-sm">
+        <ModalContent className="bg-neutral-900 border border-neutral-800 text-neutral-100">
+          <ModalHeader className="text-sm border-b border-neutral-800 text-white">
             {showTabGroupInput ? 'New Tab Group' : 'Add Tab'}
           </ModalHeader>
           <ModalBody>
@@ -137,7 +137,10 @@ export function AddTabModal({ isOpen, onClose, onAdd, onAddVKWorkspace, onAddTab
                   <ListboxItem
                     key={preset.key}
                     description={preset.description}
-                    className="text-neutral-200"
+                    className="text-neutral-100"
+                    classNames={{
+                      description: 'text-neutral-400',
+                    }}
                   >
                     {preset.title}
                   </ListboxItem>
@@ -156,7 +159,8 @@ export function AddTabModal({ isOpen, onClose, onAdd, onAddVKWorkspace, onAddTab
                     if (e.key === 'Enter') handleTabGroupSubmit();
                   }}
                   classNames={{
-                    inputWrapper: 'bg-neutral-800',
+                    inputWrapper: 'bg-neutral-800 border-neutral-700',
+                    label: 'text-neutral-300',
                   }}
                 />
               </div>
@@ -170,7 +174,8 @@ export function AddTabModal({ isOpen, onClose, onAdd, onAddVKWorkspace, onAddTab
                   placeholder="My Tab"
                   autoFocus
                   classNames={{
-                    inputWrapper: 'bg-neutral-800',
+                    inputWrapper: 'bg-neutral-800 border-neutral-700',
+                    label: 'text-neutral-300',
                   }}
                 />
                 <Input
@@ -183,18 +188,20 @@ export function AddTabModal({ isOpen, onClose, onAdd, onAddVKWorkspace, onAddTab
                     if (e.key === 'Enter') handleCustomSubmit();
                   }}
                   classNames={{
-                    inputWrapper: 'bg-neutral-800',
+                    inputWrapper: 'bg-neutral-800 border-neutral-700',
+                    label: 'text-neutral-300',
                   }}
                 />
               </div>
             )}
           </ModalBody>
           {showCustom && (
-            <ModalFooter>
+            <ModalFooter className="border-t border-neutral-800">
               <Button
                 size="sm"
                 variant="flat"
                 onPress={() => setShowCustom(false)}
+                className="bg-neutral-800 text-neutral-200"
               >
                 Back
               </Button>
@@ -204,11 +211,12 @@ export function AddTabModal({ isOpen, onClose, onAdd, onAddVKWorkspace, onAddTab
             </ModalFooter>
           )}
           {showTabGroupInput && (
-            <ModalFooter>
+            <ModalFooter className="border-t border-neutral-800">
               <Button
                 size="sm"
                 variant="flat"
                 onPress={() => setShowTabGroupInput(false)}
+                className="bg-neutral-800 text-neutral-200"
               >
                 Back
               </Button>
