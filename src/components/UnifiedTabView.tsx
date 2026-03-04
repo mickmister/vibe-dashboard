@@ -48,7 +48,7 @@ export function UnifiedTabView({
 
   const isVisible = isPinned || isHovering;
 
-  // Build visual tabs: group labels + tabs from expanded groups
+  // Build visual tabs: group labels + tabs from active group only
   const visualTabs = useMemo(() => {
     const result: (TabProperties & {
       isGroupLabel?: boolean;
@@ -62,6 +62,7 @@ export function UnifiedTabView({
       const tabCount = group.tabs.length;
       const pairCount = group.pairs.length;
       const activeItemId = sessionActions.getActiveItem(group.id);
+      const isActiveGroup = group.id === activeTabGroupId;
 
       // Add group label as a special "tab" with count badge
       result.push({
@@ -75,34 +76,37 @@ export function UnifiedTabView({
         favicon: false,
       });
 
-      // Add individual tabs
-      group.tabs.forEach((tab) => {
-        result.push({
-          id: tab.id,
-          title: tab.title,
-          active: activeItemId === tab.id && group.id === activeTabGroupId,
-          favicon: false,
-          isCloseIconVisible: !tab.pinned,
+      // Only show tabs and pairs for the active tab group
+      if (isActiveGroup) {
+        // Add individual tabs
+        group.tabs.forEach((tab) => {
+          result.push({
+            id: tab.id,
+            title: tab.title,
+            active: activeItemId === tab.id,
+            favicon: false,
+            isCloseIconVisible: !tab.pinned,
+          });
         });
-      });
 
-      // Add pair tabs with special styling
-      group.pairs.forEach((pair) => {
-        const tabNames = pair.tabIds
-          .map((id) => group.tabs.find((t) => t.id === id)?.title)
-          .filter(Boolean)
-          .join(' | ');
+        // Add pair tabs with special styling
+        group.pairs.forEach((pair) => {
+          const tabNames = pair.tabIds
+            .map((id) => group.tabs.find((t) => t.id === id)?.title)
+            .filter(Boolean)
+            .join(' | ');
 
-        result.push({
-          id: pair.id,
-          title: `⊞ ${tabNames}`,
-          active: activeItemId === pair.id && group.id === activeTabGroupId,
-          favicon: false,
-          isCloseIconVisible: true,
-          isPair: true,
-          pairId: pair.id,
+          result.push({
+            id: pair.id,
+            title: `⊞ ${tabNames}`,
+            active: activeItemId === pair.id,
+            favicon: false,
+            isCloseIconVisible: true,
+            isPair: true,
+            pairId: pair.id,
+          });
         });
-      });
+      }
     });
 
     return result;
