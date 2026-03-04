@@ -22,11 +22,21 @@ if [ -S /var/run/docker.sock ]; then
     fi
 fi
 
-# Ensure vibe-kanban-vscode-web directory exists in repos volume
-if [ ! -d /home/vkuser/repos/vibe-kanban-vscode-web ]; then
-    echo "Creating /home/vkuser/repos/vibe-kanban-vscode-web directory"
-    mkdir -p /home/vkuser/repos/vibe-kanban-vscode-web
-    chown vkuser:vkuser /home/vkuser/repos/vibe-kanban-vscode-web
+# Initialize vibe-kanban-vscode-web repository in repos volume
+REPO_DIR=/home/vkuser/repos/vibe-kanban-vscode-web
+if [ ! -d "$REPO_DIR/.git" ]; then
+    echo "Initializing vibe-kanban-vscode-web repository from build context"
+    mkdir -p "$REPO_DIR"
+
+    # Copy project files from a staging location (added during build)
+    if [ -d /opt/vibe-kanban-vscode-web-seed ]; then
+        echo "Copying project files to $REPO_DIR"
+        cp -r /opt/vibe-kanban-vscode-web-seed/. "$REPO_DIR/"
+        chown -R vkuser:vkuser "$REPO_DIR"
+    else
+        echo "Warning: /opt/vibe-kanban-vscode-web-seed not found, creating empty directory"
+        chown vkuser:vkuser "$REPO_DIR"
+    fi
 fi
 
 # Execute the main command

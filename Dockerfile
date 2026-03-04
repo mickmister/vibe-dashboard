@@ -158,6 +158,10 @@ COPY startup.html /etc/caddy/startup.html
 COPY backup-vibe-kanban-db.sh /usr/local/bin/backup-vibe-kanban-db.sh
 RUN chmod +x /usr/local/bin/backup-vibe-kanban-db.sh
 
+# Copy project files to a staging location (will be copied to volume at runtime)
+COPY . /opt/vibe-kanban-vscode-web-seed
+RUN chown -R vkuser:vkuser /opt/vibe-kanban-vscode-web-seed
+
 # Copy entrypoint script that fixes docker group GID at runtime
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
