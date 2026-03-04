@@ -75,6 +75,17 @@ export function Sidebar({
     setContextMenu(null);
   }, [contextMenu, onDeleteSpace]);
 
+  const handleRenameFromContextMenu = useCallback(() => {
+    if (!contextMenu) return;
+
+    const space = workspace.spaces.find(s => s.id === contextMenu.spaceId);
+    if (space) {
+      setEditingId(contextMenu.spaceId);
+      setEditName(space.name);
+    }
+    setContextMenu(null);
+  }, [contextMenu, workspace.spaces]);
+
   // Close context menu when clicking outside
   useEffect(() => {
     if (!contextMenu) return;
@@ -135,10 +146,6 @@ export function Sidebar({
                   : 'text-neutral-300 hover:bg-neutral-800'
               }`}
               onClick={() => onSelectSpace(space.id)}
-              onDoubleClick={() => {
-                setEditingId(space.id);
-                setEditName(space.name);
-              }}
               onContextMenu={(e) => handleContextMenu(e, space.id)}
             >
               <span className="text-sm">
@@ -207,7 +214,7 @@ export function Sidebar({
         </div>
       </div>
 
-      {/* Context menu for space deletion */}
+      {/* Context menu for space management */}
       {contextMenu && (
         <div
           ref={contextMenuRef}
@@ -217,6 +224,13 @@ export function Sidebar({
             top: `${contextMenu.position.y}px`,
           }}
         >
+          <button
+            className="w-full text-left px-4 py-2 text-sm text-neutral-200 hover:bg-neutral-700 transition-colors"
+            onClick={handleRenameFromContextMenu}
+          >
+            Rename Space
+          </button>
+          {workspace.spaces.length > 1 && <div className="border-t border-neutral-700 my-1" />}
           {workspace.spaces.length > 1 ? (
             <button
               className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-neutral-700 transition-colors"
