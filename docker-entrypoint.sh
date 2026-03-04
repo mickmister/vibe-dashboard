@@ -22,5 +22,12 @@ if [ -S /var/run/docker.sock ]; then
     fi
 fi
 
+# Ensure vibe-kanban-vscode-web directory exists in repos volume
+if [ ! -d /home/vkuser/repos/vibe-kanban-vscode-web ]; then
+    echo "Creating /home/vkuser/repos/vibe-kanban-vscode-web directory"
+    mkdir -p /home/vkuser/repos/vibe-kanban-vscode-web
+    chown vkuser:vkuser /home/vkuser/repos/vibe-kanban-vscode-web
+fi
+
 # Execute the main command
 exec "$@"
