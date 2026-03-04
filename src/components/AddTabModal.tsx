@@ -159,7 +159,8 @@ export function AddTabModal({ isOpen, onClose, onAdd, onAddVKWorkspace, onAddTab
                     if (e.key === 'Enter') handleTabGroupSubmit();
                   }}
                   classNames={{
-                    inputWrapper: 'bg-neutral-800 border-neutral-700',
+                    inputWrapper: 'bg-neutral-800 border-neutral-700 data-[hover=true]:bg-neutral-800 group-data-[focus=true]:bg-neutral-800',
+                    input: 'bg-transparent text-neutral-100',
                     label: 'text-neutral-300',
                   }}
                 />
@@ -174,7 +175,8 @@ export function AddTabModal({ isOpen, onClose, onAdd, onAddVKWorkspace, onAddTab
                   placeholder="My Tab"
                   autoFocus
                   classNames={{
-                    inputWrapper: 'bg-neutral-800 border-neutral-700',
+                    inputWrapper: 'bg-neutral-800 border-neutral-700 data-[hover=true]:bg-neutral-800 group-data-[focus=true]:bg-neutral-800',
+                    input: 'bg-transparent text-neutral-100',
                     label: 'text-neutral-300',
                   }}
                 />
@@ -188,7 +190,8 @@ export function AddTabModal({ isOpen, onClose, onAdd, onAddVKWorkspace, onAddTab
                     if (e.key === 'Enter') handleCustomSubmit();
                   }}
                   classNames={{
-                    inputWrapper: 'bg-neutral-800 border-neutral-700',
+                    inputWrapper: 'bg-neutral-800 border-neutral-700 data-[hover=true]:bg-neutral-800 group-data-[focus=true]:bg-neutral-800',
+                    input: 'bg-transparent text-neutral-100',
                     label: 'text-neutral-300',
                   }}
                 />
