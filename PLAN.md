@@ -11,7 +11,7 @@
 | `docker-compose.yaml` | Single `code-vibe` service with env vars for ports and passwords |
 | `src/components/AddTabModal.tsx` | Hardcoded presets: "Code Server", "Kanban", "Open Existing Workspace", "Custom URL" |
 | `src/components/dialogs/AddVKWorkspaceModal.tsx` | Hardcoded `/api/task-attempts` integration |
-| `generate-supervisor-configs.sh` | Multi-tenant supervisor generation (out of scope — separate concern) |
+| `generate-supervisor-configs.sh` | Multi-tenant supervisor generation (out of scope — multi-tenant is not supported in this initiative) |
 
 ### Springboard module system (existing)
 - Single `workspace` module in `src/index.tsx` handles everything
@@ -34,7 +34,7 @@ name: vscode
 version: "1.0.0"
 description: "VS Code Server (code-server)"
 
-# Infrastructure layer — generates Dockerfile fragments, supervisor, caddy, compose
+# Infrastructure layer — generates Dockerfile fragments, supervisor, caddy
 infra:
   dockerfile:
     packages: [curl]
@@ -60,12 +60,6 @@ infra:
         upstream: "localhost:{{port}}"
       - match: { path: ["/stable-*", "/vscode-remote-resource*"] }
         upstream: "localhost:{{port}}"
-
-  compose:
-    ports:
-      - "${VS_CODE_PORT:-3008}:3008"
-    environment:
-      - CODE_PASSWORD
 
 # UI layer — what this plugin contributes to vibe-dashboard
 ui:
@@ -109,8 +103,11 @@ A CLI tool (`vd-plugins`) reads all `plugin.yaml` files and generates:
 1. **Dockerfile** — assembled from base + plugin install fragments
 2. **supervisord.conf** — assembled from base config + plugin supervisor program sections (each plugin's YAML defines its program block)
 3. **Caddyfile** — assembled from global config + plugin route fragments
-4. **docker-compose.override.yaml** — merged port/env/volume declarations, automatically included by all compose entrypoints
-5. **src/generated/plugin-loader.ts** — auto-import file that discovers and loads all `ui.module` entries in dependency order (replaces manual wiring in `src/index.tsx`)
+4. **src/generated/plugin-loader.ts** — auto-import file that discovers and loads all `ui.module` entries in dependency order (replaces manual wiring in `src/index.tsx`)
+
+### Explicit Non-Goals
+- Multi-tenant instance expansion (`VK_DOMAINS`, dynamic per-domain supervisor generation) is out of scope and not supported by this plan.
+- `docker-compose.yaml` remains a single hand-maintained file for runtime ports/env/volumes; plugin descriptors do not generate compose fragments.
 
 ---
 
@@ -127,24 +124,18 @@ Create the plugin descriptor format and the CLI that reads YAML and generates co
    - `generate-dockerfile` — reads all plugin yamls, outputs `Dockerfile`
    - `generate-supervisor` — reads each plugin's `infra.supervisor` YAML and outputs a complete `supervisord.conf`
    - `generate-caddy` — outputs `Caddyfile`
-   - `generate-compose` — outputs `docker-compose.override.yaml`
-4. **Wire generated compose override into runtime workflows:**
-   - Update `docker-compose.yaml` to reference the generated override: add `-f docker-compose.override.yaml` to the default compose command chain
-   - Update any startup scripts / entrypoints that invoke `docker-compose` to include the override file
-   - Add a `generate` step to the Dockerfile build so the override is always present at image build time
-   - Document in README that `npx vd-plugins generate` must be run before `docker-compose up` (or is run automatically by the build)
-5. Create `plugins/` directory with initial plugin descriptors extracted from current config:
+4. Create `plugins/` directory with initial plugin descriptors extracted from current config:
    - `plugins/base/plugin.yaml` — Node, common packages, user setup
    - `plugins/vscode/plugin.yaml` — code-server
    - `plugins/vibe-kanban/plugin.yaml` — vibe-kanban service
    - `plugins/vibe-dashboard/plugin.yaml` — vibe-dashboard service
    - `plugins/caddy/plugin.yaml` — Caddy reverse proxy (base routing)
    - `plugins/tailscale/plugin.yaml` — Tailscale VPN
-6. Verify generated files match current working config (diff test)
-   - Generated `supervisord.conf` ≡ current static `supervisord.conf` (note: `generate-supervisor-configs.sh` is a separate multi-tenant concern and is not migrated here)
-   - Generated Dockerfile, Caddyfile, compose override are functionally equivalent to current files
+5. Verify generated files match current working config (diff test)
+   - Generated `supervisord.conf` ≡ current static `supervisord.conf` for single-tenant/default deployment (note: `generate-supervisor-configs.sh` and `VK_DOMAINS` multi-tenant behavior are out of scope)
+   - Generated Dockerfile and Caddyfile are functionally equivalent to current files
 
-**Deliverable:** `npx vd-plugins generate` produces identical (or functionally equivalent) Dockerfile, supervisord.conf, Caddyfile, and docker-compose fragments to what exists today. Supervisor programs are fully defined in plugin YAML — no runtime generation scripts. The generated compose override is wired into all runtime entrypoints.
+**Deliverable:** `npx vd-plugins generate` produces identical (or functionally equivalent) Dockerfile, supervisord.conf, and Caddyfile for the single-tenant/default deployment path. Supervisor programs are fully defined in plugin YAML — no runtime generation scripts. `docker-compose.yaml` remains a single static file managed outside plugin generation.
 
 ---
 
