@@ -67,9 +67,16 @@ infra:
     environment:
       - CODE_PASSWORD
 
+# Multi-instance support — runtime expansion via VK_DOMAINS
+instances:
+  multi_tenant: true            # This plugin spawns per-domain instances
+  base_port: 3008               # First instance port
+  port_stride: 2                # Port increment per additional domain
+
 # UI layer — what this plugin contributes to vibe-dashboard
 ui:
-  module: "./module.tsx"  # Springboard module file
+  module: "./module.tsx"        # Springboard module file
+  depends_on: []                # Other plugins that must load first
   tab_presets:
     - key: code
       title: "Code Server"
@@ -106,9 +113,10 @@ springboard.registerModule('plugin-vscode', {}, async (moduleAPI) => {
 ### Generated Outputs
 A CLI tool (`vd-plugins`) reads all `plugin.yaml` files and generates:
 1. **Dockerfile** — assembled from base + plugin install fragments
-2. **supervisord.conf** — assembled from base config + plugin program sections
-3. **Caddyfile** — assembled from global config + plugin route fragments
-4. **docker-compose.override.yaml** — merged port/env/volume declarations
+2. **supervisord.conf** — assembled from base config + plugin program sections; for multi-instance plugins, also generates a runtime domain fan-out script replacing `generate-supervisor-configs.sh`
+3. **Caddyfile** — assembled from global config + plugin route fragments (including domain-based host→port routing for multi-instance plugins)
+4. **docker-compose.override.yaml** — merged port/env/volume declarations, automatically included by all compose entrypoints
+5. **src/generated/plugin-loader.ts** — auto-import file that discovers and loads all `ui.module` entries in dependency order (replaces manual wiring in `src/index.tsx`)
 
 ---
 
@@ -123,40 +131,59 @@ Create the plugin descriptor format and the CLI that reads YAML and generates co
 2. Create `tools/vd-plugins/` — a TypeScript CLI using `yaml`, `ajv`, `handlebars`
 3. Implement generators:
    - `generate-dockerfile` — reads all plugin yamls, outputs `Dockerfile`
-   - `generate-supervisor` — outputs `supervisord.conf`
+   - `generate-supervisor` — outputs `supervisord.conf` **and** the runtime domain fan-out script (see below)
    - `generate-caddy` — outputs `Caddyfile`
    - `generate-compose` — outputs `docker-compose.override.yaml`
-4. Create `plugins/` directory with initial plugin descriptors extracted from current config:
+4. **Multi-tenant domain expansion (VK_DOMAINS parity):**
+   - Add `instances` section to the plugin schema — plugins can declare themselves as "multi-instance capable" with a port-allocation strategy (base port + offset per domain)
+   - The supervisor generator produces both the static `supervisord.conf` AND a runtime `generate-supervisor-configs.sh` equivalent that reads `VK_DOMAINS` and fans out instances for multi-instance plugins (currently: vibe-dashboard and vibe-kanban)
+   - The Caddy generator similarly produces host→port routing rules that expand per domain
+   - Validate with a multi-domain test case: set `VK_DOMAINS=a.com,b.com`, run generator, diff against current `generate-supervisor-configs.sh` output for the same input
+5. **Wire generated compose override into runtime workflows:**
+   - Update `docker-compose.yaml` to reference the generated override: add `-f docker-compose.override.yaml` to the default compose command chain
+   - Update any startup scripts / entrypoints that invoke `docker-compose` to include the override file
+   - Add a `generate` step to the Dockerfile build so the override is always present at image build time
+   - Document in README that `npx vd-plugins generate` must be run before `docker-compose up` (or is run automatically by the build)
+6. Create `plugins/` directory with initial plugin descriptors extracted from current config:
    - `plugins/base/plugin.yaml` — Node, common packages, user setup
    - `plugins/vscode/plugin.yaml` — code-server
-   - `plugins/vibe-kanban/plugin.yaml` — vibe-kanban service
-   - `plugins/vibe-dashboard/plugin.yaml` — vibe-dashboard service
-   - `plugins/caddy/plugin.yaml` — Caddy reverse proxy (base routing)
+   - `plugins/vibe-kanban/plugin.yaml` — vibe-kanban service (multi-instance capable)
+   - `plugins/vibe-dashboard/plugin.yaml` — vibe-dashboard service (multi-instance capable)
+   - `plugins/caddy/plugin.yaml` — Caddy reverse proxy (base routing + domain fan-out)
    - `plugins/tailscale/plugin.yaml` — Tailscale VPN
-5. Verify generated files match current working config (diff test)
+7. Verify generated files match current working config (diff test)
+   - Single-domain: generated output ≡ current static config
+   - Multi-domain (`VK_DOMAINS=a.com,b.com`): generated runtime output ≡ current `generate-supervisor-configs.sh` output
 
-**Deliverable:** `npx vd-plugins generate` produces identical (or functionally equivalent) Dockerfile, supervisord.conf, Caddyfile, and docker-compose fragments to what exists today.
+**Deliverable:** `npx vd-plugins generate` produces identical (or functionally equivalent) Dockerfile, supervisord.conf, Caddyfile, and docker-compose fragments to what exists today — including multi-tenant domain expansion. The generated compose override is wired into all runtime entrypoints.
 
 ---
 
-### Phase 2: Plugin Registry Springboard Module
+### Phase 2: Plugin Registry & Descriptor-Driven Module Loading
 **Branch:** new workspace from this branch
 
-Refactor vibe-dashboard from a monolithic module to a plugin-aware architecture.
+Refactor vibe-dashboard from a monolithic module to a plugin-aware architecture with automatic module discovery.
 
 1. Create `plugin-registry` utility module (`src/modules/plugin-registry/`):
    - Shared state: `registeredPlugins`, `tabPresets`, `spaceTypes`, `tabGroupFactories`
    - Actions: `registerTabPreset`, `registerSpaceType`, `registerTabGroupFactory`, `registerContextMenuItem`
    - Type-safe `AllModules` interface declaration
-2. Refactor `workspace` module to consume `plugin-registry`:
+2. **Implement descriptor-driven plugin module loading:**
+   - Add a build-time plugin discovery step: the `vd-plugins` CLI (from Phase 1) scans all `plugin.yaml` files for `ui.module` entries and generates a `src/generated/plugin-loader.ts` file that imports and registers all plugin modules in dependency order
+   - The generated loader replaces manual wiring in `src/index.tsx` — no source edits needed to add new plugins
+   - Dependency resolution: plugins can declare `ui.depends_on: [plugin-name]` in their YAML; the loader topologically sorts imports
+   - The Vite build includes `vd-plugins generate-loader` as a pre-build step so the loader is always fresh
+   - This is critical for Phase 10 (plugin writer) and Phase 11 (user plugins) — without it, new plugins would still require manual source edits and rebuilds
+3. Refactor `workspace` module to consume `plugin-registry`:
    - `AddTabModal` reads presets from `plugin-registry` state instead of hardcoded array
    - `Sidebar` reads space icons from `plugin-registry` state
    - `TabContextMenu` reads extra menu items from `plugin-registry`
-3. Extract VK Workspace logic into a plugin module (`src/modules/plugins/vk-workspace/`):
+4. Extract VK Workspace logic into a plugin module (`src/modules/plugins/vk-workspace/`):
    - Moves `AddVKWorkspaceModal` and `/api/task-attempts` integration out of workspace
    - Registers itself with `plugin-registry` on load
+   - Its `plugin.yaml` declares `ui.module: "./module.tsx"` — loaded automatically by the generated loader
 
-**Deliverable:** Dashboard UI is driven by plugin-registry state. Adding a new tab preset = registering with the registry. Zero hardcoded service references in workspace module.
+**Deliverable:** Dashboard UI is driven by plugin-registry state. Adding a new tab preset = registering with the registry. Zero hardcoded service references in workspace module. New plugins are discovered from their YAML descriptors — no manual import wiring needed.
 
 ---
 
@@ -165,12 +192,12 @@ Refactor vibe-dashboard from a monolithic module to a plugin-aware architecture.
 
 Create Springboard modules for each core service, each registering UI contributions.
 
-1. `src/modules/plugins/vscode/` — registers "Code Server" tab preset, `</>` space icon
-2. `src/modules/plugins/vibe-kanban/` — registers "Kanban" tab preset, kanban space icon
-3. `src/modules/plugins/vibe-dashboard/` — self-registration (dashboard chrome, spaces overview)
-4. Wire plugin module imports into `src/index.tsx` in dependency order
+1. `plugins/vscode/module.tsx` — registers "Code Server" tab preset, `</>` space icon
+2. `plugins/vibe-kanban/module.tsx` — registers "Kanban" tab preset, kanban space icon
+3. `plugins/vibe-dashboard/module.tsx` — self-registration (dashboard chrome, spaces overview)
+4. Each plugin's `plugin.yaml` already declares `ui.module` — the descriptor-driven loader from Phase 2 automatically discovers and imports them (no manual `src/index.tsx` edits)
 
-**Deliverable:** Each service has its own isolated module. New services added by creating a new module file + registering it.
+**Deliverable:** Each service has its own isolated module. New services added by creating a `plugin.yaml` with a `ui.module` entry — the build pipeline handles the rest.
 
 ---
 
