@@ -10,10 +10,8 @@ interface TabContextMenuProps {
   tabGroup: TabGroup;
   /** The currently active item ID */
   activeItemId: string;
-  /** The active space ID (for space deletion) */
+  /** The active space ID (for tab group deletion) */
   activeSpaceId: string;
-  /** The number of spaces (to prevent deleting last space) */
-  spacesCount: number;
   /** Called when user wants to close the menu */
   onClose: () => void;
   /** Called when user selects a tab to pair with */
@@ -24,8 +22,6 @@ interface TabContextMenuProps {
   onSplitPair?: (pairId: string) => void;
   /** Called when user wants to delete a tab group */
   onDeleteTabGroup?: (spaceId: string, tabGroupId: string) => void;
-  /** Called when user wants to delete a space */
-  onDeleteSpace?: (spaceId: string) => void;
 }
 
 export function TabContextMenu({
@@ -34,13 +30,11 @@ export function TabContextMenu({
   tabGroup,
   activeItemId,
   activeSpaceId,
-  spacesCount,
   onClose,
   onCreatePair,
   onCloseTab,
   onSplitPair,
   onDeleteTabGroup,
-  onDeleteSpace,
 }: TabContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -115,13 +109,6 @@ export function TabContextMenu({
     }
   };
 
-  const handleDeleteSpace = () => {
-    if (onDeleteSpace && confirm(`Delete this space? All tab groups and tabs will be closed.`)) {
-      onDeleteSpace(activeSpaceId);
-      onClose();
-    }
-  };
-
   return (
     <div
       ref={menuRef}
@@ -131,7 +118,7 @@ export function TabContextMenu({
         top: `${adjustedPosition.y}px`,
       }}
     >
-      {/* If it's a group label, show group and space management options */}
+      {/* If it's a group label, show group management options */}
       {isGroupLabel && (
         <>
           {onDeleteTabGroup && (
@@ -141,19 +128,6 @@ export function TabContextMenu({
             >
               Delete Tab Group
             </button>
-          )}
-          {onDeleteSpace && spacesCount > 1 && (
-            <button
-              className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-neutral-700 transition-colors"
-              onClick={handleDeleteSpace}
-            >
-              Delete Space
-            </button>
-          )}
-          {onDeleteSpace && spacesCount <= 1 && (
-            <div className="px-4 py-2 text-sm text-neutral-500 italic">
-              Cannot delete last space
-            </div>
           )}
         </>
       )}

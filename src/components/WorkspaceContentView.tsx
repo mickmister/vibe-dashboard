@@ -7,7 +7,6 @@ interface WorkspaceContentViewProps {
   activeTabGroups: TabGroup[];
   activeTabGroupId: string;
   activeSpaceId: string;
-  spacesCount: number;
   actions: WorkspaceActions;
   sessionActions: SessionActions;
   onOpenAddTabModal: (tabGroupId: string) => void;
@@ -21,7 +20,6 @@ export function WorkspaceContentView({
   activeTabGroups,
   activeTabGroupId,
   activeSpaceId,
-  spacesCount,
   actions,
   sessionActions,
   onOpenAddTabModal,
@@ -45,7 +43,6 @@ export function WorkspaceContentView({
       tabGroups={activeTabGroups}
       activeTabGroupId={activeTabGroupId}
       activeSpaceId={activeSpaceId}
-      spacesCount={spacesCount}
       actions={actions}
       sessionActions={sessionActions}
       onOpenAddTabModal={onOpenAddTabModal}

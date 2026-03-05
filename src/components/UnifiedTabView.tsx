@@ -11,7 +11,6 @@ interface UnifiedTabViewProps {
   tabGroups: TabGroup[];
   activeTabGroupId: string;
   activeSpaceId: string;
-  spacesCount: number;
   actions: WorkspaceActions;
   sessionActions: SessionActions;
   onOpenAddTabModal: (tabGroupId: string) => void;
@@ -30,7 +29,6 @@ export function UnifiedTabView({
   tabGroups,
   activeTabGroupId,
   activeSpaceId,
-  spacesCount,
   actions,
   sessionActions,
   onOpenAddTabModal,
@@ -382,7 +380,6 @@ export function UnifiedTabView({
             tabGroup={tabGroup}
             activeItemId={sessionActions.getActiveItem(tabGroup.id)}
             activeSpaceId={activeSpaceId}
-            spacesCount={spacesCount}
             onClose={() => setContextMenu(null)}
             onCreatePair={handleCreatePair}
             onCloseTab={(tabId) =>
@@ -394,9 +391,6 @@ export function UnifiedTabView({
               if (result?.wasDeleted && result.nextTabGroupId) {
                 sessionActions.setActiveTabGroup(result.nextTabGroupId);
               }
-            }}
-            onDeleteSpace={async (spaceId) => {
-              await actions.deleteSpace({ spaceId });
             }}
           />
         );

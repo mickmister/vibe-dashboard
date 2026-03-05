@@ -162,7 +162,6 @@ export function WorkspaceShell({ workspace, session, actions, sessionActions }: 
           activeTabGroups={activeTabGroups}
           activeTabGroupId={session.activeTabGroupId}
           activeSpaceId={session.activeSpaceId}
-          spacesCount={workspace.spaces.length}
           actions={actions}
           sessionActions={sessionActions}
           onOpenAddTabModal={openAddTabModal}
