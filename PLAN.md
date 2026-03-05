@@ -11,7 +11,7 @@
 | `docker-compose.yaml` | Single `code-vibe` service with env vars for ports and passwords |
 | `src/components/AddTabModal.tsx` | Hardcoded presets: "Code Server", "Kanban", "Open Existing Workspace", "Custom URL" |
 | `src/components/dialogs/AddVKWorkspaceModal.tsx` | Hardcoded `/api/task-attempts` integration |
-| `generate-supervisor-configs.sh` | Dynamic multi-tenant supervisor generation (port allocation from 4300+) |
+| `generate-supervisor-configs.sh` | Multi-tenant supervisor generation (out of scope — separate concern) |
 
 ### Springboard module system (existing)
 - Single `workspace` module in `src/index.tsx` handles everything
@@ -67,12 +67,6 @@ infra:
     environment:
       - CODE_PASSWORD
 
-# Multi-instance support — runtime expansion via VK_DOMAINS
-instances:
-  multi_tenant: true            # This plugin spawns per-domain instances
-  base_port: 3008               # First instance port
-  port_stride: 2                # Port increment per additional domain
-
 # UI layer — what this plugin contributes to vibe-dashboard
 ui:
   module: "./module.tsx"        # Springboard module file
@@ -113,8 +107,8 @@ springboard.registerModule('plugin-vscode', {}, async (moduleAPI) => {
 ### Generated Outputs
 A CLI tool (`vd-plugins`) reads all `plugin.yaml` files and generates:
 1. **Dockerfile** — assembled from base + plugin install fragments
-2. **supervisord.conf** — assembled from base config + plugin program sections; for multi-instance plugins, also generates a runtime domain fan-out script replacing `generate-supervisor-configs.sh`
-3. **Caddyfile** — assembled from global config + plugin route fragments (including domain-based host→port routing for multi-instance plugins)
+2. **supervisord.conf** — assembled from base config + plugin supervisor program sections (each plugin's YAML defines its program block)
+3. **Caddyfile** — assembled from global config + plugin route fragments
 4. **docker-compose.override.yaml** — merged port/env/volume declarations, automatically included by all compose entrypoints
 5. **src/generated/plugin-loader.ts** — auto-import file that discovers and loads all `ui.module` entries in dependency order (replaces manual wiring in `src/index.tsx`)
 
@@ -131,31 +125,26 @@ Create the plugin descriptor format and the CLI that reads YAML and generates co
 2. Create `tools/vd-plugins/` — a TypeScript CLI using `yaml`, `ajv`, `handlebars`
 3. Implement generators:
    - `generate-dockerfile` — reads all plugin yamls, outputs `Dockerfile`
-   - `generate-supervisor` — outputs `supervisord.conf` **and** the runtime domain fan-out script (see below)
+   - `generate-supervisor` — reads each plugin's `infra.supervisor` YAML and outputs a complete `supervisord.conf`
    - `generate-caddy` — outputs `Caddyfile`
    - `generate-compose` — outputs `docker-compose.override.yaml`
-4. **Multi-tenant domain expansion (VK_DOMAINS parity):**
-   - Add `instances` section to the plugin schema — plugins can declare themselves as "multi-instance capable" with a port-allocation strategy (base port + offset per domain)
-   - The supervisor generator produces both the static `supervisord.conf` AND a runtime `generate-supervisor-configs.sh` equivalent that reads `VK_DOMAINS` and fans out instances for multi-instance plugins (currently: vibe-dashboard and vibe-kanban)
-   - The Caddy generator similarly produces host→port routing rules that expand per domain
-   - Validate with a multi-domain test case: set `VK_DOMAINS=a.com,b.com`, run generator, diff against current `generate-supervisor-configs.sh` output for the same input
-5. **Wire generated compose override into runtime workflows:**
+4. **Wire generated compose override into runtime workflows:**
    - Update `docker-compose.yaml` to reference the generated override: add `-f docker-compose.override.yaml` to the default compose command chain
    - Update any startup scripts / entrypoints that invoke `docker-compose` to include the override file
    - Add a `generate` step to the Dockerfile build so the override is always present at image build time
    - Document in README that `npx vd-plugins generate` must be run before `docker-compose up` (or is run automatically by the build)
-6. Create `plugins/` directory with initial plugin descriptors extracted from current config:
+5. Create `plugins/` directory with initial plugin descriptors extracted from current config:
    - `plugins/base/plugin.yaml` — Node, common packages, user setup
    - `plugins/vscode/plugin.yaml` — code-server
-   - `plugins/vibe-kanban/plugin.yaml` — vibe-kanban service (multi-instance capable)
-   - `plugins/vibe-dashboard/plugin.yaml` — vibe-dashboard service (multi-instance capable)
-   - `plugins/caddy/plugin.yaml` — Caddy reverse proxy (base routing + domain fan-out)
+   - `plugins/vibe-kanban/plugin.yaml` — vibe-kanban service
+   - `plugins/vibe-dashboard/plugin.yaml` — vibe-dashboard service
+   - `plugins/caddy/plugin.yaml` — Caddy reverse proxy (base routing)
    - `plugins/tailscale/plugin.yaml` — Tailscale VPN
-7. Verify generated files match current working config (diff test)
-   - Single-domain: generated output ≡ current static config
-   - Multi-domain (`VK_DOMAINS=a.com,b.com`): generated runtime output ≡ current `generate-supervisor-configs.sh` output
+6. Verify generated files match current working config (diff test)
+   - Generated `supervisord.conf` ≡ current static `supervisord.conf` (note: `generate-supervisor-configs.sh` is a separate multi-tenant concern and is not migrated here)
+   - Generated Dockerfile, Caddyfile, compose override are functionally equivalent to current files
 
-**Deliverable:** `npx vd-plugins generate` produces identical (or functionally equivalent) Dockerfile, supervisord.conf, Caddyfile, and docker-compose fragments to what exists today — including multi-tenant domain expansion. The generated compose override is wired into all runtime entrypoints.
+**Deliverable:** `npx vd-plugins generate` produces identical (or functionally equivalent) Dockerfile, supervisord.conf, Caddyfile, and docker-compose fragments to what exists today. Supervisor programs are fully defined in plugin YAML — no runtime generation scripts. The generated compose override is wired into all runtime entrypoints.
 
 ---
 
