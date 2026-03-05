@@ -106,6 +106,26 @@ springboard.registerModule('workspace', {rpcMode: 'remote'}, async (moduleAPI) =
       });
     },
 
+    renameTabGroup: async (args: { tabGroupId: string; label: string }) => {
+      workspaceState.setStateImmer((draft) => {
+        const tabGroup = draft.tabGroups.find((tg) => tg.id === args.tabGroupId);
+        if (tabGroup) {
+          tabGroup.label = args.label;
+        }
+      });
+    },
+
+    renameTab: async (args: { tabGroupId: string; tabId: string; title: string }) => {
+      workspaceState.setStateImmer((draft) => {
+        const tabGroup = draft.tabGroups.find((tg) => tg.id === args.tabGroupId);
+        if (!tabGroup) return;
+        const tab = tabGroup.tabs.find((t) => t.id === args.tabId);
+        if (tab) {
+          tab.title = args.title;
+        }
+      });
+    },
+
     addTabGroup: async (args: { spaceId: string; label: string }) => {
       let tabGroupId: string | undefined;
 

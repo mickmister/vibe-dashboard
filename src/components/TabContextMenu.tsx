@@ -22,6 +22,10 @@ interface TabContextMenuProps {
   onSplitPair?: (pairId: string) => void;
   /** Called when user wants to delete a tab group */
   onDeleteTabGroup?: (spaceId: string, tabGroupId: string) => void;
+  /** Called when user wants to rename a tab group */
+  onRenameTabGroup?: (tabGroupId: string, newLabel: string) => void;
+  /** Called when user wants to rename a tab */
+  onRenameTab?: (tabId: string, newTitle: string) => void;
 }
 
 export function TabContextMenu({
@@ -35,6 +39,8 @@ export function TabContextMenu({
   onCloseTab,
   onSplitPair,
   onDeleteTabGroup,
+  onRenameTabGroup,
+  onRenameTab,
 }: TabContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -52,11 +58,18 @@ export function TabContextMenu({
       }
     };
 
-    document.addEventListener('mousedown', handleClickOutside);
-    document.addEventListener('keydown', handleEscape);
+    // Use capture phase to ensure we catch clicks even on iframes or other elements
+    // Add a small delay to prevent the context menu trigger from closing immediately
+    const timeoutId = setTimeout(() => {
+      document.addEventListener('mousedown', handleClickOutside, true);
+      document.addEventListener('click', handleClickOutside, true);
+      document.addEventListener('keydown', handleEscape);
+    }, 0);
 
     return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
+      clearTimeout(timeoutId);
+      document.removeEventListener('mousedown', handleClickOutside, true);
+      document.removeEventListener('click', handleClickOutside, true);
       document.removeEventListener('keydown', handleEscape);
     };
   }, [onClose]);
@@ -109,6 +122,29 @@ export function TabContextMenu({
     }
   };
 
+  const handleRenameTabGroup = () => {
+    const newLabel = prompt(`Rename tab group:`, tabGroup.label);
+    if (newLabel && newLabel.trim() && newLabel !== tabGroup.label && onRenameTabGroup) {
+      onRenameTabGroup(tabGroup.id, newLabel.trim());
+      onClose();
+    } else if (newLabel !== null) {
+      // User clicked OK but didn't provide valid input
+      onClose();
+    }
+  };
+
+  const handleRenameTab = () => {
+    if (!tab) return;
+    const newTitle = prompt(`Rename tab:`, tab.title);
+    if (newTitle && newTitle.trim() && newTitle !== tab.title && onRenameTab) {
+      onRenameTab(tab.id, newTitle.trim());
+      onClose();
+    } else if (newTitle !== null) {
+      // User clicked OK but didn't provide valid input
+      onClose();
+    }
+  };
+
   return (
     <div
       ref={menuRef}
@@ -121,6 +157,15 @@ export function TabContextMenu({
       {/* If it's a group label, show group management options */}
       {isGroupLabel && (
         <>
+          {onRenameTabGroup && (
+            <button
+              className="w-full text-left px-4 py-2 text-sm text-neutral-200 hover:bg-neutral-700 transition-colors"
+              onClick={handleRenameTabGroup}
+            >
+              Rename Tab Group
+            </button>
+          )}
+          {onRenameTabGroup && onDeleteTabGroup && <div className="border-t border-neutral-700 my-1" />}
           {onDeleteTabGroup && (
             <button
               className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-neutral-700 transition-colors"
@@ -145,34 +190,45 @@ export function TabContextMenu({
         </>
       )}
 
-      {/* If it's a regular tab, show pair options */}
-      {!isGroupLabel && !isPair && availableTabs.length > 0 && (
+      {/* If it's a regular tab, show rename and pair options */}
+      {!isGroupLabel && !isPair && tab && (
         <>
-          <div className="px-4 py-2 text-xs text-neutral-500 uppercase tracking-wider">
-            Open with...
-          </div>
-          {availableTabs.map((t) => (
+          {onRenameTab && (
             <button
-              key={t.id}
               className="w-full text-left px-4 py-2 text-sm text-neutral-200 hover:bg-neutral-700 transition-colors"
-              onClick={() => handlePairWith(t.id)}
+              onClick={handleRenameTab}
             >
-              <span className="text-neutral-500 mr-2">⊞</span>
-              {t.title}
+              Rename Tab
             </button>
-          ))}
-          <div className="border-t border-neutral-700 my-1" />
+          )}
+          {availableTabs.length > 0 && (
+            <>
+              {onRenameTab && <div className="border-t border-neutral-700 my-1" />}
+              <div className="px-4 py-2 text-xs text-neutral-500 uppercase tracking-wider">
+                Open with...
+              </div>
+              {availableTabs.map((t) => (
+                <button
+                  key={t.id}
+                  className="w-full text-left px-4 py-2 text-sm text-neutral-200 hover:bg-neutral-700 transition-colors"
+                  onClick={() => handlePairWith(t.id)}
+                >
+                  <span className="text-neutral-500 mr-2">⊞</span>
+                  {t.title}
+                </button>
+              ))}
+            </>
+          )}
+          {!tab.pinned && <div className="border-t border-neutral-700 my-1" />}
+          {!tab.pinned && (
+            <button
+              className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-neutral-700 transition-colors"
+              onClick={handleCloseTab}
+            >
+              Close Tab
+            </button>
+          )}
         </>
-      )}
-
-      {/* Close tab option (if not pinned) */}
-      {!isGroupLabel && !isPair && tab && !tab.pinned && (
-        <button
-          className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-neutral-700 transition-colors"
-          onClick={handleCloseTab}
-        >
-          Close Tab
-        </button>
       )}
 
       {/* If no actions available */}

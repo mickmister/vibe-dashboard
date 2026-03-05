@@ -392,6 +392,12 @@ export function UnifiedTabView({
                 sessionActions.setActiveTabGroup(result.nextTabGroupId);
               }
             }}
+            onRenameTabGroup={(tabGroupId, newLabel) =>
+              actions.renameTabGroup({ tabGroupId, label: newLabel })
+            }
+            onRenameTab={(tabId, newTitle) =>
+              actions.renameTab({ tabGroupId: tabGroup.id, tabId, title: newTitle })
+            }
           />
         );
       })()}
