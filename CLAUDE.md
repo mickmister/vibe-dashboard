@@ -4,7 +4,7 @@ This application is built with the **Springboard framework**.
 
 ## Getting Started
 
-**Before writing any code, run:**
+**Before writing any actual source code in `./src`, run:**
 
 ```bash
 npx sb docs context

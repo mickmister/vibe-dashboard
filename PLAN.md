@@ -11,7 +11,6 @@
 | `docker-compose.yaml` | Single `code-vibe` service with env vars for ports and passwords |
 | `src/components/AddTabModal.tsx` | Hardcoded presets: "Code Server", "Kanban", "Open Existing Workspace", "Custom URL" |
 | `src/components/dialogs/AddVKWorkspaceModal.tsx` | Hardcoded `/api/task-attempts` integration |
-| `generate-supervisor-configs.sh` | Multi-tenant supervisor generation (out of scope — multi-tenant is not supported in this initiative) |
 
 ### Springboard module system (existing)
 - Single `workspace` module in `src/index.tsx` handles everything
@@ -26,7 +25,7 @@
 ## Architecture Vision
 
 ### YAML Plugin Descriptor (`plugin.yaml`)
-Each plugin declares its infrastructure and UI contributions in a single file:
+Each plugin declares its infrastructure contributions in a single file:
 
 ```yaml
 # plugins/vscode/plugin.yaml
@@ -37,10 +36,14 @@ description: "VS Code Server (code-server)"
 # Infrastructure layer — generates Dockerfile fragments, supervisor, caddy
 infra:
   dockerfile:
-    packages: [curl]
-    install: |
-      curl -fsSL https://code-server.dev/install.sh | sh
-    expose: [3008]
+    snippets:
+      - order: 100
+        cache_group: "system-deps"
+        run: |
+          apt-get update && apt-get install -y curl
+      - order: 200
+        run: |
+          curl -fsSL https://code-server.dev/install.sh | sh
 
   supervisor:
     program: code-server
@@ -50,26 +53,37 @@ infra:
     autostart: true
     autorestart: true
     environment:
-      PASSWORD: "{{env.CODE_PASSWORD}}"
+      PASSWORD: "%(ENV_CODE_PASSWORD)s"
     stopasgroup: true
     killasgroup: true
 
   caddy:
-    routes:
-      - match: { query: "folder=*" }
-        upstream: "localhost:{{port}}"
-      - match: { path: ["/stable-*", "/vscode-remote-resource*"] }
-        upstream: "localhost:{{port}}"
-
-# UI layer — what this plugin contributes to vibe-dashboard
-ui:
-  module: "./module.tsx"        # Springboard module file
-  depends_on: []                # Other plugins that must load first
-  tab_presets:
-    - key: code
-      title: "Code Server"
-      icon: "</>"
-      url_template: "{{origin}}/?folder={{path}}"
+    blocks:
+      - section: "site:3001"
+        order: 310
+        block: |
+          @vscode_query {
+            query folder=*
+          }
+          handle @vscode_query {
+            reverse_proxy localhost:{{port}} {
+              header_up Host {upstream_hostport}
+              header_up Upgrade {http.request.header.Upgrade}
+              header_up Connection {http.request.header.Connection}
+            }
+          }
+      - section: "site:3001"
+        order: 320
+        block: |
+          @vscode_assets {
+            path /stable-*
+            path /vscode-remote-resource*
+          }
+          handle @vscode_assets {
+            reverse_proxy localhost:{{port}} {
+              header_up Host {upstream_hostport}
+            }
+          }
 ```
 
 ### TypeScript Plugin Modules
@@ -100,13 +114,12 @@ springboard.registerModule('plugin-vscode', {}, async (moduleAPI) => {
 
 ### Generated Outputs
 A CLI tool (`vd-plugins`) reads all `plugin.yaml` files and generates:
-1. **Dockerfile** — assembled from base + plugin install fragments
+1. **Dockerfile** — assembled from base + plugin `dockerfile.snippets`; snippets are sorted by `order` and can be grouped by `cache_group` to maximize BuildKit cache reuse
 2. **supervisord.conf** — assembled from base config + plugin supervisor program sections (each plugin's YAML defines its program block)
-3. **Caddyfile** — assembled from global config + plugin route fragments
-4. **src/generated/plugin-loader.ts** — auto-import file that discovers and loads all `ui.module` entries in dependency order (replaces manual wiring in `src/index.tsx`)
+3. **Caddyfile** — assembled from global config + ordered plugin `caddy.blocks` inserted into named sections (supports precedence-sensitive handlers)
+4. **`src/modules/plugins/index.ts`** — hand-maintained TypeScript import list for plugin UI modules (manual wiring in app source)
 
 ### Explicit Non-Goals
-- Multi-tenant instance expansion (`VK_DOMAINS`, dynamic per-domain supervisor generation) is out of scope and not supported by this plan.
 - `docker-compose.yaml` remains a single hand-maintained file for runtime ports/env/volumes; plugin descriptors do not generate compose fragments.
 
 ---
@@ -121,9 +134,9 @@ Create the plugin descriptor format and the CLI that reads YAML and generates co
 1. Define the `plugin.yaml` JSON Schema (validates plugin descriptors)
 2. Create `tools/vd-plugins/` — a TypeScript CLI using `yaml`, `ajv`, `handlebars`
 3. Implement generators:
-   - `generate-dockerfile` — reads all plugin yamls, outputs `Dockerfile`
+   - `generate-dockerfile` — reads all plugin yamls, sorts `infra.dockerfile.snippets` by `order`, and emits cached layers grouped by `cache_group`
    - `generate-supervisor` — reads each plugin's `infra.supervisor` YAML and outputs a complete `supervisord.conf`
-   - `generate-caddy` — outputs `Caddyfile`
+   - `generate-caddy` — inserts ordered `infra.caddy.blocks` into named Caddyfile sections
 4. Create `plugins/` directory with initial plugin descriptors extracted from current config:
    - `plugins/base/plugin.yaml` — Node, common packages, user setup
    - `plugins/vscode/plugin.yaml` — code-server
@@ -132,28 +145,26 @@ Create the plugin descriptor format and the CLI that reads YAML and generates co
    - `plugins/caddy/plugin.yaml` — Caddy reverse proxy (base routing)
    - `plugins/tailscale/plugin.yaml` — Tailscale VPN
 5. Verify generated files match current working config (diff test)
-   - Generated `supervisord.conf` ≡ current static `supervisord.conf` for single-tenant/default deployment (note: `generate-supervisor-configs.sh` and `VK_DOMAINS` multi-tenant behavior are out of scope)
+   - Generated `supervisord.conf` ≡ current static `supervisord.conf` for the default deployment
    - Generated Dockerfile and Caddyfile are functionally equivalent to current files
 
-**Deliverable:** `npx vd-plugins generate` produces identical (or functionally equivalent) Dockerfile, supervisord.conf, and Caddyfile for the single-tenant/default deployment path. Supervisor programs are fully defined in plugin YAML — no runtime generation scripts. `docker-compose.yaml` remains a single static file managed outside plugin generation.
+**Deliverable:** `npx vd-plugins generate` produces identical (or functionally equivalent) Dockerfile, supervisord.conf, and Caddyfile for the default deployment path. Supervisor programs are fully defined in plugin YAML — no runtime generation scripts. `docker-compose.yaml` remains a single static file managed outside plugin generation.
 
 ---
 
-### Phase 2: Plugin Registry & Descriptor-Driven Module Loading
+### Phase 2: Plugin Registry & Manual Module Registration
 **Branch:** new workspace from this branch
 
-Refactor vibe-dashboard from a monolithic module to a plugin-aware architecture with automatic module discovery.
+Refactor vibe-dashboard from a monolithic module to a plugin-aware architecture with explicit module registration.
 
 1. Create `plugin-registry` utility module (`src/modules/plugin-registry/`):
    - Shared state: `registeredPlugins`, `tabPresets`, `spaceTypes`, `tabGroupFactories`
    - Actions: `registerTabPreset`, `registerSpaceType`, `registerTabGroupFactory`, `registerContextMenuItem`
    - Type-safe `AllModules` interface declaration
-2. **Implement descriptor-driven plugin module loading:**
-   - Add a build-time plugin discovery step: the `vd-plugins` CLI (from Phase 1) scans all `plugin.yaml` files for `ui.module` entries and generates a `src/generated/plugin-loader.ts` file that imports and registers all plugin modules in dependency order
-   - The generated loader replaces manual wiring in `src/index.tsx` — no source edits needed to add new plugins
-   - Dependency resolution: plugins can declare `ui.depends_on: [plugin-name]` in their YAML; the loader topologically sorts imports
-   - The Vite build includes `vd-plugins generate-loader` as a pre-build step so the loader is always fresh
-   - This is critical for Phase 10 (plugin writer) and Phase 11 (user plugins) — without it, new plugins would still require manual source edits and rebuilds
+2. **Implement manual plugin module registration:**
+   - Add a hand-maintained `src/modules/plugins/index.ts` that imports plugin modules in explicit order
+   - `src/index.tsx` imports this file once to activate plugin modules
+   - Adding a new plugin requires one source edit in `src/modules/plugins/index.ts`
 3. Refactor `workspace` module to consume `plugin-registry`:
    - `AddTabModal` reads presets from `plugin-registry` state instead of hardcoded array
    - `Sidebar` reads space icons from `plugin-registry` state
@@ -161,9 +172,9 @@ Refactor vibe-dashboard from a monolithic module to a plugin-aware architecture 
 4. Extract VK Workspace logic into a plugin module (`src/modules/plugins/vk-workspace/`):
    - Moves `AddVKWorkspaceModal` and `/api/task-attempts` integration out of workspace
    - Registers itself with `plugin-registry` on load
-   - Its `plugin.yaml` declares `ui.module: "./module.tsx"` — loaded automatically by the generated loader
+   - Add manual import for the module in `src/modules/plugins/index.ts`
 
-**Deliverable:** Dashboard UI is driven by plugin-registry state. Adding a new tab preset = registering with the registry. Zero hardcoded service references in workspace module. New plugins are discovered from their YAML descriptors — no manual import wiring needed.
+**Deliverable:** Dashboard UI is driven by plugin-registry state. Adding a new tab preset = registering with the registry. Zero hardcoded service references in workspace module. Plugin modules are wired explicitly through app source imports.
 
 ---
 
@@ -175,9 +186,9 @@ Create Springboard modules for each core service, each registering UI contributi
 1. `plugins/vscode/module.tsx` — registers "Code Server" tab preset, `</>` space icon
 2. `plugins/vibe-kanban/module.tsx` — registers "Kanban" tab preset, kanban space icon
 3. `plugins/vibe-dashboard/module.tsx` — self-registration (dashboard chrome, spaces overview)
-4. Each plugin's `plugin.yaml` already declares `ui.module` — the descriptor-driven loader from Phase 2 automatically discovers and imports them (no manual `src/index.tsx` edits)
+4. Add each new module to `src/modules/plugins/index.ts` so it is imported and registered at app startup
 
-**Deliverable:** Each service has its own isolated module. New services added by creating a `plugin.yaml` with a `ui.module` entry — the build pipeline handles the rest.
+**Deliverable:** Each service has its own isolated module. New services are added by creating plugin infra YAML plus a TypeScript module and wiring that module in `src/modules/plugins/index.ts`.
 
 ---
 
@@ -303,10 +314,11 @@ Meta-plugin for creating new plugins from within the dashboard.
    - Generates plugin.yaml from user input
    - Generates skeleton Springboard module
    - Preview: shows what would be generated (Dockerfile diff, supervisor diff, etc.)
+   - Emits a checklist + patch preview for manual module wiring in `src/modules/plugins/index.ts`
    - Actions: `createPlugin`, `validatePlugin`, `previewGenerated`
-2. Hot-reload support:
-   - New UI-only plugins can register at runtime
-   - Infra changes require rebuild (shown as "needs rebuild" indicator)
+2. Manual integration support:
+   - Generated plugins are not auto-loaded from YAML
+   - Plugin Writer shows required manual import/order edits before merge
 
 **Deliverable:** Users can create new plugins from within the dashboard UI.
 
@@ -315,10 +327,10 @@ Meta-plugin for creating new plugins from within the dashboard.
 ### Phase 11: User-Created Plugins & Plugin Marketplace
 **Branch:** new workspace
 
-1. Plugin loading from user directories (`~/plugins/`)
-2. Plugin validation and sandboxing
-3. Plugin sharing (export/import as tarballs or git repos)
-4. Optional: plugin registry/marketplace UI
+1. Plugin validation and sandboxing
+2. Plugin sharing (export/import as tarballs or git repos)
+3. Optional: plugin registry/marketplace UI for curated templates
+4. Maintainer-approved import flow (explicit source wiring, no runtime auto-discovery)
 
 ---
 
