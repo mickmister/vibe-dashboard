@@ -67,6 +67,12 @@
 		path /assets/*
 	}
 
+	# Hashed assets (e.g. /assets/index-B1rC7_Az.js) are content-addressed and safe to cache indefinitely
+	@hashed_assets {
+		path_regexp /assets/.+-[A-Za-z0-9_-]+\.(js|css|woff2?|png|jpg|svg|webp)$
+	}
+	header @hashed_assets Cache-Control "public, max-age=31536000, immutable"
+
 	@vibe_dashboard_ws {
 		path /ws
 	}
