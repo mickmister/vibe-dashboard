@@ -1,79 +1,64 @@
-# Shared config anchor
-x-code-vibe: &code-vibe
-  build:
-    context: .
-    args:
-      VIBE_KANBAN_VERSION: ${VIBE_KANBAN_VERSION:-latest}
-
-  # Required for Tailscale
-  cap_add:
-    - NET_ADMIN
-    - NET_RAW
-  devices:
-    - /dev/net/tun:/dev/net/tun
-
-  environment:
-    VIBE_KANBAN_VERSION: ${VIBE_KANBAN_VERSION:-latest}
-    CADDY_PORT: ${CADDY_PORT:-3001}
-    BACKEND_PORT: ${BACKEND_PORT:-3007}
-    DASHBOARD_PORT: ${DASHBOARD_PORT:-3005}
-    PORT: ${PORT:-3008}
-    XDG_CONFIG_HOME: /home/vkuser/.config
-
-    PASSWORD: ${CODE_PASSWORD:?Set CODE_PASSWORD}
-    SUDO_PASSWORD: ${SUDO_PASSWORD}
-
-    ENABLE_TAILSCALE: ${ENABLE_TAILSCALE:-false}
-    TAILSCALE_AUTHKEY: ${TAILSCALE_AUTHKEY:-}
-    TAILSCALE_HOSTNAME: ${TAILSCALE_HOSTNAME:-vkdev}
-
-    # VK Cloud connection (optional - if set, local VK connects to this cloud instance)
-    # Uses VK_SHARED_API_BASE (PR #2769) for runtime API URL configuration
-    VK_SHARED_API_BASE: ${VK_SHARED_API_BASE:-}
-
-  volumes:
-    # Mount Docker socket for Docker-in-Docker support
-    - /var/run/docker.sock:/var/run/docker.sock
-    # Persist git repositories
-    # - ~/repos:/home/vkuser/repos
-    - vibe-kanban-repos:/home/vkuser/repos
-    # Persist vibe-kanban database and data
-    - vibe-kanban-data:/home/vkuser/.local/share/vibe-kanban
-    # Persist worktrees
-    - vibe-kanban-worktrees:/var/tmp/vibe-kanban/worktrees
-    # Persist code-server settings (optional, but allows user customizations to persist)
-    - code-server-data:/home/vkuser/.local/share/code-server
-    # Persist Claude Code data
-    - claude-data:/home/vkuser/.claude
-    # Persist Codex CLI/IDE auth cache (~/.codex/auth.json)
-    - codex-data:/home/vkuser/.codex
-    # Persist GitHub CLI authentication
-    - gh-config:/home/vkuser/.config/gh
-    # Persist Git global config (user.name, user.email, etc.)
-    - git-config:/home/vkuser/.config/git
-    # Persist npm cache (speeds up installs)
-    - npm-cache:/home/vkuser/.npm
-    # Persist pnpm store
-    - pnpm-store:/home/vkuser/.local/share/pnpm
-    # Persist Tailscale state (so you don't need to re-authenticate)
-    - tailscale-state:/var/lib/tailscale
-
 services:
-  # Default: bridge networking with port mappings
-  # Usage: docker compose up
   code-vibe:
-    <<: *code-vibe
-    ports:
-      - "${CADDY_PORT:-3001}:${CADDY_PORT:-3001}"               # caddy (main entry point)
-      - "127.0.0.1:${BACKEND_PORT:-3007}:${BACKEND_PORT:-3007}" # vibe-kanban (direct access, localhost-only)
-      - "127.0.0.1:${PORT:-3008}:${PORT:-3008}"                 # vscode (direct access, localhost-only)
+    build:
+      context: .
+      args:
+        VIBE_KANBAN_VERSION: ${VIBE_KANBAN_VERSION:-latest}
 
-  # Host networking: all container ports directly on host, no port mapping needed
-  # Usage: docker compose --profile host up code-vibe-host
-  code-vibe-host:
-    <<: *code-vibe
-    profiles: ["host"]
     network_mode: host
+
+    # Required for Tailscale
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    devices:
+      - /dev/net/tun:/dev/net/tun
+
+    environment:
+      VIBE_KANBAN_VERSION: ${VIBE_KANBAN_VERSION:-latest}
+      CADDY_PORT: ${CADDY_PORT:-3001}
+      BACKEND_PORT: ${BACKEND_PORT:-3007}
+      DASHBOARD_PORT: ${DASHBOARD_PORT:-3005}
+      PORT: ${PORT:-3008}
+      XDG_CONFIG_HOME: /home/vkuser/.config
+
+      PASSWORD: ${CODE_PASSWORD:?Set CODE_PASSWORD}
+      SUDO_PASSWORD: ${SUDO_PASSWORD}
+
+      ENABLE_TAILSCALE: ${ENABLE_TAILSCALE:-false}
+      TAILSCALE_AUTHKEY: ${TAILSCALE_AUTHKEY:-}
+      TAILSCALE_HOSTNAME: ${TAILSCALE_HOSTNAME:-vkdev}
+
+      # VK Cloud connection (optional - if set, local VK connects to this cloud instance)
+      # Uses VK_SHARED_API_BASE (PR #2769) for runtime API URL configuration
+      VK_SHARED_API_BASE: ${VK_SHARED_API_BASE:-}
+
+    volumes:
+      # Mount Docker socket for Docker-in-Docker support
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Persist git repositories
+      # - ~/repos:/home/vkuser/repos
+      - vibe-kanban-repos:/home/vkuser/repos
+      # Persist vibe-kanban database and data
+      - vibe-kanban-data:/home/vkuser/.local/share/vibe-kanban
+      # Persist worktrees
+      - vibe-kanban-worktrees:/var/tmp/vibe-kanban/worktrees
+      # Persist code-server settings (optional, but allows user customizations to persist)
+      - code-server-data:/home/vkuser/.local/share/code-server
+      # Persist Claude Code data
+      - claude-data:/home/vkuser/.claude
+      # Persist Codex CLI/IDE auth cache (~/.codex/auth.json)
+      - codex-data:/home/vkuser/.codex
+      # Persist GitHub CLI authentication
+      - gh-config:/home/vkuser/.config/gh
+      # Persist Git global config (user.name, user.email, etc.)
+      - git-config:/home/vkuser/.config/git
+      # Persist npm cache (speeds up installs)
+      - npm-cache:/home/vkuser/.npm
+      # Persist pnpm store
+      - pnpm-store:/home/vkuser/.local/share/pnpm
+      # Persist Tailscale state (so you don't need to re-authenticate)
+      - tailscale-state:/var/lib/tailscale
 
 volumes:
   vibe-kanban-repos:
