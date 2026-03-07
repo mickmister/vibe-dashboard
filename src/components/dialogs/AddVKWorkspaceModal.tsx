@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Modal,
   ModalContent,
@@ -18,6 +18,16 @@ interface TaskAttempt {
   archived: boolean;
   pinned: boolean;
   agent_working_dir: string | null;
+  created_at?: string | number | null;
+  updated_at?: string | number | null;
+  last_used_at?: string | number | null;
+  last_opened_at?: string | number | null;
+  last_active_at?: string | number | null;
+  repository?: string | null;
+  repository_name?: string | null;
+  repo?: string | null;
+  repo_name?: string | null;
+  worktrees?: Array<Record<string, unknown> | string> | null;
 }
 
 
@@ -39,6 +49,7 @@ export function AddVKWorkspaceModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedRepo, setSelectedRepo] = useState('all');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showPathInput, setShowPathInput] = useState(false);
   const [customPath, setCustomPath] = useState('');
@@ -50,6 +61,7 @@ export function AddVKWorkspaceModal({
     } else {
       // Reset state when modal closes
       setSearchQuery('');
+      setSelectedRepo('all');
       setSelectedId(null);
       setShowPathInput(false);
       setCustomPath('');
@@ -58,21 +70,31 @@ export function AddVKWorkspaceModal({
   }, [isOpen]);
 
   useEffect(() => {
-    // Filter task attempts based on search query
-    if (!searchQuery.trim()) {
-      setFilteredAttempts(taskAttempts);
-    } else {
-      const query = searchQuery.toLowerCase();
-      setFilteredAttempts(
-        taskAttempts.filter(
-          (ta) =>
-            ta.name?.toLowerCase().includes(query) ||
-            ta.branch?.toLowerCase().includes(query) ||
-            ta.agent_working_dir?.toLowerCase().includes(query)
-        )
-      );
-    }
-  }, [searchQuery, taskAttempts]);
+    const query = searchQuery.trim().toLowerCase();
+    const repoFilter = selectedRepo.trim();
+
+    setFilteredAttempts(
+      taskAttempts.filter((ta) => {
+        const matchesQuery = !query ||
+          ta.name?.toLowerCase().includes(query) ||
+          ta.branch?.toLowerCase().includes(query) ||
+          ta.agent_working_dir?.toLowerCase().includes(query);
+
+        const repoNames = getRepoNames(ta);
+        const matchesRepo = repoFilter === 'all' || repoNames.includes(repoFilter);
+
+        return matchesQuery && matchesRepo;
+      })
+    );
+  }, [searchQuery, selectedRepo, taskAttempts]);
+
+  const repoOptions = useMemo(() => {
+    const repos = new Set<string>();
+    taskAttempts.forEach((ta) => {
+      getRepoNames(ta).forEach((repoName) => repos.add(repoName));
+    });
+    return Array.from(repos).sort((a, b) => a.localeCompare(b));
+  }, [taskAttempts]);
 
   const refreshTaskAttemptContainerAndRefetchTaskAttempt = async (taskAttemptId: string) => {
     const response = await fetch(`/api/task-attempts/${taskAttemptId}/branch-status`);
@@ -98,12 +120,14 @@ export function AddVKWorkspaceModal({
       }
       const data = await response.json();
       if (data.success && Array.isArray(data.data)) {
-        // Filter out archived by default, sort by pinned then name
+        // Filter out archived by default, sort by pinned then most-recent.
         const workspaces = data.data
           .filter((ta: TaskAttempt) => !ta.archived)
           .sort((a: TaskAttempt, b: TaskAttempt) => {
             if (a.pinned && !b.pinned) return -1;
             if (!a.pinned && b.pinned) return 1;
+            const recentDiff = getMostRecentTimestamp(b) - getMostRecentTimestamp(a);
+            if (recentDiff !== 0) return recentDiff;
             return (a.name || '').localeCompare(b.name || '');
           });
         setTaskAttempts(workspaces);
@@ -200,25 +224,46 @@ export function AddVKWorkspaceModal({
             </div>
           ) : (
             <>
-              <div className="flex gap-2">
-                <Input
-                  placeholder="Search workspaces..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  size="sm"
-                  classNames={{
-                    inputWrapper: 'bg-neutral-800 border-neutral-700 data-[hover=true]:bg-neutral-800 group-data-[focus=true]:bg-neutral-800',
-                    input: 'text-white',
-                  }}
-                  className="flex-1"
-                />
-                <Button
-                  size="sm"
-                  variant="flat"
-                  onPress={() => setShowPathInput(true)}
-                >
-                  Custom Path
-                </Button>
+              <div className="flex flex-col gap-2">
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="Search workspaces..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    size="sm"
+                    classNames={{
+                      inputWrapper: 'bg-neutral-800 border-neutral-700 data-[hover=true]:bg-neutral-800 group-data-[focus=true]:bg-neutral-800',
+                      input: 'text-white',
+                    }}
+                    className="flex-1"
+                  />
+                  <Button
+                    size="sm"
+                    variant="flat"
+                    onPress={() => setShowPathInput(true)}
+                  >
+                    Custom Path
+                  </Button>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <label htmlFor="repo-filter" className="text-xs text-neutral-400 whitespace-nowrap">
+                    Repository
+                  </label>
+                  <select
+                    id="repo-filter"
+                    value={selectedRepo}
+                    onChange={(e) => setSelectedRepo(e.target.value)}
+                    className="flex-1 h-8 px-2 rounded-md border border-neutral-700 bg-neutral-800 text-neutral-100 text-sm"
+                  >
+                    <option value="all">All repositories</option>
+                    {repoOptions.map((repoName) => (
+                      <option key={repoName} value={repoName}>
+                        {repoName}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
               {loading && (
@@ -269,6 +314,11 @@ export function AddVKWorkspaceModal({
                               Dir: {ta.agent_working_dir}
                             </p>
                           )}
+                          {getRepoNames(ta).length > 0 && (
+                            <p className="text-xs text-neutral-500 mt-0.5">
+                              Repo: {getRepoNames(ta).join(', ')}
+                            </p>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -303,4 +353,97 @@ export function AddVKWorkspaceModal({
       </ModalContent>
     </Modal>
   );
+}
+
+function getMostRecentTimestamp(taskAttempt: TaskAttempt): number {
+  const fields = [
+    taskAttempt.last_used_at,
+    taskAttempt.last_opened_at,
+    taskAttempt.last_active_at,
+    taskAttempt.updated_at,
+    taskAttempt.created_at,
+  ];
+
+  for (const field of fields) {
+    const ts = parseTimestamp(field);
+    if (ts > 0) return ts;
+  }
+  return 0;
+}
+
+function parseTimestamp(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value > 1e12 ? value : value * 1000;
+  }
+
+  if (typeof value === 'string' && value.trim()) {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric) && numeric > 0) {
+      return numeric > 1e12 ? numeric : numeric * 1000;
+    }
+
+    const parsed = Date.parse(value);
+    return Number.isNaN(parsed) ? 0 : parsed;
+  }
+
+  return 0;
+}
+
+function getRepoNames(taskAttempt: TaskAttempt): string[] {
+  const repos = new Set<string>();
+
+  const addRepo = (value: unknown) => {
+    if (typeof value !== 'string') return;
+    const repo = normalizeRepoName(value);
+    if (repo) repos.add(repo);
+  };
+
+  addRepo(taskAttempt.repo);
+  addRepo(taskAttempt.repo_name);
+  addRepo(taskAttempt.repository);
+  addRepo(taskAttempt.repository_name);
+  addRepo(extractRepoNameFromPath(taskAttempt.agent_working_dir));
+
+  if (Array.isArray(taskAttempt.worktrees)) {
+    taskAttempt.worktrees.forEach((worktree) => {
+      if (typeof worktree === 'string') {
+        addRepo(extractRepoNameFromPath(worktree));
+        return;
+      }
+
+      if (!worktree || typeof worktree !== 'object') return;
+      const record = worktree as Record<string, unknown>;
+      addRepo(record.repo);
+      addRepo(record.repo_name);
+      addRepo(record.repository);
+      addRepo(record.repository_name);
+      addRepo(record.name);
+      addRepo(extractRepoNameFromPath(record.path));
+      addRepo(extractRepoNameFromPath(record.working_dir));
+      addRepo(extractRepoNameFromPath(record.directory));
+    });
+  }
+
+  return Array.from(repos).sort((a, b) => a.localeCompare(b));
+}
+
+function normalizeRepoName(value: string): string {
+  const cleaned = value.trim().replace(/\/+$/, '');
+  if (!cleaned) return '';
+  const parts = cleaned.split('/').filter(Boolean);
+  const last = parts[parts.length - 1] || cleaned;
+  return last.replace(/\.git$/i, '');
+}
+
+function extractRepoNameFromPath(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+
+  const worktreeMatch = trimmed.match(/\/worktrees\/[^/]+\/([^/]+)/);
+  if (worktreeMatch?.[1]) {
+    return normalizeRepoName(worktreeMatch[1]);
+  }
+
+  return normalizeRepoName(trimmed);
 }
