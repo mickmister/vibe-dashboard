@@ -9,7 +9,7 @@ export type WorkspaceActions = {
   addSpace: (args: { name: string }) => Promise<{ spaceId: string; tabGroupId: string } | undefined>;
   deleteSpace: (args: { spaceId: string }) => Promise<{ wasDeleted: boolean; deletedSpaceId?: string } | undefined>;
   renameSpace: (args: { spaceId: string; name: string }) => void;
-  addTabGroup: (args: { spaceId: string; label: string }) => void;
+  addTabGroup: (args: { spaceId: string; label: string }) => Promise<{ tabGroupId?: string; spaceId?: string } | undefined>;
   deleteTabGroup: (args: { spaceId: string; tabGroupId: string }) => Promise<{ wasDeleted: boolean; deletedTabGroupId?: string; nextTabGroupId?: string } | undefined>;
   renameTabGroup: (args: { tabGroupId: string; label: string }) => void;
   renameTab: (args: { tabGroupId: string; tabId: string; title: string }) => void;
@@ -25,7 +25,7 @@ export type WorkspaceActions = {
     name: string;
     containerRef: string;
     activeSpaceId: string;
-  }) => Promise<{ tabGroupId: string; pairId: string } | undefined>;
+  }) => Promise<{ tabGroupId: string; pairId: string; agentTabId: string } | undefined>;
   updateTabUrl: (args: { tabGroupId: string; tabId: string; newUrl: string }) => void;
 };
 
@@ -98,19 +98,11 @@ export function WorkspaceShell({ workspace, session, actions, sessionActions }: 
     name: string,
     containerRef: string
   ) => {
-    // Get base origin without port prefix
-    const { protocol, host } = window.location;
-    const portPrefixMatch = host.match(/^port-\d+\.(.+)$/);
-    const baseOrigin = portPrefixMatch
-      ? `${protocol}//${portPrefixMatch[1]}`
-      : `${protocol}//${host}`;
-
     const result = await actions.addVKWorkspace({
       taskAttemptId,
       name,
       containerRef,
       activeSpaceId: session.activeSpaceId,
-      baseOrigin,
     });
 
     // Auto-select the Agent tab (not the pair)
@@ -143,11 +135,13 @@ export function WorkspaceShell({ workspace, session, actions, sessionActions }: 
     : [];
 
   return (
-    <div className="w-full h-full flex flex-col bg-neutral-950">
+    <div className="w-full h-full flex bg-neutral-950">
       <Sidebar
         workspace={workspace}
         activeSpaceId={session.activeSpaceId}
+        activeTabGroupId={session.activeTabGroupId}
         onSelectSpace={(spaceId) => sessionActions.selectSpace(spaceId)}
+        onSelectTabGroup={(tabGroupId) => sessionActions.setActiveTabGroup(tabGroupId)}
         onAddSpace={async (name) => {
           const result = await actions.addSpace({ name });
           if (result) {
@@ -156,10 +150,16 @@ export function WorkspaceShell({ workspace, session, actions, sessionActions }: 
         }}
         onDeleteSpace={(spaceId) => actions.deleteSpace({ spaceId })}
         onRenameSpace={(spaceId, name) => actions.renameSpace({ spaceId, name })}
+        onDeleteTabGroup={async (spaceId, tabGroupId) =>
+          actions.deleteTabGroup({ spaceId, tabGroupId })
+        }
+        onRenameTabGroup={(tabGroupId, label) =>
+          actions.renameTabGroup({ tabGroupId, label })
+        }
       />
 
       {/* Main content area */}
-      <div className="flex-1 flex flex-col min-h-0">
+      <div className="flex-1 flex flex-col min-h-0 min-w-0">
         <WorkspaceContentView
           activeTabGroups={activeTabGroups}
           activeTabGroupId={session.activeTabGroupId}

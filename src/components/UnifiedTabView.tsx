@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useCallback, useRef, useEffect } from 'react';
+import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { ChromeTabs } from '../../react-chrome-tabs/src/ChromeTabs';
 import type { TabProperties } from '../../react-chrome-tabs/src/chrome-tabs';
 import { AddressBar } from './AddressBar';
@@ -20,7 +20,7 @@ interface UnifiedTabViewProps {
 /**
  * Unified tab view with auto-hiding top bar:
  * - Address bar at the very top
- * - Chrome tabs below address bar
+ * - Tabs/pairs for the active tab group below address bar
  * - Auto-hide on mouse leave, show on hover at top of page
  * - Pin toggle to keep bar visible
  * - Content adjusts position based on pinned state
@@ -47,117 +47,78 @@ export function UnifiedTabView({
   const hoverDelayTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const isVisible = isPinned || isHovering;
+  const activeTabGroup = tabGroups.find((tg) => tg.id === activeTabGroupId);
 
-  // Build visual tabs: group labels + tabs from active group only
+  // Build visual tabs for the active tab group only
   const visualTabs = useMemo(() => {
     const result: (TabProperties & {
-      isGroupLabel?: boolean;
-      groupId?: string;
-      tabCount?: number;
       isPair?: boolean;
       pairId?: string;
     })[] = [];
 
-    tabGroups.forEach((group) => {
-      const tabCount = group.tabs.length;
-      const pairCount = group.pairs.length;
-      const activeItemId = sessionActions.getActiveItem(group.id);
-      const isActiveGroup = group.id === activeTabGroupId;
+    if (!activeTabGroup) return result;
 
-      // Add group label as a special "tab" with count badge
+    const activeItemId = sessionActions.getActiveItem(activeTabGroup.id);
+
+    activeTabGroup.tabs.forEach((tab) => {
       result.push({
-        id: `group-label-${group.id}`,
-        title: group.label,
-        active: false,
-        isGroupLabel: true,
-        groupId: group.id,
-        tabCount: tabCount + pairCount,
-        isCloseIconVisible: false,
+        id: tab.id,
+        title: tab.title,
+        active: activeItemId === tab.id,
         favicon: false,
+        isCloseIconVisible: !tab.pinned,
       });
+    });
 
-      // Only show tabs and pairs for the active tab group
-      if (isActiveGroup) {
-        // Add individual tabs
-        group.tabs.forEach((tab) => {
-          result.push({
-            id: tab.id,
-            title: tab.title,
-            active: activeItemId === tab.id,
-            favicon: false,
-            isCloseIconVisible: !tab.pinned,
-          });
-        });
+    activeTabGroup.pairs.forEach((pair) => {
+      const tabNames = pair.tabIds
+        .map((id) => activeTabGroup.tabs.find((t) => t.id === id)?.title)
+        .filter(Boolean)
+        .join(' | ');
 
-        // Add pair tabs with special styling
-        group.pairs.forEach((pair) => {
-          const tabNames = pair.tabIds
-            .map((id) => group.tabs.find((t) => t.id === id)?.title)
-            .filter(Boolean)
-            .join(' | ');
-
-          result.push({
-            id: pair.id,
-            title: `⊞ ${tabNames}`,
-            active: activeItemId === pair.id,
-            favicon: false,
-            isCloseIconVisible: true,
-            isPair: true,
-            pairId: pair.id,
-          });
-        });
-      }
+      result.push({
+        id: pair.id,
+        title: `⊞ ${tabNames}`,
+        active: activeItemId === pair.id,
+        favicon: false,
+        isCloseIconVisible: true,
+        isPair: true,
+        pairId: pair.id,
+      });
     });
 
     return result;
-  }, [tabGroups, activeTabGroupId, sessionActions]);
+  }, [activeTabGroup, sessionActions]);
 
   const handleTabActive = (tabId: string) => {
-    // Check if it's a group label
-    if (tabId.startsWith('group-label-')) {
-      const groupId = tabId.replace('group-label-', '');
-      sessionActions.setActiveTabGroup(groupId);
+    if (!activeTabGroup) return;
+
+    if (activeTabGroup.tabs.some((tab) => tab.id === tabId)) {
+      sessionActions.selectTab(activeTabGroup.id, tabId);
       return;
     }
 
-    // Find which group this tab belongs to
-    for (const group of tabGroups) {
-      // Check if it's a regular tab
-      if (group.tabs.some((t) => t.id === tabId)) {
-        sessionActions.selectTab(group.id, tabId);
-        return;
-      }
-
-      // Check if it's a pair
-      if (group.pairs.some((p) => p.id === tabId)) {
-        sessionActions.selectPair(group.id, tabId);
-        return;
-      }
+    if (activeTabGroup.pairs.some((pair) => pair.id === tabId)) {
+      sessionActions.selectPair(activeTabGroup.id, tabId);
     }
   };
 
   const handleTabClose = (tabId: string) => {
-    // Ignore if it's a group label
-    if (tabId.startsWith('group-label-')) return;
+    if (!activeTabGroup) return;
 
-    // Find which group this tab belongs to
-    for (const group of tabGroups) {
-      // Check if it's a regular tab
-      const tab = group.tabs.find((t) => t.id === tabId);
-      if (tab && !tab.pinned) {
-        actions.closeTab({ tabGroupId: group.id, tabId });
-        return;
-      }
-
-      // Pairs can be closed by closing one of their tabs
-      // For now, just ignore pair close buttons
+    const tab = activeTabGroup.tabs.find((t) => t.id === tabId);
+    if (tab && !tab.pinned) {
+      actions.closeTab({ tabGroupId: activeTabGroup.id, tabId });
     }
+
+    // Pairs can be closed by closing one of their tabs
+    // For now, just ignore pair close buttons
   };
 
   const handleContextMenu = (tabId: string, event: MouseEvent) => {
     event.preventDefault();
 
-    // Allow context menu for both tabs and group labels
+    // Allow context menu for tabs and split-pairs in the active group
     setContextMenu({
       tabId,
       position: { x: event.clientX, y: event.clientY },
@@ -243,8 +204,6 @@ export function UnifiedTabView({
       }
     };
   }, []);
-
-  const activeTabGroup = tabGroups.find((tg) => tg.id === activeTabGroupId);
 
   // Calculate top bar height for content offset when pinned
   const topBarHeight = topBarRef.current?.offsetHeight || 0;
@@ -365,11 +324,7 @@ export function UnifiedTabView({
 
       {/* Context menu */}
       {contextMenu && (() => {
-        // For group labels, find the tab group from the label ID
-        const isGroupLabel = contextMenu.tabId.startsWith('group-label-');
-        const tabGroup = isGroupLabel
-          ? tabGroups.find(tg => `group-label-${tg.id}` === contextMenu.tabId)
-          : activeTabGroup;
+        const tabGroup = activeTabGroup;
 
         if (!tabGroup) return null;
 
