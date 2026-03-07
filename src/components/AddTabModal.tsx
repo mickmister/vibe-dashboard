@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Modal,
   ModalContent,
@@ -11,43 +11,37 @@ import {
   ListboxItem,
 } from '@heroui/react';
 import { AddVKWorkspaceModal } from './dialogs/AddVKWorkspaceModal';
+import type {
+  TabGroupFactoryContribution,
+  TabPresetContribution,
+} from '../modules/plugins/vibe-dashboard/types';
+import { applyUrlTemplate, getBaseOrigin } from '../utils/origin';
 
 interface AddTabModalProps {
   isOpen: boolean;
   onClose: () => void;
+  tabPresets: TabPresetContribution[];
+  tabGroupFactories: TabGroupFactoryContribution[];
   onAdd: (title: string, url: string) => void;
   onAddVKWorkspace?: (taskAttemptId: string, name: string, containerRef: string) => void;
   onAddTabGroup?: (label: string) => void;
 }
 
-const PRESETS = [
-  {
-    key: 'vk-workspace',
-    title: 'Open Existing Workspace',
-    url: '',
-    description: 'Add workspace with Agent + Code split view',
-  },
-  {
-    key: 'code',
-    title: 'Code Server',
-    url: '', // Will be provided by user via custom input
-    description: 'VS Code editor with custom folder path',
-  },
-  {
-    key: 'kanban',
-    title: 'Kanban',
-    url: '/',
-    description: 'Vibe Kanban board view',
-  },
-  {
-    key: 'custom',
-    title: 'Custom URL',
-    url: '',
-    description: 'Enter a custom URL',
-  },
-];
+type MenuEntry =
+  | { kind: 'factory'; key: string; title: string; description: string; launchMode: 'vk-workspace'; order: number }
+  | { kind: 'preset'; key: string; title: string; description: string; mode: 'immediate' | 'urlPrompt'; urlTemplate: string; defaultTitle?: string; order: number }
+  | { kind: 'custom'; key: 'custom-url'; title: string; description: string; order: number }
+  | { kind: 'new-tab-group'; key: 'new-tab-group'; title: string; description: string; order: number };
 
-export function AddTabModal({ isOpen, onClose, onAdd, onAddVKWorkspace, onAddTabGroup }: AddTabModalProps) {
+export function AddTabModal({
+  isOpen,
+  onClose,
+  tabPresets,
+  tabGroupFactories,
+  onAdd,
+  onAddVKWorkspace,
+  onAddTabGroup,
+}: AddTabModalProps) {
   const [title, setTitle] = useState('');
   const [url, setUrl] = useState('');
   const [showCustom, setShowCustom] = useState(false);
@@ -55,30 +49,98 @@ export function AddTabModal({ isOpen, onClose, onAdd, onAddVKWorkspace, onAddTab
   const [showTabGroupInput, setShowTabGroupInput] = useState(false);
   const [tabGroupLabel, setTabGroupLabel] = useState('');
 
-  const handlePresetSelect = (key: string) => {
-    const preset = PRESETS.find((p) => p.key === key);
-    if (!preset) return;
+  const entries = useMemo<MenuEntry[]>(() => {
+    const pluginFactories: MenuEntry[] = tabGroupFactories.map((factory) => ({
+      kind: 'factory',
+      key: factory.key,
+      title: factory.title,
+      description: factory.description,
+      launchMode: factory.launchMode,
+      order: factory.order ?? 0,
+    }));
 
-    if (key === 'custom' || key === 'code') {
-      setShowCustom(true);
-      if (key === 'code') {
-        setTitle('Code Server');
-        setUrl('/?folder=');
+    const pluginPresets: MenuEntry[] = tabPresets.map((preset) => {
+      const entry: MenuEntry = {
+        kind: 'preset',
+        key: preset.key,
+        title: preset.title,
+        description: preset.description,
+        mode: preset.mode,
+        urlTemplate: preset.urlTemplate,
+        order: preset.order ?? 0,
+      };
+
+      if (preset.defaultTitle) {
+        entry.defaultTitle = preset.defaultTitle;
       }
+
+      return entry;
+    });
+
+    const builtIns: MenuEntry[] = [
+      {
+        kind: 'custom',
+        key: 'custom-url',
+        title: 'Custom URL',
+        description: 'Enter a custom URL',
+        order: 900,
+      },
+      {
+        kind: 'new-tab-group',
+        key: 'new-tab-group',
+        title: 'New Tab Group',
+        description: 'Create another tab group in this space',
+        order: 910,
+      },
+    ];
+
+    const all = [...pluginFactories, ...pluginPresets, ...builtIns];
+
+    return all
+      .filter((entry) => entry.kind !== 'new-tab-group' || Boolean(onAddTabGroup))
+      .sort((a, b) => a.order - b.order);
+  }, [onAddTabGroup, tabGroupFactories, tabPresets]);
+
+  const handleEntrySelect = (selectedKey: string) => {
+    const entry = entries.find((value) => value.key === selectedKey);
+    if (!entry) {
       return;
     }
 
-    if (key === 'vk-workspace') {
-      setShowVKWorkspace(true);
+    if (entry.kind === 'custom') {
+      setTitle('');
+      setUrl('');
+      setShowCustom(true);
       return;
     }
 
-    if (key === 'tab-group') {
+    if (entry.kind === 'new-tab-group') {
       setShowTabGroupInput(true);
       return;
     }
 
-    onAdd(preset.title, preset.url);
+    if (entry.kind === 'factory') {
+      if (entry.launchMode === 'vk-workspace') {
+        setShowVKWorkspace(true);
+      }
+      return;
+    }
+
+    if (entry.mode === 'urlPrompt') {
+      const resolvedDefaultUrl = applyUrlTemplate(entry.urlTemplate, {
+        origin: getBaseOrigin(),
+      });
+      setTitle(entry.defaultTitle ?? entry.title);
+      setUrl(resolvedDefaultUrl);
+      setShowCustom(true);
+      return;
+    }
+
+    const resolvedUrl = applyUrlTemplate(entry.urlTemplate, {
+      origin: getBaseOrigin(),
+    });
+
+    onAdd(entry.title, resolvedUrl);
     handleClose();
   };
 
@@ -129,18 +191,18 @@ export function AddTabModal({ isOpen, onClose, onAdd, onAddVKWorkspace, onAddTab
             {!showCustom && !showTabGroupInput ? (
               <Listbox
                 aria-label="Tab presets"
-                onAction={(key) => handlePresetSelect(key as string)}
+                onAction={(key) => handleEntrySelect(key as string)}
               >
-                {PRESETS.map((preset) => (
+                {entries.map((entry) => (
                   <ListboxItem
-                    key={preset.key}
-                    description={preset.description}
+                    key={entry.key}
+                    description={entry.description}
                     className="text-neutral-100"
                     classNames={{
                       description: 'text-neutral-400',
                     }}
                   >
-                    {preset.title}
+                    {entry.title}
                   </ListboxItem>
                 ))}
               </Listbox>

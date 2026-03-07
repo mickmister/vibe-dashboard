@@ -4,6 +4,7 @@ import { WorkspaceContentView } from './WorkspaceContentView';
 import { AddTabModal } from './AddTabModal';
 import type { WorkspaceState, TabGroup } from '../types';
 import type { SessionWorkspaceNav } from '../sessionState';
+import type { PluginRegistryState } from '../modules/plugins/vibe-dashboard/types';
 
 export type WorkspaceActions = {
   addSpace: (args: { name: string }) => Promise<{ spaceId: string; tabGroupId: string } | undefined>;
@@ -45,9 +46,10 @@ interface WorkspaceShellProps {
   session: SessionWorkspaceNav;
   actions: WorkspaceActions;
   sessionActions: SessionActions;
+  pluginRegistry: PluginRegistryState;
 }
 
-export function WorkspaceShell({ workspace, session, actions, sessionActions }: WorkspaceShellProps) {
+export function WorkspaceShell({ workspace, session, actions, sessionActions, pluginRegistry }: WorkspaceShellProps) {
   const [addTabModalOpen, setAddTabModalOpen] = useState(false);
   const [addTabTargetGroupId, setAddTabTargetGroupId] = useState<string>('');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -189,6 +191,7 @@ export function WorkspaceShell({ workspace, session, actions, sessionActions }: 
           activeSpaceId={session.activeSpaceId}
           activeTabGroupId={session.activeTabGroupId}
           activeItems={session.activeItems}
+          spaceTypes={pluginRegistry.spaceTypes}
           onRequestClose={() => setIsSidebarOpen(false)}
           onSelectSpace={(spaceId) => {
             sessionActions.selectSpace(spaceId);
@@ -277,6 +280,8 @@ export function WorkspaceShell({ workspace, session, actions, sessionActions }: 
         <AddTabModal
           isOpen={addTabModalOpen}
           onClose={() => setAddTabModalOpen(false)}
+          tabPresets={Object.values(pluginRegistry.tabPresets)}
+          tabGroupFactories={Object.values(pluginRegistry.tabGroupFactories)}
           onAdd={handleAddTab}
           onAddVKWorkspace={handleAddVKWorkspace}
           onAddTabGroup={handleAddTabGroup}

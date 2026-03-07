@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { Button, Input } from '@heroui/react';
 import type { WorkspaceState, Space, TabGroup } from '../types';
+import type { SpaceTypeContribution } from '../modules/plugins/vibe-dashboard/types';
 import { TabContextMenu } from './TabContextMenu';
 
 interface SidebarProps {
@@ -8,6 +9,7 @@ interface SidebarProps {
   activeSpaceId: string;
   activeTabGroupId: string;
   activeItems: Record<string, string>;
+  spaceTypes: Record<string, SpaceTypeContribution>;
   onRequestClose?: () => void;
   onSelectSpace: (spaceId: string) => void;
   onSelectTabGroup: (tabGroupId: string) => void;
@@ -44,6 +46,7 @@ export function Sidebar({
   activeSpaceId,
   activeTabGroupId,
   activeItems,
+  spaceTypes,
   onRequestClose,
   onSelectSpace,
   onSelectTabGroup,
@@ -716,7 +719,7 @@ export function Sidebar({
               onContextMenu={(e) => handleContextMenu(e, space.id)}
             >
               <span className="text-sm">
-                {SPACE_ICONS[space.icon] || SPACE_ICONS.default}
+                {spaceTypes[space.icon]?.icon || SPACE_ICONS[space.icon] || SPACE_ICONS.default}
               </span>
               {editingId === space.id ? (
                 <Input
