@@ -1,12 +1,11 @@
-# App Plugin Extraction Plan (Runtime-Extensible, App-First)
+# App Plugin Extraction Plan (Src-Only, App-First)
 
 ## Scope
 
 This plan is separate from `PLAN.md` and focuses on:
 
 1. Keeping Docker/install concerns hardcoded in-repo.
-2. Keeping one primary Supervisor config with optional runtime extension files mounted via volume.
-3. Implementing app-level plugins in `src` for:
+2. Implementing app-level plugins in `src` for:
    - `vibe-dashboard` (plugin registry + shared contracts)
    - `code-server`
    - `vibe-kanban`
@@ -17,7 +16,7 @@ This plan is separate from `PLAN.md` and focuses on:
 1. No infra code generation.
 2. No multi-tenant/domain fan-out logic.
 3. No automatic plugin discovery from YAML.
-4. No external plugin install automation beyond documented volume-based extension points.
+4. No Supervisor/runtime infrastructure changes in this plan.
 
 ## What `src` Currently Looks Like (Audit Summary)
 
@@ -50,43 +49,7 @@ This plan is separate from `PLAN.md` and focuses on:
    - No static `PRESETS` in `AddTabModal`.
    - No static `SPACE_ICONS` in `Sidebar`.
 
-## Runtime Extension Model (Supervisor + Volumes)
-
-### Supervisor
-
-Keep all existing core services in the main `supervisord.conf`, and add include support for extension files:
-
-```ini
-[include]
-files = /etc/supervisor/conf.d/extensions/*.conf
-```
-
-### Docker Compose
-
-Keep one compose file. Add optional mounts for runtime extension:
-
-1. `./supervisor.d:/etc/supervisor/conf.d/extensions:ro`
-2. `./plugins:/opt/vibe-plugins:ro` (for runtime scripts/assets/docs installed via volumes)
-
-Notes:
-1. Core services remain in main config.
-2. External plugins that need extra processes or artifacts do so through mounted volumes and extension files.
-
 ## Phased Implementation Plan
-
-### Phase 0: Stabilize Runtime Extension Rails
-
-1. Update `supervisord.conf` with `[include]` extension directory.
-2. Ensure extension directory exists in image/startup flow.
-3. Update `docker-compose.yaml` with optional extension volumes.
-4. Document extension conventions in README:
-   - File naming
-   - Required fields
-   - Restart flow (`supervisorctl reread && supervisorctl update`)
-
-Acceptance:
-1. Existing services behave unchanged with no extension files present.
-2. Dropping a valid `.conf` file into mounted extension directory starts the new program.
 
 ### Phase 1: Introduce Plugin Registry (vibe-dashboard plugin core)
 
@@ -125,7 +88,10 @@ Acceptance:
 2. Register:
    - tab preset (`Kanban`)
    - associated icon metadata.
-3. Remove remaining hardcoded Kanban preset references.
+3. Move VK task-attempt API transport out of UI component into:
+   - `src/modules/plugins/vibe-kanban/vkWorkspaceApi.ts`
+4. Refactor `AddVKWorkspaceModal` to call the `vibe-kanban` plugin API helper functions instead of doing direct fetch logic inline.
+5. Remove remaining hardcoded Kanban preset references.
 
 Acceptance:
 1. Kanban tab creation is registry-driven.
@@ -137,7 +103,7 @@ Acceptance:
 2. Register a tab-group factory:
    - builds the default multi-tab workflow composition.
 3. Move VK workspace-oriented orchestration out of monolith:
-   - keep API transport in dedicated plugin-layer code (or adjacent plugin util).
+   - use `vibe-kanban` plugin APIs for task-attempt/container resolution.
 4. Update `AddTabModal` to show factory actions from registry instead of fixed list entry.
 
 Acceptance:
@@ -162,6 +128,7 @@ Acceptance:
    - `src/modules/plugins/vibe-dashboard/`
    - `src/modules/plugins/code-server/`
    - `src/modules/plugins/vibe-kanban/`
+   - `src/modules/plugins/vibe-kanban/vkWorkspaceApi.ts`
    - `src/modules/plugins/app-development/`
    - `src/modules/plugins/index.ts`
 2. Replace static preset source in `AddTabModal`.
@@ -185,4 +152,3 @@ Acceptance:
 3. Can run app-development composite flow and get expected multi-tab layout.
 4. Home/overview internal tab still renders.
 5. App starts with only core plugins imported; features disappear predictably when plugin import is removed.
-6. Supervisor starts with no extensions and with mounted extension files.
