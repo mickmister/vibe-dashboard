@@ -2,6 +2,7 @@ import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { Group, Panel, Separator } from 'react-resizable-panels';
 import type { TabGroup, Tab } from '../types';
 import type { WorkspaceState } from '../types';
+import { SpacesOverview } from './SpacesOverview';
 
 interface IframePanelProps {
   tabGroup: TabGroup;
@@ -367,7 +368,6 @@ function SingleTabView({
     const internalPath = activeTab.url.replace('internal://', '');
 
     if (internalPath === 'spaces-overview' && workspace && onNavigateToTabGroup) {
-      const { SpacesOverview } = require('./SpacesOverview');
       return (
         <div className="flex-1 min-h-0 relative h-full">
           <SpacesOverview
