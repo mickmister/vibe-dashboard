@@ -17,6 +17,7 @@ interface SidebarProps {
   onAddTabGroup: (label: string) => Promise<void> | void;
   onAddTab: (tabGroupId: string, title: string, url: string) => Promise<void> | void;
   onCreatePair: (tabGroupId: string, tabIds: string[]) => Promise<void> | void;
+  onOpenAddTabModal: (tabGroupId: string) => void;
 }
 
 const SPACE_ICONS: Record<string, string> = {
@@ -41,6 +42,7 @@ export function Sidebar({
   onAddTabGroup,
   onAddTab,
   onCreatePair,
+  onOpenAddTabModal,
 }: SidebarProps) {
   const [view, setView] = useState<'groups' | 'spaces'>('groups');
   const [adding, setAdding] = useState(false);
@@ -312,6 +314,20 @@ export function Sidebar({
       {view === 'groups' ? (
         <div className="flex-1 min-h-0 flex flex-col">
           <div className="p-2 border-b border-neutral-800 space-y-2">
+            <Button
+              size="sm"
+              variant="flat"
+              className="w-full"
+              isDisabled={!activeTabGroup}
+              onPress={() => {
+                if (!activeTabGroup) return;
+                setMobileAction(null);
+                onRequestClose?.();
+                onOpenAddTabModal(activeTabGroup.id);
+              }}
+            >
+              Open Existing Workspace
+            </Button>
             <div className="grid grid-cols-3 gap-1.5">
               <Button
                 size="sm"

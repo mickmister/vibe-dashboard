@@ -185,6 +185,7 @@ export function WorkspaceShell({ workspace, session, actions, sessionActions }: 
           onCreatePair={async (tabGroupId, tabIds) => {
             actions.createPair({ tabGroupId, tabIds });
           }}
+          onOpenAddTabModal={openAddTabModal}
         />
       </div>
 
