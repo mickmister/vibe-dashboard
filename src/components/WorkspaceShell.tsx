@@ -178,6 +178,13 @@ export function WorkspaceShell({ workspace, session, actions, sessionActions }: 
           onRenameTabGroup={(tabGroupId, label) =>
             actions.renameTabGroup({ tabGroupId, label })
           }
+          onAddTabGroup={handleAddTabGroup}
+          onAddTab={async (tabGroupId, title, url) => {
+            actions.addTab({ tabGroupId, title, url });
+          }}
+          onCreatePair={async (tabGroupId, tabIds) => {
+            actions.createPair({ tabGroupId, tabIds });
+          }}
         />
       </div>
 

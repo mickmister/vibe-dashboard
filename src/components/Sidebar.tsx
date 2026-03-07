@@ -14,6 +14,9 @@ interface SidebarProps {
   onRenameSpace: (spaceId: string, name: string) => void;
   onDeleteTabGroup: (spaceId: string, tabGroupId: string) => Promise<{ wasDeleted: boolean; nextTabGroupId?: string } | undefined>;
   onRenameTabGroup: (tabGroupId: string, label: string) => void;
+  onAddTabGroup: (label: string) => Promise<void> | void;
+  onAddTab: (tabGroupId: string, title: string, url: string) => Promise<void> | void;
+  onCreatePair: (tabGroupId: string, tabIds: string[]) => Promise<void> | void;
 }
 
 const SPACE_ICONS: Record<string, string> = {
@@ -35,6 +38,9 @@ export function Sidebar({
   onRenameSpace,
   onDeleteTabGroup,
   onRenameTabGroup,
+  onAddTabGroup,
+  onAddTab,
+  onCreatePair,
 }: SidebarProps) {
   const [view, setView] = useState<'groups' | 'spaces'>('groups');
   const [adding, setAdding] = useState(false);
@@ -49,6 +55,11 @@ export function Sidebar({
     tabGroupId: string;
     position: { x: number; y: number };
   } | null>(null);
+  const [mobileAction, setMobileAction] = useState<'group' | 'tab' | 'pair' | null>(null);
+  const [newGroupLabel, setNewGroupLabel] = useState('');
+  const [newTabTitle, setNewTabTitle] = useState('');
+  const [newTabUrl, setNewTabUrl] = useState('');
+  const [pairSelection, setPairSelection] = useState<string[]>([]);
   const contextMenuRef = useRef<HTMLDivElement>(null);
   const groupContextMenuRef = useRef<HTMLDivElement>(null);
   const activeSpace = workspace.spaces.find((space) => space.id === activeSpaceId);
@@ -58,6 +69,12 @@ export function Sidebar({
       .map((id) => workspace.tabGroups.find((tabGroup) => tabGroup.id === id))
       .filter((tabGroup): tabGroup is TabGroup => tabGroup != null);
   }, [activeSpace, workspace.tabGroups]);
+  const activeTabGroup = activeTabGroups.find((tabGroup) => tabGroup.id === activeTabGroupId);
+  const availablePairTabs = useMemo(() => {
+    if (!activeTabGroup) return [];
+    const tabsInPairs = new Set(activeTabGroup.pairs.flatMap((pair) => pair.tabIds));
+    return activeTabGroup.tabs.filter((tab) => !tabsInPairs.has(tab.id));
+  }, [activeTabGroup]);
 
   const handleAddSubmit = useCallback(() => {
     const name = newName.trim();
@@ -160,12 +177,54 @@ export function Sidebar({
     setView('groups');
   }, [onSelectSpace]);
 
+  const handleCreateGroup = useCallback(async () => {
+    const label = newGroupLabel.trim();
+    if (!label) return;
+    await onAddTabGroup(label);
+    setNewGroupLabel('');
+    setMobileAction(null);
+  }, [newGroupLabel, onAddTabGroup]);
+
+  const handleCreateTab = useCallback(async () => {
+    if (!activeTabGroup) return;
+    const title = newTabTitle.trim();
+    const url = newTabUrl.trim();
+    if (!(title && url)) return;
+    await onAddTab(activeTabGroup.id, title, url);
+    setNewTabTitle('');
+    setNewTabUrl('');
+    setMobileAction(null);
+  }, [activeTabGroup, newTabTitle, newTabUrl, onAddTab]);
+
+  const togglePairTab = useCallback((tabId: string) => {
+    setPairSelection((prev) => {
+      if (prev.includes(tabId)) {
+        return prev.filter((id) => id !== tabId);
+      }
+      if (prev.length >= 2) return prev;
+      return [...prev, tabId];
+    });
+  }, []);
+
+  const handleCreatePair = useCallback(async () => {
+    if (!activeTabGroup || pairSelection.length !== 2) return;
+    await onCreatePair(activeTabGroup.id, pairSelection);
+    setPairSelection([]);
+    setMobileAction(null);
+  }, [activeTabGroup, onCreatePair, pairSelection]);
+
   useEffect(() => {
     setAdding(false);
     setEditingId(null);
     setContextMenu(null);
     setGroupContextMenu(null);
+    setMobileAction(null);
   }, [view]);
+
+  useEffect(() => {
+    setMobileAction(null);
+    setPairSelection([]);
+  }, [activeTabGroupId]);
 
   // Close context menus when clicking outside
   useEffect(() => {
@@ -358,6 +417,126 @@ export function Sidebar({
             >
               + New Space
             </Button>
+          )}
+        </div>
+      )}
+
+      {view === 'groups' && (
+        <div className="md:hidden p-2 border-t border-neutral-800 space-y-2">
+          <div className="grid grid-cols-3 gap-1.5">
+            <Button
+              size="sm"
+              variant={mobileAction === 'group' ? 'solid' : 'flat'}
+              color={mobileAction === 'group' ? 'primary' : 'default'}
+              onPress={() => setMobileAction((prev) => prev === 'group' ? null : 'group')}
+            >
+              + Group
+            </Button>
+            <Button
+              size="sm"
+              variant={mobileAction === 'tab' ? 'solid' : 'flat'}
+              color={mobileAction === 'tab' ? 'primary' : 'default'}
+              onPress={() => {
+                if (!activeTabGroup) return;
+                setMobileAction((prev) => prev === 'tab' ? null : 'tab');
+                setNewTabTitle((prev) => prev || 'New Tab');
+                setNewTabUrl((prev) => prev || '/');
+              }}
+              isDisabled={!activeTabGroup}
+            >
+              + Tab
+            </Button>
+            <Button
+              size="sm"
+              variant={mobileAction === 'pair' ? 'solid' : 'flat'}
+              color={mobileAction === 'pair' ? 'primary' : 'default'}
+              onPress={() => {
+                if (availablePairTabs.length < 2) return;
+                setMobileAction((prev) => prev === 'pair' ? null : 'pair');
+                setPairSelection([]);
+              }}
+              isDisabled={availablePairTabs.length < 2}
+            >
+              + Pair
+            </Button>
+          </div>
+
+          {mobileAction === 'group' && (
+            <div className="space-y-1.5">
+              <Input
+                size="sm"
+                value={newGroupLabel}
+                onChange={(e) => setNewGroupLabel(e.target.value)}
+                placeholder="Group name..."
+                classNames={{ inputWrapper: 'bg-neutral-800' }}
+              />
+              <Button size="sm" color="primary" className="w-full" onPress={handleCreateGroup}>
+                Create Group
+              </Button>
+            </div>
+          )}
+
+          {mobileAction === 'tab' && (
+            <div className="space-y-1.5">
+              <Input
+                size="sm"
+                value={newTabTitle}
+                onChange={(e) => setNewTabTitle(e.target.value)}
+                placeholder="Tab title..."
+                classNames={{ inputWrapper: 'bg-neutral-800' }}
+              />
+              <Input
+                size="sm"
+                value={newTabUrl}
+                onChange={(e) => setNewTabUrl(e.target.value)}
+                placeholder="/ or https://..."
+                classNames={{ inputWrapper: 'bg-neutral-800' }}
+              />
+              <Button
+                size="sm"
+                color="primary"
+                className="w-full"
+                onPress={handleCreateTab}
+                isDisabled={!activeTabGroup}
+              >
+                Create Tab
+              </Button>
+            </div>
+          )}
+
+          {mobileAction === 'pair' && (
+            <div className="space-y-1.5">
+              <p className="text-xs text-neutral-400">
+                Pick 2 tabs to pair
+              </p>
+              <div className="max-h-28 overflow-y-auto space-y-1">
+                {availablePairTabs.map((tab) => {
+                  const selected = pairSelection.includes(tab.id);
+                  return (
+                    <button
+                      key={tab.id}
+                      className={`w-full text-left px-2 py-1.5 rounded text-sm transition-colors ${
+                        selected
+                          ? 'bg-primary-500/25 text-primary-200'
+                          : 'bg-neutral-800 text-neutral-200'
+                      }`}
+                      onClick={() => togglePairTab(tab.id)}
+                    >
+                      {tab.title}
+                    </button>
+                  );
+                })}
+              </div>
+              <Button
+                size="sm"
+                color="primary"
+                className="w-full"
+                onPress={handleCreatePair}
+                isDisabled={pairSelection.length !== 2}
+              >
+                Create Pair
+              </Button>
+            </div>
           )}
         </div>
       )}
