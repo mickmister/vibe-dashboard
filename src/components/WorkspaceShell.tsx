@@ -47,6 +47,7 @@ interface WorkspaceShellProps {
 export function WorkspaceShell({ workspace, session, actions, sessionActions }: WorkspaceShellProps) {
   const [addTabModalOpen, setAddTabModalOpen] = useState(false);
   const [addTabTargetGroupId, setAddTabTargetGroupId] = useState<string>('');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const dragGroupRef = useRef<string | null>(null);
 
   // --- Drag-and-drop for tab groups ---
@@ -136,30 +137,62 @@ export function WorkspaceShell({ workspace, session, actions, sessionActions }: 
 
   return (
     <div className="w-full h-full flex bg-neutral-950">
-      <Sidebar
-        workspace={workspace}
-        activeSpaceId={session.activeSpaceId}
-        activeTabGroupId={session.activeTabGroupId}
-        onSelectSpace={(spaceId) => sessionActions.selectSpace(spaceId)}
-        onSelectTabGroup={(tabGroupId) => sessionActions.setActiveTabGroup(tabGroupId)}
-        onAddSpace={async (name) => {
-          const result = await actions.addSpace({ name });
-          if (result) {
-            sessionActions.selectSpace(result.spaceId);
+      {isSidebarOpen && (
+        <button
+          className="md:hidden fixed inset-0 z-[60] bg-black/40"
+          onClick={() => setIsSidebarOpen(false)}
+          aria-label="Close sidebar overlay"
+        />
+      )}
+
+      <div
+        className={`fixed inset-y-0 left-0 z-[70] transform transition-transform duration-200 md:static md:z-auto md:translate-x-0 ${
+          isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
+      >
+        <Sidebar
+          workspace={workspace}
+          activeSpaceId={session.activeSpaceId}
+          activeTabGroupId={session.activeTabGroupId}
+          onRequestClose={() => setIsSidebarOpen(false)}
+          onSelectSpace={(spaceId) => {
+            sessionActions.selectSpace(spaceId);
+            setIsSidebarOpen(false);
+          }}
+          onSelectTabGroup={(tabGroupId) => {
+            sessionActions.setActiveTabGroup(tabGroupId);
+            setIsSidebarOpen(false);
+          }}
+          onAddSpace={async (name) => {
+            const result = await actions.addSpace({ name });
+            if (result) {
+              sessionActions.selectSpace(result.spaceId);
+              setIsSidebarOpen(false);
+            }
+          }}
+          onDeleteSpace={(spaceId) => actions.deleteSpace({ spaceId })}
+          onRenameSpace={(spaceId, name) => actions.renameSpace({ spaceId, name })}
+          onDeleteTabGroup={async (spaceId, tabGroupId) =>
+            actions.deleteTabGroup({ spaceId, tabGroupId })
           }
-        }}
-        onDeleteSpace={(spaceId) => actions.deleteSpace({ spaceId })}
-        onRenameSpace={(spaceId, name) => actions.renameSpace({ spaceId, name })}
-        onDeleteTabGroup={async (spaceId, tabGroupId) =>
-          actions.deleteTabGroup({ spaceId, tabGroupId })
-        }
-        onRenameTabGroup={(tabGroupId, label) =>
-          actions.renameTabGroup({ tabGroupId, label })
-        }
-      />
+          onRenameTabGroup={(tabGroupId, label) =>
+            actions.renameTabGroup({ tabGroupId, label })
+          }
+        />
+      </div>
 
       {/* Main content area */}
-      <div className="flex-1 flex flex-col min-h-0 min-w-0">
+      <div className="flex-1 flex flex-col min-h-0 min-w-0 relative">
+        {!isSidebarOpen && (
+          <button
+            className="md:hidden absolute top-2 left-2 z-[60] h-9 w-9 rounded-md bg-neutral-900/90 border border-neutral-700 text-neutral-200"
+            onClick={() => setIsSidebarOpen(true)}
+            title="Open sidebar"
+            aria-label="Open sidebar"
+          >
+            ☰
+          </button>
+        )}
         <WorkspaceContentView
           activeTabGroups={activeTabGroups}
           activeTabGroupId={session.activeTabGroupId}

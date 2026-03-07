@@ -6,6 +6,7 @@ interface SidebarProps {
   workspace: WorkspaceState;
   activeSpaceId: string;
   activeTabGroupId: string;
+  onRequestClose?: () => void;
   onSelectSpace: (spaceId: string) => void;
   onSelectTabGroup: (tabGroupId: string) => void;
   onAddSpace: (name: string) => void;
@@ -26,6 +27,7 @@ export function Sidebar({
   workspace,
   activeSpaceId,
   activeTabGroupId,
+  onRequestClose,
   onSelectSpace,
   onSelectTabGroup,
   onAddSpace,
@@ -197,35 +199,53 @@ export function Sidebar({
     <div className="h-full w-72 bg-neutral-900 border-r border-neutral-800 flex flex-col shrink-0">
       <div className="p-3 border-b border-neutral-800">
         {view === 'groups' ? (
-          <div className="flex items-center gap-2">
-            <button
-              className="h-8 w-8 rounded-md text-neutral-300 hover:bg-neutral-800 hover:text-white transition-colors"
-              title="Show spaces"
-              onClick={() => setView('spaces')}
-            >
-              ←
-            </button>
-            <div className="min-w-0">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-neutral-500">
-                Current Space
-              </p>
-              <h2 className="text-sm font-semibold text-neutral-100 truncate">
-                {activeSpace?.name || 'Unknown Space'}
-              </h2>
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <button
+                className="h-8 w-8 rounded-md text-neutral-300 hover:bg-neutral-800 hover:text-white transition-colors"
+                title="Show spaces"
+                onClick={() => setView('spaces')}
+              >
+                ←
+              </button>
+              <div className="min-w-0">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-neutral-500">
+                  Current Space
+                </p>
+                <h2 className="text-sm font-semibold text-neutral-100 truncate">
+                  {activeSpace?.name || 'Unknown Space'}
+                </h2>
+              </div>
             </div>
+            <button
+              className="md:hidden h-8 w-8 rounded-md text-neutral-300 hover:bg-neutral-800 hover:text-white transition-colors"
+              title="Close sidebar"
+              onClick={onRequestClose}
+            >
+              ✕
+            </button>
           </div>
         ) : (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <button
+                className="h-8 w-8 rounded-md text-neutral-300 hover:bg-neutral-800 hover:text-white transition-colors"
+                title="Back to groups"
+                onClick={() => setView('groups')}
+              >
+                ←
+              </button>
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-neutral-400">
+                Spaces
+              </h2>
+            </div>
             <button
-              className="h-8 w-8 rounded-md text-neutral-300 hover:bg-neutral-800 hover:text-white transition-colors"
-              title="Back to groups"
-              onClick={() => setView('groups')}
+              className="md:hidden h-8 w-8 rounded-md text-neutral-300 hover:bg-neutral-800 hover:text-white transition-colors"
+              title="Close sidebar"
+              onClick={onRequestClose}
             >
-              ←
+              ✕
             </button>
-            <h2 className="text-xs font-semibold uppercase tracking-wider text-neutral-400">
-              Spaces
-            </h2>
           </div>
         )}
       </div>
