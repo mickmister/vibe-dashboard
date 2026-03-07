@@ -16,8 +16,15 @@ if [ -S /var/run/docker.sock ]; then
         fi
     else
         # Create docker group with correct GID
-        echo "Creating docker group with GID $DOCKER_SOCK_GID to match socket"
-        groupadd -g "$DOCKER_SOCK_GID" docker
+        # First check if the GID is already used by another group
+        EXISTING_GROUP=$(getent group "$DOCKER_SOCK_GID" | cut -d: -f1)
+        if [ -n "$EXISTING_GROUP" ]; then
+            echo "GID $DOCKER_SOCK_GID already used by group '$EXISTING_GROUP', renaming it to docker"
+            groupmod -n docker "$EXISTING_GROUP"
+        else
+            echo "Creating docker group with GID $DOCKER_SOCK_GID to match socket"
+            groupadd -g "$DOCKER_SOCK_GID" docker
+        fi
         usermod -aG docker vkuser
     fi
 fi
