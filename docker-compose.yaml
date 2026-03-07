@@ -16,6 +16,7 @@ services:
       - "${CADDY_PORT:-3001}:3001"         # caddy (main entry point)
       - "127.0.0.1:${VIBE_KANBAN_PORT:-3007}:3007"   # vibe-kanban (direct access, localhost-only)
       - "127.0.0.1:${VS_CODE_PORT:-3008}:3008"       # vscode (direct access, localhost-only)
+      - "50000-59999:50000-59999"                      # dynamic port range for dev servers
 
     environment:
       VIBE_KANBAN_VERSION: ${VIBE_KANBAN_VERSION:-latest}
