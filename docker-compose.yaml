@@ -13,16 +13,16 @@ services:
       - /dev/net/tun:/dev/net/tun
 
     ports:
-      - "${CADDY_PORT:-3001}:3001"         # caddy (main entry point)
-      - "127.0.0.1:${VIBE_KANBAN_PORT:-3007}:3007"   # vibe-kanban (direct access, localhost-only)
-      - "127.0.0.1:${VS_CODE_PORT:-3008}:3008"       # vscode (direct access, localhost-only)
-      - "50000-59999:50000-59999"                      # dynamic port range for dev servers
+      - "${CADDY_PORT:-3001}:${CADDY_PORT:-3001}"               # caddy (main entry point)
+      - "127.0.0.1:${BACKEND_PORT:-3007}:${BACKEND_PORT:-3007}" # vibe-kanban (direct access, localhost-only)
+      - "127.0.0.1:${PORT:-3008}:${PORT:-3008}"                 # vscode (direct access, localhost-only)
 
     environment:
       VIBE_KANBAN_VERSION: ${VIBE_KANBAN_VERSION:-latest}
-      CADDY_PORT: 3001
-      BACKEND_PORT: 3007 # vibe-kanban
-      PORT: 3008 # vscode
+      CADDY_PORT: ${CADDY_PORT:-3001}
+      BACKEND_PORT: ${BACKEND_PORT:-3007}
+      DASHBOARD_PORT: ${DASHBOARD_PORT:-3005}
+      PORT: ${PORT:-3008}
       XDG_CONFIG_HOME: /home/vkuser/.config
 
       PASSWORD: ${CODE_PASSWORD:?Set CODE_PASSWORD}
