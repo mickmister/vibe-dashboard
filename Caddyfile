@@ -151,9 +151,9 @@
 		path /vscode-remote-resource*
 	}
 
-	# VSCode Server - proxy to code-server on localhost:{$PORT:3008} (query param routing)
+	# VSCode Server - proxy to code-server on localhost:{$CODE_PORT:3008} (query param routing)
 	handle @vscode_query {
-		reverse_proxy localhost:{$PORT:3008} {
+		reverse_proxy localhost:{$CODE_PORT:3008} {
 			header_up Host {upstream_hostport}
 			# Handle WebSocket connections
 			header_up Upgrade {http.request.header.Upgrade}
@@ -161,16 +161,16 @@
 		}
 	}
 
-	# VSCode Server - proxy to code-server on localhost:{$PORT:3008} (stable-* asset routing)
+	# VSCode Server - proxy to code-server on localhost:{$CODE_PORT:3008} (stable-* asset routing)
 	handle @vscode_stable {
-		reverse_proxy localhost:{$PORT:3008} {
+		reverse_proxy localhost:{$CODE_PORT:3008} {
 			header_up Host {upstream_hostport}
 		}
 	}
 
-	# VSCode Server - proxy to code-server on localhost:{$PORT:3008} (vscode-remote-resource routing)
+	# VSCode Server - proxy to code-server on localhost:{$CODE_PORT:3008} (vscode-remote-resource routing)
 	handle @vscode_remote {
-		reverse_proxy localhost:{$PORT:3008} {
+		reverse_proxy localhost:{$CODE_PORT:3008} {
 			header_up Host {upstream_hostport}
 		}
 	}
