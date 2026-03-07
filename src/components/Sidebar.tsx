@@ -310,35 +310,155 @@ export function Sidebar({
       </div>
 
       {view === 'groups' ? (
-        <div className="flex-1 overflow-y-auto p-2 space-y-1">
-          {activeTabGroups.length === 0 ? (
-            <div className="px-3 py-4 text-sm text-neutral-500">
-              No tab groups in this space.
-            </div>
-          ) : (
-            activeTabGroups.map((tabGroup) => (
-              <button
-                key={tabGroup.id}
-                className={`w-full text-left px-3 py-2 rounded-lg transition-colors ${
-                  activeTabGroupId === tabGroup.id
-                    ? 'bg-primary-500/20 text-primary-300'
-                    : 'text-neutral-300 hover:bg-neutral-800'
-                }`}
-                onClick={() => onSelectTabGroup(tabGroup.id)}
-                onContextMenu={(e) => handleGroupContextMenu(e, tabGroup.id)}
+        <div className="flex-1 min-h-0 flex flex-col">
+          <div className="p-2 border-b border-neutral-800 space-y-2">
+            <div className="grid grid-cols-3 gap-1.5">
+              <Button
+                size="sm"
+                variant={mobileAction === 'group' ? 'solid' : 'flat'}
+                color={mobileAction === 'group' ? 'primary' : 'default'}
+                onPress={() => setMobileAction((prev) => prev === 'group' ? null : 'group')}
               >
-                <div className="text-sm font-medium truncate">
-                  {tabGroup.label}
+                + Group
+              </Button>
+              <Button
+                size="sm"
+                variant={mobileAction === 'tab' ? 'solid' : 'flat'}
+                color={mobileAction === 'tab' ? 'primary' : 'default'}
+                onPress={() => {
+                  if (!activeTabGroup) return;
+                  setMobileAction((prev) => prev === 'tab' ? null : 'tab');
+                  setNewTabTitle((prev) => prev || 'New Tab');
+                  setNewTabUrl((prev) => prev || '/');
+                }}
+                isDisabled={!activeTabGroup}
+              >
+                + Tab
+              </Button>
+              <Button
+                size="sm"
+                variant={mobileAction === 'pair' ? 'solid' : 'flat'}
+                color={mobileAction === 'pair' ? 'primary' : 'default'}
+                onPress={() => {
+                  if (availablePairTabs.length < 2) return;
+                  setMobileAction((prev) => prev === 'pair' ? null : 'pair');
+                  setPairSelection([]);
+                }}
+                isDisabled={availablePairTabs.length < 2}
+              >
+                + Pair
+              </Button>
+            </div>
+
+            {mobileAction === 'group' && (
+              <div className="space-y-1.5">
+                <Input
+                  size="sm"
+                  value={newGroupLabel}
+                  onChange={(e) => setNewGroupLabel(e.target.value)}
+                  placeholder="Group name..."
+                  classNames={{ inputWrapper: 'bg-neutral-800' }}
+                />
+                <Button size="sm" color="primary" className="w-full" onPress={handleCreateGroup}>
+                  Create Group
+                </Button>
+              </div>
+            )}
+
+            {mobileAction === 'tab' && (
+              <div className="space-y-1.5">
+                <Input
+                  size="sm"
+                  value={newTabTitle}
+                  onChange={(e) => setNewTabTitle(e.target.value)}
+                  placeholder="Tab title..."
+                  classNames={{ inputWrapper: 'bg-neutral-800' }}
+                />
+                <Input
+                  size="sm"
+                  value={newTabUrl}
+                  onChange={(e) => setNewTabUrl(e.target.value)}
+                  placeholder="/ or https://..."
+                  classNames={{ inputWrapper: 'bg-neutral-800' }}
+                />
+                <Button
+                  size="sm"
+                  color="primary"
+                  className="w-full"
+                  onPress={handleCreateTab}
+                  isDisabled={!activeTabGroup}
+                >
+                  Create Tab
+                </Button>
+              </div>
+            )}
+
+            {mobileAction === 'pair' && (
+              <div className="space-y-1.5">
+                <p className="text-xs text-neutral-400">
+                  Pick 2 tabs to pair
+                </p>
+                <div className="max-h-28 overflow-y-auto space-y-1">
+                  {availablePairTabs.map((tab) => {
+                    const selected = pairSelection.includes(tab.id);
+                    return (
+                      <button
+                        key={tab.id}
+                        className={`w-full text-left px-2 py-1.5 rounded text-sm transition-colors ${
+                          selected
+                            ? 'bg-primary-500/25 text-primary-200'
+                            : 'bg-neutral-800 text-neutral-200'
+                        }`}
+                        onClick={() => togglePairTab(tab.id)}
+                      >
+                        {tab.title}
+                      </button>
+                    );
+                  })}
                 </div>
-                <div className="text-xs text-neutral-500 mt-0.5">
-                  {tabGroup.tabs.length} tab{tabGroup.tabs.length !== 1 ? 's' : ''}
-                  {tabGroup.pairs.length > 0
-                    ? ` • ${tabGroup.pairs.length} pair${tabGroup.pairs.length !== 1 ? 's' : ''}`
-                    : ''}
-                </div>
-              </button>
-            ))
-          )}
+                <Button
+                  size="sm"
+                  color="primary"
+                  className="w-full"
+                  onPress={handleCreatePair}
+                  isDisabled={pairSelection.length !== 2}
+                >
+                  Create Pair
+                </Button>
+              </div>
+            )}
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-2 space-y-1">
+            {activeTabGroups.length === 0 ? (
+              <div className="px-3 py-4 text-sm text-neutral-500">
+                No tab groups in this space.
+              </div>
+            ) : (
+              activeTabGroups.map((tabGroup) => (
+                <button
+                  key={tabGroup.id}
+                  className={`w-full text-left px-3 py-2 rounded-lg transition-colors ${
+                    activeTabGroupId === tabGroup.id
+                      ? 'bg-primary-500/20 text-primary-300'
+                      : 'text-neutral-300 hover:bg-neutral-800'
+                  }`}
+                  onClick={() => onSelectTabGroup(tabGroup.id)}
+                  onContextMenu={(e) => handleGroupContextMenu(e, tabGroup.id)}
+                >
+                  <div className="text-sm font-medium truncate">
+                    {tabGroup.label}
+                  </div>
+                  <div className="text-xs text-neutral-500 mt-0.5">
+                    {tabGroup.tabs.length} tab{tabGroup.tabs.length !== 1 ? 's' : ''}
+                    {tabGroup.pairs.length > 0
+                      ? ` • ${tabGroup.pairs.length} pair${tabGroup.pairs.length !== 1 ? 's' : ''}`
+                      : ''}
+                  </div>
+                </button>
+              ))
+            )}
+          </div>
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto p-2 space-y-1">
@@ -417,126 +537,6 @@ export function Sidebar({
             >
               + New Space
             </Button>
-          )}
-        </div>
-      )}
-
-      {view === 'groups' && (
-        <div className="md:hidden p-2 border-t border-neutral-800 space-y-2">
-          <div className="grid grid-cols-3 gap-1.5">
-            <Button
-              size="sm"
-              variant={mobileAction === 'group' ? 'solid' : 'flat'}
-              color={mobileAction === 'group' ? 'primary' : 'default'}
-              onPress={() => setMobileAction((prev) => prev === 'group' ? null : 'group')}
-            >
-              + Group
-            </Button>
-            <Button
-              size="sm"
-              variant={mobileAction === 'tab' ? 'solid' : 'flat'}
-              color={mobileAction === 'tab' ? 'primary' : 'default'}
-              onPress={() => {
-                if (!activeTabGroup) return;
-                setMobileAction((prev) => prev === 'tab' ? null : 'tab');
-                setNewTabTitle((prev) => prev || 'New Tab');
-                setNewTabUrl((prev) => prev || '/');
-              }}
-              isDisabled={!activeTabGroup}
-            >
-              + Tab
-            </Button>
-            <Button
-              size="sm"
-              variant={mobileAction === 'pair' ? 'solid' : 'flat'}
-              color={mobileAction === 'pair' ? 'primary' : 'default'}
-              onPress={() => {
-                if (availablePairTabs.length < 2) return;
-                setMobileAction((prev) => prev === 'pair' ? null : 'pair');
-                setPairSelection([]);
-              }}
-              isDisabled={availablePairTabs.length < 2}
-            >
-              + Pair
-            </Button>
-          </div>
-
-          {mobileAction === 'group' && (
-            <div className="space-y-1.5">
-              <Input
-                size="sm"
-                value={newGroupLabel}
-                onChange={(e) => setNewGroupLabel(e.target.value)}
-                placeholder="Group name..."
-                classNames={{ inputWrapper: 'bg-neutral-800' }}
-              />
-              <Button size="sm" color="primary" className="w-full" onPress={handleCreateGroup}>
-                Create Group
-              </Button>
-            </div>
-          )}
-
-          {mobileAction === 'tab' && (
-            <div className="space-y-1.5">
-              <Input
-                size="sm"
-                value={newTabTitle}
-                onChange={(e) => setNewTabTitle(e.target.value)}
-                placeholder="Tab title..."
-                classNames={{ inputWrapper: 'bg-neutral-800' }}
-              />
-              <Input
-                size="sm"
-                value={newTabUrl}
-                onChange={(e) => setNewTabUrl(e.target.value)}
-                placeholder="/ or https://..."
-                classNames={{ inputWrapper: 'bg-neutral-800' }}
-              />
-              <Button
-                size="sm"
-                color="primary"
-                className="w-full"
-                onPress={handleCreateTab}
-                isDisabled={!activeTabGroup}
-              >
-                Create Tab
-              </Button>
-            </div>
-          )}
-
-          {mobileAction === 'pair' && (
-            <div className="space-y-1.5">
-              <p className="text-xs text-neutral-400">
-                Pick 2 tabs to pair
-              </p>
-              <div className="max-h-28 overflow-y-auto space-y-1">
-                {availablePairTabs.map((tab) => {
-                  const selected = pairSelection.includes(tab.id);
-                  return (
-                    <button
-                      key={tab.id}
-                      className={`w-full text-left px-2 py-1.5 rounded text-sm transition-colors ${
-                        selected
-                          ? 'bg-primary-500/25 text-primary-200'
-                          : 'bg-neutral-800 text-neutral-200'
-                      }`}
-                      onClick={() => togglePairTab(tab.id)}
-                    >
-                      {tab.title}
-                    </button>
-                  );
-                })}
-              </div>
-              <Button
-                size="sm"
-                color="primary"
-                className="w-full"
-                onPress={handleCreatePair}
-                isDisabled={pairSelection.length !== 2}
-              >
-                Create Pair
-              </Button>
-            </div>
           )}
         </div>
       )}
