@@ -123,6 +123,7 @@ RUN useradd -m -s /bin/bash vkuser && \
              /home/vkuser/.npm \
              /home/vkuser/.cache \
              /home/vkuser/.claude \
+             /home/vkuser/bosun \
              /home/vkuser/repos \
              /var/tmp/vibe-kanban/worktrees \
              /var/run/tailscale \

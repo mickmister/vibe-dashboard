@@ -25,6 +25,8 @@ services:
       CODE_PASSWORD: ${CODE_PASSWORD:?Set CODE_PASSWORD}
       SUDO_PASSWORD: ${SUDO_PASSWORD}
 
+      ENABLE_BOSUN: ${ENABLE_BOSUN:-false}
+
       ENABLE_TAILSCALE: ${ENABLE_TAILSCALE:-false}
       TAILSCALE_AUTHKEY: ${TAILSCALE_AUTHKEY:-}
       TAILSCALE_HOSTNAME: ${TAILSCALE_HOSTNAME:-vkdev}
@@ -59,6 +61,8 @@ services:
       - pnpm-store:/home/vkuser/.local/share/pnpm
       # Persist Tailscale state (so you don't need to re-authenticate)
       - tailscale-state:/var/lib/tailscale
+      # Persist Bosun config (workspaces, .env, bosun.config.json)
+      - bosun-data:/home/vkuser/bosun
 
 volumes:
   vibe-kanban-repos:
@@ -72,3 +76,4 @@ volumes:
   npm-cache:
   pnpm-store:
   tailscale-state:
+  bosun-data:
