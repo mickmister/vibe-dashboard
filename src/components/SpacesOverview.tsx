@@ -100,13 +100,13 @@ function useVKDashboardData() {
     try {
       // Fetch workspaces, summaries, and repos in parallel
       const [wsRes, summaryRes, reposRes] = await Promise.all([
-        fetch('/api/task-attempts'),
-        fetch('/api/task-attempts/summary', {
+        fetch('/vk-api/task-attempts'),
+        fetch('/vk-api/task-attempts/summary', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ archived: false }),
         }),
-        fetch('/api/repos'),
+        fetch('/vk-api/repos'),
       ]);
 
       if (!wsRes.ok) throw new Error('Failed to load workspaces');
@@ -147,7 +147,7 @@ function useVKDashboardData() {
       // Batch-fetch per-workspace repos
       const repoResults = await Promise.allSettled(
         activeWorkspaces.map((ws) =>
-          fetch(`/api/task-attempts/${ws.id}/repos`)
+          fetch(`/vk-api/task-attempts/${ws.id}/repos`)
             .then((r) => (r.ok ? r.json() : { success: false }))
             .then((d) => ({
               wsId: ws.id,

@@ -9,16 +9,10 @@
 	@port_forward header_regexp port Host ^port-([0-9]+)\.
 
 	handle @port_forward {
-		# VK API routes should be proxied to main vibe-kanban instance (localhost:{$BACKEND_PORT:3007})
-		# instead of the dynamic port, so the wrapper can access task attempts
-		@vk_api_routes {
-			path /api/task-attempts
-			path /api/task-attempts/*
-			path /api/repos
-			path /api/repos/*
-		}
-
-		handle @vk_api_routes {
+		# /vk-api/* is proxied to main vibe-kanban instance (localhost:{$BACKEND_PORT:3007})
+		# with the prefix stripped so /vk-api/repos -> /api/repos on the backend
+		handle_path /vk-api/* {
+			rewrite * /api{uri}
 			reverse_proxy localhost:{$BACKEND_PORT:3007} {
 				header_up Host {upstream_hostport}
 			}
@@ -173,6 +167,14 @@
 	# VSCode Server - proxy to code-server on localhost:{$CODE_PORT:3008} (vscode-remote-resource routing)
 	handle @vscode_remote {
 		reverse_proxy localhost:{$CODE_PORT:3008} {
+			header_up Host {upstream_hostport}
+		}
+	}
+
+	# VK API — strip /vk-api prefix and proxy to vibe-kanban backend as /api/*
+	handle_path /vk-api/* {
+		rewrite * /api{uri}
+		reverse_proxy localhost:{$BACKEND_PORT:3007} {
 			header_up Host {upstream_hostport}
 		}
 	}
