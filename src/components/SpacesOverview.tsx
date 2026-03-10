@@ -363,6 +363,14 @@ function WorkspaceRow({
         </div>
       )}
 
+      {/* Dev server indicator */}
+      {ws.has_running_dev_server && (
+        <span className="shrink-0 px-2 py-0.5 rounded-full text-xs font-medium bg-cyan-500/15 text-cyan-400 border border-cyan-500/30 flex items-center gap-1">
+          <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+          Dev server
+        </span>
+      )}
+
       {/* PR badge */}
       {ws.pr_status && ws.pr_status !== 'unknown' && (
         <div className="shrink-0">
