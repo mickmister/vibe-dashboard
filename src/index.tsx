@@ -13,6 +13,10 @@ import springboard from 'springboard';
 import { createDefaultWorkspace } from './types';
 import type { WorkspaceState } from './types';
 
+// Ensure dark class is on the document root so portaled elements (modals, popovers)
+// inherit dark mode styles
+document.documentElement.classList.add('dark');
+
 (globalThis as {useHashRouter?: boolean}).useHashRouter = true
 
 /**
