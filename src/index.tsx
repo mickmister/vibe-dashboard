@@ -17,8 +17,6 @@ import type { WorkspaceState } from './types';
 // inherit dark mode styles
 document.documentElement.classList.add('dark');
 
-(globalThis as {useHashRouter?: boolean}).useHashRouter = true
-
 /**
  * Get the base URL without port prefix for creating tab URLs.
  * If running on port-{num}.domain.com, returns just the origin without the prefix.
@@ -365,22 +363,30 @@ springboard.registerModule('workspace', {rpcMode: 'remote'}, async (moduleAPI) =
     },
   });
 
-  // Shared route component with space parameter support
+  // Redirect component for root path (dev server case)
+  const RootRedirect = () => {
+    const navigate = useNavigate();
+    useEffect(() => {
+      navigate('/dashboard', { replace: true });
+    }, [navigate]);
+    return null;
+  };
+
+  // Shared route component with space/tabGroup/item parameter support
   const WorkspaceRoute = () => {
     const workspace = workspaceState.useState();
-    const { spaceId } = useParams<{ spaceId?: string }>();
+    const { spaceId, tabGroupId, itemId } = useParams<{ spaceId?: string; tabGroupId?: string; itemId?: string }>();
     const navigate = useNavigate();
-    const sessionNav = useSessionWorkspaceNav(workspace, spaceId);
+    const sessionNav = useSessionWorkspaceNav(workspace, { spaceId, tabGroupId, itemId });
 
-    // Navigate to URL when space changes (unless already there)
+    // Sync URL to match current nav state
     useEffect(() => {
-      const targetPath = sessionNav.activeSpaceId ? `/spaces/${sessionNav.activeSpaceId}` : '/';
-      const currentPath = spaceId ? `/spaces/${spaceId}` : '/';
-
-      if (targetPath !== currentPath) {
-        navigate(targetPath, { replace: true });
+      const segments = ['/dashboard', spaceId && `spaces/${spaceId}`, tabGroupId, itemId].filter(Boolean);
+      const currentPath = segments.join('/');
+      if (sessionNav.targetPath !== currentPath) {
+        navigate(sessionNav.targetPath, { replace: true });
       }
-    }, [sessionNav.activeSpaceId, spaceId, navigate]);
+    }, [sessionNav.targetPath, spaceId, tabGroupId, itemId, navigate]);
 
     // Wrap actions that need session parameters
     const wrappedActions = {
@@ -454,9 +460,14 @@ springboard.registerModule('workspace', {rpcMode: 'remote'}, async (moduleAPI) =
     );
   };
 
-  // Register routes for both root and space-specific paths
-  moduleAPI.registerRoute('/', { hideApplicationShell: true }, WorkspaceRoute);
-  moduleAPI.registerRoute('/spaces/:spaceId', { hideApplicationShell: true }, WorkspaceRoute);
+  // Root redirects to /dashboard (for dev server case)
+  moduleAPI.registerRoute('/', { hideApplicationShell: true }, RootRedirect);
+
+  // Register dashboard routes with increasing specificity
+  moduleAPI.registerRoute('/dashboard', { hideApplicationShell: true }, WorkspaceRoute);
+  moduleAPI.registerRoute('/dashboard/spaces/:spaceId', { hideApplicationShell: true }, WorkspaceRoute);
+  moduleAPI.registerRoute('/dashboard/spaces/:spaceId/:tabGroupId', { hideApplicationShell: true }, WorkspaceRoute);
+  moduleAPI.registerRoute('/dashboard/spaces/:spaceId/:tabGroupId/:itemId', { hideApplicationShell: true }, WorkspaceRoute);
 
   return {
     states: { workspace: workspaceState },

@@ -3,8 +3,8 @@ import type { WorkspaceState } from './types';
 
 /**
  * Session-level workspace navigation state.
- * activeSpaceId is now managed via React Router path params, not sessionStorage.
- * Other navigation state remains in sessionStorage for per-window independence.
+ * All navigation IDs are synced to URL path params for shareable deep links.
+ * sessionStorage is used as a fallback when URL params are incomplete.
  */
 export interface SessionWorkspaceNav {
   activeSpaceId: string;
@@ -13,14 +13,19 @@ export interface SessionWorkspaceNav {
   activeItems: Record<string, string>;
 }
 
+export interface RouteParams {
+  spaceId?: string;
+  tabGroupId?: string;
+  itemId?: string;
+}
+
 const SESSION_KEY = 'workspace-nav';
 
 /**
  * Load session navigation state.
- * activeSpaceId comes from route params, other state from sessionStorage.
- * Falls back to first available space/tab group if stored values are invalid.
+ * Route params take priority, then sessionStorage, then first available defaults.
  */
-function loadSessionNav(workspace: WorkspaceState, routeSpaceId?: string): SessionWorkspaceNav {
+function loadSessionNav(workspace: WorkspaceState, route: RouteParams = {}): SessionWorkspaceNav {
   // Build initial activeItems map from workspace state
   const activeItems: Record<string, string> = {};
   workspace.tabGroups.forEach(tg => {
@@ -29,8 +34,7 @@ function loadSessionNav(workspace: WorkspaceState, routeSpaceId?: string): Sessi
     activeItems[tg.id] = firstItem;
   });
 
-  // Get spaceId from route params first
-  const spaceExistsInRoute = routeSpaceId && workspace.spaces.some(s => s.id === routeSpaceId);
+  const spaceExistsInRoute = route.spaceId && workspace.spaces.some(s => s.id === route.spaceId);
 
   let activeSpaceId = '';
   let activeTabGroupId = '';
@@ -42,20 +46,38 @@ function loadSessionNav(workspace: WorkspaceState, routeSpaceId?: string): Sessi
 
       // Use route spaceId if valid, otherwise try sessionStorage
       if (spaceExistsInRoute) {
-        activeSpaceId = routeSpaceId!;
+        activeSpaceId = route.spaceId!;
       } else if (parsed.activeSpaceId && workspace.spaces.some(s => s.id === parsed.activeSpaceId)) {
         activeSpaceId = parsed.activeSpaceId;
       }
 
-      const tabGroupExists = parsed.activeTabGroupId && workspace.tabGroups.some(tg => tg.id === parsed.activeTabGroupId);
+      // Resolve tab group: route > sessionStorage
+      const space = activeSpaceId ? workspace.spaces.find(s => s.id === activeSpaceId) : undefined;
+      const routeTabGroupValid = route.tabGroupId && space?.tabGroupIds.includes(route.tabGroupId);
+      const storedTabGroupValid = parsed.activeTabGroupId && workspace.tabGroups.some(tg => tg.id === parsed.activeTabGroupId);
 
-      if (activeSpaceId && tabGroupExists) {
+      if (routeTabGroupValid) {
+        activeTabGroupId = route.tabGroupId!;
+      } else if (activeSpaceId && storedTabGroupValid) {
+        activeTabGroupId = parsed.activeTabGroupId!;
+      }
+
+      if (activeSpaceId && activeTabGroupId) {
         // Merge stored activeItems with defaults (in case new tab groups were added)
         const mergedActiveItems = { ...activeItems, ...(parsed.activeItems || {}) };
 
+        // Route itemId overrides stored activeItem for this tab group
+        if (route.itemId && activeTabGroupId) {
+          const tg = workspace.tabGroups.find(g => g.id === activeTabGroupId);
+          const itemExists = tg && (tg.tabs.some(t => t.id === route.itemId) || tg.pairs.some(p => p.id === route.itemId));
+          if (itemExists) {
+            mergedActiveItems[activeTabGroupId] = route.itemId!;
+          }
+        }
+
         return {
           activeSpaceId,
-          activeTabGroupId: parsed.activeTabGroupId!,
+          activeTabGroupId,
           activeItems: mergedActiveItems,
         };
       }
@@ -70,7 +92,7 @@ function loadSessionNav(workspace: WorkspaceState, routeSpaceId?: string): Sessi
     firstSpace.tabGroupIds.includes(tg.id)
   ) : workspace.tabGroups[0];
 
-  activeSpaceId = (spaceExistsInRoute ? routeSpaceId : firstSpace?.id) || '';
+  activeSpaceId = (spaceExistsInRoute ? route.spaceId : firstSpace?.id) || '';
   activeTabGroupId = firstTabGroup?.id || '';
 
   return {
@@ -97,27 +119,58 @@ function saveSessionNav(nav: SessionWorkspaceNav) {
 }
 
 /**
- * Hook for managing per-window workspace navigation state.
- * activeSpaceId is synced with React Router params for shareable navigation.
- * Returns current active IDs and setters that persist to sessionStorage.
+ * Build the canonical URL path for the current nav state.
  */
-export function useSessionWorkspaceNav(workspace: WorkspaceState, routeSpaceId?: string) {
-  const [nav, setNav] = useState<SessionWorkspaceNav>(() => loadSessionNav(workspace, routeSpaceId));
+function buildNavPath(nav: SessionWorkspaceNav): string {
+  if (!nav.activeSpaceId) return '/dashboard';
+  const activeItem = nav.activeItems[nav.activeTabGroupId] || '';
+  let path = `/dashboard/spaces/${nav.activeSpaceId}`;
+  if (nav.activeTabGroupId) {
+    path += `/${nav.activeTabGroupId}`;
+    if (activeItem) {
+      path += `/${activeItem}`;
+    }
+  }
+  return path;
+}
+
+/**
+ * Hook for managing per-window workspace navigation state.
+ * Navigation IDs are synced with React Router path params for shareable deep links.
+ * Returns current active IDs, setters, and the target URL path.
+ */
+export function useSessionWorkspaceNav(workspace: WorkspaceState, route: RouteParams = {}) {
+  const [nav, setNav] = useState<SessionWorkspaceNav>(() => loadSessionNav(workspace, route));
 
   // Sync route param changes to nav state
   useEffect(() => {
-    if (routeSpaceId && workspace.spaces.some(s => s.id === routeSpaceId)) {
-      setNav(prev => {
-        if (prev.activeSpaceId !== routeSpaceId) {
-          // Find first tab group in the new space
-          const space = workspace.spaces.find(s => s.id === routeSpaceId);
-          const firstTabGroupId = space?.tabGroupIds[0] || prev.activeTabGroupId;
-          return { ...prev, activeSpaceId: routeSpaceId, activeTabGroupId: firstTabGroupId };
+    setNav(prev => {
+      let updated = prev;
+
+      // Sync spaceId from route
+      if (route.spaceId && workspace.spaces.some(s => s.id === route.spaceId) && prev.activeSpaceId !== route.spaceId) {
+        const space = workspace.spaces.find(s => s.id === route.spaceId);
+        const firstTabGroupId = space?.tabGroupIds[0] || prev.activeTabGroupId;
+        updated = { ...updated, activeSpaceId: route.spaceId, activeTabGroupId: firstTabGroupId };
+      }
+
+      // Sync tabGroupId from route
+      if (route.tabGroupId && workspace.tabGroups.some(tg => tg.id === route.tabGroupId) && prev.activeTabGroupId !== route.tabGroupId) {
+        updated = { ...updated, activeTabGroupId: route.tabGroupId };
+      }
+
+      // Sync itemId from route
+      if (route.itemId && route.tabGroupId) {
+        const tg = workspace.tabGroups.find(g => g.id === route.tabGroupId);
+        const itemExists = tg && (tg.tabs.some(t => t.id === route.itemId) || tg.pairs.some(p => p.id === route.itemId));
+        if (itemExists && prev.activeItems[route.tabGroupId!] !== route.itemId) {
+          updated = { ...updated, activeItems: { ...updated.activeItems, [route.tabGroupId!]: route.itemId } };
         }
-        return prev;
-      });
-    }
-  }, [routeSpaceId, workspace.spaces]);
+      }
+
+      return updated === prev ? prev : updated;
+    });
+  }, [route.spaceId, route.tabGroupId, route.itemId, workspace.spaces, workspace.tabGroups]);
 
   // Sync to sessionStorage whenever nav changes
   useEffect(() => {
@@ -134,8 +187,7 @@ export function useSessionWorkspaceNav(workspace: WorkspaceState, routeSpaceId?:
 
     if (!spaceExists || !tabGroupExists) {
       // Current selection is invalid, reload nav
-      // Keep the current activeSpaceId when reloading
-      const newNav = loadSessionNav(workspace, routeSpaceId);
+      const newNav = loadSessionNav(workspace, route);
       setNav(newNav);
     } else if (newTabGroups.length > 0) {
       // Add missing tab groups to activeItems without reloading everything
@@ -148,7 +200,7 @@ export function useSessionWorkspaceNav(workspace: WorkspaceState, routeSpaceId?:
         return { ...prev, activeItems: updatedActiveItems };
       });
     }
-  }, [workspace.spaces, workspace.tabGroups, nav.activeSpaceId, nav.activeTabGroupId, nav.activeItems, routeSpaceId]);
+  }, [workspace.spaces, workspace.tabGroups, nav.activeSpaceId, nav.activeTabGroupId, nav.activeItems, route]);
 
   const selectSpace = (spaceId: string) => {
     const space = workspace.spaces.find(s => s.id === spaceId);
@@ -185,10 +237,13 @@ export function useSessionWorkspaceNav(workspace: WorkspaceState, routeSpaceId?:
     return nav.activeItems[tabGroupId] || '';
   };
 
+  const targetPath = buildNavPath(nav);
+
   return {
     activeSpaceId: nav.activeSpaceId,
     activeTabGroupId: nav.activeTabGroupId,
     activeItems: nav.activeItems,
+    targetPath,
     getActiveItem,
     selectSpace,
     selectTab,
