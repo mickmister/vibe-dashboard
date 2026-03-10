@@ -653,6 +653,20 @@ export function SpacesOverview({ workspace, onNavigateToTabGroup, onOpenVKWorksp
   const [page, setPage] = useState(0);
   const [spacePickerTarget, setSpacePickerTarget] = useState<DashboardWorkspace | null>(null);
 
+  // Derive repos from workspace data if /api/repos returned empty
+  const effectiveRepos = useMemo(() => {
+    if (repos.length > 0) return repos;
+    const seen = new Map<string, VKRepo>();
+    for (const ws of workspaces) {
+      for (const r of ws.repos) {
+        if (!seen.has(r.id)) {
+          seen.set(r.id, { id: r.id, name: r.name, display_name: r.display_name });
+        }
+      }
+    }
+    return Array.from(seen.values());
+  }, [repos, workspaces]);
+
   // Reset page when filter changes
   useEffect(() => { setPage(0); }, [selectedRepoId]);
 
@@ -720,7 +734,7 @@ export function SpacesOverview({ workspace, onNavigateToTabGroup, onOpenVKWorksp
           </div>
 
           <RepoFilterBar
-            repos={repos}
+            repos={effectiveRepos}
             selectedRepoId={selectedRepoId}
             onSelectRepo={setSelectedRepoId}
           />
