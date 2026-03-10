@@ -83,6 +83,8 @@ function formatRelativeTime(isoString: string): string {
   return `${Math.floor(days / 30)}mo ago`;
 }
 
+const PAGE_SIZE = 20;
+
 // ── Data fetching hook ──────────────────────────────────────────────────────
 
 function useVKDashboardData() {
@@ -297,41 +299,51 @@ function RepoFilterBar({
   );
 }
 
-function WorkspaceCard({ workspace: ws }: { workspace: DashboardWorkspace }) {
+function WorkspaceRow({ workspace: ws }: { workspace: DashboardWorkspace }) {
   const activityTime = ws.latest_process_completed_at || ws.updated_at;
   const hasDiffStats =
     ws.files_changed != null || ws.lines_added != null || ws.lines_removed != null;
 
   return (
-    <div className="bg-zinc-800 rounded-lg border border-zinc-700 p-4 hover:border-zinc-500 transition-colors relative">
-      {/* Unseen activity indicator */}
-      {ws.has_unseen_turns && (
-        <span className="absolute top-3 right-3 w-2 h-2 rounded-full bg-blue-400" />
-      )}
+    <div className="flex items-center gap-4 px-4 py-3 bg-zinc-800/50 rounded-lg border border-zinc-700/50 hover:border-zinc-600 transition-colors">
+      {/* Unseen dot */}
+      <div className="w-2 shrink-0">
+        {ws.has_unseen_turns && (
+          <span className="block w-2 h-2 rounded-full bg-blue-400" />
+        )}
+      </div>
 
-      {/* Header */}
-      <div className="flex items-start justify-between gap-2 mb-2">
-        <div className="min-w-0 flex-1">
-          <h3 className="text-sm font-medium text-white truncate leading-tight">
-            {ws.pinned && <span className="text-amber-400 mr-1">*</span>}
+      {/* Name + branch */}
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5">
+          {ws.pinned && <span className="text-amber-400 text-xs">*</span>}
+          <span className="text-sm text-white font-medium truncate">
             {ws.name}
-          </h3>
-          <p className="text-xs text-zinc-500 mt-0.5 truncate font-mono">
-            {ws.branch}
-          </p>
+          </span>
         </div>
-        <StatusBadge
-          status={ws.latest_process_status}
-          hasPendingApproval={ws.has_pending_approval}
-        />
+        <span className="text-xs text-zinc-500 font-mono truncate block">
+          {ws.branch}
+        </span>
+      </div>
+
+      {/* Repos */}
+      <div className="hidden md:flex gap-1 shrink-0">
+        {ws.repos.map((r) => (
+          <span
+            key={r.id}
+            className="px-1.5 py-0.5 bg-zinc-700 rounded text-xs text-zinc-400 truncate max-w-20"
+          >
+            {r.display_name || r.name}
+          </span>
+        ))}
       </div>
 
       {/* Diff stats */}
       {hasDiffStats && (
-        <div className="flex items-center gap-3 text-xs mt-2">
+        <div className="hidden sm:flex items-center gap-2 text-xs shrink-0">
           {ws.files_changed != null && (
             <span className="text-zinc-400">
-              {ws.files_changed} file{ws.files_changed !== 1 ? 's' : ''}
+              {ws.files_changed}f
             </span>
           )}
           {ws.lines_added != null && ws.lines_added > 0 && (
@@ -343,24 +355,60 @@ function WorkspaceCard({ workspace: ws }: { workspace: DashboardWorkspace }) {
         </div>
       )}
 
-      {/* Footer */}
-      <div className="flex items-center justify-between mt-3 gap-2">
-        <div className="flex gap-1 flex-wrap min-w-0">
-          {ws.repos.map((r) => (
-            <span
-              key={r.id}
-              className="px-1.5 py-0.5 bg-zinc-700 rounded text-xs text-zinc-400 truncate max-w-24"
-            >
-              {r.display_name || r.name}
-            </span>
-          ))}
-          {ws.pr_status && ws.pr_status !== 'unknown' && (
-            <PRBadge status={ws.pr_status} />
-          )}
+      {/* PR badge */}
+      {ws.pr_status && ws.pr_status !== 'unknown' && (
+        <div className="shrink-0">
+          <PRBadge status={ws.pr_status} />
         </div>
-        <span className="text-xs text-zinc-500 whitespace-nowrap shrink-0">
-          {formatRelativeTime(activityTime)}
-        </span>
+      )}
+
+      {/* Status */}
+      <div className="shrink-0">
+        <StatusBadge
+          status={ws.latest_process_status}
+          hasPendingApproval={ws.has_pending_approval}
+        />
+      </div>
+
+      {/* Time */}
+      <span className="text-xs text-zinc-500 whitespace-nowrap shrink-0 w-16 text-right">
+        {formatRelativeTime(activityTime)}
+      </span>
+    </div>
+  );
+}
+
+function Pagination({
+  page,
+  totalPages,
+  onPageChange,
+}: {
+  page: number;
+  totalPages: number;
+  onPageChange: (page: number) => void;
+}) {
+  if (totalPages <= 1) return null;
+
+  return (
+    <div className="flex items-center justify-between mt-4">
+      <span className="text-xs text-zinc-500">
+        Page {page + 1} of {totalPages}
+      </span>
+      <div className="flex gap-2">
+        <button
+          disabled={page === 0}
+          onClick={() => onPageChange(page - 1)}
+          className="px-3 py-1 rounded text-xs font-medium bg-zinc-800 text-zinc-400 border border-zinc-700 hover:bg-zinc-700 hover:text-zinc-300 transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-zinc-800 disabled:hover:text-zinc-400"
+        >
+          Previous
+        </button>
+        <button
+          disabled={page >= totalPages - 1}
+          onClick={() => onPageChange(page + 1)}
+          className="px-3 py-1 rounded text-xs font-medium bg-zinc-800 text-zinc-400 border border-zinc-700 hover:bg-zinc-700 hover:text-zinc-300 transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-zinc-800 disabled:hover:text-zinc-400"
+        >
+          Next
+        </button>
       </div>
     </div>
   );
@@ -375,7 +423,6 @@ function RecentTabGroups({
   workspace: WorkspaceState;
   onNavigateToTabGroup: (spaceId: string, tabGroupId: string) => void;
 }) {
-  // Collect all non-system tab groups across all spaces, ordered by space then tab group order
   const recentGroups = useMemo(() => {
     const items: { space: (typeof workspace.spaces)[0]; tg: TabGroup }[] = [];
 
@@ -389,7 +436,6 @@ function RecentTabGroups({
       }
     }
 
-    // Show most recently added first (higher order / later in list = more recent)
     return items.reverse().slice(0, 8);
   }, [workspace.spaces, workspace.tabGroups]);
 
@@ -397,36 +443,36 @@ function RecentTabGroups({
 
   return (
     <div className="mb-10">
-      <h2 className="text-lg font-semibold text-white mb-4">Recent Tab Groups</h2>
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+      <h2 className="text-lg font-semibold text-white mb-3">Recent Tab Groups</h2>
+      <div className="space-y-1">
         {recentGroups.map(({ space, tg }) => (
           <button
             key={tg.id}
             onClick={() => onNavigateToTabGroup(space.id, tg.id)}
-            className="text-left p-3 rounded-lg bg-zinc-800 border border-zinc-700 hover:border-zinc-500 hover:bg-zinc-750 transition-colors group"
+            className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg bg-zinc-800/50 border border-zinc-700/50 hover:border-zinc-600 transition-colors group text-left"
           >
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-sm font-medium text-white truncate">{tg.label}</span>
-              <svg
-                className="w-3.5 h-3.5 text-zinc-500 group-hover:text-white transition-colors shrink-0 ml-2"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M9 5l7 7-7 7"
-                />
-              </svg>
+            <div className="min-w-0 flex-1">
+              <span className="text-sm font-medium text-white truncate block">{tg.label}</span>
             </div>
-            <p className="text-xs text-zinc-500">{space.name}</p>
-            <p className="text-xs text-zinc-500 mt-0.5">
+            <span className="text-xs text-zinc-500 shrink-0">{space.name}</span>
+            <span className="text-xs text-zinc-600 shrink-0">
               {tg.tabs.length} tab{tg.tabs.length !== 1 ? 's' : ''}
               {tg.pairs.length > 0 &&
                 ` / ${tg.pairs.length} pair${tg.pairs.length !== 1 ? 's' : ''}`}
-            </p>
+            </span>
+            <svg
+              className="w-3.5 h-3.5 text-zinc-600 group-hover:text-white transition-colors shrink-0"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M9 5l7 7-7 7"
+              />
+            </svg>
           </button>
         ))}
       </div>
@@ -434,7 +480,7 @@ function RecentTabGroups({
   );
 }
 
-// ── Spaces Section (preserved from original) ────────────────────────────────
+// ── Spaces Section ──────────────────────────────────────────────────────────
 
 function SpacesSection({
   workspace,
@@ -456,56 +502,47 @@ function SpacesSection({
 
   return (
     <div>
-      <h2 className="text-lg font-semibold text-white mb-4">All Spaces</h2>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      <h2 className="text-lg font-semibold text-white mb-3">All Spaces</h2>
+      <div className="space-y-1">
         {spacesWithTabGroups.map(({ space, tabGroups }) => (
-          <div
-            key={space.id}
-            className="bg-zinc-800 rounded-lg border border-zinc-700 overflow-hidden hover:border-zinc-600 transition-colors"
-          >
-            <div className="p-4 border-b border-zinc-700">
-              <h3 className="text-base font-semibold text-white">{space.name}</h3>
-              <p className="text-xs text-zinc-400 mt-1">
+          <div key={space.id}>
+            {/* Space header row */}
+            <div className="flex items-center gap-3 px-4 py-2 mt-3 first:mt-0">
+              <span className="text-sm font-semibold text-zinc-300">{space.name}</span>
+              <span className="text-xs text-zinc-600">
                 {tabGroups.length} tab group{tabGroups.length !== 1 ? 's' : ''}
-              </p>
+              </span>
             </div>
-            <div className="p-3">
-              {tabGroups.length === 0 ? (
-                <p className="text-zinc-500 text-sm">No tab groups</p>
-              ) : (
-                <div className="space-y-1.5">
-                  {tabGroups.map((tg) => (
-                    <button
-                      key={tg.id}
-                      onClick={() => onNavigateToTabGroup(space.id, tg.id)}
-                      className="w-full text-left px-3 py-2 rounded bg-zinc-700 hover:bg-zinc-600 transition-colors group"
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-white font-medium">{tg.label}</span>
-                        <svg
-                          className="w-3.5 h-3.5 text-zinc-400 group-hover:text-white transition-colors"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M9 5l7 7-7 7"
-                          />
-                        </svg>
-                      </div>
-                      <div className="text-xs text-zinc-400 mt-0.5">
-                        {tg.tabs.length} tab{tg.tabs.length !== 1 ? 's' : ''}
-                        {tg.pairs.length > 0 &&
-                          ` / ${tg.pairs.length} pair${tg.pairs.length !== 1 ? 's' : ''}`}
-                      </div>
-                    </button>
-                  ))}
+            {/* Tab group rows */}
+            {tabGroups.map((tg) => (
+              <button
+                key={tg.id}
+                onClick={() => onNavigateToTabGroup(space.id, tg.id)}
+                className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg bg-zinc-800/50 border border-zinc-700/50 hover:border-zinc-600 transition-colors group text-left"
+              >
+                <div className="min-w-0 flex-1">
+                  <span className="text-sm text-white font-medium truncate block">{tg.label}</span>
                 </div>
-              )}
-            </div>
+                <span className="text-xs text-zinc-600 shrink-0">
+                  {tg.tabs.length} tab{tg.tabs.length !== 1 ? 's' : ''}
+                  {tg.pairs.length > 0 &&
+                    ` / ${tg.pairs.length} pair${tg.pairs.length !== 1 ? 's' : ''}`}
+                </span>
+                <svg
+                  className="w-3.5 h-3.5 text-zinc-600 group-hover:text-white transition-colors shrink-0"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M9 5l7 7-7 7"
+                  />
+                </svg>
+              </button>
+            ))}
           </div>
         ))}
       </div>
@@ -523,6 +560,10 @@ interface SpacesOverviewProps {
 export function SpacesOverview({ workspace, onNavigateToTabGroup }: SpacesOverviewProps) {
   const { workspaces, repos, loading, error } = useVKDashboardData();
   const [selectedRepoId, setSelectedRepoId] = useState<string | null>(null);
+  const [page, setPage] = useState(0);
+
+  // Reset page when filter changes
+  useEffect(() => { setPage(0); }, [selectedRepoId]);
 
   const sortedWorkspaces = useMemo(() => {
     let filtered = workspaces;
@@ -532,20 +573,21 @@ export function SpacesOverview({ workspace, onNavigateToTabGroup }: SpacesOvervi
       );
     }
     return [...filtered].sort((a, b) => {
-      // Pinned first
       if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
-      // Then by most recent activity
       const aTime = new Date(a.latest_process_completed_at || a.updated_at).getTime();
       const bTime = new Date(b.latest_process_completed_at || b.updated_at).getTime();
       return bTime - aTime;
     });
   }, [workspaces, selectedRepoId]);
 
+  const totalPages = Math.ceil(sortedWorkspaces.length / PAGE_SIZE);
+  const pagedWorkspaces = sortedWorkspaces.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+
   const hasSpaces = workspace.spaces.some((s) => !s.isSystem);
 
   return (
     <div className="h-full w-full overflow-auto bg-zinc-900 p-6 md:p-8">
-      <div className="max-w-6xl mx-auto">
+      <div className="max-w-4xl mx-auto">
         {/* Header */}
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-white">Dashboard</h1>
@@ -560,15 +602,20 @@ export function SpacesOverview({ workspace, onNavigateToTabGroup }: SpacesOvervi
 
         {/* VK Workspaces Section */}
         <div className="mb-10">
-          <h2 className="text-lg font-semibold text-white mb-4">VK Workspaces</h2>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-lg font-semibold text-white">VK Workspaces</h2>
+            {!loading && sortedWorkspaces.length > 0 && (
+              <span className="text-xs text-zinc-500">
+                {sortedWorkspaces.length} workspace{sortedWorkspaces.length !== 1 ? 's' : ''}
+              </span>
+            )}
+          </div>
 
-          {repos.length > 1 && (
-            <RepoFilterBar
-              repos={repos}
-              selectedRepoId={selectedRepoId}
-              onSelectRepo={setSelectedRepoId}
-            />
-          )}
+          <RepoFilterBar
+            repos={repos}
+            selectedRepoId={selectedRepoId}
+            onSelectRepo={setSelectedRepoId}
+          />
 
           {loading ? (
             <div className="flex items-center justify-center py-12">
@@ -590,11 +637,14 @@ export function SpacesOverview({ workspace, onNavigateToTabGroup }: SpacesOvervi
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {sortedWorkspaces.map((ws) => (
-                <WorkspaceCard key={ws.id} workspace={ws} />
-              ))}
-            </div>
+            <>
+              <div className="space-y-1">
+                {pagedWorkspaces.map((ws) => (
+                  <WorkspaceRow key={ws.id} workspace={ws} />
+                ))}
+              </div>
+              <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
+            </>
           )}
         </div>
 
