@@ -302,9 +302,11 @@ function RepoFilterBar({
 function WorkspaceRow({
   workspace: ws,
   tabGroupNav,
+  onOpenInNewTabGroup,
 }: {
   workspace: DashboardWorkspace;
   tabGroupNav?: { spaceId: string; tabGroupId: string; label: string; onNavigate: () => void };
+  onOpenInNewTabGroup?: () => void;
 }) {
   const activityTime = ws.latest_process_completed_at || ws.updated_at;
   const hasDiffStats =
@@ -368,16 +370,23 @@ function WorkspaceRow({
         </div>
       )}
 
-      {/* Go to tab group */}
-      {tabGroupNav && (
+      {/* Open workspace action */}
+      {tabGroupNav ? (
         <button
           onClick={tabGroupNav.onNavigate}
           title={`Go to "${tabGroupNav.label}"`}
           className="shrink-0 px-2 py-1 rounded text-xs font-medium bg-indigo-500/15 text-indigo-400 border border-indigo-500/30 hover:bg-indigo-500/25 transition-colors"
         >
+          Go to tab group
+        </button>
+      ) : onOpenInNewTabGroup ? (
+        <button
+          onClick={onOpenInNewTabGroup}
+          className="shrink-0 px-2 py-1 rounded text-xs font-medium bg-zinc-700 text-zinc-300 border border-zinc-600 hover:bg-zinc-600 hover:text-white transition-colors"
+        >
           Open
         </button>
-      )}
+      ) : null}
 
       {/* Status */}
       <div className="shrink-0">
@@ -426,6 +435,69 @@ function Pagination({
         >
           Next
         </button>
+      </div>
+    </div>
+  );
+}
+
+function SpacePickerModal({
+  workspace: ws,
+  targetWorkspace,
+  onSelect,
+  onClose,
+}: {
+  workspace: WorkspaceState;
+  targetWorkspace: DashboardWorkspace;
+  onSelect: (spaceId: string) => void;
+  onClose: () => void;
+}) {
+  const spaces = ws.spaces.filter((s) => !s.isSystem);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+      onClick={onClose}
+    >
+      <div
+        className="bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl w-full max-w-sm mx-4"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="px-5 pt-5 pb-3">
+          <h3 className="text-sm font-semibold text-white">Open in space</h3>
+          <p className="text-xs text-zinc-500 mt-1 truncate">
+            {targetWorkspace.name}
+          </p>
+        </div>
+        <div className="px-3 pb-3 max-h-64 overflow-y-auto">
+          {spaces.length === 0 ? (
+            <p className="text-xs text-zinc-500 px-2 py-4 text-center">
+              No spaces available. Create a space first.
+            </p>
+          ) : (
+            <div className="space-y-1">
+              {spaces.map((space) => (
+                <button
+                  key={space.id}
+                  onClick={() => onSelect(space.id)}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-zinc-800 transition-colors text-left"
+                >
+                  <span className="text-sm text-white">{space.name}</span>
+                  <span className="text-xs text-zinc-600 ml-auto">
+                    {ws.tabGroups.filter((tg) => space.tabGroupIds.includes(tg.id)).length} tab groups
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="px-5 pb-4 pt-2 border-t border-zinc-800">
+          <button
+            onClick={onClose}
+            className="w-full px-3 py-1.5 rounded text-xs font-medium bg-zinc-800 text-zinc-400 border border-zinc-700 hover:bg-zinc-700 hover:text-zinc-300 transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -572,12 +644,14 @@ function SpacesSection({
 interface SpacesOverviewProps {
   workspace: WorkspaceState;
   onNavigateToTabGroup: (spaceId: string, tabGroupId: string) => void;
+  onOpenVKWorkspace?: (taskAttemptId: string, name: string, containerRef: string, spaceId: string) => void;
 }
 
-export function SpacesOverview({ workspace, onNavigateToTabGroup }: SpacesOverviewProps) {
+export function SpacesOverview({ workspace, onNavigateToTabGroup, onOpenVKWorkspace }: SpacesOverviewProps) {
   const { workspaces, repos, loading, error } = useVKDashboardData();
   const [selectedRepoId, setSelectedRepoId] = useState<string | null>(null);
   const [page, setPage] = useState(0);
+  const [spacePickerTarget, setSpacePickerTarget] = useState<DashboardWorkspace | null>(null);
 
   // Reset page when filter changes
   useEffect(() => { setPage(0); }, [selectedRepoId]);
@@ -684,6 +758,9 @@ export function SpacesOverview({ workspace, onNavigateToTabGroup }: SpacesOvervi
                       key={ws.id}
                       workspace={ws}
                       {...(tabGroupNav ? { tabGroupNav } : {})}
+                      {...(!tabGroupNav && onOpenVKWorkspace ? {
+                        onOpenInNewTabGroup: () => setSpacePickerTarget(ws),
+                      } : {})}
                     />
                   );
                 })}
@@ -704,6 +781,24 @@ export function SpacesOverview({ workspace, onNavigateToTabGroup }: SpacesOvervi
           </>
         )}
       </div>
+
+      {/* Space picker modal */}
+      {spacePickerTarget && onOpenVKWorkspace && (
+        <SpacePickerModal
+          workspace={workspace}
+          targetWorkspace={spacePickerTarget}
+          onSelect={(spaceId) => {
+            onOpenVKWorkspace(
+              spacePickerTarget.id,
+              spacePickerTarget.name,
+              spacePickerTarget.container_ref || '',
+              spaceId,
+            );
+            setSpacePickerTarget(null);
+          }}
+          onClose={() => setSpacePickerTarget(null)}
+        />
+      )}
     </div>
   );
 }

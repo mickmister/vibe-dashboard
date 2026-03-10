@@ -10,6 +10,7 @@ interface IframePanelProps {
   onUpdatePairRatios: (pairId: string, ratios: number[]) => void;
   workspace?: WorkspaceState;
   onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void;
+  onOpenVKWorkspace?: (taskAttemptId: string, name: string, containerRef: string, spaceId: string) => void;
 }
 
 /**
@@ -305,6 +306,7 @@ export function IframePanel({
   onUpdatePairRatios,
   workspace,
   onNavigateToTabGroup,
+  onOpenVKWorkspace,
 }: IframePanelProps) {
   const { loadingState } = useImperativeIframes(tabGroup.tabs);
 
@@ -340,8 +342,9 @@ export function IframePanel({
         <SingleTabView
           activeTab={activeTab}
           loadingState={loadingState}
-          workspace={workspace}
-          onNavigateToTabGroup={onNavigateToTabGroup}
+          {...(workspace ? { workspace } : {})}
+          {...(onNavigateToTabGroup ? { onNavigateToTabGroup } : {})}
+          {...(onOpenVKWorkspace ? { onOpenVKWorkspace } : {})}
         />
       ) : (
         <EmptyView />
@@ -355,11 +358,13 @@ function SingleTabView({
   loadingState,
   workspace,
   onNavigateToTabGroup,
+  onOpenVKWorkspace,
 }: {
   activeTab: Tab;
   loadingState: Map<string, boolean>;
   workspace?: WorkspaceState;
   onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void;
+  onOpenVKWorkspace?: (taskAttemptId: string, name: string, containerRef: string, spaceId: string) => void;
 }) {
   const isLoaded = loadingState.get(activeTab.id) ?? false;
 
@@ -373,6 +378,7 @@ function SingleTabView({
           <SpacesOverview
             workspace={workspace}
             onNavigateToTabGroup={onNavigateToTabGroup}
+            {...(onOpenVKWorkspace ? { onOpenVKWorkspace } : {})}
           />
         </div>
       );
