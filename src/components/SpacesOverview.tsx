@@ -299,7 +299,13 @@ function RepoFilterBar({
   );
 }
 
-function WorkspaceRow({ workspace: ws }: { workspace: DashboardWorkspace }) {
+function WorkspaceRow({
+  workspace: ws,
+  tabGroupNav,
+}: {
+  workspace: DashboardWorkspace;
+  tabGroupNav?: { spaceId: string; tabGroupId: string; label: string; onNavigate: () => void };
+}) {
   const activityTime = ws.latest_process_completed_at || ws.updated_at;
   const hasDiffStats =
     ws.files_changed != null || ws.lines_added != null || ws.lines_removed != null;
@@ -360,6 +366,17 @@ function WorkspaceRow({ workspace: ws }: { workspace: DashboardWorkspace }) {
         <div className="shrink-0">
           <PRBadge status={ws.pr_status} />
         </div>
+      )}
+
+      {/* Go to tab group */}
+      {tabGroupNav && (
+        <button
+          onClick={tabGroupNav.onNavigate}
+          title={`Go to "${tabGroupNav.label}"`}
+          className="shrink-0 px-2 py-1 rounded text-xs font-medium bg-indigo-500/15 text-indigo-400 border border-indigo-500/30 hover:bg-indigo-500/25 transition-colors"
+        >
+          Open
+        </button>
       )}
 
       {/* Status */}
@@ -583,6 +600,23 @@ export function SpacesOverview({ workspace, onNavigateToTabGroup }: SpacesOvervi
   const totalPages = Math.ceil(sortedWorkspaces.length / PAGE_SIZE);
   const pagedWorkspaces = sortedWorkspaces.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
+  // Map workspace IDs to their open tab groups by scanning tab URLs for /workspaces/{id}
+  const workspaceTabGroupMap = useMemo(() => {
+    const map = new Map<string, { spaceId: string; tabGroupId: string; label: string }>();
+    for (const space of workspace.spaces) {
+      const tgs = workspace.tabGroups.filter((tg) => space.tabGroupIds.includes(tg.id));
+      for (const tg of tgs) {
+        for (const tab of tg.tabs) {
+          const match = tab.url.match(/\/workspaces\/([^/?#]+)/);
+          if (match && match[1]) {
+            map.set(match[1], { spaceId: space.id, tabGroupId: tg.id, label: tg.label });
+          }
+        }
+      }
+    }
+    return map;
+  }, [workspace.spaces, workspace.tabGroups]);
+
   const hasSpaces = workspace.spaces.some((s) => !s.isSystem);
 
   return (
@@ -639,9 +673,20 @@ export function SpacesOverview({ workspace, onNavigateToTabGroup }: SpacesOvervi
           ) : (
             <>
               <div className="space-y-1">
-                {pagedWorkspaces.map((ws) => (
-                  <WorkspaceRow key={ws.id} workspace={ws} />
-                ))}
+                {pagedWorkspaces.map((ws) => {
+                  const nav = workspaceTabGroupMap.get(ws.id);
+                  const tabGroupNav = nav ? {
+                    ...nav,
+                    onNavigate: () => onNavigateToTabGroup(nav.spaceId, nav.tabGroupId),
+                  } : null;
+                  return (
+                    <WorkspaceRow
+                      key={ws.id}
+                      workspace={ws}
+                      {...(tabGroupNav ? { tabGroupNav } : {})}
+                    />
+                  );
+                })}
               </div>
               <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
             </>
