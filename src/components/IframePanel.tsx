@@ -161,12 +161,11 @@ function checkContentReady(iframe: HTMLIFrameElement, entry: IframeEntry) {
       }
     }, 100); // Check every 100ms
 
-    // Timeout after 10 seconds — if content still not ready, treat as error
+    // Timeout after 10 seconds to prevent infinite checking
     setTimeout(() => {
       clearInterval(checkInterval);
       if (!entry.contentReady) {
         entry.contentReady = true;
-        entry.loadError = true;
         entry.listeners.forEach((fn) => fn());
       }
     }, 10000);
