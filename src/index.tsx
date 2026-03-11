@@ -379,6 +379,15 @@ springboard.registerModule('workspace', {rpcMode: 'remote'}, async (moduleAPI) =
     const navigate = useNavigate();
     const sessionNav = useSessionWorkspaceNav(workspace, { spaceId, tabGroupId, itemId });
 
+    // Update document title to reflect active space and tab group
+    useEffect(() => {
+      const space = workspace.spaces.find(s => s.id === sessionNav.activeSpaceId);
+      const tabGroup = workspace.tabGroups.find(tg => tg.id === sessionNav.activeTabGroupId);
+      if (space && tabGroup) {
+        document.title = `${space.name} - ${tabGroup.label}`;
+      }
+    }, [sessionNav.activeSpaceId, sessionNav.activeTabGroupId, workspace.spaces, workspace.tabGroups]);
+
     // Sync URL to match current nav state
     useEffect(() => {
       const segments = ['/dashboard', spaceId && `spaces/${spaceId}`, tabGroupId, itemId].filter(Boolean);
