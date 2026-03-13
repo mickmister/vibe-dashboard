@@ -13,7 +13,12 @@ const contributions: PluginContributions = {
   ],
 };
 
-springboard.registerModule('plugin-app-development', {}, async () => {
+springboard.registerModule('plugin-app-development', {}, async (moduleAPI) => {
+  const pluginRegistry = moduleAPI.getModule('plugin-registry');
+  if (pluginRegistry) {
+    await pluginRegistry.actions.registerContributions(contributions);
+  }
+
   return {
     contributions,
   };

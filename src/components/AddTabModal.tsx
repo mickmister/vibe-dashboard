@@ -10,7 +10,7 @@ import {
   Listbox,
   ListboxItem,
 } from '@heroui/react';
-import { AddVKWorkspaceModal } from './dialogs/AddVKWorkspaceModal';
+import { AddVKWorkspaceModal } from '../modules/plugins/vibe-kanban/components/AddVKWorkspaceModal';
 import type {
   TabGroupFactoryContribution,
   TabPresetContribution,

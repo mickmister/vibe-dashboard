@@ -13,7 +13,7 @@ import {
   vkClient,
   type RepoWithBranch,
   type Workspace,
-} from '../../lib/vk-client';
+} from '../../../../lib/vk-client';
 
 interface WorkspaceOption extends Workspace {
   repos: RepoWithBranch[];
@@ -32,6 +32,7 @@ export function AddVKWorkspaceModal({
   onAdd,
   onAddWithPath,
 }: AddVKWorkspaceModalProps) {
+  const canAddWithPath = typeof onAddWithPath === 'function';
   const [taskAttempts, setTaskAttempts] = useState<WorkspaceOption[]>([]);
   const [filteredAttempts, setFilteredAttempts] = useState<WorkspaceOption[]>([]);
   const [loading, setLoading] = useState(false);
@@ -45,9 +46,8 @@ export function AddVKWorkspaceModal({
 
   useEffect(() => {
     if (isOpen) {
-      fetchTaskAttempts();
+      void fetchTaskAttempts();
     } else {
-      // Reset state when modal closes
       setSearchQuery('');
       setSelectedRepo('all');
       setSelectedId(null);
@@ -72,7 +72,7 @@ export function AddVKWorkspaceModal({
         const matchesRepo = repoFilter === 'all' || repoNames.includes(repoFilter);
 
         return matchesQuery && matchesRepo;
-      })
+      }),
     );
   }, [searchQuery, selectedRepo, taskAttempts]);
 
@@ -84,9 +84,9 @@ export function AddVKWorkspaceModal({
     return Array.from(repos).sort((a, b) => a.localeCompare(b));
   }, [taskAttempts]);
 
-  const refreshTaskAttemptContainerAndRefetchTaskAttempt = async (taskAttemptId: string) => {
-    await vkClient.getWorkspaceBranchStatus(taskAttemptId);
-    return vkClient.getWorkspace(taskAttemptId);
+  const refreshWorkspaceContainerAndRefetch = async (workspaceId: string) => {
+    await vkClient.getWorkspaceBranchStatus(workspaceId);
+    return vkClient.getWorkspace(workspaceId);
   };
 
   const fetchTaskAttempts = async () => {
@@ -100,8 +100,8 @@ export function AddVKWorkspaceModal({
         activeWorkspaces.map((workspace) =>
           vkClient
             .getWorkspaceRepos(workspace.id)
-            .then((repos) => ({ workspaceId: workspace.id, repos }))
-        )
+            .then((repos) => ({ workspaceId: workspace.id, repos })),
+        ),
       );
 
       const repoMap = new Map<string, RepoWithBranch[]>();
@@ -138,11 +138,10 @@ export function AddVKWorkspaceModal({
     if (!selected) return;
 
     let containerRef = selected.container_ref;
-
     if (!containerRef) {
       try {
-        const attempt = await refreshTaskAttemptContainerAndRefetchTaskAttempt(selected.id);
-        containerRef = attempt.container_ref;
+        const refreshed = await refreshWorkspaceContainerAndRefetch(selected.id);
+        containerRef = refreshed.container_ref;
       } catch (e) {
         console.error('Failed to refresh container ref', e);
       }
@@ -153,17 +152,10 @@ export function AddVKWorkspaceModal({
   };
 
   const handleAddWithPath = () => {
-    if (!customPath.trim()) return;
+    if (!canAddWithPath || !customPath.trim()) return;
 
     const name = customName.trim() || 'Custom Workspace';
-
-    // If onAddWithPath is provided, use it
-    if (onAddWithPath) {
-      onAddWithPath(customPath.trim(), name);
-    } else {
-      // Fallback: treat path as containerRef and create empty taskAttemptId
-      onAdd('', name, customPath.trim());
-    }
+    onAddWithPath(customPath.trim(), name);
     onClose();
   };
 
@@ -227,13 +219,15 @@ export function AddVKWorkspaceModal({
                     }}
                     className="flex-1"
                   />
-                  <Button
-                    size="sm"
-                    variant="flat"
-                    onPress={() => setShowPathInput(true)}
-                  >
-                    Custom Path
-                  </Button>
+                  {canAddWithPath && (
+                    <Button
+                      size="sm"
+                      variant="flat"
+                      onPress={() => setShowPathInput(true)}
+                    >
+                      Custom Path
+                    </Button>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-2">
@@ -270,49 +264,52 @@ export function AddVKWorkspaceModal({
 
               {!loading && !error && filteredAttempts.length === 0 && (
                 <div className="text-neutral-500 text-center py-8">
-                  {searchQuery
-                    ? 'No workspaces match your search'
+                  {searchQuery || selectedRepo !== 'all'
+                    ? 'No workspaces match your filters'
                     : 'No workspaces available'}
                 </div>
               )}
 
               {!loading && !error && filteredAttempts.length > 0 && (
                 <div className="flex flex-col gap-2 max-h-96 overflow-y-auto">
-                  {filteredAttempts.map((ta) => (
-                    <div
-                      key={ta.id}
-                      onClick={() => setSelectedId(ta.id)}
-                      className={`p-3 rounded-lg cursor-pointer transition-colors ${
-                        selectedId === ta.id
-                          ? 'bg-primary-500/20 border border-primary-500'
-                          : 'bg-neutral-800 hover:bg-neutral-700 border border-transparent'
-                      }`}
-                    >
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            {ta.pinned && <span className="text-yellow-500">📌</span>}
-                            <h3 className="font-medium text-sm truncate">
-                              {ta.name || 'Untitled'}
-                            </h3>
+                  {filteredAttempts.map((ta) => {
+                    const repoNames = getRepoNames(ta);
+                    return (
+                      <div
+                        key={ta.id}
+                        onClick={() => setSelectedId(ta.id)}
+                        className={`p-3 rounded-lg cursor-pointer transition-colors ${
+                          selectedId === ta.id
+                            ? 'bg-primary-500/20 border border-primary-500'
+                            : 'bg-neutral-800 hover:bg-neutral-700 border border-transparent'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              {ta.pinned && <span className="text-yellow-500">📌</span>}
+                              <h3 className="font-medium text-sm truncate">
+                                {ta.name || 'Untitled'}
+                              </h3>
+                            </div>
+                            <p className="text-xs text-neutral-400 mt-1">
+                              Branch: {ta.branch}
+                            </p>
+                            {ta.agent_working_dir && (
+                              <p className="text-xs text-neutral-500 mt-0.5 truncate">
+                                Dir: {ta.agent_working_dir}
+                              </p>
+                            )}
+                            {repoNames.length > 0 && (
+                              <p className="text-xs text-neutral-500 mt-0.5 truncate">
+                                Repo: {repoNames.join(', ')}
+                              </p>
+                            )}
                           </div>
-                          <p className="text-xs text-neutral-400 mt-1">
-                            Branch: {ta.branch}
-                          </p>
-                          {ta.agent_working_dir && (
-                            <p className="text-xs text-neutral-500 mt-0.5">
-                              Dir: {ta.agent_working_dir}
-                            </p>
-                          )}
-                          {getRepoNames(ta).length > 0 && (
-                            <p className="text-xs text-neutral-500 mt-0.5">
-                              Repo: {getRepoNames(ta).join(', ')}
-                            </p>
-                          )}
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </>
@@ -346,67 +343,13 @@ export function AddVKWorkspaceModal({
 }
 
 function getMostRecentTimestamp(workspace: Workspace): number {
-  const fields = [
-    workspace.updated_at,
-    workspace.created_at,
-  ];
-
-  for (const field of fields) {
-    const ts = parseTimestamp(field);
-    if (ts > 0) return ts;
-  }
-  return 0;
-}
-
-function parseTimestamp(value: unknown): number {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return value > 1e12 ? value : value * 1000;
-  }
-
-  if (typeof value === 'string' && value.trim()) {
-    const numeric = Number(value);
-    if (Number.isFinite(numeric) && numeric > 0) {
-      return numeric > 1e12 ? numeric : numeric * 1000;
-    }
-
-    const parsed = Date.parse(value);
-    return Number.isNaN(parsed) ? 0 : parsed;
-  }
-
-  return 0;
+  const updated = Date.parse(workspace.updated_at || '');
+  const created = Date.parse(workspace.created_at || '');
+  return Math.max(Number.isNaN(updated) ? 0 : updated, Number.isNaN(created) ? 0 : created);
 }
 
 function getRepoNames(workspace: WorkspaceOption): string[] {
-  const repos = new Set<string>();
-
-  workspace.repos.forEach((repo) => {
-    repos.add(normalizeRepoName(repo.display_name || repo.name));
-  });
-  const workingDirRepo = extractRepoNameFromPath(workspace.agent_working_dir);
-  if (workingDirRepo) {
-    repos.add(workingDirRepo);
-  }
-
-  return Array.from(repos).sort((a, b) => a.localeCompare(b));
-}
-
-function normalizeRepoName(value: string): string {
-  const cleaned = value.trim().replace(/\/+$/, '');
-  if (!cleaned) return '';
-  const parts = cleaned.split('/').filter(Boolean);
-  const last = parts[parts.length - 1] || cleaned;
-  return last.replace(/\.git$/i, '');
-}
-
-function extractRepoNameFromPath(value: unknown): string {
-  if (typeof value !== 'string') return '';
-  const trimmed = value.trim();
-  if (!trimmed) return '';
-
-  const worktreeMatch = trimmed.match(/\/worktrees\/[^/]+\/([^/]+)/);
-  if (worktreeMatch?.[1]) {
-    return normalizeRepoName(worktreeMatch[1]);
-  }
-
-  return normalizeRepoName(trimmed);
+  return workspace.repos
+    .map((repo) => repo.display_name || repo.name)
+    .filter((name): name is string => Boolean(name));
 }

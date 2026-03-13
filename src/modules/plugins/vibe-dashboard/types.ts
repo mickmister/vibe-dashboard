@@ -53,6 +53,7 @@ export interface PluginRegistryModule {
     };
   };
   actions: {
+    registerContributions: (contributions: PluginContributions) => Promise<void>;
     registerTabPreset: (preset: TabPresetContribution) => Promise<void>;
     registerSpaceType: (spaceType: SpaceTypeContribution) => Promise<void>;
     registerTabGroupFactory: (factory: TabGroupFactoryContribution) => Promise<void>;

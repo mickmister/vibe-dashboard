@@ -15,6 +15,25 @@ springboard.registerModule('plugin-registry', {}, async (moduleAPI) => {
   );
 
   const actions = moduleAPI.createActions({
+    registerContributions: async (contributions) => {
+      for (const preset of contributions.tabPresets || []) {
+        registry.setStateImmer((draft) => {
+          draft.tabPresets[preset.key] = preset;
+        });
+      }
+
+      for (const spaceType of contributions.spaceTypes || []) {
+        registry.setStateImmer((draft) => {
+          draft.spaceTypes[spaceType.key] = spaceType;
+        });
+      }
+
+      for (const factory of contributions.tabGroupFactories || []) {
+        registry.setStateImmer((draft) => {
+          draft.tabGroupFactories[factory.key] = factory;
+        });
+      }
+    },
     registerTabPreset: (preset: TabPresetContribution) => {
       registry.setStateImmer((draft) => {
         draft.tabPresets[preset.key] = preset;
