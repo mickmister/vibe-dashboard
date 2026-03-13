@@ -75,7 +75,7 @@ export function AddVKWorkspaceModal({
   }, [searchQuery, taskAttempts]);
 
   const refreshTaskAttemptContainerAndRefetchTaskAttempt = async (taskAttemptId: string) => {
-    const response = await fetch(`/api/task-attempts/${taskAttemptId}/branch-status`);
+    const response = await fetch(`/vk-api/workspaces/${taskAttemptId}/git/status`);
     if (!response.ok) {
       throw new Error(`Failed to fetch workspaces: ${response.statusText}`);
     }
@@ -83,7 +83,7 @@ export function AddVKWorkspaceModal({
     const data = await response.json();
     console.log(data);
 
-    const attempt = await fetch(`/api/task-attempts/${taskAttemptId}`).then(r => r.json());
+    const attempt = await fetch(`/vk-api/workspaces/${taskAttemptId}`).then(r => r.json());
     console.log(attempt);
     return attempt.data;
   };
@@ -92,7 +92,7 @@ export function AddVKWorkspaceModal({
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch('/api/task-attempts');
+      const response = await fetch('/vk-api/workspaces');
       if (!response.ok) {
         throw new Error(`Failed to fetch workspaces: ${response.statusText}`);
       }
