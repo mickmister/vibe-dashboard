@@ -47,22 +47,33 @@ if [ ! -d "$REPO_DIR/.git" ]; then
 fi
 
 # Persist ~/.claude.json via the claude-data volume (which mounts ~/.claude/)
+# We restore from the volume on startup. A background sync loop copies changes
+# back into the volume so they survive container recreation.
 CLAUDE_JSON="/home/vkuser/.claude.json"
 CLAUDE_JSON_PERSIST="/home/vkuser/.claude/claude.json"
-if [ -f "$CLAUDE_JSON" ] && [ ! -L "$CLAUDE_JSON" ]; then
-    # First boot after fresh install: move existing file into the volume
-    mv "$CLAUDE_JSON" "$CLAUDE_JSON_PERSIST"
-    ln -s "$CLAUDE_JSON_PERSIST" "$CLAUDE_JSON"
-    chown -h vkuser:vkuser "$CLAUDE_JSON"
-elif [ ! -e "$CLAUDE_JSON" ] && [ -f "$CLAUDE_JSON_PERSIST" ]; then
-    # Container recreated but volume has the file from a previous run
-    ln -s "$CLAUDE_JSON_PERSIST" "$CLAUDE_JSON"
-    chown -h vkuser:vkuser "$CLAUDE_JSON"
-elif [ ! -e "$CLAUDE_JSON" ] && [ ! -f "$CLAUDE_JSON_PERSIST" ]; then
-    # First time ever: create the symlink so claude writes directly into the volume
-    ln -s "$CLAUDE_JSON_PERSIST" "$CLAUDE_JSON"
-    chown -h vkuser:vkuser "$CLAUDE_JSON"
+if [ -f "$CLAUDE_JSON_PERSIST" ] && [ ! -f "$CLAUDE_JSON" ]; then
+    # Restore from volume into home dir on container recreate
+    cp "$CLAUDE_JSON_PERSIST" "$CLAUDE_JSON"
+    chown vkuser:vkuser "$CLAUDE_JSON"
+elif [ -f "$CLAUDE_JSON" ] && [ ! -L "$CLAUDE_JSON" ] && [ -f "$CLAUDE_JSON_PERSIST" ]; then
+    # Both exist (shouldn't normally happen) — keep the newer one
+    if [ "$CLAUDE_JSON" -nt "$CLAUDE_JSON_PERSIST" ]; then
+        cp "$CLAUDE_JSON" "$CLAUDE_JSON_PERSIST"
+    else
+        cp "$CLAUDE_JSON_PERSIST" "$CLAUDE_JSON"
+        chown vkuser:vkuser "$CLAUDE_JSON"
+    fi
 fi
+
+# Background loop: sync ~/.claude.json -> volume every 30s
+(
+    while true; do
+        sleep 30
+        if [ -f "$CLAUDE_JSON" ] && [ ! -L "$CLAUDE_JSON" ]; then
+            cp "$CLAUDE_JSON" "$CLAUDE_JSON_PERSIST" 2>/dev/null || true
+        fi
+    done
+) &
 
 # Execute the main command
 exec "$@"
