@@ -46,7 +46,7 @@
 
 	# Vibe Dashboard app
 	@vibe_dashboard_root {
-		path /dashboard
+		path /dashboard /dashboard/*
 	}
 
 	@vibe_dashboard_assets {
