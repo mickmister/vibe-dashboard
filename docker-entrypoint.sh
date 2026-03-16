@@ -65,10 +65,10 @@ elif [ -f "$CLAUDE_JSON" ] && [ ! -L "$CLAUDE_JSON" ] && [ -f "$CLAUDE_JSON_PERS
     fi
 fi
 
-# Background loop: sync ~/.claude.json -> volume every 30s
+# Watch for writes to ~/.claude.json and sync to volume on change
 (
-    while true; do
-        sleep 30
+    while inotifywait -qq -e close_write -e moved_to /home/vkuser/.claude.json 2>/dev/null || \
+          inotifywait -qq -e create /home/vkuser/ 2>/dev/null; do
         if [ -f "$CLAUDE_JSON" ] && [ ! -L "$CLAUDE_JSON" ]; then
             cp "$CLAUDE_JSON" "$CLAUDE_JSON_PERSIST" 2>/dev/null || true
         fi
