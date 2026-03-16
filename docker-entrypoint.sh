@@ -46,5 +46,23 @@ if [ ! -d "$REPO_DIR/.git" ]; then
     fi
 fi
 
+# Persist ~/.claude.json via the claude-data volume (which mounts ~/.claude/)
+CLAUDE_JSON="/home/vkuser/.claude.json"
+CLAUDE_JSON_PERSIST="/home/vkuser/.claude/claude.json"
+if [ -f "$CLAUDE_JSON" ] && [ ! -L "$CLAUDE_JSON" ]; then
+    # First boot after fresh install: move existing file into the volume
+    mv "$CLAUDE_JSON" "$CLAUDE_JSON_PERSIST"
+    ln -s "$CLAUDE_JSON_PERSIST" "$CLAUDE_JSON"
+    chown -h vkuser:vkuser "$CLAUDE_JSON"
+elif [ ! -e "$CLAUDE_JSON" ] && [ -f "$CLAUDE_JSON_PERSIST" ]; then
+    # Container recreated but volume has the file from a previous run
+    ln -s "$CLAUDE_JSON_PERSIST" "$CLAUDE_JSON"
+    chown -h vkuser:vkuser "$CLAUDE_JSON"
+elif [ ! -e "$CLAUDE_JSON" ] && [ ! -f "$CLAUDE_JSON_PERSIST" ]; then
+    # First time ever: create the symlink so claude writes directly into the volume
+    ln -s "$CLAUDE_JSON_PERSIST" "$CLAUDE_JSON"
+    chown -h vkuser:vkuser "$CLAUDE_JSON"
+fi
+
 # Execute the main command
 exec "$@"
