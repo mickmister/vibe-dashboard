@@ -48,6 +48,7 @@ export function WorkspaceShell({ workspace, session, actions, sessionActions }: 
   const [addTabModalOpen, setAddTabModalOpen] = useState(false);
   const [addTabTargetGroupId, setAddTabTargetGroupId] = useState<string>('');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isDesktop, setIsDesktop] = useState(false);
   const dragGroupRef = useRef<string | null>(null);
 
   // --- Drag-and-drop for tab groups ---
@@ -83,6 +84,20 @@ export function WorkspaceShell({ workspace, session, actions, sessionActions }: 
     return () =>
       window.removeEventListener('keydown', handler, { capture: true });
   }, [actions]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const mediaQuery = window.matchMedia('(min-width: 768px)');
+    const handleViewportChange = (event: MediaQueryListEvent) => {
+      setIsDesktop(event.matches);
+      setIsSidebarOpen(false);
+    };
+
+    setIsDesktop(mediaQuery.matches);
+    mediaQuery.addEventListener('change', handleViewportChange);
+    return () => mediaQuery.removeEventListener('change', handleViewportChange);
+  }, []);
 
   // --- Add tab modal handler ---
   const openAddTabModal = (tabGroupId: string) => {
@@ -139,9 +154,17 @@ export function WorkspaceShell({ workspace, session, actions, sessionActions }: 
     <div className="w-full h-full flex bg-neutral-950">
       {isSidebarOpen && (
         <button
-          className="fixed inset-0 z-[60] bg-black/40"
+          className="fixed inset-0 z-[60] bg-black/40 md:hidden"
           onClick={() => setIsSidebarOpen(false)}
           aria-label="Close sidebar overlay"
+        />
+      )}
+
+      {!isSidebarOpen && (
+        <div
+          className="hidden md:block fixed inset-y-0 left-0 w-2 z-[55]"
+          onMouseEnter={() => setIsSidebarOpen(true)}
+          aria-hidden="true"
         />
       )}
 
@@ -149,6 +172,11 @@ export function WorkspaceShell({ workspace, session, actions, sessionActions }: 
         className={`fixed inset-y-0 left-0 z-[70] transform transition-transform duration-200 ${
           isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
+        onMouseLeave={() => {
+          if (isDesktop) {
+            setIsSidebarOpen(false);
+          }
+        }}
       >
         <Sidebar
           workspace={workspace}
@@ -193,7 +221,7 @@ export function WorkspaceShell({ workspace, session, actions, sessionActions }: 
       <div className="flex-1 flex flex-col min-h-0 min-w-0 relative">
         {!isSidebarOpen && (
           <button
-            className="absolute top-2 left-2 z-[60] h-9 w-9 rounded-md bg-neutral-900/90 border border-neutral-700 text-neutral-200"
+            className="absolute top-4 left-2 z-[60] h-9 w-9 rounded-md bg-neutral-900/90 border border-neutral-700 text-neutral-200 md:hidden"
             onClick={() => setIsSidebarOpen(true)}
             title="Open sidebar"
             aria-label="Open sidebar"
