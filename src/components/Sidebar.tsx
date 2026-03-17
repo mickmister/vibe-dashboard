@@ -6,9 +6,11 @@ interface SidebarProps {
   workspace: WorkspaceState;
   activeSpaceId: string;
   activeTabGroupId: string;
+  activeItems: Record<string, string>;
   onRequestClose?: () => void;
   onSelectSpace: (spaceId: string) => void;
   onSelectTabGroup: (tabGroupId: string) => void;
+  onSelectTab: (tabGroupId: string, tabId: string) => void;
   onAddSpace: (name: string) => void;
   onDeleteSpace: (spaceId: string) => void;
   onRenameSpace: (spaceId: string, name: string) => void;
@@ -31,9 +33,11 @@ export function Sidebar({
   workspace,
   activeSpaceId,
   activeTabGroupId,
+  activeItems,
   onRequestClose,
   onSelectSpace,
   onSelectTabGroup,
+  onSelectTab,
   onAddSpace,
   onDeleteSpace,
   onRenameSpace,
@@ -452,26 +456,54 @@ export function Sidebar({
               </div>
             ) : (
               activeTabGroups.map((tabGroup) => (
-                <button
-                  key={tabGroup.id}
-                  className={`w-full text-left px-3 py-2 rounded-lg transition-colors ${
-                    activeTabGroupId === tabGroup.id
-                      ? 'bg-primary-500/20 text-primary-300'
-                      : 'text-neutral-300 hover:bg-neutral-800'
-                  }`}
-                  onClick={() => onSelectTabGroup(tabGroup.id)}
-                  onContextMenu={(e) => handleGroupContextMenu(e, tabGroup.id)}
-                >
-                  <div className="text-sm font-medium truncate">
-                    {tabGroup.label}
-                  </div>
-                  <div className="text-xs text-neutral-500 mt-0.5">
-                    {tabGroup.tabs.length} tab{tabGroup.tabs.length !== 1 ? 's' : ''}
-                    {tabGroup.pairs.length > 0
-                      ? ` • ${tabGroup.pairs.length} pair${tabGroup.pairs.length !== 1 ? 's' : ''}`
-                      : ''}
-                  </div>
-                </button>
+                <div key={tabGroup.id} className="space-y-1">
+                  <button
+                    className={`w-full text-left px-3 py-2 rounded-lg transition-colors ${
+                      activeTabGroupId === tabGroup.id
+                        ? 'bg-primary-500/20 text-primary-300'
+                        : 'text-neutral-300 hover:bg-neutral-800'
+                    }`}
+                    onClick={() => onSelectTabGroup(tabGroup.id)}
+                    onContextMenu={(e) => handleGroupContextMenu(e, tabGroup.id)}
+                  >
+                    <div className="text-sm font-medium truncate">
+                      {tabGroup.label}
+                    </div>
+                    <div className="text-xs text-neutral-500 mt-0.5">
+                      {tabGroup.tabs.length} tab{tabGroup.tabs.length !== 1 ? 's' : ''}
+                      {tabGroup.pairs.length > 0
+                        ? ` • ${tabGroup.pairs.length} pair${tabGroup.pairs.length !== 1 ? 's' : ''}`
+                        : ''}
+                    </div>
+                  </button>
+
+                  {activeTabGroupId === tabGroup.id && tabGroup.tabs.length > 0 && (
+                    <div className="ml-2 pl-2 border-l border-neutral-800 space-y-0.5">
+                      {tabGroup.tabs.map((tab) => {
+                        const isActiveTab = activeItems[tabGroup.id] === tab.id;
+                        return (
+                          <button
+                            key={tab.id}
+                            className={`w-full text-left px-2 py-1.5 rounded text-xs transition-colors ${
+                              isActiveTab
+                                ? 'bg-primary-500/20 text-primary-300'
+                                : 'text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200'
+                            }`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onSelectTab(tabGroup.id, tab.id);
+                            }}
+                            title={tab.title}
+                          >
+                            <span className="truncate block">
+                              {tab.title}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               ))
             )}
           </div>

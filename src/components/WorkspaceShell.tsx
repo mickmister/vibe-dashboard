@@ -182,14 +182,16 @@ export function WorkspaceShell({ workspace, session, actions, sessionActions }: 
           workspace={workspace}
           activeSpaceId={session.activeSpaceId}
           activeTabGroupId={session.activeTabGroupId}
+          activeItems={session.activeItems}
           onRequestClose={() => setIsSidebarOpen(false)}
           onSelectSpace={(spaceId) => {
             sessionActions.selectSpace(spaceId);
-            setIsSidebarOpen(false);
           }}
           onSelectTabGroup={(tabGroupId) => {
             sessionActions.setActiveTabGroup(tabGroupId);
-            setIsSidebarOpen(false);
+          }}
+          onSelectTab={(tabGroupId, tabId) => {
+            sessionActions.selectTab(tabGroupId, tabId);
           }}
           onAddSpace={async (name) => {
             const result = await actions.addSpace({ name });
