@@ -1,46 +1,12 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import type { WorkspaceState, TabGroup } from '../types';
-
-// ── VK Backend types (subset needed for dashboard) ──────────────────────────
-
-interface VKWorkspace {
-  id: string;
-  task_id: string;
-  container_ref: string | null;
-  branch: string;
-  agent_working_dir: string | null;
-  created_at: string;
-  updated_at: string;
-  archived: boolean;
-  pinned: boolean;
-  name: string | null;
-}
-
-interface VKWorkspaceSummary {
-  workspace_id: string;
-  has_pending_approval: boolean;
-  files_changed: number | null;
-  lines_added: number | null;
-  lines_removed: number | null;
-  latest_process_completed_at?: string;
-  latest_process_status: 'running' | 'completed' | 'failed' | 'killed' | null;
-  has_running_dev_server: boolean;
-  has_unseen_turns: boolean;
-  pr_status: 'open' | 'merged' | 'closed' | 'unknown' | null;
-}
-
-interface VKRepo {
-  id: string;
-  name: string;
-  display_name: string;
-}
-
-interface VKRepoWithBranch {
-  id: string;
-  name: string;
-  display_name: string;
-  target_branch: string;
-}
+import {
+  vkClient,
+  type Workspace,
+  type WorkspaceSummary,
+  type Repo,
+  type RepoWithBranch,
+} from '../lib/vk-client';
 
 interface DashboardWorkspace {
   id: string;
@@ -60,7 +26,7 @@ interface DashboardWorkspace {
   has_running_dev_server: boolean;
   has_unseen_turns: boolean;
   pr_status: 'open' | 'merged' | 'closed' | 'unknown' | null;
-  repos: VKRepoWithBranch[];
+  repos: RepoWithBranch[];
 }
 
 // ── Utilities ───────────────────────────────────────────────────────────────
@@ -89,7 +55,7 @@ const PAGE_SIZE = 20;
 
 function useVKDashboardData() {
   const [workspaces, setWorkspaces] = useState<DashboardWorkspace[]>([]);
-  const [repos, setRepos] = useState<VKRepo[]>([]);
+  const [repos, setRepos] = useState<Repo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -99,64 +65,41 @@ function useVKDashboardData() {
 
     try {
       // Fetch workspaces, summaries, and repos in parallel
-      const [wsRes, summaryRes, reposRes] = await Promise.all([
-        fetch('/vk-api/task-attempts'),
-        fetch('/vk-api/task-attempts/summary', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ archived: false }),
-        }),
-        fetch('/vk-api/repos'),
-      ]);
+      const [allWorkspaces, summaryResult, reposResult] =
+        await Promise.allSettled([
+          vkClient.getWorkspaces(),
+          vkClient.getWorkspaceSummaries(false),
+          vkClient.getRepos(),
+        ]);
 
-      if (!wsRes.ok) throw new Error('Failed to load workspaces');
-
-      const wsData = await wsRes.json();
-      if (!wsData.success || !Array.isArray(wsData.data)) {
-        throw new Error('Invalid workspace response');
+      if (allWorkspaces.status === 'rejected') {
+        throw new Error('Failed to load workspaces');
       }
 
-      const activeWorkspaces: VKWorkspace[] = wsData.data.filter(
-        (w: VKWorkspace) => !w.archived
-      );
+      const activeWorkspaces = allWorkspaces.value.filter((w) => !w.archived);
 
       // Parse summaries (non-critical — default to empty if fails)
-      let summaryMap = new Map<string, VKWorkspaceSummary>();
-      if (summaryRes.ok) {
-        try {
-          const summaryData = await summaryRes.json();
-          if (summaryData.success && summaryData.data?.summaries) {
-            for (const s of summaryData.data.summaries) {
-              summaryMap.set(s.workspace_id, s);
-            }
-          }
-        } catch { /* ignore */ }
+      const summaryMap = new Map<string, WorkspaceSummary>();
+      if (summaryResult.status === 'fulfilled') {
+        for (const s of summaryResult.value.summaries) {
+          summaryMap.set(s.workspace_id, s);
+        }
       }
 
       // Parse repos list (non-critical)
-      let allRepos: VKRepo[] = [];
-      if (reposRes.ok) {
-        try {
-          const reposData = await reposRes.json();
-          if (reposData.success && Array.isArray(reposData.data)) {
-            allRepos = reposData.data;
-          }
-        } catch { /* ignore */ }
-      }
+      const allRepos =
+        reposResult.status === 'fulfilled' ? reposResult.value : [];
 
       // Batch-fetch per-workspace repos
       const repoResults = await Promise.allSettled(
         activeWorkspaces.map((ws) =>
-          fetch(`/vk-api/task-attempts/${ws.id}/repos`)
-            .then((r) => (r.ok ? r.json() : { success: false }))
-            .then((d) => ({
-              wsId: ws.id,
-              repos: d.success && Array.isArray(d.data) ? d.data : [],
-            }))
+          vkClient
+            .getWorkspaceRepos(ws.id)
+            .then((repos) => ({ wsId: ws.id, repos }))
         )
       );
 
-      const wsRepoMap = new Map<string, VKRepoWithBranch[]>();
+      const wsRepoMap = new Map<string, RepoWithBranch[]>();
       for (const result of repoResults) {
         if (result.status === 'fulfilled') {
           wsRepoMap.set(result.value.wsId, result.value.repos);
@@ -270,7 +213,7 @@ function RepoFilterBar({
   selectedRepoId,
   onSelectRepo,
 }: {
-  repos: VKRepo[];
+  repos: Repo[];
   selectedRepoId: string | null;
   onSelectRepo: (repoId: string | null) => void;
 }) {
@@ -664,7 +607,7 @@ export function SpacesOverview({ workspace, onNavigateToTabGroup, onOpenVKWorksp
   // Derive repos from workspace data if /api/repos returned empty
   const effectiveRepos = useMemo(() => {
     if (repos.length > 0) return repos;
-    const seen = new Map<string, VKRepo>();
+    const seen = new Map<string, Repo>();
     for (const ws of workspaces) {
       for (const r of ws.repos) {
         if (!seen.has(r.id)) {

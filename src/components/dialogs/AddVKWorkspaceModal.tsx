@@ -9,17 +9,7 @@ import {
   Input,
   Spinner,
 } from '@heroui/react';
-
-interface TaskAttempt {
-  id: string;
-  name: string;
-  container_ref: string | null;
-  branch: string;
-  archived: boolean;
-  pinned: boolean;
-  agent_working_dir: string | null;
-}
-
+import { vkClient, type Workspace } from '../../lib/vk-client';
 
 interface AddVKWorkspaceModalProps {
   isOpen: boolean;
@@ -34,8 +24,8 @@ export function AddVKWorkspaceModal({
   onAdd,
   onAddWithPath,
 }: AddVKWorkspaceModalProps) {
-  const [taskAttempts, setTaskAttempts] = useState<TaskAttempt[]>([]);
-  const [filteredAttempts, setFilteredAttempts] = useState<TaskAttempt[]>([]);
+  const [taskAttempts, setTaskAttempts] = useState<Workspace[]>([]);
+  const [filteredAttempts, setFilteredAttempts] = useState<Workspace[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -75,42 +65,24 @@ export function AddVKWorkspaceModal({
   }, [searchQuery, taskAttempts]);
 
   const refreshTaskAttemptContainerAndRefetchTaskAttempt = async (taskAttemptId: string) => {
-    const response = await fetch(`/vk-api/workspaces/${taskAttemptId}/git/status`);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch workspaces: ${response.statusText}`);
-    }
-
-    const data = await response.json();
-    console.log(data);
-
-    const attempt = await fetch(`/vk-api/workspaces/${taskAttemptId}`).then(r => r.json());
-    console.log(attempt);
-    return attempt.data;
+    await vkClient.getWorkspaceBranchStatus(taskAttemptId);
+    return vkClient.getWorkspace(taskAttemptId);
   };
 
   const fetchTaskAttempts = async () => {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch('/vk-api/workspaces');
-      if (!response.ok) {
-        throw new Error(`Failed to fetch workspaces: ${response.statusText}`);
-      }
-      const data = await response.json();
-      if (data.success && Array.isArray(data.data)) {
-        // Filter out archived by default, sort by pinned then name
-        const workspaces = data.data
-          .filter((ta: TaskAttempt) => !ta.archived)
-          .sort((a: TaskAttempt, b: TaskAttempt) => {
-            if (a.pinned && !b.pinned) return -1;
-            if (!a.pinned && b.pinned) return 1;
-            return (a.name || '').localeCompare(b.name || '');
-          });
-        setTaskAttempts(workspaces);
-        setFilteredAttempts(workspaces);
-      } else {
-        throw new Error('Invalid response format');
-      }
+      const allWorkspaces = await vkClient.getWorkspaces();
+      const workspaces = allWorkspaces
+        .filter((w) => !w.archived)
+        .sort((a, b) => {
+          if (a.pinned && !b.pinned) return -1;
+          if (!a.pinned && b.pinned) return 1;
+          return (a.name || '').localeCompare(b.name || '');
+        });
+      setTaskAttempts(workspaces);
+      setFilteredAttempts(workspaces);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load workspaces');
     } finally {
@@ -126,8 +98,7 @@ export function AddVKWorkspaceModal({
 
     if (!containerRef) {
       try {
-
-        const attempt: {container_ref: string | null} = await refreshTaskAttemptContainerAndRefetchTaskAttempt(selected.id);
+        const attempt = await refreshTaskAttemptContainerAndRefetchTaskAttempt(selected.id);
         containerRef = attempt.container_ref;
       } catch (e) {
         console.error('Failed to refresh container ref', e);
