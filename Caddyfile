@@ -3,21 +3,17 @@
 	auto_https off
 }
 
-:3001 {
+:{$CADDY_PORT:3001} {
 	# Dynamic port forwarding via subdomain: port-<port_num>.* -> localhost:<port_num>
 	# This must be checked FIRST before other handlers
 	@port_forward header_regexp port Host ^port-([0-9]+)\.
 
 	handle @port_forward {
-		# VK API routes should be proxied to main vibe-kanban instance (localhost:3007)
-		# instead of the dynamic port, so the wrapper can access task attempts
-		@vk_api_routes {
-			path /api/task-attempts
-			path /api/task-attempts/*
-		}
-
-		handle @vk_api_routes {
-			reverse_proxy localhost:3007 {
+		# /vk-api/* is proxied to main vibe-kanban instance (localhost:{$BACKEND_PORT:3007})
+		# with the prefix stripped so /vk-api/repos -> /api/repos on the backend
+		handle_path /vk-api/* {
+			rewrite * /api{uri}
+			reverse_proxy localhost:{$BACKEND_PORT:3007} {
 				header_up Host {upstream_hostport}
 			}
 		}
@@ -50,7 +46,7 @@
 
 	# Vibe Dashboard app
 	@vibe_dashboard_root {
-		path /dashboard
+		path /dashboard /dashboard/*
 	}
 
 	@vibe_dashboard_assets {
@@ -83,7 +79,7 @@
 
 	# Wrapper app — root page (no folder= query)
 	handle @vibe_dashboard_root {
-		reverse_proxy localhost:3005 {
+		reverse_proxy localhost:{$DASHBOARD_PORT:3005} {
 			header_up Host {upstream_hostport}
 			header_up Upgrade {http.request.header.Upgrade}
 			header_up Connection {http.request.header.Connection}
@@ -95,14 +91,14 @@
 		# Proxy /assets to wrapper first; if missing there, fall back to vibe-kanban.
 		@asset_path path /assets/*
 		handle @asset_path {
-			reverse_proxy localhost:3005 {
+			reverse_proxy localhost:{$DASHBOARD_PORT:3005} {
 				header_up Host {upstream_hostport}
 				header_up Upgrade {http.request.header.Upgrade}
 				header_up Connection {http.request.header.Connection}
 
 				@wrapper_asset_error status 404 502
 				handle_response @wrapper_asset_error {
-					reverse_proxy localhost:3007 {
+					reverse_proxy localhost:{$BACKEND_PORT:3007} {
 						header_up Host {upstream_hostport}
 						header_up Upgrade {http.request.header.Upgrade}
 						header_up Connection {http.request.header.Connection}
@@ -112,7 +108,7 @@
 		}
 
 		handle {
-			reverse_proxy localhost:3005 {
+			reverse_proxy localhost:{$DASHBOARD_PORT:3005} {
 				header_up Host {upstream_hostport}
 				header_up Upgrade {http.request.header.Upgrade}
 				header_up Connection {http.request.header.Connection}
@@ -122,7 +118,7 @@
 
 	# Wrapper app — WebSocket
 	handle @vibe_dashboard_ws {
-		reverse_proxy localhost:3005 {
+		reverse_proxy localhost:{$DASHBOARD_PORT:3005} {
 			header_up Host {upstream_hostport}
 			header_up Upgrade {http.request.header.Upgrade}
 			header_up Connection {http.request.header.Connection}
@@ -131,7 +127,7 @@
 
 	# Wrapper app — PWA manifest
 	handle @vibe_dashboard_manifest {
-		reverse_proxy localhost:3005 {
+		reverse_proxy localhost:{$DASHBOARD_PORT:3005} {
 			header_up Host {upstream_hostport}
 		}
 	}
@@ -151,9 +147,9 @@
 		path /vscode-remote-resource*
 	}
 
-	# VSCode Server - proxy to code-server on localhost:3008 (query param routing)
+	# VSCode Server - proxy to code-server on localhost:{$CODE_PORT:3008} (query param routing)
 	handle @vscode_query {
-		reverse_proxy localhost:3008 {
+		reverse_proxy localhost:{$CODE_PORT:3008} {
 			header_up Host {upstream_hostport}
 			# Handle WebSocket connections
 			header_up Upgrade {http.request.header.Upgrade}
@@ -161,26 +157,34 @@
 		}
 	}
 
-	# VSCode Server - proxy to code-server on localhost:3008 (stable-* asset routing)
+	# VSCode Server - proxy to code-server on localhost:{$CODE_PORT:3008} (stable-* asset routing)
 	handle @vscode_stable {
-		reverse_proxy localhost:3008 {
+		reverse_proxy localhost:{$CODE_PORT:3008} {
 			header_up Host {upstream_hostport}
 		}
 	}
 
-	# VSCode Server - proxy to code-server on localhost:3008 (vscode-remote-resource routing)
+	# VSCode Server - proxy to code-server on localhost:{$CODE_PORT:3008} (vscode-remote-resource routing)
 	handle @vscode_remote {
-		reverse_proxy localhost:3008 {
+		reverse_proxy localhost:{$CODE_PORT:3008} {
 			header_up Host {upstream_hostport}
 		}
 	}
 
-	# Main application - proxy to vibe-kanban on localhost:3007 (fallback)
+	# VK API — strip /vk-api prefix and proxy to vibe-kanban backend as /api/*
+	handle_path /vk-api/* {
+		rewrite * /api{uri}
+		reverse_proxy localhost:{$BACKEND_PORT:3007} {
+			header_up Host {upstream_hostport}
+		}
+	}
+
+	# Main application - proxy to vibe-kanban on localhost:{$BACKEND_PORT:3007} (fallback)
 	handle /* {
 		# VK_SHARED_API_BASE now configured at runtime (PR #2769)
 		# No custom Caddy module needed
 
-		reverse_proxy localhost:3007 {
+		reverse_proxy localhost:{$BACKEND_PORT:3007} {
 			# Handle WebSocket connections for hot reload, etc.
 			header_up Upgrade {http.request.header.Upgrade}
 			header_up Connection {http.request.header.Connection}

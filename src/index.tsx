@@ -7,13 +7,17 @@ import { useParams, useNavigate } from 'react-router';
 import { HeroUIProvider } from '@heroui/react';
 import { WorkspaceShell } from './components/WorkspaceShell';
 import { useSessionWorkspaceNav } from './sessionState';
+
+// Ensure dark class is on the document root so portaled elements (modals, popovers)
+// inherit dark mode styles
+document.documentElement.classList.add('dark');
+
 // @platform end
 
 import springboard from 'springboard';
 import { createDefaultWorkspace } from './types';
 import type { WorkspaceState } from './types';
 
-(globalThis as {useHashRouter?: boolean}).useHashRouter = true
 
 /**
  * Get the base URL without port prefix for creating tab URLs.
@@ -361,22 +365,39 @@ springboard.registerModule('workspace', {rpcMode: 'remote'}, async (moduleAPI) =
     },
   });
 
-  // Shared route component with space parameter support
+  // Redirect component for root path (dev server case)
+  const RootRedirect = () => {
+    const navigate = useNavigate();
+    useEffect(() => {
+      navigate('/dashboard', { replace: true });
+    }, [navigate]);
+    return null;
+  };
+
+  // Shared route component with space/tabGroup/item parameter support
   const WorkspaceRoute = () => {
     const workspace = workspaceState.useState();
-    const { spaceId } = useParams<{ spaceId?: string }>();
+    const { spaceId, tabGroupId, itemId } = useParams<{ spaceId?: string; tabGroupId?: string; itemId?: string }>();
     const navigate = useNavigate();
-    const sessionNav = useSessionWorkspaceNav(workspace, spaceId);
+    const sessionNav = useSessionWorkspaceNav(workspace, { spaceId, tabGroupId, itemId });
 
-    // Navigate to URL when space changes (unless already there)
+    // Update document title to reflect active space and tab group
     useEffect(() => {
-      const targetPath = sessionNav.activeSpaceId ? `/spaces/${sessionNav.activeSpaceId}` : '/';
-      const currentPath = spaceId ? `/spaces/${spaceId}` : '/';
-
-      if (targetPath !== currentPath) {
-        navigate(targetPath, { replace: true });
+      const space = workspace.spaces.find(s => s.id === sessionNav.activeSpaceId);
+      const tabGroup = workspace.tabGroups.find(tg => tg.id === sessionNav.activeTabGroupId);
+      if (space && tabGroup) {
+        document.title = `${space.name} - ${tabGroup.label}`;
       }
-    }, [sessionNav.activeSpaceId, spaceId, navigate]);
+    }, [sessionNav.activeSpaceId, sessionNav.activeTabGroupId, workspace.spaces, workspace.tabGroups]);
+
+    // Sync URL to match current nav state
+    useEffect(() => {
+      const segments = ['/dashboard', spaceId && `spaces/${spaceId}`, tabGroupId, itemId].filter(Boolean);
+      const currentPath = segments.join('/');
+      if (sessionNav.targetPath !== currentPath) {
+        navigate(sessionNav.targetPath, { replace: true });
+      }
+    }, [sessionNav.targetPath, spaceId, tabGroupId, itemId, navigate]);
 
     // Wrap actions that need session parameters
     const wrappedActions = {
@@ -450,9 +471,14 @@ springboard.registerModule('workspace', {rpcMode: 'remote'}, async (moduleAPI) =
     );
   };
 
-  // Register routes for both root and space-specific paths
-  moduleAPI.registerRoute('/', { hideApplicationShell: true }, WorkspaceRoute);
-  moduleAPI.registerRoute('/spaces/:spaceId', { hideApplicationShell: true }, WorkspaceRoute);
+  // Root redirects to /dashboard (for dev server case)
+  moduleAPI.registerRoute('/', { hideApplicationShell: true }, RootRedirect);
+
+  // Register dashboard routes with increasing specificity
+  moduleAPI.registerRoute('/dashboard', { hideApplicationShell: true }, WorkspaceRoute);
+  moduleAPI.registerRoute('/dashboard/spaces/:spaceId', { hideApplicationShell: true }, WorkspaceRoute);
+  moduleAPI.registerRoute('/dashboard/spaces/:spaceId/:tabGroupId', { hideApplicationShell: true }, WorkspaceRoute);
+  moduleAPI.registerRoute('/dashboard/spaces/:spaceId/:tabGroupId/:itemId', { hideApplicationShell: true }, WorkspaceRoute);
 
   return {
     states: { workspace: workspaceState },

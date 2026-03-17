@@ -314,6 +314,18 @@ export function UnifiedTabView({
               sessionActions.selectSpace(spaceId);
               sessionActions.setActiveTabGroup(tabGroupId);
             }}
+            onOpenVKWorkspace={async (taskAttemptId, name, containerRef, spaceId) => {
+              const result = await actions.addVKWorkspace({
+                taskAttemptId,
+                name,
+                containerRef,
+                activeSpaceId: spaceId,
+              });
+              if (result) {
+                sessionActions.selectSpace(spaceId);
+                sessionActions.setActiveTabGroup(result.tabGroupId);
+              }
+            }}
           />
         ) : (
           <div className="flex-1 flex items-center justify-center text-neutral-500">

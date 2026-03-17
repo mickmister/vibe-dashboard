@@ -13,6 +13,10 @@ html, body, #root {
   color: #e5e5e5;
 }
 
+html {
+  color-scheme: dark;
+}
+
 /* Hide scrollbars in iframes container */
 .iframe-container::-webkit-scrollbar {
   display: none;

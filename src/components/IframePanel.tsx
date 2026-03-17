@@ -10,6 +10,7 @@ interface IframePanelProps {
   onUpdatePairRatios: (pairId: string, ratios: number[]) => void;
   workspace?: WorkspaceState;
   onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void;
+  onOpenVKWorkspace?: (taskAttemptId: string, name: string, containerRef: string, spaceId: string) => void;
 }
 
 /**
@@ -22,6 +23,7 @@ type IframeEntry = {
   container: HTMLDivElement;
   loaded: boolean;
   contentReady: boolean;
+  loadError: boolean;
   listeners: Set<() => void>;
 };
 
@@ -63,6 +65,7 @@ function getOrCreateIframe(tab: Tab): IframeEntry {
       container,
       loaded: true,
       contentReady: true,
+      loadError: false,
       listeners: new Set(),
     };
 
@@ -84,7 +87,7 @@ function getOrCreateIframe(tab: Tab): IframeEntry {
   iframe.setAttribute('allow', 'clipboard-read; clipboard-write; fullscreen');
   iframe.setAttribute('role', 'region');
 
-  const entry: IframeEntry = { iframe, container, loaded: false, contentReady: false, listeners: new Set() };
+  const entry: IframeEntry = { iframe, container, loaded: false, contentReady: false, loadError: false, listeners: new Set() };
 
   iframe.addEventListener('load', () => {
     entry.loaded = true;
@@ -92,6 +95,13 @@ function getOrCreateIframe(tab: Tab): IframeEntry {
 
     // Start checking if content is ready (not showing white screen)
     checkContentReady(iframe, entry);
+  });
+
+  iframe.addEventListener('error', () => {
+    entry.loadError = true;
+    entry.loaded = true;
+    entry.contentReady = true;
+    entry.listeners.forEach((fn) => fn());
   });
 
   container.appendChild(iframe);
@@ -154,8 +164,10 @@ function checkContentReady(iframe: HTMLIFrameElement, entry: IframeEntry) {
     // Timeout after 10 seconds to prevent infinite checking
     setTimeout(() => {
       clearInterval(checkInterval);
-      entry.contentReady = true;
-      entry.listeners.forEach((fn) => fn());
+      if (!entry.contentReady) {
+        entry.contentReady = true;
+        entry.listeners.forEach((fn) => fn());
+      }
     }, 10000);
 
   } catch (e) {
@@ -194,6 +206,15 @@ function useImperativeIframes(tabs: Tab[]) {
     return initial;
   });
 
+  const [errorState, setErrorState] = useState<Map<string, boolean>>(() => {
+    const initial = new Map<string, boolean>();
+    for (const tab of tabs) {
+      const entry = iframeStore.get(tab.id);
+      initial.set(tab.id, entry?.loadError ?? false);
+    }
+    return initial;
+  });
+
   // Update iframe src when tab URL changes
   useEffect(() => {
     for (const tab of tabs) {
@@ -206,10 +227,16 @@ function useImperativeIframes(tabs: Tab[]) {
       // Update iframe src if URL has changed
       if (entry.iframe.src !== tab.url) {
         entry.iframe.src = tab.url;
-        // Reset loading state
+        // Reset loading and error state
         entry.loaded = false;
         entry.contentReady = false;
+        entry.loadError = false;
         setLoadingState((prev) => {
+          const next = new Map(prev);
+          next.set(tab.id, false);
+          return next;
+        });
+        setErrorState((prev) => {
           const next = new Map(prev);
           next.set(tab.id, false);
           return next;
@@ -234,6 +261,13 @@ function useImperativeIframes(tabs: Tab[]) {
           next.set(tab.id, true);
           return next;
         });
+        if (entry.loadError) {
+          setErrorState((prev) => {
+            const next = new Map(prev);
+            next.set(tab.id, true);
+            return next;
+          });
+        }
         continue;
       }
 
@@ -246,6 +280,13 @@ function useImperativeIframes(tabs: Tab[]) {
             next.set(tab.id, true);
             return next;
           });
+          if (entry.loadError) {
+            setErrorState((prev) => {
+              const next = new Map(prev);
+              next.set(tab.id, true);
+              return next;
+            });
+          }
         }
       };
       entry.listeners.add(listener);
@@ -265,7 +306,26 @@ function useImperativeIframes(tabs: Tab[]) {
     }
   }, [tabs]);
 
-  return { loadingState };
+  const retryTab = useCallback((tabId: string) => {
+    const entry = iframeStore.get(tabId);
+    if (!entry) return;
+    entry.loaded = false;
+    entry.contentReady = false;
+    entry.loadError = false;
+    entry.iframe.src = entry.iframe.src; // reload
+    setLoadingState((prev) => {
+      const next = new Map(prev);
+      next.set(tabId, false);
+      return next;
+    });
+    setErrorState((prev) => {
+      const next = new Map(prev);
+      next.set(tabId, false);
+      return next;
+    });
+  }, []);
+
+  return { loadingState, errorState, retryTab };
 }
 
 /**
@@ -305,8 +365,9 @@ export function IframePanel({
   onUpdatePairRatios,
   workspace,
   onNavigateToTabGroup,
+  onOpenVKWorkspace,
 }: IframePanelProps) {
-  const { loadingState } = useImperativeIframes(tabGroup.tabs);
+  const { loadingState, errorState, retryTab } = useImperativeIframes(tabGroup.tabs);
 
   const activeTab = tabGroup.tabs.find(
     (t) => t.id === activeItemId
@@ -334,14 +395,19 @@ export function IframePanel({
           activePair={activePair}
           tabGroup={tabGroup}
           loadingState={loadingState}
+          errorState={errorState}
+          retryTab={retryTab}
           onUpdatePairRatios={onUpdatePairRatios}
         />
       ) : activeTab ? (
         <SingleTabView
           activeTab={activeTab}
           loadingState={loadingState}
-          workspace={workspace}
-          onNavigateToTabGroup={onNavigateToTabGroup}
+          errorState={errorState}
+          retryTab={retryTab}
+          {...(workspace ? { workspace } : {})}
+          {...(onNavigateToTabGroup ? { onNavigateToTabGroup } : {})}
+          {...(onOpenVKWorkspace ? { onOpenVKWorkspace } : {})}
         />
       ) : (
         <EmptyView />
@@ -353,15 +419,22 @@ export function IframePanel({
 function SingleTabView({
   activeTab,
   loadingState,
+  errorState,
+  retryTab,
   workspace,
   onNavigateToTabGroup,
+  onOpenVKWorkspace,
 }: {
   activeTab: Tab;
   loadingState: Map<string, boolean>;
+  errorState: Map<string, boolean>;
+  retryTab: (tabId: string) => void;
   workspace?: WorkspaceState;
   onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void;
+  onOpenVKWorkspace?: (taskAttemptId: string, name: string, containerRef: string, spaceId: string) => void;
 }) {
   const isLoaded = loadingState.get(activeTab.id) ?? false;
+  const hasError = errorState.get(activeTab.id) ?? false;
 
   // Check if this is an internal URL that should render a special component
   if (activeTab.url.startsWith('internal://')) {
@@ -373,6 +446,7 @@ function SingleTabView({
           <SpacesOverview
             workspace={workspace}
             onNavigateToTabGroup={onNavigateToTabGroup}
+            {...(onOpenVKWorkspace ? { onOpenVKWorkspace } : {})}
           />
         </div>
       );
@@ -381,8 +455,12 @@ function SingleTabView({
 
   return (
     <div className="flex-1 min-h-0 relative h-full">
-      <IframeHost tabId={activeTab.id} visible={true} />
-      {!isLoaded && <LoadingOverlay />}
+      <IframeHost tabId={activeTab.id} visible={!hasError} />
+      {hasError ? (
+        <ErrorOverlay url={activeTab.url} onRetry={() => retryTab(activeTab.id)} />
+      ) : !isLoaded ? (
+        <LoadingOverlay />
+      ) : null}
     </div>
   );
 }
@@ -391,11 +469,15 @@ function PairView({
   activePair,
   tabGroup,
   loadingState,
+  errorState,
+  retryTab,
   onUpdatePairRatios,
 }: {
   activePair: { id: string; tabIds: string[]; ratios: number[] };
   tabGroup: TabGroup;
   loadingState: Map<string, boolean>;
+  errorState: Map<string, boolean>;
+  retryTab: (tabId: string) => void;
   onUpdatePairRatios: (pairId: string, ratios: number[]) => void;
 }) {
   const pairTabs = activePair.tabIds
@@ -417,13 +499,18 @@ function PairView({
     >
       {pairTabs.map((tab, i) => {
         const isLoaded = loadingState.get(tab.id) ?? false;
+        const hasError = errorState.get(tab.id) ?? false;
 
         return (
           <React.Fragment key={tab.id}>
             <Panel id={tab.id} defaultSize={percentages[i]} minSize={10}>
               <div className="relative w-full h-full">
-                <IframeHost tabId={tab.id} visible={true} />
-                {!isLoaded && <LoadingOverlay />}
+                <IframeHost tabId={tab.id} visible={!hasError} />
+                {hasError ? (
+                  <ErrorOverlay url={tab.url} onRetry={() => retryTab(tab.id)} />
+                ) : !isLoaded ? (
+                  <LoadingOverlay />
+                ) : null}
               </div>
             </Panel>
             {i < pairTabs.length - 1 && (
@@ -450,6 +537,30 @@ function LoadingOverlay() {
       <div className="flex flex-col items-center gap-3">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-500"></div>
         <p className="text-neutral-400 text-sm">Loading...</p>
+      </div>
+    </div>
+  );
+}
+
+function ErrorOverlay({ url, onRetry }: { url: string; onRetry: () => void }) {
+  return (
+    <div className="absolute inset-0 bg-neutral-950 flex items-center justify-center z-10">
+      <div className="flex flex-col items-center gap-4 max-w-md px-6 text-center">
+        <div className="w-10 h-10 rounded-full bg-red-500/15 flex items-center justify-center">
+          <svg className="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+          </svg>
+        </div>
+        <div>
+          <p className="text-neutral-300 text-sm font-medium mb-1">Failed to load</p>
+          <p className="text-neutral-500 text-xs break-all">{url}</p>
+        </div>
+        <button
+          onClick={onRetry}
+          className="px-4 py-2 rounded-lg text-sm font-medium bg-neutral-800 text-neutral-300 border border-neutral-700 hover:bg-neutral-700 hover:text-white transition-colors"
+        >
+          Try again
+        </button>
       </div>
     </div>
   );
