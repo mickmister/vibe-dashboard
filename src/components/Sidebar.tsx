@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { Button, Input } from '@heroui/react';
 import type { WorkspaceState, Space, TabGroup } from '../types';
+import { TabContextMenu } from './TabContextMenu';
 
 interface SidebarProps {
   workspace: WorkspaceState;
@@ -11,6 +12,7 @@ interface SidebarProps {
   onSelectSpace: (spaceId: string) => void;
   onSelectTabGroup: (tabGroupId: string) => void;
   onSelectTab: (tabGroupId: string, tabId: string) => void;
+  onSelectPair: (tabGroupId: string, pairId: string) => void;
   onAddSpace: (name: string) => void;
   onDeleteSpace: (spaceId: string) => void;
   onRenameSpace: (spaceId: string, name: string) => void;
@@ -19,6 +21,9 @@ interface SidebarProps {
   onAddTabGroup: (label: string) => Promise<void> | void;
   onAddTab: (tabGroupId: string, title: string, url: string) => Promise<void> | void;
   onCreatePair: (tabGroupId: string, tabIds: string[]) => Promise<void> | void;
+  onCloseTab: (tabGroupId: string, tabId: string) => void;
+  onSplitPair: (tabGroupId: string, pairId: string) => void;
+  onRenameTab: (tabGroupId: string, tabId: string, title: string) => void;
   onOpenAddTabModal: (tabGroupId: string) => void;
 }
 
@@ -38,6 +43,7 @@ export function Sidebar({
   onSelectSpace,
   onSelectTabGroup,
   onSelectTab,
+  onSelectPair,
   onAddSpace,
   onDeleteSpace,
   onRenameSpace,
@@ -46,6 +52,9 @@ export function Sidebar({
   onAddTabGroup,
   onAddTab,
   onCreatePair,
+  onCloseTab,
+  onSplitPair,
+  onRenameTab,
   onOpenAddTabModal,
 }: SidebarProps) {
   const [view, setView] = useState<'groups' | 'spaces'>('groups');
@@ -59,6 +68,11 @@ export function Sidebar({
   } | null>(null);
   const [groupContextMenu, setGroupContextMenu] = useState<{
     tabGroupId: string;
+    position: { x: number; y: number };
+  } | null>(null);
+  const [tabItemContextMenu, setTabItemContextMenu] = useState<{
+    tabGroupId: string;
+    tabId: string;
     position: { x: number; y: number };
   } | null>(null);
   const [mobileAction, setMobileAction] = useState<'group' | 'tab' | 'pair' | null>(null);
@@ -116,6 +130,16 @@ export function Sidebar({
     e.stopPropagation();
     setGroupContextMenu({
       tabGroupId,
+      position: { x: e.clientX, y: e.clientY },
+    });
+  }, []);
+
+  const handleTabItemContextMenu = useCallback((e: React.MouseEvent, tabGroupId: string, tabId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setTabItemContextMenu({
+      tabGroupId,
+      tabId,
       position: { x: e.clientX, y: e.clientY },
     });
   }, []);
@@ -224,12 +248,14 @@ export function Sidebar({
     setEditingId(null);
     setContextMenu(null);
     setGroupContextMenu(null);
+    setTabItemContextMenu(null);
     setMobileAction(null);
   }, [view]);
 
   useEffect(() => {
     setMobileAction(null);
     setPairSelection([]);
+    setTabItemContextMenu(null);
   }, [activeTabGroupId]);
 
   // Close context menus when clicking outside
@@ -477,7 +503,7 @@ export function Sidebar({
                     </div>
                   </button>
 
-                  {activeTabGroupId === tabGroup.id && tabGroup.tabs.length > 0 && (
+                  {activeTabGroupId === tabGroup.id && (
                     <div className="ml-2 pl-2 border-l border-neutral-800 space-y-0.5">
                       {tabGroup.tabs.map((tab) => {
                         const isActiveTab = activeItems[tabGroup.id] === tab.id;
@@ -493,10 +519,39 @@ export function Sidebar({
                               e.stopPropagation();
                               onSelectTab(tabGroup.id, tab.id);
                             }}
+                            onContextMenu={(e) => handleTabItemContextMenu(e, tabGroup.id, tab.id)}
                             title={tab.title}
                           >
                             <span className="truncate block">
                               {tab.title}
+                            </span>
+                          </button>
+                        );
+                      })}
+
+                      {tabGroup.pairs.map((pair) => {
+                        const isActivePair = activeItems[tabGroup.id] === pair.id;
+                        const pairTitle = pair.tabIds
+                          .map((tabId) => tabGroup.tabs.find((t) => t.id === tabId)?.title || 'Unknown')
+                          .join(' | ');
+
+                        return (
+                          <button
+                            key={pair.id}
+                            className={`w-full text-left px-2 py-1.5 rounded text-xs transition-colors ${
+                              isActivePair
+                                ? 'bg-primary-500/20 text-primary-300'
+                                : 'text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200'
+                            }`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onSelectPair(tabGroup.id, pair.id);
+                            }}
+                            onContextMenu={(e) => handleTabItemContextMenu(e, tabGroup.id, pair.id)}
+                            title={pairTitle ? `Pair: ${pairTitle}` : 'Pair'}
+                          >
+                            <span className="truncate block">
+                              ⊞ {pairTitle || 'Pair'}
                             </span>
                           </button>
                         );
@@ -588,6 +643,33 @@ export function Sidebar({
           )}
         </div>
       )}
+
+      {tabItemContextMenu && (() => {
+        const tabGroup = workspace.tabGroups.find((group) => group.id === tabItemContextMenu.tabGroupId);
+        if (!tabGroup) return null;
+
+        return (
+          <TabContextMenu
+            position={tabItemContextMenu.position}
+            tabId={tabItemContextMenu.tabId}
+            tabGroup={tabGroup}
+            activeItemId={activeItems[tabGroup.id] || ''}
+            activeSpaceId={activeSpaceId}
+            onClose={() => setTabItemContextMenu(null)}
+            onCreatePair={(tabIds) => onCreatePair(tabGroup.id, tabIds)}
+            onCloseTab={(tabId) => onCloseTab(tabGroup.id, tabId)}
+            onSplitPair={(pairId) => onSplitPair(tabGroup.id, pairId)}
+            onRenameTabGroup={(tabGroupId, newLabel) => onRenameTabGroup(tabGroupId, newLabel)}
+            onDeleteTabGroup={async (spaceId, tabGroupId) => {
+              const result = await onDeleteTabGroup(spaceId, tabGroupId);
+              if (result?.wasDeleted && result.nextTabGroupId) {
+                onSelectTabGroup(result.nextTabGroupId);
+              }
+            }}
+            onRenameTab={(tabId, newTitle) => onRenameTab(tabGroup.id, tabId, newTitle)}
+          />
+        );
+      })()}
 
       {groupContextMenu && (() => {
         const canDelete = activeTabGroups.length > 1;

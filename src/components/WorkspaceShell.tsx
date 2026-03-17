@@ -193,6 +193,9 @@ export function WorkspaceShell({ workspace, session, actions, sessionActions }: 
           onSelectTab={(tabGroupId, tabId) => {
             sessionActions.selectTab(tabGroupId, tabId);
           }}
+          onSelectPair={(tabGroupId, pairId) => {
+            sessionActions.selectPair(tabGroupId, pairId);
+          }}
           onAddSpace={async (name) => {
             const result = await actions.addSpace({ name });
             if (result) {
@@ -215,6 +218,15 @@ export function WorkspaceShell({ workspace, session, actions, sessionActions }: 
           onCreatePair={async (tabGroupId, tabIds) => {
             actions.createPair({ tabGroupId, tabIds });
           }}
+          onCloseTab={(tabGroupId, tabId) => {
+            actions.closeTab({ tabGroupId, tabId });
+          }}
+          onSplitPair={(tabGroupId, pairId) => {
+            actions.deletePair({ tabGroupId, pairId });
+          }}
+          onRenameTab={(tabGroupId, tabId, title) => {
+            actions.renameTab({ tabGroupId, tabId, title });
+          }}
           onOpenAddTabModal={openAddTabModal}
         />
       </div>
@@ -234,10 +246,8 @@ export function WorkspaceShell({ workspace, session, actions, sessionActions }: 
         <WorkspaceContentView
           activeTabGroups={activeTabGroups}
           activeTabGroupId={session.activeTabGroupId}
-          activeSpaceId={session.activeSpaceId}
           actions={actions}
           sessionActions={sessionActions}
-          onOpenAddTabModal={openAddTabModal}
           onDragStart={handleDragStart}
           onDragOver={handleDragOver}
           onDrop={handleDrop}

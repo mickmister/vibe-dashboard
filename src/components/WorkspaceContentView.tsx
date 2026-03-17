@@ -6,10 +6,8 @@ import type { WorkspaceActions, SessionActions } from './WorkspaceShell';
 interface WorkspaceContentViewProps {
   activeTabGroups: TabGroup[];
   activeTabGroupId: string;
-  activeSpaceId: string;
   actions: WorkspaceActions;
   sessionActions: SessionActions;
-  onOpenAddTabModal: (tabGroupId: string) => void;
   onDragStart: (e: React.DragEvent, tabGroupId: string) => void;
   onDragOver: (e: React.DragEvent) => void;
   onDrop: (e: React.DragEvent, targetGroupId: string) => void;
@@ -19,10 +17,8 @@ interface WorkspaceContentViewProps {
 export function WorkspaceContentView({
   activeTabGroups,
   activeTabGroupId,
-  activeSpaceId,
   actions,
   sessionActions,
-  onOpenAddTabModal,
   onDragStart,
   onDragOver,
   onDrop,
@@ -42,10 +38,8 @@ export function WorkspaceContentView({
     <UnifiedTabView
       tabGroups={activeTabGroups}
       activeTabGroupId={activeTabGroupId}
-      activeSpaceId={activeSpaceId}
       actions={actions}
       sessionActions={sessionActions}
-      onOpenAddTabModal={onOpenAddTabModal}
       workspace={workspace}
     />
   );
