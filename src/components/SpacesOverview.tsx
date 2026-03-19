@@ -454,6 +454,81 @@ function SpacePickerModal({
   );
 }
 
+// ── Running Dev Servers Card ─────────────────────────────────────────────────
+
+function RunningDevServersCard({
+  workspaces,
+  loading,
+  onStop,
+}: {
+  workspaces: DashboardWorkspace[];
+  loading: boolean;
+  onStop: (workspaceId: string) => void;
+}) {
+  const [stoppingIds, setStoppingIds] = useState<Set<string>>(new Set());
+
+  const devServerWorkspaces = workspaces.filter((ws) => ws.has_running_dev_server);
+
+  if (loading || devServerWorkspaces.length === 0) return null;
+
+  const handleStop = async (wsId: string) => {
+    setStoppingIds((prev) => new Set(prev).add(wsId));
+    try {
+      onStop(wsId);
+    } finally {
+      // Clear after a delay to allow the refetch to update has_running_dev_server
+      setTimeout(() => {
+        setStoppingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(wsId);
+          return next;
+        });
+      }, 5000);
+    }
+  };
+
+  return (
+    <div className="mb-6 rounded-lg border border-cyan-500/30 bg-cyan-500/5 p-4">
+      <div className="flex items-center gap-2 mb-3">
+        <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+        <h2 className="text-sm font-semibold text-cyan-400">
+          Running Dev Servers
+        </h2>
+        <span className="text-xs text-zinc-500">
+          {devServerWorkspaces.length}
+        </span>
+      </div>
+      <div className="space-y-1.5">
+        {devServerWorkspaces.map((ws) => {
+          const isStopping = stoppingIds.has(ws.id);
+          return (
+            <div
+              key={ws.id}
+              className="flex items-center gap-3 px-3 py-2 rounded-md bg-zinc-800/60"
+            >
+              <div className="min-w-0 flex-1">
+                <span className="text-sm text-white font-medium truncate block">
+                  {ws.name}
+                </span>
+                <span className="text-xs text-zinc-500 font-mono truncate block">
+                  {ws.branch}
+                </span>
+              </div>
+              <button
+                onClick={() => handleStop(ws.id)}
+                disabled={isStopping}
+                className="shrink-0 px-2.5 py-1 rounded text-xs font-medium bg-red-500/15 text-red-400 border border-red-500/30 hover:bg-red-500/25 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isStopping ? 'Stopping...' : 'Stop'}
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ── Recent Tab Groups ───────────────────────────────────────────────────────
 
 function RecentTabGroups({
@@ -599,10 +674,20 @@ interface SpacesOverviewProps {
 }
 
 export function SpacesOverview({ workspace, onNavigateToTabGroup, onOpenVKWorkspace }: SpacesOverviewProps) {
-  const { workspaces, repos, loading, error } = useVKDashboardData();
+  const { workspaces, repos, loading, error, refetch } = useVKDashboardData();
   const [selectedRepoId, setSelectedRepoId] = useState<string | null>(null);
   const [page, setPage] = useState(0);
   const [spacePickerTarget, setSpacePickerTarget] = useState<DashboardWorkspace | null>(null);
+
+  const handleStopDevServer = useCallback(async (workspaceId: string) => {
+    try {
+      await vkClient.stopWorkspaceExecution(workspaceId);
+      // Refresh data after a short delay to let the backend update
+      setTimeout(() => refetch(true), 1000);
+    } catch (err) {
+      console.error('Failed to stop dev server:', err);
+    }
+  }, [refetch]);
 
   // Derive repos from workspace data if /api/repos returned empty
   const effectiveRepos = useMemo(() => {
@@ -666,6 +751,13 @@ export function SpacesOverview({ workspace, onNavigateToTabGroup, onOpenVKWorksp
           <h1 className="text-2xl font-bold text-white">Dashboard</h1>
           <p className="text-sm text-zinc-500 mt-1">Workspace activity feed</p>
         </div>
+
+        {/* Running Dev Servers */}
+        <RunningDevServersCard
+          workspaces={workspaces}
+          loading={loading}
+          onStop={handleStopDevServer}
+        />
 
         {/* Recent Tab Groups */}
         <RecentTabGroups

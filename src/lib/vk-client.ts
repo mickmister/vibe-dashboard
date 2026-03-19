@@ -113,6 +113,10 @@ export class VibeKanbanClient {
   getRepos(): Promise<Repo[]> {
     return this.get('/repos');
   }
+
+  stopWorkspaceExecution(workspaceId: string): Promise<void> {
+    return this.post(`/workspaces/${workspaceId}/execution/stop`, {});
+  }
 }
 
 export const vkClient = new VibeKanbanClient();
