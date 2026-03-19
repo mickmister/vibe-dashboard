@@ -62,6 +62,7 @@ springboard.registerModule('workspace', {rpcMode: 'remote'}, async (moduleAPI) =
           tabs: [],
           pairs: [],
           order: 0,
+          createdAt: new Date().toISOString(),
         });
 
         draft.spaces.push({
@@ -145,6 +146,7 @@ springboard.registerModule('workspace', {rpcMode: 'remote'}, async (moduleAPI) =
           tabs: [],
           pairs: [],
           order: space.tabGroupIds.length,
+          createdAt: new Date().toISOString(),
         });
 
         space.tabGroupIds.push(tabGroupId);
@@ -278,6 +280,7 @@ springboard.registerModule('workspace', {rpcMode: 'remote'}, async (moduleAPI) =
         draft.tabGroups.push({
           id: tabGroupId,
           label: args.name.length > 30 ? args.name.substring(0, 27) + '...' : args.name,
+          createdAt: new Date().toISOString(),
           tabs: [
             {
               id: kanbanTabId,
@@ -335,6 +338,15 @@ springboard.registerModule('workspace', {rpcMode: 'remote'}, async (moduleAPI) =
       });
     },
 
+    touchTabGroup: async (args: { tabGroupId: string }) => {
+      workspaceState.setStateImmer((draft) => {
+        const tg = draft.tabGroups.find((g) => g.id === args.tabGroupId);
+        if (tg) {
+          tg.lastVisitedAt = new Date().toISOString();
+        }
+      });
+    },
+
     closeActiveTab: async (args: { activeTabGroupId: string; activeItemId: string }) => {
       const state = workspaceState.getState();
       const tg = state.tabGroups.find((g) => g.id === args.activeTabGroupId);
@@ -389,6 +401,13 @@ springboard.registerModule('workspace', {rpcMode: 'remote'}, async (moduleAPI) =
         document.title = `${space.name} - ${tabGroup.label}`;
       }
     }, [sessionNav.activeSpaceId, sessionNav.activeTabGroupId, workspace.spaces, workspace.tabGroups]);
+
+    // Record visit timestamp when active tab group changes
+    useEffect(() => {
+      if (sessionNav.activeTabGroupId) {
+        actions.touchTabGroup({ tabGroupId: sessionNav.activeTabGroupId });
+      }
+    }, [sessionNav.activeTabGroupId]);
 
     // Sync URL to match current nav state
     useEffect(() => {

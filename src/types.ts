@@ -23,6 +23,10 @@ export interface TabGroup {
   pairs: TabPair[];
   /** Display order within the space */
   order: number;
+  /** ISO timestamp when this tab group was created */
+  createdAt?: string;
+  /** ISO timestamp when this tab group was last navigated to */
+  lastVisitedAt?: string;
 }
 
 export interface Space {

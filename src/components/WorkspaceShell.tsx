@@ -27,6 +27,7 @@ export type WorkspaceActions = {
     activeSpaceId: string;
   }) => Promise<{ tabGroupId: string; pairId: string } | undefined>;
   updateTabUrl: (args: { tabGroupId: string; tabId: string; newUrl: string }) => void;
+  touchTabGroup: (args: { tabGroupId: string }) => void;
 };
 
 export type SessionActions = {

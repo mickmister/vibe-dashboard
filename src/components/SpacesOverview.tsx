@@ -529,66 +529,142 @@ function RunningDevServersCard({
   );
 }
 
+// ── Tab Group Row ───────────────────────────────────────────────────────────
+
+function TabGroupRow({
+  space,
+  tg,
+  onNavigate,
+  timeLabel,
+}: {
+  space: { id: string; name: string };
+  tg: TabGroup;
+  onNavigate: () => void;
+  timeLabel?: string | undefined;
+}) {
+  return (
+    <button
+      onClick={onNavigate}
+      className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg bg-zinc-800/50 border border-zinc-700/50 hover:border-zinc-600 transition-colors group text-left"
+    >
+      <div className="min-w-0 flex-1">
+        <span className="text-sm font-medium text-white truncate block">{tg.label}</span>
+      </div>
+      <span className="text-xs text-zinc-500 shrink-0">{space.name}</span>
+      <span className="text-xs text-zinc-600 shrink-0">
+        {tg.tabs.length} tab{tg.tabs.length !== 1 ? 's' : ''}
+        {tg.pairs.length > 0 &&
+          ` / ${tg.pairs.length} pair${tg.pairs.length !== 1 ? 's' : ''}`}
+      </span>
+      {timeLabel && (
+        <span className="text-xs text-zinc-600 shrink-0 w-14 text-right">{timeLabel}</span>
+      )}
+      <svg
+        className="w-3.5 h-3.5 text-zinc-600 group-hover:text-white transition-colors shrink-0"
+        fill="none"
+        stroke="currentColor"
+        viewBox="0 0 24 24"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={2}
+          d="M9 5l7 7-7 7"
+        />
+      </svg>
+    </button>
+  );
+}
+
 // ── Recent Tab Groups ───────────────────────────────────────────────────────
 
-function RecentTabGroups({
+type TabGroupWithSpace = { space: { id: string; name: string }; tg: TabGroup };
+
+function useNonSystemTabGroups(workspace: WorkspaceState): TabGroupWithSpace[] {
+  return useMemo(() => {
+    const items: TabGroupWithSpace[] = [];
+    for (const space of workspace.spaces) {
+      if (space.isSystem) continue;
+      for (const tg of workspace.tabGroups) {
+        if (space.tabGroupIds.includes(tg.id)) {
+          items.push({ space, tg });
+        }
+      }
+    }
+    return items;
+  }, [workspace.spaces, workspace.tabGroups]);
+}
+
+function RecentlyVisitedTabGroups({
   workspace,
   onNavigateToTabGroup,
 }: {
   workspace: WorkspaceState;
   onNavigateToTabGroup: (spaceId: string, tabGroupId: string) => void;
 }) {
-  const recentGroups = useMemo(() => {
-    const items: { space: (typeof workspace.spaces)[0]; tg: TabGroup }[] = [];
+  const allItems = useNonSystemTabGroups(workspace);
 
-    for (const space of workspace.spaces) {
-      if (space.isSystem) continue;
-      const tgs = workspace.tabGroups
-        .filter((tg) => space.tabGroupIds.includes(tg.id))
-        .sort((a, b) => a.order - b.order);
-      for (const tg of tgs) {
-        items.push({ space, tg });
-      }
-    }
+  const recentlyVisited = useMemo(() => {
+    return allItems
+      .filter(({ tg }) => tg.lastVisitedAt)
+      .sort((a, b) =>
+        new Date(b.tg.lastVisitedAt!).getTime() - new Date(a.tg.lastVisitedAt!).getTime()
+      )
+      .slice(0, 6);
+  }, [allItems]);
 
-    return items.reverse().slice(0, 8);
-  }, [workspace.spaces, workspace.tabGroups]);
-
-  if (recentGroups.length === 0) return null;
+  if (recentlyVisited.length === 0) return null;
 
   return (
-    <div className="mb-10">
-      <h2 className="text-lg font-semibold text-white mb-3">Recent Tab Groups</h2>
+    <div className="mb-8">
+      <h2 className="text-lg font-semibold text-white mb-3">Recently Visited</h2>
       <div className="space-y-1">
-        {recentGroups.map(({ space, tg }) => (
-          <button
+        {recentlyVisited.map(({ space, tg }) => (
+          <TabGroupRow
             key={tg.id}
-            onClick={() => onNavigateToTabGroup(space.id, tg.id)}
-            className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg bg-zinc-800/50 border border-zinc-700/50 hover:border-zinc-600 transition-colors group text-left"
-          >
-            <div className="min-w-0 flex-1">
-              <span className="text-sm font-medium text-white truncate block">{tg.label}</span>
-            </div>
-            <span className="text-xs text-zinc-500 shrink-0">{space.name}</span>
-            <span className="text-xs text-zinc-600 shrink-0">
-              {tg.tabs.length} tab{tg.tabs.length !== 1 ? 's' : ''}
-              {tg.pairs.length > 0 &&
-                ` / ${tg.pairs.length} pair${tg.pairs.length !== 1 ? 's' : ''}`}
-            </span>
-            <svg
-              className="w-3.5 h-3.5 text-zinc-600 group-hover:text-white transition-colors shrink-0"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M9 5l7 7-7 7"
-              />
-            </svg>
-          </button>
+            space={space}
+            tg={tg}
+            onNavigate={() => onNavigateToTabGroup(space.id, tg.id)}
+            timeLabel={tg.lastVisitedAt ? formatRelativeTime(tg.lastVisitedAt) : undefined}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function RecentlyCreatedTabGroups({
+  workspace,
+  onNavigateToTabGroup,
+}: {
+  workspace: WorkspaceState;
+  onNavigateToTabGroup: (spaceId: string, tabGroupId: string) => void;
+}) {
+  const allItems = useNonSystemTabGroups(workspace);
+
+  const recentlyCreated = useMemo(() => {
+    return allItems
+      .filter(({ tg }) => tg.createdAt)
+      .sort((a, b) =>
+        new Date(b.tg.createdAt!).getTime() - new Date(a.tg.createdAt!).getTime()
+      )
+      .slice(0, 6);
+  }, [allItems]);
+
+  if (recentlyCreated.length === 0) return null;
+
+  return (
+    <div className="mb-8">
+      <h2 className="text-lg font-semibold text-white mb-3">Recently Created</h2>
+      <div className="space-y-1">
+        {recentlyCreated.map(({ space, tg }) => (
+          <TabGroupRow
+            key={tg.id}
+            space={space}
+            tg={tg}
+            onNavigate={() => onNavigateToTabGroup(space.id, tg.id)}
+            timeLabel={tg.createdAt ? formatRelativeTime(tg.createdAt) : undefined}
+          />
         ))}
       </div>
     </div>
@@ -759,8 +835,14 @@ export function SpacesOverview({ workspace, onNavigateToTabGroup, onOpenVKWorksp
           onStop={handleStopDevServer}
         />
 
-        {/* Recent Tab Groups */}
-        <RecentTabGroups
+        {/* Recently Visited Tab Groups */}
+        <RecentlyVisitedTabGroups
+          workspace={workspace}
+          onNavigateToTabGroup={onNavigateToTabGroup}
+        />
+
+        {/* Recently Created Tab Groups */}
+        <RecentlyCreatedTabGroups
           workspace={workspace}
           onNavigateToTabGroup={onNavigateToTabGroup}
         />
