@@ -87,7 +87,7 @@ springboard.registerModule('workspace', {rpcMode: 'remote'}, async (moduleAPI) =
         const idx = draft.spaces.findIndex((s) => s.id === args.spaceId);
         if (idx === -1 || draft.spaces.length <= 1) return;
 
-        const space = draft.spaces[idx];
+        const space = draft.spaces[idx]!;
         // Prevent deletion of system spaces (e.g., Home)
         if (space.isSystem) return;
 
