@@ -9,7 +9,7 @@ export type WorkspaceActions = {
   addSpace: (args: { name: string }) => Promise<{ spaceId: string; tabGroupId: string } | undefined>;
   deleteSpace: (args: { spaceId: string }) => Promise<{ wasDeleted: boolean; deletedSpaceId?: string } | undefined>;
   renameSpace: (args: { spaceId: string; name: string }) => void;
-  addTabGroup: (args: { spaceId: string; label: string }) => void;
+  addTabGroup: (args: { spaceId: string; label: string }) => Promise<{ tabGroupId?: string; spaceId?: string } | undefined>;
   deleteTabGroup: (args: { spaceId: string; tabGroupId: string }) => Promise<{ wasDeleted: boolean; deletedTabGroupId?: string; nextTabGroupId?: string } | undefined>;
   renameTabGroup: (args: { tabGroupId: string; label: string }) => void;
   renameTab: (args: { tabGroupId: string; tabId: string; title: string }) => void;
@@ -25,7 +25,7 @@ export type WorkspaceActions = {
     name: string;
     containerRef: string;
     activeSpaceId: string;
-  }) => Promise<{ tabGroupId: string; pairId: string } | undefined>;
+  }) => Promise<{ tabGroupId: string; pairId: string; agentTabId: string } | undefined>;
   updateTabUrl: (args: { tabGroupId: string; tabId: string; newUrl: string }) => void;
   touchTabGroup: (args: { tabGroupId: string }) => void;
 };
@@ -48,6 +48,8 @@ interface WorkspaceShellProps {
 export function WorkspaceShell({ workspace, session, actions, sessionActions }: WorkspaceShellProps) {
   const [addTabModalOpen, setAddTabModalOpen] = useState(false);
   const [addTabTargetGroupId, setAddTabTargetGroupId] = useState<string>('');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isDesktop, setIsDesktop] = useState(false);
   const dragGroupRef = useRef<string | null>(null);
 
   // --- Drag-and-drop for tab groups ---
@@ -84,6 +86,20 @@ export function WorkspaceShell({ workspace, session, actions, sessionActions }: 
       window.removeEventListener('keydown', handler, { capture: true });
   }, [actions]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const mediaQuery = window.matchMedia('(min-width: 768px)');
+    const handleViewportChange = (event: MediaQueryListEvent) => {
+      setIsDesktop(event.matches);
+      setIsSidebarOpen(false);
+    };
+
+    setIsDesktop(mediaQuery.matches);
+    mediaQuery.addEventListener('change', handleViewportChange);
+    return () => mediaQuery.removeEventListener('change', handleViewportChange);
+  }, []);
+
   // --- Add tab modal handler ---
   const openAddTabModal = (tabGroupId: string) => {
     setAddTabTargetGroupId(tabGroupId);
@@ -99,19 +115,11 @@ export function WorkspaceShell({ workspace, session, actions, sessionActions }: 
     name: string,
     containerRef: string
   ) => {
-    // Get base origin without port prefix
-    const { protocol, host } = window.location;
-    const portPrefixMatch = host.match(/^port-\d+\.(.+)$/);
-    const baseOrigin = portPrefixMatch
-      ? `${protocol}//${portPrefixMatch[1]}`
-      : `${protocol}//${host}`;
-
     const result = await actions.addVKWorkspace({
       taskAttemptId,
       name,
       containerRef,
       activeSpaceId: session.activeSpaceId,
-      baseOrigin,
     });
 
     // Auto-select the Agent tab (not the pair)
@@ -144,30 +152,103 @@ export function WorkspaceShell({ workspace, session, actions, sessionActions }: 
     : [];
 
   return (
-    <div className="w-full h-full flex flex-col bg-neutral-950">
-      <Sidebar
-        workspace={workspace}
-        activeSpaceId={session.activeSpaceId}
-        onSelectSpace={(spaceId) => sessionActions.selectSpace(spaceId)}
-        onAddSpace={async (name) => {
-          const result = await actions.addSpace({ name });
-          if (result) {
-            sessionActions.selectSpace(result.spaceId);
+    <div className="w-full h-full flex bg-neutral-950">
+      {isSidebarOpen && (
+        <button
+          className="fixed inset-0 z-[60] bg-black/40 md:hidden"
+          onClick={() => setIsSidebarOpen(false)}
+          aria-label="Close sidebar overlay"
+        />
+      )}
+
+      {!isSidebarOpen && (
+        <div
+          className="hidden md:block fixed inset-y-0 left-0 w-2 z-[55]"
+          onMouseEnter={() => setIsSidebarOpen(true)}
+          aria-hidden="true"
+        />
+      )}
+
+      <div
+        className={`fixed inset-y-0 left-0 z-[70] transform transition-transform duration-200 ${
+          isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
+        onMouseLeave={() => {
+          if (isDesktop) {
+            setIsSidebarOpen(false);
           }
         }}
-        onDeleteSpace={(spaceId) => actions.deleteSpace({ spaceId })}
-        onRenameSpace={(spaceId, name) => actions.renameSpace({ spaceId, name })}
-      />
+      >
+        <Sidebar
+          workspace={workspace}
+          activeSpaceId={session.activeSpaceId}
+          activeTabGroupId={session.activeTabGroupId}
+          activeItems={session.activeItems}
+          onRequestClose={() => setIsSidebarOpen(false)}
+          onSelectSpace={(spaceId) => {
+            sessionActions.selectSpace(spaceId);
+          }}
+          onSelectTabGroup={(tabGroupId) => {
+            sessionActions.setActiveTabGroup(tabGroupId);
+          }}
+          onSelectTab={(tabGroupId, tabId) => {
+            sessionActions.selectTab(tabGroupId, tabId);
+          }}
+          onSelectPair={(tabGroupId, pairId) => {
+            sessionActions.selectPair(tabGroupId, pairId);
+          }}
+          onAddSpace={async (name) => {
+            const result = await actions.addSpace({ name });
+            if (result) {
+              sessionActions.selectSpace(result.spaceId);
+              setIsSidebarOpen(false);
+            }
+          }}
+          onDeleteSpace={(spaceId) => actions.deleteSpace({ spaceId })}
+          onRenameSpace={(spaceId, name) => actions.renameSpace({ spaceId, name })}
+          onDeleteTabGroup={async (spaceId, tabGroupId) =>
+            actions.deleteTabGroup({ spaceId, tabGroupId })
+          }
+          onRenameTabGroup={(tabGroupId, label) =>
+            actions.renameTabGroup({ tabGroupId, label })
+          }
+          onAddTabGroup={handleAddTabGroup}
+          onAddTab={async (tabGroupId, title, url) => {
+            actions.addTab({ tabGroupId, title, url });
+          }}
+          onCreatePair={async (tabGroupId, tabIds) => {
+            actions.createPair({ tabGroupId, tabIds });
+          }}
+          onCloseTab={(tabGroupId, tabId) => {
+            actions.closeTab({ tabGroupId, tabId });
+          }}
+          onSplitPair={(tabGroupId, pairId) => {
+            actions.deletePair({ tabGroupId, pairId });
+          }}
+          onRenameTab={(tabGroupId, tabId, title) => {
+            actions.renameTab({ tabGroupId, tabId, title });
+          }}
+          onOpenAddTabModal={openAddTabModal}
+        />
+      </div>
 
       {/* Main content area */}
-      <div className="flex-1 flex flex-col min-h-0">
+      <div className="flex-1 flex flex-col min-h-0 min-w-0 relative">
+        {!isSidebarOpen && (
+          <button
+            className="absolute top-4 left-2 z-[60] h-9 w-9 rounded-md bg-neutral-900/90 border border-neutral-700 text-neutral-200 md:hidden"
+            onClick={() => setIsSidebarOpen(true)}
+            title="Open sidebar"
+            aria-label="Open sidebar"
+          >
+            ☰
+          </button>
+        )}
         <WorkspaceContentView
           activeTabGroups={activeTabGroups}
           activeTabGroupId={session.activeTabGroupId}
-          activeSpaceId={session.activeSpaceId}
           actions={actions}
           sessionActions={sessionActions}
-          onOpenAddTabModal={openAddTabModal}
           onDragStart={handleDragStart}
           onDragOver={handleDragOver}
           onDrop={handleDrop}
