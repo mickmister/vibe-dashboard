@@ -4,6 +4,7 @@
 }
 
 :3030 {
+	
 	# Vibe Dashboard app
 	@vibe_dashboard_root {
 		path /dashboard
@@ -100,14 +101,6 @@
 	handle @vscode_remote {
 		reverse_proxy localhost:3008 {
 			header_up Host {upstream_hostport}
-		}
-	}
-
-	# VK API — strip /vk-api prefix and proxy to vibe-kanban backend as /api/*
-	handle_path /vk-api/* {
-		rewrite * /api{uri}
-		reverse_proxy localhost:3007 {
-			header_up Host {http.request.host}
 		}
 	}
 
