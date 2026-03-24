@@ -115,7 +115,10 @@
 
 	# Enable logging for debugging
 	log {
-		output stdout
+		output file /var/log/caddy/access.log {
+			roll_size 50MiB
+			roll_keep 3
+		}
 		format console
 		level INFO
 	}

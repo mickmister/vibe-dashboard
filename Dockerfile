@@ -137,8 +137,8 @@ RUN useradd -m -s /bin/bash vkuser && \
 # Configure npm to use user-local directory for global packages
 RUN su - vkuser -c "npm config set prefix '/home/vkuser/.npm-global'"
 
-# Create supervisor log directory
-RUN mkdir -p /var/log/supervisor
+# Create supervisor and caddy log directories
+RUN mkdir -p /var/log/supervisor /var/log/caddy
 
 # Install tools globally as root (will be available system-wide)
 RUN npm install -g @anthropic-ai/claude-code pnpm @openai/codex
