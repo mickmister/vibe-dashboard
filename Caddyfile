@@ -14,7 +14,7 @@
 		handle_path /vk-api/* {
 			rewrite * /api{uri}
 			reverse_proxy localhost:{$BACKEND_PORT:3007} {
-				header_up Host {upstream_hostport}
+				header_up Host {http.request.host}
 			}
 		}
 

@@ -53,6 +53,19 @@ const PAGE_SIZE = 20;
 
 // ── Data fetching hook ──────────────────────────────────────────────────────
 
+function sortDashboardWorkspaces(workspaces: DashboardWorkspace[]) {
+  return [...workspaces].sort((a, b) => {
+    if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+    const aTime = new Date(
+      a.latest_process_completed_at || a.updated_at,
+    ).getTime();
+    const bTime = new Date(
+      b.latest_process_completed_at || b.updated_at,
+    ).getTime();
+    return bTime - aTime;
+  });
+}
+
 function useVKDashboardData() {
   const [workspaces, setWorkspaces] = useState<DashboardWorkspace[]>([]);
   const [repos, setRepos] = useState<Repo[]>([]);
@@ -485,64 +498,70 @@ function SpacePickerModal({
   );
 }
 
-// ── Running Dev Servers Card ─────────────────────────────────────────────────
+// ── Running Dev Servers Section ──────────────────────────────────────────────
 
-function RunningDevServersCard({
+function RunningDevServersSection({
   workspaces,
   loading,
   onStop,
   stoppingIds,
+  workspaceTabGroupMap,
+  onNavigateToTabGroup,
+  onRequestOpenWorkspace,
 }: {
   workspaces: DashboardWorkspace[];
   loading: boolean;
   onStop: (workspaceId: string) => Promise<void>;
   stoppingIds: Set<string>;
+  workspaceTabGroupMap: Map<
+    string,
+    { spaceId: string; tabGroupId: string; label: string }
+  >;
+  onNavigateToTabGroup: (spaceId: string, tabGroupId: string) => void;
+  onRequestOpenWorkspace?: (workspace: DashboardWorkspace) => void;
 }) {
-  const devServerWorkspaces = workspaces.filter(
-    (ws) => ws.has_running_dev_server || stoppingIds.has(ws.id),
+  const devServerWorkspaces = sortDashboardWorkspaces(
+    workspaces.filter(
+      (ws) => ws.has_running_dev_server || stoppingIds.has(ws.id),
+    ),
   );
 
   if (loading || devServerWorkspaces.length === 0) return null;
 
-  const handleStop = async (wsId: string) => {
-    await onStop(wsId);
-  };
-
   return (
-    <div className="mb-6 rounded-lg border border-cyan-500/30 bg-cyan-500/5 p-4">
-      <div className="flex items-center gap-2 mb-3">
-        <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
-        <h2 className="text-sm font-semibold text-cyan-400">
+    <div className="mb-8">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-lg font-semibold text-white">
           Running Dev Servers
         </h2>
         <span className="text-xs text-zinc-500">
-          {devServerWorkspaces.length}
+          {devServerWorkspaces.length} workspace
+          {devServerWorkspaces.length !== 1 ? "s" : ""}
         </span>
       </div>
-      <div className="space-y-1.5">
+      <div className="space-y-1">
         {devServerWorkspaces.map((ws) => {
-          const isStopping = stoppingIds.has(ws.id);
+          const nav = workspaceTabGroupMap.get(ws.id);
+          const tabGroupNav = nav
+            ? {
+                ...nav,
+                onNavigate: () =>
+                  onNavigateToTabGroup(nav.spaceId, nav.tabGroupId),
+              }
+            : null;
           return (
-            <div
+            <WorkspaceRow
               key={ws.id}
-              className="flex items-center gap-3 px-3 py-2 rounded-md bg-zinc-800/60"
-            >
-              <div className="min-w-0 flex-1">
-                <span className="text-sm text-white font-medium truncate block">
-                  {ws.name}
-                </span>
-                <span className="text-xs text-zinc-500 font-mono truncate block">
-                  {ws.branch}
-                </span>
-              </div>
-              <button
-                onClick={() => handleStop(ws.id)}
-                disabled={isStopping}
-                className="shrink-0 px-2.5 py-1 rounded text-xs font-medium bg-red-500/15 text-red-400 border border-red-500/30 hover:bg-red-500/25 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isStopping ? "Stopping..." : "Stop"}
-              </button>
-            </div>
+              workspace={ws}
+              isStoppingDevServer={stoppingIds.has(ws.id)}
+              onStopDevServer={() => onStop(ws.id)}
+              {...(tabGroupNav ? { tabGroupNav } : {})}
+              {...(!tabGroupNav && onRequestOpenWorkspace
+                ? {
+                    onOpenInNewTabGroup: () => onRequestOpenWorkspace(ws),
+                  }
+                : {})}
+            />
           );
         })}
       </div>
@@ -868,16 +887,7 @@ export function SpacesOverview({
         w.repos.some((r) => r.id === selectedRepoId),
       );
     }
-    return [...filtered].sort((a, b) => {
-      if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
-      const aTime = new Date(
-        a.latest_process_completed_at || a.updated_at,
-      ).getTime();
-      const bTime = new Date(
-        b.latest_process_completed_at || b.updated_at,
-      ).getTime();
-      return bTime - aTime;
-    });
+    return sortDashboardWorkspaces(filtered);
   }, [workspaces, selectedRepoId]);
 
   const totalPages = Math.ceil(sortedWorkspaces.length / PAGE_SIZE);
@@ -924,11 +934,16 @@ export function SpacesOverview({
         </div>
 
         {/* Running Dev Servers */}
-        <RunningDevServersCard
+        <RunningDevServersSection
           workspaces={workspaces}
           loading={loading}
           onStop={handleStopDevServer}
           stoppingIds={stoppingDevServerIds}
+          workspaceTabGroupMap={workspaceTabGroupMap}
+          onNavigateToTabGroup={onNavigateToTabGroup}
+          onRequestOpenWorkspace={
+            onOpenVKWorkspace ? (ws) => setSpacePickerTarget(ws) : undefined
+          }
         />
 
         {/* Recently Visited Tab Groups */}
