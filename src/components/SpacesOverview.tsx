@@ -1,12 +1,12 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import type { WorkspaceState, TabGroup } from '../types';
+import React, { useState, useEffect, useMemo, useCallback } from "react";
+import type { WorkspaceState, TabGroup } from "../types";
 import {
   vkClient,
   type Workspace,
   type WorkspaceSummary,
   type Repo,
   type RepoWithBranch,
-} from '../lib/vk-client';
+} from "../lib/vk-client";
 
 interface DashboardWorkspace {
   id: string;
@@ -20,12 +20,12 @@ interface DashboardWorkspace {
   files_changed: number | null;
   lines_added: number | null;
   lines_removed: number | null;
-  latest_process_status: 'running' | 'completed' | 'failed' | 'killed' | null;
+  latest_process_status: "running" | "completed" | "failed" | "killed" | null;
   latest_process_completed_at: string | null;
   has_pending_approval: boolean;
   has_running_dev_server: boolean;
   has_unseen_turns: boolean;
-  pr_status: 'open' | 'merged' | 'closed' | 'unknown' | null;
+  pr_status: "open" | "merged" | "closed" | "unknown" | null;
   repos: RepoWithBranch[];
 }
 
@@ -34,12 +34,12 @@ interface DashboardWorkspace {
 function formatRelativeTime(isoString: string): string {
   const now = Date.now();
   const then = new Date(isoString).getTime();
-  if (isNaN(then)) return '';
+  if (isNaN(then)) return "";
   const diffMs = now - then;
-  if (diffMs < 0) return 'just now';
+  if (diffMs < 0) return "just now";
 
   const seconds = Math.floor(diffMs / 1000);
-  if (seconds < 60) return 'just now';
+  if (seconds < 60) return "just now";
   const minutes = Math.floor(seconds / 60);
   if (minutes < 60) return `${minutes}m ago`;
   const hours = Math.floor(minutes / 60);
@@ -72,15 +72,15 @@ function useVKDashboardData() {
           vkClient.getRepos(),
         ]);
 
-      if (allWorkspaces.status === 'rejected') {
-        throw new Error('Failed to load workspaces');
+      if (allWorkspaces.status === "rejected") {
+        throw new Error("Failed to load workspaces");
       }
 
       const activeWorkspaces = allWorkspaces.value.filter((w) => !w.archived);
 
       // Parse summaries (non-critical — default to empty if fails)
       const summaryMap = new Map<string, WorkspaceSummary>();
-      if (summaryResult.status === 'fulfilled') {
+      if (summaryResult.status === "fulfilled") {
         for (const s of summaryResult.value.summaries) {
           summaryMap.set(s.workspace_id, s);
         }
@@ -88,20 +88,20 @@ function useVKDashboardData() {
 
       // Parse repos list (non-critical)
       const allRepos =
-        reposResult.status === 'fulfilled' ? reposResult.value : [];
+        reposResult.status === "fulfilled" ? reposResult.value : [];
 
       // Batch-fetch per-workspace repos
       const repoResults = await Promise.allSettled(
         activeWorkspaces.map((ws) =>
           vkClient
             .getWorkspaceRepos(ws.id)
-            .then((repos) => ({ wsId: ws.id, repos }))
-        )
+            .then((repos) => ({ wsId: ws.id, repos })),
+        ),
       );
 
       const wsRepoMap = new Map<string, RepoWithBranch[]>();
       for (const result of repoResults) {
-        if (result.status === 'fulfilled') {
+        if (result.status === "fulfilled") {
           wsRepoMap.set(result.value.wsId, result.value.repos);
         }
       }
@@ -135,7 +135,7 @@ function useVKDashboardData() {
       setWorkspaces(merged);
       setRepos(allRepos);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load data');
+      setError(err instanceof Error ? err.message : "Failed to load data");
     } finally {
       setLoading(false);
     }
@@ -156,7 +156,7 @@ function StatusBadge({
   status,
   hasPendingApproval,
 }: {
-  status: DashboardWorkspace['latest_process_status'];
+  status: DashboardWorkspace["latest_process_status"];
   hasPendingApproval: boolean;
 }) {
   if (hasPendingApproval) {
@@ -168,24 +168,24 @@ function StatusBadge({
   }
 
   switch (status) {
-    case 'running':
+    case "running":
       return (
         <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-green-500/15 text-green-400 border border-green-500/30 flex items-center gap-1">
           <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
           Running
         </span>
       );
-    case 'completed':
+    case "completed":
       return (
         <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-blue-500/15 text-blue-400 border border-blue-500/30">
           Done
         </span>
       );
-    case 'failed':
-    case 'killed':
+    case "failed":
+    case "killed":
       return (
         <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-red-500/15 text-red-400 border border-red-500/30">
-          {status === 'failed' ? 'Failed' : 'Killed'}
+          {status === "failed" ? "Failed" : "Killed"}
         </span>
       );
     default:
@@ -193,12 +193,16 @@ function StatusBadge({
   }
 }
 
-function PRBadge({ status }: { status: 'open' | 'merged' | 'closed' | 'unknown' }) {
+function PRBadge({
+  status,
+}: {
+  status: "open" | "merged" | "closed" | "unknown";
+}) {
   const styles = {
-    open: 'bg-green-500/15 text-green-400 border-green-500/30',
-    merged: 'bg-purple-500/15 text-purple-400 border-purple-500/30',
-    closed: 'bg-red-500/15 text-red-400 border-red-500/30',
-    unknown: 'bg-zinc-500/15 text-zinc-400 border-zinc-500/30',
+    open: "bg-green-500/15 text-green-400 border-green-500/30",
+    merged: "bg-purple-500/15 text-purple-400 border-purple-500/30",
+    closed: "bg-red-500/15 text-red-400 border-red-500/30",
+    unknown: "bg-zinc-500/15 text-zinc-400 border-zinc-500/30",
   };
 
   return (
@@ -217,9 +221,10 @@ function RepoFilterBar({
   selectedRepoId: string | null;
   onSelectRepo: (repoId: string | null) => void;
 }) {
-  const active = 'px-3 py-1 rounded-full text-xs font-medium bg-white/10 text-white border border-white/20';
+  const active =
+    "px-3 py-1 rounded-full text-xs font-medium bg-white/10 text-white border border-white/20";
   const inactive =
-    'px-3 py-1 rounded-full text-xs font-medium bg-zinc-800 text-zinc-400 border border-transparent hover:bg-zinc-700 hover:text-zinc-300 transition-colors';
+    "px-3 py-1 rounded-full text-xs font-medium bg-zinc-800 text-zinc-400 border border-transparent hover:bg-zinc-700 hover:text-zinc-300 transition-colors";
 
   return (
     <div className="flex gap-2 overflow-x-auto pb-3 mb-4 scrollbar-none">
@@ -246,14 +251,27 @@ function WorkspaceRow({
   workspace: ws,
   tabGroupNav,
   onOpenInNewTabGroup,
+  isStoppingDevServer,
+  onStopDevServer,
 }: {
   workspace: DashboardWorkspace;
-  tabGroupNav?: { spaceId: string; tabGroupId: string; label: string; onNavigate: () => void };
+  tabGroupNav?: {
+    spaceId: string;
+    tabGroupId: string;
+    label: string;
+    onNavigate: () => void;
+  };
   onOpenInNewTabGroup?: () => void;
+  isStoppingDevServer?: boolean;
+  onStopDevServer?: () => void;
 }) {
   const activityTime = ws.latest_process_completed_at || ws.updated_at;
   const hasDiffStats =
-    ws.files_changed != null || ws.lines_added != null || ws.lines_removed != null;
+    ws.files_changed != null ||
+    ws.lines_added != null ||
+    ws.lines_removed != null;
+  const showsDevServerControls =
+    ws.has_running_dev_server || isStoppingDevServer;
 
   return (
     <div className="flex items-center gap-4 px-4 py-3 bg-zinc-800/50 rounded-lg border border-zinc-700/50 hover:border-zinc-600 transition-colors">
@@ -293,9 +311,7 @@ function WorkspaceRow({
       {hasDiffStats && (
         <div className="hidden sm:flex items-center gap-2 text-xs shrink-0">
           {ws.files_changed != null && (
-            <span className="text-zinc-400">
-              {ws.files_changed}f
-            </span>
+            <span className="text-zinc-400">{ws.files_changed}f</span>
           )}
           {ws.lines_added != null && ws.lines_added > 0 && (
             <span className="text-green-500 font-mono">+{ws.lines_added}</span>
@@ -307,15 +323,25 @@ function WorkspaceRow({
       )}
 
       {/* Dev server indicator */}
-      {ws.has_running_dev_server && (
+      {showsDevServerControls && (
         <span className="shrink-0 px-2 py-0.5 rounded-full text-xs font-medium bg-cyan-500/15 text-cyan-400 border border-cyan-500/30 flex items-center gap-1">
           <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
           Dev server
         </span>
       )}
 
+      {showsDevServerControls && onStopDevServer && (
+        <button
+          onClick={onStopDevServer}
+          disabled={isStoppingDevServer}
+          className="shrink-0 px-2 py-1 rounded text-xs font-medium bg-red-500/15 text-red-400 border border-red-500/30 hover:bg-red-500/25 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {isStoppingDevServer ? "Stopping..." : "Stop server"}
+        </button>
+      )}
+
       {/* PR badge */}
-      {ws.pr_status && ws.pr_status !== 'unknown' && (
+      {ws.pr_status && ws.pr_status !== "unknown" && (
         <div className="shrink-0">
           <PRBadge status={ws.pr_status} />
         </div>
@@ -434,7 +460,12 @@ function SpacePickerModal({
                 >
                   <span className="text-sm text-white">{space.name}</span>
                   <span className="text-xs text-zinc-600 ml-auto">
-                    {ws.tabGroups.filter((tg) => space.tabGroupIds.includes(tg.id)).length} tab groups
+                    {
+                      ws.tabGroups.filter((tg) =>
+                        space.tabGroupIds.includes(tg.id),
+                      ).length
+                    }{" "}
+                    tab groups
                   </span>
                 </button>
               ))}
@@ -460,31 +491,21 @@ function RunningDevServersCard({
   workspaces,
   loading,
   onStop,
+  stoppingIds,
 }: {
   workspaces: DashboardWorkspace[];
   loading: boolean;
-  onStop: (workspaceId: string) => void;
+  onStop: (workspaceId: string) => Promise<void>;
+  stoppingIds: Set<string>;
 }) {
-  const [stoppingIds, setStoppingIds] = useState<Set<string>>(new Set());
-
-  const devServerWorkspaces = workspaces.filter((ws) => ws.has_running_dev_server);
+  const devServerWorkspaces = workspaces.filter(
+    (ws) => ws.has_running_dev_server || stoppingIds.has(ws.id),
+  );
 
   if (loading || devServerWorkspaces.length === 0) return null;
 
   const handleStop = async (wsId: string) => {
-    setStoppingIds((prev) => new Set(prev).add(wsId));
-    try {
-      onStop(wsId);
-    } finally {
-      // Clear after a delay to allow the refetch to update has_running_dev_server
-      setTimeout(() => {
-        setStoppingIds((prev) => {
-          const next = new Set(prev);
-          next.delete(wsId);
-          return next;
-        });
-      }, 5000);
-    }
+    await onStop(wsId);
   };
 
   return (
@@ -519,7 +540,7 @@ function RunningDevServersCard({
                 disabled={isStopping}
                 className="shrink-0 px-2.5 py-1 rounded text-xs font-medium bg-red-500/15 text-red-400 border border-red-500/30 hover:bg-red-500/25 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isStopping ? 'Stopping...' : 'Stop'}
+                {isStopping ? "Stopping..." : "Stop"}
               </button>
             </div>
           );
@@ -548,16 +569,20 @@ function TabGroupRow({
       className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg bg-zinc-800/50 border border-zinc-700/50 hover:border-zinc-600 transition-colors group text-left"
     >
       <div className="min-w-0 flex-1">
-        <span className="text-sm font-medium text-white truncate block">{tg.label}</span>
+        <span className="text-sm font-medium text-white truncate block">
+          {tg.label}
+        </span>
       </div>
       <span className="text-xs text-zinc-500 shrink-0">{space.name}</span>
       <span className="text-xs text-zinc-600 shrink-0">
-        {tg.tabs.length} tab{tg.tabs.length !== 1 ? 's' : ''}
+        {tg.tabs.length} tab{tg.tabs.length !== 1 ? "s" : ""}
         {tg.pairs.length > 0 &&
-          ` / ${tg.pairs.length} pair${tg.pairs.length !== 1 ? 's' : ''}`}
+          ` / ${tg.pairs.length} pair${tg.pairs.length !== 1 ? "s" : ""}`}
       </span>
       {timeLabel && (
-        <span className="text-xs text-zinc-600 shrink-0 w-14 text-right">{timeLabel}</span>
+        <span className="text-xs text-zinc-600 shrink-0 w-14 text-right">
+          {timeLabel}
+        </span>
       )}
       <svg
         className="w-3.5 h-3.5 text-zinc-600 group-hover:text-white transition-colors shrink-0"
@@ -607,8 +632,10 @@ function RecentlyVisitedTabGroups({
   const recentlyVisited = useMemo(() => {
     return allItems
       .filter(({ tg }) => tg.lastVisitedAt)
-      .sort((a, b) =>
-        new Date(b.tg.lastVisitedAt!).getTime() - new Date(a.tg.lastVisitedAt!).getTime()
+      .sort(
+        (a, b) =>
+          new Date(b.tg.lastVisitedAt!).getTime() -
+          new Date(a.tg.lastVisitedAt!).getTime(),
       )
       .slice(0, 6);
   }, [allItems]);
@@ -617,7 +644,9 @@ function RecentlyVisitedTabGroups({
 
   return (
     <div className="mb-8">
-      <h2 className="text-lg font-semibold text-white mb-3">Recently Visited</h2>
+      <h2 className="text-lg font-semibold text-white mb-3">
+        Recently Visited
+      </h2>
       <div className="space-y-1">
         {recentlyVisited.map(({ space, tg }) => (
           <TabGroupRow
@@ -625,7 +654,11 @@ function RecentlyVisitedTabGroups({
             space={space}
             tg={tg}
             onNavigate={() => onNavigateToTabGroup(space.id, tg.id)}
-            timeLabel={tg.lastVisitedAt ? formatRelativeTime(tg.lastVisitedAt) : undefined}
+            timeLabel={
+              tg.lastVisitedAt
+                ? formatRelativeTime(tg.lastVisitedAt)
+                : undefined
+            }
           />
         ))}
       </div>
@@ -645,8 +678,10 @@ function RecentlyCreatedTabGroups({
   const recentlyCreated = useMemo(() => {
     return allItems
       .filter(({ tg }) => tg.createdAt)
-      .sort((a, b) =>
-        new Date(b.tg.createdAt!).getTime() - new Date(a.tg.createdAt!).getTime()
+      .sort(
+        (a, b) =>
+          new Date(b.tg.createdAt!).getTime() -
+          new Date(a.tg.createdAt!).getTime(),
       )
       .slice(0, 6);
   }, [allItems]);
@@ -655,7 +690,9 @@ function RecentlyCreatedTabGroups({
 
   return (
     <div className="mb-8">
-      <h2 className="text-lg font-semibold text-white mb-3">Recently Created</h2>
+      <h2 className="text-lg font-semibold text-white mb-3">
+        Recently Created
+      </h2>
       <div className="space-y-1">
         {recentlyCreated.map(({ space, tg }) => (
           <TabGroupRow
@@ -663,7 +700,9 @@ function RecentlyCreatedTabGroups({
             space={space}
             tg={tg}
             onNavigate={() => onNavigateToTabGroup(space.id, tg.id)}
-            timeLabel={tg.createdAt ? formatRelativeTime(tg.createdAt) : undefined}
+            timeLabel={
+              tg.createdAt ? formatRelativeTime(tg.createdAt) : undefined
+            }
           />
         ))}
       </div>
@@ -699,9 +738,11 @@ function SpacesSection({
           <div key={space.id}>
             {/* Space header row */}
             <div className="flex items-center gap-3 px-4 py-2 mt-3 first:mt-0">
-              <span className="text-sm font-semibold text-zinc-300">{space.name}</span>
+              <span className="text-sm font-semibold text-zinc-300">
+                {space.name}
+              </span>
               <span className="text-xs text-zinc-600">
-                {tabGroups.length} tab group{tabGroups.length !== 1 ? 's' : ''}
+                {tabGroups.length} tab group{tabGroups.length !== 1 ? "s" : ""}
               </span>
             </div>
             {/* Tab group rows */}
@@ -712,12 +753,14 @@ function SpacesSection({
                 className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg bg-zinc-800/50 border border-zinc-700/50 hover:border-zinc-600 transition-colors group text-left"
               >
                 <div className="min-w-0 flex-1">
-                  <span className="text-sm text-white font-medium truncate block">{tg.label}</span>
+                  <span className="text-sm text-white font-medium truncate block">
+                    {tg.label}
+                  </span>
                 </div>
                 <span className="text-xs text-zinc-600 shrink-0">
-                  {tg.tabs.length} tab{tg.tabs.length !== 1 ? 's' : ''}
+                  {tg.tabs.length} tab{tg.tabs.length !== 1 ? "s" : ""}
                   {tg.pairs.length > 0 &&
-                    ` / ${tg.pairs.length} pair${tg.pairs.length !== 1 ? 's' : ''}`}
+                    ` / ${tg.pairs.length} pair${tg.pairs.length !== 1 ? "s" : ""}`}
                 </span>
                 <svg
                   className="w-3.5 h-3.5 text-zinc-600 group-hover:text-white transition-colors shrink-0"
@@ -746,24 +789,54 @@ function SpacesSection({
 interface SpacesOverviewProps {
   workspace: WorkspaceState;
   onNavigateToTabGroup: (spaceId: string, tabGroupId: string) => void;
-  onOpenVKWorkspace?: (taskAttemptId: string, name: string, containerRef: string, spaceId: string) => void;
+  onOpenVKWorkspace?: (
+    taskAttemptId: string,
+    name: string,
+    containerRef: string,
+    spaceId: string,
+  ) => void;
 }
 
-export function SpacesOverview({ workspace, onNavigateToTabGroup, onOpenVKWorkspace }: SpacesOverviewProps) {
+export function SpacesOverview({
+  workspace,
+  onNavigateToTabGroup,
+  onOpenVKWorkspace,
+}: SpacesOverviewProps) {
   const { workspaces, repos, loading, error, refetch } = useVKDashboardData();
   const [selectedRepoId, setSelectedRepoId] = useState<string | null>(null);
   const [page, setPage] = useState(0);
-  const [spacePickerTarget, setSpacePickerTarget] = useState<DashboardWorkspace | null>(null);
+  const [spacePickerTarget, setSpacePickerTarget] =
+    useState<DashboardWorkspace | null>(null);
+  const [stoppingDevServerIds, setStoppingDevServerIds] = useState<Set<string>>(
+    new Set(),
+  );
 
-  const handleStopDevServer = useCallback(async (workspaceId: string) => {
-    try {
-      await vkClient.stopWorkspaceExecution(workspaceId);
-      // Refresh data after a short delay to let the backend update
-      setTimeout(() => refetch(true), 1000);
-    } catch (err) {
-      console.error('Failed to stop dev server:', err);
-    }
-  }, [refetch]);
+  const handleStopDevServer = useCallback(
+    async (workspaceId: string) => {
+      if (stoppingDevServerIds.has(workspaceId)) return;
+
+      setStoppingDevServerIds((prev) => new Set(prev).add(workspaceId));
+
+      let clearDelayMs = 5000;
+      try {
+        await vkClient.stopWorkspaceExecution(workspaceId);
+        // Refresh data after a short delay to let the backend update
+        setTimeout(() => refetch(true), 1000);
+      } catch (err) {
+        clearDelayMs = 0;
+        console.error("Failed to stop dev server:", err);
+      } finally {
+        setTimeout(() => {
+          setStoppingDevServerIds((prev) => {
+            const next = new Set(prev);
+            next.delete(workspaceId);
+            return next;
+          });
+        }, clearDelayMs);
+      }
+    },
+    [refetch, stoppingDevServerIds],
+  );
 
   // Derive repos from workspace data if /api/repos returned empty
   const effectiveRepos = useMemo(() => {
@@ -772,7 +845,11 @@ export function SpacesOverview({ workspace, onNavigateToTabGroup, onOpenVKWorksp
     for (const ws of workspaces) {
       for (const r of ws.repos) {
         if (!seen.has(r.id)) {
-          seen.set(r.id, { id: r.id, name: r.name, display_name: r.display_name });
+          seen.set(r.id, {
+            id: r.id,
+            name: r.name,
+            display_name: r.display_name,
+          });
         }
       }
     }
@@ -780,36 +857,54 @@ export function SpacesOverview({ workspace, onNavigateToTabGroup, onOpenVKWorksp
   }, [repos, workspaces]);
 
   // Reset page when filter changes
-  useEffect(() => { setPage(0); }, [selectedRepoId]);
+  useEffect(() => {
+    setPage(0);
+  }, [selectedRepoId]);
 
   const sortedWorkspaces = useMemo(() => {
     let filtered = workspaces;
     if (selectedRepoId) {
       filtered = workspaces.filter((w) =>
-        w.repos.some((r) => r.id === selectedRepoId)
+        w.repos.some((r) => r.id === selectedRepoId),
       );
     }
     return [...filtered].sort((a, b) => {
       if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
-      const aTime = new Date(a.latest_process_completed_at || a.updated_at).getTime();
-      const bTime = new Date(b.latest_process_completed_at || b.updated_at).getTime();
+      const aTime = new Date(
+        a.latest_process_completed_at || a.updated_at,
+      ).getTime();
+      const bTime = new Date(
+        b.latest_process_completed_at || b.updated_at,
+      ).getTime();
       return bTime - aTime;
     });
   }, [workspaces, selectedRepoId]);
 
   const totalPages = Math.ceil(sortedWorkspaces.length / PAGE_SIZE);
-  const pagedWorkspaces = sortedWorkspaces.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+  const pagedWorkspaces = sortedWorkspaces.slice(
+    page * PAGE_SIZE,
+    (page + 1) * PAGE_SIZE,
+  );
 
   // Map workspace IDs to their open tab groups by scanning tab URLs for /workspaces/{id}
   const workspaceTabGroupMap = useMemo(() => {
-    const map = new Map<string, { spaceId: string; tabGroupId: string; label: string }>();
+    const map = new Map<
+      string,
+      { spaceId: string; tabGroupId: string; label: string }
+    >();
     for (const space of workspace.spaces) {
-      const tgs = workspace.tabGroups.filter((tg) => space.tabGroupIds.includes(tg.id));
+      const tgs = workspace.tabGroups.filter((tg) =>
+        space.tabGroupIds.includes(tg.id),
+      );
       for (const tg of tgs) {
         for (const tab of tg.tabs) {
           const match = tab.url.match(/\/workspaces\/([^/?#]+)/);
           if (match && match[1]) {
-            map.set(match[1], { spaceId: space.id, tabGroupId: tg.id, label: tg.label });
+            map.set(match[1], {
+              spaceId: space.id,
+              tabGroupId: tg.id,
+              label: tg.label,
+            });
           }
         }
       }
@@ -833,6 +928,7 @@ export function SpacesOverview({ workspace, onNavigateToTabGroup, onOpenVKWorksp
           workspaces={workspaces}
           loading={loading}
           onStop={handleStopDevServer}
+          stoppingIds={stoppingDevServerIds}
         />
 
         {/* Recently Visited Tab Groups */}
@@ -853,7 +949,8 @@ export function SpacesOverview({ workspace, onNavigateToTabGroup, onOpenVKWorksp
             <h2 className="text-lg font-semibold text-white">VK Workspaces</h2>
             {!loading && sortedWorkspaces.length > 0 && (
               <span className="text-xs text-zinc-500">
-                {sortedWorkspaces.length} workspace{sortedWorkspaces.length !== 1 ? 's' : ''}
+                {sortedWorkspaces.length} workspace
+                {sortedWorkspaces.length !== 1 ? "s" : ""}
               </span>
             )}
           </div>
@@ -879,8 +976,8 @@ export function SpacesOverview({ workspace, onNavigateToTabGroup, onOpenVKWorksp
             <div className="text-center py-8">
               <p className="text-zinc-500 text-sm">
                 {selectedRepoId
-                  ? 'No workspaces for this repository'
-                  : 'No active workspaces'}
+                  ? "No workspaces for this repository"
+                  : "No active workspaces"}
               </p>
             </div>
           ) : (
@@ -888,23 +985,39 @@ export function SpacesOverview({ workspace, onNavigateToTabGroup, onOpenVKWorksp
               <div className="space-y-1">
                 {pagedWorkspaces.map((ws) => {
                   const nav = workspaceTabGroupMap.get(ws.id);
-                  const tabGroupNav = nav ? {
-                    ...nav,
-                    onNavigate: () => onNavigateToTabGroup(nav.spaceId, nav.tabGroupId),
-                  } : null;
+                  const tabGroupNav = nav
+                    ? {
+                        ...nav,
+                        onNavigate: () =>
+                          onNavigateToTabGroup(nav.spaceId, nav.tabGroupId),
+                      }
+                    : null;
                   return (
                     <WorkspaceRow
                       key={ws.id}
                       workspace={ws}
+                      isStoppingDevServer={stoppingDevServerIds.has(ws.id)}
+                      onStopDevServer={
+                        ws.has_running_dev_server ||
+                        stoppingDevServerIds.has(ws.id)
+                          ? () => handleStopDevServer(ws.id)
+                          : undefined
+                      }
                       {...(tabGroupNav ? { tabGroupNav } : {})}
-                      {...(!tabGroupNav && onOpenVKWorkspace ? {
-                        onOpenInNewTabGroup: () => setSpacePickerTarget(ws),
-                      } : {})}
+                      {...(!tabGroupNav && onOpenVKWorkspace
+                        ? {
+                            onOpenInNewTabGroup: () => setSpacePickerTarget(ws),
+                          }
+                        : {})}
                     />
                   );
                 })}
               </div>
-              <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
+              <Pagination
+                page={page}
+                totalPages={totalPages}
+                onPageChange={setPage}
+              />
             </>
           )}
         </div>
@@ -930,7 +1043,7 @@ export function SpacesOverview({ workspace, onNavigateToTabGroup, onOpenVKWorksp
             onOpenVKWorkspace(
               spacePickerTarget.id,
               spacePickerTarget.name,
-              spacePickerTarget.container_ref || '',
+              spacePickerTarget.container_ref || "",
               spaceId,
             );
             setSpacePickerTarget(null);
