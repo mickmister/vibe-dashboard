@@ -72,22 +72,7 @@ export function WorkspaceShell({ workspace, session, actions, sessionActions }: 
     dragGroupRef.current = null;
   };
 
-  // --- Cmd+W handler ---
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'w') {
-        e.preventDefault();
-        e.stopPropagation();
-        actions.closeActiveTab();
-      }
-    };
-
-    window.addEventListener('keydown', handler, { capture: true });
-    return () =>
-      window.removeEventListener('keydown', handler, { capture: true });
-  }, [actions]);
-
-  useEffect(() => {
+useEffect(() => {
     if (typeof window === 'undefined') return;
 
     const mediaQuery = window.matchMedia('(min-width: 768px)');
