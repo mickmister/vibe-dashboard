@@ -50,6 +50,7 @@ export function WorkspaceShell({ workspace, session, actions, sessionActions }: 
   const [addTabTargetGroupId, setAddTabTargetGroupId] = useState<string>('');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isDesktop, setIsDesktop] = useState(false);
+  const [showAddressBar, setShowAddressBar] = useState(false);
   const dragGroupRef = useRef<string | null>(null);
 
   // --- Drag-and-drop for tab groups ---
@@ -229,6 +230,8 @@ export function WorkspaceShell({ workspace, session, actions, sessionActions }: 
             actions.renameTab({ tabGroupId, tabId, title });
           }}
           onOpenAddTabModal={openAddTabModal}
+          showAddressBar={showAddressBar}
+          onToggleAddressBar={() => setShowAddressBar((v) => !v)}
         />
       </div>
 
@@ -253,6 +256,7 @@ export function WorkspaceShell({ workspace, session, actions, sessionActions }: 
           onDragOver={handleDragOver}
           onDrop={handleDrop}
           workspace={workspace}
+          showAddressBar={showAddressBar}
         />
       </div>
 

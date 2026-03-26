@@ -12,6 +12,7 @@ interface WorkspaceContentViewProps {
   onDragOver: (e: React.DragEvent) => void;
   onDrop: (e: React.DragEvent, targetGroupId: string) => void;
   workspace: WorkspaceState;
+  showAddressBar: boolean;
 }
 
 export function WorkspaceContentView({
@@ -23,6 +24,7 @@ export function WorkspaceContentView({
   onDragOver,
   onDrop,
   workspace,
+  showAddressBar,
 }: WorkspaceContentViewProps) {
   if (activeTabGroups.length === 0) {
     return (
@@ -41,6 +43,7 @@ export function WorkspaceContentView({
       actions={actions}
       sessionActions={sessionActions}
       workspace={workspace}
+      showAddressBar={showAddressBar}
     />
   );
 }

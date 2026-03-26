@@ -10,6 +10,7 @@ interface UnifiedTabViewProps {
   actions: WorkspaceActions;
   sessionActions: SessionActions;
   workspace: WorkspaceState;
+  showAddressBar: boolean;
 }
 
 export function UnifiedTabView({
@@ -18,12 +19,13 @@ export function UnifiedTabView({
   actions,
   sessionActions,
   workspace,
+  showAddressBar,
 }: UnifiedTabViewProps) {
   const activeTabGroup = tabGroups.find((tg) => tg.id === activeTabGroupId);
 
   return (
     <div className="flex flex-col flex-1 min-h-0 relative">
-      {activeTabGroup && (
+      {showAddressBar && activeTabGroup && (
         <AddressBar
           tabGroup={activeTabGroup}
           activeItemId={sessionActions.getActiveItem(activeTabGroup.id)}

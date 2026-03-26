@@ -25,6 +25,8 @@ interface SidebarProps {
   onSplitPair: (tabGroupId: string, pairId: string) => void;
   onRenameTab: (tabGroupId: string, tabId: string, title: string) => void;
   onOpenAddTabModal: (tabGroupId: string) => void;
+  showAddressBar: boolean;
+  onToggleAddressBar: () => void;
 }
 
 const SPACE_ICONS: Record<string, string> = {
@@ -56,6 +58,8 @@ export function Sidebar({
   onSplitPair,
   onRenameTab,
   onOpenAddTabModal,
+  showAddressBar,
+  onToggleAddressBar,
 }: SidebarProps) {
   const [view, setView] = useState<'groups' | 'spaces'>('groups');
   const [adding, setAdding] = useState(false);
@@ -705,6 +709,19 @@ export function Sidebar({
           </div>
         );
       })()}
+
+      {/* Address bar toggle */}
+      <div className="p-2 border-t border-neutral-800">
+        <Button
+          size="sm"
+          variant={showAddressBar ? 'solid' : 'flat'}
+          color={showAddressBar ? 'primary' : 'default'}
+          className="w-full"
+          onPress={onToggleAddressBar}
+        >
+          {showAddressBar ? 'Hide Address Bar' : 'Show Address Bar'}
+        </Button>
+      </div>
 
       {/* Context menu for space management */}
       {contextMenu && (() => {
