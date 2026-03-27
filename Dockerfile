@@ -1,4 +1,4 @@
-FROM node:20-bullseye
+FROM node:22-bullseye
 
 # Install development tools, supervisor, Go (for xcaddy), and GitHub CLI
 RUN apt-get update && apt-get install -y \
@@ -125,6 +125,7 @@ RUN useradd -m -s /bin/bash vkuser && \
              /home/vkuser/.npm \
              /home/vkuser/.cache \
              /home/vkuser/.claude \
+             /home/vkuser/.openclaw \
              /home/vkuser/bosun \
              /home/vkuser/repos \
              /var/tmp/vibe-kanban/worktrees \
@@ -141,7 +142,7 @@ RUN su - vkuser -c "npm config set prefix '/home/vkuser/.npm-global'"
 RUN mkdir -p /var/log/supervisor /var/log/caddy
 
 # Install tools globally as root (will be available system-wide)
-RUN npm install -g @anthropic-ai/claude-code pnpm @openai/codex
+RUN npm install -g @anthropic-ai/claude-code pnpm @openai/codex openclaw
 
 # Pre-install vibe-kanban at build time (optional, speeds up first start)
 ARG VIBE_KANBAN_VERSION="latest"

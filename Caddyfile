@@ -179,6 +179,15 @@
 		}
 	}
 
+	# OpenClaw gateway (requires ENABLE_OPENCLAW=true)
+	handle_path /openclaw/* {
+		reverse_proxy localhost:18789 {
+			header_up Host {upstream_hostport}
+			header_up Upgrade {http.request.header.Upgrade}
+			header_up Connection {http.request.header.Connection}
+		}
+	}
+
 	# Main application - proxy to vibe-kanban on localhost:{$BACKEND_PORT:3007} (fallback)
 	handle /* {
 		# VK_SHARED_API_BASE now configured at runtime (PR #2769)
