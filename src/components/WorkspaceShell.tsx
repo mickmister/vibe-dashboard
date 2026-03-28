@@ -72,7 +72,24 @@ export function WorkspaceShell({ workspace, session, actions, sessionActions }: 
     dragGroupRef.current = null;
   };
 
-useEffect(() => {
+  // --- Cmd+W / Cmd+Q exit confirmation ---
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'w' || e.key === 'q')) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (confirm('Are you sure you want to exit the app?')) {
+          window.close();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handler, { capture: true });
+    return () =>
+      window.removeEventListener('keydown', handler, { capture: true });
+  }, []);
+
+  useEffect(() => {
     if (typeof window === 'undefined') return;
 
     const mediaQuery = window.matchMedia('(min-width: 768px)');
