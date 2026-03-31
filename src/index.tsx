@@ -30,12 +30,12 @@ function getBaseOrigin(): string {
   const portPrefixMatch = host.match(/^port-\d+\.(.+)$/);
 
   if (portPrefixMatch) {
-    // Return base domain without the port prefix
+    // Return base domain without the port prefix (different origin)
     return `${protocol}//${portPrefixMatch[1]}`;
   }
 
-  // Use origin as-is for normal hosts
-  return `${protocol}//${host}`;
+  // Same origin — use relative paths so URLs aren't tied to a specific host
+  return '';
 }
 
 console.log('outside of module')

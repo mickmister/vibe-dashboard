@@ -224,8 +224,11 @@ function useImperativeIframes(tabs: Tab[]) {
       // Skip internal URLs - they don't use actual iframes
       if (tab.url.startsWith('internal://')) continue;
 
-      // Update iframe src if URL has changed
-      if (entry.iframe.src !== tab.url) {
+      // Update iframe src if URL has changed.
+      // Resolve tab.url against current origin before comparing, since
+      // the browser always returns an absolute URL from iframe.src.
+      const resolvedUrl = new URL(tab.url, window.location.origin).href;
+      if (entry.iframe.src !== resolvedUrl) {
         entry.iframe.src = tab.url;
         // Reset loading and error state
         entry.loaded = false;

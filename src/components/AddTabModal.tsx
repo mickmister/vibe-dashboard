@@ -20,8 +20,6 @@ interface AddTabModalProps {
   onAddTabGroup?: (label: string) => void;
 }
 
-const ORIGIN = location.origin;
-
 const PRESETS = [
   {
     key: 'vk-workspace',
@@ -38,7 +36,7 @@ const PRESETS = [
   {
     key: 'kanban',
     title: 'Kanban',
-    url: `${ORIGIN}/`,
+    url: '/',
     description: 'Vibe Kanban board view',
   },
   {
@@ -65,7 +63,7 @@ export function AddTabModal({ isOpen, onClose, onAdd, onAddVKWorkspace, onAddTab
       setShowCustom(true);
       if (key === 'code') {
         setTitle('Code Server');
-        setUrl(`${ORIGIN}/?folder=`);
+        setUrl('/?folder=');
       }
       return;
     }

@@ -31,6 +31,10 @@ RUN wget https://go.dev/dl/go1.25.7.linux-amd64.tar.gz \
     && rm go1.25.7.linux-amd64.tar.gz
 ENV PATH="/usr/local/go/bin:${PATH}"
 
+# Install Rust and Cargo
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+ENV PATH="/root/.cargo/bin:${PATH}"
+
 # Install xcaddy (Caddy build tool)
 # COMMENTED OUT: Custom Caddy module no longer needed with VK_SHARED_API_BASE support (PR #2769)
 # RUN go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
