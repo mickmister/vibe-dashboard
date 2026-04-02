@@ -25,6 +25,9 @@ interface SidebarProps {
   onSplitPair: (tabGroupId: string, pairId: string) => void;
   onRenameTab: (tabGroupId: string, tabId: string, title: string) => void;
   onOpenAddTabModal: (tabGroupId: string) => void;
+  onToggleStarTabGroup: (tabGroupId: string) => void;
+  onReorderTabGroups: (sourceId: string, targetId: string) => void;
+  onReorderSpaces: (sourceId: string, targetId: string) => void;
   showAddressBar: boolean;
   onToggleAddressBar: () => void;
 }
@@ -58,6 +61,9 @@ export function Sidebar({
   onSplitPair,
   onRenameTab,
   onOpenAddTabModal,
+  onToggleStarTabGroup,
+  onReorderTabGroups,
+  onReorderSpaces,
   showAddressBar,
   onToggleAddressBar,
 }: SidebarProps) {
@@ -86,6 +92,11 @@ export function Sidebar({
   const [pairSelection, setPairSelection] = useState<string[]>([]);
   const contextMenuRef = useRef<HTMLDivElement>(null);
   const groupContextMenuRef = useRef<HTMLDivElement>(null);
+  const dragTabGroupRef = useRef<string | null>(null);
+  const dragSpaceRef = useRef<string | null>(null);
+  const [starredExpanded, setStarredExpanded] = useState(() => {
+    try { return sessionStorage.getItem('sidebar-starred-expanded') === 'true'; } catch { return false; }
+  });
   const activeSpace = workspace.spaces.find((space) => space.id === activeSpaceId);
   const activeTabGroups = useMemo(() => {
     if (!activeSpace) return [];
@@ -99,6 +110,64 @@ export function Sidebar({
     const tabsInPairs = new Set(activeTabGroup.pairs.flatMap((pair) => pair.tabIds));
     return activeTabGroup.tabs.filter((tab) => !tabsInPairs.has(tab.id));
   }, [activeTabGroup]);
+
+  const starredTabGroups = useMemo(() => {
+    const items: { space: Space; tg: TabGroup }[] = [];
+    for (const space of workspace.spaces) {
+      if (space.isSystem) continue;
+      for (const tgId of space.tabGroupIds) {
+        const tg = workspace.tabGroups.find((g) => g.id === tgId);
+        if (tg?.starred) items.push({ space, tg });
+      }
+    }
+    return items;
+  }, [workspace.spaces, workspace.tabGroups]);
+
+  const toggleStarredExpanded = useCallback(() => {
+    setStarredExpanded((prev) => {
+      const next = !prev;
+      try { sessionStorage.setItem('sidebar-starred-expanded', String(next)); } catch {}
+      return next;
+    });
+  }, []);
+
+  const handleTabGroupDragStart = useCallback((e: React.DragEvent, tabGroupId: string) => {
+    dragTabGroupRef.current = tabGroupId;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', tabGroupId);
+  }, []);
+
+  const handleTabGroupDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  }, []);
+
+  const handleTabGroupDrop = useCallback((e: React.DragEvent, targetId: string) => {
+    e.preventDefault();
+    const sourceId = dragTabGroupRef.current;
+    if (!sourceId || sourceId === targetId) return;
+    onReorderTabGroups(sourceId, targetId);
+    dragTabGroupRef.current = null;
+  }, [onReorderTabGroups]);
+
+  const handleSpaceDragStart = useCallback((e: React.DragEvent, spaceId: string) => {
+    dragSpaceRef.current = spaceId;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', spaceId);
+  }, []);
+
+  const handleSpaceDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  }, []);
+
+  const handleSpaceDrop = useCallback((e: React.DragEvent, targetId: string) => {
+    e.preventDefault();
+    const sourceId = dragSpaceRef.current;
+    if (!sourceId || sourceId === targetId) return;
+    onReorderSpaces(sourceId, targetId);
+    dragSpaceRef.current = null;
+  }, [onReorderSpaces]);
 
   const handleAddSubmit = useCallback(() => {
     const name = newName.trim();
@@ -479,6 +548,45 @@ export function Sidebar({
             )}
           </div>
 
+          {/* Starred tab groups section */}
+          {starredTabGroups.length > 0 && (
+            <div className="border-b border-neutral-800">
+              <button
+                className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-neutral-500 hover:text-neutral-300 transition-colors"
+                onClick={toggleStarredExpanded}
+              >
+                <span className="text-[10px]">{starredExpanded ? '▼' : '▶'}</span>
+                Starred ({starredTabGroups.length})
+              </button>
+              {starredExpanded && (
+                <div className="px-2 pb-2 space-y-0.5">
+                  {starredTabGroups.map(({ space, tg }) => (
+                    <button
+                      key={tg.id}
+                      className={`w-full text-left px-3 py-1.5 rounded-lg transition-colors ${
+                        activeTabGroupId === tg.id
+                          ? 'bg-primary-500/20 text-primary-300'
+                          : 'text-neutral-300 hover:bg-neutral-800'
+                      }`}
+                      onClick={() => {
+                        onSelectSpace(space.id);
+                        onSelectTabGroup(tg.id);
+                      }}
+                    >
+                      <div className="text-sm font-medium truncate flex items-center gap-1.5">
+                        <span className="text-amber-400 text-xs">★</span>
+                        {tg.label}
+                      </div>
+                      <div className="text-xs text-neutral-500 mt-0.5 pl-4">
+                        {space.name}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="flex-1 overflow-y-auto p-2 space-y-1">
             {activeTabGroups.length === 0 ? (
               <div className="px-3 py-4 text-sm text-neutral-500">
@@ -486,26 +594,49 @@ export function Sidebar({
               </div>
             ) : (
               activeTabGroups.map((tabGroup) => (
-                <div key={tabGroup.id} className="space-y-1">
-                  <button
-                    className={`w-full text-left px-3 py-2 rounded-lg transition-colors ${
-                      activeTabGroupId === tabGroup.id
-                        ? 'bg-primary-500/20 text-primary-300'
-                        : 'text-neutral-300 hover:bg-neutral-800'
-                    }`}
-                    onClick={() => onSelectTabGroup(tabGroup.id)}
-                    onContextMenu={(e) => handleGroupContextMenu(e, tabGroup.id)}
-                  >
-                    <div className="text-sm font-medium truncate">
-                      {tabGroup.label}
-                    </div>
-                    <div className="text-xs text-neutral-500 mt-0.5">
-                      {tabGroup.tabs.length} tab{tabGroup.tabs.length !== 1 ? 's' : ''}
-                      {tabGroup.pairs.length > 0
-                        ? ` • ${tabGroup.pairs.length} pair${tabGroup.pairs.length !== 1 ? 's' : ''}`
-                        : ''}
-                    </div>
-                  </button>
+                <div
+                  key={tabGroup.id}
+                  className="space-y-1"
+                  draggable
+                  onDragStart={(e) => handleTabGroupDragStart(e, tabGroup.id)}
+                  onDragOver={handleTabGroupDragOver}
+                  onDrop={(e) => handleTabGroupDrop(e, tabGroup.id)}
+                >
+                  <div className="flex items-center gap-1">
+                    <button
+                      className={`shrink-0 w-6 h-6 flex items-center justify-center rounded text-xs transition-colors ${
+                        tabGroup.starred
+                          ? 'text-amber-400 hover:text-amber-300'
+                          : 'text-neutral-600 hover:text-neutral-400'
+                      }`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onToggleStarTabGroup(tabGroup.id);
+                      }}
+                      title={tabGroup.starred ? 'Unstar' : 'Star'}
+                    >
+                      {tabGroup.starred ? '★' : '☆'}
+                    </button>
+                    <button
+                      className={`flex-1 text-left px-2 py-2 rounded-lg transition-colors ${
+                        activeTabGroupId === tabGroup.id
+                          ? 'bg-primary-500/20 text-primary-300'
+                          : 'text-neutral-300 hover:bg-neutral-800'
+                      }`}
+                      onClick={() => onSelectTabGroup(tabGroup.id)}
+                      onContextMenu={(e) => handleGroupContextMenu(e, tabGroup.id)}
+                    >
+                      <div className="text-sm font-medium truncate">
+                        {tabGroup.label}
+                      </div>
+                      <div className="text-xs text-neutral-500 mt-0.5">
+                        {tabGroup.tabs.length} tab{tabGroup.tabs.length !== 1 ? 's' : ''}
+                        {tabGroup.pairs.length > 0
+                          ? ` • ${tabGroup.pairs.length} pair${tabGroup.pairs.length !== 1 ? 's' : ''}`
+                          : ''}
+                      </div>
+                    </button>
+                  </div>
 
                   {activeTabGroupId === tabGroup.id && (
                     <div className="ml-2 pl-2 border-l border-neutral-800 space-y-0.5">
@@ -572,6 +703,10 @@ export function Sidebar({
           {workspace.spaces.map((space: Space) => (
             <div
               key={space.id}
+              draggable
+              onDragStart={(e) => handleSpaceDragStart(e, space.id)}
+              onDragOver={handleSpaceDragOver}
+              onDrop={(e) => handleSpaceDrop(e, space.id)}
               className={`group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors ${
                 activeSpaceId === space.id
                   ? 'bg-primary-500/20 text-primary-400'

@@ -27,6 +27,8 @@ export interface TabGroup {
   createdAt?: string;
   /** ISO timestamp when this tab group was last navigated to */
   lastVisitedAt?: string;
+  /** If true, this tab group is starred and shown prominently */
+  starred?: boolean;
 }
 
 export interface Space {

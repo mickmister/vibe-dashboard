@@ -622,21 +622,57 @@ function TabGroupRow({
 
 // ── Recent Tab Groups ───────────────────────────────────────────────────────
 
+const TAB_GROUP_PAGE_SIZE = 10;
+
 type TabGroupWithSpace = { space: { id: string; name: string }; tg: TabGroup };
 
 function useNonSystemTabGroups(workspace: WorkspaceState): TabGroupWithSpace[] {
   return useMemo(() => {
+    const seen = new Set<string>();
     const items: TabGroupWithSpace[] = [];
     for (const space of workspace.spaces) {
       if (space.isSystem) continue;
-      for (const tg of workspace.tabGroups) {
-        if (space.tabGroupIds.includes(tg.id)) {
-          items.push({ space, tg });
-        }
+      for (const tgId of space.tabGroupIds) {
+        if (seen.has(tgId)) continue;
+        seen.add(tgId);
+        const tg = workspace.tabGroups.find((g) => g.id === tgId);
+        if (tg) items.push({ space, tg });
       }
     }
     return items;
   }, [workspace.spaces, workspace.tabGroups]);
+}
+
+function StarredTabGroups({
+  workspace,
+  onNavigateToTabGroup,
+}: {
+  workspace: WorkspaceState;
+  onNavigateToTabGroup: (spaceId: string, tabGroupId: string) => void;
+}) {
+  const allItems = useNonSystemTabGroups(workspace);
+
+  const starred = useMemo(() => {
+    return allItems.filter(({ tg }) => tg.starred);
+  }, [allItems]);
+
+  if (starred.length === 0) return null;
+
+  return (
+    <div className="mb-8">
+      <h2 className="text-lg font-semibold text-white mb-3">Starred</h2>
+      <div className="space-y-1">
+        {starred.map(({ space, tg }) => (
+          <TabGroupRow
+            key={tg.id}
+            space={space}
+            tg={tg}
+            onNavigate={() => onNavigateToTabGroup(space.id, tg.id)}
+          />
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function RecentlyVisitedTabGroups({
@@ -647,6 +683,7 @@ function RecentlyVisitedTabGroups({
   onNavigateToTabGroup: (spaceId: string, tabGroupId: string) => void;
 }) {
   const allItems = useNonSystemTabGroups(workspace);
+  const [page, setPage] = useState(0);
 
   const recentlyVisited = useMemo(() => {
     return allItems
@@ -655,9 +692,14 @@ function RecentlyVisitedTabGroups({
         (a, b) =>
           new Date(b.tg.lastVisitedAt!).getTime() -
           new Date(a.tg.lastVisitedAt!).getTime(),
-      )
-      .slice(0, 6);
+      );
   }, [allItems]);
+
+  const totalPages = Math.ceil(recentlyVisited.length / TAB_GROUP_PAGE_SIZE);
+  const paged = recentlyVisited.slice(
+    page * TAB_GROUP_PAGE_SIZE,
+    (page + 1) * TAB_GROUP_PAGE_SIZE,
+  );
 
   if (recentlyVisited.length === 0) return null;
 
@@ -667,7 +709,7 @@ function RecentlyVisitedTabGroups({
         Recently Visited
       </h2>
       <div className="space-y-1">
-        {recentlyVisited.map(({ space, tg }) => (
+        {paged.map(({ space, tg }) => (
           <TabGroupRow
             key={tg.id}
             space={space}
@@ -681,6 +723,7 @@ function RecentlyVisitedTabGroups({
           />
         ))}
       </div>
+      <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
     </div>
   );
 }
@@ -693,6 +736,7 @@ function RecentlyCreatedTabGroups({
   onNavigateToTabGroup: (spaceId: string, tabGroupId: string) => void;
 }) {
   const allItems = useNonSystemTabGroups(workspace);
+  const [page, setPage] = useState(0);
 
   const recentlyCreated = useMemo(() => {
     return allItems
@@ -701,9 +745,14 @@ function RecentlyCreatedTabGroups({
         (a, b) =>
           new Date(b.tg.createdAt!).getTime() -
           new Date(a.tg.createdAt!).getTime(),
-      )
-      .slice(0, 6);
+      );
   }, [allItems]);
+
+  const totalPages = Math.ceil(recentlyCreated.length / TAB_GROUP_PAGE_SIZE);
+  const paged = recentlyCreated.slice(
+    page * TAB_GROUP_PAGE_SIZE,
+    (page + 1) * TAB_GROUP_PAGE_SIZE,
+  );
 
   if (recentlyCreated.length === 0) return null;
 
@@ -713,7 +762,7 @@ function RecentlyCreatedTabGroups({
         Recently Created
       </h2>
       <div className="space-y-1">
-        {recentlyCreated.map(({ space, tg }) => (
+        {paged.map(({ space, tg }) => (
           <TabGroupRow
             key={tg.id}
             space={space}
@@ -725,6 +774,7 @@ function RecentlyCreatedTabGroups({
           />
         ))}
       </div>
+      <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
     </div>
   );
 }
@@ -932,6 +982,12 @@ export function SpacesOverview({
           <h1 className="text-2xl font-bold text-white">Dashboard</h1>
           <p className="text-sm text-zinc-500 mt-1">Workspace activity feed</p>
         </div>
+
+        {/* Starred Tab Groups */}
+        <StarredTabGroups
+          workspace={workspace}
+          onNavigateToTabGroup={onNavigateToTabGroup}
+        />
 
         {/* Running Dev Servers */}
         <RunningDevServersSection

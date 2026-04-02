@@ -28,6 +28,8 @@ export type WorkspaceActions = {
   }) => Promise<{ tabGroupId: string; pairId: string; agentTabId: string } | undefined>;
   updateTabUrl: (args: { tabGroupId: string; tabId: string; newUrl: string }) => void;
   touchTabGroup: (args: { tabGroupId: string }) => void;
+  toggleStarTabGroup: (args: { tabGroupId: string }) => void;
+  reorderSpaces: (args: { sourceId: string; targetId: string }) => void;
 };
 
 export type SessionActions = {
@@ -232,6 +234,15 @@ export function WorkspaceShell({ workspace, session, actions, sessionActions }: 
             actions.renameTab({ tabGroupId, tabId, title });
           }}
           onOpenAddTabModal={openAddTabModal}
+          onToggleStarTabGroup={(tabGroupId) =>
+            actions.toggleStarTabGroup({ tabGroupId })
+          }
+          onReorderTabGroups={(sourceId, targetId) =>
+            actions.reorderTabGroups({ sourceId, targetId })
+          }
+          onReorderSpaces={(sourceId, targetId) =>
+            actions.reorderSpaces({ sourceId, targetId })
+          }
           showAddressBar={showAddressBar}
           onToggleAddressBar={() => setShowAddressBar((v) => !v)}
         />
