@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from '@storybook/react';
+import type { Meta, StoryObj } from '@storybook/react-vite';
 import { HorizontalTabGroupsV2, type HorizontalTabGroupsV2State } from './HorizontalTabGroupsV2';
 
 const meta = {

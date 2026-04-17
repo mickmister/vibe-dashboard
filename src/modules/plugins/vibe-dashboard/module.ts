@@ -15,7 +15,7 @@ springboard.registerModule('plugin-registry', {}, async (moduleAPI) => {
   );
 
   const actions = moduleAPI.createActions({
-    registerContributions: async (contributions) => {
+    registerContributions: (contributions) => {
       for (const preset of contributions.tabPresets || []) {
         registry.setStateImmer((draft) => {
           draft.tabPresets[preset.key] = preset;

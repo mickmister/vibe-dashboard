@@ -39,51 +39,11 @@ springboard.registerModule('plugin-vibe-kanban', {}, async (moduleAPI) => {
         return undefined;
       }
 
-      const trimmedLabel = args.name.trim();
-      const label = trimmedLabel.length > 30 ? `${trimmedLabel.slice(0, 27)}...` : trimmedLabel;
-
-      const tabGroupResult = await workspace.actions.addTabGroup({
-        spaceId: args.activeSpaceId,
-        label: label || 'Workspace',
-      });
-      if (!tabGroupResult?.tabGroupId) {
-        return undefined;
-      }
-
-      const tabGroupId = tabGroupResult.tabGroupId;
       const baseOrigin = getBaseOrigin();
-
-      const agentTabResult = await workspace.actions.addTab({
-        tabGroupId,
-        title: 'Agent',
-        url: `${baseOrigin}/workspaces/${args.taskAttemptId}`,
+      return workspace.actions.addVKWorkspace({
+        ...args,
+        baseOrigin,
       });
-      if (!agentTabResult?.tabId) {
-        return undefined;
-      }
-
-      const codeTabResult = await workspace.actions.addTab({
-        tabGroupId,
-        title: 'Code',
-        url: `${baseOrigin}/?folder=${args.containerRef}`,
-      });
-      if (!codeTabResult?.tabId) {
-        return undefined;
-      }
-
-      const pairResult = await workspace.actions.createPair({
-        tabGroupId,
-        tabIds: [agentTabResult.tabId, codeTabResult.tabId],
-      });
-      if (!pairResult?.pairId) {
-        return undefined;
-      }
-
-      return {
-        tabGroupId,
-        pairId: pairResult.pairId,
-        agentTabId: agentTabResult.tabId,
-      };
     },
   });
 

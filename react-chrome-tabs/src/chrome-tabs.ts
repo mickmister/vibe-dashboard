@@ -258,7 +258,7 @@ class ChromeTabs {
   async doLayout() {
     const tabContentWidths = this.tabContentWidths;
     this.tabEls.forEach((tabEl, i) => {
-      const contentWidth = tabContentWidths[i];
+      const contentWidth = tabContentWidths[i] ?? 0;
       const width = contentWidth + 2 * TAB_CONTENT_MARGIN;
 
       tabEl.style.width = width + "px";
@@ -497,7 +497,7 @@ class ChromeTabs {
     this.disposeDraggabilly();
 
     tabEls.forEach((tabEl: HTMLDivElement, originalIndex) => {
-      const originalTabPositionX = tabPositions[originalIndex];
+      const originalTabPositionX = tabPositions[originalIndex] ?? 0;
       const draggabilly = new Draggabilly(tabEl, {
         axis: "x",
         handle: ".chrome-tab-drag-handle",

@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from '@storybook/react';
+import type { Meta, StoryObj } from '@storybook/react-vite';
 import { useState } from 'react';
 import { ChromeTabs, type TabProperties } from './ChromeTabs';
 
@@ -122,7 +122,10 @@ export const Interactive: Story = {
         const filtered = prev.filter((tab) => tab.id !== tabId);
         // If we closed the active tab, activate the first remaining tab
         if (filtered.length > 0 && !filtered.some((tab) => tab.active)) {
-          filtered[0].active = true;
+          const [firstTab] = filtered;
+          if (firstTab) {
+            firstTab.active = true;
+          }
         }
         return filtered;
       });
@@ -132,6 +135,7 @@ export const Interactive: Story = {
       setTabs((prev) => {
         const newTabs = [...prev];
         const [movedTab] = newTabs.splice(fromIndex, 1);
+        if (!movedTab) return prev;
         newTabs.splice(toIndex, 0, movedTab);
         return newTabs;
       });

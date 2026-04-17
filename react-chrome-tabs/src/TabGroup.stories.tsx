@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from '@storybook/react';
+import type { Meta, StoryObj } from '@storybook/react-vite';
 import { useState } from 'react';
 import { TabGroup, type TabGroupData } from './TabGroup';
 
@@ -144,6 +144,7 @@ export const MultipleGroups: Story = {
           if (g.id !== groupId) return g;
           const newTabs = [...g.tabs];
           const [movedTab] = newTabs.splice(fromIndex, 1);
+          if (!movedTab) return g;
           newTabs.splice(toIndex, 0, movedTab);
           return { ...g, tabs: newTabs };
         })
@@ -221,6 +222,7 @@ export const MultipleGroupsDarkMode: Story = {
           if (g.id !== groupId) return g;
           const newTabs = [...g.tabs];
           const [movedTab] = newTabs.splice(fromIndex, 1);
+          if (!movedTab) return g;
           newTabs.splice(toIndex, 0, movedTab);
           return { ...g, tabs: newTabs };
         })
@@ -334,6 +336,7 @@ export const WorkflowExample: Story = {
           if (g.id !== groupId) return g;
           const newTabs = [...g.tabs];
           const [movedTab] = newTabs.splice(fromIndex, 1);
+          if (!movedTab) return g;
           newTabs.splice(toIndex, 0, movedTab);
           return { ...g, tabs: newTabs };
         })

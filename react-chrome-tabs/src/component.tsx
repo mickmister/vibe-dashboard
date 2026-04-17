@@ -35,6 +35,7 @@ export function Tabs({
   const handleTabReorder = usePersistFn(
     (tabId: string, fromIndex: number, toIndex: number) => {
       const [dest] = tabsLatest.current.splice(fromIndex, 1);
+      if (!dest) return;
       tabsLatest.current.splice(toIndex, 0, dest);
       const beforeFromIndex = moveIndex.current.fromIndex;
       moveIndex.current = {

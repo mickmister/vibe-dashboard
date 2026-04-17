@@ -44,5 +44,9 @@
     "noUncheckedSideEffectImports": true,
     "moduleDetection": "force",
     "skipLibCheck": true,
-  }
+  },
+  "exclude": [
+    "react-chrome-tabs/src/**/*.stories.tsx",
+    "react-chrome-tabs/src/**/*.test.tsx"
+  ]
 }

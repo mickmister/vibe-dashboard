@@ -9,7 +9,7 @@ export function getBaseOrigin(): string {
     return `${protocol}//${portPrefixMatch[1]}`;
   }
 
-  return `${protocol}//${host}`;
+  return '';
 }
 
 export function applyUrlTemplate(template: string, values: Record<string, string>): string {
