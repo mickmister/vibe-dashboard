@@ -34,6 +34,8 @@ services:
       # VK Cloud connection (optional - if set, local VK connects to this cloud instance)
       # Uses VK_SHARED_API_BASE (PR #2769) for runtime API URL configuration
       VK_SHARED_API_BASE: ${VK_SHARED_API_BASE:-}
+      # Optional CORS allowlist for vibe-kanban backend
+      VK_ALLOWED_ORIGINS: ${VK_ALLOWED_ORIGINS:-}
 
     volumes:
       # Mount Docker socket for Docker-in-Docker support
