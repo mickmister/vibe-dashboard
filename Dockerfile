@@ -1,5 +1,11 @@
 FROM node:22-bookworm
 
+# Harden APT against flaky proxy/cache behavior (helps prevent Hash Sum mismatch on macOS VM networking).
+RUN set -eux; \
+    rm -rf /var/lib/apt/lists/*; \
+    apt-get clean; \
+    printf 'Acquire::http::Pipeline-Depth 0;\nAcquire::http::No-Cache true;\nAcquire::BrokenProxy true;\nAcquire::Retries 3;\n' > /etc/apt/apt.conf.d/99network-safe
+
 # Install development tools, supervisor, Go (for xcaddy), and GitHub CLI
 RUN apt-get update && apt-get install -y \
     curl \
@@ -16,6 +22,7 @@ RUN apt-get update && apt-get install -y \
     ripgrep \
     inotify-tools \
     zsh \
+    bubblewrap \
     && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
     && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
@@ -30,6 +37,7 @@ RUN wget https://go.dev/dl/go1.25.7.linux-amd64.tar.gz \
     && tar -C /usr/local -xzf go1.25.7.linux-amd64.tar.gz \
     && rm go1.25.7.linux-amd64.tar.gz
 ENV PATH="/usr/local/go/bin:${PATH}"
+ENV VK_ALLOWED_ORIGINS=""
 
 # Install Rust and Cargo
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
@@ -70,7 +78,7 @@ RUN mkdir -p /etc/apt/keyrings \
     && apt-get install -y docker-ce-cli docker-compose-plugin \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
-    
+
 # Install Tailscale
 RUN curl -fsSL https://pkgs.tailscale.com/stable/debian/bookworm.noarmor.gpg | tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null \
     && curl -fsSL https://pkgs.tailscale.com/stable/debian/bookworm.tailscale-keyring.list | tee /etc/apt/sources.list.d/tailscale.list \
@@ -100,10 +108,17 @@ RUN apt-get update && apt-get install -y \
     libxkbcommon0 \
     libxrandr2 \
     xdg-utils \
-    && wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/google-chrome-keyring.gpg \
-    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/google-chrome-keyring.gpg] http://dl.google.com/linux/chrome/deb/ stable main" | tee /etc/apt/sources.list.d/google-chrome.list \
-    && apt-get update \
-    && apt-get install -y google-chrome-stable \
+    && ARCH="$(dpkg --print-architecture)" \
+    && if [ "$ARCH" = "amd64" ]; then \
+        wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/google-chrome-keyring.gpg; \
+        echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome-keyring.gpg] http://dl.google.com/linux/chrome/deb/ stable main" | tee /etc/apt/sources.list.d/google-chrome.list; \
+        apt-get update; \
+        apt-get install -y google-chrome-stable; \
+      else \
+        apt-get install -y chromium; \
+        ln -sf /usr/bin/chromium /usr/bin/google-chrome; \
+        ln -sf /usr/bin/chromium /usr/bin/google-chrome-stable; \
+      fi \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -146,7 +161,10 @@ RUN su - vkuser -c "npm config set prefix '/home/vkuser/.npm-global'"
 RUN mkdir -p /var/log/supervisor /var/log/caddy
 
 # Install tools globally as root (will be available system-wide)
-RUN npm install -g @anthropic-ai/claude-code pnpm @openai/codex openclaw
+RUN npm install -g @anthropic-ai/claude-code pnpm @openai/codex opencode-ai
+
+# Install Claude Code extension
+RUN su - vkuser -c "mkdir -p /home/vkuser/.local/share/code-server/extensions && code-server --install-extension anthropic.claude-code"
 
 # Pre-install vibe-kanban at build time (optional, speeds up first start)
 ARG VIBE_KANBAN_VERSION="latest"
@@ -178,9 +196,6 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 RUN mkdir -p /home/vkuser/.local/share/code-server/User
 COPY default-settings.json /home/vkuser/.local/share/code-server/User/settings.json
 RUN chown -R vkuser:vkuser /home/vkuser/.local/share/code-server
-
-# Install Claude Code extension
-RUN su - vkuser -c "mkdir -p /home/vkuser/.local/share/code-server/extensions && code-server --install-extension anthropic.claude-code"
 
 # Configure git to use gh as credential helper (system-level, so users only need `gh auth login`)
 RUN git config --system credential.helper '!gh auth git-credential'
