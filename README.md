@@ -32,13 +32,124 @@ Caddy forwards `port-<port>.*` subdomains to `localhost:<port>` inside the conta
 
 ## Configuration
 
-Environment variables used by `docker-compose.yaml`:
+Environment variables are split across:
 
-- `CODE_PASSWORD` (required): sets `PASSWORD` for `code-server`
-- `VIBE_KANBAN_VERSION` (optional, default `latest`): version for `vibe-kanban`
-- `CADDY_PORT` (optional, default `3001`): host port for Caddy
-- `VIBE_KANBAN_PORT` (optional, default `3007`): host port for direct backend access (localhost-only binding)
-- `VS_CODE_PORT` (optional, default `3008`): host port for direct code-server access (localhost-only binding)
+- `docker-compose.yaml` (local dev container)
+- `vkcloud/docker-compose.yaml` (self-hosted VK cloud stack)
+
+### Local dev container (`docker-compose.yaml`)
+
+#### Required
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `CODE_PASSWORD` | none (required) | Sets `PASSWORD` for `code-server`. |
+
+#### Image/version
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `VIBE_KANBAN_VERSION` | `latest` | Build arg and runtime env for `vibe-kanban` version. |
+
+#### Ports
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `CADDY_PORT` | `3001` | Main Caddy entrypoint host port. |
+| `BACKEND_PORT` | `3007` | Backend port exposed inside container env. |
+| `DASHBOARD_PORT` | `3005` | Dashboard port exposed inside container env. |
+| `CODE_PORT` | `3008` | `code-server` port exposed inside container env. |
+
+#### Optional auth/system
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `SUDO_PASSWORD` | empty | Optional sudo password in the container. |
+
+#### Optional networking/integration
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `ENABLE_TAILSCALE` | `false` | Enables Tailscale startup. |
+| `TAILSCALE_AUTHKEY` | empty | Tailscale auth key. |
+| `TAILSCALE_HOSTNAME` | `vkdev` | Tailscale node hostname. |
+| `VK_SHARED_API_BASE` | empty | If set, local VK connects to that cloud API base URL. |
+| `VK_ALLOWED_ORIGINS` | empty | Optional backend CORS allowlist. |
+| `ENABLE_BOSUN` | `false` | Present as a commented option in compose. |
+
+### VK cloud stack (`vkcloud/docker-compose.yaml`)
+
+#### Core required (typical production)
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `PUBLIC_BASE_URL` | none (required in practice) | Public URL used by server and frontend (`SERVER_PUBLIC_BASE_URL`, `VITE_*`). |
+| `VIBEKANBAN_REMOTE_JWT_SECRET` | none (required) | JWT signing secret for remote server auth. |
+| `GITHUB_OAUTH_CLIENT_ID` | none (required unless another provider is configured) | GitHub OAuth client ID. |
+| `GITHUB_OAUTH_CLIENT_SECRET` | none (required unless another provider is configured) | GitHub OAuth client secret. |
+
+#### Deployment/image/runtime
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `VKCLOUD_IMAGE_VERSION` | `latest` | Tag for `ghcr.io/mickmister/vk-cloud`. |
+| `REMOTE_SERVER_PORTS` | `127.0.0.1:3000:8081` | Docker port mapping for `vk-remote`. |
+| `RUST_LOG` | `info,remote=info` | Server logging level/filter. |
+
+#### Postgres + ElectricSQL
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `VK_POSTGRES_DB` | `remote` | Postgres database name. |
+| `VK_POSTGRES_USER` | `remote` | Postgres user. |
+| `VK_POSTGRES_PASSWORD` | `remote` | Postgres password. |
+| `ELECTRIC_ROLE_PASSWORD` | `remote` | Password used by ElectricSQL role. |
+
+#### OAuth (optional additions)
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `GOOGLE_OAUTH_CLIENT_ID` | empty | Optional Google OAuth provider. |
+| `GOOGLE_OAUTH_CLIENT_SECRET` | empty | Optional Google OAuth provider. |
+
+#### Azure storage (Azurite by default)
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `AZURE_STORAGE_ACCOUNT_NAME` | `devstoreaccount1` | Storage account name. |
+| `AZURE_STORAGE_ACCOUNT_KEY` | Azurite dev key | Storage account key. |
+| `AZURE_STORAGE_CONTAINER_NAME` | `issue-attachments` | Blob container for attachments. |
+| `AZURE_STORAGE_ENDPOINT_URL` | `http://vk-azurite:10000/devstoreaccount1` | Internal storage endpoint. |
+| `AZURE_STORAGE_PUBLIC_ENDPOINT_URL` | `http://localhost:10000/devstoreaccount1` | Public/client-facing storage endpoint. |
+
+#### Optional integrations
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `LOOPS_EMAIL_API_KEY` | empty | Loops email integration. |
+| `GITHUB_APP_ID` | empty | GitHub App integration ID. |
+| `GITHUB_APP_PRIVATE_KEY` | empty | GitHub App private key. |
+| `GITHUB_APP_WEBHOOK_SECRET` | empty | GitHub App webhook secret. |
+| `GITHUB_APP_SLUG` | empty | GitHub App slug. |
+| `R2_ACCESS_KEY_ID` | empty | Cloudflare R2 credentials. |
+| `R2_SECRET_ACCESS_KEY` | empty | Cloudflare R2 credentials. |
+| `R2_REVIEW_ENDPOINT` | empty | R2 endpoint for reviews. |
+| `R2_REVIEW_BUCKET` | empty | R2 bucket for reviews. |
+| `REVIEW_WORKER_BASE_URL` | empty | External review worker service URL. |
+| `STRIPE_SECRET_KEY` | empty | Stripe secret key. |
+| `STRIPE_TEAM_SEAT_PRICE_ID` | empty | Stripe price ID for team seats. |
+| `STRIPE_WEBHOOK_SECRET` | empty | Stripe webhook signing secret. |
+| `STRIPE_FREE_SEAT_LIMIT` | `1` | Free seat limit for Stripe-based plans. |
+
+#### Local image build args (only if you switch from `image:` to `build:`)
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `VK_REPO_URL` | `https://github.com/BloopAI/vibe-kanban.git` | Source repo used by local image build. |
+| `VK_BRANCH` | `v0.1.15-20260218201323` | Git branch/tag used by local image build. |
+| `FEATURES` | empty | Optional feature flags passed at build time. |
+| `POSTHOG_API_KEY` | empty | Optional PostHog key passed at build time. |
+| `POSTHOG_API_ENDPOINT` | empty | Optional PostHog endpoint passed at build time. |
 
 ## GitHub auth
 
