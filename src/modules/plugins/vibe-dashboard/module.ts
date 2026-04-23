@@ -8,7 +8,7 @@ import type {
 } from './types';
 import { createEmptyPluginRegistryState } from './types';
 
-springboard.registerModule('plugin-registry', {}, async (moduleAPI) => {
+springboard.registerModule('plugin-registry', {rpcMode: 'local'}, async (moduleAPI) => {
   const registry = await moduleAPI.statesAPI.createSharedState<PluginRegistryState>(
     'plugin-registry',
     createEmptyPluginRegistryState()
