@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Sidebar } from './Sidebar';
 import { WorkspaceContentView } from './WorkspaceContentView';
 import { AddTabModal } from './AddTabModal';
+import { AddVKWorkspaceModal } from './dialogs/AddVKWorkspaceModal';
 import type { WorkspaceState, TabGroup } from '../types';
 import type { SessionWorkspaceNav } from '../sessionState';
 
@@ -49,6 +50,7 @@ interface WorkspaceShellProps {
 
 export function WorkspaceShell({ workspace, session, actions, sessionActions }: WorkspaceShellProps) {
   const [addTabModalOpen, setAddTabModalOpen] = useState(false);
+  const [workspaceSearchOpen, setWorkspaceSearchOpen] = useState(false);
   const [addTabTargetGroupId, setAddTabTargetGroupId] = useState<string>('');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isDesktop, setIsDesktop] = useState(false);
@@ -77,7 +79,18 @@ export function WorkspaceShell({ workspace, session, actions, sessionActions }: 
   // --- Cmd+W / Cmd+Q exit confirmation ---
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && (e.key === 'w' || e.key === 'q')) {
+      const key = e.key.toLowerCase();
+
+      if ((e.metaKey || e.ctrlKey) && key === 'k' && !isEditableTarget(e.target)) {
+        e.preventDefault();
+        e.stopPropagation();
+        setAddTabModalOpen(false);
+        setWorkspaceSearchOpen(true);
+        setIsSidebarOpen(false);
+        return;
+      }
+
+      if ((e.metaKey || e.ctrlKey) && (key === 'w' || key === 'q')) {
         e.preventDefault();
         e.stopPropagation();
         if (confirm('Are you sure you want to exit the app?')) {
@@ -132,6 +145,34 @@ export function WorkspaceShell({ workspace, session, actions, sessionActions }: 
       sessionActions.setActiveTabGroup(result.tabGroupId);
       sessionActions.selectTab(result.tabGroupId, result.agentTabId);
     }
+  };
+
+  const handleAddVKWorkspaceToSpace = async (
+    taskAttemptId: string,
+    name: string,
+    containerRef: string,
+    spaceId: string
+  ) => {
+    const result = await actions.addVKWorkspace({
+      taskAttemptId,
+      name,
+      containerRef,
+      activeSpaceId: spaceId,
+    });
+
+    if (result) {
+      sessionActions.selectSpace(spaceId);
+      sessionActions.setActiveTabGroup(result.tabGroupId);
+      sessionActions.selectTab(result.tabGroupId, result.agentTabId);
+    }
+  };
+
+  const handleNavigateToWorkspaceTabGroup = (
+    spaceId: string,
+    tabGroupId: string
+  ) => {
+    sessionActions.selectSpace(spaceId);
+    sessionActions.setActiveTabGroup(tabGroupId);
   };
 
   const handleAddTabGroup = async (label: string) => {
@@ -279,9 +320,36 @@ export function WorkspaceShell({ workspace, session, actions, sessionActions }: 
           onClose={() => setAddTabModalOpen(false)}
           onAdd={handleAddTab}
           onAddVKWorkspace={handleAddVKWorkspace}
+          onAddVKWorkspaceToSpace={handleAddVKWorkspaceToSpace}
+          onNavigateToTabGroup={handleNavigateToWorkspaceTabGroup}
           onAddTabGroup={handleAddTabGroup}
+          workspace={workspace}
+        />
+      )}
+
+      {workspaceSearchOpen && (
+        <AddVKWorkspaceModal
+          isOpen={workspaceSearchOpen}
+          onClose={() => setWorkspaceSearchOpen(false)}
+          onAdd={handleAddVKWorkspace}
+          onAddToSpace={handleAddVKWorkspaceToSpace}
+          onNavigateToTabGroup={handleNavigateToWorkspaceTabGroup}
+          workspaceState={workspace}
+          allowCustomPath={false}
         />
       )}
     </div>
+  );
+}
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+
+  const tagName = target.tagName.toLowerCase();
+  return (
+    tagName === 'input' ||
+    tagName === 'textarea' ||
+    tagName === 'select' ||
+    target.isContentEditable
   );
 }

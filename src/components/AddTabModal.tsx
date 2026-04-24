@@ -11,13 +11,22 @@ import {
   ListboxItem,
 } from '@heroui/react';
 import { AddVKWorkspaceModal } from './dialogs/AddVKWorkspaceModal';
+import type { WorkspaceState } from '../types';
 
 interface AddTabModalProps {
   isOpen: boolean;
   onClose: () => void;
   onAdd: (title: string, url: string) => void;
   onAddVKWorkspace?: (taskAttemptId: string, name: string, containerRef: string) => void;
+  onAddVKWorkspaceToSpace?: (
+    taskAttemptId: string,
+    name: string,
+    containerRef: string,
+    spaceId: string
+  ) => void;
+  onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void;
   onAddTabGroup?: (label: string) => void;
+  workspace?: WorkspaceState;
 }
 
 const PRESETS = [
@@ -47,7 +56,16 @@ const PRESETS = [
   },
 ];
 
-export function AddTabModal({ isOpen, onClose, onAdd, onAddVKWorkspace, onAddTabGroup }: AddTabModalProps) {
+export function AddTabModal({
+  isOpen,
+  onClose,
+  onAdd,
+  onAddVKWorkspace,
+  onAddVKWorkspaceToSpace,
+  onNavigateToTabGroup,
+  onAddTabGroup,
+  workspace,
+}: AddTabModalProps) {
   const [title, setTitle] = useState('');
   const [url, setUrl] = useState('');
   const [showCustom, setShowCustom] = useState(false);
@@ -232,7 +250,11 @@ export function AddTabModal({ isOpen, onClose, onAdd, onAddVKWorkspace, onAddTab
       <AddVKWorkspaceModal
         isOpen={showVKWorkspace}
         onClose={() => setShowVKWorkspace(false)}
+        onComplete={handleClose}
         onAdd={handleVKWorkspaceAdd}
+        onAddToSpace={onAddVKWorkspaceToSpace}
+        onNavigateToTabGroup={onNavigateToTabGroup}
+        workspaceState={workspace}
       />
     </>
   );

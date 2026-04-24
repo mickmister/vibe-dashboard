@@ -14,6 +14,7 @@ import {
   type RepoWithBranch,
   type Workspace,
 } from '../../lib/vk-client';
+import type { WorkspaceState } from '../../types';
 
 interface WorkspaceOption extends Workspace {
   repos: RepoWithBranch[];
@@ -22,15 +23,30 @@ interface WorkspaceOption extends Workspace {
 interface AddVKWorkspaceModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onComplete?: () => void;
   onAdd: (taskAttemptId: string, name: string, containerRef: string) => void;
+  onAddToSpace?: (
+    taskAttemptId: string,
+    name: string,
+    containerRef: string,
+    spaceId: string
+  ) => void;
+  onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void;
   onAddWithPath?: (workspacePath: string, name: string) => void;
+  workspaceState?: WorkspaceState;
+  allowCustomPath?: boolean;
 }
 
 export function AddVKWorkspaceModal({
   isOpen,
   onClose,
+  onComplete,
   onAdd,
+  onAddToSpace,
+  onNavigateToTabGroup,
   onAddWithPath,
+  workspaceState,
+  allowCustomPath = true,
 }: AddVKWorkspaceModalProps) {
   const [taskAttempts, setTaskAttempts] = useState<WorkspaceOption[]>([]);
   const [filteredAttempts, setFilteredAttempts] = useState<WorkspaceOption[]>([]);
@@ -38,10 +54,21 @@ export function AddVKWorkspaceModal({
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRepo, setSelectedRepo] = useState('all');
-  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showPathInput, setShowPathInput] = useState(false);
   const [customPath, setCustomPath] = useState('');
   const [customName, setCustomName] = useState('');
+  const [spacePickerTarget, setSpacePickerTarget] =
+    useState<WorkspaceOption | null>(null);
+
+  const workspaceTabGroupMap = useMemo(
+    () => buildWorkspaceTabGroupMap(workspaceState),
+    [workspaceState]
+  );
+
+  const availableSpaces = useMemo(() => {
+    if (!workspaceState) return [];
+    return workspaceState.spaces;
+  }, [workspaceState]);
 
   useEffect(() => {
     if (isOpen) {
@@ -50,10 +77,10 @@ export function AddVKWorkspaceModal({
       // Reset state when modal closes
       setSearchQuery('');
       setSelectedRepo('all');
-      setSelectedId(null);
       setShowPathInput(false);
       setCustomPath('');
       setCustomName('');
+      setSpacePickerTarget(null);
     }
   }, [isOpen]);
 
@@ -61,20 +88,24 @@ export function AddVKWorkspaceModal({
     const query = searchQuery.trim().toLowerCase();
     const repoFilter = selectedRepo.trim();
 
-    setFilteredAttempts(
-      taskAttempts.filter((ta) => {
+    const filtered = taskAttempts.filter((ta) => {
+        const openLocation = workspaceTabGroupMap.get(ta.id);
         const matchesQuery = !query ||
           ta.name?.toLowerCase().includes(query) ||
           ta.branch?.toLowerCase().includes(query) ||
-          ta.agent_working_dir?.toLowerCase().includes(query);
+          ta.agent_working_dir?.toLowerCase().includes(query) ||
+          openLocation?.spaceName.toLowerCase().includes(query) ||
+          openLocation?.tabGroupLabel.toLowerCase().includes(query);
 
         const repoNames = getRepoNames(ta);
         const matchesRepo = repoFilter === 'all' || repoNames.includes(repoFilter);
 
         return matchesQuery && matchesRepo;
-      })
-    );
-  }, [searchQuery, selectedRepo, taskAttempts]);
+      });
+
+    filtered.sort((a, b) => compareWorkspaceOptions(a, b, workspaceTabGroupMap));
+    setFilteredAttempts(filtered);
+  }, [searchQuery, selectedRepo, taskAttempts, workspaceTabGroupMap]);
 
   const repoOptions = useMemo(() => {
     const repos = new Set<string>();
@@ -116,13 +147,7 @@ export function AddVKWorkspaceModal({
           ...workspace,
           repos: repoMap.get(workspace.id) ?? [],
         }))
-        .sort((a, b) => {
-          if (a.pinned && !b.pinned) return -1;
-          if (!a.pinned && b.pinned) return 1;
-          const recentDiff = getMostRecentTimestamp(b) - getMostRecentTimestamp(a);
-          if (recentDiff !== 0) return recentDiff;
-          return (a.name || '').localeCompare(b.name || '');
-        });
+        .sort((a, b) => compareWorkspaceOptions(a, b, workspaceTabGroupMap));
 
       setTaskAttempts(workspaces);
       setFilteredAttempts(workspaces);
@@ -133,22 +158,64 @@ export function AddVKWorkspaceModal({
     }
   };
 
-  const handleAdd = async () => {
-    const selected = taskAttempts.find((ta) => ta.id === selectedId);
-    if (!selected) return;
-
-    let containerRef = selected.container_ref;
+  const resolveContainerRef = async (workspace: WorkspaceOption) => {
+    let containerRef = workspace.container_ref;
 
     if (!containerRef) {
       try {
-        const attempt = await refreshTaskAttemptContainerAndRefetchTaskAttempt(selected.id);
+        const attempt = await refreshTaskAttemptContainerAndRefetchTaskAttempt(
+          workspace.id
+        );
         containerRef = attempt.container_ref;
       } catch (e) {
         console.error('Failed to refresh container ref', e);
       }
     }
 
-    onAdd(selected.id, selected.name || 'Untitled Workspace', containerRef || '');
+    return containerRef || '';
+  };
+
+  const handleWorkspaceSelect = async (workspace: WorkspaceOption) => {
+    const openLocation = workspaceTabGroupMap.get(workspace.id);
+    if (openLocation && onNavigateToTabGroup) {
+      onNavigateToTabGroup(openLocation.spaceId, openLocation.tabGroupId);
+      onComplete?.();
+      onClose();
+      return;
+    }
+
+    if (onAddToSpace) {
+      setSpacePickerTarget(workspace);
+      return;
+    }
+
+    const containerRef = await resolveContainerRef(workspace);
+    onAdd(workspace.id, workspace.name || 'Untitled Workspace', containerRef);
+    onComplete?.();
+    onClose();
+  };
+
+  const handleSelectSpace = async (spaceId: string) => {
+    if (!spacePickerTarget) return;
+
+    const containerRef = await resolveContainerRef(spacePickerTarget);
+
+    if (onAddToSpace) {
+      onAddToSpace(
+        spacePickerTarget.id,
+        spacePickerTarget.name || 'Untitled Workspace',
+        containerRef,
+        spaceId
+      );
+    } else {
+      onAdd(
+        spacePickerTarget.id,
+        spacePickerTarget.name || 'Untitled Workspace',
+        containerRef
+      );
+    }
+
+    onComplete?.();
     onClose();
   };
 
@@ -164,6 +231,7 @@ export function AddVKWorkspaceModal({
       // Fallback: treat path as containerRef and create empty taskAttemptId
       onAdd('', name, customPath.trim());
     }
+    onComplete?.();
     onClose();
   };
 
@@ -171,15 +239,54 @@ export function AddVKWorkspaceModal({
     <Modal isOpen={isOpen} onClose={onClose} size="2xl" backdrop="blur">
       <ModalContent className="bg-neutral-900 border border-neutral-800 text-neutral-100">
         <ModalHeader className="flex flex-col gap-1 border-b border-neutral-800">
-          <h2 className="text-lg font-semibold text-white">Add VK Workspace</h2>
+          <h2 className="text-lg font-semibold text-white">
+            {spacePickerTarget ? 'Choose Space' : 'Open VK Workspace'}
+          </h2>
           <p className="text-sm text-neutral-400 font-normal">
-            {showPathInput
+            {spacePickerTarget
+              ? `Select a space for ${spacePickerTarget.name || 'Untitled Workspace'}`
+              : showPathInput
               ? 'Enter workspace path or directory'
-              : 'Select a workspace to open in split view (Agent + Code)'}
+              : 'Search workspaces to open, or jump to an already-open tab group'}
           </p>
         </ModalHeader>
         <ModalBody>
-          {showPathInput ? (
+          {spacePickerTarget ? (
+            <div className="space-y-2">
+              {availableSpaces.length === 0 ? (
+                <div className="text-neutral-500 text-center py-8">
+                  No spaces available
+                </div>
+              ) : (
+                availableSpaces.map((space) => {
+                  const tabGroupCount =
+                    workspaceState?.tabGroups.filter((tg) =>
+                      space.tabGroupIds.includes(tg.id)
+                    ).length ?? 0;
+
+                  return (
+                    <button
+                      key={space.id}
+                      onClick={() => {
+                        void handleSelectSpace(space.id);
+                      }}
+                      className="w-full p-3 rounded-lg bg-neutral-800 hover:bg-neutral-700 border border-transparent transition-colors text-left"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="font-medium text-sm text-white">
+                          {space.name}
+                        </span>
+                        <span className="text-xs text-neutral-500">
+                          {tabGroupCount} tab group
+                          {tabGroupCount === 1 ? '' : 's'}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          ) : showPathInput ? (
             <div className="space-y-3">
               <Input
                 label="Workspace Name"
@@ -221,19 +328,22 @@ export function AddVKWorkspaceModal({
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     size="sm"
+                    autoFocus
                     classNames={{
                       inputWrapper: 'bg-neutral-800 border-neutral-700 data-[hover=true]:bg-neutral-800 group-data-[focus=true]:bg-neutral-800',
                       input: 'text-white',
                     }}
                     className="flex-1"
                   />
-                  <Button
-                    size="sm"
-                    variant="flat"
-                    onPress={() => setShowPathInput(true)}
-                  >
-                    Custom Path
-                  </Button>
+                  {allowCustomPath && (
+                    <Button
+                      size="sm"
+                      variant="flat"
+                      onPress={() => setShowPathInput(true)}
+                    >
+                      Custom Path
+                    </Button>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-2">
@@ -279,14 +389,12 @@ export function AddVKWorkspaceModal({
               {!loading && !error && filteredAttempts.length > 0 && (
                 <div className="flex flex-col gap-2 max-h-96 overflow-y-auto">
                   {filteredAttempts.map((ta) => (
-                    <div
+                    <button
                       key={ta.id}
-                      onClick={() => setSelectedId(ta.id)}
-                      className={`p-3 rounded-lg cursor-pointer transition-colors ${
-                        selectedId === ta.id
-                          ? 'bg-primary-500/20 border border-primary-500'
-                          : 'bg-neutral-800 hover:bg-neutral-700 border border-transparent'
-                      }`}
+                      onClick={() => {
+                        void handleWorkspaceSelect(ta);
+                      }}
+                      className="p-3 rounded-lg cursor-pointer transition-colors bg-neutral-800 hover:bg-neutral-700 border border-transparent text-left"
                     >
                       <div className="flex items-start justify-between">
                         <div className="flex-1 min-w-0">
@@ -309,9 +417,19 @@ export function AddVKWorkspaceModal({
                               Repo: {getRepoNames(ta).join(', ')}
                             </p>
                           )}
+                          {workspaceTabGroupMap.get(ta.id) ? (
+                            <p className="text-xs text-primary-300 mt-1">
+                              Open in {workspaceTabGroupMap.get(ta.id)?.spaceName} /{' '}
+                              {workspaceTabGroupMap.get(ta.id)?.tabGroupLabel}
+                            </p>
+                          ) : onAddToSpace ? (
+                            <p className="text-xs text-neutral-500 mt-1">
+                              Choose a space for this tab group
+                            </p>
+                          ) : null}
                         </div>
                       </div>
-                    </div>
+                    </button>
                   ))}
                 </div>
               )}
@@ -319,11 +437,17 @@ export function AddVKWorkspaceModal({
           )}
         </ModalBody>
         <ModalFooter className="border-t border-neutral-800">
-          {showPathInput && (
+          {(showPathInput || spacePickerTarget) && (
             <Button
               size="sm"
               variant="flat"
-              onPress={() => setShowPathInput(false)}
+              onPress={() => {
+                if (spacePickerTarget) {
+                  setSpacePickerTarget(null);
+                } else {
+                  setShowPathInput(false);
+                }
+              }}
               className="bg-neutral-800 text-neutral-200"
             >
               Back
@@ -332,17 +456,27 @@ export function AddVKWorkspaceModal({
           <Button color="default" variant="light" onPress={onClose} className="text-neutral-300">
             Cancel
           </Button>
-          <Button
-            color="primary"
-            onPress={showPathInput ? handleAddWithPath : handleAdd}
-            isDisabled={showPathInput ? !customPath.trim() : (!selectedId || loading)}
-          >
-            {showPathInput ? 'Add' : 'Add Workspace'}
-          </Button>
+          {showPathInput && (
+            <Button
+              color="primary"
+              onPress={handleAddWithPath}
+              isDisabled={!customPath.trim()}
+            >
+              Add
+            </Button>
+          )}
         </ModalFooter>
       </ModalContent>
     </Modal>
   );
+}
+
+interface OpenWorkspaceLocation {
+  spaceId: string;
+  spaceName: string;
+  tabGroupId: string;
+  tabGroupLabel: string;
+  lastVisitedAt?: string;
 }
 
 function getMostRecentTimestamp(workspace: Workspace): number {
@@ -356,6 +490,78 @@ function getMostRecentTimestamp(workspace: Workspace): number {
     if (ts > 0) return ts;
   }
   return 0;
+}
+
+function getWorkspaceTabGroupTimestamp(location?: OpenWorkspaceLocation): number {
+  if (!location) return 0;
+  return parseTimestamp(location.lastVisitedAt);
+}
+
+function compareWorkspaceOptions(
+  a: WorkspaceOption,
+  b: WorkspaceOption,
+  workspaceTabGroupMap: Map<string, OpenWorkspaceLocation>
+): number {
+  const openDiff =
+    getWorkspaceTabGroupTimestamp(workspaceTabGroupMap.get(b.id)) -
+    getWorkspaceTabGroupTimestamp(workspaceTabGroupMap.get(a.id));
+  if (openDiff !== 0) return openDiff;
+
+  if (a.pinned && !b.pinned) return -1;
+  if (!a.pinned && b.pinned) return 1;
+
+  const recentDiff = getMostRecentTimestamp(b) - getMostRecentTimestamp(a);
+  if (recentDiff !== 0) return recentDiff;
+
+  return (a.name || '').localeCompare(b.name || '');
+}
+
+function buildWorkspaceTabGroupMap(
+  workspaceState?: WorkspaceState
+): Map<string, OpenWorkspaceLocation> {
+  const map = new Map<string, OpenWorkspaceLocation>();
+  if (!workspaceState) return map;
+
+  for (const space of workspaceState.spaces) {
+    for (const tabGroupId of space.tabGroupIds) {
+      const tg = workspaceState.tabGroups.find((group) => group.id === tabGroupId);
+      if (!tg) continue;
+
+      for (const tab of tg.tabs) {
+        const workspaceId = extractWorkspaceIdFromUrl(tab.url);
+        if (!workspaceId) continue;
+
+        const existing = map.get(workspaceId);
+        if (
+          existing &&
+          getWorkspaceTabGroupTimestamp(existing) >= getWorkspaceTabGroupTimestamp({
+            spaceId: space.id,
+            spaceName: space.name,
+            tabGroupId: tg.id,
+            tabGroupLabel: tg.label,
+            lastVisitedAt: tg.lastVisitedAt,
+          })
+        ) {
+          continue;
+        }
+
+        map.set(workspaceId, {
+          spaceId: space.id,
+          spaceName: space.name,
+          tabGroupId: tg.id,
+          tabGroupLabel: tg.label,
+          lastVisitedAt: tg.lastVisitedAt,
+        });
+      }
+    }
+  }
+
+  return map;
+}
+
+function extractWorkspaceIdFromUrl(value: string): string | null {
+  const match = value.match(/\/workspaces\/([^/?#]+)/);
+  return match?.[1] ?? null;
 }
 
 function parseTimestamp(value: unknown): number {
