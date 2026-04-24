@@ -166,8 +166,8 @@ RUN npm install -g @anthropic-ai/claude-code pnpm @openai/codex opencode-ai
 # Install Claude Code extension
 RUN su - vkuser -c "mkdir -p /home/vkuser/.local/share/code-server/extensions && code-server --install-extension anthropic.claude-code"
 
-# Install Codex skills for the default non-root user
-RUN su - vkuser -c "npx skills add dcramer/dex"
+# Install Beads CLI
+RUN curl -fsSL https://raw.githubusercontent.com/gastownhall/beads/main/scripts/install.sh | bash
 
 # Pre-install vibe-kanban at build time (optional, speeds up first start)
 ARG VIBE_KANBAN_VERSION="latest"
