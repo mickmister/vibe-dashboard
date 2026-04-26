@@ -20,6 +20,9 @@ interface WorkspaceOption extends Workspace {
   repos: RepoWithBranch[];
 }
 
+let cachedWorkspaceOptions: WorkspaceOption[] | null = null;
+let cachedWorkspaceOptionsPromise: Promise<WorkspaceOption[]> | null = null;
+
 interface AddVKWorkspaceModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -48,9 +51,12 @@ export function AddVKWorkspaceModal({
   workspaceState,
   allowCustomPath = true,
 }: AddVKWorkspaceModalProps) {
-  const [taskAttempts, setTaskAttempts] = useState<WorkspaceOption[]>([]);
+  const [taskAttempts, setTaskAttempts] = useState<WorkspaceOption[]>(
+    () => cachedWorkspaceOptions ?? []
+  );
   const [filteredAttempts, setFilteredAttempts] = useState<WorkspaceOption[]>([]);
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRepo, setSelectedRepo] = useState('all');
@@ -72,7 +78,7 @@ export function AddVKWorkspaceModal({
 
   useEffect(() => {
     if (isOpen) {
-      fetchTaskAttempts();
+      void fetchTaskAttempts();
     } else {
       // Reset state when modal closes
       setSearchQuery('');
@@ -81,6 +87,9 @@ export function AddVKWorkspaceModal({
       setCustomPath('');
       setCustomName('');
       setSpacePickerTarget(null);
+      setLoading(false);
+      setRefreshing(false);
+      setError(null);
     }
   }, [isOpen]);
 
@@ -121,40 +130,29 @@ export function AddVKWorkspaceModal({
   };
 
   const fetchTaskAttempts = async () => {
-    setLoading(true);
+    const hasCachedResults = cachedWorkspaceOptions != null;
+
+    if (hasCachedResults) {
+      setTaskAttempts(cachedWorkspaceOptions);
+      setLoading(false);
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+      setRefreshing(false);
+    }
+
     setError(null);
+
     try {
-      const allWorkspaces = await vkClient.getWorkspaces();
-      const activeWorkspaces = allWorkspaces.filter((workspace) => !workspace.archived);
-
-      const repoResults = await Promise.allSettled(
-        activeWorkspaces.map((workspace) =>
-          vkClient
-            .getWorkspaceRepos(workspace.id)
-            .then((repos) => ({ workspaceId: workspace.id, repos }))
-        )
-      );
-
-      const repoMap = new Map<string, RepoWithBranch[]>();
-      for (const result of repoResults) {
-        if (result.status === 'fulfilled') {
-          repoMap.set(result.value.workspaceId, result.value.repos);
-        }
-      }
-
-      const workspaces = activeWorkspaces
-        .map((workspace) => ({
-          ...workspace,
-          repos: repoMap.get(workspace.id) ?? [],
-        }))
-        .sort((a, b) => compareWorkspaceOptions(a, b, workspaceTabGroupMap));
-
+      const workspaces = await fetchWorkspaceOptions();
       setTaskAttempts(workspaces);
-      setFilteredAttempts(workspaces);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load workspaces');
+      if (!hasCachedResults) {
+        setError(err instanceof Error ? err.message : 'Failed to load workspaces');
+      }
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
@@ -366,6 +364,13 @@ export function AddVKWorkspaceModal({
                 </div>
               </div>
 
+              {refreshing && (
+                <div className="flex items-center gap-2 text-xs text-neutral-500">
+                  <Spinner size="sm" />
+                  <span>Refreshing results…</span>
+                </div>
+              )}
+
               {loading && (
                 <div className="flex items-center justify-center py-8">
                   <Spinner size="lg" />
@@ -514,6 +519,50 @@ function compareWorkspaceOptions(
   if (recentDiff !== 0) return recentDiff;
 
   return (a.name || '').localeCompare(b.name || '');
+}
+
+async function fetchWorkspaceOptions(): Promise<WorkspaceOption[]> {
+  if (cachedWorkspaceOptionsPromise) {
+    return cachedWorkspaceOptionsPromise;
+  }
+
+  cachedWorkspaceOptionsPromise = (async () => {
+    const allWorkspaces = await vkClient.getWorkspaces();
+    const activeWorkspaces = allWorkspaces.filter((workspace) => !workspace.archived);
+
+    const repoResults = await Promise.allSettled(
+      activeWorkspaces.map((workspace) =>
+        vkClient
+          .getWorkspaceRepos(workspace.id)
+          .then((repos) => ({ workspaceId: workspace.id, repos }))
+      )
+    );
+
+    const repoMap = new Map<string, RepoWithBranch[]>();
+    for (const result of repoResults) {
+      if (result.status === 'fulfilled') {
+        repoMap.set(result.value.workspaceId, result.value.repos);
+      }
+    }
+
+    const workspaces = activeWorkspaces.map((workspace) => ({
+      ...workspace,
+      repos: repoMap.get(workspace.id) ?? [],
+    }));
+
+    cachedWorkspaceOptions = workspaces;
+    return workspaces;
+  })();
+
+  try {
+    return await cachedWorkspaceOptionsPromise;
+  } finally {
+    cachedWorkspaceOptionsPromise = null;
+  }
+}
+
+export function prefetchVKWorkspaceSearchResults(): Promise<void> {
+  return fetchWorkspaceOptions().then(() => undefined).catch(() => undefined);
 }
 
 function buildWorkspaceTabGroupMap(

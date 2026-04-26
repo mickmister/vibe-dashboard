@@ -2,7 +2,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Sidebar } from './Sidebar';
 import { WorkspaceContentView } from './WorkspaceContentView';
 import { AddTabModal } from './AddTabModal';
-import { AddVKWorkspaceModal } from './dialogs/AddVKWorkspaceModal';
+import {
+  AddVKWorkspaceModal,
+  prefetchVKWorkspaceSearchResults,
+} from './dialogs/AddVKWorkspaceModal';
 import type { WorkspaceState, TabGroup } from '../types';
 import type { SessionWorkspaceNav } from '../sessionState';
 
@@ -116,6 +119,10 @@ export function WorkspaceShell({ workspace, session, actions, sessionActions }: 
     setIsDesktop(mediaQuery.matches);
     mediaQuery.addEventListener('change', handleViewportChange);
     return () => mediaQuery.removeEventListener('change', handleViewportChange);
+  }, []);
+
+  useEffect(() => {
+    void prefetchVKWorkspaceSearchResults();
   }, []);
 
   // --- Add tab modal handler ---
