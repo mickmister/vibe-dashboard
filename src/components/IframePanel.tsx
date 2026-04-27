@@ -2,6 +2,7 @@ import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { Group, Panel, Separator } from 'react-resizable-panels';
 import type { TabGroup, Tab } from '../types';
 import type { WorkspaceState } from '../types';
+import { AppLoadingScreen } from './AppLoadingScreen';
 import { SpacesOverview } from './SpacesOverview';
 
 interface IframePanelProps {
@@ -462,7 +463,7 @@ function SingleTabView({
       {hasError ? (
         <ErrorOverlay url={activeTab.url} onRetry={() => retryTab(activeTab.id)} />
       ) : !isLoaded ? (
-        <LoadingOverlay />
+        <AppLoadingScreen className="absolute inset-0 z-10" />
       ) : null}
     </div>
   );
@@ -512,7 +513,7 @@ function PairView({
                 {hasError ? (
                   <ErrorOverlay url={tab.url} onRetry={() => retryTab(tab.id)} />
                 ) : !isLoaded ? (
-                  <LoadingOverlay />
+                  <AppLoadingScreen className="absolute inset-0 z-10" />
                 ) : null}
               </div>
             </Panel>
@@ -530,17 +531,6 @@ function EmptyView() {
   return (
     <div className="flex-1 flex items-center justify-center text-neutral-500">
       <p>No tab selected. Click + to add a tab.</p>
-    </div>
-  );
-}
-
-function LoadingOverlay() {
-  return (
-    <div className="absolute inset-0 bg-neutral-950 flex items-center justify-center z-10">
-      <div className="flex flex-col items-center gap-3">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-500"></div>
-        <p className="text-neutral-400 text-sm">Loading...</p>
-      </div>
     </div>
   );
 }

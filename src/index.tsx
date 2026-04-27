@@ -5,6 +5,7 @@ import './styles';
 import React, { useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router';
 import { HeroUIProvider } from '@heroui/react';
+import { AppLoadingScreen } from './components/AppLoadingScreen';
 import { WorkspaceShell } from './components/WorkspaceShell';
 import { useSessionWorkspaceNav } from './sessionState';
 
@@ -17,6 +18,8 @@ document.documentElement.classList.add('dark');
 import springboard from 'springboard';
 import { createDefaultWorkspace } from './types';
 import type { WorkspaceState } from './types';
+
+springboard.registerSplashScreen(AppLoadingScreen);
 
 const WORKSPACE_CREATE_PATH = '/workspaces/create';
 const WORKSPACE_CREATE_TAB_TITLE = 'Create Workspace';
