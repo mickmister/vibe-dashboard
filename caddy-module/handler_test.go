@@ -27,6 +27,8 @@ func TestServeHTTPRewritesJavaScriptSnippet(t *testing.T) {
 	originalJS := []byte(`if(window.self!==window.top){console.log('embedded');}`)
 	upstream := mockNextHandler(originalJS, http.StatusOK, http.Header{
 		"Content-Type": []string{"application/javascript; charset=utf-8"},
+		"ETag":         []string{`"original-etag"`},
+		"Accept-Ranges": []string{"bytes"},
 	})
 
 	injector := &PluginInjector{}
@@ -44,6 +46,14 @@ func TestServeHTTPRewritesJavaScriptSnippet(t *testing.T) {
 
 	if got := rec.Header().Get("Content-Length"); got != fmt.Sprintf("%d", len(want)) {
 		t.Fatalf("unexpected content length: got %s want %d", got, len(want))
+	}
+
+	if got := rec.Header().Get("ETag"); got != "" {
+		t.Fatalf("expected rewritten response ETag to be cleared, got %q", got)
+	}
+
+	if got := rec.Header().Get("Accept-Ranges"); got != "" {
+		t.Fatalf("expected rewritten response Accept-Ranges to be cleared, got %q", got)
 	}
 }
 

@@ -143,12 +143,18 @@ func (p *PluginInjector) ServeHTTP(w http.ResponseWriter, r *http.Request, next 
 		return err
 	}
 
-	processedBody := p.processResponse(r.URL.Path, rec.headers, rec.body.Bytes())
+	processedBody, rewritten := p.processResponse(r.URL.Path, rec.headers, rec.body.Bytes())
 
 	for key, values := range rec.headers {
 		for _, value := range values {
 			w.Header().Add(key, value)
 		}
+	}
+
+	if rewritten {
+		w.Header().Del("ETag")
+		w.Header().Del("Content-MD5")
+		w.Header().Del("Accept-Ranges")
 	}
 
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(processedBody)))
@@ -184,13 +190,13 @@ func (p *PluginInjector) shouldWriteResponseBody(method string, statusCode int) 
 }
 
 // processResponse rewrites matching JavaScript responses when possible.
-func (p *PluginInjector) processResponse(path string, headers http.Header, body []byte) []byte {
+func (p *PluginInjector) processResponse(path string, headers http.Header, body []byte) ([]byte, bool) {
 	if headers.Get("Content-Encoding") != "" {
-		return body
+		return body, false
 	}
 
 	if !isJavaScriptResponse(path, headers.Get("Content-Type")) {
-		return body
+		return body, false
 	}
 
 	return p.rewriteJavaScript(body)
@@ -209,10 +215,10 @@ func isJavaScriptResponse(path string, contentType string) bool {
 }
 
 // rewriteJavaScript replaces a frame-detection snippet with a constant false.
-func (p *PluginInjector) rewriteJavaScript(js []byte) []byte {
+func (p *PluginInjector) rewriteJavaScript(js []byte) ([]byte, bool) {
 	count := bytes.Count(js, embeddedCheckSnippet)
 	if count == 0 {
-		return js
+		return js, false
 	}
 
 	rewritten := bytes.ReplaceAll(js, embeddedCheckSnippet, embeddedCheckPatch)
@@ -224,7 +230,7 @@ func (p *PluginInjector) rewriteJavaScript(js []byte) []byte {
 			zap.String("to", string(embeddedCheckPatch)))
 	}
 
-	return rewritten
+	return rewritten, true
 }
 
 var (

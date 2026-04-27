@@ -44,30 +44,21 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 ENV PATH="/root/.cargo/bin:${PATH}"
 
 # Install xcaddy (Caddy build tool)
-# COMMENTED OUT: Custom Caddy module no longer needed with VK_SHARED_API_BASE support (PR #2769)
-# RUN go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
-# ENV PATH="/root/go/bin:${PATH}"
+ENV GOBIN="/usr/local/bin"
+RUN go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
 
 # Copy Caddy module source
-# COPY caddy-module /tmp/caddy-module
+COPY caddy-module /tmp/caddy-module
 
 # Build custom Caddy with vibe-kanban rewrite module
-# RUN cd /tmp/caddy-module \
-#     && xcaddy build \
-#         --with github.com/yourusername/vibe-kanban-plugins=. \
-#     && mv caddy /usr/bin/caddy \
-#     && chmod +x /usr/bin/caddy \
-#     && cd / \
-#     && rm -rf /tmp/caddy-module
-
-# Install standard Caddy instead
-RUN apt-get update && apt-get install -y debian-keyring debian-archive-keyring apt-transport-https curl \
-    && curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg \
-    && curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /etc/apt/sources.list.d/caddy-stable.list \
-    && apt-get update \
-    && apt-get install -y caddy \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+RUN cd /tmp/caddy-module \
+    && xcaddy build v2.10.2 \
+        --output /usr/bin/caddy \
+        --with github.com/yourusername/vibe-kanban-plugins=. \
+    && chmod +x /usr/bin/caddy \
+    && /usr/bin/caddy list-modules | grep -q 'http.handlers.vibe_kanban_rewriter' \
+    && cd / \
+    && rm -rf /tmp/caddy-module /root/.cache/go-build /root/go/pkg
 
 # Install Docker CLI for Docker-in-Docker support (socket mounting)
 RUN mkdir -p /etc/apt/keyrings \

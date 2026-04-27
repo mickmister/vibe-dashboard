@@ -82,34 +82,42 @@
 
 	# VSCode Server - proxy to code-server on localhost:3008 (query param routing)
 	handle @vscode_query {
+		vk_rewrite
 		reverse_proxy localhost:3008 {
 			header_up Host {upstream_hostport}
 			# Handle WebSocket connections
 			header_up Upgrade {http.request.header.Upgrade}
 			header_up Connection {http.request.header.Connection}
+			header_up Accept-Encoding identity
 		}
 	}
 
 	# VSCode Server - proxy to code-server on localhost:3008 (stable-* asset routing)
 	handle @vscode_stable {
+		vk_rewrite
 		reverse_proxy localhost:3008 {
 			header_up Host {upstream_hostport}
+			header_up Accept-Encoding identity
 		}
 	}
 
 	# VSCode Server - proxy to code-server on localhost:3008 (vscode-remote-resource routing)
 	handle @vscode_remote {
+		vk_rewrite
 		reverse_proxy localhost:3008 {
 			header_up Host {upstream_hostport}
+			header_up Accept-Encoding identity
 		}
 	}
 
 	# Main application - proxy to vibe-kanban on localhost:3007 (fallback)
 	handle /* {
+		vk_rewrite
 		reverse_proxy localhost:3007 {
 			# Handle WebSocket connections for hot reload, etc.
 			header_up Upgrade {http.request.header.Upgrade}
 			header_up Connection {http.request.header.Connection}
+			header_up Accept-Encoding identity
 		}
 	}
 
