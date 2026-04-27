@@ -16,6 +16,7 @@ type ExampleSharedState = {
 
 springboard.registerModule('ModuleName', {}, async (moduleAPI) => {
   const sharedState = await moduleAPI.createStates({
+    
     exampleSharedState: {
         version: 1; // Later we can do `version: 1 | 2` and perform data migrations as needed
         items: [],

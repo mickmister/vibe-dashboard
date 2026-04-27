@@ -251,6 +251,9 @@ export function WorkspaceShell({
         .map((id) => workspace.tabGroups.find((tg) => tg.id === id))
         .filter((tg): tg is TabGroup => tg != null)
     : [];
+  const activeTabGroup = activeTabGroups.find(
+    (tg) => tg.id === session.activeTabGroupId,
+  );
 
   return (
     <div className="w-full h-full flex bg-neutral-950">
@@ -352,16 +355,19 @@ export function WorkspaceShell({
 
       {/* Main content area */}
       <div className="flex-1 flex flex-col min-h-0 min-w-0 relative">
-        {!isSidebarOpen && (
+        <div className="md:hidden h-10 px-2 border-b border-neutral-800 bg-neutral-900 flex items-center gap-2 shrink-0">
           <button
-            className="absolute top-4 left-2 z-[60] h-9 w-9 rounded-md bg-neutral-900/90 border border-neutral-700 text-neutral-200 md:hidden"
+            className="h-8 w-8 rounded-md text-neutral-200 hover:bg-neutral-800 transition-colors flex items-center justify-center shrink-0"
             onClick={() => setIsSidebarOpen(true)}
             title="Open sidebar"
             aria-label="Open sidebar"
           >
             ☰
           </button>
-        )}
+          <div className="flex-1 min-w-0 text-sm font-medium text-neutral-200 truncate">
+            {activeTabGroup?.label || 'No tab group selected'}
+          </div>
+        </div>
         <WorkspaceContentView
           activeTabGroups={activeTabGroups}
           activeTabGroupId={session.activeTabGroupId}
