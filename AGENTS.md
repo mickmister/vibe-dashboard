@@ -1,6 +1,6 @@
 Keep the following info in mind *when working in the ./src directory only*
 
-This application is built with the **Springboard framework**. All code is assumed to be isomorphic by default.
+This application is built with the **Springboard framework**. All code is assumed to be isomorphic by default. Optionally run `npx sb docs context` for more info.
 
 ```typescript
 import springboard from 'springboard';
