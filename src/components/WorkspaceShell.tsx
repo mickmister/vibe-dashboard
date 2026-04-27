@@ -10,18 +10,43 @@ import type { WorkspaceState, TabGroup } from '../types';
 import type { SessionWorkspaceNav } from '../sessionState';
 
 export type WorkspaceActions = {
-  addSpace: (args: { name: string }) => Promise<{ spaceId: string; tabGroupId: string } | undefined>;
-  deleteSpace: (args: { spaceId: string }) => Promise<{ wasDeleted: boolean; deletedSpaceId?: string } | undefined>;
+  addSpace: (args: {
+    name: string;
+  }) => Promise<{ spaceId: string; tabGroupId: string } | undefined>;
+  deleteSpace: (args: {
+    spaceId: string;
+  }) => Promise<{ wasDeleted: boolean; deletedSpaceId?: string } | undefined>;
   renameSpace: (args: { spaceId: string; name: string }) => void;
-  addTabGroup: (args: { spaceId: string; label: string }) => Promise<{ tabGroupId?: string; spaceId?: string } | undefined>;
-  deleteTabGroup: (args: { spaceId: string; tabGroupId: string }) => Promise<{ wasDeleted: boolean; deletedTabGroupId?: string; nextTabGroupId?: string } | undefined>;
+  addTabGroup: (args: {
+    spaceId: string;
+    label: string;
+  }) => Promise<{ tabGroupId?: string; spaceId?: string } | undefined>;
+  deleteTabGroup: (args: { spaceId: string; tabGroupId: string }) => Promise<
+    | {
+        wasDeleted: boolean;
+        deletedTabGroupId?: string;
+        nextTabGroupId?: string;
+      }
+    | undefined
+  >;
   renameTabGroup: (args: { tabGroupId: string; label: string }) => void;
-  renameTab: (args: { tabGroupId: string; tabId: string; title: string }) => void;
+  renameTab: (args: {
+    tabGroupId: string;
+    tabId: string;
+    title: string;
+  }) => void;
   closeTab: (args: { tabGroupId: string; tabId: string }) => void;
   addTab: (args: { tabGroupId: string; title: string; url: string }) => void;
+  ensureCreateWorkspaceTab: () => Promise<
+    { spaceId: string; tabGroupId: string; tabId: string } | undefined
+  >;
   createPair: (args: { tabGroupId: string; tabIds: string[] }) => void;
   deletePair: (args: { tabGroupId: string; pairId: string }) => void;
-  updatePairRatios: (args: { tabGroupId: string; pairId: string; ratios: number[] }) => void;
+  updatePairRatios: (args: {
+    tabGroupId: string;
+    pairId: string;
+    ratios: number[];
+  }) => void;
   reorderTabGroups: (args: { sourceId: string; targetId: string }) => void;
   closeActiveTab: () => void;
   addVKWorkspace: (args: {
@@ -29,8 +54,14 @@ export type WorkspaceActions = {
     name: string;
     containerRef: string;
     activeSpaceId: string;
-  }) => Promise<{ tabGroupId: string; pairId: string; agentTabId: string } | undefined>;
-  updateTabUrl: (args: { tabGroupId: string; tabId: string; newUrl: string }) => void;
+  }) => Promise<
+    { tabGroupId: string; pairId: string; agentTabId: string } | undefined
+  >;
+  updateTabUrl: (args: {
+    tabGroupId: string;
+    tabId: string;
+    newUrl: string;
+  }) => void;
   touchTabGroup: (args: { tabGroupId: string }) => void;
   toggleStarTabGroup: (args: { tabGroupId: string }) => void;
   reorderSpaces: (args: { sourceId: string; targetId: string }) => void;
@@ -51,7 +82,12 @@ interface WorkspaceShellProps {
   sessionActions: SessionActions;
 }
 
-export function WorkspaceShell({ workspace, session, actions, sessionActions }: WorkspaceShellProps) {
+export function WorkspaceShell({
+  workspace,
+  session,
+  actions,
+  sessionActions,
+}: WorkspaceShellProps) {
   const [addTabModalOpen, setAddTabModalOpen] = useState(false);
   const [workspaceSearchOpen, setWorkspaceSearchOpen] = useState(false);
   const [addTabTargetGroupId, setAddTabTargetGroupId] = useState<string>('');
@@ -84,7 +120,11 @@ export function WorkspaceShell({ workspace, session, actions, sessionActions }: 
     const handler = (e: KeyboardEvent) => {
       const key = e.key.toLowerCase();
 
-      if ((e.metaKey || e.ctrlKey) && key === 'k' && !isEditableTarget(e.target)) {
+      if (
+        (e.metaKey || e.ctrlKey) &&
+        key === 'k' &&
+        !isEditableTarget(e.target)
+      ) {
         e.preventDefault();
         e.stopPropagation();
         setAddTabModalOpen(false);
@@ -135,10 +175,18 @@ export function WorkspaceShell({ workspace, session, actions, sessionActions }: 
     actions.addTab({ tabGroupId: addTabTargetGroupId, title, url });
   };
 
+  const handleOpenCreateWorkspaceTab = async () => {
+    const result = await actions.ensureCreateWorkspaceTab();
+    if (!result) return;
+
+    sessionActions.selectSpace(result.spaceId);
+    sessionActions.selectTab(result.tabGroupId, result.tabId);
+  };
+
   const handleAddVKWorkspace = async (
     taskAttemptId: string,
     name: string,
-    containerRef: string
+    containerRef: string,
   ) => {
     const result = await actions.addVKWorkspace({
       taskAttemptId,
@@ -158,7 +206,7 @@ export function WorkspaceShell({ workspace, session, actions, sessionActions }: 
     taskAttemptId: string,
     name: string,
     containerRef: string,
-    spaceId: string
+    spaceId: string,
   ) => {
     const result = await actions.addVKWorkspace({
       taskAttemptId,
@@ -176,7 +224,7 @@ export function WorkspaceShell({ workspace, session, actions, sessionActions }: 
 
   const handleNavigateToWorkspaceTabGroup = (
     spaceId: string,
-    tabGroupId: string
+    tabGroupId: string,
   ) => {
     sessionActions.selectSpace(spaceId);
     sessionActions.setActiveTabGroup(tabGroupId);
@@ -196,7 +244,7 @@ export function WorkspaceShell({ workspace, session, actions, sessionActions }: 
 
   // --- Derived state ---
   const activeSpace = workspace.spaces.find(
-    (s) => s.id === session.activeSpaceId
+    (s) => s.id === session.activeSpaceId,
   );
   const activeTabGroups = activeSpace
     ? activeSpace.tabGroupIds
@@ -258,7 +306,9 @@ export function WorkspaceShell({ workspace, session, actions, sessionActions }: 
             }
           }}
           onDeleteSpace={(spaceId) => actions.deleteSpace({ spaceId })}
-          onRenameSpace={(spaceId, name) => actions.renameSpace({ spaceId, name })}
+          onRenameSpace={(spaceId, name) =>
+            actions.renameSpace({ spaceId, name })
+          }
           onDeleteTabGroup={async (spaceId, tabGroupId) =>
             actions.deleteTabGroup({ spaceId, tabGroupId })
           }
@@ -268,6 +318,10 @@ export function WorkspaceShell({ workspace, session, actions, sessionActions }: 
           onAddTabGroup={handleAddTabGroup}
           onAddTab={async (tabGroupId, title, url) => {
             actions.addTab({ tabGroupId, title, url });
+          }}
+          onOpenCreateWorkspaceTab={async () => {
+            await handleOpenCreateWorkspaceTab();
+            setIsSidebarOpen(false);
           }}
           onCreatePair={async (tabGroupId, tabIds) => {
             actions.createPair({ tabGroupId, tabIds });

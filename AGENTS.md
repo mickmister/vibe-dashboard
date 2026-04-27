@@ -1,27 +1,31 @@
 Keep the following info in mind *when working in the ./src directory only*
 
-# Springboard Development Guide
+This application is built with the **Springboard framework**. All code is assumed to be isomorphic by default.
 
-This application is built with the **Springboard framework**.
+```typescript
+import springboard from 'springboard';
 
-## Getting Started
+springboard.registerModule('ModuleName', {}, async (moduleAPI) => {
+  const sharedState = await moduleAPI.createStates({
+    exampleSharedState: {
+        items: [] as Array<{name: string}>
+    },
+  });
 
-**Before writing any code in the src directory, run:**
+  const myClientState = await moduleAPI.createUserAgentState('');
 
-npx sb docs context
+  // Create actions (automatically RPC-enabled)
+  const actions = moduleAPI.createActions({
+    actionName: async (args) => { /* ... */ }
+  });
 
-This outputs comprehensive framework information including available documentation
-sections, key concepts, and workflow guidance.
+  // Register routes
+  moduleAPI.registerRoute('/', {}, MyComponent);
 
-## Recommended Workflow
+  // Cleanup
+  moduleAPI.onDestroy(() => { /* cleanup */ });
 
-1. **Run `sb docs context`** before working on any code in the src directory
-2. **Write code** using your knowledge + the context from step 1
-3. **Fetch specific docs** only when needed: `sb docs get <section>`
-4. **View examples** for reference code: `sb docs examples show <name>`
-
-## Other Useful Commands
-
-- `sb docs --help` - See all available commands
-- `sb docs types` - Get TypeScript type definitions
-- `sb docs examples list` - See available example modules
+  // Return public API
+  return { state, actions };
+});
+```
