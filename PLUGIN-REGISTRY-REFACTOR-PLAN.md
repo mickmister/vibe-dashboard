@@ -2,7 +2,7 @@
 
 ## Goal
 
-Refactor the plugin system so it leans into Springboard appropriately without misusing RPC-backed actions for client-local UI/plugin registration.
+Refactor the plugin system so it remains Springboard-native for real runtime behavior while avoiding misuse of RPC-backed actions and shared state for client-local UI/plugin registration.
 
 This document is intended for another agent to review and pressure-test before implementation tasks are assigned.
 
@@ -110,18 +110,20 @@ Plugins may still provide:
 
 But those should be separate from the client-local registration surface.
 
-### 4. Make plugin entrypoints raw functions
+### 4. Make plugin entrypoints raw functions with optional Springboard module outputs
 
 The preferred plugin shape should be:
 
 - plain exported plugin definition or registration function
-- optional Springboard module definitions/factories alongside it
+- optional Springboard module definitions/factories alongside it or in its return value
 
 The host should:
 
 1. load plugin definition
 2. invoke raw registration functions for UI/catalog capabilities
 3. register any plugin-provided Springboard modules for runtime behavior
+
+This means we should continue to cling to Springboard in general, but not use Springboard actions/state as the registration transport for UI component/module functions.
 
 ### 5. Move VK composite behavior toward plugin-owned declarative composition
 
@@ -175,11 +177,33 @@ UI registration code:
 - builds/updates catalog locally
 - isomorphic-safe
 - benign if evaluated on server
+- does not require `createActions`
 
 Mutation/runtime code:
 
 - uses `moduleAPI`
 - calls server actions when persisting/changing authoritative state
+- may create persistent/shared state where appropriate
+- may expose routes/pages and server actions as part of plugin runtime behavior
+
+### Optional plugin-provided Springboard modules
+
+Plugins should be able to provide Springboard-native runtime pieces, but those should not be the only way to describe simple shell capabilities.
+
+Good fit for plugin-provided Springboard modules:
+
+- server actions
+- persistent/shared state
+- data loaders
+- routes/pages
+- runtime feature logic that couples frontend and backend behavior
+
+Bad fit for plugin-provided Springboard actions/state:
+
+- simple registration of tab presets
+- simple registration of tab-group factories
+- internal renderer catalogs
+- shell metadata catalogs
 
 ---
 
@@ -212,6 +236,7 @@ Desired outcome:
 - no `pluginRegistry.actions.registerContributions(...)`
 - use raw registration functions instead
 - keep Springboard actions only for genuine runtime mutations/server behavior
+- allow built-in plugins to expose optional Springboard-native runtime modules where useful
 
 ### C. Remove hardcoded factory launch branching from modal
 
@@ -248,10 +273,10 @@ Desired outcome:
 1. **What should the plugin definition shape be?**
    - simple function?
    - object with `register(...)` callback?
-   - object plus optional module factories?
+   - object plus optional module factories/definitions?
 
 2. **Should plugin-provided Springboard modules be returned from plugin definitions?**
-   - likely yes, if the host remains responsible for registration order and compatibility checks
+   - likely yes, if the host remains responsible for registration order, compatibility checks, and where registration occurs
 
 3. **What is the minimal declarative factory model?**
    - callback that returns UI behavior?
@@ -264,11 +289,12 @@ Desired outcome:
 
 5. **How much of the plugin system should be isomorphic-safe by design?**
    - likely all registration definitions
-   - runtime effects should only happen in appropriate host contexts
+   - Springboard runtime effects should only happen in appropriate host contexts
 
 6. **How should the eventual npm package surface map to this?**
    - the exported API should reflect raw registration functions/types
-   - not Springboard action signatures for the registry layer
+   - it may also expose types for optional Springboard module outputs
+   - it should not expose Springboard action signatures for the registry layer
 
 ---
 
@@ -279,9 +305,10 @@ Another agent reviewing this plan should answer:
 1. Is the split between client-local registration and Springboard runtime behavior the right one?
 2. Is there any reason the registry catalog truly needs Springboard shared/persistent state?
 3. What is the cleanest plugin definition format for future external plugins?
-4. What is the smallest refactor that removes `rpcMode: 'local'` from the registry path?
-5. How should the VK composite flow become declarative without overengineering the factory model?
-6. Are there any Springboard-specific lifecycle constraints that would make plain-function registration unsafe or awkward?
+4. Should plugin definitions return Springboard module definitions/factories directly, or reference them separately?
+5. What is the smallest refactor that removes `rpcMode: 'local'` from the registry path?
+6. How should the VK composite flow become declarative without overengineering the factory model?
+7. Are there any Springboard-specific lifecycle constraints that would make plain-function registration unsafe or awkward?
 
 ---
 
@@ -294,6 +321,23 @@ Another agent reviewing this plan should answer:
 
 ---
 
+## Proposed Beads Work Breakdown
+
+This review plan now corresponds to the following tracked work:
+
+- `vkvw-q2s.8` Define raw plugin registration API with optional Springboard module outputs
+- `vkvw-q2s.9` Replace plugin-registry module actions/state with in-memory registry functions
+- `vkvw-q2s.10` Convert built-in plugins to raw registration plus optional Springboard runtime modules
+- `vkvw-q2s.11` Refactor VK workspace composition to be plugin-owned but persisted through host actions
+
+Suggested sequencing:
+
+1. finalize contract work in `vkvw-q2s.1`
+2. define registration + optional module output shape in `vkvw-q2s.8`
+3. remove registry action/shared-state misuse in `vkvw-q2s.9`
+4. migrate built-ins in `vkvw-q2s.10`
+5. finish VK composition cleanup in `vkvw-q2s.11`
+
 ## Expected Outcome
 
 If this refactor succeeds:
@@ -301,6 +345,6 @@ If this refactor succeeds:
 - plugin catalog registration is plain, local, and simple
 - `rpcMode: 'local'` disappears from the registry path
 - Springboard remains the foundation for stateful/runtime app behavior
+- plugins can optionally provide Springboard-native runtime modules without forcing simple catalog registration through RPC/state abstractions
 - plugin definitions become easier to reason about and export externally
 - VK-related tab composition becomes more declarative and less fragmented
-
