@@ -33,9 +33,16 @@ RUN apt-get update && apt-get install -y \
 
 # Install Go (required for building Caddy with xcaddy)
 # Using 1.25.7 to match go.mod requirement of 1.25.5
-RUN wget https://go.dev/dl/go1.25.7.linux-amd64.tar.gz \
-    && tar -C /usr/local -xzf go1.25.7.linux-amd64.tar.gz \
-    && rm go1.25.7.linux-amd64.tar.gz
+RUN set -eux; \
+    arch="$(dpkg --print-architecture)"; \
+    case "$arch" in \
+      amd64) go_arch=amd64 ;; \
+      arm64) go_arch=arm64 ;; \
+      *) echo "unsupported architecture: $arch" >&2; exit 1 ;; \
+    esac; \
+    wget "https://go.dev/dl/go1.25.7.linux-${go_arch}.tar.gz"; \
+    tar -C /usr/local -xzf "go1.25.7.linux-${go_arch}.tar.gz"; \
+    rm "go1.25.7.linux-${go_arch}.tar.gz"
 ENV PATH="/usr/local/go/bin:${PATH}"
 ENV VK_ALLOWED_ORIGINS=""
 
@@ -45,14 +52,14 @@ ENV PATH="/root/.cargo/bin:${PATH}"
 
 # Install xcaddy (Caddy build tool)
 ENV GOBIN="/usr/local/bin"
-RUN go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
+RUN CGO_ENABLED=0 go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
 
 # Copy Caddy module source
 COPY caddy-module /tmp/caddy-module
 
 # Build custom Caddy with vibe-kanban rewrite module
 RUN cd /tmp/caddy-module \
-    && xcaddy build v2.10.2 \
+    && CGO_ENABLED=0 xcaddy build v2.10.2 \
         --output /usr/bin/caddy \
         --with github.com/yourusername/vibe-kanban-plugins=. \
     && chmod +x /usr/bin/caddy \
