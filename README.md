@@ -8,7 +8,7 @@ Single-container setup that runs:
 
 ## Quick start
 
-Set a password for `code-server` (required):
+`code-server` runs without built-in auth by default. If you want a login prompt, set `CODE_PASSWORD`:
 
 ```bash
 export CODE_PASSWORD='change-me'
@@ -39,11 +39,11 @@ Environment variables are split across:
 
 ### Local dev container (`docker-compose.yaml`)
 
-#### Required
+#### Optional auth
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `CODE_PASSWORD` | none (required) | Sets `PASSWORD` for `code-server`. |
+| `CODE_PASSWORD` | empty | Optional. If set, `code-server` starts with password auth. If empty/unset, it starts with `--auth none`. |
 
 #### Image/version
 

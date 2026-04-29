@@ -22,7 +22,7 @@ services:
       CODE_PORT: ${CODE_PORT:-3008}
       XDG_CONFIG_HOME: /home/vkuser/.config
 
-      CODE_PASSWORD: ${CODE_PASSWORD:?Set CODE_PASSWORD}
+      CODE_PASSWORD: ${CODE_PASSWORD:-}
       SUDO_PASSWORD: ${SUDO_PASSWORD}
 
       # ENABLE_BOSUN: ${ENABLE_BOSUN:-false}
