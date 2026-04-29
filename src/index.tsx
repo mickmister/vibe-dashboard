@@ -12,14 +12,13 @@ import { useSessionWorkspaceNav } from './sessionState';
 // Ensure dark class is on the document root so portaled elements (modals, popovers)
 // inherit dark mode styles
 document.documentElement.classList.add('dark');
+springboard.registerSplashScreen(AppLoadingScreen);
 
 // @platform end
 
 import springboard from 'springboard';
 import { createDefaultWorkspace } from './types';
 import type { WorkspaceState } from './types';
-
-springboard.registerSplashScreen(AppLoadingScreen);
 
 const WORKSPACE_CREATE_PATH = '/workspaces/create';
 const WORKSPACE_CREATE_TAB_TITLE = 'Create Workspace';
