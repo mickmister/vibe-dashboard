@@ -5,6 +5,8 @@ import type { WorkspaceState } from '../types';
 import { AppLoadingScreen } from './AppLoadingScreen';
 import { SpacesOverview } from './SpacesOverview';
 
+const INTERNAL_URL_PREFIX = 'internal://';
+
 interface IframePanelProps {
   tabGroup: TabGroup;
   activeItemId: string;
@@ -28,6 +30,11 @@ type IframeEntry = {
   listeners: Set<() => void>;
 };
 
+type TabRenderTarget =
+  | { kind: 'internal'; internalPath: string }
+  | { kind: 'blocked-self-app' }
+  | { kind: 'iframe'; iframeSrc: string };
+
 let iframeStore: Map<string, IframeEntry> = new Map();
 
 // Preserve iframe store across HMR updates using Vite's HMR API.
@@ -46,33 +53,59 @@ try {
   // Not in Vite dev mode
 }
 
+function getSelfAppOrigins(): Set<string> {
+  const origins = new Set([window.location.origin]);
+  const { protocol, host } = window.location;
+  const portPrefixMatch = host.match(/^port-\d+\.(.+)$/);
+
+  if (portPrefixMatch) {
+    origins.add(`${protocol}//${portPrefixMatch[1]}`);
+  }
+
+  return origins;
+}
+
+function isSelfAppPath(pathname: string, searchParams: URLSearchParams): boolean {
+  if (pathname === '/dashboard' || pathname.startsWith('/dashboard/')) {
+    return true;
+  }
+
+  if (pathname !== '/') {
+    return false;
+  }
+
+  return !searchParams.has('folder');
+}
+
+function getTabRenderTarget(url: string): TabRenderTarget {
+  if (url.startsWith(INTERNAL_URL_PREFIX)) {
+    return {
+      kind: 'internal',
+      internalPath: url.slice(INTERNAL_URL_PREFIX.length),
+    };
+  }
+
+  try {
+    const resolvedUrl = new URL(url, window.location.origin);
+    const selfAppOrigins = getSelfAppOrigins();
+
+    if (
+      selfAppOrigins.has(resolvedUrl.origin) &&
+      isSelfAppPath(resolvedUrl.pathname, resolvedUrl.searchParams)
+    ) {
+      return { kind: 'blocked-self-app' };
+    }
+
+    return { kind: 'iframe', iframeSrc: resolvedUrl.href };
+  } catch {
+    return { kind: 'iframe', iframeSrc: url };
+  }
+}
+
 function getOrCreateIframe(tab: Tab): IframeEntry {
   const existing = iframeStore.get(tab.id);
   if (existing) return existing;
-
-  // Don't create iframes for internal URLs
-  if (tab.url.startsWith('internal://')) {
-    const container = document.createElement('div');
-    container.style.width = '100%';
-    container.style.height = '100%';
-    container.style.position = 'absolute';
-    container.style.inset = '0';
-
-    const iframe = document.createElement('iframe');
-    iframe.className = 'w-full h-full border-0';
-
-    const entry: IframeEntry = {
-      iframe,
-      container,
-      loaded: true,
-      contentReady: true,
-      loadError: false,
-      listeners: new Set(),
-    };
-
-    iframeStore.set(tab.id, entry);
-    return entry;
-  }
+  const target = getTabRenderTarget(tab.url);
 
   const container = document.createElement('div');
   container.style.width = '100%';
@@ -81,14 +114,20 @@ function getOrCreateIframe(tab: Tab): IframeEntry {
   container.style.inset = '0';
 
   const iframe = document.createElement('iframe');
-  iframe.src = tab.url;
   iframe.title = tab.title;
   iframe.className = 'w-full h-full border-0';
   iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-popups allow-modals');
   iframe.setAttribute('allow', 'clipboard-read; clipboard-write; fullscreen');
   iframe.setAttribute('role', 'region');
 
-  const entry: IframeEntry = { iframe, container, loaded: false, contentReady: false, loadError: false, listeners: new Set() };
+  const entry: IframeEntry = {
+    iframe,
+    container,
+    loaded: target.kind !== 'iframe',
+    contentReady: target.kind !== 'iframe',
+    loadError: false,
+    listeners: new Set(),
+  };
 
   iframe.addEventListener('load', () => {
     entry.loaded = true;
@@ -104,6 +143,10 @@ function getOrCreateIframe(tab: Tab): IframeEntry {
     entry.contentReady = true;
     entry.listeners.forEach((fn) => fn());
   });
+
+  if (target.kind === 'iframe') {
+    iframe.src = target.iframeSrc;
+  }
 
   container.appendChild(iframe);
   iframeStore.set(tab.id, entry);
@@ -221,16 +264,33 @@ function useImperativeIframes(tabs: Tab[]) {
     for (const tab of tabs) {
       const entry = iframeStore.get(tab.id);
       if (!entry) continue;
+      const target = getTabRenderTarget(tab.url);
 
-      // Skip internal URLs - they don't use actual iframes
-      if (tab.url.startsWith('internal://')) continue;
+      if (target.kind !== 'iframe') {
+        if (entry.iframe.src !== 'about:blank') {
+          entry.iframe.src = 'about:blank';
+        }
+        entry.loaded = true;
+        entry.contentReady = true;
+        entry.loadError = false;
+        setLoadingState((prev) => {
+          const next = new Map(prev);
+          next.set(tab.id, true);
+          return next;
+        });
+        setErrorState((prev) => {
+          const next = new Map(prev);
+          next.set(tab.id, false);
+          return next;
+        });
+        continue;
+      }
 
       // Update iframe src if URL has changed.
-      // Resolve tab.url against current origin before comparing, since
+      // Resolve tab.url before comparing, since
       // the browser always returns an absolute URL from iframe.src.
-      const resolvedUrl = new URL(tab.url, window.location.origin).href;
-      if (entry.iframe.src !== resolvedUrl) {
-        entry.iframe.src = tab.url;
+      if (entry.iframe.src !== target.iframeSrc) {
+        entry.iframe.src = target.iframeSrc;
         // Reset loading and error state
         entry.loaded = false;
         entry.contentReady = false;
@@ -439,10 +499,11 @@ function SingleTabView({
 }) {
   const isLoaded = loadingState.get(activeTab.id) ?? false;
   const hasError = errorState.get(activeTab.id) ?? false;
+  const target = getTabRenderTarget(activeTab.url);
 
   // Check if this is an internal URL that should render a special component
-  if (activeTab.url.startsWith('internal://')) {
-    const internalPath = activeTab.url.replace('internal://', '');
+  if (target.kind === 'internal') {
+    const { internalPath } = target;
 
     if (internalPath === 'spaces-overview' && workspace && onNavigateToTabGroup) {
       return (
@@ -455,6 +516,10 @@ function SingleTabView({
         </div>
       );
     }
+  }
+
+  if (target.kind === 'blocked-self-app') {
+    return <BlockedSelfAppPlaceholder url={activeTab.url} />;
   }
 
   return (
@@ -508,14 +573,12 @@ function PairView({
         return (
           <React.Fragment key={tab.id}>
             <Panel id={tab.id} defaultSize={percentages[i]} minSize={10}>
-              <div className="relative w-full h-full">
-                <IframeHost tabId={tab.id} visible={!hasError} />
-                {hasError ? (
-                  <ErrorOverlay url={tab.url} onRetry={() => retryTab(tab.id)} />
-                ) : !isLoaded ? (
-                  <AppLoadingScreen className="absolute inset-0 z-10" />
-                ) : null}
-              </div>
+              <PairTabView
+                tab={tab}
+                isLoaded={isLoaded}
+                hasError={hasError}
+                retryTab={retryTab}
+              />
             </Panel>
             {i < pairTabs.length - 1 && (
               <Separator className="w-1 bg-neutral-700 hover:bg-neutral-500 data-[resize-handle-state=drag]:bg-primary-500 transition-colors cursor-col-resize flex-shrink-0" />
@@ -527,10 +590,52 @@ function PairView({
   );
 }
 
+function PairTabView({
+  tab,
+  isLoaded,
+  hasError,
+  retryTab,
+}: {
+  tab: Tab;
+  isLoaded: boolean;
+  hasError: boolean;
+  retryTab: (tabId: string) => void;
+}) {
+  const target = getTabRenderTarget(tab.url);
+
+  if (target.kind === 'blocked-self-app') {
+    return <BlockedSelfAppPlaceholder url={tab.url} />;
+  }
+
+  return (
+    <div className="relative w-full h-full">
+      <IframeHost tabId={tab.id} visible={!hasError} />
+      {hasError ? (
+        <ErrorOverlay url={tab.url} onRetry={() => retryTab(tab.id)} />
+      ) : !isLoaded ? (
+        <AppLoadingScreen className="absolute inset-0 z-10" />
+      ) : null}
+    </div>
+  );
+}
+
 function EmptyView() {
   return (
     <div className="flex-1 flex items-center justify-center text-neutral-500">
       <p>No tab selected. Click + to add a tab.</p>
+    </div>
+  );
+}
+
+function BlockedSelfAppPlaceholder({ url }: { url: string }) {
+  return (
+    <div className="flex-1 h-full bg-neutral-950 text-neutral-400 flex items-center justify-center">
+      <div className="max-w-md px-6 text-center">
+        <p className="text-sm font-medium text-neutral-200">
+          stopped loading app recursively
+        </p>
+        <p className="mt-2 text-xs break-all">{url}</p>
+      </div>
     </div>
   );
 }
