@@ -73,9 +73,22 @@ Environment variables are split across:
 | `ENABLE_TAILSCALE` | `false` | Enables Tailscale startup. |
 | `TAILSCALE_AUTHKEY` | empty | Tailscale auth key. |
 | `TAILSCALE_HOSTNAME` | `vkdev` | Tailscale node hostname. |
+| `MEMORY_WATCHDOG_ENABLED` | `false` | Enables the supervisor-managed memory watchdog. |
+| `MEMORY_WATCHDOG_MATTERMOST_WEBHOOK_URL` | empty | Mattermost incoming webhook URL used for notifications. |
+| `MEMORY_WATCHDOG_PROCESS_THRESHOLD_MB` | `4096` | Per-process RSS threshold in MiB. |
+| `MEMORY_WATCHDOG_TOTAL_THRESHOLD_PERCENT` | `60` | Host memory threshold based on `MemAvailable` from `/proc/meminfo`. |
 | `VK_SHARED_API_BASE` | empty | If set, local VK connects to that cloud API base URL. |
 | `VK_ALLOWED_ORIGINS` | empty | Optional backend CORS allowlist. |
 | `ENABLE_BOSUN` | `false` | Present as a commented option in compose. |
+
+## Memory watchdog
+
+The container now includes a supervisor-managed watchdog at [scripts/memory-watchdog.mjs](/Users/mickmister/code/vibe-kanban-vscode-web/scripts/memory-watchdog.mjs) that can post to a Mattermost incoming webhook when:
+
+- host memory usage rises above `MEMORY_WATCHDOG_TOTAL_THRESHOLD_PERCENT`
+- any individual process exceeds `MEMORY_WATCHDOG_PROCESS_THRESHOLD_MB`
+
+Threshold detection uses `/proc/meminfo` and `ps` RSS data directly. `free -h` and `top -b -n 1` are attached only as diagnostic snapshots when an alert fires, which is more stable than parsing their human-oriented output continuously.
 
 ### VK cloud stack (`vkcloud/docker-compose.yaml`)
 
