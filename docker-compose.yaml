@@ -87,7 +87,7 @@ services:
       - --storage.tsdb.retention.size=2GB
       - --web.listen-address=127.0.0.1:9090
     volumes:
-      - ./ops/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./ops/prometheus:/etc/prometheus:ro
       - prometheus-data:/prometheus
     restart: unless-stopped
 
