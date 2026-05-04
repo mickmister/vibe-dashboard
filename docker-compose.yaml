@@ -71,6 +71,8 @@ services:
       - tailscale-state:/var/lib/tailscale
       # Persist Bosun config (workspaces, .env, bosun.config.json)
       - bosun-data:/home/vkuser/bosun
+      # Persist Prometheus TSDB across container restarts
+      - prometheus-data:/var/lib/prometheus
 
 volumes:
   vibe-kanban-repos:
@@ -85,3 +87,4 @@ volumes:
   pnpm-store:
   tailscale-state:
   bosun-data:
+  prometheus-data:

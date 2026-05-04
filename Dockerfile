@@ -161,6 +161,38 @@ RUN mkdir -p /var/log/supervisor /var/log/caddy
 # Install tools globally as root (will be available system-wide)
 RUN npm install -g @anthropic-ai/claude-code pnpm @openai/codex opencode-ai
 
+# Install process-exporter for grouped per-process Prometheus metrics
+ARG PROCESS_EXPORTER_VERSION=0.8.7
+RUN set -eux; \
+    arch="$(dpkg --print-architecture)"; \
+    case "$arch" in \
+      amd64) pe_arch=amd64 ;; \
+      arm64) pe_arch=arm64 ;; \
+      *) echo "unsupported architecture: $arch" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL -o /tmp/process-exporter.tar.gz \
+      "https://github.com/ncabatoff/process-exporter/releases/download/v${PROCESS_EXPORTER_VERSION}/process-exporter-${PROCESS_EXPORTER_VERSION}.linux-${pe_arch}.tar.gz"; \
+    tar -xzf /tmp/process-exporter.tar.gz -C /tmp; \
+    install -m 0755 /tmp/process-exporter-*/process-exporter /usr/local/bin/process-exporter; \
+    rm -rf /tmp/process-exporter*
+
+# Install Prometheus for in-container time-series storage
+ARG PROMETHEUS_VERSION=3.11.2
+RUN set -eux; \
+    arch="$(dpkg --print-architecture)"; \
+    case "$arch" in \
+      amd64) prom_arch=amd64 ;; \
+      arm64) prom_arch=arm64 ;; \
+      *) echo "unsupported architecture: $arch" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL -o /tmp/prometheus.tar.gz \
+      "https://github.com/prometheus/prometheus/releases/download/v${PROMETHEUS_VERSION}/prometheus-${PROMETHEUS_VERSION}.linux-${prom_arch}.tar.gz"; \
+    tar -xzf /tmp/prometheus.tar.gz -C /tmp; \
+    install -m 0755 /tmp/prometheus-*/prometheus /usr/local/bin/prometheus; \
+    install -m 0755 /tmp/prometheus-*/promtool /usr/local/bin/promtool; \
+    mkdir -p /etc/prometheus /etc/process-exporter /var/lib/prometheus; \
+    rm -rf /tmp/prometheus*
+
 # Install Claude Code extension
 RUN su - vkuser -c "mkdir -p /home/vkuser/.local/share/code-server/extensions && code-server --install-extension anthropic.claude-code"
 
@@ -176,6 +208,8 @@ RUN mkdir -p /etc/supervisor/conf.d
 
 # Copy supervisord config
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+COPY ops/process-exporter.yml /etc/process-exporter/process-exporter.yml
+COPY ops/prometheus.yml /etc/prometheus/prometheus.yml
 
 # Copy Caddyfile and startup page
 COPY Caddyfile /etc/caddy/Caddyfile

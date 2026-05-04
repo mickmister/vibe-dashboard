@@ -1,0 +1,155 @@
+process_names:
+  - name: "tsserver-partial-semantic"
+    exe:
+      - node
+    cmdline:
+      - 'typescript/lib/tsserver\.js'
+      - '--serverMode\s+partialSemantic'
+
+  - name: "tsserver"
+    exe:
+      - node
+    cmdline:
+      - 'typescript/lib/tsserver\.js'
+
+  - name: "ts-typings-installer"
+    exe:
+      - node
+    cmdline:
+      - 'typescript/lib/typingsInstaller\.js'
+
+  - name: "code-extension-host"
+    exe:
+      - node
+    cmdline:
+      - 'bootstrap-fork'
+      - '--type=extensionHost'
+
+  - name: "code-file-watcher"
+    exe:
+      - node
+    cmdline:
+      - 'bootstrap-fork'
+      - '--type=fileWatcher'
+
+  - name: "html-language-server"
+    exe:
+      - node
+    cmdline:
+      - 'htmlServerMain'
+
+  - name: "prisma-language-server"
+    exe:
+      - node
+    cmdline:
+      - 'prisma.*language-server'
+
+  - name: "build-watch-node"
+    exe:
+      - node
+    cmdline:
+      - 'build/esbuild\.ts'
+      - '--watch'
+
+  - name: "build-watch-runner"
+    cmdline:
+      - 'npm exec tsx ./build/esbuild\.ts --watch'
+
+  - name: "esbuild-service"
+    exe:
+      - esbuild
+    cmdline:
+      - '--service='
+
+  - name: "dashboard-node-server"
+    exe:
+      - node
+    cmdline:
+      - 'dist/node/node-entry\.mjs'
+
+  - name: "dashboard-npm-start"
+    cmdline:
+      - 'npm start'
+
+  - name: "dashboard-shell"
+    exe:
+      - sh
+      - bash
+    cmdline:
+      - 'git pull \|\| true'
+      - 'npm start'
+
+  - name: "vibe-kanban-node"
+    exe:
+      - node
+    cmdline:
+      - '\.bin/vibe-kanban'
+
+  - name: "vibe-kanban-bin"
+    exe:
+      - vibe-kanban
+    cmdline:
+      - '/\.vibe-kanban/bin/'
+
+  - name: "vibe-kanban-npm-exec"
+    cmdline:
+      - 'npm exec vibe-kanban'
+
+  - name: "vibe-kanban-shell"
+    exe:
+      - sh
+      - bash
+    cmdline:
+      - 'backup-vibe-kanban-db\.sh'
+      - 'npx vibe-kanban'
+
+  - name: "code-server-main"
+    exe:
+      - node
+    cmdline:
+      - '/usr/lib/code-server/lib/node /usr/lib/code-server --auth'
+
+  - name: "code-server-server"
+    exe:
+      - node
+    cmdline:
+      - '/usr/lib/code-server/out/node/entry'
+
+  - name: "prometheus"
+    exe:
+      - prometheus
+
+  - name: "process-exporter"
+    exe:
+      - process-exporter
+
+  - name: "caddy"
+    exe:
+      - caddy
+
+  - name: "supervisord"
+    exe:
+      - supervisord
+
+  - name: "memory-watchdog"
+    exe:
+      - node
+    cmdline:
+      - 'memory-watchdog\.mjs'
+
+  - name: "tailscaled"
+    exe:
+      - tailscaled
+
+  - name: "inotifywait"
+    exe:
+      - inotifywait
+
+  - name: "shell-wrapper"
+    exe:
+      - sh
+      - bash
+
+  - name: "node-other"
+    exe:
+      - node
