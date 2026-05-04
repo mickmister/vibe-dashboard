@@ -19,6 +19,8 @@ const config = {
   processThresholdMb: parsePositiveNumber(process.env.MEMORY_WATCHDOG_PROCESS_THRESHOLD_MB, 4096),
   totalThresholdPercent: parsePositiveNumber(process.env.MEMORY_WATCHDOG_TOTAL_THRESHOLD_PERCENT, 60),
   intervalSeconds: parsePositiveNumber(process.env.MEMORY_WATCHDOG_INTERVAL_SECONDS, 30),
+  totalGrowthDeltaPercent: parsePositiveNumber(process.env.MEMORY_WATCHDOG_TOTAL_GROWTH_DELTA_PERCENT, 5),
+  totalReminderSeconds: parsePositiveNumber(process.env.MEMORY_WATCHDOG_TOTAL_REMINDER_SECONDS, 600),
   triggerStreak: parsePositiveInteger(process.env.MEMORY_WATCHDOG_TRIGGER_STREAK, 2),
   resolveStreak: parsePositiveInteger(process.env.MEMORY_WATCHDOG_RESOLVE_STREAK, 2),
   topCount: parsePositiveInteger(process.env.MEMORY_WATCHDOG_TOP_COUNT, 5),
@@ -29,6 +31,9 @@ const activeTotalAlert = {
   active: false,
   breachStreak: 0,
   clearStreak: 0,
+  activatedAtMs: 0,
+  lastNotificationAtMs: 0,
+  lastGrowthNotificationPercent: 0,
 };
 
 const processAlerts = new Map();
@@ -111,6 +116,7 @@ async function sendTestNotification() {
 
 async function handleTotalMemoryAlert(memoryStats, processes) {
   const isBreaching = memoryStats.usedPercent > config.totalThresholdPercent;
+  const now = Date.now();
 
   if (isBreaching) {
     activeTotalAlert.breachStreak += 1;
@@ -122,6 +128,9 @@ async function handleTotalMemoryAlert(memoryStats, processes) {
 
   if (!activeTotalAlert.active && activeTotalAlert.breachStreak >= config.triggerStreak) {
     activeTotalAlert.active = true;
+    activeTotalAlert.activatedAtMs = now;
+    activeTotalAlert.lastNotificationAtMs = now;
+    activeTotalAlert.lastGrowthNotificationPercent = memoryStats.usedPercent;
 
     const snapshots = await getSnapshots();
     await sendMattermostMessage({
@@ -138,10 +147,69 @@ async function handleTotalMemoryAlert(memoryStats, processes) {
       ],
       snapshots,
     });
+
+    return;
+  }
+
+  if (activeTotalAlert.active && isBreaching) {
+    const hasGrownMaterially =
+      memoryStats.usedPercent >= activeTotalAlert.lastGrowthNotificationPercent + config.totalGrowthDeltaPercent;
+    const reminderIsDue =
+      now - activeTotalAlert.lastNotificationAtMs >= config.totalReminderSeconds * 1000;
+
+    if (hasGrownMaterially) {
+      const previousGrowthNotificationPercent = activeTotalAlert.lastGrowthNotificationPercent;
+      activeTotalAlert.lastGrowthNotificationPercent = memoryStats.usedPercent;
+      activeTotalAlert.lastNotificationAtMs = now;
+
+      const snapshots = await getSnapshots();
+      await sendMattermostMessage({
+        severity: 'alert',
+        title: `Host memory usage is continuing to grow: ${formatPercent(memoryStats.usedPercent)}`,
+        lines: [
+          `Host: ${os.hostname()}`,
+          `Used memory: ${formatPercent(memoryStats.usedPercent)} (${formatBytes(memoryStats.usedBytes)} of ${formatBytes(memoryStats.totalBytes)})`,
+          `Available memory: ${formatBytes(memoryStats.availableBytes)}`,
+          `Threshold: ${formatPercent(config.totalThresholdPercent)}`,
+          `Previous reported level: ${formatPercent(previousGrowthNotificationPercent)}`,
+          `Alert active for: ${formatDuration(now - activeTotalAlert.activatedAtMs)}`,
+          '',
+          'Top resident-memory processes:',
+          ...formatProcessList(processes.slice(0, config.topCount)),
+        ],
+        snapshots,
+      });
+
+      return;
+    }
+
+    if (reminderIsDue) {
+      activeTotalAlert.lastNotificationAtMs = now;
+
+      const snapshots = await getSnapshots();
+      await sendMattermostMessage({
+        severity: 'alert',
+        title: `Host memory usage is still high at ${formatPercent(memoryStats.usedPercent)}`,
+        lines: [
+          `Host: ${os.hostname()}`,
+          `Used memory: ${formatPercent(memoryStats.usedPercent)} (${formatBytes(memoryStats.usedBytes)} of ${formatBytes(memoryStats.totalBytes)})`,
+          `Available memory: ${formatBytes(memoryStats.availableBytes)}`,
+          `Threshold: ${formatPercent(config.totalThresholdPercent)}`,
+          `Alert active for: ${formatDuration(now - activeTotalAlert.activatedAtMs)}`,
+          '',
+          'Top resident-memory processes:',
+          ...formatProcessList(processes.slice(0, config.topCount)),
+        ],
+        snapshots,
+      });
+    }
   }
 
   if (activeTotalAlert.active && !isBreaching && activeTotalAlert.clearStreak >= config.resolveStreak) {
     activeTotalAlert.active = false;
+    activeTotalAlert.activatedAtMs = 0;
+    activeTotalAlert.lastNotificationAtMs = 0;
+    activeTotalAlert.lastGrowthNotificationPercent = 0;
 
     await sendMattermostMessage({
       severity: 'resolve',
@@ -560,6 +628,23 @@ function formatBytes(bytes) {
   }
 
   return `${value.toFixed(value >= 10 || unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
+}
+
+function formatDuration(durationMs) {
+  const totalSeconds = Math.max(0, Math.floor(durationMs / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`;
+  }
+
+  if (minutes > 0) {
+    return `${minutes}m ${seconds}s`;
+  }
+
+  return `${seconds}s`;
 }
 
 function mebibytesToBytes(mebibytes) {
