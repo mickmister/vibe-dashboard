@@ -6,6 +6,8 @@ services:
         VIBE_KANBAN_VERSION: ${VIBE_KANBAN_VERSION:-latest}
 
     network_mode: host
+    mem_limit: ${DEV_CONTAINER_MEM_LIMIT:-19g}
+    mem_reservation: ${DEV_CONTAINER_MEM_RESERVATION:-17g}
 
     # Required for Tailscale
     cap_add:
@@ -71,8 +73,23 @@ services:
       - tailscale-state:/var/lib/tailscale
       # Persist Bosun config (workspaces, .env, bosun.config.json)
       - bosun-data:/home/vkuser/bosun
-      # Persist Prometheus TSDB across container restarts
-      - prometheus-data:/var/lib/prometheus
+
+  prometheus:
+    image: prom/prometheus:v3.4.0
+    network_mode: host
+    user: "0:0"
+    mem_limit: ${PROMETHEUS_MEM_LIMIT:-1g}
+    mem_reservation: ${PROMETHEUS_MEM_RESERVATION:-256m}
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+      - --storage.tsdb.retention.size=2GB
+      - --web.listen-address=127.0.0.1:9090
+    volumes:
+      - ./ops/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    restart: unless-stopped
 
 volumes:
   vibe-kanban-repos:
