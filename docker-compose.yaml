@@ -6,8 +6,8 @@ services:
         VIBE_KANBAN_VERSION: ${VIBE_KANBAN_VERSION:-latest}
 
     network_mode: host
-    mem_limit: ${DEV_CONTAINER_MEM_LIMIT:-19g}
-    mem_reservation: ${DEV_CONTAINER_MEM_RESERVATION:-17g}
+    mem_limit: ${DEV_CONTAINER_MEM_LIMIT:-14g}
+    mem_reservation: ${DEV_CONTAINER_MEM_RESERVATION:-12g}
 
     # Required for Tailscale
     cap_add:
