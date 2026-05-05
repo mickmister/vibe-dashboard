@@ -1,0 +1,348 @@
+# syntax=docker/dockerfile:1.6
+
+ARG VK_REPO_URL=https://github.com/BloopAI/vibe-kanban.git
+ARG VK_BRANCH=main
+
+FROM alpine:3.19 AS repo-cloner
+
+ARG VK_REPO_URL
+ARG VK_BRANCH
+
+RUN apk add --no-cache git
+
+WORKDIR /clone
+RUN git clone --depth 1 --branch "${VK_BRANCH}" "${VK_REPO_URL}" vibe-kanban \
+    && cd vibe-kanban \
+    && printf '%s@%s\n' "${VK_BRANCH}" "$(git rev-parse --short=12 HEAD)" > /clone/vk-build-version
+
+FROM node:24-alpine AS vk-fe-builder
+
+WORKDIR /app
+
+ENV PNPM_HOME=/pnpm
+ENV PATH=${PNPM_HOME}:${PATH}
+ENV NODE_OPTIONS=--max-old-space-size=4096
+
+RUN corepack enable
+RUN pnpm config set store-dir /pnpm/store
+
+COPY --from=repo-cloner /clone/vibe-kanban/pnpm-lock.yaml /clone/vibe-kanban/pnpm-workspace.yaml /clone/vibe-kanban/package.json ./
+COPY --from=repo-cloner /clone/vibe-kanban/packages/local-web/package.json packages/local-web/package.json
+COPY --from=repo-cloner /clone/vibe-kanban/packages/ui/package.json packages/ui/package.json
+COPY --from=repo-cloner /clone/vibe-kanban/packages/web-core/package.json packages/web-core/package.json
+
+RUN --mount=type=cache,id=vk-pnpm-store,target=/pnpm/store \
+    pnpm install --frozen-lockfile
+
+COPY --from=repo-cloner /clone/vibe-kanban/packages/local-web/ packages/local-web/
+COPY --from=repo-cloner /clone/vibe-kanban/packages/public/ packages/public/
+COPY --from=repo-cloner /clone/vibe-kanban/packages/ui/ packages/ui/
+COPY --from=repo-cloner /clone/vibe-kanban/packages/web-core/ packages/web-core/
+COPY --from=repo-cloner /clone/vibe-kanban/shared/ shared/
+
+RUN pnpm -C packages/local-web build
+
+FROM rust:1.93-slim-bookworm AS vk-builder
+
+ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
+ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
+ENV CARGO_TARGET_DIR=/app/target
+
+WORKDIR /app
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+    build-essential \
+    ca-certificates \
+    git \
+    libclang-dev \
+    libssl-dev \
+    pkg-config \
+  && rm -rf /var/lib/apt/lists/*
+
+COPY --from=repo-cloner /clone/vibe-kanban/rust-toolchain.toml ./
+RUN cargo --version >/dev/null
+
+COPY --from=repo-cloner /clone/vibe-kanban/Cargo.toml /clone/vibe-kanban/Cargo.lock ./
+COPY --from=repo-cloner /clone/vibe-kanban/crates/api-types/Cargo.toml crates/api-types/Cargo.toml
+COPY --from=repo-cloner /clone/vibe-kanban/crates/db/Cargo.toml crates/db/Cargo.toml
+COPY --from=repo-cloner /clone/vibe-kanban/crates/deployment/Cargo.toml crates/deployment/Cargo.toml
+COPY --from=repo-cloner /clone/vibe-kanban/crates/executors/Cargo.toml crates/executors/Cargo.toml
+COPY --from=repo-cloner /clone/vibe-kanban/crates/git/Cargo.toml crates/git/Cargo.toml
+COPY --from=repo-cloner /clone/vibe-kanban/crates/git-host/Cargo.toml crates/git-host/Cargo.toml
+COPY --from=repo-cloner /clone/vibe-kanban/crates/local-deployment/Cargo.toml crates/local-deployment/Cargo.toml
+COPY --from=repo-cloner /clone/vibe-kanban/crates/mcp/Cargo.toml crates/mcp/Cargo.toml
+COPY --from=repo-cloner /clone/vibe-kanban/crates/relay-control/Cargo.toml crates/relay-control/Cargo.toml
+COPY --from=repo-cloner /clone/vibe-kanban/crates/relay-hosts/Cargo.toml crates/relay-hosts/Cargo.toml
+COPY --from=repo-cloner /clone/vibe-kanban/crates/relay-protocol/Cargo.toml crates/relay-protocol/Cargo.toml
+COPY --from=repo-cloner /clone/vibe-kanban/crates/relay-tunnel-core/Cargo.toml crates/relay-tunnel-core/Cargo.toml
+COPY --from=repo-cloner /clone/vibe-kanban/crates/relay-webrtc/Cargo.toml crates/relay-webrtc/Cargo.toml
+COPY --from=repo-cloner /clone/vibe-kanban/crates/relay-ws/Cargo.toml crates/relay-ws/Cargo.toml
+COPY --from=repo-cloner /clone/vibe-kanban/crates/review/Cargo.toml crates/review/Cargo.toml
+COPY --from=repo-cloner /clone/vibe-kanban/crates/server/Cargo.toml crates/server/Cargo.toml
+COPY --from=repo-cloner /clone/vibe-kanban/crates/server-info/Cargo.toml crates/server-info/Cargo.toml
+COPY --from=repo-cloner /clone/vibe-kanban/crates/services/Cargo.toml crates/services/Cargo.toml
+COPY --from=repo-cloner /clone/vibe-kanban/crates/tauri-app/Cargo.toml crates/tauri-app/Cargo.toml
+COPY --from=repo-cloner /clone/vibe-kanban/crates/trusted-key-auth/Cargo.toml crates/trusted-key-auth/Cargo.toml
+COPY --from=repo-cloner /clone/vibe-kanban/crates/utils/Cargo.toml crates/utils/Cargo.toml
+COPY --from=repo-cloner /clone/vibe-kanban/crates/workspace-manager/Cargo.toml crates/workspace-manager/Cargo.toml
+COPY --from=repo-cloner /clone/vibe-kanban/crates/worktree-manager/Cargo.toml crates/worktree-manager/Cargo.toml
+COPY --from=repo-cloner /clone/vibe-kanban/crates/ws-bridge/Cargo.toml crates/ws-bridge/Cargo.toml
+
+COPY --from=repo-cloner /clone/vibe-kanban/crates/api-types/ crates/api-types/
+COPY --from=repo-cloner /clone/vibe-kanban/crates/db/ crates/db/
+COPY --from=repo-cloner /clone/vibe-kanban/crates/deployment/ crates/deployment/
+COPY --from=repo-cloner /clone/vibe-kanban/crates/executors/ crates/executors/
+COPY --from=repo-cloner /clone/vibe-kanban/crates/git/ crates/git/
+COPY --from=repo-cloner /clone/vibe-kanban/crates/git-host/ crates/git-host/
+COPY --from=repo-cloner /clone/vibe-kanban/crates/local-deployment/ crates/local-deployment/
+COPY --from=repo-cloner /clone/vibe-kanban/crates/mcp/ crates/mcp/
+COPY --from=repo-cloner /clone/vibe-kanban/crates/relay-control/ crates/relay-control/
+COPY --from=repo-cloner /clone/vibe-kanban/crates/relay-hosts/ crates/relay-hosts/
+COPY --from=repo-cloner /clone/vibe-kanban/crates/relay-protocol/ crates/relay-protocol/
+COPY --from=repo-cloner /clone/vibe-kanban/crates/relay-tunnel-core/ crates/relay-tunnel-core/
+COPY --from=repo-cloner /clone/vibe-kanban/crates/relay-webrtc/ crates/relay-webrtc/
+COPY --from=repo-cloner /clone/vibe-kanban/crates/relay-ws/ crates/relay-ws/
+COPY --from=repo-cloner /clone/vibe-kanban/crates/review/ crates/review/
+COPY --from=repo-cloner /clone/vibe-kanban/crates/server/ crates/server/
+COPY --from=repo-cloner /clone/vibe-kanban/crates/server-info/ crates/server-info/
+COPY --from=repo-cloner /clone/vibe-kanban/crates/services/ crates/services/
+COPY --from=repo-cloner /clone/vibe-kanban/crates/trusted-key-auth/ crates/trusted-key-auth/
+COPY --from=repo-cloner /clone/vibe-kanban/crates/utils/ crates/utils/
+COPY --from=repo-cloner /clone/vibe-kanban/crates/workspace-manager/ crates/workspace-manager/
+COPY --from=repo-cloner /clone/vibe-kanban/crates/worktree-manager/ crates/worktree-manager/
+COPY --from=repo-cloner /clone/vibe-kanban/crates/ws-bridge/ crates/ws-bridge/
+COPY --from=repo-cloner /clone/vibe-kanban/assets/ assets/
+COPY --from=vk-fe-builder /app/packages/local-web/dist packages/local-web/dist
+
+RUN --mount=type=cache,id=vk-cargo-registry,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=vk-cargo-git,target=/usr/local/cargo/git \
+    --mount=type=cache,id=vk-workspace-target,target=/app/target \
+    cargo build --locked --release --bin server \
+ && cp /app/target/release/server /usr/local/bin/vibe-kanban
+
+FROM node:22-bookworm
+
+# Harden APT against flaky proxy/cache behavior (helps prevent Hash Sum mismatch on macOS VM networking).
+RUN set -eux; \
+    rm -rf /var/lib/apt/lists/*; \
+    apt-get clean; \
+    printf 'Acquire::http::Pipeline-Depth 0;\nAcquire::http::No-Cache true;\nAcquire::BrokenProxy true;\nAcquire::Retries 3;\n' > /etc/apt/apt.conf.d/99network-safe
+
+# Install development tools, supervisor, Go (for xcaddy), and GitHub CLI
+RUN apt-get update && apt-get install -y \
+    curl \
+    wget \
+    git \
+    build-essential \
+    python3 \
+    supervisor \
+    ca-certificates \
+    gnupg \
+    debian-keyring \
+    debian-archive-keyring \
+    apt-transport-https \
+    ripgrep \
+    inotify-tools \
+    zsh \
+    bubblewrap \
+    && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
+    && apt-get update \
+    && apt-get install -y gh \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Go (required for building Caddy with xcaddy)
+RUN set -eux; \
+    arch="$(dpkg --print-architecture)"; \
+    case "$arch" in \
+      amd64) go_arch=amd64 ;; \
+      arm64) go_arch=arm64 ;; \
+      *) echo "unsupported architecture: $arch" >&2; exit 1 ;; \
+    esac; \
+    wget "https://go.dev/dl/go1.25.7.linux-${go_arch}.tar.gz"; \
+    tar -C /usr/local -xzf "go1.25.7.linux-${go_arch}.tar.gz"; \
+    rm "go1.25.7.linux-${go_arch}.tar.gz"
+ENV PATH="/usr/local/go/bin:${PATH}"
+ENV VK_ALLOWED_ORIGINS=""
+
+# Install Rust and Cargo
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+# Install xcaddy (Caddy build tool)
+ENV GOBIN="/usr/local/bin"
+RUN CGO_ENABLED=0 go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
+
+# Copy Caddy module source
+COPY caddy-module /tmp/caddy-module
+
+# Build custom Caddy with vibe-kanban rewrite module
+RUN cd /tmp/caddy-module \
+    && CGO_ENABLED=0 xcaddy build v2.10.2 \
+        --output /usr/bin/caddy \
+        --with github.com/yourusername/vibe-kanban-plugins=. \
+    && chmod +x /usr/bin/caddy \
+    && /usr/bin/caddy list-modules | grep -q 'http.handlers.vibe_kanban_rewriter' \
+    && cd / \
+    && rm -rf /tmp/caddy-module /root/.cache/go-build /root/go/pkg
+
+# Install Docker CLI for Docker-in-Docker support (socket mounting)
+RUN mkdir -p /etc/apt/keyrings \
+    && curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg \
+    && chmod a+r /etc/apt/keyrings/docker.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian bookworm stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null \
+    && apt-get update \
+    && apt-get install -y docker-ce-cli docker-compose-plugin \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Tailscale
+RUN curl -fsSL https://pkgs.tailscale.com/stable/debian/bookworm.noarmor.gpg | tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null \
+    && curl -fsSL https://pkgs.tailscale.com/stable/debian/bookworm.tailscale-keyring.list | tee /etc/apt/sources.list.d/tailscale.list \
+    && apt-get update \
+    && apt-get install -y tailscale \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Google Chrome and dependencies for Chrome DevTools MCP
+RUN apt-get update && apt-get install -y \
+    fonts-liberation \
+    libasound2 \
+    libatk-bridge2.0-0 \
+    libatk1.0-0 \
+    libatspi2.0-0 \
+    libcups2 \
+    libdbus-1-3 \
+    libdrm2 \
+    libgbm1 \
+    libgtk-3-0 \
+    libnspr4 \
+    libnss3 \
+    libwayland-client0 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxfixes3 \
+    libxkbcommon0 \
+    libxrandr2 \
+    xdg-utils \
+    && ARCH="$(dpkg --print-architecture)" \
+    && if [ "$ARCH" = "amd64" ]; then \
+        wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/google-chrome-keyring.gpg; \
+        echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome-keyring.gpg] http://dl.google.com/linux/chrome/deb/ stable main" | tee /etc/apt/sources.list.d/google-chrome.list; \
+        apt-get update; \
+        apt-get install -y google-chrome-stable; \
+      else \
+        apt-get install -y chromium; \
+        ln -sf /usr/bin/chromium /usr/bin/google-chrome; \
+        ln -sf /usr/bin/chromium /usr/bin/google-chrome-stable; \
+      fi \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install code-server using official install script
+RUN curl -fsSL https://code-server.dev/install.sh | sh
+
+# Install Hugo v0.138.0 (extended version for SCSS/SASS support)
+RUN ARCH=$(dpkg --print-architecture) && \
+    curl -L "https://github.com/gohugoio/hugo/releases/download/v0.138.0/hugo_extended_0.138.0_linux-${ARCH}.deb" -o /tmp/hugo.deb \
+    && dpkg -i /tmp/hugo.deb \
+    && rm /tmp/hugo.deb
+
+# Create a non-root user for running applications
+RUN useradd -m -s /bin/bash vkuser && \
+    mkdir -p /home/vkuser/.local/share/vibe-kanban \
+             /home/vkuser/.local/share/pnpm \
+             /home/vkuser/.local/share/code-server \
+             /home/vkuser/.config/code-server \
+             /home/vkuser/.config/gh \
+             /home/vkuser/.config/git \
+             /home/vkuser/.codex \
+             /home/vkuser/.npm-global/lib \
+             /home/vkuser/.npm \
+             /home/vkuser/.cache \
+             /home/vkuser/.claude \
+             /home/vkuser/.openclaw \
+             /home/vkuser/bosun \
+             /home/vkuser/repos \
+             /var/tmp/vibe-kanban/worktrees \
+             /var/run/tailscale \
+             /var/lib/tailscale && \
+    chown -R vkuser:vkuser /home/vkuser && \
+    chown -R vkuser:vkuser /var/tmp/vibe-kanban && \
+    chmod 755 /var/run/tailscale /var/lib/tailscale
+
+# Configure npm to use user-local directory for global packages
+RUN su - vkuser -c "npm config set prefix '/home/vkuser/.npm-global'"
+
+# Create supervisor and caddy log directories
+RUN mkdir -p /var/log/supervisor /var/log/caddy
+
+# Install tools globally as root (will be available system-wide)
+RUN npm install -g @anthropic-ai/claude-code pnpm @openai/codex opencode-ai
+
+# Install process-exporter for grouped per-process Prometheus metrics
+ARG PROCESS_EXPORTER_VERSION=0.8.7
+RUN set -eux; \
+    arch="$(dpkg --print-architecture)"; \
+    case "$arch" in \
+      amd64) pe_arch=amd64 ;; \
+      arm64) pe_arch=arm64 ;; \
+      *) echo "unsupported architecture: $arch" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL -o /tmp/process-exporter.tar.gz \
+      "https://github.com/ncabatoff/process-exporter/releases/download/v${PROCESS_EXPORTER_VERSION}/process-exporter-${PROCESS_EXPORTER_VERSION}.linux-${pe_arch}.tar.gz"; \
+    tar -xzf /tmp/process-exporter.tar.gz -C /tmp; \
+    install -m 0755 /tmp/process-exporter-*/process-exporter /usr/local/bin/process-exporter; \
+    rm -rf /tmp/process-exporter*
+RUN mkdir -p /etc/process-exporter
+
+# Install Claude Code extension
+RUN su - vkuser -c "mkdir -p /home/vkuser/.local/share/code-server/extensions && code-server --install-extension anthropic.claude-code"
+
+# Install Beads CLI
+RUN curl -fsSL https://raw.githubusercontent.com/gastownhall/beads/main/scripts/install.sh | bash
+
+# Create supervisor config directory
+RUN mkdir -p /etc/supervisor/conf.d
+
+COPY supervisord.vkvd.conf /etc/supervisor/conf.d/supervisord.conf
+COPY ops/process-exporter.yml /etc/process-exporter/process-exporter.yml
+
+# Copy Caddyfile and startup page
+COPY Caddyfile /etc/caddy/Caddyfile
+COPY startup.html /etc/caddy/startup.html
+
+# Copy database backup script
+COPY backup-vibe-kanban-db.sh /usr/local/bin/backup-vibe-kanban-db.sh
+RUN chmod +x /usr/local/bin/backup-vibe-kanban-db.sh
+
+# Copy project files to a staging location (will be copied to volume at runtime)
+COPY . /opt/vibe-kanban-vscode-web-seed
+RUN chown -R vkuser:vkuser /opt/vibe-kanban-vscode-web-seed
+
+# Copy entrypoint script that fixes docker group GID at runtime
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+# Copy default VS Code settings
+RUN mkdir -p /home/vkuser/.local/share/code-server/User
+COPY default-settings.json /home/vkuser/.local/share/code-server/User/settings.json
+RUN chown -R vkuser:vkuser /home/vkuser/.local/share/code-server
+
+# Configure git to use gh as credential helper (system-level, so users only need `gh auth login`)
+RUN git config --system credential.helper '!gh auth git-credential'
+
+COPY --from=vk-builder /usr/local/bin/vibe-kanban /usr/local/bin/vibe-kanban
+COPY --from=repo-cloner /clone/vk-build-version /usr/local/share/vibe-kanban-build-version
+
+RUN chown -R vkuser:vkuser /home/vkuser/.local
+
+EXPOSE 3001
+EXPOSE 3007
+EXPOSE 3008
+
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]

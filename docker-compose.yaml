@@ -1,9 +1,6 @@
 services:
   code-vibe:
-    build:
-      context: .
-      args:
-        VIBE_KANBAN_VERSION: ${VIBE_KANBAN_VERSION:-latest}
+    image: ghcr.io/mickmister/vk-vd:${VKVD_IMAGE_VERSION:-latest}
 
     network_mode: host
     mem_limit: ${DEV_CONTAINER_MEM_LIMIT:-14g}
@@ -17,7 +14,6 @@ services:
       - /dev/net/tun:/dev/net/tun
 
     environment:
-      VIBE_KANBAN_VERSION: ${VIBE_KANBAN_VERSION:-latest}
       CADDY_PORT: ${CADDY_PORT:-3001}
       BACKEND_PORT: ${BACKEND_PORT:-3007}
       DASHBOARD_PORT: ${DASHBOARD_PORT:-3005}
