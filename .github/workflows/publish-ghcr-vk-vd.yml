@@ -47,5 +47,5 @@ jobs:
     secrets:
       registry-auths: |
         - registry: ghcr.io
-          username: ${{ github.repository_owner }}
-          password: ${{ github.token }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
