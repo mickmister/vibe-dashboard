@@ -11,61 +11,41 @@ on:
       vk_branch:
         description: vibe-kanban git branch or tag to build from
         required: true
-        default: main
+        default: vk/ed5f-vk-debug-memory
       vk_repo_url:
         description: vibe-kanban git repository URL to clone
         required: true
-        default: https://github.com/BloopAI/vibe-kanban.git
+        default: https://github.com/mickmister/vibe-kanban.git
 
 permissions:
   contents: read
   packages: write
+  id-token: write
 
 jobs:
   publish:
-    runs-on: ubuntu-latest
-    env:
-      IMAGE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.image_tag || format('pr-{0}', github.event.pull_request.number) }}
-      VK_BRANCH: ${{ github.event_name == 'workflow_dispatch' && inputs.vk_branch || 'main' }}
-      VK_REPO_URL: ${{ github.event_name == 'workflow_dispatch' && inputs.vk_repo_url || 'https://github.com/BloopAI/vibe-kanban.git' }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
+    uses: docker/github-builder/.github/workflows/build.yml@v1
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    with:
+      output: image
+      push: true
+      context: .
+      file: ./Dockerfile.vkvd
+      platforms: linux/amd64,linux/arm64
+      build-args: |
+        VK_BRANCH=${{ github.event_name == 'workflow_dispatch' && inputs.vk_branch || 'vk/ed5f-vk-debug-memory' }}
+        VK_REPO_URL=${{ github.event_name == 'workflow_dispatch' && inputs.vk_repo_url || 'https://github.com/mickmister/vibe-kanban.git' }}
+      cache: true
+      cache-scope: vk-vd-multiarch
+      meta-images: ghcr.io/${{ github.repository_owner }}/vk-vd
+      meta-tags: |
+        type=raw,value=${{ github.event_name == 'workflow_dispatch' && inputs.image_tag || format('pr-{0}', github.event.pull_request.number) }}
+        type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' }}
+    secrets:
+      registry-auths: |
+        - registry: ghcr.io
           username: ${{ github.repository_owner }}
           password: ${{ github.token }}
-
-      - name: Extract Docker metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/${{ github.repository_owner }}/vk-vd
-          tags: |
-            type=raw,value=${{ env.IMAGE_TAG }}
-            type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' }}
-
-      - name: Build and push image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ./Dockerfile.vkvd
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          build-args: |
-            VK_BRANCH=${{ env.VK_BRANCH }}
-            VK_REPO_URL=${{ env.VK_REPO_URL }}
-          cache-from: type=gha,scope=vk-vd-multiarch
-          cache-to: type=gha,scope=vk-vd-multiarch,mode=max

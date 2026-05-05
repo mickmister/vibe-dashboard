@@ -13,7 +13,22 @@ RUN apk add --no-cache git
 WORKDIR /clone
 RUN git clone --depth 1 --branch "${VK_BRANCH}" "${VK_REPO_URL}" vibe-kanban \
     && cd vibe-kanban \
-    && printf '%s@%s\n' "${VK_BRANCH}" "$(git rev-parse --short=12 HEAD)" > /clone/vk-build-version
+    && printf '%s@%s\n' "${VK_BRANCH}" "$(git rev-parse --short=12 HEAD)" > /clone/vk-build-version \
+    && mkdir -p /tmp/vk-manifests/crates \
+    && cp Cargo.toml Cargo.lock rust-toolchain.toml /tmp/vk-manifests/ \
+    && sed -i \
+         -e '/"crates\/desktop-bridge",/d' \
+         -e '/"crates\/tauri-app",/d' \
+         /tmp/vk-manifests/Cargo.toml \
+    && find crates -mindepth 2 -maxdepth 2 -name Cargo.toml | while read -r manifest; do \
+         dir="/tmp/vk-manifests/$(dirname "$manifest")"; \
+         mkdir -p "$dir/src"; \
+         cp "$manifest" "$dir/"; \
+         : > "$dir/src/lib.rs"; \
+         : > "$dir/src/main.rs"; \
+       done \
+    && tar -C /tmp/vk-manifests -cf /clone/vk-manifests.tar .
+
 
 FROM node:24-alpine AS vk-fe-builder
 
@@ -43,7 +58,8 @@ COPY --from=repo-cloner /clone/vibe-kanban/shared/ shared/
 
 RUN pnpm -C packages/local-web build
 
-FROM rust:1.93-slim-bookworm AS vk-builder
+
+FROM rust:1.93-slim-bookworm AS vk-rust-chef
 
 ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
 ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
@@ -64,15 +80,45 @@ RUN apt-get update \
     libclang-dev \
     libssl-dev \
     pkg-config \
+    cmake \
   && rm -rf /var/lib/apt/lists/*
 
 COPY --from=repo-cloner /clone/vibe-kanban/rust-toolchain.toml ./
 RUN cargo --version >/dev/null
 
+RUN --mount=type=cache,id=vk-cargo-registry,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=vk-cargo-git,target=/usr/local/cargo/git \
+    cargo install cargo-chef --locked
+
+
+FROM vk-rust-chef AS vk-rust-planner
+
+COPY --from=repo-cloner /clone/vk-manifests.tar /tmp/vk-manifests.tar
+RUN mkdir -p /app && tar -C /app -xf /tmp/vk-manifests.tar
+
+RUN cargo chef prepare --recipe-path recipe.json
+
+
+FROM vk-rust-chef AS vk-rust-cacher
+
+COPY --from=vk-rust-planner /app/recipe.json recipe.json
+
+RUN --mount=type=cache,id=vk-cargo-registry,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=vk-cargo-git,target=/usr/local/cargo/git \
+    --mount=type=cache,id=vk-workspace-target,target=/app/target \
+    cargo chef cook --release --recipe-path recipe.json
+
+
+FROM vk-rust-chef AS vk-builder
+
 COPY --from=repo-cloner /clone/vibe-kanban/Cargo.toml /clone/vibe-kanban/Cargo.lock ./
 COPY --from=repo-cloner /clone/vibe-kanban/crates/ crates/
 COPY --from=repo-cloner /clone/vibe-kanban/assets/ assets/
 COPY --from=vk-fe-builder /app/packages/local-web/dist packages/local-web/dist
+
+# Bring the dependency build artifacts from the cache stage into this stage.
+# The cache mount also persists artifacts across rebuilds on the same builder.
+COPY --from=vk-rust-cacher /app/target /app/target
 
 RUN --mount=type=cache,id=vk-cargo-registry,target=/usr/local/cargo/registry \
     --mount=type=cache,id=vk-cargo-git,target=/usr/local/cargo/git \
