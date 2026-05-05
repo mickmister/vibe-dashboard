@@ -51,6 +51,11 @@ ENV CARGO_TARGET_DIR=/app/target
 
 WORKDIR /app
 
+RUN set -eux; \
+    rm -rf /var/lib/apt/lists/*; \
+    apt-get clean; \
+    printf 'Acquire::http::Pipeline-Depth 0;\nAcquire::http::No-Cache true;\nAcquire::BrokenProxy true;\nAcquire::Retries 3;\n' > /etc/apt/apt.conf.d/99network-safe
+
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     build-essential \
@@ -65,54 +70,7 @@ COPY --from=repo-cloner /clone/vibe-kanban/rust-toolchain.toml ./
 RUN cargo --version >/dev/null
 
 COPY --from=repo-cloner /clone/vibe-kanban/Cargo.toml /clone/vibe-kanban/Cargo.lock ./
-COPY --from=repo-cloner /clone/vibe-kanban/crates/api-types/Cargo.toml crates/api-types/Cargo.toml
-COPY --from=repo-cloner /clone/vibe-kanban/crates/db/Cargo.toml crates/db/Cargo.toml
-COPY --from=repo-cloner /clone/vibe-kanban/crates/deployment/Cargo.toml crates/deployment/Cargo.toml
-COPY --from=repo-cloner /clone/vibe-kanban/crates/executors/Cargo.toml crates/executors/Cargo.toml
-COPY --from=repo-cloner /clone/vibe-kanban/crates/git/Cargo.toml crates/git/Cargo.toml
-COPY --from=repo-cloner /clone/vibe-kanban/crates/git-host/Cargo.toml crates/git-host/Cargo.toml
-COPY --from=repo-cloner /clone/vibe-kanban/crates/local-deployment/Cargo.toml crates/local-deployment/Cargo.toml
-COPY --from=repo-cloner /clone/vibe-kanban/crates/mcp/Cargo.toml crates/mcp/Cargo.toml
-COPY --from=repo-cloner /clone/vibe-kanban/crates/relay-control/Cargo.toml crates/relay-control/Cargo.toml
-COPY --from=repo-cloner /clone/vibe-kanban/crates/relay-hosts/Cargo.toml crates/relay-hosts/Cargo.toml
-COPY --from=repo-cloner /clone/vibe-kanban/crates/relay-protocol/Cargo.toml crates/relay-protocol/Cargo.toml
-COPY --from=repo-cloner /clone/vibe-kanban/crates/relay-tunnel-core/Cargo.toml crates/relay-tunnel-core/Cargo.toml
-COPY --from=repo-cloner /clone/vibe-kanban/crates/relay-webrtc/Cargo.toml crates/relay-webrtc/Cargo.toml
-COPY --from=repo-cloner /clone/vibe-kanban/crates/relay-ws/Cargo.toml crates/relay-ws/Cargo.toml
-COPY --from=repo-cloner /clone/vibe-kanban/crates/review/Cargo.toml crates/review/Cargo.toml
-COPY --from=repo-cloner /clone/vibe-kanban/crates/server/Cargo.toml crates/server/Cargo.toml
-COPY --from=repo-cloner /clone/vibe-kanban/crates/server-info/Cargo.toml crates/server-info/Cargo.toml
-COPY --from=repo-cloner /clone/vibe-kanban/crates/services/Cargo.toml crates/services/Cargo.toml
-COPY --from=repo-cloner /clone/vibe-kanban/crates/tauri-app/Cargo.toml crates/tauri-app/Cargo.toml
-COPY --from=repo-cloner /clone/vibe-kanban/crates/trusted-key-auth/Cargo.toml crates/trusted-key-auth/Cargo.toml
-COPY --from=repo-cloner /clone/vibe-kanban/crates/utils/Cargo.toml crates/utils/Cargo.toml
-COPY --from=repo-cloner /clone/vibe-kanban/crates/workspace-manager/Cargo.toml crates/workspace-manager/Cargo.toml
-COPY --from=repo-cloner /clone/vibe-kanban/crates/worktree-manager/Cargo.toml crates/worktree-manager/Cargo.toml
-COPY --from=repo-cloner /clone/vibe-kanban/crates/ws-bridge/Cargo.toml crates/ws-bridge/Cargo.toml
-
-COPY --from=repo-cloner /clone/vibe-kanban/crates/api-types/ crates/api-types/
-COPY --from=repo-cloner /clone/vibe-kanban/crates/db/ crates/db/
-COPY --from=repo-cloner /clone/vibe-kanban/crates/deployment/ crates/deployment/
-COPY --from=repo-cloner /clone/vibe-kanban/crates/executors/ crates/executors/
-COPY --from=repo-cloner /clone/vibe-kanban/crates/git/ crates/git/
-COPY --from=repo-cloner /clone/vibe-kanban/crates/git-host/ crates/git-host/
-COPY --from=repo-cloner /clone/vibe-kanban/crates/local-deployment/ crates/local-deployment/
-COPY --from=repo-cloner /clone/vibe-kanban/crates/mcp/ crates/mcp/
-COPY --from=repo-cloner /clone/vibe-kanban/crates/relay-control/ crates/relay-control/
-COPY --from=repo-cloner /clone/vibe-kanban/crates/relay-hosts/ crates/relay-hosts/
-COPY --from=repo-cloner /clone/vibe-kanban/crates/relay-protocol/ crates/relay-protocol/
-COPY --from=repo-cloner /clone/vibe-kanban/crates/relay-tunnel-core/ crates/relay-tunnel-core/
-COPY --from=repo-cloner /clone/vibe-kanban/crates/relay-webrtc/ crates/relay-webrtc/
-COPY --from=repo-cloner /clone/vibe-kanban/crates/relay-ws/ crates/relay-ws/
-COPY --from=repo-cloner /clone/vibe-kanban/crates/review/ crates/review/
-COPY --from=repo-cloner /clone/vibe-kanban/crates/server/ crates/server/
-COPY --from=repo-cloner /clone/vibe-kanban/crates/server-info/ crates/server-info/
-COPY --from=repo-cloner /clone/vibe-kanban/crates/services/ crates/services/
-COPY --from=repo-cloner /clone/vibe-kanban/crates/trusted-key-auth/ crates/trusted-key-auth/
-COPY --from=repo-cloner /clone/vibe-kanban/crates/utils/ crates/utils/
-COPY --from=repo-cloner /clone/vibe-kanban/crates/workspace-manager/ crates/workspace-manager/
-COPY --from=repo-cloner /clone/vibe-kanban/crates/worktree-manager/ crates/worktree-manager/
-COPY --from=repo-cloner /clone/vibe-kanban/crates/ws-bridge/ crates/ws-bridge/
+COPY --from=repo-cloner /clone/vibe-kanban/crates/ crates/
 COPY --from=repo-cloner /clone/vibe-kanban/assets/ assets/
 COPY --from=vk-fe-builder /app/packages/local-web/dist packages/local-web/dist
 
