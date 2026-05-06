@@ -1,12 +1,12 @@
 services:
   code-vibe:
-    build:
-      context: .
-      dockerfile: Dockerfile.vkvd
-      args:
-        VK_REPO_URL: ${VK_REPO_URL:-https://github.com/mickmister/vibe-kanban.git}
-        VK_BRANCH: ${VK_BRANCH:-vk/ed5f-vk-debug-memory}
-    # image: ghcr.io/mickmister/vk-vd:${VKVD_IMAGE_VERSION:-latest}
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile.vkvd
+    #   args:
+    #     VK_REPO_URL: ${VK_REPO_URL:-https://github.com/mickmister/vibe-kanban.git}
+    #     VK_BRANCH: ${VK_BRANCH:-vk/ed5f-vk-debug-memory}
+    image: ghcr.io/mickmister/vk-vd:${VKVD_IMAGE_VERSION:-latest}
 
     network_mode: host
     mem_limit: ${DEV_CONTAINER_MEM_LIMIT:-14g}
