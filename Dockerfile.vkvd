@@ -48,7 +48,10 @@ COPY --from=repo-cloner /clone/vibe-kanban/packages/ui/package.json packages/ui/
 COPY --from=repo-cloner /clone/vibe-kanban/packages/web-core/package.json packages/web-core/package.json
 
 RUN --mount=type=cache,id=vk-pnpm-store,target=/pnpm/store \
-    pnpm install --frozen-lockfile
+    pnpm fetch --frozen-lockfile
+
+RUN --mount=type=cache,id=vk-pnpm-store,target=/pnpm/store \
+    pnpm install --offline --frozen-lockfile
 
 COPY --from=repo-cloner /clone/vibe-kanban/packages/local-web/ packages/local-web/
 COPY --from=repo-cloner /clone/vibe-kanban/packages/public/ packages/public/
@@ -64,6 +67,7 @@ FROM rust:1.93-slim-bookworm AS vk-rust-chef
 ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
 ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
 ENV CARGO_TARGET_DIR=/app/target
+ENV RUSTFLAGS=-Clink-arg=-fuse-ld=lld
 
 WORKDIR /app
 
@@ -78,6 +82,7 @@ RUN apt-get update \
     ca-certificates \
     git \
     libclang-dev \
+    lld \
     libssl-dev \
     pkg-config \
     cmake \
@@ -174,8 +179,11 @@ ENV PATH="/usr/local/go/bin:${PATH}"
 ENV VK_ALLOWED_ORIGINS=""
 
 # Install Rust and Cargo
+ENV CARGO_HOME=/usr/local/cargo
+ENV RUSTUP_HOME=/usr/local/rustup
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-ENV PATH="/root/.cargo/bin:${PATH}"
+ENV PATH="/usr/local/cargo/bin:/usr/local/go/bin:${PATH}"
+RUN cargo --version >/dev/null && rustc --version >/dev/null
 
 # Install xcaddy (Caddy build tool)
 ENV GOBIN="/usr/local/bin"
