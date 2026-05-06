@@ -13,6 +13,7 @@ RUN apt-get update && apt-get install -y \
     git \
     build-essential \
     python3 \
+    sqlite3 \
     supervisor \
     ca-certificates \
     gnupg \
@@ -49,6 +50,11 @@ ENV VK_ALLOWED_ORIGINS=""
 # Install Rust and Cargo
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 ENV PATH="/root/.cargo/bin:${PATH}"
+
+# Install uv for Python-based CLI tools
+RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_UNMANAGED_INSTALL="/usr/local/bin" sh
+ENV UV_TOOL_DIR="/usr/local/share/uv/tools"
+ENV UV_TOOL_BIN_DIR="/usr/local/bin"
 
 # Install xcaddy (Caddy build tool)
 ENV GOBIN="/usr/local/bin"
@@ -159,7 +165,10 @@ RUN su - vkuser -c "npm config set prefix '/home/vkuser/.npm-global'"
 RUN mkdir -p /var/log/supervisor /var/log/caddy
 
 # Install tools globally as root (will be available system-wide)
-RUN npm install -g @anthropic-ai/claude-code pnpm @openai/codex opencode-ai
+RUN npm install -g @anthropic-ai/claude-code pnpm @openai/codex opencode-ai gitnexus
+
+# Install Serena globally via uv
+RUN uv tool install -p 3.13 serena-agent@latest --prerelease=allow
 
 # Install process-exporter for grouped per-process Prometheus metrics
 ARG PROCESS_EXPORTER_VERSION=0.8.7
