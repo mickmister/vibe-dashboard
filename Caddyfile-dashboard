@@ -17,7 +17,6 @@
 		path /@vite/*
 		path /@id/*
 		path /@react-refresh
-		path /react-chrome-tabs/*
 		path /@fs/*
 		path /kv/*
 		path /rpc/*
