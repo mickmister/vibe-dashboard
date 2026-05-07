@@ -2,17 +2,25 @@
 
 ARG VK_REPO_URL=https://github.com/BloopAI/vibe-kanban.git
 ARG VK_BRANCH=main
+ARG VK_REF=main
 
 FROM alpine:3.19 AS repo-cloner
 
 ARG VK_REPO_URL
 ARG VK_BRANCH
+ARG VK_REF
 
 RUN apk add --no-cache git
 
 WORKDIR /clone
-RUN git clone --depth 1 --branch "${VK_BRANCH}" "${VK_REPO_URL}" vibe-kanban \
+RUN git init vibe-kanban \
     && cd vibe-kanban \
+    && git remote add origin "${VK_REPO_URL}" \
+    && if ! git fetch --depth 1 origin "${VK_REF}"; then \
+         git fetch --depth 1 origin "${VK_BRANCH}"; \
+       fi \
+    && git -c advice.detachedHead=false checkout --detach FETCH_HEAD \
+    && test "$(git rev-parse HEAD)" = "${VK_REF}" \
     && printf '%s@%s\n' "${VK_BRANCH}" "$(git rev-parse --short=12 HEAD)" > /clone/vk-build-version \
     && mkdir -p /tmp/vk-manifests/crates \
     && cp Cargo.toml Cargo.lock rust-toolchain.toml /tmp/vk-manifests/ \
