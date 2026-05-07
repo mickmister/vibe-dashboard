@@ -628,48 +628,49 @@ export function Sidebar({
             )}
           </div>
 
-          {/* Starred tab groups section */}
-          {starredTabGroups.length > 0 && (
-            <div className="border-b border-neutral-800">
-              <button
-                className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-neutral-500 hover:text-neutral-300 transition-colors"
-                onClick={toggleStarredExpanded}
-              >
-                <span className="text-[10px]">
-                  {starredExpanded ? '▼' : '▶'}
-                </span>
-                Starred ({starredTabGroups.length})
-              </button>
-              {starredExpanded && (
-                <div className="px-2 pb-2 space-y-0.5">
-                  {starredTabGroups.map(({ space, tg }) => (
-                    <button
-                      key={tg.id}
-                      className={`w-full text-left px-3 py-1.5 rounded-lg transition-colors ${
-                        activeTabGroupId === tg.id
-                          ? 'bg-primary-500/20 text-primary-300'
-                          : 'text-neutral-300 hover:bg-neutral-800'
-                      }`}
-                      onClick={() => {
-                        onSelectSpace(space.id);
-                        onSelectTabGroup(tg.id);
-                      }}
-                    >
-                      <div className="text-sm font-medium truncate flex items-center gap-1.5">
-                        <span className="text-amber-400 text-xs">★</span>
-                        {tg.label}
-                      </div>
-                      <div className="text-xs text-neutral-500 mt-0.5 pl-4">
-                        {space.name}
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+          <div className="flex-1 min-h-0 overflow-y-auto">
+            {/* Starred tab groups section */}
+            {starredTabGroups.length > 0 && (
+              <div className="border-b border-neutral-800">
+                <button
+                  className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-neutral-500 hover:text-neutral-300 transition-colors"
+                  onClick={toggleStarredExpanded}
+                >
+                  <span className="text-[10px]">
+                    {starredExpanded ? '▼' : '▶'}
+                  </span>
+                  Starred ({starredTabGroups.length})
+                </button>
+                {starredExpanded && (
+                  <div className="px-2 pb-2 space-y-0.5">
+                    {starredTabGroups.map(({ space, tg }) => (
+                      <button
+                        key={tg.id}
+                        className={`w-full text-left px-3 py-1.5 rounded-lg transition-colors ${
+                          activeTabGroupId === tg.id
+                            ? 'bg-primary-500/20 text-primary-300'
+                            : 'text-neutral-300 hover:bg-neutral-800'
+                        }`}
+                        onClick={() => {
+                          onSelectSpace(space.id);
+                          onSelectTabGroup(tg.id);
+                        }}
+                      >
+                        <div className="text-sm font-medium truncate flex items-center gap-1.5">
+                          <span className="text-amber-400 text-xs">★</span>
+                          {tg.label}
+                        </div>
+                        <div className="text-xs text-neutral-500 mt-0.5 pl-4">
+                          {space.name}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
-          <div className="flex-1 overflow-y-auto p-2 space-y-1">
+            <div className="p-2 space-y-1">
             {activeTabGroups.length === 0 ? (
               <div className="px-3 py-4 text-sm text-neutral-500">
                 No tab groups in this space.
@@ -788,6 +789,7 @@ export function Sidebar({
                 </div>
               ))
             )}
+            </div>
           </div>
         </div>
       ) : (

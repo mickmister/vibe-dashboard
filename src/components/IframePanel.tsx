@@ -230,12 +230,7 @@ function removeIframe(tabId: string) {
   }
 }
 
-/**
- * Ensure all iframes exist for the given tabs (eagerly, not in an effect).
- * Clean up stale entries in an effect.
- */
 function useImperativeIframes(tabs: Tab[]) {
-  // Eagerly create iframes so they're available for IframeHost immediately
   for (const tab of tabs) {
     getOrCreateIframe(tab);
   }
@@ -360,7 +355,6 @@ function useImperativeIframes(tabs: Tab[]) {
     return () => unsubs.forEach((fn) => fn());
   }, [tabs]);
 
-  // Clean up stale iframes
   useEffect(() => {
     const currentTabIds = new Set(tabs.map((t) => t.id));
     for (const [id] of iframeStore.entries()) {
@@ -431,8 +425,6 @@ export function IframePanel({
   onNavigateToTabGroup,
   onOpenVKWorkspace,
 }: IframePanelProps) {
-  const { loadingState, errorState, retryTab } = useImperativeIframes(tabGroup.tabs);
-
   const activeTab = tabGroup.tabs.find(
     (t) => t.id === activeItemId
   );
@@ -447,13 +439,15 @@ export function IframePanel({
     visibleTabIds.add(activeTab.id);
   }
 
+  const mountedTabs = tabGroup.tabs.filter((tab) => {
+    if (!visibleTabIds.has(tab.id)) return false;
+    return getTabRenderTarget(tab.url).kind === 'iframe';
+  });
+
+  const { loadingState, errorState, retryTab } = useImperativeIframes(mountedTabs);
+
   return (
     <>
-      {tabGroup.tabs.map((tab) => {
-        if (visibleTabIds.has(tab.id)) return null;
-        return <IframeHost key={tab.id} tabId={tab.id} visible={false} />;
-      })}
-
       {activePair ? (
         <PairView
           activePair={activePair}

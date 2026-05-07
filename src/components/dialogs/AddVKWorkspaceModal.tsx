@@ -130,10 +130,11 @@ export function AddVKWorkspaceModal({
   };
 
   const fetchTaskAttempts = async () => {
-    const hasCachedResults = cachedWorkspaceOptions != null;
+    const cachedResults = cachedWorkspaceOptions;
+    const hasCachedResults = cachedResults != null;
 
     if (hasCachedResults) {
-      setTaskAttempts(cachedWorkspaceOptions);
+      setTaskAttempts(cachedResults);
       setLoading(false);
       setRefreshing(true);
     } else {
