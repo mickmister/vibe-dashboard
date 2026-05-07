@@ -302,8 +302,9 @@ RUN mkdir -p /var/log/supervisor /var/log/caddy
 # Install tools globally as root (will be available system-wide)
 RUN npm install -g @anthropic-ai/claude-code pnpm @openai/codex opencode-ai gitnexus
 
-# Install Serena globally via uv
-RUN uv tool install -p 3.13 serena-agent@latest --prerelease=allow
+# Install Serena globally via uv and make the shared toolchain executable for vkuser
+RUN uv tool install -p 3.13 serena-agent@latest --prerelease=allow \
+    && chmod -R a+rX /usr/local/share/uv
 
 # Install process-exporter for grouped per-process Prometheus metrics
 ARG PROCESS_EXPORTER_VERSION=0.8.7
