@@ -1,2 +1,5 @@
 import { heroui } from '@heroui/react';
-export default heroui();
+
+const heroUiPlugin: ReturnType<typeof heroui> = heroui();
+
+export default heroUiPlugin;
