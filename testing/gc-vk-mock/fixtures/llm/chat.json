@@ -1,0 +1,22 @@
+{
+  "fixtures": [
+    {
+      "match": {
+        "userMessage": "GC_VK_MOCK_INITIAL_PROMPT",
+        "model": "mock-gastown"
+      },
+      "response": {
+        "content": "GC_VK_MOCK_INITIAL_RESPONSE"
+      }
+    },
+    {
+      "match": {
+        "userMessage": "GC_VK_MOCK_FOLLOW_UP_PROMPT",
+        "model": "mock-gastown"
+      },
+      "response": {
+        "content": "GC_VK_MOCK_FOLLOW_UP_RESPONSE"
+      }
+    }
+  ]
+}

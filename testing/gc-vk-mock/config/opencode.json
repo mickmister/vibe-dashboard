@@ -1,0 +1,19 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "enabled_providers": ["aimock"],
+  "provider": {
+    "aimock": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "AIMock",
+      "options": {
+        "baseURL": "http://aimock:4010/v1",
+        "apiKey": "aimock-test-key"
+      },
+      "models": {
+        "mock-gastown": {
+          "name": "Mock Gastown"
+        }
+      }
+    }
+  }
+}

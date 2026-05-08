@@ -1,0 +1,80 @@
+services:
+  gascity-main-init:
+    image: alpine/git:2.49.1
+    volumes:
+      - gascity-main:/repo
+      - ../../:/workspace/vd:ro
+    entrypoint: ["/bin/sh", "/workspace/vd/testing/gc-vk-mock/scripts/clone-gascity-main.sh"]
+
+  aimock:
+    image: ghcr.io/copilotkit/aimock:latest
+    volumes:
+      - ./fixtures:/fixtures:ro
+    command: ["npx", "aimock", "--config", "/fixtures/aimock.json", "--port", "4010"]
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:4010/v1/models"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+
+  vk:
+    build:
+      context: ../../..
+      dockerfile: vibe-kanban-vscode-web/testing/gc-vk-mock/docker/vk-server.Dockerfile
+    depends_on:
+      gascity-main-init:
+        condition: service_completed_successfully
+      aimock:
+        condition: service_healthy
+    environment:
+      HOST: 0.0.0.0
+      PORT: 4020
+      BACKEND_PORT: 4020
+      PREVIEW_PROXY_PORT: 4021
+      RUST_LOG: info
+      OPENCODE_CONFIG: /etc/opencode/opencode.json
+      OPENCODE_CONFIG_DIR: /etc/opencode
+    volumes:
+      - gascity-main:/repos/gascity
+      - ./config/opencode.json:/etc/opencode/opencode.json:ro
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:4020/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+      start_period: 20s
+
+  smoke:
+    build:
+      context: ../../..
+      dockerfile: vibe-kanban-vscode-web/testing/gc-vk-mock/docker/smoke-runner.Dockerfile
+    depends_on:
+      gascity-main-init:
+        condition: service_completed_successfully
+      aimock:
+        condition: service_healthy
+      vk:
+        condition: service_healthy
+    environment:
+      VIBE_BASE_URL: http://vk:4020
+      VIBE_REPO_MATCH: gascity
+      VIBE_TARGET_BRANCH: main
+      VIBE_EXECUTOR: OPENCODE
+      VIBE_MODEL_ID: aimock/mock-gastown
+      VIBE_PERMISSION_POLICY: auto
+      VIBE_DELETE_WORKSPACE_ON_STOP: "true"
+      GC_EXEC_STATE_DIR: /tmp/gc-exec-state
+      HARNESS_ROOT: /workspace/vd/testing/gc-vk-mock
+      VD_ROOT: /workspace/vd
+      GC_UPSTREAM_ROOT: /opt/gascity
+      VK_REPO_PATH: /repos/gascity
+    volumes:
+      - gascity-main:/opt/gascity
+      - gascity-main:/repos/gascity
+      - ../../:/workspace/vd:ro
+    working_dir: /workspace/vd
+    entrypoint: ["/bin/bash", "/workspace/vd/testing/gc-vk-mock/scripts/smoke.sh"]
+
+volumes:
+  gascity-main:
