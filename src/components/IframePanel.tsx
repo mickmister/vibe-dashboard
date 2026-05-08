@@ -3,14 +3,21 @@ import { Group, Panel, Separator } from 'react-resizable-panels';
 import type { TabGroup, Tab } from '../types';
 import type { WorkspaceState } from '../types';
 import { SpacesOverview } from './SpacesOverview';
+import { GasCityPanel } from '../modules/plugins/gas-city/GasCityPanel';
+import type { GasCityDashboardState, GasCityPluginModule } from '../modules/plugins/gas-city/types';
 
 interface IframePanelProps {
   tabGroup: TabGroup;
   activeItemId: string;
   onUpdatePairRatios: (pairId: string, ratios: number[]) => void;
   workspace?: WorkspaceState;
+  gasCity?: {
+    state: GasCityDashboardState;
+    actions: GasCityPluginModule['actions'];
+  };
   onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void;
   onOpenVKWorkspace?: (taskAttemptId: string, name: string, containerRef: string, spaceId: string) => void;
+  onOpenGasCityWorkDir?: (workDir: string, title: string) => void;
 }
 
 /**
@@ -367,8 +374,10 @@ export function IframePanel({
   activeItemId,
   onUpdatePairRatios,
   workspace,
+  gasCity,
   onNavigateToTabGroup,
   onOpenVKWorkspace,
+  onOpenGasCityWorkDir,
 }: IframePanelProps) {
   const { loadingState, errorState, retryTab } = useImperativeIframes(tabGroup.tabs);
 
@@ -409,8 +418,10 @@ export function IframePanel({
           errorState={errorState}
           retryTab={retryTab}
           {...(workspace ? { workspace } : {})}
+          {...(gasCity ? { gasCity } : {})}
           {...(onNavigateToTabGroup ? { onNavigateToTabGroup } : {})}
           {...(onOpenVKWorkspace ? { onOpenVKWorkspace } : {})}
+          {...(onOpenGasCityWorkDir ? { onOpenGasCityWorkDir } : {})}
         />
       ) : (
         <EmptyView />
@@ -425,16 +436,23 @@ function SingleTabView({
   errorState,
   retryTab,
   workspace,
+  gasCity,
   onNavigateToTabGroup,
   onOpenVKWorkspace,
+  onOpenGasCityWorkDir,
 }: {
   activeTab: Tab;
   loadingState: Map<string, boolean>;
   errorState: Map<string, boolean>;
   retryTab: (tabId: string) => void;
   workspace?: WorkspaceState;
+  gasCity?: {
+    state: GasCityDashboardState;
+    actions: GasCityPluginModule['actions'];
+  };
   onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void;
   onOpenVKWorkspace?: (taskAttemptId: string, name: string, containerRef: string, spaceId: string) => void;
+  onOpenGasCityWorkDir?: (workDir: string, title: string) => void;
 }) {
   const isLoaded = loadingState.get(activeTab.id) ?? false;
   const hasError = errorState.get(activeTab.id) ?? false;
@@ -450,6 +468,18 @@ function SingleTabView({
             workspace={workspace}
             onNavigateToTabGroup={onNavigateToTabGroup}
             {...(onOpenVKWorkspace ? { onOpenVKWorkspace } : {})}
+          />
+        </div>
+      );
+    }
+
+    if (internalPath === 'gas-city' && gasCity) {
+      return (
+        <div className="flex-1 min-h-0 relative h-full">
+          <GasCityPanel
+            state={gasCity.state}
+            actions={gasCity.actions}
+            onOpenWorkDir={onOpenGasCityWorkDir}
           />
         </div>
       );

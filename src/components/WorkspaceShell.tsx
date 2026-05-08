@@ -5,6 +5,8 @@ import { AddTabModal } from './AddTabModal';
 import type { WorkspaceState, TabGroup } from '../types';
 import type { SessionWorkspaceNav } from '../sessionState';
 import type { PluginRegistryState } from '../modules/plugins/vibe-dashboard/types';
+import type { GasCityDashboardState, GasCityPluginModule } from '../modules/plugins/gas-city/types';
+import { getBaseOrigin } from '../utils/origin';
 
 export type WorkspaceActions = {
   addSpace: (args: { name: string }) => Promise<{ spaceId: string; tabGroupId: string } | undefined>;
@@ -47,9 +49,20 @@ interface WorkspaceShellProps {
   actions: WorkspaceActions;
   sessionActions: SessionActions;
   pluginRegistry: PluginRegistryState;
+  gasCity?: {
+    state: GasCityDashboardState;
+    actions: GasCityPluginModule['actions'];
+  };
 }
 
-export function WorkspaceShell({ workspace, session, actions, sessionActions, pluginRegistry }: WorkspaceShellProps) {
+export function WorkspaceShell({
+  workspace,
+  session,
+  actions,
+  sessionActions,
+  pluginRegistry,
+  gasCity,
+}: WorkspaceShellProps) {
   const [addTabModalOpen, setAddTabModalOpen] = useState(false);
   const [addTabTargetGroupId, setAddTabTargetGroupId] = useState<string>('');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -273,6 +286,15 @@ export function WorkspaceShell({ workspace, session, actions, sessionActions, pl
           onDrop={handleDrop}
           workspace={workspace}
           showAddressBar={showAddressBar}
+          gasCity={gasCity}
+          onOpenGasCityWorkDir={(workDir, title) => {
+            const baseOrigin = getBaseOrigin();
+            actions.addTab({
+              tabGroupId: session.activeTabGroupId,
+              title: `Code · ${title}`,
+              url: `${baseOrigin}/?folder=${encodeURIComponent(workDir)}`,
+            });
+          }}
         />
       </div>
 

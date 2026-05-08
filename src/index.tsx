@@ -19,6 +19,7 @@ import springboard from 'springboard';
 import { createDefaultWorkspace } from './types';
 import type { WorkspaceState } from './types';
 import type { PluginRegistryState } from './modules/plugins/vibe-dashboard/types';
+import type { GasCityDashboardState, GasCityPluginModule } from './modules/plugins/gas-city/types';
 
 springboard.registerModule('workspace', { rpcMode: 'remote' }, async (moduleAPI) => {
 
@@ -391,7 +392,9 @@ springboard.registerModule('workspace', { rpcMode: 'remote' }, async (moduleAPI)
     const sessionNav = useSessionWorkspaceNav(workspace, { spaceId, tabGroupId, itemId });
     const pluginRegistry = moduleAPI.getModule('plugin-registry');
     const vibeKanbanPlugin = moduleAPI.getModule('plugin-vibe-kanban');
+    const gasCityPlugin = moduleAPI.getModule('plugin-gas-city') as GasCityPluginModule | undefined;
     const pluginRegistryState = pluginRegistry.states.registry.useState();
+    const gasCityState = gasCityPlugin?.states.dashboard.useState() as GasCityDashboardState | undefined;
 
     // Update document title to reflect active space and tab group
     useEffect(() => {
@@ -483,6 +486,11 @@ springboard.registerModule('workspace', { rpcMode: 'remote' }, async (moduleAPI)
             actions={normalizeActionReturns(wrappedActions)}
             sessionActions={sessionActions}
             pluginRegistry={pluginRegistryState}
+            gasCity={
+              gasCityPlugin && gasCityState
+                ? { state: gasCityState, actions: gasCityPlugin.actions }
+                : undefined
+            }
           />
         </div>
       </>

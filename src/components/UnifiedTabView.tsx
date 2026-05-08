@@ -3,6 +3,7 @@ import { AddressBar } from './AddressBar';
 import { IframePanel } from './IframePanel';
 import type { TabGroup, WorkspaceState } from '../types';
 import type { WorkspaceActions, SessionActions } from './WorkspaceShell';
+import type { GasCityDashboardState, GasCityPluginModule } from '../modules/plugins/gas-city/types';
 
 interface UnifiedTabViewProps {
   tabGroups: TabGroup[];
@@ -11,6 +12,11 @@ interface UnifiedTabViewProps {
   sessionActions: SessionActions;
   workspace: WorkspaceState;
   showAddressBar: boolean;
+  gasCity?: {
+    state: GasCityDashboardState;
+    actions: GasCityPluginModule['actions'];
+  };
+  onOpenGasCityWorkDir?: (workDir: string, title: string) => void;
 }
 
 export function UnifiedTabView({
@@ -20,6 +26,8 @@ export function UnifiedTabView({
   sessionActions,
   workspace,
   showAddressBar,
+  gasCity,
+  onOpenGasCityWorkDir,
 }: UnifiedTabViewProps) {
   const activeTabGroup = tabGroups.find((tg) => tg.id === activeTabGroupId);
 
@@ -52,6 +60,7 @@ export function UnifiedTabView({
               })
             }
             workspace={workspace}
+            gasCity={gasCity}
             onNavigateToTabGroup={(spaceId, tabGroupId) => {
               sessionActions.selectSpace(spaceId);
               sessionActions.setActiveTabGroup(tabGroupId);
@@ -68,6 +77,7 @@ export function UnifiedTabView({
                 sessionActions.setActiveTabGroup(result.tabGroupId);
               }
             }}
+            onOpenGasCityWorkDir={onOpenGasCityWorkDir}
           />
         ) : (
           <div className="flex-1 flex items-center justify-center text-neutral-500">
