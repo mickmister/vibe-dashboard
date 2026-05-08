@@ -10,7 +10,8 @@ import {
   Listbox,
   ListboxItem,
 } from '@heroui/react';
-import { AddVKWorkspaceModal } from '../modules/plugins/vibe-kanban/components/AddVKWorkspaceModal';
+import { AddVKWorkspaceModal } from './dialogs/AddVKWorkspaceModal';
+import type { WorkspaceState } from '../types';
 import type {
   TabGroupFactoryContribution,
   TabPresetContribution,
@@ -23,15 +24,55 @@ interface AddTabModalProps {
   tabPresets: TabPresetContribution[];
   tabGroupFactories: TabGroupFactoryContribution[];
   onAdd: (title: string, url: string) => void;
-  onAddVKWorkspace?: (taskAttemptId: string, name: string, containerRef: string) => void;
+  onAddVKWorkspace?: (
+    taskAttemptId: string,
+    name: string,
+    containerRef: string,
+  ) => void;
+  onAddVKWorkspaceToSpace?: (
+    taskAttemptId: string,
+    name: string,
+    containerRef: string,
+    spaceId: string,
+  ) => void;
+  onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void;
   onAddTabGroup?: (label: string) => void;
+  workspace?: WorkspaceState;
 }
 
 type MenuEntry =
-  | { kind: 'factory'; key: string; title: string; description: string; launchMode: 'vk-workspace'; order: number }
-  | { kind: 'preset'; key: string; title: string; description: string; mode: 'immediate' | 'urlPrompt'; urlTemplate: string; defaultTitle?: string; order: number }
-  | { kind: 'custom'; key: 'custom-url'; title: string; description: string; order: number }
-  | { kind: 'new-tab-group'; key: 'new-tab-group'; title: string; description: string; order: number };
+  | {
+      kind: 'factory';
+      key: string;
+      title: string;
+      description: string;
+      launchMode: 'vk-workspace';
+      order: number;
+    }
+  | {
+      kind: 'preset';
+      key: string;
+      title: string;
+      description: string;
+      mode: 'immediate' | 'urlPrompt';
+      urlTemplate: string;
+      defaultTitle?: string;
+      order: number;
+    }
+  | {
+      kind: 'custom';
+      key: 'custom-url';
+      title: string;
+      description: string;
+      order: number;
+    }
+  | {
+      kind: 'new-tab-group';
+      key: 'new-tab-group';
+      title: string;
+      description: string;
+      order: number;
+    };
 
 export function AddTabModal({
   isOpen,
@@ -40,7 +81,10 @@ export function AddTabModal({
   tabGroupFactories,
   onAdd,
   onAddVKWorkspace,
+  onAddVKWorkspaceToSpace,
+  onNavigateToTabGroup,
   onAddTabGroup,
+  workspace,
 }: AddTabModalProps) {
   const [title, setTitle] = useState('');
   const [url, setUrl] = useState('');
@@ -94,9 +138,7 @@ export function AddTabModal({
       },
     ];
 
-    const all = [...pluginFactories, ...pluginPresets, ...builtIns];
-
-    return all
+    return [...pluginFactories, ...pluginPresets, ...builtIns]
       .filter((entry) => entry.kind !== 'new-tab-group' || Boolean(onAddTabGroup))
       .sort((a, b) => a.order - b.order);
   }, [onAddTabGroup, tabGroupFactories, tabPresets]);
@@ -154,7 +196,7 @@ export function AddTabModal({
   const handleVKWorkspaceAdd = (
     taskAttemptId: string,
     name: string,
-    containerRef: string
+    containerRef: string,
   ) => {
     if (onAddVKWorkspace) {
       onAddVKWorkspace(taskAttemptId, name, containerRef);
@@ -219,7 +261,8 @@ export function AddTabModal({
                     if (e.key === 'Enter') handleTabGroupSubmit();
                   }}
                   classNames={{
-                    inputWrapper: 'bg-neutral-800 border-neutral-700 data-[hover=true]:bg-neutral-800 group-data-[focus=true]:bg-neutral-800',
+                    inputWrapper:
+                      'bg-neutral-800 border-neutral-700 data-[hover=true]:bg-neutral-800 group-data-[focus=true]:bg-neutral-800',
                     input: 'text-white',
                     label: 'text-neutral-300',
                   }}
@@ -235,7 +278,8 @@ export function AddTabModal({
                   placeholder="My Tab"
                   autoFocus
                   classNames={{
-                    inputWrapper: 'bg-neutral-800 border-neutral-700 data-[hover=true]:bg-neutral-800 group-data-[focus=true]:bg-neutral-800',
+                    inputWrapper:
+                      'bg-neutral-800 border-neutral-700 data-[hover=true]:bg-neutral-800 group-data-[focus=true]:bg-neutral-800',
                     input: 'text-white',
                     label: 'text-neutral-300',
                   }}
@@ -250,7 +294,8 @@ export function AddTabModal({
                     if (e.key === 'Enter') handleCustomSubmit();
                   }}
                   classNames={{
-                    inputWrapper: 'bg-neutral-800 border-neutral-700 data-[hover=true]:bg-neutral-800 group-data-[focus=true]:bg-neutral-800',
+                    inputWrapper:
+                      'bg-neutral-800 border-neutral-700 data-[hover=true]:bg-neutral-800 group-data-[focus=true]:bg-neutral-800',
                     input: 'text-white',
                     label: 'text-neutral-300',
                   }}
@@ -294,7 +339,11 @@ export function AddTabModal({
       <AddVKWorkspaceModal
         isOpen={showVKWorkspace}
         onClose={() => setShowVKWorkspace(false)}
+        onComplete={handleClose}
         onAdd={handleVKWorkspaceAdd}
+        onAddToSpace={onAddVKWorkspaceToSpace}
+        onNavigateToTabGroup={onNavigateToTabGroup}
+        workspaceState={workspace}
       />
     </>
   );

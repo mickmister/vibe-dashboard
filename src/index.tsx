@@ -20,6 +20,39 @@ import { createDefaultWorkspace } from './types';
 import type { WorkspaceState } from './types';
 import type { PluginRegistryState } from './modules/plugins/vibe-dashboard/types';
 
+
+const WORKSPACE_CREATE_PATH = '/workspaces/create';
+const WORKSPACE_CREATE_TAB_TITLE = 'Create Workspace';
+const URL_PARSE_BASE = 'https://workspace.local';
+
+function getBaseOrigin(): string {
+  const { protocol, host } = window.location;
+  const portPrefixMatch = host.match(/^port-\d+\.(.+)$/);
+
+  if (portPrefixMatch) {
+    return `${protocol}//${portPrefixMatch[1]}`;
+  }
+
+  return '';
+}
+
+function buildWorkspaceTabUrl(baseOrigin: string, path: string): string {
+  return baseOrigin ? `${baseOrigin}${path}` : path;
+}
+
+function isWorkspaceTabPath(url: string, expectedPath: string): boolean {
+  try {
+    const parsed = new URL(url, URL_PARSE_BASE);
+    return (
+      parsed.pathname === expectedPath &&
+      parsed.search === '' &&
+      parsed.hash === ''
+    );
+  } catch {
+    return url === expectedPath;
+  }
+}
+
 springboard.registerModule('workspace', { rpcMode: 'remote' }, async (moduleAPI) => {
 
   const workspaceState = await moduleAPI.statesAPI.createPersistentState<WorkspaceState>(
@@ -177,22 +210,84 @@ springboard.registerModule('workspace', { rpcMode: 'remote' }, async (moduleAPI)
       });
     },
 
-    addTab: async (args: { tabGroupId: string; title: string; url: string }) => {
-      let tabId = '';
+      addTab: async (args: { tabGroupId: string; title: string; url: string }) => {
+        let tabId = '';
 
-      workspaceState.setStateImmer((draft) => {
-        const tg = draft.tabGroups.find((g) => g.id === args.tabGroupId);
+        workspaceState.setStateImmer((draft) => {
+          const tg = draft.tabGroups.find((g) => g.id === args.tabGroupId);
         if (!tg) return;
 
         tabId = `tab_${draft.nextId++}`;
         tg.tabs.push({ id: tabId, title: args.title, url: args.url });
-      });
+        });
       
-      return { tabId, tabGroupId: args.tabGroupId };
-    },
+        return { tabId, tabGroupId: args.tabGroupId };
+      },
 
-    createPair: async (args: { tabGroupId: string; tabIds: string[] }) => {
-      let pairId = '';
+      ensureCreateWorkspaceTab: async (args: { baseOrigin: string }) => {
+        let result:
+          | { spaceId: string; tabGroupId: string; tabId: string }
+          | undefined;
+
+        workspaceState.setStateImmer((draft) => {
+          const firstSpace = draft.spaces[0];
+          if (!firstSpace) return;
+
+          let firstTabGroup =
+            firstSpace.tabGroupIds.length > 0
+              ? draft.tabGroups.find((g) => g.id === firstSpace.tabGroupIds[0])
+              : undefined;
+
+          if (!firstTabGroup) {
+            const tabGroupId = `tg_${draft.nextId++}`;
+            firstTabGroup = {
+              id: tabGroupId,
+              label: 'Main',
+              tabs: [],
+              pairs: [],
+              order: 0,
+              createdAt: new Date().toISOString(),
+            };
+            draft.tabGroups.push(firstTabGroup);
+
+            if (firstSpace.tabGroupIds.length > 0) {
+              firstSpace.tabGroupIds[0] = tabGroupId;
+            } else {
+              firstSpace.tabGroupIds.push(tabGroupId);
+            }
+          }
+
+          const existingTab = firstTabGroup.tabs.find((tab) =>
+            isWorkspaceTabPath(tab.url, WORKSPACE_CREATE_PATH),
+          );
+          if (existingTab) {
+            result = {
+              spaceId: firstSpace.id,
+              tabGroupId: firstTabGroup.id,
+              tabId: existingTab.id,
+            };
+            return;
+          }
+
+          const tabId = `tab_${draft.nextId++}`;
+          firstTabGroup.tabs.push({
+            id: tabId,
+            title: WORKSPACE_CREATE_TAB_TITLE,
+            url: buildWorkspaceTabUrl(args.baseOrigin, WORKSPACE_CREATE_PATH),
+          });
+
+          result = {
+            spaceId: firstSpace.id,
+            tabGroupId: firstTabGroup.id,
+            tabId,
+          };
+        });
+
+        return result;
+      },
+
+      createPair: async (args: { tabGroupId: string; tabIds: string[] }) => {
+        let pairId = '';
 
       workspaceState.setStateImmer((draft) => {
         const tg = draft.tabGroups.find((g) => g.id === args.tabGroupId);
@@ -456,6 +551,10 @@ springboard.registerModule('workspace', { rpcMode: 'remote' }, async (moduleAPI)
           sessionNav.selectTab(result.tabGroupId, result.firstTabId);
         }
       },
+      ensureCreateWorkspaceTab: () => {
+        const baseOrigin = getBaseOrigin();
+        return actions.ensureCreateWorkspaceTab({ baseOrigin });
+      },
       addVKWorkspace: (args: {
         taskAttemptId: string;
         name: string;
@@ -539,6 +638,7 @@ declare module 'springboard/module_registry/module_registry' {
         deleteTabGroup: (args: { spaceId: string; tabGroupId: string }) => Promise<{ wasDeleted: boolean; deletedTabGroupId?: string; nextTabGroupId?: string } | undefined>;
         closeTab: (args: { tabGroupId: string; tabId: string }) => Promise<void>;
         addTab: (args: { tabGroupId: string; title: string; url: string }) => Promise<{ tabId: string; tabGroupId: string } | undefined>;
+        ensureCreateWorkspaceTab: (args: { baseOrigin: string }) => Promise<{ spaceId: string; tabGroupId: string; tabId: string } | undefined>;
         createPair: (args: { tabGroupId: string; tabIds: string[] }) => Promise<{ pairId: string; tabGroupId: string } | undefined>;
         updatePairRatios: (args: { tabGroupId: string; pairId: string; ratios: number[] }) => Promise<void>;
         deletePair: (args: { tabGroupId: string; pairId: string }) => Promise<{ firstTabId?: string; tabGroupId: string }>;

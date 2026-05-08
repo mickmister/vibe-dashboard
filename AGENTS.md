@@ -1,5 +1,7 @@
 Keep the following info in mind *when working in the ./src directory only*
 
+After making any changes, run `npm run check-types` to ensure types pass.
+
 # Springboard Development Guide
 
 This application is built with the **Springboard framework**.
@@ -26,3 +28,9 @@ sections, key concepts, and workflow guidance.
 - `sb docs --help` - See all available commands
 - `sb docs types` - Get TypeScript type definitions
 - `sb docs examples list` - See available example modules
+
+## Additional Notes
+
+- Springboard code is isomorphic by default.
+- If importing a node-only module inside an action, use conditional compilation.
+- This app is deployed as a server-driven SPA, so actions run on the server here.

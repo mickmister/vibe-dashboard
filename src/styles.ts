@@ -4,6 +4,3 @@
 // Tailwind CSS and app styles
 import './styles.css';
 
-// Chrome tabs styling
-import '../react-chrome-tabs/css/chrome-tabs.css';
-import '../react-chrome-tabs/css/chrome-tabs-dark-theme.css';

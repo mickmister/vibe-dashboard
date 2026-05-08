@@ -1,3 +1,136 @@
+# syntax=docker/dockerfile:1.6
+
+ARG VK_REPO_URL=https://github.com/BloopAI/vibe-kanban.git
+ARG VK_BRANCH=main
+
+FROM alpine:3.19 AS repo-cloner
+
+ARG VK_REPO_URL
+ARG VK_BRANCH
+
+RUN apk add --no-cache git
+
+WORKDIR /clone
+RUN git clone --depth 1 --branch "${VK_BRANCH}" "${VK_REPO_URL}" vibe-kanban \
+    && cd vibe-kanban \
+    && printf '%s@%s\n' "${VK_BRANCH}" "$(git rev-parse --short=12 HEAD)" > /clone/vk-build-version \
+    && mkdir -p /tmp/vk-manifests/crates \
+    && cp Cargo.toml Cargo.lock rust-toolchain.toml /tmp/vk-manifests/ \
+    && sed -i \
+         -e '/"crates\/desktop-bridge",/d' \
+         -e '/"crates\/tauri-app",/d' \
+         /tmp/vk-manifests/Cargo.toml \
+    && find crates -mindepth 2 -maxdepth 2 -name Cargo.toml | while read -r manifest; do \
+         dir="/tmp/vk-manifests/$(dirname "$manifest")"; \
+         mkdir -p "$dir/src"; \
+         cp "$manifest" "$dir/"; \
+         : > "$dir/src/lib.rs"; \
+         : > "$dir/src/main.rs"; \
+       done \
+    && tar -C /tmp/vk-manifests -cf /clone/vk-manifests.tar .
+
+
+FROM node:24-alpine AS vk-fe-builder
+
+WORKDIR /app
+
+ENV PNPM_HOME=/pnpm
+ENV PATH=${PNPM_HOME}:${PATH}
+ENV NODE_OPTIONS=--max-old-space-size=4096
+
+RUN corepack enable
+RUN pnpm config set store-dir /pnpm/store
+
+COPY --from=repo-cloner /clone/vibe-kanban/pnpm-lock.yaml /clone/vibe-kanban/pnpm-workspace.yaml /clone/vibe-kanban/package.json ./
+COPY --from=repo-cloner /clone/vibe-kanban/patches/ patches/
+COPY --from=repo-cloner /clone/vibe-kanban/packages/local-web/package.json packages/local-web/package.json
+COPY --from=repo-cloner /clone/vibe-kanban/packages/ui/package.json packages/ui/package.json
+COPY --from=repo-cloner /clone/vibe-kanban/packages/web-core/package.json packages/web-core/package.json
+
+RUN --mount=type=cache,id=vk-pnpm-store,target=/pnpm/store \
+    pnpm fetch --frozen-lockfile
+
+RUN --mount=type=cache,id=vk-pnpm-store,target=/pnpm/store \
+    pnpm install --offline --frozen-lockfile
+
+COPY --from=repo-cloner /clone/vibe-kanban/packages/local-web/ packages/local-web/
+COPY --from=repo-cloner /clone/vibe-kanban/packages/public/ packages/public/
+COPY --from=repo-cloner /clone/vibe-kanban/packages/ui/ packages/ui/
+COPY --from=repo-cloner /clone/vibe-kanban/packages/web-core/ packages/web-core/
+COPY --from=repo-cloner /clone/vibe-kanban/shared/ shared/
+
+RUN pnpm -C packages/local-web build
+
+
+FROM rust:1.93-slim-bookworm AS vk-rust-chef
+
+ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
+ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
+ENV CARGO_TARGET_DIR=/app/target
+ENV RUSTFLAGS=-Clink-arg=-fuse-ld=lld
+
+WORKDIR /app
+
+RUN set -eux; \
+    rm -rf /var/lib/apt/lists/*; \
+    apt-get clean; \
+    printf 'Acquire::http::Pipeline-Depth 0;\nAcquire::http::No-Cache true;\nAcquire::BrokenProxy true;\nAcquire::Retries 3;\n' > /etc/apt/apt.conf.d/99network-safe
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+    build-essential \
+    ca-certificates \
+    git \
+    libclang-dev \
+    lld \
+    libssl-dev \
+    pkg-config \
+    cmake \
+  && rm -rf /var/lib/apt/lists/*
+
+COPY --from=repo-cloner /clone/vibe-kanban/rust-toolchain.toml ./
+RUN cargo --version >/dev/null
+
+RUN --mount=type=cache,id=vk-cargo-registry,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=vk-cargo-git,target=/usr/local/cargo/git \
+    cargo install cargo-chef --locked
+
+
+FROM vk-rust-chef AS vk-rust-planner
+
+COPY --from=repo-cloner /clone/vk-manifests.tar /tmp/vk-manifests.tar
+RUN mkdir -p /app && tar -C /app -xf /tmp/vk-manifests.tar
+
+RUN cargo chef prepare --recipe-path recipe.json
+
+
+FROM vk-rust-chef AS vk-rust-cacher
+
+COPY --from=vk-rust-planner /app/recipe.json recipe.json
+
+RUN --mount=type=cache,id=vk-cargo-registry,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=vk-cargo-git,target=/usr/local/cargo/git \
+    --mount=type=cache,id=vk-workspace-target,target=/app/target \
+    cargo chef cook --release --recipe-path recipe.json
+
+
+FROM vk-rust-chef AS vk-builder
+
+COPY --from=repo-cloner /clone/vibe-kanban/Cargo.toml /clone/vibe-kanban/Cargo.lock ./
+COPY --from=repo-cloner /clone/vibe-kanban/crates/ crates/
+COPY --from=repo-cloner /clone/vibe-kanban/assets/ assets/
+COPY --from=vk-fe-builder /app/packages/local-web/dist packages/local-web/dist
+
+# Bring the dependency build artifacts from the cache stage into this stage.
+# The cache mount also persists artifacts across rebuilds on the same builder.
+COPY --from=vk-rust-cacher /app/target /app/target
+
+RUN --mount=type=cache,id=vk-cargo-registry,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=vk-cargo-git,target=/usr/local/cargo/git \
+    --mount=type=cache,id=vk-workspace-target,target=/app/target \
+    cargo build --locked --release --bin server \
+ && cp /app/target/release/server /usr/local/bin/vibe-kanban
+
 FROM node:22-bookworm
 
 # Harden APT against flaky proxy/cache behavior (helps prevent Hash Sum mismatch on macOS VM networking).
@@ -33,7 +166,6 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Go (required for building Caddy with xcaddy)
-# Using 1.25.7 to match go.mod requirement of 1.25.5
 RUN set -eux; \
     arch="$(dpkg --print-architecture)"; \
     case "$arch" in \
@@ -48,8 +180,11 @@ ENV PATH="/usr/local/go/bin:${PATH}"
 ENV VK_ALLOWED_ORIGINS=""
 
 # Install Rust and Cargo
+ENV CARGO_HOME=/usr/local/cargo
+ENV RUSTUP_HOME=/usr/local/rustup
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-ENV PATH="/root/.cargo/bin:${PATH}"
+ENV PATH="/usr/local/cargo/bin:/usr/local/go/bin:${PATH}"
+RUN cargo --version >/dev/null && rustc --version >/dev/null
 
 # Install uv for Python-based CLI tools
 RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_UNMANAGED_INSTALL="/usr/local/bin" sh
@@ -193,15 +328,10 @@ RUN su - vkuser -c "mkdir -p /home/vkuser/.local/share/code-server/extensions &&
 # Install Beads CLI
 RUN curl -fsSL https://raw.githubusercontent.com/gastownhall/beads/main/scripts/install.sh | bash
 
-# Pre-install vibe-kanban at build time (optional, speeds up first start)
-ARG VIBE_KANBAN_VERSION="latest"
-RUN npm install -g vibe-kanban@"$VIBE_KANBAN_VERSION"
-
 # Create supervisor config directory
 RUN mkdir -p /etc/supervisor/conf.d
 
-# Copy supervisord config
-COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+COPY supervisord.vkvd.conf /etc/supervisor/conf.d/supervisord.conf
 COPY ops/process-exporter.yml /etc/process-exporter/process-exporter.yml
 
 # Copy Caddyfile and startup page
@@ -228,14 +358,14 @@ RUN chown -R vkuser:vkuser /home/vkuser/.local/share/code-server
 # Configure git to use gh as credential helper (system-level, so users only need `gh auth login`)
 RUN git config --system credential.helper '!gh auth git-credential'
 
+COPY --from=vk-builder /usr/local/bin/vibe-kanban /usr/local/bin/vibe-kanban
+COPY --from=repo-cloner /clone/vk-build-version /usr/local/share/vibe-kanban-build-version
+
 RUN chown -R vkuser:vkuser /home/vkuser/.local
 
 EXPOSE 3001
 EXPOSE 3007
 EXPOSE 3008
 
-# Use entrypoint to fix docker group GID at runtime
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
-
-# default supervisord in foreground
 CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]

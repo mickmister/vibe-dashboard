@@ -1,11 +1,16 @@
 services:
   code-vibe:
-    build:
-      context: .
-      args:
-        VIBE_KANBAN_VERSION: ${VIBE_KANBAN_VERSION:-latest}
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile.vkvd
+    #   args:
+    #     VK_REPO_URL: ${VK_REPO_URL:-https://github.com/mickmister/vibe-kanban.git}
+    #     VK_BRANCH: ${VK_BRANCH:-vk/ed5f-vk-debug-memory}
+    image: ghcr.io/mickmister/vk-vd:${VKVD_IMAGE_VERSION:-latest}
 
     network_mode: host
+    mem_limit: ${DEV_CONTAINER_MEM_LIMIT:-14g}
+    mem_reservation: ${DEV_CONTAINER_MEM_RESERVATION:-12g}
 
     # Required for Tailscale
     cap_add:
@@ -15,15 +20,15 @@ services:
       - /dev/net/tun:/dev/net/tun
 
     environment:
-      VIBE_KANBAN_VERSION: ${VIBE_KANBAN_VERSION:-latest}
       CADDY_PORT: ${CADDY_PORT:-3001}
       BACKEND_PORT: ${BACKEND_PORT:-3007}
       DASHBOARD_PORT: ${DASHBOARD_PORT:-3005}
       CODE_PORT: ${CODE_PORT:-3008}
       XDG_CONFIG_HOME: /home/vkuser/.config
 
-      CODE_PASSWORD: ${CODE_PASSWORD:?Set CODE_PASSWORD}
+      CODE_PASSWORD: ${CODE_PASSWORD:-__unset__}
       SUDO_PASSWORD: ${SUDO_PASSWORD}
+      ENABLE_VIBE_KANBAN: ${ENABLE_VIBE_KANBAN:-true}
 
       # ENABLE_BOSUN: ${ENABLE_BOSUN:-false}
 
@@ -31,11 +36,24 @@ services:
       TAILSCALE_AUTHKEY: ${TAILSCALE_AUTHKEY:-}
       TAILSCALE_HOSTNAME: ${TAILSCALE_HOSTNAME:-vkdev}
 
+      MEMORY_WATCHDOG_ENABLED: ${MEMORY_WATCHDOG_ENABLED:-false}
+      MEMORY_WATCHDOG_MATTERMOST_WEBHOOK_URL: ${MEMORY_WATCHDOG_MATTERMOST_WEBHOOK_URL:-}
+      MEMORY_WATCHDOG_PROCESS_THRESHOLD_MB: ${MEMORY_WATCHDOG_PROCESS_THRESHOLD_MB:-4096}
+      MEMORY_WATCHDOG_TOTAL_THRESHOLD_PERCENT: ${MEMORY_WATCHDOG_TOTAL_THRESHOLD_PERCENT:-60}
+
       # VK Cloud connection (optional - if set, local VK connects to this cloud instance)
       # Uses VK_SHARED_API_BASE (PR #2769) for runtime API URL configuration
       VK_SHARED_API_BASE: ${VK_SHARED_API_BASE:-}
       # Optional CORS allowlist for vibe-kanban backend
       VK_ALLOWED_ORIGINS: ${VK_ALLOWED_ORIGINS:-}
+      # Startup diagnostics / startup-component bisect flags
+      VK_DISABLE_EXECUTOR_PRELOAD: ${VK_DISABLE_EXECUTOR_PRELOAD:-false}
+      VK_DISABLE_RELAY_STARTUP: ${VK_DISABLE_RELAY_STARTUP:-false}
+      VK_DISABLE_STARTUP_BACKFILLS: ${VK_DISABLE_STARTUP_BACKFILLS:-false}
+      VK_DISABLE_BACKFILL_BEFORE_HEAD_COMMITS: ${VK_DISABLE_BACKFILL_BEFORE_HEAD_COMMITS:-false}
+      VK_DISABLE_BACKFILL_REPO_NAMES: ${VK_DISABLE_BACKFILL_REPO_NAMES:-false}
+      VK_STARTUP_DIAGNOSTICS_INTERVAL_MS: ${VK_STARTUP_DIAGNOSTICS_INTERVAL_MS:-}
+      VK_STARTUP_DIAGNOSTICS_DURATION_SECONDS: ${VK_STARTUP_DIAGNOSTICS_DURATION_SECONDS:-}
 
     volumes:
       # Mount Docker socket for Docker-in-Docker support
@@ -66,6 +84,23 @@ services:
       # Persist Bosun config (workspaces, .env, bosun.config.json)
       - bosun-data:/home/vkuser/bosun
 
+  prometheus:
+    image: prom/prometheus:v3.4.0
+    network_mode: host
+    user: "0:0"
+    mem_limit: ${PROMETHEUS_MEM_LIMIT:-1g}
+    mem_reservation: ${PROMETHEUS_MEM_RESERVATION:-256m}
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+      - --storage.tsdb.retention.size=2GB
+      - --web.listen-address=127.0.0.1:9091
+    volumes:
+      - ./ops/prometheus:/etc/prometheus:ro
+      - prometheus-data:/prometheus
+    restart: unless-stopped
+
 volumes:
   vibe-kanban-repos:
   vibe-kanban-data:
@@ -79,3 +114,4 @@ volumes:
   pnpm-store:
   tailscale-state:
   bosun-data:
+  prometheus-data:
