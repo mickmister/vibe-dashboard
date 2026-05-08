@@ -95,7 +95,7 @@ services:
       - --storage.tsdb.path=/prometheus
       - --storage.tsdb.retention.time=7d
       - --storage.tsdb.retention.size=2GB
-      - --web.listen-address=127.0.0.1:9091
+      - --web.listen-address=${PROMETHEUS_WEB_LISTEN_ADDRESS:-127.0.0.1:9091}
     volumes:
       - ./ops/prometheus:/etc/prometheus:ro
       - prometheus-data:/prometheus
