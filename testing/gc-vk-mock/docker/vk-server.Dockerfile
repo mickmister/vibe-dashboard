@@ -22,6 +22,7 @@ RUN npm install -g opencode-ai@1.2.27
 
 WORKDIR /app/Vktest
 COPY Vktest/ /app/Vktest/
+COPY vibe-kanban-vscode-web/testing/gc-vk-mock/config/opencode.json /etc/opencode/opencode.json
 
 RUN cargo build --locked --release --bin server
 

@@ -3,14 +3,22 @@ services:
     image: alpine/git:2.49.1
     volumes:
       - gascity-main:/repo
-      - ../../:/workspace/vd:ro
-    entrypoint: ["/bin/sh", "/workspace/vd/testing/gc-vk-mock/scripts/clone-gascity-main.sh"]
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        if [ ! -d /repo/.git ]; then
+          git clone --depth 1 --branch main https://github.com/gastownhall/gascity.git /repo
+        else
+          git -C /repo fetch --depth 1 origin main
+          git -C /repo reset --hard origin/main
+          git -C /repo clean -fdx
+        fi
 
   aimock:
-    image: ghcr.io/copilotkit/aimock:latest
-    volumes:
-      - ./fixtures:/fixtures:ro
-    command: ["npx", "aimock", "--config", "/fixtures/aimock.json", "--port", "4010"]
+    build:
+      context: ../../..
+      dockerfile: vibe-kanban-vscode-web/testing/gc-vk-mock/docker/aimock.Dockerfile
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:4010/v1/models"]
       interval: 5s
@@ -37,7 +45,6 @@ services:
       OPENCODE_CONFIG_DIR: /etc/opencode
     volumes:
       - gascity-main:/repos/gascity
-      - ./config/opencode.json:/etc/opencode/opencode.json:ro
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:4020/health"]
       interval: 5s
@@ -72,7 +79,6 @@ services:
     volumes:
       - gascity-main:/opt/gascity
       - gascity-main:/repos/gascity
-      - ../../:/workspace/vd:ro
     working_dir: /workspace/vd
     entrypoint: ["/bin/bash", "/workspace/vd/testing/gc-vk-mock/scripts/smoke.sh"]
 
