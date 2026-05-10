@@ -30,6 +30,18 @@ Caddy forwards `port-<port>.*` subdomains to `localhost:<port>` inside the conta
 
 - `http://port-12345.localhost:${CADDY_PORT:-3001}/`
 
+## RunPod
+
+RunPod Pods do not support Docker Compose directly, so the RunPod variant uses a single container image plus `supervisord`. It also symlinks mutable state into `/workspace`, because RunPod preserves pod volume or network-volume data there across stops/restarts while container-disk data is wiped.
+
+Use `Dockerfile.runpod` for this deployment target:
+
+```bash
+docker build -f Dockerfile.runpod -t vk-vd-runpod .
+```
+
+Then set the pod start command to the image default (or explicitly run `/usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf`) and expose port `3001/http`.
+
 ## Configuration
 
 Environment variables are split across:
