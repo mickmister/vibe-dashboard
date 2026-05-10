@@ -22,6 +22,12 @@ permissions:
   packages: write
   id-token: write
 
+env:
+  VK_VD_IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/vk-vd
+  VK_VD_RUNPOD_IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/vk-vd-runpod
+  VK_VD_IMAGE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.image_tag || format('pr-{0}', github.event.pull_request.number) }}
+  VK_VD_SHA_TAG: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+
 jobs:
   resolve-vk-ref:
     runs-on: ubuntu-latest
@@ -74,13 +80,42 @@ jobs:
         VK_REPO_URL=${{ needs.resolve-vk-ref.outputs.vk_repo_url }}
       cache: true
       cache-scope: vk-vd-multiarch
-      meta-images: ghcr.io/${{ github.repository_owner }}/vk-vd
+      meta-images: ${{ env.VK_VD_IMAGE_NAME }}
       meta-tags: |
-        type=raw,value=${{ github.event_name == 'workflow_dispatch' && inputs.image_tag || format('pr-{0}', github.event.pull_request.number) }}
-        type=raw,value=${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        type=raw,value=${{ env.VK_VD_IMAGE_TAG }}
+        type=raw,value=${{ env.VK_VD_SHA_TAG }}
         type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' }}
     secrets:
       registry-auths: |
         - registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-runpod:
+    needs: [resolve-vk-ref, publish]
+    uses: docker/github-builder/.github/workflows/build.yml@v1
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    with:
+      output: image
+      push: true
+      context: .
+      file: ./Dockerfile.runpod
+      platforms: linux/amd64,linux/arm64
+      build-args: |
+        BASE_IMAGE=${{ env.VK_VD_IMAGE_NAME }}:${{ env.VK_VD_IMAGE_TAG }}
+      cache: true
+      cache-scope: vk-vd-runpod-multiarch
+      meta-images: ${{ env.VK_VD_RUNPOD_IMAGE_NAME }}
+      meta-tags: |
+        type=raw,value=${{ env.VK_VD_IMAGE_TAG }}
+        type=raw,value=${{ env.VK_VD_SHA_TAG }}
+        type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' }}
+    secrets:
+      registry-auths: |
+        - registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
