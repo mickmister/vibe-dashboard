@@ -105,7 +105,7 @@ jobs:
       file: ./Dockerfile.runpod
       platforms: linux/amd64,linux/arm64
       build-args: |
-        BASE_IMAGE=${{ env.VK_VD_IMAGE_NAME }}:${{ env.VK_VD_IMAGE_TAG }}
+        BASE_IMAGE=${{ env.VK_VD_IMAGE_NAME }}:${{ env.VK_VD_SHA_TAG }}
       cache: true
       cache-scope: vk-vd-runpod-multiarch
       meta-images: ${{ env.VK_VD_RUNPOD_IMAGE_NAME }}
@@ -118,4 +118,3 @@ jobs:
         - registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-

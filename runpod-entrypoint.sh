@@ -6,14 +6,12 @@ PERSIST_HOME="$PERSIST_ROOT/home/vkuser"
 PERSIST_REPOS="$PERSIST_ROOT/repos"
 PERSIST_WORKTREES="$PERSIST_ROOT/worktrees"
 PERSIST_TAILSCALE="$PERSIST_ROOT/var/lib/tailscale"
-PERSIST_RUN="$PERSIST_ROOT/var/run"
 
 mkdir -p \
   "$PERSIST_HOME" \
   "$PERSIST_REPOS" \
   "$PERSIST_WORKTREES" \
-  "$PERSIST_TAILSCALE" \
-  "$PERSIST_RUN/tailscale"
+  "$PERSIST_TAILSCALE"
 
 ensure_symlink_dir() {
   local target="$1"
@@ -59,6 +57,27 @@ ensure_symlink_file() {
   ln -sfn "$persisted" "$target"
 }
 
+ensure_owned_path() {
+  local target="$1"
+  local recurse="${2:-false}"
+
+  if [ ! -e "$target" ] && [ ! -L "$target" ]; then
+    return
+  fi
+
+  local owner
+  owner="$(stat -c '%u:%g' "$target" 2>/dev/null || true)"
+  if [ "$owner" = "1000:1000" ]; then
+    return
+  fi
+
+  if [ "$recurse" = "true" ]; then
+    chown -R vkuser:vkuser "$target"
+  else
+    chown vkuser:vkuser "$target"
+  fi
+}
+
 # Persist all mutable vkuser state into /workspace.
 ensure_symlink_dir /home/vkuser/repos "$PERSIST_REPOS"
 ensure_symlink_dir /home/vkuser/.local/share/vibe-kanban "$PERSIST_HOME/.local/share/vibe-kanban"
@@ -76,12 +95,44 @@ ensure_symlink_dir /home/vkuser/.local/share/pnpm "$PERSIST_HOME/.local/share/pn
 ensure_symlink_dir /home/vkuser/bosun "$PERSIST_HOME/bosun"
 ensure_symlink_dir /var/tmp/vibe-kanban/worktrees "$PERSIST_WORKTREES"
 ensure_symlink_dir /var/lib/tailscale "$PERSIST_TAILSCALE"
-ensure_symlink_dir /var/run/tailscale "$PERSIST_RUN/tailscale"
 ensure_symlink_file /home/vkuser/.claude.json "$PERSIST_HOME/.claude.json"
 ensure_symlink_file /home/vkuser/.gitconfig "$PERSIST_HOME/.gitconfig"
 ensure_symlink_file /home/vkuser/.npmrc "$PERSIST_HOME/.npmrc"
 
-chown -R vkuser:vkuser "$PERSIST_ROOT" /home/vkuser /var/tmp/vibe-kanban || true
+rm -rf /var/run/tailscale
+mkdir -p /var/run/tailscale
+
+for persistent_path in \
+  "$PERSIST_ROOT" \
+  "$PERSIST_REPOS" \
+  "$PERSIST_WORKTREES" \
+  "$PERSIST_TAILSCALE" \
+  "$PERSIST_HOME/.local/share/vibe-kanban" \
+  "$PERSIST_HOME/.local/share/code-server" \
+  "$PERSIST_HOME/.config/code-server" \
+  "$PERSIST_HOME/.config/gh" \
+  "$PERSIST_HOME/.config/git" \
+  "$PERSIST_HOME/.codex" \
+  "$PERSIST_HOME/.claude" \
+  "$PERSIST_HOME/.openclaw" \
+  "$PERSIST_HOME/.ssh" \
+  "$PERSIST_HOME/.npm" \
+  "$PERSIST_HOME/.cache" \
+  "$PERSIST_HOME/.local/share/pnpm" \
+  "$PERSIST_HOME/bosun"; do
+  ensure_owned_path "$persistent_path" true
+done
+
+for persistent_file in \
+  "$PERSIST_HOME/.claude.json" \
+  "$PERSIST_HOME/.gitconfig" \
+  "$PERSIST_HOME/.npmrc"; do
+  ensure_owned_path "$persistent_file"
+done
+
+ensure_owned_path /home/vkuser true
+ensure_owned_path /var/tmp/vibe-kanban true
+ensure_owned_path /var/run/tailscale true
 chmod 755 /var/lib/tailscale /var/run/tailscale || true
 
 # Fix docker group GID to match the mounted socket when a docker sock is provided.
