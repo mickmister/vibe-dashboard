@@ -1,7 +1,9 @@
 name: Publish VK/VD Image to GHCR
 
 on:
-  pull_request:
+  push:
+    branches:
+      - '**'
   workflow_dispatch:
     inputs:
       image_tag:
@@ -25,8 +27,8 @@ permissions:
 env:
   VK_VD_IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/vk-vd
   VK_VD_RUNPOD_IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/vk-vd-runpod
-  VK_VD_IMAGE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.image_tag || format('pr-{0}', github.event.pull_request.number) }}
-  VK_VD_SHA_TAG: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+  VK_VD_IMAGE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.image_tag || github.sha }}
+  VK_VD_SHA_TAG: ${{ github.sha }}
 
 jobs:
   resolve-vk-ref:
