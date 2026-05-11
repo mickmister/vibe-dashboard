@@ -76,38 +76,8 @@ jobs:
             echo "vk_repo_url=$VK_REPO_URL_INPUT"
           } >> "$GITHUB_OUTPUT"
 
-  publish:
-    needs: resolve-vk-ref
-    uses: docker/github-builder/.github/workflows/build.yml@v1
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
-    with:
-      output: image
-      push: true
-      context: .
-      file: ./Dockerfile.vkvd
-      platforms: linux/amd64,linux/arm64
-      build-args: |
-        VK_BRANCH=${{ needs.resolve-vk-ref.outputs.vk_branch }}
-        VK_COMMIT=${{ needs.resolve-vk-ref.outputs.vk_commit }}
-        VK_REPO_URL=${{ needs.resolve-vk-ref.outputs.vk_repo_url }}
-      cache: true
-      cache-scope: vk-vd-multiarch
-      meta-images: ${{ needs.compute-image-vars.outputs.vk_vd_image_name }}
-      meta-tags: |
-        type=raw,value=${{ needs.compute-image-vars.outputs.vk_vd_image_tag }}
-        type=raw,value=${{ needs.compute-image-vars.outputs.vk_vd_sha_tag }}
-        type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' }}
-    secrets:
-      registry-auths: |
-        - registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
   publish-runpod:
-    needs: [compute-image-vars, resolve-vk-ref, publish]
+    needs: [compute-image-vars, resolve-vk-ref]
     uses: docker/github-builder/.github/workflows/build.yml@v1
     permissions:
       contents: read
@@ -120,7 +90,7 @@ jobs:
       file: ./Dockerfile.runpod
       platforms: linux/amd64,linux/arm64
       build-args: |
-        BASE_IMAGE=${{ needs.compute-image-vars.outputs.vk_vd_image_name }}:${{ needs.compute-image-vars.outputs.vk_vd_sha_tag }}
+        BASE_IMAGE=${{ needs.compute-image-vars.outputs.vk_vd_image_name }}:latest
       cache: true
       cache-scope: vk-vd-runpod-multiarch
       meta-images: ${{ needs.compute-image-vars.outputs.vk_vd_runpod_image_name }}
