@@ -1,0 +1,4 @@
+onlyBuiltDependencies:
+  - '@heroui/shared-utils'
+  - better-sqlite3
+  - esbuild
