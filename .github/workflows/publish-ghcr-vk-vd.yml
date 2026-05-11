@@ -24,14 +24,27 @@ permissions:
   packages: write
   id-token: write
 
-env:
-  VK_VD_IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/vk-vd
-  VK_VD_RUNPOD_IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/vk-vd-runpod
-  VK_VD_IMAGE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.image_tag || github.sha }}
-  VK_VD_SHA_TAG: ${{ github.sha }}
-
 jobs:
+  compute-image-vars:
+    runs-on: ubuntu-latest
+    outputs:
+      vk_vd_image_name: ${{ steps.compute.outputs.vk_vd_image_name }}
+      vk_vd_runpod_image_name: ${{ steps.compute.outputs.vk_vd_runpod_image_name }}
+      vk_vd_image_tag: ${{ steps.compute.outputs.vk_vd_image_tag }}
+      vk_vd_sha_tag: ${{ steps.compute.outputs.vk_vd_sha_tag }}
+    steps:
+      - name: Compute image metadata
+        id: compute
+        run: |
+          {
+            echo "vk_vd_image_name=ghcr.io/${{ github.repository_owner }}/vk-vd"
+            echo "vk_vd_runpod_image_name=ghcr.io/${{ github.repository_owner }}/vk-vd-runpod"
+            echo "vk_vd_image_tag=${{ github.event_name == 'workflow_dispatch' && inputs.image_tag || github.sha }}"
+            echo "vk_vd_sha_tag=${{ github.sha }}"
+          } >> "$GITHUB_OUTPUT"
+
   resolve-vk-ref:
+    needs: compute-image-vars
     runs-on: ubuntu-latest
     outputs:
       vk_branch: ${{ steps.resolve.outputs.vk_branch }}
@@ -82,10 +95,10 @@ jobs:
         VK_REPO_URL=${{ needs.resolve-vk-ref.outputs.vk_repo_url }}
       cache: true
       cache-scope: vk-vd-multiarch
-      meta-images: ${{ env.VK_VD_IMAGE_NAME }}
+      meta-images: ${{ needs.compute-image-vars.outputs.vk_vd_image_name }}
       meta-tags: |
-        type=raw,value=${{ env.VK_VD_IMAGE_TAG }}
-        type=raw,value=${{ env.VK_VD_SHA_TAG }}
+        type=raw,value=${{ needs.compute-image-vars.outputs.vk_vd_image_tag }}
+        type=raw,value=${{ needs.compute-image-vars.outputs.vk_vd_sha_tag }}
         type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' }}
     secrets:
       registry-auths: |
@@ -94,7 +107,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
   publish-runpod:
-    needs: [resolve-vk-ref, publish]
+    needs: [compute-image-vars, resolve-vk-ref, publish]
     uses: docker/github-builder/.github/workflows/build.yml@v1
     permissions:
       contents: read
@@ -107,13 +120,13 @@ jobs:
       file: ./Dockerfile.runpod
       platforms: linux/amd64,linux/arm64
       build-args: |
-        BASE_IMAGE=${{ env.VK_VD_IMAGE_NAME }}:${{ env.VK_VD_SHA_TAG }}
+        BASE_IMAGE=${{ needs.compute-image-vars.outputs.vk_vd_image_name }}:${{ needs.compute-image-vars.outputs.vk_vd_sha_tag }}
       cache: true
       cache-scope: vk-vd-runpod-multiarch
-      meta-images: ${{ env.VK_VD_RUNPOD_IMAGE_NAME }}
+      meta-images: ${{ needs.compute-image-vars.outputs.vk_vd_runpod_image_name }}
       meta-tags: |
-        type=raw,value=${{ env.VK_VD_IMAGE_TAG }}
-        type=raw,value=${{ env.VK_VD_SHA_TAG }}
+        type=raw,value=${{ needs.compute-image-vars.outputs.vk_vd_image_tag }}
+        type=raw,value=${{ needs.compute-image-vars.outputs.vk_vd_sha_tag }}
         type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' }}
     secrets:
       registry-auths: |
