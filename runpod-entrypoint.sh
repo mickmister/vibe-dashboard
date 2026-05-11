@@ -1,7 +1,20 @@
 #!/bin/bash
 set -euo pipefail
 
-PERSIST_ROOT="${RUNPOD_PERSIST_ROOT:-/workspace/vibe-kanban-vscode-web}"
+DEFAULT_PERSIST_ROOT="/workspace/vibe-dev"
+LEGACY_PERSIST_ROOT="/workspace/vibe-kanban-vscode-web"
+PERSIST_ROOT="${RUNPOD_PERSIST_ROOT:-$DEFAULT_PERSIST_ROOT}"
+
+# Existing RunPod volumes from earlier images may already have state under the
+# old repo-named root. If the caller did not explicitly choose a custom root,
+# keep using that legacy root rather than appearing to "lose" persisted data.
+if [ "$PERSIST_ROOT" = "$DEFAULT_PERSIST_ROOT" ] && [ -d "$LEGACY_PERSIST_ROOT" ]; then
+  if [ ! -e "$PERSIST_ROOT" ] || [ -z "$(find "$PERSIST_ROOT" -mindepth 1 -maxdepth 1 2>/dev/null)" ]; then
+    echo "Using legacy RunPod persist root: $LEGACY_PERSIST_ROOT"
+    PERSIST_ROOT="$LEGACY_PERSIST_ROOT"
+  fi
+fi
+
 PERSIST_HOME="$PERSIST_ROOT/home/vkuser"
 PERSIST_REPOS="$PERSIST_ROOT/repos"
 PERSIST_WORKTREES="$PERSIST_ROOT/worktrees"

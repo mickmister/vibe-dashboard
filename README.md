@@ -34,6 +34,8 @@ Caddy forwards `port-<port>.*` subdomains to `localhost:<port>` inside the conta
 
 RunPod Pods do not support Docker Compose directly, so the RunPod variant uses a single container image plus `supervisord`. It also symlinks mutable state into `/workspace`, because RunPod preserves pod volume or network-volume data there across stops/restarts while container-disk data is wiped.
 
+By default, persisted state is namespaced under `/workspace/vibe-dev` via `RUNPOD_PERSIST_ROOT`. Existing volumes created by earlier images under `/workspace/vibe-kanban-vscode-web` are still detected and reused when no custom `RUNPOD_PERSIST_ROOT` is provided.
+
 Use `Dockerfile.runpod` for this deployment target:
 
 ```bash
