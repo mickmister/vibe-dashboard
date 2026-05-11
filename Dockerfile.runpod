@@ -23,6 +23,12 @@ ENV RUNPOD_PERSIST_ROOT=/workspace/vibe-kanban-vscode-web \
     BACKEND_PORT=3007 \
     DASHBOARD_PORT=3005 \
     CODE_PORT=3008 \
+    CODE_PASSWORD=__unset__ \
+    ENABLE_VIBE_KANBAN=true \
+    VK_SHARED_API_BASE= \
+    VK_ALLOWED_ORIGINS= \
+    MEMORY_WATCHDOG_ENABLED=false \
+    MEMORY_WATCHDOG_MATTERMOST_WEBHOOK_URL= \
     ENABLE_TAILSCALE=false
 
 COPY runpod-entrypoint.sh /usr/local/bin/runpod-entrypoint.sh
