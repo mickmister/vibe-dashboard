@@ -1,9 +1,7 @@
 name: Publish VK/VD Image to GHCR
 
 on:
-  push:
-    branches:
-      - '**'
+  pull_request:
   workflow_dispatch:
     inputs:
       image_tag:
