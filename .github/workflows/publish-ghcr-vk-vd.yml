@@ -90,13 +90,13 @@ jobs:
       file: ./Dockerfile.runpod
       platforms: linux/amd64,linux/arm64
       build-args: |
-        BASE_IMAGE=${{ needs.compute-image-vars.outputs.vk_vd_image_name }}:latest
+        BASE_IMAGE=${{ needs['compute-image-vars'].outputs.vk_vd_image_name }}:latest
       cache: true
       cache-scope: vk-vd-runpod-multiarch
-      meta-images: ${{ needs.compute-image-vars.outputs.vk_vd_runpod_image_name }}
+      meta-images: ${{ needs['compute-image-vars'].outputs.vk_vd_runpod_image_name }}
       meta-tags: |
-        type=raw,value=${{ needs.compute-image-vars.outputs.vk_vd_image_tag }}
-        type=raw,value=${{ needs.compute-image-vars.outputs.vk_vd_sha_tag }}
+        type=raw,value=${{ needs['compute-image-vars'].outputs.vk_vd_image_tag }}
+        type=raw,value=${{ needs['compute-image-vars'].outputs.vk_vd_sha_tag }}
         type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' }}
     secrets:
       registry-auths: |
