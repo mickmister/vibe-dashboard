@@ -44,6 +44,27 @@ docker build -f Dockerfile.runpod -t vk-vd-runpod .
 
 Then set the pod start command to the image default (or explicitly run `/usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf`) and expose port `3001/http`.
 
+### Optional Cloudflare Tunnel
+
+The image can start `cloudflared` under `supervisord` when a tunnel token is provided. This is useful for RunPod, where `cloudflared` can maintain an outbound tunnel and Cloudflare Tunnel public hostnames can point at Caddy inside the container.
+
+Set these pod environment variables:
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `ENABLE_CLOUDFLARED` | `false` | Enables Cloudflare Tunnel startup. |
+| `CLOUDFLARED_TUNNEL_TOKEN` | empty | Required when `ENABLE_CLOUDFLARED=true`; use the token from a remotely managed Cloudflare Tunnel. |
+| `CLOUDFLARED_PROTOCOL` | `quic` | Optional cloudflared protocol override. |
+
+Configure the Cloudflare Tunnel public hostnames to route to `http://localhost:3001`. For the current Caddy routing, use one hostname for the workspace and a wildcard for port forwarding, for example:
+
+```text
+myworkspace-123.example.com       -> http://localhost:3001
+*.myworkspace-123.example.com     -> http://localhost:3001
+```
+
+Then Caddy can route `port-3000.myworkspace-123.example.com` to the process listening on port `3000`.
+
 ## Configuration
 
 Environment variables are split across:
@@ -87,6 +108,9 @@ Environment variables are split across:
 | `ENABLE_TAILSCALE` | `false` | Enables Tailscale startup. |
 | `TAILSCALE_AUTHKEY` | empty | Tailscale auth key. |
 | `TAILSCALE_HOSTNAME` | `vkdev` | Tailscale node hostname. |
+| `ENABLE_CLOUDFLARED` | `false` | Enables Cloudflare Tunnel startup. |
+| `CLOUDFLARED_TUNNEL_TOKEN` | empty | Required when Cloudflare Tunnel startup is enabled. |
+| `CLOUDFLARED_PROTOCOL` | `quic` | Optional cloudflared protocol override. |
 | `MEMORY_WATCHDOG_ENABLED` | `false` | Enables the supervisor-managed memory watchdog. |
 | `MEMORY_WATCHDOG_MATTERMOST_WEBHOOK_URL` | empty | Mattermost incoming webhook URL used for notifications. |
 | `MEMORY_WATCHDOG_PROCESS_THRESHOLD_MB` | `4096` | Per-process RSS threshold in MiB. |

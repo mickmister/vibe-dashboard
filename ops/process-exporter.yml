@@ -141,6 +141,10 @@ process_names:
     exe:
       - tailscaled
 
+  - name: "cloudflared"
+    exe:
+      - cloudflared
+
   - name: "inotifywait"
     exe:
       - inotifywait
