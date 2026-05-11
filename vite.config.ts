@@ -50,7 +50,13 @@ export default defineConfig({
   },
   server: {
     port: devPort,
-    host: true
+    host: true,
+    proxy: {
+      '/internal/inactivity': {
+        target: `http://127.0.0.1:${process.env.INACTIVITY_PORT || '3011'}`,
+        changeOrigin: false,
+      },
+    },
   },
   test: {
     projects: [{

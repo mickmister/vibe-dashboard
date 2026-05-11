@@ -4,6 +4,16 @@
 }
 
 :3030 {
+	@inactivity_internal {
+		path /internal/inactivity/*
+		path /internal/inactivity
+	}
+
+	handle @inactivity_internal {
+		reverse_proxy localhost:{$INACTIVITY_PORT:3011} {
+			header_up Host {upstream_hostport}
+		}
+	}
 	
 	# Vibe Dashboard app
 	@vibe_dashboard_root {

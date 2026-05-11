@@ -4,6 +4,7 @@ import type { TabGroup, Tab } from '../types';
 import type { WorkspaceState } from '../types';
 import { AppLoadingScreen } from './AppLoadingScreen';
 import { SpacesOverview } from './SpacesOverview';
+import { recordUserActivity } from '../lib/inactivity-client';
 
 const INTERNAL_URL_PREFIX = 'internal://';
 
@@ -28,6 +29,7 @@ type IframeEntry = {
   contentReady: boolean;
   loadError: boolean;
   listeners: Set<() => void>;
+  detachActivityListeners: (() => void) | null;
 };
 
 type TabRenderTarget =
@@ -127,11 +129,14 @@ function getOrCreateIframe(tab: Tab): IframeEntry {
     contentReady: target.kind !== 'iframe',
     loadError: false,
     listeners: new Set(),
+    detachActivityListeners: null,
   };
 
   iframe.addEventListener('load', () => {
     entry.loaded = true;
     entry.listeners.forEach((fn) => fn());
+
+    attachIframeActivityListeners(tab.id, iframe, entry);
 
     // Start checking if content is ready (not showing white screen)
     checkContentReady(iframe, entry);
@@ -224,10 +229,93 @@ function checkContentReady(iframe: HTMLIFrameElement, entry: IframeEntry) {
 function removeIframe(tabId: string) {
   const entry = iframeStore.get(tabId);
   if (entry) {
+    entry.detachActivityListeners?.();
+    entry.detachActivityListeners = null;
     entry.container.remove();
     entry.listeners.clear();
     iframeStore.delete(tabId);
   }
+}
+
+function attachIframeActivityListeners(
+  tabId: string,
+  iframe: HTMLIFrameElement,
+  entry: IframeEntry,
+) {
+  entry.detachActivityListeners?.();
+  entry.detachActivityListeners = null;
+
+  const cleanups: Array<() => void> = [];
+
+  const focusListener = () => {
+    void recordUserActivity('iframe_focus', 'iframe', {
+      force: true,
+      iframeTabId: tabId,
+      href: iframe.src || window.location.href,
+    });
+  };
+
+  iframe.addEventListener('focus', focusListener);
+  cleanups.push(() => iframe.removeEventListener('focus', focusListener));
+
+  try {
+    const iframeWindow = iframe.contentWindow;
+    const iframeDocument = iframe.contentDocument;
+
+    if (!iframeWindow || !iframeDocument) {
+      entry.detachActivityListeners = () => {
+        cleanups.forEach((cleanup) => cleanup());
+      };
+      return;
+    }
+
+    const handlePointerDown = () => {
+      void recordUserActivity('iframe_pointer_down', 'iframe', {
+        iframeTabId: tabId,
+        href: iframeWindow.location.href,
+      });
+    };
+    const handleKeyDown = () => {
+      void recordUserActivity('iframe_key_down', 'iframe', {
+        iframeTabId: tabId,
+        href: iframeWindow.location.href,
+      });
+    };
+    const handleFocus = () => {
+      void recordUserActivity('iframe_focus', 'iframe', {
+        force: true,
+        iframeTabId: tabId,
+        href: iframeWindow.location.href,
+      });
+    };
+
+    iframeWindow.addEventListener('focus', handleFocus);
+    iframeDocument.addEventListener('pointerdown', handlePointerDown, {
+      capture: true,
+      passive: true,
+    });
+    iframeWindow.addEventListener('keydown', handleKeyDown, {
+      capture: true,
+    });
+
+    cleanups.push(() => iframeWindow.removeEventListener('focus', handleFocus));
+    cleanups.push(() =>
+      iframeDocument.removeEventListener('pointerdown', handlePointerDown, {
+        capture: true,
+      }),
+    );
+    cleanups.push(() =>
+      iframeWindow.removeEventListener('keydown', handleKeyDown, {
+        capture: true,
+      }),
+    );
+  } catch {
+    // Cross-origin iframe; we can only rely on focus on the iframe element.
+  }
+
+  entry.detachActivityListeners = () => {
+    cleanups.forEach((cleanup) => cleanup());
+  };
 }
 
 function useImperativeIframes(tabs: Tab[]) {

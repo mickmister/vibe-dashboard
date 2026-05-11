@@ -3,6 +3,7 @@ import { AddressBar } from './AddressBar';
 import { IframePanel } from './IframePanel';
 import type { TabGroup, WorkspaceState } from '../types';
 import type { WorkspaceActions, SessionActions } from './WorkspaceShell';
+import { recordUserActivity } from '../lib/inactivity-client';
 
 interface UnifiedTabViewProps {
   tabGroups: TabGroup[];
@@ -57,6 +58,14 @@ export function UnifiedTabView({
               sessionActions.setActiveTabGroup(tabGroupId);
             }}
             onOpenVKWorkspace={async (taskAttemptId, name, containerRef, spaceId) => {
+              void recordUserActivity(
+                'navigation_open_workspace',
+                'navigation',
+                {
+                  force: true,
+                  spaceId,
+                },
+              );
               const result = await actions.addVKWorkspace({
                 taskAttemptId,
                 name,

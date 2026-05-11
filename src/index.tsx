@@ -8,12 +8,17 @@ import { HeroUIProvider } from '@heroui/react';
 import { AppLoadingScreen } from './components/AppLoadingScreen';
 import { WorkspaceShell } from './components/WorkspaceShell';
 import { useSessionWorkspaceNav } from './sessionState';
+import { recordUserActivity } from './lib/inactivity-client';
 
 // Ensure dark class is on the document root so portaled elements (modals, popovers)
 // inherit dark mode styles
 document.documentElement.classList.add('dark');
 springboard.registerSplashScreen(AppLoadingScreen);
 
+// @platform end
+
+// @platform "node"
+import './server/inactivity-service';
 // @platform end
 
 import springboard from 'springboard';
@@ -656,10 +661,36 @@ springboard.registerModule(
       };
 
       const sessionActions = {
-        selectSpace: sessionNav.selectSpace,
-        selectTab: sessionNav.selectTab,
-        selectPair: sessionNav.selectPair,
-        setActiveTabGroup: sessionNav.setActiveTabGroup,
+        selectSpace: (spaceId: string) => {
+          void recordUserActivity('navigation_select_space', 'navigation', {
+            force: true,
+            spaceId,
+          });
+          sessionNav.selectSpace(spaceId);
+        },
+        selectTab: (tabGroupId: string, tabId: string) => {
+          void recordUserActivity('navigation_select_tab', 'navigation', {
+            force: true,
+            tabGroupId,
+            itemId: tabId,
+          });
+          sessionNav.selectTab(tabGroupId, tabId);
+        },
+        selectPair: (tabGroupId: string, pairId: string) => {
+          void recordUserActivity('navigation_select_pair', 'navigation', {
+            force: true,
+            tabGroupId,
+            itemId: pairId,
+          });
+          sessionNav.selectPair(tabGroupId, pairId);
+        },
+        setActiveTabGroup: (tabGroupId: string) => {
+          void recordUserActivity('navigation_set_tab_group', 'navigation', {
+            force: true,
+            tabGroupId,
+          });
+          sessionNav.setActiveTabGroup(tabGroupId);
+        },
         getActiveItem: sessionNav.getActiveItem,
       };
 

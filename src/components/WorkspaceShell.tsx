@@ -8,6 +8,7 @@ import {
 } from './dialogs/AddVKWorkspaceModal';
 import type { WorkspaceState, TabGroup } from '../types';
 import type { SessionWorkspaceNav } from '../sessionState';
+import { useInactivityActivity } from '../hooks/useInactivityActivity';
 
 export type WorkspaceActions = {
   addSpace: (args: {
@@ -88,6 +89,8 @@ export function WorkspaceShell({
   actions,
   sessionActions,
 }: WorkspaceShellProps) {
+  useInactivityActivity();
+
   const [addTabModalOpen, setAddTabModalOpen] = useState(false);
   const [workspaceSearchOpen, setWorkspaceSearchOpen] = useState(false);
   const [addTabTargetGroupId, setAddTabTargetGroupId] = useState<string>('');
