@@ -1,3 +1,7 @@
+allowBuilds:
+  '@heroui/shared-utils': true
+  better-sqlite3: true
+  esbuild: true
 onlyBuiltDependencies:
   - '@heroui/shared-utils'
   - better-sqlite3
