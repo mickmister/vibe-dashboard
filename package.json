@@ -6,8 +6,11 @@
     "dev": "vite",
     "start": "node dist/node/node-entry.mjs",
     "build": "npm run build:web && npm run build:node",
-    "build:web": "SPRINGBOARD_PLATFORM=web vite build",
-    "build:node": "SPRINGBOARD_PLATFORM=node vite build --outDir dist/node",
+    "build:web": "SPRINGBOARD_VITE_TARGET=main-browser vite build",
+    "build:node": "SPRINGBOARD_VITE_TARGET=main-node vite build",
+    "build:mobile:web": "SPRINGBOARD_VITE_TARGET=mobile-browser vite build",
+    "mobile:sync-assets": "node ./scripts/sync-mobile-web-assets.mjs",
+    "mobile:prepare": "npm run build:mobile:web && npm run mobile:sync-assets",
     "check-types": "tsc --noEmit",
     "storybook": "npm run build-storybook && npm run serve-storybook",
     "storybook:dev": "storybook dev -p $PORT",
@@ -30,7 +33,7 @@
     "react-resizable-panels": "^4.6.5",
     "react-router": "^7.13.0",
     "rxjs": "^7.8.2",
-    "springboard": "0.0.1-dev-vite-with-docs-7",
+    "springboard": "file:../springboard/packages/springboard",
     "tailwindcss": "^4.1.18"
   },
   "devDependencies": {

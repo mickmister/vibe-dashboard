@@ -1,0 +1,1 @@
+console.log('Run `npm run mobile:prepare` in the repo root to sync the mobile web bundle.');
