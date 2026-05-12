@@ -24,6 +24,7 @@ fi
 echo "https://port-$PORT.jamtools.dev"
 
 pnpm i
+npm rebuild better-sqlite3
 
 # if [ ! -d node_modules ]; then
 #   pnpm i
