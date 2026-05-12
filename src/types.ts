@@ -41,6 +41,20 @@ export interface Space {
   isSystem?: boolean;
 }
 
+export interface SavedWorkspaceSession {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+  activeSpaceId: string;
+  activeTabGroupId: string;
+  activeItems: Record<string, string>;
+  visitedTabGroupIds: string[];
+}
+
+export interface SavedWorkspaceSessionState {
+  sessions: SavedWorkspaceSession[];
+}
+
 export interface WorkspaceState {
   spaces: Space[];
   tabGroups: TabGroup[];

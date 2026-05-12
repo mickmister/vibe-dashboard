@@ -6,7 +6,11 @@ import {
   AddVKWorkspaceModal,
   prefetchVKWorkspaceSearchResults,
 } from './dialogs/AddVKWorkspaceModal';
-import type { WorkspaceState, TabGroup } from '../types';
+import type {
+  WorkspaceState,
+  TabGroup,
+  SavedWorkspaceSession,
+} from '../types';
 import type { SessionWorkspaceNav } from '../sessionState';
 
 export type WorkspaceActions = {
@@ -73,6 +77,7 @@ export type SessionActions = {
   selectPair: (tabGroupId: string, pairId: string) => void;
   setActiveTabGroup: (tabGroupId: string) => void;
   getActiveItem: (tabGroupId: string) => string;
+  resumeSession: (sessionId: string) => void;
 };
 
 interface WorkspaceShellProps {
@@ -80,6 +85,8 @@ interface WorkspaceShellProps {
   session: SessionWorkspaceNav;
   actions: WorkspaceActions;
   sessionActions: SessionActions;
+  savedSessions: SavedWorkspaceSession[];
+  currentSessionId: string;
 }
 
 export function WorkspaceShell({
@@ -87,6 +94,8 @@ export function WorkspaceShell({
   session,
   actions,
   sessionActions,
+  savedSessions,
+  currentSessionId,
 }: WorkspaceShellProps) {
   const [addTabModalOpen, setAddTabModalOpen] = useState(false);
   const [workspaceSearchOpen, setWorkspaceSearchOpen] = useState(false);
@@ -288,6 +297,9 @@ export function WorkspaceShell({
           activeSpaceId={session.activeSpaceId}
           activeTabGroupId={session.activeTabGroupId}
           activeItems={session.activeItems}
+          visitedTabGroupIds={session.visitedTabGroupIds}
+          savedSessions={savedSessions}
+          currentSessionId={currentSessionId}
           onRequestClose={() => setIsSidebarOpen(false)}
           onSelectSpace={(spaceId) => {
             sessionActions.selectSpace(spaceId);
@@ -350,6 +362,10 @@ export function WorkspaceShell({
           }
           showAddressBar={showAddressBar}
           onToggleAddressBar={() => setShowAddressBar((v) => !v)}
+          onResumeSession={(sessionId) => {
+            sessionActions.resumeSession(sessionId);
+            setIsSidebarOpen(false);
+          }}
         />
       </div>
 

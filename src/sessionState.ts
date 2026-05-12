@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import type { WorkspaceState } from "./types";
+import type { WorkspaceState, SavedWorkspaceSession } from "./types";
 
 /**
  * Session-level workspace navigation state.
@@ -11,6 +11,8 @@ export interface SessionWorkspaceNav {
   activeTabGroupId: string;
   // Map of tabGroupId -> activeItemId (tab or pair ID)
   activeItems: Record<string, string>;
+  // Most recently visited tab groups for this browser session
+  visitedTabGroupIds: string[];
 }
 
 export interface RouteParams {
@@ -20,14 +22,67 @@ export interface RouteParams {
 }
 
 const SESSION_KEY = "workspace-nav";
+const BROWSER_SESSION_ID_KEY = 'workspace-browser-session-id';
+
+function createBrowserSessionId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+
+  return `session_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+export function getOrCreateBrowserSessionId(): string {
+  try {
+    const existing = sessionStorage.getItem(BROWSER_SESSION_ID_KEY);
+    if (existing) return existing;
+
+    const next = createBrowserSessionId();
+    sessionStorage.setItem(BROWSER_SESSION_ID_KEY, next);
+    return next;
+  } catch {
+    return createBrowserSessionId();
+  }
+}
+
+export function setBrowserSessionId(sessionId: string) {
+  try {
+    sessionStorage.setItem(BROWSER_SESSION_ID_KEY, sessionId);
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+function getValidVisitedTabGroupIds(
+  workspace: WorkspaceState,
+  visitedTabGroupIds: string[] | undefined,
+  activeTabGroupId: string,
+): string[] {
+  const validTabGroupIds = new Set(workspace.tabGroups.map((tg) => tg.id));
+  const seen = new Set<string>();
+  const nextVisited: string[] = [];
+
+  [activeTabGroupId, ...(visitedTabGroupIds || [])].forEach((tabGroupId) => {
+    if (!tabGroupId || !validTabGroupIds.has(tabGroupId) || seen.has(tabGroupId)) {
+      return;
+    }
+
+    seen.add(tabGroupId);
+    nextVisited.push(tabGroupId);
+  });
+
+  return nextVisited;
+}
 
 /**
  * Load session navigation state.
- * Route params take priority, then sessionStorage, then first available defaults.
+ * Route params take priority, then saved session state, then sessionStorage,
+ * then first available defaults.
  */
 function loadSessionNav(
   workspace: WorkspaceState,
   route: RouteParams = {},
+  savedSession?: SavedWorkspaceSession,
 ): SessionWorkspaceNav {
   // Build initial activeItems map from workspace state
   const activeItems: Record<string, string> = {};
@@ -45,60 +100,72 @@ function loadSessionNav(
 
   try {
     const stored = sessionStorage.getItem(SESSION_KEY);
-    if (stored) {
-      const parsed = JSON.parse(stored) as Partial<SessionWorkspaceNav>;
+    const parsed = stored
+      ? (JSON.parse(stored) as Partial<SessionWorkspaceNav>)
+      : undefined;
 
-      // Use route spaceId if valid, otherwise try sessionStorage
-      if (spaceExistsInRoute) {
-        activeSpaceId = route.spaceId!;
-      } else if (
-        parsed.activeSpaceId &&
-        workspace.spaces.some((s) => s.id === parsed.activeSpaceId)
-      ) {
-        activeSpaceId = parsed.activeSpaceId;
-      }
+    if (spaceExistsInRoute) {
+      activeSpaceId = route.spaceId!;
+    } else if (
+      savedSession?.activeSpaceId &&
+      workspace.spaces.some((s) => s.id === savedSession.activeSpaceId)
+    ) {
+      activeSpaceId = savedSession.activeSpaceId;
+    } else if (
+      parsed?.activeSpaceId &&
+      workspace.spaces.some((s) => s.id === parsed.activeSpaceId)
+    ) {
+      activeSpaceId = parsed.activeSpaceId;
+    }
 
-      // Resolve tab group: route > sessionStorage
-      const space = activeSpaceId
-        ? workspace.spaces.find((s) => s.id === activeSpaceId)
-        : undefined;
-      const routeTabGroupValid =
-        route.tabGroupId && space?.tabGroupIds.includes(route.tabGroupId);
-      const storedTabGroupValid =
-        parsed.activeTabGroupId &&
-        workspace.tabGroups.some((tg) => tg.id === parsed.activeTabGroupId);
+    const activeSpace = activeSpaceId
+      ? workspace.spaces.find((s) => s.id === activeSpaceId)
+      : undefined;
+    const routeTabGroupValid =
+      route.tabGroupId && activeSpace?.tabGroupIds.includes(route.tabGroupId);
+    const savedTabGroupValid =
+      savedSession?.activeTabGroupId &&
+      activeSpace?.tabGroupIds.includes(savedSession.activeTabGroupId);
+    const storedTabGroupValid =
+      parsed?.activeTabGroupId &&
+      activeSpace?.tabGroupIds.includes(parsed.activeTabGroupId);
 
-      if (routeTabGroupValid) {
-        activeTabGroupId = route.tabGroupId!;
-      } else if (activeSpaceId && storedTabGroupValid) {
-        activeTabGroupId = parsed.activeTabGroupId!;
-      }
+    if (routeTabGroupValid) {
+      activeTabGroupId = route.tabGroupId!;
+    } else if (savedTabGroupValid) {
+      activeTabGroupId = savedSession!.activeTabGroupId;
+    } else if (storedTabGroupValid) {
+      activeTabGroupId = parsed!.activeTabGroupId!;
+    }
 
-      if (activeSpaceId && activeTabGroupId) {
-        // Merge stored activeItems with defaults (in case new tab groups were added)
-        const mergedActiveItems = {
-          ...activeItems,
-          ...(parsed.activeItems || {}),
-        };
+    if (activeSpaceId && activeTabGroupId) {
+      const mergedActiveItems = {
+        ...activeItems,
+        ...(parsed?.activeItems || {}),
+        ...(savedSession?.activeItems || {}),
+      };
 
-        // Route itemId overrides stored activeItem for this tab group
-        if (route.itemId && activeTabGroupId) {
-          const tg = workspace.tabGroups.find((g) => g.id === activeTabGroupId);
-          const itemExists =
-            tg &&
-            (tg.tabs.some((t) => t.id === route.itemId) ||
-              tg.pairs.some((p) => p.id === route.itemId));
-          if (itemExists) {
-            mergedActiveItems[activeTabGroupId] = route.itemId!;
-          }
+      if (route.itemId && activeTabGroupId) {
+        const tg = workspace.tabGroups.find((g) => g.id === activeTabGroupId);
+        const itemExists =
+          tg &&
+          (tg.tabs.some((t) => t.id === route.itemId) ||
+            tg.pairs.some((p) => p.id === route.itemId));
+        if (itemExists) {
+          mergedActiveItems[activeTabGroupId] = route.itemId!;
         }
-
-        return {
-          activeSpaceId,
-          activeTabGroupId,
-          activeItems: mergedActiveItems,
-        };
       }
+
+      return {
+        activeSpaceId,
+        activeTabGroupId,
+        activeItems: mergedActiveItems,
+        visitedTabGroupIds: getValidVisitedTabGroupIds(
+          workspace,
+          savedSession?.visitedTabGroupIds || parsed?.visitedTabGroupIds,
+          activeTabGroupId,
+        ),
+      };
     }
   } catch {
     // Ignore parse errors
@@ -117,6 +184,11 @@ function loadSessionNav(
     activeSpaceId,
     activeTabGroupId,
     activeItems,
+    visitedTabGroupIds: getValidVisitedTabGroupIds(
+      workspace,
+      savedSession?.visitedTabGroupIds,
+      activeTabGroupId,
+    ),
   };
 }
 
@@ -132,6 +204,7 @@ function saveSessionNav(nav: SessionWorkspaceNav) {
         activeSpaceId: nav.activeSpaceId,
         activeTabGroupId: nav.activeTabGroupId,
         activeItems: nav.activeItems,
+        visitedTabGroupIds: nav.visitedTabGroupIds,
       }),
     );
   } catch {
@@ -163,9 +236,10 @@ function buildNavPath(nav: SessionWorkspaceNav): string {
 export function useSessionWorkspaceNav(
   workspace: WorkspaceState,
   route: RouteParams = {},
+  savedSession?: SavedWorkspaceSession,
 ) {
   const [nav, setNav] = useState<SessionWorkspaceNav>(() =>
-    loadSessionNav(workspace, route),
+    loadSessionNav(workspace, route, savedSession),
   );
 
   // Track previous route params so we only sync when the URL actually changed
@@ -174,6 +248,13 @@ export function useSessionWorkspaceNav(
     tabGroupId: route.tabGroupId,
     itemId: route.itemId,
   });
+  const prevSavedSessionIdRef = useRef<string | undefined>(savedSession?.id);
+
+  useEffect(() => {
+    if (savedSession?.id === prevSavedSessionIdRef.current) return;
+    prevSavedSessionIdRef.current = savedSession?.id;
+    setNav(loadSessionNav(workspace, {}, savedSession));
+  }, [savedSession?.id, workspace]);
 
   // Sync route param changes to nav state (only when route actually changed)
   useEffect(() => {
@@ -194,7 +275,6 @@ export function useSessionWorkspaceNav(
     setNav((prev) => {
       let updated = prev;
 
-      // Sync spaceId from route
       if (
         route.spaceId &&
         workspace.spaces.some((s) => s.id === route.spaceId) &&
@@ -209,7 +289,6 @@ export function useSessionWorkspaceNav(
         };
       }
 
-      // Sync tabGroupId from route
       if (
         route.tabGroupId &&
         workspace.tabGroups.some((tg) => tg.id === route.tabGroupId) &&
@@ -218,7 +297,6 @@ export function useSessionWorkspaceNav(
         updated = { ...updated, activeTabGroupId: route.tabGroupId };
       }
 
-      // Sync itemId from route
       if (route.itemId && route.tabGroupId) {
         const tg = workspace.tabGroups.find((g) => g.id === route.tabGroupId);
         const itemExists =
@@ -249,6 +327,28 @@ export function useSessionWorkspaceNav(
     workspace.tabGroups,
   ]);
 
+  useEffect(() => {
+    setNav((prev) => {
+      const nextVisited = getValidVisitedTabGroupIds(
+        workspace,
+        prev.visitedTabGroupIds,
+        prev.activeTabGroupId,
+      );
+
+      if (
+        nextVisited.length === prev.visitedTabGroupIds.length &&
+        nextVisited.every((tabGroupId, index) => tabGroupId === prev.visitedTabGroupIds[index])
+      ) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        visitedTabGroupIds: nextVisited,
+      };
+    });
+  }, [workspace, nav.activeTabGroupId]);
+
   // Sync to sessionStorage whenever nav changes
   useEffect(() => {
     saveSessionNav(nav);
@@ -263,24 +363,29 @@ export function useSessionWorkspaceNav(
       (tg) => tg.id === nav.activeTabGroupId,
     );
 
-    // Check if there are new tab groups not in activeItems
     const newTabGroups = workspace.tabGroups.filter(
       (tg) => !(tg.id in nav.activeItems),
     );
 
     if (!spaceExists || !tabGroupExists) {
-      // Current selection is invalid, reload nav
-      const newNav = loadSessionNav(workspace, route);
+      const newNav = loadSessionNav(workspace, route, savedSession);
       setNav(newNav);
     } else if (newTabGroups.length > 0) {
-      // Add missing tab groups to activeItems without reloading everything
       setNav((prev) => {
         const updatedActiveItems = { ...prev.activeItems };
         newTabGroups.forEach((tg) => {
           const firstItem = tg.tabs[0]?.id || tg.pairs[0]?.id || "";
           updatedActiveItems[tg.id] = firstItem;
         });
-        return { ...prev, activeItems: updatedActiveItems };
+        return {
+          ...prev,
+          activeItems: updatedActiveItems,
+          visitedTabGroupIds: getValidVisitedTabGroupIds(
+            workspace,
+            prev.visitedTabGroupIds,
+            prev.activeTabGroupId,
+          ),
+        };
       });
     }
   }, [
@@ -289,14 +394,16 @@ export function useSessionWorkspaceNav(
     nav.activeSpaceId,
     nav.activeTabGroupId,
     nav.activeItems,
+    nav.visitedTabGroupIds,
     route,
+    savedSession,
+    workspace,
   ]);
 
   const selectSpace = (spaceId: string) => {
     const space = workspace.spaces.find((s) => s.id === spaceId);
     if (!space) return;
 
-    // When switching spaces, activate the first tab group in that space
     const firstTabGroupId = space.tabGroupIds[0];
     if (firstTabGroupId) {
       setNav((prev) => ({
@@ -327,6 +434,10 @@ export function useSessionWorkspaceNav(
     setNav((prev) => ({ ...prev, activeTabGroupId: tabGroupId }));
   };
 
+  const resumeSession = (sessionToResume: SavedWorkspaceSession) => {
+    setNav(loadSessionNav(workspace, {}, sessionToResume));
+  };
+
   const getActiveItem = (tabGroupId: string): string => {
     return nav.activeItems[tabGroupId] || "";
   };
@@ -337,11 +448,13 @@ export function useSessionWorkspaceNav(
     activeSpaceId: nav.activeSpaceId,
     activeTabGroupId: nav.activeTabGroupId,
     activeItems: nav.activeItems,
+    visitedTabGroupIds: nav.visitedTabGroupIds,
     targetPath,
     getActiveItem,
     selectSpace,
     selectTab,
     selectPair,
     setActiveTabGroup,
+    resumeSession,
   };
 }

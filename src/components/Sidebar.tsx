@@ -6,7 +6,12 @@ import React, {
   useMemo,
 } from 'react';
 import { Button, Input } from '@heroui/react';
-import type { WorkspaceState, Space, TabGroup } from '../types';
+import type {
+  WorkspaceState,
+  Space,
+  TabGroup,
+  SavedWorkspaceSession,
+} from '../types';
 import { TabContextMenu } from './TabContextMenu';
 
 interface SidebarProps {
@@ -14,6 +19,9 @@ interface SidebarProps {
   activeSpaceId: string;
   activeTabGroupId: string;
   activeItems: Record<string, string>;
+  visitedTabGroupIds: string[];
+  savedSessions: SavedWorkspaceSession[];
+  currentSessionId: string;
   onRequestClose?: () => void;
   onSelectSpace: (spaceId: string) => void;
   onSelectTabGroup: (tabGroupId: string) => void;
@@ -44,6 +52,7 @@ interface SidebarProps {
   onReorderSpaces: (sourceId: string, targetId: string) => void;
   showAddressBar: boolean;
   onToggleAddressBar: () => void;
+  onResumeSession: (sessionId: string) => void;
 }
 
 const SPACE_ICONS: Record<string, string> = {
@@ -58,6 +67,9 @@ export function Sidebar({
   activeSpaceId,
   activeTabGroupId,
   activeItems,
+  visitedTabGroupIds,
+  savedSessions,
+  currentSessionId,
   onRequestClose,
   onSelectSpace,
   onSelectTabGroup,
@@ -81,6 +93,7 @@ export function Sidebar({
   onReorderSpaces,
   showAddressBar,
   onToggleAddressBar,
+  onResumeSession,
 }: SidebarProps) {
   const [view, setView] = useState<'groups' | 'spaces'>('groups');
   const [adding, setAdding] = useState(false);
@@ -149,6 +162,29 @@ export function Sidebar({
     }
     return items;
   }, [workspace.spaces, workspace.tabGroups]);
+
+  const sessionVisitedTabGroups = useMemo(() => {
+    return visitedTabGroupIds
+      .map((tabGroupId) => {
+        const tabGroup = workspace.tabGroups.find((group) => group.id === tabGroupId);
+        if (!tabGroup) return null;
+
+        const space = workspace.spaces.find((candidate) =>
+          candidate.tabGroupIds.includes(tabGroupId),
+        );
+        if (!space) return null;
+
+        return { space, tg: tabGroup };
+      })
+      .filter((item): item is { space: Space; tg: TabGroup } => item != null);
+  }, [visitedTabGroupIds, workspace.spaces, workspace.tabGroups]);
+
+  const resumableSessions = useMemo(() => {
+    return savedSessions
+      .filter((session) => session.id !== currentSessionId)
+      .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
+      .slice(0, 6);
+  }, [currentSessionId, savedSessions]);
 
   const toggleStarredExpanded = useCallback(() => {
     setStarredExpanded((prev) => {
@@ -629,6 +665,69 @@ export function Sidebar({
           </div>
 
           <div className="flex-1 min-h-0 overflow-y-auto">
+            {sessionVisitedTabGroups.length > 0 && (
+              <div className="border-b border-neutral-800">
+                <div className="px-3 py-2 text-xs font-semibold uppercase tracking-wider text-neutral-500">
+                  Active Tabs
+                </div>
+                <div className="px-2 pb-2 space-y-0.5">
+                  {sessionVisitedTabGroups.map(({ space, tg }) => (
+                    <button
+                      key={tg.id}
+                      className={`w-full text-left px-3 py-1.5 rounded-lg transition-colors ${
+                        activeTabGroupId === tg.id
+                          ? 'bg-primary-500/20 text-primary-300'
+                          : 'text-neutral-300 hover:bg-neutral-800'
+                      }`}
+                      onClick={() => {
+                        onSelectSpace(space.id);
+                        onSelectTabGroup(tg.id);
+                      }}
+                    >
+                      <div className="text-sm font-medium truncate">{tg.label}</div>
+                      <div className="text-xs text-neutral-500 mt-0.5">
+                        {space.name}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {resumableSessions.length > 0 && (
+              <div className="border-b border-neutral-800">
+                <div className="px-3 py-2 text-xs font-semibold uppercase tracking-wider text-neutral-500">
+                  Resume Session
+                </div>
+                <div className="px-2 pb-2 space-y-0.5">
+                  {resumableSessions.map((session) => {
+                    const sessionSpace = workspace.spaces.find(
+                      (space) => space.id === session.activeSpaceId,
+                    );
+                    const sessionTabGroup = workspace.tabGroups.find(
+                      (tabGroup) => tabGroup.id === session.activeTabGroupId,
+                    );
+
+                    return (
+                      <button
+                        key={session.id}
+                        className="w-full text-left px-3 py-1.5 rounded-lg text-neutral-300 hover:bg-neutral-800 transition-colors"
+                        onClick={() => onResumeSession(session.id)}
+                      >
+                        <div className="text-sm font-medium truncate">
+                          {sessionTabGroup?.label || 'Saved session'}
+                        </div>
+                        <div className="text-xs text-neutral-500 mt-0.5 truncate">
+                          {sessionSpace?.name || 'Unknown space'} •{' '}
+                          {formatSessionTimestamp(session.updatedAt)}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* Starred tab groups section */}
             {starredTabGroups.length > 0 && (
               <div className="border-b border-neutral-800">
@@ -1010,4 +1109,22 @@ export function Sidebar({
         })()}
     </div>
   );
+}
+
+function formatSessionTimestamp(value: string): string {
+  const timestamp = Date.parse(value);
+  if (Number.isNaN(timestamp)) return 'Recently';
+
+  const diffMs = Date.now() - timestamp;
+  const diffMinutes = Math.max(0, Math.floor(diffMs / 60000));
+  if (diffMinutes < 1) return 'Just now';
+  if (diffMinutes < 60) return `${diffMinutes}m ago`;
+
+  const diffHours = Math.floor(diffMinutes / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays < 7) return `${diffDays}d ago`;
+
+  return new Date(timestamp).toLocaleDateString();
 }

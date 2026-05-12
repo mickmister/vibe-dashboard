@@ -7,7 +7,11 @@ import { useParams, useNavigate } from 'react-router';
 import { HeroUIProvider } from '@heroui/react';
 import { AppLoadingScreen } from './components/AppLoadingScreen';
 import { WorkspaceShell } from './components/WorkspaceShell';
-import { useSessionWorkspaceNav } from './sessionState';
+import {
+  getOrCreateBrowserSessionId,
+  setBrowserSessionId,
+  useSessionWorkspaceNav,
+} from './sessionState';
 
 // Ensure dark class is on the document root so portaled elements (modals, popovers)
 // inherit dark mode styles
@@ -18,7 +22,11 @@ springboard.registerSplashScreen(AppLoadingScreen);
 
 import springboard from 'springboard';
 import { createDefaultWorkspace } from './types';
-import type { WorkspaceState } from './types';
+import type {
+  WorkspaceState,
+  SavedWorkspaceSession,
+  SavedWorkspaceSessionState,
+} from './types';
 
 const WORKSPACE_CREATE_PATH = '/workspaces/create';
 const WORKSPACE_CREATE_TAB_TITLE = 'Create Workspace';
@@ -60,6 +68,12 @@ function isWorkspaceTabPath(url: string, expectedPath: string): boolean {
   }
 }
 
+function createDefaultSavedSessionState(): SavedWorkspaceSessionState {
+  return {
+    sessions: [],
+  };
+}
+
 console.log('outside of module');
 springboard.registerModule(
   'workspace',
@@ -71,6 +85,11 @@ springboard.registerModule(
       await moduleAPI.statesAPI.createPersistentState<WorkspaceState>(
         'workspace',
         createDefaultWorkspace(),
+      );
+    const savedSessionsState =
+      await moduleAPI.statesAPI.createPersistentState<SavedWorkspaceSessionState>(
+        'workspace-sessions',
+        createDefaultSavedSessionState(),
       );
 
     const actions = moduleAPI.createActions({
@@ -524,6 +543,22 @@ springboard.registerModule(
           return { selectTabId: nextTabId };
         }
       },
+
+      upsertSavedSession: async (args: SavedWorkspaceSession) => {
+        savedSessionsState.setStateImmer((draft) => {
+          const existing = draft.sessions.find((session) => session.id === args.id);
+          if (existing) {
+            existing.updatedAt = args.updatedAt;
+            existing.activeSpaceId = args.activeSpaceId;
+            existing.activeTabGroupId = args.activeTabGroupId;
+            existing.activeItems = args.activeItems;
+            existing.visitedTabGroupIds = args.visitedTabGroupIds;
+            return;
+          }
+
+          draft.sessions.unshift(args);
+        });
+      },
     });
 
     // Redirect component for root path (dev server case)
@@ -538,17 +573,25 @@ springboard.registerModule(
     // Shared route component with space/tabGroup/item parameter support
     const WorkspaceRoute = () => {
       const workspace = workspaceState.useState();
+      const savedSessions = savedSessionsState.useState();
       const { spaceId, tabGroupId, itemId } = useParams<{
         spaceId?: string;
         tabGroupId?: string;
         itemId?: string;
       }>();
       const navigate = useNavigate();
+      const browserSessionId =
+        typeof window === 'undefined'
+          ? 'server-session'
+          : getOrCreateBrowserSessionId();
+      const activeSavedSession = savedSessions.sessions.find(
+        (session) => session.id === browserSessionId,
+      );
       const sessionNav = useSessionWorkspaceNav(workspace, {
         spaceId,
         tabGroupId,
         itemId,
-      });
+      }, activeSavedSession);
 
       // Update document title to reflect active space and tab group
       useEffect(() => {
@@ -574,6 +617,29 @@ springboard.registerModule(
           actions.touchTabGroup({ tabGroupId: sessionNav.activeTabGroupId });
         }
       }, [sessionNav.activeTabGroupId]);
+
+      useEffect(() => {
+        if (!(sessionNav.activeSpaceId && sessionNav.activeTabGroupId)) return;
+
+        const now = new Date().toISOString();
+        void actions.upsertSavedSession({
+          id: browserSessionId,
+          createdAt: activeSavedSession?.createdAt || now,
+          updatedAt: now,
+          activeSpaceId: sessionNav.activeSpaceId,
+          activeTabGroupId: sessionNav.activeTabGroupId,
+          activeItems: sessionNav.activeItems,
+          visitedTabGroupIds: sessionNav.visitedTabGroupIds,
+        });
+      }, [
+        activeSavedSession?.createdAt,
+        actions,
+        browserSessionId,
+        sessionNav.activeItems,
+        sessionNav.activeSpaceId,
+        sessionNav.activeTabGroupId,
+        sessionNav.visitedTabGroupIds,
+      ]);
 
       // Sync URL to match current nav state
       useEffect(() => {
@@ -661,6 +727,16 @@ springboard.registerModule(
         selectPair: sessionNav.selectPair,
         setActiveTabGroup: sessionNav.setActiveTabGroup,
         getActiveItem: sessionNav.getActiveItem,
+        resumeSession: (sessionId: string) => {
+          const sessionToResume = savedSessions.sessions.find(
+            (session) => session.id === sessionId,
+          );
+          if (!sessionToResume) return;
+          if (typeof window !== 'undefined') {
+            setBrowserSessionId(sessionId);
+          }
+          sessionNav.resumeSession(sessionToResume);
+        },
       };
 
       return (
@@ -671,6 +747,8 @@ springboard.registerModule(
               session={sessionNav}
               actions={normalizeActionReturns(wrappedActions)}
               sessionActions={sessionActions}
+              savedSessions={savedSessions.sessions}
+              currentSessionId={browserSessionId}
             />
           </div>
         </>
