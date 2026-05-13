@@ -1,4 +1,7 @@
-import type { Hono } from 'hono';
+import type { Handler, Hono } from 'hono';
+import { RegExpRouter } from 'hono/router/reg-exp-router';
+import { SmartRouter } from 'hono/router/smart-router';
+import { TrieRouter } from 'hono/router/trie-router';
 import {
   runWorkflow,
   WorkflowNotFoundError,
@@ -27,7 +30,6 @@ export function registerWorkflowRoutes(
       })),
     });
   });
-
 
   hono.post('/dashboard/api/webhooks/github', async (c) => {
     try {
@@ -96,6 +98,12 @@ export function registerWorkflowRoutes(
       return c.json({ error: 'Internal workflow route error' }, 500);
     }
   });
+
+  prioritizeWorkflowRoutes(hono);
+}
+
+export function prioritizeWorkflowRoutes(hono: Hono): void {
+  prioritizeRoutes(hono, (route) => route.path.startsWith('/dashboard/api/'));
 }
 
 async function readJsonBody(request: Request): Promise<unknown> {
@@ -131,4 +139,57 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 function asString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
+}
+
+interface HonoRoute {
+  basePath: string;
+  path: string;
+  method: string;
+  handler: Handler;
+}
+
+interface MutableHonoRoutes {
+  routes: HonoRoute[];
+  router: {
+    add: (method: string, path: string, handlerData: [Handler, HonoRoute]) => void;
+  };
+}
+
+function prioritizeRoutes(hono: Hono, shouldPrioritize: (route: HonoRoute) => boolean): void {
+  const mutableHono = hono as unknown as MutableHonoRoutes;
+  const routes = mutableHono.routes;
+  const prioritizedRoutes = routes.filter(shouldPrioritize);
+  if (prioritizedRoutes.length === 0) return;
+
+  const firstPrioritizedRouteIndex = routes.findIndex(shouldPrioritize);
+  const fallbackRouteIndex = routes.findIndex((route, index) => {
+    return index < firstPrioritizedRouteIndex && isBlockingFallbackRoute(route);
+  });
+  if (fallbackRouteIndex === -1) return;
+
+  const otherRoutes = routes.filter((route) => !shouldPrioritize(route));
+  const orderedRoutes = [
+    ...otherRoutes.slice(0, fallbackRouteIndex),
+    ...prioritizedRoutes,
+    ...otherRoutes.slice(fallbackRouteIndex),
+  ];
+
+  mutableHono.routes = orderedRoutes;
+  mutableHono.router = new SmartRouter({
+    routers: [new RegExpRouter(), new TrieRouter()],
+  });
+
+  for (const route of orderedRoutes) {
+    mutableHono.router.add(route.method, route.path, [route.handler, route]);
+  }
+}
+
+function isBlockingFallbackRoute(route: HonoRoute): boolean {
+  if (route.method !== 'ALL') return false;
+  if (route.path !== '/' && route.path !== '/*') return false;
+
+  // Springboard registers a global CORS middleware before the SPA fallbacks. It
+  // calls next(), so it should stay ahead of API routes. The SPA fallbacks do
+  // not call next(), so API routes registered later must be moved before them.
+  return route.handler.name !== 'cors2';
 }

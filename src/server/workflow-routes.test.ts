@@ -25,6 +25,25 @@ describe('registerWorkflowRoutes', () => {
     });
   });
 
+  it('keeps workflow API routes ahead of a pre-registered SPA fallback', async () => {
+    const registry = createWorkflowRegistry();
+    registry.register({
+      id: 'example',
+      trigger: 'manual',
+      run: async () => ({ ok: true }),
+    });
+    const app = new Hono();
+    app.use('*', async (c) => c.html('<html>frontend</html>'));
+
+    registerWorkflowRoutes(app, { registry, githubWebhookSecret: 'secret' });
+
+    const response = await app.request('/dashboard/api/workflows/health');
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toContain('application/json');
+    await expect(response.json()).resolves.toEqual({ ok: true });
+  });
+
   it('runs workflows by id and returns the workflow run record', async () => {
     const registry = createWorkflowRegistry();
     const workflow = {
