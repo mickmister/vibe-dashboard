@@ -1,0 +1,42 @@
+# syntax=docker/dockerfile:1.6
+#
+# RunPod-specific runtime image for vibe-kanban-vscode-web.
+#
+# RunPod Pods expose a single container entrypoint rather than docker compose,
+# so this image extends the existing vk-vd runtime image and redirects all
+# persisted state into /workspace, which is the path RunPod keeps across restarts.
+#
+# Example build:
+#   docker build -f Dockerfile.runpod -t vk-vd-runpod .
+#
+# Example RunPod container start command:
+#   /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf
+#
+ARG BASE_IMAGE=ghcr.io/mickmister/vk-vd:latest
+FROM ${BASE_IMAGE}
+
+USER root
+
+ENV RUNPOD_PERSIST_ROOT=/workspace/vibe-dev \
+    XDG_CONFIG_HOME=/home/vkuser/.config \
+    CADDY_PORT=3001 \
+    BACKEND_PORT=3007 \
+    DASHBOARD_PORT=3005 \
+    CODE_PORT=3008 \
+    CODE_PASSWORD=__unset__ \
+    ENABLE_VIBE_KANBAN=true \
+    VK_SHARED_API_BASE= \
+    VK_ALLOWED_ORIGINS= \
+    MEMORY_WATCHDOG_ENABLED=false \
+    MEMORY_WATCHDOG_MATTERMOST_WEBHOOK_URL= \
+    ENABLE_TAILSCALE=false
+
+COPY runpod-entrypoint.sh /usr/local/bin/runpod-entrypoint.sh
+RUN chmod +x /usr/local/bin/runpod-entrypoint.sh
+
+EXPOSE 3001
+EXPOSE 3007
+EXPOSE 3008
+
+ENTRYPOINT ["/usr/local/bin/runpod-entrypoint.sh"]
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
