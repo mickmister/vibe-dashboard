@@ -48,7 +48,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Build mobile app with EAS
-        uses: jamtools/releases/.github/actions/build_mobile_eas@main
+        uses: jamtools/releases/.github/actions/build_mobile_eas@dev
         with:
           local: ${{ github.event_name == 'pull_request' && 'true' || !inputs.run_on_eas }}
           platform: ${{ github.event_name == 'pull_request' && 'all' || inputs.platform }}
