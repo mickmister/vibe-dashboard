@@ -51,7 +51,7 @@ jobs:
         uses: jamtools/releases/.github/actions/build_mobile_eas@dev
         with:
           local: ${{ github.event_name == 'pull_request' && 'true' || !inputs.run_on_eas }}
-          platform: ${{ github.event_name == 'pull_request' && 'all' || inputs.platform }}
+          platform: ${{ github.event_name == 'pull_request' && 'android' || inputs.platform }}
           profile: ${{ github.event_name == 'pull_request' && 'preview' || inputs.profile }}
           submit: ${{ github.event_name == 'pull_request' && 'false' || inputs.submit || false }}
           output_logs: ${{ github.event_name == 'pull_request' && 'false' || inputs.output_eas_build_to_logs || false }}
