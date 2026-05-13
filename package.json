@@ -12,9 +12,12 @@
     "storybook": "npm run build-storybook && npm run serve-storybook",
     "storybook:dev": "storybook dev -p $PORT",
     "build-storybook": "storybook build",
-    "serve-storybook": "serve storybook-static -l $PORT"
+    "serve-storybook": "serve storybook-static -l $PORT",
+    "test:workflow-core": "pnpm --filter @vibe-kanban/workflow-core test",
+    "check-types:workflow-core": "pnpm --filter @vibe-kanban/workflow-core check-types"
   },
   "dependencies": {
+    "@vibe-kanban/workflow-core": "workspace:*",
     "@heroui/react": "^2.8.9",
     "@hono/node-server": "^1.19.9",
     "@tailwindcss/vite": "^4.1.18",
