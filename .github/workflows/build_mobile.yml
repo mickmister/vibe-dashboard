@@ -1,0 +1,56 @@
+name: build_mobile
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Platform to build for (all/android/ios)
+        type: choice
+        required: true
+        default: all
+        options:
+          - all
+          - android
+          - ios
+      profile:
+        description: EAS build profile (preview/production)
+        type: choice
+        required: true
+        default: preview
+        options:
+          - preview
+          - production
+      run_on_eas:
+        description: Run build on EAS instead of locally in CI
+        type: boolean
+        default: true
+      submit:
+        description: Auto submit to the store? (production only)
+        type: boolean
+        required: false
+      output_eas_build_to_logs:
+        description: Output EAS build logs directly in GitHub Actions
+        type: boolean
+        required: false
+        default: false
+      site_url:
+        description: Site URL used by the mobile webview bundle
+        type: string
+        required: true
+        default: https://staging.vibekanban.app
+
+jobs:
+  mobile:
+    uses: jamtools/releases/.github/workflows/build_mobile.yml@main
+    with:
+      platform: ${{ inputs.platform }}
+      profile: ${{ inputs.profile }}
+      run_on_eas: ${{ inputs.run_on_eas }}
+      submit: ${{ inputs.submit || false }}
+      output_eas_build_to_logs: ${{ inputs.output_eas_build_to_logs || false }}
+      install_command: pnpm install --frozen-lockfile
+      build_command: pnpm run mobile:prepare
+      mobile_directory: apps/mobile
+      prebuild_command: npx expo prebuild
+      site_url: ${{ inputs.site_url }}
+    secrets: inherit

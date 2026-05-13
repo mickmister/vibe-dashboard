@@ -1,0 +1,44 @@
+name: update_mobile
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Platform to update (all/android/ios)
+        type: choice
+        required: true
+        default: all
+        options:
+          - all
+          - android
+          - ios
+      profile:
+        description: EAS update profile (preview/production)
+        type: choice
+        required: true
+        default: preview
+        options:
+          - preview
+          - production
+      message:
+        description: Update message shown in EAS Update
+        type: string
+        required: true
+      site_url:
+        description: Site URL used by the mobile webview bundle
+        type: string
+        required: true
+        default: https://staging.vibekanban.app
+
+jobs:
+  mobile:
+    uses: jamtools/releases/.github/workflows/update_mobile.yml@main
+    with:
+      platform: ${{ inputs.platform }}
+      profile: ${{ inputs.profile }}
+      message: ${{ inputs.message }}
+      site_url: ${{ inputs.site_url }}
+      install_command: pnpm install --frozen-lockfile
+      build_command: pnpm run mobile:prepare
+      mobile_directory: apps/mobile
+    secrets: inherit

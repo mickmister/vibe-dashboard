@@ -1,7 +1,8 @@
 import React, { useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import { HeroUIProvider } from '@heroui/react';
-import springboard from 'springboard';
+import type { ModuleAPI } from 'springboard/core/engine/module_api';
+import type { SpringboardRegistry } from 'springboard/core/engine/register';
 import type { StateSupervisor } from 'springboard/core/services/states/shared_state_service';
 
 import { WorkspaceShell } from '../components/WorkspaceShell';
@@ -66,10 +67,14 @@ export type WorkspaceModuleState = {
   workspace: StateSupervisor<WorkspaceState>;
 };
 
-export const WorkspaceModule = springboard.defineModule(
-  'workspace',
-  { rpcMode: 'remote' },
-  async (moduleAPI) => {
+export type WorkspaceModulePublicApi = {
+  states: WorkspaceModuleState;
+  actions: Record<string, (...args: any[]) => Promise<any>>;
+  Provider: React.ComponentType<React.PropsWithChildren>;
+};
+
+export function registerWorkspaceModule(registry: SpringboardRegistry) {
+  registry.registerModule('workspace', { rpcMode: 'remote' }, async (moduleAPI: ModuleAPI) => {
     const workspaceState =
       await moduleAPI.statesAPI.createPersistentState<WorkspaceState>(
         'workspace',
@@ -683,15 +688,11 @@ export const WorkspaceModule = springboard.defineModule(
         return <HeroUIProvider>{props.children}</HeroUIProvider>;
       },
     };
-  },
-);
+  });
+}
 
 declare module 'springboard/module_registry/module_registry' {
   interface AllModules {
-    workspace: {
-      states: WorkspaceModuleState;
-      actions: Awaited<ReturnType<typeof WorkspaceModule.initialize>>['actions'];
-      Provider: Awaited<ReturnType<typeof WorkspaceModule.initialize>>['Provider'];
-    };
+    workspace: WorkspaceModulePublicApi;
   }
 }

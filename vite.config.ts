@@ -13,6 +13,7 @@ const dirname = typeof __dirname !== 'undefined'
   : path.dirname(fileURLToPath(import.meta.url));
 
 type BuildTarget = 'main-dev' | 'main-browser' | 'main-node' | 'mobile-browser';
+type PluginEntry = Record<'browser' | 'node' | 'web', string>;
 
 type TargetConfig = {
   entry: Partial<Record<'browser' | 'node' | 'web', string>>;
@@ -93,7 +94,7 @@ export default defineConfig(({ command }) => {
       react(),
       tailwindcss(),
       springboard({
-        entry: targetConfig.entry,
+        entry: targetConfig.entry as PluginEntry,
         platforms: targetConfig.platforms,
         documentMeta: {
           title: 'Vibe Kanban Workspace',

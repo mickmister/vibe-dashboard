@@ -5,10 +5,11 @@
   "main": "index.js",
   "scripts": {
     "dev": "expo start",
-    "start": "expo start --clear",
-    "android": "expo run:android",
-    "ios": "expo run:ios",
-    "prepare:web": "cd ../.. && npm run mobile:prepare"
+    "start": "EXPO_APP_PROFILE=local expo start --clear",
+    "android": "[ ! -d android ] && (expo prebuild || exit 1); pnpm run eas-build-post-install && EXPO_APP_PROFILE=local expo run:android",
+    "ios": "pnpm run eas-build-post-install && EXPO_APP_PROFILE=local expo run:ios",
+    "prepare:web": "cd ../.. && pnpm run mobile:prepare",
+    "eas-build-post-install": "cd ../.. && pnpm run mobile:prepare"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.1.2",
@@ -20,7 +21,7 @@
     "react-native": "0.79.5",
     "react-native-safe-area-context": "5.4.0",
     "react-native-webview": "^13.16.0",
-    "springboard": "file:../../../springboard/packages/springboard"
+    "springboard": "0.0.1-dev-vite-with-docs-7"
   },
   "devDependencies": {
     "@babel/core": "^7.28.6",
