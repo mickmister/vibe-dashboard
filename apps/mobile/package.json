@@ -1,0 +1,31 @@
+{
+  "private": true,
+  "name": "vibe-dashboard-mobile",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "dev": "expo start",
+    "start": "EXPO_APP_PROFILE=local expo start --clear",
+    "android": "[ ! -d android ] && (expo prebuild || exit 1); pnpm run eas-build-post-install && EXPO_APP_PROFILE=local expo run:android",
+    "ios": "pnpm run eas-build-post-install && EXPO_APP_PROFILE=local expo run:ios",
+    "prepare:web": "cd ../.. && pnpm run mobile:prepare",
+    "eas-build-post-install": "cd ../.. && pnpm run mobile:prepare"
+  },
+  "dependencies": {
+    "@react-native-async-storage/async-storage": "2.1.2",
+    "expo": "~53.0.25",
+    "expo-asset": "~11.1.7",
+    "expo-file-system": "~18.1.11",
+    "expo-splash-screen": "^31.0.13",
+    "expo-updates": "~0.28.18",
+    "react": "19.0.0",
+    "react-native": "0.79.5",
+    "react-native-safe-area-context": "5.4.0",
+    "react-native-webview": "^13.16.0",
+    "springboard": "0.0.1-dev-vite-with-docs-7"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.28.6",
+    "babel-preset-expo": "~13.0.0"
+  }
+}

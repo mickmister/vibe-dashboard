@@ -1,0 +1,62 @@
+{
+  "cli": {
+    "promptToConfigurePushNotifications": false,
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "monorepo": {
+      "pnpm": "10.15.0",
+      "node": "20.17.0",
+      "env": {
+        "EXPO_USE_FAST_RESOLVER": "true"
+      },
+      "channel": "monorepo",
+      "autoIncrement": true
+    },
+    "local": {
+      "channel": "local",
+      "distribution": "internal",
+      "extends": "monorepo",
+      "developmentClient": true,
+      "env": {
+        "EXPO_APP_PROFILE": "local",
+        "EXPO_PUBLIC_SITE_URL": "http://127.0.0.1:1337",
+        "PUBLIC_SITE_URL": "http://127.0.0.1:1337"
+      },
+      "android": {
+        "buildType": "apk"
+      },
+      "ios": {
+        "resourceClass": "m1-medium"
+      }
+    },
+    "preview": {
+      "channel": "preview",
+      "distribution": "internal",
+      "extends": "monorepo",
+      "developmentClient": false,
+      "env": {
+        "EXPO_APP_PROFILE": "preview",
+        "EXPO_PUBLIC_SITE_URL": "https://staging.vibekanban.app",
+        "PUBLIC_SITE_URL": "https://staging.vibekanban.app"
+      },
+      "android": {
+        "buildType": "apk"
+      },
+      "ios": {
+        "resourceClass": "m1-medium"
+      }
+    },
+    "production": {
+      "channel": "production",
+      "distribution": "store",
+      "extends": "monorepo",
+      "developmentClient": false,
+      "env": {
+        "EXPO_APP_PROFILE": "production",
+        "EXPO_PUBLIC_SITE_URL": "https://vibekanban.app",
+        "PUBLIC_SITE_URL": "https://vibekanban.app"
+      }
+    }
+  }
+}

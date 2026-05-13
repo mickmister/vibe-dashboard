@@ -1,0 +1,51 @@
+name: update_mobile
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Platform to update (all/android/ios)
+        type: choice
+        required: true
+        default: all
+        options:
+          - all
+          - android
+          - ios
+      profile:
+        description: EAS update profile (preview/production)
+        type: choice
+        required: true
+        default: preview
+        options:
+          - preview
+          - production
+      message:
+        description: Update message shown in EAS Update
+        type: string
+        required: true
+      site_url:
+        description: Site URL used by the mobile webview bundle
+        type: string
+        required: true
+        default: https://staging.vibekanban.app
+
+jobs:
+  mobile:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Update mobile app with EAS Update
+        uses: jamtools/releases/.github/actions/update_mobile_eas@main
+        with:
+          platform: ${{ inputs.platform }}
+          profile: ${{ inputs.profile }}
+          message: ${{ inputs.message }}
+          site_url: ${{ inputs.site_url }}
+          install_command: pnpm install --frozen-lockfile
+          build_command: pnpm run mobile:prepare
+          mobile_directory: apps/mobile
+          expo-token: ${{ secrets.EXPO_TOKEN }}
+          discord_webhook_url: ${{ secrets.DISCORD_APP_BUILDS_WEBHOOK_URL }}
