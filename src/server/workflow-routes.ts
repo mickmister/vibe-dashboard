@@ -5,10 +5,12 @@ import {
   type RunWorkflowOptions,
   type WorkflowRegistry,
 } from '@vibe-kanban/workflow-core';
+import { verifyGitHubWebhookSignature } from './github-signature';
 
 export interface RegisterWorkflowRoutesOptions {
   registry: WorkflowRegistry;
   runOptions?: RunWorkflowOptions;
+  githubWebhookSecret?: string;
 }
 
 export function registerWorkflowRoutes(
@@ -30,7 +32,16 @@ export function registerWorkflowRoutes(
   hono.post('/dashboard/api/webhooks/github', async (c) => {
     try {
       const event = c.req.header('X-GitHub-Event') || '';
-      const payload = await readJsonBody(c.req.raw);
+      const rawBody = await c.req.raw.text();
+      const signatureResult = verifyGitHubWebhookSignature({
+        body: rawBody,
+        secret: options.githubWebhookSecret ?? process.env.GITHUB_WEBHOOK_SECRET,
+        signature: c.req.header('X-Hub-Signature-256'),
+      });
+      if (!signatureResult.ok) {
+        return c.json({ error: signatureResult.error }, signatureResult.status);
+      }
+      const payload = parseJsonBody(rawBody);
       const run = await runWorkflow(
         options.registry,
         'github-ci-failure',
@@ -38,7 +49,7 @@ export function registerWorkflowRoutes(
         options.runOptions,
       );
       const status = run.status === 'failed' ? 500 : 200;
-      return c.json({ run }, status);
+      return c.json({ outcome: getRunOutcome(run.output), run }, status);
     } catch (error) {
       if (error instanceof WorkflowNotFoundError) {
         return c.json({ error: error.message }, 404);
@@ -73,7 +84,17 @@ export function registerWorkflowRoutes(
 }
 
 async function readJsonBody(request: Request): Promise<unknown> {
-  const raw = await request.text();
+  return parseJsonBody(await request.text());
+}
+
+function parseJsonBody(raw: string): unknown {
   if (!raw.trim()) return {};
   return JSON.parse(raw) as unknown;
+}
+
+function getRunOutcome(output: unknown): unknown {
+  if (output && typeof output === 'object' && 'outcome' in output) {
+    return (output as { outcome: unknown }).outcome;
+  }
+  return undefined;
 }
