@@ -1,10 +1,14 @@
 import { createHmac } from 'node:crypto';
 import { Hono } from 'hono';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createWorkflowRegistry, type WorkflowDefinition } from '@vibe-kanban/workflow-core';
 import { registerWorkflowRoutes } from './workflow-routes';
 
 describe('registerWorkflowRoutes', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('returns health and registered workflows', async () => {
     const registry = createWorkflowRegistry();
     registry.register({
@@ -66,6 +70,7 @@ describe('registerWorkflowRoutes', () => {
 
 
   it('runs the GitHub CI failure workflow from the GitHub webhook route', async () => {
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
     const registry = createWorkflowRegistry();
     registry.register({
       id: 'github-ci-failure',
@@ -88,6 +93,7 @@ describe('registerWorkflowRoutes', () => {
       headers: {
         'Content-Type': 'application/json',
         'X-GitHub-Event': 'workflow_run',
+        'X-GitHub-Delivery': 'delivery-123',
         'X-Hub-Signature-256': signBody(body, 'secret'),
       },
       body,
@@ -108,6 +114,21 @@ describe('registerWorkflowRoutes', () => {
           },
         },
       },
+    });
+    expect(infoSpy).toHaveBeenCalledWith('GitHub webhook received', {
+      delivery: 'delivery-123',
+      event: 'workflow_run',
+      action: undefined,
+      workflowRunStatus: undefined,
+      workflowRunConclusion: 'failure',
+      workflowRunHtmlUrl: undefined,
+    });
+    expect(infoSpy).toHaveBeenCalledWith('GitHub webhook workflow completed', {
+      delivery: 'delivery-123',
+      event: 'workflow_run',
+      outcome: 'message_sent',
+      status: 'completed',
+      runId: 'run_webhook',
     });
   });
 

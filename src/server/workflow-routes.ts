@@ -42,14 +42,29 @@ export function registerWorkflowRoutes(
         return c.json({ error: signatureResult.error }, signatureResult.status);
       }
       const payload = parseJsonBody(rawBody);
+      const delivery = c.req.header('X-GitHub-Delivery') || '';
+      const payloadSummary = summarizeGitHubWebhookPayload(payload);
+      console.info('GitHub webhook received', {
+        delivery,
+        event,
+        ...payloadSummary,
+      });
       const run = await runWorkflow(
         options.registry,
         'github-ci-failure',
         { event, payload },
         options.runOptions,
       );
+      const outcome = getRunOutcome(run.output);
+      console.info('GitHub webhook workflow completed', {
+        delivery,
+        event,
+        outcome,
+        status: run.status,
+        runId: run.runId,
+      });
       const status = run.status === 'failed' ? 500 : 200;
-      return c.json({ outcome: getRunOutcome(run.output), run }, status);
+      return c.json({ outcome, run }, status);
     } catch (error) {
       if (error instanceof WorkflowNotFoundError) {
         return c.json({ error: error.message }, 404);
@@ -97,4 +112,23 @@ function getRunOutcome(output: unknown): unknown {
     return (output as { outcome: unknown }).outcome;
   }
   return undefined;
+}
+
+function summarizeGitHubWebhookPayload(payload: unknown): Record<string, unknown> {
+  const record = asRecord(payload);
+  const workflowRun = asRecord(record?.workflow_run);
+  return {
+    action: asString(record?.action),
+    workflowRunStatus: asString(workflowRun?.status),
+    workflowRunConclusion: asString(workflowRun?.conclusion),
+    workflowRunHtmlUrl: asString(workflowRun?.html_url),
+  };
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
 }
