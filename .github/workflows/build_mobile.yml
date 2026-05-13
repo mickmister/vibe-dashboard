@@ -41,16 +41,24 @@ on:
 
 jobs:
   mobile:
-    uses: jamtools/releases/.github/workflows/build_mobile.yml@main
-    with:
-      platform: ${{ inputs.platform }}
-      profile: ${{ inputs.profile }}
-      run_on_eas: ${{ inputs.run_on_eas }}
-      submit: ${{ inputs.submit || false }}
-      output_eas_build_to_logs: ${{ inputs.output_eas_build_to_logs || false }}
-      install_command: pnpm install --frozen-lockfile
-      build_command: pnpm run mobile:prepare
-      mobile_directory: apps/mobile
-      prebuild_command: npx expo prebuild
-      site_url: ${{ inputs.site_url }}
-    secrets: inherit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Build mobile app with EAS
+        uses: jamtools/releases/.github/actions/build_mobile_eas@main
+        with:
+          local: ${{ !inputs.run_on_eas }}
+          platform: ${{ inputs.platform }}
+          profile: ${{ inputs.profile }}
+          submit: ${{ inputs.submit || false }}
+          output_logs: ${{ inputs.output_eas_build_to_logs || false }}
+          install_command: pnpm install --frozen-lockfile
+          build_command: pnpm run mobile:prepare
+          mobile_directory: apps/mobile
+          prebuild_command: npx expo prebuild
+          site_url: ${{ inputs.site_url }}
+          expo-token: ${{ secrets.EXPO_TOKEN }}
+          asc_app_id: ${{ secrets.ASC_APP_ID }}
+          discord_webhook_url: ${{ secrets.DISCORD_APP_BUILDS_WEBHOOK_URL }}
