@@ -4,13 +4,13 @@ const appProfile = process.env.EXPO_APP_PROFILE || 'preview';
 const appQualifier = appProfile === 'production' ? '' : appProfile;
 const appQualifierWithDash = appQualifier ? `${appQualifier}-` : '';
 const appQualifierWithDot = appQualifier ? `.${appQualifier}` : '';
-const projectId = process.env.EXPO_PROJECT_ID;
+const projectId = process.env.EXPO_PROJECT_ID || 'a0f24779-6c4b-41f6-831f-535f62a25b0a';
 const owner = process.env.EXPO_OWNER;
 
 const config: ExpoConfig = {
-  name: `${appQualifierWithDash}Vibe Kanban`,
-  slug: 'vibe-kanban-mobile',
-  scheme: `vibekanbanmobile${appQualifier}`,
+  name: `${appQualifierWithDash}Vibe Dashboard`,
+  slug: 'vibe-dashboard',
+  scheme: `vibedashboard${appQualifier}`,
   version: '1.0.0',
   orientation: 'portrait',
   userInterfaceStyle: 'automatic',
@@ -22,11 +22,14 @@ const config: ExpoConfig = {
     } : {}),
   },
   android: {
-    package: `com.vibekanban.mobile${appQualifierWithDot}`,
+    package: `com.jamtools.vibedashboard${appQualifierWithDot}`,
   },
   ios: {
-    bundleIdentifier: `com.vibekanban.mobile${appQualifierWithDot}`,
+    bundleIdentifier: `com.jamtools.vibedashboard${appQualifierWithDot}`,
     supportsTablet: true,
+    infoPlist: {
+      ITSAppUsesNonExemptEncryption: false,
+    },
   },
   extra: {
     ...(projectId ? {
