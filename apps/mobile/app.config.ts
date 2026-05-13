@@ -6,12 +6,13 @@ const appQualifierWithDash = appQualifier ? `${appQualifier}-` : '';
 const appQualifierWithDot = appQualifier ? `.${appQualifier}` : '';
 const projectId = process.env.EXPO_PROJECT_ID || 'a0f24779-6c4b-41f6-831f-535f62a25b0a';
 const owner = process.env.EXPO_OWNER;
+const version = '1.0.0';
 
 const config: ExpoConfig = {
   name: `${appQualifierWithDash}Vibe Dashboard`,
   slug: 'vibe-dashboard',
   scheme: `vibedashboard${appQualifier}`,
-  version: '1.0.0',
+  version,
   orientation: 'portrait',
   userInterfaceStyle: 'automatic',
   assetBundlePatterns: ['**/*'],
@@ -44,5 +45,9 @@ const config: ExpoConfig = {
     policy: 'appVersion',
   },
 };
+
+if (process.env.EXPO_GITHUB_ACTIONS_RUN) {
+  config.runtimeVersion = version;
+}
 
 export default config;
