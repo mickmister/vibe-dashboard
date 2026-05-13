@@ -15,9 +15,9 @@ export function registerWorkflowRoutes(
   hono: Hono,
   options: RegisterWorkflowRoutesOptions,
 ): void {
-  hono.get('/api/workflows/health', (c) => c.json({ ok: true }));
+  hono.get('/dashboard/api/workflows/health', (c) => c.json({ ok: true }));
 
-  hono.get('/api/workflows', (c) => {
+  hono.get('/dashboard/api/workflows', (c) => {
     return c.json({
       workflows: options.registry.list().map((workflow) => ({
         id: workflow.id,
@@ -27,7 +27,7 @@ export function registerWorkflowRoutes(
   });
 
 
-  hono.post('/api/webhooks/github', async (c) => {
+  hono.post('/dashboard/api/webhooks/github', async (c) => {
     try {
       const event = c.req.header('X-GitHub-Event') || '';
       const payload = await readJsonBody(c.req.raw);
@@ -49,7 +49,7 @@ export function registerWorkflowRoutes(
     }
   });
 
-  hono.post('/api/workflows/:workflowId/run', async (c) => {
+  hono.post('/dashboard/api/workflows/:workflowId/run', async (c) => {
     const { workflowId } = c.req.param();
     try {
       const input = await readJsonBody(c.req.raw);

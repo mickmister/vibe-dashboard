@@ -14,8 +14,8 @@ describe('registerWorkflowRoutes', () => {
     const app = new Hono();
     registerWorkflowRoutes(app, { registry });
 
-    await expectJson(app, '/api/workflows/health', 200, { ok: true });
-    await expectJson(app, '/api/workflows', 200, {
+    await expectJson(app, '/dashboard/api/workflows/health', 200, { ok: true });
+    await expectJson(app, '/dashboard/api/workflows', 200, {
       workflows: [{ id: 'example', trigger: 'manual' }],
     });
   });
@@ -43,7 +43,7 @@ describe('registerWorkflowRoutes', () => {
       },
     });
 
-    const response = await app.request('/api/workflows/echo/run', {
+    const response = await app.request('/dashboard/api/workflows/echo/run', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ value: 'hello' }),
@@ -79,7 +79,7 @@ describe('registerWorkflowRoutes', () => {
       },
     });
 
-    const response = await app.request('/api/webhooks/github', {
+    const response = await app.request('/dashboard/api/webhooks/github', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -114,11 +114,11 @@ describe('registerWorkflowRoutes', () => {
     const app = new Hono();
     registerWorkflowRoutes(app, { registry });
 
-    const missing = await app.request('/api/workflows/missing/run', { method: 'POST' });
+    const missing = await app.request('/dashboard/api/workflows/missing/run', { method: 'POST' });
     expect(missing.status).toBe(404);
     await expect(missing.json()).resolves.toMatchObject({ error: 'Workflow not found: missing' });
 
-    const failed = await app.request('/api/workflows/fail/run', { method: 'POST' });
+    const failed = await app.request('/dashboard/api/workflows/fail/run', { method: 'POST' });
     expect(failed.status).toBe(500);
     await expect(failed.json()).resolves.toMatchObject({
       run: {
