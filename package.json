@@ -5,16 +5,17 @@
   "scripts": {
     "dev": "vite",
     "start": "node dist/node/node-entry.mjs",
-    "build": "npm run build:web && npm run build:node",
+    "build": "pnpm --filter @vibe-kanban/workflow-core build && npm run build:web && npm run build:node",
     "build:web": "SPRINGBOARD_PLATFORM=web vite build",
     "build:node": "SPRINGBOARD_PLATFORM=node vite build --outDir dist/node",
-    "check-types": "tsc --noEmit",
+    "check-types": "pnpm --filter @vibe-kanban/workflow-core check-types && tsc --noEmit",
     "storybook": "npm run build-storybook && npm run serve-storybook",
     "storybook:dev": "storybook dev -p $PORT",
     "build-storybook": "storybook build",
     "serve-storybook": "serve storybook-static -l $PORT",
     "test:workflow-core": "pnpm --filter @vibe-kanban/workflow-core test",
-    "check-types:workflow-core": "pnpm --filter @vibe-kanban/workflow-core check-types"
+    "check-types:workflow-core": "pnpm --filter @vibe-kanban/workflow-core check-types",
+    "test:server": "vitest run --config vitest.server.config.ts"
   },
   "dependencies": {
     "@vibe-kanban/workflow-core": "workspace:*",

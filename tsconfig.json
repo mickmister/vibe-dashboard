@@ -5,6 +5,10 @@
     "esModuleInterop": true,
     "moduleResolution": "bundler",
     "module": "es2020",
+    "baseUrl": ".",
+    "paths": {
+      "@vibe-kanban/workflow-core": ["packages/workflow-core/src/index.ts"]
+    },
 
     // File Layout
     // "rootDir": "./src",

@@ -17,6 +17,10 @@ springboard.registerSplashScreen(AppLoadingScreen);
 // @platform end
 
 import springboard from 'springboard';
+
+// @platform "node"
+import './modules/WorkflowServerModule';
+// @platform end
 import { createDefaultWorkspace } from './types';
 import type { WorkspaceState } from './types';
 
