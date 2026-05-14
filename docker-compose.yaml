@@ -8,6 +8,7 @@ services:
     #     VK_BRANCH: ${VK_BRANCH:-main}
     #     VK_COMMIT: ${VK_COMMIT:-}
     image: ghcr.io/mickmister/vk-vd:${VKVD_IMAGE_VERSION:-latest}
+    pull_policy: always
 
     network_mode: host
     mem_limit: ${DEV_CONTAINER_MEM_LIMIT:-14g}
