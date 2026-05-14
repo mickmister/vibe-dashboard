@@ -30,7 +30,9 @@ jobs:
     outputs:
       vk_branch: ${{ steps.resolve.outputs.vk_branch }}
       vk_commit: ${{ steps.resolve.outputs.vk_commit }}
+      vk_short_commit: ${{ steps.resolve.outputs.vk_short_commit }}
       vk_repo_url: ${{ steps.resolve.outputs.vk_repo_url }}
+      vd_short_commit: ${{ steps.resolve.outputs.vd_short_commit }}
     steps:
       - name: Resolve vibe-kanban ref to commit SHA
         id: resolve
@@ -48,13 +50,17 @@ jobs:
           git -C "$workdir" fetch --depth 1 origin "$VK_BRANCH_INPUT"
 
           vk_commit="$(git -C "$workdir" rev-parse FETCH_HEAD)"
+          vk_short_commit="$(git -C "$workdir" rev-parse --short=7 FETCH_HEAD)"
+          vd_short_commit="$(git rev-parse --short=7 "$GITHUB_SHA")"
 
           echo "Resolved $VK_BRANCH_INPUT to $vk_commit"
 
           {
             echo "vk_branch=$VK_BRANCH_INPUT"
             echo "vk_commit=$vk_commit"
+            echo "vk_short_commit=$vk_short_commit"
             echo "vk_repo_url=$VK_REPO_URL_INPUT"
+            echo "vd_short_commit=$vd_short_commit"
           } >> "$GITHUB_OUTPUT"
 
   publish:
@@ -79,9 +85,9 @@ jobs:
       sign: false
       meta-images: ghcr.io/${{ github.repository_owner }}/vk-vd
       meta-tags: |
-        type=raw,value=${{ github.event_name == 'workflow_dispatch' && inputs.image_tag || format('pr-{0}', github.event.pull_request.number) }}
-        type=raw,value=${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
-        type=raw,value=latest,enable=${{ github.event_name != 'pull_request' && github.ref_name == 'main' }}
+        type=raw,value=${{ inputs.image_tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
+        type=raw,value=vk-${{ needs.resolve-vk-ref.outputs.vk_short_commit }}-vd-${{ needs.resolve-vk-ref.outputs.vd_short_commit }}
+        type=raw,value=latest,enable=${{ github.ref_name == 'main' }}
     secrets:
       registry-auths: |
         - registry: ghcr.io
