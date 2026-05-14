@@ -1,10 +1,9 @@
 name: Publish VK/VD Image to GHCR
 
 on:
-  pull_request:
   push:
     branches:
-      - main
+      - '*'
   workflow_dispatch:
     inputs:
       image_tag:
@@ -60,7 +59,7 @@ jobs:
 
   publish:
     needs: resolve-vk-ref
-    uses: docker/github-builder/.github/workflows/build.yml@v1
+    uses: ./.github/workflows/docker-github-builder-build.yml
     permissions:
       contents: read
       packages: write
@@ -77,6 +76,7 @@ jobs:
         VK_REPO_URL=${{ needs.resolve-vk-ref.outputs.vk_repo_url }}
       cache: true
       cache-scope: vk-vd-multiarch
+      sign: false
       meta-images: ghcr.io/${{ github.repository_owner }}/vk-vd
       meta-tags: |
         type=raw,value=${{ github.event_name == 'workflow_dispatch' && inputs.image_tag || format('pr-{0}', github.event.pull_request.number) }}
