@@ -1,122 +1,45 @@
 # syntax=docker/dockerfile:1.6
 
 ARG VK_REPO_URL=https://github.com/BloopAI/vibe-kanban.git
-ARG VK_BRANCH=main
+ARG VK_BRANCH=vk/fe2b-vk-gh-actions-wo
 ARG VK_COMMIT=
 
-FROM alpine:3.19 AS repo-cloner
+FROM alpine:3.19 AS vk-runtime-downloader
 
-ARG VK_REPO_URL
 ARG VK_BRANCH
 ARG VK_COMMIT
+ARG TARGETARCH
 
-RUN apk add --no-cache git
+RUN apk add --no-cache curl jq tar
 
-WORKDIR /clone
-RUN test -n "${VK_COMMIT}" \
-    && git clone --depth 1 --branch "${VK_BRANCH}" "${VK_REPO_URL}" vibe-kanban \
-    && cd vibe-kanban \
-    && test "$(git rev-parse HEAD)" = "${VK_COMMIT}" \
-    && printf '%s@%s\n' "${VK_BRANCH}" "$(git rev-parse --short=12 HEAD)" > /clone/vk-build-version \
-    && printf '%s\n' "${VK_COMMIT}" > /clone/vk-resolved-commit \
-    && mkdir -p /tmp/vk-manifests/crates \
-    && cp Cargo.toml Cargo.lock rust-toolchain.toml /tmp/vk-manifests/ \
-    && sed -i \
-         -e '/"crates\/desktop-bridge",/d' \
-         -e '/"crates\/tauri-app",/d' \
-         /tmp/vk-manifests/Cargo.toml \
-    && find crates -mindepth 2 -maxdepth 2 -name Cargo.toml | while read -r manifest; do \
-         dir="/tmp/vk-manifests/$(dirname "$manifest")"; \
-         mkdir -p "$dir/src"; \
-         cp "$manifest" "$dir/"; \
-         : > "$dir/src/lib.rs"; \
-         : > "$dir/src/main.rs"; \
-       done \
-    && tar -C /tmp/vk-manifests -cf /clone/vk-manifests.tar .
-
-
-FROM node:24-alpine AS vk-fe-builder
-
-WORKDIR /app
-
-ENV PNPM_HOME=/pnpm
-ENV PATH=${PNPM_HOME}:${PATH}
-ENV NODE_OPTIONS=--max-old-space-size=4096
-
-RUN corepack enable
-RUN pnpm config set store-dir /pnpm/store
-
-COPY --from=repo-cloner /clone/vibe-kanban/pnpm-lock.yaml /clone/vibe-kanban/pnpm-workspace.yaml /clone/vibe-kanban/package.json ./
-COPY --from=repo-cloner /clone/vibe-kanban/patches/ patches/
-COPY --from=repo-cloner /clone/vibe-kanban/packages/local-web/package.json packages/local-web/package.json
-COPY --from=repo-cloner /clone/vibe-kanban/packages/ui/package.json packages/ui/package.json
-COPY --from=repo-cloner /clone/vibe-kanban/packages/web-core/package.json packages/web-core/package.json
-
-RUN --mount=type=cache,id=vk-pnpm-store,target=/pnpm/store \
-    pnpm fetch --frozen-lockfile
-
-RUN --mount=type=cache,id=vk-pnpm-store,target=/pnpm/store \
-    pnpm install --offline --frozen-lockfile
-
-COPY --from=repo-cloner /clone/vibe-kanban/packages/local-web/ packages/local-web/
-COPY --from=repo-cloner /clone/vibe-kanban/packages/public/ packages/public/
-COPY --from=repo-cloner /clone/vibe-kanban/packages/ui/ packages/ui/
-COPY --from=repo-cloner /clone/vibe-kanban/packages/web-core/ packages/web-core/
-COPY --from=repo-cloner /clone/vibe-kanban/shared/ shared/
-
-RUN pnpm -C packages/local-web build
-
-
-FROM rust:1.93-slim-bookworm AS vk-rust-chef
-
-ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
-ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
-ENV CARGO_TARGET_DIR=/app/target
-ENV RUSTFLAGS=-Clink-arg=-fuse-ld=lld
-
-WORKDIR /app
-
+WORKDIR /vk-release
 RUN set -eux; \
-    rm -rf /var/lib/apt/lists/*; \
-    apt-get clean; \
-    printf 'Acquire::http::Pipeline-Depth 0;\nAcquire::http::No-Cache true;\nAcquire::BrokenProxy true;\nAcquire::Retries 3;\n' > /etc/apt/apt.conf.d/99network-safe
-
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends \
-    build-essential \
-    ca-certificates \
-    git \
-    libclang-dev \
-    lld \
-    libssl-dev \
-    pkg-config \
-    cmake \
-  && rm -rf /var/lib/apt/lists/*
-
-COPY --from=repo-cloner /clone/vibe-kanban/rust-toolchain.toml ./
-RUN cargo --version >/dev/null
-
-RUN --mount=type=cache,id=vk-cargo-registry,target=/usr/local/cargo/registry \
-    --mount=type=cache,id=vk-cargo-git,target=/usr/local/cargo/git \
-    cargo install cargo-chef --locked
-
-
-FROM vk-rust-chef AS vk-rust-planner
-
-COPY --from=repo-cloner /clone/vk-manifests.tar /tmp/vk-manifests.tar
-RUN mkdir -p /app && tar -C /app -xf /tmp/vk-manifests.tar
-
-RUN cargo chef prepare --recipe-path recipe.json
-
-
-FROM vk-rust-chef AS vk-rust-cacher
-
-COPY --from=vk-rust-planner /app/recipe.json recipe.json
-
-RUN --mount=type=cache,id=vk-cargo-registry,target=/usr/local/cargo/registry \
-    --mount=type=cache,id=vk-cargo-git,target=/usr/local/cargo/git \
-    --mount=type=cache,id=vk-workspace-target,target=/app/target \
-    cargo chef cook --release --recipe-path recipe.json
+    test -n "${VK_COMMIT}"; \
+    case "${TARGETARCH}" in \
+      amd64) vk_platform="linux-x64" ;; \
+      arm64) vk_platform="linux-arm64" ;; \
+      *) echo "unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    release_tag="vk-assets-${VK_COMMIT}"; \
+    release_base_url="https://github.com/mickmister/vibe-kanban/releases/download/${release_tag}"; \
+    manifest_url="${release_base_url}/manifest.json"; \
+    curl -fsSL "${manifest_url}" -o manifest.json; \
+    test "$(jq -r '.schema_version' manifest.json)" = "1"; \
+    test "$(jq -r '.mode' manifest.json)" = "linux-container-runtime"; \
+    test "$(jq -r '.release_tag' manifest.json)" = "${release_tag}"; \
+    test "$(jq -r '.commit' manifest.json)" = "${VK_COMMIT}"; \
+    asset_file="$(jq -r --arg platform "${vk_platform}" '.platforms[$platform].assets["vibe-kanban"].file' manifest.json)"; \
+    asset_sha="$(jq -r --arg platform "${vk_platform}" '.platforms[$platform].assets["vibe-kanban"].sha256' manifest.json)"; \
+    test -n "${asset_file}" && test "${asset_file}" != "null"; \
+    test -n "${asset_sha}" && test "${asset_sha}" != "null"; \
+    curl -fsSL "${release_base_url}/${asset_file}" -o "${asset_file}"; \
+    curl -fsSL "${release_base_url}/${asset_file}.sha256" -o "${asset_file}.sha256"; \
+    grep -F "${asset_sha}" "${asset_file}.sha256"; \
+    printf '%s  %s\n' "${asset_sha}" "${asset_file}" | sha256sum -c -; \
+    mkdir -p /vk-runtime; \
+    tar -xzf "${asset_file}" -C /vk-runtime; \
+    test -x /vk-runtime/vibe-kanban; \
+    printf '%s@%s\n' "${VK_BRANCH}" "$(printf '%s' "${VK_COMMIT}" | cut -c1-12)" > /vk-build-version
 
 
 FROM node:22-bookworm AS dashboard-builder
@@ -143,24 +66,6 @@ RUN --mount=type=cache,id=vkvw-pnpm-store,target=/pnpm/store \
 COPY . .
 
 RUN npm rebuild better-sqlite3 && npm run build
-
-
-FROM vk-rust-chef AS vk-builder
-
-COPY --from=repo-cloner /clone/vibe-kanban/Cargo.toml /clone/vibe-kanban/Cargo.lock ./
-COPY --from=repo-cloner /clone/vibe-kanban/crates/ crates/
-COPY --from=repo-cloner /clone/vibe-kanban/assets/ assets/
-COPY --from=vk-fe-builder /app/packages/local-web/dist packages/local-web/dist
-
-# Bring the dependency build artifacts from the cache stage into this stage.
-# The cache mount also persists artifacts across rebuilds on the same builder.
-COPY --from=vk-rust-cacher /app/target /app/target
-
-RUN --mount=type=cache,id=vk-cargo-registry,target=/usr/local/cargo/registry \
-    --mount=type=cache,id=vk-cargo-git,target=/usr/local/cargo/git \
-    --mount=type=cache,id=vk-workspace-target,target=/app/target \
-    cargo build --locked --release --bin server \
- && cp /app/target/release/server /usr/local/bin/vibe-kanban
 
 FROM node:22-bookworm
 
@@ -400,8 +305,8 @@ RUN chown -R vkuser:vkuser /home/vkuser/.local/share/code-server
 # Configure git to use gh as credential helper (system-level, so users only need `gh auth login`)
 RUN git config --system credential.helper '!gh auth git-credential'
 
-COPY --from=vk-builder /usr/local/bin/vibe-kanban /usr/local/bin/vibe-kanban
-COPY --from=repo-cloner /clone/vk-build-version /usr/local/share/vibe-kanban-build-version
+COPY --from=vk-runtime-downloader /vk-runtime/vibe-kanban /usr/local/bin/vibe-kanban
+COPY --from=vk-runtime-downloader /vk-build-version /usr/local/share/vibe-kanban-build-version
 
 RUN chown -R vkuser:vkuser /home/vkuser/.local
 

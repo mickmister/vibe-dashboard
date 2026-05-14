@@ -158,8 +158,8 @@ Threshold detection uses `/proc/meminfo` and `ps` RSS data directly. `free -h` a
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `VK_REPO_URL` | `https://github.com/BloopAI/vibe-kanban.git` | Source repo used by local image build. |
-| `VK_BRANCH` | `v0.1.15-20260218201323` | Git branch/tag used by local image build. |
+| `VK_REPO_URL` | `https://github.com/mickmister/vibe-kanban.git` | Repo used only to resolve `VK_BRANCH`/tag/sha to a concrete VK commit before downloading release assets. |
+| `VK_BRANCH` | `vk/fe2b-vk-gh-actions-wo` | Git branch/tag/sha resolved to a VK commit, then mapped to release tag `vk-assets-<full_sha>`. |
 | `FEATURES` | empty | Optional feature flags passed at build time. |
 | `POSTHOG_API_KEY` | empty | Optional PostHog key passed at build time. |
 | `POSTHOG_API_ENDPOINT` | empty | Optional PostHog endpoint passed at build time. |
