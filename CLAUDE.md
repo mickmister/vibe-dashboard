@@ -1,38 +1,27 @@
-# vibe-kanban-vscode-web
+# Springboard Development Guide
 
-This is the main project directory for development and deployment. When working in the parent directory, **always focus on this project** and avoid making changes to sibling directories like `vibe-kanban` or `Vktest`.
+This application is built with the **Springboard framework**.
 
-## Project Overview
+## Getting Started
 
-vibe-kanban-vscode-web is a containerized development environment that provides:
+**Before writing any code, run:**
 
-- **code-server**: Web-based VS Code editor accessible via browser
-- **vibe-kanban**: Task management system for tracking work
-- **Caddy**: Reverse proxy and TLS termination
-- **Supervisor**: Process management to keep services running
-
-## Key Configuration
-
-### Code-Server Idle Timeout
-Code-server is configured with an idle timeout of 3600 seconds (1 hour) to automatically shut down unused sessions and prevent resource exhaustion. This is set in `supervisord.conf`:
-
-```
---idle-timeout-seconds=3600
+```bash
+npx sb docs context
 ```
 
-When idle for more than 1 hour, the code-server process will be terminated and automatically restarted by supervisor if needed.
+This outputs comprehensive framework information including available documentation
+sections, key concepts, and workflow guidance.
 
-## Files & Structure
+## Recommended Workflow
 
-- `supervisord.conf` - Process supervisor configuration (code-server, vibe-kanban, caddy, test-server)
-- `docker-compose.yaml` - Docker Compose configuration for local development
-- `Dockerfile` - Container image definition
-- `Caddyfile` - Caddy web server configuration
-- `backup-vibe-kanban-db.sh` - Database backup script
-- `default-settings.json` - Default code-server settings
-- `startup.html` - Startup page
-- `README.md` - Project documentation
+1. **Run `sb docs context`** at the start of your session
+2. **Write code** using your knowledge + the context from step 1
+3. **Fetch specific docs** only when needed: `sb docs get <section>`
+4. **View examples** for reference code: `sb docs examples show <name>`
 
-## Development
+## Other Useful Commands
 
-See `README.md` for setup and usage instructions.
+- `sb docs --help` - See all available commands
+- `sb docs types` - Get TypeScript type definitions
+- `sb docs examples list` - See available example modules

@@ -1,0 +1,132 @@
+{
+	admin off
+	auto_https off
+}
+
+:3030 {
+	
+	# Vibe Dashboard app
+	@vibe_dashboard_root {
+		path /dashboard
+	}
+
+	@vibe_dashboard_assets {
+		path /.springboard/*
+		path /node_modules/*
+		path /src/*
+		path /@vite/*
+		path /@id/*
+		path /@react-refresh
+		path /@fs/*
+		path /kv/*
+		path /rpc/*
+	}
+
+	@vibe_dashboard_ws {
+		path /ws
+	}
+
+	@vibe_dashboard_manifest {
+		path /manifest.json
+	}
+
+	# Wrapper app — root page (no folder= query)
+	handle @vibe_dashboard_root {
+		reverse_proxy localhost:55743 {
+			header_up Host {upstream_hostport}
+			header_up Upgrade {http.request.header.Upgrade}
+			header_up Connection {http.request.header.Connection}
+		}
+	}
+
+	# Wrapper app — static assets and API routes
+	handle @vibe_dashboard_assets {
+		reverse_proxy localhost:55743 {
+			header_up Host {upstream_hostport}
+			header_up Upgrade {http.request.header.Upgrade}
+			header_up Connection {http.request.header.Connection}
+		}
+	}
+
+	# Wrapper app — WebSocket
+	handle @vibe_dashboard_ws {
+		reverse_proxy localhost:55743 {
+			header_up Host {upstream_hostport}
+			header_up Upgrade {http.request.header.Upgrade}
+			header_up Connection {http.request.header.Connection}
+		}
+	}
+
+	# Wrapper app — PWA manifest
+	handle @vibe_dashboard_manifest {
+		reverse_proxy localhost:55743 {
+			header_up Host {upstream_hostport}
+		}
+	}
+
+	# Route to VSCode Server if URL has "folder" query parameter
+	@vscode_query {
+		query folder=*
+	}
+
+	# Route to VSCode Server for stable-* paths (VSCode assets)
+	@vscode_stable {
+		path /stable-*
+	}
+
+	# Route to VSCode Server for vscode-remote-resource paths
+	@vscode_remote {
+		path /vscode-remote-resource*
+	}
+
+	# VSCode Server - proxy to code-server on localhost:3008 (query param routing)
+	handle @vscode_query {
+		vk_rewrite
+		reverse_proxy localhost:3008 {
+			header_up Host {upstream_hostport}
+			# Handle WebSocket connections
+			header_up Upgrade {http.request.header.Upgrade}
+			header_up Connection {http.request.header.Connection}
+			header_up Accept-Encoding identity
+		}
+	}
+
+	# VSCode Server - proxy to code-server on localhost:3008 (stable-* asset routing)
+	handle @vscode_stable {
+		vk_rewrite
+		reverse_proxy localhost:3008 {
+			header_up Host {upstream_hostport}
+			header_up Accept-Encoding identity
+		}
+	}
+
+	# VSCode Server - proxy to code-server on localhost:3008 (vscode-remote-resource routing)
+	handle @vscode_remote {
+		vk_rewrite
+		reverse_proxy localhost:3008 {
+			header_up Host {upstream_hostport}
+			header_up Accept-Encoding identity
+		}
+	}
+
+	# Main application - proxy to vibe-kanban on localhost:3007 (fallback)
+	handle /* {
+		vk_rewrite
+		reverse_proxy localhost:3007 {
+			# Handle WebSocket connections for hot reload, etc.
+			header_up Upgrade {http.request.header.Upgrade}
+			header_up Connection {http.request.header.Connection}
+			header_up Accept-Encoding identity
+		}
+	}
+
+	# Enable logging for debugging
+	log {
+		output file /var/log/caddy/access.log {
+			roll_size 50MiB
+			roll_keep 3
+		}
+		format console
+		level INFO
+	}
+}

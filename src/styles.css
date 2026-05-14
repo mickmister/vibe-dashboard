@@ -1,0 +1,28 @@
+@import "tailwindcss";
+@plugin './hero.ts';
+@source '../node_modules/@heroui/theme/dist/**/*.{js,ts,jsx,tsx}';
+@custom-variant dark (&:is(.dark *));
+
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #0a0a0a;
+  color: #e5e5e5;
+}
+
+html {
+  color-scheme: dark;
+}
+
+/* Hide scrollbars in iframes container */
+.iframe-container::-webkit-scrollbar {
+  display: none;
+}
+
+.iframe-container {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}

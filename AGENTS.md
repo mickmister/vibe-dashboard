@@ -1,59 +1,124 @@
-# Agent Guidelines for vibe-kanban-vscode-web
+Keep the following info in mind *when working in the ./src directory only*
 
-## Primary Project Focus
+After making any changes, run `npm run check-types` to ensure types pass.
 
-When working in the parent directory (e.g. `/var/tmp/vibe-kanban/worktrees/d14f-make-code-server/`), ** vibe-kanban-vscode-web is the main project to focus on**. Avoid making changes to sibling directories unless explicitly instructed.
+This application is built with the **Springboard framework**. All code is assumed to be isomorphic by default. Optionally run `npx sb docs context` for more info.
 
-### Directory Structure
+Example module:
 
-Parent directory contains:
-- **vibe-kanban-vscode-web** ← **PRIMARY PROJECT** (this directory)
-- `vibe-kanban/` ← Application this repo integrates with
-- `Vktest/` ← Legacy naming of the directory
+```tsx
+import springboard from 'springboard';
 
-## Working on This Project
+type ExampleSharedState = {
+  version: 1;
+  items: [] as Array<{id: string; name: string}>;
+}
 
-### Key Services
+springboard.registerModule('ModuleName', {}, async (moduleAPI) => {
+  const sharedState = await moduleAPI.createStates({
+    
+    exampleSharedState: {
+        version: 1; // Later we can do `version: 1 | 2` and perform data migrations as needed
+        items: [],
+    } as ExampleSharedState,
+  });
 
-1. **code-server** (port 3008)
-   - Web-based VS Code editor
-   - Configured with 1-hour idle timeout for resource management
-   - Auto-restarts on failure via supervisor
+  const myClientState = await moduleAPI.createUserAgentState('mySettings', {theme: null} as {theme: string | null});
 
-2. **vibe-kanban** (port 3007)
-   - Task management system
-   - Runs database backups before startup
-   - Accessible through Caddy reverse proxy
+  const myServerActions = moduleAPI.createActions({
+    addItem: (args: {name: string}) => {
+      const newItem = {id: generateid(), name: args.name};
 
-3. **Caddy** (TLS & reverse proxy)
-   - Handles HTTPS termination
-   - Routes requests to services
+      sharedState.exampleSharedState.setStateImmer(state => {
+          state.push(newItem);
+      });
 
-4. **test-server** (port 50000)
-   - Local test server for port forwarding verification
+      // or
+      sharedState.exampleSharedState.setState(state => {
+          return [...state, newItem];
+      });
 
-### Development Workflow
+      const someOtherModule = moduleAPI.getModule('SomeOptionalModule');
+      someOtherModule?.actions.doSomething(); // Optional chaining, since module was registered as optional in its own type declaration. Good for modules that only exist on certain platform builds.
 
-1. Review `supervisord.conf` for process management configuration
-2. Check `docker-compose.yaml` for environment and port setup
-3. Modify services through supervisor configuration, not direct editing
-4. Database changes should be coordinated with backup scripts
+      return {data: newItem};
+    },
+  })
 
-### Configuration & Environment
+  // Register UI routes
+  moduleAPI.registerRoute('/', {}, (navigate) => {
+    const liveState = sharedState.useState();
 
-- Environment variables: `.env` (see `.env.example` for template)
-- Supervisor: `supervisord.conf`
-- Web server: `Caddyfile`
-- Code-server settings: `default-settings.json`
-- See `README.md` for setup and usage instructions.
+    return (
+      <div>
+        <button onClick={() => {
+          myServerActions.addItem({name: 'me'});
+        }}>
+          Submit
+        </button>
+      </div>
+    );
+  });
 
-### Important: Idle Timeout Management
+  // Return public API
+  return { sharedState, actions };
+});
 
-Code-server automatically shuts down after 1 hour of inactivity to conserve resources. If longer sessions are needed, adjust `--idle-timeout-seconds` in `supervisord.conf` under the `[program:code-server]` section.
+// Declare module return value for other files
+declare module 'springboard/module_registry/module_registry' {
+  interface AllModules {
+    ModuleName: {
+      sharedState: {
+        exampleSharedState: StateSupervisor<ExampleSharedState>;
+      };
+      actions: {
+         addItem: (args: {name: string}) => Promise<void>;
+      };
+    };
+  }
+}
+```
 
-## When Making Changes
+To access these values in another file
 
-- Always verify changes don't break process supervision
-- Test service startup/restart behavior after config modifications
-- Keep resource constraints in mind (idle timeout is for resource efficiency)
-- Document any environment variable changes in `.env.example`
+```tsx
+import {useModule} from '../hooks/useModule';
+
+const MyComponent = () => {
+  const myModule = useModule('ModuleName');
+  const liveState = myModule.sharedState.exampleSharedState.useState();
+
+  const doThing = async () => {
+    await myModule.actions.addItem({name: 'example'});
+  };
+};
+```
+
+If importing a node module in an action, you'll need to use conditional compilation. Springboard is written in a way so that actions *can* run on the client, but our application here is only deployed as a server-driven SPA, so all actions will run on the server in this app.
+
+```tsx
+const myActions = moduleAPI.createActions({
+  myAction: async () => {
+    // @platform "node"
+    const fs = await import ('fs');
+    // ...
+    // @platform end
+  },
+});
+
+// Or import a server only module
+
+// @platform "node"
+import './modules/MyServerOnlyModule';
+// @platform end
+
+// More rarely, you may want to remove code from the server build that only runs on the frontend. It's necessary sometimes.
+
+// @platform "browser"
+window.addEventListener('load', () => {
+
+});
+// @platform end
+```
+
+

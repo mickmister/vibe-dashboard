@@ -3,16 +3,30 @@
 	auto_https off
 }
 
-:3001 {
+:{$CADDY_PORT:3001} {
 	# Dynamic port forwarding via subdomain: port-<port_num>.* -> localhost:<port_num>
 	# This must be checked FIRST before other handlers
 	@port_forward header_regexp port Host ^port-([0-9]+)\.
 
 	handle @port_forward {
-		reverse_proxy 127.0.0.1:{re.port.1} {
-			header_up Host {upstream_hostport}
-			header_up Upgrade {http.request.header.Upgrade}
-			header_up Connection {http.request.header.Connection}
+		# /vk-api/* is proxied to main vibe-kanban instance (localhost:{$BACKEND_PORT:3007})
+		# with the prefix stripped so /vk-api/repos -> /api/repos on the backend
+		handle_path /vk-api/* {
+			rewrite * /api{uri}
+			reverse_proxy localhost:{$BACKEND_PORT:3007} {
+				header_up Host {http.request.host}
+			}
+		}
+
+		# Default port forwarding for everything else
+		handle {
+			vk_rewrite
+			reverse_proxy 127.0.0.1:{re.port.1} {
+				header_up Host {upstream_hostport}
+				header_up Upgrade {http.request.header.Upgrade}
+				header_up Connection {http.request.header.Connection}
+				header_up Accept-Encoding identity
+			}
 		}
 	}
 
@@ -31,6 +45,99 @@
 			respond "{err.status_code} {err.status_text}"
 		}
 	}
+
+	# Vibe Dashboard app
+	@vibe_dashboard_root {
+		path /
+		path /dashboard /dashboard/*
+		not query folder=*
+	}
+
+	@vibe_dashboard_assets {
+		path /.springboard/*
+		path /node_modules/*
+		path /src/*
+		path /@vite/*
+		path /@id/*
+		path /@react-refresh
+		path /@fs/*
+		path /kv/*
+		path /rpc/*
+		path /assets/*
+	}
+
+	# Hashed assets (e.g. /assets/index-B1rC7_Az.js) are content-addressed and safe to cache indefinitely
+	@hashed_assets {
+		path_regexp /assets/.+-[A-Za-z0-9_-]+\.(js|css|woff2?|png|jpg|svg|webp)$
+	}
+	header @hashed_assets Cache-Control "public, max-age=31536000, immutable"
+
+	@vibe_dashboard_ws {
+		path /ws
+	}
+
+	@vibe_dashboard_manifest {
+		path /manifest.json
+	}
+
+	# Wrapper app — root page (no folder= query)
+	handle @vibe_dashboard_root {
+		reverse_proxy localhost:{$DASHBOARD_PORT:3005} {
+			header_up Host {upstream_hostport}
+			header_up Upgrade {http.request.header.Upgrade}
+			header_up Connection {http.request.header.Connection}
+		}
+	}
+
+	# Wrapper app — static assets and API routes
+	handle @vibe_dashboard_assets {
+		# Proxy /assets to wrapper first; if missing there, fall back to vibe-kanban.
+		@asset_path path /assets/*
+		handle @asset_path {
+			vk_rewrite
+			reverse_proxy localhost:{$DASHBOARD_PORT:3005} {
+				header_up Host {upstream_hostport}
+				header_up Upgrade {http.request.header.Upgrade}
+				header_up Connection {http.request.header.Connection}
+				header_up Accept-Encoding identity
+
+				@wrapper_asset_error status 404 502
+				handle_response @wrapper_asset_error {
+					reverse_proxy localhost:{$BACKEND_PORT:3007} {
+						header_up Host {upstream_hostport}
+						header_up Upgrade {http.request.header.Upgrade}
+						header_up Connection {http.request.header.Connection}
+						header_up Accept-Encoding identity
+					}
+				}
+			}
+		}
+
+		handle {
+			reverse_proxy localhost:{$DASHBOARD_PORT:3005} {
+				header_up Host {upstream_hostport}
+				header_up Upgrade {http.request.header.Upgrade}
+				header_up Connection {http.request.header.Connection}
+			}
+		}
+	}
+
+	# Wrapper app — WebSocket
+	handle @vibe_dashboard_ws {
+		reverse_proxy localhost:{$DASHBOARD_PORT:3005} {
+			header_up Host {upstream_hostport}
+			header_up Upgrade {http.request.header.Upgrade}
+			header_up Connection {http.request.header.Connection}
+		}
+	}
+
+	# Wrapper app — PWA manifest
+	handle @vibe_dashboard_manifest {
+		reverse_proxy localhost:{$DASHBOARD_PORT:3005} {
+			header_up Host {upstream_hostport}
+		}
+	}
+
 	# Route to VSCode Server if URL has "folder" query parameter
 	@vscode_query {
 		query folder=*
@@ -46,45 +153,71 @@
 		path /vscode-remote-resource*
 	}
 
-	# VSCode Server - proxy to code-server on localhost:3008 (query param routing)
+	# VSCode Server - proxy to code-server on localhost:{$CODE_PORT:3008} (query param routing)
 	handle @vscode_query {
-		reverse_proxy localhost:3008 {
+		vk_rewrite
+		reverse_proxy localhost:{$CODE_PORT:3008} {
 			header_up Host {upstream_hostport}
 			# Handle WebSocket connections
 			header_up Upgrade {http.request.header.Upgrade}
 			header_up Connection {http.request.header.Connection}
+			header_up Accept-Encoding identity
 		}
 	}
 
-	# VSCode Server - proxy to code-server on localhost:3008 (stable-* asset routing)
+	# VSCode Server - proxy to code-server on localhost:{$CODE_PORT:3008} (stable-* asset routing)
 	handle @vscode_stable {
-		reverse_proxy localhost:3008 {
+		vk_rewrite
+		reverse_proxy localhost:{$CODE_PORT:3008} {
 			header_up Host {upstream_hostport}
+			header_up Accept-Encoding identity
 		}
 	}
 
-	# VSCode Server - proxy to code-server on localhost:3008 (vscode-remote-resource routing)
+	# VSCode Server - proxy to code-server on localhost:{$CODE_PORT:3008} (vscode-remote-resource routing)
 	handle @vscode_remote {
-		reverse_proxy localhost:3008 {
+		vk_rewrite
+		reverse_proxy localhost:{$CODE_PORT:3008} {
 			header_up Host {upstream_hostport}
+			header_up Accept-Encoding identity
 		}
 	}
 
-	# Main application - proxy to vibe-kanban on localhost:3007 (fallback)
-	handle /* {
-		# VK_SHARED_API_BASE now configured at runtime (PR #2769)
-		# No custom Caddy module needed
+	# VK API — strip /vk-api prefix and proxy to vibe-kanban backend as /api/*
+	handle_path /vk-api/* {
+		rewrite * /api{uri}
+		reverse_proxy localhost:{$BACKEND_PORT:3007} {
+			header_up Host {http.request.host}
+		}
+	}
 
-		reverse_proxy localhost:3007 {
+	# OpenClaw gateway (requires ENABLE_OPENCLAW=true)
+	handle_path /openclaw/* {
+		reverse_proxy localhost:18789 {
+			header_up Host {upstream_hostport}
+			header_up Upgrade {http.request.header.Upgrade}
+			header_up Connection {http.request.header.Connection}
+		}
+	}
+
+	# Main application - proxy to vibe-kanban on localhost:{$BACKEND_PORT:3007} (fallback)
+	handle /* {
+		# Rewrite iframe-busting JavaScript snippets in proxied frontend assets.
+		vk_rewrite
+		reverse_proxy localhost:{$BACKEND_PORT:3007} {
 			# Handle WebSocket connections for hot reload, etc.
 			header_up Upgrade {http.request.header.Upgrade}
 			header_up Connection {http.request.header.Connection}
+			header_up Accept-Encoding identity
 		}
 	}
 
 	# Enable logging for debugging
 	log {
-		output stdout
+		output file /var/log/caddy/access.log {
+			roll_size 50MiB
+			roll_keep 3
+		}
 		format console
 		level INFO
 	}

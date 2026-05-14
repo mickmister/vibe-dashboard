@@ -1,0 +1,14 @@
+.git
+.DS_Store
+
+node_modules
+
+_debug
+vibe-kanban-vscode-web-repro
+
+*.tar
+*.tar.gz
+*.zip
+
+tmp
+temp
