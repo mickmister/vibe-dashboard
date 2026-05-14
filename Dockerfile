@@ -1,3 +1,29 @@
+FROM node:22-bookworm AS dashboard-builder
+
+WORKDIR /app
+
+ENV PNPM_HOME=/pnpm
+ENV PATH=${PNPM_HOME}:${PATH}
+
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    python3 \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN corepack enable
+RUN pnpm config set store-dir /pnpm/store
+
+COPY package.json pnpm-lock.yaml .npmrc ./
+
+RUN --mount=type=cache,id=vkvw-pnpm-store,target=/pnpm/store \
+    pnpm install --frozen-lockfile
+
+COPY . .
+
+RUN npm rebuild better-sqlite3 && npm run build
+
+
 FROM node:22-bookworm
 
 # Harden APT against flaky proxy/cache behavior (helps prevent Hash Sum mismatch on macOS VM networking).
@@ -216,9 +242,20 @@ RUN chmod +x /usr/local/bin/backup-vibe-kanban-db.sh
 COPY . /opt/vibe-kanban-vscode-web-seed
 RUN chown -R vkuser:vkuser /opt/vibe-kanban-vscode-web-seed
 
+# Copy packaged vibe-dashboard runtime artifacts
+RUN mkdir -p /opt/vibe-dashboard-package-seed
+COPY --from=dashboard-builder /app/package.json /opt/vibe-dashboard-package-seed/package.json
+COPY --from=dashboard-builder /app/node_modules /opt/vibe-dashboard-package-seed/node_modules
+COPY --from=dashboard-builder /app/dist /opt/vibe-dashboard-package-seed/dist
+
 # Copy entrypoint script that fixes docker group GID at runtime
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+# Copy startup scripts
+COPY scripts/run-vibe-dashboard.sh /usr/local/bin/run-vibe-dashboard.sh
+COPY scripts/sync-seeded-repo.sh /usr/local/bin/sync-seeded-repo.sh
+RUN chmod +x /usr/local/bin/run-vibe-dashboard.sh /usr/local/bin/sync-seeded-repo.sh
 
 # Copy default VS Code settings
 RUN mkdir -p /home/vkuser/.local/share/code-server/User

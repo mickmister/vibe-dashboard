@@ -9,7 +9,7 @@ on:
         required: true
         default: latest
       vk_branch:
-        description: vibe-kanban git branch or tag to build from
+        description: vibe-kanban git branch, tag, or sha to build from
         required: true
         default: vk/ed5f-vk-debug-memory
       vk_repo_url:
@@ -23,7 +23,40 @@ permissions:
   id-token: write
 
 jobs:
+  resolve-vk-ref:
+    runs-on: ubuntu-latest
+    outputs:
+      vk_branch: ${{ steps.resolve.outputs.vk_branch }}
+      vk_commit: ${{ steps.resolve.outputs.vk_commit }}
+      vk_repo_url: ${{ steps.resolve.outputs.vk_repo_url }}
+    steps:
+      - name: Resolve vibe-kanban ref to commit SHA
+        id: resolve
+        env:
+          VK_BRANCH_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.vk_branch || 'vk/ed5f-vk-debug-memory' }}
+          VK_REPO_URL_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.vk_repo_url || 'https://github.com/mickmister/vibe-kanban.git' }}
+        run: |
+          set -euo pipefail
+
+          workdir="$(mktemp -d)"
+          trap 'rm -rf "$workdir"' EXIT
+
+          git -C "$workdir" init --quiet
+          git -C "$workdir" remote add origin "$VK_REPO_URL_INPUT"
+          git -C "$workdir" fetch --depth 1 origin "$VK_BRANCH_INPUT"
+
+          vk_commit="$(git -C "$workdir" rev-parse FETCH_HEAD)"
+
+          echo "Resolved $VK_BRANCH_INPUT to $vk_commit"
+
+          {
+            echo "vk_branch=$VK_BRANCH_INPUT"
+            echo "vk_commit=$vk_commit"
+            echo "vk_repo_url=$VK_REPO_URL_INPUT"
+          } >> "$GITHUB_OUTPUT"
+
   publish:
+    needs: resolve-vk-ref
     uses: docker/github-builder/.github/workflows/build.yml@v1
     permissions:
       contents: read
@@ -36,8 +69,9 @@ jobs:
       file: ./Dockerfile.vkvd
       platforms: linux/amd64,linux/arm64
       build-args: |
-        VK_BRANCH=${{ github.event_name == 'workflow_dispatch' && inputs.vk_branch || 'vk/ed5f-vk-debug-memory' }}
-        VK_REPO_URL=${{ github.event_name == 'workflow_dispatch' && inputs.vk_repo_url || 'https://github.com/mickmister/vibe-kanban.git' }}
+        VK_BRANCH=${{ needs.resolve-vk-ref.outputs.vk_branch }}
+        VK_COMMIT=${{ needs.resolve-vk-ref.outputs.vk_commit }}
+        VK_REPO_URL=${{ needs.resolve-vk-ref.outputs.vk_repo_url }}
       cache: true
       cache-scope: vk-vd-multiarch
       meta-images: ghcr.io/${{ github.repository_owner }}/vk-vd

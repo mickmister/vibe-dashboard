@@ -30,21 +30,12 @@ if [ -S /var/run/docker.sock ]; then
 fi
 
 # Initialize vibe-kanban-vscode-web repository in repos volume
-REPO_DIR=/home/vkuser/repos/vibe-kanban-vscode-web
-if [ ! -d "$REPO_DIR/.git" ]; then
-    echo "Initializing vibe-kanban-vscode-web repository from build context"
-    mkdir -p "$REPO_DIR"
+/usr/local/bin/sync-seeded-repo.sh || true
+chown -R vkuser:vkuser /home/vkuser/repos/vibe-kanban-vscode-web 2>/dev/null || true
 
-    # Copy project files from a staging location (added during build)
-    if [ -d /opt/vibe-kanban-vscode-web-seed ]; then
-        echo "Copying project files to $REPO_DIR"
-        cp -r /opt/vibe-kanban-vscode-web-seed/. "$REPO_DIR/"
-        chown -R vkuser:vkuser "$REPO_DIR"
-    else
-        echo "Warning: /opt/vibe-kanban-vscode-web-seed not found, creating empty directory"
-        chown vkuser:vkuser "$REPO_DIR"
-    fi
-fi
+# Ensure the packaged vibe-dashboard runtime directory exists before supervisord starts
+mkdir -p /home/vkuser/repos/.vibe-dashboard-runtime
+chown -R vkuser:vkuser /home/vkuser/repos/.vibe-dashboard-runtime 2>/dev/null || true
 
 # Persist ~/.claude.json via the claude-data volume (which mounts ~/.claude/)
 # We restore from the volume on startup. A background sync loop copies changes
