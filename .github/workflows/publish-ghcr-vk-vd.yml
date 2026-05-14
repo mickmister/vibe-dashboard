@@ -61,7 +61,7 @@ jobs:
 
   publish:
     needs: resolve-vk-ref
-    uses: docker/github-builder/.github/workflows/build.yml@v1
+    uses: ./.github/workflows/docker-github-builder-build.yml
     permissions:
       contents: read
       packages: write
