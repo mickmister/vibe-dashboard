@@ -78,7 +78,7 @@ jobs:
       meta-tags: |
         type=raw,value=${{ github.event_name == 'workflow_dispatch' && inputs.image_tag || format('pr-{0}', github.event.pull_request.number) }}
         type=raw,value=${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
-        type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' }}
+        type=raw,value=latest,enable=${{ github.event_name != 'pull_request' && github.ref_name == 'main' }}
     secrets:
       registry-auths: |
         - registry: ghcr.io
