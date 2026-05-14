@@ -2,6 +2,7 @@
   "name": "vibe-kanban-vscode-web",
   "version": "1.0.0",
   "type": "module",
+  "packageManager": "pnpm@10.13.1",
   "scripts": {
     "dev": "vite",
     "start": "node dist/node/node-entry.mjs",
