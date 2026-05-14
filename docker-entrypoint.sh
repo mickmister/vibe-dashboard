@@ -34,7 +34,7 @@ fi
 chown -R vkuser:vkuser /home/vkuser/repos/vibe-kanban-vscode-web 2>/dev/null || true
 
 # Ensure the packaged vibe-dashboard runtime directory exists before supervisord starts
-mkdir -p /home/vkuser/.local/share/vibe-dashboard-runtime/data
+mkdir -p /home/vkuser/.local/share/vibe-dashboard-runtime
 chown -R vkuser:vkuser /home/vkuser/.local/share/vibe-dashboard-runtime 2>/dev/null || true
 
 # Persist ~/.claude.json via the claude-data volume (which mounts ~/.claude/)
