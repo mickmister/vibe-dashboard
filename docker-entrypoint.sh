@@ -33,6 +33,10 @@ fi
 /usr/local/bin/sync-seeded-repo.sh || true
 chown -R vkuser:vkuser /home/vkuser/repos/vibe-kanban-vscode-web 2>/dev/null || true
 
+# Ensure the packaged vibe-dashboard runtime directory exists before supervisord starts
+mkdir -p /home/vkuser/repos/.vibe-dashboard-runtime
+chown -R vkuser:vkuser /home/vkuser/repos/.vibe-dashboard-runtime 2>/dev/null || true
+
 # Persist ~/.claude.json via the claude-data volume (which mounts ~/.claude/)
 # We restore from the volume on startup. A background sync loop copies changes
 # back into the volume so they survive container recreation.
