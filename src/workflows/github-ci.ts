@@ -36,6 +36,7 @@ export type NormalizedGitHubCiEvent = GitHubCiFailureEvent | IgnoredGitHubCiEven
 
 export type GitHubCiWorkflowOutput =
   | { outcome: 'ignored'; reason: IgnoredGitHubCiEvent['reason'] }
+  | { outcome: 'duplicate_commit_failure'; repoFullName: string; branch: string; sha: string }
   | { outcome: 'no_matching_workspace'; repoFullName: string; branch: string }
   | { outcome: 'no_sessions'; workspaceId: string; repoFullName: string; branch: string }
   | {
@@ -75,6 +76,8 @@ const FAILURE_CONCLUSIONS = new Set([
 export function createGitHubCiFailureWorkflow(
   options: CreateGitHubCiFailureWorkflowOptions,
 ): WorkflowDefinition<GitHubCiWorkflowInput, GitHubCiWorkflowOutput> {
+  const notifiedFailureShas = new Set<string>();
+
   return {
     id: 'github-ci-failure',
     trigger: 'github.workflow_run',
@@ -92,12 +95,29 @@ export function createGitHubCiFailureWorkflow(
         normalized,
       );
 
+      if (notifiedFailureShas.has(normalized.sha)) {
+        ctx.log(
+          'dedupe_commit',
+          `Already sent a CI failure prompt for commit ${normalized.sha}`,
+          'info',
+          normalized,
+        );
+        return {
+          outcome: 'duplicate_commit_failure',
+          repoFullName: normalized.repoFullName,
+          branch: normalized.branch,
+          sha: normalized.sha,
+        };
+      }
+      notifiedFailureShas.add(normalized.sha);
+
       const match = await findMatchingWorkspace(
         options.vkClient,
         normalized,
         input.repoAliases ?? [],
       );
       if (!match) {
+        notifiedFailureShas.delete(normalized.sha);
         ctx.log(
           'match_workspace',
           `No VK workspace matched ${normalized.repoFullName} branch ${normalized.branch}`,
@@ -120,6 +140,7 @@ export function createGitHubCiFailureWorkflow(
       const sessions = await options.vkClient.getSessions(match.workspace.id);
       const session = selectLatestSession(sessions);
       if (!session) {
+        notifiedFailureShas.delete(normalized.sha);
         ctx.log(
           'select_session',
           `No sessions found for matched VK workspace ${match.workspace.id}`,
@@ -136,7 +157,13 @@ export function createGitHubCiFailureWorkflow(
       ctx.log('select_session', `Selected latest VK session ${session.id}`);
 
       const prompt = formatGitHubCiFailurePrompt(normalized);
-      const process = await options.vkClient.sendFollowUp(session.id, prompt);
+      let process: ExecutionProcess;
+      try {
+        process = await options.vkClient.sendFollowUp(session.id, prompt);
+      } catch (error) {
+        notifiedFailureShas.delete(normalized.sha);
+        throw error;
+      }
       ctx.log('send_follow_up', `Sent CI failure prompt to session ${session.id}`, 'info', {
         executionProcessId: process.id,
       });

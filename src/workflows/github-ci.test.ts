@@ -96,6 +96,34 @@ describe('GitHub CI failure workflow', () => {
     ]);
   });
 
+  it('drops later CI failures for the same commit after sending the first prompt', async () => {
+    const vk = createFakeVkClient();
+    const workflow = createGitHubCiFailureWorkflow({ vkClient: vk });
+    const registry = workflowRegistry(workflow);
+
+    const firstResult = await runWorkflow(registry, workflow.id, {
+      event: 'workflow_run',
+      payload: workflowRunPayload({ conclusion: 'failure', workflowName: 'Check Types' }),
+    });
+    const duplicateResult = await runWorkflow(registry, workflow.id, {
+      event: 'workflow_run',
+      payload: workflowRunPayload({ conclusion: 'failure', workflowName: 'Build' }),
+    });
+
+    expect(firstResult.output).toMatchObject({ outcome: 'message_sent' });
+    expect(duplicateResult.output).toMatchObject({
+      outcome: 'duplicate_commit_failure',
+      repoFullName: 'owner/repo',
+      branch: 'feature/ci-break',
+      sha: 'abc123',
+    });
+    expect(vk.sendFollowUp).toHaveBeenCalledOnce();
+    expect(duplicateResult.logs.map((entry) => entry.stepId)).toEqual([
+      'normalize',
+      'dedupe_commit',
+    ]);
+  });
+
   it('skips and logs when no matching workspace exists', async () => {
     const vk = createFakeVkClient({ noMatchingWorkspace: true });
     const workflow = createGitHubCiFailureWorkflow({ vkClient: vk });
@@ -196,12 +224,12 @@ function createFakeVkClient(
   return client;
 }
 
-function workflowRunPayload(args: { status?: string; conclusion: string | null }) {
+function workflowRunPayload(args: { status?: string; conclusion: string | null; workflowName?: string }) {
   return {
     repository: { full_name: 'owner/repo' },
     workflow_run: {
       id: 123,
-      name: 'CI',
+      name: args.workflowName ?? 'CI',
       status: args.status ?? 'completed',
       conclusion: args.conclusion,
       head_branch: 'feature/ci-break',
