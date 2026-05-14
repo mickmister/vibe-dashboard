@@ -6,11 +6,18 @@ import {
   type WorkflowRegistry,
 } from '@vibe-kanban/workflow-core';
 import { verifyGitHubWebhookSignature } from './github-signature';
+import type { CachedRepoAlias } from '../workflows/github-ci';
 
 export interface RegisterWorkflowRoutesOptions {
   registry: WorkflowRegistry;
   runOptions?: RunWorkflowOptions;
   githubWebhookSecret?: string;
+  repoAliasCache?: RepoAliasCache;
+}
+
+export interface RepoAliasCache {
+  get: () => CachedRepoAlias[] | Promise<CachedRepoAlias[]>;
+  set: (repos: CachedRepoAlias[]) => void | Promise<void>;
 }
 
 export function registerWorkflowRoutes(
@@ -52,7 +59,11 @@ export function registerWorkflowRoutes(
       const run = await runWorkflow(
         options.registry,
         'github-ci-failure',
-        { event, payload },
+        {
+          event,
+          payload,
+          repoAliases: await getCachedRepoAliases(options.repoAliasCache),
+        },
         options.runOptions,
       );
       const outcome = getRunOutcome(run.output);
@@ -131,4 +142,24 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 function asString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
+}
+
+async function getCachedRepoAliases(
+  cache: RepoAliasCache | undefined,
+): Promise<CachedRepoAlias[]> {
+  if (!cache) return [];
+  try {
+    const repos = await cache.get();
+    return repos.map(normalizeCachedRepoAlias);
+  } catch (error) {
+    console.warn('Failed to read Git repo alias cache', error);
+    return [];
+  }
+}
+
+function normalizeCachedRepoAlias(repo: CachedRepoAlias): CachedRepoAlias {
+  return {
+    name: repo.name,
+    aliases: [...new Set(repo.aliases)],
+  };
 }

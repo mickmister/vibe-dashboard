@@ -10,6 +10,7 @@ import {
 export interface GitHubCiWorkflowInput {
   event: string;
   payload: unknown;
+  repoAliases?: CachedRepoAlias[];
 }
 
 export interface GitHubCiFailureEvent {
@@ -57,6 +58,11 @@ export interface CreateGitHubCiFailureWorkflowOptions {
   vkClient: GitHubCiVkClient;
 }
 
+export interface CachedRepoAlias {
+  name: string;
+  aliases: string[];
+}
+
 const FAILURE_CONCLUSIONS = new Set([
   'failure',
   'timed_out',
@@ -86,7 +92,11 @@ export function createGitHubCiFailureWorkflow(
         normalized,
       );
 
-      const match = await findMatchingWorkspace(options.vkClient, normalized);
+      const match = await findMatchingWorkspace(
+        options.vkClient,
+        normalized,
+        input.repoAliases ?? [],
+      );
       if (!match) {
         ctx.log(
           'match_workspace',
@@ -207,12 +217,13 @@ export function formatGitHubCiFailurePrompt(event: GitHubCiFailureEvent): string
 async function findMatchingWorkspace(
   vkClient: GitHubCiVkClient,
   event: GitHubCiFailureEvent,
+  repoAliases: CachedRepoAlias[],
 ): Promise<{ workspace: Workspace; repos: RepoWithBranch[] } | null> {
   const workspaces = (await vkClient.getWorkspaces()).filter((workspace) => !workspace.archived);
 
   for (const workspace of workspaces) {
     const repos = await vkClient.getWorkspaceRepos(workspace.id);
-    if (workspaceMatchesCiEvent(workspace, repos, event)) {
+    if (workspaceMatchesCiEvent(workspace, repos, event, repoAliases)) {
       return { workspace, repos };
     }
   }
@@ -224,21 +235,39 @@ function workspaceMatchesCiEvent(
   workspace: Workspace,
   repos: RepoWithBranch[],
   event: GitHubCiFailureEvent,
+  repoAliases: CachedRepoAlias[],
 ): boolean {
   const branchMatches = workspace.branch === event.branch || repos.some((repo) => repo.target_branch === event.branch);
   if (!branchMatches) return false;
 
   const targetRepo = normalizeRepoName(event.repoFullName);
   return repos.some((repo) => {
-    return (
-      normalizeRepoName(repo.name) === targetRepo ||
-      normalizeRepoName(repo.display_name) === targetRepo
-    );
+    return getRepoLookupNames(repo, repoAliases).some((name) => name === targetRepo);
   });
 }
 
 function normalizeRepoName(value: string): string {
-  return value.trim().toLowerCase().replace(/^https:\/\/github\.com\//, '').replace(/\.git$/, '');
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/^https:\/\/github\.com\//, '')
+    .replace(/^git@github\.com:/, '')
+    .replace(/\.git$/, '');
+}
+
+function getRepoLookupNames(
+  repo: RepoWithBranch,
+  repoAliases: CachedRepoAlias[],
+): string[] {
+  const repoNames = [
+    normalizeRepoName(repo.name),
+    normalizeRepoName(repo.display_name),
+  ];
+  const aliases = repoAliases
+    .filter((cachedRepo) => repoNames.includes(normalizeRepoName(cachedRepo.name)))
+    .flatMap((cachedRepo) => cachedRepo.aliases.map(normalizeRepoName));
+
+  return [...new Set([...repoNames, ...aliases])];
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

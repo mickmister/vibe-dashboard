@@ -81,6 +81,10 @@ describe('registerWorkflowRoutes', () => {
     registerWorkflowRoutes(app, {
       registry,
       githubWebhookSecret: 'secret',
+      repoAliasCache: {
+        get: () => [{ name: 'local-repo', aliases: ['owner/repo'] }],
+        set: () => {},
+      },
       runOptions: {
         createRunId: () => 'run_webhook',
         now: () => 50,
@@ -111,6 +115,7 @@ describe('registerWorkflowRoutes', () => {
           input: {
             event: 'workflow_run',
             payload: { workflow_run: { conclusion: 'failure' } },
+            repoAliases: [{ name: 'local-repo', aliases: ['owner/repo'] }],
           },
         },
       },

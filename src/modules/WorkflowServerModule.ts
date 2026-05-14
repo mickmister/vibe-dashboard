@@ -2,12 +2,20 @@ import { serverRegistry } from 'springboard/server/register';
 import { registerWorkflowRoutes } from '../server/workflow-routes';
 import { workflowRegistry } from '../workflows/registry';
 import springboard from 'springboard';
-import { StateSupervisor } from 'springboard/core';
+import type { StateSupervisor } from 'springboard/core';
 
 serverRegistry.registerServerModule((api) => {
   const getCachedGitRepos = () => api.getEngine().moduleRegistry.getModule('GitRepos').states.cachedRepos.getState();
-  const setCachedGitRepos = (repos: CachedRepo[]) => api.getEngine().moduleRegistry.getModule('GitRepos').states.cachedRepos.setState(repos);
-  registerWorkflowRoutes(api.hono, { registry: workflowRegistry });
+  const setCachedGitRepos = (repos: CachedRepo[]) => {
+    api.getEngine().moduleRegistry.getModule('GitRepos').states.cachedRepos.setState(repos);
+  };
+  registerWorkflowRoutes(api.hono, {
+    registry: workflowRegistry,
+    repoAliasCache: {
+      get: getCachedGitRepos,
+      set: setCachedGitRepos,
+    },
+  });
 });
 
 springboard.registerModule('GitRepos', {}, async (moduleAPI) => {

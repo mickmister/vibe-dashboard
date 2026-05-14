@@ -110,6 +110,28 @@ describe('GitHub CI failure workflow', () => {
     expect(result.logs.at(-1)).toMatchObject({ stepId: 'match_workspace', level: 'warn' });
   });
 
+  it('matches a renamed GitHub repo using cached local repo aliases', async () => {
+    const vk = createFakeVkClient({ localRepoNameOnly: true });
+    const workflow = createGitHubCiFailureWorkflow({ vkClient: vk });
+
+    const result = await runWorkflow(workflowRegistry(workflow), workflow.id, {
+      event: 'workflow_run',
+      payload: workflowRunPayload({ conclusion: 'failure' }),
+      repoAliases: [
+        {
+          name: 'local-repo-name',
+          aliases: ['https://github.com/owner/repo.git'],
+        },
+      ],
+    });
+
+    expect(result.output).toMatchObject({
+      outcome: 'message_sent',
+      workspaceId: 'ws-new',
+    });
+    expect(vk.sendFollowUp).toHaveBeenCalledOnce();
+  });
+
   it('skips and logs when matching workspace has no sessions', async () => {
     const vk = createFakeVkClient({ noSessions: true });
     const workflow = createGitHubCiFailureWorkflow({ vkClient: vk });
@@ -144,7 +166,13 @@ function workflowRegistry(workflow: ReturnType<typeof createGitHubCiFailureWorkf
   return registry;
 }
 
-function createFakeVkClient(options: { noMatchingWorkspace?: boolean; noSessions?: boolean } = {}) {
+function createFakeVkClient(
+  options: {
+    noMatchingWorkspace?: boolean;
+    noSessions?: boolean;
+    localRepoNameOnly?: boolean;
+  } = {},
+) {
   const client = {
     getWorkspaces: vi.fn<GitHubCiVkClient['getWorkspaces']>(async () => [
       { id: 'ws-old', branch: 'other', archived: false, name: 'Other', task_id: 'task-old', container_ref: null, agent_working_dir: null, pinned: false, created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' },
@@ -152,6 +180,9 @@ function createFakeVkClient(options: { noMatchingWorkspace?: boolean; noSessions
     ]),
     getWorkspaceRepos: vi.fn<GitHubCiVkClient['getWorkspaceRepos']>(async (workspaceId: string) => {
       if (workspaceId === 'ws-new' && !options.noMatchingWorkspace) {
+        if (options.localRepoNameOnly) {
+          return [{ id: 'repo1', name: 'local-repo-name', display_name: 'Local Repo Name', target_branch: 'feature/ci-break' }];
+        }
         return [{ id: 'repo1', name: 'owner/repo', display_name: 'owner/repo', target_branch: 'feature/ci-break' }];
       }
       return [{ id: 'repo2', name: 'other/repo', display_name: 'other/repo', target_branch: 'other' }];
