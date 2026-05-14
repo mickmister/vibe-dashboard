@@ -11,7 +11,7 @@ on:
       vk_branch:
         description: vibe-kanban git branch, tag, or sha to build from
         required: true
-        default: vk/fe2b-vk-gh-actions-wo
+        default: main
       vk_repo_url:
         description: vibe-kanban git repository URL to clone
         required: true
@@ -33,7 +33,7 @@ jobs:
       - name: Resolve vibe-kanban ref to commit SHA
         id: resolve
         env:
-          VK_BRANCH_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.vk_branch || 'vk/fe2b-vk-gh-actions-wo' }}
+          VK_BRANCH_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.vk_branch || 'main' }}
           VK_REPO_URL_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.vk_repo_url || 'https://github.com/mickmister/vibe-kanban.git' }}
         run: |
           set -euo pipefail

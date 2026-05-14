@@ -5,7 +5,8 @@ services:
     #   dockerfile: Dockerfile.vkvd
     #   args:
     #     VK_REPO_URL: ${VK_REPO_URL:-https://github.com/mickmister/vibe-kanban.git}
-    #     VK_BRANCH: ${VK_BRANCH:-vk/ed5f-vk-debug-memory}
+    #     VK_BRANCH: ${VK_BRANCH:-main}
+    #     VK_COMMIT: ${VK_COMMIT:-}
     image: ghcr.io/mickmister/vk-vd:${VKVD_IMAGE_VERSION:-latest}
 
     network_mode: host

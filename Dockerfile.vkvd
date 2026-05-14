@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.6
 
-ARG VK_REPO_URL=https://github.com/BloopAI/vibe-kanban.git
-ARG VK_BRANCH=vk/fe2b-vk-gh-actions-wo
+ARG VK_REPO_URL=https://github.com/mickmister/vibe-kanban.git
+ARG VK_BRANCH=main
 ARG VK_COMMIT=
 
 FROM alpine:3.19 AS vk-runtime-downloader
