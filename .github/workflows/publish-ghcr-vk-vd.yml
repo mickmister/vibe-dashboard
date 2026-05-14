@@ -78,7 +78,6 @@ jobs:
         VK_REPO_URL=${{ needs.resolve-vk-ref.outputs.vk_repo_url }}
       cache: true
       cache-scope: vk-vd-multiarch
-      provenance: false
       sign: false
       meta-images: ghcr.io/${{ github.repository_owner }}/vk-vd
       meta-tags: |
