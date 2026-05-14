@@ -56,8 +56,8 @@ describe('formatGitHubCiFailurePrompt', () => {
     expect(prompt).toContain('owner/repo');
     expect(prompt).toContain('feature/ci-break');
     expect(prompt).toContain('https://github.com/owner/repo/actions/runs/123');
-    expect(prompt).toContain('Fix only the CI failure');
-    expect(prompt).toContain('Do not merge');
+    expect(prompt).toContain('Run relevant local checks if applicable');
+    expect(prompt).toContain('Make sure to push your change after fixing');
   });
 });
 

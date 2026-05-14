@@ -208,9 +208,8 @@ export function formatGitHubCiFailurePrompt(event: GitHubCiFailureEvent): string
     'Please inspect the failed run and make the minimal fix needed to restore CI.',
     '',
     'Rules:',
-    '- Fix only the CI failure. Avoid unrelated refactors or scope creep.',
-    '- Run the relevant local checks before finalizing.',
-    '- Do not merge, close, or approve the PR.',
+    '- Run relevant local checks if applicable. If you can’t in this environment that’s fine.',
+    '- Make sure to push your change after fixing.',
   ].join('\n');
 }
 
