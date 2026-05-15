@@ -3,6 +3,8 @@ import { createWorkflowRegistry, runWorkflow } from '@vibe-kanban/workflow-core'
 import {
   createGitHubCiFailureWorkflow,
   formatGitHubCiFailurePrompt,
+  formatGitHubCiSuccessPrompt,
+  normalizeGitHubCiEvent,
   normalizeGitHubCiFailureEvent,
   type GitHubCiFailureEvent,
   type GitHubCiVkClient,
@@ -33,6 +35,10 @@ describe('normalizeGitHubCiFailureEvent', () => {
       event: 'workflow_run',
       payload: workflowRunPayload({ conclusion: 'success' }),
     })).toMatchObject({ kind: 'ignored', reason: 'non_failure_conclusion' });
+    expect(normalizeGitHubCiEvent({
+      event: 'workflow_run',
+      payload: workflowRunPayload({ conclusion: 'success' }),
+    })).toMatchObject({ kind: 'ci_success', repoFullName: 'owner/repo' });
     expect(normalizeGitHubCiFailureEvent({
       event: 'workflow_run',
       payload: workflowRunPayload({ status: 'in_progress', conclusion: null }),
@@ -58,6 +64,26 @@ describe('formatGitHubCiFailurePrompt', () => {
     expect(prompt).toContain('https://github.com/owner/repo/actions/runs/123');
     expect(prompt).toContain('Run relevant local checks if applicable');
     expect(prompt).toContain('Make sure to push your change after fixing');
+  });
+});
+
+
+describe('formatGitHubCiSuccessPrompt', () => {
+  it('creates a congratulatory CI green prompt', () => {
+    const prompt = formatGitHubCiSuccessPrompt({
+      kind: 'ci_success',
+      repoFullName: 'owner/repo',
+      branch: 'feature/ci-break',
+      sha: 'abc123',
+      workflowName: 'CI',
+      conclusion: 'success',
+      runUrl: 'https://github.com/owner/repo/actions/runs/123',
+    });
+
+    expect(prompt).toContain('all GitHub CI workflows have passed');
+    expect(prompt).toContain('owner/repo');
+    expect(prompt).toContain('feature/ci-break');
+    expect(prompt).toContain('continue with any remaining work');
   });
 });
 
@@ -174,17 +200,74 @@ describe('GitHub CI failure workflow', () => {
     expect(result.logs.at(-1)).toMatchObject({ stepId: 'select_session', level: 'warn' });
   });
 
-  it('ignores non-failure events without touching VK', async () => {
+  it('ignores non-actionable events without touching VK', async () => {
     const vk = createFakeVkClient();
     const workflow = createGitHubCiFailureWorkflow({ vkClient: vk });
 
     const result = await runWorkflow(workflowRegistry(workflow), workflow.id, {
       event: 'workflow_run',
-      payload: workflowRunPayload({ conclusion: 'success' }),
+      payload: workflowRunPayload({ conclusion: 'neutral' }),
     });
 
-    expect(result.output).toMatchObject({ outcome: 'ignored', reason: 'non_failure_conclusion' });
+    expect(result.output).toMatchObject({ outcome: 'ignored', reason: 'non_actionable_conclusion' });
     expect(vk.getWorkspaces).not.toHaveBeenCalled();
+  });
+
+  it('waits to send success follow-up until all commit workflows are complete and successful', async () => {
+    const vk = createFakeVkClient();
+    const github = createFakeGitHubClient([
+      workflowRun({ name: 'Check Types', status: 'completed', conclusion: 'success' }),
+      workflowRun({ name: 'Build', status: 'in_progress', conclusion: null }),
+    ]);
+    const workflow = createGitHubCiFailureWorkflow({ vkClient: vk, githubClient: github });
+
+    const result = await runWorkflow(workflowRegistry(workflow), workflow.id, {
+      event: 'workflow_run',
+      payload: workflowRunPayload({ conclusion: 'success', workflowName: 'Check Types' }),
+    });
+
+    expect(result.output).toMatchObject({
+      outcome: 'ci_still_pending',
+      pendingWorkflows: ['Build (in_progress)'],
+    });
+    expect(vk.getWorkspaces).not.toHaveBeenCalled();
+    expect(vk.sendFollowUp).not.toHaveBeenCalled();
+  });
+
+  it('sends one congratulatory success follow-up when all commit workflows are green', async () => {
+    const vk = createFakeVkClient();
+    const github = createFakeGitHubClient([
+      workflowRun({ name: 'Check Types', status: 'completed', conclusion: 'success' }),
+      workflowRun({ name: 'Build', status: 'completed', conclusion: 'success' }),
+    ]);
+    const workflow = createGitHubCiFailureWorkflow({ vkClient: vk, githubClient: github });
+    const registry = workflowRegistry(workflow);
+
+    const firstResult = await runWorkflow(registry, workflow.id, {
+      event: 'workflow_run',
+      payload: workflowRunPayload({ conclusion: 'success', workflowName: 'Build' }),
+    });
+    const duplicateResult = await runWorkflow(registry, workflow.id, {
+      event: 'workflow_run',
+      payload: workflowRunPayload({ conclusion: 'success', workflowName: 'Check Types' }),
+    });
+
+    expect(firstResult.output).toMatchObject({
+      outcome: 'message_sent',
+      notification: 'success',
+      workspaceId: 'ws-new',
+      sessionId: 'session-new',
+    });
+    expect(duplicateResult.output).toMatchObject({
+      outcome: 'duplicate_commit_success',
+      repoFullName: 'owner/repo',
+      branch: 'feature/ci-break',
+      sha: 'abc123',
+    });
+    expect(vk.sendFollowUp).toHaveBeenCalledOnce();
+    const prompt = vk.sendFollowUp.mock.calls[0]?.[1] ?? '';
+    expect(prompt).toContain('all GitHub CI workflows have passed');
+    expect(prompt).toContain('continue with any remaining work');
   });
 });
 
@@ -222,6 +305,22 @@ function createFakeVkClient(
     sendFollowUp: vi.fn<GitHubCiVkClient['sendFollowUp']>(async () => ({ id: 'process-1', session_id: 'session-new', status: 'running' as const })),
   } satisfies GitHubCiVkClient;
   return client;
+}
+
+function createFakeGitHubClient(runs: Array<ReturnType<typeof workflowRun>>) {
+  return {
+    listWorkflowRunsForCommit: vi.fn(async () => runs),
+  };
+}
+
+function workflowRun(args: { name: string; status: string; conclusion: string | null }) {
+  return {
+    id: args.name,
+    name: args.name,
+    status: args.status,
+    conclusion: args.conclusion ?? '',
+    htmlUrl: `https://github.com/owner/repo/actions/runs/${encodeURIComponent(args.name)}`,
+  };
 }
 
 function workflowRunPayload(args: { status?: string; conclusion: string | null; workflowName?: string }) {
