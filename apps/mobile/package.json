@@ -22,7 +22,7 @@
     "react-native": "0.79.5",
     "react-native-safe-area-context": "5.4.0",
     "react-native-webview": "^13.16.0",
-    "springboard": "0.0.1-dev-vite-with-docs-7"
+    "springboard": "0.0.1-dev-vite-mobile-1"
   },
   "devDependencies": {
     "@babel/core": "^7.28.6",

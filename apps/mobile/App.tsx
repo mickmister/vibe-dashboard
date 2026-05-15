@@ -9,7 +9,7 @@ import {
   createReactNativeRemoteServices,
   SpringboardExpoWebViewHost,
   useAndInitializeSpringboardEngine,
-} from 'springboard/platforms/react-native/index';
+} from 'springboard/platforms/react-native/entrypoints/rn_app_springboard_entrypoint';
 
 import initializeRNSpringboardEngine from './app/entrypoints/rn_init_module';
 

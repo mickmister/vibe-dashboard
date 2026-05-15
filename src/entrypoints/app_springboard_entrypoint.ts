@@ -1,7 +1,7 @@
-import type { SpringboardRegistry } from 'springboard/core/engine/register';
+import springboard from 'springboard';
 
-import { registerWorkspaceModule } from '../modules/workspace_module';
+import WorkspaceModule from '../modules/workspace_module';
 
-export default function applicationEntrypoint(registry: SpringboardRegistry) {
-  registerWorkspaceModule(registry);
-}
+export default springboard.entrypoint(async ({ register }) => {
+  await register(WorkspaceModule);
+});
