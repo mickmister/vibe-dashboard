@@ -232,10 +232,10 @@ export function formatGitHubCiFailurePrompt(event: GitHubCiFailureEvent): string
     `Conclusion: ${event.conclusion}`,
     `Run URL: ${event.runUrl}`,
     '',
-    'Please inspect the failed run and make the minimal fix needed to restore CI.',
+    'Please inspect the failed run, identify the root cause, and make an appropriate scoped fix to restore CI.',
     '',
     'Rules:',
-    '- Run relevant local checks if applicable. If you can’t in this environment that’s fine.',
+    '- Run relevant local checks if applicable.',
     '- Make sure to push your change after fixing.',
   ].join('\n');
 }
