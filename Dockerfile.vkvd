@@ -282,20 +282,19 @@ RUN chmod +x /usr/local/bin/backup-vibe-kanban-db.sh
 COPY . /opt/vibe-kanban-vscode-web-seed
 RUN chown -R vkuser:vkuser /opt/vibe-kanban-vscode-web-seed
 
-# Copy packaged vibe-dashboard runtime artifacts
-RUN mkdir -p /opt/vibe-dashboard-package-seed
-COPY --from=dashboard-builder /app/package.json /opt/vibe-dashboard-package-seed/package.json
-COPY --from=dashboard-builder /app/node_modules /opt/vibe-dashboard-package-seed/node_modules
-COPY --from=dashboard-builder /app/dist /opt/vibe-dashboard-package-seed/dist
+# Copy packaged vibe-dashboard runtime artifacts to their final runtime path
+RUN mkdir -p /home/vkuser/.local/share/vibe-dashboard-runtime
+COPY --from=dashboard-builder /app/package.json /home/vkuser/.local/share/vibe-dashboard-runtime/package.json
+COPY --from=dashboard-builder /app/node_modules /home/vkuser/.local/share/vibe-dashboard-runtime/node_modules
+COPY --from=dashboard-builder /app/dist /home/vkuser/.local/share/vibe-dashboard-runtime/dist
 
 # Copy entrypoint script that fixes docker group GID at runtime
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # Copy startup scripts
-COPY scripts/run-vibe-dashboard.sh /usr/local/bin/run-vibe-dashboard.sh
 COPY scripts/sync-seeded-repo.sh /usr/local/bin/sync-seeded-repo.sh
-RUN chmod +x /usr/local/bin/run-vibe-dashboard.sh /usr/local/bin/sync-seeded-repo.sh
+RUN chmod +x /usr/local/bin/sync-seeded-repo.sh
 
 # Copy default VS Code settings
 RUN mkdir -p /home/vkuser/.local/share/code-server/User
