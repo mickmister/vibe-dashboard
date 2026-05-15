@@ -51,7 +51,7 @@ jobs:
 
           vk_commit="$(git -C "$workdir" rev-parse FETCH_HEAD)"
           vk_short_commit="$(git -C "$workdir" rev-parse --short=7 FETCH_HEAD)"
-          vd_short_commit="$(git rev-parse --short=7 "$GITHUB_SHA")"
+          vd_short_commit="${GITHUB_SHA:0:7}"
 
           echo "Resolved $VK_BRANCH_INPUT to $vk_commit"
 
