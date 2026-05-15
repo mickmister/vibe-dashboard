@@ -5,8 +5,10 @@ services:
     #   dockerfile: Dockerfile.vkvd
     #   args:
     #     VK_REPO_URL: ${VK_REPO_URL:-https://github.com/mickmister/vibe-kanban.git}
-    #     VK_BRANCH: ${VK_BRANCH:-vk/ed5f-vk-debug-memory}
+    #     VK_BRANCH: ${VK_BRANCH:-main}
+    #     VK_COMMIT: ${VK_COMMIT:-}
     image: ghcr.io/mickmister/vk-vd:${VKVD_IMAGE_VERSION:-latest}
+    pull_policy: always
 
     network_mode: host
     mem_limit: ${DEV_CONTAINER_MEM_LIMIT:-14g}
@@ -68,6 +70,8 @@ services:
       - vibe-kanban-data:/home/vkuser/.local/share/vibe-kanban
       # Persist worktrees
       - vibe-kanban-worktrees:/var/tmp/vibe-kanban/worktrees
+      # Persist vibe-dashboard application data only; runtime code is reseeded from the image
+      - vibe-dashboard-data:/home/vkuser/.local/share/vibe-dashboard-runtime/data
       # Persist code-server settings (optional, but allows user customizations to persist)
       - code-server-data:/home/vkuser/.local/share/code-server
       # Persist Claude Code data
@@ -108,6 +112,7 @@ volumes:
   vibe-kanban-repos:
   vibe-kanban-data:
   vibe-kanban-worktrees:
+  vibe-dashboard-data:
   code-server-data:
   claude-data:
   gh-config:

@@ -1,7 +1,9 @@
 name: Publish VK/VD Image to GHCR
 
 on:
-  # pull_request:
+  push:
+    branches:
+      - '*'
   workflow_dispatch:
     inputs:
       image_tag:
@@ -11,7 +13,7 @@ on:
       vk_branch:
         description: vibe-kanban git branch, tag, or sha to build from
         required: true
-        default: vk/ed5f-vk-debug-memory
+        default: main
       vk_repo_url:
         description: vibe-kanban git repository URL to clone
         required: true
@@ -33,7 +35,7 @@ jobs:
       - name: Resolve vibe-kanban ref to commit SHA
         id: resolve
         env:
-          VK_BRANCH_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.vk_branch || 'vk/ed5f-vk-debug-memory' }}
+          VK_BRANCH_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.vk_branch || 'main' }}
           VK_REPO_URL_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.vk_repo_url || 'https://github.com/mickmister/vibe-kanban.git' }}
         run: |
           set -euo pipefail
@@ -78,10 +80,8 @@ jobs:
         run: npm run check-types
 
   publish:
-    needs:
-      - resolve-vk-ref
-      - check-types
-    uses: docker/github-builder/.github/workflows/build.yml@v1
+    needs: resolve-vk-ref
+    uses: ./.github/workflows/docker-github-builder-build.yml
     permissions:
       contents: read
       packages: write
@@ -98,11 +98,12 @@ jobs:
         VK_REPO_URL=${{ needs.resolve-vk-ref.outputs.vk_repo_url }}
       cache: true
       cache-scope: vk-vd-multiarch
+      sign: false
       meta-images: ghcr.io/${{ github.repository_owner }}/vk-vd
       meta-tags: |
         type=raw,value=${{ github.event_name == 'workflow_dispatch' && inputs.image_tag || format('pr-{0}', github.event.pull_request.number) }}
         type=raw,value=${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
-        type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' }}
+        type=raw,value=latest,enable=${{ github.event_name != 'pull_request' && github.ref_name == 'main' }}
     secrets:
       registry-auths: |
         - registry: ghcr.io
