@@ -1,5 +1,6 @@
 packages:
-  - '.'
+  - .
+  - packages/*
 
 allowBuilds:
   '@heroui/shared-utils': true

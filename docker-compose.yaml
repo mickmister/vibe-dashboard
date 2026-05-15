@@ -57,6 +57,9 @@ services:
       VK_STARTUP_DIAGNOSTICS_INTERVAL_MS: ${VK_STARTUP_DIAGNOSTICS_INTERVAL_MS:-}
       VK_STARTUP_DIAGNOSTICS_DURATION_SECONDS: ${VK_STARTUP_DIAGNOSTICS_DURATION_SECONDS:-}
 
+      # GitHub workflow_run webhook secret for CI failure notifications
+      GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
+
     volumes:
       # Mount Docker socket for Docker-in-Docker support
       - /var/run/docker.sock:/var/run/docker.sock
