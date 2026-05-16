@@ -5,6 +5,7 @@ import type { WorkspaceState, SavedWorkspaceSession } from '../types';
 import { AppLoadingScreen } from './AppLoadingScreen';
 import { SpacesOverview } from './SpacesOverview';
 import { hasSameBaseOrigin } from '../lib/originTrust';
+import { vkClient } from '../lib/vk-client';
 
 const INTERNAL_URL_PREFIX = 'internal://';
 
@@ -46,6 +47,24 @@ type TabRenderTarget =
   | { kind: 'internal'; internalPath: string }
   | { kind: 'blocked-self-app' }
   | { kind: 'iframe'; iframeSrc: string };
+
+type VibeKanbanIframeMessage =
+  | {
+      source: 'vibe-kanban';
+      version: 1;
+      event: 'workspace:navigate';
+      workspaceId: string;
+      destinationKind: string;
+      hostId?: string;
+    }
+  | {
+      source: 'vibe-kanban';
+      version: 1;
+      event: 'workspace:message-submitted';
+      workspaceId: string;
+      sessionId?: string;
+      isNewSessionMode: boolean;
+    };
 
 let iframeStore: Map<string, IframeEntry> = new Map();
 let retainedSessionId: string | null = null;
@@ -284,6 +303,71 @@ function removeAllIframes() {
   for (const tabId of Array.from(iframeStore.keys())) {
     removeIframe(tabId);
   }
+}
+
+function isVibeKanbanIframeMessage(
+  value: unknown
+): value is VibeKanbanIframeMessage {
+  if (!value || typeof value !== 'object') return false;
+  const data = value as Record<string, unknown>;
+
+  return (
+    data.source === 'vibe-kanban' &&
+    data.version === 1 &&
+    typeof data.workspaceId === 'string' &&
+    (data.event === 'workspace:navigate' ||
+      data.event === 'workspace:message-submitted')
+  );
+}
+
+function isMessageFromMountedIframe(
+  source: MessageEventSource | null,
+  tabs: Tab[]
+): boolean {
+  if (!source) return false;
+
+  return tabs.some((tab) => {
+    const entry = iframeStore.get(tab.id);
+    return entry?.iframe.contentWindow === source;
+  });
+}
+
+function findWorkspaceTabGroup(
+  workspace: WorkspaceState | undefined,
+  workspaceId: string
+): { spaceId: string; tabGroupId: string } | null {
+  if (!workspace) return null;
+
+  for (const space of workspace.spaces) {
+    for (const tabGroupId of space.tabGroupIds) {
+      const tabGroup = workspace.tabGroups.find((tg) => tg.id === tabGroupId);
+      if (
+        tabGroup?.tabs.some((tab) => {
+          try {
+            const parsed = new URL(tab.url, window.location.origin);
+            const match = parsed.pathname.match(/\/workspaces\/([^/?#]+)/);
+            return match?.[1] === workspaceId;
+          } catch {
+            return tab.url.includes(`/workspaces/${workspaceId}`);
+          }
+        })
+      ) {
+        return { spaceId: space.id, tabGroupId };
+      }
+    }
+  }
+
+  return null;
+}
+
+function findTabGroupSpaceId(
+  workspace: WorkspaceState | undefined,
+  tabGroupId: string
+): string | null {
+  return (
+    workspace?.spaces.find((space) => space.tabGroupIds.includes(tabGroupId))
+      ?.id ?? null
+  );
 }
 
 export function hasKnownIframeMessageSource(source: MessageEventSource | null): boolean {
@@ -561,6 +645,7 @@ export function IframePanel({
   onNavigateToTabGroup,
   onOpenVKWorkspace,
 }: IframePanelProps) {
+  const pendingWorkspaceOpensRef = useRef<Set<string>>(new Set());
   const activeTab = tabGroup.tabs.find(
     (t) => t.id === activeItemId
   );
@@ -598,6 +683,75 @@ export function IframePanel({
     visibleIframeTabIds,
     allKnownIframeTabIds,
   );
+
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (
+        !isVibeKanbanIframeMessage(event.data) ||
+        !isMessageFromMountedIframe(event.source, retainedTabs)
+      ) {
+        return;
+      }
+
+      if (event.data.event === 'workspace:message-submitted') {
+        window.dispatchEvent(
+          new CustomEvent('vk:message-submitted', {
+            detail: event.data,
+          })
+        );
+        return;
+      }
+
+      if (!onNavigateToTabGroup) return;
+
+      const { workspaceId } = event.data;
+      const existingLocation = findWorkspaceTabGroup(workspace, workspaceId);
+      if (existingLocation) {
+        onNavigateToTabGroup(
+          existingLocation.spaceId,
+          existingLocation.tabGroupId
+        );
+        return;
+      }
+
+      if (
+        !onOpenVKWorkspace ||
+        pendingWorkspaceOpensRef.current.has(workspaceId)
+      ) {
+        return;
+      }
+
+      const activeSpaceId = findTabGroupSpaceId(workspace, tabGroup.id);
+      if (!activeSpaceId) return;
+
+      pendingWorkspaceOpensRef.current.add(workspaceId);
+      void (async () => {
+        try {
+          await vkClient.getWorkspaceBranchStatus(workspaceId);
+          const workspaceRecord = await vkClient.getWorkspace(workspaceId);
+          onOpenVKWorkspace(
+            workspaceId,
+            workspaceRecord.name || 'Untitled Workspace',
+            workspaceRecord.container_ref || '',
+            activeSpaceId
+          );
+        } catch (error) {
+          console.warn('Failed to open VK workspace from iframe message', error);
+        } finally {
+          pendingWorkspaceOpensRef.current.delete(workspaceId);
+        }
+      })();
+    };
+
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [
+    onNavigateToTabGroup,
+    onOpenVKWorkspace,
+    retainedTabs,
+    tabGroup.id,
+    workspace,
+  ]);
 
   return (
     <div className="w-full h-full relative">
