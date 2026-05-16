@@ -34,6 +34,11 @@ export type WorkspaceActions = {
     | undefined
   >;
   renameTabGroup: (args: { tabGroupId: string; label: string }) => void;
+  updateTabGroupMobileDisplay: (args: {
+    tabGroupId: string;
+    mobileLabel: string | null;
+    mobileEmoji: string | null;
+  }) => void;
   renameTab: (args: {
     tabGroupId: string;
     tabId: string;
@@ -105,7 +110,19 @@ export function WorkspaceShell({
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isDesktop, setIsDesktop] = useState(false);
   const [showAddressBar, setShowAddressBar] = useState(false);
+  const [mobileTabMenuTarget, setMobileTabMenuTarget] = useState<{
+    spaceId: string;
+    tabGroupId: string;
+  } | null>(null);
+  const [mobileTabDraftLabel, setMobileTabDraftLabel] = useState('');
+  const [mobileTabDraftEmoji, setMobileTabDraftEmoji] = useState('');
   const dragGroupRef = useRef<string | null>(null);
+  const longPressTimerRef = useRef<number | null>(null);
+  const longPressStartedAtRef = useRef<{ x: number; y: number } | null>(null);
+  const suppressMobileTabClickRef = useRef(false);
+
+  const LONG_PRESS_MS = 450;
+  const LONG_PRESS_MOVE_TOLERANCE_PX = 10;
 
   // --- Drag-and-drop for tab groups ---
   const handleDragStart = (e: React.DragEvent, tabGroupId: string) => {
@@ -286,6 +303,82 @@ export function WorkspaceShell({
       } => item != null,
     );
 
+  const mobileTabMenuTabGroup = mobileTabMenuTarget
+    ? workspace.tabGroups.find((tg) => tg.id === mobileTabMenuTarget.tabGroupId)
+    : undefined;
+
+  const clearLongPress = () => {
+    if (longPressTimerRef.current != null) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    longPressStartedAtRef.current = null;
+  };
+
+  const openMobileTabMenu = (spaceId: string, tabGroup: TabGroup) => {
+    setMobileTabMenuTarget({ spaceId, tabGroupId: tabGroup.id });
+    setMobileTabDraftLabel(tabGroup.mobileLabel || '');
+    setMobileTabDraftEmoji(tabGroup.mobileEmoji || '');
+  };
+
+  const handleMobileTabPointerDown = (
+    event: React.PointerEvent<HTMLButtonElement>,
+    spaceId: string,
+    tabGroup: TabGroup,
+  ) => {
+    if (event.pointerType === 'mouse') return;
+
+    clearLongPress();
+    longPressStartedAtRef.current = { x: event.clientX, y: event.clientY };
+    longPressTimerRef.current = window.setTimeout(() => {
+      longPressTimerRef.current = null;
+      suppressMobileTabClickRef.current = true;
+      openMobileTabMenu(spaceId, tabGroup);
+    }, LONG_PRESS_MS);
+  };
+
+  const handleMobileTabPointerMove = (
+    event: React.PointerEvent<HTMLButtonElement>,
+  ) => {
+    if (!longPressStartedAtRef.current || longPressTimerRef.current == null) {
+      return;
+    }
+
+    const deltaX = Math.abs(event.clientX - longPressStartedAtRef.current.x);
+    const deltaY = Math.abs(event.clientY - longPressStartedAtRef.current.y);
+    if (deltaX > LONG_PRESS_MOVE_TOLERANCE_PX || deltaY > LONG_PRESS_MOVE_TOLERANCE_PX) {
+      clearLongPress();
+    }
+  };
+
+  const handleSaveMobileTabDisplay = () => {
+    if (!mobileTabMenuTarget) return;
+
+    actions.updateTabGroupMobileDisplay({
+      tabGroupId: mobileTabMenuTarget.tabGroupId,
+      mobileLabel: mobileTabDraftLabel.trim() || null,
+      mobileEmoji: mobileTabDraftEmoji.trim() || null,
+    });
+    setMobileTabMenuTarget(null);
+  };
+
+  const handleCloseMobileTab = async () => {
+    if (!mobileTabMenuTarget) return;
+    const { spaceId, tabGroupId } = mobileTabMenuTarget;
+    const result = await actions.deleteTabGroup({ spaceId, tabGroupId });
+    if (result?.wasDeleted && result.nextTabGroupId) {
+      sessionActions.selectSpace(spaceId);
+      sessionActions.setActiveTabGroup(result.nextTabGroupId);
+      setMobileTabMenuTarget(null);
+      return;
+    }
+    setMobileTabMenuTarget(null);
+  };
+
+  useEffect(() => {
+    return () => clearLongPress();
+  }, []);
+
   return (
     <div className="w-full h-full flex bg-neutral-950">
       {isSidebarOpen && (
@@ -423,18 +516,35 @@ export function WorkspaceShell({
                           ? 'bg-primary-500/20 text-primary-300'
                           : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700'
                       }`}
+                      style={{ touchAction: 'manipulation' }}
                       onClick={() => {
+                        if (suppressMobileTabClickRef.current) {
+                          suppressMobileTabClickRef.current = false;
+                          return;
+                        }
                         sessionActions.selectSpace(space.id);
                         sessionActions.setActiveTabGroup(tabGroup.id);
                       }}
+                      onContextMenu={(event) => {
+                        event.preventDefault();
+                        openMobileTabMenu(space.id, tabGroup);
+                      }}
+                      onPointerDown={(event) =>
+                        handleMobileTabPointerDown(event, space.id, tabGroup)
+                      }
+                      onPointerMove={handleMobileTabPointerMove}
+                      onPointerUp={clearLongPress}
+                      onPointerCancel={clearLongPress}
+                      onPointerLeave={clearLongPress}
                       title={`${space.name} / ${tabGroup.label}`}
                       aria-label={`Open ${tabGroup.label} in ${space.name}`}
+                      aria-haspopup="dialog"
                     >
                       <span aria-hidden="true">
-                        {getMobileTabGroupEmoji(tabGroup.label)}
+                        {getMobileTabGroupEmoji(tabGroup)}
                       </span>
                       <span className="max-w-10 truncate">
-                        {getMobileTabGroupLabel(tabGroup.label)}
+                        {getMobileTabGroupLabel(tabGroup)}
                       </span>
                     </button>
                   );
@@ -484,6 +594,75 @@ export function WorkspaceShell({
           allowCustomPath={false}
         />
       )}
+
+      {mobileTabMenuTarget && mobileTabMenuTabGroup && (
+        <div className="md:hidden fixed inset-0 z-[90] bg-black/60 flex items-end">
+          <button
+            className="absolute inset-0"
+            aria-label="Close mobile tab menu"
+            onClick={() => setMobileTabMenuTarget(null)}
+          />
+          <div className="relative w-full rounded-t-2xl border-t border-neutral-700 bg-neutral-900 p-4 space-y-4">
+            <div>
+              <div className="text-sm font-semibold text-neutral-100">
+                Edit Mobile Tab
+              </div>
+              <div className="text-xs text-neutral-500 mt-1">
+                Long press opens this menu. Tap still switches tabs.
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <label className="block">
+                <span className="text-xs text-neutral-400">Mobile name</span>
+                <input
+                  type="text"
+                  value={mobileTabDraftLabel}
+                  onChange={(event) => setMobileTabDraftLabel(event.target.value)}
+                  placeholder={mobileTabMenuTabGroup.label}
+                  className="mt-1 w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-white focus:outline-none focus:border-primary-500"
+                />
+              </label>
+
+              <label className="block">
+                <span className="text-xs text-neutral-400">Emoji</span>
+                <input
+                  type="text"
+                  value={mobileTabDraftEmoji}
+                  onChange={(event) =>
+                    setMobileTabDraftEmoji(Array.from(event.target.value).slice(0, 2).join(''))
+                  }
+                  placeholder={getMobileTabGroupEmoji(mobileTabMenuTabGroup)}
+                  className="mt-1 w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-white focus:outline-none focus:border-primary-500"
+                />
+              </label>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                className="rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-neutral-200"
+                onClick={() => setMobileTabMenuTarget(null)}
+              >
+                Cancel
+              </button>
+              <button
+                className="rounded-md border border-primary-500/40 bg-primary-500/15 px-3 py-2 text-sm text-primary-200"
+                onClick={handleSaveMobileTabDisplay}
+              >
+                Save
+              </button>
+              <button
+                className="rounded-md border border-red-500/40 bg-red-500/15 px-3 py-2 text-sm text-red-300"
+                onClick={() => {
+                  void handleCloseMobileTab();
+                }}
+              >
+                Close Tab
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -500,16 +679,18 @@ function isEditableTarget(target: EventTarget | null): boolean {
   );
 }
 
-function getMobileTabGroupLabel(label: string): string {
-  const compact = label.trim();
+function getMobileTabGroupLabel(tabGroup: TabGroup): string {
+  const compact = (tabGroup.mobileLabel || tabGroup.label).trim();
   if (!compact) return 'Tab';
   if (compact.length <= 4) return compact;
 
   return compact.slice(0, 4);
 }
 
-function getMobileTabGroupEmoji(label: string): string {
-  const normalized = label.toLowerCase();
+function getMobileTabGroupEmoji(tabGroup: TabGroup): string {
+  if (tabGroup.mobileEmoji?.trim()) return tabGroup.mobileEmoji.trim();
+
+  const normalized = tabGroup.label.toLowerCase();
 
   if (normalized.includes('overview') || normalized.includes('home')) return '🏠';
   if (normalized.includes('agent') || normalized.includes('chat')) return '🤖';

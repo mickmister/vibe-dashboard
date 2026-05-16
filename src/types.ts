@@ -17,6 +17,10 @@ export interface TabPair {
 export interface TabGroup {
   id: string;
   label: string;
+  /** Optional compact label shown in the mobile top tab strip */
+  mobileLabel?: string;
+  /** Optional emoji shown in the mobile top tab strip */
+  mobileEmoji?: string;
   /** All tabs in this group */
   tabs: Tab[];
   /** Tab pairs (split views) */

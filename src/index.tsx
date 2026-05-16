@@ -167,6 +167,22 @@ springboard.registerModule(
         });
       },
 
+      updateTabGroupMobileDisplay: async (args: {
+        tabGroupId: string;
+        mobileLabel: string | null;
+        mobileEmoji: string | null;
+      }) => {
+        workspaceState.setStateImmer((draft) => {
+          const tabGroup = draft.tabGroups.find(
+            (tg) => tg.id === args.tabGroupId,
+          );
+          if (!tabGroup) return;
+
+          tabGroup.mobileLabel = args.mobileLabel || undefined;
+          tabGroup.mobileEmoji = args.mobileEmoji || undefined;
+        });
+      },
+
       renameTab: async (args: {
         tabGroupId: string;
         tabId: string;
