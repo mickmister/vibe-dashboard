@@ -263,6 +263,26 @@ export function WorkspaceShell({
   const activeTabGroup = activeTabGroups.find(
     (tg) => tg.id === session.activeTabGroupId,
   );
+  const mobileSessionTabGroups = session.visitedTabGroupIds
+    .map((tabGroupId) => {
+      const tabGroup = workspace.tabGroups.find((tg) => tg.id === tabGroupId);
+      if (!tabGroup) return null;
+
+      const space = workspace.spaces.find((candidate) =>
+        candidate.tabGroupIds.includes(tabGroupId),
+      );
+      if (!space) return null;
+
+      return { space, tabGroup };
+    })
+    .filter(
+      (
+        item,
+      ): item is {
+        space: WorkspaceState['spaces'][number];
+        tabGroup: TabGroup;
+      } => item != null,
+    );
 
   return (
     <div className="w-full h-full flex bg-neutral-950">
@@ -380,8 +400,42 @@ export function WorkspaceShell({
           >
             ☰
           </button>
-          <div className="flex-1 min-w-0 text-sm font-medium text-neutral-200 truncate">
-            {activeTabGroup?.label || 'No tab group selected'}
+          <div className="flex-1 min-w-0 overflow-x-auto scrollbar-hide">
+            <div className="flex items-center gap-1 pr-1">
+              {mobileSessionTabGroups.length > 0 ? (
+                mobileSessionTabGroups.map(({ space, tabGroup }) => {
+                  const isActive = tabGroup.id === session.activeTabGroupId;
+
+                  return (
+                    <button
+                      key={tabGroup.id}
+                      className={`shrink-0 inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs transition-colors ${
+                        isActive
+                          ? 'bg-primary-500/20 text-primary-300'
+                          : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700'
+                      }`}
+                      onClick={() => {
+                        sessionActions.selectSpace(space.id);
+                        sessionActions.setActiveTabGroup(tabGroup.id);
+                      }}
+                      title={`${space.name} / ${tabGroup.label}`}
+                      aria-label={`Open ${tabGroup.label} in ${space.name}`}
+                    >
+                      <span aria-hidden="true">
+                        {getMobileTabGroupEmoji(tabGroup.label)}
+                      </span>
+                      <span className="max-w-10 truncate">
+                        {getMobileTabGroupLabel(tabGroup.label)}
+                      </span>
+                    </button>
+                  );
+                })
+              ) : (
+                <div className="text-xs text-neutral-500">
+                  {activeTabGroup?.label || 'No tab groups'}
+                </div>
+              )}
+            </div>
           </div>
         </div>
         <WorkspaceContentView
@@ -435,4 +489,26 @@ function isEditableTarget(target: EventTarget | null): boolean {
     tagName === 'select' ||
     target.isContentEditable
   );
+}
+
+function getMobileTabGroupLabel(label: string): string {
+  const compact = label.trim();
+  if (!compact) return 'Tab';
+  if (compact.length <= 4) return compact;
+
+  return compact.slice(0, 4);
+}
+
+function getMobileTabGroupEmoji(label: string): string {
+  const normalized = label.toLowerCase();
+
+  if (normalized.includes('overview') || normalized.includes('home')) return '🏠';
+  if (normalized.includes('agent') || normalized.includes('chat')) return '🤖';
+  if (normalized.includes('code') || normalized.includes('dev')) return '💻';
+  if (normalized.includes('preview') || normalized.includes('view')) return '👁️';
+  if (normalized.includes('docs')) return '📚';
+  if (normalized.includes('api')) return '🔌';
+  if (normalized.includes('bug')) return '🐞';
+
+  return '📁';
 }
