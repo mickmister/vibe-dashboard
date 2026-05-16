@@ -17,6 +17,12 @@ html {
   color-scheme: dark;
 }
 
+input,
+select,
+textarea {
+  font-size: 16px;
+}
+
 /* Hide scrollbars in iframes container */
 .iframe-container::-webkit-scrollbar {
   display: none;

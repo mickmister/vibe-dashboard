@@ -511,7 +511,7 @@ export function WorkspaceShell({
                   return (
                     <button
                       key={tabGroup.id}
-                      className={`shrink-0 inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs transition-colors ${
+                      className={`shrink-0 inline-flex select-none items-center gap-1 rounded-md px-2 py-1 text-xs transition-colors ${
                         isActive
                           ? 'bg-primary-500/20 text-primary-300'
                           : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700'
