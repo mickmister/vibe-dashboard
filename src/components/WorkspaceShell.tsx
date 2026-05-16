@@ -78,6 +78,8 @@ export type SessionActions = {
   setActiveTabGroup: (tabGroupId: string) => void;
   getActiveItem: (tabGroupId: string) => string;
   resumeSession: (sessionId: string) => void;
+  startNewSession: () => void;
+  renameSession: (sessionId: string, name: string) => void;
 };
 
 interface WorkspaceShellProps {
@@ -385,6 +387,13 @@ export function WorkspaceShell({
           onResumeSession={(sessionId) => {
             sessionActions.resumeSession(sessionId);
             setIsSidebarOpen(false);
+          }}
+          onStartNewSession={() => {
+            sessionActions.startNewSession();
+            setIsSidebarOpen(false);
+          }}
+          onRenameSession={(sessionId, name) => {
+            sessionActions.renameSession(sessionId, name);
           }}
         />
       </div>

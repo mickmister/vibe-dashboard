@@ -53,6 +53,8 @@ interface SidebarProps {
   showAddressBar: boolean;
   onToggleAddressBar: () => void;
   onResumeSession: (sessionId: string) => void;
+  onStartNewSession: () => void;
+  onRenameSession: (sessionId: string, name: string) => void;
 }
 
 const SPACE_ICONS: Record<string, string> = {
@@ -94,6 +96,8 @@ export function Sidebar({
   showAddressBar,
   onToggleAddressBar,
   onResumeSession,
+  onStartNewSession,
+  onRenameSession,
 }: SidebarProps) {
   const [view, setView] = useState<'groups' | 'spaces'>('groups');
   const [adding, setAdding] = useState(false);
@@ -120,6 +124,8 @@ export function Sidebar({
   const [newTabTitle, setNewTabTitle] = useState('');
   const [newTabUrl, setNewTabUrl] = useState('');
   const [pairSelection, setPairSelection] = useState<string[]>([]);
+  const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
+  const [sessionNameDraft, setSessionNameDraft] = useState('');
   const contextMenuRef = useRef<HTMLDivElement>(null);
   const groupContextMenuRef = useRef<HTMLDivElement>(null);
   const dragTabGroupRef = useRef<string | null>(null);
@@ -185,6 +191,10 @@ export function Sidebar({
       .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
       .slice(0, 6);
   }, [currentSessionId, savedSessions]);
+  const currentSession = useMemo(
+    () => savedSessions.find((session) => session.id === currentSessionId),
+    [currentSessionId, savedSessions],
+  );
 
   const toggleStarredExpanded = useCallback(() => {
     setStarredExpanded((prev) => {
@@ -416,6 +426,43 @@ export function Sidebar({
     setPairSelection([]);
     setMobileAction(null);
   }, [activeTabGroup, onCreatePair, pairSelection]);
+
+  const getSessionDisplayName = useCallback(
+    (session: SavedWorkspaceSession) => {
+      const explicitName = session.name?.trim();
+      if (explicitName) return explicitName;
+
+      const sessionTabGroup = workspace.tabGroups.find(
+        (tabGroup) => tabGroup.id === session.activeTabGroupId,
+      );
+      return sessionTabGroup?.label || 'Saved session';
+    },
+    [workspace.tabGroups],
+  );
+
+  const startRenamingSession = useCallback(
+    (session: SavedWorkspaceSession) => {
+      setEditingSessionId(session.id);
+      setSessionNameDraft(getSessionDisplayName(session));
+    },
+    [getSessionDisplayName],
+  );
+
+  const cancelSessionRename = useCallback(() => {
+    setEditingSessionId(null);
+    setSessionNameDraft('');
+  }, []);
+
+  const submitSessionRename = useCallback(
+    (sessionId: string) => {
+      const nextName = sessionNameDraft.trim();
+      if (nextName) {
+        onRenameSession(sessionId, nextName);
+      }
+      cancelSessionRename();
+    },
+    [cancelSessionRename, onRenameSession, sessionNameDraft],
+  );
 
   useEffect(() => {
     setAdding(false);
@@ -709,24 +756,112 @@ export function Sidebar({
                     );
 
                     return (
-                      <button
+                      <div
                         key={session.id}
                         className="w-full text-left px-3 py-1.5 rounded-lg text-neutral-300 hover:bg-neutral-800 transition-colors"
-                        onClick={() => onResumeSession(session.id)}
                       >
-                        <div className="text-sm font-medium truncate">
-                          {sessionTabGroup?.label || 'Saved session'}
+                        <div className="flex items-center gap-2">
+                          {editingSessionId === session.id ? (
+                            <Input
+                              size="sm"
+                              value={sessionNameDraft}
+                              onChange={(e) => setSessionNameDraft(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') submitSessionRename(session.id);
+                                if (e.key === 'Escape') cancelSessionRename();
+                              }}
+                              onBlur={() => submitSessionRename(session.id)}
+                              autoFocus
+                              classNames={{
+                                input: 'text-sm',
+                                inputWrapper: 'h-7 min-h-7 bg-neutral-700',
+                              }}
+                            />
+                          ) : (
+                            <>
+                              <button
+                                className="text-sm font-medium truncate flex-1 text-left"
+                                onClick={() => onResumeSession(session.id)}
+                              >
+                                {getSessionDisplayName(session)}
+                              </button>
+                              <button
+                                className="text-[10px] uppercase tracking-wide text-neutral-500 hover:text-neutral-300"
+                                onClick={() => startRenamingSession(session)}
+                              >
+                                Rename
+                              </button>
+                            </>
+                          )}
                         </div>
                         <div className="text-xs text-neutral-500 mt-0.5 truncate">
                           {sessionSpace?.name || 'Unknown space'} •{' '}
                           {formatSessionTimestamp(session.updatedAt)}
                         </div>
-                      </button>
+                      </div>
                     );
                   })}
                 </div>
               </div>
             )}
+
+            <div className="border-b border-neutral-800">
+              <div className="px-3 py-2 text-xs font-semibold uppercase tracking-wider text-neutral-500">
+                Current Session
+              </div>
+              <div className="px-2 pb-2 space-y-2">
+                <div className="px-3 py-2 rounded-lg bg-neutral-800/60">
+                  {currentSession && editingSessionId === currentSession.id ? (
+                    <Input
+                      size="sm"
+                      value={sessionNameDraft}
+                      onChange={(e) => setSessionNameDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') submitSessionRename(currentSession.id);
+                        if (e.key === 'Escape') cancelSessionRename();
+                      }}
+                      onBlur={() => submitSessionRename(currentSession.id)}
+                      autoFocus
+                      classNames={{
+                        input: 'text-sm',
+                        inputWrapper: 'h-8 min-h-8 bg-neutral-700',
+                      }}
+                    />
+                  ) : (
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium text-neutral-100 truncate">
+                          {currentSession
+                            ? getSessionDisplayName(currentSession)
+                            : 'Current session'}
+                        </div>
+                        {currentSession && (
+                          <div className="text-xs text-neutral-500 mt-1 truncate">
+                            Updated {formatSessionTimestamp(currentSession.updatedAt)}
+                          </div>
+                        )}
+                      </div>
+                      {currentSession && (
+                        <button
+                          className="text-[10px] uppercase tracking-wide text-neutral-500 hover:text-neutral-300"
+                          onClick={() => startRenamingSession(currentSession)}
+                        >
+                          Rename
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <Button
+                  size="sm"
+                  variant="flat"
+                  className="w-full"
+                  onPress={onStartNewSession}
+                >
+                  + New Session
+                </Button>
+              </div>
+            </div>
 
             {/* Starred tab groups section */}
             {starredTabGroups.length > 0 && (

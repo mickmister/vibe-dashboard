@@ -32,6 +32,10 @@ function createBrowserSessionId(): string {
   return `session_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
+export function createNewBrowserSessionId(): string {
+  return createBrowserSessionId();
+}
+
 export function getOrCreateBrowserSessionId(): string {
   try {
     const existing = sessionStorage.getItem(BROWSER_SESSION_ID_KEY);
@@ -72,6 +76,33 @@ function getValidVisitedTabGroupIds(
   });
 
   return nextVisited;
+}
+
+function createDefaultSessionNav(workspace: WorkspaceState): SessionWorkspaceNav {
+  const activeItems: Record<string, string> = {};
+  workspace.tabGroups.forEach((tg) => {
+    const firstItem = tg.tabs[0]?.id || tg.pairs[0]?.id || "";
+    activeItems[tg.id] = firstItem;
+  });
+
+  const firstSpace = workspace.spaces[0];
+  const firstTabGroup = firstSpace
+    ? workspace.tabGroups.find((tg) => firstSpace.tabGroupIds.includes(tg.id))
+    : workspace.tabGroups[0];
+
+  const activeSpaceId = firstSpace?.id || "";
+  const activeTabGroupId = firstTabGroup?.id || "";
+
+  return {
+    activeSpaceId,
+    activeTabGroupId,
+    activeItems,
+    visitedTabGroupIds: getValidVisitedTabGroupIds(
+      workspace,
+      [],
+      activeTabGroupId,
+    ),
+  };
 }
 
 /**
@@ -171,23 +202,16 @@ function loadSessionNav(
     // Ignore parse errors
   }
 
-  // Fallback to first space/tab group
-  const firstSpace = workspace.spaces[0];
-  const firstTabGroup = firstSpace
-    ? workspace.tabGroups.find((tg) => firstSpace.tabGroupIds.includes(tg.id))
-    : workspace.tabGroups[0];
-
-  activeSpaceId = (spaceExistsInRoute ? route.spaceId : firstSpace?.id) || "";
-  activeTabGroupId = firstTabGroup?.id || "";
-
+  const fallbackNav = createDefaultSessionNav(workspace);
   return {
-    activeSpaceId,
-    activeTabGroupId,
-    activeItems,
+    ...fallbackNav,
+    activeSpaceId: spaceExistsInRoute
+      ? route.spaceId || fallbackNav.activeSpaceId
+      : fallbackNav.activeSpaceId,
     visitedTabGroupIds: getValidVisitedTabGroupIds(
       workspace,
       savedSession?.visitedTabGroupIds,
-      activeTabGroupId,
+      fallbackNav.activeTabGroupId,
     ),
   };
 }
@@ -438,6 +462,10 @@ export function useSessionWorkspaceNav(
     setNav(loadSessionNav(workspace, {}, sessionToResume));
   };
 
+  const startNewSession = () => {
+    setNav(createDefaultSessionNav(workspace));
+  };
+
   const getActiveItem = (tabGroupId: string): string => {
     return nav.activeItems[tabGroupId] || "";
   };
@@ -456,5 +484,6 @@ export function useSessionWorkspaceNav(
     selectPair,
     setActiveTabGroup,
     resumeSession,
+    startNewSession,
   };
 }

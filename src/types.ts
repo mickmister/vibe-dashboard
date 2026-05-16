@@ -43,6 +43,7 @@ export interface Space {
 
 export interface SavedWorkspaceSession {
   id: string;
+  name?: string;
   createdAt: string;
   updatedAt: string;
   activeSpaceId: string;

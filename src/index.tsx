@@ -8,6 +8,7 @@ import { HeroUIProvider } from '@heroui/react';
 import { AppLoadingScreen } from './components/AppLoadingScreen';
 import { WorkspaceShell } from './components/WorkspaceShell';
 import {
+  createNewBrowserSessionId,
   getOrCreateBrowserSessionId,
   setBrowserSessionId,
   useSessionWorkspaceNav,
@@ -548,6 +549,7 @@ springboard.registerModule(
         savedSessionsState.setStateImmer((draft) => {
           const existing = draft.sessions.find((session) => session.id === args.id);
           if (existing) {
+            existing.name = args.name;
             existing.updatedAt = args.updatedAt;
             existing.activeSpaceId = args.activeSpaceId;
             existing.activeTabGroupId = args.activeTabGroupId;
@@ -557,6 +559,14 @@ springboard.registerModule(
           }
 
           draft.sessions.unshift(args);
+        });
+      },
+      renameSavedSession: async (args: { id: string; name: string }) => {
+        savedSessionsState.setStateImmer((draft) => {
+          const existing = draft.sessions.find((session) => session.id === args.id);
+          if (!existing) return;
+          existing.name = args.name;
+          existing.updatedAt = new Date().toISOString();
         });
       },
     });
@@ -624,6 +634,7 @@ springboard.registerModule(
         const now = new Date().toISOString();
         void actions.upsertSavedSession({
           id: browserSessionId,
+          name: activeSavedSession?.name,
           createdAt: activeSavedSession?.createdAt || now,
           updatedAt: now,
           activeSpaceId: sessionNav.activeSpaceId,
@@ -736,6 +747,16 @@ springboard.registerModule(
             setBrowserSessionId(sessionId);
           }
           sessionNav.resumeSession(sessionToResume);
+        },
+        startNewSession: () => {
+          const nextSessionId = createNewBrowserSessionId();
+          if (typeof window !== 'undefined') {
+            setBrowserSessionId(nextSessionId);
+          }
+          sessionNav.startNewSession();
+        },
+        renameSession: (sessionId: string, name: string) => {
+          void actions.renameSavedSession({ id: sessionId, name });
         },
       };
 
