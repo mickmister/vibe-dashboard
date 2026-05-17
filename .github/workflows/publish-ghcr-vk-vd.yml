@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - '*'
+  repository_dispatch:
+    types:
+      - vk-release-assets-ready
   workflow_dispatch:
     inputs:
       image_tag:
@@ -28,6 +31,7 @@ jobs:
   resolve-vk-ref:
     runs-on: ubuntu-latest
     outputs:
+      image_tag: ${{ steps.resolve.outputs.image_tag }}
       vk_branch: ${{ steps.resolve.outputs.vk_branch }}
       vk_commit: ${{ steps.resolve.outputs.vk_commit }}
       vk_short_commit: ${{ steps.resolve.outputs.vk_short_commit }}
@@ -37,8 +41,9 @@ jobs:
       - name: Resolve vibe-kanban ref to commit SHA
         id: resolve
         env:
-          VK_BRANCH_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.vk_branch || 'main' }}
-          VK_REPO_URL_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.vk_repo_url || 'https://github.com/mickmister/vibe-kanban.git' }}
+          IMAGE_TAG_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.image_tag || github.event.client_payload.image_tag || '' }}
+          VK_BRANCH_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.vk_branch || github.event.client_payload.vk_sha || github.event.client_payload.vk_ref || 'main' }}
+          VK_REPO_URL_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.vk_repo_url || github.event.client_payload.vk_repo_url || 'https://github.com/mickmister/vibe-kanban.git' }}
         run: |
           set -euo pipefail
 
@@ -56,6 +61,7 @@ jobs:
           echo "Resolved $VK_BRANCH_INPUT to $vk_commit"
 
           {
+            echo "image_tag=$IMAGE_TAG_INPUT"
             echo "vk_branch=$VK_BRANCH_INPUT"
             echo "vk_commit=$vk_commit"
             echo "vk_short_commit=$vk_short_commit"
@@ -107,7 +113,7 @@ jobs:
       sign: false
       meta-images: ghcr.io/${{ github.repository_owner }}/vk-vd
       meta-tags: |
-        type=raw,value=${{ inputs.image_tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
+        type=raw,value=${{ needs.resolve-vk-ref.outputs.image_tag }},enable=${{ needs.resolve-vk-ref.outputs.image_tag != '' }}
         type=raw,value=vk-${{ needs.resolve-vk-ref.outputs.vk_short_commit }}-vd-${{ needs.resolve-vk-ref.outputs.vd_short_commit }}
         type=raw,value=latest,enable=${{ github.ref_name == 'main' }}
     secrets:
