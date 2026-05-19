@@ -493,7 +493,19 @@ export function WorkspaceShell({
 
       {/* Main content area */}
       <div className="flex-1 flex flex-col min-h-0 min-w-0 relative">
-        <div className="md:hidden h-10 px-2 border-b border-neutral-800 bg-neutral-900 flex items-center gap-2 shrink-0">
+        <WorkspaceContentView
+          activeTabGroups={activeTabGroups}
+          activeTabGroupId={session.activeTabGroupId}
+          actions={actions}
+          sessionActions={sessionActions}
+          onDragStart={handleDragStart}
+          onDragOver={handleDragOver}
+          onDrop={handleDrop}
+          workspace={workspace}
+          showAddressBar={showAddressBar}
+        />
+
+        <div className="md:hidden h-12 px-2 border-t border-neutral-800 bg-neutral-900 flex items-center gap-2 shrink-0">
           <button
             className="h-8 w-8 rounded-md text-neutral-200 hover:bg-neutral-800 transition-colors flex items-center justify-center shrink-0"
             onClick={() => setIsSidebarOpen(true)}
@@ -557,17 +569,6 @@ export function WorkspaceShell({
             </div>
           </div>
         </div>
-        <WorkspaceContentView
-          activeTabGroups={activeTabGroups}
-          activeTabGroupId={session.activeTabGroupId}
-          actions={actions}
-          sessionActions={sessionActions}
-          onDragStart={handleDragStart}
-          onDragOver={handleDragOver}
-          onDrop={handleDrop}
-          workspace={workspace}
-          showAddressBar={showAddressBar}
-        />
       </div>
 
       {addTabModalOpen && (
