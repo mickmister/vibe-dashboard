@@ -100,6 +100,7 @@ export type SessionActions = {
   resumeSession: (sessionId: string) => void;
   startNewSession: () => void;
   renameSession: (sessionId: string, name: string) => void;
+  deleteSession: (sessionId: string) => void;
 };
 
 interface WorkspaceShellProps {
@@ -520,6 +521,9 @@ export function WorkspaceShell({
           showAddressBar={showAddressBar}
           savedSessions={savedSessions}
           currentSessionId={currentSessionId}
+          onResumeSession={sessionActions.resumeSession}
+          onRenameSession={sessionActions.renameSession}
+          onDeleteSession={sessionActions.deleteSession}
         />
 
         <div className="md:hidden h-12 px-2 border-t border-neutral-800 bg-neutral-900 flex items-center gap-2 shrink-0">

@@ -17,6 +17,9 @@ interface UnifiedTabViewProps {
   showAddressBar: boolean;
   savedSessions: SavedWorkspaceSession[];
   currentSessionId: string;
+  onResumeSession: (sessionId: string) => void;
+  onRenameSession: (sessionId: string, name: string) => void;
+  onDeleteSession: (sessionId: string) => void;
 }
 
 export function UnifiedTabView({
@@ -28,6 +31,9 @@ export function UnifiedTabView({
   showAddressBar,
   savedSessions,
   currentSessionId,
+  onResumeSession,
+  onRenameSession,
+  onDeleteSession,
 }: UnifiedTabViewProps) {
   const activeTabGroup = tabGroups.find((tg) => tg.id === activeTabGroupId);
 
@@ -62,6 +68,9 @@ export function UnifiedTabView({
             workspace={workspace}
             savedSessions={savedSessions}
             currentSessionId={currentSessionId}
+            onResumeSession={onResumeSession}
+            onRenameSession={onRenameSession}
+            onDeleteSession={onDeleteSession}
             onNavigateToTabGroup={(spaceId, tabGroupId) => {
               sessionActions.selectSpace(spaceId);
               sessionActions.setActiveTabGroup(tabGroupId);

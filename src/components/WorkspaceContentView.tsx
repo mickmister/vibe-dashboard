@@ -15,6 +15,9 @@ interface WorkspaceContentViewProps {
   showAddressBar: boolean;
   savedSessions: SavedWorkspaceSession[];
   currentSessionId: string;
+  onResumeSession: (sessionId: string) => void;
+  onRenameSession: (sessionId: string, name: string) => void;
+  onDeleteSession: (sessionId: string) => void;
 }
 
 export function WorkspaceContentView({
@@ -29,6 +32,9 @@ export function WorkspaceContentView({
   showAddressBar,
   savedSessions,
   currentSessionId,
+  onResumeSession,
+  onRenameSession,
+  onDeleteSession,
 }: WorkspaceContentViewProps) {
   if (activeTabGroups.length === 0) {
     return (
@@ -50,6 +56,9 @@ export function WorkspaceContentView({
       showAddressBar={showAddressBar}
       savedSessions={savedSessions}
       currentSessionId={currentSessionId}
+      onResumeSession={onResumeSession}
+      onRenameSession={onRenameSession}
+      onDeleteSession={onDeleteSession}
     />
   );
 }

@@ -14,6 +14,9 @@ interface IframePanelProps {
   workspace?: WorkspaceState;
   savedSessions?: SavedWorkspaceSession[];
   currentSessionId?: string;
+  onResumeSession?: (sessionId: string) => void;
+  onRenameSession?: (sessionId: string, name: string) => void;
+  onDeleteSession?: (sessionId: string) => void;
   onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void;
   onOpenVKWorkspace?: (taskAttemptId: string, name: string, containerRef: string, spaceId: string) => void;
 }
@@ -426,6 +429,9 @@ export function IframePanel({
   workspace,
   savedSessions,
   currentSessionId,
+  onResumeSession,
+  onRenameSession,
+  onDeleteSession,
   onNavigateToTabGroup,
   onOpenVKWorkspace,
 }: IframePanelProps) {
@@ -470,6 +476,9 @@ export function IframePanel({
             {...(workspace ? { workspace } : {})}
             {...(savedSessions ? { savedSessions } : {})}
             {...(currentSessionId ? { currentSessionId } : {})}
+            {...(onResumeSession ? { onResumeSession } : {})}
+            {...(onRenameSession ? { onRenameSession } : {})}
+            {...(onDeleteSession ? { onDeleteSession } : {})}
             {...(onNavigateToTabGroup ? { onNavigateToTabGroup } : {})}
             {...(onOpenVKWorkspace ? { onOpenVKWorkspace } : {})}
           />
@@ -488,6 +497,9 @@ function SingleTabView({
   workspace,
   savedSessions,
   currentSessionId,
+  onResumeSession,
+  onRenameSession,
+  onDeleteSession,
   onNavigateToTabGroup,
   onOpenVKWorkspace,
 }: {
@@ -498,6 +510,9 @@ function SingleTabView({
   workspace?: WorkspaceState;
   savedSessions?: SavedWorkspaceSession[];
   currentSessionId?: string;
+  onResumeSession?: (sessionId: string) => void;
+  onRenameSession?: (sessionId: string, name: string) => void;
+  onDeleteSession?: (sessionId: string) => void;
   onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void;
   onOpenVKWorkspace?: (taskAttemptId: string, name: string, containerRef: string, spaceId: string) => void;
 }) {
@@ -509,13 +524,23 @@ function SingleTabView({
   if (target.kind === 'internal') {
     const { internalPath } = target;
 
-    if (internalPath === 'spaces-overview' && workspace && onNavigateToTabGroup) {
+    if (
+      internalPath === 'spaces-overview' &&
+      workspace &&
+      onNavigateToTabGroup &&
+      onResumeSession &&
+      onRenameSession &&
+      onDeleteSession
+    ) {
       return (
         <div className="flex-1 min-h-0 relative h-full">
           <SpacesOverview
             workspace={workspace}
             savedSessions={savedSessions || []}
             currentSessionId={currentSessionId}
+            onResumeSession={onResumeSession}
+            onRenameSession={onRenameSession}
+            onDeleteSession={onDeleteSession}
             onNavigateToTabGroup={onNavigateToTabGroup}
             {...(onOpenVKWorkspace ? { onOpenVKWorkspace } : {})}
           />

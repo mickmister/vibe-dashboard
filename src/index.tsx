@@ -624,6 +624,11 @@ springboard.registerModule(
           existing.updatedAt = new Date().toISOString();
         });
       },
+      deleteSavedSession: async (args: { id: string }) => {
+        savedSessionsState.setStateImmer((draft) => {
+          draft.sessions = draft.sessions.filter((session) => session.id !== args.id);
+        });
+      },
     });
 
     // Redirect component for root path (dev server case)
@@ -812,6 +817,16 @@ springboard.registerModule(
         },
         renameSession: (sessionId: string, name: string) => {
           void actions.renameSavedSession({ id: sessionId, name });
+        },
+        deleteSession: (sessionId: string) => {
+          if (sessionId === browserSessionId) {
+            const nextSessionId = createNewBrowserSessionId();
+            if (typeof window !== 'undefined') {
+              setBrowserSessionId(nextSessionId);
+            }
+            sessionNav.startNewSession();
+          }
+          void actions.deleteSavedSession({ id: sessionId });
         },
       };
 

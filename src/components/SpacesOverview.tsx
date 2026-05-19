@@ -686,11 +686,17 @@ function RecentSessionsSection({
   workspace,
   savedSessions,
   currentSessionId,
+  onResumeSession,
+  onRenameSession,
+  onDeleteSession,
   onNavigateToTabGroup,
 }: {
   workspace: WorkspaceState;
   savedSessions: SavedWorkspaceSession[];
   currentSessionId?: string;
+  onResumeSession: (sessionId: string) => void;
+  onRenameSession: (sessionId: string, name: string) => void;
+  onDeleteSession: (sessionId: string) => void;
   onNavigateToTabGroup: (spaceId: string, tabGroupId: string) => void;
 }) {
   const recentSessions = useMemo(() => {
@@ -698,6 +704,9 @@ function RecentSessionsSection({
       .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
       .slice(0, 8);
   }, [savedSessions]);
+  const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
+  const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
+  const [sessionNameDraft, setSessionNameDraft] = useState('');
 
   if (recentSessions.length === 0) return null;
 
@@ -711,30 +720,136 @@ function RecentSessionsSection({
           if (!space || !tg) return null;
 
           const sessionName = session.name?.trim() || tg.label || 'Saved session';
+          const isExpanded = expandedSessionId === session.id;
+          const tabGroups = session.visitedTabGroupIds
+            .map((tabGroupId) => {
+              const tabGroup = workspace.tabGroups.find((item) => item.id === tabGroupId);
+              if (!tabGroup) return null;
+              const ownerSpace = workspace.spaces.find((item) =>
+                item.tabGroupIds.includes(tabGroupId),
+              );
+              if (!ownerSpace) return null;
+              return { tabGroup: tabGroup, space: ownerSpace };
+            })
+            .filter(
+              (
+                item,
+              ): item is { tabGroup: TabGroup; space: WorkspaceState['spaces'][number] } =>
+                item != null,
+            );
 
           return (
-            <button
+            <div
               key={session.id}
-              onClick={() => onNavigateToTabGroup(space.id, tg.id)}
-              className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg bg-zinc-800/50 border border-zinc-700/50 hover:border-zinc-600 transition-colors group text-left"
+              className="rounded-lg bg-zinc-800/50 border border-zinc-700/50 overflow-hidden"
             >
-              <div className="min-w-0 flex-1">
-                <span className="text-sm font-medium text-white truncate block">
-                  {sessionName}
+              <div className="flex items-center gap-3 px-4 py-2.5">
+                <button
+                  onClick={() =>
+                    setExpandedSessionId((prev) => (prev === session.id ? null : session.id))
+                  }
+                  className="text-zinc-500 hover:text-white transition-colors shrink-0"
+                  aria-label={isExpanded ? 'Collapse session' : 'Expand session'}
+                >
+                  {isExpanded ? '▾' : '▸'}
+                </button>
+                <button
+                  onClick={() => onResumeSession(session.id)}
+                  className="min-w-0 flex-1 text-left"
+                >
+                  {editingSessionId === session.id ? (
+                    <input
+                      type="text"
+                      value={sessionNameDraft}
+                      onChange={(event) => setSessionNameDraft(event.target.value)}
+                      onClick={(event) => event.stopPropagation()}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' && sessionNameDraft.trim()) {
+                          onRenameSession(session.id, sessionNameDraft.trim());
+                          setEditingSessionId(null);
+                          setSessionNameDraft('');
+                        }
+                        if (event.key === 'Escape') {
+                          setEditingSessionId(null);
+                          setSessionNameDraft('');
+                        }
+                      }}
+                      onBlur={() => {
+                        if (sessionNameDraft.trim()) {
+                          onRenameSession(session.id, sessionNameDraft.trim());
+                        }
+                        setEditingSessionId(null);
+                        setSessionNameDraft('');
+                      }}
+                      className="w-full rounded border border-zinc-600 bg-zinc-900 px-2 py-1 text-sm text-white"
+                      autoFocus
+                    />
+                  ) : (
+                    <>
+                      <span className="text-sm font-medium text-white truncate block">
+                        {sessionName}
+                      </span>
+                      <span className="text-xs text-zinc-500 truncate block mt-0.5">
+                        {space.name} / {tg.label}
+                      </span>
+                    </>
+                  )}
+                </button>
+                {session.id === currentSessionId && (
+                  <span className="text-xs text-primary-300 shrink-0">
+                    Current
+                  </span>
+                )}
+                <span className="text-xs text-zinc-600 shrink-0 w-14 text-right">
+                  {formatRelativeTime(session.updatedAt)}
                 </span>
-                <span className="text-xs text-zinc-500 truncate block mt-0.5">
-                  {space.name} / {tg.label}
-                </span>
+                <button
+                  onClick={() => {
+                    setEditingSessionId(session.id);
+                    setSessionNameDraft(sessionName);
+                  }}
+                  className="text-xs text-zinc-400 hover:text-white shrink-0"
+                >
+                  Rename
+                </button>
+                <button
+                  onClick={() => onDeleteSession(session.id)}
+                  className="text-xs text-red-400 hover:text-red-300 shrink-0"
+                >
+                  Delete
+                </button>
               </div>
-              {session.id === currentSessionId && (
-                <span className="text-xs text-primary-300 shrink-0">
-                  Current
-                </span>
+              {isExpanded && (
+                <div className="border-t border-zinc-700/50 px-4 py-3 space-y-1 bg-zinc-900/40">
+                  {tabGroups.length > 0 ? (
+                    tabGroups.map(({ tabGroup, space: ownerSpace }) => (
+                      <button
+                        key={tabGroup.id}
+                        onClick={() => onNavigateToTabGroup(ownerSpace.id, tabGroup.id)}
+                        className="w-full flex items-center justify-between gap-3 px-3 py-2 rounded bg-zinc-800/70 hover:bg-zinc-700/70 text-left"
+                      >
+                        <div className="min-w-0">
+                          <div className="text-sm text-white truncate">
+                            {tabGroup.label}
+                            {tabGroup.id === session.activeTabGroupId ? (
+                              <span className="ml-2 text-xs text-primary-300">Active</span>
+                            ) : null}
+                          </div>
+                          <div className="text-xs text-zinc-500 truncate">
+                            {ownerSpace.name}
+                          </div>
+                        </div>
+                        <div className="text-xs text-zinc-600 shrink-0">
+                          {tabGroup.tabs.length} tab{tabGroup.tabs.length !== 1 ? 's' : ''}
+                        </div>
+                      </button>
+                    ))
+                  ) : (
+                    <div className="text-xs text-zinc-500">No tab groups recorded for this session.</div>
+                  )}
+                </div>
               )}
-              <span className="text-xs text-zinc-600 shrink-0 w-14 text-right">
-                {formatRelativeTime(session.updatedAt)}
-              </span>
-            </button>
+            </div>
           );
         })}
       </div>
@@ -926,6 +1041,9 @@ interface SpacesOverviewProps {
   workspace: WorkspaceState;
   savedSessions: SavedWorkspaceSession[];
   currentSessionId?: string;
+  onResumeSession: (sessionId: string) => void;
+  onRenameSession: (sessionId: string, name: string) => void;
+  onDeleteSession: (sessionId: string) => void;
   onNavigateToTabGroup: (spaceId: string, tabGroupId: string) => void;
   onOpenVKWorkspace?: (
     taskAttemptId: string,
@@ -939,6 +1057,9 @@ export function SpacesOverview({
   workspace,
   savedSessions,
   currentSessionId,
+  onResumeSession,
+  onRenameSession,
+  onDeleteSession,
   onNavigateToTabGroup,
   onOpenVKWorkspace,
 }: SpacesOverviewProps) {
@@ -1059,6 +1180,9 @@ export function SpacesOverview({
           workspace={workspace}
           savedSessions={savedSessions}
           currentSessionId={currentSessionId}
+          onResumeSession={onResumeSession}
+          onRenameSession={onRenameSession}
+          onDeleteSession={onDeleteSession}
           onNavigateToTabGroup={onNavigateToTabGroup}
         />
 
