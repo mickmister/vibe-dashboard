@@ -32,6 +32,20 @@ import type {
 const WORKSPACE_CREATE_PATH = '/workspaces/create';
 const WORKSPACE_CREATE_TAB_TITLE = 'Create Workspace';
 const URL_PARSE_BASE = 'https://workspace.local';
+const MOBILE_TAB_EMOJIS = [
+  '🚀',
+  '🧠',
+  '💻',
+  '🛠️',
+  '📚',
+  '🔬',
+  '🧪',
+  '🎯',
+  '🗂️',
+  '🌟',
+  '⚡',
+  '🛰️',
+];
 
 /**
  * Get the base URL without port prefix for creating tab URLs.
@@ -75,6 +89,18 @@ function createDefaultSavedSessionState(): SavedWorkspaceSessionState {
   };
 }
 
+function pickRandomMobileEmoji() {
+  return MOBILE_TAB_EMOJIS[Math.floor(Math.random() * MOBILE_TAB_EMOJIS.length)];
+}
+
+function isInternalTabUrl(url: string): boolean {
+  return url.startsWith('internal://');
+}
+
+function canPairTabs(tabUrls: string[]): boolean {
+  return tabUrls.every((url) => !isInternalTabUrl(url));
+}
+
 console.log('outside of module');
 springboard.registerModule(
   'workspace',
@@ -105,6 +131,7 @@ springboard.registerModule(
           draft.tabGroups.push({
             id: tabGroupId,
             label: 'Main',
+            mobileEmoji: pickRandomMobileEmoji(),
             tabs: [],
             pairs: [],
             order: 0,
@@ -212,6 +239,7 @@ springboard.registerModule(
           draft.tabGroups.push({
             id: tabGroupId,
             label: args.label,
+            mobileEmoji: pickRandomMobileEmoji(),
             tabs: [],
             pairs: [],
             order: space.tabGroupIds.length,
@@ -311,6 +339,7 @@ springboard.registerModule(
             firstTabGroup = {
               id: tabGroupId,
               label: 'Main',
+              mobileEmoji: pickRandomMobileEmoji(),
               tabs: [],
               pairs: [],
               order: 0,
@@ -360,6 +389,15 @@ springboard.registerModule(
         workspaceState.setStateImmer((draft) => {
           const tg = draft.tabGroups.find((g) => g.id === args.tabGroupId);
           if (!tg) return;
+          const tabsToPair = args.tabIds
+            .map((tabId) => tg.tabs.find((tab) => tab.id === tabId))
+            .filter((tab): tab is NonNullable<typeof tab> => Boolean(tab));
+          if (
+            tabsToPair.length !== args.tabIds.length ||
+            !canPairTabs(tabsToPair.map((tab) => tab.url))
+          ) {
+            return;
+          }
 
           pairId = `pair_${draft.nextId++}`;
           const ratios = args.tabIds.map(() => 100 / args.tabIds.length);
@@ -430,6 +468,7 @@ springboard.registerModule(
               args.name.length > 30
                 ? args.name.substring(0, 27) + '...'
                 : args.name,
+            mobileEmoji: pickRandomMobileEmoji(),
             createdAt: new Date().toISOString(),
             tabs: [
               {

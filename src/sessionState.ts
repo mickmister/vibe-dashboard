@@ -57,6 +57,19 @@ export function setBrowserSessionId(sessionId: string) {
   }
 }
 
+function getSpaceById(workspace: WorkspaceState, spaceId: string | undefined) {
+  return spaceId ? workspace.spaces.find((s) => s.id === spaceId) : undefined;
+}
+
+function isTabGroupInSpace(
+  workspace: WorkspaceState,
+  spaceId: string | undefined,
+  tabGroupId: string | undefined,
+): boolean {
+  const space = getSpaceById(workspace, spaceId);
+  return Boolean(space && tabGroupId && space.tabGroupIds.includes(tabGroupId));
+}
+
 function getValidVisitedTabGroupIds(
   workspace: WorkspaceState,
   visitedTabGroupIds: string[] | undefined,
@@ -123,8 +136,7 @@ function loadSessionNav(
     activeItems[tg.id] = firstItem;
   });
 
-  const spaceExistsInRoute =
-    route.spaceId && workspace.spaces.some((s) => s.id === route.spaceId);
+  const spaceExistsInRoute = Boolean(getSpaceById(workspace, route.spaceId));
 
   let activeSpaceId = "";
   let activeTabGroupId = "";
@@ -149,17 +161,19 @@ function loadSessionNav(
       activeSpaceId = parsed.activeSpaceId;
     }
 
-    const activeSpace = activeSpaceId
-      ? workspace.spaces.find((s) => s.id === activeSpaceId)
-      : undefined;
-    const routeTabGroupValid =
-      route.tabGroupId && activeSpace?.tabGroupIds.includes(route.tabGroupId);
+    const routeTabGroupValid = isTabGroupInSpace(
+      workspace,
+      activeSpaceId,
+      route.tabGroupId,
+    );
     const savedTabGroupValid =
-      savedSession?.activeTabGroupId &&
-      activeSpace?.tabGroupIds.includes(savedSession.activeTabGroupId);
+      isTabGroupInSpace(
+        workspace,
+        activeSpaceId,
+        savedSession?.activeTabGroupId,
+      );
     const storedTabGroupValid =
-      parsed?.activeTabGroupId &&
-      activeSpace?.tabGroupIds.includes(parsed.activeTabGroupId);
+      isTabGroupInSpace(workspace, activeSpaceId, parsed?.activeTabGroupId);
 
     if (routeTabGroupValid) {
       activeTabGroupId = route.tabGroupId!;
@@ -298,25 +312,33 @@ export function useSessionWorkspaceNav(
 
     setNav((prev) => {
       let updated = prev;
+      const nextSpaceId =
+        route.spaceId && getSpaceById(workspace, route.spaceId)
+          ? route.spaceId
+          : updated.activeSpaceId;
 
       if (
-        route.spaceId &&
-        workspace.spaces.some((s) => s.id === route.spaceId) &&
-        prev.activeSpaceId !== route.spaceId
+        nextSpaceId &&
+        prev.activeSpaceId !== nextSpaceId
       ) {
-        const space = workspace.spaces.find((s) => s.id === route.spaceId);
-        const firstTabGroupId = space?.tabGroupIds[0] || prev.activeTabGroupId;
+        const space = getSpaceById(workspace, nextSpaceId);
+        const routeTabGroupInSpace =
+          route.tabGroupId && space?.tabGroupIds.includes(route.tabGroupId)
+            ? route.tabGroupId
+            : undefined;
+        const firstTabGroupId =
+          routeTabGroupInSpace || space?.tabGroupIds[0] || prev.activeTabGroupId;
         updated = {
           ...updated,
-          activeSpaceId: route.spaceId,
+          activeSpaceId: nextSpaceId,
           activeTabGroupId: firstTabGroupId,
         };
       }
 
       if (
         route.tabGroupId &&
-        workspace.tabGroups.some((tg) => tg.id === route.tabGroupId) &&
-        prev.activeTabGroupId !== route.tabGroupId
+        isTabGroupInSpace(workspace, nextSpaceId, route.tabGroupId) &&
+        updated.activeTabGroupId !== route.tabGroupId
       ) {
         updated = { ...updated, activeTabGroupId: route.tabGroupId };
       }

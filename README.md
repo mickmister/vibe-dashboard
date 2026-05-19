@@ -83,7 +83,7 @@ Environment variables are split across:
 
 ## Memory watchdog
 
-The container now includes a supervisor-managed watchdog at [scripts/memory-watchdog.mjs](/Users/mickmister/code/vibe-kanban-vscode-web/scripts/memory-watchdog.mjs) that can post to a Mattermost incoming webhook when:
+The container now includes a supervisor-managed watchdog at [`scripts/memory-watchdog.mjs`](./scripts/memory-watchdog.mjs) that can post to a Mattermost incoming webhook when:
 
 - host memory usage rises above `MEMORY_WATCHDOG_TOTAL_THRESHOLD_PERCENT`
 - any individual process exceeds `MEMORY_WATCHDOG_PROCESS_THRESHOLD_MB`

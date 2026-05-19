@@ -13,6 +13,21 @@ import type {
 } from '../types';
 import type { SessionWorkspaceNav } from '../sessionState';
 
+const MOBILE_TAB_EMOJI_CHOICES = [
+  '🚀',
+  '🧠',
+  '💻',
+  '🛠️',
+  '📚',
+  '🔬',
+  '🧪',
+  '🎯',
+  '🗂️',
+  '🌟',
+  '⚡',
+  '🛰️',
+];
+
 export type WorkspaceActions = {
   addSpace: (args: {
     name: string;
@@ -611,7 +626,7 @@ export function WorkspaceShell({
                 Edit Mobile Tab
               </div>
               <div className="text-xs text-neutral-500 mt-1">
-                Long press opens this menu. Tap still switches tabs.
+                Long press opens this menu. Tap still switches tabs. Closing here closes the whole tab group.
               </div>
             </div>
 
@@ -633,11 +648,27 @@ export function WorkspaceShell({
                   type="text"
                   value={mobileTabDraftEmoji}
                   onChange={(event) =>
-                    setMobileTabDraftEmoji(Array.from(event.target.value).slice(0, 2).join(''))
+                    setMobileTabDraftEmoji(getFirstGrapheme(event.target.value))
                   }
                   placeholder={getMobileTabGroupEmoji(mobileTabMenuTabGroup)}
                   className="mt-1 w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-white focus:outline-none focus:border-primary-500"
                 />
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {MOBILE_TAB_EMOJI_CHOICES.map((emoji) => (
+                    <button
+                      key={emoji}
+                      type="button"
+                      className={`rounded-md border px-2 py-1 text-base ${
+                        mobileTabDraftEmoji === emoji
+                          ? 'border-primary-500 bg-primary-500/15'
+                          : 'border-neutral-700 bg-neutral-800'
+                      }`}
+                      onClick={() => setMobileTabDraftEmoji(emoji)}
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
               </label>
             </div>
 
@@ -660,7 +691,7 @@ export function WorkspaceShell({
                   void handleCloseMobileTab();
                 }}
               >
-                Close Tab
+                Close Tab Group
               </button>
             </div>
           </div>
@@ -696,12 +727,28 @@ function getMobileTabGroupEmoji(tabGroup: TabGroup): string {
   const normalized = tabGroup.label.toLowerCase();
 
   if (normalized.includes('overview') || normalized.includes('home')) return '🏠';
-  if (normalized.includes('agent') || normalized.includes('chat')) return '🤖';
-  if (normalized.includes('code') || normalized.includes('dev')) return '💻';
-  if (normalized.includes('preview') || normalized.includes('view')) return '👁️';
-  if (normalized.includes('docs')) return '📚';
-  if (normalized.includes('api')) return '🔌';
-  if (normalized.includes('bug')) return '🐞';
 
-  return '📁';
+  return MOBILE_TAB_EMOJI_CHOICES[getStableEmojiIndex(tabGroup.id)] || '📁';
+}
+
+function getFirstGrapheme(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+
+  if (typeof Intl !== 'undefined' && 'Segmenter' in Intl) {
+    const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+    const iterator = segmenter.segment(trimmed)[Symbol.iterator]();
+    const first = iterator.next();
+    return first.done ? '' : first.value.segment;
+  }
+
+  return Array.from(trimmed)[0] || '';
+}
+
+function getStableEmojiIndex(value: string): number {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) >>> 0;
+  }
+  return hash % MOBILE_TAB_EMOJI_CHOICES.length;
 }

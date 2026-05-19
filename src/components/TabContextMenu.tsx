@@ -1,6 +1,8 @@
 import React, { useEffect, useRef } from 'react';
 import type { TabGroup } from '../types';
 
+const INTERNAL_URL_PREFIX = 'internal://';
+
 interface TabContextMenuProps {
   /** Position to show the menu */
   position: { x: number; y: number };
@@ -83,7 +85,11 @@ export function TabContextMenu({
   // Get other tabs that can be paired with (exclude current tab and tabs already in pairs)
   const tabsInPairs = new Set(tabGroup.pairs.flatMap((p) => p.tabIds));
   const availableTabs = tabGroup.tabs.filter(
-    (t) => t.id !== tabId && !tabsInPairs.has(t.id)
+    (t) =>
+      t.id !== tabId &&
+      !tabsInPairs.has(t.id) &&
+      !t.url.startsWith(INTERNAL_URL_PREFIX) &&
+      !(tab?.url.startsWith(INTERNAL_URL_PREFIX))
   );
 
   // Adjust menu position to stay within viewport

@@ -14,6 +14,8 @@ import type {
 } from '../types';
 import { TabContextMenu } from './TabContextMenu';
 
+const INTERNAL_URL_PREFIX = 'internal://';
+
 interface SidebarProps {
   workspace: WorkspaceState;
   activeSpaceId: string;
@@ -154,7 +156,10 @@ export function Sidebar({
     const tabsInPairs = new Set(
       activeTabGroup.pairs.flatMap((pair) => pair.tabIds),
     );
-    return activeTabGroup.tabs.filter((tab) => !tabsInPairs.has(tab.id));
+    return activeTabGroup.tabs.filter(
+      (tab) =>
+        !tabsInPairs.has(tab.id) && !tab.url.startsWith(INTERNAL_URL_PREFIX),
+    );
   }, [activeTabGroup]);
 
   const starredTabGroups = useMemo(() => {
