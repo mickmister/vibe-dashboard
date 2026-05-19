@@ -25,12 +25,12 @@ interface AddTabModalProps {
   tabGroupFactories: TabGroupFactoryContribution[];
   onAdd: (title: string, url: string) => void;
   onAddVKWorkspace?: (
-    taskAttemptId: string,
+    workspaceId: string,
     name: string,
     containerRef: string,
   ) => void;
   onAddVKWorkspaceToSpace?: (
-    taskAttemptId: string,
+    workspaceId: string,
     name: string,
     containerRef: string,
     spaceId: string,
@@ -194,12 +194,12 @@ export function AddTabModal({
   };
 
   const handleVKWorkspaceAdd = (
-    taskAttemptId: string,
+    workspaceId: string,
     name: string,
     containerRef: string,
   ) => {
     if (onAddVKWorkspace) {
-      onAddVKWorkspace(taskAttemptId, name, containerRef);
+      onAddVKWorkspace(workspaceId, name, containerRef);
     }
     handleClose();
   };

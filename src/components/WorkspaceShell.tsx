@@ -51,7 +51,7 @@ export type WorkspaceActions = {
   reorderTabGroups: (args: { sourceId: string; targetId: string }) => void;
   closeActiveTab: () => void;
   addVKWorkspace: (args: {
-    taskAttemptId: string;
+    workspaceId: string;
     name: string;
     containerRef: string;
     activeSpaceId: string;
@@ -184,12 +184,12 @@ export function WorkspaceShell({
   };
 
   const handleAddVKWorkspace = async (
-    taskAttemptId: string,
+    workspaceId: string,
     name: string,
     containerRef: string,
   ) => {
     const result = await actions.addVKWorkspace({
-      taskAttemptId,
+      workspaceId,
       name,
       containerRef,
       activeSpaceId: session.activeSpaceId,
@@ -202,13 +202,13 @@ export function WorkspaceShell({
   };
 
   const handleAddVKWorkspaceToSpace = async (
-    taskAttemptId: string,
+    workspaceId: string,
     name: string,
     containerRef: string,
     spaceId: string,
   ) => {
     const result = await actions.addVKWorkspace({
-      taskAttemptId,
+      workspaceId,
       name,
       containerRef,
       activeSpaceId: spaceId,
@@ -401,7 +401,6 @@ export function WorkspaceShell({
           onAddToSpace={handleAddVKWorkspaceToSpace}
           onNavigateToTabGroup={handleNavigateToWorkspaceTabGroup}
           workspaceState={workspace}
-          allowCustomPath={false}
         />
       )}
     </div>

@@ -6,35 +6,32 @@ import './modules/plugins';
 import React, { useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router';
 import { HeroUIProvider } from '@heroui/react';
+import { AppLoadingScreen } from './components/AppLoadingScreen';
 import { WorkspaceShell } from './components/WorkspaceShell';
 import { useSessionWorkspaceNav } from './sessionState';
 
 // Ensure dark class is on the document root so portaled elements (modals, popovers)
 // inherit dark mode styles
 document.documentElement.classList.add('dark');
+springboard.registerSplashScreen(AppLoadingScreen);
 
 // @platform end
 
 import springboard from 'springboard';
+
+// @platform "node"
+import './modules/WorkflowServerModule';
+// @platform end
+
 import { createDefaultWorkspace } from './types';
 import type { WorkspaceState } from './types';
 import type { PluginRegistryState } from './modules/plugins/vibe-dashboard/types';
+import { getBaseOrigin } from './utils/origin';
 
 
 const WORKSPACE_CREATE_PATH = '/workspaces/create';
 const WORKSPACE_CREATE_TAB_TITLE = 'Create Workspace';
 const URL_PARSE_BASE = 'https://workspace.local';
-
-function getBaseOrigin(): string {
-  const { protocol, host } = window.location;
-  const portPrefixMatch = host.match(/^port-\d+\.(.+)$/);
-
-  if (portPrefixMatch) {
-    return `${protocol}//${portPrefixMatch[1]}`;
-  }
-
-  return '';
-}
 
 function buildWorkspaceTabUrl(baseOrigin: string, path: string): string {
   return baseOrigin ? `${baseOrigin}${path}` : path;
@@ -328,7 +325,7 @@ springboard.registerModule('workspace', { rpcMode: 'remote' }, async (moduleAPI)
     },
 
     addVKWorkspace: async (args: {
-      taskAttemptId: string;
+      workspaceId: string;
       name: string;
       containerRef: string;
       activeSpaceId: string;
@@ -358,7 +355,7 @@ springboard.registerModule('workspace', { rpcMode: 'remote' }, async (moduleAPI)
             {
               id: agentTab,
               title: 'Agent',
-              url: `${args.baseOrigin}/workspaces/${args.taskAttemptId}`,
+              url: `${args.baseOrigin}/workspaces/${args.workspaceId}`,
             },
             {
               id: codeTab,
@@ -556,7 +553,7 @@ springboard.registerModule('workspace', { rpcMode: 'remote' }, async (moduleAPI)
         return actions.ensureCreateWorkspaceTab({ baseOrigin });
       },
       addVKWorkspace: (args: {
-        taskAttemptId: string;
+        workspaceId: string;
         name: string;
         containerRef: string;
         activeSpaceId: string;
@@ -643,7 +640,7 @@ declare module 'springboard/module_registry/module_registry' {
         updatePairRatios: (args: { tabGroupId: string; pairId: string; ratios: number[] }) => Promise<void>;
         deletePair: (args: { tabGroupId: string; pairId: string }) => Promise<{ firstTabId?: string; tabGroupId: string }>;
         addVKWorkspace: (args: {
-          taskAttemptId: string;
+          workspaceId: string;
           name: string;
           containerRef: string;
           activeSpaceId: string;

@@ -56,9 +56,9 @@ export function UnifiedTabView({
               sessionActions.selectSpace(spaceId);
               sessionActions.setActiveTabGroup(tabGroupId);
             }}
-            onOpenVKWorkspace={async (taskAttemptId, name, containerRef, spaceId) => {
+            onOpenVKWorkspace={async (workspaceId, name, containerRef, spaceId) => {
               const result = await actions.addVKWorkspace({
-                taskAttemptId,
+                workspaceId,
                 name,
                 containerRef,
                 activeSpaceId: spaceId,

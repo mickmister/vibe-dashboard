@@ -13,7 +13,7 @@ interface IframePanelProps {
   onUpdatePairRatios: (pairId: string, ratios: number[]) => void;
   workspace?: WorkspaceState;
   onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void;
-  onOpenVKWorkspace?: (taskAttemptId: string, name: string, containerRef: string, spaceId: string) => void;
+  onOpenVKWorkspace?: (workspaceId: string, name: string, containerRef: string, spaceId: string) => void;
 }
 
 /**
@@ -489,7 +489,7 @@ function SingleTabView({
   retryTab: (tabId: string) => void;
   workspace?: WorkspaceState;
   onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void;
-  onOpenVKWorkspace?: (taskAttemptId: string, name: string, containerRef: string, spaceId: string) => void;
+  onOpenVKWorkspace?: (workspaceId: string, name: string, containerRef: string, spaceId: string) => void;
 }) {
   const isLoaded = loadingState.get(activeTab.id) ?? false;
   const hasError = errorState.get(activeTab.id) ?? false;

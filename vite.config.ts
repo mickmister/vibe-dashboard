@@ -9,7 +9,7 @@ import { storybookTest } from '@storybook/addon-vitest/vitest-plugin';
 import { playwright } from '@vitest/browser-playwright';
 const dirname = typeof __dirname !== 'undefined' ? __dirname : path.dirname(fileURLToPath(import.meta.url));
 
-let serverPort = 1337;
+let serverPort = 3005;
 if (process.env.SERVER_PORT || process.env.PORT) {
   serverPort = parseInt(process.env.SERVER_PORT || process.env.PORT!);
 }
@@ -42,7 +42,8 @@ export default defineConfig({
   })],
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, 'src')
+      '@': path.resolve(__dirname, 'src'),
+      '@vibe-kanban/workflow-core': path.resolve(__dirname, 'packages/workflow-core/src/index.ts')
     }
   },
   define: {

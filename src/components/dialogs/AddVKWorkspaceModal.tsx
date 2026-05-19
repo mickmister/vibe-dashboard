@@ -27,17 +27,15 @@ interface AddVKWorkspaceModalProps {
   isOpen: boolean;
   onClose: () => void;
   onComplete?: () => void;
-  onAdd: (taskAttemptId: string, name: string, containerRef: string) => void;
+  onAdd: (workspaceId: string, name: string, containerRef: string) => void;
   onAddToSpace?: (
-    taskAttemptId: string,
+    workspaceId: string,
     name: string,
     containerRef: string,
     spaceId: string,
   ) => void;
   onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void;
-  onAddWithPath?: (workspacePath: string, name: string) => void;
   workspaceState?: WorkspaceState;
-  allowCustomPath?: boolean;
 }
 
 export function AddVKWorkspaceModal({
@@ -47,11 +45,9 @@ export function AddVKWorkspaceModal({
   onAdd,
   onAddToSpace,
   onNavigateToTabGroup,
-  onAddWithPath,
   workspaceState,
-  allowCustomPath = true,
 }: AddVKWorkspaceModalProps) {
-  const [taskAttempts, setTaskAttempts] = useState<WorkspaceOption[]>(
+  const [workspaceOptions, setWorkspaceOptions] = useState<WorkspaceOption[]>(
     () => cachedWorkspaceOptions ?? [],
   );
   const [filteredAttempts, setFilteredAttempts] = useState<WorkspaceOption[]>(
@@ -62,9 +58,6 @@ export function AddVKWorkspaceModal({
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRepo, setSelectedRepo] = useState('all');
-  const [showPathInput, setShowPathInput] = useState(false);
-  const [customPath, setCustomPath] = useState('');
-  const [customName, setCustomName] = useState('');
   const [spacePickerTarget, setSpacePickerTarget] =
     useState<WorkspaceOption | null>(null);
 
@@ -80,13 +73,10 @@ export function AddVKWorkspaceModal({
 
   useEffect(() => {
     if (isOpen) {
-      void fetchTaskAttempts();
+      void fetchWorkspaceOptionsState();
     } else {
       setSearchQuery('');
       setSelectedRepo('all');
-      setShowPathInput(false);
-      setCustomPath('');
-      setCustomName('');
       setSpacePickerTarget(null);
       setLoading(false);
       setRefreshing(false);
@@ -98,7 +88,7 @@ export function AddVKWorkspaceModal({
     const query = searchQuery.trim().toLowerCase();
     const repoFilter = selectedRepo.trim();
 
-    const filtered = taskAttempts.filter((ta) => {
+    const filtered = workspaceOptions.filter((ta) => {
       const openLocation = workspaceTabGroupMap.get(ta.id);
       const matchesQuery =
         !query ||
@@ -116,29 +106,29 @@ export function AddVKWorkspaceModal({
 
     filtered.sort((a, b) => compareWorkspaceOptions(a, b, workspaceTabGroupMap));
     setFilteredAttempts(filtered);
-  }, [searchQuery, selectedRepo, taskAttempts, workspaceTabGroupMap]);
+  }, [searchQuery, selectedRepo, workspaceOptions, workspaceTabGroupMap]);
 
   const repoOptions = useMemo(() => {
     const repos = new Set<string>();
-    taskAttempts.forEach((ta) => {
+    workspaceOptions.forEach((ta) => {
       getRepoNames(ta).forEach((repoName) => repos.add(repoName));
     });
     return Array.from(repos).sort((a, b) => a.localeCompare(b));
-  }, [taskAttempts]);
+  }, [workspaceOptions]);
 
-  const refreshTaskAttemptContainerAndRefetchTaskAttempt = async (
-    taskAttemptId: string,
+  const refreshWorkspaceContainerAndRefetchWorkspace = async (
+    workspaceId: string,
   ) => {
-    await vkClient.getWorkspaceBranchStatus(taskAttemptId);
-    return vkClient.getWorkspace(taskAttemptId);
+    await vkClient.getWorkspaceBranchStatus(workspaceId);
+    return vkClient.getWorkspace(workspaceId);
   };
 
-  const fetchTaskAttempts = async () => {
+  const fetchWorkspaceOptionsState = async () => {
     const cachedResults = cachedWorkspaceOptions;
     const hasCachedResults = cachedResults != null;
 
     if (hasCachedResults) {
-      setTaskAttempts(cachedResults);
+      setWorkspaceOptions(cachedResults);
       setLoading(false);
       setRefreshing(true);
     } else {
@@ -150,7 +140,7 @@ export function AddVKWorkspaceModal({
 
     try {
       const workspaces = await fetchWorkspaceOptions();
-      setTaskAttempts(workspaces);
+      setWorkspaceOptions(workspaces);
     } catch (err) {
       if (!hasCachedResults) {
         setError(err instanceof Error ? err.message : 'Failed to load workspaces');
@@ -166,7 +156,7 @@ export function AddVKWorkspaceModal({
 
     if (!containerRef) {
       try {
-        const attempt = await refreshTaskAttemptContainerAndRefetchTaskAttempt(
+        const attempt = await refreshWorkspaceContainerAndRefetchWorkspace(
           workspace.id,
         );
         containerRef = attempt.container_ref;
@@ -222,20 +212,6 @@ export function AddVKWorkspaceModal({
     onClose();
   };
 
-  const handleAddWithPath = () => {
-    if (!customPath.trim()) return;
-
-    const name = customName.trim() || 'Custom Workspace';
-
-    if (onAddWithPath) {
-      onAddWithPath(customPath.trim(), name);
-    } else {
-      onAdd('', name, customPath.trim());
-    }
-    onComplete?.();
-    onClose();
-  };
-
   return (
     <Modal isOpen={isOpen} onClose={onClose} size="2xl" backdrop="blur">
       <ModalContent className="bg-neutral-900 border border-neutral-800 text-neutral-100">
@@ -246,9 +222,7 @@ export function AddVKWorkspaceModal({
           <p className="text-sm text-neutral-400 font-normal">
             {spacePickerTarget
               ? `Select a space for ${spacePickerTarget.name || 'Untitled Workspace'}`
-              : showPathInput
-                ? 'Enter workspace path or directory'
-                : 'Search workspaces to open, or jump to an already-open tab group'}
+              : 'Search workspaces to open, or jump to an already-open tab group'}
           </p>
         </ModalHeader>
         <ModalBody>
@@ -287,68 +261,22 @@ export function AddVKWorkspaceModal({
                 })
               )}
             </div>
-          ) : showPathInput ? (
-            <div className="space-y-3">
-              <Input
-                label="Workspace Name"
-                placeholder="My Workspace"
-                value={customName}
-                onChange={(e) => setCustomName(e.target.value)}
-                size="sm"
-                classNames={{
-                  inputWrapper:
-                    'bg-neutral-800 border-neutral-700 data-[hover=true]:bg-neutral-800 group-data-[focus=true]:bg-neutral-800',
-                  input: 'text-white',
-                  label: 'text-neutral-300',
-                }}
-              />
-              <Input
-                label="Path"
-                placeholder="/absolute/path or VK workspace ID/URL"
-                value={customPath}
-                onChange={(e) => setCustomPath(e.target.value)}
-                size="sm"
-                autoFocus
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleAddWithPath();
-                }}
-                classNames={{
-                  inputWrapper:
-                    'bg-neutral-800 border-neutral-700 data-[hover=true]:bg-neutral-800 group-data-[focus=true]:bg-neutral-800',
-                  input: 'text-white',
-                  label: 'text-neutral-300',
-                  description: 'text-neutral-500',
-                }}
-                description="Provide an absolute directory path or VK workspace ID/URL"
-              />
-            </div>
           ) : (
             <>
               <div className="flex flex-col gap-2">
-                <div className="flex gap-2">
-                  <Input
-                    placeholder="Search workspaces..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    size="sm"
-                    autoFocus
-                    classNames={{
-                      inputWrapper:
-                        'bg-neutral-800 border-neutral-700 data-[hover=true]:bg-neutral-800 group-data-[focus=true]:bg-neutral-800',
-                      input: 'text-white',
-                    }}
-                    className="flex-1"
-                  />
-                  {allowCustomPath && (
-                    <Button
-                      size="sm"
-                      variant="flat"
-                      onPress={() => setShowPathInput(true)}
-                    >
-                      Custom Path
-                    </Button>
-                  )}
-                </div>
+                <Input
+                  placeholder="Search workspaces..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  size="sm"
+                  autoFocus
+                  classNames={{
+                    inputWrapper:
+                      'bg-neutral-800 border-neutral-700 data-[hover=true]:bg-neutral-800 group-data-[focus=true]:bg-neutral-800',
+                    input: 'text-white',
+                  }}
+                  className="flex-1"
+                />
 
                 <div className="flex items-center gap-2">
                   <label
@@ -451,16 +379,12 @@ export function AddVKWorkspaceModal({
           )}
         </ModalBody>
         <ModalFooter className="border-t border-neutral-800">
-          {(showPathInput || spacePickerTarget) && (
+          {spacePickerTarget && (
             <Button
               size="sm"
               variant="flat"
               onPress={() => {
-                if (spacePickerTarget) {
-                  setSpacePickerTarget(null);
-                } else {
-                  setShowPathInput(false);
-                }
+                setSpacePickerTarget(null);
               }}
               className="bg-neutral-800 text-neutral-200"
             >
@@ -475,15 +399,6 @@ export function AddVKWorkspaceModal({
           >
             Cancel
           </Button>
-          {showPathInput && (
-            <Button
-              color="primary"
-              onPress={handleAddWithPath}
-              isDisabled={!customPath.trim()}
-            >
-              Add
-            </Button>
-          )}
         </ModalFooter>
       </ModalContent>
     </Modal>

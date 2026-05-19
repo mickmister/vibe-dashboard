@@ -1,35 +1,43 @@
 import springboard from 'springboard';
-import type { PluginContributions } from '../vibe-dashboard/types';
+import {
+  createPluginManifest,
+  type PluginManifest,
+} from '../vibe-dashboard/types';
 import { getBaseOrigin } from '../../../utils/origin';
 
-const contributions: PluginContributions = {
-  tabPresets: [
-    {
-      key: 'vibe-kanban',
-      title: 'Kanban',
-      description: 'Vibe Kanban board view',
-      mode: 'immediate',
-      urlTemplate: '{{origin}}/',
-      order: 30,
-    },
-  ],
-  spaceTypes: [
-    {
-      key: 'kanban',
-      icon: 'KB',
-    },
-  ],
-};
+const manifest: PluginManifest = createPluginManifest({
+  id: 'dev.mickmister.vibe-kanban',
+  displayName: 'Vibe Kanban',
+  version: '1.0.0',
+  contributions: {
+    tabPresets: [
+      {
+        key: 'board',
+        title: 'Kanban',
+        description: 'Vibe Kanban board view',
+        mode: 'immediate',
+        urlTemplate: '{{origin}}/',
+        order: 30,
+      },
+    ],
+    spaceTypes: [
+      {
+        key: 'kanban',
+        icon: 'KB',
+      },
+    ],
+  },
+});
 
 springboard.registerModule('plugin-vibe-kanban', {}, async (moduleAPI) => {
   const pluginRegistry = moduleAPI.getModule('plugin-registry');
   if (pluginRegistry) {
-    await pluginRegistry.actions.registerContributions(contributions);
+    await pluginRegistry.actions.registerPlugin(manifest);
   }
 
   const actions = moduleAPI.createActions({
     addVKWorkspace: async (args: {
-      taskAttemptId: string;
+      workspaceId: string;
       name: string;
       containerRef: string;
       activeSpaceId: string;
@@ -48,7 +56,7 @@ springboard.registerModule('plugin-vibe-kanban', {}, async (moduleAPI) => {
   });
 
   return {
-    contributions,
+    manifest,
     actions,
   };
 });
@@ -56,10 +64,10 @@ springboard.registerModule('plugin-vibe-kanban', {}, async (moduleAPI) => {
 declare module 'springboard/module_registry/module_registry' {
   interface AllModules {
     'plugin-vibe-kanban': {
-      contributions: PluginContributions;
+      manifest: PluginManifest;
       actions: {
         addVKWorkspace: (args: {
-          taskAttemptId: string;
+          workspaceId: string;
           name: string;
           containerRef: string;
           activeSpaceId: string;
