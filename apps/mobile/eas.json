@@ -36,16 +36,15 @@
       "extends": "monorepo",
       "developmentClient": false,
       "env": {
-        "EXPO_APP_PROFILE": "preview",
-        "EXPO_PUBLIC_SITE_URL": "https://staging.vibekanban.app",
-        "PUBLIC_SITE_URL": "https://staging.vibekanban.app"
+        "EXPO_APP_PROFILE": "preview"
       },
       "android": {
         "buildType": "apk"
       },
       "ios": {
         "resourceClass": "m1-medium"
-      }
+      },
+      "environment": "preview"
     },
     "production": {
       "channel": "production",
@@ -53,10 +52,9 @@
       "extends": "monorepo",
       "developmentClient": false,
       "env": {
-        "EXPO_APP_PROFILE": "production",
-        "EXPO_PUBLIC_SITE_URL": "https://vibekanban.app",
-        "PUBLIC_SITE_URL": "https://vibekanban.app"
-      }
+        "EXPO_APP_PROFILE": "production"
+      },
+      "environment": "production"
     }
   }
 }
