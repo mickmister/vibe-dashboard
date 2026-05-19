@@ -1,5 +1,9 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
-import type { WorkspaceState, TabGroup } from "../types";
+import type {
+  WorkspaceState,
+  TabGroup,
+  SavedWorkspaceSession,
+} from "../types";
 import {
   vkClient,
   type Workspace,
@@ -678,6 +682,66 @@ function StarredTabGroups({
   );
 }
 
+function RecentSessionsSection({
+  workspace,
+  savedSessions,
+  currentSessionId,
+  onNavigateToTabGroup,
+}: {
+  workspace: WorkspaceState;
+  savedSessions: SavedWorkspaceSession[];
+  currentSessionId?: string;
+  onNavigateToTabGroup: (spaceId: string, tabGroupId: string) => void;
+}) {
+  const recentSessions = useMemo(() => {
+    return [...savedSessions]
+      .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
+      .slice(0, 8);
+  }, [savedSessions]);
+
+  if (recentSessions.length === 0) return null;
+
+  return (
+    <div className="mb-8">
+      <h2 className="text-lg font-semibold text-white mb-3">Recent Sessions</h2>
+      <div className="space-y-1">
+        {recentSessions.map((session) => {
+          const space = workspace.spaces.find((item) => item.id === session.activeSpaceId);
+          const tg = workspace.tabGroups.find((item) => item.id === session.activeTabGroupId);
+          if (!space || !tg) return null;
+
+          const sessionName = session.name?.trim() || tg.label || 'Saved session';
+
+          return (
+            <button
+              key={session.id}
+              onClick={() => onNavigateToTabGroup(space.id, tg.id)}
+              className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg bg-zinc-800/50 border border-zinc-700/50 hover:border-zinc-600 transition-colors group text-left"
+            >
+              <div className="min-w-0 flex-1">
+                <span className="text-sm font-medium text-white truncate block">
+                  {sessionName}
+                </span>
+                <span className="text-xs text-zinc-500 truncate block mt-0.5">
+                  {space.name} / {tg.label}
+                </span>
+              </div>
+              {session.id === currentSessionId && (
+                <span className="text-xs text-primary-300 shrink-0">
+                  Current
+                </span>
+              )}
+              <span className="text-xs text-zinc-600 shrink-0 w-14 text-right">
+                {formatRelativeTime(session.updatedAt)}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function RecentlyVisitedTabGroups({
   workspace,
   onNavigateToTabGroup,
@@ -860,6 +924,8 @@ function SpacesSection({
 
 interface SpacesOverviewProps {
   workspace: WorkspaceState;
+  savedSessions: SavedWorkspaceSession[];
+  currentSessionId?: string;
   onNavigateToTabGroup: (spaceId: string, tabGroupId: string) => void;
   onOpenVKWorkspace?: (
     taskAttemptId: string,
@@ -871,6 +937,8 @@ interface SpacesOverviewProps {
 
 export function SpacesOverview({
   workspace,
+  savedSessions,
+  currentSessionId,
   onNavigateToTabGroup,
   onOpenVKWorkspace,
 }: SpacesOverviewProps) {
@@ -985,6 +1053,14 @@ export function SpacesOverview({
           <h1 className="text-2xl font-bold text-white">Dashboard</h1>
           <p className="text-sm text-zinc-500 mt-1">Workspace activity feed</p>
         </div>
+
+        {/* Starred Tab Groups */}
+        <RecentSessionsSection
+          workspace={workspace}
+          savedSessions={savedSessions}
+          currentSessionId={currentSessionId}
+          onNavigateToTabGroup={onNavigateToTabGroup}
+        />
 
         {/* Starred Tab Groups */}
         <StarredTabGroups

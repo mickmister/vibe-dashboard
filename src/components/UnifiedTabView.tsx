@@ -1,7 +1,11 @@
 import React from 'react';
 import { AddressBar } from './AddressBar';
 import { IframePanel } from './IframePanel';
-import type { TabGroup, WorkspaceState } from '../types';
+import type {
+  TabGroup,
+  WorkspaceState,
+  SavedWorkspaceSession,
+} from '../types';
 import type { WorkspaceActions, SessionActions } from './WorkspaceShell';
 
 interface UnifiedTabViewProps {
@@ -11,6 +15,8 @@ interface UnifiedTabViewProps {
   sessionActions: SessionActions;
   workspace: WorkspaceState;
   showAddressBar: boolean;
+  savedSessions: SavedWorkspaceSession[];
+  currentSessionId: string;
 }
 
 export function UnifiedTabView({
@@ -20,6 +26,8 @@ export function UnifiedTabView({
   sessionActions,
   workspace,
   showAddressBar,
+  savedSessions,
+  currentSessionId,
 }: UnifiedTabViewProps) {
   const activeTabGroup = tabGroups.find((tg) => tg.id === activeTabGroupId);
 
@@ -52,6 +60,8 @@ export function UnifiedTabView({
               })
             }
             workspace={workspace}
+            savedSessions={savedSessions}
+            currentSessionId={currentSessionId}
             onNavigateToTabGroup={(spaceId, tabGroupId) => {
               sessionActions.selectSpace(spaceId);
               sessionActions.setActiveTabGroup(tabGroupId);

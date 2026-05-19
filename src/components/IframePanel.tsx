@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { Group, Panel, Separator } from 'react-resizable-panels';
 import type { TabGroup, Tab } from '../types';
-import type { WorkspaceState } from '../types';
+import type { WorkspaceState, SavedWorkspaceSession } from '../types';
 import { AppLoadingScreen } from './AppLoadingScreen';
 import { SpacesOverview } from './SpacesOverview';
 
@@ -12,6 +12,8 @@ interface IframePanelProps {
   activeItemId: string;
   onUpdatePairRatios: (pairId: string, ratios: number[]) => void;
   workspace?: WorkspaceState;
+  savedSessions?: SavedWorkspaceSession[];
+  currentSessionId?: string;
   onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void;
   onOpenVKWorkspace?: (taskAttemptId: string, name: string, containerRef: string, spaceId: string) => void;
 }
@@ -422,6 +424,8 @@ export function IframePanel({
   activeItemId,
   onUpdatePairRatios,
   workspace,
+  savedSessions,
+  currentSessionId,
   onNavigateToTabGroup,
   onOpenVKWorkspace,
 }: IframePanelProps) {
@@ -458,15 +462,17 @@ export function IframePanel({
           onUpdatePairRatios={onUpdatePairRatios}
         />
       ) : activeTab ? (
-        <SingleTabView
-          activeTab={activeTab}
-          loadingState={loadingState}
-          errorState={errorState}
-          retryTab={retryTab}
-          {...(workspace ? { workspace } : {})}
-          {...(onNavigateToTabGroup ? { onNavigateToTabGroup } : {})}
-          {...(onOpenVKWorkspace ? { onOpenVKWorkspace } : {})}
-        />
+          <SingleTabView
+            activeTab={activeTab}
+            loadingState={loadingState}
+            errorState={errorState}
+            retryTab={retryTab}
+            {...(workspace ? { workspace } : {})}
+            {...(savedSessions ? { savedSessions } : {})}
+            {...(currentSessionId ? { currentSessionId } : {})}
+            {...(onNavigateToTabGroup ? { onNavigateToTabGroup } : {})}
+            {...(onOpenVKWorkspace ? { onOpenVKWorkspace } : {})}
+          />
       ) : (
         <EmptyView />
       )}
@@ -480,6 +486,8 @@ function SingleTabView({
   errorState,
   retryTab,
   workspace,
+  savedSessions,
+  currentSessionId,
   onNavigateToTabGroup,
   onOpenVKWorkspace,
 }: {
@@ -488,6 +496,8 @@ function SingleTabView({
   errorState: Map<string, boolean>;
   retryTab: (tabId: string) => void;
   workspace?: WorkspaceState;
+  savedSessions?: SavedWorkspaceSession[];
+  currentSessionId?: string;
   onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void;
   onOpenVKWorkspace?: (taskAttemptId: string, name: string, containerRef: string, spaceId: string) => void;
 }) {
@@ -504,6 +514,8 @@ function SingleTabView({
         <div className="flex-1 min-h-0 relative h-full">
           <SpacesOverview
             workspace={workspace}
+            savedSessions={savedSessions || []}
+            currentSessionId={currentSessionId}
             onNavigateToTabGroup={onNavigateToTabGroup}
             {...(onOpenVKWorkspace ? { onOpenVKWorkspace } : {})}
           />

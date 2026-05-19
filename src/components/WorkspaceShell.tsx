@@ -503,6 +503,8 @@ export function WorkspaceShell({
           onDrop={handleDrop}
           workspace={workspace}
           showAddressBar={showAddressBar}
+          savedSessions={savedSessions}
+          currentSessionId={currentSessionId}
         />
 
         <div className="md:hidden h-12 px-2 border-t border-neutral-800 bg-neutral-900 flex items-center gap-2 shrink-0">
