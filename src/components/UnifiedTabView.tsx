@@ -20,6 +20,7 @@ interface UnifiedTabViewProps {
   onResumeSession: (sessionId: string) => void;
   onRenameSession: (sessionId: string, name: string) => void;
   onDeleteSession: (sessionId: string) => void;
+  onStartNewSession: () => void;
 }
 
 export function UnifiedTabView({
@@ -34,6 +35,7 @@ export function UnifiedTabView({
   onResumeSession,
   onRenameSession,
   onDeleteSession,
+  onStartNewSession,
 }: UnifiedTabViewProps) {
   const activeTabGroup = tabGroups.find((tg) => tg.id === activeTabGroupId);
 
@@ -71,6 +73,7 @@ export function UnifiedTabView({
             onResumeSession={onResumeSession}
             onRenameSession={onRenameSession}
             onDeleteSession={onDeleteSession}
+            onStartNewSession={onStartNewSession}
             onNavigateToTabGroup={(spaceId, tabGroupId) => {
               sessionActions.selectSpace(spaceId);
               sessionActions.setActiveTabGroup(tabGroupId);

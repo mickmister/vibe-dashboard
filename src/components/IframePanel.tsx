@@ -17,6 +17,7 @@ interface IframePanelProps {
   onResumeSession?: (sessionId: string) => void;
   onRenameSession?: (sessionId: string, name: string) => void;
   onDeleteSession?: (sessionId: string) => void;
+  onStartNewSession?: () => void;
   onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void;
   onOpenVKWorkspace?: (taskAttemptId: string, name: string, containerRef: string, spaceId: string) => void;
 }
@@ -432,6 +433,7 @@ export function IframePanel({
   onResumeSession,
   onRenameSession,
   onDeleteSession,
+  onStartNewSession,
   onNavigateToTabGroup,
   onOpenVKWorkspace,
 }: IframePanelProps) {
@@ -479,6 +481,7 @@ export function IframePanel({
             {...(onResumeSession ? { onResumeSession } : {})}
             {...(onRenameSession ? { onRenameSession } : {})}
             {...(onDeleteSession ? { onDeleteSession } : {})}
+            {...(onStartNewSession ? { onStartNewSession } : {})}
             {...(onNavigateToTabGroup ? { onNavigateToTabGroup } : {})}
             {...(onOpenVKWorkspace ? { onOpenVKWorkspace } : {})}
           />
@@ -500,6 +503,7 @@ function SingleTabView({
   onResumeSession,
   onRenameSession,
   onDeleteSession,
+  onStartNewSession,
   onNavigateToTabGroup,
   onOpenVKWorkspace,
 }: {
@@ -513,6 +517,7 @@ function SingleTabView({
   onResumeSession?: (sessionId: string) => void;
   onRenameSession?: (sessionId: string, name: string) => void;
   onDeleteSession?: (sessionId: string) => void;
+  onStartNewSession?: () => void;
   onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void;
   onOpenVKWorkspace?: (taskAttemptId: string, name: string, containerRef: string, spaceId: string) => void;
 }) {
@@ -530,7 +535,8 @@ function SingleTabView({
       onNavigateToTabGroup &&
       onResumeSession &&
       onRenameSession &&
-      onDeleteSession
+      onDeleteSession &&
+      onStartNewSession
     ) {
       return (
         <div className="flex-1 min-h-0 relative h-full">
@@ -541,6 +547,7 @@ function SingleTabView({
             onResumeSession={onResumeSession}
             onRenameSession={onRenameSession}
             onDeleteSession={onDeleteSession}
+            onStartNewSession={onStartNewSession}
             onNavigateToTabGroup={onNavigateToTabGroup}
             {...(onOpenVKWorkspace ? { onOpenVKWorkspace } : {})}
           />

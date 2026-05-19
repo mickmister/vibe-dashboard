@@ -689,6 +689,7 @@ function RecentSessionsSection({
   onResumeSession,
   onRenameSession,
   onDeleteSession,
+  onStartNewSession,
   onNavigateToTabGroup,
 }: {
   workspace: WorkspaceState;
@@ -697,6 +698,7 @@ function RecentSessionsSection({
   onResumeSession: (sessionId: string) => void;
   onRenameSession: (sessionId: string, name: string) => void;
   onDeleteSession: (sessionId: string) => void;
+  onStartNewSession: () => void;
   onNavigateToTabGroup: (spaceId: string, tabGroupId: string) => void;
 }) {
   const recentSessions = useMemo(() => {
@@ -712,7 +714,15 @@ function RecentSessionsSection({
 
   return (
     <div className="mb-8">
-      <h2 className="text-lg font-semibold text-white mb-3">Recent Sessions</h2>
+      <div className="flex items-center justify-between mb-3 gap-3">
+        <h2 className="text-lg font-semibold text-white">Recent Sessions</h2>
+        <button
+          onClick={onStartNewSession}
+          className="px-3 py-1.5 rounded text-xs font-medium bg-zinc-800 text-zinc-300 border border-zinc-700 hover:bg-zinc-700 hover:text-white transition-colors"
+        >
+          New Session
+        </button>
+      </div>
       <div className="space-y-1">
         {recentSessions.map((session) => {
           const space = workspace.spaces.find((item) => item.id === session.activeSpaceId);
@@ -743,20 +753,27 @@ function RecentSessionsSection({
               key={session.id}
               className="rounded-lg bg-zinc-800/50 border border-zinc-700/50 overflow-hidden"
             >
-              <div className="flex items-center gap-3 px-4 py-2.5">
-                <button
-                  onClick={() =>
-                    setExpandedSessionId((prev) => (prev === session.id ? null : session.id))
+              <div
+                className="flex items-center gap-3 px-4 py-2.5 cursor-pointer"
+                onClick={() =>
+                  setExpandedSessionId((prev) => (prev === session.id ? null : session.id))
+                }
+                role="button"
+                tabIndex={0}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    setExpandedSessionId((prev) => (prev === session.id ? null : session.id));
                   }
+                }}
+              >
+                <div
                   className="text-zinc-500 hover:text-white transition-colors shrink-0"
                   aria-label={isExpanded ? 'Collapse session' : 'Expand session'}
                 >
                   {isExpanded ? '▾' : '▸'}
-                </button>
-                <button
-                  onClick={() => onResumeSession(session.id)}
-                  className="min-w-0 flex-1 text-left"
-                >
+                </div>
+                <div className="min-w-0 flex-1 text-left">
                   {editingSessionId === session.id ? (
                     <input
                       type="text"
@@ -794,7 +811,7 @@ function RecentSessionsSection({
                       </span>
                     </>
                   )}
-                </button>
+                </div>
                 {session.id === currentSessionId && (
                   <span className="text-xs text-primary-300 shrink-0">
                     Current
@@ -804,7 +821,17 @@ function RecentSessionsSection({
                   {formatRelativeTime(session.updatedAt)}
                 </span>
                 <button
-                  onClick={() => {
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onResumeSession(session.id);
+                  }}
+                  className="text-xs text-zinc-300 hover:text-white shrink-0"
+                >
+                  Resume
+                </button>
+                <button
+                  onClick={(event) => {
+                    event.stopPropagation();
                     setEditingSessionId(session.id);
                     setSessionNameDraft(sessionName);
                   }}
@@ -813,7 +840,16 @@ function RecentSessionsSection({
                   Rename
                 </button>
                 <button
-                  onClick={() => onDeleteSession(session.id)}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    if (
+                      confirm(
+                        `Delete session "${sessionName}"? This won't delete any spaces or tab groups.`,
+                      )
+                    ) {
+                      onDeleteSession(session.id);
+                    }
+                  }}
                   className="text-xs text-red-400 hover:text-red-300 shrink-0"
                 >
                   Delete
@@ -852,6 +888,56 @@ function RecentSessionsSection({
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+function ActiveSessionTabsSection({
+  workspace,
+  currentSession,
+  onNavigateToTabGroup,
+}: {
+  workspace: WorkspaceState;
+  currentSession?: SavedWorkspaceSession;
+  onNavigateToTabGroup: (spaceId: string, tabGroupId: string) => void;
+}) {
+  const tabGroups = useMemo(() => {
+    if (!currentSession) return [];
+
+    return currentSession.visitedTabGroupIds
+      .map((tabGroupId) => {
+        const tabGroup = workspace.tabGroups.find((item) => item.id === tabGroupId);
+        if (!tabGroup) return null;
+        const space = workspace.spaces.find((item) => item.tabGroupIds.includes(tabGroupId));
+        if (!space) return null;
+        return { tabGroup, space };
+      })
+      .filter(
+        (
+          item,
+        ): item is { tabGroup: TabGroup; space: WorkspaceState['spaces'][number] } =>
+          item != null,
+      );
+  }, [currentSession, workspace.spaces, workspace.tabGroups]);
+
+  if (!currentSession || tabGroups.length === 0) return null;
+
+  return (
+    <div className="hidden md:block mb-8">
+      <h2 className="text-lg font-semibold text-white mb-3">Active Session Tabs</h2>
+      <div className="space-y-1">
+        {tabGroups.map(({ tabGroup, space }) => (
+          <TabGroupRow
+            key={tabGroup.id}
+            space={space}
+            tg={tabGroup}
+            onNavigate={() => onNavigateToTabGroup(space.id, tabGroup.id)}
+            timeLabel={
+              tabGroup.id === currentSession.activeTabGroupId ? 'Active' : undefined
+            }
+          />
+        ))}
       </div>
     </div>
   );
@@ -1044,6 +1130,7 @@ interface SpacesOverviewProps {
   onResumeSession: (sessionId: string) => void;
   onRenameSession: (sessionId: string, name: string) => void;
   onDeleteSession: (sessionId: string) => void;
+  onStartNewSession: () => void;
   onNavigateToTabGroup: (spaceId: string, tabGroupId: string) => void;
   onOpenVKWorkspace?: (
     taskAttemptId: string,
@@ -1060,6 +1147,7 @@ export function SpacesOverview({
   onResumeSession,
   onRenameSession,
   onDeleteSession,
+  onStartNewSession,
   onNavigateToTabGroup,
   onOpenVKWorkspace,
 }: SpacesOverviewProps) {
@@ -1070,6 +1158,10 @@ export function SpacesOverview({
     useState<DashboardWorkspace | null>(null);
   const [stoppingDevServerIds, setStoppingDevServerIds] = useState<Set<string>>(
     new Set(),
+  );
+  const currentSession = useMemo(
+    () => savedSessions.find((session) => session.id === currentSessionId),
+    [currentSessionId, savedSessions],
   );
 
   const handleStopDevServer = useCallback(
@@ -1176,6 +1268,13 @@ export function SpacesOverview({
         </div>
 
         {/* Starred Tab Groups */}
+        <ActiveSessionTabsSection
+          workspace={workspace}
+          currentSession={currentSession}
+          onNavigateToTabGroup={onNavigateToTabGroup}
+        />
+
+        {/* Recent Sessions */}
         <RecentSessionsSection
           workspace={workspace}
           savedSessions={savedSessions}
@@ -1183,6 +1282,7 @@ export function SpacesOverview({
           onResumeSession={onResumeSession}
           onRenameSession={onRenameSession}
           onDeleteSession={onDeleteSession}
+          onStartNewSession={onStartNewSession}
           onNavigateToTabGroup={onNavigateToTabGroup}
         />
 
