@@ -3,7 +3,7 @@ name: Publish VK/VD Image to GHCR
 on:
   push:
     branches:
-      - '*'
+      - '**'
   repository_dispatch:
     types:
       - vk-release-assets-ready
@@ -67,8 +67,15 @@ jobs:
           publish_latest=false
           if [[ "${GITHUB_EVENT_NAME}" == "push" && "${GITHUB_REF}" == "refs/heads/main" ]]; then
             publish_latest=true
-          elif [[ "${GITHUB_EVENT_NAME}" == "repository_dispatch" && "${VK_SOURCE_REF}" == "refs/heads/main" ]]; then
-            publish_latest=true
+          elif [[ "${GITHUB_EVENT_NAME}" == "repository_dispatch" ]]; then
+            git -C "$workdir" fetch --depth 1 origin main
+            vk_main_commit="$(git -C "$workdir" rev-parse FETCH_HEAD)"
+
+            if [[ "$vk_commit" == "$vk_main_commit" ]]; then
+              publish_latest=true
+            else
+              echo "Dispatched VK commit $vk_commit is not current origin/main ($vk_main_commit); not publishing latest."
+            fi
           fi
 
           echo "Resolved $VK_BRANCH_INPUT to $vk_commit"
