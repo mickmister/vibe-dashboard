@@ -57,7 +57,7 @@ jobs:
           platform: ${{ github.event_name == 'pull_request' && 'android' || github.ref_type == 'tag' && 'all' || inputs.platform }}
           profile: ${{ github.event_name == 'pull_request' && 'preview' || github.ref_type == 'tag' && 'preview' || inputs.profile }}
           submit: ${{ github.event_name == 'pull_request' && 'false' || github.ref_type == 'tag' && 'false' || inputs.submit || false }}
-          output_logs: ${{ github.event_name == 'pull_request' && 'false' || inputs.output_eas_build_to_logs || false }}
+          output_logs: true # ${{ github.event_name == 'pull_request' && 'false' || inputs.output_eas_build_to_logs || false }}
           install_command: pnpm install --frozen-lockfile
           build_command: pnpm run mobile:prepare
           mobile_directory: apps/mobile
