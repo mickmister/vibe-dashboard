@@ -27,6 +27,10 @@ permissions:
   packages: write
   id-token: write
 
+concurrency:
+  group: vk-vd-publish-${{ github.event_name == 'repository_dispatch' && github.event.client_payload.vk_source_ref || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   resolve-vk-ref:
     runs-on: ubuntu-latest
@@ -37,13 +41,15 @@ jobs:
       vk_short_commit: ${{ steps.resolve.outputs.vk_short_commit }}
       vk_repo_url: ${{ steps.resolve.outputs.vk_repo_url }}
       vd_short_commit: ${{ steps.resolve.outputs.vd_short_commit }}
+      publish_latest: ${{ steps.resolve.outputs.publish_latest }}
     steps:
       - name: Resolve vibe-kanban ref to commit SHA
         id: resolve
         env:
-          IMAGE_TAG_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.image_tag || github.event.client_payload.image_tag || '' }}
+          IMAGE_TAG_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.image_tag || '' }}
           VK_BRANCH_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.vk_branch || github.event.client_payload.vk_sha || github.event.client_payload.vk_ref || 'main' }}
-          VK_REPO_URL_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.vk_repo_url || github.event.client_payload.vk_repo_url || 'https://github.com/mickmister/vibe-kanban.git' }}
+          VK_REPO_URL_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.vk_repo_url || 'https://github.com/mickmister/vibe-kanban.git' }}
+          VK_SOURCE_REF: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.vk_source_ref || '' }}
         run: |
           set -euo pipefail
 
@@ -58,7 +64,15 @@ jobs:
           vk_short_commit="$(git -C "$workdir" rev-parse --short=7 FETCH_HEAD)"
           vd_short_commit="${GITHUB_SHA:0:7}"
 
+          publish_latest=false
+          if [[ "${GITHUB_EVENT_NAME}" == "push" && "${GITHUB_REF}" == "refs/heads/main" ]]; then
+            publish_latest=true
+          elif [[ "${GITHUB_EVENT_NAME}" == "repository_dispatch" && "${VK_SOURCE_REF}" == "refs/heads/main" ]]; then
+            publish_latest=true
+          fi
+
           echo "Resolved $VK_BRANCH_INPUT to $vk_commit"
+          echo "Publish latest: $publish_latest"
 
           {
             echo "image_tag=$IMAGE_TAG_INPUT"
@@ -67,6 +81,7 @@ jobs:
             echo "vk_short_commit=$vk_short_commit"
             echo "vk_repo_url=$VK_REPO_URL_INPUT"
             echo "vd_short_commit=$vd_short_commit"
+            echo "publish_latest=$publish_latest"
           } >> "$GITHUB_OUTPUT"
 
   check-types:
@@ -92,7 +107,7 @@ jobs:
         run: npm run check-types
 
   publish:
-    needs: resolve-vk-ref
+    needs: [resolve-vk-ref, check-types]
     uses: ./.github/workflows/docker-github-builder-build.yml
     permissions:
       contents: read
@@ -115,7 +130,7 @@ jobs:
       meta-tags: |
         type=raw,value=${{ needs.resolve-vk-ref.outputs.image_tag }},enable=${{ needs.resolve-vk-ref.outputs.image_tag != '' }}
         type=raw,value=vk-${{ needs.resolve-vk-ref.outputs.vk_short_commit }}-vd-${{ needs.resolve-vk-ref.outputs.vd_short_commit }}
-        type=raw,value=latest,enable=${{ github.ref_name == 'main' }}
+        type=raw,value=latest,enable=${{ needs.resolve-vk-ref.outputs.publish_latest == 'true' }}
     secrets:
       registry-auths: |
         - registry: ghcr.io
