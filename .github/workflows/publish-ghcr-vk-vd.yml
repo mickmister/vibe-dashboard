@@ -12,7 +12,7 @@ on:
       image_tag:
         description: Docker image tag to publish
         required: true
-        default: latest
+        default: manual
       vk_branch:
         description: vibe-kanban git branch, tag, or sha to build from
         required: true
@@ -48,6 +48,8 @@ jobs:
         env:
           IMAGE_TAG_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.image_tag || '' }}
           VK_BRANCH_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.vk_branch || github.event.client_payload.vk_sha || github.event.client_payload.vk_ref || 'main' }}
+          # Repository dispatch intentionally ignores client_payload.vk_repo_url.
+          # Docker release assets are trusted only from the official VK repository.
           VK_REPO_URL_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.vk_repo_url || 'https://github.com/mickmister/vibe-kanban.git' }}
           VK_SOURCE_REF: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.vk_source_ref || '' }}
         run: |
