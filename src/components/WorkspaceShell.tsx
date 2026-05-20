@@ -192,6 +192,35 @@ export function WorkspaceShell({
         return;
       }
 
+      if (e.ctrlKey && !e.metaKey && !e.altKey && !isEditableTarget(e.target)) {
+        if (key === '[' || key === ']') {
+          e.preventDefault();
+          e.stopPropagation();
+
+          const currentIndex = session.visitedTabGroupIds.indexOf(
+            session.activeTabGroupId,
+          );
+          if (currentIndex !== -1 && session.visitedTabGroupIds.length > 1) {
+            const direction = key === ']' ? 1 : -1;
+            const nextIndex =
+              (currentIndex + direction + session.visitedTabGroupIds.length) %
+              session.visitedTabGroupIds.length;
+            const nextTabGroupId = session.visitedTabGroupIds[nextIndex];
+
+            if (nextTabGroupId) {
+              const nextSpace = workspace.spaces.find((space) =>
+                space.tabGroupIds.includes(nextTabGroupId),
+              );
+              if (nextSpace) {
+                sessionActions.selectSpace(nextSpace.id);
+              }
+              sessionActions.setActiveTabGroup(nextTabGroupId);
+            }
+          }
+          return;
+        }
+      }
+
       if ((e.metaKey || e.ctrlKey) && (key === 'w' || key === 'q')) {
         e.preventDefault();
         e.stopPropagation();
@@ -204,7 +233,12 @@ export function WorkspaceShell({
     window.addEventListener('keydown', handler, { capture: true });
     return () =>
       window.removeEventListener('keydown', handler, { capture: true });
-  }, []);
+  }, [
+    session.activeTabGroupId,
+    session.visitedTabGroupIds,
+    sessionActions,
+    workspace.spaces,
+  ]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
