@@ -1,4 +1,12 @@
+packages:
+  - .
+  - packages/*
+
 allowBuilds:
-  '@heroui/shared-utils': set this to true or false
-  better-sqlite3: set this to true or false
-  esbuild: set this to true or false
+  '@heroui/shared-utils': true
+  better-sqlite3: true
+  esbuild: true
+onlyBuiltDependencies:
+  - '@heroui/shared-utils'
+  - better-sqlite3
+  - esbuild

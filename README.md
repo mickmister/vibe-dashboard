@@ -83,7 +83,7 @@ Environment variables are split across:
 
 ## Memory watchdog
 
-The container now includes a supervisor-managed watchdog at [`scripts/memory-watchdog.mjs`](./scripts/memory-watchdog.mjs) that can post to a Mattermost incoming webhook when:
+The container now includes a supervisor-managed watchdog at [scripts/memory-watchdog.mjs](./scripts/memory-watchdog.mjs) that can post to a Mattermost incoming webhook when:
 
 - host memory usage rises above `MEMORY_WATCHDOG_TOTAL_THRESHOLD_PERCENT`
 - any individual process exceeds `MEMORY_WATCHDOG_PROCESS_THRESHOLD_MB`
@@ -158,8 +158,8 @@ Threshold detection uses `/proc/meminfo` and `ps` RSS data directly. `free -h` a
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `VK_REPO_URL` | `https://github.com/BloopAI/vibe-kanban.git` | Source repo used by local image build. |
-| `VK_BRANCH` | `v0.1.15-20260218201323` | Git branch/tag used by local image build. |
+| `VK_REPO_URL` | `https://github.com/mickmister/vibe-kanban.git` | Repo used only to resolve `VK_BRANCH`/tag/sha to a concrete VK commit before downloading release assets. |
+| `VK_BRANCH` | `main` | Git branch/tag/sha resolved to a VK commit, then mapped to release tag `vk-assets-<full_sha>`. |
 | `FEATURES` | empty | Optional feature flags passed at build time. |
 | `POSTHOG_API_KEY` | empty | Optional PostHog key passed at build time. |
 | `POSTHOG_API_ENDPOINT` | empty | Optional PostHog endpoint passed at build time. |

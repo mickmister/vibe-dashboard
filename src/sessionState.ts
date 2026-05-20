@@ -140,12 +140,14 @@ function loadSessionNav(
 
   let activeSpaceId = "";
   let activeTabGroupId = "";
+  let parsed: Partial<SessionWorkspaceNav> | undefined;
 
   try {
     const stored = sessionStorage.getItem(SESSION_KEY);
-    const parsed = stored
+    parsed = stored
       ? (JSON.parse(stored) as Partial<SessionWorkspaceNav>)
       : undefined;
+    const parsedActiveSpaceId = parsed?.activeSpaceId;
 
     if (spaceExistsInRoute) {
       activeSpaceId = route.spaceId!;
@@ -155,10 +157,10 @@ function loadSessionNav(
     ) {
       activeSpaceId = savedSession.activeSpaceId;
     } else if (
-      parsed?.activeSpaceId &&
-      workspace.spaces.some((s) => s.id === parsed.activeSpaceId)
+      parsedActiveSpaceId &&
+      workspace.spaces.some((s) => s.id === parsedActiveSpaceId)
     ) {
-      activeSpaceId = parsed.activeSpaceId;
+      activeSpaceId = parsedActiveSpaceId;
     }
 
     const routeTabGroupValid = isTabGroupInSpace(
@@ -181,6 +183,11 @@ function loadSessionNav(
       activeTabGroupId = savedSession!.activeTabGroupId;
     } else if (storedTabGroupValid) {
       activeTabGroupId = parsed!.activeTabGroupId!;
+    }
+
+    if (!activeTabGroupId && activeSpaceId) {
+      const activeSpace = getSpaceById(workspace, activeSpaceId);
+      activeTabGroupId = activeSpace?.tabGroupIds[0] || "";
     }
 
     if (activeSpaceId && activeTabGroupId) {
@@ -217,15 +224,21 @@ function loadSessionNav(
   }
 
   const fallbackNav = createDefaultSessionNav(workspace);
+  const fallbackSpaceId = spaceExistsInRoute
+    ? route.spaceId || fallbackNav.activeSpaceId
+    : fallbackNav.activeSpaceId;
+  const fallbackSpace = getSpaceById(workspace, fallbackSpaceId);
+  const fallbackTabGroupId =
+    fallbackSpace?.tabGroupIds[0] || fallbackNav.activeTabGroupId;
+
   return {
     ...fallbackNav,
-    activeSpaceId: spaceExistsInRoute
-      ? route.spaceId || fallbackNav.activeSpaceId
-      : fallbackNav.activeSpaceId,
+    activeSpaceId: fallbackSpaceId,
+    activeTabGroupId: fallbackTabGroupId,
     visitedTabGroupIds: getValidVisitedTabGroupIds(
       workspace,
-      savedSession?.visitedTabGroupIds,
-      fallbackNav.activeTabGroupId,
+      savedSession?.visitedTabGroupIds || parsed?.visitedTabGroupIds,
+      fallbackTabGroupId,
     ),
   };
 }
@@ -343,6 +356,7 @@ export function useSessionWorkspaceNav(
         updated = { ...updated, activeTabGroupId: route.tabGroupId };
       }
 
+      // Sync itemId from route
       if (route.itemId && route.tabGroupId) {
         const tg = workspace.tabGroups.find((g) => g.id === route.tabGroupId);
         const itemExists =
@@ -409,6 +423,7 @@ export function useSessionWorkspaceNav(
       (tg) => tg.id === nav.activeTabGroupId,
     );
 
+    // Check if there are new tab groups not in activeItems
     const newTabGroups = workspace.tabGroups.filter(
       (tg) => !(tg.id in nav.activeItems),
     );

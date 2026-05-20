@@ -29,6 +29,10 @@ import type {
   SavedWorkspaceSessionState,
 } from './types';
 
+// @platform "node"
+import './modules/WorkflowServerModule';
+// @platform end
+
 const WORKSPACE_CREATE_PATH = '/workspaces/create';
 const WORKSPACE_CREATE_TAB_TITLE = 'Create Workspace';
 const URL_PARSE_BASE = 'https://workspace.local';
