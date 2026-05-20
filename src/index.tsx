@@ -264,14 +264,46 @@ springboard.registerModule(
           const space = draft.spaces.find((s) => s.id === args.spaceId);
           if (!space) return;
 
-          // Prevent deletion if it's the last tab group in the space
-          if (space.tabGroupIds.length <= 1) return;
-
           const tabGroupIndex = space.tabGroupIds.indexOf(args.tabGroupId);
           if (tabGroupIndex === -1) return;
 
+          if (space.tabGroupIds.length <= 1) {
+            nextTabGroupId = `tg_${draft.nextId++}`;
+
+            draft.tabGroups.push(
+              space.isSystem
+                ? {
+                    id: nextTabGroupId,
+                    label: 'Overview',
+                    tabs: [
+                      {
+                        id: `tab_${draft.nextId++}`,
+                        title: 'Spaces',
+                        url: 'internal://spaces-overview',
+                        pinned: true,
+                      },
+                    ],
+                    pairs: [],
+                    order: 0,
+                    createdAt: new Date().toISOString(),
+                  }
+                : {
+                    id: nextTabGroupId,
+                    label: 'Main',
+                    mobileEmoji: pickRandomMobileEmoji(),
+                    tabs: [],
+                    pairs: [],
+                    order: 0,
+                    createdAt: new Date().toISOString(),
+                  },
+            );
+
+            space.tabGroupIds.push(nextTabGroupId);
+          }
+
           // Remove tab group ID from space
-          space.tabGroupIds.splice(tabGroupIndex, 1);
+          const updatedIndex = space.tabGroupIds.indexOf(args.tabGroupId);
+          space.tabGroupIds.splice(updatedIndex, 1);
 
           // Remove the tab group itself (this also removes all tabs and pairs)
           draft.tabGroups = draft.tabGroups.filter(
@@ -280,6 +312,7 @@ springboard.registerModule(
 
           // Determine next tab group to select
           nextTabGroupId =
+            nextTabGroupId ||
             space.tabGroupIds[Math.max(0, tabGroupIndex - 1)] ||
             space.tabGroupIds[0];
 

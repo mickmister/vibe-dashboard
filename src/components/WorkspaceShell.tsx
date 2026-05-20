@@ -356,6 +356,9 @@ export function WorkspaceShell({
   const mobileTabMenuTabGroup = mobileTabMenuTarget
     ? workspace.tabGroups.find((tg) => tg.id === mobileTabMenuTarget.tabGroupId)
     : undefined;
+  const mobileTabMenuSpace = mobileTabMenuTarget
+    ? workspace.spaces.find((space) => space.id === mobileTabMenuTarget.spaceId)
+    : undefined;
 
   const expandedSessionTabGroup = useMemo(() => {
     if (!expandedSessionTabGroupId) return null;
@@ -953,7 +956,9 @@ export function WorkspaceShell({
         const space = workspace.spaces.find(
           (candidate) => candidate.id === desktopTabMenuTarget.spaceId,
         );
-        const canDelete = (space?.tabGroupIds.length || 0) > 1;
+        const tabGroup = workspace.tabGroups.find(
+          (candidate) => candidate.id === desktopTabMenuTarget.tabGroupId,
+        );
 
         return (
           <div
@@ -964,23 +969,42 @@ export function WorkspaceShell({
             }}
             onPointerDown={(event) => event.stopPropagation()}
           >
-            {canDelete ? (
-              <button
-                className="block w-full px-4 py-2 text-left text-sm text-red-300 transition-colors hover:bg-neutral-800"
-                onClick={() => {
+            <button
+              className="block w-full px-4 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-800"
+              onClick={() => {
+                if (
+                  confirm(
+                    `Remove "${tabGroup?.label || 'this tab group'}" from the current session? It will stay in the space.`,
+                  )
+                ) {
+                  handleRemoveTabGroupFromSession(
+                    desktopTabMenuTarget.tabGroupId,
+                  );
+                }
+              }}
+            >
+              Remove From Session
+            </button>
+            <div className="my-1 border-t border-neutral-700" />
+            <button
+              className="block w-full px-4 py-2 text-left text-sm text-red-300 transition-colors hover:bg-neutral-800"
+              onClick={() => {
+                if (
+                  confirm(
+                    space?.tabGroupIds.length === 1
+                      ? `Close "${tabGroup?.label || 'this tab group'}" everywhere? Because it's the last tab group in this space, a replacement tab group will be created automatically.`
+                      : `Close "${tabGroup?.label || 'this tab group'}" everywhere? This deletes the tab group, not just from the current session.`,
+                  )
+                ) {
                   void handleCloseTabGroup(
                     desktopTabMenuTarget.spaceId,
                     desktopTabMenuTarget.tabGroupId,
                   );
-                }}
-              >
-                Close Tab Group
-              </button>
-            ) : (
-              <div className="px-4 py-2 text-sm italic text-neutral-500">
-                Cannot close the last tab group in this space
-              </div>
-            )}
+                }
+              }}
+            >
+              Close Tab Group Everywhere
+            </button>
           </div>
         );
       })()}
@@ -1058,11 +1082,16 @@ export function WorkspaceShell({
                 Save
               </button>
               <button
-                className="rounded-md border border-amber-500/40 bg-amber-500/15 px-3 py-2 text-sm text-amber-300 disabled:opacity-40 disabled:cursor-not-allowed"
-                disabled={mobileTabMenuTarget.tabGroupId === session.activeTabGroupId}
-                onClick={() =>
-                  handleRemoveTabGroupFromSession(mobileTabMenuTarget.tabGroupId)
-                }
+                className="rounded-md border border-amber-500/40 bg-amber-500/15 px-3 py-2 text-sm text-amber-300"
+                onClick={() => {
+                  if (
+                    confirm(
+                      `Remove "${mobileTabMenuTabGroup.label}" from the current session? It will stay in the space.`,
+                    )
+                  ) {
+                    handleRemoveTabGroupFromSession(mobileTabMenuTarget.tabGroupId);
+                  }
+                }}
               >
                 Remove From Session
               </button>
@@ -1070,16 +1099,19 @@ export function WorkspaceShell({
             <button
                 className="w-full rounded-md border border-red-500/40 bg-red-500/15 px-3 py-2 text-sm text-red-300"
                 onClick={() => {
-                  void handleCloseMobileTab();
+                  if (
+                    confirm(
+                      mobileTabMenuSpace?.tabGroupIds.length === 1
+                        ? `Close "${mobileTabMenuTabGroup.label}" everywhere? Because it's the last tab group in this space, a replacement tab group will be created automatically.`
+                        : `Close "${mobileTabMenuTabGroup.label}" everywhere? This deletes the tab group, not just from the current session.`,
+                    )
+                  ) {
+                    void handleCloseMobileTab();
+                  }
                 }}
               >
                 Close Tab Group
               </button>
-            {mobileTabMenuTarget.tabGroupId === session.activeTabGroupId && (
-              <div className="text-xs text-neutral-500">
-                The active tab group always stays in the session.
-              </div>
-            )}
           </div>
         </div>
       )}

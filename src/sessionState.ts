@@ -660,25 +660,64 @@ export function useSessionWorkspaceNav(
   };
 
   const removeTabGroupFromSession = (tabGroupId: string) => {
-    setNav((prev) => {
-      if (tabGroupId === prev.activeTabGroupId) {
-        return prev;
-      }
+    let pendingSelection: PendingNavSelection | null = null;
 
+    setNav((prev) => {
       const nextVisited = prev.visitedTabGroupIds.filter((id) => id !== tabGroupId);
       if (nextVisited.length === prev.visitedTabGroupIds.length) {
         return prev;
       }
 
-      return {
+      if (tabGroupId !== prev.activeTabGroupId) {
+        return {
+          ...prev,
+          visitedTabGroupIds: getValidVisitedTabGroupIds(
+            workspace,
+            nextVisited,
+            prev.activeTabGroupId,
+          ),
+        };
+      }
+
+      const currentIndex = prev.visitedTabGroupIds.indexOf(tabGroupId);
+      const fallbackTabGroupId =
+        (currentIndex > 0 ? prev.visitedTabGroupIds[currentIndex - 1] : undefined) ||
+        prev.visitedTabGroupIds[currentIndex + 1] ||
+        workspace.spaces.find((space) => space.isSystem)?.tabGroupIds[0] ||
+        createDefaultSessionNav(workspace).activeTabGroupId;
+
+      if (!fallbackTabGroupId) {
+        return prev;
+      }
+
+      const fallbackSpaceId =
+        workspace.spaces.find((space) =>
+          space.tabGroupIds.includes(fallbackTabGroupId),
+        )?.id || prev.activeSpaceId;
+
+      const nextNav = {
         ...prev,
+        activeSpaceId: fallbackSpaceId,
+        activeTabGroupId: fallbackTabGroupId,
         visitedTabGroupIds: getValidVisitedTabGroupIds(
           workspace,
           nextVisited,
-          prev.activeTabGroupId,
+          fallbackTabGroupId,
         ),
       };
+
+      pendingSelection = {
+        activeSpaceId: nextNav.activeSpaceId,
+        activeTabGroupId: nextNav.activeTabGroupId,
+        activeItemId: nextNav.activeItems[nextNav.activeTabGroupId] || undefined,
+      };
+
+      return nextNav;
     });
+
+    if (pendingSelection) {
+      setPendingSelection(pendingSelection);
+    }
   };
 
   const targetPath = buildNavPath(nav);
