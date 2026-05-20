@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Sidebar } from './Sidebar';
 import { WorkspaceContentView } from './WorkspaceContentView';
 import { AddTabModal } from './AddTabModal';
@@ -132,6 +132,14 @@ export function WorkspaceShell({
     spaceId: string;
     tabGroupId: string;
   } | null>(null);
+  const [desktopTabMenuTarget, setDesktopTabMenuTarget] = useState<{
+    spaceId: string;
+    tabGroupId: string;
+    position: { x: number; y: number };
+  } | null>(null);
+  const [expandedSessionTabGroupId, setExpandedSessionTabGroupId] = useState<
+    string | null
+  >(null);
   const [sessionTabPickerMode, setSessionTabPickerMode] = useState<
     'mobile' | 'desktop' | null
   >(null);
@@ -348,6 +356,57 @@ export function WorkspaceShell({
     ? workspace.tabGroups.find((tg) => tg.id === mobileTabMenuTarget.tabGroupId)
     : undefined;
 
+  const expandedSessionTabGroup = useMemo(() => {
+    if (!expandedSessionTabGroupId) return null;
+    return (
+      mobileSessionTabGroups.find(
+        ({ tabGroup }) => tabGroup.id === expandedSessionTabGroupId,
+      ) || null
+    );
+  }, [expandedSessionTabGroupId, mobileSessionTabGroups]);
+
+  const expandedSessionItems = useMemo(() => {
+    if (!expandedSessionTabGroup) {
+      return [] as Array<
+        | { kind: 'tab'; id: string; label: string; isActive: boolean }
+        | { kind: 'pair'; id: string; label: string; isActive: boolean }
+      >;
+    }
+
+    const activeItemId = sessionActions.getActiveItem(
+      expandedSessionTabGroup.tabGroup.id,
+    );
+    const tabIdsInPairs = new Set(
+      expandedSessionTabGroup.tabGroup.pairs.flatMap((pair) => pair.tabIds),
+    );
+
+    const tabItems = expandedSessionTabGroup.tabGroup.tabs.map((tab) => ({
+      kind: 'tab' as const,
+      id: tab.id,
+      label: tab.title,
+      isActive: activeItemId === tab.id,
+    }));
+    const pairItems = expandedSessionTabGroup.tabGroup.pairs.map((pair, index) => {
+      const labels = pair.tabIds
+        .map((tabId) =>
+          expandedSessionTabGroup.tabGroup.tabs.find((tab) => tab.id === tabId)?.title ||
+          'Untitled',
+        )
+        .join(' + ');
+      return {
+        kind: 'pair' as const,
+        id: pair.id,
+        label: labels || `Split ${index + 1}`,
+        isActive: activeItemId === pair.id,
+      };
+    });
+
+    return [
+      ...tabItems.filter((item) => !tabIdsInPairs.has(item.id)),
+      ...pairItems,
+    ];
+  }, [expandedSessionTabGroup, sessionActions]);
+
   const clearLongPress = () => {
     if (longPressTimerRef.current != null) {
       window.clearTimeout(longPressTimerRef.current);
@@ -403,17 +462,53 @@ export function WorkspaceShell({
     setMobileTabMenuTarget(null);
   };
 
+  const handleCloseTabGroup = async (spaceId: string, tabGroupId: string) => {
+    const result = await actions.deleteTabGroup({ spaceId, tabGroupId });
+    setDesktopTabMenuTarget(null);
+    setMobileTabMenuTarget(null);
+    setExpandedSessionTabGroupId((current) =>
+      current === tabGroupId ? null : current,
+    );
+
+    if (
+      result?.wasDeleted &&
+      session.activeTabGroupId === tabGroupId &&
+      result.nextTabGroupId
+    ) {
+      sessionActions.selectSpace(spaceId);
+      sessionActions.setActiveTabGroup(result.nextTabGroupId);
+    }
+  };
+
   const handleCloseMobileTab = async () => {
     if (!mobileTabMenuTarget) return;
     const { spaceId, tabGroupId } = mobileTabMenuTarget;
-    const result = await actions.deleteTabGroup({ spaceId, tabGroupId });
-    if (result?.wasDeleted && result.nextTabGroupId) {
-      sessionActions.selectSpace(spaceId);
-      sessionActions.setActiveTabGroup(result.nextTabGroupId);
-      setMobileTabMenuTarget(null);
+    await handleCloseTabGroup(spaceId, tabGroupId);
+  };
+
+  const handleToggleSessionTabGroup = (spaceId: string, tabGroupId: string) => {
+    if (tabGroupId === session.activeTabGroupId) {
+      setExpandedSessionTabGroupId((current) =>
+        current === tabGroupId ? null : tabGroupId,
+      );
       return;
     }
-    setMobileTabMenuTarget(null);
+
+    setExpandedSessionTabGroupId(null);
+    sessionActions.selectSpace(spaceId);
+    sessionActions.setActiveTabGroup(tabGroupId);
+  };
+
+  const handleSelectExpandedSessionItem = (
+    tabGroupId: string,
+    item: { kind: 'tab' | 'pair'; id: string },
+  ) => {
+    if (item.kind === 'pair') {
+      sessionActions.selectPair(tabGroupId, item.id);
+    } else {
+      sessionActions.selectTab(tabGroupId, item.id);
+    }
+    setExpandedSessionTabGroupId(null);
   };
 
   const handleRemoveTabGroupFromSession = (tabGroupId: string) => {
@@ -423,6 +518,43 @@ export function WorkspaceShell({
 
   useEffect(() => {
     return () => clearLongPress();
+  }, []);
+
+  useEffect(() => {
+    if (!expandedSessionTabGroupId) return;
+    const exists = mobileSessionTabGroups.some(
+      ({ tabGroup }) => tabGroup.id === expandedSessionTabGroupId,
+    );
+    if (!exists || expandedSessionTabGroupId !== session.activeTabGroupId) {
+      setExpandedSessionTabGroupId(null);
+    }
+  }, [
+    expandedSessionTabGroupId,
+    mobileSessionTabGroups,
+    session.activeTabGroupId,
+  ]);
+
+  useEffect(() => {
+    if (!desktopTabMenuTarget) return;
+
+    const handlePointerDown = () => {
+      setDesktopTabMenuTarget(null);
+    };
+
+    window.addEventListener('pointerdown', handlePointerDown);
+    return () => window.removeEventListener('pointerdown', handlePointerDown);
+  }, [desktopTabMenuTarget]);
+
+  useEffect(() => {
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setDesktopTabMenuTarget(null);
+        setExpandedSessionTabGroupId(null);
+      }
+    };
+
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
   }, []);
 
   return (
@@ -539,7 +671,7 @@ export function WorkspaceShell({
 
       {/* Main content area */}
       <div className="flex-1 flex flex-col min-h-0 min-w-0 relative">
-        <div className="hidden md:flex h-11 border-b border-neutral-800 bg-neutral-900 items-stretch shrink-0">
+        <div className="hidden md:flex h-11 border-b border-neutral-700 bg-neutral-900 items-stretch shrink-0">
           <div className="flex-1 min-w-0 overflow-x-auto scrollbar-hide">
             <div className="flex h-full items-stretch whitespace-nowrap">
               {mobileSessionTabGroups.map(({ space, tabGroup }) => {
@@ -548,27 +680,36 @@ export function WorkspaceShell({
                 return (
                   <div
                     key={tabGroup.id}
-                    className={`shrink-0 inline-flex h-full select-none items-center border-r border-neutral-800 text-xs transition-colors ${
+                    className={`shrink-0 inline-flex h-full select-none items-center border-r border-neutral-700 text-xs text-neutral-200 transition-colors ${
                       isActive
-                        ? 'bg-primary-500/20 text-primary-300'
-                        : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700'
+                        ? 'bg-neutral-800 shadow-[inset_0_-2px_0_0_rgba(250,250,250,0.28)]'
+                        : 'bg-neutral-900 hover:bg-neutral-800/80'
                     }`}
                     title={`${space.name} / ${tabGroup.label}`}
                   >
                     <button
-                      className="inline-flex h-full items-center gap-2 px-3"
+                      className="inline-flex h-full items-center gap-2 px-3 text-inherit"
                       onClick={() => {
-                        sessionActions.selectSpace(space.id);
-                        sessionActions.setActiveTabGroup(tabGroup.id);
+                        handleToggleSessionTabGroup(space.id, tabGroup.id);
+                      }}
+                      onContextMenu={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setDesktopTabMenuTarget({
+                          spaceId: space.id,
+                          tabGroupId: tabGroup.id,
+                          position: { x: event.clientX, y: event.clientY },
+                        });
                       }}
                       aria-label={`Open ${tabGroup.label} in ${space.name}`}
+                      aria-haspopup="menu"
                     >
                       <span aria-hidden="true">{getMobileTabGroupEmoji(tabGroup)}</span>
-                      <span>{tabGroup.mobileLabel || tabGroup.label}</span>
+                      <span>{tabGroup.label}</span>
                     </button>
                     {!isActive && (
                       <button
-                        className="inline-flex h-full items-center px-3 text-neutral-500 hover:text-white border-l border-neutral-800"
+                        className="inline-flex h-full items-center border-l border-neutral-700 px-3 text-neutral-500 transition-colors hover:bg-neutral-800 hover:text-neutral-200"
                         onClick={(event) => {
                           event.stopPropagation();
                           sessionActions.removeTabGroupFromSession(tabGroup.id);
@@ -583,7 +724,7 @@ export function WorkspaceShell({
                 );
               })}
               <button
-                className="shrink-0 h-full border-r border-neutral-800 bg-neutral-800 px-3 text-xs text-neutral-300 hover:bg-neutral-700 hover:text-white transition-colors"
+                className="shrink-0 h-full border-r border-neutral-700 bg-neutral-900 px-3 text-xs text-neutral-200 transition-colors hover:bg-neutral-800/80"
                 onClick={() =>
                   setSessionTabPickerMode((prev) => (prev === 'desktop' ? null : 'desktop'))
                 }
@@ -595,6 +736,34 @@ export function WorkspaceShell({
             </div>
           </div>
         </div>
+        {expandedSessionTabGroup && (
+          <div className="hidden md:block border-b border-neutral-700 bg-neutral-900/95 shrink-0">
+            <div className="flex flex-wrap items-stretch gap-px bg-neutral-700 px-3 py-2">
+              {expandedSessionItems.map((item) => (
+                <button
+                  key={item.id}
+                  className={`min-w-0 rounded-sm px-3 py-2 text-left text-xs transition-colors ${
+                    item.isActive
+                      ? 'bg-neutral-700 text-neutral-100'
+                      : 'bg-neutral-900 text-neutral-300 hover:bg-neutral-800 hover:text-neutral-100'
+                  }`}
+                  onClick={() =>
+                    handleSelectExpandedSessionItem(
+                      expandedSessionTabGroup.tabGroup.id,
+                      item,
+                    )
+                  }
+                  title={item.label}
+                >
+                  <span className="block max-w-[24rem] truncate">{item.label}</span>
+                  <span className="mt-1 block text-[10px] uppercase tracking-wide text-neutral-500">
+                    {item.kind === 'pair' ? 'Split view' : 'Tab'}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         <WorkspaceContentView
           activeTabGroups={activeTabGroups}
@@ -614,9 +783,38 @@ export function WorkspaceShell({
           onStartNewSession={sessionActions.startNewSession}
         />
 
-        <div className="md:hidden h-12 border-t border-neutral-800 bg-neutral-900 flex items-stretch shrink-0">
+        {expandedSessionTabGroup && (
+          <div className="md:hidden border-y border-neutral-700 bg-neutral-900/95 shrink-0">
+            <div className="flex flex-col gap-px bg-neutral-700 px-2 py-2">
+              {expandedSessionItems.map((item) => (
+                <button
+                  key={item.id}
+                  className={`min-w-0 rounded-sm px-3 py-2 text-left text-xs transition-colors ${
+                    item.isActive
+                      ? 'bg-neutral-700 text-neutral-100'
+                      : 'bg-neutral-900 text-neutral-300'
+                  }`}
+                  onClick={() =>
+                    handleSelectExpandedSessionItem(
+                      expandedSessionTabGroup.tabGroup.id,
+                      item,
+                    )
+                  }
+                  title={item.label}
+                >
+                  <span className="block truncate">{item.label}</span>
+                  <span className="mt-1 block text-[10px] uppercase tracking-wide text-neutral-500">
+                    {item.kind === 'pair' ? 'Split view' : 'Tab'}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="md:hidden h-12 border-t border-neutral-700 bg-neutral-900 flex items-stretch shrink-0">
           <button
-            className="h-full px-3 text-neutral-200 hover:bg-neutral-800 transition-colors flex items-center justify-center shrink-0 border-r border-neutral-800"
+            className="h-full px-3 text-neutral-200 hover:bg-neutral-800 transition-colors flex items-center justify-center shrink-0 border-r border-neutral-700"
             onClick={() => setIsSidebarOpen(true)}
             title="Open sidebar"
             aria-label="Open sidebar"
@@ -633,10 +831,10 @@ export function WorkspaceShell({
                   return (
                     <button
                       key={tabGroup.id}
-                      className={`shrink-0 inline-flex h-full select-none items-center gap-2 border-r border-neutral-800 px-3 text-xs transition-colors ${
+                      className={`shrink-0 inline-flex h-full select-none items-center gap-2 border-r border-neutral-700 px-3 text-xs text-neutral-200 transition-colors ${
                         isActive
-                          ? 'bg-primary-500/20 text-primary-300'
-                          : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700'
+                          ? 'bg-neutral-800 shadow-[inset_0_2px_0_0_rgba(250,250,250,0.28)]'
+                          : 'bg-neutral-900 hover:bg-neutral-800/80'
                       }`}
                       style={{ touchAction: 'manipulation' }}
                       onClick={() => {
@@ -644,8 +842,7 @@ export function WorkspaceShell({
                           suppressMobileTabClickRef.current = false;
                           return;
                         }
-                        sessionActions.selectSpace(space.id);
-                        sessionActions.setActiveTabGroup(tabGroup.id);
+                        handleToggleSessionTabGroup(space.id, tabGroup.id);
                       }}
                       onContextMenu={(event) => {
                         event.preventDefault();
@@ -672,7 +869,7 @@ export function WorkspaceShell({
                   );
                 })}
                 <button
-                  className="shrink-0 h-full border-r border-neutral-800 bg-neutral-800 px-3 text-xs text-neutral-300 hover:bg-neutral-700 hover:text-white transition-colors"
+                  className="shrink-0 h-full border-r border-neutral-700 bg-neutral-900 px-3 text-xs text-neutral-200 transition-colors hover:bg-neutral-800/80"
                   onClick={() =>
                     setSessionTabPickerMode((prev) => (prev === 'mobile' ? null : 'mobile'))
                   }
@@ -684,11 +881,11 @@ export function WorkspaceShell({
                 </>
               ) : (
                 <>
-                  <div className="h-full inline-flex items-center px-3 text-xs text-neutral-500 border-r border-neutral-800">
+                  <div className="h-full inline-flex items-center px-3 text-xs text-neutral-500 border-r border-neutral-700">
                     {activeTabGroup?.label || 'No tab groups'}
                   </div>
                   <button
-                    className="shrink-0 h-full border-r border-neutral-800 bg-neutral-800 px-3 text-xs text-neutral-300 hover:bg-neutral-700 hover:text-white transition-colors"
+                    className="shrink-0 h-full border-r border-neutral-700 bg-neutral-900 px-3 text-xs text-neutral-200 transition-colors hover:bg-neutral-800/80"
                     onClick={() =>
                       setSessionTabPickerMode((prev) => (prev === 'mobile' ? null : 'mobile'))
                     }
@@ -767,6 +964,42 @@ export function WorkspaceShell({
           </div>
         </div>
       )}
+
+      {desktopTabMenuTarget && (() => {
+        const space = workspace.spaces.find(
+          (candidate) => candidate.id === desktopTabMenuTarget.spaceId,
+        );
+        const canDelete = (space?.tabGroupIds.length || 0) > 1;
+
+        return (
+          <div
+            className="hidden md:block fixed z-[90] min-w-[220px] rounded-md border border-neutral-700 bg-neutral-900 py-1 shadow-2xl"
+            style={{
+              left: desktopTabMenuTarget.position.x,
+              top: desktopTabMenuTarget.position.y,
+            }}
+            onPointerDown={(event) => event.stopPropagation()}
+          >
+            {canDelete ? (
+              <button
+                className="block w-full px-4 py-2 text-left text-sm text-red-300 transition-colors hover:bg-neutral-800"
+                onClick={() => {
+                  void handleCloseTabGroup(
+                    desktopTabMenuTarget.spaceId,
+                    desktopTabMenuTarget.tabGroupId,
+                  );
+                }}
+              >
+                Close Tab Group
+              </button>
+            ) : (
+              <div className="px-4 py-2 text-sm italic text-neutral-500">
+                Cannot close the last tab group in this space
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {mobileTabMenuTarget && mobileTabMenuTabGroup && (
         <div className="md:hidden fixed inset-0 z-[90] bg-black/60 flex items-end">
