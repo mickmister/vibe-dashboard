@@ -733,7 +733,7 @@ function SingleTabView({
   }
 
   return (
-    <div className="flex-1 min-h-0 relative h-full">
+    <div className="flex-1 min-h-0 relative h-full pointer-events-none">
       {hasError ? (
         <ErrorOverlay url={activeTab.url} onRetry={() => retryTab(activeTab.id)} />
       ) : !isLoaded ? (
@@ -850,7 +850,7 @@ function BlockedSelfAppPlaceholder({ url }: { url: string }) {
 
 function ErrorOverlay({ url, onRetry }: { url: string; onRetry: () => void }) {
   return (
-    <div className="absolute inset-0 bg-neutral-950 flex items-center justify-center z-10">
+    <div className="absolute inset-0 bg-neutral-950 flex items-center justify-center z-10 pointer-events-auto">
       <div className="flex flex-col items-center gap-4 max-w-md px-6 text-center">
         <div className="w-10 h-10 rounded-full bg-red-500/15 flex items-center justify-center">
           <svg className="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
