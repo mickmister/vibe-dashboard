@@ -128,6 +128,7 @@ export function WorkspaceShell({
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isDesktop, setIsDesktop] = useState(false);
   const [showAddressBar, setShowAddressBar] = useState(false);
+  const [showSessionTopBar, setShowSessionTopBar] = useState(true);
   const [mobileTabMenuTarget, setMobileTabMenuTarget] = useState<{
     spaceId: string;
     tabGroupId: string;
@@ -655,6 +656,8 @@ export function WorkspaceShell({
           }
           showAddressBar={showAddressBar}
           onToggleAddressBar={() => setShowAddressBar((v) => !v)}
+          showSessionTopBar={showSessionTopBar}
+          onToggleSessionTopBar={() => setShowSessionTopBar((value) => !value)}
           onResumeSession={(sessionId) => {
             sessionActions.resumeSession(sessionId);
             setIsSidebarOpen(false);
@@ -671,7 +674,8 @@ export function WorkspaceShell({
 
       {/* Main content area */}
       <div className="flex-1 flex flex-col min-h-0 min-w-0 relative">
-        <div className="hidden md:flex h-11 border-b border-neutral-700 bg-neutral-900 items-stretch shrink-0">
+        {showSessionTopBar && (
+        <div className="hidden md:flex h-9 border-b border-neutral-600 bg-neutral-900 items-stretch shrink-0">
           <div className="flex-1 min-w-0 overflow-x-auto scrollbar-hide">
             <div className="flex h-full items-stretch whitespace-nowrap">
               {mobileSessionTabGroups.map(({ space, tabGroup }) => {
@@ -680,9 +684,9 @@ export function WorkspaceShell({
                 return (
                   <div
                     key={tabGroup.id}
-                    className={`shrink-0 inline-flex h-full select-none items-center border-r border-neutral-700 text-xs text-neutral-200 transition-colors ${
+                    className={`shrink-0 inline-flex h-full select-none items-center border-r border-neutral-600 border-b-2 text-xs text-neutral-200 transition-colors ${
                       isActive
-                        ? 'bg-neutral-800 shadow-[inset_0_-2px_0_0_rgba(250,250,250,0.28)]'
+                        ? 'border-b-primary-400 bg-neutral-900'
                         : 'bg-neutral-900 hover:bg-neutral-800/80'
                     }`}
                     title={`${space.name} / ${tabGroup.label}`}
@@ -707,24 +711,11 @@ export function WorkspaceShell({
                       <span aria-hidden="true">{getMobileTabGroupEmoji(tabGroup)}</span>
                       <span>{tabGroup.label}</span>
                     </button>
-                    {!isActive && (
-                      <button
-                        className="inline-flex h-full items-center border-l border-neutral-700 px-3 text-neutral-500 transition-colors hover:bg-neutral-800 hover:text-neutral-200"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          sessionActions.removeTabGroupFromSession(tabGroup.id);
-                        }}
-                        aria-label={`Remove ${tabGroup.label} from session`}
-                        title="Remove from session"
-                      >
-                        ×
-                      </button>
-                    )}
                   </div>
                 );
               })}
               <button
-                className="shrink-0 h-full border-r border-neutral-700 bg-neutral-900 px-3 text-xs text-neutral-200 transition-colors hover:bg-neutral-800/80"
+                className="shrink-0 h-full border-r border-b-2 border-neutral-600 bg-neutral-900 px-3 text-xs text-neutral-200 transition-colors hover:bg-neutral-800/80"
                 onClick={() =>
                   setSessionTabPickerMode((prev) => (prev === 'desktop' ? null : 'desktop'))
                 }
@@ -736,7 +727,8 @@ export function WorkspaceShell({
             </div>
           </div>
         </div>
-        {expandedSessionTabGroup && (
+        )}
+        {showSessionTopBar && expandedSessionTabGroup && (
           <div className="hidden md:block border-b border-neutral-700 bg-neutral-900/95 shrink-0">
             <div className="flex flex-wrap items-stretch gap-px bg-neutral-700 px-3 py-2">
               {expandedSessionItems.map((item) => (

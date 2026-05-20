@@ -54,6 +54,8 @@ interface SidebarProps {
   onReorderSpaces: (sourceId: string, targetId: string) => void;
   showAddressBar: boolean;
   onToggleAddressBar: () => void;
+  showSessionTopBar: boolean;
+  onToggleSessionTopBar: () => void;
   onResumeSession: (sessionId: string) => void;
   onStartNewSession: () => void;
   onRenameSession: (sessionId: string, name: string) => void;
@@ -97,6 +99,8 @@ export function Sidebar({
   onReorderSpaces,
   showAddressBar,
   onToggleAddressBar,
+  showSessionTopBar,
+  onToggleSessionTopBar,
   onResumeSession,
   onStartNewSession,
   onRenameSession,
@@ -1196,6 +1200,15 @@ export function Sidebar({
           onPress={onToggleAddressBar}
         >
           {showAddressBar ? 'Hide Address Bar' : 'Show Address Bar'}
+        </Button>
+        <Button
+          size="sm"
+          variant={showSessionTopBar ? 'solid' : 'flat'}
+          color={showSessionTopBar ? 'primary' : 'default'}
+          className="w-full mt-2"
+          onPress={onToggleSessionTopBar}
+        >
+          {showSessionTopBar ? 'Hide Session Top Bar' : 'Show Session Top Bar'}
         </Button>
       </div>
 
