@@ -2,6 +2,7 @@ import React from 'react';
 import { UnifiedTabView } from './UnifiedTabView';
 import type { TabGroup, WorkspaceState } from '../types';
 import type { WorkspaceActions, SessionActions } from './WorkspaceShell';
+import type { GasCityDashboardState, GasCityPluginModule } from '../modules/plugins/gas-city/types';
 
 interface WorkspaceContentViewProps {
   activeTabGroups: TabGroup[];
@@ -13,6 +14,11 @@ interface WorkspaceContentViewProps {
   onDrop: (e: React.DragEvent, targetGroupId: string) => void;
   workspace: WorkspaceState;
   showAddressBar: boolean;
+  gasCity?: {
+    state: GasCityDashboardState;
+    actions: GasCityPluginModule['actions'];
+  };
+  onOpenGasCityWorkDir?: (workDir: string, title: string) => void;
 }
 
 export function WorkspaceContentView({
@@ -25,6 +31,8 @@ export function WorkspaceContentView({
   onDrop,
   workspace,
   showAddressBar,
+  gasCity,
+  onOpenGasCityWorkDir,
 }: WorkspaceContentViewProps) {
   if (activeTabGroups.length === 0) {
     return (
@@ -44,6 +52,8 @@ export function WorkspaceContentView({
       sessionActions={sessionActions}
       workspace={workspace}
       showAddressBar={showAddressBar}
+      gasCity={gasCity}
+      onOpenGasCityWorkDir={onOpenGasCityWorkDir}
     />
   );
 }

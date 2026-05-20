@@ -13,7 +13,8 @@
     "storybook": "npm run build-storybook && npm run serve-storybook",
     "storybook:dev": "storybook dev -p $PORT",
     "build-storybook": "storybook build",
-    "serve-storybook": "serve storybook-static -l $PORT"
+    "serve-storybook": "serve storybook-static -l $PORT",
+    "test:gc-vk-mock": "bash ./testing/gc-vk-mock/scripts/run-compose.sh"
   },
   "dependencies": {
     "@heroui/react": "^2.8.9",

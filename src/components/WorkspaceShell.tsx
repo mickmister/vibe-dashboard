@@ -1,14 +1,19 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Sidebar } from './Sidebar';
-import { WorkspaceContentView } from './WorkspaceContentView';
-import { AddTabModal } from './AddTabModal';
+import React, { useState, useEffect, useRef } from "react";
+import { Sidebar } from "./Sidebar";
+import { WorkspaceContentView } from "./WorkspaceContentView";
+import { AddTabModal } from "./AddTabModal";
 import {
   AddVKWorkspaceModal,
   prefetchVKWorkspaceSearchResults,
-} from './dialogs/AddVKWorkspaceModal';
-import type { WorkspaceState, TabGroup } from '../types';
-import type { SessionWorkspaceNav } from '../sessionState';
-import type { PluginRegistryState } from '../modules/plugins/vibe-dashboard/types';
+} from "./dialogs/AddVKWorkspaceModal";
+import type { WorkspaceState, TabGroup } from "../types";
+import type { SessionWorkspaceNav } from "../sessionState";
+import type { PluginRegistryState } from "../modules/plugins/vibe-dashboard/types";
+import type {
+  GasCityDashboardState,
+  GasCityPluginModule,
+} from "../modules/plugins/gas-city/types";
+import { getBaseOrigin } from "../utils/origin";
 
 export type WorkspaceActions = {
   addSpace: (args: {
@@ -82,6 +87,10 @@ interface WorkspaceShellProps {
   actions: WorkspaceActions;
   sessionActions: SessionActions;
   pluginRegistry: PluginRegistryState;
+  gasCity?: {
+    state: GasCityDashboardState;
+    actions: GasCityPluginModule["actions"];
+  };
 }
 
 export function WorkspaceShell({
@@ -90,10 +99,11 @@ export function WorkspaceShell({
   actions,
   sessionActions,
   pluginRegistry,
+  gasCity,
 }: WorkspaceShellProps) {
   const [addTabModalOpen, setAddTabModalOpen] = useState(false);
   const [workspaceSearchOpen, setWorkspaceSearchOpen] = useState(false);
-  const [addTabTargetGroupId, setAddTabTargetGroupId] = useState<string>('');
+  const [addTabTargetGroupId, setAddTabTargetGroupId] = useState<string>("");
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isDesktop, setIsDesktop] = useState(false);
   const [showAddressBar, setShowAddressBar] = useState(false);
@@ -101,12 +111,12 @@ export function WorkspaceShell({
 
   const handleDragStart = (e: React.DragEvent, tabGroupId: string) => {
     dragGroupRef.current = tabGroupId;
-    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.effectAllowed = "move";
   };
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
+    e.dataTransfer.dropEffect = "move";
   };
 
   const handleDrop = (e: React.DragEvent, targetGroupId: string) => {
@@ -123,7 +133,7 @@ export function WorkspaceShell({
 
       if (
         (e.metaKey || e.ctrlKey) &&
-        key === 'k' &&
+        key === "k" &&
         !isEditableTarget(e.target)
       ) {
         e.preventDefault();
@@ -134,32 +144,32 @@ export function WorkspaceShell({
         return;
       }
 
-      if ((e.metaKey || e.ctrlKey) && (key === 'w' || key === 'q')) {
+      if ((e.metaKey || e.ctrlKey) && (key === "w" || key === "q")) {
         e.preventDefault();
         e.stopPropagation();
-        if (confirm('Are you sure you want to exit the app?')) {
+        if (confirm("Are you sure you want to exit the app?")) {
           window.close();
         }
       }
     };
 
-    window.addEventListener('keydown', handler, { capture: true });
+    window.addEventListener("keydown", handler, { capture: true });
     return () =>
-      window.removeEventListener('keydown', handler, { capture: true });
+      window.removeEventListener("keydown", handler, { capture: true });
   }, []);
 
   useEffect(() => {
-    if (typeof window === 'undefined') return;
+    if (typeof window === "undefined") return;
 
-    const mediaQuery = window.matchMedia('(min-width: 768px)');
+    const mediaQuery = window.matchMedia("(min-width: 768px)");
     const handleViewportChange = (event: MediaQueryListEvent) => {
       setIsDesktop(event.matches);
       setIsSidebarOpen(false);
     };
 
     setIsDesktop(mediaQuery.matches);
-    mediaQuery.addEventListener('change', handleViewportChange);
-    return () => mediaQuery.removeEventListener('change', handleViewportChange);
+    mediaQuery.addEventListener("change", handleViewportChange);
+    return () => mediaQuery.removeEventListener("change", handleViewportChange);
   }, []);
 
   useEffect(() => {
@@ -272,7 +282,7 @@ export function WorkspaceShell({
 
       <div
         className={`fixed inset-y-0 left-0 z-[70] transform transition-transform duration-200 ${
-          isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
+          isSidebarOpen ? "translate-x-0" : "-translate-x-full"
         }`}
         onMouseLeave={() => {
           if (isDesktop) {
@@ -362,7 +372,7 @@ export function WorkspaceShell({
             ☰
           </button>
           <div className="flex-1 min-w-0 text-sm font-medium text-neutral-200 truncate">
-            {activeTabGroup?.label || 'No tab group selected'}
+            {activeTabGroup?.label || "No tab group selected"}
           </div>
         </div>
         <WorkspaceContentView
@@ -375,6 +385,15 @@ export function WorkspaceShell({
           onDrop={handleDrop}
           workspace={workspace}
           showAddressBar={showAddressBar}
+          gasCity={gasCity}
+          onOpenGasCityWorkDir={(workDir, title) => {
+            const baseOrigin = getBaseOrigin();
+            actions.addTab({
+              tabGroupId: session.activeTabGroupId,
+              title: `Code · ${title}`,
+              url: `${baseOrigin}/?folder=${encodeURIComponent(workDir)}`,
+            });
+          }}
         />
       </div>
 
@@ -412,9 +431,9 @@ function isEditableTarget(target: EventTarget | null): boolean {
 
   const tagName = target.tagName.toLowerCase();
   return (
-    tagName === 'input' ||
-    tagName === 'textarea' ||
-    tagName === 'select' ||
+    tagName === "input" ||
+    tagName === "textarea" ||
+    tagName === "select" ||
     target.isContentEditable
   );
 }

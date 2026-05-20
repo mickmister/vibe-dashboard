@@ -1,0 +1,6 @@
+scope = "city"
+wake_mode = "fresh"
+work_dir = ".gc/agents/smoke"
+nudge = "GC_VK_MOCK_INITIAL_PROMPT"
+idle_timeout = "30m"
+max_active_sessions = 1

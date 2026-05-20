@@ -1,0 +1,333 @@
+import springboard from "springboard";
+import {
+  createPluginManifest,
+  type PluginManifest,
+} from "../vibe-dashboard/types";
+import {
+  createDefaultGasCityDashboardState,
+  type GasCityDashboardState,
+  type GasCitySessionInfo,
+  type GasCityPluginModule,
+} from "./types";
+
+const manifest: PluginManifest = createPluginManifest({
+  id: "dev.mickmister.gas-city",
+  displayName: "Gas City",
+  version: "1.0.0",
+  contributions: {
+    tabPresets: [
+      {
+        key: "gas-city",
+        title: "Gas City",
+        description: "Manage Gas City sessions and open related workdirs",
+        mode: "immediate",
+        urlTemplate: "internal://gas-city",
+        order: 20,
+      },
+    ],
+  },
+});
+
+springboard.registerModule(
+  "plugin-gas-city",
+  { rpcMode: "remote" },
+  async (moduleAPI) => {
+    const pluginRegistry = moduleAPI.getModule("plugin-registry");
+    if (pluginRegistry) {
+      await pluginRegistry.actions.registerPlugin(manifest);
+    }
+
+    const dashboard =
+      await moduleAPI.statesAPI.createPersistentState<GasCityDashboardState>(
+        "plugin-gas-city",
+        createDefaultGasCityDashboardState(),
+      );
+
+    const setLoading = (loading: boolean) => {
+      dashboard.setStateImmer((draft) => {
+        draft.loading = loading;
+      });
+    };
+
+    const setError = (error: string | null) => {
+      dashboard.setStateImmer((draft) => {
+        draft.error = error;
+      });
+    };
+
+    const ensureConfig = () => {
+      const state = dashboard.getState();
+      const gcBinary = state.gcBinary.trim();
+      const cityPath = state.cityPath.trim();
+      if (!gcBinary) {
+        throw new Error("Set a Gas City binary first.");
+      }
+      if (!cityPath) {
+        throw new Error("Set a Gas City city path first.");
+      }
+      return { gcBinary, cityPath };
+    };
+
+    const importNode = async <T>(specifier: string): Promise<T> => {
+      const dynamicImporter = new Function(
+        "specifier",
+        "return import(specifier);",
+      ) as (specifier: string) => Promise<T>;
+      return dynamicImporter(specifier);
+    };
+
+    const runGc = async (
+      args: string[],
+      options?: { env?: Record<string, string> },
+    ): Promise<{ stdout: string; stderr: string }> => {
+      const { gcBinary, cityPath } = ensureConfig();
+      const childProcess =
+        await importNode<typeof import("node:child_process")>(
+          "node:child_process",
+        );
+
+      return new Promise((resolve, reject) => {
+        childProcess.execFile(
+          gcBinary,
+          args,
+          {
+            cwd: cityPath,
+            env: {
+              ...process.env,
+              ...(options?.env ?? {}),
+            },
+            maxBuffer: 2 * 1024 * 1024,
+          },
+          (error, stdout, stderr) => {
+            if (error) {
+              const message = (stderr || stdout || error.message).trim();
+              reject(
+                new Error(
+                  message || `Failed running ${gcBinary} ${args.join(" ")}`,
+                ),
+              );
+              return;
+            }
+            resolve({
+              stdout: stdout.trim(),
+              stderr: stderr.trim(),
+            });
+          },
+        );
+      });
+    };
+
+    const runAndStoreOutput = async (args: string[]) => {
+      const result = await runGc(args);
+      dashboard.setStateImmer((draft) => {
+        draft.lastCommandOutput = [result.stdout, result.stderr]
+          .filter(Boolean)
+          .join("\n")
+          .trim();
+        draft.error = null;
+      });
+      return result.stdout;
+    };
+
+    const refreshSessionsInternal = async (): Promise<GasCitySessionInfo[]> => {
+      const { stdout } = await runGc([
+        "session",
+        "list",
+        "--json",
+        "--state",
+        "all",
+      ]);
+      const sessions = (
+        JSON.parse(stdout || "[]") as GasCitySessionInfo[]
+      ).sort((a, b) => {
+        const aTs = Date.parse(a.LastActive || a.CreatedAt || "");
+        const bTs = Date.parse(b.LastActive || b.CreatedAt || "");
+        return (isNaN(bTs) ? 0 : bTs) - (isNaN(aTs) ? 0 : aTs);
+      });
+      dashboard.setStateImmer((draft) => {
+        draft.sessions = sessions;
+        draft.loaded = true;
+        draft.error = null;
+      });
+      return sessions;
+    };
+
+    const withLoading = async <T>(fn: () => Promise<T>) => {
+      setLoading(true);
+      try {
+        return await fn();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        setError(message);
+        throw error;
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    const actions = moduleAPI.createActions({
+      setConfig: (args: { gcBinary: string; cityPath: string }) => {
+        dashboard.setStateImmer((draft) => {
+          draft.gcBinary = args.gcBinary.trim() || "gc";
+          draft.cityPath = args.cityPath.trim();
+          draft.error = null;
+        });
+      },
+      refreshSessions: async () =>
+        withLoading(async () => {
+          return refreshSessionsInternal();
+        }),
+      refreshStatus: async () =>
+        withLoading(async () => {
+          const stdout = await runAndStoreOutput(["status"]);
+          dashboard.setStateImmer((draft) => {
+            draft.statusOutput = stdout;
+          });
+          return stdout;
+        }),
+      createSession: async (args: {
+        template: string;
+        alias?: string;
+        title?: string;
+      }) =>
+        withLoading(async () => {
+          const command = [
+            "session",
+            "new",
+            args.template.trim(),
+            "--no-attach",
+          ];
+          if (args.alias?.trim()) {
+            command.push("--alias", args.alias.trim());
+          }
+          if (args.title?.trim()) {
+            command.push("--title", args.title.trim());
+          }
+          const stdout = await runAndStoreOutput(command);
+          await refreshSessionsInternal();
+          return stdout;
+        }),
+      bootstrapSessionFromWorkspace: async (args: {
+        workspaceId: string;
+        workspaceName: string;
+        sessionId: string;
+        template: string;
+        alias?: string;
+        title?: string;
+        executor: string;
+        workingDir?: string;
+      }) =>
+        withLoading(async () => {
+          const command = [
+            "session",
+            "new",
+            args.template.trim(),
+            "--no-attach",
+          ];
+          if (args.alias?.trim()) {
+            command.push("--alias", args.alias.trim());
+          }
+          const title =
+            args.title?.trim() ||
+            `Bootstrap • ${args.workspaceName.trim() || "Workspace"}`;
+          command.push("--title", title);
+          const result = await runGc(command, {
+            env: {
+              VIBE_ADOPT_WORKSPACE_ID: args.workspaceId,
+              VIBE_ADOPT_SESSION_ID: args.sessionId,
+              VIBE_SESSION_LABEL: title,
+              VIBE_EXECUTOR: args.executor.trim(),
+              ...(args.workingDir?.trim()
+                ? { VIBE_WORKING_DIR: args.workingDir.trim() }
+                : {}),
+            },
+          });
+          dashboard.setStateImmer((draft) => {
+            draft.lastCommandOutput = [result.stdout, result.stderr]
+              .filter(Boolean)
+              .join("\n")
+              .trim();
+            draft.error = null;
+          });
+          await refreshSessionsInternal();
+          return result.stdout;
+        }),
+      suspendSession: async (args: { sessionId: string }) =>
+        withLoading(async () => {
+          const stdout = await runAndStoreOutput([
+            "session",
+            "suspend",
+            args.sessionId,
+          ]);
+          await refreshSessionsInternal();
+          return stdout;
+        }),
+      wakeSession: async (args: { sessionId: string }) =>
+        withLoading(async () => {
+          const stdout = await runAndStoreOutput([
+            "session",
+            "wake",
+            args.sessionId,
+          ]);
+          await refreshSessionsInternal();
+          return stdout;
+        }),
+      killSession: async (args: { sessionId: string }) =>
+        withLoading(async () => {
+          const stdout = await runAndStoreOutput([
+            "session",
+            "kill",
+            args.sessionId,
+          ]);
+          await refreshSessionsInternal();
+          return stdout;
+        }),
+      submitToSession: async (args: {
+        sessionId: string;
+        message: string;
+        intent?: "default" | "follow_up" | "interrupt_now";
+      }) =>
+        withLoading(async () => {
+          const intent = args.intent ?? "follow_up";
+          const stdout = await runAndStoreOutput([
+            "session",
+            "submit",
+            args.sessionId,
+            args.message,
+            "--intent",
+            intent,
+          ]);
+          await refreshSessionsInternal();
+          return stdout;
+        }),
+      peekSession: async (args: { sessionId: string; lines?: number }) =>
+        withLoading(async () => {
+          const lines = Math.max(1, Math.min(500, args.lines ?? 120));
+          const stdout = await runAndStoreOutput([
+            "session",
+            "peek",
+            args.sessionId,
+            "--lines",
+            String(lines),
+          ]);
+          dashboard.setStateImmer((draft) => {
+            draft.peekBySessionId[args.sessionId] = stdout;
+          });
+          return stdout;
+        }),
+      clearError: () => {
+        dashboard.setStateImmer((draft) => {
+          draft.error = null;
+        });
+      },
+    });
+
+    return {
+      manifest,
+      states: {
+        dashboard,
+      },
+      actions,
+    } as unknown as GasCityPluginModule;
+  },
+);

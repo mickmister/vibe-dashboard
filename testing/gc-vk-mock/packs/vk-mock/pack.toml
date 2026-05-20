@@ -1,0 +1,8 @@
+[pack]
+name = "vk-mock"
+schema = 2
+
+[[named_session]]
+template = "smoke"
+scope = "city"
+mode = "on_demand"

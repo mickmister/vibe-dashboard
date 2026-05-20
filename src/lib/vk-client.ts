@@ -20,15 +20,10 @@ export interface WorkspaceSummary {
   lines_added: number | null;
   lines_removed: number | null;
   latest_process_completed_at?: string;
-  latest_process_status:
-    | 'running'
-    | 'completed'
-    | 'failed'
-    | 'killed'
-    | null;
+  latest_process_status: "running" | "completed" | "failed" | "killed" | null;
   has_running_dev_server: boolean;
   has_unseen_turns: boolean;
-  pr_status: 'open' | 'merged' | 'closed' | 'unknown' | null;
+  pr_status: "open" | "merged" | "closed" | "unknown" | null;
 }
 
 export interface WorkspaceSummaryResponse {
@@ -48,6 +43,44 @@ export interface RepoWithBranch {
   target_branch: string;
 }
 
+export interface WorkspaceRepoInput {
+  repo_id: string;
+  target_branch: string;
+}
+
+export interface WorkspaceExecutorConfig {
+  executor: string;
+  variant?: string | null;
+  model_id?: string | null;
+  agent_id?: string | null;
+  reasoning_id?: string | null;
+  permission_policy?: string | null;
+}
+
+export interface WorkspaceExecutionProcess {
+  id: string;
+  session_id: string;
+  status: string | null;
+  created_at: string;
+  updated_at: string;
+  started_at: string;
+  completed_at: string | null;
+}
+
+export interface CreateAndStartWorkspaceRequest {
+  name: string | null;
+  repos: WorkspaceRepoInput[];
+  linked_issue: null;
+  executor_config: WorkspaceExecutorConfig;
+  prompt: string;
+  attachment_ids: null;
+}
+
+export interface CreateAndStartWorkspaceResponse {
+  workspace: Workspace;
+  execution_process: WorkspaceExecutionProcess;
+}
+
 // ── API response envelope ───────────────────────────────────────────────────
 
 interface ApiResponse<T> {
@@ -58,7 +91,7 @@ interface ApiResponse<T> {
 // ── Client ──────────────────────────────────────────────────────────────────
 
 export class VibeKanbanClient {
-  constructor(private baseUrl = '/vk-api') {}
+  constructor(private baseUrl = "/vk-api") {}
 
   private async get<T>(path: string): Promise<T> {
     const res = await fetch(`${this.baseUrl}${path}`);
@@ -74,8 +107,8 @@ export class VibeKanbanClient {
 
   private async post<T>(path: string, body: unknown): Promise<T> {
     const res = await fetch(`${this.baseUrl}${path}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
     if (!res.ok) {
@@ -89,17 +122,15 @@ export class VibeKanbanClient {
   }
 
   getWorkspaces(): Promise<Workspace[]> {
-    return this.get('/workspaces');
+    return this.get("/workspaces");
   }
 
   getWorkspace(id: string): Promise<Workspace> {
     return this.get(`/workspaces/${id}`);
   }
 
-  getWorkspaceSummaries(
-    archived: boolean
-  ): Promise<WorkspaceSummaryResponse> {
-    return this.post('/workspaces/summaries', { archived });
+  getWorkspaceSummaries(archived: boolean): Promise<WorkspaceSummaryResponse> {
+    return this.post("/workspaces/summaries", { archived });
   }
 
   getWorkspaceRepos(id: string): Promise<RepoWithBranch[]> {
@@ -111,7 +142,13 @@ export class VibeKanbanClient {
   }
 
   getRepos(): Promise<Repo[]> {
-    return this.get('/repos');
+    return this.get("/repos");
+  }
+
+  createAndStartWorkspace(
+    data: CreateAndStartWorkspaceRequest,
+  ): Promise<CreateAndStartWorkspaceResponse> {
+    return this.post("/workspaces/start", data);
   }
 
   stopWorkspaceExecution(workspaceId: string): Promise<void> {
