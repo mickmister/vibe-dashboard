@@ -18,6 +18,7 @@ springboard.registerSplashScreen(AppLoadingScreen);
 // @platform end
 
 // @platform "node"
+import './modules/WorkflowServerModule';
 import './server/inactivity-service';
 // @platform end
 
