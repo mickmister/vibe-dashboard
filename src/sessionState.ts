@@ -279,6 +279,12 @@ function buildNavPath(nav: SessionWorkspaceNav): string {
   return path;
 }
 
+type PendingNavSelection = {
+  activeSpaceId: string;
+  activeTabGroupId: string;
+  activeItemId?: string;
+};
+
 /**
  * Hook for managing per-window workspace navigation state.
  * Navigation IDs are synced with React Router path params for shareable deep links.
@@ -300,12 +306,62 @@ export function useSessionWorkspaceNav(
     itemId: route.itemId,
   });
   const prevSavedSessionIdRef = useRef<string | undefined>(savedSession?.id);
+  const pendingSelectionRef = useRef<PendingNavSelection | null>(null);
+
+  const setPendingSelection = (selection: PendingNavSelection) => {
+    pendingSelectionRef.current = selection;
+  };
 
   useEffect(() => {
     if (savedSession?.id === prevSavedSessionIdRef.current) return;
     prevSavedSessionIdRef.current = savedSession?.id;
     setNav(loadSessionNav(workspace, {}, savedSession));
   }, [savedSession?.id, workspace]);
+
+  useEffect(() => {
+    const pendingSelection = pendingSelectionRef.current;
+    if (!pendingSelection) return;
+
+    const navMatchesPending =
+      nav.activeSpaceId === pendingSelection.activeSpaceId &&
+      nav.activeTabGroupId === pendingSelection.activeTabGroupId &&
+      (
+        pendingSelection.activeItemId === undefined ||
+        nav.activeItems[pendingSelection.activeTabGroupId] === pendingSelection.activeItemId
+      );
+
+    if (!navMatchesPending) {
+      pendingSelectionRef.current = null;
+      return;
+    }
+
+    const routeMatchesPending =
+      route.spaceId === pendingSelection.activeSpaceId &&
+      route.tabGroupId === pendingSelection.activeTabGroupId &&
+      (
+        pendingSelection.activeItemId === undefined ||
+        route.itemId === pendingSelection.activeItemId
+      );
+
+    if (
+      routeMatchesPending &&
+      isTabGroupInSpace(
+        workspace,
+        pendingSelection.activeSpaceId,
+        pendingSelection.activeTabGroupId,
+      )
+    ) {
+      pendingSelectionRef.current = null;
+    }
+  }, [
+    nav.activeItems,
+    nav.activeSpaceId,
+    nav.activeTabGroupId,
+    route.itemId,
+    route.spaceId,
+    route.tabGroupId,
+    workspace,
+  ]);
 
   // Sync route param changes to nav state (only when route actually changed)
   useEffect(() => {
@@ -325,6 +381,28 @@ export function useSessionWorkspaceNav(
 
     setNav((prev) => {
       let updated = prev;
+      const pendingSelection = pendingSelectionRef.current;
+      const shouldDeferRouteSync =
+        pendingSelection != null &&
+        prev.activeSpaceId === pendingSelection.activeSpaceId &&
+        prev.activeTabGroupId === pendingSelection.activeTabGroupId &&
+        (
+          pendingSelection.activeItemId === undefined ||
+          prev.activeItems[pendingSelection.activeTabGroupId] === pendingSelection.activeItemId
+        ) &&
+        (
+          route.spaceId !== pendingSelection.activeSpaceId ||
+          route.tabGroupId !== pendingSelection.activeTabGroupId ||
+          (
+            pendingSelection.activeItemId !== undefined &&
+            route.itemId !== pendingSelection.activeItemId
+          )
+        );
+
+      if (shouldDeferRouteSync) {
+        return prev;
+      }
+
       const nextSpaceId =
         route.spaceId && getSpaceById(workspace, route.spaceId)
           ? route.spaceId
@@ -422,13 +500,29 @@ export function useSessionWorkspaceNav(
     const tabGroupExists = workspace.tabGroups.some(
       (tg) => tg.id === nav.activeTabGroupId,
     );
+    const pendingSelection = pendingSelectionRef.current;
+    const isHoldingPendingSelection =
+      pendingSelection != null &&
+      nav.activeSpaceId === pendingSelection.activeSpaceId &&
+      nav.activeTabGroupId === pendingSelection.activeTabGroupId &&
+      (
+        pendingSelection.activeItemId === undefined ||
+        nav.activeItems[pendingSelection.activeTabGroupId] === pendingSelection.activeItemId
+      );
 
     // Check if there are new tab groups not in activeItems
     const newTabGroups = workspace.tabGroups.filter(
       (tg) => !(tg.id in nav.activeItems),
     );
 
-    if (!spaceExists || !tabGroupExists) {
+    if (!spaceExists) {
+      const newNav = loadSessionNav(workspace, route, savedSession);
+      setNav(newNav);
+    } else if (!tabGroupExists) {
+      if (isHoldingPendingSelection) {
+        return;
+      }
+
       const newNav = loadSessionNav(workspace, route, savedSession);
       setNav(newNav);
     } else if (newTabGroups.length > 0) {
@@ -467,6 +561,10 @@ export function useSessionWorkspaceNav(
 
     const firstTabGroupId = space.tabGroupIds[0];
     if (firstTabGroupId) {
+      setPendingSelection({
+        activeSpaceId: spaceId,
+        activeTabGroupId: firstTabGroupId,
+      });
       setNav((prev) => ({
         ...prev,
         activeSpaceId: spaceId,
@@ -476,6 +574,11 @@ export function useSessionWorkspaceNav(
   };
 
   const selectTab = (tabGroupId: string, tabId: string) => {
+    setPendingSelection({
+      activeSpaceId: nav.activeSpaceId,
+      activeTabGroupId: tabGroupId,
+      activeItemId: tabId,
+    });
     setNav((prev) => ({
       ...prev,
       activeTabGroupId: tabGroupId,
@@ -484,6 +587,11 @@ export function useSessionWorkspaceNav(
   };
 
   const selectPair = (tabGroupId: string, pairId: string) => {
+    setPendingSelection({
+      activeSpaceId: nav.activeSpaceId,
+      activeTabGroupId: tabGroupId,
+      activeItemId: pairId,
+    });
     setNav((prev) => ({
       ...prev,
       activeTabGroupId: tabGroupId,
@@ -492,15 +600,31 @@ export function useSessionWorkspaceNav(
   };
 
   const setActiveTabGroup = (tabGroupId: string) => {
+    setPendingSelection({
+      activeSpaceId: nav.activeSpaceId,
+      activeTabGroupId: tabGroupId,
+    });
     setNav((prev) => ({ ...prev, activeTabGroupId: tabGroupId }));
   };
 
   const resumeSession = (sessionToResume: SavedWorkspaceSession) => {
-    setNav(loadSessionNav(workspace, {}, sessionToResume));
+    const nextNav = loadSessionNav(workspace, {}, sessionToResume);
+    setPendingSelection({
+      activeSpaceId: nextNav.activeSpaceId,
+      activeTabGroupId: nextNav.activeTabGroupId,
+      activeItemId: nextNav.activeItems[nextNav.activeTabGroupId] || undefined,
+    });
+    setNav(nextNav);
   };
 
   const startNewSession = () => {
-    setNav(createDefaultSessionNav(workspace));
+    const nextNav = createDefaultSessionNav(workspace);
+    setPendingSelection({
+      activeSpaceId: nextNav.activeSpaceId,
+      activeTabGroupId: nextNav.activeTabGroupId,
+      activeItemId: nextNav.activeItems[nextNav.activeTabGroupId] || undefined,
+    });
+    setNav(nextNav);
   };
 
   const getActiveItem = (tabGroupId: string): string => {
