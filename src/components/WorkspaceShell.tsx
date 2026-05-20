@@ -124,6 +124,9 @@ export function WorkspaceShell({
 }: WorkspaceShellProps) {
   const [addTabModalOpen, setAddTabModalOpen] = useState(false);
   const [workspaceSearchOpen, setWorkspaceSearchOpen] = useState(false);
+  const [workspaceSearchMode, setWorkspaceSearchMode] = useState<
+    'general' | 'session-add'
+  >('general');
   const [addTabTargetGroupId, setAddTabTargetGroupId] = useState<string>('');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isDesktop, setIsDesktop] = useState(false);
@@ -140,9 +143,6 @@ export function WorkspaceShell({
   } | null>(null);
   const [expandedSessionTabGroupId, setExpandedSessionTabGroupId] = useState<
     string | null
-  >(null);
-  const [sessionTabPickerMode, setSessionTabPickerMode] = useState<
-    'mobile' | 'desktop' | null
   >(null);
   const [mobileTabDraftLabel, setMobileTabDraftLabel] = useState('');
   const [mobileTabDraftEmoji, setMobileTabDraftEmoji] = useState('');
@@ -186,6 +186,7 @@ export function WorkspaceShell({
         e.preventDefault();
         e.stopPropagation();
         setAddTabModalOpen(false);
+        setWorkspaceSearchMode('general');
         setWorkspaceSearchOpen(true);
         setIsSidebarOpen(false);
         return;
@@ -280,12 +281,45 @@ export function WorkspaceShell({
     }
   };
 
+  const handleWorkspaceSearchAdd = async (
+    taskAttemptId: string,
+    name: string,
+    containerRef: string,
+  ) => {
+    if (workspaceSearchMode === 'session-add') {
+      await handleAddVKWorkspaceToSpace(
+        taskAttemptId,
+        name,
+        containerRef,
+        session.activeSpaceId,
+      );
+      setWorkspaceSearchMode('general');
+      return;
+    }
+
+    await handleAddVKWorkspace(taskAttemptId, name, containerRef);
+  };
+
+  const handleWorkspaceSearchAddToSpace = async (
+    taskAttemptId: string,
+    name: string,
+    containerRef: string,
+    spaceId: string,
+  ) => {
+    await handleAddVKWorkspaceToSpace(taskAttemptId, name, containerRef, spaceId);
+    setWorkspaceSearchMode('general');
+  };
+
   const handleNavigateToWorkspaceTabGroup = (
     spaceId: string,
     tabGroupId: string,
   ) => {
+    if (workspaceSearchMode === 'session-add') {
+      sessionActions.addTabGroupToSession(tabGroupId);
+    }
     sessionActions.selectSpace(spaceId);
     sessionActions.setActiveTabGroup(tabGroupId);
+    setWorkspaceSearchMode('general');
   };
 
   const handleAddTabGroup = async (label: string) => {
@@ -332,27 +366,6 @@ export function WorkspaceShell({
         tabGroup: TabGroup;
       } => item != null,
     );
-  const availableSessionTabGroups = workspace.spaces
-    .filter((space) => !space.isSystem)
-    .flatMap((space) =>
-      space.tabGroupIds
-        .map((tabGroupId) => {
-          const tabGroup = workspace.tabGroups.find((tg) => tg.id === tabGroupId);
-          if (!tabGroup || session.visitedTabGroupIds.includes(tabGroup.id)) {
-            return null;
-          }
-          return { space, tabGroup };
-        })
-        .filter(
-          (
-            item,
-          ): item is {
-            space: WorkspaceState['spaces'][number];
-            tabGroup: TabGroup;
-          } => item != null,
-        ),
-    );
-
   const mobileTabMenuTabGroup = mobileTabMenuTarget
     ? workspace.tabGroups.find((tg) => tg.id === mobileTabMenuTarget.tabGroupId)
     : undefined;
@@ -477,12 +490,6 @@ export function WorkspaceShell({
     }
   };
 
-  const handleCloseMobileTab = async () => {
-    if (!mobileTabMenuTarget) return;
-    const { spaceId, tabGroupId } = mobileTabMenuTarget;
-    await handleCloseTabGroup(spaceId, tabGroupId);
-  };
-
   const handleToggleSessionTabGroup = (spaceId: string, tabGroupId: string) => {
     if (tabGroupId === session.activeTabGroupId) {
       setExpandedSessionTabGroupId((current) =>
@@ -511,6 +518,22 @@ export function WorkspaceShell({
   const handleRemoveTabGroupFromSession = (tabGroupId: string) => {
     sessionActions.removeTabGroupFromSession(tabGroupId);
     setMobileTabMenuTarget(null);
+    setDesktopTabMenuTarget(null);
+    setExpandedSessionTabGroupId((current) =>
+      current === tabGroupId ? null : current,
+    );
+  };
+
+  const openSessionWorkspaceSearch = () => {
+    setDesktopTabMenuTarget(null);
+    setMobileTabMenuTarget(null);
+    setWorkspaceSearchMode('session-add');
+    setWorkspaceSearchOpen(true);
+  };
+
+  const handleWorkspaceSearchClose = () => {
+    setWorkspaceSearchOpen(false);
+    setWorkspaceSearchMode('general');
   };
 
   useEffect(() => {
@@ -712,9 +735,7 @@ export function WorkspaceShell({
               })}
               <button
                 className="shrink-0 h-full border-r border-b-2 border-neutral-600 bg-neutral-900 px-3 text-xs text-neutral-200 transition-colors hover:bg-neutral-800/80"
-                onClick={() =>
-                  setSessionTabPickerMode((prev) => (prev === 'desktop' ? null : 'desktop'))
-                }
+                onClick={openSessionWorkspaceSearch}
                 title="Add tab group to session"
                 aria-label="Add tab group to session"
               >
@@ -857,9 +878,7 @@ export function WorkspaceShell({
                 })}
                 <button
                   className="shrink-0 h-full border-r border-neutral-700 bg-neutral-900 px-3 text-xs text-neutral-200 transition-colors hover:bg-neutral-800/80"
-                  onClick={() =>
-                    setSessionTabPickerMode((prev) => (prev === 'mobile' ? null : 'mobile'))
-                  }
+                  onClick={openSessionWorkspaceSearch}
                   title="Add tab group to session"
                   aria-label="Add tab group to session"
                 >
@@ -873,9 +892,7 @@ export function WorkspaceShell({
                   </div>
                   <button
                     className="shrink-0 h-full border-r border-neutral-700 bg-neutral-900 px-3 text-xs text-neutral-200 transition-colors hover:bg-neutral-800/80"
-                    onClick={() =>
-                      setSessionTabPickerMode((prev) => (prev === 'mobile' ? null : 'mobile'))
-                    }
+                    onClick={openSessionWorkspaceSearch}
                     title="Add tab group to session"
                     aria-label="Add tab group to session"
                   >
@@ -904,52 +921,17 @@ export function WorkspaceShell({
       {workspaceSearchOpen && (
         <AddVKWorkspaceModal
           isOpen={workspaceSearchOpen}
-          onClose={() => setWorkspaceSearchOpen(false)}
-          onAdd={handleAddVKWorkspace}
-          onAddToSpace={handleAddVKWorkspaceToSpace}
+          onClose={handleWorkspaceSearchClose}
+          onAdd={handleWorkspaceSearchAdd}
+          onAddToSpace={
+            workspaceSearchMode === 'session-add'
+              ? undefined
+              : handleWorkspaceSearchAddToSpace
+          }
           onNavigateToTabGroup={handleNavigateToWorkspaceTabGroup}
           workspaceState={workspace}
           allowCustomPath={false}
         />
-      )}
-
-      {sessionTabPickerMode && (
-        <div
-          className={`fixed z-[85] ${
-            sessionTabPickerMode === 'mobile'
-              ? 'bottom-14 left-2 right-2 md:hidden'
-              : 'top-14 right-4 hidden md:block'
-          }`}
-        >
-          <div className="rounded-xl border border-neutral-700 bg-neutral-900 shadow-2xl max-h-80 overflow-y-auto min-w-[260px]">
-            <div className="px-3 py-2 border-b border-neutral-800 text-xs font-semibold uppercase tracking-wide text-neutral-400">
-              Add Tab Group To Session
-            </div>
-            <div className="p-2 space-y-1">
-              {availableSessionTabGroups.length > 0 ? (
-                availableSessionTabGroups.map(({ space, tabGroup }) => (
-                  <button
-                    key={tabGroup.id}
-                    className="w-full text-left rounded-lg px-3 py-2 hover:bg-neutral-800 transition-colors"
-                    onClick={() => {
-                      sessionActions.addTabGroupToSession(tabGroup.id);
-                      setSessionTabPickerMode(null);
-                    }}
-                  >
-                    <div className="text-sm text-white truncate">{tabGroup.label}</div>
-                    <div className="text-xs text-neutral-500 truncate">
-                      {space.name}
-                    </div>
-                  </button>
-                ))
-              ) : (
-                <div className="px-3 py-4 text-xs text-neutral-500">
-                  All tab groups are already in this session.
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
       )}
 
       {desktopTabMenuTarget && (() => {
@@ -972,15 +954,9 @@ export function WorkspaceShell({
             <button
               className="block w-full px-4 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-800"
               onClick={() => {
-                if (
-                  confirm(
-                    `Remove "${tabGroup?.label || 'this tab group'}" from the current session? It will stay in the space.`,
-                  )
-                ) {
-                  handleRemoveTabGroupFromSession(
-                    desktopTabMenuTarget.tabGroupId,
-                  );
-                }
+                handleRemoveTabGroupFromSession(
+                  desktopTabMenuTarget.tabGroupId,
+                );
               }}
             >
               Remove From Session
@@ -989,6 +965,7 @@ export function WorkspaceShell({
             <button
               className="block w-full px-4 py-2 text-left text-sm text-red-300 transition-colors hover:bg-neutral-800"
               onClick={() => {
+                setDesktopTabMenuTarget(null);
                 if (
                   confirm(
                     space?.tabGroupIds.length === 1
@@ -1084,13 +1061,7 @@ export function WorkspaceShell({
               <button
                 className="rounded-md border border-amber-500/40 bg-amber-500/15 px-3 py-2 text-sm text-amber-300"
                 onClick={() => {
-                  if (
-                    confirm(
-                      `Remove "${mobileTabMenuTabGroup.label}" from the current session? It will stay in the space.`,
-                    )
-                  ) {
-                    handleRemoveTabGroupFromSession(mobileTabMenuTarget.tabGroupId);
-                  }
+                  handleRemoveTabGroupFromSession(mobileTabMenuTarget.tabGroupId);
                 }}
               >
                 Remove From Session
@@ -1099,6 +1070,8 @@ export function WorkspaceShell({
             <button
                 className="w-full rounded-md border border-red-500/40 bg-red-500/15 px-3 py-2 text-sm text-red-300"
                 onClick={() => {
+                  const { spaceId, tabGroupId } = mobileTabMenuTarget;
+                  setMobileTabMenuTarget(null);
                   if (
                     confirm(
                       mobileTabMenuSpace?.tabGroupIds.length === 1
@@ -1106,7 +1079,7 @@ export function WorkspaceShell({
                         : `Close "${mobileTabMenuTabGroup.label}" everywhere? This deletes the tab group, not just from the current session.`,
                     )
                   ) {
-                    void handleCloseMobileTab();
+                    void handleCloseTabGroup(spaceId, tabGroupId);
                   }
                 }}
               >
