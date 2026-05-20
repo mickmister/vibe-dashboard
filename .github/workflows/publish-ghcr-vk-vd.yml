@@ -28,7 +28,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: vk-vd-publish-${{ github.event_name == 'repository_dispatch' && github.event.client_payload.vk_source_ref || github.ref }}
+  group: vk-vd-publish-${{ github.event_name }}-${{ github.event_name == 'repository_dispatch' && github.event.client_payload.vk_source_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
