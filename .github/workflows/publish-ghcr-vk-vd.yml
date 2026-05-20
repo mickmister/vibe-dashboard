@@ -56,7 +56,7 @@ jobs:
           set -euo pipefail
 
           workdir="$(mktemp -d)"
-          trap 'rm -rf "$workdir"' EXIT
+          trap 'rm -rf "$workdir" || true' EXIT
 
           git -C "$workdir" init --quiet
           git -C "$workdir" remote add origin "$VK_REPO_URL_INPUT"
