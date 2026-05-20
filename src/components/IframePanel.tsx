@@ -45,7 +45,7 @@ type TabRenderTarget =
 let iframeStore: Map<string, IframeEntry> = new Map();
 let retainedSessionId: string | null = null;
 let retainedTabIds: Set<string> = new Set();
-const MAX_RETAINED_IFRAMES = 8;
+const MAX_RETAINED_IFRAMES = 5;
 
 // Preserve iframe store across HMR updates using Vite's HMR API.
 try {
@@ -256,21 +256,20 @@ function removeAllIframes() {
   }
 }
 
+function ensureRetainedSession(currentSessionId?: string) {
+  const nextSessionId = currentSessionId || null;
+  if (retainedSessionId === nextSessionId) return;
+
+  retainedSessionId = nextSessionId;
+  retainedTabIds = new Set();
+  removeAllIframes();
+}
+
 function useImperativeIframes(
   tabs: Tab[],
   visibleTabIds: Set<string>,
-  currentSessionId?: string,
   allKnownTabIds?: Set<string>,
 ) {
-  useEffect(() => {
-    const nextSessionId = currentSessionId || null;
-    if (retainedSessionId === nextSessionId) return;
-
-    retainedSessionId = nextSessionId;
-    retainedTabIds = new Set();
-    removeAllIframes();
-  }, [currentSessionId]);
-
   for (const tab of tabs) {
     getOrCreateIframe(tab);
   }
@@ -501,6 +500,8 @@ export function IframePanel({
   onNavigateToTabGroup,
   onOpenVKWorkspace,
 }: IframePanelProps) {
+  ensureRetainedSession(currentSessionId);
+
   const activeTab = tabGroup.tabs.find(
     (t) => t.id === activeItemId
   );
@@ -528,6 +529,9 @@ export function IframePanel({
     allKnownIframeTabs?.filter(
       (tab) => retainedTabIds.has(tab.id) || visibleIframeTabIds.has(tab.id),
     ) ?? mountedTabs;
+  const hiddenRetainedTabs = retainedTabs.filter(
+    (tab) => !visibleIframeTabIds.has(tab.id),
+  );
   const allKnownIframeTabIds = allKnownIframeTabs
     ? new Set(allKnownIframeTabs.map((tab) => tab.id))
     : undefined;
@@ -535,12 +539,11 @@ export function IframePanel({
   const { loadingState, errorState, retryTab } = useImperativeIframes(
     retainedTabs,
     visibleIframeTabIds,
-    currentSessionId,
     allKnownIframeTabIds,
   );
 
   return (
-    <>
+    <div className="w-full h-full relative">
       {activePair ? (
         <PairView
           activePair={activePair}
@@ -569,7 +572,24 @@ export function IframePanel({
       ) : (
         <EmptyView />
       )}
-    </>
+      {hiddenRetainedTabs.length > 0 ? (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 overflow-hidden"
+          style={{ visibility: 'hidden' }}
+        >
+          {hiddenRetainedTabs.map((tab) => (
+            <div
+              key={tab.id}
+              className="absolute inset-0"
+              style={{ display: 'none' }}
+            >
+              <IframeHost tabId={tab.id} visible={false} />
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
