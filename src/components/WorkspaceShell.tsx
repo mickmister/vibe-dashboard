@@ -377,10 +377,6 @@ export function WorkspaceShell({
     const activeItemId = sessionActions.getActiveItem(
       expandedSessionTabGroup.tabGroup.id,
     );
-    const tabIdsInPairs = new Set(
-      expandedSessionTabGroup.tabGroup.pairs.flatMap((pair) => pair.tabIds),
-    );
-
     const tabItems = expandedSessionTabGroup.tabGroup.tabs.map((tab) => ({
       kind: 'tab' as const,
       id: tab.id,
@@ -402,10 +398,7 @@ export function WorkspaceShell({
       };
     });
 
-    return [
-      ...tabItems.filter((item) => !tabIdsInPairs.has(item.id)),
-      ...pairItems,
-    ];
+    return [...tabItems, ...pairItems];
   }, [expandedSessionTabGroup, sessionActions]);
 
   const clearLongPress = () => {
