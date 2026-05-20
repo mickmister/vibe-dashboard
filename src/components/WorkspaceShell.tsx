@@ -628,6 +628,18 @@ export function WorkspaceShell({
     return () => window.removeEventListener('keydown', handleEscape);
   }, []);
 
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      console.log('[WorkspaceShell message]', {
+        origin: event.origin,
+        data: event.data,
+      });
+    };
+
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, []);
+
   return (
     <div className="w-full h-full flex bg-neutral-950">
       {isSidebarOpen && (
