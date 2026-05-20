@@ -101,6 +101,8 @@ export type SessionActions = {
   startNewSession: () => void;
   renameSession: (sessionId: string, name: string) => void;
   deleteSession: (sessionId: string) => void;
+  addTabGroupToSession: (tabGroupId: string) => void;
+  removeTabGroupFromSession: (tabGroupId: string) => void;
 };
 
 interface WorkspaceShellProps {
@@ -130,6 +132,9 @@ export function WorkspaceShell({
     spaceId: string;
     tabGroupId: string;
   } | null>(null);
+  const [sessionTabPickerMode, setSessionTabPickerMode] = useState<
+    'mobile' | 'desktop' | null
+  >(null);
   const [mobileTabDraftLabel, setMobileTabDraftLabel] = useState('');
   const [mobileTabDraftEmoji, setMobileTabDraftEmoji] = useState('');
   const dragGroupRef = useRef<string | null>(null);
@@ -318,6 +323,26 @@ export function WorkspaceShell({
         tabGroup: TabGroup;
       } => item != null,
     );
+  const availableSessionTabGroups = workspace.spaces
+    .filter((space) => !space.isSystem)
+    .flatMap((space) =>
+      space.tabGroupIds
+        .map((tabGroupId) => {
+          const tabGroup = workspace.tabGroups.find((tg) => tg.id === tabGroupId);
+          if (!tabGroup || session.visitedTabGroupIds.includes(tabGroup.id)) {
+            return null;
+          }
+          return { space, tabGroup };
+        })
+        .filter(
+          (
+            item,
+          ): item is {
+            space: WorkspaceState['spaces'][number];
+            tabGroup: TabGroup;
+          } => item != null,
+        ),
+    );
 
   const mobileTabMenuTabGroup = mobileTabMenuTarget
     ? workspace.tabGroups.find((tg) => tg.id === mobileTabMenuTarget.tabGroupId)
@@ -388,6 +413,11 @@ export function WorkspaceShell({
       setMobileTabMenuTarget(null);
       return;
     }
+    setMobileTabMenuTarget(null);
+  };
+
+  const handleRemoveTabGroupFromSession = (tabGroupId: string) => {
+    sessionActions.removeTabGroupFromSession(tabGroupId);
     setMobileTabMenuTarget(null);
   };
 
@@ -509,6 +539,48 @@ export function WorkspaceShell({
 
       {/* Main content area */}
       <div className="flex-1 flex flex-col min-h-0 min-w-0 relative">
+        <div className="hidden md:flex h-11 px-3 border-b border-neutral-800 bg-neutral-900 items-center gap-2 shrink-0">
+          <div className="flex-1 min-w-0 overflow-x-auto scrollbar-hide">
+            <div className="flex items-center gap-1 pr-1 whitespace-nowrap">
+              {mobileSessionTabGroups.map(({ space, tabGroup }) => {
+                const isActive = tabGroup.id === session.activeTabGroupId;
+
+                return (
+                  <button
+                    key={tabGroup.id}
+                    className={`shrink-0 inline-flex select-none items-center gap-1 rounded-md px-2 py-1 text-xs transition-colors ${
+                      isActive
+                        ? 'bg-primary-500/20 text-primary-300'
+                        : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700'
+                    }`}
+                    onClick={() => {
+                      sessionActions.selectSpace(space.id);
+                      sessionActions.setActiveTabGroup(tabGroup.id);
+                    }}
+                    title={`${space.name} / ${tabGroup.label}`}
+                    aria-label={`Open ${tabGroup.label} in ${space.name}`}
+                  >
+                    <span aria-hidden="true">{getMobileTabGroupEmoji(tabGroup)}</span>
+                    <span className="max-w-24 truncate">
+                      {getMobileTabGroupLabel(tabGroup)}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <button
+            className="shrink-0 rounded-md border border-neutral-700 bg-neutral-800 px-2 py-1 text-xs text-neutral-300 hover:bg-neutral-700 hover:text-white transition-colors"
+            onClick={() =>
+              setSessionTabPickerMode((prev) => (prev === 'desktop' ? null : 'desktop'))
+            }
+            title="Add tab group to session"
+            aria-label="Add tab group to session"
+          >
+            +
+          </button>
+        </div>
+
         <WorkspaceContentView
           activeTabGroups={activeTabGroups}
           activeTabGroupId={session.activeTabGroupId}
@@ -537,9 +609,10 @@ export function WorkspaceShell({
             ☰
           </button>
           <div className="flex-1 min-w-0 overflow-x-auto scrollbar-hide">
-            <div className="flex items-center gap-1 pr-1">
+            <div className="flex items-center gap-1 pr-1 whitespace-nowrap">
               {mobileSessionTabGroups.length > 0 ? (
-                mobileSessionTabGroups.map(({ space, tabGroup }) => {
+                <>
+                {mobileSessionTabGroups.map(({ space, tabGroup }) => {
                   const isActive = tabGroup.id === session.activeTabGroupId;
 
                   return (
@@ -582,11 +655,34 @@ export function WorkspaceShell({
                       </span>
                     </button>
                   );
-                })
+                })}
+                <button
+                  className="shrink-0 rounded-md border border-neutral-700 bg-neutral-800 px-2 py-1 text-xs text-neutral-300 hover:bg-neutral-700 hover:text-white transition-colors"
+                  onClick={() =>
+                    setSessionTabPickerMode((prev) => (prev === 'mobile' ? null : 'mobile'))
+                  }
+                  title="Add tab group to session"
+                  aria-label="Add tab group to session"
+                >
+                  +
+                </button>
+                </>
               ) : (
-                <div className="text-xs text-neutral-500">
-                  {activeTabGroup?.label || 'No tab groups'}
-                </div>
+                <>
+                  <div className="text-xs text-neutral-500">
+                    {activeTabGroup?.label || 'No tab groups'}
+                  </div>
+                  <button
+                    className="shrink-0 rounded-md border border-neutral-700 bg-neutral-800 px-2 py-1 text-xs text-neutral-300 hover:bg-neutral-700 hover:text-white transition-colors"
+                    onClick={() =>
+                      setSessionTabPickerMode((prev) => (prev === 'mobile' ? null : 'mobile'))
+                    }
+                    title="Add tab group to session"
+                    aria-label="Add tab group to session"
+                  >
+                    +
+                  </button>
+                </>
               )}
             </div>
           </div>
@@ -616,6 +712,45 @@ export function WorkspaceShell({
           workspaceState={workspace}
           allowCustomPath={false}
         />
+      )}
+
+      {sessionTabPickerMode && (
+        <div
+          className={`fixed z-[85] ${
+            sessionTabPickerMode === 'mobile'
+              ? 'bottom-14 left-2 right-2 md:hidden'
+              : 'top-14 right-4 hidden md:block'
+          }`}
+        >
+          <div className="rounded-xl border border-neutral-700 bg-neutral-900 shadow-2xl max-h-80 overflow-y-auto min-w-[260px]">
+            <div className="px-3 py-2 border-b border-neutral-800 text-xs font-semibold uppercase tracking-wide text-neutral-400">
+              Add Tab Group To Session
+            </div>
+            <div className="p-2 space-y-1">
+              {availableSessionTabGroups.length > 0 ? (
+                availableSessionTabGroups.map(({ space, tabGroup }) => (
+                  <button
+                    key={tabGroup.id}
+                    className="w-full text-left rounded-lg px-3 py-2 hover:bg-neutral-800 transition-colors"
+                    onClick={() => {
+                      sessionActions.addTabGroupToSession(tabGroup.id);
+                      setSessionTabPickerMode(null);
+                    }}
+                  >
+                    <div className="text-sm text-white truncate">{tabGroup.label}</div>
+                    <div className="text-xs text-neutral-500 truncate">
+                      {space.name}
+                    </div>
+                  </button>
+                ))
+              ) : (
+                <div className="px-3 py-4 text-xs text-neutral-500">
+                  All tab groups are already in this session.
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       {mobileTabMenuTarget && mobileTabMenuTabGroup && (
@@ -677,7 +812,7 @@ export function WorkspaceShell({
               </label>
             </div>
 
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 gap-2">
               <button
                 className="rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-neutral-200"
                 onClick={() => setMobileTabMenuTarget(null)}
@@ -691,14 +826,28 @@ export function WorkspaceShell({
                 Save
               </button>
               <button
-                className="rounded-md border border-red-500/40 bg-red-500/15 px-3 py-2 text-sm text-red-300"
+                className="rounded-md border border-amber-500/40 bg-amber-500/15 px-3 py-2 text-sm text-amber-300 disabled:opacity-40 disabled:cursor-not-allowed"
+                disabled={mobileTabMenuTarget.tabGroupId === session.activeTabGroupId}
+                onClick={() =>
+                  handleRemoveTabGroupFromSession(mobileTabMenuTarget.tabGroupId)
+                }
+              >
+                Remove From Session
+              </button>
+            </div>
+            <button
+                className="w-full rounded-md border border-red-500/40 bg-red-500/15 px-3 py-2 text-sm text-red-300"
                 onClick={() => {
                   void handleCloseMobileTab();
                 }}
               >
                 Close Tab Group
               </button>
-            </div>
+            {mobileTabMenuTarget.tabGroupId === session.activeTabGroupId && (
+              <div className="text-xs text-neutral-500">
+                The active tab group always stays in the session.
+              </div>
+            )}
           </div>
         </div>
       )}

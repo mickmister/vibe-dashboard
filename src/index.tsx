@@ -832,6 +832,12 @@ springboard.registerModule(
           }
           void actions.deleteSavedSession({ id: sessionId });
         },
+        addTabGroupToSession: (tabGroupId: string) => {
+          sessionNav.addTabGroupToSession(tabGroupId);
+        },
+        removeTabGroupFromSession: (tabGroupId: string) => {
+          sessionNav.removeTabGroupFromSession(tabGroupId);
+        },
       };
 
       return (

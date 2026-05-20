@@ -631,6 +631,48 @@ export function useSessionWorkspaceNav(
     return nav.activeItems[tabGroupId] || "";
   };
 
+  const addTabGroupToSession = (tabGroupId: string) => {
+    setNav((prev) => {
+      if (
+        !workspace.tabGroups.some((tabGroup) => tabGroup.id === tabGroupId) ||
+        prev.visitedTabGroupIds.includes(tabGroupId)
+      ) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        visitedTabGroupIds: getValidVisitedTabGroupIds(
+          workspace,
+          [...prev.visitedTabGroupIds, tabGroupId],
+          prev.activeTabGroupId,
+        ),
+      };
+    });
+  };
+
+  const removeTabGroupFromSession = (tabGroupId: string) => {
+    setNav((prev) => {
+      if (tabGroupId === prev.activeTabGroupId) {
+        return prev;
+      }
+
+      const nextVisited = prev.visitedTabGroupIds.filter((id) => id !== tabGroupId);
+      if (nextVisited.length === prev.visitedTabGroupIds.length) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        visitedTabGroupIds: getValidVisitedTabGroupIds(
+          workspace,
+          nextVisited,
+          prev.activeTabGroupId,
+        ),
+      };
+    });
+  };
+
   const targetPath = buildNavPath(nav);
 
   return {
@@ -646,5 +688,7 @@ export function useSessionWorkspaceNav(
     setActiveTabGroup,
     resumeSession,
     startNewSession,
+    addTabGroupToSession,
+    removeTabGroupFromSession,
   };
 }
