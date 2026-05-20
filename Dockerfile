@@ -1,3 +1,29 @@
+FROM node:22-bookworm AS dashboard-builder
+
+WORKDIR /app
+
+ENV PNPM_HOME=/pnpm
+ENV PATH=${PNPM_HOME}:${PATH}
+
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    python3 \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN corepack enable
+RUN pnpm config set store-dir /pnpm/store
+
+COPY package.json pnpm-lock.yaml .npmrc ./
+
+RUN --mount=type=cache,id=vkvw-pnpm-store,target=/pnpm/store \
+    pnpm install --frozen-lockfile
+
+COPY . .
+
+RUN npm rebuild better-sqlite3 && npm run build
+
+
 FROM node:22-bookworm
 
 # Harden APT against flaky proxy/cache behavior (helps prevent Hash Sum mismatch on macOS VM networking).
@@ -13,6 +39,7 @@ RUN apt-get update && apt-get install -y \
     git \
     build-essential \
     python3 \
+    sqlite3 \
     supervisor \
     ca-certificates \
     gnupg \
@@ -33,9 +60,16 @@ RUN apt-get update && apt-get install -y \
 
 # Install Go (required for building Caddy with xcaddy)
 # Using 1.25.7 to match go.mod requirement of 1.25.5
-RUN wget https://go.dev/dl/go1.25.7.linux-amd64.tar.gz \
-    && tar -C /usr/local -xzf go1.25.7.linux-amd64.tar.gz \
-    && rm go1.25.7.linux-amd64.tar.gz
+RUN set -eux; \
+    arch="$(dpkg --print-architecture)"; \
+    case "$arch" in \
+      amd64) go_arch=amd64 ;; \
+      arm64) go_arch=arm64 ;; \
+      *) echo "unsupported architecture: $arch" >&2; exit 1 ;; \
+    esac; \
+    wget "https://go.dev/dl/go1.25.7.linux-${go_arch}.tar.gz"; \
+    tar -C /usr/local -xzf "go1.25.7.linux-${go_arch}.tar.gz"; \
+    rm "go1.25.7.linux-${go_arch}.tar.gz"
 ENV PATH="/usr/local/go/bin:${PATH}"
 ENV VK_ALLOWED_ORIGINS=""
 
@@ -43,31 +77,27 @@ ENV VK_ALLOWED_ORIGINS=""
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 ENV PATH="/root/.cargo/bin:${PATH}"
 
+# Install uv for Python-based CLI tools
+RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_UNMANAGED_INSTALL="/usr/local/bin" sh
+ENV UV_TOOL_DIR="/usr/local/share/uv/tools"
+ENV UV_TOOL_BIN_DIR="/usr/local/bin"
+
 # Install xcaddy (Caddy build tool)
-# COMMENTED OUT: Custom Caddy module no longer needed with VK_SHARED_API_BASE support (PR #2769)
-# RUN go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
-# ENV PATH="/root/go/bin:${PATH}"
+ENV GOBIN="/usr/local/bin"
+RUN CGO_ENABLED=0 go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
 
 # Copy Caddy module source
-# COPY caddy-module /tmp/caddy-module
+COPY caddy-module /tmp/caddy-module
 
 # Build custom Caddy with vibe-kanban rewrite module
-# RUN cd /tmp/caddy-module \
-#     && xcaddy build \
-#         --with github.com/yourusername/vibe-kanban-plugins=. \
-#     && mv caddy /usr/bin/caddy \
-#     && chmod +x /usr/bin/caddy \
-#     && cd / \
-#     && rm -rf /tmp/caddy-module
-
-# Install standard Caddy instead
-RUN apt-get update && apt-get install -y debian-keyring debian-archive-keyring apt-transport-https curl \
-    && curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg \
-    && curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /etc/apt/sources.list.d/caddy-stable.list \
-    && apt-get update \
-    && apt-get install -y caddy \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+RUN cd /tmp/caddy-module \
+    && CGO_ENABLED=0 xcaddy build v2.10.2 \
+        --output /usr/bin/caddy \
+        --with github.com/yourusername/vibe-kanban-plugins=. \
+    && chmod +x /usr/bin/caddy \
+    && /usr/bin/caddy list-modules | grep -q 'http.handlers.vibe_kanban_rewriter' \
+    && cd / \
+    && rm -rf /tmp/caddy-module /root/.cache/go-build /root/go/pkg
 
 # Install Docker CLI for Docker-in-Docker support (socket mounting)
 RUN mkdir -p /etc/apt/keyrings \
@@ -161,13 +191,33 @@ RUN su - vkuser -c "npm config set prefix '/home/vkuser/.npm-global'"
 RUN mkdir -p /var/log/supervisor /var/log/caddy
 
 # Install tools globally as root (will be available system-wide)
-RUN npm install -g @anthropic-ai/claude-code pnpm @openai/codex opencode-ai
+RUN npm install -g @anthropic-ai/claude-code pnpm @openai/codex opencode-ai gitnexus
+
+# Install Serena globally via uv and make the shared toolchain executable for vkuser
+RUN uv tool install -p 3.13 serena-agent@latest --prerelease=allow \
+    && chmod -R a+rX /usr/local/share/uv
+
+# Install process-exporter for grouped per-process Prometheus metrics
+ARG PROCESS_EXPORTER_VERSION=0.8.7
+RUN set -eux; \
+    arch="$(dpkg --print-architecture)"; \
+    case "$arch" in \
+      amd64) pe_arch=amd64 ;; \
+      arm64) pe_arch=arm64 ;; \
+      *) echo "unsupported architecture: $arch" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL -o /tmp/process-exporter.tar.gz \
+      "https://github.com/ncabatoff/process-exporter/releases/download/v${PROCESS_EXPORTER_VERSION}/process-exporter-${PROCESS_EXPORTER_VERSION}.linux-${pe_arch}.tar.gz"; \
+    tar -xzf /tmp/process-exporter.tar.gz -C /tmp; \
+    install -m 0755 /tmp/process-exporter-*/process-exporter /usr/local/bin/process-exporter; \
+    rm -rf /tmp/process-exporter*
+RUN mkdir -p /etc/process-exporter
 
 # Install Claude Code extension
 RUN su - vkuser -c "mkdir -p /home/vkuser/.local/share/code-server/extensions && code-server --install-extension anthropic.claude-code"
 
-# Install Codex skills for the default non-root user
-RUN su - vkuser -c "npx skills add dcramer/dex"
+# Install Beads CLI
+RUN curl -fsSL https://raw.githubusercontent.com/gastownhall/beads/main/scripts/install.sh | bash
 
 # Pre-install vibe-kanban at build time (optional, speeds up first start)
 ARG VIBE_KANBAN_VERSION="latest"
@@ -178,6 +228,7 @@ RUN mkdir -p /etc/supervisor/conf.d
 
 # Copy supervisord config
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+COPY ops/process-exporter.yml /etc/process-exporter/process-exporter.yml
 
 # Copy Caddyfile and startup page
 COPY Caddyfile /etc/caddy/Caddyfile
@@ -191,9 +242,19 @@ RUN chmod +x /usr/local/bin/backup-vibe-kanban-db.sh
 COPY . /opt/vibe-kanban-vscode-web-seed
 RUN chown -R vkuser:vkuser /opt/vibe-kanban-vscode-web-seed
 
+# Copy packaged vibe-dashboard runtime artifacts to their final runtime path
+RUN mkdir -p /home/vkuser/.local/share/vibe-dashboard-runtime
+COPY --from=dashboard-builder /app/package.json /home/vkuser/.local/share/vibe-dashboard-runtime/package.json
+COPY --from=dashboard-builder /app/node_modules /home/vkuser/.local/share/vibe-dashboard-runtime/node_modules
+COPY --from=dashboard-builder /app/dist /home/vkuser/.local/share/vibe-dashboard-runtime/dist
+
 # Copy entrypoint script that fixes docker group GID at runtime
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+# Copy startup scripts
+COPY scripts/sync-seeded-repo.sh /usr/local/bin/sync-seeded-repo.sh
+RUN chmod +x /usr/local/bin/sync-seeded-repo.sh
 
 # Copy default VS Code settings
 RUN mkdir -p /home/vkuser/.local/share/code-server/User

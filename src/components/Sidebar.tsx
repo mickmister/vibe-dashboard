@@ -1,4 +1,10 @@
-import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import React, {
+  useState,
+  useCallback,
+  useEffect,
+  useRef,
+  useMemo,
+} from 'react';
 import { Button, Input } from '@heroui/react';
 import type { WorkspaceState, Space, TabGroup } from '../types';
 import type { SpaceTypeContribution } from '../modules/plugins/vibe-dashboard/types';
@@ -18,10 +24,18 @@ interface SidebarProps {
   onAddSpace: (name: string) => void;
   onDeleteSpace: (spaceId: string) => void;
   onRenameSpace: (spaceId: string, name: string) => void;
-  onDeleteTabGroup: (spaceId: string, tabGroupId: string) => Promise<{ wasDeleted: boolean; nextTabGroupId?: string } | undefined>;
+  onDeleteTabGroup: (
+    spaceId: string,
+    tabGroupId: string,
+  ) => Promise<{ wasDeleted: boolean; nextTabGroupId?: string } | undefined>;
   onRenameTabGroup: (tabGroupId: string, label: string) => void;
   onAddTabGroup: (label: string) => Promise<void> | void;
-  onAddTab: (tabGroupId: string, title: string, url: string) => Promise<void> | void;
+  onAddTab: (
+    tabGroupId: string,
+    title: string,
+    url: string,
+  ) => Promise<void> | void;
+  onOpenCreateWorkspaceTab: () => Promise<void> | void;
   onCreatePair: (tabGroupId: string, tabIds: string[]) => Promise<void> | void;
   onCloseTab: (tabGroupId: string, tabId: string) => void;
   onSplitPair: (tabGroupId: string, pairId: string) => void;
@@ -59,6 +73,7 @@ export function Sidebar({
   onRenameTabGroup,
   onAddTabGroup,
   onAddTab,
+  onOpenCreateWorkspaceTab,
   onCreatePair,
   onCloseTab,
   onSplitPair,
@@ -88,7 +103,9 @@ export function Sidebar({
     tabId: string;
     position: { x: number; y: number };
   } | null>(null);
-  const [mobileAction, setMobileAction] = useState<'group' | 'tab' | 'pair' | null>(null);
+  const [mobileAction, setMobileAction] = useState<
+    'group' | 'tab' | 'pair' | null
+  >(null);
   const [newGroupLabel, setNewGroupLabel] = useState('');
   const [newTabTitle, setNewTabTitle] = useState('');
   const [newTabUrl, setNewTabUrl] = useState('');
@@ -98,19 +115,40 @@ export function Sidebar({
   const dragTabGroupRef = useRef<string | null>(null);
   const dragSpaceRef = useRef<string | null>(null);
   const [starredExpanded, setStarredExpanded] = useState(() => {
-    try { return sessionStorage.getItem('sidebar-starred-expanded') === 'true'; } catch { return false; }
+    try {
+      return sessionStorage.getItem('sidebar-starred-expanded') === 'true';
+    } catch {
+      return false;
+    }
   });
-  const activeSpace = workspace.spaces.find((space) => space.id === activeSpaceId);
+  const activeSpace = workspace.spaces.find(
+    (space) => space.id === activeSpaceId,
+  );
   const activeTabGroups = useMemo(() => {
     if (!activeSpace) return [];
     return activeSpace.tabGroupIds
       .map((id) => workspace.tabGroups.find((tabGroup) => tabGroup.id === id))
       .filter((tabGroup): tabGroup is TabGroup => tabGroup != null);
   }, [activeSpace, workspace.tabGroups]);
-  const activeTabGroup = activeTabGroups.find((tabGroup) => tabGroup.id === activeTabGroupId);
+  const activeTabGroup = activeTabGroups.find(
+    (tabGroup) => tabGroup.id === activeTabGroupId,
+  );
+  const resolvedSpaceIcons = useMemo(() => {
+    const resolved = new Map<string, string>();
+    Object.values(spaceTypes).forEach((spaceType) => {
+      resolved.set(spaceType.key, spaceType.icon);
+      const sourceKey = (spaceType as { sourceKey?: string }).sourceKey;
+      if (sourceKey) {
+        resolved.set(sourceKey, spaceType.icon);
+      }
+    });
+    return resolved;
+  }, [spaceTypes]);
   const availablePairTabs = useMemo(() => {
     if (!activeTabGroup) return [];
-    const tabsInPairs = new Set(activeTabGroup.pairs.flatMap((pair) => pair.tabIds));
+    const tabsInPairs = new Set(
+      activeTabGroup.pairs.flatMap((pair) => pair.tabIds),
+    );
     return activeTabGroup.tabs.filter((tab) => !tabsInPairs.has(tab.id));
   }, [activeTabGroup]);
 
@@ -129,48 +167,62 @@ export function Sidebar({
   const toggleStarredExpanded = useCallback(() => {
     setStarredExpanded((prev) => {
       const next = !prev;
-      try { sessionStorage.setItem('sidebar-starred-expanded', String(next)); } catch {}
+      try {
+        sessionStorage.setItem('sidebar-starred-expanded', String(next));
+      } catch {}
       return next;
     });
   }, []);
 
-  const handleTabGroupDragStart = useCallback((e: React.DragEvent, tabGroupId: string) => {
-    dragTabGroupRef.current = tabGroupId;
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', tabGroupId);
-  }, []);
+  const handleTabGroupDragStart = useCallback(
+    (e: React.DragEvent, tabGroupId: string) => {
+      dragTabGroupRef.current = tabGroupId;
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', tabGroupId);
+    },
+    [],
+  );
 
   const handleTabGroupDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
   }, []);
 
-  const handleTabGroupDrop = useCallback((e: React.DragEvent, targetId: string) => {
-    e.preventDefault();
-    const sourceId = dragTabGroupRef.current;
-    if (!sourceId || sourceId === targetId) return;
-    onReorderTabGroups(sourceId, targetId);
-    dragTabGroupRef.current = null;
-  }, [onReorderTabGroups]);
+  const handleTabGroupDrop = useCallback(
+    (e: React.DragEvent, targetId: string) => {
+      e.preventDefault();
+      const sourceId = dragTabGroupRef.current;
+      if (!sourceId || sourceId === targetId) return;
+      onReorderTabGroups(sourceId, targetId);
+      dragTabGroupRef.current = null;
+    },
+    [onReorderTabGroups],
+  );
 
-  const handleSpaceDragStart = useCallback((e: React.DragEvent, spaceId: string) => {
-    dragSpaceRef.current = spaceId;
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', spaceId);
-  }, []);
+  const handleSpaceDragStart = useCallback(
+    (e: React.DragEvent, spaceId: string) => {
+      dragSpaceRef.current = spaceId;
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', spaceId);
+    },
+    [],
+  );
 
   const handleSpaceDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
   }, []);
 
-  const handleSpaceDrop = useCallback((e: React.DragEvent, targetId: string) => {
-    e.preventDefault();
-    const sourceId = dragSpaceRef.current;
-    if (!sourceId || sourceId === targetId) return;
-    onReorderSpaces(sourceId, targetId);
-    dragSpaceRef.current = null;
-  }, [onReorderSpaces]);
+  const handleSpaceDrop = useCallback(
+    (e: React.DragEvent, targetId: string) => {
+      e.preventDefault();
+      const sourceId = dragSpaceRef.current;
+      if (!sourceId || sourceId === targetId) return;
+      onReorderSpaces(sourceId, targetId);
+      dragSpaceRef.current = null;
+    },
+    [onReorderSpaces],
+  );
 
   const handleAddSubmit = useCallback(() => {
     const name = newName.trim();
@@ -189,36 +241,45 @@ export function Sidebar({
       }
       setEditingId(null);
     },
-    [editName, onRenameSpace]
+    [editName, onRenameSpace],
   );
 
-  const handleContextMenu = useCallback((e: React.MouseEvent, spaceId: string) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setContextMenu({
-      spaceId,
-      position: { x: e.clientX, y: e.clientY },
-    });
-  }, []);
+  const handleContextMenu = useCallback(
+    (e: React.MouseEvent, spaceId: string) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setContextMenu({
+        spaceId,
+        position: { x: e.clientX, y: e.clientY },
+      });
+    },
+    [],
+  );
 
-  const handleGroupContextMenu = useCallback((e: React.MouseEvent, tabGroupId: string) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setGroupContextMenu({
-      tabGroupId,
-      position: { x: e.clientX, y: e.clientY },
-    });
-  }, []);
+  const handleGroupContextMenu = useCallback(
+    (e: React.MouseEvent, tabGroupId: string) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setGroupContextMenu({
+        tabGroupId,
+        position: { x: e.clientX, y: e.clientY },
+      });
+    },
+    [],
+  );
 
-  const handleTabItemContextMenu = useCallback((e: React.MouseEvent, tabGroupId: string, tabId: string) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setTabItemContextMenu({
-      tabGroupId,
-      tabId,
-      position: { x: e.clientX, y: e.clientY },
-    });
-  }, []);
+  const handleTabItemContextMenu = useCallback(
+    (e: React.MouseEvent, tabGroupId: string, tabId: string) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setTabItemContextMenu({
+        tabGroupId,
+        tabId,
+        position: { x: e.clientX, y: e.clientY },
+      });
+    },
+    [],
+  );
 
   const handleDeleteSpace = useCallback(() => {
     if (!contextMenu) return;
@@ -232,7 +293,7 @@ export function Sidebar({
   const handleRenameFromContextMenu = useCallback(() => {
     if (!contextMenu) return;
 
-    const space = workspace.spaces.find(s => s.id === contextMenu.spaceId);
+    const space = workspace.spaces.find((s) => s.id === contextMenu.spaceId);
     if (space) {
       setEditingId(contextMenu.spaceId);
       setEditName(space.name);
@@ -243,7 +304,9 @@ export function Sidebar({
   const handleRenameTabGroup = useCallback(() => {
     if (!groupContextMenu) return;
 
-    const tabGroup = activeTabGroups.find((group) => group.id === groupContextMenu.tabGroupId);
+    const tabGroup = activeTabGroups.find(
+      (group) => group.id === groupContextMenu.tabGroupId,
+    );
     if (!tabGroup) {
       setGroupContextMenu(null);
       return;
@@ -259,13 +322,17 @@ export function Sidebar({
   const handleDeleteTabGroup = useCallback(async () => {
     if (!groupContextMenu) return;
 
-    const tabGroup = activeTabGroups.find((group) => group.id === groupContextMenu.tabGroupId);
+    const tabGroup = activeTabGroups.find(
+      (group) => group.id === groupContextMenu.tabGroupId,
+    );
     if (!tabGroup) {
       setGroupContextMenu(null);
       return;
     }
 
-    const confirmed = confirm(`Delete tab group "${tabGroup.label}"? All tabs in this group will be closed.`);
+    const confirmed = confirm(
+      `Delete tab group "${tabGroup.label}"? All tabs in this group will be closed.`,
+    );
     if (!confirmed) {
       setGroupContextMenu(null);
       return;
@@ -276,12 +343,21 @@ export function Sidebar({
       onSelectTabGroup(result.nextTabGroupId);
     }
     setGroupContextMenu(null);
-  }, [activeSpaceId, activeTabGroups, groupContextMenu, onDeleteTabGroup, onSelectTabGroup]);
+  }, [
+    activeSpaceId,
+    activeTabGroups,
+    groupContextMenu,
+    onDeleteTabGroup,
+    onSelectTabGroup,
+  ]);
 
-  const handleSelectSpace = useCallback((spaceId: string) => {
-    onSelectSpace(spaceId);
-    setView('groups');
-  }, [onSelectSpace]);
+  const handleSelectSpace = useCallback(
+    (spaceId: string) => {
+      onSelectSpace(spaceId);
+      setView('groups');
+    },
+    [onSelectSpace],
+  );
 
   const handleCreateGroup = useCallback(async () => {
     const label = newGroupLabel.trim();
@@ -422,6 +498,16 @@ export function Sidebar({
           <div className="p-2 border-b border-neutral-800 space-y-2">
             <Button
               size="sm"
+              color="primary"
+              className="w-full"
+              onPress={() => {
+                void onOpenCreateWorkspaceTab();
+              }}
+            >
+              Create New Workspace
+            </Button>
+            <Button
+              size="sm"
               variant="flat"
               className="w-full"
               isDisabled={!activeTabGroup}
@@ -439,7 +525,9 @@ export function Sidebar({
                 size="sm"
                 variant={mobileAction === 'group' ? 'solid' : 'flat'}
                 color={mobileAction === 'group' ? 'primary' : 'default'}
-                onPress={() => setMobileAction((prev) => prev === 'group' ? null : 'group')}
+                onPress={() =>
+                  setMobileAction((prev) => (prev === 'group' ? null : 'group'))
+                }
               >
                 + Group
               </Button>
@@ -449,7 +537,7 @@ export function Sidebar({
                 color={mobileAction === 'tab' ? 'primary' : 'default'}
                 onPress={() => {
                   if (!activeTabGroup) return;
-                  setMobileAction((prev) => prev === 'tab' ? null : 'tab');
+                  setMobileAction((prev) => (prev === 'tab' ? null : 'tab'));
                   setNewTabTitle((prev) => prev || 'New Tab');
                   setNewTabUrl((prev) => prev || '/');
                 }}
@@ -463,7 +551,7 @@ export function Sidebar({
                 color={mobileAction === 'pair' ? 'primary' : 'default'}
                 onPress={() => {
                   if (availablePairTabs.length < 2) return;
-                  setMobileAction((prev) => prev === 'pair' ? null : 'pair');
+                  setMobileAction((prev) => (prev === 'pair' ? null : 'pair'));
                   setPairSelection([]);
                 }}
                 isDisabled={availablePairTabs.length < 2}
@@ -481,7 +569,12 @@ export function Sidebar({
                   placeholder="Group name..."
                   classNames={{ inputWrapper: 'bg-neutral-800' }}
                 />
-                <Button size="sm" color="primary" className="w-full" onPress={handleCreateGroup}>
+                <Button
+                  size="sm"
+                  color="primary"
+                  className="w-full"
+                  onPress={handleCreateGroup}
+                >
                   Create Group
                 </Button>
               </div>
@@ -517,9 +610,7 @@ export function Sidebar({
 
             {mobileAction === 'pair' && (
               <div className="space-y-1.5">
-                <p className="text-xs text-neutral-400">
-                  Pick 2 tabs to pair
-                </p>
+                <p className="text-xs text-neutral-400">Pick 2 tabs to pair</p>
                 <div className="max-h-28 overflow-y-auto space-y-1">
                   {availablePairTabs.map((tab) => {
                     const selected = pairSelection.includes(tab.id);
@@ -551,46 +642,49 @@ export function Sidebar({
             )}
           </div>
 
-          {/* Starred tab groups section */}
-          {starredTabGroups.length > 0 && (
-            <div className="border-b border-neutral-800">
-              <button
-                className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-neutral-500 hover:text-neutral-300 transition-colors"
-                onClick={toggleStarredExpanded}
-              >
-                <span className="text-[10px]">{starredExpanded ? '▼' : '▶'}</span>
-                Starred ({starredTabGroups.length})
-              </button>
-              {starredExpanded && (
-                <div className="px-2 pb-2 space-y-0.5">
-                  {starredTabGroups.map(({ space, tg }) => (
-                    <button
-                      key={tg.id}
-                      className={`w-full text-left px-3 py-1.5 rounded-lg transition-colors ${
-                        activeTabGroupId === tg.id
-                          ? 'bg-primary-500/20 text-primary-300'
-                          : 'text-neutral-300 hover:bg-neutral-800'
-                      }`}
-                      onClick={() => {
-                        onSelectSpace(space.id);
-                        onSelectTabGroup(tg.id);
-                      }}
-                    >
-                      <div className="text-sm font-medium truncate flex items-center gap-1.5">
-                        <span className="text-amber-400 text-xs">★</span>
-                        {tg.label}
-                      </div>
-                      <div className="text-xs text-neutral-500 mt-0.5 pl-4">
-                        {space.name}
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+          <div className="flex-1 min-h-0 overflow-y-auto">
+            {/* Starred tab groups section */}
+            {starredTabGroups.length > 0 && (
+              <div className="border-b border-neutral-800">
+                <button
+                  className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-neutral-500 hover:text-neutral-300 transition-colors"
+                  onClick={toggleStarredExpanded}
+                >
+                  <span className="text-[10px]">
+                    {starredExpanded ? '▼' : '▶'}
+                  </span>
+                  Starred ({starredTabGroups.length})
+                </button>
+                {starredExpanded && (
+                  <div className="px-2 pb-2 space-y-0.5">
+                    {starredTabGroups.map(({ space, tg }) => (
+                      <button
+                        key={tg.id}
+                        className={`w-full text-left px-3 py-1.5 rounded-lg transition-colors ${
+                          activeTabGroupId === tg.id
+                            ? 'bg-primary-500/20 text-primary-300'
+                            : 'text-neutral-300 hover:bg-neutral-800'
+                        }`}
+                        onClick={() => {
+                          onSelectSpace(space.id);
+                          onSelectTabGroup(tg.id);
+                        }}
+                      >
+                        <div className="text-sm font-medium truncate flex items-center gap-1.5">
+                          <span className="text-amber-400 text-xs">★</span>
+                          {tg.label}
+                        </div>
+                        <div className="text-xs text-neutral-500 mt-0.5 pl-4">
+                          {space.name}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
-          <div className="flex-1 overflow-y-auto p-2 space-y-1">
+            <div className="p-2 space-y-1">
             {activeTabGroups.length === 0 ? (
               <div className="px-3 py-4 text-sm text-neutral-500">
                 No tab groups in this space.
@@ -627,13 +721,16 @@ export function Sidebar({
                           : 'text-neutral-300 hover:bg-neutral-800'
                       }`}
                       onClick={() => onSelectTabGroup(tabGroup.id)}
-                      onContextMenu={(e) => handleGroupContextMenu(e, tabGroup.id)}
+                      onContextMenu={(e) =>
+                        handleGroupContextMenu(e, tabGroup.id)
+                      }
                     >
                       <div className="text-sm font-medium truncate">
                         {tabGroup.label}
                       </div>
                       <div className="text-xs text-neutral-500 mt-0.5">
-                        {tabGroup.tabs.length} tab{tabGroup.tabs.length !== 1 ? 's' : ''}
+                        {tabGroup.tabs.length} tab
+                        {tabGroup.tabs.length !== 1 ? 's' : ''}
                         {tabGroup.pairs.length > 0
                           ? ` • ${tabGroup.pairs.length} pair${tabGroup.pairs.length !== 1 ? 's' : ''}`
                           : ''}
@@ -657,20 +754,25 @@ export function Sidebar({
                               e.stopPropagation();
                               onSelectTab(tabGroup.id, tab.id);
                             }}
-                            onContextMenu={(e) => handleTabItemContextMenu(e, tabGroup.id, tab.id)}
+                            onContextMenu={(e) =>
+                              handleTabItemContextMenu(e, tabGroup.id, tab.id)
+                            }
                             title={tab.title}
                           >
-                            <span className="truncate block">
-                              {tab.title}
-                            </span>
+                            <span className="truncate block">{tab.title}</span>
                           </button>
                         );
                       })}
 
                       {tabGroup.pairs.map((pair) => {
-                        const isActivePair = activeItems[tabGroup.id] === pair.id;
+                        const isActivePair =
+                          activeItems[tabGroup.id] === pair.id;
                         const pairTitle = pair.tabIds
-                          .map((tabId) => tabGroup.tabs.find((t) => t.id === tabId)?.title || 'Unknown')
+                          .map(
+                            (tabId) =>
+                              tabGroup.tabs.find((t) => t.id === tabId)
+                                ?.title || 'Unknown',
+                          )
                           .join(' | ');
 
                         return (
@@ -685,7 +787,9 @@ export function Sidebar({
                               e.stopPropagation();
                               onSelectPair(tabGroup.id, pair.id);
                             }}
-                            onContextMenu={(e) => handleTabItemContextMenu(e, tabGroup.id, pair.id)}
+                            onContextMenu={(e) =>
+                              handleTabItemContextMenu(e, tabGroup.id, pair.id)
+                            }
                             title={pairTitle ? `Pair: ${pairTitle}` : 'Pair'}
                           >
                             <span className="truncate block">
@@ -699,6 +803,7 @@ export function Sidebar({
                 </div>
               ))
             )}
+            </div>
           </div>
         </div>
       ) : (
@@ -719,7 +824,9 @@ export function Sidebar({
               onContextMenu={(e) => handleContextMenu(e, space.id)}
             >
               <span className="text-sm">
-                {spaceTypes[space.icon]?.icon || SPACE_ICONS[space.icon] || SPACE_ICONS.default}
+                {resolvedSpaceIcons.get(space.icon) ||
+                  SPACE_ICONS[space.icon] ||
+                  SPACE_ICONS.default}
               </span>
               {editingId === space.id ? (
                 <Input
@@ -786,67 +893,75 @@ export function Sidebar({
         </div>
       )}
 
-      {tabItemContextMenu && (() => {
-        const tabGroup = workspace.tabGroups.find((group) => group.id === tabItemContextMenu.tabGroupId);
-        if (!tabGroup) return null;
+      {tabItemContextMenu &&
+        (() => {
+          const tabGroup = workspace.tabGroups.find(
+            (group) => group.id === tabItemContextMenu.tabGroupId,
+          );
+          if (!tabGroup) return null;
 
-        return (
-          <TabContextMenu
-            position={tabItemContextMenu.position}
-            tabId={tabItemContextMenu.tabId}
-            tabGroup={tabGroup}
-            activeItemId={activeItems[tabGroup.id] || ''}
-            activeSpaceId={activeSpaceId}
-            onClose={() => setTabItemContextMenu(null)}
-            onCreatePair={(tabIds) => onCreatePair(tabGroup.id, tabIds)}
-            onCloseTab={(tabId) => onCloseTab(tabGroup.id, tabId)}
-            onSplitPair={(pairId) => onSplitPair(tabGroup.id, pairId)}
-            onRenameTabGroup={(tabGroupId, newLabel) => onRenameTabGroup(tabGroupId, newLabel)}
-            onDeleteTabGroup={async (spaceId, tabGroupId) => {
-              const result = await onDeleteTabGroup(spaceId, tabGroupId);
-              if (result?.wasDeleted && result.nextTabGroupId) {
-                onSelectTabGroup(result.nextTabGroupId);
+          return (
+            <TabContextMenu
+              position={tabItemContextMenu.position}
+              tabId={tabItemContextMenu.tabId}
+              tabGroup={tabGroup}
+              activeItemId={activeItems[tabGroup.id] || ''}
+              activeSpaceId={activeSpaceId}
+              onClose={() => setTabItemContextMenu(null)}
+              onCreatePair={(tabIds) => onCreatePair(tabGroup.id, tabIds)}
+              onCloseTab={(tabId) => onCloseTab(tabGroup.id, tabId)}
+              onSplitPair={(pairId) => onSplitPair(tabGroup.id, pairId)}
+              onRenameTabGroup={(tabGroupId, newLabel) =>
+                onRenameTabGroup(tabGroupId, newLabel)
               }
-            }}
-            onRenameTab={(tabId, newTitle) => onRenameTab(tabGroup.id, tabId, newTitle)}
-          />
-        );
-      })()}
+              onDeleteTabGroup={async (spaceId, tabGroupId) => {
+                const result = await onDeleteTabGroup(spaceId, tabGroupId);
+                if (result?.wasDeleted && result.nextTabGroupId) {
+                  onSelectTabGroup(result.nextTabGroupId);
+                }
+              }}
+              onRenameTab={(tabId, newTitle) =>
+                onRenameTab(tabGroup.id, tabId, newTitle)
+              }
+            />
+          );
+        })()}
 
-      {groupContextMenu && (() => {
-        const canDelete = activeTabGroups.length > 1;
+      {groupContextMenu &&
+        (() => {
+          const canDelete = activeTabGroups.length > 1;
 
-        return (
-          <div
-            ref={groupContextMenuRef}
-            className="fixed z-[100] bg-neutral-800 border border-neutral-700 rounded-md shadow-xl py-1 min-w-[200px]"
-            style={{
-              left: `${groupContextMenu.position.x}px`,
-              top: `${groupContextMenu.position.y}px`,
-            }}
-          >
-            <button
-              className="w-full text-left px-4 py-2 text-sm text-neutral-200 hover:bg-neutral-700 transition-colors"
-              onClick={handleRenameTabGroup}
+          return (
+            <div
+              ref={groupContextMenuRef}
+              className="fixed z-[100] bg-neutral-800 border border-neutral-700 rounded-md shadow-xl py-1 min-w-[200px]"
+              style={{
+                left: `${groupContextMenu.position.x}px`,
+                top: `${groupContextMenu.position.y}px`,
+              }}
             >
-              Rename Tab Group
-            </button>
-            <div className="border-t border-neutral-700 my-1" />
-            {canDelete ? (
               <button
-                className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-neutral-700 transition-colors"
-                onClick={handleDeleteTabGroup}
+                className="w-full text-left px-4 py-2 text-sm text-neutral-200 hover:bg-neutral-700 transition-colors"
+                onClick={handleRenameTabGroup}
               >
-                Delete Tab Group
+                Rename Tab Group
               </button>
-            ) : (
-              <div className="px-4 py-2 text-sm text-neutral-500 italic">
-                Cannot delete last tab group
-              </div>
-            )}
-          </div>
-        );
-      })()}
+              <div className="border-t border-neutral-700 my-1" />
+              {canDelete ? (
+                <button
+                  className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-neutral-700 transition-colors"
+                  onClick={handleDeleteTabGroup}
+                >
+                  Delete Tab Group
+                </button>
+              ) : (
+                <div className="px-4 py-2 text-sm text-neutral-500 italic">
+                  Cannot delete last tab group
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
       {/* Address bar toggle */}
       <div className="p-2 border-t border-neutral-800">
@@ -862,48 +977,53 @@ export function Sidebar({
       </div>
 
       {/* Context menu for space management */}
-      {contextMenu && (() => {
-        const space = workspace.spaces.find((s) => s.id === contextMenu.spaceId);
-        const isSystemSpace = space?.isSystem;
-        const canDelete = workspace.spaces.length > 1 && !isSystemSpace;
+      {contextMenu &&
+        (() => {
+          const space = workspace.spaces.find(
+            (s) => s.id === contextMenu.spaceId,
+          );
+          const isSystemSpace = space?.isSystem;
+          const canDelete = workspace.spaces.length > 1 && !isSystemSpace;
 
-        return (
-          <div
-            ref={contextMenuRef}
-            className="fixed z-[100] bg-neutral-800 border border-neutral-700 rounded-md shadow-xl py-1 min-w-[200px]"
-            style={{
-              left: `${contextMenu.position.x}px`,
-              top: `${contextMenu.position.y}px`,
-            }}
-          >
-            {!isSystemSpace && (
-              <button
-                className="w-full text-left px-4 py-2 text-sm text-neutral-200 hover:bg-neutral-700 transition-colors"
-                onClick={handleRenameFromContextMenu}
-              >
-                Rename Space
-              </button>
-            )}
-            {!isSystemSpace && workspace.spaces.length > 1 && <div className="border-t border-neutral-700 my-1" />}
-            {canDelete ? (
-              <button
-                className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-neutral-700 transition-colors"
-                onClick={handleDeleteSpace}
-              >
-                Delete Space
-              </button>
-            ) : isSystemSpace ? (
-              <div className="px-4 py-2 text-sm text-neutral-500 italic">
-                System space cannot be modified
-              </div>
-            ) : (
-              <div className="px-4 py-2 text-sm text-neutral-500 italic">
-                Cannot delete last space
-              </div>
-            )}
-          </div>
-        );
-      })()}
+          return (
+            <div
+              ref={contextMenuRef}
+              className="fixed z-[100] bg-neutral-800 border border-neutral-700 rounded-md shadow-xl py-1 min-w-[200px]"
+              style={{
+                left: `${contextMenu.position.x}px`,
+                top: `${contextMenu.position.y}px`,
+              }}
+            >
+              {!isSystemSpace && (
+                <button
+                  className="w-full text-left px-4 py-2 text-sm text-neutral-200 hover:bg-neutral-700 transition-colors"
+                  onClick={handleRenameFromContextMenu}
+                >
+                  Rename Space
+                </button>
+              )}
+              {!isSystemSpace && workspace.spaces.length > 1 && (
+                <div className="border-t border-neutral-700 my-1" />
+              )}
+              {canDelete ? (
+                <button
+                  className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-neutral-700 transition-colors"
+                  onClick={handleDeleteSpace}
+                >
+                  Delete Space
+                </button>
+              ) : isSystemSpace ? (
+                <div className="px-4 py-2 text-sm text-neutral-500 italic">
+                  System space cannot be modified
+                </div>
+              ) : (
+                <div className="px-4 py-2 text-sm text-neutral-500 italic">
+                  Cannot delete last space
+                </div>
+              )}
+            </div>
+          );
+        })()}
     </div>
   );
 }

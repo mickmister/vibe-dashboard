@@ -1,0 +1,148 @@
+import { describe, expect, it, vi } from 'vitest';
+import {
+  VibeKanbanServerClient,
+  VkApiError,
+  resolveVibeApiBaseUrl,
+  selectLatestSession,
+  type Session,
+} from './vk-client';
+
+describe('resolveVibeApiBaseUrl', () => {
+  it('prefers VIBE_API_URL, falls back to VK_API_URL, then localhost API', () => {
+    expect(resolveVibeApiBaseUrl({ VIBE_API_URL: 'https://vk.example.com' })).toBe(
+      'https://vk.example.com/api',
+    );
+    expect(resolveVibeApiBaseUrl({ VK_API_URL: 'https://legacy.example.com/' })).toBe(
+      'https://legacy.example.com/api',
+    );
+    expect(resolveVibeApiBaseUrl({})).toBe('http://localhost:3007/api');
+  });
+
+  it('does not append /api twice', () => {
+    expect(resolveVibeApiBaseUrl({ VIBE_API_URL: 'https://vk.example.com/api/' })).toBe(
+      'https://vk.example.com/api',
+    );
+  });
+});
+
+describe('VibeKanbanServerClient', () => {
+  it('fetches workspaces and workspace repos from VK API envelope', async () => {
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (url === 'http://vk.local/api/workspaces') {
+        return jsonResponse({ success: true, data: [{ id: 'ws1', branch: 'feature/x' }] });
+      }
+      if (url === 'http://vk.local/api/workspaces/ws1/repos') {
+        return jsonResponse({
+          success: true,
+          data: [{ id: 'repo1', name: 'owner/repo', display_name: 'owner/repo', target_branch: 'feature/x' }],
+        });
+      }
+      throw new Error(`unexpected URL ${url}`);
+    });
+    const client = new VibeKanbanServerClient({ baseUrl: 'http://vk.local/api', fetch: fetchImpl });
+
+    await expect(client.getWorkspaces()).resolves.toEqual([{ id: 'ws1', branch: 'feature/x' }]);
+    await expect(client.getWorkspaceRepos('ws1')).resolves.toEqual([
+      { id: 'repo1', name: 'owner/repo', display_name: 'owner/repo', target_branch: 'feature/x' },
+    ]);
+  });
+
+  it('fetches sessions and creates sessions', async () => {
+    const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === 'http://vk.local/api/sessions?workspace_id=ws1') {
+        return jsonResponse({ success: true, data: [{ id: 's1', workspace_id: 'ws1', executor: 'CODEX' }] });
+      }
+      if (url === 'http://vk.local/api/sessions' && init?.method === 'POST') {
+        expect(JSON.parse(String(init.body))).toEqual({ workspace_id: 'ws1', executor: 'CODEX' });
+        return jsonResponse({ success: true, data: { id: 's2', workspace_id: 'ws1', executor: 'CODEX' } });
+      }
+      throw new Error(`unexpected request ${url}`);
+    });
+    const client = new VibeKanbanServerClient({ baseUrl: 'http://vk.local/api', fetch: fetchImpl });
+
+    await expect(client.getSessions('ws1')).resolves.toEqual([
+      { id: 's1', workspace_id: 'ws1', executor: 'CODEX' },
+    ]);
+    await expect(client.createSession({ workspace_id: 'ws1', executor: 'CODEX' })).resolves.toEqual({
+      id: 's2',
+      workspace_id: 'ws1',
+      executor: 'CODEX',
+    });
+  });
+
+  it('sends follow-up messages using the live executor_config shape', async () => {
+    const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === 'http://vk.local/api/sessions/session-1') {
+        return jsonResponse({
+          success: true,
+          data: { id: 'session-1', workspace_id: 'ws1', executor: 'CODEX' },
+        });
+      }
+      if (url === 'http://vk.local/api/sessions/session-1/follow-up' && init?.method === 'POST') {
+        expect(JSON.parse(String(init.body))).toEqual({
+          prompt: 'CI failed. Please inspect it.',
+          executor_config: { executor: 'CODEX' },
+          retry_process_id: null,
+          force_when_dirty: null,
+          perform_git_reset: null,
+        });
+        return jsonResponse({ success: true, data: { id: 'process-1', session_id: 'session-1', status: 'running' } });
+      }
+      throw new Error(`unexpected request ${url}`);
+    });
+    const client = new VibeKanbanServerClient({ baseUrl: 'http://vk.local/api', fetch: fetchImpl });
+
+    await expect(client.sendFollowUp('session-1', 'CI failed. Please inspect it.')).resolves.toEqual({
+      id: 'process-1',
+      session_id: 'session-1',
+      status: 'running',
+    });
+  });
+
+  it('throws VkApiError with status and body for failed HTTP responses', async () => {
+    const client = new VibeKanbanServerClient({
+      baseUrl: 'http://vk.local/api',
+      fetch: async () => new Response('nope', { status: 500, statusText: 'Internal Server Error' }),
+    });
+
+    await expect(client.getWorkspaces()).rejects.toMatchObject({
+      name: 'VkApiError',
+      status: 500,
+      bodyText: 'nope',
+    });
+  });
+
+  it('throws VkApiError for unsuccessful VK envelopes', async () => {
+    const client = new VibeKanbanServerClient({
+      baseUrl: 'http://vk.local/api',
+      fetch: async () => jsonResponse({ success: false, data: null, message: 'bad request', error_data: { code: 'BAD' } }),
+    });
+
+    await expect(client.getWorkspaces()).rejects.toBeInstanceOf(VkApiError);
+    await expect(client.getWorkspaces()).rejects.toMatchObject({
+      message: 'bad request',
+      errorData: { code: 'BAD' },
+    });
+  });
+});
+
+describe('selectLatestSession', () => {
+  it('returns null for empty lists and otherwise chooses newest created_at timestamp', () => {
+    expect(selectLatestSession([])).toBeNull();
+
+    const sessions: Session[] = [
+      { id: 'old', workspace_id: 'ws1', executor: 'CODEX', created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-03T00:00:00Z' },
+      { id: 'new', workspace_id: 'ws1', executor: 'CODEX', created_at: '2026-01-02T00:00:00Z', updated_at: '2026-01-02T00:00:00Z' },
+    ];
+
+    expect(selectLatestSession(sessions)?.id).toBe('new');
+  });
+});
+
+function jsonResponse(body: unknown, init?: ResponseInit): Response {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+    ...init,
+  });
+}

@@ -1,10 +1,16 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { Group, Panel, Separator } from 'react-resizable-panels';
-import type { TabGroup, Tab } from '../types';
-import type { WorkspaceState } from '../types';
-import { SpacesOverview } from './SpacesOverview';
-import { GasCityPanel } from '../modules/plugins/gas-city/GasCityPanel';
-import type { GasCityDashboardState, GasCityPluginModule } from '../modules/plugins/gas-city/types';
+import React, { useRef, useEffect, useState, useCallback } from "react";
+import { Group, Panel, Separator } from "react-resizable-panels";
+import type { TabGroup, Tab } from "../types";
+import type { WorkspaceState } from "../types";
+import { AppLoadingScreen } from "./AppLoadingScreen";
+import { SpacesOverview } from "./SpacesOverview";
+import { GasCityPanel } from "../modules/plugins/gas-city/GasCityPanel";
+import type {
+  GasCityDashboardState,
+  GasCityPluginModule,
+} from "../modules/plugins/gas-city/types";
+
+const INTERNAL_URL_PREFIX = "internal://";
 
 interface IframePanelProps {
   tabGroup: TabGroup;
@@ -13,10 +19,15 @@ interface IframePanelProps {
   workspace?: WorkspaceState;
   gasCity?: {
     state: GasCityDashboardState;
-    actions: GasCityPluginModule['actions'];
+    actions: GasCityPluginModule["actions"];
   };
   onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void;
-  onOpenVKWorkspace?: (taskAttemptId: string, name: string, containerRef: string, spaceId: string) => void;
+  onOpenVKWorkspace?: (
+    workspaceId: string,
+    name: string,
+    containerRef: string,
+    spaceId: string,
+  ) => void;
   onOpenGasCityWorkDir?: (workDir: string, title: string) => void;
 }
 
@@ -33,6 +44,11 @@ type IframeEntry = {
   loadError: boolean;
   listeners: Set<() => void>;
 };
+
+type TabRenderTarget =
+  | { kind: "internal"; internalPath: string }
+  | { kind: "blocked-self-app" }
+  | { kind: "iframe"; iframeSrc: string };
 
 let iframeStore: Map<string, IframeEntry> = new Map();
 
@@ -52,51 +68,89 @@ try {
   // Not in Vite dev mode
 }
 
+function getSelfAppOrigins(): Set<string> {
+  const origins = new Set([window.location.origin]);
+  const { protocol, host } = window.location;
+  const portPrefixMatch = host.match(/^port-\d+\.(.+)$/);
+
+  if (portPrefixMatch) {
+    origins.add(`${protocol}//${portPrefixMatch[1]}`);
+  }
+
+  return origins;
+}
+
+function isSelfAppPath(
+  pathname: string,
+  searchParams: URLSearchParams,
+): boolean {
+  if (pathname === "/dashboard" || pathname.startsWith("/dashboard/")) {
+    return true;
+  }
+
+  if (pathname !== "/") {
+    return false;
+  }
+
+  return !searchParams.has("folder");
+}
+
+function getTabRenderTarget(url: string): TabRenderTarget {
+  if (url.startsWith(INTERNAL_URL_PREFIX)) {
+    return {
+      kind: "internal",
+      internalPath: url.slice(INTERNAL_URL_PREFIX.length),
+    };
+  }
+
+  try {
+    const resolvedUrl = new URL(url, window.location.origin);
+    const selfAppOrigins = getSelfAppOrigins();
+
+    if (
+      selfAppOrigins.has(resolvedUrl.origin) &&
+      isSelfAppPath(resolvedUrl.pathname, resolvedUrl.searchParams)
+    ) {
+      return { kind: "blocked-self-app" };
+    }
+
+    return { kind: "iframe", iframeSrc: resolvedUrl.href };
+  } catch {
+    return { kind: "iframe", iframeSrc: url };
+  }
+}
+
 function getOrCreateIframe(tab: Tab): IframeEntry {
   const existing = iframeStore.get(tab.id);
   if (existing) return existing;
+  const target = getTabRenderTarget(tab.url);
 
-  // Don't create iframes for internal URLs
-  if (tab.url.startsWith('internal://')) {
-    const container = document.createElement('div');
-    container.style.width = '100%';
-    container.style.height = '100%';
-    container.style.position = 'absolute';
-    container.style.inset = '0';
+  const container = document.createElement("div");
+  container.style.width = "100%";
+  container.style.height = "100%";
+  container.style.position = "absolute";
+  container.style.inset = "0";
 
-    const iframe = document.createElement('iframe');
-    iframe.className = 'w-full h-full border-0';
-
-    const entry: IframeEntry = {
-      iframe,
-      container,
-      loaded: true,
-      contentReady: true,
-      loadError: false,
-      listeners: new Set(),
-    };
-
-    iframeStore.set(tab.id, entry);
-    return entry;
-  }
-
-  const container = document.createElement('div');
-  container.style.width = '100%';
-  container.style.height = '100%';
-  container.style.position = 'absolute';
-  container.style.inset = '0';
-
-  const iframe = document.createElement('iframe');
-  iframe.src = tab.url;
+  const iframe = document.createElement("iframe");
   iframe.title = tab.title;
-  iframe.className = 'w-full h-full border-0';
-  iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-popups allow-modals');
-  iframe.setAttribute('allow', 'clipboard-read; clipboard-write; fullscreen');
-  iframe.setAttribute('role', 'region');
+  iframe.className = "w-full h-full border-0";
+  iframe.setAttribute(
+    "sandbox",
+    "allow-scripts allow-same-origin allow-forms allow-popups allow-modals",
+  );
+  iframe.setAttribute("allow", "clipboard-read; clipboard-write; fullscreen");
+  iframe.setAttribute("role", "region");
 
-  const entry: IframeEntry = { iframe, container, loaded: false, contentReady: false, loadError: false, listeners: new Set() };
+  const entry: IframeEntry = {
+    iframe,
+    container,
+    loaded: target.kind !== "iframe",
+    contentReady: target.kind !== "iframe",
+    loadError: false,
+    listeners: new Set(),
+  };
 
-  iframe.addEventListener('load', () => {
+  iframe.addEventListener("load", () => {
     entry.loaded = true;
     entry.listeners.forEach((fn) => fn());
 
@@ -104,12 +158,16 @@ function getOrCreateIframe(tab: Tab): IframeEntry {
     checkContentReady(iframe, entry);
   });
 
-  iframe.addEventListener('error', () => {
+  iframe.addEventListener("error", () => {
     entry.loadError = true;
     entry.loaded = true;
     entry.contentReady = true;
     entry.listeners.forEach((fn) => fn());
   });
+
+  if (target.kind === "iframe") {
+    iframe.src = target.iframeSrc;
+  }
 
   container.appendChild(iframe);
   iframeStore.set(tab.id, entry);
@@ -142,15 +200,16 @@ function checkContentReady(iframe: HTMLIFrameElement, entry: IframeEntry) {
 
         // Check if background is white or transparent
         const isWhite =
-          bgColor === 'rgb(255, 255, 255)' ||
-          bgColor === '#ffffff' ||
-          bgColor === '#fff' ||
-          bgColor === 'white' ||
-          bgColor === 'rgba(0, 0, 0, 0)' ||
-          bgColor === 'transparent';
+          bgColor === "rgb(255, 255, 255)" ||
+          bgColor === "#ffffff" ||
+          bgColor === "#fff" ||
+          bgColor === "white" ||
+          bgColor === "rgba(0, 0, 0, 0)" ||
+          bgColor === "transparent";
 
         // Also check if there's actual content rendered
-        const hasContent = body.children.length > 0 &&
+        const hasContent =
+          body.children.length > 0 &&
           body.offsetHeight > 0 &&
           body.scrollHeight > 100; // Some minimum content height
 
@@ -176,7 +235,6 @@ function checkContentReady(iframe: HTMLIFrameElement, entry: IframeEntry) {
         entry.listeners.forEach((fn) => fn());
       }
     }, 10000);
-
   } catch (e) {
     // Cross-origin iframe, can't check content, assume ready
     entry.contentReady = true;
@@ -193,12 +251,7 @@ function removeIframe(tabId: string) {
   }
 }
 
-/**
- * Ensure all iframes exist for the given tabs (eagerly, not in an effect).
- * Clean up stale entries in an effect.
- */
 function useImperativeIframes(tabs: Tab[]) {
-  // Eagerly create iframes so they're available for IframeHost immediately
   for (const tab of tabs) {
     getOrCreateIframe(tab);
   }
@@ -227,16 +280,33 @@ function useImperativeIframes(tabs: Tab[]) {
     for (const tab of tabs) {
       const entry = iframeStore.get(tab.id);
       if (!entry) continue;
+      const target = getTabRenderTarget(tab.url);
 
-      // Skip internal URLs - they don't use actual iframes
-      if (tab.url.startsWith('internal://')) continue;
+      if (target.kind !== "iframe") {
+        if (entry.iframe.src !== "about:blank") {
+          entry.iframe.src = "about:blank";
+        }
+        entry.loaded = true;
+        entry.contentReady = true;
+        entry.loadError = false;
+        setLoadingState((prev) => {
+          const next = new Map(prev);
+          next.set(tab.id, true);
+          return next;
+        });
+        setErrorState((prev) => {
+          const next = new Map(prev);
+          next.set(tab.id, false);
+          return next;
+        });
+        continue;
+      }
 
       // Update iframe src if URL has changed.
-      // Resolve tab.url against current origin before comparing, since
+      // Resolve tab.url before comparing, since
       // the browser always returns an absolute URL from iframe.src.
-      const resolvedUrl = new URL(tab.url, window.location.origin).href;
-      if (entry.iframe.src !== resolvedUrl) {
-        entry.iframe.src = tab.url;
+      if (entry.iframe.src !== target.iframeSrc) {
+        entry.iframe.src = target.iframeSrc;
         // Reset loading and error state
         entry.loaded = false;
         entry.contentReady = false;
@@ -306,7 +376,6 @@ function useImperativeIframes(tabs: Tab[]) {
     return () => unsubs.forEach((fn) => fn());
   }, [tabs]);
 
-  // Clean up stale iframes
   useEffect(() => {
     const currentTabIds = new Set(tabs.map((t) => t.id));
     for (const [id] of iframeStore.entries()) {
@@ -364,7 +433,7 @@ function IframeHost({ tabId, visible }: { tabId: string; visible: boolean }) {
     <div
       ref={hostRef}
       className="w-full h-full relative"
-      style={{ display: visible ? 'block' : 'none' }}
+      style={{ display: visible ? "block" : "none" }}
     />
   );
 }
@@ -379,14 +448,8 @@ export function IframePanel({
   onOpenVKWorkspace,
   onOpenGasCityWorkDir,
 }: IframePanelProps) {
-  const { loadingState, errorState, retryTab } = useImperativeIframes(tabGroup.tabs);
-
-  const activeTab = tabGroup.tabs.find(
-    (t) => t.id === activeItemId
-  );
-  const activePair = tabGroup.pairs.find(
-    (p) => p.id === activeItemId
-  );
+  const activeTab = tabGroup.tabs.find((t) => t.id === activeItemId);
+  const activePair = tabGroup.pairs.find((p) => p.id === activeItemId);
 
   const visibleTabIds = new Set<string>();
   if (activePair) {
@@ -395,13 +458,16 @@ export function IframePanel({
     visibleTabIds.add(activeTab.id);
   }
 
+  const mountedTabs = tabGroup.tabs.filter((tab) => {
+    if (!visibleTabIds.has(tab.id)) return false;
+    return getTabRenderTarget(tab.url).kind === "iframe";
+  });
+
+  const { loadingState, errorState, retryTab } =
+    useImperativeIframes(mountedTabs);
+
   return (
     <>
-      {tabGroup.tabs.map((tab) => {
-        if (visibleTabIds.has(tab.id)) return null;
-        return <IframeHost key={tab.id} tabId={tab.id} visible={false} />;
-      })}
-
       {activePair ? (
         <PairView
           activePair={activePair}
@@ -448,20 +514,30 @@ function SingleTabView({
   workspace?: WorkspaceState;
   gasCity?: {
     state: GasCityDashboardState;
-    actions: GasCityPluginModule['actions'];
+    actions: GasCityPluginModule["actions"];
   };
   onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void;
-  onOpenVKWorkspace?: (taskAttemptId: string, name: string, containerRef: string, spaceId: string) => void;
+  onOpenVKWorkspace?: (
+    workspaceId: string,
+    name: string,
+    containerRef: string,
+    spaceId: string,
+  ) => void;
   onOpenGasCityWorkDir?: (workDir: string, title: string) => void;
 }) {
   const isLoaded = loadingState.get(activeTab.id) ?? false;
   const hasError = errorState.get(activeTab.id) ?? false;
+  const target = getTabRenderTarget(activeTab.url);
 
   // Check if this is an internal URL that should render a special component
-  if (activeTab.url.startsWith('internal://')) {
-    const internalPath = activeTab.url.replace('internal://', '');
+  if (target.kind === "internal") {
+    const { internalPath } = target;
 
-    if (internalPath === 'spaces-overview' && workspace && onNavigateToTabGroup) {
+    if (
+      internalPath === "spaces-overview" &&
+      workspace &&
+      onNavigateToTabGroup
+    ) {
       return (
         <div className="flex-1 min-h-0 relative h-full">
           <SpacesOverview
@@ -473,7 +549,7 @@ function SingleTabView({
       );
     }
 
-    if (internalPath === 'gas-city' && gasCity) {
+    if (internalPath === "gas-city" && gasCity) {
       return (
         <div className="flex-1 min-h-0 relative h-full">
           <GasCityPanel
@@ -486,13 +562,20 @@ function SingleTabView({
     }
   }
 
+  if (target.kind === "blocked-self-app") {
+    return <BlockedSelfAppPlaceholder url={activeTab.url} />;
+  }
+
   return (
     <div className="flex-1 min-h-0 relative h-full">
       <IframeHost tabId={activeTab.id} visible={!hasError} />
       {hasError ? (
-        <ErrorOverlay url={activeTab.url} onRetry={() => retryTab(activeTab.id)} />
+        <ErrorOverlay
+          url={activeTab.url}
+          onRetry={() => retryTab(activeTab.id)}
+        />
       ) : !isLoaded ? (
-        <LoadingOverlay />
+        <AppLoadingScreen className="absolute inset-0 z-10" />
       ) : null}
     </div>
   );
@@ -537,14 +620,12 @@ function PairView({
         return (
           <React.Fragment key={tab.id}>
             <Panel id={tab.id} defaultSize={percentages[i]} minSize={10}>
-              <div className="relative w-full h-full">
-                <IframeHost tabId={tab.id} visible={!hasError} />
-                {hasError ? (
-                  <ErrorOverlay url={tab.url} onRetry={() => retryTab(tab.id)} />
-                ) : !isLoaded ? (
-                  <LoadingOverlay />
-                ) : null}
-              </div>
+              <PairTabView
+                tab={tab}
+                isLoaded={isLoaded}
+                hasError={hasError}
+                retryTab={retryTab}
+              />
             </Panel>
             {i < pairTabs.length - 1 && (
               <Separator className="w-1 bg-neutral-700 hover:bg-neutral-500 data-[resize-handle-state=drag]:bg-primary-500 transition-colors cursor-col-resize flex-shrink-0" />
@@ -556,6 +637,35 @@ function PairView({
   );
 }
 
+function PairTabView({
+  tab,
+  isLoaded,
+  hasError,
+  retryTab,
+}: {
+  tab: Tab;
+  isLoaded: boolean;
+  hasError: boolean;
+  retryTab: (tabId: string) => void;
+}) {
+  const target = getTabRenderTarget(tab.url);
+
+  if (target.kind === "blocked-self-app") {
+    return <BlockedSelfAppPlaceholder url={tab.url} />;
+  }
+
+  return (
+    <div className="relative w-full h-full">
+      <IframeHost tabId={tab.id} visible={!hasError} />
+      {hasError ? (
+        <ErrorOverlay url={tab.url} onRetry={() => retryTab(tab.id)} />
+      ) : !isLoaded ? (
+        <AppLoadingScreen className="absolute inset-0 z-10" />
+      ) : null}
+    </div>
+  );
+}
+
 function EmptyView() {
   return (
     <div className="flex-1 flex items-center justify-center text-neutral-500">
@@ -564,12 +674,14 @@ function EmptyView() {
   );
 }
 
-function LoadingOverlay() {
+function BlockedSelfAppPlaceholder({ url }: { url: string }) {
   return (
-    <div className="absolute inset-0 bg-neutral-950 flex items-center justify-center z-10">
-      <div className="flex flex-col items-center gap-3">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-500"></div>
-        <p className="text-neutral-400 text-sm">Loading...</p>
+    <div className="flex-1 h-full bg-neutral-950 text-neutral-400 flex items-center justify-center">
+      <div className="max-w-md px-6 text-center">
+        <p className="text-sm font-medium text-neutral-200">
+          stopped loading app recursively
+        </p>
+        <p className="mt-2 text-xs break-all">{url}</p>
       </div>
     </div>
   );
@@ -580,12 +692,24 @@ function ErrorOverlay({ url, onRetry }: { url: string; onRetry: () => void }) {
     <div className="absolute inset-0 bg-neutral-950 flex items-center justify-center z-10">
       <div className="flex flex-col items-center gap-4 max-w-md px-6 text-center">
         <div className="w-10 h-10 rounded-full bg-red-500/15 flex items-center justify-center">
-          <svg className="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+          <svg
+            className="w-5 h-5 text-red-400"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"
+            />
           </svg>
         </div>
         <div>
-          <p className="text-neutral-300 text-sm font-medium mb-1">Failed to load</p>
+          <p className="text-neutral-300 text-sm font-medium mb-1">
+            Failed to load
+          </p>
           <p className="text-neutral-500 text-xs break-all">{url}</p>
         </div>
         <button

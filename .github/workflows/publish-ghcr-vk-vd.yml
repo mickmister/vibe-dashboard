@@ -1,0 +1,117 @@
+name: Publish VK/VD Image to GHCR
+
+on:
+  push:
+    branches:
+      - '*'
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: Docker image tag to publish
+        required: true
+        default: latest
+      vk_branch:
+        description: vibe-kanban git branch, tag, or sha to build from
+        required: true
+        default: main
+      vk_repo_url:
+        description: vibe-kanban git repository URL to clone
+        required: true
+        default: https://github.com/mickmister/vibe-kanban.git
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+jobs:
+  resolve-vk-ref:
+    runs-on: ubuntu-latest
+    outputs:
+      vk_branch: ${{ steps.resolve.outputs.vk_branch }}
+      vk_commit: ${{ steps.resolve.outputs.vk_commit }}
+      vk_short_commit: ${{ steps.resolve.outputs.vk_short_commit }}
+      vk_repo_url: ${{ steps.resolve.outputs.vk_repo_url }}
+      vd_short_commit: ${{ steps.resolve.outputs.vd_short_commit }}
+    steps:
+      - name: Resolve vibe-kanban ref to commit SHA
+        id: resolve
+        env:
+          VK_BRANCH_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.vk_branch || 'main' }}
+          VK_REPO_URL_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.vk_repo_url || 'https://github.com/mickmister/vibe-kanban.git' }}
+        run: |
+          set -euo pipefail
+
+          workdir="$(mktemp -d)"
+          trap 'rm -rf "$workdir"' EXIT
+
+          git -C "$workdir" init --quiet
+          git -C "$workdir" remote add origin "$VK_REPO_URL_INPUT"
+          git -C "$workdir" fetch --depth 1 origin "$VK_BRANCH_INPUT"
+
+          vk_commit="$(git -C "$workdir" rev-parse FETCH_HEAD)"
+          vk_short_commit="$(git -C "$workdir" rev-parse --short=7 FETCH_HEAD)"
+          vd_short_commit="${GITHUB_SHA:0:7}"
+
+          echo "Resolved $VK_BRANCH_INPUT to $vk_commit"
+
+          {
+            echo "vk_branch=$VK_BRANCH_INPUT"
+            echo "vk_commit=$vk_commit"
+            echo "vk_short_commit=$vk_short_commit"
+            echo "vk_repo_url=$VK_REPO_URL_INPUT"
+            echo "vd_short_commit=$vd_short_commit"
+          } >> "$GITHUB_OUTPUT"
+
+  check-types:
+    name: npm run check-types
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check types
+        run: npm run check-types
+
+  publish:
+    needs: resolve-vk-ref
+    uses: ./.github/workflows/docker-github-builder-build.yml
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    with:
+      output: image
+      push: true
+      context: .
+      file: ./Dockerfile.vkvd
+      platforms: linux/amd64,linux/arm64
+      build-args: |
+        VK_BRANCH=${{ needs.resolve-vk-ref.outputs.vk_branch }}
+        VK_COMMIT=${{ needs.resolve-vk-ref.outputs.vk_commit }}
+        VK_REPO_URL=${{ needs.resolve-vk-ref.outputs.vk_repo_url }}
+      cache: true
+      cache-scope: vk-vd-multiarch
+      sign: false
+      meta-images: ghcr.io/${{ github.repository_owner }}/vk-vd
+      meta-tags: |
+        type=raw,value=${{ inputs.image_tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
+        type=raw,value=vk-${{ needs.resolve-vk-ref.outputs.vk_short_commit }}-vd-${{ needs.resolve-vk-ref.outputs.vd_short_commit }}
+        type=raw,value=latest,enable=${{ github.ref_name == 'main' }}
+    secrets:
+      registry-auths: |
+        - registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}

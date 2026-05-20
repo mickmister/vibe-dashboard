@@ -5,6 +5,9 @@
     "esModuleInterop": true,
     "moduleResolution": "bundler",
     "module": "es2020",
+    "paths": {
+      "@vibe-kanban/workflow-core": ["./packages/workflow-core/src/index.ts"]
+    },
 
     // File Layout
     // "rootDir": "./src",
@@ -44,9 +47,5 @@
     "noUncheckedSideEffectImports": true,
     "moduleDetection": "force",
     "skipLibCheck": true,
-  },
-  "exclude": [
-    "react-chrome-tabs/src/**/*.stories.tsx",
-    "react-chrome-tabs/src/**/*.test.tsx"
-  ]
+  }
 }

@@ -1,3 +1,5 @@
+export const PLUGIN_API_VERSION = '1.0.0';
+
 export type TabPresetMode = 'immediate' | 'urlPrompt';
 
 export interface TabPresetContribution {
@@ -10,9 +12,19 @@ export interface TabPresetContribution {
   order?: number;
 }
 
+export interface RegisteredTabPresetContribution extends TabPresetContribution {
+  pluginId: string;
+  sourceKey: string;
+}
+
 export interface SpaceTypeContribution {
   key: string;
   icon: string;
+}
+
+export interface RegisteredSpaceTypeContribution extends SpaceTypeContribution {
+  pluginId: string;
+  sourceKey: string;
 }
 
 export type TabGroupFactoryLaunchMode = 'vk-workspace';
@@ -25,24 +37,59 @@ export interface TabGroupFactoryContribution {
   order?: number;
 }
 
+export interface RegisteredTabGroupFactoryContribution
+  extends TabGroupFactoryContribution {
+  pluginId: string;
+  sourceKey: string;
+}
+
 export interface PluginContributions {
   tabPresets?: TabPresetContribution[];
   spaceTypes?: SpaceTypeContribution[];
   tabGroupFactories?: TabGroupFactoryContribution[];
 }
 
+export interface PluginManifest {
+  id: string;
+  displayName: string;
+  version: string;
+  apiVersion: string;
+  contributions: PluginContributions;
+}
+
+export interface RegisteredPluginManifest extends PluginManifest {
+  registeredAt: string;
+}
+
 export interface PluginRegistryState {
-  tabPresets: Record<string, TabPresetContribution>;
-  spaceTypes: Record<string, SpaceTypeContribution>;
-  tabGroupFactories: Record<string, TabGroupFactoryContribution>;
+  plugins: Record<string, RegisteredPluginManifest>;
+  tabPresets: Record<string, RegisteredTabPresetContribution>;
+  spaceTypes: Record<string, RegisteredSpaceTypeContribution>;
+  tabGroupFactories: Record<string, RegisteredTabGroupFactoryContribution>;
 }
 
 export function createEmptyPluginRegistryState(): PluginRegistryState {
   return {
+    plugins: {},
     tabPresets: {},
     spaceTypes: {},
     tabGroupFactories: {},
   };
+}
+
+export function createPluginManifest(
+  manifest: Omit<PluginManifest, 'apiVersion'> & {
+    apiVersion?: string;
+  },
+): PluginManifest {
+  return {
+    ...manifest,
+    apiVersion: manifest.apiVersion ?? PLUGIN_API_VERSION,
+  };
+}
+
+export function getNamespacedContributionKey(pluginId: string, key: string): string {
+  return `${pluginId}/${key}`;
 }
 
 export interface PluginRegistryModule {
@@ -53,10 +100,7 @@ export interface PluginRegistryModule {
     };
   };
   actions: {
-    registerContributions: (contributions: PluginContributions) => Promise<void>;
-    registerTabPreset: (preset: TabPresetContribution) => Promise<void>;
-    registerSpaceType: (spaceType: SpaceTypeContribution) => Promise<void>;
-    registerTabGroupFactory: (factory: TabGroupFactoryContribution) => Promise<void>;
+    registerPlugin: (manifest: PluginManifest) => Promise<void>;
   };
 }
 
