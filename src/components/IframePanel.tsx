@@ -460,7 +460,7 @@ function useImperativeIframes(
  * The iframe is appended via useEffect, not rendered by React,
  * so it survives HMR and re-renders.
  */
-function IframeHost({ tabId, visible }: { tabId: string; visible: boolean }) {
+function IframeHost({ tabId }: { tabId: string }) {
   const hostRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -478,11 +478,7 @@ function IframeHost({ tabId, visible }: { tabId: string; visible: boolean }) {
   }, [tabId]);
 
   return (
-    <div
-      ref={hostRef}
-      className="w-full h-full relative"
-      style={{ display: visible ? 'block' : 'none' }}
-    />
+    <div ref={hostRef} className="w-full h-full relative" />
   );
 }
 
@@ -501,7 +497,6 @@ export function IframePanel({
   onOpenVKWorkspace,
 }: IframePanelProps) {
   ensureRetainedSession(currentSessionId);
-
   const activeTab = tabGroup.tabs.find(
     (t) => t.id === activeItemId
   );
@@ -516,7 +511,7 @@ export function IframePanel({
     visibleTabIds.add(activeTab.id);
   }
 
-  const mountedTabs = tabGroup.tabs.filter((tab) => {
+  const visibleIframeTabs = tabGroup.tabs.filter((tab) => {
     if (!visibleTabIds.has(tab.id)) return false;
     return getTabRenderTarget(tab.url).kind === 'iframe';
   });
@@ -524,14 +519,11 @@ export function IframePanel({
   const allKnownIframeTabs = workspace?.tabGroups.flatMap((group) =>
     group.tabs.filter((tab) => getTabRenderTarget(tab.url).kind === 'iframe'),
   );
-  const visibleIframeTabIds = new Set(mountedTabs.map((tab) => tab.id));
+  const visibleIframeTabIds = new Set(visibleIframeTabs.map((tab) => tab.id));
   const retainedTabs =
     allKnownIframeTabs?.filter(
       (tab) => retainedTabIds.has(tab.id) || visibleIframeTabIds.has(tab.id),
-    ) ?? mountedTabs;
-  const hiddenRetainedTabs = retainedTabs.filter(
-    (tab) => !visibleIframeTabIds.has(tab.id),
-  );
+    ) ?? visibleIframeTabs;
   const allKnownIframeTabIds = allKnownIframeTabs
     ? new Set(allKnownIframeTabs.map((tab) => tab.id))
     : undefined;
@@ -544,6 +536,12 @@ export function IframePanel({
 
   return (
     <div className="w-full h-full relative">
+      <PersistentIframeLayer
+        retainedTabs={retainedTabs}
+        activeTab={activeTab}
+        activePair={activePair}
+        tabGroup={tabGroup}
+      />
       {activePair ? (
         <PairView
           activePair={activePair}
@@ -572,23 +570,81 @@ export function IframePanel({
       ) : (
         <EmptyView />
       )}
-      {hiddenRetainedTabs.length > 0 ? (
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-0 overflow-hidden"
-          style={{ visibility: 'hidden' }}
-        >
-          {hiddenRetainedTabs.map((tab) => (
-            <div
-              key={tab.id}
-              className="absolute inset-0"
-              style={{ display: 'none' }}
-            >
-              <IframeHost tabId={tab.id} visible={false} />
-            </div>
-          ))}
-        </div>
-      ) : null}
+    </div>
+  );
+}
+
+function PersistentIframeLayer({
+  retainedTabs,
+  activeTab,
+  activePair,
+  tabGroup,
+}: {
+  retainedTabs: Tab[];
+  activeTab?: Tab;
+  activePair?: { id: string; tabIds: string[]; ratios: number[] };
+  tabGroup: TabGroup;
+}) {
+  const layoutStyles = new Map<string, React.CSSProperties>();
+
+  if (activePair) {
+    const pairTabs = activePair.tabIds
+      .map((id) => tabGroup.tabs.find((tab) => tab.id === id))
+      .filter((tab): tab is Tab => tab != null)
+      .filter((tab) => getTabRenderTarget(tab.url).kind === 'iframe');
+
+    const separatorWidth = 4;
+    const totalSeparatorWidth = Math.max(pairTabs.length - 1, 0) * separatorWidth;
+    const totalRatio = activePair.ratios.reduce((sum, ratio) => sum + ratio, 0) || 1;
+    let cumulativeRatio = 0;
+
+    pairTabs.forEach((tab, index) => {
+      const ratio = activePair.ratios[index] || 0;
+      const ratioFraction = ratio / totalRatio;
+      const cumulativeFraction = cumulativeRatio / totalRatio;
+
+      layoutStyles.set(tab.id, {
+        position: 'absolute',
+        top: 0,
+        bottom: 0,
+        left: `calc(${(cumulativeFraction * 100).toFixed(6)}% + ${(index * separatorWidth - cumulativeFraction * totalSeparatorWidth).toFixed(3)}px)`,
+        width: `calc(${(ratioFraction * 100).toFixed(6)}% - ${(ratioFraction * totalSeparatorWidth).toFixed(3)}px)`,
+        visibility: 'visible',
+        pointerEvents: 'auto',
+      });
+
+      cumulativeRatio += ratio;
+    });
+  } else if (activeTab && getTabRenderTarget(activeTab.url).kind === 'iframe') {
+    layoutStyles.set(activeTab.id, {
+      position: 'absolute',
+      inset: 0,
+      visibility: 'visible',
+      pointerEvents: 'auto',
+    });
+  }
+
+  return (
+    <div className="absolute inset-0">
+      {retainedTabs.map((tab) => {
+        const activeStyle = layoutStyles.get(tab.id);
+        return (
+          <div
+            key={tab.id}
+            className="absolute inset-0"
+            style={
+              activeStyle || {
+                position: 'absolute',
+                inset: 0,
+                visibility: 'hidden',
+                pointerEvents: 'none',
+              }
+            }
+          >
+            <IframeHost tabId={tab.id} />
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -663,7 +719,6 @@ function SingleTabView({
 
   return (
     <div className="flex-1 min-h-0 relative h-full">
-      <IframeHost tabId={activeTab.id} visible={!hasError} />
       {hasError ? (
         <ErrorOverlay url={activeTab.url} onRetry={() => retryTab(activeTab.id)} />
       ) : !isLoaded ? (
@@ -702,7 +757,7 @@ function PairView({
   return (
     <Group
       orientation="horizontal"
-      className="flex-1 min-h-0"
+      className="flex-1 min-h-0 absolute inset-0 z-10"
       onLayoutChanged={handleLayoutChange}
     >
       {pairTabs.map((tab, i) => {
@@ -711,7 +766,7 @@ function PairView({
 
         return (
           <React.Fragment key={tab.id}>
-            <Panel id={tab.id} defaultSize={percentages[i]} minSize={10}>
+            <Panel id={tab.id} defaultSize={percentages[i]} minSize={10} className="pointer-events-none">
               <PairTabView
                 tab={tab}
                 isLoaded={isLoaded}
@@ -720,7 +775,7 @@ function PairView({
               />
             </Panel>
             {i < pairTabs.length - 1 && (
-              <Separator className="w-1 bg-neutral-700 hover:bg-neutral-500 data-[resize-handle-state=drag]:bg-primary-500 transition-colors cursor-col-resize flex-shrink-0" />
+              <Separator className="w-1 bg-neutral-700 hover:bg-neutral-500 data-[resize-handle-state=drag]:bg-primary-500 transition-colors cursor-col-resize flex-shrink-0 z-20 pointer-events-auto" />
             )}
           </React.Fragment>
         );
@@ -747,8 +802,7 @@ function PairTabView({
   }
 
   return (
-    <div className="relative w-full h-full">
-      <IframeHost tabId={tab.id} visible={!hasError} />
+    <div className="relative w-full h-full pointer-events-none">
       {hasError ? (
         <ErrorOverlay url={tab.url} onRetry={() => retryTab(tab.id)} />
       ) : !isLoaded ? (
