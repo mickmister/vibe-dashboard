@@ -33,6 +33,7 @@ type IframeEntry = {
   loaded: boolean;
   contentReady: boolean;
   loadError: boolean;
+  lastAccessedAt: number;
   listeners: Set<() => void>;
 };
 
@@ -42,6 +43,9 @@ type TabRenderTarget =
   | { kind: 'iframe'; iframeSrc: string };
 
 let iframeStore: Map<string, IframeEntry> = new Map();
+let retainedSessionId: string | null = null;
+let retainedTabIds: Set<string> = new Set();
+const MAX_RETAINED_IFRAMES = 8;
 
 // Preserve iframe store across HMR updates using Vite's HMR API.
 try {
@@ -51,8 +55,16 @@ try {
     if (hot.data.iframeStore) {
       iframeStore = hot.data.iframeStore;
     }
+    if (hot.data.retainedSessionId) {
+      retainedSessionId = hot.data.retainedSessionId;
+    }
+    if (hot.data.retainedTabIds) {
+      retainedTabIds = hot.data.retainedTabIds;
+    }
     hot.dispose((data: Record<string, unknown>) => {
       data.iframeStore = iframeStore;
+      data.retainedSessionId = retainedSessionId;
+      data.retainedTabIds = retainedTabIds;
     });
   }
 } catch {
@@ -132,6 +144,7 @@ function getOrCreateIframe(tab: Tab): IframeEntry {
     loaded: target.kind !== 'iframe',
     contentReady: target.kind !== 'iframe',
     loadError: false,
+    lastAccessedAt: Date.now(),
     listeners: new Set(),
   };
 
@@ -234,9 +247,30 @@ function removeIframe(tabId: string) {
     entry.listeners.clear();
     iframeStore.delete(tabId);
   }
+  retainedTabIds.delete(tabId);
 }
 
-function useImperativeIframes(tabs: Tab[]) {
+function removeAllIframes() {
+  for (const tabId of Array.from(iframeStore.keys())) {
+    removeIframe(tabId);
+  }
+}
+
+function useImperativeIframes(
+  tabs: Tab[],
+  visibleTabIds: Set<string>,
+  currentSessionId?: string,
+  allKnownTabIds?: Set<string>,
+) {
+  useEffect(() => {
+    const nextSessionId = currentSessionId || null;
+    if (retainedSessionId === nextSessionId) return;
+
+    retainedSessionId = nextSessionId;
+    retainedTabIds = new Set();
+    removeAllIframes();
+  }, [currentSessionId]);
+
   for (const tab of tabs) {
     getOrCreateIframe(tab);
   }
@@ -310,6 +344,44 @@ function useImperativeIframes(tabs: Tab[]) {
     }
   }, [tabs]);
 
+  useEffect(() => {
+    const now = Date.now();
+
+    for (const tab of tabs) {
+      if (!visibleTabIds.has(tab.id)) continue;
+      retainedTabIds.add(tab.id);
+      const entry = iframeStore.get(tab.id);
+      if (entry) {
+        entry.lastAccessedAt = now;
+      }
+    }
+
+    if (allKnownTabIds) {
+      for (const tabId of Array.from(retainedTabIds)) {
+        if (!allKnownTabIds.has(tabId)) {
+          removeIframe(tabId);
+        }
+      }
+    }
+
+    const visibleIds = new Set(visibleTabIds);
+    const evictableIds = Array.from(retainedTabIds)
+      .filter((tabId) => !visibleIds.has(tabId))
+      .sort((leftId, rightId) => {
+        const leftEntry = iframeStore.get(leftId);
+        const rightEntry = iframeStore.get(rightId);
+        return (
+          (leftEntry?.lastAccessedAt ?? 0) - (rightEntry?.lastAccessedAt ?? 0)
+        );
+      });
+
+    while (retainedTabIds.size > MAX_RETAINED_IFRAMES && evictableIds.length > 0) {
+      const tabId = evictableIds.shift();
+      if (!tabId) break;
+      removeIframe(tabId);
+    }
+  }, [allKnownTabIds, tabs, visibleTabIds]);
+
   // Subscribe to load events
   useEffect(() => {
     const unsubs: (() => void)[] = [];
@@ -361,21 +433,13 @@ function useImperativeIframes(tabs: Tab[]) {
     return () => unsubs.forEach((fn) => fn());
   }, [tabs]);
 
-  useEffect(() => {
-    const currentTabIds = new Set(tabs.map((t) => t.id));
-    for (const [id] of iframeStore.entries()) {
-      if (!currentTabIds.has(id)) {
-        removeIframe(id);
-      }
-    }
-  }, [tabs]);
-
   const retryTab = useCallback((tabId: string) => {
     const entry = iframeStore.get(tabId);
     if (!entry) return;
     entry.loaded = false;
     entry.contentReady = false;
     entry.loadError = false;
+    entry.lastAccessedAt = Date.now();
     entry.iframe.src = entry.iframe.src; // reload
     setLoadingState((prev) => {
       const next = new Map(prev);
@@ -456,7 +520,24 @@ export function IframePanel({
     return getTabRenderTarget(tab.url).kind === 'iframe';
   });
 
-  const { loadingState, errorState, retryTab } = useImperativeIframes(mountedTabs);
+  const allKnownIframeTabs = workspace?.tabGroups.flatMap((group) =>
+    group.tabs.filter((tab) => getTabRenderTarget(tab.url).kind === 'iframe'),
+  );
+  const visibleIframeTabIds = new Set(mountedTabs.map((tab) => tab.id));
+  const retainedTabs =
+    allKnownIframeTabs?.filter(
+      (tab) => retainedTabIds.has(tab.id) || visibleIframeTabIds.has(tab.id),
+    ) ?? mountedTabs;
+  const allKnownIframeTabIds = allKnownIframeTabs
+    ? new Set(allKnownIframeTabs.map((tab) => tab.id))
+    : undefined;
+
+  const { loadingState, errorState, retryTab } = useImperativeIframes(
+    retainedTabs,
+    visibleIframeTabIds,
+    currentSessionId,
+    allKnownIframeTabIds,
+  );
 
   return (
     <>
