@@ -83,6 +83,21 @@ function getSelfAppOrigins(): Set<string> {
   return origins;
 }
 
+function getIframeResolutionOrigin(url: string): string {
+  if (!url.startsWith('/')) {
+    return window.location.origin;
+  }
+
+  const { protocol, host } = window.location;
+  const portPrefixMatch = host.match(/^port-\d+\.(.+)$/);
+
+  if (portPrefixMatch) {
+    return `${protocol}//${portPrefixMatch[1]}`;
+  }
+
+  return window.location.origin;
+}
+
 function isSelfAppPath(pathname: string, searchParams: URLSearchParams): boolean {
   if (pathname === '/dashboard' || pathname.startsWith('/dashboard/')) {
     return true;
@@ -104,7 +119,7 @@ function getTabRenderTarget(url: string): TabRenderTarget {
   }
 
   try {
-    const resolvedUrl = new URL(url, window.location.origin);
+    const resolvedUrl = new URL(url, getIframeResolutionOrigin(url));
     const selfAppOrigins = getSelfAppOrigins();
 
     if (
