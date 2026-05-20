@@ -1,4 +1,4 @@
-import type { PluginContributions } from "../vibe-dashboard/types";
+import type { PluginManifest } from "../vibe-dashboard/types";
 
 export interface GasCitySessionInfo {
   ID: string;
@@ -49,7 +49,7 @@ export function createDefaultGasCityDashboardState(): GasCityDashboardState {
 }
 
 export interface GasCityPluginModule {
-  contributions: PluginContributions;
+  manifest: PluginManifest;
   states: {
     dashboard: {
       useState: () => GasCityDashboardState;

@@ -1,5 +1,8 @@
 import springboard from "springboard";
-import type { PluginContributions } from "../vibe-dashboard/types";
+import {
+  createPluginManifest,
+  type PluginManifest,
+} from "../vibe-dashboard/types";
 import {
   createDefaultGasCityDashboardState,
   type GasCityDashboardState,
@@ -7,18 +10,23 @@ import {
   type GasCityPluginModule,
 } from "./types";
 
-const contributions: PluginContributions = {
-  tabPresets: [
-    {
-      key: "gas-city",
-      title: "Gas City",
-      description: "Manage Gas City sessions and open related workdirs",
-      mode: "immediate",
-      urlTemplate: "internal://gas-city",
-      order: 20,
-    },
-  ],
-};
+const manifest: PluginManifest = createPluginManifest({
+  id: "dev.mickmister.gas-city",
+  displayName: "Gas City",
+  version: "1.0.0",
+  contributions: {
+    tabPresets: [
+      {
+        key: "gas-city",
+        title: "Gas City",
+        description: "Manage Gas City sessions and open related workdirs",
+        mode: "immediate",
+        urlTemplate: "internal://gas-city",
+        order: 20,
+      },
+    ],
+  },
+});
 
 springboard.registerModule(
   "plugin-gas-city",
@@ -26,7 +34,7 @@ springboard.registerModule(
   async (moduleAPI) => {
     const pluginRegistry = moduleAPI.getModule("plugin-registry");
     if (pluginRegistry) {
-      await pluginRegistry.actions.registerContributions(contributions);
+      await pluginRegistry.actions.registerPlugin(manifest);
     }
 
     const dashboard =
@@ -315,7 +323,7 @@ springboard.registerModule(
     });
 
     return {
-      contributions,
+      manifest,
       states: {
         dashboard,
       },
