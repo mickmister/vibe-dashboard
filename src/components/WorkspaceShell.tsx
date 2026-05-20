@@ -722,30 +722,29 @@ export function WorkspaceShell({
         </div>
         )}
         {showSessionTopBar && expandedSessionTabGroup && (
-          <div className="hidden md:block border-b border-neutral-700 bg-neutral-900/95 shrink-0">
-            <div className="flex flex-wrap items-stretch gap-px bg-neutral-700 px-3 py-2">
-              {expandedSessionItems.map((item) => (
-                <button
-                  key={item.id}
-                  className={`min-w-0 rounded-sm px-3 py-2 text-left text-xs transition-colors ${
-                    item.isActive
-                      ? 'bg-neutral-700 text-neutral-100'
-                      : 'bg-neutral-900 text-neutral-300 hover:bg-neutral-800 hover:text-neutral-100'
-                  }`}
-                  onClick={() =>
-                    handleSelectExpandedSessionItem(
-                      expandedSessionTabGroup.tabGroup.id,
-                      item,
-                    )
-                  }
-                  title={item.label}
-                >
-                  <span className="block max-w-[24rem] truncate">{item.label}</span>
-                  <span className="mt-1 block text-[10px] uppercase tracking-wide text-neutral-500">
-                    {item.kind === 'pair' ? 'Split view' : 'Tab'}
-                  </span>
-                </button>
-              ))}
+          <div className="hidden md:flex h-9 border-b border-neutral-600 bg-neutral-900 items-stretch shrink-0">
+            <div className="flex-1 min-w-0 overflow-x-auto scrollbar-hide">
+              <div className="flex h-full items-stretch whitespace-nowrap">
+                {expandedSessionItems.map((item) => (
+                  <button
+                    key={item.id}
+                    className={`shrink-0 inline-flex h-full items-center border-r border-b-2 border-neutral-600 px-3 text-xs text-neutral-200 transition-colors ${
+                      item.isActive
+                        ? 'border-b-primary-400 bg-neutral-900'
+                        : 'bg-neutral-900 hover:bg-neutral-800/80'
+                    }`}
+                    onClick={() =>
+                      handleSelectExpandedSessionItem(
+                        expandedSessionTabGroup.tabGroup.id,
+                        item,
+                      )
+                    }
+                    title={item.label}
+                  >
+                    <span className="max-w-[24rem] truncate">{item.label}</span>
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         )}
