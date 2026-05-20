@@ -567,18 +567,18 @@ export function WorkspaceShell({
                   </button>
                 );
               })}
+              <button
+                className="shrink-0 rounded-md border border-neutral-700 bg-neutral-800 px-2 py-1 text-xs text-neutral-300 hover:bg-neutral-700 hover:text-white transition-colors"
+                onClick={() =>
+                  setSessionTabPickerMode((prev) => (prev === 'desktop' ? null : 'desktop'))
+                }
+                title="Add tab group to session"
+                aria-label="Add tab group to session"
+              >
+                +
+              </button>
             </div>
           </div>
-          <button
-            className="shrink-0 rounded-md border border-neutral-700 bg-neutral-800 px-2 py-1 text-xs text-neutral-300 hover:bg-neutral-700 hover:text-white transition-colors"
-            onClick={() =>
-              setSessionTabPickerMode((prev) => (prev === 'desktop' ? null : 'desktop'))
-            }
-            title="Add tab group to session"
-            aria-label="Add tab group to session"
-          >
-            +
-          </button>
         </div>
 
         <WorkspaceContentView
