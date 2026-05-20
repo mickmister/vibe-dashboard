@@ -177,6 +177,23 @@ export function WorkspaceShell({
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const key = e.key.toLowerCase();
+      console.log('[WorkspaceShell keydown]', {
+        key: e.key,
+        code: e.code,
+        ctrlKey: e.ctrlKey,
+        metaKey: e.metaKey,
+        altKey: e.altKey,
+        shiftKey: e.shiftKey,
+        target:
+          e.target instanceof HTMLElement
+            ? {
+                tagName: e.target.tagName,
+                id: e.target.id,
+                className: e.target.className,
+                isContentEditable: e.target.isContentEditable,
+              }
+            : String(e.target),
+      });
 
       if (
         (e.metaKey || e.ctrlKey) &&
