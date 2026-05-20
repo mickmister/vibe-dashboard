@@ -103,6 +103,9 @@ func TestHandleNudgeUpdatesExecutionAndListRunning(t *testing.T) {
 			if payload.Prompt != "follow up" {
 				t.Fatalf("follow-up prompt = %q", payload.Prompt)
 			}
+			if payload.WorkingDir == nil || *payload.WorkingDir != "repo-a" {
+				t.Fatalf("follow-up working_dir = %#v, want repo-a", payload.WorkingDir)
+			}
 			writeAPIResponse(t, w, executionProcess{
 				ID:        "exec-2",
 				SessionID: "session-1",
@@ -124,6 +127,7 @@ func TestHandleNudgeUpdatesExecutionAndListRunning(t *testing.T) {
 		VibeBaseURL:       server.URL,
 		VibeWorkspaceID:   "ws-1",
 		VibeSessionID:     "session-1",
+		VibeWorkingDir:    "repo-a",
 		ExecutorConfig:    executorConfig{Executor: "CODEX"},
 		Meta:              map[string]string{},
 		LatestExecutionID: "exec-1",
@@ -154,6 +158,87 @@ func TestHandleNudgeUpdatesExecutionAndListRunning(t *testing.T) {
 	}
 	if got := strings.TrimSpace(stdout.String()); got != "agent-2" {
 		t.Fatalf("list-running = %q, want agent-2", got)
+	}
+}
+
+func TestHandleStartAdoptsExistingWorkspaceAndRenamesSession(t *testing.T) {
+	t.Parallel()
+
+	workspaceTarget := t.TempDir()
+	renameCalled := 0
+	var renamedTo string
+	var followupPayload followUpRequest
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/workspaces/ws-adopt":
+			writeAPIResponse(t, w, workspace{ID: "ws-adopt", ContainerRef: stringPtr(workspaceTarget)})
+		case r.Method == http.MethodPut && r.URL.Path == "/api/sessions/session-adopt":
+			renameCalled++
+			var payload updateSessionRequest
+			mustDecodeJSON(t, r.Body, &payload)
+			renamedTo = payload.Name
+			writeAPIResponse(t, w, map[string]any{"id": "session-adopt"})
+		case r.Method == http.MethodPost && r.URL.Path == "/api/sessions/session-adopt/follow-up":
+			mustDecodeJSON(t, r.Body, &followupPayload)
+			writeAPIResponse(t, w, executionProcess{
+				ID:        "exec-adopt",
+				SessionID: "session-adopt",
+				Status:    watcherStatusRunning,
+				UpdatedAt: "2026-04-28T05:06:07Z",
+			})
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	stateRoot := t.TempDir()
+	linkPath := filepath.Join(t.TempDir(), "workdir")
+	r := testRunner(stateRoot, server.URL)
+	r.env["VIBE_ADOPT_WORKSPACE_ID"] = "ws-adopt"
+	r.env["VIBE_ADOPT_SESSION_ID"] = "session-adopt"
+	r.env["VIBE_WORKING_DIR"] = "repo-a"
+	r.env["VIBE_SESSION_LABEL"] = "Bootstrap • API"
+
+	if err := r.handleStart("agent-bootstrap", startConfig{
+		WorkDir: linkPath,
+		Nudge:   "Summarize the repo and plan the work.",
+	}); err != nil {
+		t.Fatalf("handleStart adopt: %v", err)
+	}
+
+	if renameCalled != 1 {
+		t.Fatalf("rename calls = %d, want 1", renameCalled)
+	}
+	if renamedTo != "Bootstrap • API" {
+		t.Fatalf("renamedTo = %q, want Bootstrap • API", renamedTo)
+	}
+	if followupPayload.WorkingDir == nil || *followupPayload.WorkingDir != "repo-a" {
+		t.Fatalf("follow-up working_dir = %#v, want repo-a", followupPayload.WorkingDir)
+	}
+	if followupPayload.Prompt != "Summarize the repo and plan the work." {
+		t.Fatalf("follow-up prompt = %q", followupPayload.Prompt)
+	}
+
+	state, err := r.loadState("agent-bootstrap")
+	if err != nil {
+		t.Fatalf("loadState: %v", err)
+	}
+	if state == nil {
+		t.Fatal("state = nil")
+	}
+	if state.VibeWorkspaceID != "ws-adopt" || state.VibeSessionID != "session-adopt" {
+		t.Fatalf("adopted state = %+v", state)
+	}
+	if state.VibeWorkingDir != "repo-a" {
+		t.Fatalf("working dir = %q, want repo-a", state.VibeWorkingDir)
+	}
+	if state.VibeSessionLabel != "Bootstrap • API" {
+		t.Fatalf("session label = %q", state.VibeSessionLabel)
+	}
+	if target, err := os.Readlink(linkPath); err != nil || target != workspaceTarget {
+		t.Fatalf("Readlink(%q) = %q, %v; want %q", linkPath, target, err, workspaceTarget)
 	}
 }
 

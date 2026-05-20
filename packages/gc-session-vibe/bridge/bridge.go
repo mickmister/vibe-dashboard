@@ -55,6 +55,10 @@ type bridgeConfig struct {
 	TargetBranch          string
 	DeleteWorkspaceOnStop bool
 	StateRoot             string
+	AdoptWorkspaceID      string
+	AdoptSessionID        string
+	SessionLabel          string
+	WorkingDir            string
 	ExecutorConfig        executorConfig
 }
 
@@ -101,6 +105,8 @@ type sessionState struct {
 	VibeWorkspaceID        string            `json:"vibe_workspace_id,omitempty"`
 	VibeWorkspacePath      string            `json:"vibe_workspace_path,omitempty"`
 	VibeSessionID          string            `json:"vibe_session_id,omitempty"`
+	VibeWorkingDir         string            `json:"vibe_working_dir,omitempty"`
+	VibeSessionLabel       string            `json:"vibe_session_label,omitempty"`
 	LatestExecutionID      string            `json:"latest_execution_id,omitempty"`
 	LatestExecutionStatus  string            `json:"latest_execution_status,omitempty"`
 	LastWatchedExecutionID string            `json:"last_watched_execution_id,omitempty"`
@@ -133,9 +139,14 @@ type startWorkspaceResponse struct {
 type followUpRequest struct {
 	Prompt          string         `json:"prompt"`
 	ExecutorConfig  executorConfig `json:"executor_config"`
+	WorkingDir      *string        `json:"working_dir,omitempty"`
 	RetryProcessID  any            `json:"retry_process_id"`
 	ForceWhenDirty  any            `json:"force_when_dirty"`
 	PerformGitReset any            `json:"perform_git_reset"`
+}
+
+type updateSessionRequest struct {
+	Name string `json:"name"`
 }
 
 type normalizedPatchEnvelope struct {
@@ -285,6 +296,15 @@ func (r *runner) handleStart(name string, cfg startConfig) error {
 		state.VibeBaseURL = bridgeCfg.BaseURL
 		state.VibeRepoMatch = bridgeCfg.RepoMatch
 		state.VibeTargetBranch = bridgeCfg.TargetBranch
+		if strings.TrimSpace(bridgeCfg.WorkingDir) != "" {
+			state.VibeWorkingDir = strings.TrimSpace(bridgeCfg.WorkingDir)
+		}
+		if strings.TrimSpace(bridgeCfg.SessionLabel) != "" {
+			state.VibeSessionLabel = strings.TrimSpace(bridgeCfg.SessionLabel)
+			if err := r.updateSessionName(state.VibeBaseURL, state.VibeSessionID, state.VibeSessionLabel); err != nil {
+				fmt.Fprintf(r.stderr, "warning: update session name: %v\n", err)
+			}
+		}
 		state.ExecutorConfig = bridgeCfg.ExecutorConfig
 		if state.Meta == nil {
 			state.Meta = map[string]string{}
@@ -301,6 +321,59 @@ func (r *runner) handleStart(name string, cfg startConfig) error {
 		}
 		if err := r.saveState(state); err != nil {
 			return fmt.Errorf("start: save reused state: %w", err)
+		}
+		if state.LatestExecutionID != "" {
+			if err := r.maybeSpawnWatcher(name, state, state.LatestExecutionID); err != nil {
+				fmt.Fprintf(r.stderr, "warning: start watcher: %v\n", err)
+			}
+		}
+		return nil
+	}
+
+	if strings.TrimSpace(bridgeCfg.AdoptWorkspaceID) != "" {
+		if strings.TrimSpace(bridgeCfg.AdoptSessionID) == "" {
+			return fmt.Errorf("start: missing VIBE_ADOPT_SESSION_ID")
+		}
+		ws, err := r.getWorkspace(strings.TrimSpace(bridgeCfg.AdoptWorkspaceID), bridgeCfg.BaseURL)
+		if err != nil {
+			return fmt.Errorf("start: load adopted workspace: %w", err)
+		}
+		workspacePath := derefString(ws.ContainerRef)
+		if workspacePath == "" {
+			return fmt.Errorf("start: workspace %s has empty container_ref", ws.ID)
+		}
+		if err := r.ensureSymlink(cfg.WorkDir, workspacePath); err != nil {
+			return fmt.Errorf("start: create workdir symlink: %w", err)
+		}
+		state = &sessionState{
+			SessionName:       name,
+			Active:            true,
+			GCWorkDir:         cfg.WorkDir,
+			VibeBaseURL:       bridgeCfg.BaseURL,
+			VibeRepoMatch:     bridgeCfg.RepoMatch,
+			VibeTargetBranch:  bridgeCfg.TargetBranch,
+			VibeWorkspaceID:   ws.ID,
+			VibeWorkspacePath: workspacePath,
+			VibeSessionID:     strings.TrimSpace(bridgeCfg.AdoptSessionID),
+			VibeWorkingDir:    strings.TrimSpace(bridgeCfg.WorkingDir),
+			VibeSessionLabel:  strings.TrimSpace(bridgeCfg.SessionLabel),
+			Meta:              map[string]string{},
+			ExecutorConfig:    bridgeCfg.ExecutorConfig,
+		}
+		if state.VibeSessionLabel != "" {
+			if err := r.updateSessionName(state.VibeBaseURL, state.VibeSessionID, state.VibeSessionLabel); err != nil {
+				fmt.Fprintf(r.stderr, "warning: update session name: %v\n", err)
+			}
+		}
+		if prompt != "" {
+			execProc, err := r.followUp(state, prompt)
+			if err != nil {
+				return fmt.Errorf("start: bootstrap follow-up: %w", err)
+			}
+			updateExecutionState(state, execProc, r.now())
+		}
+		if err := r.saveState(state); err != nil {
+			return fmt.Errorf("start: save adopted state: %w", err)
 		}
 		if state.LatestExecutionID != "" {
 			if err := r.maybeSpawnWatcher(name, state, state.LatestExecutionID); err != nil {
@@ -343,8 +416,15 @@ func (r *runner) handleStart(name string, cfg startConfig) error {
 		VibeWorkspaceID:   ws.ID,
 		VibeWorkspacePath: workspacePath,
 		VibeSessionID:     resp.ExecutionProcess.SessionID,
+		VibeWorkingDir:    strings.TrimSpace(bridgeCfg.WorkingDir),
+		VibeSessionLabel:  strings.TrimSpace(bridgeCfg.SessionLabel),
 		Meta:              map[string]string{},
 		ExecutorConfig:    bridgeCfg.ExecutorConfig,
+	}
+	if state.VibeSessionLabel != "" {
+		if err := r.updateSessionName(state.VibeBaseURL, state.VibeSessionID, state.VibeSessionLabel); err != nil {
+			fmt.Fprintf(r.stderr, "warning: update session name: %v\n", err)
+		}
 	}
 	updateExecutionState(state, resp.ExecutionProcess, r.now())
 	if err := r.saveState(state); err != nil {
@@ -668,6 +748,10 @@ func (r *runner) loadBridgeConfig(startEnv map[string]string) (bridgeConfig, err
 		TargetBranch:          get("VIBE_TARGET_BRANCH"),
 		DeleteWorkspaceOnStop: parseBool(defaultString(get("VIBE_DELETE_WORKSPACE_ON_STOP"), strconv.FormatBool(defaultDeleteOnStop))),
 		StateRoot:             defaultString(get("VIBE_STATE_ROOT"), defaultString(r.env["GC_EXEC_STATE_DIR"], filepath.Join(os.TempDir(), defaultStateDirName))),
+		AdoptWorkspaceID:      get("VIBE_ADOPT_WORKSPACE_ID"),
+		AdoptSessionID:        get("VIBE_ADOPT_SESSION_ID"),
+		SessionLabel:          get("VIBE_SESSION_LABEL"),
+		WorkingDir:            get("VIBE_WORKING_DIR"),
 		ExecutorConfig: executorConfig{
 			Executor:         get("VIBE_EXECUTOR"),
 			Variant:          optionalString(get("VIBE_EXECUTOR_VARIANT")),
@@ -677,7 +761,7 @@ func (r *runner) loadBridgeConfig(startEnv map[string]string) (bridgeConfig, err
 			PermissionPolicy: optionalString(get("VIBE_PERMISSION_POLICY")),
 		},
 	}
-	if cfg.RepoMatch == "" {
+	if cfg.RepoMatch == "" && cfg.AdoptWorkspaceID == "" {
 		return bridgeConfig{}, fmt.Errorf("missing VIBE_REPO_MATCH")
 	}
 	if cfg.ExecutorConfig.Executor == "" {
@@ -817,6 +901,7 @@ func (r *runner) followUp(state *sessionState, prompt string) (executionProcess,
 	payload := followUpRequest{
 		Prompt:          prompt,
 		ExecutorConfig:  state.ExecutorConfig,
+		WorkingDir:      optionalString(strings.TrimSpace(state.VibeWorkingDir)),
 		RetryProcessID:  nil,
 		ForceWhenDirty:  nil,
 		PerformGitReset: nil,
@@ -826,6 +911,17 @@ func (r *runner) followUp(state *sessionState, prompt string) (executionProcess,
 		return executionProcess{}, err
 	}
 	return proc, nil
+}
+
+func (r *runner) updateSessionName(baseURL, sessionID, name string) error {
+	if strings.TrimSpace(name) == "" {
+		return nil
+	}
+	return r.putJSON(
+		strings.TrimRight(baseURL, "/")+"/api/sessions/"+sessionID,
+		updateSessionRequest{Name: strings.TrimSpace(name)},
+		nil,
+	)
 }
 
 func (r *runner) stopExecution(baseURL, executionID string) error {
@@ -875,6 +971,31 @@ func (r *runner) postJSON(rawURL string, payload any, out any) error {
 	if resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		return fmt.Errorf("POST %s: status %d: %s", rawURL, resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	if out == nil {
+		return nil
+	}
+	return decodeAPIResponse(resp.Body, out)
+}
+
+func (r *runner) putJSON(rawURL string, payload any, out any) error {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequest(http.MethodPut, rawURL, bytes.NewReader(data))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := r.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return fmt.Errorf("PUT %s: status %d: %s", rawURL, resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 	if out == nil {
 		return nil
