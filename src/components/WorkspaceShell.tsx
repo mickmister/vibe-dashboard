@@ -546,25 +546,40 @@ export function WorkspaceShell({
                 const isActive = tabGroup.id === session.activeTabGroupId;
 
                 return (
-                  <button
+                  <div
                     key={tabGroup.id}
                     className={`shrink-0 inline-flex select-none items-center gap-1 rounded-md px-2 py-1 text-xs transition-colors ${
                       isActive
                         ? 'bg-primary-500/20 text-primary-300'
                         : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700'
                     }`}
-                    onClick={() => {
-                      sessionActions.selectSpace(space.id);
-                      sessionActions.setActiveTabGroup(tabGroup.id);
-                    }}
                     title={`${space.name} / ${tabGroup.label}`}
-                    aria-label={`Open ${tabGroup.label} in ${space.name}`}
                   >
-                    <span aria-hidden="true">{getMobileTabGroupEmoji(tabGroup)}</span>
-                    <span className="max-w-24 truncate">
-                      {getMobileTabGroupLabel(tabGroup)}
-                    </span>
-                  </button>
+                    <button
+                      className="inline-flex items-center gap-1"
+                      onClick={() => {
+                        sessionActions.selectSpace(space.id);
+                        sessionActions.setActiveTabGroup(tabGroup.id);
+                      }}
+                      aria-label={`Open ${tabGroup.label} in ${space.name}`}
+                    >
+                      <span aria-hidden="true">{getMobileTabGroupEmoji(tabGroup)}</span>
+                      <span>{tabGroup.mobileLabel || tabGroup.label}</span>
+                    </button>
+                    {!isActive && (
+                      <button
+                        className="ml-1 text-neutral-500 hover:text-white"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          sessionActions.removeTabGroupFromSession(tabGroup.id);
+                        }}
+                        aria-label={`Remove ${tabGroup.label} from session`}
+                        title="Remove from session"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
                 );
               })}
               <button

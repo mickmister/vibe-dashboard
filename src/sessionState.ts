@@ -79,7 +79,7 @@ function getValidVisitedTabGroupIds(
   const seen = new Set<string>();
   const nextVisited: string[] = [];
 
-  [activeTabGroupId, ...(visitedTabGroupIds || [])].forEach((tabGroupId) => {
+  (visitedTabGroupIds || []).forEach((tabGroupId) => {
     if (!tabGroupId || !validTabGroupIds.has(tabGroupId) || seen.has(tabGroupId)) {
       return;
     }
@@ -87,6 +87,14 @@ function getValidVisitedTabGroupIds(
     seen.add(tabGroupId);
     nextVisited.push(tabGroupId);
   });
+
+  if (
+    activeTabGroupId &&
+    validTabGroupIds.has(activeTabGroupId) &&
+    !seen.has(activeTabGroupId)
+  ) {
+    nextVisited.push(activeTabGroupId);
+  }
 
   return nextVisited;
 }
