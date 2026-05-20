@@ -539,16 +539,16 @@ export function WorkspaceShell({
 
       {/* Main content area */}
       <div className="flex-1 flex flex-col min-h-0 min-w-0 relative">
-        <div className="hidden md:flex h-11 px-3 border-b border-neutral-800 bg-neutral-900 items-center gap-2 shrink-0">
+        <div className="hidden md:flex h-11 border-b border-neutral-800 bg-neutral-900 items-stretch shrink-0">
           <div className="flex-1 min-w-0 overflow-x-auto scrollbar-hide">
-            <div className="flex items-center gap-1 pr-1 whitespace-nowrap">
+            <div className="flex h-full items-stretch whitespace-nowrap">
               {mobileSessionTabGroups.map(({ space, tabGroup }) => {
                 const isActive = tabGroup.id === session.activeTabGroupId;
 
                 return (
                   <div
                     key={tabGroup.id}
-                    className={`shrink-0 inline-flex select-none items-center gap-1 rounded-md px-2 py-1 text-xs transition-colors ${
+                    className={`shrink-0 inline-flex h-full select-none items-center border-r border-neutral-800 text-xs transition-colors ${
                       isActive
                         ? 'bg-primary-500/20 text-primary-300'
                         : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700'
@@ -556,7 +556,7 @@ export function WorkspaceShell({
                     title={`${space.name} / ${tabGroup.label}`}
                   >
                     <button
-                      className="inline-flex items-center gap-1"
+                      className="inline-flex h-full items-center gap-2 px-3"
                       onClick={() => {
                         sessionActions.selectSpace(space.id);
                         sessionActions.setActiveTabGroup(tabGroup.id);
@@ -568,7 +568,7 @@ export function WorkspaceShell({
                     </button>
                     {!isActive && (
                       <button
-                        className="ml-1 text-neutral-500 hover:text-white"
+                        className="inline-flex h-full items-center px-3 text-neutral-500 hover:text-white border-l border-neutral-800"
                         onClick={(event) => {
                           event.stopPropagation();
                           sessionActions.removeTabGroupFromSession(tabGroup.id);
@@ -583,7 +583,7 @@ export function WorkspaceShell({
                 );
               })}
               <button
-                className="shrink-0 rounded-md border border-neutral-700 bg-neutral-800 px-2 py-1 text-xs text-neutral-300 hover:bg-neutral-700 hover:text-white transition-colors"
+                className="shrink-0 h-full border-r border-neutral-800 bg-neutral-800 px-3 text-xs text-neutral-300 hover:bg-neutral-700 hover:text-white transition-colors"
                 onClick={() =>
                   setSessionTabPickerMode((prev) => (prev === 'desktop' ? null : 'desktop'))
                 }
@@ -614,9 +614,9 @@ export function WorkspaceShell({
           onStartNewSession={sessionActions.startNewSession}
         />
 
-        <div className="md:hidden h-12 px-2 border-t border-neutral-800 bg-neutral-900 flex items-center gap-2 shrink-0">
+        <div className="md:hidden h-12 border-t border-neutral-800 bg-neutral-900 flex items-stretch shrink-0">
           <button
-            className="h-8 w-8 rounded-md text-neutral-200 hover:bg-neutral-800 transition-colors flex items-center justify-center shrink-0"
+            className="h-full px-3 text-neutral-200 hover:bg-neutral-800 transition-colors flex items-center justify-center shrink-0 border-r border-neutral-800"
             onClick={() => setIsSidebarOpen(true)}
             title="Open sidebar"
             aria-label="Open sidebar"
@@ -624,7 +624,7 @@ export function WorkspaceShell({
             ☰
           </button>
           <div className="flex-1 min-w-0 overflow-x-auto scrollbar-hide">
-            <div className="flex items-center gap-1 pr-1 whitespace-nowrap">
+            <div className="flex h-full items-stretch whitespace-nowrap">
               {mobileSessionTabGroups.length > 0 ? (
                 <>
                 {mobileSessionTabGroups.map(({ space, tabGroup }) => {
@@ -633,7 +633,7 @@ export function WorkspaceShell({
                   return (
                     <button
                       key={tabGroup.id}
-                      className={`shrink-0 inline-flex select-none items-center gap-1 rounded-md px-2 py-1 text-xs transition-colors ${
+                      className={`shrink-0 inline-flex h-full select-none items-center gap-2 border-r border-neutral-800 px-3 text-xs transition-colors ${
                         isActive
                           ? 'bg-primary-500/20 text-primary-300'
                           : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700'
@@ -672,7 +672,7 @@ export function WorkspaceShell({
                   );
                 })}
                 <button
-                  className="shrink-0 rounded-md border border-neutral-700 bg-neutral-800 px-2 py-1 text-xs text-neutral-300 hover:bg-neutral-700 hover:text-white transition-colors"
+                  className="shrink-0 h-full border-r border-neutral-800 bg-neutral-800 px-3 text-xs text-neutral-300 hover:bg-neutral-700 hover:text-white transition-colors"
                   onClick={() =>
                     setSessionTabPickerMode((prev) => (prev === 'mobile' ? null : 'mobile'))
                   }
@@ -684,11 +684,11 @@ export function WorkspaceShell({
                 </>
               ) : (
                 <>
-                  <div className="text-xs text-neutral-500">
+                  <div className="h-full inline-flex items-center px-3 text-xs text-neutral-500 border-r border-neutral-800">
                     {activeTabGroup?.label || 'No tab groups'}
                   </div>
                   <button
-                    className="shrink-0 rounded-md border border-neutral-700 bg-neutral-800 px-2 py-1 text-xs text-neutral-300 hover:bg-neutral-700 hover:text-white transition-colors"
+                    className="shrink-0 h-full border-r border-neutral-800 bg-neutral-800 px-3 text-xs text-neutral-300 hover:bg-neutral-700 hover:text-white transition-colors"
                     onClick={() =>
                       setSessionTabPickerMode((prev) => (prev === 'mobile' ? null : 'mobile'))
                     }
