@@ -173,27 +173,34 @@ export function WorkspaceShell({
     dragGroupRef.current = null;
   };
 
+  const cycleSessionTabGroup = (direction: 1 | -1) => {
+    const currentIndex = session.visitedTabGroupIds.indexOf(
+      session.activeTabGroupId,
+    );
+    if (currentIndex === -1 || session.visitedTabGroupIds.length <= 1) {
+      return;
+    }
+
+    const nextIndex =
+      (currentIndex + direction + session.visitedTabGroupIds.length) %
+      session.visitedTabGroupIds.length;
+    const nextTabGroupId = session.visitedTabGroupIds[nextIndex];
+
+    if (!nextTabGroupId) return;
+
+    const nextSpace = workspace.spaces.find((space) =>
+      space.tabGroupIds.includes(nextTabGroupId),
+    );
+    if (nextSpace) {
+      sessionActions.selectSpace(nextSpace.id);
+    }
+    sessionActions.setActiveTabGroup(nextTabGroupId);
+  };
+
   // --- Cmd+W / Cmd+Q exit confirmation ---
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const key = e.key.toLowerCase();
-      console.log('[WorkspaceShell keydown]', {
-        key: e.key,
-        code: e.code,
-        ctrlKey: e.ctrlKey,
-        metaKey: e.metaKey,
-        altKey: e.altKey,
-        shiftKey: e.shiftKey,
-        target:
-          e.target instanceof HTMLElement
-            ? {
-                tagName: e.target.tagName,
-                id: e.target.id,
-                className: e.target.className,
-                isContentEditable: e.target.isContentEditable,
-              }
-            : String(e.target),
-      });
 
       if (
         (e.metaKey || e.ctrlKey) &&
@@ -213,27 +220,7 @@ export function WorkspaceShell({
         if (key === '[' || key === ']') {
           e.preventDefault();
           e.stopPropagation();
-
-          const currentIndex = session.visitedTabGroupIds.indexOf(
-            session.activeTabGroupId,
-          );
-          if (currentIndex !== -1 && session.visitedTabGroupIds.length > 1) {
-            const direction = key === ']' ? 1 : -1;
-            const nextIndex =
-              (currentIndex + direction + session.visitedTabGroupIds.length) %
-              session.visitedTabGroupIds.length;
-            const nextTabGroupId = session.visitedTabGroupIds[nextIndex];
-
-            if (nextTabGroupId) {
-              const nextSpace = workspace.spaces.find((space) =>
-                space.tabGroupIds.includes(nextTabGroupId),
-              );
-              if (nextSpace) {
-                sessionActions.selectSpace(nextSpace.id);
-              }
-              sessionActions.setActiveTabGroup(nextTabGroupId);
-            }
-          }
+          cycleSessionTabGroup(key === ']' ? 1 : -1);
           return;
         }
       }
@@ -251,10 +238,7 @@ export function WorkspaceShell({
     return () =>
       window.removeEventListener('keydown', handler, { capture: true });
   }, [
-    session.activeTabGroupId,
-    session.visitedTabGroupIds,
-    sessionActions,
-    workspace.spaces,
+    cycleSessionTabGroup,
   ]);
 
   useEffect(() => {
@@ -630,15 +614,21 @@ export function WorkspaceShell({
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
-      console.log('[WorkspaceShell message]', {
-        origin: event.origin,
-        data: event.data,
-      });
+      const data = event.data as
+        | { type?: string; action?: string }
+        | undefined;
+      if (data?.type !== 'vk-iframe-shortcut') return;
+
+      if (data.action === 'cycle-next') {
+        cycleSessionTabGroup(1);
+      } else if (data.action === 'cycle-prev') {
+        cycleSessionTabGroup(-1);
+      }
     };
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, []);
+  }, [cycleSessionTabGroup]);
 
   return (
     <div className="w-full h-full flex bg-neutral-950">
