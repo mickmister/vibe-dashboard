@@ -1,0 +1,12 @@
+Vibe Kanban Docs Site
+
+This folder is a standalone pnpm workspace for the Undocs-powered documentation site.
+
+Commands:
+  pnpm install
+  pnpm dev
+  pnpm build
+
+pnpm build generates a static site at .docs/.output/public.
+
+nuxt is listed as a direct dev dependency because Undocs resolves Nuxt from the docs workspace during builds when installed with pnpm.

@@ -1,0 +1,30 @@
+export default {
+  name: 'Vibe Kanban VS Code Web',
+  shortDescription: 'Documentation',
+  description: 'Docs for running and developing Vibe Kanban VS Code Web.',
+  url: 'https://example.com',
+  github: 'vibe-kanban/vibe-kanban-vscode-web',
+  themeColor: 'violet',
+  landing: {
+    heroTitle: 'Vibe Kanban VS Code Web',
+    heroSubtitle: 'Documentation',
+    heroDescription: 'Guides for setup, development, and operations.',
+    heroLinks: {
+      primary: {
+        label: 'Get started',
+        icon: 'i-heroicons-rocket-launch',
+        to: '/guide'
+      }
+    },
+    features: [
+      {
+        title: 'Develop locally',
+        description: 'Install dependencies, run the app, and verify changes.'
+      },
+      {
+        title: 'Operate confidently',
+        description: 'Document deployment, workflows, and production checks as they evolve.'
+      }
+    ]
+  }
+};
