@@ -636,6 +636,11 @@ export function WorkspaceShell({
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
+      console.log('[WorkspaceShell message]', {
+        origin: event.origin,
+        data: event.data,
+      });
+
       const data = event.data as
         | { type?: string; action?: string }
         | undefined;
