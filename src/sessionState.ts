@@ -720,6 +720,35 @@ export function useSessionWorkspaceNav(
     }
   };
 
+  const reorderSessionTabGroups = (sourceId: string, targetId: string) => {
+    setNav((prev) => {
+      const sourceIndex = prev.visitedTabGroupIds.indexOf(sourceId);
+      const targetIndex = prev.visitedTabGroupIds.indexOf(targetId);
+
+      if (
+        sourceIndex === -1 ||
+        targetIndex === -1 ||
+        sourceIndex === targetIndex
+      ) {
+        return prev;
+      }
+
+      const nextVisited = [...prev.visitedTabGroupIds];
+      const [moved] = nextVisited.splice(sourceIndex, 1);
+      if (!moved) return prev;
+      nextVisited.splice(targetIndex, 0, moved);
+
+      return {
+        ...prev,
+        visitedTabGroupIds: getValidVisitedTabGroupIds(
+          workspace,
+          nextVisited,
+          prev.activeTabGroupId,
+        ),
+      };
+    });
+  };
+
   const targetPath = buildNavPath(nav);
 
   return {
@@ -737,5 +766,6 @@ export function useSessionWorkspaceNav(
     startNewSession,
     addTabGroupToSession,
     removeTabGroupFromSession,
+    reorderSessionTabGroups,
   };
 }

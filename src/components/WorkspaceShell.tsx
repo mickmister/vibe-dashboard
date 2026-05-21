@@ -103,6 +103,7 @@ export type SessionActions = {
   deleteSession: (sessionId: string) => void;
   addTabGroupToSession: (tabGroupId: string) => void;
   removeTabGroupFromSession: (tabGroupId: string) => void;
+  reorderSessionTabGroups: (sourceId: string, targetId: string) => void;
 };
 
 interface WorkspaceShellProps {
@@ -147,6 +148,7 @@ export function WorkspaceShell({
   const [mobileTabDraftLabel, setMobileTabDraftLabel] = useState('');
   const [mobileTabDraftEmoji, setMobileTabDraftEmoji] = useState('');
   const dragGroupRef = useRef<string | null>(null);
+  const dragSessionTabGroupRef = useRef<string | null>(null);
   const longPressTimerRef = useRef<number | null>(null);
   const longPressStartedAtRef = useRef<{ x: number; y: number } | null>(null);
   const suppressMobileTabClickRef = useRef(false);
@@ -171,6 +173,26 @@ export function WorkspaceShell({
     if (!sourceId || sourceId === targetGroupId) return;
     actions.reorderTabGroups({ sourceId, targetId: targetGroupId });
     dragGroupRef.current = null;
+  };
+
+  const handleSessionTabGroupDragStart = (
+    e: React.DragEvent,
+    tabGroupId: string,
+  ) => {
+    dragSessionTabGroupRef.current = tabGroupId;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', tabGroupId);
+  };
+
+  const handleSessionTabGroupDrop = (
+    e: React.DragEvent,
+    targetGroupId: string,
+  ) => {
+    e.preventDefault();
+    const sourceId = dragSessionTabGroupRef.current;
+    if (!sourceId || sourceId === targetGroupId) return;
+    sessionActions.reorderSessionTabGroups(sourceId, targetGroupId);
+    dragSessionTabGroupRef.current = null;
   };
 
   const cycleSessionTabGroup = (direction: 1 | -1) => {
@@ -756,6 +778,14 @@ export function WorkspaceShell({
                 return (
                   <div
                     key={tabGroup.id}
+                    draggable
+                    onDragStart={(event) =>
+                      handleSessionTabGroupDragStart(event, tabGroup.id)
+                    }
+                    onDragOver={handleDragOver}
+                    onDrop={(event) =>
+                      handleSessionTabGroupDrop(event, tabGroup.id)
+                    }
                     className={`shrink-0 inline-flex h-full select-none items-center border-r border-neutral-600 border-b-2 text-xs text-neutral-200 transition-colors ${
                       isActive
                         ? 'border-b-primary-400 bg-neutral-900'

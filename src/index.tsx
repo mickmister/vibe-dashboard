@@ -871,6 +871,9 @@ springboard.registerModule(
         removeTabGroupFromSession: (tabGroupId: string) => {
           sessionNav.removeTabGroupFromSession(tabGroupId);
         },
+        reorderSessionTabGroups: (sourceId: string, targetId: string) => {
+          sessionNav.reorderSessionTabGroups(sourceId, targetId);
+        },
       };
 
       return (
