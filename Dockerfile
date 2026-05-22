@@ -1,3 +1,35 @@
+ARG BEADS_WEB_VERSION=v0.11.0
+
+FROM node:22-bookworm AS beads-web-builder
+
+ARG BEADS_WEB_VERSION
+
+WORKDIR /beads-web
+
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    ca-certificates \
+    curl \
+    git \
+    pkg-config \
+    python3 \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV CARGO_HOME=/usr/local/cargo
+ENV RUSTUP_HOME=/usr/local/rustup
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+ENV PATH="/usr/local/cargo/bin:${PATH}"
+
+# Build beads-web from source so the binary links against this image's glibc.
+# The upstream Linux release binary is built on newer Ubuntu and currently requires
+# a newer glibc than Debian bookworm provides.
+RUN git clone --depth 1 --branch "${BEADS_WEB_VERSION}" https://github.com/weselow/beads-web.git . \
+    && npm ci \
+    && npm run build \
+    && cargo build --manifest-path server/Cargo.toml --release \
+    && install -m 0755 server/target/release/beads-server /usr/local/bin/beads-web
+
 FROM node:22-bookworm AS dashboard-builder
 
 WORKDIR /app
@@ -218,6 +250,9 @@ RUN su - vkuser -c "mkdir -p /home/vkuser/.local/share/code-server/extensions &&
 
 # Install Beads CLI
 RUN curl -fsSL https://raw.githubusercontent.com/gastownhall/beads/main/scripts/install.sh | bash
+
+# Install beads-web UI binary
+COPY --from=beads-web-builder /usr/local/bin/beads-web /usr/local/bin/beads-web
 
 # Pre-install vibe-kanban at build time (optional, speeds up first start)
 ARG VIBE_KANBAN_VERSION="latest"
