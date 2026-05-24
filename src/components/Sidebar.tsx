@@ -146,6 +146,13 @@ export function Sidebar({
   const activeSpace = workspace.spaces.find(
     (space) => space.id === activeSpaceId,
   );
+
+  const orderedSpaces = useMemo(() => {
+    return [...workspace.spaces].sort((left, right) => {
+      if (left.isSystem === right.isSystem) return 0;
+      return left.isSystem ? -1 : 1;
+    });
+  }, [workspace.spaces]);
   const activeTabGroups = useMemo(() => {
     if (!activeSpace) return [];
     return activeSpace.tabGroupIds
@@ -168,7 +175,7 @@ export function Sidebar({
 
   const starredTabGroups = useMemo(() => {
     const items: { space: Space; tg: TabGroup }[] = [];
-    for (const space of workspace.spaces) {
+    for (const space of orderedSpaces) {
       if (space.isSystem) continue;
       for (const tgId of space.tabGroupIds) {
         const tg = workspace.tabGroups.find((g) => g.id === tgId);
@@ -176,7 +183,7 @@ export function Sidebar({
       }
     }
     return items;
-  }, [workspace.spaces, workspace.tabGroups]);
+  }, [orderedSpaces, workspace.tabGroups]);
 
   const sessionVisitedTabGroups = useMemo(() => {
     return visitedTabGroupIds
@@ -221,7 +228,7 @@ export function Sidebar({
       e.dataTransfer.effectAllowed = 'move';
       e.dataTransfer.setData('text/plain', tabGroupId);
     },
-    [],
+    [workspace.spaces],
   );
 
   const handleTabGroupDragOver = useCallback((e: React.DragEvent) => {
@@ -242,6 +249,8 @@ export function Sidebar({
 
   const handleSpaceDragStart = useCallback(
     (e: React.DragEvent, spaceId: string) => {
+      const space = workspace.spaces.find((entry) => entry.id === spaceId);
+      if (space?.isSystem) return;
       dragSpaceRef.current = spaceId;
       e.dataTransfer.effectAllowed = 'move';
       e.dataTransfer.setData('text/plain', spaceId);
@@ -1037,10 +1046,10 @@ export function Sidebar({
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto p-2 space-y-1">
-          {workspace.spaces.map((space: Space) => (
+          {orderedSpaces.map((space: Space) => (
             <div
               key={space.id}
-              draggable
+              draggable={!space.isSystem}
               onDragStart={(e) => handleSpaceDragStart(e, space.id)}
               onDragOver={handleSpaceDragOver}
               onDrop={(e) => handleSpaceDrop(e, space.id)}

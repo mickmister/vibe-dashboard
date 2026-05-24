@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Sidebar } from './Sidebar';
 import { WorkspaceContentView } from './WorkspaceContentView';
+import { hasKnownIframeMessageSource } from './IframePanel';
+import { hasSameBaseOrigin } from '../lib/originTrust';
 import { AddTabModal } from './AddTabModal';
 import {
   AddVKWorkspaceModal,
@@ -636,15 +638,12 @@ export function WorkspaceShell({
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
-      console.log('[WorkspaceShell message]', {
-        origin: event.origin,
-        data: event.data,
-      });
-
       const data = event.data as
         | { type?: string; action?: string }
         | undefined;
       if (data?.type !== 'vk-iframe-shortcut') return;
+      if (!hasSameBaseOrigin(event.origin, window.location.origin)) return;
+      if (!hasKnownIframeMessageSource(event.source)) return;
 
       if (data.action === 'cycle-next') {
         cycleSessionTabGroup(1);

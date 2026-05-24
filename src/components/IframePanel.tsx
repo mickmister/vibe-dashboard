@@ -4,6 +4,7 @@ import type { TabGroup, Tab } from '../types';
 import type { WorkspaceState, SavedWorkspaceSession } from '../types';
 import { AppLoadingScreen } from './AppLoadingScreen';
 import { SpacesOverview } from './SpacesOverview';
+import { hasSameBaseOrigin } from '../lib/originTrust';
 
 const INTERNAL_URL_PREFIX = 'internal://';
 
@@ -71,16 +72,29 @@ try {
   // Not in Vite dev mode
 }
 
-function getSelfAppOrigins(): Set<string> {
-  const origins = new Set([window.location.origin]);
-  const { protocol, host } = window.location;
-  const portPrefixMatch = host.match(/^port-\d+\.(.+)$/);
+function isTrustedIframeOrigin(origin: string): boolean {
+  return hasSameBaseOrigin(origin, window.location.origin);
+}
 
-  if (portPrefixMatch) {
-    origins.add(`${protocol}//${portPrefixMatch[1]}`);
-  }
+function applyIframePolicy(iframe: HTMLIFrameElement, iframeSrc: string) {
+  const trusted = (() => {
+    try {
+      return isTrustedIframeOrigin(new URL(iframeSrc).origin);
+    } catch {
+      return false;
+    }
+  })();
 
-  return origins;
+  iframe.setAttribute(
+    'sandbox',
+    trusted
+      ? 'allow-scripts allow-same-origin allow-forms allow-popups allow-modals'
+      : 'allow-scripts allow-forms allow-popups allow-modals',
+  );
+  iframe.setAttribute(
+    'allow',
+    trusted ? 'clipboard-read; clipboard-write; fullscreen' : 'fullscreen',
+  );
 }
 
 function getIframeResolutionOrigin(url: string): string {
@@ -120,10 +134,8 @@ function getTabRenderTarget(url: string): TabRenderTarget {
 
   try {
     const resolvedUrl = new URL(url, getIframeResolutionOrigin(url));
-    const selfAppOrigins = getSelfAppOrigins();
-
     if (
-      selfAppOrigins.has(resolvedUrl.origin) &&
+      isTrustedIframeOrigin(resolvedUrl.origin) &&
       isSelfAppPath(resolvedUrl.pathname, resolvedUrl.searchParams)
     ) {
       return { kind: 'blocked-self-app' };
@@ -149,8 +161,6 @@ function getOrCreateIframe(tab: Tab): IframeEntry {
   const iframe = document.createElement('iframe');
   iframe.title = tab.title;
   iframe.className = 'w-full h-full border-0';
-  iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-popups allow-modals');
-  iframe.setAttribute('allow', 'clipboard-read; clipboard-write; fullscreen');
   iframe.setAttribute('role', 'region');
 
   const entry: IframeEntry = {
@@ -179,6 +189,7 @@ function getOrCreateIframe(tab: Tab): IframeEntry {
   });
 
   if (target.kind === 'iframe') {
+    applyIframePolicy(iframe, target.iframeSrc);
     iframe.src = target.iframeSrc;
   }
 
@@ -271,23 +282,24 @@ function removeAllIframes() {
   }
 }
 
-function ensureRetainedSession(currentSessionId?: string) {
-  const nextSessionId = currentSessionId || null;
-  if (retainedSessionId === nextSessionId) return;
-
-  retainedSessionId = nextSessionId;
-  retainedTabIds = new Set();
-  removeAllIframes();
+export function hasKnownIframeMessageSource(source: MessageEventSource | null): boolean {
+  if (!source) return false;
+  return Array.from(iframeStore.values()).some(
+    (entry) => entry.iframe.contentWindow === source,
+  );
 }
 
 function useImperativeIframes(
+  currentSessionId: string | undefined,
   tabs: Tab[],
   visibleTabIds: Set<string>,
   allKnownTabIds?: Set<string>,
 ) {
-  for (const tab of tabs) {
-    getOrCreateIframe(tab);
-  }
+  const [storeVersion, setStoreVersion] = useState(0);
+
+  const bumpStoreVersion = useCallback(() => {
+    setStoreVersion((prev) => prev + 1);
+  }, []);
 
   const [loadingState, setLoadingState] = useState<Map<string, boolean>>(() => {
     const initial = new Map<string, boolean>();
@@ -307,6 +319,31 @@ function useImperativeIframes(
     }
     return initial;
   });
+
+  useEffect(() => {
+    const nextSessionId = currentSessionId || null;
+    if (retainedSessionId === nextSessionId) return;
+
+    retainedSessionId = nextSessionId;
+    retainedTabIds = new Set();
+    removeAllIframes();
+    bumpStoreVersion();
+  }, [bumpStoreVersion, currentSessionId]);
+
+  useEffect(() => {
+    let createdIframe = false;
+
+    for (const tab of tabs) {
+      const existing = iframeStore.get(tab.id);
+      if (existing) continue;
+      getOrCreateIframe(tab);
+      createdIframe = true;
+    }
+
+    if (createdIframe) {
+      bumpStoreVersion();
+    }
+  }, [bumpStoreVersion, tabs]);
 
   // Update iframe src when tab URL changes
   useEffect(() => {
@@ -338,6 +375,8 @@ function useImperativeIframes(
       // Update iframe src if URL has changed.
       // Resolve tab.url before comparing, since
       // the browser always returns an absolute URL from iframe.src.
+      applyIframePolicy(entry.iframe, target.iframeSrc);
+
       if (entry.iframe.src !== target.iframeSrc) {
         entry.iframe.src = target.iframeSrc;
         // Reset loading and error state
@@ -360,6 +399,7 @@ function useImperativeIframes(
 
   useEffect(() => {
     const now = Date.now();
+    let removedIframe = false;
 
     for (const tab of tabs) {
       if (!visibleTabIds.has(tab.id)) continue;
@@ -374,6 +414,7 @@ function useImperativeIframes(
       for (const tabId of Array.from(retainedTabIds)) {
         if (!allKnownTabIds.has(tabId)) {
           removeIframe(tabId);
+          removedIframe = true;
         }
       }
     }
@@ -393,8 +434,13 @@ function useImperativeIframes(
       const tabId = evictableIds.shift();
       if (!tabId) break;
       removeIframe(tabId);
+      removedIframe = true;
     }
-  }, [allKnownTabIds, tabs, visibleTabIds]);
+
+    if (removedIframe) {
+      bumpStoreVersion();
+    }
+  }, [allKnownTabIds, bumpStoreVersion, tabs, visibleTabIds]);
 
   // Subscribe to load events
   useEffect(() => {
@@ -467,7 +513,7 @@ function useImperativeIframes(
     });
   }, []);
 
-  return { loadingState, errorState, retryTab };
+  return { loadingState, errorState, retryTab, storeVersion };
 }
 
 /**
@@ -475,7 +521,7 @@ function useImperativeIframes(
  * The iframe is appended via useEffect, not rendered by React,
  * so it survives HMR and re-renders.
  */
-function IframeHost({ tabId }: { tabId: string }) {
+function IframeHost({ tabId, storeVersion }: { tabId: string; storeVersion: number }) {
   const hostRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -490,7 +536,7 @@ function IframeHost({ tabId }: { tabId: string }) {
         host.removeChild(entry.container);
       }
     };
-  }, [tabId]);
+  }, [storeVersion, tabId]);
 
   return (
     <div ref={hostRef} className="w-full h-full relative" />
@@ -511,7 +557,6 @@ export function IframePanel({
   onNavigateToTabGroup,
   onOpenVKWorkspace,
 }: IframePanelProps) {
-  ensureRetainedSession(currentSessionId);
   const activeTab = tabGroup.tabs.find(
     (t) => t.id === activeItemId
   );
@@ -543,7 +588,8 @@ export function IframePanel({
     ? new Set(allKnownIframeTabs.map((tab) => tab.id))
     : undefined;
 
-  const { loadingState, errorState, retryTab } = useImperativeIframes(
+  const { loadingState, errorState, retryTab, storeVersion } = useImperativeIframes(
+    currentSessionId,
     retainedTabs,
     visibleIframeTabIds,
     allKnownIframeTabIds,
@@ -556,6 +602,7 @@ export function IframePanel({
         activeTab={activeTab}
         activePair={activePair}
         tabGroup={tabGroup}
+        storeVersion={storeVersion}
       />
       {activePair ? (
         <PairView
@@ -594,11 +641,13 @@ function PersistentIframeLayer({
   activeTab,
   activePair,
   tabGroup,
+  storeVersion,
 }: {
   retainedTabs: Tab[];
   activeTab?: Tab;
   activePair?: { id: string; tabIds: string[]; ratios: number[] };
   tabGroup: TabGroup;
+  storeVersion: number;
 }) {
   const layoutStyles = new Map<string, React.CSSProperties>();
 
@@ -656,7 +705,7 @@ function PersistentIframeLayer({
               }
             }
           >
-            <IframeHost tabId={tab.id} />
+            <IframeHost tabId={tab.id} storeVersion={storeVersion} />
           </div>
         );
       })}

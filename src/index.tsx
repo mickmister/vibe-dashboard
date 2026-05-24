@@ -14,6 +14,7 @@ import {
   setBrowserSessionId,
   useSessionWorkspaceNav,
 } from './sessionState';
+import { buildWorkspaceFolderUrl, resolveWorkspaceContainerRef } from './lib/vkWorkspaceOpen';
 
 // Ensure dark class is on the document root so portaled elements (modals, popovers)
 // inherit dark mode styles
@@ -23,7 +24,7 @@ springboard.registerSplashScreen(AppLoadingScreen);
 // @platform end
 
 import springboard from 'springboard';
-import { createDefaultWorkspace } from './types';
+import { createDefaultWorkspace, getDefaultSpace } from './types';
 import type {
   WorkspaceState,
   SavedWorkspaceSession,
@@ -116,13 +117,10 @@ function canPairTabs(tabUrls: string[]): boolean {
   return tabUrls.every((url) => !isInternalTabUrl(url));
 }
 
-console.log('outside of module');
 springboard.registerModule(
   'workspace',
   { rpcMode: 'remote' },
   async (moduleAPI) => {
-    console.log('inside of module');
-
     const workspaceState =
       await moduleAPI.statesAPI.createPersistentState<WorkspaceState>(
         'workspace',
@@ -379,12 +377,12 @@ springboard.registerModule(
           | undefined;
 
         workspaceState.setStateImmer((draft) => {
-          const firstSpace = draft.spaces[0];
-          if (!firstSpace) return;
+          const defaultSpace = getDefaultSpace(draft);
+          if (!defaultSpace) return;
 
           let firstTabGroup =
-            firstSpace.tabGroupIds.length > 0
-              ? draft.tabGroups.find((g) => g.id === firstSpace.tabGroupIds[0])
+            defaultSpace.tabGroupIds.length > 0
+              ? draft.tabGroups.find((g) => g.id === defaultSpace.tabGroupIds[0])
               : undefined;
 
           if (!firstTabGroup) {
@@ -400,10 +398,10 @@ springboard.registerModule(
             };
             draft.tabGroups.push(firstTabGroup);
 
-            if (firstSpace.tabGroupIds.length > 0) {
-              firstSpace.tabGroupIds[0] = tabGroupId;
+            if (defaultSpace.tabGroupIds.length > 0) {
+              defaultSpace.tabGroupIds[0] = tabGroupId;
             } else {
-              firstSpace.tabGroupIds.push(tabGroupId);
+              defaultSpace.tabGroupIds.push(tabGroupId);
             }
           }
 
@@ -412,7 +410,7 @@ springboard.registerModule(
           );
           if (existingTab) {
             result = {
-              spaceId: firstSpace.id,
+              spaceId: defaultSpace.id,
               tabGroupId: firstTabGroup.id,
               tabId: existingTab.id,
             };
@@ -427,7 +425,7 @@ springboard.registerModule(
           });
 
           result = {
-            spaceId: firstSpace.id,
+            spaceId: defaultSpace.id,
             tabGroupId: firstTabGroup.id,
             tabId,
           };
@@ -532,7 +530,7 @@ springboard.registerModule(
               {
                 id: codeTabId,
                 title: 'Code',
-                url: `${args.baseOrigin}/?folder=${args.containerRef}`,
+                url: buildWorkspaceFolderUrl(args.baseOrigin, args.containerRef),
               },
             ],
             pairs: [
@@ -608,6 +606,10 @@ springboard.registerModule(
 
       reorderSpaces: async (args: { sourceId: string; targetId: string }) => {
         workspaceState.setStateImmer((draft) => {
+          const sourceSpace = draft.spaces.find((s) => s.id === args.sourceId);
+          const targetSpace = draft.spaces.find((s) => s.id === args.targetId);
+          if (sourceSpace?.isSystem || targetSpace?.isSystem) return;
+
           const srcIdx = draft.spaces.findIndex((s) => s.id === args.sourceId);
           const tgtIdx = draft.spaces.findIndex((s) => s.id === args.targetId);
           if (srcIdx === -1 || tgtIdx === -1) return;
@@ -894,15 +896,18 @@ springboard.registerModule(
             sessionNav.selectTab(result.tabGroupId, result.firstTabId);
           }
         },
-        addVKWorkspace: (args: {
+        addVKWorkspace: async (args: {
           taskAttemptId: string;
           name: string;
           containerRef: string;
           activeSpaceId: string;
         }) => {
-          // Get base origin from client side before calling action
           const baseOrigin = getBaseOrigin();
-          return actions.addVKWorkspace({ ...args, baseOrigin });
+          const containerRef = await resolveWorkspaceContainerRef(
+            args.taskAttemptId,
+            args.containerRef,
+          );
+          return actions.addVKWorkspace({ ...args, containerRef, baseOrigin });
         },
         ensureCreateWorkspaceTab: () => {
           const baseOrigin = getBaseOrigin();

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { getDefaultSpace, getFirstTabGroupForSpace } from "./types";
 import type { WorkspaceState, SavedWorkspaceSession } from "./types";
 
 /**
@@ -119,12 +120,12 @@ function createDefaultSessionNav(workspace: WorkspaceState): SessionWorkspaceNav
     activeItems[tg.id] = firstItem;
   });
 
-  const firstSpace = workspace.spaces[0];
-  const firstTabGroup = firstSpace
-    ? workspace.tabGroups.find((tg) => firstSpace.tabGroupIds.includes(tg.id))
+  const defaultSpace = getDefaultSpace(workspace);
+  const firstTabGroup = defaultSpace
+    ? getFirstTabGroupForSpace(workspace, defaultSpace.id)
     : workspace.tabGroups[0];
 
-  const activeSpaceId = firstSpace?.id || "";
+  const activeSpaceId = defaultSpace?.id || "";
   const activeTabGroupId = firstTabGroup?.id || "";
 
   return {

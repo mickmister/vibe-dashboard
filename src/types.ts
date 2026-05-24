@@ -67,6 +67,25 @@ export interface WorkspaceState {
   nextId: number;
 }
 
+
+export function getDefaultSpace(workspace: WorkspaceState): Space | undefined {
+  return (
+    workspace.spaces.find((space) => space.isSystem) ||
+    workspace.spaces.find((space) => space.id === 'space_home') ||
+    workspace.spaces[0]
+  );
+}
+
+export function getFirstTabGroupForSpace(
+  workspace: WorkspaceState,
+  spaceId: string | undefined,
+): TabGroup | undefined {
+  if (!spaceId) return undefined;
+  const space = workspace.spaces.find((entry) => entry.id === spaceId);
+  if (!space) return undefined;
+  return workspace.tabGroups.find((tabGroup) => space.tabGroupIds.includes(tabGroup.id));
+}
+
 export function generateId(state: WorkspaceState, prefix: string): string {
   return `${prefix}_${state.nextId}`;
 }
