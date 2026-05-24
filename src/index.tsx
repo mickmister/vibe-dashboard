@@ -3,13 +3,14 @@ import '@vitejs/plugin-react/preamble';
 import './styles';
 
 import React, { useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router';
+import { useLocation, useParams, useNavigate } from 'react-router';
 import { HeroUIProvider } from '@heroui/react';
 import { AppLoadingScreen } from './components/AppLoadingScreen';
 import { WorkspaceShell } from './components/WorkspaceShell';
 import {
   createNewBrowserSessionId,
   getOrCreateBrowserSessionId,
+  getStoredBrowserSessionId,
   setBrowserSessionId,
   useSessionWorkspaceNav,
 } from './sessionState';
@@ -93,6 +94,16 @@ function createDefaultSavedSessionState(): SavedWorkspaceSessionState {
   };
 }
 
+type OriginSessionResumeState = {
+  lastSessionByOrigin: Record<string, string>;
+};
+
+function createDefaultOriginSessionResumeState(): OriginSessionResumeState {
+  return {
+    lastSessionByOrigin: {},
+  };
+}
+
 function pickRandomMobileEmoji() {
   return MOBILE_TAB_EMOJIS[Math.floor(Math.random() * MOBILE_TAB_EMOJIS.length)];
 }
@@ -121,6 +132,11 @@ springboard.registerModule(
       await moduleAPI.statesAPI.createPersistentState<SavedWorkspaceSessionState>(
         'workspace-sessions',
         createDefaultSavedSessionState(),
+      );
+    const originSessionResumeState =
+      await moduleAPI.statesAPI.createPersistentState<OriginSessionResumeState>(
+        'workspace-origin-session-resume',
+        createDefaultOriginSessionResumeState(),
       );
 
     const actions = moduleAPI.createActions({
@@ -665,15 +681,31 @@ springboard.registerModule(
         savedSessionsState.setStateImmer((draft) => {
           draft.sessions = draft.sessions.filter((session) => session.id !== args.id);
         });
+        originSessionResumeState.setStateImmer((draft) => {
+          Object.entries(draft.lastSessionByOrigin).forEach(([origin, sessionId]) => {
+            if (sessionId === args.id) {
+              delete draft.lastSessionByOrigin[origin];
+            }
+          });
+        });
+      },
+      setOriginDefaultSession: async (args: {
+        origin: string;
+        sessionId: string;
+      }) => {
+        originSessionResumeState.setStateImmer((draft) => {
+          draft.lastSessionByOrigin[args.origin] = args.sessionId;
+        });
       },
     });
 
     // Redirect component for root path (dev server case)
     const RootRedirect = () => {
       const navigate = useNavigate();
+      const location = useLocation();
       useEffect(() => {
-        navigate('/dashboard', { replace: true });
-      }, [navigate]);
+        navigate(`/dashboard${location.search}`, { replace: true });
+      }, [location.search, navigate]);
       return null;
     };
 
@@ -681,16 +713,45 @@ springboard.registerModule(
     const WorkspaceRoute = () => {
       const workspace = workspaceState.useState();
       const savedSessions = savedSessionsState.useState();
+      const originSessionResume = originSessionResumeState.useState();
       const { spaceId, tabGroupId, itemId } = useParams<{
         spaceId?: string;
         tabGroupId?: string;
         itemId?: string;
       }>();
+      const location = useLocation();
       const navigate = useNavigate();
+      const savedSessionIds = new Set(savedSessions.sessions.map((session) => session.id));
+      const sessionSearchParams = new URLSearchParams(location.search);
+      const hasSessionBookmarkParam = sessionSearchParams.has('session');
+      const bookmarkedSessionId = (() => {
+        if (typeof window === 'undefined') return undefined;
+        const value = sessionSearchParams.get('session');
+        return value && savedSessionIds.has(value) ? value : undefined;
+      })();
+      const currentOrigin =
+        typeof window === 'undefined' ? undefined : window.location.origin;
+      const originDefaultSessionId =
+        currentOrigin
+          ? originSessionResume.lastSessionByOrigin[currentOrigin]
+          : undefined;
+      const storedBrowserSessionId =
+        typeof window === 'undefined'
+          ? null
+          : getStoredBrowserSessionId();
+      const preferredSessionId =
+        bookmarkedSessionId ||
+        (storedBrowserSessionId && savedSessionIds.has(storedBrowserSessionId)
+          ? storedBrowserSessionId
+          : undefined) ||
+        (originDefaultSessionId && savedSessionIds.has(originDefaultSessionId)
+          ? originDefaultSessionId
+          : undefined) ||
+        (storedBrowserSessionId ? createNewBrowserSessionId() : undefined);
       const browserSessionId =
         typeof window === 'undefined'
           ? 'server-session'
-          : getOrCreateBrowserSessionId();
+          : getOrCreateBrowserSessionId(preferredSessionId);
       const activeSavedSession = savedSessions.sessions.find(
         (session) => session.id === browserSessionId,
       );
@@ -749,6 +810,14 @@ springboard.registerModule(
         sessionNav.visitedTabGroupIds,
       ]);
 
+      useEffect(() => {
+        if (!(currentOrigin && browserSessionId)) return;
+        void actions.setOriginDefaultSession({
+          origin: currentOrigin,
+          sessionId: browserSessionId,
+        });
+      }, [actions, browserSessionId, currentOrigin]);
+
       // Sync URL to match current nav state
       useEffect(() => {
         const segments = [
@@ -757,11 +826,23 @@ springboard.registerModule(
           tabGroupId,
           itemId,
         ].filter(Boolean);
-        const currentPath = segments.join('/');
-        if (sessionNav.targetPath !== currentPath) {
-          navigate(sessionNav.targetPath, { replace: true });
+        const currentPath = `${segments.join('/')}${location.search}`;
+        const nextSearch = bookmarkedSessionId
+          ? `?session=${encodeURIComponent(bookmarkedSessionId)}`
+          : '';
+        const nextPath = `${sessionNav.targetPath}${nextSearch}`;
+        if (nextPath !== currentPath) {
+          navigate(nextPath, { replace: true });
         }
-      }, [sessionNav.targetPath, spaceId, tabGroupId, itemId, navigate]);
+      }, [
+        bookmarkedSessionId,
+        itemId,
+        location.search,
+        navigate,
+        sessionNav.targetPath,
+        spaceId,
+        tabGroupId,
+      ]);
 
       // Wrap actions that need session parameters
       const wrappedActions = {
@@ -829,6 +910,15 @@ springboard.registerModule(
         },
       };
 
+      const updateBookmarkedSessionSearch = (sessionId: string) => {
+        if (!hasSessionBookmarkParam) return;
+        const nextSearchParams = new URLSearchParams(location.search);
+        nextSearchParams.set('session', sessionId);
+        navigate(`${location.pathname}?${nextSearchParams.toString()}`, {
+          replace: true,
+        });
+      };
+
       const sessionActions = {
         selectSpace: sessionNav.selectSpace,
         selectTab: sessionNav.selectTab,
@@ -843,6 +933,7 @@ springboard.registerModule(
           if (typeof window !== 'undefined') {
             setBrowserSessionId(sessionId);
           }
+          updateBookmarkedSessionSearch(sessionId);
           sessionNav.resumeSession(sessionToResume);
         },
         startNewSession: () => {
@@ -850,6 +941,7 @@ springboard.registerModule(
           if (typeof window !== 'undefined') {
             setBrowserSessionId(nextSessionId);
           }
+          updateBookmarkedSessionSearch(nextSessionId);
           sessionNav.startNewSession();
         },
         renameSession: (sessionId: string, name: string) => {
@@ -861,6 +953,7 @@ springboard.registerModule(
             if (typeof window !== 'undefined') {
               setBrowserSessionId(nextSessionId);
             }
+            updateBookmarkedSessionSearch(nextSessionId);
             sessionNav.startNewSession();
           }
           void actions.deleteSavedSession({ id: sessionId });

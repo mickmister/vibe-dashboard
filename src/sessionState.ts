@@ -36,8 +36,21 @@ export function createNewBrowserSessionId(): string {
   return createBrowserSessionId();
 }
 
-export function getOrCreateBrowserSessionId(): string {
+export function getStoredBrowserSessionId(): string | null {
   try {
+    return sessionStorage.getItem(BROWSER_SESSION_ID_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function getOrCreateBrowserSessionId(preferredSessionId?: string): string {
+  try {
+    if (preferredSessionId) {
+      sessionStorage.setItem(BROWSER_SESSION_ID_KEY, preferredSessionId);
+      return preferredSessionId;
+    }
+
     const existing = sessionStorage.getItem(BROWSER_SESSION_ID_KEY);
     if (existing) return existing;
 
@@ -45,7 +58,7 @@ export function getOrCreateBrowserSessionId(): string {
     sessionStorage.setItem(BROWSER_SESSION_ID_KEY, next);
     return next;
   } catch {
-    return createBrowserSessionId();
+    return preferredSessionId || createBrowserSessionId();
   }
 }
 
