@@ -882,7 +882,7 @@ export function WorkspaceShell({
           <div
             className="md:hidden fixed inset-x-0 z-[64] border-y border-neutral-700 bg-neutral-900/95"
             style={{
-              bottom: 'calc(2.5rem + env(safe-area-inset-bottom))',
+              bottom: 'calc(2.5rem + env(safe-area-inset-bottom) + 10px)',
               maxHeight: 'min(50vh, calc(100dvh - 8rem - env(safe-area-inset-bottom)))',
             }}
           >
@@ -912,12 +912,6 @@ export function WorkspaceShell({
             </div>
           </div>
         )}
-
-        <div
-          className="md:hidden shrink-0"
-          style={{ height: 'calc(2.5rem + env(safe-area-inset-bottom))' }}
-          aria-hidden="true"
-        />
 
         <div
           className="md:hidden fixed inset-x-0 bottom-0 z-[65] h-10 border-t border-neutral-700 bg-neutral-900 flex items-stretch shrink-0"
