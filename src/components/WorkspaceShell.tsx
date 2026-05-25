@@ -1200,7 +1200,10 @@ function isEditableTarget(target: EventTarget | null): boolean {
 }
 
 function getMobileTabGroupLabel(tabGroup: TabGroup): string {
-  const compact = (tabGroup.mobileLabel || tabGroup.label).trim();
+  const custom = tabGroup.mobileLabel?.trim();
+  if (custom) return custom;
+
+  const compact = tabGroup.label.trim();
   if (!compact) return 'Tab';
   if (compact.length <= 4) return compact;
 
