@@ -877,9 +877,6 @@ export function WorkspaceShell({
           onDeleteSession={sessionActions.deleteSession}
           onStartNewSession={sessionActions.startNewSession}
         />
-
-        <div className="md:hidden shrink-0" style={{ height: 'var(--mobile-footer-height)' }} aria-hidden="true" />
-
         {expandedSessionTabGroup && (
           <div
             className="md:hidden absolute inset-x-0 z-[64] border-y border-neutral-700 bg-neutral-900/95"
