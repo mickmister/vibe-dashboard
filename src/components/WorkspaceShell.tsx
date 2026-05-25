@@ -965,7 +965,7 @@ export function WorkspaceShell({
                       <span aria-hidden="true">
                         {getMobileTabGroupEmoji(tabGroup)}
                       </span>
-                      <span className="max-w-10 truncate">
+                      <span>
                         {getMobileTabGroupLabel(tabGroup)}
                       </span>
                     </button>
