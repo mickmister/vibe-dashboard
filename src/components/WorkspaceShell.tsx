@@ -880,9 +880,9 @@ export function WorkspaceShell({
 
         {expandedSessionTabGroup && (
           <div
-            className="md:hidden fixed inset-x-0 z-[64] border-y border-neutral-700 bg-neutral-900/95"
+            className="md:hidden absolute inset-x-0 z-[64] border-y border-neutral-700 bg-neutral-900/95"
             style={{
-              bottom: 'calc(2.5rem + env(safe-area-inset-bottom) + 10px)',
+              bottom: 'var(--mobile-footer-height)',
               maxHeight: 'min(50vh, calc(100dvh - 8rem - env(safe-area-inset-bottom)))',
             }}
           >
@@ -914,8 +914,8 @@ export function WorkspaceShell({
         )}
 
         <div
-          className="md:hidden fixed inset-x-0 bottom-0 z-[65] h-10 border-t border-neutral-700 bg-neutral-900 flex items-stretch shrink-0"
-          style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+          className="md:hidden z-[65] border-t border-neutral-700 bg-neutral-900 flex items-stretch shrink-0"
+          style={{ height: 'var(--mobile-footer-height)', paddingBottom: 'env(safe-area-inset-bottom)', boxSizing: 'border-box' }}
         >
           <button
             className="h-full px-3 text-neutral-200 hover:bg-neutral-800 transition-colors flex items-center justify-center shrink-0 border-r border-neutral-700"
