@@ -914,7 +914,7 @@ export function WorkspaceShell({
         )}
 
         <div
-          className="md:hidden fixed inset-x-0 bottom-0 z-[65] h-10 border-t border-neutral-700 bg-neutral-900/0 flex items-stretch shrink-0 opacity-0 pointer-events-none"
+          className="md:hidden fixed inset-x-0 bottom-0 z-[65] h-10 border-t border-neutral-700 bg-neutral-900 flex items-stretch shrink-0"
           style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
         >
           <button

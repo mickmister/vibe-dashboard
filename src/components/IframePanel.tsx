@@ -694,7 +694,7 @@ function PersistentIframeLayer({
 
   return (
     <div
-      className="absolute inset-x-0 top-0 overflow-hidden border-[10px] border-neutral-700 box-border md:bottom-0"
+      className="absolute inset-x-0 top-0 overflow-hidden box-border md:bottom-0"
       style={MOBILE_VIEWPORT_INSET_STYLE}
     >
       {retainedTabs.map((tab) => {
