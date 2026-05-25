@@ -157,6 +157,8 @@ function getOrCreateIframe(tab: Tab): IframeEntry {
   container.style.height = '100%';
   container.style.position = 'absolute';
   container.style.inset = '0';
+  container.style.border = '1px solid rgb(64 64 64)';
+  container.style.boxSizing = 'border-box';
 
   const iframe = document.createElement('iframe');
   iframe.title = tab.title;
