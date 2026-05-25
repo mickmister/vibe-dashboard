@@ -40,7 +40,7 @@ textarea {
 
 @media (max-width: 767px) {
   :root {
-    --mobile-footer-offset: 6px;
+    --mobile-footer-offset: calc(8.25rem + env(safe-area-inset-bottom));
     --mobile-footer-height: calc(2.5rem + env(safe-area-inset-bottom));
   }
 }
