@@ -161,8 +161,6 @@ function getOrCreateIframe(tab: Tab): IframeEntry {
   container.style.height = '100%';
   container.style.position = 'absolute';
   container.style.inset = '0';
-  container.style.border = '10px solid rgb(64 64 64)';
-  container.style.boxSizing = 'border-box';
 
   const iframe = document.createElement('iframe');
   iframe.title = tab.title;
@@ -695,7 +693,10 @@ function PersistentIframeLayer({
   }
 
   return (
-    <div className="absolute inset-x-0 top-0 md:bottom-0" style={MOBILE_VIEWPORT_INSET_STYLE}>
+    <div
+      className="absolute inset-x-0 top-0 overflow-hidden border-[10px] border-neutral-700 box-border md:bottom-0"
+      style={MOBILE_VIEWPORT_INSET_STYLE}
+    >
       {retainedTabs.map((tab) => {
         const activeStyle = layoutStyles.get(tab.id);
         return (
