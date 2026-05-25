@@ -8,7 +8,9 @@ import { hasSameBaseOrigin } from '../lib/originTrust';
 
 const INTERNAL_URL_PREFIX = 'internal://';
 
-const MOBILE_VIEWPORT_INSET_CLASS = 'bottom-[calc(2.5rem+env(safe-area-inset-bottom)+10px)] md:bottom-0';
+const MOBILE_VIEWPORT_INSET_STYLE = {
+  bottom: 'var(--mobile-footer-offset)',
+};
 
 interface IframePanelProps {
   tabGroup: TabGroup;
@@ -693,7 +695,7 @@ function PersistentIframeLayer({
   }
 
   return (
-    <div className={`absolute inset-x-0 top-0 ${MOBILE_VIEWPORT_INSET_CLASS}`}>
+    <div className="absolute inset-x-0 top-0 md:bottom-0" style={MOBILE_VIEWPORT_INSET_STYLE}>
       {retainedTabs.map((tab) => {
         const activeStyle = layoutStyles.get(tab.id);
         return (
@@ -786,7 +788,7 @@ function SingleTabView({
   }
 
   return (
-    <div className={`absolute inset-x-0 top-0 ${MOBILE_VIEWPORT_INSET_CLASS} pointer-events-none`}>
+    <div className="absolute inset-x-0 top-0 md:bottom-0 pointer-events-none" style={MOBILE_VIEWPORT_INSET_STYLE}>
       {hasError ? (
         <ErrorOverlay url={activeTab.url} onRetry={() => retryTab(activeTab.id)} />
       ) : !isLoaded ? (
@@ -825,7 +827,8 @@ function PairView({
   return (
     <Group
       orientation="horizontal"
-      className={`flex-1 min-h-0 absolute inset-x-0 top-0 ${MOBILE_VIEWPORT_INSET_CLASS} z-10`}
+      className="flex-1 min-h-0 absolute inset-x-0 top-0 md:bottom-0 z-10"
+      style={MOBILE_VIEWPORT_INSET_STYLE}
       onLayoutChanged={handleLayoutChange}
     >
       {pairTabs.map((tab, i) => {
@@ -882,7 +885,7 @@ function PairTabView({
 
 function EmptyView() {
   return (
-    <div className={`absolute inset-x-0 top-0 ${MOBILE_VIEWPORT_INSET_CLASS} flex items-center justify-center text-neutral-500`}>
+    <div className="absolute inset-x-0 top-0 md:bottom-0 flex items-center justify-center text-neutral-500" style={MOBILE_VIEWPORT_INSET_STYLE}>
       <p>No tab selected. Click + to add a tab.</p>
     </div>
   );

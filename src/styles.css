@@ -32,3 +32,13 @@ textarea {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+:root {
+  --mobile-footer-offset: 0px;
+}
+
+@media (max-width: 767px) {
+  :root {
+    --mobile-footer-offset: calc(2.5rem + env(safe-area-inset-bottom) + 10px);
+  }
+}
