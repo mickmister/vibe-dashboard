@@ -771,7 +771,7 @@ export function WorkspaceShell({
       </div>
 
       {/* Main content area */}
-      <div className="flex-1 flex flex-col min-h-0 min-w-0 relative">
+      <div className="flex-1 flex flex-col min-h-0 min-w-0 relative pb-12 md:pb-0">
         {showSessionTopBar && (
         <div className="hidden md:flex h-9 border-b border-neutral-600 bg-neutral-900 items-stretch shrink-0">
           <div className="flex-1 min-w-0 overflow-x-auto scrollbar-hide">
@@ -907,7 +907,7 @@ export function WorkspaceShell({
           </div>
         )}
 
-        <div className="md:hidden h-12 border-t border-neutral-700 bg-neutral-900 flex items-stretch shrink-0">
+        <div className="md:hidden fixed inset-x-0 bottom-0 z-[65] h-12 border-t border-neutral-700 bg-neutral-900 flex items-stretch shrink-0">
           <button
             className="h-full px-3 text-neutral-200 hover:bg-neutral-800 transition-colors flex items-center justify-center shrink-0 border-r border-neutral-700"
             onClick={() => setIsSidebarOpen(true)}
