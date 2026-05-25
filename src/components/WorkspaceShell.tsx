@@ -879,7 +879,7 @@ export function WorkspaceShell({
         />
         {expandedSessionTabGroup && (
           <div
-            className="md:hidden absolute inset-x-0 z-[64] border-y border-neutral-700 bg-neutral-900/95"
+            className="md:hidden fixed inset-x-0 z-[64] border-y border-neutral-700 bg-neutral-900/95"
             style={{
               bottom: 'var(--mobile-footer-height)',
               maxHeight: 'min(50vh, calc(100dvh - 8rem - env(safe-area-inset-bottom)))',
