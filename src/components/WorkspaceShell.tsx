@@ -771,7 +771,7 @@ export function WorkspaceShell({
       </div>
 
       {/* Main content area */}
-      <div className="flex-1 flex flex-col min-h-0 min-w-0 relative pb-[calc(3rem+env(safe-area-inset-bottom))] md:pb-0">
+      <div className="flex-1 flex flex-col min-h-0 min-w-0 relative pb-[calc(2.5rem+env(safe-area-inset-bottom))] md:pb-0">
         {showSessionTopBar && (
         <div className="hidden md:flex h-9 border-b border-neutral-600 bg-neutral-900 items-stretch shrink-0">
           <div className="flex-1 min-w-0 overflow-x-auto scrollbar-hide">
@@ -882,7 +882,7 @@ export function WorkspaceShell({
           <div
             className="md:hidden fixed inset-x-0 z-[64] border-y border-neutral-700 bg-neutral-900/95"
             style={{
-              bottom: 'calc(3rem + env(safe-area-inset-bottom))',
+              bottom: 'calc(2.5rem + env(safe-area-inset-bottom))',
               maxHeight: 'min(50vh, calc(100dvh - 8rem - env(safe-area-inset-bottom)))',
             }}
           >
@@ -914,7 +914,7 @@ export function WorkspaceShell({
         )}
 
         <div
-          className="md:hidden fixed inset-x-0 bottom-0 z-[65] h-12 border-t border-neutral-700 bg-neutral-900 flex items-stretch shrink-0"
+          className="md:hidden fixed inset-x-0 bottom-0 z-[65] h-10 border-t border-neutral-700 bg-neutral-900 flex items-stretch shrink-0"
           style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
         >
           <button
