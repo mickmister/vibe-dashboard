@@ -771,7 +771,7 @@ export function WorkspaceShell({
       </div>
 
       {/* Main content area */}
-      <div className="flex-1 flex flex-col min-h-0 min-w-0 relative pb-[calc(2.5rem+env(safe-area-inset-bottom))] md:pb-0">
+      <div className="flex-1 flex flex-col min-h-0 min-w-0 relative">
         {showSessionTopBar && (
         <div className="hidden md:flex h-9 border-b border-neutral-600 bg-neutral-900 items-stretch shrink-0">
           <div className="flex-1 min-w-0 overflow-x-auto scrollbar-hide">
@@ -912,6 +912,12 @@ export function WorkspaceShell({
             </div>
           </div>
         )}
+
+        <div
+          className="md:hidden shrink-0"
+          style={{ height: 'calc(2.5rem + env(safe-area-inset-bottom))' }}
+          aria-hidden="true"
+        />
 
         <div
           className="md:hidden fixed inset-x-0 bottom-0 z-[65] h-10 border-t border-neutral-700 bg-neutral-900 flex items-stretch shrink-0"
