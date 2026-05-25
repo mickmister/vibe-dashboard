@@ -878,6 +878,8 @@ export function WorkspaceShell({
           onStartNewSession={sessionActions.startNewSession}
         />
 
+        <div className="md:hidden shrink-0" style={{ height: 'var(--mobile-footer-height)' }} aria-hidden="true" />
+
         {expandedSessionTabGroup && (
           <div
             className="md:hidden absolute inset-x-0 z-[64] border-y border-neutral-700 bg-neutral-900/95"
@@ -914,7 +916,7 @@ export function WorkspaceShell({
         )}
 
         <div
-          className="md:hidden z-[65] border-t border-neutral-700 bg-neutral-900 flex items-stretch shrink-0"
+          className="md:hidden fixed inset-x-0 bottom-0 z-[65] border-t border-neutral-700 bg-neutral-900 flex items-stretch shrink-0"
           style={{ height: 'var(--mobile-footer-height)', paddingBottom: 'env(safe-area-inset-bottom)', boxSizing: 'border-box' }}
         >
           <button
