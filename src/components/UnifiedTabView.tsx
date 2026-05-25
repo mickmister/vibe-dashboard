@@ -55,7 +55,10 @@ export function UnifiedTabView({
         />
       )}
 
-      <div className="flex-1 min-h-0 pb-[calc(2.5rem+env(safe-area-inset-bottom)+10px)] md:pb-0">
+      <div
+        className="flex-1 min-h-0 md:pb-0"
+        style={{ height: "calc(100% - (2.5rem + env(safe-area-inset-bottom) + 10px))" }}
+      >
         {activeTabGroup ? (
           <IframePanel
             tabGroup={activeTabGroup}
