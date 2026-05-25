@@ -936,7 +936,7 @@ export function WorkspaceShell({
                       key={tabGroup.id}
                       className={`shrink-0 inline-flex h-full select-none items-center gap-2 border-r border-neutral-700 px-3 text-xs text-neutral-200 transition-colors ${
                         isActive
-                          ? 'bg-neutral-800 shadow-[inset_0_2px_0_0_rgba(250,250,250,0.28)]'
+                          ? 'bg-neutral-800'
                           : 'bg-neutral-900 hover:bg-neutral-800/80'
                       }`}
                       style={{ touchAction: 'manipulation' }}
