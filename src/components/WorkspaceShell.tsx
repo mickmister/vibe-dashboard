@@ -186,7 +186,7 @@ export function WorkspaceShell({
   const LONG_PRESS_MS = 450;
   const LONG_PRESS_MOVE_TOLERANCE_PX = 10;
 
-  // --- Drag-and-drop for tab groups ---
+  // --- Drag-and-drop for crafts ---
   const handleDragStart = (e: React.DragEvent, tabGroupId: string) => {
     dragGroupRef.current = tabGroupId;
     e.dataTransfer.effectAllowed = 'move';
@@ -480,7 +480,7 @@ export function WorkspaceShell({
       label,
     });
 
-    // Auto-select the new tab group
+    // Auto-select the new craft
     if (result?.tabGroupId) {
       sessionActions.setActiveTabGroup(result.tabGroupId);
     }
@@ -935,8 +935,8 @@ export function WorkspaceShell({
               <button
                 className="shrink-0 h-full border-r border-b-2 border-neutral-600 bg-neutral-900 px-3 text-xs text-neutral-200 transition-colors hover:bg-neutral-800/80"
                 onClick={openSessionWorkspaceSearch}
-                title="Add tab group to session"
-                aria-label="Add tab group to session"
+                title="Embark craft in voyage"
+                aria-label="Embark craft in voyage"
               >
                 +
               </button>
@@ -1089,8 +1089,8 @@ export function WorkspaceShell({
                 <button
                   className="shrink-0 h-full border-r border-neutral-700 bg-neutral-900 px-3 text-xs text-neutral-200 transition-colors hover:bg-neutral-800/80"
                   onClick={openSessionWorkspaceSearch}
-                  title="Add tab group to session"
-                  aria-label="Add tab group to session"
+                  title="Embark craft in voyage"
+                  aria-label="Embark craft in voyage"
                 >
                   +
                 </button>
@@ -1098,13 +1098,13 @@ export function WorkspaceShell({
               ) : (
                 <>
                   <div className="h-full inline-flex items-center px-3 text-xs text-neutral-500 border-r border-neutral-700">
-                    {activeTabGroup?.label || 'No tab groups'}
+                    {activeTabGroup?.label || 'No craft'}
                   </div>
                   <button
                     className="shrink-0 h-full border-r border-neutral-700 bg-neutral-900 px-3 text-xs text-neutral-200 transition-colors hover:bg-neutral-800/80"
                     onClick={openSessionWorkspaceSearch}
-                    title="Add tab group to session"
-                    aria-label="Add tab group to session"
+                    title="Embark craft in voyage"
+                    aria-label="Embark craft in voyage"
                   >
                     +
                   </button>
@@ -1240,7 +1240,7 @@ export function WorkspaceShell({
                 );
               }}
             >
-              Remove From Session
+              Remove From Voyage
             </button>
             <div className="my-1 border-t border-neutral-700" />
             <button
@@ -1250,8 +1250,8 @@ export function WorkspaceShell({
                 if (
                   confirm(
                     space?.tabGroupIds.length === 1
-                      ? `Close "${tabGroup?.label || 'this tab group'}" everywhere? Because it's the last tab group in this space, a replacement tab group will be created automatically.`
-                      : `Close "${tabGroup?.label || 'this tab group'}" everywhere? This deletes the tab group, not just from the current session.`,
+                      ? `Close "${tabGroup?.label || 'this craft'}" everywhere? Because it's the last craft in this space, a replacement craft will be created automatically.`
+                      : `Close "${tabGroup?.label || 'this craft'}" everywhere? This deletes the craft, not just from the current voyage.`,
                   )
                 ) {
                   void handleCloseTabGroup(
@@ -1261,7 +1261,7 @@ export function WorkspaceShell({
                 }
               }}
             >
-              Close Tab Group Everywhere
+              Close Craft Everywhere
             </button>
           </div>
         );
@@ -1277,10 +1277,10 @@ export function WorkspaceShell({
           <div className="relative w-full rounded-t-2xl border-t border-neutral-700 bg-neutral-900 p-4 space-y-4">
             <div>
               <div className="text-sm font-semibold text-neutral-100">
-                Edit Mobile Tab
+                Edit Mobile Craft
               </div>
               <div className="text-xs text-neutral-500 mt-1">
-                Long press opens this menu. Tap still switches tabs. Closing here closes the whole tab group.
+                Long press opens this menu. Tap still switches craft. Closing here closes the whole craft.
               </div>
             </div>
 
@@ -1345,7 +1345,7 @@ export function WorkspaceShell({
                   handleRemoveVoyageEntryFromSession(mobileTabMenuTarget.voyageEntryId);
                 }}
               >
-                Remove From Session
+                Remove From Voyage
               </button>
             </div>
             <button
@@ -1356,15 +1356,15 @@ export function WorkspaceShell({
                   if (
                     confirm(
                       mobileTabMenuSpace?.tabGroupIds.length === 1
-                        ? `Close "${mobileTabMenuTabGroup.label}" everywhere? Because it's the last tab group in this space, a replacement tab group will be created automatically.`
-                        : `Close "${mobileTabMenuTabGroup.label}" everywhere? This deletes the tab group, not just from the current session.`,
+                        ? `Close "${mobileTabMenuTabGroup.label}" everywhere? Because it's the last craft in this space, a replacement craft will be created automatically.`
+                        : `Close "${mobileTabMenuTabGroup.label}" everywhere? This deletes the craft, not just from the current voyage.`,
                     )
                   ) {
                     void handleCloseTabGroup(spaceId, tabGroupId);
                   }
                 }}
               >
-                Close Tab Group
+                Close Craft
               </button>
           </div>
         </div>

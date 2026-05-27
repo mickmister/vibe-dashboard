@@ -44,7 +44,7 @@ export function WorkspaceContentView({
     return (
       <div className="flex-1 flex items-center justify-center text-neutral-500">
         <p>
-          No tab groups in this space. Hover left to switch spaces.
+          No craft in this space. Hover left to switch spaces.
         </p>
       </div>
     );

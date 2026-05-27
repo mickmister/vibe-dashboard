@@ -229,7 +229,7 @@ export function AddVKWorkspaceModal({
               ? `Select a space for ${spacePickerTarget.name || 'Untitled Workspace'}`
               : showPathInput
               ? 'Enter workspace path or directory'
-              : 'Search workspaces to open, or jump to an already-open tab group'}
+              : 'Search workspaces to open, or jump to an already-open craft'}
           </p>
         </ModalHeader>
         <ModalBody>
@@ -259,7 +259,7 @@ export function AddVKWorkspaceModal({
                           {space.name}
                         </span>
                         <span className="text-xs text-neutral-500">
-                          {tabGroupCount} tab group
+                          {tabGroupCount} craft
                           {tabGroupCount === 1 ? '' : 's'}
                         </span>
                       </div>
@@ -413,7 +413,7 @@ export function AddVKWorkspaceModal({
                             </p>
                           ) : onAddToSpace ? (
                             <p className="text-xs text-neutral-500 mt-1">
-                              Choose a space for this tab group
+                              Choose a space for this craft
                             </p>
                           ) : null}
                         </div>

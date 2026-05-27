@@ -334,7 +334,7 @@ export function Sidebar({
   const handleDeleteSpace = useCallback(() => {
     if (!contextMenu) return;
 
-    if (confirm(`Delete this space? All tab groups and tabs will be closed.`)) {
+    if (confirm(`Delete this space? All craft and views will be closed.`)) {
       onDeleteSpace(contextMenu.spaceId);
     }
     setContextMenu(null);
@@ -362,7 +362,7 @@ export function Sidebar({
       return;
     }
 
-    const newLabel = prompt('Rename tab group:', tabGroup.label);
+    const newLabel = prompt('Rename craft:', tabGroup.label);
     if (newLabel && newLabel.trim() && newLabel.trim() !== tabGroup.label) {
       onRenameTabGroup(tabGroup.id, newLabel.trim());
     }
@@ -381,7 +381,7 @@ export function Sidebar({
     }
 
     const confirmed = confirm(
-      `Delete tab group "${tabGroup.label}"? All tabs in this group will be closed.`,
+      `Delete craft "${tabGroup.label}"? All views in this craft will be closed.`,
     );
     if (!confirmed) {
       setGroupContextMenu(null);
@@ -453,7 +453,7 @@ export function Sidebar({
       const sessionTabGroup = workspace.tabGroups.find(
         (tabGroup) => tabGroup.id === session.activeTabGroupId,
       );
-      return sessionTabGroup?.label || 'Saved session';
+      return sessionTabGroup?.label || 'Saved voyage';
     },
     [workspace.tabGroups],
   );
@@ -616,7 +616,7 @@ export function Sidebar({
                   setMobileAction((prev) => (prev === 'group' ? null : 'group'))
                 }
               >
-                + Group
+                + Craft
               </Button>
               <Button
                 size="sm"
@@ -625,12 +625,12 @@ export function Sidebar({
                 onPress={() => {
                   if (!activeTabGroup) return;
                   setMobileAction((prev) => (prev === 'tab' ? null : 'tab'));
-                  setNewTabTitle((prev) => prev || 'New Tab');
+                  setNewTabTitle((prev) => prev || 'New View');
                   setNewTabUrl((prev) => prev || '/');
                 }}
                 isDisabled={!activeTabGroup}
               >
-                + Tab
+                + View
               </Button>
               <Button
                 size="sm"
@@ -653,7 +653,7 @@ export function Sidebar({
                   size="sm"
                   value={newGroupLabel}
                   onChange={(e) => setNewGroupLabel(e.target.value)}
-                  placeholder="Group name..."
+                  placeholder="Craft name..."
                   classNames={{ inputWrapper: 'bg-neutral-800' }}
                 />
                 <Button
@@ -662,7 +662,7 @@ export function Sidebar({
                   className="w-full"
                   onPress={handleCreateGroup}
                 >
-                  Create Group
+                  Create Craft
                 </Button>
               </div>
             )}
@@ -673,7 +673,7 @@ export function Sidebar({
                   size="sm"
                   value={newTabTitle}
                   onChange={(e) => setNewTabTitle(e.target.value)}
-                  placeholder="Tab title..."
+                  placeholder="View title..."
                   classNames={{ inputWrapper: 'bg-neutral-800' }}
                 />
                 <Input
@@ -690,14 +690,14 @@ export function Sidebar({
                   onPress={handleCreateTab}
                   isDisabled={!activeTabGroup}
                 >
-                  Create Tab
+                  Create View
                 </Button>
               </div>
             )}
 
             {mobileAction === 'pair' && (
               <div className="space-y-1.5">
-                <p className="text-xs text-neutral-400">Pick 2 tabs to pair</p>
+                <p className="text-xs text-neutral-400">Pick 2 views to split</p>
                 <div className="max-h-28 overflow-y-auto space-y-1">
                   {availablePairTabs.map((tab) => {
                     const selected = pairSelection.includes(tab.id);
@@ -733,7 +733,7 @@ export function Sidebar({
             {sessionVisitedTabGroups.length > 0 && (
               <div className="border-b border-neutral-800">
                 <div className="px-3 py-2 text-xs font-semibold uppercase tracking-wider text-neutral-500">
-                  Active Tabs
+                  Active Craft
                 </div>
                 <div className="px-2 pb-2 space-y-0.5">
                   {sessionVisitedTabGroups.map(({ space, tg }) => (
@@ -762,7 +762,7 @@ export function Sidebar({
             {resumableSessions.length > 0 && (
               <div className="border-b border-neutral-800">
                 <div className="px-3 py-2 text-xs font-semibold uppercase tracking-wider text-neutral-500">
-                  Resume Session
+                  Resume Voyage
                 </div>
                 <div className="px-2 pb-2 space-y-0.5">
                   {resumableSessions.map((session) => {
@@ -825,7 +825,7 @@ export function Sidebar({
 
             <div className="border-b border-neutral-800">
               <div className="px-3 py-2 text-xs font-semibold uppercase tracking-wider text-neutral-500">
-                Current Session
+                Current Voyage
               </div>
               <div className="px-2 pb-2 space-y-2">
                 <div className="px-3 py-2 rounded-lg bg-neutral-800/60">
@@ -851,7 +851,7 @@ export function Sidebar({
                         <div className="text-sm font-medium text-neutral-100 truncate">
                           {currentSession
                             ? getSessionDisplayName(currentSession)
-                            : 'Current session'}
+                            : 'Current voyage'}
                         </div>
                         {currentSession && (
                           <div className="text-xs text-neutral-500 mt-1 truncate">
@@ -876,12 +876,12 @@ export function Sidebar({
                   className="w-full"
                   onPress={onStartNewSession}
                 >
-                  + New Session
+                  + New Voyage
                 </Button>
               </div>
             </div>
 
-            {/* Starred tab groups section */}
+            {/* Starred crafts section */}
             {starredTabGroups.length > 0 && (
               <div className="border-b border-neutral-800">
                 <button
@@ -925,7 +925,7 @@ export function Sidebar({
             <div className="p-2 space-y-1">
             {activeTabGroups.length === 0 ? (
               <div className="px-3 py-4 text-sm text-neutral-500">
-                No tab groups in this space.
+                No craft in this space.
               </div>
             ) : (
               activeTabGroups.map((tabGroup) => (
@@ -1180,7 +1180,7 @@ export function Sidebar({
                 className="w-full text-left px-4 py-2 text-sm text-neutral-200 hover:bg-neutral-700 transition-colors"
                 onClick={handleRenameTabGroup}
               >
-                Rename Tab Group
+                Rename Craft
               </button>
               <div className="border-t border-neutral-700 my-1" />
               {canDelete ? (
@@ -1188,11 +1188,11 @@ export function Sidebar({
                   className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-neutral-700 transition-colors"
                   onClick={handleDeleteTabGroup}
                 >
-                  Delete Tab Group
+                  Delete Craft
                 </button>
               ) : (
                 <div className="px-4 py-2 text-sm text-neutral-500 italic">
-                  Cannot delete last tab group
+                  Cannot delete last craft
                 </div>
               )}
             </div>
@@ -1217,7 +1217,7 @@ export function Sidebar({
           className="w-full mt-2"
           onPress={onToggleSessionTopBar}
         >
-          {showSessionTopBar ? 'Hide Session Top Bar' : 'Show Session Top Bar'}
+          {showSessionTopBar ? 'Hide Voyage Top Bar' : 'Show Voyage Top Bar'}
         </Button>
       </div>
 

@@ -94,7 +94,7 @@ export function UnifiedTabView({
           />
         ) : (
           <div className="flex-1 flex items-center justify-center text-neutral-500">
-            <p>No tab group selected</p>
+            <p>No craft selected</p>
           </div>
         )}
       </div>

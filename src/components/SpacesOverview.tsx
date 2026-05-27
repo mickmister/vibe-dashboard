@@ -371,7 +371,7 @@ function WorkspaceRow({
           title={`Go to "${tabGroupNav.label}"`}
           className="shrink-0 px-2 py-1 rounded text-xs font-medium bg-indigo-500/15 text-indigo-400 border border-indigo-500/30 hover:bg-indigo-500/25 transition-colors"
         >
-          Go to tab group
+          Go to craft
         </button>
       ) : onOpenInNewTabGroup ? (
         <button
@@ -482,7 +482,7 @@ function SpacePickerModal({
                         space.tabGroupIds.includes(tg.id),
                       ).length
                     }{" "}
-                    tab groups
+                    craft
                   </span>
                 </button>
               ))}
@@ -576,7 +576,7 @@ function RunningDevServersSection({
   );
 }
 
-// ── Tab Group Row ───────────────────────────────────────────────────────────
+// ── Craft Row ───────────────────────────────────────────────────────────
 
 function TabGroupRow({
   space,
@@ -601,7 +601,7 @@ function TabGroupRow({
       </div>
       <span className="text-xs text-zinc-500 shrink-0">{space.name}</span>
       <span className="text-xs text-zinc-600 shrink-0">
-        {tg.tabs.length} tab{tg.tabs.length !== 1 ? "s" : ""}
+        {tg.tabs.length} view{tg.tabs.length !== 1 ? "s" : ""}
         {tg.pairs.length > 0 &&
           ` / ${tg.pairs.length} pair${tg.pairs.length !== 1 ? "s" : ""}`}
       </span>
@@ -627,7 +627,7 @@ function TabGroupRow({
   );
 }
 
-// ── Recent Tab Groups ───────────────────────────────────────────────────────
+// ── Recent Craft ───────────────────────────────────────────────────────
 
 const TAB_GROUP_PAGE_SIZE = 10;
 
@@ -715,12 +715,12 @@ function RecentSessionsSection({
   return (
     <div className="mb-8">
       <div className="flex items-center justify-between mb-3 gap-3">
-        <h2 className="text-lg font-semibold text-white">Recent Sessions</h2>
+        <h2 className="text-lg font-semibold text-white">Recent Voyages</h2>
         <button
           onClick={onStartNewSession}
           className="px-3 py-1.5 rounded text-xs font-medium bg-zinc-800 text-zinc-300 border border-zinc-700 hover:bg-zinc-700 hover:text-white transition-colors"
         >
-          New Session
+          New Voyage
         </button>
       </div>
       <div className="space-y-1">
@@ -732,11 +732,11 @@ function RecentSessionsSection({
             session.name?.trim() ||
             tg?.label ||
             session.slug ||
-            'Saved session';
+            'Saved voyage';
           const sessionLocation =
             space && tg
               ? `${space.name} / ${tg.label}`
-              : 'Recoverable session — saved craft is no longer available';
+              : 'Recoverable voyage — saved craft is no longer available';
           const isExpanded = expandedSessionId === session.id;
           const sessionTabGroupIds =
             session.voyageEntries?.map((entry) => entry.tabGroupId) ||
@@ -783,7 +783,7 @@ function RecentSessionsSection({
               >
                 <div
                   className="text-zinc-500 hover:text-white transition-colors shrink-0"
-                  aria-label={isExpanded ? 'Collapse session' : 'Expand session'}
+                  aria-label={isExpanded ? 'Collapse voyage' : 'Expand voyage'}
                 >
                   {isExpanded ? '▾' : '▸'}
                 </div>
@@ -858,7 +858,7 @@ function RecentSessionsSection({
                     event.stopPropagation();
                     if (
                       confirm(
-                        `Delete session "${sessionName}"? This won't delete any spaces or tab groups.`,
+                        `Delete voyage "${sessionName}"? This won't delete any spaces or craft.`,
                       )
                     ) {
                       onDeleteSession(session.id);
@@ -890,13 +890,13 @@ function RecentSessionsSection({
                           </div>
                         </div>
                         <div className="text-xs text-zinc-600 shrink-0">
-                          {tabGroup.tabs.length} tab{tabGroup.tabs.length !== 1 ? 's' : ''}
+                          {tabGroup.tabs.length} view{tabGroup.tabs.length !== 1 ? 's' : ''}
                         </div>
                       </button>
                     ))
                   ) : (
                     <div className="text-xs text-zinc-500">
-                      No available craft found for this session. Resume will recover it with a fallback craft.
+                      No available craft found for this voyage. Resume will recover it with a fallback craft.
                     </div>
                   )}
                 </div>
@@ -941,7 +941,7 @@ function ActiveSessionTabsSection({
 
   return (
     <div className="hidden md:block mb-8">
-      <h2 className="text-lg font-semibold text-white mb-3">Active Session Tabs</h2>
+      <h2 className="text-lg font-semibold text-white mb-3">Active Voyage Craft</h2>
       <div className="space-y-1">
         {tabGroups.map(({ tabGroup, space }) => (
           <TabGroupRow
@@ -1095,7 +1095,7 @@ function SpacesSection({
                 {space.name}
               </span>
               <span className="text-xs text-zinc-600">
-                {tabGroups.length} tab group{tabGroups.length !== 1 ? "s" : ""}
+                {tabGroups.length} craft
               </span>
             </div>
             {/* Tab group rows */}
@@ -1111,7 +1111,7 @@ function SpacesSection({
                   </span>
                 </div>
                 <span className="text-xs text-zinc-600 shrink-0">
-                  {tg.tabs.length} tab{tg.tabs.length !== 1 ? "s" : ""}
+                  {tg.tabs.length} view{tg.tabs.length !== 1 ? "s" : ""}
                   {tg.pairs.length > 0 &&
                     ` / ${tg.pairs.length} pair${tg.pairs.length !== 1 ? "s" : ""}`}
                 </span>
@@ -1246,7 +1246,7 @@ export function SpacesOverview({
     (page + 1) * PAGE_SIZE,
   );
 
-  // Map workspace IDs to their open tab groups by scanning tab URLs for /workspaces/{id}
+  // Map workspace IDs to their open craft by scanning view URLs for /workspaces/{id}
   const workspaceTabGroupMap = useMemo(() => {
     const map = new Map<
       string,
@@ -1283,14 +1283,14 @@ export function SpacesOverview({
           <p className="text-sm text-zinc-500 mt-1">Workspace activity feed</p>
         </div>
 
-        {/* Starred Tab Groups */}
+        {/* Starred Craft */}
         <ActiveSessionTabsSection
           workspace={workspace}
           currentSession={currentSession}
           onNavigateToTabGroup={onNavigateToTabGroup}
         />
 
-        {/* Recent Sessions */}
+        {/* Recent Voyages */}
         <RecentSessionsSection
           workspace={workspace}
           savedSessions={savedSessions}
@@ -1302,7 +1302,7 @@ export function SpacesOverview({
           onNavigateToTabGroup={onNavigateToTabGroup}
         />
 
-        {/* Starred Tab Groups */}
+        {/* Starred Craft */}
         <StarredTabGroups
           workspace={workspace}
           onNavigateToTabGroup={onNavigateToTabGroup}
@@ -1321,13 +1321,13 @@ export function SpacesOverview({
           }
         />
 
-        {/* Recently Visited Tab Groups */}
+        {/* Recently Visited Craft */}
         <RecentlyVisitedTabGroups
           workspace={workspace}
           onNavigateToTabGroup={onNavigateToTabGroup}
         />
 
-        {/* Recently Created Tab Groups */}
+        {/* Recently Created Craft */}
         <RecentlyCreatedTabGroups
           workspace={workspace}
           onNavigateToTabGroup={onNavigateToTabGroup}
