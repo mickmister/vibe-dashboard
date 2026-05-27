@@ -30,6 +30,7 @@ const MOBILE_TAB_EMOJI_CHOICES = [
   '⚡',
   '🛰️',
 ];
+const VOYAGE_SWITCH_THROTTLE_MS = 1000;
 
 export type WorkspaceActions = {
   addSpace: (args: {
@@ -179,6 +180,7 @@ export function WorkspaceShell({
   const [mobileTabDraftEmoji, setMobileTabDraftEmoji] = useState('');
   const dragGroupRef = useRef<string | null>(null);
   const dragSessionTabGroupRef = useRef<string | null>(null);
+  const lastVoyageSwitchAtRef = useRef(0);
   const longPressTimerRef = useRef<number | null>(null);
   const longPressStartedAtRef = useRef<{ x: number; y: number } | null>(null);
   const suppressMobileTabClickRef = useRef(false);
@@ -225,6 +227,21 @@ export function WorkspaceShell({
     dragSessionTabGroupRef.current = null;
   };
 
+  const trySelectVoyageEntry = (voyageEntryId: string): boolean => {
+    if (voyageEntryId === session.activeVoyageEntryId) {
+      return true;
+    }
+
+    const now = Date.now();
+    if (now - lastVoyageSwitchAtRef.current < VOYAGE_SWITCH_THROTTLE_MS) {
+      return false;
+    }
+
+    lastVoyageSwitchAtRef.current = now;
+    sessionActions.selectVoyageEntry(voyageEntryId);
+    return true;
+  };
+
   const cycleSessionTabGroup = (direction: 1 | -1) => {
     const currentIndex = session.voyageEntries.findIndex(
       (entry) => entry.id === session.activeVoyageEntryId,
@@ -239,7 +256,7 @@ export function WorkspaceShell({
     const nextEntry = session.voyageEntries[nextIndex];
 
     if (nextEntry) {
-      sessionActions.selectVoyageEntry(nextEntry.id);
+      trySelectVoyageEntry(nextEntry.id);
     }
   };
 
@@ -661,8 +678,9 @@ export function WorkspaceShell({
       return;
     }
 
-    setExpandedVoyageEntryId(null);
-    sessionActions.selectVoyageEntry(voyageEntryId);
+    if (trySelectVoyageEntry(voyageEntryId)) {
+      setExpandedVoyageEntryId(null);
+    }
   };
 
   const handleSelectExpandedSessionItem = (
