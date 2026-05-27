@@ -819,7 +819,6 @@ springboard.registerModule(
         requestedLegacySessionId,
         storedBrowserSessionId,
         originDefaultSessionId,
-        createReplacementSessionId: createNewBrowserSessionId,
       });
       const browserSessionId =
         typeof window === 'undefined'

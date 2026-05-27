@@ -7,14 +7,12 @@ export function resolvePreferredVoyageSessionId({
   requestedLegacySessionId,
   storedBrowserSessionId,
   originDefaultSessionId,
-  createReplacementSessionId,
 }: {
   savedSessions: SavedWorkspaceSession[];
   requestedVoyageKey?: string;
   requestedLegacySessionId?: string;
   storedBrowserSessionId?: string | null;
   originDefaultSessionId?: string;
-  createReplacementSessionId: () => string;
 }): string | undefined {
   const savedSessionIds = new Set(savedSessions.map((session) => session.id));
   const matchedRequestedVoyage = requestedVoyageKey
@@ -36,6 +34,13 @@ export function resolvePreferredVoyageSessionId({
     (originDefaultSessionId && savedSessionIds.has(originDefaultSessionId)
       ? originDefaultSessionId
       : undefined) ||
-    (storedBrowserSessionId ? createReplacementSessionId() : undefined)
+    // If the browser has a stale/local session id that has not shown up in
+    // persisted workspace-sessions yet, keep it stable and let the normal
+    // upsert path recreate that Voyage. Generating a replacement here is
+    // render-unsafe: Home page data fetching and URL canonicalization can
+    // re-render before the first upsert is reflected in savedSessions, causing
+    // a new Voyage id to be generated and persisted on each render.
+    storedBrowserSessionId ||
+    undefined
   );
 }

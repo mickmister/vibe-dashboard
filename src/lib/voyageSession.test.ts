@@ -26,7 +26,6 @@ describe('resolvePreferredVoyageSessionId', () => {
         requestedVoyageKey: 'beta-b',
         storedBrowserSessionId: 'a',
         originDefaultSessionId: 'a',
-        createReplacementSessionId: () => 'replacement',
       }),
     ).toBe('b');
   });
@@ -36,7 +35,6 @@ describe('resolvePreferredVoyageSessionId', () => {
       resolvePreferredVoyageSessionId({
         savedSessions: [session('existing')],
         requestedLegacySessionId: 'existing',
-        createReplacementSessionId: () => 'replacement',
       }),
     ).toBe('existing');
 
@@ -44,20 +42,28 @@ describe('resolvePreferredVoyageSessionId', () => {
       resolvePreferredVoyageSessionId({
         savedSessions: [session('existing')],
         requestedLegacySessionId: 'unknown-from-url',
-        createReplacementSessionId: () => 'replacement',
       }),
     ).toBeUndefined();
   });
 
-  it('does not create persistent state from an unknown session query param', () => {
+  it('keeps a stale stored browser session stable until persistence catches up', () => {
     expect(
       resolvePreferredVoyageSessionId({
         savedSessions: [session('existing')],
         requestedVoyageKey: 'missing',
         requestedLegacySessionId: 'unknown-from-url',
         storedBrowserSessionId: 'stale-local-id',
-        createReplacementSessionId: () => 'replacement',
       }),
-    ).toBe('replacement');
+    ).toBe('stale-local-id');
+  });
+
+  it('does not create persistent state from an unknown session query param without local state', () => {
+    expect(
+      resolvePreferredVoyageSessionId({
+        savedSessions: [session('existing')],
+        requestedVoyageKey: 'missing',
+        requestedLegacySessionId: 'unknown-from-url',
+      }),
+    ).toBeUndefined();
   });
 });
