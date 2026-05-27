@@ -727,24 +727,38 @@ function RecentSessionsSection({
         {recentSessions.map((session) => {
           const space = workspace.spaces.find((item) => item.id === session.activeSpaceId);
           const tg = workspace.tabGroups.find((item) => item.id === session.activeTabGroupId);
-          if (!space || !tg) return null;
 
-          const sessionName = session.name?.trim() || tg.label || 'Saved session';
+          const sessionName =
+            session.name?.trim() ||
+            tg?.label ||
+            session.slug ||
+            'Saved session';
+          const sessionLocation =
+            space && tg
+              ? `${space.name} / ${tg.label}`
+              : 'Recoverable session — saved craft is no longer available';
           const isExpanded = expandedSessionId === session.id;
-          const tabGroups = session.visitedTabGroupIds
-            .map((tabGroupId) => {
+          const sessionTabGroupIds =
+            session.voyageEntries?.map((entry) => entry.tabGroupId) ||
+            session.visitedTabGroupIds;
+          const tabGroups = sessionTabGroupIds
+            .map((tabGroupId, index) => {
               const tabGroup = workspace.tabGroups.find((item) => item.id === tabGroupId);
               if (!tabGroup) return null;
               const ownerSpace = workspace.spaces.find((item) =>
                 item.tabGroupIds.includes(tabGroupId),
               );
               if (!ownerSpace) return null;
-              return { tabGroup: tabGroup, space: ownerSpace };
+              return { tabGroup: tabGroup, space: ownerSpace, key: `${tabGroupId}-${index}` };
             })
             .filter(
               (
                 item,
-              ): item is { tabGroup: TabGroup; space: WorkspaceState['spaces'][number] } =>
+              ): item is {
+                tabGroup: TabGroup;
+                space: WorkspaceState['spaces'][number];
+                key: string;
+              } =>
                 item != null,
             );
 
@@ -807,7 +821,7 @@ function RecentSessionsSection({
                         {sessionName}
                       </span>
                       <span className="text-xs text-zinc-500 truncate block mt-0.5">
-                        {space.name} / {tg.label}
+                        {sessionLocation}
                       </span>
                     </>
                   )}
@@ -858,9 +872,9 @@ function RecentSessionsSection({
               {isExpanded && (
                 <div className="border-t border-zinc-700/50 px-4 py-3 space-y-1 bg-zinc-900/40">
                   {tabGroups.length > 0 ? (
-                    tabGroups.map(({ tabGroup, space: ownerSpace }) => (
+                    tabGroups.map(({ tabGroup, space: ownerSpace, key }) => (
                       <button
-                        key={tabGroup.id}
+                        key={key}
                         onClick={() => onNavigateToTabGroup(ownerSpace.id, tabGroup.id)}
                         className="w-full flex items-center justify-between gap-3 px-3 py-2 rounded bg-zinc-800/70 hover:bg-zinc-700/70 text-left"
                       >
@@ -881,7 +895,9 @@ function RecentSessionsSection({
                       </button>
                     ))
                   ) : (
-                    <div className="text-xs text-zinc-500">No tab groups recorded for this session.</div>
+                    <div className="text-xs text-zinc-500">
+                      No available craft found for this session. Resume will recover it with a fallback craft.
+                    </div>
                   )}
                 </div>
               )}
