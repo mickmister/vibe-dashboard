@@ -65,9 +65,35 @@ jobs:
           vk_commit="$(git -C "$workdir" rev-parse FETCH_HEAD)"
           vk_short_commit="$(git -C "$workdir" rev-parse --short=7 FETCH_HEAD)"
           vd_short_commit="${GITHUB_SHA:0:7}"
+          used_asset_fallback=false
+
+          manifest_url="https://github.com/mickmister/vibe-kanban/releases/download/vk-assets-${vk_commit}/manifest.json"
+          if [[ "${GITHUB_EVENT_NAME}" == "push" && "$VK_BRANCH_INPUT" == "main" ]] && ! curl -fsI "$manifest_url" >/dev/null; then
+            echo "::notice::VK release assets for $vk_commit are not available yet; using the latest published vk-assets release for this VD branch image."
+            latest_assets_tag="$(
+              curl -fsSL "https://api.github.com/repos/mickmister/vibe-kanban/releases?per_page=100" \
+                | python3 -c 'import json,sys; releases=[r for r in json.load(sys.stdin) if r.get("tag_name", "").startswith("vk-assets-")]; releases.sort(key=lambda r: r.get("published_at") or r.get("created_at") or "", reverse=True); print(releases[0]["tag_name"] if releases else "")'
+            )"
+
+            if [[ -z "$latest_assets_tag" ]]; then
+              echo "No published vk-assets release found to use as a fallback." >&2
+              exit 1
+            fi
+
+            vk_commit="${latest_assets_tag#vk-assets-}"
+            if [[ ! "$vk_commit" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "Latest vk-assets release tag does not contain a full commit SHA: $latest_assets_tag" >&2
+              exit 1
+            fi
+
+            VK_BRANCH_INPUT="$latest_assets_tag"
+            vk_short_commit="${vk_commit:0:7}"
+            used_asset_fallback=true
+            echo "Using fallback VK assets release $latest_assets_tag"
+          fi
 
           publish_latest=false
-          if [[ "${GITHUB_EVENT_NAME}" == "push" && "${GITHUB_REF}" == "refs/heads/main" ]]; then
+          if [[ "${GITHUB_EVENT_NAME}" == "push" && "${GITHUB_REF}" == "refs/heads/main" && "$used_asset_fallback" != "true" ]]; then
             publish_latest=true
           elif [[ "${GITHUB_EVENT_NAME}" == "repository_dispatch" ]]; then
             git -C "$workdir" fetch --depth 1 origin main
