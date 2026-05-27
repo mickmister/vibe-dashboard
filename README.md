@@ -1,41 +1,25 @@
-# vibe-kanban + code-server + Caddy (Docker)
+# Vibe Dashboard
 
-Single-container setup that runs:
-
-- `vibe-kanban` on `3007`
-- `code-server` (VS Code in the browser) on `3008`
-- `caddy` as the main entrypoint on `3001`
+A coding agent dashboard built on top of https://vibekanban.com and https://github.com/coder/code-server
 
 ## Quick start
 
-`code-server` runs without built-in auth by default. If you want a login prompt, set `CODE_PASSWORD`:
+1. Run `docker compose up`
+2. Open http://localhost:3001 in your browser
 
-```bash
-export CODE_PASSWORD='change-me'
-```
+A docker container will run the following:
 
-Build and run:
-
-```bash
-docker compose up --build
-```
-
-Open:
-
-- `http://localhost:${CADDY_PORT:-3001}` (main entrypoint via Caddy)
+- `vibe-kanban`
+- `code-server`
+- `caddy` as the main UI entrypoint
 
 ## Dynamic port forwarding
 
 Caddy forwards `port-<port>.*` subdomains to `localhost:<port>` inside the container:
 
-- `http://port-12345.localhost:${CADDY_PORT:-3001}/`
+- `http://port-12345.localhost:3001`
 
 ## Configuration
-
-Environment variables are split across:
-
-- `docker-compose.yaml` (local dev container)
-- `vkcloud/docker-compose.yaml` (self-hosted VK cloud stack)
 
 ### Local dev container (`docker-compose.yaml`)
 
@@ -49,7 +33,7 @@ Environment variables are split across:
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `VIBE_KANBAN_VERSION` | `latest` | Build arg and runtime env for `vibe-kanban` version. |
+| `VKVD_IMAGE_VERSION` | `latest` | Fetches image from ghcr.io/mickmister/vk-vd:${VKVD_IMAGE_VERSION:-latest}. The compose file's pull policy is set to "always", so if you want to pin a specific version, use this arg. |
 
 #### Ports
 
@@ -73,96 +57,7 @@ Environment variables are split across:
 | `ENABLE_TAILSCALE` | `false` | Enables Tailscale startup. |
 | `TAILSCALE_AUTHKEY` | empty | Tailscale auth key. |
 | `TAILSCALE_HOSTNAME` | `vkdev` | Tailscale node hostname. |
-| `MEMORY_WATCHDOG_ENABLED` | `false` | Enables the supervisor-managed memory watchdog. |
-| `MEMORY_WATCHDOG_MATTERMOST_WEBHOOK_URL` | empty | Mattermost incoming webhook URL used for notifications. |
-| `MEMORY_WATCHDOG_PROCESS_THRESHOLD_MB` | `4096` | Per-process RSS threshold in MiB. |
-| `MEMORY_WATCHDOG_TOTAL_THRESHOLD_PERCENT` | `60` | Host memory threshold based on `MemAvailable` from `/proc/meminfo`. |
-| `VK_SHARED_API_BASE` | empty | If set, local VK connects to that cloud API base URL. |
 | `VK_ALLOWED_ORIGINS` | empty | Optional backend CORS allowlist. |
-| `ENABLE_BOSUN` | `false` | Present as a commented option in compose. |
-
-## Memory watchdog
-
-The container now includes a supervisor-managed watchdog at [scripts/memory-watchdog.mjs](/Users/mickmister/code/vibe-kanban-vscode-web/scripts/memory-watchdog.mjs) that can post to a Mattermost incoming webhook when:
-
-- host memory usage rises above `MEMORY_WATCHDOG_TOTAL_THRESHOLD_PERCENT`
-- any individual process exceeds `MEMORY_WATCHDOG_PROCESS_THRESHOLD_MB`
-
-Threshold detection uses `/proc/meminfo` and `ps` RSS data directly. `free -h` and `top -b -n 1` are attached only as diagnostic snapshots when an alert fires, which is more stable than parsing their human-oriented output continuously.
-
-### VK cloud stack (`vkcloud/docker-compose.yaml`)
-
-#### Core required (typical production)
-
-| Variable | Default | Notes |
-| --- | --- | --- |
-| `PUBLIC_BASE_URL` | none (required in practice) | Public URL used by server and frontend (`SERVER_PUBLIC_BASE_URL`, `VITE_*`). |
-| `VIBEKANBAN_REMOTE_JWT_SECRET` | none (required) | JWT signing secret for remote server auth. |
-| `GITHUB_OAUTH_CLIENT_ID` | none (required unless another provider is configured) | GitHub OAuth client ID. |
-| `GITHUB_OAUTH_CLIENT_SECRET` | none (required unless another provider is configured) | GitHub OAuth client secret. |
-
-#### Deployment/image/runtime
-
-| Variable | Default | Notes |
-| --- | --- | --- |
-| `VKCLOUD_IMAGE_VERSION` | `latest` | Tag for `ghcr.io/mickmister/vk-cloud`. |
-| `REMOTE_SERVER_PORTS` | `127.0.0.1:3000:8081` | Docker port mapping for `vk-remote`. |
-| `RUST_LOG` | `info,remote=info` | Server logging level/filter. |
-
-#### Postgres + ElectricSQL
-
-| Variable | Default | Notes |
-| --- | --- | --- |
-| `VK_POSTGRES_DB` | `remote` | Postgres database name. |
-| `VK_POSTGRES_USER` | `remote` | Postgres user. |
-| `VK_POSTGRES_PASSWORD` | `remote` | Postgres password. |
-| `ELECTRIC_ROLE_PASSWORD` | `remote` | Password used by ElectricSQL role. |
-
-#### OAuth (optional additions)
-
-| Variable | Default | Notes |
-| --- | --- | --- |
-| `GOOGLE_OAUTH_CLIENT_ID` | empty | Optional Google OAuth provider. |
-| `GOOGLE_OAUTH_CLIENT_SECRET` | empty | Optional Google OAuth provider. |
-
-#### Azure storage (Azurite by default)
-
-| Variable | Default | Notes |
-| --- | --- | --- |
-| `AZURE_STORAGE_ACCOUNT_NAME` | `devstoreaccount1` | Storage account name. |
-| `AZURE_STORAGE_ACCOUNT_KEY` | Azurite dev key | Storage account key. |
-| `AZURE_STORAGE_CONTAINER_NAME` | `issue-attachments` | Blob container for attachments. |
-| `AZURE_STORAGE_ENDPOINT_URL` | `http://vk-azurite:10000/devstoreaccount1` | Internal storage endpoint. |
-| `AZURE_STORAGE_PUBLIC_ENDPOINT_URL` | `http://localhost:10000/devstoreaccount1` | Public/client-facing storage endpoint. |
-
-#### Optional integrations
-
-| Variable | Default | Notes |
-| --- | --- | --- |
-| `LOOPS_EMAIL_API_KEY` | empty | Loops email integration. |
-| `GITHUB_APP_ID` | empty | GitHub App integration ID. |
-| `GITHUB_APP_PRIVATE_KEY` | empty | GitHub App private key. |
-| `GITHUB_APP_WEBHOOK_SECRET` | empty | GitHub App webhook secret. |
-| `GITHUB_APP_SLUG` | empty | GitHub App slug. |
-| `R2_ACCESS_KEY_ID` | empty | Cloudflare R2 credentials. |
-| `R2_SECRET_ACCESS_KEY` | empty | Cloudflare R2 credentials. |
-| `R2_REVIEW_ENDPOINT` | empty | R2 endpoint for reviews. |
-| `R2_REVIEW_BUCKET` | empty | R2 bucket for reviews. |
-| `REVIEW_WORKER_BASE_URL` | empty | External review worker service URL. |
-| `STRIPE_SECRET_KEY` | empty | Stripe secret key. |
-| `STRIPE_TEAM_SEAT_PRICE_ID` | empty | Stripe price ID for team seats. |
-| `STRIPE_WEBHOOK_SECRET` | empty | Stripe webhook signing secret. |
-| `STRIPE_FREE_SEAT_LIMIT` | `1` | Free seat limit for Stripe-based plans. |
-
-#### Local image build args (only if you switch from `image:` to `build:`)
-
-| Variable | Default | Notes |
-| --- | --- | --- |
-| `VK_REPO_URL` | `https://github.com/mickmister/vibe-kanban.git` | Repo used only to resolve `VK_BRANCH`/tag/sha to a concrete VK commit before downloading release assets. |
-| `VK_BRANCH` | `main` | Git branch/tag/sha resolved to a VK commit, then mapped to release tag `vk-assets-<full_sha>`. |
-| `FEATURES` | empty | Optional feature flags passed at build time. |
-| `POSTHOG_API_KEY` | empty | Optional PostHog key passed at build time. |
-| `POSTHOG_API_ENDPOINT` | empty | Optional PostHog endpoint passed at build time. |
 
 ## GitHub auth
 
@@ -183,51 +78,6 @@ Codex caches credentials in `~/.codex/auth.json` when configured for file-based 
 
 ## Docker-in-Docker support
 
-The container includes Docker CLI and mounts the host's Docker socket at `/var/run/docker.sock`. This allows you to run Docker commands from within the VSCode environment.
+The container includes Docker CLI and mounts the host's Docker socket at `/var/run/docker.sock`. This allows agents to run docker commands and you to run Docker commands from within the VSCode environment.
 
-**What this means:**
-- You can run `docker build`, `docker run`, `docker compose`, etc. from the terminal in VSCode
-- Containers you create will run on the host's Docker daemon (not inside this container)
-- Images built are stored on the host system
-- This approach is more secure than true Docker-in-Docker (no privileged mode required)
-
-**How it works:**
-- The container automatically detects the GID of the mounted Docker socket at startup
-- The docker group inside the container is created/updated to match the host's docker group GID
-- This ensures `vkuser` has permission to access the socket without requiring privileged mode
-
-**Example usage:**
-```bash
-# Check Docker is available
-docker --version
-
-# Build and run containers
-docker build -t myapp .
-docker run -p 8080:8080 myapp
-
-# Use Docker Compose
-docker compose up -d
-```
-
-**Security note:** The mounted Docker socket gives this container the ability to create and manage containers on the host. Only use this environment in trusted contexts.
-
-## Increasing inotify limits
-
-If you're working with large projects, you may hit inotify limits (file watcher errors). These are kernel-level settings inherited from the Docker host.
-
-Check current values on the host:
-
-```bash
-cat /proc/sys/fs/inotify/max_user_watches    # default: 8192
-cat /proc/sys/fs/inotify/max_user_instances  # default: 128
-```
-
-To increase (on the Docker host, not in the container):
-
-```bash
-echo fs.inotify.max_user_watches=524288 | sudo tee -a /etc/sysctl.conf
-echo fs.inotify.max_user_instances=512 | sudo tee -a /etc/sysctl.conf
-sudo sysctl -p
-```
-
-No container restart required - changes take effect immediately.
+**Security note:** The mounted Docker socket gives this container the ability to create and manage containers on the host. Only use this environment in trusted contexts. Remove the docker socket volume in the compose file to disable this.

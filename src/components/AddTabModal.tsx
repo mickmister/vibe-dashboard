@@ -227,12 +227,12 @@ export function AddTabModal({
       <Modal isOpen={isOpen} onClose={handleClose} size="sm" backdrop="blur">
         <ModalContent className="bg-neutral-900 border border-neutral-800 text-neutral-100">
           <ModalHeader className="text-sm border-b border-neutral-800 text-white">
-            {showTabGroupInput ? 'New Tab Group' : 'Add Tab'}
+            {showTabGroupInput ? 'New Craft' : 'Add View'}
           </ModalHeader>
           <ModalBody>
             {!showCustom && !showTabGroupInput ? (
               <Listbox
-                aria-label="Tab presets"
+                aria-label="View presets"
                 onAction={(key) => handleEntrySelect(key as string)}
               >
                 {entries.map((entry) => (
@@ -251,7 +251,7 @@ export function AddTabModal({
             ) : showTabGroupInput ? (
               <div className="space-y-3">
                 <Input
-                  label="Tab Group Name"
+                  label="Craft Name"
                   size="sm"
                   value={tabGroupLabel}
                   onChange={(e) => setTabGroupLabel(e.target.value)}
@@ -275,7 +275,7 @@ export function AddTabModal({
                   size="sm"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  placeholder="My Tab"
+                  placeholder="My View"
                   autoFocus
                   classNames={{
                     inputWrapper:

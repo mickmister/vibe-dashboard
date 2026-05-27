@@ -1,5 +1,9 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
-import type { WorkspaceState, TabGroup } from "../types";
+import type {
+  WorkspaceState,
+  TabGroup,
+  SavedWorkspaceSession,
+} from "../types";
 import {
   vkClient,
   type Workspace,
@@ -367,7 +371,7 @@ function WorkspaceRow({
           title={`Go to "${tabGroupNav.label}"`}
           className="shrink-0 px-2 py-1 rounded text-xs font-medium bg-indigo-500/15 text-indigo-400 border border-indigo-500/30 hover:bg-indigo-500/25 transition-colors"
         >
-          Go to tab group
+          Go to craft
         </button>
       ) : onOpenInNewTabGroup ? (
         <button
@@ -478,7 +482,7 @@ function SpacePickerModal({
                         space.tabGroupIds.includes(tg.id),
                       ).length
                     }{" "}
-                    tab groups
+                    craft
                   </span>
                 </button>
               ))}
@@ -572,7 +576,7 @@ function RunningDevServersSection({
   );
 }
 
-// ── Tab Group Row ───────────────────────────────────────────────────────────
+// ── Craft Row ───────────────────────────────────────────────────────────
 
 function TabGroupRow({
   space,
@@ -597,7 +601,7 @@ function TabGroupRow({
       </div>
       <span className="text-xs text-zinc-500 shrink-0">{space.name}</span>
       <span className="text-xs text-zinc-600 shrink-0">
-        {tg.tabs.length} tab{tg.tabs.length !== 1 ? "s" : ""}
+        {tg.tabs.length} view{tg.tabs.length !== 1 ? "s" : ""}
         {tg.pairs.length > 0 &&
           ` / ${tg.pairs.length} pair${tg.pairs.length !== 1 ? "s" : ""}`}
       </span>
@@ -623,7 +627,7 @@ function TabGroupRow({
   );
 }
 
-// ── Recent Tab Groups ───────────────────────────────────────────────────────
+// ── Recent Craft ───────────────────────────────────────────────────────
 
 const TAB_GROUP_PAGE_SIZE = 10;
 
@@ -671,6 +675,283 @@ function StarredTabGroups({
             space={space}
             tg={tg}
             onNavigate={() => onNavigateToTabGroup(space.id, tg.id)}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function RecentSessionsSection({
+  workspace,
+  savedSessions,
+  currentSessionId,
+  onResumeSession,
+  onRenameSession,
+  onDeleteSession,
+  onStartNewSession,
+  onNavigateToTabGroup,
+}: {
+  workspace: WorkspaceState;
+  savedSessions: SavedWorkspaceSession[];
+  currentSessionId?: string;
+  onResumeSession: (sessionId: string) => void;
+  onRenameSession: (sessionId: string, name: string) => void;
+  onDeleteSession: (sessionId: string) => void;
+  onStartNewSession: () => void;
+  onNavigateToTabGroup: (spaceId: string, tabGroupId: string) => void;
+}) {
+  const recentSessions = useMemo(() => {
+    return [...savedSessions]
+      .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
+      .slice(0, 8);
+  }, [savedSessions]);
+  const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
+  const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
+  const [sessionNameDraft, setSessionNameDraft] = useState('');
+
+  if (recentSessions.length === 0) return null;
+
+  return (
+    <div className="mb-8">
+      <div className="flex items-center justify-between mb-3 gap-3">
+        <h2 className="text-lg font-semibold text-white">Recent Voyages</h2>
+        <button
+          onClick={onStartNewSession}
+          className="px-3 py-1.5 rounded text-xs font-medium bg-zinc-800 text-zinc-300 border border-zinc-700 hover:bg-zinc-700 hover:text-white transition-colors"
+        >
+          New Voyage
+        </button>
+      </div>
+      <div className="space-y-1">
+        {recentSessions.map((session) => {
+          const space = workspace.spaces.find((item) => item.id === session.activeSpaceId);
+          const tg = workspace.tabGroups.find((item) => item.id === session.activeTabGroupId);
+
+          const sessionName =
+            session.name?.trim() ||
+            tg?.label ||
+            session.slug ||
+            'Saved voyage';
+          const sessionLocation =
+            space && tg
+              ? `${space.name} / ${tg.label}`
+              : 'Recoverable voyage — saved craft is no longer available';
+          const isExpanded = expandedSessionId === session.id;
+          const sessionTabGroupIds =
+            session.voyageEntries?.map((entry) => entry.tabGroupId) ||
+            session.visitedTabGroupIds;
+          const tabGroups = sessionTabGroupIds
+            .map((tabGroupId, index) => {
+              const tabGroup = workspace.tabGroups.find((item) => item.id === tabGroupId);
+              if (!tabGroup) return null;
+              const ownerSpace = workspace.spaces.find((item) =>
+                item.tabGroupIds.includes(tabGroupId),
+              );
+              if (!ownerSpace) return null;
+              return { tabGroup: tabGroup, space: ownerSpace, key: `${tabGroupId}-${index}` };
+            })
+            .filter(
+              (
+                item,
+              ): item is {
+                tabGroup: TabGroup;
+                space: WorkspaceState['spaces'][number];
+                key: string;
+              } =>
+                item != null,
+            );
+
+          return (
+            <div
+              key={session.id}
+              className="rounded-lg bg-zinc-800/50 border border-zinc-700/50 overflow-hidden"
+            >
+              <div
+                className="flex items-center gap-3 px-4 py-2.5 cursor-pointer"
+                onClick={() =>
+                  setExpandedSessionId((prev) => (prev === session.id ? null : session.id))
+                }
+                role="button"
+                tabIndex={0}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    setExpandedSessionId((prev) => (prev === session.id ? null : session.id));
+                  }
+                }}
+              >
+                <div
+                  className="text-zinc-500 hover:text-white transition-colors shrink-0"
+                  aria-label={isExpanded ? 'Collapse voyage' : 'Expand voyage'}
+                >
+                  {isExpanded ? '▾' : '▸'}
+                </div>
+                <div className="min-w-0 flex-1 text-left">
+                  {editingSessionId === session.id ? (
+                    <input
+                      type="text"
+                      value={sessionNameDraft}
+                      onChange={(event) => setSessionNameDraft(event.target.value)}
+                      onClick={(event) => event.stopPropagation()}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' && sessionNameDraft.trim()) {
+                          onRenameSession(session.id, sessionNameDraft.trim());
+                          setEditingSessionId(null);
+                          setSessionNameDraft('');
+                        }
+                        if (event.key === 'Escape') {
+                          setEditingSessionId(null);
+                          setSessionNameDraft('');
+                        }
+                      }}
+                      onBlur={() => {
+                        if (sessionNameDraft.trim()) {
+                          onRenameSession(session.id, sessionNameDraft.trim());
+                        }
+                        setEditingSessionId(null);
+                        setSessionNameDraft('');
+                      }}
+                      className="w-full rounded border border-zinc-600 bg-zinc-900 px-2 py-1 text-sm text-white"
+                      autoFocus
+                    />
+                  ) : (
+                    <>
+                      <span className="text-sm font-medium text-white truncate block">
+                        {sessionName}
+                      </span>
+                      <span className="text-xs text-zinc-500 truncate block mt-0.5">
+                        {sessionLocation}
+                      </span>
+                    </>
+                  )}
+                </div>
+                {session.id === currentSessionId && (
+                  <span className="text-xs text-primary-300 shrink-0">
+                    Current
+                  </span>
+                )}
+                <span className="text-xs text-zinc-600 shrink-0 w-14 text-right">
+                  {formatRelativeTime(session.updatedAt)}
+                </span>
+                <button
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onResumeSession(session.id);
+                  }}
+                  className="text-xs text-zinc-300 hover:text-white shrink-0"
+                >
+                  Resume
+                </button>
+                <button
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setEditingSessionId(session.id);
+                    setSessionNameDraft(sessionName);
+                  }}
+                  className="text-xs text-zinc-400 hover:text-white shrink-0"
+                >
+                  Rename
+                </button>
+                <button
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    if (
+                      confirm(
+                        `Delete voyage "${sessionName}"? This won't delete any spaces or craft.`,
+                      )
+                    ) {
+                      onDeleteSession(session.id);
+                    }
+                  }}
+                  className="text-xs text-red-400 hover:text-red-300 shrink-0"
+                >
+                  Delete
+                </button>
+              </div>
+              {isExpanded && (
+                <div className="border-t border-zinc-700/50 px-4 py-3 space-y-1 bg-zinc-900/40">
+                  {tabGroups.length > 0 ? (
+                    tabGroups.map(({ tabGroup, space: ownerSpace, key }) => (
+                      <button
+                        key={key}
+                        onClick={() => onNavigateToTabGroup(ownerSpace.id, tabGroup.id)}
+                        className="w-full flex items-center justify-between gap-3 px-3 py-2 rounded bg-zinc-800/70 hover:bg-zinc-700/70 text-left"
+                      >
+                        <div className="min-w-0">
+                          <div className="text-sm text-white truncate">
+                            {tabGroup.label}
+                            {tabGroup.id === session.activeTabGroupId ? (
+                              <span className="ml-2 text-xs text-primary-300">Active</span>
+                            ) : null}
+                          </div>
+                          <div className="text-xs text-zinc-500 truncate">
+                            {ownerSpace.name}
+                          </div>
+                        </div>
+                        <div className="text-xs text-zinc-600 shrink-0">
+                          {tabGroup.tabs.length} view{tabGroup.tabs.length !== 1 ? 's' : ''}
+                        </div>
+                      </button>
+                    ))
+                  ) : (
+                    <div className="text-xs text-zinc-500">
+                      No available craft found for this voyage. Resume will recover it with a fallback craft.
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function ActiveSessionTabsSection({
+  workspace,
+  currentSession,
+  onNavigateToTabGroup,
+}: {
+  workspace: WorkspaceState;
+  currentSession?: SavedWorkspaceSession;
+  onNavigateToTabGroup: (spaceId: string, tabGroupId: string) => void;
+}) {
+  const tabGroups = useMemo(() => {
+    if (!currentSession) return [];
+
+    return currentSession.visitedTabGroupIds
+      .map((tabGroupId) => {
+        const tabGroup = workspace.tabGroups.find((item) => item.id === tabGroupId);
+        if (!tabGroup) return null;
+        const space = workspace.spaces.find((item) => item.tabGroupIds.includes(tabGroupId));
+        if (!space) return null;
+        return { tabGroup, space };
+      })
+      .filter(
+        (
+          item,
+        ): item is { tabGroup: TabGroup; space: WorkspaceState['spaces'][number] } =>
+          item != null,
+      );
+  }, [currentSession, workspace.spaces, workspace.tabGroups]);
+
+  if (!currentSession || tabGroups.length === 0) return null;
+
+  return (
+    <div className="hidden md:block mb-8">
+      <h2 className="text-lg font-semibold text-white mb-3">Active Voyage Craft</h2>
+      <div className="space-y-1">
+        {tabGroups.map(({ tabGroup, space }) => (
+          <TabGroupRow
+            key={tabGroup.id}
+            space={space}
+            tg={tabGroup}
+            onNavigate={() => onNavigateToTabGroup(space.id, tabGroup.id)}
+            timeLabel={
+              tabGroup.id === currentSession.activeTabGroupId ? 'Active' : undefined
+            }
           />
         ))}
       </div>
@@ -814,7 +1095,7 @@ function SpacesSection({
                 {space.name}
               </span>
               <span className="text-xs text-zinc-600">
-                {tabGroups.length} tab group{tabGroups.length !== 1 ? "s" : ""}
+                {tabGroups.length} craft
               </span>
             </div>
             {/* Tab group rows */}
@@ -830,7 +1111,7 @@ function SpacesSection({
                   </span>
                 </div>
                 <span className="text-xs text-zinc-600 shrink-0">
-                  {tg.tabs.length} tab{tg.tabs.length !== 1 ? "s" : ""}
+                  {tg.tabs.length} view{tg.tabs.length !== 1 ? "s" : ""}
                   {tg.pairs.length > 0 &&
                     ` / ${tg.pairs.length} pair${tg.pairs.length !== 1 ? "s" : ""}`}
                 </span>
@@ -860,6 +1141,12 @@ function SpacesSection({
 
 interface SpacesOverviewProps {
   workspace: WorkspaceState;
+  savedSessions: SavedWorkspaceSession[];
+  currentSessionId?: string;
+  onResumeSession: (sessionId: string) => void;
+  onRenameSession: (sessionId: string, name: string) => void;
+  onDeleteSession: (sessionId: string) => void;
+  onStartNewSession: () => void;
   onNavigateToTabGroup: (spaceId: string, tabGroupId: string) => void;
   onOpenVKWorkspace?: (
     workspaceId: string,
@@ -871,6 +1158,12 @@ interface SpacesOverviewProps {
 
 export function SpacesOverview({
   workspace,
+  savedSessions,
+  currentSessionId,
+  onResumeSession,
+  onRenameSession,
+  onDeleteSession,
+  onStartNewSession,
   onNavigateToTabGroup,
   onOpenVKWorkspace,
 }: SpacesOverviewProps) {
@@ -881,6 +1174,10 @@ export function SpacesOverview({
     useState<DashboardWorkspace | null>(null);
   const [stoppingDevServerIds, setStoppingDevServerIds] = useState<Set<string>>(
     new Set(),
+  );
+  const currentSession = useMemo(
+    () => savedSessions.find((session) => session.id === currentSessionId),
+    [currentSessionId, savedSessions],
   );
 
   const handleStopDevServer = useCallback(
@@ -949,7 +1246,7 @@ export function SpacesOverview({
     (page + 1) * PAGE_SIZE,
   );
 
-  // Map workspace IDs to their open tab groups by scanning tab URLs for /workspaces/{id}
+  // Map workspace IDs to their open craft by scanning view URLs for /workspaces/{id}
   const workspaceTabGroupMap = useMemo(() => {
     const map = new Map<
       string,
@@ -986,7 +1283,26 @@ export function SpacesOverview({
           <p className="text-sm text-zinc-500 mt-1">Workspace activity feed</p>
         </div>
 
-        {/* Starred Tab Groups */}
+        {/* Starred Craft */}
+        <ActiveSessionTabsSection
+          workspace={workspace}
+          currentSession={currentSession}
+          onNavigateToTabGroup={onNavigateToTabGroup}
+        />
+
+        {/* Recent Voyages */}
+        <RecentSessionsSection
+          workspace={workspace}
+          savedSessions={savedSessions}
+          currentSessionId={currentSessionId}
+          onResumeSession={onResumeSession}
+          onRenameSession={onRenameSession}
+          onDeleteSession={onDeleteSession}
+          onStartNewSession={onStartNewSession}
+          onNavigateToTabGroup={onNavigateToTabGroup}
+        />
+
+        {/* Starred Craft */}
         <StarredTabGroups
           workspace={workspace}
           onNavigateToTabGroup={onNavigateToTabGroup}
@@ -1005,13 +1321,13 @@ export function SpacesOverview({
           }
         />
 
-        {/* Recently Visited Tab Groups */}
+        {/* Recently Visited Craft */}
         <RecentlyVisitedTabGroups
           workspace={workspace}
           onNavigateToTabGroup={onNavigateToTabGroup}
         />
 
-        {/* Recently Created Tab Groups */}
+        {/* Recently Created Craft */}
         <RecentlyCreatedTabGroups
           workspace={workspace}
           onNavigateToTabGroup={onNavigateToTabGroup}

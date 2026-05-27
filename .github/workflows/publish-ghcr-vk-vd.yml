@@ -3,13 +3,16 @@ name: Publish VK/VD Image to GHCR
 on:
   push:
     branches:
-      - '*'
+      - '**'
+  repository_dispatch:
+    types:
+      - vk-release-assets-ready
   workflow_dispatch:
     inputs:
       image_tag:
         description: Docker image tag to publish
         required: true
-        default: latest
+        default: manual
       vk_branch:
         description: vibe-kanban git branch, tag, or sha to build from
         required: true
@@ -24,26 +27,36 @@ permissions:
   packages: write
   id-token: write
 
+concurrency:
+  group: vk-vd-publish-${{ github.event_name == 'repository_dispatch' && github.event.client_payload.vk_source_ref || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   resolve-vk-ref:
     runs-on: ubuntu-latest
     outputs:
+      image_tag: ${{ steps.resolve.outputs.image_tag }}
       vk_branch: ${{ steps.resolve.outputs.vk_branch }}
       vk_commit: ${{ steps.resolve.outputs.vk_commit }}
       vk_short_commit: ${{ steps.resolve.outputs.vk_short_commit }}
       vk_repo_url: ${{ steps.resolve.outputs.vk_repo_url }}
       vd_short_commit: ${{ steps.resolve.outputs.vd_short_commit }}
+      publish_latest: ${{ steps.resolve.outputs.publish_latest }}
     steps:
       - name: Resolve vibe-kanban ref to commit SHA
         id: resolve
         env:
-          VK_BRANCH_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.vk_branch || 'main' }}
+          IMAGE_TAG_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.image_tag || '' }}
+          VK_BRANCH_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.vk_branch || github.event.client_payload.vk_sha || github.event.client_payload.vk_ref || 'main' }}
+          # Repository dispatch intentionally ignores client_payload.vk_repo_url.
+          # Docker release assets are trusted only from the official VK repository.
           VK_REPO_URL_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.vk_repo_url || 'https://github.com/mickmister/vibe-kanban.git' }}
+          VK_SOURCE_REF: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.vk_source_ref || '' }}
         run: |
           set -euo pipefail
 
           workdir="$(mktemp -d)"
-          trap 'rm -rf "$workdir"' EXIT
+          trap 'rm -rf "$workdir" || true' EXIT
 
           git -C "$workdir" init --quiet
           git -C "$workdir" remote add origin "$VK_REPO_URL_INPUT"
@@ -52,15 +65,58 @@ jobs:
           vk_commit="$(git -C "$workdir" rev-parse FETCH_HEAD)"
           vk_short_commit="$(git -C "$workdir" rev-parse --short=7 FETCH_HEAD)"
           vd_short_commit="${GITHUB_SHA:0:7}"
+          used_asset_fallback=false
+
+          manifest_url="https://github.com/mickmister/vibe-kanban/releases/download/vk-assets-${vk_commit}/manifest.json"
+          if [[ "${GITHUB_EVENT_NAME}" == "push" && "$VK_BRANCH_INPUT" == "main" ]] && ! curl -fsI "$manifest_url" >/dev/null; then
+            echo "::notice::VK release assets for $vk_commit are not available yet; using the latest published vk-assets release for this VD branch image."
+            latest_assets_tag="$(
+              curl -fsSL "https://api.github.com/repos/mickmister/vibe-kanban/releases?per_page=100" \
+                | python3 -c 'import json,sys; releases=[r for r in json.load(sys.stdin) if r.get("tag_name", "").startswith("vk-assets-")]; releases.sort(key=lambda r: r.get("published_at") or r.get("created_at") or "", reverse=True); print(releases[0]["tag_name"] if releases else "")'
+            )"
+
+            if [[ -z "$latest_assets_tag" ]]; then
+              echo "No published vk-assets release found to use as a fallback." >&2
+              exit 1
+            fi
+
+            vk_commit="${latest_assets_tag#vk-assets-}"
+            if [[ ! "$vk_commit" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "Latest vk-assets release tag does not contain a full commit SHA: $latest_assets_tag" >&2
+              exit 1
+            fi
+
+            VK_BRANCH_INPUT="$latest_assets_tag"
+            vk_short_commit="${vk_commit:0:7}"
+            used_asset_fallback=true
+            echo "Using fallback VK assets release $latest_assets_tag"
+          fi
+
+          publish_latest=false
+          if [[ "${GITHUB_EVENT_NAME}" == "push" && "${GITHUB_REF}" == "refs/heads/main" && "$used_asset_fallback" != "true" ]]; then
+            publish_latest=true
+          elif [[ "${GITHUB_EVENT_NAME}" == "repository_dispatch" ]]; then
+            git -C "$workdir" fetch --depth 1 origin main
+            vk_main_commit="$(git -C "$workdir" rev-parse FETCH_HEAD)"
+
+            if [[ "$vk_commit" == "$vk_main_commit" ]]; then
+              publish_latest=true
+            else
+              echo "Dispatched VK commit $vk_commit is not current origin/main ($vk_main_commit); not publishing latest."
+            fi
+          fi
 
           echo "Resolved $VK_BRANCH_INPUT to $vk_commit"
+          echo "Publish latest: $publish_latest"
 
           {
+            echo "image_tag=$IMAGE_TAG_INPUT"
             echo "vk_branch=$VK_BRANCH_INPUT"
             echo "vk_commit=$vk_commit"
             echo "vk_short_commit=$vk_short_commit"
             echo "vk_repo_url=$VK_REPO_URL_INPUT"
             echo "vd_short_commit=$vd_short_commit"
+            echo "publish_latest=$publish_latest"
           } >> "$GITHUB_OUTPUT"
 
   check-types:
@@ -86,7 +142,7 @@ jobs:
         run: npm run check-types
 
   publish:
-    needs: resolve-vk-ref
+    needs: [resolve-vk-ref, check-types]
     uses: ./.github/workflows/docker-github-builder-build.yml
     permissions:
       contents: read
@@ -107,9 +163,9 @@ jobs:
       sign: false
       meta-images: ghcr.io/${{ github.repository_owner }}/vk-vd
       meta-tags: |
-        type=raw,value=${{ inputs.image_tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
+        type=raw,value=${{ needs.resolve-vk-ref.outputs.image_tag }},enable=${{ needs.resolve-vk-ref.outputs.image_tag != '' }}
         type=raw,value=vk-${{ needs.resolve-vk-ref.outputs.vk_short_commit }}-vd-${{ needs.resolve-vk-ref.outputs.vd_short_commit }}
-        type=raw,value=latest,enable=${{ github.ref_name == 'main' }}
+        type=raw,value=latest,enable=${{ needs.resolve-vk-ref.outputs.publish_latest == 'true' }}
     secrets:
       registry-auths: |
         - registry: ghcr.io
