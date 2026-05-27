@@ -701,21 +701,25 @@ function RecentSessionsSection({
   onStartNewSession: () => void;
   onNavigateToTabGroup: (spaceId: string, tabGroupId: string) => void;
 }) {
-  const recentSessions = useMemo(() => {
+  const sortedSessions = useMemo(() => {
     return [...savedSessions]
-      .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
-      .slice(0, 8);
+      .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
   }, [savedSessions]);
   const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [sessionNameDraft, setSessionNameDraft] = useState('');
 
-  if (recentSessions.length === 0) return null;
+  if (sortedSessions.length === 0) return null;
 
   return (
     <div className="mb-8">
       <div className="flex items-center justify-between mb-3 gap-3">
-        <h2 className="text-lg font-semibold text-white">Recent Voyages</h2>
+        <div>
+          <h2 className="text-lg font-semibold text-white">All Voyages</h2>
+          <p className="text-xs text-zinc-500 mt-0.5">
+            {sortedSessions.length} saved voyage{sortedSessions.length === 1 ? '' : 's'}
+          </p>
+        </div>
         <button
           onClick={onStartNewSession}
           className="px-3 py-1.5 rounded text-xs font-medium bg-zinc-800 text-zinc-300 border border-zinc-700 hover:bg-zinc-700 hover:text-white transition-colors"
@@ -724,7 +728,7 @@ function RecentSessionsSection({
         </button>
       </div>
       <div className="space-y-1">
-        {recentSessions.map((session) => {
+        {sortedSessions.map((session) => {
           const space = workspace.spaces.find((item) => item.id === session.activeSpaceId);
           const tg = workspace.tabGroups.find((item) => item.id === session.activeTabGroupId);
 
