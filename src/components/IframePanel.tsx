@@ -828,7 +828,7 @@ function PairView({
   return (
     <Group
       orientation="horizontal"
-      className="flex-1 min-h-0 absolute inset-x-0 top-0 md:bottom-0 z-10"
+      className="flex-1 min-h-0 absolute inset-x-0 top-0 md:bottom-0 z-10 pointer-events-none"
       style={MOBILE_VIEWPORT_INSET_STYLE}
       onLayoutChanged={handleLayoutChange}
     >
