@@ -1063,6 +1063,7 @@ springboard.registerModule(
         selectSessionTabGroup: sessionNav.selectSessionTabGroup,
         selectSessionTab: sessionNav.selectSessionTab,
         selectSessionPair: sessionNav.selectSessionPair,
+        selectVoyageEntry: sessionNav.selectVoyageEntry,
         selectTab: sessionNav.selectTab,
         selectPair: sessionNav.selectPair,
         setActiveTabGroup: sessionNav.setActiveTabGroup,
@@ -1100,11 +1101,20 @@ springboard.registerModule(
           }
           void actions.deleteSavedSession({ id: sessionId });
         },
-        addTabGroupToSession: (tabGroupId: string) => {
-          sessionNav.addTabGroupToSession(tabGroupId);
+        addTabGroupToSession: (
+          tabGroupId: string,
+          options?: { allowDuplicate?: boolean; select?: boolean },
+        ) => {
+          sessionNav.addTabGroupToSession(tabGroupId, options);
+        },
+        removeVoyageEntryFromSession: (voyageEntryId: string) => {
+          sessionNav.removeVoyageEntryFromSession(voyageEntryId);
         },
         removeTabGroupFromSession: (tabGroupId: string) => {
           sessionNav.removeTabGroupFromSession(tabGroupId);
+        },
+        reorderVoyageEntries: (sourceEntryId: string, targetEntryId: string) => {
+          sessionNav.reorderVoyageEntries(sourceEntryId, targetEntryId);
         },
         reorderSessionTabGroups: (sourceId: string, targetId: string) => {
           sessionNav.reorderSessionTabGroups(sourceId, targetId);

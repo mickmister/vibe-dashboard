@@ -12,6 +12,7 @@ import type {
   WorkspaceState,
   TabGroup,
   SavedWorkspaceSession,
+  VoyageEntry,
 } from '../types';
 import type { SessionWorkspaceNav } from '../sessionState';
 
@@ -102,6 +103,7 @@ export type SessionActions = {
     tabGroupId: string,
     pairId: string,
   ) => void;
+  selectVoyageEntry: (voyageEntryId: string) => void;
   selectTab: (tabGroupId: string, tabId: string) => void;
   selectPair: (tabGroupId: string, pairId: string) => void;
   setActiveTabGroup: (tabGroupId: string) => void;
@@ -110,8 +112,13 @@ export type SessionActions = {
   startNewSession: () => void;
   renameSession: (sessionId: string, name: string) => void;
   deleteSession: (sessionId: string) => void;
-  addTabGroupToSession: (tabGroupId: string) => void;
+  addTabGroupToSession: (
+    tabGroupId: string,
+    options?: { allowDuplicate?: boolean; select?: boolean },
+  ) => void;
+  removeVoyageEntryFromSession: (voyageEntryId: string) => void;
   removeTabGroupFromSession: (tabGroupId: string) => void;
+  reorderVoyageEntries: (sourceEntryId: string, targetEntryId: string) => void;
   reorderSessionTabGroups: (sourceId: string, targetId: string) => void;
 };
 
@@ -143,15 +150,17 @@ export function WorkspaceShell({
   const [showAddressBar, setShowAddressBar] = useState(false);
   const [showSessionTopBar, setShowSessionTopBar] = useState(true);
   const [mobileTabMenuTarget, setMobileTabMenuTarget] = useState<{
+    voyageEntryId: string;
     spaceId: string;
     tabGroupId: string;
   } | null>(null);
   const [desktopTabMenuTarget, setDesktopTabMenuTarget] = useState<{
+    voyageEntryId: string;
     spaceId: string;
     tabGroupId: string;
     position: { x: number; y: number };
   } | null>(null);
-  const [expandedSessionTabGroupId, setExpandedSessionTabGroupId] = useState<
+  const [expandedVoyageEntryId, setExpandedVoyageEntryId] = useState<
     string | null
   >(null);
   const [mobileTabDraftLabel, setMobileTabDraftLabel] = useState('');
@@ -186,47 +195,40 @@ export function WorkspaceShell({
 
   const handleSessionTabGroupDragStart = (
     e: React.DragEvent,
-    tabGroupId: string,
+    voyageEntryId: string,
   ) => {
-    dragSessionTabGroupRef.current = tabGroupId;
+    dragSessionTabGroupRef.current = voyageEntryId;
     e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', tabGroupId);
+    e.dataTransfer.setData('text/plain', voyageEntryId);
   };
 
   const handleSessionTabGroupDrop = (
     e: React.DragEvent,
-    targetGroupId: string,
+    targetVoyageEntryId: string,
   ) => {
     e.preventDefault();
     const sourceId = dragSessionTabGroupRef.current;
-    if (!sourceId || sourceId === targetGroupId) return;
-    sessionActions.reorderSessionTabGroups(sourceId, targetGroupId);
+    if (!sourceId || sourceId === targetVoyageEntryId) return;
+    sessionActions.reorderVoyageEntries(sourceId, targetVoyageEntryId);
     dragSessionTabGroupRef.current = null;
   };
 
   const cycleSessionTabGroup = (direction: 1 | -1) => {
-    const currentIndex = session.visitedTabGroupIds.indexOf(
-      session.activeTabGroupId,
+    const currentIndex = session.voyageEntries.findIndex(
+      (entry) => entry.id === session.activeVoyageEntryId,
     );
-    if (currentIndex === -1 || session.visitedTabGroupIds.length <= 1) {
+    if (currentIndex === -1 || session.voyageEntries.length <= 1) {
       return;
     }
 
     const nextIndex =
-      (currentIndex + direction + session.visitedTabGroupIds.length) %
-      session.visitedTabGroupIds.length;
-    const nextTabGroupId = session.visitedTabGroupIds[nextIndex];
+      (currentIndex + direction + session.voyageEntries.length) %
+      session.voyageEntries.length;
+    const nextEntry = session.voyageEntries[nextIndex];
 
-    if (!nextTabGroupId) return;
-
-    const nextSpace = workspace.spaces.find((space) =>
-      space.tabGroupIds.includes(nextTabGroupId),
-    );
-    if (nextSpace) {
-      sessionActions.selectSessionTabGroup(nextSpace.id, nextTabGroupId);
-      return;
+    if (nextEntry) {
+      sessionActions.selectVoyageEntry(nextEntry.id);
     }
-    sessionActions.setActiveTabGroup(nextTabGroupId);
   };
 
   // --- Cmd+W / Cmd+Q exit confirmation ---
@@ -385,8 +387,49 @@ export function WorkspaceShell({
     spaceId: string,
     tabGroupId: string,
   ) => {
+    const existingEntry = session.voyageEntries.find(
+      (entry) => entry.tabGroupId === tabGroupId,
+    );
+
+    if (existingEntry) {
+      const tabGroup = workspace.tabGroups.find((entry) => entry.id === tabGroupId);
+      const shouldEmbarkAgain = confirm(
+        `"${tabGroup?.label || 'This craft'}" is already embarked in this voyage.\n\nPress OK to embark another copy in this voyage, or Cancel to switch to the existing craft.`,
+      );
+      if (shouldEmbarkAgain) {
+        sessionActions.addTabGroupToSession(tabGroupId, {
+          allowDuplicate: true,
+          select: true,
+        });
+      } else {
+        sessionActions.selectVoyageEntry(existingEntry.id);
+      }
+      setWorkspaceSearchMode('general');
+      return;
+    }
+
+    const sessionsContainingCraft = savedSessions.filter((savedSession) =>
+      (savedSession.voyageEntries || []).some(
+        (entry) => entry.tabGroupId === tabGroupId,
+      ) || savedSession.visitedTabGroupIds.includes(tabGroupId),
+    );
+    if (sessionsContainingCraft.length > 0 && workspaceSearchMode === 'session-add') {
+      const firstVoyage = sessionsContainingCraft[0];
+      const shouldEmbarkHere = confirm(
+        `This craft is already embarked in ${
+          sessionsContainingCraft.length === 1
+            ? `"${firstVoyage?.name || firstVoyage?.slug || 'another voyage'}"`
+            : `${sessionsContainingCraft.length} other voyages`
+        }.\n\nPress OK to embark it in this voyage too, or Cancel to keep this voyage unchanged.`,
+      );
+      if (!shouldEmbarkHere) {
+        setWorkspaceSearchMode('general');
+        return;
+      }
+    }
+
     if (workspaceSearchMode === 'session-add') {
-      sessionActions.addTabGroupToSession(tabGroupId);
+      sessionActions.addTabGroupToSession(tabGroupId, { select: true });
     }
     sessionActions.selectSessionTabGroup(spaceId, tabGroupId);
     setWorkspaceSearchMode('general');
@@ -416,8 +459,9 @@ export function WorkspaceShell({
   const activeTabGroup = activeTabGroups.find(
     (tg) => tg.id === session.activeTabGroupId,
   );
-  const mobileSessionTabGroups = session.visitedTabGroupIds
-    .map((tabGroupId) => {
+  const mobileSessionTabGroups = session.voyageEntries
+    .map((entry) => {
+      const tabGroupId = entry.tabGroupId;
       const tabGroup = workspace.tabGroups.find((tg) => tg.id === tabGroupId);
       if (!tabGroup) return null;
 
@@ -426,12 +470,13 @@ export function WorkspaceShell({
       );
       if (!space) return null;
 
-      return { space, tabGroup };
+      return { entry, space, tabGroup };
     })
     .filter(
       (
         item,
       ): item is {
+        entry: VoyageEntry;
         space: WorkspaceState['spaces'][number];
         tabGroup: TabGroup;
       } => item != null,
@@ -444,13 +489,13 @@ export function WorkspaceShell({
     : undefined;
 
   const expandedSessionTabGroup = useMemo(() => {
-    if (!expandedSessionTabGroupId) return null;
+    if (!expandedVoyageEntryId) return null;
     return (
       mobileSessionTabGroups.find(
-        ({ tabGroup }) => tabGroup.id === expandedSessionTabGroupId,
+        ({ entry }) => entry.id === expandedVoyageEntryId,
       ) || null
     );
-  }, [expandedSessionTabGroupId, mobileSessionTabGroups]);
+  }, [expandedVoyageEntryId, mobileSessionTabGroups]);
 
   const expandedSessionItems = useMemo(() => {
     if (!expandedSessionTabGroup) {
@@ -460,14 +505,12 @@ export function WorkspaceShell({
       >;
     }
 
-    const activeItemId = sessionActions.getActiveItem(
-      expandedSessionTabGroup.tabGroup.id,
-    );
+    const activeViewIds = expandedSessionTabGroup.entry.viewIds;
     const tabItems = expandedSessionTabGroup.tabGroup.tabs.map((tab) => ({
       kind: 'tab' as const,
       id: tab.id,
       label: tab.title,
-      isActive: activeItemId === tab.id,
+      isActive: activeViewIds.length === 1 && activeViewIds[0] === tab.id,
     }));
     const pairItems = expandedSessionTabGroup.tabGroup.pairs.map((pair, index) => {
       const labels = pair.tabIds
@@ -480,7 +523,9 @@ export function WorkspaceShell({
         kind: 'pair' as const,
         id: pair.id,
         label: labels || `Split ${index + 1}`,
-        isActive: activeItemId === pair.id,
+        isActive:
+          pair.tabIds.length === activeViewIds.length &&
+          pair.tabIds.every((tabId, tabIndex) => tabId === activeViewIds[tabIndex]),
       };
     });
 
@@ -495,14 +540,19 @@ export function WorkspaceShell({
     longPressStartedAtRef.current = null;
   };
 
-  const openMobileTabMenu = (spaceId: string, tabGroup: TabGroup) => {
-    setMobileTabMenuTarget({ spaceId, tabGroupId: tabGroup.id });
+  const openMobileTabMenu = (
+    voyageEntryId: string,
+    spaceId: string,
+    tabGroup: TabGroup,
+  ) => {
+    setMobileTabMenuTarget({ voyageEntryId, spaceId, tabGroupId: tabGroup.id });
     setMobileTabDraftLabel(tabGroup.mobileLabel || '');
     setMobileTabDraftEmoji(tabGroup.mobileEmoji || '');
   };
 
   const handleMobileTabPointerDown = (
     event: React.PointerEvent<HTMLButtonElement>,
+    voyageEntryId: string,
     spaceId: string,
     tabGroup: TabGroup,
   ) => {
@@ -513,7 +563,7 @@ export function WorkspaceShell({
     longPressTimerRef.current = window.setTimeout(() => {
       longPressTimerRef.current = null;
       suppressMobileTabClickRef.current = true;
-      openMobileTabMenu(spaceId, tabGroup);
+      openMobileTabMenu(voyageEntryId, spaceId, tabGroup);
     }, LONG_PRESS_MS);
   };
 
@@ -546,9 +596,10 @@ export function WorkspaceShell({
     const result = await actions.deleteTabGroup({ spaceId, tabGroupId });
     setDesktopTabMenuTarget(null);
     setMobileTabMenuTarget(null);
-    setExpandedSessionTabGroupId((current) =>
-      current === tabGroupId ? null : current,
-    );
+    setExpandedVoyageEntryId((current) => {
+      const expandedEntry = session.voyageEntries.find((entry) => entry.id === current);
+      return expandedEntry?.tabGroupId === tabGroupId ? null : current;
+    });
 
     if (
       result?.wasDeleted &&
@@ -559,16 +610,20 @@ export function WorkspaceShell({
     }
   };
 
-  const handleToggleSessionTabGroup = (spaceId: string, tabGroupId: string) => {
-    if (tabGroupId === session.activeTabGroupId) {
-      setExpandedSessionTabGroupId((current) =>
-        current === tabGroupId ? null : tabGroupId,
+  const handleToggleSessionTabGroup = (
+    voyageEntryId: string,
+    spaceId: string,
+    tabGroupId: string,
+  ) => {
+    if (voyageEntryId === session.activeVoyageEntryId) {
+      setExpandedVoyageEntryId((current) =>
+        current === voyageEntryId ? null : voyageEntryId,
       );
       return;
     }
 
-    setExpandedSessionTabGroupId(null);
-    sessionActions.selectSessionTabGroup(spaceId, tabGroupId);
+    setExpandedVoyageEntryId(null);
+    sessionActions.selectVoyageEntry(voyageEntryId);
   };
 
   const handleSelectExpandedSessionItem = (
@@ -581,15 +636,15 @@ export function WorkspaceShell({
     } else {
       sessionActions.selectSessionTab(spaceId, tabGroupId, item.id);
     }
-    setExpandedSessionTabGroupId(null);
+    setExpandedVoyageEntryId(null);
   };
 
-  const handleRemoveTabGroupFromSession = (tabGroupId: string) => {
-    sessionActions.removeTabGroupFromSession(tabGroupId);
+  const handleRemoveVoyageEntryFromSession = (voyageEntryId: string) => {
+    sessionActions.removeVoyageEntryFromSession(voyageEntryId);
     setMobileTabMenuTarget(null);
     setDesktopTabMenuTarget(null);
-    setExpandedSessionTabGroupId((current) =>
-      current === tabGroupId ? null : current,
+    setExpandedVoyageEntryId((current) =>
+      current === voyageEntryId ? null : current,
     );
   };
 
@@ -610,17 +665,17 @@ export function WorkspaceShell({
   }, []);
 
   useEffect(() => {
-    if (!expandedSessionTabGroupId) return;
+    if (!expandedVoyageEntryId) return;
     const exists = mobileSessionTabGroups.some(
-      ({ tabGroup }) => tabGroup.id === expandedSessionTabGroupId,
+      ({ entry }) => entry.id === expandedVoyageEntryId,
     );
-    if (!exists || expandedSessionTabGroupId !== session.activeTabGroupId) {
-      setExpandedSessionTabGroupId(null);
+    if (!exists || expandedVoyageEntryId !== session.activeVoyageEntryId) {
+      setExpandedVoyageEntryId(null);
     }
   }, [
-    expandedSessionTabGroupId,
+    expandedVoyageEntryId,
     mobileSessionTabGroups,
-    session.activeTabGroupId,
+    session.activeVoyageEntryId,
   ]);
 
   useEffect(() => {
@@ -638,7 +693,7 @@ export function WorkspaceShell({
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setDesktopTabMenuTarget(null);
-        setExpandedSessionTabGroupId(null);
+        setExpandedVoyageEntryId(null);
       }
     };
 
@@ -786,19 +841,19 @@ export function WorkspaceShell({
         <div className="hidden md:flex h-9 border-b border-neutral-600 bg-neutral-900 items-stretch shrink-0">
           <div className="flex-1 min-w-0 overflow-x-auto scrollbar-hide">
             <div className="flex h-full items-stretch whitespace-nowrap">
-              {mobileSessionTabGroups.map(({ space, tabGroup }) => {
-                const isActive = tabGroup.id === session.activeTabGroupId;
+              {mobileSessionTabGroups.map(({ entry, space, tabGroup }) => {
+                const isActive = entry.id === session.activeVoyageEntryId;
 
                 return (
                   <div
-                    key={tabGroup.id}
+                    key={entry.id}
                     draggable
                     onDragStart={(event) =>
-                      handleSessionTabGroupDragStart(event, tabGroup.id)
+                      handleSessionTabGroupDragStart(event, entry.id)
                     }
                     onDragOver={handleDragOver}
                     onDrop={(event) =>
-                      handleSessionTabGroupDrop(event, tabGroup.id)
+                      handleSessionTabGroupDrop(event, entry.id)
                     }
                     className={`shrink-0 inline-flex h-full select-none items-center border-r border-neutral-600 border-b-2 text-xs text-neutral-200 transition-colors ${
                       isActive
@@ -810,12 +865,13 @@ export function WorkspaceShell({
                     <button
                       className="inline-flex h-full items-center gap-2 px-3 text-inherit"
                       onClick={() => {
-                        handleToggleSessionTabGroup(space.id, tabGroup.id);
+                        handleToggleSessionTabGroup(entry.id, space.id, tabGroup.id);
                       }}
                       onContextMenu={(event) => {
                         event.preventDefault();
                         event.stopPropagation();
                         setDesktopTabMenuTarget({
+                          voyageEntryId: entry.id,
                           spaceId: space.id,
                           tabGroupId: tabGroup.id,
                           position: { x: event.clientX, y: event.clientY },
@@ -940,12 +996,12 @@ export function WorkspaceShell({
             <div className="flex h-full items-stretch whitespace-nowrap">
               {mobileSessionTabGroups.length > 0 ? (
                 <>
-                {mobileSessionTabGroups.map(({ space, tabGroup }) => {
-                  const isActive = tabGroup.id === session.activeTabGroupId;
+                {mobileSessionTabGroups.map(({ entry, space, tabGroup }) => {
+                  const isActive = entry.id === session.activeVoyageEntryId;
 
                   return (
                     <button
-                      key={tabGroup.id}
+                      key={entry.id}
                       className={`shrink-0 inline-flex h-full select-none items-center gap-2 border-r border-neutral-700 px-3 text-xs text-neutral-200 transition-colors ${
                         isActive
                           ? 'bg-neutral-800'
@@ -957,14 +1013,14 @@ export function WorkspaceShell({
                           suppressMobileTabClickRef.current = false;
                           return;
                         }
-                        handleToggleSessionTabGroup(space.id, tabGroup.id);
+                        handleToggleSessionTabGroup(entry.id, space.id, tabGroup.id);
                       }}
                       onContextMenu={(event) => {
                         event.preventDefault();
-                        openMobileTabMenu(space.id, tabGroup);
+                        openMobileTabMenu(entry.id, space.id, tabGroup);
                       }}
                       onPointerDown={(event) =>
-                        handleMobileTabPointerDown(event, space.id, tabGroup)
+                        handleMobileTabPointerDown(event, entry.id, space.id, tabGroup)
                       }
                       onPointerMove={handleMobileTabPointerMove}
                       onPointerUp={clearLongPress}
@@ -1061,8 +1117,8 @@ export function WorkspaceShell({
             <button
               className="block w-full px-4 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-800"
               onClick={() => {
-                handleRemoveTabGroupFromSession(
-                  desktopTabMenuTarget.tabGroupId,
+                handleRemoveVoyageEntryFromSession(
+                  desktopTabMenuTarget.voyageEntryId,
                 );
               }}
             >
@@ -1168,7 +1224,7 @@ export function WorkspaceShell({
               <button
                 className="rounded-md border border-amber-500/40 bg-amber-500/15 px-3 py-2 text-sm text-amber-300"
                 onClick={() => {
-                  handleRemoveTabGroupFromSession(mobileTabMenuTarget.tabGroupId);
+                  handleRemoveVoyageEntryFromSession(mobileTabMenuTarget.voyageEntryId);
                 }}
               >
                 Remove From Session
