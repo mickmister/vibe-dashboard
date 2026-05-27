@@ -21,6 +21,7 @@ interface UnifiedTabViewProps {
   onRenameSession: (sessionId: string, name: string) => void;
   onDeleteSession: (sessionId: string) => void;
   onStartNewSession: () => void;
+  onNavigateToTabGroup: (spaceId: string, tabGroupId: string) => void;
 }
 
 export function UnifiedTabView({
@@ -36,6 +37,7 @@ export function UnifiedTabView({
   onRenameSession,
   onDeleteSession,
   onStartNewSession,
+  onNavigateToTabGroup,
 }: UnifiedTabViewProps) {
   const activeTabGroup = tabGroups.find((tg) => tg.id === activeTabGroupId);
 
@@ -74,9 +76,7 @@ export function UnifiedTabView({
             onRenameSession={onRenameSession}
             onDeleteSession={onDeleteSession}
             onStartNewSession={onStartNewSession}
-            onNavigateToTabGroup={(spaceId, tabGroupId) => {
-              sessionActions.selectSessionTabGroup(spaceId, tabGroupId);
-            }}
+            onNavigateToTabGroup={onNavigateToTabGroup}
             onOpenVKWorkspace={async (taskAttemptId, name, containerRef, spaceId) => {
               const result = await actions.addVKWorkspace({
                 taskAttemptId,

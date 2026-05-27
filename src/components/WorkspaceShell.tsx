@@ -762,7 +762,14 @@ export function WorkspaceShell({
             sessionActions.selectSpace(spaceId);
           }}
           onSelectTabGroup={(tabGroupId) => {
-            sessionActions.setActiveTabGroup(tabGroupId);
+            const space = workspace.spaces.find((entry) =>
+              entry.tabGroupIds.includes(tabGroupId),
+            );
+            if (space) {
+              handleNavigateToWorkspaceTabGroup(space.id, tabGroupId);
+            } else {
+              sessionActions.setActiveTabGroup(tabGroupId);
+            }
           }}
           onSelectTab={(tabGroupId, tabId) => {
             sessionActions.selectTab(tabGroupId, tabId);
@@ -943,6 +950,7 @@ export function WorkspaceShell({
           onRenameSession={sessionActions.renameSession}
           onDeleteSession={sessionActions.deleteSession}
           onStartNewSession={sessionActions.startNewSession}
+          onNavigateToTabGroup={handleNavigateToWorkspaceTabGroup}
         />
         {expandedSessionTabGroup && (
           <div

@@ -19,6 +19,7 @@ interface WorkspaceContentViewProps {
   onRenameSession: (sessionId: string, name: string) => void;
   onDeleteSession: (sessionId: string) => void;
   onStartNewSession: () => void;
+  onNavigateToTabGroup: (spaceId: string, tabGroupId: string) => void;
 }
 
 export function WorkspaceContentView({
@@ -37,6 +38,7 @@ export function WorkspaceContentView({
   onRenameSession,
   onDeleteSession,
   onStartNewSession,
+  onNavigateToTabGroup,
 }: WorkspaceContentViewProps) {
   if (activeTabGroups.length === 0) {
     return (
@@ -62,6 +64,7 @@ export function WorkspaceContentView({
       onRenameSession={onRenameSession}
       onDeleteSession={onDeleteSession}
       onStartNewSession={onStartNewSession}
+      onNavigateToTabGroup={onNavigateToTabGroup}
     />
   );
 }
