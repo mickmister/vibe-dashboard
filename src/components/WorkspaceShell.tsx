@@ -95,6 +95,7 @@ export type WorkspaceActions = {
 
 export type SessionActions = {
   selectSpace: (spaceId: string) => void;
+  selectSessionTabGroup: (spaceId: string, tabGroupId: string) => void;
   selectTab: (tabGroupId: string, tabId: string) => void;
   selectPair: (tabGroupId: string, pairId: string) => void;
   setActiveTabGroup: (tabGroupId: string) => void;
@@ -216,7 +217,8 @@ export function WorkspaceShell({
       space.tabGroupIds.includes(nextTabGroupId),
     );
     if (nextSpace) {
-      sessionActions.selectSpace(nextSpace.id);
+      sessionActions.selectSessionTabGroup(nextSpace.id, nextTabGroupId);
+      return;
     }
     sessionActions.setActiveTabGroup(nextTabGroupId);
   };
@@ -297,7 +299,6 @@ export function WorkspaceShell({
     const result = await actions.ensureCreateWorkspaceTab();
     if (!result) return;
 
-    sessionActions.selectSpace(result.spaceId);
     sessionActions.selectTab(result.tabGroupId, result.tabId);
   };
 
@@ -315,7 +316,6 @@ export function WorkspaceShell({
 
     // Auto-select the Agent tab (not the pair)
     if (result) {
-      sessionActions.setActiveTabGroup(result.tabGroupId);
       sessionActions.selectTab(result.tabGroupId, result.agentTabId);
     }
   };
@@ -334,8 +334,6 @@ export function WorkspaceShell({
     });
 
     if (result) {
-      sessionActions.selectSpace(spaceId);
-      sessionActions.setActiveTabGroup(result.tabGroupId);
       sessionActions.selectTab(result.tabGroupId, result.agentTabId);
     }
   };
@@ -376,8 +374,7 @@ export function WorkspaceShell({
     if (workspaceSearchMode === 'session-add') {
       sessionActions.addTabGroupToSession(tabGroupId);
     }
-    sessionActions.selectSpace(spaceId);
-    sessionActions.setActiveTabGroup(tabGroupId);
+    sessionActions.selectSessionTabGroup(spaceId, tabGroupId);
     setWorkspaceSearchMode('general');
   };
 
@@ -544,8 +541,7 @@ export function WorkspaceShell({
       session.activeTabGroupId === tabGroupId &&
       result.nextTabGroupId
     ) {
-      sessionActions.selectSpace(spaceId);
-      sessionActions.setActiveTabGroup(result.nextTabGroupId);
+      sessionActions.selectSessionTabGroup(spaceId, result.nextTabGroupId);
     }
   };
 
@@ -558,8 +554,7 @@ export function WorkspaceShell({
     }
 
     setExpandedSessionTabGroupId(null);
-    sessionActions.selectSpace(spaceId);
-    sessionActions.setActiveTabGroup(tabGroupId);
+    sessionActions.selectSessionTabGroup(spaceId, tabGroupId);
   };
 
   const handleSelectExpandedSessionItem = (

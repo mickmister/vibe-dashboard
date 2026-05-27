@@ -307,6 +307,13 @@ type PendingNavSelection = {
   activeItemId?: string;
 };
 
+function getSpaceIdForTabGroup(
+  workspace: WorkspaceState,
+  tabGroupId: string,
+): string | undefined {
+  return workspace.spaces.find((space) => space.tabGroupIds.includes(tabGroupId))?.id;
+}
+
 /**
  * Hook for managing per-window workspace navigation state.
  * Navigation IDs are synced with React Router path params for shareable deep links.
@@ -595,38 +602,66 @@ export function useSessionWorkspaceNav(
     }
   };
 
-  const selectTab = (tabGroupId: string, tabId: string) => {
+  const selectSessionTabGroup = (spaceId: string, tabGroupId: string) => {
+    if (!isTabGroupInSpace(workspace, spaceId, tabGroupId)) {
+      return;
+    }
+
     setPendingSelection({
-      activeSpaceId: nav.activeSpaceId,
+      activeSpaceId: spaceId,
+      activeTabGroupId: tabGroupId,
+    });
+    setNav((prev) => ({
+      ...prev,
+      activeSpaceId: spaceId,
+      activeTabGroupId: tabGroupId,
+    }));
+  };
+
+  const selectTab = (tabGroupId: string, tabId: string) => {
+    const activeSpaceId =
+      getSpaceIdForTabGroup(workspace, tabGroupId) || nav.activeSpaceId;
+    setPendingSelection({
+      activeSpaceId,
       activeTabGroupId: tabGroupId,
       activeItemId: tabId,
     });
     setNav((prev) => ({
       ...prev,
+      activeSpaceId,
       activeTabGroupId: tabGroupId,
       activeItems: { ...prev.activeItems, [tabGroupId]: tabId },
     }));
   };
 
   const selectPair = (tabGroupId: string, pairId: string) => {
+    const activeSpaceId =
+      getSpaceIdForTabGroup(workspace, tabGroupId) || nav.activeSpaceId;
     setPendingSelection({
-      activeSpaceId: nav.activeSpaceId,
+      activeSpaceId,
       activeTabGroupId: tabGroupId,
       activeItemId: pairId,
     });
     setNav((prev) => ({
       ...prev,
+      activeSpaceId,
       activeTabGroupId: tabGroupId,
       activeItems: { ...prev.activeItems, [tabGroupId]: pairId },
     }));
   };
 
   const setActiveTabGroup = (tabGroupId: string) => {
+    const activeSpaceId =
+      getSpaceIdForTabGroup(workspace, tabGroupId) || nav.activeSpaceId;
     setPendingSelection({
-      activeSpaceId: nav.activeSpaceId,
+      activeSpaceId,
       activeTabGroupId: tabGroupId,
     });
-    setNav((prev) => ({ ...prev, activeTabGroupId: tabGroupId }));
+    setNav((prev) => ({
+      ...prev,
+      activeSpaceId,
+      activeTabGroupId: tabGroupId,
+    }));
   };
 
   const resumeSession = (sessionToResume: SavedWorkspaceSession) => {
@@ -773,6 +808,7 @@ export function useSessionWorkspaceNav(
     targetPath,
     getActiveItem,
     selectSpace,
+    selectSessionTabGroup,
     selectTab,
     selectPair,
     setActiveTabGroup,

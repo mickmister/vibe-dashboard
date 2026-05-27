@@ -926,6 +926,7 @@ springboard.registerModule(
 
       const sessionActions = {
         selectSpace: sessionNav.selectSpace,
+        selectSessionTabGroup: sessionNav.selectSessionTabGroup,
         selectTab: sessionNav.selectTab,
         selectPair: sessionNav.selectPair,
         setActiveTabGroup: sessionNav.setActiveTabGroup,
