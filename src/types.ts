@@ -83,7 +83,9 @@ export function getFirstTabGroupForSpace(
   if (!spaceId) return undefined;
   const space = workspace.spaces.find((entry) => entry.id === spaceId);
   if (!space) return undefined;
-  return workspace.tabGroups.find((tabGroup) => space.tabGroupIds.includes(tabGroup.id));
+  const firstTabGroupId = space.tabGroupIds[0];
+  if (!firstTabGroupId) return undefined;
+  return workspace.tabGroups.find((tabGroup) => tabGroup.id === firstTabGroupId);
 }
 
 export function generateId(state: WorkspaceState, prefix: string): string {

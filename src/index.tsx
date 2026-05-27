@@ -725,12 +725,16 @@ springboard.registerModule(
       const navigate = useNavigate();
       const savedSessionIds = new Set(savedSessions.sessions.map((session) => session.id));
       const sessionSearchParams = new URLSearchParams(location.search);
-      const hasSessionBookmarkParam = sessionSearchParams.has('session');
-      const bookmarkedSessionId = (() => {
+      const requestedSessionId = (() => {
         if (typeof window === 'undefined') return undefined;
-        const value = sessionSearchParams.get('session');
-        return value && savedSessionIds.has(value) ? value : undefined;
+        const value = sessionSearchParams.get('session')?.trim();
+        return value || undefined;
       })();
+      const hasSessionBookmarkParam = requestedSessionId != null;
+      const bookmarkedSessionId =
+        requestedSessionId && savedSessionIds.has(requestedSessionId)
+          ? requestedSessionId
+          : undefined;
       const currentOrigin =
         typeof window === 'undefined' ? undefined : window.location.origin;
       const originDefaultSessionId =
@@ -742,7 +746,7 @@ springboard.registerModule(
           ? null
           : getStoredBrowserSessionId();
       const preferredSessionId =
-        bookmarkedSessionId ||
+        requestedSessionId ||
         (storedBrowserSessionId && savedSessionIds.has(storedBrowserSessionId)
           ? storedBrowserSessionId
           : undefined) ||
@@ -829,18 +833,18 @@ springboard.registerModule(
           itemId,
         ].filter(Boolean);
         const currentPath = `${segments.join('/')}${location.search}`;
-        const nextSearch = bookmarkedSessionId
-          ? `?session=${encodeURIComponent(bookmarkedSessionId)}`
+        const nextSearch = requestedSessionId
+          ? `?session=${encodeURIComponent(requestedSessionId)}`
           : '';
         const nextPath = `${sessionNav.targetPath}${nextSearch}`;
         if (nextPath !== currentPath) {
           navigate(nextPath, { replace: true });
         }
       }, [
-        bookmarkedSessionId,
         itemId,
         location.search,
         navigate,
+        requestedSessionId,
         sessionNav.targetPath,
         spaceId,
         tabGroupId,
