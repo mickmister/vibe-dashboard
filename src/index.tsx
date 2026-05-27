@@ -23,6 +23,7 @@ import {
   parseCraftParam,
   parseViewsParam,
 } from './lib/voyageUrl';
+import { resolvePreferredVoyageSessionId } from './lib/voyageSession';
 
 // Ensure dark class is on the document root so portaled elements (modals, popovers)
 // inherit dark mode styles
@@ -728,6 +729,7 @@ springboard.registerModule(
             existing.voyageEntries = args.voyageEntries;
             existing.activeSpaceId = args.activeSpaceId;
             existing.activeTabGroupId = args.activeTabGroupId;
+            existing.activeItemsByVoyageEntryId = args.activeItemsByVoyageEntryId;
             existing.activeItems = args.activeItems;
             existing.visitedTabGroupIds = args.visitedTabGroupIds;
             return;
@@ -788,7 +790,6 @@ springboard.registerModule(
       }>();
       const location = useLocation();
       const navigate = useNavigate();
-      const savedSessionIds = new Set(savedSessions.sessions.map((session) => session.id));
       const sessionSearchParams = new URLSearchParams(location.search);
       const requestedVoyageKey = (() => {
         if (typeof window === 'undefined') return undefined;
@@ -801,13 +802,6 @@ springboard.registerModule(
         sessionSearchParams.get('session')?.trim() || undefined;
       const queryCraftParam = sessionSearchParams.get('craft')?.trim() || undefined;
       const queryViewsParam = sessionSearchParams.get('views')?.trim() || undefined;
-      const matchedRequestedVoyage = requestedVoyageKey
-        ? savedSessions.sessions.find(
-            (session) =>
-              session.id === requestedVoyageKey ||
-              getVoyageSlug(session) === requestedVoyageKey,
-          )
-        : undefined;
       const hasVoyageBookmarkParam = requestedVoyageKey != null;
       const currentOrigin =
         typeof window === 'undefined' ? undefined : window.location.origin;
@@ -819,16 +813,14 @@ springboard.registerModule(
         typeof window === 'undefined'
           ? null
           : getStoredBrowserSessionId();
-      const preferredSessionId =
-        matchedRequestedVoyage?.id ||
-        requestedLegacySessionId ||
-        (storedBrowserSessionId && savedSessionIds.has(storedBrowserSessionId)
-          ? storedBrowserSessionId
-          : undefined) ||
-        (originDefaultSessionId && savedSessionIds.has(originDefaultSessionId)
-          ? originDefaultSessionId
-          : undefined) ||
-        (storedBrowserSessionId ? createNewBrowserSessionId() : undefined);
+      const preferredSessionId = resolvePreferredVoyageSessionId({
+        savedSessions: savedSessions.sessions,
+        requestedVoyageKey,
+        requestedLegacySessionId,
+        storedBrowserSessionId,
+        originDefaultSessionId,
+        createReplacementSessionId: createNewBrowserSessionId,
+      });
       const browserSessionId =
         typeof window === 'undefined'
           ? 'server-session'
@@ -901,6 +893,7 @@ springboard.registerModule(
           voyageEntries: sessionNav.voyageEntries,
           activeSpaceId: sessionNav.activeSpaceId,
           activeTabGroupId: sessionNav.activeTabGroupId,
+          activeItemsByVoyageEntryId: sessionNav.activeItemsByVoyageEntryId,
           activeItems: sessionNav.activeItems,
           visitedTabGroupIds: sessionNav.visitedTabGroupIds,
         });
@@ -912,6 +905,7 @@ springboard.registerModule(
         sessionNav.activeSpaceId,
         sessionNav.activeTabGroupId,
         sessionNav.activeVoyageEntryId,
+        sessionNav.activeItemsByVoyageEntryId,
         sessionNav.voyageEntries,
         sessionNav.visitedTabGroupIds,
       ]);

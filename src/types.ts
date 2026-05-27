@@ -71,6 +71,9 @@ export interface SavedWorkspaceSession {
   voyageEntries?: VoyageEntry[];
   activeSpaceId: string;
   activeTabGroupId: string;
+  /** Active item keyed by VoyageEntry ID. Keeps duplicate craft entries independent. */
+  activeItemsByVoyageEntryId?: Record<string, string>;
+  /** @deprecated Craft-keyed projection retained for persisted workspace compatibility. */
   activeItems: Record<string, string>;
   visitedTabGroupIds: string[];
 }

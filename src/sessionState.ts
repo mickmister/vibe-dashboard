@@ -12,7 +12,9 @@ export interface SessionWorkspaceNav {
   activeTabGroupId: string;
   activeVoyageEntryId: string;
   voyageEntries: VoyageEntry[];
-  // Map of tabGroupId -> activeItemId (tab or pair ID)
+  // Map of voyageEntryId -> activeItemId (tab or pair ID). Source of truth for duplicate crafts.
+  activeItemsByVoyageEntryId: Record<string, string>;
+  // Map of tabGroupId -> activeItemId (tab or pair ID). Compatibility projection for existing UI.
   activeItems: Record<string, string>;
   // Most recently visited tab groups for this browser session
   visitedTabGroupIds: string[];
@@ -236,12 +238,24 @@ function deriveVoyageEntriesFromLegacyState(
   );
 }
 
+function getEntryScopedActiveItem(
+  entry: VoyageEntry,
+  activeItemsByVoyageEntryId?: Record<string, string>,
+  activeItems?: Record<string, string>,
+): string | undefined {
+  return (
+    activeItemsByVoyageEntryId?.[entry.id] ||
+    activeItems?.[entry.tabGroupId]
+  );
+}
+
 function getValidVoyageEntries(
   workspace: WorkspaceState,
   voyageEntries: VoyageEntry[] | undefined,
   activeVoyageEntryId: string | undefined,
   fallbackActiveTabGroupId: string,
   activeItems?: Record<string, string>,
+  activeItemsByVoyageEntryId?: Record<string, string>,
 ): { entries: VoyageEntry[]; activeVoyageEntryId: string } {
   const validTabGroupIds = new Set(workspace.tabGroups.map((entry) => entry.id));
   const existingIds = new Set<string>();
@@ -258,7 +272,15 @@ function getValidVoyageEntries(
           entry.tabGroupId,
           entry.viewIds?.length
             ? entry.viewIds
-            : getActiveViewIdsForItem(workspace, entry.tabGroupId, activeItems?.[entry.tabGroupId]),
+            : getActiveViewIdsForItem(
+                workspace,
+                entry.tabGroupId,
+                getEntryScopedActiveItem(
+                  { ...entry, id: nextId },
+                  activeItemsByVoyageEntryId,
+                  activeItems,
+                ),
+              ),
         ),
       };
     });
@@ -291,7 +313,7 @@ function buildLegacyStateFromVoyageEntries(
   workspace: WorkspaceState,
   voyageEntries: VoyageEntry[],
   activeVoyageEntryId: string,
-): Pick<SessionWorkspaceNav, 'activeSpaceId' | 'activeTabGroupId' | 'activeItems' | 'visitedTabGroupIds'> {
+): Pick<SessionWorkspaceNav, 'activeSpaceId' | 'activeTabGroupId' | 'activeItemsByVoyageEntryId' | 'activeItems' | 'visitedTabGroupIds'> {
   const activeEntry =
     voyageEntries.find((entry) => entry.id === activeVoyageEntryId) ||
     voyageEntries[0];
@@ -299,19 +321,24 @@ function buildLegacyStateFromVoyageEntries(
   const activeSpaceId =
     workspace.spaces.find((space) => space.tabGroupIds.includes(activeTabGroupId))?.id || "";
   const activeItems: Record<string, string> = {};
+  const activeItemsByVoyageEntryId: Record<string, string> = {};
   voyageEntries.forEach((entry) => {
-    activeItems[entry.tabGroupId] = getActiveItemIdForViewIds(
+    const activeItemId = getActiveItemIdForViewIds(
       workspace,
       entry.tabGroupId,
       entry.viewIds,
     );
+    activeItemsByVoyageEntryId[entry.id] = activeItemId;
+    activeItems[entry.tabGroupId] = activeItemId;
   });
   if (activeEntry) {
-    activeItems[activeEntry.tabGroupId] = getActiveItemIdForViewIds(
+    const activeItemId = getActiveItemIdForViewIds(
       workspace,
       activeEntry.tabGroupId,
       activeEntry.viewIds,
     );
+    activeItemsByVoyageEntryId[activeEntry.id] = activeItemId;
+    activeItems[activeEntry.tabGroupId] = activeItemId;
   }
   workspace.tabGroups.forEach((entry) => {
     if (!(entry.id in activeItems)) {
@@ -326,6 +353,7 @@ function buildLegacyStateFromVoyageEntries(
   return {
     activeSpaceId,
     activeTabGroupId,
+    activeItemsByVoyageEntryId,
     activeItems,
     visitedTabGroupIds: getValidVisitedTabGroupIds(
       workspace,
@@ -459,6 +487,10 @@ function loadSessionNav(
         ...(parsed?.activeItems || {}),
         ...(savedSession?.activeItems || {}),
       };
+      const mergedEntryActiveItems = {
+        ...(parsed?.activeItemsByVoyageEntryId || {}),
+        ...(savedSession?.activeItemsByVoyageEntryId || {}),
+      };
       const legacyVoyageEntries = deriveVoyageEntriesFromLegacyState(
         workspace,
         savedSession?.visitedTabGroupIds || parsed?.visitedTabGroupIds,
@@ -470,6 +502,7 @@ function loadSessionNav(
         savedSession?.activeVoyageEntryId || parsed?.activeVoyageEntryId,
         activeTabGroupId,
         mergedActiveItems,
+        mergedEntryActiveItems,
       );
       activeVoyageEntryId = normalizedVoyageEntries.activeVoyageEntryId;
 
@@ -514,6 +547,8 @@ function loadSessionNav(
             activeEntry.tabGroupId,
             activeEntry.viewIds,
           );
+          mergedEntryActiveItems[activeEntry.id] =
+            mergedActiveItems[activeEntry.tabGroupId] || "";
           activeTabGroupId = activeEntry.tabGroupId;
           activeSpaceId =
             getSpaceIdForTabGroup(workspace, activeEntry.tabGroupId) || activeSpaceId;
@@ -530,6 +565,7 @@ function loadSessionNav(
             (entry) => entry.id === activeVoyageEntryId,
           );
           if (activeEntry?.tabGroupId === activeTabGroupId) {
+            mergedEntryActiveItems[activeEntry.id] = route.itemId!;
             activeEntry.viewIds = getActiveViewIdsForItem(
               workspace,
               activeTabGroupId,
@@ -548,6 +584,10 @@ function loadSessionNav(
         ...nextNav,
         activeSpaceId,
         activeTabGroupId,
+        activeItemsByVoyageEntryId: {
+          ...nextNav.activeItemsByVoyageEntryId,
+          ...mergedEntryActiveItems,
+        },
         activeItems: {
           ...nextNav.activeItems,
           ...mergedActiveItems,
@@ -589,6 +629,7 @@ function saveSessionNav(nav: SessionWorkspaceNav) {
         activeTabGroupId: nav.activeTabGroupId,
         activeVoyageEntryId: nav.activeVoyageEntryId,
         voyageEntries: nav.voyageEntries,
+        activeItemsByVoyageEntryId: nav.activeItemsByVoyageEntryId,
         activeItems: nav.activeItems,
         visitedTabGroupIds: nav.visitedTabGroupIds,
       }),
@@ -1132,11 +1173,25 @@ export function useSessionWorkspaceNav(
   };
 
   const getActiveItem = (tabGroupId: string): string => {
+    const activeEntry = nav.voyageEntries.find(
+      (candidate) =>
+        candidate.id === nav.activeVoyageEntryId &&
+        candidate.tabGroupId === tabGroupId,
+    );
+    if (activeEntry) {
+      return nav.activeItemsByVoyageEntryId[activeEntry.id] || "";
+    }
     return nav.activeItems[tabGroupId] || "";
   };
 
   const getActiveViewIds = (tabGroupId: string): string[] => {
-    const entry = nav.voyageEntries.find((candidate) => candidate.tabGroupId === tabGroupId);
+    const entry =
+      nav.voyageEntries.find(
+        (candidate) =>
+          candidate.id === nav.activeVoyageEntryId &&
+          candidate.tabGroupId === tabGroupId,
+      ) ||
+      nav.voyageEntries.find((candidate) => candidate.tabGroupId === tabGroupId);
     return entry?.viewIds || [];
   };
 
@@ -1303,6 +1358,7 @@ export function useSessionWorkspaceNav(
     activeTabGroupId: nav.activeTabGroupId,
     activeVoyageEntryId: nav.activeVoyageEntryId,
     voyageEntries: nav.voyageEntries,
+    activeItemsByVoyageEntryId: nav.activeItemsByVoyageEntryId,
     activeItems: nav.activeItems,
     visitedTabGroupIds: nav.visitedTabGroupIds,
     targetPath,
