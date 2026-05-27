@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - '**'
+    paths-ignore:
+      - '**/*.md'
   repository_dispatch:
     types:
       - vk-release-assets-ready
@@ -28,8 +30,8 @@ permissions:
   id-token: write
 
 concurrency:
-  group: vk-vd-publish-${{ github.event_name == 'repository_dispatch' && github.event.client_payload.vk_source_ref || github.ref }}
-  cancel-in-progress: true
+  group: vk-vd-publish-${{ github.event_name }}-${{ github.event_name == 'repository_dispatch' && github.event.client_payload.vk_source_ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'push' && github.ref != 'refs/heads/main' }}
 
 jobs:
   resolve-vk-ref:
