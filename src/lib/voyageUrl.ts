@@ -1,4 +1,4 @@
-import type { SavedWorkspaceSession, TabGroup, VoyageEntry } from '../types';
+import type { Craft, SavedWorkspaceSession, VoyageEntry } from '../types';
 
 function slugifyPart(value: string): string {
   const normalized = value
@@ -23,7 +23,7 @@ export function getVoyageSlug(session: SavedWorkspaceSession): string {
 }
 
 export function buildCraftParam(
-  tabGroup: TabGroup | undefined,
+  tabGroup: Craft | undefined,
   entry: VoyageEntry | undefined,
 ): string | null {
   if (!(tabGroup && entry)) return null;

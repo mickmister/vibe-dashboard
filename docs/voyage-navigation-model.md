@@ -32,6 +32,15 @@ Each `VoyageEntry` has:
 - `tabGroupId`: stable craft identifier.
 - `viewIds`: ordered active view IDs for single-view or split-view restoration.
 
+## Compatibility naming in persisted state
+
+The codebase now exposes `View`, `ViewPair`, and `Craft` type names for new
+navigation work. The persisted workspace JSON still uses the historical field
+names `tabs`, `pairs`, `tabGroups`, and `tabGroupIds` so existing data can load
+without a migration. The legacy TypeScript aliases `Tab`, `TabPair`, and
+`TabGroup` remain deprecated compatibility aliases; new code should prefer
+`View`, `ViewPair`, `Craft`, and `VoyageEntry`.
+
 The stable id suffix is the final `_`/`-` delimited segment of the stable id.
 Human-readable labels can change, but URL resolution remains stable because the
 suffix stays present.

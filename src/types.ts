@@ -1,45 +1,54 @@
-export interface Tab {
+export interface View {
   id: string;
   title: string;
   url: string;
-  /** If true, this tab is pinned and cannot be closed */
+  /** If true, this view is pinned and cannot be closed */
   pinned?: boolean;
 }
 
-export interface TabPair {
+/** @deprecated Use View. Retained for persisted workspace compatibility. */
+export type Tab = View;
+
+export interface ViewPair {
   id: string;
-  /** Tab IDs in this pair, rendered side-by-side */
+  /** View IDs in this split, rendered side-by-side */
   tabIds: string[];
-  /** Percentage sizes for each tab (e.g., [75, 25] for 75%/25% split) */
+  /** Percentage sizes for each view (e.g., [75, 25] for 75%/25% split) */
   ratios: number[];
 }
 
-export interface TabGroup {
+/** @deprecated Use ViewPair for new code. Retained for persisted workspace compatibility. */
+export type TabPair = ViewPair;
+
+export interface Craft {
   id: string;
   label: string;
-  /** Optional compact label shown in the mobile top tab strip */
+  /** Optional compact label shown in the mobile craft strip */
   mobileLabel?: string;
-  /** Optional emoji shown in the mobile top tab strip */
+  /** Optional emoji shown in the mobile craft strip */
   mobileEmoji?: string;
-  /** All tabs in this group */
-  tabs: Tab[];
-  /** Tab pairs (split views) */
-  pairs: TabPair[];
+  /** All views in this craft. Persisted as `tabs` for compatibility. */
+  tabs: View[];
+  /** Split-view presets. Persisted as `pairs` until ad hoc layouts fully replace durable pairs. */
+  pairs: ViewPair[];
   /** Display order within the space */
   order: number;
-  /** ISO timestamp when this tab group was created */
+  /** ISO timestamp when this craft was created */
   createdAt?: string;
-  /** ISO timestamp when this tab group was last navigated to */
+  /** ISO timestamp when this craft was last navigated to */
   lastVisitedAt?: string;
-  /** If true, this tab group is starred and shown prominently */
+  /** If true, this craft is starred and shown prominently */
   starred?: boolean;
 }
+
+/** @deprecated Use Craft for new code. Retained for persisted workspace compatibility. */
+export type TabGroup = Craft;
 
 export interface Space {
   id: string;
   name: string;
   icon: string;
-  /** Tab group IDs belonging to this space */
+  /** Craft IDs belonging to this space. Persisted as `tabGroupIds` for compatibility. */
   tabGroupIds: string[];
   /** If true, this space cannot be deleted or renamed (e.g., Home space) */
   isSystem?: boolean;
@@ -72,7 +81,8 @@ export interface SavedWorkspaceSessionState {
 
 export interface WorkspaceState {
   spaces: Space[];
-  tabGroups: TabGroup[];
+  /** Craft records. Persisted as `tabGroups` for compatibility. */
+  tabGroups: Craft[];
   /** Counter for generating unique IDs */
   nextId: number;
 }
@@ -89,7 +99,7 @@ export function getDefaultSpace(workspace: WorkspaceState): Space | undefined {
 export function getFirstTabGroupForSpace(
   workspace: WorkspaceState,
   spaceId: string | undefined,
-): TabGroup | undefined {
+): Craft | undefined {
   if (!spaceId) return undefined;
   const space = workspace.spaces.find((entry) => entry.id === spaceId);
   if (!space) return undefined;
