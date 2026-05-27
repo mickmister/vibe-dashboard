@@ -473,6 +473,28 @@ function loadSessionNav(
       );
       activeVoyageEntryId = normalizedVoyageEntries.activeVoyageEntryId;
 
+      if (routeTabGroupValid) {
+        let routeEntry = normalizedVoyageEntries.entries.find(
+          (entry) => entry.tabGroupId === activeTabGroupId,
+        );
+        if (!routeEntry) {
+          routeEntry = createVoyageEntryForTabGroup(
+            workspace,
+            new Set(normalizedVoyageEntries.entries.map((entry) => entry.id)),
+            activeTabGroupId,
+            route.viewIds?.length
+              ? route.viewIds
+              : getActiveViewIdsForItem(
+                  workspace,
+                  activeTabGroupId,
+                  route.itemId || mergedActiveItems[activeTabGroupId],
+                ),
+          );
+          normalizedVoyageEntries.entries.push(routeEntry);
+        }
+        activeVoyageEntryId = routeEntry.id;
+      }
+
       if (route.voyageEntryId && normalizedVoyageEntries.entries.some((entry) => entry.id === route.voyageEntryId)) {
         activeVoyageEntryId = route.voyageEntryId;
       }
