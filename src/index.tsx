@@ -3,11 +3,27 @@ import '@vitejs/plugin-react/preamble';
 import './styles';
 
 import React, { useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router';
+import { useLocation, useParams, useNavigate } from 'react-router';
 import { HeroUIProvider } from '@heroui/react';
 import { AppLoadingScreen } from './components/AppLoadingScreen';
 import { WorkspaceShell } from './components/WorkspaceShell';
-import { useSessionWorkspaceNav } from './sessionState';
+import {
+  createNewBrowserSessionId,
+  getOrCreateBrowserSessionId,
+  getStoredBrowserSessionId,
+  setBrowserSessionId,
+  useSessionWorkspaceNav,
+} from './sessionState';
+import { buildWorkspaceFolderUrl, resolveWorkspaceContainerRef } from './lib/vkWorkspaceOpen';
+import {
+  buildCraftParam,
+  buildViewParam,
+  buildVoyageSlug,
+  getVoyageSlug,
+  parseCraftParam,
+  parseViewsParam,
+} from './lib/voyageUrl';
+import { resolvePreferredVoyageSessionId } from './lib/voyageSession';
 
 // Ensure dark class is on the document root so portaled elements (modals, popovers)
 // inherit dark mode styles
@@ -17,17 +33,34 @@ springboard.registerSplashScreen(AppLoadingScreen);
 // @platform end
 
 import springboard from 'springboard';
+import { createDefaultWorkspace, getDefaultSpace } from './types';
+import type {
+  WorkspaceState,
+  SavedWorkspaceSession,
+  SavedWorkspaceSessionState,
+} from './types';
 
 // @platform "node"
 import './modules/WorkflowServerModule';
 // @platform end
 
-import { createDefaultWorkspace } from './types';
-import type { WorkspaceState } from './types';
-
 const WORKSPACE_CREATE_PATH = '/workspaces/create';
 const WORKSPACE_CREATE_TAB_TITLE = 'Create Workspace';
 const URL_PARSE_BASE = 'https://workspace.local';
+const MOBILE_TAB_EMOJIS = [
+  '🚀',
+  '🧠',
+  '💻',
+  '🛠️',
+  '📚',
+  '🔬',
+  '🧪',
+  '🎯',
+  '🗂️',
+  '🌟',
+  '⚡',
+  '🛰️',
+];
 
 /**
  * Get the base URL without port prefix for creating tab URLs.
@@ -65,17 +98,106 @@ function isWorkspaceTabPath(url: string, expectedPath: string): boolean {
   }
 }
 
-console.log('outside of module');
+function createDefaultSavedSessionState(): SavedWorkspaceSessionState {
+  return {
+    sessions: [],
+  };
+}
+
+type OriginSessionResumeState = {
+  lastSessionByOrigin: Record<string, string>;
+};
+
+function createDefaultOriginSessionResumeState(): OriginSessionResumeState {
+  return {
+    lastSessionByOrigin: {},
+  };
+}
+
+function pickRandomMobileEmoji() {
+  return MOBILE_TAB_EMOJIS[Math.floor(Math.random() * MOBILE_TAB_EMOJIS.length)];
+}
+
+function isInternalTabUrl(url: string): boolean {
+  return url.startsWith('internal://');
+}
+
+function canPairTabs(tabUrls: string[]): boolean {
+  return tabUrls.every((url) => !isInternalTabUrl(url));
+}
+
+function getIdSuffix(id: string): string {
+  const parts = id.split(/[_-]/).filter(Boolean);
+  return parts[parts.length - 1] || id;
+}
+
+function resolveQueryCraftSelection(
+  workspace: WorkspaceState,
+  session: SavedWorkspaceSession | undefined,
+  craftParam: string | undefined,
+  viewParam: string | undefined,
+): {
+  spaceId?: string;
+  tabGroupId?: string;
+  itemId?: string;
+  voyageEntryId?: string;
+  viewIds?: string[];
+} {
+  if (!(session && craftParam)) return {};
+  const parsedCraft = parseCraftParam(craftParam);
+  if (!parsedCraft) return {};
+
+  const matchingEntry = session.voyageEntries?.find(
+    (entry) =>
+      getIdSuffix(entry.id) === parsedCraft.entrySuffix &&
+      getIdSuffix(entry.tabGroupId) === parsedCraft.tabGroupSuffix,
+  );
+  if (!matchingEntry) return {};
+
+  const tabGroup = workspace.tabGroups.find((entry) => entry.id === matchingEntry.tabGroupId);
+  if (!tabGroup) return {};
+
+  const viewSuffixes = parseViewsParam(viewParam);
+  const viewIds = viewSuffixes
+    .map((suffix) => tabGroup.tabs.find((tab) => getIdSuffix(tab.id) === suffix)?.id)
+    .filter((id): id is string => Boolean(id));
+  const resolvedViewIds = viewIds.length ? viewIds : matchingEntry.viewIds;
+  const itemId =
+    resolvedViewIds.length > 1
+      ? tabGroup.pairs.find(
+          (pair) =>
+            pair.tabIds.length === resolvedViewIds.length &&
+            pair.tabIds.every((tabId, index) => tabId === resolvedViewIds[index]),
+        )?.id || resolvedViewIds[0]
+      : resolvedViewIds[0];
+
+  return {
+    spaceId: workspace.spaces.find((space) => space.tabGroupIds.includes(tabGroup.id))?.id,
+    tabGroupId: tabGroup.id,
+    itemId,
+    voyageEntryId: matchingEntry.id,
+    viewIds: resolvedViewIds,
+  };
+}
+
 springboard.registerModule(
   'workspace',
   { rpcMode: 'remote' },
   async (moduleAPI) => {
-    console.log('inside of module');
-
     const workspaceState =
       await moduleAPI.statesAPI.createPersistentState<WorkspaceState>(
         'workspace',
         createDefaultWorkspace(),
+      );
+    const savedSessionsState =
+      await moduleAPI.statesAPI.createPersistentState<SavedWorkspaceSessionState>(
+        'workspace-sessions',
+        createDefaultSavedSessionState(),
+      );
+    const originSessionResumeState =
+      await moduleAPI.statesAPI.createPersistentState<OriginSessionResumeState>(
+        'workspace-origin-session-resume',
+        createDefaultOriginSessionResumeState(),
       );
 
     const actions = moduleAPI.createActions({
@@ -90,6 +212,7 @@ springboard.registerModule(
           draft.tabGroups.push({
             id: tabGroupId,
             label: 'Main',
+            mobileEmoji: pickRandomMobileEmoji(),
             tabs: [],
             pairs: [],
             order: 0,
@@ -152,6 +275,22 @@ springboard.registerModule(
         });
       },
 
+      updateTabGroupMobileDisplay: async (args: {
+        tabGroupId: string;
+        mobileLabel: string | null;
+        mobileEmoji: string | null;
+      }) => {
+        workspaceState.setStateImmer((draft) => {
+          const tabGroup = draft.tabGroups.find(
+            (tg) => tg.id === args.tabGroupId,
+          );
+          if (!tabGroup) return;
+
+          tabGroup.mobileLabel = args.mobileLabel || undefined;
+          tabGroup.mobileEmoji = args.mobileEmoji || undefined;
+        });
+      },
+
       renameTab: async (args: {
         tabGroupId: string;
         tabId: string;
@@ -181,6 +320,7 @@ springboard.registerModule(
           draft.tabGroups.push({
             id: tabGroupId,
             label: args.label,
+            mobileEmoji: pickRandomMobileEmoji(),
             tabs: [],
             pairs: [],
             order: space.tabGroupIds.length,
@@ -201,14 +341,46 @@ springboard.registerModule(
           const space = draft.spaces.find((s) => s.id === args.spaceId);
           if (!space) return;
 
-          // Prevent deletion if it's the last tab group in the space
-          if (space.tabGroupIds.length <= 1) return;
-
           const tabGroupIndex = space.tabGroupIds.indexOf(args.tabGroupId);
           if (tabGroupIndex === -1) return;
 
+          if (space.tabGroupIds.length <= 1) {
+            nextTabGroupId = `tg_${draft.nextId++}`;
+
+            draft.tabGroups.push(
+              space.isSystem
+                ? {
+                    id: nextTabGroupId,
+                    label: 'Overview',
+                    tabs: [
+                      {
+                        id: `tab_${draft.nextId++}`,
+                        title: 'Spaces',
+                        url: 'internal://spaces-overview',
+                        pinned: true,
+                      },
+                    ],
+                    pairs: [],
+                    order: 0,
+                    createdAt: new Date().toISOString(),
+                  }
+                : {
+                    id: nextTabGroupId,
+                    label: 'Main',
+                    mobileEmoji: pickRandomMobileEmoji(),
+                    tabs: [],
+                    pairs: [],
+                    order: 0,
+                    createdAt: new Date().toISOString(),
+                  },
+            );
+
+            space.tabGroupIds.push(nextTabGroupId);
+          }
+
           // Remove tab group ID from space
-          space.tabGroupIds.splice(tabGroupIndex, 1);
+          const updatedIndex = space.tabGroupIds.indexOf(args.tabGroupId);
+          space.tabGroupIds.splice(updatedIndex, 1);
 
           // Remove the tab group itself (this also removes all tabs and pairs)
           draft.tabGroups = draft.tabGroups.filter(
@@ -217,6 +389,7 @@ springboard.registerModule(
 
           // Determine next tab group to select
           nextTabGroupId =
+            nextTabGroupId ||
             space.tabGroupIds[Math.max(0, tabGroupIndex - 1)] ||
             space.tabGroupIds[0];
 
@@ -267,12 +440,12 @@ springboard.registerModule(
           | undefined;
 
         workspaceState.setStateImmer((draft) => {
-          const firstSpace = draft.spaces[0];
-          if (!firstSpace) return;
+          const defaultSpace = getDefaultSpace(draft);
+          if (!defaultSpace) return;
 
           let firstTabGroup =
-            firstSpace.tabGroupIds.length > 0
-              ? draft.tabGroups.find((g) => g.id === firstSpace.tabGroupIds[0])
+            defaultSpace.tabGroupIds.length > 0
+              ? draft.tabGroups.find((g) => g.id === defaultSpace.tabGroupIds[0])
               : undefined;
 
           if (!firstTabGroup) {
@@ -280,6 +453,7 @@ springboard.registerModule(
             firstTabGroup = {
               id: tabGroupId,
               label: 'Main',
+              mobileEmoji: pickRandomMobileEmoji(),
               tabs: [],
               pairs: [],
               order: 0,
@@ -287,10 +461,10 @@ springboard.registerModule(
             };
             draft.tabGroups.push(firstTabGroup);
 
-            if (firstSpace.tabGroupIds.length > 0) {
-              firstSpace.tabGroupIds[0] = tabGroupId;
+            if (defaultSpace.tabGroupIds.length > 0) {
+              defaultSpace.tabGroupIds[0] = tabGroupId;
             } else {
-              firstSpace.tabGroupIds.push(tabGroupId);
+              defaultSpace.tabGroupIds.push(tabGroupId);
             }
           }
 
@@ -299,7 +473,7 @@ springboard.registerModule(
           );
           if (existingTab) {
             result = {
-              spaceId: firstSpace.id,
+              spaceId: defaultSpace.id,
               tabGroupId: firstTabGroup.id,
               tabId: existingTab.id,
             };
@@ -314,7 +488,7 @@ springboard.registerModule(
           });
 
           result = {
-            spaceId: firstSpace.id,
+            spaceId: defaultSpace.id,
             tabGroupId: firstTabGroup.id,
             tabId,
           };
@@ -329,6 +503,15 @@ springboard.registerModule(
         workspaceState.setStateImmer((draft) => {
           const tg = draft.tabGroups.find((g) => g.id === args.tabGroupId);
           if (!tg) return;
+          const tabsToPair = args.tabIds
+            .map((tabId) => tg.tabs.find((tab) => tab.id === tabId))
+            .filter((tab): tab is NonNullable<typeof tab> => Boolean(tab));
+          if (
+            tabsToPair.length !== args.tabIds.length ||
+            !canPairTabs(tabsToPair.map((tab) => tab.url))
+          ) {
+            return;
+          }
 
           pairId = `pair_${draft.nextId++}`;
           const ratios = args.tabIds.map(() => 100 / args.tabIds.length);
@@ -399,6 +582,7 @@ springboard.registerModule(
               args.name.length > 30
                 ? args.name.substring(0, 27) + '...'
                 : args.name,
+            mobileEmoji: pickRandomMobileEmoji(),
             createdAt: new Date().toISOString(),
             tabs: [
               {
@@ -409,7 +593,7 @@ springboard.registerModule(
               {
                 id: codeTabId,
                 title: 'Code',
-                url: `${args.baseOrigin}/?folder=${args.containerRef}`,
+                url: buildWorkspaceFolderUrl(args.baseOrigin, args.containerRef),
               },
             ],
             pairs: [
@@ -485,6 +669,10 @@ springboard.registerModule(
 
       reorderSpaces: async (args: { sourceId: string; targetId: string }) => {
         workspaceState.setStateImmer((draft) => {
+          const sourceSpace = draft.spaces.find((s) => s.id === args.sourceId);
+          const targetSpace = draft.spaces.find((s) => s.id === args.targetId);
+          if (sourceSpace?.isSystem || targetSpace?.isSystem) return;
+
           const srcIdx = draft.spaces.findIndex((s) => s.id === args.sourceId);
           const tgtIdx = draft.spaces.findIndex((s) => s.id === args.targetId);
           if (srcIdx === -1 || tgtIdx === -1) return;
@@ -529,31 +717,134 @@ springboard.registerModule(
           return { selectTabId: nextTabId };
         }
       },
+
+      upsertSavedSession: async (args: SavedWorkspaceSession) => {
+        savedSessionsState.setStateImmer((draft) => {
+          const existing = draft.sessions.find((session) => session.id === args.id);
+          if (existing) {
+            existing.slug = args.slug;
+            existing.name = args.name;
+            existing.updatedAt = args.updatedAt;
+            existing.activeVoyageEntryId = args.activeVoyageEntryId;
+            existing.voyageEntries = args.voyageEntries;
+            existing.activeSpaceId = args.activeSpaceId;
+            existing.activeTabGroupId = args.activeTabGroupId;
+            existing.activeItemsByVoyageEntryId = args.activeItemsByVoyageEntryId;
+            existing.activeItems = args.activeItems;
+            existing.visitedTabGroupIds = args.visitedTabGroupIds;
+            return;
+          }
+
+          draft.sessions.unshift(args);
+        });
+      },
+      renameSavedSession: async (args: { id: string; name: string }) => {
+        savedSessionsState.setStateImmer((draft) => {
+          const existing = draft.sessions.find((session) => session.id === args.id);
+          if (!existing) return;
+          existing.name = args.name;
+          existing.updatedAt = new Date().toISOString();
+        });
+      },
+      deleteSavedSession: async (args: { id: string }) => {
+        savedSessionsState.setStateImmer((draft) => {
+          draft.sessions = draft.sessions.filter((session) => session.id !== args.id);
+        });
+        originSessionResumeState.setStateImmer((draft) => {
+          Object.entries(draft.lastSessionByOrigin).forEach(([origin, sessionId]) => {
+            if (sessionId === args.id) {
+              delete draft.lastSessionByOrigin[origin];
+            }
+          });
+        });
+      },
+      setOriginDefaultSession: async (args: {
+        origin: string;
+        sessionId: string;
+      }) => {
+        originSessionResumeState.setStateImmer((draft) => {
+          draft.lastSessionByOrigin[args.origin] = args.sessionId;
+        });
+      },
     });
 
     // Redirect component for root path (dev server case)
     const RootRedirect = () => {
       const navigate = useNavigate();
+      const location = useLocation();
       useEffect(() => {
-        navigate('/dashboard', { replace: true });
-      }, [navigate]);
+        navigate(`/dashboard${location.search}`, { replace: true });
+      }, [location.search, navigate]);
       return null;
     };
 
-    // Shared route component with space/tabGroup/item parameter support
+    // Shared route component with legacy path-params plus canonical voyage query-param support
     const WorkspaceRoute = () => {
       const workspace = workspaceState.useState();
+      const savedSessions = savedSessionsState.useState();
+      const originSessionResume = originSessionResumeState.useState();
       const { spaceId, tabGroupId, itemId } = useParams<{
         spaceId?: string;
         tabGroupId?: string;
         itemId?: string;
       }>();
+      const location = useLocation();
       const navigate = useNavigate();
-      const sessionNav = useSessionWorkspaceNav(workspace, {
-        spaceId,
-        tabGroupId,
-        itemId,
+      const sessionSearchParams = new URLSearchParams(location.search);
+      const requestedVoyageKey = (() => {
+        if (typeof window === 'undefined') return undefined;
+        const value =
+          sessionSearchParams.get('voyage')?.trim() ||
+          sessionSearchParams.get('session')?.trim();
+        return value || undefined;
+      })();
+      const requestedLegacySessionId =
+        sessionSearchParams.get('session')?.trim() || undefined;
+      const queryCraftParam = sessionSearchParams.get('craft')?.trim() || undefined;
+      const queryViewsParam = sessionSearchParams.get('views')?.trim() || undefined;
+      const hasVoyageBookmarkParam = requestedVoyageKey != null;
+      const currentOrigin =
+        typeof window === 'undefined' ? undefined : window.location.origin;
+      const originDefaultSessionId =
+        currentOrigin
+          ? originSessionResume.lastSessionByOrigin[currentOrigin]
+          : undefined;
+      const storedBrowserSessionId =
+        typeof window === 'undefined'
+          ? null
+          : getStoredBrowserSessionId();
+      const preferredSessionId = resolvePreferredVoyageSessionId({
+        savedSessions: savedSessions.sessions,
+        requestedVoyageKey,
+        requestedLegacySessionId,
+        storedBrowserSessionId,
+        originDefaultSessionId,
+        createReplacementSessionId: createNewBrowserSessionId,
       });
+      const browserSessionId =
+        typeof window === 'undefined'
+          ? 'server-session'
+          : getOrCreateBrowserSessionId(preferredSessionId);
+      const activeSavedSession = savedSessions.sessions.find(
+        (session) => session.id === browserSessionId,
+      );
+      const querySelection = resolveQueryCraftSelection(
+        workspace,
+        activeSavedSession,
+        queryCraftParam,
+        queryViewsParam,
+      );
+      const sessionNav = useSessionWorkspaceNav(
+        workspace,
+        {
+          spaceId: querySelection.spaceId || spaceId,
+          tabGroupId: querySelection.tabGroupId || tabGroupId,
+          itemId: querySelection.itemId || itemId,
+          voyageEntryId: querySelection.voyageEntryId,
+          viewIds: querySelection.viewIds,
+        },
+        activeSavedSession,
+      );
 
       // Update document title to reflect active space and tab group
       useEffect(() => {
@@ -580,19 +871,103 @@ springboard.registerModule(
         }
       }, [sessionNav.activeTabGroupId]);
 
-      // Sync URL to match current nav state
       useEffect(() => {
-        const segments = [
-          '/dashboard',
-          spaceId && `spaces/${spaceId}`,
-          tabGroupId,
-          itemId,
-        ].filter(Boolean);
-        const currentPath = segments.join('/');
-        if (sessionNav.targetPath !== currentPath) {
-          navigate(sessionNav.targetPath, { replace: true });
+        if (!(sessionNav.activeSpaceId && sessionNav.activeTabGroupId)) return;
+
+        const now = new Date().toISOString();
+        const currentTabGroup = workspace.tabGroups.find(
+          (tg) => tg.id === sessionNav.activeTabGroupId,
+        );
+        void actions.upsertSavedSession({
+          id: browserSessionId,
+          slug:
+            activeSavedSession?.slug ||
+            buildVoyageSlug(
+              activeSavedSession?.name || currentTabGroup?.label || 'voyage',
+              browserSessionId,
+            ),
+          name: activeSavedSession?.name,
+          createdAt: activeSavedSession?.createdAt || now,
+          updatedAt: now,
+          activeVoyageEntryId: sessionNav.activeVoyageEntryId,
+          voyageEntries: sessionNav.voyageEntries,
+          activeSpaceId: sessionNav.activeSpaceId,
+          activeTabGroupId: sessionNav.activeTabGroupId,
+          activeItemsByVoyageEntryId: sessionNav.activeItemsByVoyageEntryId,
+          activeItems: sessionNav.activeItems,
+          visitedTabGroupIds: sessionNav.visitedTabGroupIds,
+        });
+      }, [
+        activeSavedSession?.createdAt,
+        actions,
+        browserSessionId,
+        sessionNav.activeItems,
+        sessionNav.activeSpaceId,
+        sessionNav.activeTabGroupId,
+        sessionNav.activeVoyageEntryId,
+        sessionNav.activeItemsByVoyageEntryId,
+        sessionNav.voyageEntries,
+        sessionNav.visitedTabGroupIds,
+      ]);
+
+      useEffect(() => {
+        if (!(currentOrigin && browserSessionId)) return;
+        void actions.setOriginDefaultSession({
+          origin: currentOrigin,
+          sessionId: browserSessionId,
+        });
+      }, [actions, browserSessionId, currentOrigin]);
+
+      // Sync URL to match canonical voyage/craft/views query params
+      useEffect(() => {
+        const currentPath = `${location.pathname}${location.search}`;
+        const currentTabGroup = workspace.tabGroups.find(
+          (tg) => tg.id === sessionNav.activeTabGroupId,
+        );
+        const activeVoyageEntry = sessionNav.voyageEntries.find(
+          (entry) => entry.id === sessionNav.activeVoyageEntryId,
+        );
+        const currentVoyageSlug =
+          activeSavedSession?.slug ||
+          buildVoyageSlug(
+            activeSavedSession?.name || currentTabGroup?.label || 'voyage',
+            browserSessionId,
+          );
+        const nextSearchParams = new URLSearchParams();
+        nextSearchParams.set('voyage', currentVoyageSlug);
+
+        const craftParam = buildCraftParam(currentTabGroup, activeVoyageEntry);
+        if (craftParam) {
+          nextSearchParams.set('craft', craftParam);
         }
-      }, [sessionNav.targetPath, spaceId, tabGroupId, itemId, navigate]);
+
+        const activeViewIds = activeVoyageEntry?.viewIds || [];
+        const viewTokens = activeViewIds
+          .map((viewId) => {
+            const tab = currentTabGroup?.tabs.find((entry) => entry.id === viewId);
+            return tab ? buildViewParam(tab.title, tab.id) : null;
+          })
+          .filter((token): token is string => Boolean(token));
+        if (viewTokens.length) {
+          nextSearchParams.set('views', viewTokens.join(','));
+        }
+
+        const nextPath = `/dashboard?${nextSearchParams.toString()}`;
+        if (nextPath !== currentPath) {
+          navigate(nextPath, { replace: true });
+        }
+      }, [
+        activeSavedSession?.name,
+        activeSavedSession?.slug,
+        browserSessionId,
+        location.search,
+        location.pathname,
+        navigate,
+        sessionNav.activeTabGroupId,
+        sessionNav.activeVoyageEntryId,
+        sessionNav.voyageEntries,
+        workspace.tabGroups,
+      ]);
 
       // Wrap actions that need session parameters
       const wrappedActions = {
@@ -644,15 +1019,18 @@ springboard.registerModule(
             sessionNav.selectTab(result.tabGroupId, result.firstTabId);
           }
         },
-        addVKWorkspace: (args: {
+        addVKWorkspace: async (args: {
           taskAttemptId: string;
           name: string;
           containerRef: string;
           activeSpaceId: string;
         }) => {
-          // Get base origin from client side before calling action
           const baseOrigin = getBaseOrigin();
-          return actions.addVKWorkspace({ ...args, baseOrigin });
+          const containerRef = await resolveWorkspaceContainerRef(
+            args.taskAttemptId,
+            args.containerRef,
+          );
+          return actions.addVKWorkspace({ ...args, containerRef, baseOrigin });
         },
         ensureCreateWorkspaceTab: () => {
           const baseOrigin = getBaseOrigin();
@@ -660,12 +1038,81 @@ springboard.registerModule(
         },
       };
 
+      const updateBookmarkedSessionSearch = (sessionId: string) => {
+        if (!hasVoyageBookmarkParam) return;
+        const nextSearchParams = new URLSearchParams(location.search);
+        const session = savedSessions.sessions.find((entry) => entry.id === sessionId);
+        nextSearchParams.set(
+          'voyage',
+          session ? getVoyageSlug(session) : buildVoyageSlug(undefined, sessionId),
+        );
+        nextSearchParams.delete('session');
+        navigate(`${location.pathname}?${nextSearchParams.toString()}`, {
+          replace: true,
+        });
+      };
+
       const sessionActions = {
         selectSpace: sessionNav.selectSpace,
+        selectSessionTabGroup: sessionNav.selectSessionTabGroup,
+        selectSessionTab: sessionNav.selectSessionTab,
+        selectSessionPair: sessionNav.selectSessionPair,
+        selectVoyageEntry: sessionNav.selectVoyageEntry,
         selectTab: sessionNav.selectTab,
         selectPair: sessionNav.selectPair,
         setActiveTabGroup: sessionNav.setActiveTabGroup,
         getActiveItem: sessionNav.getActiveItem,
+        resumeSession: (sessionId: string, voyageEntryId?: string) => {
+          const sessionToResume = savedSessions.sessions.find(
+            (session) => session.id === sessionId,
+          );
+          if (!sessionToResume) return;
+          if (typeof window !== 'undefined') {
+            setBrowserSessionId(sessionId);
+          }
+          updateBookmarkedSessionSearch(sessionId);
+          sessionNav.resumeSession(sessionToResume, voyageEntryId);
+        },
+        startNewSession: () => {
+          const nextSessionId = createNewBrowserSessionId();
+          if (typeof window !== 'undefined') {
+            setBrowserSessionId(nextSessionId);
+          }
+          updateBookmarkedSessionSearch(nextSessionId);
+          sessionNav.startNewSession();
+        },
+        renameSession: (sessionId: string, name: string) => {
+          void actions.renameSavedSession({ id: sessionId, name });
+        },
+        deleteSession: (sessionId: string) => {
+          if (sessionId === browserSessionId) {
+            const nextSessionId = createNewBrowserSessionId();
+            if (typeof window !== 'undefined') {
+              setBrowserSessionId(nextSessionId);
+            }
+            updateBookmarkedSessionSearch(nextSessionId);
+            sessionNav.startNewSession();
+          }
+          void actions.deleteSavedSession({ id: sessionId });
+        },
+        addTabGroupToSession: (
+          tabGroupId: string,
+          options?: { allowDuplicate?: boolean; select?: boolean },
+        ) => {
+          sessionNav.addTabGroupToSession(tabGroupId, options);
+        },
+        removeVoyageEntryFromSession: (voyageEntryId: string) => {
+          sessionNav.removeVoyageEntryFromSession(voyageEntryId);
+        },
+        removeTabGroupFromSession: (tabGroupId: string) => {
+          sessionNav.removeTabGroupFromSession(tabGroupId);
+        },
+        reorderVoyageEntries: (sourceEntryId: string, targetEntryId: string) => {
+          sessionNav.reorderVoyageEntries(sourceEntryId, targetEntryId);
+        },
+        reorderSessionTabGroups: (sourceId: string, targetId: string) => {
+          sessionNav.reorderSessionTabGroups(sourceId, targetId);
+        },
       };
 
       return (
@@ -676,6 +1123,8 @@ springboard.registerModule(
               session={sessionNav}
               actions={normalizeActionReturns(wrappedActions)}
               sessionActions={sessionActions}
+              savedSessions={savedSessions.sessions}
+              currentSessionId={browserSessionId}
             />
           </div>
         </>

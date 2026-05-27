@@ -1,7 +1,11 @@
 import React from 'react';
 import { AddressBar } from './AddressBar';
 import { IframePanel } from './IframePanel';
-import type { TabGroup, WorkspaceState } from '../types';
+import type {
+  TabGroup,
+  WorkspaceState,
+  SavedWorkspaceSession,
+} from '../types';
 import type { WorkspaceActions, SessionActions } from './WorkspaceShell';
 
 interface UnifiedTabViewProps {
@@ -11,6 +15,13 @@ interface UnifiedTabViewProps {
   sessionActions: SessionActions;
   workspace: WorkspaceState;
   showAddressBar: boolean;
+  savedSessions: SavedWorkspaceSession[];
+  currentSessionId: string;
+  onResumeSession: (sessionId: string) => void;
+  onRenameSession: (sessionId: string, name: string) => void;
+  onDeleteSession: (sessionId: string) => void;
+  onStartNewSession: () => void;
+  onNavigateToTabGroup: (spaceId: string, tabGroupId: string) => void;
 }
 
 export function UnifiedTabView({
@@ -20,6 +31,13 @@ export function UnifiedTabView({
   sessionActions,
   workspace,
   showAddressBar,
+  savedSessions,
+  currentSessionId,
+  onResumeSession,
+  onRenameSession,
+  onDeleteSession,
+  onStartNewSession,
+  onNavigateToTabGroup,
 }: UnifiedTabViewProps) {
   const activeTabGroup = tabGroups.find((tg) => tg.id === activeTabGroupId);
 
@@ -52,10 +70,13 @@ export function UnifiedTabView({
               })
             }
             workspace={workspace}
-            onNavigateToTabGroup={(spaceId, tabGroupId) => {
-              sessionActions.selectSpace(spaceId);
-              sessionActions.setActiveTabGroup(tabGroupId);
-            }}
+            savedSessions={savedSessions}
+            currentSessionId={currentSessionId}
+            onResumeSession={onResumeSession}
+            onRenameSession={onRenameSession}
+            onDeleteSession={onDeleteSession}
+            onStartNewSession={onStartNewSession}
+            onNavigateToTabGroup={onNavigateToTabGroup}
             onOpenVKWorkspace={async (taskAttemptId, name, containerRef, spaceId) => {
               const result = await actions.addVKWorkspace({
                 taskAttemptId,
@@ -64,14 +85,16 @@ export function UnifiedTabView({
                 activeSpaceId: spaceId,
               });
               if (result) {
-                sessionActions.selectSpace(spaceId);
-                sessionActions.setActiveTabGroup(result.tabGroupId);
+                sessionActions.selectSessionTabGroup(
+                  spaceId,
+                  result.tabGroupId,
+                );
               }
             }}
           />
         ) : (
           <div className="flex-1 flex items-center justify-center text-neutral-500">
-            <p>No tab group selected</p>
+            <p>No craft selected</p>
           </div>
         )}
       </div>

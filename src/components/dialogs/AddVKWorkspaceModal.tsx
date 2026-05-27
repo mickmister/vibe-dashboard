@@ -14,6 +14,7 @@ import {
   type RepoWithBranch,
   type Workspace,
 } from '../../lib/vk-client';
+import { resolveWorkspaceContainerRef } from '../../lib/vkWorkspaceOpen';
 import type { WorkspaceState } from '../../types';
 
 interface WorkspaceOption extends Workspace {
@@ -124,11 +125,6 @@ export function AddVKWorkspaceModal({
     return Array.from(repos).sort((a, b) => a.localeCompare(b));
   }, [taskAttempts]);
 
-  const refreshTaskAttemptContainerAndRefetchTaskAttempt = async (taskAttemptId: string) => {
-    await vkClient.getWorkspaceBranchStatus(taskAttemptId);
-    return vkClient.getWorkspace(taskAttemptId);
-  };
-
   const fetchTaskAttempts = async () => {
     const cachedResults = cachedWorkspaceOptions;
     const hasCachedResults = cachedResults != null;
@@ -158,20 +154,7 @@ export function AddVKWorkspaceModal({
   };
 
   const resolveContainerRef = async (workspace: WorkspaceOption) => {
-    let containerRef = workspace.container_ref;
-
-    if (!containerRef) {
-      try {
-        const attempt = await refreshTaskAttemptContainerAndRefetchTaskAttempt(
-          workspace.id
-        );
-        containerRef = attempt.container_ref;
-      } catch (e) {
-        console.error('Failed to refresh container ref', e);
-      }
-    }
-
-    return containerRef || '';
+    return resolveWorkspaceContainerRef(workspace.id, workspace.container_ref);
   };
 
   const handleWorkspaceSelect = async (workspace: WorkspaceOption) => {
@@ -246,7 +229,7 @@ export function AddVKWorkspaceModal({
               ? `Select a space for ${spacePickerTarget.name || 'Untitled Workspace'}`
               : showPathInput
               ? 'Enter workspace path or directory'
-              : 'Search workspaces to open, or jump to an already-open tab group'}
+              : 'Search workspaces to open, or jump to an already-open craft'}
           </p>
         </ModalHeader>
         <ModalBody>
@@ -276,7 +259,7 @@ export function AddVKWorkspaceModal({
                           {space.name}
                         </span>
                         <span className="text-xs text-neutral-500">
-                          {tabGroupCount} tab group
+                          {tabGroupCount} craft
                           {tabGroupCount === 1 ? '' : 's'}
                         </span>
                       </div>
@@ -430,7 +413,7 @@ export function AddVKWorkspaceModal({
                             </p>
                           ) : onAddToSpace ? (
                             <p className="text-xs text-neutral-500 mt-1">
-                              Choose a space for this tab group
+                              Choose a space for this craft
                             </p>
                           ) : null}
                         </div>

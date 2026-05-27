@@ -1,6 +1,8 @@
 import React, { useEffect, useRef } from 'react';
 import type { TabGroup } from '../types';
 
+const INTERNAL_URL_PREFIX = 'internal://';
+
 interface TabContextMenuProps {
   /** Position to show the menu */
   position: { x: number; y: number };
@@ -83,7 +85,11 @@ export function TabContextMenu({
   // Get other tabs that can be paired with (exclude current tab and tabs already in pairs)
   const tabsInPairs = new Set(tabGroup.pairs.flatMap((p) => p.tabIds));
   const availableTabs = tabGroup.tabs.filter(
-    (t) => t.id !== tabId && !tabsInPairs.has(t.id)
+    (t) =>
+      t.id !== tabId &&
+      !tabsInPairs.has(t.id) &&
+      !t.url.startsWith(INTERNAL_URL_PREFIX) &&
+      !(tab?.url.startsWith(INTERNAL_URL_PREFIX))
   );
 
   // Adjust menu position to stay within viewport
@@ -116,14 +122,14 @@ export function TabContextMenu({
   };
 
   const handleDeleteTabGroup = () => {
-    if (onDeleteTabGroup && confirm(`Delete tab group "${tabGroup.label}"? All tabs in this group will be closed.`)) {
+    if (onDeleteTabGroup && confirm(`Delete craft "${tabGroup.label}"? All views in this craft will be closed.`)) {
       onDeleteTabGroup(activeSpaceId, tabGroup.id);
       onClose();
     }
   };
 
   const handleRenameTabGroup = () => {
-    const newLabel = prompt(`Rename tab group:`, tabGroup.label);
+    const newLabel = prompt(`Rename craft:`, tabGroup.label);
     if (newLabel && newLabel.trim() && newLabel !== tabGroup.label && onRenameTabGroup) {
       onRenameTabGroup(tabGroup.id, newLabel.trim());
       onClose();
@@ -135,7 +141,7 @@ export function TabContextMenu({
 
   const handleRenameTab = () => {
     if (!tab) return;
-    const newTitle = prompt(`Rename tab:`, tab.title);
+    const newTitle = prompt(`Rename view:`, tab.title);
     if (newTitle && newTitle.trim() && newTitle !== tab.title && onRenameTab) {
       onRenameTab(tab.id, newTitle.trim());
       onClose();
@@ -162,7 +168,7 @@ export function TabContextMenu({
               className="w-full text-left px-4 py-2 text-sm text-neutral-200 hover:bg-neutral-700 transition-colors"
               onClick={handleRenameTabGroup}
             >
-              Rename Tab Group
+              Rename Craft
             </button>
           )}
           {onRenameTabGroup && onDeleteTabGroup && <div className="border-t border-neutral-700 my-1" />}
@@ -171,7 +177,7 @@ export function TabContextMenu({
               className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-neutral-700 transition-colors"
               onClick={handleDeleteTabGroup}
             >
-              Delete Tab Group
+              Delete Craft
             </button>
           )}
         </>
@@ -198,7 +204,7 @@ export function TabContextMenu({
               className="w-full text-left px-4 py-2 text-sm text-neutral-200 hover:bg-neutral-700 transition-colors"
               onClick={handleRenameTab}
             >
-              Rename Tab
+              Rename View
             </button>
           )}
           {availableTabs.length > 0 && (
@@ -225,7 +231,7 @@ export function TabContextMenu({
               className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-neutral-700 transition-colors"
               onClick={handleCloseTab}
             >
-              Close Tab
+              Close View
             </button>
           )}
         </>
