@@ -96,6 +96,12 @@ export type WorkspaceActions = {
 export type SessionActions = {
   selectSpace: (spaceId: string) => void;
   selectSessionTabGroup: (spaceId: string, tabGroupId: string) => void;
+  selectSessionTab: (spaceId: string, tabGroupId: string, tabId: string) => void;
+  selectSessionPair: (
+    spaceId: string,
+    tabGroupId: string,
+    pairId: string,
+  ) => void;
   selectTab: (tabGroupId: string, tabId: string) => void;
   selectPair: (tabGroupId: string, pairId: string) => void;
   setActiveTabGroup: (tabGroupId: string) => void;
@@ -299,7 +305,11 @@ export function WorkspaceShell({
     const result = await actions.ensureCreateWorkspaceTab();
     if (!result) return;
 
-    sessionActions.selectTab(result.tabGroupId, result.tabId);
+    sessionActions.selectSessionTab(
+      result.spaceId,
+      result.tabGroupId,
+      result.tabId,
+    );
   };
 
   const handleAddVKWorkspace = async (
@@ -316,7 +326,11 @@ export function WorkspaceShell({
 
     // Auto-select the Agent tab (not the pair)
     if (result) {
-      sessionActions.selectTab(result.tabGroupId, result.agentTabId);
+      sessionActions.selectSessionTab(
+        session.activeSpaceId,
+        result.tabGroupId,
+        result.agentTabId,
+      );
     }
   };
 
@@ -334,7 +348,7 @@ export function WorkspaceShell({
     });
 
     if (result) {
-      sessionActions.selectTab(result.tabGroupId, result.agentTabId);
+      sessionActions.selectSessionTab(spaceId, result.tabGroupId, result.agentTabId);
     }
   };
 
@@ -558,13 +572,14 @@ export function WorkspaceShell({
   };
 
   const handleSelectExpandedSessionItem = (
+    spaceId: string,
     tabGroupId: string,
     item: { kind: 'tab' | 'pair'; id: string },
   ) => {
     if (item.kind === 'pair') {
-      sessionActions.selectPair(tabGroupId, item.id);
+      sessionActions.selectSessionPair(spaceId, tabGroupId, item.id);
     } else {
-      sessionActions.selectTab(tabGroupId, item.id);
+      sessionActions.selectSessionTab(spaceId, tabGroupId, item.id);
     }
     setExpandedSessionTabGroupId(null);
   };
@@ -841,6 +856,7 @@ export function WorkspaceShell({
                     }`}
                     onClick={() =>
                       handleSelectExpandedSessionItem(
+                        expandedSessionTabGroup.space.id,
                         expandedSessionTabGroup.tabGroup.id,
                         item,
                       )
@@ -891,6 +907,7 @@ export function WorkspaceShell({
                   }`}
                   onClick={() =>
                     handleSelectExpandedSessionItem(
+                      expandedSessionTabGroup.space.id,
                       expandedSessionTabGroup.tabGroup.id,
                       item,
                     )
