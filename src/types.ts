@@ -45,11 +45,21 @@ export interface Space {
   isSystem?: boolean;
 }
 
+export interface VoyageEntry {
+  id: string;
+  tabGroupId: string;
+  /** Ordered active views for this entry, used for single-view and split-view restoration */
+  viewIds: string[];
+}
+
 export interface SavedWorkspaceSession {
   id: string;
+  slug?: string;
   name?: string;
   createdAt: string;
   updatedAt: string;
+  activeVoyageEntryId?: string;
+  voyageEntries?: VoyageEntry[];
   activeSpaceId: string;
   activeTabGroupId: string;
   activeItems: Record<string, string>;

@@ -15,6 +15,14 @@ import {
   useSessionWorkspaceNav,
 } from './sessionState';
 import { buildWorkspaceFolderUrl, resolveWorkspaceContainerRef } from './lib/vkWorkspaceOpen';
+import {
+  buildCraftParam,
+  buildViewParam,
+  buildVoyageSlug,
+  getVoyageSlug,
+  parseCraftParam,
+  parseViewsParam,
+} from './lib/voyageUrl';
 
 // Ensure dark class is on the document root so portaled elements (modals, popovers)
 // inherit dark mode styles
@@ -29,6 +37,7 @@ import type {
   WorkspaceState,
   SavedWorkspaceSession,
   SavedWorkspaceSessionState,
+  VoyageEntry,
 } from './types';
 
 // @platform "node"
@@ -115,6 +124,60 @@ function isInternalTabUrl(url: string): boolean {
 
 function canPairTabs(tabUrls: string[]): boolean {
   return tabUrls.every((url) => !isInternalTabUrl(url));
+}
+
+function getIdSuffix(id: string): string {
+  const parts = id.split(/[_-]/).filter(Boolean);
+  return parts[parts.length - 1] || id;
+}
+
+function resolveQueryCraftSelection(
+  workspace: WorkspaceState,
+  session: SavedWorkspaceSession | undefined,
+  craftParam: string | undefined,
+  viewParam: string | undefined,
+): {
+  spaceId?: string;
+  tabGroupId?: string;
+  itemId?: string;
+  voyageEntryId?: string;
+  viewIds?: string[];
+} {
+  if (!(session && craftParam)) return {};
+  const parsedCraft = parseCraftParam(craftParam);
+  if (!parsedCraft) return {};
+
+  const matchingEntry = session.voyageEntries?.find(
+    (entry) =>
+      getIdSuffix(entry.id) === parsedCraft.entrySuffix &&
+      getIdSuffix(entry.tabGroupId) === parsedCraft.tabGroupSuffix,
+  );
+  if (!matchingEntry) return {};
+
+  const tabGroup = workspace.tabGroups.find((entry) => entry.id === matchingEntry.tabGroupId);
+  if (!tabGroup) return {};
+
+  const viewSuffixes = parseViewsParam(viewParam);
+  const viewIds = viewSuffixes
+    .map((suffix) => tabGroup.tabs.find((tab) => getIdSuffix(tab.id) === suffix)?.id)
+    .filter((id): id is string => Boolean(id));
+  const resolvedViewIds = viewIds.length ? viewIds : matchingEntry.viewIds;
+  const itemId =
+    resolvedViewIds.length > 1
+      ? tabGroup.pairs.find(
+          (pair) =>
+            pair.tabIds.length === resolvedViewIds.length &&
+            pair.tabIds.every((tabId, index) => tabId === resolvedViewIds[index]),
+        )?.id || resolvedViewIds[0]
+      : resolvedViewIds[0];
+
+  return {
+    spaceId: workspace.spaces.find((space) => space.tabGroupIds.includes(tabGroup.id))?.id,
+    tabGroupId: tabGroup.id,
+    itemId,
+    voyageEntryId: matchingEntry.id,
+    viewIds: resolvedViewIds,
+  };
 }
 
 springboard.registerModule(
@@ -711,7 +774,7 @@ springboard.registerModule(
       return null;
     };
 
-    // Shared route component with space/tabGroup/item parameter support
+    // Shared route component with legacy path-params plus canonical voyage query-param support
     const WorkspaceRoute = () => {
       const workspace = workspaceState.useState();
       const savedSessions = savedSessionsState.useState();
@@ -725,16 +788,23 @@ springboard.registerModule(
       const navigate = useNavigate();
       const savedSessionIds = new Set(savedSessions.sessions.map((session) => session.id));
       const sessionSearchParams = new URLSearchParams(location.search);
-      const requestedSessionId = (() => {
+      const requestedVoyageKey = (() => {
         if (typeof window === 'undefined') return undefined;
-        const value = sessionSearchParams.get('session')?.trim();
+        const value =
+          sessionSearchParams.get('voyage')?.trim() ||
+          sessionSearchParams.get('session')?.trim();
         return value || undefined;
       })();
-      const hasSessionBookmarkParam = requestedSessionId != null;
-      const bookmarkedSessionId =
-        requestedSessionId && savedSessionIds.has(requestedSessionId)
-          ? requestedSessionId
-          : undefined;
+      const queryCraftParam = sessionSearchParams.get('craft')?.trim() || undefined;
+      const queryViewsParam = sessionSearchParams.get('views')?.trim() || undefined;
+      const matchedRequestedVoyage = requestedVoyageKey
+        ? savedSessions.sessions.find(
+            (session) =>
+              session.id === requestedVoyageKey ||
+              getVoyageSlug(session) === requestedVoyageKey,
+          )
+        : undefined;
+      const hasVoyageBookmarkParam = requestedVoyageKey != null;
       const currentOrigin =
         typeof window === 'undefined' ? undefined : window.location.origin;
       const originDefaultSessionId =
@@ -746,7 +816,7 @@ springboard.registerModule(
           ? null
           : getStoredBrowserSessionId();
       const preferredSessionId =
-        requestedSessionId ||
+        matchedRequestedVoyage?.id ||
         (storedBrowserSessionId && savedSessionIds.has(storedBrowserSessionId)
           ? storedBrowserSessionId
           : undefined) ||
@@ -761,11 +831,23 @@ springboard.registerModule(
       const activeSavedSession = savedSessions.sessions.find(
         (session) => session.id === browserSessionId,
       );
-      const sessionNav = useSessionWorkspaceNav(workspace, {
-        spaceId,
-        tabGroupId,
-        itemId,
-      }, activeSavedSession);
+      const querySelection = resolveQueryCraftSelection(
+        workspace,
+        activeSavedSession,
+        queryCraftParam,
+        queryViewsParam,
+      );
+      const sessionNav = useSessionWorkspaceNav(
+        workspace,
+        {
+          spaceId: querySelection.spaceId || spaceId,
+          tabGroupId: querySelection.tabGroupId || tabGroupId,
+          itemId: querySelection.itemId || itemId,
+          voyageEntryId: querySelection.voyageEntryId,
+          viewIds: querySelection.viewIds,
+        },
+        activeSavedSession,
+      );
 
       // Update document title to reflect active space and tab group
       useEffect(() => {
@@ -796,11 +878,22 @@ springboard.registerModule(
         if (!(sessionNav.activeSpaceId && sessionNav.activeTabGroupId)) return;
 
         const now = new Date().toISOString();
+        const currentTabGroup = workspace.tabGroups.find(
+          (tg) => tg.id === sessionNav.activeTabGroupId,
+        );
         void actions.upsertSavedSession({
           id: browserSessionId,
+          slug:
+            activeSavedSession?.slug ||
+            buildVoyageSlug(
+              activeSavedSession?.name || currentTabGroup?.label || 'voyage',
+              browserSessionId,
+            ),
           name: activeSavedSession?.name,
           createdAt: activeSavedSession?.createdAt || now,
           updatedAt: now,
+          activeVoyageEntryId: sessionNav.activeVoyageEntryId,
+          voyageEntries: sessionNav.voyageEntries,
           activeSpaceId: sessionNav.activeSpaceId,
           activeTabGroupId: sessionNav.activeTabGroupId,
           activeItems: sessionNav.activeItems,
@@ -824,30 +917,55 @@ springboard.registerModule(
         });
       }, [actions, browserSessionId, currentOrigin]);
 
-      // Sync URL to match current nav state
+      // Sync URL to match canonical voyage/craft/views query params
       useEffect(() => {
-        const segments = [
-          '/dashboard',
-          spaceId && `spaces/${spaceId}`,
-          tabGroupId,
-          itemId,
-        ].filter(Boolean);
-        const currentPath = `${segments.join('/')}${location.search}`;
-        const nextSearch = requestedSessionId
-          ? `?session=${encodeURIComponent(requestedSessionId)}`
-          : '';
-        const nextPath = `${sessionNav.targetPath}${nextSearch}`;
+        const currentPath = `${location.pathname}${location.search}`;
+        const currentTabGroup = workspace.tabGroups.find(
+          (tg) => tg.id === sessionNav.activeTabGroupId,
+        );
+        const activeVoyageEntry = sessionNav.voyageEntries.find(
+          (entry) => entry.id === sessionNav.activeVoyageEntryId,
+        );
+        const currentVoyageSlug =
+          activeSavedSession?.slug ||
+          buildVoyageSlug(
+            activeSavedSession?.name || currentTabGroup?.label || 'voyage',
+            browserSessionId,
+          );
+        const nextSearchParams = new URLSearchParams();
+        nextSearchParams.set('voyage', currentVoyageSlug);
+
+        const craftParam = buildCraftParam(currentTabGroup, activeVoyageEntry);
+        if (craftParam) {
+          nextSearchParams.set('craft', craftParam);
+        }
+
+        const activeViewIds = activeVoyageEntry?.viewIds || [];
+        const viewTokens = activeViewIds
+          .map((viewId) => {
+            const tab = currentTabGroup?.tabs.find((entry) => entry.id === viewId);
+            return tab ? buildViewParam(tab.title, tab.id) : null;
+          })
+          .filter((token): token is string => Boolean(token));
+        if (viewTokens.length) {
+          nextSearchParams.set('views', viewTokens.join(','));
+        }
+
+        const nextPath = `/dashboard?${nextSearchParams.toString()}`;
         if (nextPath !== currentPath) {
           navigate(nextPath, { replace: true });
         }
       }, [
-        itemId,
+        activeSavedSession?.name,
+        activeSavedSession?.slug,
+        browserSessionId,
         location.search,
+        location.pathname,
         navigate,
-        requestedSessionId,
-        sessionNav.targetPath,
-        spaceId,
-        tabGroupId,
+        sessionNav.activeTabGroupId,
+        sessionNav.activeVoyageEntryId,
+        sessionNav.voyageEntries,
+        workspace.tabGroups,
       ]);
 
       // Wrap actions that need session parameters
@@ -920,9 +1038,14 @@ springboard.registerModule(
       };
 
       const updateBookmarkedSessionSearch = (sessionId: string) => {
-        if (!hasSessionBookmarkParam) return;
+        if (!hasVoyageBookmarkParam) return;
         const nextSearchParams = new URLSearchParams(location.search);
-        nextSearchParams.set('session', sessionId);
+        const session = savedSessions.sessions.find((entry) => entry.id === sessionId);
+        nextSearchParams.set(
+          'voyage',
+          session ? getVoyageSlug(session) : buildVoyageSlug(undefined, sessionId),
+        );
+        nextSearchParams.delete('session');
         navigate(`${location.pathname}?${nextSearchParams.toString()}`, {
           replace: true,
         });
