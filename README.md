@@ -1,22 +1,17 @@
-# vibe-kanban + code-server + Caddy (Docker)
+# Vibe Dashboard
 
-Single-container setup that runs:
-
-- `vibe-kanban`
-- `code-server` (VS Code in the browser)
-- `caddy` as the main entrypoint. Use `CADDY_PORT` to declare the listening port. Defaults to 3001.
+A coding agent dashboard built on top of https://vibekanban.com and https://github.com/coder/code-server
 
 ## Quick start
 
-Build and run:
+1. Run `docker compose up`
+2. Open http://localhost:3001 in your browser
 
-```bash
-docker compose up
-```
+A docker container will run the following:
 
-Open:
-
-- `http://localhost:3001` (main entrypoint via Caddy)
+- `vibe-kanban`
+- `code-server`
+- `caddy` as the main UI entrypoint
 
 ## Dynamic port forwarding
 
