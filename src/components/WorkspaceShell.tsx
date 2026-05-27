@@ -108,7 +108,7 @@ export type SessionActions = {
   selectPair: (tabGroupId: string, pairId: string) => void;
   setActiveTabGroup: (tabGroupId: string) => void;
   getActiveItem: (tabGroupId: string) => string;
-  resumeSession: (sessionId: string) => void;
+  resumeSession: (sessionId: string, voyageEntryId?: string) => void;
   startNewSession: () => void;
   renameSession: (sessionId: string, name: string) => void;
   deleteSession: (sessionId: string) => void;
@@ -130,6 +130,16 @@ interface WorkspaceShellProps {
   savedSessions: SavedWorkspaceSession[];
   currentSessionId: string;
 }
+
+type DuplicateCraftPrompt = {
+  spaceId: string;
+  tabGroupId: string;
+  currentEntries: VoyageEntry[];
+  otherVoyages: Array<{
+    session: SavedWorkspaceSession;
+    entryId?: string;
+  }>;
+};
 
 export function WorkspaceShell({
   workspace,
@@ -163,6 +173,8 @@ export function WorkspaceShell({
   const [expandedVoyageEntryId, setExpandedVoyageEntryId] = useState<
     string | null
   >(null);
+  const [duplicateCraftPrompt, setDuplicateCraftPrompt] =
+    useState<DuplicateCraftPrompt | null>(null);
   const [mobileTabDraftLabel, setMobileTabDraftLabel] = useState('');
   const [mobileTabDraftEmoji, setMobileTabDraftEmoji] = useState('');
   const dragGroupRef = useRef<string | null>(null);
@@ -387,45 +399,47 @@ export function WorkspaceShell({
     spaceId: string,
     tabGroupId: string,
   ) => {
-    const existingEntry = session.voyageEntries.find(
+    const currentEntries = session.voyageEntries.filter(
       (entry) => entry.tabGroupId === tabGroupId,
     );
 
-    if (existingEntry) {
-      const tabGroup = workspace.tabGroups.find((entry) => entry.id === tabGroupId);
-      const shouldEmbarkAgain = confirm(
-        `"${tabGroup?.label || 'This craft'}" is already embarked in this voyage.\n\nPress OK to embark another copy in this voyage, or Cancel to switch to the existing craft.`,
-      );
-      if (shouldEmbarkAgain) {
-        sessionActions.addTabGroupToSession(tabGroupId, {
-          allowDuplicate: true,
-          select: true,
-        });
-      } else {
-        sessionActions.selectVoyageEntry(existingEntry.id);
-      }
-      setWorkspaceSearchMode('general');
+    if (
+      workspaceSearchMode !== 'session-add' &&
+      currentEntries.some((entry) => entry.id === session.activeVoyageEntryId)
+    ) {
+      sessionActions.selectVoyageEntry(session.activeVoyageEntryId);
       return;
     }
 
-    const sessionsContainingCraft = savedSessions.filter((savedSession) =>
-      (savedSession.voyageEntries || []).some(
-        (entry) => entry.tabGroupId === tabGroupId,
-      ) || savedSession.visitedTabGroupIds.includes(tabGroupId),
-    );
-    if (sessionsContainingCraft.length > 0 && workspaceSearchMode === 'session-add') {
-      const firstVoyage = sessionsContainingCraft[0];
-      const shouldEmbarkHere = confirm(
-        `This craft is already embarked in ${
-          sessionsContainingCraft.length === 1
-            ? `"${firstVoyage?.name || firstVoyage?.slug || 'another voyage'}"`
-            : `${sessionsContainingCraft.length} other voyages`
-        }.\n\nPress OK to embark it in this voyage too, or Cancel to keep this voyage unchanged.`,
+    const otherVoyages = savedSessions
+      .filter((savedSession) => savedSession.id !== currentSessionId)
+      .map((savedSession) => {
+        const matchingEntry = savedSession.voyageEntries?.find(
+          (entry) => entry.tabGroupId === tabGroupId,
+        );
+        const hasLegacyMembership =
+          !matchingEntry && savedSession.visitedTabGroupIds.includes(tabGroupId);
+        return matchingEntry || hasLegacyMembership
+          ? { session: savedSession, entryId: matchingEntry?.id }
+          : null;
+      })
+      .filter(
+        (
+          entry,
+        ): entry is {
+          session: SavedWorkspaceSession;
+          entryId: string | undefined;
+        } => entry != null,
       );
-      if (!shouldEmbarkHere) {
-        setWorkspaceSearchMode('general');
-        return;
-      }
+
+    if (currentEntries.length > 0 || otherVoyages.length > 0) {
+      setDuplicateCraftPrompt({
+        spaceId,
+        tabGroupId,
+        currentEntries,
+        otherVoyages,
+      });
+      return;
     }
 
     if (workspaceSearchMode === 'session-add') {
@@ -433,6 +447,31 @@ export function WorkspaceShell({
     }
     sessionActions.selectSessionTabGroup(spaceId, tabGroupId);
     setWorkspaceSearchMode('general');
+  };
+
+  const closeDuplicateCraftPrompt = () => {
+    setDuplicateCraftPrompt(null);
+    setWorkspaceSearchMode('general');
+    setWorkspaceSearchOpen(false);
+  };
+
+  const embarkDuplicateCraftHere = () => {
+    if (!duplicateCraftPrompt) return;
+    sessionActions.addTabGroupToSession(duplicateCraftPrompt.tabGroupId, {
+      allowDuplicate: true,
+      select: true,
+    });
+    closeDuplicateCraftPrompt();
+  };
+
+  const switchToExistingCraftInCurrentVoyage = (voyageEntryId: string) => {
+    sessionActions.selectVoyageEntry(voyageEntryId);
+    closeDuplicateCraftPrompt();
+  };
+
+  const switchToCraftInOtherVoyage = (sessionId: string, voyageEntryId?: string) => {
+    sessionActions.resumeSession(sessionId, voyageEntryId);
+    closeDuplicateCraftPrompt();
   };
 
   const handleAddTabGroup = async (label: string) => {
@@ -1104,6 +1143,77 @@ export function WorkspaceShell({
           allowCustomPath={false}
         />
       )}
+
+      {duplicateCraftPrompt && (() => {
+        const tabGroup = workspace.tabGroups.find(
+          (candidate) => candidate.id === duplicateCraftPrompt.tabGroupId,
+        );
+        const craftLabel = tabGroup?.label || 'This craft';
+
+        return (
+          <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/60 p-4">
+            <div className="w-full max-w-lg rounded-xl border border-neutral-700 bg-neutral-900 p-5 shadow-2xl">
+              <div className="text-base font-semibold text-neutral-100">
+                {craftLabel} is already embarked
+              </div>
+              <p className="mt-2 text-sm text-neutral-400">
+                Choose whether to switch to an existing craft or embark another
+                copy in this voyage.
+              </p>
+
+              {duplicateCraftPrompt.currentEntries.length > 0 && (
+                <div className="mt-4 space-y-2">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
+                    This voyage
+                  </div>
+                  {duplicateCraftPrompt.currentEntries.map((entry, index) => (
+                    <button
+                      key={entry.id}
+                      className="block w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-700"
+                      onClick={() => switchToExistingCraftInCurrentVoyage(entry.id)}
+                    >
+                      Switch to embarked craft {index + 1}
+                      {entry.id === session.activeVoyageEntryId ? ' (active)' : ''}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {duplicateCraftPrompt.otherVoyages.length > 0 && (
+                <div className="mt-4 space-y-2">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
+                    Other voyages
+                  </div>
+                  {duplicateCraftPrompt.otherVoyages.map(({ session: savedSession, entryId }) => (
+                    <button
+                      key={`${savedSession.id}-${entryId || 'legacy'}`}
+                      className="block w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-700"
+                      onClick={() => switchToCraftInOtherVoyage(savedSession.id, entryId)}
+                    >
+                      Switch to {savedSession.name || savedSession.slug || 'untitled voyage'}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                <button
+                  className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-300 transition-colors hover:bg-neutral-800"
+                  onClick={closeDuplicateCraftPrompt}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="rounded-md border border-primary-500/40 bg-primary-500/15 px-3 py-2 text-sm text-primary-200 transition-colors hover:bg-primary-500/25"
+                  onClick={embarkDuplicateCraftHere}
+                >
+                  Embark another copy here
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {desktopTabMenuTarget && (() => {
         const space = workspace.spaces.find(

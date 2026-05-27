@@ -1068,7 +1068,7 @@ springboard.registerModule(
         selectPair: sessionNav.selectPair,
         setActiveTabGroup: sessionNav.setActiveTabGroup,
         getActiveItem: sessionNav.getActiveItem,
-        resumeSession: (sessionId: string) => {
+        resumeSession: (sessionId: string, voyageEntryId?: string) => {
           const sessionToResume = savedSessions.sessions.find(
             (session) => session.id === sessionId,
           );
@@ -1077,7 +1077,7 @@ springboard.registerModule(
             setBrowserSessionId(sessionId);
           }
           updateBookmarkedSessionSearch(sessionId);
-          sessionNav.resumeSession(sessionToResume);
+          sessionNav.resumeSession(sessionToResume, voyageEntryId);
         },
         startNewSession: () => {
           const nextSessionId = createNewBrowserSessionId();

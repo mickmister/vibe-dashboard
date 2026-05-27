@@ -1081,8 +1081,16 @@ export function useSessionWorkspaceNav(
     });
   };
 
-  const resumeSession = (sessionToResume: SavedWorkspaceSession) => {
-    const nextNav = loadSessionNav(workspace, {}, sessionToResume);
+  const resumeSession = (
+    sessionToResume: SavedWorkspaceSession,
+    voyageEntryId?: string,
+  ) => {
+    const loadedNav = loadSessionNav(workspace, {}, sessionToResume);
+    const nextNav =
+      voyageEntryId &&
+      loadedNav.voyageEntries.some((entry) => entry.id === voyageEntryId)
+        ? rebuildNav(loadedNav, loadedNav.voyageEntries, voyageEntryId)
+        : loadedNav;
     setPendingSelection({
       activeSpaceId: nextNav.activeSpaceId,
       activeTabGroupId: nextNav.activeTabGroupId,
