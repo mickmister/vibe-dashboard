@@ -37,7 +37,6 @@ import type {
   WorkspaceState,
   SavedWorkspaceSession,
   SavedWorkspaceSessionState,
-  VoyageEntry,
 } from './types';
 
 // @platform "node"
@@ -722,8 +721,11 @@ springboard.registerModule(
         savedSessionsState.setStateImmer((draft) => {
           const existing = draft.sessions.find((session) => session.id === args.id);
           if (existing) {
+            existing.slug = args.slug;
             existing.name = args.name;
             existing.updatedAt = args.updatedAt;
+            existing.activeVoyageEntryId = args.activeVoyageEntryId;
+            existing.voyageEntries = args.voyageEntries;
             existing.activeSpaceId = args.activeSpaceId;
             existing.activeTabGroupId = args.activeTabGroupId;
             existing.activeItems = args.activeItems;
@@ -795,6 +797,8 @@ springboard.registerModule(
           sessionSearchParams.get('session')?.trim();
         return value || undefined;
       })();
+      const requestedLegacySessionId =
+        sessionSearchParams.get('session')?.trim() || undefined;
       const queryCraftParam = sessionSearchParams.get('craft')?.trim() || undefined;
       const queryViewsParam = sessionSearchParams.get('views')?.trim() || undefined;
       const matchedRequestedVoyage = requestedVoyageKey
@@ -817,6 +821,7 @@ springboard.registerModule(
           : getStoredBrowserSessionId();
       const preferredSessionId =
         matchedRequestedVoyage?.id ||
+        requestedLegacySessionId ||
         (storedBrowserSessionId && savedSessionIds.has(storedBrowserSessionId)
           ? storedBrowserSessionId
           : undefined) ||
@@ -906,6 +911,8 @@ springboard.registerModule(
         sessionNav.activeItems,
         sessionNav.activeSpaceId,
         sessionNav.activeTabGroupId,
+        sessionNav.activeVoyageEntryId,
+        sessionNav.voyageEntries,
         sessionNav.visitedTabGroupIds,
       ]);
 

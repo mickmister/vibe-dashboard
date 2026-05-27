@@ -150,6 +150,23 @@ function getActiveViewIdsForItem(
   return getDefaultViewIdsForTabGroup(workspace, tabGroupId);
 }
 
+function normalizeViewIdsForTabGroup(
+  workspace: WorkspaceState,
+  tabGroupId: string,
+  viewIds: string[] | undefined,
+): string[] {
+  const tabGroup = workspace.tabGroups.find((entry) => entry.id === tabGroupId);
+  if (!tabGroup) return [];
+
+  const validViewIds = (viewIds || []).filter((viewId) =>
+    tabGroup.tabs.some((tab) => tab.id === viewId),
+  );
+
+  return validViewIds.length
+    ? validViewIds
+    : getDefaultViewIdsForTabGroup(workspace, tabGroupId);
+}
+
 function getActiveItemIdForViewIds(
   workspace: WorkspaceState,
   tabGroupId: string,
@@ -187,6 +204,21 @@ function ensureUniqueVoyageEntryId(existingIds: Set<string>, baseId: string): st
   return nextId;
 }
 
+function createVoyageEntryForTabGroup(
+  workspace: WorkspaceState,
+  existingIds: Set<string>,
+  tabGroupId: string,
+  viewIds?: string[],
+): VoyageEntry {
+  const entryId = ensureUniqueVoyageEntryId(existingIds, createVoyageEntryId(tabGroupId));
+  existingIds.add(entryId);
+  return {
+    id: entryId,
+    tabGroupId,
+    viewIds: normalizeViewIdsForTabGroup(workspace, tabGroupId, viewIds),
+  };
+}
+
 function deriveVoyageEntriesFromLegacyState(
   workspace: WorkspaceState,
   visitedTabGroupIds: string[] | undefined,
@@ -194,15 +226,14 @@ function deriveVoyageEntriesFromLegacyState(
 ): VoyageEntry[] {
   const validVisited = getValidVisitedTabGroupIds(workspace, visitedTabGroupIds, "");
   const existingIds = new Set<string>();
-  return validVisited.map((tabGroupId) => {
-    const entryId = ensureUniqueVoyageEntryId(existingIds, createVoyageEntryId(tabGroupId));
-    existingIds.add(entryId);
-    return {
-      id: entryId,
+  return validVisited.map((tabGroupId) =>
+    createVoyageEntryForTabGroup(
+      workspace,
+      existingIds,
       tabGroupId,
-      viewIds: getActiveViewIdsForItem(workspace, tabGroupId, activeItems?.[tabGroupId]),
-    };
-  });
+      getActiveViewIdsForItem(workspace, tabGroupId, activeItems?.[tabGroupId]),
+    ),
+  );
 }
 
 function getValidVoyageEntries(
@@ -222,23 +253,29 @@ function getValidVoyageEntries(
       return {
         id: nextId,
         tabGroupId: entry.tabGroupId,
-        viewIds:
-          entry.viewIds?.filter((viewId) =>
-            workspace.tabGroups
-              .find((tabGroup) => tabGroup.id === entry.tabGroupId)
-              ?.tabs.some((tab) => tab.id === viewId),
-          ) || getActiveViewIdsForItem(workspace, entry.tabGroupId, activeItems?.[entry.tabGroupId]),
+        viewIds: normalizeViewIdsForTabGroup(
+          workspace,
+          entry.tabGroupId,
+          entry.viewIds?.length
+            ? entry.viewIds
+            : getActiveViewIdsForItem(workspace, entry.tabGroupId, activeItems?.[entry.tabGroupId]),
+        ),
       };
     });
 
   if (!entries.length && fallbackActiveTabGroupId) {
-    const entryId = ensureUniqueVoyageEntryId(existingIds, createVoyageEntryId(fallbackActiveTabGroupId));
-    entries.push({
-      id: entryId,
-      tabGroupId: fallbackActiveTabGroupId,
-      viewIds: getActiveViewIdsForItem(workspace, fallbackActiveTabGroupId, activeItems?.[fallbackActiveTabGroupId]),
-    });
-    existingIds.add(entryId);
+    entries.push(
+      createVoyageEntryForTabGroup(
+        workspace,
+        existingIds,
+        fallbackActiveTabGroupId,
+        getActiveViewIdsForItem(
+          workspace,
+          fallbackActiveTabGroupId,
+          activeItems?.[fallbackActiveTabGroupId],
+        ),
+      ),
+    );
   }
 
   const resolvedActiveEntryId =
@@ -438,7 +475,11 @@ function loadSessionNav(
           (entry) => entry.id === activeVoyageEntryId,
         );
         if (activeEntry) {
-          activeEntry.viewIds = [...route.viewIds];
+          activeEntry.viewIds = normalizeViewIdsForTabGroup(
+            workspace,
+            activeEntry.tabGroupId,
+            route.viewIds,
+          );
           mergedActiveItems[activeEntry.tabGroupId] = getActiveItemIdForViewIds(
             workspace,
             activeEntry.tabGroupId,
@@ -456,6 +497,16 @@ function loadSessionNav(
             tg.pairs.some((p) => p.id === route.itemId));
         if (itemExists) {
           mergedActiveItems[activeTabGroupId] = route.itemId!;
+          const activeEntry = normalizedVoyageEntries.entries.find(
+            (entry) => entry.id === activeVoyageEntryId,
+          );
+          if (activeEntry?.tabGroupId === activeTabGroupId) {
+            activeEntry.viewIds = getActiveViewIdsForItem(
+              workspace,
+              activeTabGroupId,
+              route.itemId,
+            );
+          }
         }
       }
 
@@ -579,6 +630,41 @@ export function useSessionWorkspaceNav(
     };
   };
 
+  const ensureVoyageEntryForTabGroup = (
+    prev: SessionWorkspaceNav,
+    tabGroupId: string,
+    viewIds?: string[],
+  ): { entries: VoyageEntry[]; activeEntryId: string } => {
+    const existingEntry = prev.voyageEntries.find((entry) => entry.tabGroupId === tabGroupId);
+    if (existingEntry) {
+      return {
+        entries: viewIds
+          ? prev.voyageEntries.map((entry) =>
+              entry.id === existingEntry.id
+                ? {
+                    ...entry,
+                    viewIds: normalizeViewIdsForTabGroup(workspace, tabGroupId, viewIds),
+                  }
+                : entry,
+            )
+          : prev.voyageEntries,
+        activeEntryId: existingEntry.id,
+      };
+    }
+
+    const nextEntry = createVoyageEntryForTabGroup(
+      workspace,
+      new Set(prev.voyageEntries.map((entry) => entry.id)),
+      tabGroupId,
+      viewIds,
+    );
+
+    return {
+      entries: [...prev.voyageEntries, nextEntry],
+      activeEntryId: nextEntry.id,
+    };
+  };
+
   const setPendingSelection = (selection: PendingNavSelection) => {
     pendingSelectionRef.current = selection;
   };
@@ -696,11 +782,16 @@ export function useSessionWorkspaceNav(
             : undefined;
         const firstTabGroupId =
           routeTabGroupInSpace || space?.tabGroupIds[0] || prev.activeTabGroupId;
-        updated = {
-          ...updated,
-          activeSpaceId: nextSpaceId,
-          activeTabGroupId: firstTabGroupId,
-        };
+        const next = ensureVoyageEntryForTabGroup(updated, firstTabGroupId);
+        updated = rebuildNav(
+          {
+            ...updated,
+            activeSpaceId: nextSpaceId,
+            activeTabGroupId: firstTabGroupId,
+          },
+          next.entries,
+          next.activeEntryId,
+        );
       }
 
       if (
@@ -708,25 +799,26 @@ export function useSessionWorkspaceNav(
         isTabGroupInSpace(workspace, nextSpaceId, route.tabGroupId) &&
         updated.activeTabGroupId !== route.tabGroupId
       ) {
-        updated = { ...updated, activeTabGroupId: route.tabGroupId };
+        const next = ensureVoyageEntryForTabGroup(updated, route.tabGroupId);
+        updated = rebuildNav(
+          { ...updated, activeTabGroupId: route.tabGroupId },
+          next.entries,
+          next.activeEntryId,
+        );
       }
 
-      if (route.voyageEntryId && prev.voyageEntries.some((entry) => entry.id === route.voyageEntryId)) {
-        updated = rebuildNav(prev, prev.voyageEntries, route.voyageEntryId);
+      if (route.voyageEntryId && updated.voyageEntries.some((entry) => entry.id === route.voyageEntryId)) {
+        updated = rebuildNav(updated, updated.voyageEntries, route.voyageEntryId);
       }
 
       // Sync itemId from route
       if (route.viewIds?.length && route.tabGroupId) {
-        const nextEntries = prev.voyageEntries.map((entry) =>
-          entry.id === (route.voyageEntryId || prev.activeVoyageEntryId)
-            ? { ...entry, viewIds: [...route.viewIds!] }
-            : entry,
+        const next = ensureVoyageEntryForTabGroup(
+          updated,
+          route.tabGroupId,
+          route.viewIds,
         );
-        const activeEntryId =
-          route.voyageEntryId ||
-          nextEntries.find((entry) => entry.tabGroupId === route.tabGroupId)?.id ||
-          prev.activeVoyageEntryId;
-        updated = rebuildNav(prev, nextEntries, activeEntryId);
+        updated = rebuildNav(updated, next.entries, route.voyageEntryId || next.activeEntryId);
       } else if (route.itemId && route.tabGroupId) {
         const tg = workspace.tabGroups.find((g) => g.id === route.tabGroupId);
         const itemExists =
@@ -735,10 +827,15 @@ export function useSessionWorkspaceNav(
             tg.pairs.some((p) => p.id === route.itemId));
         if (
           itemExists &&
-          prev.activeItems[route.tabGroupId!] !== route.itemId
+          updated.activeItems[route.tabGroupId!] !== route.itemId
         ) {
+          const next = ensureVoyageEntryForTabGroup(
+            updated,
+            route.tabGroupId,
+            getActiveViewIdsForItem(workspace, route.tabGroupId, route.itemId),
+          );
           updated = {
-            ...updated,
+            ...rebuildNav(updated, next.entries, next.activeEntryId),
             activeItems: {
               ...updated.activeItems,
               [route.tabGroupId!]: route.itemId,
@@ -858,20 +955,14 @@ export function useSessionWorkspaceNav(
 
     const firstTabGroupId = space.tabGroupIds[0];
     if (firstTabGroupId) {
-      const activeEntry =
-        nav.voyageEntries.find((entry) => entry.tabGroupId === firstTabGroupId) ||
-        nav.voyageEntries[0];
       setPendingSelection({
         activeSpaceId: spaceId,
         activeTabGroupId: firstTabGroupId,
       });
-      setNav((prev) =>
-        rebuildNav(
-          prev,
-          prev.voyageEntries,
-          activeEntry?.id || prev.activeVoyageEntryId,
-        ),
-      );
+      setNav((prev) => {
+        const next = ensureVoyageEntryForTabGroup(prev, firstTabGroupId);
+        return rebuildNav(prev, next.entries, next.activeEntryId);
+      });
     }
   };
 
@@ -885,14 +976,8 @@ export function useSessionWorkspaceNav(
       activeTabGroupId: tabGroupId,
     });
     setNav((prev) => {
-      const activeEntry =
-        prev.voyageEntries.find((entry) => entry.tabGroupId === tabGroupId) ||
-        prev.voyageEntries[0];
-      return rebuildNav(
-        prev,
-        prev.voyageEntries,
-        activeEntry?.id || prev.activeVoyageEntryId,
-      );
+      const next = ensureVoyageEntryForTabGroup(prev, tabGroupId);
+      return rebuildNav(prev, next.entries, next.activeEntryId);
     });
   };
 
@@ -915,18 +1000,11 @@ export function useSessionWorkspaceNav(
       activeItemId: tabId,
     });
     setNav((prev) => {
-      const nextEntries = prev.voyageEntries.map((entry) =>
-        entry.tabGroupId === tabGroupId
-          ? { ...entry, viewIds: [tabId] }
-          : entry,
-      );
-      const activeEntry =
-        nextEntries.find((entry) => entry.tabGroupId === tabGroupId) ||
-        nextEntries[0];
+      const next = ensureVoyageEntryForTabGroup(prev, tabGroupId, [tabId]);
       return rebuildNav(
         { ...prev, activeItems: { ...prev.activeItems, [tabGroupId]: tabId } },
-        nextEntries,
-        activeEntry?.id || prev.activeVoyageEntryId,
+        next.entries,
+        next.activeEntryId,
       );
     });
   };
@@ -951,18 +1029,15 @@ export function useSessionWorkspaceNav(
     });
     setNav((prev) => {
       const pair = tabGroup.pairs.find((entry) => entry.id === pairId);
-      const nextEntries = prev.voyageEntries.map((entry) =>
-        entry.tabGroupId === tabGroupId
-          ? { ...entry, viewIds: pair ? [...pair.tabIds] : entry.viewIds }
-          : entry,
+      const next = ensureVoyageEntryForTabGroup(
+        prev,
+        tabGroupId,
+        pair ? [...pair.tabIds] : undefined,
       );
-      const activeEntry =
-        nextEntries.find((entry) => entry.tabGroupId === tabGroupId) ||
-        nextEntries[0];
       return rebuildNav(
         { ...prev, activeItems: { ...prev.activeItems, [tabGroupId]: pairId } },
-        nextEntries,
-        activeEntry?.id || prev.activeVoyageEntryId,
+        next.entries,
+        next.activeEntryId,
       );
     });
   };
@@ -987,14 +1062,8 @@ export function useSessionWorkspaceNav(
       activeTabGroupId: tabGroupId,
     });
     setNav((prev) => {
-      const activeEntry =
-        prev.voyageEntries.find((entry) => entry.tabGroupId === tabGroupId) ||
-        prev.voyageEntries[0];
-      return rebuildNav(
-        prev,
-        prev.voyageEntries,
-        activeEntry?.id || prev.activeVoyageEntryId,
-      );
+      const next = ensureVoyageEntryForTabGroup(prev, tabGroupId);
+      return rebuildNav(prev, next.entries, next.activeEntryId);
     });
   };
 
@@ -1037,14 +1106,11 @@ export function useSessionWorkspaceNav(
       }
       const nextEntries = [
         ...prev.voyageEntries,
-        {
-          id: ensureUniqueVoyageEntryId(
-            new Set(prev.voyageEntries.map((entry) => entry.id)),
-            createVoyageEntryId(tabGroupId),
-          ),
+        createVoyageEntryForTabGroup(
+          workspace,
+          new Set(prev.voyageEntries.map((entry) => entry.id)),
           tabGroupId,
-          viewIds: getDefaultViewIdsForTabGroup(workspace, tabGroupId),
-        },
+        ),
       ];
       return rebuildNav(prev, nextEntries, prev.activeVoyageEntryId);
     });
