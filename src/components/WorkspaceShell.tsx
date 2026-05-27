@@ -15,6 +15,7 @@ import type {
   VoyageEntry,
 } from '../types';
 import type { SessionWorkspaceNav } from '../sessionState';
+import type { PluginRegistryState } from '../modules/plugins/vibe-dashboard/types';
 
 const MOBILE_TAB_EMOJI_CHOICES = [
   '🚀',
@@ -78,7 +79,7 @@ export type WorkspaceActions = {
   reorderTabGroups: (args: { sourceId: string; targetId: string }) => void;
   closeActiveTab: () => void;
   addVKWorkspace: (args: {
-    taskAttemptId: string;
+    workspaceId: string;
     name: string;
     containerRef: string;
     activeSpaceId: string;
@@ -128,6 +129,7 @@ interface WorkspaceShellProps {
   session: SessionWorkspaceNav;
   actions: WorkspaceActions;
   sessionActions: SessionActions;
+  pluginRegistry: PluginRegistryState;
   savedSessions: SavedWorkspaceSession[];
   currentSessionId: string;
 }
@@ -147,6 +149,7 @@ export function WorkspaceShell({
   session,
   actions,
   sessionActions,
+  pluginRegistry,
   savedSessions,
   currentSessionId,
 }: WorkspaceShellProps) {
@@ -322,7 +325,6 @@ export function WorkspaceShell({
     void prefetchVKWorkspaceSearchResults();
   }, []);
 
-  // --- Add tab modal handler ---
   const openAddTabModal = (tabGroupId: string) => {
     setAddTabTargetGroupId(tabGroupId);
     setAddTabModalOpen(true);
@@ -344,18 +346,17 @@ export function WorkspaceShell({
   };
 
   const handleAddVKWorkspace = async (
-    taskAttemptId: string,
+    workspaceId: string,
     name: string,
     containerRef: string,
   ) => {
     const result = await actions.addVKWorkspace({
-      taskAttemptId,
+      workspaceId,
       name,
       containerRef,
       activeSpaceId: session.activeSpaceId,
     });
 
-    // Auto-select the Agent tab (not the pair)
     if (result) {
       sessionActions.selectSessionTab(
         session.activeSpaceId,
@@ -366,13 +367,13 @@ export function WorkspaceShell({
   };
 
   const handleAddVKWorkspaceToSpace = async (
-    taskAttemptId: string,
+    workspaceId: string,
     name: string,
     containerRef: string,
     spaceId: string,
   ) => {
     const result = await actions.addVKWorkspace({
-      taskAttemptId,
+      workspaceId,
       name,
       containerRef,
       activeSpaceId: spaceId,
@@ -384,13 +385,13 @@ export function WorkspaceShell({
   };
 
   const handleWorkspaceSearchAdd = async (
-    taskAttemptId: string,
+    workspaceId: string,
     name: string,
     containerRef: string,
   ) => {
     if (workspaceSearchMode === 'session-add') {
       await handleAddVKWorkspaceToSpace(
-        taskAttemptId,
+        workspaceId,
         name,
         containerRef,
         session.activeSpaceId,
@@ -399,16 +400,16 @@ export function WorkspaceShell({
       return;
     }
 
-    await handleAddVKWorkspace(taskAttemptId, name, containerRef);
+    await handleAddVKWorkspace(workspaceId, name, containerRef);
   };
 
   const handleWorkspaceSearchAddToSpace = async (
-    taskAttemptId: string,
+    workspaceId: string,
     name: string,
     containerRef: string,
     spaceId: string,
   ) => {
-    await handleAddVKWorkspaceToSpace(taskAttemptId, name, containerRef, spaceId);
+    await handleAddVKWorkspaceToSpace(workspaceId, name, containerRef, spaceId);
     setWorkspaceSearchMode('general');
   };
 
@@ -497,13 +498,12 @@ export function WorkspaceShell({
       label,
     });
 
-    // Auto-select the new craft
+
     if (result?.tabGroupId) {
       sessionActions.setActiveTabGroup(result.tabGroupId);
     }
   };
 
-  // --- Derived state ---
   const activeSpace = workspace.spaces.find(
     (s) => s.id === session.activeSpaceId,
   );
@@ -811,6 +811,7 @@ export function WorkspaceShell({
           activeSpaceId={session.activeSpaceId}
           activeTabGroupId={session.activeTabGroupId}
           activeItems={session.activeItems}
+          spaceTypes={pluginRegistry.spaceTypes}
           visitedTabGroupIds={session.visitedTabGroupIds}
           savedSessions={savedSessions}
           currentSessionId={currentSessionId}
@@ -899,7 +900,6 @@ export function WorkspaceShell({
         />
       </div>
 
-      {/* Main content area */}
       <div className="flex-1 flex flex-col min-h-0 min-w-0 relative">
         {showSessionTopBar && (
         <div className="hidden md:flex h-9 border-b border-neutral-600 bg-neutral-900 items-stretch shrink-0">
@@ -1137,6 +1137,8 @@ export function WorkspaceShell({
         <AddTabModal
           isOpen={addTabModalOpen}
           onClose={() => setAddTabModalOpen(false)}
+          tabPresets={Object.values(pluginRegistry.tabPresets)}
+          tabGroupFactories={Object.values(pluginRegistry.tabGroupFactories)}
           onAdd={handleAddTab}
           onAddVKWorkspace={handleAddVKWorkspace}
           onAddVKWorkspaceToSpace={handleAddVKWorkspaceToSpace}
@@ -1158,7 +1160,6 @@ export function WorkspaceShell({
           }
           onNavigateToTabGroup={handleNavigateToWorkspaceTabGroup}
           workspaceState={workspace}
-          allowCustomPath={false}
         />
       )}
 

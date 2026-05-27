@@ -1149,7 +1149,7 @@ interface SpacesOverviewProps {
   onStartNewSession: () => void;
   onNavigateToTabGroup: (spaceId: string, tabGroupId: string) => void;
   onOpenVKWorkspace?: (
-    taskAttemptId: string,
+    workspaceId: string,
     name: string,
     containerRef: string,
     spaceId: string,

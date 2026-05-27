@@ -1,6 +1,7 @@
 // @platform "browser"
 import '@vitejs/plugin-react/preamble';
 import './styles';
+import './modules/plugins';
 
 import React, { useEffect } from 'react';
 import { useLocation, useParams, useNavigate } from 'react-router';
@@ -34,6 +35,8 @@ springboard.registerSplashScreen(AppLoadingScreen);
 
 import springboard from 'springboard';
 import { createDefaultWorkspace, getDefaultSpace } from './types';
+import type { PluginRegistryState } from './modules/plugins/vibe-dashboard/types';
+import { getBaseOrigin } from './utils/origin';
 import type {
   WorkspaceState,
   SavedWorkspaceSession,
@@ -61,25 +64,6 @@ const MOBILE_TAB_EMOJIS = [
   '⚡',
   '🛰️',
 ];
-
-/**
- * Get the base URL without port prefix for creating tab URLs.
- * If running on port-{num}.domain.com, returns just the origin without the prefix.
- */
-function getBaseOrigin(): string {
-  const { protocol, host } = window.location;
-
-  // Check if host matches port-{num}.domain.com pattern
-  const portPrefixMatch = host.match(/^port-\d+\.(.+)$/);
-
-  if (portPrefixMatch) {
-    // Return base domain without the port prefix (different origin)
-    return `${protocol}//${portPrefixMatch[1]}`;
-  }
-
-  // Same origin — use relative paths so URLs aren't tied to a specific host
-  return '';
-}
 
 function buildWorkspaceTabUrl(baseOrigin: string, path: string): string {
   return baseOrigin ? `${baseOrigin}${path}` : path;
@@ -552,7 +536,7 @@ springboard.registerModule(
       },
 
       addVKWorkspace: async (args: {
-        taskAttemptId: string;
+        workspaceId: string;
         name: string;
         containerRef: string;
         activeSpaceId: string;
@@ -588,7 +572,7 @@ springboard.registerModule(
               {
                 id: kanbanTabId,
                 title: 'Agent',
-                url: `${args.baseOrigin}/workspaces/${args.taskAttemptId}`,
+                url: buildWorkspaceTabUrl(args.baseOrigin, `/workspaces/${args.workspaceId}`),
               },
               {
                 id: codeTabId,
@@ -781,6 +765,14 @@ springboard.registerModule(
     // Shared route component with legacy path-params plus canonical voyage query-param support
     const WorkspaceRoute = () => {
       const workspace = workspaceState.useState();
+      const pluginRegistry = moduleAPI.getModule('plugin-registry');
+      const vibeKanbanPlugin = moduleAPI.getModule('plugin-vibe-kanban');
+      const pluginRegistryState: PluginRegistryState = pluginRegistry?.states.registry.useState() ?? {
+        plugins: {},
+        tabPresets: {},
+        spaceTypes: {},
+        tabGroupFactories: {},
+      };
       const savedSessions = savedSessionsState.useState();
       const originSessionResume = originSessionResumeState.useState();
       const { spaceId, tabGroupId, itemId } = useParams<{
@@ -986,7 +978,6 @@ springboard.registerModule(
             activeTabGroupId: sessionNav.activeTabGroupId,
             activeItemId,
           });
-          // If action returned a tab to select, select it
           if (result?.selectTabId) {
             sessionNav.selectTab(
               sessionNav.activeTabGroupId,
@@ -1000,36 +991,39 @@ springboard.registerModule(
           url: string;
         }) => {
           const result = await actions.addTab(args);
-          // Auto-select the newly added tab
           if (result?.tabId) {
             sessionNav.selectTab(result.tabGroupId, result.tabId);
           }
         },
         createPair: async (args: { tabGroupId: string; tabIds: string[] }) => {
           const result = await actions.createPair(args);
-          // Auto-select the newly created pair
           if (result?.pairId) {
             sessionNav.selectPair(result.tabGroupId, result.pairId);
           }
         },
         deletePair: async (args: { tabGroupId: string; pairId: string }) => {
           const result = await actions.deletePair(args);
-          // Auto-select the first tab from the deleted pair
           if (result?.firstTabId) {
             sessionNav.selectTab(result.tabGroupId, result.firstTabId);
           }
         },
         addVKWorkspace: async (args: {
-          taskAttemptId: string;
+          workspaceId: string;
           name: string;
           containerRef: string;
           activeSpaceId: string;
         }) => {
-          const baseOrigin = getBaseOrigin();
           const containerRef = await resolveWorkspaceContainerRef(
-            args.taskAttemptId,
+            args.workspaceId,
             args.containerRef,
           );
+          if (vibeKanbanPlugin) {
+            return vibeKanbanPlugin.actions.addVKWorkspace({
+              ...args,
+              containerRef,
+            });
+          }
+          const baseOrigin = getBaseOrigin();
           return actions.addVKWorkspace({ ...args, containerRef, baseOrigin });
         },
         ensureCreateWorkspaceTab: () => {
@@ -1123,6 +1117,7 @@ springboard.registerModule(
               session={sessionNav}
               actions={normalizeActionReturns(wrappedActions)}
               sessionActions={sessionActions}
+              pluginRegistry={pluginRegistryState}
               savedSessions={savedSessions.sessions}
               currentSessionId={browserSessionId}
             />
@@ -1179,4 +1174,119 @@ function normalizeActionReturns<
   T extends Record<string, (...args: any[]) => any>,
 >(actions: T) {
   return actions as NormalizeActionReturns<T>;
+}
+
+declare module 'springboard/module_registry/module_registry' {
+  interface AllModules {
+    workspace: {
+      states: {
+        workspace: {
+          useState: () => WorkspaceState;
+          getState: () => WorkspaceState;
+        };
+      };
+      actions: {
+        addSpace: (args: {
+          name: string;
+        }) => Promise<{ spaceId: string; tabGroupId: string } | undefined>;
+        deleteSpace: (args: {
+          spaceId: string;
+        }) => Promise<
+          { wasDeleted: boolean; deletedSpaceId?: string } | undefined
+        >;
+        renameSpace: (args: { spaceId: string; name: string }) => Promise<void>;
+        addTabGroup: (args: {
+          spaceId: string;
+          label: string;
+        }) => Promise<{ tabGroupId?: string; spaceId?: string } | undefined>;
+        deleteTabGroup: (args: {
+          spaceId: string;
+          tabGroupId: string;
+        }) => Promise<
+          | {
+              wasDeleted: boolean;
+              deletedTabGroupId?: string;
+              nextTabGroupId?: string;
+            }
+          | undefined
+        >;
+        renameTabGroup: (args: {
+          tabGroupId: string;
+          label: string;
+        }) => Promise<void>;
+        updateTabGroupMobileDisplay: (args: {
+          tabGroupId: string;
+          mobileLabel: string | null;
+          mobileEmoji: string | null;
+        }) => Promise<void>;
+        renameTab: (args: {
+          tabGroupId: string;
+          tabId: string;
+          title: string;
+        }) => Promise<void>;
+        closeTab: (args: { tabGroupId: string; tabId: string }) => Promise<void>;
+        addTab: (args: {
+          tabGroupId: string;
+          title: string;
+          url: string;
+        }) => Promise<{ tabId: string; tabGroupId: string } | undefined>;
+        ensureCreateWorkspaceTab: (args: {
+          baseOrigin: string;
+        }) => Promise<
+          { spaceId: string; tabGroupId: string; tabId: string } | undefined
+        >;
+        createPair: (args: {
+          tabGroupId: string;
+          tabIds: string[];
+        }) => Promise<{ pairId: string; tabGroupId: string } | undefined>;
+        deletePair: (args: {
+          tabGroupId: string;
+          pairId: string;
+        }) => Promise<{ firstTabId?: string; tabGroupId: string } | undefined>;
+        updatePairRatios: (args: {
+          tabGroupId: string;
+          pairId: string;
+          ratios: number[];
+        }) => Promise<void>;
+        reorderTabGroups: (args: {
+          sourceId: string;
+          targetId: string;
+          activeSpaceId: string;
+        }) => Promise<void>;
+        closeActiveTab: (args: {
+          activeTabGroupId: string;
+          activeItemId: string;
+        }) => Promise<{ selectTabId?: string } | undefined>;
+        addVKWorkspace: (args: {
+          workspaceId: string;
+          name: string;
+          containerRef: string;
+          activeSpaceId: string;
+          baseOrigin: string;
+        }) => Promise<
+          { tabGroupId: string; pairId: string; agentTabId: string } | undefined
+        >;
+        updateTabUrl: (args: {
+          tabGroupId: string;
+          tabId: string;
+          newUrl: string;
+        }) => Promise<void>;
+        touchTabGroup: (args: { tabGroupId: string }) => Promise<void>;
+        toggleStarTabGroup: (args: {
+          tabGroupId: string;
+        }) => Promise<void>;
+        reorderSpaces: (args: {
+          sourceId: string;
+          targetId: string;
+        }) => Promise<void>;
+        upsertSavedSession: (args: SavedWorkspaceSession) => Promise<void>;
+        renameSavedSession: (args: { id: string; name: string }) => Promise<void>;
+        deleteSavedSession: (args: { id: string }) => Promise<void>;
+        setOriginDefaultSession: (args: {
+          origin: string;
+          sessionId: string;
+        }) => Promise<void>;
+      };
+    };
+  }
 }
