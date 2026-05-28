@@ -110,7 +110,7 @@ export type SessionActions = {
   setActiveTabGroup: (tabGroupId: string) => void;
   getActiveItem: (tabGroupId: string) => string;
   resumeSession: (sessionId: string, voyageEntryId?: string) => void;
-  startNewSession: () => void;
+  startNewSession: () => string;
   renameSession: (sessionId: string, name: string) => void;
   deleteSession: (sessionId: string) => void;
   addTabGroupToSession: (
@@ -141,6 +141,8 @@ type DuplicateCraftPrompt = {
     entryId?: string;
   }>;
 };
+
+type VoyageActionKind = 'new-task' | 'open-craft';
 
 export function WorkspaceShell({
   workspace,
@@ -176,6 +178,17 @@ export function WorkspaceShell({
   >(null);
   const [duplicateCraftPrompt, setDuplicateCraftPrompt] =
     useState<DuplicateCraftPrompt | null>(null);
+  const [voyageActionPrompt, setVoyageActionPrompt] =
+    useState<VoyageActionKind | null>(null);
+  const [voyageActionNewName, setVoyageActionNewName] = useState('');
+  const [pendingOpenCraftSessionId, setPendingOpenCraftSessionId] =
+    useState<string | null>(null);
+  const [pendingVoyageRename, setPendingVoyageRename] = useState<{
+    sessionId: string;
+    name: string;
+  } | null>(null);
+  const [previousVoyageId, setPreviousVoyageId] = useState<string | null>(null);
+  const [voyagePlusMenuOpen, setVoyagePlusMenuOpen] = useState(false);
   const [mobileTabDraftLabel, setMobileTabDraftLabel] = useState('');
   const [mobileTabDraftEmoji, setMobileTabDraftEmoji] = useState('');
   const dragGroupRef = useRef<string | null>(null);
@@ -260,6 +273,24 @@ export function WorkspaceShell({
     }
   };
 
+  const switchToVoyage = (sessionId: string, voyageEntryId?: string) => {
+    if (sessionId !== currentSessionId) {
+      setPreviousVoyageId(currentSessionId);
+    }
+    sessionActions.resumeSession(sessionId, voyageEntryId);
+  };
+
+  const startNewVoyage = (name?: string): string => {
+    const nextSessionId = sessionActions.startNewSession();
+    const trimmedName = name?.trim();
+    if (trimmedName) {
+      sessionActions.renameSession(nextSessionId, trimmedName);
+      setPendingVoyageRename({ sessionId: nextSessionId, name: trimmedName });
+    }
+    setPreviousVoyageId(currentSessionId);
+    return nextSessionId;
+  };
+
   // --- Cmd+W / Cmd+Q exit confirmation ---
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -322,6 +353,15 @@ export function WorkspaceShell({
     void prefetchVKWorkspaceSearchResults();
   }, []);
 
+  useEffect(() => {
+    if (!pendingVoyageRename) return;
+    if (!savedSessions.some((entry) => entry.id === pendingVoyageRename.sessionId)) {
+      return;
+    }
+    sessionActions.renameSession(pendingVoyageRename.sessionId, pendingVoyageRename.name);
+    setPendingVoyageRename(null);
+  }, [pendingVoyageRename, savedSessions, sessionActions]);
+
   // --- Add tab modal handler ---
   const openAddTabModal = (tabGroupId: string) => {
     setAddTabTargetGroupId(tabGroupId);
@@ -341,6 +381,13 @@ export function WorkspaceShell({
       result.tabGroupId,
       result.tabId,
     );
+  };
+
+  const handleOpenNewTaskInVoyage = async (sessionId: string) => {
+    if (sessionId !== currentSessionId) {
+      switchToVoyage(sessionId);
+    }
+    await handleOpenCreateWorkspaceTab();
   };
 
   const handleAddVKWorkspace = async (
@@ -388,13 +435,20 @@ export function WorkspaceShell({
     name: string,
     containerRef: string,
   ) => {
+    const destinationSessionId = pendingOpenCraftSessionId;
+    const destinationSession =
+      destinationSessionId && destinationSessionId !== currentSessionId
+        ? savedSessions.find((entry) => entry.id === destinationSessionId)
+        : undefined;
+    const destinationSpaceId =
+      destinationSession?.activeSpaceId || session.activeSpaceId;
+
     if (workspaceSearchMode === 'session-add') {
-      await handleAddVKWorkspaceToSpace(
-        taskAttemptId,
-        name,
-        containerRef,
-        session.activeSpaceId,
-      );
+      if (destinationSessionId && destinationSessionId !== currentSessionId) {
+        switchToVoyage(destinationSessionId);
+      }
+      await handleAddVKWorkspaceToSpace(taskAttemptId, name, containerRef, destinationSpaceId);
+      setPendingOpenCraftSessionId(null);
       setWorkspaceSearchMode('general');
       return;
     }
@@ -416,15 +470,26 @@ export function WorkspaceShell({
     spaceId: string,
     tabGroupId: string,
   ) => {
-    const currentEntries = session.voyageEntries.filter(
-      (entry) => entry.tabGroupId === tabGroupId,
-    );
+    const destinationSessionId = pendingOpenCraftSessionId;
+    const destinationSession =
+      destinationSessionId && destinationSessionId !== currentSessionId
+        ? savedSessions.find((entry) => entry.id === destinationSessionId)
+        : undefined;
+    const targetEntries =
+      destinationSession?.voyageEntries ||
+      (destinationSessionId && destinationSessionId !== currentSessionId
+        ? []
+        : session.voyageEntries);
+    const currentEntries = targetEntries.filter((entry) => entry.tabGroupId === tabGroupId);
 
-    if (
-      workspaceSearchMode !== 'session-add' &&
-      currentEntries.some((entry) => entry.id === session.activeVoyageEntryId)
-    ) {
-      sessionActions.selectVoyageEntry(session.activeVoyageEntryId);
+    if (destinationSessionId && destinationSessionId !== currentSessionId) {
+      const existingEntry = currentEntries[0];
+      switchToVoyage(destinationSessionId, existingEntry?.id);
+      if (!existingEntry) {
+        sessionActions.addTabGroupToSession(tabGroupId, { select: true });
+      }
+      setPendingOpenCraftSessionId(null);
+      setWorkspaceSearchMode('general');
       return;
     }
 
@@ -468,16 +533,30 @@ export function WorkspaceShell({
 
   const closeDuplicateCraftPrompt = () => {
     setDuplicateCraftPrompt(null);
+    setPendingOpenCraftSessionId(null);
     setWorkspaceSearchMode('general');
     setWorkspaceSearchOpen(false);
   };
 
-  const embarkDuplicateCraftHere = () => {
+  const openCraftInNewVoyage = () => {
     if (!duplicateCraftPrompt) return;
+    const nextSessionId = startNewVoyage();
+    switchToVoyage(nextSessionId);
     sessionActions.addTabGroupToSession(duplicateCraftPrompt.tabGroupId, {
-      allowDuplicate: true,
       select: true,
     });
+    closeDuplicateCraftPrompt();
+  };
+
+  const openCraftInCurrentVoyage = () => {
+    if (!duplicateCraftPrompt) return;
+    sessionActions.addTabGroupToSession(duplicateCraftPrompt.tabGroupId, {
+      select: true,
+    });
+    sessionActions.selectSessionTabGroup(
+      duplicateCraftPrompt.spaceId,
+      duplicateCraftPrompt.tabGroupId,
+    );
     closeDuplicateCraftPrompt();
   };
 
@@ -487,8 +566,59 @@ export function WorkspaceShell({
   };
 
   const switchToCraftInOtherVoyage = (sessionId: string, voyageEntryId?: string) => {
-    sessionActions.resumeSession(sessionId, voyageEntryId);
+    switchToVoyage(sessionId, voyageEntryId);
     closeDuplicateCraftPrompt();
+  };
+
+  const openVoyageActionPrompt = (kind: VoyageActionKind) => {
+    setVoyagePlusMenuOpen(false);
+    setVoyageActionPrompt(kind);
+  };
+
+  const closeVoyageActionPrompt = () => {
+    setVoyageActionPrompt(null);
+    setVoyageActionNewName('');
+  };
+
+  const handleVoyageActionDestination = async (sessionId: string) => {
+    const kind = voyageActionPrompt;
+    closeVoyageActionPrompt();
+    if (!kind) return;
+
+    if (kind === 'new-task') {
+      await handleOpenNewTaskInVoyage(sessionId);
+      return;
+    }
+
+    if (sessionId !== currentSessionId) {
+      switchToVoyage(sessionId);
+    }
+    setPendingOpenCraftSessionId(sessionId);
+    setWorkspaceSearchMode('session-add');
+    setWorkspaceSearchOpen(true);
+  };
+
+  const handleVoyageActionNewVoyage = async () => {
+    const kind = voyageActionPrompt;
+    const nextSessionId = startNewVoyage(voyageActionNewName);
+    closeVoyageActionPrompt();
+    if (kind === 'new-task') {
+      await handleOpenCreateWorkspaceTab();
+      return;
+    }
+    setPendingOpenCraftSessionId(nextSessionId);
+    setWorkspaceSearchMode('session-add');
+    setWorkspaceSearchOpen(true);
+  };
+
+  const handleBackToPreviousVoyage = () => {
+    if (!previousVoyageId || previousVoyageId === currentSessionId) {
+      setPreviousVoyageId(null);
+      return;
+    }
+    const target = previousVoyageId;
+    setPreviousVoyageId(currentSessionId);
+    sessionActions.resumeSession(target);
   };
 
   const handleAddTabGroup = async (label: string) => {
@@ -708,8 +838,7 @@ export function WorkspaceShell({
   const openSessionWorkspaceSearch = () => {
     setDesktopTabMenuTarget(null);
     setMobileTabMenuTarget(null);
-    setWorkspaceSearchMode('session-add');
-    setWorkspaceSearchOpen(true);
+    openVoyageActionPrompt('open-craft');
   };
 
   const handleWorkspaceSearchClose = () => {
@@ -806,12 +935,14 @@ export function WorkspaceShell({
           }
         }}
       >
-        <Sidebar
+          <Sidebar
           workspace={workspace}
           activeSpaceId={session.activeSpaceId}
           activeTabGroupId={session.activeTabGroupId}
           activeItems={session.activeItems}
           visitedTabGroupIds={session.visitedTabGroupIds}
+          voyageEntries={session.voyageEntries}
+          activeVoyageEntryId={session.activeVoyageEntryId}
           savedSessions={savedSessions}
           currentSessionId={currentSessionId}
           onRequestClose={() => setIsSidebarOpen(false)}
@@ -833,6 +964,9 @@ export function WorkspaceShell({
           }}
           onSelectPair={(tabGroupId, pairId) => {
             sessionActions.selectPair(tabGroupId, pairId);
+          }}
+          onSelectVoyageEntry={(voyageEntryId) => {
+            sessionActions.selectVoyageEntry(voyageEntryId);
           }}
           onAddSpace={async (name) => {
             const result = await actions.addSpace({ name });
@@ -856,7 +990,11 @@ export function WorkspaceShell({
             actions.addTab({ tabGroupId, title, url });
           }}
           onOpenCreateWorkspaceTab={async () => {
-            await handleOpenCreateWorkspaceTab();
+            openVoyageActionPrompt('new-task');
+            setIsSidebarOpen(false);
+          }}
+          onOpenCraftFlow={() => {
+            openVoyageActionPrompt('open-craft');
             setIsSidebarOpen(false);
           }}
           onCreatePair={async (tabGroupId, tabIds) => {
@@ -886,11 +1024,11 @@ export function WorkspaceShell({
           showSessionTopBar={showSessionTopBar}
           onToggleSessionTopBar={() => setShowSessionTopBar((value) => !value)}
           onResumeSession={(sessionId) => {
-            sessionActions.resumeSession(sessionId);
+            switchToVoyage(sessionId);
             setIsSidebarOpen(false);
           }}
           onStartNewSession={() => {
-            sessionActions.startNewSession();
+            startNewVoyage();
             setIsSidebarOpen(false);
           }}
           onRenameSession={(sessionId, name) => {
@@ -903,6 +1041,16 @@ export function WorkspaceShell({
       <div className="flex-1 flex flex-col min-h-0 min-w-0 relative">
         {showSessionTopBar && (
         <div className="hidden md:flex h-9 border-b border-neutral-600 bg-neutral-900 items-stretch shrink-0">
+          {previousVoyageId && previousVoyageId !== currentSessionId && (
+            <button
+              className="shrink-0 h-full border-r border-b-2 border-neutral-600 bg-neutral-900 px-3 text-xs text-neutral-200 transition-colors hover:bg-neutral-800/80"
+              onClick={handleBackToPreviousVoyage}
+              title="Back to previous voyage"
+              aria-label="Back to previous voyage"
+            >
+              ← Voyage
+            </button>
+          )}
           <div className="flex-1 min-w-0 overflow-x-auto scrollbar-hide">
             <div className="flex h-full items-stretch whitespace-nowrap">
               {mobileSessionTabGroups.map(({ entry, space, tabGroup }) => {
@@ -952,7 +1100,7 @@ export function WorkspaceShell({
               })}
               <button
                 className="shrink-0 h-full border-r border-b-2 border-neutral-600 bg-neutral-900 px-3 text-xs text-neutral-200 transition-colors hover:bg-neutral-800/80"
-                onClick={openSessionWorkspaceSearch}
+                onClick={() => setVoyagePlusMenuOpen((value) => !value)}
                 title="Embark craft in voyage"
                 aria-label="Embark craft in voyage"
               >
@@ -1057,6 +1205,16 @@ export function WorkspaceShell({
           >
             ☰
           </button>
+          {previousVoyageId && previousVoyageId !== currentSessionId && (
+            <button
+              className="h-full px-3 text-neutral-200 hover:bg-neutral-800 transition-colors flex items-center justify-center shrink-0 border-r border-neutral-700"
+              onClick={handleBackToPreviousVoyage}
+              title="Back to previous voyage"
+              aria-label="Back to previous voyage"
+            >
+              ←
+            </button>
+          )}
           <div className="flex-1 min-w-0 overflow-x-auto scrollbar-hide">
             <div className="flex h-full items-stretch whitespace-nowrap">
               {mobileSessionTabGroups.length > 0 ? (
@@ -1106,7 +1264,7 @@ export function WorkspaceShell({
                 })}
                 <button
                   className="shrink-0 h-full border-r border-neutral-700 bg-neutral-900 px-3 text-xs text-neutral-200 transition-colors hover:bg-neutral-800/80"
-                  onClick={openSessionWorkspaceSearch}
+                  onClick={() => setVoyagePlusMenuOpen((value) => !value)}
                   title="Embark craft in voyage"
                   aria-label="Embark craft in voyage"
                 >
@@ -1120,7 +1278,7 @@ export function WorkspaceShell({
                   </div>
                   <button
                     className="shrink-0 h-full border-r border-neutral-700 bg-neutral-900 px-3 text-xs text-neutral-200 transition-colors hover:bg-neutral-800/80"
-                    onClick={openSessionWorkspaceSearch}
+                    onClick={() => setVoyagePlusMenuOpen((value) => !value)}
                     title="Embark craft in voyage"
                     aria-label="Embark craft in voyage"
                   >
@@ -1144,6 +1302,99 @@ export function WorkspaceShell({
           onAddTabGroup={handleAddTabGroup}
           workspace={workspace}
         />
+      )}
+
+      {voyagePlusMenuOpen && (
+        <div className="fixed bottom-14 right-3 z-[92] w-44 rounded-lg border border-neutral-700 bg-neutral-900 py-1 shadow-2xl md:bottom-auto md:right-4 md:top-11">
+          <button
+            className="block w-full px-4 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-800"
+            onClick={() => openVoyageActionPrompt('new-task')}
+          >
+            New Task
+          </button>
+          <button
+            className="block w-full px-4 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-800"
+            onClick={() => openVoyageActionPrompt('open-craft')}
+          >
+            Open Craft
+          </button>
+        </div>
+      )}
+
+      {voyageActionPrompt && (
+        <div className="fixed inset-0 z-[94] flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-lg rounded-xl border border-neutral-700 bg-neutral-900 p-5 shadow-2xl">
+            <div className="text-base font-semibold text-neutral-100">
+              {voyageActionPrompt === 'new-task' ? 'New Task' : 'Open Craft'}
+            </div>
+            <p className="mt-2 text-sm text-neutral-400">
+              Choose which Voyage should receive this item.
+            </p>
+
+            <div className="mt-4 space-y-2">
+              <button
+                className="block w-full rounded-md border border-primary-500/40 bg-primary-500/15 px-3 py-2 text-left text-sm text-primary-100 transition-colors hover:bg-primary-500/25"
+                onClick={() => {
+                  void handleVoyageActionDestination(currentSessionId);
+                }}
+              >
+                Current Voyage
+                <span className="mt-1 block text-xs text-primary-200/70">
+                  {savedSessions.find((entry) => entry.id === currentSessionId)?.name ||
+                    savedSessions.find((entry) => entry.id === currentSessionId)?.slug ||
+                    'Current voyage'}
+                </span>
+              </button>
+
+              {savedSessions
+                .filter((entry) => entry.id !== currentSessionId)
+                .slice(0, 8)
+                .map((entry) => (
+                  <button
+                    key={entry.id}
+                    className="block w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-700"
+                    onClick={() => {
+                      void handleVoyageActionDestination(entry.id);
+                    }}
+                  >
+                    {entry.name || entry.slug || 'Untitled voyage'}
+                    <span className="mt-1 block text-xs text-neutral-500">
+                      Updated {new Date(entry.updatedAt).toLocaleString()}
+                    </span>
+                  </button>
+                ))}
+            </div>
+
+            <div className="mt-4 rounded-lg border border-neutral-700 bg-neutral-950/40 p-3">
+              <div className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
+                New Voyage
+              </div>
+              <input
+                value={voyageActionNewName}
+                onChange={(event) => setVoyageActionNewName(event.target.value)}
+                placeholder="Optional voyage name"
+                className="mt-2 w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-neutral-100 outline-none placeholder:text-neutral-500"
+              />
+              <button
+                className="mt-2 w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-neutral-200 transition-colors hover:bg-neutral-700"
+                onClick={() => {
+                  void handleVoyageActionNewVoyage();
+                }}
+              >
+                Create New Voyage
+              </button>
+            </div>
+
+            <div className="mt-5 flex justify-end">
+              <button
+                className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-300 transition-colors hover:bg-neutral-800"
+                onClick={closeVoyageActionPrompt}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {workspaceSearchOpen && (
@@ -1221,11 +1472,19 @@ export function WorkspaceShell({
                 >
                   Cancel
                 </button>
+                {duplicateCraftPrompt.currentEntries.length === 0 && (
+                  <button
+                    className="rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-neutral-200 transition-colors hover:bg-neutral-700"
+                    onClick={openCraftInCurrentVoyage}
+                  >
+                    Open in current Voyage
+                  </button>
+                )}
                 <button
                   className="rounded-md border border-primary-500/40 bg-primary-500/15 px-3 py-2 text-sm text-primary-200 transition-colors hover:bg-primary-500/25"
-                  onClick={embarkDuplicateCraftHere}
+                  onClick={openCraftInNewVoyage}
                 >
-                  Embark another copy here
+                  Open in new Voyage
                 </button>
               </div>
             </div>

@@ -11,6 +11,7 @@ import type {
   Space,
   TabGroup,
   SavedWorkspaceSession,
+  VoyageEntry,
 } from '../types';
 import { TabContextMenu } from './TabContextMenu';
 
@@ -22,6 +23,8 @@ interface SidebarProps {
   activeTabGroupId: string;
   activeItems: Record<string, string>;
   visitedTabGroupIds: string[];
+  voyageEntries: VoyageEntry[];
+  activeVoyageEntryId: string;
   savedSessions: SavedWorkspaceSession[];
   currentSessionId: string;
   onRequestClose?: () => void;
@@ -29,6 +32,7 @@ interface SidebarProps {
   onSelectTabGroup: (tabGroupId: string) => void;
   onSelectTab: (tabGroupId: string, tabId: string) => void;
   onSelectPair: (tabGroupId: string, pairId: string) => void;
+  onSelectVoyageEntry: (voyageEntryId: string) => void;
   onAddSpace: (name: string) => void;
   onDeleteSpace: (spaceId: string) => void;
   onRenameSpace: (spaceId: string, name: string) => void;
@@ -44,6 +48,7 @@ interface SidebarProps {
     url: string,
   ) => Promise<void> | void;
   onOpenCreateWorkspaceTab: () => Promise<void> | void;
+  onOpenCraftFlow: () => Promise<void> | void;
   onCreatePair: (tabGroupId: string, tabIds: string[]) => Promise<void> | void;
   onCloseTab: (tabGroupId: string, tabId: string) => void;
   onSplitPair: (tabGroupId: string, pairId: string) => void;
@@ -74,6 +79,8 @@ export function Sidebar({
   activeTabGroupId,
   activeItems,
   visitedTabGroupIds,
+  voyageEntries,
+  activeVoyageEntryId,
   savedSessions,
   currentSessionId,
   onRequestClose,
@@ -81,6 +88,7 @@ export function Sidebar({
   onSelectTabGroup,
   onSelectTab,
   onSelectPair,
+  onSelectVoyageEntry,
   onAddSpace,
   onDeleteSpace,
   onRenameSpace,
@@ -89,6 +97,7 @@ export function Sidebar({
   onAddTabGroup,
   onAddTab,
   onOpenCreateWorkspaceTab,
+  onOpenCraftFlow,
   onCreatePair,
   onCloseTab,
   onSplitPair,
@@ -185,21 +194,21 @@ export function Sidebar({
     return items;
   }, [orderedSpaces, workspace.tabGroups]);
 
-  const sessionVisitedTabGroups = useMemo(() => {
-    return visitedTabGroupIds
-      .map((tabGroupId) => {
-        const tabGroup = workspace.tabGroups.find((group) => group.id === tabGroupId);
+  const sessionVoyageEntries = useMemo(() => {
+    return voyageEntries
+      .map((entry) => {
+        const tabGroup = workspace.tabGroups.find((group) => group.id === entry.tabGroupId);
         if (!tabGroup) return null;
 
         const space = workspace.spaces.find((candidate) =>
-          candidate.tabGroupIds.includes(tabGroupId),
+          candidate.tabGroupIds.includes(entry.tabGroupId),
         );
         if (!space) return null;
 
-        return { space, tg: tabGroup };
+        return { entry, space, tg: tabGroup };
       })
-      .filter((item): item is { space: Space; tg: TabGroup } => item != null);
-  }, [visitedTabGroupIds, workspace.spaces, workspace.tabGroups]);
+      .filter((item): item is { entry: VoyageEntry; space: Space; tg: TabGroup } => item != null);
+  }, [voyageEntries, workspace.spaces, workspace.tabGroups]);
 
   const resumableSessions = useMemo(() => {
     return savedSessions
@@ -591,21 +600,17 @@ export function Sidebar({
                 void onOpenCreateWorkspaceTab();
               }}
             >
-              Create New Workspace
+              New Task
             </Button>
             <Button
               size="sm"
               variant="flat"
               className="w-full"
-              isDisabled={!activeTabGroup}
               onPress={() => {
-                if (!activeTabGroup) return;
-                setMobileAction(null);
-                onRequestClose?.();
-                onOpenAddTabModal(activeTabGroup.id);
+                void onOpenCraftFlow();
               }}
             >
-              Open Existing Workspace
+              Open Craft
             </Button>
             <div className="grid grid-cols-3 gap-1.5">
               <Button
@@ -730,23 +735,80 @@ export function Sidebar({
           </div>
 
           <div className="flex-1 min-h-0 overflow-y-auto">
-            {sessionVisitedTabGroups.length > 0 && (
+            <div className="border-b border-neutral-800">
+              <div className="px-3 py-2 text-xs font-semibold uppercase tracking-wider text-neutral-500">
+                Current Voyage
+              </div>
+              <div className="px-2 pb-2 space-y-2">
+                <div className="px-3 py-2 rounded-lg bg-neutral-800/60">
+                  {currentSession && editingSessionId === currentSession.id ? (
+                    <Input
+                      size="sm"
+                      value={sessionNameDraft}
+                      onChange={(e) => setSessionNameDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') submitSessionRename(currentSession.id);
+                        if (e.key === 'Escape') cancelSessionRename();
+                      }}
+                      onBlur={() => submitSessionRename(currentSession.id)}
+                      autoFocus
+                      classNames={{
+                        input: 'text-sm',
+                        inputWrapper: 'h-8 min-h-8 bg-neutral-700',
+                      }}
+                    />
+                  ) : (
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium text-neutral-100 truncate">
+                          {currentSession
+                            ? getSessionDisplayName(currentSession)
+                            : 'Current voyage'}
+                        </div>
+                        {currentSession && (
+                          <div className="text-xs text-neutral-500 mt-1 truncate">
+                            Updated {formatSessionTimestamp(currentSession.updatedAt)}
+                          </div>
+                        )}
+                      </div>
+                      {currentSession && (
+                        <button
+                          className="text-[10px] uppercase tracking-wide text-neutral-500 hover:text-neutral-300"
+                          onClick={() => startRenamingSession(currentSession)}
+                        >
+                          Rename
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <Button
+                  size="sm"
+                  variant="flat"
+                  className="w-full"
+                  onPress={onStartNewSession}
+                >
+                  + New Voyage
+                </Button>
+              </div>
+            </div>
+
+            {sessionVoyageEntries.length > 0 && (
               <div className="border-b border-neutral-800">
                 <div className="px-3 py-2 text-xs font-semibold uppercase tracking-wider text-neutral-500">
-                  Active Craft
+                  Active Fleet
                 </div>
                 <div className="px-2 pb-2 space-y-0.5">
-                  {sessionVisitedTabGroups.map(({ space, tg }) => (
+                  {sessionVoyageEntries.map(({ entry, space, tg }) => (
                     <button
-                      key={tg.id}
+                      key={entry.id}
                       className={`w-full text-left px-3 py-1.5 rounded-lg transition-colors ${
-                        activeTabGroupId === tg.id
+                        activeVoyageEntryId === entry.id
                           ? 'bg-primary-500/20 text-primary-300'
                           : 'text-neutral-300 hover:bg-neutral-800'
                       }`}
                       onClick={() => {
-                        onSelectSpace(space.id);
-                        onSelectTabGroup(tg.id);
+                        onSelectVoyageEntry(entry.id);
                       }}
                     >
                       <div className="text-sm font-medium truncate">{tg.label}</div>
@@ -822,64 +884,6 @@ export function Sidebar({
                 </div>
               </div>
             )}
-
-            <div className="border-b border-neutral-800">
-              <div className="px-3 py-2 text-xs font-semibold uppercase tracking-wider text-neutral-500">
-                Current Voyage
-              </div>
-              <div className="px-2 pb-2 space-y-2">
-                <div className="px-3 py-2 rounded-lg bg-neutral-800/60">
-                  {currentSession && editingSessionId === currentSession.id ? (
-                    <Input
-                      size="sm"
-                      value={sessionNameDraft}
-                      onChange={(e) => setSessionNameDraft(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') submitSessionRename(currentSession.id);
-                        if (e.key === 'Escape') cancelSessionRename();
-                      }}
-                      onBlur={() => submitSessionRename(currentSession.id)}
-                      autoFocus
-                      classNames={{
-                        input: 'text-sm',
-                        inputWrapper: 'h-8 min-h-8 bg-neutral-700',
-                      }}
-                    />
-                  ) : (
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="min-w-0">
-                        <div className="text-sm font-medium text-neutral-100 truncate">
-                          {currentSession
-                            ? getSessionDisplayName(currentSession)
-                            : 'Current voyage'}
-                        </div>
-                        {currentSession && (
-                          <div className="text-xs text-neutral-500 mt-1 truncate">
-                            Updated {formatSessionTimestamp(currentSession.updatedAt)}
-                          </div>
-                        )}
-                      </div>
-                      {currentSession && (
-                        <button
-                          className="text-[10px] uppercase tracking-wide text-neutral-500 hover:text-neutral-300"
-                          onClick={() => startRenamingSession(currentSession)}
-                        >
-                          Rename
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </div>
-                <Button
-                  size="sm"
-                  variant="flat"
-                  className="w-full"
-                  onPress={onStartNewSession}
-                >
-                  + New Voyage
-                </Button>
-              </div>
-            </div>
 
             {/* Starred crafts section */}
             {starredTabGroups.length > 0 && (

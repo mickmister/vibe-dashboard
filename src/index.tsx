@@ -1081,6 +1081,7 @@ springboard.registerModule(
           }
           updateBookmarkedSessionSearch(nextSessionId);
           sessionNav.startNewSession();
+          return nextSessionId;
         },
         renameSession: (sessionId: string, name: string) => {
           void actions.renameSavedSession({ id: sessionId, name });
