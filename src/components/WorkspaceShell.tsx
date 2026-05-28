@@ -31,6 +31,7 @@ const MOBILE_TAB_EMOJI_CHOICES = [
   '🛰️',
 ];
 const VOYAGE_SWITCH_THROTTLE_MS = 1000;
+type VSCodeViewTarget = 'repos' | 'worktree-parent';
 
 export type WorkspaceActions = {
   addSpace: (args: {
@@ -65,6 +66,10 @@ export type WorkspaceActions = {
   }) => void;
   closeTab: (args: { tabGroupId: string; tabId: string }) => void;
   addTab: (args: { tabGroupId: string; title: string; url: string }) => void;
+  addVSCodeView: (args: {
+    tabGroupId: string;
+    target: VSCodeViewTarget;
+  }) => Promise<{ tabId: string; tabGroupId: string } | undefined>;
   ensureCreateWorkspaceTab: () => Promise<
     { spaceId: string; tabGroupId: string; tabId: string } | undefined
   >;
@@ -189,6 +194,7 @@ export function WorkspaceShell({
   } | null>(null);
   const [previousVoyageId, setPreviousVoyageId] = useState<string | null>(null);
   const [voyagePlusMenuOpen, setVoyagePlusMenuOpen] = useState(false);
+  const [vscodeViewPromptOpen, setVSCodeViewPromptOpen] = useState(false);
   const [mobileTabDraftLabel, setMobileTabDraftLabel] = useState('');
   const [mobileTabDraftEmoji, setMobileTabDraftEmoji] = useState('');
   const dragGroupRef = useRef<string | null>(null);
@@ -370,6 +376,17 @@ export function WorkspaceShell({
 
   const handleAddTab = (title: string, url: string) => {
     actions.addTab({ tabGroupId: addTabTargetGroupId, title, url });
+  };
+
+  const handleAddVSCodeView = async (target: VSCodeViewTarget) => {
+    setVSCodeViewPromptOpen(false);
+    const result = await actions.addVSCodeView({
+      tabGroupId: session.activeTabGroupId,
+      target,
+    });
+    if (result?.tabId) {
+      sessionActions.selectTab(result.tabGroupId, result.tabId);
+    }
   };
 
   const handleOpenCreateWorkspaceTab = async () => {
@@ -1318,6 +1335,56 @@ export function WorkspaceShell({
           >
             Open Craft
           </button>
+          <button
+            className="block w-full px-4 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-800"
+            onClick={() => {
+              setVoyagePlusMenuOpen(false);
+              setVSCodeViewPromptOpen(true);
+            }}
+          >
+            New VSCode View
+          </button>
+        </div>
+      )}
+
+      {vscodeViewPromptOpen && (
+        <div className="fixed inset-0 z-[94] flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-md rounded-xl border border-neutral-700 bg-neutral-900 p-5 shadow-2xl">
+            <div className="text-base font-semibold text-neutral-100">
+              New VSCode View
+            </div>
+            <p className="mt-2 text-sm text-neutral-400">
+              Choose where to open VSCode.
+            </p>
+
+            <div className="mt-4 space-y-2">
+              <button
+                className="block w-full rounded-md border border-primary-500/40 bg-primary-500/15 px-3 py-2 text-left text-sm text-primary-100 transition-colors hover:bg-primary-500/25"
+                onClick={() => {
+                  void handleAddVSCodeView('repos');
+                }}
+              >
+                ~/repos
+              </button>
+              <button
+                className="block w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-700"
+                onClick={() => {
+                  void handleAddVSCodeView('worktree-parent');
+                }}
+              >
+                Worktree parent directory
+              </button>
+            </div>
+
+            <div className="mt-5 flex justify-end">
+              <button
+                className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-300 transition-colors hover:bg-neutral-800"
+                onClick={() => setVSCodeViewPromptOpen(false)}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

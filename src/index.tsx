@@ -435,6 +435,30 @@ springboard.registerModule(
         return { tabId, tabGroupId: args.tabGroupId };
       },
 
+      addVSCodeView: async (args: {
+        tabGroupId: string;
+        target: 'repos' | 'worktree-parent';
+        baseOrigin: string;
+      }) => {
+        let folderPath =
+          args.target === 'repos' ? '~/repos' : '..';
+
+        // @platform "node"
+        const path = await import('node:path');
+        if (args.target === 'repos') {
+          folderPath = path.join(process.env.HOME || '~', 'repos');
+        } else {
+          folderPath = path.dirname(process.cwd());
+        }
+        // @platform end
+
+        return actions.addTab({
+          tabGroupId: args.tabGroupId,
+          title: args.target === 'repos' ? 'VSCode: ~/repos' : 'VSCode: Worktree Parent',
+          url: buildWorkspaceFolderUrl(args.baseOrigin, folderPath),
+        });
+      },
+
       ensureCreateWorkspaceTab: async (args: { baseOrigin: string }) => {
         let result:
           | { spaceId: string; tabGroupId: string; tabId: string }
@@ -1005,6 +1029,19 @@ springboard.registerModule(
           if (result?.tabId) {
             sessionNav.selectTab(result.tabGroupId, result.tabId);
           }
+        },
+        addVSCodeView: async (args: {
+          tabGroupId: string;
+          target: 'repos' | 'worktree-parent';
+        }) => {
+          const result = await actions.addVSCodeView({
+            ...args,
+            baseOrigin: getBaseOrigin(),
+          });
+          if (result?.tabId) {
+            sessionNav.selectTab(result.tabGroupId, result.tabId);
+          }
+          return result;
         },
         createPair: async (args: { tabGroupId: string; tabIds: string[] }) => {
           const result = await actions.createPair(args);
