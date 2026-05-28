@@ -43,7 +43,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, 'src'),
-      '@vibe-kanban/workflow-core': path.resolve(__dirname, 'packages/workflow-core/src/index.ts')
+      '@vibe-dashboard/workflow-core': path.resolve(__dirname, 'packages/workflow-core/src/index.ts')
     }
   },
   define: {

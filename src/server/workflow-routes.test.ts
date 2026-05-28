@@ -1,7 +1,7 @@
 import { createHmac } from 'node:crypto';
 import { Hono } from 'hono';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createWorkflowRegistry, type WorkflowDefinition } from '@vibe-kanban/workflow-core';
+import { createWorkflowRegistry, type WorkflowDefinition } from '@vibe-dashboard/workflow-core';
 import { registerWorkflowRoutes } from './workflow-routes';
 
 describe('registerWorkflowRoutes', () => {
