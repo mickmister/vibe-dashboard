@@ -6,7 +6,7 @@
     "moduleResolution": "bundler",
     "module": "es2020",
     "paths": {
-      "@vibe-kanban/workflow-core": ["./packages/workflow-core/src/index.ts"]
+      "@vibe-dashboard/workflow-core": ["./packages/workflow-core/src/index.ts"]
     },
 
     // File Layout

@@ -14,7 +14,7 @@ import {
   setBrowserSessionId,
   useSessionWorkspaceNav,
 } from './sessionState';
-import { buildWorkspaceFolderUrl, resolveWorkspaceContainerRef } from './lib/vkWorkspaceOpen';
+import { resolveWorkspaceContainerRef } from './lib/vkWorkspaceOpen';
 import {
   buildCraftParam,
   buildViewParam,
@@ -34,6 +34,7 @@ springboard.registerSplashScreen(AppLoadingScreen);
 
 import springboard from 'springboard';
 import { createDefaultWorkspace, getDefaultSpace } from './types';
+import { buildWorkspaceFolderUrl } from './lib/vkWorkspaceUrl';
 import type {
   WorkspaceState,
   SavedWorkspaceSession,

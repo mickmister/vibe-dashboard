@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createWorkflowRegistry, runWorkflow } from '@vibe-kanban/workflow-core';
+import { createWorkflowRegistry, runWorkflow } from '@vibe-dashboard/workflow-core';
 import {
   createGitHubCiFailureWorkflow,
   formatGitHubCiFailurePrompt,

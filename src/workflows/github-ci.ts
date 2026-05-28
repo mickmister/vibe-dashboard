@@ -1,4 +1,4 @@
-import type { WorkflowDefinition } from '@vibe-kanban/workflow-core';
+import type { WorkflowDefinition } from '@vibe-dashboard/workflow-core';
 import {
   selectLatestSession,
   type ExecutionProcess,

@@ -4,7 +4,7 @@ import {
   WorkflowNotFoundError,
   type RunWorkflowOptions,
   type WorkflowRegistry,
-} from '@vibe-kanban/workflow-core';
+} from '@vibe-dashboard/workflow-core';
 import { verifyGitHubWebhookSignature } from './github-signature';
 import type { CachedRepoAlias } from '../workflows/github-ci';
 

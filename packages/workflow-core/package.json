@@ -1,5 +1,5 @@
 {
-  "name": "@vibe-kanban/workflow-core",
+  "name": "@vibe-dashboard/workflow-core",
   "version": "0.0.0",
   "type": "module",
   "private": true,
