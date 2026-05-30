@@ -147,7 +147,7 @@ type DuplicateCraftPrompt = {
   }>;
 };
 
-type VoyageActionKind = 'new-task' | 'open-craft';
+type VoyageActionKind = 'new-task' | 'open-craft' | 'vscode-view';
 type PendingVoyageCraftSelection = {
   sessionId: string;
   spaceId: string;
@@ -194,6 +194,8 @@ export function WorkspaceShell({
   const [voyageActionNewName, setVoyageActionNewName] = useState('');
   const [pendingOpenCraftSessionId, setPendingOpenCraftSessionId] =
     useState<string | null>(null);
+  const [pendingVSCodeViewSessionId, setPendingVSCodeViewSessionId] =
+    useState<string | null>(null);
   const [pendingVoyageRename, setPendingVoyageRename] = useState<{
     sessionId: string;
     name: string;
@@ -207,6 +209,7 @@ export function WorkspaceShell({
   const [mobileTabDraftEmoji, setMobileTabDraftEmoji] = useState('');
   const dragGroupRef = useRef<string | null>(null);
   const dragSessionTabGroupRef = useRef<string | null>(null);
+  const voyagePlusMenuRef = useRef<HTMLDivElement | null>(null);
   const lastVoyageSwitchAtRef = useRef(0);
   const longPressTimerRef = useRef<number | null>(null);
   const longPressStartedAtRef = useRef<{ x: number; y: number } | null>(null);
@@ -325,6 +328,14 @@ export function WorkspaceShell({
         return;
       }
 
+      if (key === 'escape') {
+        setVoyagePlusMenuOpen(false);
+        setVoyageActionPrompt(null);
+        setVSCodeViewPromptOpen(false);
+        setPendingVSCodeViewSessionId(null);
+        return;
+      }
+
       if (e.ctrlKey && !e.metaKey && !e.altKey && !isEditableTarget(e.target)) {
         if (key === '[' || key === ']') {
           e.preventDefault();
@@ -412,10 +423,40 @@ export function WorkspaceShell({
 
   const handleAddVSCodeView = async (target: VSCodeViewTarget) => {
     setVSCodeViewPromptOpen(false);
-    await actions.addVSCodeView({
-      tabGroupId: session.activeTabGroupId,
+    const destinationSessionId = pendingVSCodeViewSessionId || currentSessionId;
+    const destinationSession =
+      destinationSessionId !== currentSessionId
+        ? savedSessions.find((entry) => entry.id === destinationSessionId)
+        : undefined;
+    const destinationTabGroupId =
+      destinationSession?.activeTabGroupId || session.activeTabGroupId;
+    const destinationSpaceId =
+      destinationSession?.activeSpaceId || session.activeSpaceId;
+
+    const result = await actions.addVSCodeView({
+      tabGroupId: destinationTabGroupId,
       target,
     });
+    setPendingVSCodeViewSessionId(null);
+
+    if (!result?.tabId) return;
+
+    if (destinationSessionId !== currentSessionId) {
+      switchToVoyage(destinationSessionId);
+      setPendingVoyageCraftSelection({
+        sessionId: destinationSessionId,
+        spaceId: destinationSpaceId,
+        tabGroupId: result.tabGroupId,
+        tabId: result.tabId,
+      });
+      return;
+    }
+
+    sessionActions.selectSessionTab(
+      destinationSpaceId,
+      result.tabGroupId,
+      result.tabId,
+    );
   };
 
   const handleOpenCreateWorkspaceTab = async () => {
@@ -501,9 +542,6 @@ export function WorkspaceShell({
       destinationSession?.activeSpaceId || session.activeSpaceId;
 
     if (workspaceSearchMode === 'session-add') {
-      if (destinationSessionId && destinationSessionId !== currentSessionId) {
-        switchToVoyage(destinationSessionId);
-      }
       const result = await actions.addVKWorkspace({
         taskAttemptId,
         name,
@@ -512,6 +550,7 @@ export function WorkspaceShell({
       });
       if (result) {
         if (destinationSessionId && destinationSessionId !== currentSessionId) {
+          switchToVoyage(destinationSessionId);
           setPendingVoyageCraftSelection({
             sessionId: destinationSessionId,
             spaceId: destinationSpaceId,
@@ -682,12 +721,15 @@ export function WorkspaceShell({
       return;
     }
 
-    if (sessionId !== currentSessionId) {
-      switchToVoyage(sessionId);
+    if (kind === 'open-craft') {
+      setPendingOpenCraftSessionId(sessionId);
+      setWorkspaceSearchMode('session-add');
+      setWorkspaceSearchOpen(true);
+      return;
     }
-    setPendingOpenCraftSessionId(sessionId);
-    setWorkspaceSearchMode('session-add');
-    setWorkspaceSearchOpen(true);
+
+    setPendingVSCodeViewSessionId(sessionId);
+    setVSCodeViewPromptOpen(true);
   };
 
   const handleVoyageActionNewVoyage = async () => {
@@ -698,9 +740,31 @@ export function WorkspaceShell({
       await handleOpenNewTaskInVoyage(nextSessionId);
       return;
     }
+    if (kind === 'vscode-view') {
+      setPendingVSCodeViewSessionId(nextSessionId);
+      setVSCodeViewPromptOpen(true);
+      return;
+    }
     setPendingOpenCraftSessionId(nextSessionId);
     setWorkspaceSearchMode('session-add');
     setWorkspaceSearchOpen(true);
+  };
+
+  const handleVoyageActionBackdropClick = (
+    event: React.MouseEvent<HTMLDivElement>,
+  ) => {
+    if (event.target === event.currentTarget) {
+      closeVoyageActionPrompt();
+    }
+  };
+
+  const handleVSCodeViewBackdropClick = (
+    event: React.MouseEvent<HTMLDivElement>,
+  ) => {
+    if (event.target === event.currentTarget) {
+      setVSCodeViewPromptOpen(false);
+      setPendingVSCodeViewSessionId(null);
+    }
   };
 
   const handleBackToPreviousVoyage = () => {
@@ -969,6 +1033,30 @@ export function WorkspaceShell({
   }, [desktopTabMenuTarget]);
 
   useEffect(() => {
+    if (!voyagePlusMenuOpen) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (
+        target instanceof Element &&
+        target.closest('[data-voyage-plus-trigger="true"]')
+      ) {
+        return;
+      }
+      if (
+        target instanceof Node &&
+        voyagePlusMenuRef.current?.contains(target)
+      ) {
+        return;
+      }
+      setVoyagePlusMenuOpen(false);
+    };
+
+    window.addEventListener('pointerdown', handlePointerDown);
+    return () => window.removeEventListener('pointerdown', handlePointerDown);
+  }, [voyagePlusMenuOpen]);
+
+  useEffect(() => {
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setDesktopTabMenuTarget(null);
@@ -1194,6 +1282,7 @@ export function WorkspaceShell({
               <button
                 className="shrink-0 h-full border-r border-b-2 border-neutral-600 bg-neutral-900 px-3 text-xs text-neutral-200 transition-colors hover:bg-neutral-800/80"
                 onClick={() => setVoyagePlusMenuOpen((value) => !value)}
+                data-voyage-plus-trigger="true"
                 title="Embark craft in voyage"
                 aria-label="Embark craft in voyage"
               >
@@ -1360,6 +1449,7 @@ export function WorkspaceShell({
                 <button
                   className="shrink-0 h-full border-r border-neutral-700 bg-neutral-900 px-3 text-xs text-neutral-200 transition-colors hover:bg-neutral-800/80"
                   onClick={() => setVoyagePlusMenuOpen((value) => !value)}
+                  data-voyage-plus-trigger="true"
                   title="Embark craft in voyage"
                   aria-label="Embark craft in voyage"
                 >
@@ -1374,6 +1464,7 @@ export function WorkspaceShell({
                   <button
                     className="shrink-0 h-full border-r border-neutral-700 bg-neutral-900 px-3 text-xs text-neutral-200 transition-colors hover:bg-neutral-800/80"
                     onClick={() => setVoyagePlusMenuOpen((value) => !value)}
+                    data-voyage-plus-trigger="true"
                     title="Embark craft in voyage"
                     aria-label="Embark craft in voyage"
                   >
@@ -1400,7 +1491,10 @@ export function WorkspaceShell({
       )}
 
       {voyagePlusMenuOpen && (
-        <div className="fixed bottom-14 right-3 z-[92] w-44 rounded-lg border border-neutral-700 bg-neutral-900 py-1 shadow-2xl md:bottom-auto md:right-4 md:top-11">
+        <div
+          ref={voyagePlusMenuRef}
+          className="fixed bottom-14 right-3 z-[92] w-44 rounded-lg border border-neutral-700 bg-neutral-900 py-1 shadow-2xl md:bottom-auto md:right-4 md:top-11"
+        >
           <button
             className="block w-full px-4 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-800"
             onClick={() => openVoyageActionPrompt('new-task')}
@@ -1416,8 +1510,7 @@ export function WorkspaceShell({
           <button
             className="block w-full px-4 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-800"
             onClick={() => {
-              setVoyagePlusMenuOpen(false);
-              setVSCodeViewPromptOpen(true);
+              openVoyageActionPrompt('vscode-view');
             }}
           >
             New VSCode View
@@ -1426,7 +1519,10 @@ export function WorkspaceShell({
       )}
 
       {vscodeViewPromptOpen && (
-        <div className="fixed inset-0 z-[94] flex items-center justify-center bg-black/60 p-4">
+        <div
+          className="fixed inset-0 z-[94] flex items-center justify-center bg-black/60 p-4"
+          onClick={handleVSCodeViewBackdropClick}
+        >
           <div className="w-full max-w-md rounded-xl border border-neutral-700 bg-neutral-900 p-5 shadow-2xl">
             <div className="text-base font-semibold text-neutral-100">
               New VSCode View
@@ -1450,14 +1546,17 @@ export function WorkspaceShell({
                   void handleAddVSCodeView('worktree-parent');
                 }}
               >
-                Worktree parent directory
+                Workspace parent directory
               </button>
             </div>
 
             <div className="mt-5 flex justify-end">
               <button
                 className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-300 transition-colors hover:bg-neutral-800"
-                onClick={() => setVSCodeViewPromptOpen(false)}
+                onClick={() => {
+                  setVSCodeViewPromptOpen(false);
+                  setPendingVSCodeViewSessionId(null);
+                }}
               >
                 Cancel
               </button>
@@ -1467,10 +1566,17 @@ export function WorkspaceShell({
       )}
 
       {voyageActionPrompt && (
-        <div className="fixed inset-0 z-[94] flex items-center justify-center bg-black/60 p-4">
+        <div
+          className="fixed inset-0 z-[94] flex items-center justify-center bg-black/60 p-4"
+          onClick={handleVoyageActionBackdropClick}
+        >
           <div className="w-full max-w-lg rounded-xl border border-neutral-700 bg-neutral-900 p-5 shadow-2xl">
             <div className="text-base font-semibold text-neutral-100">
-              {voyageActionPrompt === 'new-task' ? 'New Task' : 'Open Craft'}
+              {voyageActionPrompt === 'new-task'
+                ? 'New Task'
+                : voyageActionPrompt === 'open-craft'
+                  ? 'Open Craft'
+                  : 'New VSCode View'}
             </div>
             <p className="mt-2 text-sm text-neutral-400">
               Choose which Voyage should receive this item.

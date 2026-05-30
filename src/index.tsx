@@ -454,7 +454,7 @@ springboard.registerModule(
 
         return actions.addTab({
           tabGroupId: args.tabGroupId,
-          title: args.target === 'repos' ? 'VSCode: ~/repos' : 'VSCode: Worktree Parent',
+          title: args.target === 'repos' ? 'VSCode: ~/repos' : 'VSCode: Workspace Parent',
           url: buildWorkspaceFolderUrl(args.baseOrigin, folderPath),
         });
       },
@@ -1034,14 +1034,10 @@ springboard.registerModule(
           tabGroupId: string;
           target: 'repos' | 'worktree-parent';
         }) => {
-          const result = await actions.addVSCodeView({
+          return actions.addVSCodeView({
             ...args,
             baseOrigin: getBaseOrigin(),
           });
-          if (result?.tabId) {
-            sessionNav.selectTab(result.tabGroupId, result.tabId);
-          }
-          return result;
         },
         createPair: async (args: { tabGroupId: string; tabIds: string[] }) => {
           const result = await actions.createPair(args);
