@@ -148,6 +148,12 @@ type DuplicateCraftPrompt = {
 };
 
 type VoyageActionKind = 'new-task' | 'open-craft';
+type PendingVoyageCraftSelection = {
+  sessionId: string;
+  spaceId: string;
+  tabGroupId: string;
+  tabId?: string;
+};
 
 export function WorkspaceShell({
   workspace,
@@ -192,6 +198,8 @@ export function WorkspaceShell({
     sessionId: string;
     name: string;
   } | null>(null);
+  const [pendingVoyageCraftSelection, setPendingVoyageCraftSelection] =
+    useState<PendingVoyageCraftSelection | null>(null);
   const [previousVoyageId, setPreviousVoyageId] = useState<string | null>(null);
   const [voyagePlusMenuOpen, setVoyagePlusMenuOpen] = useState(false);
   const [vscodeViewPromptOpen, setVSCodeViewPromptOpen] = useState(false);
@@ -310,6 +318,7 @@ export function WorkspaceShell({
         e.preventDefault();
         e.stopPropagation();
         setAddTabModalOpen(false);
+        setPendingOpenCraftSessionId(null);
         setWorkspaceSearchMode('general');
         setWorkspaceSearchOpen(true);
         setIsSidebarOpen(false);
@@ -368,6 +377,29 @@ export function WorkspaceShell({
     setPendingVoyageRename(null);
   }, [pendingVoyageRename, savedSessions, sessionActions]);
 
+  useEffect(() => {
+    if (!pendingVoyageCraftSelection) return;
+    if (currentSessionId !== pendingVoyageCraftSelection.sessionId) return;
+
+    if (pendingVoyageCraftSelection.tabId) {
+      sessionActions.selectSessionTab(
+        pendingVoyageCraftSelection.spaceId,
+        pendingVoyageCraftSelection.tabGroupId,
+        pendingVoyageCraftSelection.tabId,
+      );
+    } else {
+      sessionActions.addTabGroupToSession(pendingVoyageCraftSelection.tabGroupId, {
+        select: true,
+      });
+      sessionActions.selectSessionTabGroup(
+        pendingVoyageCraftSelection.spaceId,
+        pendingVoyageCraftSelection.tabGroupId,
+      );
+    }
+
+    setPendingVoyageCraftSelection(null);
+  }, [currentSessionId, pendingVoyageCraftSelection, sessionActions]);
+
   // --- Add tab modal handler ---
   const openAddTabModal = (tabGroupId: string) => {
     setAddTabTargetGroupId(tabGroupId);
@@ -380,13 +412,10 @@ export function WorkspaceShell({
 
   const handleAddVSCodeView = async (target: VSCodeViewTarget) => {
     setVSCodeViewPromptOpen(false);
-    const result = await actions.addVSCodeView({
+    await actions.addVSCodeView({
       tabGroupId: session.activeTabGroupId,
       target,
     });
-    if (result?.tabId) {
-      sessionActions.selectTab(result.tabGroupId, result.tabId);
-    }
   };
 
   const handleOpenCreateWorkspaceTab = async () => {
@@ -401,10 +430,21 @@ export function WorkspaceShell({
   };
 
   const handleOpenNewTaskInVoyage = async (sessionId: string) => {
+    const result = await actions.ensureCreateWorkspaceTab();
+    if (!result) return;
+
     if (sessionId !== currentSessionId) {
       switchToVoyage(sessionId);
+      setPendingVoyageCraftSelection({
+        sessionId,
+        spaceId: result.spaceId,
+        tabGroupId: result.tabGroupId,
+        tabId: result.tabId,
+      });
+      return;
     }
-    await handleOpenCreateWorkspaceTab();
+
+    sessionActions.selectSessionTab(result.spaceId, result.tabGroupId, result.tabId);
   };
 
   const handleAddVKWorkspace = async (
@@ -464,7 +504,28 @@ export function WorkspaceShell({
       if (destinationSessionId && destinationSessionId !== currentSessionId) {
         switchToVoyage(destinationSessionId);
       }
-      await handleAddVKWorkspaceToSpace(taskAttemptId, name, containerRef, destinationSpaceId);
+      const result = await actions.addVKWorkspace({
+        taskAttemptId,
+        name,
+        containerRef,
+        activeSpaceId: destinationSpaceId,
+      });
+      if (result) {
+        if (destinationSessionId && destinationSessionId !== currentSessionId) {
+          setPendingVoyageCraftSelection({
+            sessionId: destinationSessionId,
+            spaceId: destinationSpaceId,
+            tabGroupId: result.tabGroupId,
+            tabId: result.agentTabId,
+          });
+        } else {
+          sessionActions.selectSessionTab(
+            destinationSpaceId,
+            result.tabGroupId,
+            result.agentTabId,
+          );
+        }
+      }
       setPendingOpenCraftSessionId(null);
       setWorkspaceSearchMode('general');
       return;
@@ -480,6 +541,7 @@ export function WorkspaceShell({
     spaceId: string,
   ) => {
     await handleAddVKWorkspaceToSpace(taskAttemptId, name, containerRef, spaceId);
+    setPendingOpenCraftSessionId(null);
     setWorkspaceSearchMode('general');
   };
 
@@ -503,7 +565,11 @@ export function WorkspaceShell({
       const existingEntry = currentEntries[0];
       switchToVoyage(destinationSessionId, existingEntry?.id);
       if (!existingEntry) {
-        sessionActions.addTabGroupToSession(tabGroupId, { select: true });
+        setPendingVoyageCraftSelection({
+          sessionId: destinationSessionId,
+          spaceId,
+          tabGroupId,
+        });
       }
       setPendingOpenCraftSessionId(null);
       setWorkspaceSearchMode('general');
@@ -545,6 +611,7 @@ export function WorkspaceShell({
       sessionActions.addTabGroupToSession(tabGroupId, { select: true });
     }
     sessionActions.selectSessionTabGroup(spaceId, tabGroupId);
+    setPendingOpenCraftSessionId(null);
     setWorkspaceSearchMode('general');
   };
 
@@ -558,9 +625,10 @@ export function WorkspaceShell({
   const openCraftInNewVoyage = () => {
     if (!duplicateCraftPrompt) return;
     const nextSessionId = startNewVoyage();
-    switchToVoyage(nextSessionId);
-    sessionActions.addTabGroupToSession(duplicateCraftPrompt.tabGroupId, {
-      select: true,
+    setPendingVoyageCraftSelection({
+      sessionId: nextSessionId,
+      spaceId: duplicateCraftPrompt.spaceId,
+      tabGroupId: duplicateCraftPrompt.tabGroupId,
     });
     closeDuplicateCraftPrompt();
   };
@@ -583,6 +651,13 @@ export function WorkspaceShell({
   };
 
   const switchToCraftInOtherVoyage = (sessionId: string, voyageEntryId?: string) => {
+    if (!voyageEntryId && duplicateCraftPrompt) {
+      setPendingVoyageCraftSelection({
+        sessionId,
+        spaceId: duplicateCraftPrompt.spaceId,
+        tabGroupId: duplicateCraftPrompt.tabGroupId,
+      });
+    }
     switchToVoyage(sessionId, voyageEntryId);
     closeDuplicateCraftPrompt();
   };
@@ -620,7 +695,7 @@ export function WorkspaceShell({
     const nextSessionId = startNewVoyage(voyageActionNewName);
     closeVoyageActionPrompt();
     if (kind === 'new-task') {
-      await handleOpenCreateWorkspaceTab();
+      await handleOpenNewTaskInVoyage(nextSessionId);
       return;
     }
     setPendingOpenCraftSessionId(nextSessionId);
@@ -861,6 +936,7 @@ export function WorkspaceShell({
   const handleWorkspaceSearchClose = () => {
     setWorkspaceSearchOpen(false);
     setWorkspaceSearchMode('general');
+    setPendingOpenCraftSessionId(null);
   };
 
   useEffect(() => {
@@ -1168,10 +1244,12 @@ export function WorkspaceShell({
           showAddressBar={showAddressBar}
           savedSessions={savedSessions}
           currentSessionId={currentSessionId}
-          onResumeSession={sessionActions.resumeSession}
+          onResumeSession={switchToVoyage}
           onRenameSession={sessionActions.renameSession}
           onDeleteSession={sessionActions.deleteSession}
-          onStartNewSession={sessionActions.startNewSession}
+          onStartNewSession={() => {
+            startNewVoyage();
+          }}
           onNavigateToTabGroup={handleNavigateToWorkspaceTabGroup}
         />
         {expandedSessionTabGroup && (
