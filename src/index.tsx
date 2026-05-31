@@ -728,6 +728,7 @@ springboard.registerModule(
             existing.updatedAt = args.updatedAt;
             existing.activeVoyageEntryId = args.activeVoyageEntryId;
             existing.voyageEntries = args.voyageEntries;
+            existing.flowModeType = args.flowModeType;
             existing.activeSpaceId = args.activeSpaceId;
             existing.activeTabGroupId = args.activeTabGroupId;
             existing.activeItemsByVoyageEntryId = args.activeItemsByVoyageEntryId;
@@ -892,6 +893,7 @@ springboard.registerModule(
           updatedAt: now,
           activeVoyageEntryId: sessionNav.activeVoyageEntryId,
           voyageEntries: sessionNav.voyageEntries,
+          flowModeType: sessionNav.flowModeType,
           activeSpaceId: sessionNav.activeSpaceId,
           activeTabGroupId: sessionNav.activeTabGroupId,
           activeItemsByVoyageEntryId: sessionNav.activeItemsByVoyageEntryId,
@@ -908,6 +910,7 @@ springboard.registerModule(
         sessionNav.activeVoyageEntryId,
         sessionNav.activeItemsByVoyageEntryId,
         sessionNav.voyageEntries,
+        sessionNav.flowModeType,
         sessionNav.visitedTabGroupIds,
       ]);
 
@@ -1114,6 +1117,7 @@ springboard.registerModule(
         reorderSessionTabGroups: (sourceId: string, targetId: string) => {
           sessionNav.reorderSessionTabGroups(sourceId, targetId);
         },
+        setFlowModeType: sessionNav.setFlowModeType,
       };
 
       return (

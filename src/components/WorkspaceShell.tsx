@@ -10,6 +10,7 @@ import {
 } from './dialogs/AddVKWorkspaceModal';
 import { vkClient } from '../lib/vk-client';
 import type {
+  FlowModeType,
   WorkspaceState,
   TabGroup,
   SavedWorkspaceSession,
@@ -131,6 +132,7 @@ export type SessionActions = {
   removeTabGroupFromSession: (tabGroupId: string) => void;
   reorderVoyageEntries: (sourceEntryId: string, targetEntryId: string) => void;
   reorderSessionTabGroups: (sourceId: string, targetId: string) => void;
+  setFlowModeType: (flowModeType: FlowModeType) => void;
 };
 
 interface WorkspaceShellProps {
@@ -172,6 +174,44 @@ function findAgentViewInCraft(tabGroup: TabGroup): {
     if (workspaceId) {
       return { tabId: tab.id, workspaceId };
     }
+  }
+
+  return null;
+}
+
+type AutoAdvanceCandidate = {
+  entry: VoyageEntry;
+  tabGroup: TabGroup;
+  space: WorkspaceState['spaces'][number];
+  agentView: { tabId: string; workspaceId: string };
+};
+
+function chooseAutoAdvanceCraft(
+  idleCandidates: AutoAdvanceCandidate[],
+  voyageEntries: VoyageEntry[],
+  activeVoyageEntryId: string,
+  flowModeType: FlowModeType,
+): AutoAdvanceCandidate | null {
+  if (flowModeType === 'static' || idleCandidates.length === 0) {
+    return null;
+  }
+
+  if (flowModeType === 'priority') {
+    return idleCandidates[0] ?? null;
+  }
+
+  const idleCandidateByEntryId = new Map(
+    idleCandidates.map((candidate) => [candidate.entry.id, candidate]),
+  );
+  const activeIndex = voyageEntries.findIndex(
+    (entry) => entry.id === activeVoyageEntryId,
+  );
+  const startIndex = activeIndex === -1 ? 0 : activeIndex + 1;
+
+  for (let offset = 0; offset < voyageEntries.length; offset += 1) {
+    const entry = voyageEntries[(startIndex + offset) % voyageEntries.length];
+    const candidate = entry ? idleCandidateByEntryId.get(entry.id) : undefined;
+    if (candidate) return candidate;
   }
 
   return null;
@@ -373,6 +413,8 @@ export function WorkspaceShell({
 
       void (async () => {
         try {
+          if (session.flowModeType === 'static') return;
+
           const candidates = session.voyageEntries
             .map((entry) => {
               const tabGroup = workspace.tabGroups.find(
@@ -393,14 +435,8 @@ export function WorkspaceShell({
               return { entry, tabGroup, space, agentView };
             })
             .filter(
-              (
-                candidate,
-              ): candidate is {
-                entry: VoyageEntry;
-                tabGroup: TabGroup;
-                space: WorkspaceState['spaces'][number];
-                agentView: { tabId: string; workspaceId: string };
-              } => candidate != null,
+              (candidate): candidate is AutoAdvanceCandidate =>
+                candidate != null,
             );
 
           if (candidates.length === 0) return;
@@ -414,10 +450,15 @@ export function WorkspaceShell({
               summary,
             ]),
           );
-          const nextAvailableCraft = candidates.find(
-            ({ agentView }) =>
-              summaryByWorkspaceId.get(agentView.workspaceId)
-                ?.latest_process_status !== 'running',
+          const idleCandidates = candidates.filter(({ agentView }) => {
+            const summary = summaryByWorkspaceId.get(agentView.workspaceId);
+            return summary != null && summary.latest_process_status !== 'running';
+          });
+          const nextAvailableCraft = chooseAutoAdvanceCraft(
+            idleCandidates,
+            session.voyageEntries,
+            session.activeVoyageEntryId,
+            session.flowModeType,
           );
 
           if (!nextAvailableCraft) return;
@@ -442,6 +483,8 @@ export function WorkspaceShell({
       window.removeEventListener('vk:message-submitted', handleMessageSubmitted);
     };
   }, [
+    session.activeVoyageEntryId,
+    session.flowModeType,
     session.voyageEntries,
     sessionActions,
     workspace.spaces,
@@ -940,6 +983,7 @@ export function WorkspaceShell({
           visitedTabGroupIds={session.visitedTabGroupIds}
           savedSessions={savedSessions}
           currentSessionId={currentSessionId}
+          flowModeType={session.flowModeType}
           onRequestClose={() => setIsSidebarOpen(false)}
           onSelectSpace={(spaceId) => {
             sessionActions.selectSpace(spaceId);
@@ -1022,6 +1066,7 @@ export function WorkspaceShell({
           onRenameSession={(sessionId, name) => {
             sessionActions.renameSession(sessionId, name);
           }}
+          onSetFlowModeType={sessionActions.setFlowModeType}
         />
       </div>
 

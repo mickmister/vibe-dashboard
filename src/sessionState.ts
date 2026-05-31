@@ -1,6 +1,15 @@
 import { useState, useEffect, useRef } from "react";
-import { getDefaultSpace, getFirstTabGroupForSpace } from "./types";
-import type { WorkspaceState, SavedWorkspaceSession, VoyageEntry } from "./types";
+import {
+  DEFAULT_FLOW_MODE_TYPE,
+  getDefaultSpace,
+  getFirstTabGroupForSpace,
+} from "./types";
+import type {
+  FlowModeType,
+  WorkspaceState,
+  SavedWorkspaceSession,
+  VoyageEntry,
+} from "./types";
 
 /**
  * Session-level workspace navigation state.
@@ -18,6 +27,8 @@ export interface SessionWorkspaceNav {
   activeItems: Record<string, string>;
   // Most recently visited tab groups for this browser session
   visitedTabGroupIds: string[];
+  // Controls automatic craft navigation after submitting a VK message.
+  flowModeType: FlowModeType;
 }
 
 export interface RouteParams {
@@ -363,10 +374,17 @@ function buildLegacyStateFromVoyageEntries(
   };
 }
 
+function resolveFlowModeType(value: unknown): FlowModeType {
+  return value === 'priority' || value === 'round-robin' || value === 'static'
+    ? value
+    : DEFAULT_FLOW_MODE_TYPE;
+}
+
 function buildSessionNavFromVoyageEntries(
   workspace: WorkspaceState,
   voyageEntries: VoyageEntry[],
   activeVoyageEntryId: string,
+  flowModeType: FlowModeType = DEFAULT_FLOW_MODE_TYPE,
 ): SessionWorkspaceNav {
   const legacyState = buildLegacyStateFromVoyageEntries(
     workspace,
@@ -377,6 +395,7 @@ function buildSessionNavFromVoyageEntries(
     ...legacyState,
     activeVoyageEntryId,
     voyageEntries,
+    flowModeType,
   };
 }
 
@@ -404,6 +423,7 @@ function createDefaultSessionNav(workspace: WorkspaceState): SessionWorkspaceNav
     workspace,
     voyageEntries,
     activeVoyageEntryId,
+    DEFAULT_FLOW_MODE_TYPE,
   );
 }
 
@@ -432,6 +452,7 @@ function loadSessionNav(
   let activeTabGroupId = "";
   let activeVoyageEntryId = "";
   let parsed: Partial<SessionWorkspaceNav> | undefined;
+  let flowModeType = DEFAULT_FLOW_MODE_TYPE;
 
   try {
     const stored = sessionStorage.getItem(SESSION_KEY);
@@ -439,6 +460,9 @@ function loadSessionNav(
       ? (JSON.parse(stored) as Partial<SessionWorkspaceNav>)
       : undefined;
     const parsedActiveSpaceId = parsed?.activeSpaceId;
+    flowModeType = resolveFlowModeType(
+      savedSession?.flowModeType || parsed?.flowModeType,
+    );
 
     if (spaceExistsInRoute) {
       activeSpaceId = route.spaceId!;
@@ -579,6 +603,7 @@ function loadSessionNav(
         workspace,
         normalizedVoyageEntries.entries,
         activeVoyageEntryId,
+        flowModeType,
       );
       return {
         ...nextNav,
@@ -613,6 +638,7 @@ function loadSessionNav(
     workspace,
     fallbackNav.voyageEntries,
     fallbackEntry?.id || fallbackNav.activeVoyageEntryId,
+    flowModeType,
   );
 }
 
@@ -629,6 +655,7 @@ function saveSessionNav(nav: SessionWorkspaceNav) {
         activeTabGroupId: nav.activeTabGroupId,
         activeVoyageEntryId: nav.activeVoyageEntryId,
         voyageEntries: nav.voyageEntries,
+        flowModeType: nav.flowModeType,
         activeItemsByVoyageEntryId: nav.activeItemsByVoyageEntryId,
         activeItems: nav.activeItems,
         visitedTabGroupIds: nav.visitedTabGroupIds,
@@ -697,6 +724,7 @@ export function useSessionWorkspaceNav(
     return {
       ...prev,
       ...nextNav,
+      flowModeType: prev.flowModeType,
     };
   };
 
@@ -1351,6 +1379,12 @@ export function useSessionWorkspaceNav(
     });
   };
 
+  const setFlowModeType = (flowModeType: FlowModeType) => {
+    setNav((prev) =>
+      prev.flowModeType === flowModeType ? prev : { ...prev, flowModeType },
+    );
+  };
+
   const targetPath = buildNavPath(nav);
 
   return {
@@ -1361,6 +1395,7 @@ export function useSessionWorkspaceNav(
     activeItemsByVoyageEntryId: nav.activeItemsByVoyageEntryId,
     activeItems: nav.activeItems,
     visitedTabGroupIds: nav.visitedTabGroupIds,
+    flowModeType: nav.flowModeType,
     targetPath,
     getActiveItem,
     getActiveViewIds,
@@ -1379,5 +1414,6 @@ export function useSessionWorkspaceNav(
     removeTabGroupFromSession,
     reorderVoyageEntries,
     reorderSessionTabGroups,
+    setFlowModeType,
   };
 }

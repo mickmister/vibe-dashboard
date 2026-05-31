@@ -54,6 +54,10 @@ export interface Space {
   isSystem?: boolean;
 }
 
+export type FlowModeType = 'priority' | 'round-robin' | 'static';
+
+export const DEFAULT_FLOW_MODE_TYPE: FlowModeType = 'round-robin';
+
 export interface VoyageEntry {
   id: string;
   tabGroupId: string;
@@ -76,6 +80,8 @@ export interface SavedWorkspaceSession {
   /** @deprecated Craft-keyed projection retained for persisted workspace compatibility. */
   activeItems: Record<string, string>;
   visitedTabGroupIds: string[];
+  /** Controls automatic craft navigation after submitting a VK message in this voyage. */
+  flowModeType?: FlowModeType;
 }
 
 export interface SavedWorkspaceSessionState {
