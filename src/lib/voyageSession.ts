@@ -7,14 +7,12 @@ export function resolvePreferredVoyageSessionId({
   requestedLegacySessionId,
   storedBrowserSessionId,
   originDefaultSessionId,
-  createReplacementSessionId,
 }: {
   savedSessions: SavedWorkspaceSession[];
   requestedVoyageKey?: string;
   requestedLegacySessionId?: string;
   storedBrowserSessionId?: string | null;
   originDefaultSessionId?: string;
-  createReplacementSessionId: () => string;
 }): string | undefined {
   const savedSessionIds = new Set(savedSessions.map((session) => session.id));
   const matchedRequestedVoyage = requestedVoyageKey
@@ -36,6 +34,7 @@ export function resolvePreferredVoyageSessionId({
     (originDefaultSessionId && savedSessionIds.has(originDefaultSessionId)
       ? originDefaultSessionId
       : undefined) ||
-    (storedBrowserSessionId ? createReplacementSessionId() : undefined)
+    storedBrowserSessionId ||
+    undefined
   );
 }
