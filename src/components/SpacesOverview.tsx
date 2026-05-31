@@ -291,109 +291,92 @@ function WorkspaceRow({
     ws.has_running_dev_server || isStoppingDevServer;
 
   return (
-    <div className="flex items-center gap-4 px-4 py-3 bg-zinc-800/50 rounded-lg border border-zinc-700/50 hover:border-zinc-600 transition-colors">
+    <div className="flex items-start gap-3 px-4 py-3 bg-zinc-800/50 rounded-lg border border-zinc-700/50 hover:border-zinc-600 transition-colors">
       {/* Unseen dot */}
-      <div className="w-2 shrink-0">
+      <div className="w-2 shrink-0 pt-2">
         {ws.has_unseen_turns && (
           <span className="block w-2 h-2 rounded-full bg-blue-400" />
         )}
       </div>
 
-      {/* Name + branch */}
+      {/* Name + metadata */}
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
           {ws.pinned && <span className="text-amber-400 text-xs">*</span>}
-          <span className="text-sm text-white font-medium truncate">
+          <span className="text-sm text-white font-medium break-words">
             {ws.name}
           </span>
         </div>
-        <span className="text-xs text-zinc-500 font-mono truncate block">
-          {ws.branch}
-        </span>
+        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-500">
+          <span className="font-mono break-all">{ws.branch}</span>
+          {ws.repos.map((r) => (
+            <span
+              key={r.id}
+              className="rounded bg-zinc-700 px-1.5 py-0.5 text-zinc-400"
+            >
+              {r.display_name || r.name}
+            </span>
+          ))}
+          {hasDiffStats && (
+            <>
+              {ws.files_changed != null && (
+                <span>{ws.files_changed} file{ws.files_changed !== 1 ? "s" : ""}</span>
+              )}
+              {ws.lines_added != null && ws.lines_added > 0 && (
+                <span className="font-mono text-green-500">+{ws.lines_added}</span>
+              )}
+              {ws.lines_removed != null && ws.lines_removed > 0 && (
+                <span className="font-mono text-red-500">-{ws.lines_removed}</span>
+              )}
+            </>
+          )}
+          {showsDevServerControls && (
+            <span className="inline-flex items-center gap-1 rounded-full border border-cyan-500/30 bg-cyan-500/15 px-2 py-0.5 font-medium text-cyan-400">
+              <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+              Dev server
+            </span>
+          )}
+          {ws.pr_status && ws.pr_status !== "unknown" && (
+            <PRBadge status={ws.pr_status} />
+          )}
+          {(ws.latest_process_status || ws.has_pending_approval) && (
+            <StatusBadge
+              status={ws.latest_process_status}
+              hasPendingApproval={ws.has_pending_approval}
+            />
+          )}
+          <span>{formatRelativeTime(activityTime)}</span>
+        </div>
       </div>
 
-      {/* Repos */}
-      <div className="hidden md:flex gap-1 shrink-0">
-        {ws.repos.map((r) => (
-          <span
-            key={r.id}
-            className="px-1.5 py-0.5 bg-zinc-700 rounded text-xs text-zinc-400 truncate max-w-20"
+      <div className="flex shrink-0 flex-wrap justify-end gap-2">
+        {showsDevServerControls && onStopDevServer && (
+          <button
+            onClick={onStopDevServer}
+            disabled={isStoppingDevServer}
+            className="px-2 py-1 rounded text-xs font-medium bg-red-500/15 text-red-400 border border-red-500/30 hover:bg-red-500/25 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {r.display_name || r.name}
-          </span>
-        ))}
+            {isStoppingDevServer ? "Stopping..." : "Stop server"}
+          </button>
+        )}
+
+        {tabGroupNav ? (
+          <button
+            onClick={tabGroupNav.onNavigate}
+            title={`Go to "${tabGroupNav.label}"`}
+            className="px-2 py-1 rounded text-xs font-medium bg-indigo-500/15 text-indigo-400 border border-indigo-500/30 hover:bg-indigo-500/25 transition-colors"
+          >
+            Go to craft
+          </button>
+        ) : onOpenInNewTabGroup ? (
+          <button
+            onClick={onOpenInNewTabGroup}
+            className="px-2 py-1 rounded text-xs font-medium bg-zinc-700 text-zinc-300 border border-zinc-600 hover:bg-zinc-600 hover:text-white transition-colors"
+          >
+            Open
+          </button>
+        ) : null}
       </div>
-
-      {/* Diff stats */}
-      {hasDiffStats && (
-        <div className="hidden sm:flex items-center gap-2 text-xs shrink-0">
-          {ws.files_changed != null && (
-            <span className="text-zinc-400">{ws.files_changed}f</span>
-          )}
-          {ws.lines_added != null && ws.lines_added > 0 && (
-            <span className="text-green-500 font-mono">+{ws.lines_added}</span>
-          )}
-          {ws.lines_removed != null && ws.lines_removed > 0 && (
-            <span className="text-red-500 font-mono">-{ws.lines_removed}</span>
-          )}
-        </div>
-      )}
-
-      {/* Dev server indicator */}
-      {showsDevServerControls && (
-        <span className="shrink-0 px-2 py-0.5 rounded-full text-xs font-medium bg-cyan-500/15 text-cyan-400 border border-cyan-500/30 flex items-center gap-1">
-          <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
-          Dev server
-        </span>
-      )}
-
-      {showsDevServerControls && onStopDevServer && (
-        <button
-          onClick={onStopDevServer}
-          disabled={isStoppingDevServer}
-          className="shrink-0 px-2 py-1 rounded text-xs font-medium bg-red-500/15 text-red-400 border border-red-500/30 hover:bg-red-500/25 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {isStoppingDevServer ? "Stopping..." : "Stop server"}
-        </button>
-      )}
-
-      {/* PR badge */}
-      {ws.pr_status && ws.pr_status !== "unknown" && (
-        <div className="shrink-0">
-          <PRBadge status={ws.pr_status} />
-        </div>
-      )}
-
-      {/* Open workspace action */}
-      {tabGroupNav ? (
-        <button
-          onClick={tabGroupNav.onNavigate}
-          title={`Go to "${tabGroupNav.label}"`}
-          className="shrink-0 px-2 py-1 rounded text-xs font-medium bg-indigo-500/15 text-indigo-400 border border-indigo-500/30 hover:bg-indigo-500/25 transition-colors"
-        >
-          Go to craft
-        </button>
-      ) : onOpenInNewTabGroup ? (
-        <button
-          onClick={onOpenInNewTabGroup}
-          className="shrink-0 px-2 py-1 rounded text-xs font-medium bg-zinc-700 text-zinc-300 border border-zinc-600 hover:bg-zinc-600 hover:text-white transition-colors"
-        >
-          Open
-        </button>
-      ) : null}
-
-      {/* Status */}
-      <div className="shrink-0">
-        <StatusBadge
-          status={ws.latest_process_status}
-          hasPendingApproval={ws.has_pending_approval}
-        />
-      </div>
-
-      {/* Time */}
-      <span className="text-xs text-zinc-500 whitespace-nowrap shrink-0 w-16 text-right">
-        {formatRelativeTime(activityTime)}
-      </span>
     </div>
   );
 }
@@ -592,26 +575,24 @@ function TabGroupRow({
   return (
     <button
       onClick={onNavigate}
-      className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg bg-zinc-800/50 border border-zinc-700/50 hover:border-zinc-600 transition-colors group text-left"
+      className="w-full flex items-start gap-3 px-4 py-2.5 rounded-lg bg-zinc-800/50 border border-zinc-700/50 hover:border-zinc-600 transition-colors group text-left"
     >
       <div className="min-w-0 flex-1">
-        <span className="text-sm font-medium text-white truncate block">
+        <span className="text-sm font-medium text-white break-words block">
           {tg.label}
         </span>
-      </div>
-      <span className="text-xs text-zinc-500 shrink-0">{space.name}</span>
-      <span className="text-xs text-zinc-600 shrink-0">
-        {tg.tabs.length} view{tg.tabs.length !== 1 ? "s" : ""}
-        {tg.pairs.length > 0 &&
-          ` / ${tg.pairs.length} pair${tg.pairs.length !== 1 ? "s" : ""}`}
-      </span>
-      {timeLabel && (
-        <span className="text-xs text-zinc-600 shrink-0 w-14 text-right">
-          {timeLabel}
+        <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-500">
+          <span>{space.name}</span>
+          <span>
+            {tg.tabs.length} view{tg.tabs.length !== 1 ? "s" : ""}
+            {tg.pairs.length > 0 &&
+              ` / ${tg.pairs.length} pair${tg.pairs.length !== 1 ? "s" : ""}`}
+          </span>
+          {timeLabel && <span>{timeLabel}</span>}
         </span>
-      )}
+      </div>
       <svg
-        className="w-3.5 h-3.5 text-zinc-600 group-hover:text-white transition-colors shrink-0"
+        className="mt-1 w-3.5 h-3.5 text-zinc-600 group-hover:text-white transition-colors shrink-0"
         fill="none"
         stroke="currentColor"
         viewBox="0 0 24 24"
@@ -626,6 +607,7 @@ function TabGroupRow({
     </button>
   );
 }
+
 
 // ── Recent Craft ───────────────────────────────────────────────────────
 
@@ -768,7 +750,7 @@ function RecentSessionsSection({
               className="rounded-lg bg-zinc-800/50 border border-zinc-700/50 overflow-hidden"
             >
               <div
-                className="flex items-center gap-3 px-4 py-2.5 cursor-pointer"
+                className="flex items-start gap-3 px-4 py-2.5 cursor-pointer"
                 onClick={() =>
                   setExpandedSessionId((prev) => (prev === session.id ? null : session.id))
                 }
@@ -782,7 +764,7 @@ function RecentSessionsSection({
                 }}
               >
                 <div
-                  className="text-zinc-500 hover:text-white transition-colors shrink-0"
+                  className="mt-0.5 text-zinc-500 hover:text-white transition-colors shrink-0"
                   aria-label={isExpanded ? 'Collapse voyage' : 'Expand voyage'}
                 >
                   {isExpanded ? '▾' : '▸'}
@@ -817,23 +799,19 @@ function RecentSessionsSection({
                     />
                   ) : (
                     <>
-                      <span className="text-sm font-medium text-white truncate block">
+                      <span className="text-sm font-medium text-white break-words block">
                         {sessionName}
                       </span>
-                      <span className="text-xs text-zinc-500 truncate block mt-0.5">
-                        {sessionLocation}
+                      <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-500">
+                        <span>{sessionLocation}</span>
+                        <span>{formatRelativeTime(session.updatedAt)}</span>
+                        {session.id === currentSessionId && (
+                          <span className="text-primary-300">Current</span>
+                        )}
                       </span>
                     </>
                   )}
                 </div>
-                {session.id === currentSessionId && (
-                  <span className="text-xs text-primary-300 shrink-0">
-                    Current
-                  </span>
-                )}
-                <span className="text-xs text-zinc-600 shrink-0 w-14 text-right">
-                  {formatRelativeTime(session.updatedAt)}
-                </span>
                 <button
                   onClick={(event) => {
                     event.stopPropagation();
@@ -876,21 +854,21 @@ function RecentSessionsSection({
                       <button
                         key={key}
                         onClick={() => onNavigateToTabGroup(ownerSpace.id, tabGroup.id)}
-                        className="w-full flex items-center justify-between gap-3 px-3 py-2 rounded bg-zinc-800/70 hover:bg-zinc-700/70 text-left"
+                        className="w-full flex items-start justify-between gap-3 px-3 py-2 rounded bg-zinc-800/70 hover:bg-zinc-700/70 text-left"
                       >
-                        <div className="min-w-0">
-                          <div className="text-sm text-white truncate">
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm text-white break-words">
                             {tabGroup.label}
                             {tabGroup.id === session.activeTabGroupId ? (
                               <span className="ml-2 text-xs text-primary-300">Active</span>
                             ) : null}
                           </div>
-                          <div className="text-xs text-zinc-500 truncate">
+                          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-500">
                             {ownerSpace.name}
+                            <span>
+                              {tabGroup.tabs.length} view{tabGroup.tabs.length !== 1 ? 's' : ''}
+                            </span>
                           </div>
-                        </div>
-                        <div className="text-xs text-zinc-600 shrink-0">
-                          {tabGroup.tabs.length} view{tabGroup.tabs.length !== 1 ? 's' : ''}
                         </div>
                       </button>
                     ))
@@ -1103,20 +1081,25 @@ function SpacesSection({
               <button
                 key={tg.id}
                 onClick={() => onNavigateToTabGroup(space.id, tg.id)}
-                className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg bg-zinc-800/50 border border-zinc-700/50 hover:border-zinc-600 transition-colors group text-left"
+                className="w-full flex items-start gap-3 px-4 py-2.5 rounded-lg bg-zinc-800/50 border border-zinc-700/50 hover:border-zinc-600 transition-colors group text-left"
               >
                 <div className="min-w-0 flex-1">
-                  <span className="text-sm text-white font-medium truncate block">
+                  <span className="text-sm text-white font-medium break-words block">
                     {tg.label}
                   </span>
+                  <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-500">
+                    <span>
+                      {tg.tabs.length} view{tg.tabs.length !== 1 ? "s" : ""}
+                    </span>
+                    {tg.pairs.length > 0 && (
+                      <span>
+                        {tg.pairs.length} pair{tg.pairs.length !== 1 ? "s" : ""}
+                      </span>
+                    )}
+                  </span>
                 </div>
-                <span className="text-xs text-zinc-600 shrink-0">
-                  {tg.tabs.length} view{tg.tabs.length !== 1 ? "s" : ""}
-                  {tg.pairs.length > 0 &&
-                    ` / ${tg.pairs.length} pair${tg.pairs.length !== 1 ? "s" : ""}`}
-                </span>
                 <svg
-                  className="w-3.5 h-3.5 text-zinc-600 group-hover:text-white transition-colors shrink-0"
+                  className="mt-1 w-3.5 h-3.5 text-zinc-600 group-hover:text-white transition-colors shrink-0"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
