@@ -127,6 +127,17 @@ function canPairTabs(tabUrls: string[]): boolean {
   return tabUrls.every((url) => !isInternalTabUrl(url));
 }
 
+function getSavedSessionDisplayName(
+  sessionName: string | undefined,
+  tabGroupLabel: string | undefined,
+): string {
+  return sessionName?.trim() || tabGroupLabel || 'Saved voyage';
+}
+
+function isHomeVoyageDisplayName(displayName: string): boolean {
+  return displayName.trim().toLowerCase() === 'home';
+}
+
 function getIdSuffix(id: string): string {
   const parts = id.split(/[_-]/).filter(Boolean);
   return parts[parts.length - 1] || id;
@@ -902,6 +913,12 @@ springboard.registerModule(
         const currentTabGroup = workspace.tabGroups.find(
           (tg) => tg.id === sessionNav.activeTabGroupId,
         );
+        const currentVoyageDisplayName = getSavedSessionDisplayName(
+          activeSavedSession?.name,
+          currentTabGroup?.label,
+        );
+        if (isHomeVoyageDisplayName(currentVoyageDisplayName)) return;
+
         void actions.upsertSavedSession({
           id: browserSessionId,
           slug:
@@ -923,6 +940,8 @@ springboard.registerModule(
         });
       }, [
         activeSavedSession?.createdAt,
+        activeSavedSession?.name,
+        activeSavedSession?.slug,
         actions,
         browserSessionId,
         sessionNav.activeItems,
@@ -932,15 +951,32 @@ springboard.registerModule(
         sessionNav.activeItemsByVoyageEntryId,
         sessionNav.voyageEntries,
         sessionNav.visitedTabGroupIds,
+        workspace.tabGroups,
       ]);
 
       useEffect(() => {
         if (!(currentOrigin && browserSessionId)) return;
+        const currentTabGroup = workspace.tabGroups.find(
+          (tg) => tg.id === sessionNav.activeTabGroupId,
+        );
+        const currentVoyageDisplayName = getSavedSessionDisplayName(
+          activeSavedSession?.name,
+          currentTabGroup?.label,
+        );
+        if (isHomeVoyageDisplayName(currentVoyageDisplayName)) return;
+
         void actions.setOriginDefaultSession({
           origin: currentOrigin,
           sessionId: browserSessionId,
         });
-      }, [actions, browserSessionId, currentOrigin]);
+      }, [
+        actions,
+        activeSavedSession?.name,
+        browserSessionId,
+        currentOrigin,
+        sessionNav.activeTabGroupId,
+        workspace.tabGroups,
+      ]);
 
       // Sync URL to match canonical voyage/craft/views query params
       useEffect(() => {
@@ -957,6 +993,18 @@ springboard.registerModule(
             activeSavedSession?.name || currentTabGroup?.label || 'voyage',
             browserSessionId,
           );
+        const currentVoyageDisplayName = getSavedSessionDisplayName(
+          activeSavedSession?.name,
+          currentTabGroup?.label,
+        );
+        if (isHomeVoyageDisplayName(currentVoyageDisplayName)) {
+          const nextPath = '/dashboard';
+          if (nextPath !== currentPath) {
+            navigate(nextPath, { replace: true });
+          }
+          return;
+        }
+
         const nextSearchParams = new URLSearchParams();
         nextSearchParams.set('voyage', currentVoyageSlug);
 
