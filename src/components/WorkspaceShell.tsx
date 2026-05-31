@@ -1573,7 +1573,7 @@ export function WorkspaceShell({
           className="fixed inset-0 z-[94] flex items-center justify-center bg-black/60 p-4"
           onClick={handleVoyageActionBackdropClick}
         >
-          <div className="w-full max-w-lg rounded-xl border border-neutral-700 bg-neutral-900 p-5 shadow-2xl">
+          <div className="flex max-h-[85dvh] w-full max-w-lg flex-col rounded-xl border border-neutral-700 bg-neutral-900 p-5 shadow-2xl">
             <div className="text-base font-semibold text-neutral-100">
               {voyageActionPrompt === 'new-task'
                 ? 'New Task'
@@ -1585,7 +1585,7 @@ export function WorkspaceShell({
               Choose which Voyage should receive this item.
             </p>
 
-            <div className="mt-4 space-y-2">
+            <div className="mt-4 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
               <button
                 className="block w-full rounded-md border border-primary-500/40 bg-primary-500/15 px-3 py-2 text-left text-sm text-primary-100 transition-colors hover:bg-primary-500/25"
                 onClick={() => {
