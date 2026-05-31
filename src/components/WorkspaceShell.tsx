@@ -1171,7 +1171,7 @@ export function WorkspaceShell({
             actions.addTab({ tabGroupId, title, url });
           }}
           onOpenCreateWorkspaceTab={async () => {
-            openVoyageActionPrompt('new-task');
+            await handleOpenCreateWorkspaceTab();
             setIsSidebarOpen(false);
           }}
           onOpenCraftFlow={() => {
@@ -1497,7 +1497,10 @@ export function WorkspaceShell({
         >
           <button
             className="block w-full px-4 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-800"
-            onClick={() => openVoyageActionPrompt('new-task')}
+            onClick={() => {
+              setVoyagePlusMenuOpen(false);
+              void handleOpenCreateWorkspaceTab();
+            }}
           >
             New Task
           </button>
@@ -1531,7 +1534,7 @@ export function WorkspaceShell({
               Choose where to open VSCode.
             </p>
 
-            <div className="mt-4 space-y-2">
+            <div className="mt-4 max-h-[45vh] space-y-2 overflow-y-auto pr-1">
               <button
                 className="block w-full rounded-md border border-primary-500/40 bg-primary-500/15 px-3 py-2 text-left text-sm text-primary-100 transition-colors hover:bg-primary-500/25"
                 onClick={() => {
@@ -1599,7 +1602,6 @@ export function WorkspaceShell({
 
               {savedSessions
                 .filter((entry) => entry.id !== currentSessionId)
-                .slice(0, 8)
                 .map((entry) => (
                   <button
                     key={entry.id}
