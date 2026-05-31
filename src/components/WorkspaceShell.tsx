@@ -204,6 +204,7 @@ export function WorkspaceShell({
     useState<PendingVoyageCraftSelection | null>(null);
   const [previousVoyageId, setPreviousVoyageId] = useState<string | null>(null);
   const [voyagePlusMenuOpen, setVoyagePlusMenuOpen] = useState(false);
+  const [voyageSwitcherOpen, setVoyageSwitcherOpen] = useState(false);
   const [vscodeViewPromptOpen, setVSCodeViewPromptOpen] = useState(false);
   const [mobileTabDraftLabel, setMobileTabDraftLabel] = useState('');
   const [mobileTabDraftEmoji, setMobileTabDraftEmoji] = useState('');
@@ -778,23 +779,23 @@ export function WorkspaceShell({
   };
 
   const handleOpenVoyageSwitcher = () => {
-    for (const space of workspace.spaces) {
-      for (const tabGroupId of space.tabGroupIds) {
-        const tabGroup = workspace.tabGroups.find((candidate) => candidate.id === tabGroupId);
-        const overviewTab = tabGroup?.tabs.find(
-          (tab) => tab.url === 'internal://spaces-overview',
-        );
+    setVoyageSwitcherOpen(true);
+    setVoyagePlusMenuOpen(false);
+    setExpandedVoyageEntryId(null);
+    setIsSidebarOpen(false);
+  };
 
-        if (tabGroup && overviewTab) {
-          sessionActions.selectSessionTab(space.id, tabGroup.id, overviewTab.id);
-          setExpandedVoyageEntryId(null);
-          setIsSidebarOpen(false);
-          return;
-        }
-      }
+  const handleVoyageSwitcherBackdropClick = (
+    event: React.MouseEvent<HTMLDivElement>,
+  ) => {
+    if (event.target === event.currentTarget) {
+      setVoyageSwitcherOpen(false);
     }
+  };
 
-    setIsSidebarOpen(true);
+  const handleVoyageSwitcherSelect = (sessionId: string) => {
+    switchToVoyage(sessionId);
+    setVoyageSwitcherOpen(false);
   };
 
   const handleAddTabGroup = async (label: string) => {
@@ -843,6 +844,26 @@ export function WorkspaceShell({
         tabGroup: TabGroup;
       } => item != null,
     );
+  const tabGroupLabelById = useMemo(() => {
+    return new Map(workspace.tabGroups.map((tabGroup) => [tabGroup.id, tabGroup.label]));
+  }, [workspace.tabGroups]);
+  const sortedVoyageSwitcherSessions = useMemo(() => {
+    return [...savedSessions].sort((left, right) => {
+      const leftTime = Date.parse(left.updatedAt || left.createdAt || '');
+      const rightTime = Date.parse(right.updatedAt || right.createdAt || '');
+      return (Number.isFinite(rightTime) ? rightTime : 0) -
+        (Number.isFinite(leftTime) ? leftTime : 0);
+    });
+  }, [savedSessions]);
+  const getVoyageDisplayName = (savedSession: SavedWorkspaceSession) => {
+    return (
+      savedSession.name?.trim() ||
+      tabGroupLabelById.get(savedSession.activeTabGroupId) ||
+      savedSession.slug ||
+      'Untitled voyage'
+    );
+  };
+
   const mobileTabMenuTabGroup = mobileTabMenuTarget
     ? workspace.tabGroups.find((tg) => tg.id === mobileTabMenuTarget.tabGroupId)
     : undefined;
@@ -1524,6 +1545,74 @@ export function WorkspaceShell({
           onAddTabGroup={handleAddTabGroup}
           workspace={workspace}
         />
+      )}
+
+
+      {voyageSwitcherOpen && (
+        <div
+          className="fixed inset-0 z-[94] flex items-center justify-center bg-black/60 p-4"
+          onClick={handleVoyageSwitcherBackdropClick}
+        >
+          <div className="flex max-h-[85dvh] w-full max-w-lg flex-col rounded-xl border border-neutral-700 bg-neutral-900 p-5 shadow-2xl">
+            <div className="text-base font-semibold text-neutral-100">
+              Switch Voyage
+            </div>
+            <p className="mt-2 text-sm text-neutral-400">
+              Choose a voyage, sorted by recent activity.
+            </p>
+
+            <div className="mt-4 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
+              {sortedVoyageSwitcherSessions.length > 0 ? (
+                sortedVoyageSwitcherSessions.map((savedSession) => {
+                  const isCurrent = savedSession.id === currentSessionId;
+                  return (
+                    <button
+                      key={savedSession.id}
+                      className={`block w-full rounded-md border px-3 py-2 text-left text-sm transition-colors ${
+                        isCurrent
+                          ? 'border-primary-500/40 bg-primary-500/15 text-primary-100 hover:bg-primary-500/25'
+                          : 'border-neutral-700 bg-neutral-800 text-neutral-200 hover:bg-neutral-700'
+                      }`}
+                      onClick={() => handleVoyageSwitcherSelect(savedSession.id)}
+                    >
+                      <span className="flex items-center justify-between gap-3">
+                        <span className="font-medium">{getVoyageDisplayName(savedSession)}</span>
+                        {isCurrent && (
+                          <span className="shrink-0 text-xs text-primary-200/80">Current</span>
+                        )}
+                      </span>
+                      <span className="mt-1 block text-xs text-neutral-500">
+                        Updated {new Date(savedSession.updatedAt).toLocaleString()}
+                      </span>
+                    </button>
+                  );
+                })
+              ) : (
+                <div className="rounded-md border border-neutral-800 bg-neutral-950/40 px-3 py-4 text-sm text-neutral-500">
+                  No saved voyages yet.
+                </div>
+              )}
+            </div>
+
+            <div className="mt-5 flex justify-between gap-3">
+              <button
+                className="rounded-md border border-primary-500/40 bg-primary-500/15 px-3 py-2 text-sm text-primary-100 transition-colors hover:bg-primary-500/25"
+                onClick={() => {
+                  startNewVoyage();
+                  setVoyageSwitcherOpen(false);
+                }}
+              >
+                New Voyage
+              </button>
+              <button
+                className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-300 transition-colors hover:bg-neutral-800"
+                onClick={() => setVoyageSwitcherOpen(false)}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {voyagePlusMenuOpen && (
