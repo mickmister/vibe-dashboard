@@ -291,65 +291,67 @@ function WorkspaceRow({
     ws.has_running_dev_server || isStoppingDevServer;
 
   return (
-    <div className="flex items-start gap-3 px-4 py-3 bg-zinc-800/50 rounded-lg border border-zinc-700/50 hover:border-zinc-600 transition-colors">
-      {/* Unseen dot */}
-      <div className="w-2 shrink-0 pt-2">
-        {ws.has_unseen_turns && (
-          <span className="block w-2 h-2 rounded-full bg-blue-400" />
-        )}
+    <div className="flex flex-col gap-3 px-4 py-3 bg-zinc-800/50 rounded-lg border border-zinc-700/50 hover:border-zinc-600 transition-colors sm:flex-row sm:items-start">
+      <div className="flex min-w-0 flex-1 items-start gap-3">
+        {/* Unseen dot */}
+        <div className="w-2 shrink-0 pt-2">
+          {ws.has_unseen_turns && (
+            <span className="block w-2 h-2 rounded-full bg-blue-400" />
+          )}
+        </div>
+
+        {/* Name + metadata */}
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
+            {ws.pinned && <span className="text-amber-400 text-xs">*</span>}
+            <span className="min-w-0 text-sm text-white font-medium break-words">
+              {ws.name}
+            </span>
+          </div>
+          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-500">
+            <span className="font-mono break-all">{ws.branch}</span>
+            {ws.repos.map((r) => (
+              <span
+                key={r.id}
+                className="rounded bg-zinc-700 px-1.5 py-0.5 text-zinc-400"
+              >
+                {r.display_name || r.name}
+              </span>
+            ))}
+            {hasDiffStats && (
+              <>
+                {ws.files_changed != null && (
+                  <span>{ws.files_changed} file{ws.files_changed !== 1 ? "s" : ""}</span>
+                )}
+                {ws.lines_added != null && ws.lines_added > 0 && (
+                  <span className="font-mono text-green-500">+{ws.lines_added}</span>
+                )}
+                {ws.lines_removed != null && ws.lines_removed > 0 && (
+                  <span className="font-mono text-red-500">-{ws.lines_removed}</span>
+                )}
+              </>
+            )}
+            {showsDevServerControls && (
+              <span className="inline-flex items-center gap-1 rounded-full border border-cyan-500/30 bg-cyan-500/15 px-2 py-0.5 font-medium text-cyan-400">
+                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                Dev server
+              </span>
+            )}
+            {ws.pr_status && ws.pr_status !== "unknown" && (
+              <PRBadge status={ws.pr_status} />
+            )}
+            {(ws.latest_process_status || ws.has_pending_approval) && (
+              <StatusBadge
+                status={ws.latest_process_status}
+                hasPendingApproval={ws.has_pending_approval}
+              />
+            )}
+            <span>{formatRelativeTime(activityTime)}</span>
+          </div>
+        </div>
       </div>
 
-      {/* Name + metadata */}
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5">
-          {ws.pinned && <span className="text-amber-400 text-xs">*</span>}
-          <span className="text-sm text-white font-medium break-words">
-            {ws.name}
-          </span>
-        </div>
-        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-500">
-          <span className="font-mono break-all">{ws.branch}</span>
-          {ws.repos.map((r) => (
-            <span
-              key={r.id}
-              className="rounded bg-zinc-700 px-1.5 py-0.5 text-zinc-400"
-            >
-              {r.display_name || r.name}
-            </span>
-          ))}
-          {hasDiffStats && (
-            <>
-              {ws.files_changed != null && (
-                <span>{ws.files_changed} file{ws.files_changed !== 1 ? "s" : ""}</span>
-              )}
-              {ws.lines_added != null && ws.lines_added > 0 && (
-                <span className="font-mono text-green-500">+{ws.lines_added}</span>
-              )}
-              {ws.lines_removed != null && ws.lines_removed > 0 && (
-                <span className="font-mono text-red-500">-{ws.lines_removed}</span>
-              )}
-            </>
-          )}
-          {showsDevServerControls && (
-            <span className="inline-flex items-center gap-1 rounded-full border border-cyan-500/30 bg-cyan-500/15 px-2 py-0.5 font-medium text-cyan-400">
-              <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
-              Dev server
-            </span>
-          )}
-          {ws.pr_status && ws.pr_status !== "unknown" && (
-            <PRBadge status={ws.pr_status} />
-          )}
-          {(ws.latest_process_status || ws.has_pending_approval) && (
-            <StatusBadge
-              status={ws.latest_process_status}
-              hasPendingApproval={ws.has_pending_approval}
-            />
-          )}
-          <span>{formatRelativeTime(activityTime)}</span>
-        </div>
-      </div>
-
-      <div className="flex shrink-0 flex-wrap justify-end gap-2">
+      <div className="flex w-full shrink-0 flex-wrap justify-start gap-2 pl-5 sm:w-auto sm:justify-end sm:pl-0">
         {showsDevServerControls && onStopDevServer && (
           <button
             onClick={onStopDevServer}
@@ -750,7 +752,7 @@ function RecentSessionsSection({
               className="rounded-lg bg-zinc-800/50 border border-zinc-700/50 overflow-hidden"
             >
               <div
-                className="flex items-start gap-3 px-4 py-2.5 cursor-pointer"
+                className="flex flex-col gap-2 px-4 py-2.5 cursor-pointer sm:flex-row sm:items-start"
                 onClick={() =>
                   setExpandedSessionId((prev) => (prev === session.id ? null : session.id))
                 }
@@ -763,13 +765,14 @@ function RecentSessionsSection({
                   }
                 }}
               >
-                <div
-                  className="mt-0.5 text-zinc-500 hover:text-white transition-colors shrink-0"
-                  aria-label={isExpanded ? 'Collapse voyage' : 'Expand voyage'}
-                >
-                  {isExpanded ? '▾' : '▸'}
-                </div>
-                <div className="min-w-0 flex-1 text-left">
+                <div className="flex min-w-0 flex-1 items-start gap-3">
+                  <div
+                    className="mt-0.5 text-zinc-500 hover:text-white transition-colors shrink-0"
+                    aria-label={isExpanded ? 'Collapse voyage' : 'Expand voyage'}
+                  >
+                    {isExpanded ? '▾' : '▸'}
+                  </div>
+                  <div className="min-w-0 flex-1 text-left">
                   {editingSessionId === session.id ? (
                     <input
                       type="text"
@@ -811,41 +814,44 @@ function RecentSessionsSection({
                       </span>
                     </>
                   )}
+                  </div>
                 </div>
-                <button
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onResumeSession(session.id);
-                  }}
-                  className="text-xs text-zinc-300 hover:text-white shrink-0"
-                >
-                  Resume
-                </button>
-                <button
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setEditingSessionId(session.id);
-                    setSessionNameDraft(sessionName);
-                  }}
-                  className="text-xs text-zinc-400 hover:text-white shrink-0"
-                >
-                  Rename
-                </button>
-                <button
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    if (
-                      confirm(
-                        `Delete voyage "${sessionName}"? This won't delete any spaces or craft.`,
-                      )
-                    ) {
-                      onDeleteSession(session.id);
-                    }
-                  }}
-                  className="text-xs text-red-400 hover:text-red-300 shrink-0"
-                >
-                  Delete
-                </button>
+                <div className="flex flex-wrap gap-x-4 gap-y-2 pl-6 sm:pl-0 sm:justify-end">
+                  <button
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onResumeSession(session.id);
+                    }}
+                    className="text-xs text-zinc-300 hover:text-white shrink-0"
+                  >
+                    Resume
+                  </button>
+                  <button
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setEditingSessionId(session.id);
+                      setSessionNameDraft(sessionName);
+                    }}
+                    className="text-xs text-zinc-400 hover:text-white shrink-0"
+                  >
+                    Rename
+                  </button>
+                  <button
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      if (
+                        confirm(
+                          `Delete voyage "${sessionName}"? This won't delete any spaces or craft.`,
+                        )
+                      ) {
+                        onDeleteSession(session.id);
+                      }
+                    }}
+                    className="text-xs text-red-400 hover:text-red-300 shrink-0"
+                  >
+                    Delete
+                  </button>
+                </div>
               </div>
               {isExpanded && (
                 <div className="border-t border-zinc-700/50 px-4 py-3 space-y-1 bg-zinc-900/40">
