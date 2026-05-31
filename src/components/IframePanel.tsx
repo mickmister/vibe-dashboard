@@ -128,6 +128,18 @@ function isSelfAppPath(pathname: string, searchParams: URLSearchParams): boolean
   return !searchParams.has('folder');
 }
 
+function isSelfAppOrigin(origin: string): boolean {
+  if (origin === window.location.origin) {
+    return true;
+  }
+
+  try {
+    return origin === new URL(getIframeResolutionOrigin('/')).origin;
+  } catch {
+    return false;
+  }
+}
+
 function getTabRenderTarget(url: string): TabRenderTarget {
   if (url.startsWith(INTERNAL_URL_PREFIX)) {
     return {
@@ -139,7 +151,7 @@ function getTabRenderTarget(url: string): TabRenderTarget {
   try {
     const resolvedUrl = new URL(url, getIframeResolutionOrigin(url));
     if (
-      isTrustedIframeOrigin(resolvedUrl.origin) &&
+      isSelfAppOrigin(resolvedUrl.origin) &&
       isSelfAppPath(resolvedUrl.pathname, resolvedUrl.searchParams)
     ) {
       return { kind: 'blocked-self-app' };
