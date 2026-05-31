@@ -614,10 +614,7 @@ springboard.registerModule(
           // Create the new tab group with base origin URLs (no port prefix)
           draft.tabGroups.push({
             id: tabGroupId,
-            label:
-              args.name.length > 30
-                ? args.name.substring(0, 27) + '...'
-                : args.name,
+            label: args.name,
             mobileEmoji: pickRandomMobileEmoji(),
             createdAt: new Date().toISOString(),
             tabs: [

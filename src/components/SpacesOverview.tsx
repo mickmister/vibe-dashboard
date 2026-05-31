@@ -70,6 +70,23 @@ function sortDashboardWorkspaces(workspaces: DashboardWorkspace[]) {
   });
 }
 
+function getTabGroupWorkspaceId(tabGroup: TabGroup): string | null {
+  for (const tab of tabGroup.tabs) {
+    const match = tab.url.match(/\/workspaces\/([^/?#]+)/);
+    if (match?.[1]) return decodeURIComponent(match[1]);
+  }
+  return null;
+}
+
+function getTabGroupDisplayLabel(
+  tabGroup: TabGroup,
+  workspaceNameById: Map<string, string>,
+): string {
+  const workspaceId = getTabGroupWorkspaceId(tabGroup);
+  const workspaceName = workspaceId ? workspaceNameById.get(workspaceId) : undefined;
+  return tabGroup.label.includes('...') && workspaceName ? workspaceName : tabGroup.label;
+}
+
 function useVKDashboardData() {
   const [workspaces, setWorkspaces] = useState<DashboardWorkspace[]>([]);
   const [repos, setRepos] = useState<Repo[]>([]);
@@ -568,11 +585,13 @@ function TabGroupRow({
   tg,
   onNavigate,
   timeLabel,
+  label,
 }: {
   space: { id: string; name: string };
   tg: TabGroup;
   onNavigate: () => void;
   timeLabel?: string | undefined;
+  label?: string | undefined;
 }) {
   return (
     <button
@@ -581,7 +600,7 @@ function TabGroupRow({
     >
       <div className="min-w-0 flex-1">
         <span className="text-sm font-medium text-white break-words block">
-          {tg.label}
+          {label ?? tg.label}
         </span>
         <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-500">
           <span>{space.name}</span>
@@ -637,9 +656,11 @@ function useNonSystemTabGroups(workspace: WorkspaceState): TabGroupWithSpace[] {
 function StarredTabGroups({
   workspace,
   onNavigateToTabGroup,
+  tabGroupDisplayLabelById,
 }: {
   workspace: WorkspaceState;
   onNavigateToTabGroup: (spaceId: string, tabGroupId: string) => void;
+  tabGroupDisplayLabelById: Map<string, string>;
 }) {
   const allItems = useNonSystemTabGroups(workspace);
 
@@ -659,6 +680,7 @@ function StarredTabGroups({
             space={space}
             tg={tg}
             onNavigate={() => onNavigateToTabGroup(space.id, tg.id)}
+            label={tabGroupDisplayLabelById.get(tg.id)}
           />
         ))}
       </div>
@@ -675,6 +697,7 @@ function RecentSessionsSection({
   onDeleteSession,
   onStartNewSession,
   onNavigateToTabGroup,
+  tabGroupDisplayLabelById,
 }: {
   workspace: WorkspaceState;
   savedSessions: SavedWorkspaceSession[];
@@ -684,6 +707,7 @@ function RecentSessionsSection({
   onDeleteSession: (sessionId: string) => void;
   onStartNewSession: () => void;
   onNavigateToTabGroup: (spaceId: string, tabGroupId: string) => void;
+  tabGroupDisplayLabelById: Map<string, string>;
 }) {
   const recentSessions = useMemo(() => {
     return [...savedSessions]
@@ -897,10 +921,12 @@ function ActiveSessionTabsSection({
   workspace,
   currentSession,
   onNavigateToTabGroup,
+  tabGroupDisplayLabelById,
 }: {
   workspace: WorkspaceState;
   currentSession?: SavedWorkspaceSession;
   onNavigateToTabGroup: (spaceId: string, tabGroupId: string) => void;
+  tabGroupDisplayLabelById: Map<string, string>;
 }) {
   const tabGroups = useMemo(() => {
     if (!currentSession) return [];
@@ -936,6 +962,7 @@ function ActiveSessionTabsSection({
             timeLabel={
               tabGroup.id === currentSession.activeTabGroupId ? 'Active' : undefined
             }
+            label={tabGroupDisplayLabelById.get(tabGroup.id)}
           />
         ))}
       </div>
@@ -946,9 +973,11 @@ function ActiveSessionTabsSection({
 function RecentlyVisitedTabGroups({
   workspace,
   onNavigateToTabGroup,
+  tabGroupDisplayLabelById,
 }: {
   workspace: WorkspaceState;
   onNavigateToTabGroup: (spaceId: string, tabGroupId: string) => void;
+  tabGroupDisplayLabelById: Map<string, string>;
 }) {
   const allItems = useNonSystemTabGroups(workspace);
   const [page, setPage] = useState(0);
@@ -988,6 +1017,7 @@ function RecentlyVisitedTabGroups({
                 ? formatRelativeTime(tg.lastVisitedAt)
                 : undefined
             }
+            label={tabGroupDisplayLabelById.get(tg.id)}
           />
         ))}
       </div>
@@ -999,9 +1029,11 @@ function RecentlyVisitedTabGroups({
 function RecentlyCreatedTabGroups({
   workspace,
   onNavigateToTabGroup,
+  tabGroupDisplayLabelById,
 }: {
   workspace: WorkspaceState;
   onNavigateToTabGroup: (spaceId: string, tabGroupId: string) => void;
+  tabGroupDisplayLabelById: Map<string, string>;
 }) {
   const allItems = useNonSystemTabGroups(workspace);
   const [page, setPage] = useState(0);
@@ -1039,6 +1071,7 @@ function RecentlyCreatedTabGroups({
             timeLabel={
               tg.createdAt ? formatRelativeTime(tg.createdAt) : undefined
             }
+            label={tabGroupDisplayLabelById.get(tg.id)}
           />
         ))}
       </div>
@@ -1052,9 +1085,11 @@ function RecentlyCreatedTabGroups({
 function SpacesSection({
   workspace,
   onNavigateToTabGroup,
+  tabGroupDisplayLabelById,
 }: {
   workspace: WorkspaceState;
   onNavigateToTabGroup: (spaceId: string, tabGroupId: string) => void;
+  tabGroupDisplayLabelById: Map<string, string>;
 }) {
   const spacesWithTabGroups = workspace.spaces
     .filter((space) => !space.isSystem)
@@ -1091,7 +1126,7 @@ function SpacesSection({
               >
                 <div className="min-w-0 flex-1">
                   <span className="text-sm text-white font-medium break-words block">
-                    {tg.label}
+                    {tabGroupDisplayLabelById.get(tg.id) ?? tg.label}
                   </span>
                   <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-500">
                     <span>
@@ -1168,6 +1203,20 @@ export function SpacesOverview({
     () => savedSessions.find((session) => session.id === currentSessionId),
     [currentSessionId, savedSessions],
   );
+  const workspaceNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const item of workspaces) {
+      map.set(item.id, item.name || item.branch);
+    }
+    return map;
+  }, [workspaces]);
+  const tabGroupDisplayLabelById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const tabGroup of workspace.tabGroups) {
+      map.set(tabGroup.id, getTabGroupDisplayLabel(tabGroup, workspaceNameById));
+    }
+    return map;
+  }, [workspace.tabGroups, workspaceNameById]);
 
   const handleStopDevServer = useCallback(
     async (workspaceId: string) => {
@@ -1277,6 +1326,7 @@ export function SpacesOverview({
           workspace={workspace}
           currentSession={currentSession}
           onNavigateToTabGroup={onNavigateToTabGroup}
+          tabGroupDisplayLabelById={tabGroupDisplayLabelById}
         />
 
         {/* Recent Voyages */}
@@ -1289,12 +1339,14 @@ export function SpacesOverview({
           onDeleteSession={onDeleteSession}
           onStartNewSession={onStartNewSession}
           onNavigateToTabGroup={onNavigateToTabGroup}
+          tabGroupDisplayLabelById={tabGroupDisplayLabelById}
         />
 
         {/* Starred Craft */}
         <StarredTabGroups
           workspace={workspace}
           onNavigateToTabGroup={onNavigateToTabGroup}
+          tabGroupDisplayLabelById={tabGroupDisplayLabelById}
         />
 
         {/* Running Dev Servers */}
@@ -1314,12 +1366,14 @@ export function SpacesOverview({
         <RecentlyVisitedTabGroups
           workspace={workspace}
           onNavigateToTabGroup={onNavigateToTabGroup}
+          tabGroupDisplayLabelById={tabGroupDisplayLabelById}
         />
 
         {/* Recently Created Craft */}
         <RecentlyCreatedTabGroups
           workspace={workspace}
           onNavigateToTabGroup={onNavigateToTabGroup}
+          tabGroupDisplayLabelById={tabGroupDisplayLabelById}
         />
 
         {/* VK Workspaces Section */}
@@ -1408,6 +1462,7 @@ export function SpacesOverview({
             <SpacesSection
               workspace={workspace}
               onNavigateToTabGroup={onNavigateToTabGroup}
+              tabGroupDisplayLabelById={tabGroupDisplayLabelById}
             />
           </>
         )}
