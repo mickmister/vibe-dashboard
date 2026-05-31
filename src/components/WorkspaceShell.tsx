@@ -1570,7 +1570,7 @@ export function WorkspaceShell({
                       key={savedSession.id}
                       className={`block w-full rounded-md border px-3 py-2 text-left text-sm transition-colors ${
                         isCurrent
-                          ? 'border-primary-500/40 bg-primary-500/15 text-primary-100 hover:bg-primary-500/25'
+                          ? 'border-blue-400/70 bg-blue-500/20 text-neutral-50 hover:bg-blue-500/30'
                           : 'border-neutral-700 bg-neutral-800 text-neutral-200 hover:bg-neutral-700'
                       }`}
                       onClick={() => handleVoyageSwitcherSelect(savedSession.id)}
@@ -1578,7 +1578,7 @@ export function WorkspaceShell({
                       <span className="flex items-center justify-between gap-3">
                         <span className="font-medium">{getVoyageDisplayName(savedSession)}</span>
                         {isCurrent && (
-                          <span className="shrink-0 text-xs text-primary-200/80">Current</span>
+                          <span className="shrink-0 text-xs text-blue-100">Current</span>
                         )}
                       </span>
                       <span className="mt-1 block text-xs text-neutral-500">
@@ -1596,7 +1596,7 @@ export function WorkspaceShell({
 
             <div className="mt-5 flex justify-between gap-3">
               <button
-                className="rounded-md border border-primary-500/40 bg-primary-500/15 px-3 py-2 text-sm text-primary-100 transition-colors hover:bg-primary-500/25"
+                className="rounded-md border border-blue-400/70 bg-blue-500/20 px-3 py-2 text-sm text-neutral-50 transition-colors hover:bg-blue-500/30"
                 onClick={() => {
                   startNewVoyage();
                   setVoyageSwitcherOpen(false);
@@ -1661,7 +1661,7 @@ export function WorkspaceShell({
 
             <div className="mt-4 max-h-[45vh] space-y-2 overflow-y-auto pr-1">
               <button
-                className="block w-full rounded-md border border-primary-500/40 bg-primary-500/15 px-3 py-2 text-left text-sm text-primary-100 transition-colors hover:bg-primary-500/25"
+                className="block w-full rounded-md border border-blue-400/70 bg-blue-500/20 px-3 py-2 text-left text-sm text-neutral-50 transition-colors hover:bg-blue-500/30"
                 onClick={() => {
                   void handleAddVSCodeView('repos');
                 }}
@@ -1712,13 +1712,13 @@ export function WorkspaceShell({
 
             <div className="mt-4 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
               <button
-                className="block w-full rounded-md border border-primary-500/40 bg-primary-500/15 px-3 py-2 text-left text-sm text-primary-100 transition-colors hover:bg-primary-500/25"
+                className="block w-full rounded-md border border-blue-400/70 bg-blue-500/20 px-3 py-2 text-left text-sm text-neutral-50 transition-colors hover:bg-blue-500/30"
                 onClick={() => {
                   void handleVoyageActionDestination(currentSessionId);
                 }}
               >
                 Current Voyage
-                <span className="mt-1 block text-xs text-primary-200/70">
+                <span className="mt-1 block text-xs text-blue-100/90">
                   {savedSessions.find((entry) => entry.id === currentSessionId)?.name ||
                     savedSessions.find((entry) => entry.id === currentSessionId)?.slug ||
                     'Current voyage'}
@@ -1859,7 +1859,7 @@ export function WorkspaceShell({
                   </button>
                 )}
                 <button
-                  className="rounded-md border border-primary-500/40 bg-primary-500/15 px-3 py-2 text-sm text-primary-200 transition-colors hover:bg-primary-500/25"
+                  className="rounded-md border border-blue-400/70 bg-blue-500/20 px-3 py-2 text-sm text-neutral-50 transition-colors hover:bg-blue-500/30"
                   onClick={openCraftInNewVoyage}
                 >
                   Open in new Voyage
@@ -1947,7 +1947,7 @@ export function WorkspaceShell({
                   value={mobileTabDraftLabel}
                   onChange={(event) => setMobileTabDraftLabel(event.target.value)}
                   placeholder={mobileTabMenuTabGroup.label}
-                  className="mt-1 w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-white focus:outline-none focus:border-primary-500"
+                  className="mt-1 w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-400"
                 />
               </label>
 
@@ -1960,7 +1960,7 @@ export function WorkspaceShell({
                     setMobileTabDraftEmoji(getFirstGrapheme(event.target.value))
                   }
                   placeholder={getMobileTabGroupEmoji(mobileTabMenuTabGroup)}
-                  className="mt-1 w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-white focus:outline-none focus:border-primary-500"
+                  className="mt-1 w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-400"
                 />
                 <div className="mt-2 flex flex-wrap gap-2">
                   {MOBILE_TAB_EMOJI_CHOICES.map((emoji) => (
@@ -1969,7 +1969,7 @@ export function WorkspaceShell({
                       type="button"
                       className={`rounded-md border px-2 py-1 text-base ${
                         mobileTabDraftEmoji === emoji
-                          ? 'border-primary-500 bg-primary-500/15'
+                          ? 'border-blue-400 bg-blue-500/25'
                           : 'border-neutral-700 bg-neutral-800'
                       }`}
                       onClick={() => setMobileTabDraftEmoji(emoji)}
@@ -1989,7 +1989,7 @@ export function WorkspaceShell({
                 Cancel
               </button>
               <button
-                className="rounded-md border border-primary-500/40 bg-primary-500/15 px-3 py-2 text-sm text-primary-200"
+                className="rounded-md border border-blue-400/70 bg-blue-500/20 px-3 py-2 text-sm text-neutral-50"
                 onClick={handleSaveMobileTabDisplay}
               >
                 Save
