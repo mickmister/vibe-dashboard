@@ -777,6 +777,26 @@ export function WorkspaceShell({
     sessionActions.resumeSession(target);
   };
 
+  const handleOpenVoyageSwitcher = () => {
+    for (const space of workspace.spaces) {
+      for (const tabGroupId of space.tabGroupIds) {
+        const tabGroup = workspace.tabGroups.find((candidate) => candidate.id === tabGroupId);
+        const overviewTab = tabGroup?.tabs.find(
+          (tab) => tab.url === 'internal://spaces-overview',
+        );
+
+        if (tabGroup && overviewTab) {
+          sessionActions.selectSessionTab(space.id, tabGroup.id, overviewTab.id);
+          setExpandedVoyageEntryId(null);
+          setIsSidebarOpen(false);
+          return;
+        }
+      }
+    }
+
+    setIsSidebarOpen(true);
+  };
+
   const handleAddTabGroup = async (label: string) => {
     const result = await actions.addTabGroup({
       spaceId: session.activeSpaceId,
@@ -1222,6 +1242,14 @@ export function WorkspaceShell({
       <div className="flex-1 flex flex-col min-h-0 min-w-0 relative">
         {showSessionTopBar && (
         <div className="hidden md:flex h-9 border-b border-neutral-600 bg-neutral-900 items-stretch shrink-0">
+          <button
+            className="shrink-0 h-full w-9 border-r border-b-2 border-neutral-600 bg-neutral-900 text-sm text-neutral-200 transition-colors hover:bg-neutral-800/80"
+            onClick={handleOpenVoyageSwitcher}
+            title="Open voyage switcher"
+            aria-label="Open voyage switcher"
+          >
+            🧭
+          </button>
           {previousVoyageId && previousVoyageId !== currentSessionId && (
             <button
               className="shrink-0 h-full border-r border-b-2 border-neutral-600 bg-neutral-900 px-3 text-xs text-neutral-200 transition-colors hover:bg-neutral-800/80"
@@ -1388,6 +1416,14 @@ export function WorkspaceShell({
             aria-label="Open sidebar"
           >
             ☰
+          </button>
+          <button
+            className="h-full px-3 text-neutral-200 hover:bg-neutral-800 transition-colors flex items-center justify-center shrink-0 border-r border-neutral-700"
+            onClick={handleOpenVoyageSwitcher}
+            title="Open voyage switcher"
+            aria-label="Open voyage switcher"
+          >
+            🧭
           </button>
           {previousVoyageId && previousVoyageId !== currentSessionId && (
             <button
