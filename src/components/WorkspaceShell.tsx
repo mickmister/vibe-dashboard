@@ -202,7 +202,6 @@ export function WorkspaceShell({
   } | null>(null);
   const [pendingVoyageCraftSelection, setPendingVoyageCraftSelection] =
     useState<PendingVoyageCraftSelection | null>(null);
-  const [previousVoyageId, setPreviousVoyageId] = useState<string | null>(null);
   const [voyagePlusMenuOpen, setVoyagePlusMenuOpen] = useState(false);
   const [voyageSwitcherOpen, setVoyageSwitcherOpen] = useState(false);
   const [vscodeViewPromptOpen, setVSCodeViewPromptOpen] = useState(false);
@@ -293,9 +292,6 @@ export function WorkspaceShell({
   };
 
   const switchToVoyage = (sessionId: string, voyageEntryId?: string) => {
-    if (sessionId !== currentSessionId) {
-      setPreviousVoyageId(currentSessionId);
-    }
     sessionActions.resumeSession(sessionId, voyageEntryId);
   };
 
@@ -306,7 +302,6 @@ export function WorkspaceShell({
       sessionActions.renameSession(nextSessionId, trimmedName);
       setPendingVoyageRename({ sessionId: nextSessionId, name: trimmedName });
     }
-    setPreviousVoyageId(currentSessionId);
     return nextSessionId;
   };
 
@@ -767,16 +762,6 @@ export function WorkspaceShell({
       setVSCodeViewPromptOpen(false);
       setPendingVSCodeViewSessionId(null);
     }
-  };
-
-  const handleBackToPreviousVoyage = () => {
-    if (!previousVoyageId || previousVoyageId === currentSessionId) {
-      setPreviousVoyageId(null);
-      return;
-    }
-    const target = previousVoyageId;
-    setPreviousVoyageId(currentSessionId);
-    sessionActions.resumeSession(target);
   };
 
   const handleOpenVoyageSwitcher = () => {
@@ -1281,16 +1266,6 @@ export function WorkspaceShell({
           >
             <IconUfo size={16} stroke={2} aria-hidden="true" />
           </button>
-          {previousVoyageId && previousVoyageId !== currentSessionId && (
-            <button
-              className="shrink-0 h-full cursor-pointer border-r border-b-2 border-neutral-600 bg-neutral-900 px-3 text-xs text-neutral-200 transition-colors hover:bg-neutral-800/80"
-              onClick={handleBackToPreviousVoyage}
-              title="Back to previous voyage"
-              aria-label="Back to previous voyage"
-            >
-              ← Voyage
-            </button>
-          )}
           <div className="flex-1 min-w-0 overflow-x-auto scrollbar-hide">
             <div className="flex h-full items-stretch whitespace-nowrap">
               {mobileSessionTabGroups.map(({ entry, space, tabGroup }) => {
@@ -1455,16 +1430,6 @@ export function WorkspaceShell({
           >
             <IconUfo size={18} stroke={2} aria-hidden="true" />
           </button>
-          {previousVoyageId && previousVoyageId !== currentSessionId && (
-            <button
-              className="h-full px-3 text-neutral-200 hover:bg-neutral-800 transition-colors flex items-center justify-center shrink-0 border-r border-neutral-700"
-              onClick={handleBackToPreviousVoyage}
-              title="Back to previous voyage"
-              aria-label="Back to previous voyage"
-            >
-              ←
-            </button>
-          )}
           <div className="flex-1 min-w-0 overflow-x-auto scrollbar-hide">
             <div className="flex h-full items-stretch whitespace-nowrap">
               {mobileSessionTabGroups.length > 0 ? (
