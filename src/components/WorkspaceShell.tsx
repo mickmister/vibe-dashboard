@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { IconUfo } from '@tabler/icons-react';
+import { IconMenu2, IconUfo } from '@tabler/icons-react';
 import { Sidebar } from './Sidebar';
 import { WorkspaceContentView } from './WorkspaceContentView';
 import { hasKnownIframeMessageSource } from './IframePanel';
@@ -173,7 +173,6 @@ export function WorkspaceShell({
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isDesktop, setIsDesktop] = useState(false);
   const [showAddressBar, setShowAddressBar] = useState(false);
-  const [showSessionTopBar, setShowSessionTopBar] = useState(true);
   const [mobileTabMenuTarget, setMobileTabMenuTarget] = useState<{
     voyageEntryId: string;
     spaceId: string;
@@ -1140,14 +1139,6 @@ export function WorkspaceShell({
         />
       )}
 
-      {!isSidebarOpen && (
-        <div
-          className="hidden md:block fixed inset-y-0 left-0 w-2 z-[55]"
-          onMouseEnter={() => setIsSidebarOpen(true)}
-          aria-hidden="true"
-        />
-      )}
-
       <div
         className={`fixed inset-y-0 left-0 z-[70] transform transition-transform duration-200 ${
           isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
@@ -1244,8 +1235,6 @@ export function WorkspaceShell({
           }
           showAddressBar={showAddressBar}
           onToggleAddressBar={() => setShowAddressBar((v) => !v)}
-          showSessionTopBar={showSessionTopBar}
-          onToggleSessionTopBar={() => setShowSessionTopBar((value) => !value)}
           onResumeSession={(sessionId) => {
             switchToVoyage(sessionId);
             setIsSidebarOpen(false);
@@ -1262,10 +1251,17 @@ export function WorkspaceShell({
 
       {/* Main content area */}
       <div className="flex-1 flex flex-col min-h-0 min-w-0 relative">
-        {showSessionTopBar && (
-        <div className="hidden md:flex h-9 border-b border-neutral-600 bg-neutral-900 items-stretch shrink-0">
+        <div className="hidden md:flex h-9 border-b border-neutral-600 bg-neutral-900 items-stretch shrink-0 [&_button]:cursor-pointer">
           <button
-            className="shrink-0 h-full w-9 border-r border-b-2 border-neutral-600 bg-neutral-900 text-sm text-neutral-200 transition-colors hover:bg-neutral-800/80"
+            className="shrink-0 h-full w-9 cursor-pointer border-r border-b-2 border-neutral-600 bg-neutral-900 text-sm text-neutral-200 transition-colors hover:bg-neutral-800/80"
+            onClick={() => setIsSidebarOpen(true)}
+            title="Open sidebar"
+            aria-label="Open sidebar"
+          >
+            <IconMenu2 size={16} stroke={2} aria-hidden="true" />
+          </button>
+          <button
+            className="shrink-0 h-full w-9 cursor-pointer border-r border-b-2 border-neutral-600 bg-neutral-900 text-sm text-neutral-200 transition-colors hover:bg-neutral-800/80"
             onClick={handleOpenVoyageSwitcher}
             title="Open voyage switcher"
             aria-label="Open voyage switcher"
@@ -1274,7 +1270,7 @@ export function WorkspaceShell({
           </button>
           {previousVoyageId && previousVoyageId !== currentSessionId && (
             <button
-              className="shrink-0 h-full border-r border-b-2 border-neutral-600 bg-neutral-900 px-3 text-xs text-neutral-200 transition-colors hover:bg-neutral-800/80"
+              className="shrink-0 h-full cursor-pointer border-r border-b-2 border-neutral-600 bg-neutral-900 px-3 text-xs text-neutral-200 transition-colors hover:bg-neutral-800/80"
               onClick={handleBackToPreviousVoyage}
               title="Back to previous voyage"
               aria-label="Back to previous voyage"
@@ -1298,7 +1294,7 @@ export function WorkspaceShell({
                     onDrop={(event) =>
                       handleSessionTabGroupDrop(event, entry.id)
                     }
-                    className={`shrink-0 inline-flex h-full select-none items-center border-r border-neutral-600 border-b-2 text-xs text-neutral-200 transition-colors ${
+                    className={`shrink-0 inline-flex h-full cursor-pointer select-none items-center border-r border-neutral-600 border-b-2 text-xs text-neutral-200 transition-colors ${
                       isActive
                         ? 'border-b-primary-400 bg-neutral-900'
                         : 'bg-neutral-900 hover:bg-neutral-800/80'
@@ -1306,7 +1302,7 @@ export function WorkspaceShell({
                     title={`${space.name} / ${tabGroup.label}`}
                   >
                     <button
-                      className="inline-flex h-full items-center gap-2 px-3 text-inherit"
+                      className="inline-flex h-full cursor-pointer items-center gap-2 px-3 text-inherit"
                       onClick={() => {
                         handleToggleSessionTabGroup(entry.id, space.id, tabGroup.id);
                       }}
@@ -1330,7 +1326,7 @@ export function WorkspaceShell({
                 );
               })}
               <button
-                className="shrink-0 h-full border-r border-b-2 border-neutral-600 bg-neutral-900 px-3 text-xs text-neutral-200 transition-colors hover:bg-neutral-800/80"
+                className="shrink-0 h-full cursor-pointer border-r border-b-2 border-neutral-600 bg-neutral-900 px-3 text-xs text-neutral-200 transition-colors hover:bg-neutral-800/80"
                 onClick={() => setVoyagePlusMenuOpen((value) => !value)}
                 data-voyage-plus-trigger="true"
                 title="Embark craft in voyage"
@@ -1341,15 +1337,14 @@ export function WorkspaceShell({
             </div>
           </div>
         </div>
-        )}
-        {showSessionTopBar && expandedSessionTabGroup && (
-          <div className="hidden md:flex h-9 border-b border-neutral-600 bg-neutral-900 items-stretch shrink-0">
+        {expandedSessionTabGroup && (
+          <div className="hidden md:flex h-9 border-b border-neutral-600 bg-neutral-900 items-stretch shrink-0 [&_button]:cursor-pointer">
             <div className="flex-1 min-w-0 overflow-x-auto scrollbar-hide">
               <div className="flex h-full items-stretch whitespace-nowrap">
                 {expandedSessionItems.map((item) => (
                   <button
                     key={item.id}
-                    className={`shrink-0 inline-flex h-full items-center border-r border-b-2 border-neutral-600 px-3 text-xs text-neutral-200 transition-colors ${
+                    className={`shrink-0 inline-flex h-full cursor-pointer items-center border-r border-b-2 border-neutral-600 px-3 text-xs text-neutral-200 transition-colors ${
                       item.isActive
                         ? 'border-b-primary-400 bg-neutral-900'
                         : 'bg-neutral-900 hover:bg-neutral-800/80'
