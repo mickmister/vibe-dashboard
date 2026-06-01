@@ -774,7 +774,24 @@ springboard.registerModule(
       renameSavedSession: async (args: { id: string; name: string }) => {
         savedSessionsState.setStateImmer((draft) => {
           const existing = draft.sessions.find((session) => session.id === args.id);
-          if (!existing) return;
+          if (!existing) {
+            const now = new Date().toISOString();
+            draft.sessions.unshift({
+              id: args.id,
+              slug: buildVoyageSlug(args.name, args.id),
+              name: args.name,
+              createdAt: now,
+              updatedAt: now,
+              activeVoyageEntryId: '',
+              voyageEntries: [],
+              activeSpaceId: '',
+              activeTabGroupId: '',
+              activeItemsByVoyageEntryId: {},
+              activeItems: {},
+              visitedTabGroupIds: [],
+            });
+            return;
+          }
           existing.name = args.name;
           existing.updatedAt = new Date().toISOString();
         });

@@ -588,6 +588,23 @@ export function WorkspaceShell({
     tabGroupId: string,
   ) => {
     const destinationSessionId = pendingOpenCraftSessionId;
+    if (workspaceSearchMode === 'session-add' && destinationSessionId) {
+      if (destinationSessionId !== currentSessionId) {
+        switchToVoyage(destinationSessionId);
+        setPendingVoyageCraftSelection({
+          sessionId: destinationSessionId,
+          spaceId,
+          tabGroupId,
+        });
+      } else {
+        sessionActions.addTabGroupToSession(tabGroupId, { select: true });
+        sessionActions.selectSessionTabGroup(spaceId, tabGroupId);
+      }
+      setPendingOpenCraftSessionId(null);
+      setWorkspaceSearchMode('general');
+      return;
+    }
+
     const destinationSession =
       destinationSessionId && destinationSessionId !== currentSessionId
         ? savedSessions.find((entry) => entry.id === destinationSessionId)
