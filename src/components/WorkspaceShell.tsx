@@ -1253,7 +1253,7 @@ export function WorkspaceShell({
       <div className="flex-1 flex flex-col min-h-0 min-w-0 relative">
         <div className="hidden md:flex h-9 border-b border-neutral-600 bg-neutral-900 items-stretch shrink-0 [&_button]:cursor-pointer">
           <button
-            className="shrink-0 h-full w-9 cursor-pointer border-r border-b-2 border-neutral-600 bg-neutral-900 text-sm text-neutral-200 transition-colors hover:bg-neutral-800/80"
+            className="inline-flex h-full w-9 shrink-0 cursor-pointer items-center justify-center border-r border-b-2 border-neutral-600 bg-neutral-900 text-sm text-neutral-200 transition-colors hover:bg-neutral-800/80"
             onClick={() => setIsSidebarOpen(true)}
             title="Open sidebar"
             aria-label="Open sidebar"
@@ -1261,7 +1261,7 @@ export function WorkspaceShell({
             <IconMenu2 size={16} stroke={2} aria-hidden="true" />
           </button>
           <button
-            className="shrink-0 h-full w-9 cursor-pointer border-r border-b-2 border-neutral-600 bg-neutral-900 text-sm text-neutral-200 transition-colors hover:bg-neutral-800/80"
+            className="inline-flex h-full w-9 shrink-0 cursor-pointer items-center justify-center border-r border-b-2 border-neutral-600 bg-neutral-900 text-sm text-neutral-200 transition-colors hover:bg-neutral-800/80"
             onClick={handleOpenVoyageSwitcher}
             title="Open voyage switcher"
             aria-label="Open voyage switcher"
@@ -1326,7 +1326,7 @@ export function WorkspaceShell({
                 );
               })}
               <button
-                className="shrink-0 h-full cursor-pointer border-r border-b-2 border-neutral-600 bg-neutral-900 px-3 text-xs text-neutral-200 transition-colors hover:bg-neutral-800/80"
+                className="inline-flex h-full shrink-0 cursor-pointer items-center justify-center border-r border-b-2 border-neutral-600 bg-neutral-900 px-3 text-xs text-neutral-200 transition-colors hover:bg-neutral-800/80"
                 onClick={() => setVoyagePlusMenuOpen((value) => !value)}
                 data-voyage-plus-trigger="true"
                 title="Embark craft in voyage"
@@ -1500,7 +1500,7 @@ export function WorkspaceShell({
                   );
                 })}
                 <button
-                  className="shrink-0 h-full border-r border-neutral-700 bg-neutral-900 px-3 text-xs text-neutral-200 transition-colors hover:bg-neutral-800/80"
+                  className="inline-flex h-full shrink-0 items-center justify-center border-r border-neutral-700 bg-neutral-900 px-3 text-xs text-neutral-200 transition-colors hover:bg-neutral-800/80"
                   onClick={() => setVoyagePlusMenuOpen((value) => !value)}
                   data-voyage-plus-trigger="true"
                   title="Embark craft in voyage"
@@ -1515,7 +1515,7 @@ export function WorkspaceShell({
                     {activeTabGroup?.label || 'No craft'}
                   </div>
                   <button
-                    className="shrink-0 h-full border-r border-neutral-700 bg-neutral-900 px-3 text-xs text-neutral-200 transition-colors hover:bg-neutral-800/80"
+                    className="inline-flex h-full shrink-0 items-center justify-center border-r border-neutral-700 bg-neutral-900 px-3 text-xs text-neutral-200 transition-colors hover:bg-neutral-800/80"
                     onClick={() => setVoyagePlusMenuOpen((value) => !value)}
                     data-voyage-plus-trigger="true"
                     title="Embark craft in voyage"
