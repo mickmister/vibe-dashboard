@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { IconSwitchHorizontal } from '@tabler/icons-react';
+import { IconUfo } from '@tabler/icons-react';
 import { Sidebar } from './Sidebar';
 import { WorkspaceContentView } from './WorkspaceContentView';
 import { hasKnownIframeMessageSource } from './IframePanel';
@@ -1270,7 +1270,7 @@ export function WorkspaceShell({
             title="Open voyage switcher"
             aria-label="Open voyage switcher"
           >
-            <IconSwitchHorizontal size={16} stroke={2} aria-hidden="true" />
+            <IconUfo size={16} stroke={2} aria-hidden="true" />
           </button>
           {previousVoyageId && previousVoyageId !== currentSessionId && (
             <button
@@ -1445,7 +1445,7 @@ export function WorkspaceShell({
             title="Open voyage switcher"
             aria-label="Open voyage switcher"
           >
-            <IconSwitchHorizontal size={18} stroke={2} aria-hidden="true" />
+            <IconUfo size={18} stroke={2} aria-hidden="true" />
           </button>
           {previousVoyageId && previousVoyageId !== currentSessionId && (
             <button
