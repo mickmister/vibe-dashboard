@@ -537,11 +537,12 @@ export function Sidebar({
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 min-w-0">
               <button
-                className="h-8 w-8 rounded-md text-neutral-300 hover:bg-neutral-800 hover:text-white transition-colors"
-                title="Show spaces"
-                onClick={() => setView('spaces')}
+                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-neutral-300 transition-colors hover:bg-neutral-800 hover:text-white"
+                title="Close sidebar"
+                aria-label="Close sidebar"
+                onClick={onRequestClose}
               >
-                ←
+                ✕
               </button>
               <div className="min-w-0">
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-neutral-500">
@@ -553,33 +554,34 @@ export function Sidebar({
               </div>
             </div>
             <button
-              className="md:hidden h-8 w-8 rounded-md text-neutral-300 hover:bg-neutral-800 hover:text-white transition-colors"
-              title="Close sidebar"
-              onClick={onRequestClose}
+              className="inline-flex h-8 shrink-0 items-center justify-center rounded-md px-2 text-xs font-medium text-neutral-300 transition-colors hover:bg-neutral-800 hover:text-white"
+              title="Show all spaces"
+              onClick={() => setView('spaces')}
             >
-              ✕
+              Spaces
             </button>
           </div>
         ) : (
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 min-w-0">
               <button
-                className="h-8 w-8 rounded-md text-neutral-300 hover:bg-neutral-800 hover:text-white transition-colors"
-                title="Back to groups"
-                onClick={() => setView('groups')}
+                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-neutral-300 transition-colors hover:bg-neutral-800 hover:text-white"
+                title="Close sidebar"
+                aria-label="Close sidebar"
+                onClick={onRequestClose}
               >
-                ←
+                ✕
               </button>
               <h2 className="text-xs font-semibold uppercase tracking-wider text-neutral-400">
                 Spaces
               </h2>
             </div>
             <button
-              className="md:hidden h-8 w-8 rounded-md text-neutral-300 hover:bg-neutral-800 hover:text-white transition-colors"
-              title="Close sidebar"
-              onClick={onRequestClose}
+              className="inline-flex h-8 shrink-0 items-center justify-center rounded-md px-2 text-xs font-medium text-neutral-300 transition-colors hover:bg-neutral-800 hover:text-white"
+              title="Back to current space"
+              onClick={() => setView('groups')}
             >
-              ✕
+              Current
             </button>
           </div>
         )}

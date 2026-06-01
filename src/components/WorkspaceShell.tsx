@@ -210,6 +210,7 @@ export function WorkspaceShell({
   const [mobileTabDraftEmoji, setMobileTabDraftEmoji] = useState('');
   const dragGroupRef = useRef<string | null>(null);
   const dragSessionTabGroupRef = useRef<string | null>(null);
+  const sidebarRef = useRef<HTMLDivElement | null>(null);
   const voyagePlusMenuRef = useRef<HTMLDivElement | null>(null);
   const lastVoyageSwitchAtRef = useRef(0);
   const longPressTimerRef = useRef<number | null>(null);
@@ -1129,6 +1130,22 @@ export function WorkspaceShell({
     return () => window.removeEventListener('message', handleMessage);
   }, [cycleSessionTabGroup]);
 
+  useEffect(() => {
+    if (!isSidebarOpen) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (sidebarRef.current?.contains(target)) return;
+      setIsSidebarOpen(false);
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+    };
+  }, [isSidebarOpen]);
+
   return (
     <div className="w-full h-full flex bg-neutral-950">
       {isSidebarOpen && (
@@ -1140,14 +1157,10 @@ export function WorkspaceShell({
       )}
 
       <div
+        ref={sidebarRef}
         className={`fixed inset-y-0 left-0 z-[70] transform transition-transform duration-200 ${
           isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
-        onMouseLeave={() => {
-          if (isDesktop) {
-            setIsSidebarOpen(false);
-          }
-        }}
       >
           <Sidebar
           workspace={workspace}
