@@ -250,7 +250,7 @@ export function WorkspaceShell({
   const LONG_PRESS_MS = 450;
   const LONG_PRESS_MOVE_TOLERANCE_PX = 10;
   const VOYAGE_PLUS_MENU_WIDTH = 176;
-  const VOYAGE_PLUS_MENU_HEIGHT = 132;
+  const VOYAGE_PLUS_MENU_HEIGHT = 88;
 
   // --- Drag-and-drop for crafts ---
   const handleDragStart = (e: React.DragEvent, tabGroupId: string) => {
@@ -1876,16 +1876,6 @@ export function WorkspaceShell({
             }}
           >
             Open Craft
-          </button>
-          <button
-            className="block w-full px-4 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-800"
-            onClick={() => {
-              setVoyagePlusMenuOpen(false);
-              setPendingVSCodeViewSessionId(null);
-              setVSCodeViewPromptOpen(true);
-            }}
-          >
-            New VSCode View
           </button>
         </div>
       )}
