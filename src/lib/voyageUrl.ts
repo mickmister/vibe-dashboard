@@ -15,7 +15,7 @@ function getIdSuffix(id: string): string {
 }
 
 export function buildVoyageSlug(label: string | undefined, id: string): string {
-  return `${slugifyPart(label || 'voyage')}-${getIdSuffix(id)}`;
+  return `${slugifyPart(label || 'voyage')}-${id}`;
 }
 
 export function getVoyageSlug(session: SavedWorkspaceSession): string {

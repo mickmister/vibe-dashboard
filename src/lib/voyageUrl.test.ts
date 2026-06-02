@@ -9,11 +9,11 @@ import {
 import type { Craft, VoyageEntry } from '../types';
 
 describe('voyageUrl', () => {
-  it('builds stable voyage slugs from labels and id suffixes', () => {
+  it('builds stable voyage slugs from labels and full stable ids', () => {
     expect(buildVoyageSlug('Agent + Code', 'session_abc_123')).toBe(
-      'agent-code-123',
+      'agent-code-session_abc_123',
     );
-    expect(buildVoyageSlug(undefined, 'session_456')).toBe('voyage-456');
+    expect(buildVoyageSlug(undefined, 'session_456')).toBe('voyage-session_456');
   });
 
   it('round-trips craft params by suffix while allowing descriptive labels', () => {

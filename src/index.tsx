@@ -105,7 +105,7 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
       );
     const savedSessionsState =
       await moduleAPI.statesAPI.createPersistentState<SavedWorkspaceSessionState>(
-        'workspace-sessions',
+        'workspace-sessions_v2',
         createDefaultSavedSessionState(),
       );
     const originSessionResumeState =
@@ -654,11 +654,18 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
       },
 
       upsertSavedSession: async (args: SavedWorkspaceSession) => {
+        const name = args.name?.trim();
+        if (
+          !name ||
+          name.toLowerCase() === 'home' ||
+          !args.activeTabGroupId ||
+          !(args.voyageEntries?.length)
+        ) return;
         savedSessionsState.setStateImmer((draft) => {
           const existing = draft.sessions.find((session) => session.id === args.id);
           if (existing) {
-            existing.slug = args.slug;
-            existing.name = args.name;
+            existing.slug = buildVoyageSlug(name, args.id);
+            existing.name = name;
             existing.updatedAt = args.updatedAt;
             existing.activeVoyageEntryId = args.activeVoyageEntryId;
             existing.voyageEntries = args.voyageEntries;
@@ -670,31 +677,16 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
             return;
           }
 
-          draft.sessions.unshift(args);
+          draft.sessions.unshift({ ...args, slug: buildVoyageSlug(name, args.id), name });
         });
       },
       renameSavedSession: async (args: { id: string; name: string }) => {
         savedSessionsState.setStateImmer((draft) => {
           const existing = draft.sessions.find((session) => session.id === args.id);
-          if (!existing) {
-            const now = new Date().toISOString();
-            draft.sessions.unshift({
-              id: args.id,
-              slug: buildVoyageSlug(args.name, args.id),
-              name: args.name,
-              createdAt: now,
-              updatedAt: now,
-              activeVoyageEntryId: '',
-              voyageEntries: [],
-              activeSpaceId: '',
-              activeTabGroupId: '',
-              activeItemsByVoyageEntryId: {},
-              activeItems: {},
-              visitedTabGroupIds: [],
-            });
-            return;
-          }
-          existing.name = args.name;
+          const name = args.name.trim();
+          if (!existing || !name || name.toLowerCase() === 'home') return;
+          existing.name = name;
+          existing.slug = buildVoyageSlug(name, args.id);
           existing.updatedAt = new Date().toISOString();
         });
       },

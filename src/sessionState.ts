@@ -28,6 +28,12 @@ export interface RouteParams {
   viewIds?: string[];
 }
 
+export type NewSessionInitialSelection = {
+  spaceId?: string;
+  tabGroupId?: string;
+  tabId?: string;
+};
+
 const SESSION_KEY = "workspace-nav";
 const BROWSER_SESSION_ID_KEY = 'workspace-browser-session-id';
 
@@ -1162,8 +1168,44 @@ export function useSessionWorkspaceNav(
     setNav(nextNav);
   };
 
-  const startNewSession = () => {
-    const nextNav = createDefaultSessionNav(workspace);
+  const startNewSession = (initialSelection?: NewSessionInitialSelection) => {
+    const initialTabGroup = initialSelection?.tabGroupId
+      ? getTabGroupById(workspace, initialSelection.tabGroupId)
+      : undefined;
+    const initialSpaceId =
+      (initialSelection?.tabGroupId
+        ? getSpaceIdForTabGroup(workspace, initialSelection.tabGroupId)
+        : undefined) ||
+      initialSelection?.spaceId;
+    const initialTabExists =
+      initialTabGroup &&
+      initialSelection?.tabId &&
+      initialTabGroup.tabs.some((tab) => tab.id === initialSelection.tabId);
+    const initialViewIds = initialTabExists
+      ? [initialSelection!.tabId!]
+      : initialSelection?.tabGroupId
+        ? getDefaultViewIdsForTabGroup(workspace, initialSelection.tabGroupId)
+        : undefined;
+    const initialEntryId = initialSelection?.tabGroupId
+      ? createVoyageEntryId(initialSelection.tabGroupId)
+      : '';
+    const nextNav = initialSelection?.tabGroupId && initialSpaceId
+      ? {
+          ...buildSessionNavFromVoyageEntries(
+            workspace,
+            [
+              {
+                id: initialEntryId,
+                tabGroupId: initialSelection.tabGroupId,
+                viewIds: initialViewIds || [],
+              },
+            ],
+            initialEntryId,
+          ),
+          activeSpaceId: initialSpaceId,
+          activeTabGroupId: initialSelection.tabGroupId,
+        }
+      : createDefaultSessionNav(workspace);
     setPendingSelection({
       activeSpaceId: nextNav.activeSpaceId,
       activeTabGroupId: nextNav.activeTabGroupId,

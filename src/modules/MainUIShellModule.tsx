@@ -13,6 +13,7 @@ import {
   setBrowserSessionId,
   useSessionWorkspaceNav,
 } from '../sessionState';
+import type { NewSessionInitialSelection } from '../sessionState';
 import { resolveWorkspaceContainerRef } from '../lib/vkWorkspaceOpen';
 import {
   buildCraftParam,
@@ -70,13 +71,6 @@ function getBaseOrigin(): string {
 
   // Same origin — use relative paths so URLs aren't tied to a specific host
   return '';
-}
-
-function getSavedSessionDisplayName(
-  sessionName: string | undefined,
-  tabGroupLabel: string | undefined,
-): string {
-  return sessionName?.trim() || tabGroupLabel || 'Saved voyage';
 }
 
 function isHomeVoyageDisplayName(displayName: string): boolean {
@@ -180,7 +174,6 @@ springboard.registerModule(
         sessionSearchParams.get('session')?.trim() || undefined;
       const queryCraftParam = sessionSearchParams.get('craft')?.trim() || undefined;
       const queryViewsParam = sessionSearchParams.get('views')?.trim() || undefined;
-      const hasVoyageBookmarkParam = requestedVoyageKey != null;
       const currentOrigin =
         typeof window === 'undefined' ? undefined : window.location.origin;
       const originDefaultSessionId =
@@ -252,24 +245,19 @@ springboard.registerModule(
         if (!(sessionNav.activeSpaceId && sessionNav.activeTabGroupId)) return;
 
         const now = new Date().toISOString();
-        const currentTabGroup = workspace.tabGroups.find(
-          (tg) => tg.id === sessionNav.activeTabGroupId,
-        );
-        const currentVoyageDisplayName = getSavedSessionDisplayName(
-          activeSavedSession?.name,
-          currentTabGroup?.label,
-        );
-        if (isHomeVoyageDisplayName(currentVoyageDisplayName)) return;
+        const pendingVoyageName =
+          typeof window === 'undefined'
+            ? undefined
+            : ((window as any).__pendingVoyageNames?.[browserSessionId] as
+                | string
+                | undefined);
+        const voyageName = activeSavedSession?.name?.trim() || pendingVoyageName?.trim();
+        if (!voyageName || isHomeVoyageDisplayName(voyageName)) return;
 
         void actions.upsertSavedSession({
           id: browserSessionId,
-          slug:
-            activeSavedSession?.slug ||
-            buildVoyageSlug(
-              activeSavedSession?.name || currentTabGroup?.label || 'voyage',
-              browserSessionId,
-            ),
-          name: activeSavedSession?.name,
+          slug: buildVoyageSlug(voyageName, browserSessionId),
+          name: voyageName,
           createdAt: activeSavedSession?.createdAt || now,
           updatedAt: now,
           activeVoyageEntryId: sessionNav.activeVoyageEntryId,
@@ -298,14 +286,8 @@ springboard.registerModule(
 
       useEffect(() => {
         if (!(currentOrigin && browserSessionId)) return;
-        const currentTabGroup = workspace.tabGroups.find(
-          (tg) => tg.id === sessionNav.activeTabGroupId,
-        );
-        const currentVoyageDisplayName = getSavedSessionDisplayName(
-          activeSavedSession?.name,
-          currentTabGroup?.label,
-        );
-        if (isHomeVoyageDisplayName(currentVoyageDisplayName)) return;
+        const activeVoyageName = activeSavedSession?.name?.trim();
+        if (!activeVoyageName || isHomeVoyageDisplayName(activeVoyageName)) return;
 
         void actions.setOriginDefaultSession({
           origin: currentOrigin,
@@ -317,7 +299,6 @@ springboard.registerModule(
         browserSessionId,
         currentOrigin,
         sessionNav.activeTabGroupId,
-        workspace.tabGroups,
       ]);
 
       // Sync URL to match canonical voyage/craft/views query params
@@ -329,23 +310,21 @@ springboard.registerModule(
         const activeVoyageEntry = sessionNav.voyageEntries.find(
           (entry) => entry.id === sessionNav.activeVoyageEntryId,
         );
-        const currentVoyageSlug =
-          activeSavedSession?.slug ||
-          buildVoyageSlug(
-            activeSavedSession?.name || currentTabGroup?.label || 'voyage',
-            browserSessionId,
-          );
-        const currentVoyageDisplayName = getSavedSessionDisplayName(
-          activeSavedSession?.name,
-          currentTabGroup?.label,
-        );
-        if (isHomeVoyageDisplayName(currentVoyageDisplayName)) {
+        const pendingVoyageName =
+          typeof window === 'undefined'
+            ? undefined
+            : ((window as any).__pendingVoyageNames?.[browserSessionId] as
+                | string
+                | undefined);
+        const voyageName = activeSavedSession?.name?.trim() || pendingVoyageName?.trim();
+        if (!voyageName || isHomeVoyageDisplayName(voyageName)) {
           const nextPath = '/dashboard';
           if (nextPath !== currentPath) {
             navigate(nextPath, { replace: true });
           }
           return;
         }
+        const currentVoyageSlug = buildVoyageSlug(voyageName, browserSessionId);
 
         const nextSearchParams = new URLSearchParams();
         nextSearchParams.set('voyage', currentVoyageSlug);
@@ -461,15 +440,25 @@ springboard.registerModule(
         },
       };
 
-      const updateBookmarkedSessionSearch = (sessionId: string) => {
-        if (!hasVoyageBookmarkParam) return;
+      const updateBookmarkedSessionSearch = (sessionId: string, name?: string) => {
         const nextSearchParams = new URLSearchParams(location.search);
         const session = savedSessions.sessions.find((entry) => entry.id === sessionId);
+        const voyageName = session?.name?.trim() || name?.trim();
+        nextSearchParams.delete('session');
+
+        if (!voyageName || isHomeVoyageDisplayName(voyageName)) {
+          nextSearchParams.delete('voyage');
+          const nextSearch = nextSearchParams.toString();
+          navigate(`${location.pathname}${nextSearch ? `?${nextSearch}` : ''}`, {
+            replace: true,
+          });
+          return;
+        }
+
         nextSearchParams.set(
           'voyage',
-          session ? getVoyageSlug(session) : buildVoyageSlug(undefined, sessionId),
+          session ? getVoyageSlug(session) : buildVoyageSlug(voyageName, sessionId),
         );
-        nextSearchParams.delete('session');
         navigate(`${location.pathname}?${nextSearchParams.toString()}`, {
           replace: true,
         });
@@ -494,15 +483,21 @@ springboard.registerModule(
             setBrowserSessionId(sessionId);
           }
           updateBookmarkedSessionSearch(sessionId);
-          sessionNav.resumeSession(sessionToResume, voyageEntryId);
+          if (voyageEntryId) {
+            sessionNav.resumeSession(sessionToResume, voyageEntryId);
+          }
         },
-        startNewSession: () => {
+        startNewSession: (options?: { name?: string; initialSelection?: NewSessionInitialSelection }) => {
           const nextSessionId = createNewBrowserSessionId();
           if (typeof window !== 'undefined') {
             setBrowserSessionId(nextSessionId);
+            (window as any).__pendingVoyageNames = {
+              ...((window as any).__pendingVoyageNames || {}),
+              [nextSessionId]: options?.name || '',
+            };
           }
-          updateBookmarkedSessionSearch(nextSessionId);
-          sessionNav.startNewSession();
+          updateBookmarkedSessionSearch(nextSessionId, options?.name);
+          sessionNav.startNewSession(options?.initialSelection);
           return nextSessionId;
         },
         renameSession: (sessionId: string, name: string) => {

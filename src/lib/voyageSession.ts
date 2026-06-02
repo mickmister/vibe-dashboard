@@ -22,9 +22,13 @@ export function resolvePreferredVoyageSessionId({
           getVoyageSlug(session) === requestedVoyageKey,
       )
     : undefined;
+  const requestedStableId = requestedVoyageKey
+    ? savedSessions.find((session) => requestedVoyageKey.endsWith(`-${session.id}`))?.id
+    : undefined;
 
   return (
     matchedRequestedVoyage?.id ||
+    requestedStableId ||
     (requestedLegacySessionId && savedSessionIds.has(requestedLegacySessionId)
       ? requestedLegacySessionId
       : undefined) ||
