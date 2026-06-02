@@ -9,6 +9,7 @@ import type {
   WorkspaceState,
   SavedWorkspaceSession,
   SavedWorkspaceSessionState,
+  VoyageEntry,
 } from './types';
 
 // @platform "browser"
@@ -700,6 +701,55 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
               delete draft.lastSessionByOrigin[origin];
             }
           });
+        });
+      },
+      moveVoyageEntryToSavedSession: async (args: {
+        targetSessionId: string;
+        voyageEntry: VoyageEntry;
+        activeItemId?: string;
+      }) => {
+        const now = new Date().toISOString();
+        const workspace = workspaceState.getState();
+        const targetSpaceId =
+          workspace.spaces.find((space) =>
+            space.tabGroupIds.includes(args.voyageEntry.tabGroupId),
+          )?.id || '';
+
+        savedSessionsState.setStateImmer((draft) => {
+          const target = draft.sessions.find(
+            (session) => session.id === args.targetSessionId,
+          );
+          if (!target) return;
+
+          const existingEntries = target.voyageEntries || [];
+          const existingIds = new Set(existingEntries.map((entry) => entry.id));
+          let nextEntryId = args.voyageEntry.id;
+          let suffix = 1;
+          while (existingIds.has(nextEntryId)) {
+            nextEntryId = `${args.voyageEntry.id}_moved_${suffix++}`;
+          }
+
+          const nextEntry = {
+            ...args.voyageEntry,
+            id: nextEntryId,
+          };
+          const nextEntries = [...existingEntries, nextEntry];
+          target.voyageEntries = nextEntries;
+          target.activeVoyageEntryId = nextEntry.id;
+          target.activeTabGroupId = nextEntry.tabGroupId;
+          target.activeSpaceId = targetSpaceId || target.activeSpaceId;
+          target.updatedAt = now;
+          target.visitedTabGroupIds = Array.from(
+            new Set([...(target.visitedTabGroupIds || []), nextEntry.tabGroupId]),
+          );
+          target.activeItemsByVoyageEntryId = {
+            ...(target.activeItemsByVoyageEntryId || {}),
+            ...(args.activeItemId ? { [nextEntry.id]: args.activeItemId } : {}),
+          };
+          target.activeItems = {
+            ...(target.activeItems || {}),
+            ...(args.activeItemId ? { [nextEntry.tabGroupId]: args.activeItemId } : {}),
+          };
         });
       },
       setOriginDefaultSession: async (args: {

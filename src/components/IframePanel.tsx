@@ -102,6 +102,26 @@ function applyIframePolicy(iframe: HTMLIFrameElement, iframeSrc: string) {
   );
 }
 
+function installIframeKeyboardIsolation(iframe: HTMLIFrameElement) {
+  try {
+    const doc = iframe.contentDocument || iframe.contentWindow?.document;
+    if (!doc) return;
+
+    doc.addEventListener(
+      'keydown',
+      (event) => {
+        const key = event.key.toLowerCase();
+        if ((event.metaKey || event.ctrlKey) && key === 's') {
+          event.stopPropagation();
+        }
+      },
+      { capture: true },
+    );
+  } catch {
+    // Cross-origin iframes keep their own keyboard handling.
+  }
+}
+
 function getIframeResolutionOrigin(url: string): string {
   if (hasExplicitOrigin(url)) {
     return window.location.origin;
@@ -227,6 +247,7 @@ function getOrCreateIframe(tab: Tab): IframeEntry {
   iframe.addEventListener('load', () => {
     entry.loaded = true;
     entry.listeners.forEach((fn) => fn());
+    installIframeKeyboardIsolation(iframe);
 
     // Start checking if content is ready (not showing white screen)
     checkContentReady(iframe, entry);
