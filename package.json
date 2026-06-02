@@ -10,6 +10,7 @@
     "build:web": "SPRINGBOARD_PLATFORM=web vite build",
     "build:node": "SPRINGBOARD_PLATFORM=node vite build --outDir dist/node",
     "check-types": "tsc --noEmit",
+    "test": "vitest run --config vitest.server.config.ts",
     "storybook": "npm run build-storybook && npm run serve-storybook",
     "storybook:dev": "storybook dev -p $PORT",
     "build-storybook": "storybook build",

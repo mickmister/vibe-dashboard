@@ -2,7 +2,12 @@ import { execFileSync } from 'node:child_process';
 const dbPath = process.argv[2] || 'data/kv.db';
 const key = 'engine|module|workspace|state.persistent|workspace-sessions';
 const value = execFileSync('sqlite3', [dbPath, `select value from kvstore where key='${key}';`], { encoding: 'utf8', maxBuffer: 100 * 1024 * 1024 });
-const sessions = JSON.parse(value).sessions || [];
+const state = JSON.parse(value);
+const sessions = Array.isArray(state)
+  ? state
+  : state?.version === 2 && Array.isArray(state.data)
+    ? state.data
+    : state?.sessions || [];
 const sig = (s) => JSON.stringify({
   name: s.name || '',
   activeSpaceId: s.activeSpaceId,

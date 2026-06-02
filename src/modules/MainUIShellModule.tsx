@@ -24,6 +24,7 @@ import {
   parseViewsParam,
 } from '../lib/voyageUrl';
 import { resolvePreferredVoyageSessionId } from '../lib/voyageSession';
+import { getSavedWorkspaceSessions } from '../lib/savedVoyageState';
 
 // Ensure dark class is on the document root so portaled elements (modals, popovers)
 // inherit dark mode styles
@@ -34,7 +35,6 @@ import springboard from 'springboard';
 import type {
   WorkspaceState,
   SavedWorkspaceSession,
-  SavedWorkspaceSessionState,
 } from '../types';
 import { useModule } from '../hooks/useModule';
 
@@ -151,6 +151,7 @@ springboard.registerModule(
 
       const workspace = workspaceModule.states.workspace.useState();
       const savedSessions = workspaceModule.states.savedVoyages.useState();
+      const savedVoyages = getSavedWorkspaceSessions(savedSessions);
       const originSessionResume = workspaceModule.states.originVoyageResumeState.useState();
 
       const actions = workspaceModule.actions;
@@ -185,7 +186,7 @@ springboard.registerModule(
           ? null
           : getStoredBrowserSessionId();
       const preferredSessionId = resolvePreferredVoyageSessionId({
-        savedSessions: savedSessions.sessions,
+        savedSessions: savedVoyages,
         requestedVoyageKey,
         requestedLegacySessionId,
         storedBrowserSessionId,
@@ -195,7 +196,7 @@ springboard.registerModule(
         typeof window === 'undefined'
           ? 'server-session'
           : getOrCreateBrowserSessionId(preferredSessionId);
-      const activeSavedSession = savedSessions.sessions.find(
+      const activeSavedSession = savedVoyages.find(
         (session) => session.id === browserSessionId,
       );
       const querySelection = resolveQueryCraftSelection(
@@ -442,7 +443,7 @@ springboard.registerModule(
 
       const updateBookmarkedSessionSearch = (sessionId: string, name?: string) => {
         const nextSearchParams = new URLSearchParams(location.search);
-        const session = savedSessions.sessions.find((entry) => entry.id === sessionId);
+        const session = savedVoyages.find((entry) => entry.id === sessionId);
         const voyageName = session?.name?.trim() || name?.trim();
         nextSearchParams.delete('session');
 
@@ -475,7 +476,7 @@ springboard.registerModule(
         setActiveTabGroup: sessionNav.setActiveTabGroup,
         getActiveItem: sessionNav.getActiveItem,
         resumeSession: (sessionId: string, voyageEntryId?: string) => {
-          const sessionToResume = savedSessions.sessions.find(
+          const sessionToResume = savedVoyages.find(
             (session) => session.id === sessionId,
           );
           if (!sessionToResume) return;
@@ -542,7 +543,7 @@ springboard.registerModule(
               session={sessionNav}
               actions={normalizeActionReturns(wrappedActions)}
               sessionActions={sessionActions}
-              savedSessions={savedSessions.sessions}
+              savedSessions={savedVoyages}
               currentSessionId={browserSessionId}
             />
           </div>

@@ -31,7 +31,18 @@ const sessionsState = JSON.parse(sessionsRow.value);
 const originResumeState = originResumeRow?.value
   ? JSON.parse(originResumeRow.value)
   : { lastSessionByOrigin: {} };
-const sessions = sessionsState.sessions || [];
+function getSessions(state) {
+  if (Array.isArray(state)) return state;
+  if (state?.version === 2 && Array.isArray(state.data)) return state.data;
+  if (Array.isArray(state?.sessions)) return state.sessions;
+  return [];
+}
+
+function createSessionsState(sessions) {
+  return { version: 2, data: sessions };
+}
+
+const sessions = getSessions(sessionsState);
 const removedSessions = sessions.filter((session) => ids.has(session.id));
 const removedIds = new Set(removedSessions.map((session) => session.id));
 const nextSessions = sessions.filter((session) => !removedIds.has(session.id));
@@ -73,7 +84,7 @@ const backupPath = `${dbPath}.bak-${new Date().toISOString().replace(/[:.]/g, '-
 copyFileSync(dbPath, backupPath);
 const updateValue = db.prepare('update kvstore set value = ? where key = ?');
 const transaction = db.transaction(() => {
-  updateValue.run(JSON.stringify({ ...sessionsState, sessions: nextSessions }), SESSIONS_KEY);
+  updateValue.run(JSON.stringify(createSessionsState(nextSessions)), SESSIONS_KEY);
   if (originResumeRow?.value) {
     updateValue.run(JSON.stringify(nextOriginResume), ORIGIN_RESUME_KEY);
   }

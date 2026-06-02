@@ -1,6 +1,12 @@
 import {
   buildVoyageSlug,
 } from './lib/voyageUrl';
+import {
+  createSavedWorkspaceSessionState,
+  getSavedWorkspaceSessions,
+  isSavedWorkspaceSessionStateMigrated,
+  migrateSavedWorkspaceSessionState,
+} from './lib/savedVoyageState';
 
 import springboard, { ModuleAPI } from 'springboard';
 import { createDefaultWorkspace, getDefaultSpace } from './types';
@@ -56,9 +62,7 @@ function isWorkspaceTabPath(url: string, expectedPath: string): boolean {
 }
 
 function createDefaultSavedSessionState(): SavedWorkspaceSessionState {
-  return {
-    sessions: [],
-  };
+  return createSavedWorkspaceSessionState();
 }
 
 type OriginSessionResumeState = {
@@ -106,9 +110,17 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
       );
     const savedSessionsState =
       await moduleAPI.statesAPI.createPersistentState<SavedWorkspaceSessionState>(
-        'workspace-sessions_v2',
+        'workspace-sessions',
         createDefaultSavedSessionState(),
       );
+    if (
+      moduleAPI.deps.core.isMaestro() &&
+      !isSavedWorkspaceSessionStateMigrated(savedSessionsState.getState())
+    ) {
+      savedSessionsState.setState(
+        migrateSavedWorkspaceSessionState(savedSessionsState.getState()),
+      );
+    }
     const originSessionResumeState =
       await moduleAPI.statesAPI.createPersistentState<OriginSessionResumeState>(
         'workspace-origin-session-resume',
@@ -662,8 +674,11 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
           !args.activeTabGroupId ||
           !(args.voyageEntries?.length)
         ) return;
-        savedSessionsState.setStateImmer((draft) => {
-          const existing = draft.sessions.find((session) => session.id === args.id);
+        savedSessionsState.setState((current) => {
+          const sessions = getSavedWorkspaceSessions(current).map((session) => ({
+            ...session,
+          }));
+          const existing = sessions.find((session) => session.id === args.id);
           if (existing) {
             existing.slug = buildVoyageSlug(name, args.id);
             existing.name = name;
@@ -675,26 +690,37 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
             existing.activeItemsByVoyageEntryId = args.activeItemsByVoyageEntryId;
             existing.activeItems = args.activeItems;
             existing.visitedTabGroupIds = args.visitedTabGroupIds;
-            return;
+            return createSavedWorkspaceSessionState(sessions);
           }
 
-          draft.sessions.unshift({ ...args, slug: buildVoyageSlug(name, args.id), name });
+          sessions.unshift({ ...args, slug: buildVoyageSlug(name, args.id), name });
+          return createSavedWorkspaceSessionState(sessions);
         });
       },
       renameSavedSession: async (args: { id: string; name: string }) => {
-        savedSessionsState.setStateImmer((draft) => {
-          const existing = draft.sessions.find((session) => session.id === args.id);
+        savedSessionsState.setState((current) => {
+          const sessions = getSavedWorkspaceSessions(current).map((session) => ({
+            ...session,
+          }));
+          const existing = sessions.find((session) => session.id === args.id);
           const name = args.name.trim();
-          if (!existing || !name || name.toLowerCase() === 'home') return;
+          if (!existing || !name || name.toLowerCase() === 'home') {
+            return createSavedWorkspaceSessionState(sessions);
+          }
           existing.name = name;
           existing.slug = buildVoyageSlug(name, args.id);
           existing.updatedAt = new Date().toISOString();
+          return createSavedWorkspaceSessionState(sessions);
         });
       },
       deleteSavedSession: async (args: { id: string }) => {
-        savedSessionsState.setStateImmer((draft) => {
-          draft.sessions = draft.sessions.filter((session) => session.id !== args.id);
-        });
+        savedSessionsState.setState((current) =>
+          createSavedWorkspaceSessionState(
+            getSavedWorkspaceSessions(current).filter(
+              (session) => session.id !== args.id,
+            ),
+          ),
+        );
         originSessionResumeState.setStateImmer((draft) => {
           Object.entries(draft.lastSessionByOrigin).forEach(([origin, sessionId]) => {
             if (sessionId === args.id) {
@@ -715,11 +741,14 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
             space.tabGroupIds.includes(args.voyageEntry.tabGroupId),
           )?.id || '';
 
-        savedSessionsState.setStateImmer((draft) => {
-          const target = draft.sessions.find(
+        savedSessionsState.setState((current) => {
+          const sessions = getSavedWorkspaceSessions(current).map((session) => ({
+            ...session,
+          }));
+          const target = sessions.find(
             (session) => session.id === args.targetSessionId,
           );
-          if (!target) return;
+          if (!target) return createSavedWorkspaceSessionState(sessions);
 
           const existingEntries = target.voyageEntries || [];
           const existingIds = new Set(existingEntries.map((entry) => entry.id));
@@ -750,6 +779,7 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
             ...(target.activeItems || {}),
             ...(args.activeItemId ? { [nextEntry.tabGroupId]: args.activeItemId } : {}),
           };
+          return createSavedWorkspaceSessionState(sessions);
         });
       },
       setOriginDefaultSession: async (args: {

@@ -1,17 +1,35 @@
 function isLocalHostname(hostname: string): boolean {
+  const normalizedHostname = normalizeHostname(hostname);
   return (
-    hostname === 'localhost' ||
-    hostname === '127.0.0.1' ||
-    hostname === '0.0.0.0' ||
-    hostname === '[::1]'
+    normalizedHostname === 'localhost' ||
+    normalizedHostname === '127.0.0.1' ||
+    normalizedHostname === '0.0.0.0' ||
+    normalizedHostname === '::1'
   );
 }
 
+function normalizeHostname(hostname: string): string {
+  return hostname.toLowerCase().replace(/^\[(.*)]$/, '$1');
+}
+
+function isIpHostname(hostname: string): boolean {
+  const normalizedHostname = normalizeHostname(hostname);
+
+  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(normalizedHostname)) {
+    return normalizedHostname.split('.').every((segment) => {
+      const value = Number(segment);
+      return Number.isInteger(value) && value >= 0 && value <= 255;
+    });
+  }
+
+  return normalizedHostname.includes(':');
+}
+
 function getBaseHostname(hostname: string): string {
-  const lowerHostname = hostname.toLowerCase();
+  const lowerHostname = normalizeHostname(hostname);
   const withoutPortPrefix = lowerHostname.replace(/^port-\d+\./, '');
 
-  if (isLocalHostname(withoutPortPrefix)) {
+  if (isLocalHostname(withoutPortPrefix) || isIpHostname(withoutPortPrefix)) {
     return withoutPortPrefix;
   }
 
