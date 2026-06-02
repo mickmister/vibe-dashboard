@@ -1059,7 +1059,12 @@ export function WorkspaceShell({
       >;
     }
 
-    const activeViewIds = expandedSessionTabGroup.entry.viewIds;
+    const activeViewIds =
+      !isDesktop && expandedSessionTabGroup.entry.viewIds.length > 1
+        ? [expandedSessionTabGroup.tabGroup.tabs[0]?.id].filter(
+            (id): id is string => Boolean(id),
+          )
+        : expandedSessionTabGroup.entry.viewIds;
     const tabItems = expandedSessionTabGroup.tabGroup.tabs.map((tab) => ({
       kind: 'tab' as const,
       id: tab.id,
@@ -1083,8 +1088,8 @@ export function WorkspaceShell({
       };
     });
 
-    return [...tabItems, ...pairItems];
-  }, [expandedSessionTabGroup, sessionActions]);
+    return isDesktop ? [...tabItems, ...pairItems] : tabItems;
+  }, [expandedSessionTabGroup, isDesktop]);
 
   const clearLongPress = () => {
     if (longPressTimerRef.current != null) {
@@ -1613,6 +1618,7 @@ export function WorkspaceShell({
           activeTabGroupId={session.activeTabGroupId}
           actions={actions}
           sessionActions={sessionActions}
+          disableSplitViews={!isDesktop}
           onDragStart={handleDragStart}
           onDragOver={handleDragOver}
           onDrop={handleDrop}
