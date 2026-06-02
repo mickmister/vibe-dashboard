@@ -28,12 +28,13 @@ interface SidebarProps {
   savedSessions: SavedWorkspaceSession[];
   currentSessionId: string;
   onRequestClose?: () => void;
-  onSelectSpace: (spaceId: string) => void;
   onSelectTabGroup: (tabGroupId: string) => void;
   onSelectTab: (tabGroupId: string, tabId: string) => void;
   onSelectPair: (tabGroupId: string, pairId: string) => void;
   onSelectVoyageEntry: (voyageEntryId: string) => void;
-  onAddSpace: (name: string) => void;
+  onAddSpace: (
+    name: string,
+  ) => Promise<{ spaceId: string; tabGroupId: string } | undefined> | { spaceId: string; tabGroupId: string } | undefined;
   onDeleteSpace: (spaceId: string) => void;
   onRenameSpace: (spaceId: string, name: string) => void;
   onDeleteTabGroup: (
@@ -41,7 +42,7 @@ interface SidebarProps {
     tabGroupId: string,
   ) => Promise<{ wasDeleted: boolean; nextTabGroupId?: string } | undefined>;
   onRenameTabGroup: (tabGroupId: string, label: string) => void;
-  onAddTabGroup: (label: string) => Promise<void> | void;
+  onAddTabGroup: (label: string, spaceId?: string) => Promise<void> | void;
   onAddTab: (
     tabGroupId: string,
     title: string,
@@ -82,7 +83,6 @@ export function Sidebar({
   savedSessions,
   currentSessionId,
   onRequestClose,
-  onSelectSpace,
   onSelectTabGroup,
   onSelectTab,
   onSelectPair,
@@ -137,6 +137,7 @@ export function Sidebar({
   const [pairSelection, setPairSelection] = useState<string[]>([]);
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [sessionNameDraft, setSessionNameDraft] = useState('');
+  const [viewedSpaceId, setViewedSpaceId] = useState(activeSpaceId);
   const contextMenuRef = useRef<HTMLDivElement>(null);
   const groupContextMenuRef = useRef<HTMLDivElement>(null);
   const dragTabGroupRef = useRef<string | null>(null);
@@ -148,8 +149,12 @@ export function Sidebar({
       return false;
     }
   });
-  const activeSpace = workspace.spaces.find(
-    (space) => space.id === activeSpaceId,
+  useEffect(() => {
+    setViewedSpaceId(activeSpaceId);
+  }, [activeSpaceId]);
+
+  const viewedSpace = workspace.spaces.find(
+    (space) => space.id === viewedSpaceId,
   );
 
   const orderedSpaces = useMemo(() => {
@@ -159,11 +164,11 @@ export function Sidebar({
     });
   }, [workspace.spaces]);
   const activeTabGroups = useMemo(() => {
-    if (!activeSpace) return [];
-    return activeSpace.tabGroupIds
+    if (!viewedSpace) return [];
+    return viewedSpace.tabGroupIds
       .map((id) => workspace.tabGroups.find((tabGroup) => tabGroup.id === id))
       .filter((tabGroup): tabGroup is TabGroup => tabGroup != null);
-  }, [activeSpace, workspace.tabGroups]);
+  }, [viewedSpace, workspace.tabGroups]);
   const activeTabGroup = activeTabGroups.find(
     (tabGroup) => tabGroup.id === activeTabGroupId,
   );
@@ -282,9 +287,14 @@ export function Sidebar({
   const handleAddSubmit = useCallback(() => {
     const name = newName.trim();
     if (name) {
-      onAddSpace(name);
-      setNewName('');
-      setAdding(false);
+      void Promise.resolve(onAddSpace(name)).then((result) => {
+        if (result?.spaceId) {
+          setViewedSpaceId(result.spaceId);
+          setView('groups');
+        }
+        setNewName('');
+        setAdding(false);
+      });
     }
   }, [newName, onAddSpace]);
 
@@ -393,7 +403,7 @@ export function Sidebar({
       return;
     }
 
-    const result = await onDeleteTabGroup(activeSpaceId, tabGroup.id);
+    const result = await onDeleteTabGroup(viewedSpace?.id || activeSpaceId, tabGroup.id);
     if (result?.wasDeleted && result.nextTabGroupId) {
       onSelectTabGroup(result.nextTabGroupId);
     }
@@ -404,23 +414,24 @@ export function Sidebar({
     groupContextMenu,
     onDeleteTabGroup,
     onSelectTabGroup,
+    viewedSpace?.id,
   ]);
 
   const handleSelectSpace = useCallback(
     (spaceId: string) => {
-      onSelectSpace(spaceId);
+      setViewedSpaceId(spaceId);
       setView('groups');
     },
-    [onSelectSpace],
+    [],
   );
 
   const handleCreateGroup = useCallback(async () => {
     const label = newGroupLabel.trim();
     if (!label) return;
-    await onAddTabGroup(label);
+    await onAddTabGroup(label, viewedSpace?.id);
     setNewGroupLabel('');
     setMobileAction(null);
-  }, [newGroupLabel, onAddTabGroup]);
+  }, [newGroupLabel, onAddTabGroup, viewedSpace?.id]);
 
   const handleCreateTab = useCallback(async () => {
     if (!activeTabGroup) return;
@@ -549,7 +560,7 @@ export function Sidebar({
                   Current Space
                 </p>
                 <h2 className="text-sm font-semibold text-neutral-100 truncate">
-                  {activeSpace?.name || 'Unknown Space'}
+                  {viewedSpace?.name || 'Unknown Space'}
                 </h2>
               </div>
             </div>
@@ -906,7 +917,7 @@ export function Sidebar({
                             : 'text-neutral-300 hover:bg-neutral-800'
                         }`}
                         onClick={() => {
-                          onSelectSpace(space.id);
+                          setViewedSpaceId(space.id);
                           onSelectTabGroup(tg.id);
                         }}
                       >
@@ -1056,7 +1067,7 @@ export function Sidebar({
               onDragOver={handleSpaceDragOver}
               onDrop={(e) => handleSpaceDrop(e, space.id)}
               className={`group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors ${
-                activeSpaceId === space.id
+                viewedSpaceId === space.id
                   ? 'bg-primary-500/20 text-primary-400'
                   : 'text-neutral-300 hover:bg-neutral-800'
               }`}
@@ -1144,7 +1155,7 @@ export function Sidebar({
               tabId={tabItemContextMenu.tabId}
               tabGroup={tabGroup}
               activeItemId={activeItems[tabGroup.id] || ''}
-              activeSpaceId={activeSpaceId}
+              activeSpaceId={viewedSpace?.id || activeSpaceId}
               onClose={() => setTabItemContextMenu(null)}
               onCreatePair={(tabIds) => onCreatePair(tabGroup.id, tabIds)}
               onCloseTab={(tabId) => onCloseTab(tabGroup.id, tabId)}

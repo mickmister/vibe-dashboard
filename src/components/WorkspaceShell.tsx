@@ -970,9 +970,9 @@ export function WorkspaceShell({
     setVoyageSwitcherOpen(false);
   };
 
-  const handleAddTabGroup = async (label: string) => {
+  const handleAddTabGroup = async (label: string, spaceId = session.activeSpaceId) => {
     const result = await actions.addTabGroup({
-      spaceId: session.activeSpaceId,
+      spaceId,
       label,
     });
 
@@ -1398,9 +1398,6 @@ export function WorkspaceShell({
           savedSessions={savedSessions}
           currentSessionId={currentSessionId}
           onRequestClose={() => setIsSidebarOpen(false)}
-          onSelectSpace={(spaceId) => {
-            sessionActions.selectSpace(spaceId);
-          }}
           onSelectTabGroup={(tabGroupId) => {
             const space = workspace.spaces.find((entry) =>
               entry.tabGroupIds.includes(tabGroupId),
@@ -1422,10 +1419,7 @@ export function WorkspaceShell({
           }}
           onAddSpace={async (name) => {
             const result = await actions.addSpace({ name });
-            if (result) {
-              sessionActions.selectSpace(result.spaceId);
-              setIsSidebarOpen(false);
-            }
+            return result;
           }}
           onDeleteSpace={(spaceId) => actions.deleteSpace({ spaceId })}
           onRenameSpace={(spaceId, name) =>
