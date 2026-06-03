@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { resolvePreferredVoyageSessionId } from './voyageSession';
+import {
+  resolvePreferredVoyageSessionId,
+  resolveRequestedVoyageSessionId,
+} from './voyageSession';
 import type { SavedWorkspaceSession } from '../types';
 
 function session(
@@ -19,6 +22,25 @@ function session(
 }
 
 describe('resolvePreferredVoyageSessionId', () => {
+  it('resolves requested voyage identity without consulting stored defaults', () => {
+    const savedSessions = [session('a', 'alpha-a'), session('b', 'beta-b')];
+
+    expect(
+      resolveRequestedVoyageSessionId({
+        savedSessions,
+        requestedVoyageKey: 'beta-b',
+        requestedLegacySessionId: undefined,
+      }),
+    ).toBe('b');
+    expect(
+      resolveRequestedVoyageSessionId({
+        savedSessions,
+        requestedVoyageKey: 'missing',
+        requestedLegacySessionId: undefined,
+      }),
+    ).toBeUndefined();
+  });
+
   it('prefers an existing voyage slug over stored defaults', () => {
     expect(
       resolvePreferredVoyageSessionId({

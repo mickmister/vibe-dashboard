@@ -1,18 +1,14 @@
 import type { SavedWorkspaceSession } from '../types';
 import { getVoyageSlug } from './voyageUrl';
 
-export function resolvePreferredVoyageSessionId({
+export function resolveRequestedVoyageSessionId({
   savedSessions,
   requestedVoyageKey,
   requestedLegacySessionId,
-  storedBrowserSessionId,
-  originDefaultSessionId,
 }: {
   savedSessions: SavedWorkspaceSession[];
   requestedVoyageKey?: string;
   requestedLegacySessionId?: string;
-  storedBrowserSessionId?: string | null;
-  originDefaultSessionId?: string;
 }): string | undefined {
   const savedSessionIds = new Set(savedSessions.map((session) => session.id));
   const matchedRequestedVoyage = requestedVoyageKey
@@ -31,7 +27,32 @@ export function resolvePreferredVoyageSessionId({
     requestedStableId ||
     (requestedLegacySessionId && savedSessionIds.has(requestedLegacySessionId)
       ? requestedLegacySessionId
-      : undefined) ||
+      : undefined)
+  );
+}
+
+export function resolvePreferredVoyageSessionId({
+  savedSessions,
+  requestedVoyageKey,
+  requestedLegacySessionId,
+  storedBrowserSessionId,
+  originDefaultSessionId,
+}: {
+  savedSessions: SavedWorkspaceSession[];
+  requestedVoyageKey?: string;
+  requestedLegacySessionId?: string;
+  storedBrowserSessionId?: string | null;
+  originDefaultSessionId?: string;
+}): string | undefined {
+  const savedSessionIds = new Set(savedSessions.map((session) => session.id));
+  const requestedSessionId = resolveRequestedVoyageSessionId({
+    savedSessions,
+    requestedVoyageKey,
+    requestedLegacySessionId,
+  });
+
+  return (
+    requestedSessionId ||
     (storedBrowserSessionId && savedSessionIds.has(storedBrowserSessionId)
       ? storedBrowserSessionId
       : undefined) ||

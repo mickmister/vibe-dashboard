@@ -24,7 +24,10 @@ import {
   parseCraftParam,
   parseViewsParam,
 } from '../lib/voyageUrl';
-import { resolvePreferredVoyageSessionId } from '../lib/voyageSession';
+import {
+  resolvePreferredVoyageSessionId,
+  resolveRequestedVoyageSessionId,
+} from '../lib/voyageSession';
 import { getSavedWorkspaceSessions } from '../lib/savedVoyageState';
 
 // Ensure dark class is on the document root so portaled elements (modals, popovers)
@@ -181,17 +184,26 @@ springboard.registerModule(
         typeof window === 'undefined'
           ? null
           : getStoredBrowserSessionId();
-      const preferredSessionId = resolvePreferredVoyageSessionId({
+      const requestedSessionId = resolveRequestedVoyageSessionId({
         savedSessions: savedVoyages,
         requestedVoyageKey,
         requestedLegacySessionId,
-        storedBrowserSessionId,
-        originDefaultSessionId,
       });
+      const preferredSessionId =
+        requestedSessionId ||
+        resolvePreferredVoyageSessionId({
+          savedSessions: savedVoyages,
+          storedBrowserSessionId,
+          originDefaultSessionId,
+        });
       const browserSessionId =
         typeof window === 'undefined'
           ? 'server-session'
-          : getOrCreateBrowserSessionId(preferredSessionId);
+          : requestedVoyageKey
+            ? requestedSessionId
+              ? getOrCreateBrowserSessionId(requestedSessionId)
+              : requestedVoyageKey
+            : getOrCreateBrowserSessionId(preferredSessionId);
       const activeSavedSession = savedVoyages.find(
         (session) => session.id === browserSessionId,
       );
@@ -315,6 +327,7 @@ springboard.registerModule(
                 | undefined);
         const voyageName = activeSavedSession?.name?.trim() || pendingVoyageName?.trim();
         if (!voyageName || isHomeVoyageDisplayName(voyageName)) {
+          if (requestedVoyageKey && !activeSavedSession) return;
           const nextPath = buildCanonicalDashboardPath(location.search, undefined);
           if (nextPath !== currentPath) {
             navigate(nextPath, { replace: true });
@@ -348,6 +361,7 @@ springboard.registerModule(
         location.search,
         location.pathname,
         navigate,
+        requestedVoyageKey,
         sessionNav.activeTabGroupId,
         sessionNav.activeVoyageEntryId,
         sessionNav.voyageEntries,
