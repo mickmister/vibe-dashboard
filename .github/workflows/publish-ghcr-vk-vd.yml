@@ -68,8 +68,9 @@ jobs:
           used_asset_fallback=false
 
           manifest_url="https://github.com/mickmister/vibe-kanban/releases/download/vk-assets-${vk_commit}/manifest.json"
-          if [[ "${GITHUB_EVENT_NAME}" == "push" && "$VK_BRANCH_INPUT" == "main" ]] && ! curl -fsI "$manifest_url" >/dev/null; then
-            echo "::notice::VK release assets for $vk_commit are not available yet; using the latest published vk-assets release for this VD branch image."
+          manifest_mode="$(python3 -c 'import json,sys,urllib.request; request=urllib.request.Request(sys.argv[1], headers={"User-Agent":"vibe-dashboard-vk-assets-resolver"}); print(json.load(urllib.request.urlopen(request, timeout=10)).get("mode", ""))' "$manifest_url" 2>/dev/null || true)"
+          if [[ "${GITHUB_EVENT_NAME}" == "push" && "$VK_BRANCH_INPUT" == "main" && "$manifest_mode" != "linux-container-runtime" ]]; then
+            echo "::notice::Compatible VK release assets for $vk_commit are not available yet (mode: ${manifest_mode:-unavailable}); using the latest published linux-container-runtime vk-assets release for this VD branch image."
             releases_json="$workdir/vk-releases.json"
             curl -fsSL "https://api.github.com/repos/mickmister/vibe-kanban/releases?per_page=100" -o "$releases_json"
             latest_assets_tag=""
