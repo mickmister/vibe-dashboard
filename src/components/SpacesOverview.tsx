@@ -915,59 +915,6 @@ function RecentSessionsSection({
   );
 }
 
-function ActiveSessionTabsSection({
-  workspace,
-  currentSession,
-  onNavigateToTabGroup,
-  tabGroupDisplayLabelById,
-}: {
-  workspace: WorkspaceState;
-  currentSession?: SavedWorkspaceSession;
-  onNavigateToTabGroup: (spaceId: string, tabGroupId: string) => void;
-  tabGroupDisplayLabelById: Map<string, string>;
-}) {
-  const tabGroups = useMemo(() => {
-    if (!currentSession) return [];
-
-    return currentSession.visitedTabGroupIds
-      .map((tabGroupId) => {
-        const tabGroup = workspace.tabGroups.find((item) => item.id === tabGroupId);
-        if (!tabGroup) return null;
-        const space = workspace.spaces.find((item) => item.tabGroupIds.includes(tabGroupId));
-        if (!space) return null;
-        return { tabGroup, space };
-      })
-      .filter(
-        (
-          item,
-        ): item is { tabGroup: TabGroup; space: WorkspaceState['spaces'][number] } =>
-          item != null,
-      );
-  }, [currentSession, workspace.spaces, workspace.tabGroups]);
-
-  if (!currentSession || tabGroups.length === 0) return null;
-
-  return (
-    <div className="hidden md:block mb-8">
-      <h2 className="text-lg font-semibold text-white mb-3">Active Voyage Craft</h2>
-      <div className="space-y-1">
-        {tabGroups.map(({ tabGroup, space }) => (
-          <TabGroupRow
-            key={tabGroup.id}
-            space={space}
-            tg={tabGroup}
-            onNavigate={() => onNavigateToTabGroup(space.id, tabGroup.id)}
-            timeLabel={
-              tabGroup.id === currentSession.activeTabGroupId ? 'Active' : undefined
-            }
-            label={tabGroupDisplayLabelById.get(tabGroup.id)}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
-
 function RecentlyVisitedTabGroups({
   workspace,
   onNavigateToTabGroup,
@@ -1197,10 +1144,6 @@ export function SpacesOverview({
   const [stoppingDevServerIds, setStoppingDevServerIds] = useState<Set<string>>(
     new Set(),
   );
-  const currentSession = useMemo(
-    () => savedSessions.find((session) => session.id === currentSessionId),
-    [currentSessionId, savedSessions],
-  );
   const workspaceNameById = useMemo(() => {
     const map = new Map<string, string>();
     for (const item of workspaces) {
@@ -1318,14 +1261,6 @@ export function SpacesOverview({
           <h1 className="text-2xl font-bold text-white">Dashboard</h1>
           <p className="text-sm text-zinc-500 mt-1">Workspace activity feed</p>
         </div>
-
-        {/* Starred Craft */}
-        <ActiveSessionTabsSection
-          workspace={workspace}
-          currentSession={currentSession}
-          onNavigateToTabGroup={onNavigateToTabGroup}
-          tabGroupDisplayLabelById={tabGroupDisplayLabelById}
-        />
 
         {/* Recent Voyages */}
         <RecentSessionsSection
