@@ -74,43 +74,43 @@ jobs:
             curl -fsSL "https://api.github.com/repos/mickmister/vibe-kanban/releases?per_page=100" -o "$releases_json"
             selector_script="$workdir/select-linux-container-vk-assets.py"
             cat > "$selector_script" <<'PY'
-import json
-import sys
-import urllib.request
+          import json
+          import sys
+          import urllib.request
 
-with open(sys.argv[1], encoding="utf-8") as f:
-    releases = [
-        r
-        for r in json.load(f)
-        if r.get("tag_name", "").startswith("vk-assets-")
-    ]
+          with open(sys.argv[1], encoding="utf-8") as f:
+              releases = [
+                  r
+                  for r in json.load(f)
+                  if r.get("tag_name", "").startswith("vk-assets-")
+              ]
 
-releases.sort(
-    key=lambda r: r.get("published_at") or r.get("created_at") or "",
-    reverse=True,
-)
+          releases.sort(
+              key=lambda r: r.get("published_at") or r.get("created_at") or "",
+              reverse=True,
+          )
 
-for release in releases:
-    tag = release["tag_name"]
-    manifest_url = (
-        "https://github.com/mickmister/vibe-kanban/releases/download/"
-        f"{tag}/manifest.json"
-    )
-    try:
-        request = urllib.request.Request(
-            manifest_url,
-            headers={"User-Agent": "vibe-dashboard-vk-assets-resolver"},
-        )
-        with urllib.request.urlopen(request, timeout=10) as response:
-            manifest = json.load(response)
-    except Exception as exc:
-        print(f"Skipping {tag}: {exc}", file=sys.stderr)
-        continue
+          for release in releases:
+              tag = release["tag_name"]
+              manifest_url = (
+                  "https://github.com/mickmister/vibe-kanban/releases/download/"
+                  f"{tag}/manifest.json"
+              )
+              try:
+                  request = urllib.request.Request(
+                      manifest_url,
+                      headers={"User-Agent": "vibe-dashboard-vk-assets-resolver"},
+                  )
+                  with urllib.request.urlopen(request, timeout=10) as response:
+                      manifest = json.load(response)
+              except Exception as exc:
+                  print(f"Skipping {tag}: {exc}", file=sys.stderr)
+                  continue
 
-    if manifest.get("mode") == "linux-container-runtime":
-        print(tag)
-        break
-PY
+              if manifest.get("mode") == "linux-container-runtime":
+                  print(tag)
+                  break
+          PY
             latest_assets_tag="$(python3 "$selector_script" "$releases_json")"
 
             if [[ -z "$latest_assets_tag" ]]; then
