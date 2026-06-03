@@ -28,7 +28,10 @@ permissions:
   id-token: write
 
 concurrency:
-  group: vk-vd-publish-${{ github.event_name == 'repository_dispatch' && github.event.client_payload.vk_source_ref || github.ref }}
+  # Branch pushes are tagged by SHA so stale reruns for an older commit cannot
+  # cancel the publish job for the current branch head. Main/release dispatches
+  # still serialize by ref/source so only the newest publish continues.
+  group: vk-vd-publish-${{ github.event_name }}-${{ github.event_name == 'push' && github.ref != 'refs/heads/main' && github.sha || github.event_name == 'repository_dispatch' && github.event.client_payload.vk_source_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
