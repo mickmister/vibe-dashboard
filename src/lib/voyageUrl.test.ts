@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildCanonicalDashboardPath,
   buildCraftParam,
   buildViewParam,
   buildVoyageSlug,
@@ -46,5 +47,31 @@ describe('voyageUrl', () => {
         ].join(','),
       ),
     ).toEqual(['1', '2']);
+  });
+
+  it('preserves unknown dashboard query params while replacing voyage-owned params', () => {
+    expect(
+      buildCanonicalDashboardPath(
+        '?from_gh_url=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fpull%2F1&session=legacy&voyage=old&craft=old&views=old',
+        {
+          slug: 'focused-session_1',
+          craftParam: 'craft-1-2',
+          viewTokens: ['agent-1', 'code-2'],
+        },
+      ),
+    ).toBe(
+      '/dashboard?from_gh_url=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fpull%2F1&voyage=focused-session_1&craft=craft-1-2&views=agent-1%2Ccode-2',
+    );
+  });
+
+  it('preserves unknown dashboard query params when clearing voyage params', () => {
+    expect(
+      buildCanonicalDashboardPath(
+        '?from_gh_url=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fissues%2F2&voyage=old&craft=old&views=old',
+        undefined,
+      ),
+    ).toBe(
+      '/dashboard?from_gh_url=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fissues%2F2',
+    );
   });
 });

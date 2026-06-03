@@ -16,6 +16,7 @@ import {
 import type { NewSessionInitialSelection } from '../sessionState';
 import { resolveWorkspaceContainerRef } from '../lib/vkWorkspaceOpen';
 import {
+  buildCanonicalDashboardPath,
   buildCraftParam,
   buildViewParam,
   buildVoyageSlug,
@@ -314,7 +315,7 @@ springboard.registerModule(
                 | undefined);
         const voyageName = activeSavedSession?.name?.trim() || pendingVoyageName?.trim();
         if (!voyageName || isHomeVoyageDisplayName(voyageName)) {
-          const nextPath = '/dashboard';
+          const nextPath = buildCanonicalDashboardPath(location.search, undefined);
           if (nextPath !== currentPath) {
             navigate(nextPath, { replace: true });
           }
@@ -322,13 +323,7 @@ springboard.registerModule(
         }
         const currentVoyageSlug = buildVoyageSlug(voyageName, browserSessionId);
 
-        const nextSearchParams = new URLSearchParams();
-        nextSearchParams.set('voyage', currentVoyageSlug);
-
         const craftParam = buildCraftParam(currentTabGroup, activeVoyageEntry);
-        if (craftParam) {
-          nextSearchParams.set('craft', craftParam);
-        }
 
         const activeViewIds = activeVoyageEntry?.viewIds || [];
         const viewTokens = activeViewIds
@@ -337,11 +332,12 @@ springboard.registerModule(
             return tab ? buildViewParam(tab.title, tab.id) : null;
           })
           .filter((token): token is string => Boolean(token));
-        if (viewTokens.length) {
-          nextSearchParams.set('views', viewTokens.join(','));
-        }
 
-        const nextPath = `/dashboard?${nextSearchParams.toString()}`;
+        const nextPath = buildCanonicalDashboardPath(location.search, {
+          slug: currentVoyageSlug,
+          craftParam,
+          viewTokens,
+        });
         if (nextPath !== currentPath) {
           navigate(nextPath, { replace: true });
         }

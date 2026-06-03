@@ -590,7 +590,10 @@ export function Sidebar({
             <button
               className="inline-flex h-8 shrink-0 items-center justify-center rounded-md px-2 text-xs font-medium text-neutral-300 transition-colors hover:bg-neutral-800 hover:text-white"
               title="Back to current space"
-              onClick={() => setView('groups')}
+              onClick={() => {
+                setViewedSpaceId(activeSpaceId);
+                setView('groups');
+              }}
             >
               Current
             </button>
