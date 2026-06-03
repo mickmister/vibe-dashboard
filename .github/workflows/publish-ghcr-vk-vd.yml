@@ -174,7 +174,8 @@ jobs:
 
   notify-coolify:
     name: Notify Coolify
-    needs: publish
+    needs: [resolve-vk-ref, publish]
+    if: ${{ needs.resolve-vk-ref.outputs.publish_latest == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Trigger Coolify deployment
