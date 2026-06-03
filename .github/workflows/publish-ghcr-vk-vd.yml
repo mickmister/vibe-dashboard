@@ -70,13 +70,51 @@ jobs:
           manifest_url="https://github.com/mickmister/vibe-kanban/releases/download/vk-assets-${vk_commit}/manifest.json"
           if [[ "${GITHUB_EVENT_NAME}" == "push" && "$VK_BRANCH_INPUT" == "main" ]] && ! curl -fsI "$manifest_url" >/dev/null; then
             echo "::notice::VK release assets for $vk_commit are not available yet; using the latest published vk-assets release for this VD branch image."
+            releases_json="$workdir/vk-releases.json"
+            curl -fsSL "https://api.github.com/repos/mickmister/vibe-kanban/releases?per_page=100" -o "$releases_json"
             latest_assets_tag="$(
-              curl -fsSL "https://api.github.com/repos/mickmister/vibe-kanban/releases?per_page=100" \
-                | python3 -c 'import json,sys; releases=[r for r in json.load(sys.stdin) if r.get("tag_name", "").startswith("vk-assets-")]; releases.sort(key=lambda r: r.get("published_at") or r.get("created_at") or "", reverse=True); print(releases[0]["tag_name"] if releases else "")'
+              python3 - "$releases_json" <<'PY'
+import json
+import sys
+import urllib.request
+
+with open(sys.argv[1], encoding="utf-8") as f:
+    releases = [
+        r
+        for r in json.load(f)
+        if r.get("tag_name", "").startswith("vk-assets-")
+    ]
+
+releases.sort(
+    key=lambda r: r.get("published_at") or r.get("created_at") or "",
+    reverse=True,
+)
+
+for release in releases:
+    tag = release["tag_name"]
+    manifest_url = (
+        "https://github.com/mickmister/vibe-kanban/releases/download/"
+        f"{tag}/manifest.json"
+    )
+    try:
+        request = urllib.request.Request(
+            manifest_url,
+            headers={"User-Agent": "vibe-dashboard-vk-assets-resolver"},
+        )
+        with urllib.request.urlopen(request, timeout=10) as response:
+            manifest = json.load(response)
+    except Exception as exc:
+        print(f"Skipping {tag}: {exc}", file=sys.stderr)
+        continue
+
+    if manifest.get("mode") == "linux-container-runtime":
+        print(tag)
+        break
+PY
             )"
 
             if [[ -z "$latest_assets_tag" ]]; then
-              echo "No published vk-assets release found to use as a fallback." >&2
+              echo "No published linux-container-runtime vk-assets release found to use as a fallback." >&2
               exit 1
             fi
 
