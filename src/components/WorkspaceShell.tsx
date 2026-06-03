@@ -232,6 +232,10 @@ export function WorkspaceShell({
     top: number;
   } | null>(null);
   const [voyageSwitcherOpen, setVoyageSwitcherOpen] = useState(false);
+  const [voyageSwitcherRenameSessionId, setVoyageSwitcherRenameSessionId] =
+    useState<string | null>(null);
+  const [voyageSwitcherRenameDraft, setVoyageSwitcherRenameDraft] =
+    useState('');
   const [vscodeViewPromptOpen, setVSCodeViewPromptOpen] = useState(false);
   const [moveVoyageEntryPrompt, setMoveVoyageEntryPrompt] =
     useState<MoveVoyageEntryPrompt | null>(null);
@@ -954,6 +958,8 @@ export function WorkspaceShell({
     setVoyageSwitcherOpen(true);
     setVoyagePlusMenuOpen(false);
     setExpandedVoyageEntryId(null);
+    setVoyageSwitcherRenameSessionId(null);
+    setVoyageSwitcherRenameDraft('');
     setIsSidebarOpen(false);
   };
 
@@ -968,6 +974,26 @@ export function WorkspaceShell({
   const handleVoyageSwitcherSelect = (sessionId: string) => {
     switchToVoyage(sessionId);
     setVoyageSwitcherOpen(false);
+    setVoyageSwitcherRenameSessionId(null);
+    setVoyageSwitcherRenameDraft('');
+  };
+
+  const startVoyageSwitcherRename = (savedSession: SavedWorkspaceSession) => {
+    setVoyageSwitcherRenameSessionId(savedSession.id);
+    setVoyageSwitcherRenameDraft(getVoyageDisplayName(savedSession));
+  };
+
+  const cancelVoyageSwitcherRename = () => {
+    setVoyageSwitcherRenameSessionId(null);
+    setVoyageSwitcherRenameDraft('');
+  };
+
+  const submitVoyageSwitcherRename = (sessionId: string) => {
+    const nextName = voyageSwitcherRenameDraft.trim();
+    if (nextName && !isReservedVoyageName(nextName)) {
+      sessionActions.renameSession(sessionId, nextName);
+    }
+    cancelVoyageSwitcherRename();
   };
 
   const handleAddTabGroup = async (label: string, spaceId = session.activeSpaceId) => {
@@ -1032,6 +1058,7 @@ export function WorkspaceShell({
   const moveVoyageTargets = sortedVoyageSwitcherSessions.filter(
     (savedSession) => savedSession.id !== currentSessionId,
   );
+  const canMoveVoyageEntryToAnotherVoyage = session.voyageEntries.length > 1;
   const getVoyageDisplayName = (savedSession: SavedWorkspaceSession) =>
     savedSession.name?.trim() || 'Untitled voyage';
 
@@ -1212,6 +1239,12 @@ export function WorkspaceShell({
     voyageEntryId: string,
     tabGroupId: string,
   ) => {
+    if (!canMoveVoyageEntryToAnotherVoyage) {
+      setMobileTabMenuTarget(null);
+      setDesktopTabMenuTarget(null);
+      return;
+    }
+
     const activeItemId =
       session.activeItemsByVoyageEntryId[voyageEntryId] ||
       session.activeItems[tabGroupId];
@@ -1799,26 +1832,98 @@ export function WorkspaceShell({
               {sortedVoyageSwitcherSessions.length > 0 ? (
                 sortedVoyageSwitcherSessions.map((savedSession) => {
                   const isCurrent = savedSession.id === currentSessionId;
+                  const isRenaming =
+                    voyageSwitcherRenameSessionId === savedSession.id;
+                  const renameIsInvalid =
+                    !voyageSwitcherRenameDraft.trim() ||
+                    isReservedVoyageName(voyageSwitcherRenameDraft);
                   return (
-                    <button
+                    <div
                       key={savedSession.id}
-                      className={`block w-full rounded-md border px-3 py-2 text-left text-sm transition-colors ${
+                      className={`w-full rounded-md border px-3 py-2 text-sm transition-colors ${
                         isCurrent
-                          ? 'border-blue-400/70 bg-blue-500/20 text-neutral-50 hover:bg-blue-500/30'
-                          : 'border-neutral-700 bg-neutral-800 text-neutral-200 hover:bg-neutral-700'
+                          ? 'border-blue-400/70 bg-blue-500/20 text-neutral-50'
+                          : 'border-neutral-700 bg-neutral-800 text-neutral-200'
                       }`}
-                      onClick={() => handleVoyageSwitcherSelect(savedSession.id)}
                     >
-                      <span className="flex items-center justify-between gap-3">
-                        <span className="font-medium">{getVoyageDisplayName(savedSession)}</span>
-                        {isCurrent && (
-                          <span className="shrink-0 text-xs text-blue-100">Current</span>
-                        )}
-                      </span>
-                      <span className="mt-1 block text-xs text-neutral-500">
-                        Updated {new Date(savedSession.updatedAt).toLocaleString()}
-                      </span>
-                    </button>
+                      {isRenaming ? (
+                        <form
+                          className="space-y-2"
+                          onSubmit={(event) => {
+                            event.preventDefault();
+                            submitVoyageSwitcherRename(savedSession.id);
+                          }}
+                        >
+                          <label className="block text-xs font-semibold uppercase tracking-wide text-neutral-500">
+                            Voyage name
+                          </label>
+                          <input
+                            value={voyageSwitcherRenameDraft}
+                            onChange={(event) =>
+                              setVoyageSwitcherRenameDraft(event.target.value)
+                            }
+                            onKeyDown={(event) => {
+                              if (event.key === 'Escape') {
+                                event.preventDefault();
+                                cancelVoyageSwitcherRename();
+                              }
+                            }}
+                            autoFocus
+                            className="w-full rounded-md border border-neutral-600 bg-neutral-950 px-2 py-1.5 text-sm text-neutral-100 outline-none focus:border-blue-400"
+                          />
+                          <div className="flex justify-end gap-2">
+                            <button
+                              type="button"
+                              className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1 text-xs text-neutral-300 transition-colors hover:bg-neutral-800"
+                              onClick={cancelVoyageSwitcherRename}
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="submit"
+                              disabled={renameIsInvalid}
+                              className="rounded-md border border-blue-400/70 bg-blue-500/20 px-2 py-1 text-xs text-neutral-50 transition-colors hover:bg-blue-500/30 disabled:cursor-not-allowed disabled:border-neutral-700 disabled:bg-neutral-800 disabled:text-neutral-500"
+                            >
+                              Save
+                            </button>
+                          </div>
+                        </form>
+                      ) : (
+                        <>
+                          <div className="flex items-start justify-between gap-3">
+                            <button
+                              className="min-w-0 flex-1 rounded-sm text-left transition-colors hover:text-white"
+                              onClick={() =>
+                                handleVoyageSwitcherSelect(savedSession.id)
+                              }
+                            >
+                              <span className="block truncate font-medium">
+                                {getVoyageDisplayName(savedSession)}
+                              </span>
+                              <span className="mt-1 block text-xs text-neutral-500">
+                                Updated{' '}
+                                {new Date(savedSession.updatedAt).toLocaleString()}
+                              </span>
+                            </button>
+                            <div className="flex shrink-0 items-center gap-2">
+                              {isCurrent && (
+                                <span className="text-xs text-blue-100">
+                                  Current
+                                </span>
+                              )}
+                              <button
+                                className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1 text-xs text-neutral-300 transition-colors hover:bg-neutral-800"
+                                onClick={() =>
+                                  startVoyageSwitcherRename(savedSession)
+                                }
+                              >
+                                Rename
+                              </button>
+                            </div>
+                          </div>
+                        </>
+                      )}
+                    </div>
                   );
                 })
               ) : (
@@ -1837,7 +1942,10 @@ export function WorkspaceShell({
               </button>
               <button
                 className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-300 transition-colors hover:bg-neutral-800"
-                onClick={() => setVoyageSwitcherOpen(false)}
+                onClick={() => {
+                  setVoyageSwitcherOpen(false);
+                  cancelVoyageSwitcherRename();
+                }}
               >
                 Cancel
               </button>
@@ -2253,7 +2361,13 @@ export function WorkspaceShell({
             onPointerDown={(event) => event.stopPropagation()}
           >
             <button
-              className="block w-full px-4 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-800"
+              className="block w-full px-4 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-800 disabled:cursor-not-allowed disabled:text-neutral-500 disabled:hover:bg-transparent"
+              disabled={!canMoveVoyageEntryToAnotherVoyage}
+              title={
+                canMoveVoyageEntryToAnotherVoyage
+                  ? 'Move this craft to another Voyage'
+                  : 'Cannot move the only craft in a Voyage'
+              }
               onClick={() => {
                 handleOpenMoveVoyageEntryPrompt(
                   desktopTabMenuTarget.voyageEntryId,
@@ -2371,7 +2485,13 @@ export function WorkspaceShell({
                 Save
               </button>
               <button
-                className="rounded-md border border-amber-500/40 bg-amber-500/15 px-3 py-2 text-sm text-amber-300"
+                className="rounded-md border border-amber-500/40 bg-amber-500/15 px-3 py-2 text-sm text-amber-300 disabled:cursor-not-allowed disabled:border-neutral-700 disabled:bg-neutral-800 disabled:text-neutral-500"
+                disabled={!canMoveVoyageEntryToAnotherVoyage}
+                title={
+                  canMoveVoyageEntryToAnotherVoyage
+                    ? 'Move this craft to another Voyage'
+                    : 'Cannot move the only craft in a Voyage'
+                }
                 onClick={() => {
                   handleOpenMoveVoyageEntryPrompt(
                     mobileTabMenuTarget.voyageEntryId,
