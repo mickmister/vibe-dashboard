@@ -777,25 +777,31 @@ function RecentSessionsSection({
             >
               <div
                 className="flex flex-col gap-2 px-4 py-2.5 cursor-pointer sm:flex-row sm:items-start"
-                onClick={() =>
-                  setExpandedSessionId((prev) => (prev === session.id ? null : session.id))
-                }
+                onClick={() => onResumeSession(session.id)}
                 role="button"
                 tabIndex={0}
                 onKeyDown={(event) => {
+                  if (event.target !== event.currentTarget) return;
                   if (event.key === 'Enter' || event.key === ' ') {
                     event.preventDefault();
-                    setExpandedSessionId((prev) => (prev === session.id ? null : session.id));
+                    onResumeSession(session.id);
                   }
                 }}
               >
                 <div className="flex min-w-0 flex-1 items-start gap-3">
-                  <div
+                  <button
+                    type="button"
                     className="mt-0.5 text-zinc-500 hover:text-white transition-colors shrink-0"
                     aria-label={isExpanded ? 'Collapse voyage' : 'Expand voyage'}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setExpandedSessionId((prev) =>
+                        prev === session.id ? null : session.id,
+                      );
+                    }}
                   >
                     {isExpanded ? '▾' : '▸'}
-                  </div>
+                  </button>
                   <div className="min-w-0 flex-1 text-left">
                   {editingSessionId === session.id ? (
                     <input
@@ -804,6 +810,7 @@ function RecentSessionsSection({
                       onChange={(event) => setSessionNameDraft(event.target.value)}
                       onClick={(event) => event.stopPropagation()}
                       onKeyDown={(event) => {
+                        event.stopPropagation();
                         if (event.key === 'Enter' && sessionNameDraft.trim()) {
                           onRenameSession(session.id, sessionNameDraft.trim());
                           setEditingSessionId(null);
@@ -841,15 +848,6 @@ function RecentSessionsSection({
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-x-4 gap-y-2 pl-6 sm:pl-0 sm:justify-end">
-                  <button
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onResumeSession(session.id);
-                    }}
-                    className="text-xs text-zinc-300 hover:text-white shrink-0"
-                  >
-                    Resume
-                  </button>
                   <button
                     onClick={(event) => {
                       event.stopPropagation();
