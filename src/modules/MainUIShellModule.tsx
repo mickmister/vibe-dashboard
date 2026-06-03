@@ -2,7 +2,7 @@ import '@vitejs/plugin-react/preamble';
 import '../styles';
 
 import React, { useEffect } from 'react';
-import { useLocation, useParams, useNavigate } from 'react-router';
+import { useLocation, useNavigate } from 'react-router';
 import { HeroUIProvider } from '@heroui/react';
 import { AppLoadingScreen } from '../components/AppLoadingScreen';
 import { WorkspaceShell } from '../components/WorkspaceShell';
@@ -145,7 +145,7 @@ springboard.registerModule(
       return null;
     };
 
-    // Shared route component with legacy path-params plus canonical voyage query-param support
+    // Shared route component with canonical voyage query-param support
     const WorkspaceRoute = () => {
       const workspaceModule = useModule('workspace');
 
@@ -156,11 +156,6 @@ springboard.registerModule(
 
       const actions = workspaceModule.actions;
 
-      const { spaceId, tabGroupId, itemId } = useParams<{
-        spaceId?: string;
-        tabGroupId?: string;
-        itemId?: string;
-      }>();
       const location = useLocation();
       const navigate = useNavigate();
       const sessionSearchParams = new URLSearchParams(location.search);
@@ -208,9 +203,9 @@ springboard.registerModule(
       const sessionNav = useSessionWorkspaceNav(
         workspace,
         {
-          spaceId: querySelection.spaceId || spaceId,
-          tabGroupId: querySelection.tabGroupId || tabGroupId,
-          itemId: querySelection.itemId || itemId,
+          spaceId: querySelection.spaceId,
+          tabGroupId: querySelection.tabGroupId,
+          itemId: querySelection.itemId,
           voyageEntryId: querySelection.voyageEntryId,
           viewIds: querySelection.viewIds,
         },
@@ -399,15 +394,6 @@ springboard.registerModule(
             sessionNav.selectTab(result.tabGroupId, result.tabId);
           }
         },
-        addVSCodeView: async (args: {
-          tabGroupId: string;
-          target: 'repos' | 'worktree-parent';
-        }) => {
-          return actions.addVSCodeView({
-            ...args,
-            baseOrigin: getBaseOrigin(),
-          });
-        },
         createPair: async (args: { tabGroupId: string; tabIds: string[] }) => {
           const result = await actions.createPair(args);
           // Auto-select the newly created pair
@@ -484,9 +470,7 @@ springboard.registerModule(
             setBrowserSessionId(sessionId);
           }
           updateBookmarkedSessionSearch(sessionId);
-          if (voyageEntryId) {
-            sessionNav.resumeSession(sessionToResume, voyageEntryId);
-          }
+          sessionNav.resumeSession(sessionToResume, voyageEntryId);
         },
         startNewSession: (options?: { name?: string; initialSelection?: NewSessionInitialSelection }) => {
           const nextSessionId = createNewBrowserSessionId();
@@ -554,24 +538,9 @@ springboard.registerModule(
     // Root redirects to /dashboard (for dev server case)
     moduleAPI.registerRoute('/', { hideApplicationShell: true }, RootRedirect);
 
-    // Register dashboard routes with increasing specificity
+    // Canonical dashboard route. Craft/view deep links use query params.
     moduleAPI.registerRoute(
       '/dashboard',
-      { hideApplicationShell: true },
-      WorkspaceRoute,
-    );
-    moduleAPI.registerRoute(
-      '/dashboard/spaces/:spaceId',
-      { hideApplicationShell: true },
-      WorkspaceRoute,
-    );
-    moduleAPI.registerRoute(
-      '/dashboard/spaces/:spaceId/:tabGroupId',
-      { hideApplicationShell: true },
-      WorkspaceRoute,
-    );
-    moduleAPI.registerRoute(
-      '/dashboard/spaces/:spaceId/:tabGroupId/:itemId',
       { hideApplicationShell: true },
       WorkspaceRoute,
     );

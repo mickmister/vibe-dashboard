@@ -37,8 +37,6 @@ function isReservedVoyageName(name: string): boolean {
   return name.trim().toLowerCase() === 'home';
 }
 
-type VSCodeViewTarget = 'repos' | 'worktree-parent';
-
 export type WorkspaceActions = {
   addSpace: (args: {
     name: string;
@@ -72,10 +70,6 @@ export type WorkspaceActions = {
   }) => void;
   closeTab: (args: { tabGroupId: string; tabId: string }) => void;
   addTab: (args: { tabGroupId: string; title: string; url: string }) => void;
-  addVSCodeView: (args: {
-    tabGroupId: string;
-    target: VSCodeViewTarget;
-  }) => Promise<{ tabId: string; tabGroupId: string } | undefined>;
   ensureCreateWorkspaceTab: () => Promise<
     { spaceId: string; tabGroupId: string; tabId: string } | undefined
   >;
@@ -161,7 +155,6 @@ type DuplicateCraftPrompt = {
   }>;
 };
 
-type VoyageActionKind = 'new-task' | 'open-craft' | 'vscode-view';
 type PendingVoyageCraftSelection = {
   sessionId: string;
   spaceId: string;
@@ -209,14 +202,9 @@ export function WorkspaceShell({
   >(null);
   const [duplicateCraftPrompt, setDuplicateCraftPrompt] =
     useState<DuplicateCraftPrompt | null>(null);
-  const [voyageActionPrompt, setVoyageActionPrompt] =
-    useState<VoyageActionKind | null>(null);
-  const [voyageActionNewName, setVoyageActionNewName] = useState('');
   const [newVoyagePromptOpen, setNewVoyagePromptOpen] = useState(false);
   const [newVoyageName, setNewVoyageName] = useState('');
   const [pendingOpenCraftSessionId, setPendingOpenCraftSessionId] =
-    useState<string | null>(null);
-  const [pendingVSCodeViewSessionId, setPendingVSCodeViewSessionId] =
     useState<string | null>(null);
   const [pendingVoyageRename, setPendingVoyageRename] = useState<{
     sessionId: string;
@@ -236,7 +224,6 @@ export function WorkspaceShell({
     useState<string | null>(null);
   const [voyageSwitcherRenameDraft, setVoyageSwitcherRenameDraft] =
     useState('');
-  const [vscodeViewPromptOpen, setVSCodeViewPromptOpen] = useState(false);
   const [moveVoyageEntryPrompt, setMoveVoyageEntryPrompt] =
     useState<MoveVoyageEntryPrompt | null>(null);
   const [mobileTabDraftLabel, setMobileTabDraftLabel] = useState('');
@@ -414,9 +401,6 @@ export function WorkspaceShell({
 
       if (key === 'escape') {
         setVoyagePlusMenuOpen(false);
-        setVoyageActionPrompt(null);
-        setVSCodeViewPromptOpen(false);
-        setPendingVSCodeViewSessionId(null);
         return;
       }
 
@@ -505,44 +489,6 @@ export function WorkspaceShell({
     actions.addTab({ tabGroupId: addTabTargetGroupId, title, url });
   };
 
-  const handleAddVSCodeView = async (target: VSCodeViewTarget) => {
-    setVSCodeViewPromptOpen(false);
-    const destinationSessionId = pendingVSCodeViewSessionId || currentSessionId;
-    const destinationSession =
-      destinationSessionId !== currentSessionId
-        ? savedSessions.find((entry) => entry.id === destinationSessionId)
-        : undefined;
-    const destinationTabGroupId =
-      destinationSession?.activeTabGroupId || session.activeTabGroupId;
-    const destinationSpaceId =
-      destinationSession?.activeSpaceId || session.activeSpaceId;
-
-    const result = await actions.addVSCodeView({
-      tabGroupId: destinationTabGroupId,
-      target,
-    });
-    setPendingVSCodeViewSessionId(null);
-
-    if (!result?.tabId) return;
-
-    if (destinationSessionId !== currentSessionId) {
-      switchToVoyage(destinationSessionId);
-      setPendingVoyageCraftSelection({
-        sessionId: destinationSessionId,
-        spaceId: destinationSpaceId,
-        tabGroupId: result.tabGroupId,
-        tabId: result.tabId,
-      });
-      return;
-    }
-
-    sessionActions.selectSessionTab(
-      destinationSpaceId,
-      result.tabGroupId,
-      result.tabId,
-    );
-  };
-
   const handleOpenCreateWorkspaceTab = async () => {
     const result = await actions.ensureCreateWorkspaceTab();
     if (!result) return;
@@ -552,24 +498,6 @@ export function WorkspaceShell({
       result.tabGroupId,
       result.tabId,
     );
-  };
-
-  const handleOpenNewTaskInVoyage = async (sessionId: string) => {
-    const result = await actions.ensureCreateWorkspaceTab();
-    if (!result) return;
-
-    if (sessionId !== currentSessionId) {
-      switchToVoyage(sessionId);
-      setPendingVoyageCraftSelection({
-        sessionId,
-        spaceId: result.spaceId,
-        tabGroupId: result.tabGroupId,
-        tabId: result.tabId,
-      });
-      return;
-    }
-
-    sessionActions.selectSessionTab(result.spaceId, result.tabGroupId, result.tabId);
   };
 
   const handleAddVKWorkspace = async (
@@ -836,11 +764,6 @@ export function WorkspaceShell({
     closeDuplicateCraftPrompt();
   };
 
-  const openVoyageActionPrompt = (kind: VoyageActionKind) => {
-    setVoyagePlusMenuOpen(false);
-    setVoyageActionPrompt(kind);
-  };
-
   const openNewVoyagePrompt = () => {
     setVoyagePlusMenuOpen(false);
     setVoyageSwitcherOpen(false);
@@ -889,69 +812,6 @@ export function WorkspaceShell({
     setPendingNewVoyageCraftName(voyageName);
     setWorkspaceSearchMode('session-add');
     setWorkspaceSearchOpen(true);
-  };
-
-  const closeVoyageActionPrompt = () => {
-    setVoyageActionPrompt(null);
-    setVoyageActionNewName('');
-  };
-
-  const handleVoyageActionDestination = async (sessionId: string) => {
-    const kind = voyageActionPrompt;
-    closeVoyageActionPrompt();
-    if (!kind) return;
-
-    if (kind === 'new-task') {
-      await handleOpenNewTaskInVoyage(sessionId);
-      return;
-    }
-
-    if (kind === 'open-craft') {
-      setPendingOpenCraftSessionId(sessionId);
-      setWorkspaceSearchMode('session-add');
-      setWorkspaceSearchOpen(true);
-      return;
-    }
-
-    setPendingVSCodeViewSessionId(sessionId);
-    setVSCodeViewPromptOpen(true);
-  };
-
-  const handleVoyageActionNewVoyage = async () => {
-    const kind = voyageActionPrompt;
-    const voyageName = voyageActionNewName.trim();
-    if (!voyageName || isReservedVoyageName(voyageName)) return;
-    const nextSessionId = startNewVoyage(voyageName);
-    closeVoyageActionPrompt();
-    if (kind === 'new-task') {
-      await handleOpenNewTaskInVoyage(nextSessionId);
-      return;
-    }
-    if (kind === 'vscode-view') {
-      setPendingVSCodeViewSessionId(nextSessionId);
-      setVSCodeViewPromptOpen(true);
-      return;
-    }
-    setPendingOpenCraftSessionId(nextSessionId);
-    setWorkspaceSearchMode('session-add');
-    setWorkspaceSearchOpen(true);
-  };
-
-  const handleVoyageActionBackdropClick = (
-    event: React.MouseEvent<HTMLDivElement>,
-  ) => {
-    if (event.target === event.currentTarget) {
-      closeVoyageActionPrompt();
-    }
-  };
-
-  const handleVSCodeViewBackdropClick = (
-    event: React.MouseEvent<HTMLDivElement>,
-  ) => {
-    if (event.target === event.currentTarget) {
-      setVSCodeViewPromptOpen(false);
-      setPendingVSCodeViewSessionId(null);
-    }
   };
 
   const handleOpenVoyageSwitcher = () => {
@@ -1044,8 +904,6 @@ export function WorkspaceShell({
     );
   const isNewVoyageNameInvalid =
     !newVoyageName.trim() || isReservedVoyageName(newVoyageName);
-  const isVoyageActionNewNameInvalid =
-    !voyageActionNewName.trim() || isReservedVoyageName(voyageActionNewName);
 
   const sortedVoyageSwitcherSessions = useMemo(() => {
     return [...savedSessions].sort((left, right) => {
@@ -1994,53 +1852,6 @@ export function WorkspaceShell({
         </div>
       )}
 
-      {vscodeViewPromptOpen && (
-        <div
-          className="fixed inset-0 z-[94] flex items-center justify-center bg-black/60 p-4"
-          onClick={handleVSCodeViewBackdropClick}
-        >
-          <div className="w-full max-w-md rounded-xl border border-neutral-700 bg-neutral-900 p-5 shadow-2xl">
-            <div className="text-base font-semibold text-neutral-100">
-              New VSCode View
-            </div>
-            <p className="mt-2 text-sm text-neutral-400">
-              Choose where to open VSCode.
-            </p>
-
-            <div className="mt-4 max-h-[45vh] space-y-2 overflow-y-auto pr-1">
-              <button
-                className="block w-full rounded-md border border-blue-400/70 bg-blue-500/20 px-3 py-2 text-left text-sm text-neutral-50 transition-colors hover:bg-blue-500/30"
-                onClick={() => {
-                  void handleAddVSCodeView('repos');
-                }}
-              >
-                ~/repos
-              </button>
-              <button
-                className="block w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-700"
-                onClick={() => {
-                  void handleAddVSCodeView('worktree-parent');
-                }}
-              >
-                Workspace parent directory
-              </button>
-            </div>
-
-            <div className="mt-5 flex justify-end">
-              <button
-                className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-300 transition-colors hover:bg-neutral-800"
-                onClick={() => {
-                  setVSCodeViewPromptOpen(false);
-                  setPendingVSCodeViewSessionId(null);
-                }}
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {newVoyagePromptOpen && (
         <div
           className="fixed inset-0 z-[94] flex items-center justify-center bg-black/60 p-4"
@@ -2095,89 +1906,6 @@ export function WorkspaceShell({
               <button
                 className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-300 transition-colors hover:bg-neutral-800"
                 onClick={closeNewVoyagePrompt}
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {voyageActionPrompt && (
-        <div
-          className="fixed inset-0 z-[94] flex items-center justify-center bg-black/60 p-4"
-          onClick={handleVoyageActionBackdropClick}
-        >
-          <div className="flex max-h-[85dvh] w-full max-w-lg flex-col rounded-xl border border-neutral-700 bg-neutral-900 p-5 shadow-2xl">
-            <div className="text-base font-semibold text-neutral-100">
-              {voyageActionPrompt === 'new-task'
-                ? 'New Task'
-                : voyageActionPrompt === 'open-craft'
-                  ? 'Open Craft'
-                  : 'New VSCode View'}
-            </div>
-            <p className="mt-2 text-sm text-neutral-400">
-              Choose which Voyage should receive this item.
-            </p>
-
-            <div className="mt-4 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
-              <button
-                className="block w-full rounded-md border border-blue-400/70 bg-blue-500/20 px-3 py-2 text-left text-sm text-neutral-50 transition-colors hover:bg-blue-500/30"
-                onClick={() => {
-                  void handleVoyageActionDestination(currentSessionId);
-                }}
-              >
-                Current Voyage
-                <span className="mt-1 block text-xs text-blue-100/90">
-                  {savedSessions.find((entry) => entry.id === currentSessionId)?.name ||
-                    savedSessions.find((entry) => entry.id === currentSessionId)?.slug ||
-                    'Current voyage'}
-                </span>
-              </button>
-
-              {savedSessions
-                .filter((entry) => entry.id !== currentSessionId)
-                .map((entry) => (
-                  <button
-                    key={entry.id}
-                    className="block w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-700"
-                    onClick={() => {
-                      void handleVoyageActionDestination(entry.id);
-                    }}
-                  >
-                    {entry.name || entry.slug || 'Untitled voyage'}
-                    <span className="mt-1 block text-xs text-neutral-500">
-                      Updated {new Date(entry.updatedAt).toLocaleString()}
-                    </span>
-                  </button>
-                ))}
-            </div>
-
-            <div className="mt-4 rounded-lg border border-neutral-700 bg-neutral-950/40 p-3">
-              <div className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
-                New Voyage
-              </div>
-              <input
-                value={voyageActionNewName}
-                onChange={(event) => setVoyageActionNewName(event.target.value)}
-                placeholder="Required voyage name"
-                className="mt-2 w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-neutral-100 outline-none placeholder:text-neutral-500"
-              />
-              <button
-                className="mt-2 w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-neutral-200 transition-colors hover:bg-neutral-700 disabled:cursor-not-allowed disabled:text-neutral-500 disabled:hover:bg-neutral-800"
-                disabled={isVoyageActionNewNameInvalid}
-                onClick={() => {
-                  void handleVoyageActionNewVoyage();
-                }}
-              >
-                Create New Voyage
-              </button>
-            </div>
-
-            <div className="mt-5 flex justify-end">
-              <button
-                className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-300 transition-colors hover:bg-neutral-800"
-                onClick={closeVoyageActionPrompt}
               >
                 Cancel
               </button>

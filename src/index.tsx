@@ -118,6 +118,9 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
         'workspace-origin-session-resume',
         createDefaultOriginSessionResumeState(),
       );
+    // v2 is the first shipped saved-voyage migration. Since no production
+    // state has been written as v2 yet, the v2 migration also performs the
+    // Home-voyage removal and duplicate cleanup before marking state migrated.
     if (
       moduleAPI.deps.core.isMaestro() &&
       !isSavedWorkspaceSessionStateMigrated(savedSessionsState.getState())
@@ -369,30 +372,6 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
         });
 
         return { tabId, tabGroupId: args.tabGroupId };
-      },
-
-      addVSCodeView: async (args: {
-        tabGroupId: string;
-        target: 'repos' | 'worktree-parent';
-        baseOrigin: string;
-      }) => {
-        let folderPath =
-          args.target === 'repos' ? '~/repos' : '..';
-
-        // @platform "node"
-        const path = await import('node:path');
-        if (args.target === 'repos') {
-          folderPath = path.join(process.env.HOME || '~', 'repos');
-        } else {
-          folderPath = path.dirname(process.cwd());
-        }
-        // @platform end
-
-        return actions.addTab({
-          tabGroupId: args.tabGroupId,
-          title: args.target === 'repos' ? 'VSCode: ~/repos' : 'VSCode: Workspace Parent',
-          url: buildWorkspaceFolderUrl(args.baseOrigin, folderPath),
-        });
       },
 
       ensureCreateWorkspaceTab: async (args: { baseOrigin: string }) => {

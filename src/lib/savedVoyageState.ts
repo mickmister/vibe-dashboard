@@ -59,6 +59,14 @@ export function migrateSavedWorkspaceSessionState(
   return migrateSavedWorkspaceSessionStateWithCleanup(state, options).state;
 }
 
+/**
+ * Migrates all pre-v2 saved voyage shapes into the v2 persisted schema.
+ *
+ * Version 2 is intentionally the first persisted migration boundary for saved
+ * voyages in this app: it normalizes legacy array/{sessions} shapes, removes
+ * transient Home voyages, deduplicates identical voyages, and rewrites origin
+ * resume pointers as one atomic cleanup.
+ */
 export function migrateSavedWorkspaceSessionStateWithCleanup(
   state: SavedWorkspaceSessionState | SavedWorkspaceSessionState_v1 | unknown,
   options: {

@@ -124,6 +124,42 @@ describe('savedVoyageState migration', () => {
     });
   });
 
+  it('treats v2 as a single legacy-to-cleaned-state migration', () => {
+    const home = { ...session('home'), name: 'Home' };
+    const duplicateOlder = {
+      ...session('duplicate-older'),
+      name: 'Focused voyage',
+      updatedAt: '2026-06-01T00:00:00.000Z',
+    };
+    const duplicateNewer = {
+      ...session('duplicate-newer'),
+      name: 'Focused voyage',
+      updatedAt: '2026-06-03T00:00:00.000Z',
+    };
+
+    const result = migrateSavedWorkspaceSessionStateWithCleanup(
+      { sessions: [home, duplicateOlder, duplicateNewer] },
+      {
+        originResumeState: {
+          lastSessionByOrigin: {
+            'https://home.example.test': 'home',
+            'https://dupe.example.test': 'duplicate-older',
+          },
+        },
+      },
+    );
+
+    expect(result.state).toEqual({
+      version: 2,
+      data: [duplicateOlder],
+    });
+    expect(result.originResumeState).toEqual({
+      lastSessionByOrigin: {
+        'https://dupe.example.test': 'duplicate-older',
+      },
+    });
+  });
+
   it('keeps the origin-referenced duplicate when choosing a dedupe keeper', () => {
     const referenced = {
       ...session('referenced'),
