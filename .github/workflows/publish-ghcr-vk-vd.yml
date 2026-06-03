@@ -168,7 +168,8 @@ jobs:
         VK_COMMIT=${{ needs.resolve-vk-ref.outputs.vk_commit }}
         VK_REPO_URL=${{ needs.resolve-vk-ref.outputs.vk_repo_url }}
       cache: true
-      cache-scope: vk-vd-multiarch
+      # Use a signed cache namespace so BuildKit does not import legacy unsigned GHA cache entries.
+      cache-scope: vk-vd-multiarch-signed
       sign: false
       meta-images: ghcr.io/${{ github.repository_owner }}/vk-vd
       meta-tags: |
