@@ -1,7 +1,7 @@
 import '@vitejs/plugin-react/preamble';
 import '../styles';
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { HeroUIProvider } from '@heroui/react';
 import { AppLoadingScreen } from '../components/AppLoadingScreen';
@@ -207,6 +207,9 @@ springboard.registerModule(
       const activeSavedSession = savedVoyages.find(
         (session) => session.id === browserSessionId,
       );
+      const previousActiveSavedSessionIdRef = useRef(activeSavedSession?.id);
+      const activeSavedSessionJustChanged =
+        previousActiveSavedSessionIdRef.current !== activeSavedSession?.id;
       const querySelection = resolveQueryCraftSelection(
         workspace,
         activeSavedSession,
@@ -252,6 +255,7 @@ springboard.registerModule(
 
       useEffect(() => {
         if (!(sessionNav.activeSpaceId && sessionNav.activeTabGroupId)) return;
+        if (activeSavedSessionJustChanged) return;
 
         const now = new Date().toISOString();
         const pendingVoyageName =
@@ -281,6 +285,7 @@ springboard.registerModule(
         activeSavedSession?.createdAt,
         activeSavedSession?.name,
         activeSavedSession?.slug,
+        activeSavedSessionJustChanged,
         actions,
         browserSessionId,
         sessionNav.activeItems,
@@ -313,6 +318,7 @@ springboard.registerModule(
       // Sync URL to match canonical voyage/craft/views query params
       useEffect(() => {
         const currentPath = `${location.pathname}${location.search}`;
+        if (activeSavedSessionJustChanged) return;
         const currentTabGroup = workspace.tabGroups.find(
           (tg) => tg.id === sessionNav.activeTabGroupId,
         );
@@ -357,6 +363,7 @@ springboard.registerModule(
       }, [
         activeSavedSession?.name,
         activeSavedSession?.slug,
+        activeSavedSessionJustChanged,
         browserSessionId,
         location.search,
         location.pathname,
@@ -367,6 +374,10 @@ springboard.registerModule(
         sessionNav.voyageEntries,
         workspace.tabGroups,
       ]);
+
+      useEffect(() => {
+        previousActiveSavedSessionIdRef.current = activeSavedSession?.id;
+      }, [activeSavedSession?.id]);
 
       // Wrap actions that need session parameters
       const wrappedActions = {
@@ -480,7 +491,9 @@ springboard.registerModule(
             setBrowserSessionId(sessionId);
           }
           updateBookmarkedSessionSearch(sessionId);
-          sessionNav.resumeSession(sessionToResume, voyageEntryId);
+          if (voyageEntryId) {
+            sessionNav.resumeSession(sessionToResume, voyageEntryId);
+          }
         },
         startNewSession: (options?: { name?: string; initialSelection?: NewSessionInitialSelection }) => {
           const nextSessionId = createNewBrowserSessionId();
