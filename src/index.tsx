@@ -5,7 +5,7 @@ import {
   createSavedWorkspaceSessionState,
   getSavedWorkspaceSessions,
   isSavedWorkspaceSessionStateMigrated,
-  migrateSavedWorkspaceSessionState,
+  migrateSavedWorkspaceSessionStateWithCleanup,
 } from './lib/savedVoyageState';
 
 import springboard, { ModuleAPI } from 'springboard';
@@ -113,19 +113,29 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
         'workspace-sessions',
         createDefaultSavedSessionState(),
       );
-    if (
-      moduleAPI.deps.core.isMaestro() &&
-      !isSavedWorkspaceSessionStateMigrated(savedSessionsState.getState())
-    ) {
-      savedSessionsState.setState(
-        migrateSavedWorkspaceSessionState(savedSessionsState.getState()),
-      );
-    }
     const originSessionResumeState =
       await moduleAPI.statesAPI.createPersistentState<OriginSessionResumeState>(
         'workspace-origin-session-resume',
         createDefaultOriginSessionResumeState(),
       );
+    if (
+      moduleAPI.deps.core.isMaestro() &&
+      !isSavedWorkspaceSessionStateMigrated(savedSessionsState.getState())
+    ) {
+      const migratedSavedSessions = migrateSavedWorkspaceSessionStateWithCleanup(
+        savedSessionsState.getState(),
+        {
+          workspace: workspaceState.getState(),
+          originResumeState: originSessionResumeState.getState(),
+        },
+      );
+      savedSessionsState.setState(migratedSavedSessions.state);
+      if (migratedSavedSessions.originResumeState) {
+        originSessionResumeState.setState(
+          migratedSavedSessions.originResumeState,
+        );
+      }
+    }
 
     const actions = moduleAPI.createActions({
       addSpace: async (args: { name: string }) => {
