@@ -72,46 +72,16 @@ jobs:
             echo "::notice::VK release assets for $vk_commit are not available yet; using the latest published vk-assets release for this VD branch image."
             releases_json="$workdir/vk-releases.json"
             curl -fsSL "https://api.github.com/repos/mickmister/vibe-kanban/releases?per_page=100" -o "$releases_json"
-            selector_script="$workdir/select-linux-container-vk-assets.py"
-            cat > "$selector_script" <<'PY'
-          import json
-          import sys
-          import urllib.request
-
-          with open(sys.argv[1], encoding="utf-8") as f:
-              releases = [
-                  r
-                  for r in json.load(f)
-                  if r.get("tag_name", "").startswith("vk-assets-")
-              ]
-
-          releases.sort(
-              key=lambda r: r.get("published_at") or r.get("created_at") or "",
-              reverse=True,
-          )
-
-          for release in releases:
-              tag = release["tag_name"]
-              manifest_url = (
-                  "https://github.com/mickmister/vibe-kanban/releases/download/"
-                  f"{tag}/manifest.json"
-              )
-              try:
-                  request = urllib.request.Request(
-                      manifest_url,
-                      headers={"User-Agent": "vibe-dashboard-vk-assets-resolver"},
-                  )
-                  with urllib.request.urlopen(request, timeout=10) as response:
-                      manifest = json.load(response)
-              except Exception as exc:
-                  print(f"Skipping {tag}: {exc}", file=sys.stderr)
-                  continue
-
-              if manifest.get("mode") == "linux-container-runtime":
-                  print(tag)
-                  break
-          PY
-            latest_assets_tag="$(python3 "$selector_script" "$releases_json")"
+            latest_assets_tag=""
+            while read -r candidate_tag; do
+              manifest_url="https://github.com/mickmister/vibe-kanban/releases/download/${candidate_tag}/manifest.json"
+              manifest_mode="$(python3 -c 'import json,sys,urllib.request; request=urllib.request.Request(sys.argv[1], headers={"User-Agent":"vibe-dashboard-vk-assets-resolver"}); print(json.load(urllib.request.urlopen(request, timeout=10)).get("mode", ""))' "$manifest_url" 2>/dev/null || true)"
+              if [[ "$manifest_mode" == "linux-container-runtime" ]]; then
+                latest_assets_tag="$candidate_tag"
+                break
+              fi
+              echo "Skipping $candidate_tag because manifest mode is ${manifest_mode:-unavailable}."
+            done < <(python3 -c 'import json,sys; releases=[r for r in json.load(open(sys.argv[1], encoding="utf-8")) if r.get("tag_name", "").startswith("vk-assets-")]; releases.sort(key=lambda r: r.get("published_at") or r.get("created_at") or "", reverse=True); print("\n".join(r["tag_name"] for r in releases))' "$releases_json")
 
             if [[ -z "$latest_assets_tag" ]]; then
               echo "No published linux-container-runtime vk-assets release found to use as a fallback." >&2
