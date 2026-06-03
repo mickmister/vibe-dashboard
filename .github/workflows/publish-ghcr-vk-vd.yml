@@ -171,3 +171,38 @@ jobs:
         - registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+  notify-coolify:
+    name: Notify Coolify
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Coolify deployment
+        env:
+          COOLIFY_WEBHOOK: ${{ secrets.COOLIFY_WEBHOOK }}
+          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "$COOLIFY_WEBHOOK" ]]; then
+            echo "::error::COOLIFY_WEBHOOK is not configured."
+            exit 1
+          fi
+
+          if [[ -z "$COOLIFY_TOKEN" ]]; then
+            echo "::error::COOLIFY_TOKEN is not configured."
+            exit 1
+          fi
+
+          curl \
+            --fail-with-body \
+            --show-error \
+            --silent \
+            --retry 5 \
+            --retry-delay 5 \
+            --retry-all-errors \
+            --request GET \
+            "$COOLIFY_WEBHOOK" \
+            --header "Authorization: Bearer $COOLIFY_TOKEN"
+
+          echo "Coolify deployment webhook notified."
