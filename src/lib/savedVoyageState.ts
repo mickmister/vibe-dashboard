@@ -3,7 +3,7 @@ import type {
   SavedWorkspaceSessionState,
 } from '../types';
 
-type LegacySavedWorkspaceSessionState = {
+type SavedWorkspaceSessionState_v1 = {
   sessions?: unknown;
 };
 
@@ -19,7 +19,7 @@ export function createSavedWorkspaceSessionState(
 }
 
 export function getSavedWorkspaceSessions(
-  state: SavedWorkspaceSessionState | LegacySavedWorkspaceSessionState | unknown,
+  state: SavedWorkspaceSessionState | SavedWorkspaceSessionState_v1 | unknown,
 ): SavedWorkspaceSession[] {
   if (Array.isArray(state)) {
     return state as SavedWorkspaceSession[];
@@ -40,7 +40,7 @@ export function getSavedWorkspaceSessions(
     state &&
     typeof state === 'object' &&
     'sessions' in state &&
-    Array.isArray((state as LegacySavedWorkspaceSessionState).sessions)
+    Array.isArray((state as SavedWorkspaceSessionState_v1).sessions)
   ) {
     return (state as { sessions: SavedWorkspaceSession[] }).sessions;
   }
@@ -49,13 +49,13 @@ export function getSavedWorkspaceSessions(
 }
 
 export function migrateSavedWorkspaceSessionState(
-  state: SavedWorkspaceSessionState | LegacySavedWorkspaceSessionState | unknown,
+  state: SavedWorkspaceSessionState | SavedWorkspaceSessionState_v1 | unknown,
 ): SavedWorkspaceSessionState {
   return createSavedWorkspaceSessionState(getSavedWorkspaceSessions(state));
 }
 
 export function isSavedWorkspaceSessionStateMigrated(
-  state: SavedWorkspaceSessionState | LegacySavedWorkspaceSessionState | unknown,
+  state: SavedWorkspaceSessionState | SavedWorkspaceSessionState_v1 | unknown,
 ): state is Extract<SavedWorkspaceSessionState, { version: 2 }> {
   return (
     state != null &&
