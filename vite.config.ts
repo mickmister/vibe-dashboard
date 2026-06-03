@@ -47,7 +47,8 @@ export default defineConfig({
     }
   },
   define: {
-    'process.env.DEBUG_LOG_PERFORMANCE': '""'
+    'process.env.DEBUG_LOG_PERFORMANCE': '""',
+    'process.env.CADDY_PORT': JSON.stringify(process.env.CADDY_PORT || '')
   },
   server: {
     port: devPort,

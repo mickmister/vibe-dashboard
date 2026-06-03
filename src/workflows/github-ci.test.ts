@@ -35,6 +35,10 @@ describe('normalizeGitHubCiFailureEvent', () => {
     })).toMatchObject({ kind: 'ignored', reason: 'non_failure_conclusion' });
     expect(normalizeGitHubCiFailureEvent({
       event: 'workflow_run',
+      payload: workflowRunPayload({ conclusion: 'cancelled' }),
+    })).toMatchObject({ kind: 'ignored', reason: 'non_failure_conclusion' });
+    expect(normalizeGitHubCiFailureEvent({
+      event: 'workflow_run',
       payload: workflowRunPayload({ status: 'in_progress', conclusion: null }),
     })).toMatchObject({ kind: 'ignored', reason: 'workflow_not_completed' });
   });

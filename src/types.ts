@@ -78,9 +78,12 @@ export interface SavedWorkspaceSession {
   visitedTabGroupIds: string[];
 }
 
-export interface SavedWorkspaceSessionState {
-  sessions: SavedWorkspaceSession[];
-}
+export type SavedWorkspaceSessionState =
+  | SavedWorkspaceSession[]
+  | {
+      version: 2;
+      data: SavedWorkspaceSession[];
+    };
 
 export interface WorkspaceState {
   spaces: Space[];

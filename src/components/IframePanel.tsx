@@ -7,6 +7,7 @@ import { SpacesOverview } from './SpacesOverview';
 import { hasSameBaseOrigin } from '../lib/originTrust';
 
 const INTERNAL_URL_PREFIX = 'internal://';
+const CADDY_PORT = process.env.CADDY_PORT || '';
 
 const MOBILE_VIEWPORT_INSET_STYLE = {
   bottom: 'var(--mobile-footer-offset)',
@@ -50,6 +51,7 @@ type TabRenderTarget =
 let iframeStore: Map<string, IframeEntry> = new Map();
 let retainedSessionId: string | null = null;
 let retainedTabIds: Set<string> = new Set();
+let keyboardIsolationDocuments: WeakSet<Document> = new WeakSet();
 const MAX_RETAINED_IFRAMES = 5;
 
 // Preserve iframe store across HMR updates using Vite's HMR API.
@@ -66,10 +68,14 @@ try {
     if (hot.data.retainedTabIds) {
       retainedTabIds = hot.data.retainedTabIds;
     }
+    if (hot.data.keyboardIsolationDocuments) {
+      keyboardIsolationDocuments = hot.data.keyboardIsolationDocuments;
+    }
     hot.dispose((data: Record<string, unknown>) => {
       data.iframeStore = iframeStore;
       data.retainedSessionId = retainedSessionId;
       data.retainedTabIds = retainedTabIds;
+      data.keyboardIsolationDocuments = keyboardIsolationDocuments;
     });
   }
 } catch {
@@ -101,12 +107,43 @@ function applyIframePolicy(iframe: HTMLIFrameElement, iframeSrc: string) {
   );
 }
 
+function installIframeKeyboardIsolation(iframe: HTMLIFrameElement) {
+  try {
+    const doc = iframe.contentDocument || iframe.contentWindow?.document;
+    if (!doc) return;
+    if (keyboardIsolationDocuments.has(doc)) return;
+
+    keyboardIsolationDocuments.add(doc);
+
+    doc.addEventListener(
+      'keydown',
+      (event) => {
+        const key = event.key.toLowerCase();
+        if ((event.metaKey || event.ctrlKey) && key === 's') {
+          event.stopPropagation();
+        }
+      },
+      { capture: true },
+    );
+  } catch {
+    // Cross-origin iframes keep their own keyboard handling.
+  }
+}
+
 function getIframeResolutionOrigin(url: string): string {
+  if (hasExplicitOrigin(url)) {
+    return window.location.origin;
+  }
+
+  const { protocol, host, hostname } = window.location;
+  if (CADDY_PORT && isIpAddress(hostname)) {
+    return `${protocol}//${formatHostnameForOrigin(hostname)}:${CADDY_PORT}`;
+  }
+
   if (!url.startsWith('/')) {
     return window.location.origin;
   }
 
-  const { protocol, host } = window.location;
   const portPrefixMatch = host.match(/^port-\d+\.(.+)$/);
 
   if (portPrefixMatch) {
@@ -114,6 +151,44 @@ function getIframeResolutionOrigin(url: string): string {
   }
 
   return window.location.origin;
+}
+
+function hasExplicitOrigin(url: string): boolean {
+  if (url.startsWith('//')) {
+    return true;
+  }
+
+  try {
+    new URL(url);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function isIpAddress(hostname: string): boolean {
+  const normalizedHostname = hostname.replace(/^\[(.*)]$/, '$1');
+
+  if (normalizedHostname === 'localhost') {
+    return false;
+  }
+
+  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(normalizedHostname)) {
+    return normalizedHostname.split('.').every((segment) => {
+      const value = Number(segment);
+      return Number.isInteger(value) && value >= 0 && value <= 255;
+    });
+  }
+
+  return normalizedHostname.includes(':');
+}
+
+function formatHostnameForOrigin(hostname: string): string {
+  if (hostname.includes(':') && !hostname.startsWith('[')) {
+    return `[${hostname}]`;
+  }
+
+  return hostname;
 }
 
 function isSelfAppPath(pathname: string, searchParams: URLSearchParams): boolean {
@@ -192,6 +267,7 @@ function getOrCreateIframe(tab: Tab): IframeEntry {
   iframe.addEventListener('load', () => {
     entry.loaded = true;
     entry.listeners.forEach((fn) => fn());
+    installIframeKeyboardIsolation(iframe);
 
     // Start checking if content is ready (not showing white screen)
     checkContentReady(iframe, entry);

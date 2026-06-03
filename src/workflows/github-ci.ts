@@ -70,7 +70,6 @@ const FAILURE_CONCLUSIONS = new Set([
   'action_required',
   'startup_failure',
   'stale',
-  'cancelled',
 ]);
 
 export function createGitHubCiFailureWorkflow(
