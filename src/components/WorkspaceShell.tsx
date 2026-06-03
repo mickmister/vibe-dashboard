@@ -1705,15 +1705,14 @@ export function WorkspaceShell({
               current voyage.
             </p>
 
-            <button
-              className="mt-4 block w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-700"
-              onClick={handleVoyageSwitcherOpenHome}
-            >
-              <span className="block font-medium">Home</span>
-              <span className="mt-1 block text-xs text-neutral-500">
-                Open the homepage in this voyage
-              </span>
-            </button>
+            <div className="mt-4 flex justify-start">
+              <button
+                className="rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm font-medium text-neutral-200 transition-colors hover:bg-neutral-800"
+                onClick={handleVoyageSwitcherOpenHome}
+              >
+                Open Home in current Voyage
+              </button>
+            </div>
 
             <div className="mt-3 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
               {sortedVoyageSwitcherSessions.length > 0 ? (

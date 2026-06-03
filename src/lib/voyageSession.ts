@@ -4,13 +4,10 @@ import { getVoyageSlug } from './voyageUrl';
 export function resolveRequestedVoyageSessionId({
   savedSessions,
   requestedVoyageKey,
-  requestedLegacySessionId,
 }: {
   savedSessions: SavedWorkspaceSession[];
   requestedVoyageKey?: string;
-  requestedLegacySessionId?: string;
 }): string | undefined {
-  const savedSessionIds = new Set(savedSessions.map((session) => session.id));
   const matchedRequestedVoyage = requestedVoyageKey
     ? savedSessions.find(
         (session) =>
@@ -24,23 +21,18 @@ export function resolveRequestedVoyageSessionId({
 
   return (
     matchedRequestedVoyage?.id ||
-    requestedStableId ||
-    (requestedLegacySessionId && savedSessionIds.has(requestedLegacySessionId)
-      ? requestedLegacySessionId
-      : undefined)
+    requestedStableId
   );
 }
 
 export function resolvePreferredVoyageSessionId({
   savedSessions,
   requestedVoyageKey,
-  requestedLegacySessionId,
   storedBrowserSessionId,
   originDefaultSessionId,
 }: {
   savedSessions: SavedWorkspaceSession[];
   requestedVoyageKey?: string;
-  requestedLegacySessionId?: string;
   storedBrowserSessionId?: string | null;
   originDefaultSessionId?: string;
 }): string | undefined {
@@ -48,7 +40,6 @@ export function resolvePreferredVoyageSessionId({
   const requestedSessionId = resolveRequestedVoyageSessionId({
     savedSessions,
     requestedVoyageKey,
-    requestedLegacySessionId,
   });
 
   return (

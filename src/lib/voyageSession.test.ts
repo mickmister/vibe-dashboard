@@ -29,14 +29,12 @@ describe('resolvePreferredVoyageSessionId', () => {
       resolveRequestedVoyageSessionId({
         savedSessions,
         requestedVoyageKey: 'beta-b',
-        requestedLegacySessionId: undefined,
       }),
     ).toBe('b');
     expect(
       resolveRequestedVoyageSessionId({
         savedSessions,
         requestedVoyageKey: 'missing',
-        requestedLegacySessionId: undefined,
       }),
     ).toBeUndefined();
   });
@@ -52,28 +50,11 @@ describe('resolvePreferredVoyageSessionId', () => {
     ).toBe('b');
   });
 
-  it('accepts legacy session ids only when they already exist', () => {
-    expect(
-      resolvePreferredVoyageSessionId({
-        savedSessions: [session('existing')],
-        requestedLegacySessionId: 'existing',
-      }),
-    ).toBe('existing');
-
-    expect(
-      resolvePreferredVoyageSessionId({
-        savedSessions: [session('existing')],
-        requestedLegacySessionId: 'unknown-from-url',
-      }),
-    ).toBeUndefined();
-  });
-
   it('reuses a stale stored browser session id instead of minting replacements', () => {
     expect(
       resolvePreferredVoyageSessionId({
         savedSessions: [session('existing')],
         requestedVoyageKey: 'missing',
-        requestedLegacySessionId: 'unknown-from-url',
         storedBrowserSessionId: 'stale-local-id',
       }),
     ).toBe('stale-local-id');

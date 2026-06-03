@@ -163,15 +163,15 @@ springboard.registerModule(
       const location = useLocation();
       const navigate = useNavigate();
       const sessionSearchParams = new URLSearchParams(location.search);
+      const initialBrowserSessionRef = useRef<{
+        initialized: boolean;
+        sessionId: string;
+      }>({ initialized: false, sessionId: 'server-session' });
       const requestedVoyageKey = (() => {
         if (typeof window === 'undefined') return undefined;
-        const value =
-          sessionSearchParams.get('voyage')?.trim() ||
-          sessionSearchParams.get('session')?.trim();
+        const value = sessionSearchParams.get('voyage')?.trim();
         return value || undefined;
       })();
-      const requestedLegacySessionId =
-        sessionSearchParams.get('session')?.trim() || undefined;
       const queryCraftParam = sessionSearchParams.get('craft')?.trim() || undefined;
       const queryViewsParam = sessionSearchParams.get('views')?.trim() || undefined;
       const currentOrigin =
@@ -180,22 +180,28 @@ springboard.registerModule(
         currentOrigin
           ? originSessionResume.lastSessionByOrigin[currentOrigin]
           : undefined;
-      const storedBrowserSessionId =
-        typeof window === 'undefined'
-          ? null
-          : getStoredBrowserSessionId();
       const requestedSessionId = resolveRequestedVoyageSessionId({
         savedSessions: savedVoyages,
         requestedVoyageKey,
-        requestedLegacySessionId,
       });
-      const preferredSessionId =
-        requestedSessionId ||
-        resolvePreferredVoyageSessionId({
+      if (!initialBrowserSessionRef.current.initialized) {
+        const storedBrowserSessionId =
+          typeof window === 'undefined'
+            ? null
+            : getStoredBrowserSessionId();
+        const preferredSessionId = resolvePreferredVoyageSessionId({
           savedSessions: savedVoyages,
           storedBrowserSessionId,
           originDefaultSessionId,
         });
+        initialBrowserSessionRef.current = {
+          initialized: true,
+          sessionId:
+            typeof window === 'undefined'
+              ? 'server-session'
+              : getOrCreateBrowserSessionId(preferredSessionId),
+        };
+      }
       const browserSessionId =
         typeof window === 'undefined'
           ? 'server-session'
@@ -203,7 +209,7 @@ springboard.registerModule(
             ? requestedSessionId
               ? getOrCreateBrowserSessionId(requestedSessionId)
               : requestedVoyageKey
-            : getOrCreateBrowserSessionId(preferredSessionId);
+            : initialBrowserSessionRef.current.sessionId;
       const activeSavedSession = savedVoyages.find(
         (session) => session.id === browserSessionId,
       );
