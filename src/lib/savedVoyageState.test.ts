@@ -6,9 +6,9 @@ import {
   migrateSavedWorkspaceSessionState,
   migrateSavedWorkspaceSessionStateWithCleanup,
 } from './savedVoyageState';
-import type { SavedWorkspaceSession } from '../types';
+import type { SavedWorkspaceSession, SavedWorkspaceSessionV1 } from '../types';
 
-function session(id: string): SavedWorkspaceSession {
+function legacySession(id: string): SavedWorkspaceSessionV1 {
   return {
     id,
     createdAt: '2026-06-02T00:00:00.000Z',
@@ -20,22 +20,39 @@ function session(id: string): SavedWorkspaceSession {
   };
 }
 
+function session(id: string): SavedWorkspaceSession {
+  const entry = { id: 've_tg_1', tabGroupId: 'tg_1', viewIds: ['tab_1'] };
+  return {
+    id,
+    slug: `saved-voyage-${id}`,
+    name: '',
+    createdAt: '2026-06-02T00:00:00.000Z',
+    updatedAt: '2026-06-02T00:00:00.000Z',
+    activeVoyageEntryId: entry.id,
+    voyageEntries: [entry],
+    activeSpaceId: 'space_home',
+    activeTabGroupId: 'tg_1',
+    activeItemsByVoyageEntryId: { [entry.id]: 'tab_1' },
+    visitedTabGroupIds: ['tg_1'],
+  };
+}
+
 describe('savedVoyageState migration', () => {
   it('migrates legacy array state to versioned data', () => {
-    const legacy = [session('a')];
+    const legacy = [legacySession('a')];
 
     expect(migrateSavedWorkspaceSessionState(legacy)).toEqual({
       version: 3,
-      data: legacy,
+      data: [session('a')],
     });
   });
 
   it('migrates legacy sessions-object state to versioned data', () => {
     const legacy = {
       sessions: [
-        session('a'),
+        legacySession('a'),
         {
-          ...session('b'),
+          ...legacySession('b'),
           activeTabGroupId: 'tg_2',
           activeItems: { tg_2: 'tab_2' },
           visitedTabGroupIds: ['tg_2'],
@@ -45,7 +62,14 @@ describe('savedVoyageState migration', () => {
 
     expect(migrateSavedWorkspaceSessionState(legacy)).toEqual({
       version: 3,
-      data: legacy.sessions,
+      data: [session('a'), {
+        ...session('b'),
+        activeTabGroupId: 'tg_2',
+        activeVoyageEntryId: 've_tg_2',
+        voyageEntries: [{ id: 've_tg_2', tabGroupId: 'tg_2', viewIds: ['tab_2'] }],
+        activeItemsByVoyageEntryId: { ve_tg_2: 'tab_2' },
+        visitedTabGroupIds: ['tg_2'],
+      }],
     });
   });
 
@@ -61,6 +85,10 @@ describe('savedVoyageState migration', () => {
     const implicitHome = {
       ...session('home_label'),
       activeTabGroupId: 'tg_home',
+      activeVoyageEntryId: 've_tg_home',
+      voyageEntries: [{ id: 've_tg_home', tabGroupId: 'tg_home', viewIds: [] }],
+      activeItemsByVoyageEntryId: { ve_tg_home: '' },
+      visitedTabGroupIds: ['tg_home'],
     };
     const realVoyage = { ...session('real'), name: 'Real voyage' };
 

@@ -3,12 +3,19 @@ import type {
   SavedWorkspaceSessionState,
   SavedWorkspaceSessionV1,
   SavedWorkspaceSessionV2,
+  VoyageEntry,
   WorkspaceState,
 } from '../types';
+import { buildVoyageSlug } from './voyageUrl';
 
 type SavedWorkspaceSessionState_v1 = {
   sessions?: unknown;
 };
+
+type LegacySavedWorkspaceSession =
+  | SavedWorkspaceSessionV1
+  | SavedWorkspaceSessionV2
+  | SavedWorkspaceSession;
 
 export const SAVED_WORKSPACE_SESSION_STATE_VERSION = 3;
 
@@ -25,7 +32,7 @@ export function getSavedWorkspaceSessions(
   state: SavedWorkspaceSessionState | SavedWorkspaceSessionState_v1 | unknown,
 ): SavedWorkspaceSession[] {
   if (Array.isArray(state)) {
-    return state as SavedWorkspaceSessionV1[] as SavedWorkspaceSession[];
+    return state.map(normalizeSavedWorkspaceSession);
   }
 
   if (
@@ -36,7 +43,7 @@ export function getSavedWorkspaceSessions(
     'data' in state &&
     Array.isArray(state.data)
   ) {
-    return state.data as Array<SavedWorkspaceSessionV2 | SavedWorkspaceSession> as SavedWorkspaceSession[];
+    return state.data.map(normalizeSavedWorkspaceSession);
   }
 
   if (
@@ -45,7 +52,9 @@ export function getSavedWorkspaceSessions(
     'sessions' in state &&
     Array.isArray((state as SavedWorkspaceSessionState_v1).sessions)
   ) {
-    return (state as { sessions: SavedWorkspaceSessionV1[] }).sessions as SavedWorkspaceSession[];
+    return (state as { sessions: LegacySavedWorkspaceSession[] }).sessions.map(
+      normalizeSavedWorkspaceSession,
+    );
   }
 
   return [];
@@ -146,6 +155,102 @@ function canonicalObjectEntries(value: Record<string, unknown> | undefined) {
   );
 }
 
+function createVoyageEntryIdForTabGroup(tabGroupId: string, index = 0): string {
+  return `ve_${tabGroupId}${index > 0 ? `_${index}` : ''}`;
+}
+
+function getLegacyActiveItems(
+  session: LegacySavedWorkspaceSession,
+): Record<string, string> {
+  if ('activeItems' in session && session.activeItems) {
+    return session.activeItems;
+  }
+
+  const activeItemsByVoyageEntryId =
+    'activeItemsByVoyageEntryId' in session
+      ? session.activeItemsByVoyageEntryId || {}
+      : {};
+  const voyageEntries =
+    'voyageEntries' in session ? session.voyageEntries || [] : [];
+  return Object.fromEntries(
+    voyageEntries
+      .map((entry) => [
+        entry.tabGroupId,
+        activeItemsByVoyageEntryId[entry.id] || entry.viewIds[0] || '',
+      ])
+      .filter(([, activeItemId]) => Boolean(activeItemId)),
+  );
+}
+
+function normalizeSavedWorkspaceSession(
+  session: LegacySavedWorkspaceSession,
+): SavedWorkspaceSession {
+  const activeItems = getLegacyActiveItems(session);
+  const legacyEntries =
+    'voyageEntries' in session ? session.voyageEntries || [] : [];
+  const voyageEntries: VoyageEntry[] = legacyEntries.length
+    ? legacyEntries.map((entry) => ({
+        id: entry.id,
+        tabGroupId: entry.tabGroupId,
+        viewIds: [...(entry.viewIds || [])],
+      }))
+    : (session.visitedTabGroupIds?.length
+        ? session.visitedTabGroupIds
+        : session.activeTabGroupId
+          ? [session.activeTabGroupId]
+          : []
+      ).map((tabGroupId, index) => ({
+        id: createVoyageEntryIdForTabGroup(tabGroupId, index),
+        tabGroupId,
+        viewIds: activeItems[tabGroupId] ? [activeItems[tabGroupId]] : [],
+      }));
+  const activeVoyageEntryId =
+    ('activeVoyageEntryId' in session &&
+      voyageEntries.some((entry) => entry.id === session.activeVoyageEntryId) &&
+      session.activeVoyageEntryId) ||
+    voyageEntries.find((entry) => entry.tabGroupId === session.activeTabGroupId)
+      ?.id ||
+    voyageEntries[0]?.id ||
+    '';
+  const legacyActiveItemsByVoyageEntryId =
+    'activeItemsByVoyageEntryId' in session
+      ? session.activeItemsByVoyageEntryId || {}
+      : {};
+  const activeItemsByVoyageEntryId = Object.fromEntries(
+    voyageEntries.map((entry) => [
+      entry.id,
+      legacyActiveItemsByVoyageEntryId[entry.id] ||
+        activeItems[entry.tabGroupId] ||
+        entry.viewIds[0] ||
+        '',
+    ]),
+  );
+  const visitedTabGroupIds = Array.from(
+    new Set([
+      ...(session.visitedTabGroupIds || []),
+      ...voyageEntries.map((entry) => entry.tabGroupId),
+    ]),
+  );
+  const name = (session.name || '').trim();
+  const slug = session.slug || buildVoyageSlug(name || 'saved-voyage', session.id);
+
+  return {
+    id: session.id,
+    slug,
+    name,
+    createdAt: session.createdAt,
+    updatedAt: session.updatedAt,
+    activeVoyageEntryId,
+    voyageEntries,
+    activeSpaceId: session.activeSpaceId,
+    activeTabGroupId:
+      voyageEntries.find((entry) => entry.id === activeVoyageEntryId)?.tabGroupId ||
+      session.activeTabGroupId,
+    activeItemsByVoyageEntryId,
+    visitedTabGroupIds,
+  };
+}
+
 function getVoyageDisplayName(
   session: SavedWorkspaceSession,
   tabGroupLabelsById: Map<string, string>,
@@ -177,7 +282,6 @@ function sessionSignature(session: SavedWorkspaceSession): string {
     activeItemsByVoyageEntryId: canonicalObjectEntries(
       session.activeItemsByVoyageEntryId,
     ),
-    activeItems: canonicalObjectEntries(session.activeItems),
     visitedTabGroupIds: session.visitedTabGroupIds || [],
   });
 }

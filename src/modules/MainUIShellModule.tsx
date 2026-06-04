@@ -278,7 +278,6 @@ springboard.registerModule(
           activeSpaceId: sessionNav.activeSpaceId,
           activeTabGroupId: sessionNav.activeTabGroupId,
           activeItemsByVoyageEntryId: sessionNav.activeItemsByVoyageEntryId,
-          activeItems: sessionNav.activeItems,
           visitedTabGroupIds: sessionNav.visitedTabGroupIds,
         });
       }, [
@@ -288,7 +287,6 @@ springboard.registerModule(
         activeSavedSessionJustChanged,
         actions,
         browserSessionId,
-        sessionNav.activeItems,
         sessionNav.activeSpaceId,
         sessionNav.activeTabGroupId,
         sessionNav.activeVoyageEntryId,

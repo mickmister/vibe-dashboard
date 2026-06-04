@@ -197,6 +197,20 @@ function getActiveItemIdForViewIds(
   return tabGroup.tabs[0]?.id || tabGroup.pairs[0]?.id || "";
 }
 
+function projectActiveItemsFromVoyageEntries(
+  workspace: WorkspaceState,
+  voyageEntries: VoyageEntry[] | undefined,
+  activeItemsByVoyageEntryId: Record<string, string> | undefined,
+): Record<string, string> {
+  const activeItems: Record<string, string> = {};
+  for (const entry of voyageEntries || []) {
+    activeItems[entry.tabGroupId] =
+      activeItemsByVoyageEntryId?.[entry.id] ||
+      getActiveItemIdForViewIds(workspace, entry.tabGroupId, entry.viewIds);
+  }
+  return activeItems;
+}
+
 function createVoyageEntryId(tabGroupId: string, index = 0): string {
   return `ve_${tabGroupId}${index > 0 ? `_${index}` : ''}`;
 }
@@ -488,10 +502,15 @@ function loadSessionNav(
     }
 
     if (activeSpaceId && activeTabGroupId) {
+      const savedActiveItems = projectActiveItemsFromVoyageEntries(
+        workspace,
+        savedSession?.voyageEntries,
+        savedSession?.activeItemsByVoyageEntryId,
+      );
       const mergedActiveItems = {
         ...activeItems,
         ...(parsed?.activeItems || {}),
-        ...(savedSession?.activeItems || {}),
+        ...savedActiveItems,
       };
       const mergedEntryActiveItems = {
         ...(parsed?.activeItemsByVoyageEntryId || {}),

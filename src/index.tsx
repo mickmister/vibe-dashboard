@@ -200,9 +200,6 @@ function createSavedSessionFromSelection({
     activeItemsByVoyageEntryId: {
       [voyageEntry.id]: activeItemId,
     },
-    activeItems: {
-      [tabGroup.id]: activeItemId,
-    },
     visitedTabGroupIds: [tabGroup.id],
   };
 }
@@ -245,17 +242,14 @@ function addCreateWorkspaceCraftToWorkspace(
 function cloneSavedSession(session: SavedWorkspaceSession): SavedWorkspaceSession {
   return {
     ...session,
-    activeItems: { ...(session.activeItems || {}) },
     activeItemsByVoyageEntryId: {
-      ...(session.activeItemsByVoyageEntryId || {}),
+      ...session.activeItemsByVoyageEntryId,
     },
-    voyageEntries: session.voyageEntries
-      ? session.voyageEntries.map((entry) => ({
-          ...entry,
-          viewIds: [...entry.viewIds],
-        }))
-      : undefined,
-    visitedTabGroupIds: [...(session.visitedTabGroupIds || [])],
+    voyageEntries: session.voyageEntries.map((entry) => ({
+      ...entry,
+      viewIds: [...entry.viewIds],
+    })),
+    visitedTabGroupIds: [...session.visitedTabGroupIds],
   };
 }
 
@@ -298,7 +292,6 @@ function repairSavedSessionForWorkspace(
     workspace.spaces.find((space) => space.tabGroupIds.includes(activeEntry.tabGroupId))?.id ||
     session.activeSpaceId;
   const activeItemsByVoyageEntryId: Record<string, string> = {};
-  const activeItems: Record<string, string> = {};
 
   voyageEntries.forEach((entry) => {
     const activeItemId = getActiveItemIdForViewIds(
@@ -307,7 +300,6 @@ function repairSavedSessionForWorkspace(
       entry.viewIds,
     );
     activeItemsByVoyageEntryId[entry.id] = activeItemId;
-    activeItems[entry.tabGroupId] = activeItemId;
   });
 
   return {
@@ -317,7 +309,6 @@ function repairSavedSessionForWorkspace(
     activeSpaceId,
     activeTabGroupId: activeEntry.tabGroupId,
     activeItemsByVoyageEntryId,
-    activeItems,
     visitedTabGroupIds: Array.from(new Set(voyageEntries.map((entry) => entry.tabGroupId))),
   };
 }
@@ -1076,21 +1067,11 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
         let updatedSession: SavedWorkspaceSession | undefined;
 
         savedSessionsState.setState((current) => {
-          const sessions = getSavedWorkspaceSessions(current).map((session) => ({
-            ...session,
-            activeItems: { ...(session.activeItems || {}) },
-            activeItemsByVoyageEntryId: {
-              ...(session.activeItemsByVoyageEntryId || {}),
-            },
-            voyageEntries: session.voyageEntries
-              ? session.voyageEntries.map((entry) => ({ ...entry, viewIds: [...entry.viewIds] }))
-              : undefined,
-            visitedTabGroupIds: [...(session.visitedTabGroupIds || [])],
-          }));
+          const sessions = getSavedWorkspaceSessions(current).map(cloneSavedSession);
           const target = sessions.find((session) => session.id === args.sessionId);
           if (!target) return createSavedWorkspaceSessionState(sessions);
 
-          const existingEntries = target.voyageEntries || [];
+          const existingEntries = target.voyageEntries;
           const existingEntry = existingEntries.find(
             (entry) => entry.tabGroupId === tabGroup.id,
           );
@@ -1111,15 +1092,11 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
           target.activeSpaceId = space.id;
           target.activeTabGroupId = tabGroup.id;
           target.activeItemsByVoyageEntryId = {
-            ...(target.activeItemsByVoyageEntryId || {}),
+            ...target.activeItemsByVoyageEntryId,
             [activeEntry.id]: activeItemId,
           };
-          target.activeItems = {
-            ...(target.activeItems || {}),
-            [tabGroup.id]: activeItemId,
-          };
           target.visitedTabGroupIds = Array.from(
-            new Set([...(target.visitedTabGroupIds || []), tabGroup.id]),
+            new Set([...target.visitedTabGroupIds, tabGroup.id]),
           );
           target.updatedAt = now;
           updatedSession = target;
@@ -1155,12 +1132,8 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
           target.activeTabGroupId = entry.tabGroupId;
           target.activeSpaceId = activeSpaceId;
           target.activeItemsByVoyageEntryId = {
-            ...(target.activeItemsByVoyageEntryId || {}),
+            ...target.activeItemsByVoyageEntryId,
             [entry.id]: activeItemId,
-          };
-          target.activeItems = {
-            ...(target.activeItems || {}),
-            [entry.tabGroupId]: activeItemId,
           };
           target.updatedAt = new Date().toISOString();
           updatedSession = target;
@@ -1266,7 +1239,6 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
             existing.activeSpaceId = args.activeSpaceId;
             existing.activeTabGroupId = args.activeTabGroupId;
             existing.activeItemsByVoyageEntryId = args.activeItemsByVoyageEntryId;
-            existing.activeItems = args.activeItems;
             existing.visitedTabGroupIds = args.visitedTabGroupIds;
             return createSavedWorkspaceSessionState(sessions);
           }
@@ -1321,23 +1293,13 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
         let updatedSession: SavedWorkspaceSession | undefined;
 
         savedSessionsState.setState((current) => {
-          const sessions = getSavedWorkspaceSessions(current).map((session) => ({
-            ...session,
-            activeItems: { ...(session.activeItems || {}) },
-            activeItemsByVoyageEntryId: {
-              ...(session.activeItemsByVoyageEntryId || {}),
-            },
-            voyageEntries: session.voyageEntries
-              ? session.voyageEntries.map((entry) => ({ ...entry, viewIds: [...entry.viewIds] }))
-              : undefined,
-            visitedTabGroupIds: [...(session.visitedTabGroupIds || [])],
-          }));
+          const sessions = getSavedWorkspaceSessions(current).map(cloneSavedSession);
           const target = sessions.find(
             (session) => session.id === args.targetSessionId,
           );
           if (!target) return createSavedWorkspaceSessionState(sessions);
 
-          const existingEntries = target.voyageEntries || [];
+          const existingEntries = target.voyageEntries;
           const existingIds = new Set(existingEntries.map((entry) => entry.id));
           let nextEntryId = args.voyageEntry.id;
           let suffix = 1;
@@ -1356,15 +1318,11 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
           target.activeSpaceId = targetSpaceId || target.activeSpaceId;
           target.updatedAt = now;
           target.visitedTabGroupIds = Array.from(
-            new Set([...(target.visitedTabGroupIds || []), nextEntry.tabGroupId]),
+            new Set([...target.visitedTabGroupIds, nextEntry.tabGroupId]),
           );
           target.activeItemsByVoyageEntryId = {
-            ...(target.activeItemsByVoyageEntryId || {}),
+            ...target.activeItemsByVoyageEntryId,
             ...(args.activeItemId ? { [nextEntry.id]: args.activeItemId } : {}),
-          };
-          target.activeItems = {
-            ...(target.activeItems || {}),
-            ...(args.activeItemId ? { [nextEntry.tabGroupId]: args.activeItemId } : {}),
           };
           updatedSession = target;
           return createSavedWorkspaceSessionState(sessions);

@@ -9,14 +9,18 @@ function session(
   id: string,
   slug = `voyage-${id}`,
 ): SavedWorkspaceSession {
+  const entry = { id: 've_tg_1', tabGroupId: 'tg_1', viewIds: ['tab_1'] };
   return {
     id,
     slug,
+    name: '',
     createdAt: '2026-05-27T00:00:00.000Z',
     updatedAt: '2026-05-27T00:00:00.000Z',
+    activeVoyageEntryId: entry.id,
+    voyageEntries: [entry],
     activeSpaceId: 'space_home',
     activeTabGroupId: 'tg_1',
-    activeItems: { tg_1: 'tab_1' },
+    activeItemsByVoyageEntryId: { [entry.id]: 'tab_1' },
     visitedTabGroupIds: ['tg_1'],
   };
 }

@@ -81,7 +81,20 @@ export interface SavedWorkspaceSessionV2 extends SavedWorkspaceSessionV1 {
   activeItemsByVoyageEntryId?: Record<string, string>;
 }
 
-export interface SavedWorkspaceSession extends SavedWorkspaceSessionV2 {}
+export interface SavedWorkspaceSession {
+  id: string;
+  slug: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+  activeVoyageEntryId: string;
+  voyageEntries: VoyageEntry[];
+  activeSpaceId: string;
+  activeTabGroupId: string;
+  /** Active item keyed by VoyageEntry ID. Keeps duplicate craft entries independent. */
+  activeItemsByVoyageEntryId: Record<string, string>;
+  visitedTabGroupIds: string[];
+}
 
 export type SavedWorkspaceSessionState =
   | SavedWorkspaceSessionV1[]
