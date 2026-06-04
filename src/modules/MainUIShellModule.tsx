@@ -43,6 +43,13 @@ import type {
 } from '../types';
 import { useModule } from '../hooks/useModule';
 
+declare global {
+  interface Window {
+    __pendingVoyageNames?: Record<string, string>;
+    __pendingVoyageSlugSessionIds?: Record<string, string>;
+  }
+}
+
 const URL_PARSE_BASE = 'https://workspace.local';
 const MOBILE_TAB_EMOJIS = [
   '🚀',
@@ -190,7 +197,7 @@ springboard.registerModule(
           ? undefined
           : resolvePendingVoyageSessionId({
               requestedVoyageKey,
-              pendingVoyageSlugSessionIds: (window as any).__pendingVoyageSlugSessionIds,
+              pendingVoyageSlugSessionIds: window.__pendingVoyageSlugSessionIds,
             });
       if (!initialBrowserSessionRef.current.initialized) {
         const storedBrowserSessionId =
@@ -275,9 +282,7 @@ springboard.registerModule(
         const pendingVoyageName =
           typeof window === 'undefined'
             ? undefined
-            : ((window as any).__pendingVoyageNames?.[browserSessionId] as
-                | string
-                | undefined);
+            : window.__pendingVoyageNames?.[browserSessionId];
         const voyageName = activeSavedSession?.name?.trim() || pendingVoyageName?.trim();
         if (!voyageName || isHomeVoyageDisplayName(voyageName)) return;
 
@@ -342,9 +347,7 @@ springboard.registerModule(
         const pendingVoyageName =
           typeof window === 'undefined'
             ? undefined
-            : ((window as any).__pendingVoyageNames?.[browserSessionId] as
-                | string
-                | undefined);
+            : window.__pendingVoyageNames?.[browserSessionId];
         const voyageName = activeSavedSession?.name?.trim() || pendingVoyageName?.trim();
         if (!voyageName || isHomeVoyageDisplayName(voyageName)) {
           if (requestedVoyageKey && !activeSavedSession) return;
@@ -516,13 +519,13 @@ springboard.registerModule(
               ? buildVoyageSlug(options.name, nextSessionId)
               : undefined;
             setBrowserSessionId(nextSessionId);
-            (window as any).__pendingVoyageNames = {
-              ...((window as any).__pendingVoyageNames || {}),
+            window.__pendingVoyageNames = {
+              ...(window.__pendingVoyageNames || {}),
               [nextSessionId]: options?.name || '',
             };
             if (pendingVoyageSlug) {
-              (window as any).__pendingVoyageSlugSessionIds = {
-                ...((window as any).__pendingVoyageSlugSessionIds || {}),
+              window.__pendingVoyageSlugSessionIds = {
+                ...(window.__pendingVoyageSlugSessionIds || {}),
                 [pendingVoyageSlug]: nextSessionId,
               };
             }
