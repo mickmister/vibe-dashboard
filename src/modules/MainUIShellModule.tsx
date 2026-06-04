@@ -481,14 +481,92 @@ springboard.registerModule(
       };
 
       const sessionActions = {
-        selectSpace: sessionNav.selectSpace,
-        selectSessionTabGroup: sessionNav.selectSessionTabGroup,
-        selectSessionTab: sessionNav.selectSessionTab,
-        selectSessionPair: sessionNav.selectSessionPair,
-        selectVoyageEntry: sessionNav.selectVoyageEntry,
-        selectTab: sessionNav.selectTab,
-        selectPair: sessionNav.selectPair,
-        setActiveTabGroup: sessionNav.setActiveTabGroup,
+        selectSpace: (spaceId: string) => {
+          if (activeSavedSession) {
+            const firstTabGroupId = workspace.spaces.find(
+              (space) => space.id === spaceId,
+            )?.tabGroupIds[0];
+            if (firstTabGroupId) {
+              void actions.addSelectionToSavedSession({
+                sessionId: activeSavedSession.id,
+                spaceId,
+                tabGroupId: firstTabGroupId,
+              });
+            }
+          }
+          sessionNav.selectSpace(spaceId);
+        },
+        selectSessionTabGroup: (spaceId: string, tabGroupId: string) => {
+          if (activeSavedSession) {
+            void actions.addSelectionToSavedSession({
+              sessionId: activeSavedSession.id,
+              spaceId,
+              tabGroupId,
+            });
+          }
+          sessionNav.selectSessionTabGroup(spaceId, tabGroupId);
+        },
+        selectSessionTab: (spaceId: string, tabGroupId: string, tabId: string) => {
+          if (activeSavedSession) {
+            void actions.addSelectionToSavedSession({
+              sessionId: activeSavedSession.id,
+              spaceId,
+              tabGroupId,
+              tabId,
+            });
+          }
+          sessionNav.selectSessionTab(spaceId, tabGroupId, tabId);
+        },
+        selectSessionPair: (spaceId: string, tabGroupId: string, pairId: string) => {
+          if (activeSavedSession) {
+            const pair = workspace.tabGroups
+              .find((tabGroup) => tabGroup.id === tabGroupId)
+              ?.pairs.find((candidate) => candidate.id === pairId);
+            if (pair) {
+              void actions.addSelectionToSavedSession({
+                sessionId: activeSavedSession.id,
+                spaceId,
+                tabGroupId,
+                viewIds: pair.tabIds,
+              });
+            }
+          }
+          sessionNav.selectSessionPair(spaceId, tabGroupId, pairId);
+        },
+        selectVoyageEntry: (voyageEntryId: string) => {
+          if (activeSavedSession) {
+            void actions.activateSavedVoyageEntry({
+              sessionId: activeSavedSession.id,
+              voyageEntryId,
+            });
+          }
+          sessionNav.selectVoyageEntry(voyageEntryId);
+        },
+        selectTab: (tabGroupId: string, tabId: string) => {
+          const spaceId =
+            workspace.spaces.find((space) => space.tabGroupIds.includes(tabGroupId))?.id ||
+            sessionNav.activeSpaceId;
+          sessionActions.selectSessionTab(spaceId, tabGroupId, tabId);
+        },
+        selectPair: (tabGroupId: string, pairId: string) => {
+          const spaceId =
+            workspace.spaces.find((space) => space.tabGroupIds.includes(tabGroupId))?.id ||
+            sessionNav.activeSpaceId;
+          sessionActions.selectSessionPair(spaceId, tabGroupId, pairId);
+        },
+        setActiveTabGroup: (tabGroupId: string) => {
+          if (activeSavedSession) {
+            const spaceId =
+              workspace.spaces.find((space) => space.tabGroupIds.includes(tabGroupId))?.id ||
+              sessionNav.activeSpaceId;
+            void actions.addSelectionToSavedSession({
+              sessionId: activeSavedSession.id,
+              spaceId,
+              tabGroupId,
+            });
+          }
+          sessionNav.setActiveTabGroup(tabGroupId);
+        },
         getActiveItem: sessionNav.getActiveItem,
         resumeSession: (sessionId: string, voyageEntryId?: string) => {
           const sessionToResume = savedVoyages.find(
@@ -536,15 +614,53 @@ springboard.registerModule(
           sessionNav.addTabGroupToSession(tabGroupId, options);
         },
         removeVoyageEntryFromSession: (voyageEntryId: string) => {
+          if (activeSavedSession) {
+            void actions.removeVoyageEntryFromSavedSession({
+              sessionId: activeSavedSession.id,
+              voyageEntryId,
+            });
+          }
           sessionNav.removeVoyageEntryFromSession(voyageEntryId);
         },
         removeTabGroupFromSession: (tabGroupId: string) => {
+          if (activeSavedSession) {
+            activeSavedSession.voyageEntries
+              ?.filter((entry) => entry.tabGroupId === tabGroupId)
+              .forEach((entry) => {
+                void actions.removeVoyageEntryFromSavedSession({
+                  sessionId: activeSavedSession.id,
+                  voyageEntryId: entry.id,
+                });
+              });
+          }
           sessionNav.removeTabGroupFromSession(tabGroupId);
         },
         reorderVoyageEntries: (sourceEntryId: string, targetEntryId: string) => {
+          if (activeSavedSession) {
+            void actions.reorderSavedVoyageEntries({
+              sessionId: activeSavedSession.id,
+              sourceEntryId,
+              targetEntryId,
+            });
+          }
           sessionNav.reorderVoyageEntries(sourceEntryId, targetEntryId);
         },
         reorderSessionTabGroups: (sourceId: string, targetId: string) => {
+          if (activeSavedSession) {
+            const sourceEntry = sessionNav.voyageEntries.find(
+              (entry) => entry.tabGroupId === sourceId,
+            );
+            const targetEntry = sessionNav.voyageEntries.find(
+              (entry) => entry.tabGroupId === targetId,
+            );
+            if (sourceEntry && targetEntry) {
+              void actions.reorderSavedVoyageEntries({
+                sessionId: activeSavedSession.id,
+                sourceEntryId: sourceEntry.id,
+                targetEntryId: targetEntry.id,
+              });
+            }
+          }
           sessionNav.reorderSessionTabGroups(sourceId, targetId);
         },
       };

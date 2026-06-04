@@ -1045,6 +1045,7 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
         spaceId: string;
         tabGroupId: string;
         tabId?: string;
+        viewIds?: string[];
       }) => {
         const workspace = workspaceState.getState();
         const space = workspace.spaces.find(
@@ -1053,11 +1054,17 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
         const tabGroup = workspace.tabGroups.find((entry) => entry.id === args.tabGroupId);
         if (!(space && tabGroup)) return undefined;
 
-        const selectedViewIds = getSelectedViewIdsForTabGroup(
-          workspace,
-          tabGroup.id,
-          args.tabId,
-        );
+        const selectedViewIds = args.viewIds?.length
+          ? normalizeVoyageEntryForWorkspace(workspace, {
+              id: createVoyageEntryIdForTabGroup(tabGroup.id),
+              tabGroupId: tabGroup.id,
+              viewIds: args.viewIds,
+            })?.viewIds || []
+          : getSelectedViewIdsForTabGroup(
+              workspace,
+              tabGroup.id,
+              args.tabId,
+            );
         if (!selectedViewIds.length) return undefined;
 
         const now = new Date().toISOString();
@@ -1119,6 +1126,121 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
           return createSavedWorkspaceSessionState(sessions);
         });
 
+        return updatedSession;
+      },
+
+      activateSavedVoyageEntry: async (args: {
+        sessionId: string;
+        voyageEntryId: string;
+      }) => {
+        let updatedSession: SavedWorkspaceSession | undefined;
+        savedSessionsState.setState((current) => {
+          const sessions = getSavedWorkspaceSessions(current).map(cloneSavedSession);
+          const target = sessions.find((session) => session.id === args.sessionId);
+          const entry = target?.voyageEntries?.find(
+            (candidate) => candidate.id === args.voyageEntryId,
+          );
+          if (!(target && entry)) return createSavedWorkspaceSessionState(sessions);
+
+          const workspace = workspaceState.getState();
+          const activeSpaceId =
+            workspace.spaces.find((space) => space.tabGroupIds.includes(entry.tabGroupId))?.id ||
+            target.activeSpaceId;
+          const activeItemId = getActiveItemIdForViewIds(
+            workspace,
+            entry.tabGroupId,
+            entry.viewIds,
+          );
+          target.activeVoyageEntryId = entry.id;
+          target.activeTabGroupId = entry.tabGroupId;
+          target.activeSpaceId = activeSpaceId;
+          target.activeItemsByVoyageEntryId = {
+            ...(target.activeItemsByVoyageEntryId || {}),
+            [entry.id]: activeItemId,
+          };
+          target.activeItems = {
+            ...(target.activeItems || {}),
+            [entry.tabGroupId]: activeItemId,
+          };
+          target.updatedAt = new Date().toISOString();
+          updatedSession = target;
+          return createSavedWorkspaceSessionState(sessions);
+        });
+        return updatedSession;
+      },
+
+      removeVoyageEntryFromSavedSession: async (args: {
+        sessionId: string;
+        voyageEntryId: string;
+      }) => {
+        let updatedSession: SavedWorkspaceSession | undefined;
+        savedSessionsState.setState((current) => {
+          const sessions = getSavedWorkspaceSessions(current).map(cloneSavedSession);
+          const target = sessions.find((session) => session.id === args.sessionId);
+          if (!(target?.voyageEntries?.length)) {
+            return createSavedWorkspaceSessionState(sessions);
+          }
+
+          const nextEntries = target.voyageEntries.filter(
+            (entry) => entry.id !== args.voyageEntryId,
+          );
+          if (nextEntries.length === target.voyageEntries.length || !nextEntries.length) {
+            return createSavedWorkspaceSessionState(sessions);
+          }
+
+          const fallbackEntry =
+            nextEntries.find((entry) => entry.id === target.activeVoyageEntryId) ||
+            nextEntries[0]!;
+          const repaired = repairSavedSessionForWorkspace(
+            {
+              ...target,
+              voyageEntries: nextEntries,
+              activeVoyageEntryId: fallbackEntry.id,
+            },
+            workspaceState.getState(),
+          );
+          if (!repaired) return createSavedWorkspaceSessionState(sessions);
+
+          Object.assign(target, {
+            ...repaired,
+            updatedAt: new Date().toISOString(),
+          });
+          updatedSession = target;
+          return createSavedWorkspaceSessionState(sessions);
+        });
+        return updatedSession;
+      },
+
+      reorderSavedVoyageEntries: async (args: {
+        sessionId: string;
+        sourceEntryId: string;
+        targetEntryId: string;
+      }) => {
+        let updatedSession: SavedWorkspaceSession | undefined;
+        savedSessionsState.setState((current) => {
+          const sessions = getSavedWorkspaceSessions(current).map(cloneSavedSession);
+          const target = sessions.find((session) => session.id === args.sessionId);
+          if (!target?.voyageEntries) return createSavedWorkspaceSessionState(sessions);
+
+          const sourceIndex = target.voyageEntries.findIndex(
+            (entry) => entry.id === args.sourceEntryId,
+          );
+          const targetIndex = target.voyageEntries.findIndex(
+            (entry) => entry.id === args.targetEntryId,
+          );
+          if (sourceIndex === -1 || targetIndex === -1 || sourceIndex === targetIndex) {
+            return createSavedWorkspaceSessionState(sessions);
+          }
+
+          const nextEntries = [...target.voyageEntries];
+          const [moved] = nextEntries.splice(sourceIndex, 1);
+          if (!moved) return createSavedWorkspaceSessionState(sessions);
+          nextEntries.splice(targetIndex, 0, moved);
+          target.voyageEntries = nextEntries;
+          target.updatedAt = new Date().toISOString();
+          updatedSession = target;
+          return createSavedWorkspaceSessionState(sessions);
+        });
         return updatedSession;
       },
 

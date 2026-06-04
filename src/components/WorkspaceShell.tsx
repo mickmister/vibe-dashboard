@@ -92,6 +92,20 @@ export type WorkspaceActions = {
     spaceId: string;
     tabGroupId: string;
     tabId?: string;
+    viewIds?: string[];
+  }) => Promise<SavedWorkspaceSession | undefined>;
+  activateSavedVoyageEntry: (args: {
+    sessionId: string;
+    voyageEntryId: string;
+  }) => Promise<SavedWorkspaceSession | undefined>;
+  removeVoyageEntryFromSavedSession: (args: {
+    sessionId: string;
+    voyageEntryId: string;
+  }) => Promise<SavedWorkspaceSession | undefined>;
+  reorderSavedVoyageEntries: (args: {
+    sessionId: string;
+    sourceEntryId: string;
+    targetEntryId: string;
   }) => Promise<SavedWorkspaceSession | undefined>;
   createPair: (args: { tabGroupId: string; tabIds: string[] }) => void;
   deletePair: (args: { tabGroupId: string; pairId: string }) => void;
