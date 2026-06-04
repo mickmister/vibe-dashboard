@@ -25,6 +25,7 @@ import {
   parseViewsParam,
 } from '../lib/voyageUrl';
 import {
+  resolvePendingVoyageSessionId,
   resolvePreferredVoyageSessionId,
   resolveRequestedVoyageSessionId,
 } from '../lib/voyageSession';
@@ -184,6 +185,13 @@ springboard.registerModule(
         savedSessions: savedVoyages,
         requestedVoyageKey,
       });
+      const pendingRequestedSessionId =
+        typeof window === 'undefined'
+          ? undefined
+          : resolvePendingVoyageSessionId({
+              requestedVoyageKey,
+              pendingVoyageSlugSessionIds: (window as any).__pendingVoyageSlugSessionIds,
+            });
       if (!initialBrowserSessionRef.current.initialized) {
         const storedBrowserSessionId =
           typeof window === 'undefined'
@@ -208,7 +216,7 @@ springboard.registerModule(
           : requestedVoyageKey
             ? requestedSessionId
               ? getOrCreateBrowserSessionId(requestedSessionId)
-              : requestedVoyageKey
+              : pendingRequestedSessionId || requestedVoyageKey
             : initialBrowserSessionRef.current.sessionId;
       const activeSavedSession = savedVoyages.find(
         (session) => session.id === browserSessionId,
@@ -261,7 +269,7 @@ springboard.registerModule(
 
       useEffect(() => {
         if (!(sessionNav.activeSpaceId && sessionNav.activeTabGroupId)) return;
-        if (activeSavedSessionJustChanged) return;
+        if (activeSavedSessionJustChanged && activeSavedSession) return;
 
         const now = new Date().toISOString();
         const pendingVoyageName =
@@ -324,7 +332,7 @@ springboard.registerModule(
       // Sync URL to match canonical voyage/craft/views query params
       useEffect(() => {
         const currentPath = `${location.pathname}${location.search}`;
-        if (activeSavedSessionJustChanged) return;
+        if (activeSavedSessionJustChanged && activeSavedSession) return;
         const currentTabGroup = workspace.tabGroups.find(
           (tg) => tg.id === sessionNav.activeTabGroupId,
         );
@@ -504,11 +512,20 @@ springboard.registerModule(
         startNewSession: (options?: { name?: string; initialSelection?: NewSessionInitialSelection }) => {
           const nextSessionId = createNewBrowserSessionId();
           if (typeof window !== 'undefined') {
+            const pendingVoyageSlug = options?.name
+              ? buildVoyageSlug(options.name, nextSessionId)
+              : undefined;
             setBrowserSessionId(nextSessionId);
             (window as any).__pendingVoyageNames = {
               ...((window as any).__pendingVoyageNames || {}),
               [nextSessionId]: options?.name || '',
             };
+            if (pendingVoyageSlug) {
+              (window as any).__pendingVoyageSlugSessionIds = {
+                ...((window as any).__pendingVoyageSlugSessionIds || {}),
+                [pendingVoyageSlug]: nextSessionId,
+              };
+            }
           }
           updateBookmarkedSessionSearch(nextSessionId, options?.name);
           sessionNav.startNewSession(options?.initialSelection);
