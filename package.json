@@ -14,7 +14,8 @@
     "storybook": "npm run build-storybook && npm run serve-storybook",
     "storybook:dev": "storybook dev -p $PORT",
     "build-storybook": "storybook build",
-    "serve-storybook": "serve storybook-static -l $PORT"
+    "serve-storybook": "serve storybook-static -l $PORT",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@heroui/react": "^2.8.9",

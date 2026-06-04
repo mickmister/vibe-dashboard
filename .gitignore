@@ -10,3 +10,6 @@ debug-*
 .env.vkcloud
 .env
 .vscode/settings.json
+test-results
+playwright-report
+blob-report
