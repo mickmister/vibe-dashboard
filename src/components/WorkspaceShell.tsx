@@ -361,6 +361,46 @@ export function WorkspaceShell({
     return savedSession;
   };
 
+  const addOrSelectCraftInCurrentVoyage = async (
+    selection: Required<Pick<NewSessionInitialSelection, 'spaceId' | 'tabGroupId'>> &
+      Pick<NewSessionInitialSelection, 'tabId'>,
+  ) => {
+    const existingEntry = session.voyageEntries.find(
+      (entry) => entry.tabGroupId === selection.tabGroupId,
+    );
+    if (existingEntry) {
+      sessionActions.selectVoyageEntry(existingEntry.id);
+      return;
+    }
+
+    const currentSavedSession = savedSessions.find(
+      (entry) => entry.id === currentSessionId,
+    );
+    if (currentSavedSession) {
+      const savedSession = await actions.addSelectionToSavedSession({
+        sessionId: currentSavedSession.id,
+        spaceId: selection.spaceId,
+        tabGroupId: selection.tabGroupId,
+        ...(selection.tabId ? { tabId: selection.tabId } : {}),
+      });
+      if (savedSession) {
+        sessionActions.activateSavedSession(savedSession);
+        return;
+      }
+    }
+
+    if (selection.tabId) {
+      sessionActions.selectSessionTab(
+        selection.spaceId,
+        selection.tabGroupId,
+        selection.tabId,
+      );
+    } else {
+      sessionActions.addTabGroupToSession(selection.tabGroupId, { select: true });
+      sessionActions.selectSessionTabGroup(selection.spaceId, selection.tabGroupId);
+    }
+  };
+
   const closeTransientOverlays = () => {
     setIsSidebarOpen(false);
     setVoyagePlusMenuOpen(false);
@@ -569,11 +609,11 @@ export function WorkspaceShell({
             tabId: result.agentTabId,
           });
         } else {
-          sessionActions.selectSessionTab(
-            destinationSpaceId,
-            result.tabGroupId,
-            result.agentTabId,
-          );
+          await addOrSelectCraftInCurrentVoyage({
+            spaceId: destinationSpaceId,
+            tabGroupId: result.tabGroupId,
+            tabId: result.agentTabId,
+          });
         }
       }
       setPendingOpenCraftSessionId(null);
@@ -618,9 +658,15 @@ export function WorkspaceShell({
           tabGroupId,
         });
       } else {
-        sessionActions.addTabGroupToSession(tabGroupId, { select: true });
-        sessionActions.selectSessionTabGroup(spaceId, tabGroupId);
+        void addOrSelectCraftInCurrentVoyage({ spaceId, tabGroupId });
       }
+      setPendingOpenCraftSessionId(null);
+      setWorkspaceSearchMode('general');
+      return;
+    }
+
+    if (workspaceSearchMode === 'session-add') {
+      void addOrSelectCraftInCurrentVoyage({ spaceId, tabGroupId });
       setPendingOpenCraftSessionId(null);
       setWorkspaceSearchMode('general');
       return;
@@ -683,9 +729,6 @@ export function WorkspaceShell({
       return;
     }
 
-    if (workspaceSearchMode === 'session-add') {
-      sessionActions.addTabGroupToSession(tabGroupId, { select: true });
-    }
     sessionActions.selectSessionTabGroup(spaceId, tabGroupId);
     setPendingOpenCraftSessionId(null);
     setWorkspaceSearchMode('general');

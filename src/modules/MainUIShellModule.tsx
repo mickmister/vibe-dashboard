@@ -507,6 +507,7 @@ springboard.registerModule(
           if (typeof window !== 'undefined') {
             setBrowserSessionId(session.id);
           }
+          sessionNav.resumeSession(session);
           const nextSearchParams = new URLSearchParams(location.search);
           nextSearchParams.delete('session');
           nextSearchParams.set('voyage', session.id);

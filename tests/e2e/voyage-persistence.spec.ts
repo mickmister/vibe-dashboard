@@ -104,6 +104,11 @@ test.describe('voyage persistence', () => {
     await expect(page.getByRole('heading', { name: 'All Voyages' })).toBeVisible();
     await expect(page.getByText(voyageName).first()).toBeVisible();
 
+    await page.getByLabel('Embark craft in voyage').first().click();
+    await page.getByRole('button', { name: 'Open Craft' }).last().click();
+    await page.getByRole('button', { name: new RegExp(workspace.name) }).click();
+    await expect(page.getByLabel(`Open ${workspace.name} in Home`).first()).toBeVisible();
+
     const taskVoyageName = `E2E Task Voyage ${runId}`;
     await page.getByLabel('Open voyage switcher').first().click();
     await page.getByRole('button', { name: 'New Voyage', exact: true }).last().click();
