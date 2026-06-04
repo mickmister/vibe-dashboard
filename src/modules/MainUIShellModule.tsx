@@ -47,6 +47,7 @@ declare global {
   interface Window {
     __pendingVoyageNames?: Record<string, string>;
     __pendingVoyageSlugSessionIds?: Record<string, string>;
+    __pendingVoyageSwitchSessionId?: string;
   }
 }
 
@@ -249,6 +250,13 @@ springboard.registerModule(
         activeSavedSession,
       );
 
+      useEffect(() => {
+        if (typeof window === 'undefined') return;
+        if (window.__pendingVoyageSwitchSessionId === browserSessionId) {
+          delete window.__pendingVoyageSwitchSessionId;
+        }
+      }, [browserSessionId]);
+
       // Update document title to reflect active space and tab group
       useEffect(() => {
         const space = workspace.spaces.find(
@@ -276,6 +284,11 @@ springboard.registerModule(
 
       useEffect(() => {
         if (!(sessionNav.activeSpaceId && sessionNav.activeTabGroupId)) return;
+        if (
+          typeof window !== 'undefined' &&
+          window.__pendingVoyageSwitchSessionId &&
+          window.__pendingVoyageSwitchSessionId !== browserSessionId
+        ) return;
         if (activeSavedSessionJustChanged && activeSavedSession) return;
 
         const now = new Date().toISOString();
@@ -337,6 +350,11 @@ springboard.registerModule(
       // Sync URL to match canonical voyage/craft/views query params
       useEffect(() => {
         const currentPath = `${location.pathname}${location.search}`;
+        if (
+          typeof window !== 'undefined' &&
+          window.__pendingVoyageSwitchSessionId &&
+          window.__pendingVoyageSwitchSessionId !== browserSessionId
+        ) return;
         if (activeSavedSessionJustChanged && activeSavedSession) return;
         const currentTabGroup = workspace.tabGroups.find(
           (tg) => tg.id === sessionNav.activeTabGroupId,
@@ -463,6 +481,10 @@ springboard.registerModule(
           const baseOrigin = getBaseOrigin();
           return actions.ensureCreateWorkspaceTab({ baseOrigin });
         },
+        createCreateWorkspaceCraft: (args: { label?: string } = {}) => {
+          const baseOrigin = getBaseOrigin();
+          return actions.createCreateWorkspaceCraft({ ...args, baseOrigin });
+        },
       };
 
       const updateBookmarkedSessionSearch = (sessionId: string, name?: string) => {
@@ -519,6 +541,7 @@ springboard.registerModule(
               ? buildVoyageSlug(options.name, nextSessionId)
               : undefined;
             setBrowserSessionId(nextSessionId);
+            window.__pendingVoyageSwitchSessionId = nextSessionId;
             window.__pendingVoyageNames = {
               ...(window.__pendingVoyageNames || {}),
               [nextSessionId]: options?.name || '',

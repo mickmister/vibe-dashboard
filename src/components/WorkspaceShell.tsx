@@ -73,6 +73,9 @@ export type WorkspaceActions = {
   ensureCreateWorkspaceTab: () => Promise<
     { spaceId: string; tabGroupId: string; tabId: string } | undefined
   >;
+  createCreateWorkspaceCraft: (args: { label?: string }) => Promise<
+    { spaceId: string; tabGroupId: string; tabId: string } | undefined
+  >;
   createPair: (args: { tabGroupId: string; tabIds: string[] }) => void;
   deletePair: (args: { tabGroupId: string; pairId: string }) => void;
   updatePairRatios: (args: {
@@ -460,7 +463,17 @@ export function WorkspaceShell({
     if (!pendingVoyageCraftSelection) return;
     if (currentSessionId !== pendingVoyageCraftSelection.sessionId) return;
 
+    const targetTabGroup = workspace.tabGroups.find(
+      (tabGroup) => tabGroup.id === pendingVoyageCraftSelection.tabGroupId,
+    );
+    if (!targetTabGroup) return;
+
     if (pendingVoyageCraftSelection.tabId) {
+      const targetTabExists = targetTabGroup.tabs.some(
+        (tab) => tab.id === pendingVoyageCraftSelection.tabId,
+      );
+      if (!targetTabExists) return;
+
       sessionActions.selectSessionTab(
         pendingVoyageCraftSelection.spaceId,
         pendingVoyageCraftSelection.tabGroupId,
@@ -477,7 +490,7 @@ export function WorkspaceShell({
     }
 
     setPendingVoyageCraftSelection(null);
-  }, [currentSessionId, pendingVoyageCraftSelection, sessionActions]);
+  }, [currentSessionId, pendingVoyageCraftSelection, sessionActions, workspace.tabGroups]);
 
   // --- Add tab modal handler ---
   const openAddTabModal = (tabGroupId: string) => {
@@ -791,7 +804,9 @@ export function WorkspaceShell({
     closeNewVoyagePrompt();
 
     if (nextAction === 'new-task') {
-      const result = await actions.ensureCreateWorkspaceTab();
+      const result = await actions.createCreateWorkspaceCraft({
+        label: 'Create Workspace',
+      });
       if (result) {
         const nextSessionId = startNewVoyage(voyageName, {
           spaceId: result.spaceId,

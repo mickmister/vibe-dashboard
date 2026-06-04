@@ -437,6 +437,46 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
         return result;
       },
 
+      createCreateWorkspaceCraft: async (args: { baseOrigin: string; label?: string }) => {
+        let result:
+          | { spaceId: string; tabGroupId: string; tabId: string }
+          | undefined;
+
+        workspaceState.setStateImmer((draft) => {
+          const defaultSpace = getDefaultSpace(draft);
+          if (!defaultSpace) return;
+
+          const tabGroupId = `tg_${draft.nextId++}`;
+          const tabId = `tab_${draft.nextId++}`;
+          const label = args.label?.trim() || WORKSPACE_CREATE_TAB_TITLE;
+
+          draft.tabGroups.push({
+            id: tabGroupId,
+            label,
+            mobileEmoji: pickRandomMobileEmoji(),
+            tabs: [
+              {
+                id: tabId,
+                title: WORKSPACE_CREATE_TAB_TITLE,
+                url: buildWorkspaceTabUrl(args.baseOrigin, WORKSPACE_CREATE_PATH),
+              },
+            ],
+            pairs: [],
+            order: defaultSpace.tabGroupIds.length,
+            createdAt: new Date().toISOString(),
+          });
+          defaultSpace.tabGroupIds.push(tabGroupId);
+
+          result = {
+            spaceId: defaultSpace.id,
+            tabGroupId,
+            tabId,
+          };
+        });
+
+        return result;
+      },
+
       createPair: async (args: { tabGroupId: string; tabIds: string[] }) => {
         let pairId = '';
 

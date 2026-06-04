@@ -103,5 +103,24 @@ test.describe('voyage persistence', () => {
 
     await expect(page.getByRole('heading', { name: 'All Voyages' })).toBeVisible();
     await expect(page.getByText(voyageName).first()).toBeVisible();
+
+    const taskVoyageName = `E2E Task Voyage ${runId}`;
+    await page.getByLabel('Open voyage switcher').first().click();
+    await page.getByRole('button', { name: 'New Voyage', exact: true }).last().click();
+    await page.getByPlaceholder('Required voyage name').fill(taskVoyageName);
+    await page.getByRole('button', { name: 'Create New Task' }).click();
+
+    await expect(page.getByLabel('Open Create Workspace in Home').first()).toBeVisible();
+    await expect(page).toHaveURL(/craft=create-workspace-/);
+    await expect(page).toHaveURL(/views=create-workspace-/);
+
+    await page.getByLabel('Open voyage switcher').first().click();
+    await expect(page.getByRole('button', { name: taskVoyageName }).first()).toBeVisible();
+    await page.getByRole('button', { name: 'Cancel' }).click();
+
+    await page.reload();
+    await expect(page.getByLabel('Open Create Workspace in Home').first()).toBeVisible();
+    await expect(page).toHaveURL(/craft=create-workspace-/);
+    await expect(page).toHaveURL(/views=create-workspace-/);
   });
 });
