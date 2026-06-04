@@ -429,6 +429,10 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
       }
     };
 
+    if (moduleAPI.deps.core.isMaestro()) {
+      repairSavedVoyagesForCurrentWorkspace();
+    }
+
     const actions = moduleAPI.createActions({
       addSpace: async (args: { name: string }) => {
         let spaceId: string | undefined;
@@ -1035,6 +1039,7 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
         sessionId: string;
         spaceId: string;
         tabGroupId: string;
+        voyageEntryId?: string;
         tabId?: string;
         viewIds?: string[];
       }) => {
@@ -1072,9 +1077,16 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
           if (!target) return createSavedWorkspaceSessionState(sessions);
 
           const existingEntries = target.voyageEntries;
-          const existingEntry = existingEntries.find(
-            (entry) => entry.tabGroupId === tabGroup.id,
-          );
+          const requestedEntry = args.voyageEntryId
+            ? existingEntries.find(
+                (entry) =>
+                  entry.id === args.voyageEntryId &&
+                  entry.tabGroupId === tabGroup.id,
+              )
+            : undefined;
+          const existingEntry =
+            requestedEntry ||
+            existingEntries.find((entry) => entry.tabGroupId === tabGroup.id);
           const activeEntry =
             existingEntry ||
             ({

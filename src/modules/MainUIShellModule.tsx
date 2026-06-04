@@ -478,6 +478,13 @@ springboard.registerModule(
         });
       };
 
+      const getActiveVoyageEntryIdForTabGroup = (tabGroupId: string) => {
+        const activeEntry = sessionNav.voyageEntries.find(
+          (entry) => entry.id === sessionNav.activeVoyageEntryId,
+        );
+        return activeEntry?.tabGroupId === tabGroupId ? activeEntry.id : undefined;
+      };
+
       const sessionActions = {
         selectSpace: (spaceId: string) => {
           if (activeSavedSession) {
@@ -489,6 +496,7 @@ springboard.registerModule(
                 sessionId: activeSavedSession.id,
                 spaceId,
                 tabGroupId: firstTabGroupId,
+                voyageEntryId: getActiveVoyageEntryIdForTabGroup(firstTabGroupId),
               });
             }
           }
@@ -500,6 +508,7 @@ springboard.registerModule(
               sessionId: activeSavedSession.id,
               spaceId,
               tabGroupId,
+              voyageEntryId: getActiveVoyageEntryIdForTabGroup(tabGroupId),
             });
           }
           sessionNav.selectSessionTabGroup(spaceId, tabGroupId);
@@ -510,6 +519,7 @@ springboard.registerModule(
               sessionId: activeSavedSession.id,
               spaceId,
               tabGroupId,
+              voyageEntryId: getActiveVoyageEntryIdForTabGroup(tabGroupId),
               tabId,
             });
           }
@@ -525,6 +535,7 @@ springboard.registerModule(
                 sessionId: activeSavedSession.id,
                 spaceId,
                 tabGroupId,
+                voyageEntryId: getActiveVoyageEntryIdForTabGroup(tabGroupId),
                 viewIds: pair.tabIds,
               });
             }
@@ -561,6 +572,7 @@ springboard.registerModule(
               sessionId: activeSavedSession.id,
               spaceId,
               tabGroupId,
+              voyageEntryId: getActiveVoyageEntryIdForTabGroup(tabGroupId),
             });
           }
           sessionNav.setActiveTabGroup(tabGroupId);
