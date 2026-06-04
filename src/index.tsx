@@ -1054,10 +1054,19 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
           workspace.spaces.find((space) =>
             space.tabGroupIds.includes(args.voyageEntry.tabGroupId),
           )?.id || '';
+        let updatedSession: SavedWorkspaceSession | undefined;
 
         savedSessionsState.setState((current) => {
           const sessions = getSavedWorkspaceSessions(current).map((session) => ({
             ...session,
+            activeItems: { ...(session.activeItems || {}) },
+            activeItemsByVoyageEntryId: {
+              ...(session.activeItemsByVoyageEntryId || {}),
+            },
+            voyageEntries: session.voyageEntries
+              ? session.voyageEntries.map((entry) => ({ ...entry, viewIds: [...entry.viewIds] }))
+              : undefined,
+            visitedTabGroupIds: [...(session.visitedTabGroupIds || [])],
           }));
           const target = sessions.find(
             (session) => session.id === args.targetSessionId,
@@ -1093,8 +1102,11 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
             ...(target.activeItems || {}),
             ...(args.activeItemId ? { [nextEntry.tabGroupId]: args.activeItemId } : {}),
           };
+          updatedSession = target;
           return createSavedWorkspaceSessionState(sessions);
         });
+
+        return updatedSession;
       },
       setOriginDefaultSession: async (args: {
         origin: string;

@@ -122,7 +122,7 @@ export type WorkspaceActions = {
     targetSessionId: string;
     voyageEntry: VoyageEntry;
     activeItemId?: string;
-  }) => Promise<void>;
+  }) => Promise<SavedWorkspaceSession | undefined>;
 };
 
 export type SessionActions = {
@@ -1115,11 +1115,16 @@ export function WorkspaceShell({
       return;
     }
 
-    await actions.moveVoyageEntryToSavedSession({
+    const updatedTargetSession = await actions.moveVoyageEntryToSavedSession({
       targetSessionId,
       voyageEntry,
       activeItemId: moveVoyageEntryPrompt.activeItemId,
     });
+    if (!updatedTargetSession) {
+      setMoveVoyageEntryPrompt(null);
+      return;
+    }
+
     sessionActions.removeVoyageEntryFromSession(voyageEntry.id);
     setExpandedVoyageEntryId((current) =>
       current === voyageEntry.id ? null : current,
