@@ -1,6 +1,8 @@
 import type {
   SavedWorkspaceSession,
   SavedWorkspaceSessionState,
+  SavedWorkspaceSessionV1,
+  SavedWorkspaceSessionV2,
   WorkspaceState,
 } from '../types';
 
@@ -8,7 +10,7 @@ type SavedWorkspaceSessionState_v1 = {
   sessions?: unknown;
 };
 
-export const SAVED_WORKSPACE_SESSION_STATE_VERSION = 2;
+export const SAVED_WORKSPACE_SESSION_STATE_VERSION = 3;
 
 export function createSavedWorkspaceSessionState(
   data: SavedWorkspaceSession[] = [],
@@ -23,18 +25,18 @@ export function getSavedWorkspaceSessions(
   state: SavedWorkspaceSessionState | SavedWorkspaceSessionState_v1 | unknown,
 ): SavedWorkspaceSession[] {
   if (Array.isArray(state)) {
-    return state as SavedWorkspaceSession[];
+    return state as SavedWorkspaceSessionV1[] as SavedWorkspaceSession[];
   }
 
   if (
     state &&
     typeof state === 'object' &&
     'version' in state &&
-    state.version === SAVED_WORKSPACE_SESSION_STATE_VERSION &&
+    (state.version === 2 || state.version === SAVED_WORKSPACE_SESSION_STATE_VERSION) &&
     'data' in state &&
     Array.isArray(state.data)
   ) {
-    return state.data as SavedWorkspaceSession[];
+    return state.data as Array<SavedWorkspaceSessionV2 | SavedWorkspaceSession> as SavedWorkspaceSession[];
   }
 
   if (
@@ -43,7 +45,7 @@ export function getSavedWorkspaceSessions(
     'sessions' in state &&
     Array.isArray((state as SavedWorkspaceSessionState_v1).sessions)
   ) {
-    return (state as { sessions: SavedWorkspaceSession[] }).sessions;
+    return (state as { sessions: SavedWorkspaceSessionV1[] }).sessions as SavedWorkspaceSession[];
   }
 
   return [];
@@ -60,12 +62,10 @@ export function migrateSavedWorkspaceSessionState(
 }
 
 /**
- * Migrates all pre-v2 saved voyage shapes into the v2 persisted schema.
+ * Migrates all pre-v3 saved voyage shapes into the v3 persisted schema.
  *
- * Version 2 is intentionally the first persisted migration boundary for saved
- * voyages in this app: it normalizes legacy array/{sessions} shapes, removes
- * transient Home voyages, deduplicates identical voyages, and rewrites origin
- * resume pointers as one atomic cleanup.
+ * Version 3 records the post-cleanup saved Voyage schema while continuing to
+ * read legacy array, {sessions}, and v2 data shapes.
  */
 export function migrateSavedWorkspaceSessionStateWithCleanup(
   state: SavedWorkspaceSessionState | SavedWorkspaceSessionState_v1 | unknown,
@@ -127,7 +127,7 @@ export function migrateSavedWorkspaceSessionStateWithCleanup(
 
 export function isSavedWorkspaceSessionStateMigrated(
   state: SavedWorkspaceSessionState | SavedWorkspaceSessionState_v1 | unknown,
-): state is Extract<SavedWorkspaceSessionState, { version: 2 }> {
+): state is Extract<SavedWorkspaceSessionState, { version: 3 }> {
   return (
     state != null &&
     typeof state === 'object' &&

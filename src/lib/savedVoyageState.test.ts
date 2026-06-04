@@ -25,7 +25,7 @@ describe('savedVoyageState migration', () => {
     const legacy = [session('a')];
 
     expect(migrateSavedWorkspaceSessionState(legacy)).toEqual({
-      version: 2,
+      version: 3,
       data: legacy,
     });
   });
@@ -44,7 +44,7 @@ describe('savedVoyageState migration', () => {
     };
 
     expect(migrateSavedWorkspaceSessionState(legacy)).toEqual({
-      version: 2,
+      version: 3,
       data: legacy.sessions,
     });
   });
@@ -82,7 +82,7 @@ describe('savedVoyageState migration', () => {
         },
       ).state,
     ).toEqual({
-      version: 2,
+      version: 3,
       data: [realVoyage],
     });
   });
@@ -113,7 +113,7 @@ describe('savedVoyageState migration', () => {
     );
 
     expect(result.state).toEqual({
-      version: 2,
+      version: 3,
       data: [newer, other],
     });
     expect(result.originResumeState).toEqual({
@@ -124,7 +124,7 @@ describe('savedVoyageState migration', () => {
     });
   });
 
-  it('treats v2 as a single legacy-to-cleaned-state migration', () => {
+  it('treats pre-v3 state as a single legacy-to-cleaned-state migration', () => {
     const home = { ...session('home'), name: 'Home' };
     const duplicateOlder = {
       ...session('duplicate-older'),
@@ -150,7 +150,7 @@ describe('savedVoyageState migration', () => {
     );
 
     expect(result.state).toEqual({
-      version: 2,
+      version: 3,
       data: [duplicateOlder],
     });
     expect(result.originResumeState).toEqual({
@@ -184,7 +184,7 @@ describe('savedVoyageState migration', () => {
     );
 
     expect(result.state).toEqual({
-      version: 2,
+      version: 3,
       data: [referenced],
     });
     expect(result.originResumeState).toEqual({
