@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  resolvePendingVoyageSessionId,
   resolvePreferredVoyageSessionId,
   resolveRequestedVoyageSessionId,
 } from './voyageSession';
@@ -23,26 +22,6 @@ function session(
 }
 
 describe('resolvePreferredVoyageSessionId', () => {
-  it('resolves unsaved pending voyage slugs back to their generated session id', () => {
-    expect(
-      resolvePendingVoyageSessionId({
-        requestedVoyageKey: 'focused-session_123',
-        pendingVoyageSlugSessionIds: {
-          'focused-session_123': 'session_123',
-        },
-      }),
-    ).toBe('session_123');
-
-    expect(
-      resolvePendingVoyageSessionId({
-        requestedVoyageKey: 'missing',
-        pendingVoyageSlugSessionIds: {
-          'focused-session_123': 'session_123',
-        },
-      }),
-    ).toBeUndefined();
-  });
-
   it('resolves requested voyage identity without consulting stored defaults', () => {
     const savedSessions = [session('a', 'alpha-a'), session('b', 'beta-b')];
 

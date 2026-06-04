@@ -25,7 +25,6 @@ import {
   parseViewsParam,
 } from '../lib/voyageUrl';
 import {
-  resolvePendingVoyageSessionId,
   resolvePreferredVoyageSessionId,
   resolveRequestedVoyageSessionId,
 } from '../lib/voyageSession';
@@ -42,14 +41,6 @@ import type {
   SavedWorkspaceSession,
 } from '../types';
 import { useModule } from '../hooks/useModule';
-
-declare global {
-  interface Window {
-    __pendingVoyageNames?: Record<string, string>;
-    __pendingVoyageSlugSessionIds?: Record<string, string>;
-    __pendingVoyageSwitchSessionId?: string;
-  }
-}
 
 const URL_PARSE_BASE = 'https://workspace.local';
 const MOBILE_TAB_EMOJIS = [
@@ -193,13 +184,6 @@ springboard.registerModule(
         savedSessions: savedVoyages,
         requestedVoyageKey,
       });
-      const pendingRequestedSessionId =
-        typeof window === 'undefined'
-          ? undefined
-          : resolvePendingVoyageSessionId({
-              requestedVoyageKey,
-              pendingVoyageSlugSessionIds: window.__pendingVoyageSlugSessionIds,
-            });
       if (!initialBrowserSessionRef.current.initialized) {
         const storedBrowserSessionId =
           typeof window === 'undefined'
@@ -224,7 +208,7 @@ springboard.registerModule(
           : requestedVoyageKey
             ? requestedSessionId
               ? getOrCreateBrowserSessionId(requestedSessionId)
-              : pendingRequestedSessionId || requestedVoyageKey
+              : requestedVoyageKey
             : initialBrowserSessionRef.current.sessionId;
       const activeSavedSession = savedVoyages.find(
         (session) => session.id === browserSessionId,
@@ -249,13 +233,6 @@ springboard.registerModule(
         },
         activeSavedSession,
       );
-
-      useEffect(() => {
-        if (typeof window === 'undefined') return;
-        if (window.__pendingVoyageSwitchSessionId === browserSessionId) {
-          delete window.__pendingVoyageSwitchSessionId;
-        }
-      }, [browserSessionId]);
 
       // Update document title to reflect active space and tab group
       useEffect(() => {
@@ -284,19 +261,10 @@ springboard.registerModule(
 
       useEffect(() => {
         if (!(sessionNav.activeSpaceId && sessionNav.activeTabGroupId)) return;
-        if (
-          typeof window !== 'undefined' &&
-          window.__pendingVoyageSwitchSessionId &&
-          window.__pendingVoyageSwitchSessionId !== browserSessionId
-        ) return;
         if (activeSavedSessionJustChanged && activeSavedSession) return;
 
         const now = new Date().toISOString();
-        const pendingVoyageName =
-          typeof window === 'undefined'
-            ? undefined
-            : window.__pendingVoyageNames?.[browserSessionId];
-        const voyageName = activeSavedSession?.name?.trim() || pendingVoyageName?.trim();
+        const voyageName = activeSavedSession?.name?.trim();
         if (!voyageName || isHomeVoyageDisplayName(voyageName)) return;
 
         void actions.upsertSavedSession({
@@ -350,11 +318,6 @@ springboard.registerModule(
       // Sync URL to match canonical voyage/craft/views query params
       useEffect(() => {
         const currentPath = `${location.pathname}${location.search}`;
-        if (
-          typeof window !== 'undefined' &&
-          window.__pendingVoyageSwitchSessionId &&
-          window.__pendingVoyageSwitchSessionId !== browserSessionId
-        ) return;
         if (activeSavedSessionJustChanged && activeSavedSession) return;
         const currentTabGroup = workspace.tabGroups.find(
           (tg) => tg.id === sessionNav.activeTabGroupId,
@@ -362,11 +325,7 @@ springboard.registerModule(
         const activeVoyageEntry = sessionNav.voyageEntries.find(
           (entry) => entry.id === sessionNav.activeVoyageEntryId,
         );
-        const pendingVoyageName =
-          typeof window === 'undefined'
-            ? undefined
-            : window.__pendingVoyageNames?.[browserSessionId];
-        const voyageName = activeSavedSession?.name?.trim() || pendingVoyageName?.trim();
+        const voyageName = activeSavedSession?.name?.trim();
         if (!voyageName || isHomeVoyageDisplayName(voyageName)) {
           if (requestedVoyageKey && !activeSavedSession) return;
           const nextPath = buildCanonicalDashboardPath(location.search, undefined);
@@ -485,6 +444,16 @@ springboard.registerModule(
           const baseOrigin = getBaseOrigin();
           return actions.createCreateWorkspaceCraft({ ...args, baseOrigin });
         },
+        createCreateWorkspaceSavedSession: (args: {
+          name: string;
+          label?: string;
+        }) => {
+          const baseOrigin = getBaseOrigin();
+          return actions.createCreateWorkspaceSavedSession({
+            ...args,
+            baseOrigin,
+          });
+        },
       };
 
       const updateBookmarkedSessionSearch = (sessionId: string, name?: string) => {
@@ -534,28 +503,16 @@ springboard.registerModule(
             sessionNav.resumeSession(sessionToResume, voyageEntryId);
           }
         },
-        startNewSession: (options?: { name?: string; initialSelection?: NewSessionInitialSelection }) => {
-          const nextSessionId = createNewBrowserSessionId();
+        activateSavedSession: (session: SavedWorkspaceSession) => {
           if (typeof window !== 'undefined') {
-            const pendingVoyageSlug = options?.name
-              ? buildVoyageSlug(options.name, nextSessionId)
-              : undefined;
-            setBrowserSessionId(nextSessionId);
-            window.__pendingVoyageSwitchSessionId = nextSessionId;
-            window.__pendingVoyageNames = {
-              ...(window.__pendingVoyageNames || {}),
-              [nextSessionId]: options?.name || '',
-            };
-            if (pendingVoyageSlug) {
-              window.__pendingVoyageSlugSessionIds = {
-                ...(window.__pendingVoyageSlugSessionIds || {}),
-                [pendingVoyageSlug]: nextSessionId,
-              };
-            }
+            setBrowserSessionId(session.id);
           }
-          updateBookmarkedSessionSearch(nextSessionId, options?.name);
-          sessionNav.startNewSession(options?.initialSelection);
-          return nextSessionId;
+          const nextSearchParams = new URLSearchParams(location.search);
+          nextSearchParams.delete('session');
+          nextSearchParams.set('voyage', session.id);
+          navigate(`${location.pathname}?${nextSearchParams.toString()}`, {
+            replace: true,
+          });
         },
         renameSession: (sessionId: string, name: string) => {
           void actions.renameSavedSession({ id: sessionId, name });

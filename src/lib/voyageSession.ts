@@ -25,17 +25,6 @@ export function resolveRequestedVoyageSessionId({
   );
 }
 
-export function resolvePendingVoyageSessionId({
-  requestedVoyageKey,
-  pendingVoyageSlugSessionIds,
-}: {
-  requestedVoyageKey?: string;
-  pendingVoyageSlugSessionIds?: Record<string, string>;
-}): string | undefined {
-  if (!requestedVoyageKey) return undefined;
-  return pendingVoyageSlugSessionIds?.[requestedVoyageKey];
-}
-
 export function resolvePreferredVoyageSessionId({
   savedSessions,
   requestedVoyageKey,

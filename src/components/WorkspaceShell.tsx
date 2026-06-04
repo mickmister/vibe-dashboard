@@ -76,6 +76,22 @@ export type WorkspaceActions = {
   createCreateWorkspaceCraft: (args: { label?: string }) => Promise<
     { spaceId: string; tabGroupId: string; tabId: string } | undefined
   >;
+  createCreateWorkspaceSavedSession: (args: {
+    name: string;
+    label?: string;
+  }) => Promise<SavedWorkspaceSession | undefined>;
+  createSavedSessionForSelection: (args: {
+    name: string;
+    spaceId: string;
+    tabGroupId: string;
+    tabId?: string;
+  }) => Promise<SavedWorkspaceSession | undefined>;
+  addSelectionToSavedSession: (args: {
+    sessionId: string;
+    spaceId: string;
+    tabGroupId: string;
+    tabId?: string;
+  }) => Promise<SavedWorkspaceSession | undefined>;
   createPair: (args: { tabGroupId: string; tabIds: string[] }) => void;
   deletePair: (args: { tabGroupId: string; pairId: string }) => void;
   updatePairRatios: (args: {
@@ -123,10 +139,7 @@ export type SessionActions = {
   setActiveTabGroup: (tabGroupId: string) => void;
   getActiveItem: (tabGroupId: string) => string;
   resumeSession: (sessionId: string, voyageEntryId?: string) => void;
-  startNewSession: (options?: {
-    name?: string;
-    initialSelection?: NewSessionInitialSelection;
-  }) => string;
+  activateSavedSession: (session: SavedWorkspaceSession) => void;
   renameSession: (sessionId: string, name: string) => void;
   deleteSession: (sessionId: string) => void;
   addTabGroupToSession: (
@@ -158,12 +171,6 @@ type DuplicateCraftPrompt = {
   }>;
 };
 
-type PendingVoyageCraftSelection = {
-  sessionId: string;
-  spaceId: string;
-  tabGroupId: string;
-  tabId?: string;
-};
 type MoveVoyageEntryPrompt = {
   voyageEntryId: string;
   tabGroupId: string;
@@ -209,14 +216,8 @@ export function WorkspaceShell({
   const [newVoyageName, setNewVoyageName] = useState('');
   const [pendingOpenCraftSessionId, setPendingOpenCraftSessionId] =
     useState<string | null>(null);
-  const [pendingVoyageRename, setPendingVoyageRename] = useState<{
-    sessionId: string;
-    name: string;
-  } | null>(null);
   const [pendingNewVoyageCraftName, setPendingNewVoyageCraftName] =
     useState<string | null>(null);
-  const [pendingVoyageCraftSelection, setPendingVoyageCraftSelection] =
-    useState<PendingVoyageCraftSelection | null>(null);
   const [voyagePlusMenuOpen, setVoyagePlusMenuOpen] = useState(false);
   const [voyagePlusMenuPosition, setVoyagePlusMenuPosition] = useState<{
     left: number;
@@ -322,20 +323,41 @@ export function WorkspaceShell({
     sessionActions.resumeSession(sessionId, voyageEntryId);
   };
 
-  const startNewVoyage = (
+  const createAndActivateSavedVoyage = async (
     name: string,
-    initialSelection?: NewSessionInitialSelection,
-  ): string => {
+    initialSelection: Required<Pick<NewSessionInitialSelection, 'spaceId' | 'tabGroupId'>> &
+      Pick<NewSessionInitialSelection, 'tabId'>,
+  ) => {
     const trimmedName = name.trim();
-    if (!trimmedName || isReservedVoyageName(trimmedName)) return currentSessionId;
-    const nextSessionId = sessionActions.startNewSession({
+    if (!trimmedName || isReservedVoyageName(trimmedName)) return undefined;
+
+    const savedSession = await actions.createSavedSessionForSelection({
       name: trimmedName,
-      initialSelection,
+      spaceId: initialSelection.spaceId,
+      tabGroupId: initialSelection.tabGroupId,
+      ...(initialSelection.tabId ? { tabId: initialSelection.tabId } : {}),
     });
-    if (trimmedName) {
-      setPendingVoyageRename({ sessionId: nextSessionId, name: trimmedName });
-    }
-    return nextSessionId;
+    if (!savedSession) return undefined;
+
+    sessionActions.activateSavedSession(savedSession);
+    return savedSession;
+  };
+
+  const addAndActivateSelectionInSavedVoyage = async (
+    sessionId: string,
+    selection: Required<Pick<NewSessionInitialSelection, 'spaceId' | 'tabGroupId'>> &
+      Pick<NewSessionInitialSelection, 'tabId'>,
+  ) => {
+    const savedSession = await actions.addSelectionToSavedSession({
+      sessionId,
+      spaceId: selection.spaceId,
+      tabGroupId: selection.tabGroupId,
+      ...(selection.tabId ? { tabId: selection.tabId } : {}),
+    });
+    if (!savedSession) return undefined;
+
+    sessionActions.activateSavedSession(savedSession);
+    return savedSession;
   };
 
   const closeTransientOverlays = () => {
@@ -450,48 +472,6 @@ export function WorkspaceShell({
     void prefetchVKWorkspaceSearchResults();
   }, []);
 
-  useEffect(() => {
-    if (!pendingVoyageRename) return;
-    if (!savedSessions.some((entry) => entry.id === pendingVoyageRename.sessionId)) {
-      return;
-    }
-    sessionActions.renameSession(pendingVoyageRename.sessionId, pendingVoyageRename.name);
-    setPendingVoyageRename(null);
-  }, [pendingVoyageRename, savedSessions, sessionActions]);
-
-  useEffect(() => {
-    if (!pendingVoyageCraftSelection) return;
-    if (currentSessionId !== pendingVoyageCraftSelection.sessionId) return;
-
-    const targetTabGroup = workspace.tabGroups.find(
-      (tabGroup) => tabGroup.id === pendingVoyageCraftSelection.tabGroupId,
-    );
-    if (!targetTabGroup) return;
-
-    if (pendingVoyageCraftSelection.tabId) {
-      const targetTabExists = targetTabGroup.tabs.some(
-        (tab) => tab.id === pendingVoyageCraftSelection.tabId,
-      );
-      if (!targetTabExists) return;
-
-      sessionActions.selectSessionTab(
-        pendingVoyageCraftSelection.spaceId,
-        pendingVoyageCraftSelection.tabGroupId,
-        pendingVoyageCraftSelection.tabId,
-      );
-    } else {
-      sessionActions.addTabGroupToSession(pendingVoyageCraftSelection.tabGroupId, {
-        select: true,
-      });
-      sessionActions.selectSessionTabGroup(
-        pendingVoyageCraftSelection.spaceId,
-        pendingVoyageCraftSelection.tabGroupId,
-      );
-    }
-
-    setPendingVoyageCraftSelection(null);
-  }, [currentSessionId, pendingVoyageCraftSelection, sessionActions, workspace.tabGroups]);
-
   // --- Add tab modal handler ---
   const openAddTabModal = (tabGroupId: string) => {
     setAddTabTargetGroupId(tabGroupId);
@@ -575,22 +555,14 @@ export function WorkspaceShell({
       });
       if (result) {
         if (pendingNewVoyageCraftName) {
-          const nextSessionId = startNewVoyage(pendingNewVoyageCraftName, {
-            spaceId: destinationSpaceId,
-            tabGroupId: result.tabGroupId,
-            tabId: result.agentTabId,
-          });
-          setPendingVoyageCraftSelection({
-            sessionId: nextSessionId,
+          await createAndActivateSavedVoyage(pendingNewVoyageCraftName, {
             spaceId: destinationSpaceId,
             tabGroupId: result.tabGroupId,
             tabId: result.agentTabId,
           });
           setPendingNewVoyageCraftName(null);
         } else if (destinationSessionId && destinationSessionId !== currentSessionId) {
-          switchToVoyage(destinationSessionId);
-          setPendingVoyageCraftSelection({
-            sessionId: destinationSessionId,
+          await addAndActivateSelectionInSavedVoyage(destinationSessionId, {
             spaceId: destinationSpaceId,
             tabGroupId: result.tabGroupId,
             tabId: result.agentTabId,
@@ -628,12 +600,7 @@ export function WorkspaceShell({
   ) => {
     const destinationSessionId = pendingOpenCraftSessionId;
     if (workspaceSearchMode === 'session-add' && pendingNewVoyageCraftName) {
-      const nextSessionId = startNewVoyage(pendingNewVoyageCraftName, {
-        spaceId,
-        tabGroupId,
-      });
-      setPendingVoyageCraftSelection({
-        sessionId: nextSessionId,
+      void createAndActivateSavedVoyage(pendingNewVoyageCraftName, {
         spaceId,
         tabGroupId,
       });
@@ -645,9 +612,7 @@ export function WorkspaceShell({
 
     if (workspaceSearchMode === 'session-add' && destinationSessionId) {
       if (destinationSessionId !== currentSessionId) {
-        switchToVoyage(destinationSessionId);
-        setPendingVoyageCraftSelection({
-          sessionId: destinationSessionId,
+        void addAndActivateSelectionInSavedVoyage(destinationSessionId, {
           spaceId,
           tabGroupId,
         });
@@ -673,10 +638,10 @@ export function WorkspaceShell({
 
     if (destinationSessionId && destinationSessionId !== currentSessionId) {
       const existingEntry = currentEntries[0];
-      switchToVoyage(destinationSessionId, existingEntry?.id);
-      if (!existingEntry) {
-        setPendingVoyageCraftSelection({
-          sessionId: destinationSessionId,
+      if (existingEntry) {
+        switchToVoyage(destinationSessionId, existingEntry.id);
+      } else {
+        void addAndActivateSelectionInSavedVoyage(destinationSessionId, {
           spaceId,
           tabGroupId,
         });
@@ -736,12 +701,7 @@ export function WorkspaceShell({
     if (!duplicateCraftPrompt) return;
     const voyageName = window.prompt('Voyage name');
     if (!voyageName?.trim() || isReservedVoyageName(voyageName)) return;
-    const nextSessionId = startNewVoyage(voyageName, {
-      spaceId: duplicateCraftPrompt.spaceId,
-      tabGroupId: duplicateCraftPrompt.tabGroupId,
-    });
-    setPendingVoyageCraftSelection({
-      sessionId: nextSessionId,
+    void createAndActivateSavedVoyage(voyageName, {
       spaceId: duplicateCraftPrompt.spaceId,
       tabGroupId: duplicateCraftPrompt.tabGroupId,
     });
@@ -766,14 +726,14 @@ export function WorkspaceShell({
   };
 
   const switchToCraftInOtherVoyage = (sessionId: string, voyageEntryId?: string) => {
-    if (!voyageEntryId && duplicateCraftPrompt) {
-      setPendingVoyageCraftSelection({
-        sessionId,
+    if (voyageEntryId) {
+      switchToVoyage(sessionId, voyageEntryId);
+    } else if (duplicateCraftPrompt) {
+      void addAndActivateSelectionInSavedVoyage(sessionId, {
         spaceId: duplicateCraftPrompt.spaceId,
         tabGroupId: duplicateCraftPrompt.tabGroupId,
       });
     }
-    switchToVoyage(sessionId, voyageEntryId);
     closeDuplicateCraftPrompt();
   };
 
@@ -804,21 +764,12 @@ export function WorkspaceShell({
     closeNewVoyagePrompt();
 
     if (nextAction === 'new-task') {
-      const result = await actions.createCreateWorkspaceCraft({
+      const savedSession = await actions.createCreateWorkspaceSavedSession({
+        name: voyageName,
         label: 'Create Workspace',
       });
-      if (result) {
-        const nextSessionId = startNewVoyage(voyageName, {
-          spaceId: result.spaceId,
-          tabGroupId: result.tabGroupId,
-          tabId: result.tabId,
-        });
-        setPendingVoyageCraftSelection({
-          sessionId: nextSessionId,
-          spaceId: result.spaceId,
-          tabGroupId: result.tabGroupId,
-          tabId: result.tabId,
-        });
+      if (savedSession) {
+        sessionActions.activateSavedSession(savedSession);
       }
       return;
     }
