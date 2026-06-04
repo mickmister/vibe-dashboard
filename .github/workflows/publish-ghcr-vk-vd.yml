@@ -182,6 +182,8 @@ jobs:
         env:
           COOLIFY_WEBHOOK: ${{ secrets.COOLIFY_WEBHOOK }}
           COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: |
           set -euo pipefail
 
@@ -195,6 +197,16 @@ jobs:
             exit 1
           fi
 
+          if [[ -z "$CF_ACCESS_CLIENT_ID" ]]; then
+            echo "::error::CF_ACCESS_CLIENT_ID is not configured."
+            exit 1
+          fi
+
+          if [[ -z "$CF_ACCESS_CLIENT_SECRET" ]]; then
+            echo "::error::CF_ACCESS_CLIENT_SECRET is not configured."
+            exit 1
+          fi
+
           curl \
             --fail-with-body \
             --show-error \
@@ -204,6 +216,8 @@ jobs:
             --retry-all-errors \
             --request GET \
             "$COOLIFY_WEBHOOK" \
-            --header "Authorization: Bearer $COOLIFY_TOKEN"
+            --header "Authorization: Bearer $COOLIFY_TOKEN" \
+            --header "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
+            --header "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET"
 
           echo "Coolify deployment webhook notified."
