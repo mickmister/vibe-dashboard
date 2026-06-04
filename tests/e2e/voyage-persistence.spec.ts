@@ -75,9 +75,10 @@ test.describe('voyage persistence', () => {
     const workspace = createMockWorkspace(runId);
     await mockVkApi(page, workspace);
 
-    await page.goto(`/dashboard?voyage=e2e-isolated-${runId}`);
+    await page.goto('/');
 
     await page.getByLabel('Open voyage switcher').first().click();
+    await expect(page.getByText('No saved voyages yet.')).toBeVisible();
 
     await page.getByRole('button', { name: 'New Voyage', exact: true }).last().click();
     await page.getByPlaceholder('Required voyage name').fill(voyageName);
