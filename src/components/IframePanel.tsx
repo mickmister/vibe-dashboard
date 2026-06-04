@@ -51,7 +51,6 @@ type TabRenderTarget =
 let iframeStore: Map<string, IframeEntry> = new Map();
 let retainedSessionId: string | null = null;
 let retainedTabIds: Set<string> = new Set();
-let keyboardIsolationDocuments: WeakSet<Document> = new WeakSet();
 const MAX_RETAINED_IFRAMES = 5;
 
 // Preserve iframe store across HMR updates using Vite's HMR API.
@@ -68,14 +67,10 @@ try {
     if (hot.data.retainedTabIds) {
       retainedTabIds = hot.data.retainedTabIds;
     }
-    if (hot.data.keyboardIsolationDocuments) {
-      keyboardIsolationDocuments = hot.data.keyboardIsolationDocuments;
-    }
     hot.dispose((data: Record<string, unknown>) => {
       data.iframeStore = iframeStore;
       data.retainedSessionId = retainedSessionId;
       data.retainedTabIds = retainedTabIds;
-      data.keyboardIsolationDocuments = keyboardIsolationDocuments;
     });
   }
 } catch {
@@ -105,29 +100,6 @@ function applyIframePolicy(iframe: HTMLIFrameElement, iframeSrc: string) {
     'allow',
     trusted ? 'clipboard-read; clipboard-write; fullscreen' : 'fullscreen',
   );
-}
-
-function installIframeKeyboardIsolation(iframe: HTMLIFrameElement) {
-  try {
-    const doc = iframe.contentDocument || iframe.contentWindow?.document;
-    if (!doc) return;
-    if (keyboardIsolationDocuments.has(doc)) return;
-
-    keyboardIsolationDocuments.add(doc);
-
-    doc.addEventListener(
-      'keydown',
-      (event) => {
-        const key = event.key.toLowerCase();
-        if ((event.metaKey || event.ctrlKey) && key === 's') {
-          event.stopPropagation();
-        }
-      },
-      { capture: true },
-    );
-  } catch {
-    // Cross-origin iframes keep their own keyboard handling.
-  }
 }
 
 function getIframeResolutionOrigin(url: string): string {
@@ -267,7 +239,6 @@ function getOrCreateIframe(tab: Tab): IframeEntry {
   iframe.addEventListener('load', () => {
     entry.loaded = true;
     entry.listeners.forEach((fn) => fn());
-    installIframeKeyboardIsolation(iframe);
 
     // Start checking if content is ready (not showing white screen)
     checkContentReady(iframe, entry);
