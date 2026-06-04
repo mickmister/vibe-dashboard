@@ -16,6 +16,7 @@ import type {
   VoyageEntry,
 } from '../types';
 import type { NewSessionInitialSelection, SessionWorkspaceNav } from '../sessionState';
+import { getVoyageEntryIdAfterClosingCraft } from '../lib/voyageFallback';
 
 const MOBILE_TAB_EMOJI_CHOICES = [
   '🚀',
@@ -1021,6 +1022,11 @@ export function WorkspaceShell({
   };
 
   const handleCloseTabGroup = async (spaceId: string, tabGroupId: string) => {
+    const voyageFallbackEntryId = getVoyageEntryIdAfterClosingCraft({
+      voyageEntries: session.voyageEntries,
+      activeVoyageEntryId: session.activeVoyageEntryId,
+      closedTabGroupId: tabGroupId,
+    });
     const result = await actions.deleteTabGroup({ spaceId, tabGroupId });
     setDesktopTabMenuTarget(null);
     setMobileTabMenuTarget(null);
@@ -1034,7 +1040,11 @@ export function WorkspaceShell({
       session.activeTabGroupId === tabGroupId &&
       result.nextTabGroupId
     ) {
-      sessionActions.selectSessionTabGroup(spaceId, result.nextTabGroupId);
+      if (voyageFallbackEntryId) {
+        sessionActions.selectVoyageEntry(voyageFallbackEntryId);
+      } else {
+        sessionActions.selectSessionTabGroup(spaceId, result.nextTabGroupId);
+      }
     }
   };
 
