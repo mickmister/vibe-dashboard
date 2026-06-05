@@ -1342,6 +1342,110 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
 
         return updatedSession;
       },
+      moveVoyageEntryBetweenSavedSessions: async (args: {
+        sourceSessionId: string;
+        targetSessionId: string;
+        voyageEntryId: string;
+        activeItemId?: string;
+      }) => {
+        if (args.sourceSessionId === args.targetSessionId) return undefined;
+
+        const now = new Date().toISOString();
+        const workspace = workspaceState.getState();
+        let moveResult:
+          | {
+              sourceSession: SavedWorkspaceSession;
+              targetSession: SavedWorkspaceSession;
+            }
+          | undefined;
+
+        savedSessionsState.setState((current) => {
+          const sessions = getSavedWorkspaceSessions(current).map(cloneSavedSession);
+          const source = sessions.find(
+            (session) => session.id === args.sourceSessionId,
+          );
+          const target = sessions.find(
+            (session) => session.id === args.targetSessionId,
+          );
+          if (!(source && target) || source.voyageEntries.length <= 1) {
+            return createSavedWorkspaceSessionState(sessions);
+          }
+
+          const sourceEntry = source.voyageEntries.find(
+            (entry) => entry.id === args.voyageEntryId,
+          );
+          if (!sourceEntry) return createSavedWorkspaceSessionState(sessions);
+
+          const nextSourceEntries = source.voyageEntries.filter(
+            (entry) => entry.id !== args.voyageEntryId,
+          );
+          const fallbackSourceEntry =
+            nextSourceEntries.find((entry) => entry.id === source.activeVoyageEntryId) ||
+            nextSourceEntries[0];
+          if (!fallbackSourceEntry) return createSavedWorkspaceSessionState(sessions);
+
+          const existingTargetIds = new Set(
+            target.voyageEntries.map((entry) => entry.id),
+          );
+          let nextEntryId = sourceEntry.id;
+          let suffix = 1;
+          while (existingTargetIds.has(nextEntryId)) {
+            nextEntryId = `${sourceEntry.id}_moved_${suffix++}`;
+          }
+
+          const movedEntry = {
+            ...sourceEntry,
+            id: nextEntryId,
+            viewIds: [...sourceEntry.viewIds],
+          };
+          const targetSpaceId =
+            workspace.spaces.find((space) =>
+              space.tabGroupIds.includes(movedEntry.tabGroupId),
+            )?.id || target.activeSpaceId;
+          const activeItemId =
+            args.activeItemId ||
+            source.activeItemsByVoyageEntryId[sourceEntry.id] ||
+            movedEntry.viewIds[0] ||
+            '';
+
+          const repairedSource = repairSavedSessionForWorkspace(
+            {
+              ...source,
+              voyageEntries: nextSourceEntries,
+              activeVoyageEntryId: fallbackSourceEntry.id,
+              updatedAt: now,
+            },
+            workspace,
+          );
+          if (!repairedSource) return createSavedWorkspaceSessionState(sessions);
+
+          Object.assign(source, {
+            ...repairedSource,
+            updatedAt: now,
+          });
+
+          target.voyageEntries = [...target.voyageEntries, movedEntry];
+          target.activeVoyageEntryId = movedEntry.id;
+          target.activeTabGroupId = movedEntry.tabGroupId;
+          target.activeSpaceId = targetSpaceId;
+          target.updatedAt = now;
+          target.visitedTabGroupIds = Array.from(
+            new Set([...target.visitedTabGroupIds, movedEntry.tabGroupId]),
+          );
+          target.activeItemsByVoyageEntryId = {
+            ...target.activeItemsByVoyageEntryId,
+            [movedEntry.id]: activeItemId,
+          };
+
+          moveResult = {
+            sourceSession: cloneSavedSession(source),
+            targetSession: cloneSavedSession(target),
+          };
+          return createSavedWorkspaceSessionState(sessions);
+        });
+
+        return moveResult;
+      },
       setOriginDefaultSession: async (args: {
         origin: string;
         sessionId: string;

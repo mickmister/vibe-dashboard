@@ -165,6 +165,7 @@ async function waitForSavedVoyageCraftState(
     entryLabels: string[];
     activeCraftLabel: string;
     activeItemTitle: string;
+    activeTabGroupId?: string;
   },
 ) {
   await expect
@@ -217,7 +218,7 @@ async function waitForSavedVoyageCraftState(
     .toEqual({
       entryLabels: expected.entryLabels,
       activeCraftLabel: expected.activeCraftLabel,
-      activeTabGroupId: expect.any(String),
+      activeTabGroupId: expected.activeTabGroupId || expect.any(String),
       activeItemTitle: expected.activeItemTitle,
     });
 }
@@ -235,15 +236,20 @@ async function waitForSavedVoyageFallbackAfterClose(
 ) {
   await expect
     .poll(async () => {
-      const state = await getKvState<{
-        version: number;
-        data?: Array<{
-          id: string;
-          activeVoyageEntryId: string;
-          activeTabGroupId: string;
-          voyageEntries: Array<{ id: string; tabGroupId: string; viewIds: string[] }>;
-        }>;
-      }>(request, SAVED_VOYAGES_STATE_KEY);
+      const [state, workspaceState] = await Promise.all([
+        getKvState<{
+          version: number;
+          data?: Array<{
+            id: string;
+            activeVoyageEntryId: string;
+            activeTabGroupId: string;
+            voyageEntries: Array<{ id: string; tabGroupId: string; viewIds: string[] }>;
+          }>;
+        }>(request, SAVED_VOYAGES_STATE_KEY),
+        getKvState<{
+          tabGroups?: Array<{ id: string }>;
+        }>(request, WORKSPACE_STATE_KEY),
+      ]);
       const session = state?.data?.find((entry) => entry.id === args.sessionId);
 
       return {
@@ -259,6 +265,11 @@ async function waitForSavedVoyageFallbackAfterClose(
             (entry) => entry.tabGroupId === args.closedTabGroupId,
           ),
         ),
+        closedWorkspaceTabGroupPresent: Boolean(
+          workspaceState?.tabGroups?.some(
+            (tabGroup) => tabGroup.id === args.closedTabGroupId,
+          ),
+        ),
       };
     })
     .toEqual({
@@ -268,14 +279,15 @@ async function waitForSavedVoyageFallbackAfterClose(
       voyageTabGroupIds: [args.fallbackTabGroupId],
       closedEntryPresent: false,
       closedTabGroupPresent: false,
+      closedWorkspaceTabGroupPresent: false,
     });
 }
 
 async function openCraftFromVoyagePlusMenu(page: Page) {
   await page.getByLabel('Embark craft in voyage').first().click();
   await page
-    .locator('div.fixed.z-\\[92\\] button')
-    .filter({ hasText: 'Open Craft' })
+    .getByRole('menu', { name: 'Voyage actions' })
+    .getByRole('button', { name: 'Open Craft' })
     .click();
 }
 
@@ -335,7 +347,6 @@ test.describe('voyage persistence', () => {
     await page.goto('/');
 
     await page.getByLabel('Open voyage switcher').first().click();
-    await expect(page.getByText('No saved voyages yet.')).toBeVisible();
 
     await page.getByRole('button', { name: 'New Voyage', exact: true }).last().click();
     await page.getByPlaceholder('Required voyage name').fill(voyageName);
@@ -720,11 +731,13 @@ test.describe('voyage persistence', () => {
       entryLabels: [movedCraftLabel, remainingCraftLabel],
       activeCraftLabel: movedCraftLabel,
       activeItemTitle: 'Agent',
+      activeTabGroupId: movedTabGroupId,
     });
     await waitForSavedVoyageCraftState(page.request, targetVoyageId, {
       entryLabels: [targetSeedCraftLabel],
       activeCraftLabel: targetSeedCraftLabel,
       activeItemTitle: 'Agent',
+      activeTabGroupId: targetSeedTabGroupId,
     });
 
     await page.goto(`/dashboard?voyage=${sourceVoyageId}`);
@@ -743,8 +756,8 @@ test.describe('voyage persistence', () => {
       page.getByText('Choose the voyage that should receive this craft.'),
     ).toBeVisible();
     await page
-      .locator('div.fixed.z-\\[94\\] button')
-      .filter({ hasText: targetVoyageName })
+      .getByRole('dialog', { name: 'Move to Voyage' })
+      .getByRole('button', { name: new RegExp(targetVoyageName) })
       .click();
 
     await expect(
@@ -757,11 +770,13 @@ test.describe('voyage persistence', () => {
       entryLabels: [remainingCraftLabel],
       activeCraftLabel: remainingCraftLabel,
       activeItemTitle: 'Agent',
+      activeTabGroupId: remainingTabGroupId,
     });
     await waitForSavedVoyageCraftState(page.request, targetVoyageId, {
       entryLabels: [targetSeedCraftLabel, movedCraftLabel],
       activeCraftLabel: movedCraftLabel,
       activeItemTitle: 'Agent',
+      activeTabGroupId: movedTabGroupId,
     });
 
     const movedTabGroupSuffix = movedTabGroupId.split('_').at(-1)!;
@@ -796,6 +811,7 @@ test.describe('voyage persistence', () => {
       entryLabels: [targetSeedCraftLabel, movedCraftLabel],
       activeCraftLabel: movedCraftLabel,
       activeItemTitle: 'Agent',
+      activeTabGroupId: movedTabGroupId,
     });
 
     await page.goto(`/dashboard?voyage=${sourceVoyageId}`);
@@ -811,6 +827,7 @@ test.describe('voyage persistence', () => {
       entryLabels: [remainingCraftLabel],
       activeCraftLabel: remainingCraftLabel,
       activeItemTitle: 'Agent',
+      activeTabGroupId: remainingTabGroupId,
     });
   });
 

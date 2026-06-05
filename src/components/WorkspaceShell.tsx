@@ -91,6 +91,7 @@ export type WorkspaceActions = {
     sessionId: string;
     spaceId: string;
     tabGroupId: string;
+    voyageEntryId?: string;
     tabId?: string;
     viewIds?: string[];
   }) => Promise<SavedWorkspaceSession | undefined>;
@@ -137,6 +138,18 @@ export type WorkspaceActions = {
     voyageEntry: VoyageEntry;
     activeItemId?: string;
   }) => Promise<SavedWorkspaceSession | undefined>;
+  moveVoyageEntryBetweenSavedSessions: (args: {
+    sourceSessionId: string;
+    targetSessionId: string;
+    voyageEntryId: string;
+    activeItemId?: string;
+  }) => Promise<
+    | {
+        sourceSession: SavedWorkspaceSession;
+        targetSession: SavedWorkspaceSession;
+      }
+    | undefined
+  >;
 };
 
 export type SessionActions = {
@@ -1164,28 +1177,26 @@ export function WorkspaceShell({
 
   const handleMoveVoyageEntryToSession = async (targetSessionId: string) => {
     if (!moveVoyageEntryPrompt || targetSessionId === currentSessionId) return;
-    const voyageEntry = session.voyageEntries.find(
-      (entry) => entry.id === moveVoyageEntryPrompt.voyageEntryId,
-    );
-    if (!voyageEntry) {
-      setMoveVoyageEntryPrompt(null);
-      return;
-    }
-
-    const updatedTargetSession = await actions.moveVoyageEntryToSavedSession({
+    const moveResult = await actions.moveVoyageEntryBetweenSavedSessions({
+      sourceSessionId: currentSessionId,
       targetSessionId,
-      voyageEntry,
+      voyageEntryId: moveVoyageEntryPrompt.voyageEntryId,
       activeItemId: moveVoyageEntryPrompt.activeItemId,
     });
-    if (!updatedTargetSession) {
+    if (!moveResult) {
       setMoveVoyageEntryPrompt(null);
       return;
     }
 
-    sessionActions.removeVoyageEntryFromSession(voyageEntry.id);
-    setExpandedVoyageEntryId((current) =>
-      current === voyageEntry.id ? null : current,
-    );
+    sessionActions.activateSavedSession(moveResult.sourceSession);
+    setExpandedVoyageEntryId((current) => {
+      if (current === moveVoyageEntryPrompt.voyageEntryId) return null;
+      return moveResult.sourceSession.voyageEntries.some(
+        (entry) => entry.id === current,
+      )
+        ? current
+        : null;
+    });
     setMoveVoyageEntryPrompt(null);
   };
 
@@ -1889,6 +1900,8 @@ export function WorkspaceShell({
       {voyagePlusMenuOpen && (
         <div
           ref={voyagePlusMenuRef}
+          role="menu"
+          aria-label="Voyage actions"
           className="fixed z-[92] w-44 rounded-lg border border-neutral-700 bg-neutral-900 py-1 shadow-2xl"
           style={{
             left: voyagePlusMenuPosition?.left ?? 12,
@@ -2005,7 +2018,12 @@ export function WorkspaceShell({
             }
           }}
         >
-          <div className="flex max-h-[85dvh] w-full max-w-lg flex-col rounded-xl border border-neutral-700 bg-neutral-900 p-5 shadow-2xl">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Move to Voyage"
+            className="flex max-h-[85dvh] w-full max-w-lg flex-col rounded-xl border border-neutral-700 bg-neutral-900 p-5 shadow-2xl"
+          >
             <div className="text-base font-semibold text-neutral-100">
               Move to Voyage
             </div>
