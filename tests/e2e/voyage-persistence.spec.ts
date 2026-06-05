@@ -1,4 +1,4 @@
-import { expect, test, type Page } from 'playwright/test';
+import { expect, test, type APIRequestContext, type Page } from 'playwright/test';
 
 type MockWorkspace = {
   id: string;
@@ -26,6 +26,63 @@ function createMockWorkspace(runId: string): MockWorkspace {
     pinned: false,
     name: `E2E Existing Craft ${runId}`,
   };
+}
+
+type RpcResponse<T> = {
+  jsonrpc: '2.0';
+  id: number;
+  result?: T;
+  error?: { message?: string; code?: number; data?: unknown };
+};
+
+const SAVED_VOYAGES_STATE_KEY =
+  'engine|module|workspace|state.persistent|workspace-sessions';
+
+async function callWorkspaceAction<T>(
+  request: APIRequestContext,
+  actionName: string,
+  params: object,
+): Promise<T> {
+  const method = `engine|module|workspace|action|${actionName}`;
+  const response = await request.post(`/rpc/${actionName}`, {
+    data: {
+      jsonrpc: '2.0',
+      id: 1,
+      method,
+      params,
+    },
+  });
+  expect(response.ok()).toBeTruthy();
+
+  const body = (await response.json()) as RpcResponse<T>;
+  expect(body.error, JSON.stringify(body.error)).toBeUndefined();
+  return body.result as T;
+}
+
+async function getKvState<T>(
+  request: APIRequestContext,
+  key: string,
+): Promise<T | null> {
+  const response = await request.get(`/kv/get?key=${encodeURIComponent(key)}`);
+  expect(response.ok()).toBeTruthy();
+  return (await response.json()) as T | null;
+}
+
+async function waitForSavedVoyageEntry(
+  request: APIRequestContext,
+  sessionId: string,
+  expectedEntryId: string,
+) {
+  await expect
+    .poll(async () => {
+      const state = await getKvState<{
+        version: number;
+        data?: Array<{ id: string; activeVoyageEntryId: string }>;
+      }>(request, SAVED_VOYAGES_STATE_KEY);
+      return state?.data?.find((session) => session.id === sessionId)
+        ?.activeVoyageEntryId;
+    })
+    .toBe(expectedEntryId);
 }
 
 async function mockVkApi(page: Page, workspace: MockWorkspace) {
@@ -127,5 +184,108 @@ test.describe('voyage persistence', () => {
     await expect(page.getByLabel('Open Create Workspace in Home').first()).toBeVisible();
     await expect(page).toHaveURL(/craft=create-workspace-/);
     await expect(page).toHaveURL(/views=create-workspace-/);
+  });
+
+  test('restores the selected duplicate craft entry by voyageEntryId after reload', async ({ page }) => {
+    const runId = Date.now().toString(36);
+    const craftLabel = `Duplicate Craft ${runId}`;
+    const voyageId = `session_duplicate_${runId}`;
+    const voyageName = `E2E Duplicate Voyage ${runId}`;
+    const firstEntryId = `ve_${runId}_first`;
+    const secondEntryId = `ve_${runId}_second`;
+    const now = '2026-06-05T00:00:00.000Z';
+
+    const addCraftResult = await callWorkspaceAction<{
+      spaceId: string;
+      tabGroupId?: string;
+    }>(page.request, 'addTabGroup', {
+      spaceId: 'space_home',
+      label: craftLabel,
+    });
+    expect(addCraftResult.tabGroupId).toBeTruthy();
+    const tabGroupId = addCraftResult.tabGroupId!;
+
+    const agentTab = await callWorkspaceAction<{
+      tabGroupId: string;
+      tabId: string;
+    }>(
+      page.request,
+      'addTab',
+      {
+        tabGroupId,
+        title: 'Agent',
+        url: `https://example.invalid/${runId}/agent`,
+      },
+    );
+    const codeTab = await callWorkspaceAction<{
+      tabGroupId: string;
+      tabId: string;
+    }>(
+      page.request,
+      'addTab',
+      {
+        tabGroupId,
+        title: 'Code',
+        url: `https://example.invalid/${runId}/code`,
+      },
+    );
+
+    await callWorkspaceAction(page.request, 'upsertSavedSession', {
+      id: voyageId,
+      slug: `e2e-duplicate-voyage-${runId}-${voyageId}`,
+      name: voyageName,
+      createdAt: now,
+      updatedAt: now,
+      activeVoyageEntryId: firstEntryId,
+      voyageEntries: [
+        { id: firstEntryId, tabGroupId, viewIds: [agentTab.tabId] },
+        { id: secondEntryId, tabGroupId, viewIds: [codeTab.tabId] },
+      ],
+      activeSpaceId: 'space_home',
+      activeTabGroupId: tabGroupId,
+      activeItemsByVoyageEntryId: {
+        [firstEntryId]: agentTab.tabId,
+        [secondEntryId]: codeTab.tabId,
+      },
+      visitedTabGroupIds: [tabGroupId],
+    });
+    await waitForSavedVoyageEntry(page.request, voyageId, firstEntryId);
+
+    const tabGroupSuffix = tabGroupId.split('_').at(-1)!;
+    const agentTabSuffix = agentTab.tabId.split('_').at(-1)!;
+    const codeTabSuffix = codeTab.tabId.split('_').at(-1)!;
+    const firstCraftParam = `duplicate-craft-${runId}-${tabGroupSuffix}-first`;
+    const secondCraftParam = `duplicate-craft-${runId}-${tabGroupSuffix}-second`;
+
+    await page.goto(`/dashboard?voyage=${voyageId}`);
+
+    await expect(
+      page.getByRole('button', { name: `Open ${craftLabel} in Home` }),
+    ).toHaveCount(2);
+    await expect(page).toHaveURL(new RegExp(`craft=${firstCraftParam}`));
+    await expect(page).toHaveURL(new RegExp(`views=agent-${agentTabSuffix}`));
+
+    await page
+      .getByRole('button', { name: `Open ${craftLabel} in Home` })
+      .nth(1)
+      .click();
+    await expect(page).toHaveURL(new RegExp(`craft=${secondCraftParam}`));
+    await expect(page).toHaveURL(new RegExp(`views=code-${codeTabSuffix}`));
+    await waitForSavedVoyageEntry(page.request, voyageId, secondEntryId);
+
+    await page.evaluate(() => {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('craft');
+      url.searchParams.delete('views');
+      window.history.replaceState(null, '', url.toString());
+    });
+    await page.reload();
+
+    await expect(
+      page.getByRole('button', { name: `Open ${craftLabel} in Home` }),
+    ).toHaveCount(2);
+    await expect(page).toHaveURL(new RegExp(`craft=${secondCraftParam}`));
+    await expect(page).toHaveURL(new RegExp(`views=code-${codeTabSuffix}`));
+    await expect(page).not.toHaveURL(new RegExp(`craft=${firstCraftParam}`));
   });
 });
