@@ -158,6 +158,70 @@ async function waitForSavedVoyageWithCraft(
     });
 }
 
+async function waitForSavedVoyageCraftState(
+  request: APIRequestContext,
+  sessionId: string,
+  expected: {
+    entryLabels: string[];
+    activeCraftLabel: string;
+    activeItemTitle: string;
+  },
+) {
+  await expect
+    .poll(async () => {
+      const [savedState, workspaceState] = await Promise.all([
+        getKvState<{
+          version: number;
+          data?: Array<{
+            id: string;
+            activeVoyageEntryId: string;
+            activeTabGroupId: string;
+            voyageEntries: Array<{ id: string; tabGroupId: string; viewIds: string[] }>;
+            activeItemsByVoyageEntryId?: Record<string, string>;
+          }>;
+        }>(request, SAVED_VOYAGES_STATE_KEY),
+        getKvState<{
+          tabGroups?: Array<{
+            id: string;
+            label: string;
+            tabs: Array<{ id: string; title: string }>;
+          }>;
+        }>(request, WORKSPACE_STATE_KEY),
+      ]);
+
+      const session = savedState?.data?.find((entry) => entry.id === sessionId);
+      const entryLabels =
+        session?.voyageEntries.map((entry) => {
+          const craft = workspaceState?.tabGroups?.find(
+            (tabGroup) => tabGroup.id === entry.tabGroupId,
+          );
+          return craft?.label;
+        }) ?? [];
+      const activeEntry = session?.voyageEntries.find(
+        (entry) => entry.id === session.activeVoyageEntryId,
+      );
+      const activeCraft = workspaceState?.tabGroups?.find(
+        (tabGroup) => tabGroup.id === activeEntry?.tabGroupId,
+      );
+      const activeItemId =
+        activeEntry && session?.activeItemsByVoyageEntryId?.[activeEntry.id];
+      const activeItem = activeCraft?.tabs.find((tab) => tab.id === activeItemId);
+
+      return {
+        entryLabels,
+        activeCraftLabel: activeCraft?.label,
+        activeTabGroupId: session?.activeTabGroupId,
+        activeItemTitle: activeItem?.title,
+      };
+    })
+    .toEqual({
+      entryLabels: expected.entryLabels,
+      activeCraftLabel: expected.activeCraftLabel,
+      activeTabGroupId: expect.any(String),
+      activeItemTitle: expected.activeItemTitle,
+    });
+}
+
 
 async function waitForSavedVoyageFallbackAfterClose(
   request: APIRequestContext,
@@ -532,6 +596,222 @@ test.describe('voyage persistence', () => {
     ).toBeVisible();
     await expect(page).toHaveURL(new RegExp(`voyage=${voyageSlug}`));
     await waitForSavedVoyageWithCraft(page.request, voyageId, existingCraftLabel);
+  });
+
+  test('moves a craft entry from one saved voyage to another and persists both voyages', async ({ page }) => {
+    const runId = Date.now().toString(36);
+    const sourceVoyageId = `session_move_source_${runId}`;
+    const targetVoyageId = `session_move_target_${runId}`;
+    const sourceVoyageSlug = `e2e-move-source-voyage-${runId}-${sourceVoyageId}`;
+    const targetVoyageSlug = `e2e-move-target-voyage-${runId}-${targetVoyageId}`;
+    const sourceVoyageName = `E2E Move Source Voyage ${runId}`;
+    const targetVoyageName = `E2E Move Target Voyage ${runId}`;
+    const movedCraftLabel = `Move Me Craft ${runId}`;
+    const remainingCraftLabel = `Stay Put Craft ${runId}`;
+    const targetSeedCraftLabel = `Target Seed Craft ${runId}`;
+    const movedEntryId = `ve_${runId}_moved`;
+    const remainingEntryId = `ve_${runId}_remaining`;
+    const targetSeedEntryId = `ve_${runId}_target_seed`;
+    const now = '2026-06-05T00:00:00.000Z';
+
+    const movedCraftResult = await callWorkspaceAction<{
+      spaceId: string;
+      tabGroupId?: string;
+    }>(page.request, 'addTabGroup', {
+      spaceId: 'space_home',
+      label: movedCraftLabel,
+    });
+    expect(movedCraftResult.tabGroupId).toBeTruthy();
+    const movedTabGroupId = movedCraftResult.tabGroupId!;
+    const movedAgentTab = await callWorkspaceAction<{
+      tabGroupId: string;
+      tabId: string;
+    }>(page.request, 'addTab', {
+      tabGroupId: movedTabGroupId,
+      title: 'Agent',
+      url: `https://example.invalid/${runId}/moved-agent`,
+    });
+
+    const remainingCraftResult = await callWorkspaceAction<{
+      spaceId: string;
+      tabGroupId?: string;
+    }>(page.request, 'addTabGroup', {
+      spaceId: 'space_home',
+      label: remainingCraftLabel,
+    });
+    expect(remainingCraftResult.tabGroupId).toBeTruthy();
+    const remainingTabGroupId = remainingCraftResult.tabGroupId!;
+    const remainingAgentTab = await callWorkspaceAction<{
+      tabGroupId: string;
+      tabId: string;
+    }>(page.request, 'addTab', {
+      tabGroupId: remainingTabGroupId,
+      title: 'Agent',
+      url: `https://example.invalid/${runId}/remaining-agent`,
+    });
+
+    const targetSeedCraftResult = await callWorkspaceAction<{
+      spaceId: string;
+      tabGroupId?: string;
+    }>(page.request, 'addTabGroup', {
+      spaceId: 'space_home',
+      label: targetSeedCraftLabel,
+    });
+    expect(targetSeedCraftResult.tabGroupId).toBeTruthy();
+    const targetSeedTabGroupId = targetSeedCraftResult.tabGroupId!;
+    const targetSeedAgentTab = await callWorkspaceAction<{
+      tabGroupId: string;
+      tabId: string;
+    }>(page.request, 'addTab', {
+      tabGroupId: targetSeedTabGroupId,
+      title: 'Agent',
+      url: `https://example.invalid/${runId}/target-seed-agent`,
+    });
+
+    await callWorkspaceAction(page.request, 'upsertSavedSession', {
+      id: sourceVoyageId,
+      slug: sourceVoyageSlug,
+      name: sourceVoyageName,
+      createdAt: now,
+      updatedAt: now,
+      activeVoyageEntryId: movedEntryId,
+      voyageEntries: [
+        {
+          id: movedEntryId,
+          tabGroupId: movedTabGroupId,
+          viewIds: [movedAgentTab.tabId],
+        },
+        {
+          id: remainingEntryId,
+          tabGroupId: remainingTabGroupId,
+          viewIds: [remainingAgentTab.tabId],
+        },
+      ],
+      activeSpaceId: 'space_home',
+      activeTabGroupId: movedTabGroupId,
+      activeItemsByVoyageEntryId: {
+        [movedEntryId]: movedAgentTab.tabId,
+        [remainingEntryId]: remainingAgentTab.tabId,
+      },
+      visitedTabGroupIds: [movedTabGroupId, remainingTabGroupId],
+    });
+    await callWorkspaceAction(page.request, 'upsertSavedSession', {
+      id: targetVoyageId,
+      slug: targetVoyageSlug,
+      name: targetVoyageName,
+      createdAt: now,
+      updatedAt: now,
+      activeVoyageEntryId: targetSeedEntryId,
+      voyageEntries: [
+        {
+          id: targetSeedEntryId,
+          tabGroupId: targetSeedTabGroupId,
+          viewIds: [targetSeedAgentTab.tabId],
+        },
+      ],
+      activeSpaceId: 'space_home',
+      activeTabGroupId: targetSeedTabGroupId,
+      activeItemsByVoyageEntryId: {
+        [targetSeedEntryId]: targetSeedAgentTab.tabId,
+      },
+      visitedTabGroupIds: [targetSeedTabGroupId],
+    });
+    await waitForSavedVoyageCraftState(page.request, sourceVoyageId, {
+      entryLabels: [movedCraftLabel, remainingCraftLabel],
+      activeCraftLabel: movedCraftLabel,
+      activeItemTitle: 'Agent',
+    });
+    await waitForSavedVoyageCraftState(page.request, targetVoyageId, {
+      entryLabels: [targetSeedCraftLabel],
+      activeCraftLabel: targetSeedCraftLabel,
+      activeItemTitle: 'Agent',
+    });
+
+    await page.goto(`/dashboard?voyage=${sourceVoyageId}`);
+
+    const movedCraftButton = page.getByRole('button', {
+      name: `Open ${movedCraftLabel} in Home`,
+    });
+    await expect(movedCraftButton).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: `Open ${remainingCraftLabel} in Home` }),
+    ).toBeVisible();
+
+    await movedCraftButton.click({ button: 'right' });
+    await page.getByRole('button', { name: 'Move to Voyage' }).click();
+    await expect(
+      page.getByText('Choose the voyage that should receive this craft.'),
+    ).toBeVisible();
+    await page
+      .locator('div.fixed.z-\\[94\\] button')
+      .filter({ hasText: targetVoyageName })
+      .click();
+
+    await expect(
+      page.getByRole('button', { name: `Open ${remainingCraftLabel} in Home` }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: `Open ${movedCraftLabel} in Home` }),
+    ).toHaveCount(0);
+    await waitForSavedVoyageCraftState(page.request, sourceVoyageId, {
+      entryLabels: [remainingCraftLabel],
+      activeCraftLabel: remainingCraftLabel,
+      activeItemTitle: 'Agent',
+    });
+    await waitForSavedVoyageCraftState(page.request, targetVoyageId, {
+      entryLabels: [targetSeedCraftLabel, movedCraftLabel],
+      activeCraftLabel: movedCraftLabel,
+      activeItemTitle: 'Agent',
+    });
+
+    const movedTabGroupSuffix = movedTabGroupId.split('_').at(-1)!;
+    const movedEntrySuffix = movedEntryId.split('_').at(-1)!;
+    const movedTabSuffix = movedAgentTab.tabId.split('_').at(-1)!;
+    const movedCraftParam = `move-me-craft-${runId}-${movedTabGroupSuffix}-${movedEntrySuffix}`;
+
+    await page.goto(`/dashboard?voyage=${targetVoyageId}`);
+
+    await expect(
+      page.getByRole('button', { name: `Open ${targetSeedCraftLabel} in Home` }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: `Open ${movedCraftLabel} in Home` }),
+    ).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`voyage=${targetVoyageSlug}`));
+    await expect(page).toHaveURL(new RegExp(`craft=${movedCraftParam}`));
+    await expect(page).toHaveURL(new RegExp(`views=agent-${movedTabSuffix}`));
+
+    await page.reload();
+
+    await expect(
+      page.getByRole('button', { name: `Open ${targetSeedCraftLabel} in Home` }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: `Open ${movedCraftLabel} in Home` }),
+    ).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`voyage=${targetVoyageSlug}`));
+    await expect(page).toHaveURL(new RegExp(`craft=${movedCraftParam}`));
+    await expect(page).toHaveURL(new RegExp(`views=agent-${movedTabSuffix}`));
+    await waitForSavedVoyageCraftState(page.request, targetVoyageId, {
+      entryLabels: [targetSeedCraftLabel, movedCraftLabel],
+      activeCraftLabel: movedCraftLabel,
+      activeItemTitle: 'Agent',
+    });
+
+    await page.goto(`/dashboard?voyage=${sourceVoyageId}`);
+    await page.reload();
+
+    await expect(
+      page.getByRole('button', { name: `Open ${remainingCraftLabel} in Home` }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: `Open ${movedCraftLabel} in Home` }),
+    ).toHaveCount(0);
+    await waitForSavedVoyageCraftState(page.request, sourceVoyageId, {
+      entryLabels: [remainingCraftLabel],
+      activeCraftLabel: remainingCraftLabel,
+      activeItemTitle: 'Agent',
+    });
   });
 
   test('falls back within the current saved voyage after closing the active craft everywhere', async ({ page }) => {
