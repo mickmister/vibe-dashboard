@@ -28,6 +28,21 @@ function createMockWorkspace(runId: string): MockWorkspace {
   };
 }
 
+function createNamedMockWorkspace(
+  runId: string,
+  suffix: string,
+  name: string,
+): MockWorkspace {
+  return {
+    ...createMockWorkspace(`${runId}-${suffix}`),
+    id: `e2e-workspace-${runId}-${suffix}`,
+    task_id: `e2e-task-${runId}-${suffix}`,
+    container_ref: `/tmp/e2e-workspace-${runId}-${suffix}`,
+    agent_working_dir: `/repos/e2e-${suffix}-craft-${runId}`,
+    name,
+  };
+}
+
 type RpcResponse<T> = {
   jsonrpc: '2.0';
   id: number;
@@ -37,6 +52,7 @@ type RpcResponse<T> = {
 
 const SAVED_VOYAGES_STATE_KEY =
   'engine|module|workspace|state.persistent|workspace-sessions';
+const WORKSPACE_STATE_KEY = 'engine|module|workspace|state.persistent|workspace';
 
 async function callWorkspaceAction<T>(
   request: APIRequestContext,
@@ -85,44 +101,115 @@ async function waitForSavedVoyageEntry(
     .toBe(expectedEntryId);
 }
 
-async function mockVkApi(page: Page, workspace: MockWorkspace) {
+async function waitForSavedVoyageWithCraft(
+  request: APIRequestContext,
+  sessionId: string,
+  craftLabel: string,
+) {
+  await expect
+    .poll(async () => {
+      const [savedState, workspaceState] = await Promise.all([
+        getKvState<{
+          version: number;
+          data?: Array<{
+            id: string;
+            activeVoyageEntryId: string;
+            activeTabGroupId: string;
+            voyageEntries: Array<{ id: string; tabGroupId: string; viewIds: string[] }>;
+            activeItemsByVoyageEntryId?: Record<string, string>;
+          }>;
+        }>(request, SAVED_VOYAGES_STATE_KEY),
+        getKvState<{
+          tabGroups?: Array<{
+            id: string;
+            label: string;
+            tabs: Array<{ id: string; title: string }>;
+          }>;
+        }>(request, WORKSPACE_STATE_KEY),
+      ]);
+
+      const session = savedState?.data?.find((entry) => entry.id === sessionId);
+      const activeEntry = session?.voyageEntries.find(
+        (entry) => entry.id === session.activeVoyageEntryId,
+      );
+      const activeCraft = workspaceState?.tabGroups?.find(
+        (tabGroup) => tabGroup.id === activeEntry?.tabGroupId,
+      );
+      const activeAgentTab = activeCraft?.tabs.find((tab) => tab.title === 'Agent');
+      const activeItemId =
+        activeEntry && session?.activeItemsByVoyageEntryId?.[activeEntry.id];
+
+      return {
+        entryCount: session?.voyageEntries.length ?? 0,
+        activeTabGroupId: session?.activeTabGroupId,
+        activeCraftLabel: activeCraft?.label,
+        activeEntryHasAgentView: Boolean(
+          activeAgentTab &&
+            activeEntry?.viewIds.includes(activeAgentTab.id) &&
+            activeItemId === activeAgentTab.id,
+        ),
+      };
+    })
+    .toEqual({
+      entryCount: 2,
+      activeTabGroupId: expect.any(String),
+      activeCraftLabel: craftLabel,
+      activeEntryHasAgentView: true,
+    });
+}
+
+async function openCraftFromVoyagePlusMenu(page: Page) {
+  await page.getByLabel('Embark craft in voyage').first().click();
+  await page
+    .locator('div.fixed.z-\\[92\\] button')
+    .filter({ hasText: 'Open Craft' })
+    .click();
+}
+
+async function mockVkApi(page: Page, workspaceOrWorkspaces: MockWorkspace | MockWorkspace[]) {
+  const workspaces = Array.isArray(workspaceOrWorkspaces)
+    ? workspaceOrWorkspaces
+    : [workspaceOrWorkspaces];
+
   await page.route('**/vk-api/workspaces', async (route) => {
     await route.fulfill({
       contentType: 'application/json',
-      body: JSON.stringify({ success: true, data: [workspace] }),
+      body: JSON.stringify({ success: true, data: workspaces }),
     });
   });
 
-  await page.route(`**/vk-api/workspaces/${workspace.id}`, async (route) => {
-    await route.fulfill({
-      contentType: 'application/json',
-      body: JSON.stringify({ success: true, data: workspace }),
+  for (const workspace of workspaces) {
+    await page.route(`**/vk-api/workspaces/${workspace.id}`, async (route) => {
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, data: workspace }),
+      });
     });
-  });
 
-  await page.route(`**/vk-api/workspaces/${workspace.id}/repos`, async (route) => {
-    await route.fulfill({
-      contentType: 'application/json',
-      body: JSON.stringify({
-        success: true,
-        data: [
-          {
-            id: `repo-${workspace.id}`,
-            name: 'e2e-existing-craft',
-            display_name: 'e2e-existing-craft',
-            target_branch: 'main',
-          },
-        ],
-      }),
+    await page.route(`**/vk-api/workspaces/${workspace.id}/repos`, async (route) => {
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: [
+            {
+              id: `repo-${workspace.id}`,
+              name: 'e2e-existing-craft',
+              display_name: 'e2e-existing-craft',
+              target_branch: 'main',
+            },
+          ],
+        }),
+      });
     });
-  });
 
-  await page.route(`**/vk-api/workspaces/${workspace.id}/git/status`, async (route) => {
-    await route.fulfill({
-      contentType: 'application/json',
-      body: JSON.stringify({ success: true, data: {} }),
+    await page.route(`**/vk-api/workspaces/${workspace.id}/git/status`, async (route) => {
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, data: {} }),
+      });
     });
-  });
+  }
 }
 
 test.describe('voyage persistence', () => {
@@ -161,8 +248,7 @@ test.describe('voyage persistence', () => {
     await expect(page.getByRole('heading', { name: 'All Voyages' })).toBeVisible();
     await expect(page.getByText(voyageName).first()).toBeVisible();
 
-    await page.getByLabel('Embark craft in voyage').first().click();
-    await page.getByRole('button', { name: 'Open Craft' }).last().click();
+    await openCraftFromVoyagePlusMenu(page);
     await page.getByRole('button', { name: new RegExp(workspace.name) }).click();
     await expect(page.getByLabel(`Open ${workspace.name} in Home`).first()).toBeVisible();
 
@@ -287,5 +373,115 @@ test.describe('voyage persistence', () => {
     await expect(page).toHaveURL(new RegExp(`craft=${secondCraftParam}`));
     await expect(page).toHaveURL(new RegExp(`views=code-${codeTabSuffix}`));
     await expect(page).not.toHaveURL(new RegExp(`craft=${firstCraftParam}`));
+  });
+
+  test('adds and persists a selected craft from the voyage plus Open Craft flow', async ({ page }) => {
+    const runId = Date.now().toString(36);
+    const initialCraftLabel = `Seed Craft ${runId}`;
+    const existingCraftLabel = `E2E Opened Craft ${runId}`;
+    const voyageId = `session_open_craft_${runId}`;
+    const voyageSlug = `e2e-open-craft-voyage-${runId}-${voyageId}`;
+    const voyageName = `E2E Open Craft Voyage ${runId}`;
+    const initialEntryId = `ve_${runId}_seed`;
+    const now = '2026-06-05T00:00:00.000Z';
+    const workspaceToOpen = createNamedMockWorkspace(
+      runId,
+      'opened',
+      existingCraftLabel,
+    );
+    await mockVkApi(page, workspaceToOpen);
+
+    const addCraftResult = await callWorkspaceAction<{
+      spaceId: string;
+      tabGroupId?: string;
+    }>(page.request, 'addTabGroup', {
+      spaceId: 'space_home',
+      label: initialCraftLabel,
+    });
+    expect(addCraftResult.tabGroupId).toBeTruthy();
+    const initialTabGroupId = addCraftResult.tabGroupId!;
+
+    const initialAgentTab = await callWorkspaceAction<{
+      tabGroupId: string;
+      tabId: string;
+    }>(page.request, 'addTab', {
+      tabGroupId: initialTabGroupId,
+      title: 'Agent',
+      url: `https://example.invalid/${runId}/seed-agent`,
+    });
+
+    const existingCraftResult = await callWorkspaceAction<{
+      spaceId: string;
+      tabGroupId?: string;
+    }>(page.request, 'addTabGroup', {
+      spaceId: 'space_home',
+      label: existingCraftLabel,
+    });
+    expect(existingCraftResult.tabGroupId).toBeTruthy();
+    const existingTabGroupId = existingCraftResult.tabGroupId!;
+
+    await callWorkspaceAction(page.request, 'addTab', {
+      tabGroupId: existingTabGroupId,
+      title: 'Agent',
+      url: `https://example.invalid/workspaces/${workspaceToOpen.id}`,
+    });
+
+    await callWorkspaceAction(page.request, 'upsertSavedSession', {
+      id: voyageId,
+      slug: voyageSlug,
+      name: voyageName,
+      createdAt: now,
+      updatedAt: now,
+      activeVoyageEntryId: initialEntryId,
+      voyageEntries: [
+        {
+          id: initialEntryId,
+          tabGroupId: initialTabGroupId,
+          viewIds: [initialAgentTab.tabId],
+        },
+      ],
+      activeSpaceId: 'space_home',
+      activeTabGroupId: initialTabGroupId,
+      activeItemsByVoyageEntryId: {
+        [initialEntryId]: initialAgentTab.tabId,
+      },
+      visitedTabGroupIds: [initialTabGroupId],
+    });
+    await waitForSavedVoyageEntry(page.request, voyageId, initialEntryId);
+
+    await page.goto(`/dashboard?voyage=${voyageId}`);
+
+    await expect(
+      page.getByRole('button', { name: `Open ${initialCraftLabel} in Home` }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: `Open ${existingCraftLabel} in Home` }),
+    ).toHaveCount(0);
+
+    await openCraftFromVoyagePlusMenu(page);
+
+    await expect(page.getByRole('heading', { name: 'Open VK Workspace' })).toBeVisible();
+    await page.getByPlaceholder('Search workspaces...').fill(workspaceToOpen.name);
+    await page.getByRole('button', { name: new RegExp(workspaceToOpen.name) }).click();
+
+    await expect(
+      page.getByRole('button', { name: `Open ${initialCraftLabel} in Home` }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: `Open ${existingCraftLabel} in Home` }),
+    ).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`voyage=${voyageSlug}`));
+    await waitForSavedVoyageWithCraft(page.request, voyageId, existingCraftLabel);
+
+    await page.reload();
+
+    await expect(
+      page.getByRole('button', { name: `Open ${initialCraftLabel} in Home` }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: `Open ${existingCraftLabel} in Home` }),
+    ).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`voyage=${voyageSlug}`));
+    await waitForSavedVoyageWithCraft(page.request, voyageId, existingCraftLabel);
   });
 });
