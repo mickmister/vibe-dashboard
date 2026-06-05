@@ -303,7 +303,7 @@ jobs:
           fi
           coolify_pr_deploy_url="${COOLIFY_WEBHOOK}${query_separator}pr=${PR_NUMBER}&docker_tag=${PR_IMAGE_TAG}"
 
-          curl \
+          if ! curl \
             --fail-with-body \
             --show-error \
             --silent \
@@ -314,6 +314,9 @@ jobs:
             "$coolify_pr_deploy_url" \
             --header "Authorization: Bearer $COOLIFY_TOKEN" \
             --header "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
-            --header "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET"
+            --header "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET"; then
+            echo "::warning::Coolify PR deployment webhook failed after the PR image was published. Check the Coolify/Cloudflare endpoint and retry the workflow if a preview deployment is still needed."
+            exit 0
+          fi
 
           echo "Coolify PR deployment webhook notified for PR #${PR_NUMBER} using image tag ${PR_IMAGE_TAG}."
