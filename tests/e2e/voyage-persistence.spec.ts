@@ -158,6 +158,55 @@ async function waitForSavedVoyageWithCraft(
     });
 }
 
+
+async function waitForSavedVoyageFallbackAfterClose(
+  request: APIRequestContext,
+  args: {
+    sessionId: string;
+    fallbackEntryId: string;
+    fallbackTabGroupId: string;
+    closedEntryId: string;
+    closedTabGroupId: string;
+  },
+) {
+  await expect
+    .poll(async () => {
+      const state = await getKvState<{
+        version: number;
+        data?: Array<{
+          id: string;
+          activeVoyageEntryId: string;
+          activeTabGroupId: string;
+          voyageEntries: Array<{ id: string; tabGroupId: string; viewIds: string[] }>;
+        }>;
+      }>(request, SAVED_VOYAGES_STATE_KEY);
+      const session = state?.data?.find((entry) => entry.id === args.sessionId);
+
+      return {
+        activeVoyageEntryId: session?.activeVoyageEntryId,
+        activeTabGroupId: session?.activeTabGroupId,
+        voyageEntryIds: session?.voyageEntries.map((entry) => entry.id) ?? [],
+        voyageTabGroupIds: session?.voyageEntries.map((entry) => entry.tabGroupId) ?? [],
+        closedEntryPresent: Boolean(
+          session?.voyageEntries.some((entry) => entry.id === args.closedEntryId),
+        ),
+        closedTabGroupPresent: Boolean(
+          session?.voyageEntries.some(
+            (entry) => entry.tabGroupId === args.closedTabGroupId,
+          ),
+        ),
+      };
+    })
+    .toEqual({
+      activeVoyageEntryId: args.fallbackEntryId,
+      activeTabGroupId: args.fallbackTabGroupId,
+      voyageEntryIds: [args.fallbackEntryId],
+      voyageTabGroupIds: [args.fallbackTabGroupId],
+      closedEntryPresent: false,
+      closedTabGroupPresent: false,
+    });
+}
+
 async function openCraftFromVoyagePlusMenu(page: Page) {
   await page.getByLabel('Embark craft in voyage').first().click();
   await page
@@ -484,4 +533,147 @@ test.describe('voyage persistence', () => {
     await expect(page).toHaveURL(new RegExp(`voyage=${voyageSlug}`));
     await waitForSavedVoyageWithCraft(page.request, voyageId, existingCraftLabel);
   });
+
+  test('falls back within the current saved voyage after closing the active craft everywhere', async ({ page }) => {
+    const runId = Date.now().toString(36);
+    const fallbackCraftLabel = `Fallback Craft ${runId}`;
+    const activeCraftLabel = `Active Craft ${runId}`;
+    const voyageId = `session_close_active_${runId}`;
+    const voyageName = `E2E Close Active Voyage ${runId}`;
+    const fallbackEntryId = `ve_${runId}_fallback`;
+    const activeEntryId = `ve_${runId}_active`;
+    const now = '2026-06-05T00:00:00.000Z';
+
+    const fallbackCraftResult = await callWorkspaceAction<{
+      spaceId: string;
+      tabGroupId?: string;
+    }>(page.request, 'addTabGroup', {
+      spaceId: 'space_home',
+      label: fallbackCraftLabel,
+    });
+    expect(fallbackCraftResult.tabGroupId).toBeTruthy();
+    const fallbackTabGroupId = fallbackCraftResult.tabGroupId!;
+
+    const fallbackAgentTab = await callWorkspaceAction<{
+      tabGroupId: string;
+      tabId: string;
+    }>(page.request, 'addTab', {
+      tabGroupId: fallbackTabGroupId,
+      title: 'Agent',
+      url: `https://example.invalid/${runId}/fallback-agent`,
+    });
+
+    const activeCraftResult = await callWorkspaceAction<{
+      spaceId: string;
+      tabGroupId?: string;
+    }>(page.request, 'addTabGroup', {
+      spaceId: 'space_home',
+      label: activeCraftLabel,
+    });
+    expect(activeCraftResult.tabGroupId).toBeTruthy();
+    const activeTabGroupId = activeCraftResult.tabGroupId!;
+
+    const activeAgentTab = await callWorkspaceAction<{
+      tabGroupId: string;
+      tabId: string;
+    }>(page.request, 'addTab', {
+      tabGroupId: activeTabGroupId,
+      title: 'Agent',
+      url: `https://example.invalid/${runId}/active-agent`,
+    });
+
+    await callWorkspaceAction(page.request, 'upsertSavedSession', {
+      id: voyageId,
+      slug: `e2e-close-active-voyage-${runId}-${voyageId}`,
+      name: voyageName,
+      createdAt: now,
+      updatedAt: now,
+      activeVoyageEntryId: activeEntryId,
+      voyageEntries: [
+        {
+          id: fallbackEntryId,
+          tabGroupId: fallbackTabGroupId,
+          viewIds: [fallbackAgentTab.tabId],
+        },
+        {
+          id: activeEntryId,
+          tabGroupId: activeTabGroupId,
+          viewIds: [activeAgentTab.tabId],
+        },
+      ],
+      activeSpaceId: 'space_home',
+      activeTabGroupId,
+      activeItemsByVoyageEntryId: {
+        [fallbackEntryId]: fallbackAgentTab.tabId,
+        [activeEntryId]: activeAgentTab.tabId,
+      },
+      visitedTabGroupIds: [fallbackTabGroupId, activeTabGroupId],
+    });
+    await waitForSavedVoyageEntry(page.request, voyageId, activeEntryId);
+
+    const fallbackTabGroupSuffix = fallbackTabGroupId.split('_').at(-1)!;
+    const activeTabGroupSuffix = activeTabGroupId.split('_').at(-1)!;
+    const fallbackTabSuffix = fallbackAgentTab.tabId.split('_').at(-1)!;
+    const activeTabSuffix = activeAgentTab.tabId.split('_').at(-1)!;
+    const fallbackCraftParam = `fallback-craft-${runId}-${fallbackTabGroupSuffix}`;
+    const activeCraftParam = `active-craft-${runId}-${activeTabGroupSuffix}`;
+
+    await page.goto(`/dashboard?voyage=${voyageId}`);
+
+    await expect(
+      page.getByRole('button', { name: `Open ${fallbackCraftLabel} in Home` }),
+    ).toBeVisible();
+    const activeCraftButton = page.getByRole('button', {
+      name: `Open ${activeCraftLabel} in Home`,
+    });
+    await expect(activeCraftButton).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`craft=${activeCraftParam}`));
+    await expect(page).toHaveURL(new RegExp(`views=agent-${activeTabSuffix}`));
+
+    page.once('dialog', async (dialog) => {
+      expect(dialog.message()).toContain(`Close "${activeCraftLabel}" everywhere?`);
+      expect(dialog.message()).toContain(
+        'This deletes the craft, not just from the current voyage.',
+      );
+      await dialog.accept();
+    });
+    await activeCraftButton.click({ button: 'right' });
+    await page.getByRole('button', { name: 'Close Craft Everywhere' }).click();
+
+    await expect(
+      page.getByRole('button', { name: `Open ${fallbackCraftLabel} in Home` }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: `Open ${activeCraftLabel} in Home` }),
+    ).toHaveCount(0);
+    await expect(page).toHaveURL(new RegExp(`craft=${fallbackCraftParam}`));
+    await expect(page).toHaveURL(new RegExp(`views=agent-${fallbackTabSuffix}`));
+    await expect(page).not.toHaveURL(new RegExp(`craft=${activeCraftParam}`));
+    await waitForSavedVoyageFallbackAfterClose(page.request, {
+      sessionId: voyageId,
+      fallbackEntryId,
+      fallbackTabGroupId,
+      closedEntryId: activeEntryId,
+      closedTabGroupId: activeTabGroupId,
+    });
+
+    await page.reload();
+
+    await waitForSavedVoyageFallbackAfterClose(page.request, {
+      sessionId: voyageId,
+      fallbackEntryId,
+      fallbackTabGroupId,
+      closedEntryId: activeEntryId,
+      closedTabGroupId: activeTabGroupId,
+    });
+    await expect(
+      page.getByRole('button', { name: `Open ${fallbackCraftLabel} in Home` }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: `Open ${activeCraftLabel} in Home` }),
+    ).toHaveCount(0);
+    await expect(page).toHaveURL(new RegExp(`craft=${fallbackCraftParam}`));
+    await expect(page).toHaveURL(new RegExp(`views=agent-${fallbackTabSuffix}`));
+  });
+
 });
