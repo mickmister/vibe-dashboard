@@ -297,39 +297,34 @@ jobs:
             exit 1
           fi
 
-          coolify_env_url="$(
-            python3 - "$COOLIFY_WEBHOOK" <<'PY'
-import sys
-from urllib.parse import parse_qs, urlparse, urlunparse
+          coolify_deploy_url="${COOLIFY_WEBHOOK%%\?*}"
+          coolify_query="${COOLIFY_WEBHOOK#*\?}"
+          if [[ "$coolify_deploy_url" == "$COOLIFY_WEBHOOK" ]]; then
+            echo "::error::COOLIFY_WEBHOOK must include a uuid query parameter."
+            exit 1
+          fi
 
-deploy_url = sys.argv[1]
-parsed = urlparse(deploy_url)
-uuid = parse_qs(parsed.query).get("uuid", [""])[0]
+          if [[ "$coolify_deploy_url" != */api/v1/deploy ]]; then
+            echo "::error::COOLIFY_WEBHOOK must point to /api/v1/deploy."
+            exit 1
+          fi
 
-if not uuid:
-    raise SystemExit("COOLIFY_WEBHOOK must include a uuid query parameter")
+          coolify_uuid=""
+          IFS='&' read -ra coolify_query_params <<< "$coolify_query"
+          for query_param in "${coolify_query_params[@]}"; do
+            if [[ "$query_param" == uuid=* ]]; then
+              coolify_uuid="${query_param#uuid=}"
+              break
+            fi
+          done
 
-if not parsed.path.endswith("/api/v1/deploy"):
-    raise SystemExit("COOLIFY_WEBHOOK must point to /api/v1/deploy")
+          if [[ -z "$coolify_uuid" ]]; then
+            echo "::error::COOLIFY_WEBHOOK must include a uuid query parameter."
+            exit 1
+          fi
 
-env_path = parsed.path[:-len("/deploy")] + f"/applications/{uuid}/envs"
-print(urlunparse((parsed.scheme, parsed.netloc, env_path, "", "", "")))
-PY
-          )"
-
-          env_payload="$(
-            python3 - "$PR_IMAGE_TAG" <<'PY'
-import json
-import sys
-
-print(json.dumps({
-    "key": "VKVD_IMAGE_VERSION",
-    "value": sys.argv[1],
-    "is_preview": False,
-    "is_literal": True,
-}))
-PY
-          )"
+          coolify_env_url="${coolify_deploy_url%/deploy}/applications/${coolify_uuid}/envs"
+          env_payload="$(printf '{"key":"VKVD_IMAGE_VERSION","value":"%s","is_preview":false,"is_literal":true}' "$PR_IMAGE_TAG")"
 
           if ! curl \
             --fail-with-body \
