@@ -6,6 +6,7 @@ on:
       - '**'
   pull_request:
     types:
+      - opened
       - labeled
       - synchronize
       - reopened
@@ -39,7 +40,9 @@ concurrency:
 
 jobs:
   resolve-vk-ref:
-    if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && ((github.event.action == 'labeled' && github.event.label.name == 'coolify-deploy') || (github.event.action != 'labeled' && contains(github.event.pull_request.labels.*.name, 'coolify-deploy')))) }}
+    # TEMPORARY TEST MODE: deploy every same-repository PR update to Coolify.
+    # Restore the coolify-deploy label gate before merging if every-commit PR deploys should not ship.
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
     outputs:
       image_tag: ${{ steps.resolve.outputs.image_tag }}
@@ -143,7 +146,9 @@ jobs:
 
   check-types:
     name: npm run check-types
-    if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && ((github.event.action == 'labeled' && github.event.label.name == 'coolify-deploy') || (github.event.action != 'labeled' && contains(github.event.pull_request.labels.*.name, 'coolify-deploy')))) }}
+    # TEMPORARY TEST MODE: deploy every same-repository PR update to Coolify.
+    # Restore the coolify-deploy label gate before merging if every-commit PR deploys should not ship.
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
