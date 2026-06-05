@@ -297,11 +297,59 @@ jobs:
             exit 1
           fi
 
-          query_separator="?"
-          if [[ "$COOLIFY_WEBHOOK" == *"?"* ]]; then
-            query_separator="&"
+          coolify_env_url="$(
+            python3 - "$COOLIFY_WEBHOOK" <<'PY'
+import sys
+from urllib.parse import parse_qs, urlparse, urlunparse
+
+deploy_url = sys.argv[1]
+parsed = urlparse(deploy_url)
+uuid = parse_qs(parsed.query).get("uuid", [""])[0]
+
+if not uuid:
+    raise SystemExit("COOLIFY_WEBHOOK must include a uuid query parameter")
+
+if not parsed.path.endswith("/api/v1/deploy"):
+    raise SystemExit("COOLIFY_WEBHOOK must point to /api/v1/deploy")
+
+env_path = parsed.path[:-len("/deploy")] + f"/applications/{uuid}/envs"
+print(urlunparse((parsed.scheme, parsed.netloc, env_path, "", "", "")))
+PY
+          )"
+
+          env_payload="$(
+            python3 - "$PR_IMAGE_TAG" <<'PY'
+import json
+import sys
+
+print(json.dumps({
+    "key": "VKVD_IMAGE_VERSION",
+    "value": sys.argv[1],
+    "is_preview": False,
+    "is_literal": True,
+}))
+PY
+          )"
+
+          if ! curl \
+            --fail-with-body \
+            --show-error \
+            --silent \
+            --retry 5 \
+            --retry-delay 5 \
+            --retry-all-errors \
+            --request PATCH \
+            "$coolify_env_url" \
+            --header "Authorization: Bearer $COOLIFY_TOKEN" \
+            --header "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
+            --header "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
+            --header "Content-Type: application/json" \
+            --data "$env_payload"; then
+            echo "::warning::Failed to update Coolify VKVD_IMAGE_VERSION to ${PR_IMAGE_TAG}. Check the Coolify/Cloudflare endpoint and retry the workflow if a PR image deployment is still needed."
+            exit 0
           fi
-          coolify_pr_deploy_url="${COOLIFY_WEBHOOK}${query_separator}pr=${PR_NUMBER}&docker_tag=${PR_IMAGE_TAG}"
+
+          echo "Coolify VKVD_IMAGE_VERSION updated to ${PR_IMAGE_TAG}."
 
           if ! curl \
             --fail-with-body \
@@ -311,12 +359,12 @@ jobs:
             --retry-delay 5 \
             --retry-all-errors \
             --request GET \
-            "$coolify_pr_deploy_url" \
+            "$COOLIFY_WEBHOOK" \
             --header "Authorization: Bearer $COOLIFY_TOKEN" \
             --header "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
             --header "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET"; then
-            echo "::warning::Coolify PR deployment webhook failed after the PR image was published. Check the Coolify/Cloudflare endpoint and retry the workflow if a preview deployment is still needed."
+            echo "::warning::Coolify main deployment webhook failed after VKVD_IMAGE_VERSION was set to ${PR_IMAGE_TAG}. Check the Coolify/Cloudflare endpoint and retry the workflow if a PR image deployment is still needed."
             exit 0
           fi
 
-          echo "Coolify PR deployment webhook notified for PR #${PR_NUMBER} using image tag ${PR_IMAGE_TAG}."
+          echo "Coolify main deployment webhook notified for PR #${PR_NUMBER} using image tag ${PR_IMAGE_TAG}."
