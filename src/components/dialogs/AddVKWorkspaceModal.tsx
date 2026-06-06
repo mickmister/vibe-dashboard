@@ -28,15 +28,22 @@ interface AddVKWorkspaceModalProps {
   isOpen: boolean;
   onClose: () => void;
   onComplete?: () => void;
-  onAdd: (taskAttemptId: string, name: string, containerRef: string) => void;
+  onAdd: (
+    taskAttemptId: string,
+    name: string,
+    containerRef: string,
+  ) => void | Promise<void>;
   onAddToSpace?: (
     taskAttemptId: string,
     name: string,
     containerRef: string,
     spaceId: string
-  ) => void;
-  onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void;
-  onAddWithPath?: (workspacePath: string, name: string) => void;
+  ) => void | Promise<void>;
+  onNavigateToTabGroup?: (
+    spaceId: string,
+    tabGroupId: string,
+  ) => void | Promise<void>;
+  onAddWithPath?: (workspacePath: string, name: string) => void | Promise<void>;
   workspaceState?: WorkspaceState;
   allowCustomPath?: boolean;
 }
@@ -160,7 +167,7 @@ export function AddVKWorkspaceModal({
   const handleWorkspaceSelect = async (workspace: WorkspaceOption) => {
     const openLocation = workspaceTabGroupMap.get(workspace.id);
     if (openLocation && onNavigateToTabGroup) {
-      onNavigateToTabGroup(openLocation.spaceId, openLocation.tabGroupId);
+      await onNavigateToTabGroup(openLocation.spaceId, openLocation.tabGroupId);
       onComplete?.();
       onClose();
       return;
@@ -172,7 +179,7 @@ export function AddVKWorkspaceModal({
     }
 
     const containerRef = await resolveContainerRef(workspace);
-    onAdd(workspace.id, workspace.name || 'Untitled Workspace', containerRef);
+    await onAdd(workspace.id, workspace.name || 'Untitled Workspace', containerRef);
     onComplete?.();
     onClose();
   };
@@ -183,14 +190,14 @@ export function AddVKWorkspaceModal({
     const containerRef = await resolveContainerRef(spacePickerTarget);
 
     if (onAddToSpace) {
-      onAddToSpace(
+      await onAddToSpace(
         spacePickerTarget.id,
         spacePickerTarget.name || 'Untitled Workspace',
         containerRef,
         spaceId
       );
     } else {
-      onAdd(
+      await onAdd(
         spacePickerTarget.id,
         spacePickerTarget.name || 'Untitled Workspace',
         containerRef
@@ -201,17 +208,17 @@ export function AddVKWorkspaceModal({
     onClose();
   };
 
-  const handleAddWithPath = () => {
+  const handleAddWithPath = async () => {
     if (!customPath.trim()) return;
 
     const name = customName.trim() || 'Custom Workspace';
 
     // If onAddWithPath is provided, use it
     if (onAddWithPath) {
-      onAddWithPath(customPath.trim(), name);
+      await onAddWithPath(customPath.trim(), name);
     } else {
       // Fallback: treat path as containerRef and create empty taskAttemptId
-      onAdd('', name, customPath.trim());
+      await onAdd('', name, customPath.trim());
     }
     onComplete?.();
     onClose();
@@ -290,7 +297,7 @@ export function AddVKWorkspaceModal({
                 size="sm"
                 autoFocus
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleAddWithPath();
+                  if (e.key === 'Enter') void handleAddWithPath();
                 }}
                 classNames={{
                   inputWrapper: 'bg-neutral-800 border-neutral-700 data-[hover=true]:bg-neutral-800 group-data-[focus=true]:bg-neutral-800',
@@ -448,7 +455,9 @@ export function AddVKWorkspaceModal({
           {showPathInput && (
             <Button
               color="primary"
-              onPress={handleAddWithPath}
+              onPress={() => {
+                void handleAddWithPath();
+              }}
               isDisabled={!customPath.trim()}
             >
               Add

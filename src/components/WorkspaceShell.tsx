@@ -408,6 +408,20 @@ export function WorkspaceShell({
       (entry) => entry.tabGroupId === selection.tabGroupId,
     );
     if (existingEntry) {
+      const currentSavedSession = savedSessions.find(
+        (entry) => entry.id === currentSessionId,
+      );
+      if (currentSavedSession) {
+        const savedSession = await actions.activateSavedVoyageEntry({
+          sessionId: currentSavedSession.id,
+          voyageEntryId: existingEntry.id,
+        });
+        if (savedSession) {
+          sessionActions.activateSavedSession(savedSession);
+          return;
+        }
+      }
+
       sessionActions.selectVoyageEntry(existingEntry.id);
       return;
     }
@@ -674,13 +688,13 @@ export function WorkspaceShell({
     setWorkspaceSearchMode('general');
   };
 
-  const handleNavigateToWorkspaceTabGroup = (
+  const handleNavigateToWorkspaceTabGroup = async (
     spaceId: string,
     tabGroupId: string,
   ) => {
     const destinationSessionId = pendingOpenCraftSessionId;
     if (workspaceSearchMode === 'session-add' && pendingNewVoyageCraftName) {
-      void createAndActivateSavedVoyage(pendingNewVoyageCraftName, {
+      await createAndActivateSavedVoyage(pendingNewVoyageCraftName, {
         spaceId,
         tabGroupId,
       });
@@ -692,12 +706,12 @@ export function WorkspaceShell({
 
     if (workspaceSearchMode === 'session-add' && destinationSessionId) {
       if (destinationSessionId !== currentSessionId) {
-        void addAndActivateSelectionInSavedVoyage(destinationSessionId, {
+        await addAndActivateSelectionInSavedVoyage(destinationSessionId, {
           spaceId,
           tabGroupId,
         });
       } else {
-        void addOrSelectCraftInCurrentVoyage({ spaceId, tabGroupId });
+        await addOrSelectCraftInCurrentVoyage({ spaceId, tabGroupId });
       }
       setPendingOpenCraftSessionId(null);
       setWorkspaceSearchMode('general');
@@ -705,7 +719,7 @@ export function WorkspaceShell({
     }
 
     if (workspaceSearchMode === 'session-add') {
-      void addOrSelectCraftInCurrentVoyage({ spaceId, tabGroupId });
+      await addOrSelectCraftInCurrentVoyage({ spaceId, tabGroupId });
       setPendingOpenCraftSessionId(null);
       setWorkspaceSearchMode('general');
       return;
@@ -727,7 +741,7 @@ export function WorkspaceShell({
       if (existingEntry) {
         switchToVoyage(destinationSessionId, existingEntry.id);
       } else {
-        void addAndActivateSelectionInSavedVoyage(destinationSessionId, {
+        await addAndActivateSelectionInSavedVoyage(destinationSessionId, {
           spaceId,
           tabGroupId,
         });

@@ -626,6 +626,19 @@ test.describe('voyage persistence', () => {
     await expect(page).toHaveURL(new RegExp(`voyage=${voyageSlug}`));
     await waitForSavedVoyageWithCraft(page.request, voyageId, existingCraftLabel);
 
+    await page
+      .getByRole('button', { name: `Open ${initialCraftLabel} in Home` })
+      .click();
+    await expect(page).toHaveURL(new RegExp(`craft=seed-craft-${runId}`));
+
+    await openCraftFromVoyagePlusMenu(page);
+    await page.getByPlaceholder('Search workspaces...').fill(workspaceToOpen.name);
+    await page.getByRole('button', { name: new RegExp(workspaceToOpen.name) }).click();
+    await expect(page).toHaveURL(
+      new RegExp(`craft=e2e-opened-craft-${runId}`),
+    );
+    await waitForSavedVoyageWithCraft(page.request, voyageId, existingCraftLabel);
+
     await page.reload();
 
     await expect(
@@ -635,6 +648,9 @@ test.describe('voyage persistence', () => {
       page.getByRole('button', { name: `Open ${existingCraftLabel} in Home` }),
     ).toBeVisible();
     await expect(page).toHaveURL(new RegExp(`voyage=${voyageSlug}`));
+    await expect(page).toHaveURL(
+      new RegExp(`craft=e2e-opened-craft-${runId}`),
+    );
     await waitForSavedVoyageWithCraft(page.request, voyageId, existingCraftLabel);
   });
 

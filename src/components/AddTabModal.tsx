@@ -17,14 +17,21 @@ interface AddTabModalProps {
   isOpen: boolean;
   onClose: () => void;
   onAdd: (title: string, url: string) => void;
-  onAddVKWorkspace?: (taskAttemptId: string, name: string, containerRef: string) => void;
+  onAddVKWorkspace?: (
+    taskAttemptId: string,
+    name: string,
+    containerRef: string,
+  ) => void | Promise<void>;
   onAddVKWorkspaceToSpace?: (
     taskAttemptId: string,
     name: string,
     containerRef: string,
     spaceId: string
-  ) => void;
-  onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void;
+  ) => void | Promise<void>;
+  onNavigateToTabGroup?: (
+    spaceId: string,
+    tabGroupId: string,
+  ) => void | Promise<void>;
   onAddTabGroup?: (label: string) => void;
   workspace?: WorkspaceState;
 }
@@ -107,15 +114,14 @@ export function AddTabModal({
     }
   };
 
-  const handleVKWorkspaceAdd = (
+  const handleVKWorkspaceAdd = async (
     taskAttemptId: string,
     name: string,
     containerRef: string
   ) => {
     if (onAddVKWorkspace) {
-      onAddVKWorkspace(taskAttemptId, name, containerRef);
+      await onAddVKWorkspace(taskAttemptId, name, containerRef);
     }
-    handleClose();
   };
 
   const handleTabGroupSubmit = () => {
