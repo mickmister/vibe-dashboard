@@ -223,6 +223,35 @@ async function waitForSavedVoyageCraftState(
     });
 }
 
+async function waitForSavedVoyageIdByName(
+  request: APIRequestContext,
+  voyageName: string,
+): Promise<string> {
+  let foundId = '';
+  await expect
+    .poll(async () => {
+      const state = await getKvState<{
+        version: number;
+        data?: Array<{ id: string; name: string }>;
+      }>(request, SAVED_VOYAGES_STATE_KEY);
+      foundId = state?.data?.find((session) => session.name === voyageName)?.id || '';
+      return foundId;
+    })
+    .not.toBe('');
+  return foundId;
+}
+
+async function clearSavedVoyages(request: APIRequestContext) {
+  const state = await getKvState<{
+    version: number;
+    data?: Array<{ id: string }>;
+  }>(request, SAVED_VOYAGES_STATE_KEY);
+
+  for (const session of state?.data || []) {
+    await callWorkspaceAction(request, 'deleteSavedSession', { id: session.id });
+  }
+}
+
 
 async function waitForSavedVoyageFallbackAfterClose(
   request: APIRequestContext,
@@ -828,6 +857,301 @@ test.describe('voyage persistence', () => {
       activeCraftLabel: remainingCraftLabel,
       activeItemTitle: 'Agent',
       activeTabGroupId: remainingTabGroupId,
+    });
+  });
+
+  test('creates a target voyage when moving a craft and no other saved voyage exists', async ({ page }) => {
+    await clearSavedVoyages(page.request);
+
+    const runId = Date.now().toString(36);
+    const sourceVoyageId = `session_move_new_target_source_${runId}`;
+    const sourceVoyageName = `E2E Move New Target Source ${runId}`;
+    const targetVoyageName = `E2E Created Move Target ${runId}`;
+    const movedCraftLabel = `Move New Target Craft ${runId}`;
+    const remainingCraftLabel = `Move New Target Remaining ${runId}`;
+    const movedEntryId = `ve_${runId}_new_target_moved`;
+    const remainingEntryId = `ve_${runId}_new_target_remaining`;
+    const now = '2026-06-05T00:00:00.000Z';
+
+    const movedCraftResult = await callWorkspaceAction<{
+      spaceId: string;
+      tabGroupId?: string;
+    }>(page.request, 'addTabGroup', {
+      spaceId: 'space_home',
+      label: movedCraftLabel,
+    });
+    expect(movedCraftResult.tabGroupId).toBeTruthy();
+    const movedTabGroupId = movedCraftResult.tabGroupId!;
+    const movedAgentTab = await callWorkspaceAction<{
+      tabGroupId: string;
+      tabId: string;
+    }>(page.request, 'addTab', {
+      tabGroupId: movedTabGroupId,
+      title: 'Agent',
+      url: `https://example.invalid/${runId}/new-target-moved-agent`,
+    });
+
+    const remainingCraftResult = await callWorkspaceAction<{
+      spaceId: string;
+      tabGroupId?: string;
+    }>(page.request, 'addTabGroup', {
+      spaceId: 'space_home',
+      label: remainingCraftLabel,
+    });
+    expect(remainingCraftResult.tabGroupId).toBeTruthy();
+    const remainingTabGroupId = remainingCraftResult.tabGroupId!;
+    const remainingAgentTab = await callWorkspaceAction<{
+      tabGroupId: string;
+      tabId: string;
+    }>(page.request, 'addTab', {
+      tabGroupId: remainingTabGroupId,
+      title: 'Agent',
+      url: `https://example.invalid/${runId}/new-target-remaining-agent`,
+    });
+
+    await callWorkspaceAction(page.request, 'upsertSavedSession', {
+      id: sourceVoyageId,
+      slug: `e2e-move-new-target-source-${runId}-${sourceVoyageId}`,
+      name: sourceVoyageName,
+      createdAt: now,
+      updatedAt: now,
+      activeVoyageEntryId: movedEntryId,
+      voyageEntries: [
+        {
+          id: movedEntryId,
+          tabGroupId: movedTabGroupId,
+          viewIds: [movedAgentTab.tabId],
+        },
+        {
+          id: remainingEntryId,
+          tabGroupId: remainingTabGroupId,
+          viewIds: [remainingAgentTab.tabId],
+        },
+      ],
+      activeSpaceId: 'space_home',
+      activeTabGroupId: movedTabGroupId,
+      activeItemsByVoyageEntryId: {
+        [movedEntryId]: movedAgentTab.tabId,
+        [remainingEntryId]: remainingAgentTab.tabId,
+      },
+      visitedTabGroupIds: [movedTabGroupId, remainingTabGroupId],
+    });
+
+    await page.goto(`/dashboard?voyage=${sourceVoyageId}`);
+
+    const movedCraftButton = page.getByRole('button', {
+      name: `Open ${movedCraftLabel} in Home`,
+    });
+    await expect(movedCraftButton).toBeVisible();
+    await movedCraftButton.click({ button: 'right' });
+    await page.getByRole('button', { name: 'Move to Voyage' }).click();
+    await expect(page.getByText('No other saved voyages yet.')).toBeVisible();
+
+    page.once('dialog', async (dialog) => {
+      expect(dialog.type()).toBe('prompt');
+      await dialog.accept(targetVoyageName);
+    });
+    await page
+      .getByRole('dialog', { name: 'Move to Voyage' })
+      .getByRole('button', { name: 'Create New Voyage' })
+      .click();
+
+    await expect(
+      page.getByRole('button', { name: `Open ${remainingCraftLabel} in Home` }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: `Open ${movedCraftLabel} in Home` }),
+    ).toHaveCount(0);
+
+    const targetVoyageId = await waitForSavedVoyageIdByName(
+      page.request,
+      targetVoyageName,
+    );
+    await waitForSavedVoyageCraftState(page.request, sourceVoyageId, {
+      entryLabels: [remainingCraftLabel],
+      activeCraftLabel: remainingCraftLabel,
+      activeItemTitle: 'Agent',
+      activeTabGroupId: remainingTabGroupId,
+    });
+    await waitForSavedVoyageCraftState(page.request, targetVoyageId, {
+      entryLabels: [movedCraftLabel],
+      activeCraftLabel: movedCraftLabel,
+      activeItemTitle: 'Agent',
+      activeTabGroupId: movedTabGroupId,
+    });
+  });
+
+  test('moves a craft entry from an unsaved voyage into an existing saved voyage', async ({ page }) => {
+    await clearSavedVoyages(page.request);
+
+    const runId = Date.now().toString(36);
+    const unsavedSessionId = `session_unsaved_move_${runId}`;
+    const targetVoyageId = `session_unsaved_move_target_${runId}`;
+    const targetVoyageName = `E2E Unsaved Move Target ${runId}`;
+    const movedCraftLabel = `Unsaved Move Craft ${runId}`;
+    const remainingCraftLabel = `Unsaved Remaining Craft ${runId}`;
+    const targetSeedCraftLabel = `Unsaved Target Seed ${runId}`;
+    const movedEntryId = `ve_${runId}_unsaved_moved`;
+    const remainingEntryId = `ve_${runId}_unsaved_remaining`;
+    const targetSeedEntryId = `ve_${runId}_unsaved_target_seed`;
+    const now = '2026-06-05T00:00:00.000Z';
+
+    const movedCraftResult = await callWorkspaceAction<{
+      spaceId: string;
+      tabGroupId?: string;
+    }>(page.request, 'addTabGroup', {
+      spaceId: 'space_home',
+      label: movedCraftLabel,
+    });
+    expect(movedCraftResult.tabGroupId).toBeTruthy();
+    const movedTabGroupId = movedCraftResult.tabGroupId!;
+    const movedAgentTab = await callWorkspaceAction<{
+      tabGroupId: string;
+      tabId: string;
+    }>(page.request, 'addTab', {
+      tabGroupId: movedTabGroupId,
+      title: 'Agent',
+      url: `https://example.invalid/${runId}/unsaved-moved-agent`,
+    });
+
+    const remainingCraftResult = await callWorkspaceAction<{
+      spaceId: string;
+      tabGroupId?: string;
+    }>(page.request, 'addTabGroup', {
+      spaceId: 'space_home',
+      label: remainingCraftLabel,
+    });
+    expect(remainingCraftResult.tabGroupId).toBeTruthy();
+    const remainingTabGroupId = remainingCraftResult.tabGroupId!;
+    const remainingAgentTab = await callWorkspaceAction<{
+      tabGroupId: string;
+      tabId: string;
+    }>(page.request, 'addTab', {
+      tabGroupId: remainingTabGroupId,
+      title: 'Agent',
+      url: `https://example.invalid/${runId}/unsaved-remaining-agent`,
+    });
+
+    const targetSeedCraftResult = await callWorkspaceAction<{
+      spaceId: string;
+      tabGroupId?: string;
+    }>(page.request, 'addTabGroup', {
+      spaceId: 'space_home',
+      label: targetSeedCraftLabel,
+    });
+    expect(targetSeedCraftResult.tabGroupId).toBeTruthy();
+    const targetSeedTabGroupId = targetSeedCraftResult.tabGroupId!;
+    const targetSeedAgentTab = await callWorkspaceAction<{
+      tabGroupId: string;
+      tabId: string;
+    }>(page.request, 'addTab', {
+      tabGroupId: targetSeedTabGroupId,
+      title: 'Agent',
+      url: `https://example.invalid/${runId}/unsaved-target-seed-agent`,
+    });
+
+    await callWorkspaceAction(page.request, 'upsertSavedSession', {
+      id: targetVoyageId,
+      slug: `e2e-unsaved-move-target-${runId}-${targetVoyageId}`,
+      name: targetVoyageName,
+      createdAt: now,
+      updatedAt: now,
+      activeVoyageEntryId: targetSeedEntryId,
+      voyageEntries: [
+        {
+          id: targetSeedEntryId,
+          tabGroupId: targetSeedTabGroupId,
+          viewIds: [targetSeedAgentTab.tabId],
+        },
+      ],
+      activeSpaceId: 'space_home',
+      activeTabGroupId: targetSeedTabGroupId,
+      activeItemsByVoyageEntryId: {
+        [targetSeedEntryId]: targetSeedAgentTab.tabId,
+      },
+      visitedTabGroupIds: [targetSeedTabGroupId],
+    });
+
+    await page.addInitScript(
+      ({
+        unsavedSessionId,
+        movedEntryId,
+        movedTabGroupId,
+        movedTabId,
+        remainingEntryId,
+        remainingTabGroupId,
+        remainingTabId,
+      }) => {
+        sessionStorage.setItem('workspace-browser-session-id', unsavedSessionId);
+        sessionStorage.setItem(
+          'workspace-nav',
+          JSON.stringify({
+            activeSpaceId: 'space_home',
+            activeTabGroupId: movedTabGroupId,
+            activeVoyageEntryId: movedEntryId,
+            voyageEntries: [
+              {
+                id: movedEntryId,
+                tabGroupId: movedTabGroupId,
+                viewIds: [movedTabId],
+              },
+              {
+                id: remainingEntryId,
+                tabGroupId: remainingTabGroupId,
+                viewIds: [remainingTabId],
+              },
+            ],
+            activeItemsByVoyageEntryId: {
+              [movedEntryId]: movedTabId,
+              [remainingEntryId]: remainingTabId,
+            },
+            activeItems: {
+              [movedTabGroupId]: movedTabId,
+              [remainingTabGroupId]: remainingTabId,
+            },
+            visitedTabGroupIds: [movedTabGroupId, remainingTabGroupId],
+          }),
+        );
+      },
+      {
+        unsavedSessionId,
+        movedEntryId,
+        movedTabGroupId,
+        movedTabId: movedAgentTab.tabId,
+        remainingEntryId,
+        remainingTabGroupId,
+        remainingTabId: remainingAgentTab.tabId,
+      },
+    );
+
+    await page.goto('/dashboard');
+
+    const movedCraftButton = page.getByRole('button', {
+      name: `Open ${movedCraftLabel} in Home`,
+    });
+    await expect(movedCraftButton).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: `Open ${remainingCraftLabel} in Home` }),
+    ).toBeVisible();
+
+    await movedCraftButton.click({ button: 'right' });
+    await page.getByRole('button', { name: 'Move to Voyage' }).click();
+    await page
+      .getByRole('dialog', { name: 'Move to Voyage' })
+      .getByRole('button', { name: new RegExp(targetVoyageName) })
+      .click();
+
+    await expect(
+      page.getByRole('button', { name: `Open ${remainingCraftLabel} in Home` }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: `Open ${movedCraftLabel} in Home` }),
+    ).toHaveCount(0);
+    await waitForSavedVoyageCraftState(page.request, targetVoyageId, {
+      entryLabels: [targetSeedCraftLabel, movedCraftLabel],
+      activeCraftLabel: movedCraftLabel,
+      activeItemTitle: 'Agent',
+      activeTabGroupId: movedTabGroupId,
     });
   });
 

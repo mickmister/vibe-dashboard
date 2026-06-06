@@ -204,6 +204,61 @@ function createSavedSessionFromSelection({
   };
 }
 
+function createSavedSessionFromVoyageEntry({
+  workspace,
+  name,
+  voyageEntry,
+  activeItemId,
+}: {
+  workspace: WorkspaceState;
+  name: string;
+  voyageEntry: VoyageEntry;
+  activeItemId?: string;
+}): SavedWorkspaceSession | undefined {
+  const trimmedName = name.trim();
+  if (!trimmedName || trimmedName.toLowerCase() === 'home') return undefined;
+
+  const normalizedEntry = normalizeVoyageEntryForWorkspace(workspace, voyageEntry);
+  if (!normalizedEntry?.viewIds.length) return undefined;
+
+  const activeSpaceId =
+    workspace.spaces.find((space) =>
+      space.tabGroupIds.includes(normalizedEntry.tabGroupId),
+    )?.id || '';
+  if (!activeSpaceId) return undefined;
+
+  const id = createWorkspaceSessionId();
+  const now = new Date().toISOString();
+  const resolvedActiveItemId =
+    activeItemId ||
+    getActiveItemIdForViewIds(
+      workspace,
+      normalizedEntry.tabGroupId,
+      normalizedEntry.viewIds,
+    );
+
+  return {
+    id,
+    slug: buildVoyageSlug(trimmedName, id),
+    name: trimmedName,
+    createdAt: now,
+    updatedAt: now,
+    activeVoyageEntryId: normalizedEntry.id,
+    voyageEntries: [
+      {
+        ...normalizedEntry,
+        viewIds: [...normalizedEntry.viewIds],
+      },
+    ],
+    activeSpaceId,
+    activeTabGroupId: normalizedEntry.tabGroupId,
+    activeItemsByVoyageEntryId: {
+      [normalizedEntry.id]: resolvedActiveItemId,
+    },
+    visitedTabGroupIds: [normalizedEntry.tabGroupId],
+  };
+}
+
 function addCreateWorkspaceCraftToWorkspace(
   workspace: WorkspaceState,
   args: { baseOrigin: string; label?: string },
@@ -1033,6 +1088,82 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
         });
 
         return savedSession;
+      },
+
+      createSavedSessionFromVoyageEntry: async (args: {
+        name: string;
+        sourceSessionId?: string;
+        voyageEntry: VoyageEntry;
+        activeItemId?: string;
+      }) => {
+        const workspace = workspaceState.getState();
+        const targetSession = createSavedSessionFromVoyageEntry({
+          workspace,
+          name: args.name,
+          voyageEntry: args.voyageEntry,
+          activeItemId: args.activeItemId,
+        });
+        if (!targetSession) return undefined;
+
+        let result:
+          | {
+              sourceSession?: SavedWorkspaceSession;
+              targetSession: SavedWorkspaceSession;
+            }
+          | undefined;
+
+        savedSessionsState.setState((current) => {
+          const sessions = getSavedWorkspaceSessions(current).map(cloneSavedSession);
+          const nextSessions = sessions.filter(
+            (session) => session.id !== targetSession.id,
+          );
+          let sourceSession: SavedWorkspaceSession | undefined;
+
+          if (args.sourceSessionId) {
+            const source = nextSessions.find(
+              (session) => session.id === args.sourceSessionId,
+            );
+            if (!source || source.voyageEntries.length <= 1) {
+              return createSavedWorkspaceSessionState(sessions);
+            }
+
+            const nextSourceEntries = source.voyageEntries.filter(
+              (entry) => entry.id !== args.voyageEntry.id,
+            );
+            if (nextSourceEntries.length === source.voyageEntries.length) {
+              return createSavedWorkspaceSessionState(sessions);
+            }
+
+            const fallbackEntry =
+              nextSourceEntries.find(
+                (entry) => entry.id === source.activeVoyageEntryId,
+              ) || nextSourceEntries[0];
+            if (!fallbackEntry) return createSavedWorkspaceSessionState(sessions);
+
+            const repairedSource = repairSavedSessionForWorkspace(
+              {
+                ...source,
+                voyageEntries: nextSourceEntries,
+                activeVoyageEntryId: fallbackEntry.id,
+                updatedAt: targetSession.updatedAt,
+              },
+              workspace,
+            );
+            if (!repairedSource) return createSavedWorkspaceSessionState(sessions);
+
+            Object.assign(source, repairedSource);
+            sourceSession = cloneSavedSession(source);
+          }
+
+          nextSessions.unshift(targetSession);
+          result = {
+            ...(sourceSession ? { sourceSession } : {}),
+            targetSession: cloneSavedSession(targetSession),
+          };
+          return createSavedWorkspaceSessionState(nextSessions);
+        });
+
+        return result;
       },
 
       addSelectionToSavedSession: async (args: {

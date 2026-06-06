@@ -478,79 +478,12 @@ springboard.registerModule(
         });
       };
 
-      const getActiveVoyageEntryIdForTabGroup = (tabGroupId: string) => {
-        const activeEntry = sessionNav.voyageEntries.find(
-          (entry) => entry.id === sessionNav.activeVoyageEntryId,
-        );
-        return activeEntry?.tabGroupId === tabGroupId ? activeEntry.id : undefined;
-      };
-
       const sessionActions = {
-        selectSpace: (spaceId: string) => {
-          if (activeSavedSession) {
-            const firstTabGroupId = workspace.spaces.find(
-              (space) => space.id === spaceId,
-            )?.tabGroupIds[0];
-            if (firstTabGroupId) {
-              void actions.addSelectionToSavedSession({
-                sessionId: activeSavedSession.id,
-                spaceId,
-                tabGroupId: firstTabGroupId,
-                voyageEntryId: getActiveVoyageEntryIdForTabGroup(firstTabGroupId),
-              });
-            }
-          }
-          sessionNav.selectSpace(spaceId);
-        },
-        selectSessionTabGroup: (spaceId: string, tabGroupId: string) => {
-          if (activeSavedSession) {
-            void actions.addSelectionToSavedSession({
-              sessionId: activeSavedSession.id,
-              spaceId,
-              tabGroupId,
-              voyageEntryId: getActiveVoyageEntryIdForTabGroup(tabGroupId),
-            });
-          }
-          sessionNav.selectSessionTabGroup(spaceId, tabGroupId);
-        },
-        selectSessionTab: (spaceId: string, tabGroupId: string, tabId: string) => {
-          if (activeSavedSession) {
-            void actions.addSelectionToSavedSession({
-              sessionId: activeSavedSession.id,
-              spaceId,
-              tabGroupId,
-              voyageEntryId: getActiveVoyageEntryIdForTabGroup(tabGroupId),
-              tabId,
-            });
-          }
-          sessionNav.selectSessionTab(spaceId, tabGroupId, tabId);
-        },
-        selectSessionPair: (spaceId: string, tabGroupId: string, pairId: string) => {
-          if (activeSavedSession) {
-            const pair = workspace.tabGroups
-              .find((tabGroup) => tabGroup.id === tabGroupId)
-              ?.pairs.find((candidate) => candidate.id === pairId);
-            if (pair) {
-              void actions.addSelectionToSavedSession({
-                sessionId: activeSavedSession.id,
-                spaceId,
-                tabGroupId,
-                voyageEntryId: getActiveVoyageEntryIdForTabGroup(tabGroupId),
-                viewIds: pair.tabIds,
-              });
-            }
-          }
-          sessionNav.selectSessionPair(spaceId, tabGroupId, pairId);
-        },
-        selectVoyageEntry: (voyageEntryId: string) => {
-          if (activeSavedSession) {
-            void actions.activateSavedVoyageEntry({
-              sessionId: activeSavedSession.id,
-              voyageEntryId,
-            });
-          }
-          sessionNav.selectVoyageEntry(voyageEntryId);
-        },
+        selectSpace: sessionNav.selectSpace,
+        selectSessionTabGroup: sessionNav.selectSessionTabGroup,
+        selectSessionTab: sessionNav.selectSessionTab,
+        selectSessionPair: sessionNav.selectSessionPair,
+        selectVoyageEntry: sessionNav.selectVoyageEntry,
         selectTab: (tabGroupId: string, tabId: string) => {
           const spaceId =
             workspace.spaces.find((space) => space.tabGroupIds.includes(tabGroupId))?.id ||
@@ -564,17 +497,6 @@ springboard.registerModule(
           sessionActions.selectSessionPair(spaceId, tabGroupId, pairId);
         },
         setActiveTabGroup: (tabGroupId: string) => {
-          if (activeSavedSession) {
-            const spaceId =
-              workspace.spaces.find((space) => space.tabGroupIds.includes(tabGroupId))?.id ||
-              sessionNav.activeSpaceId;
-            void actions.addSelectionToSavedSession({
-              sessionId: activeSavedSession.id,
-              spaceId,
-              tabGroupId,
-              voyageEntryId: getActiveVoyageEntryIdForTabGroup(tabGroupId),
-            });
-          }
           sessionNav.setActiveTabGroup(tabGroupId);
         },
         getActiveItem: sessionNav.getActiveItem,

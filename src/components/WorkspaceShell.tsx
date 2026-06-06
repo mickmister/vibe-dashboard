@@ -87,6 +87,18 @@ export type WorkspaceActions = {
     tabGroupId: string;
     tabId?: string;
   }) => Promise<SavedWorkspaceSession | undefined>;
+  createSavedSessionFromVoyageEntry: (args: {
+    name: string;
+    sourceSessionId?: string;
+    voyageEntry: VoyageEntry;
+    activeItemId?: string;
+  }) => Promise<
+    | {
+        sourceSession?: SavedWorkspaceSession;
+        targetSession: SavedWorkspaceSession;
+      }
+    | undefined
+  >;
   addSelectionToSavedSession: (args: {
     sessionId: string;
     spaceId: string;
@@ -972,6 +984,9 @@ export function WorkspaceShell({
     (savedSession) => savedSession.id !== currentSessionId,
   );
   const canMoveVoyageEntryToAnotherVoyage = session.voyageEntries.length > 1;
+  const currentSavedSession = savedSessions.find(
+    (savedSession) => savedSession.id === currentSessionId,
+  );
   const getVoyageDisplayName = (savedSession: SavedWorkspaceSession) =>
     savedSession.name?.trim() || 'Untitled voyage';
 
@@ -1177,26 +1192,92 @@ export function WorkspaceShell({
 
   const handleMoveVoyageEntryToSession = async (targetSessionId: string) => {
     if (!moveVoyageEntryPrompt || targetSessionId === currentSessionId) return;
-    const moveResult = await actions.moveVoyageEntryBetweenSavedSessions({
-      sourceSessionId: currentSessionId,
-      targetSessionId,
-      voyageEntryId: moveVoyageEntryPrompt.voyageEntryId,
-      activeItemId: moveVoyageEntryPrompt.activeItemId,
-    });
-    if (!moveResult) {
+    const sourceSession = savedSessions.find(
+      (savedSession) => savedSession.id === currentSessionId,
+    );
+
+    if (sourceSession) {
+      const moveResult = await actions.moveVoyageEntryBetweenSavedSessions({
+        sourceSessionId: currentSessionId,
+        targetSessionId,
+        voyageEntryId: moveVoyageEntryPrompt.voyageEntryId,
+        activeItemId: moveVoyageEntryPrompt.activeItemId,
+      });
+      if (!moveResult) {
+        setMoveVoyageEntryPrompt(null);
+        return;
+      }
+
+      sessionActions.activateSavedSession(moveResult.sourceSession);
+      setExpandedVoyageEntryId((current) => {
+        if (current === moveVoyageEntryPrompt.voyageEntryId) return null;
+        return moveResult.sourceSession.voyageEntries.some(
+          (entry) => entry.id === current,
+        )
+          ? current
+          : null;
+      });
+    } else {
+      const voyageEntry = session.voyageEntries.find(
+        (entry) => entry.id === moveVoyageEntryPrompt.voyageEntryId,
+      );
+      if (!voyageEntry) {
+        setMoveVoyageEntryPrompt(null);
+        return;
+      }
+
+      const updatedTargetSession = await actions.moveVoyageEntryToSavedSession({
+        targetSessionId,
+        voyageEntry,
+        activeItemId: moveVoyageEntryPrompt.activeItemId,
+      });
+      if (!updatedTargetSession) {
+        setMoveVoyageEntryPrompt(null);
+        return;
+      }
+
+      sessionActions.removeVoyageEntryFromSession(voyageEntry.id);
+      setExpandedVoyageEntryId((current) =>
+        current === voyageEntry.id ? null : current,
+      );
+    }
+
+    setMoveVoyageEntryPrompt(null);
+  };
+
+  const handleMoveVoyageEntryToNewSession = async () => {
+    if (!moveVoyageEntryPrompt) return;
+
+    const voyageEntry = session.voyageEntries.find(
+      (entry) => entry.id === moveVoyageEntryPrompt.voyageEntryId,
+    );
+    if (!voyageEntry) {
       setMoveVoyageEntryPrompt(null);
       return;
     }
 
-    sessionActions.activateSavedSession(moveResult.sourceSession);
-    setExpandedVoyageEntryId((current) => {
-      if (current === moveVoyageEntryPrompt.voyageEntryId) return null;
-      return moveResult.sourceSession.voyageEntries.some(
-        (entry) => entry.id === current,
-      )
-        ? current
-        : null;
+    const voyageName = window.prompt('Voyage name');
+    if (!voyageName?.trim() || isReservedVoyageName(voyageName)) return;
+
+    const result = await actions.createSavedSessionFromVoyageEntry({
+      name: voyageName,
+      ...(currentSavedSession ? { sourceSessionId: currentSavedSession.id } : {}),
+      voyageEntry,
+      activeItemId: moveVoyageEntryPrompt.activeItemId,
     });
+    if (!result) {
+      setMoveVoyageEntryPrompt(null);
+      return;
+    }
+
+    if (result.sourceSession) {
+      sessionActions.activateSavedSession(result.sourceSession);
+    } else {
+      sessionActions.removeVoyageEntryFromSession(voyageEntry.id);
+    }
+    setExpandedVoyageEntryId((current) =>
+      current === voyageEntry.id ? null : current,
+    );
     setMoveVoyageEntryPrompt(null);
   };
 
@@ -2050,8 +2131,16 @@ export function WorkspaceShell({
                   </button>
                 ))
               ) : (
-                <div className="rounded-md border border-neutral-800 bg-neutral-950/40 px-3 py-4 text-sm text-neutral-500">
-                  No other saved voyages yet.
+                <div className="rounded-md border border-neutral-800 bg-neutral-950/40 px-3 py-4 text-sm text-neutral-400">
+                  <div>No other saved voyages yet.</div>
+                  <button
+                    className="mt-3 rounded-md border border-blue-400/70 bg-blue-500/20 px-3 py-2 text-sm text-neutral-50 transition-colors hover:bg-blue-500/30"
+                    onClick={() => {
+                      void handleMoveVoyageEntryToNewSession();
+                    }}
+                  >
+                    Create New Voyage
+                  </button>
                 </div>
               )}
             </div>
