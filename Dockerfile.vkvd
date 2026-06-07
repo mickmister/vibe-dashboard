@@ -75,7 +75,7 @@ FROM node:22-bookworm
 
 ARG TARGETARCH
 ARG GITHUB_TOKEN=
-ARG BEADS_WEB_LINUX_X64_URL=https://github.com/mickmister/beads-web/releases/download/beads-web-assets-d09a0aa202546ac86f4b77dc75dde211e61f3ab6/beads-web-linux-x64
+ARG BEADS_WEB_LINUX_X64_URL=https://github.com/mickmister/beads-web/releases/download/v0.11.3/beads-web-linux-x64
 
 # Harden APT against flaky proxy/cache behavior (helps prevent Hash Sum mismatch on macOS VM networking).
 RUN set -eux; \
@@ -272,11 +272,10 @@ RUN su - vkuser -c "mkdir -p /home/vkuser/.local/share/code-server/extensions &&
 # Install Beads CLI
 RUN curl -fsSL https://raw.githubusercontent.com/gastownhall/beads/main/scripts/install.sh | bash
 
-# Install beads-web UI binary. Current beads-web per-commit assets are linux/amd64-only;
-# skip on arm64 until the fork publishes a compatible arm64 asset.
-# Draft release assets are not anonymously downloadable; pass a BuildKit secret with
-# `--secret id=github_token,env=GITHUB_TOKEN` (preferred), the reusable workflow
-# `GIT_AUTH_TOKEN` secret, or a GITHUB_TOKEN build arg.
+# Install beads-web UI binary. The current tagged release publishes a Linux x64
+# asset only; skip on arm64 until the fork publishes a compatible arm64 asset.
+# The default tagged asset is public, but private/draft override URLs can fall
+# back to a BuildKit secret: id=github_token, id=GIT_AUTH_TOKEN, or GITHUB_TOKEN.
 RUN --mount=type=secret,id=github_token,required=false --mount=type=secret,id=GIT_AUTH_TOKEN,required=false set -eux; \
     case "${TARGETARCH}" in \
       amd64) \
