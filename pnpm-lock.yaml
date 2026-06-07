@@ -60,8 +60,8 @@ importers:
         specifier: ^7.8.2
         version: 7.8.2
       springboard:
-        specifier: 0.0.1-dev-server-modules-1
-        version: 0.0.1-dev-server-modules-1(crossws@0.4.4)(immer@11.1.4)(kysely@0.28.11)(react-dom@19.2.4(react@19.2.4))(react-router@7.13.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react@19.2.4)(rxjs@7.8.2)(vite@7.3.1(@types/node@25.2.3)(jiti@2.6.1)(lightningcss@1.30.2))
+        specifier: 0.0.1-dev-jamapp-12
+        version: 0.0.1-dev-jamapp-12(crossws@0.4.4)(immer@11.1.4)(kysely@0.28.11)(react-dom@19.2.4(react@19.2.4))(react-router@7.13.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react@19.2.4)(rxjs@7.8.2)(vite@7.3.1(@types/node@25.2.3)(jiti@2.6.1)(lightningcss@1.30.2))
       tailwindcss:
         specifier: ^4.1.18
         version: 4.1.18
@@ -2340,6 +2340,10 @@ packages:
     resolution: {integrity: sha512-1rXeuUUiGGrykh+CeBdu5Ie7OJwinCgQY0bc7GCRxy5xVHy+moaqkpL/jqQq0MtQOeYcrqEz4abc5f0KtU7W4A==}
     engines: {node: '>=12.5.0'}
 
+  commander@14.0.3:
+    resolution: {integrity: sha512-H+y0Jo/T1RZ9qPP4Eh1pkcQcLRglraJaSLoyOtHxu6AapkjWVCy2Sit1QQ4x3Dng8qDlSsZEet7g5Pq06MvTgw==}
+    engines: {node: '>=20'}
+
   compressible@2.0.18:
     resolution: {integrity: sha512-AF3r7P5dWxL8MxyITRMlORQNaOA2IkAFaTr4k7BUumjPtRpGDTZpl0Pb1XCO6JeDCBdp126Cgs9sMxqSjgYyRg==}
     engines: {node: '>= 0.6'}
@@ -3151,8 +3155,9 @@ packages:
     resolution: {integrity: sha512-UjgapumWlbMhkBgzT7Ykc5YXUT46F0iKu8SGXq0bcwP5dz/h0Plj6enJqjz1Zbq2l5WaqYnrVbwWOWMyF3F47g==}
     engines: {node: '>=0.10.0'}
 
-  springboard@0.0.1-dev-server-modules-1:
-    resolution: {integrity: sha512-GjUN0/Yq7zZDTlRG1PoOgitdgzWcZfrO/9jz4avWjoEAZOji04+tgwJbO9Hn0LsGIOV1hSO/AW7RW2l4uC1Tlg==}
+  springboard@0.0.1-dev-jamapp-12:
+    resolution: {integrity: sha512-ixmuahp0qbtXDcNyht25OMTD5AhPeTY1kY81E35PX819wkOh5jevvCDcJDbiM04IT32Mh36xUvNmATh/tz0VNg==}
+    hasBin: true
     peerDependencies:
       '@tauri-apps/api': ^2.9.0
       '@tauri-apps/plugin-shell': ^2.3.3
@@ -6576,6 +6581,8 @@ snapshots:
       color-convert: 2.0.1
       color-string: 1.9.1
 
+  commander@14.0.3: {}
+
   compressible@2.0.18:
     dependencies:
       mime-db: 1.54.0
@@ -7314,8 +7321,9 @@ snapshots:
 
   source-map@0.6.1: {}
 
-  springboard@0.0.1-dev-server-modules-1(crossws@0.4.4)(immer@11.1.4)(kysely@0.28.11)(react-dom@19.2.4(react@19.2.4))(react-router@7.13.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react@19.2.4)(rxjs@7.8.2)(vite@7.3.1(@types/node@25.2.3)(jiti@2.6.1)(lightningcss@1.30.2)):
+  springboard@0.0.1-dev-jamapp-12(crossws@0.4.4)(immer@11.1.4)(kysely@0.28.11)(react-dom@19.2.4(react@19.2.4))(react-router@7.13.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react@19.2.4)(rxjs@7.8.2)(vite@7.3.1(@types/node@25.2.3)(jiti@2.6.1)(lightningcss@1.30.2)):
     dependencies:
+      commander: 14.0.3
       dexie: 4.3.0
       json-rpc-2.0: 1.7.1
       reconnecting-websocket: 4.4.0

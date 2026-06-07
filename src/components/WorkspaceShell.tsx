@@ -217,6 +217,22 @@ type MoveVoyageEntryPrompt = {
   activeItemId?: string;
 };
 
+type VoyageCraftSelection = Required<
+  Pick<NewSessionInitialSelection, 'spaceId' | 'tabGroupId'>
+> &
+  Pick<NewSessionInitialSelection, 'tabId'>;
+
+type PendingWorkspaceSelection =
+  | {
+      kind: 'current';
+      selection: VoyageCraftSelection;
+    }
+  | {
+      kind: 'saved';
+      savedSession: SavedWorkspaceSession;
+      selection: VoyageCraftSelection;
+    };
+
 export function WorkspaceShell({
   workspace,
   session,
@@ -258,6 +274,8 @@ export function WorkspaceShell({
     useState<string | null>(null);
   const [pendingNewVoyageCraftName, setPendingNewVoyageCraftName] =
     useState<string | null>(null);
+  const [pendingWorkspaceSelection, setPendingWorkspaceSelection] =
+    useState<PendingWorkspaceSelection | null>(null);
   const [voyagePlusMenuOpen, setVoyagePlusMenuOpen] = useState(false);
   const [voyagePlusMenuPosition, setVoyagePlusMenuPosition] = useState<{
     left: number;
@@ -365,8 +383,7 @@ export function WorkspaceShell({
 
   const createAndActivateSavedVoyage = async (
     name: string,
-    initialSelection: Required<Pick<NewSessionInitialSelection, 'spaceId' | 'tabGroupId'>> &
-      Pick<NewSessionInitialSelection, 'tabId'>,
+    initialSelection: VoyageCraftSelection,
   ) => {
     const trimmedName = name.trim();
     if (!trimmedName || isReservedVoyageName(trimmedName)) return undefined;
@@ -379,14 +396,13 @@ export function WorkspaceShell({
     });
     if (!savedSession) return undefined;
 
-    sessionActions.activateSavedSession(savedSession);
+    activateSavedSessionWhenWorkspaceReady(savedSession, initialSelection);
     return savedSession;
   };
 
   const addAndActivateSelectionInSavedVoyage = async (
     sessionId: string,
-    selection: Required<Pick<NewSessionInitialSelection, 'spaceId' | 'tabGroupId'>> &
-      Pick<NewSessionInitialSelection, 'tabId'>,
+    selection: VoyageCraftSelection,
   ) => {
     const savedSession = await actions.addSelectionToSavedSession({
       sessionId,
@@ -396,13 +412,12 @@ export function WorkspaceShell({
     });
     if (!savedSession) return undefined;
 
-    sessionActions.activateSavedSession(savedSession);
+    activateSavedSessionWhenWorkspaceReady(savedSession, selection);
     return savedSession;
   };
 
   const addOrSelectCraftInCurrentVoyage = async (
-    selection: Required<Pick<NewSessionInitialSelection, 'spaceId' | 'tabGroupId'>> &
-      Pick<NewSessionInitialSelection, 'tabId'>,
+    selection: VoyageCraftSelection,
   ) => {
     const existingEntry = session.voyageEntries.find(
       (entry) => entry.tabGroupId === selection.tabGroupId,
@@ -417,7 +432,7 @@ export function WorkspaceShell({
           voyageEntryId: existingEntry.id,
         });
         if (savedSession) {
-          sessionActions.activateSavedSession(savedSession);
+          activateSavedSessionWhenWorkspaceReady(savedSession, selection);
           return;
         }
       }
@@ -437,11 +452,28 @@ export function WorkspaceShell({
         ...(selection.tabId ? { tabId: selection.tabId } : {}),
       });
       if (savedSession) {
-        sessionActions.activateSavedSession(savedSession);
+        activateSavedSessionWhenWorkspaceReady(savedSession, selection);
         return;
       }
     }
 
+    selectCurrentVoyageWhenWorkspaceReady(selection);
+  };
+
+  const isWorkspaceSelectionReady = (selection: VoyageCraftSelection) => {
+    const space = workspace.spaces.find((entry) => entry.id === selection.spaceId);
+    if (!space?.tabGroupIds.includes(selection.tabGroupId)) return false;
+
+    if (!selection.tabId) return true;
+
+    return Boolean(
+      workspace.tabGroups
+        .find((entry) => entry.id === selection.tabGroupId)
+        ?.tabs.some((tab) => tab.id === selection.tabId),
+    );
+  };
+
+  const applyCurrentVoyageSelection = (selection: VoyageCraftSelection) => {
     if (selection.tabId) {
       sessionActions.selectSessionTab(
         selection.spaceId,
@@ -452,6 +484,36 @@ export function WorkspaceShell({
       sessionActions.addTabGroupToSession(selection.tabGroupId, { select: true });
       sessionActions.selectSessionTabGroup(selection.spaceId, selection.tabGroupId);
     }
+  };
+
+  const selectCurrentVoyageWhenWorkspaceReady = (
+    selection: VoyageCraftSelection,
+  ) => {
+    if (isWorkspaceSelectionReady(selection)) {
+      applyCurrentVoyageSelection(selection);
+      return;
+    }
+
+    setPendingWorkspaceSelection({
+      kind: 'current',
+      selection,
+    });
+  };
+
+  const activateSavedSessionWhenWorkspaceReady = (
+    savedSession: SavedWorkspaceSession,
+    selection: VoyageCraftSelection,
+  ) => {
+    if (isWorkspaceSelectionReady(selection)) {
+      sessionActions.activateSavedSession(savedSession);
+      return;
+    }
+
+    setPendingWorkspaceSelection({
+      kind: 'saved',
+      savedSession,
+      selection,
+    });
   };
 
   const closeTransientOverlays = () => {
@@ -565,6 +627,24 @@ export function WorkspaceShell({
   useEffect(() => {
     void prefetchVKWorkspaceSearchResults();
   }, []);
+
+  useEffect(() => {
+    if (!pendingWorkspaceSelection) return;
+    if (!isWorkspaceSelectionReady(pendingWorkspaceSelection.selection)) return;
+
+    if (pendingWorkspaceSelection.kind === 'saved') {
+      sessionActions.activateSavedSession(pendingWorkspaceSelection.savedSession);
+    } else {
+      applyCurrentVoyageSelection(pendingWorkspaceSelection.selection);
+    }
+
+    setPendingWorkspaceSelection(null);
+  }, [
+    pendingWorkspaceSelection,
+    sessionActions,
+    workspace.spaces,
+    workspace.tabGroups,
+  ]);
 
   // --- Add tab modal handler ---
   const openAddTabModal = (tabGroupId: string) => {
