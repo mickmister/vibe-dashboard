@@ -4,6 +4,7 @@ import '../styles';
 import React, { useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { HeroUIProvider } from '@heroui/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AppLoadingScreen } from '../components/AppLoadingScreen';
 import { WorkspaceShell } from '../components/WorkspaceShell';
 import {
@@ -57,6 +58,7 @@ const MOBILE_TAB_EMOJIS = [
   '⚡',
   '🛰️',
 ];
+const queryClient = new QueryClient();
 
 /**
  * Get the base URL without port prefix for creating tab URLs.
@@ -625,7 +627,11 @@ springboard.registerModule(
 
     return {
       Provider: (props: React.PropsWithChildren) => {
-        return <HeroUIProvider>{props.children}</HeroUIProvider>;
+        return (
+          <QueryClientProvider client={queryClient}>
+            <HeroUIProvider>{props.children}</HeroUIProvider>
+          </QueryClientProvider>
+        );
       },
     };
   },

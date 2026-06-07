@@ -320,7 +320,11 @@ async function openCraftFromVoyagePlusMenu(page: Page) {
     .click();
 }
 
-async function mockVkApi(page: Page, workspaceOrWorkspaces: MockWorkspace | MockWorkspace[]) {
+async function mockVkApi(
+  page: Page,
+  workspaceOrWorkspaces: MockWorkspace | MockWorkspace[],
+  options: { workspaceDetailDelayMs?: number } = {},
+) {
   const workspaces = Array.isArray(workspaceOrWorkspaces)
     ? workspaceOrWorkspaces
     : [workspaceOrWorkspaces];
@@ -334,6 +338,11 @@ async function mockVkApi(page: Page, workspaceOrWorkspaces: MockWorkspace | Mock
 
   for (const workspace of workspaces) {
     await page.route(`**/vk-api/workspaces/${workspace.id}`, async (route) => {
+      if (options.workspaceDetailDelayMs) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, options.workspaceDetailDelayMs),
+        );
+      }
       await route.fulfill({
         contentType: 'application/json',
         body: JSON.stringify({ success: true, data: workspace }),
@@ -371,7 +380,7 @@ test.describe('voyage persistence', () => {
     const runId = Date.now().toString(36);
     const voyageName = `E2E Voyage ${runId}`;
     const workspace = createMockWorkspace(runId);
-    await mockVkApi(page, workspace);
+    await mockVkApi(page, workspace, { workspaceDetailDelayMs: 500 });
 
     await page.goto('/');
 
@@ -383,6 +392,7 @@ test.describe('voyage persistence', () => {
 
     await expect(page.getByRole('heading', { name: 'Open VK Workspace' })).toBeVisible();
     await page.getByRole('button', { name: new RegExp(workspace.name) }).click();
+    await expect(page.getByLabel(`Opening ${workspace.name}`).first()).toBeVisible();
 
     await expect(page.getByLabel(`Open ${workspace.name} in Home`).first()).toBeVisible();
     await expect(page).toHaveURL(/voyage=e2e-voyage-/);

@@ -22,6 +22,7 @@
     "@hono/node-server": "^1.19.9",
     "@tabler/icons-react": "^3.44.0",
     "@tailwindcss/vite": "^4.1.18",
+    "@tanstack/react-query": "^5.101.0",
     "@vibe-dashboard/workflow-core": "workspace:*",
     "@vitejs/plugin-react": "^5.1.4",
     "better-sqlite3": "^12.6.2",
