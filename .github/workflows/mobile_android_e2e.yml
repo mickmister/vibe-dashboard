@@ -1,0 +1,145 @@
+name: mobile_android_e2e
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  android-mobile-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      MOBILE_E2E_SITE_URL: http://10.0.2.2:1337
+      HOST_SITE_URL: http://127.0.0.1:1337
+      PORT: '1337'
+      SERVER_PORT: '1337'
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Enable KVM group permissions
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.15.0
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Setup Expo and EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+          packager: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build server bundle
+        run: pnpm run build
+        env:
+          PORT: ${{ env.PORT }}
+          SERVER_PORT: ${{ env.SERVER_PORT }}
+
+      - name: Build Android APK with EAS local mode
+        working-directory: apps/mobile
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/artifacts/mobile-e2e"
+          eas build --non-interactive --wait --platform android --profile mobile-e2e --local
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          EXPO_GITHUB_ACTIONS_RUN: 'true'
+          EAS_LOCAL_BUILD_ARTIFACTS_DIR: ${{ github.workspace }}/artifacts/mobile-e2e
+          APP_PROFILE: mobile-e2e
+          EXPO_APP_PROFILE: mobile-e2e
+          PUBLIC_SITE_URL: ${{ env.MOBILE_E2E_SITE_URL }}
+          EXPO_PUBLIC_SITE_URL: ${{ env.MOBILE_E2E_SITE_URL }}
+          EXPO_LOAD_WEBVIEW_FROM_SITE_URL: 'true'
+
+      - name: Locate APK
+        id: apk
+        shell: bash
+        run: |
+          apk_path="$(find artifacts/mobile-e2e -type f -name '*.apk' | head -n 1)"
+          if [ -z "$apk_path" ]; then
+            echo "No APK found under artifacts/mobile-e2e" >&2
+            find artifacts/mobile-e2e -maxdepth 4 -type f >&2 || true
+            exit 1
+          fi
+          echo "apk_path=$apk_path" >> "$GITHUB_OUTPUT"
+          echo "MOBILE_APK_PATH=$GITHUB_WORKSPACE/$apk_path" >> "$GITHUB_ENV"
+
+      - name: Install mobile E2E dependencies
+        working-directory: tests/mobile-e2e
+        run: npm ci
+
+      - name: Install Appium Android driver
+        working-directory: tests/mobile-e2e
+        run: npx appium driver install uiautomator2
+
+      - name: Start server
+        shell: bash
+        run: |
+          mkdir -p artifacts/mobile-e2e
+          nohup pnpm start > artifacts/mobile-e2e/server.log 2>&1 &
+          echo $! > artifacts/mobile-e2e/server.pid
+          for i in {1..60}; do
+            if curl -fsS "$HOST_SITE_URL" >/dev/null; then
+              echo "Server is ready at $HOST_SITE_URL"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Server did not become ready" >&2
+          cat artifacts/mobile-e2e/server.log >&2 || true
+          exit 1
+        env:
+          PORT: ${{ env.PORT }}
+          SERVER_PORT: ${{ env.SERVER_PORT }}
+          PUBLIC_SITE_URL: ${{ env.MOBILE_E2E_SITE_URL }}
+          EXPO_PUBLIC_SITE_URL: ${{ env.MOBILE_E2E_SITE_URL }}
+
+      - name: Run Android WebView E2E test
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: |
+            adb devices
+            set +e
+            npm --prefix tests/mobile-e2e test
+            status=$?
+            adb logcat -d > artifacts/mobile-e2e/logcat.txt || true
+            exit $status
+
+      - name: Stop server
+        if: always()
+        run: |
+          if [ -f artifacts/mobile-e2e/server.pid ]; then
+            kill "$(cat artifacts/mobile-e2e/server.pid)" || true
+          fi
+
+      - name: Upload mobile E2E artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-android-e2e-artifacts
+          path: artifacts/mobile-e2e

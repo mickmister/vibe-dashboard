@@ -978,11 +978,19 @@ export function SpacesOverview({
   const hasSpaces = workspace.spaces.some((s) => !s.isSystem);
 
   return (
-    <div className="h-full w-full overflow-auto bg-zinc-900 p-6 md:p-8">
+    <div
+      className="h-full w-full overflow-auto bg-zinc-900 p-6 md:p-8"
+      data-testid="vkvw-main-page"
+    >
       <div className="max-w-4xl mx-auto">
         {/* Header */}
         <div className="mb-6">
-          <h1 className="text-2xl font-bold text-white">Dashboard</h1>
+          <h1
+            className="text-2xl font-bold text-white"
+            data-testid="vkvw-dashboard-heading"
+          >
+            Dashboard
+          </h1>
           <p className="text-sm text-zinc-500 mt-1">Workspace activity feed</p>
         </div>
 

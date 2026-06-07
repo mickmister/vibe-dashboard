@@ -11,7 +11,10 @@ const parseBooleanEnv = (value: string | undefined, fallback: boolean) => {
 const appProfile = process.env.EXPO_APP_PROFILE || 'preview';
 const appQualifier = appProfile === 'production' ? '' : appProfile;
 const appQualifierWithDash = appQualifier ? `${appQualifier}-` : '';
-const appQualifierWithDot = appQualifier ? `.${appQualifier}` : '';
+const nativeIdentifierQualifier = appQualifier.replace(/[^A-Za-z0-9_]/g, '');
+const nativeIdentifierQualifierWithDot = nativeIdentifierQualifier
+  ? `.${nativeIdentifierQualifier}`
+  : '';
 const projectId = process.env.EXPO_PROJECT_ID || 'a0f24779-6c4b-41f6-831f-535f62a25b0a';
 const owner = process.env.EXPO_OWNER;
 const version = '1.0.0';
@@ -24,7 +27,7 @@ const loadWebViewFromSiteUrl = parseBooleanEnv(
 const config: ExpoConfig = {
   name: `${appQualifierWithDash}Vibe Dashboard`,
   slug: 'vibe-dashboard',
-  scheme: `vibedashboard${appQualifier}`,
+  scheme: `vibedashboard${nativeIdentifierQualifier}`,
   version,
   orientation: 'portrait',
   userInterfaceStyle: 'automatic',
@@ -36,15 +39,18 @@ const config: ExpoConfig = {
     } : {}),
   },
   android: {
-    package: `com.jamtools.vibedashboard${appQualifierWithDot}`,
+    package: `com.jamtools.vibedashboard${nativeIdentifierQualifierWithDot}`,
   },
   ios: {
-    bundleIdentifier: `com.jamtools.vibedashboard${appQualifierWithDot}`,
+    bundleIdentifier: `com.jamtools.vibedashboard${nativeIdentifierQualifierWithDot}`,
     supportsTablet: true,
     infoPlist: {
       ITSAppUsesNonExemptEncryption: false,
     },
   },
+  plugins: siteUrl.startsWith('http://')
+    ? ['./plugins/with-cleartext-traffic.cjs']
+    : [],
   extra: {
     ...(projectId ? {
       eas: {

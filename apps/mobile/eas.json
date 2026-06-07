@@ -46,6 +46,22 @@
       },
       "environment": "preview"
     },
+    "mobile-e2e": {
+      "channel": "mobile-e2e",
+      "distribution": "internal",
+      "extends": "preview",
+      "developmentClient": false,
+      "env": {
+        "EXPO_APP_PROFILE": "mobile-e2e",
+        "EXPO_PUBLIC_SITE_URL": "http://10.0.2.2:1337",
+        "PUBLIC_SITE_URL": "http://10.0.2.2:1337",
+        "EXPO_LOAD_WEBVIEW_FROM_SITE_URL": "true"
+      },
+      "android": {
+        "buildType": "apk"
+      },
+      "environment": "preview"
+    },
     "production": {
       "channel": "production",
       "distribution": "store",
