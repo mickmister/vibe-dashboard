@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useMutation } from '@tanstack/react-query';
 import {
   Modal,
   ModalContent,
@@ -31,6 +32,7 @@ interface AddTabModalProps {
   onNavigateToTabGroup?: (
     spaceId: string,
     tabGroupId: string,
+    workspace?: { id: string; name: string },
   ) => void | Promise<void>;
   onAddTabGroup?: (label: string) => void;
   workspace?: WorkspaceState;
@@ -39,9 +41,15 @@ interface AddTabModalProps {
 const PRESETS = [
   {
     key: 'vk-workspace',
-    title: 'Open Existing Workspace',
+    title: 'Open Existing Craft',
     url: '',
-    description: 'Add workspace with Agent + Code split view',
+    description: 'Add craft with Agent + Code split view',
+  },
+  {
+    key: 'tab-group',
+    title: 'New Craft',
+    url: '',
+    description: 'Create an empty craft in this space',
   },
   {
     key: 'code',
@@ -79,6 +87,69 @@ export function AddTabModal({
   const [showVKWorkspace, setShowVKWorkspace] = useState(false);
   const [showTabGroupInput, setShowTabGroupInput] = useState(false);
   const [tabGroupLabel, setTabGroupLabel] = useState('');
+  const openCraftMutation = useMutation<
+    void,
+    Error,
+    | {
+        kind: 'add';
+        workspaceId: string;
+        name: string;
+        containerRef: string;
+      }
+    | {
+        kind: 'add-to-space';
+        workspaceId: string;
+        name: string;
+        containerRef: string;
+        spaceId: string;
+      }
+    | {
+        kind: 'navigate';
+        workspaceId: string;
+        name: string;
+        spaceId: string;
+        tabGroupId: string;
+      }
+  >({
+    mutationFn: async (request) => {
+      if (request.kind === 'navigate') {
+        if (!onNavigateToTabGroup) {
+          throw new Error('Open Craft navigation is unavailable.');
+        }
+        await onNavigateToTabGroup(request.spaceId, request.tabGroupId, {
+          id: request.workspaceId,
+          name: request.name,
+        });
+        return;
+      }
+
+      if (request.kind === 'add-to-space') {
+        if (!onAddVKWorkspaceToSpace) {
+          throw new Error('Open Craft in space is unavailable.');
+        }
+        await onAddVKWorkspaceToSpace(
+          request.workspaceId,
+          request.name,
+          request.containerRef,
+          request.spaceId,
+        );
+        return;
+      }
+
+      if (!onAddVKWorkspace) {
+        throw new Error('Open Craft is unavailable.');
+      }
+      await onAddVKWorkspace(
+        request.workspaceId,
+        request.name,
+        request.containerRef,
+      );
+    },
+  });
+  const pendingWorkspaceId =
+    openCraftMutation.isPending && openCraftMutation.variables
+      ? openCraftMutation.variables.workspaceId
+      : null;
 
   const handlePresetSelect = (key: string) => {
     const preset = PRESETS.find((p) => p.key === key);
@@ -114,14 +185,46 @@ export function AddTabModal({
     }
   };
 
-  const handleVKWorkspaceAdd = async (
+  const handleVKWorkspaceAdd = (
     taskAttemptId: string,
     name: string,
     containerRef: string
   ) => {
-    if (onAddVKWorkspace) {
-      await onAddVKWorkspace(taskAttemptId, name, containerRef);
-    }
+    return openCraftMutation.mutateAsync({
+      kind: 'add',
+      workspaceId: taskAttemptId,
+      name,
+      containerRef,
+    });
+  };
+
+  const handleVKWorkspaceAddToSpace = (
+    taskAttemptId: string,
+    name: string,
+    containerRef: string,
+    spaceId: string,
+  ) => {
+    return openCraftMutation.mutateAsync({
+      kind: 'add-to-space',
+      workspaceId: taskAttemptId,
+      name,
+      containerRef,
+      spaceId,
+    });
+  };
+
+  const handleVKWorkspaceNavigate = (
+    spaceId: string,
+    tabGroupId: string,
+    workspaceOption?: { id: string; name: string },
+  ) => {
+    return openCraftMutation.mutateAsync({
+      kind: 'navigate',
+      workspaceId: workspaceOption?.id || tabGroupId,
+      name: workspaceOption?.name || 'craft',
+      spaceId,
+      tabGroupId,
+    });
   };
 
   const handleTabGroupSubmit = () => {
@@ -139,8 +242,13 @@ export function AddTabModal({
     setShowCustom(false);
     setShowVKWorkspace(false);
     setShowTabGroupInput(false);
+    openCraftMutation.reset();
     onClose();
   };
+
+  const visiblePresets = PRESETS.filter(
+    (preset) => preset.key !== 'tab-group' || Boolean(onAddTabGroup),
+  );
 
   return (
     <>
@@ -155,7 +263,7 @@ export function AddTabModal({
                 aria-label="View presets"
                 onAction={(key) => handlePresetSelect(key as string)}
               >
-                {PRESETS.map((preset) => (
+                {visiblePresets.map((preset) => (
                   <ListboxItem
                     key={preset.key}
                     description={preset.description}
@@ -255,13 +363,31 @@ export function AddTabModal({
 
       <AddVKWorkspaceModal
         isOpen={showVKWorkspace}
-        onClose={() => setShowVKWorkspace(false)}
+        onClose={() => {
+          if (openCraftMutation.isPending) return;
+          setShowVKWorkspace(false);
+          openCraftMutation.reset();
+        }}
         onComplete={handleClose}
         onAdd={handleVKWorkspaceAdd}
-        onAddToSpace={onAddVKWorkspaceToSpace}
-        onNavigateToTabGroup={onNavigateToTabGroup}
+        onAddToSpace={
+          onAddVKWorkspaceToSpace ? handleVKWorkspaceAddToSpace : undefined
+        }
+        onNavigateToTabGroup={handleVKWorkspaceNavigate}
         workspaceState={workspace}
+        pendingWorkspaceId={pendingWorkspaceId}
+        actionError={
+          openCraftMutation.isError
+            ? getAddTabErrorMessage(openCraftMutation.error)
+            : null
+        }
       />
     </>
   );
+}
+
+function getAddTabErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) return error.message;
+  if (typeof error === 'string' && error.trim()) return error;
+  return 'Open Craft failed. Please retry or cancel.';
 }
