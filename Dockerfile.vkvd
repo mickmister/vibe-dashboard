@@ -3,7 +3,6 @@
 ARG VK_REPO_URL=https://github.com/mickmister/vibe-kanban.git
 ARG VK_BRANCH=main
 ARG VK_COMMIT=
-ARG BEADS_WEB_VERSION=v0.11.0
 
 FROM alpine:3.19 AS vk-runtime-downloader
 
@@ -43,36 +42,6 @@ RUN set -eux; \
     printf '%s@%s\n' "${VK_BRANCH}" "$(printf '%s' "${VK_COMMIT}" | cut -c1-12)" > /vk-build-version
 
 
-FROM node:22-bookworm AS beads-web-builder
-
-ARG BEADS_WEB_VERSION
-
-WORKDIR /beads-web
-
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    ca-certificates \
-    curl \
-    git \
-    pkg-config \
-    python3 \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
-
-ENV CARGO_HOME=/usr/local/cargo
-ENV RUSTUP_HOME=/usr/local/rustup
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-ENV PATH="/usr/local/cargo/bin:${PATH}"
-
-# Build beads-web from source so the binary links against this image's glibc.
-# The upstream Linux release binary is built on newer Ubuntu and currently requires
-# a newer glibc than Debian bookworm provides.
-RUN git clone --depth 1 --branch "${BEADS_WEB_VERSION}" https://github.com/weselow/beads-web.git . \
-    && npm ci \
-    && npm run build \
-    && cargo build --manifest-path server/Cargo.toml --release \
-    && install -m 0755 server/target/release/beads-server /usr/local/bin/beads-web
-
 FROM node:22-bookworm AS dashboard-builder
 
 WORKDIR /app
@@ -99,6 +68,10 @@ COPY . .
 RUN npm rebuild better-sqlite3 && npm run build
 
 FROM node:22-bookworm
+
+ARG TARGETARCH
+ARG GITHUB_TOKEN=
+ARG BEADS_WEB_LINUX_X64_URL=https://github.com/mickmister/beads-web/releases/download/untagged-88b60028c4b077f2909f/beads-web-linux-x64
 
 # Harden APT against flaky proxy/cache behavior (helps prevent Hash Sum mismatch on macOS VM networking).
 RUN set -eux; \
@@ -295,8 +268,37 @@ RUN su - vkuser -c "mkdir -p /home/vkuser/.local/share/code-server/extensions &&
 # Install Beads CLI
 RUN curl -fsSL https://raw.githubusercontent.com/gastownhall/beads/main/scripts/install.sh | bash
 
-# Install beads-web UI binary
-COPY --from=beads-web-builder /usr/local/bin/beads-web /usr/local/bin/beads-web
+# Install beads-web UI binary. Current beads-web per-commit assets are linux/amd64-only;
+# skip on arm64 until the fork publishes a compatible arm64 asset.
+# Draft release assets are not anonymously downloadable; pass a BuildKit secret with
+# `--secret id=github_token,env=GITHUB_TOKEN` (preferred) or a GITHUB_TOKEN build arg.
+RUN --mount=type=secret,id=github_token,required=false set -eux; \
+    case "${TARGETARCH}" in \
+      amd64) \
+        if ! curl -fsSL "${BEADS_WEB_LINUX_X64_URL}" -o /usr/local/bin/beads-web; then \
+          beads_web_repo="$(printf '%s' "${BEADS_WEB_LINUX_X64_URL}" | sed -E 's#^https://github.com/([^/]+/[^/]+)/releases/download/.*#\1#')"; \
+          beads_web_tag="$(printf '%s' "${BEADS_WEB_LINUX_X64_URL}" | sed -E 's#^https://github.com/[^/]+/[^/]+/releases/download/([^/]+)/.*#\1#')"; \
+          beads_web_asset="$(basename "${BEADS_WEB_LINUX_X64_URL}")"; \
+          if [ -f /run/secrets/github_token ]; then \
+            export GH_TOKEN="$(cat /run/secrets/github_token)"; \
+          elif [ -n "${GITHUB_TOKEN}" ]; then \
+            export GH_TOKEN="${GITHUB_TOKEN}"; \
+          else \
+            echo "beads-web asset is not anonymously downloadable; pass --secret id=github_token,env=GITHUB_TOKEN" >&2; \
+            exit 1; \
+          fi; \
+          gh release download "${beads_web_tag}" --repo "${beads_web_repo}" --pattern "${beads_web_asset}" --output /usr/local/bin/beads-web --clobber; \
+        fi; \
+        chmod 0755 /usr/local/bin/beads-web; \
+        ldd /usr/local/bin/beads-web >/dev/null; \
+        ;; \
+      arm64) \
+        echo "Skipping beads-web install: no linux/arm64 asset is available yet"; \
+        ;; \
+      *) \
+        echo "unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1; \
+        ;; \
+    esac
 
 # Create supervisor config directory
 RUN mkdir -p /etc/supervisor/conf.d
