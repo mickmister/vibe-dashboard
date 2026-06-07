@@ -75,7 +75,7 @@ FROM node:22-bookworm
 
 ARG TARGETARCH
 ARG GITHUB_TOKEN=
-ARG BEADS_WEB_LINUX_X64_URL=https://github.com/mickmister/beads-web/releases/download/untagged-88b60028c4b077f2909f/beads-web-linux-x64
+ARG BEADS_WEB_LINUX_X64_URL=https://github.com/mickmister/beads-web/releases/download/beads-web-assets-d09a0aa202546ac86f4b77dc75dde211e61f3ab6/beads-web-linux-x64
 
 # Harden APT against flaky proxy/cache behavior (helps prevent Hash Sum mismatch on macOS VM networking).
 RUN set -eux; \
