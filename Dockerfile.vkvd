@@ -25,7 +25,11 @@ RUN set -eux; \
     manifest_url="${release_base_url}/manifest.json"; \
     curl -fsSL "${manifest_url}" -o manifest.json; \
     test "$(jq -r '.schema_version' manifest.json)" = "1"; \
-    test "$(jq -r '.mode' manifest.json)" = "linux-container-runtime"; \
+    manifest_mode="$(jq -r '.mode' manifest.json)"; \
+    case "${manifest_mode}" in \
+      linux-container-runtime|standalone-runtime-assets) ;; \
+      *) echo "unsupported vibe-kanban asset mode: ${manifest_mode}" >&2; exit 1 ;; \
+    esac; \
     test "$(jq -r '.release_tag' manifest.json)" = "${release_tag}"; \
     test "$(jq -r '.commit' manifest.json)" = "${VK_COMMIT}"; \
     asset_file="$(jq -r --arg platform "${vk_platform}" '.platforms[$platform].assets["vibe-kanban"].file' manifest.json)"; \
@@ -271,8 +275,9 @@ RUN curl -fsSL https://raw.githubusercontent.com/gastownhall/beads/main/scripts/
 # Install beads-web UI binary. Current beads-web per-commit assets are linux/amd64-only;
 # skip on arm64 until the fork publishes a compatible arm64 asset.
 # Draft release assets are not anonymously downloadable; pass a BuildKit secret with
-# `--secret id=github_token,env=GITHUB_TOKEN` (preferred) or a GITHUB_TOKEN build arg.
-RUN --mount=type=secret,id=github_token,required=false set -eux; \
+# `--secret id=github_token,env=GITHUB_TOKEN` (preferred), the reusable workflow
+# `GIT_AUTH_TOKEN` secret, or a GITHUB_TOKEN build arg.
+RUN --mount=type=secret,id=github_token,required=false --mount=type=secret,id=GIT_AUTH_TOKEN,required=false set -eux; \
     case "${TARGETARCH}" in \
       amd64) \
         if ! curl -fsSL "${BEADS_WEB_LINUX_X64_URL}" -o /usr/local/bin/beads-web; then \
@@ -281,10 +286,12 @@ RUN --mount=type=secret,id=github_token,required=false set -eux; \
           beads_web_asset="$(basename "${BEADS_WEB_LINUX_X64_URL}")"; \
           if [ -f /run/secrets/github_token ]; then \
             export GH_TOKEN="$(cat /run/secrets/github_token)"; \
+          elif [ -f /run/secrets/GIT_AUTH_TOKEN ]; then \
+            export GH_TOKEN="$(cat /run/secrets/GIT_AUTH_TOKEN)"; \
           elif [ -n "${GITHUB_TOKEN}" ]; then \
             export GH_TOKEN="${GITHUB_TOKEN}"; \
           else \
-            echo "beads-web asset is not anonymously downloadable; pass --secret id=github_token,env=GITHUB_TOKEN" >&2; \
+            echo "beads-web asset is not anonymously downloadable; pass --secret id=github_token,env=GITHUB_TOKEN or id=GIT_AUTH_TOKEN" >&2; \
             exit 1; \
           fi; \
           gh release download "${beads_web_tag}" --repo "${beads_web_repo}" --pattern "${beads_web_asset}" --output /usr/local/bin/beads-web --clobber; \
