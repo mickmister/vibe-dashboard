@@ -20,7 +20,7 @@ export default defineConfig({
   },
   webServer: {
     command: `node ./tests/e2e/clean-state.mjs ${port} && SQLITE_DATABASE_FILE=${sqliteDatabaseFile} SERVER_PORT=${port + 1} PORT=${port} npm run dev -- --host 127.0.0.1`,
-    url: `http://127.0.0.1:${port + 1}/kv/get-all`,
+    url: `http://127.0.0.1:${port}/kv/get-all`,
     reuseExistingServer: false,
     timeout: 120_000,
   },
