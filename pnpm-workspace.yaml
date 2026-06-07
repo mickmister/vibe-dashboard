@@ -1,2 +1,5 @@
 packages:
   - apps/mobile
+
+onlyBuiltDependencies:
+  - better-sqlite3

@@ -56,6 +56,9 @@ jobs:
           PORT: ${{ env.PORT }}
           SERVER_PORT: ${{ env.SERVER_PORT }}
 
+      - name: Prepare static assets for node server
+        run: cp -R dist/browser/. dist/
+
       - name: Build Android APK with EAS local mode
         working-directory: apps/mobile
         run: |
