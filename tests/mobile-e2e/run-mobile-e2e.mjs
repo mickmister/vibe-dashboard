@@ -92,7 +92,7 @@ function startAppium() {
       '--base-path',
       '/',
       '--allow-insecure',
-      'chromedriver_autodownload',
+      'uiautomator2:chromedriver_autodownload',
     ],
     {
       cwd: import.meta.dirname,
