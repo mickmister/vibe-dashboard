@@ -75,7 +75,8 @@ FROM node:22-bookworm
 
 ARG TARGETARCH
 ARG GITHUB_TOKEN=
-ARG BEADS_WEB_LINUX_X64_URL=https://github.com/mickmister/beads-web/releases/download/v0.11.3/beads-web-linux-x64
+ARG BEADS_WEB_LINUX_X64_URL=https://github.com/mickmister/beads-web/releases/download/v0.11.4/beads-web-linux-x64
+ARG BEADS_WEB_LINUX_ARM64_URL=https://github.com/mickmister/beads-web/releases/download/v0.11.4/beads-web-linux-arm64
 
 # Harden APT against flaky proxy/cache behavior (helps prevent Hash Sum mismatch on macOS VM networking).
 RUN set -eux; \
@@ -272,38 +273,35 @@ RUN su - vkuser -c "mkdir -p /home/vkuser/.local/share/code-server/extensions &&
 # Install Beads CLI
 RUN curl -fsSL https://raw.githubusercontent.com/gastownhall/beads/main/scripts/install.sh | bash
 
-# Install beads-web UI binary. The current tagged release publishes a Linux x64
-# asset only; skip on arm64 until the fork publishes a compatible arm64 asset.
-# The default tagged asset is public, but private/draft override URLs can fall
-# back to a BuildKit secret: id=github_token, id=GIT_AUTH_TOKEN, or GITHUB_TOKEN.
+# Install beads-web UI binary. The default tagged assets are public, but
+# private/draft override URLs can fall back to a BuildKit secret:
+# id=github_token, id=GIT_AUTH_TOKEN, or GITHUB_TOKEN.
 RUN --mount=type=secret,id=github_token,required=false --mount=type=secret,id=GIT_AUTH_TOKEN,required=false set -eux; \
-    case "${TARGETARCH}" in \
-      amd64) \
-        if ! curl -fsSL "${BEADS_WEB_LINUX_X64_URL}" -o /usr/local/bin/beads-web; then \
-          beads_web_repo="$(printf '%s' "${BEADS_WEB_LINUX_X64_URL}" | sed -E 's#^https://github.com/([^/]+/[^/]+)/releases/download/.*#\1#')"; \
-          beads_web_tag="$(printf '%s' "${BEADS_WEB_LINUX_X64_URL}" | sed -E 's#^https://github.com/[^/]+/[^/]+/releases/download/([^/]+)/.*#\1#')"; \
-          beads_web_asset="$(basename "${BEADS_WEB_LINUX_X64_URL}")"; \
-          if [ -f /run/secrets/github_token ]; then \
-            export GH_TOKEN="$(cat /run/secrets/github_token)"; \
-          elif [ -f /run/secrets/GIT_AUTH_TOKEN ]; then \
-            export GH_TOKEN="$(cat /run/secrets/GIT_AUTH_TOKEN)"; \
-          elif [ -n "${GITHUB_TOKEN}" ]; then \
-            export GH_TOKEN="${GITHUB_TOKEN}"; \
-          else \
-            echo "beads-web asset is not anonymously downloadable; pass --secret id=github_token,env=GITHUB_TOKEN or id=GIT_AUTH_TOKEN" >&2; \
-            exit 1; \
-          fi; \
-          gh release download "${beads_web_tag}" --repo "${beads_web_repo}" --pattern "${beads_web_asset}" --output /usr/local/bin/beads-web --clobber; \
+    install_beads_web() { \
+      beads_web_url="$1"; \
+      if ! curl -fsSL "${beads_web_url}" -o /usr/local/bin/beads-web; then \
+        beads_web_repo="$(printf '%s' "${beads_web_url}" | sed -E 's#^https://github.com/([^/]+/[^/]+)/releases/download/.*#\1#')"; \
+        beads_web_tag="$(printf '%s' "${beads_web_url}" | sed -E 's#^https://github.com/[^/]+/[^/]+/releases/download/([^/]+)/.*#\1#')"; \
+        beads_web_asset="$(basename "${beads_web_url}")"; \
+        if [ -f /run/secrets/github_token ]; then \
+          export GH_TOKEN="$(cat /run/secrets/github_token)"; \
+        elif [ -f /run/secrets/GIT_AUTH_TOKEN ]; then \
+          export GH_TOKEN="$(cat /run/secrets/GIT_AUTH_TOKEN)"; \
+        elif [ -n "${GITHUB_TOKEN}" ]; then \
+          export GH_TOKEN="${GITHUB_TOKEN}"; \
+        else \
+          echo "beads-web asset is not anonymously downloadable; pass --secret id=github_token,env=GITHUB_TOKEN or id=GIT_AUTH_TOKEN" >&2; \
+          exit 1; \
         fi; \
-        chmod 0755 /usr/local/bin/beads-web; \
-        ldd /usr/local/bin/beads-web >/dev/null; \
-        ;; \
-      arm64) \
-        echo "Skipping beads-web install: no linux/arm64 asset is available yet"; \
-        ;; \
-      *) \
-        echo "unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1; \
-        ;; \
+        gh release download "${beads_web_tag}" --repo "${beads_web_repo}" --pattern "${beads_web_asset}" --output /usr/local/bin/beads-web --clobber; \
+      fi; \
+      chmod 0755 /usr/local/bin/beads-web; \
+      ldd /usr/local/bin/beads-web >/dev/null; \
+    }; \
+    case "${TARGETARCH}" in \
+      amd64) install_beads_web "${BEADS_WEB_LINUX_X64_URL}" ;; \
+      arm64) install_beads_web "${BEADS_WEB_LINUX_ARM64_URL}" ;; \
+      *) echo "unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
     esac
 
 # Create supervisor config directory
