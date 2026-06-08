@@ -23,7 +23,7 @@
     "react-native": "0.79.5",
     "react-native-safe-area-context": "5.4.0",
     "react-native-webview": "^13.16.0",
-    "springboard": "0.0.1-dev-vite-mobile-1"
+    "springboard": "git+https://github.com/jamtools/springboard.git#78f4025b29a7e416edfefd2ada6f3d4c1165e2a8&path:/packages/springboard"
   },
   "devDependencies": {
     "@babel/core": "^7.28.6",

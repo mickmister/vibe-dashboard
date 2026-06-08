@@ -1,11 +1,10 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useRef } from 'react';
 import { StatusBar, StyleSheet } from 'react-native';
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 import * as SplashScreen from 'expo-splash-screen';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
-import { WebView } from 'react-native-webview';
 import { SpringboardProviderPure } from 'springboard/engine/engine';
 import {
   createReactNativeRemoteServices,
@@ -37,30 +36,22 @@ export default function App() {
 
   const content = !sbInitResult?.engine || !sbInitResult?.handleMessageFromWebview
     ? null
-    : LOAD_WEBVIEW_FROM_SITE_URL
-      ? (
-        <SiteUrlWebViewHost
-          siteUrl={DATA_HOST}
-          handleMessageFromWebview={sbInitResult.handleMessageFromWebview}
-          onMessageFromRN={(cb) => {
-            onMessageFromRN.current = cb;
-          }}
-        />
-      )
-      : (
-        <SpringboardExpoWebViewHost
-          engine={sbInitResult.engine}
-          assetModules={{
-            html: require('./assets/web/index.html'),
-            css: require('./assets/web/index-css.css'),
-            js: require('./assets/web/index-js.js.asset'),
-          }}
-          handleMessageFromWebview={sbInitResult.handleMessageFromWebview}
-          onMessageFromRN={(cb) => {
-            onMessageFromRN.current = cb;
-          }}
-        />
-      );
+    : (
+      <SpringboardExpoWebViewHost
+        engine={sbInitResult.engine}
+        assetModules={{
+          html: require('./assets/web/index.html'),
+          css: require('./assets/web/index-css.css'),
+          js: require('./assets/web/index-js.js.asset'),
+        }}
+        siteUrl={DATA_HOST}
+        loadFromSiteUrl={LOAD_WEBVIEW_FROM_SITE_URL}
+        handleMessageFromWebview={sbInitResult.handleMessageFromWebview}
+        onMessageFromRN={(cb) => {
+          onMessageFromRN.current = cb;
+        }}
+      />
+    );
 
   return (
     <SafeAreaProvider>
@@ -75,56 +66,6 @@ export default function App() {
     </SafeAreaProvider>
   );
 }
-
-type SiteUrlWebViewHostProps = {
-  siteUrl: string;
-  handleMessageFromWebview: (message: string) => void;
-  onMessageFromRN: (cb: (message: string) => void) => void;
-};
-
-const SiteUrlWebViewHost = ({
-  siteUrl,
-  handleMessageFromWebview,
-  onMessageFromRN,
-}: SiteUrlWebViewHostProps) => {
-  const webViewRef = useRef<WebView>(null);
-
-  useEffect(() => {
-    onMessageFromRN((message) => {
-      webViewRef.current?.injectJavaScript(`window.receiveMessageFromRN(${JSON.stringify(message)}); true;`);
-    });
-  }, [onMessageFromRN]);
-
-  return (
-    <WebView
-      ref={webViewRef}
-      source={{ uri: siteUrl }}
-      onLoadEnd={() => {
-        void SplashScreen.hideAsync();
-      }}
-      onMessage={(event: { nativeEvent: { data: string } }) => {
-        handleMessageFromWebview(event.nativeEvent.data);
-      }}
-      originWhitelist={['*']}
-      style={styles.webview}
-      allowsInlineMediaPlayback
-      mediaPlaybackRequiresUserAction={false}
-      webviewDebuggingEnabled
-      domStorageEnabled
-      sharedCookiesEnabled
-      thirdPartyCookiesEnabled
-      allowsAirPlayForMediaPlayback
-      allowsBackForwardNavigationGestures
-      allowsFullscreenVideo
-      allowsProtectedMedia
-      onContentProcessDidTerminate={() => {
-        webViewRef.current?.reload();
-      }}
-      bounces={false}
-      overScrollMode="never"
-    />
-  );
-};
 
 const styles = StyleSheet.create({
   container: {

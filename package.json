@@ -16,7 +16,8 @@
     "storybook": "npm run build-storybook && npm run serve-storybook",
     "storybook:dev": "storybook dev -p $PORT",
     "build-storybook": "storybook build",
-    "serve-storybook": "serve storybook-static -l $PORT"
+    "serve-storybook": "serve storybook-static -l $PORT",
+    "postinstall": "node ./scripts/build-springboard-git-ref.mjs"
   },
   "dependencies": {
     "@heroui/react": "^2.8.9",
@@ -34,7 +35,7 @@
     "react-resizable-panels": "^4.6.5",
     "react-router": "^7.13.0",
     "rxjs": "^7.8.2",
-    "springboard": "0.0.1-dev-vite-mobile-1",
+    "springboard": "git+https://github.com/jamtools/springboard.git#78f4025b29a7e416edfefd2ada6f3d4c1165e2a8&path:/packages/springboard",
     "tailwindcss": "^4.1.18"
   },
   "devDependencies": {
