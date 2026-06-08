@@ -1369,24 +1369,19 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
           !(args.voyageEntries?.length)
         ) return;
         savedSessionsState.setState((current) => {
-          const sessions = getSavedWorkspaceSessions(current).map((session) => ({
-            ...session,
-          }));
+          const sessions = getSavedWorkspaceSessions(current).map(cloneSavedSession);
+          const nextSession = cloneSavedSession({
+            ...args,
+            slug: buildVoyageSlug(name, args.id),
+            name,
+          });
           const existing = sessions.find((session) => session.id === args.id);
           if (existing) {
-            existing.slug = buildVoyageSlug(name, args.id);
-            existing.name = name;
-            existing.updatedAt = args.updatedAt;
-            existing.activeVoyageEntryId = args.activeVoyageEntryId;
-            existing.voyageEntries = args.voyageEntries;
-            existing.activeSpaceId = args.activeSpaceId;
-            existing.activeTabGroupId = args.activeTabGroupId;
-            existing.activeItemsByVoyageEntryId = args.activeItemsByVoyageEntryId;
-            existing.visitedTabGroupIds = args.visitedTabGroupIds;
+            Object.assign(existing, nextSession);
             return createSavedWorkspaceSessionState(sessions);
           }
 
-          sessions.unshift({ ...args, slug: buildVoyageSlug(name, args.id), name });
+          sessions.unshift(nextSession);
           return createSavedWorkspaceSessionState(sessions);
         });
       },

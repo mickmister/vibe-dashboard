@@ -248,9 +248,6 @@ springboard.registerModule(
       const activeSavedSessionJustChanged =
         previousActiveSavedSessionIdRef.current !== activeSavedSession?.id;
 
-      useEffect(() => {
-        previousActiveSavedSessionIdRef.current = activeSavedSession?.id;
-      });
       const querySelection = resolveQueryCraftSelection(
         workspace,
         activeSavedSession,
