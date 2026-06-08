@@ -30,6 +30,7 @@ permissions:
   packages: write
   id-token: write
   issues: write
+  pull-requests: read
 
 concurrency:
   group: vk-vd-publish-${{ github.event_name == 'repository_dispatch' && github.event.client_payload.vk_source_ref || github.event_name == 'pull_request' && format('refs/heads/{0}', github.event.pull_request.head.ref) || github.ref }}
@@ -209,6 +210,7 @@ jobs:
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
           GITHUB_TOKEN: ${{ github.token }}
+          BUILT_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_IMAGE_TAG: ${{ needs.resolve-vk-ref.outputs.pr_image_tag }}
           PR_NUMBER: ${{ needs.resolve-vk-ref.outputs.pr_number }}
         run: |
@@ -243,6 +245,33 @@ jobs:
             echo "::error::PR_IMAGE_TAG was not resolved."
             exit 1
           fi
+
+          if [[ -z "$BUILT_PR_HEAD_SHA" ]]; then
+            echo "::error::BUILT_PR_HEAD_SHA was not resolved."
+            exit 1
+          fi
+
+          current_pr_head_sha="$(
+            curl \
+              --fail-with-body \
+              --show-error \
+              --silent \
+              --retry 5 \
+              --retry-delay 5 \
+              --retry-all-errors \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" \
+              --header "Authorization: Bearer $GITHUB_TOKEN" \
+              --header "Accept: application/vnd.github+json" \
+              --header "X-GitHub-Api-Version: 2022-11-28" \
+              | python3 -c 'import json, sys; print(json.load(sys.stdin)["head"]["sha"])'
+          )"
+
+          if [[ "$current_pr_head_sha" != "$BUILT_PR_HEAD_SHA" ]]; then
+            echo "::error::PR #${PR_NUMBER} moved while this image was publishing. Built ${BUILT_PR_HEAD_SHA}, but current PR head is ${current_pr_head_sha}. Re-add coolify-deploy to deploy the latest PR head."
+            exit 1
+          fi
+
+          echo "Verified PR #${PR_NUMBER} is still at built head ${BUILT_PR_HEAD_SHA}."
 
           coolify_deploy_url="${COOLIFY_WEBHOOK%%\?*}"
           coolify_query="${COOLIFY_WEBHOOK#*\?}"
