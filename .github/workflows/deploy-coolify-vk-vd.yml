@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: read
+  packages: read
 
 concurrency:
   group: vk-vd-coolify-deploy
@@ -26,6 +27,7 @@ jobs:
           COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          GITHUB_TOKEN: ${{ github.token }}
           IMAGE_TAG: ${{ inputs.image_tag }}
         run: |
           set -euo pipefail
@@ -59,6 +61,16 @@ jobs:
             echo "::error::image_tag must be a valid Docker tag."
             exit 1
           fi
+
+          image_ref="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/vk-vd:${IMAGE_TAG}"
+          echo "$GITHUB_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+
+          if ! docker manifest inspect "$image_ref" >/dev/null; then
+            echo "::error::Image tag does not exist or is not readable: ${image_ref}"
+            exit 1
+          fi
+
+          echo "Verified image tag exists: ${image_ref}"
 
           coolify_deploy_url="${COOLIFY_WEBHOOK%%\?*}"
           coolify_query="${COOLIFY_WEBHOOK#*\?}"

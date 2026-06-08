@@ -29,7 +29,7 @@ permissions:
   contents: read
   packages: write
   id-token: write
-  pull-requests: read
+  issues: write
 
 concurrency:
   group: vk-vd-publish-${{ github.event_name == 'repository_dispatch' && github.event.client_payload.vk_source_ref || github.event_name == 'pull_request' && format('refs/heads/{0}', github.event.pull_request.head.ref) || github.ref }}
@@ -198,6 +198,9 @@ jobs:
     needs: [resolve-vk-ref, publish]
     if: ${{ needs.resolve-vk-ref.outputs.deploy_pr_preview == 'true' }}
     runs-on: ubuntu-latest
+    concurrency:
+      group: vk-vd-coolify-deploy
+      cancel-in-progress: false
     steps:
       - name: Trigger Coolify PR deployment
         env:
@@ -205,6 +208,7 @@ jobs:
           COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          GITHUB_TOKEN: ${{ github.token }}
           PR_IMAGE_TAG: ${{ needs.resolve-vk-ref.outputs.pr_image_tag }}
           PR_NUMBER: ${{ needs.resolve-vk-ref.outputs.pr_number }}
         run: |
@@ -269,7 +273,7 @@ jobs:
           coolify_env_url="${coolify_deploy_url%/deploy}/applications/${coolify_uuid}/envs"
           env_payload="$(printf '{"key":"VKVD_IMAGE_VERSION","value":"%s","is_preview":false,"is_literal":true}' "$PR_IMAGE_TAG")"
 
-          if ! curl \
+          curl \
             --fail-with-body \
             --show-error \
             --silent \
@@ -282,14 +286,11 @@ jobs:
             --header "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
             --header "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
             --header "Content-Type: application/json" \
-            --data "$env_payload"; then
-            echo "::warning::Failed to update Coolify VKVD_IMAGE_VERSION to ${PR_IMAGE_TAG}. Check the Coolify/Cloudflare endpoint and retry the workflow if a PR image deployment is still needed."
-            exit 0
-          fi
+            --data "$env_payload"
 
           echo "Coolify VKVD_IMAGE_VERSION updated to ${PR_IMAGE_TAG}."
 
-          if ! curl \
+          curl \
             --fail-with-body \
             --show-error \
             --silent \
@@ -300,9 +301,18 @@ jobs:
             "$COOLIFY_WEBHOOK" \
             --header "Authorization: Bearer $COOLIFY_TOKEN" \
             --header "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
-            --header "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET"; then
-            echo "::warning::Coolify main deployment webhook failed after VKVD_IMAGE_VERSION was set to ${PR_IMAGE_TAG}. Check the Coolify/Cloudflare endpoint and retry the workflow if a PR image deployment is still needed."
-            exit 0
-          fi
+            --header "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET"
 
           echo "Coolify main deployment webhook notified for PR #${PR_NUMBER} using image tag ${PR_IMAGE_TAG}."
+
+          curl \
+            --fail-with-body \
+            --show-error \
+            --silent \
+            --request DELETE \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/labels/coolify-deploy" \
+            --header "Authorization: Bearer $GITHUB_TOKEN" \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: 2022-11-28"
+
+          echo "Removed coolify-deploy label from PR #${PR_NUMBER}."
