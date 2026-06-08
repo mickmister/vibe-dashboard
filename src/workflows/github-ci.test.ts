@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createWorkflowRegistry, runWorkflow } from '@vibe-kanban/workflow-core';
+import { createWorkflowRegistry, runWorkflow } from '@vibe-dashboard/workflow-core';
 import {
   createGitHubCiFailureWorkflow,
   formatGitHubCiFailurePrompt,
@@ -32,6 +32,10 @@ describe('normalizeGitHubCiFailureEvent', () => {
     expect(normalizeGitHubCiFailureEvent({
       event: 'workflow_run',
       payload: workflowRunPayload({ conclusion: 'success' }),
+    })).toMatchObject({ kind: 'ignored', reason: 'non_failure_conclusion' });
+    expect(normalizeGitHubCiFailureEvent({
+      event: 'workflow_run',
+      payload: workflowRunPayload({ conclusion: 'cancelled' }),
     })).toMatchObject({ kind: 'ignored', reason: 'non_failure_conclusion' });
     expect(normalizeGitHubCiFailureEvent({
       event: 'workflow_run',

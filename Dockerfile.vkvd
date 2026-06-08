@@ -28,7 +28,7 @@ RUN set -eux; \
     manifest_mode="$(jq -r '.mode' manifest.json)"; \
     case "${manifest_mode}" in \
       linux-container-runtime|standalone-runtime-assets) ;; \
-      *) echo "unsupported vibe-kanban asset mode: ${manifest_mode}" >&2; exit 1 ;; \
+      *) echo "unsupported VK release asset mode: ${manifest_mode}" >&2; exit 1 ;; \
     esac; \
     test "$(jq -r '.release_tag' manifest.json)" = "${release_tag}"; \
     test "$(jq -r '.commit' manifest.json)" = "${VK_COMMIT}"; \

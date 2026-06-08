@@ -6,20 +6,35 @@ import React, {
   useMemo,
 } from 'react';
 import { Button, Input } from '@heroui/react';
-import type { WorkspaceState, Space, TabGroup } from '../types';
+import type {
+  WorkspaceState,
+  Space,
+  TabGroup,
+  SavedWorkspaceSession,
+  VoyageEntry,
+} from '../types';
 import { TabContextMenu } from './TabContextMenu';
+
+const INTERNAL_URL_PREFIX = 'internal://';
 
 interface SidebarProps {
   workspace: WorkspaceState;
   activeSpaceId: string;
   activeTabGroupId: string;
   activeItems: Record<string, string>;
+  visitedTabGroupIds: string[];
+  voyageEntries: VoyageEntry[];
+  activeVoyageEntryId: string;
+  savedSessions: SavedWorkspaceSession[];
+  currentSessionId: string;
   onRequestClose?: () => void;
-  onSelectSpace: (spaceId: string) => void;
   onSelectTabGroup: (tabGroupId: string) => void;
   onSelectTab: (tabGroupId: string, tabId: string) => void;
   onSelectPair: (tabGroupId: string, pairId: string) => void;
-  onAddSpace: (name: string) => void;
+  onSelectVoyageEntry: (voyageEntryId: string) => void;
+  onAddSpace: (
+    name: string,
+  ) => Promise<{ spaceId: string; tabGroupId: string } | undefined> | { spaceId: string; tabGroupId: string } | undefined;
   onDeleteSpace: (spaceId: string) => void;
   onRenameSpace: (spaceId: string, name: string) => void;
   onDeleteTabGroup: (
@@ -27,13 +42,14 @@ interface SidebarProps {
     tabGroupId: string,
   ) => Promise<{ wasDeleted: boolean; nextTabGroupId?: string } | undefined>;
   onRenameTabGroup: (tabGroupId: string, label: string) => void;
-  onAddTabGroup: (label: string) => Promise<void> | void;
+  onAddTabGroup: (label: string, spaceId?: string) => Promise<void> | void;
   onAddTab: (
     tabGroupId: string,
     title: string,
     url: string,
   ) => Promise<void> | void;
   onOpenCreateWorkspaceTab: () => Promise<void> | void;
+  onOpenCraftFlow: () => Promise<void> | void;
   onCreatePair: (tabGroupId: string, tabIds: string[]) => Promise<void> | void;
   onCloseTab: (tabGroupId: string, tabId: string) => void;
   onSplitPair: (tabGroupId: string, pairId: string) => void;
@@ -44,6 +60,9 @@ interface SidebarProps {
   onReorderSpaces: (sourceId: string, targetId: string) => void;
   showAddressBar: boolean;
   onToggleAddressBar: () => void;
+  onResumeSession: (sessionId: string) => void;
+  onStartNewSession: () => void;
+  onRenameSession: (sessionId: string, name: string) => void;
 }
 
 const SPACE_ICONS: Record<string, string> = {
@@ -58,11 +77,16 @@ export function Sidebar({
   activeSpaceId,
   activeTabGroupId,
   activeItems,
+  visitedTabGroupIds,
+  voyageEntries,
+  activeVoyageEntryId,
+  savedSessions,
+  currentSessionId,
   onRequestClose,
-  onSelectSpace,
   onSelectTabGroup,
   onSelectTab,
   onSelectPair,
+  onSelectVoyageEntry,
   onAddSpace,
   onDeleteSpace,
   onRenameSpace,
@@ -71,6 +95,7 @@ export function Sidebar({
   onAddTabGroup,
   onAddTab,
   onOpenCreateWorkspaceTab,
+  onOpenCraftFlow,
   onCreatePair,
   onCloseTab,
   onSplitPair,
@@ -81,6 +106,9 @@ export function Sidebar({
   onReorderSpaces,
   showAddressBar,
   onToggleAddressBar,
+  onResumeSession,
+  onStartNewSession,
+  onRenameSession,
 }: SidebarProps) {
   const [view, setView] = useState<'groups' | 'spaces'>('groups');
   const [adding, setAdding] = useState(false);
@@ -107,6 +135,9 @@ export function Sidebar({
   const [newTabTitle, setNewTabTitle] = useState('');
   const [newTabUrl, setNewTabUrl] = useState('');
   const [pairSelection, setPairSelection] = useState<string[]>([]);
+  const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
+  const [sessionNameDraft, setSessionNameDraft] = useState('');
+  const [viewedSpaceId, setViewedSpaceId] = useState(activeSpaceId);
   const contextMenuRef = useRef<HTMLDivElement>(null);
   const groupContextMenuRef = useRef<HTMLDivElement>(null);
   const dragTabGroupRef = useRef<string | null>(null);
@@ -118,15 +149,26 @@ export function Sidebar({
       return false;
     }
   });
-  const activeSpace = workspace.spaces.find(
-    (space) => space.id === activeSpaceId,
+  useEffect(() => {
+    setViewedSpaceId(activeSpaceId);
+  }, [activeSpaceId]);
+
+  const viewedSpace = workspace.spaces.find(
+    (space) => space.id === viewedSpaceId,
   );
+
+  const orderedSpaces = useMemo(() => {
+    return [...workspace.spaces].sort((left, right) => {
+      if (left.isSystem === right.isSystem) return 0;
+      return left.isSystem ? -1 : 1;
+    });
+  }, [workspace.spaces]);
   const activeTabGroups = useMemo(() => {
-    if (!activeSpace) return [];
-    return activeSpace.tabGroupIds
+    if (!viewedSpace) return [];
+    return viewedSpace.tabGroupIds
       .map((id) => workspace.tabGroups.find((tabGroup) => tabGroup.id === id))
       .filter((tabGroup): tabGroup is TabGroup => tabGroup != null);
-  }, [activeSpace, workspace.tabGroups]);
+  }, [viewedSpace, workspace.tabGroups]);
   const activeTabGroup = activeTabGroups.find(
     (tabGroup) => tabGroup.id === activeTabGroupId,
   );
@@ -135,12 +177,15 @@ export function Sidebar({
     const tabsInPairs = new Set(
       activeTabGroup.pairs.flatMap((pair) => pair.tabIds),
     );
-    return activeTabGroup.tabs.filter((tab) => !tabsInPairs.has(tab.id));
+    return activeTabGroup.tabs.filter(
+      (tab) =>
+        !tabsInPairs.has(tab.id) && !tab.url.startsWith(INTERNAL_URL_PREFIX),
+    );
   }, [activeTabGroup]);
 
   const starredTabGroups = useMemo(() => {
     const items: { space: Space; tg: TabGroup }[] = [];
-    for (const space of workspace.spaces) {
+    for (const space of orderedSpaces) {
       if (space.isSystem) continue;
       for (const tgId of space.tabGroupIds) {
         const tg = workspace.tabGroups.find((g) => g.id === tgId);
@@ -148,7 +193,34 @@ export function Sidebar({
       }
     }
     return items;
-  }, [workspace.spaces, workspace.tabGroups]);
+  }, [orderedSpaces, workspace.tabGroups]);
+
+  const sessionVoyageEntries = useMemo(() => {
+    return voyageEntries
+      .map((entry) => {
+        const tabGroup = workspace.tabGroups.find((group) => group.id === entry.tabGroupId);
+        if (!tabGroup) return null;
+
+        const space = workspace.spaces.find((candidate) =>
+          candidate.tabGroupIds.includes(entry.tabGroupId),
+        );
+        if (!space) return null;
+
+        return { entry, space, tg: tabGroup };
+      })
+      .filter((item): item is { entry: VoyageEntry; space: Space; tg: TabGroup } => item != null);
+  }, [voyageEntries, workspace.spaces, workspace.tabGroups]);
+
+  const resumableSessions = useMemo(() => {
+    return savedSessions
+      .filter((session) => session.id !== currentSessionId)
+      .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
+      .slice(0, 6);
+  }, [currentSessionId, savedSessions]);
+  const currentSession = useMemo(
+    () => savedSessions.find((session) => session.id === currentSessionId),
+    [currentSessionId, savedSessions],
+  );
 
   const toggleStarredExpanded = useCallback(() => {
     setStarredExpanded((prev) => {
@@ -166,7 +238,7 @@ export function Sidebar({
       e.dataTransfer.effectAllowed = 'move';
       e.dataTransfer.setData('text/plain', tabGroupId);
     },
-    [],
+    [workspace.spaces],
   );
 
   const handleTabGroupDragOver = useCallback((e: React.DragEvent) => {
@@ -187,6 +259,8 @@ export function Sidebar({
 
   const handleSpaceDragStart = useCallback(
     (e: React.DragEvent, spaceId: string) => {
+      const space = workspace.spaces.find((entry) => entry.id === spaceId);
+      if (space?.isSystem) return;
       dragSpaceRef.current = spaceId;
       e.dataTransfer.effectAllowed = 'move';
       e.dataTransfer.setData('text/plain', spaceId);
@@ -213,9 +287,14 @@ export function Sidebar({
   const handleAddSubmit = useCallback(() => {
     const name = newName.trim();
     if (name) {
-      onAddSpace(name);
-      setNewName('');
-      setAdding(false);
+      void Promise.resolve(onAddSpace(name)).then((result) => {
+        if (result?.spaceId) {
+          setViewedSpaceId(result.spaceId);
+          setView('groups');
+        }
+        setNewName('');
+        setAdding(false);
+      });
     }
   }, [newName, onAddSpace]);
 
@@ -270,7 +349,7 @@ export function Sidebar({
   const handleDeleteSpace = useCallback(() => {
     if (!contextMenu) return;
 
-    if (confirm(`Delete this space? All tab groups and tabs will be closed.`)) {
+    if (confirm(`Delete this space? All craft and views will be closed.`)) {
       onDeleteSpace(contextMenu.spaceId);
     }
     setContextMenu(null);
@@ -298,7 +377,7 @@ export function Sidebar({
       return;
     }
 
-    const newLabel = prompt('Rename tab group:', tabGroup.label);
+    const newLabel = prompt('Rename craft:', tabGroup.label);
     if (newLabel && newLabel.trim() && newLabel.trim() !== tabGroup.label) {
       onRenameTabGroup(tabGroup.id, newLabel.trim());
     }
@@ -317,14 +396,14 @@ export function Sidebar({
     }
 
     const confirmed = confirm(
-      `Delete tab group "${tabGroup.label}"? All tabs in this group will be closed.`,
+      `Delete craft "${tabGroup.label}"? All views in this craft will be closed.`,
     );
     if (!confirmed) {
       setGroupContextMenu(null);
       return;
     }
 
-    const result = await onDeleteTabGroup(activeSpaceId, tabGroup.id);
+    const result = await onDeleteTabGroup(viewedSpace?.id || activeSpaceId, tabGroup.id);
     if (result?.wasDeleted && result.nextTabGroupId) {
       onSelectTabGroup(result.nextTabGroupId);
     }
@@ -335,23 +414,24 @@ export function Sidebar({
     groupContextMenu,
     onDeleteTabGroup,
     onSelectTabGroup,
+    viewedSpace?.id,
   ]);
 
   const handleSelectSpace = useCallback(
     (spaceId: string) => {
-      onSelectSpace(spaceId);
+      setViewedSpaceId(spaceId);
       setView('groups');
     },
-    [onSelectSpace],
+    [],
   );
 
   const handleCreateGroup = useCallback(async () => {
     const label = newGroupLabel.trim();
     if (!label) return;
-    await onAddTabGroup(label);
+    await onAddTabGroup(label, viewedSpace?.id);
     setNewGroupLabel('');
     setMobileAction(null);
-  }, [newGroupLabel, onAddTabGroup]);
+  }, [newGroupLabel, onAddTabGroup, viewedSpace?.id]);
 
   const handleCreateTab = useCallback(async () => {
     if (!activeTabGroup) return;
@@ -380,6 +460,43 @@ export function Sidebar({
     setPairSelection([]);
     setMobileAction(null);
   }, [activeTabGroup, onCreatePair, pairSelection]);
+
+  const getSessionDisplayName = useCallback(
+    (session: SavedWorkspaceSession) => {
+      const explicitName = session.name?.trim();
+      if (explicitName) return explicitName;
+
+      const sessionTabGroup = workspace.tabGroups.find(
+        (tabGroup) => tabGroup.id === session.activeTabGroupId,
+      );
+      return sessionTabGroup?.label || 'Saved voyage';
+    },
+    [workspace.tabGroups],
+  );
+
+  const startRenamingSession = useCallback(
+    (session: SavedWorkspaceSession) => {
+      setEditingSessionId(session.id);
+      setSessionNameDraft(getSessionDisplayName(session));
+    },
+    [getSessionDisplayName],
+  );
+
+  const cancelSessionRename = useCallback(() => {
+    setEditingSessionId(null);
+    setSessionNameDraft('');
+  }, []);
+
+  const submitSessionRename = useCallback(
+    (sessionId: string) => {
+      const nextName = sessionNameDraft.trim();
+      if (nextName) {
+        onRenameSession(sessionId, nextName);
+      }
+      cancelSessionRename();
+    },
+    [cancelSessionRename, onRenameSession, sessionNameDraft],
+  );
 
   useEffect(() => {
     setAdding(false);
@@ -431,49 +548,54 @@ export function Sidebar({
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 min-w-0">
               <button
-                className="h-8 w-8 rounded-md text-neutral-300 hover:bg-neutral-800 hover:text-white transition-colors"
-                title="Show spaces"
-                onClick={() => setView('spaces')}
+                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-neutral-300 transition-colors hover:bg-neutral-800 hover:text-white"
+                title="Close sidebar"
+                aria-label="Close sidebar"
+                onClick={onRequestClose}
               >
-                ←
+                ✕
               </button>
               <div className="min-w-0">
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-neutral-500">
                   Current Space
                 </p>
                 <h2 className="text-sm font-semibold text-neutral-100 truncate">
-                  {activeSpace?.name || 'Unknown Space'}
+                  {viewedSpace?.name || 'Unknown Space'}
                 </h2>
               </div>
             </div>
             <button
-              className="md:hidden h-8 w-8 rounded-md text-neutral-300 hover:bg-neutral-800 hover:text-white transition-colors"
-              title="Close sidebar"
-              onClick={onRequestClose}
+              className="inline-flex h-8 shrink-0 items-center justify-center rounded-md px-2 text-xs font-medium text-neutral-300 transition-colors hover:bg-neutral-800 hover:text-white"
+              title="Show all spaces"
+              onClick={() => setView('spaces')}
             >
-              ✕
+              Spaces
             </button>
           </div>
         ) : (
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 min-w-0">
               <button
-                className="h-8 w-8 rounded-md text-neutral-300 hover:bg-neutral-800 hover:text-white transition-colors"
-                title="Back to groups"
-                onClick={() => setView('groups')}
+                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-neutral-300 transition-colors hover:bg-neutral-800 hover:text-white"
+                title="Close sidebar"
+                aria-label="Close sidebar"
+                onClick={onRequestClose}
               >
-                ←
+                ✕
               </button>
               <h2 className="text-xs font-semibold uppercase tracking-wider text-neutral-400">
                 Spaces
               </h2>
             </div>
             <button
-              className="md:hidden h-8 w-8 rounded-md text-neutral-300 hover:bg-neutral-800 hover:text-white transition-colors"
-              title="Close sidebar"
-              onClick={onRequestClose}
+              className="inline-flex h-8 shrink-0 items-center justify-center rounded-md px-2 text-xs font-medium text-neutral-300 transition-colors hover:bg-neutral-800 hover:text-white"
+              title="Back to current space"
+              onClick={() => {
+                setViewedSpaceId(activeSpaceId);
+                setView('groups');
+              }}
             >
-              ✕
+              Current
             </button>
           </div>
         )}
@@ -490,21 +612,17 @@ export function Sidebar({
                 void onOpenCreateWorkspaceTab();
               }}
             >
-              Create New Workspace
+              New Task
             </Button>
             <Button
               size="sm"
               variant="flat"
               className="w-full"
-              isDisabled={!activeTabGroup}
               onPress={() => {
-                if (!activeTabGroup) return;
-                setMobileAction(null);
-                onRequestClose?.();
-                onOpenAddTabModal(activeTabGroup.id);
+                void onOpenCraftFlow();
               }}
             >
-              Open Existing Workspace
+              Open Craft
             </Button>
             <div className="grid grid-cols-3 gap-1.5">
               <Button
@@ -515,7 +633,7 @@ export function Sidebar({
                   setMobileAction((prev) => (prev === 'group' ? null : 'group'))
                 }
               >
-                + Group
+                + Craft
               </Button>
               <Button
                 size="sm"
@@ -524,12 +642,12 @@ export function Sidebar({
                 onPress={() => {
                   if (!activeTabGroup) return;
                   setMobileAction((prev) => (prev === 'tab' ? null : 'tab'));
-                  setNewTabTitle((prev) => prev || 'New Tab');
+                  setNewTabTitle((prev) => prev || 'New View');
                   setNewTabUrl((prev) => prev || '/');
                 }}
                 isDisabled={!activeTabGroup}
               >
-                + Tab
+                + View
               </Button>
               <Button
                 size="sm"
@@ -552,7 +670,7 @@ export function Sidebar({
                   size="sm"
                   value={newGroupLabel}
                   onChange={(e) => setNewGroupLabel(e.target.value)}
-                  placeholder="Group name..."
+                  placeholder="Craft name..."
                   classNames={{ inputWrapper: 'bg-neutral-800' }}
                 />
                 <Button
@@ -561,7 +679,7 @@ export function Sidebar({
                   className="w-full"
                   onPress={handleCreateGroup}
                 >
-                  Create Group
+                  Create Craft
                 </Button>
               </div>
             )}
@@ -572,7 +690,7 @@ export function Sidebar({
                   size="sm"
                   value={newTabTitle}
                   onChange={(e) => setNewTabTitle(e.target.value)}
-                  placeholder="Tab title..."
+                  placeholder="View title..."
                   classNames={{ inputWrapper: 'bg-neutral-800' }}
                 />
                 <Input
@@ -589,14 +707,14 @@ export function Sidebar({
                   onPress={handleCreateTab}
                   isDisabled={!activeTabGroup}
                 >
-                  Create Tab
+                  Create View
                 </Button>
               </div>
             )}
 
             {mobileAction === 'pair' && (
               <div className="space-y-1.5">
-                <p className="text-xs text-neutral-400">Pick 2 tabs to pair</p>
+                <p className="text-xs text-neutral-400">Pick 2 views to split</p>
                 <div className="max-h-28 overflow-y-auto space-y-1">
                   {availablePairTabs.map((tab) => {
                     const selected = pairSelection.includes(tab.id);
@@ -629,7 +747,157 @@ export function Sidebar({
           </div>
 
           <div className="flex-1 min-h-0 overflow-y-auto">
-            {/* Starred tab groups section */}
+            <div className="border-b border-neutral-800">
+              <div className="px-3 py-2 text-xs font-semibold uppercase tracking-wider text-neutral-500">
+                Current Voyage
+              </div>
+              <div className="px-2 pb-2 space-y-2">
+                <div className="px-3 py-2 rounded-lg bg-neutral-800/60">
+                  {currentSession && editingSessionId === currentSession.id ? (
+                    <Input
+                      size="sm"
+                      value={sessionNameDraft}
+                      onChange={(e) => setSessionNameDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') submitSessionRename(currentSession.id);
+                        if (e.key === 'Escape') cancelSessionRename();
+                      }}
+                      onBlur={() => submitSessionRename(currentSession.id)}
+                      autoFocus
+                      classNames={{
+                        input: 'text-sm',
+                        inputWrapper: 'h-8 min-h-8 bg-neutral-700',
+                      }}
+                    />
+                  ) : (
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium text-neutral-100 truncate">
+                          {currentSession
+                            ? getSessionDisplayName(currentSession)
+                            : 'Current voyage'}
+                        </div>
+                        {currentSession && (
+                          <div className="text-xs text-neutral-500 mt-1 truncate">
+                            Updated {formatSessionTimestamp(currentSession.updatedAt)}
+                          </div>
+                        )}
+                      </div>
+                      {currentSession && (
+                        <button
+                          className="text-[10px] uppercase tracking-wide text-neutral-500 hover:text-neutral-300"
+                          onClick={() => startRenamingSession(currentSession)}
+                        >
+                          Rename
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <Button
+                  size="sm"
+                  variant="flat"
+                  className="w-full"
+                  onPress={onStartNewSession}
+                >
+                  + New Voyage
+                </Button>
+              </div>
+            </div>
+
+            {sessionVoyageEntries.length > 0 && (
+              <div className="border-b border-neutral-800">
+                <div className="px-3 py-2 text-xs font-semibold uppercase tracking-wider text-neutral-500">
+                  Active Fleet
+                </div>
+                <div className="px-2 pb-2 space-y-0.5">
+                  {sessionVoyageEntries.map(({ entry, space, tg }) => (
+                    <button
+                      key={entry.id}
+                      className={`w-full text-left px-3 py-1.5 rounded-lg transition-colors ${
+                        activeVoyageEntryId === entry.id
+                          ? 'bg-primary-500/20 text-primary-300'
+                          : 'text-neutral-300 hover:bg-neutral-800'
+                      }`}
+                      onClick={() => {
+                        onSelectVoyageEntry(entry.id);
+                      }}
+                    >
+                      <div className="text-sm font-medium truncate">{tg.label}</div>
+                      <div className="text-xs text-neutral-500 mt-0.5">
+                        {space.name}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {resumableSessions.length > 0 && (
+              <div className="border-b border-neutral-800">
+                <div className="px-3 py-2 text-xs font-semibold uppercase tracking-wider text-neutral-500">
+                  Resume Voyage
+                </div>
+                <div className="px-2 pb-2 space-y-0.5">
+                  {resumableSessions.map((session) => {
+                    const sessionSpace = workspace.spaces.find(
+                      (space) => space.id === session.activeSpaceId,
+                    );
+                    const sessionTabGroup = workspace.tabGroups.find(
+                      (tabGroup) => tabGroup.id === session.activeTabGroupId,
+                    );
+
+                    return (
+                      <div
+                        key={session.id}
+                        className="w-full text-left px-3 py-1.5 rounded-lg text-neutral-300 hover:bg-neutral-800 transition-colors"
+                      >
+                        <div className="flex items-center gap-2">
+                          {editingSessionId === session.id ? (
+                            <Input
+                              size="sm"
+                              value={sessionNameDraft}
+                              onChange={(e) => setSessionNameDraft(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') submitSessionRename(session.id);
+                                if (e.key === 'Escape') cancelSessionRename();
+                              }}
+                              onBlur={() => submitSessionRename(session.id)}
+                              autoFocus
+                              classNames={{
+                                input: 'text-sm',
+                                inputWrapper: 'h-7 min-h-7 bg-neutral-700',
+                              }}
+                            />
+                          ) : (
+                            <>
+                              <button
+                                className="text-sm font-medium truncate flex-1 text-left"
+                                onClick={() => onResumeSession(session.id)}
+                              >
+                                {getSessionDisplayName(session)}
+                              </button>
+                              <button
+                                className="text-[10px] uppercase tracking-wide text-neutral-500 hover:text-neutral-300"
+                                onClick={() => startRenamingSession(session)}
+                              >
+                                Rename
+                              </button>
+                            </>
+                          )}
+                        </div>
+                        <div className="text-xs text-neutral-500 mt-0.5 truncate">
+                          {sessionSpace?.name || 'Unknown space'} •{' '}
+                          {formatSessionTimestamp(session.updatedAt)}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Starred crafts section */}
             {starredTabGroups.length > 0 && (
               <div className="border-b border-neutral-800">
                 <button
@@ -652,7 +920,7 @@ export function Sidebar({
                             : 'text-neutral-300 hover:bg-neutral-800'
                         }`}
                         onClick={() => {
-                          onSelectSpace(space.id);
+                          setViewedSpaceId(space.id);
                           onSelectTabGroup(tg.id);
                         }}
                       >
@@ -673,7 +941,7 @@ export function Sidebar({
             <div className="p-2 space-y-1">
             {activeTabGroups.length === 0 ? (
               <div className="px-3 py-4 text-sm text-neutral-500">
-                No tab groups in this space.
+                No craft in this space.
               </div>
             ) : (
               activeTabGroups.map((tabGroup) => (
@@ -794,15 +1062,15 @@ export function Sidebar({
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto p-2 space-y-1">
-          {workspace.spaces.map((space: Space) => (
+          {orderedSpaces.map((space: Space) => (
             <div
               key={space.id}
-              draggable
+              draggable={!space.isSystem}
               onDragStart={(e) => handleSpaceDragStart(e, space.id)}
               onDragOver={handleSpaceDragOver}
               onDrop={(e) => handleSpaceDrop(e, space.id)}
               className={`group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors ${
-                activeSpaceId === space.id
+                viewedSpaceId === space.id
                   ? 'bg-primary-500/20 text-primary-400'
                   : 'text-neutral-300 hover:bg-neutral-800'
               }`}
@@ -890,7 +1158,7 @@ export function Sidebar({
               tabId={tabItemContextMenu.tabId}
               tabGroup={tabGroup}
               activeItemId={activeItems[tabGroup.id] || ''}
-              activeSpaceId={activeSpaceId}
+              activeSpaceId={viewedSpace?.id || activeSpaceId}
               onClose={() => setTabItemContextMenu(null)}
               onCreatePair={(tabIds) => onCreatePair(tabGroup.id, tabIds)}
               onCloseTab={(tabId) => onCloseTab(tabGroup.id, tabId)}
@@ -928,7 +1196,7 @@ export function Sidebar({
                 className="w-full text-left px-4 py-2 text-sm text-neutral-200 hover:bg-neutral-700 transition-colors"
                 onClick={handleRenameTabGroup}
               >
-                Rename Tab Group
+                Rename Craft
               </button>
               <div className="border-t border-neutral-700 my-1" />
               {canDelete ? (
@@ -936,11 +1204,11 @@ export function Sidebar({
                   className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-neutral-700 transition-colors"
                   onClick={handleDeleteTabGroup}
                 >
-                  Delete Tab Group
+                  Delete Craft
                 </button>
               ) : (
                 <div className="px-4 py-2 text-sm text-neutral-500 italic">
-                  Cannot delete last tab group
+                  Cannot delete last craft
                 </div>
               )}
             </div>
@@ -1010,4 +1278,22 @@ export function Sidebar({
         })()}
     </div>
   );
+}
+
+function formatSessionTimestamp(value: string): string {
+  const timestamp = Date.parse(value);
+  if (Number.isNaN(timestamp)) return 'Recently';
+
+  const diffMs = Date.now() - timestamp;
+  const diffMinutes = Math.max(0, Math.floor(diffMs / 60000));
+  if (diffMinutes < 1) return 'Just now';
+  if (diffMinutes < 60) return `${diffMinutes}m ago`;
+
+  const diffHours = Math.floor(diffMinutes / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays < 7) return `${diffDays}d ago`;
+
+  return new Date(timestamp).toLocaleDateString();
 }
