@@ -83,6 +83,34 @@ function isHomeVoyageDisplayName(displayName: string): boolean {
   return displayName.trim().toLowerCase() === 'home';
 }
 
+function isDefaultHomeOverviewCraft(
+  workspace: WorkspaceState,
+  activeSpaceId: string,
+  activeTabGroupId: string,
+): boolean {
+  const activeSpace = workspace.spaces.find((space) => space.id === activeSpaceId);
+  const activeTabGroup = workspace.tabGroups.find(
+    (tabGroup) => tabGroup.id === activeTabGroupId,
+  );
+
+  return Boolean(
+    activeSpace?.isSystem &&
+      activeTabGroup &&
+      activeSpace.tabGroupIds[0] === activeTabGroup.id &&
+      activeTabGroup.tabs.some((tab) => tab.url === 'internal://spaces-overview'),
+  );
+}
+
+function getDraftVoyageNameForActiveCraft(
+  workspace: WorkspaceState,
+  activeTabGroupId: string,
+): string {
+  return (
+    workspace.tabGroups.find((tabGroup) => tabGroup.id === activeTabGroupId)?.label.trim() ||
+    'Untitled voyage'
+  );
+}
+
 function getIdSuffix(id: string): string {
   const parts = id.split(/[_-]/).filter(Boolean);
   return parts[parts.length - 1] || id;
@@ -216,8 +244,13 @@ springboard.registerModule(
         (session) => session.id === browserSessionId,
       );
       const previousActiveSavedSessionIdRef = useRef(activeSavedSession?.id);
+      const pendingSavedSessionActivationIdRef = useRef<string | null>(null);
       const activeSavedSessionJustChanged =
         previousActiveSavedSessionIdRef.current !== activeSavedSession?.id;
+
+      useEffect(() => {
+        previousActiveSavedSessionIdRef.current = activeSavedSession?.id;
+      });
       const querySelection = resolveQueryCraftSelection(
         workspace,
         activeSavedSession,
@@ -263,10 +296,32 @@ springboard.registerModule(
 
       useEffect(() => {
         if (!(sessionNav.activeSpaceId && sessionNav.activeTabGroupId)) return;
+        const pendingSavedSessionActivationId =
+          pendingSavedSessionActivationIdRef.current;
+        if (pendingSavedSessionActivationId) {
+          if (
+            browserSessionId !== pendingSavedSessionActivationId ||
+            activeSavedSession?.id !== pendingSavedSessionActivationId
+          ) {
+            return;
+          }
+          pendingSavedSessionActivationIdRef.current = null;
+        }
         if (activeSavedSessionJustChanged && activeSavedSession) return;
 
         const now = new Date().toISOString();
-        const voyageName = activeSavedSession?.name?.trim();
+        const shouldPersistDraftVoyage =
+          !activeSavedSession &&
+          !isDefaultHomeOverviewCraft(
+            workspace,
+            sessionNav.activeSpaceId,
+            sessionNav.activeTabGroupId,
+          );
+        const voyageName =
+          activeSavedSession?.name?.trim() ||
+          (shouldPersistDraftVoyage
+            ? getDraftVoyageNameForActiveCraft(workspace, sessionNav.activeTabGroupId)
+            : '');
         if (!voyageName || isHomeVoyageDisplayName(voyageName)) return;
 
         void actions.upsertSavedSession({
@@ -284,6 +339,7 @@ springboard.registerModule(
         });
       }, [
         activeSavedSession?.createdAt,
+        activeSavedSession?.id,
         activeSavedSession?.name,
         activeSavedSession?.slug,
         activeSavedSessionJustChanged,
@@ -295,6 +351,7 @@ springboard.registerModule(
         sessionNav.activeItemsByVoyageEntryId,
         sessionNav.voyageEntries,
         sessionNav.visitedTabGroupIds,
+        workspace.spaces,
         workspace.tabGroups,
       ]);
 
@@ -318,7 +375,6 @@ springboard.registerModule(
       // Sync URL to match canonical voyage/craft/views query params
       useEffect(() => {
         const currentPath = `${location.pathname}${location.search}`;
-        if (activeSavedSessionJustChanged && activeSavedSession) return;
         const currentTabGroup = workspace.tabGroups.find(
           (tg) => tg.id === sessionNav.activeTabGroupId,
         );
@@ -507,6 +563,7 @@ springboard.registerModule(
             (session) => session.id === sessionId,
           );
           if (!sessionToResume) return;
+          pendingSavedSessionActivationIdRef.current = sessionId;
           if (typeof window !== 'undefined') {
             setBrowserSessionId(sessionId);
           }
@@ -516,6 +573,7 @@ springboard.registerModule(
           }
         },
         activateSavedSession: (session: SavedWorkspaceSession) => {
+          pendingSavedSessionActivationIdRef.current = session.id;
           if (typeof window !== 'undefined') {
             setBrowserSessionId(session.id);
           }

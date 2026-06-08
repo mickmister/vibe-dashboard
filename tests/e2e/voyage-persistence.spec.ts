@@ -53,6 +53,8 @@ type RpcResponse<T> = {
 const SAVED_VOYAGES_STATE_KEY =
   'engine|module|workspace|state.persistent|workspace-sessions';
 const WORKSPACE_STATE_KEY = 'engine|module|workspace|state.persistent|workspace';
+const ORIGIN_RESUME_STATE_KEY =
+  'engine|module|workspace|state.persistent|workspace-origin-session-resume';
 
 async function callWorkspaceAction<T>(
   request: APIRequestContext,
@@ -241,6 +243,21 @@ async function waitForSavedVoyageIdByName(
   return foundId;
 }
 
+async function waitForOriginDefaultSession(
+  request: APIRequestContext,
+  origin: string,
+  sessionId: string,
+) {
+  await expect
+    .poll(async () => {
+      const state = await getKvState<{
+        lastSessionByOrigin?: Record<string, string>;
+      }>(request, ORIGIN_RESUME_STATE_KEY);
+      return state?.lastSessionByOrigin?.[origin];
+    })
+    .toBe(sessionId);
+}
+
 async function clearSavedVoyages(request: APIRequestContext) {
   const state = await getKvState<{
     version: number;
@@ -376,7 +393,75 @@ async function mockVkApi(
 }
 
 test.describe('voyage persistence', () => {
+  test('persists an unsaved voyage when navigating to a real craft and resumes it without sessionStorage', async ({ page }) => {
+    await page.goto('/dashboard');
+    await expect(page.getByLabel('Open voyage switcher').first()).toBeVisible();
+    await clearSavedVoyages(page.request);
+
+    const runId = Date.now().toString(36);
+    const craftLabel = `E2E Unsaved Persist Craft ${runId}`;
+
+    const craftResult = await callWorkspaceAction<{
+      spaceId: string;
+      tabGroupId?: string;
+    }>(page.request, 'addTabGroup', {
+      spaceId: 'space_home',
+      label: craftLabel,
+    });
+    expect(craftResult.tabGroupId).toBeTruthy();
+    const tabGroupId = craftResult.tabGroupId!;
+
+    const agentTab = await callWorkspaceAction<{
+      tabGroupId: string;
+      tabId: string;
+    }>(page.request, 'addTab', {
+      tabGroupId,
+      title: 'Agent',
+      url: `https://example.invalid/${runId}/unsaved-persist-agent`,
+    });
+
+    await page.reload();
+    await expect
+      .poll(async () => {
+        const state = await getKvState<{ data?: unknown[] }>(
+          page.request,
+          SAVED_VOYAGES_STATE_KEY,
+        );
+        return state?.data?.length ?? 0;
+      })
+      .toBe(0);
+
+    await page
+      .getByRole('button', { name: new RegExp(`${craftLabel}.*1 tab`) })
+      .evaluate((element) => (element as HTMLElement).click());
+
+    const sessionId = await waitForSavedVoyageIdByName(page.request, craftLabel);
+    await waitForSavedVoyageCraftState(page.request, sessionId, {
+      entryLabels: ['Overview', craftLabel],
+      activeCraftLabel: craftLabel,
+      activeItemTitle: 'Agent',
+      activeTabGroupId: tabGroupId,
+    });
+
+    const origin = await page.evaluate(() => window.location.origin);
+    await waitForOriginDefaultSession(page.request, origin, sessionId);
+
+    await page.evaluate(() => sessionStorage.clear());
+    await page.goto('/');
+
+    await expect(page.getByRole('button', { name: `Open ${craftLabel} in Home` })).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`voyage=.*${sessionId}`));
+    await expect(page).toHaveURL(new RegExp(`views=agent-${agentTab.tabId.split('_').at(-1)}`));
+
+    await callWorkspaceAction(page.request, 'deleteSavedSession', { id: sessionId });
+  });
+
   test('saves a named new voyage after opening an existing craft and keeps it after reload', async ({ page }) => {
+    await page.goto('/dashboard');
+    await expect(page.getByLabel('Open voyage switcher').first()).toBeVisible();
+    await clearSavedVoyages(page.request);
+    await page.evaluate(() => sessionStorage.clear());
+
     const runId = Date.now().toString(36);
     const voyageName = `E2E Voyage ${runId}`;
     const workspace = createMockWorkspace(runId);
