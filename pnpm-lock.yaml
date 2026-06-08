@@ -17,6 +17,12 @@ importers:
       '@tailwindcss/vite':
         specifier: ^4.1.18
         version: 4.1.18(vite@7.3.1(@types/node@25.2.3)(jiti@2.6.1)(lightningcss@1.30.2)(terser@5.47.1)(yaml@2.9.0))
+      '@tauri-apps/api':
+        specifier: ^2.11.0
+        version: 2.11.0
+      '@tauri-apps/plugin-shell':
+        specifier: ^2.3.5
+        version: 2.3.5
       '@vitejs/plugin-react':
         specifier: ^5.1.4
         version: 5.1.4(vite@7.3.1(@types/node@25.2.3)(jiti@2.6.1)(lightningcss@1.30.2)(terser@5.47.1)(yaml@2.9.0))
@@ -35,6 +41,9 @@ importers:
       immer:
         specifier: ^11.1.4
         version: 11.1.4
+      isomorphic-ws:
+        specifier: ^4.0.1
+        version: 4.0.1(ws@8.19.0)
       kysely:
         specifier: ^0.28.11
         version: 0.28.11
@@ -55,7 +64,7 @@ importers:
         version: 7.8.2
       springboard:
         specifier: git+https://github.com/jamtools/springboard.git#78f4025b29a7e416edfefd2ada6f3d4c1165e2a8&path:/packages/springboard
-        version: https://codeload.github.com/jamtools/springboard/tar.gz/78f4025b29a7e416edfefd2ada6f3d4c1165e2a8#path:/packages/springboard(18f0cc1357c7353ab693c7f05b18cdab)
+        version: https://codeload.github.com/jamtools/springboard/tar.gz/78f4025b29a7e416edfefd2ada6f3d4c1165e2a8#path:/packages/springboard(c3fdb69072fc269e4ee1c9dc0c832546)
       tailwindcss:
         specifier: ^4.1.18
         version: 4.1.18
@@ -164,7 +173,7 @@ importers:
         version: 13.16.1(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0))(react@19.0.0)
       springboard:
         specifier: git+https://github.com/jamtools/springboard.git#78f4025b29a7e416edfefd2ada6f3d4c1165e2a8&path:/packages/springboard
-        version: https://codeload.github.com/jamtools/springboard/tar.gz/78f4025b29a7e416edfefd2ada6f3d4c1165e2a8#path:/packages/springboard(d43664594f5b45051faee1b6b7f48cc2)
+        version: https://codeload.github.com/jamtools/springboard/tar.gz/78f4025b29a7e416edfefd2ada6f3d4c1165e2a8#path:/packages/springboard(881fd6dcf3421eaa0f63d108ad1daf80)
     devDependencies:
       '@babel/core':
         specifier: ^7.28.6
@@ -2681,6 +2690,12 @@ packages:
   '@tanstack/virtual-core@3.11.3':
     resolution: {integrity: sha512-v2mrNSnMwnPJtcVqNvV0c5roGCBqeogN8jDtgtuHCphdwBasOZ17x8UV8qpHUh+u0MLfX43c0uUHKje0s+Zb0w==}
 
+  '@tauri-apps/api@2.11.0':
+    resolution: {integrity: sha512-7CinYODhky9lmO23xHnUFv0Xt43fbtWMyxZcLcRBlFkcgXKuEirBvHpmtJ89YMhyeGcq20Wuc47Fa4XjyniywA==}
+
+  '@tauri-apps/plugin-shell@2.3.5':
+    resolution: {integrity: sha512-jewtULhiQ7lI7+owCKAjc8tYLJr92U16bPOeAa472LHJdgaibLP83NcfAF2e+wkEcA53FxKQAZ7byDzs2eeizg==}
+
   '@testing-library/dom@10.4.0':
     resolution: {integrity: sha512-pemlzrSESWbdAloYml3bAJMEfNh1Z7EduzqPKprCH5S341frlpYnUEW0H72dLxa6IsYr+mPno20GiSm+h9dEdQ==}
     engines: {node: '>=18'}
@@ -4104,6 +4119,11 @@ packages:
 
   isexe@2.0.0:
     resolution: {integrity: sha512-RHxMLp9lnKHGHRng9QFhRCMbYAcVpn69smSGcq3f36xjgVVWThj4qqLbTLlq7Ssj8B+fIQ1EuCEGI2lKsyQeIw==}
+
+  isomorphic-ws@4.0.1:
+    resolution: {integrity: sha512-BhBvN2MBpWTaSHdWRb/bwdZJ1WaehQ2L1KngkCkfLUGF0mAWAT1sQUQacEmQ0jXkFw/czDXPNQSL5u2/Krsz1w==}
+    peerDependencies:
+      ws: '*'
 
   istanbul-lib-coverage@3.2.2:
     resolution: {integrity: sha512-O8dpsF+r0WV/8MNRKfnmrtCWhuKjxrq2w+jpzBL5UZKTi2LeVWnWOmWRxFlesJONmc+wLAGvKQZEOanko0LFTg==}
@@ -6841,7 +6861,7 @@ snapshots:
       '@expo/json-file': 10.0.14
       '@react-native/normalize-colors': 0.81.5
       debug: 4.4.3
-      expo: 53.0.27(@babel/core@7.29.0)(@expo/dom-webview@55.0.6)(react-native-webview@13.16.1(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0))(react@19.0.0))(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0))(react@19.0.0)
+      expo: 53.0.27(@babel/core@7.29.0)(@expo/dom-webview@55.0.6)(react-native-webview@13.16.1(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.4))(react@19.2.4))(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.4))(react@19.2.4)
       resolve-from: 5.0.0
       semver: 7.7.4
       xml2js: 0.6.0
@@ -9636,6 +9656,12 @@ snapshots:
 
   '@tanstack/virtual-core@3.11.3': {}
 
+  '@tauri-apps/api@2.11.0': {}
+
+  '@tauri-apps/plugin-shell@2.3.5':
+    dependencies:
+      '@tauri-apps/api': 2.11.0
+
   '@testing-library/dom@10.4.0':
     dependencies:
       '@babel/code-frame': 7.29.0
@@ -10711,7 +10737,7 @@ snapshots:
 
   expo-application@6.1.5(expo@53.0.27):
     dependencies:
-      expo: 53.0.27(@babel/core@7.29.0)(@expo/dom-webview@55.0.6)(react-native-webview@13.16.1(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0))(react@19.0.0))(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0))(react@19.0.0)
+      expo: 53.0.27(@babel/core@7.29.0)(@expo/dom-webview@55.0.6)(react-native-webview@13.16.1(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.4))(react@19.2.4))(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.4))(react@19.2.4)
     optional: true
 
   expo-asset@11.1.7(expo@53.0.27)(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0))(react@19.0.0):
@@ -10785,12 +10811,12 @@ snapshots:
   expo-crypto@14.1.5(expo@53.0.27):
     dependencies:
       base64-js: 1.5.1
-      expo: 53.0.27(@babel/core@7.29.0)(@expo/dom-webview@55.0.6)(react-native-webview@13.16.1(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0))(react@19.0.0))(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0))(react@19.0.0)
+      expo: 53.0.27(@babel/core@7.29.0)(@expo/dom-webview@55.0.6)(react-native-webview@13.16.1(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.4))(react@19.2.4))(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.4))(react@19.2.4)
     optional: true
 
   expo-device@7.1.4(expo@53.0.27):
     dependencies:
-      expo: 53.0.27(@babel/core@7.29.0)(@expo/dom-webview@55.0.6)(react-native-webview@13.16.1(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0))(react@19.0.0))(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0))(react@19.0.0)
+      expo: 53.0.27(@babel/core@7.29.0)(@expo/dom-webview@55.0.6)(react-native-webview@13.16.1(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.4))(react@19.2.4))(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.4))(react@19.2.4)
       ua-parser-js: 0.7.41
     optional: true
 
@@ -10909,7 +10935,7 @@ snapshots:
   expo-splash-screen@31.0.13(expo@53.0.27)(typescript@5.9.3):
     dependencies:
       '@expo/prebuild-config': 54.0.8(expo@53.0.27)(typescript@5.9.3)
-      expo: 53.0.27(@babel/core@7.29.0)(@expo/dom-webview@55.0.6)(react-native-webview@13.16.1(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0))(react@19.0.0))(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0))(react@19.0.0)
+      expo: 53.0.27(@babel/core@7.29.0)(@expo/dom-webview@55.0.6)(react-native-webview@13.16.1(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.4))(react@19.2.4))(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.4))(react@19.2.4)
     transitivePeerDependencies:
       - supports-color
       - typescript
@@ -11339,6 +11365,10 @@ snapshots:
       is-inside-container: 1.0.0
 
   isexe@2.0.0: {}
+
+  isomorphic-ws@4.0.1(ws@8.19.0):
+    dependencies:
+      ws: 8.19.0
 
   istanbul-lib-coverage@3.2.2: {}
 
@@ -12673,42 +12703,7 @@ snapshots:
 
   source-map@0.6.1: {}
 
-  springboard@https://codeload.github.com/jamtools/springboard/tar.gz/78f4025b29a7e416edfefd2ada6f3d4c1165e2a8#path:/packages/springboard(18f0cc1357c7353ab693c7f05b18cdab):
-    dependencies:
-      dexie: 4.3.0
-      expo-asset: 11.1.7(expo@53.0.27)(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.4))(react@19.2.4)
-      expo-file-system: 18.1.11(expo@53.0.27)(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.4))
-      expo-splash-screen: 31.0.13(expo@53.0.27)(typescript@5.9.3)
-      json-rpc-2.0: 1.7.1
-      react-native: 0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.4)
-      react-native-webview: 13.16.1(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.4))(react@19.2.4)
-      reconnecting-websocket: 4.4.0
-    optionalDependencies:
-      '@hono/node-server': 1.19.9(hono@4.11.9)
-      '@hono/node-ws': 1.3.1(@hono/node-server@1.19.9(hono@4.11.9))(hono@4.11.9)
-      better-sqlite3: 12.6.2
-      crossws: 0.4.4
-      expo-auth-session: 6.2.1(expo@53.0.27)(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.4))(react@19.2.4)
-      expo-constants: 17.1.8(expo@53.0.27)(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.4))
-      expo-device: 7.1.4(expo@53.0.27)
-      expo-notifications: 0.31.5(expo@53.0.27)(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.4))(react@19.2.4)
-      expo-web-browser: 14.2.0(expo@53.0.27)(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.4))
-      hono: 4.11.9
-      immer: 11.1.4
-      kysely: 0.28.11
-      partysocket: 1.1.19(react@19.2.4)
-      react: 19.2.4
-      react-dom: 19.2.4(react@19.2.4)
-      react-router: 7.13.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
-      rxjs: 7.8.2
-      vite: 7.3.1(@types/node@25.2.3)(jiti@2.6.1)(lightningcss@1.30.2)(terser@5.47.1)(yaml@2.9.0)
-      ws: 8.19.0
-      zod: 3.25.76
-    transitivePeerDependencies:
-      - bufferutil
-      - utf-8-validate
-
-  springboard@https://codeload.github.com/jamtools/springboard/tar.gz/78f4025b29a7e416edfefd2ada6f3d4c1165e2a8#path:/packages/springboard(d43664594f5b45051faee1b6b7f48cc2):
+  springboard@https://codeload.github.com/jamtools/springboard/tar.gz/78f4025b29a7e416edfefd2ada6f3d4c1165e2a8#path:/packages/springboard(881fd6dcf3421eaa0f63d108ad1daf80):
     dependencies:
       dexie: 4.3.0
       expo-asset: 11.1.7(expo@53.0.27)(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0))(react@19.0.0)
@@ -12721,6 +12716,8 @@ snapshots:
     optionalDependencies:
       '@hono/node-server': 1.19.9(hono@4.11.9)
       '@hono/node-ws': 1.3.1(@hono/node-server@1.19.9(hono@4.11.9))(hono@4.11.9)
+      '@tauri-apps/api': 2.11.0
+      '@tauri-apps/plugin-shell': 2.3.5
       better-sqlite3: 12.6.2
       crossws: 0.4.4
       expo-auth-session: 6.2.1(expo@53.0.27)(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0))(react@19.0.0)
@@ -12730,11 +12727,50 @@ snapshots:
       expo-web-browser: 14.2.0(expo@53.0.27)(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0))
       hono: 4.11.9
       immer: 11.1.4
+      isomorphic-ws: 4.0.1(ws@8.19.0)
       kysely: 0.28.11
       partysocket: 1.1.19(react@19.0.0)
       react: 19.0.0
       react-dom: 19.2.4(react@19.0.0)
       react-router: 7.13.0(react-dom@19.2.4(react@19.0.0))(react@19.0.0)
+      rxjs: 7.8.2
+      vite: 7.3.1(@types/node@25.2.3)(jiti@2.6.1)(lightningcss@1.30.2)(terser@5.47.1)(yaml@2.9.0)
+      ws: 8.19.0
+      zod: 3.25.76
+    transitivePeerDependencies:
+      - bufferutil
+      - utf-8-validate
+
+  springboard@https://codeload.github.com/jamtools/springboard/tar.gz/78f4025b29a7e416edfefd2ada6f3d4c1165e2a8#path:/packages/springboard(c3fdb69072fc269e4ee1c9dc0c832546):
+    dependencies:
+      dexie: 4.3.0
+      expo-asset: 11.1.7(expo@53.0.27)(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.4))(react@19.2.4)
+      expo-file-system: 18.1.11(expo@53.0.27)(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.4))
+      expo-splash-screen: 31.0.13(expo@53.0.27)(typescript@5.9.3)
+      json-rpc-2.0: 1.7.1
+      react-native: 0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.4)
+      react-native-webview: 13.16.1(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.4))(react@19.2.4)
+      reconnecting-websocket: 4.4.0
+    optionalDependencies:
+      '@hono/node-server': 1.19.9(hono@4.11.9)
+      '@hono/node-ws': 1.3.1(@hono/node-server@1.19.9(hono@4.11.9))(hono@4.11.9)
+      '@tauri-apps/api': 2.11.0
+      '@tauri-apps/plugin-shell': 2.3.5
+      better-sqlite3: 12.6.2
+      crossws: 0.4.4
+      expo-auth-session: 6.2.1(expo@53.0.27)(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.4))(react@19.2.4)
+      expo-constants: 17.1.8(expo@53.0.27)(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.4))
+      expo-device: 7.1.4(expo@53.0.27)
+      expo-notifications: 0.31.5(expo@53.0.27)(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.4))(react@19.2.4)
+      expo-web-browser: 14.2.0(expo@53.0.27)(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.4))
+      hono: 4.11.9
+      immer: 11.1.4
+      isomorphic-ws: 4.0.1(ws@8.19.0)
+      kysely: 0.28.11
+      partysocket: 1.1.19(react@19.2.4)
+      react: 19.2.4
+      react-dom: 19.2.4(react@19.2.4)
+      react-router: 7.13.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       rxjs: 7.8.2
       vite: 7.3.1(@types/node@25.2.3)(jiti@2.6.1)(lightningcss@1.30.2)(terser@5.47.1)(yaml@2.9.0)
       ws: 8.19.0
