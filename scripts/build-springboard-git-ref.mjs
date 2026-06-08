@@ -18,23 +18,36 @@ if (!isGitRef(springboardSpec)) {
 
 const springboardPackageJsonPath = require.resolve('springboard/package.json', { paths: [repoRoot] });
 const springboardDir = path.dirname(springboardPackageJsonPath);
-const distIndex = path.join(springboardDir, 'dist/index.js');
+const buildTargets = [
+  {
+    name: 'springboard',
+    tsconfig: path.join(springboardDir, 'tsconfig.build.json'),
+    output: path.join(springboardDir, 'dist/index.js'),
+  },
+  {
+    name: '@springboard/vite-plugin',
+    tsconfig: path.join(springboardDir, 'vite-plugin/tsconfig.json'),
+    output: path.join(springboardDir, 'vite-plugin/dist/index.js'),
+  },
+];
 
-if (fs.existsSync(distIndex)) {
-  console.log(`Springboard git ref already has built output at ${distIndex}; skipping.`);
+const missingTargets = buildTargets.filter(({ output }) => !fs.existsSync(output));
+if (missingTargets.length === 0) {
+  console.log('Springboard git ref already has built outputs; skipping.');
   process.exit(0);
 }
 
-const tsconfig = path.join(springboardDir, 'tsconfig.build.json');
-if (!fs.existsSync(tsconfig)) {
-  throw new Error(`Cannot build Springboard git ref because ${tsconfig} is missing.`);
-}
+for (const target of missingTargets) {
+  if (!fs.existsSync(target.tsconfig)) {
+    throw new Error(`Cannot build ${target.name} from Springboard git ref because ${target.tsconfig} is missing.`);
+  }
 
-console.log(`Building Springboard git ref from ${springboardDir}`);
-run('pnpm', ['exec', 'tsc', '-p', tsconfig], repoRoot);
+  console.log(`Building ${target.name} from Springboard git ref at ${springboardDir}`);
+  run('pnpm', ['exec', 'tsc', '-p', target.tsconfig], repoRoot);
 
-if (!fs.existsSync(distIndex)) {
-  throw new Error(`Springboard build completed but ${distIndex} was not created.`);
+  if (!fs.existsSync(target.output)) {
+    throw new Error(`${target.name} build completed but ${target.output} was not created.`);
+  }
 }
 
 function isGitRef(spec) {
