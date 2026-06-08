@@ -6,10 +6,7 @@ on:
       - '**'
   pull_request:
     types:
-      - opened
       - labeled
-      - synchronize
-      - reopened
   repository_dispatch:
     types:
       - vk-release-assets-ready
@@ -40,9 +37,7 @@ concurrency:
 
 jobs:
   resolve-vk-ref:
-    # TEMPORARY TEST MODE: deploy every same-repository PR update to Coolify.
-    # Restore the coolify-deploy label gate before merging if every-commit PR deploys should not ship.
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.label.name == 'coolify-deploy') }}
     runs-on: ubuntu-latest
     outputs:
       image_tag: ${{ steps.resolve.outputs.image_tag }}
@@ -146,9 +141,7 @@ jobs:
 
   check-types:
     name: npm run check-types
-    # TEMPORARY TEST MODE: deploy every same-repository PR update to Coolify.
-    # Restore the coolify-deploy label gate before merging if every-commit PR deploys should not ship.
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.label.name == 'coolify-deploy') }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -202,56 +195,6 @@ jobs:
 
   notify-coolify:
     name: Notify Coolify
-    needs: [resolve-vk-ref, publish]
-    if: ${{ needs.resolve-vk-ref.outputs.publish_latest == 'true' }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Trigger Coolify deployment
-        env:
-          COOLIFY_WEBHOOK: ${{ secrets.COOLIFY_WEBHOOK }}
-          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
-          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
-          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
-        run: |
-          set -euo pipefail
-
-          if [[ -z "$COOLIFY_WEBHOOK" ]]; then
-            echo "::error::COOLIFY_WEBHOOK is not configured."
-            exit 1
-          fi
-
-          if [[ -z "$COOLIFY_TOKEN" ]]; then
-            echo "::error::COOLIFY_TOKEN is not configured."
-            exit 1
-          fi
-
-          if [[ -z "$CF_ACCESS_CLIENT_ID" ]]; then
-            echo "::error::CF_ACCESS_CLIENT_ID is not configured."
-            exit 1
-          fi
-
-          if [[ -z "$CF_ACCESS_CLIENT_SECRET" ]]; then
-            echo "::error::CF_ACCESS_CLIENT_SECRET is not configured."
-            exit 1
-          fi
-
-          curl \
-            --fail-with-body \
-            --show-error \
-            --silent \
-            --retry 5 \
-            --retry-delay 5 \
-            --retry-all-errors \
-            --request GET \
-            "$COOLIFY_WEBHOOK" \
-            --header "Authorization: Bearer $COOLIFY_TOKEN" \
-            --header "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
-            --header "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET"
-
-          echo "Coolify deployment webhook notified."
-
-  notify-coolify-pr:
-    name: Notify Coolify PR deployment
     needs: [resolve-vk-ref, publish]
     if: ${{ needs.resolve-vk-ref.outputs.deploy_pr_preview == 'true' }}
     runs-on: ubuntu-latest
