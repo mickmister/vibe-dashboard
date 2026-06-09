@@ -1,5 +1,5 @@
-// Package vibekanbanplugins implements a Caddy HTTP handler that rewrites
-// specific JavaScript snippets in proxied responses.
+// Package vibekanbanplugins implements Caddy HTTP handlers that rewrite
+// specific snippets in proxied responses.
 package vibekanbanplugins
 
 import (
@@ -21,14 +21,23 @@ var (
 	embeddedCheckPatch   = []byte("false")
 )
 
+type rewriteMode string
+
+const (
+	rewriteModeVibeKanban rewriteMode = "vibe_kanban"
+	rewriteModeBeadsWeb   rewriteMode = "beads_web"
+)
+
 func init() {
 	caddy.RegisterModule(PluginInjector{})
 	httpcaddyfile.RegisterHandlerDirective("vk_rewrite", parseCaddyfile)
 	httpcaddyfile.RegisterDirectiveOrder("vk_rewrite", "before", "reverse_proxy")
 }
 
-// PluginInjector rewrites specific JavaScript snippets in proxied responses.
+// PluginInjector rewrites specific proxied response snippets.
 type PluginInjector struct {
+	Mode rewriteMode `json:"mode,omitempty"`
+
 	logger *zap.Logger
 }
 
@@ -41,17 +50,29 @@ func (PluginInjector) CaddyModule() caddy.ModuleInfo {
 }
 
 // parseCaddyfile sets up the handler from Caddyfile tokens.
-// Syntax: vk_rewrite [legacy_arg]
 //
-// The optional argument is ignored and only accepted for backward
-// compatibility with older configs.
+// Syntax:
+//
+//	vk_rewrite
+//	vk_rewrite vibe_kanban
+//	vk_rewrite beads_web
+//
+// No argument preserves the original vibe-kanban iframe rewrite behavior.
 func parseCaddyfile(h httpcaddyfile.Helper) (caddyhttp.MiddlewareHandler, error) {
-	var p PluginInjector
+	p := PluginInjector{Mode: rewriteModeVibeKanban}
 
 	for h.Next() {
 		args := h.RemainingArgs()
 		if len(args) > 1 {
 			return nil, h.ArgErr()
+		}
+		if len(args) == 1 {
+			switch rewriteMode(args[0]) {
+			case rewriteModeVibeKanban, rewriteModeBeadsWeb:
+				p.Mode = rewriteMode(args[0])
+			default:
+				return nil, h.Errf("unsupported vk_rewrite mode %q", args[0])
+			}
 		}
 	}
 
@@ -61,6 +82,9 @@ func parseCaddyfile(h httpcaddyfile.Helper) (caddyhttp.MiddlewareHandler, error)
 // Provision implements caddy.Provisioner.
 func (p *PluginInjector) Provision(ctx caddy.Context) error {
 	p.logger = ctx.Logger(p)
+	if p.Mode == "" {
+		p.Mode = rewriteModeVibeKanban
+	}
 	return nil
 }
 
@@ -161,7 +185,7 @@ func (p *PluginInjector) ServeHTTP(w http.ResponseWriter, r *http.Request, next 
 	w.WriteHeader(rec.statusCode)
 
 	if p.shouldWriteResponseBody(r.Method, rec.statusCode) {
-		w.Write(processedBody)
+		_, _ = w.Write(processedBody)
 	}
 
 	return nil
@@ -189,17 +213,25 @@ func (p *PluginInjector) shouldWriteResponseBody(method string, statusCode int) 
 	return true
 }
 
-// processResponse rewrites matching JavaScript responses when possible.
+// processResponse rewrites matching proxied responses when possible.
 func (p *PluginInjector) processResponse(path string, headers http.Header, body []byte) ([]byte, bool) {
 	if headers.Get("Content-Encoding") != "" {
 		return body, false
 	}
 
-	if !isJavaScriptResponse(path, headers.Get("Content-Type")) {
-		return body, false
+	contentType := headers.Get("Content-Type")
+	switch p.Mode {
+	case rewriteModeBeadsWeb:
+		if !isJavaScriptResponse(path, contentType) && !isHTMLResponse(path, contentType) && !isNextDataResponse(path, contentType) {
+			return body, false
+		}
+		return p.rewriteBeadsWebSubpath(body)
+	default:
+		if !isJavaScriptResponse(path, contentType) {
+			return body, false
+		}
+		return p.rewriteVibeKanbanJavaScript(body)
 	}
-
-	return p.rewriteJavaScript(body)
 }
 
 func isJavaScriptResponse(path string, contentType string) bool {
@@ -214,8 +246,28 @@ func isJavaScriptResponse(path string, contentType string) bool {
 		strings.HasSuffix(pathLower, ".cjs")
 }
 
-// rewriteJavaScript replaces a frame-detection snippet with a constant false.
-func (p *PluginInjector) rewriteJavaScript(js []byte) ([]byte, bool) {
+func isHTMLResponse(path string, contentType string) bool {
+	contentTypeLower := strings.ToLower(contentType)
+	if strings.Contains(contentTypeLower, "text/html") {
+		return true
+	}
+
+	pathLower := strings.ToLower(path)
+	return strings.HasSuffix(pathLower, ".html") || pathLower == "/" || pathLower == ""
+}
+
+func isNextDataResponse(path string, contentType string) bool {
+	contentTypeLower := strings.ToLower(contentType)
+	if strings.Contains(contentTypeLower, "text/x-component") {
+		return true
+	}
+
+	pathLower := strings.ToLower(path)
+	return strings.HasSuffix(pathLower, ".txt")
+}
+
+// rewriteVibeKanbanJavaScript replaces a frame-detection snippet with a constant false.
+func (p *PluginInjector) rewriteVibeKanbanJavaScript(js []byte) ([]byte, bool) {
 	count := bytes.Count(js, embeddedCheckSnippet)
 	if count == 0 {
 		return js, false
@@ -228,6 +280,55 @@ func (p *PluginInjector) rewriteJavaScript(js []byte) ([]byte, bool) {
 			zap.Int("replacements", count),
 			zap.String("from", string(embeddedCheckSnippet)),
 			zap.String("to", string(embeddedCheckPatch)))
+	}
+
+	return rewritten, true
+}
+
+// rewriteBeadsWebSubpath adapts the upstream beads-web build for hosting under
+// /beads. beads-web currently has no runtime base-path support: exported Next.js
+// pages use absolute /_next assets, client navigation points at /project and
+// /settings, and browser API calls default to http://localhost:3008. Caddy handles
+// /_next directly; these replacements keep app navigation and API calls scoped to
+// the /beads and /beads-api prefixes.
+func (p *PluginInjector) rewriteBeadsWebSubpath(body []byte) ([]byte, bool) {
+	replacements := []struct {
+		from string
+		to   string
+	}{
+		{`http://localhost:3008`, `/beads-api`},
+		{`href="/"`, `href="/beads/"`},
+		{`href="/settings"`, `href="/beads/settings"`},
+		{`href=\"/\"`, `href=\"/beads/\"`},
+		{`href=\"/settings\"`, `href=\"/beads/settings\"`},
+		{`"/project?id=`, `"/beads/project?id=`},
+		{`'/project?id=`, `'/beads/project?id=`},
+		{`href:"/"`, `href:"/beads/"`},
+		{`href:"/settings"`, `href:"/beads/settings"`},
+		{`urlParts:["","project"]`, `urlParts:["","beads","project"]`},
+		{`urlParts":["","project"]`, `urlParts":["","beads","project"]`},
+		{`urlParts:["","settings"]`, `urlParts:["","beads","settings"]`},
+		{`urlParts":["","settings"]`, `urlParts":["","beads","settings"]`},
+	}
+
+	rewritten := body
+	total := 0
+	for _, replacement := range replacements {
+		from := []byte(replacement.from)
+		count := bytes.Count(rewritten, from)
+		if count == 0 {
+			continue
+		}
+		rewritten = bytes.ReplaceAll(rewritten, from, []byte(replacement.to))
+		total += count
+	}
+
+	if total == 0 {
+		return body, false
+	}
+
+	if p.logger != nil {
+		p.logger.Debug("rewrote beads-web subpath response", zap.Int("replacements", total))
 	}
 
 	return rewritten, true

@@ -46,6 +46,36 @@
 		}
 	}
 
+
+	# Beads web UI. beads-web is not currently base-path aware: it emits
+	# root-relative Next.js assets, root-relative client routes, and browser API
+	# calls to http://localhost:3008. The vk_rewrite beads_web mode patches those
+	# responses while Caddy keeps the public surface under /beads and /beads-api.
+	handle_path /beads-api/* {
+		reverse_proxy localhost:{$BEADS_WEB_PORT:3009} {
+			header_up Host {upstream_hostport}
+		}
+	}
+
+	handle /_next/* {
+		vk_rewrite beads_web
+		reverse_proxy localhost:{$BEADS_WEB_PORT:3009} {
+			header_up Host {upstream_hostport}
+			header_up Accept-Encoding identity
+		}
+	}
+
+	handle /beads /beads/* {
+		uri strip_prefix /beads
+		vk_rewrite beads_web
+		reverse_proxy localhost:{$BEADS_WEB_PORT:3009} {
+			header_up Host {upstream_hostport}
+			header_up Upgrade {http.request.header.Upgrade}
+			header_up Connection {http.request.header.Connection}
+			header_up Accept-Encoding identity
+		}
+	}
+
 	# Vibe Dashboard app
 	@vibe_dashboard_root {
 		path /

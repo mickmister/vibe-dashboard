@@ -77,6 +77,8 @@ ARG TARGETARCH
 ARG GITHUB_TOKEN=
 ARG BEADS_WEB_LINUX_X64_URL=https://github.com/mickmister/beads-web/releases/download/v0.11.4/beads-web-linux-x64
 ARG BEADS_WEB_LINUX_ARM64_URL=https://github.com/mickmister/beads-web/releases/download/v0.11.4/beads-web-linux-arm64
+ARG BEADS_WEB_LINUX_X64_SHA256=7e3880a399214b49a9c4a6ea2b2585f3b3fdbc69de093e464990395520791620
+ARG BEADS_WEB_LINUX_ARM64_SHA256=4bf6c69625ae88bbd3438168f6d97267914b6edabe7da14fa2dc9c246fc47a1e
 
 # Harden APT against flaky proxy/cache behavior (helps prevent Hash Sum mismatch on macOS VM networking).
 RUN set -eux; \
@@ -279,6 +281,7 @@ RUN curl -fsSL https://raw.githubusercontent.com/gastownhall/beads/main/scripts/
 RUN --mount=type=secret,id=github_token,required=false --mount=type=secret,id=GIT_AUTH_TOKEN,required=false set -eux; \
     install_beads_web() { \
       beads_web_url="$1"; \
+      beads_web_sha256="$2"; \
       if ! curl -fsSL "${beads_web_url}" -o /usr/local/bin/beads-web; then \
         beads_web_repo="$(printf '%s' "${beads_web_url}" | sed -E 's#^https://github.com/([^/]+/[^/]+)/releases/download/.*#\1#')"; \
         beads_web_tag="$(printf '%s' "${beads_web_url}" | sed -E 's#^https://github.com/[^/]+/[^/]+/releases/download/([^/]+)/.*#\1#')"; \
@@ -295,12 +298,13 @@ RUN --mount=type=secret,id=github_token,required=false --mount=type=secret,id=GI
         fi; \
         gh release download "${beads_web_tag}" --repo "${beads_web_repo}" --pattern "${beads_web_asset}" --output /usr/local/bin/beads-web --clobber; \
       fi; \
+      printf '%s  /usr/local/bin/beads-web\n' "${beads_web_sha256}" | sha256sum -c -; \
       chmod 0755 /usr/local/bin/beads-web; \
       ldd /usr/local/bin/beads-web >/dev/null; \
     }; \
     case "${TARGETARCH}" in \
-      amd64) install_beads_web "${BEADS_WEB_LINUX_X64_URL}" ;; \
-      arm64) install_beads_web "${BEADS_WEB_LINUX_ARM64_URL}" ;; \
+      amd64) install_beads_web "${BEADS_WEB_LINUX_X64_URL}" "${BEADS_WEB_LINUX_X64_SHA256}" ;; \
+      arm64) install_beads_web "${BEADS_WEB_LINUX_ARM64_URL}" "${BEADS_WEB_LINUX_ARM64_SHA256}" ;; \
       *) echo "unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
     esac
 
