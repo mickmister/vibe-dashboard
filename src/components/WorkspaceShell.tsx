@@ -387,7 +387,7 @@ export function WorkspaceShell({
   const LONG_PRESS_MS = 450;
   const LONG_PRESS_MOVE_TOLERANCE_PX = 10;
   const VOYAGE_PLUS_MENU_WIDTH = 176;
-  const VOYAGE_PLUS_MENU_HEIGHT = 88;
+  const VOYAGE_PLUS_MENU_HEIGHT = 132;
 
   // --- Drag-and-drop for crafts ---
   const handleDragStart = (e: React.DragEvent, tabGroupId: string) => {
@@ -1844,9 +1844,12 @@ export function WorkspaceShell({
           </button>
           <button
             className="inline-flex h-full w-9 shrink-0 cursor-pointer items-center justify-center border-r border-b-2 border-neutral-600 bg-neutral-900 text-sm text-neutral-200 transition-colors hover:bg-neutral-800/80"
-            onClick={handleOpenVoyageSwitcher}
-            title="Open voyage switcher"
-            aria-label="Open voyage switcher"
+            onClick={toggleVoyagePlusMenu}
+            data-voyage-plus-trigger="true"
+            title="Voyage actions"
+            aria-label="Voyage actions"
+            aria-haspopup="menu"
+            aria-expanded={voyagePlusMenuOpen}
           >
             <IconUfo size={16} stroke={2} aria-hidden="true" />
           </button>
@@ -1905,15 +1908,6 @@ export function WorkspaceShell({
                   onClose={closePendingOpenCraftTab}
                 />
               )}
-              <button
-                className="inline-flex h-full shrink-0 cursor-pointer items-center justify-center border-r border-b-2 border-neutral-600 bg-neutral-900 px-3 text-xs text-neutral-200 transition-colors hover:bg-neutral-800/80"
-                onClick={toggleVoyagePlusMenu}
-                data-voyage-plus-trigger="true"
-                title="Embark craft in voyage"
-                aria-label="Embark craft in voyage"
-              >
-                +
-              </button>
             </div>
           </div>
           <button
@@ -2026,9 +2020,12 @@ export function WorkspaceShell({
           </button>
           <button
             className="h-full px-3 text-neutral-200 hover:bg-neutral-800 transition-colors flex items-center justify-center shrink-0 border-r border-neutral-700"
-            onClick={handleOpenVoyageSwitcher}
-            title="Open voyage switcher"
-            aria-label="Open voyage switcher"
+            onClick={toggleVoyagePlusMenu}
+            data-voyage-plus-trigger="true"
+            title="Voyage actions"
+            aria-label="Voyage actions"
+            aria-haspopup="menu"
+            aria-expanded={voyagePlusMenuOpen}
           >
             <IconUfo size={18} stroke={2} aria-hidden="true" />
           </button>
@@ -2087,15 +2084,6 @@ export function WorkspaceShell({
                     onClose={closePendingOpenCraftTab}
                   />
                 )}
-                <button
-                  className="inline-flex h-full shrink-0 items-center justify-center border-r border-neutral-700 bg-neutral-900 px-3 text-xs text-neutral-200 transition-colors hover:bg-neutral-800/80"
-                  onClick={toggleVoyagePlusMenu}
-                  data-voyage-plus-trigger="true"
-                  title="Embark craft in voyage"
-                  aria-label="Embark craft in voyage"
-                >
-                  +
-                </button>
                 </>
               ) : (
                 <>
@@ -2110,15 +2098,6 @@ export function WorkspaceShell({
                       onClose={closePendingOpenCraftTab}
                     />
                   )}
-                  <button
-                    className="inline-flex h-full shrink-0 items-center justify-center border-r border-neutral-700 bg-neutral-900 px-3 text-xs text-neutral-200 transition-colors hover:bg-neutral-800/80"
-                    onClick={toggleVoyagePlusMenu}
-                    data-voyage-plus-trigger="true"
-                    title="Embark craft in voyage"
-                    aria-label="Embark craft in voyage"
-                  >
-                    +
-                  </button>
                 </>
               )}
             </div>
@@ -2309,6 +2288,7 @@ export function WorkspaceShell({
           }}
         >
           <button
+            role="menuitem"
             className="block w-full px-4 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-800"
             onClick={() => {
               setVoyagePlusMenuOpen(false);
@@ -2318,6 +2298,7 @@ export function WorkspaceShell({
             New Task
           </button>
           <button
+            role="menuitem"
             className="block w-full px-4 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-800"
             onClick={() => {
               setVoyagePlusMenuOpen(false);
@@ -2327,6 +2308,13 @@ export function WorkspaceShell({
             }}
           >
             Open Craft
+          </button>
+          <button
+            role="menuitem"
+            className="block w-full px-4 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-800"
+            onClick={handleOpenVoyageSwitcher}
+          >
+            Switch Voyage
           </button>
         </div>
       )}
