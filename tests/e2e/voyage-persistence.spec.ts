@@ -329,8 +329,14 @@ async function waitForSavedVoyageFallbackAfterClose(
     });
 }
 
+function getVisibleVoyageActionsTrigger(page: Page) {
+  return page
+    .getByRole('button', { name: 'Voyage actions' })
+    .filter({ visible: true });
+}
+
 async function openVoyageActionsMenu(page: Page) {
-  await page.getByLabel('Voyage actions').first().click();
+  await getVisibleVoyageActionsTrigger(page).click();
   return page.getByRole('menu', { name: 'Voyage actions' });
 }
 
@@ -341,7 +347,7 @@ async function openVoyageSwitcher(page: Page) {
     .click();
 }
 
-async function openCraftFromVoyagePlusMenu(page: Page) {
+async function openCraftFromVoyageActionsMenu(page: Page) {
   const voyageActionsMenu = await openVoyageActionsMenu(page);
   await voyageActionsMenu
     .getByRole('menuitem', { name: 'Open Craft' })
@@ -406,7 +412,7 @@ async function mockVkApi(
 test.describe('voyage persistence', () => {
   test('persists an unsaved voyage when navigating to a real craft and resumes it without sessionStorage', async ({ page }) => {
     await page.goto('/dashboard');
-    await expect(page.getByLabel('Voyage actions').first()).toBeVisible();
+    await expect(getVisibleVoyageActionsTrigger(page)).toBeVisible();
     await clearSavedVoyages(page.request);
 
     const runId = Date.now().toString(36);
@@ -469,7 +475,7 @@ test.describe('voyage persistence', () => {
 
   test('saves a named new voyage after opening an existing craft and keeps it after reload', async ({ page }) => {
     await page.goto('/dashboard');
-    await expect(page.getByLabel('Voyage actions').first()).toBeVisible();
+    await expect(getVisibleVoyageActionsTrigger(page)).toBeVisible();
     await clearSavedVoyages(page.request);
     await page.evaluate(() => sessionStorage.clear());
 
@@ -507,7 +513,7 @@ test.describe('voyage persistence', () => {
     await expect(page.getByRole('heading', { name: 'All Voyages' })).toBeVisible();
     await expect(page.getByText(voyageName).first()).toBeVisible();
 
-    await openCraftFromVoyagePlusMenu(page);
+    await openCraftFromVoyageActionsMenu(page);
     await page.getByRole('button', { name: new RegExp(workspace.name) }).click();
     await expect(page.getByLabel(`Open ${workspace.name} in Home`).first()).toBeVisible();
 
@@ -717,7 +723,7 @@ test.describe('voyage persistence', () => {
       page.getByRole('button', { name: `Open ${existingCraftLabel} in Home` }),
     ).toHaveCount(0);
 
-    await openCraftFromVoyagePlusMenu(page);
+    await openCraftFromVoyageActionsMenu(page);
 
     await expect(page.getByRole('heading', { name: 'Open VK Workspace' })).toBeVisible();
     await page.getByPlaceholder('Search workspaces...').fill(workspaceToOpen.name);
@@ -737,7 +743,7 @@ test.describe('voyage persistence', () => {
       .click();
     await expect(page).toHaveURL(new RegExp(`craft=seed-craft-${runId}`));
 
-    await openCraftFromVoyagePlusMenu(page);
+    await openCraftFromVoyageActionsMenu(page);
     await page.getByPlaceholder('Search workspaces...').fill(workspaceToOpen.name);
     await page.getByRole('button', { name: new RegExp(workspaceToOpen.name) }).click();
     await expect(page).toHaveURL(

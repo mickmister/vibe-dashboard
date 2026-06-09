@@ -612,7 +612,7 @@ export function Sidebar({
                 void onOpenCreateWorkspaceTab();
               }}
             >
-              New Task
+              New Craft
             </Button>
             <Button
               size="sm"
