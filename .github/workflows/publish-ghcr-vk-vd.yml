@@ -66,6 +66,28 @@ jobs:
         run: |
           set -euo pipefail
 
+          vd_short_commit="${VD_SHA_INPUT:0:7}"
+          deploy_image_tag="vd-${VD_SHA_INPUT}"
+
+          if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
+            echo "Resolved PR #${PR_NUMBER} deploy image tag to ${deploy_image_tag}"
+
+            {
+              echo "image_tag=$IMAGE_TAG_INPUT"
+              echo "deploy_image_tag=$deploy_image_tag"
+              echo "deploy_pr_preview=true"
+              echo "pr_number=$PR_NUMBER"
+              echo "vk_branch="
+              echo "vk_commit="
+              echo "vk_short_commit="
+              echo "vk_repo_url=$VK_REPO_URL_INPUT"
+              echo "vd_short_commit=$vd_short_commit"
+              echo "publish_latest=false"
+            } >> "$GITHUB_OUTPUT"
+
+            exit 0
+          fi
+
           workdir="$(mktemp -d)"
           trap 'rm -rf "$workdir" || true' EXIT
 
@@ -75,11 +97,10 @@ jobs:
 
           vk_commit="$(git -C "$workdir" rev-parse FETCH_HEAD)"
           vk_short_commit="$(git -C "$workdir" rev-parse --short=7 FETCH_HEAD)"
-          vd_short_commit="${VD_SHA_INPUT:0:7}"
           used_asset_fallback=false
 
           manifest_url="https://github.com/mickmister/vibe-kanban/releases/download/vk-assets-${vk_commit}/manifest.json"
-          if [[ ("${GITHUB_EVENT_NAME}" == "push" || "${GITHUB_EVENT_NAME}" == "pull_request") && "$VK_BRANCH_INPUT" == "main" ]] && ! curl -fsI "$manifest_url" >/dev/null; then
+          if [[ "${GITHUB_EVENT_NAME}" == "push" && "$VK_BRANCH_INPUT" == "main" ]] && ! curl -fsI "$manifest_url" >/dev/null; then
             echo "::notice::VK release assets for $vk_commit are not available yet; using the latest published vk-assets release for this VD branch image."
             latest_assets_tag="$(
               curl -fsSL "https://api.github.com/repos/mickmister/vibe-kanban/releases?per_page=100" \
@@ -121,8 +142,6 @@ jobs:
               echo "Dispatched VK commit $vk_commit is not current origin/main ($vk_main_commit); not publishing latest."
             fi
           fi
-
-          deploy_image_tag="vk-${vk_short_commit}-vd-${vd_short_commit}"
 
           echo "Resolved $VK_BRANCH_INPUT to $vk_commit"
           echo "Publish latest: $publish_latest"
@@ -188,6 +207,7 @@ jobs:
       meta-images: ghcr.io/${{ github.repository_owner }}/vk-vd
       meta-tags: |
         type=raw,value=${{ needs.resolve-vk-ref.outputs.image_tag }},enable=${{ needs.resolve-vk-ref.outputs.image_tag != '' }}
+        type=raw,value=${{ needs.resolve-vk-ref.outputs.deploy_image_tag }}
         type=raw,value=vk-${{ needs.resolve-vk-ref.outputs.vk_short_commit }}-vd-${{ needs.resolve-vk-ref.outputs.vd_short_commit }}
         type=raw,value=latest,enable=${{ needs.resolve-vk-ref.outputs.publish_latest == 'true' }}
     secrets:
@@ -217,26 +237,6 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-
-          if [[ -z "$COOLIFY_WEBHOOK" ]]; then
-            echo "::error::COOLIFY_WEBHOOK is not configured."
-            exit 1
-          fi
-
-          if [[ -z "$COOLIFY_TOKEN" ]]; then
-            echo "::error::COOLIFY_TOKEN is not configured."
-            exit 1
-          fi
-
-          if [[ -z "$CF_ACCESS_CLIENT_ID" ]]; then
-            echo "::error::CF_ACCESS_CLIENT_ID is not configured."
-            exit 1
-          fi
-
-          if [[ -z "$CF_ACCESS_CLIENT_SECRET" ]]; then
-            echo "::error::CF_ACCESS_CLIENT_SECRET is not configured."
-            exit 1
-          fi
 
           if [[ -z "$DEPLOY_IMAGE_TAG" ]]; then
             echo "::error::DEPLOY_IMAGE_TAG was not resolved."
@@ -340,6 +340,13 @@ jobs:
           if ! docker manifest inspect "$image_ref" >/dev/null 2>&1; then
             if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
               echo "::notice::Image ${image_ref} is not published yet. Leaving coolify-deploy on PR #${pr_number}; the push publish workflow will deploy after publishing if this remains the latest PR head."
+              {
+                echo "## Coolify deploy pending"
+                echo
+                echo "Image \`${image_ref}\` is not published yet."
+                echo
+                echo "The \`coolify-deploy\` label was left on PR #${pr_number}. The push publish workflow will deploy after publishing if this commit remains the latest PR head."
+              } >> "$GITHUB_STEP_SUMMARY"
               exit 0
             fi
 
@@ -348,6 +355,26 @@ jobs:
           fi
 
           echo "Verified deploy image exists: ${image_ref}."
+
+          if [[ -z "$COOLIFY_WEBHOOK" ]]; then
+            echo "::error::COOLIFY_WEBHOOK is not configured."
+            exit 1
+          fi
+
+          if [[ -z "$COOLIFY_TOKEN" ]]; then
+            echo "::error::COOLIFY_TOKEN is not configured."
+            exit 1
+          fi
+
+          if [[ -z "$CF_ACCESS_CLIENT_ID" ]]; then
+            echo "::error::CF_ACCESS_CLIENT_ID is not configured."
+            exit 1
+          fi
+
+          if [[ -z "$CF_ACCESS_CLIENT_SECRET" ]]; then
+            echo "::error::CF_ACCESS_CLIENT_SECRET is not configured."
+            exit 1
+          fi
 
           coolify_deploy_url="${COOLIFY_WEBHOOK%%\?*}"
           coolify_query="${COOLIFY_WEBHOOK#*\?}"
@@ -414,6 +441,9 @@ jobs:
             --fail-with-body \
             --show-error \
             --silent \
+            --retry 5 \
+            --retry-delay 5 \
+            --retry-all-errors \
             --request DELETE \
             "https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${pr_number}/labels/coolify-deploy" \
             --header "Authorization: Bearer $GITHUB_TOKEN" \
