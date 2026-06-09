@@ -42,8 +42,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       image_tag: ${{ steps.resolve.outputs.image_tag }}
+      deploy_image_tag: ${{ steps.resolve.outputs.deploy_image_tag }}
       deploy_pr_preview: ${{ steps.resolve.outputs.deploy_pr_preview }}
-      pr_image_tag: ${{ steps.resolve.outputs.pr_image_tag }}
       pr_number: ${{ steps.resolve.outputs.pr_number }}
       vk_branch: ${{ steps.resolve.outputs.vk_branch }}
       vk_commit: ${{ steps.resolve.outputs.vk_commit }}
@@ -55,8 +55,7 @@ jobs:
       - name: Resolve vibe-kanban ref to commit SHA
         id: resolve
         env:
-          IMAGE_TAG_INPUT: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.event_name == 'workflow_dispatch' && inputs.image_tag || '' }}
-          PR_IMAGE_TAG: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}
+          IMAGE_TAG_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.image_tag || '' }}
           PR_NUMBER: ${{ github.event_name == 'pull_request' && github.event.pull_request.number || '' }}
           VD_SHA_INPUT: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           VK_BRANCH_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.vk_branch || github.event.client_payload.vk_sha || github.event.client_payload.vk_ref || 'main' }}
@@ -80,7 +79,7 @@ jobs:
           used_asset_fallback=false
 
           manifest_url="https://github.com/mickmister/vibe-kanban/releases/download/vk-assets-${vk_commit}/manifest.json"
-          if [[ "${GITHUB_EVENT_NAME}" == "push" && "$VK_BRANCH_INPUT" == "main" ]] && ! curl -fsI "$manifest_url" >/dev/null; then
+          if [[ ("${GITHUB_EVENT_NAME}" == "push" || "${GITHUB_EVENT_NAME}" == "pull_request") && "$VK_BRANCH_INPUT" == "main" ]] && ! curl -fsI "$manifest_url" >/dev/null; then
             echo "::notice::VK release assets for $vk_commit are not available yet; using the latest published vk-assets release for this VD branch image."
             latest_assets_tag="$(
               curl -fsSL "https://api.github.com/repos/mickmister/vibe-kanban/releases?per_page=100" \
@@ -123,14 +122,16 @@ jobs:
             fi
           fi
 
+          deploy_image_tag="vk-${vk_short_commit}-vd-${vd_short_commit}"
+
           echo "Resolved $VK_BRANCH_INPUT to $vk_commit"
           echo "Publish latest: $publish_latest"
           echo "Deploy PR preview: $deploy_pr_preview"
 
           {
             echo "image_tag=$IMAGE_TAG_INPUT"
+            echo "deploy_image_tag=$deploy_image_tag"
             echo "deploy_pr_preview=$deploy_pr_preview"
-            echo "pr_image_tag=$PR_IMAGE_TAG"
             echo "pr_number=$PR_NUMBER"
             echo "vk_branch=$VK_BRANCH_INPUT"
             echo "vk_commit=$vk_commit"
@@ -142,7 +143,7 @@ jobs:
 
   check-types:
     name: npm run check-types
-    if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.label.name == 'coolify-deploy') }}
+    if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -165,6 +166,7 @@ jobs:
 
   publish:
     needs: [resolve-vk-ref, check-types]
+    if: ${{ github.event_name != 'pull_request' }}
     uses: ./.github/workflows/docker-github-builder-build.yml
     permissions:
       contents: read
@@ -197,22 +199,22 @@ jobs:
   notify-coolify:
     name: Notify Coolify
     needs: [resolve-vk-ref, publish]
-    if: ${{ needs.resolve-vk-ref.outputs.deploy_pr_preview == 'true' }}
+    if: ${{ always() && needs.resolve-vk-ref.result == 'success' && (github.event_name == 'pull_request' || (github.event_name == 'push' && needs.publish.result == 'success')) }}
     runs-on: ubuntu-latest
     concurrency:
       group: vk-vd-coolify-deploy
       cancel-in-progress: false
     steps:
-      - name: Trigger Coolify PR deployment
+      - name: Trigger Coolify deployment when requested
         env:
           COOLIFY_WEBHOOK: ${{ secrets.COOLIFY_WEBHOOK }}
           COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          DEPLOY_IMAGE_TAG: ${{ needs.resolve-vk-ref.outputs.deploy_image_tag }}
+          EVENT_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_PR_NUMBER: ${{ needs.resolve-vk-ref.outputs.pr_number }}
           GITHUB_TOKEN: ${{ github.token }}
-          BUILT_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          PR_IMAGE_TAG: ${{ needs.resolve-vk-ref.outputs.pr_image_tag }}
-          PR_NUMBER: ${{ needs.resolve-vk-ref.outputs.pr_number }}
         run: |
           set -euo pipefail
 
@@ -236,22 +238,56 @@ jobs:
             exit 1
           fi
 
-          if [[ -z "$PR_NUMBER" ]]; then
-            echo "::error::PR_NUMBER was not resolved."
+          if [[ -z "$DEPLOY_IMAGE_TAG" ]]; then
+            echo "::error::DEPLOY_IMAGE_TAG was not resolved."
             exit 1
           fi
 
-          if [[ -z "$PR_IMAGE_TAG" ]]; then
-            echo "::error::PR_IMAGE_TAG was not resolved."
+          pr_number=""
+          built_pr_head_sha=""
+
+          if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
+            pr_number="$EVENT_PR_NUMBER"
+            built_pr_head_sha="$EVENT_PR_HEAD_SHA"
+          elif [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
+            associated_prs_json="$(
+              curl \
+                --fail-with-body \
+                --show-error \
+                --silent \
+                --retry 5 \
+                --retry-delay 5 \
+                --retry-all-errors \
+                "https://api.github.com/repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/pulls" \
+                --header "Authorization: Bearer $GITHUB_TOKEN" \
+                --header "Accept: application/vnd.github+json" \
+                --header "X-GitHub-Api-Version: 2022-11-28"
+            )"
+
+            pr_number="$(python3 -c 'import json, sys; prs=json.load(sys.stdin); sha=sys.argv[1]; matches=[str(pr.get("number")) for pr in prs if pr.get("state") == "open" and pr.get("head", {}).get("sha") == sha]; print(matches[0] if matches else "")' "$GITHUB_SHA" <<< "$associated_prs_json")"
+
+            if [[ -z "$pr_number" ]]; then
+              echo "::notice::No open PR is currently headed by ${GITHUB_SHA}; skipping Coolify deployment."
+              exit 0
+            fi
+
+            built_pr_head_sha="$GITHUB_SHA"
+          else
+            echo "::notice::No Coolify label deployment handling for ${GITHUB_EVENT_NAME}."
+            exit 0
+          fi
+
+          if [[ -z "$pr_number" ]]; then
+            echo "::error::PR number was not resolved."
             exit 1
           fi
 
-          if [[ -z "$BUILT_PR_HEAD_SHA" ]]; then
-            echo "::error::BUILT_PR_HEAD_SHA was not resolved."
+          if [[ -z "$built_pr_head_sha" ]]; then
+            echo "::error::PR head SHA was not resolved."
             exit 1
           fi
 
-          current_pr_head_sha="$(
+          current_pr_json="$(
             curl \
               --fail-with-body \
               --show-error \
@@ -259,19 +295,59 @@ jobs:
               --retry 5 \
               --retry-delay 5 \
               --retry-all-errors \
-              "https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${pr_number}" \
               --header "Authorization: Bearer $GITHUB_TOKEN" \
               --header "Accept: application/vnd.github+json" \
-              --header "X-GitHub-Api-Version: 2022-11-28" \
-              | python3 -c 'import json, sys; print(json.load(sys.stdin)["head"]["sha"])'
+              --header "X-GitHub-Api-Version: 2022-11-28"
           )"
 
-          if [[ "$current_pr_head_sha" != "$BUILT_PR_HEAD_SHA" ]]; then
-            echo "::error::PR #${PR_NUMBER} moved while this image was publishing. Built ${BUILT_PR_HEAD_SHA}, but current PR head is ${current_pr_head_sha}. Re-add coolify-deploy to deploy the latest PR head."
+          current_pr_head_sha="$(python3 -c 'import json, sys; print(json.load(sys.stdin)["head"]["sha"])' <<< "$current_pr_json")"
+
+          if [[ "$current_pr_head_sha" != "$built_pr_head_sha" ]]; then
+            if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
+              echo "::error::PR #${pr_number} is not at the labeled head anymore. Labeled ${built_pr_head_sha}, but current PR head is ${current_pr_head_sha}. Re-add coolify-deploy to deploy the latest PR head."
+              exit 1
+            fi
+
+            echo "::notice::PR #${pr_number} moved after this image was published. Published ${built_pr_head_sha}, but current PR head is ${current_pr_head_sha}; skipping stale Coolify deployment."
+            exit 0
+          fi
+
+          issue_json="$(
+            curl \
+              --fail-with-body \
+              --show-error \
+              --silent \
+              --retry 5 \
+              --retry-delay 5 \
+              --retry-all-errors \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${pr_number}" \
+              --header "Authorization: Bearer $GITHUB_TOKEN" \
+              --header "Accept: application/vnd.github+json" \
+              --header "X-GitHub-Api-Version: 2022-11-28"
+          )"
+
+          has_deploy_label="$(python3 -c 'import json, sys; issue=json.load(sys.stdin); print("true" if any(label.get("name") == "coolify-deploy" for label in issue.get("labels", [])) else "false")' <<< "$issue_json")"
+
+          if [[ "$has_deploy_label" != "true" ]]; then
+            echo "::notice::PR #${pr_number} no longer has the coolify-deploy label; skipping Coolify deployment."
+            exit 0
+          fi
+
+          image_ref="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/vk-vd:${DEPLOY_IMAGE_TAG}"
+          echo "$GITHUB_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin >/dev/null
+
+          if ! docker manifest inspect "$image_ref" >/dev/null 2>&1; then
+            if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
+              echo "::notice::Image ${image_ref} is not published yet. Leaving coolify-deploy on PR #${pr_number}; the push publish workflow will deploy after publishing if this remains the latest PR head."
+              exit 0
+            fi
+
+            echo "::error::Expected published image ${image_ref} was not found after the publish job completed."
             exit 1
           fi
 
-          echo "Verified PR #${PR_NUMBER} is still at built head ${BUILT_PR_HEAD_SHA}."
+          echo "Verified deploy image exists: ${image_ref}."
 
           coolify_deploy_url="${COOLIFY_WEBHOOK%%\?*}"
           coolify_query="${COOLIFY_WEBHOOK#*\?}"
@@ -300,7 +376,7 @@ jobs:
           fi
 
           coolify_env_url="${coolify_deploy_url%/deploy}/applications/${coolify_uuid}/envs"
-          env_payload="$(printf '{"key":"VKVD_IMAGE_VERSION","value":"%s","is_preview":false,"is_literal":true}' "$PR_IMAGE_TAG")"
+          env_payload="$(printf '{"key":"VKVD_IMAGE_VERSION","value":"%s","is_preview":false,"is_literal":true}' "$DEPLOY_IMAGE_TAG")"
 
           curl \
             --fail-with-body \
@@ -317,7 +393,7 @@ jobs:
             --header "Content-Type: application/json" \
             --data "$env_payload"
 
-          echo "Coolify VKVD_IMAGE_VERSION updated to ${PR_IMAGE_TAG}."
+          echo "Coolify VKVD_IMAGE_VERSION updated to ${DEPLOY_IMAGE_TAG}."
 
           curl \
             --fail-with-body \
@@ -332,16 +408,16 @@ jobs:
             --header "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
             --header "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET"
 
-          echo "Coolify main deployment webhook notified for PR #${PR_NUMBER} using image tag ${PR_IMAGE_TAG}."
+          echo "Coolify main deployment webhook notified for PR #${pr_number} using image tag ${DEPLOY_IMAGE_TAG}."
 
           curl \
             --fail-with-body \
             --show-error \
             --silent \
             --request DELETE \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/labels/coolify-deploy" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${pr_number}/labels/coolify-deploy" \
             --header "Authorization: Bearer $GITHUB_TOKEN" \
             --header "Accept: application/vnd.github+json" \
             --header "X-GitHub-Api-Version: 2022-11-28"
 
-          echo "Removed coolify-deploy label from PR #${PR_NUMBER}."
+          echo "Removed coolify-deploy label from PR #${pr_number}."
