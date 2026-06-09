@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { resolvePreferredVoyageSessionId } from './voyageSession';
+import {
+  resolvePreferredVoyageSessionId,
+  resolveRequestedVoyageSessionId,
+} from './voyageSession';
 import type { SavedWorkspaceSession } from '../types';
 
 function session(
@@ -19,6 +22,23 @@ function session(
 }
 
 describe('resolvePreferredVoyageSessionId', () => {
+  it('resolves requested voyage identity without consulting stored defaults', () => {
+    const savedSessions = [session('a', 'alpha-a'), session('b', 'beta-b')];
+
+    expect(
+      resolveRequestedVoyageSessionId({
+        savedSessions,
+        requestedVoyageKey: 'beta-b',
+      }),
+    ).toBe('b');
+    expect(
+      resolveRequestedVoyageSessionId({
+        savedSessions,
+        requestedVoyageKey: 'missing',
+      }),
+    ).toBeUndefined();
+  });
+
   it('prefers an existing voyage slug over stored defaults', () => {
     expect(
       resolvePreferredVoyageSessionId({
@@ -26,38 +46,17 @@ describe('resolvePreferredVoyageSessionId', () => {
         requestedVoyageKey: 'beta-b',
         storedBrowserSessionId: 'a',
         originDefaultSessionId: 'a',
-        createReplacementSessionId: () => 'replacement',
       }),
     ).toBe('b');
   });
 
-  it('accepts legacy session ids only when they already exist', () => {
-    expect(
-      resolvePreferredVoyageSessionId({
-        savedSessions: [session('existing')],
-        requestedLegacySessionId: 'existing',
-        createReplacementSessionId: () => 'replacement',
-      }),
-    ).toBe('existing');
-
-    expect(
-      resolvePreferredVoyageSessionId({
-        savedSessions: [session('existing')],
-        requestedLegacySessionId: 'unknown-from-url',
-        createReplacementSessionId: () => 'replacement',
-      }),
-    ).toBeUndefined();
-  });
-
-  it('does not create persistent state from an unknown session query param', () => {
+  it('reuses a stale stored browser session id instead of minting replacements', () => {
     expect(
       resolvePreferredVoyageSessionId({
         savedSessions: [session('existing')],
         requestedVoyageKey: 'missing',
-        requestedLegacySessionId: 'unknown-from-url',
         storedBrowserSessionId: 'stale-local-id',
-        createReplacementSessionId: () => 'replacement',
       }),
-    ).toBe('replacement');
+    ).toBe('stale-local-id');
   });
 });
