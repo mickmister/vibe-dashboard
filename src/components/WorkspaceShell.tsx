@@ -2295,7 +2295,7 @@ export function WorkspaceShell({
               void handleOpenCreateWorkspaceTab();
             }}
           >
-            New Task
+            New Craft
           </button>
           <button
             role="menuitem"
@@ -2356,7 +2356,7 @@ export function WorkspaceShell({
                   void handleCreateNamedVoyage('new-task');
                 }}
               >
-                Create New Task
+                Create New Craft
               </button>
               <button
                 className="rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-neutral-200 transition-colors hover:bg-neutral-700 disabled:cursor-not-allowed disabled:text-neutral-500 disabled:hover:bg-neutral-800"

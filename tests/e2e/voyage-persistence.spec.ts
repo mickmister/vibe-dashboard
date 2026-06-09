@@ -329,11 +329,22 @@ async function waitForSavedVoyageFallbackAfterClose(
     });
 }
 
+async function openVoyageActionsMenu(page: Page) {
+  await page.getByLabel('Voyage actions').first().click();
+  return page.getByRole('menu', { name: 'Voyage actions' });
+}
+
+async function openVoyageSwitcher(page: Page) {
+  const voyageActionsMenu = await openVoyageActionsMenu(page);
+  await voyageActionsMenu
+    .getByRole('menuitem', { name: 'Switch Voyage' })
+    .click();
+}
+
 async function openCraftFromVoyagePlusMenu(page: Page) {
-  await page.getByLabel('Embark craft in voyage').first().click();
-  await page
-    .getByRole('menu', { name: 'Voyage actions' })
-    .getByRole('button', { name: 'Open Craft' })
+  const voyageActionsMenu = await openVoyageActionsMenu(page);
+  await voyageActionsMenu
+    .getByRole('menuitem', { name: 'Open Craft' })
     .click();
 }
 
@@ -395,7 +406,7 @@ async function mockVkApi(
 test.describe('voyage persistence', () => {
   test('persists an unsaved voyage when navigating to a real craft and resumes it without sessionStorage', async ({ page }) => {
     await page.goto('/dashboard');
-    await expect(page.getByLabel('Open voyage switcher').first()).toBeVisible();
+    await expect(page.getByLabel('Voyage actions').first()).toBeVisible();
     await clearSavedVoyages(page.request);
 
     const runId = Date.now().toString(36);
@@ -458,7 +469,7 @@ test.describe('voyage persistence', () => {
 
   test('saves a named new voyage after opening an existing craft and keeps it after reload', async ({ page }) => {
     await page.goto('/dashboard');
-    await expect(page.getByLabel('Open voyage switcher').first()).toBeVisible();
+    await expect(page.getByLabel('Voyage actions').first()).toBeVisible();
     await clearSavedVoyages(page.request);
     await page.evaluate(() => sessionStorage.clear());
 
@@ -469,7 +480,7 @@ test.describe('voyage persistence', () => {
 
     await page.goto('/');
 
-    await page.getByLabel('Open voyage switcher').first().click();
+    await openVoyageSwitcher(page);
 
     await page.getByRole('button', { name: 'New Voyage', exact: true }).last().click();
     await page.getByPlaceholder('Required voyage name').fill(voyageName);
@@ -482,14 +493,14 @@ test.describe('voyage persistence', () => {
     await expect(page.getByLabel(`Open ${workspace.name} in Home`).first()).toBeVisible();
     await expect(page).toHaveURL(/voyage=e2e-voyage-/);
 
-    await page.getByLabel('Open voyage switcher').first().click();
+    await openVoyageSwitcher(page);
     await expect(page.getByRole('button', { name: voyageName }).first()).toBeVisible();
     await page.getByRole('button', { name: 'Cancel' }).click();
 
     await page.reload();
     await expect(page.getByLabel(`Open ${workspace.name} in Home`).first()).toBeVisible();
 
-    await page.getByLabel('Open voyage switcher').first().click();
+    await openVoyageSwitcher(page);
     await expect(page.getByRole('button', { name: voyageName }).first()).toBeVisible();
     await page.getByRole('button', { name: 'Go Home' }).click();
 
@@ -501,16 +512,16 @@ test.describe('voyage persistence', () => {
     await expect(page.getByLabel(`Open ${workspace.name} in Home`).first()).toBeVisible();
 
     const taskVoyageName = `E2E Task Voyage ${runId}`;
-    await page.getByLabel('Open voyage switcher').first().click();
+    await openVoyageSwitcher(page);
     await page.getByRole('button', { name: 'New Voyage', exact: true }).last().click();
     await page.getByPlaceholder('Required voyage name').fill(taskVoyageName);
-    await page.getByRole('button', { name: 'Create New Task' }).click();
+    await page.getByRole('button', { name: 'Create New Craft' }).click();
 
     await expect(page.getByLabel('Open Create Workspace in Home').first()).toBeVisible();
     await expect(page).toHaveURL(/craft=create-workspace-/);
     await expect(page).toHaveURL(/views=create-workspace-/);
 
-    await page.getByLabel('Open voyage switcher').first().click();
+    await openVoyageSwitcher(page);
     await expect(page.getByRole('button', { name: taskVoyageName }).first()).toBeVisible();
     await page.getByRole('button', { name: 'Cancel' }).click();
 
