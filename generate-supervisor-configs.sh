@@ -30,7 +30,7 @@ cat > "$OUTPUT_FILE" <<'EOF'
 EOF
 
 # If no domains specified, don't create any additional instances
-# (the base instances at 3005/3007 are already in supervisord.conf)
+# (the base instances at 3005/3007 are already in supervisord.vkvd.conf)
 if [ -z "$DOMAINS" ]; then
     echo "No VK_DOMAINS specified - using only default instances (ports 3005, 3007)"
     exit 0
