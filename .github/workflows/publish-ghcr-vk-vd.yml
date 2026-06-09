@@ -30,7 +30,7 @@ permissions:
   packages: write
   id-token: write
   issues: write
-  pull-requests: read
+  pull-requests: write
 
 concurrency:
   group: vk-vd-publish-${{ github.event_name == 'repository_dispatch' && github.event.client_payload.vk_source_ref || github.event_name == 'pull_request' && format('refs/heads/{0}', github.event.pull_request.head.ref) || github.ref }}
@@ -456,7 +456,7 @@ jobs:
 
           echo "Coolify main deployment webhook notified for PR #${pr_number} using image tag ${DEPLOY_IMAGE_TAG}."
 
-          if curl \
+          curl \
             --fail-with-body \
             --show-error \
             --silent \
@@ -467,8 +467,6 @@ jobs:
             "https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${pr_number}/labels/coolify-deploy" \
             --header "Authorization: Bearer $GITHUB_TOKEN" \
             --header "Accept: application/vnd.github+json" \
-            --header "X-GitHub-Api-Version: 2022-11-28"; then
-            echo "Removed coolify-deploy label from PR #${pr_number}."
-          else
-            echo "::notice::Coolify deployment was queued, but the workflow token could not remove the coolify-deploy label from PR #${pr_number}."
-          fi
+            --header "X-GitHub-Api-Version: 2022-11-28"
+
+          echo "Removed coolify-deploy label from PR #${pr_number}."
