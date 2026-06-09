@@ -1076,18 +1076,6 @@ export function WorkspaceShell({
     closeDuplicateCraftPrompt();
   };
 
-  const openCraftInCurrentVoyage = () => {
-    if (!duplicateCraftPrompt) return;
-    sessionActions.addTabGroupToSession(duplicateCraftPrompt.tabGroupId, {
-      select: true,
-    });
-    sessionActions.selectSessionTabGroup(
-      duplicateCraftPrompt.spaceId,
-      duplicateCraftPrompt.tabGroupId,
-    );
-    closeDuplicateCraftPrompt();
-  };
-
   const switchToExistingCraftInCurrentVoyage = (voyageEntryId: string) => {
     sessionActions.selectVoyageEntry(voyageEntryId);
     closeDuplicateCraftPrompt();
@@ -2508,8 +2496,8 @@ export function WorkspaceShell({
                 {craftLabel} is already embarked
               </div>
               <p className="mt-2 text-sm text-neutral-400">
-                Choose whether to switch to an existing craft or embark another
-                copy in this voyage.
+                This craft is already in a Voyage. Switch to the existing
+                embarked craft or open it in a new Voyage.
               </p>
 
               {duplicateCraftPrompt.currentEntries.length > 0 && (
@@ -2554,14 +2542,6 @@ export function WorkspaceShell({
                 >
                   Cancel
                 </button>
-                {duplicateCraftPrompt.currentEntries.length === 0 && (
-                  <button
-                    className="rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-neutral-200 transition-colors hover:bg-neutral-700"
-                    onClick={openCraftInCurrentVoyage}
-                  >
-                    Open in current Voyage
-                  </button>
-                )}
                 <button
                   className="rounded-md border border-blue-400/70 bg-blue-500/20 px-3 py-2 text-sm text-neutral-50 transition-colors hover:bg-blue-500/30"
                   onClick={openCraftInNewVoyage}

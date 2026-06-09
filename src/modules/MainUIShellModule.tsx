@@ -650,9 +650,7 @@ springboard.registerModule(
             setBrowserSessionId(sessionId);
           }
           updateBookmarkedSessionSearch(sessionId);
-          if (voyageEntryId) {
-            sessionNav.resumeSession(sessionToResume, voyageEntryId);
-          }
+          sessionNav.resumeSession(sessionToResume, voyageEntryId);
         },
         activateSavedSession: (session: SavedWorkspaceSession) => {
           pendingSavedSessionActivationIdRef.current = session.id;

@@ -1562,7 +1562,10 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
           });
           const existing = sessions.find((session) => session.id === args.id);
           if (existing) {
-            Object.assign(existing, nextSession);
+            Object.assign(existing, {
+              ...nextSession,
+              createdAt: existing.createdAt || nextSession.createdAt,
+            });
             return createSavedWorkspaceSessionState(sessions);
           }
 

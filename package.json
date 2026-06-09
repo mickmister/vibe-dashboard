@@ -15,7 +15,8 @@
     "storybook:dev": "storybook dev -p $PORT",
     "build-storybook": "storybook build",
     "serve-storybook": "serve storybook-static -l $PORT",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:e2e:install": "playwright install chromium"
   },
   "dependencies": {
     "@heroui/react": "^2.8.9",
