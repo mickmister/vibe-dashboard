@@ -1253,9 +1253,13 @@ export function WorkspaceShell({
         (Number.isFinite(leftTime) ? leftTime : 0);
     });
   }, [savedSessions]);
-  const moveVoyageTargets = sortedVoyageSwitcherSessions.filter(
-    (savedSession) => savedSession.id !== currentSessionId,
-  );
+  const moveVoyageTargets = sortedVoyageSwitcherSessions.filter((savedSession) => {
+    if (savedSession.id === currentSessionId) return false;
+    if (!moveVoyageEntryPrompt) return true;
+    return !savedSession.voyageEntries.some(
+      (entry) => entry.tabGroupId === moveVoyageEntryPrompt.tabGroupId,
+    );
+  });
   const canMoveVoyageEntryToAnotherVoyage = session.voyageEntries.length > 1;
   const currentSavedSession = savedSessions.find(
     (savedSession) => savedSession.id === currentSessionId,

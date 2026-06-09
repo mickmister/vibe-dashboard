@@ -584,6 +584,14 @@ springboard.registerModule(
         ) || sessionNav.voyageEntries.find(
           (entry) => entry.tabGroupId === args.tabGroupId,
         );
+        if (activeEntry && !args.tabId && !args.viewIds) {
+          void actions.activateSavedVoyageEntry({
+            sessionId: activeSavedSession.id,
+            voyageEntryId: activeEntry.id,
+          });
+          return;
+        }
+
         void actions.addSelectionToSavedSession({
           sessionId: activeSavedSession.id,
           spaceId: args.spaceId,

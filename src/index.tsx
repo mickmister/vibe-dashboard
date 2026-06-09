@@ -1626,6 +1626,14 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
           if (!target) return createSavedWorkspaceSessionState(sessions);
 
           const existingEntries = target.voyageEntries;
+          if (
+            existingEntries.some(
+              (entry) => entry.tabGroupId === args.voyageEntry.tabGroupId,
+            )
+          ) {
+            return createSavedWorkspaceSessionState(sessions);
+          }
+
           const existingIds = new Set(existingEntries.map((entry) => entry.id));
           let nextEntryId = args.voyageEntry.id;
           let suffix = 1;
@@ -1689,6 +1697,13 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
             (entry) => entry.id === args.voyageEntryId,
           );
           if (!sourceEntry) return createSavedWorkspaceSessionState(sessions);
+          if (
+            target.voyageEntries.some(
+              (entry) => entry.tabGroupId === sourceEntry.tabGroupId,
+            )
+          ) {
+            return createSavedWorkspaceSessionState(sessions);
+          }
 
           const nextSourceEntries = source.voyageEntries.filter(
             (entry) => entry.id !== args.voyageEntryId,
