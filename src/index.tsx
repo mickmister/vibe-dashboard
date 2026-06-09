@@ -16,6 +16,7 @@ import type {
   SavedWorkspaceSession,
   SavedWorkspaceSessionState,
   VoyageEntry,
+  VoyageCraftSelection,
 } from './types';
 
 // @platform "browser"
@@ -291,6 +292,101 @@ function addCreateWorkspaceCraftToWorkspace(
     spaceId: defaultSpace.id,
     tabGroupId,
     tabId,
+  };
+}
+
+function getSpaceIdForTabGroup(
+  workspace: WorkspaceState,
+  tabGroupId: string,
+): string | undefined {
+  return workspace.spaces.find((space) => space.tabGroupIds.includes(tabGroupId))?.id;
+}
+
+function getTabPathname(url: string): string | undefined {
+  try {
+    return new URL(url, URL_PARSE_BASE).pathname;
+  } catch {
+    return url.startsWith('/') ? url : undefined;
+  }
+}
+
+function findVKWorkspaceSelection(
+  workspace: WorkspaceState,
+  taskAttemptId: string,
+): VoyageCraftSelection | undefined {
+  if (!taskAttemptId) return undefined;
+  const expectedPath = `/workspaces/${taskAttemptId}`;
+
+  for (const tabGroup of workspace.tabGroups) {
+    const agentTab = tabGroup.tabs.find(
+      (tab) => getTabPathname(tab.url) === expectedPath,
+    );
+    if (!agentTab) continue;
+
+    const spaceId = getSpaceIdForTabGroup(workspace, tabGroup.id);
+    if (!spaceId) continue;
+
+    return {
+      spaceId,
+      tabGroupId: tabGroup.id,
+      tabId: agentTab.id,
+    };
+  }
+
+  return undefined;
+}
+
+function addVKWorkspaceCraftToWorkspace(
+  workspace: WorkspaceState,
+  args: {
+    taskAttemptId: string;
+    name: string;
+    containerRef: string;
+    activeSpaceId: string;
+    baseOrigin: string;
+  },
+): VoyageCraftSelection | undefined {
+  const space = workspace.spaces.find((s) => s.id === args.activeSpaceId);
+  if (!space) return undefined;
+
+  const tabGroupId = `tg_${workspace.nextId++}`;
+  const pairId = `pair_${workspace.nextId++}`;
+  const kanbanTabId = `tab_${workspace.nextId++}`;
+  const codeTabId = `tab_${workspace.nextId++}`;
+
+  workspace.tabGroups.push({
+    id: tabGroupId,
+    label: args.name,
+    mobileEmoji: pickRandomMobileEmoji(),
+    createdAt: new Date().toISOString(),
+    tabs: [
+      {
+        id: kanbanTabId,
+        title: 'Agent',
+        url: `${args.baseOrigin}/workspaces/${args.taskAttemptId}`,
+      },
+      {
+        id: codeTabId,
+        title: 'Code',
+        url: buildWorkspaceFolderUrl(args.baseOrigin, args.containerRef),
+      },
+    ],
+    pairs: [
+      {
+        id: pairId,
+        tabIds: [kanbanTabId, codeTabId],
+        ratios: [50, 50],
+      },
+    ],
+    order: space.tabGroupIds.length,
+  });
+
+  space.tabGroupIds.push(tabGroupId);
+
+  return {
+    spaceId: space.id,
+    tabGroupId,
+    tabId: kanbanTabId,
   };
 }
 
@@ -906,60 +1002,149 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
         activeSpaceId: string;
         baseOrigin: string;
       }) => {
-        let tabGroupId: string | undefined;
-        let pairId: string | undefined;
-        let agentTabId: string | undefined;
+        let selection: VoyageCraftSelection | undefined;
 
         workspaceState.setStateImmer((draft) => {
-          const space = draft.spaces.find((s) => s.id === args.activeSpaceId);
-          if (!space) return;
-
-          // Generate IDs for tab group and tabs
-          tabGroupId = `tg_${draft.nextId++}`;
-          pairId = `pair_${draft.nextId++}`;
-          const kanbanTabId = `tab_${draft.nextId++}`;
-          const codeTabId = `tab_${draft.nextId++}`;
-
-          // Store agent tab ID for return
-          agentTabId = kanbanTabId;
-
-          // Create the new tab group with base origin URLs (no port prefix)
-          draft.tabGroups.push({
-            id: tabGroupId,
-            label: args.name,
-            mobileEmoji: pickRandomMobileEmoji(),
-            createdAt: new Date().toISOString(),
-            tabs: [
-              {
-                id: kanbanTabId,
-                title: 'Agent',
-                url: `${args.baseOrigin}/workspaces/${args.taskAttemptId}`,
-              },
-              {
-                id: codeTabId,
-                title: 'Code',
-                url: buildWorkspaceFolderUrl(args.baseOrigin, args.containerRef),
-              },
-            ],
-            pairs: [
-              {
-                id: pairId,
-                tabIds: [kanbanTabId, codeTabId],
-                ratios: [50, 50],
-              },
-            ],
-            order: space.tabGroupIds.length,
-          });
-
-          // Add tab group to the space
-          space.tabGroupIds.push(tabGroupId);
+          selection =
+            findVKWorkspaceSelection(draft, args.taskAttemptId) ||
+            addVKWorkspaceCraftToWorkspace(draft, args);
         });
 
-        if (!(tabGroupId && pairId && agentTabId)) {
+        if (!(selection?.tabGroupId && selection.tabId)) {
           return undefined;
         }
 
-        return { tabGroupId, pairId, agentTabId };
+        return {
+          tabGroupId: selection.tabGroupId,
+          pairId:
+            workspaceState
+              .getState()
+              .tabGroups.find((tabGroup) => tabGroup.id === selection?.tabGroupId)
+              ?.pairs[0]?.id || '',
+          agentTabId: selection.tabId,
+        };
+      },
+
+      createSavedSessionForVKWorkspace: async (args: {
+        voyageName: string;
+        taskAttemptId: string;
+        workspaceName: string;
+        containerRef: string;
+        activeSpaceId: string;
+        baseOrigin: string;
+      }) => {
+        const voyageName = args.voyageName.trim();
+        if (!voyageName || voyageName.toLowerCase() === 'home') return undefined;
+
+        let selection: VoyageCraftSelection | undefined;
+        workspaceState.setStateImmer((draft) => {
+          selection =
+            findVKWorkspaceSelection(draft, args.taskAttemptId) ||
+            addVKWorkspaceCraftToWorkspace(draft, {
+              taskAttemptId: args.taskAttemptId,
+              name: args.workspaceName,
+              containerRef: args.containerRef,
+              activeSpaceId: args.activeSpaceId,
+              baseOrigin: args.baseOrigin,
+            });
+        });
+        if (!(selection?.tabGroupId && selection.tabId)) return undefined;
+
+        const savedSession = createSavedSessionFromSelection({
+          workspace: workspaceState.getState(),
+          name: voyageName,
+          spaceId: selection.spaceId,
+          tabGroupId: selection.tabGroupId,
+          tabId: selection.tabId,
+        });
+        if (!savedSession) return undefined;
+
+        savedSessionsState.setState((current) => {
+          const sessions = getSavedWorkspaceSessions(current).filter(
+            (session) => session.id !== savedSession.id,
+          );
+          sessions.unshift(savedSession);
+          return createSavedWorkspaceSessionState(sessions);
+        });
+
+        return { savedSession, selection };
+      },
+
+      openVKWorkspaceInSavedSession: async (args: {
+        sessionId: string;
+        taskAttemptId: string;
+        name: string;
+        containerRef: string;
+        activeSpaceId: string;
+        baseOrigin: string;
+      }) => {
+        const existingTarget = getSavedWorkspaceSessions(
+          savedSessionsState.getState(),
+        ).find((session) => session.id === args.sessionId);
+        if (!existingTarget) return undefined;
+
+        let selection: VoyageCraftSelection | undefined;
+        workspaceState.setStateImmer((draft) => {
+          selection =
+            findVKWorkspaceSelection(draft, args.taskAttemptId) ||
+            addVKWorkspaceCraftToWorkspace(draft, args);
+        });
+        if (!(selection?.tabGroupId && selection.tabId)) return undefined;
+
+        const workspace = workspaceState.getState();
+        const selectedViewIds = getSelectedViewIdsForTabGroup(
+          workspace,
+          selection.tabGroupId,
+          selection.tabId,
+        );
+        if (!selectedViewIds.length) return undefined;
+
+        const activeItemId = getActiveItemIdForViewIds(
+          workspace,
+          selection.tabGroupId,
+          selectedViewIds,
+        );
+        let savedSession: SavedWorkspaceSession | undefined;
+
+        savedSessionsState.setState((current) => {
+          const sessions = getSavedWorkspaceSessions(current).map(cloneSavedSession);
+          const target = sessions.find((session) => session.id === args.sessionId);
+          if (!target) return createSavedWorkspaceSessionState(sessions);
+
+          const existingEntry = target.voyageEntries.find(
+            (entry) => entry.tabGroupId === selection!.tabGroupId,
+          );
+          const activeEntry =
+            existingEntry ||
+            ({
+              id: createUniqueVoyageEntryId(
+                target.voyageEntries,
+                selection!.tabGroupId,
+              ),
+              tabGroupId: selection!.tabGroupId,
+              viewIds: selectedViewIds,
+            } satisfies VoyageEntry);
+
+          activeEntry.viewIds = selectedViewIds;
+          target.voyageEntries = existingEntry
+            ? target.voyageEntries
+            : [...target.voyageEntries, activeEntry];
+          target.activeVoyageEntryId = activeEntry.id;
+          target.activeSpaceId = selection!.spaceId;
+          target.activeTabGroupId = selection!.tabGroupId;
+          target.activeItemsByVoyageEntryId = {
+            ...target.activeItemsByVoyageEntryId,
+            [activeEntry.id]: activeItemId,
+          };
+          target.visitedTabGroupIds = Array.from(
+            new Set([...target.visitedTabGroupIds, selection!.tabGroupId]),
+          );
+          target.updatedAt = new Date().toISOString();
+          savedSession = cloneSavedSession(target);
+          return createSavedWorkspaceSessionState(sessions);
+        });
+
+        return savedSession ? { savedSession, selection } : undefined;
       },
 
       updateTabUrl: async (args: {

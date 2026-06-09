@@ -376,6 +376,7 @@ export function AddTabModal({
         onNavigateToTabGroup={handleVKWorkspaceNavigate}
         workspaceState={workspace}
         pendingWorkspaceId={pendingWorkspaceId}
+        isActionPending={openCraftMutation.isPending}
         actionError={
           openCraftMutation.isError
             ? getAddTabErrorMessage(openCraftMutation.error)

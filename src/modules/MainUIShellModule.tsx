@@ -314,18 +314,19 @@ springboard.registerModule(
             sessionNav.activeSpaceId,
             sessionNav.activeTabGroupId,
           );
-        const voyageName =
-          activeSavedSession?.name?.trim() ||
-          (shouldPersistDraftVoyage
-            ? getDraftVoyageNameForActiveCraft(workspace, sessionNav.activeTabGroupId)
-            : '');
+        if (!shouldPersistDraftVoyage) return;
+
+        const voyageName = getDraftVoyageNameForActiveCraft(
+          workspace,
+          sessionNav.activeTabGroupId,
+        );
         if (!voyageName || isHomeVoyageDisplayName(voyageName)) return;
 
         void actions.upsertSavedSession({
           id: browserSessionId,
           slug: buildVoyageSlug(voyageName, browserSessionId),
           name: voyageName,
-          createdAt: activeSavedSession?.createdAt || now,
+          createdAt: now,
           updatedAt: now,
           activeVoyageEntryId: sessionNav.activeVoyageEntryId,
           voyageEntries: sessionNav.voyageEntries,
@@ -489,6 +490,42 @@ springboard.registerModule(
           );
           return actions.addVKWorkspace({ ...args, containerRef, baseOrigin });
         },
+        createSavedSessionForVKWorkspace: async (args: {
+          voyageName: string;
+          taskAttemptId: string;
+          workspaceName: string;
+          containerRef: string;
+          activeSpaceId: string;
+        }) => {
+          const baseOrigin = getBaseOrigin();
+          const containerRef = await resolveWorkspaceContainerRef(
+            args.taskAttemptId,
+            args.containerRef,
+          );
+          return actions.createSavedSessionForVKWorkspace({
+            ...args,
+            containerRef,
+            baseOrigin,
+          });
+        },
+        openVKWorkspaceInSavedSession: async (args: {
+          sessionId: string;
+          taskAttemptId: string;
+          name: string;
+          containerRef: string;
+          activeSpaceId: string;
+        }) => {
+          const baseOrigin = getBaseOrigin();
+          const containerRef = await resolveWorkspaceContainerRef(
+            args.taskAttemptId,
+            args.containerRef,
+          );
+          return actions.openVKWorkspaceInSavedSession({
+            ...args,
+            containerRef,
+            baseOrigin,
+          });
+        },
         ensureCreateWorkspaceTab: () => {
           const baseOrigin = getBaseOrigin();
           return actions.ensureCreateWorkspaceTab({ baseOrigin });
@@ -533,12 +570,60 @@ springboard.registerModule(
         });
       };
 
+      const persistSavedSelection = (args: {
+        spaceId: string;
+        tabGroupId: string;
+        tabId?: string;
+        viewIds?: string[];
+      }) => {
+        if (!activeSavedSession) return;
+        const activeEntry = sessionNav.voyageEntries.find(
+          (entry) =>
+            entry.id === sessionNav.activeVoyageEntryId &&
+            entry.tabGroupId === args.tabGroupId,
+        ) || sessionNav.voyageEntries.find(
+          (entry) => entry.tabGroupId === args.tabGroupId,
+        );
+        void actions.addSelectionToSavedSession({
+          sessionId: activeSavedSession.id,
+          spaceId: args.spaceId,
+          tabGroupId: args.tabGroupId,
+          ...(activeEntry ? { voyageEntryId: activeEntry.id } : {}),
+          ...(args.tabId ? { tabId: args.tabId } : {}),
+          ...(args.viewIds ? { viewIds: args.viewIds } : {}),
+        });
+      };
+
       const sessionActions = {
         selectSpace: sessionNav.selectSpace,
-        selectSessionTabGroup: sessionNav.selectSessionTabGroup,
-        selectSessionTab: sessionNav.selectSessionTab,
-        selectSessionPair: sessionNav.selectSessionPair,
-        selectVoyageEntry: sessionNav.selectVoyageEntry,
+        selectSessionTabGroup: (spaceId: string, tabGroupId: string) => {
+          sessionNav.selectSessionTabGroup(spaceId, tabGroupId);
+          persistSavedSelection({ spaceId, tabGroupId });
+        },
+        selectSessionTab: (spaceId: string, tabGroupId: string, tabId: string) => {
+          sessionNav.selectSessionTab(spaceId, tabGroupId, tabId);
+          persistSavedSelection({ spaceId, tabGroupId, tabId });
+        },
+        selectSessionPair: (spaceId: string, tabGroupId: string, pairId: string) => {
+          sessionNav.selectSessionPair(spaceId, tabGroupId, pairId);
+          const pair = workspace.tabGroups
+            .find((tabGroup) => tabGroup.id === tabGroupId)
+            ?.pairs.find((candidate) => candidate.id === pairId);
+          persistSavedSelection({
+            spaceId,
+            tabGroupId,
+            ...(pair ? { viewIds: pair.tabIds } : {}),
+          });
+        },
+        selectVoyageEntry: (voyageEntryId: string) => {
+          sessionNav.selectVoyageEntry(voyageEntryId);
+          if (activeSavedSession) {
+            void actions.activateSavedVoyageEntry({
+              sessionId: activeSavedSession.id,
+              voyageEntryId,
+            });
+          }
+        },
         selectTab: (tabGroupId: string, tabId: string) => {
           const spaceId =
             workspace.spaces.find((space) => space.tabGroupIds.includes(tabGroupId))?.id ||

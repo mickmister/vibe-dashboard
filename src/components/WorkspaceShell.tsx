@@ -138,6 +138,32 @@ export type WorkspaceActions = {
   }) => Promise<
     { tabGroupId: string; pairId: string; agentTabId: string } | undefined
   >;
+  createSavedSessionForVKWorkspace: (args: {
+    voyageName: string;
+    taskAttemptId: string;
+    workspaceName: string;
+    containerRef: string;
+    activeSpaceId: string;
+  }) => Promise<
+    | {
+        savedSession: SavedWorkspaceSession;
+        selection: VoyageCraftSelection;
+      }
+    | undefined
+  >;
+  openVKWorkspaceInSavedSession: (args: {
+    sessionId: string;
+    taskAttemptId: string;
+    name: string;
+    containerRef: string;
+    activeSpaceId: string;
+  }) => Promise<
+    | {
+        savedSession: SavedWorkspaceSession;
+        selection: VoyageCraftSelection;
+      }
+    | undefined
+  >;
   updateTabUrl: (args: {
     tabGroupId: string;
     tabId: string;
@@ -784,49 +810,66 @@ export function WorkspaceShell({
       destinationSession?.activeSpaceId || session.activeSpaceId;
 
     if (workspaceSearchMode === 'session-add') {
-      const result = await actions.addVKWorkspace({
-        taskAttemptId,
-        name,
-        containerRef,
-        activeSpaceId: destinationSpaceId,
-      });
-      if (!result) {
-        throw new Error(`Could not open ${name || 'craft'} in the voyage.`);
-      }
-
       if (pendingNewVoyageCraftName) {
-        const savedSession = await createAndActivateSavedVoyage(
-          pendingNewVoyageCraftName,
-          {
-            spaceId: destinationSpaceId,
-            tabGroupId: result.tabGroupId,
-            tabId: result.agentTabId,
-          },
-        );
-        if (!savedSession) {
+        const result = await actions.createSavedSessionForVKWorkspace({
+          voyageName: pendingNewVoyageCraftName,
+          taskAttemptId,
+          workspaceName: name,
+          containerRef,
+          activeSpaceId: destinationSpaceId,
+        });
+        if (!result) {
           throw new Error(`Could not create voyage for ${name || 'craft'}.`);
         }
+        activateSavedSessionWhenWorkspaceReady(result.savedSession, result.selection);
         setPendingNewVoyageCraftName(null);
       } else if (destinationSessionId && destinationSessionId !== currentSessionId) {
-        const savedSession = await addAndActivateSelectionInSavedVoyage(
-          destinationSessionId,
-          {
+        const result = await actions.openVKWorkspaceInSavedSession({
+          sessionId: destinationSessionId,
+          taskAttemptId,
+          name,
+          containerRef,
+          activeSpaceId: destinationSpaceId,
+        });
+        if (!result) {
+          throw new Error(`Could not add ${name || 'craft'} to that voyage.`);
+        }
+        activateSavedSessionWhenWorkspaceReady(result.savedSession, result.selection);
+      } else {
+        const currentSavedSession = savedSessions.find(
+          (entry) => entry.id === currentSessionId,
+        );
+        if (currentSavedSession) {
+          const result = await actions.openVKWorkspaceInSavedSession({
+            sessionId: currentSavedSession.id,
+            taskAttemptId,
+            name,
+            containerRef,
+            activeSpaceId: destinationSpaceId,
+          });
+          if (!result) {
+            throw new Error(`Could not select ${name || 'craft'} in this voyage.`);
+          }
+          activateSavedSessionWhenWorkspaceReady(result.savedSession, result.selection);
+        } else {
+          const result = await actions.addVKWorkspace({
+            taskAttemptId,
+            name,
+            containerRef,
+            activeSpaceId: destinationSpaceId,
+          });
+          if (!result) {
+            throw new Error(`Could not open ${name || 'craft'} in the voyage.`);
+          }
+
+          const selected = await addOrSelectCraftInCurrentVoyage({
             spaceId: destinationSpaceId,
             tabGroupId: result.tabGroupId,
             tabId: result.agentTabId,
-          },
-        );
-        if (!savedSession) {
-          throw new Error(`Could not add ${name || 'craft'} to that voyage.`);
-        }
-      } else {
-        const selected = await addOrSelectCraftInCurrentVoyage({
-          spaceId: destinationSpaceId,
-          tabGroupId: result.tabGroupId,
-          tabId: result.agentTabId,
-        });
-        if (!selected) {
-          throw new Error(`Could not select ${name || 'craft'} in this voyage.`);
+          });
+          if (!selected) {
+            throw new Error(`Could not select ${name || 'craft'} in this voyage.`);
+          }
         }
       }
       setPendingOpenCraftSessionId(null);
@@ -2376,6 +2419,7 @@ export function WorkspaceShell({
               ? pendingOpenCraftTab?.request.workspaceId ?? null
               : null
           }
+          isActionPending={openCraftMutation.isPending}
           actionError={
             openCraftMutation.isError
               ? getErrorMessage(openCraftMutation.error)

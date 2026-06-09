@@ -61,6 +61,12 @@ export interface VoyageEntry {
   viewIds: string[];
 }
 
+export interface VoyageCraftSelection {
+  spaceId: string;
+  tabGroupId: string;
+  tabId?: string;
+}
+
 export interface SavedWorkspaceSessionV1 {
   id: string;
   slug?: string;

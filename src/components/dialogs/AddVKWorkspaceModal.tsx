@@ -48,6 +48,7 @@ interface AddVKWorkspaceModalProps {
   workspaceState?: WorkspaceState;
   allowCustomPath?: boolean;
   pendingWorkspaceId?: string | null;
+  isActionPending?: boolean;
   actionError?: string | null;
 }
 
@@ -62,6 +63,7 @@ export function AddVKWorkspaceModal({
   workspaceState,
   allowCustomPath = true,
   pendingWorkspaceId = null,
+  isActionPending = Boolean(pendingWorkspaceId),
   actionError = null,
 }: AddVKWorkspaceModalProps) {
   const [taskAttempts, setTaskAttempts] = useState<WorkspaceOption[]>(
@@ -170,7 +172,7 @@ export function AddVKWorkspaceModal({
   };
 
   const handleWorkspaceSelect = async (workspace: WorkspaceOption) => {
-    if (pendingWorkspaceId) return;
+    if (isActionPending) return;
 
     try {
       const openLocation = workspaceTabGroupMap.get(workspace.id);
@@ -199,7 +201,7 @@ export function AddVKWorkspaceModal({
   };
 
   const handleSelectSpace = async (spaceId: string) => {
-    if (pendingWorkspaceId) return;
+    if (isActionPending) return;
     if (!spacePickerTarget) return;
 
     try {
@@ -228,7 +230,7 @@ export function AddVKWorkspaceModal({
   };
 
   const handleAddWithPath = async () => {
-    if (pendingWorkspaceId) return;
+    if (isActionPending) return;
     if (!customPath.trim()) return;
 
     const name = customName.trim() || 'Custom Workspace';
@@ -250,8 +252,8 @@ export function AddVKWorkspaceModal({
       onClose={onClose}
       size="2xl"
       backdrop="blur"
-      isDismissable={!pendingWorkspaceId}
-      isKeyboardDismissDisabled={Boolean(pendingWorkspaceId)}
+      isDismissable={!isActionPending}
+      isKeyboardDismissDisabled={isActionPending}
     >
       <ModalContent className="max-h-[85vh] bg-neutral-900 border border-neutral-800 text-neutral-100">
         <ModalHeader className="flex flex-col gap-1 border-b border-neutral-800">
@@ -295,7 +297,7 @@ export function AddVKWorkspaceModal({
                       onClick={() => {
                         void handleSelectSpace(space.id);
                       }}
-                      disabled={Boolean(pendingWorkspaceId)}
+                      disabled={isActionPending}
                       className="w-full p-3 rounded-lg bg-neutral-800 hover:bg-neutral-700 border border-transparent transition-colors text-left disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-neutral-800"
                     >
                       <div className="flex items-center justify-between gap-3">
@@ -366,7 +368,7 @@ export function AddVKWorkspaceModal({
                       size="sm"
                       variant="flat"
                       onPress={() => setShowPathInput(true)}
-                      isDisabled={Boolean(pendingWorkspaceId)}
+                      isDisabled={isActionPending}
                     >
                       Custom Path
                     </Button>
@@ -428,7 +430,7 @@ export function AddVKWorkspaceModal({
                       onClick={() => {
                         void handleWorkspaceSelect(ta);
                       }}
-                      disabled={Boolean(pendingWorkspaceId)}
+                      disabled={isActionPending}
                       className="p-3 rounded-lg cursor-pointer transition-colors bg-neutral-800 hover:bg-neutral-700 border border-transparent text-left disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-neutral-800"
                     >
                       <div className="flex items-start justify-between">
@@ -491,7 +493,7 @@ export function AddVKWorkspaceModal({
                   setShowPathInput(false);
                 }
               }}
-              isDisabled={Boolean(pendingWorkspaceId)}
+              isDisabled={isActionPending}
               className="bg-neutral-800 text-neutral-200"
             >
               Back
@@ -501,7 +503,7 @@ export function AddVKWorkspaceModal({
             color="default"
             variant="light"
             onPress={onClose}
-            isDisabled={Boolean(pendingWorkspaceId)}
+            isDisabled={isActionPending}
             className="text-neutral-300"
           >
             Cancel
@@ -512,7 +514,7 @@ export function AddVKWorkspaceModal({
               onPress={() => {
                 void handleAddWithPath();
               }}
-              isDisabled={!customPath.trim() || Boolean(pendingWorkspaceId)}
+              isDisabled={!customPath.trim() || isActionPending}
             >
               Add
             </Button>

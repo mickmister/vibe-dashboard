@@ -87,6 +87,23 @@ export function UnifiedTabView({
             onStartNewSession={onStartNewSession}
             onNavigateToTabGroup={onNavigateToTabGroup}
             onOpenVKWorkspace={async (taskAttemptId, name, containerRef, spaceId) => {
+              const currentSavedSession = savedSessions.find(
+                (savedSession) => savedSession.id === currentSessionId,
+              );
+              if (currentSavedSession) {
+                const result = await actions.openVKWorkspaceInSavedSession({
+                  sessionId: currentSavedSession.id,
+                  taskAttemptId,
+                  name,
+                  containerRef,
+                  activeSpaceId: spaceId,
+                });
+                if (result) {
+                  sessionActions.activateSavedSession(result.savedSession);
+                }
+                return;
+              }
+
               const result = await actions.addVKWorkspace({
                 taskAttemptId,
                 name,
