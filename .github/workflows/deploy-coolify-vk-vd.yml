@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       image_tag:
-        description: Existing ghcr.io image tag to deploy, for example latest, pr-30, or vk-abc1234-vd-def5678
+        description: Existing ghcr.io image tag to deploy, for example latest, vd-<full-vd-sha>, or vk-abc1234-vd-def5678
         required: true
         default: latest
 
@@ -65,7 +65,26 @@ jobs:
           image_ref="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/vk-vd:${IMAGE_TAG}"
           echo "$GITHUB_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
 
-          if ! docker manifest inspect "$image_ref" >/dev/null; then
+          manifest_exists() {
+            local image_ref="$1"
+            local max_attempts=12
+            local retry_delay=10
+
+            for attempt in $(seq 1 "$max_attempts"); do
+              if docker manifest inspect "$image_ref" >/dev/null 2>&1; then
+                return 0
+              fi
+
+              if [[ "$attempt" == "$max_attempts" ]]; then
+                return 1
+              fi
+
+              echo "::notice::Image tag is not readable yet: ${image_ref}. Retrying in ${retry_delay}s (${attempt}/${max_attempts})."
+              sleep "$retry_delay"
+            done
+          }
+
+          if ! manifest_exists "$image_ref"; then
             echo "::error::Image tag does not exist or is not readable: ${image_ref}"
             exit 1
           fi

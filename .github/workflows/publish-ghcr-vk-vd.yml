@@ -337,7 +337,26 @@ jobs:
           image_ref="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/vk-vd:${DEPLOY_IMAGE_TAG}"
           echo "$GITHUB_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin >/dev/null
 
-          if ! docker manifest inspect "$image_ref" >/dev/null 2>&1; then
+          manifest_exists() {
+            local image_ref="$1"
+            local max_attempts=12
+            local retry_delay=10
+
+            for attempt in $(seq 1 "$max_attempts"); do
+              if docker manifest inspect "$image_ref" >/dev/null 2>&1; then
+                return 0
+              fi
+
+              if [[ "$attempt" == "$max_attempts" ]]; then
+                return 1
+              fi
+
+              echo "::notice::Image tag is not readable yet: ${image_ref}. Retrying in ${retry_delay}s (${attempt}/${max_attempts})."
+              sleep "$retry_delay"
+            done
+          }
+
+          if ! manifest_exists "$image_ref"; then
             if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
               echo "::notice::Image ${image_ref} is not published yet. Leaving coolify-deploy on PR #${pr_number}; the push publish workflow will deploy after publishing if this remains the latest PR head."
               {
