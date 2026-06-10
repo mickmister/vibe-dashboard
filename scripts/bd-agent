@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${1:-}" != "create" ]]; then
+  exec bd "$@"
+fi
+
+shift
+branch="$(git branch --show-current)"
+
+exec bd create "$@" --metadata "{\"branch\":\"$branch\"}"
