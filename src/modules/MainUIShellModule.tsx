@@ -372,6 +372,16 @@ springboard.registerModule(
 
       // Sync URL to match canonical voyage/craft/views query params
       useEffect(() => {
+        const pendingSavedSessionActivationId =
+          pendingSavedSessionActivationIdRef.current;
+        if (
+          pendingSavedSessionActivationId &&
+          (browserSessionId !== pendingSavedSessionActivationId ||
+            activeSavedSession?.id !== pendingSavedSessionActivationId)
+        ) {
+          return;
+        }
+
         const currentPath = `${location.pathname}${location.search}`;
         const currentTabGroup = workspace.tabGroups.find(
           (tg) => tg.id === sessionNav.activeTabGroupId,
@@ -409,6 +419,7 @@ springboard.registerModule(
           navigate(nextPath, { replace: true });
         }
       }, [
+        activeSavedSession?.id,
         activeSavedSession?.name,
         activeSavedSession?.slug,
         activeSavedSessionJustChanged,
@@ -546,28 +557,44 @@ springboard.registerModule(
         },
       };
 
-      const updateBookmarkedSessionSearch = (sessionId: string, name?: string) => {
-        const nextSearchParams = new URLSearchParams(location.search);
+      const updateBookmarkedSessionSearch = (
+        sessionId: string,
+        name?: string,
+        voyageEntryId?: string,
+      ) => {
         const session = savedVoyages.find((entry) => entry.id === sessionId);
         const voyageName = session?.name?.trim() || name?.trim();
-        nextSearchParams.delete('session');
 
         if (!voyageName || isHomeVoyageDisplayName(voyageName)) {
-          nextSearchParams.delete('voyage');
-          const nextSearch = nextSearchParams.toString();
-          navigate(`${location.pathname}${nextSearch ? `?${nextSearch}` : ''}`, {
-            replace: true,
-          });
+          const nextPath = buildCanonicalDashboardPath(location.search, undefined);
+          navigate(nextPath, { replace: true });
           return;
         }
 
-        nextSearchParams.set(
-          'voyage',
-          session ? getVoyageSlug(session) : buildVoyageSlug(voyageName, sessionId),
+        const requestedEntry = session?.voyageEntries.find(
+          (entry) => entry.id === voyageEntryId,
         );
-        navigate(`${location.pathname}?${nextSearchParams.toString()}`, {
-          replace: true,
+        const requestedTabGroup = workspace.tabGroups.find(
+          (tabGroup) => tabGroup.id === requestedEntry?.tabGroupId,
+        );
+        const requestedViewTokens =
+          requestedEntry && requestedTabGroup
+            ? requestedEntry.viewIds
+                .map((viewId) => {
+                  const tab = requestedTabGroup.tabs.find(
+                    (entry) => entry.id === viewId,
+                  );
+                  return tab ? buildViewParam(tab.title, tab.id) : null;
+                })
+                .filter((token): token is string => Boolean(token))
+            : undefined;
+
+        const nextPath = buildCanonicalDashboardPath(location.search, {
+          slug: session ? getVoyageSlug(session) : buildVoyageSlug(voyageName, sessionId),
+          craftParam: buildCraftParam(requestedTabGroup, requestedEntry),
+          viewTokens: requestedViewTokens,
         });
+        navigate(nextPath, { replace: true });
       };
 
       const persistSavedSelection = (args: {
@@ -657,7 +684,7 @@ springboard.registerModule(
           if (typeof window !== 'undefined') {
             setBrowserSessionId(sessionId);
           }
-          updateBookmarkedSessionSearch(sessionId);
+          updateBookmarkedSessionSearch(sessionId, undefined, voyageEntryId);
           sessionNav.resumeSession(sessionToResume, voyageEntryId);
         },
         activateSavedSession: (session: SavedWorkspaceSession) => {
@@ -665,13 +692,8 @@ springboard.registerModule(
           if (typeof window !== 'undefined') {
             setBrowserSessionId(session.id);
           }
+          updateBookmarkedSessionSearch(session.id, session.name);
           sessionNav.resumeSession(session);
-          const nextSearchParams = new URLSearchParams(location.search);
-          nextSearchParams.delete('session');
-          nextSearchParams.set('voyage', session.id);
-          navigate(`${location.pathname}?${nextSearchParams.toString()}`, {
-            replace: true,
-          });
         },
         renameSession: (sessionId: string, name: string) => {
           void actions.renameSavedSession({ id: sessionId, name });

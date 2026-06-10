@@ -2124,7 +2124,12 @@ export function WorkspaceShell({
           className="fixed inset-0 z-[94] flex items-center justify-center bg-black/60 p-4"
           onClick={handleVoyageSwitcherBackdropClick}
         >
-          <div className="flex max-h-[85dvh] w-full max-w-lg flex-col rounded-xl border border-neutral-700 bg-neutral-900 p-5 shadow-2xl">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Switch Voyage"
+            className="flex max-h-[85dvh] w-full max-w-lg flex-col rounded-xl border border-neutral-700 bg-neutral-900 p-5 shadow-2xl"
+          >
             <div className="text-base font-semibold text-neutral-100">
               Switch Voyage
             </div>

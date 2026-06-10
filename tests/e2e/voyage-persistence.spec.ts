@@ -347,11 +347,36 @@ async function openVoyageSwitcher(page: Page) {
     .click();
 }
 
+function getVoyageSwitcher(page: Page) {
+  return page.getByRole('dialog', { name: 'Switch Voyage' });
+}
+
+function getVoyageSwitcherVoyageButton(page: Page, voyageName: string) {
+  return getVoyageSwitcher(page)
+    .getByRole('button')
+    .filter({ hasText: voyageName })
+    .first();
+}
+
 async function openCraftFromVoyageActionsMenu(page: Page) {
   const voyageActionsMenu = await openVoyageActionsMenu(page);
   await voyageActionsMenu
     .getByRole('menuitem', { name: 'Open Craft' })
     .click();
+}
+
+async function expectCurrentVoyage(page: Page, voyageName: string) {
+  const voyageRow = getVoyageSwitcherVoyageButton(page, voyageName).locator(
+    '..',
+  );
+  await expect(voyageRow.getByText('Current', { exact: true })).toBeVisible();
+}
+
+async function expectNotCurrentVoyage(page: Page, voyageName: string) {
+  const voyageRow = getVoyageSwitcherVoyageButton(page, voyageName).locator(
+    '..',
+  );
+  await expect(voyageRow.getByText('Current', { exact: true })).toHaveCount(0);
 }
 
 async function mockVkApi(
@@ -535,6 +560,107 @@ test.describe('voyage persistence', () => {
     await expect(page.getByLabel('Open Create Workspace in Home').first()).toBeVisible();
     await expect(page).toHaveURL(/craft=create-workspace-/);
     await expect(page).toHaveURL(/views=create-workspace-/);
+  });
+
+  test('marks the URL-selected voyage current after switching and reopening the switcher', async ({ page }) => {
+    await clearSavedVoyages(page.request);
+
+    const runId = Date.now().toString(36);
+    const voyageAId = `session_current_a_${runId}`;
+    const voyageBId = `session_current_b_${runId}`;
+    const voyageAName = `E2E Current Voyage A ${runId}`;
+    const voyageBName = `E2E Current Voyage B ${runId}`;
+    const craftALabel = `E2E Current Craft A ${runId}`;
+    const craftBLabel = `E2E Current Craft B ${runId}`;
+    const now = '2026-06-10T00:00:00.000Z';
+
+    const craftA = await callWorkspaceAction<{
+      spaceId: string;
+      tabGroupId?: string;
+    }>(page.request, 'addTabGroup', {
+      spaceId: 'space_home',
+      label: craftALabel,
+    });
+    const craftB = await callWorkspaceAction<{
+      spaceId: string;
+      tabGroupId?: string;
+    }>(page.request, 'addTabGroup', {
+      spaceId: 'space_home',
+      label: craftBLabel,
+    });
+    expect(craftA.tabGroupId).toBeTruthy();
+    expect(craftB.tabGroupId).toBeTruthy();
+
+    const tabA = await callWorkspaceAction<{
+      tabGroupId: string;
+      tabId: string;
+    }>(page.request, 'addTab', {
+      tabGroupId: craftA.tabGroupId!,
+      title: 'Agent',
+      url: `https://example.invalid/${runId}/current-a`,
+    });
+    const tabB = await callWorkspaceAction<{
+      tabGroupId: string;
+      tabId: string;
+    }>(page.request, 'addTab', {
+      tabGroupId: craftB.tabGroupId!,
+      title: 'Agent',
+      url: `https://example.invalid/${runId}/current-b`,
+    });
+
+    await callWorkspaceAction(page.request, 'upsertSavedSession', {
+      id: voyageAId,
+      slug: `e2e-current-voyage-a-${runId}-${voyageAId}`,
+      name: voyageAName,
+      createdAt: now,
+      updatedAt: now,
+      activeVoyageEntryId: `ve_current_a_${runId}`,
+      voyageEntries: [
+        { id: `ve_current_a_${runId}`, tabGroupId: craftA.tabGroupId!, viewIds: [tabA.tabId] },
+      ],
+      activeSpaceId: 'space_home',
+      activeTabGroupId: craftA.tabGroupId!,
+      activeItemsByVoyageEntryId: {
+        [`ve_current_a_${runId}`]: tabA.tabId,
+      },
+      visitedTabGroupIds: [craftA.tabGroupId!],
+    });
+    await callWorkspaceAction(page.request, 'upsertSavedSession', {
+      id: voyageBId,
+      slug: `e2e-current-voyage-b-${runId}-${voyageBId}`,
+      name: voyageBName,
+      createdAt: now,
+      updatedAt: now,
+      activeVoyageEntryId: `ve_current_b_${runId}`,
+      voyageEntries: [
+        { id: `ve_current_b_${runId}`, tabGroupId: craftB.tabGroupId!, viewIds: [tabB.tabId] },
+      ],
+      activeSpaceId: 'space_home',
+      activeTabGroupId: craftB.tabGroupId!,
+      activeItemsByVoyageEntryId: {
+        [`ve_current_b_${runId}`]: tabB.tabId,
+      },
+      visitedTabGroupIds: [craftB.tabGroupId!],
+    });
+
+    await page.goto(`/dashboard?voyage=${voyageAId}`);
+    await expect(
+      page.getByRole('button', { name: `Open ${craftALabel} in Home` }),
+    ).toBeVisible();
+
+    await openVoyageSwitcher(page);
+    await expectCurrentVoyage(page, voyageAName);
+    await expectNotCurrentVoyage(page, voyageBName);
+
+    await getVoyageSwitcherVoyageButton(page, voyageBName).click();
+    await expect(page).toHaveURL(new RegExp(`voyage=.*${voyageBId}`));
+    await expect(
+      page.getByRole('button', { name: `Open ${craftBLabel} in Home` }),
+    ).toBeVisible();
+
+    await openVoyageSwitcher(page);
+    await expectCurrentVoyage(page, voyageBName);
+    await expectNotCurrentVoyage(page, voyageAName);
   });
 
   test('restores the selected duplicate craft entry by voyageEntryId after reload', async ({ page }) => {
