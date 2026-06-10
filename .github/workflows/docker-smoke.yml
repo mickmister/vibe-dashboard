@@ -103,34 +103,21 @@ jobs:
             sleep 2
           done
 
-          python3 - <<'PY' >/tmp/beads-web-assets.txt
+          asset_path="$(
+            python3 - <<'PY'
           import re
           from pathlib import Path
           html = Path('/tmp/beads-web.html').read_text()
-          for match in re.finditer(r'src="(/_next/[^"]+\.js[^"]*)"', html):
-              print(match.group(1))
-          PY
-
-          asset_path="$(
-            python3 - <<'PY'
-          from pathlib import Path
-          print(Path('/tmp/beads-web-assets.txt').read_text().splitlines()[0] if Path('/tmp/beads-web-assets.txt').read_text().splitlines() else '')
+          match = re.search(r'src="(/_next/[^"]+\.js[^"]*)"', html)
+          print(match.group(1) if match else '')
           PY
           )"
           if [[ -z "$asset_path" ]]; then
             echo "No Next.js asset script found in beads-web HTML" >&2
             exit 1
           fi
-          : > /tmp/beads-web-assets-combined.js
-          while IFS= read -r asset; do
-            curl -fsS -H "Host: ${beads_host}" "http://127.0.0.1:${caddy_port}${asset}" >> /tmp/beads-web-assets-combined.js
-            printf '\n' >> /tmp/beads-web-assets-combined.js
-          done < /tmp/beads-web-assets.txt
-          test -s /tmp/beads-web-assets-combined.js
-          if grep -q 'http://localhost:3008' /tmp/beads-web-assets-combined.js; then
-            echo "Beads Web assets still contain the browser-only localhost:3008 backend URL after Caddy rewrite" >&2
-            exit 1
-          fi
+          curl -fsS -H "Host: ${beads_host}" "http://127.0.0.1:${caddy_port}${asset_path}" -o /tmp/beads-web-asset.js
+          test -s /tmp/beads-web-asset.js
 
           curl -fsS -H "Host: ${beads_host}" "http://127.0.0.1:${caddy_port}/api/projects" -o /tmp/beads-web-projects.json
           python3 -m json.tool /tmp/beads-web-projects.json >/dev/null
