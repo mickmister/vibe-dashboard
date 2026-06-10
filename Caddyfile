@@ -9,12 +9,22 @@
 	# paths on the main dashboard origin.
 	@beads_web_host header_regexp beadsWebHost Host ^beads-web[.:]
 	handle @beads_web_host {
-		vk_rewrite beads_web_host
-		reverse_proxy localhost:{$BEADS_WEB_PORT:3009} {
-			header_up Host {upstream_hostport}
-			header_up Upgrade {http.request.header.Upgrade}
-			header_up Connection {http.request.header.Connection}
-			header_up Accept-Encoding identity
+		# API and event-stream routes must not pass through vk_rewrite because
+		# the rewriter buffers upstream responses before forwarding them.
+		handle /api/* {
+			reverse_proxy localhost:{$BEADS_WEB_PORT:3009} {
+				header_up Host {upstream_hostport}
+			}
+		}
+
+		handle {
+			vk_rewrite beads_web_host
+			reverse_proxy localhost:{$BEADS_WEB_PORT:3009} {
+				header_up Host {upstream_hostport}
+				header_up Upgrade {http.request.header.Upgrade}
+				header_up Connection {http.request.header.Connection}
+				header_up Accept-Encoding identity
+			}
 		}
 	}
 
