@@ -200,3 +200,28 @@ func TestServeHTTPBeadsWebModeSkipsCompressedResponses(t *testing.T) {
 		t.Fatalf("expected compressed body to be unchanged\nwant: %s\n got: %s", body, rec.Body.Bytes())
 	}
 }
+
+func TestServeHTTPBeadsWebHostModeRewritesApiOriginOnly(t *testing.T) {
+	body := []byte(`<a href="/settings">Settings</a><script>const api="http://localhost:3008";router.push("/project?id="+id);</script>`)
+	upstream := mockNextHandler(body, http.StatusOK, http.Header{
+		"Content-Type": []string{"text/html; charset=utf-8"},
+		"ETag":         []string{`"original-etag"`},
+	})
+
+	injector := &PluginInjector{Mode: rewriteModeBeadsWebHost}
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+
+	if err := injector.ServeHTTP(rec, req, upstream); err != nil {
+		t.Fatalf("ServeHTTP returned error: %v", err)
+	}
+
+	want := []byte(`<a href="/settings">Settings</a><script>const api="";router.push("/project?id="+id);</script>`)
+	if !bytes.Equal(rec.Body.Bytes(), want) {
+		t.Fatalf("unexpected rewritten body\nwant: %s\n got: %s", want, rec.Body.Bytes())
+	}
+
+	if got := rec.Header().Get("ETag"); got != "" {
+		t.Fatalf("expected rewritten response ETag to be cleared, got %q", got)
+	}
+}

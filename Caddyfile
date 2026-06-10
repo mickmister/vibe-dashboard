@@ -4,9 +4,25 @@
 }
 
 :{$CADDY_PORT:3001} {
-	# Dynamic port forwarding via subdomain: port-<port_num>.* -> localhost:<port_num>
+	# Named Beads Web host. This keeps the Next.js app mounted at / so its
+	# root-relative /_next assets and client routes work without owning those
+	# paths on the main dashboard origin.
+	@beads_web_host header_regexp beadsWebHost Host ^beads-web[.:]
+	handle @beads_web_host {
+		vk_rewrite beads_web_host
+		reverse_proxy localhost:{$BEADS_WEB_PORT:3009} {
+			header_up Host {upstream_hostport}
+			header_up Upgrade {http.request.header.Upgrade}
+			header_up Connection {http.request.header.Connection}
+			header_up Accept-Encoding identity
+		}
+	}
+
+	# Dynamic port forwarding via subdomain:
+	# - code-server-compatible <port_num>.* -> localhost:<port_num>
+	# - legacy port-<port_num>.* -> localhost:<port_num>
 	# This must be checked FIRST before other handlers
-	@port_forward header_regexp port Host ^port-([0-9]+)\.
+	@port_forward header_regexp port Host ^(?:port-)?([0-9]+)\.
 
 	handle @port_forward {
 		# /vk-api/* is proxied to main vibe-kanban instance (localhost:{$BACKEND_PORT:3007})
@@ -33,7 +49,7 @@
 	# Handle errors (502/503/504) for port forwarding - show startup page
 	handle_errors {
 		@port_forward_error {
-			expression {http.request.host}.startsWith("port-")
+			expression {http.request.host}.matches("^(?:port-)?[0-9]+\\.")
 		}
 		handle @port_forward_error {
 			root * /etc/caddy
@@ -45,7 +61,6 @@
 			respond "{err.status_code} {err.status_text}"
 		}
 	}
-
 
 	# Beads web UI. beads-web is not currently base-path aware: it emits
 	# root-relative Next.js assets, root-relative client routes, and browser API
@@ -65,7 +80,11 @@
 		}
 	}
 
-	handle /beads /beads/* {
+	@beads_web_subpath {
+		path /beads
+		path /beads/*
+	}
+	handle @beads_web_subpath {
 		uri strip_prefix /beads
 		vk_rewrite beads_web
 		reverse_proxy localhost:{$BEADS_WEB_PORT:3009} {

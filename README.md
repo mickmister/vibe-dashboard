@@ -15,9 +15,16 @@ A docker container will run the following:
 
 ## Dynamic port forwarding
 
-Caddy forwards `port-<port>.*` subdomains to `localhost:<port>` inside the container:
+Caddy forwards code-server-style `<port>.*` subdomains and legacy
+`port-<port>.*` subdomains to `localhost:<port>` inside the container:
 
+- `http://12345.localhost:3001`
 - `http://port-12345.localhost:3001`
+
+Set `PROXY_DOMAIN` when you have wildcard DNS pointed at the host. For example,
+with `PROXY_DOMAIN=example.com`, code-server can generate proxied port links like
+`http://3000.example.com`, while Caddy also exposes first-party services such as
+`http://beads-web.example.com`.
 
 ## Configuration
 
@@ -43,6 +50,8 @@ Caddy forwards `port-<port>.*` subdomains to `localhost:<port>` inside the conta
 | `BACKEND_PORT` | `3007` | Backend port exposed inside container env. |
 | `DASHBOARD_PORT` | `3005` | Dashboard port exposed inside container env. |
 | `CODE_PORT` | `3008` | `code-server` port exposed inside container env. |
+| `BEADS_WEB_PORT` | `3009` | Beads Web port exposed inside container env. |
+| `PROXY_DOMAIN` | empty | Optional wildcard DNS base for `<port>.$PROXY_DOMAIN`, legacy `port-<port>.$PROXY_DOMAIN`, and `beads-web.$PROXY_DOMAIN` routing. |
 
 #### Optional auth/system
 

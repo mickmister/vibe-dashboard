@@ -74,7 +74,6 @@ RUN npm rebuild better-sqlite3 && npm run build
 FROM node:22-bookworm
 
 ARG TARGETARCH
-ARG GITHUB_TOKEN=
 ARG BEADS_WEB_LINUX_X64_URL=https://github.com/mickmister/beads-web/releases/download/v0.11.4/beads-web-linux-x64
 ARG BEADS_WEB_LINUX_ARM64_URL=https://github.com/mickmister/beads-web/releases/download/v0.11.4/beads-web-linux-arm64
 ARG BEADS_WEB_LINUX_X64_SHA256=7e3880a399214b49a9c4a6ea2b2585f3b3fdbc69de093e464990395520791620
@@ -125,6 +124,8 @@ RUN set -eux; \
     rm "go1.25.7.linux-${go_arch}.tar.gz"
 ENV PATH="/usr/local/go/bin:${PATH}"
 ENV VK_ALLOWED_ORIGINS=""
+ENV PROXY_DOMAIN=""
+ENV BEADS_WEB_PORT=3009
 
 # Install Rust and Cargo
 ENV CARGO_HOME=/usr/local/cargo
@@ -277,7 +278,7 @@ RUN curl -fsSL https://raw.githubusercontent.com/gastownhall/beads/main/scripts/
 
 # Install beads-web UI binary. The default tagged assets are public, but
 # private/draft override URLs can fall back to a BuildKit secret:
-# id=github_token, id=GIT_AUTH_TOKEN, or GITHUB_TOKEN.
+# id=github_token or id=GIT_AUTH_TOKEN.
 RUN --mount=type=secret,id=github_token,required=false --mount=type=secret,id=GIT_AUTH_TOKEN,required=false set -eux; \
     install_beads_web() { \
       beads_web_url="$1"; \
@@ -290,8 +291,6 @@ RUN --mount=type=secret,id=github_token,required=false --mount=type=secret,id=GI
           export GH_TOKEN="$(cat /run/secrets/github_token)"; \
         elif [ -f /run/secrets/GIT_AUTH_TOKEN ]; then \
           export GH_TOKEN="$(cat /run/secrets/GIT_AUTH_TOKEN)"; \
-        elif [ -n "${GITHUB_TOKEN}" ]; then \
-          export GH_TOKEN="${GITHUB_TOKEN}"; \
         else \
           echo "beads-web asset is not anonymously downloadable; pass --secret id=github_token,env=GITHUB_TOKEN or id=GIT_AUTH_TOKEN" >&2; \
           exit 1; \

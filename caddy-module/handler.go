@@ -24,8 +24,9 @@ var (
 type rewriteMode string
 
 const (
-	rewriteModeVibeKanban rewriteMode = "vibe_kanban"
-	rewriteModeBeadsWeb   rewriteMode = "beads_web"
+	rewriteModeVibeKanban   rewriteMode = "vibe_kanban"
+	rewriteModeBeadsWeb     rewriteMode = "beads_web"
+	rewriteModeBeadsWebHost rewriteMode = "beads_web_host"
 )
 
 func init() {
@@ -56,6 +57,7 @@ func (PluginInjector) CaddyModule() caddy.ModuleInfo {
 //	vk_rewrite
 //	vk_rewrite vibe_kanban
 //	vk_rewrite beads_web
+//	vk_rewrite beads_web_host
 //
 // No argument preserves the original vibe-kanban iframe rewrite behavior.
 func parseCaddyfile(h httpcaddyfile.Helper) (caddyhttp.MiddlewareHandler, error) {
@@ -68,7 +70,7 @@ func parseCaddyfile(h httpcaddyfile.Helper) (caddyhttp.MiddlewareHandler, error)
 		}
 		if len(args) == 1 {
 			switch rewriteMode(args[0]) {
-			case rewriteModeVibeKanban, rewriteModeBeadsWeb:
+			case rewriteModeVibeKanban, rewriteModeBeadsWeb, rewriteModeBeadsWebHost:
 				p.Mode = rewriteMode(args[0])
 			default:
 				return nil, h.Errf("unsupported vk_rewrite mode %q", args[0])
@@ -226,6 +228,11 @@ func (p *PluginInjector) processResponse(path string, headers http.Header, body 
 			return body, false
 		}
 		return p.rewriteBeadsWebSubpath(body)
+	case rewriteModeBeadsWebHost:
+		if !isJavaScriptResponse(path, contentType) && !isHTMLResponse(path, contentType) && !isNextDataResponse(path, contentType) {
+			return body, false
+		}
+		return p.rewriteBeadsWebHost(body)
 	default:
 		if !isJavaScriptResponse(path, contentType) {
 			return body, false
@@ -329,6 +336,25 @@ func (p *PluginInjector) rewriteBeadsWebSubpath(body []byte) ([]byte, bool) {
 
 	if p.logger != nil {
 		p.logger.Debug("rewrote beads-web subpath response", zap.Int("replacements", total))
+	}
+
+	return rewritten, true
+}
+
+// rewriteBeadsWebHost adapts the upstream beads-web build for a dedicated
+// beads-web.<domain> host. In this mode Next.js assets and client routes stay at
+// /, so only the compiled browser API origin needs to become same-origin.
+func (p *PluginInjector) rewriteBeadsWebHost(body []byte) ([]byte, bool) {
+	const from = `http://localhost:3008`
+	count := bytes.Count(body, []byte(from))
+	if count == 0 {
+		return body, false
+	}
+
+	rewritten := bytes.ReplaceAll(body, []byte(from), []byte(``))
+
+	if p.logger != nil {
+		p.logger.Debug("rewrote beads-web host response", zap.Int("replacements", count))
 	}
 
 	return rewritten, true
