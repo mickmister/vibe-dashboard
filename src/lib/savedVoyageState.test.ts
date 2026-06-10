@@ -233,4 +233,44 @@ describe('savedVoyageState migration', () => {
       data: [duplicateNewer],
     });
   });
+
+  it('dedupes legacy flat voyages against equivalent single-cell tiled layouts', () => {
+    const flat = {
+      ...session('flat'),
+      name: 'Same voyage',
+      voyageEntries: [{ id: 'entry_1', tabGroupId: 'tg_1', viewIds: ['tab_1'] }],
+      activeVoyageEntryId: 'entry_1',
+      updatedAt: '2026-06-01T00:00:00.000Z',
+    };
+    const singleCellLayout = {
+      ...session('single-cell-layout'),
+      name: 'Same voyage',
+      voyageEntries: [{ id: 'entry_1', tabGroupId: 'tg_1', viewIds: ['tab_1'] }],
+      activeVoyageEntryId: 'entry_1',
+      activeItemsByVoyageEntryId: { entry_1: 'tab_1' },
+      voyageLayout: {
+        version: 1 as const,
+        rows: 1,
+        cols: 1,
+        activeCellId: 'cell_main',
+        cells: [
+          {
+            id: 'cell_main',
+            row: 0,
+            col: 0,
+            activeVoyageEntryId: 'entry_1',
+            voyageEntries: [{ id: 'entry_1', tabGroupId: 'tg_1', viewIds: ['tab_1'] }],
+          },
+        ],
+      },
+      updatedAt: '2026-06-02T00:00:00.000Z',
+    };
+
+    expect(
+      migrateSavedWorkspaceSessionStateWithCleanup([flat, singleCellLayout]).state,
+    ).toEqual({
+      version: 3,
+      data: [singleCellLayout],
+    });
+  });
 });

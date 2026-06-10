@@ -1,6 +1,12 @@
 import { useState, useEffect, useRef } from "react";
 import { getDefaultSpace, getFirstTabGroupForSpace } from "./types";
-import type { WorkspaceState, SavedWorkspaceSession, VoyageEntry } from "./types";
+import type {
+  WorkspaceState,
+  SavedWorkspaceSession,
+  SubVoyageCell,
+  VoyageEntry,
+  VoyageLayout,
+} from "./types";
 
 /**
  * Session-level workspace navigation state.
@@ -13,6 +19,8 @@ export interface SessionWorkspaceNav {
   activeTabGroupId: string;
   activeVoyageEntryId: string;
   voyageEntries: VoyageEntry[];
+  activeSubVoyageCellId: string;
+  voyageLayout: VoyageLayout;
   // Map of voyageEntryId -> activeItemId (tab or pair ID). Source of truth for duplicate crafts.
   activeItemsByVoyageEntryId: Record<string, string>;
   // Map of tabGroupId -> activeItemId (tab or pair ID). Compatibility projection for existing UI.
@@ -34,6 +42,81 @@ export type NewSessionInitialSelection = {
   tabGroupId?: string;
   tabId?: string;
 };
+
+export type SubVoyageDropTarget =
+  | 'left'
+  | 'right'
+  | 'top'
+  | 'bottom'
+  | 'top-left'
+  | 'top-right'
+  | 'bottom-left'
+  | 'bottom-right';
+
+const BROWSER_SESSION_ID_KEY = 'workspace-browser-session-id';
+const DEFAULT_SUB_VOYAGE_CELL_ID = 'cell_main';
+const MAX_SUB_VOYAGE_CELLS = 6;
+const MAX_SUB_VOYAGE_COLS = 3;
+
+function cloneVoyageEntry(entry: VoyageEntry): VoyageEntry {
+  return {
+    ...entry,
+    viewIds: [...entry.viewIds],
+  };
+}
+
+function cloneSubVoyageCell(cell: SubVoyageCell): SubVoyageCell {
+  return {
+    ...cell,
+    voyageEntries: cell.voyageEntries.map(cloneVoyageEntry),
+  };
+}
+
+function createBrowserSessionId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+
+  return `session_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+export function createNewBrowserSessionId(): string {
+  return createBrowserSessionId();
+}
+
+export function getStoredBrowserSessionId(): string | null {
+  try {
+    return sessionStorage.getItem(BROWSER_SESSION_ID_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function getOrCreateBrowserSessionId(preferredSessionId?: string): string {
+  try {
+    if (preferredSessionId) {
+      sessionStorage.setItem(BROWSER_SESSION_ID_KEY, preferredSessionId);
+      return preferredSessionId;
+    }
+
+    const existing = sessionStorage.getItem(BROWSER_SESSION_ID_KEY);
+    if (existing) return existing;
+
+    const next = createBrowserSessionId();
+    sessionStorage.setItem(BROWSER_SESSION_ID_KEY, next);
+    return next;
+  } catch {
+    return preferredSessionId || createBrowserSessionId();
+  }
+}
+
+export function setBrowserSessionId(sessionId: string) {
+  try {
+    sessionStorage.setItem(BROWSER_SESSION_ID_KEY, sessionId);
+  } catch {
+    // Ignore storage errors
+  }
+}
 
 function getSpaceById(workspace: WorkspaceState, spaceId: string | undefined) {
   return spaceId ? workspace.spaces.find((s) => s.id === spaceId) : undefined;
@@ -281,6 +364,239 @@ function getValidVoyageEntries(
   return { entries, activeVoyageEntryId: resolvedActiveEntryId };
 }
 
+function getLayoutDimensions(cellCount: number): { rows: number; cols: number } {
+  const cols = Math.min(MAX_SUB_VOYAGE_COLS, Math.max(1, Math.ceil(Math.sqrt(cellCount))));
+  const rows = Math.max(1, Math.ceil(cellCount / cols));
+  return { rows, cols };
+}
+
+function positionCells(cells: SubVoyageCell[]): SubVoyageCell[] {
+  const { rows, cols } = getLayoutDimensions(cells.length);
+  return cells.map((cell, index) => ({
+    ...cell,
+    row: Math.floor(index / cols),
+    col: index % cols,
+  })).filter((cell) => cell.row < rows);
+}
+
+function createCellId(existingIds: Set<string>): string {
+  let index = existingIds.size + 1;
+  let id = `cell_${index}`;
+  while (existingIds.has(id)) {
+    index += 1;
+    id = `cell_${index}`;
+  }
+  existingIds.add(id);
+  return id;
+}
+
+function getValidCellEntries(
+  workspace: WorkspaceState,
+  entries: VoyageEntry[] | undefined,
+  activeEntryId: string | undefined,
+  fallbackActiveTabGroupId: string,
+): { entries: VoyageEntry[]; activeVoyageEntryId: string } {
+  return getValidVoyageEntries(
+    workspace,
+    entries,
+    activeEntryId,
+    fallbackActiveTabGroupId,
+  );
+}
+
+export function createVoyageLayoutFromEntries(
+  workspace: WorkspaceState,
+  voyageEntries: VoyageEntry[],
+  activeVoyageEntryId: string,
+): VoyageLayout {
+  const normalized = getValidCellEntries(
+    workspace,
+    voyageEntries,
+    activeVoyageEntryId,
+    voyageEntries[0]?.tabGroupId || "",
+  );
+
+  return {
+    version: 1,
+    rows: 1,
+    cols: 1,
+    activeCellId: DEFAULT_SUB_VOYAGE_CELL_ID,
+    cells: [
+      {
+        id: DEFAULT_SUB_VOYAGE_CELL_ID,
+        row: 0,
+        col: 0,
+        activeVoyageEntryId: normalized.activeVoyageEntryId,
+        voyageEntries: normalized.entries,
+      },
+    ],
+  };
+}
+
+export function normalizeVoyageLayout(
+  workspace: WorkspaceState,
+  layout: VoyageLayout | undefined,
+  fallbackVoyageEntries: VoyageEntry[],
+  fallbackActiveVoyageEntryId: string,
+): VoyageLayout {
+  const validTabGroupIds = new Set(workspace.tabGroups.map((entry) => entry.id));
+  const fallbackLayout = createVoyageLayoutFromEntries(
+    workspace,
+    fallbackVoyageEntries,
+    fallbackActiveVoyageEntryId,
+  );
+  const sourceCells = layout?.cells?.length ? layout.cells : fallbackLayout.cells;
+  const seenCellIds = new Set<string>();
+  const existingEntryIds = new Set<string>();
+  const cells: SubVoyageCell[] = [];
+
+  for (const sourceCell of sourceCells.slice(0, MAX_SUB_VOYAGE_CELLS)) {
+    const cellId = sourceCell.id && !seenCellIds.has(sourceCell.id)
+      ? sourceCell.id
+      : createCellId(seenCellIds);
+    seenCellIds.add(cellId);
+
+    const dedupedEntries = (sourceCell.voyageEntries || [])
+      .filter((entry) => validTabGroupIds.has(entry.tabGroupId))
+      .map((entry) => {
+        const baseId = entry.id || createVoyageEntryId(entry.tabGroupId);
+        const id = ensureUniqueVoyageEntryId(existingEntryIds, baseId);
+        existingEntryIds.add(id);
+        return {
+          ...entry,
+          id,
+          viewIds: normalizeViewIdsForTabGroup(workspace, entry.tabGroupId, entry.viewIds),
+        };
+      });
+
+    const normalized = getValidCellEntries(
+      workspace,
+      dedupedEntries,
+      sourceCell.activeVoyageEntryId,
+      sourceCell.voyageEntries?.[0]?.tabGroupId ||
+        fallbackVoyageEntries[0]?.tabGroupId ||
+        "",
+    );
+
+    if (!normalized.entries.length) continue;
+
+    cells.push({
+      id: cellId,
+      row: sourceCell.row || 0,
+      col: sourceCell.col || 0,
+      activeVoyageEntryId: normalized.activeVoyageEntryId,
+      voyageEntries: normalized.entries,
+    });
+  }
+
+  const positionedCells = positionCells(cells.length ? cells : fallbackLayout.cells);
+  const dimensions = getLayoutDimensions(positionedCells.length);
+  const activeCellId =
+    positionedCells.find((cell) => cell.id === layout?.activeCellId)?.id ||
+    positionedCells.find((cell) =>
+      cell.voyageEntries.some((entry) => entry.id === fallbackActiveVoyageEntryId),
+    )?.id ||
+    positionedCells[0]?.id ||
+    DEFAULT_SUB_VOYAGE_CELL_ID;
+
+  return {
+    version: 1,
+    ...dimensions,
+    activeCellId,
+    cells: positionedCells,
+  };
+}
+
+function getActiveCell(layout: VoyageLayout): SubVoyageCell {
+  return (
+    layout.cells.find((cell) => cell.id === layout.activeCellId) ||
+    layout.cells[0]
+  )!;
+}
+
+function flattenVoyageLayoutEntries(layout: VoyageLayout): VoyageEntry[] {
+  return layout.cells.flatMap((cell) => cell.voyageEntries.map(cloneVoyageEntry));
+}
+
+function getTargetInsertIndex(
+  layout: VoyageLayout,
+  sourceCellIndex: number,
+  target: SubVoyageDropTarget,
+): number {
+  if (target.includes('left') || target === 'top') return 0;
+  if (target.includes('right') || target === 'bottom') return layout.cells.length;
+  return Math.min(sourceCellIndex + 1, layout.cells.length);
+}
+
+export function moveVoyageEntryToSubVoyageCell(
+  workspace: WorkspaceState,
+  layout: VoyageLayout,
+  voyageEntryId: string,
+  target: SubVoyageDropTarget,
+): VoyageLayout {
+  const normalizedLayout = normalizeVoyageLayout(
+    workspace,
+    layout,
+    flattenVoyageLayoutEntries(layout),
+    layout.cells[0]?.activeVoyageEntryId || "",
+  );
+  const sourceCellIndex = normalizedLayout.cells.findIndex((cell) =>
+    cell.voyageEntries.some((entry) => entry.id === voyageEntryId),
+  );
+  if (sourceCellIndex === -1) return normalizedLayout;
+
+  const sourceCell = normalizedLayout.cells[sourceCellIndex]!;
+  const sourceEntry = sourceCell.voyageEntries.find((entry) => entry.id === voyageEntryId);
+  if (!sourceEntry) return normalizedLayout;
+
+  const nextCells = normalizedLayout.cells.map(cloneSubVoyageCell);
+  const nextSourceCell = nextCells[sourceCellIndex]!;
+
+  if (normalizedLayout.cells.length >= MAX_SUB_VOYAGE_CELLS) {
+    return {
+      ...normalizedLayout,
+      activeCellId: sourceCell.id,
+    };
+  }
+
+  if (nextSourceCell.voyageEntries.length <= 1) {
+    return {
+      ...normalizedLayout,
+      activeCellId: sourceCell.id,
+    };
+  }
+
+  const movedEntry = cloneVoyageEntry(sourceEntry);
+  nextSourceCell.voyageEntries = nextSourceCell.voyageEntries.filter(
+    (entry) => entry.id !== voyageEntryId,
+  );
+  if (nextSourceCell.activeVoyageEntryId === voyageEntryId) {
+    nextSourceCell.activeVoyageEntryId =
+      nextSourceCell.voyageEntries[0]?.id || "";
+  }
+
+  const existingCellIds = new Set(nextCells.map((cell) => cell.id));
+  const newCellId = createCellId(existingCellIds);
+  const newCell: SubVoyageCell = {
+    id: newCellId,
+    row: 0,
+    col: 0,
+    activeVoyageEntryId: movedEntry.id,
+    voyageEntries: [movedEntry],
+  };
+  const insertIndex = getTargetInsertIndex(normalizedLayout, sourceCellIndex, target);
+  nextCells.splice(insertIndex, 0, newCell);
+
+  const positionedCells = positionCells(nextCells);
+  const dimensions = getLayoutDimensions(positionedCells.length);
+  return {
+    version: 1,
+    ...dimensions,
+    activeCellId: newCellId,
+    cells: positionedCells,
+  };
+}
+
 function buildLegacyStateFromVoyageEntries(
   workspace: WorkspaceState,
   voyageEntries: VoyageEntry[],
@@ -339,16 +655,34 @@ function buildSessionNavFromVoyageEntries(
   workspace: WorkspaceState,
   voyageEntries: VoyageEntry[],
   activeVoyageEntryId: string,
+  voyageLayout?: VoyageLayout,
 ): SessionWorkspaceNav {
-  const legacyState = buildLegacyStateFromVoyageEntries(
+  const normalizedLayout = normalizeVoyageLayout(
     workspace,
+    voyageLayout,
     voyageEntries,
     activeVoyageEntryId,
   );
+  const activeCell = getActiveCell(normalizedLayout);
+  const legacyState = buildLegacyStateFromVoyageEntries(
+    workspace,
+    activeCell.voyageEntries,
+    activeCell.activeVoyageEntryId,
+  );
+  const aggregateState = buildLegacyStateFromVoyageEntries(
+    workspace,
+    flattenVoyageLayoutEntries(normalizedLayout),
+    activeCell.activeVoyageEntryId,
+  );
   return {
     ...legacyState,
-    activeVoyageEntryId,
-    voyageEntries,
+    activeItemsByVoyageEntryId: aggregateState.activeItemsByVoyageEntryId,
+    activeItems: aggregateState.activeItems,
+    visitedTabGroupIds: aggregateState.visitedTabGroupIds,
+    activeVoyageEntryId: activeCell.activeVoyageEntryId,
+    voyageEntries: activeCell.voyageEntries,
+    activeSubVoyageCellId: normalizedLayout.activeCellId,
+    voyageLayout: normalizedLayout,
   };
 }
 
@@ -559,6 +893,7 @@ function loadSessionNav(
         workspace,
         normalizedVoyageEntries.entries,
         activeVoyageEntryId,
+        savedSession?.voyageLayout || parsed?.voyageLayout,
       );
       return {
         ...nextNav,
@@ -665,10 +1000,37 @@ export function useSessionWorkspaceNav(
   const pendingSelectionRef = useRef<PendingNavSelection | null>(null);
 
   const rebuildNav = (prev: SessionWorkspaceNav, voyageEntries: VoyageEntry[], activeVoyageEntryId: string) => {
-    const nextNav = buildSessionNavFromVoyageEntries(
+    const baseLayout = normalizeVoyageLayout(
       workspace,
+      prev.voyageLayout,
+      prev.voyageEntries,
+      prev.activeVoyageEntryId,
+    );
+    const activeCellId = prev.activeSubVoyageCellId || baseLayout.activeCellId;
+    const nextLayout: VoyageLayout = {
+      ...baseLayout,
+      activeCellId,
+      cells: baseLayout.cells.map((cell) =>
+        cell.id === activeCellId
+          ? {
+              ...cell,
+              activeVoyageEntryId,
+              voyageEntries: voyageEntries.map(cloneVoyageEntry),
+            }
+          : cell,
+      ),
+    };
+    const normalizedLayout = normalizeVoyageLayout(
+      workspace,
+      nextLayout,
       voyageEntries,
       activeVoyageEntryId,
+    );
+    const nextNav = buildSessionNavFromVoyageEntries(
+      workspace,
+      getActiveCell(normalizedLayout).voyageEntries,
+      getActiveCell(normalizedLayout).activeVoyageEntryId,
+      normalizedLayout,
     );
     return {
       ...prev,
@@ -1202,9 +1564,53 @@ export function useSessionWorkspaceNav(
     return entry?.viewIds || [];
   };
 
+  const activateSubVoyageCell = (cellId: string, entryId?: string) => {
+    setNav((prev) => {
+      const normalizedLayout = normalizeVoyageLayout(
+        workspace,
+        prev.voyageLayout,
+        prev.voyageEntries,
+        prev.activeVoyageEntryId,
+      );
+      const cell = normalizedLayout.cells.find((candidate) => candidate.id === cellId);
+      if (!cell) return prev;
+      const activeEntryId =
+        (entryId && cell.voyageEntries.some((entry) => entry.id === entryId)
+          ? entryId
+          : cell.activeVoyageEntryId) ||
+        cell.voyageEntries[0]?.id ||
+        "";
+      if (!activeEntryId) return prev;
+      const nextLayout: VoyageLayout = {
+        ...normalizedLayout,
+        activeCellId: cell.id,
+        cells: normalizedLayout.cells.map((candidate) =>
+          candidate.id === cell.id
+            ? { ...candidate, activeVoyageEntryId: activeEntryId }
+            : candidate,
+        ),
+      };
+      const nextCell = nextLayout.cells.find((candidate) => candidate.id === cell.id)!;
+      return {
+        ...prev,
+        ...buildSessionNavFromVoyageEntries(
+          workspace,
+          nextCell.voyageEntries,
+          activeEntryId,
+          nextLayout,
+        ),
+      };
+    });
+  };
+
   const selectVoyageEntry = (voyageEntryId: string) => {
-    const entry = nav.voyageEntries.find((candidate) => candidate.id === voyageEntryId);
-    if (!entry) return;
+    const containingCell = nav.voyageLayout.cells.find((cell) =>
+      cell.voyageEntries.some((candidate) => candidate.id === voyageEntryId),
+    );
+    const entry = containingCell?.voyageEntries.find(
+      (candidate) => candidate.id === voyageEntryId,
+    );
+    if (!(entry && containingCell)) return;
 
     const activeSpaceId =
       getSpaceIdForTabGroup(workspace, entry.tabGroupId) || nav.activeSpaceId;
@@ -1213,11 +1619,106 @@ export function useSessionWorkspaceNav(
       activeTabGroupId: entry.tabGroupId,
       activeItemId: getActiveItemIdForViewIds(workspace, entry.tabGroupId, entry.viewIds),
     });
-    setNav((prev) =>
-      prev.voyageEntries.some((candidate) => candidate.id === voyageEntryId)
-        ? rebuildNav(prev, prev.voyageEntries, voyageEntryId)
-        : prev,
+    activateSubVoyageCell(containingCell.id, voyageEntryId);
+  };
+
+  const selectSubVoyageCell = (cellId: string) => {
+    activateSubVoyageCell(cellId);
+  };
+
+  const selectSubVoyageCellEntry = (cellId: string, voyageEntryId: string) => {
+    activateSubVoyageCell(cellId, voyageEntryId);
+  };
+
+  const updateSubVoyageCellEntryViews = (
+    cellId: string,
+    voyageEntryId: string,
+    tabGroupId: string,
+    viewIds: string[],
+  ) => {
+    setNav((prev) => {
+      const normalizedLayout = normalizeVoyageLayout(
+        workspace,
+        prev.voyageLayout,
+        prev.voyageEntries,
+        prev.activeVoyageEntryId,
+      );
+      const cell = normalizedLayout.cells.find((candidate) => candidate.id === cellId);
+      if (!cell?.voyageEntries.some((entry) => entry.id === voyageEntryId)) return prev;
+      const nextLayout: VoyageLayout = {
+        ...normalizedLayout,
+        activeCellId: cellId,
+        cells: normalizedLayout.cells.map((candidate) =>
+          candidate.id === cellId
+            ? {
+                ...candidate,
+                activeVoyageEntryId: voyageEntryId,
+                voyageEntries: candidate.voyageEntries.map((entry) =>
+                  entry.id === voyageEntryId
+                    ? {
+                        ...entry,
+                        tabGroupId,
+                        viewIds: normalizeViewIdsForTabGroup(workspace, tabGroupId, viewIds),
+                      }
+                    : entry,
+                ),
+              }
+            : candidate,
+        ),
+      };
+      const nextCell = getActiveCell(nextLayout);
+      return buildSessionNavFromVoyageEntries(
+        workspace,
+        nextCell.voyageEntries,
+        voyageEntryId,
+        nextLayout,
+      );
+    });
+  };
+
+  const selectSubVoyageCellTab = (
+    cellId: string,
+    voyageEntryId: string,
+    tabGroupId: string,
+    tabId: string,
+  ) => {
+    const tabGroup = getTabGroupById(workspace, tabGroupId);
+    if (!tabGroup?.tabs.some((tab) => tab.id === tabId)) return;
+    updateSubVoyageCellEntryViews(cellId, voyageEntryId, tabGroupId, [tabId]);
+  };
+
+  const selectSubVoyageCellPair = (
+    cellId: string,
+    voyageEntryId: string,
+    tabGroupId: string,
+    pairId: string,
+  ) => {
+    const pair = getTabGroupById(workspace, tabGroupId)?.pairs.find(
+      (entry) => entry.id === pairId,
     );
+    if (!pair) return;
+    updateSubVoyageCellEntryViews(cellId, voyageEntryId, tabGroupId, [...pair.tabIds]);
+  };
+
+  const tileVoyageEntry = (
+    voyageEntryId: string,
+    target: SubVoyageDropTarget,
+  ) => {
+    setNav((prev) => {
+      const nextLayout = moveVoyageEntryToSubVoyageCell(
+        workspace,
+        prev.voyageLayout,
+        voyageEntryId,
+        target,
+      );
+      const activeCell = getActiveCell(nextLayout);
+      return buildSessionNavFromVoyageEntries(
+        workspace,
+        activeCell.voyageEntries,
+        activeCell.activeVoyageEntryId,
+        nextLayout,
+      );
+    });
   };
 
   const addTabGroupToSession = (
@@ -1365,6 +1866,8 @@ export function useSessionWorkspaceNav(
     activeTabGroupId: nav.activeTabGroupId,
     activeVoyageEntryId: nav.activeVoyageEntryId,
     voyageEntries: nav.voyageEntries,
+    activeSubVoyageCellId: nav.activeSubVoyageCellId,
+    voyageLayout: nav.voyageLayout,
     activeItemsByVoyageEntryId: nav.activeItemsByVoyageEntryId,
     activeItems: nav.activeItems,
     visitedTabGroupIds: nav.visitedTabGroupIds,
@@ -1372,6 +1875,11 @@ export function useSessionWorkspaceNav(
     getActiveItem,
     getActiveViewIds,
     selectVoyageEntry,
+    selectSubVoyageCell,
+    selectSubVoyageCellEntry,
+    selectSubVoyageCellTab,
+    selectSubVoyageCellPair,
+    tileVoyageEntry,
     selectSpace,
     selectSessionTabGroup,
     selectSessionTab,

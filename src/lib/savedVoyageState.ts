@@ -6,6 +6,7 @@ import type {
   VoyageEntry,
   WorkspaceState,
 } from '../types';
+import { normalizeVoyageLayout } from '../sessionState';
 import { buildVoyageSlug } from './voyageUrl';
 
 type SavedWorkspaceSessionState_v1 = {
@@ -273,6 +274,26 @@ function normalizeSavedWorkspaceSession(
   );
   const name = (session.name || '').trim();
   const slug = session.slug || buildVoyageSlug(name || 'saved-voyage', session.id);
+  const voyageLayout =
+    'voyageLayout' in session && session.voyageLayout
+      ? options.workspace
+        ? normalizeVoyageLayout(
+            { spaces: [], tabGroups: options.workspace.tabGroups, nextId: 0 },
+            session.voyageLayout,
+            voyageEntries,
+            activeVoyageEntryId,
+          )
+        : {
+            ...session.voyageLayout,
+            cells: session.voyageLayout.cells.map((cell) => ({
+              ...cell,
+              voyageEntries: cell.voyageEntries.map((entry) => ({
+                ...entry,
+                viewIds: [...(entry.viewIds || [])],
+              })),
+            })),
+          }
+      : undefined;
 
   return {
     id: session.id,
@@ -282,6 +303,7 @@ function normalizeSavedWorkspaceSession(
     updatedAt: session.updatedAt,
     activeVoyageEntryId,
     voyageEntries,
+    ...(voyageLayout ? { voyageLayout } : {}),
     activeSpaceId: session.activeSpaceId,
     activeTabGroupId:
       voyageEntries.find((entry) => entry.id === activeVoyageEntryId)?.tabGroupId ||
@@ -310,6 +332,7 @@ function isHomeVoyage(
 }
 
 function sessionSignature(session: SavedWorkspaceSession): string {
+  const hasTiledLayout = (session.voyageLayout?.cells?.length || 0) > 1;
   return JSON.stringify({
     name: session.name || '',
     activeSpaceId: session.activeSpaceId || '',
@@ -319,6 +342,22 @@ function sessionSignature(session: SavedWorkspaceSession): string {
       tabGroupId: entry.tabGroupId,
       viewIds: entry.viewIds || [],
     })),
+    voyageLayout: hasTiledLayout
+      ? {
+          activeCellId: session.voyageLayout?.activeCellId || '',
+          rows: session.voyageLayout?.rows || 1,
+          cols: session.voyageLayout?.cols || 1,
+          cells: (session.voyageLayout?.cells || []).map((cell) => ({
+            row: cell.row,
+            col: cell.col,
+            activeVoyageEntryId: cell.activeVoyageEntryId,
+            voyageEntries: (cell.voyageEntries || []).map((entry) => ({
+              tabGroupId: entry.tabGroupId,
+              viewIds: entry.viewIds || [],
+            })),
+          })),
+        }
+      : null,
     activeItemsByVoyageEntryId: canonicalObjectEntries(
       session.activeItemsByVoyageEntryId,
     ),

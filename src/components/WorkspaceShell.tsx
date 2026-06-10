@@ -16,7 +16,11 @@ import type {
   SavedWorkspaceSession,
   VoyageEntry,
 } from '../types';
-import type { NewSessionInitialSelection, SessionWorkspaceNav } from '../sessionState';
+import type {
+  NewSessionInitialSelection,
+  SessionWorkspaceNav,
+  SubVoyageDropTarget,
+} from '../sessionState';
 import { getVoyageEntryIdAfterClosingCraft } from '../lib/voyageFallback';
 
 const MOBILE_TAB_EMOJI_CHOICES = [
@@ -196,6 +200,21 @@ export type SessionActions = {
     pairId: string,
   ) => void;
   selectVoyageEntry: (voyageEntryId: string) => void;
+  selectSubVoyageCell: (cellId: string) => void;
+  selectSubVoyageCellEntry: (cellId: string, voyageEntryId: string) => void;
+  selectSubVoyageCellTab: (
+    cellId: string,
+    voyageEntryId: string,
+    tabGroupId: string,
+    tabId: string,
+  ) => void;
+  selectSubVoyageCellPair: (
+    cellId: string,
+    voyageEntryId: string,
+    tabGroupId: string,
+    pairId: string,
+  ) => void;
+  tileVoyageEntry: (voyageEntryId: string, target: SubVoyageDropTarget) => void;
   selectTab: (tabGroupId: string, tabId: string) => void;
   selectPair: (tabGroupId: string, pairId: string) => void;
   setActiveTabGroup: (tabGroupId: string) => void;
@@ -1390,6 +1409,7 @@ export function WorkspaceShell({
   const activeTabGroup = activeTabGroups.find(
     (tg) => tg.id === session.activeTabGroupId,
   );
+  const isSubVoyageGridActive = session.voyageLayout.cells.length > 1;
   const mobileSessionTabGroups = session.voyageEntries
     .map((entry) => {
       const tabGroupId = entry.tabGroupId;
@@ -2015,61 +2035,71 @@ export function WorkspaceShell({
           </button>
           <div className="flex-1 min-w-0 overflow-x-auto scrollbar-hide">
             <div className="flex h-full items-stretch whitespace-nowrap">
-              {mobileSessionTabGroups.map(({ entry, space, tabGroup }) => {
-                const isActive =
-                  !isPendingOpenCraftActive &&
-                  entry.id === session.activeVoyageEntryId;
+              {isSubVoyageGridActive ? (
+                <div className="flex min-w-0 flex-1 items-center px-3 text-xs text-neutral-400">
+                  <span className="truncate">
+                    Tiled voyage — use each pane&apos;s tab strip
+                  </span>
+                </div>
+              ) : (
+                <>
+                  {mobileSessionTabGroups.map(({ entry, space, tabGroup }) => {
+                    const isActive =
+                      !isPendingOpenCraftActive &&
+                      entry.id === session.activeVoyageEntryId;
 
-                return (
-                  <div
-                    key={entry.id}
-                    draggable
-                    onDragStart={(event) =>
-                      handleSessionTabGroupDragStart(event, entry.id)
-                    }
-                    onDragOver={handleDragOver}
-                    onDrop={(event) =>
-                      handleSessionTabGroupDrop(event, entry.id)
-                    }
-                    className={`shrink-0 inline-flex h-full cursor-pointer select-none items-center border-r border-neutral-600 border-b-2 text-xs text-neutral-200 transition-colors ${
-                      isActive
-                        ? 'border-b-primary-400 bg-neutral-900'
-                        : 'bg-neutral-900 hover:bg-neutral-800/80'
-                    }`}
-                    title={`${space.name} / ${tabGroup.label}`}
-                  >
-                    <button
-                      className="inline-flex h-full cursor-pointer items-center gap-2 px-3 text-inherit"
-                      onClick={() => {
-                        handleToggleSessionTabGroup(entry.id, space.id, tabGroup.id);
-                      }}
-                      onContextMenu={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        setDesktopTabMenuTarget({
-                          voyageEntryId: entry.id,
-                          spaceId: space.id,
-                          tabGroupId: tabGroup.id,
-                          position: { x: event.clientX, y: event.clientY },
-                        });
-                      }}
-                      aria-label={`Open ${tabGroup.label} in ${space.name}`}
-                      aria-haspopup="menu"
-                    >
-                      <span aria-hidden="true">{getMobileTabGroupEmoji(tabGroup)}</span>
-                      <span>{tabGroup.label}</span>
-                    </button>
-                  </div>
-                );
-              })}
-              {pendingOpenCraftTab && (
-                <PendingOpenCraftVoyageTab
-                  tab={pendingOpenCraftTab}
-                  compact={false}
-                  active
-                  onRetry={retryPendingOpenCraft}
-                  onClose={closePendingOpenCraftTab}
-                />
+                    return (
+                      <div
+                        key={entry.id}
+                        draggable
+                        onDragStart={(event) =>
+                          handleSessionTabGroupDragStart(event, entry.id)
+                        }
+                        onDragOver={handleDragOver}
+                        onDrop={(event) =>
+                          handleSessionTabGroupDrop(event, entry.id)
+                        }
+                        className={`shrink-0 inline-flex h-full cursor-pointer select-none items-center border-r border-neutral-600 border-b-2 text-xs text-neutral-200 transition-colors ${
+                          isActive
+                            ? 'border-b-primary-400 bg-neutral-900'
+                            : 'bg-neutral-900 hover:bg-neutral-800/80'
+                        }`}
+                        title={`${space.name} / ${tabGroup.label}`}
+                      >
+                        <button
+                          className="inline-flex h-full cursor-pointer items-center gap-2 px-3 text-inherit"
+                          onClick={() => {
+                            handleToggleSessionTabGroup(entry.id, space.id, tabGroup.id);
+                          }}
+                          onContextMenu={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            setDesktopTabMenuTarget({
+                              voyageEntryId: entry.id,
+                              spaceId: space.id,
+                              tabGroupId: tabGroup.id,
+                              position: { x: event.clientX, y: event.clientY },
+                            });
+                          }}
+                          aria-label={`Open ${tabGroup.label} in ${space.name}`}
+                          aria-haspopup="menu"
+                        >
+                          <span aria-hidden="true">{getMobileTabGroupEmoji(tabGroup)}</span>
+                          <span>{tabGroup.label}</span>
+                        </button>
+                      </div>
+                    );
+                  })}
+                  {pendingOpenCraftTab && (
+                    <PendingOpenCraftVoyageTab
+                      tab={pendingOpenCraftTab}
+                      compact={false}
+                      active
+                      onRetry={retryPendingOpenCraft}
+                      onClose={closePendingOpenCraftTab}
+                    />
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -2124,10 +2154,11 @@ export function WorkspaceShell({
             activeTabGroupId={session.activeTabGroupId}
             actions={actions}
             sessionActions={sessionActions}
+            voyageLayout={session.voyageLayout}
+            activeSubVoyageCellId={session.activeSubVoyageCellId}
+            activeItemsByVoyageEntryId={session.activeItemsByVoyageEntryId}
             disableSplitViews={!isDesktop}
-            onDragStart={handleDragStart}
             onDragOver={handleDragOver}
-            onDrop={handleDrop}
             workspace={workspace}
             showAddressBar={showAddressBar}
             savedSessions={savedSessions}

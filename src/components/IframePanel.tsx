@@ -17,6 +17,7 @@ interface IframePanelProps {
   tabGroup: TabGroup;
   activeItemId: string;
   onUpdatePairRatios: (pairId: string, ratios: number[]) => void;
+  retainedVisibleTabIds?: Set<string>;
   workspace?: WorkspaceState;
   savedSessions?: SavedWorkspaceSession[];
   currentSessionId?: string;
@@ -357,6 +358,14 @@ export function hasKnownIframeMessageSource(source: MessageEventSource | null): 
   );
 }
 
+export function getIframeLayerTabsForPanel(
+  retainedVisibleTabIds: Set<string> | undefined,
+  visibleIframeTabs: Tab[],
+  retainedTabs: Tab[],
+): Tab[] {
+  return retainedVisibleTabIds ? visibleIframeTabs : retainedTabs;
+}
+
 function useImperativeIframes(
   currentSessionId: string | undefined,
   tabs: Tab[],
@@ -615,6 +624,7 @@ export function IframePanel({
   tabGroup,
   activeItemId,
   onUpdatePairRatios,
+  retainedVisibleTabIds,
   workspace,
   savedSessions,
   currentSessionId,
@@ -647,7 +657,9 @@ export function IframePanel({
   const allKnownIframeTabs = workspace?.tabGroups.flatMap((group) =>
     group.tabs.filter((tab) => getTabRenderTarget(tab.url).kind === 'iframe'),
   );
-  const visibleIframeTabIds = new Set(visibleIframeTabs.map((tab) => tab.id));
+  const visibleIframeTabIds = retainedVisibleTabIds
+    ? new Set(retainedVisibleTabIds)
+    : new Set(visibleIframeTabs.map((tab) => tab.id));
   const retainedTabs =
     allKnownIframeTabs?.filter(
       (tab) => retainedTabIds.has(tab.id) || visibleIframeTabIds.has(tab.id),
@@ -662,11 +674,16 @@ export function IframePanel({
     visibleIframeTabIds,
     allKnownIframeTabIds,
   );
+  const layerTabs = getIframeLayerTabsForPanel(
+    retainedVisibleTabIds,
+    visibleIframeTabs,
+    retainedTabs,
+  );
 
   return (
     <div className="w-full h-full relative">
       <PersistentIframeLayer
-        retainedTabs={retainedTabs}
+        retainedTabs={layerTabs}
         activeTab={activeTab}
         activePair={activePair}
         tabGroup={tabGroup}

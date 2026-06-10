@@ -61,6 +61,22 @@ export interface VoyageEntry {
   viewIds: string[];
 }
 
+export interface SubVoyageCell {
+  id: string;
+  row: number;
+  col: number;
+  activeVoyageEntryId: string;
+  voyageEntries: VoyageEntry[];
+}
+
+export interface VoyageLayout {
+  version: 1;
+  rows: number;
+  cols: number;
+  activeCellId: string;
+  cells: SubVoyageCell[];
+}
+
 export interface VoyageCraftSelection {
   spaceId: string;
   tabGroupId: string;
@@ -83,6 +99,7 @@ export interface SavedWorkspaceSessionV1 {
 export interface SavedWorkspaceSessionV2 extends SavedWorkspaceSessionV1 {
   activeVoyageEntryId?: string;
   voyageEntries?: VoyageEntry[];
+  voyageLayout?: VoyageLayout;
   /** Active item keyed by VoyageEntry ID. Keeps duplicate craft entries independent. */
   activeItemsByVoyageEntryId?: Record<string, string>;
 }
@@ -95,6 +112,7 @@ export interface SavedWorkspaceSession {
   updatedAt: string;
   activeVoyageEntryId: string;
   voyageEntries: VoyageEntry[];
+  voyageLayout?: VoyageLayout;
   activeSpaceId: string;
   activeTabGroupId: string;
   /** Active item keyed by VoyageEntry ID. Keeps duplicate craft entries independent. */

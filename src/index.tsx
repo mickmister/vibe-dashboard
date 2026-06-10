@@ -7,6 +7,10 @@ import {
   isSavedWorkspaceSessionStateMigrated,
   migrateSavedWorkspaceSessionStateWithCleanup,
 } from './lib/savedVoyageState';
+import {
+  createVoyageLayoutFromEntries,
+  normalizeVoyageLayout,
+} from './sessionState';
 
 import springboard, { ModuleAPI } from 'springboard';
 import { createDefaultWorkspace, getDefaultSpace } from './types';
@@ -187,6 +191,11 @@ function createSavedSessionFromSelection({
     updatedAt: now,
     activeVoyageEntryId: voyageEntry.id,
     voyageEntries: [voyageEntry],
+    voyageLayout: createVoyageLayoutFromEntries(
+      workspace,
+      [voyageEntry],
+      voyageEntry.id,
+    ),
     activeSpaceId: space.id,
     activeTabGroupId: tabGroup.id,
     activeItemsByVoyageEntryId: {
@@ -242,6 +251,11 @@ function createSavedSessionFromVoyageEntry({
         viewIds: [...normalizedEntry.viewIds],
       },
     ],
+    voyageLayout: createVoyageLayoutFromEntries(
+      workspace,
+      [normalizedEntry],
+      normalizedEntry.id,
+    ),
     activeSpaceId,
     activeTabGroupId: normalizedEntry.tabGroupId,
     activeItemsByVoyageEntryId: {
@@ -382,6 +396,12 @@ function addVKWorkspaceCraftToWorkspace(
 }
 
 function cloneSavedSession(session: SavedWorkspaceSession): SavedWorkspaceSession {
+  const voyageLayout = session.voyageLayout ||
+    createVoyageLayoutFromEntries(
+      { spaces: [], tabGroups: [], nextId: 0 },
+      session.voyageEntries,
+      session.activeVoyageEntryId,
+    );
   return {
     ...session,
     activeItemsByVoyageEntryId: {
@@ -391,6 +411,16 @@ function cloneSavedSession(session: SavedWorkspaceSession): SavedWorkspaceSessio
       ...entry,
       viewIds: [...entry.viewIds],
     })),
+    voyageLayout: {
+      ...voyageLayout,
+      cells: voyageLayout.cells.map((cell) => ({
+        ...cell,
+        voyageEntries: cell.voyageEntries.map((entry) => ({
+          ...entry,
+          viewIds: [...entry.viewIds],
+        })),
+      })),
+    },
     visitedTabGroupIds: [...session.visitedTabGroupIds],
   };
 }
@@ -448,6 +478,12 @@ function repairSavedSessionForWorkspace(
     ...session,
     activeVoyageEntryId,
     voyageEntries,
+    voyageLayout: normalizeVoyageLayout(
+      workspace,
+      session.voyageLayout,
+      voyageEntries,
+      activeVoyageEntryId,
+    ),
     activeSpaceId,
     activeTabGroupId: activeEntry.tabGroupId,
     activeItemsByVoyageEntryId,

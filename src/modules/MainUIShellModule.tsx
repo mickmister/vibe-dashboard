@@ -1,7 +1,7 @@
 import '@vitejs/plugin-react/preamble';
 import '../styles';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { HeroUIProvider } from '@heroui/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -334,6 +334,71 @@ springboard.registerModule(
         }
       }, [actions, dashboardVoyage.status, sessionNav.activeTabGroupId]);
 
+      const persistedVoyageEntries = useMemo(
+        () =>
+          sessionNav.voyageLayout.cells.flatMap((cell) =>
+            cell.voyageEntries.map((entry) => ({
+              ...entry,
+              viewIds: [...entry.viewIds],
+            })),
+          ),
+        [sessionNav.voyageLayout],
+      );
+      const persistedSessionNavSignature = JSON.stringify({
+        activeSpaceId: sessionNav.activeSpaceId,
+        activeTabGroupId: sessionNav.activeTabGroupId,
+        activeVoyageEntryId: sessionNav.activeVoyageEntryId,
+        voyageEntries: persistedVoyageEntries,
+        voyageLayout: sessionNav.voyageLayout,
+        activeItemsByVoyageEntryId: sessionNav.activeItemsByVoyageEntryId,
+        visitedTabGroupIds: sessionNav.visitedTabGroupIds,
+      });
+      const activeSavedSessionSignature = activeSavedSession
+        ? JSON.stringify({
+            activeSpaceId: activeSavedSession.activeSpaceId,
+            activeTabGroupId: activeSavedSession.activeTabGroupId,
+            activeVoyageEntryId: activeSavedSession.activeVoyageEntryId,
+            voyageEntries: activeSavedSession.voyageEntries,
+            voyageLayout: activeSavedSession.voyageLayout,
+            activeItemsByVoyageEntryId: activeSavedSession.activeItemsByVoyageEntryId,
+            visitedTabGroupIds: activeSavedSession.visitedTabGroupIds,
+          })
+        : '';
+
+      useEffect(() => {
+        if (dashboardVoyage.status !== 'resolved') return;
+        if (!activeSavedSession) return;
+        const voyageName = activeSavedSession.name?.trim();
+        if (!voyageName || isHomeVoyageDisplayName(voyageName)) return;
+        if (persistedSessionNavSignature === activeSavedSessionSignature) return;
+
+        void actions.upsertSavedSession({
+          ...activeSavedSession,
+          name: voyageName,
+          updatedAt: new Date().toISOString(),
+          activeSpaceId: sessionNav.activeSpaceId,
+          activeTabGroupId: sessionNav.activeTabGroupId,
+          activeVoyageEntryId: sessionNav.activeVoyageEntryId,
+          voyageEntries: persistedVoyageEntries,
+          voyageLayout: sessionNav.voyageLayout,
+          activeItemsByVoyageEntryId: sessionNav.activeItemsByVoyageEntryId,
+          visitedTabGroupIds: sessionNav.visitedTabGroupIds,
+        });
+      }, [
+        activeSavedSession,
+        activeSavedSessionSignature,
+        actions,
+        dashboardVoyage.status,
+        persistedVoyageEntries,
+        persistedSessionNavSignature,
+        sessionNav.activeItemsByVoyageEntryId,
+        sessionNav.activeSpaceId,
+        sessionNav.activeTabGroupId,
+        sessionNav.activeVoyageEntryId,
+        sessionNav.visitedTabGroupIds,
+        sessionNav.voyageLayout,
+      ]);
+
       // Sync URL to match canonical voyage/craft/views query params
       useEffect(() => {
         if (dashboardVoyage.status !== 'resolved') return;
@@ -565,6 +630,11 @@ springboard.registerModule(
           }
           return;
         },
+        selectSubVoyageCell: sessionNav.selectSubVoyageCell,
+        selectSubVoyageCellEntry: sessionNav.selectSubVoyageCellEntry,
+        selectSubVoyageCellTab: sessionNav.selectSubVoyageCellTab,
+        selectSubVoyageCellPair: sessionNav.selectSubVoyageCellPair,
+        tileVoyageEntry: sessionNav.tileVoyageEntry,
         selectTab: (tabGroupId: string, tabId: string) => {
           const spaceId =
             workspace.spaces.find((space) => space.tabGroupIds.includes(tabGroupId))?.id ||
