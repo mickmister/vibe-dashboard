@@ -3,7 +3,7 @@ name: Publish VK/VD Image to GHCR
 on:
   push:
     branches:
-      - '**'
+      - main
   repository_dispatch:
     types:
       - vk-release-assets-ready
