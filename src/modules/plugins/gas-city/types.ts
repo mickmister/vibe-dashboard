@@ -22,9 +22,95 @@ export interface GasCitySessionInfo {
   Attached: boolean;
 }
 
+export type GasCityPackImportScope = "city" | "rig";
+
+export type GasCityPackSafetyTier =
+  | "read_only"
+  | "safe_structured_control"
+  | "authored_text"
+  | "executable_or_provider"
+  | "destructive_runtime_action";
+
+export interface GasCityGeneratedCityRuntime {
+  cityId: string;
+  cityName: string;
+  runtimeRoot: string;
+  cityTomlPath: string;
+  lastRenderedAt: string | null;
+}
+
+export interface GasCityLocalPackRef {
+  id: string;
+  binding: string;
+  sourcePath: string;
+  scope: GasCityPackImportScope;
+  rigName: string | null;
+  enabled: boolean;
+  addedAt: string;
+  lastValidatedAt: string | null;
+}
+
+export interface GasCityDiscoveredCapability {
+  id: string;
+  kind:
+    | "agent"
+    | "named_session"
+    | "formula"
+    | "order"
+    | "command"
+    | "doctor"
+    | "overlay"
+    | "template_fragment"
+    | "asset";
+  name: string;
+  title: string | null;
+  safetyTier: GasCityPackSafetyTier;
+  sourcePath: string | null;
+  executesLocalCode: boolean;
+}
+
+export interface GasCityPackValidationCache {
+  packRefId: string;
+  sourcePath: string;
+  checkedAt: string;
+  packName: string | null;
+  bindingSuggestion: string | null;
+  capabilities: GasCityDiscoveredCapability[];
+  warnings: string[];
+  errors: string[];
+}
+
+export interface GasCityOrderSafeOverride {
+  packRefId: string;
+  orderName: string;
+  rigName: string | null;
+  enabled: boolean | null;
+  interval: string | null;
+}
+
+export interface GasCityAgentSafeOverride {
+  packRefId: string;
+  agentName: string;
+  rigName: string | null;
+  minActiveSessions: number | null;
+  maxActiveSessions: number | null;
+  defaultSlingFormula: string | null;
+  providerOptionDefaults: Record<string, string>;
+}
+
+export interface GasCityBuilderState {
+  version: 1;
+  generatedCity: GasCityGeneratedCityRuntime;
+  localPackRefs: GasCityLocalPackRef[];
+  validationCacheByPackRefId: Record<string, GasCityPackValidationCache>;
+  orderOverrides: GasCityOrderSafeOverride[];
+  agentOverrides: GasCityAgentSafeOverride[];
+}
+
 export interface GasCityDashboardState {
   gcBinary: string;
   cityPath: string;
+  cityBuilder: GasCityBuilderState;
   sessions: GasCitySessionInfo[];
   peekBySessionId: Record<string, string>;
   loading: boolean;
@@ -34,10 +120,28 @@ export interface GasCityDashboardState {
   statusOutput: string;
 }
 
+export function createDefaultGasCityBuilderState(): GasCityBuilderState {
+  return {
+    version: 1,
+    generatedCity: {
+      cityId: "default",
+      cityName: "vd-generated",
+      runtimeRoot: "",
+      cityTomlPath: "",
+      lastRenderedAt: null,
+    },
+    localPackRefs: [],
+    validationCacheByPackRefId: {},
+    orderOverrides: [],
+    agentOverrides: [],
+  };
+}
+
 export function createDefaultGasCityDashboardState(): GasCityDashboardState {
   return {
     gcBinary: "gc",
     cityPath: "",
+    cityBuilder: createDefaultGasCityBuilderState(),
     sessions: [],
     peekBySessionId: {},
     loading: false,
