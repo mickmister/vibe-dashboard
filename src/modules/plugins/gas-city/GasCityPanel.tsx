@@ -97,6 +97,20 @@ function parseNullableInteger(value: string): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function parseSlingVars(input: string): Record<string, string> {
+  const vars: Record<string, string> = {};
+  for (const line of input.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const separatorIndex = trimmed.indexOf("=");
+    if (separatorIndex <= 0) continue;
+    vars[trimmed.slice(0, separatorIndex).trim()] = trimmed
+      .slice(separatorIndex + 1)
+      .trim();
+  }
+  return vars;
+}
+
 export function GasCityPanel({
   state,
   actions,
@@ -119,6 +133,8 @@ export function GasCityPanel({
   const [title, setTitle] = useState("");
   const [message, setMessage] = useState("");
   const [selectedSessionId, setSelectedSessionId] = useState("");
+  const [slingTarget, setSlingTarget] = useState("");
+  const [slingVars, setSlingVars] = useState("");
 
   useEffect(() => {
     setGcBinary(state.gcBinary);
@@ -381,6 +397,16 @@ export function GasCityPanel({
     onOpenWorkDir(selectedSession.WorkDir, sessionLabel(selectedSession));
   };
 
+  const handleSlingFormula = async (formula: string) => {
+    if (!slingTarget.trim() || !formula.trim()) return;
+    await actions.setConfig({ gcBinary, cityPath });
+    await actions.slingFormula({
+      target: slingTarget.trim(),
+      formula: formula.trim(),
+      vars: parseSlingVars(slingVars),
+    });
+  };
+
   const currentPeek = selectedSession
     ? (state.peekBySessionId[selectedSession.ID] ?? "")
     : "";
@@ -549,6 +575,48 @@ export function GasCityPanel({
             </div>
           ) : null}
 
+          {formulaNames.length ? (
+            <div className="mb-4 rounded-lg border border-neutral-800 bg-neutral-950 p-3">
+              <div className="mb-2">
+                <h4 className="text-sm font-semibold text-neutral-200">
+                  Sample gc sling dispatch
+                </h4>
+                <p className="mt-1 text-xs text-neutral-500">
+                  Select a formula below after reviewing the target and
+                  variables. Dispatch uses the configured/generated city path.
+                </p>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                <Input
+                  size="sm"
+                  label="Sling target"
+                  value={slingTarget}
+                  onChange={(event) => setSlingTarget(event.target.value)}
+                  placeholder="mayor or rig/agent"
+                  classNames={{
+                    inputWrapper:
+                      "bg-neutral-900 border-neutral-700 data-[hover=true]:bg-neutral-900 group-data-[focus=true]:bg-neutral-900",
+                    input: "text-white",
+                    label: "text-neutral-400",
+                  }}
+                />
+                <Textarea
+                  label="Variables"
+                  value={slingVars}
+                  onChange={(event) => setSlingVars(event.target.value)}
+                  minRows={2}
+                  placeholder={"env=dev\nrepo=frontend"}
+                  classNames={{
+                    inputWrapper:
+                      "bg-neutral-900 border-neutral-700 data-[hover=true]:bg-neutral-900 group-data-[focus=true]:bg-neutral-900",
+                    input: "text-white",
+                    label: "text-neutral-400",
+                  }}
+                />
+              </div>
+            </div>
+          ) : null}
+
           {capabilityGroups.length ? (
             <div className="grid gap-3 lg:grid-cols-2">
               {capabilityGroups.map((group) => (
@@ -591,6 +659,26 @@ export function GasCityPanel({
                             ? ` • ${capability.sourcePath}`
                             : ""}
                         </div>
+                        {capability.kind === "formula" ? (
+                          <div className="mt-2 flex flex-wrap items-center gap-2">
+                            <Button
+                              size="sm"
+                              color="primary"
+                              variant="flat"
+                              isDisabled={!slingTarget.trim() || state.loading}
+                              isLoading={state.loading}
+                              onPress={() =>
+                                void handleSlingFormula(capability.name)
+                              }
+                            >
+                              Sling formula
+                            </Button>
+                            <span className="text-xs text-neutral-500">
+                              gc sling {slingTarget.trim() || "<target>"}{" "}
+                              {capability.name} --formula
+                            </span>
+                          </div>
+                        ) : null}
                         {capability.kind === "order" ? (
                           <div className="mt-2 grid gap-2 md:grid-cols-2">
                             {(() => {

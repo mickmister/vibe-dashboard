@@ -202,6 +202,11 @@ export interface GasCityPluginModule {
       defaultSlingFormula?: string | null;
       providerOptionDefaults?: Record<string, string>;
     }) => Promise<void>;
+    slingFormula: (args: {
+      target: string;
+      formula: string;
+      vars?: Record<string, string>;
+    }) => Promise<string>;
     refreshSessions: () => Promise<GasCitySessionInfo[]>;
     refreshStatus: () => Promise<string>;
     createSession: (args: {
