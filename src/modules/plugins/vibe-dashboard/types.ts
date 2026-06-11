@@ -27,7 +27,7 @@ export interface RegisteredSpaceTypeContribution extends SpaceTypeContribution {
   sourceKey: string;
 }
 
-export type TabGroupFactoryLaunchMode = 'vk-workspace';
+export type TabGroupFactoryLaunchMode = 'vk-workspace' | 'new-workspace';
 
 export interface TabGroupFactoryContribution {
   key: string;

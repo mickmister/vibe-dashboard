@@ -409,6 +409,7 @@ export function WorkspaceShell({
           onNavigateToTabGroup={handleNavigateToWorkspaceTabGroup}
           onAddTabGroup={handleAddTabGroup}
           workspace={workspace}
+          gasCity={gasCity}
         />
       )}
 

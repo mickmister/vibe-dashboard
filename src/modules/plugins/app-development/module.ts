@@ -11,6 +11,13 @@ const manifest: PluginManifest = createPluginManifest({
   contributions: {
     tabGroupFactories: [
       {
+        key: 'new-workspace',
+        title: 'New Workspace',
+        description: 'Start a VK workspace with optional workflow orchestration',
+        launchMode: 'new-workspace',
+        order: 5,
+      },
+      {
         key: 'open-existing-workspace',
         title: 'Open Existing Workspace',
         description: 'Add workspace with Agent + Code split view',
