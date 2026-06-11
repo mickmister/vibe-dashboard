@@ -38,3 +38,26 @@ The bridge currently uses the same env vars as the MVP donor implementation:
 - `VIBE_DELETE_WORKSPACE_ON_STOP`
 - `VIBE_STATE_ROOT`
 - `GC_EXEC_STATE_DIR`
+
+## Adopt existing VK workspace/session
+
+Set the adoption variables when GC should bind a session to a VK workspace and
+session that VD already created, instead of asking the bridge to call
+`/api/workspaces/start`:
+
+- `VIBE_ADOPT_WORKSPACE_ID` — existing VK workspace ID to bind.
+- `VIBE_ADOPT_SESSION_ID` — existing VK session/execution session ID to bind.
+- `VIBE_WORKING_DIR` — optional repo/workdir hint for follow-up prompts.
+- `VIBE_SESSION_LABEL` — optional human-readable VK session name to apply.
+
+When `VIBE_ADOPT_WORKSPACE_ID` is present, the bridge:
+
+1. loads the workspace from VK,
+2. requires a non-empty `container_ref`,
+3. points the GC workdir symlink at that workspace path,
+4. persists the VK workspace/session IDs in bridge state,
+5. optionally renames the VK session, and
+6. sends the GC start nudge as a VK follow-up when one is provided.
+
+This is the preferred path for VD New Workspace GC-backed modes because VD
+creates/opens the VK workspace first and then layers GC orchestration on top.
