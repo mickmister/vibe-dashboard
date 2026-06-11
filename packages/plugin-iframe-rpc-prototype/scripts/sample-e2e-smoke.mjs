@@ -61,12 +61,146 @@ try {
   await page.getByText('/dashboard/plugins/dev.vibe-kanban.fixture-plugin/1.0.0/frontend_assets/index.html').waitFor();
   await page.getByText('Capability grants').waitFor();
   await page.getByText('Deno backend boundary ready with restricted permissions').waitFor();
-  await page.getByText('marketplace-card').waitFor();
-  await page.getByText('Arbitrary plugin data').waitFor();
+
+  const pluginFrame = page.frameLocator('iframe[title="Plugin iframe RPC fixture plugin"]');
+  await pluginFrame.getByText('host accepted contribution').waitFor();
+
+  const iframe = page.locator('iframe[title="Plugin iframe RPC fixture plugin"]');
+  await expectAttribute(iframe, 'sandbox', 'allow-scripts allow-same-origin');
+
+  const contributions = page.locator('section[aria-label="Registered contributions"]');
+  await contributions.getByText('marketplace-card').waitFor();
+  await contributions.getByText('Arbitrary plugin data').waitFor();
+  await contributions.getByText('<strong>This is data, not trusted HTML.</strong>').waitFor();
+  await expectCount(contributions.locator('pre strong'), 0);
+
+  await assertInvalidParentSourceIsIgnored(page);
+  await assertWrongNonceIsIgnored(page);
+  await assertUnsupportedIframeMethodReturnsError(page);
+
   console.log('sample marketplace frontend/backend e2e smoke passed');
 } finally {
   await browser.close();
   await new Promise((resolve) => server.close(resolve));
+}
+
+
+async function expectAttribute(locator, name, expected) {
+  const actual = await locator.getAttribute(name);
+  if (actual !== expected) {
+    throw new Error(`Expected ${name}=${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+  }
+}
+
+async function expectCount(locator, expected) {
+  const actual = await locator.count();
+  if (actual !== expected) {
+    throw new Error(`Expected locator count ${expected}, got ${actual}`);
+  }
+}
+
+async function expectHidden(locator, label) {
+  const count = await locator.count();
+  if (count !== 0) {
+    throw new Error(`${label} unexpectedly appeared ${count} time(s)`);
+  }
+}
+
+async function assertInvalidParentSourceIsIgnored(page) {
+  await page.evaluate(() => {
+    window.postMessage(
+      {
+        type: 'vd-plugin-rpc/message',
+        protocolVersion: 1,
+        pluginId: 'dev.vibe-kanban.fixture-plugin',
+        frameId: 'fixture-frame',
+        nonce: 'fixture-nonce-for-demo-only',
+        data: {
+          jsonrpc: '2.0',
+          id: 'parent-source-attack',
+          method: 'contribution.register',
+          params: {
+            slot: 'parent-source-attack-card',
+            data: { title: 'Invalid parent-source contribution' },
+          },
+        },
+      },
+      '*',
+    );
+  });
+  await page.waitForTimeout(100);
+  await expectHidden(page.getByText('parent-source-attack-card'), 'parent-source attack contribution');
+}
+
+async function assertWrongNonceIsIgnored(page) {
+  const frame = page.frames().find((candidate) => candidate.url().includes('/dashboard/plugins/dev.vibe-kanban.fixture-plugin/1.0.0/frontend_assets/'));
+  if (!frame) throw new Error('Plugin iframe was not found for wrong nonce assertion');
+
+  await frame.evaluate(() => {
+    window.parent.postMessage(
+      {
+        type: 'vd-plugin-rpc/message',
+        protocolVersion: 1,
+        pluginId: 'dev.vibe-kanban.fixture-plugin',
+        frameId: 'fixture-frame',
+        nonce: 'wrong-nonce',
+        data: {
+          jsonrpc: '2.0',
+          id: 'wrong-nonce-attack',
+          method: 'contribution.register',
+          params: {
+            slot: 'wrong-nonce-card',
+            data: { title: 'Wrong nonce contribution' },
+          },
+        },
+      },
+      '*',
+    );
+  });
+  await page.waitForTimeout(100);
+  await expectHidden(page.getByText('wrong-nonce-card'), 'wrong nonce contribution');
+}
+
+async function assertUnsupportedIframeMethodReturnsError(page) {
+  const frame = page.frames().find((candidate) => candidate.url().includes('/dashboard/plugins/dev.vibe-kanban.fixture-plugin/1.0.0/frontend_assets/'));
+  if (!frame) throw new Error('Plugin iframe was not found for unsupported method assertion');
+
+  const response = await frame.evaluate(() => {
+    return new Promise((resolve, reject) => {
+      const timeout = window.setTimeout(() => {
+        window.removeEventListener('message', handleMessage);
+        reject(new Error('Timed out waiting for unsupported-method response'));
+      }, 2_000);
+
+      function handleMessage(event) {
+        if (event.data?.data?.id !== 'unsupported-method') return;
+        window.clearTimeout(timeout);
+        window.removeEventListener('message', handleMessage);
+        resolve(event.data.data);
+      }
+
+      window.addEventListener('message', handleMessage);
+      window.parent.postMessage(
+        {
+          type: 'vd-plugin-rpc/message',
+          protocolVersion: 1,
+          pluginId: 'dev.vibe-kanban.fixture-plugin',
+          frameId: 'fixture-frame',
+          nonce: 'fixture-nonce-for-demo-only',
+          data: {
+            jsonrpc: '2.0',
+            id: 'unsupported-method',
+            method: 'workspace.deleteEverything',
+          },
+        },
+        '*',
+      );
+    });
+  });
+
+  if (response?.error?.code !== -32601 || !String(response.error.message).includes('workspace.deleteEverything')) {
+    throw new Error(`Unexpected unsupported-method response: ${JSON.stringify(response)}`);
+  }
 }
 
 function json(res, value) {
