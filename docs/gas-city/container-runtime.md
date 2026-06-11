@@ -21,6 +21,9 @@ Milestone 3 requires GC-first orchestration to run through VK workspaces without
 ## Runtime expectations
 
 - The Gas City plugin's default binary value, `gc`, resolves to `/usr/local/bin/gc`.
+- `supervisord` starts `gc supervisor run` as `vkuser` through the `gas-city-supervisor` program.
+- Set `ENABLE_GAS_CITY_SUPERVISOR=false` to disable the long-lived GC control plane for debugging or images that only need the CLI.
+- The supervisor uses `GC_HOME=/home/vkuser/.gc` and `XDG_RUNTIME_DIR=/var/tmp/vibe-kanban/gc-runtime`, both owned by `vkuser`.
 - VD/Springboard state still owns generated city config paths and local pack refs.
 - Source-controlled files in the `gascity` repo are not mutated by VD flows.
 
