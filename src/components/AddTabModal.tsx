@@ -17,6 +17,10 @@ import type {
   GasCityDashboardState,
   GasCityPluginModule,
 } from '../modules/plugins/gas-city/types';
+import {
+  buildGasCityWorkspaceWorkflowPlan,
+  type GasCityWorkspaceWorkflowMode,
+} from '../modules/plugins/gas-city/workspace-workflow';
 import type {
   TabGroupFactoryContribution,
   TabPresetContribution,
@@ -49,7 +53,7 @@ interface AddTabModalProps {
   };
 }
 
-type NewWorkspaceWorkflowMode = 'plain_vk' | 'gc_worker' | 'gc_worker_review';
+type NewWorkspaceWorkflowMode = GasCityWorkspaceWorkflowMode;
 
 type MenuEntry =
   | {
@@ -404,6 +408,7 @@ function NewWorkspaceModal({
   const [workerTemplate, setWorkerTemplate] = useState('worker');
   const [workerAlias, setWorkerAlias] = useState('');
   const [reviewerTemplate, setReviewerTemplate] = useState('reviewer');
+  const [reviewerAlias, setReviewerAlias] = useState('');
   const [workflowPreset, setWorkflowPreset] = useState('worker-review');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -487,21 +492,46 @@ function NewWorkspaceModal({
         if (!gasCity) {
           throw new Error('Gas City plugin is unavailable for this workflow.');
         }
-        await gasCity.actions.bootstrapSessionFromWorkspace({
+        const workflowPlan = buildGasCityWorkspaceWorkflowPlan({
+          workflowMode,
+          workspaceName: workspace.name || name,
+          taskPrompt: prompt.trim(),
+          workerTemplate,
+          workerAlias,
+          reviewerTemplate,
+          reviewerAlias,
+          workflowPreset,
+        });
+        const reviewerSession =
+          workflowPlan.reviewer && workflowMode === 'gc_worker_review'
+            ? await vkClient.createSession({
+                workspace_id: created.workspace.id,
+                executor: executor.trim() || 'CODEX',
+                name: workflowPlan.reviewer.vkSessionName,
+              })
+            : null;
+        await gasCity.actions.kickoffWorkspaceWorkflow({
           workspaceId: created.workspace.id,
           workspaceName: workspace.name || name,
-          sessionId: created.execution_process.session_id,
-          template: workerTemplate.trim(),
-          alias: workerAlias.trim() || undefined,
-          title: `${workflowMode === 'gc_worker_review' ? 'Worker + review' : 'Worker'} • ${
-            workspace.name || name
-          }${
-            workflowMode === 'gc_worker_review'
-              ? ` • ${workflowPreset.trim() || 'review'}`
-              : ''
-          }`,
           executor: executor.trim() || 'CODEX',
           workingDir: selectedRepo.name,
+          worker: {
+            sessionId: created.execution_process.session_id,
+            template: workflowPlan.worker.template,
+            alias: workflowPlan.worker.alias,
+            title: workflowPlan.worker.title,
+          },
+          ...(workflowPlan.reviewer && reviewerSession
+            ? {
+                reviewer: {
+                  sessionId: reviewerSession.id,
+                  template: workflowPlan.reviewer.template,
+                  alias: workflowPlan.reviewer.alias,
+                  title: workflowPlan.reviewer.title,
+                  kickoffPrompt: workflowPlan.reviewer.kickoffPrompt,
+                },
+              }
+            : {}),
         });
       }
 
@@ -622,6 +652,14 @@ function NewWorkspaceModal({
                           setReviewerTemplate(event.target.value)
                         }
                         placeholder="reviewer"
+                        classNames={darkInputClassNames}
+                      />
+                      <Input
+                        label="Reviewer Alias"
+                        size="sm"
+                        value={reviewerAlias}
+                        onChange={(event) => setReviewerAlias(event.target.value)}
+                        placeholder="review-auth-refactor"
                         classNames={darkInputClassNames}
                       />
                       <Input

@@ -66,12 +66,13 @@ GC-backed modes reveal an advanced section:
 ## Sequence: GC worker + reviewer workflow
 
 1. Run the `gc_worker` sequence.
-2. VD sends a follow-up GC kickoff action that uses the adopted worker lane plus reviewer settings.
-3. GC either:
-   - creates a reviewer session from the reviewer template, or
-   - dispatches a configured formula/order that routes implementation and review work.
+2. VD creates a second VK session in the same workspace for the reviewer lane.
+3. VD sends a follow-up GC kickoff action that:
+   - adopts the original VK execution session as the GC worker lane,
+   - adopts the new VK session as the GC reviewer lane, and
+   - nudges the reviewer GC alias with the selected workflow preset and original task prompt.
 4. VD opens the VK workspace and leaves the user in the conversation UI, with GC status available in the Gas City tab.
-5. If reviewer kickoff fails, VD keeps the workspace open and reports a recoverable GC error with a retry action.
+5. If reviewer kickoff fails, VD keeps the workspace open and reports the recoverable GC error.
 
 ## Boundary contract
 
@@ -100,4 +101,4 @@ GC-backed modes reveal an advanced section:
 4. Add tests for payload construction and failure boundaries:
    - plain VK mode does not call GC
    - GC worker mode adopts exactly one VK session
-   - worker+review mode can retry reviewer kickoff without recreating the VK workspace
+   - worker+review mode adopts worker and reviewer VK sessions before nudging the reviewer alias

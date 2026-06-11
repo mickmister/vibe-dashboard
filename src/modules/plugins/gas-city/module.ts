@@ -212,6 +212,50 @@ springboard.registerModule(
       }
     };
 
+    const bootstrapWorkspaceSessionInternal = async (args: {
+      workspaceId: string;
+      workspaceName: string;
+      sessionId: string;
+      template: string;
+      alias?: string;
+      title?: string;
+      executor: string;
+      workingDir?: string;
+    }) => {
+      const command = [
+        "session",
+        "new",
+        args.template.trim(),
+        "--no-attach",
+      ];
+      if (args.alias?.trim()) {
+        command.push("--alias", args.alias.trim());
+      }
+      const title =
+        args.title?.trim() ||
+        `Bootstrap • ${args.workspaceName.trim() || "Workspace"}`;
+      command.push("--title", title);
+      const result = await runGc(command, {
+        env: {
+          VIBE_ADOPT_WORKSPACE_ID: args.workspaceId,
+          VIBE_ADOPT_SESSION_ID: args.sessionId,
+          VIBE_SESSION_LABEL: title,
+          VIBE_EXECUTOR: args.executor.trim(),
+          ...(args.workingDir?.trim()
+            ? { VIBE_WORKING_DIR: args.workingDir.trim() }
+            : {}),
+        },
+      });
+      dashboard.setStateImmer((draft) => {
+        draft.lastCommandOutput = [result.stdout, result.stderr]
+          .filter(Boolean)
+          .join("\n")
+          .trim();
+        draft.error = null;
+      });
+      return result.stdout;
+    };
+
     const actions = moduleAPI.createActions({
       setConfig: (args: { gcBinary: string; cityPath: string }) => {
         dashboard.setStateImmer((draft) => {
@@ -532,39 +576,77 @@ springboard.registerModule(
         workingDir?: string;
       }) =>
         withLoading(async () => {
-          const command = [
-            "session",
-            "new",
-            args.template.trim(),
-            "--no-attach",
-          ];
-          if (args.alias?.trim()) {
-            command.push("--alias", args.alias.trim());
+          const stdout = await bootstrapWorkspaceSessionInternal(args);
+          await refreshSessionsInternal();
+          return stdout;
+        }),
+      kickoffWorkspaceWorkflow: async (args: {
+        workspaceId: string;
+        workspaceName: string;
+        executor: string;
+        workingDir?: string;
+        worker: {
+          sessionId: string;
+          template: string;
+          alias?: string;
+          title?: string;
+        };
+        reviewer?: {
+          sessionId: string;
+          template: string;
+          alias: string;
+          title?: string;
+          kickoffPrompt: string;
+        };
+      }) =>
+        withLoading(async () => {
+          const outputs: string[] = [];
+          outputs.push(
+            await bootstrapWorkspaceSessionInternal({
+              workspaceId: args.workspaceId,
+              workspaceName: args.workspaceName,
+              sessionId: args.worker.sessionId,
+              template: args.worker.template,
+              alias: args.worker.alias,
+              title: args.worker.title,
+              executor: args.executor,
+              workingDir: args.workingDir,
+            }),
+          );
+          if (args.reviewer) {
+            const reviewerAlias = args.reviewer.alias.trim();
+            if (!reviewerAlias) {
+              throw new Error("Reviewer GC alias is required for kickoff.");
+            }
+            outputs.push(
+              await bootstrapWorkspaceSessionInternal({
+                workspaceId: args.workspaceId,
+                workspaceName: args.workspaceName,
+                sessionId: args.reviewer.sessionId,
+                template: args.reviewer.template,
+                alias: reviewerAlias,
+                title: args.reviewer.title,
+                executor: args.executor,
+                workingDir: args.workingDir,
+              }),
+            );
+            const kickoff = await runAndStoreOutput([
+              "session",
+              "submit",
+              reviewerAlias,
+              args.reviewer.kickoffPrompt,
+              "--intent",
+              "follow_up",
+            ]);
+            outputs.push(kickoff);
           }
-          const title =
-            args.title?.trim() ||
-            `Bootstrap • ${args.workspaceName.trim() || "Workspace"}`;
-          command.push("--title", title);
-          const result = await runGc(command, {
-            env: {
-              VIBE_ADOPT_WORKSPACE_ID: args.workspaceId,
-              VIBE_ADOPT_SESSION_ID: args.sessionId,
-              VIBE_SESSION_LABEL: title,
-              VIBE_EXECUTOR: args.executor.trim(),
-              ...(args.workingDir?.trim()
-                ? { VIBE_WORKING_DIR: args.workingDir.trim() }
-                : {}),
-            },
-          });
+          const output = outputs.filter(Boolean).join("\n").trim();
           dashboard.setStateImmer((draft) => {
-            draft.lastCommandOutput = [result.stdout, result.stderr]
-              .filter(Boolean)
-              .join("\n")
-              .trim();
+            draft.lastCommandOutput = output;
             draft.error = null;
           });
           await refreshSessionsInternal();
-          return result.stdout;
+          return output;
         }),
       suspendSession: async (args: { sessionId: string }) =>
         withLoading(async () => {

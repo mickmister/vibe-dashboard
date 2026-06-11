@@ -67,6 +67,22 @@ export interface WorkspaceExecutionProcess {
   completed_at: string | null;
 }
 
+export interface Session {
+  id: string;
+  workspace_id: string;
+  name: string | null;
+  executor: string | null;
+  agent_working_dir: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateSessionRequest {
+  workspace_id: string;
+  executor?: string;
+  name?: string;
+}
+
 export interface CreateAndStartWorkspaceRequest {
   name: string | null;
   repos: WorkspaceRepoInput[];
@@ -149,6 +165,10 @@ export class VibeKanbanClient {
     data: CreateAndStartWorkspaceRequest,
   ): Promise<CreateAndStartWorkspaceResponse> {
     return this.post("/workspaces/start", data);
+  }
+
+  createSession(data: CreateSessionRequest): Promise<Session> {
+    return this.post("/sessions", data);
   }
 
   stopWorkspaceExecution(workspaceId: string): Promise<void> {

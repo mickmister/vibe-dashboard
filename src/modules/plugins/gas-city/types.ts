@@ -226,6 +226,25 @@ export interface GasCityPluginModule {
       executor: string;
       workingDir?: string;
     }) => Promise<string>;
+    kickoffWorkspaceWorkflow: (args: {
+      workspaceId: string;
+      workspaceName: string;
+      executor: string;
+      workingDir?: string;
+      worker: {
+        sessionId: string;
+        template: string;
+        alias?: string;
+        title?: string;
+      };
+      reviewer?: {
+        sessionId: string;
+        template: string;
+        alias: string;
+        title?: string;
+        kickoffPrompt: string;
+      };
+    }) => Promise<string>;
     suspendSession: (args: { sessionId: string }) => Promise<string>;
     wakeSession: (args: { sessionId: string }) => Promise<string>;
     killSession: (args: { sessionId: string }) => Promise<string>;
