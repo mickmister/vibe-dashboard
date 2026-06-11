@@ -16,6 +16,7 @@ import {
   renderGasCityGeneratedCityConfig,
 } from "./city-config-renderer";
 import { scanGasCityLocalPack } from "./local-pack-scanner";
+import { buildGasCitySlingFormulaCommand } from "./sling-command";
 
 const manifest: PluginManifest = createPluginManifest({
   id: "dev.mickmister.gas-city",
@@ -481,22 +482,7 @@ springboard.registerModule(
         vars?: Record<string, string>;
       }) =>
         withLoading(async () => {
-          const target = args.target.trim();
-          const formula = args.formula.trim();
-          if (!target) {
-            throw new Error("Choose a sling target before dispatching.");
-          }
-          if (!formula) {
-            throw new Error("Choose a formula before dispatching.");
-          }
-          const command = ["sling", target, formula, "--formula"];
-          for (const [key, value] of Object.entries(args.vars ?? {}).sort(
-            ([left], [right]) => left.localeCompare(right),
-          )) {
-            const trimmedKey = key.trim();
-            if (!trimmedKey) continue;
-            command.push("--var", `${trimmedKey}=${value}`);
-          }
+          const command = buildGasCitySlingFormulaCommand(args);
           const stdout = await runAndStoreOutput(command);
           await refreshSessionsInternal().catch(() => []);
           return stdout;
