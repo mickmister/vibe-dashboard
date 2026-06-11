@@ -3,7 +3,10 @@ import {
   createDefaultGasCityBuilderState,
   type GasCityBuilderState,
 } from "./types";
-import { renderGasCityGeneratedCityConfig } from "./city-config-renderer";
+import {
+  renderGasCityGeneratedCityConfig,
+  previewGasCityGeneratedCityConfig,
+} from "./city-config-renderer";
 
 function builderState(
   overrides: Partial<GasCityBuilderState> = {},
@@ -83,5 +86,45 @@ describe("renderGasCityGeneratedCityConfig", () => {
         }),
       ),
     ).toThrow(/rigName/);
+  });
+});
+
+describe("previewGasCityGeneratedCityConfig", () => {
+  it("returns generated files with overwrite warnings and simple diffs", () => {
+    const state = builderState({
+      generatedCity: {
+        cityId: "default",
+        cityName: "Team City",
+        runtimeRoot: "/tmp/vd-gc-runtime",
+        cityTomlPath: "/tmp/vd-gc-runtime/city.toml",
+        lastRenderedAt: null,
+      },
+      localPackRefs: [
+        {
+          id: "city-pack",
+          binding: "gastown",
+          sourcePath: "/packs/gastown",
+          scope: "city",
+          rigName: null,
+          enabled: true,
+          addedAt: "2026-06-11T00:00:00.000Z",
+          lastValidatedAt: null,
+        },
+      ],
+    });
+
+    const preview = previewGasCityGeneratedCityConfig(state, {
+      cityToml: `[workspace]\nname = "Old"\n`,
+      packToml: `[pack]\nname = "Team City"\nschema = 2\n`,
+    });
+
+    expect(preview.warning).toContain("Generated TOML may be overwritten");
+    expect(preview.files.map((file) => [file.kind, file.status])).toEqual([
+      ["city.toml", "modified"],
+      ["pack.toml", "unchanged"],
+    ]);
+    expect(preview.files[0]?.path).toBe("/tmp/vd-gc-runtime/city.toml");
+    expect(preview.files[0]?.diff).toContain('-name = "Old"');
+    expect(preview.files[0]?.diff).toContain('+name = "Team City"');
   });
 });

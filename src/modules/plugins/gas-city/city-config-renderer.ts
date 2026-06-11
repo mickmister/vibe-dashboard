@@ -5,6 +5,25 @@ export interface GasCityGeneratedCityConfig {
   packToml: string;
 }
 
+export interface GasCityGeneratedConfigCurrentContents {
+  cityToml?: string | null;
+  packToml?: string | null;
+}
+
+export interface GasCityGeneratedConfigPreviewFile {
+  kind: "city.toml" | "pack.toml";
+  path: string;
+  currentContent: string | null;
+  generatedContent: string;
+  diff: string;
+  status: "created" | "modified" | "unchanged";
+}
+
+export interface GasCityGeneratedConfigPreview {
+  warning: string;
+  files: GasCityGeneratedConfigPreviewFile[];
+}
+
 export function renderGasCityGeneratedCityConfig(
   state: GasCityBuilderState,
 ): GasCityGeneratedCityConfig {
@@ -51,6 +70,84 @@ export function renderGasCityGeneratedCityConfig(
       "",
     ].join("\n"),
   };
+}
+
+export function previewGasCityGeneratedCityConfig(
+  state: GasCityBuilderState,
+  currentContents: GasCityGeneratedConfigCurrentContents = {},
+): GasCityGeneratedConfigPreview {
+  const rendered = renderGasCityGeneratedCityConfig(state);
+  const runtimeRoot = state.generatedCity.runtimeRoot.trim();
+  return {
+    warning:
+      "Generated TOML may be overwritten when applied. Treat the preview as disposable runtime output.",
+    files: [
+      previewFile(
+        "city.toml",
+        joinPath(runtimeRoot, "city.toml"),
+        currentContents.cityToml ?? null,
+        rendered.cityToml,
+      ),
+      previewFile(
+        "pack.toml",
+        joinPath(runtimeRoot, "pack.toml"),
+        currentContents.packToml ?? null,
+        rendered.packToml,
+      ),
+    ],
+  };
+}
+
+function previewFile(
+  kind: GasCityGeneratedConfigPreviewFile["kind"],
+  path: string,
+  currentContent: string | null,
+  generatedContent: string,
+): GasCityGeneratedConfigPreviewFile {
+  const status =
+    currentContent === null
+      ? "created"
+      : currentContent === generatedContent
+        ? "unchanged"
+        : "modified";
+  return {
+    kind,
+    path,
+    currentContent,
+    generatedContent,
+    status,
+    diff: buildSimpleUnifiedDiff(kind, currentContent, generatedContent),
+  };
+}
+
+function buildSimpleUnifiedDiff(
+  label: string,
+  currentContent: string | null,
+  generatedContent: string,
+): string {
+  const currentLines = currentContent === null ? [] : splitLines(currentContent);
+  const generatedLines = splitLines(generatedContent);
+  if (currentContent === generatedContent) {
+    return `--- ${label} (current)\n+++ ${label} (generated)\n`;
+  }
+  return [
+    `--- ${label} (current)`,
+    `+++ ${label} (generated)`,
+    ...currentLines.map((line) => `-${line}`),
+    ...generatedLines.map((line) => `+${line}`),
+    "",
+  ].join("\n");
+}
+
+function splitLines(content: string): string[] {
+  return content.endsWith("\n")
+    ? content.slice(0, -1).split("\n")
+    : content.split("\n");
+}
+
+function joinPath(basePath: string, fileName: string): string {
+  const normalizedBasePath = basePath.replace(/\/+$/, "");
+  return normalizedBasePath ? `${normalizedBasePath}/${fileName}` : fileName;
 }
 
 function comparePackRefs(

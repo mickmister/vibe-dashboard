@@ -10,7 +10,10 @@ import {
   type GasCitySessionInfo,
   type GasCityPluginModule,
 } from "./types";
-import { renderGasCityGeneratedCityConfig } from "./city-config-renderer";
+import {
+  previewGasCityGeneratedCityConfig,
+  renderGasCityGeneratedCityConfig,
+} from "./city-config-renderer";
 import { scanGasCityLocalPack } from "./local-pack-scanner";
 
 const manifest: PluginManifest = createPluginManifest({
@@ -49,6 +52,25 @@ async function writeFileAtomic(
   );
   await fs.writeFile(tempPath, contents, "utf8");
   await fs.rename(tempPath, targetPath);
+}
+
+async function readTextFileIfPresent(
+  fs: NodeFsPromises,
+  filePath: string,
+): Promise<string | null> {
+  try {
+    return await fs.readFile(filePath, "utf8");
+  } catch (error) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      error.code === "ENOENT"
+    ) {
+      return null;
+    }
+    throw error;
+  }
 }
 
 springboard.registerModule(
@@ -256,6 +278,55 @@ springboard.registerModule(
           draft.lastCommandOutput = `Rendered generated Gas City config:\n${cityTomlPath}\n${packTomlPath}`;
         });
         return { runtime, packTomlPath };
+      },
+      previewGeneratedCityConfig: async (args?: {
+        runtimeRoot?: string;
+        cityName?: string;
+        cityId?: string;
+      }) => {
+        const fs = await importNode<typeof import("node:fs/promises")>(
+          "node:fs/promises",
+        );
+        const path = await importNode<typeof import("node:path")>("node:path");
+        const state = dashboard.getState();
+        const runtimeRoot = (
+          args?.runtimeRoot ?? state.cityBuilder.generatedCity.runtimeRoot
+        ).trim();
+        if (!runtimeRoot) {
+          throw new Error("Choose a generated Gas City runtime directory.");
+        }
+        if (!path.isAbsolute(runtimeRoot)) {
+          throw new Error(
+            "Generated Gas City runtime directory must be an absolute path.",
+          );
+        }
+        const cityTomlPath = path.join(runtimeRoot, "city.toml");
+        const packTomlPath = path.join(runtimeRoot, "pack.toml");
+        const builderState = {
+          ...state.cityBuilder,
+          generatedCity: {
+            ...state.cityBuilder.generatedCity,
+            cityId:
+              args?.cityId?.trim() ||
+              state.cityBuilder.generatedCity.cityId ||
+              "default",
+            cityName:
+              args?.cityName?.trim() ||
+              state.cityBuilder.generatedCity.cityName ||
+              "vd-generated",
+            runtimeRoot,
+            cityTomlPath,
+          },
+        };
+        const preview = previewGasCityGeneratedCityConfig(builderState, {
+          cityToml: await readTextFileIfPresent(fs, cityTomlPath),
+          packToml: await readTextFileIfPresent(fs, packTomlPath),
+        });
+        dashboard.setStateImmer((draft) => {
+          draft.error = null;
+          draft.lastCommandOutput = preview.warning;
+        });
+        return preview;
       },
       scanLocalPack: async (args: { packRefId: string; sourcePath: string }) => {
         const validation = await scanGasCityLocalPack(args);

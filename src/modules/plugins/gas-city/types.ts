@@ -1,4 +1,5 @@
 import type { PluginManifest } from "../vibe-dashboard/types";
+import type { GasCityGeneratedConfigPreview } from "./city-config-renderer";
 
 export interface GasCitySessionInfo {
   ID: string;
@@ -172,6 +173,11 @@ export interface GasCityPluginModule {
       cityName?: string;
       cityId?: string;
     }) => Promise<GasCityRenderGeneratedConfigResult>;
+    previewGeneratedCityConfig: (args?: {
+      runtimeRoot?: string;
+      cityName?: string;
+      cityId?: string;
+    }) => Promise<GasCityGeneratedConfigPreview>;
     scanLocalPack: (args: {
       packRefId: string;
       sourcePath: string;
