@@ -1,4 +1,9 @@
-import type { Craft, SavedWorkspaceSession, VoyageEntry } from '../types';
+import type {
+  Craft,
+  SavedWorkspaceSession,
+  VoyageEntry,
+  WorkspaceState,
+} from '../types';
 
 function slugifyPart(value: string): string {
   const normalized = value
@@ -89,4 +94,51 @@ export function buildCanonicalDashboardPath(
 
   const nextSearch = searchParams.toString();
   return `/dashboard${nextSearch ? `?${nextSearch}` : ''}`;
+}
+
+export function buildSavedVoyageDashboardPath({
+  currentSearch,
+  workspace,
+  session,
+  voyageEntryId,
+  tabId,
+  viewIds,
+}: {
+  currentSearch: string;
+  workspace: Pick<WorkspaceState, 'tabGroups'>;
+  session: SavedWorkspaceSession;
+  voyageEntryId?: string;
+  tabId?: string;
+  viewIds?: string[];
+}): string {
+  const requestedEntry = session.voyageEntries.find(
+    (entry) => entry.id === voyageEntryId,
+  );
+  const activeEntry = session.voyageEntries.find(
+    (entry) => entry.id === session.activeVoyageEntryId,
+  );
+  const entry = requestedEntry || activeEntry || session.voyageEntries[0];
+  const tabGroup = workspace.tabGroups.find(
+    (candidate) => candidate.id === entry?.tabGroupId,
+  );
+  const selectedViewIds = viewIds?.length
+    ? viewIds
+    : tabId
+      ? [tabId]
+      : entry?.viewIds;
+  const viewTokens =
+    tabGroup && selectedViewIds?.length
+      ? selectedViewIds
+          .map((viewId) => {
+            const tab = tabGroup.tabs.find((candidate) => candidate.id === viewId);
+            return tab ? buildViewParam(tab.title, tab.id) : null;
+          })
+          .filter((token): token is string => Boolean(token))
+      : undefined;
+
+  return buildCanonicalDashboardPath(currentSearch, {
+    slug: getVoyageSlug(session),
+    craftParam: buildCraftParam(tabGroup, entry),
+    viewTokens,
+  });
 }

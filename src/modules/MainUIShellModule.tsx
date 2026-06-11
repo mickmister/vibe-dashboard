@@ -19,6 +19,7 @@ import { resolveWorkspaceContainerRef } from '../lib/vkWorkspaceOpen';
 import {
   buildCanonicalDashboardPath,
   buildCraftParam,
+  buildSavedVoyageDashboardPath,
   buildViewParam,
   buildVoyageSlug,
   getVoyageSlug,
@@ -415,6 +416,20 @@ springboard.registerModule(
         }
         const currentVoyageSlug = buildVoyageSlug(voyageName, browserSessionId);
 
+        if ((queryCraftParam || queryViewsParam) && querySelection.voyageEntryId) {
+          const nextPath = buildCanonicalDashboardPath(location.search, {
+            slug: currentVoyageSlug,
+            craftParam: queryCraftParam,
+            viewTokens: queryViewsParam
+              ? queryViewsParam.split(',').filter(Boolean)
+              : undefined,
+          });
+          if (nextPath !== currentPath) {
+            navigate(nextPath, { replace: true });
+          }
+          return;
+        }
+
         const craftParam = buildCraftParam(currentTabGroup, activeVoyageEntry);
 
         const activeViewIds = activeVoyageEntry?.viewIds || [];
@@ -444,6 +459,9 @@ springboard.registerModule(
         location.pathname,
         navigate,
         requestedVoyageKey,
+        queryCraftParam,
+        querySelection.voyageEntryId,
+        queryViewsParam,
         sessionNav.activeTabGroupId,
         sessionNav.activeVoyageEntryId,
         sessionNav.voyageEntries,
@@ -578,46 +596,36 @@ springboard.registerModule(
         name?: string,
         voyageEntryId?: string,
         options: {
+          session?: SavedWorkspaceSession;
           tabId?: string;
           viewIds?: string[];
         } = {},
       ) => {
-        const session = savedVoyages.find((entry) => entry.id === sessionId);
+        const session =
+          options.session || savedVoyages.find((entry) => entry.id === sessionId);
         const voyageName = session?.name?.trim() || name?.trim();
 
-        if (!voyageName || isHomeVoyageDisplayName(voyageName)) {
+        if (!session && (!voyageName || isHomeVoyageDisplayName(voyageName))) {
           const nextPath = buildCanonicalDashboardPath(location.search, undefined);
           navigate(nextPath, { replace: true });
           return;
         }
 
-        const requestedEntry = session?.voyageEntries.find(
-          (entry) => entry.id === voyageEntryId,
-        );
-        const requestedTabGroup = workspace.tabGroups.find(
-          (tabGroup) => tabGroup.id === requestedEntry?.tabGroupId,
-        );
-        const viewIds = options.viewIds?.length
-          ? options.viewIds
-          : options.tabId
-            ? [options.tabId]
-            : requestedEntry?.viewIds;
-        const requestedViewTokens =
-          requestedEntry && requestedTabGroup && viewIds
-            ? viewIds
-                .map((viewId) => {
-                  const tab = requestedTabGroup.tabs.find(
-                    (entry) => entry.id === viewId,
-                  );
-                  return tab ? buildViewParam(tab.title, tab.id) : null;
-                })
-                .filter((token): token is string => Boolean(token))
-            : undefined;
+        if (session) {
+          const nextPath = buildSavedVoyageDashboardPath({
+            currentSearch: location.search,
+            workspace,
+            session,
+            ...(voyageEntryId ? { voyageEntryId } : {}),
+            ...(options.tabId ? { tabId: options.tabId } : {}),
+            ...(options.viewIds ? { viewIds: options.viewIds } : {}),
+          });
+          navigate(nextPath, { replace: true });
+          return;
+        }
 
         const nextPath = buildCanonicalDashboardPath(location.search, {
-          slug: session ? getVoyageSlug(session) : buildVoyageSlug(voyageName, sessionId),
-          craftParam: buildCraftParam(requestedTabGroup, requestedEntry),
-          viewTokens: requestedViewTokens,
+          slug: buildVoyageSlug(voyageName!, sessionId),
         });
         navigate(nextPath, { replace: true });
       };
@@ -627,8 +635,8 @@ springboard.registerModule(
         tabGroupId: string;
         tabId?: string;
         viewIds?: string[];
-      }) => {
-        if (!activeSavedSession) return;
+      }): boolean => {
+        if (!activeSavedSession) return false;
         const activeEntry = sessionNav.voyageEntries.find(
           (entry) =>
             entry.id === sessionNav.activeVoyageEntryId &&
@@ -646,44 +654,79 @@ springboard.registerModule(
               ...(args.viewIds ? { viewIds: args.viewIds } : {}),
             },
           );
-        }
-        if (activeEntry && !args.tabId && !args.viewIds) {
-          void actions.activateSavedVoyageEntry({
-            sessionId: activeSavedSession.id,
-            voyageEntryId: activeEntry.id,
-          });
-          return;
+          // URL navigation above is the live source of truth. Persistence mirrors it.
+          // The route-derived nav will react to the URL change.
+          const persistence = activeEntry && !args.tabId && !args.viewIds
+            ? actions.activateSavedVoyageEntry({
+                sessionId: activeSavedSession.id,
+                voyageEntryId: activeEntry.id,
+              })
+            : actions.addSelectionToSavedSession({
+                sessionId: activeSavedSession.id,
+                spaceId: args.spaceId,
+                tabGroupId: args.tabGroupId,
+                voyageEntryId: activeEntry.id,
+                ...(args.tabId ? { tabId: args.tabId } : {}),
+                ...(args.viewIds ? { viewIds: args.viewIds } : {}),
+              });
+          void persistence;
+          return true;
         }
 
         void actions.addSelectionToSavedSession({
           sessionId: activeSavedSession.id,
           spaceId: args.spaceId,
           tabGroupId: args.tabGroupId,
-          ...(activeEntry ? { voyageEntryId: activeEntry.id } : {}),
           ...(args.tabId ? { tabId: args.tabId } : {}),
           ...(args.viewIds ? { viewIds: args.viewIds } : {}),
+        }).then(async (result) => {
+          const updatedSession = await result;
+          if (!updatedSession) return;
+          navigate(
+            buildSavedVoyageDashboardPath({
+              currentSearch: location.search,
+              workspace,
+              session: updatedSession,
+              voyageEntryId: updatedSession.activeVoyageEntryId,
+              ...(args.tabId ? { tabId: args.tabId } : {}),
+              ...(args.viewIds ? { viewIds: args.viewIds } : {}),
+            }),
+            { replace: true },
+          );
         });
+        return true;
       };
 
       const sessionActions = {
-        selectSpace: sessionNav.selectSpace,
+        selectSpace: (spaceId: string) => {
+          const firstTabGroupId = workspace.spaces.find(
+            (space) => space.id === spaceId,
+          )?.tabGroupIds[0];
+          if (
+            firstTabGroupId &&
+            persistSavedSelection({ spaceId, tabGroupId: firstTabGroupId })
+          ) {
+            return;
+          }
+          sessionNav.selectSpace(spaceId);
+        },
         selectSessionTabGroup: (spaceId: string, tabGroupId: string) => {
-          persistSavedSelection({ spaceId, tabGroupId });
+          if (persistSavedSelection({ spaceId, tabGroupId })) return;
           sessionNav.selectSessionTabGroup(spaceId, tabGroupId);
         },
         selectSessionTab: (spaceId: string, tabGroupId: string, tabId: string) => {
-          persistSavedSelection({ spaceId, tabGroupId, tabId });
+          if (persistSavedSelection({ spaceId, tabGroupId, tabId })) return;
           sessionNav.selectSessionTab(spaceId, tabGroupId, tabId);
         },
         selectSessionPair: (spaceId: string, tabGroupId: string, pairId: string) => {
           const pair = workspace.tabGroups
             .find((tabGroup) => tabGroup.id === tabGroupId)
             ?.pairs.find((candidate) => candidate.id === pairId);
-          persistSavedSelection({
+          if (persistSavedSelection({
             spaceId,
             tabGroupId,
             ...(pair ? { viewIds: pair.tabIds } : {}),
-          });
+          })) return;
           sessionNav.selectSessionPair(spaceId, tabGroupId, pairId);
         },
         selectVoyageEntry: (voyageEntryId: string) => {
@@ -697,6 +740,7 @@ springboard.registerModule(
               sessionId: activeSavedSession.id,
               voyageEntryId,
             });
+            return;
           }
           sessionNav.selectVoyageEntry(voyageEntryId);
         },
@@ -713,6 +757,10 @@ springboard.registerModule(
           sessionActions.selectSessionPair(spaceId, tabGroupId, pairId);
         },
         setActiveTabGroup: (tabGroupId: string) => {
+          const spaceId =
+            workspace.spaces.find((space) => space.tabGroupIds.includes(tabGroupId))?.id ||
+            sessionNav.activeSpaceId;
+          if (persistSavedSelection({ spaceId, tabGroupId })) return;
           sessionNav.setActiveTabGroup(tabGroupId);
         },
         getActiveItem: sessionNav.getActiveItem,
@@ -726,27 +774,43 @@ springboard.registerModule(
             setBrowserSessionId(sessionId);
           }
           updateBookmarkedSessionSearch(sessionId, undefined, voyageEntryId);
-          sessionNav.resumeSession(sessionToResume, voyageEntryId);
         },
         activateSavedSession: (session: SavedWorkspaceSession) => {
           pendingSavedSessionActivationIdRef.current = session.id;
           if (typeof window !== 'undefined') {
             setBrowserSessionId(session.id);
           }
-          updateBookmarkedSessionSearch(session.id, session.name);
-          sessionNav.resumeSession(session);
+          updateBookmarkedSessionSearch(session.id, session.name, undefined, {
+            session,
+          });
         },
         renameSession: (sessionId: string, name: string) => {
           void actions.renameSavedSession({ id: sessionId, name });
         },
         deleteSession: (sessionId: string) => {
           if (sessionId === browserSessionId) {
-            const nextSessionId = createNewBrowserSessionId();
-            if (typeof window !== 'undefined') {
-              setBrowserSessionId(nextSessionId);
+            const fallbackSession =
+              savedVoyages.find(
+                (session) =>
+                  session.id !== sessionId &&
+                  !isHomeVoyageDisplayName(session.name || ''),
+              ) || savedVoyages.find((session) => session.id !== sessionId);
+            if (fallbackSession) {
+              if (typeof window !== 'undefined') {
+                setBrowserSessionId(fallbackSession.id);
+              }
+              updateBookmarkedSessionSearch(
+                fallbackSession.id,
+                fallbackSession.name,
+              );
+            } else {
+              const nextSessionId = createNewBrowserSessionId();
+              if (typeof window !== 'undefined') {
+                setBrowserSessionId(nextSessionId);
+              }
+              updateBookmarkedSessionSearch(nextSessionId);
+              sessionNav.startNewSession();
             }
-            updateBookmarkedSessionSearch(nextSessionId);
-            sessionNav.startNewSession();
           }
           void actions.deleteSavedSession({ id: sessionId });
         },
@@ -754,6 +818,12 @@ springboard.registerModule(
           tabGroupId: string,
           options?: { allowDuplicate?: boolean; select?: boolean },
         ) => {
+          if (options?.select && !options.allowDuplicate) {
+            const spaceId =
+              workspace.spaces.find((space) => space.tabGroupIds.includes(tabGroupId))?.id ||
+              sessionNav.activeSpaceId;
+            if (persistSavedSelection({ spaceId, tabGroupId })) return;
+          }
           sessionNav.addTabGroupToSession(tabGroupId, options);
         },
         removeVoyageEntryFromSession: (voyageEntryId: string) => {
@@ -780,6 +850,7 @@ springboard.registerModule(
               sessionId: activeSavedSession.id,
               voyageEntryId,
             });
+            return;
           }
           sessionNav.removeVoyageEntryFromSession(voyageEntryId);
         },
@@ -814,6 +885,7 @@ springboard.registerModule(
                 });
               });
           }
+          if (activeSavedSession) return;
           sessionNav.removeTabGroupFromSession(tabGroupId);
         },
         reorderVoyageEntries: (sourceEntryId: string, targetEntryId: string) => {

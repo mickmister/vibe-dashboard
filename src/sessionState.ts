@@ -776,8 +776,8 @@ export function useSessionWorkspaceNav(
   useEffect(() => {
     if (savedSession?.id === prevSavedSessionIdRef.current) return;
     prevSavedSessionIdRef.current = savedSession?.id;
-    setNav(loadSessionNav(workspace, {}, savedSession));
-  }, [savedSession?.id, workspace]);
+    setNav(loadSessionNav(workspace, route, savedSession));
+  }, [route, savedSession?.id, workspace]);
 
   useEffect(() => {
     const pendingSelection = pendingSelectionRef.current;

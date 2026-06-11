@@ -2,12 +2,13 @@ import { describe, expect, it } from 'vitest';
 import {
   buildCanonicalDashboardPath,
   buildCraftParam,
+  buildSavedVoyageDashboardPath,
   buildViewParam,
   buildVoyageSlug,
   parseCraftParam,
   parseViewsParam,
 } from './voyageUrl';
-import type { Craft, VoyageEntry } from '../types';
+import type { Craft, SavedWorkspaceSession, VoyageEntry, WorkspaceState } from '../types';
 
 describe('voyageUrl', () => {
   it('builds stable voyage slugs from labels and full stable ids', () => {
@@ -72,6 +73,56 @@ describe('voyageUrl', () => {
       ),
     ).toBe(
       '/dashboard?from_gh_url=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fissues%2F2',
+    );
+  });
+
+  it('builds the next saved-voyage URL directly from an interaction target', () => {
+    const workspace = {
+      spaces: [],
+      nextId: 0,
+      tabGroups: [
+        {
+          id: 'tg_workspace_42',
+          label: 'Workspace',
+          tabs: [
+            { id: 'tab_agent_1', title: 'Agent', url: 'https://agent.invalid' },
+            { id: 'tab_code_2', title: 'Code', url: 'https://code.invalid' },
+          ],
+          pairs: [],
+          order: 0,
+        },
+      ],
+    } satisfies WorkspaceState;
+    const session = {
+      id: 'session_abc',
+      slug: 'focused-session_abc',
+      name: 'Focused',
+      createdAt: '2026-06-11T00:00:00.000Z',
+      updatedAt: '2026-06-11T00:00:00.000Z',
+      activeVoyageEntryId: 've_tg_workspace_42',
+      voyageEntries: [
+        {
+          id: 've_tg_workspace_42',
+          tabGroupId: 'tg_workspace_42',
+          viewIds: ['tab_agent_1'],
+        },
+      ],
+      activeSpaceId: 'space_1',
+      activeTabGroupId: 'tg_workspace_42',
+      activeItemsByVoyageEntryId: { ve_tg_workspace_42: 'tab_agent_1' },
+      visitedTabGroupIds: ['tg_workspace_42'],
+    } satisfies SavedWorkspaceSession;
+
+    expect(
+      buildSavedVoyageDashboardPath({
+        currentSearch: '?from_gh_url=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fpull%2F1&voyage=old&craft=old&views=old',
+        workspace,
+        session,
+        voyageEntryId: 've_tg_workspace_42',
+        tabId: 'tab_code_2',
+      }),
+    ).toBe(
+      '/dashboard?from_gh_url=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fpull%2F1&voyage=focused-session_abc&craft=workspace-42-42&views=code-2',
     );
   });
 });
