@@ -27,6 +27,7 @@ interface IframePanelProps {
   onStartNewSession?: () => void;
   onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void;
   onOpenVKWorkspace?: (taskAttemptId: string, name: string, containerRef: string, spaceId: string) => void;
+  onOpenHostSidebar?: () => void;
 }
 
 /**
@@ -65,6 +66,12 @@ type VibeKanbanIframeMessage =
       workspaceId: string;
       sessionId?: string;
       isNewSessionMode: boolean;
+    }
+  | {
+      source: 'vibe-kanban';
+      version: 1;
+      event: 'host:open-sidebar';
+      requestId: string;
     };
 
 let iframeStore: Map<string, IframeEntry> = new Map();
@@ -399,9 +406,15 @@ function isVibeKanbanIframeMessage(
   if (!value || typeof value !== 'object') return false;
   const data = value as Record<string, unknown>;
 
+  if (data.source !== 'vibe-kanban' || data.version !== 1) {
+    return false;
+  }
+
+  if (data.event === 'host:open-sidebar') {
+    return typeof data.requestId === 'string';
+  }
+
   return (
-    data.source === 'vibe-kanban' &&
-    data.version === 1 &&
     typeof data.workspaceId === 'string' &&
     (data.event === 'workspace:navigate' ||
       data.event === 'workspace:message-submitted')
@@ -456,6 +469,24 @@ function findTabGroupSpaceId(
     workspace?.spaces.find((space) => space.tabGroupIds.includes(tabGroupId))
       ?.id ?? null
   );
+}
+
+function acknowledgeHostSidebarOpen(event: MessageEvent, requestId: string) {
+  if (!event.source || !('postMessage' in event.source)) return;
+
+  try {
+    (event.source as WindowProxy).postMessage(
+      {
+        source: 'vibe-dashboard',
+        version: 1,
+        event: 'host:open-sidebar:ack',
+        requestId,
+      },
+      event.origin === 'null' ? '*' : event.origin
+    );
+  } catch (error) {
+    console.warn('Failed to acknowledge VK host sidebar request', error);
+  }
 }
 
 export function hasKnownIframeMessageSource(source: MessageEventSource | null): boolean {
@@ -732,6 +763,7 @@ export function IframePanel({
   onStartNewSession,
   onNavigateToTabGroup,
   onOpenVKWorkspace,
+  onOpenHostSidebar,
 }: IframePanelProps) {
   const pendingWorkspaceOpensRef = useRef<Set<string>>(new Set());
   const activeTab = tabGroup.tabs.find(
@@ -776,8 +808,17 @@ export function IframePanel({
     const handleMessage = (event: MessageEvent) => {
       if (
         !isVibeKanbanIframeMessage(event.data) ||
+        !hasSameBaseOrigin(event.origin, window.location.origin) ||
         !isMessageFromMountedIframe(event.source, retainedTabs)
       ) {
+        return;
+      }
+
+      if (event.data.event === 'host:open-sidebar') {
+        if (!onOpenHostSidebar) return;
+
+        onOpenHostSidebar();
+        acknowledgeHostSidebarOpen(event, event.data.requestId);
         return;
       }
 
@@ -836,6 +877,7 @@ export function IframePanel({
   }, [
     onNavigateToTabGroup,
     onOpenVKWorkspace,
+    onOpenHostSidebar,
     retainedTabs,
     tabGroup.id,
     workspace,

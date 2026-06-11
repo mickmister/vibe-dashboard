@@ -1713,6 +1713,7 @@ export function WorkspaceShell({
             openNewVoyagePrompt();
           }}
           onNavigateToTabGroup={handleNavigateToWorkspaceTabGroup}
+          onOpenHostSidebar={() => setIsSidebarOpen(true)}
         />
         {expandedSessionTabGroup && (
           <div

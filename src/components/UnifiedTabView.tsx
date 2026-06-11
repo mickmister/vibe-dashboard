@@ -23,6 +23,7 @@ interface UnifiedTabViewProps {
   onDeleteSession: (sessionId: string) => void;
   onStartNewSession: () => void;
   onNavigateToTabGroup: (spaceId: string, tabGroupId: string) => void;
+  onOpenHostSidebar: () => void;
 }
 
 export function UnifiedTabView({
@@ -40,6 +41,7 @@ export function UnifiedTabView({
   onDeleteSession,
   onStartNewSession,
   onNavigateToTabGroup,
+  onOpenHostSidebar,
 }: UnifiedTabViewProps) {
   const activeTabGroup = tabGroups.find((tg) => tg.id === activeTabGroupId);
   const activeItemId = activeTabGroup
@@ -86,6 +88,7 @@ export function UnifiedTabView({
             onDeleteSession={onDeleteSession}
             onStartNewSession={onStartNewSession}
             onNavigateToTabGroup={onNavigateToTabGroup}
+            onOpenHostSidebar={onOpenHostSidebar}
             onOpenVKWorkspace={async (taskAttemptId, name, containerRef, spaceId) => {
               const result = await actions.addVKWorkspace({
                 taskAttemptId,
