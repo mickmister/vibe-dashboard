@@ -9,6 +9,9 @@ on:
 permissions:
   contents: read
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   check-types:
     name: npm run check-types
@@ -34,8 +37,8 @@ jobs:
         run: npm run check-types
 
 
-  marketplace-e2e:
-    name: marketplace sample e2e
+  plugin-runtime-tests:
+    name: plugin runtime unit and Deno smoke tests
     runs-on: ubuntu-latest
 
     steps:
@@ -59,8 +62,28 @@ jobs:
         with:
           deno-version: v2.x
 
-      - name: Run Deno backend smoke
-        run: pnpm --filter @vibe-kanban/plugin-iframe-rpc-prototype test:deno-smoke
+      - name: Run plugin runtime tests
+        run: pnpm --filter @vibe-kanban/plugin-iframe-rpc-prototype test
+
+  marketplace-e2e:
+    name: marketplace sample e2e
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Install Playwright Chromium
         run: pnpm exec playwright install --with-deps chromium
