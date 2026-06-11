@@ -271,3 +271,42 @@ Recommendation: use Hono RPC for V1 installer/catalog APIs, with explicit schema
 4. Use MSW `setupServer` in Vitest to mock GitHub release asset downloads from the local installer.
 5. Add a Vite UI e2e test that opens the marketplace, clicks install, and verifies the local installer staged the expected release asset.
 6. In `vkvw-nzv5.7` — "Milestone 3: Sample app proves frontend and backend runtimes", run the staged frontend and backend plugin parts in a standalone sample app before transplanting code into production `src/`.
+
+## Containerized backend plugin units
+
+Container units are for backend plugin code that needs arbitrary binaries or long-running services. They complement, not replace, Deno units.
+
+Schema additions for container units:
+
+```json
+{
+  "id": "worker",
+  "kind": "container",
+  "image": "ghcr.io/example/plugin-worker@sha256:<digest>",
+  "compose": "backend/worker.compose.yaml",
+  "network": "none",
+  "ports": [],
+  "volumes": ["$PLUGIN_DATA_DIR:/data:rw"],
+  "environment": ["PLUGIN_DATA_DIR"]
+}
+```
+
+Runtime rules:
+
+- Images must be pinned by digest and should come from GHCR for marketplace V1.
+- Signed release metadata covers the plugin manifest, compose file, expected image references, and artifact checksums.
+- The VD-local installer verifies release signatures before trusting compose/runtime metadata.
+- The runtime should reject local `build:` compose sections for marketplace plugins; plugin CI should publish prebuilt images.
+- Admin review must show network mode, exposed ports, writable volumes, environment grants, and image digest per container unit.
+- Prefer `docker compose pull` for the signed image references before creating containers; do not start containers during install.
+
+Publishing CI expectations:
+
+1. Build frontend/backend artifacts.
+2. Build container images in CI and push to GHCR.
+3. Record immutable image digest references in `plugin.json` and compose metadata.
+4. Package the plugin tarball containing manifest, frontend assets, backend source/config, and compose metadata.
+5. Produce detached signatures for the tarball and publish both bundle and signature as GitHub release assets.
+6. Update `plugins.json` with bundle URL, sha256, signature URL/value, capability summary, and image digest references.
+
+These rules follow the same least-responsibility model as Deno: Deno grants are explicit command-line flags; container grants are explicit network/volume/port/environment/image approvals.

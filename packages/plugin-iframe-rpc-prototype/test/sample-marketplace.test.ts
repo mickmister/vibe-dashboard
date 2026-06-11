@@ -3,6 +3,7 @@ import { createSampleMarketplaceApp } from '../src/sample-marketplace-server';
 import {
   PluginMarketplaceInstaller,
   createSampleCatalog,
+  containerCapabilitySummary,
   validatePluginCatalog,
   type ArtifactDownloader,
   type SignatureVerifier,
@@ -31,6 +32,34 @@ describe('sample marketplace plugin install and runtime', () => {
         ],
       }),
     ).toContain('dev.vibe-kanban.sample-frontend@1.0.0 must declare frontend, backend, or both');
+  });
+
+  it('models container backend units as digest-pinned admin-reviewed GHCR services', () => {
+    const catalog = createSampleCatalog();
+    const mixedVersion = catalog.plugins.find((plugin) => plugin.id === 'dev.vibe-kanban.fixture-plugin')!.versions[0]!;
+    const containerUnit = mixedVersion.backend!.units.find((unit) => unit.kind === 'container');
+
+    expect(containerUnit).toMatchObject({
+      image: 'ghcr.io/vibe-kanban/plugin-worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      compose: 'backend/worker.compose.yaml',
+      network: 'none',
+      volumes: ['$PLUGIN_DATA_DIR:/data:rw'],
+    });
+    expect(containerUnit?.kind === 'container' ? containerCapabilitySummary(containerUnit) : null).toMatchObject({
+      requiresAdminApproval: true,
+      ports: [],
+      environment: ['PLUGIN_DATA_DIR'],
+    });
+
+    const badCatalog = createSampleCatalog();
+    const badUnit = badCatalog.plugins.find((plugin) => plugin.id === 'dev.vibe-kanban.fixture-plugin')!.versions[0]!.backend!.units.find(
+      (unit) => unit.kind === 'container',
+    );
+    if (badUnit?.kind === 'container') badUnit.image = 'ghcr.io/vibe-kanban/plugin-worker:latest';
+
+    expect(validatePluginCatalog(badCatalog)).toContain(
+      'dev.vibe-kanban.fixture-plugin@1.0.0 container worker image must be a ghcr.io digest-pinned reference',
+    );
   });
 
   it('downloads, verifies, and stages a selected plugin artifact before enablement', async () => {

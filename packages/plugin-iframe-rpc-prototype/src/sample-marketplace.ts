@@ -57,7 +57,11 @@ export interface ContainerBackendPluginUnit {
   id: string;
   kind: 'container';
   image: string;
-  compose?: string;
+  compose: string;
+  network: 'none' | 'egress';
+  ports: string[];
+  volumes: string[];
+  environment: string[];
 }
 
 export interface PluginCapabilities {
@@ -103,16 +107,21 @@ export function createSampleCatalog(): PluginCatalog {
   } satisfies FrontendPluginPart;
 
   const backend = {
+    units: [createSampleDenoUnit()],
+  } satisfies BackendPluginPart;
+
+  const mixedBackend = {
     units: [
+      createSampleDenoUnit(),
       {
-        id: 'indexer',
-        kind: 'deno',
-        entry: 'backend/indexer.ts',
-        permissions: {
-          allowRead: ['$PLUGIN_DATA_DIR'],
-          allowWrite: ['$PLUGIN_DATA_DIR'],
-          allowNet: ['api.github.com'],
-        },
+        id: 'worker',
+        kind: 'container',
+        image: 'ghcr.io/vibe-kanban/plugin-worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        compose: 'backend/worker.compose.yaml',
+        network: 'none',
+        ports: [],
+        volumes: ['$PLUGIN_DATA_DIR:/data:rw'],
+        environment: ['PLUGIN_DATA_DIR'],
       },
     ],
   } satisfies BackendPluginPart;
@@ -122,8 +131,21 @@ export function createSampleCatalog(): PluginCatalog {
     plugins: [
       createEntry('dev.vibe-kanban.sample-frontend', 'Sample Frontend Plugin', { frontend }),
       createEntry('dev.vibe-kanban.sample-backend', 'Sample Backend Plugin', { backend }),
-      createEntry('dev.vibe-kanban.fixture-plugin', 'Sample Mixed Plugin', { frontend, backend }),
+      createEntry('dev.vibe-kanban.fixture-plugin', 'Sample Mixed Plugin', { frontend, backend: mixedBackend }),
     ],
+  };
+}
+
+function createSampleDenoUnit(): DenoBackendPluginUnit {
+  return {
+    id: 'indexer',
+    kind: 'deno',
+    entry: 'backend/indexer.ts',
+    permissions: {
+      allowRead: ['$PLUGIN_DATA_DIR'],
+      allowWrite: ['$PLUGIN_DATA_DIR'],
+      allowNet: ['api.github.com'],
+    },
   };
 }
 
@@ -187,6 +209,13 @@ export function validatePluginCatalog(catalog: PluginCatalog): string[] {
       if (!version.frontend && !version.backend) errors.push(`${label} must declare frontend, backend, or both`);
       if (version.frontend && !version.capabilities.frontend) errors.push(`${label} frontend capabilities are required`);
       if (version.backend && !version.capabilities.backend) errors.push(`${label} backend capabilities are required`);
+      for (const unit of version.backend?.units ?? []) {
+        if (unit.kind === 'container') {
+          if (!isGhcrDigestPinnedImage(unit.image)) errors.push(`${label} container ${unit.id} image must be a ghcr.io digest-pinned reference`);
+          if (!unit.compose.endsWith('.yaml') && !unit.compose.endsWith('.yml')) errors.push(`${label} container ${unit.id} compose metadata must be yaml`);
+          if (unit.ports.length > 0 && unit.network === 'none') errors.push(`${label} container ${unit.id} cannot expose ports with network none`);
+        }
+      }
     }
   }
 
@@ -252,4 +281,20 @@ export function denoPermissionFlags(permissions: DenoPermissionGrant): string[] 
 function flagList(flag: string, values: string[] | undefined): string[] {
   if (!values || values.length === 0) return [];
   return [`${flag}=${values.join(',')}`];
+}
+
+export function isGhcrDigestPinnedImage(image: string): boolean {
+  return /^ghcr\.io\/[a-z0-9._/-]+@sha256:[a-f0-9]{64}$/i.test(image);
+}
+
+export function containerCapabilitySummary(unit: ContainerBackendPluginUnit) {
+  return {
+    image: unit.image,
+    compose: unit.compose,
+    network: unit.network,
+    ports: unit.ports,
+    volumes: unit.volumes,
+    environment: unit.environment,
+    requiresAdminApproval: true,
+  };
 }
