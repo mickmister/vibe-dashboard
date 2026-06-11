@@ -85,6 +85,28 @@ function capabilitySourceLabel(
   );
 }
 
+function isSlingTargetCapability(
+  capability: GasCityDiscoveredCapability,
+): boolean {
+  return capability.kind === "agent" || capability.kind === "named_session";
+}
+
+function gasCityQualifiedCapabilityTarget(
+  capability: GasCityDiscoveredCapability,
+  validation: GasCityPackValidationCache,
+  packRef?: GasCityLocalPackRef,
+): string {
+  const binding =
+    packRef?.binding.trim() || validation.bindingSuggestion?.trim() || "";
+  const packScopedName = binding
+    ? `${binding}.${capability.name}`
+    : capability.name;
+  if (packRef?.scope === "rig" && packRef.rigName?.trim()) {
+    return `${packRef.rigName.trim()}/${packScopedName}`;
+  }
+  return packScopedName;
+}
+
 function safeOverrideKey(
   packRefId: string,
   name: string,
@@ -1011,7 +1033,7 @@ export function GasCityPanel({
                   label="Sling target"
                   value={slingTarget}
                   onChange={(event) => setSlingTarget(event.target.value)}
-                  placeholder="mayor or rig/agent"
+                  placeholder="mayor, smoke-pack.reviewer, or rig/smoke-pack.reviewer"
                   classNames={{
                     inputWrapper:
                       "bg-neutral-900 border-neutral-700 data-[hover=true]:bg-neutral-900 group-data-[focus=true]:bg-neutral-900",
@@ -1052,32 +1074,54 @@ export function GasCityPanel({
                     </span>
                   </div>
                   <div className="flex flex-col gap-2">
-                    {group.entries.map(({ capability, validation }) => (
-                      <div
-                        key={`${validation.packRefId}:${capability.id}`}
-                        className="rounded-md border border-neutral-800 bg-neutral-900 p-2"
-                      >
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-mono text-sm text-white">
-                            {capability.name}
-                          </span>
-                          <span
-                            className={`rounded-full border px-2 py-0.5 text-[11px] ${safetyTierClasses[capability.safetyTier]}`}
-                          >
-                            {safetyTierLabel(capability.safetyTier)}
-                          </span>
-                          {capability.executesLocalCode ? (
-                            <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-200">
-                              local code
+                    {group.entries.map(({ capability, validation }) => {
+                      const packRef = localPackRefsById.get(
+                        validation.packRefId,
+                      );
+                      const qualifiedTarget = gasCityQualifiedCapabilityTarget(
+                        capability,
+                        validation,
+                        packRef,
+                      );
+                      return (
+                        <div
+                          key={`${validation.packRefId}:${capability.id}`}
+                          className="rounded-md border border-neutral-800 bg-neutral-900 p-2"
+                        >
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-mono text-sm text-white">
+                              {capability.name}
                             </span>
+                            <span
+                              className={`rounded-full border px-2 py-0.5 text-[11px] ${safetyTierClasses[capability.safetyTier]}`}
+                            >
+                              {safetyTierLabel(capability.safetyTier)}
+                            </span>
+                            {capability.executesLocalCode ? (
+                              <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-200">
+                                local code
+                              </span>
+                            ) : null}
+                          </div>
+                          <div className="mt-1 truncate text-xs text-neutral-500">
+                            {capabilitySourceLabel(validation)}
+                            {capability.sourcePath
+                              ? ` • ${capability.sourcePath}`
+                              : ""}
+                          </div>
+                          {isSlingTargetCapability(capability) ? (
+                            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-neutral-500">
+                              <span>GC target:</span>
+                              <button
+                                type="button"
+                                className="rounded border border-neutral-700 bg-neutral-950 px-2 py-0.5 font-mono text-neutral-200 hover:border-primary hover:text-primary"
+                                onClick={() => setSlingTarget(qualifiedTarget)}
+                                title="Use this target for sample gc sling dispatch"
+                              >
+                                {qualifiedTarget}
+                              </button>
+                            </div>
                           ) : null}
-                        </div>
-                        <div className="mt-1 truncate text-xs text-neutral-500">
-                          {capabilitySourceLabel(validation)}
-                          {capability.sourcePath
-                            ? ` • ${capability.sourcePath}`
-                            : ""}
-                        </div>
                         {capability.kind === "formula" ? (
                           <div className="mt-2 flex flex-wrap items-center gap-2">
                             <Button
@@ -1258,8 +1302,9 @@ export function GasCityPanel({
                             })()}
                           </div>
                         ) : null}
-                      </div>
-                    ))}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               ))}
