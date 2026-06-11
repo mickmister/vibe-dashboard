@@ -4,7 +4,10 @@ import { getBaseOrigin } from "../../../utils/origin";
 import { vkClient, type Repo } from "../../../lib/vk-client";
 import type {
   GasCityDashboardState,
+  GasCityDiscoveredCapability,
   GasCityPluginModule,
+  GasCityPackSafetyTier,
+  GasCityPackValidationCache,
   GasCitySessionInfo,
 } from "./types";
 
@@ -40,6 +43,43 @@ function timeAgoLabel(isoString: string): string {
   if (diffHours < 24) return `${diffHours}h ago`;
   const diffDays = Math.floor(diffHours / 24);
   return `${diffDays}d ago`;
+}
+
+const safetyTierClasses: Record<GasCityPackSafetyTier, string> = {
+  read_only: "border-emerald-500/30 bg-emerald-500/10 text-emerald-200",
+  safe_structured_control:
+    "border-sky-500/30 bg-sky-500/10 text-sky-200",
+  authored_text: "border-violet-500/30 bg-violet-500/10 text-violet-200",
+  executable_or_provider:
+    "border-amber-500/30 bg-amber-500/10 text-amber-200",
+  destructive_runtime_action: "border-danger-500/30 bg-danger-500/10 text-danger-200",
+};
+
+const capabilityKindLabels: Record<GasCityDiscoveredCapability["kind"], string> = {
+  agent: "Agents",
+  named_session: "Named sessions",
+  formula: "Formulas",
+  order: "Orders",
+  command: "Commands",
+  doctor: "Doctor checks",
+  overlay: "Overlays",
+  template_fragment: "Template fragments",
+  asset: "Assets",
+};
+
+function safetyTierLabel(tier: GasCityPackSafetyTier): string {
+  return tier.replaceAll("_", " ");
+}
+
+function capabilitySourceLabel(
+  validation: GasCityPackValidationCache,
+): string {
+  return (
+    validation.packName ||
+    validation.bindingSuggestion ||
+    validation.sourcePath ||
+    validation.packRefId
+  );
 }
 
 export function GasCityPanel({
@@ -125,6 +165,59 @@ export function GasCityPanel({
       state.sessions.find((session) => session.ID === selectedSessionId) ??
       null,
     [selectedSessionId, state.sessions],
+  );
+
+  const capabilityGroups = useMemo(() => {
+    const validations = Object.values(
+      state.cityBuilder.validationCacheByPackRefId,
+    ).sort((left, right) =>
+      capabilitySourceLabel(left).localeCompare(capabilitySourceLabel(right)),
+    );
+    const groups = new Map<
+      GasCityDiscoveredCapability["kind"],
+      Array<{
+        capability: GasCityDiscoveredCapability;
+        validation: GasCityPackValidationCache;
+      }>
+    >();
+
+    for (const validation of validations) {
+      for (const capability of validation.capabilities) {
+        const existing = groups.get(capability.kind) ?? [];
+        existing.push({ capability, validation });
+        groups.set(capability.kind, existing);
+      }
+    }
+
+    return [...groups.entries()]
+      .map(([kind, entries]) => ({
+        kind,
+        entries: entries.sort(
+          (left, right) =>
+            capabilitySourceLabel(left.validation).localeCompare(
+              capabilitySourceLabel(right.validation),
+            ) || left.capability.name.localeCompare(right.capability.name),
+        ),
+      }))
+      .sort((left, right) =>
+        capabilityKindLabels[left.kind].localeCompare(
+          capabilityKindLabels[right.kind],
+        ),
+      );
+  }, [state.cityBuilder.validationCacheByPackRefId]);
+
+  const validationSummaries = useMemo(
+    () =>
+      Object.values(state.cityBuilder.validationCacheByPackRefId).sort(
+        (left, right) =>
+          capabilitySourceLabel(left).localeCompare(capabilitySourceLabel(right)),
+      ),
+    [state.cityBuilder.validationCacheByPackRefId],
+  );
+
+  const capabilityCount = capabilityGroups.reduce(
+    (count, group) => count + group.entries.length,
+    0,
   );
 
   const handleSaveConfig = async () => {
@@ -313,6 +406,116 @@ export function GasCityPanel({
               {state.statusOutput}
             </pre>
           ) : null}
+        </div>
+
+        <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4">
+          <div className="mb-3 flex items-start justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-neutral-300">
+                Pack Capabilities
+              </h3>
+              <p className="mt-1 text-sm text-neutral-400">
+                Browse scanner output from imported local packs. Safety badges
+                call out whether a capability is read-only, structured config,
+                authored text, or executable/provider-backed.
+              </p>
+            </div>
+            <span className="shrink-0 rounded-full border border-neutral-700 bg-neutral-800 px-3 py-1 text-xs text-neutral-300">
+              {capabilityCount} capabilities
+            </span>
+          </div>
+
+          {validationSummaries.length ? (
+            <div className="mb-4 grid gap-2 md:grid-cols-2">
+              {validationSummaries.map((validation) => (
+                <div
+                  key={validation.packRefId}
+                  className="rounded-lg border border-neutral-800 bg-neutral-950 p-3"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium text-white">
+                        {capabilitySourceLabel(validation)}
+                      </div>
+                      <div className="truncate text-xs text-neutral-500">
+                        {validation.sourcePath}
+                      </div>
+                    </div>
+                    <span className="rounded-full border border-neutral-700 px-2 py-0.5 text-xs text-neutral-300">
+                      {validation.capabilities.length}
+                    </span>
+                  </div>
+                  {validation.warnings.length ? (
+                    <div className="mt-2 text-xs text-amber-200">
+                      {validation.warnings.length} warning
+                      {validation.warnings.length === 1 ? "" : "s"}
+                    </div>
+                  ) : null}
+                  {validation.errors.length ? (
+                    <div className="mt-2 text-xs text-danger-200">
+                      {validation.errors.length} error
+                      {validation.errors.length === 1 ? "" : "s"}
+                    </div>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+          {capabilityGroups.length ? (
+            <div className="grid gap-3 lg:grid-cols-2">
+              {capabilityGroups.map((group) => (
+                <div
+                  key={group.kind}
+                  className="rounded-lg border border-neutral-800 bg-neutral-950 p-3"
+                >
+                  <div className="mb-2 flex items-center justify-between">
+                    <h4 className="text-sm font-semibold text-neutral-200">
+                      {capabilityKindLabels[group.kind]}
+                    </h4>
+                    <span className="text-xs text-neutral-500">
+                      {group.entries.length}
+                    </span>
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    {group.entries.map(({ capability, validation }) => (
+                      <div
+                        key={`${validation.packRefId}:${capability.id}`}
+                        className="rounded-md border border-neutral-800 bg-neutral-900 p-2"
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-mono text-sm text-white">
+                            {capability.name}
+                          </span>
+                          <span
+                            className={`rounded-full border px-2 py-0.5 text-[11px] ${safetyTierClasses[capability.safetyTier]}`}
+                          >
+                            {safetyTierLabel(capability.safetyTier)}
+                          </span>
+                          {capability.executesLocalCode ? (
+                            <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-200">
+                              local code
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="mt-1 truncate text-xs text-neutral-500">
+                          {capabilitySourceLabel(validation)}
+                          {capability.sourcePath
+                            ? ` • ${capability.sourcePath}`
+                            : ""}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-lg border border-dashed border-neutral-700 bg-neutral-950 p-4 text-sm text-neutral-400">
+              No scanned pack capabilities yet. Add or scan a local pack to
+              populate this browser.
+            </div>
+          )}
         </div>
 
         <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4">
