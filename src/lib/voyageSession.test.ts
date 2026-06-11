@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  resolveDashboardVoyage,
   resolvePreferredVoyageSessionId,
   resolveRequestedVoyageSessionId,
 } from './voyageSession';
@@ -62,5 +63,39 @@ describe('resolvePreferredVoyageSessionId', () => {
         storedBrowserSessionId: 'stale-local-id',
       }),
     ).toBe('stale-local-id');
+  });
+});
+
+describe('resolveDashboardVoyage', () => {
+  it('uses the requested voyage as the live source of truth over stored defaults', () => {
+    expect(
+      resolveDashboardVoyage({
+        savedSessions: [session('a', 'alpha-a'), session('b', 'beta-b')],
+        requestedVoyageKey: 'beta-b',
+        storedBrowserSessionId: 'a',
+        originDefaultSessionId: 'a',
+      }),
+    ).toEqual({ status: 'resolved', sessionId: 'b' });
+  });
+
+  it('reports a not-found state for invalid requested voyages instead of falling back', () => {
+    expect(
+      resolveDashboardVoyage({
+        savedSessions: [session('a', 'alpha-a')],
+        requestedVoyageKey: 'missing',
+        storedBrowserSessionId: 'a',
+        originDefaultSessionId: 'a',
+      }),
+    ).toEqual({ status: 'not-found', requestedVoyageKey: 'missing' });
+  });
+
+  it('uses stored or origin defaults only when the voyage param is missing', () => {
+    expect(
+      resolveDashboardVoyage({
+        savedSessions: [session('a', 'alpha-a'), session('b', 'beta-b')],
+        storedBrowserSessionId: 'b',
+        originDefaultSessionId: 'a',
+      }),
+    ).toEqual({ status: 'missing-param', sessionId: 'b' });
   });
 });

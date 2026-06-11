@@ -697,7 +697,9 @@ export function useSessionWorkspaceNav(
   workspace: WorkspaceState,
   route: RouteParams = {},
   savedSession?: SavedWorkspaceSession,
+  options: { persistToSessionStorage?: boolean } = {},
 ) {
+  const persistToSessionStorage = options.persistToSessionStorage ?? true;
   const [nav, setNav] = useState<SessionWorkspaceNav>(() =>
     loadSessionNav(workspace, route, savedSession),
   );
@@ -989,8 +991,9 @@ export function useSessionWorkspaceNav(
 
   // Sync to sessionStorage whenever nav changes
   useEffect(() => {
+    if (!persistToSessionStorage) return;
     saveSessionNav(nav);
-  }, [nav]);
+  }, [nav, persistToSessionStorage]);
 
   // Validate nav whenever workspace changes (e.g., space/tab group deleted or added)
   useEffect(() => {

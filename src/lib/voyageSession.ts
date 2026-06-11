@@ -54,3 +54,39 @@ export function resolvePreferredVoyageSessionId({
     undefined
   );
 }
+
+export type DashboardVoyageResolution =
+  | { status: 'resolved'; sessionId: string }
+  | { status: 'missing-param'; sessionId?: string }
+  | { status: 'not-found'; requestedVoyageKey: string };
+
+export function resolveDashboardVoyage({
+  savedSessions,
+  requestedVoyageKey,
+  storedBrowserSessionId,
+  originDefaultSessionId,
+}: {
+  savedSessions: SavedWorkspaceSession[];
+  requestedVoyageKey?: string;
+  storedBrowserSessionId?: string | null;
+  originDefaultSessionId?: string;
+}): DashboardVoyageResolution {
+  if (requestedVoyageKey) {
+    const requestedSessionId = resolveRequestedVoyageSessionId({
+      savedSessions,
+      requestedVoyageKey,
+    });
+    return requestedSessionId
+      ? { status: 'resolved', sessionId: requestedSessionId }
+      : { status: 'not-found', requestedVoyageKey };
+  }
+
+  return {
+    status: 'missing-param',
+    sessionId: resolvePreferredVoyageSessionId({
+      savedSessions,
+      storedBrowserSessionId,
+      originDefaultSessionId,
+    }),
+  };
+}
