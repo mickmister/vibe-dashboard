@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/gorilla/websocket"
 )
 
 func TestHandleStartCreatesStateAndSymlink(t *testing.T) {
@@ -158,6 +160,110 @@ func TestHandleNudgeUpdatesExecutionAndListRunning(t *testing.T) {
 	}
 	if got := strings.TrimSpace(stdout.String()); got != "agent-2" {
 		t.Fatalf("list-running = %q, want agent-2", got)
+	}
+}
+
+func TestHandleInterruptStopsExecutionAndMarksKilled(t *testing.T) {
+	t.Parallel()
+
+	stopCalled := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/api/execution-processes/exec-running/stop":
+			stopCalled++
+			writeAPIResponse(t, w, struct{}{})
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	r := testRunner(t.TempDir(), server.URL)
+	if err := r.saveState(&sessionState{
+		SessionName:           "agent-interrupt",
+		Active:                true,
+		VibeBaseURL:           server.URL,
+		VibeWorkspaceID:       "ws-1",
+		VibeSessionID:         "session-1",
+		LatestExecutionID:     "exec-running",
+		LatestExecutionStatus: watcherStatusRunning,
+		ExecutorConfig:        executorConfig{Executor: "CODEX"},
+		Meta:                  map[string]string{},
+	}); err != nil {
+		t.Fatalf("saveState: %v", err)
+	}
+
+	if err := r.handleInterrupt("agent-interrupt"); err != nil {
+		t.Fatalf("handleInterrupt: %v", err)
+	}
+	if stopCalled != 1 {
+		t.Fatalf("stopCalled = %d, want 1", stopCalled)
+	}
+	state, err := r.loadState("agent-interrupt")
+	if err != nil {
+		t.Fatalf("loadState: %v", err)
+	}
+	if state.LatestExecutionStatus != "killed" {
+		t.Fatalf("latest status = %q, want killed", state.LatestExecutionStatus)
+	}
+	if state.LastActivityAt != "2026-04-28T01:02:03Z" {
+		t.Fatalf("last activity = %q", state.LastActivityAt)
+	}
+}
+
+func TestHandlePeekHydratesNormalizedLogsAndTailsOutput(t *testing.T) {
+	t.Parallel()
+
+	upgrader := websocket.Upgrader{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/execution-processes/exec-stream/normalized-logs/ws":
+			conn, err := upgrader.Upgrade(w, r, nil)
+			if err != nil {
+				t.Fatalf("upgrade: %v", err)
+			}
+			defer conn.Close()
+			if err := conn.WriteMessage(websocket.TextMessage, []byte(`{"JsonPatch":[{"path":"/entries/0","value":{"type":"NORMALIZED_ENTRY","content":{"content":"first line"}}},{"path":"/entries/1","value":{"type":"STDOUT","content":"second line"}}]}`)); err != nil {
+				t.Fatalf("write websocket message: %v", err)
+			}
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	r := testRunner(t.TempDir(), server.URL)
+	if err := r.saveState(&sessionState{
+		SessionName:           "agent-peek",
+		Active:                true,
+		VibeBaseURL:           server.URL,
+		VibeWorkspaceID:       "ws-1",
+		VibeSessionID:         "session-1",
+		LatestExecutionID:     "exec-stream",
+		LatestExecutionStatus: watcherStatusRunning,
+		ExecutorConfig:        executorConfig{Executor: "CODEX"},
+		Meta:                  map[string]string{},
+	}); err != nil {
+		t.Fatalf("saveState: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	r.stdout = &stdout
+	if err := r.handlePeek("agent-peek", 1); err != nil {
+		t.Fatalf("handlePeek: %v", err)
+	}
+	if got := strings.TrimSpace(stdout.String()); got != "second line" {
+		t.Fatalf("peek stdout = %q, want second line", got)
+	}
+	loaded, err := r.loadState("agent-peek")
+	if err != nil {
+		t.Fatalf("loadState: %v", err)
+	}
+	if loaded.LastWatchedExecutionID != "exec-stream" {
+		t.Fatalf("last watched execution = %q, want exec-stream", loaded.LastWatchedExecutionID)
+	}
+	if loaded.LastActivityAt != "2026-04-28T01:02:03Z" {
+		t.Fatalf("last activity = %q", loaded.LastActivityAt)
 	}
 }
 
