@@ -2,9 +2,12 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Button, Input, Textarea } from "@heroui/react";
 import { getBaseOrigin } from "../../../utils/origin";
 import { vkClient, type Repo } from "../../../lib/vk-client";
+import type { GasCityGeneratedConfigPreview } from "./city-config-renderer";
 import type {
   GasCityDashboardState,
   GasCityDiscoveredCapability,
+  GasCityLocalPackRef,
+  GasCityPackImportScope,
   GasCityPluginModule,
   GasCityPackSafetyTier,
   GasCityPackValidationCache,
@@ -111,6 +114,24 @@ function parseSlingVars(input: string): Record<string, string> {
   return vars;
 }
 
+function sanitizePackBinding(value: string): string {
+  const sanitized = value
+    .trim()
+    .replace(/\\/g, "/")
+    .split("/")
+    .filter(Boolean)
+    .pop()
+    ?.replace(/[^A-Za-z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .toLowerCase();
+  return sanitized || "local-pack";
+}
+
+function localPackRefId(sourcePath: string): string {
+  const normalizedPath = sourcePath.trim().replace(/[^A-Za-z0-9_-]+/g, "-");
+  return `local-pack-${normalizedPath.slice(-64)}`;
+}
+
 export function GasCityPanel({
   state,
   actions,
@@ -135,6 +156,20 @@ export function GasCityPanel({
   const [selectedSessionId, setSelectedSessionId] = useState("");
   const [slingTarget, setSlingTarget] = useState("");
   const [slingVars, setSlingVars] = useState("");
+  const [wizardPath, setWizardPath] = useState("");
+  const [wizardBinding, setWizardBinding] = useState("");
+  const [wizardScope, setWizardScope] =
+    useState<GasCityPackImportScope>("city");
+  const [wizardRigName, setWizardRigName] = useState("");
+  const [wizardRuntimeRoot, setWizardRuntimeRoot] = useState(
+    state.cityBuilder.generatedCity.runtimeRoot,
+  );
+  const [wizardCityName, setWizardCityName] = useState(
+    state.cityBuilder.generatedCity.cityName,
+  );
+  const [wizardPreview, setWizardPreview] =
+    useState<GasCityGeneratedConfigPreview | null>(null);
+  const [wizardError, setWizardError] = useState<string | null>(null);
 
   useEffect(() => {
     setGcBinary(state.gcBinary);
@@ -143,6 +178,14 @@ export function GasCityPanel({
   useEffect(() => {
     setCityPath(state.cityPath);
   }, [state.cityPath]);
+
+  useEffect(() => {
+    setWizardRuntimeRoot(state.cityBuilder.generatedCity.runtimeRoot);
+  }, [state.cityBuilder.generatedCity.runtimeRoot]);
+
+  useEffect(() => {
+    setWizardCityName(state.cityBuilder.generatedCity.cityName);
+  }, [state.cityBuilder.generatedCity.cityName]);
 
   useEffect(() => {
     if (!state.loaded && state.cityPath.trim() && !state.loading) {
@@ -407,6 +450,90 @@ export function GasCityPanel({
     });
   };
 
+  const buildWizardPackRef = (): GasCityLocalPackRef => {
+    const sourcePath = wizardPath.trim();
+    const binding = sanitizePackBinding(wizardBinding || sourcePath);
+    return {
+      id: localPackRefId(sourcePath),
+      binding,
+      sourcePath,
+      scope: wizardScope,
+      rigName: wizardScope === "rig" ? wizardRigName.trim() || null : null,
+      enabled: true,
+      addedAt: new Date().toISOString(),
+      lastValidatedAt: null,
+    };
+  };
+
+  const upsertWizardPackRefIfPresent = async () => {
+    if (!wizardPath.trim()) return;
+    if (wizardScope === "rig" && !wizardRigName.trim()) {
+      throw new Error("Rig-scoped imports need a rig name.");
+    }
+    await actions.upsertLocalPackRef(buildWizardPackRef());
+  };
+
+  const handleValidateLocalPack = async () => {
+    setWizardError(null);
+    setWizardPreview(null);
+    if (!wizardPath.trim()) {
+      setWizardError("Choose an absolute local pack folder first.");
+      return;
+    }
+    if (wizardScope === "rig" && !wizardRigName.trim()) {
+      setWizardError("Rig-scoped imports need a rig name.");
+      return;
+    }
+    const packRef = buildWizardPackRef();
+    await actions.upsertLocalPackRef(packRef);
+    const validation = await actions.scanLocalPack({
+      packRefId: packRef.id,
+      sourcePath: packRef.sourcePath,
+    });
+    if (!wizardBinding.trim() && validation.bindingSuggestion) {
+      setWizardBinding(validation.bindingSuggestion);
+    }
+  };
+
+  const handlePreviewGeneratedToml = async () => {
+    setWizardError(null);
+    setWizardPreview(null);
+    if (!wizardRuntimeRoot.trim()) {
+      setWizardError("Choose an absolute generated runtime directory first.");
+      return;
+    }
+    try {
+      await upsertWizardPackRefIfPresent();
+    } catch (error) {
+      setWizardError(error instanceof Error ? error.message : String(error));
+      return;
+    }
+    const preview = await actions.previewGeneratedCityConfig({
+      runtimeRoot: wizardRuntimeRoot.trim(),
+      cityName: wizardCityName.trim() || undefined,
+    });
+    setWizardPreview(preview);
+  };
+
+  const handleRenderGeneratedToml = async () => {
+    setWizardError(null);
+    if (!wizardRuntimeRoot.trim()) {
+      setWizardError("Choose an absolute generated runtime directory first.");
+      return;
+    }
+    try {
+      await upsertWizardPackRefIfPresent();
+    } catch (error) {
+      setWizardError(error instanceof Error ? error.message : String(error));
+      return;
+    }
+    await actions.renderGeneratedCityConfig({
+      runtimeRoot: wizardRuntimeRoot.trim(),
+      cityName: wizardCityName.trim() || undefined,
+    });
+    setWizardPreview(null);
+  };
+
   const currentPeek = selectedSession
     ? (state.peekBySessionId[selectedSession.ID] ?? "")
     : "";
@@ -498,6 +625,219 @@ export function GasCityPanel({
             <pre className="mt-3 overflow-x-auto rounded-lg border border-neutral-800 bg-neutral-950 p-3 text-xs text-neutral-300">
               {state.statusOutput}
             </pre>
+          ) : null}
+        </div>
+
+        <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4">
+          <div className="mb-3 flex items-start justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-neutral-300">
+                Local Pack Import Wizard
+              </h3>
+              <p className="mt-1 text-sm text-neutral-400">
+                Reference a pack on disk, bind it to the generated city or a
+                rig, validate without executing scripts, then preview or render
+                the runtime TOML used by Gas City.
+              </p>
+            </div>
+            <span className="shrink-0 rounded-full border border-neutral-700 bg-neutral-800 px-3 py-1 text-xs text-neutral-300">
+              VD-owned data
+            </span>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2">
+            <Input
+              label="Local pack folder"
+              size="sm"
+              value={wizardPath}
+              onChange={(event) => {
+                const nextPath = event.target.value;
+                setWizardPath(nextPath);
+                if (!wizardBinding.trim()) {
+                  setWizardBinding(sanitizePackBinding(nextPath));
+                }
+              }}
+              placeholder="/absolute/path/to/pack"
+              classNames={{
+                inputWrapper:
+                  "bg-neutral-800 border-neutral-700 data-[hover=true]:bg-neutral-800 group-data-[focus=true]:bg-neutral-800",
+                input: "text-white",
+                label: "text-neutral-300",
+              }}
+            />
+            <Input
+              label="Import binding"
+              size="sm"
+              value={wizardBinding}
+              onChange={(event) => setWizardBinding(event.target.value)}
+              placeholder="gastown"
+              classNames={{
+                inputWrapper:
+                  "bg-neutral-800 border-neutral-700 data-[hover=true]:bg-neutral-800 group-data-[focus=true]:bg-neutral-800",
+                input: "text-white",
+                label: "text-neutral-300",
+              }}
+            />
+            <div className="flex flex-col gap-1">
+              <label className="text-sm text-neutral-300">Import scope</label>
+              <select
+                value={wizardScope}
+                onChange={(event) =>
+                  setWizardScope(event.target.value as GasCityPackImportScope)
+                }
+                className="h-10 rounded-md border border-neutral-700 bg-neutral-800 px-3 text-sm text-neutral-100"
+              >
+                <option value="city">City import</option>
+                <option value="rig">Rig import</option>
+              </select>
+            </div>
+            <Input
+              label="Rig name"
+              size="sm"
+              value={wizardRigName}
+              onChange={(event) => setWizardRigName(event.target.value)}
+              placeholder="frontend"
+              isDisabled={wizardScope !== "rig"}
+              classNames={{
+                inputWrapper:
+                  "bg-neutral-800 border-neutral-700 data-[hover=true]:bg-neutral-800 group-data-[focus=true]:bg-neutral-800",
+                input: "text-white",
+                label: "text-neutral-300",
+              }}
+            />
+            <Input
+              label="Generated runtime directory"
+              size="sm"
+              value={wizardRuntimeRoot}
+              onChange={(event) => setWizardRuntimeRoot(event.target.value)}
+              placeholder="/absolute/path/to/generated-city"
+              classNames={{
+                inputWrapper:
+                  "bg-neutral-800 border-neutral-700 data-[hover=true]:bg-neutral-800 group-data-[focus=true]:bg-neutral-800",
+                input: "text-white",
+                label: "text-neutral-300",
+              }}
+            />
+            <Input
+              label="Generated city name"
+              size="sm"
+              value={wizardCityName}
+              onChange={(event) => setWizardCityName(event.target.value)}
+              placeholder="vd-generated"
+              classNames={{
+                inputWrapper:
+                  "bg-neutral-800 border-neutral-700 data-[hover=true]:bg-neutral-800 group-data-[focus=true]:bg-neutral-800",
+                input: "text-white",
+                label: "text-neutral-300",
+              }}
+            />
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              color="primary"
+              variant="flat"
+              onPress={handleValidateLocalPack}
+              isDisabled={!wizardPath.trim()}
+            >
+              Validate and Add Pack
+            </Button>
+            <Button
+              size="sm"
+              variant="flat"
+              onPress={handlePreviewGeneratedToml}
+              isDisabled={!wizardRuntimeRoot.trim()}
+            >
+              Preview Generated TOML
+            </Button>
+            <Button
+              size="sm"
+              color="primary"
+              onPress={handleRenderGeneratedToml}
+              isDisabled={!wizardRuntimeRoot.trim()}
+            >
+              Apply Runtime Config
+            </Button>
+            <span className="text-xs text-neutral-500">
+              Applies by writing city.toml and pack.toml outside the gascity
+              repo.
+            </span>
+          </div>
+
+          {wizardError ? (
+            <div className="mt-3 rounded-lg border border-danger-500/40 bg-danger-500/10 p-3 text-sm text-danger-200">
+              {wizardError}
+            </div>
+          ) : null}
+
+          {wizardPath.trim() ? (
+            (() => {
+              const packRef = buildWizardPackRef();
+              const validation =
+                state.cityBuilder.validationCacheByPackRefId[packRef.id];
+              if (!validation) return null;
+              return (
+                <div className="mt-3 rounded-lg border border-neutral-800 bg-neutral-950 p-3">
+                  <div className="flex flex-wrap items-center gap-2 text-sm text-neutral-200">
+                    <span className="font-medium">
+                      {capabilitySourceLabel(validation)}
+                    </span>
+                    <span className="rounded-full border border-neutral-700 px-2 py-0.5 text-xs text-neutral-300">
+                      {validation.capabilities.length} capabilities
+                    </span>
+                    <span className="rounded-full border border-amber-500/30 px-2 py-0.5 text-xs text-amber-200">
+                      {validation.warnings.length} warnings
+                    </span>
+                    <span className="rounded-full border border-danger-500/30 px-2 py-0.5 text-xs text-danger-200">
+                      {validation.errors.length} errors
+                    </span>
+                  </div>
+                  {validation.errors.length || validation.warnings.length ? (
+                    <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-neutral-400">
+                      {[...validation.errors, ...validation.warnings]
+                        .slice(0, 6)
+                        .map((message) => (
+                          <li key={message}>{message}</li>
+                        ))}
+                    </ul>
+                  ) : null}
+                </div>
+              );
+            })()
+          ) : null}
+
+          {wizardPreview ? (
+            <div className="mt-3 rounded-lg border border-neutral-800 bg-neutral-950 p-3">
+              <div className="mb-2 text-sm text-neutral-300">
+                {wizardPreview.warning}
+              </div>
+              <div className="grid gap-3 lg:grid-cols-2">
+                {wizardPreview.files.map((file) => (
+                  <div
+                    key={file.kind}
+                    className="rounded-md border border-neutral-800 bg-neutral-900 p-3"
+                  >
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium text-white">
+                          {file.kind}
+                        </div>
+                        <div className="truncate text-xs text-neutral-500">
+                          {file.path}
+                        </div>
+                      </div>
+                      <span className="rounded-full border border-neutral-700 px-2 py-0.5 text-xs text-neutral-300">
+                        {file.status}
+                      </span>
+                    </div>
+                    <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded border border-neutral-800 bg-neutral-950 p-2 text-xs text-neutral-300">
+                      {file.diff}
+                    </pre>
+                  </div>
+                ))}
+              </div>
+            </div>
           ) : null}
         </div>
 

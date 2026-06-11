@@ -7,6 +7,7 @@ import {
   createDefaultGasCityDashboardState,
   type GasCityDashboardState,
   type GasCityGeneratedCityRuntime,
+  type GasCityLocalPackRef,
   type GasCitySessionInfo,
   type GasCityPluginModule,
 } from "./types";
@@ -342,6 +343,24 @@ springboard.registerModule(
           draft.error = validation.errors[0] ?? null;
         });
         return validation;
+      },
+      upsertLocalPackRef: async (args: GasCityLocalPackRef) => {
+        dashboard.setStateImmer((draft) => {
+          const existingIndex = draft.cityBuilder.localPackRefs.findIndex(
+            (packRef) => packRef.id === args.id,
+          );
+          if (existingIndex >= 0) {
+            const existing = draft.cityBuilder.localPackRefs[existingIndex]!;
+            draft.cityBuilder.localPackRefs[existingIndex] = {
+              ...args,
+              addedAt: existing.addedAt || args.addedAt,
+              lastValidatedAt: existing.lastValidatedAt,
+            };
+          } else {
+            draft.cityBuilder.localPackRefs.push(args);
+          }
+          draft.error = null;
+        });
       },
       setLocalPackEnabled: async (args: {
         packRefId: string;

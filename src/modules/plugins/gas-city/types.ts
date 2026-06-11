@@ -182,6 +182,7 @@ export interface GasCityPluginModule {
       packRefId: string;
       sourcePath: string;
     }) => Promise<GasCityPackValidationCache>;
+    upsertLocalPackRef: (args: GasCityLocalPackRef) => Promise<void>;
     setLocalPackEnabled: (args: {
       packRefId: string;
       enabled: boolean;
