@@ -30,3 +30,5 @@ Milestone 3 requires GC-first orchestration to run through VK workspaces without
 ## Docker-in-Docker boundary
 
 The images still include Docker CLI support because unrelated VD/development workflows may need it. GC-specific runtime and smoke paths should prefer the installed `gc` binary and only use Docker-based harnesses when explicitly testing container orchestration behavior.
+
+See [Non-Docker GC ↔ VK verification paths](./non-docker-verification.md) for the replacement smoke ladder and local-binary checklists.
