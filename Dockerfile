@@ -219,6 +219,12 @@ RUN su - vkuser -c "mkdir -p /home/vkuser/.local/share/code-server/extensions &&
 # Install Beads CLI
 RUN curl -fsSL https://raw.githubusercontent.com/gastownhall/beads/main/scripts/install.sh | bash
 
+# Install Gas City directly in the VD container. This gives runtime flows a local
+# `gc` binary instead of requiring GC-specific Docker-in-Docker helper stacks.
+ARG GASCITY_VERSION="latest"
+RUN CGO_ENABLED=0 GOBIN=/usr/local/bin go install github.com/gastownhall/gascity/cmd/gc@"$GASCITY_VERSION" \
+    && gc version >/dev/null
+
 # Pre-install vibe-kanban at build time (optional, speeds up first start)
 ARG VIBE_KANBAN_VERSION="latest"
 RUN npm install -g vibe-kanban@"$VIBE_KANBAN_VERSION"
