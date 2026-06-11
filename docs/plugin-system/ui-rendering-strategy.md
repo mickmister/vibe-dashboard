@@ -80,6 +80,21 @@ Default untrusted frontend plugin iframes should start with:
 
 Parent-to-iframe communication uses `iframe.contentWindow.postMessage(...)`. Iframe-to-parent communication uses `window.parent.postMessage(...)`. Without `allow-same-origin`, the iframe has an opaque origin, so the host must authenticate messages using the registered `contentWindow`, frame id, nonce, plugin id, and granted capabilities rather than `event.origin`.
 
+The current Springboard browser runtime touches origin-scoped APIs such as
+`localStorage`, so the checked-in fixture uses `allow-same-origin` to prove the
+RPC path with Springboard-built host and iframe apps:
+
+```html
+<iframe sandbox="allow-scripts allow-same-origin">
+```
+
+That combination is not an acceptable default for untrusted same-origin plugin
+assets because browsers warn that a same-origin iframe with scripts can escape
+the sandbox. Before shipping untrusted marketplace plugins, either harden
+Springboard to run in an opaque-origin iframe, serve plugin frontend assets from
+a separate plugin origin, or expose `allow-same-origin` only as an explicit
+admin-approved frontend capability.
+
 ## Prototype coverage
 
 The prototype package at `packages/plugin-iframe-rpc-prototype` covers:

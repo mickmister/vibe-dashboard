@@ -3,6 +3,7 @@
     "target": "es2022",
     "module": "es2022",
     "moduleResolution": "bundler",
+    "jsx": "react-jsx",
     "strict": true,
     "declaration": true,
     "declarationMap": true,
@@ -13,5 +14,5 @@
     "skipLibCheck": true,
     "outDir": "dist"
   },
-  "include": ["src/**/*.ts", "test/**/*.ts"]
+  "include": ["src/**/*", "test/**/*.ts", "*.config.ts"]
 }
