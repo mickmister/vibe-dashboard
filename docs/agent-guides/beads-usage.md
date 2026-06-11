@@ -2,29 +2,30 @@
 
 Agents must use `bd` to track task state while working in this repository.
 
-## Create beads through the branch-stamping wrapper
+## Create beads with branch metadata
 
 The Beads database is shared by the main checkout and all git worktrees. Because
 of that, a bead does not automatically show which worktree or branch created it.
-Agents should create beads with the repository wrapper instead of calling
-`bd create` directly:
+
+In the Docker image, `bd` and `beads` are wrapped through supervisor `PATH` so
+normal create commands automatically stamp the current branch:
 
 ```bash
-scripts/bd-agent create "Describe the task" --type task --priority 1
+bd create "Describe the task" --type task --priority 1
 ```
 
-For `create`, the wrapper automatically adds branch metadata equivalent to:
+The wrapper adds branch metadata equivalent to:
 
 ```bash
-bd create "Describe the task" --metadata "{\"branch\":\"$(git branch --show-current)\"}"
+/usr/local/bin/bd create "Describe the task" --metadata "{\"branch\":\"$(git branch --show-current)\"}"
 ```
 
-All non-`create` commands pass through unchanged, so normal `bd` commands still
-work through the wrapper:
+All non-`create` commands pass through unchanged to the real Beads CLI in
+`/usr/local/bin`:
 
 ```bash
-scripts/bd-agent update vkvw-123 --status in_progress
-scripts/bd-agent close vkvw-123 --reason "Implemented and validated"
+bd update vkvw-123 --status in_progress
+bd close vkvw-123 --reason "Implemented and validated"
 ```
 
 This metadata lets humans and tools correlate a bead with the branch where the

@@ -276,6 +276,17 @@ RUN su - vkuser -c "mkdir -p /home/vkuser/.local/share/code-server/extensions &&
 # Install Beads CLI
 RUN curl -fsSL https://raw.githubusercontent.com/gastownhall/beads/main/scripts/install.sh | bash
 
+# Install bd/beads wrappers that stamp created beads with the current git branch.
+# The real upstream CLI remains available at /usr/local/bin/bd.
+RUN mkdir -p /usr/local/lib/vk-bd-wrapper/bin
+COPY scripts/bd-wrapper/bin/bd /usr/local/lib/vk-bd-wrapper/bin/bd
+RUN set -eux; \
+    chmod 0755 /usr/local/lib/vk-bd-wrapper/bin/bd; \
+    ln -sf bd /usr/local/lib/vk-bd-wrapper/bin/beads; \
+    chown -h root:root /usr/local/lib/vk-bd-wrapper/bin/beads; \
+    chown root:root /usr/local/lib/vk-bd-wrapper/bin/bd; \
+    chmod 0755 /usr/local/lib /usr/local/lib/vk-bd-wrapper /usr/local/lib/vk-bd-wrapper/bin
+
 # Install beads-web UI binary. The default tagged assets are public, but
 # private/draft override URLs can fall back to a BuildKit secret:
 # id=github_token or id=GIT_AUTH_TOKEN.
