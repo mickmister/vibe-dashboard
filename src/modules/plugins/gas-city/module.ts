@@ -11,6 +11,7 @@ import {
   type GasCityPluginModule,
 } from "./types";
 import { renderGasCityGeneratedCityConfig } from "./city-config-renderer";
+import { scanGasCityLocalPack } from "./local-pack-scanner";
 
 const manifest: PluginManifest = createPluginManifest({
   id: "dev.mickmister.gas-city",
@@ -255,6 +256,21 @@ springboard.registerModule(
           draft.lastCommandOutput = `Rendered generated Gas City config:\n${cityTomlPath}\n${packTomlPath}`;
         });
         return { runtime, packTomlPath };
+      },
+      scanLocalPack: async (args: { packRefId: string; sourcePath: string }) => {
+        const validation = await scanGasCityLocalPack(args);
+        dashboard.setStateImmer((draft) => {
+          draft.cityBuilder.validationCacheByPackRefId[args.packRefId] =
+            validation;
+          const matchingPackRef = draft.cityBuilder.localPackRefs.find(
+            (packRef) => packRef.id === args.packRefId,
+          );
+          if (matchingPackRef) {
+            matchingPackRef.lastValidatedAt = validation.checkedAt;
+          }
+          draft.error = validation.errors[0] ?? null;
+        });
+        return validation;
       },
       refreshSessions: async () =>
         withLoading(async () => {

@@ -172,6 +172,10 @@ export interface GasCityPluginModule {
       cityName?: string;
       cityId?: string;
     }) => Promise<GasCityRenderGeneratedConfigResult>;
+    scanLocalPack: (args: {
+      packRefId: string;
+      sourcePath: string;
+    }) => Promise<GasCityPackValidationCache>;
     refreshSessions: () => Promise<GasCitySessionInfo[]>;
     refreshStatus: () => Promise<string>;
     createSession: (args: {
