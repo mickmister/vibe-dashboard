@@ -8,6 +8,9 @@ RUN CGO_ENABLED=0 GOBIN=/usr/local/bin go install github.com/gastownhall/gascity
     && gc version >/dev/null
 ```
 
+They also compile the VD-owned GC exec-provider bridge as
+`/usr/local/bin/gc-session-vibe` from `packages/gc-session-vibe`.
+
 ## Why this exists
 
 Milestone 3 requires GC-first orchestration to run through VK workspaces without a GC-specific Docker-in-Docker sidecar. A local `gc` binary lets VD-managed runtime config and the Gas City panel use the normal `gc` command path from inside the main VD container.
@@ -21,6 +24,9 @@ Milestone 3 requires GC-first orchestration to run through VK workspaces without
 ## Runtime expectations
 
 - The Gas City plugin's default binary value, `gc`, resolves to `/usr/local/bin/gc`.
+- Generated Gas City config should reference the VD-owned bridge with
+  `GC_SESSION=exec:/usr/local/bin/gc-session-vibe` when a VK-backed provider is
+  needed.
 - `supervisord` starts `gc supervisor run` as `vkuser` through the `gas-city-supervisor` program.
 - Set `ENABLE_GAS_CITY_SUPERVISOR=false` to disable the long-lived GC control plane for debugging or images that only need the CLI.
 - The supervisor uses `GC_HOME=/home/vkuser/.gc` and `XDG_RUNTIME_DIR=/var/tmp/vibe-kanban/gc-runtime`, both owned by `vkuser`.

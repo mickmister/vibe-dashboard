@@ -10,17 +10,34 @@ VD-owned Go implementation of the Gas City exec-provider bridge for Vibe Kanban.
 
 ## Local usage from Gas City
 
-Point `GC_SESSION` at the wrapper script in this repo:
+VD container images build this package into `/usr/local/bin/gc-session-vibe`.
+That binary is the preferred runtime entrypoint for generated Gas City config:
+
+```bash
+export GC_SESSION=exec:/usr/local/bin/gc-session-vibe
+```
+
+For source checkout development, point `GC_SESSION` at the wrapper script in
+this repo. The wrapper uses the installed `gc-session-vibe` binary when present
+and falls back to `go run` for local editing:
 
 ```bash
 export GC_SESSION=exec:/path/to/vibe-kanban-vscode-web/packages/gc-session-vibe/scripts/gc-session-vibe
 ```
 
-Or invoke the Go CLI directly:
+Or invoke the Go CLI directly while developing:
 
 ```bash
 go run /path/to/vibe-kanban-vscode-web/packages/gc-session-vibe/cmd/gc-session-vibe start demo
 ```
+
+## Container/runtime ownership
+
+This package is the active home for the GC↔VK exec-provider bridge used by VD.
+Runtime images compile it from the VD repo and install it alongside the local
+`gc` binary. Gas City checkouts should only need to reference the external
+binary/script through `GC_SESSION`; new bridge behavior should be implemented
+and tested here rather than in the `gascity` repo.
 
 ## Environment
 

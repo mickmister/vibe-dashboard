@@ -286,6 +286,12 @@ RUN chmod +x /usr/local/bin/backup-vibe-kanban-db.sh
 
 # Copy project files to a staging location (will be copied to volume at runtime)
 COPY . /opt/vibe-kanban-vscode-web-seed
+
+# Build the VD-owned GC exec-provider bridge into a stable runtime binary.
+RUN cd /opt/vibe-kanban-vscode-web-seed/packages/gc-session-vibe \
+    && CGO_ENABLED=0 GOBIN=/usr/local/bin go install ./cmd/gc-session-vibe \
+    && GC_EXEC_STATE_DIR=/tmp/gc-session-vibe-smoke gc-session-vibe list-running >/dev/null
+
 RUN chown -R vkuser:vkuser /opt/vibe-kanban-vscode-web-seed
 
 # Copy packaged vibe-dashboard runtime artifacts to their final runtime path
