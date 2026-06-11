@@ -182,6 +182,26 @@ export interface GasCityPluginModule {
       packRefId: string;
       sourcePath: string;
     }) => Promise<GasCityPackValidationCache>;
+    setLocalPackEnabled: (args: {
+      packRefId: string;
+      enabled: boolean;
+    }) => Promise<void>;
+    setOrderSafeOverride: (args: {
+      packRefId: string;
+      orderName: string;
+      rigName?: string | null;
+      enabled?: boolean | null;
+      interval?: string | null;
+    }) => Promise<void>;
+    setAgentSafeOverride: (args: {
+      packRefId: string;
+      agentName: string;
+      rigName?: string | null;
+      minActiveSessions?: number | null;
+      maxActiveSessions?: number | null;
+      defaultSlingFormula?: string | null;
+      providerOptionDefaults?: Record<string, string>;
+    }) => Promise<void>;
     refreshSessions: () => Promise<GasCitySessionInfo[]>;
     refreshStatus: () => Promise<string>;
     createSession: (args: {

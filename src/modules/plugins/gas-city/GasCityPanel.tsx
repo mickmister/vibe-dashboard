@@ -82,6 +82,21 @@ function capabilitySourceLabel(
   );
 }
 
+function safeOverrideKey(
+  packRefId: string,
+  name: string,
+  rigName: string | null = null,
+): string {
+  return `${packRefId}\u0000${name}\u0000${rigName ?? ""}`;
+}
+
+function parseNullableInteger(value: string): number | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const parsed = Number.parseInt(trimmed, 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 export function GasCityPanel({
   state,
   actions,
@@ -218,6 +233,58 @@ export function GasCityPanel({
   const capabilityCount = capabilityGroups.reduce(
     (count, group) => count + group.entries.length,
     0,
+  );
+
+  const localPackRefsById = useMemo(
+    () =>
+      new Map(
+        state.cityBuilder.localPackRefs.map((packRef) => [packRef.id, packRef]),
+      ),
+    [state.cityBuilder.localPackRefs],
+  );
+
+  const orderOverridesByKey = useMemo(
+    () =>
+      new Map(
+        state.cityBuilder.orderOverrides.map((override) => [
+          safeOverrideKey(
+            override.packRefId,
+            override.orderName,
+            override.rigName,
+          ),
+          override,
+        ]),
+      ),
+    [state.cityBuilder.orderOverrides],
+  );
+
+  const agentOverridesByKey = useMemo(
+    () =>
+      new Map(
+        state.cityBuilder.agentOverrides.map((override) => [
+          safeOverrideKey(
+            override.packRefId,
+            override.agentName,
+            override.rigName,
+          ),
+          override,
+        ]),
+      ),
+    [state.cityBuilder.agentOverrides],
+  );
+
+  const formulaNames = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          capabilityGroups.flatMap((group) =>
+            group.kind === "formula"
+              ? group.entries.map((entry) => entry.capability.name)
+              : [],
+          ),
+        ),
+      ).sort((left, right) => left.localeCompare(right)),
+    [capabilityGroups],
   );
 
   const handleSaveConfig = async () => {
@@ -432,6 +499,26 @@ export function GasCityPanel({
                   key={validation.packRefId}
                   className="rounded-lg border border-neutral-800 bg-neutral-950 p-3"
                 >
+                  {(() => {
+                    const packRef = localPackRefsById.get(validation.packRefId);
+                    return (
+                      <label className="mb-2 flex items-center gap-2 text-xs text-neutral-300">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 accent-primary"
+                          checked={packRef?.enabled ?? false}
+                          disabled={!packRef}
+                          onChange={(event) =>
+                            actions.setLocalPackEnabled({
+                              packRefId: validation.packRefId,
+                              enabled: event.target.checked,
+                            })
+                          }
+                        />
+                        Pack import enabled
+                      </label>
+                    );
+                  })()}
                   <div className="flex items-center justify-between gap-2">
                     <div className="min-w-0">
                       <div className="truncate text-sm font-medium text-white">
@@ -504,6 +591,166 @@ export function GasCityPanel({
                             ? ` • ${capability.sourcePath}`
                             : ""}
                         </div>
+                        {capability.kind === "order" ? (
+                          <div className="mt-2 grid gap-2 md:grid-cols-2">
+                            {(() => {
+                              const override = orderOverridesByKey.get(
+                                safeOverrideKey(
+                                  validation.packRefId,
+                                  capability.name,
+                                ),
+                              );
+                              return (
+                                <>
+                                  <div className="flex flex-col gap-1">
+                                    <label className="text-[11px] uppercase tracking-wide text-neutral-500">
+                                      Order state
+                                    </label>
+                                    <select
+                                      value={
+                                        override?.enabled === null ||
+                                        override?.enabled === undefined
+                                          ? ""
+                                          : String(override.enabled)
+                                      }
+                                      onChange={(event) => {
+                                        const value = event.target.value;
+                                        void actions.setOrderSafeOverride({
+                                          packRefId: validation.packRefId,
+                                          orderName: capability.name,
+                                          enabled:
+                                            value === ""
+                                              ? null
+                                              : value === "true",
+                                        });
+                                      }}
+                                      className="h-8 rounded-md border border-neutral-700 bg-neutral-950 px-2 text-xs text-neutral-100"
+                                    >
+                                      <option value="">Pack default</option>
+                                      <option value="true">Enabled</option>
+                                      <option value="false">Disabled</option>
+                                    </select>
+                                  </div>
+                                  <Input
+                                    size="sm"
+                                    label="Interval override"
+                                    value={override?.interval ?? ""}
+                                    onChange={(event) =>
+                                      actions.setOrderSafeOverride({
+                                        packRefId: validation.packRefId,
+                                        orderName: capability.name,
+                                        interval:
+                                          event.target.value.trim() || null,
+                                      })
+                                    }
+                                    placeholder="e.g. 15m"
+                                    classNames={{
+                                      inputWrapper:
+                                        "bg-neutral-950 border-neutral-700 data-[hover=true]:bg-neutral-950 group-data-[focus=true]:bg-neutral-950",
+                                      input: "text-white",
+                                      label: "text-neutral-400",
+                                    }}
+                                  />
+                                </>
+                              );
+                            })()}
+                          </div>
+                        ) : null}
+                        {capability.kind === "agent" ? (
+                          <div className="mt-2 grid gap-2 md:grid-cols-3">
+                            {(() => {
+                              const override = agentOverridesByKey.get(
+                                safeOverrideKey(
+                                  validation.packRefId,
+                                  capability.name,
+                                ),
+                              );
+                              return (
+                                <>
+                                  <Input
+                                    size="sm"
+                                    type="number"
+                                    min={0}
+                                    label="Min sessions"
+                                    value={
+                                      override?.minActiveSessions?.toString() ??
+                                      ""
+                                    }
+                                    onChange={(event) =>
+                                      actions.setAgentSafeOverride({
+                                        packRefId: validation.packRefId,
+                                        agentName: capability.name,
+                                        minActiveSessions: parseNullableInteger(
+                                          event.target.value,
+                                        ),
+                                      })
+                                    }
+                                    placeholder="default"
+                                    classNames={{
+                                      inputWrapper:
+                                        "bg-neutral-950 border-neutral-700 data-[hover=true]:bg-neutral-950 group-data-[focus=true]:bg-neutral-950",
+                                      input: "text-white",
+                                      label: "text-neutral-400",
+                                    }}
+                                  />
+                                  <Input
+                                    size="sm"
+                                    type="number"
+                                    min={0}
+                                    label="Max sessions"
+                                    value={
+                                      override?.maxActiveSessions?.toString() ??
+                                      ""
+                                    }
+                                    onChange={(event) =>
+                                      actions.setAgentSafeOverride({
+                                        packRefId: validation.packRefId,
+                                        agentName: capability.name,
+                                        maxActiveSessions: parseNullableInteger(
+                                          event.target.value,
+                                        ),
+                                      })
+                                    }
+                                    placeholder="default"
+                                    classNames={{
+                                      inputWrapper:
+                                        "bg-neutral-950 border-neutral-700 data-[hover=true]:bg-neutral-950 group-data-[focus=true]:bg-neutral-950",
+                                      input: "text-white",
+                                      label: "text-neutral-400",
+                                    }}
+                                  />
+                                  <div className="flex flex-col gap-1">
+                                    <label className="text-[11px] uppercase tracking-wide text-neutral-500">
+                                      Default sling formula
+                                    </label>
+                                    <select
+                                      value={override?.defaultSlingFormula ?? ""}
+                                      onChange={(event) =>
+                                        actions.setAgentSafeOverride({
+                                          packRefId: validation.packRefId,
+                                          agentName: capability.name,
+                                          defaultSlingFormula:
+                                            event.target.value || null,
+                                        })
+                                      }
+                                      className="h-8 rounded-md border border-neutral-700 bg-neutral-950 px-2 text-xs text-neutral-100"
+                                    >
+                                      <option value="">Pack default</option>
+                                      {formulaNames.map((formulaName) => (
+                                        <option
+                                          key={formulaName}
+                                          value={formulaName}
+                                        >
+                                          {formulaName}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                </>
+                              );
+                            })()}
+                          </div>
+                        ) : null}
                       </div>
                     ))}
                   </div>

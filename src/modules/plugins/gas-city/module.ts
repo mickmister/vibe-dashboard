@@ -343,6 +343,101 @@ springboard.registerModule(
         });
         return validation;
       },
+      setLocalPackEnabled: async (args: {
+        packRefId: string;
+        enabled: boolean;
+      }) => {
+        dashboard.setStateImmer((draft) => {
+          const packRef = draft.cityBuilder.localPackRefs.find(
+            (candidate) => candidate.id === args.packRefId,
+          );
+          if (!packRef) {
+            draft.error = `Local pack ref not found: ${args.packRefId}`;
+            return;
+          }
+          packRef.enabled = args.enabled;
+          draft.error = null;
+        });
+      },
+      setOrderSafeOverride: async (args: {
+        packRefId: string;
+        orderName: string;
+        rigName?: string | null;
+        enabled?: boolean | null;
+        interval?: string | null;
+      }) => {
+        dashboard.setStateImmer((draft) => {
+          const rigName = args.rigName ?? null;
+          let override = draft.cityBuilder.orderOverrides.find(
+            (candidate) =>
+              candidate.packRefId === args.packRefId &&
+              candidate.orderName === args.orderName &&
+              candidate.rigName === rigName,
+          );
+          if (!override) {
+            override = {
+              packRefId: args.packRefId,
+              orderName: args.orderName,
+              rigName,
+              enabled: null,
+              interval: null,
+            };
+            draft.cityBuilder.orderOverrides.push(override);
+          }
+          if ("enabled" in args) {
+            override.enabled = args.enabled ?? null;
+          }
+          if ("interval" in args) {
+            override.interval = args.interval?.trim() || null;
+          }
+          draft.error = null;
+        });
+      },
+      setAgentSafeOverride: async (args: {
+        packRefId: string;
+        agentName: string;
+        rigName?: string | null;
+        minActiveSessions?: number | null;
+        maxActiveSessions?: number | null;
+        defaultSlingFormula?: string | null;
+        providerOptionDefaults?: Record<string, string>;
+      }) => {
+        dashboard.setStateImmer((draft) => {
+          const rigName = args.rigName ?? null;
+          let override = draft.cityBuilder.agentOverrides.find(
+            (candidate) =>
+              candidate.packRefId === args.packRefId &&
+              candidate.agentName === args.agentName &&
+              candidate.rigName === rigName,
+          );
+          if (!override) {
+            override = {
+              packRefId: args.packRefId,
+              agentName: args.agentName,
+              rigName,
+              minActiveSessions: null,
+              maxActiveSessions: null,
+              defaultSlingFormula: null,
+              providerOptionDefaults: {},
+            };
+            draft.cityBuilder.agentOverrides.push(override);
+          }
+          if ("minActiveSessions" in args) {
+            override.minActiveSessions = args.minActiveSessions ?? null;
+          }
+          if ("maxActiveSessions" in args) {
+            override.maxActiveSessions = args.maxActiveSessions ?? null;
+          }
+          if ("defaultSlingFormula" in args) {
+            override.defaultSlingFormula =
+              args.defaultSlingFormula?.trim() || null;
+          }
+          if (args.providerOptionDefaults) {
+            override.providerOptionDefaults = args.providerOptionDefaults;
+          }
+          draft.error = null;
+        });
+      },
       refreshSessions: async () =>
         withLoading(async () => {
           return refreshSessionsInternal();
