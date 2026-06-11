@@ -5,6 +5,7 @@ import type { WorkspaceState, SavedWorkspaceSession } from '../types';
 import { AppLoadingScreen } from './AppLoadingScreen';
 import { SpacesOverview } from './SpacesOverview';
 import { hasSameBaseOrigin } from '../lib/originTrust';
+import { getPluginIframePolicy } from '../modules/plugins/vibe-dashboard/runtime';
 
 const INTERNAL_URL_PREFIX = 'internal://';
 
@@ -81,6 +82,17 @@ function isTrustedIframeOrigin(origin: string): boolean {
 }
 
 function applyIframePolicy(iframe: HTMLIFrameElement, iframeSrc: string) {
+  const pluginPolicy = getPluginIframePolicy({
+    iframeSrc,
+    hostOrigin: window.location.origin,
+  });
+
+  if (pluginPolicy.isPluginFrontendAsset) {
+    iframe.setAttribute('sandbox', pluginPolicy.sandbox);
+    iframe.setAttribute('allow', pluginPolicy.allow);
+    return;
+  }
+
   const trusted = (() => {
     try {
       return isTrustedIframeOrigin(new URL(iframeSrc).origin);
