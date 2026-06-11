@@ -16,7 +16,8 @@
     "build:fixture:host": "vite build --config vite.host.config.ts",
     "build:fixture:plugin": "vite build --config vite.plugin.config.ts",
     "check-types": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:sample-e2e": "pnpm build:fixture:host && pnpm build:fixture:plugin && node scripts/sample-e2e-smoke.mjs"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.1.4",

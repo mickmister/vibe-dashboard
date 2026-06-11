@@ -40,17 +40,17 @@ describe('sample marketplace plugin install and runtime', () => {
     const verifier: SignatureVerifier = vi.fn(async ({ asset }) => asset.signature === 'fake-signature');
     const installer = new PluginMarketplaceInstaller({ catalog, downloader, verifier });
 
-    const installed = await installer.install({ pluginId: 'dev.vibe-kanban.sample-mixed' });
+    const installed = await installer.install({ pluginId: 'dev.vibe-kanban.fixture-plugin' });
 
     expect(downloader).toHaveBeenCalledWith(catalog.plugins[2]!.versions[0]!.asset.url);
     expect(verifier).toHaveBeenCalledWith(expect.objectContaining({ bytes: assetBytes }));
     expect(installed).toMatchObject({
-      pluginId: 'dev.vibe-kanban.sample-mixed',
+      pluginId: 'dev.vibe-kanban.fixture-plugin',
       version: '1.0.0',
       enabled: false,
-      frontendAssetRoute: '/dashboard/plugins/dev.vibe-kanban.sample-mixed/1.0.0/frontend_assets/index.html',
+      frontendAssetRoute: '/dashboard/plugins/dev.vibe-kanban.fixture-plugin/1.0.0/frontend_assets/index.html',
     });
-    expect(installer.getInstalled('dev.vibe-kanban.sample-mixed')).toEqual(installed);
+    expect(installer.getInstalled('dev.vibe-kanban.fixture-plugin')).toEqual(installed);
   });
 
   it('exposes a Hono sample app for catalog browsing and requested installs', async () => {

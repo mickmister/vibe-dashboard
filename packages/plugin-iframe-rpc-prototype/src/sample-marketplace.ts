@@ -122,7 +122,7 @@ export function createSampleCatalog(): PluginCatalog {
     plugins: [
       createEntry('dev.vibe-kanban.sample-frontend', 'Sample Frontend Plugin', { frontend }),
       createEntry('dev.vibe-kanban.sample-backend', 'Sample Backend Plugin', { backend }),
-      createEntry('dev.vibe-kanban.sample-mixed', 'Sample Mixed Plugin', { frontend, backend }),
+      createEntry('dev.vibe-kanban.fixture-plugin', 'Sample Mixed Plugin', { frontend, backend }),
     ],
   };
 }

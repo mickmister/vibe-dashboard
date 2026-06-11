@@ -6,6 +6,7 @@ import { FIXTURE_FRAME_ID, FIXTURE_NONCE, FIXTURE_PLUGIN_ID, FIXTURE_SLOT } from
 springboard.registerModule('PluginIframeRpcPluginFixture', {}, async (moduleAPI) => {
   moduleAPI.registerRoute('/', {}, () => <PluginFixture />);
   moduleAPI.registerRoute('/plugin/', {}, () => <PluginFixture />);
+  moduleAPI.registerRoute('/dashboard/plugins/dev.vibe-kanban.fixture-plugin/1.0.0/frontend_assets/index.html', {}, () => <PluginFixture />);
   return {};
 });
 
