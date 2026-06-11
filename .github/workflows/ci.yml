@@ -54,6 +54,14 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Run Deno backend smoke
+        run: pnpm --filter @vibe-kanban/plugin-iframe-rpc-prototype test:deno-smoke
+
       - name: Install Playwright Chromium
         run: pnpm exec playwright install --with-deps chromium
 
