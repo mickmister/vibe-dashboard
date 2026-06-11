@@ -56,12 +56,17 @@ export async function scanGasCityLocalPackWithDeps(
   }
 
   if (errors.length === 0) {
+    errors.push(...validatePackToml(packToml));
+  }
+
+  if (errors.length === 0) {
     const unknownEntries = await findUnknownTopLevelEntries(fs, path, sourcePath);
     for (const entry of unknownEntries) {
       warnings.push(
         `Unknown top-level pack entry "${entry}" will be ignored by the scanner.`,
       );
     }
+    warnings.push(...(await findPackBoundaryWarnings(fs, path, sourcePath)));
 
     capabilities.push(
       ...(await discoverDirectoryCapabilities(
@@ -90,6 +95,7 @@ export async function scanGasCityLocalPackWithDeps(
         "doctor",
         "executable_or_provider",
         true,
+        { includeFiles: true },
       )),
       ...(await discoverDirectoryCapabilities(
         fs,
@@ -99,6 +105,7 @@ export async function scanGasCityLocalPackWithDeps(
         "formula",
         "authored_text",
         false,
+        { includeFiles: true },
       )),
       ...(await discoverDirectoryCapabilities(
         fs,
@@ -108,6 +115,7 @@ export async function scanGasCityLocalPackWithDeps(
         "order",
         "safe_structured_control",
         false,
+        { includeFiles: true },
       )),
       ...(await discoverDirectoryCapabilities(
         fs,
@@ -117,6 +125,7 @@ export async function scanGasCityLocalPackWithDeps(
         "overlay",
         "authored_text",
         false,
+        { includeFiles: true },
       )),
       ...(await discoverDirectoryCapabilities(
         fs,
@@ -126,6 +135,7 @@ export async function scanGasCityLocalPackWithDeps(
         "template_fragment",
         "authored_text",
         false,
+        { includeFiles: true },
       )),
       ...(await discoverDirectoryCapabilities(
         fs,
@@ -135,6 +145,7 @@ export async function scanGasCityLocalPackWithDeps(
         "asset",
         "read_only",
         false,
+        { includeFiles: true },
       )),
     );
   }
@@ -177,6 +188,53 @@ async function findUnknownTopLevelEntries(
     .sort((left, right) => left.localeCompare(right));
 }
 
+async function findPackBoundaryWarnings(
+  fs: NodeFsPromises,
+  path: NodePath,
+  sourcePath: string,
+): Promise<string[]> {
+  const warnings: string[] = [];
+  const sourceRealPath = await fs.realpath(sourcePath);
+  const entries = await collectPackEntries(fs, path, sourcePath);
+  for (const entryPath of entries) {
+    let realPath: string;
+    try {
+      realPath = await fs.realpath(entryPath);
+    } catch {
+      continue;
+    }
+    if (!isPathInside(path, sourceRealPath, realPath)) {
+      warnings.push(
+        `Pack entry ${path.relative(
+          sourcePath,
+          entryPath,
+        )} resolves outside pack boundary: ${realPath}`,
+      );
+    }
+  }
+  return warnings.sort((left, right) => left.localeCompare(right));
+}
+
+async function collectPackEntries(
+  fs: NodeFsPromises,
+  path: NodePath,
+  directoryPath: string,
+): Promise<string[]> {
+  const entries = await fs.readdir(directoryPath, { withFileTypes: true });
+  const results: string[] = [];
+  for (const entry of entries) {
+    if (entry.name.startsWith(".")) {
+      continue;
+    }
+    const entryPath = path.join(directoryPath, entry.name);
+    results.push(entryPath);
+    if (entry.isDirectory()) {
+      results.push(...(await collectPackEntries(fs, path, entryPath)));
+    }
+  }
+  return results;
+}
+
 async function discoverDirectoryCapabilities(
   fs: NodeFsPromises,
   path: NodePath,
@@ -185,6 +243,7 @@ async function discoverDirectoryCapabilities(
   kind: GasCityDiscoveredCapability["kind"],
   safetyTier: GasCityPackSafetyTier,
   executesLocalCode: boolean,
+  options: { includeFiles?: boolean } = {},
 ): Promise<GasCityDiscoveredCapability[]> {
   const directoryPath = path.join(sourcePath, relativeDirectory);
   let entries: Array<{
@@ -211,9 +270,22 @@ async function discoverDirectoryCapabilities(
     ];
   }
 
+  if (kind === "command") {
+    return discoverNestedCommandCapabilities(
+      fs,
+      path,
+      directoryPath,
+      safetyTier,
+      executesLocalCode,
+    );
+  }
+
   return entries
     .filter((entry) => !entry.name.startsWith("."))
-    .filter((entry) => entry.isDirectory() || entry.isFile())
+    .filter(
+      (entry) =>
+        entry.isDirectory() || (options.includeFiles === true && entry.isFile()),
+    )
     .map((entry) => {
       const name = capabilityNameFromEntry(entry.name);
       return {
@@ -227,6 +299,78 @@ async function discoverDirectoryCapabilities(
       };
     })
     .sort((left, right) => left.id.localeCompare(right.id));
+}
+
+async function discoverNestedCommandCapabilities(
+  fs: NodeFsPromises,
+  path: NodePath,
+  commandsPath: string,
+  safetyTier: GasCityPackSafetyTier,
+  executesLocalCode: boolean,
+): Promise<GasCityDiscoveredCapability[]> {
+  const commandNames = await collectCommandNames(fs, path, commandsPath, "");
+  return commandNames.map((name) => ({
+    id: `command:${name}`,
+    kind: "command",
+    name,
+    title: null,
+    safetyTier,
+    sourcePath: path.join(commandsPath, ...name.split("/")),
+    executesLocalCode,
+  }));
+}
+
+async function collectCommandNames(
+  fs: NodeFsPromises,
+  path: NodePath,
+  directoryPath: string,
+  relativeName: string,
+): Promise<string[]> {
+  const entries = await fs.readdir(directoryPath, { withFileTypes: true });
+  const visibleEntries = entries
+    .filter((entry) => !entry.name.startsWith("."))
+    .sort((left, right) => left.name.localeCompare(right.name));
+  const hasFile = visibleEntries.some((entry) => entry.isFile());
+  const childDirectories = visibleEntries.filter((entry) => entry.isDirectory());
+
+  if (relativeName && hasFile) {
+    return [relativeName];
+  }
+
+  const names: string[] = [];
+  for (const child of childDirectories) {
+    const childRelativeName = relativeName
+      ? `${relativeName}/${child.name}`
+      : child.name;
+    names.push(
+      ...(await collectCommandNames(
+        fs,
+        path,
+        path.join(directoryPath, child.name),
+        childRelativeName,
+      )),
+    );
+  }
+  return names.sort((left, right) => left.localeCompare(right));
+}
+
+function validatePackToml(packToml: string): string[] {
+  const errors: string[] = [];
+  if (!/(?:^|\n)\s*\[pack\]\s*(?:\n|$)/.test(packToml)) {
+    errors.push("pack.toml must include a [pack] section.");
+  }
+  if (hasUnterminatedBasicString(packToml)) {
+    errors.push("pack.toml has an unterminated quoted string.");
+  }
+  return errors;
+}
+
+function hasUnterminatedBasicString(toml: string): boolean {
+  return toml.split(/\r?\n/).some((line) => {
+    const withoutComment = line.split("#", 1)[0] ?? "";
+    const quoteCount = [...withoutComment.matchAll(/(?<!\\)"/g)].length;
+    return quoteCount % 2 === 1;
+  });
 }
 
 function parsePackName(packToml: string): string | null {
@@ -257,6 +401,14 @@ function isNotFound(error: unknown): boolean {
     error !== null &&
     "code" in error &&
     error.code === "ENOENT"
+  );
+}
+
+function isPathInside(path: NodePath, parentPath: string, childPath: string): boolean {
+  const relativePath = path.relative(parentPath, childPath);
+  return (
+    relativePath === "" ||
+    (!relativePath.startsWith("..") && !path.isAbsolute(relativePath))
   );
 }
 

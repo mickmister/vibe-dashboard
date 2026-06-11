@@ -1,4 +1,10 @@
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import {
+  access,
+  mkdtemp,
+  mkdir,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
@@ -56,5 +62,71 @@ describe("scanGasCityLocalPack", () => {
     const dir = await mkdtemp(join(tmpdir(), "gc-empty-pack-"));
     const missing = await scanGasCityLocalPack({ packRefId: "missing", sourcePath: dir });
     expect(missing.errors.some((error) => error.includes("pack.toml"))).toBe(true);
+  });
+
+  it("reports invalid pack.toml without discovering capabilities", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "gc-invalid-pack-"));
+    await writeFile(join(dir, "pack.toml"), `[pack]\nname = "unterminated\n`, "utf8");
+    await mkdir(join(dir, "agents", "reviewer"), { recursive: true });
+
+    const result = await scanGasCityLocalPack({ packRefId: "invalid", sourcePath: dir });
+
+    expect(result.errors).toContain("pack.toml has an unterminated quoted string.");
+    expect(result.capabilities).toEqual([]);
+  });
+
+  it("discovers nested command directories deterministically", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "gc-nested-pack-"));
+    await writeFile(join(dir, "pack.toml"), `[pack]\nname = "Nested Commands"\nschema = 2\n`, "utf8");
+    await mkdir(join(dir, "commands", "release", "smoke"), { recursive: true });
+    await writeFile(join(dir, "commands", "release", "smoke", "run.sh"), "echo smoke", "utf8");
+    await mkdir(join(dir, "commands", "release", "ship"), { recursive: true });
+    await writeFile(join(dir, "commands", "release", "ship", "run.sh"), "echo ship", "utf8");
+
+    const first = await scanGasCityLocalPack({
+      packRefId: "nested",
+      sourcePath: dir,
+      checkedAt: "2026-06-11T00:00:00.000Z",
+    });
+    const second = await scanGasCityLocalPack({
+      packRefId: "nested",
+      sourcePath: dir,
+      checkedAt: "2026-06-11T00:00:00.000Z",
+    });
+
+    expect(first).toEqual(second);
+    expect(first.capabilities.map((capability) => capability.name)).toEqual([
+      "release/ship",
+      "release/smoke",
+    ]);
+  });
+
+  it("does not execute script-bearing packs and warns about symlinks leaving the pack", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "gc-script-pack-"));
+    const outsideDir = await mkdtemp(join(tmpdir(), "gc-outside-pack-"));
+    const markerPath = join(outsideDir, "executed");
+    await writeFile(join(dir, "pack.toml"), `[pack]\nname = "Scripts"\nschema = 2\n`, "utf8");
+    await mkdir(join(dir, "commands", "danger"), { recursive: true });
+    await writeFile(
+      join(dir, "commands", "danger", "run.sh"),
+      `#!/bin/sh\ntouch ${JSON.stringify(markerPath)}\n`,
+      "utf8",
+    );
+    await mkdir(join(dir, "assets"));
+    await symlink(outsideDir, join(dir, "assets", "outside"));
+
+    const result = await scanGasCityLocalPack({ packRefId: "scripts", sourcePath: dir });
+
+    expect(result.capabilities).toContainEqual(
+      expect.objectContaining({
+        kind: "command",
+        name: "danger",
+        executesLocalCode: true,
+      }),
+    );
+    expect(result.warnings.some((warning) => warning.includes("outside pack boundary"))).toBe(
+      true,
+    );
+    await expect(access(markerPath)).rejects.toThrow();
   });
 });
