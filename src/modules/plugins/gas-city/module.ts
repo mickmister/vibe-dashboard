@@ -6,9 +6,11 @@ import {
 import {
   createDefaultGasCityDashboardState,
   type GasCityDashboardState,
+  type GasCityGeneratedCityRuntime,
   type GasCitySessionInfo,
   type GasCityPluginModule,
 } from "./types";
+import { renderGasCityGeneratedCityConfig } from "./city-config-renderer";
 
 const manifest: PluginManifest = createPluginManifest({
   id: "dev.mickmister.gas-city",
@@ -27,6 +29,26 @@ const manifest: PluginManifest = createPluginManifest({
     ],
   },
 });
+
+type NodeFsPromises = typeof import("node:fs/promises");
+type NodePath = typeof import("node:path");
+
+async function writeFileAtomic(
+  fs: NodeFsPromises,
+  path: NodePath,
+  targetPath: string,
+  contents: string,
+): Promise<void> {
+  const tempSuffix = `${process.pid}.${Date.now()}.${Math.random()
+    .toString(36)
+    .slice(2)}`;
+  const tempPath = path.join(
+    path.dirname(targetPath),
+    `.${path.basename(targetPath)}.${tempSuffix}.tmp`,
+  );
+  await fs.writeFile(tempPath, contents, "utf8");
+  await fs.rename(tempPath, targetPath);
+}
 
 springboard.registerModule(
   "plugin-gas-city",
@@ -172,6 +194,67 @@ springboard.registerModule(
           draft.cityPath = args.cityPath.trim();
           draft.error = null;
         });
+      },
+      renderGeneratedCityConfig: async (args?: {
+        runtimeRoot?: string;
+        cityName?: string;
+        cityId?: string;
+      }) => {
+        const fs = await importNode<typeof import("node:fs/promises")>(
+          "node:fs/promises",
+        );
+        const path = await importNode<typeof import("node:path")>("node:path");
+        const state = dashboard.getState();
+        const runtimeRoot = (
+          args?.runtimeRoot ?? state.cityBuilder.generatedCity.runtimeRoot
+        ).trim();
+        if (!runtimeRoot) {
+          throw new Error("Choose a generated Gas City runtime directory.");
+        }
+        if (!path.isAbsolute(runtimeRoot)) {
+          throw new Error(
+            "Generated Gas City runtime directory must be an absolute path.",
+          );
+        }
+
+        const builderState = {
+          ...state.cityBuilder,
+          generatedCity: {
+            ...state.cityBuilder.generatedCity,
+            cityId:
+              args?.cityId?.trim() ||
+              state.cityBuilder.generatedCity.cityId ||
+              "default",
+            cityName:
+              args?.cityName?.trim() ||
+              state.cityBuilder.generatedCity.cityName ||
+              "vd-generated",
+            runtimeRoot,
+            cityTomlPath: path.join(runtimeRoot, "city.toml"),
+          },
+        };
+        const rendered = renderGasCityGeneratedCityConfig(builderState);
+        const cityTomlPath = path.join(runtimeRoot, "city.toml");
+        const packTomlPath = path.join(runtimeRoot, "pack.toml");
+
+        await fs.mkdir(runtimeRoot, { recursive: true });
+        await writeFileAtomic(fs, path, cityTomlPath, rendered.cityToml);
+        await writeFileAtomic(fs, path, packTomlPath, rendered.packToml);
+
+        const runtime: GasCityGeneratedCityRuntime = {
+          cityId: builderState.generatedCity.cityId,
+          cityName: builderState.generatedCity.cityName,
+          runtimeRoot,
+          cityTomlPath,
+          lastRenderedAt: new Date().toISOString(),
+        };
+        dashboard.setStateImmer((draft) => {
+          draft.cityPath = runtimeRoot;
+          draft.cityBuilder.generatedCity = runtime;
+          draft.error = null;
+          draft.lastCommandOutput = `Rendered generated Gas City config:\n${cityTomlPath}\n${packTomlPath}`;
+        });
+        return { runtime, packTomlPath };
       },
       refreshSessions: async () =>
         withLoading(async () => {

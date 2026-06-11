@@ -39,6 +39,11 @@ export interface GasCityGeneratedCityRuntime {
   lastRenderedAt: string | null;
 }
 
+export interface GasCityRenderGeneratedConfigResult {
+  runtime: GasCityGeneratedCityRuntime;
+  packTomlPath: string;
+}
+
 export interface GasCityLocalPackRef {
   id: string;
   binding: string;
@@ -162,6 +167,11 @@ export interface GasCityPluginModule {
   };
   actions: {
     setConfig: (args: { gcBinary: string; cityPath: string }) => Promise<void>;
+    renderGeneratedCityConfig: (args?: {
+      runtimeRoot?: string;
+      cityName?: string;
+      cityId?: string;
+    }) => Promise<GasCityRenderGeneratedConfigResult>;
     refreshSessions: () => Promise<GasCitySessionInfo[]>;
     refreshStatus: () => Promise<string>;
     createSession: (args: {
