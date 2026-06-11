@@ -1,0 +1,12 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "vibe-kanban-vscode-web-docs",
+  "compatibility_date": "2026-06-11",
+  "assets": {
+    "directory": "./.docs/.output/public",
+    "not_found_handling": "404-page"
+  },
+  "observability": {
+    "enabled": true
+  }
+}

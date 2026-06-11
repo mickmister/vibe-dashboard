@@ -6,7 +6,10 @@ Commands:
   pnpm install
   pnpm dev
   pnpm build
+  pnpm deploy
 
 pnpm build generates a static site at .docs/.output/public.
 
 nuxt is listed as a direct dev dependency because Undocs resolves Nuxt from the docs workspace during builds when installed with pnpm.
+
+CI deploys the built docs with Cloudflare Workers using the CLOUDFLARE_API_TOKEN repository secret.
