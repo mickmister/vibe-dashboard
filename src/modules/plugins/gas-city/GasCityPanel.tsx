@@ -534,6 +534,11 @@ export function GasCityPanel({
     setWizardPreview(null);
   };
 
+  const handleRemoveLocalPackRef = async (packRefId: string) => {
+    await actions.removeLocalPackRef({ packRefId });
+    setWizardPreview(null);
+  };
+
   const currentPeek = selectedSession
     ? (state.peekBySessionId[selectedSession.ID] ?? "")
     : "";
@@ -768,6 +773,80 @@ export function GasCityPanel({
           {wizardError ? (
             <div className="mt-3 rounded-lg border border-danger-500/40 bg-danger-500/10 p-3 text-sm text-danger-200">
               {wizardError}
+            </div>
+          ) : null}
+
+          {state.cityBuilder.localPackRefs.length ? (
+            <div className="mt-3 rounded-lg border border-neutral-800 bg-neutral-950 p-3">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <h4 className="text-sm font-semibold text-neutral-200">
+                  Current generated imports
+                </h4>
+                <span className="text-xs text-neutral-500">
+                  {state.cityBuilder.localPackRefs.length} saved
+                </span>
+              </div>
+              <div className="flex flex-col gap-2">
+                {state.cityBuilder.localPackRefs.map((packRef) => (
+                  <div
+                    key={packRef.id}
+                    className="rounded-md border border-neutral-800 bg-neutral-900 p-3"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-mono text-sm text-white">
+                            {packRef.binding}
+                          </span>
+                          <span className="rounded-full border border-neutral-700 px-2 py-0.5 text-[11px] text-neutral-300">
+                            {packRef.scope}
+                            {packRef.rigName ? `:${packRef.rigName}` : ""}
+                          </span>
+                          <span
+                            className={`rounded-full border px-2 py-0.5 text-[11px] ${
+                              packRef.enabled
+                                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
+                                : "border-neutral-700 bg-neutral-800 text-neutral-400"
+                            }`}
+                          >
+                            {packRef.enabled ? "enabled" : "disabled"}
+                          </span>
+                        </div>
+                        <div className="mt-1 truncate text-xs text-neutral-500">
+                          {packRef.sourcePath}
+                        </div>
+                      </div>
+                      <div className="flex shrink-0 flex-wrap items-center gap-2">
+                        <label className="flex items-center gap-2 text-xs text-neutral-300">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 accent-primary"
+                            checked={packRef.enabled}
+                            onChange={(event) => {
+                              void actions.setLocalPackEnabled({
+                                packRefId: packRef.id,
+                                enabled: event.target.checked,
+                              });
+                              setWizardPreview(null);
+                            }}
+                          />
+                          Include
+                        </label>
+                        <Button
+                          size="sm"
+                          color="danger"
+                          variant="flat"
+                          onPress={() =>
+                            void handleRemoveLocalPackRef(packRef.id)
+                          }
+                        >
+                          Remove
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           ) : null}
 

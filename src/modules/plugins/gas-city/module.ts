@@ -362,6 +362,24 @@ springboard.registerModule(
           draft.error = null;
         });
       },
+      removeLocalPackRef: async (args: { packRefId: string }) => {
+        dashboard.setStateImmer((draft) => {
+          draft.cityBuilder.localPackRefs =
+            draft.cityBuilder.localPackRefs.filter(
+              (packRef) => packRef.id !== args.packRefId,
+            );
+          delete draft.cityBuilder.validationCacheByPackRefId[args.packRefId];
+          draft.cityBuilder.orderOverrides =
+            draft.cityBuilder.orderOverrides.filter(
+              (override) => override.packRefId !== args.packRefId,
+            );
+          draft.cityBuilder.agentOverrides =
+            draft.cityBuilder.agentOverrides.filter(
+              (override) => override.packRefId !== args.packRefId,
+            );
+          draft.error = null;
+        });
+      },
       setLocalPackEnabled: async (args: {
         packRefId: string;
         enabled: boolean;
