@@ -5,6 +5,11 @@ import type {
   WorkspaceState,
 } from '../types';
 
+export const LAST_DASHBOARD_URL_STORAGE_KEY = 'workspace-last-dashboard-url';
+const URL_PARSE_BASE = 'https://workspace.local';
+
+type DashboardUrlStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
+
 function slugifyPart(value: string): string {
   const normalized = value
     .toLowerCase()
@@ -141,4 +146,60 @@ export function buildSavedVoyageDashboardPath({
     craftParam: buildCraftParam(tabGroup, entry),
     viewTokens,
   });
+}
+
+export function normalizeStoredDashboardUrl(value: string | null | undefined): string | undefined {
+  if (!value) return undefined;
+
+  try {
+    const url = new URL(value, URL_PARSE_BASE);
+    const voyageKey = url.searchParams.get('voyage')?.trim();
+    if (url.pathname !== '/dashboard' || !voyageKey) return undefined;
+    return `${url.pathname}${url.search}`;
+  } catch {
+    return undefined;
+  }
+}
+
+export function getStoredLastDashboardUrl(
+  storage: DashboardUrlStorage | undefined =
+    typeof window === 'undefined' ? undefined : window.localStorage,
+): string | undefined {
+  if (!storage) return undefined;
+  try {
+    return normalizeStoredDashboardUrl(
+      storage.getItem(LAST_DASHBOARD_URL_STORAGE_KEY),
+    );
+  } catch {
+    return undefined;
+  }
+}
+
+export function setStoredLastDashboardUrl(
+  url: string,
+  storage: DashboardUrlStorage | undefined =
+    typeof window === 'undefined' ? undefined : window.localStorage,
+): void {
+  if (!storage) return;
+  try {
+    const normalizedUrl = normalizeStoredDashboardUrl(url);
+    if (normalizedUrl) {
+      storage.setItem(LAST_DASHBOARD_URL_STORAGE_KEY, normalizedUrl);
+    } else {
+      storage.removeItem(LAST_DASHBOARD_URL_STORAGE_KEY);
+    }
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+export function getVoyageKeyFromDashboardUrl(value: string | null | undefined): string | undefined {
+  const normalizedUrl = normalizeStoredDashboardUrl(value);
+  if (!normalizedUrl) return undefined;
+
+  try {
+    return new URL(normalizedUrl, URL_PARSE_BASE).searchParams.get('voyage')?.trim() || undefined;
+  } catch {
+    return undefined;
+  }
 }

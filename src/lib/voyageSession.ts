@@ -1,5 +1,5 @@
 import type { SavedWorkspaceSession } from '../types';
-import { getVoyageSlug } from './voyageUrl';
+import { getVoyageKeyFromDashboardUrl, getVoyageSlug } from './voyageUrl';
 
 export function resolveRequestedVoyageSessionId({
   savedSessions,
@@ -25,34 +25,20 @@ export function resolveRequestedVoyageSessionId({
   );
 }
 
-export function resolvePreferredVoyageSessionId({
+export function resolveLastDashboardVoyageSessionId({
   savedSessions,
-  requestedVoyageKey,
-  storedBrowserSessionId,
-  originDefaultSessionId,
+  storedDashboardUrl,
 }: {
   savedSessions: SavedWorkspaceSession[];
-  requestedVoyageKey?: string;
-  storedBrowserSessionId?: string | null;
-  originDefaultSessionId?: string;
+  storedDashboardUrl?: string;
 }): string | undefined {
-  const savedSessionIds = new Set(savedSessions.map((session) => session.id));
-  const requestedSessionId = resolveRequestedVoyageSessionId({
-    savedSessions,
-    requestedVoyageKey,
-  });
+  const storedVoyageKey = getVoyageKeyFromDashboardUrl(storedDashboardUrl);
+  if (!storedVoyageKey) return undefined;
 
-  return (
-    requestedSessionId ||
-    (storedBrowserSessionId && savedSessionIds.has(storedBrowserSessionId)
-      ? storedBrowserSessionId
-      : undefined) ||
-    (originDefaultSessionId && savedSessionIds.has(originDefaultSessionId)
-      ? originDefaultSessionId
-      : undefined) ||
-    storedBrowserSessionId ||
-    undefined
-  );
+  return resolveRequestedVoyageSessionId({
+    savedSessions,
+    requestedVoyageKey: storedVoyageKey,
+  });
 }
 
 export type DashboardVoyageResolution =
@@ -63,13 +49,11 @@ export type DashboardVoyageResolution =
 export function resolveDashboardVoyage({
   savedSessions,
   requestedVoyageKey,
-  storedBrowserSessionId,
-  originDefaultSessionId,
+  storedDashboardUrl,
 }: {
   savedSessions: SavedWorkspaceSession[];
   requestedVoyageKey?: string;
-  storedBrowserSessionId?: string | null;
-  originDefaultSessionId?: string;
+  storedDashboardUrl?: string;
 }): DashboardVoyageResolution {
   if (requestedVoyageKey) {
     const requestedSessionId = resolveRequestedVoyageSessionId({
@@ -83,10 +67,9 @@ export function resolveDashboardVoyage({
 
   return {
     status: 'missing-param',
-    sessionId: resolvePreferredVoyageSessionId({
+    sessionId: resolveLastDashboardVoyageSessionId({
       savedSessions,
-      storedBrowserSessionId,
-      originDefaultSessionId,
+      storedDashboardUrl,
     }),
   };
 }

@@ -5,8 +5,10 @@ import {
   buildSavedVoyageDashboardPath,
   buildViewParam,
   buildVoyageSlug,
+  getStoredLastDashboardUrl,
   parseCraftParam,
   parseViewsParam,
+  setStoredLastDashboardUrl,
 } from './voyageUrl';
 import type { Craft, SavedWorkspaceSession, VoyageEntry, WorkspaceState } from '../types';
 
@@ -124,5 +126,32 @@ describe('voyageUrl', () => {
     ).toBe(
       '/dashboard?from_gh_url=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fpull%2F1&voyage=focused-session_abc&craft=workspace-42-42&views=code-2',
     );
+  });
+
+  it('stores only canonical dashboard URLs with a voyage param as resume hints', () => {
+    const store = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        store.set(key, value);
+      },
+      removeItem: (key: string) => {
+        store.delete(key);
+      },
+    };
+
+    setStoredLastDashboardUrl(
+      '/dashboard?voyage=focused-session_abc&craft=workspace-42-42',
+      storage,
+    );
+    expect(getStoredLastDashboardUrl(storage)).toBe(
+      '/dashboard?voyage=focused-session_abc&craft=workspace-42-42',
+    );
+
+    setStoredLastDashboardUrl('/dashboard?craft=workspace-42-42', storage);
+    expect(getStoredLastDashboardUrl(storage)).toBeUndefined();
+
+    setStoredLastDashboardUrl('/settings?voyage=focused-session_abc', storage);
+    expect(getStoredLastDashboardUrl(storage)).toBeUndefined();
   });
 });

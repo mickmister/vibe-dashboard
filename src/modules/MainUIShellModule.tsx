@@ -8,10 +8,6 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AppLoadingScreen } from '../components/AppLoadingScreen';
 import { WorkspaceShell } from '../components/WorkspaceShell';
 import {
-  createNewBrowserSessionId,
-  getOrCreateBrowserSessionId,
-  getStoredBrowserSessionId,
-  setBrowserSessionId,
   useSessionWorkspaceNav,
 } from '../sessionState';
 import type { NewSessionInitialSelection } from '../sessionState';
@@ -22,14 +18,13 @@ import {
   buildSavedVoyageDashboardPath,
   buildViewParam,
   buildVoyageSlug,
+  getStoredLastDashboardUrl,
   getVoyageSlug,
   parseCraftParam,
   parseViewsParam,
+  setStoredLastDashboardUrl,
 } from '../lib/voyageUrl';
-import {
-  resolveDashboardVoyage,
-  resolvePreferredVoyageSessionId,
-} from '../lib/voyageSession';
+import { resolveDashboardVoyage } from '../lib/voyageSession';
 import { getSavedWorkspaceSessions } from '../lib/savedVoyageState';
 
 // Ensure dark class is on the document root so portaled elements (modals, popovers)
@@ -175,7 +170,18 @@ springboard.registerModule(
       const navigate = useNavigate();
       const location = useLocation();
       useEffect(() => {
-        navigate(`/dashboard${location.search}`, { replace: true });
+        const searchParams = new URLSearchParams(location.search);
+        const requestedVoyage = searchParams.get('voyage')?.trim();
+        const storedDashboardUrl =
+          typeof window === 'undefined' || location.search
+            ? undefined
+            : getStoredLastDashboardUrl();
+        navigate(
+          requestedVoyage || !storedDashboardUrl
+            ? `/dashboard${location.search}`
+            : storedDashboardUrl,
+          { replace: true },
+        );
       }, [location.search, navigate]);
       return null;
     };
@@ -187,17 +193,11 @@ springboard.registerModule(
       const workspace = workspaceModule.states.workspace.useState();
       const savedSessions = workspaceModule.states.savedVoyages.useState();
       const savedVoyages = getSavedWorkspaceSessions(savedSessions);
-      const originSessionResume = workspaceModule.states.originVoyageResumeState.useState();
-
       const actions = workspaceModule.actions;
 
       const location = useLocation();
       const navigate = useNavigate();
       const sessionSearchParams = new URLSearchParams(location.search);
-      const initialBrowserSessionRef = useRef<{
-        initialized: boolean;
-        sessionId: string;
-      }>({ initialized: false, sessionId: 'server-session' });
       const requestedVoyageKey = (() => {
         if (typeof window === 'undefined') return undefined;
         const value = sessionSearchParams.get('voyage')?.trim();
@@ -205,47 +205,46 @@ springboard.registerModule(
       })();
       const queryCraftParam = sessionSearchParams.get('craft')?.trim() || undefined;
       const queryViewsParam = sessionSearchParams.get('views')?.trim() || undefined;
-      const currentOrigin =
-        typeof window === 'undefined' ? undefined : window.location.origin;
-      const originDefaultSessionId =
-        currentOrigin
-          ? originSessionResume.lastSessionByOrigin[currentOrigin]
-          : undefined;
-      const storedBrowserSessionId =
-        typeof window === 'undefined'
-          ? null
-          : getStoredBrowserSessionId();
+      const storedDashboardUrl =
+        typeof window === 'undefined' || location.search
+          ? undefined
+          : getStoredLastDashboardUrl();
       const dashboardVoyage = resolveDashboardVoyage({
         savedSessions: savedVoyages,
         requestedVoyageKey,
-        storedBrowserSessionId,
-        originDefaultSessionId,
+        storedDashboardUrl,
       });
       const requestedSessionId =
         dashboardVoyage.status === 'resolved'
           ? dashboardVoyage.sessionId
           : undefined;
-      if (!initialBrowserSessionRef.current.initialized) {
-        const preferredSessionId = resolvePreferredVoyageSessionId({
-          savedSessions: savedVoyages,
-          storedBrowserSessionId,
-          originDefaultSessionId,
-        });
-        initialBrowserSessionRef.current = {
-          initialized: true,
-          sessionId:
-            typeof window === 'undefined'
-              ? 'server-session'
-              : getOrCreateBrowserSessionId(preferredSessionId),
-        };
-      }
+      const missingParamFallbackSession =
+        dashboardVoyage.status === 'missing-param'
+          ? savedVoyages.find((session) => session.id === dashboardVoyage.sessionId) ||
+            savedVoyages.find(
+              (session) => !isHomeVoyageDisplayName(session.name || ''),
+            ) ||
+            savedVoyages[0]
+          : undefined;
+      const missingParamRedirectPath =
+        dashboardVoyage.status === 'missing-param'
+          ? dashboardVoyage.sessionId && storedDashboardUrl
+            ? storedDashboardUrl
+            : missingParamFallbackSession
+              ? buildSavedVoyageDashboardPath({
+                  currentSearch: location.search,
+                  workspace,
+                  session: missingParamFallbackSession,
+                })
+              : undefined
+          : undefined;
       const browserSessionId =
         typeof window === 'undefined'
           ? 'server-session'
           : dashboardVoyage.status === 'resolved'
             ? requestedSessionId || 'server-session'
             : dashboardVoyage.status === 'missing-param'
-              ? initialBrowserSessionRef.current.sessionId
+              ? missingParamFallbackSession?.id || 'server-session'
               : 'server-session';
       const activeSavedSession = savedVoyages.find(
         (session) => session.id === browserSessionId,
@@ -272,9 +271,34 @@ springboard.registerModule(
         },
         activeSavedSession,
         {
-          persistToSessionStorage: dashboardVoyage.status === 'missing-param',
+          persistToSessionStorage: false,
         },
       );
+
+      useEffect(() => {
+        if (dashboardVoyage.status !== 'missing-param') return;
+        if (!missingParamRedirectPath) return;
+        const currentPath = `${location.pathname}${location.search}`;
+        if (missingParamRedirectPath !== currentPath) {
+          navigate(missingParamRedirectPath, { replace: true });
+        }
+      }, [
+        dashboardVoyage.status,
+        location.pathname,
+        location.search,
+        missingParamRedirectPath,
+        navigate,
+      ]);
+
+      useEffect(() => {
+        if (dashboardVoyage.status !== 'resolved') return;
+        const currentPath = `${location.pathname}${location.search}`;
+        setStoredLastDashboardUrl(currentPath);
+      }, [
+        dashboardVoyage.status,
+        location.pathname,
+        location.search,
+      ]);
 
       // Update document title to reflect active space and tab group
       useEffect(() => {
@@ -366,25 +390,6 @@ springboard.registerModule(
         workspace.tabGroups,
       ]);
 
-      useEffect(() => {
-        if (dashboardVoyage.status === 'not-found') return;
-        if (!(currentOrigin && browserSessionId)) return;
-        const activeVoyageName = activeSavedSession?.name?.trim();
-        if (!activeVoyageName || isHomeVoyageDisplayName(activeVoyageName)) return;
-
-        void actions.setOriginDefaultSession({
-          origin: currentOrigin,
-          sessionId: browserSessionId,
-        });
-      }, [
-        actions,
-        dashboardVoyage.status,
-        activeSavedSession?.name,
-        browserSessionId,
-        currentOrigin,
-        sessionNav.activeTabGroupId,
-      ]);
-
       // Sync URL to match canonical voyage/craft/views query params
       useEffect(() => {
         if (dashboardVoyage.status === 'not-found') return;
@@ -407,11 +412,9 @@ springboard.registerModule(
         );
         const voyageName = activeSavedSession?.name?.trim();
         if (!voyageName || isHomeVoyageDisplayName(voyageName)) {
-          if (requestedVoyageKey && !activeSavedSession) return;
-          const nextPath = buildCanonicalDashboardPath(location.search, undefined);
-          if (nextPath !== currentPath) {
-            navigate(nextPath, { replace: true });
-          }
+          // Missing/invalid current voyage is handled by the route bootstrap or
+          // not-found recovery. Do not clear `voyage` here; that would create a
+          // second current-voyage state outside the URL contract.
           return;
         }
         const currentVoyageSlug = buildVoyageSlug(voyageName, browserSessionId);
@@ -606,8 +609,6 @@ springboard.registerModule(
         const voyageName = session?.name?.trim() || name?.trim();
 
         if (!session && (!voyageName || isHomeVoyageDisplayName(voyageName))) {
-          const nextPath = buildCanonicalDashboardPath(location.search, undefined);
-          navigate(nextPath, { replace: true });
           return;
         }
 
@@ -770,16 +771,10 @@ springboard.registerModule(
           );
           if (!sessionToResume) return;
           pendingSavedSessionActivationIdRef.current = sessionId;
-          if (typeof window !== 'undefined') {
-            setBrowserSessionId(sessionId);
-          }
           updateBookmarkedSessionSearch(sessionId, undefined, voyageEntryId);
         },
         activateSavedSession: (session: SavedWorkspaceSession) => {
           pendingSavedSessionActivationIdRef.current = session.id;
-          if (typeof window !== 'undefined') {
-            setBrowserSessionId(session.id);
-          }
           updateBookmarkedSessionSearch(session.id, session.name, undefined, {
             session,
           });
@@ -796,20 +791,10 @@ springboard.registerModule(
                   !isHomeVoyageDisplayName(session.name || ''),
               ) || savedVoyages.find((session) => session.id !== sessionId);
             if (fallbackSession) {
-              if (typeof window !== 'undefined') {
-                setBrowserSessionId(fallbackSession.id);
-              }
               updateBookmarkedSessionSearch(
                 fallbackSession.id,
                 fallbackSession.name,
               );
-            } else {
-              const nextSessionId = createNewBrowserSessionId();
-              if (typeof window !== 'undefined') {
-                setBrowserSessionId(nextSessionId);
-              }
-              updateBookmarkedSessionSearch(nextSessionId);
-              sessionNav.startNewSession();
             }
           }
           void actions.deleteSavedSession({ id: sessionId });
@@ -924,13 +909,7 @@ springboard.registerModule(
             (session) => !isHomeVoyageDisplayName(session.name || ''),
           ) || savedVoyages[0];
         const openFallbackVoyage = () => {
-          if (!fallbackSession) {
-            navigate(buildCanonicalDashboardPath(location.search, undefined), {
-              replace: true,
-            });
-            return;
-          }
-          const voyageName = fallbackSession.name?.trim();
+          if (!fallbackSession) return;
           navigate(
             buildCanonicalDashboardPath(location.search, {
               slug: getVoyageSlug(fallbackSession),
@@ -939,15 +918,6 @@ springboard.registerModule(
             }),
             { replace: true },
           );
-          if (typeof window !== 'undefined') {
-            setBrowserSessionId(fallbackSession.id);
-          }
-          if (currentOrigin && voyageName && !isHomeVoyageDisplayName(voyageName)) {
-            void actions.setOriginDefaultSession({
-              origin: currentOrigin,
-              sessionId: fallbackSession.id,
-            });
-          }
         };
 
         return (
@@ -973,23 +943,10 @@ springboard.registerModule(
                     Open {fallbackSession.name?.trim() || 'available voyage'}
                   </button>
                 ) : (
-                  <button
-                    className="rounded-lg bg-primary-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-400"
-                    onClick={openFallbackVoyage}
-                  >
-                    Go to dashboard
-                  </button>
+                  <div className="rounded-lg border border-neutral-800 bg-neutral-950 px-4 py-3 text-sm text-neutral-400">
+                    No saved voyages are available to recover this link.
+                  </div>
                 )}
-                <button
-                  className="rounded-lg border border-neutral-700 px-4 py-2 text-sm font-medium text-neutral-200 transition hover:bg-neutral-800"
-                  onClick={() =>
-                    navigate(buildCanonicalDashboardPath(location.search, undefined), {
-                      replace: true,
-                    })
-                  }
-                >
-                  Clear voyage from URL
-                </button>
               </div>
             </div>
           </div>
