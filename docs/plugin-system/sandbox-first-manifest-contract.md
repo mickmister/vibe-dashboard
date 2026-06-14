@@ -86,3 +86,15 @@ Excalidraw is the early low-privilege North Star. It should be implemented as if
 Existing services remain built-in/first-party initially, but the manifest is designed so VK can ultimately become a version-swappable service plugin. First-party service manifests may declare broad capabilities explicitly; those privileges do not become marketplace defaults.
 
 VK and similar single-active-version services should be staged, health-checked, promoted, and rolled back through the same installer model, with GitHub release assets as the production source.
+
+## Agent-driven verified installation and discovery
+
+Milestone 2 adds a host-side installer/discovery path for agent-driven staging:
+
+1. An agent proposes a plugin artifact descriptor with `pluginId`, `version`, source URL, checksum, and signature.
+2. The host downloads the artifact, verifies checksum and signature, and safely extracts a `plugin.json` rooted tarball into an immutable version directory.
+3. The extracted manifest is validated with the sandbox-first contract before the install is written as verified.
+4. Discovery scans installed versions on demand and does not execute plugin code. Duplicate versions are resolved deterministically by selecting the highest version for each plugin id. Disabled selected versions are reported separately and not activated.
+5. Frontend discovery returns the extracted frontend asset root and entry asset path so later page-load routing can observe newly installed frontend plugins without requiring a server restart.
+
+Unsafe artifacts fail closed before activation: checksum mismatch, signature failure, tar traversal/link entries, malformed manifests, manifest id/version mismatch, and broken installed directories all surface as installer errors or discovery diagnostics.
