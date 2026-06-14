@@ -6,6 +6,7 @@ import {
   createContainerPluginRuntimePlan,
   getContainerRuntimeAdminPreview,
   recordContainerRuntimeEvent,
+  summarizeContainerRuntimeFailure,
 } from './container-runtime';
 
 const imageDigest = 'ghcr.io/acme/excalidraw-worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
@@ -243,6 +244,33 @@ describe('microVM dockerd container plugin runtime planning', () => {
 
     expect(state.logs).toEqual(['pulled renderer image', 'health renderer-health pass: 200 OK']);
     expect(state.health).toEqual({ 'renderer-health': 'pass' });
+  });
+
+  it('normalizes microVM, dockerd, image pull, compose, health, and network failures for logs', () => {
+    const plan = expectSinglePlan(createContainerPluginRuntimePlan({
+      dockerBinary: 'docker',
+      microvmDockerHost: 'tcp://plugin-microvm.internal:2375',
+      workspaceRoot: '/workspaces/craft-1',
+      pluginDataRoot: '/var/lib/vd/plugin-data',
+      plugins: [plugin()],
+      grantsByPluginVersion: new Map([['app.excalidraw.canvas@1.0.0', grants()]]),
+    }).plans);
+
+    expect([
+      summarizeContainerRuntimeFailure(plan, { phase: 'microvm-start', cause: 'firecracker exited 1' }),
+      summarizeContainerRuntimeFailure(plan, { phase: 'dockerd-ready', cause: 'connection refused' }),
+      summarizeContainerRuntimeFailure(plan, { phase: 'image-pull', cause: 'manifest unknown' }),
+      summarizeContainerRuntimeFailure(plan, { phase: 'compose-up', cause: 'invalid compose project' }),
+      summarizeContainerRuntimeFailure(plan, { phase: 'health-check', checkId: 'renderer-health', cause: 'HTTP 503' }),
+      summarizeContainerRuntimeFailure(plan, { phase: 'network', cause: 'port 9300 unavailable' }),
+    ]).toEqual([
+      'app.excalidraw.canvas@1.0.0 renderer microVM startup failed: firecracker exited 1',
+      'app.excalidraw.canvas@1.0.0 renderer microVM dockerd unavailable at tcp://plugin-microvm.internal:2375: connection refused',
+      `app.excalidraw.canvas@1.0.0 renderer image pull failed for ${imageDigest}: manifest unknown`,
+      'app.excalidraw.canvas@1.0.0 renderer compose startup failed for vd_app_excalidraw_canvas_1_0_0_renderer: invalid compose project',
+      'app.excalidraw.canvas@1.0.0 renderer health check renderer-health failed: HTTP 503',
+      'app.excalidraw.canvas@1.0.0 renderer network setup failed for {"mode":"ingress","ports":["9300"]}: port 9300 unavailable',
+    ]);
   });
 });
 

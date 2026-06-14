@@ -3,11 +3,13 @@
 ARG VK_REPO_URL=https://github.com/mickmister/vibe-kanban.git
 ARG VK_BRANCH=main
 ARG VK_COMMIT=
+ARG VK_RUNTIME_SOURCE=github
 
 FROM alpine:3.19 AS vk-runtime-downloader
 
 ARG VK_BRANCH
 ARG VK_COMMIT
+ARG VK_RUNTIME_SOURCE
 ARG TARGETARCH
 
 RUN apk add --no-cache curl jq tar
@@ -15,6 +17,14 @@ RUN apk add --no-cache curl jq tar
 WORKDIR /vk-release
 RUN set -eux; \
     test -n "${VK_COMMIT}"; \
+    if [ "${VK_RUNTIME_SOURCE}" = "stub" ]; then \
+      mkdir -p /vk-runtime; \
+      printf '#!/bin/sh\nprintf "vibe-kanban CI runtime stub %s\\n" "$*"\n' "${VK_COMMIT}" > /vk-runtime/vibe-kanban; \
+      chmod +x /vk-runtime/vibe-kanban; \
+      printf '%s@%s\n' "${VK_BRANCH}" "$(printf '%s' "${VK_COMMIT}" | cut -c1-12)" > /vk-build-version; \
+      exit 0; \
+    fi; \
+    test "${VK_RUNTIME_SOURCE}" = "github"; \
     case "${TARGETARCH}" in \
       amd64) vk_platform="linux-x64" ;; \
       arm64) vk_platform="linux-arm64" ;; \

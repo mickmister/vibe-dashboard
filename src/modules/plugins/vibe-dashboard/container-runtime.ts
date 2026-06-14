@@ -75,6 +75,20 @@ export type ContainerRuntimeEvent =
   | { type: 'log'; message: string }
   | { type: 'health'; id: string; passed: boolean; message?: string };
 
+export type ContainerRuntimeFailurePhase =
+  | 'microvm-start'
+  | 'dockerd-ready'
+  | 'image-pull'
+  | 'compose-up'
+  | 'health-check'
+  | 'network';
+
+export interface ContainerRuntimeFailure {
+  phase: ContainerRuntimeFailurePhase;
+  cause: string;
+  checkId?: string;
+}
+
 export function createContainerPluginRuntimePlan(
   input: CreateContainerPluginRuntimePlanInput,
 ): CreateContainerPluginRuntimePlanResult {
@@ -130,6 +144,27 @@ export function recordContainerRuntimeEvent(
   status.health[event.id] = healthStatus;
   status.logs.push(`health ${event.id} ${healthStatus}${event.message ? `: ${event.message}` : ''}`);
   return status;
+}
+
+export function summarizeContainerRuntimeFailure(
+  plan: ContainerPluginRuntimePlan,
+  failure: ContainerRuntimeFailure,
+): string {
+  const prefix = `${plan.pluginId}@${plan.pluginVersion} ${plan.unitId}`;
+  switch (failure.phase) {
+    case 'microvm-start':
+      return `${prefix} microVM startup failed: ${failure.cause}`;
+    case 'dockerd-ready':
+      return `${prefix} microVM dockerd unavailable at ${plan.dockerHost}: ${failure.cause}`;
+    case 'image-pull':
+      return `${prefix} image pull failed for ${plan.image}: ${failure.cause}`;
+    case 'compose-up':
+      return `${prefix} compose startup failed for ${plan.composeProjectName}: ${failure.cause}`;
+    case 'health-check':
+      return `${prefix} health check ${failure.checkId ?? 'unknown'} failed: ${failure.cause}`;
+    case 'network':
+      return `${prefix} network setup failed for ${JSON.stringify(plan.approvedNetwork)}: ${failure.cause}`;
+  }
 }
 
 function createContainerUnitPlan(input: {
