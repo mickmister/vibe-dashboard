@@ -1,0 +1,67 @@
+# External plugin authoring guide
+
+This is the V1 authoring contract for agent-installed VD plugins. The host is sandbox-first: a plugin starts with no sensitive access and only receives capabilities that its manifest requests and an admin approves.
+
+## Artifact layout
+
+A release asset should extract to this shape:
+
+```text
+plugin.json
+frontend/              # optional compiled iframe assets
+bridges/               # optional Deno bridge modules
+backend/               # optional Deno backend modules or container support files
+compose.yaml           # optional, for microVM dockerd container plugins
+```
+
+The marketplace descriptor points to a signed GitHub release asset. The VD machine downloads it, verifies the sha256 and signature, safely extracts it, writes `verified.json`, and serves frontend assets from the installed artifact. Frontend-only plugin updates can be discovered on browser page loads; server plugin code is planned at server startup and requires a restart to change production code.
+
+## Manifest checklist
+
+`plugin.json` uses `schemaVersion: 1` and should declare:
+
+- `id`, `version`, `displayName`, and `kind`
+- `compatibility.vibeDashboard` and `compatibility.pluginApi`
+- `components.frontend` for iframe UI routes or Craft surfaces
+- `components.denoBridges` for host-mediated, least-privilege data RPC
+- `components.denoBackends` for server-side Deno processes loaded at startup
+- `components.containers` for arbitrary binaries running only against microVM dockerd
+- `components.storage`, `components.secrets`, and `components.healthChecks`
+- `requestedCapabilities`, which must match the least privileges needed
+
+Marketplace plugins are intentionally denied by default for:
+
+- VK HTTP API access, especially agent-prompt execution
+- host shell access and code-server access
+- host Docker socket access
+- repo-wide or absolute filesystem access
+- direct environment variables
+- direct access to other plugins
+
+Use named secrets and scoped storage instead. If a plugin needs Docker, request `hostDocker: "microvm-dockerd"` and pin container images by digest.
+
+## UI patterns
+
+1. **Iframe route or Craft surface**: ship compiled HTML/JS under `frontend/`; declare routes and Craft surfaces in the manifest. The host serves assets under the plugin asset route and communicates through serialized postMessage RPC.
+2. **Headless bridge plus host UI**: expose Deno bridge methods such as `beads.list`; a trusted host or first-party UI can render data while the bridge runs with Deno read/write/net/run permissions.
+3. **Special component iframe**: for UI that must own its own React tree, register a route and render a dedicated iframe for that component rather than trying to serialize React components into the host.
+
+## Staging, promotion, rollback
+
+Install into staging first. The runtime records health checks, smoke-test logs, requested grants, approved grants, and source metadata. Promotion requires an authenticated admin approval with 2FA. Failed or disabled staging records are not promoted unless an explicit admin override is implemented. Production retains recent versions so rollback can repoint to a previously verified version.
+
+## Debugging
+
+- Manifest validation failures list the rejected field or capability.
+- Artifact install failures include sha256/signature/extraction errors.
+- Deno startup plans include the exact `deno run --no-prompt` permission flags.
+- Container runtime diagnostics identify the failing phase: microVM start, dockerd readiness, image pull, compose up, health check, or network.
+- Frontend asset issues should be debugged by checking `frontend.entry`, health checks, and the served plugin asset URL.
+
+## Reference examples
+
+See `packages/plugin-reference-examples/reference-plugins`:
+
+- `scoped-canvas`: iframe frontend plus scoped workspace storage bridge.
+- `beads-web-bridge`: headless beads-style Deno bridge with `.beads` read/write only.
+- `container-worker`: container backend using a digest-pinned GHCR image through microVM dockerd.

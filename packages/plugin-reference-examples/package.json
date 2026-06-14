@@ -1,0 +1,17 @@
+{
+  "name": "@vibe-kanban/plugin-reference-examples",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "node scripts/build-reference-plugins.mjs",
+    "check-types": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run test/reference-plugins.test.ts",
+    "test:e2e": "vitest run test/reference-plugins.e2e.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
+  }
+}

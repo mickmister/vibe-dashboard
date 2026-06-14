@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "id": "example.container-worker",
+  "version": "1.0.0",
+  "displayName": "Container Worker Reference",
+  "kind": "marketplace",
+  "description": "Containerized backend that runs against the microVM dockerd only.",
+  "compatibility": {
+    "vibeDashboard": "^1.0.0",
+    "pluginApi": "^0.0.0"
+  },
+  "components": {
+    "containers": [
+      {
+        "id": "worker",
+        "image": "ghcr.io/vibe-dashboard/reference-container-worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "composeFile": "compose.yaml",
+        "dockerd": "microvm",
+        "services": ["worker"]
+      }
+    ],
+    "storage": [
+      { "id": "cache", "scope": "plugin-data", "path": "cache", "access": "readWrite" }
+    ],
+    "healthChecks": [
+      { "id": "worker-health", "kind": "http", "target": "http://127.0.0.1:9080/health" }
+    ]
+  },
+  "requestedCapabilities": {
+    "hostDocker": "microvm-dockerd",
+    "filesystem": [
+      { "scope": "plugin-data", "path": "cache", "access": "readWrite" }
+    ],
+    "network": { "mode": "egress", "hosts": ["api.example.test"] }
+  }
+}

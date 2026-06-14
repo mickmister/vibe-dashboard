@@ -1,0 +1,14 @@
+services:
+  worker:
+    image: ghcr.io/vibe-dashboard/reference-container-worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "127.0.0.1:9080:9080"
+    volumes:
+      - type: bind
+        source: ./backend
+        target: /app
+        read_only: true

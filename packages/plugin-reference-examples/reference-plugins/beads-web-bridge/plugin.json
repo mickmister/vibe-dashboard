@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "id": "example.beads-web-bridge",
+  "version": "1.0.0",
+  "displayName": "Beads Web Bridge Reference",
+  "kind": "marketplace",
+  "description": "Headless Deno bridge that exposes scoped .beads data operations without host shell access.",
+  "compatibility": {
+    "vibeDashboard": "^1.0.0",
+    "pluginApi": "^0.0.0"
+  },
+  "components": {
+    "denoBridges": [
+      {
+        "id": "beads-data-bridge",
+        "entry": "bridges/beads-data.ts",
+        "methods": ["beads.list", "beads.get", "beads.updateStatus"],
+        "permissions": {
+          "read": [".beads"],
+          "write": [".beads"],
+          "run": []
+        }
+      }
+    ],
+    "storage": [
+      { "id": "beads", "scope": "workspace", "path": ".beads", "access": "readWrite" }
+    ],
+    "healthChecks": [
+      { "id": "bridge-entry", "kind": "asset-exists", "target": "bridges/beads-data.ts" }
+    ]
+  },
+  "requestedCapabilities": {
+    "filesystem": [
+      { "scope": "workspace", "path": ".beads", "access": "readWrite" }
+    ]
+  }
+}

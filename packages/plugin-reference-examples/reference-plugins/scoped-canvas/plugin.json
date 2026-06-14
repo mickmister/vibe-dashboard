@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "id": "example.scoped-canvas",
+  "version": "1.0.0",
+  "displayName": "Scoped Canvas Reference",
+  "kind": "marketplace",
+  "description": "Frontend iframe plus scoped workspace storage through a Deno bridge.",
+  "compatibility": {
+    "vibeDashboard": "^1.0.0",
+    "pluginApi": "^0.0.0"
+  },
+  "components": {
+    "frontend": {
+      "kind": "iframe",
+      "entry": "frontend/index.html",
+      "routes": [
+        { "id": "canvas", "title": "Scoped Canvas", "path": "/canvas" }
+      ],
+      "craftSurfaces": [
+        { "id": "canvas", "title": "Scoped Canvas", "route": "/canvas" }
+      ]
+    },
+    "denoBridges": [
+      {
+        "id": "drawings-storage",
+        "entry": "bridges/drawings-storage.ts",
+        "methods": ["drawings.list", "drawings.read", "drawings.write"],
+        "permissions": {
+          "read": [".vibe/plugins/scoped-canvas"],
+          "write": [".vibe/plugins/scoped-canvas"]
+        }
+      }
+    ],
+    "storage": [
+      { "id": "drawings", "scope": "workspace", "path": ".vibe/plugins/scoped-canvas", "access": "readWrite" }
+    ],
+    "healthChecks": [
+      { "id": "frontend-entry", "kind": "asset-exists", "target": "frontend/index.html" }
+    ]
+  },
+  "requestedCapabilities": {
+    "filesystem": [
+      { "scope": "workspace", "path": ".vibe/plugins/scoped-canvas", "access": "readWrite" }
+    ]
+  }
+}
