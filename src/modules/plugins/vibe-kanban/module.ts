@@ -1,9 +1,7 @@
 import springboard from 'springboard';
-import {
-  createPluginManifest,
-  type PluginManifest,
-} from '../vibe-dashboard/types';
-import { getBaseOrigin } from '../../../utils/origin';
+import type { PluginManifest } from '../vibe-dashboard/types';
+import type { ResolvedWorkspaceComposition } from '../vibe-dashboard/workspace-composition';
+import { createPluginManifest, registerPlugin } from '../vibe-dashboard/registry';
 
 const manifest: PluginManifest = createPluginManifest({
   id: 'dev.mickmister.vibe-kanban',
@@ -26,32 +24,35 @@ const manifest: PluginManifest = createPluginManifest({
         icon: 'KB',
       },
     ],
+    craftSurfaces: [
+      {
+        key: 'board',
+        title: 'Kanban',
+        urlTemplate: '{{origin}}/',
+        defaultTitle: 'Kanban',
+        order: 30,
+      },
+    ],
   },
 });
 
-springboard.registerModule('plugin-vibe-kanban', {}, async (moduleAPI) => {
-  const pluginRegistry = moduleAPI.getModule('plugin-registry');
-  if (pluginRegistry) {
-    await pluginRegistry.actions.registerPlugin(manifest);
-  }
+registerPlugin(manifest);
 
+springboard.registerModule('plugin-vibe-kanban', {}, async (moduleAPI) => {
   const actions = moduleAPI.createActions({
     addVKWorkspace: async (args: {
       workspaceId: string;
       name: string;
       containerRef: string;
       activeSpaceId: string;
+      composition: ResolvedWorkspaceComposition;
     }) => {
       const workspace = moduleAPI.getModule('workspace');
       if (!workspace) {
         return undefined;
       }
 
-      const baseOrigin = getBaseOrigin();
-      return workspace.actions.addVKWorkspace({
-        ...args,
-        baseOrigin,
-      });
+      return workspace.actions.addVKWorkspace(args);
     },
   });
 
@@ -71,7 +72,8 @@ declare module 'springboard/module_registry/module_registry' {
           name: string;
           containerRef: string;
           activeSpaceId: string;
-        }) => Promise<{ tabGroupId: string; pairId: string; agentTabId: string } | undefined>;
+          composition: ResolvedWorkspaceComposition;
+        }) => Promise<{ tabGroupId: string; pairId?: string; agentTabId: string } | undefined>;
       };
     };
   }

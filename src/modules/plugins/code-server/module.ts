@@ -1,8 +1,6 @@
 import springboard from 'springboard';
-import {
-  createPluginManifest,
-  type PluginManifest,
-} from '../vibe-dashboard/types';
+import type { PluginManifest } from '../vibe-dashboard/types';
+import { createPluginManifest, registerPlugin } from '../vibe-dashboard/registry';
 
 const manifest: PluginManifest = createPluginManifest({
   id: 'dev.mickmister.code-server',
@@ -26,15 +24,21 @@ const manifest: PluginManifest = createPluginManifest({
         icon: '</>',
       },
     ],
+    craftSurfaces: [
+      {
+        key: 'editor',
+        title: 'Code Server',
+        urlTemplate: '{{origin}}/?folder=/home/vkuser/repos',
+        defaultTitle: 'Code Server',
+        order: 20,
+      },
+    ],
   },
 });
 
-springboard.registerModule('plugin-code-server', {}, async (moduleAPI) => {
-  const pluginRegistry = moduleAPI.getModule('plugin-registry');
-  if (pluginRegistry) {
-    await pluginRegistry.actions.registerPlugin(manifest);
-  }
+registerPlugin(manifest);
 
+springboard.registerModule('plugin-code-server', {}, async () => {
   return {
     manifest,
   };

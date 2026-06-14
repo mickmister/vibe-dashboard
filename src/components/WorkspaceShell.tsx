@@ -16,6 +16,9 @@ import type {
 } from '../types';
 import type { SessionWorkspaceNav } from '../sessionState';
 import type { PluginRegistryState } from '../modules/plugins/vibe-dashboard/types';
+import type { ResolvedWorkspaceComposition } from '../modules/plugins/vibe-dashboard/workspace-composition';
+import { resolveWorkspaceFactoryComposition } from '../modules/plugins/vibe-dashboard/workspace-composition';
+import { createEffectiveWorkspaceWithCraftSurfaces } from '../modules/plugins/vibe-dashboard/craft-surfaces';
 
 const MOBILE_TAB_EMOJI_CHOICES = [
   '🚀',
@@ -83,8 +86,9 @@ export type WorkspaceActions = {
     name: string;
     containerRef: string;
     activeSpaceId: string;
+    composition: ResolvedWorkspaceComposition;
   }) => Promise<
-    { tabGroupId: string; pairId: string; agentTabId: string } | undefined
+    { tabGroupId: string; pairId?: string; agentTabId: string } | undefined
   >;
   updateTabUrl: (args: {
     tabGroupId: string;
@@ -132,6 +136,16 @@ interface WorkspaceShellProps {
   pluginRegistry: PluginRegistryState;
   savedSessions: SavedWorkspaceSession[];
   currentSessionId: string;
+}
+
+
+function getDefaultVKWorkspaceFactoryKey(pluginRegistry: PluginRegistryState): string {
+  const factories = Object.values(pluginRegistry.tabGroupFactories)
+    .filter((factory) => factory.launchMode === 'vk-workspace')
+    .sort((left, right) => (left.order ?? 0) - (right.order ?? 0) || left.key.localeCompare(right.key));
+  const factory = factories[0];
+  if (!factory) throw new Error('No VK workspace factory is registered');
+  return factory.key;
 }
 
 type DuplicateCraftPrompt = {
@@ -345,16 +359,42 @@ export function WorkspaceShell({
     );
   };
 
+
+  const resolveVKWorkspaceComposition = (args: {
+    workspaceId: string;
+    name: string;
+    containerRef: string;
+    factoryKey: string;
+  }) => {
+    const factory = pluginRegistry.tabGroupFactories[args.factoryKey];
+    if (!factory) {
+      throw new Error(`Unknown VK workspace factory: ${args.factoryKey}`);
+    }
+
+    return resolveWorkspaceFactoryComposition({
+      factory,
+      context: {
+        origin: typeof window === 'undefined' ? '' : window.location.origin,
+        workspaceId: args.workspaceId,
+        workspaceName: args.name,
+        containerRef: args.containerRef,
+      },
+    });
+  };
+
   const handleAddVKWorkspace = async (
     workspaceId: string,
     name: string,
     containerRef: string,
+    factoryKey: string,
   ) => {
+    const composition = resolveVKWorkspaceComposition({ workspaceId, name, containerRef, factoryKey });
     const result = await actions.addVKWorkspace({
       workspaceId,
       name,
       containerRef,
       activeSpaceId: session.activeSpaceId,
+      composition,
     });
 
     if (result) {
@@ -371,12 +411,15 @@ export function WorkspaceShell({
     name: string,
     containerRef: string,
     spaceId: string,
+    factoryKey: string = '',
   ) => {
+    const composition = resolveVKWorkspaceComposition({ workspaceId, name, containerRef, factoryKey });
     const result = await actions.addVKWorkspace({
       workspaceId,
       name,
       containerRef,
       activeSpaceId: spaceId,
+      composition,
     });
 
     if (result) {
@@ -395,12 +438,18 @@ export function WorkspaceShell({
         name,
         containerRef,
         session.activeSpaceId,
+        getDefaultVKWorkspaceFactoryKey(pluginRegistry),
       );
       setWorkspaceSearchMode('general');
       return;
     }
 
-    await handleAddVKWorkspace(workspaceId, name, containerRef);
+    await handleAddVKWorkspace(
+      workspaceId,
+      name,
+      containerRef,
+      getDefaultVKWorkspaceFactoryKey(pluginRegistry),
+    );
   };
 
   const handleWorkspaceSearchAddToSpace = async (
@@ -409,7 +458,13 @@ export function WorkspaceShell({
     containerRef: string,
     spaceId: string,
   ) => {
-    await handleAddVKWorkspaceToSpace(workspaceId, name, containerRef, spaceId);
+    await handleAddVKWorkspaceToSpace(
+      workspaceId,
+      name,
+      containerRef,
+      spaceId,
+      getDefaultVKWorkspaceFactoryKey(pluginRegistry),
+    );
     setWorkspaceSearchMode('general');
   };
 
@@ -504,12 +559,22 @@ export function WorkspaceShell({
     }
   };
 
-  const activeSpace = workspace.spaces.find(
+  const effectiveWorkspace = useMemo(
+    () =>
+      createEffectiveWorkspaceWithCraftSurfaces({
+        workspace,
+        craftSurfaces: Object.values(pluginRegistry.craftSurfaces),
+        origin: typeof window === 'undefined' ? '' : window.location.origin,
+      }),
+    [pluginRegistry.craftSurfaces, workspace],
+  );
+
+  const activeSpace = effectiveWorkspace.spaces.find(
     (s) => s.id === session.activeSpaceId,
   );
   const activeTabGroups = activeSpace
     ? activeSpace.tabGroupIds
-        .map((id) => workspace.tabGroups.find((tg) => tg.id === id))
+        .map((id) => effectiveWorkspace.tabGroups.find((tg) => tg.id === id))
         .filter((tg): tg is TabGroup => tg != null)
     : [];
   const activeTabGroup = activeTabGroups.find(
@@ -518,10 +583,10 @@ export function WorkspaceShell({
   const mobileSessionTabGroups = session.voyageEntries
     .map((entry) => {
       const tabGroupId = entry.tabGroupId;
-      const tabGroup = workspace.tabGroups.find((tg) => tg.id === tabGroupId);
+      const tabGroup = effectiveWorkspace.tabGroups.find((tg) => tg.id === tabGroupId);
       if (!tabGroup) return null;
 
-      const space = workspace.spaces.find((candidate) =>
+      const space = effectiveWorkspace.spaces.find((candidate) =>
         candidate.tabGroupIds.includes(tabGroupId),
       );
       if (!space) return null;
@@ -538,10 +603,10 @@ export function WorkspaceShell({
       } => item != null,
     );
   const mobileTabMenuTabGroup = mobileTabMenuTarget
-    ? workspace.tabGroups.find((tg) => tg.id === mobileTabMenuTarget.tabGroupId)
+    ? effectiveWorkspace.tabGroups.find((tg) => tg.id === mobileTabMenuTarget.tabGroupId)
     : undefined;
   const mobileTabMenuSpace = mobileTabMenuTarget
-    ? workspace.spaces.find((space) => space.id === mobileTabMenuTarget.spaceId)
+    ? effectiveWorkspace.spaces.find((space) => space.id === mobileTabMenuTarget.spaceId)
     : undefined;
 
   const expandedSessionTabGroup = useMemo(() => {
@@ -807,7 +872,7 @@ export function WorkspaceShell({
         }}
       >
         <Sidebar
-          workspace={workspace}
+          workspace={effectiveWorkspace}
           activeSpaceId={session.activeSpaceId}
           activeTabGroupId={session.activeTabGroupId}
           activeItems={session.activeItems}
@@ -820,7 +885,7 @@ export function WorkspaceShell({
             sessionActions.selectSpace(spaceId);
           }}
           onSelectTabGroup={(tabGroupId) => {
-            const space = workspace.spaces.find((entry) =>
+            const space = effectiveWorkspace.spaces.find((entry) =>
               entry.tabGroupIds.includes(tabGroupId),
             );
             if (space) {
@@ -999,7 +1064,7 @@ export function WorkspaceShell({
           onDragStart={handleDragStart}
           onDragOver={handleDragOver}
           onDrop={handleDrop}
-          workspace={workspace}
+          workspace={effectiveWorkspace}
           showAddressBar={showAddressBar}
           savedSessions={savedSessions}
           currentSessionId={currentSessionId}
@@ -1008,6 +1073,15 @@ export function WorkspaceShell({
           onDeleteSession={sessionActions.deleteSession}
           onStartNewSession={sessionActions.startNewSession}
           onNavigateToTabGroup={handleNavigateToWorkspaceTabGroup}
+          onOpenVKWorkspace={(workspaceId, name, containerRef, spaceId) =>
+            handleAddVKWorkspaceToSpace(
+              workspaceId,
+              name,
+              containerRef,
+              spaceId,
+              getDefaultVKWorkspaceFactoryKey(pluginRegistry),
+            )
+          }
         />
         {expandedSessionTabGroup && (
           <div
@@ -1144,7 +1218,7 @@ export function WorkspaceShell({
           onAddVKWorkspaceToSpace={handleAddVKWorkspaceToSpace}
           onNavigateToTabGroup={handleNavigateToWorkspaceTabGroup}
           onAddTabGroup={handleAddTabGroup}
-          workspace={workspace}
+          workspace={effectiveWorkspace}
         />
       )}
 
@@ -1159,12 +1233,12 @@ export function WorkspaceShell({
               : handleWorkspaceSearchAddToSpace
           }
           onNavigateToTabGroup={handleNavigateToWorkspaceTabGroup}
-          workspaceState={workspace}
+          workspaceState={effectiveWorkspace}
         />
       )}
 
       {duplicateCraftPrompt && (() => {
-        const tabGroup = workspace.tabGroups.find(
+        const tabGroup = effectiveWorkspace.tabGroups.find(
           (candidate) => candidate.id === duplicateCraftPrompt.tabGroupId,
         );
         const craftLabel = tabGroup?.label || 'This craft';
@@ -1235,10 +1309,10 @@ export function WorkspaceShell({
       })()}
 
       {desktopTabMenuTarget && (() => {
-        const space = workspace.spaces.find(
+        const space = effectiveWorkspace.spaces.find(
           (candidate) => candidate.id === desktopTabMenuTarget.spaceId,
         );
-        const tabGroup = workspace.tabGroups.find(
+        const tabGroup = effectiveWorkspace.tabGroups.find(
           (candidate) => candidate.id === desktopTabMenuTarget.tabGroupId,
         );
 

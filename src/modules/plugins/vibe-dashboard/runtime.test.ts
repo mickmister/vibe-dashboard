@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildPluginFrontendAssetRoute,
+  buildPluginInternalUrl,
   getPluginIframePolicy,
   isPluginFrontendAssetUrl,
   parsePluginFrontendAssetRoute,
+  parsePluginInternalUrl,
   validateExternalPluginRuntimeManifest,
   type ExternalPluginRuntimeManifest,
 } from './runtime';
@@ -97,4 +99,23 @@ describe('plugin runtime production helpers', () => {
       }),
     ).toContain('Trusted host-script frontend plugins are not supported in V1');
   });
+
+  it('builds and parses plugin-owned internal URLs safely', () => {
+    const internalUrl = buildPluginInternalUrl({
+      pluginId: 'app.excalidraw.canvas',
+      routePath: '/canvas/board-1',
+    });
+
+    expect(internalUrl).toBe('internal://plugins/app.excalidraw.canvas/canvas/board-1');
+    expect(parsePluginInternalUrl(internalUrl)).toEqual({
+      pluginId: 'app.excalidraw.canvas',
+      routePath: '/canvas/board-1',
+    });
+    expect(parsePluginInternalUrl('internal://spaces-overview')).toBeNull();
+    expect(parsePluginInternalUrl('internal://plugins/app.excalidraw.canvas/../secrets')).toBeNull();
+    expect(() =>
+      buildPluginInternalUrl({ pluginId: 'app.excalidraw.canvas', routePath: '../secrets' }),
+    ).toThrow('Unsafe plugin internal route path');
+  });
+
 });

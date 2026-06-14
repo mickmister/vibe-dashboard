@@ -1,8 +1,6 @@
 import springboard from 'springboard';
-import {
-  createPluginManifest,
-  type PluginManifest,
-} from '../vibe-dashboard/types';
+import type { PluginManifest } from '../vibe-dashboard/types';
+import { createPluginManifest, registerPlugin } from '../vibe-dashboard/registry';
 
 const manifest: PluginManifest = createPluginManifest({
   id: 'dev.mickmister.app-development',
@@ -16,17 +14,30 @@ const manifest: PluginManifest = createPluginManifest({
         description: 'Add workspace with Agent + Code split view',
         launchMode: 'vk-workspace',
         order: 10,
+        workspaceComposition: {
+          primaryTabKey: 'agent',
+          defaultPairTabKeys: ['agent', 'code'],
+          tabs: [
+            {
+              key: 'agent',
+              title: 'Agent',
+              urlTemplate: '{{origin}}/workspaces/{{workspaceId}}',
+            },
+            {
+              key: 'code',
+              title: 'Code',
+              urlTemplate: '{{origin}}/?folder={{containerRef}}',
+            },
+          ],
+        },
       },
     ],
   },
 });
 
-springboard.registerModule('plugin-app-development', {}, async (moduleAPI) => {
-  const pluginRegistry = moduleAPI.getModule('plugin-registry');
-  if (pluginRegistry) {
-    await pluginRegistry.actions.registerPlugin(manifest);
-  }
+registerPlugin(manifest);
 
+springboard.registerModule('plugin-app-development', {}, async () => {
   return {
     manifest,
   };

@@ -29,12 +29,26 @@ export interface RegisteredSpaceTypeContribution extends SpaceTypeContribution {
 
 export type TabGroupFactoryLaunchMode = 'vk-workspace';
 
+export interface WorkspaceCompositionTabTemplate {
+  key: string;
+  title: string;
+  titleTemplate?: string;
+  urlTemplate: string;
+}
+
+export interface WorkspaceCompositionContribution {
+  tabs: WorkspaceCompositionTabTemplate[];
+  defaultPairTabKeys?: string[];
+  primaryTabKey?: string;
+}
+
 export interface TabGroupFactoryContribution {
   key: string;
   title: string;
   description: string;
   launchMode: TabGroupFactoryLaunchMode;
   order?: number;
+  workspaceComposition?: WorkspaceCompositionContribution;
 }
 
 export interface RegisteredTabGroupFactoryContribution
@@ -43,10 +57,38 @@ export interface RegisteredTabGroupFactoryContribution
   sourceKey: string;
 }
 
+export interface CraftSurfaceContribution {
+  key: string;
+  title: string;
+  urlTemplate: string;
+  defaultTitle?: string;
+  order?: number;
+}
+
+export interface PluginInternalRouteContribution {
+  key: string;
+  title: string;
+  path: string;
+  urlTemplate: string;
+  order?: number;
+}
+
+export interface RegisteredCraftSurfaceContribution extends CraftSurfaceContribution {
+  pluginId: string;
+  sourceKey: string;
+}
+
+export interface RegisteredPluginInternalRouteContribution extends PluginInternalRouteContribution {
+  pluginId: string;
+  sourceKey: string;
+}
+
 export interface PluginContributions {
   tabPresets?: TabPresetContribution[];
   spaceTypes?: SpaceTypeContribution[];
   tabGroupFactories?: TabGroupFactoryContribution[];
+  craftSurfaces?: CraftSurfaceContribution[];
+  internalRoutes?: PluginInternalRouteContribution[];
 }
 
 export interface PluginManifest {
@@ -66,6 +108,8 @@ export interface PluginRegistryState {
   tabPresets: Record<string, RegisteredTabPresetContribution>;
   spaceTypes: Record<string, RegisteredSpaceTypeContribution>;
   tabGroupFactories: Record<string, RegisteredTabGroupFactoryContribution>;
+  craftSurfaces: Record<string, RegisteredCraftSurfaceContribution>;
+  internalRoutes: Record<string, RegisteredPluginInternalRouteContribution>;
 }
 
 export function createEmptyPluginRegistryState(): PluginRegistryState {
@@ -74,38 +118,11 @@ export function createEmptyPluginRegistryState(): PluginRegistryState {
     tabPresets: {},
     spaceTypes: {},
     tabGroupFactories: {},
-  };
-}
-
-export function createPluginManifest(
-  manifest: Omit<PluginManifest, 'apiVersion'> & {
-    apiVersion?: string;
-  },
-): PluginManifest {
-  return {
-    ...manifest,
-    apiVersion: manifest.apiVersion ?? PLUGIN_API_VERSION,
+    craftSurfaces: {},
+    internalRoutes: {},
   };
 }
 
 export function getNamespacedContributionKey(pluginId: string, key: string): string {
   return `${pluginId}/${key}`;
-}
-
-export interface PluginRegistryModule {
-  states: {
-    registry: {
-      useState: () => PluginRegistryState;
-      getState: () => PluginRegistryState;
-    };
-  };
-  actions: {
-    registerPlugin: (manifest: PluginManifest) => Promise<void>;
-  };
-}
-
-declare module 'springboard/module_registry/module_registry' {
-  interface AllModules {
-    'plugin-registry': PluginRegistryModule;
-  }
 }

@@ -5,7 +5,8 @@ import type { WorkspaceState, SavedWorkspaceSession } from '../types';
 import { AppLoadingScreen } from './AppLoadingScreen';
 import { SpacesOverview } from './SpacesOverview';
 import { hasSameBaseOrigin } from '../lib/originTrust';
-import { getPluginIframePolicy } from '../modules/plugins/vibe-dashboard/runtime';
+import { getPluginIframePolicy, parsePluginInternalUrl } from '../modules/plugins/vibe-dashboard/runtime';
+import { resolvePluginInternalRouteIframeSrc } from '../modules/plugins/vibe-dashboard/registry';
 
 const INTERNAL_URL_PREFIX = 'internal://';
 
@@ -142,6 +143,14 @@ function isSelfAppPath(pathname: string, searchParams: URLSearchParams): boolean
 
 function getTabRenderTarget(url: string): TabRenderTarget {
   if (url.startsWith(INTERNAL_URL_PREFIX)) {
+    const pluginIframeSrc = resolvePluginInternalRouteIframeSrc({
+      internalUrl: url,
+      origin: window.location.origin,
+    });
+    if (pluginIframeSrc) {
+      return { kind: 'iframe', iframeSrc: pluginIframeSrc };
+    }
+
     return {
       kind: 'internal',
       internalPath: url.slice(INTERNAL_URL_PREFIX.length),
@@ -794,6 +803,13 @@ function SingleTabView({
         </div>
       );
     }
+
+    const pluginRoute = parsePluginInternalUrl(activeTab.url);
+    if (pluginRoute) {
+      return <PluginInternalRoutePlaceholder pluginId={pluginRoute.pluginId} routePath={pluginRoute.routePath} />;
+    }
+
+    return <UnknownInternalRoutePlaceholder url={activeTab.url} />;
   }
 
   if (target.kind === 'blocked-self-app') {
@@ -900,6 +916,29 @@ function EmptyView() {
   return (
     <div className="absolute inset-x-0 top-0 md:bottom-0 flex items-center justify-center text-neutral-500" style={MOBILE_VIEWPORT_INSET_STYLE}>
       <p>No tab selected. Click + to add a tab.</p>
+    </div>
+  );
+}
+
+function PluginInternalRoutePlaceholder({ pluginId, routePath }: { pluginId: string; routePath: string }) {
+  return (
+    <div className="flex-1 h-full bg-neutral-950 text-neutral-400 flex items-center justify-center">
+      <div className="max-w-md px-6 text-center">
+        <p className="text-sm font-medium text-neutral-200">Plugin route unavailable</p>
+        <p className="mt-2 text-xs">This plugin-owned route is not active in the host registry yet.</p>
+        <p className="mt-2 text-xs break-all">{pluginId}{routePath}</p>
+      </div>
+    </div>
+  );
+}
+
+function UnknownInternalRoutePlaceholder({ url }: { url: string }) {
+  return (
+    <div className="flex-1 h-full bg-neutral-950 text-neutral-400 flex items-center justify-center">
+      <div className="max-w-md px-6 text-center">
+        <p className="text-sm font-medium text-neutral-200">Unknown internal route</p>
+        <p className="mt-2 text-xs break-all">{url}</p>
+      </div>
     </div>
   );
 }

@@ -20,6 +20,7 @@ interface WorkspaceContentViewProps {
   onDeleteSession: (sessionId: string) => void;
   onStartNewSession: () => void;
   onNavigateToTabGroup: (spaceId: string, tabGroupId: string) => void;
+  onOpenVKWorkspace: (workspaceId: string, name: string, containerRef: string, spaceId: string) => void | Promise<void>;
 }
 
 export function WorkspaceContentView({
@@ -39,6 +40,7 @@ export function WorkspaceContentView({
   onDeleteSession,
   onStartNewSession,
   onNavigateToTabGroup,
+  onOpenVKWorkspace,
 }: WorkspaceContentViewProps) {
   if (activeTabGroups.length === 0) {
     return (
@@ -65,6 +67,7 @@ export function WorkspaceContentView({
       onDeleteSession={onDeleteSession}
       onStartNewSession={onStartNewSession}
       onNavigateToTabGroup={onNavigateToTabGroup}
+      onOpenVKWorkspace={onOpenVKWorkspace}
     />
   );
 }

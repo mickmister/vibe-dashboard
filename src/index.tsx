@@ -15,7 +15,7 @@ import {
   setBrowserSessionId,
   useSessionWorkspaceNav,
 } from './sessionState';
-import { buildWorkspaceFolderUrl, resolveWorkspaceContainerRef } from './lib/vkWorkspaceOpen';
+import { resolveWorkspaceContainerRef } from './lib/vkWorkspaceOpen';
 import {
   buildCraftParam,
   buildViewParam,
@@ -36,6 +36,8 @@ springboard.registerSplashScreen(AppLoadingScreen);
 import springboard from 'springboard';
 import { createDefaultWorkspace, getDefaultSpace } from './types';
 import type { PluginRegistryState } from './modules/plugins/vibe-dashboard/types';
+import type { ResolvedWorkspaceComposition } from './modules/plugins/vibe-dashboard/workspace-composition';
+import { usePluginRegistry } from './modules/plugins/vibe-dashboard/registry';
 import { getBaseOrigin } from './utils/origin';
 import type {
   WorkspaceState,
@@ -540,7 +542,7 @@ springboard.registerModule(
         name: string;
         containerRef: string;
         activeSpaceId: string;
-        baseOrigin: string;
+        composition: ResolvedWorkspaceComposition;
       }) => {
         let tabGroupId: string | undefined;
         let pairId: string | undefined;
@@ -550,16 +552,33 @@ springboard.registerModule(
           const space = draft.spaces.find((s) => s.id === args.activeSpaceId);
           if (!space) return;
 
-          // Generate IDs for tab group and tabs
+          // Generate IDs for tab group and plugin-defined tabs.
           tabGroupId = `tg_${draft.nextId++}`;
-          pairId = `pair_${draft.nextId++}`;
-          const kanbanTabId = `tab_${draft.nextId++}`;
-          const codeTabId = `tab_${draft.nextId++}`;
+          const resolvedTabs = args.composition.tabs.map((tab) => ({
+            key: tab.key,
+            id: `tab_${draft.nextId++}`,
+            title: tab.title,
+            url: tab.url,
+          }));
+          const tabIdByKey = new Map(resolvedTabs.map((tab) => [tab.key, tab.id]));
+          const pairTabIds = args.composition.pairTabKeys
+            .map((key) => tabIdByKey.get(key))
+            .filter((id): id is string => Boolean(id));
+          const primaryTabId = tabIdByKey.get(args.composition.primaryTabKey) ?? resolvedTabs[0]?.id;
+          agentTabId = primaryTabId;
 
-          // Store agent tab ID for return
-          agentTabId = kanbanTabId;
+          const pairs = pairTabIds.length > 1
+            ? [
+                {
+                  id: `pair_${draft.nextId++}`,
+                  tabIds: pairTabIds,
+                  ratios: pairTabIds.map(() => 100 / pairTabIds.length),
+                },
+              ]
+            : [];
+          pairId = pairs[0]?.id;
 
-          // Create the new tab group with base origin URLs (no port prefix)
+          // Persist the plugin-defined composition through the host action boundary.
           draft.tabGroups.push({
             id: tabGroupId,
             label:
@@ -568,25 +587,8 @@ springboard.registerModule(
                 : args.name,
             mobileEmoji: pickRandomMobileEmoji(),
             createdAt: new Date().toISOString(),
-            tabs: [
-              {
-                id: kanbanTabId,
-                title: 'Agent',
-                url: buildWorkspaceTabUrl(args.baseOrigin, `/workspaces/${args.workspaceId}`),
-              },
-              {
-                id: codeTabId,
-                title: 'Code',
-                url: buildWorkspaceFolderUrl(args.baseOrigin, args.containerRef),
-              },
-            ],
-            pairs: [
-              {
-                id: pairId,
-                tabIds: [kanbanTabId, codeTabId],
-                ratios: [50, 50],
-              },
-            ],
+            tabs: resolvedTabs.map(({ id, title, url }) => ({ id, title, url })),
+            pairs,
             order: space.tabGroupIds.length,
           });
 
@@ -594,7 +596,7 @@ springboard.registerModule(
           space.tabGroupIds.push(tabGroupId);
         });
 
-        if (!(tabGroupId && pairId && agentTabId)) {
+        if (!(tabGroupId && agentTabId)) {
           return undefined;
         }
 
@@ -765,14 +767,8 @@ springboard.registerModule(
     // Shared route component with legacy path-params plus canonical voyage query-param support
     const WorkspaceRoute = () => {
       const workspace = workspaceState.useState();
-      const pluginRegistry = moduleAPI.getModule('plugin-registry');
       const vibeKanbanPlugin = moduleAPI.getModule('plugin-vibe-kanban');
-      const pluginRegistryState: PluginRegistryState = pluginRegistry?.states.registry.useState() ?? {
-        plugins: {},
-        tabPresets: {},
-        spaceTypes: {},
-        tabGroupFactories: {},
-      };
+      const pluginRegistryState: PluginRegistryState = usePluginRegistry();
       const savedSessions = savedSessionsState.useState();
       const originSessionResume = originSessionResumeState.useState();
       const { spaceId, tabGroupId, itemId } = useParams<{
@@ -1012,6 +1008,7 @@ springboard.registerModule(
           name: string;
           containerRef: string;
           activeSpaceId: string;
+          composition: ResolvedWorkspaceComposition;
         }) => {
           const containerRef = await resolveWorkspaceContainerRef(
             args.workspaceId,
@@ -1023,8 +1020,7 @@ springboard.registerModule(
               containerRef,
             });
           }
-          const baseOrigin = getBaseOrigin();
-          return actions.addVKWorkspace({ ...args, containerRef, baseOrigin });
+          return actions.addVKWorkspace({ ...args, containerRef });
         },
         ensureCreateWorkspaceTab: () => {
           const baseOrigin = getBaseOrigin();
@@ -1231,7 +1227,7 @@ declare module 'springboard/module_registry/module_registry' {
           url: string;
         }) => Promise<{ tabId: string; tabGroupId: string } | undefined>;
         ensureCreateWorkspaceTab: (args: {
-          baseOrigin: string;
+          composition: ResolvedWorkspaceComposition;
         }) => Promise<
           { spaceId: string; tabGroupId: string; tabId: string } | undefined
         >;
@@ -1262,9 +1258,9 @@ declare module 'springboard/module_registry/module_registry' {
           name: string;
           containerRef: string;
           activeSpaceId: string;
-          baseOrigin: string;
+          composition: ResolvedWorkspaceComposition;
         }) => Promise<
-          { tabGroupId: string; pairId: string; agentTabId: string } | undefined
+          { tabGroupId: string; pairId?: string; agentTabId: string } | undefined
         >;
         updateTabUrl: (args: {
           tabGroupId: string;

@@ -14,6 +14,7 @@ import { AddVKWorkspaceModal } from './dialogs/AddVKWorkspaceModal';
 import type { WorkspaceState } from '../types';
 import type {
   TabGroupFactoryContribution,
+  WorkspaceCompositionContribution,
   TabPresetContribution,
 } from '../modules/plugins/vibe-dashboard/types';
 import { applyUrlTemplate, getBaseOrigin } from '../utils/origin';
@@ -28,12 +29,14 @@ interface AddTabModalProps {
     workspaceId: string,
     name: string,
     containerRef: string,
+    factoryKey: string,
   ) => void;
   onAddVKWorkspaceToSpace?: (
     workspaceId: string,
     name: string,
     containerRef: string,
     spaceId: string,
+    factoryKey: string,
   ) => void;
   onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void;
   onAddTabGroup?: (label: string) => void;
@@ -48,6 +51,7 @@ type MenuEntry =
       description: string;
       launchMode: 'vk-workspace';
       order: number;
+      workspaceComposition?: WorkspaceCompositionContribution;
     }
   | {
       kind: 'preset';
@@ -58,6 +62,7 @@ type MenuEntry =
       urlTemplate: string;
       defaultTitle?: string;
       order: number;
+      workspaceComposition?: WorkspaceCompositionContribution;
     }
   | {
       kind: 'custom';
@@ -65,6 +70,7 @@ type MenuEntry =
       title: string;
       description: string;
       order: number;
+      workspaceComposition?: WorkspaceCompositionContribution;
     }
   | {
       kind: 'new-tab-group';
@@ -72,6 +78,7 @@ type MenuEntry =
       title: string;
       description: string;
       order: number;
+      workspaceComposition?: WorkspaceCompositionContribution;
     };
 
 export function AddTabModal({
@@ -89,7 +96,7 @@ export function AddTabModal({
   const [title, setTitle] = useState('');
   const [url, setUrl] = useState('');
   const [showCustom, setShowCustom] = useState(false);
-  const [showVKWorkspace, setShowVKWorkspace] = useState(false);
+  const [selectedVKWorkspaceFactoryKey, setSelectedVKWorkspaceFactoryKey] = useState<string | null>(null);
   const [showTabGroupInput, setShowTabGroupInput] = useState(false);
   const [tabGroupLabel, setTabGroupLabel] = useState('');
 
@@ -101,6 +108,7 @@ export function AddTabModal({
       description: factory.description,
       launchMode: factory.launchMode,
       order: factory.order ?? 0,
+      workspaceComposition: factory.workspaceComposition,
     }));
 
     const pluginPresets: MenuEntry[] = tabPresets.map((preset) => {
@@ -163,7 +171,7 @@ export function AddTabModal({
 
     if (entry.kind === 'factory') {
       if (entry.launchMode === 'vk-workspace') {
-        setShowVKWorkspace(true);
+        setSelectedVKWorkspaceFactoryKey(entry.key);
       }
       return;
     }
@@ -199,9 +207,26 @@ export function AddTabModal({
     containerRef: string,
   ) => {
     if (onAddVKWorkspace) {
-      onAddVKWorkspace(workspaceId, name, containerRef);
+      onAddVKWorkspace(workspaceId, name, containerRef, selectedVKWorkspaceFactoryKey ?? '');
     }
     handleClose();
+  };
+
+  const handleVKWorkspaceAddToSpace = (
+    workspaceId: string,
+    name: string,
+    containerRef: string,
+    spaceId: string,
+  ) => {
+    if (onAddVKWorkspaceToSpace) {
+      onAddVKWorkspaceToSpace(
+        workspaceId,
+        name,
+        containerRef,
+        spaceId,
+        selectedVKWorkspaceFactoryKey ?? '',
+      );
+    }
   };
 
   const handleTabGroupSubmit = () => {
@@ -217,7 +242,7 @@ export function AddTabModal({
     setUrl('');
     setTabGroupLabel('');
     setShowCustom(false);
-    setShowVKWorkspace(false);
+    setSelectedVKWorkspaceFactoryKey(null);
     setShowTabGroupInput(false);
     onClose();
   };
@@ -337,11 +362,11 @@ export function AddTabModal({
       </Modal>
 
       <AddVKWorkspaceModal
-        isOpen={showVKWorkspace}
-        onClose={() => setShowVKWorkspace(false)}
+        isOpen={selectedVKWorkspaceFactoryKey != null}
+        onClose={() => setSelectedVKWorkspaceFactoryKey(null)}
         onComplete={handleClose}
         onAdd={handleVKWorkspaceAdd}
-        onAddToSpace={onAddVKWorkspaceToSpace}
+        onAddToSpace={handleVKWorkspaceAddToSpace}
         onNavigateToTabGroup={onNavigateToTabGroup}
         workspaceState={workspace}
       />

@@ -64,6 +64,11 @@ export interface PluginFrontendAssetRoute {
   assetPath: string;
 }
 
+export interface PluginInternalRoute {
+  pluginId: string;
+  routePath: string;
+}
+
 export interface PluginIframePolicy {
   sandbox: string;
   allow: string;
@@ -100,6 +105,48 @@ export function parsePluginFrontendAssetRoute(pathname: string): PluginFrontendA
   } catch {
     return null;
   }
+}
+
+
+export function buildPluginInternalUrl(route: PluginInternalRoute): string {
+  const routePath = normalizePluginInternalRoutePath(route.routePath);
+  return `internal://plugins/${encodeURIComponent(route.pluginId)}${routePath}`;
+}
+
+export function parsePluginInternalUrl(url: string): PluginInternalRoute | null {
+  if (!url.startsWith('internal://plugins/')) return null;
+  const rest = url.slice('internal://plugins/'.length);
+  const slashIndex = rest.indexOf('/');
+  const encodedPluginId = slashIndex === -1 ? rest : rest.slice(0, slashIndex);
+  if (!encodedPluginId) return null;
+
+  let pluginId: string;
+  try {
+    pluginId = decodeURIComponent(encodedPluginId);
+  } catch {
+    return null;
+  }
+
+  const routePath = slashIndex === -1 ? '/' : `/${rest.slice(slashIndex + 1)}`;
+  if (!isSafePluginInternalRoutePath(routePath)) return null;
+
+  return { pluginId, routePath };
+}
+
+function normalizePluginInternalRoutePath(routePath: string): string {
+  const normalized = routePath.startsWith('/') ? routePath : `/${routePath}`;
+  if (!isSafePluginInternalRoutePath(normalized)) {
+    throw new Error(`Unsafe plugin internal route path: ${routePath}`);
+  }
+  return normalized;
+}
+
+function isSafePluginInternalRoutePath(routePath: string): boolean {
+  return (
+    routePath.startsWith('/') &&
+    !routePath.includes('\\') &&
+    !routePath.split('/').some((part) => part === '..')
+  );
 }
 
 export function isPluginFrontendAssetUrl(iframeSrc: string, hostOrigin: string): boolean {

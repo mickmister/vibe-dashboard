@@ -4,11 +4,13 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { serverRegistry } from 'springboard/server/register';
 import { registerWorkflowRoutes } from '../server/workflow-routes';
+import { registerPluginAssetRoutes } from '../server/plugin-asset-routes';
 import { workflowRegistry } from '../workflows/registry';
 import type { CachedRepoAlias } from '../workflows/github-ci';
 
 const execFileAsync = promisify(execFile);
 const reposRoot = process.env.VK_REPOS_ROOT || join(process.env.HOME || '/home/vkuser', 'repos');
+const pluginInstallRoot = process.env.VD_PLUGIN_INSTALL_ROOT || join(process.cwd(), 'plugins');
 let cachedGitRepos: CachedRepoAlias[] | null = null;
 
 serverRegistry.registerServerModule((api) => {
@@ -19,6 +21,7 @@ serverRegistry.registerServerModule((api) => {
       set: setCachedGitRepos,
     },
   });
+  registerPluginAssetRoutes(api.hono, { installRoot: pluginInstallRoot });
 });
 
 async function getCachedGitRepos(): Promise<CachedRepoAlias[]> {
