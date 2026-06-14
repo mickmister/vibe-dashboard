@@ -16,6 +16,10 @@ springboard.registerSplashScreen(AppLoadingScreen);
 
 // @platform end
 
+// @platform "node"
+import './modules/BeadFormSubmissionServerModule';
+// @platform end
+
 import springboard from 'springboard';
 import { createDefaultWorkspace } from './types';
 import type { WorkspaceState } from './types';
