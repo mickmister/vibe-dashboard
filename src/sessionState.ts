@@ -620,6 +620,23 @@ function getTabGroupById(workspace: WorkspaceState, tabGroupId: string) {
   return workspace.tabGroups.find((tabGroup) => tabGroup.id === tabGroupId);
 }
 
+function getSavedSessionNavSignature(savedSession?: SavedWorkspaceSession): string {
+  if (!savedSession) return '';
+  return JSON.stringify({
+    id: savedSession.id,
+    activeSpaceId: savedSession.activeSpaceId,
+    activeTabGroupId: savedSession.activeTabGroupId,
+    activeVoyageEntryId: savedSession.activeVoyageEntryId,
+    voyageEntries: savedSession.voyageEntries.map((entry) => ({
+      id: entry.id,
+      tabGroupId: entry.tabGroupId,
+      viewIds: entry.viewIds,
+    })),
+    activeItemsByVoyageEntryId: savedSession.activeItemsByVoyageEntryId,
+    visitedTabGroupIds: savedSession.visitedTabGroupIds,
+  });
+}
+
 /**
  * Hook for managing per-window workspace navigation state.
  * Navigation IDs are synced with React Router path params for shareable deep links.
@@ -643,7 +660,8 @@ export function useSessionWorkspaceNav(
     voyageEntryId: route.voyageEntryId,
     viewIdsKey: route.viewIds?.join(',') || '',
   });
-  const prevSavedSessionIdRef = useRef<string | undefined>(savedSession?.id);
+  const savedSessionNavSignature = getSavedSessionNavSignature(savedSession);
+  const prevSavedSessionNavSignatureRef = useRef(savedSessionNavSignature);
   const pendingSelectionRef = useRef<PendingNavSelection | null>(null);
 
   const rebuildNav = (prev: SessionWorkspaceNav, voyageEntries: VoyageEntry[], activeVoyageEntryId: string) => {
@@ -705,10 +723,10 @@ export function useSessionWorkspaceNav(
   };
 
   useEffect(() => {
-    if (savedSession?.id === prevSavedSessionIdRef.current) return;
-    prevSavedSessionIdRef.current = savedSession?.id;
+    if (savedSessionNavSignature === prevSavedSessionNavSignatureRef.current) return;
+    prevSavedSessionNavSignatureRef.current = savedSessionNavSignature;
     setNav(loadSessionNav(workspace, route, savedSession));
-  }, [route, savedSession?.id, workspace]);
+  }, [route, savedSession, savedSessionNavSignature, workspace]);
 
   useEffect(() => {
     const pendingSelection = pendingSelectionRef.current;

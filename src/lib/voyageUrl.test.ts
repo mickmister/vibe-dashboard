@@ -63,7 +63,7 @@ describe('voyageUrl', () => {
         },
       ),
     ).toBe(
-      '/dashboard?from_gh_url=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fpull%2F1&voyage=focused-session_1&craft=craft-1-2&views=agent-1%2Ccode-2',
+      '/?from_gh_url=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fpull%2F1&voyage=focused-session_1&craft=craft-1-2&views=agent-1%2Ccode-2',
     );
   });
 
@@ -74,7 +74,7 @@ describe('voyageUrl', () => {
         undefined,
       ),
     ).toBe(
-      '/dashboard?from_gh_url=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fissues%2F2',
+      '/?from_gh_url=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fissues%2F2',
     );
   });
 
@@ -124,11 +124,11 @@ describe('voyageUrl', () => {
         tabId: 'tab_code_2',
       }),
     ).toBe(
-      '/dashboard?from_gh_url=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fpull%2F1&voyage=focused-session_abc&craft=workspace-42-42&views=code-2',
+      '/?from_gh_url=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fpull%2F1&voyage=focused-session_abc&craft=workspace-42-42&views=code-2',
     );
   });
 
-  it('stores only canonical dashboard URLs with a voyage param as resume hints', () => {
+  it('stores only canonical root Voyage URLs with a voyage param as resume hints', () => {
     const store = new Map<string, string>();
     const storage = {
       getItem: (key: string) => store.get(key) ?? null,
@@ -141,11 +141,11 @@ describe('voyageUrl', () => {
     };
 
     setStoredLastDashboardUrl(
-      '/dashboard?voyage=focused-session_abc&craft=workspace-42-42',
+      '/dashboard?from_gh_url=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fpull%2F1&voyage=focused-session_abc&craft=workspace-42-42&views=agent-1',
       storage,
     );
     expect(getStoredLastDashboardUrl(storage)).toBe(
-      '/dashboard?voyage=focused-session_abc&craft=workspace-42-42',
+      '/?voyage=focused-session_abc&craft=workspace-42-42&views=agent-1',
     );
 
     setStoredLastDashboardUrl('/dashboard?craft=workspace-42-42', storage);

@@ -66,15 +66,6 @@ function createDefaultSavedSessionState(): SavedWorkspaceSessionState {
   return createSavedWorkspaceSessionState();
 }
 
-type OriginSessionResumeState = {
-  lastSessionByOrigin: Record<string, string>;
-};
-
-function createDefaultOriginSessionResumeState(): OriginSessionResumeState {
-  return {
-    lastSessionByOrigin: {},
-  };
-}
 
 function createWorkspaceSessionId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -489,18 +480,6 @@ function repairSavedSessionsForWorkspace(
   };
 }
 
-function removeOriginDefaultsForSessions(
-  originState: OriginSessionResumeState,
-  removedSessionIds: string[],
-) {
-  if (!removedSessionIds.length) return;
-  const removedIds = new Set(removedSessionIds);
-  Object.entries(originState.lastSessionByOrigin).forEach(([origin, sessionId]) => {
-    if (removedIds.has(sessionId)) {
-      delete originState.lastSessionByOrigin[origin];
-    }
-  });
-}
 
 function pickRandomMobileEmoji() {
   return MOBILE_TAB_EMOJIS[Math.floor(Math.random() * MOBILE_TAB_EMOJIS.length)];
@@ -540,11 +519,6 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
         'workspace-sessions',
         createDefaultSavedSessionState(),
       );
-    const originSessionResumeState =
-      await moduleAPI.statesAPI.createPersistentState<OriginSessionResumeState>(
-        'workspace-origin-session-resume',
-        createDefaultOriginSessionResumeState(),
-      );
     // v2 is the first shipped saved-voyage migration. Since no production
     // state has been written as v2 yet, the v2 migration also performs the
     // Home-voyage removal and duplicate cleanup before marking state migrated.
@@ -556,15 +530,9 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
         savedSessionsState.getState(),
         {
           workspace: workspaceState.getState(),
-          originResumeState: originSessionResumeState.getState(),
         },
       );
       savedSessionsState.setState(migratedSavedSessions.state);
-      if (migratedSavedSessions.originResumeState) {
-        originSessionResumeState.setState(
-          migratedSavedSessions.originResumeState,
-        );
-      }
     }
 
     const repairSavedVoyagesForCurrentWorkspace = () => {
@@ -573,11 +541,6 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
         workspaceState.getState(),
       );
       savedSessionsState.setState(repaired.state);
-      if (repaired.removedSessionIds.length) {
-        originSessionResumeState.setStateImmer((draft) => {
-          removeOriginDefaultsForSessions(draft, repaired.removedSessionIds);
-        });
-      }
     };
 
     if (moduleAPI.deps.core.isMaestro()) {
@@ -1597,13 +1560,6 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
             ),
           ),
         );
-        originSessionResumeState.setStateImmer((draft) => {
-          Object.entries(draft.lastSessionByOrigin).forEach(([origin, sessionId]) => {
-            if (sessionId === args.id) {
-              delete draft.lastSessionByOrigin[origin];
-            }
-          });
-        });
       },
       moveVoyageEntryToSavedSession: async (args: {
         targetSessionId: string;
@@ -1775,21 +1731,12 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
 
         return moveResult;
       },
-      setOriginDefaultSession: async (args: {
-        origin: string;
-        sessionId: string;
-      }) => {
-        originSessionResumeState.setStateImmer((draft) => {
-          draft.lastSessionByOrigin[args.origin] = args.sessionId;
-        });
-      },
     });
 
     return {
       states: {
         workspace: workspaceState,
         savedVoyages: savedSessionsState,
-        originVoyageResumeState: originSessionResumeState,
       },
       actions,
     };

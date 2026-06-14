@@ -1,7 +1,7 @@
 import '@vitejs/plugin-react/preamble';
 import '../styles';
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { HeroUIProvider } from '@heroui/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -165,27 +165,6 @@ springboard.registerModule(
   'MainUIShell',
   {},
   async (moduleAPI) => {
-    // Redirect component for root path (dev server case)
-    const RootRedirect = () => {
-      const navigate = useNavigate();
-      const location = useLocation();
-      useEffect(() => {
-        const searchParams = new URLSearchParams(location.search);
-        const requestedVoyage = searchParams.get('voyage')?.trim();
-        const storedDashboardUrl =
-          typeof window === 'undefined' || location.search
-            ? undefined
-            : getStoredLastDashboardUrl();
-        navigate(
-          requestedVoyage || !storedDashboardUrl
-            ? `/dashboard${location.search}`
-            : storedDashboardUrl,
-          { replace: true },
-        );
-      }, [location.search, navigate]);
-      return null;
-    };
-
     // Shared route component with canonical voyage query-param support
     const WorkspaceRoute = () => {
       const workspaceModule = useModule('workspace');
@@ -253,6 +232,11 @@ springboard.registerModule(
       const pendingSavedSessionActivationIdRef = useRef<string | null>(null);
       const activeSavedSessionJustChanged =
         previousActiveSavedSessionIdRef.current !== activeSavedSession?.id;
+      const [firstVoyageName, setFirstVoyageName] = useState('');
+      const [isCreatingFirstVoyage, setIsCreatingFirstVoyage] = useState(false);
+      const [createFirstVoyageError, setCreateFirstVoyageError] = useState<
+        string | null
+      >(null);
 
       const querySelection = resolveQueryCraftSelection(
         workspace,
@@ -274,6 +258,51 @@ springboard.registerModule(
           persistToSessionStorage: false,
         },
       );
+
+      const firstVoyageNameIsInvalid =
+        !firstVoyageName.trim() ||
+        isHomeVoyageDisplayName(firstVoyageName);
+
+      const createFirstVoyageFromCurrentCraft = async () => {
+        const voyageName = firstVoyageName.trim();
+        if (!voyageName || isHomeVoyageDisplayName(voyageName)) return;
+        if (!(sessionNav.activeSpaceId && sessionNav.activeTabGroupId)) return;
+
+        setIsCreatingFirstVoyage(true);
+        setCreateFirstVoyageError(null);
+        try {
+          const activeTabGroup = workspace.tabGroups.find(
+            (tabGroup) => tabGroup.id === sessionNav.activeTabGroupId,
+          );
+          const activeItemId = sessionNav.getActiveItem(sessionNav.activeTabGroupId);
+          const activeTabId = activeTabGroup?.tabs.some(
+            (tab) => tab.id === activeItemId,
+          )
+            ? activeItemId
+            : undefined;
+          const savedSession = await actions.createSavedSessionForSelection({
+            name: voyageName,
+            spaceId: sessionNav.activeSpaceId,
+            tabGroupId: sessionNav.activeTabGroupId,
+            ...(activeTabId ? { tabId: activeTabId } : {}),
+          });
+          if (!savedSession) {
+            setCreateFirstVoyageError('Could not create that Voyage. Try another name.');
+            return;
+          }
+
+          navigate(
+            buildSavedVoyageDashboardPath({
+              currentSearch: location.search,
+              workspace,
+              session: savedSession,
+            }),
+            { replace: true },
+          );
+        } finally {
+          setIsCreatingFirstVoyage(false);
+        }
+      };
 
       useEffect(() => {
         if (dashboardVoyage.status !== 'missing-param') return;
@@ -953,6 +982,79 @@ springboard.registerModule(
         );
       }
 
+      if (
+        dashboardVoyage.status === 'missing-param' &&
+        !missingParamFallbackSession
+      ) {
+        const defaultCraftName =
+          workspace.tabGroups.find(
+            (tabGroup) => tabGroup.id === sessionNav.activeTabGroupId,
+          )?.label || 'your first craft';
+
+        return (
+          <div className="dark w-screen h-screen fixed inset-0 bg-neutral-950 text-neutral-100 flex items-center justify-center p-6">
+            <div className="w-full max-w-lg rounded-2xl border border-neutral-800 bg-neutral-900 p-6 shadow-2xl">
+              <div className="text-xs font-semibold uppercase tracking-[0.2em] text-neutral-500">
+                Create your first Voyage
+              </div>
+              <h1 className="mt-3 text-2xl font-semibold">
+                Name the Voyage for this workspace.
+              </h1>
+              <p className="mt-3 text-sm leading-6 text-neutral-400">
+                A Voyage is the named set of craft and views you are working
+                with. Naming it gives the URL a stable Voyage identity, so the
+                app can restore and share this workspace without relying on
+                hidden browser state.
+              </p>
+              <p className="mt-3 text-sm leading-6 text-neutral-400">
+                We will start this Voyage with{' '}
+                <span className="font-medium text-neutral-200">
+                  {defaultCraftName}
+                </span>
+                . You can add or switch craft after it is created.
+              </p>
+
+              <form
+                className="mt-6 space-y-4"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void createFirstVoyageFromCurrentCraft();
+                }}
+              >
+                <label className="block">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
+                    Voyage name
+                  </span>
+                  <input
+                    value={firstVoyageName}
+                    onChange={(event) => {
+                      setFirstVoyageName(event.target.value);
+                      setCreateFirstVoyageError(null);
+                    }}
+                    aria-label="Voyage name"
+                    placeholder="e.g. Client launch, Bug triage, Morning build"
+                    autoFocus
+                    className="mt-2 w-full rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm text-neutral-100 outline-none placeholder:text-neutral-600 focus:border-primary-400"
+                  />
+                </label>
+                {createFirstVoyageError && (
+                  <div className="rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+                    {createFirstVoyageError}
+                  </div>
+                )}
+                <button
+                  type="submit"
+                  disabled={firstVoyageNameIsInvalid || isCreatingFirstVoyage}
+                  className="w-full rounded-lg bg-primary-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-400 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
+                >
+                  {isCreatingFirstVoyage ? 'Creating Voyage…' : 'Create Voyage'}
+                </button>
+              </form>
+            </div>
+          </div>
+        );
+      }
+
       return (
         <>
           <div className="dark w-screen h-screen fixed inset-0">
@@ -969,10 +1071,12 @@ springboard.registerModule(
       );
     };
 
-    // Root redirects to /dashboard (for dev server case)
-    moduleAPI.registerRoute('/', { hideApplicationShell: true }, RootRedirect);
+    // Root is the canonical dashboard route so PWA installs/bookmarks start from
+    // a stable app-home path while query params carry Voyage navigation state.
+    moduleAPI.registerRoute('/', { hideApplicationShell: true }, WorkspaceRoute);
 
-    // Canonical dashboard route. Craft/view deep links use query params.
+    // Compatibility dashboard route. It renders the same app and canonical URL
+    // sync redirects Voyage links back to root with the query params intact.
     moduleAPI.registerRoute(
       '/dashboard',
       { hideApplicationShell: true },

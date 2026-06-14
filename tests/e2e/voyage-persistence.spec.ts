@@ -53,8 +53,6 @@ type RpcResponse<T> = {
 const SAVED_VOYAGES_STATE_KEY =
   'engine|module|workspace|state.persistent|workspace-sessions';
 const WORKSPACE_STATE_KEY = 'engine|module|workspace|state.persistent|workspace';
-const ORIGIN_RESUME_STATE_KEY =
-  'engine|module|workspace|state.persistent|workspace-origin-session-resume';
 
 async function callWorkspaceAction<T>(
   request: APIRequestContext,
@@ -84,6 +82,23 @@ async function getKvState<T>(
   const response = await request.get(`/kv/get?key=${encodeURIComponent(key)}`);
   expect(response.ok()).toBeTruthy();
   return (await response.json()) as T | null;
+}
+
+async function waitForKvApi(request: APIRequestContext) {
+  await expect
+    .poll(async () => {
+      const response = await request.get(
+        `/kv/get?key=${encodeURIComponent(WORKSPACE_STATE_KEY)}`,
+      );
+      if (!response.ok()) return false;
+      try {
+        JSON.parse(await response.text());
+        return true;
+      } catch {
+        return false;
+      }
+    })
+    .toBe(true);
 }
 
 async function waitForSavedVoyageEntry(
@@ -243,22 +258,8 @@ async function waitForSavedVoyageIdByName(
   return foundId;
 }
 
-async function waitForOriginDefaultSession(
-  request: APIRequestContext,
-  origin: string,
-  sessionId: string,
-) {
-  await expect
-    .poll(async () => {
-      const state = await getKvState<{
-        lastSessionByOrigin?: Record<string, string>;
-      }>(request, ORIGIN_RESUME_STATE_KEY);
-      return state?.lastSessionByOrigin?.[origin];
-    })
-    .toBe(sessionId);
-}
-
 async function clearSavedVoyages(request: APIRequestContext) {
+  await waitForKvApi(request);
   const state = await getKvState<{
     version: number;
     data?: Array<{ id: string }>;
@@ -267,6 +268,55 @@ async function clearSavedVoyages(request: APIRequestContext) {
   for (const session of state?.data || []) {
     await callWorkspaceAction(request, 'deleteSavedSession', { id: session.id });
   }
+}
+
+
+async function getOverviewCraftSelection(request: APIRequestContext): Promise<{
+  spaceId: string;
+  tabGroupId: string;
+  tabId: string;
+}> {
+  const workspace = await getKvState<{
+    spaces?: Array<{ id: string; isSystem?: boolean; tabGroupIds: string[] }>;
+    tabGroups?: Array<{ id: string; tabs: Array<{ id: string; title: string }> }>;
+  }>(request, WORKSPACE_STATE_KEY);
+  const homeSpace = workspace?.spaces?.find((space) => space.id === 'space_home') ||
+    workspace?.spaces?.find((space) => space.isSystem) ||
+    workspace?.spaces?.[0];
+  expect(homeSpace).toBeTruthy();
+  const tabGroup = workspace?.tabGroups?.find(
+    (candidate) => candidate.id === homeSpace!.tabGroupIds[0],
+  );
+  expect(tabGroup).toBeTruthy();
+  const tab = tabGroup!.tabs[0];
+  expect(tab).toBeTruthy();
+  return { spaceId: homeSpace!.id, tabGroupId: tabGroup!.id, tabId: tab!.id };
+}
+
+async function upsertSingleCraftVoyage(
+  request: APIRequestContext,
+  args: { id: string; slug: string; name: string },
+) {
+  const selection = await getOverviewCraftSelection(request);
+  const entryId = `ve_${args.id}`;
+  const now = '2026-06-10T00:00:00.000Z';
+  await callWorkspaceAction(request, 'upsertSavedSession', {
+    id: args.id,
+    slug: args.slug,
+    name: args.name,
+    createdAt: now,
+    updatedAt: now,
+    activeVoyageEntryId: entryId,
+    voyageEntries: [
+      { id: entryId, tabGroupId: selection.tabGroupId, viewIds: [selection.tabId] },
+    ],
+    activeSpaceId: selection.spaceId,
+    activeTabGroupId: selection.tabGroupId,
+    activeItemsByVoyageEntryId: {
+      [entryId]: selection.tabId,
+    },
+    visitedTabGroupIds: [selection.tabGroupId],
+  });
 }
 
 
@@ -435,76 +485,102 @@ async function mockVkApi(
 }
 
 test.describe('voyage persistence', () => {
-  test('persists an unsaved voyage when navigating to a real craft and resumes it without sessionStorage', async ({ page }) => {
-    await page.goto('/dashboard');
-    await expect(getVisibleVoyageActionsTrigger(page)).toBeVisible();
+  test('creates the first Voyage from recovery UI and resumes cached root URL without sessionStorage', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('body')).toBeVisible();
     await clearSavedVoyages(page.request);
+    await page.evaluate(() => {
+      sessionStorage.clear();
+      localStorage.removeItem('workspace-last-dashboard-url');
+    });
 
     const runId = Date.now().toString(36);
-    const craftLabel = `E2E Unsaved Persist Craft ${runId}`;
+    const voyageName = `E2E First Voyage ${runId}`;
 
-    const craftResult = await callWorkspaceAction<{
-      spaceId: string;
-      tabGroupId?: string;
-    }>(page.request, 'addTabGroup', {
-      spaceId: 'space_home',
-      label: craftLabel,
-    });
-    expect(craftResult.tabGroupId).toBeTruthy();
-    const tabGroupId = craftResult.tabGroupId!;
+    await page.goto('/');
+    await expect(page.getByText('Create your first Voyage')).toBeVisible();
+    await expect(page.getByText('A Voyage is the named set of craft and views')).toBeVisible();
+    await page.getByPlaceholder('e.g. Client launch, Bug triage, Morning build').fill(voyageName);
+    await page.getByRole('button', { name: 'Create Voyage' }).click();
 
-    const agentTab = await callWorkspaceAction<{
-      tabGroupId: string;
-      tabId: string;
-    }>(page.request, 'addTab', {
-      tabGroupId,
-      title: 'Agent',
-      url: `https://example.invalid/${runId}/unsaved-persist-agent`,
-    });
-
-    await page.reload();
+    const sessionId = await waitForSavedVoyageIdByName(page.request, voyageName);
+    await expect(page.getByRole('button', { name: 'Open Overview in Home' })).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`\\/?\\?voyage=.*${sessionId}`));
     await expect
-      .poll(async () => {
-        const state = await getKvState<{ data?: unknown[] }>(
-          page.request,
-          SAVED_VOYAGES_STATE_KEY,
-        );
-        return state?.data?.length ?? 0;
-      })
-      .toBe(0);
-
-    await page
-      .getByRole('button', { name: new RegExp(`${craftLabel}.*1 tab`) })
-      .evaluate((element) => (element as HTMLElement).click());
-
-    const sessionId = await waitForSavedVoyageIdByName(page.request, craftLabel);
-    await waitForSavedVoyageCraftState(page.request, sessionId, {
-      entryLabels: ['Overview', craftLabel],
-      activeCraftLabel: craftLabel,
-      activeItemTitle: 'Agent',
-      activeTabGroupId: tabGroupId,
-    });
-
-    const origin = await page.evaluate(() => window.location.origin);
-    await waitForOriginDefaultSession(page.request, origin, sessionId);
+      .poll(async () =>
+        page.evaluate(() => localStorage.getItem('workspace-last-dashboard-url')),
+      )
+      .toContain('/?voyage=');
 
     await page.evaluate(() => sessionStorage.clear());
     await page.goto('/');
 
-    await expect(page.getByRole('button', { name: `Open ${craftLabel} in Home` })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Open Overview in Home' })).toBeVisible();
     await expect(page).toHaveURL(new RegExp(`voyage=.*${sessionId}`));
-    await expect(page).toHaveURL(new RegExp(`views=agent-${agentTab.tabId.split('_').at(-1)}`));
 
     await callWorkspaceAction(page.request, 'deleteSavedSession', { id: sessionId });
   });
 
-  test('saves a named new voyage after opening an existing craft and keeps it after reload', async ({ page }) => {
-    await page.goto('/dashboard');
-    await expect(getVisibleVoyageActionsTrigger(page)).toBeVisible();
+  test('uses cached root URL only when voyage is missing and strips transient params', async ({ page }) => {
+    await page.goto('/');
     await clearSavedVoyages(page.request);
+
+    const runId = Date.now().toString(36);
+    const voyageAId = `session_cache_a_${runId}`;
+    const voyageBId = `session_cache_b_${runId}`;
+    const voyageASlug = `e2e-cache-a-${runId}-${voyageAId}`;
+    const voyageBSlug = `e2e-cache-b-${runId}-${voyageBId}`;
+    await upsertSingleCraftVoyage(page.request, {
+      id: voyageAId,
+      slug: voyageASlug,
+      name: `E2E Cache Voyage A ${runId}`,
+    });
+    await upsertSingleCraftVoyage(page.request, {
+      id: voyageBId,
+      slug: voyageBSlug,
+      name: `E2E Cache Voyage B ${runId}`,
+    });
+
+    await page.evaluate(
+      (cachedUrl) => localStorage.setItem('workspace-last-dashboard-url', cachedUrl),
+      `/dashboard?from_gh_url=https%3A%2F%2Fexample.invalid&voyage=${voyageASlug}`,
+    );
+    await page.goto('/');
+    await expect(page).toHaveURL(new RegExp(`\\/?\\?voyage=.*${voyageAId}`));
+    await expect(page).not.toHaveURL(/from_gh_url/);
+    await expect
+      .poll(async () => page.evaluate(() => localStorage.getItem('workspace-last-dashboard-url')))
+      .toMatch(/^\/\?voyage=/);
+
+    await page.evaluate(
+      (cachedUrl) => localStorage.setItem('workspace-last-dashboard-url', cachedUrl),
+      `/?voyage=${voyageAId}`,
+    );
+    await page.goto(`/?voyage=${voyageBSlug}`);
+    await expect(page).toHaveURL(new RegExp(`voyage=.*${voyageBId}`));
+
+    await page.evaluate(
+      (cachedUrl) => localStorage.setItem('workspace-last-dashboard-url', cachedUrl),
+      '/?voyage=missing-voyage',
+    );
+    await callWorkspaceAction(page.request, 'deleteSavedSession', { id: voyageAId });
+    await page.goto('/');
+    await expect(page).toHaveURL(new RegExp(`voyage=.*${voyageBId}`));
+
+    await callWorkspaceAction(page.request, 'deleteSavedSession', { id: voyageBId });
+  });
+
+  test('saves a named new voyage after opening an existing craft and keeps it after reload', async ({ page }) => {
+    await clearSavedVoyages(page.request);
+    await page.goto('/');
     await page.evaluate(() => sessionStorage.clear());
 
     const runId = Date.now().toString(36);
+    await upsertSingleCraftVoyage(page.request, {
+      id: `session_seed_${runId}`,
+      slug: `e2e-seed-voyage-${runId}-session_seed_${runId}`,
+      name: `E2E Seed Voyage ${runId}`,
+    });
     const voyageName = `E2E Voyage ${runId}`;
     const workspace = createMockWorkspace(runId);
     await mockVkApi(page, workspace, { workspaceDetailDelayMs: 500 });

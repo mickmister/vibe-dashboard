@@ -115,7 +115,7 @@ describe('savedVoyageState migration', () => {
     });
   });
 
-  it('dedupes duplicate voyages and rewrites origin resume references to the keeper', () => {
+  it('dedupes duplicate voyages to the best keeper', () => {
     const older = {
       ...session('older'),
       name: 'Pairing',
@@ -128,27 +128,15 @@ describe('savedVoyageState migration', () => {
     };
     const other = { ...session('other'), name: 'Other' };
 
-    const result = migrateSavedWorkspaceSessionStateWithCleanup(
-      [older, newer, other],
-      {
-        originResumeState: {
-          lastSessionByOrigin: {
-            'https://example.test': 'older',
-            'https://other.example.test': 'newer',
-          },
-        },
-      },
-    );
+    const result = migrateSavedWorkspaceSessionStateWithCleanup([
+      older,
+      newer,
+      other,
+    ]);
 
     expect(result.state).toEqual({
       version: 3,
       data: [newer, other],
-    });
-    expect(result.originResumeState).toEqual({
-      lastSessionByOrigin: {
-        'https://example.test': 'newer',
-        'https://other.example.test': 'newer',
-      },
     });
   });
 
@@ -165,60 +153,13 @@ describe('savedVoyageState migration', () => {
       updatedAt: '2026-06-03T00:00:00.000Z',
     };
 
-    const result = migrateSavedWorkspaceSessionStateWithCleanup(
-      { sessions: [home, duplicateOlder, duplicateNewer] },
-      {
-        originResumeState: {
-          lastSessionByOrigin: {
-            'https://home.example.test': 'home',
-            'https://dupe.example.test': 'duplicate-older',
-          },
-        },
-      },
-    );
+    const result = migrateSavedWorkspaceSessionStateWithCleanup({
+      sessions: [home, duplicateOlder, duplicateNewer],
+    });
 
     expect(result.state).toEqual({
       version: 3,
-      data: [duplicateOlder],
-    });
-    expect(result.originResumeState).toEqual({
-      lastSessionByOrigin: {
-        'https://dupe.example.test': 'duplicate-older',
-      },
-    });
-  });
-
-  it('keeps the origin-referenced duplicate when choosing a dedupe keeper', () => {
-    const referenced = {
-      ...session('referenced'),
-      name: 'Pairing',
-      updatedAt: '2026-06-01T00:00:00.000Z',
-    };
-    const newer = {
-      ...session('newer'),
-      name: 'Pairing',
-      updatedAt: '2026-06-02T00:00:00.000Z',
-    };
-
-    const result = migrateSavedWorkspaceSessionStateWithCleanup(
-      [referenced, newer],
-      {
-        originResumeState: {
-          lastSessionByOrigin: {
-            'https://example.test': 'referenced',
-          },
-        },
-      },
-    );
-
-    expect(result.state).toEqual({
-      version: 3,
-      data: [referenced],
-    });
-    expect(result.originResumeState).toEqual({
-      lastSessionByOrigin: {
-        'https://example.test': 'referenced',
-      },
+      data: [duplicateNewer],
     });
   });
 });

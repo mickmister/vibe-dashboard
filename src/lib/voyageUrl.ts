@@ -6,6 +6,7 @@ import type {
 } from '../types';
 
 export const LAST_DASHBOARD_URL_STORAGE_KEY = 'workspace-last-dashboard-url';
+export const CANONICAL_DASHBOARD_PATHNAME = '/';
 const URL_PARSE_BASE = 'https://workspace.local';
 
 type DashboardUrlStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
@@ -98,7 +99,7 @@ export function buildCanonicalDashboardPath(
   }
 
   const nextSearch = searchParams.toString();
-  return `/dashboard${nextSearch ? `?${nextSearch}` : ''}`;
+  return `${CANONICAL_DASHBOARD_PATHNAME}${nextSearch ? `?${nextSearch}` : ''}`;
 }
 
 export function buildSavedVoyageDashboardPath({
@@ -154,8 +155,22 @@ export function normalizeStoredDashboardUrl(value: string | null | undefined): s
   try {
     const url = new URL(value, URL_PARSE_BASE);
     const voyageKey = url.searchParams.get('voyage')?.trim();
-    if (url.pathname !== '/dashboard' || !voyageKey) return undefined;
-    return `${url.pathname}${url.search}`;
+    if (
+      !(
+        url.pathname === CANONICAL_DASHBOARD_PATHNAME ||
+        url.pathname === '/dashboard'
+      ) ||
+      !voyageKey
+    ) return undefined;
+
+    const cachedSearch = new URLSearchParams();
+    cachedSearch.set('voyage', voyageKey);
+    const craft = url.searchParams.get('craft')?.trim();
+    if (craft) cachedSearch.set('craft', craft);
+    const views = url.searchParams.get('views')?.trim();
+    if (views) cachedSearch.set('views', views);
+
+    return `${CANONICAL_DASHBOARD_PATHNAME}?${cachedSearch.toString()}`;
   } catch {
     return undefined;
   }

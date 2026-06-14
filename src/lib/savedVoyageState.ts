@@ -64,7 +64,6 @@ export function migrateSavedWorkspaceSessionState(
   state: SavedWorkspaceSessionState | SavedWorkspaceSessionState_v1 | unknown,
   options: {
     workspace?: Pick<WorkspaceState, 'tabGroups'>;
-    originResumeState?: { lastSessionByOrigin: Record<string, string> };
   } = {},
 ): SavedWorkspaceSessionState {
   return migrateSavedWorkspaceSessionStateWithCleanup(state, options).state;
@@ -80,11 +79,9 @@ export function migrateSavedWorkspaceSessionStateWithCleanup(
   state: SavedWorkspaceSessionState | SavedWorkspaceSessionState_v1 | unknown,
   options: {
     workspace?: Pick<WorkspaceState, 'tabGroups'>;
-    originResumeState?: { lastSessionByOrigin: Record<string, string> };
   } = {},
 ): {
   state: SavedWorkspaceSessionState;
-  originResumeState?: { lastSessionByOrigin: Record<string, string> };
 } {
   const tabGroupLabelsById = new Map(
     (options.workspace?.tabGroups || []).map((tabGroup) => [
@@ -92,16 +89,7 @@ export function migrateSavedWorkspaceSessionStateWithCleanup(
       tabGroup.label || '',
     ]),
   );
-  const originResumeState = options.originResumeState
-    ? {
-        lastSessionByOrigin: {
-          ...options.originResumeState.lastSessionByOrigin,
-        },
-      }
-    : undefined;
-  const referencedSessionIds = new Set(
-    Object.values(originResumeState?.lastSessionByOrigin || {}).filter(Boolean),
-  );
+  const referencedSessionIds = new Set<string>();
 
   const nonHomeSessions = getSavedWorkspaceSessions(state).filter(
     (session) => !isHomeVoyage(session, tabGroupLabelsById),
@@ -115,22 +103,8 @@ export function migrateSavedWorkspaceSessionStateWithCleanup(
     (session) => !removedToKept.has(session.id),
   );
 
-  if (originResumeState) {
-    for (const [origin, sessionId] of Object.entries(
-      originResumeState.lastSessionByOrigin,
-    )) {
-      const replacementId = removedToKept.get(sessionId);
-      if (replacementId) {
-        originResumeState.lastSessionByOrigin[origin] = replacementId;
-      } else if (!validSessionIds.has(sessionId)) {
-        delete originResumeState.lastSessionByOrigin[origin];
-      }
-    }
-  }
-
   return {
     state: createSavedWorkspaceSessionState(migratedSessions),
-    ...(originResumeState ? { originResumeState } : {}),
   };
 }
 
