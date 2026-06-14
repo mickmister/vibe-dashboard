@@ -151,6 +151,29 @@ jobs:
       - name: Run container runtime isolation smoke tests
         run: npm run test:container-runtime
 
+  first-party-service-smoke:
+    name: first-party service migration smoke
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify first-party services and golden supervisor config
+        run: npm run test:first-party-services
+
 
   plugin-runtime-tests:
     name: plugin runtime unit and Deno smoke tests

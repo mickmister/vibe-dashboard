@@ -5,9 +5,11 @@ import {
   BEADS_WEB_FIRST_PARTY_PLUGIN,
   BUILTIN_FIRST_PARTY_SERVICE_PLUGINS,
   createBeadsWebRouteConfig,
+  createFirstPartyAdminPolicy,
   createFirstPartyDesiredState,
   createFirstPartyReleaseInstallPlan,
   getFirstPartyAdminCapabilitySummaries,
+  getFirstPartyMarketplacePrivilegeAudit,
   getSupervisorManagedProgramNames,
   normalizeSupervisorConfig,
   renderBundledSupervisorConfig,
@@ -64,6 +66,50 @@ describe('first-party service plugin inventory and golden supervisor config', ()
       installStrategy: 'bundled-runtime-artifact',
       stagingRequired: true,
     });
+  });
+
+  it('makes boot-critical first-party services non-removable while keeping restart-only services swappable', () => {
+    const policy = createFirstPartyAdminPolicy(BUILTIN_FIRST_PARTY_SERVICE_PLUGINS);
+
+    expect(policy['first-party.vibe-dashboard']).toMatchObject({
+      adminRemovable: false,
+      removalBlockedReason: 'boot-critical service required for the control plane to start',
+      versionSwapAllowed: true,
+      requiresStagingBeforeProduction: true,
+    });
+    expect(policy['first-party.caddy']).toMatchObject({
+      adminRemovable: false,
+      removalBlockedReason: 'boot-critical service required for the control plane to start',
+    });
+    expect(policy['first-party.vibe-kanban']).toMatchObject({
+      adminRemovable: true,
+      versionSwapAllowed: true,
+      requiresStagingBeforeProduction: true,
+    });
+    expect(policy['first-party.code-server']).toMatchObject({
+      adminRemovable: true,
+      versionSwapAllowed: true,
+    });
+  });
+
+  it('audits broad first-party privileges separately from sandbox-first marketplace defaults', () => {
+    const audit = getFirstPartyMarketplacePrivilegeAudit(BUILTIN_FIRST_PARTY_SERVICE_PLUGINS);
+
+    expect(audit.marketplaceDefaults).toMatchObject({
+      vkHttpApi: 'none',
+      hostShell: 'none',
+      codeServer: 'none',
+      hostDocker: 'none',
+      filesystem: [],
+      network: { mode: 'none' },
+    });
+    expect(audit.firstPartyBroadGrants).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'first-party.vibe-kanban', vkHttpApi: 'agentPrompt', repoAccess: 'repo' }),
+        expect.objectContaining({ id: 'first-party.code-server', codeServer: 'admin', requiresHostShell: true }),
+        expect.objectContaining({ id: 'first-party.tailscale', networkMode: 'ingress-and-egress', requiresRoot: true }),
+      ]),
+    );
   });
 
   it('plans idempotent first-party release asset installs and no-ops matching installed versions', () => {

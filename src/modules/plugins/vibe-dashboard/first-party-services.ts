@@ -1,5 +1,11 @@
 import { join } from 'node:path';
-import type { PluginManifest } from './manifest';
+import {
+  DEFAULT_PLUGIN_CAPABILITY_REQUESTS,
+  type CodeServerCapability,
+  type PluginCapabilityRequests,
+  type PluginManifest,
+  type VkHttpApiCapability,
+} from './manifest';
 
 export type FirstPartyPrivilegeTier =
   | 'core-control-plane'
@@ -28,7 +34,8 @@ export interface FirstPartyAdminCapabilitySummary {
   bootCritical: boolean;
   requiresRoot: boolean;
   requiresHostShell: boolean;
-  vkHttpApi: string;
+  vkHttpApi: VkHttpApiCapability;
+  codeServer: CodeServerCapability;
   repoAccess: 'none' | 'workspace' | 'repo';
   networkMode: string;
 }
@@ -42,6 +49,21 @@ export interface FirstPartyDesiredState {
     rollbackable: boolean;
     supervisorPrograms: string[];
   }>;
+}
+
+export interface FirstPartyAdminPolicyEntry {
+  id: string;
+  displayName: string;
+  adminRemovable: boolean;
+  removalBlockedReason?: string;
+  versionSwapAllowed: boolean;
+  requiresStagingBeforeProduction: boolean;
+  rollbackable: boolean;
+}
+
+export interface FirstPartyMarketplacePrivilegeAudit {
+  marketplaceDefaults: PluginCapabilityRequests;
+  firstPartyBroadGrants: FirstPartyAdminCapabilitySummary[];
 }
 
 export interface RequestedFirstPartyReleaseAsset {
@@ -334,10 +356,49 @@ export function getFirstPartyAdminCapabilitySummaries(plugins: FirstPartyService
       requiresRoot: plugin.supervisorConfig?.includes('user=root') ?? false,
       requiresHostShell: capabilities.hostShell !== undefined && capabilities.hostShell !== 'none',
       vkHttpApi: capabilities.vkHttpApi ?? 'none',
+      codeServer: capabilities.codeServer ?? 'none',
       repoAccess: fs.some((entry) => entry.scope === 'repo') ? 'repo' : fs.some((entry) => entry.scope === 'workspace') ? 'workspace' : 'none',
       networkMode: capabilities.network?.mode ?? 'none',
     };
   });
+}
+
+export function createFirstPartyAdminPolicy(plugins: FirstPartyServicePlugin[]): Record<string, FirstPartyAdminPolicyEntry> {
+  return Object.fromEntries(plugins.map((plugin) => {
+    const adminRemovable = !plugin.bootCritical;
+    return [plugin.manifest.id, {
+      id: plugin.manifest.id,
+      displayName: plugin.manifest.displayName,
+      adminRemovable,
+      removalBlockedReason: adminRemovable ? undefined : 'boot-critical service required for the control plane to start',
+      versionSwapAllowed: plugin.rollbackable,
+      requiresStagingBeforeProduction: plugin.stagingRequired,
+      rollbackable: plugin.rollbackable,
+    }];
+  }));
+}
+
+export function getFirstPartyMarketplacePrivilegeAudit(plugins: FirstPartyServicePlugin[]): FirstPartyMarketplacePrivilegeAudit {
+  const broadPrivilegeSummaries = getFirstPartyAdminCapabilitySummaries(plugins).filter((summary) => {
+    return summary.requiresRoot
+      || summary.requiresHostShell
+      || summary.vkHttpApi !== 'none'
+      || summary.codeServer !== 'none'
+      || summary.repoAccess === 'repo'
+      || summary.networkMode === 'ingress-and-egress';
+  });
+
+  return {
+    marketplaceDefaults: {
+      ...DEFAULT_PLUGIN_CAPABILITY_REQUESTS,
+      filesystem: [...DEFAULT_PLUGIN_CAPABILITY_REQUESTS.filesystem],
+      env: [...DEFAULT_PLUGIN_CAPABILITY_REQUESTS.env],
+      secrets: [...DEFAULT_PLUGIN_CAPABILITY_REQUESTS.secrets],
+      plugins: [...DEFAULT_PLUGIN_CAPABILITY_REQUESTS.plugins],
+      network: { ...DEFAULT_PLUGIN_CAPABILITY_REQUESTS.network },
+    },
+    firstPartyBroadGrants: broadPrivilegeSummaries,
+  };
 }
 
 export function createFirstPartyDesiredState(plugins: FirstPartyServicePlugin[]): FirstPartyDesiredState {
