@@ -13,7 +13,8 @@
     "storybook": "npm run build-storybook && npm run serve-storybook",
     "storybook:dev": "storybook dev -p $PORT",
     "build-storybook": "storybook build",
-    "serve-storybook": "serve storybook-static -l $PORT"
+    "serve-storybook": "serve storybook-static -l $PORT",
+    "test:server": "vitest run --config vitest.server.config.ts"
   },
   "dependencies": {
     "@heroui/react": "^2.8.9",
