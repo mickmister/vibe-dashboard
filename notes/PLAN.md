@@ -5,8 +5,8 @@
 ### Config scattered across files
 | File | What it configures |
 |---|---|
-| `Dockerfile` | Monolithic: installs code-server, Go, Hugo, Chrome, Caddy, Docker CLI, Tailscale, supervisor, vibe-kanban, vibe-dashboard — all hardcoded |
-| `supervisord.conf` | 7 programs: code-server (:3008), vibe-kanban (:3007), vibe-dashboard (:3005), caddy (:3001), test-server (:50000), tailscaled, tailscale-up |
+| `Dockerfile.vkvd` | Canonical runtime image config: installs code-server, Go, Hugo, Chrome, Caddy, Docker CLI, Tailscale, supervisor, vibe-kanban, vibe-dashboard — all hardcoded |
+| `supervisord.vkvd.conf` | Canonical supervisor config: code-server (:3008), vibe-kanban (:3007), vibe-dashboard (:3005), caddy (:3001), test-server (:50000), tailscaled, tailscale-up |
 | `Caddyfile` | Routes traffic: port-forwarding subdomains, `/dashboard` → :3005, `?folder=` → :3008, fallback → :3007 |
 | `docker-compose.yaml` | Single `code-vibe` service with env vars for ports and passwords |
 | `src/components/AddTabModal.tsx` | Hardcoded presets: "Code Server", "Kanban", "Open Existing Workspace", "Custom URL" |
@@ -114,8 +114,8 @@ springboard.registerModule('plugin-vscode', {}, async (moduleAPI) => {
 
 ### Generated Outputs
 A CLI tool (`vd-plugins`) reads all `plugin.yaml` files and generates:
-1. **Dockerfile** — assembled from base + plugin `dockerfile.snippets`; snippets are sorted by `order` and can be grouped by `cache_group` to maximize BuildKit cache reuse
-2. **supervisord.conf** — assembled from base config + plugin supervisor program sections (each plugin's YAML defines its program block)
+1. **Dockerfile.vkvd** — assembled from base + plugin `dockerfile.snippets`; snippets are sorted by `order` and can be grouped by `cache_group` to maximize BuildKit cache reuse
+2. **supervisord.vkvd.conf** — assembled from base config + plugin supervisor program sections (each plugin's YAML defines its program block)
 3. **Caddyfile** — assembled from global config + ordered plugin `caddy.blocks` inserted into named sections (supports precedence-sensitive handlers)
 4. **`src/modules/plugins/index.ts`** — hand-maintained TypeScript import list for plugin UI modules (manual wiring in app source)
 
@@ -135,7 +135,7 @@ Create the plugin descriptor format and the CLI that reads YAML and generates co
 2. Create `tools/vd-plugins/` — a TypeScript CLI using `yaml`, `ajv`, `handlebars`
 3. Implement generators:
    - `generate-dockerfile` — reads all plugin yamls, sorts `infra.dockerfile.snippets` by `order`, and emits cached layers grouped by `cache_group`
-   - `generate-supervisor` — reads each plugin's `infra.supervisor` YAML and outputs a complete `supervisord.conf`
+   - `generate-supervisor` — reads each plugin's `infra.supervisor` YAML and outputs a complete `supervisord.vkvd.conf`
    - `generate-caddy` — inserts ordered `infra.caddy.blocks` into named Caddyfile sections
 4. Create `plugins/` directory with initial plugin descriptors extracted from current config:
    - `plugins/base/plugin.yaml` — Node, common packages, user setup
@@ -145,10 +145,10 @@ Create the plugin descriptor format and the CLI that reads YAML and generates co
    - `plugins/caddy/plugin.yaml` — Caddy reverse proxy (base routing)
    - `plugins/tailscale/plugin.yaml` — Tailscale VPN
 5. Verify generated files match current working config (diff test)
-   - Generated `supervisord.conf` ≡ current static `supervisord.conf` for the default deployment
-   - Generated Dockerfile and Caddyfile are functionally equivalent to current files
+   - Generated `supervisord.vkvd.conf` ≡ current canonical `supervisord.vkvd.conf` for the default deployment
+   - Generated `Dockerfile.vkvd` and Caddyfile are functionally equivalent to current files
 
-**Deliverable:** `npx vd-plugins generate` produces identical (or functionally equivalent) Dockerfile, supervisord.conf, and Caddyfile for the default deployment path. Supervisor programs are fully defined in plugin YAML — no runtime generation scripts. `docker-compose.yaml` remains a single static file managed outside plugin generation.
+**Deliverable:** `npx vd-plugins generate` produces identical (or functionally equivalent) Dockerfile.vkvd, supervisord.vkvd.conf, and Caddyfile for the default deployment path. Supervisor programs are fully defined in plugin YAML — no runtime generation scripts. `docker-compose.yaml` remains a single static file managed outside plugin generation.
 
 ---
 
@@ -313,7 +313,7 @@ Meta-plugin for creating new plugins from within the dashboard.
    - Tab preset: "Plugin Writer" — form-based plugin.yaml editor
    - Generates plugin.yaml from user input
    - Generates skeleton Springboard module
-   - Preview: shows what would be generated (Dockerfile diff, supervisor diff, etc.)
+   - Preview: shows what would be generated (Dockerfile.vkvd diff, supervisor diff, etc.)
    - Emits a checklist + patch preview for manual module wiring in `src/modules/plugins/index.ts`
    - Actions: `createPlugin`, `validatePlugin`, `previewGenerated`
 2. Manual integration support:
