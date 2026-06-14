@@ -17,12 +17,13 @@ import {
   buildCraftParam,
   buildSavedVoyageDashboardPath,
   buildViewParam,
+  buildVoyageParam,
   buildVoyageSlug,
   getStoredLastDashboardUrl,
-  getVoyageSlug,
   parseCraftParam,
   parseViewsParam,
   setStoredLastDashboardUrl,
+  shortIdTokenMatches,
 } from '../lib/voyageUrl';
 import { resolveDashboardVoyage } from '../lib/voyageSession';
 import { getSavedWorkspaceSessions } from '../lib/savedVoyageState';
@@ -107,11 +108,6 @@ function getDraftVoyageNameForActiveCraft(
   );
 }
 
-function getIdSuffix(id: string): string {
-  const parts = id.split(/[_-]/).filter(Boolean);
-  return parts[parts.length - 1] || id;
-}
-
 function resolveQueryCraftSelection(
   workspace: WorkspaceState,
   session: SavedWorkspaceSession | undefined,
@@ -130,8 +126,16 @@ function resolveQueryCraftSelection(
 
   const matchingEntry = session.voyageEntries?.find(
     (entry) =>
-      getIdSuffix(entry.id) === parsedCraft.entrySuffix &&
-      getIdSuffix(entry.tabGroupId) === parsedCraft.tabGroupSuffix,
+      shortIdTokenMatches(
+        entry.id,
+        parsedCraft.entrySuffix,
+        session.voyageEntries.map((candidate) => candidate.id),
+      ) &&
+      shortIdTokenMatches(
+        entry.tabGroupId,
+        parsedCraft.tabGroupSuffix,
+        workspace.tabGroups.map((candidate) => candidate.id),
+      ),
   );
   if (!matchingEntry) return {};
 
@@ -139,8 +143,11 @@ function resolveQueryCraftSelection(
   if (!tabGroup) return {};
 
   const viewSuffixes = parseViewsParam(viewParam);
+  const tabIds = tabGroup.tabs.map((tab) => tab.id);
   const viewIds = viewSuffixes
-    .map((suffix) => tabGroup.tabs.find((tab) => getIdSuffix(tab.id) === suffix)?.id)
+    .map((suffix) =>
+      tabGroup.tabs.find((tab) => shortIdTokenMatches(tab.id, suffix, tabIds))?.id,
+    )
     .filter((id): id is string => Boolean(id));
   const resolvedViewIds = viewIds.length ? viewIds : matchingEntry.viewIds;
   const itemId =
@@ -214,6 +221,7 @@ springboard.registerModule(
                   currentSearch: location.search,
                   workspace,
                   session: missingParamFallbackSession,
+                  savedSessions: savedVoyages,
                 })
               : undefined
           : undefined;
@@ -296,6 +304,9 @@ springboard.registerModule(
               currentSearch: location.search,
               workspace,
               session: savedSession,
+              savedSessions: savedVoyages.some((entry) => entry.id === savedSession.id)
+                ? savedVoyages
+                : [...savedVoyages, savedSession],
             }),
             { replace: true },
           );
@@ -446,7 +457,9 @@ springboard.registerModule(
           // second current-voyage state outside the URL contract.
           return;
         }
-        const currentVoyageSlug = buildVoyageSlug(voyageName, browserSessionId);
+        const currentVoyageSlug = activeSavedSession
+          ? buildVoyageParam(activeSavedSession, savedVoyages)
+          : buildVoyageSlug(voyageName, browserSessionId);
 
         if ((queryCraftParam || queryViewsParam) && querySelection.voyageEntryId) {
           const nextPath = buildCanonicalDashboardPath(location.search, {
@@ -468,7 +481,13 @@ springboard.registerModule(
         const viewTokens = activeViewIds
           .map((viewId) => {
             const tab = currentTabGroup?.tabs.find((entry) => entry.id === viewId);
-            return tab ? buildViewParam(tab.title, tab.id) : null;
+            return tab && currentTabGroup
+              ? buildViewParam(
+                  tab.title,
+                  tab.id,
+                  currentTabGroup.tabs.map((entry) => entry.id),
+                )
+              : null;
           })
           .filter((token): token is string => Boolean(token));
 
@@ -504,125 +523,6 @@ springboard.registerModule(
         previousActiveSavedSessionIdRef.current = activeSavedSession?.id;
       }, [activeSavedSession?.id]);
 
-      // Wrap actions that need session parameters
-      const wrappedActions = {
-        ...actions,
-        reorderTabGroups: (args: { sourceId: string; targetId: string }) => {
-          actions.reorderTabGroups({
-            ...args,
-            activeSpaceId: sessionNav.activeSpaceId,
-          });
-        },
-        closeActiveTab: async () => {
-          const activeItemId = sessionNav.getActiveItem(
-            sessionNav.activeTabGroupId,
-          );
-          const result = await actions.closeActiveTab({
-            activeTabGroupId: sessionNav.activeTabGroupId,
-            activeItemId,
-          });
-          // If action returned a tab to select, select it
-          if (result?.selectTabId) {
-            sessionNav.selectTab(
-              sessionNav.activeTabGroupId,
-              result.selectTabId,
-            );
-          }
-        },
-        addTab: async (args: {
-          tabGroupId: string;
-          title: string;
-          url: string;
-        }) => {
-          const result = await actions.addTab(args);
-          // Auto-select the newly added tab
-          if (result?.tabId) {
-            sessionNav.selectTab(result.tabGroupId, result.tabId);
-          }
-        },
-        createPair: async (args: { tabGroupId: string; tabIds: string[] }) => {
-          const result = await actions.createPair(args);
-          // Auto-select the newly created pair
-          if (result?.pairId) {
-            sessionNav.selectPair(result.tabGroupId, result.pairId);
-          }
-        },
-        deletePair: async (args: { tabGroupId: string; pairId: string }) => {
-          const result = await actions.deletePair(args);
-          // Auto-select the first tab from the deleted pair
-          if (result?.firstTabId) {
-            sessionNav.selectTab(result.tabGroupId, result.firstTabId);
-          }
-        },
-        addVKWorkspace: async (args: {
-          taskAttemptId: string;
-          name: string;
-          containerRef: string;
-          activeSpaceId: string;
-        }) => {
-          const baseOrigin = getBaseOrigin();
-          const containerRef = await resolveWorkspaceContainerRef(
-            args.taskAttemptId,
-            args.containerRef,
-          );
-          return actions.addVKWorkspace({ ...args, containerRef, baseOrigin });
-        },
-        createSavedSessionForVKWorkspace: async (args: {
-          voyageName: string;
-          taskAttemptId: string;
-          workspaceName: string;
-          containerRef: string;
-          activeSpaceId: string;
-        }) => {
-          const baseOrigin = getBaseOrigin();
-          const containerRef = await resolveWorkspaceContainerRef(
-            args.taskAttemptId,
-            args.containerRef,
-          );
-          return actions.createSavedSessionForVKWorkspace({
-            ...args,
-            containerRef,
-            baseOrigin,
-          });
-        },
-        openVKWorkspaceInSavedSession: async (args: {
-          sessionId: string;
-          taskAttemptId: string;
-          name: string;
-          containerRef: string;
-          activeSpaceId: string;
-        }) => {
-          const baseOrigin = getBaseOrigin();
-          const containerRef = await resolveWorkspaceContainerRef(
-            args.taskAttemptId,
-            args.containerRef,
-          );
-          return actions.openVKWorkspaceInSavedSession({
-            ...args,
-            containerRef,
-            baseOrigin,
-          });
-        },
-        ensureCreateWorkspaceTab: () => {
-          const baseOrigin = getBaseOrigin();
-          return actions.ensureCreateWorkspaceTab({ baseOrigin });
-        },
-        createCreateWorkspaceCraft: (args: { label?: string } = {}) => {
-          const baseOrigin = getBaseOrigin();
-          return actions.createCreateWorkspaceCraft({ ...args, baseOrigin });
-        },
-        createCreateWorkspaceSavedSession: (args: {
-          name: string;
-          label?: string;
-        }) => {
-          const baseOrigin = getBaseOrigin();
-          return actions.createCreateWorkspaceSavedSession({
-            ...args,
-            baseOrigin,
-          });
-        },
-      };
-
       const updateBookmarkedSessionSearch = (
         sessionId: string,
         name?: string,
@@ -642,10 +542,14 @@ springboard.registerModule(
         }
 
         if (session) {
+          const savedSessionPeers = savedVoyages.some((entry) => entry.id === session.id)
+            ? savedVoyages
+            : [...savedVoyages, session];
           const nextPath = buildSavedVoyageDashboardPath({
             currentSearch: location.search,
             workspace,
             session,
+            savedSessions: savedSessionPeers,
             ...(voyageEntryId ? { voyageEntryId } : {}),
             ...(options.tabId ? { tabId: options.tabId } : {}),
             ...(options.viewIds ? { viewIds: options.viewIds } : {}),
@@ -717,6 +621,9 @@ springboard.registerModule(
               currentSearch: location.search,
               workspace,
               session: updatedSession,
+              savedSessions: savedVoyages.some((entry) => entry.id === updatedSession.id)
+                ? savedVoyages
+                : [...savedVoyages, updatedSession],
               voyageEntryId: updatedSession.activeVoyageEntryId,
               ...(args.tabId ? { tabId: args.tabId } : {}),
               ...(args.viewIds ? { viewIds: args.viewIds } : {}),
@@ -932,6 +839,122 @@ springboard.registerModule(
         },
       };
 
+      // Wrap actions that need session parameters
+      const wrappedActions = {
+        ...actions,
+        reorderTabGroups: (args: { sourceId: string; targetId: string }) => {
+          actions.reorderTabGroups({
+            ...args,
+            activeSpaceId: sessionNav.activeSpaceId,
+          });
+        },
+        closeActiveTab: async () => {
+          const activeItemId = sessionNav.getActiveItem(
+            sessionNav.activeTabGroupId,
+          );
+          const result = await actions.closeActiveTab({
+            activeTabGroupId: sessionNav.activeTabGroupId,
+            activeItemId,
+          });
+          // If action returned a tab to select, select it
+          if (result?.selectTabId) {
+            sessionActions.selectTab(sessionNav.activeTabGroupId, result.selectTabId);
+          }
+        },
+        addTab: async (args: {
+          tabGroupId: string;
+          title: string;
+          url: string;
+        }) => {
+          const result = await actions.addTab(args);
+          // Auto-select the newly added tab
+          if (result?.tabId) {
+            sessionActions.selectTab(result.tabGroupId, result.tabId);
+          }
+        },
+        createPair: async (args: { tabGroupId: string; tabIds: string[] }) => {
+          const result = await actions.createPair(args);
+          // Auto-select the newly created pair
+          if (result?.pairId) {
+            sessionActions.selectPair(result.tabGroupId, result.pairId);
+          }
+        },
+        deletePair: async (args: { tabGroupId: string; pairId: string }) => {
+          const result = await actions.deletePair(args);
+          // Auto-select the first tab from the deleted pair
+          if (result?.firstTabId) {
+            sessionActions.selectTab(result.tabGroupId, result.firstTabId);
+          }
+        },
+        addVKWorkspace: async (args: {
+          taskAttemptId: string;
+          name: string;
+          containerRef: string;
+          activeSpaceId: string;
+        }) => {
+          const baseOrigin = getBaseOrigin();
+          const containerRef = await resolveWorkspaceContainerRef(
+            args.taskAttemptId,
+            args.containerRef,
+          );
+          return actions.addVKWorkspace({ ...args, containerRef, baseOrigin });
+        },
+        createSavedSessionForVKWorkspace: async (args: {
+          voyageName: string;
+          taskAttemptId: string;
+          workspaceName: string;
+          containerRef: string;
+          activeSpaceId: string;
+        }) => {
+          const baseOrigin = getBaseOrigin();
+          const containerRef = await resolveWorkspaceContainerRef(
+            args.taskAttemptId,
+            args.containerRef,
+          );
+          return actions.createSavedSessionForVKWorkspace({
+            ...args,
+            containerRef,
+            baseOrigin,
+          });
+        },
+        openVKWorkspaceInSavedSession: async (args: {
+          sessionId: string;
+          taskAttemptId: string;
+          name: string;
+          containerRef: string;
+          activeSpaceId: string;
+        }) => {
+          const baseOrigin = getBaseOrigin();
+          const containerRef = await resolveWorkspaceContainerRef(
+            args.taskAttemptId,
+            args.containerRef,
+          );
+          return actions.openVKWorkspaceInSavedSession({
+            ...args,
+            containerRef,
+            baseOrigin,
+          });
+        },
+        ensureCreateWorkspaceTab: () => {
+          const baseOrigin = getBaseOrigin();
+          return actions.ensureCreateWorkspaceTab({ baseOrigin });
+        },
+        createCreateWorkspaceCraft: (args: { label?: string } = {}) => {
+          const baseOrigin = getBaseOrigin();
+          return actions.createCreateWorkspaceCraft({ ...args, baseOrigin });
+        },
+        createCreateWorkspaceSavedSession: (args: {
+          name: string;
+          label?: string;
+        }) => {
+          const baseOrigin = getBaseOrigin();
+          return actions.createCreateWorkspaceSavedSession({
+            ...args,
+            baseOrigin,
+          });
+        },
+      };
+
       if (dashboardVoyage.status === 'not-found') {
         const fallbackSession =
           savedVoyages.find(
@@ -941,7 +964,7 @@ springboard.registerModule(
           if (!fallbackSession) return;
           navigate(
             buildCanonicalDashboardPath(location.search, {
-              slug: getVoyageSlug(fallbackSession),
+              slug: buildVoyageParam(fallbackSession, savedVoyages),
               craftParam: undefined,
               viewTokens: undefined,
             }),

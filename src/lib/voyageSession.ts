@@ -1,5 +1,15 @@
 import type { SavedWorkspaceSession } from '../types';
-import { getVoyageKeyFromDashboardUrl, getVoyageSlug } from './voyageUrl';
+import {
+  buildVoyageParam,
+  getVoyageKeyFromDashboardUrl,
+  getVoyageSlug,
+  shortIdTokenMatches,
+} from './voyageUrl';
+
+function getTrailingToken(value: string): string {
+  const parts = value.split('-').filter(Boolean);
+  return parts[parts.length - 1] || value;
+}
 
 export function resolveRequestedVoyageSessionId({
   savedSessions,
@@ -12,16 +22,27 @@ export function resolveRequestedVoyageSessionId({
     ? savedSessions.find(
         (session) =>
           session.id === requestedVoyageKey ||
-          getVoyageSlug(session) === requestedVoyageKey,
+          getVoyageSlug(session) === requestedVoyageKey ||
+          buildVoyageParam(session, savedSessions) === requestedVoyageKey,
       )
     : undefined;
   const requestedStableId = requestedVoyageKey
     ? savedSessions.find((session) => requestedVoyageKey.endsWith(`-${session.id}`))?.id
     : undefined;
+  const requestedShortId = requestedVoyageKey
+    ? savedSessions.find((session) =>
+        shortIdTokenMatches(
+          session.id,
+          getTrailingToken(requestedVoyageKey),
+          savedSessions.map((entry) => entry.id),
+        ),
+      )?.id
+    : undefined;
 
   return (
     matchedRequestedVoyage?.id ||
-    requestedStableId
+    requestedStableId ||
+    requestedShortId
   );
 }
 

@@ -54,6 +54,37 @@ const SAVED_VOYAGES_STATE_KEY =
   'engine|module|workspace|state.persistent|workspace-sessions';
 const WORKSPACE_STATE_KEY = 'engine|module|workspace|state.persistent|workspace';
 
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function getShortIdToken(id: string, peerIds: string[] = [id]): string {
+  const parts = id.split(/[_-]/).filter(Boolean);
+  if (!parts.length) return id;
+
+  for (let partCount = 1; partCount <= parts.length; partCount += 1) {
+    const candidate = parts.slice(parts.length - partCount).join('_');
+    const collision = peerIds.some((peerId) => {
+      if (peerId === id) return false;
+      const peerParts = peerId.split(/[_-]/).filter(Boolean);
+      return peerParts.slice(peerParts.length - partCount).join('_') === candidate;
+    });
+    if (!collision) return candidate;
+  }
+
+  return id;
+}
+
+async function expectUrlVoyageToken(
+  page: Page,
+  voyageId: string,
+  peerIds: string[] = [voyageId],
+) {
+  await expect(page).toHaveURL(
+    new RegExp(`voyage=[^&#]*${escapeRegex(getShortIdToken(voyageId, peerIds))}`),
+  );
+}
+
 async function callWorkspaceAction<T>(
   request: APIRequestContext,
   actionName: string,
@@ -505,7 +536,7 @@ test.describe('voyage persistence', () => {
 
     const sessionId = await waitForSavedVoyageIdByName(page.request, voyageName);
     await expect(page.getByRole('button', { name: 'Open Overview in Home' })).toBeVisible();
-    await expect(page).toHaveURL(new RegExp(`\\/?\\?voyage=.*${sessionId}`));
+    await expectUrlVoyageToken(page, sessionId);
     await expect
       .poll(async () =>
         page.evaluate(() => localStorage.getItem('workspace-last-dashboard-url')),
@@ -516,7 +547,7 @@ test.describe('voyage persistence', () => {
     await page.goto('/');
 
     await expect(page.getByRole('button', { name: 'Open Overview in Home' })).toBeVisible();
-    await expect(page).toHaveURL(new RegExp(`voyage=.*${sessionId}`));
+    await expectUrlVoyageToken(page, sessionId);
 
     await callWorkspaceAction(page.request, 'deleteSavedSession', { id: sessionId });
   });
@@ -546,7 +577,7 @@ test.describe('voyage persistence', () => {
       `/dashboard?from_gh_url=https%3A%2F%2Fexample.invalid&voyage=${voyageASlug}`,
     );
     await page.goto('/');
-    await expect(page).toHaveURL(new RegExp(`\\/?\\?voyage=.*${voyageAId}`));
+    await expectUrlVoyageToken(page, voyageAId, [voyageAId, voyageBId]);
     await expect(page).not.toHaveURL(/from_gh_url/);
     await expect
       .poll(async () => page.evaluate(() => localStorage.getItem('workspace-last-dashboard-url')))
@@ -557,7 +588,7 @@ test.describe('voyage persistence', () => {
       `/?voyage=${voyageAId}`,
     );
     await page.goto(`/?voyage=${voyageBSlug}`);
-    await expect(page).toHaveURL(new RegExp(`voyage=.*${voyageBId}`));
+    await expectUrlVoyageToken(page, voyageBId, [voyageAId, voyageBId]);
 
     await page.evaluate(
       (cachedUrl) => localStorage.setItem('workspace-last-dashboard-url', cachedUrl),
@@ -565,7 +596,7 @@ test.describe('voyage persistence', () => {
     );
     await callWorkspaceAction(page.request, 'deleteSavedSession', { id: voyageAId });
     await page.goto('/');
-    await expect(page).toHaveURL(new RegExp(`voyage=.*${voyageBId}`));
+    await expectUrlVoyageToken(page, voyageBId);
 
     await callWorkspaceAction(page.request, 'deleteSavedSession', { id: voyageBId });
   });
@@ -729,7 +760,7 @@ test.describe('voyage persistence', () => {
     await expectNotCurrentVoyage(page, voyageBName);
 
     await getVoyageSwitcherVoyageButton(page, voyageBName).click();
-    await expect(page).toHaveURL(new RegExp(`voyage=.*${voyageBId}`));
+    await expectUrlVoyageToken(page, voyageBId, [voyageAId, voyageBId]);
     await expect(
       page.getByRole('button', { name: `Open ${craftBLabel} in Home` }),
     ).toBeVisible();
@@ -937,7 +968,7 @@ test.describe('voyage persistence', () => {
     await expect(
       page.getByRole('button', { name: `Open ${existingCraftLabel} in Home` }),
     ).toBeVisible();
-    await expect(page).toHaveURL(new RegExp(`voyage=${voyageSlug}`));
+    await expectUrlVoyageToken(page, voyageId);
     await waitForSavedVoyageWithCraft(page.request, voyageId, existingCraftLabel);
 
     await page
@@ -961,7 +992,7 @@ test.describe('voyage persistence', () => {
     await expect(
       page.getByRole('button', { name: `Open ${existingCraftLabel} in Home` }),
     ).toBeVisible();
-    await expect(page).toHaveURL(new RegExp(`voyage=${voyageSlug}`));
+    await expectUrlVoyageToken(page, voyageId);
     await expect(page).toHaveURL(
       new RegExp(`craft=e2e-opened-craft-${runId}`),
     );
@@ -1151,7 +1182,7 @@ test.describe('voyage persistence', () => {
     await expect(
       page.getByRole('button', { name: `Open ${movedCraftLabel} in Home` }),
     ).toBeVisible();
-    await expect(page).toHaveURL(new RegExp(`voyage=${targetVoyageSlug}`));
+    await expectUrlVoyageToken(page, targetVoyageId, [sourceVoyageId, targetVoyageId]);
     await expect(page).toHaveURL(new RegExp(`craft=${movedCraftParam}`));
     await expect(page).toHaveURL(new RegExp(`views=agent-${movedTabSuffix}`));
 
@@ -1163,7 +1194,7 @@ test.describe('voyage persistence', () => {
     await expect(
       page.getByRole('button', { name: `Open ${movedCraftLabel} in Home` }),
     ).toBeVisible();
-    await expect(page).toHaveURL(new RegExp(`voyage=${targetVoyageSlug}`));
+    await expectUrlVoyageToken(page, targetVoyageId, [sourceVoyageId, targetVoyageId]);
     await expect(page).toHaveURL(new RegExp(`craft=${movedCraftParam}`));
     await expect(page).toHaveURL(new RegExp(`views=agent-${movedTabSuffix}`));
     await waitForSavedVoyageCraftState(page.request, targetVoyageId, {

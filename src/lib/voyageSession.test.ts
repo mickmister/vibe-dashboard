@@ -44,6 +44,26 @@ describe('resolveLastDashboardVoyageSessionId', () => {
     ).toBeUndefined();
   });
 
+  it('resolves readable short-id voyage params without using labels as identity', () => {
+    const savedSessions = [
+      session('session_current_a_123', 'legacy-alpha-full'),
+      session('session_current_b_123', 'legacy-beta-full'),
+    ];
+
+    expect(
+      resolveRequestedVoyageSessionId({
+        savedSessions,
+        requestedVoyageKey: 'anything-b_123',
+      }),
+    ).toBe('session_current_b_123');
+    expect(
+      resolveRequestedVoyageSessionId({
+        savedSessions,
+        requestedVoyageKey: 'anything-123',
+      }),
+    ).toBeUndefined();
+  });
+
   it('reads a stored full dashboard URL only when it names an existing voyage', () => {
     expect(
       resolveLastDashboardVoyageSessionId({

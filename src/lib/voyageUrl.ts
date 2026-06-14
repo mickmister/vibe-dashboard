@@ -20,25 +20,70 @@ function slugifyPart(value: string): string {
   return normalized || 'item';
 }
 
-function getIdSuffix(id: string): string {
-  const parts = id.split(/[_-]/).filter(Boolean);
-  return parts[parts.length - 1] || id;
+function getTrailingIdParts(id: string): string[] {
+  return id.split(/[_-]/).filter(Boolean);
+}
+
+export function getShortIdToken(id: string, peerIds: string[] = []): string {
+  const parts = getTrailingIdParts(id);
+  if (!parts.length) return id;
+
+  for (let partCount = 1; partCount <= parts.length; partCount += 1) {
+    const candidate = parts.slice(parts.length - partCount).join('_');
+    const collision = peerIds.some((peerId) => {
+      if (peerId === id) return false;
+      const peerParts = getTrailingIdParts(peerId);
+      return peerParts.slice(peerParts.length - partCount).join('_') === candidate;
+    });
+    if (!collision) return candidate;
+  }
+
+  return id;
+}
+
+export function shortIdTokenMatches(
+  id: string,
+  token: string | undefined,
+  peerIds: string[] = [],
+): boolean {
+  if (!token) return false;
+  return id === token || getShortIdToken(id, peerIds) === token;
 }
 
 export function buildVoyageSlug(label: string | undefined, id: string): string {
-  return `${slugifyPart(label || 'voyage')}-${id}`;
+  return `${slugifyPart(label || 'voyage')}-${getShortIdToken(id)}`;
 }
 
 export function getVoyageSlug(session: SavedWorkspaceSession): string {
   return session.slug || buildVoyageSlug(session.name, session.id);
 }
 
+export function buildVoyageParam(
+  session: SavedWorkspaceSession,
+  sessions: SavedWorkspaceSession[] = [session],
+): string {
+  return `${slugifyPart(session.name || 'voyage')}-${getShortIdToken(
+    session.id,
+    sessions.map((entry) => entry.id),
+  )}`;
+}
+
 export function buildCraftParam(
   tabGroup: Craft | undefined,
   entry: VoyageEntry | undefined,
+  options: {
+    tabGroups?: Craft[];
+    voyageEntries?: VoyageEntry[];
+  } = {},
 ): string | null {
   if (!(tabGroup && entry)) return null;
-  return `${slugifyPart(tabGroup.label)}-${getIdSuffix(tabGroup.id)}-${getIdSuffix(entry.id)}`;
+  return `${slugifyPart(tabGroup.label)}-${getShortIdToken(
+    tabGroup.id,
+    options.tabGroups?.map((candidate) => candidate.id) || [tabGroup.id],
+  )}-${getShortIdToken(
+    entry.id,
+    options.voyageEntries?.map((candidate) => candidate.id) || [entry.id],
+  )}`;
 }
 
 export function parseCraftParam(value: string | null | undefined): {
@@ -54,8 +99,8 @@ export function parseCraftParam(value: string | null | undefined): {
   return { tabGroupSuffix, entrySuffix };
 }
 
-export function buildViewParam(label: string, id: string): string {
-  return `${slugifyPart(label)}-${getIdSuffix(id)}`;
+export function buildViewParam(label: string, id: string, peerIds: string[] = [id]): string {
+  return `${slugifyPart(label)}-${getShortIdToken(id, peerIds)}`;
 }
 
 export function parseViewParam(value: string | null | undefined): string | null {
@@ -106,6 +151,7 @@ export function buildSavedVoyageDashboardPath({
   currentSearch,
   workspace,
   session,
+  savedSessions,
   voyageEntryId,
   tabId,
   viewIds,
@@ -113,6 +159,7 @@ export function buildSavedVoyageDashboardPath({
   currentSearch: string;
   workspace: Pick<WorkspaceState, 'tabGroups'>;
   session: SavedWorkspaceSession;
+  savedSessions?: SavedWorkspaceSession[];
   voyageEntryId?: string;
   tabId?: string;
   viewIds?: string[];
@@ -137,14 +184,23 @@ export function buildSavedVoyageDashboardPath({
       ? selectedViewIds
           .map((viewId) => {
             const tab = tabGroup.tabs.find((candidate) => candidate.id === viewId);
-            return tab ? buildViewParam(tab.title, tab.id) : null;
+            return tab
+              ? buildViewParam(
+                  tab.title,
+                  tab.id,
+                  tabGroup.tabs.map((candidate) => candidate.id),
+                )
+              : null;
           })
           .filter((token): token is string => Boolean(token))
       : undefined;
 
   return buildCanonicalDashboardPath(currentSearch, {
-    slug: getVoyageSlug(session),
-    craftParam: buildCraftParam(tabGroup, entry),
+    slug: buildVoyageParam(session, savedSessions),
+    craftParam: buildCraftParam(tabGroup, entry, {
+      tabGroups: workspace.tabGroups,
+      voyageEntries: session.voyageEntries,
+    }),
     viewTokens,
   });
 }

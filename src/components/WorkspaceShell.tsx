@@ -511,14 +511,13 @@ export function WorkspaceShell({
         (entry) => entry.id === currentSessionId,
       );
       if (currentSavedSession) {
-        const savedSession = await actions.activateSavedVoyageEntry({
+        sessionActions.selectVoyageEntry(existingEntry.id);
+        void actions.activateSavedVoyageEntry({
           sessionId: currentSavedSession.id,
           voyageEntryId: existingEntry.id,
         });
-        if (savedSession) {
-          activateSavedSessionWhenWorkspaceReady(savedSession, selection);
-          return true;
-        }
+        setPendingOpenCraftTab(null);
+        return true;
       }
 
       sessionActions.selectVoyageEntry(existingEntry.id);
