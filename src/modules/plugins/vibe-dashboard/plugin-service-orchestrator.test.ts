@@ -183,6 +183,31 @@ describe('plugin service supervisor orchestration dry run', () => {
     await expect(readFile(join(tempRoot, 'plugins/vd.beads-web/0.1.0/extracted/bin/beads-web'), 'utf8')).resolves.toContain('fake beads-web');
   });
 
+  it('does not overwrite an already-installed matching binary on repeated materialization', async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), 'vd-plugin-materialize-idempotent-'));
+    const paths = {
+      artifactCacheRoot: join(tempRoot, 'cache'),
+      installRoot: join(tempRoot, 'plugins'),
+      supervisorConfigDir: join(tempRoot, 'supervisor'),
+    };
+    const catalog = structuredClone(beadsWebOnlyCatalog) as PluginServiceCatalog;
+    const artifact = catalog.plugins[0]!.artifact;
+    if (artifact.kind !== 'github-release-asset') throw new Error('expected github-release-asset fixture');
+    const bytes = Buffer.from('#!/bin/sh\necho stable beads-web\\n');
+    artifact.sha256 = createHash('sha256').update(bytes).digest('hex');
+    let fetchCount = 0;
+    const fetchBytes = async () => {
+      fetchCount += 1;
+      return bytes;
+    };
+
+    await materializePluginArtifacts({ catalog, paths, fetchBytes });
+    await materializePluginArtifacts({ catalog, paths, fetchBytes });
+
+    expect(fetchCount).toBe(1);
+    await expect(readFile(join(tempRoot, 'plugins/vd.beads-web/0.1.0/extracted/bin/beads-web'), 'utf8')).resolves.toContain('stable beads-web');
+  });
+
   it('applies generated supervisor configs to a separate config directory idempotently', async () => {
     const tempRoot = await mkdtemp(join(tmpdir(), 'vd-supervisor-apply-'));
     const isolatedPaths = {

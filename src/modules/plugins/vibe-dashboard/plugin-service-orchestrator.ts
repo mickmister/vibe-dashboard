@@ -251,7 +251,16 @@ export async function materializePluginArtifacts(input: {
     const installAs = artifact.installAs ?? artifact.asset;
     const installTarget = join(pluginExtractedPath(input.paths, plugin), installAs);
     await mkdir(dirname(installTarget), { recursive: true });
-    await copyFile(cachePath, installTarget);
+    const installedBytes = await readFile(installTarget).catch((error: unknown) => {
+      if (isNodeErrorWithCode(error, 'ENOENT')) return undefined;
+      throw error;
+    });
+    const installedSha256 = installedBytes
+      ? createHash('sha256').update(installedBytes).digest('hex')
+      : undefined;
+    if (installedSha256 !== sha256) {
+      await copyFile(cachePath, installTarget);
+    }
     await chmod(installTarget, 0o755);
 
     materialized.push({
