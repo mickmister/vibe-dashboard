@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { isEphemeralCraftSurfaceTab } from '../modules/plugins/vibe-dashboard/craft-surfaces';
 import type { TabGroup } from '../types';
 
 interface AddressBarProps {
@@ -25,8 +26,12 @@ export function AddressBar({ tabGroup, activeItemId, onNavigate }: AddressBarPro
     const pairTabs = activePair.tabIds
       .map((id) => tabGroup.tabs.find((t) => t.id === id))
       .filter((t) => t !== undefined);
-    tabsToShow.push(...pairTabs.map((t) => ({ id: t.id, url: t.url })));
-  } else if (activeTab) {
+    tabsToShow.push(
+      ...pairTabs
+        .filter((t) => !isEphemeralCraftSurfaceTab(t))
+        .map((t) => ({ id: t.id, url: t.url })),
+    );
+  } else if (activeTab && !isEphemeralCraftSurfaceTab(activeTab)) {
     tabsToShow.push({ id: activeTab.id, url: activeTab.url });
   }
 

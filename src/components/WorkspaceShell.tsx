@@ -18,7 +18,11 @@ import type { SessionWorkspaceNav } from '../sessionState';
 import type { PluginRegistryState } from '../modules/plugins/vibe-dashboard/types';
 import type { ResolvedWorkspaceComposition } from '../modules/plugins/vibe-dashboard/workspace-composition';
 import { resolveWorkspaceFactoryComposition } from '../modules/plugins/vibe-dashboard/workspace-composition';
-import { createEffectiveWorkspaceWithCraftSurfaces } from '../modules/plugins/vibe-dashboard/craft-surfaces';
+import {
+  createEffectiveWorkspaceWithCraftSurfaces,
+  filterEphemeralCraftSurfaceActiveItems,
+  tabGroupHasEphemeralCraftSurfaceTab,
+} from '../modules/plugins/vibe-dashboard/craft-surfaces';
 
 const MOBILE_TAB_EMOJI_CHOICES = [
   '🚀',
@@ -569,6 +573,83 @@ export function WorkspaceShell({
     [pluginRegistry.craftSurfaces, workspace],
   );
 
+  const [ephemeralActiveItems, setEphemeralActiveItems] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    setEphemeralActiveItems((current) => {
+      const next = filterEphemeralCraftSurfaceActiveItems(effectiveWorkspace, current);
+      return Object.keys(next).length === Object.keys(current).length ? current : next;
+    });
+  }, [effectiveWorkspace.tabGroups]);
+
+  const selectEffectiveTab = (spaceId: string, tabGroupId: string, tabId: string) => {
+    const tabGroup = effectiveWorkspace.tabGroups.find(
+      (candidate) => candidate.id === tabGroupId,
+    );
+    if (tabGroup && tabGroupHasEphemeralCraftSurfaceTab(tabGroup, tabId)) {
+      setEphemeralActiveItems((current) => ({ ...current, [tabGroupId]: tabId }));
+      return;
+    }
+
+    setEphemeralActiveItems((current) => {
+      if (!(tabGroupId in current)) return current;
+      const { [tabGroupId]: _removed, ...rest } = current;
+      return rest;
+    });
+    sessionActions.selectSessionTab(spaceId, tabGroupId, tabId);
+  };
+
+  const selectEffectivePair = (
+    spaceId: string,
+    tabGroupId: string,
+    pairId: string,
+  ) => {
+    setEphemeralActiveItems((current) => {
+      if (!(tabGroupId in current)) return current;
+      const { [tabGroupId]: _removed, ...rest } = current;
+      return rest;
+    });
+    sessionActions.selectSessionPair(spaceId, tabGroupId, pairId);
+  };
+
+  const effectiveActiveItems = useMemo(
+    () => ({ ...session.activeItems, ...ephemeralActiveItems }),
+    [ephemeralActiveItems, session.activeItems],
+  );
+
+  const effectiveSessionActions = useMemo<SessionActions>(
+    () => ({
+      ...sessionActions,
+      getActiveItem: (tabGroupId: string) =>
+        ephemeralActiveItems[tabGroupId] || sessionActions.getActiveItem(tabGroupId),
+      selectTab: (tabGroupId: string, tabId: string) => {
+        const activeSpaceId =
+          effectiveWorkspace.spaces.find((space) =>
+            space.tabGroupIds.includes(tabGroupId),
+          )?.id ||
+          session.activeSpaceId;
+        selectEffectiveTab(activeSpaceId, tabGroupId, tabId);
+      },
+      selectSessionTab: selectEffectiveTab,
+      selectPair: (tabGroupId: string, pairId: string) => {
+        const activeSpaceId =
+          effectiveWorkspace.spaces.find((space) =>
+            space.tabGroupIds.includes(tabGroupId),
+          )?.id ||
+          session.activeSpaceId;
+        selectEffectivePair(activeSpaceId, tabGroupId, pairId);
+      },
+      selectSessionPair: selectEffectivePair,
+    }),
+    [
+      effectiveWorkspace.spaces,
+      effectiveWorkspace.tabGroups,
+      ephemeralActiveItems,
+      session.activeSpaceId,
+      sessionActions,
+    ],
+  );
+
   const activeSpace = effectiveWorkspace.spaces.find(
     (s) => s.id === session.activeSpaceId,
   );
@@ -875,7 +956,7 @@ export function WorkspaceShell({
           workspace={effectiveWorkspace}
           activeSpaceId={session.activeSpaceId}
           activeTabGroupId={session.activeTabGroupId}
-          activeItems={session.activeItems}
+          activeItems={effectiveActiveItems}
           spaceTypes={pluginRegistry.spaceTypes}
           visitedTabGroupIds={session.visitedTabGroupIds}
           savedSessions={savedSessions}
@@ -895,10 +976,10 @@ export function WorkspaceShell({
             }
           }}
           onSelectTab={(tabGroupId, tabId) => {
-            sessionActions.selectTab(tabGroupId, tabId);
+            effectiveSessionActions.selectTab(tabGroupId, tabId);
           }}
           onSelectPair={(tabGroupId, pairId) => {
-            sessionActions.selectPair(tabGroupId, pairId);
+            effectiveSessionActions.selectPair(tabGroupId, pairId);
           }}
           onAddSpace={async (name) => {
             const result = await actions.addSpace({ name });
@@ -1060,7 +1141,7 @@ export function WorkspaceShell({
           activeTabGroups={activeTabGroups}
           activeTabGroupId={session.activeTabGroupId}
           actions={actions}
-          sessionActions={sessionActions}
+          sessionActions={effectiveSessionActions}
           onDragStart={handleDragStart}
           onDragOver={handleDragOver}
           onDrop={handleDrop}

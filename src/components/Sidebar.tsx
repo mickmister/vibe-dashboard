@@ -6,6 +6,7 @@ import React, {
   useMemo,
 } from 'react';
 import { Button, Input } from '@heroui/react';
+import { isEphemeralCraftSurfaceTab } from '../modules/plugins/vibe-dashboard/craft-surfaces';
 import type {
   WorkspaceState,
   Space,
@@ -183,7 +184,9 @@ export function Sidebar({
     );
     return activeTabGroup.tabs.filter(
       (tab) =>
-        !tabsInPairs.has(tab.id) && !tab.url.startsWith(INTERNAL_URL_PREFIX),
+        !tabsInPairs.has(tab.id) &&
+        !isEphemeralCraftSurfaceTab(tab) &&
+        !tab.url.startsWith(INTERNAL_URL_PREFIX),
     );
   }, [activeTabGroup]);
 

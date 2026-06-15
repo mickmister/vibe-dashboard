@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { createEffectiveWorkspaceWithCraftSurfaces } from './craft-surfaces';
-import type { WorkspaceState } from '../../../types';
+import {
+  createEffectiveWorkspaceWithCraftSurfaces,
+  filterEphemeralCraftSurfaceActiveItems,
+  isEphemeralCraftSurfaceTab,
+  stripEphemeralCraftSurfaceSessionRefs,
+  stripEphemeralCraftSurfaceTabsFromWorkspace,
+  tabGroupHasEphemeralCraftSurfaceTab,
+} from './craft-surfaces';
+import type { SavedWorkspaceSession, WorkspaceState } from '../../../types';
 import type { RegisteredCraftSurfaceContribution } from './types';
 
 const workspace: WorkspaceState = {
@@ -32,7 +39,7 @@ const surfaces: RegisteredCraftSurfaceContribution[] = [
 ];
 
 describe('dynamic Craft surfaces', () => {
-  it('adds plugin-provided placeholder tabs to every Craft without mutating persisted workspace state', () => {
+  it('adds plugin-provided ephemeral placeholder tabs to every Craft without mutating persisted workspace state', () => {
     const effective = createEffectiveWorkspaceWithCraftSurfaces({
       workspace,
       craftSurfaces: surfaces,
@@ -55,7 +62,13 @@ describe('dynamic Craft surfaces', () => {
       title: 'Kanban',
       url: 'https://vd.example.test/',
       pinned: true,
+      ephemeral: {
+        kind: 'craft-surface',
+        pluginId: 'dev.mickmister.vibe-kanban',
+        sourceKey: 'board',
+      },
     });
+    expect(isEphemeralCraftSurfaceTab(effective.tabGroups[0]!.tabs[1])).toBe(true);
   });
 
   it('does not duplicate a placeholder that is already present in a Craft', () => {
@@ -82,7 +95,92 @@ describe('dynamic Craft surfaces', () => {
     });
 
     expect(
-      effective.tabGroups[0]!.tabs.filter((tab) => tab.id === 'craft-surface:craft_1:dev.mickmister.vibe-kanban/board'),
+      effective.tabGroups[0]!.tabs.filter(
+        (tab) => tab.id === 'craft-surface:craft_1:dev.mickmister.vibe-kanban/board',
+      ),
     ).toHaveLength(1);
+  });
+
+  it('strips ephemeral placeholders and pairs before workspace state can be persisted', () => {
+    const effective = createEffectiveWorkspaceWithCraftSurfaces({
+      workspace,
+      craftSurfaces: surfaces,
+      origin: 'https://vd.example.test',
+    });
+    const syntheticTabId = 'craft-surface:craft_1:app.excalidraw.canvas/canvas';
+    const pollutedWorkspace: WorkspaceState = {
+      ...effective,
+      tabGroups: effective.tabGroups.map((tabGroup) =>
+        tabGroup.id === 'craft_1'
+          ? {
+              ...tabGroup,
+              pairs: [
+                { id: 'pair_polluted', tabIds: ['tab_existing', syntheticTabId], ratios: [50, 50] },
+              ],
+            }
+          : tabGroup,
+      ),
+    };
+
+    expect(
+      tabGroupHasEphemeralCraftSurfaceTab(pollutedWorkspace.tabGroups[0]!, syntheticTabId),
+    ).toBe(true);
+    expect(stripEphemeralCraftSurfaceTabsFromWorkspace(pollutedWorkspace)).toEqual(workspace);
+  });
+
+  it('drops ephemeral active item selections when a Craft surface is uninstalled', () => {
+    const effective = createEffectiveWorkspaceWithCraftSurfaces({
+      workspace,
+      craftSurfaces: surfaces,
+      origin: 'https://vd.example.test',
+    });
+
+    expect(
+      filterEphemeralCraftSurfaceActiveItems(effective, {
+        craft_1: 'craft-surface:craft_1:app.excalidraw.canvas/canvas',
+        craft_2: 'craft-surface:craft_2:app.excalidraw.canvas/canvas',
+        missing: 'craft-surface:missing:app.excalidraw.canvas/canvas',
+      }),
+    ).toEqual({
+      craft_1: 'craft-surface:craft_1:app.excalidraw.canvas/canvas',
+      craft_2: 'craft-surface:craft_2:app.excalidraw.canvas/canvas',
+    });
+
+    expect(
+      filterEphemeralCraftSurfaceActiveItems(workspace, {
+        craft_1: 'craft-surface:craft_1:app.excalidraw.canvas/canvas',
+      }),
+    ).toEqual({});
+  });
+
+  it('strips ephemeral placeholders from session active items and voyage view ids', () => {
+    const effective = createEffectiveWorkspaceWithCraftSurfaces({
+      workspace,
+      craftSurfaces: surfaces,
+      origin: 'https://vd.example.test',
+    });
+    const syntheticTabId = 'craft-surface:craft_1:app.excalidraw.canvas/canvas';
+    const pollutedSession: SavedWorkspaceSession = {
+      id: 'session-1',
+      createdAt: '2026-06-15T00:00:00.000Z',
+      updatedAt: '2026-06-15T00:00:00.000Z',
+      activeSpaceId: 'space_home',
+      activeTabGroupId: 'craft_1',
+      activeVoyageEntryId: 've_craft_1',
+      voyageEntries: [
+        { id: 've_craft_1', tabGroupId: 'craft_1', viewIds: ['tab_existing', syntheticTabId] },
+      ],
+      activeItemsByVoyageEntryId: { ve_craft_1: syntheticTabId },
+      activeItems: { craft_1: syntheticTabId },
+      visitedTabGroupIds: ['craft_1'],
+    };
+
+    expect(
+      stripEphemeralCraftSurfaceSessionRefs({ workspace: effective, session: pollutedSession }),
+    ).toEqual({
+      voyageEntries: [{ id: 've_craft_1', tabGroupId: 'craft_1', viewIds: ['tab_existing'] }],
+      activeItemsByVoyageEntryId: {},
+      activeItems: {},
+    });
   });
 });

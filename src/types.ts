@@ -1,9 +1,18 @@
+export interface EphemeralCraftSurfaceView {
+  kind: 'craft-surface';
+  pluginId: string;
+  surfaceKey: string;
+  sourceKey: string;
+}
+
 export interface View {
   id: string;
   title: string;
   url: string;
   /** If true, this view is pinned and cannot be closed */
   pinned?: boolean;
+  /** Runtime-only view metadata. Ephemeral views must never be persisted. */
+  ephemeral?: EphemeralCraftSurfaceView;
 }
 
 /** @deprecated Use View. Retained for persisted workspace compatibility. */

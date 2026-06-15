@@ -38,6 +38,7 @@ import { createDefaultWorkspace, getDefaultSpace } from './types';
 import type { PluginRegistryState } from './modules/plugins/vibe-dashboard/types';
 import type { ResolvedWorkspaceComposition } from './modules/plugins/vibe-dashboard/workspace-composition';
 import { usePluginRegistry } from './modules/plugins/vibe-dashboard/registry';
+import { isEphemeralCraftSurfaceTabId } from './modules/plugins/vibe-dashboard/craft-surfaces';
 import { getBaseOrigin } from './utils/origin';
 import type {
   WorkspaceState,
@@ -282,6 +283,7 @@ springboard.registerModule(
         tabId: string;
         title: string;
       }) => {
+        if (isEphemeralCraftSurfaceTabId(args.tabId)) return;
         workspaceState.setStateImmer((draft) => {
           const tabGroup = draft.tabGroups.find(
             (tg) => tg.id === args.tabGroupId,
@@ -390,6 +392,7 @@ springboard.registerModule(
       },
 
       closeTab: async (args: { tabGroupId: string; tabId: string }) => {
+        if (isEphemeralCraftSurfaceTabId(args.tabId)) return;
         workspaceState.setStateImmer((draft) => {
           const tg = draft.tabGroups.find((g) => g.id === args.tabGroupId);
           if (!tg) return;
@@ -484,6 +487,7 @@ springboard.registerModule(
       },
 
       createPair: async (args: { tabGroupId: string; tabIds: string[] }) => {
+        if (args.tabIds.some(isEphemeralCraftSurfaceTabId)) return undefined;
         let pairId = '';
 
         workspaceState.setStateImmer((draft) => {
@@ -608,6 +612,7 @@ springboard.registerModule(
         tabId: string;
         newUrl: string;
       }) => {
+        if (isEphemeralCraftSurfaceTabId(args.tabId)) return;
         workspaceState.setStateImmer((draft) => {
           const tg = draft.tabGroups.find((g) => g.id === args.tabGroupId);
           if (!tg) return;
@@ -672,6 +677,7 @@ springboard.registerModule(
         activeTabGroupId: string;
         activeItemId: string;
       }) => {
+        if (isEphemeralCraftSurfaceTabId(args.activeItemId)) return undefined;
         const state = workspaceState.getState();
         const tg = state.tabGroups.find((g) => g.id === args.activeTabGroupId);
         if (!tg) return;
