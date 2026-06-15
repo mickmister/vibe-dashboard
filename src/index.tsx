@@ -1233,7 +1233,7 @@ declare module 'springboard/module_registry/module_registry' {
           url: string;
         }) => Promise<{ tabId: string; tabGroupId: string } | undefined>;
         ensureCreateWorkspaceTab: (args: {
-          composition: ResolvedWorkspaceComposition;
+          baseOrigin: string;
         }) => Promise<
           { spaceId: string; tabGroupId: string; tabId: string } | undefined
         >;
