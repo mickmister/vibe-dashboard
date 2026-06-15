@@ -118,7 +118,7 @@ describe('verified plugin artifact installer and discovery', () => {
 
     await expect(
       installVerifiedPluginArtifact({
-        artifact: descriptorFor(validArtifact, { sha256: 'bad-sha' }),
+        artifact: descriptorFor(validArtifact, { sha256: 'b'.repeat(64) }),
         installRoot: await tempInstallRoot(),
         downloader: async () => validArtifact,
         verifySignature: () => true,
@@ -171,6 +171,62 @@ describe('verified plugin artifact installer and discovery', () => {
         verifySignature: () => true,
       }),
     ).rejects.toThrow('Plugin manifest validation failed');
+  });
+
+  it('rejects unsafe artifact descriptors before download or install-path construction', async () => {
+    const installRoot = await tempInstallRoot();
+    const validArtifact = createPluginArtifactTarGz([
+      { path: 'plugin.json', data: JSON.stringify(excalidrawManifest) },
+    ]);
+
+    const unsafeDescriptors: Array<[Partial<PluginArtifactDescriptor>, string]> = [
+      [{ pluginId: '../escape' }, 'Artifact pluginId must be a safe plugin identifier'],
+      [{ pluginId: 'app.excalidraw.canvas/' }, 'Artifact pluginId must be a safe plugin identifier'],
+      [{ version: '../escape' }, 'Artifact version must be a safe path segment'],
+      [{ version: '1.0.0/../../bad' }, 'Artifact version must be a safe path segment'],
+      [{ version: '' }, 'Artifact version must be a safe path segment'],
+    ];
+
+    for (const [overrides, message] of unsafeDescriptors) {
+      let downloaded = false;
+      await expect(
+        installVerifiedPluginArtifact({
+          artifact: descriptorFor(validArtifact, overrides),
+          installRoot,
+          downloader: async () => {
+            downloaded = true;
+            return validArtifact;
+          },
+          verifySignature: () => true,
+        }),
+      ).rejects.toThrow(message);
+      expect(downloaded).toBe(false);
+    }
+  });
+
+  it('caps compressed and decompressed artifact size before writing extracted files', async () => {
+    const tooLargeCompressed = new Uint8Array(50 * 1024 * 1024 + 1);
+    await expect(
+      installVerifiedPluginArtifact({
+        artifact: descriptorFor(tooLargeCompressed),
+        installRoot: await tempInstallRoot(),
+        downloader: async () => tooLargeCompressed,
+        verifySignature: () => true,
+      }),
+    ).rejects.toThrow('Plugin artifact download is too large');
+
+    const tooLargeDecompressed = createPluginArtifactTarGz([
+      { path: 'plugin.json', data: JSON.stringify(excalidrawManifest) },
+      { path: 'frontend/huge.bin', data: new Uint8Array(50 * 1024 * 1024 + 1) },
+    ]);
+    await expect(
+      installVerifiedPluginArtifact({
+        artifact: descriptorFor(tooLargeDecompressed),
+        installRoot: await tempInstallRoot(),
+        downloader: async () => tooLargeDecompressed,
+        verifySignature: () => true,
+      }),
+    ).rejects.toThrow('Plugin artifact is too large');
   });
 
   it('handles duplicate plugin ids deterministically and skips disabled plugins', async () => {

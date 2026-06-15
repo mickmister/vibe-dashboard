@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
-import { dirname, isAbsolute, join, normalize, relative } from 'node:path';
+import { dirname, isAbsolute, join, normalize, relative, resolve } from 'node:path';
 import { gzipSync, gunzipSync } from 'node:zlib';
 import {
   validatePluginManifest,
@@ -75,11 +75,24 @@ interface VerifiedPluginArtifactMetadata {
 
 const MAX_PLUGIN_ARTIFACT_FILES = 1000;
 const MAX_PLUGIN_ARTIFACT_BYTES = 50 * 1024 * 1024;
+const MAX_COMPRESSED_PLUGIN_ARTIFACT_BYTES = 50 * 1024 * 1024;
 
 export async function installVerifiedPluginArtifact(
   input: InstallVerifiedPluginArtifactInput,
 ): Promise<InstalledPluginArtifact> {
+  assertSafeArtifactDescriptor(input.artifact);
+  const installRoot = resolve(input.installRoot);
+  const installPath = join(installRoot, input.artifact.pluginId, input.artifact.version);
+  const extractedPath = join(installPath, 'extracted');
+  const verifiedPath = join(installPath, 'verified.json');
+  assertInsideRoot(installRoot, installPath);
+  assertInsideRoot(installRoot, extractedPath);
+  assertInsideRoot(installRoot, verifiedPath);
+
   const bytes = await input.downloader(input.artifact.sourceUrl);
+  if (bytes.length > MAX_COMPRESSED_PLUGIN_ARTIFACT_BYTES) {
+    throw new Error('Plugin artifact download is too large');
+  }
   const actualSha = sha256Hex(bytes);
   if (actualSha !== input.artifact.sha256) {
     throw new Error(`Artifact sha256 mismatch: expected ${input.artifact.sha256}, got ${actualSha}`);
@@ -93,11 +106,8 @@ export async function installVerifiedPluginArtifact(
     throw new Error('Artifact signature verification failed');
   }
 
-  const installPath = join(input.installRoot, input.artifact.pluginId, input.artifact.version);
-  const extractedPath = join(installPath, 'extracted');
-  const verifiedPath = join(installPath, 'verified.json');
   const existingInstall = await getExistingVerifiedInstall({
-    installRoot: input.installRoot,
+    installRoot,
     installPath,
     extractedPath,
     verifiedPath,
@@ -137,7 +147,7 @@ export async function installVerifiedPluginArtifact(
   };
   await writeFile(verifiedPath, JSON.stringify(metadata, null, 2));
 
-  return toInstalledArtifact({ installRoot: input.installRoot, manifest, installPath, extractedPath, verifiedPath });
+  return toInstalledArtifact({ installRoot, manifest, installPath, extractedPath, verifiedPath });
 }
 
 export async function discoverInstalledPlugins(
@@ -272,7 +282,7 @@ function toInstalledArtifact(input: {
 }
 
 async function extractTarGzSafely(bytes: Uint8Array, destinationRoot: string): Promise<string[]> {
-  const tar = gunzipSync(bytes);
+  const tar = gunzipPluginArtifact(bytes);
   const files: string[] = [];
   let offset = 0;
   let totalBytes = 0;
@@ -312,6 +322,17 @@ async function extractTarGzSafely(bytes: Uint8Array, destinationRoot: string): P
   return files;
 }
 
+function gunzipPluginArtifact(bytes: Uint8Array): Buffer {
+  try {
+    return gunzipSync(bytes, { maxOutputLength: MAX_PLUGIN_ARTIFACT_BYTES });
+  } catch (error) {
+    if (isNodeError(error) && (error.code === 'ERR_BUFFER_TOO_LARGE' || error.code === 'ERR_OUT_OF_RANGE')) {
+      throw new Error('Plugin artifact is too large');
+    }
+    throw error;
+  }
+}
+
 function assertSafeTarPath(path: string): void {
   const normalized = normalize(path);
   if (
@@ -331,6 +352,44 @@ function assertInsideRoot(root: string, target: string): void {
   if (relativeTarget.startsWith('..') || isAbsolute(relativeTarget)) {
     throw new Error(`Unsafe extraction target: ${target}`);
   }
+}
+
+function assertSafeArtifactDescriptor(artifact: PluginArtifactDescriptor): void {
+  if (!isSafePluginIdentifier(artifact.pluginId)) {
+    throw new Error('Artifact pluginId must be a safe plugin identifier');
+  }
+  if (!isSafePathSegment(artifact.version)) {
+    throw new Error('Artifact version must be a safe path segment');
+  }
+  if (!isNonEmptyString(artifact.sourceUrl)) {
+    throw new Error('Artifact sourceUrl is required');
+  }
+  if (!/^[a-f0-9]{64}$/i.test(artifact.sha256)) {
+    throw new Error('Artifact sha256 must be a hex SHA-256 digest');
+  }
+  if (!isNonEmptyString(artifact.signature)) {
+    throw new Error('Artifact signature is required');
+  }
+}
+
+function isSafePluginIdentifier(value: unknown): value is string {
+  return typeof value === 'string' && /^[a-z0-9][a-z0-9._-]*[a-z0-9]$/i.test(value);
+}
+
+function isSafePathSegment(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    value.length > 0 &&
+    value !== '.' &&
+    value !== '..' &&
+    !value.includes('/') &&
+    !value.includes('\\') &&
+    !value.includes('\0')
+  );
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
 }
 
 
