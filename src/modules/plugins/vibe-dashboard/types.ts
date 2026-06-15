@@ -83,6 +83,10 @@ export interface RegisteredPluginInternalRouteContribution extends PluginInterna
   sourceKey: string;
 }
 
+export interface PluginFrontendPolicy {
+  allowSameOrigin?: boolean;
+}
+
 export interface PluginContributions {
   tabPresets?: TabPresetContribution[];
   spaceTypes?: SpaceTypeContribution[];
@@ -96,6 +100,7 @@ export interface PluginManifest {
   displayName: string;
   version: string;
   apiVersion: string;
+  frontend?: PluginFrontendPolicy;
   contributions: PluginContributions;
 }
 

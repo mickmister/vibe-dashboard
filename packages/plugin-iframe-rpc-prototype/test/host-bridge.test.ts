@@ -82,6 +82,30 @@ describe('PluginIframeHostBridge', () => {
     );
   });
 
+  it('uses an exact postMessage targetOrigin when the host knows the plugin origin', () => {
+    const bridge = new PluginIframeHostBridge({ targetOrigin: 'https://plugins.example.test' });
+    const iframeWindow = createWindow();
+    bridge.registerFrame({
+      pluginId: 'dev.example.plugin',
+      frameId: 'frame-1',
+      nonce: 'nonce-1',
+      targetWindow: iframeWindow,
+    });
+
+    expect(
+      bridge.send('frame-1', {
+        jsonrpc: '2.0',
+        id: 'host-2',
+        method: 'host.context',
+      }),
+    ).toBe(true);
+
+    expect(iframeWindow.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ id: 'host-2' }) }),
+      'https://plugins.example.test',
+    );
+  });
+
   it('rejects unsupported RPC methods with JSON-RPC method-not-found', () => {
     const bridge = new PluginIframeHostBridge();
     const iframeWindow = createWindow();

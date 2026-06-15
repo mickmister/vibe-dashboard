@@ -7,6 +7,7 @@ describe('plugin api package', () => {
       id: 'app.excalidraw.canvas',
       displayName: 'Excalidraw',
       version: '1.0.0',
+      frontend: { allowSameOrigin: false },
       contributions: {
         craftSurfaces: [{ key: 'canvas', title: 'Excalidraw', urlTemplate: '/canvas' }],
         internalRoutes: [{ key: 'settings', title: 'Settings', path: '/settings', urlTemplate: '/settings' }],
@@ -35,6 +36,7 @@ describe('plugin api package', () => {
     };
 
     expect(registryManifest.apiVersion).toBe(PLUGIN_API_VERSION);
+    expect(registryManifest.frontend?.allowSameOrigin).toBe(false);
     expect(registryManifest.contributions.internalRoutes?.[0]?.path).toBe('/settings');
     expect(registryManifest.contributions.tabGroupFactories?.[0]?.workspaceComposition?.primaryTabKey).toBe('agent');
     expect(packageManifest.components.frontend?.kind).toBe('iframe');

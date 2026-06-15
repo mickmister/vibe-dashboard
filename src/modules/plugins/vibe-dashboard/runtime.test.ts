@@ -3,6 +3,7 @@ import {
   buildPluginFrontendAssetRoute,
   buildPluginInternalUrl,
   getPluginIframePolicy,
+  getPluginIframePostMessageTargetOrigin,
   isPluginFrontendAssetUrl,
   parsePluginFrontendAssetRoute,
   parsePluginInternalUrl,
@@ -57,16 +58,24 @@ describe('plugin runtime production helpers', () => {
       requiresSeparateOriginForSameOriginStorage: false,
     });
 
-    expect(
+    const blockedHostOriginPolicy = getPluginIframePolicy({
+      iframeSrc: 'https://vd.example.test/dashboard/plugins/dev.vibe-kanban.fixture-plugin/1.0.0/frontend_assets/index.html',
+      hostOrigin: 'https://vd.example.test',
+      allowSameOrigin: true,
+    });
+    expect(blockedHostOriginPolicy).toMatchObject({
+      sandbox: 'allow-scripts',
+      targetOrigin: 'null',
+      requiresSeparateOriginForSameOriginStorage: true,
+    });
+    expect(getPluginIframePostMessageTargetOrigin(blockedHostOriginPolicy)).toBe('*');
+    expect(getPluginIframePostMessageTargetOrigin(
       getPluginIframePolicy({
-        iframeSrc: 'https://vd.example.test/dashboard/plugins/dev.vibe-kanban.fixture-plugin/1.0.0/frontend_assets/index.html',
+        iframeSrc: pluginOriginUrl,
         hostOrigin: 'https://vd.example.test',
         allowSameOrigin: true,
       }),
-    ).toMatchObject({
-      sandbox: 'allow-scripts',
-      requiresSeparateOriginForSameOriginStorage: true,
-    });
+    )).toBe('https://plugins.example.test');
   });
 
   it('validates external runtime manifests without trusted host-script V1', () => {

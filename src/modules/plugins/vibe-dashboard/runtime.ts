@@ -107,7 +107,6 @@ export function parsePluginFrontendAssetRoute(pathname: string): PluginFrontendA
   }
 }
 
-
 export function buildPluginInternalUrl(route: PluginInternalRoute): string {
   const routePath = normalizePluginInternalRoutePath(route.routePath);
   return `internal://plugins/${encodeURIComponent(route.pluginId)}${routePath}`;
@@ -181,6 +180,10 @@ export function getPluginIframePolicy(input: {
     isPluginFrontendAsset: true,
     requiresSeparateOriginForSameOriginStorage: Boolean(input.allowSameOrigin && sameOriginAsHost),
   };
+}
+
+export function getPluginIframePostMessageTargetOrigin(policy: PluginIframePolicy): string {
+  return policy.targetOrigin === 'null' ? '*' : policy.targetOrigin;
 }
 
 export function validateExternalPluginRuntimeManifest(

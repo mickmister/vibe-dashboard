@@ -12,7 +12,7 @@ import {
   type RegisteredTabGroupFactoryContribution,
   type RegisteredTabPresetContribution,
 } from './types';
-import { parsePluginInternalUrl } from './runtime';
+import { parsePluginFrontendAssetRoute, parsePluginInternalUrl } from './runtime';
 
 let registryState = createEmptyPluginRegistryState();
 const listeners = new Set<() => void>();
@@ -41,6 +41,25 @@ export function usePluginRegistry(): PluginRegistryState {
     getPluginRegistrySnapshot,
     getPluginRegistrySnapshot,
   );
+}
+
+export function getRegisteredPluginIframePolicy(input: {
+  iframeSrc: string;
+  origin: string;
+}): { allowSameOrigin: boolean } | null {
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(input.iframeSrc, input.origin);
+  } catch {
+    return null;
+  }
+
+  const route = parsePluginFrontendAssetRoute(parsedUrl.pathname);
+  if (!route) return null;
+
+  const plugin = registryState.plugins[route.pluginId];
+  if (!plugin || plugin.version !== route.version) return null;
+  return { allowSameOrigin: Boolean(plugin.frontend?.allowSameOrigin) };
 }
 
 export function resolvePluginInternalRouteIframeSrc(input: {

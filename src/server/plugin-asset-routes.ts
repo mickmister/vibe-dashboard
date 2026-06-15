@@ -9,6 +9,7 @@ import {
 
 export interface RegisterPluginAssetRoutesOptions {
   installRoot: string;
+  frameAncestors?: string[];
 }
 
 export interface ResolvedPluginFrontendAssetRequest {
@@ -32,11 +33,7 @@ export function registerPluginAssetRoutes(
     try {
       const bytes = await readFile(resolved.filePath);
       return new Response(bytes, {
-        headers: {
-          'content-type': resolved.contentType,
-          'cache-control': 'no-store',
-          'x-content-type-options': 'nosniff',
-        },
+        headers: createPluginAssetResponseHeaders(resolved, options),
       });
     } catch (error) {
       console.warn('Failed to read plugin frontend asset', {
@@ -46,6 +43,33 @@ export function registerPluginAssetRoutes(
       return c.text('Plugin frontend asset not found', 404);
     }
   });
+}
+
+export function createPluginAssetResponseHeaders(
+  resolved: Pick<ResolvedPluginFrontendAssetRequest, 'contentType'>,
+  options: Pick<RegisterPluginAssetRoutesOptions, 'frameAncestors'> = {},
+): Record<string, string> {
+  return {
+    'content-type': resolved.contentType,
+    'cache-control': 'no-store',
+    'content-security-policy': createPluginAssetContentSecurityPolicy(options.frameAncestors ?? ["'self'"]),
+    'x-content-type-options': 'nosniff',
+  };
+}
+
+function createPluginAssetContentSecurityPolicy(frameAncestors: string[]): string {
+  return [
+    "default-src 'none'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob:",
+    "font-src 'self' data:",
+    "connect-src 'none'",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "form-action 'none'",
+    `frame-ancestors ${frameAncestors.join(' ')}`,
+  ].join('; ');
 }
 
 export async function resolvePluginFrontendAssetRequest(input: {

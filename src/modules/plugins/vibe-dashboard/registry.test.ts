@@ -3,6 +3,7 @@ import {
   clearPluginRegistryForTests,
   createPluginManifest,
   getPluginRegistrySnapshot,
+  getRegisteredPluginIframePolicy,
   registerPlugin,
   resolvePluginInternalRouteIframeSrc,
   subscribeToPluginRegistry,
@@ -200,6 +201,32 @@ describe('raw plugin registry', () => {
     expect(
       resolvePluginInternalRouteIframeSrc({
         internalUrl: 'internal://plugins/app.excalidraw.canvas/canvas',
+        origin: 'https://vd.example.test',
+      }),
+    ).toBeNull();
+  });
+
+  it('derives plugin iframe same-origin policy from registered plugin manifests', () => {
+    clearPluginRegistryForTests();
+    registerPlugin(
+      createPluginManifest({
+        id: 'app.storage.plugin',
+        displayName: 'Storage Plugin',
+        version: '1.2.3',
+        frontend: { allowSameOrigin: true },
+        contributions: {},
+      }),
+    );
+
+    expect(
+      getRegisteredPluginIframePolicy({
+        iframeSrc: 'https://vd.example.test/dashboard/plugins/app.storage.plugin/1.2.3/frontend_assets/index.html',
+        origin: 'https://vd.example.test',
+      }),
+    ).toEqual({ allowSameOrigin: true });
+    expect(
+      getRegisteredPluginIframePolicy({
+        iframeSrc: 'https://vd.example.test/dashboard/plugins/app.storage.plugin/9.9.9/frontend_assets/index.html',
         origin: 'https://vd.example.test',
       }),
     ).toBeNull();

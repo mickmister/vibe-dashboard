@@ -5,8 +5,8 @@ import type { WorkspaceState, SavedWorkspaceSession } from '../types';
 import { AppLoadingScreen } from './AppLoadingScreen';
 import { SpacesOverview } from './SpacesOverview';
 import { hasSameBaseOrigin } from '../lib/originTrust';
-import { getPluginIframePolicy, parsePluginInternalUrl } from '../modules/plugins/vibe-dashboard/runtime';
-import { resolvePluginInternalRouteIframeSrc } from '../modules/plugins/vibe-dashboard/registry';
+import { getPluginIframePolicy, getPluginIframePostMessageTargetOrigin, parsePluginInternalUrl } from '../modules/plugins/vibe-dashboard/runtime';
+import { getRegisteredPluginIframePolicy, resolvePluginInternalRouteIframeSrc } from '../modules/plugins/vibe-dashboard/registry';
 
 const INTERNAL_URL_PREFIX = 'internal://';
 
@@ -83,14 +83,30 @@ function isTrustedIframeOrigin(origin: string): boolean {
 }
 
 function applyIframePolicy(iframe: HTMLIFrameElement, iframeSrc: string) {
+  const registeredPolicy = getRegisteredPluginIframePolicy({
+    iframeSrc,
+    origin: window.location.origin,
+  });
   const pluginPolicy = getPluginIframePolicy({
     iframeSrc,
     hostOrigin: window.location.origin,
+    allowSameOrigin: registeredPolicy?.allowSameOrigin,
   });
 
   if (pluginPolicy.isPluginFrontendAsset) {
     iframe.setAttribute('sandbox', pluginPolicy.sandbox);
     iframe.setAttribute('allow', pluginPolicy.allow);
+    iframe.dataset.pluginEventOrigin = pluginPolicy.targetOrigin;
+    iframe.dataset.pluginPostMessageTargetOrigin = getPluginIframePostMessageTargetOrigin(pluginPolicy);
+    if (pluginPolicy.requiresSeparateOriginForSameOriginStorage) {
+      iframe.dataset.pluginSameOriginStorageBlocked = 'true';
+      console.warn(
+        'Plugin iframe requested allow-same-origin on the host origin; keeping the iframe opaque until a separate plugin origin is configured.',
+        { iframeSrc },
+      );
+    } else {
+      delete iframe.dataset.pluginSameOriginStorageBlocked;
+    }
     return;
   }
 

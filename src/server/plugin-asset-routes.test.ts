@@ -87,7 +87,7 @@ describe('plugin frontend asset routes', () => {
     });
   });
 
-  it('serves assets through Hono with no-store and nosniff headers', async () => {
+  it('serves assets through Hono with no-store, CSP frame-ancestors, and nosniff headers', async () => {
     const installRoot = await tempInstallRoot();
     await installFixturePlugin(installRoot);
     const app = new Hono();
@@ -99,7 +99,11 @@ describe('plugin frontend asset routes', () => {
     await expect(response.text()).resolves.toBe('<h1>Excalidraw</h1>');
     expect(response.headers.get('content-type')).toBe('text/html; charset=utf-8');
     expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(response.headers.get('content-security-policy')).toBe(
+      "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
+    );
     expect(response.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(response.headers.get('x-frame-options')).toBeNull();
   });
 
   it('rejects disabled, stale-version, and traversal asset requests', async () => {

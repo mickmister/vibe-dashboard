@@ -59,10 +59,11 @@ In that model the iframe may request `allow-same-origin` as an explicit frontend
 
 Host policy for separate-origin plugin iframes:
 
-- keep `sandbox="allow-scripts allow-same-origin"` only when the plugin manifest/admin grant allows it,
-- use an exact `targetOrigin` for parent-to-iframe `postMessage` when the plugin origin is known,
+- keep `sandbox="allow-scripts allow-same-origin"` only when the registered plugin manifest/admin grant allows it and the asset URL is on a separate plugin origin,
+- keep same-origin plugin asset iframes opaque with `sandbox="allow-scripts"`; if a plugin requests same-origin storage on the host origin, record the blocked state and warn fail-closed,
+- use an exact `targetOrigin` for parent-to-iframe `postMessage` when the plugin origin is known; opaque-origin frames require wildcard send target plus nonce/source validation,
 - continue authenticating messages by registered `WindowProxy`, `pluginId`, `frameId`, nonce, protocol version, and granted RPC methods,
-- set plugin asset responses with restrictive defaults such as no credentials, immutable versioned caching, and no host cookies,
+- set plugin asset responses with restrictive CSP (`frame-ancestors`, `default-src 'none'`, `nosniff`) and explicit no-store caching while active-version discovery remains request-time,
 - never serve untrusted plugin assets from the same origin with `allow-scripts allow-same-origin`.
 
 ## Hardening path to opaque-origin support
