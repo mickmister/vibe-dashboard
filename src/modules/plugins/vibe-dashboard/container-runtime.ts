@@ -211,6 +211,14 @@ function createContainerUnitPlan(input: {
   }) : { mounts: [], errors: [] };
   errors.push(...mounts.errors);
 
+  const networkArgs = grants ? createApprovedNetworkArgs(grants.approved.network) : { args: [], errors: [] };
+  errors.push(...networkArgs.errors);
+
+  const containerEnv = grants
+    ? createContainerEnv({ plugin, container, secrets: grants.approved.secrets })
+    : { env: {}, errors: [] };
+  errors.push(...containerEnv.errors);
+
   if (errors.length > 0) return { errors };
 
   const composeProjectName = createComposeProjectName(plugin, container);
@@ -227,7 +235,9 @@ function createContainerUnitPlan(input: {
     composeProjectName,
     image: container.image,
     env: baseEnv,
+    containerEnv: containerEnv.env,
     mounts: mounts.mounts,
+    networkArgs: networkArgs.args,
   });
 
   return {
@@ -255,8 +265,11 @@ function createSingleContainerLifecycle(input: {
   composeProjectName: string;
   image: string;
   env: Record<string, string>;
+  containerEnv: Record<string, string>;
   mounts: ContainerRuntimeMount[];
+  networkArgs: string[];
 }): ContainerPluginRuntimePlan['lifecycle'] {
+  const envArgs = Object.entries(input.containerEnv).flatMap(([key, value]) => ['--env', `${key}=${value}`]);
   const mountArgs = input.mounts.flatMap((mount) => [
     '--mount',
     `type=bind,source=${mount.source},target=${mount.target},readonly=${String(mount.readonly)}`,
@@ -272,6 +285,8 @@ function createSingleContainerLifecycle(input: {
         input.composeProjectName,
         '--label',
         `vd.plugin=${input.env.VD_PLUGIN_ID}`,
+        ...input.networkArgs,
+        ...envArgs,
         ...mountArgs,
         input.image,
       ],
@@ -287,6 +302,61 @@ function createSingleContainerLifecycle(input: {
       args: ['logs', input.composeProjectName],
       env: { ...input.env },
     },
+  };
+}
+
+function createApprovedNetworkArgs(network: NetworkRequest): { args: string[]; errors: string[] } {
+  const errors: string[] = [];
+  const args: string[] = [];
+  const ports = network.ports ?? [];
+
+  if ((network.hosts ?? []).length > 0) {
+    errors.push('container network host allowlists require microVM network policy support before they can be granted');
+  }
+  if (network.mode === 'ingress') {
+    errors.push('container ingress-only network grants require microVM network policy support before they can be granted');
+  }
+  if (ports.length > 0 && network.mode !== 'ingress' && network.mode !== 'ingress-and-egress') {
+    errors.push('container published ports require an ingress network mode');
+  }
+
+  if (network.mode === 'none' || network.mode === 'ingress') {
+    args.push('--network', 'none');
+  } else {
+    args.push('--network', 'bridge');
+  }
+
+  if (network.mode === 'ingress' || network.mode === 'ingress-and-egress') {
+    for (const port of ports) {
+      if (!isSafeTcpPort(port)) {
+        errors.push('container published ports must be numeric TCP ports from 1 to 65535');
+        continue;
+      }
+      args.push('--publish', `127.0.0.1:${port}:${port}/tcp`);
+    }
+  }
+
+  return { args, errors: [...new Set(errors)] };
+}
+
+function createContainerEnv(input: {
+  plugin: DiscoveredInstalledPlugin;
+  container: ContainerComponent;
+  secrets: string[];
+}): { env: Record<string, string>; errors: string[] } {
+  const errors: string[] = [];
+  if (input.secrets.some((secret) => !isSafeEnvListValue(secret))) {
+    errors.push('container secret grant identifiers must be safe env-list values');
+  }
+
+  return {
+    env: {
+      VD_PLUGIN_ID: input.plugin.id,
+      VD_PLUGIN_VERSION: input.plugin.version,
+      VD_CONTAINER_ID: input.container.id,
+      VD_PLUGIN_APPROVED_SECRETS: input.secrets.join(','),
+    },
+    errors,
   };
 }
 
@@ -342,4 +412,14 @@ function isHostDockerSocket(dockerHost: string): boolean {
 
 function isSafeRelativePath(path: unknown): path is string {
   return typeof path === 'string' && path.length > 0 && !path.startsWith('/') && !path.includes('..') && !path.includes('\0');
+}
+
+function isSafeTcpPort(port: string): boolean {
+  if (!/^\d+$/.test(port)) return false;
+  const parsed = Number(port);
+  return Number.isInteger(parsed) && parsed >= 1 && parsed <= 65535 && String(parsed) === port;
+}
+
+function isSafeEnvListValue(value: string): boolean {
+  return /^[A-Za-z0-9._:-]+$/.test(value);
 }

@@ -39,7 +39,7 @@ Coolify-style orchestration remains a later evaluation, not a V1 dependency. It 
 - Effective grants must approve `hostDocker: microvm-dockerd`; `host-socket` is always rejected.
 - Runtime `DOCKER_HOST` must not be empty, `unix://...`, or `/var/run/docker.sock`.
 - Filesystem mounts are derived from approved grants only and are limited to `plugin-data` or `workspace` scopes for marketplace plugins.
-- Network, env, and secrets shown in admin review are copied from effective grants, not raw manifest requests.
+- Network, env, and secrets shown in admin review are copied from effective grants, not raw manifest requests. Single-container `docker run` plans bind published ports to `127.0.0.1`, pass only approved secret identifiers as metadata, and reject host allowlists or ingress-only grants until microVM network policy support can enforce them.
 - Logs and health events are recorded per container plan for staging/promotion review.
 - Plugin-supplied `composeFile` is rejected for now, even when safely relative, until VD can generate or sanitize compose from approved grants. Safe path validation remains in place so future support fails closed before reading artifact files.
 

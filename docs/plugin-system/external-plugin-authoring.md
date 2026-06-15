@@ -39,7 +39,7 @@ Marketplace plugins are intentionally denied by default for:
 - direct environment variables
 - direct access to other plugins
 
-Use named secrets and scoped storage instead. If a plugin needs Docker, request `hostDocker: "microvm-dockerd"` and pin container images by digest.
+Use named secrets and scoped storage instead. If a plugin needs Docker, request `hostDocker: "microvm-dockerd"` and pin container images by digest. Container V1 only passes approved secret identifiers into the container metadata; secret values must still flow through the secrets provider. Container host allowlists and ingress-only grants are rejected until VD has enforceable microVM network policy support; use `none`, `egress`, or explicitly approved `ingress-and-egress` for V1 containers.
 
 ## UI patterns
 

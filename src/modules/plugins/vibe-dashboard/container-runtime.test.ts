@@ -31,7 +31,7 @@ const manifest = (overrides: Partial<PluginManifest> = {}): PluginManifest => ({
   requestedCapabilities: {
     hostDocker: 'microvm-dockerd',
     filesystem: [{ scope: 'workspace', path: '.vibe/plugins/excalidraw', access: 'readWrite' }],
-    network: { mode: 'ingress', ports: ['9300'] },
+    network: { mode: 'ingress-and-egress', ports: ['9300'] },
     secrets: ['renderer-token'],
   },
   ...overrides,
@@ -56,7 +56,7 @@ const grants = (approved: Partial<EffectivePluginGrants['approved']> = {}): Effe
     codeServer: 'none',
     hostDocker: 'microvm-dockerd',
     filesystem: [{ scope: 'workspace', path: '.vibe/plugins/excalidraw', access: 'readWrite' }],
-    network: { mode: 'ingress', ports: ['9300'] },
+    network: { mode: 'ingress-and-egress', ports: ['9300'] },
     env: [],
     secrets: ['renderer-token'],
     plugins: [],
@@ -67,7 +67,7 @@ const grants = (approved: Partial<EffectivePluginGrants['approved']> = {}): Effe
     codeServer: 'none',
     hostDocker: 'microvm-dockerd',
     filesystem: [{ scope: 'workspace', path: '.vibe/plugins/excalidraw', access: 'readWrite' }],
-    network: { mode: 'ingress', ports: ['9300'] },
+    network: { mode: 'ingress-and-egress', ports: ['9300'] },
     env: [],
     secrets: ['renderer-token'],
     plugins: [],
@@ -104,7 +104,7 @@ describe('microVM dockerd container plugin runtime planning', () => {
           readonly: false,
         },
       ],
-      approvedNetwork: { mode: 'ingress', ports: ['9300'] },
+      approvedNetwork: { mode: 'ingress-and-egress', ports: ['9300'] },
       approvedSecrets: ['renderer-token'],
       lifecycle: {
         pull: {
@@ -121,6 +121,18 @@ describe('microVM dockerd container plugin runtime planning', () => {
             'vd_app_excalidraw_canvas_1_0_0_renderer',
             '--label',
             'vd.plugin=app.excalidraw.canvas',
+            '--network',
+            'bridge',
+            '--publish',
+            '127.0.0.1:9300:9300/tcp',
+            '--env',
+            'VD_PLUGIN_ID=app.excalidraw.canvas',
+            '--env',
+            'VD_PLUGIN_VERSION=1.0.0',
+            '--env',
+            'VD_CONTAINER_ID=renderer',
+            '--env',
+            'VD_PLUGIN_APPROVED_SECRETS=renderer-token',
             '--mount',
             'type=bind,source=/workspaces/craft-1/.vibe/plugins/excalidraw,target=/workspace/.vibe/plugins/excalidraw,readonly=false',
             imageDigest,
@@ -142,7 +154,7 @@ describe('microVM dockerd container plugin runtime planning', () => {
       composeFile: undefined,
       dockerHostKind: 'microvm',
       mounts: plan.mounts,
-      network: { mode: 'ingress', ports: ['9300'] },
+      network: { mode: 'ingress-and-egress', ports: ['9300'] },
       secrets: ['renderer-token'],
       healthChecks: [{ id: 'renderer-health', kind: 'http', target: 'http://127.0.0.1:9300/health' }],
       lifecycleCommands: ['pull', 'up', 'down', 'logs'],
@@ -191,6 +203,42 @@ describe('microVM dockerd container plugin runtime planning', () => {
     });
     expect(unpinned.errors).toEqual([
       'app.excalidraw.canvas@1.0.0 renderer: container image must be ghcr.io and digest-pinned',
+    ]);
+  });
+
+  it('fails closed when approved container network or secret grants cannot be represented safely', () => {
+    const unsafeNetwork = createContainerPluginRuntimePlan({
+      dockerBinary: 'docker',
+      microvmDockerHost: 'tcp://plugin-microvm.internal:2375',
+      workspaceRoot: '/workspaces/craft-1',
+      pluginDataRoot: '/var/lib/vd/plugin-data',
+      plugins: [plugin()],
+      grantsByPluginVersion: new Map([
+        [
+          'app.excalidraw.canvas@1.0.0',
+          grants({ network: { mode: 'ingress', hosts: ['api.example.test'], ports: ['9300'] } }),
+        ],
+      ]),
+    });
+    expect(unsafeNetwork.plans).toEqual([]);
+    expect(unsafeNetwork.errors).toEqual([
+      'app.excalidraw.canvas@1.0.0 renderer: container network host allowlists require microVM network policy support before they can be granted',
+      'app.excalidraw.canvas@1.0.0 renderer: container ingress-only network grants require microVM network policy support before they can be granted',
+    ]);
+
+    const unsafeSecret = createContainerPluginRuntimePlan({
+      dockerBinary: 'docker',
+      microvmDockerHost: 'tcp://plugin-microvm.internal:2375',
+      workspaceRoot: '/workspaces/craft-1',
+      pluginDataRoot: '/var/lib/vd/plugin-data',
+      plugins: [plugin()],
+      grantsByPluginVersion: new Map([
+        ['app.excalidraw.canvas@1.0.0', grants({ secrets: ['renderer-token', 'bad\nsecret'] })],
+      ]),
+    });
+    expect(unsafeSecret.plans).toEqual([]);
+    expect(unsafeSecret.errors).toEqual([
+      'app.excalidraw.canvas@1.0.0 renderer: container secret grant identifiers must be safe env-list values',
     ]);
   });
 
@@ -305,7 +353,7 @@ describe('microVM dockerd container plugin runtime planning', () => {
       `app.excalidraw.canvas@1.0.0 renderer image pull failed for ${imageDigest}: manifest unknown`,
       'app.excalidraw.canvas@1.0.0 renderer container startup failed for vd_app_excalidraw_canvas_1_0_0_renderer: container exited 1',
       'app.excalidraw.canvas@1.0.0 renderer health check renderer-health failed: HTTP 503',
-      'app.excalidraw.canvas@1.0.0 renderer network setup failed for {"mode":"ingress","ports":["9300"]}: port 9300 unavailable',
+      'app.excalidraw.canvas@1.0.0 renderer network setup failed for {"mode":"ingress-and-egress","ports":["9300"]}: port 9300 unavailable',
     ]);
   });
 });
