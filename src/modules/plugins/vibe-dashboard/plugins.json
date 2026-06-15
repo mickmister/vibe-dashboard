@@ -1,0 +1,126 @@
+{
+  "plugins": [
+    {
+      "id": "vd.vibe-dashboard",
+      "name": "Vibe Dashboard",
+      "version": "current-repo",
+      "artifact": {
+        "kind": "bundled-current-repo"
+      },
+      "services": [
+        {
+          "id": "web",
+          "command": "node",
+          "args": ["dist/node/node-entry.mjs"],
+          "directory": "/home/vkuser/.local/share/vibe-dashboard-runtime",
+          "user": "vkuser",
+          "autostart": true,
+          "autorestart": true,
+          "ports": [{ "name": "http", "env": "DASHBOARD_PORT", "default": 3007, "bind": "0.0.0.0" }],
+          "env": {
+            "HOST": "0.0.0.0",
+            "PORT": "${DASHBOARD_PORT}",
+            "HOME": "/home/vkuser",
+            "XDG_CONFIG_HOME": "/home/vkuser/.config"
+          }
+        }
+      ]
+    },
+    {
+      "id": "vd.vibe-kanban",
+      "name": "Vibe Kanban",
+      "version": "0.1.0",
+      "artifact": {
+        "kind": "github-release-asset",
+        "repository": "mickmister/vibe-kanban",
+        "tag": "v0.1.0",
+        "asset": "vibe-kanban-linux-x64.tar.gz",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": "TODO"
+      },
+      "services": [
+        {
+          "id": "web",
+          "command": "${PLUGIN_DIR}/bin/vibe-kanban",
+          "args": [],
+          "directory": "/home/vkuser/repos",
+          "user": "vkuser",
+          "autostart": true,
+          "autorestart": true,
+          "singleton": true,
+          "preStart": ["/usr/local/bin/backup-vibe-kanban-db.sh"],
+          "ports": [{ "name": "http", "env": "BACKEND_PORT", "default": 3001, "bind": "0.0.0.0" }],
+          "env": {
+            "HOST": "0.0.0.0",
+            "PORT": "${BACKEND_PORT}",
+            "ENABLE_VIBE_KANBAN": "true",
+            "VK_SHARED_API_BASE": "${VK_SHARED_API_BASE}",
+            "VK_ALLOWED_ORIGINS": "${VK_ALLOWED_ORIGINS}",
+            "VK_BUILD_VERSION_FILE": "${PLUGIN_DIR}/build-version",
+            "HOME": "/home/vkuser",
+            "XDG_CONFIG_HOME": "/home/vkuser/.config"
+          }
+        }
+      ]
+    },
+    {
+      "id": "vd.beads-web",
+      "name": "Beads Web",
+      "version": "0.1.0",
+      "artifact": {
+        "kind": "github-release-asset",
+        "repository": "mickmister/beads-web",
+        "tag": "v0.1.0",
+        "asset": "beads-web-linux-x64.tar.gz",
+        "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "signature": "TODO"
+      },
+      "services": [
+        {
+          "id": "web",
+          "command": "${PLUGIN_DIR}/bin/beads-web",
+          "args": ["--host", "127.0.0.1", "--port", "${BEADS_WEB_PORT}"],
+          "directory": "${PLUGIN_DIR}",
+          "user": "vkuser",
+          "autostart": true,
+          "autorestart": true,
+          "singleton": true,
+          "ports": [{ "name": "http", "env": "BEADS_WEB_PORT", "default": 3109, "bind": "127.0.0.1" }],
+          "env": {
+            "HOME": "/home/vkuser",
+            "XDG_CONFIG_HOME": "/home/vkuser/.config"
+          }
+        }
+      ]
+    },
+    {
+      "id": "vd.excalidraw",
+      "name": "Excalidraw",
+      "version": "0.1.0",
+      "artifact": {
+        "kind": "github-release-asset",
+        "repository": "vibe-dashboard/excalidraw-plugin",
+        "tag": "v0.1.0",
+        "asset": "excalidraw-plugin-linux-x64.tar.gz",
+        "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "signature": "TODO"
+      },
+      "services": [
+        {
+          "id": "web",
+          "command": "${PLUGIN_DIR}/bin/excalidraw-server",
+          "args": ["--host", "127.0.0.1", "--port", "${EXCALIDRAW_PORT}"],
+          "directory": "${PLUGIN_DIR}",
+          "user": "vkuser",
+          "autostart": true,
+          "autorestart": true,
+          "ports": [{ "name": "http", "env": "EXCALIDRAW_PORT", "default": 3110, "bind": "127.0.0.1" }],
+          "env": {
+            "HOME": "/home/vkuser",
+            "XDG_CONFIG_HOME": "/home/vkuser/.config"
+          }
+        }
+      ]
+    }
+  ]
+}
