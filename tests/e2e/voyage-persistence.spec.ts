@@ -531,6 +531,15 @@ test.describe('voyage persistence', () => {
     await page.goto('/');
     await expect(page.getByText('Create your first Voyage')).toBeVisible();
     await expect(page.getByText('A Voyage is the named set of craft and views')).toBeVisible();
+    await expect
+      .poll(async () => {
+        const state = await getKvState<{ data?: Array<{ id: string }> }>(
+          page.request,
+          SAVED_VOYAGES_STATE_KEY,
+        );
+        return state?.data?.map((session) => session.id) ?? [];
+      })
+      .toEqual([]);
     await page.getByPlaceholder('e.g. Client launch, Bug triage, Morning build').fill(voyageName);
     await page.getByRole('button', { name: 'Create Voyage' }).click();
 
