@@ -172,11 +172,6 @@ export type WorkspaceActions = {
   touchTabGroup: (args: { tabGroupId: string }) => void;
   toggleStarTabGroup: (args: { tabGroupId: string }) => void;
   reorderSpaces: (args: { sourceId: string; targetId: string }) => void;
-  moveVoyageEntryToSavedSession: (args: {
-    targetSessionId: string;
-    voyageEntry: VoyageEntry;
-    activeItemId?: string;
-  }) => Promise<SavedWorkspaceSession | undefined>;
   moveVoyageEntryBetweenSavedSessions: (args: {
     sourceSessionId: string;
     targetSessionId: string;
@@ -1472,51 +1467,31 @@ export function WorkspaceShell({
       (savedSession) => savedSession.id === currentSessionId,
     );
 
-    if (sourceSession) {
-      const moveResult = await actions.moveVoyageEntryBetweenSavedSessions({
-        sourceSessionId: currentSessionId,
-        targetSessionId,
-        voyageEntryId: moveVoyageEntryPrompt.voyageEntryId,
-        activeItemId: moveVoyageEntryPrompt.activeItemId,
-      });
-      if (!moveResult) {
-        setMoveVoyageEntryPrompt(null);
-        return;
-      }
-
-      sessionActions.activateSavedSession(moveResult.sourceSession);
-      setExpandedVoyageEntryId((current) => {
-        if (current === moveVoyageEntryPrompt.voyageEntryId) return null;
-        return moveResult.sourceSession.voyageEntries.some(
-          (entry) => entry.id === current,
-        )
-          ? current
-          : null;
-      });
-    } else {
-      const voyageEntry = session.voyageEntries.find(
-        (entry) => entry.id === moveVoyageEntryPrompt.voyageEntryId,
-      );
-      if (!voyageEntry) {
-        setMoveVoyageEntryPrompt(null);
-        return;
-      }
-
-      const updatedTargetSession = await actions.moveVoyageEntryToSavedSession({
-        targetSessionId,
-        voyageEntry,
-        activeItemId: moveVoyageEntryPrompt.activeItemId,
-      });
-      if (!updatedTargetSession) {
-        setMoveVoyageEntryPrompt(null);
-        return;
-      }
-
-      sessionActions.removeVoyageEntryFromSession(voyageEntry.id);
-      setExpandedVoyageEntryId((current) =>
-        current === voyageEntry.id ? null : current,
-      );
+    if (!sourceSession) {
+      setMoveVoyageEntryPrompt(null);
+      return;
     }
+
+    const moveResult = await actions.moveVoyageEntryBetweenSavedSessions({
+      sourceSessionId: currentSessionId,
+      targetSessionId,
+      voyageEntryId: moveVoyageEntryPrompt.voyageEntryId,
+      activeItemId: moveVoyageEntryPrompt.activeItemId,
+    });
+    if (!moveResult) {
+      setMoveVoyageEntryPrompt(null);
+      return;
+    }
+
+    sessionActions.activateSavedSession(moveResult.sourceSession);
+    setExpandedVoyageEntryId((current) => {
+      if (current === moveVoyageEntryPrompt.voyageEntryId) return null;
+      return moveResult.sourceSession.voyageEntries.some(
+        (entry) => entry.id === current,
+      )
+        ? current
+        : null;
+    });
 
     setMoveVoyageEntryPrompt(null);
   };

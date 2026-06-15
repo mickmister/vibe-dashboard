@@ -1561,65 +1561,6 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
           ),
         );
       },
-      moveVoyageEntryToSavedSession: async (args: {
-        targetSessionId: string;
-        voyageEntry: VoyageEntry;
-        activeItemId?: string;
-      }) => {
-        const now = new Date().toISOString();
-        const workspace = workspaceState.getState();
-        const targetSpaceId =
-          workspace.spaces.find((space) =>
-            space.tabGroupIds.includes(args.voyageEntry.tabGroupId),
-          )?.id || '';
-        let updatedSession: SavedWorkspaceSession | undefined;
-
-        savedSessionsState.setState((current) => {
-          const sessions = getSavedWorkspaceSessions(current).map(cloneSavedSession);
-          const target = sessions.find(
-            (session) => session.id === args.targetSessionId,
-          );
-          if (!target) return createSavedWorkspaceSessionState(sessions);
-
-          const existingEntries = target.voyageEntries;
-          if (
-            existingEntries.some(
-              (entry) => entry.tabGroupId === args.voyageEntry.tabGroupId,
-            )
-          ) {
-            return createSavedWorkspaceSessionState(sessions);
-          }
-
-          const existingIds = new Set(existingEntries.map((entry) => entry.id));
-          let nextEntryId = args.voyageEntry.id;
-          let suffix = 1;
-          while (existingIds.has(nextEntryId)) {
-            nextEntryId = `${args.voyageEntry.id}_moved_${suffix++}`;
-          }
-
-          const nextEntry = {
-            ...args.voyageEntry,
-            id: nextEntryId,
-          };
-          const nextEntries = [...existingEntries, nextEntry];
-          target.voyageEntries = nextEntries;
-          target.activeVoyageEntryId = nextEntry.id;
-          target.activeTabGroupId = nextEntry.tabGroupId;
-          target.activeSpaceId = targetSpaceId || target.activeSpaceId;
-          target.updatedAt = now;
-          target.visitedTabGroupIds = Array.from(
-            new Set([...target.visitedTabGroupIds, nextEntry.tabGroupId]),
-          );
-          target.activeItemsByVoyageEntryId = {
-            ...target.activeItemsByVoyageEntryId,
-            ...(args.activeItemId ? { [nextEntry.id]: args.activeItemId } : {}),
-          };
-          updatedSession = target;
-          return createSavedWorkspaceSessionState(sessions);
-        });
-
-        return updatedSession;
-      },
       moveVoyageEntryBetweenSavedSessions: async (args: {
         sourceSessionId: string;
         targetSessionId: string;

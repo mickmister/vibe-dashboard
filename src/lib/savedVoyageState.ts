@@ -17,6 +17,10 @@ type LegacySavedWorkspaceSession =
   | SavedWorkspaceSessionV2
   | SavedWorkspaceSession;
 
+type NormalizeSavedWorkspaceSessionOptions = {
+  workspace?: Pick<WorkspaceState, 'tabGroups'>;
+};
+
 export const SAVED_WORKSPACE_SESSION_STATE_VERSION = 3;
 
 export function createSavedWorkspaceSessionState(
@@ -31,8 +35,15 @@ export function createSavedWorkspaceSessionState(
 export function getSavedWorkspaceSessions(
   state: SavedWorkspaceSessionState | SavedWorkspaceSessionState_v1 | unknown,
 ): SavedWorkspaceSession[] {
+  return getSavedWorkspaceSessionsWithOptions(state);
+}
+
+function getSavedWorkspaceSessionsWithOptions(
+  state: SavedWorkspaceSessionState | SavedWorkspaceSessionState_v1 | unknown,
+  options: NormalizeSavedWorkspaceSessionOptions = {},
+): SavedWorkspaceSession[] {
   if (Array.isArray(state)) {
-    return state.map(normalizeSavedWorkspaceSession);
+    return normalizeSavedWorkspaceSessionList(state, options);
   }
 
   if (
@@ -43,7 +54,7 @@ export function getSavedWorkspaceSessions(
     'data' in state &&
     Array.isArray(state.data)
   ) {
-    return state.data.map(normalizeSavedWorkspaceSession);
+    return normalizeSavedWorkspaceSessionList(state.data, options);
   }
 
   if (
@@ -52,12 +63,43 @@ export function getSavedWorkspaceSessions(
     'sessions' in state &&
     Array.isArray((state as SavedWorkspaceSessionState_v1).sessions)
   ) {
-    return (state as { sessions: LegacySavedWorkspaceSession[] }).sessions.map(
-      normalizeSavedWorkspaceSession,
+    return normalizeSavedWorkspaceSessionList(
+      (state as { sessions: unknown[] }).sessions,
+      options,
     );
   }
 
   return [];
+}
+
+function isLegacySavedWorkspaceSession(
+  value: unknown,
+): value is LegacySavedWorkspaceSession {
+  return (
+    value != null &&
+    typeof value === 'object' &&
+    'id' in value &&
+    typeof value.id === 'string' &&
+    'createdAt' in value &&
+    typeof value.createdAt === 'string' &&
+    'updatedAt' in value &&
+    typeof value.updatedAt === 'string' &&
+    'activeSpaceId' in value &&
+    typeof value.activeSpaceId === 'string' &&
+    'activeTabGroupId' in value &&
+    typeof value.activeTabGroupId === 'string' &&
+    'visitedTabGroupIds' in value &&
+    Array.isArray(value.visitedTabGroupIds)
+  );
+}
+
+function normalizeSavedWorkspaceSessionList(
+  sessions: unknown[],
+  options: NormalizeSavedWorkspaceSessionOptions,
+): SavedWorkspaceSession[] {
+  return sessions
+    .filter(isLegacySavedWorkspaceSession)
+    .map((session) => normalizeSavedWorkspaceSession(session, options));
 }
 
 export function migrateSavedWorkspaceSessionState(
@@ -91,7 +133,7 @@ export function migrateSavedWorkspaceSessionStateWithCleanup(
   );
   const referencedSessionIds = new Set<string>();
 
-  const nonHomeSessions = getSavedWorkspaceSessions(state).filter(
+  const nonHomeSessions = getSavedWorkspaceSessionsWithOptions(state, options).filter(
     (session) => !isHomeVoyage(session, tabGroupLabelsById),
   );
   const validSessionIds = new Set(nonHomeSessions.map((session) => session.id));
@@ -156,8 +198,28 @@ function getLegacyActiveItems(
   );
 }
 
+function getLegacyActiveItemViewIds(
+  tabGroupId: string,
+  activeItemId: string | undefined,
+  options: NormalizeSavedWorkspaceSessionOptions,
+): string[] {
+  if (!activeItemId) return [];
+  const tabGroup = options.workspace?.tabGroups.find(
+    (candidate) => candidate.id === tabGroupId,
+  );
+  if (!tabGroup) return [activeItemId];
+
+  const pair = tabGroup.pairs.find((candidate) => candidate.id === activeItemId);
+  if (pair?.tabIds.length) return [...pair.tabIds];
+
+  return tabGroup.tabs.some((tab) => tab.id === activeItemId)
+    ? [activeItemId]
+    : [];
+}
+
 function normalizeSavedWorkspaceSession(
   session: LegacySavedWorkspaceSession,
+  options: NormalizeSavedWorkspaceSessionOptions = {},
 ): SavedWorkspaceSession {
   const activeItems = getLegacyActiveItems(session);
   const legacyEntries =
@@ -176,7 +238,11 @@ function normalizeSavedWorkspaceSession(
       ).map((tabGroupId, index) => ({
         id: createVoyageEntryIdForTabGroup(tabGroupId, index),
         tabGroupId,
-        viewIds: activeItems[tabGroupId] ? [activeItems[tabGroupId]] : [],
+        viewIds: getLegacyActiveItemViewIds(
+          tabGroupId,
+          activeItems[tabGroupId],
+          options,
+        ),
       }));
   const activeVoyageEntryId =
     ('activeVoyageEntryId' in session &&

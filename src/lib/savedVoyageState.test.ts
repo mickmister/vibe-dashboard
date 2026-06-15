@@ -80,6 +80,77 @@ describe('savedVoyageState migration', () => {
     expect(getSavedWorkspaceSessions(migrated)).toEqual([session('a')]);
   });
 
+  it('ignores malformed persisted session records instead of throwing', () => {
+    expect(() =>
+      getSavedWorkspaceSessions([
+        null,
+        'bad',
+        { id: 123 },
+        legacySession('valid'),
+      ]),
+    ).not.toThrow();
+
+    expect(
+      getSavedWorkspaceSessions([
+        null,
+        'bad',
+        { id: 123 },
+        legacySession('valid'),
+      ]),
+    ).toEqual([session('valid')]);
+  });
+
+  it('migrates legacy active pair items to split view ids when workspace metadata is available', () => {
+    const legacy = {
+      ...legacySession('split'),
+      activeItems: { tg_1: 'pair_agent_code' },
+      visitedTabGroupIds: ['tg_1'],
+    };
+
+    expect(
+      migrateSavedWorkspaceSessionState([legacy], {
+        workspace: {
+          tabGroups: [
+            {
+              id: 'tg_1',
+              label: 'Agent + Code',
+              tabs: [
+                { id: 'tab_agent', title: 'Agent', url: 'about:blank' },
+                { id: 'tab_code', title: 'Code', url: 'about:blank' },
+              ],
+              pairs: [
+                {
+                  id: 'pair_agent_code',
+                  tabIds: ['tab_agent', 'tab_code'],
+                  ratios: [50, 50],
+                },
+              ],
+              order: 0,
+            },
+          ],
+        },
+      }),
+    ).toEqual({
+      version: 3,
+      data: [
+        {
+          ...session('split'),
+          activeVoyageEntryId: 've_tg_1',
+          voyageEntries: [
+            {
+              id: 've_tg_1',
+              tabGroupId: 'tg_1',
+              viewIds: ['tab_agent', 'tab_code'],
+            },
+          ],
+          activeItemsByVoyageEntryId: {
+            ve_tg_1: 'pair_agent_code',
+          },
+        },
+      ],
+    });
+  });
+
   it('removes home voyages by explicit name or active craft label', () => {
     const explicitHome = { ...session('home_name'), name: 'Home' };
     const implicitHome = {
