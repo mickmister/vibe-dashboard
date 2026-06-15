@@ -12,6 +12,8 @@ import {
 export interface PluginServiceCliResult {
   mode: 'dry-run' | 'apply';
   catalogPath: string;
+  catalogPaths: string[];
+  optionalCatalogPaths: string[];
   paths: PluginServiceOrchestratorPaths;
   plan: ReturnType<typeof createPluginServiceDryRunPlan>;
   materialized?: Awaited<ReturnType<typeof materializePluginArtifacts>>;
@@ -20,13 +22,14 @@ export interface PluginServiceCliResult {
 
 interface ParsedArgs {
   mode: 'dry-run' | 'apply';
-  catalogPath: string;
+  catalogPaths: string[];
+  optionalCatalogPaths: string[];
   paths: PluginServiceOrchestratorPaths;
 }
 
 export async function runPluginServiceOrchestratorCli(argv: string[]): Promise<PluginServiceCliResult> {
   const parsed = parseArgs(argv);
-  const catalog = JSON.parse(await readFile(parsed.catalogPath, 'utf8')) as PluginServiceCatalog;
+  const catalog = await readComposedCatalog(parsed.catalogPaths, parsed.optionalCatalogPaths);
   const [cachedArtifacts, existingSupervisorConfigs] = await Promise.all([
     discoverCachedArtifacts({ catalog, paths: parsed.paths }),
     readExistingSupervisorConfigs(parsed.paths.supervisorConfigDir),
@@ -39,7 +42,14 @@ export async function runPluginServiceOrchestratorCli(argv: string[]): Promise<P
   });
 
   if (parsed.mode === 'dry-run') {
-    return { mode: parsed.mode, catalogPath: parsed.catalogPath, paths: parsed.paths, plan };
+    return {
+      mode: parsed.mode,
+      catalogPath: parsed.catalogPaths[0]!,
+      catalogPaths: parsed.catalogPaths,
+      optionalCatalogPaths: parsed.optionalCatalogPaths,
+      paths: parsed.paths,
+      plan,
+    };
   }
 
   const materialized = process.env.VD_PLUGIN_ORCHESTRATOR_INSTALL_ARTIFACTS === 'true'
@@ -50,11 +60,20 @@ export async function runPluginServiceOrchestratorCli(argv: string[]): Promise<P
     })
     : undefined;
   const applied = await applySupervisorConfigChanges(plan.supervisorChanges);
-  return { mode: parsed.mode, catalogPath: parsed.catalogPath, paths: parsed.paths, plan, materialized, applied };
+  return {
+    mode: parsed.mode,
+    catalogPath: parsed.catalogPaths[0]!,
+    catalogPaths: parsed.catalogPaths,
+    optionalCatalogPaths: parsed.optionalCatalogPaths,
+    paths: parsed.paths,
+    plan,
+    materialized,
+    applied,
+  };
 }
 
 function parseArgs(argv: string[]): ParsedArgs {
-  const args = new Map<string, string>();
+  const args = new Map<string, string[]>();
   let mode: ParsedArgs['mode'] = 'dry-run';
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -67,14 +86,15 @@ function parseArgs(argv: string[]): ParsedArgs {
     const key = arg.slice(2);
     const value = argv[index + 1];
     if (!value || value.startsWith('--')) throw new Error(`Missing value for --${key}`);
-    args.set(key, value);
+    args.set(key, [...(args.get(key) ?? []), value]);
     index += 1;
   }
 
-  const catalogPath = requiredArg(args, 'catalog');
+  const catalogPaths = args.get('catalog') ?? [];
   return {
     mode,
-    catalogPath,
+    catalogPaths,
+    optionalCatalogPaths: args.get('optional-catalog') ?? [],
     paths: {
       artifactCacheRoot: requiredArg(args, 'artifact-cache-root'),
       installRoot: requiredArg(args, 'install-root'),
@@ -83,10 +103,40 @@ function parseArgs(argv: string[]): ParsedArgs {
   };
 }
 
-function requiredArg(args: Map<string, string>, key: string): string {
-  const value = args.get(key);
+async function readComposedCatalog(catalogPaths: string[], optionalCatalogPaths: string[]): Promise<PluginServiceCatalog> {
+  if (catalogPaths.length === 0) throw new Error('Missing required --catalog');
+  const catalogs: PluginServiceCatalog[] = [];
+  for (const path of catalogPaths) {
+    catalogs.push(JSON.parse(await readFile(path, 'utf8')) as PluginServiceCatalog);
+  }
+  for (const path of optionalCatalogPaths) {
+    try {
+      catalogs.push(JSON.parse(await readFile(path, 'utf8')) as PluginServiceCatalog);
+    } catch (error) {
+      if (!isNodeErrorWithCode(error, 'ENOENT')) throw error;
+    }
+  }
+  return composeCatalogs(catalogs);
+}
+
+function composeCatalogs(catalogs: PluginServiceCatalog[]): PluginServiceCatalog {
+  const plugins = new Map<string, PluginServiceCatalog['plugins'][number]>();
+  for (const catalog of catalogs) {
+    for (const plugin of catalog.plugins ?? []) {
+      plugins.set(plugin.id, plugin);
+    }
+  }
+  return { plugins: [...plugins.values()] };
+}
+
+function requiredArg(args: Map<string, string[]>, key: string): string {
+  const value = args.get(key)?.at(-1);
   if (!value) throw new Error(`Missing required --${key}`);
   return value;
+}
+
+function isNodeErrorWithCode(error: unknown, code: string): error is NodeJS.ErrnoException {
+  return error instanceof Error && 'code' in error && error.code === code;
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

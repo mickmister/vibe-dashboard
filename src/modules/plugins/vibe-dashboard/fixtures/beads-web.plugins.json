@@ -3,14 +3,14 @@
     {
       "id": "vd.beads-web",
       "name": "Beads Web",
-      "version": "0.1.0",
+      "version": "beads-web-assets-42cc6ca1709d4b0aa76833d91d326e6de9659a28",
       "artifact": {
         "kind": "github-release-asset",
         "repository": "mickmister/beads-web",
-        "tag": "v0.11.4",
+        "tag": "beads-web-assets-42cc6ca1709d4b0aa76833d91d326e6de9659a28",
         "asset": "beads-web-linux-x64",
         "installAs": "bin/beads-web",
-        "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "sha256": "03691990c33a6695ac2520be9dc59f4dd692730fc35f49a9f5df784fa0e2242d",
         "signature": "TODO"
       },
       "services": [
@@ -23,7 +23,14 @@
           "autostart": true,
           "autorestart": true,
           "singleton": true,
-          "ports": [{ "name": "http", "env": "BEADS_WEB_PORT", "default": 3109, "bind": "127.0.0.1" }],
+          "ports": [
+            {
+              "name": "http",
+              "env": "BEADS_WEB_PORT",
+              "default": 3109,
+              "bind": "127.0.0.1"
+            }
+          ],
           "env": {
             "PORT": "${BEADS_WEB_PORT}",
             "HOME": "/home/vkuser",

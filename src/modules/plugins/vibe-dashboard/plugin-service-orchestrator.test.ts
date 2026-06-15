@@ -23,17 +23,18 @@ describe('plugin service supervisor orchestration dry run', () => {
     supervisorConfigDir: '/etc/supervisor/conf.d/vd-generated',
   };
 
-  it('imports the first-party plugins.json catalog and keeps vibe-dashboard bundled from the current repo', () => {
+  it('imports the checked-in plugin catalog for startup-managed plugin services', () => {
     const catalog = firstPartyPluginCatalog as PluginServiceCatalog;
 
-    expect(catalog.plugins.map((plugin) => plugin.id)).toEqual([
-      'vd.vibe-dashboard',
-      'vd.vibe-kanban',
-      'vd.beads-web',
-      'vd.excalidraw',
-    ]);
-    expect(catalog.plugins.find((plugin) => plugin.id === 'vd.vibe-dashboard')?.artifact).toEqual({
-      kind: 'bundled-current-repo',
+    expect(catalog.plugins.map((plugin) => plugin.id)).toEqual(['vd.beads-web']);
+    expect(catalog.plugins[0]).toMatchObject({
+      id: 'vd.beads-web',
+      version: 'beads-web-assets-42cc6ca1709d4b0aa76833d91d326e6de9659a28',
+      artifact: {
+        kind: 'github-release-asset',
+        tag: 'beads-web-assets-42cc6ca1709d4b0aa76833d91d326e6de9659a28',
+        sha256: '03691990c33a6695ac2520be9dc59f4dd692730fc35f49a9f5df784fa0e2242d',
+      },
     });
   });
 
@@ -44,31 +45,23 @@ describe('plugin service supervisor orchestration dry run', () => {
       cachedArtifacts: [
         {
           pluginId: 'vd.beads-web',
-          version: '0.1.0',
-          sha256: 'c'.repeat(64),
-          path: '/var/lib/vd/plugin-cache/github/mickmister/beads-web/v0.11.4/beads-web-linux-x64',
+          version: 'beads-web-assets-42cc6ca1709d4b0aa76833d91d326e6de9659a28',
+          sha256: '03691990c33a6695ac2520be9dc59f4dd692730fc35f49a9f5df784fa0e2242d',
+          path: '/var/lib/vd/plugin-cache/github/mickmister/beads-web/beads-web-assets-42cc6ca1709d4b0aa76833d91d326e6de9659a28/beads-web-linux-x64',
         },
       ],
       existingSupervisorConfigs: {},
     });
 
     expect(plan.artifacts).toEqual([
-      expect.objectContaining({ pluginId: 'vd.vibe-dashboard', action: 'bundled-current-repo' }),
-      expect.objectContaining({ pluginId: 'vd.vibe-kanban', action: 'download' }),
       expect.objectContaining({ pluginId: 'vd.beads-web', action: 'cached' }),
-      expect.objectContaining({ pluginId: 'vd.excalidraw', action: 'download' }),
     ]);
-    expect(plan.artifacts.find((artifact) => artifact.pluginId === 'vd.vibe-kanban')).toMatchObject({
-      url: 'https://github.com/mickmister/vibe-kanban/releases/download/v0.1.0/vibe-kanban-linux-x64.tar.gz',
-      cachePath: '/var/lib/vd/plugin-cache/github/mickmister/vibe-kanban/v0.1.0/vibe-kanban-linux-x64.tar.gz',
-      installPath: '/var/lib/vd/plugins/vd.vibe-kanban/0.1.0',
-    });
   });
 
   it('returns idempotent supervisor config changes without mutating the host', () => {
     const existingConfig = renderSupervisorProgramConfig({
-      plugin: (firstPartyPluginCatalog as PluginServiceCatalog).plugins[2]!,
-      service: (firstPartyPluginCatalog as PluginServiceCatalog).plugins[2]!.services[0]!,
+      plugin: (firstPartyPluginCatalog as PluginServiceCatalog).plugins[0]!,
+      service: (firstPartyPluginCatalog as PluginServiceCatalog).plugins[0]!.services[0]!,
       paths,
     });
 
@@ -85,11 +78,6 @@ describe('plugin service supervisor orchestration dry run', () => {
     expect(plan.supervisorChanges).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          action: 'create',
-          program: 'vd-plugin--vd_vibe_dashboard--web',
-          path: '/etc/supervisor/conf.d/vd-generated/vd-plugin--vd_vibe_dashboard--web.conf',
-        }),
-        expect.objectContaining({
           action: 'unchanged',
           program: 'vd-plugin--vd_beads_web--web',
           path: '/etc/supervisor/conf.d/vd-generated/vd-plugin--vd_beads_web--web.conf',
@@ -104,19 +92,12 @@ describe('plugin service supervisor orchestration dry run', () => {
 
   it('renders hardened supervisor config for a service using persisted plugin install paths', () => {
     const beadsWebConfig = renderSupervisorProgramConfig({
-      plugin: (firstPartyPluginCatalog as PluginServiceCatalog).plugins[2]!,
-      service: (firstPartyPluginCatalog as PluginServiceCatalog).plugins[2]!.services[0]!,
-      paths,
-    });
-    const vibeDashboardConfig = renderSupervisorProgramConfig({
       plugin: (firstPartyPluginCatalog as PluginServiceCatalog).plugins[0]!,
       service: (firstPartyPluginCatalog as PluginServiceCatalog).plugins[0]!.services[0]!,
       paths,
     });
-
-    expect(beadsWebConfig).toContain('command=/var/lib/vd/plugins/vd.beads-web/0.1.0/extracted/bin/beads-web');
-    expect(beadsWebConfig).toContain('environment=BEADS_WEB_PORT="3109",PORT="3109",HOME="/home/vkuser",XDG_CONFIG_HOME="/home/vkuser/.config",VD_PLUGIN_ID="vd.beads-web",VD_PLUGIN_VERSION="0.1.0",VD_SERVICE_ID="web"');
-    expect(vibeDashboardConfig).toContain('PORT="3007"');
+    expect(beadsWebConfig).toContain('command=/var/lib/vd/plugins/vd.beads-web/beads-web-assets-42cc6ca1709d4b0aa76833d91d326e6de9659a28/extracted/bin/beads-web');
+    expect(beadsWebConfig).toContain('environment=BEADS_WEB_PORT="3109",PORT="3109",HOME="/home/vkuser",XDG_CONFIG_HOME="/home/vkuser/.config",VD_PLUGIN_ID="vd.beads-web",VD_PLUGIN_VERSION="beads-web-assets-42cc6ca1709d4b0aa76833d91d326e6de9659a28",VD_SERVICE_ID="web"');
   });
 
   it('supports a beads-web-only catalog for isolated supervisor experiments', () => {
@@ -131,7 +112,7 @@ describe('plugin service supervisor orchestration dry run', () => {
       expect.objectContaining({
         action: 'download',
         pluginId: 'vd.beads-web',
-        url: 'https://github.com/mickmister/beads-web/releases/download/v0.11.4/beads-web-linux-x64',
+        url: 'https://github.com/mickmister/beads-web/releases/download/beads-web-assets-42cc6ca1709d4b0aa76833d91d326e6de9659a28/beads-web-linux-x64',
       }),
     ]);
     expect(plan.supervisorChanges).toEqual([
@@ -144,14 +125,14 @@ describe('plugin service supervisor orchestration dry run', () => {
 
   it('discovers cached artifacts by hashing files in the persistent artifact cache', async () => {
     const tempRoot = await mkdtemp(join(tmpdir(), 'vd-plugin-cache-'));
-    const cachePath = join(tempRoot, 'cache/github/mickmister/beads-web/v0.11.4/beads-web-linux-x64');
+    const cachePath = join(tempRoot, 'cache/github/mickmister/beads-web/beads-web-assets-42cc6ca1709d4b0aa76833d91d326e6de9659a28/beads-web-linux-x64');
     const bytes = Buffer.from('fake beads-web artifact');
     const sha256 = createHash('sha256').update(bytes).digest('hex');
     const catalog = structuredClone(beadsWebOnlyCatalog) as PluginServiceCatalog;
     const artifact = catalog.plugins[0]!.artifact;
     if (artifact.kind !== 'github-release-asset') throw new Error('expected github-release-asset fixture');
     artifact.sha256 = sha256;
-    await mkdir(join(tempRoot, 'cache/github/mickmister/beads-web/v0.11.4'), { recursive: true });
+    await mkdir(join(tempRoot, 'cache/github/mickmister/beads-web/beads-web-assets-42cc6ca1709d4b0aa76833d91d326e6de9659a28'), { recursive: true });
     await writeFile(cachePath, bytes);
 
     await expect(discoverCachedArtifacts({
@@ -161,7 +142,7 @@ describe('plugin service supervisor orchestration dry run', () => {
         installRoot: join(tempRoot, 'plugins'),
         supervisorConfigDir: join(tempRoot, 'supervisor'),
       },
-    })).resolves.toEqual([{ pluginId: 'vd.beads-web', version: '0.1.0', sha256, path: cachePath }]);
+    })).resolves.toEqual([{ pluginId: 'vd.beads-web', version: 'beads-web-assets-42cc6ca1709d4b0aa76833d91d326e6de9659a28', sha256, path: cachePath }]);
   });
 
   it('downloads a binary release asset, allows explicit hash bypass for smoke runs, and installs it executable', async () => {
@@ -180,7 +161,7 @@ describe('plugin service supervisor orchestration dry run', () => {
     expect(materialized).toEqual([
       expect.objectContaining({ action: 'downloaded', pluginId: 'vd.beads-web' }),
     ]);
-    await expect(readFile(join(tempRoot, 'plugins/vd.beads-web/0.1.0/extracted/bin/beads-web'), 'utf8')).resolves.toContain('fake beads-web');
+    await expect(readFile(join(tempRoot, 'plugins/vd.beads-web/beads-web-assets-42cc6ca1709d4b0aa76833d91d326e6de9659a28/extracted/bin/beads-web'), 'utf8')).resolves.toContain('fake beads-web');
   });
 
   it('does not overwrite an already-installed matching binary on repeated materialization', async () => {
@@ -205,7 +186,7 @@ describe('plugin service supervisor orchestration dry run', () => {
     await materializePluginArtifacts({ catalog, paths, fetchBytes });
 
     expect(fetchCount).toBe(1);
-    await expect(readFile(join(tempRoot, 'plugins/vd.beads-web/0.1.0/extracted/bin/beads-web'), 'utf8')).resolves.toContain('stable beads-web');
+    await expect(readFile(join(tempRoot, 'plugins/vd.beads-web/beads-web-assets-42cc6ca1709d4b0aa76833d91d326e6de9659a28/extracted/bin/beads-web'), 'utf8')).resolves.toContain('stable beads-web');
   });
 
   it('applies generated supervisor configs to a separate config directory idempotently', async () => {
@@ -268,6 +249,64 @@ describe('plugin service supervisor orchestration dry run', () => {
     ]);
     expect(applied.applied).toEqual([
       expect.objectContaining({ action: 'create', path: join(supervisorConfigDir, 'vd-plugin--vd_beads_web--web.conf') }),
+    ]);
+  });
+
+  it('composes checked-in catalog with a missing optional per-instance catalog', async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), 'vd-plugin-cli-missing-optional-'));
+    const builtinCatalogPath = join(tempRoot, 'builtin.plugins.json');
+    await writeFile(builtinCatalogPath, JSON.stringify(beadsWebOnlyCatalog));
+
+    const result = await runPluginServiceOrchestratorCli([
+      'dry-run',
+      '--catalog', builtinCatalogPath,
+      '--optional-catalog', join(tempRoot, 'missing-instance/plugins.json'),
+      '--artifact-cache-root', join(tempRoot, 'cache'),
+      '--install-root', join(tempRoot, 'plugins'),
+      '--supervisor-config-dir', join(tempRoot, 'supervisor/conf.d/plugins'),
+    ]);
+
+    expect(result.catalogPaths).toEqual([builtinCatalogPath]);
+    expect(result.optionalCatalogPaths).toEqual([join(tempRoot, 'missing-instance/plugins.json')]);
+    expect(result.plan.artifacts).toEqual([
+      expect.objectContaining({ action: 'download', pluginId: 'vd.beads-web' }),
+    ]);
+  });
+
+  it('lets per-instance catalog override a checked-in plugin by id', async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), 'vd-plugin-cli-overlay-'));
+    const builtinCatalogPath = join(tempRoot, 'builtin.plugins.json');
+    const instanceCatalogPath = join(tempRoot, 'instance.plugins.json');
+    const overrideCatalog = structuredClone(beadsWebOnlyCatalog) as PluginServiceCatalog;
+    const overridePlugin = overrideCatalog.plugins[0]!;
+    const artifact = overridePlugin.artifact;
+    if (artifact.kind !== 'github-release-asset') throw new Error('expected github-release-asset fixture');
+    overridePlugin.version = 'beads-web-assets-override';
+    artifact.tag = 'beads-web-assets-override';
+    artifact.sha256 = 'e'.repeat(64);
+    await writeFile(builtinCatalogPath, JSON.stringify(beadsWebOnlyCatalog));
+    await writeFile(instanceCatalogPath, JSON.stringify(overrideCatalog));
+
+    const result = await runPluginServiceOrchestratorCli([
+      'dry-run',
+      '--catalog', builtinCatalogPath,
+      '--optional-catalog', instanceCatalogPath,
+      '--artifact-cache-root', join(tempRoot, 'cache'),
+      '--install-root', join(tempRoot, 'plugins'),
+      '--supervisor-config-dir', join(tempRoot, 'supervisor/conf.d/plugins'),
+    ]);
+
+    expect(result.plan.artifacts).toEqual([
+      expect.objectContaining({
+        pluginId: 'vd.beads-web',
+        version: 'beads-web-assets-override',
+        url: 'https://github.com/mickmister/beads-web/releases/download/beads-web-assets-override/beads-web-linux-x64',
+      }),
+    ]);
+    expect(result.plan.supervisorChanges).toEqual([
+      expect.objectContaining({
+        content: expect.stringContaining('/plugins/vd.beads-web/beads-web-assets-override/extracted/bin/beads-web'),
+      }),
     ]);
   });
 });
