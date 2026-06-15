@@ -72,6 +72,9 @@ services:
       - vibe-kanban-worktrees:/var/tmp/vibe-kanban/worktrees
       # Persist vibe-dashboard application data only; runtime code is reseeded from the image
       - vibe-dashboard-data:/home/vkuser/.local/share/vibe-dashboard-runtime/data
+      # Persist VD plugin instance config, downloaded release assets, installed plugin versions,
+      # and plugin runtime state. Generated supervisor config is recreated from this state.
+      - vibe-dashboard-plugin-data:/var/lib/vd
       # Persist code-server settings (optional, but allows user customizations to persist)
       - code-server-data:/home/vkuser/.local/share/code-server
       # Persist Claude Code data
@@ -113,6 +116,7 @@ volumes:
   vibe-kanban-data:
   vibe-kanban-worktrees:
   vibe-dashboard-data:
+  vibe-dashboard-plugin-data:
   code-server-data:
   claude-data:
   gh-config:
