@@ -26,7 +26,7 @@ describe('plugin service supervisor orchestration dry run', () => {
   it('imports the checked-in plugin catalog for startup-managed plugin services', () => {
     const catalog = firstPartyPluginCatalog as PluginServiceCatalog;
 
-    expect(catalog.plugins.map((plugin) => plugin.id)).toEqual(['vd.beads-web']);
+    expect(catalog.plugins.map((plugin) => plugin.id)).toEqual(['vd.beads-web', 'vd.excalidraw']);
     expect(catalog.plugins[0]).toMatchObject({
       id: 'vd.beads-web',
       version: 'beads-web-assets-42cc6ca1709d4b0aa76833d91d326e6de9659a28',
@@ -34,6 +34,17 @@ describe('plugin service supervisor orchestration dry run', () => {
         kind: 'github-release-asset',
         tag: 'beads-web-assets-42cc6ca1709d4b0aa76833d91d326e6de9659a28',
         sha256: '03691990c33a6695ac2520be9dc59f4dd692730fc35f49a9f5df784fa0e2242d',
+      },
+    });
+    expect(catalog.plugins[1]).toMatchObject({
+      id: 'vd.excalidraw',
+      version: '0.18.0',
+      services: [],
+      artifact: {
+        kind: 'github-release-asset',
+        tag: 'v0.18.0',
+        asset: 'excalidraw-0.18.0.tgz',
+        sha256: '0f2851674434336f19f10b5f217977eac7a0714de7e31a559bc5dd37f2c2dc21',
       },
     });
   });
@@ -55,6 +66,7 @@ describe('plugin service supervisor orchestration dry run', () => {
 
     expect(plan.artifacts).toEqual([
       expect.objectContaining({ pluginId: 'vd.beads-web', action: 'cached' }),
+      expect.objectContaining({ pluginId: 'vd.excalidraw', action: 'download' }),
     ]);
   });
 
@@ -121,6 +133,42 @@ describe('plugin service supervisor orchestration dry run', () => {
         program: 'vd-plugin--vd_beads_web--web',
       }),
     ]);
+  });
+
+  it('supports asset-only plugins that need download/install but no supervisor service', () => {
+    const catalog: PluginServiceCatalog = {
+      plugins: [{
+        id: 'vd.excalidraw',
+        name: 'Excalidraw',
+        version: '0.18.0',
+        artifact: {
+          kind: 'github-release-asset',
+          repository: 'excalidraw/excalidraw',
+          tag: 'v0.18.0',
+          asset: 'excalidraw-0.18.0.tgz',
+          installAs: 'excalidraw-0.18.0.tgz',
+          sha256: '0f2851674434336f19f10b5f217977eac7a0714de7e31a559bc5dd37f2c2dc21',
+          signature: 'TODO',
+        },
+        services: [],
+      }],
+    };
+
+    const plan = createPluginServiceDryRunPlan({
+      catalog,
+      paths,
+      cachedArtifacts: [],
+      existingSupervisorConfigs: {},
+    });
+
+    expect(plan.artifacts).toEqual([
+      expect.objectContaining({
+        action: 'download',
+        pluginId: 'vd.excalidraw',
+        url: 'https://github.com/excalidraw/excalidraw/releases/download/v0.18.0/excalidraw-0.18.0.tgz',
+      }),
+    ]);
+    expect(plan.supervisorChanges).toEqual([]);
   });
 
   it('discovers cached artifacts by hashing files in the persistent artifact cache', async () => {

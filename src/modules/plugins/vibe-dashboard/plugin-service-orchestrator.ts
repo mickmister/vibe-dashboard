@@ -389,7 +389,6 @@ function validateCatalog(catalog: PluginServiceCatalog): void {
   for (const plugin of catalog.plugins) {
     if (pluginIds.has(plugin.id)) throw new Error(`Duplicate plugin id ${plugin.id}`);
     pluginIds.add(plugin.id);
-    if (!plugin.services.length) throw new Error(`Plugin ${plugin.id} must declare at least one service`);
     const serviceIds = new Set<string>();
     for (const service of plugin.services) {
       if (serviceIds.has(service.id)) throw new Error(`Duplicate service id ${plugin.id}/${service.id}`);
