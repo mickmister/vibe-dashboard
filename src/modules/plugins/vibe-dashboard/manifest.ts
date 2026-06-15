@@ -240,6 +240,7 @@ const mcpFields = new Set(['id', 'serverName', 'transport', 'command', 'url', 't
 const storageFields = new Set(['id', 'scope', 'path', 'access']);
 const secretFields = new Set(['id', 'provider', 'ref']);
 const healthFields = new Set(['id', 'kind', 'target']);
+const lifecycleFields = new Set(['start', 'stop', 'restart']);
 
 export function validatePluginManifest(input: unknown): PluginManifestValidationResult {
   const errors: string[] = [];
@@ -359,19 +360,19 @@ function validateRequestedCapabilityShapes(value: Record<string, unknown>, error
   if (value.hostDocker !== undefined && !isHostDockerCapability(value.hostDocker)) {
     errors.push('requestedCapabilities.hostDocker is unsupported');
   }
-  if (value.filesystem !== undefined && !Array.isArray(value.filesystem)) {
-    errors.push('requestedCapabilities.filesystem must be an array');
+  if (value.filesystem !== undefined) {
+    validateFilesystemRequests(value.filesystem, errors, 'requestedCapabilities.filesystem');
   }
-  if (value.network !== undefined && !isNetworkRequest(value.network)) {
-    errors.push('requestedCapabilities.network is unsupported');
+  if (value.network !== undefined) {
+    validateNetworkRequest(value.network, errors, 'requestedCapabilities.network');
   }
   for (const field of ['env', 'secrets'] as const) {
     if (value[field] !== undefined && !isStringArray(value[field])) {
       errors.push(`requestedCapabilities.${field} must be a string array`);
     }
   }
-  if (value.plugins !== undefined && !Array.isArray(value.plugins)) {
-    errors.push('requestedCapabilities.plugins must be an array');
+  if (value.plugins !== undefined) {
+    validatePluginAccessRequests(value.plugins, errors);
   }
 }
 
@@ -390,6 +391,7 @@ function validateComponents(components: Record<string, unknown>, errors: string[
   validateStorageArray(components.storage, errors);
   validateSecretArray(components.secrets, errors);
   validateHealthArray(components.healthChecks, errors);
+  validateLifecycle(components.lifecycle, errors);
 }
 
 const componentFieldsArray = Array.from(componentFields);
@@ -402,6 +404,11 @@ function validateFrontend(frontend: unknown, errors: string[]): void {
   rejectUnknownFields(frontend, frontendFields, errors, 'components.frontend');
   if (frontend.kind !== 'iframe') errors.push('Frontend component kind must be iframe');
   if (!isSafeRelativePath(frontend.entry)) errors.push('Frontend entry must be a safe relative path');
+  validateRouteContributions(frontend.routes, errors, 'components.frontend.routes');
+  validateCraftSurfaceContributions(frontend.craftSurfaces, errors, 'components.frontend.craftSurfaces');
+  if (frontend.allowSameOrigin !== undefined && typeof frontend.allowSameOrigin !== 'boolean') {
+    errors.push('components.frontend.allowSameOrigin must be a boolean');
+  }
 }
 
 function validateDenoArray(value: unknown, errors: string[], path: string): void {
@@ -418,11 +425,15 @@ function validateDenoArray(value: unknown, errors: string[], path: string): void
     rejectUnknownFields(item, denoFields, errors, `${path}[${index}]`);
     if (!isSafeIdentifier(item.id)) errors.push(`${path}[${index}].id must be a safe identifier`);
     if (!isSafeRelativePath(item.entry)) errors.push(`${path}[${index}].entry must be a safe relative path`);
+    if (item.methods !== undefined && !isStringArray(item.methods)) {
+      errors.push(`${path}[${index}].methods must be a string array`);
+    }
     if (item.permissions !== undefined) {
       if (!isRecord(item.permissions)) {
         errors.push(`${path}[${index}].permissions must be an object`);
       } else {
         rejectUnknownFields(item.permissions, denoPermissionFields, errors, `${path}[${index}].permissions`);
+        validateDenoPermissions(item.permissions, errors, `${path}[${index}].permissions`);
       }
     }
   }
@@ -445,6 +456,12 @@ function validateContainerArray(value: unknown, errors: string[]): void {
       errors.push(`components.containers[${index}].image must be a ghcr.io digest-pinned reference`);
     }
     if (item.dockerd !== 'microvm') errors.push(`components.containers[${index}].dockerd must be microvm`);
+    if (item.composeFile !== undefined && !isSafeRelativePath(item.composeFile)) {
+      errors.push(`components.containers[${index}].composeFile must be a safe relative path`);
+    }
+    if (item.services !== undefined && !isStringArray(item.services)) {
+      errors.push(`components.containers[${index}].services must be a string array`);
+    }
   }
 }
 
@@ -476,6 +493,15 @@ function validateServiceArray(value: unknown, errors: string[]): void {
         if (item.versionSource.kind !== 'github-release-asset') {
           errors.push(`components.services[${index}].versionSource.kind must be github-release-asset`);
         }
+        if (!isGithubRepository(item.versionSource.repository)) {
+          errors.push(`components.services[${index}].versionSource.repository must be owner/repo`);
+        }
+        if (!isNonEmptyString(item.versionSource.tag)) {
+          errors.push(`components.services[${index}].versionSource.tag is required`);
+        }
+        if (!isSafeRelativePath(item.versionSource.asset)) {
+          errors.push(`components.services[${index}].versionSource.asset must be a safe relative path`);
+        }
       }
     }
   }
@@ -497,6 +523,138 @@ function validateMcpArray(value: unknown, errors: string[]): void {
     if (!isNonEmptyString(item.serverName)) errors.push(`components.mcp[${index}].serverName is required`);
     if (item.transport !== 'stdio' && item.transport !== 'http') {
       errors.push(`components.mcp[${index}].transport must be stdio or http`);
+    }
+    if (item.tools !== undefined && !isStringArray(item.tools)) {
+      errors.push(`components.mcp[${index}].tools must be a string array`);
+    }
+  }
+}
+
+function validateFilesystemRequests(value: unknown, errors: string[], path: string): void {
+  if (!Array.isArray(value)) {
+    errors.push(`${path} must be an array`);
+    return;
+  }
+  for (const [index, item] of value.entries()) {
+    const itemPath = `${path}[${index}]`;
+    if (!isRecord(item)) {
+      errors.push(`${itemPath} must be an object`);
+      continue;
+    }
+    if (!isFilesystemScope(item.scope)) errors.push(`${itemPath}.scope is unsupported`);
+    validateFilesystemPath(item.scope, item.path, errors, `${itemPath}.path`);
+    if (item.access !== 'read' && item.access !== 'readWrite') {
+      errors.push(`${itemPath}.access must be read or readWrite`);
+    }
+  }
+}
+
+function validateNetworkRequest(value: unknown, errors: string[], path: string): void {
+  if (!isRecord(value)) {
+    errors.push(`${path} must be an object`);
+    return;
+  }
+  if (!isNetworkRequest(value)) errors.push(`${path}.mode is unsupported`);
+  if (value.hosts !== undefined && !isStringArray(value.hosts)) {
+    errors.push(`${path}.hosts must be a string array`);
+  }
+  if (value.ports !== undefined && !isStringArray(value.ports)) {
+    errors.push(`${path}.ports must be a string array`);
+  }
+}
+
+function validatePluginAccessRequests(value: unknown, errors: string[]): void {
+  if (!Array.isArray(value)) {
+    errors.push('requestedCapabilities.plugins must be an array');
+    return;
+  }
+  for (const [index, item] of value.entries()) {
+    const path = `requestedCapabilities.plugins[${index}]`;
+    if (!isRecord(item)) {
+      errors.push(`${path} must be an object`);
+      continue;
+    }
+    if (!isSafeIdentifier(item.pluginId)) errors.push(`${path}.pluginId must be a safe identifier`);
+    if (!isStringArray(item.methods)) errors.push(`${path}.methods must be a string array`);
+  }
+}
+
+function validateDenoPermissions(value: Record<string, unknown>, errors: string[], path: string): void {
+  for (const field of ['read', 'write'] as const) {
+    const permission = value[field];
+    if (permission === undefined) continue;
+    if (!isStringArray(permission)) {
+      errors.push(`${path}.${field} must be a string array`);
+      continue;
+    }
+    permission.forEach((entry, index) => {
+      if (!isSafeRelativePath(entry)) {
+        errors.push(`${path}.${field}[${index}] must be a safe relative path`);
+      }
+    });
+  }
+  for (const field of ['net', 'env', 'run'] as const) {
+    if (value[field] !== undefined && !isStringArray(value[field])) {
+      errors.push(`${path}.${field} must be a string array`);
+    }
+  }
+  const imports = value.imports;
+  if (imports === undefined) return;
+  if (!isStringArray(imports)) {
+    errors.push(`${path}.imports must be a string array`);
+    return;
+  }
+  imports.forEach((entry, index) => {
+    if (!isSafeImportSpecifier(entry)) {
+      errors.push(`${path}.imports[${index}] must be a safe import specifier`);
+    }
+  });
+}
+
+function validateRouteContributions(value: unknown, errors: string[], path: string): void {
+  if (value === undefined) return;
+  if (!Array.isArray(value)) {
+    errors.push(`${path} must be an array`);
+    return;
+  }
+  for (const [index, item] of value.entries()) {
+    if (!isRecord(item)) {
+      errors.push(`${path}[${index}] must be an object`);
+      continue;
+    }
+    if (!isSafeIdentifier(item.id)) errors.push(`${path}[${index}].id must be a safe identifier`);
+    if (!isNonEmptyString(item.title)) errors.push(`${path}[${index}].title is required`);
+    if (!isSafeInternalRoutePath(item.path)) errors.push(`${path}[${index}].path must be a safe route path`);
+  }
+}
+
+function validateCraftSurfaceContributions(value: unknown, errors: string[], path: string): void {
+  if (value === undefined) return;
+  if (!Array.isArray(value)) {
+    errors.push(`${path} must be an array`);
+    return;
+  }
+  for (const [index, item] of value.entries()) {
+    if (!isRecord(item)) {
+      errors.push(`${path}[${index}] must be an object`);
+      continue;
+    }
+    if (!isSafeIdentifier(item.id)) errors.push(`${path}[${index}].id must be a safe identifier`);
+    if (!isNonEmptyString(item.title)) errors.push(`${path}[${index}].title is required`);
+    if (!isSafeInternalRoutePath(item.route)) errors.push(`${path}[${index}].route must be a safe route path`);
+  }
+}
+
+function validateLifecycle(value: unknown, errors: string[]): void {
+  if (value === undefined) return;
+  if (!isRecord(value)) {
+    errors.push('components.lifecycle must be an object');
+    return;
+  }
+  rejectUnknownFields(value, lifecycleFields, errors, 'components.lifecycle');
+  for (const field of ['start', 'stop', 'restart'] as const) {
+    if (value[field] !== undefined && !isNonEmptyString(value[field])) {
+      errors.push(`components.lifecycle.${field} must be a non-empty string`);
     }
   }
 }
@@ -639,6 +797,59 @@ function isSafeRelativePath(value: unknown): value is string {
     !value.startsWith('/') &&
     !value.split('/').some((part) => part === '..' || part === '')
   );
+}
+
+function isSafeInternalRoutePath(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    value.startsWith('/') &&
+    !value.includes('\\') &&
+    !value.split('/').some((part) => part === '..')
+  );
+}
+
+function isSafeImportSpecifier(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length === 0) return false;
+  if (value.startsWith('https://') || value.startsWith('http://')) {
+    try {
+      const parsed = new URL(value);
+      return parsed.protocol === 'https:' || parsed.protocol === 'http:';
+    } catch {
+      return false;
+    }
+  }
+  return isSafeRelativePath(value);
+}
+
+function isGithubRepository(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  const [owner, repo, extra] = value.split('/');
+  return extra === undefined && isSafeIdentifier(owner) && isSafeIdentifier(repo);
+}
+
+function isFilesystemScope(value: unknown): value is FilesystemScope {
+  return value === 'plugin-data' || value === 'workspace' || value === 'repo' || value === 'absolute';
+}
+
+function validateFilesystemPath(
+  scope: unknown,
+  path: unknown,
+  errors: string[],
+  label: string,
+): void {
+  if (scope === 'plugin-data' || scope === 'workspace') {
+    if (!isSafeRelativePath(path)) errors.push(`${label} must be safe relative path`);
+    return;
+  }
+  if (scope === 'absolute') {
+    if (typeof path !== 'string' || !path.startsWith('/')) errors.push(`${label} must be an absolute path`);
+    return;
+  }
+  if (scope === 'repo') {
+    if (!isNonEmptyString(path)) errors.push(`${label} is required`);
+    return;
+  }
+  if (!isNonEmptyString(path)) errors.push(`${label} is required`);
 }
 
 function isPluginKind(value: unknown): value is PluginKind {
