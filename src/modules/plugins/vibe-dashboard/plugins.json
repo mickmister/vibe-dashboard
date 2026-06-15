@@ -38,21 +38,6 @@
           }
         }
       ]
-    },
-    {
-      "id": "vd.excalidraw",
-      "name": "Excalidraw",
-      "version": "0.18.0",
-      "artifact": {
-        "kind": "github-release-asset",
-        "repository": "excalidraw/excalidraw",
-        "tag": "v0.18.0",
-        "asset": "excalidraw-0.18.0.tgz",
-        "installAs": "excalidraw-0.18.0.tgz",
-        "sha256": "0f2851674434336f19f10b5f217977eac7a0714de7e31a559bc5dd37f2c2dc21",
-        "signature": "TODO"
-      },
-      "services": []
     }
   ]
 }
