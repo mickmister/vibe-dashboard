@@ -15,6 +15,8 @@
     "test:staging-promotion": "vitest run --config vitest.server.config.ts src/modules/plugins/vibe-dashboard/staging-runtime.test.ts",
     "plugin-services:dry-run:beads-web": "node --experimental-strip-types src/modules/plugins/vibe-dashboard/plugin-service-orchestrator-cli.ts dry-run --catalog src/modules/plugins/vibe-dashboard/fixtures/beads-web.plugins.json --artifact-cache-root /var/lib/vd/plugin-cache --install-root /var/lib/vd/plugins --supervisor-config-dir /etc/supervisor/conf.d/vd-generated",
     "plugin-services:apply:beads-web": "node --experimental-strip-types src/modules/plugins/vibe-dashboard/plugin-service-orchestrator-cli.ts apply --catalog src/modules/plugins/vibe-dashboard/fixtures/beads-web.plugins.json --artifact-cache-root /var/lib/vd/plugin-cache --install-root /var/lib/vd/plugins --supervisor-config-dir /etc/supervisor/conf.d/vd-generated",
+    "plugin-instance:dry-run-add:beads-web": "node --experimental-strip-types src/modules/plugins/vibe-dashboard/plugin-instance-config-cli.ts dry-run-add --config-repo-dir /var/lib/vd/instance-config --plugin src/modules/plugins/vibe-dashboard/fixtures/beads-web.plugin.json",
+    "plugin-instance:apply-add:beads-web": "node --experimental-strip-types src/modules/plugins/vibe-dashboard/plugin-instance-config-cli.ts apply-add --approved true --config-repo-dir /var/lib/vd/instance-config --plugin src/modules/plugins/vibe-dashboard/fixtures/beads-web.plugin.json",
     "storybook": "npm run build-storybook && npm run serve-storybook",
     "storybook:dev": "storybook dev -p $PORT",
     "build-storybook": "storybook build",

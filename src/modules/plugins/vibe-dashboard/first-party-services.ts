@@ -126,7 +126,10 @@ loglevel=info
 user=root
 
 [rpcinterface:supervisor]
-supervisor.rpcinterface_factory = supervisor.rpcinterface:make_main_rpcinterface`;
+supervisor.rpcinterface_factory = supervisor.rpcinterface:make_main_rpcinterface
+
+[include]
+files = /etc/supervisor/conf.d/vd-generated/*.conf`;
 
 const CODE_SERVER_SUPERVISOR = `; code-server
 [program:code-server]
@@ -169,6 +172,19 @@ stderr_logfile_maxbytes=0
 environment=HOST="0.0.0.0",PORT="%(ENV_DASHBOARD_PORT)s",HOME="/home/vkuser",XDG_CONFIG_HOME="/home/vkuser/.config",PATH="/home/vkuser/.npm-global/bin:/usr/local/cargo/bin:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 user=vkuser
 directory=/home/vkuser/.local/share/vibe-dashboard-runtime`;
+
+const PLUGIN_SERVICE_ORCHESTRATOR_SUPERVISOR = `; plugin service orchestrator (reconciles persisted per-instance plugin config into generated supervisor programs)
+[program:vd-plugin-service-orchestrator-startup]
+command=sh -c 'if [ ! -f /var/lib/vd/instance-config/plugins.json ]; then echo "plugin service orchestration skipped (/var/lib/vd/instance-config/plugins.json missing)"; exit 0; fi; VD_PLUGIN_ORCHESTRATOR_INSTALL_ARTIFACTS=true node --experimental-strip-types /opt/vibe-kanban-vscode-web-seed/src/modules/plugins/vibe-dashboard/plugin-service-orchestrator-cli.ts apply --catalog /var/lib/vd/instance-config/plugins.json --artifact-cache-root /var/lib/vd/plugin-cache --install-root /var/lib/vd/plugins --supervisor-config-dir /etc/supervisor/conf.d/vd-generated && supervisorctl reread && supervisorctl update'
+autostart=true
+autorestart=false
+startsecs=0
+stdout_logfile=/dev/fd/1
+stdout_logfile_maxbytes=0
+stderr_logfile=/dev/fd/2
+stderr_logfile_maxbytes=0
+environment=HOME="/root",PATH="/home/vkuser/.npm-global/bin:/usr/local/cargo/bin:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+user=root`;
 
 const CADDY_SUPERVISOR = `; caddy
 [program:caddy]
@@ -301,6 +317,10 @@ export const BUILTIN_FIRST_PARTY_SERVICE_PLUGINS: FirstPartyServicePlugin[] = [
   {
     manifest: manifest({ id: 'first-party.vibe-dashboard', displayName: 'Vibe Dashboard', version: 'bundled', requestedCapabilities: { hostShell: { commands: ['node dist/node/node-entry.mjs'] }, network: { mode: 'ingress', ports: ['${DASHBOARD_PORT}'] } } }),
     privilegeTier: 'core-control-plane', bootCritical: true, supervisorPrograms: ['vibe-dashboard'], supervisorConfig: VIBE_DASHBOARD_SUPERVISOR, installStrategy: 'bundled-runtime-artifact', desiredVersion: 'bundled', stagingRequired: true, rollbackable: true,
+  },
+  {
+    manifest: manifest({ id: 'first-party.plugin-service-orchestrator', displayName: 'Plugin Service Orchestrator', version: 'bundled', requestedCapabilities: { hostShell: { commands: ['node --experimental-strip-types plugin-service-orchestrator-cli.ts', 'supervisorctl reread', 'supervisorctl update'] }, filesystem: [{ scope: 'absolute', path: '/var/lib/vd', access: 'readWrite' }], network: { mode: 'egress' } } }),
+    privilegeTier: 'core-control-plane', bootCritical: false, supervisorPrograms: ['vd-plugin-service-orchestrator-startup'], supervisorConfig: PLUGIN_SERVICE_ORCHESTRATOR_SUPERVISOR, installStrategy: 'bundled-runtime-artifact', desiredVersion: 'bundled', stagingRequired: true, rollbackable: true,
   },
   {
     manifest: manifest({ id: 'first-party.caddy', displayName: 'Caddy', version: '2.10.2', requestedCapabilities: { hostShell: { commands: ['caddy run'] }, network: { mode: 'ingress-and-egress', ports: ['80', '443'] } } }),
