@@ -80,6 +80,7 @@ export function AddVKWorkspaceModal({
   const [customName, setCustomName] = useState('');
   const [spacePickerTarget, setSpacePickerTarget] =
     useState<WorkspaceOption | null>(null);
+  const [localActionError, setLocalActionError] = useState<string | null>(null);
 
   const workspaceTabGroupMap = useMemo(
     () => buildWorkspaceTabGroupMap(workspaceState),
@@ -105,6 +106,7 @@ export function AddVKWorkspaceModal({
       setLoading(false);
       setRefreshing(false);
       setError(null);
+      setLocalActionError(null);
     }
   }, [isOpen]);
 
@@ -153,6 +155,7 @@ export function AddVKWorkspaceModal({
     }
 
     setError(null);
+    setLocalActionError(null);
 
     try {
       const workspaces = await fetchWorkspaceOptions();
@@ -173,6 +176,8 @@ export function AddVKWorkspaceModal({
 
   const handleWorkspaceSelect = async (workspace: WorkspaceOption) => {
     if (isActionPending) return;
+
+    setLocalActionError(null);
 
     try {
       const openLocation = workspaceTabGroupMap.get(workspace.id);
@@ -195,14 +200,16 @@ export function AddVKWorkspaceModal({
       await onAdd(workspace.id, workspace.name || 'Untitled Workspace', containerRef);
       onComplete?.();
       onClose();
-    } catch {
-      // Parent mutation state owns surfaced action errors and retry behavior.
+    } catch (err) {
+      setLocalActionError(getActionErrorMessage(err));
     }
   };
 
   const handleSelectSpace = async (spaceId: string) => {
     if (isActionPending) return;
     if (!spacePickerTarget) return;
+
+    setLocalActionError(null);
 
     try {
       const containerRef = await resolveContainerRef(spacePickerTarget);
@@ -224,8 +231,8 @@ export function AddVKWorkspaceModal({
 
       onComplete?.();
       onClose();
-    } catch {
-      // Parent mutation state owns surfaced action errors and retry behavior.
+    } catch (err) {
+      setLocalActionError(getActionErrorMessage(err));
     }
   };
 
@@ -235,16 +242,24 @@ export function AddVKWorkspaceModal({
 
     const name = customName.trim() || 'Custom Workspace';
 
-    // If onAddWithPath is provided, use it
-    if (onAddWithPath) {
-      await onAddWithPath(customPath.trim(), name);
-    } else {
-      // Fallback: treat path as containerRef and create empty taskAttemptId
-      await onAdd('', name, customPath.trim());
+    setLocalActionError(null);
+
+    try {
+      // If onAddWithPath is provided, use it
+      if (onAddWithPath) {
+        await onAddWithPath(customPath.trim(), name);
+      } else {
+        // Fallback: treat path as containerRef and create empty taskAttemptId
+        await onAdd('', name, customPath.trim());
+      }
+      onComplete?.();
+      onClose();
+    } catch (err) {
+      setLocalActionError(getActionErrorMessage(err));
     }
-    onComplete?.();
-    onClose();
   };
+
+  const surfacedActionError = actionError || localActionError;
 
   return (
     <Modal
@@ -269,12 +284,12 @@ export function AddVKWorkspaceModal({
           </p>
         </ModalHeader>
         <ModalBody>
-          {actionError && (
+          {surfacedActionError && (
             <div
               role="alert"
               className="rounded-md border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200"
             >
-              {actionError}
+              {surfacedActionError}
             </div>
           )}
 
@@ -660,6 +675,16 @@ function buildWorkspaceTabGroupMap(
 function extractWorkspaceIdFromUrl(value: string): string | null {
   const match = value.match(/\/workspaces\/([^/?#]+)/);
   return match?.[1] ?? null;
+}
+
+function getActionErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+  if (typeof error === 'string' && error.trim()) {
+    return error;
+  }
+  return 'Failed to open workspace. Please retry.';
 }
 
 function parseTimestamp(value: unknown): number {
