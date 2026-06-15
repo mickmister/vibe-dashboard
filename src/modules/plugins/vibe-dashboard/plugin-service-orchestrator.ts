@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+import { mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
 export interface PluginServiceCatalog {
@@ -95,6 +97,11 @@ export interface PluginServiceDryRunPlan {
   supervisorChanges: SupervisorConfigChange[];
 }
 
+export interface AppliedSupervisorConfigChange {
+  action: Exclude<SupervisorConfigChange['action'], 'unchanged'> | 'unchanged';
+  path: string;
+}
+
 export function createPluginServiceDryRunPlan(input: {
   catalog: PluginServiceCatalog;
   paths: PluginServiceOrchestratorPaths;
@@ -130,6 +137,73 @@ export function createPluginServiceDryRunPlan(input: {
   }
 
   return { artifacts, supervisorChanges };
+}
+
+export async function readExistingSupervisorConfigs(configDir: string): Promise<Record<string, string>> {
+  const configs: Record<string, string> = {};
+  let entries: string[];
+  try {
+    entries = await readdir(configDir);
+  } catch (error) {
+    if (isNodeErrorWithCode(error, 'ENOENT')) return {};
+    throw error;
+  }
+
+  for (const entry of entries) {
+    if (!entry.endsWith('.conf')) continue;
+    const path = join(configDir, entry);
+    configs[path] = await readFile(path, 'utf8');
+  }
+  return configs;
+}
+
+export async function discoverCachedArtifacts(input: {
+  catalog: PluginServiceCatalog;
+  paths: PluginServiceOrchestratorPaths;
+}): Promise<CachedPluginArtifact[]> {
+  const cachedArtifacts: CachedPluginArtifact[] = [];
+  validateCatalog(input.catalog);
+
+  for (const plugin of input.catalog.plugins) {
+    if (plugin.artifact.kind !== 'github-release-asset') continue;
+    const path = artifactCachePath(input.paths, plugin.artifact);
+    let bytes: Buffer;
+    try {
+      bytes = await readFile(path);
+    } catch (error) {
+      if (isNodeErrorWithCode(error, 'ENOENT')) continue;
+      throw error;
+    }
+
+    const sha256 = createHash('sha256').update(bytes).digest('hex');
+    if (sha256 === plugin.artifact.sha256) {
+      cachedArtifacts.push({ pluginId: plugin.id, version: plugin.version, sha256, path });
+    }
+  }
+
+  return cachedArtifacts;
+}
+
+export async function applySupervisorConfigChanges(changes: SupervisorConfigChange[]): Promise<AppliedSupervisorConfigChange[]> {
+  const applied: AppliedSupervisorConfigChange[] = [];
+  for (const change of changes) {
+    if (change.action === 'unchanged') {
+      applied.push({ action: 'unchanged', path: change.path });
+      continue;
+    }
+    if (change.action === 'delete') {
+      await rm(change.path, { force: true });
+      applied.push({ action: 'delete', path: change.path });
+      continue;
+    }
+
+    const temporaryPath = `${change.path}.tmp-${process.pid}-${Date.now()}`;
+    await mkdir(dirname(change.path), { recursive: true });
+    await writeFile(temporaryPath, normalizeConfig(change.content), { mode: 0o644 });
+    await rename(temporaryPath, change.path);
+    applied.push({ action: change.action, path: change.path });
+  }
+  return applied;
 }
 
 export function renderSupervisorProgramConfig(input: {
@@ -304,4 +378,8 @@ function escapeSupervisorEnvironmentValue(value: string): string {
 
 function escapeSingleQuotedShell(value: string): string {
   return value.replace(/'/g, `'"'"'`);
+}
+
+function isNodeErrorWithCode(error: unknown, code: string): error is NodeJS.ErrnoException {
+  return error instanceof Error && 'code' in error && error.code === code;
 }

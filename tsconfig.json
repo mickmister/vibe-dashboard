@@ -6,6 +6,7 @@
     "moduleResolution": "bundler",
     "module": "es2020",
     "resolveJsonModule": true,
+    "allowImportingTsExtensions": true,
     "paths": {
       "@vibe-kanban/workflow-core": ["./packages/workflow-core/src/index.ts"]
     },
