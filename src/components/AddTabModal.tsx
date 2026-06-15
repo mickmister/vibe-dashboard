@@ -34,7 +34,7 @@ const PRESETS = [
     key: 'vk-workspace',
     title: 'Open Existing Workspace',
     url: '',
-    description: 'Add workspace with Agent + Code split view',
+    description: 'Add workspace with Agent, Code, Diff, and split views',
   },
   {
     key: 'code',

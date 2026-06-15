@@ -4,6 +4,7 @@ import type { TabGroup, Tab } from '../types';
 import type { WorkspaceState, SavedWorkspaceSession } from '../types';
 import { AppLoadingScreen } from './AppLoadingScreen';
 import { SpacesOverview } from './SpacesOverview';
+import { DiffView } from './DiffView';
 import { hasSameBaseOrigin } from '../lib/originTrust';
 
 const INTERNAL_URL_PREFIX = 'internal://';
@@ -704,6 +705,15 @@ export function IframePanel({
           errorState={errorState}
           retryTab={retryTab}
           onUpdatePairRatios={onUpdatePairRatios}
+          {...(workspace ? { workspace } : {})}
+          {...(savedSessions ? { savedSessions } : {})}
+          {...(currentSessionId ? { currentSessionId } : {})}
+          {...(onResumeSession ? { onResumeSession } : {})}
+          {...(onRenameSession ? { onRenameSession } : {})}
+          {...(onDeleteSession ? { onDeleteSession } : {})}
+          {...(onStartNewSession ? { onStartNewSession } : {})}
+          {...(onNavigateToTabGroup ? { onNavigateToTabGroup } : {})}
+          {...(onOpenVKWorkspace ? { onOpenVKWorkspace } : {})}
         />
       ) : activeTab ? (
           <SingleTabView
@@ -843,33 +853,17 @@ function SingleTabView({
 
   // Check if this is an internal URL that should render a special component
   if (target.kind === 'internal') {
-    const { internalPath } = target;
-
-    if (
-      internalPath === 'spaces-overview' &&
-      workspace &&
-      onNavigateToTabGroup &&
-      onResumeSession &&
-      onRenameSession &&
-      onDeleteSession &&
-      onStartNewSession
-    ) {
-      return (
-        <div className="flex-1 min-h-0 relative h-full">
-          <SpacesOverview
-            workspace={workspace}
-            savedSessions={savedSessions || []}
-            currentSessionId={currentSessionId}
-            onResumeSession={onResumeSession}
-            onRenameSession={onRenameSession}
-            onDeleteSession={onDeleteSession}
-            onStartNewSession={onStartNewSession}
-            onNavigateToTabGroup={onNavigateToTabGroup}
-            {...(onOpenVKWorkspace ? { onOpenVKWorkspace } : {})}
-          />
-        </div>
-      );
-    }
+    return renderInternalView(target.internalPath, {
+      workspace,
+      savedSessions,
+      currentSessionId,
+      onResumeSession,
+      onRenameSession,
+      onDeleteSession,
+      onStartNewSession,
+      onNavigateToTabGroup,
+      onOpenVKWorkspace,
+    });
   }
 
   if (target.kind === 'blocked-self-app') {
@@ -894,6 +888,15 @@ function PairView({
   errorState,
   retryTab,
   onUpdatePairRatios,
+  workspace,
+  savedSessions,
+  currentSessionId,
+  onResumeSession,
+  onRenameSession,
+  onDeleteSession,
+  onStartNewSession,
+  onNavigateToTabGroup,
+  onOpenVKWorkspace,
 }: {
   activePair: { id: string; tabIds: string[]; ratios: number[] };
   tabGroup: TabGroup;
@@ -901,6 +904,15 @@ function PairView({
   errorState: Map<string, boolean>;
   retryTab: (tabId: string) => void;
   onUpdatePairRatios: (pairId: string, ratios: number[]) => void;
+  workspace?: WorkspaceState;
+  savedSessions?: SavedWorkspaceSession[];
+  currentSessionId?: string;
+  onResumeSession?: (sessionId: string) => void;
+  onRenameSession?: (sessionId: string, name: string) => void;
+  onDeleteSession?: (sessionId: string) => void;
+  onStartNewSession?: () => void;
+  onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void;
+  onOpenVKWorkspace?: (taskAttemptId: string, name: string, containerRef: string, spaceId: string) => void;
 }) {
   const pairTabs = activePair.tabIds
     .map((id) => tabGroup.tabs.find((t) => t.id === id))
@@ -932,6 +944,15 @@ function PairView({
                 isLoaded={isLoaded}
                 hasError={hasError}
                 retryTab={retryTab}
+                {...(workspace ? { workspace } : {})}
+                {...(savedSessions ? { savedSessions } : {})}
+                {...(currentSessionId ? { currentSessionId } : {})}
+                {...(onResumeSession ? { onResumeSession } : {})}
+                {...(onRenameSession ? { onRenameSession } : {})}
+                {...(onDeleteSession ? { onDeleteSession } : {})}
+                {...(onStartNewSession ? { onStartNewSession } : {})}
+                {...(onNavigateToTabGroup ? { onNavigateToTabGroup } : {})}
+                {...(onOpenVKWorkspace ? { onOpenVKWorkspace } : {})}
               />
             </Panel>
             {i < pairTabs.length - 1 && (
@@ -949,13 +970,45 @@ function PairTabView({
   isLoaded,
   hasError,
   retryTab,
+  workspace,
+  savedSessions,
+  currentSessionId,
+  onResumeSession,
+  onRenameSession,
+  onDeleteSession,
+  onStartNewSession,
+  onNavigateToTabGroup,
+  onOpenVKWorkspace,
 }: {
   tab: Tab;
   isLoaded: boolean;
   hasError: boolean;
   retryTab: (tabId: string) => void;
+  workspace?: WorkspaceState;
+  savedSessions?: SavedWorkspaceSession[];
+  currentSessionId?: string;
+  onResumeSession?: (sessionId: string) => void;
+  onRenameSession?: (sessionId: string, name: string) => void;
+  onDeleteSession?: (sessionId: string) => void;
+  onStartNewSession?: () => void;
+  onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void;
+  onOpenVKWorkspace?: (taskAttemptId: string, name: string, containerRef: string, spaceId: string) => void;
 }) {
   const target = getTabRenderTarget(tab.url);
+
+  if (target.kind === 'internal') {
+    return renderInternalView(target.internalPath, {
+      workspace,
+      savedSessions,
+      currentSessionId,
+      onResumeSession,
+      onRenameSession,
+      onDeleteSession,
+      onStartNewSession,
+      onNavigateToTabGroup,
+      onOpenVKWorkspace,
+    });
+  }
 
   if (target.kind === 'blocked-self-app') {
     return <BlockedSelfAppPlaceholder url={tab.url} />;
@@ -970,6 +1023,73 @@ function PairTabView({
       ) : null}
     </div>
   );
+}
+
+type InternalViewContext = {
+  workspace?: WorkspaceState;
+  savedSessions?: SavedWorkspaceSession[];
+  currentSessionId?: string;
+  onResumeSession?: (sessionId: string) => void;
+  onRenameSession?: (sessionId: string, name: string) => void;
+  onDeleteSession?: (sessionId: string) => void;
+  onStartNewSession?: () => void;
+  onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void;
+  onOpenVKWorkspace?: (
+    taskAttemptId: string,
+    name: string,
+    containerRef: string,
+    spaceId: string,
+  ) => void;
+};
+
+function renderInternalView(internalPath: string, context: InternalViewContext) {
+  if (
+    internalPath === 'spaces-overview' &&
+    context.workspace &&
+    context.onNavigateToTabGroup &&
+    context.onResumeSession &&
+    context.onRenameSession &&
+    context.onDeleteSession &&
+    context.onStartNewSession
+  ) {
+    return (
+      <div className="flex-1 min-h-0 relative h-full pointer-events-auto">
+        <SpacesOverview
+          workspace={context.workspace}
+          savedSessions={context.savedSessions || []}
+          currentSessionId={context.currentSessionId}
+          onResumeSession={context.onResumeSession}
+          onRenameSession={context.onRenameSession}
+          onDeleteSession={context.onDeleteSession}
+          onStartNewSession={context.onStartNewSession}
+          onNavigateToTabGroup={context.onNavigateToTabGroup}
+          {...(context.onOpenVKWorkspace
+            ? { onOpenVKWorkspace: context.onOpenVKWorkspace }
+            : {})}
+        />
+      </div>
+    );
+  }
+
+  if (internalPath.startsWith('diff')) {
+    const params = parseInternalPathParams(internalPath);
+    return (
+      <div className="flex-1 min-h-0 relative h-full pointer-events-auto">
+        <DiffView
+          workspaceId={params.get('workspaceId') || ''}
+          workspaceDir={params.get('workspaceDir') || ''}
+        />
+      </div>
+    );
+  }
+
+  return <BlockedSelfAppPlaceholder url={`internal://${internalPath}`} />;
+}
+
+function parseInternalPathParams(internalPath: string): URLSearchParams {
+  const queryIndex = internalPath.indexOf('?');
+  if (queryIndex === -1) return new URLSearchParams();
+  return new URLSearchParams(internalPath.slice(queryIndex + 1));
 }
 
 function EmptyView() {

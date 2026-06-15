@@ -10,7 +10,10 @@ import {
 
 import springboard, { ModuleAPI } from 'springboard';
 import { createDefaultWorkspace, getDefaultSpace } from './types';
-import { buildWorkspaceFolderUrl } from './lib/vkWorkspaceUrl';
+import {
+  buildWorkspaceDiffUrl,
+  buildWorkspaceFolderUrl,
+} from './lib/vkWorkspaceUrl';
 import type {
   WorkspaceState,
   SavedWorkspaceSession,
@@ -509,8 +512,10 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
           // Generate IDs for tab group and tabs
           tabGroupId = `tg_${draft.nextId++}`;
           pairId = `pair_${draft.nextId++}`;
+          const agentDiffPairId = `pair_${draft.nextId++}`;
           const kanbanTabId = `tab_${draft.nextId++}`;
           const codeTabId = `tab_${draft.nextId++}`;
+          const diffTabId = `tab_${draft.nextId++}`;
 
           // Store agent tab ID for return
           agentTabId = kanbanTabId;
@@ -532,11 +537,21 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
                 title: 'Code',
                 url: buildWorkspaceFolderUrl(args.baseOrigin, args.containerRef),
               },
+              {
+                id: diffTabId,
+                title: 'Diff',
+                url: buildWorkspaceDiffUrl(args.taskAttemptId, args.containerRef),
+              },
             ],
             pairs: [
               {
                 id: pairId,
                 tabIds: [kanbanTabId, codeTabId],
+                ratios: [50, 50],
+              },
+              {
+                id: agentDiffPairId,
+                tabIds: [kanbanTabId, diffTabId],
                 ratios: [50, 50],
               },
             ],

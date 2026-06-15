@@ -19,6 +19,7 @@
   "dependencies": {
     "@heroui/react": "^2.8.9",
     "@hono/node-server": "^1.19.9",
+    "@pierre/diffs": "1.1.4",
     "@tabler/icons-react": "^3.44.0",
     "@tailwindcss/vite": "^4.1.18",
     "@vibe-dashboard/workflow-core": "workspace:*",

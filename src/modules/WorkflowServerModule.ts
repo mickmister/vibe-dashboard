@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { serverRegistry } from 'springboard/server/register';
+import { registerDiffRoutes } from '../server/diff-routes';
 import { registerWorkflowRoutes } from '../server/workflow-routes';
 import { workflowRegistry } from '../workflows/registry';
 import type { CachedRepoAlias } from '../workflows/github-ci';
@@ -12,6 +13,7 @@ const reposRoot = process.env.VK_REPOS_ROOT || join(process.env.HOME || '/home/v
 let cachedGitRepos: CachedRepoAlias[] | null = null;
 
 serverRegistry.registerServerModule((api) => {
+  registerDiffRoutes(api.hono);
   registerWorkflowRoutes(api.hono, {
     registry: workflowRegistry,
     repoAliasCache: {

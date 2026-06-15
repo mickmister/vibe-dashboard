@@ -48,6 +48,39 @@ export interface RepoWithBranch {
   target_branch: string;
 }
 
+export type Executor =
+  | 'CLAUDE_CODE'
+  | 'CODEX'
+  | 'GEMINI'
+  | 'AMP'
+  | 'CURSOR_AGENT'
+  | 'COPILOT'
+  | 'DROID'
+  | 'OPENCODE'
+  | 'QWEN_CODE';
+
+export interface Session {
+  id: string;
+  workspace_id: string;
+  executor: Executor | null;
+  name: string | null;
+  agent_working_dir: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ReviewDraftComment {
+  file_path: string;
+  line_number: number;
+  body: string;
+  code_line?: string | null;
+}
+
+export interface AppendReviewCommentsResponse {
+  message: string;
+  comments_appended: number;
+}
+
 // ── API response envelope ───────────────────────────────────────────────────
 
 interface ApiResponse<T> {
@@ -106,6 +139,10 @@ export class VibeKanbanClient {
     return this.get(`/workspaces/${id}/repos`);
   }
 
+  getSessions(workspaceId: string): Promise<Session[]> {
+    return this.get(`/sessions?workspace_id=${encodeURIComponent(workspaceId)}`);
+  }
+
   getWorkspaceBranchStatus(id: string): Promise<unknown> {
     return this.get(`/workspaces/${id}/git/status`);
   }
@@ -116,6 +153,13 @@ export class VibeKanbanClient {
 
   stopWorkspaceExecution(workspaceId: string): Promise<void> {
     return this.post(`/workspaces/${workspaceId}/execution/stop`, {});
+  }
+
+  appendReviewComments(
+    sessionId: string,
+    comments: ReviewDraftComment[],
+  ): Promise<AppendReviewCommentsResponse> {
+    return this.post(`/sessions/${sessionId}/review/comments`, { comments });
   }
 }
 
