@@ -10,6 +10,7 @@ import {
   applySupervisorConfigChanges,
   createPluginServiceDryRunPlan,
   discoverCachedArtifacts,
+  materializePluginArtifacts,
   readExistingSupervisorConfigs,
   renderSupervisorProgramConfig,
   type PluginServiceCatalog,
@@ -45,7 +46,7 @@ describe('plugin service supervisor orchestration dry run', () => {
           pluginId: 'vd.beads-web',
           version: '0.1.0',
           sha256: 'c'.repeat(64),
-          path: '/var/lib/vd/plugin-cache/github/mickmister/beads-web/v0.1.0/beads-web-linux-x64.tar.gz',
+          path: '/var/lib/vd/plugin-cache/github/mickmister/beads-web/v0.11.4/beads-web-linux-x64',
         },
       ],
       existingSupervisorConfigs: {},
@@ -113,9 +114,9 @@ describe('plugin service supervisor orchestration dry run', () => {
       paths,
     });
 
-    expect(beadsWebConfig).toContain('command=/var/lib/vd/plugins/vd.beads-web/0.1.0/extracted/bin/beads-web --host 127.0.0.1 --port %(ENV_BEADS_WEB_PORT)s');
-    expect(beadsWebConfig).toContain('environment=BEADS_WEB_PORT="3109",HOME="/home/vkuser",XDG_CONFIG_HOME="/home/vkuser/.config",VD_PLUGIN_ID="vd.beads-web",VD_PLUGIN_VERSION="0.1.0",VD_SERVICE_ID="web"');
-    expect(vibeDashboardConfig).toContain('PORT="%(ENV_DASHBOARD_PORT)s"');
+    expect(beadsWebConfig).toContain('command=/var/lib/vd/plugins/vd.beads-web/0.1.0/extracted/bin/beads-web');
+    expect(beadsWebConfig).toContain('environment=BEADS_WEB_PORT="3109",PORT="3109",HOME="/home/vkuser",XDG_CONFIG_HOME="/home/vkuser/.config",VD_PLUGIN_ID="vd.beads-web",VD_PLUGIN_VERSION="0.1.0",VD_SERVICE_ID="web"');
+    expect(vibeDashboardConfig).toContain('PORT="3007"');
   });
 
   it('supports a beads-web-only catalog for isolated supervisor experiments', () => {
@@ -130,7 +131,7 @@ describe('plugin service supervisor orchestration dry run', () => {
       expect.objectContaining({
         action: 'download',
         pluginId: 'vd.beads-web',
-        url: 'https://github.com/mickmister/beads-web/releases/download/v0.1.0/beads-web-linux-x64.tar.gz',
+        url: 'https://github.com/mickmister/beads-web/releases/download/v0.11.4/beads-web-linux-x64',
       }),
     ]);
     expect(plan.supervisorChanges).toEqual([
@@ -143,14 +144,14 @@ describe('plugin service supervisor orchestration dry run', () => {
 
   it('discovers cached artifacts by hashing files in the persistent artifact cache', async () => {
     const tempRoot = await mkdtemp(join(tmpdir(), 'vd-plugin-cache-'));
-    const cachePath = join(tempRoot, 'cache/github/mickmister/beads-web/v0.1.0/beads-web-linux-x64.tar.gz');
+    const cachePath = join(tempRoot, 'cache/github/mickmister/beads-web/v0.11.4/beads-web-linux-x64');
     const bytes = Buffer.from('fake beads-web artifact');
     const sha256 = createHash('sha256').update(bytes).digest('hex');
     const catalog = structuredClone(beadsWebOnlyCatalog) as PluginServiceCatalog;
     const artifact = catalog.plugins[0]!.artifact;
     if (artifact.kind !== 'github-release-asset') throw new Error('expected github-release-asset fixture');
     artifact.sha256 = sha256;
-    await mkdir(join(tempRoot, 'cache/github/mickmister/beads-web/v0.1.0'), { recursive: true });
+    await mkdir(join(tempRoot, 'cache/github/mickmister/beads-web/v0.11.4'), { recursive: true });
     await writeFile(cachePath, bytes);
 
     await expect(discoverCachedArtifacts({
@@ -161,6 +162,25 @@ describe('plugin service supervisor orchestration dry run', () => {
         supervisorConfigDir: join(tempRoot, 'supervisor'),
       },
     })).resolves.toEqual([{ pluginId: 'vd.beads-web', version: '0.1.0', sha256, path: cachePath }]);
+  });
+
+  it('downloads a binary release asset, allows explicit hash bypass for smoke runs, and installs it executable', async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), 'vd-plugin-materialize-'));
+    const materialized = await materializePluginArtifacts({
+      catalog: beadsWebOnlyCatalog as PluginServiceCatalog,
+      paths: {
+        artifactCacheRoot: join(tempRoot, 'cache'),
+        installRoot: join(tempRoot, 'plugins'),
+        supervisorConfigDir: join(tempRoot, 'supervisor'),
+      },
+      allowHashMismatch: true,
+      fetchBytes: async () => Buffer.from('#!/bin/sh\necho fake beads-web\\n'),
+    });
+
+    expect(materialized).toEqual([
+      expect.objectContaining({ action: 'downloaded', pluginId: 'vd.beads-web' }),
+    ]);
+    await expect(readFile(join(tempRoot, 'plugins/vd.beads-web/0.1.0/extracted/bin/beads-web'), 'utf8')).resolves.toContain('fake beads-web');
   });
 
   it('applies generated supervisor configs to a separate config directory idempotently', async () => {

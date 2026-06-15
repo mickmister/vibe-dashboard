@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
 export interface PluginServiceCatalog {
@@ -15,6 +15,7 @@ export type PluginArtifactDefinition =
     asset: string;
     sha256: string;
     signature: string;
+    installAs?: string;
   };
 
 export interface PluginServiceDefinition {
@@ -95,6 +96,14 @@ export type SupervisorConfigChange =
 export interface PluginServiceDryRunPlan {
   artifacts: PluginArtifactDryRunPlan[];
   supervisorChanges: SupervisorConfigChange[];
+}
+
+export interface PluginArtifactMaterialization {
+  action: 'bundled-current-repo' | 'cached' | 'downloaded';
+  pluginId: string;
+  version: string;
+  cachePath?: string;
+  installPath: string;
 }
 
 export interface AppliedSupervisorConfigChange {
@@ -206,6 +215,57 @@ export async function applySupervisorConfigChanges(changes: SupervisorConfigChan
   return applied;
 }
 
+export async function materializePluginArtifacts(input: {
+  catalog: PluginServiceCatalog;
+  paths: PluginServiceOrchestratorPaths;
+  allowHashMismatch?: boolean;
+  fetchBytes?: (url: string) => Promise<Uint8Array>;
+}): Promise<PluginArtifactMaterialization[]> {
+  validateCatalog(input.catalog);
+  const materialized: PluginArtifactMaterialization[] = [];
+
+  for (const plugin of input.catalog.plugins) {
+    const installPath = pluginInstallPath(input.paths, plugin);
+    if (plugin.artifact.kind === 'bundled-current-repo') {
+      materialized.push({ action: 'bundled-current-repo', pluginId: plugin.id, version: plugin.version, installPath });
+      continue;
+    }
+
+    const artifact = plugin.artifact;
+    const cachePath = artifactCachePath(input.paths, artifact);
+    let cacheHit = true;
+    const bytes = await readFile(cachePath).catch(async (error: unknown) => {
+      if (!isNodeErrorWithCode(error, 'ENOENT')) throw error;
+      cacheHit = false;
+      const downloaded = await (input.fetchBytes ?? fetchBytes)(githubReleaseAssetUrl(artifact));
+      await mkdir(dirname(cachePath), { recursive: true });
+      await writeFile(cachePath, downloaded, { mode: 0o644 });
+      return Buffer.from(downloaded);
+    });
+
+    const sha256 = createHash('sha256').update(bytes).digest('hex');
+    if (sha256 !== artifact.sha256 && !input.allowHashMismatch) {
+      throw new Error(`Artifact sha256 mismatch for ${plugin.id}@${plugin.version}: expected ${artifact.sha256}, got ${sha256}`);
+    }
+
+    const installAs = artifact.installAs ?? artifact.asset;
+    const installTarget = join(pluginExtractedPath(input.paths, plugin), installAs);
+    await mkdir(dirname(installTarget), { recursive: true });
+    await copyFile(cachePath, installTarget);
+    await chmod(installTarget, 0o755);
+
+    materialized.push({
+      action: cacheHit ? 'cached' : 'downloaded',
+      pluginId: plugin.id,
+      version: plugin.version,
+      cachePath,
+      installPath,
+    });
+  }
+
+  return materialized;
+}
+
 export function renderSupervisorProgramConfig(input: {
   plugin: PluginServiceDefinition;
   service: SupervisorServiceDefinition;
@@ -310,7 +370,7 @@ function expandTemplate(
   return value.replace(/\$\{([A-Z0-9_]+)\}/g, (_match, name: string) => {
     if (name === 'PLUGIN_DIR') return pluginExtractedPath(paths, plugin);
     const portValue = portValues.get(name);
-    if (portValue !== undefined) return `%(ENV_${name})s`;
+    if (portValue !== undefined) return portValue;
     return `%(ENV_${name})s`;
   });
 }
@@ -378,6 +438,12 @@ function escapeSupervisorEnvironmentValue(value: string): string {
 
 function escapeSingleQuotedShell(value: string): string {
   return value.replace(/'/g, `'"'"'`);
+}
+
+async function fetchBytes(url: string): Promise<Uint8Array> {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Failed to download ${url}: ${response.status} ${response.statusText}`);
+  return new Uint8Array(await response.arrayBuffer());
 }
 
 function isNodeErrorWithCode(error: unknown, code: string): error is NodeJS.ErrnoException {

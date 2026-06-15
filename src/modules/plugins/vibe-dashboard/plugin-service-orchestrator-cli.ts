@@ -3,6 +3,7 @@ import {
   applySupervisorConfigChanges,
   createPluginServiceDryRunPlan,
   discoverCachedArtifacts,
+  materializePluginArtifacts,
   readExistingSupervisorConfigs,
   type PluginServiceCatalog,
   type PluginServiceOrchestratorPaths,
@@ -13,6 +14,7 @@ export interface PluginServiceCliResult {
   catalogPath: string;
   paths: PluginServiceOrchestratorPaths;
   plan: ReturnType<typeof createPluginServiceDryRunPlan>;
+  materialized?: Awaited<ReturnType<typeof materializePluginArtifacts>>;
   applied?: Awaited<ReturnType<typeof applySupervisorConfigChanges>>;
 }
 
@@ -40,8 +42,15 @@ export async function runPluginServiceOrchestratorCli(argv: string[]): Promise<P
     return { mode: parsed.mode, catalogPath: parsed.catalogPath, paths: parsed.paths, plan };
   }
 
+  const materialized = process.env.VD_PLUGIN_ORCHESTRATOR_INSTALL_ARTIFACTS === 'true'
+    ? await materializePluginArtifacts({
+      catalog,
+      paths: parsed.paths,
+      allowHashMismatch: process.env.VD_PLUGIN_ORCHESTRATOR_ALLOW_HASH_MISMATCH === 'true',
+    })
+    : undefined;
   const applied = await applySupervisorConfigChanges(plan.supervisorChanges);
-  return { mode: parsed.mode, catalogPath: parsed.catalogPath, paths: parsed.paths, plan, applied };
+  return { mode: parsed.mode, catalogPath: parsed.catalogPath, paths: parsed.paths, plan, materialized, applied };
 }
 
 function parseArgs(argv: string[]): ParsedArgs {
