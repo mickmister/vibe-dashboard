@@ -46,24 +46,10 @@
 		}
 	}
 
-	# Beads Web named host — own / and /_next on beads-web.$PROXY_DOMAIN only.
-	@beads_web_host host beads-web.{$PROXY_DOMAIN}
-	handle @beads_web_host {
-		reverse_proxy localhost:{$BEADS_WEB_PORT:3109} {
-			header_up Host {upstream_hostport}
-			header_up Upgrade {http.request.header.Upgrade}
-			header_up Connection {http.request.header.Connection}
-		}
-	}
-
-	# Beads Web localhost/IP fallback. Keep subpath routing explicit so /_next remains owned by VD/VK.
-	handle_path /beads/* {
-		reverse_proxy localhost:{$BEADS_WEB_PORT:3109} {
-			header_up Host {upstream_hostport}
-			header_up Upgrade {http.request.header.Upgrade}
-			header_up Connection {http.request.header.Connection}
-		}
-	}
+	# Plugin-owned host routes generated before Caddy starts. Runtime plugin
+	# changes can update this file and then reload Caddy. This file must remain
+	# the only Caddy file edited for plugin exposure.
+	import /etc/caddy/plugins.caddy
 
 	# Vibe Dashboard app
 	@vibe_dashboard_root {

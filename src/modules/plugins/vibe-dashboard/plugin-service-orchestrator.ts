@@ -14,7 +14,8 @@ export type PluginArtifactDefinition =
     tag: string;
     asset: string;
     sha256: string;
-    signature: string;
+    /** First-party service artifacts are sha256-pinned on this branch. Marketplace signatures are deferred. */
+    signature?: string;
     installAs?: string;
   };
 
@@ -38,6 +39,7 @@ export interface SupervisorServiceDefinition {
   preStart?: string[];
   ports?: ServicePortDefinition[];
   env?: Record<string, string>;
+  httpExposure?: CaddyHttpExposureDefinition;
 }
 
 export interface ServicePortDefinition {
@@ -47,10 +49,17 @@ export interface ServicePortDefinition {
   bind: string;
 }
 
+export interface CaddyHttpExposureDefinition {
+  kind: 'caddy-subdomain';
+  subdomain: string;
+  port: string;
+}
+
 export interface PluginServiceOrchestratorPaths {
   artifactCacheRoot: string;
   installRoot: string;
   supervisorConfigDir: string;
+  caddyPluginConfigPath?: string;
 }
 
 export interface CachedPluginArtifact {
@@ -75,7 +84,7 @@ export type PluginArtifactDryRunPlan =
     cachePath: string;
     installPath: string;
     sha256: string;
-    signature: string;
+    signature?: string;
   };
 
 export type SupervisorConfigChange =
@@ -96,6 +105,13 @@ export type SupervisorConfigChange =
 export interface PluginServiceDryRunPlan {
   artifacts: PluginArtifactDryRunPlan[];
   supervisorChanges: SupervisorConfigChange[];
+  caddyConfigChange?: CaddyPluginConfigChange;
+}
+
+export interface CaddyPluginConfigChange {
+  action: 'create' | 'update' | 'unchanged';
+  path: string;
+  content: string;
 }
 
 export interface PluginArtifactMaterialization {
@@ -116,6 +132,7 @@ export function createPluginServiceDryRunPlan(input: {
   paths: PluginServiceOrchestratorPaths;
   cachedArtifacts: CachedPluginArtifact[];
   existingSupervisorConfigs: Record<string, string>;
+  existingCaddyPluginConfig?: string;
 }): PluginServiceDryRunPlan {
   validateCatalog(input.catalog);
 
@@ -145,7 +162,24 @@ export function createPluginServiceDryRunPlan(input: {
     }
   }
 
-  return { artifacts, supervisorChanges };
+  const caddyConfigChange = input.paths.caddyPluginConfigPath
+    ? createCaddyPluginConfigChange({
+      catalog: input.catalog,
+      path: input.paths.caddyPluginConfigPath,
+      existingContent: input.existingCaddyPluginConfig,
+    })
+    : undefined;
+
+  return { artifacts, supervisorChanges, ...(caddyConfigChange ? { caddyConfigChange } : {}) };
+}
+
+export async function readExistingCaddyPluginConfig(path: string): Promise<string | undefined> {
+  try {
+    return await readFile(path, 'utf8');
+  } catch (error) {
+    if (isNodeErrorWithCode(error, 'ENOENT')) return undefined;
+    throw error;
+  }
 }
 
 export async function readExistingSupervisorConfigs(configDir: string): Promise<Record<string, string>> {
@@ -215,6 +249,19 @@ export async function applySupervisorConfigChanges(changes: SupervisorConfigChan
   return applied;
 }
 
+export async function applyCaddyPluginConfigChange(
+  change: CaddyPluginConfigChange | undefined,
+): Promise<{ action: CaddyPluginConfigChange['action']; path: string } | undefined> {
+  if (!change) return undefined;
+  if (change.action === 'unchanged') return { action: 'unchanged', path: change.path };
+
+  const temporaryPath = `${change.path}.tmp-${process.pid}-${Date.now()}`;
+  await mkdir(dirname(change.path), { recursive: true });
+  await writeFile(temporaryPath, normalizeConfig(change.content), { mode: 0o644 });
+  await rename(temporaryPath, change.path);
+  return { action: change.action, path: change.path };
+}
+
 export async function materializePluginArtifacts(input: {
   catalog: PluginServiceCatalog;
   paths: PluginServiceOrchestratorPaths;
@@ -238,8 +285,14 @@ export async function materializePluginArtifacts(input: {
       if (!isNodeErrorWithCode(error, 'ENOENT')) throw error;
       cacheHit = false;
       const downloaded = await (input.fetchBytes ?? fetchBytes)(githubReleaseAssetUrl(artifact));
+      const downloadedSha256 = createHash('sha256').update(downloaded).digest('hex');
+      if (downloadedSha256 !== artifact.sha256 && !input.allowHashMismatch) {
+        throw new Error(`Artifact sha256 mismatch for ${plugin.id}@${plugin.version}: expected ${artifact.sha256}, got ${downloadedSha256}`);
+      }
       await mkdir(dirname(cachePath), { recursive: true });
-      await writeFile(cachePath, downloaded, { mode: 0o644 });
+      const temporaryPath = `${cachePath}.tmp-${process.pid}-${Date.now()}`;
+      await writeFile(temporaryPath, downloaded, { mode: 0o644 });
+      await rename(temporaryPath, cachePath);
       return Buffer.from(downloaded);
     });
 
@@ -301,6 +354,41 @@ export function renderSupervisorProgramConfig(input: {
     'stderr_logfile_maxbytes=0',
     `environment=${environment}`,
     `user=${input.service.user}`,
+    '',
+  ].join('\n');
+}
+
+export function renderCaddyPluginExposureConfig(input: {
+  catalog: PluginServiceCatalog;
+}): string {
+  validateCatalog(input.catalog);
+
+  const snippets: string[] = [];
+  for (const plugin of input.catalog.plugins) {
+    for (const service of plugin.services) {
+      if (!service.httpExposure) continue;
+      const port = getServicePortByName(plugin, service, service.httpExposure.port);
+      const matcherName = caddyMatcherName(plugin, service);
+      snippets.push([
+        `# ${plugin.id}@${plugin.version} service ${service.id}`,
+        `@${matcherName} host ${service.httpExposure.subdomain}.{$PROXY_DOMAIN}`,
+        `handle @${matcherName} {`,
+        `\treverse_proxy localhost:${port.default} {`,
+        '\t\theader_up Host {upstream_hostport}',
+        '\t\theader_up Upgrade {http.request.header.Upgrade}',
+        '\t\theader_up Connection {http.request.header.Connection}',
+        '\t}',
+        '}',
+      ].join('\n'));
+    }
+  }
+
+  return [
+    '# generated by VD plugin service orchestrator',
+    '# This file is imported from /etc/caddy/Caddyfile inside the main server block.',
+    '# Plugins declare structured httpExposure entries; raw Caddyfile is never accepted from plugin manifests.',
+    '',
+    ...snippets,
     '',
   ].join('\n');
 }
@@ -369,6 +457,23 @@ function renderSupervisorEnvironment(
     .join(',');
 }
 
+function createCaddyPluginConfigChange(input: {
+  catalog: PluginServiceCatalog;
+  path: string;
+  existingContent?: string;
+}): CaddyPluginConfigChange {
+  const content = renderCaddyPluginExposureConfig({ catalog: input.catalog });
+  return {
+    action: input.existingContent === undefined
+      ? 'create'
+      : normalizeConfig(input.existingContent) === normalizeConfig(content)
+        ? 'unchanged'
+        : 'update',
+    path: input.path,
+    content,
+  };
+}
+
 function expandTemplate(
   value: string,
   plugin: PluginServiceDefinition,
@@ -393,8 +498,31 @@ function validateCatalog(catalog: PluginServiceCatalog): void {
     for (const service of plugin.services) {
       if (serviceIds.has(service.id)) throw new Error(`Duplicate service id ${plugin.id}/${service.id}`);
       serviceIds.add(service.id);
+      if (service.httpExposure) validateCaddyHttpExposure(plugin, service);
     }
   }
+}
+
+function validateCaddyHttpExposure(plugin: PluginServiceDefinition, service: SupervisorServiceDefinition): void {
+  const exposure = service.httpExposure;
+  if (!exposure) return;
+  if (exposure.kind !== 'caddy-subdomain') {
+    throw new Error(`Unsupported Caddy exposure kind for ${plugin.id}/${service.id}: ${(exposure as { kind?: string }).kind ?? ''}`);
+  }
+  if (!isSafeSubdomainLabel(exposure.subdomain)) {
+    throw new Error(`Invalid Caddy subdomain for ${plugin.id}/${service.id}: ${exposure.subdomain}`);
+  }
+  getServicePortByName(plugin, service, exposure.port);
+}
+
+function getServicePortByName(
+  plugin: PluginServiceDefinition,
+  service: SupervisorServiceDefinition,
+  portName: string,
+): ServicePortDefinition {
+  const port = service.ports?.find((candidate) => candidate.name === portName);
+  if (!port) throw new Error(`Caddy exposure for ${plugin.id}/${service.id} references unknown port ${portName}`);
+  return port;
 }
 
 function githubReleaseAssetUrl(artifact: Extract<PluginArtifactDefinition, { kind: 'github-release-asset' }>): string {
@@ -438,6 +566,14 @@ function normalizeConfig(config: string): string {
 
 function sanitizeIdentifier(value: string): string {
   return value.replace(/[^a-zA-Z0-9_]/g, '_');
+}
+
+function caddyMatcherName(plugin: PluginServiceDefinition, service: SupervisorServiceDefinition): string {
+  return sanitizeIdentifier(`vd_plugin_${plugin.id}_${service.id}`);
+}
+
+function isSafeSubdomainLabel(value: string): boolean {
+  return /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(value);
 }
 
 function escapeSupervisorEnvironmentValue(value: string): string {

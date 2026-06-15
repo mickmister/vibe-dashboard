@@ -17,6 +17,10 @@ import {
 import { validatePluginManifest } from './manifest';
 
 const goldenSupervisor = readFileSync(resolve(process.cwd(), 'supervisord.vkvd.conf'), 'utf8');
+const goldenDockerfile = readFileSync(resolve(process.cwd(), 'Dockerfile.vkvd'), 'utf8');
+const goldenCaddyfile = readFileSync(resolve(process.cwd(), 'Caddyfile'), 'utf8');
+const pluginCaddyfile = readFileSync(resolve(process.cwd(), 'Caddyfile.plugins'), 'utf8');
+const dockerEntrypoint = readFileSync(resolve(process.cwd(), 'docker-entrypoint.sh'), 'utf8');
 
 describe('first-party service plugin inventory and golden supervisor config', () => {
   it('inventories current supervisor-managed programs as first-party plugin manifests with privilege tiers', () => {
@@ -51,6 +55,17 @@ describe('first-party service plugin inventory and golden supervisor config', ()
   it('renders the bundled supervisor config equivalent to supervisord.vkvd.conf', () => {
     expect(normalizeSupervisorConfig(renderBundledSupervisorConfig(BUILTIN_FIRST_PARTY_SERVICE_PLUGINS))).toBe(
       normalizeSupervisorConfig(goldenSupervisor),
+    );
+  });
+
+  it('loads plugin-owned Caddy exposure before Caddy starts', () => {
+    expect(goldenCaddyfile).toContain('import /etc/caddy/plugins.caddy');
+    expect(goldenCaddyfile).not.toContain('@beads_web_host');
+    expect(pluginCaddyfile).toContain('VD plugin-owned Caddy routes');
+    expect(goldenDockerfile).toContain('COPY Caddyfile.plugins /etc/caddy/plugins.caddy');
+    expect(dockerEntrypoint).toContain('--caddy-plugin-config-path /etc/caddy/plugins.caddy');
+    expect(dockerEntrypoint.indexOf('plugin-service-orchestrator-cli.ts apply')).toBeLessThan(
+      dockerEntrypoint.indexOf('exec "$@"'),
     );
   });
 

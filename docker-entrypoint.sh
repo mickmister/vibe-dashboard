@@ -37,6 +37,25 @@ chown -R vkuser:vkuser /home/vkuser/repos/vibe-kanban-vscode-web 2>/dev/null || 
 mkdir -p /home/vkuser/.local/share/vibe-dashboard-runtime
 chown -R vkuser:vkuser /home/vkuser/.local/share/vibe-dashboard-runtime 2>/dev/null || true
 
+# Reconcile first-party and per-instance plugin services before supervisord
+# starts. Caddy imports /etc/caddy/plugins.caddy during startup, so plugin
+# exposure must be generated before caddy runs.
+mkdir -p /var/lib/vd/instance-config /var/lib/vd/plugin-cache /var/lib/vd/plugins /etc/supervisor/conf.d/vd-generated /etc/caddy
+if [ ! -f /etc/caddy/plugins.caddy ]; then
+    cat > /etc/caddy/plugins.caddy <<'EOF'
+# VD plugin-owned Caddy routes.
+# Generated plugin exposure will be written here before Caddy starts.
+EOF
+fi
+VD_PLUGIN_ORCHESTRATOR_INSTALL_ARTIFACTS=true \
+    node --experimental-strip-types /opt/vibe-kanban-vscode-web-seed/src/modules/plugins/vibe-dashboard/plugin-service-orchestrator-cli.ts apply \
+    --catalog /opt/vibe-kanban-vscode-web-seed/src/modules/plugins/vibe-dashboard/plugins.json \
+    --optional-catalog /var/lib/vd/instance-config/plugins.json \
+    --artifact-cache-root /var/lib/vd/plugin-cache \
+    --install-root /var/lib/vd/plugins \
+    --supervisor-config-dir /etc/supervisor/conf.d/vd-generated \
+    --caddy-plugin-config-path /etc/caddy/plugins.caddy
+
 # Persist ~/.claude.json via the claude-data volume (which mounts ~/.claude/)
 # We restore from the volume on startup. A background sync loop copies changes
 # back into the volume so they survive container recreation.

@@ -23,6 +23,7 @@ services:
 
     environment:
       CADDY_PORT: ${CADDY_PORT:-3001}
+      PROXY_DOMAIN: ${PROXY_DOMAIN:-localhost}
       BACKEND_PORT: ${BACKEND_PORT:-3007}
       DASHBOARD_PORT: ${DASHBOARD_PORT:-3005}
       CODE_PORT: ${CODE_PORT:-3008}

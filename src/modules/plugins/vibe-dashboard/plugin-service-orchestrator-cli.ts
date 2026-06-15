@@ -1,9 +1,11 @@
 import { readFile } from 'node:fs/promises';
 import {
   applySupervisorConfigChanges,
+  applyCaddyPluginConfigChange,
   createPluginServiceDryRunPlan,
   discoverCachedArtifacts,
   materializePluginArtifacts,
+  readExistingCaddyPluginConfig,
   readExistingSupervisorConfigs,
   type PluginServiceCatalog,
   type PluginServiceOrchestratorPaths,
@@ -18,6 +20,7 @@ export interface PluginServiceCliResult {
   plan: ReturnType<typeof createPluginServiceDryRunPlan>;
   materialized?: Awaited<ReturnType<typeof materializePluginArtifacts>>;
   applied?: Awaited<ReturnType<typeof applySupervisorConfigChanges>>;
+  caddyApplied?: Awaited<ReturnType<typeof applyCaddyPluginConfigChange>>;
 }
 
 interface ParsedArgs {
@@ -31,14 +34,20 @@ export async function runPluginServiceOrchestratorCli(argv: string[]): Promise<P
   const parsed = parseArgs(argv);
   const catalog = await readComposedCatalog(parsed.catalogPaths, parsed.optionalCatalogPaths);
   const [cachedArtifacts, existingSupervisorConfigs] = await Promise.all([
+    // Artifact discovery hashes only existing cache files and is safe to run in parallel
+    // with read-only config discovery.
     discoverCachedArtifacts({ catalog, paths: parsed.paths }),
     readExistingSupervisorConfigs(parsed.paths.supervisorConfigDir),
   ]);
+  const existingCaddyPluginConfig = parsed.paths.caddyPluginConfigPath
+    ? await readExistingCaddyPluginConfig(parsed.paths.caddyPluginConfigPath)
+    : undefined;
   const plan = createPluginServiceDryRunPlan({
     catalog,
     paths: parsed.paths,
     cachedArtifacts,
     existingSupervisorConfigs,
+    ...(existingCaddyPluginConfig !== undefined ? { existingCaddyPluginConfig } : {}),
   });
 
   if (parsed.mode === 'dry-run') {
@@ -60,6 +69,7 @@ export async function runPluginServiceOrchestratorCli(argv: string[]): Promise<P
     })
     : undefined;
   const applied = await applySupervisorConfigChanges(plan.supervisorChanges);
+  const caddyApplied = await applyCaddyPluginConfigChange(plan.caddyConfigChange);
   return {
     mode: parsed.mode,
     catalogPath: parsed.catalogPaths[0]!,
@@ -69,6 +79,7 @@ export async function runPluginServiceOrchestratorCli(argv: string[]): Promise<P
     plan,
     materialized,
     applied,
+    caddyApplied,
   };
 }
 
@@ -99,6 +110,7 @@ function parseArgs(argv: string[]): ParsedArgs {
       artifactCacheRoot: requiredArg(args, 'artifact-cache-root'),
       installRoot: requiredArg(args, 'install-root'),
       supervisorConfigDir: requiredArg(args, 'supervisor-config-dir'),
+      caddyPluginConfigPath: args.get('caddy-plugin-config-path')?.at(-1),
     },
   };
 }

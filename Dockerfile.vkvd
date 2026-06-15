@@ -275,13 +275,14 @@ RUN su - vkuser -c "mkdir -p /home/vkuser/.local/share/code-server/extensions &&
 RUN curl -fsSL https://raw.githubusercontent.com/gastownhall/beads/main/scripts/install.sh | bash
 
 # Create supervisor config directory
-RUN mkdir -p /etc/supervisor/conf.d /etc/supervisor/conf.d/vd-generated /var/lib/vd/instance-config /var/lib/vd/plugin-cache /var/lib/vd/plugins
+RUN mkdir -p /etc/supervisor/conf.d /etc/supervisor/conf.d/vd-generated /etc/caddy /var/lib/vd/instance-config /var/lib/vd/plugin-cache /var/lib/vd/plugins
 
 COPY supervisord.vkvd.conf /etc/supervisor/conf.d/supervisord.conf
 COPY ops/process-exporter.yml /etc/process-exporter/process-exporter.yml
 
 # Copy Caddyfile and startup page
 COPY Caddyfile /etc/caddy/Caddyfile
+COPY Caddyfile.plugins /etc/caddy/plugins.caddy
 COPY startup.html /etc/caddy/startup.html
 
 # Copy database backup script
