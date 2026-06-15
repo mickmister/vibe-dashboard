@@ -29,7 +29,8 @@ describe('reference plugin examples', () => {
     expect(scopedCanvas.components.frontend.entry).toBe('frontend/index.html');
     expect(scopedCanvas.components.denoBridges[0].permissions).toMatchObject({ read: ['.vibe/plugins/scoped-canvas'], write: ['.vibe/plugins/scoped-canvas'] });
     expect(beadsBridge.components.denoBridges[0].methods).toEqual(['beads.list', 'beads.get', 'beads.updateStatus']);
-    expect(containerWorker.components.containers[0]).toMatchObject({ dockerd: 'microvm', composeFile: 'compose.yaml' });
+    expect(containerWorker.components.containers[0]).toMatchObject({ dockerd: 'microvm' });
+    expect(containerWorker.components.containers[0].composeFile).toBeUndefined();
   });
 
   it('points health checks and entries at files that exist in the plugin artifact', () => {

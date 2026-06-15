@@ -79,7 +79,7 @@ export type ContainerRuntimeFailurePhase =
   | 'microvm-start'
   | 'dockerd-ready'
   | 'image-pull'
-  | 'compose-up'
+  | 'container-start'
   | 'health-check'
   | 'network';
 
@@ -158,8 +158,8 @@ export function summarizeContainerRuntimeFailure(
       return `${prefix} microVM dockerd unavailable at ${plan.dockerHost}: ${failure.cause}`;
     case 'image-pull':
       return `${prefix} image pull failed for ${plan.image}: ${failure.cause}`;
-    case 'compose-up':
-      return `${prefix} compose startup failed for ${plan.composeProjectName}: ${failure.cause}`;
+    case 'container-start':
+      return `${prefix} container startup failed for ${plan.composeProjectName}: ${failure.cause}`;
     case 'health-check':
       return `${prefix} health check ${failure.checkId ?? 'unknown'} failed: ${failure.cause}`;
     case 'network':
@@ -196,8 +196,11 @@ function createContainerUnitPlan(input: {
 
   if (container.dockerd !== 'microvm') errors.push('container dockerd target must be microvm');
   if (!isGhcrDigestPinnedImage(container.image)) errors.push('container image must be ghcr.io and digest-pinned');
-  if (container.composeFile !== undefined && !isSafeRelativePath(container.composeFile)) {
-    errors.push('composeFile must be a safe relative path');
+  if (container.composeFile !== undefined) {
+    errors.push('composeFile is not supported until VD can enforce approved grants through a generated compose model');
+    if (!isSafeRelativePath(container.composeFile)) {
+      errors.push('composeFile must be a safe relative path');
+    }
   }
 
   const mounts = grants ? createApprovedMounts({
@@ -211,7 +214,6 @@ function createContainerUnitPlan(input: {
   if (errors.length > 0) return { errors };
 
   const composeProjectName = createComposeProjectName(plugin, container);
-  const composeFile = container.composeFile ? join(plugin.extractedPath, container.composeFile) : undefined;
   const baseEnv = {
     DOCKER_HOST: input.microvmDockerHost,
     VD_PLUGIN_ID: plugin.id,
@@ -219,23 +221,14 @@ function createContainerUnitPlan(input: {
     VD_CONTAINER_ID: container.id,
     COMPOSE_PROJECT_NAME: composeProjectName,
   };
-  const lifecycle = composeFile
-    ? createComposeLifecycle({
-      dockerBinary: input.dockerBinary,
-      dockerHost: input.microvmDockerHost,
-      composeFile,
-      composeProjectName,
-      image: container.image,
-      env: baseEnv,
-    })
-    : createSingleContainerLifecycle({
-      dockerBinary: input.dockerBinary,
-      dockerHost: input.microvmDockerHost,
-      composeProjectName,
-      image: container.image,
-      env: baseEnv,
-      mounts: mounts.mounts,
-    });
+  const lifecycle = createSingleContainerLifecycle({
+    dockerBinary: input.dockerBinary,
+    dockerHost: input.microvmDockerHost,
+    composeProjectName,
+    image: container.image,
+    env: baseEnv,
+    mounts: mounts.mounts,
+  });
 
   return {
     errors: [],
@@ -245,7 +238,6 @@ function createContainerUnitPlan(input: {
       unitId: container.id,
       dockerHost: input.microvmDockerHost,
       image: container.image,
-      composeFile,
       composeProjectName,
       mounts: mounts.mounts,
       approvedNetwork: grants!.approved.network,
@@ -253,34 +245,6 @@ function createContainerUnitPlan(input: {
       healthChecks: [...(plugin.manifest.components.healthChecks ?? [])],
       lifecycle,
       status: { logs: [], health: {} },
-    },
-  };
-}
-
-function createComposeLifecycle(input: {
-  dockerBinary: string;
-  dockerHost: string;
-  composeFile: string;
-  composeProjectName: string;
-  image: string;
-  env: Record<string, string>;
-}): ContainerPluginRuntimePlan['lifecycle'] {
-  return {
-    pull: { command: input.dockerBinary, args: ['pull', input.image], env: { DOCKER_HOST: input.dockerHost } },
-    up: {
-      command: input.dockerBinary,
-      args: ['compose', '--file', input.composeFile, '--project-name', input.composeProjectName, 'up', '--detach'],
-      env: { ...input.env },
-    },
-    down: {
-      command: input.dockerBinary,
-      args: ['compose', '--file', input.composeFile, '--project-name', input.composeProjectName, 'down'],
-      env: { ...input.env },
-    },
-    logs: {
-      command: input.dockerBinary,
-      args: ['compose', '--file', input.composeFile, '--project-name', input.composeProjectName, 'logs', '--no-color'],
-      env: { ...input.env },
     },
   };
 }

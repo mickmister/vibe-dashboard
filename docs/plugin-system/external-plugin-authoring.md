@@ -11,8 +11,9 @@ plugin.json
 frontend/              # optional compiled iframe assets
 bridges/               # optional Deno bridge modules
 backend/               # optional Deno backend modules or container support files
-compose.yaml           # optional, for microVM dockerd container plugins
 ```
+
+Plugin-supplied Docker Compose files are intentionally rejected in the current V1 runtime until VD can generate or sanitize a compose model from approved grants. Container plugins should declare digest-pinned single-container units; multi-container compose support remains a future extension once VD can enforce mounts, environment, ports, capabilities, and networking from admin-approved grants only.
 
 The marketplace descriptor points to a signed GitHub release asset. The VD machine downloads it, verifies the sha256 and signature, safely extracts it, writes `verified.json`, and serves frontend assets from the installed artifact. Frontend-only plugin updates can be discovered on browser page loads; server plugin code is planned at server startup and requires a restart to change production code.
 
@@ -55,7 +56,7 @@ Install into staging first. The runtime records health checks, smoke-test logs, 
 - Manifest validation failures list the rejected field or capability.
 - Artifact install failures include sha256/signature/extraction errors.
 - Deno startup plans include the exact `deno run --no-prompt` permission flags.
-- Container runtime diagnostics identify the failing phase: microVM start, dockerd readiness, image pull, compose up, health check, or network.
+- Container runtime diagnostics identify the failing phase: microVM start, dockerd readiness, image pull, container start, health check, or network.
 - Frontend asset issues should be debugged by checking `frontend.entry`, health checks, and the served plugin asset URL.
 
 ## Reference examples

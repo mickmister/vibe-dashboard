@@ -88,7 +88,6 @@ Minimal `plugin.json` shape:
         "id": "worker",
         "kind": "container",
         "image": "ghcr.io/example/plugin-worker@sha256:...",
-        "compose": "backend/worker.compose.yaml",
         "network": "none",
         "volumes": ["$PLUGIN_DATA_DIR:/data"]
       }
@@ -283,7 +282,6 @@ Schema additions for container units:
   "id": "worker",
   "kind": "container",
   "image": "ghcr.io/example/plugin-worker@sha256:<digest>",
-  "compose": "backend/worker.compose.yaml",
   "network": "none",
   "ports": [],
   "volumes": ["$PLUGIN_DATA_DIR:/data:rw"],
@@ -294,18 +292,18 @@ Schema additions for container units:
 Runtime rules:
 
 - Images must be pinned by digest and should come from GHCR for marketplace V1.
-- Signed release metadata covers the plugin manifest, compose file, expected image references, and artifact checksums.
-- The VD-local installer verifies release signatures before trusting compose/runtime metadata.
-- The runtime should reject local `build:` compose sections for marketplace plugins; plugin CI should publish prebuilt images.
+- Signed release metadata covers the plugin manifest, expected image references, and artifact checksums.
+- The VD-local installer verifies release signatures before trusting runtime metadata.
+- Plugin-supplied compose files are rejected in V1 until VD can generate/sanitize compose from admin-approved grants. Future compose support must reject local `build:` sections for marketplace plugins; plugin CI should publish prebuilt images.
 - Admin review must show network mode, exposed ports, writable volumes, environment grants, and image digest per container unit.
-- Prefer `docker compose pull` for the signed image references before creating containers; do not start containers during install.
+- Pull the signed image references before creating containers; do not start containers during install.
 
 Publishing CI expectations:
 
 1. Build frontend/backend artifacts.
 2. Build container images in CI and push to GHCR.
-3. Record immutable image digest references in `plugin.json` and compose metadata.
-4. Package the plugin tarball containing manifest, frontend assets, backend source/config, and compose metadata.
+3. Record immutable image digest references in `plugin.json` and runtime metadata.
+4. Package the plugin tarball containing manifest, frontend assets, backend source/config, and runtime metadata.
 5. Produce detached signatures for the tarball and publish both bundle and signature as GitHub release assets.
 6. Update `plugins.json` with bundle URL, sha256, signature URL/value, capability summary, and image digest references.
 

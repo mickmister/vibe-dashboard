@@ -14,7 +14,6 @@
       {
         "id": "worker",
         "image": "ghcr.io/vibe-dashboard/reference-container-worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        "composeFile": "compose.yaml",
         "dockerd": "microvm",
         "services": ["worker"]
       }

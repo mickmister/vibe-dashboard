@@ -15,6 +15,6 @@ describe('reference plugin build output', () => {
       expect(existsSync(join(distRoot, pluginId, 'plugin.json')), `${pluginId} plugin.json`).toBe(true);
     }
     expect(existsSync(join(distRoot, 'scoped-canvas', 'frontend', 'index.html'))).toBe(true);
-    expect(existsSync(join(distRoot, 'container-worker', 'compose.yaml'))).toBe(true);
+    expect(existsSync(join(distRoot, 'container-worker', 'backend', 'worker.ts'))).toBe(true);
   });
 });

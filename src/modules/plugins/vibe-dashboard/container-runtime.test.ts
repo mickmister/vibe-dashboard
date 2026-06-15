@@ -22,7 +22,6 @@ const manifest = (overrides: Partial<PluginManifest> = {}): PluginManifest => ({
       {
         id: 'renderer',
         image: imageDigest,
-        composeFile: 'containers/compose.yaml',
         dockerd: 'microvm',
         services: ['renderer'],
       },
@@ -97,7 +96,6 @@ describe('microVM dockerd container plugin runtime planning', () => {
       unitId: 'renderer',
       dockerHost: 'tcp://plugin-microvm.internal:2375',
       image: imageDigest,
-      composeFile: '/plugins/app.excalidraw.canvas/1.0.0/extracted/containers/compose.yaml',
       composeProjectName: 'vd_app_excalidraw_canvas_1_0_0_renderer',
       mounts: [
         {
@@ -117,13 +115,15 @@ describe('microVM dockerd container plugin runtime planning', () => {
         up: {
           command: 'docker',
           args: [
-            'compose',
-            '--file',
-            '/plugins/app.excalidraw.canvas/1.0.0/extracted/containers/compose.yaml',
-            '--project-name',
-            'vd_app_excalidraw_canvas_1_0_0_renderer',
-            'up',
+            'run',
             '--detach',
+            '--name',
+            'vd_app_excalidraw_canvas_1_0_0_renderer',
+            '--label',
+            'vd.plugin=app.excalidraw.canvas',
+            '--mount',
+            'type=bind,source=/workspaces/craft-1/.vibe/plugins/excalidraw,target=/workspace/.vibe/plugins/excalidraw,readonly=false',
+            imageDigest,
           ],
           env: expect.objectContaining({
             DOCKER_HOST: 'tcp://plugin-microvm.internal:2375',
@@ -139,7 +139,7 @@ describe('microVM dockerd container plugin runtime planning', () => {
       pluginVersion: '1.0.0',
       unitId: 'renderer',
       image: imageDigest,
-      composeFile: '/plugins/app.excalidraw.canvas/1.0.0/extracted/containers/compose.yaml',
+      composeFile: undefined,
       dockerHostKind: 'microvm',
       mounts: plan.mounts,
       network: { mode: 'ingress', ports: ['9300'] },
@@ -194,6 +194,41 @@ describe('microVM dockerd container plugin runtime planning', () => {
     ]);
   });
 
+  it('fails closed for compose-backed plugins until VD can enforce approved grants through generated compose', () => {
+    const composeSmugglingAttempts = [
+      'volumes: ["/var/run/docker.sock:/var/run/docker.sock"]',
+      'environment: ["GH_TOKEN=${GH_TOKEN}"]',
+      'ports: ["0.0.0.0:9300:9300"]',
+      'privileged: true',
+      'cap_add: ["SYS_ADMIN"]',
+      'network_mode: host',
+    ];
+
+    for (const composeFileContents of composeSmugglingAttempts) {
+      expect(composeFileContents).toBeTruthy();
+      const result = createContainerPluginRuntimePlan({
+        dockerBinary: 'docker',
+        microvmDockerHost: 'tcp://plugin-microvm.internal:2375',
+        workspaceRoot: '/workspaces/craft-1',
+        pluginDataRoot: '/var/lib/vd/plugin-data',
+        plugins: [
+          plugin({
+            ...manifest(),
+            components: {
+              containers: [{ id: 'renderer', image: imageDigest, composeFile: 'containers/compose.yaml', dockerd: 'microvm' }],
+            },
+          }),
+        ],
+        grantsByPluginVersion: new Map([['app.excalidraw.canvas@1.0.0', grants()]]),
+      });
+
+      expect(result.plans).toEqual([]);
+      expect(result.errors).toEqual([
+        'app.excalidraw.canvas@1.0.0 renderer: composeFile is not supported until VD can enforce approved grants through a generated compose model',
+      ]);
+    }
+  });
+
   it('fails closed for unsafe compose files, host-socket grants, and broad filesystem mounts', () => {
     const result = createContainerPluginRuntimePlan({
       dockerBinary: 'docker',
@@ -223,6 +258,7 @@ describe('microVM dockerd container plugin runtime planning', () => {
     expect(result.errors).toEqual([
       'app.excalidraw.canvas@1.0.0 renderer: host Docker socket grants are forbidden for plugins',
       'app.excalidraw.canvas@1.0.0 renderer: container runtime requires approved microvm-dockerd access',
+      'app.excalidraw.canvas@1.0.0 renderer: composeFile is not supported until VD can enforce approved grants through a generated compose model',
       'app.excalidraw.canvas@1.0.0 renderer: composeFile must be a safe relative path',
       'app.excalidraw.canvas@1.0.0 renderer: container filesystem mounts may only use plugin-data or workspace scopes',
     ]);
@@ -246,7 +282,7 @@ describe('microVM dockerd container plugin runtime planning', () => {
     expect(state.health).toEqual({ 'renderer-health': 'pass' });
   });
 
-  it('normalizes microVM, dockerd, image pull, compose, health, and network failures for logs', () => {
+  it('normalizes microVM, dockerd, image pull, container start, health, and network failures for logs', () => {
     const plan = expectSinglePlan(createContainerPluginRuntimePlan({
       dockerBinary: 'docker',
       microvmDockerHost: 'tcp://plugin-microvm.internal:2375',
@@ -260,14 +296,14 @@ describe('microVM dockerd container plugin runtime planning', () => {
       summarizeContainerRuntimeFailure(plan, { phase: 'microvm-start', cause: 'firecracker exited 1' }),
       summarizeContainerRuntimeFailure(plan, { phase: 'dockerd-ready', cause: 'connection refused' }),
       summarizeContainerRuntimeFailure(plan, { phase: 'image-pull', cause: 'manifest unknown' }),
-      summarizeContainerRuntimeFailure(plan, { phase: 'compose-up', cause: 'invalid compose project' }),
+      summarizeContainerRuntimeFailure(plan, { phase: 'container-start', cause: 'container exited 1' }),
       summarizeContainerRuntimeFailure(plan, { phase: 'health-check', checkId: 'renderer-health', cause: 'HTTP 503' }),
       summarizeContainerRuntimeFailure(plan, { phase: 'network', cause: 'port 9300 unavailable' }),
     ]).toEqual([
       'app.excalidraw.canvas@1.0.0 renderer microVM startup failed: firecracker exited 1',
       'app.excalidraw.canvas@1.0.0 renderer microVM dockerd unavailable at tcp://plugin-microvm.internal:2375: connection refused',
       `app.excalidraw.canvas@1.0.0 renderer image pull failed for ${imageDigest}: manifest unknown`,
-      'app.excalidraw.canvas@1.0.0 renderer compose startup failed for vd_app_excalidraw_canvas_1_0_0_renderer: invalid compose project',
+      'app.excalidraw.canvas@1.0.0 renderer container startup failed for vd_app_excalidraw_canvas_1_0_0_renderer: container exited 1',
       'app.excalidraw.canvas@1.0.0 renderer health check renderer-health failed: HTTP 503',
       'app.excalidraw.canvas@1.0.0 renderer network setup failed for {"mode":"ingress","ports":["9300"]}: port 9300 unavailable',
     ]);

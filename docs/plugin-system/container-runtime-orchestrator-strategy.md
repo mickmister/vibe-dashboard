@@ -16,8 +16,8 @@ Coolify-style orchestration remains a later evaluation, not a V1 dependency. It 
    - Must not mount `/var/run/docker.sock` into untrusted plugin code.
 2. **Plugin microVM**
    - Runs its own dockerd.
-   - Receives only approved images, compose files, mounts, ports, env, and secrets.
-   - Is the blast-radius boundary for arbitrary binaries and Docker Compose workloads.
+   - Receives only approved images, mounts, ports, env, and secrets.
+   - Is the blast-radius boundary for arbitrary binaries and, after a future generated-compose implementation, Docker Compose workloads.
 3. **Plugin containers**
    - Run signed, digest-pinned images, preferably published to GHCR by plugin CI.
    - Use only admin-approved filesystem/network/secret grants.
@@ -28,7 +28,7 @@ Coolify-style orchestration remains a later evaluation, not a V1 dependency. It 
 | Option | Pros | Cons | V1 fit |
 | --- | --- | --- | --- |
 | Direct microVM dockerd commands from VD | Small surface area; easy to test command plans; keeps host socket unavailable; maps cleanly to staged promotion | VD owns lifecycle/retry UX; limited orchestration features | **Recommended V1** |
-| Docker Compose inside microVM | Common plugin packaging shape; supports multiple services per plugin; still isolated by microVM dockerd | Compose files need strict signature/admin review; some resource/network policy enforcement is indirect | **Supported as manifest input, executed through microVM dockerd** |
+| Docker Compose inside microVM | Common plugin packaging shape; supports multiple services per plugin; still isolated by microVM dockerd | Compose files can smuggle unapproved volumes, env, ports, capabilities, or host networking unless VD generates/sanitizes them | Deferred: plugin-supplied `composeFile` is rejected until VD can enforce approved grants through generated compose |
 | Custom lightweight supervisor in microVM | Stronger control over logs, health, restart policy, and least-privilege wrappers | More code to maintain; duplicates compose/supervisor behavior | Later if direct Docker/Compose becomes too leaky |
 | Coolify/control-plane style runtime | Rich logs, deployments, health, rollback UX; familiar service management | Much heavier bootstrap/trust model; may obscure fine-grained grants; too much for agent-driven V1 | Defer to post-V1 evaluation |
 
@@ -41,7 +41,7 @@ Coolify-style orchestration remains a later evaluation, not a V1 dependency. It 
 - Filesystem mounts are derived from approved grants only and are limited to `plugin-data` or `workspace` scopes for marketplace plugins.
 - Network, env, and secrets shown in admin review are copied from effective grants, not raw manifest requests.
 - Logs and health events are recorded per container plan for staging/promotion review.
-- Compose files are allowed only as safe relative paths inside the signed plugin artifact.
+- Plugin-supplied `composeFile` is rejected for now, even when safely relative, until VD can generate or sanitize compose from approved grants. Safe path validation remains in place so future support fails closed before reading artifact files.
 
 ## Migration path
 

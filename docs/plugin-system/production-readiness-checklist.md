@@ -17,7 +17,7 @@ Use this checklist before treating external agent-installed plugins as productio
 
 - [ ] Staging install runs health checks and smoke tests before promotion.
 - [ ] Logs are visible for install, Deno startup, container lifecycle, health checks, promotion, and rollback.
-- [ ] Runtime diagnostics include microVM, dockerd, image pull, compose, network, and health-check phases.
+- [ ] Runtime diagnostics include microVM, dockerd, image pull, container start, network, and health-check phases.
 - [ ] First-party services expose their broad privileges in a separate audit view from marketplace plugins.
 - [ ] Boot-critical first-party services are not admin-removable, though version swaps can still be staged and rolled back.
 
