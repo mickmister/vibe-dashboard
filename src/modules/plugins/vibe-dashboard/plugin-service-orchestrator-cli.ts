@@ -1,4 +1,8 @@
-import { readFile } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { promisify } from 'node:util';
 import {
   applySupervisorConfigChanges,
   applyCaddyPluginConfigChange,
@@ -10,6 +14,8 @@ import {
   type PluginServiceCatalog,
   type PluginServiceOrchestratorPaths,
 } from './plugin-service-orchestrator.ts';
+
+const execFileAsync = promisify(execFile);
 
 export interface PluginServiceCliResult {
   mode: 'dry-run' | 'apply';
@@ -28,6 +34,7 @@ interface ParsedArgs {
   catalogPaths: string[];
   optionalCatalogPaths: string[];
   paths: PluginServiceOrchestratorPaths;
+  caddyConfigPath?: string;
 }
 
 export async function runPluginServiceOrchestratorCli(argv: string[]): Promise<PluginServiceCliResult> {
@@ -69,7 +76,17 @@ export async function runPluginServiceOrchestratorCli(argv: string[]): Promise<P
     })
     : undefined;
   const applied = await applySupervisorConfigChanges(plan.supervisorChanges);
-  const caddyApplied = await applyCaddyPluginConfigChange(plan.caddyConfigChange);
+  const caddyApplied = await applyCaddyPluginConfigChange(
+    plan.caddyConfigChange,
+    parsed.caddyConfigPath && parsed.paths.caddyPluginConfigPath
+      ? {
+        validateCandidate: createCaddyCandidateValidator({
+          caddyConfigPath: parsed.caddyConfigPath,
+          activePluginConfigPath: parsed.paths.caddyPluginConfigPath,
+        }),
+      }
+      : undefined,
+  );
   return {
     mode: parsed.mode,
     catalogPath: parsed.catalogPaths[0]!,
@@ -112,6 +129,31 @@ function parseArgs(argv: string[]): ParsedArgs {
       supervisorConfigDir: requiredArg(args, 'supervisor-config-dir'),
       caddyPluginConfigPath: args.get('caddy-plugin-config-path')?.at(-1),
     },
+    caddyConfigPath: args.get('caddy-config-path')?.at(-1),
+  };
+}
+
+function createCaddyCandidateValidator(input: {
+  caddyConfigPath: string;
+  activePluginConfigPath: string;
+}): (candidate: { candidatePath: string }) => Promise<void> {
+  return async ({ candidatePath }) => {
+    const caddyConfig = await readFile(input.caddyConfigPath, 'utf8');
+    if (!caddyConfig.includes(input.activePluginConfigPath)) {
+      throw new Error(`Caddy config ${input.caddyConfigPath} does not import plugin config ${input.activePluginConfigPath}`);
+    }
+
+    const tempRoot = await mkdtemp(join(tmpdir(), 'vd-caddy-candidate-'));
+    const tempCaddyConfigPath = join(tempRoot, 'Caddyfile');
+    try {
+      await writeFile(tempCaddyConfigPath, caddyConfig.split(input.activePluginConfigPath).join(candidatePath));
+      await execFileAsync('caddy', ['adapt', '--config', tempCaddyConfigPath, '--adapter', 'caddyfile']);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(`Caddy candidate validation failed: ${detail}`);
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
   };
 }
 

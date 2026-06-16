@@ -114,6 +114,15 @@ export interface CaddyPluginConfigChange {
   content: string;
 }
 
+export interface CaddyPluginConfigValidationInput {
+  candidatePath: string;
+  content: string;
+}
+
+export interface CaddyPluginConfigApplyOptions {
+  validateCandidate?: (input: CaddyPluginConfigValidationInput) => Promise<void> | void;
+}
+
 export interface PluginArtifactMaterialization {
   action: 'bundled-current-repo' | 'cached' | 'downloaded';
   pluginId: string;
@@ -251,14 +260,22 @@ export async function applySupervisorConfigChanges(changes: SupervisorConfigChan
 
 export async function applyCaddyPluginConfigChange(
   change: CaddyPluginConfigChange | undefined,
+  options: CaddyPluginConfigApplyOptions = {},
 ): Promise<{ action: CaddyPluginConfigChange['action']; path: string } | undefined> {
   if (!change) return undefined;
   if (change.action === 'unchanged') return { action: 'unchanged', path: change.path };
 
   const temporaryPath = `${change.path}.tmp-${process.pid}-${Date.now()}`;
+  const content = normalizeConfig(change.content);
   await mkdir(dirname(change.path), { recursive: true });
-  await writeFile(temporaryPath, normalizeConfig(change.content), { mode: 0o644 });
-  await rename(temporaryPath, change.path);
+  await writeFile(temporaryPath, content, { mode: 0o644 });
+  try {
+    await options.validateCandidate?.({ candidatePath: temporaryPath, content });
+    await rename(temporaryPath, change.path);
+  } catch (error) {
+    await rm(temporaryPath, { force: true });
+    throw error;
+  }
   return { action: change.action, path: change.path };
 }
 
@@ -281,24 +298,18 @@ export async function materializePluginArtifacts(input: {
     const artifact = plugin.artifact;
     const cachePath = artifactCachePath(input.paths, artifact);
     let cacheHit = true;
-    const bytes = await readFile(cachePath).catch(async (error: unknown) => {
+    let bytes = await readFile(cachePath).catch(async (error: unknown) => {
       if (!isNodeErrorWithCode(error, 'ENOENT')) throw error;
       cacheHit = false;
-      const downloaded = await (input.fetchBytes ?? fetchBytes)(githubReleaseAssetUrl(artifact));
-      const downloadedSha256 = createHash('sha256').update(downloaded).digest('hex');
-      if (downloadedSha256 !== artifact.sha256 && !input.allowHashMismatch) {
-        throw new Error(`Artifact sha256 mismatch for ${plugin.id}@${plugin.version}: expected ${artifact.sha256}, got ${downloadedSha256}`);
-      }
-      await mkdir(dirname(cachePath), { recursive: true });
-      const temporaryPath = `${cachePath}.tmp-${process.pid}-${Date.now()}`;
-      await writeFile(temporaryPath, downloaded, { mode: 0o644 });
-      await rename(temporaryPath, cachePath);
-      return Buffer.from(downloaded);
+      return downloadVerifiedArtifact({ plugin, artifact, cachePath, allowHashMismatch: input.allowHashMismatch, fetchBytes: input.fetchBytes });
     });
 
-    const sha256 = createHash('sha256').update(bytes).digest('hex');
+    let sha256 = createHash('sha256').update(bytes).digest('hex');
     if (sha256 !== artifact.sha256 && !input.allowHashMismatch) {
-      throw new Error(`Artifact sha256 mismatch for ${plugin.id}@${plugin.version}: expected ${artifact.sha256}, got ${sha256}`);
+      await quarantineBadCacheFile(cachePath);
+      cacheHit = false;
+      bytes = await downloadVerifiedArtifact({ plugin, artifact, cachePath, allowHashMismatch: input.allowHashMismatch, fetchBytes: input.fetchBytes });
+      sha256 = createHash('sha256').update(bytes).digest('hex');
     }
 
     const installAs = artifact.installAs ?? artifact.asset;
@@ -391,6 +402,34 @@ export function renderCaddyPluginExposureConfig(input: {
     ...snippets,
     '',
   ].join('\n');
+}
+
+async function downloadVerifiedArtifact(input: {
+  plugin: PluginServiceDefinition;
+  artifact: Extract<PluginArtifactDefinition, { kind: 'github-release-asset' }>;
+  cachePath: string;
+  allowHashMismatch?: boolean;
+  fetchBytes?: (url: string) => Promise<Uint8Array>;
+}): Promise<Buffer> {
+  const downloaded = await (input.fetchBytes ?? fetchBytes)(githubReleaseAssetUrl(input.artifact));
+  const downloadedSha256 = createHash('sha256').update(downloaded).digest('hex');
+  if (downloadedSha256 !== input.artifact.sha256 && !input.allowHashMismatch) {
+    throw new Error(`Artifact sha256 mismatch for ${input.plugin.id}@${input.plugin.version}: expected ${input.artifact.sha256}, got ${downloadedSha256}`);
+  }
+  await mkdir(dirname(input.cachePath), { recursive: true });
+  const temporaryPath = `${input.cachePath}.tmp-${process.pid}-${Date.now()}`;
+  await writeFile(temporaryPath, downloaded, { mode: 0o644 });
+  await rename(temporaryPath, input.cachePath);
+  return Buffer.from(downloaded);
+}
+
+async function quarantineBadCacheFile(cachePath: string): Promise<void> {
+  const quarantinePath = `${cachePath}.bad-${process.pid}-${Date.now()}`;
+  try {
+    await rename(cachePath, quarantinePath);
+  } catch (error) {
+    if (!isNodeErrorWithCode(error, 'ENOENT')) throw error;
+  }
 }
 
 function createArtifactPlan(
@@ -490,16 +529,81 @@ function expandTemplate(
 }
 
 function validateCatalog(catalog: PluginServiceCatalog): void {
+  if (!Array.isArray(catalog.plugins)) throw new Error('Invalid plugin catalog: plugins must be an array');
   const pluginIds = new Set<string>();
   for (const plugin of catalog.plugins) {
+    validatePluginDefinition(plugin);
     if (pluginIds.has(plugin.id)) throw new Error(`Duplicate plugin id ${plugin.id}`);
     pluginIds.add(plugin.id);
     const serviceIds = new Set<string>();
     for (const service of plugin.services) {
+      validateServiceDefinition(plugin, service);
       if (serviceIds.has(service.id)) throw new Error(`Duplicate service id ${plugin.id}/${service.id}`);
       serviceIds.add(service.id);
       if (service.httpExposure) validateCaddyHttpExposure(plugin, service);
     }
+  }
+}
+
+function validatePluginDefinition(plugin: PluginServiceDefinition): void {
+  if (!isSafeIdentifier(plugin.id)) throw new Error(`Invalid plugin id ${plugin.id}`);
+  if (!isSafeHumanText(plugin.name)) throw new Error(`Invalid plugin name for ${plugin.id}`);
+  if (!isSafePathSegment(plugin.version)) throw new Error(`Invalid plugin version for ${plugin.id}: ${plugin.version}`);
+  if (!Array.isArray(plugin.services)) throw new Error(`Invalid services for plugin ${plugin.id}`);
+
+  if (plugin.artifact.kind === 'github-release-asset') {
+    if (!isSafeGithubRepository(plugin.artifact.repository)) {
+      throw new Error(`Invalid GitHub repository for ${plugin.id}: ${plugin.artifact.repository}`);
+    }
+    if (!isSafePathSegment(plugin.artifact.tag)) {
+      throw new Error(`Invalid artifact tag for ${plugin.id}: ${plugin.artifact.tag}`);
+    }
+    if (!isSafePathSegment(plugin.artifact.asset)) {
+      throw new Error(`Invalid artifact asset for ${plugin.id}: ${plugin.artifact.asset}`);
+    }
+    if (!/^[a-fA-F0-9]{64}$/.test(plugin.artifact.sha256)) {
+      throw new Error(`Invalid artifact sha256 for ${plugin.id}: ${plugin.artifact.sha256}`);
+    }
+    if (plugin.artifact.signature !== undefined) {
+      throw new Error(`Unsupported artifact signature for ${plugin.id}: service catalog artifacts are sha256-pinned on this branch`);
+    }
+    if (plugin.artifact.installAs !== undefined) {
+      validateRelativePath(plugin.artifact.installAs, `Invalid artifact installAs for ${plugin.id}`);
+    }
+    return;
+  }
+
+  if (plugin.artifact.kind !== 'bundled-current-repo') {
+    throw new Error(`Unsupported artifact kind for ${plugin.id}: ${(plugin.artifact as { kind?: string }).kind ?? ''}`);
+  }
+}
+
+function validateServiceDefinition(plugin: PluginServiceDefinition, service: SupervisorServiceDefinition): void {
+  if (!isSafeIdentifier(service.id)) throw new Error(`Invalid service id ${plugin.id}/${service.id}`);
+  validateSupervisorRenderedValue(service.command, `Invalid service command for ${plugin.id}/${service.id}`);
+  validateSupervisorRenderedValue(service.directory, `Invalid service directory for ${plugin.id}/${service.id}`);
+  if (service.user !== 'vkuser') throw new Error(`Invalid service user for ${plugin.id}/${service.id}: ${service.user}`);
+  for (const arg of service.args ?? []) validateSupervisorRenderedValue(arg, `Invalid service arg for ${plugin.id}/${service.id}`);
+  for (const command of service.preStart ?? []) validateSupervisorRenderedValue(command, `Invalid preStart command for ${plugin.id}/${service.id}`);
+  for (const [key, value] of Object.entries(service.env ?? {})) {
+    if (!isSafeEnvKey(key)) throw new Error(`Invalid env key for ${plugin.id}/${service.id}: ${key}`);
+    validateSupervisorRenderedValue(value, `Invalid env value for ${plugin.id}/${service.id}/${key}`);
+  }
+  for (const port of service.ports ?? []) validatePortDefinition(plugin, service, port);
+}
+
+function validatePortDefinition(
+  plugin: PluginServiceDefinition,
+  service: SupervisorServiceDefinition,
+  port: ServicePortDefinition,
+): void {
+  if (!isSafeIdentifier(port.name)) throw new Error(`Invalid port name for ${plugin.id}/${service.id}: ${port.name}`);
+  if (!isSafeEnvKey(port.env)) throw new Error(`Invalid port env for ${plugin.id}/${service.id}/${port.name}: ${port.env}`);
+  if (!Number.isInteger(port.default) || port.default < 1 || port.default > 65535) {
+    throw new Error(`Invalid port default for ${plugin.id}/${service.id}/${port.name}: ${port.default}`);
+  }
+  if (!['127.0.0.1', '0.0.0.0', 'localhost'].includes(port.bind)) {
+    throw new Error(`Invalid port bind for ${plugin.id}/${service.id}/${port.name}: ${port.bind}`);
   }
 }
 
@@ -574,6 +678,39 @@ function caddyMatcherName(plugin: PluginServiceDefinition, service: SupervisorSe
 
 function isSafeSubdomainLabel(value: string): boolean {
   return /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(value);
+}
+
+function isSafeIdentifier(value: string): boolean {
+  return /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/.test(value);
+}
+
+function isSafeEnvKey(value: string): boolean {
+  return /^[A-Z_][A-Z0-9_]*$/.test(value);
+}
+
+function isSafeGithubRepository(value: string): boolean {
+  const parts = value.split('/');
+  return parts.length === 2 && parts.every(isSafePathSegment);
+}
+
+function isSafePathSegment(value: string): boolean {
+  return /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/.test(value)
+    && value !== '.'
+    && value !== '..';
+}
+
+function validateRelativePath(value: string, message: string): void {
+  if (value.startsWith('/') || value.includes('\\')) throw new Error(`${message}: ${value}`);
+  const segments = value.split('/');
+  if (segments.some((segment) => !isSafePathSegment(segment))) throw new Error(`${message}: ${value}`);
+}
+
+function validateSupervisorRenderedValue(value: string, message: string): void {
+  if (!isSafeHumanText(value)) throw new Error(`${message}: ${value}`);
+}
+
+function isSafeHumanText(value: string): boolean {
+  return typeof value === 'string' && !/[\u0000-\u001f\u007f]/.test(value);
 }
 
 function escapeSupervisorEnvironmentValue(value: string): string {

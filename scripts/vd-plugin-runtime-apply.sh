@@ -13,7 +13,8 @@ VD_PLUGIN_ORCHESTRATOR_INSTALL_ARTIFACTS=true \
     --artifact-cache-root /var/lib/vd/plugin-cache \
     --install-root /var/lib/vd/plugins \
     --supervisor-config-dir /etc/supervisor/conf.d/vd-generated \
-    --caddy-plugin-config-path /etc/caddy/plugins.caddy
+    --caddy-plugin-config-path /etc/caddy/plugins.caddy \
+    --caddy-config-path /etc/caddy/Caddyfile
 
 supervisorctl reread
 supervisorctl update

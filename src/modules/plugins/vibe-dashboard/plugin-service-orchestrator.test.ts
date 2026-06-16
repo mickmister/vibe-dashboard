@@ -179,6 +179,36 @@ describe('plugin service supervisor orchestration dry run', () => {
     expect(secondPlan.caddyConfigChange).toEqual(expect.objectContaining({ action: 'unchanged' }));
   });
 
+  it('validates candidate Caddy config before replacing the active plugin-owned file', async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), 'vd-caddy-validate-'));
+    const caddyPluginConfigPath = join(tempRoot, 'plugins.caddy');
+    const previousConfig = '# previous valid config\n';
+    await writeFile(caddyPluginConfigPath, previousConfig);
+
+    await expect(applyCaddyPluginConfigChange({
+      action: 'update',
+      path: caddyPluginConfigPath,
+      content: '# candidate\n',
+    }, {
+      validateCandidate: async ({ candidatePath, content }) => {
+        expect(candidatePath).toContain(`${caddyPluginConfigPath}.tmp-`);
+        expect(content).toBe('# candidate\n');
+      },
+    })).resolves.toEqual({ action: 'update', path: caddyPluginConfigPath });
+    await expect(readFile(caddyPluginConfigPath, 'utf8')).resolves.toBe('# candidate\n');
+
+    await expect(applyCaddyPluginConfigChange({
+      action: 'update',
+      path: caddyPluginConfigPath,
+      content: '# invalid candidate\n',
+    }, {
+      validateCandidate: async () => {
+        throw new Error('caddy adapt failed');
+      },
+    })).rejects.toThrow('caddy adapt failed');
+    await expect(readFile(caddyPluginConfigPath, 'utf8')).resolves.toBe('# candidate\n');
+  });
+
   it('rejects unsafe Caddy exposure declarations before rendering config', () => {
     const catalog = structuredClone(beadsWebOnlyCatalog) as PluginServiceCatalog;
     catalog.plugins[0]!.services[0]!.httpExposure = {
@@ -207,6 +237,70 @@ describe('plugin service supervisor orchestration dry run', () => {
     })).toThrow(/unknown port/);
   });
 
+  it('rejects unsafe service catalog fields before they can reach supervisor or Caddy', () => {
+    const invalidCases: Array<{ mutate: (catalog: PluginServiceCatalog) => void; message: RegExp }> = [
+      {
+        mutate: (catalog) => { catalog.plugins[0]!.id = '../evil'; },
+        message: /Invalid plugin id/,
+      },
+      {
+        mutate: (catalog) => {
+          const artifact = catalog.plugins[0]!.artifact;
+          if (artifact.kind === 'github-release-asset') artifact.repository = 'owner/repo/extra';
+        },
+        message: /Invalid GitHub repository/,
+      },
+      {
+        mutate: (catalog) => {
+          const artifact = catalog.plugins[0]!.artifact;
+          if (artifact.kind === 'github-release-asset') artifact.asset = '../beads-web';
+        },
+        message: /Invalid artifact asset/,
+      },
+      {
+        mutate: (catalog) => {
+          const artifact = catalog.plugins[0]!.artifact;
+          if (artifact.kind === 'github-release-asset') artifact.sha256 = 'not-a-sha';
+        },
+        message: /Invalid artifact sha256/,
+      },
+      {
+        mutate: (catalog) => {
+          const artifact = catalog.plugins[0]!.artifact;
+          if (artifact.kind === 'github-release-asset') artifact.signature = 'TODO';
+        },
+        message: /Unsupported artifact signature/,
+      },
+      {
+        mutate: (catalog) => { catalog.plugins[0]!.services[0]!.user = 'root'; },
+        message: /Invalid service user/,
+      },
+      {
+        mutate: (catalog) => { catalog.plugins[0]!.services[0]!.command = 'echo ok\nmalicious'; },
+        message: /Invalid service command/,
+      },
+      {
+        mutate: (catalog) => { catalog.plugins[0]!.services[0]!.env = { 'BAD-KEY': 'value' }; },
+        message: /Invalid env key/,
+      },
+      {
+        mutate: (catalog) => { catalog.plugins[0]!.services[0]!.ports![0]!.default = 70000; },
+        message: /Invalid port default/,
+      },
+    ];
+
+    for (const { mutate, message } of invalidCases) {
+      const catalog = structuredClone(beadsWebOnlyCatalog) as PluginServiceCatalog;
+      mutate(catalog);
+      expect(() => createPluginServiceDryRunPlan({
+        catalog,
+        paths,
+        cachedArtifacts: [],
+        existingSupervisorConfigs: {},
+      })).toThrow(message);
+    }
+  });
+
   it('supports asset-only plugins that need download/install but no supervisor service', () => {
     const catalog: PluginServiceCatalog = {
       plugins: [{
@@ -220,7 +314,6 @@ describe('plugin service supervisor orchestration dry run', () => {
           asset: 'excalidraw-0.18.0.tgz',
           installAs: 'excalidraw-0.18.0.tgz',
           sha256: '0f2851674434336f19f10b5f217977eac7a0714de7e31a559bc5dd37f2c2dc21',
-          signature: 'TODO',
         },
         services: [],
       }],
@@ -314,6 +407,38 @@ describe('plugin service supervisor orchestration dry run', () => {
       expect.objectContaining({ action: 'downloaded', pluginId: 'vd.beads-web' }),
     ]);
     await expect(readFile(cachePath, 'utf8')).resolves.toBe('valid bytes');
+  });
+
+  it('quarantines a stale bad cache entry and refetches the requested artifact once', async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), 'vd-plugin-stale-cache-'));
+    const paths = {
+      artifactCacheRoot: join(tempRoot, 'cache'),
+      installRoot: join(tempRoot, 'plugins'),
+      supervisorConfigDir: join(tempRoot, 'supervisor'),
+    };
+    const catalog = structuredClone(beadsWebOnlyCatalog) as PluginServiceCatalog;
+    const artifact = catalog.plugins[0]!.artifact;
+    if (artifact.kind !== 'github-release-asset') throw new Error('expected github-release-asset fixture');
+    const validBytes = Buffer.from('#!/bin/sh\necho valid beads-web\n');
+    artifact.sha256 = createHash('sha256').update(validBytes).digest('hex');
+    const cachePath = join(tempRoot, 'cache/github/mickmister/beads-web/beads-web-assets-42cc6ca1709d4b0aa76833d91d326e6de9659a28/beads-web-linux-x64');
+    await mkdir(join(tempRoot, 'cache/github/mickmister/beads-web/beads-web-assets-42cc6ca1709d4b0aa76833d91d326e6de9659a28'), { recursive: true });
+    await writeFile(cachePath, 'stale bad cache');
+    let fetchCount = 0;
+
+    await expect(materializePluginArtifacts({
+      catalog,
+      paths,
+      fetchBytes: async () => {
+        fetchCount += 1;
+        return validBytes;
+      },
+    })).resolves.toEqual([
+      expect.objectContaining({ action: 'downloaded', pluginId: 'vd.beads-web' }),
+    ]);
+
+    expect(fetchCount).toBe(1);
+    await expect(readFile(cachePath, 'utf8')).resolves.toBe(validBytes.toString());
   });
 
   it('does not overwrite an already-installed matching binary on repeated materialization', async () => {
