@@ -7,6 +7,7 @@ import {
   type Session,
 } from '../lib/vk-client';
 import { hasRenderableDiff, parseRepoPatch } from '../lib/diffPatch';
+import { selectDiffSessionId } from '../lib/diffSessionSelection';
 
 type DiffRepo = {
   name: string;
@@ -68,13 +69,12 @@ export function DiffView({ workspaceId, workspaceDir }: DiffViewProps) {
         throw new Error(`Diff request failed: ${diffResponse.statusText}`);
       }
       const diffData = (await diffResponse.json()) as DiffResponse;
-      const orderedSessions = [...sessionResponse].sort(
-        (a, b) => parseTime(b.updated_at) - parseTime(a.updated_at),
-      );
       setData(diffData);
-      setSessions(orderedSessions);
+      // VK returns workspace sessions in most-recently-used order. Preserve that
+      // ordering so Diff comments default to VK's selected recency policy.
+      setSessions(sessionResponse);
       setSelectedSessionId(
-        (current) => current || orderedSessions[0]?.id || "",
+        (current) => selectDiffSessionId(sessionResponse, current),
       );
       const firstRepoWithPatch = diffData.repos.find((repo) => repo.patch);
       setSelectedRepoName(
@@ -418,10 +418,4 @@ function NonRenderableFileDiff({
       </div>
     </div>
   );
-}
-
-function parseTime(value: string | undefined): number {
-  if (!value) return 0;
-  const parsed = new Date(value).getTime();
-  return Number.isFinite(parsed) ? parsed : 0;
 }
