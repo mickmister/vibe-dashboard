@@ -171,8 +171,8 @@ async function loadRepoDiff(
     const branch = await git(repoPath, ["rev-parse", "--abbrev-ref", "HEAD"]);
     const headRef = await resolveHeadRef(repoPath, requestedHeadRef);
     const baseRef = targetBranch
-      ? await resolveBaseRef(repoPath, targetBranch)
-      : await resolveDefaultBaseRef(repoPath);
+      ? await resolveBaseRef(repoPath, targetBranch, headRef)
+      : await resolveDefaultBaseRef(repoPath, headRef);
     const diffRange = baseRef ? [`${baseRef}...${headRef}`] : [headRef];
     const patch = await git(repoPath, [
       "diff",
@@ -251,6 +251,7 @@ export function isSafeGitRef(ref: string): boolean {
 async function resolveBaseRef(
   repoPath: string,
   targetBranch: string,
+  headRef: string,
 ): Promise<string | null> {
   const candidates = [
     targetBranch,
@@ -259,17 +260,20 @@ async function resolveBaseRef(
   ];
   for (const candidate of candidates) {
     if (await refExists(repoPath, candidate)) {
-      return git(repoPath, ["merge-base", "HEAD", candidate]);
+      return git(repoPath, ["merge-base", headRef, candidate]);
     }
   }
   return null;
 }
 
-async function resolveDefaultBaseRef(repoPath: string): Promise<string | null> {
+async function resolveDefaultBaseRef(
+  repoPath: string,
+  headRef: string,
+): Promise<string | null> {
   const candidates = ["origin/main", "origin/master", "main", "master"];
   for (const candidate of candidates) {
     if (await refExists(repoPath, candidate)) {
-      return git(repoPath, ["merge-base", "HEAD", candidate]);
+      return git(repoPath, ["merge-base", headRef, candidate]);
     }
   }
   return null;

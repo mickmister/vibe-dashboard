@@ -6,13 +6,11 @@ import type {
   OnDiffLineClickProps,
 } from '@pierre/diffs';
 import { Button, Input, Select, SelectItem, Textarea } from '@heroui/react';
-import {
-  vkClient,
-  type ReviewDraftComment,
-  type Session,
-} from '../lib/vk-client';
 import { hasRenderableDiff, parseRepoPatch } from '../lib/diffPatch';
-import { selectDiffSessionId } from '../lib/diffSessionSelection';
+import {
+  formatReviewCommentsMarkdown,
+  workspaceCommentPath,
+} from '../lib/diffComments';
 
 type DiffRepo = {
   name: string;
@@ -34,7 +32,7 @@ type DiffResponse = {
 };
 
 type DraftComment = {
-  repoName: string;
+  repoRelativePath: string;
   filePath: string;
   lineNumber: string;
   body: string;
@@ -49,9 +47,7 @@ interface DiffViewProps {
 
 export function DiffView({ workspaceId, workspaceDir }: DiffViewProps) {
   const [data, setData] = useState<DiffResponse | null>(null);
-  const [sessions, setSessions] = useState<Session[]>([]);
-  const [selectedSessionId, setSelectedSessionId] = useState("");
-  const [selectedRepoName, setSelectedRepoName] = useState("");
+  const [selectedRepoRelativePath, setSelectedRepoRelativePath] = useState("");
   const [selectedFilePath, setSelectedFilePath] = useState("");
   const [lineNumber, setLineNumber] = useState("1");
   const [selectedCodeLine, setSelectedCodeLine] = useState<string | null>(null);
@@ -64,7 +60,7 @@ export function DiffView({ workspaceId, workspaceDir }: DiffViewProps) {
     Record<string, string>
   >({});
   const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
+  const [copying, setCopying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
@@ -79,25 +75,21 @@ export function DiffView({ workspaceId, workspaceDir }: DiffViewProps) {
       if (Object.keys(selectedHeadRefs).length > 0) {
         params.set("headRefs", JSON.stringify(selectedHeadRefs));
       }
-      const [diffResponse, sessionResponse] = await Promise.all([
-        fetch(`/dashboard/api/diff?${params.toString()}`),
-        vkClient.getSessions(workspaceId),
-      ]);
+      const diffResponse = await fetch(
+        `/dashboard/api/diff?${params.toString()}`,
+      );
       if (!diffResponse.ok) {
         throw new Error(`Diff request failed: ${diffResponse.statusText}`);
       }
       const diffData = (await diffResponse.json()) as DiffResponse;
       setData(diffData);
-      // VK returns workspace sessions in most-recently-used order. Preserve that
-      // ordering so Diff comments default to VK's selected recency policy.
-      setSessions(sessionResponse);
-      setSelectedSessionId(
-        (current) => selectDiffSessionId(sessionResponse, current),
-      );
       const firstRepoWithPatch = diffData.repos.find((repo) => repo.patch);
-      setSelectedRepoName(
+      setSelectedRepoRelativePath(
         (current) =>
-          current || firstRepoWithPatch?.name || diffData.repos[0]?.name || "",
+          current ||
+          firstRepoWithPatch?.relativePath ||
+          diffData.repos[0]?.relativePath ||
+          "",
       );
       setSelectedFilePath(
         (current) => current || firstRepoWithPatch?.files[0]?.path || "",
@@ -115,12 +107,15 @@ export function DiffView({ workspaceId, workspaceDir }: DiffViewProps) {
 
   const selectedRepo = useMemo(
     () =>
-      data?.repos.find((repo) => repo.name === selectedRepoName) ??
+      data?.repos.find(
+        (repo) => repo.relativePath === selectedRepoRelativePath,
+      ) ??
       data?.repos[0],
-    [data?.repos, selectedRepoName],
+    [data?.repos, selectedRepoRelativePath],
   );
 
   const selectedRepoFiles = selectedRepo?.files ?? [];
+  const repoCount = data?.repos.length ?? 0;
   const selectedHeadRef =
     selectedRepo
       ? (selectedHeadRefs[selectedRepo.relativePath] ?? "HEAD")
@@ -159,12 +154,13 @@ export function DiffView({ workspaceId, workspaceDir }: DiffViewProps) {
   const addQueuedComment = (override?: Partial<DraftComment>) => {
     const filePath = selectedFilePath.trim();
     const body = (override?.body ?? commentBody).trim();
-    const repoName = selectedRepo?.name || selectedRepoName;
-    if (!repoName || !filePath || !body) return;
+    const repoRelativePath =
+      selectedRepo?.relativePath || selectedRepoRelativePath;
+    if (!repoRelativePath || !filePath || !body) return;
     setQueuedComments((current) => [
       ...current,
       {
-        repoName,
+        repoRelativePath,
         filePath: override?.filePath ?? filePath,
         lineNumber: (override?.lineNumber ?? lineNumber) || "1",
         body,
@@ -191,33 +187,24 @@ export function DiffView({ workspaceId, workspaceDir }: DiffViewProps) {
     [],
   );
 
-  const submitComments = async () => {
-    if (!selectedSessionId || queuedComments.length === 0) return;
-    setSubmitting(true);
+  const copyCommentsToClipboard = async () => {
+    if (queuedComments.length === 0) return;
+    setCopying(true);
     setError(null);
     setSuccess(null);
     try {
-      const comments: ReviewDraftComment[] = queuedComments.map((comment) => ({
-        file_path:
-          comment.repoName === "."
-            ? comment.filePath
-            : `${comment.repoName}/${comment.filePath}`,
-        line_number: Number.parseInt(comment.lineNumber, 10) || 1,
-        body: comment.body,
-        code_line: comment.codeLine ?? null,
-      }));
-      const result = await vkClient.appendReviewComments(
-        selectedSessionId,
-        comments,
+      await navigator.clipboard.writeText(
+        formatReviewCommentsMarkdown(queuedComments, repoCount || 1),
       );
+      const copiedCount = queuedComments.length;
       setQueuedComments([]);
       setSuccess(
-        `${result.comments_appended} review comment${result.comments_appended === 1 ? "" : "s"} appended to the Agent draft.`,
+        `${copiedCount} review comment${copiedCount === 1 ? "" : "s"} copied to clipboard.`,
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setSubmitting(false);
+      setCopying(false);
     }
   };
 
@@ -245,23 +232,6 @@ export function DiffView({ workspaceId, workspaceDir }: DiffViewProps) {
           >
             Refresh
           </Button>
-          {sessions.length > 0 && (
-            <Select
-              aria-label="Agent session"
-              size="sm"
-              className="min-w-64 max-w-80"
-              selectedKeys={selectedSessionId ? [selectedSessionId] : []}
-              onSelectionChange={(keys) =>
-                setSelectedSessionId((Array.from(keys)[0] as string) || "")
-              }
-            >
-              {sessions.map((session) => (
-                <SelectItem key={session.id}>
-                  {session.name || session.executor || session.id.slice(0, 8)}
-                </SelectItem>
-              ))}
-            </Select>
-          )}
           {selectedRepo && selectedRepo.commits.length > 0 && (
             <Select
               aria-label="Compare at commit"
@@ -296,7 +266,7 @@ export function DiffView({ workspaceId, workspaceDir }: DiffViewProps) {
                   ? "border-primary-500 bg-primary-500/10 text-neutral-100"
                   : "border-neutral-800 bg-neutral-900 text-neutral-300 hover:border-neutral-700"
               }`}
-              onClick={() => setSelectedRepoName(repo.name)}
+              onClick={() => setSelectedRepoRelativePath(repo.relativePath)}
             >
               <div className="font-medium">{repo.relativePath}</div>
               <div className="mt-1 text-neutral-500">
@@ -304,9 +274,8 @@ export function DiffView({ workspaceId, workspaceDir }: DiffViewProps) {
                 {repo.targetBranch || repo.baseRef || "base"}
               </div>
               <div className="mt-1 truncate text-neutral-500">
-                showing {repo.headRef === "HEAD"
-                  ? "HEAD"
-                  : repo.headRef.slice(0, 8)}
+                showing{' '}
+                {repo.headRef === "HEAD" ? "HEAD" : repo.headRef.slice(0, 8)}
               </div>
               <div className="mt-1 text-neutral-500">
                 {repo.files.length} file{repo.files.length === 1 ? "" : "s"},{" "}
@@ -334,7 +303,7 @@ export function DiffView({ workspaceId, workspaceDir }: DiffViewProps) {
               queuedComments={queuedComments.filter(
                 (comment) =>
                   selectedRepo &&
-                  comment.repoName === selectedRepo.name,
+                  comment.repoRelativePath === selectedRepo.relativePath,
               )}
               onLineNumberClick={stageLineComment}
             />
@@ -348,7 +317,8 @@ export function DiffView({ workspaceId, workspaceDir }: DiffViewProps) {
             Queue comments
           </h2>
           <p className="mt-1 text-xs text-neutral-500">
-            Comments append to the selected Agent session’s server-side draft.
+            Copy comments as markdown, then paste them into the Agent
+            conversation.
           </p>
           <div className="mt-3 space-y-3">
             <Select
@@ -400,7 +370,8 @@ export function DiffView({ workspaceId, workspaceDir }: DiffViewProps) {
                 className="rounded-lg border border-neutral-800 bg-neutral-900 p-2 text-xs"
               >
                 <div className="font-mono text-neutral-300">
-                  {comment.repoName}/{comment.filePath}:{comment.lineNumber}
+                  {workspaceCommentPath(comment, repoCount || 1)}:
+                  {comment.lineNumber}
                 </div>
                 <div className="mt-1 text-neutral-400">{comment.body}</div>
                 {comment.codeLine && (
@@ -425,17 +396,12 @@ export function DiffView({ workspaceId, workspaceDir }: DiffViewProps) {
           <Button
             className="mt-4 w-full"
             color="primary"
-            onPress={submitComments}
-            isLoading={submitting}
-            isDisabled={!selectedSessionId || queuedComments.length === 0}
+            onPress={copyCommentsToClipboard}
+            isLoading={copying}
+            isDisabled={queuedComments.length === 0}
           >
-            Append to Agent draft
+            Copy comments to clipboard
           </Button>
-          {!selectedSessionId && (
-            <p className="mt-2 text-xs text-amber-300">
-              No existing Agent session found for this workspace.
-            </p>
-          )}
         </aside>
       </div>
     </DiffShell>

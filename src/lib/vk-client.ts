@@ -69,18 +69,6 @@ export interface Session {
   updated_at: string;
 }
 
-export interface ReviewDraftComment {
-  file_path: string;
-  line_number: number;
-  body: string;
-  code_line?: string | null;
-}
-
-export interface AppendReviewCommentsResponse {
-  message: string;
-  comments_appended: number;
-}
-
 // ── API response envelope ───────────────────────────────────────────────────
 
 interface ApiResponse<T> {
@@ -155,12 +143,6 @@ export class VibeKanbanClient {
     return this.post(`/workspaces/${workspaceId}/execution/stop`, {});
   }
 
-  appendReviewComments(
-    sessionId: string,
-    comments: ReviewDraftComment[],
-  ): Promise<AppendReviewCommentsResponse> {
-    return this.post(`/sessions/${sessionId}/review/comments`, { comments });
-  }
 }
 
 export const vkClient = new VibeKanbanClient();
