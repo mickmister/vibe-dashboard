@@ -970,7 +970,8 @@ test.describe('voyage persistence', () => {
 
     await page
       .getByLabel(`Open ${initialCraftLabel} in Home`)
-      .last()
+      .filter({ visible: true })
+      .first()
       .click();
     await expect(page).toHaveURL(new RegExp(`craft=seed-craft-${runId}`));
 
