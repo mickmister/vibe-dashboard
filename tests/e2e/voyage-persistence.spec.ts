@@ -636,6 +636,9 @@ test.describe('voyage persistence', () => {
     await expect(page.getByRole('heading', { name: 'Open VK Workspace' })).toBeVisible();
     await page.getByRole('button', { name: new RegExp(workspace.name) }).click();
     await expect(page.getByLabel(`Opening ${workspace.name}`).first()).toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: `Opening ${workspace.name}` }),
+    ).toBeVisible();
 
     await expect(page.getByLabel(`Open ${workspace.name} in Home`).first()).toBeVisible();
     await expect(page).toHaveURL(/voyage=e2e-voyage-/);

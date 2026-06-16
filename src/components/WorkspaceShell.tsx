@@ -1258,6 +1258,7 @@ export function WorkspaceShell({
   const currentSavedSession = savedSessions.find(
     (savedSession) => savedSession.id === currentSessionId,
   );
+  const isPendingOpenCraftActive = pendingOpenCraftTab != null;
   const getVoyageDisplayName = (savedSession: SavedWorkspaceSession) =>
     savedSession.name?.trim() || 'Untitled voyage';
 
@@ -1830,7 +1831,9 @@ export function WorkspaceShell({
           <div className="flex-1 min-w-0 overflow-x-auto scrollbar-hide">
             <div className="flex h-full items-stretch whitespace-nowrap">
               {mobileSessionTabGroups.map(({ entry, space, tabGroup }) => {
-                const isActive = entry.id === session.activeVoyageEntryId;
+                const isActive =
+                  !isPendingOpenCraftActive &&
+                  entry.id === session.activeVoyageEntryId;
 
                 return (
                   <div
@@ -1878,6 +1881,7 @@ export function WorkspaceShell({
                 <PendingOpenCraftVoyageTab
                   tab={pendingOpenCraftTab}
                   compact={false}
+                  active
                   onRetry={retryPendingOpenCraft}
                   onClose={closePendingOpenCraftTab}
                 />
@@ -1894,7 +1898,7 @@ export function WorkspaceShell({
           </button>
         </div>
         )}
-        {!isDesktopVoyageBarHidden && expandedSessionTabGroup && (
+        {!isDesktopVoyageBarHidden && !isPendingOpenCraftActive && expandedSessionTabGroup && (
           <div className="hidden md:flex h-9 border-b border-neutral-600 bg-neutral-900 items-stretch shrink-0 [&_button]:cursor-pointer">
             <div className="flex-1 min-w-0 overflow-x-auto scrollbar-hide">
               <div className="flex h-full items-stretch whitespace-nowrap">
@@ -1923,28 +1927,36 @@ export function WorkspaceShell({
           </div>
         )}
 
-        <WorkspaceContentView
-          activeTabGroups={activeTabGroups}
-          activeTabGroupId={session.activeTabGroupId}
-          actions={actions}
-          sessionActions={sessionActions}
-          disableSplitViews={!isDesktop}
-          onDragStart={handleDragStart}
-          onDragOver={handleDragOver}
-          onDrop={handleDrop}
-          workspace={workspace}
-          showAddressBar={showAddressBar}
-          savedSessions={savedSessions}
-          currentSessionId={currentSessionId}
-          onResumeSession={switchToVoyage}
-          onRenameSession={sessionActions.renameSession}
-          onDeleteSession={sessionActions.deleteSession}
-          onStartNewSession={() => {
-            openNewVoyagePrompt();
-          }}
-          onNavigateToTabGroup={handleNavigateToWorkspaceTabGroup}
-        />
-        {expandedSessionTabGroup && (
+        {pendingOpenCraftTab ? (
+          <PendingOpenCraftContent
+            tab={pendingOpenCraftTab}
+            onRetry={retryPendingOpenCraft}
+            onClose={closePendingOpenCraftTab}
+          />
+        ) : (
+          <WorkspaceContentView
+            activeTabGroups={activeTabGroups}
+            activeTabGroupId={session.activeTabGroupId}
+            actions={actions}
+            sessionActions={sessionActions}
+            disableSplitViews={!isDesktop}
+            onDragStart={handleDragStart}
+            onDragOver={handleDragOver}
+            onDrop={handleDrop}
+            workspace={workspace}
+            showAddressBar={showAddressBar}
+            savedSessions={savedSessions}
+            currentSessionId={currentSessionId}
+            onResumeSession={switchToVoyage}
+            onRenameSession={sessionActions.renameSession}
+            onDeleteSession={sessionActions.deleteSession}
+            onStartNewSession={() => {
+              openNewVoyagePrompt();
+            }}
+            onNavigateToTabGroup={handleNavigateToWorkspaceTabGroup}
+          />
+        )}
+        {!isPendingOpenCraftActive && expandedSessionTabGroup && (
           <div
             className="md:hidden fixed inset-x-0 z-[64] border-y border-neutral-700 bg-neutral-900/95"
             style={{
@@ -2008,7 +2020,9 @@ export function WorkspaceShell({
               {mobileSessionTabGroups.length > 0 ? (
                 <>
                 {mobileSessionTabGroups.map(({ entry, space, tabGroup }) => {
-                  const isActive = entry.id === session.activeVoyageEntryId;
+                  const isActive =
+                    !isPendingOpenCraftActive &&
+                    entry.id === session.activeVoyageEntryId;
 
                   return (
                     <button
@@ -2054,6 +2068,7 @@ export function WorkspaceShell({
                   <PendingOpenCraftVoyageTab
                     tab={pendingOpenCraftTab}
                     compact
+                    active
                     onRetry={retryPendingOpenCraft}
                     onClose={closePendingOpenCraftTab}
                   />
@@ -2068,6 +2083,7 @@ export function WorkspaceShell({
                     <PendingOpenCraftVoyageTab
                       tab={pendingOpenCraftTab}
                       compact
+                      active
                       onRetry={retryPendingOpenCraft}
                       onClose={closePendingOpenCraftTab}
                     />
@@ -2740,11 +2756,13 @@ function isEditableTarget(target: EventTarget | null): boolean {
 function PendingOpenCraftVoyageTab({
   tab,
   compact,
+  active,
   onRetry,
   onClose,
 }: {
   tab: PendingOpenCraftTab;
   compact: boolean;
+  active?: boolean;
   onRetry: () => void;
   onClose: () => void;
 }) {
@@ -2759,7 +2777,9 @@ function PendingOpenCraftVoyageTab({
       className={`shrink-0 inline-flex h-full max-w-[22rem] items-center gap-2 ${baseBorderClass} ${
         isError
           ? 'border-b-red-400 bg-red-950/40 text-red-100'
-          : 'border-b-amber-400 bg-neutral-900 text-neutral-200'
+          : active
+            ? 'border-b-amber-400 bg-neutral-800 text-neutral-100'
+            : 'border-b-amber-400 bg-neutral-900 text-neutral-200'
       } px-3 text-xs`}
       role={isError ? 'alert' : 'status'}
       aria-live="polite"
@@ -2798,6 +2818,69 @@ function PendingOpenCraftVoyageTab({
           </button>
         </span>
       )}
+    </div>
+  );
+}
+
+function PendingOpenCraftContent({
+  tab,
+  onRetry,
+  onClose,
+}: {
+  tab: PendingOpenCraftTab;
+  onRetry: () => void;
+  onClose: () => void;
+}) {
+  const isError = tab.status === 'error';
+  const label = tab.label || 'craft';
+
+  return (
+    <div className="flex-1 bg-neutral-950">
+      <div className="flex h-full items-center justify-center p-6 text-center">
+        <div
+          role={isError ? 'alert' : 'status'}
+          aria-live="polite"
+          className={`w-full max-w-md rounded-xl border p-6 shadow-2xl ${
+            isError
+              ? 'border-red-500/40 bg-red-950/20'
+              : 'border-amber-400/30 bg-neutral-900'
+          }`}
+        >
+          {isError ? (
+            <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full border border-red-400/50 bg-red-500/10 text-lg font-semibold text-red-200">
+              !
+            </div>
+          ) : (
+            <div className="mx-auto h-10 w-10 animate-spin rounded-full border-2 border-neutral-700 border-t-amber-300" />
+          )}
+          <h2 className="mt-4 text-base font-semibold text-neutral-100">
+            {isError ? `Could not open ${label}` : `Opening ${label}`}
+          </h2>
+          <p className="mt-2 text-sm text-neutral-400">
+            {isError
+              ? tab.errorMessage || 'Open Craft failed. Please retry or close this pending craft.'
+              : 'Allocating the craft and preparing its workspace view…'}
+          </p>
+          {isError && (
+            <div className="mt-5 flex justify-center gap-2">
+              <button
+                type="button"
+                className="rounded-md border border-red-400/60 bg-red-500/10 px-3 py-2 text-sm font-medium text-red-100 transition-colors hover:bg-red-500/20"
+                onClick={onRetry}
+              >
+                Retry
+              </button>
+              <button
+                type="button"
+                className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm font-medium text-neutral-200 transition-colors hover:bg-neutral-800"
+                onClick={onClose}
+              >
+                Close
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
