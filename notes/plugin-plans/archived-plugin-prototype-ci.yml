@@ -1,0 +1,69 @@
+# Archived CI jobs for prototype-only plugin packages.
+# These were removed from active CI until the corresponding plugin contracts are
+# supported end-to-end by the VD runtime.
+
+reference-plugin-examples:
+  name: reference plugin builds/tests/e2e
+  runs-on: ubuntu-latest
+  steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v4
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22
+        cache: pnpm
+    - name: Install dependencies
+      run: pnpm install --frozen-lockfile
+    - name: Check reference plugin package types
+      run: pnpm --filter @vibe-kanban/plugin-reference-examples check-types
+    - name: Run reference plugin unit tests
+      run: pnpm --filter @vibe-kanban/plugin-reference-examples test
+    - name: Build reference plugin artifacts
+      run: pnpm --filter @vibe-kanban/plugin-reference-examples build
+    - name: Run reference plugin e2e checks
+      run: pnpm --filter @vibe-kanban/plugin-reference-examples test:e2e
+
+plugin-iframe-rpc-prototype-tests:
+  name: plugin iframe RPC prototype tests
+  runs-on: ubuntu-latest
+  steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v4
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22
+        cache: pnpm
+    - name: Install dependencies
+      run: pnpm install --frozen-lockfile
+    - name: Setup Deno
+      uses: denoland/setup-deno@v2
+      with:
+        deno-version: v2.x
+    - name: Run plugin runtime tests
+      run: pnpm --filter @vibe-kanban/plugin-iframe-rpc-prototype test
+
+marketplace-e2e:
+  name: marketplace sample e2e
+  runs-on: ubuntu-latest
+  steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v4
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22
+        cache: pnpm
+    - name: Install dependencies
+      run: pnpm install --frozen-lockfile
+    - name: Install Playwright Chromium
+      run: pnpm exec playwright install --with-deps chromium
+    - name: Run marketplace sample e2e
+      run: pnpm --filter @vibe-kanban/plugin-iframe-rpc-prototype test:sample-e2e

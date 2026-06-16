@@ -95,9 +95,9 @@ Springboard to run in an opaque-origin iframe, serve plugin frontend assets from
 a separate plugin origin, or expose `allow-same-origin` only as an explicit
 admin-approved frontend capability.
 
-## Prototype coverage
+## Archived prototype coverage
 
-The prototype package at `packages/plugin-iframe-rpc-prototype` covers:
+The iframe RPC prototype is archived at `notes/plugin-plans/plugin-iframe-rpc-prototype`. It is not part of the active workspace or CI on this branch because the merge-ready runtime currently focuses on first-party service orchestration. The archived prototype explored:
 
 - protocol version validation,
 - JSON-only payload validation,

@@ -61,4 +61,4 @@ Install into staging first. The runtime records health checks, smoke-test logs, 
 
 ## Reference examples
 
-Reference plugin examples are intentionally omitted from this branch until the runtime supports those contracts end-to-end. Add examples back only when their declared bridges, frontend surfaces, or container lifecycle can be installed, validated, and exercised by CI.
+Reference plugin examples are archived at `notes/plugin-plans/plugin-reference-examples` until the runtime supports those contracts end-to-end. Add examples back to active packages only when their declared bridges, frontend surfaces, or container lifecycle can be installed, validated, and exercised by CI.
