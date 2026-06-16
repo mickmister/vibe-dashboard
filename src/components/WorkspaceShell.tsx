@@ -1410,6 +1410,8 @@ export function WorkspaceShell({
     spaceId: string,
     tabGroupId: string,
   ) => {
+    clearSettledPendingOpenCraftTab();
+
     if (voyageEntryId === session.activeVoyageEntryId) {
       setExpandedVoyageEntryId((current) =>
         current === voyageEntryId ? null : voyageEntryId,
@@ -1563,6 +1565,13 @@ export function WorkspaceShell({
     setPendingOpenCraftSessionId(null);
     setPendingNewVoyageCraftName(null);
     setWorkspaceSearchMode('general');
+    openCraftMutation.reset();
+  };
+
+  const clearSettledPendingOpenCraftTab = () => {
+    if (!pendingOpenCraftTab || openCraftMutation.isPending) return;
+    setPendingOpenCraftTab(null);
+    setPendingWorkspaceSelection(null);
     openCraftMutation.reset();
   };
 
