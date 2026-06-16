@@ -27,7 +27,7 @@
               "name": "http",
               "env": "BEADS_WEB_PORT",
               "default": 3109,
-              "bind": "127.0.0.1"
+              "bind": "0.0.0.0"
             }
           ],
           "env": {

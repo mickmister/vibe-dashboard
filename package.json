@@ -10,6 +10,7 @@
     "build:web": "SPRINGBOARD_PLATFORM=web vite build",
     "build:node": "SPRINGBOARD_PLATFORM=node vite build --outDir dist/node",
     "check-types": "tsc --noEmit",
+    "validate:caddy": "node --experimental-strip-types scripts/validate-plugin-caddy.ts",
     "test:container-runtime": "vitest run --config vitest.server.config.ts src/modules/plugins/vibe-dashboard/container-runtime.test.ts",
     "test:first-party-services": "vitest run --config vitest.server.config.ts src/modules/plugins/vibe-dashboard/first-party-services.test.ts",
     "test:staging-promotion": "vitest run --config vitest.server.config.ts src/modules/plugins/vibe-dashboard/staging-runtime.test.ts",

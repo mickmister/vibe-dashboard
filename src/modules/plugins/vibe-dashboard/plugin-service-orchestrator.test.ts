@@ -101,7 +101,7 @@ describe('plugin service supervisor orchestration dry run', () => {
       paths,
     });
     expect(beadsWebConfig).toContain('command=/var/lib/vd/plugins/vd.beads-web/beads-web-assets-42cc6ca1709d4b0aa76833d91d326e6de9659a28/extracted/bin/beads-web');
-    expect(beadsWebConfig).toContain('environment=BEADS_WEB_PORT="3109",BEADS_WEB_PORT_BIND="127.0.0.1",HOST="127.0.0.1",PORT="3109",HOME="/home/vkuser",XDG_CONFIG_HOME="/home/vkuser/.config",VD_PLUGIN_ID="vd.beads-web",VD_PLUGIN_VERSION="beads-web-assets-42cc6ca1709d4b0aa76833d91d326e6de9659a28",VD_SERVICE_ID="web"');
+    expect(beadsWebConfig).toContain('environment=BEADS_WEB_PORT="3109",BEADS_WEB_PORT_BIND="0.0.0.0",HOST="0.0.0.0",PORT="3109",HOME="/home/vkuser",XDG_CONFIG_HOME="/home/vkuser/.config",VD_PLUGIN_ID="vd.beads-web",VD_PLUGIN_VERSION="beads-web-assets-42cc6ca1709d4b0aa76833d91d326e6de9659a28",VD_SERVICE_ID="web"');
   });
 
   it('supports a beads-web-only catalog for isolated supervisor experiments', () => {
@@ -143,6 +143,7 @@ describe('plugin service supervisor orchestration dry run', () => {
     expect(content).toContain('@vd_plugin_vd_beads_web_web host beads-web.{$PROXY_DOMAIN}');
     expect(content).toContain('handle @vd_plugin_vd_beads_web_web');
     expect(content).toContain('reverse_proxy 127.0.0.1:3109');
+    expect(content).not.toContain('reverse_proxy 0.0.0.0:3109');
     expect(content).not.toContain('port-3109');
   });
 
