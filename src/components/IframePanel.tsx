@@ -6,6 +6,7 @@ import { AppLoadingScreen } from './AppLoadingScreen';
 import { SpacesOverview } from './SpacesOverview';
 import { DiffView } from './DiffView';
 import { hasSameBaseOrigin } from '../lib/originTrust';
+import { getTabsWithVirtualDiff } from '../lib/virtualTabs';
 
 const INTERNAL_URL_PREFIX = 'internal://';
 const CADDY_PORT = process.env.CADDY_PORT || '';
@@ -650,7 +651,8 @@ export function IframePanel({
   onNavigateToTabGroup,
   onOpenVKWorkspace,
 }: IframePanelProps) {
-  const activeTab = tabGroup.tabs.find(
+  const tabs = getTabsWithVirtualDiff(tabGroup);
+  const activeTab = tabs.find(
     (t) => t.id === activeItemId
   );
   const activePair = tabGroup.pairs.find(
@@ -664,13 +666,15 @@ export function IframePanel({
     visibleTabIds.add(activeTab.id);
   }
 
-  const visibleIframeTabs = tabGroup.tabs.filter((tab) => {
+  const visibleIframeTabs = tabs.filter((tab) => {
     if (!visibleTabIds.has(tab.id)) return false;
     return getTabRenderTarget(tab.url).kind === 'iframe';
   });
 
   const allKnownIframeTabs = workspace?.tabGroups.flatMap((group) =>
-    group.tabs.filter((tab) => getTabRenderTarget(tab.url).kind === 'iframe'),
+    getTabsWithVirtualDiff(group).filter(
+      (tab) => getTabRenderTarget(tab.url).kind === 'iframe',
+    ),
   );
   const visibleIframeTabIds = new Set(visibleIframeTabs.map((tab) => tab.id));
   const retainedTabs =
@@ -695,12 +699,14 @@ export function IframePanel({
         activeTab={activeTab}
         activePair={activePair}
         tabGroup={tabGroup}
+        tabs={tabs}
         storeVersion={storeVersion}
       />
       {activePair ? (
         <PairView
           activePair={activePair}
           tabGroup={tabGroup}
+          tabs={tabs}
           loadingState={loadingState}
           errorState={errorState}
           retryTab={retryTab}
@@ -743,19 +749,21 @@ function PersistentIframeLayer({
   activeTab,
   activePair,
   tabGroup,
+  tabs,
   storeVersion,
 }: {
   retainedTabs: Tab[];
   activeTab?: Tab;
   activePair?: { id: string; tabIds: string[]; ratios: number[] };
   tabGroup: TabGroup;
+  tabs: Tab[];
   storeVersion: number;
 }) {
   const layoutStyles = new Map<string, React.CSSProperties>();
 
   if (activePair) {
     const pairTabs = activePair.tabIds
-      .map((id) => tabGroup.tabs.find((tab) => tab.id === id))
+      .map((id) => tabs.find((tab) => tab.id === id))
       .filter((tab): tab is Tab => tab != null)
       .filter((tab) => getTabRenderTarget(tab.url).kind === 'iframe');
 
@@ -884,6 +892,7 @@ function SingleTabView({
 function PairView({
   activePair,
   tabGroup,
+  tabs,
   loadingState,
   errorState,
   retryTab,
@@ -900,6 +909,7 @@ function PairView({
 }: {
   activePair: { id: string; tabIds: string[]; ratios: number[] };
   tabGroup: TabGroup;
+  tabs: Tab[];
   loadingState: Map<string, boolean>;
   errorState: Map<string, boolean>;
   retryTab: (tabId: string) => void;
@@ -915,7 +925,7 @@ function PairView({
   onOpenVKWorkspace?: (taskAttemptId: string, name: string, containerRef: string, spaceId: string) => void;
 }) {
   const pairTabs = activePair.tabIds
-    .map((id) => tabGroup.tabs.find((t) => t.id === id))
+    .map((id) => tabs.find((t) => t.id === id))
     .filter((t): t is Tab => t != null);
 
   const percentages = activePair.ratios;

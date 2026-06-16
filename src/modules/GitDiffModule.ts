@@ -9,7 +9,13 @@ export interface DiffRouteRepo {
   branch: string | null;
   targetBranch: string | null;
   baseRef: string | null;
-  commits: Array<{ sha: string; subject: string }>;
+  commits: Array<{
+    sha: string;
+    subject: string;
+    createdAt: string;
+    linesAdded: number;
+    linesRemoved: number;
+  }>;
   files: Array<{ path: string; status: string }>;
   headRef: string;
   patch: string;
@@ -274,7 +280,8 @@ async function loadRepoDiff(
     const commits = parseCommits(
       await git(repoPath, [
         'log',
-        '--format=%H%x00%s',
+        '--format=commit%x00%H%x00%s%x00%aI',
+        '--numstat',
         '-50',
         ...(baseRef ? [`${baseRef}..HEAD`] : ['HEAD']),
       ]),
@@ -387,15 +394,45 @@ function parseNameStatus(
     });
 }
 
-function parseCommits(output: string): Array<{ sha: string; subject: string }> {
-  return output
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const [sha = '', subject = ''] = line.split('\0');
-      return { sha, subject };
-    });
+export function parseCommits(
+  output: string,
+): Array<{
+  sha: string;
+  subject: string;
+  createdAt: string;
+  linesAdded: number;
+  linesRemoved: number;
+}> {
+  const commits: Array<{
+    sha: string;
+    subject: string;
+    createdAt: string;
+    linesAdded: number;
+    linesRemoved: number;
+  }> = [];
+
+  for (const line of output.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const [marker, sha = '', subject = '', createdAt = ''] = trimmed.split('\0');
+    if (marker === 'commit') {
+      commits.push({ sha, subject, createdAt, linesAdded: 0, linesRemoved: 0 });
+      continue;
+    }
+    const current = commits.at(-1);
+    if (!current) continue;
+    const [added, removed] = trimmed.split('\t');
+    current.linesAdded += parseNumstatCount(added);
+    current.linesRemoved += parseNumstatCount(removed);
+  }
+
+  return commits;
+}
+
+function parseNumstatCount(value: string | undefined): number {
+  if (!value || value === '-') return 0;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 async function git(cwd: string, args: string[]): Promise<string> {

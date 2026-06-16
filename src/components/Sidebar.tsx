@@ -6,6 +6,7 @@ import React, {
   useMemo,
 } from 'react';
 import { Button, Input } from '@heroui/react';
+import { getTabsWithVirtualDiff } from '../lib/virtualTabs';
 import type {
   WorkspaceState,
   Space,
@@ -994,7 +995,7 @@ export function Sidebar({
 
                   {activeTabGroupId === tabGroup.id && (
                     <div className="ml-2 pl-2 border-l border-neutral-800 space-y-0.5">
-                      {tabGroup.tabs.map((tab) => {
+                      {getTabsWithVirtualDiff(tabGroup).map((tab) => {
                         const isActiveTab = activeItems[tabGroup.id] === tab.id;
                         return (
                           <button
@@ -1024,7 +1025,7 @@ export function Sidebar({
                         const pairTitle = pair.tabIds
                           .map(
                             (tabId) =>
-                              tabGroup.tabs.find((t) => t.id === tabId)
+                              getTabsWithVirtualDiff(tabGroup).find((t) => t.id === tabId)
                                 ?.title || 'Unknown',
                           )
                           .join(' | ');

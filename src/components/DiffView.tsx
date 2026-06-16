@@ -5,7 +5,7 @@ import type {
   FileDiffMetadata,
   OnDiffLineClickProps,
 } from '@pierre/diffs';
-import { Button, Input, Select, SelectItem, Textarea } from '@heroui/react';
+import { Button, Select, SelectItem, Textarea } from '@heroui/react';
 import { useModule } from '../hooks/useModule';
 import { hasRenderableDiff, parseRepoPatch } from '../lib/diffPatch';
 import {
@@ -21,7 +21,13 @@ type DiffRepo = {
   targetBranch: string | null;
   baseRef: string | null;
   headRef: string;
-  commits: Array<{ sha: string; subject: string }>;
+  commits: Array<{
+    sha: string;
+    subject: string;
+    createdAt: string;
+    linesAdded: number;
+    linesRemoved: number;
+  }>;
   files: Array<{ path: string; status: string }>;
   patch: string;
   error?: string;
@@ -51,12 +57,7 @@ export function DiffView({ workspaceId, workspaceDir }: DiffViewProps) {
   const [data, setData] = useState<DiffResponse | null>(null);
   const [selectedRepoRelativePath, setSelectedRepoRelativePath] = useState("");
   const [selectedFilePath, setSelectedFilePath] = useState("");
-  const [lineNumber, setLineNumber] = useState("1");
-  const [selectedCodeLine, setSelectedCodeLine] = useState<string | null>(null);
-  const [selectedLineSide, setSelectedLineSide] = useState<
-    'additions' | 'deletions'
-  >('additions');
-  const [commentBody, setCommentBody] = useState("");
+  const [draftComment, setDraftComment] = useState<DraftComment | null>(null);
   const [queuedComments, setQueuedComments] = useState<DraftComment[]>([]);
   const [selectedHeadRefs, setSelectedHeadRefs] = useState<
     Record<string, string>
@@ -147,42 +148,31 @@ export function DiffView({ workspaceId, workspaceDir }: DiffViewProps) {
     setSelectedFilePath(selectedRepoFiles[0]?.path || "");
   }, [selectedFilePath, selectedRepo, selectedRepoFiles]);
 
-  const addQueuedComment = (override?: Partial<DraftComment>) => {
-    const filePath = selectedFilePath.trim();
-    const body = (override?.body ?? commentBody).trim();
-    const repoRelativePath =
-      selectedRepo?.relativePath || selectedRepoRelativePath;
-    if (!repoRelativePath || !filePath || !body) return;
-    setQueuedComments((current) => [
-      ...current,
-      {
-        repoRelativePath,
-        filePath: override?.filePath ?? filePath,
-        lineNumber: (override?.lineNumber ?? lineNumber) || "1",
-        body,
-        codeLine: override?.codeLine ?? selectedCodeLine,
-        side: override?.side ?? selectedLineSide,
-      },
-    ]);
-    setCommentBody("");
-    setSelectedCodeLine(null);
+  const addQueuedComment = (comment: DraftComment) => {
+    const body = comment.body.trim();
+    if (!comment.repoRelativePath || !comment.filePath || !body) return;
+    setQueuedComments((current) => [...current, { ...comment, body }]);
+    setDraftComment(null);
     setSuccess(null);
     setManualCopyMarkdown(null);
   };
 
   const stageLineComment = useCallback(
     (fileDiff: FileDiffMetadata, line: OnDiffLineClickProps) => {
-      const nextLineNumber = String(line.lineNumber);
       const nextFilePath = fileDiff.name;
       setSelectedFilePath(nextFilePath);
-      setLineNumber(nextLineNumber);
-      setSelectedCodeLine(line.lineElement.textContent?.trim() || null);
-      setSelectedLineSide(line.annotationSide);
-      setCommentBody((current) => current || "");
+      setDraftComment({
+        repoRelativePath: selectedRepo?.relativePath || selectedRepoRelativePath,
+        filePath: nextFilePath,
+        lineNumber: String(line.lineNumber),
+        body: '',
+        codeLine: line.lineElement.textContent?.trim() || null,
+        side: line.annotationSide,
+      });
       setSuccess(null);
       setManualCopyMarkdown(null);
     },
-    [],
+    [selectedRepo?.relativePath, selectedRepoRelativePath],
   );
 
   const copyCommentsToClipboard = async () => {
@@ -311,6 +301,17 @@ export function DiffView({ workspaceId, workspaceDir }: DiffViewProps) {
                   selectedRepo &&
                   comment.repoRelativePath === selectedRepo.relativePath,
               )}
+              draftComment={
+                draftComment?.repoRelativePath === selectedRepo.relativePath
+                  ? draftComment
+                  : null
+              }
+              onDraftCommentChange={setDraftComment}
+              onSubmitDraftComment={addQueuedComment}
+              onCancelDraftComment={() => setDraftComment(null)}
+              onRemoveQueuedComment={(comment) =>
+                setQueuedComments((current) => current.filter((item) => item !== comment))
+              }
               onLineNumberClick={stageLineComment}
             />
           ) : (
@@ -319,13 +320,26 @@ export function DiffView({ workspaceId, workspaceDir }: DiffViewProps) {
         </main>
 
         <aside className="min-h-0 overflow-auto border-l border-neutral-800 bg-neutral-950 p-3">
-          <h2 className="text-sm font-semibold text-neutral-100">
-            Queue comments
-          </h2>
-          <p className="mt-1 text-xs text-neutral-500">
-            Copy comments as markdown, then paste them into the Agent
-            conversation.
-          </p>
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <h2 className="text-sm font-semibold text-neutral-100">
+                Commit history
+              </h2>
+              <p className="text-xs text-neutral-500">
+                {queuedComments.length} queued comment
+                {queuedComments.length === 1 ? '' : 's'}
+              </p>
+            </div>
+            <Button
+              size="sm"
+              color="primary"
+              onPress={copyCommentsToClipboard}
+              isLoading={copying}
+              isDisabled={queuedComments.length === 0}
+            >
+              Copy
+            </Button>
+          </div>
           {manualCopyMarkdown && (
             <div className="mt-3 rounded-lg border border-amber-500/40 bg-amber-500/10 p-2">
               <p className="text-xs text-amber-100">
@@ -340,89 +354,7 @@ export function DiffView({ workspaceId, workspaceDir }: DiffViewProps) {
               />
             </div>
           )}
-          <div className="mt-3 space-y-3">
-            <Select
-              aria-label="File"
-              size="sm"
-              selectedKeys={selectedFilePath ? [selectedFilePath] : []}
-              onSelectionChange={(keys) =>
-                setSelectedFilePath((Array.from(keys)[0] as string) || "")
-              }
-            >
-              {selectedRepoFiles.map((file) => (
-                <SelectItem key={file.path}>{file.path}</SelectItem>
-              ))}
-            </Select>
-            <Input
-              label="Line"
-              size="sm"
-              value={lineNumber}
-              onChange={(event) => setLineNumber(event.target.value)}
-            />
-            <p className="text-xs text-neutral-500">
-              Tip: click a diff line number to target that file and line.
-            </p>
-            {selectedCodeLine && (
-              <p className="truncate font-mono text-xs text-neutral-500">
-                {selectedCodeLine}
-              </p>
-            )}
-            <Textarea
-              label="Comment"
-              minRows={4}
-              value={commentBody}
-              onChange={(event) => setCommentBody(event.target.value)}
-            />
-            <Button
-              size="sm"
-              color="primary"
-              onPress={() => addQueuedComment()}
-              isDisabled={!selectedFilePath || !commentBody.trim()}
-            >
-              Add comment
-            </Button>
-          </div>
-
-          <div className="mt-5 space-y-2">
-            {queuedComments.map((comment, index) => (
-              <div
-                key={`${comment.filePath}-${index}`}
-                className="rounded-lg border border-neutral-800 bg-neutral-900 p-2 text-xs"
-              >
-                <div className="font-mono text-neutral-300">
-                  {workspaceCommentPath(comment, repoCount || 1)}:
-                  {comment.lineNumber}
-                </div>
-                <div className="mt-1 text-neutral-400">{comment.body}</div>
-                {comment.codeLine && (
-                  <div className="mt-1 truncate font-mono text-neutral-500">
-                    {comment.codeLine}
-                  </div>
-                )}
-                <button
-                  className="mt-2 text-red-300 hover:text-red-200"
-                  onClick={() => {
-                    setQueuedComments((current) =>
-                      current.filter((_, i) => i !== index),
-                    );
-                    setManualCopyMarkdown(null);
-                  }}
-                >
-                  Remove
-                </button>
-              </div>
-            ))}
-          </div>
-
-          <Button
-            className="mt-4 w-full"
-            color="primary"
-            onPress={copyCommentsToClipboard}
-            isLoading={copying}
-            isDisabled={queuedComments.length === 0}
-          >
-            Copy comments to clipboard
-          </Button>
+          <CommitTimeline commits={selectedRepo?.commits ?? []} />
         </aside>
       </div>
     </DiffShell>
@@ -451,10 +383,20 @@ function EmptyState({ title, detail }: { title: string; detail?: string }) {
 function RepoPatchDiff({
   parsedPatch,
   queuedComments,
+  draftComment,
+  onDraftCommentChange,
+  onSubmitDraftComment,
+  onCancelDraftComment,
+  onRemoveQueuedComment,
   onLineNumberClick,
 }: {
   parsedPatch: ReturnType<typeof parseRepoPatch>;
   queuedComments: DraftComment[];
+  draftComment: DraftComment | null;
+  onDraftCommentChange: (comment: DraftComment | null) => void;
+  onSubmitDraftComment: (comment: DraftComment) => void;
+  onCancelDraftComment: () => void;
+  onRemoveQueuedComment: (comment: DraftComment) => void;
   onLineNumberClick: (
     fileDiff: FileDiffMetadata,
     line: OnDiffLineClickProps,
@@ -477,14 +419,35 @@ function RepoPatchDiff({
           <FileDiff
             key={`${fileDiff.name}-${fileDiff.prevName || ''}-${index}`}
             fileDiff={fileDiff}
-            lineAnnotations={lineAnnotationsForFile(fileDiff, queuedComments)}
-            renderAnnotation={(annotation) => (
-              <div className="rounded border border-primary-500/40 bg-primary-500/10 px-3 py-2 text-xs text-primary-100">
-                {annotation.metadata?.body}
-              </div>
+            lineAnnotations={lineAnnotationsForFile(
+              fileDiff,
+              queuedComments,
+              draftComment,
             )}
+            renderAnnotation={(annotation) => {
+              const metadata = annotation.metadata;
+              if (!metadata) return null;
+              if (metadata.kind === 'draft') {
+                return (
+                  <InlineCommentEditor
+                    comment={metadata.comment}
+                    onChange={(body) =>
+                      onDraftCommentChange({ ...metadata.comment, body })
+                    }
+                    onSubmit={() => onSubmitDraftComment(metadata.comment)}
+                    onCancel={onCancelDraftComment}
+                  />
+                );
+              }
+              return (
+                <InlineQueuedComment
+                  comment={metadata.comment}
+                  onRemove={() => onRemoveQueuedComment(metadata.comment)}
+                />
+              );
+            }}
             options={{
-              diffStyle: 'unified',
+              diffStyle: 'split',
               themeType: 'dark',
               theme: { dark: 'github-dark', light: 'github-light' },
               overflow: 'wrap',
@@ -506,17 +469,139 @@ function RepoPatchDiff({
   );
 }
 
+type InlineAnnotationMetadata =
+  | { kind: 'queued'; comment: DraftComment }
+  | { kind: 'draft'; comment: DraftComment };
+
 function lineAnnotationsForFile(
   fileDiff: FileDiffMetadata,
   queuedComments: DraftComment[],
-): DiffLineAnnotation<{ body: string }>[] {
-  return queuedComments
+  draftComment: DraftComment | null,
+): DiffLineAnnotation<InlineAnnotationMetadata>[] {
+  const annotations: DiffLineAnnotation<InlineAnnotationMetadata>[] = queuedComments
     .filter((comment) => comment.filePath === fileDiff.name)
     .map((comment) => ({
       side: comment.side ?? 'additions',
       lineNumber: Number.parseInt(comment.lineNumber, 10) || 1,
-      metadata: { body: comment.body },
+      metadata: { kind: 'queued' as const, comment },
     }));
+
+  if (draftComment?.filePath === fileDiff.name) {
+    annotations.push({
+      side: draftComment.side ?? 'additions',
+      lineNumber: Number.parseInt(draftComment.lineNumber, 10) || 1,
+      metadata: { kind: 'draft', comment: draftComment },
+    });
+  }
+
+  return annotations;
+}
+
+function InlineCommentEditor({
+  comment,
+  onChange,
+  onSubmit,
+  onCancel,
+}: {
+  comment: DraftComment;
+  onChange: (body: string) => void;
+  onSubmit: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="rounded border border-primary-500/40 bg-neutral-900 p-3 text-xs">
+      <div className="mb-2 font-mono text-neutral-400">
+        {comment.filePath}:{comment.lineNumber}
+      </div>
+      <Textarea
+        aria-label="Inline review comment"
+        minRows={3}
+        value={comment.body}
+        onChange={(event) => onChange(event.target.value)}
+        autoFocus
+      />
+      <div className="mt-2 flex justify-end gap-2">
+        <Button size="sm" variant="flat" onPress={onCancel}>
+          Cancel
+        </Button>
+        <Button
+          size="sm"
+          color="primary"
+          onPress={onSubmit}
+          isDisabled={!comment.body.trim()}
+        >
+          Add comment
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function InlineQueuedComment({
+  comment,
+  onRemove,
+}: {
+  comment: DraftComment;
+  onRemove: () => void;
+}) {
+  return (
+    <div className="rounded border border-primary-500/40 bg-primary-500/10 px-3 py-2 text-xs text-primary-100">
+      <div>{comment.body}</div>
+      <button className="mt-2 text-red-200 hover:text-red-100" onClick={onRemove}>
+        Remove
+      </button>
+    </div>
+  );
+}
+
+function CommitTimeline({ commits }: { commits: DiffRepo['commits'] }) {
+  if (commits.length === 0) {
+    return (
+      <div className="mt-4 rounded-lg border border-neutral-800 bg-neutral-900 p-3 text-xs text-neutral-500">
+        No commits found for this comparison.
+      </div>
+    );
+  }
+
+  return (
+    <ol className="mt-4 space-y-0">
+      {commits.map((commit, index) => (
+        <li key={commit.sha} className="relative grid grid-cols-[24px_minmax(0,1fr)] gap-3 pb-5 last:pb-0">
+          <div className="relative flex justify-center">
+            <span className="mt-1 h-3 w-3 rounded-full border border-primary-400 bg-primary-500" />
+            {index < commits.length - 1 && (
+              <span className="absolute top-5 bottom-0 w-px bg-neutral-800" />
+            )}
+          </div>
+          <article className="min-w-0 rounded-lg border border-neutral-800 bg-neutral-900 p-3 text-xs">
+            <div className="font-mono text-primary-300">
+              {commit.sha.slice(0, 8)}
+            </div>
+            <h3 className="mt-1 truncate font-medium text-neutral-100">
+              {commit.subject}
+            </h3>
+            <time className="mt-1 block text-neutral-500" dateTime={commit.createdAt}>
+              {formatCommitTime(commit.createdAt)}
+            </time>
+            <div className="mt-2 flex gap-3 font-mono">
+              <span className="text-emerald-300">+{commit.linesAdded}</span>
+              <span className="text-red-300">-{commit.linesRemoved}</span>
+            </div>
+          </article>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function formatCommitTime(value: string): string {
+  if (!value) return 'Unknown time';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(date);
 }
 
 function NonRenderableFileDiff({

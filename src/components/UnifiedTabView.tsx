@@ -1,6 +1,7 @@
 import React from 'react';
 import { AddressBar } from './AddressBar';
 import { IframePanel } from './IframePanel';
+import { getTabsWithVirtualDiff } from '../lib/virtualTabs';
 import type {
   TabGroup,
   WorkspaceState,
@@ -121,5 +122,5 @@ function getSingleViewActiveItemId(
   const activePair = tabGroup.pairs.find((pair) => pair.id === activeItemId);
   if (!activePair) return activeItemId;
 
-  return tabGroup.tabs[0]?.id || activePair.tabIds[0] || activeItemId;
+  return getTabsWithVirtualDiff(tabGroup)[0]?.id || activePair.tabIds[0] || activeItemId;
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   isSafeGitRef,
+  parseCommits,
   parseHeadRefs,
   selectWorkspaceRepoPaths,
 } from './GitDiffModule';
@@ -83,5 +84,37 @@ describe('selectWorkspaceRepoPaths', () => {
         [],
       ),
     ).toEqual(['/workspace/a', '/workspace/b']);
+  });
+});
+
+
+describe('parseCommits', () => {
+  it('parses commit timestamps and numstat totals', () => {
+    expect(
+      parseCommits(
+        [
+          ['commit', 'abc123', 'Add feature', '2026-06-16T12:00:00Z'].join('\0'),
+          '3\t1\tsrc/a.ts',
+          '-\t-\timage.png',
+          ['commit', 'def456', 'Fix bug', '2026-06-16T13:00:00Z'].join('\0'),
+          '2\t4\tsrc/b.ts',
+        ].join('\n'),
+      ),
+    ).toEqual([
+      {
+        sha: 'abc123',
+        subject: 'Add feature',
+        createdAt: '2026-06-16T12:00:00Z',
+        linesAdded: 3,
+        linesRemoved: 1,
+      },
+      {
+        sha: 'def456',
+        subject: 'Fix bug',
+        createdAt: '2026-06-16T13:00:00Z',
+        linesAdded: 2,
+        linesRemoved: 4,
+      },
+    ]);
   });
 });
