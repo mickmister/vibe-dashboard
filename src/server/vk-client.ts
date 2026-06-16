@@ -29,6 +29,11 @@ export interface RepoWithBranch {
   target_branch: string;
 }
 
+export interface WorkspaceReposResponse {
+  workspace_id: string;
+  repos: RepoWithBranch[];
+}
+
 export interface Session {
   id: string;
   workspace_id: string;
@@ -115,6 +120,13 @@ export class VibeKanbanServerClient {
 
   getWorkspaceRepos(workspaceId: string): Promise<RepoWithBranch[]> {
     return this.get(`/workspaces/${encodeURIComponent(workspaceId)}/repos`);
+  }
+
+  getWorkspaceReposBatch(
+    workspaceIds: string[],
+  ): Promise<WorkspaceReposResponse[]> {
+    if (workspaceIds.length === 0) return Promise.resolve([]);
+    return this.post('/workspaces/repos/batch', { workspace_ids: workspaceIds });
   }
 
   getSessions(workspaceId: string): Promise<Session[]> {

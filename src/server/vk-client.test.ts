@@ -26,6 +26,66 @@ describe('resolveVibeApiBaseUrl', () => {
 });
 
 describe('VibeKanbanServerClient', () => {
+  it('fetches workspace repos in one bounded batch request', async () => {
+    const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
+      expect(url).toBe('http://vk.local/api/workspaces/repos/batch');
+      expect(init?.method).toBe('POST');
+      expect(JSON.parse(String(init?.body))).toEqual({
+        workspace_ids: ['ws1', 'ws2'],
+      });
+      return jsonResponse({
+        success: true,
+        data: [
+          {
+            workspace_id: 'ws1',
+            repos: [
+              {
+                id: 'repo1',
+                name: 'owner/repo',
+                display_name: 'owner/repo',
+                target_branch: 'main',
+              },
+            ],
+          },
+          { workspace_id: 'ws2', repos: [] },
+        ],
+      });
+    });
+    const client = new VibeKanbanServerClient({
+      baseUrl: 'http://vk.local/api',
+      fetch: fetchImpl,
+    });
+
+    await expect(
+      client.getWorkspaceReposBatch(['ws1', 'ws2']),
+    ).resolves.toEqual([
+      {
+        workspace_id: 'ws1',
+        repos: [
+          {
+            id: 'repo1',
+            name: 'owner/repo',
+            display_name: 'owner/repo',
+            target_branch: 'main',
+          },
+        ],
+      },
+      { workspace_id: 'ws2', repos: [] },
+    ]);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not call VK when batch workspace repos input is empty', async () => {
+    const fetchImpl = vi.fn();
+    const client = new VibeKanbanServerClient({
+      baseUrl: 'http://vk.local/api',
+      fetch: fetchImpl,
+    });
+
+    await expect(client.getWorkspaceReposBatch([])).resolves.toEqual([]);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it('fetches workspaces and workspace repos from VK API envelope', async () => {
     const fetchImpl = vi.fn(async (url: string) => {
       if (url === 'http://vk.local/api/workspaces') {
@@ -39,7 +99,10 @@ describe('VibeKanbanServerClient', () => {
       }
       throw new Error(`unexpected URL ${url}`);
     });
-    const client = new VibeKanbanServerClient({ baseUrl: 'http://vk.local/api', fetch: fetchImpl });
+    const client = new VibeKanbanServerClient({
+      baseUrl: 'http://vk.local/api',
+      fetch: fetchImpl,
+    });
 
     await expect(client.getWorkspaces()).resolves.toEqual([{ id: 'ws1', branch: 'feature/x' }]);
     await expect(client.getWorkspaceRepos('ws1')).resolves.toEqual([
@@ -58,7 +121,10 @@ describe('VibeKanbanServerClient', () => {
       }
       throw new Error(`unexpected request ${url}`);
     });
-    const client = new VibeKanbanServerClient({ baseUrl: 'http://vk.local/api', fetch: fetchImpl });
+    const client = new VibeKanbanServerClient({
+      baseUrl: 'http://vk.local/api',
+      fetch: fetchImpl,
+    });
 
     await expect(client.getSessions('ws1')).resolves.toEqual([
       { id: 's1', workspace_id: 'ws1', executor: 'CODEX' },
@@ -90,7 +156,10 @@ describe('VibeKanbanServerClient', () => {
       }
       throw new Error(`unexpected request ${url}`);
     });
-    const client = new VibeKanbanServerClient({ baseUrl: 'http://vk.local/api', fetch: fetchImpl });
+    const client = new VibeKanbanServerClient({
+      baseUrl: 'http://vk.local/api',
+      fetch: fetchImpl,
+    });
 
     await expect(client.sendFollowUp('session-1', 'CI failed. Please inspect it.')).resolves.toEqual({
       id: 'process-1',

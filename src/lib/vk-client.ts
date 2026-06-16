@@ -48,6 +48,11 @@ export interface RepoWithBranch {
   target_branch: string;
 }
 
+export interface WorkspaceReposResponse {
+  workspace_id: string;
+  repos: RepoWithBranch[];
+}
+
 // ── API response envelope ───────────────────────────────────────────────────
 
 interface ApiResponse<T> {
@@ -104,6 +109,13 @@ export class VibeKanbanClient {
 
   getWorkspaceRepos(id: string): Promise<RepoWithBranch[]> {
     return this.get(`/workspaces/${id}/repos`);
+  }
+
+  getWorkspaceReposBatch(
+    workspaceIds: string[],
+  ): Promise<WorkspaceReposResponse[]> {
+    if (workspaceIds.length === 0) return Promise.resolve([]);
+    return this.post('/workspaces/repos/batch', { workspace_ids: workspaceIds });
   }
 
   getWorkspaceBranchStatus(id: string): Promise<unknown> {

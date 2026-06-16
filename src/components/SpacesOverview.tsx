@@ -124,20 +124,17 @@ function useVKDashboardData() {
       const allRepos =
         reposResult.status === "fulfilled" ? reposResult.value : [];
 
-      // Batch-fetch per-workspace repos
-      const repoResults = await Promise.allSettled(
-        activeWorkspaces.map((ws) =>
-          vkClient
-            .getWorkspaceRepos(ws.id)
-            .then((repos) => ({ wsId: ws.id, repos })),
-        ),
-      );
-
       const wsRepoMap = new Map<string, RepoWithBranch[]>();
-      for (const result of repoResults) {
-        if (result.status === "fulfilled") {
-          wsRepoMap.set(result.value.wsId, result.value.repos);
+      try {
+        const workspaceRepoResults = await vkClient.getWorkspaceReposBatch(
+          activeWorkspaces.map((ws) => ws.id),
+        );
+        for (const workspaceRepos of workspaceRepoResults) {
+          wsRepoMap.set(workspaceRepos.workspace_id, workspaceRepos.repos);
         }
+      } catch {
+        // Repo data is non-critical for the overview. Keep rendering workspace
+        // cards if the batch endpoint is unavailable or returns an error.
       }
 
       // Merge into DashboardWorkspace[]
