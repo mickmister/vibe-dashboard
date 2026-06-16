@@ -13,6 +13,7 @@ interface UnifiedTabViewProps {
   activeTabGroupId: string;
   actions: WorkspaceActions;
   sessionActions: SessionActions;
+  disableSplitViews?: boolean;
   workspace: WorkspaceState;
   showAddressBar: boolean;
   savedSessions: SavedWorkspaceSession[];
@@ -30,6 +31,7 @@ export function UnifiedTabView({
   activeTabGroupId,
   actions,
   sessionActions,
+  disableSplitViews,
   workspace,
   showAddressBar,
   savedSessions,
@@ -42,13 +44,20 @@ export function UnifiedTabView({
   onOpenVKWorkspace,
 }: UnifiedTabViewProps) {
   const activeTabGroup = tabGroups.find((tg) => tg.id === activeTabGroupId);
+  const activeItemId = activeTabGroup
+    ? getSingleViewActiveItemId(
+        activeTabGroup,
+        sessionActions.getActiveItem(activeTabGroup.id),
+        disableSplitViews,
+      )
+    : '';
 
   return (
     <div className="flex flex-col flex-1 min-h-0 relative">
       {showAddressBar && activeTabGroup && (
         <AddressBar
           tabGroup={activeTabGroup}
-          activeItemId={sessionActions.getActiveItem(activeTabGroup.id)}
+          activeItemId={activeItemId}
           onNavigate={(tabId, newUrl) =>
             actions.updateTabUrl({
               tabGroupId: activeTabGroup.id,
@@ -63,7 +72,7 @@ export function UnifiedTabView({
         {activeTabGroup ? (
           <IframePanel
             tabGroup={activeTabGroup}
-            activeItemId={sessionActions.getActiveItem(activeTabGroup.id)}
+            activeItemId={activeItemId}
             onUpdatePairRatios={(pairId, ratios) =>
               actions.updatePairRatios({
                 tabGroupId: activeTabGroup.id,
@@ -89,4 +98,17 @@ onOpenVKWorkspace={onOpenVKWorkspace}
       </div>
     </div>
   );
+}
+
+function getSingleViewActiveItemId(
+  tabGroup: TabGroup,
+  activeItemId: string,
+  disableSplitViews: boolean | undefined,
+): string {
+  if (!disableSplitViews) return activeItemId;
+
+  const activePair = tabGroup.pairs.find((pair) => pair.id === activeItemId);
+  if (!activePair) return activeItemId;
+
+  return tabGroup.tabs[0]?.id || activePair.tabIds[0] || activeItemId;
 }

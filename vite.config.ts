@@ -43,11 +43,12 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, 'src'),
-      '@vibe-kanban/workflow-core': path.resolve(__dirname, 'packages/workflow-core/src/index.ts')
+      '@vibe-dashboard/workflow-core': path.resolve(__dirname, 'packages/workflow-core/src/index.ts')
     }
   },
   define: {
-    'process.env.DEBUG_LOG_PERFORMANCE': '""'
+    'process.env.DEBUG_LOG_PERFORMANCE': '""',
+    'process.env.CADDY_PORT': JSON.stringify(process.env.CADDY_PORT || '')
   },
   server: {
     port: devPort,

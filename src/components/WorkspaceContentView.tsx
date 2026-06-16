@@ -8,6 +8,7 @@ interface WorkspaceContentViewProps {
   activeTabGroupId: string;
   actions: WorkspaceActions;
   sessionActions: SessionActions;
+  disableSplitViews?: boolean;
   onDragStart: (e: React.DragEvent, tabGroupId: string) => void;
   onDragOver: (e: React.DragEvent) => void;
   onDrop: (e: React.DragEvent, targetGroupId: string) => void;
@@ -28,6 +29,7 @@ export function WorkspaceContentView({
   activeTabGroupId,
   actions,
   sessionActions,
+  disableSplitViews,
   onDragStart,
   onDragOver,
   onDrop,
@@ -58,6 +60,7 @@ export function WorkspaceContentView({
       activeTabGroupId={activeTabGroupId}
       actions={actions}
       sessionActions={sessionActions}
+      disableSplitViews={disableSplitViews}
       workspace={workspace}
       showAddressBar={showAddressBar}
       savedSessions={savedSessions}

@@ -8,7 +8,7 @@
     "resolveJsonModule": true,
     "allowImportingTsExtensions": true,
     "paths": {
-      "@vibe-kanban/workflow-core": ["./packages/workflow-core/src/index.ts"]
+      "@vibe-dashboard/workflow-core": ["./packages/workflow-core/src/index.ts"]
     },
 
     // File Layout

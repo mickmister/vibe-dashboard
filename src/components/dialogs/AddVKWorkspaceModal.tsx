@@ -195,7 +195,7 @@ export function AddVKWorkspaceModal({
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} size="2xl" backdrop="blur">
-      <ModalContent className="bg-neutral-900 border border-neutral-800 text-neutral-100">
+      <ModalContent className="max-h-[85vh] bg-neutral-900 border border-neutral-800 text-neutral-100">
         <ModalHeader className="flex flex-col gap-1 border-b border-neutral-800">
           <h2 className="text-lg font-semibold text-white">
             {spacePickerTarget ? 'Choose Space' : 'Open VK Workspace'}
@@ -208,7 +208,7 @@ export function AddVKWorkspaceModal({
         </ModalHeader>
         <ModalBody>
           {spacePickerTarget ? (
-            <div className="space-y-2">
+            <div className="max-h-[55vh] space-y-2 overflow-y-auto pr-1">
               {availableSpaces.length === 0 ? (
                 <div className="text-neutral-500 text-center py-8">
                   No spaces available

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { IconChevronUp, IconMenu2, IconUfo } from '@tabler/icons-react';
 import { Sidebar } from './Sidebar';
 import { WorkspaceContentView } from './WorkspaceContentView';
 import { hasKnownIframeMessageSource } from './IframePanel';
@@ -14,7 +15,7 @@ import type {
   SavedWorkspaceSession,
   VoyageEntry,
 } from '../types';
-import type { SessionWorkspaceNav } from '../sessionState';
+import type { NewSessionInitialSelection, SessionWorkspaceNav } from '../sessionState';
 import type { PluginRegistryState } from '../modules/plugins/vibe-dashboard/types';
 import type { ResolvedWorkspaceComposition } from '../modules/plugins/vibe-dashboard/workspace-composition';
 import { resolveWorkspaceFactoryComposition } from '../modules/plugins/vibe-dashboard/workspace-composition';
@@ -39,6 +40,10 @@ const MOBILE_TAB_EMOJI_CHOICES = [
   '🛰️',
 ];
 const VOYAGE_SWITCH_THROTTLE_MS = 1000;
+
+function isReservedVoyageName(name: string): boolean {
+  return name.trim().toLowerCase() === 'home';
+}
 
 export type WorkspaceActions = {
   addSpace: (args: {
@@ -102,6 +107,11 @@ export type WorkspaceActions = {
   touchTabGroup: (args: { tabGroupId: string }) => void;
   toggleStarTabGroup: (args: { tabGroupId: string }) => void;
   reorderSpaces: (args: { sourceId: string; targetId: string }) => void;
+  moveVoyageEntryToSavedSession: (args: {
+    targetSessionId: string;
+    voyageEntry: VoyageEntry;
+    activeItemId?: string;
+  }) => Promise<void>;
 };
 
 export type SessionActions = {
@@ -119,7 +129,10 @@ export type SessionActions = {
   setActiveTabGroup: (tabGroupId: string) => void;
   getActiveItem: (tabGroupId: string) => string;
   resumeSession: (sessionId: string, voyageEntryId?: string) => void;
-  startNewSession: () => void;
+  startNewSession: (options?: {
+    name?: string;
+    initialSelection?: NewSessionInitialSelection;
+  }) => string;
   renameSession: (sessionId: string, name: string) => void;
   deleteSession: (sessionId: string) => void;
   addTabGroupToSession: (
@@ -162,6 +175,18 @@ type DuplicateCraftPrompt = {
   }>;
 };
 
+type PendingVoyageCraftSelection = {
+  sessionId: string;
+  spaceId: string;
+  tabGroupId: string;
+  tabId?: string;
+};
+type MoveVoyageEntryPrompt = {
+  voyageEntryId: string;
+  tabGroupId: string;
+  activeItemId?: string;
+};
+
 export function WorkspaceShell({
   workspace,
   session,
@@ -179,8 +204,9 @@ export function WorkspaceShell({
   const [addTabTargetGroupId, setAddTabTargetGroupId] = useState<string>('');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isDesktop, setIsDesktop] = useState(false);
+  const [isDesktopVoyageBarHidden, setIsDesktopVoyageBarHidden] =
+    useState(false);
   const [showAddressBar, setShowAddressBar] = useState(false);
-  const [showSessionTopBar, setShowSessionTopBar] = useState(true);
   const [mobileTabMenuTarget, setMobileTabMenuTarget] = useState<{
     voyageEntryId: string;
     spaceId: string;
@@ -197,10 +223,37 @@ export function WorkspaceShell({
   >(null);
   const [duplicateCraftPrompt, setDuplicateCraftPrompt] =
     useState<DuplicateCraftPrompt | null>(null);
+  const [newVoyagePromptOpen, setNewVoyagePromptOpen] = useState(false);
+  const [newVoyageName, setNewVoyageName] = useState('');
+  const [pendingOpenCraftSessionId, setPendingOpenCraftSessionId] =
+    useState<string | null>(null);
+  const [pendingVoyageRename, setPendingVoyageRename] = useState<{
+    sessionId: string;
+    name: string;
+  } | null>(null);
+  const [pendingNewVoyageCraftName, setPendingNewVoyageCraftName] =
+    useState<string | null>(null);
+  const [pendingVoyageCraftSelection, setPendingVoyageCraftSelection] =
+    useState<PendingVoyageCraftSelection | null>(null);
+  const [voyagePlusMenuOpen, setVoyagePlusMenuOpen] = useState(false);
+  const [voyagePlusMenuPosition, setVoyagePlusMenuPosition] = useState<{
+    left: number;
+    top: number;
+  } | null>(null);
+  const [voyageSwitcherOpen, setVoyageSwitcherOpen] = useState(false);
+  const [voyageSwitcherRenameSessionId, setVoyageSwitcherRenameSessionId] =
+    useState<string | null>(null);
+  const [voyageSwitcherRenameDraft, setVoyageSwitcherRenameDraft] =
+    useState('');
+  const [moveVoyageEntryPrompt, setMoveVoyageEntryPrompt] =
+    useState<MoveVoyageEntryPrompt | null>(null);
   const [mobileTabDraftLabel, setMobileTabDraftLabel] = useState('');
   const [mobileTabDraftEmoji, setMobileTabDraftEmoji] = useState('');
   const dragGroupRef = useRef<string | null>(null);
   const dragSessionTabGroupRef = useRef<string | null>(null);
+  const sidebarRef = useRef<HTMLDivElement | null>(null);
+  const voyagePlusMenuRef = useRef<HTMLDivElement | null>(null);
+  const voyageBarRevealTimerRef = useRef<number | null>(null);
   const lastVoyageSwitchAtRef = useRef(0);
   const longPressTimerRef = useRef<number | null>(null);
   const longPressStartedAtRef = useRef<{ x: number; y: number } | null>(null);
@@ -208,6 +261,8 @@ export function WorkspaceShell({
 
   const LONG_PRESS_MS = 450;
   const LONG_PRESS_MOVE_TOLERANCE_PX = 10;
+  const VOYAGE_PLUS_MENU_WIDTH = 176;
+  const VOYAGE_PLUS_MENU_HEIGHT = 88;
 
   // --- Drag-and-drop for crafts ---
   const handleDragStart = (e: React.DragEvent, tabGroupId: string) => {
@@ -281,10 +336,74 @@ export function WorkspaceShell({
     }
   };
 
+  const switchToVoyage = (sessionId: string, voyageEntryId?: string) => {
+    sessionActions.resumeSession(sessionId, voyageEntryId);
+  };
+
+  const startNewVoyage = (
+    name: string,
+    initialSelection?: NewSessionInitialSelection,
+  ): string => {
+    const trimmedName = name.trim();
+    if (!trimmedName || isReservedVoyageName(trimmedName)) return currentSessionId;
+    const nextSessionId = sessionActions.startNewSession({
+      name: trimmedName,
+      initialSelection,
+    });
+    if (trimmedName) {
+      setPendingVoyageRename({ sessionId: nextSessionId, name: trimmedName });
+    }
+    return nextSessionId;
+  };
+
+  const closeTransientOverlays = () => {
+    setIsSidebarOpen(false);
+    setVoyagePlusMenuOpen(false);
+    setDesktopTabMenuTarget(null);
+  };
+
+  const clearVoyageBarRevealTimer = () => {
+    if (voyageBarRevealTimerRef.current != null) {
+      window.clearTimeout(voyageBarRevealTimerRef.current);
+      voyageBarRevealTimerRef.current = null;
+    }
+  };
+
+  const startVoyageBarRevealTimer = () => {
+    clearVoyageBarRevealTimer();
+    voyageBarRevealTimerRef.current = window.setTimeout(() => {
+      setIsDesktopVoyageBarHidden(false);
+      voyageBarRevealTimerRef.current = null;
+    }, 700);
+  };
+
+  const toggleVoyagePlusMenu = (event: React.MouseEvent<HTMLButtonElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const left = Math.max(
+      8,
+      Math.min(rect.left, window.innerWidth - VOYAGE_PLUS_MENU_WIDTH - 8),
+    );
+    const opensUp = rect.bottom + VOYAGE_PLUS_MENU_HEIGHT + 8 > window.innerHeight;
+    const top = opensUp
+      ? Math.max(8, rect.top - VOYAGE_PLUS_MENU_HEIGHT - 4)
+      : rect.bottom + 4;
+
+    setVoyagePlusMenuPosition({ left, top });
+    setVoyagePlusMenuOpen((value) => !value);
+  };
+
   // --- Cmd+W / Cmd+Q exit confirmation ---
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const key = e.key.toLowerCase();
+
+      if ((e.metaKey || e.ctrlKey) && key === 's') {
+        if (document.activeElement instanceof HTMLIFrameElement) {
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
+      }
 
       if (
         (e.metaKey || e.ctrlKey) &&
@@ -294,9 +413,15 @@ export function WorkspaceShell({
         e.preventDefault();
         e.stopPropagation();
         setAddTabModalOpen(false);
+        setPendingOpenCraftSessionId(null);
         setWorkspaceSearchMode('general');
         setWorkspaceSearchOpen(true);
         setIsSidebarOpen(false);
+        return;
+      }
+
+      if (key === 'escape') {
+        setVoyagePlusMenuOpen(false);
         return;
       }
 
@@ -343,6 +468,39 @@ export function WorkspaceShell({
     void prefetchVKWorkspaceSearchResults();
   }, []);
 
+  useEffect(() => {
+    if (!pendingVoyageRename) return;
+    if (!savedSessions.some((entry) => entry.id === pendingVoyageRename.sessionId)) {
+      return;
+    }
+    sessionActions.renameSession(pendingVoyageRename.sessionId, pendingVoyageRename.name);
+    setPendingVoyageRename(null);
+  }, [pendingVoyageRename, savedSessions, sessionActions]);
+
+  useEffect(() => {
+    if (!pendingVoyageCraftSelection) return;
+    if (currentSessionId !== pendingVoyageCraftSelection.sessionId) return;
+
+    if (pendingVoyageCraftSelection.tabId) {
+      sessionActions.selectSessionTab(
+        pendingVoyageCraftSelection.spaceId,
+        pendingVoyageCraftSelection.tabGroupId,
+        pendingVoyageCraftSelection.tabId,
+      );
+    } else {
+      sessionActions.addTabGroupToSession(pendingVoyageCraftSelection.tabGroupId, {
+        select: true,
+      });
+      sessionActions.selectSessionTabGroup(
+        pendingVoyageCraftSelection.spaceId,
+        pendingVoyageCraftSelection.tabGroupId,
+      );
+    }
+
+    setPendingVoyageCraftSelection(null);
+  }, [currentSessionId, pendingVoyageCraftSelection, sessionActions]);
+
+  // --- Add tab modal handler ---
   const openAddTabModal = (tabGroupId: string) => {
     setAddTabTargetGroupId(tabGroupId);
     setAddTabModalOpen(true);
@@ -436,14 +594,59 @@ export function WorkspaceShell({
     name: string,
     containerRef: string,
   ) => {
+    const destinationSessionId = pendingOpenCraftSessionId;
+    const destinationSession =
+      destinationSessionId && destinationSessionId !== currentSessionId
+        ? savedSessions.find((entry) => entry.id === destinationSessionId)
+        : undefined;
+    const destinationSpaceId =
+      destinationSession?.activeSpaceId || session.activeSpaceId;
+
     if (workspaceSearchMode === 'session-add') {
-      await handleAddVKWorkspaceToSpace(
+      const composition = resolveVKWorkspaceComposition({
         workspaceId,
         name,
         containerRef,
-        session.activeSpaceId,
-        getDefaultVKWorkspaceFactoryKey(pluginRegistry),
-      );
+        factoryKey: getDefaultVKWorkspaceFactoryKey(pluginRegistry),
+      });
+      const result = await actions.addVKWorkspace({
+        workspaceId,
+        name,
+        containerRef,
+        activeSpaceId: destinationSpaceId,
+        composition,
+      });
+      if (result) {
+        if (pendingNewVoyageCraftName) {
+          const nextSessionId = startNewVoyage(pendingNewVoyageCraftName, {
+            spaceId: destinationSpaceId,
+            tabGroupId: result.tabGroupId,
+            tabId: result.agentTabId,
+          });
+          setPendingVoyageCraftSelection({
+            sessionId: nextSessionId,
+            spaceId: destinationSpaceId,
+            tabGroupId: result.tabGroupId,
+            tabId: result.agentTabId,
+          });
+          setPendingNewVoyageCraftName(null);
+        } else if (destinationSessionId && destinationSessionId !== currentSessionId) {
+          switchToVoyage(destinationSessionId);
+          setPendingVoyageCraftSelection({
+            sessionId: destinationSessionId,
+            spaceId: destinationSpaceId,
+            tabGroupId: result.tabGroupId,
+            tabId: result.agentTabId,
+          });
+        } else {
+          sessionActions.selectSessionTab(
+            destinationSpaceId,
+            result.tabGroupId,
+            result.agentTabId,
+          );
+        }
+      }
+      setPendingOpenCraftSessionId(null);
       setWorkspaceSearchMode('general');
       return;
     }
@@ -469,6 +672,7 @@ export function WorkspaceShell({
       spaceId,
       getDefaultVKWorkspaceFactoryKey(pluginRegistry),
     );
+    setPendingOpenCraftSessionId(null);
     setWorkspaceSearchMode('general');
   };
 
@@ -476,15 +680,63 @@ export function WorkspaceShell({
     spaceId: string,
     tabGroupId: string,
   ) => {
-    const currentEntries = session.voyageEntries.filter(
-      (entry) => entry.tabGroupId === tabGroupId,
-    );
+    const destinationSessionId = pendingOpenCraftSessionId;
+    if (workspaceSearchMode === 'session-add' && pendingNewVoyageCraftName) {
+      const nextSessionId = startNewVoyage(pendingNewVoyageCraftName, {
+        spaceId,
+        tabGroupId,
+      });
+      setPendingVoyageCraftSelection({
+        sessionId: nextSessionId,
+        spaceId,
+        tabGroupId,
+      });
+      setPendingNewVoyageCraftName(null);
+      setPendingOpenCraftSessionId(null);
+      setWorkspaceSearchMode('general');
+      return;
+    }
 
-    if (
-      workspaceSearchMode !== 'session-add' &&
-      currentEntries.some((entry) => entry.id === session.activeVoyageEntryId)
-    ) {
-      sessionActions.selectVoyageEntry(session.activeVoyageEntryId);
+    if (workspaceSearchMode === 'session-add' && destinationSessionId) {
+      if (destinationSessionId !== currentSessionId) {
+        switchToVoyage(destinationSessionId);
+        setPendingVoyageCraftSelection({
+          sessionId: destinationSessionId,
+          spaceId,
+          tabGroupId,
+        });
+      } else {
+        sessionActions.addTabGroupToSession(tabGroupId, { select: true });
+        sessionActions.selectSessionTabGroup(spaceId, tabGroupId);
+      }
+      setPendingOpenCraftSessionId(null);
+      setWorkspaceSearchMode('general');
+      return;
+    }
+
+    const destinationSession =
+      destinationSessionId && destinationSessionId !== currentSessionId
+        ? savedSessions.find((entry) => entry.id === destinationSessionId)
+        : undefined;
+    const targetEntries =
+      destinationSession?.voyageEntries ||
+      (destinationSessionId && destinationSessionId !== currentSessionId
+        ? []
+        : session.voyageEntries);
+    const currentEntries = targetEntries.filter((entry) => entry.tabGroupId === tabGroupId);
+
+    if (destinationSessionId && destinationSessionId !== currentSessionId) {
+      const existingEntry = currentEntries[0];
+      switchToVoyage(destinationSessionId, existingEntry?.id);
+      if (!existingEntry) {
+        setPendingVoyageCraftSelection({
+          sessionId: destinationSessionId,
+          spaceId,
+          tabGroupId,
+        });
+      }
+      setPendingOpenCraftSessionId(null);
+      setWorkspaceSearchMode('general');
       return;
     }
 
@@ -523,21 +775,42 @@ export function WorkspaceShell({
       sessionActions.addTabGroupToSession(tabGroupId, { select: true });
     }
     sessionActions.selectSessionTabGroup(spaceId, tabGroupId);
+    setPendingOpenCraftSessionId(null);
     setWorkspaceSearchMode('general');
   };
 
   const closeDuplicateCraftPrompt = () => {
     setDuplicateCraftPrompt(null);
+    setPendingOpenCraftSessionId(null);
     setWorkspaceSearchMode('general');
     setWorkspaceSearchOpen(false);
   };
 
-  const embarkDuplicateCraftHere = () => {
+  const openCraftInNewVoyage = () => {
+    if (!duplicateCraftPrompt) return;
+    const voyageName = window.prompt('Voyage name');
+    if (!voyageName?.trim() || isReservedVoyageName(voyageName)) return;
+    const nextSessionId = startNewVoyage(voyageName, {
+      spaceId: duplicateCraftPrompt.spaceId,
+      tabGroupId: duplicateCraftPrompt.tabGroupId,
+    });
+    setPendingVoyageCraftSelection({
+      sessionId: nextSessionId,
+      spaceId: duplicateCraftPrompt.spaceId,
+      tabGroupId: duplicateCraftPrompt.tabGroupId,
+    });
+    closeDuplicateCraftPrompt();
+  };
+
+  const openCraftInCurrentVoyage = () => {
     if (!duplicateCraftPrompt) return;
     sessionActions.addTabGroupToSession(duplicateCraftPrompt.tabGroupId, {
-      allowDuplicate: true,
       select: true,
     });
+    sessionActions.selectSessionTabGroup(
+      duplicateCraftPrompt.spaceId,
+      duplicateCraftPrompt.tabGroupId,
+    );
     closeDuplicateCraftPrompt();
   };
 
@@ -547,13 +820,130 @@ export function WorkspaceShell({
   };
 
   const switchToCraftInOtherVoyage = (sessionId: string, voyageEntryId?: string) => {
-    sessionActions.resumeSession(sessionId, voyageEntryId);
+    if (!voyageEntryId && duplicateCraftPrompt) {
+      setPendingVoyageCraftSelection({
+        sessionId,
+        spaceId: duplicateCraftPrompt.spaceId,
+        tabGroupId: duplicateCraftPrompt.tabGroupId,
+      });
+    }
+    switchToVoyage(sessionId, voyageEntryId);
     closeDuplicateCraftPrompt();
   };
 
-  const handleAddTabGroup = async (label: string) => {
+  const openNewVoyagePrompt = () => {
+    setVoyagePlusMenuOpen(false);
+    setVoyageSwitcherOpen(false);
+    setIsSidebarOpen(false);
+    setNewVoyagePromptOpen(true);
+  };
+
+  const closeNewVoyagePrompt = () => {
+    setNewVoyagePromptOpen(false);
+    setNewVoyageName('');
+  };
+
+  const handleNewVoyagePromptBackdropClick = (
+    event: React.MouseEvent<HTMLDivElement>,
+  ) => {
+    if (event.target === event.currentTarget) {
+      closeNewVoyagePrompt();
+    }
+  };
+
+  const handleCreateNamedVoyage = async (nextAction: 'new-task' | 'open-craft') => {
+    const voyageName = newVoyageName.trim();
+    if (!voyageName || isReservedVoyageName(voyageName)) return;
+
+    closeNewVoyagePrompt();
+
+    if (nextAction === 'new-task') {
+      const result = await actions.ensureCreateWorkspaceTab();
+      if (result) {
+        const nextSessionId = startNewVoyage(voyageName, {
+          spaceId: result.spaceId,
+          tabGroupId: result.tabGroupId,
+          tabId: result.tabId,
+        });
+        setPendingVoyageCraftSelection({
+          sessionId: nextSessionId,
+          spaceId: result.spaceId,
+          tabGroupId: result.tabGroupId,
+          tabId: result.tabId,
+        });
+      }
+      return;
+    }
+
+    setPendingOpenCraftSessionId(null);
+    setPendingNewVoyageCraftName(voyageName);
+    setWorkspaceSearchMode('session-add');
+    setWorkspaceSearchOpen(true);
+  };
+
+  const handleOpenVoyageSwitcher = () => {
+    setVoyageSwitcherOpen(true);
+    setVoyagePlusMenuOpen(false);
+    setExpandedVoyageEntryId(null);
+    setVoyageSwitcherRenameSessionId(null);
+    setVoyageSwitcherRenameDraft('');
+    setIsSidebarOpen(false);
+  };
+
+  const handleVoyageSwitcherBackdropClick = (
+    event: React.MouseEvent<HTMLDivElement>,
+  ) => {
+    if (event.target === event.currentTarget) {
+      setVoyageSwitcherOpen(false);
+    }
+  };
+
+  const handleVoyageSwitcherSelect = (sessionId: string) => {
+    switchToVoyage(sessionId);
+    setVoyageSwitcherOpen(false);
+    setVoyageSwitcherRenameSessionId(null);
+    setVoyageSwitcherRenameDraft('');
+  };
+
+  const handleVoyageSwitcherOpenHome = () => {
+    const homeSpace =
+      workspace.spaces.find((space) => space.isSystem) ||
+      workspace.spaces.find((space) => space.id === 'space_home') ||
+      workspace.spaces[0];
+    const homeTabGroupId = homeSpace?.tabGroupIds.find((tabGroupId) =>
+      workspace.tabGroups.some((tabGroup) => tabGroup.id === tabGroupId),
+    );
+
+    if (!(homeSpace && homeTabGroupId)) return;
+
+    sessionActions.addTabGroupToSession(homeTabGroupId, { select: true });
+    sessionActions.selectSessionTabGroup(homeSpace.id, homeTabGroupId);
+    setVoyageSwitcherOpen(false);
+    setVoyageSwitcherRenameSessionId(null);
+    setVoyageSwitcherRenameDraft('');
+  };
+
+  const startVoyageSwitcherRename = (savedSession: SavedWorkspaceSession) => {
+    setVoyageSwitcherRenameSessionId(savedSession.id);
+    setVoyageSwitcherRenameDraft(getVoyageDisplayName(savedSession));
+  };
+
+  const cancelVoyageSwitcherRename = () => {
+    setVoyageSwitcherRenameSessionId(null);
+    setVoyageSwitcherRenameDraft('');
+  };
+
+  const submitVoyageSwitcherRename = (sessionId: string) => {
+    const nextName = voyageSwitcherRenameDraft.trim();
+    if (nextName && !isReservedVoyageName(nextName)) {
+      sessionActions.renameSession(sessionId, nextName);
+    }
+    cancelVoyageSwitcherRename();
+  };
+
+  const handleAddTabGroup = async (label: string, spaceId = session.activeSpaceId) => {
     const result = await actions.addTabGroup({
-      spaceId: session.activeSpaceId,
+      spaceId,
       label,
     });
 
@@ -683,6 +1073,24 @@ export function WorkspaceShell({
         tabGroup: TabGroup;
       } => item != null,
     );
+  const isNewVoyageNameInvalid =
+    !newVoyageName.trim() || isReservedVoyageName(newVoyageName);
+
+  const sortedVoyageSwitcherSessions = useMemo(() => {
+    return [...savedSessions].sort((left, right) => {
+      const leftTime = Date.parse(left.updatedAt || left.createdAt || '');
+      const rightTime = Date.parse(right.updatedAt || right.createdAt || '');
+      return (Number.isFinite(rightTime) ? rightTime : 0) -
+        (Number.isFinite(leftTime) ? leftTime : 0);
+    });
+  }, [savedSessions]);
+  const moveVoyageTargets = sortedVoyageSwitcherSessions.filter(
+    (savedSession) => savedSession.id !== currentSessionId,
+  );
+  const canMoveVoyageEntryToAnotherVoyage = session.voyageEntries.length > 1;
+  const getVoyageDisplayName = (savedSession: SavedWorkspaceSession) =>
+    savedSession.name?.trim() || 'Untitled voyage';
+
   const mobileTabMenuTabGroup = mobileTabMenuTarget
     ? effectiveWorkspace.tabGroups.find((tg) => tg.id === mobileTabMenuTarget.tabGroupId)
     : undefined;
@@ -707,7 +1115,12 @@ export function WorkspaceShell({
       >;
     }
 
-    const activeViewIds = expandedSessionTabGroup.entry.viewIds;
+    const activeViewIds =
+      !isDesktop && expandedSessionTabGroup.entry.viewIds.length > 1
+        ? [expandedSessionTabGroup.tabGroup.tabs[0]?.id].filter(
+            (id): id is string => Boolean(id),
+          )
+        : expandedSessionTabGroup.entry.viewIds;
     const tabItems = expandedSessionTabGroup.tabGroup.tabs.map((tab) => ({
       kind: 'tab' as const,
       id: tab.id,
@@ -731,8 +1144,8 @@ export function WorkspaceShell({
       };
     });
 
-    return [...tabItems, ...pairItems];
-  }, [expandedSessionTabGroup, sessionActions]);
+    return isDesktop ? [...tabItems, ...pairItems] : tabItems;
+  }, [expandedSessionTabGroup, isDesktop]);
 
   const clearLongPress = () => {
     if (longPressTimerRef.current != null) {
@@ -851,9 +1264,50 @@ export function WorkspaceShell({
     );
   };
 
+  const handleOpenMoveVoyageEntryPrompt = (
+    voyageEntryId: string,
+    tabGroupId: string,
+  ) => {
+    if (!canMoveVoyageEntryToAnotherVoyage) {
+      setMobileTabMenuTarget(null);
+      setDesktopTabMenuTarget(null);
+      return;
+    }
+
+    const activeItemId =
+      session.activeItemsByVoyageEntryId[voyageEntryId] ||
+      session.activeItems[tabGroupId];
+    setMoveVoyageEntryPrompt({ voyageEntryId, tabGroupId, activeItemId });
+    setMobileTabMenuTarget(null);
+    setDesktopTabMenuTarget(null);
+  };
+
+  const handleMoveVoyageEntryToSession = async (targetSessionId: string) => {
+    if (!moveVoyageEntryPrompt || targetSessionId === currentSessionId) return;
+    const voyageEntry = session.voyageEntries.find(
+      (entry) => entry.id === moveVoyageEntryPrompt.voyageEntryId,
+    );
+    if (!voyageEntry) {
+      setMoveVoyageEntryPrompt(null);
+      return;
+    }
+
+    await actions.moveVoyageEntryToSavedSession({
+      targetSessionId,
+      voyageEntry,
+      activeItemId: moveVoyageEntryPrompt.activeItemId,
+    });
+    sessionActions.removeVoyageEntryFromSession(voyageEntry.id);
+    setExpandedVoyageEntryId((current) =>
+      current === voyageEntry.id ? null : current,
+    );
+    setMoveVoyageEntryPrompt(null);
+  };
+
   const openSessionWorkspaceSearch = () => {
     setDesktopTabMenuTarget(null);
     setMobileTabMenuTarget(null);
+    setPendingOpenCraftSessionId(null);
     setWorkspaceSearchMode('session-add');
     setWorkspaceSearchOpen(true);
   };
@@ -861,10 +1315,15 @@ export function WorkspaceShell({
   const handleWorkspaceSearchClose = () => {
     setWorkspaceSearchOpen(false);
     setWorkspaceSearchMode('general');
+    setPendingOpenCraftSessionId(null);
+    setPendingNewVoyageCraftName(null);
   };
 
   useEffect(() => {
-    return () => clearLongPress();
+    return () => {
+      clearLongPress();
+      clearVoyageBarRevealTimer();
+    };
   }, []);
 
   useEffect(() => {
@@ -891,6 +1350,30 @@ export function WorkspaceShell({
     window.addEventListener('pointerdown', handlePointerDown);
     return () => window.removeEventListener('pointerdown', handlePointerDown);
   }, [desktopTabMenuTarget]);
+
+  useEffect(() => {
+    if (!voyagePlusMenuOpen) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (
+        target instanceof Element &&
+        target.closest('[data-voyage-plus-trigger="true"]')
+      ) {
+        return;
+      }
+      if (
+        target instanceof Node &&
+        voyagePlusMenuRef.current?.contains(target)
+      ) {
+        return;
+      }
+      setVoyagePlusMenuOpen(false);
+    };
+
+    window.addEventListener('pointerdown', handlePointerDown);
+    return () => window.removeEventListener('pointerdown', handlePointerDown);
+  }, [voyagePlusMenuOpen]);
 
   useEffect(() => {
     const handleEscape = (event: KeyboardEvent) => {
@@ -924,33 +1407,52 @@ export function WorkspaceShell({
     return () => window.removeEventListener('message', handleMessage);
   }, [cycleSessionTabGroup]);
 
+  useEffect(() => {
+    if (!isSidebarOpen) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (sidebarRef.current?.contains(target)) return;
+      setIsSidebarOpen(false);
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+    };
+  }, [isSidebarOpen]);
+
+  useEffect(() => {
+    if (!(isSidebarOpen || voyagePlusMenuOpen || desktopTabMenuTarget)) return;
+
+    const handleWindowBlur = () => {
+      window.setTimeout(() => {
+        if (document.activeElement instanceof HTMLIFrameElement) {
+          closeTransientOverlays();
+        }
+      }, 0);
+    };
+
+    window.addEventListener('blur', handleWindowBlur);
+    return () => window.removeEventListener('blur', handleWindowBlur);
+  }, [desktopTabMenuTarget, isSidebarOpen, voyagePlusMenuOpen]);
+
   return (
     <div className="w-full h-full flex bg-neutral-950">
       {isSidebarOpen && (
         <button
-          className="fixed inset-0 z-[60] bg-black/40 md:hidden"
+          className="fixed inset-0 z-[60] cursor-default bg-black/40 md:bg-transparent"
           onClick={() => setIsSidebarOpen(false)}
           aria-label="Close sidebar overlay"
         />
       )}
 
-      {!isSidebarOpen && (
-        <div
-          className="hidden md:block fixed inset-y-0 left-0 w-2 z-[55]"
-          onMouseEnter={() => setIsSidebarOpen(true)}
-          aria-hidden="true"
-        />
-      )}
-
       <div
+        ref={sidebarRef}
         className={`fixed inset-y-0 left-0 z-[70] transform transition-transform duration-200 ${
           isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
-        onMouseLeave={() => {
-          if (isDesktop) {
-            setIsSidebarOpen(false);
-          }
-        }}
       >
         <Sidebar
           workspace={effectiveWorkspace}
@@ -959,12 +1461,11 @@ export function WorkspaceShell({
           activeItems={effectiveActiveItems}
           spaceTypes={pluginRegistry.spaceTypes}
           visitedTabGroupIds={session.visitedTabGroupIds}
+          voyageEntries={session.voyageEntries}
+          activeVoyageEntryId={session.activeVoyageEntryId}
           savedSessions={savedSessions}
           currentSessionId={currentSessionId}
           onRequestClose={() => setIsSidebarOpen(false)}
-          onSelectSpace={(spaceId) => {
-            sessionActions.selectSpace(spaceId);
-          }}
           onSelectTabGroup={(tabGroupId) => {
             const space = effectiveWorkspace.spaces.find((entry) =>
               entry.tabGroupIds.includes(tabGroupId),
@@ -981,12 +1482,12 @@ export function WorkspaceShell({
           onSelectPair={(tabGroupId, pairId) => {
             effectiveSessionActions.selectPair(tabGroupId, pairId);
           }}
+          onSelectVoyageEntry={(voyageEntryId) => {
+            sessionActions.selectVoyageEntry(voyageEntryId);
+          }}
           onAddSpace={async (name) => {
             const result = await actions.addSpace({ name });
-            if (result) {
-              sessionActions.selectSpace(result.spaceId);
-              setIsSidebarOpen(false);
-            }
+            return result;
           }}
           onDeleteSpace={(spaceId) => actions.deleteSpace({ spaceId })}
           onRenameSpace={(spaceId, name) =>
@@ -1004,6 +1505,12 @@ export function WorkspaceShell({
           }}
           onOpenCreateWorkspaceTab={async () => {
             await handleOpenCreateWorkspaceTab();
+            setIsSidebarOpen(false);
+          }}
+          onOpenCraftFlow={() => {
+            setPendingOpenCraftSessionId(null);
+            setWorkspaceSearchMode('session-add');
+            setWorkspaceSearchOpen(true);
             setIsSidebarOpen(false);
           }}
           onCreatePair={async (tabGroupId, tabIds) => {
@@ -1030,15 +1537,12 @@ export function WorkspaceShell({
           }
           showAddressBar={showAddressBar}
           onToggleAddressBar={() => setShowAddressBar((v) => !v)}
-          showSessionTopBar={showSessionTopBar}
-          onToggleSessionTopBar={() => setShowSessionTopBar((value) => !value)}
           onResumeSession={(sessionId) => {
-            sessionActions.resumeSession(sessionId);
+            switchToVoyage(sessionId);
             setIsSidebarOpen(false);
           }}
           onStartNewSession={() => {
-            sessionActions.startNewSession();
-            setIsSidebarOpen(false);
+            openNewVoyagePrompt();
           }}
           onRenameSession={(sessionId, name) => {
             sessionActions.renameSession(sessionId, name);
@@ -1047,8 +1551,33 @@ export function WorkspaceShell({
       </div>
 
       <div className="flex-1 flex flex-col min-h-0 min-w-0 relative">
-        {showSessionTopBar && (
-        <div className="hidden md:flex h-9 border-b border-neutral-600 bg-neutral-900 items-stretch shrink-0">
+        {isDesktopVoyageBarHidden && (
+          <div
+            className="hidden md:block absolute inset-x-0 top-0 z-[80] h-3 cursor-n-resize"
+            onMouseEnter={startVoyageBarRevealTimer}
+            onMouseLeave={clearVoyageBarRevealTimer}
+            title="Hover to show voyage bar"
+            aria-hidden="true"
+          />
+        )}
+        {!isDesktopVoyageBarHidden && (
+        <div className="hidden md:flex h-9 border-b border-neutral-600 bg-neutral-900 items-stretch shrink-0 [&_button]:cursor-pointer">
+          <button
+            className="inline-flex h-full w-9 shrink-0 cursor-pointer items-center justify-center border-r border-b-2 border-neutral-600 bg-neutral-900 text-sm text-neutral-200 transition-colors hover:bg-neutral-800/80"
+            onClick={() => setIsSidebarOpen(true)}
+            title="Open sidebar"
+            aria-label="Open sidebar"
+          >
+            <IconMenu2 size={16} stroke={2} aria-hidden="true" />
+          </button>
+          <button
+            className="inline-flex h-full w-9 shrink-0 cursor-pointer items-center justify-center border-r border-b-2 border-neutral-600 bg-neutral-900 text-sm text-neutral-200 transition-colors hover:bg-neutral-800/80"
+            onClick={handleOpenVoyageSwitcher}
+            title="Open voyage switcher"
+            aria-label="Open voyage switcher"
+          >
+            <IconUfo size={16} stroke={2} aria-hidden="true" />
+          </button>
           <div className="flex-1 min-w-0 overflow-x-auto scrollbar-hide">
             <div className="flex h-full items-stretch whitespace-nowrap">
               {mobileSessionTabGroups.map(({ entry, space, tabGroup }) => {
@@ -1065,7 +1594,7 @@ export function WorkspaceShell({
                     onDrop={(event) =>
                       handleSessionTabGroupDrop(event, entry.id)
                     }
-                    className={`shrink-0 inline-flex h-full select-none items-center border-r border-neutral-600 border-b-2 text-xs text-neutral-200 transition-colors ${
+                    className={`shrink-0 inline-flex h-full cursor-pointer select-none items-center border-r border-neutral-600 border-b-2 text-xs text-neutral-200 transition-colors ${
                       isActive
                         ? 'border-b-primary-400 bg-neutral-900'
                         : 'bg-neutral-900 hover:bg-neutral-800/80'
@@ -1073,7 +1602,7 @@ export function WorkspaceShell({
                     title={`${space.name} / ${tabGroup.label}`}
                   >
                     <button
-                      className="inline-flex h-full items-center gap-2 px-3 text-inherit"
+                      className="inline-flex h-full cursor-pointer items-center gap-2 px-3 text-inherit"
                       onClick={() => {
                         handleToggleSessionTabGroup(entry.id, space.id, tabGroup.id);
                       }}
@@ -1097,8 +1626,9 @@ export function WorkspaceShell({
                 );
               })}
               <button
-                className="shrink-0 h-full border-r border-b-2 border-neutral-600 bg-neutral-900 px-3 text-xs text-neutral-200 transition-colors hover:bg-neutral-800/80"
-                onClick={openSessionWorkspaceSearch}
+                className="inline-flex h-full shrink-0 cursor-pointer items-center justify-center border-r border-b-2 border-neutral-600 bg-neutral-900 px-3 text-xs text-neutral-200 transition-colors hover:bg-neutral-800/80"
+                onClick={toggleVoyagePlusMenu}
+                data-voyage-plus-trigger="true"
                 title="Embark craft in voyage"
                 aria-label="Embark craft in voyage"
               >
@@ -1106,16 +1636,24 @@ export function WorkspaceShell({
               </button>
             </div>
           </div>
+          <button
+            className="inline-flex h-full w-9 shrink-0 cursor-pointer items-center justify-center border-l border-b-2 border-neutral-600 bg-neutral-900 text-neutral-300 transition-colors hover:bg-neutral-800/80"
+            onClick={() => setIsDesktopVoyageBarHidden(true)}
+            title="Hide voyage bar"
+            aria-label="Hide voyage bar"
+          >
+            <IconChevronUp size={16} stroke={2} aria-hidden="true" />
+          </button>
         </div>
         )}
-        {showSessionTopBar && expandedSessionTabGroup && (
-          <div className="hidden md:flex h-9 border-b border-neutral-600 bg-neutral-900 items-stretch shrink-0">
+        {!isDesktopVoyageBarHidden && expandedSessionTabGroup && (
+          <div className="hidden md:flex h-9 border-b border-neutral-600 bg-neutral-900 items-stretch shrink-0 [&_button]:cursor-pointer">
             <div className="flex-1 min-w-0 overflow-x-auto scrollbar-hide">
               <div className="flex h-full items-stretch whitespace-nowrap">
                 {expandedSessionItems.map((item) => (
                   <button
                     key={item.id}
-                    className={`shrink-0 inline-flex h-full items-center border-r border-b-2 border-neutral-600 px-3 text-xs text-neutral-200 transition-colors ${
+                    className={`shrink-0 inline-flex h-full cursor-pointer items-center border-r border-b-2 border-neutral-600 px-3 text-xs text-neutral-200 transition-colors ${
                       item.isActive
                         ? 'border-b-primary-400 bg-neutral-900'
                         : 'bg-neutral-900 hover:bg-neutral-800/80'
@@ -1142,6 +1680,7 @@ export function WorkspaceShell({
           activeTabGroupId={session.activeTabGroupId}
           actions={actions}
           sessionActions={effectiveSessionActions}
+          disableSplitViews={!isDesktop}
           onDragStart={handleDragStart}
           onDragOver={handleDragOver}
           onDrop={handleDrop}
@@ -1149,10 +1688,12 @@ export function WorkspaceShell({
           showAddressBar={showAddressBar}
           savedSessions={savedSessions}
           currentSessionId={currentSessionId}
-          onResumeSession={sessionActions.resumeSession}
+          onResumeSession={switchToVoyage}
           onRenameSession={sessionActions.renameSession}
           onDeleteSession={sessionActions.deleteSession}
-          onStartNewSession={sessionActions.startNewSession}
+          onStartNewSession={() => {
+            openNewVoyagePrompt();
+          }}
           onNavigateToTabGroup={handleNavigateToWorkspaceTabGroup}
           onOpenVKWorkspace={(workspaceId, name, containerRef, spaceId) =>
             handleAddVKWorkspaceToSpace(
@@ -1212,6 +1753,14 @@ export function WorkspaceShell({
           >
             ☰
           </button>
+          <button
+            className="h-full px-3 text-neutral-200 hover:bg-neutral-800 transition-colors flex items-center justify-center shrink-0 border-r border-neutral-700"
+            onClick={handleOpenVoyageSwitcher}
+            title="Open voyage switcher"
+            aria-label="Open voyage switcher"
+          >
+            <IconUfo size={18} stroke={2} aria-hidden="true" />
+          </button>
           <div className="flex-1 min-w-0 overflow-x-auto scrollbar-hide">
             <div className="flex h-full items-stretch whitespace-nowrap">
               {mobileSessionTabGroups.length > 0 ? (
@@ -1260,8 +1809,9 @@ export function WorkspaceShell({
                   );
                 })}
                 <button
-                  className="shrink-0 h-full border-r border-neutral-700 bg-neutral-900 px-3 text-xs text-neutral-200 transition-colors hover:bg-neutral-800/80"
-                  onClick={openSessionWorkspaceSearch}
+                  className="inline-flex h-full shrink-0 items-center justify-center border-r border-neutral-700 bg-neutral-900 px-3 text-xs text-neutral-200 transition-colors hover:bg-neutral-800/80"
+                  onClick={toggleVoyagePlusMenu}
+                  data-voyage-plus-trigger="true"
                   title="Embark craft in voyage"
                   aria-label="Embark craft in voyage"
                 >
@@ -1274,8 +1824,9 @@ export function WorkspaceShell({
                     {activeTabGroup?.label || 'No craft'}
                   </div>
                   <button
-                    className="shrink-0 h-full border-r border-neutral-700 bg-neutral-900 px-3 text-xs text-neutral-200 transition-colors hover:bg-neutral-800/80"
-                    onClick={openSessionWorkspaceSearch}
+                    className="inline-flex h-full shrink-0 items-center justify-center border-r border-neutral-700 bg-neutral-900 px-3 text-xs text-neutral-200 transition-colors hover:bg-neutral-800/80"
+                    onClick={toggleVoyagePlusMenu}
+                    data-voyage-plus-trigger="true"
                     title="Embark craft in voyage"
                     aria-label="Embark craft in voyage"
                   >
@@ -1303,6 +1854,258 @@ export function WorkspaceShell({
         />
       )}
 
+
+      {voyageSwitcherOpen && (
+        <div
+          className="fixed inset-0 z-[94] flex items-center justify-center bg-black/60 p-4"
+          onClick={handleVoyageSwitcherBackdropClick}
+        >
+          <div className="flex max-h-[85dvh] w-full max-w-lg flex-col rounded-xl border border-neutral-700 bg-neutral-900 p-5 shadow-2xl">
+            <div className="text-base font-semibold text-neutral-100">
+              Switch Voyage
+            </div>
+            <p className="mt-2 text-sm text-neutral-400">
+              Choose a voyage, sorted by recent activity, or open Home in the
+              current voyage.
+            </p>
+
+            <div className="mt-4 flex justify-start">
+              <button
+                className="rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm font-medium text-neutral-200 transition-colors hover:bg-neutral-800"
+                onClick={handleVoyageSwitcherOpenHome}
+              >
+                Go Home
+              </button>
+            </div>
+
+            <div className="mt-3 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
+              {sortedVoyageSwitcherSessions.length > 0 ? (
+                sortedVoyageSwitcherSessions.map((savedSession) => {
+                  const isCurrent = savedSession.id === currentSessionId;
+                  const isRenaming =
+                    voyageSwitcherRenameSessionId === savedSession.id;
+                  const renameIsInvalid =
+                    !voyageSwitcherRenameDraft.trim() ||
+                    isReservedVoyageName(voyageSwitcherRenameDraft);
+                  return (
+                    <div
+                      key={savedSession.id}
+                      className={`w-full rounded-md border px-3 py-2 text-sm transition-colors ${
+                        isCurrent
+                          ? 'border-blue-400/70 bg-blue-500/20 text-neutral-50'
+                          : 'border-neutral-700 bg-neutral-800 text-neutral-200'
+                      }`}
+                    >
+                      {isRenaming ? (
+                        <form
+                          className="space-y-2"
+                          onSubmit={(event) => {
+                            event.preventDefault();
+                            submitVoyageSwitcherRename(savedSession.id);
+                          }}
+                        >
+                          <label className="block text-xs font-semibold uppercase tracking-wide text-neutral-500">
+                            Voyage name
+                          </label>
+                          <input
+                            value={voyageSwitcherRenameDraft}
+                            onChange={(event) =>
+                              setVoyageSwitcherRenameDraft(event.target.value)
+                            }
+                            onKeyDown={(event) => {
+                              if (event.key === 'Escape') {
+                                event.preventDefault();
+                                cancelVoyageSwitcherRename();
+                              }
+                            }}
+                            autoFocus
+                            className="w-full rounded-md border border-neutral-600 bg-neutral-950 px-2 py-1.5 text-sm text-neutral-100 outline-none focus:border-blue-400"
+                          />
+                          <div className="flex justify-end gap-2">
+                            <button
+                              type="button"
+                              className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1 text-xs text-neutral-300 transition-colors hover:bg-neutral-800"
+                              onClick={cancelVoyageSwitcherRename}
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="submit"
+                              disabled={renameIsInvalid}
+                              className="rounded-md border border-blue-400/70 bg-blue-500/20 px-2 py-1 text-xs text-neutral-50 transition-colors hover:bg-blue-500/30 disabled:cursor-not-allowed disabled:border-neutral-700 disabled:bg-neutral-800 disabled:text-neutral-500"
+                            >
+                              Save
+                            </button>
+                          </div>
+                        </form>
+                      ) : (
+                        <>
+                          <div className="flex items-start justify-between gap-3">
+                            <button
+                              className="min-w-0 flex-1 rounded-sm text-left transition-colors hover:text-white"
+                              onClick={() =>
+                                handleVoyageSwitcherSelect(savedSession.id)
+                              }
+                            >
+                              <span className="block truncate font-medium">
+                                {getVoyageDisplayName(savedSession)}
+                              </span>
+                              <span className="mt-1 block text-xs text-neutral-500">
+                                Updated{' '}
+                                {new Date(savedSession.updatedAt).toLocaleString()}
+                              </span>
+                            </button>
+                            <div className="flex shrink-0 items-center gap-2">
+                              {isCurrent && (
+                                <span className="text-xs text-blue-100">
+                                  Current
+                                </span>
+                              )}
+                              <button
+                                className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1 text-xs text-neutral-300 transition-colors hover:bg-neutral-800"
+                                onClick={() =>
+                                  startVoyageSwitcherRename(savedSession)
+                                }
+                              >
+                                Rename
+                              </button>
+                            </div>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="rounded-md border border-neutral-800 bg-neutral-950/40 px-3 py-4 text-sm text-neutral-500">
+                  No saved voyages yet.
+                </div>
+              )}
+            </div>
+
+            <div className="mt-5 flex justify-between gap-3">
+              <button
+                className="rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm font-medium text-neutral-200 transition-colors hover:bg-neutral-800"
+                onClick={openNewVoyagePrompt}
+              >
+                New Voyage
+              </button>
+              <button
+                className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-300 transition-colors hover:bg-neutral-800"
+                onClick={() => {
+                  setVoyageSwitcherOpen(false);
+                  cancelVoyageSwitcherRename();
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {voyagePlusMenuOpen && (
+        <button
+          className="fixed inset-0 z-[91] cursor-default bg-transparent"
+          aria-label="Close voyage menu"
+          onClick={() => setVoyagePlusMenuOpen(false)}
+        />
+      )}
+
+      {voyagePlusMenuOpen && (
+        <div
+          ref={voyagePlusMenuRef}
+          className="fixed z-[92] w-44 rounded-lg border border-neutral-700 bg-neutral-900 py-1 shadow-2xl"
+          style={{
+            left: voyagePlusMenuPosition?.left ?? 12,
+            top: voyagePlusMenuPosition?.top ?? 44,
+          }}
+        >
+          <button
+            className="block w-full px-4 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-800"
+            onClick={() => {
+              setVoyagePlusMenuOpen(false);
+              void handleOpenCreateWorkspaceTab();
+            }}
+          >
+            New Task
+          </button>
+          <button
+            className="block w-full px-4 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-800"
+            onClick={() => {
+              setVoyagePlusMenuOpen(false);
+              setPendingOpenCraftSessionId(null);
+              setWorkspaceSearchMode('session-add');
+              setWorkspaceSearchOpen(true);
+            }}
+          >
+            Open Craft
+          </button>
+        </div>
+      )}
+
+      {newVoyagePromptOpen && (
+        <div
+          className="fixed inset-0 z-[94] flex items-center justify-center bg-black/60 p-4"
+          onClick={handleNewVoyagePromptBackdropClick}
+        >
+          <div className="w-full max-w-md rounded-xl border border-neutral-700 bg-neutral-900 p-5 shadow-2xl">
+            <div className="text-base font-semibold text-neutral-100">
+              New Voyage
+            </div>
+            <p className="mt-2 text-sm text-neutral-400">
+              Name this voyage, then choose how you want to start it.
+            </p>
+
+            <label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-neutral-500">
+              Voyage name
+            </label>
+            <input
+              value={newVoyageName}
+              onChange={(event) => setNewVoyageName(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  closeNewVoyagePrompt();
+                }
+              }}
+              placeholder="Required voyage name"
+              autoFocus
+              className="mt-2 w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-neutral-100 outline-none placeholder:text-neutral-500"
+            />
+
+            <div className="mt-5 grid gap-2 sm:grid-cols-2">
+              <button
+                className="rounded-md border border-blue-400/70 bg-blue-500/20 px-3 py-2 text-sm text-neutral-50 transition-colors hover:bg-blue-500/30 disabled:cursor-not-allowed disabled:border-neutral-700 disabled:bg-neutral-800 disabled:text-neutral-500"
+                disabled={isNewVoyageNameInvalid}
+                onClick={() => {
+                  void handleCreateNamedVoyage('new-task');
+                }}
+              >
+                Create New Task
+              </button>
+              <button
+                className="rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-neutral-200 transition-colors hover:bg-neutral-700 disabled:cursor-not-allowed disabled:text-neutral-500 disabled:hover:bg-neutral-800"
+                disabled={isNewVoyageNameInvalid}
+                onClick={() => {
+                  void handleCreateNamedVoyage('open-craft');
+                }}
+              >
+                Open Existing Craft
+              </button>
+            </div>
+
+            <div className="mt-5 flex justify-end">
+              <button
+                className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-300 transition-colors hover:bg-neutral-800"
+                onClick={closeNewVoyagePrompt}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {workspaceSearchOpen && (
         <AddVKWorkspaceModal
           isOpen={workspaceSearchOpen}
@@ -1316,6 +2119,60 @@ export function WorkspaceShell({
           onNavigateToTabGroup={handleNavigateToWorkspaceTabGroup}
           workspaceState={effectiveWorkspace}
         />
+      )}
+
+      {moveVoyageEntryPrompt && (
+        <div
+          className="fixed inset-0 z-[94] flex items-center justify-center bg-black/60 p-4"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) {
+              setMoveVoyageEntryPrompt(null);
+            }
+          }}
+        >
+          <div className="flex max-h-[85dvh] w-full max-w-lg flex-col rounded-xl border border-neutral-700 bg-neutral-900 p-5 shadow-2xl">
+            <div className="text-base font-semibold text-neutral-100">
+              Move to Voyage
+            </div>
+            <p className="mt-2 text-sm text-neutral-400">
+              Choose the voyage that should receive this craft.
+            </p>
+
+            <div className="mt-4 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
+              {moveVoyageTargets.length > 0 ? (
+                moveVoyageTargets.map((savedSession) => (
+                  <button
+                    key={savedSession.id}
+                    className="block w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-700"
+                    onClick={() => {
+                      void handleMoveVoyageEntryToSession(savedSession.id);
+                    }}
+                  >
+                    <span className="font-medium">
+                      {getVoyageDisplayName(savedSession)}
+                    </span>
+                    <span className="mt-1 block text-xs text-neutral-500">
+                      Updated {new Date(savedSession.updatedAt).toLocaleString()}
+                    </span>
+                  </button>
+                ))
+              ) : (
+                <div className="rounded-md border border-neutral-800 bg-neutral-950/40 px-3 py-4 text-sm text-neutral-500">
+                  No other saved voyages yet.
+                </div>
+              )}
+            </div>
+
+            <div className="mt-5 flex justify-end">
+              <button
+                className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-300 transition-colors hover:bg-neutral-800"
+                onClick={() => setMoveVoyageEntryPrompt(null)}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {duplicateCraftPrompt && (() => {
@@ -1377,17 +2234,33 @@ export function WorkspaceShell({
                 >
                   Cancel
                 </button>
+                {duplicateCraftPrompt.currentEntries.length === 0 && (
+                  <button
+                    className="rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-neutral-200 transition-colors hover:bg-neutral-700"
+                    onClick={openCraftInCurrentVoyage}
+                  >
+                    Open in current Voyage
+                  </button>
+                )}
                 <button
-                  className="rounded-md border border-primary-500/40 bg-primary-500/15 px-3 py-2 text-sm text-primary-200 transition-colors hover:bg-primary-500/25"
-                  onClick={embarkDuplicateCraftHere}
+                  className="rounded-md border border-blue-400/70 bg-blue-500/20 px-3 py-2 text-sm text-neutral-50 transition-colors hover:bg-blue-500/30"
+                  onClick={openCraftInNewVoyage}
                 >
-                  Embark another copy here
+                  Open in new Voyage
                 </button>
               </div>
             </div>
           </div>
         );
       })()}
+
+      {desktopTabMenuTarget && (
+        <button
+          className="hidden md:block fixed inset-0 z-[89] cursor-default bg-transparent"
+          aria-label="Close craft menu"
+          onClick={() => setDesktopTabMenuTarget(null)}
+        />
+      )}
 
       {desktopTabMenuTarget && (() => {
         const space = effectiveWorkspace.spaces.find(
@@ -1406,6 +2279,23 @@ export function WorkspaceShell({
             }}
             onPointerDown={(event) => event.stopPropagation()}
           >
+            <button
+              className="block w-full px-4 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-800 disabled:cursor-not-allowed disabled:text-neutral-500 disabled:hover:bg-transparent"
+              disabled={!canMoveVoyageEntryToAnotherVoyage}
+              title={
+                canMoveVoyageEntryToAnotherVoyage
+                  ? 'Move this craft to another Voyage'
+                  : 'Cannot move the only craft in a Voyage'
+              }
+              onClick={() => {
+                handleOpenMoveVoyageEntryPrompt(
+                  desktopTabMenuTarget.voyageEntryId,
+                  desktopTabMenuTarget.tabGroupId,
+                );
+              }}
+            >
+              Move to Voyage
+            </button>
             <button
               className="block w-full px-4 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-800"
               onClick={() => {
@@ -1466,7 +2356,7 @@ export function WorkspaceShell({
                   value={mobileTabDraftLabel}
                   onChange={(event) => setMobileTabDraftLabel(event.target.value)}
                   placeholder={mobileTabMenuTabGroup.label}
-                  className="mt-1 w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-white focus:outline-none focus:border-primary-500"
+                  className="mt-1 w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-400"
                 />
               </label>
 
@@ -1479,7 +2369,7 @@ export function WorkspaceShell({
                     setMobileTabDraftEmoji(getFirstGrapheme(event.target.value))
                   }
                   placeholder={getMobileTabGroupEmoji(mobileTabMenuTabGroup)}
-                  className="mt-1 w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-white focus:outline-none focus:border-primary-500"
+                  className="mt-1 w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-400"
                 />
                 <div className="mt-2 flex flex-wrap gap-2">
                   {MOBILE_TAB_EMOJI_CHOICES.map((emoji) => (
@@ -1488,7 +2378,7 @@ export function WorkspaceShell({
                       type="button"
                       className={`rounded-md border px-2 py-1 text-base ${
                         mobileTabDraftEmoji === emoji
-                          ? 'border-primary-500 bg-primary-500/15'
+                          ? 'border-blue-400 bg-blue-500/25'
                           : 'border-neutral-700 bg-neutral-800'
                       }`}
                       onClick={() => setMobileTabDraftEmoji(emoji)}
@@ -1508,10 +2398,27 @@ export function WorkspaceShell({
                 Cancel
               </button>
               <button
-                className="rounded-md border border-primary-500/40 bg-primary-500/15 px-3 py-2 text-sm text-primary-200"
+                className="rounded-md border border-blue-400/70 bg-blue-500/20 px-3 py-2 text-sm text-neutral-50"
                 onClick={handleSaveMobileTabDisplay}
               >
                 Save
+              </button>
+              <button
+                className="rounded-md border border-amber-500/40 bg-amber-500/15 px-3 py-2 text-sm text-amber-300 disabled:cursor-not-allowed disabled:border-neutral-700 disabled:bg-neutral-800 disabled:text-neutral-500"
+                disabled={!canMoveVoyageEntryToAnotherVoyage}
+                title={
+                  canMoveVoyageEntryToAnotherVoyage
+                    ? 'Move this craft to another Voyage'
+                    : 'Cannot move the only craft in a Voyage'
+                }
+                onClick={() => {
+                  handleOpenMoveVoyageEntryPrompt(
+                    mobileTabMenuTarget.voyageEntryId,
+                    mobileTabMenuTarget.tabGroupId,
+                  );
+                }}
+              >
+                Move to Voyage
               </button>
               <button
                 className="rounded-md border border-amber-500/40 bg-amber-500/15 px-3 py-2 text-sm text-amber-300"

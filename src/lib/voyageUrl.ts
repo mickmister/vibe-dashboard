@@ -15,7 +15,7 @@ function getIdSuffix(id: string): string {
 }
 
 export function buildVoyageSlug(label: string | undefined, id: string): string {
-  return `${slugifyPart(label || 'voyage')}-${getIdSuffix(id)}`;
+  return `${slugifyPart(label || 'voyage')}-${id}`;
 }
 
 export function getVoyageSlug(session: SavedWorkspaceSession): string {
@@ -59,4 +59,34 @@ export function parseViewsParam(value: string | null | undefined): string[] {
     .split(',')
     .map((entry) => parseViewParam(entry.trim()))
     .filter((entry): entry is string => Boolean(entry));
+}
+
+export function buildCanonicalDashboardPath(
+  currentSearch: string,
+  voyage:
+    | {
+        slug: string;
+        craftParam?: string | null;
+        viewTokens?: string[];
+      }
+    | undefined,
+): string {
+  const searchParams = new URLSearchParams(currentSearch);
+  searchParams.delete('session');
+  searchParams.delete('voyage');
+  searchParams.delete('craft');
+  searchParams.delete('views');
+
+  if (voyage?.slug) {
+    searchParams.set('voyage', voyage.slug);
+    if (voyage.craftParam) {
+      searchParams.set('craft', voyage.craftParam);
+    }
+    if (voyage.viewTokens?.length) {
+      searchParams.set('views', voyage.viewTokens.join(','));
+    }
+  }
+
+  const nextSearch = searchParams.toString();
+  return `/dashboard${nextSearch ? `?${nextSearch}` : ''}`;
 }

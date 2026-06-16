@@ -35,7 +35,11 @@ RUN set -eux; \
     manifest_url="${release_base_url}/manifest.json"; \
     curl -fsSL "${manifest_url}" -o manifest.json; \
     test "$(jq -r '.schema_version' manifest.json)" = "1"; \
-    test "$(jq -r '.mode' manifest.json)" = "linux-container-runtime"; \
+    manifest_mode="$(jq -r '.mode' manifest.json)"; \
+    case "${manifest_mode}" in \
+      linux-container-runtime|standalone-runtime-assets) ;; \
+      *) echo "unsupported VK release asset mode: ${manifest_mode}" >&2; exit 1 ;; \
+    esac; \
     test "$(jq -r '.release_tag' manifest.json)" = "${release_tag}"; \
     test "$(jq -r '.commit' manifest.json)" = "${VK_COMMIT}"; \
     asset_file="$(jq -r --arg platform "${vk_platform}" '.platforms[$platform].assets["vibe-kanban"].file' manifest.json)"; \
