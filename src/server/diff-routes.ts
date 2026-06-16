@@ -95,7 +95,7 @@ async function getWorkspaceRepoMetadata(
   workspaceId: string,
 ): Promise<RepoWithBranch[]> {
   try {
-    return client.getWorkspaceRepos(workspaceId);
+    return await client.getWorkspaceRepos(workspaceId);
   } catch (error) {
     console.warn("Failed to load VK workspace repo metadata for diff view", {
       workspaceId,
