@@ -21,6 +21,7 @@ const goldenDockerfile = readFileSync(resolve(process.cwd(), 'Dockerfile.vkvd'),
 const goldenCaddyfile = readFileSync(resolve(process.cwd(), 'Caddyfile'), 'utf8');
 const pluginCaddyfile = readFileSync(resolve(process.cwd(), 'Caddyfile.plugins'), 'utf8');
 const dockerEntrypoint = readFileSync(resolve(process.cwd(), 'docker-entrypoint.sh'), 'utf8');
+const pluginRuntimeApply = readFileSync(resolve(process.cwd(), 'scripts/vd-plugin-runtime-apply.sh'), 'utf8');
 
 describe('first-party service plugin inventory and golden supervisor config', () => {
   it('inventories current supervisor-managed programs as first-party plugin manifests with privilege tiers', () => {
@@ -58,15 +59,22 @@ describe('first-party service plugin inventory and golden supervisor config', ()
     );
   });
 
-  it('loads plugin-owned Caddy exposure before Caddy starts', () => {
+  it('keeps Caddy startup non-blocking while plugin runtime apply runs after supervisor starts', () => {
+    expect(goldenCaddyfile).toContain('admin localhost:2019');
     expect(goldenCaddyfile).toContain('import /etc/caddy/plugins.caddy');
     expect(goldenCaddyfile).not.toContain('@beads_web_host');
     expect(pluginCaddyfile).toContain('VD plugin-owned Caddy routes');
     expect(goldenDockerfile).toContain('COPY Caddyfile.plugins /etc/caddy/plugins.caddy');
-    expect(dockerEntrypoint).toContain('--caddy-plugin-config-path /etc/caddy/plugins.caddy');
-    expect(dockerEntrypoint.indexOf('plugin-service-orchestrator-cli.ts apply')).toBeLessThan(
-      dockerEntrypoint.indexOf('exec "$@"'),
-    );
+    expect(goldenDockerfile).toContain('COPY scripts/vd-plugin-runtime-apply.sh /usr/local/bin/vd-plugin-runtime-apply.sh');
+    expect(dockerEntrypoint).toContain('Generated plugin exposure will be written here before Caddy starts.');
+    expect(dockerEntrypoint).not.toContain('plugin-service-orchestrator-cli.ts apply');
+    expect(pluginRuntimeApply).toContain('plugin-service-orchestrator-cli.ts apply');
+    expect(pluginRuntimeApply).toContain('supervisorctl reread');
+    expect(pluginRuntimeApply).toContain('supervisorctl update');
+    expect(pluginRuntimeApply).toContain('caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile');
+    expect(goldenSupervisor).toContain('command=/usr/local/bin/vd-plugin-runtime-apply.sh');
+    expect(goldenSupervisor).toContain('[program:caddy]\ncommand=caddy run --config /etc/caddy/Caddyfile --adapter caddyfile\nautostart=true\nautorestart=true\npriority=10');
+    expect(goldenSupervisor).toContain('[program:vd-plugin-service-orchestrator-startup]\ncommand=/usr/local/bin/vd-plugin-runtime-apply.sh\nautostart=true\nautorestart=false\nstartsecs=0\npriority=1000');
   });
 
   it('treats Dockerfile.vkvd and supervisord.vkvd.conf as golden runtime config names', () => {

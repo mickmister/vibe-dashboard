@@ -1,5 +1,5 @@
 {
-	admin off
+	admin localhost:2019
 	auto_https off
 }
 

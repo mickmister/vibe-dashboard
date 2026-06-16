@@ -175,10 +175,11 @@ directory=/home/vkuser/.local/share/vibe-dashboard-runtime`;
 
 const PLUGIN_SERVICE_ORCHESTRATOR_SUPERVISOR = `; plugin service orchestrator (reconciles persisted per-instance plugin config into generated supervisor programs)
 [program:vd-plugin-service-orchestrator-startup]
-command=sh -c 'VD_PLUGIN_ORCHESTRATOR_INSTALL_ARTIFACTS=true node --experimental-strip-types /opt/vibe-kanban-vscode-web-seed/src/modules/plugins/vibe-dashboard/plugin-service-orchestrator-cli.ts apply --catalog /opt/vibe-kanban-vscode-web-seed/src/modules/plugins/vibe-dashboard/plugins.json --optional-catalog /var/lib/vd/instance-config/plugins.json --artifact-cache-root /var/lib/vd/plugin-cache --install-root /var/lib/vd/plugins --supervisor-config-dir /etc/supervisor/conf.d/vd-generated --caddy-plugin-config-path /etc/caddy/plugins.caddy && supervisorctl reread && supervisorctl update'
+command=/usr/local/bin/vd-plugin-runtime-apply.sh
 autostart=true
 autorestart=false
 startsecs=0
+priority=1000
 stdout_logfile=/dev/fd/1
 stdout_logfile_maxbytes=0
 stderr_logfile=/dev/fd/2
@@ -191,6 +192,7 @@ const CADDY_SUPERVISOR = `; caddy
 command=caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
 autostart=true
 autorestart=true
+priority=10
 stdout_logfile=/dev/fd/1
 stdout_logfile_maxbytes=0
 stderr_logfile=/dev/fd/2
@@ -319,7 +321,7 @@ export const BUILTIN_FIRST_PARTY_SERVICE_PLUGINS: FirstPartyServicePlugin[] = [
     privilegeTier: 'core-control-plane', bootCritical: true, supervisorPrograms: ['vibe-dashboard'], supervisorConfig: VIBE_DASHBOARD_SUPERVISOR, installStrategy: 'bundled-runtime-artifact', desiredVersion: 'bundled', stagingRequired: true, rollbackable: true,
   },
   {
-    manifest: manifest({ id: 'first-party.plugin-service-orchestrator', displayName: 'Plugin Service Orchestrator', version: 'bundled', requestedCapabilities: { hostShell: { commands: ['node --experimental-strip-types plugin-service-orchestrator-cli.ts', 'supervisorctl reread', 'supervisorctl update'] }, filesystem: [{ scope: 'absolute', path: '/var/lib/vd', access: 'readWrite' }], network: { mode: 'egress' } } }),
+    manifest: manifest({ id: 'first-party.plugin-service-orchestrator', displayName: 'Plugin Service Orchestrator', version: 'bundled', requestedCapabilities: { hostShell: { commands: ['vd-plugin-runtime-apply.sh', 'supervisorctl reread', 'supervisorctl update', 'caddy reload'] }, filesystem: [{ scope: 'absolute', path: '/var/lib/vd', access: 'readWrite' }], network: { mode: 'egress' } } }),
     privilegeTier: 'core-control-plane', bootCritical: false, supervisorPrograms: ['vd-plugin-service-orchestrator-startup'], supervisorConfig: PLUGIN_SERVICE_ORCHESTRATOR_SUPERVISOR, installStrategy: 'bundled-runtime-artifact', desiredVersion: 'bundled', stagingRequired: true, rollbackable: true,
   },
   {
