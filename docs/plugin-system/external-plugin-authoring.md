@@ -61,8 +61,4 @@ Install into staging first. The runtime records health checks, smoke-test logs, 
 
 ## Reference examples
 
-See `packages/plugin-reference-examples/reference-plugins`:
-
-- `scoped-canvas`: iframe frontend plus scoped workspace storage bridge.
-- `beads-web-bridge`: headless beads-style Deno bridge with `.beads` read/write only.
-- `container-worker`: container backend using a digest-pinned GHCR image through microVM dockerd.
+Reference plugin examples are intentionally omitted from this branch until the runtime supports those contracts end-to-end. Add examples back only when their declared bridges, frontend surfaces, or container lifecycle can be installed, validated, and exercised by CI.

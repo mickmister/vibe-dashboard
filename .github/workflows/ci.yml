@@ -195,38 +195,6 @@ jobs:
       - name: Validate checked-in and generated plugin Caddy config
         run: npm run validate:caddy
 
-  reference-plugin-examples:
-    name: reference plugin builds/tests/e2e
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Check reference plugin package types
-        run: pnpm --filter @vibe-kanban/plugin-reference-examples check-types
-
-      - name: Run reference plugin unit tests
-        run: pnpm --filter @vibe-kanban/plugin-reference-examples test
-
-      - name: Build reference plugin artifacts
-        run: pnpm --filter @vibe-kanban/plugin-reference-examples build
-
-      - name: Run reference plugin e2e checks
-        run: pnpm --filter @vibe-kanban/plugin-reference-examples test:e2e
-
 
   plugin-runtime-tests:
     name: plugin runtime unit and Deno smoke tests
