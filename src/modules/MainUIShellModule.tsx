@@ -1,7 +1,7 @@
 import '@vitejs/plugin-react/preamble';
 import '../styles';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { HeroUIProvider } from '@heroui/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -205,6 +205,9 @@ springboard.registerModule(
       const activeSavedSession = savedVoyages.find(
         (session) => session.id === browserSessionId,
       );
+      const pendingSavedSessionActivationRef = useRef<
+        { sessionId: string; voyageEntryId?: string } | undefined
+      >(undefined);
       const [firstVoyageName, setFirstVoyageName] = useState('');
       const [isCreatingFirstVoyage, setIsCreatingFirstVoyage] = useState(false);
       const [createFirstVoyageError, setCreateFirstVoyageError] = useState<
@@ -336,6 +339,28 @@ springboard.registerModule(
         if (dashboardVoyage.status !== 'resolved') return;
         if (!activeSavedSession) return;
 
+        const pendingActivation = pendingSavedSessionActivationRef.current;
+        if (pendingActivation) {
+          if (pendingActivation.sessionId !== browserSessionId) return;
+
+          const pendingEntryIsReady = pendingActivation.voyageEntryId
+            ? activeSavedSession.voyageEntries.some(
+                (entry) => entry.id === pendingActivation.voyageEntryId,
+              )
+            : true;
+          if (!pendingEntryIsReady) {
+            return;
+          }
+
+          if (
+            !pendingActivation.voyageEntryId ||
+            querySelection.voyageEntryId === pendingActivation.voyageEntryId ||
+            activeSavedSession.activeVoyageEntryId === pendingActivation.voyageEntryId
+          ) {
+            pendingSavedSessionActivationRef.current = undefined;
+          }
+        }
+
         const currentPath = `${location.pathname}${location.search}`;
         const voyageName = activeSavedSession?.name?.trim();
         if (!voyageName || isHomeVoyageDisplayName(voyageName)) {
@@ -401,6 +426,12 @@ springboard.registerModule(
         const voyageName = session?.name?.trim() || name?.trim();
         if (!session || !voyageName || isHomeVoyageDisplayName(voyageName)) return;
 
+        const targetVoyageEntryId =
+          voyageEntryId || session.activeVoyageEntryId || undefined;
+        pendingSavedSessionActivationRef.current = {
+          sessionId: session.id,
+          ...(targetVoyageEntryId ? { voyageEntryId: targetVoyageEntryId } : {}),
+        };
         const savedSessionPeers = savedVoyages.some((entry) => entry.id === session.id)
           ? savedVoyages
           : [...savedVoyages, session];

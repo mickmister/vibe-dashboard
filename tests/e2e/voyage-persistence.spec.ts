@@ -917,22 +917,6 @@ test.describe('voyage persistence', () => {
       url: `https://example.invalid/${runId}/seed-agent`,
     });
 
-    const existingCraftResult = await callWorkspaceAction<{
-      spaceId: string;
-      tabGroupId?: string;
-    }>(page.request, 'addTabGroup', {
-      spaceId: 'space_home',
-      label: existingCraftLabel,
-    });
-    expect(existingCraftResult.tabGroupId).toBeTruthy();
-    const existingTabGroupId = existingCraftResult.tabGroupId!;
-
-    await callWorkspaceAction(page.request, 'addTab', {
-      tabGroupId: existingTabGroupId,
-      title: 'Agent',
-      url: `https://example.invalid/workspaces/${workspaceToOpen.id}`,
-    });
-
     await callWorkspaceAction(page.request, 'upsertSavedSession', {
       id: voyageId,
       slug: voyageSlug,
@@ -978,6 +962,10 @@ test.describe('voyage persistence', () => {
       page.getByRole('button', { name: `Open ${existingCraftLabel} in Home` }),
     ).toBeVisible();
     await expectUrlVoyageToken(page, voyageId);
+    await expect(page).toHaveURL(
+      new RegExp(`craft=e2e-opened-craft-${runId}`),
+    );
+    await expect(page).toHaveURL(/views=agent-/);
     await waitForSavedVoyageWithCraft(page.request, voyageId, existingCraftLabel);
 
     await page
