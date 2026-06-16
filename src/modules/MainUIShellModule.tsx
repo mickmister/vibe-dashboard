@@ -341,22 +341,23 @@ springboard.registerModule(
 
         const pendingActivation = pendingSavedSessionActivationRef.current;
         if (pendingActivation) {
-          if (pendingActivation.sessionId !== browserSessionId) return;
+          if (pendingActivation.sessionId !== browserSessionId) {
+            // A newer/manual URL navigation won. Do not let an old pending activation
+            // suppress canonicalization for the currently URL-selected Voyage.
+            pendingSavedSessionActivationRef.current = undefined;
+          } else {
+            const pendingEntryIsReady = pendingActivation.voyageEntryId
+              ? activeSavedSession.voyageEntries.some(
+                  (entry) => entry.id === pendingActivation.voyageEntryId,
+                )
+              : true;
+            if (!pendingEntryIsReady) {
+              return;
+            }
 
-          const pendingEntryIsReady = pendingActivation.voyageEntryId
-            ? activeSavedSession.voyageEntries.some(
-                (entry) => entry.id === pendingActivation.voyageEntryId,
-              )
-            : true;
-          if (!pendingEntryIsReady) {
-            return;
-          }
-
-          if (
-            !pendingActivation.voyageEntryId ||
-            querySelection.voyageEntryId === pendingActivation.voyageEntryId ||
-            activeSavedSession.activeVoyageEntryId === pendingActivation.voyageEntryId
-          ) {
+            // The target entry is visible to route state now; canonicalization can
+            // safely resume without racing the Open Craft navigation back to the
+            // previous active craft.
             pendingSavedSessionActivationRef.current = undefined;
           }
         }
