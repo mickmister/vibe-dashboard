@@ -6,6 +6,7 @@ import { promisify } from 'node:util';
 import {
   applySupervisorConfigChanges,
   applyCaddyPluginConfigChange,
+  assertPluginServiceCatalog,
   createPluginServiceDryRunPlan,
   discoverCachedArtifacts,
   materializePluginArtifacts,
@@ -160,16 +161,16 @@ async function readComposedCatalog(catalogPaths: string[], optionalCatalogPaths:
   if (catalogPaths.length === 0) throw new Error('Missing required --catalog');
   const catalogs: PluginServiceCatalog[] = [];
   for (const path of catalogPaths) {
-    catalogs.push(JSON.parse(await readFile(path, 'utf8')) as PluginServiceCatalog);
+    catalogs.push(assertPluginServiceCatalog(JSON.parse(await readFile(path, 'utf8'))));
   }
   for (const path of optionalCatalogPaths) {
     try {
-      catalogs.push(JSON.parse(await readFile(path, 'utf8')) as PluginServiceCatalog);
+      catalogs.push(assertPluginServiceCatalog(JSON.parse(await readFile(path, 'utf8'))));
     } catch (error) {
       if (!isNodeErrorWithCode(error, 'ENOENT')) throw error;
     }
   }
-  return composeCatalogs(catalogs);
+  return assertPluginServiceCatalog(composeCatalogs(catalogs));
 }
 
 function composeCatalogs(catalogs: PluginServiceCatalog[]): PluginServiceCatalog {

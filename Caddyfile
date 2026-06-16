@@ -46,9 +46,9 @@
 		}
 	}
 
-	# Plugin-owned host routes generated before Caddy starts. Runtime plugin
-	# changes can update this file and then reload Caddy. This file must remain
-	# the only Caddy file edited for plugin exposure.
+	# Plugin-owned host routes. Caddy starts with this import present; runtime
+	# plugin apply updates this file later and reloads Caddy. This file must
+	# remain the only Caddy file edited for plugin exposure.
 	import /etc/caddy/plugins.caddy
 
 	# Vibe Dashboard app

@@ -16,7 +16,7 @@ reload_caddy_with_retry() {
     sleep "$delay"
   done
 
-  echo "Caddy reload failed after ${attempts} attempts" >&2
+  echo "Caddy reload failed after ${attempts} attempts; generated plugin config remains on disk. Check Caddy logs and rerun vd-plugin-runtime-apply.sh." >&2
   return 1
 }
 

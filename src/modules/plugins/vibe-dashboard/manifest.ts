@@ -281,7 +281,8 @@ export function validatePluginManifest(input: unknown): PluginManifestValidation
   }
 
   const manifest = input as unknown as PluginManifest;
-  if (isRecord(input.components)) {
+  const structuralErrorCount = errors.length;
+  if (structuralErrorCount === 0) {
     validateCapabilityPolicy(manifest, errors);
   }
 

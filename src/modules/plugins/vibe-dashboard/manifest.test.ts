@@ -326,4 +326,40 @@ describe('sandbox-first plugin manifest contract', () => {
       'components.lifecycle.restart must be a non-empty string',
     ]));
   });
+
+  it('returns validation errors instead of throwing for malformed nested manifests', () => {
+    const malformedManifests = [
+      {
+        ...excalidrawManifest,
+        requestedCapabilities: {
+          filesystem: [null],
+        },
+      },
+      {
+        ...excalidrawManifest,
+        components: {
+          ...excalidrawManifest.components,
+          secrets: {},
+        },
+      },
+      {
+        ...excalidrawManifest,
+        components: {
+          ...excalidrawManifest.components,
+          secrets: [null],
+        },
+        requestedCapabilities: {
+          secrets: ['missing-secret'],
+        },
+      },
+    ];
+
+    for (const manifest of malformedManifests) {
+      expect(() => validatePluginManifest(manifest)).not.toThrow();
+      const result = validatePluginManifest(manifest);
+      expect(result.success).toBe(false);
+      expect(result.errors.length).toBeGreaterThan(0);
+      expect(result.manifest).toBeUndefined();
+    }
+  });
 });

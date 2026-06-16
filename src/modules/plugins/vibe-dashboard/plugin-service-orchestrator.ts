@@ -182,6 +182,11 @@ export function createPluginServiceDryRunPlan(input: {
   return { artifacts, supervisorChanges, ...(caddyConfigChange ? { caddyConfigChange } : {}) };
 }
 
+export function assertPluginServiceCatalog(input: unknown): PluginServiceCatalog {
+  validateCatalog(input as PluginServiceCatalog);
+  return input as PluginServiceCatalog;
+}
+
 export async function readExistingCaddyPluginConfig(path: string): Promise<string | undefined> {
   try {
     return await readFile(path, 'utf8');
@@ -384,7 +389,7 @@ export function renderCaddyPluginExposureConfig(input: {
         `# ${plugin.id}@${plugin.version} service ${service.id}`,
         `@${matcherName} host ${service.httpExposure.subdomain}.{$PROXY_DOMAIN}`,
         `handle @${matcherName} {`,
-        `\treverse_proxy localhost:${port.default} {`,
+        `\treverse_proxy ${caddyUpstreamHost(port.bind)}:${port.default} {`,
         '\t\theader_up Host {upstream_hostport}',
         '\t\theader_up Upgrade {http.request.header.Upgrade}',
         '\t\theader_up Connection {http.request.header.Connection}',
@@ -714,6 +719,10 @@ function sanitizeIdentifier(value: string): string {
 
 function caddyMatcherName(plugin: PluginServiceDefinition, service: SupervisorServiceDefinition): string {
   return sanitizeIdentifier(`vd_plugin_${plugin.id}_${service.id}`);
+}
+
+function caddyUpstreamHost(bind: string): string {
+  return bind === '127.0.0.1' || bind === 'localhost' ? bind : '127.0.0.1';
 }
 
 function isSafeSubdomainLabel(value: string): boolean {

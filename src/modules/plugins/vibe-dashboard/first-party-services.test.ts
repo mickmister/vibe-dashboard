@@ -66,7 +66,8 @@ describe('first-party service plugin inventory and golden supervisor config', ()
     expect(pluginCaddyfile).toContain('VD plugin-owned Caddy routes');
     expect(goldenDockerfile).toContain('COPY Caddyfile.plugins /etc/caddy/plugins.caddy');
     expect(goldenDockerfile).toContain('COPY scripts/vd-plugin-runtime-apply.sh /usr/local/bin/vd-plugin-runtime-apply.sh');
-    expect(dockerEntrypoint).toContain('Generated plugin exposure will be written here before Caddy starts.');
+    expect(dockerEntrypoint).toContain('Runtime plugin apply writes generated routes here after Caddy starts, then reloads Caddy.');
+    expect(goldenCaddyfile).toContain('Caddy starts with this import present; runtime');
     expect(dockerEntrypoint).not.toContain('plugin-service-orchestrator-cli.ts apply');
     expect(pluginRuntimeApply).toContain('plugin-service-orchestrator-cli.ts apply');
     expect(pluginRuntimeApply).toContain('--caddy-config-path /etc/caddy/Caddyfile');

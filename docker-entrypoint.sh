@@ -44,7 +44,7 @@ mkdir -p /var/lib/vd/instance-config /var/lib/vd/plugin-cache /var/lib/vd/plugin
 if [ ! -f /etc/caddy/plugins.caddy ]; then
     cat > /etc/caddy/plugins.caddy <<'EOF'
 # VD plugin-owned Caddy routes.
-# Generated plugin exposure will be written here before Caddy starts.
+# Runtime plugin apply writes generated routes here after Caddy starts, then reloads Caddy.
 EOF
 fi
 
