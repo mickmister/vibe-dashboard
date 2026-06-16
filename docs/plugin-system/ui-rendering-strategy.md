@@ -97,7 +97,7 @@ admin-approved frontend capability.
 
 ## Archived prototype coverage
 
-The iframe RPC prototype is archived at `notes/plugin-plans/plugin-iframe-rpc-prototype`. It is not part of the active workspace or CI on this branch because the merge-ready runtime currently focuses on first-party service orchestration. The archived prototype explored:
+The iframe RPC prototype is intentionally omitted from this branch because the merge-ready runtime currently focuses on first-party service orchestration. The removed prototype explored:
 
 - protocol version validation,
 - JSON-only payload validation,
