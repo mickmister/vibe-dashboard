@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { PatchDiff } from '@pierre/diffs/react';
+import { FileDiff } from '@pierre/diffs/react';
 import { Button, Input, Select, SelectItem, Textarea } from '@heroui/react';
 import {
   vkClient,
   type ReviewDraftComment,
   type Session,
 } from '../lib/vk-client';
+import { hasRenderableDiff, parseRepoPatch } from '../lib/diffPatch';
 
 type DiffRepo = {
   name: string;
@@ -102,6 +103,13 @@ export function DiffView({ workspaceId, workspaceDir }: DiffViewProps) {
   );
 
   const selectedRepoFiles = selectedRepo?.files ?? [];
+  const parsedRepoPatch = useMemo(
+    () =>
+      selectedRepo?.patch
+        ? parseRepoPatch(selectedRepo.patch, selectedRepo.relativePath)
+        : { files: [], error: null },
+    [selectedRepo?.patch, selectedRepo?.relativePath],
+  );
 
   useEffect(() => {
     if (!selectedRepo) return;
@@ -239,16 +247,7 @@ export function DiffView({ workspaceId, workspaceDir }: DiffViewProps) {
               detail={selectedRepo.error}
             />
           ) : selectedRepo?.patch ? (
-            <PatchDiff
-              patch={selectedRepo.patch}
-              options={{
-                diffStyle: "unified",
-                themeType: "dark",
-                theme: { dark: "github-dark", light: "github-light" },
-                overflow: "wrap",
-                hunkSeparators: "line-info",
-              }}
-            />
+            <RepoPatchDiff parsedPatch={parsedRepoPatch} />
           ) : (
             <EmptyState title="No committed branch changes found" />
           )}
@@ -354,6 +353,68 @@ function EmptyState({ title, detail }: { title: string; detail?: string }) {
       <div className="max-w-md px-6">
         <p className="text-sm font-medium text-neutral-300">{title}</p>
         {detail && <p className="mt-2 text-xs text-neutral-500">{detail}</p>}
+      </div>
+    </div>
+  );
+}
+
+function RepoPatchDiff({
+  parsedPatch,
+}: {
+  parsedPatch: ReturnType<typeof parseRepoPatch>;
+}) {
+  if (parsedPatch.error) {
+    return (
+      <EmptyState title="Could not parse repo diff" detail={parsedPatch.error} />
+    );
+  }
+
+  if (parsedPatch.files.length === 0) {
+    return <EmptyState title="No file diffs found in patch" />;
+  }
+
+  return (
+    <div className="space-y-4">
+      {parsedPatch.files.map((fileDiff, index) =>
+        hasRenderableDiff(fileDiff) ? (
+          <FileDiff
+            key={`${fileDiff.name}-${fileDiff.prevName || ''}-${index}`}
+            fileDiff={fileDiff}
+            options={{
+              diffStyle: 'unified',
+              themeType: 'dark',
+              theme: { dark: 'github-dark', light: 'github-light' },
+              overflow: 'wrap',
+              hunkSeparators: 'line-info',
+            }}
+          />
+        ) : (
+          <NonRenderableFileDiff
+            key={`${fileDiff.name}-${fileDiff.prevName || ''}-${index}`}
+            fileDiff={fileDiff}
+          />
+        ),
+      )}
+    </div>
+  );
+}
+
+function NonRenderableFileDiff({
+  fileDiff,
+}: {
+  fileDiff: { name: string; prevName?: string; type: string };
+}) {
+  return (
+    <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-3 text-xs text-neutral-300">
+      <div className="font-mono text-neutral-100">
+        {fileDiff.prevName && fileDiff.prevName !== fileDiff.name
+          ? `${fileDiff.prevName} → ${fileDiff.name}`
+          : fileDiff.name}
+      </div>
+      <div className="mt-1 text-neutral-500">
+        {fileDiff.type === 'rename-pure'
+          ? 'Renamed with no textual changes.'
+          : 'No textual diff is available for this file.'}
       </div>
     </div>
   );
