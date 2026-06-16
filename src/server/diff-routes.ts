@@ -27,6 +27,7 @@ export interface DiffRouteRepo {
   baseRef: string | null;
   commits: Array<{ sha: string; subject: string }>;
   files: Array<{ path: string; status: string }>;
+  headRef: string;
   patch: string;
   error?: string;
 }
@@ -54,9 +55,36 @@ export function registerDiffRoutes(hono: Hono): void {
     }
 
     const targetBranches = await getTargetBranches(client, workspaceId);
-    const repos = await loadWorkspaceDiffs(workspaceDir, targetBranches);
+    const headRefs = parseHeadRefQuery(c.req.query("headRefs"));
+    const repos = await loadWorkspaceDiffs(
+      workspaceDir,
+      targetBranches,
+      headRefs,
+    );
     return c.json({ workspaceDir, repos } satisfies DiffRouteResponse);
   });
+}
+
+export function parseHeadRefQuery(
+  value: string | undefined,
+): Map<string, string> {
+  if (!value) return new Map();
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value) as unknown;
+  } catch {
+    return new Map();
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return new Map();
+  }
+  const entries: Array<[string, string]> = [];
+  for (const [key, rawRef] of Object.entries(parsed)) {
+    if (typeof rawRef !== "string") continue;
+    const ref = rawRef.trim();
+    if (ref.length > 0) entries.push([key, ref]);
+  }
+  return new Map(entries);
 }
 
 async function getTargetBranches(
@@ -85,11 +113,12 @@ async function getTargetBranches(
 async function loadWorkspaceDiffs(
   workspaceDir: string,
   targetBranches: Map<string, string>,
+  headRefs: Map<string, string>,
 ): Promise<DiffRouteRepo[]> {
   const repoPaths = await discoverGitRepos(workspaceDir);
   const repos = await Promise.all(
     repoPaths.map((repoPath) =>
-      loadRepoDiff(workspaceDir, repoPath, targetBranches),
+      loadRepoDiff(workspaceDir, repoPath, targetBranches, headRefs),
     ),
   );
   return repos.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
@@ -126,18 +155,25 @@ async function loadRepoDiff(
   workspaceDir: string,
   repoPath: string,
   targetBranches: Map<string, string>,
+  headRefs: Map<string, string>,
 ): Promise<DiffRouteRepo> {
   const relativePath = relative(workspaceDir, repoPath) || ".";
   const name = basename(repoPath);
   const targetBranch =
     targetBranches.get(name) ?? targetBranches.get(relativePath) ?? null;
+  const requestedHeadRef =
+    headRefs.get(relativePath) ??
+    headRefs.get(name) ??
+    headRefs.get(repoPath) ??
+    "HEAD";
 
   try {
     const branch = await git(repoPath, ["rev-parse", "--abbrev-ref", "HEAD"]);
+    const headRef = await resolveHeadRef(repoPath, requestedHeadRef);
     const baseRef = targetBranch
       ? await resolveBaseRef(repoPath, targetBranch)
       : await resolveDefaultBaseRef(repoPath);
-    const diffRange = baseRef ? [`${baseRef}...HEAD`] : ["HEAD"];
+    const diffRange = baseRef ? [`${baseRef}...${headRef}`] : [headRef];
     const patch = await git(repoPath, [
       "diff",
       "--find-renames",
@@ -168,6 +204,7 @@ async function loadRepoDiff(
       branch,
       targetBranch,
       baseRef,
+      headRef,
       commits,
       files,
       patch,
@@ -180,12 +217,35 @@ async function loadRepoDiff(
       branch: null,
       targetBranch,
       baseRef: null,
+      headRef: requestedHeadRef,
       commits: [],
       files: [],
       patch: "",
       error: error instanceof Error ? error.message : String(error),
     };
   }
+}
+
+async function resolveHeadRef(
+  repoPath: string,
+  requestedHeadRef: string,
+): Promise<string> {
+  const ref = requestedHeadRef.trim() || "HEAD";
+  if (!isSafeGitRef(ref)) {
+    throw new Error(`Invalid git ref '${requestedHeadRef}'`);
+  }
+  return git(repoPath, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]);
+}
+
+export function isSafeGitRef(ref: string): boolean {
+  return (
+    ref.length > 0 &&
+    ref.length <= 200 &&
+    !ref.startsWith("-") &&
+    !ref.includes("..") &&
+    !ref.includes("@{") &&
+    /^[A-Za-z0-9_./-]+$/.test(ref)
+  );
 }
 
 async function resolveBaseRef(

@@ -1,5 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { FileDiff } from '@pierre/diffs/react';
+import type {
+  DiffLineAnnotation,
+  FileDiffMetadata,
+  OnDiffLineClickProps,
+} from '@pierre/diffs';
 import { Button, Input, Select, SelectItem, Textarea } from '@heroui/react';
 import {
   vkClient,
@@ -16,6 +21,7 @@ type DiffRepo = {
   branch: string | null;
   targetBranch: string | null;
   baseRef: string | null;
+  headRef: string;
   commits: Array<{ sha: string; subject: string }>;
   files: Array<{ path: string; status: string }>;
   patch: string;
@@ -32,6 +38,8 @@ type DraftComment = {
   filePath: string;
   lineNumber: string;
   body: string;
+  codeLine?: string | null;
+  side?: 'additions' | 'deletions';
 };
 
 interface DiffViewProps {
@@ -46,8 +54,15 @@ export function DiffView({ workspaceId, workspaceDir }: DiffViewProps) {
   const [selectedRepoName, setSelectedRepoName] = useState("");
   const [selectedFilePath, setSelectedFilePath] = useState("");
   const [lineNumber, setLineNumber] = useState("1");
+  const [selectedCodeLine, setSelectedCodeLine] = useState<string | null>(null);
+  const [selectedLineSide, setSelectedLineSide] = useState<
+    'additions' | 'deletions'
+  >('additions');
   const [commentBody, setCommentBody] = useState("");
   const [queuedComments, setQueuedComments] = useState<DraftComment[]>([]);
+  const [selectedHeadRefs, setSelectedHeadRefs] = useState<
+    Record<string, string>
+  >({});
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -61,6 +76,9 @@ export function DiffView({ workspaceId, workspaceDir }: DiffViewProps) {
         workspaceId,
         workspaceDir,
       });
+      if (Object.keys(selectedHeadRefs).length > 0) {
+        params.set("headRefs", JSON.stringify(selectedHeadRefs));
+      }
       const [diffResponse, sessionResponse] = await Promise.all([
         fetch(`/dashboard/api/diff?${params.toString()}`),
         vkClient.getSessions(workspaceId),
@@ -89,7 +107,7 @@ export function DiffView({ workspaceId, workspaceDir }: DiffViewProps) {
     } finally {
       setLoading(false);
     }
-  }, [workspaceDir, workspaceId]);
+  }, [selectedHeadRefs, workspaceDir, workspaceId]);
 
   useEffect(() => {
     void refresh();
@@ -103,6 +121,23 @@ export function DiffView({ workspaceId, workspaceDir }: DiffViewProps) {
   );
 
   const selectedRepoFiles = selectedRepo?.files ?? [];
+  const selectedHeadRef =
+    selectedRepo
+      ? (selectedHeadRefs[selectedRepo.relativePath] ?? "HEAD")
+      : "HEAD";
+  const commitOptions = useMemo(
+    () =>
+      selectedRepo
+        ? [
+            { key: "HEAD", label: "Latest on branch" },
+            ...selectedRepo.commits.map((commit) => ({
+              key: commit.sha,
+              label: `${commit.sha.slice(0, 8)} ${commit.subject}`,
+            })),
+          ]
+        : [],
+    [selectedRepo],
+  );
   const parsedRepoPatch = useMemo(
     () =>
       selectedRepo?.patch
@@ -121,18 +156,40 @@ export function DiffView({ workspaceId, workspaceDir }: DiffViewProps) {
     setSelectedFilePath(selectedRepoFiles[0]?.path || "");
   }, [selectedFilePath, selectedRepo, selectedRepoFiles]);
 
-  const addQueuedComment = () => {
+  const addQueuedComment = (override?: Partial<DraftComment>) => {
     const filePath = selectedFilePath.trim();
-    const body = commentBody.trim();
+    const body = (override?.body ?? commentBody).trim();
     const repoName = selectedRepo?.name || selectedRepoName;
     if (!repoName || !filePath || !body) return;
     setQueuedComments((current) => [
       ...current,
-      { repoName, filePath, lineNumber: lineNumber || "1", body },
+      {
+        repoName,
+        filePath: override?.filePath ?? filePath,
+        lineNumber: (override?.lineNumber ?? lineNumber) || "1",
+        body,
+        codeLine: override?.codeLine ?? selectedCodeLine,
+        side: override?.side ?? selectedLineSide,
+      },
     ]);
     setCommentBody("");
+    setSelectedCodeLine(null);
     setSuccess(null);
   };
+
+  const stageLineComment = useCallback(
+    (fileDiff: FileDiffMetadata, line: OnDiffLineClickProps) => {
+      const nextLineNumber = String(line.lineNumber);
+      const nextFilePath = fileDiff.name;
+      setSelectedFilePath(nextFilePath);
+      setLineNumber(nextLineNumber);
+      setSelectedCodeLine(line.lineElement.textContent?.trim() || null);
+      setSelectedLineSide(line.annotationSide);
+      setCommentBody((current) => current || "");
+      setSuccess(null);
+    },
+    [],
+  );
 
   const submitComments = async () => {
     if (!selectedSessionId || queuedComments.length === 0) return;
@@ -147,6 +204,7 @@ export function DiffView({ workspaceId, workspaceDir }: DiffViewProps) {
             : `${comment.repoName}/${comment.filePath}`,
         line_number: Number.parseInt(comment.lineNumber, 10) || 1,
         body: comment.body,
+        code_line: comment.codeLine ?? null,
       }));
       const result = await vkClient.appendReviewComments(
         selectedSessionId,
@@ -204,6 +262,25 @@ export function DiffView({ workspaceId, workspaceDir }: DiffViewProps) {
               ))}
             </Select>
           )}
+          {selectedRepo && selectedRepo.commits.length > 0 && (
+            <Select
+              aria-label="Compare at commit"
+              size="sm"
+              className="min-w-64 max-w-96"
+              selectedKeys={[selectedHeadRef]}
+              onSelectionChange={(keys) => {
+                const next = (Array.from(keys)[0] as string) || "HEAD";
+                setSelectedHeadRefs((current) => ({
+                  ...current,
+                  [selectedRepo.relativePath]: next,
+                }));
+              }}
+            >
+              {commitOptions.map((option) => (
+                <SelectItem key={option.key}>{option.label}</SelectItem>
+              ))}
+            </Select>
+          )}
         </div>
         {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
         {success && <p className="mt-2 text-xs text-emerald-400">{success}</p>}
@@ -226,6 +303,11 @@ export function DiffView({ workspaceId, workspaceDir }: DiffViewProps) {
                 {repo.branch || "unknown"} →{" "}
                 {repo.targetBranch || repo.baseRef || "base"}
               </div>
+              <div className="mt-1 truncate text-neutral-500">
+                showing {repo.headRef === "HEAD"
+                  ? "HEAD"
+                  : repo.headRef.slice(0, 8)}
+              </div>
               <div className="mt-1 text-neutral-500">
                 {repo.files.length} file{repo.files.length === 1 ? "" : "s"},{" "}
                 {repo.commits.length} commit
@@ -247,7 +329,15 @@ export function DiffView({ workspaceId, workspaceDir }: DiffViewProps) {
               detail={selectedRepo.error}
             />
           ) : selectedRepo?.patch ? (
-            <RepoPatchDiff parsedPatch={parsedRepoPatch} />
+            <RepoPatchDiff
+              parsedPatch={parsedRepoPatch}
+              queuedComments={queuedComments.filter(
+                (comment) =>
+                  selectedRepo &&
+                  comment.repoName === selectedRepo.name,
+              )}
+              onLineNumberClick={stageLineComment}
+            />
           ) : (
             <EmptyState title="No committed branch changes found" />
           )}
@@ -279,6 +369,14 @@ export function DiffView({ workspaceId, workspaceDir }: DiffViewProps) {
               value={lineNumber}
               onChange={(event) => setLineNumber(event.target.value)}
             />
+            <p className="text-xs text-neutral-500">
+              Tip: click a diff line number to target that file and line.
+            </p>
+            {selectedCodeLine && (
+              <p className="truncate font-mono text-xs text-neutral-500">
+                {selectedCodeLine}
+              </p>
+            )}
             <Textarea
               label="Comment"
               minRows={4}
@@ -288,7 +386,7 @@ export function DiffView({ workspaceId, workspaceDir }: DiffViewProps) {
             <Button
               size="sm"
               color="primary"
-              onPress={addQueuedComment}
+              onPress={() => addQueuedComment()}
               isDisabled={!selectedFilePath || !commentBody.trim()}
             >
               Add comment
@@ -305,6 +403,11 @@ export function DiffView({ workspaceId, workspaceDir }: DiffViewProps) {
                   {comment.repoName}/{comment.filePath}:{comment.lineNumber}
                 </div>
                 <div className="mt-1 text-neutral-400">{comment.body}</div>
+                {comment.codeLine && (
+                  <div className="mt-1 truncate font-mono text-neutral-500">
+                    {comment.codeLine}
+                  </div>
+                )}
                 <button
                   className="mt-2 text-red-300 hover:text-red-200"
                   onClick={() =>
@@ -360,8 +463,15 @@ function EmptyState({ title, detail }: { title: string; detail?: string }) {
 
 function RepoPatchDiff({
   parsedPatch,
+  queuedComments,
+  onLineNumberClick,
 }: {
   parsedPatch: ReturnType<typeof parseRepoPatch>;
+  queuedComments: DraftComment[];
+  onLineNumberClick: (
+    fileDiff: FileDiffMetadata,
+    line: OnDiffLineClickProps,
+  ) => void;
 }) {
   if (parsedPatch.error) {
     return (
@@ -380,12 +490,22 @@ function RepoPatchDiff({
           <FileDiff
             key={`${fileDiff.name}-${fileDiff.prevName || ''}-${index}`}
             fileDiff={fileDiff}
+            lineAnnotations={lineAnnotationsForFile(fileDiff, queuedComments)}
+            renderAnnotation={(annotation) => (
+              <div className="rounded border border-primary-500/40 bg-primary-500/10 px-3 py-2 text-xs text-primary-100">
+                {annotation.metadata?.body}
+              </div>
+            )}
             options={{
               diffStyle: 'unified',
               themeType: 'dark',
               theme: { dark: 'github-dark', light: 'github-light' },
               overflow: 'wrap',
               hunkSeparators: 'line-info',
+              lineHoverHighlight: 'both',
+              onLineNumberClick: (line) => {
+                onLineNumberClick(fileDiff, line);
+              },
             }}
           />
         ) : (
@@ -397,6 +517,19 @@ function RepoPatchDiff({
       )}
     </div>
   );
+}
+
+function lineAnnotationsForFile(
+  fileDiff: FileDiffMetadata,
+  queuedComments: DraftComment[],
+): DiffLineAnnotation<{ body: string }>[] {
+  return queuedComments
+    .filter((comment) => comment.filePath === fileDiff.name)
+    .map((comment) => ({
+      side: comment.side ?? 'additions',
+      lineNumber: Number.parseInt(comment.lineNumber, 10) || 1,
+      metadata: { body: comment.body },
+    }));
 }
 
 function NonRenderableFileDiff({
