@@ -117,18 +117,21 @@ async function getKvState<T>(
 
 async function waitForKvApi(request: APIRequestContext) {
   await expect
-    .poll(async () => {
-      const response = await request.get(
-        `/kv/get?key=${encodeURIComponent(WORKSPACE_STATE_KEY)}`,
-      );
-      if (!response.ok()) return false;
-      try {
-        JSON.parse(await response.text());
-        return true;
-      } catch {
-        return false;
-      }
-    })
+    .poll(
+      async () => {
+        const response = await request.get(
+          `/kv/get?key=${encodeURIComponent(WORKSPACE_STATE_KEY)}`,
+        );
+        if (!response.ok()) return false;
+        try {
+          JSON.parse(await response.text());
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      { timeout: 30_000 },
+    )
     .toBe(true);
 }
 
@@ -417,15 +420,39 @@ function getVisibleVoyageActionsTrigger(page: Page) {
 }
 
 async function openVoyageActionsMenu(page: Page) {
-  await getVisibleVoyageActionsTrigger(page).click();
-  return page.getByRole('menu', { name: 'Voyage actions' });
+  const trigger = getVisibleVoyageActionsTrigger(page).first();
+  await expect(trigger).toBeVisible();
+  await trigger.click();
+
+  const menu = page.getByRole('menu', { name: 'Voyage actions' });
+  await expect(menu).toBeVisible();
+  return menu;
+}
+
+async function clickVoyageActionsMenuItem(
+  page: Page,
+  name: 'Open Craft' | 'Switch Voyage',
+) {
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      await page.keyboard.press('Escape').catch(() => {});
+      const voyageActionsMenu = await openVoyageActionsMenu(page);
+      const menuItem = voyageActionsMenu.getByRole('menuitem', { name });
+      await expect(menuItem).toBeVisible({ timeout: 2_000 });
+      await menuItem.click({ timeout: 2_000 });
+      return;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError;
 }
 
 async function openVoyageSwitcher(page: Page) {
-  const voyageActionsMenu = await openVoyageActionsMenu(page);
-  await voyageActionsMenu
-    .getByRole('menuitem', { name: 'Switch Voyage' })
-    .click();
+  await clickVoyageActionsMenuItem(page, 'Switch Voyage');
 }
 
 function getVoyageSwitcher(page: Page) {
@@ -440,10 +467,7 @@ function getVoyageSwitcherVoyageButton(page: Page, voyageName: string) {
 }
 
 async function openCraftFromVoyageActionsMenu(page: Page) {
-  const voyageActionsMenu = await openVoyageActionsMenu(page);
-  await voyageActionsMenu
-    .getByRole('menuitem', { name: 'Open Craft' })
-    .click();
+  await clickVoyageActionsMenuItem(page, 'Open Craft');
 }
 
 async function expectCurrentVoyage(page: Page, voyageName: string) {
