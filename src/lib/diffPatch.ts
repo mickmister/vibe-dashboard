@@ -30,4 +30,3 @@ export function parseRepoPatch(
 export function hasRenderableDiff(file: FileDiffMetadata): boolean {
   return file.hunks.length > 0;
 }
-

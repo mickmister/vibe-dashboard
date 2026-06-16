@@ -3,7 +3,10 @@ import { readdir, stat } from 'node:fs/promises';
 import { basename, join, relative } from 'node:path';
 import { promisify } from 'node:util';
 import type { Hono } from 'hono';
-import { VibeKanbanServerClient } from './vk-client';
+import {
+  VibeKanbanServerClient,
+  type RepoWithBranch,
+} from './vk-client';
 
 const execFileAsync = promisify(execFile);
 const GIT_TIMEOUT_MS = 10_000;
@@ -54,11 +57,11 @@ export function registerDiffRoutes(hono: Hono): void {
       return c.json({ error: "workspaceDir does not match workspace" }, 403);
     }
 
-    const targetBranches = await getTargetBranches(client, workspaceId);
+    const workspaceRepos = await getWorkspaceRepoMetadata(client, workspaceId);
     const headRefs = parseHeadRefQuery(c.req.query("headRefs"));
     const repos = await loadWorkspaceDiffs(
       workspaceDir,
-      targetBranches,
+      workspaceRepos,
       headRefs,
     );
     return c.json({ workspaceDir, repos } satisfies DiffRouteResponse);
@@ -87,41 +90,113 @@ export function parseHeadRefQuery(
   return new Map(entries);
 }
 
-async function getTargetBranches(
+async function getWorkspaceRepoMetadata(
   client: VibeKanbanServerClient,
   workspaceId: string,
-): Promise<Map<string, string>> {
+): Promise<RepoWithBranch[]> {
   try {
-    const repos = await client.getWorkspaceRepos(workspaceId);
-    return new Map(
-      repos.flatMap((repo) => {
-        const names = new Set([repo.name, repo.display_name].filter(Boolean));
-        return Array.from(names).map(
-          (name) => [name, repo.target_branch] as const,
-        );
-      }),
-    );
+    return client.getWorkspaceRepos(workspaceId);
   } catch (error) {
-    console.warn("Failed to load VK workspace repos for diff target branches", {
+    console.warn("Failed to load VK workspace repo metadata for diff view", {
       workspaceId,
       error,
     });
-    return new Map();
+    return [];
   }
 }
 
 async function loadWorkspaceDiffs(
   workspaceDir: string,
-  targetBranches: Map<string, string>,
+  workspaceRepos: RepoWithBranch[],
   headRefs: Map<string, string>,
 ): Promise<DiffRouteRepo[]> {
-  const repoPaths = await discoverGitRepos(workspaceDir);
+  const discoveredRepoPaths = await discoverGitRepos(workspaceDir);
+  const repoPaths = selectWorkspaceRepoPaths(
+    discoveredRepoPaths,
+    workspaceDir,
+    workspaceRepos,
+  );
+  const targetBranches = buildTargetBranchMap(workspaceRepos);
   const repos = await Promise.all(
     repoPaths.map((repoPath) =>
       loadRepoDiff(workspaceDir, repoPath, targetBranches, headRefs),
     ),
   );
-  return repos.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+  return repos.sort(
+    (a, b) =>
+      repoSortIndex(a, workspaceRepos) - repoSortIndex(b, workspaceRepos) ||
+      a.relativePath.localeCompare(b.relativePath),
+  );
+}
+
+export function selectWorkspaceRepoPaths(
+  discoveredRepoPaths: string[],
+  workspaceDir: string,
+  workspaceRepos: Array<
+    Pick<RepoWithBranch, 'name' | 'display_name' | 'target_branch'>
+  >,
+): string[] {
+  const sortedDiscovered = [...discoveredRepoPaths].sort((a, b) =>
+    relative(workspaceDir, a).localeCompare(relative(workspaceDir, b)),
+  );
+  if (workspaceRepos.length === 0) return sortedDiscovered;
+  if (sortedDiscovered.length <= 1) return sortedDiscovered;
+
+  const discoveredByAlias = new Map<string, string>();
+  for (const repoPath of sortedDiscovered) {
+    const relativePath = relative(workspaceDir, repoPath) || ".";
+    const aliases = repoPathAliases(repoPath, relativePath);
+    for (const alias of aliases) {
+      if (!discoveredByAlias.has(alias)) {
+        discoveredByAlias.set(alias, repoPath);
+      }
+    }
+  }
+
+  const selected = workspaceRepos
+    .flatMap((repo) =>
+      repoMetadataAliases(repo)
+        .map((alias) => discoveredByAlias.get(alias))
+        .filter((repoPath): repoPath is string => Boolean(repoPath)),
+    )
+    .filter((repoPath, index, all) => all.indexOf(repoPath) === index);
+
+  return selected.length > 0 ? selected : sortedDiscovered;
+}
+
+function buildTargetBranchMap(
+  workspaceRepos: Array<
+    Pick<RepoWithBranch, 'name' | 'display_name' | 'target_branch'>
+  >,
+): Map<string, string> {
+  return new Map(
+    workspaceRepos.flatMap((repo) =>
+      repoMetadataAliases(repo).map(
+        (name) => [name, repo.target_branch] as const,
+      ),
+    ),
+  );
+}
+
+function repoSortIndex(
+  repo: Pick<DiffRouteRepo, 'path' | 'relativePath' | 'name'>,
+  workspaceRepos: Array<Pick<RepoWithBranch, 'name' | 'display_name'>>,
+): number {
+  const aliases = new Set(repoPathAliases(repo.path, repo.relativePath));
+  const index = workspaceRepos.findIndex((workspaceRepo) =>
+    repoMetadataAliases(workspaceRepo).some((alias) => aliases.has(alias)),
+  );
+  return index === -1 ? Number.MAX_SAFE_INTEGER : index;
+}
+
+function repoPathAliases(repoPath: string, relativePath: string): string[] {
+  return [basename(repoPath), relativePath].filter(Boolean);
+}
+
+function repoMetadataAliases(
+  repo: Pick<RepoWithBranch, 'name' | 'display_name'>,
+): string[] {
+  return [repo.name, repo.display_name].filter(Boolean);
 }
 
 async function discoverGitRepos(workspaceDir: string): Promise<string[]> {

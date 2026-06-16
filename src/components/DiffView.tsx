@@ -63,6 +63,9 @@ export function DiffView({ workspaceId, workspaceDir }: DiffViewProps) {
   const [copying, setCopying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [manualCopyMarkdown, setManualCopyMarkdown] = useState<string | null>(
+    null,
+  );
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -171,6 +174,7 @@ export function DiffView({ workspaceId, workspaceDir }: DiffViewProps) {
     setCommentBody("");
     setSelectedCodeLine(null);
     setSuccess(null);
+    setManualCopyMarkdown(null);
   };
 
   const stageLineComment = useCallback(
@@ -183,6 +187,7 @@ export function DiffView({ workspaceId, workspaceDir }: DiffViewProps) {
       setSelectedLineSide(line.annotationSide);
       setCommentBody((current) => current || "");
       setSuccess(null);
+      setManualCopyMarkdown(null);
     },
     [],
   );
@@ -192,17 +197,25 @@ export function DiffView({ workspaceId, workspaceDir }: DiffViewProps) {
     setCopying(true);
     setError(null);
     setSuccess(null);
+    setManualCopyMarkdown(null);
+    const markdown = formatReviewCommentsMarkdown(
+      queuedComments,
+      repoCount || 1,
+    );
     try {
-      await navigator.clipboard.writeText(
-        formatReviewCommentsMarkdown(queuedComments, repoCount || 1),
-      );
+      await navigator.clipboard.writeText(markdown);
       const copiedCount = queuedComments.length;
       setQueuedComments([]);
       setSuccess(
         `${copiedCount} review comment${copiedCount === 1 ? "" : "s"} copied to clipboard.`,
       );
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setManualCopyMarkdown(markdown);
+      setError(
+        `Clipboard copy failed. Use the manual copy box below. ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
     } finally {
       setCopying(false);
     }
@@ -320,6 +333,20 @@ export function DiffView({ workspaceId, workspaceDir }: DiffViewProps) {
             Copy comments as markdown, then paste them into the Agent
             conversation.
           </p>
+          {manualCopyMarkdown && (
+            <div className="mt-3 rounded-lg border border-amber-500/40 bg-amber-500/10 p-2">
+              <p className="text-xs text-amber-100">
+                Clipboard access failed. Select and copy this markdown manually.
+              </p>
+              <Textarea
+                aria-label="Review comments markdown"
+                className="mt-2"
+                minRows={8}
+                value={manualCopyMarkdown}
+                readOnly
+              />
+            </div>
+          )}
           <div className="mt-3 space-y-3">
             <Select
               aria-label="File"
@@ -381,11 +408,12 @@ export function DiffView({ workspaceId, workspaceDir }: DiffViewProps) {
                 )}
                 <button
                   className="mt-2 text-red-300 hover:text-red-200"
-                  onClick={() =>
+                  onClick={() => {
                     setQueuedComments((current) =>
                       current.filter((_, i) => i !== index),
-                    )
-                  }
+                    );
+                    setManualCopyMarkdown(null);
+                  }}
                 >
                   Remove
                 </button>

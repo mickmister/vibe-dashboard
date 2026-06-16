@@ -41,4 +41,3 @@ Binary files /dev/null and b/image.png differ
     expect(hasRenderableDiff(result.files[0]!)).toBe(false);
   });
 });
-
