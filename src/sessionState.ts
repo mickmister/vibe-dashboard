@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { getDefaultSpace, getFirstTabGroupForSpace } from "./types";
 import type { WorkspaceState, SavedWorkspaceSession, VoyageEntry } from "./types";
+import { getEffectivePairs, getEffectiveTabs } from './lib/builtInWorkspaceTabs';
 
 /**
  * Session-level workspace navigation state.
@@ -128,9 +129,9 @@ function getValidVisitedTabGroupIds(
 function getDefaultViewIdsForTabGroup(workspace: WorkspaceState, tabGroupId: string): string[] {
   const tabGroup = workspace.tabGroups.find((entry) => entry.id === tabGroupId);
   if (!tabGroup) return [];
-  const firstTabId = tabGroup.tabs[0]?.id;
+  const firstTabId = getEffectiveTabs(tabGroup)[0]?.id;
   if (firstTabId) return [firstTabId];
-  const firstPair = tabGroup.pairs[0];
+  const firstPair = getEffectivePairs(tabGroup)[0];
   if (firstPair?.tabIds.length) return [...firstPair.tabIds];
   return [];
 }
@@ -146,12 +147,12 @@ function getActiveViewIdsForItem(
     return getDefaultViewIdsForTabGroup(workspace, tabGroupId);
   }
 
-  const pair = tabGroup.pairs.find((entry) => entry.id === activeItemId);
+  const pair = getEffectivePairs(tabGroup).find((entry) => entry.id === activeItemId);
   if (pair?.tabIds.length) {
     return [...pair.tabIds];
   }
 
-  if (tabGroup.tabs.some((tab) => tab.id === activeItemId)) {
+  if (getEffectiveTabs(tabGroup).some((tab) => tab.id === activeItemId)) {
     return [activeItemId];
   }
 
@@ -167,7 +168,7 @@ function normalizeViewIdsForTabGroup(
   if (!tabGroup) return [];
 
   const validViewIds = (viewIds || []).filter((viewId) =>
-    tabGroup.tabs.some((tab) => tab.id === viewId),
+    getEffectiveTabs(tabGroup).some((tab) => tab.id === viewId),
   );
 
   return validViewIds.length
@@ -184,17 +185,17 @@ function getActiveItemIdForViewIds(
   if (!tabGroup) return "";
   const normalizedViewIds = (viewIds || []).filter(Boolean);
   if (normalizedViewIds.length > 1) {
-    const pair = tabGroup.pairs.find(
+    const pair = getEffectivePairs(tabGroup).find(
       (entry) =>
         entry.tabIds.length === normalizedViewIds.length &&
         entry.tabIds.every((tabId, index) => tabId === normalizedViewIds[index]),
     );
     if (pair) return pair.id;
   }
-  if (normalizedViewIds[0] && tabGroup.tabs.some((tab) => tab.id === normalizedViewIds[0])) {
+  if (normalizedViewIds[0] && getEffectiveTabs(tabGroup).some((tab) => tab.id === normalizedViewIds[0])) {
     return normalizedViewIds[0];
   }
-  return tabGroup.tabs[0]?.id || tabGroup.pairs[0]?.id || "";
+  return getEffectiveTabs(tabGroup)[0]?.id || getEffectivePairs(tabGroup)[0]?.id || "";
 }
 
 function createVoyageEntryId(tabGroupId: string, index = 0): string {
@@ -563,8 +564,8 @@ function loadSessionNav(
         const tg = workspace.tabGroups.find((g) => g.id === activeTabGroupId);
         const itemExists =
           tg &&
-          (tg.tabs.some((t) => t.id === route.itemId) ||
-            tg.pairs.some((p) => p.id === route.itemId));
+          (getEffectiveTabs(tg).some((t) => t.id === route.itemId) ||
+            getEffectivePairs(tg).some((p) => p.id === route.itemId));
         if (itemExists) {
           mergedActiveItems[activeTabGroupId] = route.itemId!;
           const activeEntry = normalizedVoyageEntries.entries.find(
@@ -906,8 +907,8 @@ export function useSessionWorkspaceNav(
         const tg = workspace.tabGroups.find((g) => g.id === route.tabGroupId);
         const itemExists =
           tg &&
-          (tg.tabs.some((t) => t.id === route.itemId) ||
-            tg.pairs.some((p) => p.id === route.itemId));
+          (getEffectiveTabs(tg).some((t) => t.id === route.itemId) ||
+            getEffectivePairs(tg).some((p) => p.id === route.itemId));
         if (
           itemExists &&
           updated.activeItems[route.tabGroupId!] !== route.itemId
@@ -1072,7 +1073,8 @@ export function useSessionWorkspaceNav(
     const tabGroup = getTabGroupById(workspace, tabGroupId);
     if (
       !isTabGroupInSpace(workspace, spaceId, tabGroupId) ||
-      !tabGroup?.tabs.some((tab) => tab.id === tabId)
+      !tabGroup ||
+      !getEffectiveTabs(tabGroup).some((tab) => tab.id === tabId)
     ) {
       return;
     }
@@ -1100,7 +1102,8 @@ export function useSessionWorkspaceNav(
     const tabGroup = getTabGroupById(workspace, tabGroupId);
     if (
       !isTabGroupInSpace(workspace, spaceId, tabGroupId) ||
-      !tabGroup?.pairs.some((pair) => pair.id === pairId)
+      !tabGroup ||
+      !getEffectivePairs(tabGroup).some((pair) => pair.id === pairId)
     ) {
       return;
     }
@@ -1111,7 +1114,7 @@ export function useSessionWorkspaceNav(
       activeItemId: pairId,
     });
     setNav((prev) => {
-      const pair = tabGroup.pairs.find((entry) => entry.id === pairId);
+      const pair = getEffectivePairs(tabGroup).find((entry) => entry.id === pairId);
       const next = ensureVoyageEntryForTabGroup(
         prev,
         tabGroupId,
@@ -1180,7 +1183,7 @@ export function useSessionWorkspaceNav(
     const initialTabExists =
       initialTabGroup &&
       initialSelection?.tabId &&
-      initialTabGroup.tabs.some((tab) => tab.id === initialSelection.tabId);
+      getEffectiveTabs(initialTabGroup).some((tab) => tab.id === initialSelection.tabId);
     const initialViewIds = initialTabExists
       ? [initialSelection!.tabId!]
       : initialSelection?.tabGroupId

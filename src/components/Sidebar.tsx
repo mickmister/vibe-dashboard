@@ -6,7 +6,12 @@ import React, {
   useMemo,
 } from 'react';
 import { Button, Input } from '@heroui/react';
-import { getTabsWithVirtualDiff } from '../lib/virtualTabs';
+import {
+  getEffectivePairs,
+  getEffectiveTabs,
+  isBuiltInWorkspacePairId,
+  isBuiltInWorkspaceTabId,
+} from '../lib/builtInWorkspaceTabs';
 import type {
   WorkspaceState,
   Space,
@@ -945,15 +950,19 @@ export function Sidebar({
                 No craft in this space.
               </div>
             ) : (
-              activeTabGroups.map((tabGroup) => (
-                <div
-                  key={tabGroup.id}
-                  className="space-y-1"
-                  draggable
-                  onDragStart={(e) => handleTabGroupDragStart(e, tabGroup.id)}
-                  onDragOver={handleTabGroupDragOver}
-                  onDrop={(e) => handleTabGroupDrop(e, tabGroup.id)}
-                >
+              activeTabGroups.map((tabGroup) => {
+                const tabs = getEffectiveTabs(tabGroup);
+                const pairs = getEffectivePairs(tabGroup);
+
+                return (
+                  <div
+                    key={tabGroup.id}
+                    className="space-y-1"
+                    draggable
+                    onDragStart={(e) => handleTabGroupDragStart(e, tabGroup.id)}
+                    onDragOver={handleTabGroupDragOver}
+                    onDrop={(e) => handleTabGroupDrop(e, tabGroup.id)}
+                  >
                   <div className="flex items-center gap-1">
                     <button
                       className={`shrink-0 w-6 h-6 flex items-center justify-center rounded text-xs transition-colors ${
@@ -984,10 +993,10 @@ export function Sidebar({
                         {tabGroup.label}
                       </div>
                       <div className="text-xs text-neutral-500 mt-0.5">
-                        {tabGroup.tabs.length} tab
-                        {tabGroup.tabs.length !== 1 ? 's' : ''}
-                        {tabGroup.pairs.length > 0
-                          ? ` • ${tabGroup.pairs.length} pair${tabGroup.pairs.length !== 1 ? 's' : ''}`
+                        {tabs.length} tab
+                        {tabs.length !== 1 ? 's' : ''}
+                        {pairs.length > 0
+                          ? ` • ${pairs.length} pair${pairs.length !== 1 ? 's' : ''}`
                           : ''}
                       </div>
                     </button>
@@ -995,7 +1004,7 @@ export function Sidebar({
 
                   {activeTabGroupId === tabGroup.id && (
                     <div className="ml-2 pl-2 border-l border-neutral-800 space-y-0.5">
-                      {getTabsWithVirtualDiff(tabGroup).map((tab) => {
+                      {tabs.map((tab) => {
                         const isActiveTab = activeItems[tabGroup.id] === tab.id;
                         return (
                           <button
@@ -1009,9 +1018,10 @@ export function Sidebar({
                               e.stopPropagation();
                               onSelectTab(tabGroup.id, tab.id);
                             }}
-                            onContextMenu={(e) =>
-                              handleTabItemContextMenu(e, tabGroup.id, tab.id)
-                            }
+                            onContextMenu={(e) => {
+                              if (isBuiltInWorkspaceTabId(tab.id)) return;
+                              handleTabItemContextMenu(e, tabGroup.id, tab.id);
+                            }}
                             title={tab.title}
                           >
                             <span className="truncate block">{tab.title}</span>
@@ -1019,13 +1029,13 @@ export function Sidebar({
                         );
                       })}
 
-                      {tabGroup.pairs.map((pair) => {
+                      {pairs.map((pair) => {
                         const isActivePair =
                           activeItems[tabGroup.id] === pair.id;
                         const pairTitle = pair.tabIds
                           .map(
                             (tabId) =>
-                              getTabsWithVirtualDiff(tabGroup).find((t) => t.id === tabId)
+                              tabs.find((t) => t.id === tabId)
                                 ?.title || 'Unknown',
                           )
                           .join(' | ');
@@ -1042,9 +1052,10 @@ export function Sidebar({
                               e.stopPropagation();
                               onSelectPair(tabGroup.id, pair.id);
                             }}
-                            onContextMenu={(e) =>
-                              handleTabItemContextMenu(e, tabGroup.id, pair.id)
-                            }
+                            onContextMenu={(e) => {
+                              if (isBuiltInWorkspacePairId(pair.id)) return;
+                              handleTabItemContextMenu(e, tabGroup.id, pair.id);
+                            }}
                             title={pairTitle ? `Pair: ${pairTitle}` : 'Pair'}
                           >
                             <span className="truncate block">
@@ -1056,7 +1067,8 @@ export function Sidebar({
                     </div>
                   )}
                 </div>
-              ))
+                );
+              })
             )}
             </div>
           </div>

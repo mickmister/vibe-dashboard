@@ -10,8 +10,7 @@ import {
 
 import springboard, { ModuleAPI } from 'springboard';
 import { createDefaultWorkspace, getDefaultSpace } from './types';
-import { buildWorkspaceFolderUrl } from './lib/vkWorkspaceUrl';
-import { DIFF_TAB_ID } from './lib/virtualTabs';
+import { migrateWorkspaceBuiltInTabs } from './lib/builtInWorkspaceTabs';
 import type {
   WorkspaceState,
   SavedWorkspaceSession,
@@ -121,6 +120,12 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
         'workspace-origin-session-resume',
         createDefaultOriginSessionResumeState(),
       );
+
+    const currentWorkspace = workspaceState.getState();
+    const builtInMigratedWorkspace = migrateWorkspaceBuiltInTabs(currentWorkspace);
+    if (builtInMigratedWorkspace !== currentWorkspace) {
+      workspaceState.setState(builtInMigratedWorkspace);
+    }
     // v2 is the first shipped saved-voyage migration. Since no production
     // state has been written as v2 yet, the v2 migration also performs the
     // Home-voyage removal and duplicate cleanup before marking state migrated.
@@ -511,13 +516,9 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
 
           // Generate IDs for tab group and tabs
           tabGroupId = `tg_${draft.nextId++}`;
-          pairId = `pair_${draft.nextId++}`;
-          const agentDiffPairId = `pair_${draft.nextId++}`;
-          const kanbanTabId = `tab_${draft.nextId++}`;
-          const codeTabId = `tab_${draft.nextId++}`;
-
-          // Store agent tab ID for return
-          agentTabId = kanbanTabId;
+          pairId = 'agent+code';
+          // Store built-in Agent tab ID for return
+          agentTabId = 'agent';
 
           // Create the new tab group with base origin URLs (no port prefix)
           draft.tabGroups.push({
@@ -525,30 +526,13 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
             label: args.name,
             mobileEmoji: pickRandomMobileEmoji(),
             createdAt: new Date().toISOString(),
-            tabs: [
-              {
-                id: kanbanTabId,
-                title: 'Agent',
-                url: `${args.baseOrigin}/workspaces/${args.taskAttemptId}`,
-              },
-              {
-                id: codeTabId,
-                title: 'Code',
-                url: buildWorkspaceFolderUrl(args.baseOrigin, args.containerRef),
-              },
-            ],
-            pairs: [
-              {
-                id: pairId,
-                tabIds: [kanbanTabId, codeTabId],
-                ratios: [50, 50],
-              },
-              {
-                id: agentDiffPairId,
-                tabIds: [kanbanTabId, DIFF_TAB_ID],
-                ratios: [50, 50],
-              },
-            ],
+            workspace: {
+              workspaceId: args.taskAttemptId,
+              workspaceDir: args.containerRef,
+              baseOrigin: args.baseOrigin,
+            },
+            tabs: [],
+            pairs: [],
             order: space.tabGroupIds.length,
           });
 

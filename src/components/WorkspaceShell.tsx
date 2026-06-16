@@ -9,7 +9,7 @@ import {
   AddVKWorkspaceModal,
   prefetchVKWorkspaceSearchResults,
 } from './dialogs/AddVKWorkspaceModal';
-import { getTabsWithVirtualDiff } from '../lib/virtualTabs';
+import { getEffectivePairs, getEffectiveTabs } from '../lib/builtInWorkspaceTabs';
 import type {
   WorkspaceState,
   TabGroup,
@@ -965,18 +965,18 @@ export function WorkspaceShell({
 
     const activeViewIds =
       !isDesktop && expandedSessionTabGroup.entry.viewIds.length > 1
-        ? [getTabsWithVirtualDiff(expandedSessionTabGroup.tabGroup)[0]?.id].filter(
+        ? [getEffectiveTabs(expandedSessionTabGroup.tabGroup)[0]?.id].filter(
             (id): id is string => Boolean(id),
           )
         : expandedSessionTabGroup.entry.viewIds;
-    const tabs = getTabsWithVirtualDiff(expandedSessionTabGroup.tabGroup);
+    const tabs = getEffectiveTabs(expandedSessionTabGroup.tabGroup);
     const tabItems = tabs.map((tab) => ({
       kind: 'tab' as const,
       id: tab.id,
       label: tab.title,
       isActive: activeViewIds.length === 1 && activeViewIds[0] === tab.id,
     }));
-    const pairItems = expandedSessionTabGroup.tabGroup.pairs.map((pair, index) => {
+    const pairItems = getEffectivePairs(expandedSessionTabGroup.tabGroup).map((pair, index) => {
       const labels = pair.tabIds
         .map((tabId) =>
           tabs.find((tab) => tab.id === tabId)?.title ||

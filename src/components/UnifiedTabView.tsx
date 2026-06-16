@@ -1,7 +1,7 @@
 import React from 'react';
 import { AddressBar } from './AddressBar';
 import { IframePanel } from './IframePanel';
-import { getTabsWithVirtualDiff } from '../lib/virtualTabs';
+import { getEffectivePairs, getEffectiveTabs } from '../lib/builtInWorkspaceTabs';
 import type {
   TabGroup,
   WorkspaceState,
@@ -119,8 +119,8 @@ function getSingleViewActiveItemId(
 ): string {
   if (!disableSplitViews) return activeItemId;
 
-  const activePair = tabGroup.pairs.find((pair) => pair.id === activeItemId);
+  const activePair = getEffectivePairs(tabGroup).find((pair) => pair.id === activeItemId);
   if (!activePair) return activeItemId;
 
-  return getTabsWithVirtualDiff(tabGroup)[0]?.id || activePair.tabIds[0] || activeItemId;
+  return getEffectiveTabs(tabGroup)[0]?.id || activePair.tabIds[0] || activeItemId;
 }

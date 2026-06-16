@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import type { TabGroup } from '../types';
+import { getEffectivePairs, getEffectiveTabs } from '../lib/builtInWorkspaceTabs';
 
 interface AddressBarProps {
   tabGroup: TabGroup;
@@ -11,10 +12,11 @@ interface AddressBarProps {
  * Address bar displaying and editing the URL(s) of the currently active tab(s)
  */
 export function AddressBar({ tabGroup, activeItemId, onNavigate }: AddressBarProps) {
-  const activeTab = tabGroup.tabs.find(
+  const tabs = getEffectiveTabs(tabGroup);
+  const activeTab = tabs.find(
     (t) => t.id === activeItemId
   );
-  const activePair = tabGroup.pairs.find(
+  const activePair = getEffectivePairs(tabGroup).find(
     (p) => p.id === activeItemId
   );
 
@@ -23,7 +25,7 @@ export function AddressBar({ tabGroup, activeItemId, onNavigate }: AddressBarPro
   if (activePair) {
     // Show URLs of all tabs in the pair
     const pairTabs = activePair.tabIds
-      .map((id) => tabGroup.tabs.find((t) => t.id === id))
+      .map((id) => tabs.find((t) => t.id === id))
       .filter((t) => t !== undefined);
     tabsToShow.push(...pairTabs.map((t) => ({ id: t.id, url: t.url })));
   } else if (activeTab) {

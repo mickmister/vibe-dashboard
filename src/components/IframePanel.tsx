@@ -6,7 +6,7 @@ import { AppLoadingScreen } from './AppLoadingScreen';
 import { SpacesOverview } from './SpacesOverview';
 import { DiffView } from './DiffView';
 import { hasSameBaseOrigin } from '../lib/originTrust';
-import { getTabsWithVirtualDiff } from '../lib/virtualTabs';
+import { getEffectivePairs, getEffectiveTabs } from '../lib/builtInWorkspaceTabs';
 
 const INTERNAL_URL_PREFIX = 'internal://';
 const CADDY_PORT = process.env.CADDY_PORT || '';
@@ -49,6 +49,17 @@ type TabRenderTarget =
   | { kind: 'internal'; internalPath: string }
   | { kind: 'blocked-self-app' }
   | { kind: 'iframe'; iframeSrc: string };
+
+function getIframeStoreTabId(tabGroupId: string, tabId: string): string {
+  return `${tabGroupId}:${tabId}`;
+}
+
+function toIframeStoreTab(tabGroupId: string, tab: Tab): Tab {
+  return {
+    ...tab,
+    id: getIframeStoreTabId(tabGroupId, tab.id),
+  };
+}
 
 let iframeStore: Map<string, IframeEntry> = new Map();
 let retainedSessionId: string | null = null;
@@ -651,11 +662,12 @@ export function IframePanel({
   onNavigateToTabGroup,
   onOpenVKWorkspace,
 }: IframePanelProps) {
-  const tabs = getTabsWithVirtualDiff(tabGroup);
+  const tabs = getEffectiveTabs(tabGroup);
+  const pairs = getEffectivePairs(tabGroup);
   const activeTab = tabs.find(
     (t) => t.id === activeItemId
   );
-  const activePair = tabGroup.pairs.find(
+  const activePair = pairs.find(
     (p) => p.id === activeItemId
   );
 
@@ -669,12 +681,12 @@ export function IframePanel({
   const visibleIframeTabs = tabs.filter((tab) => {
     if (!visibleTabIds.has(tab.id)) return false;
     return getTabRenderTarget(tab.url).kind === 'iframe';
-  });
+  }).map((tab) => toIframeStoreTab(tabGroup.id, tab));
 
   const allKnownIframeTabs = workspace?.tabGroups.flatMap((group) =>
-    getTabsWithVirtualDiff(group).filter(
+    getEffectiveTabs(group).filter(
       (tab) => getTabRenderTarget(tab.url).kind === 'iframe',
-    ),
+    ).map((tab) => toIframeStoreTab(group.id, tab)),
   );
   const visibleIframeTabIds = new Set(visibleIframeTabs.map((tab) => tab.id));
   const retainedTabs =
@@ -690,6 +702,22 @@ export function IframePanel({
     retainedTabs,
     visibleIframeTabIds,
     allKnownIframeTabIds,
+  );
+  const visibleLoadingState = new Map(
+    tabs.map((tab) => [
+      tab.id,
+      loadingState.get(getIframeStoreTabId(tabGroup.id, tab.id)) ?? false,
+    ]),
+  );
+  const visibleErrorState = new Map(
+    tabs.map((tab) => [
+      tab.id,
+      errorState.get(getIframeStoreTabId(tabGroup.id, tab.id)) ?? false,
+    ]),
+  );
+  const retryVisibleTab = useCallback(
+    (tabId: string) => retryTab(getIframeStoreTabId(tabGroup.id, tabId)),
+    [retryTab, tabGroup.id],
   );
 
   return (
@@ -707,9 +735,9 @@ export function IframePanel({
           activePair={activePair}
           tabGroup={tabGroup}
           tabs={tabs}
-          loadingState={loadingState}
-          errorState={errorState}
-          retryTab={retryTab}
+          loadingState={visibleLoadingState}
+          errorState={visibleErrorState}
+          retryTab={retryVisibleTab}
           onUpdatePairRatios={onUpdatePairRatios}
           {...(workspace ? { workspace } : {})}
           {...(savedSessions ? { savedSessions } : {})}
@@ -724,9 +752,9 @@ export function IframePanel({
       ) : activeTab ? (
           <SingleTabView
             activeTab={activeTab}
-            loadingState={loadingState}
-            errorState={errorState}
-            retryTab={retryTab}
+            loadingState={visibleLoadingState}
+            errorState={visibleErrorState}
+            retryTab={retryVisibleTab}
             {...(workspace ? { workspace } : {})}
             {...(savedSessions ? { savedSessions } : {})}
             {...(currentSessionId ? { currentSessionId } : {})}
@@ -777,7 +805,7 @@ function PersistentIframeLayer({
       const ratioFraction = ratio / totalRatio;
       const cumulativeFraction = cumulativeRatio / totalRatio;
 
-      layoutStyles.set(tab.id, {
+      layoutStyles.set(getIframeStoreTabId(tabGroup.id, tab.id), {
         position: 'absolute',
         top: 0,
         bottom: 0,
@@ -790,7 +818,7 @@ function PersistentIframeLayer({
       cumulativeRatio += ratio;
     });
   } else if (activeTab && getTabRenderTarget(activeTab.url).kind === 'iframe') {
-    layoutStyles.set(activeTab.id, {
+    layoutStyles.set(getIframeStoreTabId(tabGroup.id, activeTab.id), {
       position: 'absolute',
       inset: 0,
       visibility: 'visible',
