@@ -1,20 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import {
   isSafeGitRef,
-  parseHeadRefQuery,
+  parseHeadRefs,
   selectWorkspaceRepoPaths,
-} from './diff-routes';
+} from './GitDiffModule';
 
-describe('parseHeadRefQuery', () => {
-  it('parses repository head refs from JSON query data', () => {
+describe('parseHeadRefs', () => {
+  it('parses repository head refs from action input', () => {
     expect(
-      parseHeadRefQuery(
-        JSON.stringify({
-          '.': 'HEAD',
-          repo: 'abc123 ',
-          ignored: 42,
-        }),
-      ),
+      parseHeadRefs({
+        '.': 'HEAD',
+        repo: 'abc123 ',
+        ignored: 42 as unknown as string,
+      }),
     ).toEqual(
       new Map([
         ['.', 'HEAD'],

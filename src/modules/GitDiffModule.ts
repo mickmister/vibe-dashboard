@@ -1,25 +1,6 @@
-import { execFile } from 'node:child_process';
-import { readdir, stat } from 'node:fs/promises';
-import { basename, join, relative } from 'node:path';
-import { promisify } from 'node:util';
-import type { Hono } from 'hono';
-import {
-  VibeKanbanServerClient,
-  type RepoWithBranch,
-} from './vk-client';
-
-const execFileAsync = promisify(execFile);
-const GIT_TIMEOUT_MS = 10_000;
-const MAX_BUFFER = 24 * 1024 * 1024;
-const SKIPPED_DIRS = new Set([
-  ".cache",
-  ".next",
-  ".turbo",
-  ".venv",
-  "dist",
-  "node_modules",
-  "target",
-]);
+import springboard from 'springboard';
+import type { ModuleAPI } from 'springboard';
+import type { RepoWithBranch } from '../server/vk-client';
 
 export interface DiffRouteRepo {
   name: string;
@@ -40,50 +21,77 @@ export interface DiffRouteResponse {
   repos: DiffRouteRepo[];
 }
 
-export function registerDiffRoutes(hono: Hono): void {
-  hono.get("/dashboard/api/diff", async (c) => {
-    const workspaceDir = c.req.query("workspaceDir")?.trim();
-    const workspaceId = c.req.query("workspaceId")?.trim();
-    if (!workspaceId) {
-      return c.json({ error: "workspaceId is required" }, 400);
-    }
-    if (!workspaceDir) {
-      return c.json({ error: "workspaceDir is required" }, 400);
-    }
+type GitDiffModuleReturnValue = Awaited<ReturnType<typeof createGitDiffModule>>;
 
-    const client = new VibeKanbanServerClient();
-    const workspace = await client.getWorkspace(workspaceId);
-    if (workspace.container_ref !== workspaceDir) {
-      return c.json({ error: "workspaceDir does not match workspace" }, 403);
-    }
-
-    const workspaceRepos = await getWorkspaceRepoMetadata(client, workspaceId);
-    const headRefs = parseHeadRefQuery(c.req.query("headRefs"));
-    const repos = await loadWorkspaceDiffs(
-      workspaceDir,
-      workspaceRepos,
-      headRefs,
-    );
-    return c.json({ workspaceDir, repos } satisfies DiffRouteResponse);
-  });
+declare module 'springboard/module_registry/module_registry' {
+  interface AllModules {
+    GitDiff: GitDiffModuleReturnValue;
+  }
 }
 
-export function parseHeadRefQuery(
-  value: string | undefined,
+const GIT_TIMEOUT_MS = 10_000;
+const MAX_BUFFER = 24 * 1024 * 1024;
+const SKIPPED_DIRS = new Set([
+  '.cache',
+  '.next',
+  '.turbo',
+  '.venv',
+  'dist',
+  'node_modules',
+  'target',
+]);
+
+springboard.registerModule('GitDiff', { rpcMode: 'remote' }, async (moduleAPI) => {
+  return createGitDiffModule(moduleAPI);
+});
+
+async function createGitDiffModule(moduleAPI: ModuleAPI) {
+  const actions = moduleAPI.createActions({
+    loadDiff: async (args: {
+      workspaceId: string;
+      workspaceDir: string;
+      headRefs?: Record<string, string>;
+    }): Promise<DiffRouteResponse> => {
+      const workspaceId = args.workspaceId.trim();
+      const workspaceDir = args.workspaceDir.trim();
+      if (!workspaceId) {
+        throw new Error('workspaceId is required');
+      }
+      if (!workspaceDir) {
+        throw new Error('workspaceDir is required');
+      }
+
+      // @platform "node"
+      const { VibeKanbanServerClient } = await import('../server/vk-client');
+      const client = new VibeKanbanServerClient();
+      const workspace = await client.getWorkspace(workspaceId);
+      if (workspace.container_ref !== workspaceDir) {
+        throw new Error('workspaceDir does not match workspace');
+      }
+
+      const workspaceRepos = await getWorkspaceRepoMetadata(client, workspaceId);
+      const repos = await loadWorkspaceDiffs(
+        workspaceDir,
+        workspaceRepos,
+        parseHeadRefs(args.headRefs),
+      );
+      return { workspaceDir, repos };
+      // @platform end
+
+      throw new Error('GitDiff.loadDiff can only run on the server');
+    },
+  });
+
+  return { actions };
+}
+
+export function parseHeadRefs(
+  value: Record<string, string> | null | undefined,
 ): Map<string, string> {
   if (!value) return new Map();
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(value) as unknown;
-  } catch {
-    return new Map();
-  }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    return new Map();
-  }
   const entries: Array<[string, string]> = [];
-  for (const [key, rawRef] of Object.entries(parsed)) {
-    if (typeof rawRef !== "string") continue;
+  for (const [key, rawRef] of Object.entries(value)) {
+    if (typeof rawRef !== 'string') continue;
     const ref = rawRef.trim();
     if (ref.length > 0) entries.push([key, ref]);
   }
@@ -91,13 +99,13 @@ export function parseHeadRefQuery(
 }
 
 async function getWorkspaceRepoMetadata(
-  client: VibeKanbanServerClient,
+  client: { getWorkspaceRepos(workspaceId: string): Promise<RepoWithBranch[]> },
   workspaceId: string,
 ): Promise<RepoWithBranch[]> {
   try {
     return await client.getWorkspaceRepos(workspaceId);
   } catch (error) {
-    console.warn("Failed to load VK workspace repo metadata for diff view", {
+    console.warn('Failed to load VK workspace repo metadata for diff view', {
       workspaceId,
       error,
     });
@@ -144,7 +152,7 @@ export function selectWorkspaceRepoPaths(
 
   const discoveredByAlias = new Map<string, string>();
   for (const repoPath of sortedDiscovered) {
-    const relativePath = relative(workspaceDir, repoPath) || ".";
+    const relativePath = relative(workspaceDir, repoPath) || '.';
     const aliases = repoPathAliases(repoPath, relativePath);
     for (const alias of aliases) {
       if (!discoveredByAlias.has(alias)) {
@@ -217,9 +225,9 @@ async function discoverGitRepos(workspaceDir: string): Promise<string[]> {
 
 async function isGitRepo(path: string): Promise<boolean> {
   try {
-    const gitPath = join(path, ".git");
+    const gitPath = join(path, '.git');
     await stat(gitPath);
-    await git(path, ["rev-parse", "--show-toplevel"]);
+    await git(path, ['rev-parse', '--show-toplevel']);
     return true;
   } catch {
     return false;
@@ -232,7 +240,7 @@ async function loadRepoDiff(
   targetBranches: Map<string, string>,
   headRefs: Map<string, string>,
 ): Promise<DiffRouteRepo> {
-  const relativePath = relative(workspaceDir, repoPath) || ".";
+  const relativePath = relative(workspaceDir, repoPath) || '.';
   const name = basename(repoPath);
   const targetBranch =
     targetBranches.get(name) ?? targetBranches.get(relativePath) ?? null;
@@ -240,35 +248,35 @@ async function loadRepoDiff(
     headRefs.get(relativePath) ??
     headRefs.get(name) ??
     headRefs.get(repoPath) ??
-    "HEAD";
+    'HEAD';
 
   try {
-    const branch = await git(repoPath, ["rev-parse", "--abbrev-ref", "HEAD"]);
+    const branch = await git(repoPath, ['rev-parse', '--abbrev-ref', 'HEAD']);
     const headRef = await resolveHeadRef(repoPath, requestedHeadRef);
     const baseRef = targetBranch
       ? await resolveBaseRef(repoPath, targetBranch, headRef)
       : await resolveDefaultBaseRef(repoPath, headRef);
     const diffRange = baseRef ? [`${baseRef}...${headRef}`] : [headRef];
     const patch = await git(repoPath, [
-      "diff",
-      "--find-renames",
-      "--binary",
+      'diff',
+      '--find-renames',
+      '--binary',
       ...diffRange,
     ]);
     const files = parseNameStatus(
       await git(repoPath, [
-        "diff",
-        "--name-status",
-        "--find-renames",
+        'diff',
+        '--name-status',
+        '--find-renames',
         ...diffRange,
       ]),
     );
     const commits = parseCommits(
       await git(repoPath, [
-        "log",
-        "--format=%H%x00%s",
-        "-50",
-        ...(baseRef ? [`${baseRef}..HEAD`] : ["HEAD"]),
+        'log',
+        '--format=%H%x00%s',
+        '-50',
+        ...(baseRef ? [`${baseRef}..HEAD`] : ['HEAD']),
       ]),
     );
 
@@ -295,7 +303,7 @@ async function loadRepoDiff(
       headRef: requestedHeadRef,
       commits: [],
       files: [],
-      patch: "",
+      patch: '',
       error: error instanceof Error ? error.message : String(error),
     };
   }
@@ -305,20 +313,20 @@ async function resolveHeadRef(
   repoPath: string,
   requestedHeadRef: string,
 ): Promise<string> {
-  const ref = requestedHeadRef.trim() || "HEAD";
+  const ref = requestedHeadRef.trim() || 'HEAD';
   if (!isSafeGitRef(ref)) {
     throw new Error(`Invalid git ref '${requestedHeadRef}'`);
   }
-  return git(repoPath, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]);
+  return git(repoPath, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`]);
 }
 
 export function isSafeGitRef(ref: string): boolean {
   return (
     ref.length > 0 &&
     ref.length <= 200 &&
-    !ref.startsWith("-") &&
-    !ref.includes("..") &&
-    !ref.includes("@{") &&
+    !ref.startsWith('-') &&
+    !ref.includes('..') &&
+    !ref.includes('@{') &&
     /^[A-Za-z0-9_./-]+$/.test(ref)
   );
 }
@@ -335,7 +343,7 @@ async function resolveBaseRef(
   ];
   for (const candidate of candidates) {
     if (await refExists(repoPath, candidate)) {
-      return git(repoPath, ["merge-base", headRef, candidate]);
+      return git(repoPath, ['merge-base', headRef, candidate]);
     }
   }
   return null;
@@ -345,10 +353,10 @@ async function resolveDefaultBaseRef(
   repoPath: string,
   headRef: string,
 ): Promise<string | null> {
-  const candidates = ["origin/main", "origin/master", "main", "master"];
+  const candidates = ['origin/main', 'origin/master', 'main', 'master'];
   for (const candidate of candidates) {
     if (await refExists(repoPath, candidate)) {
-      return git(repoPath, ["merge-base", headRef, candidate]);
+      return git(repoPath, ['merge-base', headRef, candidate]);
     }
   }
   return null;
@@ -356,7 +364,7 @@ async function resolveDefaultBaseRef(
 
 async function refExists(repoPath: string, ref: string): Promise<boolean> {
   try {
-    await git(repoPath, ["rev-parse", "--verify", "--quiet", ref]);
+    await git(repoPath, ['rev-parse', '--verify', '--quiet', ref]);
     return true;
   } catch {
     return false;
@@ -367,11 +375,11 @@ function parseNameStatus(
   output: string,
 ): Array<{ path: string; status: string }> {
   return output
-    .split("\n")
+    .split('\n')
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => {
-      const [status = "", firstPath = "", secondPath] = line.split("\t");
+      const [status = '', firstPath = '', secondPath] = line.split('\t');
       return {
         status,
         path: secondPath || firstPath,
@@ -381,20 +389,63 @@ function parseNameStatus(
 
 function parseCommits(output: string): Array<{ sha: string; subject: string }> {
   return output
-    .split("\n")
+    .split('\n')
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => {
-      const [sha = "", subject = ""] = line.split("\0");
+      const [sha = '', subject = ''] = line.split('\0');
       return { sha, subject };
     });
 }
 
 async function git(cwd: string, args: string[]): Promise<string> {
-  const { stdout } = await execFileAsync("git", args, {
+  // @platform "node"
+  const { execFile } = await import('node:child_process');
+  const { promisify } = await import('node:util');
+  const execFileAsync = promisify(execFile);
+  const { stdout } = await execFileAsync('git', args, {
     cwd,
     timeout: GIT_TIMEOUT_MS,
     maxBuffer: MAX_BUFFER,
   });
   return stdout.trim();
+  // @platform end
+
+  throw new Error('git can only run on the server');
+}
+
+async function readdir(path: string, options: { withFileTypes: true }) {
+  // @platform "node"
+  const fs = await import('node:fs/promises');
+  return fs.readdir(path, options);
+  // @platform end
+
+  throw new Error('readdir can only run on the server');
+}
+
+async function stat(path: string) {
+  // @platform "node"
+  const fs = await import('node:fs/promises');
+  return fs.stat(path);
+  // @platform end
+
+  throw new Error('stat can only run on the server');
+}
+
+function join(...parts: string[]): string {
+  return parts.join('/').replace(/\/+/g, '/');
+}
+
+function basename(path: string): string {
+  const parts = path.split('/').filter(Boolean);
+  return parts[parts.length - 1] || path;
+}
+
+function relative(from: string, to: string): string {
+  const normalizedFrom = from.replace(/\/+$/, '');
+  if (to === normalizedFrom) return '';
+  if (to.startsWith(`${normalizedFrom}/`)) {
+    return to.slice(normalizedFrom.length + 1);
+  }
+  return to;
 }

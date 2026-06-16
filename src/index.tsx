@@ -25,6 +25,8 @@ import type {
 import './modules/MainUIShellModule';
 // @platform end
 
+import './modules/GitDiffModule';
+
 // @platform "node"
 import './modules/WorkflowServerModule';
 // @platform end

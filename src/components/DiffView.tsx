@@ -6,6 +6,7 @@ import type {
   OnDiffLineClickProps,
 } from '@pierre/diffs';
 import { Button, Input, Select, SelectItem, Textarea } from '@heroui/react';
+import { useModule } from '../hooks/useModule';
 import { hasRenderableDiff, parseRepoPatch } from '../lib/diffPatch';
 import {
   formatReviewCommentsMarkdown,
@@ -46,6 +47,7 @@ interface DiffViewProps {
 }
 
 export function DiffView({ workspaceId, workspaceDir }: DiffViewProps) {
+  const gitDiffModule = useModule('GitDiff');
   const [data, setData] = useState<DiffResponse | null>(null);
   const [selectedRepoRelativePath, setSelectedRepoRelativePath] = useState("");
   const [selectedFilePath, setSelectedFilePath] = useState("");
@@ -71,20 +73,11 @@ export function DiffView({ workspaceId, workspaceDir }: DiffViewProps) {
     setLoading(true);
     setError(null);
     try {
-      const params = new URLSearchParams({
+      const diffData = await gitDiffModule.actions.loadDiff({
         workspaceId,
         workspaceDir,
+        headRefs: selectedHeadRefs,
       });
-      if (Object.keys(selectedHeadRefs).length > 0) {
-        params.set("headRefs", JSON.stringify(selectedHeadRefs));
-      }
-      const diffResponse = await fetch(
-        `/dashboard/api/diff?${params.toString()}`,
-      );
-      if (!diffResponse.ok) {
-        throw new Error(`Diff request failed: ${diffResponse.statusText}`);
-      }
-      const diffData = (await diffResponse.json()) as DiffResponse;
       setData(diffData);
       const firstRepoWithPatch = diffData.repos.find((repo) => repo.patch);
       setSelectedRepoRelativePath(
@@ -102,7 +95,7 @@ export function DiffView({ workspaceId, workspaceDir }: DiffViewProps) {
     } finally {
       setLoading(false);
     }
-  }, [selectedHeadRefs, workspaceDir, workspaceId]);
+  }, [gitDiffModule.actions, selectedHeadRefs, workspaceDir, workspaceId]);
 
   useEffect(() => {
     void refresh();
