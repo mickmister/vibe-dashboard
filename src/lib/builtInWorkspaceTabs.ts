@@ -97,9 +97,14 @@ export function getBuiltInWorkspacePairs(tabGroup: TabGroup): ViewPair[] {
 export function getEffectivePairs(tabGroup: TabGroup): ViewPair[] {
   const builtInPairs = getBuiltInWorkspacePairs(tabGroup);
   const builtInPairIds = new Set(builtInPairs.map((pair) => pair.id));
+  const validTabIds = new Set(getEffectiveTabs(tabGroup).map((tab) => tab.id));
   return [
     ...builtInPairs,
-    ...tabGroup.pairs.filter((pair) => !builtInPairIds.has(pair.id)),
+    ...tabGroup.pairs.filter(
+      (pair) =>
+        !builtInPairIds.has(pair.id) &&
+        pair.tabIds.every((tabId) => validTabIds.has(tabId)),
+    ),
   ];
 }
 

@@ -72,6 +72,41 @@ describe('built-in workspace tabs', () => {
     ]);
   });
 
+  it('hides stale persisted pairs that reference migrated built-in tab ids', () => {
+    const tabGroup = {
+      id: 'tg_1',
+      label: 'Workspace',
+      workspace: {
+        workspaceId: 'attempt-1',
+        workspaceDir: '/tmp/workspace',
+      },
+      tabs: [
+        { id: 'old_agent', title: 'Agent', url: '/workspaces/attempt-1' },
+        { id: 'old_code', title: 'Code', url: '/?folder=/tmp/workspace' },
+        { id: 'tab_custom', title: 'Docs', url: 'https://example.com' },
+      ],
+      pairs: [
+        {
+          id: 'old_pair',
+          tabIds: ['old_agent', 'old_code'],
+          ratios: [50, 50],
+        },
+        {
+          id: 'custom_pair',
+          tabIds: ['tab_custom'],
+          ratios: [100],
+        },
+      ],
+      order: 0,
+    } satisfies TabGroup;
+
+    expect(getEffectivePairs(tabGroup).map((pair) => pair.id)).toEqual([
+      BUILT_IN_AGENT_CODE_PAIR_ID,
+      BUILT_IN_AGENT_DIFF_PAIR_ID,
+      'custom_pair',
+    ]);
+  });
+
   it('migrates old persisted workspace tabs and pairs into metadata', () => {
     const workspace = {
       spaces: [
