@@ -1,6 +1,25 @@
 #!/bin/sh
 set -eu
 
+reload_caddy_with_retry() {
+  attempts="${VD_PLUGIN_CADDY_RELOAD_ATTEMPTS:-20}"
+  delay="${VD_PLUGIN_CADDY_RELOAD_DELAY_SECONDS:-1}"
+  attempt=1
+
+  while [ "$attempt" -le "$attempts" ]; do
+    if caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile; then
+      return 0
+    fi
+
+    echo "Caddy reload failed on attempt ${attempt}/${attempts}; retrying in ${delay}s" >&2
+    attempt=$((attempt + 1))
+    sleep "$delay"
+  done
+
+  echo "Caddy reload failed after ${attempts} attempts" >&2
+  return 1
+}
+
 # Reconcile plugin services after the core supervisor-managed services have
 # started. Caddy starts with /etc/caddy/plugins.caddy present, and this runtime
 # apply updates that plugin-owned file plus generated supervisor programs when
@@ -22,4 +41,4 @@ supervisorctl update
 # Caddy is intentionally kept up during plugin installation. Once plugin-owned
 # routes are generated, reload Caddy in-place so new plugin subdomains activate
 # without restarting the container.
-caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
+reload_caddy_with_retry

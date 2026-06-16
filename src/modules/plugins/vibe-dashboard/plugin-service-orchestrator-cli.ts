@@ -72,7 +72,6 @@ export async function runPluginServiceOrchestratorCli(argv: string[]): Promise<P
     ? await materializePluginArtifacts({
       catalog,
       paths: parsed.paths,
-      allowHashMismatch: process.env.VD_PLUGIN_ORCHESTRATOR_ALLOW_HASH_MISMATCH === 'true',
     })
     : undefined;
   const applied = await applySupervisorConfigChanges(plan.supervisorChanges);

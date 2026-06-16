@@ -483,7 +483,10 @@ function renderSupervisorEnvironment(
   paths: PluginServiceOrchestratorPaths,
 ): string {
   const env: Record<string, string> = {};
-  for (const port of service.ports ?? []) env[port.env] = String(port.default);
+  for (const port of service.ports ?? []) {
+    env[port.env] = String(port.default);
+    env[`${port.env}_BIND`] = port.bind;
+  }
   for (const [key, value] of Object.entries(service.env ?? {})) {
     env[key] = expandTemplate(value, plugin, service, paths);
   }
@@ -519,7 +522,11 @@ function expandTemplate(
   service: SupervisorServiceDefinition,
   paths: PluginServiceOrchestratorPaths,
 ): string {
-  const portValues = new Map((service.ports ?? []).map((port) => [port.env, String(port.default)]));
+  const portValues = new Map<string, string>();
+  for (const port of service.ports ?? []) {
+    portValues.set(port.env, String(port.default));
+    portValues.set(`${port.env}_BIND`, port.bind);
+  }
   return value.replace(/\$\{([A-Z0-9_]+)\}/g, (_match, name: string) => {
     if (name === 'PLUGIN_DIR') return pluginExtractedPath(paths, plugin);
     const portValue = portValues.get(name);
@@ -529,38 +536,51 @@ function expandTemplate(
 }
 
 function validateCatalog(catalog: PluginServiceCatalog): void {
+  if (!isRecord(catalog)) throw new Error('Invalid plugin catalog: expected object');
   if (!Array.isArray(catalog.plugins)) throw new Error('Invalid plugin catalog: plugins must be an array');
   const pluginIds = new Set<string>();
-  for (const plugin of catalog.plugins) {
-    validatePluginDefinition(plugin);
-    if (pluginIds.has(plugin.id)) throw new Error(`Duplicate plugin id ${plugin.id}`);
-    pluginIds.add(plugin.id);
+  for (const plugin of catalog.plugins as unknown[]) {
+    if (!isRecord(plugin)) throw new Error('Invalid plugin definition: expected object');
+    const typedPlugin = plugin as unknown as PluginServiceDefinition;
+    validatePluginDefinition(typedPlugin);
+    if (pluginIds.has(typedPlugin.id)) throw new Error(`Duplicate plugin id ${typedPlugin.id}`);
+    pluginIds.add(typedPlugin.id);
     const serviceIds = new Set<string>();
-    for (const service of plugin.services) {
-      validateServiceDefinition(plugin, service);
-      if (serviceIds.has(service.id)) throw new Error(`Duplicate service id ${plugin.id}/${service.id}`);
-      serviceIds.add(service.id);
-      if (service.httpExposure) validateCaddyHttpExposure(plugin, service);
+    for (const service of typedPlugin.services as unknown[]) {
+      if (!isRecord(service)) throw new Error(`Invalid service definition for ${typedPlugin.id}: expected object`);
+      const typedService = service as unknown as SupervisorServiceDefinition;
+      validateServiceDefinition(typedPlugin, typedService);
+      if (serviceIds.has(typedService.id)) throw new Error(`Duplicate service id ${typedPlugin.id}/${typedService.id}`);
+      serviceIds.add(typedService.id);
+      if (typedService.httpExposure) validateCaddyHttpExposure(typedPlugin, typedService);
     }
   }
 }
 
 function validatePluginDefinition(plugin: PluginServiceDefinition): void {
+  if (typeof plugin.id !== 'string') throw new Error('Invalid plugin id');
   if (!isSafeIdentifier(plugin.id)) throw new Error(`Invalid plugin id ${plugin.id}`);
+  if (typeof plugin.name !== 'string') throw new Error(`Invalid plugin name for ${plugin.id}`);
   if (!isSafeHumanText(plugin.name)) throw new Error(`Invalid plugin name for ${plugin.id}`);
+  if (typeof plugin.version !== 'string') throw new Error(`Invalid plugin version for ${plugin.id}`);
   if (!isSafePathSegment(plugin.version)) throw new Error(`Invalid plugin version for ${plugin.id}: ${plugin.version}`);
   if (!Array.isArray(plugin.services)) throw new Error(`Invalid services for plugin ${plugin.id}`);
+  if (!isRecord(plugin.artifact)) throw new Error(`Invalid artifact for ${plugin.id}: expected object`);
 
   if (plugin.artifact.kind === 'github-release-asset') {
+    if (typeof plugin.artifact.repository !== 'string') throw new Error(`Invalid GitHub repository for ${plugin.id}`);
     if (!isSafeGithubRepository(plugin.artifact.repository)) {
       throw new Error(`Invalid GitHub repository for ${plugin.id}: ${plugin.artifact.repository}`);
     }
+    if (typeof plugin.artifact.tag !== 'string') throw new Error(`Invalid artifact tag for ${plugin.id}`);
     if (!isSafePathSegment(plugin.artifact.tag)) {
       throw new Error(`Invalid artifact tag for ${plugin.id}: ${plugin.artifact.tag}`);
     }
+    if (typeof plugin.artifact.asset !== 'string') throw new Error(`Invalid artifact asset for ${plugin.id}`);
     if (!isSafePathSegment(plugin.artifact.asset)) {
       throw new Error(`Invalid artifact asset for ${plugin.id}: ${plugin.artifact.asset}`);
     }
+    if (typeof plugin.artifact.sha256 !== 'string') throw new Error(`Invalid artifact sha256 for ${plugin.id}`);
     if (!/^[a-fA-F0-9]{64}$/.test(plugin.artifact.sha256)) {
       throw new Error(`Invalid artifact sha256 for ${plugin.id}: ${plugin.artifact.sha256}`);
     }
@@ -579,17 +599,33 @@ function validatePluginDefinition(plugin: PluginServiceDefinition): void {
 }
 
 function validateServiceDefinition(plugin: PluginServiceDefinition, service: SupervisorServiceDefinition): void {
+  if (typeof service.id !== 'string') throw new Error(`Invalid service id ${plugin.id}`);
   if (!isSafeIdentifier(service.id)) throw new Error(`Invalid service id ${plugin.id}/${service.id}`);
+  if (typeof service.command !== 'string') throw new Error(`Invalid service command for ${plugin.id}/${service.id}`);
   validateSupervisorRenderedValue(service.command, `Invalid service command for ${plugin.id}/${service.id}`);
+  if (typeof service.directory !== 'string') throw new Error(`Invalid service directory for ${plugin.id}/${service.id}`);
   validateSupervisorRenderedValue(service.directory, `Invalid service directory for ${plugin.id}/${service.id}`);
+  if (typeof service.user !== 'string') throw new Error(`Invalid service user for ${plugin.id}/${service.id}`);
   if (service.user !== 'vkuser') throw new Error(`Invalid service user for ${plugin.id}/${service.id}: ${service.user}`);
+  if (typeof service.autostart !== 'boolean') throw new Error(`Invalid service autostart for ${plugin.id}/${service.id}`);
+  if (typeof service.autorestart !== 'boolean') throw new Error(`Invalid service autorestart for ${plugin.id}/${service.id}`);
+  if (service.singleton !== undefined && typeof service.singleton !== 'boolean') {
+    throw new Error(`Invalid service singleton for ${plugin.id}/${service.id}`);
+  }
+  if (service.args !== undefined && !isStringArray(service.args)) throw new Error(`Invalid service args for ${plugin.id}/${service.id}`);
   for (const arg of service.args ?? []) validateSupervisorRenderedValue(arg, `Invalid service arg for ${plugin.id}/${service.id}`);
+  if (service.preStart !== undefined && !isStringArray(service.preStart)) throw new Error(`Invalid service preStart for ${plugin.id}/${service.id}`);
   for (const command of service.preStart ?? []) validateSupervisorRenderedValue(command, `Invalid preStart command for ${plugin.id}/${service.id}`);
+  if (service.env !== undefined && !isPlainStringRecord(service.env)) throw new Error(`Invalid service env for ${plugin.id}/${service.id}`);
   for (const [key, value] of Object.entries(service.env ?? {})) {
     if (!isSafeEnvKey(key)) throw new Error(`Invalid env key for ${plugin.id}/${service.id}: ${key}`);
     validateSupervisorRenderedValue(value, `Invalid env value for ${plugin.id}/${service.id}/${key}`);
   }
-  for (const port of service.ports ?? []) validatePortDefinition(plugin, service, port);
+  if (service.ports !== undefined && !Array.isArray(service.ports)) throw new Error(`Invalid service ports for ${plugin.id}/${service.id}`);
+  for (const port of service.ports ?? []) {
+    if (!isRecord(port)) throw new Error(`Invalid port definition for ${plugin.id}/${service.id}: expected object`);
+    validatePortDefinition(plugin, service, port);
+  }
 }
 
 function validatePortDefinition(
@@ -597,11 +633,14 @@ function validatePortDefinition(
   service: SupervisorServiceDefinition,
   port: ServicePortDefinition,
 ): void {
+  if (typeof port.name !== 'string') throw new Error(`Invalid port name for ${plugin.id}/${service.id}`);
   if (!isSafeIdentifier(port.name)) throw new Error(`Invalid port name for ${plugin.id}/${service.id}: ${port.name}`);
+  if (typeof port.env !== 'string') throw new Error(`Invalid port env for ${plugin.id}/${service.id}/${port.name}`);
   if (!isSafeEnvKey(port.env)) throw new Error(`Invalid port env for ${plugin.id}/${service.id}/${port.name}: ${port.env}`);
   if (!Number.isInteger(port.default) || port.default < 1 || port.default > 65535) {
     throw new Error(`Invalid port default for ${plugin.id}/${service.id}/${port.name}: ${port.default}`);
   }
+  if (typeof port.bind !== 'string') throw new Error(`Invalid port bind for ${plugin.id}/${service.id}/${port.name}`);
   if (!['127.0.0.1', '0.0.0.0', 'localhost'].includes(port.bind)) {
     throw new Error(`Invalid port bind for ${plugin.id}/${service.id}/${port.name}: ${port.bind}`);
   }
@@ -610,6 +649,7 @@ function validatePortDefinition(
 function validateCaddyHttpExposure(plugin: PluginServiceDefinition, service: SupervisorServiceDefinition): void {
   const exposure = service.httpExposure;
   if (!exposure) return;
+  if (!isRecord(exposure)) throw new Error(`Invalid Caddy exposure for ${plugin.id}/${service.id}: expected object`);
   if (exposure.kind !== 'caddy-subdomain') {
     throw new Error(`Unsupported Caddy exposure kind for ${plugin.id}/${service.id}: ${(exposure as { kind?: string }).kind ?? ''}`);
   }
@@ -711,6 +751,18 @@ function validateSupervisorRenderedValue(value: string, message: string): void {
 
 function isSafeHumanText(value: string): boolean {
   return typeof value === 'string' && !/[\u0000-\u001f\u007f]/.test(value);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((entry) => typeof entry === 'string');
+}
+
+function isPlainStringRecord(value: unknown): value is Record<string, string> {
+  return isRecord(value) && Object.values(value).every((entry) => typeof entry === 'string');
 }
 
 function escapeSupervisorEnvironmentValue(value: string): string {

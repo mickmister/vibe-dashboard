@@ -101,7 +101,7 @@ describe('plugin service supervisor orchestration dry run', () => {
       paths,
     });
     expect(beadsWebConfig).toContain('command=/var/lib/vd/plugins/vd.beads-web/beads-web-assets-42cc6ca1709d4b0aa76833d91d326e6de9659a28/extracted/bin/beads-web');
-    expect(beadsWebConfig).toContain('environment=BEADS_WEB_PORT="3109",PORT="3109",HOME="/home/vkuser",XDG_CONFIG_HOME="/home/vkuser/.config",VD_PLUGIN_ID="vd.beads-web",VD_PLUGIN_VERSION="beads-web-assets-42cc6ca1709d4b0aa76833d91d326e6de9659a28",VD_SERVICE_ID="web"');
+    expect(beadsWebConfig).toContain('environment=BEADS_WEB_PORT="3109",BEADS_WEB_PORT_BIND="0.0.0.0",HOST="0.0.0.0",PORT="3109",HOME="/home/vkuser",XDG_CONFIG_HOME="/home/vkuser/.config",VD_PLUGIN_ID="vd.beads-web",VD_PLUGIN_VERSION="beads-web-assets-42cc6ca1709d4b0aa76833d91d326e6de9659a28",VD_SERVICE_ID="web"');
   });
 
   it('supports a beads-web-only catalog for isolated supervisor experiments', () => {
@@ -287,6 +287,10 @@ describe('plugin service supervisor orchestration dry run', () => {
         mutate: (catalog) => { catalog.plugins[0]!.services[0]!.ports![0]!.default = 70000; },
         message: /Invalid port default/,
       },
+      {
+        mutate: (catalog) => { catalog.plugins[0]!.services[0]!.ports![0]!.bind = 'example.com'; },
+        message: /Invalid port bind/,
+      },
     ];
 
     for (const { mutate, message } of invalidCases) {
@@ -294,6 +298,29 @@ describe('plugin service supervisor orchestration dry run', () => {
       mutate(catalog);
       expect(() => createPluginServiceDryRunPlan({
         catalog,
+        paths,
+        cachedArtifacts: [],
+        existingSupervisorConfigs: {},
+      })).toThrow(message);
+    }
+  });
+
+  it('rejects malformed service catalog JSON shapes with validation errors', () => {
+    const invalidCases: Array<{ catalog: unknown; message: RegExp }> = [
+      { catalog: null, message: /Invalid plugin catalog/ },
+      { catalog: { plugins: {} }, message: /plugins must be an array/ },
+      { catalog: { plugins: [null] }, message: /Invalid plugin definition/ },
+      { catalog: { plugins: [{ ...structuredClone(beadsWebOnlyCatalog).plugins[0], artifact: null }] }, message: /Invalid artifact/ },
+      { catalog: { plugins: [{ ...structuredClone(beadsWebOnlyCatalog).plugins[0], services: [null] }] }, message: /Invalid service definition/ },
+      { catalog: { plugins: [{ ...structuredClone(beadsWebOnlyCatalog).plugins[0], services: [{ ...structuredClone(beadsWebOnlyCatalog).plugins[0]!.services[0], args: 'nope' }] }] }, message: /Invalid service args/ },
+      { catalog: { plugins: [{ ...structuredClone(beadsWebOnlyCatalog).plugins[0], services: [{ ...structuredClone(beadsWebOnlyCatalog).plugins[0]!.services[0], env: [] }] }] }, message: /Invalid service env/ },
+      { catalog: { plugins: [{ ...structuredClone(beadsWebOnlyCatalog).plugins[0], services: [{ ...structuredClone(beadsWebOnlyCatalog).plugins[0]!.services[0], ports: [null] }] }] }, message: /Invalid port definition/ },
+      { catalog: { plugins: [{ ...structuredClone(beadsWebOnlyCatalog).plugins[0], services: [{ ...structuredClone(beadsWebOnlyCatalog).plugins[0]!.services[0], autostart: 'yes' }] }] }, message: /Invalid service autostart/ },
+    ];
+
+    for (const { catalog, message } of invalidCases) {
+      expect(() => createPluginServiceDryRunPlan({
+        catalog: catalog as PluginServiceCatalog,
         paths,
         cachedArtifacts: [],
         existingSupervisorConfigs: {},

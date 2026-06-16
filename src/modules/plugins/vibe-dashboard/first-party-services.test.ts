@@ -72,7 +72,10 @@ describe('first-party service plugin inventory and golden supervisor config', ()
     expect(pluginRuntimeApply).toContain('--caddy-config-path /etc/caddy/Caddyfile');
     expect(pluginRuntimeApply).toContain('supervisorctl reread');
     expect(pluginRuntimeApply).toContain('supervisorctl update');
+    expect(pluginRuntimeApply).toContain('reload_caddy_with_retry()');
+    expect(pluginRuntimeApply).toContain('VD_PLUGIN_CADDY_RELOAD_ATTEMPTS');
     expect(pluginRuntimeApply).toContain('caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile');
+    expect(pluginRuntimeApply).not.toContain('VD_PLUGIN_ORCHESTRATOR_ALLOW_HASH_MISMATCH');
     expect(goldenSupervisor).toContain('command=/usr/local/bin/vd-plugin-runtime-apply.sh');
     expect(goldenSupervisor).toContain('[program:caddy]\ncommand=caddy run --config /etc/caddy/Caddyfile --adapter caddyfile\nautostart=true\nautorestart=true\npriority=10');
     expect(goldenSupervisor).toContain('[program:vd-plugin-service-orchestrator-startup]\ncommand=/usr/local/bin/vd-plugin-runtime-apply.sh\nautostart=true\nautorestart=false\nstartsecs=0\npriority=1000');

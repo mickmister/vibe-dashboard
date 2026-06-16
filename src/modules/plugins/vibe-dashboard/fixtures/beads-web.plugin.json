@@ -29,6 +29,7 @@
         }
       ],
       "env": {
+        "HOST": "${BEADS_WEB_PORT_BIND}",
         "PORT": "${BEADS_WEB_PORT}",
         "HOME": "/home/vkuser",
         "XDG_CONFIG_HOME": "/home/vkuser/.config"
