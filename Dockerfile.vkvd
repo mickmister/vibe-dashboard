@@ -73,6 +73,12 @@ RUN npm rebuild better-sqlite3 && npm run build
 
 FROM node:22-bookworm
 
+ARG TARGETARCH
+ARG BEADS_WEB_LINUX_X64_URL=https://github.com/mickmister/beads-web/releases/download/v0.11.4/beads-web-linux-x64
+ARG BEADS_WEB_LINUX_ARM64_URL=https://github.com/mickmister/beads-web/releases/download/v0.11.4/beads-web-linux-arm64
+ARG BEADS_WEB_LINUX_X64_SHA256=7e3880a399214b49a9c4a6ea2b2585f3b3fdbc69de093e464990395520791620
+ARG BEADS_WEB_LINUX_ARM64_SHA256=4bf6c69625ae88bbd3438168f6d97267914b6edabe7da14fa2dc9c246fc47a1e
+
 # Harden APT against flaky proxy/cache behavior (helps prevent Hash Sum mismatch on macOS VM networking).
 RUN set -eux; \
     rm -rf /var/lib/apt/lists/*; \
@@ -118,6 +124,8 @@ RUN set -eux; \
     rm "go1.25.7.linux-${go_arch}.tar.gz"
 ENV PATH="/usr/local/go/bin:${PATH}"
 ENV VK_ALLOWED_ORIGINS=""
+ENV PROXY_DOMAIN=""
+ENV BEADS_WEB_PORT=3009
 
 # Install Rust and Cargo
 ENV CARGO_HOME=/usr/local/cargo
@@ -267,6 +275,48 @@ RUN su - vkuser -c "mkdir -p /home/vkuser/.local/share/code-server/extensions &&
 
 # Install Beads CLI
 RUN curl -fsSL https://raw.githubusercontent.com/gastownhall/beads/main/scripts/install.sh | bash
+
+# Install bd/beads wrappers that stamp created beads with the current git branch.
+# The real upstream CLI remains available at /usr/local/bin/bd.
+RUN mkdir -p /usr/local/lib/vk-bd-wrapper/bin
+COPY scripts/bd-wrapper/bin/bd /usr/local/lib/vk-bd-wrapper/bin/bd
+RUN set -eux; \
+    chmod 0755 /usr/local/lib/vk-bd-wrapper/bin/bd; \
+    ln -sf bd /usr/local/lib/vk-bd-wrapper/bin/beads; \
+    chown -h root:root /usr/local/lib/vk-bd-wrapper/bin/beads; \
+    chown root:root /usr/local/lib/vk-bd-wrapper/bin/bd; \
+    chmod 0755 /usr/local/lib /usr/local/lib/vk-bd-wrapper /usr/local/lib/vk-bd-wrapper/bin
+
+# Install beads-web UI binary. The default tagged assets are public, but
+# private/draft override URLs can fall back to a BuildKit secret:
+# id=github_token or id=GIT_AUTH_TOKEN.
+RUN --mount=type=secret,id=github_token,required=false --mount=type=secret,id=GIT_AUTH_TOKEN,required=false set -eux; \
+    install_beads_web() { \
+      beads_web_url="$1"; \
+      beads_web_sha256="$2"; \
+      if ! curl -fsSL "${beads_web_url}" -o /usr/local/bin/beads-web; then \
+        beads_web_repo="$(printf '%s' "${beads_web_url}" | sed -E 's#^https://github.com/([^/]+/[^/]+)/releases/download/.*#\1#')"; \
+        beads_web_tag="$(printf '%s' "${beads_web_url}" | sed -E 's#^https://github.com/[^/]+/[^/]+/releases/download/([^/]+)/.*#\1#')"; \
+        beads_web_asset="$(basename "${beads_web_url}")"; \
+        if [ -f /run/secrets/github_token ]; then \
+          export GH_TOKEN="$(cat /run/secrets/github_token)"; \
+        elif [ -f /run/secrets/GIT_AUTH_TOKEN ]; then \
+          export GH_TOKEN="$(cat /run/secrets/GIT_AUTH_TOKEN)"; \
+        else \
+          echo "beads-web asset is not anonymously downloadable; pass --secret id=github_token,env=GITHUB_TOKEN or id=GIT_AUTH_TOKEN" >&2; \
+          exit 1; \
+        fi; \
+        gh release download "${beads_web_tag}" --repo "${beads_web_repo}" --pattern "${beads_web_asset}" --output /usr/local/bin/beads-web --clobber; \
+      fi; \
+      printf '%s  /usr/local/bin/beads-web\n' "${beads_web_sha256}" | sha256sum -c -; \
+      chmod 0755 /usr/local/bin/beads-web; \
+      ldd /usr/local/bin/beads-web >/dev/null; \
+    }; \
+    case "${TARGETARCH}" in \
+      amd64) install_beads_web "${BEADS_WEB_LINUX_X64_URL}" "${BEADS_WEB_LINUX_X64_SHA256}" ;; \
+      arm64) install_beads_web "${BEADS_WEB_LINUX_ARM64_URL}" "${BEADS_WEB_LINUX_ARM64_SHA256}" ;; \
+      *) echo "unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac
 
 # Create supervisor config directory
 RUN mkdir -p /etc/supervisor/conf.d

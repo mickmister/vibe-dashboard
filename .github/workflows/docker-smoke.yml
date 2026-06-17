@@ -1,0 +1,136 @@
+name: Docker smoke
+
+on:
+  push:
+    branches:
+      - '**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  beads-web-caddy:
+    name: beads-web through Caddy
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve latest VK runtime assets
+        id: vk-assets
+        run: |
+          set -euo pipefail
+          latest_assets_tag="$(
+            curl -fsSL "https://api.github.com/repos/mickmister/vibe-kanban/releases?per_page=100" \
+              | python3 -c 'import json,sys; releases=[r for r in json.load(sys.stdin) if r.get("tag_name", "").startswith("vk-assets-")]; releases.sort(key=lambda r: r.get("published_at") or r.get("created_at") or "", reverse=True); print(releases[0]["tag_name"] if releases else "")'
+          )"
+          if [[ -z "$latest_assets_tag" ]]; then
+            echo "No published vk-assets release found." >&2
+            exit 1
+          fi
+          vk_commit="${latest_assets_tag#vk-assets-}"
+          if [[ ! "$vk_commit" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Latest vk-assets release tag does not contain a full commit SHA: $latest_assets_tag" >&2
+            exit 1
+          fi
+          echo "vk_commit=$vk_commit" >> "$GITHUB_OUTPUT"
+          echo "Using $latest_assets_tag"
+
+      - name: Build image
+        env:
+          DOCKER_BUILDKIT: '1'
+        run: |
+          set -euo pipefail
+          docker build \
+            --file Dockerfile.vkvd \
+            --build-arg "VK_COMMIT=${{ steps.vk-assets.outputs.vk_commit }}" \
+            --tag vk-vd-smoke:${{ github.sha }} \
+            .
+
+      - name: Run Caddy/beads-web smoke test
+        run: |
+          set -euo pipefail
+
+          container_name="vk-vd-smoke"
+          caddy_port="3101"
+          backend_port="3107"
+          code_port="3108"
+          beads_web_port="3109"
+          dashboard_port="3105"
+          probe_port="3123"
+          beads_host="beads-web.localhost:${caddy_port}"
+
+          cleanup() {
+            status="$?"
+            if [[ "$status" != "0" ]]; then
+              docker logs "$container_name" || true
+            fi
+            docker rm -f "$container_name" || true
+            exit "$status"
+          }
+          trap cleanup EXIT
+
+          docker run -d \
+            --name "$container_name" \
+            --network host \
+            -e "CADDY_PORT=${caddy_port}" \
+            -e "BACKEND_PORT=${backend_port}" \
+            -e "CODE_PORT=${code_port}" \
+            -e "BEADS_WEB_PORT=${beads_web_port}" \
+            -e "DASHBOARD_PORT=${dashboard_port}" \
+            -e "PROXY_DOMAIN=localhost" \
+            -e "CODE_PASSWORD=__unset__" \
+            -e "ENABLE_TAILSCALE=false" \
+            vk-vd-smoke:${{ github.sha }}
+
+          for attempt in $(seq 1 120); do
+            if curl -fsS -H "Host: ${beads_host}" "http://127.0.0.1:${caddy_port}/" -o /tmp/beads-web.html; then
+              if grep -q '<html' /tmp/beads-web.html; then
+                echo "beads-web responded through Caddy on attempt ${attempt}"
+                break
+              fi
+            fi
+            if [[ "$attempt" == "120" ]]; then
+              echo "Timed out waiting for beads-web through Caddy" >&2
+              exit 1
+            fi
+            sleep 2
+          done
+
+          asset_path="$(
+            python3 - <<'PY'
+          import re
+          from pathlib import Path
+          html = Path('/tmp/beads-web.html').read_text()
+          match = re.search(r'src="(/_next/[^"]+\.js[^"]*)"', html)
+          print(match.group(1) if match else '')
+          PY
+          )"
+          if [[ -z "$asset_path" ]]; then
+            echo "No Next.js asset script found in beads-web HTML" >&2
+            exit 1
+          fi
+          curl -fsS -H "Host: ${beads_host}" "http://127.0.0.1:${caddy_port}${asset_path}" -o /tmp/beads-web-asset.js
+          test -s /tmp/beads-web-asset.js
+
+          curl -fsS -H "Host: ${beads_host}" "http://127.0.0.1:${caddy_port}/api/projects" -o /tmp/beads-web-projects.json
+          python3 -m json.tool /tmp/beads-web-projects.json >/dev/null
+
+          docker exec -d "$container_name" sh -lc "cd /tmp && exec python3 -m http.server ${probe_port} --bind 127.0.0.1"
+          for attempt in $(seq 1 30); do
+            if curl -fsS -H "Host: ${probe_port}.localhost:${caddy_port}" "http://127.0.0.1:${caddy_port}/" >/tmp/numeric-port.html; then
+              break
+            fi
+            if [[ "$attempt" == "30" ]]; then
+              echo "Timed out waiting for numeric subdomain port proxy" >&2
+              exit 1
+            fi
+            sleep 1
+          done
+          curl -fsS -H "Host: port-${probe_port}.localhost:${caddy_port}" "http://127.0.0.1:${caddy_port}/" >/tmp/legacy-port.html

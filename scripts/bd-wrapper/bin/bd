@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REAL_BD=/usr/local/bin/bd
+
+if [[ "${1:-}" != "create" ]]; then
+  exec "$REAL_BD" "$@"
+fi
+
+shift
+branch="$(git branch --show-current 2>/dev/null || true)"
+metadata="$(BRANCH="$branch" python3 - <<'PY'
+import json
+import os
+
+print(json.dumps({
+    "branch": os.environ.get("BRANCH", ""),
+    "VK_WORKSPACE_ID": os.environ.get("VK_WORKSPACE_ID", ""),
+    "VK_SESSION_ID": os.environ.get("VK_SESSION_ID", ""),
+}, separators=(",", ":")))
+PY
+)"
+
+exec "$REAL_BD" create "$@" --metadata "$metadata"

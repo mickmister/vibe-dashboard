@@ -57,6 +57,40 @@ const PAGE_SIZE = 20;
 
 // ── Data fetching hook ──────────────────────────────────────────────────────
 
+function isIpHostname(hostname: string): boolean {
+  const normalizedHostname = hostname.replace(/^\[(.*)]$/, "$1");
+
+  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(normalizedHostname)) {
+    return normalizedHostname.split(".").every((segment) => {
+      const value = Number(segment);
+      return Number.isInteger(value) && value >= 0 && value <= 255;
+    });
+  }
+
+  return normalizedHostname.includes(":");
+}
+
+function getBaseProxyHostname(hostname: string): string {
+  return hostname
+    .replace(/^port-\d+\./, "")
+    .replace(/^\d+\./, "");
+}
+
+function getBeadsWebUrl(): string {
+  if (typeof window === "undefined") {
+    return "/beads";
+  }
+
+  const { protocol, hostname, port } = window.location;
+  if (isIpHostname(hostname)) {
+    return "/beads";
+  }
+
+  const baseHostname = getBaseProxyHostname(hostname);
+  const host = `beads-web.${baseHostname}`;
+  return `${protocol}//${host}${port ? `:${port}` : ""}`;
+}
+
 function sortDashboardWorkspaces(workspaces: DashboardWorkspace[]) {
   return [...workspaces].sort((a, b) => {
     if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
@@ -499,6 +533,36 @@ function SpacePickerModal({
             Cancel
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function BeadsWebSection({ url }: { url: string }) {
+  return (
+    <div className="mb-10">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold text-white">Beads</h2>
+          <p className="text-xs text-zinc-500">
+            Git-backed issue tracking, proxied by Caddy
+          </p>
+        </div>
+        <a
+          href={url}
+          target="_blank"
+          rel="noreferrer"
+          className="rounded border border-zinc-600 bg-zinc-800 px-3 py-1 text-xs font-medium text-zinc-300 transition-colors hover:bg-zinc-700 hover:text-white"
+        >
+          Open full page
+        </a>
+      </div>
+      <div className="h-[520px] overflow-hidden rounded-xl border border-zinc-700/60 bg-zinc-950 shadow-inner">
+        <iframe
+          src={url}
+          title="Beads Web"
+          className="h-full w-full border-0"
+        />
       </div>
     </div>
   );
@@ -1157,6 +1221,7 @@ export function SpacesOverview({
     }
     return map;
   }, [workspace.tabGroups, workspaceNameById]);
+  const beadsWebUrl = useMemo(() => getBeadsWebUrl(), []);
 
   const handleStopDevServer = useCallback(
     async (workspaceId: string) => {
@@ -1280,6 +1345,8 @@ export function SpacesOverview({
           onNavigateToTabGroup={onNavigateToTabGroup}
           tabGroupDisplayLabelById={tabGroupDisplayLabelById}
         />
+
+        <BeadsWebSection url={beadsWebUrl} />
 
         {/* Running Dev Servers */}
         <RunningDevServersSection
