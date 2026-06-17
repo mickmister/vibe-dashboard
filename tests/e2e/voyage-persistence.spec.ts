@@ -1075,6 +1075,68 @@ test.describe('voyage persistence', () => {
     await waitForSavedVoyageWithCraft(page.request, voyageId, overviewCraftLabel, 5);
   });
 
+  test('does not pull the user back when pending Open Craft finishes after switching voyages', async ({ page }) => {
+    await clearSavedVoyages(page.request);
+
+    const runId = Date.now().toString(36);
+    const sourceVoyageId = `session_pending_source_${runId}`;
+    const targetVoyageId = `session_pending_target_${runId}`;
+    const sourceVoyageName = `E2E Pending Source ${runId}`;
+    const targetVoyageName = `E2E Pending Target ${runId}`;
+    const openedCraftLabel = `E2E Delayed Craft ${runId}`;
+    const workspaceToOpen = createNamedMockWorkspace(
+      runId,
+      'delayed',
+      openedCraftLabel,
+    );
+
+    await upsertSingleCraftVoyage(page.request, {
+      id: sourceVoyageId,
+      slug: `e2e-pending-source-${runId}-${sourceVoyageId}`,
+      name: sourceVoyageName,
+    });
+    await upsertSingleCraftVoyage(page.request, {
+      id: targetVoyageId,
+      slug: `e2e-pending-target-${runId}-${targetVoyageId}`,
+      name: targetVoyageName,
+    });
+    await mockVkApi(page, workspaceToOpen, { workspaceDetailDelayMs: 1_200 });
+
+    await page.goto(`/?voyage=${sourceVoyageId}`);
+    await expectUrlVoyageToken(page, sourceVoyageId, [
+      sourceVoyageId,
+      targetVoyageId,
+    ]);
+
+    await openCraftFromVoyageActionsMenu(page);
+    await expect(page.getByRole('heading', { name: 'Open VK Workspace' })).toBeVisible();
+    await page.getByPlaceholder('Search workspaces...').fill(workspaceToOpen.name);
+    await page.getByRole('button', { name: new RegExp(workspaceToOpen.name) }).click();
+    await expect(page.getByLabel(`Opening ${workspaceToOpen.name}`).first()).toBeVisible();
+
+    await page.evaluate((voyageId) => {
+      window.history.pushState({}, '', `/?voyage=${voyageId}`);
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    }, targetVoyageId);
+    await expectUrlVoyageToken(page, targetVoyageId, [
+      sourceVoyageId,
+      targetVoyageId,
+    ]);
+
+    await waitForSavedVoyageWithCraft(
+      page.request,
+      sourceVoyageId,
+      openedCraftLabel,
+    );
+    await expectUrlVoyageToken(page, targetVoyageId, [
+      sourceVoyageId,
+      targetVoyageId,
+    ]);
+    await expect(
+      page.getByLabel(`Open ${openedCraftLabel} in Home`),
+    ).toHaveCount(0);
+  });
+
   test('moves a craft entry from one saved voyage to another and persists both voyages', async ({ page }) => {
     const runId = Date.now().toString(36);
     const sourceVoyageId = `session_move_source_${runId}`;

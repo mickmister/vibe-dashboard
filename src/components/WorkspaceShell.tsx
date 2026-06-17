@@ -272,10 +272,12 @@ type PendingOpenCraftTab = {
 type PendingWorkspaceSelection =
   | {
       kind: 'current';
+      originSessionId: string;
       selection: VoyageCraftSelection;
     }
   | {
       kind: 'saved';
+      originSessionId: string;
       savedSession: SavedWorkspaceSession;
       selection: VoyageCraftSelection;
     };
@@ -325,6 +327,8 @@ export function WorkspaceShell({
     useState<PendingWorkspaceSelection | null>(null);
   const [pendingOpenCraftTab, setPendingOpenCraftTab] =
     useState<PendingOpenCraftTab | null>(null);
+  const currentSessionIdRef = useRef(currentSessionId);
+  currentSessionIdRef.current = currentSessionId;
   const openCraftMutation = useMutation<void, Error, OpenCraftMutationInput>({
     mutationFn: async (request) => {
       if (request.kind === 'add') {
@@ -462,9 +466,21 @@ export function WorkspaceShell({
     sessionActions.resumeSession(sessionId, voyageEntryId);
   };
 
+  const openCraftCompletionStillOwnsNavigation = (originSessionId: string) =>
+    currentSessionIdRef.current === originSessionId;
+
+  const clearCompletedOpenCraftWithoutNavigation = () => {
+    setPendingWorkspaceSelection(null);
+    setPendingOpenCraftTab(null);
+    setPendingOpenCraftSessionId(null);
+    setPendingNewVoyageCraftName(null);
+    setWorkspaceSearchMode('general');
+  };
+
   const createAndActivateSavedVoyage = async (
     name: string,
     initialSelection: VoyageCraftSelection,
+    originSessionId = currentSessionId,
   ) => {
     const trimmedName = name.trim();
     if (!trimmedName || isReservedVoyageName(trimmedName)) return undefined;
@@ -477,13 +493,18 @@ export function WorkspaceShell({
     });
     if (!savedSession) return undefined;
 
-    activateSavedSessionWhenWorkspaceReady(savedSession, initialSelection);
+    activateSavedSessionWhenWorkspaceReady(
+      savedSession,
+      initialSelection,
+      originSessionId,
+    );
     return savedSession;
   };
 
   const addAndActivateSelectionInSavedVoyage = async (
     sessionId: string,
     selection: VoyageCraftSelection,
+    originSessionId = currentSessionId,
   ) => {
     const savedSession = await actions.addSelectionToSavedSession({
       sessionId,
@@ -493,13 +514,23 @@ export function WorkspaceShell({
     });
     if (!savedSession) return undefined;
 
-    activateSavedSessionWhenWorkspaceReady(savedSession, selection);
+    activateSavedSessionWhenWorkspaceReady(
+      savedSession,
+      selection,
+      originSessionId,
+    );
     return savedSession;
   };
 
   const addOrSelectCraftInCurrentVoyage = async (
     selection: VoyageCraftSelection,
+    originSessionId = currentSessionId,
   ): Promise<boolean> => {
+    if (!openCraftCompletionStillOwnsNavigation(originSessionId)) {
+      clearCompletedOpenCraftWithoutNavigation();
+      return true;
+    }
+
     const existingEntry = session.voyageEntries.find(
       (entry) => entry.tabGroupId === selection.tabGroupId,
     );
@@ -533,12 +564,16 @@ export function WorkspaceShell({
         ...(selection.tabId ? { tabId: selection.tabId } : {}),
       });
       if (savedSession) {
-        activateSavedSessionWhenWorkspaceReady(savedSession, selection);
+        activateSavedSessionWhenWorkspaceReady(
+          savedSession,
+          selection,
+          originSessionId,
+        );
         return true;
       }
     }
 
-    selectCurrentVoyageWhenWorkspaceReady(selection);
+    selectCurrentVoyageWhenWorkspaceReady(selection, originSessionId);
     return true;
   };
 
@@ -555,7 +590,15 @@ export function WorkspaceShell({
     );
   };
 
-  const applyCurrentVoyageSelection = (selection: VoyageCraftSelection) => {
+  const applyCurrentVoyageSelection = (
+    selection: VoyageCraftSelection,
+    originSessionId = currentSessionId,
+  ) => {
+    if (!openCraftCompletionStillOwnsNavigation(originSessionId)) {
+      clearCompletedOpenCraftWithoutNavigation();
+      return;
+    }
+
     if (selection.tabId) {
       sessionActions.selectSessionTab(
         selection.spaceId,
@@ -571,14 +614,16 @@ export function WorkspaceShell({
 
   const selectCurrentVoyageWhenWorkspaceReady = (
     selection: VoyageCraftSelection,
+    originSessionId = currentSessionId,
   ) => {
     if (isWorkspaceSelectionReady(selection)) {
-      applyCurrentVoyageSelection(selection);
+      applyCurrentVoyageSelection(selection, originSessionId);
       return;
     }
 
     setPendingWorkspaceSelection({
       kind: 'current',
+      originSessionId,
       selection,
     });
   };
@@ -586,7 +631,13 @@ export function WorkspaceShell({
   const activateSavedSessionWhenWorkspaceReady = (
     savedSession: SavedWorkspaceSession,
     selection: VoyageCraftSelection,
+    originSessionId = currentSessionId,
   ) => {
+    if (!openCraftCompletionStillOwnsNavigation(originSessionId)) {
+      clearCompletedOpenCraftWithoutNavigation();
+      return;
+    }
+
     if (isWorkspaceSelectionReady(selection)) {
       sessionActions.activateSavedSession(savedSession);
       setPendingOpenCraftTab(null);
@@ -595,6 +646,7 @@ export function WorkspaceShell({
 
     setPendingWorkspaceSelection({
       kind: 'saved',
+      originSessionId,
       savedSession,
       selection,
     });
@@ -717,10 +769,22 @@ export function WorkspaceShell({
     if (!pendingWorkspaceSelection) return;
     if (!isWorkspaceSelectionReady(pendingWorkspaceSelection.selection)) return;
 
+    if (
+      !openCraftCompletionStillOwnsNavigation(
+        pendingWorkspaceSelection.originSessionId,
+      )
+    ) {
+      clearCompletedOpenCraftWithoutNavigation();
+      return;
+    }
+
     if (pendingWorkspaceSelection.kind === 'saved') {
       sessionActions.activateSavedSession(pendingWorkspaceSelection.savedSession);
     } else {
-      applyCurrentVoyageSelection(pendingWorkspaceSelection.selection);
+      applyCurrentVoyageSelection(
+        pendingWorkspaceSelection.selection,
+        pendingWorkspaceSelection.originSessionId,
+      );
     }
 
     setPendingWorkspaceSelection(null);
@@ -787,6 +851,7 @@ export function WorkspaceShell({
     containerRef: string,
     spaceId?: string,
   ) => {
+    const originSessionId = currentSessionId;
     const destinationSessionId = pendingOpenCraftSessionId;
     const destinationSession =
       destinationSessionId && destinationSessionId !== currentSessionId
@@ -807,7 +872,11 @@ export function WorkspaceShell({
         if (!result) {
           throw new Error(`Could not create voyage for ${name || 'craft'}.`);
         }
-        activateSavedSessionWhenWorkspaceReady(result.savedSession, result.selection);
+        activateSavedSessionWhenWorkspaceReady(
+          result.savedSession,
+          result.selection,
+          originSessionId,
+        );
         setPendingNewVoyageCraftName(null);
       } else if (destinationSessionId && destinationSessionId !== currentSessionId) {
         const result = await actions.openVKWorkspaceInSavedSession({
@@ -820,7 +889,11 @@ export function WorkspaceShell({
         if (!result) {
           throw new Error(`Could not add ${name || 'craft'} to that voyage.`);
         }
-        activateSavedSessionWhenWorkspaceReady(result.savedSession, result.selection);
+        activateSavedSessionWhenWorkspaceReady(
+          result.savedSession,
+          result.selection,
+          originSessionId,
+        );
       } else {
         const currentSavedSession = savedSessions.find(
           (entry) => entry.id === currentSessionId,
@@ -836,7 +909,11 @@ export function WorkspaceShell({
           if (!result) {
             throw new Error(`Could not select ${name || 'craft'} in this voyage.`);
           }
-          activateSavedSessionWhenWorkspaceReady(result.savedSession, result.selection);
+          activateSavedSessionWhenWorkspaceReady(
+            result.savedSession,
+            result.selection,
+            originSessionId,
+          );
         } else {
           const result = await actions.addVKWorkspace({
             taskAttemptId,
@@ -852,7 +929,7 @@ export function WorkspaceShell({
             spaceId: destinationSpaceId,
             tabGroupId: result.tabGroupId,
             tabId: result.agentTabId,
-          });
+          }, originSessionId);
           if (!selected) {
             throw new Error(`Could not select ${name || 'craft'} in this voyage.`);
           }
@@ -877,7 +954,11 @@ export function WorkspaceShell({
       if (!result) {
         throw new Error(`Could not select ${name || 'craft'} in this voyage.`);
       }
-      activateSavedSessionWhenWorkspaceReady(result.savedSession, result.selection);
+      activateSavedSessionWhenWorkspaceReady(
+        result.savedSession,
+        result.selection,
+        originSessionId,
+      );
       setPendingOpenCraftSessionId(null);
       setWorkspaceSearchMode('general');
       return;
@@ -891,6 +972,11 @@ export function WorkspaceShell({
     });
     if (!result) {
       throw new Error(`Could not open ${name || 'craft'}.`);
+    }
+
+    if (!openCraftCompletionStillOwnsNavigation(originSessionId)) {
+      clearCompletedOpenCraftWithoutNavigation();
+      return;
     }
 
     sessionActions.selectSessionTab(
@@ -933,12 +1019,13 @@ export function WorkspaceShell({
     spaceId: string,
     tabGroupId: string,
   ) => {
+    const originSessionId = currentSessionId;
     const destinationSessionId = pendingOpenCraftSessionId;
     if (workspaceSearchMode === 'session-add' && pendingNewVoyageCraftName) {
       const savedSession = await createAndActivateSavedVoyage(pendingNewVoyageCraftName, {
         spaceId,
         tabGroupId,
-      });
+      }, originSessionId);
       if (!savedSession) {
         throw new Error('Could not create voyage for this craft.');
       }
@@ -953,12 +1040,15 @@ export function WorkspaceShell({
         const savedSession = await addAndActivateSelectionInSavedVoyage(destinationSessionId, {
           spaceId,
           tabGroupId,
-        });
+        }, originSessionId);
         if (!savedSession) {
           throw new Error('Could not add this craft to that voyage.');
         }
       } else {
-        const selected = await addOrSelectCraftInCurrentVoyage({ spaceId, tabGroupId });
+        const selected = await addOrSelectCraftInCurrentVoyage(
+          { spaceId, tabGroupId },
+          originSessionId,
+        );
         if (!selected) {
           throw new Error('Could not select this craft in the current voyage.');
         }
@@ -969,7 +1059,10 @@ export function WorkspaceShell({
     }
 
     if (workspaceSearchMode === 'session-add') {
-      const selected = await addOrSelectCraftInCurrentVoyage({ spaceId, tabGroupId });
+      const selected = await addOrSelectCraftInCurrentVoyage(
+        { spaceId, tabGroupId },
+        originSessionId,
+      );
       if (!selected) {
         throw new Error('Could not select this craft in the current voyage.');
       }
@@ -992,13 +1085,15 @@ export function WorkspaceShell({
     if (destinationSessionId && destinationSessionId !== currentSessionId) {
       const existingEntry = currentEntries[0];
       if (existingEntry) {
-        switchToVoyage(destinationSessionId, existingEntry.id);
+        if (openCraftCompletionStillOwnsNavigation(originSessionId)) {
+          switchToVoyage(destinationSessionId, existingEntry.id);
+        }
         setPendingOpenCraftTab(null);
       } else {
         const savedSession = await addAndActivateSelectionInSavedVoyage(destinationSessionId, {
           spaceId,
           tabGroupId,
-        });
+        }, originSessionId);
         if (!savedSession) {
           throw new Error('Could not add this craft to that voyage.');
         }
@@ -1037,6 +1132,11 @@ export function WorkspaceShell({
         currentEntries,
         otherVoyages,
       });
+      return;
+    }
+
+    if (!openCraftCompletionStillOwnsNavigation(originSessionId)) {
+      clearCompletedOpenCraftWithoutNavigation();
       return;
     }
 
