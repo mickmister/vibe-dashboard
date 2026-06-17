@@ -247,3 +247,38 @@ jobs:
 
       - name: Check plugin API package types
         run: pnpm --filter @vibe-kanban/plugin-api check-types
+
+  npm-test:
+    name: npm test
+    runs-on: ubuntu-latest
+    needs:
+      - check-types
+      - app-server-tests
+      - test-workflow-core
+      - build-app
+      - staging-promotion-e2e
+      - docker-vkvd-build
+      - container-runtime-smoke
+      - first-party-service-smoke
+      - first-party-plugin-caddy-validation
+      - plugin-api-tests
+    if: ${{ always() }}
+    steps:
+      - name: Verify all CI tests passed
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY_CHECK'
+          import json
+          import os
+
+          needs = json.loads(os.environ["NEEDS_JSON"])
+          failed = {name: data.get("result") for name, data in needs.items() if data.get("result") != "success"}
+          if failed:
+              print("One or more CI jobs did not pass:")
+              for name, result in failed.items():
+                  print(f"- {name}: {result}")
+              raise SystemExit(1)
+
+          print("All CI jobs passed.")
+          PY_CHECK
