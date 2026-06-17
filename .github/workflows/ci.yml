@@ -3,7 +3,7 @@ name: CI
 on:
   push:
     branches:
-      - "**"
+      - main
   pull_request:
 
 permissions:
@@ -209,12 +209,17 @@ jobs:
         with:
           node-version: 22
 
-      - name: Install Caddy
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y caddy
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.25.7
+
+      - name: Build custom Caddy
+        run: scripts/build-custom-caddy.sh caddy-module .tmp/custom-caddy/caddy
 
       - name: Validate checked-in and generated plugin Caddy config
+        env:
+          CADDY_BIN: .tmp/custom-caddy/caddy
         run: npm run validate:caddy
 
   plugin-api-tests:

@@ -145,18 +145,13 @@ ENV UV_TOOL_BIN_DIR="/usr/local/bin"
 ENV GOBIN="/usr/local/bin"
 RUN CGO_ENABLED=0 go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
 
-# Copy Caddy module source
+# Copy Caddy module source and shared custom Caddy build script
 COPY caddy-module /tmp/caddy-module
+COPY scripts/build-custom-caddy.sh /tmp/build-custom-caddy.sh
 
 # Build custom Caddy with vibe-kanban rewrite module
-RUN cd /tmp/caddy-module \
-    && CGO_ENABLED=0 xcaddy build v2.10.2 \
-        --output /usr/bin/caddy \
-        --with github.com/yourusername/vibe-kanban-plugins=. \
-    && chmod +x /usr/bin/caddy \
-    && /usr/bin/caddy list-modules | grep -q 'http.handlers.vibe_kanban_rewriter' \
-    && cd / \
-    && rm -rf /tmp/caddy-module /root/.cache/go-build /root/go/pkg
+RUN /tmp/build-custom-caddy.sh /tmp/caddy-module /usr/bin/caddy \
+    && rm -rf /tmp/caddy-module /tmp/build-custom-caddy.sh /root/.cache/go-build /root/go/pkg
 
 # Install Docker CLI for Docker-in-Docker support (socket mounting)
 RUN mkdir -p /etc/apt/keyrings \
