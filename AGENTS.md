@@ -1,3 +1,5 @@
+If you are working in a multi-repo workspace, use this repo as the directory in which you use the `bd` cli.
+
 Keep the following info in mind *when working in the ./src directory only*
 
 After making any changes, run `npm run check-types` to ensure types pass.
