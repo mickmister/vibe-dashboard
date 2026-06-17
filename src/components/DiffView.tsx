@@ -5,6 +5,11 @@ import type {
   FileDiffMetadata,
   OnDiffLineClickProps,
 } from '@pierre/diffs';
+import {
+  IconFileDiff,
+  IconFileMinus,
+  IconFilePlus,
+} from '@tabler/icons-react';
 import { Button, Textarea } from '@heroui/react';
 import { useModule } from '../hooks/useModule';
 import { hasRenderableDiff, parseRepoPatch } from '../lib/diffPatch';
@@ -485,11 +490,16 @@ function RepoPatchDiff({
           } bg-neutral-900/40`}
         >
           <summary className="cursor-pointer list-none px-3 py-2 font-mono text-xs text-neutral-200 hover:bg-neutral-900">
-            <span className="mr-2 text-neutral-500">▸</span>
-            {fileDiff.prevName && fileDiff.prevName !== fileDiff.name
-              ? `${fileDiff.prevName} → ${fileDiff.name}`
-              : fileDiff.name}
-            <span className="ml-2 text-neutral-500">{fileDiff.type}</span>
+            <div className="flex items-center gap-2">
+              <span className="text-neutral-500">▸</span>
+              <FileChangeIcon fileDiff={fileDiff} />
+              <span className="min-w-0 flex-1 truncate">
+                {fileDiff.prevName && fileDiff.prevName !== fileDiff.name
+                  ? `${fileDiff.prevName} → ${fileDiff.name}`
+                  : fileDiff.name}
+              </span>
+              <FileDiffStats fileDiff={fileDiff} />
+            </div>
           </summary>
           <div className="border-t border-neutral-800 bg-neutral-950">
             {hasRenderableDiff(fileDiff) ? (
@@ -547,6 +557,56 @@ function RepoPatchDiff({
 type InlineAnnotationMetadata =
   | { kind: 'queued'; comment: DraftComment }
   | { kind: 'draft'; comment: DraftComment };
+
+function FileChangeIcon({ fileDiff }: { fileDiff: FileDiffMetadata }) {
+  if (fileDiff.type === 'new') {
+    return (
+      <IconFilePlus
+        aria-label="Added file"
+        className="h-4 w-4 shrink-0 text-emerald-400"
+      />
+    );
+  }
+
+  if (fileDiff.type === 'deleted') {
+    return (
+      <IconFileMinus
+        aria-label="Deleted file"
+        className="h-4 w-4 shrink-0 text-red-400"
+      />
+    );
+  }
+
+  return (
+    <IconFileDiff
+      aria-label="Modified file"
+      className="h-4 w-4 shrink-0 text-amber-400"
+    />
+  );
+}
+
+function FileDiffStats({ fileDiff }: { fileDiff: FileDiffMetadata }) {
+  const { additions, deletions } = getFileLineStats(fileDiff);
+  return (
+    <span className="ml-auto flex shrink-0 gap-2 font-mono text-xs">
+      <span className="text-emerald-300">+{additions}</span>
+      <span className="text-red-300">-{deletions}</span>
+    </span>
+  );
+}
+
+function getFileLineStats(fileDiff: FileDiffMetadata): {
+  additions: number;
+  deletions: number;
+} {
+  return fileDiff.hunks.reduce(
+    (totals, hunk) => ({
+      additions: totals.additions + hunk.additionLines,
+      deletions: totals.deletions + hunk.deletionLines,
+    }),
+    { additions: 0, deletions: 0 },
+  );
+}
 
 function lineAnnotationsForFile(
   fileDiff: FileDiffMetadata,
