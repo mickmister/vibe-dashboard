@@ -1016,12 +1016,28 @@ export function WorkspaceShell({
     setPendingOpenCraftTab(null);
   };
 
+  const runOpenCraftMutation = async (request: OpenCraftMutationInput) => {
+    const originSessionId = currentSessionIdRef.current;
+
+    try {
+      await openCraftMutation.mutateAsync(request);
+    } catch (error) {
+      if (!openCraftCompletionStillOwnsNavigation(originSessionId)) {
+        clearCompletedOpenCraftWithoutNavigation();
+        openCraftMutation.reset();
+        return;
+      }
+
+      throw error;
+    }
+  };
+
   const handleWorkspaceSearchAdd = async (
     taskAttemptId: string,
     name: string,
     containerRef: string,
   ) => {
-    await openCraftMutation.mutateAsync({
+    await runOpenCraftMutation({
       kind: 'add',
       workspaceId: taskAttemptId,
       name,
@@ -1035,7 +1051,7 @@ export function WorkspaceShell({
     containerRef: string,
     spaceId: string,
   ) => {
-    await openCraftMutation.mutateAsync({
+    await runOpenCraftMutation({
       kind: 'add',
       workspaceId: taskAttemptId,
       name,
@@ -1188,7 +1204,7 @@ export function WorkspaceShell({
     workspaceOption?: { id: string; name: string },
   ) => {
     const tabGroup = workspace.tabGroups.find((entry) => entry.id === tabGroupId);
-    await openCraftMutation.mutateAsync({
+    await runOpenCraftMutation({
       kind: 'navigate',
       workspaceId: workspaceOption?.id || tabGroupId,
       name: workspaceOption?.name || tabGroup?.label || 'craft',

@@ -1190,9 +1190,10 @@ test.describe('voyage persistence', () => {
           failedCount: await page
             .getByLabel(`Failed opening ${workspaceToOpen.name}`)
             .count(),
+          modalAlertCount: await page.getByRole('alert').count(),
         };
       })
-      .toEqual({ openingCount: 0, failedCount: 0 });
+      .toEqual({ openingCount: 0, failedCount: 0, modalAlertCount: 0 });
     await expect(page).toHaveURL(
       new RegExp(`voyage=e2e-pending-error-target-${runId}`),
     );
