@@ -282,6 +282,11 @@ type PendingWorkspaceSelection =
       selection: VoyageCraftSelection;
     };
 
+type OpenCraftMutationContext = {
+  operationId: string;
+  originSessionId: string;
+};
+
 export function WorkspaceShell({
   workspace,
   session,
@@ -329,7 +334,13 @@ export function WorkspaceShell({
     useState<PendingOpenCraftTab | null>(null);
   const currentSessionIdRef = useRef(currentSessionId);
   currentSessionIdRef.current = currentSessionId;
-  const openCraftMutation = useMutation<void, Error, OpenCraftMutationInput>({
+  const pendingOpenCraftOperationIdRef = useRef<string | null>(null);
+  const openCraftMutation = useMutation<
+    void,
+    Error,
+    OpenCraftMutationInput,
+    OpenCraftMutationContext
+  >({
     mutationFn: async (request) => {
       if (request.kind === 'add') {
         await performWorkspaceSearchAdd(
@@ -344,16 +355,33 @@ export function WorkspaceShell({
       await performNavigateToWorkspaceTabGroup(request.spaceId, request.tabGroupId);
     },
     onMutate: (request) => {
+      const originSessionId = currentSessionIdRef.current;
+      const operationId = getOpenCraftOperationId(originSessionId, request);
+      pendingOpenCraftOperationIdRef.current = operationId;
       setPendingOpenCraftTab({
-        operationId: getOpenCraftOperationId(currentSessionId, request),
+        operationId,
         label: request.name,
         status: 'pending',
         request,
       });
+      return { operationId, originSessionId };
     },
-    onError: (error, request) => {
+    onError: (error, request, context) => {
+      if (
+        context &&
+        !openCraftCompletionStillOwnsNavigation(context.originSessionId)
+      ) {
+        if (pendingOpenCraftOperationIdRef.current === context.operationId) {
+          clearCompletedOpenCraftWithoutNavigation();
+        }
+        return;
+      }
+
+      const operationId =
+        context?.operationId || getOpenCraftOperationId(currentSessionIdRef.current, request);
+      pendingOpenCraftOperationIdRef.current = operationId;
       setPendingOpenCraftTab({
-        operationId: getOpenCraftOperationId(currentSessionId, request),
+        operationId,
         label: request.name,
         status: 'error',
         errorMessage: getErrorMessage(error),
@@ -470,6 +498,7 @@ export function WorkspaceShell({
     currentSessionIdRef.current === originSessionId;
 
   const clearCompletedOpenCraftWithoutNavigation = () => {
+    pendingOpenCraftOperationIdRef.current = null;
     setPendingWorkspaceSelection(null);
     setPendingOpenCraftTab(null);
     setPendingOpenCraftSessionId(null);
@@ -1676,6 +1705,7 @@ export function WorkspaceShell({
   };
 
   const resetOpenCraftPendingContext = () => {
+    pendingOpenCraftOperationIdRef.current = null;
     setPendingOpenCraftTab(null);
     setPendingWorkspaceSelection(null);
     setPendingOpenCraftSessionId(null);

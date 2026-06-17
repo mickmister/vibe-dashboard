@@ -1137,6 +1137,67 @@ test.describe('voyage persistence', () => {
     ).toHaveCount(0);
   });
 
+  test('does not show stale pending Open Craft errors after switching voyages', async ({ page }) => {
+    await clearSavedVoyages(page.request);
+
+    const runId = Date.now().toString(36);
+    const sourceVoyageId = `session_pending_error_source_${runId}`;
+    const targetVoyageId = `session_pending_error_target_${runId}`;
+    const delayedCraftLabel = `E2E Failed Delayed Craft ${runId}`;
+    const workspaceToOpen = createNamedMockWorkspace(
+      runId,
+      'failed-delayed',
+      delayedCraftLabel,
+    );
+
+    await upsertSingleCraftVoyage(page.request, {
+      id: sourceVoyageId,
+      slug: `e2e-pending-error-source-${runId}-${sourceVoyageId}`,
+      name: `E2E Pending Error Source ${runId}`,
+    });
+    await upsertSingleCraftVoyage(page.request, {
+      id: targetVoyageId,
+      slug: `e2e-pending-error-target-${runId}-${targetVoyageId}`,
+      name: `E2E Pending Error Target ${runId}`,
+    });
+    await mockVkApi(page, workspaceToOpen, { workspaceDetailDelayMs: 1_200 });
+
+    await page.goto(`/?voyage=${sourceVoyageId}`);
+    await openCraftFromVoyageActionsMenu(page);
+    await expect(page.getByRole('heading', { name: 'Open VK Workspace' })).toBeVisible();
+    await page.getByPlaceholder('Search workspaces...').fill(workspaceToOpen.name);
+    await page.getByRole('button', { name: new RegExp(workspaceToOpen.name) }).click();
+    await expect(page.getByLabel(`Opening ${workspaceToOpen.name}`).first()).toBeVisible();
+
+    await page.evaluate((voyageId) => {
+      window.history.pushState({}, '', `/?voyage=${voyageId}`);
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    }, targetVoyageId);
+    await callWorkspaceAction(page.request, 'deleteSavedSession', {
+      id: sourceVoyageId,
+    });
+    await expectUrlVoyageToken(page, targetVoyageId, [
+      sourceVoyageId,
+      targetVoyageId,
+    ]);
+
+    await expect
+      .poll(async () => {
+        return {
+          openingCount: await page
+            .getByLabel(`Opening ${workspaceToOpen.name}`)
+            .count(),
+          failedCount: await page
+            .getByLabel(`Failed opening ${workspaceToOpen.name}`)
+            .count(),
+        };
+      })
+      .toEqual({ openingCount: 0, failedCount: 0 });
+    await expect(page).toHaveURL(
+      new RegExp(`voyage=e2e-pending-error-target-${runId}`),
+    );
+  });
+
   test('moves a craft entry from one saved voyage to another and persists both voyages', async ({ page }) => {
     const runId = Date.now().toString(36);
     const sourceVoyageId = `session_move_source_${runId}`;
