@@ -248,8 +248,8 @@ jobs:
       - name: Check plugin API package types
         run: pnpm --filter @vibe-kanban/plugin-api check-types
 
-  npm-test:
-    name: npm test
+  ci-tests:
+    name: CI Tests
     runs-on: ubuntu-latest
     needs:
       - check-types
