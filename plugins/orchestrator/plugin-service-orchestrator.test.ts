@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { access, mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { deflateRawSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
 import beadsWebOnlyCatalog from '../fixtures/beads-web.plugins.json';
 import firstPartyPluginCatalog from '../builtin.plugins.json';
@@ -494,6 +495,85 @@ describe('plugin service supervisor orchestration dry run', () => {
     await expect(readFile(join(tempRoot, 'plugins/vd.beads-web/beads-web-assets-42cc6ca1709d4b0aa76833d91d326e6de9659a28/extracted/bin/beads-web'), 'utf8')).resolves.toContain('stable beads-web');
   });
 
+  it('extracts a selected zip entry after download verification and installs it as the runnable artifact', async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), 'vd-plugin-zip-materialize-'));
+    const paths = {
+      artifactCacheRoot: join(tempRoot, 'cache'),
+      installRoot: join(tempRoot, 'plugins'),
+      supervisorConfigDir: join(tempRoot, 'supervisor'),
+    };
+    const executable = '#!/bin/sh\necho silverbullet\n';
+    const zipBytes = createZipFixture([
+      { name: 'silverbullet', data: executable, deflate: true },
+      { name: 'README.md', data: 'ignored\n' },
+    ]);
+    const catalog: PluginServiceCatalog = {
+      plugins: [
+        {
+          id: 'vd.silverbullet',
+          name: 'SilverBullet',
+          version: '2.9.0',
+          artifact: {
+            kind: 'github-release-asset',
+            repository: 'silverbulletmd/silverbullet',
+            tag: '2.9.0',
+            asset: 'silverbullet-server-linux-x86_64.zip',
+            sha256: createHash('sha256').update(zipBytes).digest('hex'),
+            extract: {
+              kind: 'zip',
+              entry: 'silverbullet',
+              installAs: 'bin/silverbullet',
+            },
+          },
+          services: [
+            {
+              id: 'web',
+              command: '${PLUGIN_DIR}/bin/silverbullet',
+              directory: '${PLUGIN_DIR}',
+              user: 'vkuser',
+              autostart: true,
+              autorestart: true,
+            },
+          ],
+        },
+      ],
+    };
+
+    await expect(materializePluginArtifacts({
+      catalog,
+      paths,
+      fetchBytes: async () => zipBytes,
+    })).resolves.toEqual([
+      expect.objectContaining({ action: 'downloaded', pluginId: 'vd.silverbullet' }),
+    ]);
+
+    const installTarget = join(tempRoot, 'plugins/vd.silverbullet/2.9.0/extracted/bin/silverbullet');
+    await expect(readFile(installTarget, 'utf8')).resolves.toBe(executable);
+    await expect(readFile(join(tempRoot, 'cache/github/silverbulletmd/silverbullet/2.9.0/silverbullet-server-linux-x86_64.zip'))).resolves.toEqual(zipBytes);
+  });
+
+  it('rejects zip artifact descriptors that try to extract unsafe paths', async () => {
+    const catalog = structuredClone(beadsWebOnlyCatalog) as PluginServiceCatalog;
+    const artifact = catalog.plugins[0]!.artifact;
+    if (artifact.kind !== 'github-release-asset') throw new Error('expected github-release-asset fixture');
+    artifact.asset = 'plugin.zip';
+    artifact.extract = {
+      kind: 'zip',
+      entry: '../beads-web',
+      installAs: 'bin/beads-web',
+    };
+
+    await expect(materializePluginArtifacts({
+      catalog,
+      paths: {
+        artifactCacheRoot: '/tmp/cache',
+        installRoot: '/tmp/plugins',
+        supervisorConfigDir: '/tmp/supervisor',
+      },
+      fetchBytes: async () => Buffer.from('not reached'),
+    })).rejects.toThrow('Invalid artifact extract entry');
+  });
+
   it('applies generated supervisor configs to a separate config directory idempotently', async () => {
     const tempRoot = await mkdtemp(join(tmpdir(), 'vd-supervisor-apply-'));
     const isolatedPaths = {
@@ -689,3 +769,48 @@ describe('plugin service supervisor orchestration dry run', () => {
     ]);
   });
 });
+
+function createZipFixture(entries: Array<{ name: string; data: string; deflate?: boolean }>): Buffer {
+  const localParts: Buffer[] = [];
+  const centralParts: Buffer[] = [];
+  let offset = 0;
+
+  for (const entry of entries) {
+    const name = Buffer.from(entry.name);
+    const rawData = Buffer.from(entry.data);
+    const compressedData = entry.deflate ? deflateRawSync(rawData) : rawData;
+    const method = entry.deflate ? 8 : 0;
+    const localHeader = Buffer.alloc(30);
+    localHeader.writeUInt32LE(0x04034b50, 0);
+    localHeader.writeUInt16LE(20, 4);
+    localHeader.writeUInt16LE(method, 8);
+    localHeader.writeUInt32LE(0, 14);
+    localHeader.writeUInt32LE(compressedData.length, 18);
+    localHeader.writeUInt32LE(rawData.length, 22);
+    localHeader.writeUInt16LE(name.length, 26);
+    localParts.push(localHeader, name, compressedData);
+
+    const centralHeader = Buffer.alloc(46);
+    centralHeader.writeUInt32LE(0x02014b50, 0);
+    centralHeader.writeUInt16LE(20, 4);
+    centralHeader.writeUInt16LE(20, 6);
+    centralHeader.writeUInt16LE(method, 10);
+    centralHeader.writeUInt32LE(0, 16);
+    centralHeader.writeUInt32LE(compressedData.length, 20);
+    centralHeader.writeUInt32LE(rawData.length, 24);
+    centralHeader.writeUInt16LE(name.length, 28);
+    centralHeader.writeUInt32LE(offset, 42);
+    centralParts.push(centralHeader, name);
+
+    offset += localHeader.length + name.length + compressedData.length;
+  }
+
+  const centralDirectory = Buffer.concat(centralParts);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(entries.length, 8);
+  end.writeUInt16LE(entries.length, 10);
+  end.writeUInt32LE(centralDirectory.length, 12);
+  end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...localParts, centralDirectory, end]);
+}

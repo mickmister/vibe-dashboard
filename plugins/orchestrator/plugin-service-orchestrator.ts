@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { chmod, copyFile, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { inflateRawSync } from 'node:zlib';
 
 export interface PluginServiceCatalog {
   plugins: PluginServiceDefinition[];
@@ -17,6 +18,11 @@ export type PluginArtifactDefinition =
     /** First-party service artifacts are sha256-pinned on this branch. Marketplace signatures are deferred. */
     signature?: string;
     installAs?: string;
+    extract?: {
+      kind: 'zip';
+      entry: string;
+      installAs: string;
+    };
   };
 
 export interface PluginServiceDefinition {
@@ -317,8 +323,8 @@ export async function materializePluginArtifacts(input: {
       sha256 = createHash('sha256').update(bytes).digest('hex');
     }
 
-    const installAs = artifact.installAs ?? artifact.asset;
-    const installTarget = join(pluginExtractedPath(input.paths, plugin), installAs);
+    const installedArtifact = materializeDownloadedArtifactBytes(bytes, artifact);
+    const installTarget = join(pluginExtractedPath(input.paths, plugin), installedArtifact.installAs);
     await mkdir(dirname(installTarget), { recursive: true });
     const installedBytes = await readFile(installTarget).catch((error: unknown) => {
       if (isNodeErrorWithCode(error, 'ENOENT')) return undefined;
@@ -327,8 +333,13 @@ export async function materializePluginArtifacts(input: {
     const installedSha256 = installedBytes
       ? createHash('sha256').update(installedBytes).digest('hex')
       : undefined;
-    if (installedSha256 !== sha256) {
-      await copyFile(cachePath, installTarget);
+    const targetSha256 = createHash('sha256').update(installedArtifact.bytes).digest('hex');
+    if (installedSha256 !== targetSha256) {
+      if (installedArtifact.source === 'cache-file') {
+        await copyFile(cachePath, installTarget);
+      } else {
+        await writeFile(installTarget, installedArtifact.bytes, { mode: 0o755 });
+      }
     }
     await chmod(installTarget, 0o755);
 
@@ -428,6 +439,29 @@ async function downloadVerifiedArtifact(input: {
   return Buffer.from(downloaded);
 }
 
+function materializeDownloadedArtifactBytes(
+  bytes: Buffer,
+  artifact: Extract<PluginArtifactDefinition, { kind: 'github-release-asset' }>,
+): { installAs: string; bytes: Buffer; source: 'cache-file' | 'extracted-entry' } {
+  if (!artifact.extract) {
+    return {
+      installAs: artifact.installAs ?? artifact.asset,
+      bytes,
+      source: 'cache-file',
+    };
+  }
+
+  if (artifact.extract.kind !== 'zip') {
+    throw new Error(`Unsupported artifact extract kind: ${(artifact.extract as { kind?: string }).kind ?? ''}`);
+  }
+
+  return {
+    installAs: artifact.extract.installAs,
+    bytes: extractZipEntry(bytes, artifact.extract.entry),
+    source: 'extracted-entry',
+  };
+}
+
 async function quarantineBadCacheFile(cachePath: string): Promise<void> {
   const quarantinePath = `${cachePath}.bad-${process.pid}-${Date.now()}`;
   try {
@@ -435,6 +469,103 @@ async function quarantineBadCacheFile(cachePath: string): Promise<void> {
   } catch (error) {
     if (!isNodeErrorWithCode(error, 'ENOENT')) throw error;
   }
+}
+
+function extractZipEntry(zipBytes: Buffer, entryName: string): Buffer {
+  const centralDirectory = findZipCentralDirectory(zipBytes);
+  let offset = centralDirectory.offset;
+  const end = centralDirectory.offset + centralDirectory.size;
+
+  while (offset < end) {
+    if (offset + 46 > zipBytes.length) {
+      throw new Error('Invalid zip artifact: malformed central directory');
+    }
+    if (zipBytes.readUInt32LE(offset) !== 0x02014b50) {
+      throw new Error('Invalid zip artifact: malformed central directory');
+    }
+
+    const compressionMethod = zipBytes.readUInt16LE(offset + 10);
+    const compressedSize = zipBytes.readUInt32LE(offset + 20);
+    const uncompressedSize = zipBytes.readUInt32LE(offset + 24);
+    const fileNameLength = zipBytes.readUInt16LE(offset + 28);
+    const extraLength = zipBytes.readUInt16LE(offset + 30);
+    const commentLength = zipBytes.readUInt16LE(offset + 32);
+    const localHeaderOffset = zipBytes.readUInt32LE(offset + 42);
+    if (offset + 46 + fileNameLength + extraLength + commentLength > end) {
+      throw new Error('Invalid zip artifact: central directory entry is out of bounds');
+    }
+    const fileName = zipBytes.subarray(offset + 46, offset + 46 + fileNameLength).toString('utf8');
+
+    if (fileName === entryName) {
+      return readZipEntryData(zipBytes, {
+        compressionMethod,
+        compressedSize,
+        uncompressedSize,
+        localHeaderOffset,
+        entryName,
+      });
+    }
+
+    offset += 46 + fileNameLength + extraLength + commentLength;
+  }
+
+  throw new Error(`Zip artifact does not contain expected entry ${entryName}`);
+}
+
+function findZipCentralDirectory(zipBytes: Buffer): { offset: number; size: number } {
+  const minimumEndOfCentralDirectorySize = 22;
+  const maximumCommentLength = 0xffff;
+  if (zipBytes.length < minimumEndOfCentralDirectorySize) {
+    throw new Error('Invalid zip artifact: missing end of central directory');
+  }
+  const searchStart = Math.max(0, zipBytes.length - minimumEndOfCentralDirectorySize - maximumCommentLength);
+  for (let offset = zipBytes.length - minimumEndOfCentralDirectorySize; offset >= searchStart; offset -= 1) {
+    if (zipBytes.readUInt32LE(offset) !== 0x06054b50) continue;
+    const size = zipBytes.readUInt32LE(offset + 12);
+    const centralDirectoryOffset = zipBytes.readUInt32LE(offset + 16);
+    if (centralDirectoryOffset + size > offset) {
+      throw new Error('Invalid zip artifact: central directory is out of bounds');
+    }
+    return { offset: centralDirectoryOffset, size };
+  }
+  throw new Error('Invalid zip artifact: missing end of central directory');
+}
+
+function readZipEntryData(
+  zipBytes: Buffer,
+  input: {
+    compressionMethod: number;
+    compressedSize: number;
+    uncompressedSize: number;
+    localHeaderOffset: number;
+    entryName: string;
+  },
+): Buffer {
+  if (input.localHeaderOffset + 30 > zipBytes.length || zipBytes.readUInt32LE(input.localHeaderOffset) !== 0x04034b50) {
+    throw new Error(`Invalid zip artifact: malformed local header for ${input.entryName}`);
+  }
+
+  const fileNameLength = zipBytes.readUInt16LE(input.localHeaderOffset + 26);
+  const extraLength = zipBytes.readUInt16LE(input.localHeaderOffset + 28);
+  const dataOffset = input.localHeaderOffset + 30 + fileNameLength + extraLength;
+  const dataEnd = dataOffset + input.compressedSize;
+  if (dataEnd > zipBytes.length) {
+    throw new Error(`Invalid zip artifact: entry ${input.entryName} is out of bounds`);
+  }
+
+  const compressedData = zipBytes.subarray(dataOffset, dataEnd);
+  const data = input.compressionMethod === 0
+    ? Buffer.from(compressedData)
+    : input.compressionMethod === 8
+      ? inflateRawSync(compressedData, { maxOutputLength: input.uncompressedSize })
+      : undefined;
+  if (!data) {
+    throw new Error(`Unsupported zip compression method ${input.compressionMethod} for ${input.entryName}`);
+  }
+  if (data.length !== input.uncompressedSize) {
+    throw new Error(`Invalid zip artifact: entry ${input.entryName} size mismatch`);
+  }
+  return data;
 }
 
 function createArtifactPlan(
@@ -595,12 +726,29 @@ function validatePluginDefinition(plugin: PluginServiceDefinition): void {
     if (plugin.artifact.installAs !== undefined) {
       validateRelativePath(plugin.artifact.installAs, `Invalid artifact installAs for ${plugin.id}`);
     }
+    if (plugin.artifact.extract !== undefined) {
+      validateArtifactExtraction(plugin.id, plugin.artifact.extract);
+    }
     return;
   }
 
   if (plugin.artifact.kind !== 'bundled-current-repo') {
     throw new Error(`Unsupported artifact kind for ${plugin.id}: ${(plugin.artifact as { kind?: string }).kind ?? ''}`);
   }
+}
+
+function validateArtifactExtraction(
+  pluginId: string,
+  extract: NonNullable<Extract<PluginArtifactDefinition, { kind: 'github-release-asset' }>['extract']>,
+): void {
+  if (!isRecord(extract)) throw new Error(`Invalid artifact extract for ${pluginId}: expected object`);
+  if (extract.kind !== 'zip') {
+    throw new Error(`Unsupported artifact extract kind for ${pluginId}: ${(extract as { kind?: string }).kind ?? ''}`);
+  }
+  if (typeof extract.entry !== 'string') throw new Error(`Invalid artifact extract entry for ${pluginId}`);
+  validateRelativePath(extract.entry, `Invalid artifact extract entry for ${pluginId}`);
+  if (typeof extract.installAs !== 'string') throw new Error(`Invalid artifact extract installAs for ${pluginId}`);
+  validateRelativePath(extract.installAs, `Invalid artifact extract installAs for ${pluginId}`);
 }
 
 function validateServiceDefinition(plugin: PluginServiceDefinition, service: SupervisorServiceDefinition): void {
