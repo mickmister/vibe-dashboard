@@ -11,7 +11,12 @@ import {
 import springboard, { ModuleAPI } from 'springboard';
 import { createDefaultWorkspace, getDefaultSpace } from './types';
 import type { ResolvedWorkspaceComposition } from './modules/plugins/vibe-dashboard/workspace-composition';
-import { isEphemeralCraftSurfaceTabId } from './modules/plugins/vibe-dashboard/craft-surfaces';
+import {
+  BUILT_IN_AGENT_CODE_PAIR_ID,
+  BUILT_IN_AGENT_TAB_ID,
+  isEphemeralCraftSurfaceTabId,
+  migrateWorkspaceBuiltInTabs,
+} from './modules/plugins/vibe-dashboard/craft-surfaces';
 import type {
   WorkspaceState,
   SavedWorkspaceSession,
@@ -45,6 +50,18 @@ const MOBILE_TAB_EMOJIS = [
   '⚡',
   '🛰️',
 ];
+
+
+function getBaseOriginFromComposition(composition: ResolvedWorkspaceComposition): string | undefined {
+  const agentTab = composition.tabs.find((tab) => tab.key === 'agent') ?? composition.tabs[0];
+  if (!agentTab) return undefined;
+  try {
+    const parsed = new URL(agentTab.url, URL_PARSE_BASE);
+    return parsed.origin === URL_PARSE_BASE ? '' : parsed.origin;
+  } catch {
+    return undefined;
+  }
+}
 
 function buildWorkspaceTabUrl(baseOrigin: string, path: string): string {
   return baseOrigin ? `${baseOrigin}${path}` : path;
@@ -140,6 +157,12 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
           migratedSavedSessions.originResumeState,
         );
       }
+    }
+
+    const currentWorkspace = workspaceState.getState();
+    const builtInMigratedWorkspace = migrateWorkspaceBuiltInTabs(currentWorkspace);
+    if (builtInMigratedWorkspace !== currentWorkspace) {
+      workspaceState.setState(builtInMigratedWorkspace);
     }
 
     const actions = moduleAPI.createActions({
@@ -504,47 +527,25 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
         composition: ResolvedWorkspaceComposition;
       }) => {
         let tabGroupId: string | undefined;
-        let pairId: string | undefined;
-        let agentTabId: string | undefined;
 
         workspaceState.setStateImmer((draft) => {
           const space = draft.spaces.find((s) => s.id === args.activeSpaceId);
           if (!space) return;
 
-          // Generate IDs for tab group and plugin-defined tabs.
           tabGroupId = `tg_${draft.nextId++}`;
-          const resolvedTabs = args.composition.tabs.map((tab) => ({
-            key: tab.key,
-            id: `tab_${draft.nextId++}`,
-            title: tab.title,
-            url: tab.url,
-          }));
-          const tabIdByKey = new Map(resolvedTabs.map((tab) => [tab.key, tab.id]));
-          const pairTabIds = args.composition.pairTabKeys
-            .map((key) => tabIdByKey.get(key))
-            .filter((id): id is string => Boolean(id));
-          const primaryTabId = tabIdByKey.get(args.composition.primaryTabKey) ?? resolvedTabs[0]?.id;
-          agentTabId = primaryTabId;
 
-          const pairs = pairTabIds.length > 1
-            ? [
-                {
-                  id: `pair_${draft.nextId++}`,
-                  tabIds: pairTabIds,
-                  ratios: pairTabIds.map(() => 100 / pairTabIds.length),
-                },
-              ]
-            : [];
-          pairId = pairs[0]?.id;
-
-          // Persist the plugin-defined composition through the host action boundary.
           draft.tabGroups.push({
             id: tabGroupId,
             label: args.name,
+            workspace: {
+              workspaceId: args.workspaceId,
+              workspaceDir: args.containerRef,
+              baseOrigin: getBaseOriginFromComposition(args.composition),
+            },
             mobileEmoji: pickRandomMobileEmoji(),
             createdAt: new Date().toISOString(),
-            tabs: resolvedTabs.map(({ id, title, url }) => ({ id, title, url })),
-            pairs,
+            tabs: [],
+            pairs: [],
             order: space.tabGroupIds.length,
           });
 
@@ -552,12 +553,17 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
           space.tabGroupIds.push(tabGroupId);
         });
 
-        if (!(tabGroupId && agentTabId)) {
+        if (!tabGroupId) {
           return undefined;
         }
 
-        return { tabGroupId, pairId, agentTabId };
+        return {
+          tabGroupId,
+          pairId: BUILT_IN_AGENT_CODE_PAIR_ID,
+          agentTabId: BUILT_IN_AGENT_TAB_ID,
+        };
       },
+
 
       updateTabUrl: async (args: {
         tabGroupId: string;

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { describe, expect, it } from 'vitest';
-import beadsWebPlugin from './fixtures/beads-web.plugin.json';
+import beadsWebPlugin from '../fixtures/beads-web.plugin.json';
 import { runPluginInstanceConfigCli } from './plugin-instance-config-cli';
 import {
   applyAddInstancePlugin,

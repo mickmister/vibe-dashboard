@@ -6,6 +6,7 @@ import {
   stripEphemeralCraftSurfaceSessionRefs,
   stripEphemeralCraftSurfaceTabsFromWorkspace,
   tabGroupHasEphemeralCraftSurfaceTab,
+  migrateWorkspaceBuiltInTabs,
 } from './craft-surfaces';
 import type { SavedWorkspaceSession, WorkspaceState } from '../../../types';
 import type { RegisteredCraftSurfaceContribution } from './types';
@@ -39,6 +40,70 @@ const surfaces: RegisteredCraftSurfaceContribution[] = [
 ];
 
 describe('dynamic Craft surfaces', () => {
+
+  it('derives Agent, Code, Beads, and built-in split pairs from Craft workspace metadata', () => {
+    const effective = createEffectiveWorkspaceWithCraftSurfaces({
+      workspace: {
+        ...workspace,
+        tabGroups: [
+          {
+            id: 'craft_workspace',
+            label: 'Workspace Craft',
+            workspace: {
+              workspaceId: 'workspace_1',
+              workspaceDir: '/home/vkuser/repos/app',
+              baseOrigin: 'https://vd.example.test',
+            },
+            tabs: [],
+            pairs: [],
+            order: 0,
+          },
+        ],
+      },
+      craftSurfaces: [],
+      origin: 'https://vd.example.test',
+    });
+
+    expect(effective.tabGroups[0]!.tabs.map((tab) => [tab.id, tab.title, tab.url])).toEqual([
+      ['agent', 'Agent', 'https://vd.example.test/workspaces/workspace_1'],
+      ['code', 'Code', 'https://vd.example.test/?folder=%2Fhome%2Fvkuser%2Frepos%2Fapp'],
+      ['beads', 'Beads', 'https://beads-web.vd.example.test'],
+    ]);
+    expect(effective.tabGroups[0]!.pairs).toEqual([
+      { id: 'agent+code', tabIds: ['agent', 'code'], ratios: [50, 50] },
+      { id: 'agent+beads', tabIds: ['agent', 'beads'], ratios: [50, 50] },
+    ]);
+  });
+
+  it('migrates old persisted Agent and Code tabs into Craft workspace metadata', () => {
+    const migrated = migrateWorkspaceBuiltInTabs({
+      spaces: [{ id: 'space_home', name: 'Home', icon: 'home', tabGroupIds: ['craft_legacy'] }],
+      tabGroups: [
+        {
+          id: 'craft_legacy',
+          label: 'Legacy Craft',
+          tabs: [
+            { id: 'tab_agent', title: 'Agent', url: 'https://vd.example.test/workspaces/workspace_1' },
+            { id: 'tab_code', title: 'Code', url: 'https://vd.example.test/?folder=/home/vkuser/repos/app' },
+            { id: 'tab_custom', title: 'Docs', url: 'https://example.test/docs' },
+          ],
+          pairs: [{ id: 'pair_legacy', tabIds: ['tab_agent', 'tab_code'], ratios: [50, 50] }],
+          order: 0,
+        },
+      ],
+      nextId: 4,
+    });
+
+    expect(migrated.tabGroups[0]).toMatchObject({
+      workspace: {
+        workspaceId: 'workspace_1',
+        workspaceDir: '/home/vkuser/repos/app',
+        baseOrigin: 'https://vd.example.test',
+      },
+      tabs: [{ id: 'tab_custom', title: 'Docs', url: 'https://example.test/docs' }],
+      pairs: [],
+    });
+  });
   it('adds plugin-provided ephemeral placeholder tabs to every Craft without mutating persisted workspace state', () => {
     const effective = createEffectiveWorkspaceWithCraftSurfaces({
       workspace,
@@ -49,16 +114,16 @@ describe('dynamic Craft surfaces', () => {
     expect(workspace.tabGroups[0]!.tabs.map((tab) => tab.id)).toEqual(['tab_existing']);
     expect(effective.tabGroups.map((craft) => craft.tabs.map((tab) => tab.id))).toEqual([
       [
-        'tab_existing',
         'craft-surface:craft_1:dev.mickmister.vibe-kanban/board',
         'craft-surface:craft_1:app.excalidraw.canvas/canvas',
+        'tab_existing',
       ],
       [
         'craft-surface:craft_2:dev.mickmister.vibe-kanban/board',
         'craft-surface:craft_2:app.excalidraw.canvas/canvas',
       ],
     ]);
-    expect(effective.tabGroups[0]!.tabs[1]).toMatchObject({
+    expect(effective.tabGroups[0]!.tabs[0]).toMatchObject({
       title: 'Kanban',
       url: 'https://vd.example.test/',
       pinned: true,
@@ -68,7 +133,7 @@ describe('dynamic Craft surfaces', () => {
         sourceKey: 'board',
       },
     });
-    expect(isEphemeralCraftSurfaceTab(effective.tabGroups[0]!.tabs[1])).toBe(true);
+    expect(isEphemeralCraftSurfaceTab(effective.tabGroups[0]!.tabs[0])).toBe(true);
   });
 
   it('does not duplicate a placeholder that is already present in a Craft', () => {

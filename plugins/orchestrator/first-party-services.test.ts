@@ -21,7 +21,7 @@ const goldenDockerfile = readFileSync(resolve(process.cwd(), 'Dockerfile.vkvd'),
 const goldenCaddyfile = readFileSync(resolve(process.cwd(), 'Caddyfile'), 'utf8');
 const pluginCaddyfile = readFileSync(resolve(process.cwd(), 'Caddyfile.plugins'), 'utf8');
 const dockerEntrypoint = readFileSync(resolve(process.cwd(), 'docker-entrypoint.sh'), 'utf8');
-const pluginRuntimeApply = readFileSync(resolve(process.cwd(), 'scripts/vd-plugin-runtime-apply.sh'), 'utf8');
+const pluginRuntimeApply = readFileSync(resolve(process.cwd(), 'plugins/scripts/vd-plugin-runtime-apply.sh'), 'utf8');
 
 describe('first-party service plugin inventory and golden supervisor config', () => {
   it('inventories current supervisor-managed programs as first-party plugin manifests with privilege tiers', () => {
@@ -65,7 +65,7 @@ describe('first-party service plugin inventory and golden supervisor config', ()
     expect(goldenCaddyfile).not.toContain('@beads_web_host');
     expect(pluginCaddyfile).toContain('VD plugin-owned Caddy routes');
     expect(goldenDockerfile).toContain('COPY Caddyfile.plugins /etc/caddy/plugins.caddy');
-    expect(goldenDockerfile).toContain('COPY scripts/vd-plugin-runtime-apply.sh /usr/local/bin/vd-plugin-runtime-apply.sh');
+    expect(goldenDockerfile).toContain('COPY plugins/scripts/vd-plugin-runtime-apply.sh /usr/local/bin/vd-plugin-runtime-apply.sh');
     expect(dockerEntrypoint).toContain('Runtime plugin apply writes generated routes here after Caddy starts, then reloads Caddy.');
     expect(goldenCaddyfile).toContain('Caddy starts with this import present; runtime');
     expect(dockerEntrypoint).not.toContain('plugin-service-orchestrator-cli.ts apply');

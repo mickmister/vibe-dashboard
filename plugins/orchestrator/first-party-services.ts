@@ -144,7 +144,7 @@ stdout_logfile=/dev/fd/1
 stdout_logfile_maxbytes=0
 stderr_logfile=/dev/fd/2
 stderr_logfile_maxbytes=0
-environment=PORT="%(ENV_CODE_PORT)s",CODE_PASSWORD="%(ENV_CODE_PASSWORD)s",HOME="/home/vkuser",XDG_CONFIG_HOME="/home/vkuser/.config",PATH="/home/vkuser/.npm-global/bin:/usr/local/cargo/bin:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+environment=PORT="%(ENV_CODE_PORT)s",CODE_PASSWORD="%(ENV_CODE_PASSWORD)s",HOME="/home/vkuser",XDG_CONFIG_HOME="/home/vkuser/.config",PATH="/usr/local/lib/vk-bd-wrapper/bin:/home/vkuser/.npm-global/bin:/usr/local/cargo/bin:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 user=vkuser`;
 
 const VIBE_KANBAN_SUPERVISOR = `; vibe-kanban (source-built binary with database backup before starting)
@@ -156,7 +156,7 @@ stdout_logfile=/dev/fd/1
 stdout_logfile_maxbytes=0
 stderr_logfile=/dev/fd/2
 stderr_logfile_maxbytes=0
-environment=HOST="0.0.0.0",PORT="%(ENV_BACKEND_PORT)s",ENABLE_VIBE_KANBAN="%(ENV_ENABLE_VIBE_KANBAN)s",VK_BUILD_VERSION_FILE="/usr/local/share/vibe-kanban-build-version",VK_SHARED_API_BASE="%(ENV_VK_SHARED_API_BASE)s",VK_ALLOWED_ORIGINS="%(ENV_VK_ALLOWED_ORIGINS)s",HOME="/home/vkuser",XDG_CONFIG_HOME="/home/vkuser/.config",PATH="/home/vkuser/.npm-global/bin:/usr/local/cargo/bin:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+environment=HOST="0.0.0.0",PORT="%(ENV_BACKEND_PORT)s",ENABLE_VIBE_KANBAN="%(ENV_ENABLE_VIBE_KANBAN)s",VK_BUILD_VERSION_FILE="/usr/local/share/vibe-kanban-build-version",VK_SHARED_API_BASE="%(ENV_VK_SHARED_API_BASE)s",VK_ALLOWED_ORIGINS="%(ENV_VK_ALLOWED_ORIGINS)s",HOME="/home/vkuser",XDG_CONFIG_HOME="/home/vkuser/.config",PATH="/usr/local/lib/vk-bd-wrapper/bin:/home/vkuser/.npm-global/bin:/usr/local/cargo/bin:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 user=vkuser
 directory=/home/vkuser/repos`;
 
@@ -169,7 +169,7 @@ stdout_logfile=/dev/fd/1
 stdout_logfile_maxbytes=0
 stderr_logfile=/dev/fd/2
 stderr_logfile_maxbytes=0
-environment=HOST="0.0.0.0",PORT="%(ENV_DASHBOARD_PORT)s",VD_PLUGIN_INSTALL_ROOT="/var/lib/vd/plugins",HOME="/home/vkuser",XDG_CONFIG_HOME="/home/vkuser/.config",PATH="/home/vkuser/.npm-global/bin:/usr/local/cargo/bin:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+environment=HOST="0.0.0.0",PORT="%(ENV_DASHBOARD_PORT)s",VD_PLUGIN_INSTALL_ROOT="/var/lib/vd/plugins",HOME="/home/vkuser",XDG_CONFIG_HOME="/home/vkuser/.config",PATH="/usr/local/lib/vk-bd-wrapper/bin:/home/vkuser/.npm-global/bin:/usr/local/cargo/bin:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 user=vkuser
 directory=/home/vkuser/.local/share/vibe-dashboard-runtime`;
 
@@ -184,7 +184,7 @@ stdout_logfile=/dev/fd/1
 stdout_logfile_maxbytes=0
 stderr_logfile=/dev/fd/2
 stderr_logfile_maxbytes=0
-environment=HOME="/root",PATH="/home/vkuser/.npm-global/bin:/usr/local/cargo/bin:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+environment=HOME="/root",PATH="/usr/local/lib/vk-bd-wrapper/bin:/home/vkuser/.npm-global/bin:/usr/local/cargo/bin:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 user=root`;
 
 const CADDY_SUPERVISOR = `; caddy
@@ -208,7 +208,7 @@ stdout_logfile=/dev/fd/1
 stdout_logfile_maxbytes=0
 stderr_logfile=/dev/fd/2
 stderr_logfile_maxbytes=0
-environment=HOME="/root",PATH="/home/vkuser/.npm-global/bin:/usr/local/cargo/bin:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+environment=HOME="/root",PATH="/usr/local/lib/vk-bd-wrapper/bin:/home/vkuser/.npm-global/bin:/usr/local/cargo/bin:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 user=root
 directory=/home/vkuser/repos/vibe-kanban-vscode-web`;
 
@@ -222,7 +222,7 @@ stdout_logfile=/dev/fd/1
 stdout_logfile_maxbytes=0
 stderr_logfile=/dev/fd/2
 stderr_logfile_maxbytes=0
-environment=HOME="/root",PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+environment=HOME="/root",PATH="/usr/local/lib/vk-bd-wrapper/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 user=root`;
 
 const TAILSCALE_SUPERVISOR = `; tailscaled (daemon must run as root, requires ENABLE_TAILSCALE=true)

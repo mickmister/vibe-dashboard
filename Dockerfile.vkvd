@@ -309,8 +309,15 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # Copy startup scripts
 COPY scripts/sync-seeded-repo.sh /usr/local/bin/sync-seeded-repo.sh
-COPY scripts/vd-plugin-runtime-apply.sh /usr/local/bin/vd-plugin-runtime-apply.sh
+COPY plugins/scripts/vd-plugin-runtime-apply.sh /usr/local/bin/vd-plugin-runtime-apply.sh
 RUN chmod +x /usr/local/bin/sync-seeded-repo.sh /usr/local/bin/vd-plugin-runtime-apply.sh
+
+# Install bd wrapper ahead of the real Beads CLI so VD-managed agent shells stamp
+# created beads with branch/workspace/session metadata.
+RUN mkdir -p /usr/local/lib/vk-bd-wrapper/bin
+COPY scripts/bd-wrapper/bin/bd /usr/local/lib/vk-bd-wrapper/bin/bd
+RUN chmod 0755 /usr/local/lib/vk-bd-wrapper/bin/bd \
+    && ln -sf bd /usr/local/lib/vk-bd-wrapper/bin/beads
 
 # Copy default VS Code settings
 RUN mkdir -p /home/vkuser/.local/share/code-server/User

@@ -11,8 +11,9 @@ on:
       - "docker-entrypoint.sh"
       - "supervisord.vkvd.conf"
       - "scripts/smoke-vkvd-plugin-runtime.sh"
-      - "scripts/vd-plugin-runtime-apply.sh"
+      - "plugins/scripts/vd-plugin-runtime-apply.sh"
       - "src/modules/plugins/vibe-dashboard/**"
+      - "plugins/**"
   push:
     branches:
       - "**"
@@ -24,8 +25,9 @@ on:
       - "docker-entrypoint.sh"
       - "supervisord.vkvd.conf"
       - "scripts/smoke-vkvd-plugin-runtime.sh"
-      - "scripts/vd-plugin-runtime-apply.sh"
+      - "plugins/scripts/vd-plugin-runtime-apply.sh"
       - "src/modules/plugins/vibe-dashboard/**"
+      - "plugins/**"
 
 permissions:
   contents: read

@@ -3,8 +3,8 @@ import { access, mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import beadsWebOnlyCatalog from './fixtures/beads-web.plugins.json';
-import firstPartyPluginCatalog from './plugins.json';
+import beadsWebOnlyCatalog from '../fixtures/beads-web.plugins.json';
+import firstPartyPluginCatalog from '../builtin.plugins.json';
 import { runPluginServiceOrchestratorCli } from './plugin-service-orchestrator-cli';
 import {
   applySupervisorConfigChanges,

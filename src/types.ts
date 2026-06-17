@@ -32,6 +32,12 @@ export type TabPair = ViewPair;
 export interface Craft {
   id: string;
   label: string;
+  /** VK workspace metadata used to derive first-party/runtime views. */
+  workspace?: {
+    workspaceId: string;
+    workspaceDir: string;
+    baseOrigin?: string;
+  };
   /** Optional compact label shown in the mobile craft strip */
   mobileLabel?: string;
   /** Optional emoji shown in the mobile craft strip */

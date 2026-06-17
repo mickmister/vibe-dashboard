@@ -5,7 +5,7 @@ import { parsePluginFrontendAssetRoute } from '../modules/plugins/vibe-dashboard
 import {
   discoverInstalledPlugins,
   type DiscoveredInstalledPlugin,
-} from '../modules/plugins/vibe-dashboard/installer';
+} from '../../plugins/orchestrator/installer';
 
 export interface RegisterPluginAssetRoutesOptions {
   installRoot: string;

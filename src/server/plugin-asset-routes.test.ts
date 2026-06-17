@@ -9,8 +9,8 @@ import {
   installVerifiedPluginArtifact,
   sha256Hex,
   type PluginArtifactDescriptor,
-} from '../modules/plugins/vibe-dashboard/installer';
-import type { PluginManifest } from '../modules/plugins/vibe-dashboard/manifest';
+} from '../../plugins/orchestrator/installer';
+import type { PluginManifest } from '../../plugins/orchestrator/manifest';
 import { registerPluginAssetRoutes, resolvePluginFrontendAssetRequest } from './plugin-asset-routes';
 
 const signatureKey = 'test-plugin-asset-route-signing-key';

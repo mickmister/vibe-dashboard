@@ -25,7 +25,7 @@ fi
 exit 0
 `);
 
-    const result = await execFileAsync('sh', [resolve(process.cwd(), 'scripts/vd-plugin-runtime-apply.sh')], {
+    const result = await execFileAsync('sh', [resolve(process.cwd(), 'plugins/scripts/vd-plugin-runtime-apply.sh')], {
       env: {
         ...process.env,
         PATH: `${binDir}:${process.env.PATH ?? ''}`,
@@ -54,7 +54,7 @@ echo "$count" > "$CADDY_COUNT_PATH"
 exit 1
 `);
 
-    await expect(execFileAsync('sh', [resolve(process.cwd(), 'scripts/vd-plugin-runtime-apply.sh')], {
+    await expect(execFileAsync('sh', [resolve(process.cwd(), 'plugins/scripts/vd-plugin-runtime-apply.sh')], {
       env: {
         ...process.env,
         PATH: `${binDir}:${process.env.PATH ?? ''}`,

@@ -6,7 +6,7 @@ import { promisify } from 'node:util';
 import {
   renderCaddyPluginExposureConfig,
   type PluginServiceCatalog,
-} from '../src/modules/plugins/vibe-dashboard/plugin-service-orchestrator.ts';
+} from '../plugins/orchestrator/plugin-service-orchestrator.ts';
 
 const execFileAsync = promisify(execFile);
 const repoRoot = resolve(import.meta.dirname, '..');
@@ -17,7 +17,7 @@ async function main(): Promise<void> {
   const [baseCaddyfile, placeholderPluginCaddy, firstPartyCatalog] = await Promise.all([
     readFile(resolve(repoRoot, 'Caddyfile'), 'utf8'),
     readFile(resolve(repoRoot, 'Caddyfile.plugins'), 'utf8'),
-    readPluginCatalog(resolve(repoRoot, 'src/modules/plugins/vibe-dashboard/plugins.json')),
+    readPluginCatalog(resolve(repoRoot, 'plugins/builtin.plugins.json')),
   ]);
 
   if (!baseCaddyfile.includes(activePluginImportPath)) {
