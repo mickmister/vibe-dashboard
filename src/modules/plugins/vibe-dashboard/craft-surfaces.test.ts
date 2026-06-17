@@ -75,6 +75,62 @@ describe('dynamic Craft surfaces', () => {
     ]);
   });
 
+  it('derives direct beads-web port URLs for IP-hosted workspaces', () => {
+    const effective = createEffectiveWorkspaceWithCraftSurfaces({
+      workspace: {
+        ...workspace,
+        tabGroups: [
+          {
+            id: 'craft_workspace',
+            label: 'Workspace Craft',
+            workspace: {
+              workspaceId: 'workspace_1',
+              workspaceDir: '/home/vkuser/repos/app',
+              baseOrigin: 'http://127.0.0.1:3001',
+            },
+            tabs: [],
+            pairs: [],
+            order: 0,
+          },
+        ],
+      },
+      craftSurfaces: [],
+      origin: 'http://127.0.0.1:3001',
+    });
+
+    expect(effective.tabGroups[0]!.tabs.find((tab) => tab.id === 'beads')?.url).toBe(
+      'http://127.0.0.1:3109',
+    );
+  });
+
+  it('brackets IPv6 direct beads-web port URLs', () => {
+    const effective = createEffectiveWorkspaceWithCraftSurfaces({
+      workspace: {
+        ...workspace,
+        tabGroups: [
+          {
+            id: 'craft_workspace',
+            label: 'Workspace Craft',
+            workspace: {
+              workspaceId: 'workspace_1',
+              workspaceDir: '/home/vkuser/repos/app',
+              baseOrigin: 'http://[::1]:3001',
+            },
+            tabs: [],
+            pairs: [],
+            order: 0,
+          },
+        ],
+      },
+      craftSurfaces: [],
+      origin: 'http://[::1]:3001',
+    });
+
+    expect(effective.tabGroups[0]!.tabs.find((tab) => tab.id === 'beads')?.url).toBe(
+      'http://[::1]:3109',
+    );
+  });
+
   it('migrates old persisted Agent and Code tabs into Craft workspace metadata', () => {
     const migrated = migrateWorkspaceBuiltInTabs({
       spaces: [{ id: 'space_home', name: 'Home', icon: 'home', tabGroupIds: ['craft_legacy'] }],

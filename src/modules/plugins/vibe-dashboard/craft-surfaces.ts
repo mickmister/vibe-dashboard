@@ -26,6 +26,7 @@ const BUILT_IN_WORKSPACE_PAIR_IDS = new Set([
   BUILT_IN_AGENT_BEADS_PAIR_ID,
 ]);
 const URL_PARSE_BASE = 'https://workspace.local';
+const BEADS_WEB_DEFAULT_PORT = '3109';
 
 type BuiltInWorkspaceMetadata = NonNullable<TabGroup['workspace']>;
 
@@ -366,7 +367,9 @@ function buildBeadsWebUrl(baseOrigin: string): string {
   if (!baseOrigin) return '/beads';
   try {
     const parsed = new URL(baseOrigin, URL_PARSE_BASE);
-    if (isIpHostname(parsed.hostname)) return `${parsed.origin}/beads`;
+    if (isIpHostname(parsed.hostname)) {
+      return `${parsed.protocol}//${formatUrlHostname(parsed.hostname)}:${BEADS_WEB_DEFAULT_PORT}`;
+    }
     const baseHostname = parsed.hostname
       .replace(/^port-\d+\./, '')
       .replace(/^\d+\./, '');
@@ -374,6 +377,11 @@ function buildBeadsWebUrl(baseOrigin: string): string {
   } catch {
     return '/beads';
   }
+}
+
+function formatUrlHostname(hostname: string): string {
+  if (hostname.startsWith('[') && hostname.endsWith(']')) return hostname;
+  return hostname.includes(':') ? `[${hostname}]` : hostname;
 }
 
 function getWorkspaceIdFromTabs(tabs: Tab[]): string | null {
