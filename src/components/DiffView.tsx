@@ -174,7 +174,7 @@ export function DiffView({ workspaceId, workspaceDir }: DiffViewProps) {
       setRepoCompareMode(selectedRepo.relativePath, {
         type: 'range',
         baseRef: commitSha,
-        ...(currentMode.type === 'commit'
+        ...(currentMode.type === 'commit' || currentMode.type === 'range'
           ? { headRef: currentMode.headRef }
           : {}),
       });
