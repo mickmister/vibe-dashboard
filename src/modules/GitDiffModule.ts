@@ -18,9 +18,15 @@ export interface DiffRouteRepo {
   }>;
   files: Array<{ path: string; status: string }>;
   headRef: string;
+  compareMode: DiffCompareMode;
   patch: string;
   error?: string;
 }
+
+export type DiffCompareMode =
+  | { type: 'branch' }
+  | { type: 'commit'; headRef: string }
+  | { type: 'range'; baseRef: string; headRef?: string };
 
 export interface DiffRouteResponse {
   workspaceDir: string;
@@ -56,7 +62,7 @@ async function createGitDiffModule(moduleAPI: ModuleAPI) {
     loadDiff: async (args: {
       workspaceId: string;
       workspaceDir: string;
-      headRefs?: Record<string, string>;
+      compareModes?: Record<string, DiffCompareMode>;
     }): Promise<DiffRouteResponse> => {
       const workspaceId = args.workspaceId.trim();
       const workspaceDir = args.workspaceDir.trim();
@@ -79,7 +85,7 @@ async function createGitDiffModule(moduleAPI: ModuleAPI) {
       const repos = await loadWorkspaceDiffs(
         workspaceDir,
         workspaceRepos,
-        parseHeadRefs(args.headRefs),
+        parseCompareModes(args.compareModes),
       );
       return { workspaceDir, repos };
       // @platform end
@@ -104,6 +110,44 @@ export function parseHeadRefs(
   return new Map(entries);
 }
 
+export function parseCompareModes(
+  value: Record<string, DiffCompareMode> | null | undefined,
+): Map<string, DiffCompareMode> {
+  if (!value) return new Map();
+  const entries: Array<[string, DiffCompareMode]> = [];
+  for (const [key, mode] of Object.entries(value)) {
+    if (!isDiffCompareMode(mode)) continue;
+    if (mode.type === 'branch') {
+      entries.push([key, { type: 'branch' }]);
+    } else if (mode.type === 'commit') {
+      entries.push([key, { type: 'commit', headRef: mode.headRef.trim() }]);
+    } else {
+      entries.push([
+        key,
+        {
+          type: 'range',
+          baseRef: mode.baseRef.trim(),
+          ...(mode.headRef?.trim() ? { headRef: mode.headRef.trim() } : {}),
+        },
+      ]);
+    }
+  }
+  return new Map(entries);
+}
+
+function isDiffCompareMode(value: unknown): value is DiffCompareMode {
+  if (!value || typeof value !== 'object') return false;
+  const mode = value as Partial<DiffCompareMode>;
+  if (mode.type === 'branch') return true;
+  if (mode.type === 'commit') {
+    return typeof mode.headRef === 'string' && mode.headRef.trim().length > 0;
+  }
+  if (mode.type === 'range') {
+    return typeof mode.baseRef === 'string' && mode.baseRef.trim().length > 0;
+  }
+  return false;
+}
+
 async function getWorkspaceRepoMetadata(
   client: { getWorkspaceRepos(workspaceId: string): Promise<RepoWithBranch[]> },
   workspaceId: string,
@@ -122,7 +166,7 @@ async function getWorkspaceRepoMetadata(
 async function loadWorkspaceDiffs(
   workspaceDir: string,
   workspaceRepos: RepoWithBranch[],
-  headRefs: Map<string, string>,
+  compareModes: Map<string, DiffCompareMode>,
 ): Promise<DiffRouteRepo[]> {
   const discoveredRepoPaths = await discoverGitRepos(workspaceDir);
   const repoPaths = selectWorkspaceRepoPaths(
@@ -133,7 +177,7 @@ async function loadWorkspaceDiffs(
   const targetBranches = buildTargetBranchMap(workspaceRepos);
   const repos = await Promise.all(
     repoPaths.map((repoPath) =>
-      loadRepoDiff(workspaceDir, repoPath, targetBranches, headRefs),
+      loadRepoDiff(workspaceDir, repoPath, targetBranches, compareModes),
     ),
   );
   return repos.sort(
@@ -244,37 +288,42 @@ async function loadRepoDiff(
   workspaceDir: string,
   repoPath: string,
   targetBranches: Map<string, string>,
-  headRefs: Map<string, string>,
+  compareModes: Map<string, DiffCompareMode>,
 ): Promise<DiffRouteRepo> {
   const relativePath = relative(workspaceDir, repoPath) || '.';
   const name = basename(repoPath);
   const targetBranch =
     targetBranches.get(name) ?? targetBranches.get(relativePath) ?? null;
-  const requestedHeadRef =
-    headRefs.get(relativePath) ??
-    headRefs.get(name) ??
-    headRefs.get(repoPath) ??
-    'HEAD';
+  const compareMode =
+    compareModes.get(relativePath) ??
+    compareModes.get(name) ??
+    compareModes.get(repoPath) ??
+    ({ type: 'branch' } as const);
 
   try {
     const branch = await git(repoPath, ['rev-parse', '--abbrev-ref', 'HEAD']);
-    const headRef = await resolveHeadRef(repoPath, requestedHeadRef);
-    const baseRef = targetBranch
-      ? await resolveBaseRef(repoPath, targetBranch, headRef)
-      : await resolveDefaultBaseRef(repoPath, headRef);
-    const diffRange = baseRef ? [`${baseRef}...${headRef}`] : [headRef];
+    const branchHeadRef = await resolveHeadRef(repoPath, 'HEAD');
+    const branchBaseRef = targetBranch
+      ? await resolveBaseRef(repoPath, targetBranch, branchHeadRef)
+      : await resolveDefaultBaseRef(repoPath, branchHeadRef);
+    const comparison = await resolveDiffComparison(
+      repoPath,
+      compareMode,
+      branchHeadRef,
+      branchBaseRef,
+    );
     const patch = await git(repoPath, [
       'diff',
       '--find-renames',
       '--binary',
-      ...diffRange,
+      ...comparison.diffRange,
     ]);
     const files = parseNameStatus(
       await git(repoPath, [
         'diff',
         '--name-status',
         '--find-renames',
-        ...diffRange,
+        ...comparison.diffRange,
       ]),
     );
     const commits = parseCommits(
@@ -283,7 +332,7 @@ async function loadRepoDiff(
         '--format=commit%x00%H%x00%s%x00%aI',
         '--numstat',
         '-50',
-        ...(baseRef ? [`${baseRef}..HEAD`] : ['HEAD']),
+        ...(branchBaseRef ? [`${branchBaseRef}..HEAD`] : ['HEAD']),
       ]),
     );
 
@@ -293,8 +342,9 @@ async function loadRepoDiff(
       relativePath,
       branch,
       targetBranch,
-      baseRef,
-      headRef,
+      baseRef: comparison.baseRef,
+      headRef: comparison.headRef,
+      compareMode: comparison.compareMode,
       commits,
       files,
       patch,
@@ -307,13 +357,69 @@ async function loadRepoDiff(
       branch: null,
       targetBranch,
       baseRef: null,
-      headRef: requestedHeadRef,
+      headRef: compareMode.type === 'commit' ? compareMode.headRef : compareMode.type === 'range' ? compareMode.headRef ?? 'HEAD' : 'HEAD',
+      compareMode,
       commits: [],
       files: [],
       patch: '',
       error: error instanceof Error ? error.message : String(error),
     };
   }
+}
+
+type ResolvedDiffComparison = {
+  baseRef: string | null;
+  headRef: string;
+  compareMode: DiffCompareMode;
+  diffRange: string[];
+};
+
+async function resolveDiffComparison(
+  repoPath: string,
+  compareMode: DiffCompareMode,
+  branchHeadRef: string,
+  branchBaseRef: string | null,
+): Promise<ResolvedDiffComparison> {
+  if (compareMode.type === 'commit') {
+    const headRef = await resolveHeadRef(repoPath, compareMode.headRef);
+    const baseRef = await resolveFirstParentRef(repoPath, headRef);
+    return {
+      baseRef,
+      headRef,
+      compareMode: { type: 'commit', headRef },
+      diffRange: [baseRef, headRef],
+    };
+  }
+
+  if (compareMode.type === 'range') {
+    const baseRef = await resolveHeadRef(repoPath, compareMode.baseRef);
+    const headRef = await resolveHeadRef(
+      repoPath,
+      compareMode.headRef || branchHeadRef,
+    );
+    return {
+      baseRef,
+      headRef,
+      compareMode: { type: 'range', baseRef, headRef },
+      diffRange: [baseRef, headRef],
+    };
+  }
+
+  return {
+    baseRef: branchBaseRef,
+    headRef: branchHeadRef,
+    compareMode: { type: 'branch' },
+    diffRange: branchBaseRef ? [`${branchBaseRef}...${branchHeadRef}`] : [branchHeadRef],
+  };
+}
+
+async function resolveFirstParentRef(
+  repoPath: string,
+  headRef: string,
+): Promise<string> {
+  const revision = await git(repoPath, ['rev-list', '--parents', '-n', '1', headRef]);
+  const [, firstParent] = revision.trim().split(/\s+/);
+  return firstParent || '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
 }
 
 async function resolveHeadRef(

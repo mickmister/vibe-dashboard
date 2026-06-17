@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   isSafeGitRef,
+  parseCompareModes,
   parseCommits,
   parseHeadRefs,
   selectWorkspaceRepoPaths,
@@ -18,6 +19,25 @@ describe('parseHeadRefs', () => {
       new Map([
         ['.', 'HEAD'],
         ['repo', 'abc123'],
+      ]),
+    );
+  });
+});
+
+describe('parseCompareModes', () => {
+  it('parses branch, commit, and arbitrary range compare modes', () => {
+    expect(
+      parseCompareModes({
+        '.': { type: 'branch' },
+        repo: { type: 'commit', headRef: ' abc123 ' },
+        other: { type: 'range', baseRef: ' def456 ', headRef: ' HEAD ' },
+        ignored: { type: 'commit', headRef: '   ' },
+      }),
+    ).toEqual(
+      new Map([
+        ['.', { type: 'branch' }],
+        ['repo', { type: 'commit', headRef: 'abc123' }],
+        ['other', { type: 'range', baseRef: 'def456', headRef: 'HEAD' }],
       ]),
     );
   });
