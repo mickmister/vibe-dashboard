@@ -23,6 +23,12 @@ interface UnifiedTabViewProps {
   onDeleteSession: (sessionId: string) => void;
   onStartNewSession: () => void;
   onNavigateToTabGroup: (spaceId: string, tabGroupId: string) => void;
+  onOpenVKWorkspace: (
+    taskAttemptId: string,
+    name: string,
+    containerRef: string,
+    spaceId: string,
+  ) => Promise<void>;
 }
 
 export function UnifiedTabView({
@@ -40,6 +46,7 @@ export function UnifiedTabView({
   onDeleteSession,
   onStartNewSession,
   onNavigateToTabGroup,
+  onOpenVKWorkspace,
 }: UnifiedTabViewProps) {
   const activeTabGroup = tabGroups.find((tg) => tg.id === activeTabGroupId);
   const activeItemId = activeTabGroup
@@ -86,37 +93,7 @@ export function UnifiedTabView({
             onDeleteSession={onDeleteSession}
             onStartNewSession={onStartNewSession}
             onNavigateToTabGroup={onNavigateToTabGroup}
-            onOpenVKWorkspace={async (taskAttemptId, name, containerRef, spaceId) => {
-              const currentSavedSession = savedSessions.find(
-                (savedSession) => savedSession.id === currentSessionId,
-              );
-              if (currentSavedSession) {
-                const result = await actions.openVKWorkspaceInSavedSession({
-                  sessionId: currentSavedSession.id,
-                  taskAttemptId,
-                  name,
-                  containerRef,
-                  activeSpaceId: spaceId,
-                });
-                if (result) {
-                  sessionActions.activateSavedSession(result.savedSession);
-                }
-                return;
-              }
-
-              const result = await actions.addVKWorkspace({
-                taskAttemptId,
-                name,
-                containerRef,
-                activeSpaceId: spaceId,
-              });
-              if (result) {
-                sessionActions.selectSessionTabGroup(
-                  spaceId,
-                  result.tabGroupId,
-                );
-              }
-            }}
+            onOpenVKWorkspace={onOpenVKWorkspace}
           />
         ) : (
           <div className="flex-1 flex items-center justify-center text-neutral-500">

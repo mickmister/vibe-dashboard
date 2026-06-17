@@ -391,6 +391,7 @@ function WorkspaceRow({
         ) : onOpenInNewTabGroup ? (
           <button
             onClick={onOpenInNewTabGroup}
+            aria-label={`Open ${ws.name}`}
             className="px-2 py-1 rounded text-xs font-medium bg-zinc-700 text-zinc-300 border border-zinc-600 hover:bg-zinc-600 hover:text-white transition-colors"
           >
             Open

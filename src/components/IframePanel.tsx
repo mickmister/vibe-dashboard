@@ -24,8 +24,13 @@ interface IframePanelProps {
   onRenameSession?: (sessionId: string, name: string) => void;
   onDeleteSession?: (sessionId: string) => void;
   onStartNewSession?: () => void;
-  onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void;
-  onOpenVKWorkspace?: (taskAttemptId: string, name: string, containerRef: string, spaceId: string) => void;
+  onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void | Promise<void>;
+  onOpenVKWorkspace?: (
+    taskAttemptId: string,
+    name: string,
+    containerRef: string,
+    spaceId: string,
+  ) => void | Promise<void>;
 }
 
 /**
@@ -805,8 +810,13 @@ function SingleTabView({
   onRenameSession?: (sessionId: string, name: string) => void;
   onDeleteSession?: (sessionId: string) => void;
   onStartNewSession?: () => void;
-  onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void;
-  onOpenVKWorkspace?: (taskAttemptId: string, name: string, containerRef: string, spaceId: string) => void;
+  onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void | Promise<void>;
+  onOpenVKWorkspace?: (
+    taskAttemptId: string,
+    name: string,
+    containerRef: string,
+    spaceId: string,
+  ) => void | Promise<void>;
 }) {
   const isLoaded = loadingState.get(activeTab.id) ?? false;
   const hasError = errorState.get(activeTab.id) ?? false;

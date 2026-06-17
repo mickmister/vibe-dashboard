@@ -500,19 +500,15 @@ springboard.registerModule(
         }).then(async (result) => {
           const updatedSession = await result;
           if (!updatedSession) return;
-          navigate(
-            buildSavedVoyageDashboardPath({
-              currentSearch: location.search,
-              workspace,
+          updateBookmarkedSessionSearch(
+            updatedSession.id,
+            updatedSession.name,
+            updatedSession.activeVoyageEntryId,
+            {
               session: updatedSession,
-              savedSessions: savedVoyages.some((entry) => entry.id === updatedSession.id)
-                ? savedVoyages
-                : [...savedVoyages, updatedSession],
-              voyageEntryId: updatedSession.activeVoyageEntryId,
               ...(args.tabId ? { tabId: args.tabId } : {}),
               ...(args.viewIds ? { viewIds: args.viewIds } : {}),
-            }),
-            { replace: true },
+            },
           );
         });
         return true;
