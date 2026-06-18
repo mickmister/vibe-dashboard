@@ -311,12 +311,17 @@ RUN chmod +x /usr/local/bin/backup-vibe-kanban-db.sh
 # Copy project files to a staging location (will be copied to volume at runtime)
 COPY . /opt/vibe-kanban-vscode-web-seed
 COPY --from=dashboard-builder /app/dist/plugins-orchestrator /opt/vibe-kanban-vscode-web-seed/dist/plugins-orchestrator
+COPY --from=dashboard-builder /app/dist/vibe-agent /opt/vibe-kanban-vscode-web-seed/dist/vibe-agent
 RUN chown -R vkuser:vkadmin /opt/vibe-kanban-vscode-web-seed && \
     chmod -R g+rwX /opt/vibe-kanban-vscode-web-seed && \
     find /opt/vibe-kanban-vscode-web-seed -type d -exec chmod g+s {} +
 RUN printf '#!/bin/sh\nexec node /opt/vibe-kanban-vscode-web-seed/dist/vibe-agent/legacy-cli/vibe-agent.js "$@"\n' > /usr/local/bin/vibe-agent && \
     printf '#!/bin/sh\nexec node /opt/vibe-kanban-vscode-web-seed/dist/vibe-agent/cli/vk.js "$@"\n' > /usr/local/bin/vk && \
     chmod 0755 /usr/local/bin/vibe-agent /usr/local/bin/vk
+RUN command -v vibe-agent && \
+    command -v vk && \
+    vibe-agent --help >/dev/null && \
+    vk --help >/dev/null
 
 # Copy packaged vibe-dashboard runtime artifacts to their final runtime path
 RUN mkdir -p /home/vkuser/.local/share/vibe-dashboard-runtime

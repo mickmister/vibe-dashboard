@@ -66,6 +66,10 @@ describe('first-party service plugin inventory and golden supervisor config', ()
     expect(pluginCaddyfile).toContain('VD plugin-owned Caddy routes');
     expect(goldenDockerfile).toContain('COPY Caddyfile.plugins /etc/caddy/plugins.caddy');
     expect(goldenDockerfile).toContain('COPY plugins/scripts/vd-plugin-runtime-apply.sh /usr/local/bin/vd-plugin-runtime-apply.sh');
+    expect(goldenDockerfile).toContain('COPY --from=dashboard-builder /app/dist/vibe-agent /opt/vibe-kanban-vscode-web-seed/dist/vibe-agent');
+    expect(goldenDockerfile).toContain('exec node /opt/vibe-kanban-vscode-web-seed/dist/vibe-agent/legacy-cli/vibe-agent.js "$@"');
+    expect(goldenDockerfile).toContain('command -v vibe-agent');
+    expect(goldenDockerfile).toContain('vibe-agent --help >/dev/null');
     expect(dockerEntrypoint).toContain('Runtime plugin apply writes generated routes here after Caddy starts, then reloads Caddy.');
     expect(goldenCaddyfile).toContain('Caddy starts with this import present; runtime');
     expect(dockerEntrypoint).not.toContain('plugin-service-orchestrator-cli.ts apply');
