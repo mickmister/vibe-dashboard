@@ -69,7 +69,7 @@ describe('first-party service plugin inventory and golden supervisor config', ()
     expect(dockerEntrypoint).toContain('Runtime plugin apply writes generated routes here after Caddy starts, then reloads Caddy.');
     expect(goldenCaddyfile).toContain('Caddy starts with this import present; runtime');
     expect(dockerEntrypoint).not.toContain('plugin-service-orchestrator-cli.ts apply');
-    expect(pluginRuntimeApply).toContain('plugin-service-orchestrator-cli.ts apply');
+    expect(pluginRuntimeApply).toContain('dist/plugins-orchestrator/plugin-service-orchestrator-cli.js apply');
     expect(pluginRuntimeApply).toContain('--caddy-config-path /etc/caddy/Caddyfile');
     expect(pluginRuntimeApply).toContain('supervisorctl reread');
     expect(pluginRuntimeApply).toContain('supervisorctl update');

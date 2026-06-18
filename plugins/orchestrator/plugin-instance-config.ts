@@ -2,7 +2,11 @@ import { execFile as execFileCallback } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import type { PluginServiceCatalog, PluginServiceDefinition } from './plugin-service-orchestrator';
+import {
+  assertPluginServiceCatalog,
+  type PluginServiceCatalog,
+  type PluginServiceDefinition,
+} from './plugin-service-orchestrator';
 
 const execFile = promisify(execFileCallback);
 const CONFIG_FILE_NAME = 'plugins.json';
@@ -30,6 +34,7 @@ export async function createAddInstancePluginDryRunPlan(input: {
   configRepoDir: string;
   plugin: PluginServiceDefinition;
 }): Promise<AddInstancePluginDryRunPlan> {
+  assertPluginServiceCatalog({ plugins: [input.plugin] });
   const configPath = join(input.configRepoDir, CONFIG_FILE_NAME);
   const existing = await readInstancePluginCatalog(configPath);
   const next = upsertPlugin(existing.catalog, input.plugin);

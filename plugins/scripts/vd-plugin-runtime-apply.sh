@@ -26,7 +26,7 @@ reload_caddy_with_retry() {
 # artifacts become available.
 
 VD_PLUGIN_ORCHESTRATOR_INSTALL_ARTIFACTS=true \
-  node --experimental-strip-types /opt/vibe-kanban-vscode-web-seed/plugins/orchestrator/plugin-service-orchestrator-cli.ts apply \
+  node /opt/vibe-kanban-vscode-web-seed/dist/plugins-orchestrator/plugin-service-orchestrator-cli.js apply \
     --catalog /opt/vibe-kanban-vscode-web-seed/plugins/builtin.plugins.json \
     --optional-catalog /var/lib/vd/instance-config/plugins.json \
     --artifact-cache-root /var/lib/vd/plugin-cache \

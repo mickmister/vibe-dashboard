@@ -1794,6 +1794,13 @@ Commands:
     --timeout-ms <ms>          Stop the command after a timeout in milliseconds
     --json                     Output as JSON
 
+  plugins add                  Add or replace an instance plugin manifest
+    --manifest-json "<json>"   Plugin manifest JSON object, or "-" to read stdin
+    --file <path>              Read plugin manifest JSON from a file
+    --config-repo-dir <path>   Instance config repo (default: /var/lib/vd/instance-config)
+    --push                     Push the config commit even if remote detection fails
+    --no-push                  Commit locally but do not push
+
   onboarding                   Print repo workflow conventions for agents
 
 Standard roles: ${BASE_ROLES.join(', ')} (or with suffix: reviewer-2, pm-3, etc.)
@@ -1834,11 +1841,152 @@ Current branch conventions:
   - Runtime/plugin orchestration code belongs under ./plugins, not ./src.
   - ./src is for the VD web application/server source.
   - Built-in plugin service metadata lives under ./plugins.
+  - Per-instance plugin changes should go through vibe-agent plugins add, not hand edits to /var/lib/vd/instance-config/plugins.json.
+  - Plugin manifests are admin-level config. Review installers carefully before adding them.
+  - Plugin app files live under /var/lib/vd/plugins, exposed plugin binaries under /var/lib/vd/plugin-bin, and persistent package-manager toolchains under /var/lib/vd/toolchains.
+  - Plugin installers can use release assets or package managers; see vibe-agent plugins add --help for manifest/add workflow details.
 
 Notes conventions:
   - User/workspace notes support is planned but not active in this repo yet.
   - Future onboarding should explain vibe-agent notes changed once that command exists.
 `);
+}
+function showPluginsHelp() {
+    console.log(`vibe-agent plugins
+
+Usage:
+  vibe-agent plugins add --manifest-json '<plugin-json>'
+  vibe-agent plugins add --manifest-json -
+  vibe-agent plugins add --file plugin.json
+
+Adds or replaces one plugin manifest in the per-instance plugin config
+repository. The manifest is assumed to be an admin-reviewed
+PluginServiceDefinition object, not a full { "plugins": [...] } catalog.
+
+Defaults:
+  --config-repo-dir /var/lib/vd/instance-config
+  push behavior: push when the config repo already has a git remote
+
+Options:
+  --manifest-json "<json>"   Plugin manifest JSON object, or "-" to read stdin
+  --file <path>              Read plugin manifest JSON from a file
+  --config-repo-dir <path>   Instance config repo
+  --push                     Force git push after commit
+  --no-push                  Do not push after commit
+  --json                     Output the underlying config CLI JSON result
+
+Plugin manifest operational notes:
+  - Use installers[], not the old artifact field.
+  - GitHub release installers use platform variants such as linux-amd64 and linux-arm64.
+  - Materializers include file, zip-entry, and archive-tree.
+  - postExtract admin scripts run after declarative materialization and should be reviewed as privileged install logic.
+  - Package-manager installers can use uv-tool, npm-global, cargo-crate, and go-install.
+  - Declared plugin bins are exposed through /var/lib/vd/plugin-bin.
+  - Package-manager installs persist under /var/lib/vd/toolchains.
+`);
+}
+async function pluginsCommand(args) {
+    const subcommand = args[0];
+    if (!subcommand || subcommand === '--help' || subcommand === '-h') {
+        showPluginsHelp();
+        return;
+    }
+    if (subcommand !== 'add') {
+        throw new Error(`Unknown plugins subcommand: ${subcommand}`);
+    }
+    await pluginsAdd(args.slice(1));
+}
+async function pluginsAdd(args) {
+    const options = parsePluginsAddArgs(args);
+    const manifestJson = readPluginManifestJson(options);
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vibe-agent-plugin-add-'));
+    const pluginPath = path.join(tempDir, 'plugin.json');
+    try {
+        fs.writeFileSync(pluginPath, `${manifestJson.trim()}\n`);
+        const compiledCli = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../dist/plugins-orchestrator/plugin-instance-config-cli.js');
+        if (!fs.existsSync(compiledCli)) {
+            throw new Error(`Compiled plugin instance config CLI is missing at ${compiledCli}. Build it with npm run build:plugin-orchestrator or use the vkvd image.`);
+        }
+        const push = options.push ?? hasGitRemote(options.configRepoDir);
+        const cliArgs = [
+            compiledCli,
+            'apply-add',
+            '--approved', 'true',
+            '--config-repo-dir', options.configRepoDir,
+            '--plugin', pluginPath,
+            '--push', push ? 'true' : 'false',
+        ];
+        const output = execFileSync('node', cliArgs, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+        if (options.json) {
+            process.stdout.write(output);
+            return;
+        }
+        const result = JSON.parse(output);
+        console.log(`Plugin ${result.pluginId} ${result.action}; committed=${result.committed}; pushed=${result.pushed}`);
+        console.log(`Config: ${result.configPath}`);
+    }
+    finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+}
+function parsePluginsAddArgs(args) {
+    const options = {
+        configRepoDir: '/var/lib/vd/instance-config',
+        json: false,
+    };
+    for (let index = 0; index < args.length; index += 1) {
+        const arg = args[index];
+        if (arg === '--help' || arg === '-h') {
+            showPluginsHelp();
+            process.exit(0);
+        }
+        if (arg === '--json') {
+            options.json = true;
+            continue;
+        }
+        if (arg === '--push') {
+            options.push = true;
+            continue;
+        }
+        if (arg === '--no-push') {
+            options.push = false;
+            continue;
+        }
+        if (arg === '--manifest-json') {
+            options.manifestJson = requireFlagValue(args, index, arg);
+            index += 1;
+            continue;
+        }
+        if (arg === '--file') {
+            options.file = requireFlagValue(args, index, arg);
+            index += 1;
+            continue;
+        }
+        if (arg === '--config-repo-dir') {
+            options.configRepoDir = requireFlagValue(args, index, arg);
+            index += 1;
+            continue;
+        }
+        throw new Error(`Unexpected plugins add argument: ${arg ?? ''}`);
+    }
+    if ((options.manifestJson ? 1 : 0) + (options.file ? 1 : 0) !== 1) {
+        throw new Error('plugins add requires exactly one of --manifest-json or --file');
+    }
+    return options;
+}
+function readPluginManifestJson(options) {
+    if (options.file) return fs.readFileSync(options.file, 'utf8');
+    if (options.manifestJson === '-') return fs.readFileSync(0, 'utf8');
+    return options.manifestJson;
+}
+function hasGitRemote(configRepoDir) {
+    try {
+        const output = execFileSync('git', ['remote'], { cwd: configRepoDir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+        return output.trim().length > 0;
+    }
+    catch {
+        return false;
+    }
 }
 
 // Main entry point
@@ -1889,6 +2037,9 @@ async function main() {
             break;
         case 'callback':
             await callback(commandArgs);
+            break;
+        case 'plugins':
+            await pluginsCommand(commandArgs);
             break;
         case '__callback-runner':
             await callbackRunner(commandArgs);
