@@ -537,7 +537,8 @@ function RepoPatchDiff({
                   themeType: 'dark',
                   theme: { dark: 'github-dark', light: 'github-light' },
                   overflow: 'wrap',
-                  hunkSeparators: 'line-info',
+                  hunkSeparators: 'line-info-basic',
+                  disableFileHeader: true,
                   lineHoverHighlight: 'both',
                   onLineNumberClick: (line) => {
                     onLineNumberClick(fileDiff, line);
