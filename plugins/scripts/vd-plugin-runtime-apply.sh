@@ -31,6 +31,8 @@ VD_PLUGIN_ORCHESTRATOR_INSTALL_ARTIFACTS=true \
     --optional-catalog /var/lib/vd/instance-config/plugins.json \
     --artifact-cache-root /var/lib/vd/plugin-cache \
     --install-root /var/lib/vd/plugins \
+    --plugin-bin-dir /var/lib/vd/plugin-bin \
+    --toolchain-root /var/lib/vd/toolchains \
     --supervisor-config-dir /etc/supervisor/conf.d/vd-generated \
     --caddy-plugin-config-path /etc/caddy/plugins.caddy \
     --caddy-config-path /etc/caddy/Caddyfile

@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
-import { access, mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { access, mkdtemp, mkdir, readFile, readlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { deflateRawSync } from 'node:zlib';
+import { deflateRawSync, gzipSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
 import beadsWebOnlyCatalog from '../fixtures/beads-web.plugins.json';
 import firstPartyPluginCatalog from '../builtin.plugins.json';
@@ -35,11 +35,18 @@ describe('plugin service supervisor orchestration dry run', () => {
     expect(catalog.plugins[0]).toMatchObject({
       id: 'vd.beads-web',
       version: 'beads-web-assets-42cc6ca1709d4b0aa76833d91d326e6de9659a28',
-      artifact: {
-        kind: 'github-release-asset',
-        tag: 'beads-web-assets-42cc6ca1709d4b0aa76833d91d326e6de9659a28',
-        sha256: '03691990c33a6695ac2520be9dc59f4dd692730fc35f49a9f5df784fa0e2242d',
-      },
+      installers: [
+        {
+          kind: 'github-release-asset',
+          tag: 'beads-web-assets-42cc6ca1709d4b0aa76833d91d326e6de9659a28',
+          variants: {
+            'linux-amd64': {
+              sha256: '03691990c33a6695ac2520be9dc59f4dd692730fc35f49a9f5df784fa0e2242d',
+            },
+          },
+          materialize: { kind: 'file', installAs: 'bin/beads-web' },
+        },
+      ],
     });
   });
 
@@ -247,29 +254,29 @@ describe('plugin service supervisor orchestration dry run', () => {
       },
       {
         mutate: (catalog) => {
-          const artifact = catalog.plugins[0]!.artifact;
-          if (artifact.kind === 'github-release-asset') artifact.repository = 'owner/repo/extra';
+          const installer = catalog.plugins[0]!.installers[0]!;
+          if (installer.kind === 'github-release-asset') installer.repository = 'owner/repo/extra';
         },
         message: /Invalid GitHub repository/,
       },
       {
         mutate: (catalog) => {
-          const artifact = catalog.plugins[0]!.artifact;
-          if (artifact.kind === 'github-release-asset') artifact.asset = '../beads-web';
+          const installer = catalog.plugins[0]!.installers[0]!;
+          if (installer.kind === 'github-release-asset') installer.variants['linux-amd64']!.asset = '../beads-web';
         },
         message: /Invalid artifact asset/,
       },
       {
         mutate: (catalog) => {
-          const artifact = catalog.plugins[0]!.artifact;
-          if (artifact.kind === 'github-release-asset') artifact.sha256 = 'not-a-sha';
+          const installer = catalog.plugins[0]!.installers[0]!;
+          if (installer.kind === 'github-release-asset') installer.variants['linux-amd64']!.sha256 = 'not-a-sha';
         },
         message: /Invalid artifact sha256/,
       },
       {
         mutate: (catalog) => {
-          const artifact = catalog.plugins[0]!.artifact;
-          if (artifact.kind === 'github-release-asset') artifact.signature = 'TODO';
+          const installer = catalog.plugins[0]!.installers[0]!;
+          if (installer.kind === 'github-release-asset') installer.variants['linux-amd64']!.signature = 'TODO';
         },
         message: /Unsupported artifact signature/,
       },
@@ -312,7 +319,7 @@ describe('plugin service supervisor orchestration dry run', () => {
       { catalog: null, message: /Invalid plugin catalog/ },
       { catalog: { plugins: {} }, message: /plugins must be an array/ },
       { catalog: { plugins: [null] }, message: /Invalid plugin definition/ },
-      { catalog: { plugins: [{ ...structuredClone(beadsWebOnlyCatalog).plugins[0], artifact: null }] }, message: /Invalid artifact/ },
+      { catalog: { plugins: [{ ...structuredClone(beadsWebOnlyCatalog).plugins[0], installers: null }] }, message: /Invalid installers/ },
       { catalog: { plugins: [{ ...structuredClone(beadsWebOnlyCatalog).plugins[0], services: [null] }] }, message: /Invalid service definition/ },
       { catalog: { plugins: [{ ...structuredClone(beadsWebOnlyCatalog).plugins[0], services: [{ ...structuredClone(beadsWebOnlyCatalog).plugins[0]!.services[0], args: 'nope' }] }] }, message: /Invalid service args/ },
       { catalog: { plugins: [{ ...structuredClone(beadsWebOnlyCatalog).plugins[0], services: [{ ...structuredClone(beadsWebOnlyCatalog).plugins[0]!.services[0], env: [] }] }] }, message: /Invalid service env/ },
@@ -336,14 +343,13 @@ describe('plugin service supervisor orchestration dry run', () => {
         id: 'vd.excalidraw',
         name: 'Excalidraw',
         version: '0.18.0',
-        artifact: {
+        installers: [{
           kind: 'github-release-asset',
           repository: 'excalidraw/excalidraw',
           tag: 'v0.18.0',
-          asset: 'excalidraw-0.18.0.tgz',
-          installAs: 'excalidraw-0.18.0.tgz',
-          sha256: '0f2851674434336f19f10b5f217977eac7a0714de7e31a559bc5dd37f2c2dc21',
-        },
+          variants: { 'linux-amd64': { asset: 'excalidraw-0.18.0.tgz', sha256: '0f2851674434336f19f10b5f217977eac7a0714de7e31a559bc5dd37f2c2dc21' } },
+          materialize: { kind: 'file', installAs: 'excalidraw-0.18.0.tgz', outputs: [{ kind: 'file', path: 'excalidraw-0.18.0.tgz' }] },
+        }],
         services: [],
       }],
     };
@@ -371,9 +377,9 @@ describe('plugin service supervisor orchestration dry run', () => {
     const bytes = Buffer.from('fake beads-web artifact');
     const sha256 = createHash('sha256').update(bytes).digest('hex');
     const catalog = structuredClone(beadsWebOnlyCatalog) as PluginServiceCatalog;
-    const artifact = catalog.plugins[0]!.artifact;
-    if (artifact.kind !== 'github-release-asset') throw new Error('expected github-release-asset fixture');
-    artifact.sha256 = sha256;
+    const installer = catalog.plugins[0]!.installers[0]!;
+    if (installer.kind !== 'github-release-asset') throw new Error('expected github-release-asset fixture');
+    installer.variants['linux-amd64']!.sha256 = sha256;
     await mkdir(join(tempRoot, 'cache/github/mickmister/beads-web/beads-web-assets-42cc6ca1709d4b0aa76833d91d326e6de9659a28'), { recursive: true });
     await writeFile(cachePath, bytes);
 
@@ -414,9 +420,9 @@ describe('plugin service supervisor orchestration dry run', () => {
       supervisorConfigDir: join(tempRoot, 'supervisor'),
     };
     const catalog = structuredClone(beadsWebOnlyCatalog) as PluginServiceCatalog;
-    const artifact = catalog.plugins[0]!.artifact;
-    if (artifact.kind !== 'github-release-asset') throw new Error('expected github-release-asset fixture');
-    artifact.sha256 = '0'.repeat(64);
+    const installer = catalog.plugins[0]!.installers[0]!;
+    if (installer.kind !== 'github-release-asset') throw new Error('expected github-release-asset fixture');
+    installer.variants['linux-amd64']!.sha256 = '0'.repeat(64);
     const cachePath = join(tempRoot, 'cache/github/mickmister/beads-web/beads-web-assets-42cc6ca1709d4b0aa76833d91d326e6de9659a28/beads-web-linux-x64');
 
     await expect(materializePluginArtifacts({
@@ -427,7 +433,7 @@ describe('plugin service supervisor orchestration dry run', () => {
     await expect(access(cachePath)).rejects.toThrow();
 
     const validBytes = Buffer.from('valid bytes');
-    artifact.sha256 = createHash('sha256').update(validBytes).digest('hex');
+    installer.variants['linux-amd64']!.sha256 = createHash('sha256').update(validBytes).digest('hex');
     await expect(materializePluginArtifacts({
       catalog,
       paths,
@@ -446,10 +452,10 @@ describe('plugin service supervisor orchestration dry run', () => {
       supervisorConfigDir: join(tempRoot, 'supervisor'),
     };
     const catalog = structuredClone(beadsWebOnlyCatalog) as PluginServiceCatalog;
-    const artifact = catalog.plugins[0]!.artifact;
-    if (artifact.kind !== 'github-release-asset') throw new Error('expected github-release-asset fixture');
+    const installer = catalog.plugins[0]!.installers[0]!;
+    if (installer.kind !== 'github-release-asset') throw new Error('expected github-release-asset fixture');
     const validBytes = Buffer.from('#!/bin/sh\necho valid beads-web\n');
-    artifact.sha256 = createHash('sha256').update(validBytes).digest('hex');
+    installer.variants['linux-amd64']!.sha256 = createHash('sha256').update(validBytes).digest('hex');
     const cachePath = join(tempRoot, 'cache/github/mickmister/beads-web/beads-web-assets-42cc6ca1709d4b0aa76833d91d326e6de9659a28/beads-web-linux-x64');
     await mkdir(join(tempRoot, 'cache/github/mickmister/beads-web/beads-web-assets-42cc6ca1709d4b0aa76833d91d326e6de9659a28'), { recursive: true });
     await writeFile(cachePath, 'stale bad cache');
@@ -478,10 +484,10 @@ describe('plugin service supervisor orchestration dry run', () => {
       supervisorConfigDir: join(tempRoot, 'supervisor'),
     };
     const catalog = structuredClone(beadsWebOnlyCatalog) as PluginServiceCatalog;
-    const artifact = catalog.plugins[0]!.artifact;
-    if (artifact.kind !== 'github-release-asset') throw new Error('expected github-release-asset fixture');
+    const installer = catalog.plugins[0]!.installers[0]!;
+    if (installer.kind !== 'github-release-asset') throw new Error('expected github-release-asset fixture');
     const bytes = Buffer.from('#!/bin/sh\necho stable beads-web\\n');
-    artifact.sha256 = createHash('sha256').update(bytes).digest('hex');
+    installer.variants['linux-amd64']!.sha256 = createHash('sha256').update(bytes).digest('hex');
     let fetchCount = 0;
     const fetchBytes = async () => {
       fetchCount += 1;
@@ -513,18 +519,13 @@ describe('plugin service supervisor orchestration dry run', () => {
           id: 'vd.silverbullet',
           name: 'SilverBullet',
           version: '2.9.0',
-          artifact: {
+          installers: [{
             kind: 'github-release-asset',
             repository: 'silverbulletmd/silverbullet',
             tag: '2.9.0',
-            asset: 'silverbullet-server-linux-x86_64.zip',
-            sha256: createHash('sha256').update(zipBytes).digest('hex'),
-            extract: {
-              kind: 'zip',
-              entry: 'silverbullet',
-              installAs: 'bin/silverbullet',
-            },
-          },
+            variants: { 'linux-amd64': { asset: 'silverbullet-server-linux-x86_64.zip', sha256: createHash('sha256').update(zipBytes).digest('hex') } },
+            materialize: { kind: 'zip-entry', entry: 'silverbullet', installAs: 'bin/silverbullet', outputs: [{ kind: 'file', path: 'bin/silverbullet', mode: '0755' }] },
+          }],
           services: [
             {
               id: 'web',
@@ -552,15 +553,106 @@ describe('plugin service supervisor orchestration dry run', () => {
     await expect(readFile(join(tempRoot, 'cache/github/silverbulletmd/silverbullet/2.9.0/silverbullet-server-linux-x86_64.zip'))).resolves.toEqual(zipBytes);
   });
 
+  it('extracts archive trees, strips release directory prefixes, validates outputs, and exposes declared bins', async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), 'vd-plugin-archive-tree-'));
+    const paths = {
+      artifactCacheRoot: join(tempRoot, 'cache'),
+      installRoot: join(tempRoot, 'plugins'),
+      supervisorConfigDir: join(tempRoot, 'supervisor'),
+      pluginBinDir: join(tempRoot, 'plugin-bin'),
+    };
+    const executable = '#!/bin/sh\necho filebrowser\n';
+    const tarGzBytes = createTarGzFixture([
+      { name: 'filebrowser-v1/filebrowser', data: executable },
+      { name: 'filebrowser-v1/README.md', data: 'docs\n' },
+    ]);
+    const catalog: PluginServiceCatalog = {
+      plugins: [{
+        id: 'vd.filebrowser',
+        name: 'File Browser',
+        version: '1.0.0',
+        installers: [{
+          kind: 'github-release-asset',
+          repository: 'filebrowser/filebrowser',
+          tag: 'v1.0.0',
+          variants: { 'linux-amd64': { asset: 'linux-amd64-filebrowser.tar.gz', sha256: createHash('sha256').update(tarGzBytes).digest('hex') } },
+          materialize: {
+            kind: 'archive-tree',
+            format: 'tar.gz',
+            stripComponents: 1,
+            outputs: [{ kind: 'file', path: 'filebrowser', mode: '0755' }],
+          },
+          bin: { filebrowser: 'filebrowser' },
+        }],
+        services: [],
+      }],
+    };
+
+    await expect(materializePluginArtifacts({ catalog, paths, fetchBytes: async () => tarGzBytes })).resolves.toEqual([
+      expect.objectContaining({ action: 'downloaded', pluginId: 'vd.filebrowser' }),
+    ]);
+    await expect(readFile(join(tempRoot, 'plugins/vd.filebrowser/1.0.0/extracted/filebrowser'), 'utf8')).resolves.toBe(executable);
+    await expect(readlink(join(tempRoot, 'plugin-bin/filebrowser'))).resolves.toBe(join(tempRoot, 'plugins/vd.filebrowser/1.0.0/extracted/filebrowser'));
+  });
+
+  it('runs package-manager installers against the persistent toolchain roots', async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), 'vd-plugin-package-installers-'));
+    const paths = {
+      artifactCacheRoot: join(tempRoot, 'cache'),
+      installRoot: join(tempRoot, 'plugins'),
+      supervisorConfigDir: join(tempRoot, 'supervisor'),
+      toolchainRoot: join(tempRoot, 'toolchains'),
+    };
+    const catalog: PluginServiceCatalog = {
+      plugins: [{
+        id: 'vd.tools',
+        name: 'Tools',
+        version: '1.0.0',
+        installers: [
+          { kind: 'uv-tool', package: 'ruff', version: '0.9.0' },
+          { kind: 'npm-global', package: '@modelcontextprotocol/server-filesystem', version: '1.0.0' },
+          { kind: 'cargo-crate', crate: 'just', version: '1.40.0' },
+          { kind: 'go-install', module: 'github.com/example/tool', version: 'v1.2.3' },
+        ],
+        services: [],
+      }],
+    };
+    const commands: Array<{ command: string; args: string[]; env: NodeJS.ProcessEnv }> = [];
+
+    await expect(materializePluginArtifacts({
+      catalog,
+      paths,
+      executeCommand: async (command, args, options) => {
+        commands.push({ command, args, env: options.env });
+      },
+    })).resolves.toEqual([
+      expect.objectContaining({ action: 'installed', installerKind: 'uv-tool' }),
+      expect.objectContaining({ action: 'installed', installerKind: 'npm-global' }),
+      expect.objectContaining({ action: 'installed', installerKind: 'cargo-crate' }),
+      expect.objectContaining({ action: 'installed', installerKind: 'go-install' }),
+    ]);
+
+    expect(commands.map((entry) => [entry.command, entry.args])).toEqual([
+      ['uv', ['tool', 'install', 'ruff==0.9.0']],
+      ['npm', ['install', '--global', '@modelcontextprotocol/server-filesystem@1.0.0']],
+      ['cargo', ['install', 'just', '--version', '1.40.0', '--root', join(tempRoot, 'toolchains')]],
+      ['go', ['install', 'github.com/example/tool@v1.2.3']],
+    ]);
+    expect(commands[0]!.env.UV_TOOL_BIN_DIR).toBe(join(tempRoot, 'toolchains/bin'));
+    expect(commands[1]!.env.NPM_CONFIG_PREFIX).toBe(join(tempRoot, 'toolchains/npm'));
+    expect(commands[3]!.env.GOBIN).toBe(join(tempRoot, 'toolchains/bin'));
+  });
+
   it('rejects zip artifact descriptors that try to extract unsafe paths', async () => {
     const catalog = structuredClone(beadsWebOnlyCatalog) as PluginServiceCatalog;
-    const artifact = catalog.plugins[0]!.artifact;
-    if (artifact.kind !== 'github-release-asset') throw new Error('expected github-release-asset fixture');
-    artifact.asset = 'plugin.zip';
-    artifact.extract = {
-      kind: 'zip',
+    const installer = catalog.plugins[0]!.installers[0]!;
+    if (installer.kind !== 'github-release-asset') throw new Error('expected github-release-asset fixture');
+    installer.variants['linux-amd64']!.asset = 'plugin.zip';
+    installer.materialize = {
+      kind: 'zip-entry',
       entry: '../beads-web',
       installAs: 'bin/beads-web',
+      outputs: [{ kind: 'file', path: 'bin/beads-web' }],
     };
 
     await expect(materializePluginArtifacts({
@@ -571,7 +663,7 @@ describe('plugin service supervisor orchestration dry run', () => {
         supervisorConfigDir: '/tmp/supervisor',
       },
       fetchBytes: async () => Buffer.from('not reached'),
-    })).rejects.toThrow('Invalid artifact extract entry');
+    })).rejects.toThrow('Invalid materializer zip entry');
   });
 
   it('applies generated supervisor configs to a separate config directory idempotently', async () => {
@@ -708,11 +800,11 @@ describe('plugin service supervisor orchestration dry run', () => {
 
     const overrideCatalog = structuredClone(beadsWebOnlyCatalog) as PluginServiceCatalog;
     const overridePlugin = overrideCatalog.plugins[0]!;
-    const artifact = overridePlugin.artifact;
-    if (artifact.kind !== 'github-release-asset') throw new Error('expected github-release-asset fixture');
+    const installer = overridePlugin.installers[0]!;
+    if (installer.kind !== 'github-release-asset') throw new Error('expected github-release-asset fixture');
     overridePlugin.version = 'beads-web-assets-cli-override';
-    artifact.tag = 'beads-web-assets-cli-override';
-    artifact.sha256 = 'd'.repeat(64);
+    installer.tag = 'beads-web-assets-cli-override';
+    installer.variants['linux-amd64']!.sha256 = 'd'.repeat(64);
     await writeFile(builtinCatalogPath, JSON.stringify(beadsWebOnlyCatalog));
     await writeFile(instanceCatalogPath, JSON.stringify(overrideCatalog));
 
@@ -738,11 +830,11 @@ describe('plugin service supervisor orchestration dry run', () => {
     const instanceCatalogPath = join(tempRoot, 'instance.plugins.json');
     const overrideCatalog = structuredClone(beadsWebOnlyCatalog) as PluginServiceCatalog;
     const overridePlugin = overrideCatalog.plugins[0]!;
-    const artifact = overridePlugin.artifact;
-    if (artifact.kind !== 'github-release-asset') throw new Error('expected github-release-asset fixture');
+    const installer = overridePlugin.installers[0]!;
+    if (installer.kind !== 'github-release-asset') throw new Error('expected github-release-asset fixture');
     overridePlugin.version = 'beads-web-assets-override';
-    artifact.tag = 'beads-web-assets-override';
-    artifact.sha256 = 'e'.repeat(64);
+    installer.tag = 'beads-web-assets-override';
+    installer.variants['linux-amd64']!.sha256 = 'e'.repeat(64);
     await writeFile(builtinCatalogPath, JSON.stringify(beadsWebOnlyCatalog));
     await writeFile(instanceCatalogPath, JSON.stringify(overrideCatalog));
 
@@ -813,4 +905,31 @@ function createZipFixture(entries: Array<{ name: string; data: string; deflate?:
   end.writeUInt32LE(centralDirectory.length, 12);
   end.writeUInt32LE(offset, 16);
   return Buffer.concat([...localParts, centralDirectory, end]);
+}
+
+function createTarGzFixture(entries: Array<{ name: string; data: string }>): Buffer {
+  const parts: Buffer[] = [];
+  for (const entry of entries) {
+    const name = Buffer.from(entry.name);
+    const data = Buffer.from(entry.data);
+    const header = Buffer.alloc(512);
+    name.copy(header, 0, 0, Math.min(name.length, 100));
+    header.write('0000755', 100, 'ascii');
+    header.write('0000000', 108, 'ascii');
+    header.write('0000000', 116, 'ascii');
+    header.write(data.length.toString(8).padStart(11, '0') + '\0', 124, 'ascii');
+    header.write('00000000000\0', 136, 'ascii');
+    header.fill(' ', 148, 156);
+    header.write('0', 156, 'ascii');
+    header.write('ustar\0', 257, 'ascii');
+    header.write('00', 263, 'ascii');
+    let checksum = 0;
+    for (const byte of header) checksum += byte;
+    header.write(checksum.toString(8).padStart(6, '0') + '\0 ', 148, 'ascii');
+    parts.push(header, data);
+    const padding = (512 - (data.length % 512)) % 512;
+    if (padding > 0) parts.push(Buffer.alloc(padding));
+  }
+  parts.push(Buffer.alloc(1024));
+  return gzipSync(Buffer.concat(parts));
 }

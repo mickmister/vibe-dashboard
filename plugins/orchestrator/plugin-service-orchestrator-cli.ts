@@ -128,6 +128,8 @@ function parseArgs(argv: string[]): ParsedArgs {
       installRoot: requiredArg(args, 'install-root'),
       supervisorConfigDir: requiredArg(args, 'supervisor-config-dir'),
       caddyPluginConfigPath: args.get('caddy-plugin-config-path')?.at(-1),
+      pluginBinDir: args.get('plugin-bin-dir')?.at(-1),
+      toolchainRoot: args.get('toolchain-root')?.at(-1),
     },
     caddyConfigPath: args.get('caddy-config-path')?.at(-1),
   };

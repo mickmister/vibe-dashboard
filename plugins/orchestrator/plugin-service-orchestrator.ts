@@ -1,35 +1,99 @@
 import { createHash } from 'node:crypto';
-import { chmod, copyFile, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, lstat, mkdir, readdir, readFile, rename, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { inflateRawSync } from 'node:zlib';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { gunzipSync, inflateRawSync } from 'node:zlib';
+
+const execFileAsync = promisify(execFile);
 
 export interface PluginServiceCatalog {
   plugins: PluginServiceDefinition[];
 }
 
-export type PluginArtifactDefinition =
+export type PlatformKey = 'linux-amd64' | 'linux-arm64';
+
+export interface PluginArtifactVariantDefinition {
+  asset: string;
+  sha256: string;
+  /** First-party service artifacts are sha256-pinned on this branch. Marketplace signatures are deferred. */
+  signature?: string;
+}
+
+export type PluginMaterializerDefinition =
+  | {
+    kind: 'file';
+    installAs: string;
+    mode?: string;
+    outputs: PluginMaterializedOutputDefinition[];
+  }
+  | {
+    kind: 'zip-entry';
+    entry: string;
+    installAs: string;
+    mode?: string;
+    outputs: PluginMaterializedOutputDefinition[];
+  }
+  | {
+    kind: 'archive-tree';
+    format: 'zip' | 'tar.gz';
+    stripComponents?: number;
+    outputs: PluginMaterializedOutputDefinition[];
+  };
+
+export interface PluginMaterializedOutputDefinition {
+  kind: 'file' | 'directory';
+  path: string;
+  mode?: string;
+}
+
+export interface PluginPostExtractScriptDefinition {
+  kind: 'admin-script';
+  command: string;
+  timeoutSeconds?: number;
+}
+
+export type PluginInstallerDefinition =
   | { kind: 'bundled-current-repo' }
   | {
     kind: 'github-release-asset';
     repository: string;
     tag: string;
-    asset: string;
-    sha256: string;
-    /** First-party service artifacts are sha256-pinned on this branch. Marketplace signatures are deferred. */
-    signature?: string;
-    installAs?: string;
-    extract?: {
-      kind: 'zip';
-      entry: string;
-      installAs: string;
-    };
+    variants: Partial<Record<PlatformKey, PluginArtifactVariantDefinition>>;
+    materialize: PluginMaterializerDefinition;
+    postExtract?: PluginPostExtractScriptDefinition;
+    bin?: Record<string, string>;
+  }
+  | {
+    kind: 'uv-tool';
+    package: string;
+    version: string;
+    bins?: string[];
+  }
+  | {
+    kind: 'npm-global';
+    package: string;
+    version: string;
+    bins?: string[];
+  }
+  | {
+    kind: 'cargo-crate';
+    crate: string;
+    version: string;
+    bins?: string[];
+  }
+  | {
+    kind: 'go-install';
+    module: string;
+    version: string;
+    bins?: string[];
   };
 
 export interface PluginServiceDefinition {
   id: string;
   name: string;
   version: string;
-  artifact: PluginArtifactDefinition;
+  installers: PluginInstallerDefinition[];
   services: SupervisorServiceDefinition[];
 }
 
@@ -66,6 +130,8 @@ export interface PluginServiceOrchestratorPaths {
   installRoot: string;
   supervisorConfigDir: string;
   caddyPluginConfigPath?: string;
+  pluginBinDir?: string;
+  toolchainRoot?: string;
 }
 
 export interface CachedPluginArtifact {
@@ -83,13 +149,14 @@ export type PluginArtifactDryRunPlan =
     installPath: string;
   }
   | {
-    action: 'cached' | 'download';
+    action: 'cached' | 'download' | 'install';
     pluginId: string;
     version: string;
     url: string;
     cachePath: string;
     installPath: string;
-    sha256: string;
+    sha256?: string;
+    variant?: PlatformKey;
     signature?: string;
   };
 
@@ -130,11 +197,12 @@ export interface CaddyPluginConfigApplyOptions {
 }
 
 export interface PluginArtifactMaterialization {
-  action: 'bundled-current-repo' | 'cached' | 'downloaded';
+  action: 'bundled-current-repo' | 'cached' | 'downloaded' | 'installed';
   pluginId: string;
   version: string;
   cachePath?: string;
   installPath: string;
+  installerKind?: PluginInstallerDefinition['kind'];
 }
 
 export interface AppliedSupervisorConfigChange {
@@ -151,7 +219,7 @@ export function createPluginServiceDryRunPlan(input: {
 }): PluginServiceDryRunPlan {
   validateCatalog(input.catalog);
 
-  const artifacts = input.catalog.plugins.map((plugin) => createArtifactPlan(plugin, input.paths, input.cachedArtifacts));
+  const artifacts = input.catalog.plugins.flatMap((plugin) => createArtifactPlans(plugin, input.paths, input.cachedArtifacts));
   const desiredSupervisorConfigs = new Map<string, SupervisorConfigChange>();
 
   for (const plugin of input.catalog.plugins) {
@@ -223,24 +291,29 @@ export async function readExistingSupervisorConfigs(configDir: string): Promise<
 export async function discoverCachedArtifacts(input: {
   catalog: PluginServiceCatalog;
   paths: PluginServiceOrchestratorPaths;
+  platformKey?: PlatformKey;
 }): Promise<CachedPluginArtifact[]> {
   const cachedArtifacts: CachedPluginArtifact[] = [];
   validateCatalog(input.catalog);
+  const platformKey = input.platformKey ?? currentPlatformKey();
 
   for (const plugin of input.catalog.plugins) {
-    if (plugin.artifact.kind !== 'github-release-asset') continue;
-    const path = artifactCachePath(input.paths, plugin.artifact);
-    let bytes: Buffer;
-    try {
-      bytes = await readFile(path);
-    } catch (error) {
-      if (isNodeErrorWithCode(error, 'ENOENT')) continue;
-      throw error;
-    }
+    for (const installer of plugin.installers) {
+      if (installer.kind !== 'github-release-asset') continue;
+      const variant = selectInstallerVariant(installer, platformKey);
+      const path = artifactCachePath(input.paths, installer, variant);
+      let bytes: Buffer;
+      try {
+        bytes = await readFile(path);
+      } catch (error) {
+        if (isNodeErrorWithCode(error, 'ENOENT')) continue;
+        throw error;
+      }
 
-    const sha256 = createHash('sha256').update(bytes).digest('hex');
-    if (sha256 === plugin.artifact.sha256) {
-      cachedArtifacts.push({ pluginId: plugin.id, version: plugin.version, sha256, path });
+      const sha256 = createHash('sha256').update(bytes).digest('hex');
+      if (sha256 === variant.sha256) {
+        cachedArtifacts.push({ pluginId: plugin.id, version: plugin.version, sha256, path });
+      }
     }
   }
 
@@ -290,68 +363,69 @@ export async function applyCaddyPluginConfigChange(
   return { action: change.action, path: change.path };
 }
 
+export interface PluginInstallCommandOptions {
+  cwd: string;
+  env: NodeJS.ProcessEnv;
+  timeout?: number;
+}
+
 export async function materializePluginArtifacts(input: {
   catalog: PluginServiceCatalog;
   paths: PluginServiceOrchestratorPaths;
   allowHashMismatch?: boolean;
   fetchBytes?: (url: string) => Promise<Uint8Array>;
+  executeCommand?: (command: string, args: string[], options: PluginInstallCommandOptions) => Promise<void>;
+  platformKey?: PlatformKey;
 }): Promise<PluginArtifactMaterialization[]> {
   validateCatalog(input.catalog);
   const materialized: PluginArtifactMaterialization[] = [];
+  const platformKey = input.platformKey ?? currentPlatformKey();
+  const executeCommand = input.executeCommand ?? defaultExecuteCommand;
 
   for (const plugin of input.catalog.plugins) {
     const installPath = pluginInstallPath(input.paths, plugin);
-    if (plugin.artifact.kind === 'bundled-current-repo') {
-      materialized.push({ action: 'bundled-current-repo', pluginId: plugin.id, version: plugin.version, installPath });
-      continue;
-    }
-
-    const artifact = plugin.artifact;
-    const cachePath = artifactCachePath(input.paths, artifact);
-    let cacheHit = true;
-    let bytes = await readFile(cachePath).catch(async (error: unknown) => {
-      if (!isNodeErrorWithCode(error, 'ENOENT')) throw error;
-      cacheHit = false;
-      return downloadVerifiedArtifact({ plugin, artifact, cachePath, allowHashMismatch: input.allowHashMismatch, fetchBytes: input.fetchBytes });
-    });
-
-    let sha256 = createHash('sha256').update(bytes).digest('hex');
-    if (sha256 !== artifact.sha256 && !input.allowHashMismatch) {
-      await quarantineBadCacheFile(cachePath);
-      cacheHit = false;
-      bytes = await downloadVerifiedArtifact({ plugin, artifact, cachePath, allowHashMismatch: input.allowHashMismatch, fetchBytes: input.fetchBytes });
-      sha256 = createHash('sha256').update(bytes).digest('hex');
-    }
-
-    const installedArtifact = materializeDownloadedArtifactBytes(bytes, artifact);
-    const installTarget = join(pluginExtractedPath(input.paths, plugin), installedArtifact.installAs);
-    await mkdir(dirname(installTarget), { recursive: true });
-    const installedBytes = await readFile(installTarget).catch((error: unknown) => {
-      if (isNodeErrorWithCode(error, 'ENOENT')) return undefined;
-      throw error;
-    });
-    const installedSha256 = installedBytes
-      ? createHash('sha256').update(installedBytes).digest('hex')
-      : undefined;
-    const targetSha256 = createHash('sha256').update(installedArtifact.bytes).digest('hex');
-    if (installedSha256 !== targetSha256) {
-      if (installedArtifact.source === 'cache-file') {
-        await copyFile(cachePath, installTarget);
-      } else {
-        await writeFile(installTarget, installedArtifact.bytes, { mode: 0o755 });
+    for (const installer of plugin.installers) {
+      if (installer.kind === 'bundled-current-repo') {
+        materialized.push({ action: 'bundled-current-repo', pluginId: plugin.id, version: plugin.version, installPath, installerKind: installer.kind });
+        continue;
       }
-    }
-    await chmod(installTarget, 0o755);
 
-    materialized.push({
-      action: cacheHit ? 'cached' : 'downloaded',
-      pluginId: plugin.id,
-      version: plugin.version,
-      cachePath,
-      installPath,
-    });
+      if (installer.kind === 'github-release-asset') {
+        const variant = selectInstallerVariant(installer, platformKey);
+        const cachePath = artifactCachePath(input.paths, installer, variant);
+        let cacheHit = true;
+        let bytes = await readFile(cachePath).catch(async (error: unknown) => {
+          if (!isNodeErrorWithCode(error, 'ENOENT')) throw error;
+          cacheHit = false;
+          return downloadVerifiedArtifact({ plugin, installer, variant, cachePath, allowHashMismatch: input.allowHashMismatch, fetchBytes: input.fetchBytes });
+        });
+
+        let sha256 = createHash('sha256').update(bytes).digest('hex');
+        if (sha256 !== variant.sha256 && !input.allowHashMismatch) {
+          await quarantineBadCacheFile(cachePath);
+          cacheHit = false;
+          bytes = await downloadVerifiedArtifact({ plugin, installer, variant, cachePath, allowHashMismatch: input.allowHashMismatch, fetchBytes: input.fetchBytes });
+          sha256 = createHash('sha256').update(bytes).digest('hex');
+        }
+
+        await materializeDownloadedArtifact({ bytes, cachePath, plugin, installer, paths: input.paths, platformKey, executeCommand });
+        materialized.push({
+          action: cacheHit ? 'cached' : 'downloaded',
+          pluginId: plugin.id,
+          version: plugin.version,
+          cachePath,
+          installPath,
+          installerKind: installer.kind,
+        });
+        continue;
+      }
+
+      await installPackageManagerTool({ plugin, installer, paths: input.paths, executeCommand });
+      materialized.push({ action: 'installed', pluginId: plugin.id, version: plugin.version, installPath, installerKind: installer.kind });
+    }
   }
 
+  await reconcilePluginBins(input.catalog, input.paths);
   return materialized;
 }
 
@@ -422,15 +496,16 @@ export function renderCaddyPluginExposureConfig(input: {
 
 async function downloadVerifiedArtifact(input: {
   plugin: PluginServiceDefinition;
-  artifact: Extract<PluginArtifactDefinition, { kind: 'github-release-asset' }>;
+  installer: Extract<PluginInstallerDefinition, { kind: 'github-release-asset' }>;
+  variant: PluginArtifactVariantDefinition;
   cachePath: string;
   allowHashMismatch?: boolean;
   fetchBytes?: (url: string) => Promise<Uint8Array>;
 }): Promise<Buffer> {
-  const downloaded = await (input.fetchBytes ?? fetchBytes)(githubReleaseAssetUrl(input.artifact));
+  const downloaded = await (input.fetchBytes ?? fetchBytes)(githubReleaseAssetUrl(input.installer, input.variant));
   const downloadedSha256 = createHash('sha256').update(downloaded).digest('hex');
-  if (downloadedSha256 !== input.artifact.sha256 && !input.allowHashMismatch) {
-    throw new Error(`Artifact sha256 mismatch for ${input.plugin.id}@${input.plugin.version}: expected ${input.artifact.sha256}, got ${downloadedSha256}`);
+  if (downloadedSha256 !== input.variant.sha256 && !input.allowHashMismatch) {
+    throw new Error(`Artifact sha256 mismatch for ${input.plugin.id}@${input.plugin.version}: expected ${input.variant.sha256}, got ${downloadedSha256}`);
   }
   await mkdir(dirname(input.cachePath), { recursive: true });
   const temporaryPath = `${input.cachePath}.tmp-${process.pid}-${Date.now()}`;
@@ -439,27 +514,119 @@ async function downloadVerifiedArtifact(input: {
   return Buffer.from(downloaded);
 }
 
-function materializeDownloadedArtifactBytes(
-  bytes: Buffer,
-  artifact: Extract<PluginArtifactDefinition, { kind: 'github-release-asset' }>,
-): { installAs: string; bytes: Buffer; source: 'cache-file' | 'extracted-entry' } {
-  if (!artifact.extract) {
-    return {
-      installAs: artifact.installAs ?? artifact.asset,
-      bytes,
-      source: 'cache-file',
-    };
+async function materializeDownloadedArtifact(input: {
+  bytes: Buffer;
+  cachePath: string;
+  plugin: PluginServiceDefinition;
+  installer: Extract<PluginInstallerDefinition, { kind: 'github-release-asset' }>;
+  paths: PluginServiceOrchestratorPaths;
+  platformKey: PlatformKey;
+  executeCommand: (command: string, args: string[], options: PluginInstallCommandOptions) => Promise<void>;
+}): Promise<void> {
+  const pluginDir = pluginExtractedPath(input.paths, input.plugin);
+  const materializer = input.installer.materialize;
+  await mkdir(pluginDir, { recursive: true });
+
+  if (materializer.kind === 'file') {
+    const installTarget = join(pluginDir, materializer.installAs);
+    await mkdir(dirname(installTarget), { recursive: true });
+    await copyFileIfChanged(input.cachePath, input.bytes, installTarget);
+    await chmod(installTarget, parseMode(materializer.mode ?? '0755'));
+  } else if (materializer.kind === 'zip-entry') {
+    const installTarget = join(pluginDir, materializer.installAs);
+    await mkdir(dirname(installTarget), { recursive: true });
+    await writeFileIfChanged(installTarget, extractZipEntry(input.bytes, materializer.entry));
+    await chmod(installTarget, parseMode(materializer.mode ?? '0755'));
+  } else if (materializer.kind === 'archive-tree') {
+    await extractArchiveTree(input.bytes, materializer, pluginDir);
+  } else {
+    throw new Error(`Unsupported materializer kind: ${(materializer as { kind?: string }).kind ?? ''}`);
   }
 
-  if (artifact.extract.kind !== 'zip') {
-    throw new Error(`Unsupported artifact extract kind: ${(artifact.extract as { kind?: string }).kind ?? ''}`);
+  if (input.installer.postExtract) {
+    await runPostExtractScript({ plugin: input.plugin, script: input.installer.postExtract, paths: input.paths, platformKey: input.platformKey, artifactPath: input.cachePath, executeCommand: input.executeCommand });
   }
+  await validateMaterializedOutputs(pluginDir, materializer.outputs);
+}
 
-  return {
-    installAs: artifact.extract.installAs,
-    bytes: extractZipEntry(bytes, artifact.extract.entry),
-    source: 'extracted-entry',
-  };
+async function installPackageManagerTool(input: {
+  plugin: PluginServiceDefinition;
+  installer: Exclude<PluginInstallerDefinition, { kind: 'github-release-asset' } | { kind: 'bundled-current-repo' }>;
+  paths: PluginServiceOrchestratorPaths;
+  executeCommand: (command: string, args: string[], options: PluginInstallCommandOptions) => Promise<void>;
+}): Promise<void> {
+  const toolchain = toolchainPaths(input.paths);
+  await mkdir(toolchain.binDir, { recursive: true });
+  const env = toolchainEnv(input.paths);
+  const cwd = pluginExtractedPath(input.paths, input.plugin);
+  await mkdir(cwd, { recursive: true });
+
+  if (input.installer.kind === 'uv-tool') {
+    await input.executeCommand('uv', ['tool', 'install', `${input.installer.package}==${input.installer.version}`], { cwd, env });
+    return;
+  }
+  if (input.installer.kind === 'npm-global') {
+    await input.executeCommand('npm', ['install', '--global', `${input.installer.package}@${input.installer.version}`], { cwd, env });
+    return;
+  }
+  if (input.installer.kind === 'cargo-crate') {
+    await input.executeCommand('cargo', ['install', input.installer.crate, '--version', input.installer.version, '--root', toolchain.root], { cwd, env });
+    return;
+  }
+  if (input.installer.kind === 'go-install') {
+    await input.executeCommand('go', ['install', `${input.installer.module}@${input.installer.version}`], { cwd, env });
+    return;
+  }
+  throw new Error(`Unsupported package manager installer: ${(input.installer as { kind?: string }).kind ?? ''}`);
+}
+
+async function runPostExtractScript(input: {
+  plugin: PluginServiceDefinition;
+  script: PluginPostExtractScriptDefinition;
+  paths: PluginServiceOrchestratorPaths;
+  platformKey: PlatformKey;
+  artifactPath: string;
+  executeCommand: (command: string, args: string[], options: PluginInstallCommandOptions) => Promise<void>;
+}): Promise<void> {
+  const stagingDir = join(pluginInstallPath(input.paths, input.plugin), `.post-extract-${process.pid}-${Date.now()}`);
+  await rm(stagingDir, { recursive: true, force: true });
+  await mkdir(stagingDir, { recursive: true });
+  try {
+    await input.executeCommand('sh', ['-c', input.script.command], {
+      cwd: stagingDir,
+      env: {
+        ...toolchainEnv(input.paths),
+        ARTIFACT_PATH: input.artifactPath,
+        PLUGIN_DIR: pluginExtractedPath(input.paths, input.plugin),
+        PLUGIN_DATA_DIR: pluginDataPath(input.paths, input.plugin),
+        STAGING_DIR: stagingDir,
+        PLUGIN_ID: input.plugin.id,
+        PLUGIN_VERSION: input.plugin.version,
+        VD_PLATFORM: input.platformKey,
+      },
+      timeout: (input.script.timeoutSeconds ?? 60) * 1000,
+    });
+  } finally {
+    await rm(stagingDir, { recursive: true, force: true });
+  }
+}
+
+async function copyFileIfChanged(cachePath: string, bytes: Buffer, installTarget: string): Promise<void> {
+  const installedBytes = await readFile(installTarget).catch((error: unknown) => {
+    if (isNodeErrorWithCode(error, 'ENOENT')) return undefined;
+    throw error;
+  });
+  if (installedBytes && createHash('sha256').update(installedBytes).digest('hex') === createHash('sha256').update(bytes).digest('hex')) return;
+  await copyFile(cachePath, installTarget);
+}
+
+async function writeFileIfChanged(path: string, bytes: Buffer): Promise<void> {
+  const installedBytes = await readFile(path).catch((error: unknown) => {
+    if (isNodeErrorWithCode(error, 'ENOENT')) return undefined;
+    throw error;
+  });
+  if (installedBytes && createHash('sha256').update(installedBytes).digest('hex') === createHash('sha256').update(bytes).digest('hex')) return;
+  await writeFile(path, bytes, { mode: 0o755 });
 }
 
 async function quarantineBadCacheFile(cachePath: string): Promise<void> {
@@ -568,35 +735,222 @@ function readZipEntryData(
   return data;
 }
 
-function createArtifactPlan(
+async function extractArchiveTree(bytes: Buffer, materializer: Extract<PluginMaterializerDefinition, { kind: 'archive-tree' }>, targetDir: string): Promise<void> {
+  const archiveBytes = materializer.format === 'tar.gz' ? gunzipSync(bytes) : bytes;
+  if (materializer.format === 'zip') {
+    await extractZipTree(archiveBytes, targetDir, materializer.stripComponents ?? 0);
+    return;
+  }
+  await extractTarTree(archiveBytes, targetDir, materializer.stripComponents ?? 0);
+}
+
+async function extractZipTree(zipBytes: Buffer, targetDir: string, stripComponents: number): Promise<void> {
+  const centralDirectory = findZipCentralDirectory(zipBytes);
+  let offset = centralDirectory.offset;
+  const end = centralDirectory.offset + centralDirectory.size;
+  while (offset < end) {
+    if (offset + 46 > zipBytes.length || zipBytes.readUInt32LE(offset) !== 0x02014b50) throw new Error('Invalid zip artifact: malformed central directory');
+    const compressionMethod = zipBytes.readUInt16LE(offset + 10);
+    const compressedSize = zipBytes.readUInt32LE(offset + 20);
+    const uncompressedSize = zipBytes.readUInt32LE(offset + 24);
+    const fileNameLength = zipBytes.readUInt16LE(offset + 28);
+    const extraLength = zipBytes.readUInt16LE(offset + 30);
+    const commentLength = zipBytes.readUInt16LE(offset + 32);
+    const localHeaderOffset = zipBytes.readUInt32LE(offset + 42);
+    const name = zipBytes.subarray(offset + 46, offset + 46 + fileNameLength).toString('utf8');
+    const relativePath = stripArchivePath(name, stripComponents);
+    if (relativePath && !name.endsWith('/')) {
+      const data = readZipEntryData(zipBytes, { compressionMethod, compressedSize, uncompressedSize, localHeaderOffset, entryName: name });
+      const target = join(targetDir, relativePath);
+      await mkdir(dirname(target), { recursive: true });
+      await writeFileIfChanged(target, data);
+    } else if (relativePath) {
+      await mkdir(join(targetDir, relativePath), { recursive: true });
+    }
+    offset += 46 + fileNameLength + extraLength + commentLength;
+  }
+}
+
+async function extractTarTree(tarBytes: Buffer, targetDir: string, stripComponents: number): Promise<void> {
+  let offset = 0;
+  while (offset + 512 <= tarBytes.length) {
+    const header = tarBytes.subarray(offset, offset + 512);
+    if (header.every((byte) => byte === 0)) break;
+    const rawName = readTarString(header, 0, 100);
+    const prefix = readTarString(header, 345, 155);
+    const name = prefix ? `${prefix}/${rawName}` : rawName;
+    const sizeText = readTarString(header, 124, 12).trim();
+    const size = sizeText ? Number.parseInt(sizeText, 8) : 0;
+    const typeflag = header.subarray(156, 157).toString('utf8') || '0';
+    const dataOffset = offset + 512;
+    const nextOffset = dataOffset + Math.ceil(size / 512) * 512;
+    const relativePath = stripArchivePath(name, stripComponents);
+    if (relativePath) {
+      const target = join(targetDir, relativePath);
+      if (typeflag === '5') {
+        await mkdir(target, { recursive: true });
+      } else if (typeflag === '0' || typeflag === '\0' || typeflag === '') {
+        await mkdir(dirname(target), { recursive: true });
+        await writeFileIfChanged(target, tarBytes.subarray(dataOffset, dataOffset + size));
+      }
+    }
+    offset = nextOffset;
+  }
+}
+
+function readTarString(header: Buffer, offset: number, length: number): string {
+  const raw = header.subarray(offset, offset + length);
+  const nul = raw.indexOf(0);
+  return raw.subarray(0, nul === -1 ? raw.length : nul).toString('utf8');
+}
+
+function stripArchivePath(path: string, stripComponents: number): string | null {
+  const normalized = path.replace(/\\/g, '/');
+  const parts = normalized.split('/').filter((part) => part.length > 0);
+  const stripped = parts.slice(stripComponents).join('/');
+  if (!stripped) return null;
+  validateRelativePath(stripped, 'Invalid archive entry path');
+  return stripped;
+}
+
+async function validateMaterializedOutputs(pluginDir: string, outputs: PluginMaterializedOutputDefinition[]): Promise<void> {
+  for (const output of outputs) {
+    const path = join(pluginDir, output.path);
+    const stat = await lstat(path).catch((error: unknown) => {
+      if (isNodeErrorWithCode(error, 'ENOENT')) throw new Error(`Missing materialized output ${output.path}`);
+      throw error;
+    });
+    if (output.kind === 'file' && !stat.isFile()) throw new Error(`Materialized output is not a file: ${output.path}`);
+    if (output.kind === 'directory' && !stat.isDirectory()) throw new Error(`Materialized output is not a directory: ${output.path}`);
+    if (output.mode !== undefined && output.kind === 'file') await chmod(path, parseMode(output.mode));
+  }
+}
+
+async function reconcilePluginBins(catalog: PluginServiceCatalog, paths: PluginServiceOrchestratorPaths): Promise<void> {
+  const binDir = pluginBinDir(paths);
+  await mkdir(binDir, { recursive: true });
+  const desired = new Map<string, string>();
+  for (const plugin of catalog.plugins) {
+    for (const installer of plugin.installers) {
+      if (installer.kind !== 'github-release-asset' || !installer.bin) continue;
+      for (const [binName, target] of Object.entries(installer.bin)) {
+        if (desired.has(binName)) throw new Error(`Duplicate plugin bin exposure ${binName}`);
+        desired.set(binName, join(pluginExtractedPath(paths, plugin), target));
+      }
+    }
+  }
+  for (const [binName, target] of desired) {
+    const link = join(binDir, binName);
+    await unlink(link).catch((error: unknown) => {
+      if (!isNodeErrorWithCode(error, 'ENOENT')) throw error;
+    });
+    await symlink(target, link);
+  }
+}
+
+function selectInstallerVariant(installer: Extract<PluginInstallerDefinition, { kind: 'github-release-asset' }>, platformKey: PlatformKey): PluginArtifactVariantDefinition {
+  const variant = installer.variants[platformKey];
+  if (!variant) throw new Error(`No artifact variant for ${platformKey}; available variants: ${Object.keys(installer.variants).join(', ')}`);
+  return variant;
+}
+
+function currentPlatformKey(): PlatformKey {
+  if (process.platform !== 'linux') throw new Error(`Unsupported plugin platform: ${process.platform}-${process.arch}`);
+  if (process.arch === 'x64') return 'linux-amd64';
+  if (process.arch === 'arm64') return 'linux-arm64';
+  throw new Error(`Unsupported plugin platform: linux-${process.arch}`);
+}
+
+function isPlatformKey(value: string): value is PlatformKey {
+  return value === 'linux-amd64' || value === 'linux-arm64';
+}
+
+function parseMode(mode: string): number {
+  if (!/^[0-7]{3,4}$/.test(mode)) throw new Error(`Invalid file mode: ${mode}`);
+  return Number.parseInt(mode, 8);
+}
+
+function toolchainPaths(paths: PluginServiceOrchestratorPaths): { root: string; binDir: string; npmPrefix: string } {
+  const root = paths.toolchainRoot ?? join(dirname(paths.installRoot), 'toolchains');
+  return { root, binDir: join(root, 'bin'), npmPrefix: join(root, 'npm') };
+}
+
+function toolchainEnv(paths: PluginServiceOrchestratorPaths): NodeJS.ProcessEnv {
+  const toolchain = toolchainPaths(paths);
+  return {
+    ...process.env,
+    PATH: `${toolchain.binDir}:${join(toolchain.npmPrefix, 'bin')}:${process.env.PATH ?? ''}`,
+    UV_TOOL_DIR: join(toolchain.root, 'uv', 'tools'),
+    UV_TOOL_BIN_DIR: toolchain.binDir,
+    NPM_CONFIG_PREFIX: toolchain.npmPrefix,
+    CARGO_HOME: join(toolchain.root, 'cargo'),
+    GOBIN: toolchain.binDir,
+    GOPATH: join(toolchain.root, 'go'),
+  };
+}
+
+function pluginBinDir(paths: PluginServiceOrchestratorPaths): string {
+  return paths.pluginBinDir ?? join(dirname(paths.installRoot), 'plugin-bin');
+}
+
+function pluginDataPath(paths: PluginServiceOrchestratorPaths, plugin: PluginServiceDefinition): string {
+  return join(dirname(paths.installRoot), 'plugin-data', plugin.id);
+}
+
+async function defaultExecuteCommand(command: string, args: string[], options: PluginInstallCommandOptions): Promise<void> {
+  await execFileAsync(command, args, { cwd: options.cwd, env: options.env, timeout: options.timeout });
+}
+
+function isSafePackageName(value: string): boolean {
+  return /^(@[a-zA-Z0-9._-]+\/)?[a-zA-Z0-9._-]+$/.test(value);
+}
+
+function isSafeGoModule(value: string): boolean {
+  return /^[a-zA-Z0-9._~:/-]+$/.test(value) && value.includes('/');
+}
+
+function createArtifactPlans(
   plugin: PluginServiceDefinition,
   paths: PluginServiceOrchestratorPaths,
   cachedArtifacts: CachedPluginArtifact[],
-): PluginArtifactDryRunPlan {
+): PluginArtifactDryRunPlan[] {
   const installPath = pluginInstallPath(paths, plugin);
-  if (plugin.artifact.kind === 'bundled-current-repo') {
-    return { action: 'bundled-current-repo', pluginId: plugin.id, version: plugin.version, installPath };
-  }
+  return plugin.installers.map((installer) => {
+    if (installer.kind === 'bundled-current-repo') {
+      return { action: 'bundled-current-repo', pluginId: plugin.id, version: plugin.version, installPath };
+    }
+    if (installer.kind !== 'github-release-asset') {
+      return { action: 'install', pluginId: plugin.id, version: plugin.version, url: `${installer.kind}:${packageInstallerName(installer)}`, cachePath: toolchainPaths(paths).root, installPath };
+    }
 
-  const artifact = plugin.artifact;
-  const cachePath = artifactCachePath(paths, artifact);
-  const cached = cachedArtifacts.some((cachedArtifact) => {
-    return cachedArtifact.pluginId === plugin.id
-      && cachedArtifact.version === plugin.version
-      && cachedArtifact.sha256 === artifact.sha256
-      && cachedArtifact.path === cachePath;
+    const platformKey = currentPlatformKey();
+    const variant = selectInstallerVariant(installer, platformKey);
+    const cachePath = artifactCachePath(paths, installer, variant);
+    const cached = cachedArtifacts.some((cachedArtifact) => {
+      return cachedArtifact.pluginId === plugin.id
+        && cachedArtifact.version === plugin.version
+        && cachedArtifact.sha256 === variant.sha256
+        && cachedArtifact.path === cachePath;
+    });
+
+    return {
+      action: cached ? 'cached' : 'download',
+      pluginId: plugin.id,
+      version: plugin.version,
+      url: githubReleaseAssetUrl(installer, variant),
+      cachePath,
+      installPath,
+      sha256: variant.sha256,
+      variant: platformKey,
+      signature: variant.signature,
+    };
   });
+}
 
-  return {
-    action: cached ? 'cached' : 'download',
-    pluginId: plugin.id,
-    version: plugin.version,
-    url: githubReleaseAssetUrl(artifact),
-    cachePath,
-    installPath,
-    sha256: artifact.sha256,
-    signature: artifact.signature,
-  };
+function packageInstallerName(installer: Exclude<PluginInstallerDefinition, { kind: 'github-release-asset' } | { kind: 'bundled-current-repo' }>): string {
+  if (installer.kind === 'uv-tool' || installer.kind === 'npm-global') return `${installer.package}@${installer.version}`;
+  if (installer.kind === 'cargo-crate') return `${installer.crate}@${installer.version}`;
+  return `${installer.module}@${installer.version}`;
 }
 
 function renderCommand(
@@ -700,55 +1054,114 @@ function validatePluginDefinition(plugin: PluginServiceDefinition): void {
   if (!isSafeHumanText(plugin.name)) throw new Error(`Invalid plugin name for ${plugin.id}`);
   if (typeof plugin.version !== 'string') throw new Error(`Invalid plugin version for ${plugin.id}`);
   if (!isSafePathSegment(plugin.version)) throw new Error(`Invalid plugin version for ${plugin.id}: ${plugin.version}`);
+  if (!Array.isArray(plugin.installers)) throw new Error(`Invalid installers for plugin ${plugin.id}`);
   if (!Array.isArray(plugin.services)) throw new Error(`Invalid services for plugin ${plugin.id}`);
-  if (!isRecord(plugin.artifact)) throw new Error(`Invalid artifact for ${plugin.id}: expected object`);
-
-  if (plugin.artifact.kind === 'github-release-asset') {
-    if (typeof plugin.artifact.repository !== 'string') throw new Error(`Invalid GitHub repository for ${plugin.id}`);
-    if (!isSafeGithubRepository(plugin.artifact.repository)) {
-      throw new Error(`Invalid GitHub repository for ${plugin.id}: ${plugin.artifact.repository}`);
-    }
-    if (typeof plugin.artifact.tag !== 'string') throw new Error(`Invalid artifact tag for ${plugin.id}`);
-    if (!isSafePathSegment(plugin.artifact.tag)) {
-      throw new Error(`Invalid artifact tag for ${plugin.id}: ${plugin.artifact.tag}`);
-    }
-    if (typeof plugin.artifact.asset !== 'string') throw new Error(`Invalid artifact asset for ${plugin.id}`);
-    if (!isSafePathSegment(plugin.artifact.asset)) {
-      throw new Error(`Invalid artifact asset for ${plugin.id}: ${plugin.artifact.asset}`);
-    }
-    if (typeof plugin.artifact.sha256 !== 'string') throw new Error(`Invalid artifact sha256 for ${plugin.id}`);
-    if (!/^[a-fA-F0-9]{64}$/.test(plugin.artifact.sha256)) {
-      throw new Error(`Invalid artifact sha256 for ${plugin.id}: ${plugin.artifact.sha256}`);
-    }
-    if (plugin.artifact.signature !== undefined) {
-      throw new Error(`Unsupported artifact signature for ${plugin.id}: service catalog artifacts are sha256-pinned on this branch`);
-    }
-    if (plugin.artifact.installAs !== undefined) {
-      validateRelativePath(plugin.artifact.installAs, `Invalid artifact installAs for ${plugin.id}`);
-    }
-    if (plugin.artifact.extract !== undefined) {
-      validateArtifactExtraction(plugin.id, plugin.artifact.extract);
-    }
-    return;
-  }
-
-  if (plugin.artifact.kind !== 'bundled-current-repo') {
-    throw new Error(`Unsupported artifact kind for ${plugin.id}: ${(plugin.artifact as { kind?: string }).kind ?? ''}`);
+  for (const installer of plugin.installers) {
+    if (!isRecord(installer)) throw new Error(`Invalid installer for plugin ${plugin.id}: expected object`);
+    validateInstallerDefinition(plugin.id, installer as PluginInstallerDefinition);
   }
 }
 
-function validateArtifactExtraction(
-  pluginId: string,
-  extract: NonNullable<Extract<PluginArtifactDefinition, { kind: 'github-release-asset' }>['extract']>,
-): void {
-  if (!isRecord(extract)) throw new Error(`Invalid artifact extract for ${pluginId}: expected object`);
-  if (extract.kind !== 'zip') {
-    throw new Error(`Unsupported artifact extract kind for ${pluginId}: ${(extract as { kind?: string }).kind ?? ''}`);
+function validateInstallerDefinition(pluginId: string, installer: PluginInstallerDefinition): void {
+  if (installer.kind === 'bundled-current-repo') return;
+  if (installer.kind === 'github-release-asset') {
+    if (typeof installer.repository !== 'string') throw new Error(`Invalid GitHub repository for ${pluginId}`);
+    if (!isSafeGithubRepository(installer.repository)) throw new Error(`Invalid GitHub repository for ${pluginId}: ${installer.repository}`);
+    if (typeof installer.tag !== 'string') throw new Error(`Invalid artifact tag for ${pluginId}`);
+    if (!isSafePathSegment(installer.tag)) throw new Error(`Invalid artifact tag for ${pluginId}: ${installer.tag}`);
+    if (!isRecord(installer.variants)) throw new Error(`Invalid artifact variants for ${pluginId}: expected object`);
+    const variantKeys = Object.keys(installer.variants);
+    if (variantKeys.length === 0) throw new Error(`Invalid artifact variants for ${pluginId}: expected at least one variant`);
+    for (const key of variantKeys) {
+      if (!isPlatformKey(key)) throw new Error(`Invalid artifact variant for ${pluginId}: ${key}`);
+      const variant = installer.variants[key];
+      if (!isRecord(variant)) throw new Error(`Invalid artifact variant for ${pluginId}/${key}: expected object`);
+      if (typeof variant.asset !== 'string') throw new Error(`Invalid artifact asset for ${pluginId}/${key}`);
+      if (!isSafePathSegment(variant.asset)) throw new Error(`Invalid artifact asset for ${pluginId}/${key}: ${variant.asset}`);
+      if (typeof variant.sha256 !== 'string' || !/^[a-fA-F0-9]{64}$/.test(variant.sha256)) {
+        throw new Error(`Invalid artifact sha256 for ${pluginId}/${key}: ${variant.sha256}`);
+      }
+      if (variant.signature !== undefined) throw new Error(`Unsupported artifact signature for ${pluginId}: service catalog artifacts are sha256-pinned on this branch`);
+    }
+    validateMaterializer(pluginId, installer.materialize);
+    if (installer.postExtract !== undefined) validatePostExtract(pluginId, installer.postExtract);
+    if (installer.bin !== undefined) validateBinMap(pluginId, installer.bin);
+    return;
   }
-  if (typeof extract.entry !== 'string') throw new Error(`Invalid artifact extract entry for ${pluginId}`);
-  validateRelativePath(extract.entry, `Invalid artifact extract entry for ${pluginId}`);
-  if (typeof extract.installAs !== 'string') throw new Error(`Invalid artifact extract installAs for ${pluginId}`);
-  validateRelativePath(extract.installAs, `Invalid artifact extract installAs for ${pluginId}`);
+
+  if (installer.kind === 'uv-tool' || installer.kind === 'npm-global') {
+    if (typeof installer.package !== 'string' || !isSafePackageName(installer.package)) throw new Error(`Invalid ${installer.kind} package for ${pluginId}`);
+    validatePackageVersion(pluginId, installer.version);
+    validateBins(pluginId, installer.bins);
+    return;
+  }
+  if (installer.kind === 'cargo-crate') {
+    if (typeof installer.crate !== 'string' || !isSafePackageName(installer.crate)) throw new Error(`Invalid cargo crate for ${pluginId}`);
+    validatePackageVersion(pluginId, installer.version);
+    validateBins(pluginId, installer.bins);
+    return;
+  }
+  if (installer.kind === 'go-install') {
+    if (typeof installer.module !== 'string' || !isSafeGoModule(installer.module)) throw new Error(`Invalid go module for ${pluginId}`);
+    validatePackageVersion(pluginId, installer.version);
+    validateBins(pluginId, installer.bins);
+    return;
+  }
+  throw new Error(`Unsupported installer kind for ${pluginId}: ${(installer as { kind?: string }).kind ?? ''}`);
+}
+
+function validateMaterializer(pluginId: string, materializer: PluginMaterializerDefinition): void {
+  if (!isRecord(materializer)) throw new Error(`Invalid materializer for ${pluginId}: expected object`);
+  if (materializer.kind === 'file') {
+    validateRelativePath(materializer.installAs, `Invalid materializer installAs for ${pluginId}`);
+  } else if (materializer.kind === 'zip-entry') {
+    validateRelativePath(materializer.entry, `Invalid materializer zip entry for ${pluginId}`);
+    validateRelativePath(materializer.installAs, `Invalid materializer installAs for ${pluginId}`);
+  } else if (materializer.kind === 'archive-tree') {
+    if (!['zip', 'tar.gz'].includes(materializer.format)) throw new Error(`Invalid archive format for ${pluginId}: ${materializer.format}`);
+    if (materializer.stripComponents !== undefined && (!Number.isInteger(materializer.stripComponents) || materializer.stripComponents < 0 || materializer.stripComponents > 10)) {
+      throw new Error(`Invalid archive stripComponents for ${pluginId}: ${materializer.stripComponents}`);
+    }
+  } else {
+    throw new Error(`Unsupported materializer kind for ${pluginId}: ${(materializer as { kind?: string }).kind ?? ''}`);
+  }
+  if (!Array.isArray(materializer.outputs) || materializer.outputs.length === 0) throw new Error(`Invalid materializer outputs for ${pluginId}`);
+  for (const output of materializer.outputs) validateOutput(pluginId, output);
+  if ('mode' in materializer && materializer.mode !== undefined) parseMode(materializer.mode);
+}
+
+function validateOutput(pluginId: string, output: PluginMaterializedOutputDefinition): void {
+  if (!isRecord(output)) throw new Error(`Invalid materializer output for ${pluginId}: expected object`);
+  if (output.kind !== 'file' && output.kind !== 'directory') throw new Error(`Invalid materializer output kind for ${pluginId}: ${(output as { kind?: string }).kind ?? ''}`);
+  validateRelativePath(output.path, `Invalid materializer output path for ${pluginId}`);
+  if (output.mode !== undefined) parseMode(output.mode);
+}
+
+function validatePostExtract(pluginId: string, script: PluginPostExtractScriptDefinition): void {
+  if (!isRecord(script)) throw new Error(`Invalid postExtract for ${pluginId}: expected object`);
+  if (script.kind !== 'admin-script') throw new Error(`Invalid postExtract kind for ${pluginId}: ${(script as { kind?: string }).kind ?? ''}`);
+  if (typeof script.command !== 'string' || !isSafeHumanText(script.command)) throw new Error(`Invalid postExtract command for ${pluginId}`);
+  if (script.timeoutSeconds !== undefined && (!Number.isInteger(script.timeoutSeconds) || script.timeoutSeconds < 1 || script.timeoutSeconds > 3600)) {
+    throw new Error(`Invalid postExtract timeoutSeconds for ${pluginId}: ${script.timeoutSeconds}`);
+  }
+}
+
+function validateBinMap(pluginId: string, bin: Record<string, string>): void {
+  if (!isPlainStringRecord(bin)) throw new Error(`Invalid bin map for ${pluginId}`);
+  for (const [name, target] of Object.entries(bin)) {
+    if (!isSafePathSegment(name)) throw new Error(`Invalid bin name for ${pluginId}: ${name}`);
+    validateRelativePath(target, `Invalid bin target for ${pluginId}`);
+  }
+}
+
+function validateBins(pluginId: string, bins: string[] | undefined): void {
+  if (bins === undefined) return;
+  if (!isStringArray(bins)) throw new Error(`Invalid package manager bins for ${pluginId}`);
+  for (const bin of bins) if (!isSafePathSegment(bin)) throw new Error(`Invalid package manager bin for ${pluginId}: ${bin}`);
+}
+
+function validatePackageVersion(pluginId: string, version: string): void {
+  if (typeof version !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9._+:-]{0,127}$/.test(version)) throw new Error(`Invalid package version for ${pluginId}: ${version}`);
 }
 
 function validateServiceDefinition(plugin: PluginServiceDefinition, service: SupervisorServiceDefinition): void {
@@ -822,15 +1235,19 @@ function getServicePortByName(
   return port;
 }
 
-function githubReleaseAssetUrl(artifact: Extract<PluginArtifactDefinition, { kind: 'github-release-asset' }>): string {
-  return `https://github.com/${artifact.repository}/releases/download/${artifact.tag}/${artifact.asset}`;
+function githubReleaseAssetUrl(
+  installer: Extract<PluginInstallerDefinition, { kind: 'github-release-asset' }>,
+  variant: PluginArtifactVariantDefinition,
+): string {
+  return `https://github.com/${installer.repository}/releases/download/${installer.tag}/${variant.asset}`;
 }
 
 function artifactCachePath(
   paths: PluginServiceOrchestratorPaths,
-  artifact: Extract<PluginArtifactDefinition, { kind: 'github-release-asset' }>,
+  installer: Extract<PluginInstallerDefinition, { kind: 'github-release-asset' }>,
+  variant: PluginArtifactVariantDefinition,
 ): string {
-  return join(paths.artifactCacheRoot, 'github', artifact.repository, artifact.tag, artifact.asset);
+  return join(paths.artifactCacheRoot, 'github', installer.repository, installer.tag, variant.asset);
 }
 
 function supervisorConfigPath(

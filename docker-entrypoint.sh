@@ -79,9 +79,9 @@ chown -R vkuser:vkuser /home/vkuser/.local/share/vibe-dashboard-runtime 2>/dev/n
 # Ensure plugin runtime paths and the plugin-owned Caddy import exist before
 # supervisord starts. Plugin artifact installation intentionally runs after
 # Caddy starts so first boot is not blocked on large downloads.
-mkdir -p /var/lib/vd/instance-config /var/lib/vd/plugin-cache /var/lib/vd/plugins /var/lib/vd/silverbullet/space /etc/supervisor/conf.d/vd-generated /etc/caddy
+mkdir -p /var/lib/vd/instance-config /var/lib/vd/plugin-cache /var/lib/vd/plugins /var/lib/vd/plugin-bin /var/lib/vd/toolchains/bin /var/lib/vd/toolchains/npm /var/lib/vd/plugin-data /var/lib/vd/silverbullet/space /etc/supervisor/conf.d/vd-generated /etc/caddy
 repair_shared_writable_once /var/lib/vd
-ensure_shared_writable /var/lib/vd/instance-config /var/lib/vd/plugin-cache /var/lib/vd/plugins /var/lib/vd/silverbullet
+ensure_shared_writable /var/lib/vd/instance-config /var/lib/vd/plugin-cache /var/lib/vd/plugins /var/lib/vd/plugin-bin /var/lib/vd/toolchains /var/lib/vd/plugin-data /var/lib/vd/silverbullet
 if [ ! -f /etc/caddy/plugins.caddy ]; then
     cat > /etc/caddy/plugins.caddy <<'EOF'
 # VD plugin-owned Caddy routes.

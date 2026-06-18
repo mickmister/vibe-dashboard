@@ -4,14 +4,6 @@
       "id": "vd.beads-web",
       "name": "Beads Web",
       "version": "beads-web-assets-42cc6ca1709d4b0aa76833d91d326e6de9659a28",
-      "artifact": {
-        "kind": "github-release-asset",
-        "repository": "mickmister/beads-web",
-        "tag": "beads-web-assets-42cc6ca1709d4b0aa76833d91d326e6de9659a28",
-        "asset": "beads-web-linux-x64",
-        "installAs": "bin/beads-web",
-        "sha256": "03691990c33a6695ac2520be9dc59f4dd692730fc35f49a9f5df784fa0e2242d"
-      },
       "services": [
         {
           "id": "web",
@@ -40,6 +32,34 @@
             "kind": "caddy-subdomain",
             "subdomain": "beads-web",
             "port": "http"
+          }
+        }
+      ],
+      "installers": [
+        {
+          "kind": "github-release-asset",
+          "repository": "mickmister/beads-web",
+          "tag": "beads-web-assets-42cc6ca1709d4b0aa76833d91d326e6de9659a28",
+          "variants": {
+            "linux-amd64": {
+              "asset": "beads-web-linux-x64",
+              "sha256": "03691990c33a6695ac2520be9dc59f4dd692730fc35f49a9f5df784fa0e2242d"
+            }
+          },
+          "materialize": {
+            "kind": "file",
+            "installAs": "bin/beads-web",
+            "mode": "0755",
+            "outputs": [
+              {
+                "kind": "file",
+                "path": "bin/beads-web",
+                "mode": "0755"
+              }
+            ]
+          },
+          "bin": {
+            "beads-web": "bin/beads-web"
           }
         }
       ]

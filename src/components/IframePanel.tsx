@@ -50,6 +50,11 @@ type TabRenderTarget =
   | { kind: 'blocked-self-app' }
   | { kind: 'iframe'; iframeSrc: string };
 
+type RetainedIframeTab = {
+  tab: Tab;
+  iframeKey: string;
+};
+
 let iframeStore: Map<string, IframeEntry> = new Map();
 let retainedSessionId: string | null = null;
 let retainedTabIds: Set<string> = new Set();
@@ -275,8 +280,9 @@ function getTabRenderTarget(url: string): TabRenderTarget {
   }
 }
 
-function getOrCreateIframe(tab: Tab): IframeEntry {
-  const existing = iframeStore.get(tab.id);
+function getOrCreateIframe(retainedTab: RetainedIframeTab): IframeEntry {
+  const { tab, iframeKey } = retainedTab;
+  const existing = iframeStore.get(iframeKey);
   if (existing) return existing;
   const target = getTabRenderTarget(tab.url);
 
@@ -323,7 +329,7 @@ function getOrCreateIframe(tab: Tab): IframeEntry {
   }
 
   container.appendChild(iframe);
-  iframeStore.set(tab.id, entry);
+  iframeStore.set(iframeKey, entry);
 
   return entry;
 }
@@ -418,11 +424,15 @@ export function hasKnownIframeMessageSource(source: MessageEventSource | null): 
   );
 }
 
+function getIframeRetentionKey(tabGroupId: string, tabId: string): string {
+  return `${tabGroupId}:${tabId}`;
+}
+
 function useImperativeIframes(
   currentSessionId: string | undefined,
-  tabs: Tab[],
-  visibleTabIds: Set<string>,
-  allKnownTabIds?: Set<string>,
+  tabs: RetainedIframeTab[],
+  visibleIframeKeys: Set<string>,
+  allKnownIframeKeys?: Set<string>,
 ) {
   const [storeVersion, setStoreVersion] = useState(0);
 
@@ -432,8 +442,9 @@ function useImperativeIframes(
 
   const [loadingState, setLoadingState] = useState<Map<string, boolean>>(() => {
     const initial = new Map<string, boolean>();
-    for (const tab of tabs) {
-      const entry = iframeStore.get(tab.id);
+    for (const retainedTab of tabs) {
+      const entry = iframeStore.get(retainedTab.iframeKey);
+      const tab = retainedTab.tab;
       // Only consider ready when BOTH loaded AND content is ready
       initial.set(tab.id, (entry?.loaded && entry?.contentReady) ?? false);
     }
@@ -442,8 +453,9 @@ function useImperativeIframes(
 
   const [errorState, setErrorState] = useState<Map<string, boolean>>(() => {
     const initial = new Map<string, boolean>();
-    for (const tab of tabs) {
-      const entry = iframeStore.get(tab.id);
+    for (const retainedTab of tabs) {
+      const entry = iframeStore.get(retainedTab.iframeKey);
+      const tab = retainedTab.tab;
       initial.set(tab.id, entry?.loadError ?? false);
     }
     return initial;
@@ -462,10 +474,10 @@ function useImperativeIframes(
   useEffect(() => {
     let createdIframe = false;
 
-    for (const tab of tabs) {
-      const existing = iframeStore.get(tab.id);
+    for (const retainedTab of tabs) {
+      const existing = iframeStore.get(retainedTab.iframeKey);
       if (existing) continue;
-      getOrCreateIframe(tab);
+      getOrCreateIframe(retainedTab);
       createdIframe = true;
     }
 
@@ -476,8 +488,9 @@ function useImperativeIframes(
 
   // Update iframe src when tab URL changes
   useEffect(() => {
-    for (const tab of tabs) {
-      const entry = iframeStore.get(tab.id);
+    for (const retainedTab of tabs) {
+      const entry = iframeStore.get(retainedTab.iframeKey);
+      const tab = retainedTab.tab;
       if (!entry) continue;
       const target = getTabRenderTarget(tab.url);
 
@@ -530,25 +543,25 @@ function useImperativeIframes(
     const now = Date.now();
     let removedIframe = false;
 
-    for (const tab of tabs) {
-      if (!visibleTabIds.has(tab.id)) continue;
-      retainedTabIds.add(tab.id);
-      const entry = iframeStore.get(tab.id);
+    for (const retainedTab of tabs) {
+      if (!visibleIframeKeys.has(retainedTab.iframeKey)) continue;
+      retainedTabIds.add(retainedTab.iframeKey);
+      const entry = iframeStore.get(retainedTab.iframeKey);
       if (entry) {
         entry.lastAccessedAt = now;
       }
     }
 
-    if (allKnownTabIds) {
+    if (allKnownIframeKeys) {
       for (const tabId of Array.from(retainedTabIds)) {
-        if (!allKnownTabIds.has(tabId)) {
+        if (!allKnownIframeKeys.has(tabId)) {
           removeIframe(tabId);
           removedIframe = true;
         }
       }
     }
 
-    const visibleIds = new Set(visibleTabIds);
+    const visibleIds = new Set(visibleIframeKeys);
     const evictableIds = Array.from(retainedTabIds)
       .filter((tabId) => !visibleIds.has(tabId))
       .sort((leftId, rightId) => {
@@ -569,14 +582,15 @@ function useImperativeIframes(
     if (removedIframe) {
       bumpStoreVersion();
     }
-  }, [allKnownTabIds, bumpStoreVersion, tabs, visibleTabIds]);
+  }, [allKnownIframeKeys, bumpStoreVersion, tabs, visibleIframeKeys]);
 
   // Subscribe to load events
   useEffect(() => {
     const unsubs: (() => void)[] = [];
 
-    for (const tab of tabs) {
-      const entry = iframeStore.get(tab.id);
+    for (const retainedTab of tabs) {
+      const entry = iframeStore.get(retainedTab.iframeKey);
+      const tab = retainedTab.tab;
       if (!entry) continue;
 
       // If already loaded AND content ready, update state immediately
@@ -623,7 +637,10 @@ function useImperativeIframes(
   }, [tabs]);
 
   const retryTab = useCallback((tabId: string) => {
-    const entry = iframeStore.get(tabId);
+    const iframeKey = tabs.find((item) => visibleIframeKeys.has(item.iframeKey) && item.tab.id === tabId)?.iframeKey
+      ?? tabs.find((item) => item.tab.id === tabId)?.iframeKey
+      ?? tabId;
+    const entry = iframeStore.get(iframeKey);
     if (!entry) return;
     entry.loaded = false;
     entry.contentReady = false;
@@ -640,7 +657,7 @@ function useImperativeIframes(
       next.set(tabId, false);
       return next;
     });
-  }, []);
+  }, [tabs, visibleIframeKeys]);
 
   return { loadingState, errorState, retryTab, storeVersion };
 }
@@ -650,12 +667,12 @@ function useImperativeIframes(
  * The iframe is appended via useEffect, not rendered by React,
  * so it survives HMR and re-renders.
  */
-function IframeHost({ tabId, storeVersion }: { tabId: string; storeVersion: number }) {
+function IframeHost({ iframeKey, storeVersion }: { iframeKey: string; storeVersion: number }) {
   const hostRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const host = hostRef.current;
-    const entry = iframeStore.get(tabId);
+    const entry = iframeStore.get(iframeKey);
     if (!host || !entry) return;
 
     host.appendChild(entry.container);
@@ -665,7 +682,7 @@ function IframeHost({ tabId, storeVersion }: { tabId: string; storeVersion: numb
         host.removeChild(entry.container);
       }
     };
-  }, [storeVersion, tabId]);
+  }, [storeVersion, iframeKey]);
 
   return (
     <div ref={hostRef} className="w-full h-full relative" />
@@ -705,23 +722,32 @@ export function IframePanel({
     return getTabRenderTarget(tab.url).kind === 'iframe';
   });
 
+  const visibleRetainedIframeTabs = visibleIframeTabs.map((tab): RetainedIframeTab => ({
+    tab,
+    iframeKey: getIframeRetentionKey(tabGroup.id, tab.id),
+  }));
   const allKnownIframeTabs = workspace?.tabGroups.flatMap((group) =>
-    group.tabs.filter((tab) => getTabRenderTarget(tab.url).kind === 'iframe'),
+    group.tabs
+      .filter((tab) => getTabRenderTarget(tab.url).kind === 'iframe')
+      .map((tab): RetainedIframeTab => ({
+        tab,
+        iframeKey: getIframeRetentionKey(group.id, tab.id),
+      })),
   );
-  const visibleIframeTabIds = new Set(visibleIframeTabs.map((tab) => tab.id));
+  const visibleIframeKeys = new Set(visibleRetainedIframeTabs.map((item) => item.iframeKey));
   const retainedTabs =
     allKnownIframeTabs?.filter(
-      (tab) => retainedTabIds.has(tab.id) || visibleIframeTabIds.has(tab.id),
-    ) ?? visibleIframeTabs;
-  const allKnownIframeTabIds = allKnownIframeTabs
-    ? new Set(allKnownIframeTabs.map((tab) => tab.id))
+      (item) => retainedTabIds.has(item.iframeKey) || visibleIframeKeys.has(item.iframeKey),
+    ) ?? visibleRetainedIframeTabs;
+  const allKnownIframeKeys = allKnownIframeTabs
+    ? new Set(allKnownIframeTabs.map((item) => item.iframeKey))
     : undefined;
 
   const { loadingState, errorState, retryTab, storeVersion } = useImperativeIframes(
     currentSessionId,
     retainedTabs,
-    visibleIframeTabIds,
-    allKnownIframeTabIds,
+    visibleIframeKeys,
+    allKnownIframeKeys,
   );
 
   return (
@@ -772,7 +798,7 @@ function PersistentIframeLayer({
   tabGroup,
   storeVersion,
 }: {
-  retainedTabs: Tab[];
+  retainedTabs: RetainedIframeTab[];
   activeTab?: Tab;
   activePair?: { id: string; tabIds: string[]; ratios: number[] };
   tabGroup: TabGroup;
@@ -796,7 +822,7 @@ function PersistentIframeLayer({
       const ratioFraction = ratio / totalRatio;
       const cumulativeFraction = cumulativeRatio / totalRatio;
 
-      layoutStyles.set(tab.id, {
+      layoutStyles.set(getIframeRetentionKey(tabGroup.id, tab.id), {
         position: 'absolute',
         top: 0,
         bottom: 0,
@@ -809,7 +835,7 @@ function PersistentIframeLayer({
       cumulativeRatio += ratio;
     });
   } else if (activeTab && getTabRenderTarget(activeTab.url).kind === 'iframe') {
-    layoutStyles.set(activeTab.id, {
+    layoutStyles.set(getIframeRetentionKey(tabGroup.id, activeTab.id), {
       position: 'absolute',
       inset: 0,
       visibility: 'visible',
@@ -822,11 +848,11 @@ function PersistentIframeLayer({
       className="absolute inset-x-0 top-0 overflow-hidden box-border md:bottom-0"
       style={MOBILE_VIEWPORT_INSET_STYLE}
     >
-      {retainedTabs.map((tab) => {
-        const activeStyle = layoutStyles.get(tab.id);
+      {retainedTabs.map(({ tab, iframeKey }) => {
+        const activeStyle = layoutStyles.get(iframeKey);
         return (
           <div
-            key={tab.id}
+            key={iframeKey}
             className="absolute inset-0"
             style={
               activeStyle || {
@@ -837,7 +863,7 @@ function PersistentIframeLayer({
               }
             }
           >
-            <IframeHost tabId={tab.id} storeVersion={storeVersion} />
+            <IframeHost iframeKey={iframeKey} storeVersion={storeVersion} />
           </div>
         );
       })}
