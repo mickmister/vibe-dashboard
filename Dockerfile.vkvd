@@ -98,6 +98,7 @@ RUN apt-get update && apt-get install -y \
     python3 \
     sqlite3 \
     supervisor \
+    sudo \
     ca-certificates \
     gnupg \
     debian-keyring \
@@ -215,8 +216,16 @@ RUN ARCH=$(dpkg --print-architecture) && \
     && dpkg -i /tmp/hugo.deb \
     && rm /tmp/hugo.deb
 
-# Create a non-root user for running applications
-RUN useradd -m -s /bin/bash vkuser && \
+# Create a non-root administrator user for running applications and coding
+# agents. Agents stay non-root for tools that reject UID 0, but can use sudo for
+# normal Linux administration. Shared mutable prefixes are group-writable/setgid
+# so root and vkuser-created files remain mutually manageable without repeated
+# chown -R fixes.
+RUN groupadd -f vkadmin && \
+    useradd -m -s /bin/bash vkuser && \
+    usermod -aG vkadmin,sudo vkuser && \
+    printf 'Defaults:vkuser umask=0002\nDefaults:vkuser umask_override\nvkuser ALL=(ALL) NOPASSWD:ALL\n' > /etc/sudoers.d/vkuser && \
+    chmod 0440 /etc/sudoers.d/vkuser && \
     mkdir -p /home/vkuser/.local/share/vibe-kanban \
              /home/vkuser/.local/share/pnpm \
              /home/vkuser/.local/share/code-server \
@@ -236,6 +245,12 @@ RUN useradd -m -s /bin/bash vkuser && \
              /var/lib/tailscale && \
     chown -R vkuser:vkuser /home/vkuser && \
     chown -R vkuser:vkuser /var/tmp/vibe-kanban && \
+    chgrp -R vkadmin /usr/local /opt /var/tmp/vibe-kanban && \
+    chmod -R g+rwX /usr/local /opt /var/tmp/vibe-kanban && \
+    find /usr/local /opt /var/tmp/vibe-kanban -type d -exec chmod g+s {} + && \
+    printf '\numask 0002\n' >> /etc/profile && \
+    printf '\numask 0002\n' >> /etc/bash.bashrc && \
+    printf '\numask 0002\n' >> /home/vkuser/.bashrc && \
     chmod 755 /var/run/tailscale /var/lib/tailscale
 
 # Configure npm to use user-local directory for global packages
@@ -273,8 +288,13 @@ RUN su - vkuser -c "mkdir -p /home/vkuser/.local/share/code-server/extensions &&
 # Install Beads CLI
 RUN curl -fsSL https://raw.githubusercontent.com/gastownhall/beads/main/scripts/install.sh | bash
 
-# Create supervisor config directory
-RUN mkdir -p /etc/supervisor/conf.d /etc/supervisor/conf.d/vd-generated /etc/caddy /var/lib/vd/instance-config /var/lib/vd/plugin-cache /var/lib/vd/plugins
+# Create supervisor config and plugin runtime directories. /var/lib/vd is
+# intentionally writable by vkadmin so the VD app, agents, and root startup
+# reconciliation can all manage persisted per-instance plugin state.
+RUN mkdir -p /etc/supervisor/conf.d /etc/supervisor/conf.d/vd-generated /etc/caddy /var/lib/vd/instance-config /var/lib/vd/plugin-cache /var/lib/vd/plugins /var/lib/vd/silverbullet/space && \
+    chgrp -R vkadmin /var/lib/vd && \
+    chmod -R g+rwX /var/lib/vd && \
+    find /var/lib/vd -type d -exec chmod g+s {} +
 
 COPY supervisord.vkvd.conf /etc/supervisor/conf.d/supervisord.conf
 COPY ops/process-exporter.yml /etc/process-exporter/process-exporter.yml
@@ -290,7 +310,12 @@ RUN chmod +x /usr/local/bin/backup-vibe-kanban-db.sh
 
 # Copy project files to a staging location (will be copied to volume at runtime)
 COPY . /opt/vibe-kanban-vscode-web-seed
-RUN chown -R vkuser:vkuser /opt/vibe-kanban-vscode-web-seed
+RUN chown -R vkuser:vkadmin /opt/vibe-kanban-vscode-web-seed && \
+    chmod -R g+rwX /opt/vibe-kanban-vscode-web-seed && \
+    find /opt/vibe-kanban-vscode-web-seed -type d -exec chmod g+s {} +
+RUN printf '#!/bin/sh\nexec node /opt/vibe-kanban-vscode-web-seed/scripts/vibe-agent/legacy-cli/vibe-agent.js "$@"\n' > /usr/local/bin/vibe-agent && \
+    printf '#!/bin/sh\nexec node /opt/vibe-kanban-vscode-web-seed/scripts/vibe-agent/cli/vk.js "$@"\n' > /usr/local/bin/vk && \
+    chmod 0755 /usr/local/bin/vibe-agent /usr/local/bin/vk
 
 # Copy packaged vibe-dashboard runtime artifacts to their final runtime path
 RUN mkdir -p /home/vkuser/.local/share/vibe-dashboard-runtime

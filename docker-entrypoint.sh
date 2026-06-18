@@ -1,5 +1,38 @@
 #!/bin/bash
 set -e
+umask 0002
+
+ensure_shared_writable() {
+    mkdir -p "$@"
+    if getent group vkadmin > /dev/null 2>&1; then
+        chgrp -R vkadmin "$@" 2>/dev/null || true
+    fi
+    chmod -R g+rwX "$@" 2>/dev/null || true
+    find "$@" -type d -exec chmod g+s {} + 2>/dev/null || true
+}
+
+repair_shared_writable_once() {
+    local root
+    for root in "$@"; do
+        mkdir -p "$root"
+        if getent group vkadmin > /dev/null 2>&1; then
+            chgrp vkadmin "$root" 2>/dev/null || true
+        fi
+        chmod g+rwXs "$root" 2>/dev/null || true
+
+        local marker="$root/.vk-shared-permissions-v1"
+        if [ -e "$marker" ]; then
+            continue
+        fi
+
+        ensure_shared_writable "$root"
+        touch "$marker" 2>/dev/null || true
+        if getent group vkadmin > /dev/null 2>&1; then
+            chgrp vkadmin "$marker" 2>/dev/null || true
+        fi
+        chmod g+rw "$marker" 2>/dev/null || true
+    done
+}
 
 # Fix docker group GID to match the mounted socket
 if [ -S /var/run/docker.sock ]; then
@@ -29,9 +62,15 @@ if [ -S /var/run/docker.sock ]; then
     fi
 fi
 
+# Ensure mounted mutable volumes keep shared group write semantics. This avoids
+# recurring chown -R fixes when root startup tasks and vkuser agents both manage
+# runtime state.
+repair_shared_writable_once /var/lib/vd /var/tmp/vibe-kanban
+
 # Initialize vibe-kanban-vscode-web repository in repos volume
 /usr/local/bin/sync-seeded-repo.sh || true
-chown -R vkuser:vkuser /home/vkuser/repos/vibe-kanban-vscode-web 2>/dev/null || true
+chown -R vkuser:vkadmin /home/vkuser/repos/vibe-kanban-vscode-web 2>/dev/null || true
+ensure_shared_writable /home/vkuser/repos/vibe-kanban-vscode-web
 
 # Ensure the packaged vibe-dashboard runtime directory exists before supervisord starts
 mkdir -p /home/vkuser/.local/share/vibe-dashboard-runtime
@@ -40,7 +79,9 @@ chown -R vkuser:vkuser /home/vkuser/.local/share/vibe-dashboard-runtime 2>/dev/n
 # Ensure plugin runtime paths and the plugin-owned Caddy import exist before
 # supervisord starts. Plugin artifact installation intentionally runs after
 # Caddy starts so first boot is not blocked on large downloads.
-mkdir -p /var/lib/vd/instance-config /var/lib/vd/plugin-cache /var/lib/vd/plugins /etc/supervisor/conf.d/vd-generated /etc/caddy
+mkdir -p /var/lib/vd/instance-config /var/lib/vd/plugin-cache /var/lib/vd/plugins /var/lib/vd/silverbullet/space /etc/supervisor/conf.d/vd-generated /etc/caddy
+repair_shared_writable_once /var/lib/vd
+ensure_shared_writable /var/lib/vd/instance-config /var/lib/vd/plugin-cache /var/lib/vd/plugins /var/lib/vd/silverbullet
 if [ ! -f /etc/caddy/plugins.caddy ]; then
     cat > /etc/caddy/plugins.caddy <<'EOF'
 # VD plugin-owned Caddy routes.

@@ -1824,6 +1824,12 @@ Core workflow:
   - Prefer small, mergeable changes with tests. Avoid risky nitpicks.
   - Before handing back code, review your own diff and run focused validation.
 
+Container conventions:
+  - You run as vkuser, not root. Use sudo for system administration and package installs when normal Linux defaults require it.
+  - sudo is expected to be passwordless in the vkvd image.
+  - Conventional mutable paths such as /usr/local, /opt, /var/lib/vd, and /var/tmp/vibe-kanban are intended to be shared-writable.
+  - vibe-agent and vk should be available on PATH.
+
 Current branch conventions:
   - Runtime/plugin orchestration code belongs under ./plugins, not ./src.
   - ./src is for the VD web application/server source.
