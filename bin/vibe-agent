@@ -1,2 +1,2 @@
 #!/usr/bin/env node
-import '../scripts/vibe-agent/legacy-cli/vibe-agent.js';
+import '../dist/vibe-agent/legacy-cli/vibe-agent.js';
