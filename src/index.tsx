@@ -24,6 +24,10 @@ import {
   parseViewsParam,
 } from './lib/voyageUrl';
 import { resolvePreferredVoyageSessionId } from './lib/voyageSession';
+import {
+  OpenFromGitHub,
+  hasOpenFromGitHubParam,
+} from './modules/OpenFromGitHub';
 
 // Ensure dark class is on the document root so portaled elements (modals, popovers)
 // inherit dark mode styles
@@ -921,6 +925,10 @@ springboard.registerModule(
 
       // Sync URL to match canonical voyage/craft/views query params
       useEffect(() => {
+        if (hasOpenFromGitHubParam(location.search)) {
+          return;
+        }
+
         const currentPath = `${location.pathname}${location.search}`;
         const currentTabGroup = workspace.tabGroups.find(
           (tg) => tg.id === sessionNav.activeTabGroupId,
@@ -1128,6 +1136,14 @@ springboard.registerModule(
               currentSessionId={browserSessionId}
             />
           </div>
+          <OpenFromGitHub
+            workspace={workspace}
+            addSpace={async (args) => await actions.addSpace(args)}
+            deleteTabGroup={async (args) => await actions.deleteTabGroup(args)}
+            addVKWorkspace={wrappedActions.addVKWorkspace}
+            selectSessionTabGroup={sessionNav.selectSessionTabGroup}
+            selectSessionTab={sessionNav.selectSessionTab}
+          />
         </>
       );
     };

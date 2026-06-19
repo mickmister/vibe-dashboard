@@ -15,6 +15,7 @@ export interface Workspace {
 
 export interface WorkspaceSummary {
   workspace_id: string;
+  latest_session_id?: string | null;
   has_pending_approval: boolean;
   files_changed: number | null;
   lines_added: number | null;
@@ -29,6 +30,8 @@ export interface WorkspaceSummary {
   has_running_dev_server: boolean;
   has_unseen_turns: boolean;
   pr_status: 'open' | 'merged' | 'closed' | 'unknown' | null;
+  pr_number?: number | null;
+  pr_url?: string | null;
 }
 
 export interface WorkspaceSummaryResponse {
@@ -39,6 +42,12 @@ export interface Repo {
   id: string;
   name: string;
   display_name: string;
+  path?: string;
+}
+
+export interface GitRemote {
+  name: string;
+  url: string;
 }
 
 export interface RepoWithBranch {
@@ -48,11 +57,39 @@ export interface RepoWithBranch {
   target_branch: string;
 }
 
+export interface PullRequestDetail {
+  number: number;
+  url: string;
+  status: 'open' | 'merged' | 'closed' | 'unknown';
+  merged_at?: string | null;
+  merge_commit_sha?: string | null;
+  title: string;
+  base_branch: string;
+  head_branch: string;
+}
+
+export interface CreateWorkspaceFromPrBody {
+  repo_id: string;
+  pr_number: number;
+  pr_title: string;
+  pr_url: string;
+  head_branch: string;
+  base_branch: string;
+  run_setup: boolean;
+  remote_name?: string | null;
+}
+
+export interface CreateWorkspaceFromPrResponse {
+  workspace: Workspace;
+}
+
 // ── API response envelope ───────────────────────────────────────────────────
 
 interface ApiResponse<T> {
   success: boolean;
   data: T;
+  message?: string | null;
+  error_data?: unknown;
 }
 
 // ── Client ──────────────────────────────────────────────────────────────────
@@ -67,7 +104,7 @@ export class VibeKanbanClient {
     }
     const json: ApiResponse<T> = await res.json();
     if (!json.success) {
-      throw new Error(`GET ${path} returned unsuccessful response`);
+      throw new Error(formatApiEnvelopeError('GET', path, json));
     }
     return json.data;
   }
@@ -83,7 +120,7 @@ export class VibeKanbanClient {
     }
     const json: ApiResponse<T> = await res.json();
     if (!json.success) {
-      throw new Error(`POST ${path} returned unsuccessful response`);
+      throw new Error(formatApiEnvelopeError('POST', path, json));
     }
     return json.data;
   }
@@ -114,9 +151,39 @@ export class VibeKanbanClient {
     return this.get('/repos');
   }
 
+  getRepoRemotes(repoId: string): Promise<GitRemote[]> {
+    return this.get(`/repos/${encodeURIComponent(repoId)}/remotes`);
+  }
+
+  getPrInfo(url: string): Promise<PullRequestDetail> {
+    return this.get(`/repos/pr-info?url=${encodeURIComponent(url)}`);
+  }
+
+  createWorkspaceFromPr(
+    body: CreateWorkspaceFromPrBody
+  ): Promise<CreateWorkspaceFromPrResponse> {
+    return this.post('/workspaces/from-pr', body);
+  }
+
   stopWorkspaceExecution(workspaceId: string): Promise<void> {
     return this.post(`/workspaces/${workspaceId}/execution/stop`, {});
   }
 }
 
 export const vkClient = new VibeKanbanClient();
+
+function formatApiEnvelopeError(
+  method: string,
+  path: string,
+  response: ApiResponse<unknown>
+): string {
+  if (response.message) {
+    return response.message;
+  }
+  if (response.error_data) {
+    return `${method} ${path} returned unsuccessful response: ${JSON.stringify(
+      response.error_data
+    )}`;
+  }
+  return `${method} ${path} returned unsuccessful response`;
+}
