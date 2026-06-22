@@ -1,17 +1,21 @@
-import type { Hono } from 'hono';
+import type { Hono } from "hono";
 import {
   runWorkflow,
   WorkflowNotFoundError,
   type RunWorkflowOptions,
   type WorkflowRegistry,
-} from '@vibe-dashboard/workflow-core';
-import { verifyGitHubWebhookSignature } from './github-signature';
-import type { CachedRepoAlias } from '../workflows/github-ci';
+} from "@vibe-dashboard/workflow-core";
+import { verifyGitHubWebhookSignature } from "./github-signature";
+import type { CachedRepoAlias } from "../workflows/github-ci";
+import {
+  GithubIssueWorkspaceMapStore,
+  type GithubIssueIdentity,
+} from "./github-issue-workspace-map";
 import {
   ensureGithubRepoRegistered,
   GithubRepoProvisioningError,
   type EnsureGithubRepoOptions,
-} from './github-repo-provisioning';
+} from "./github-repo-provisioning";
 
 export interface RegisterWorkflowRoutesOptions {
   registry: WorkflowRegistry;
@@ -19,6 +23,7 @@ export interface RegisterWorkflowRoutesOptions {
   githubWebhookSecret?: string;
   repoAliasCache?: RepoAliasCache;
   githubRepoProvisioning?: EnsureGithubRepoOptions;
+  githubIssueWorkspaceMap?: GithubIssueWorkspaceMapStore;
 }
 
 export interface RepoAliasCache {
@@ -30,9 +35,9 @@ export function registerWorkflowRoutes(
   hono: Hono,
   options: RegisterWorkflowRoutesOptions,
 ): void {
-  hono.get('/dashboard/api/workflows/health', (c) => c.json({ ok: true }));
+  hono.get("/dashboard/api/workflows/health", (c) => c.json({ ok: true }));
 
-  hono.get('/dashboard/api/workflows', (c) => {
+  hono.get("/dashboard/api/workflows", (c) => {
     return c.json({
       workflows: options.registry.list().map((workflow) => ({
         id: workflow.id,
@@ -41,13 +46,62 @@ export function registerWorkflowRoutes(
     });
   });
 
+  const issueWorkspaceMap =
+    options.githubIssueWorkspaceMap ?? new GithubIssueWorkspaceMapStore();
 
-  hono.post('/dashboard/api/github/ensure-repo', async (c) => {
+  hono.get(
+    "/dashboard/api/github/issue-workspaces/:owner/:repo/:number",
+    async (c) => {
+      const identity = parseIssueIdentityParams(c.req.param());
+      if (!identity) {
+        return c.json(
+          {
+            error: "A valid GitHub issue owner, repo, and number are required",
+          },
+          400,
+        );
+      }
+
+      const mapping = await issueWorkspaceMap.get(identity);
+      return c.json({ mapping });
+    },
+  );
+
+  hono.put(
+    "/dashboard/api/github/issue-workspaces/:owner/:repo/:number",
+    async (c) => {
+      const identity = parseIssueIdentityParams(c.req.param());
+      if (!identity) {
+        return c.json(
+          {
+            error: "A valid GitHub issue owner, repo, and number are required",
+          },
+          400,
+        );
+      }
+
+      const body = asRecord(await readJsonBody(c.req.raw));
+      const workspaceId = asString(body?.workspaceId);
+      const branch = asString(body?.branch);
+      if (!(workspaceId && branch)) {
+        return c.json({ error: "workspaceId and branch are required" }, 400);
+      }
+
+      const mapping = await issueWorkspaceMap.upsert({
+        identity,
+        workspaceId,
+        branch,
+      });
+      return c.json({ mapping });
+    },
+  );
+
+  hono.post("/dashboard/api/github/ensure-repo", async (c) => {
     try {
       const body = await readJsonBody(c.req.raw);
       const repoUrl = asString(asRecord(body)?.repoUrl);
       if (!repoUrl) {
-        return c.json({ error: 'repoUrl is required' }, 400);
+        return c.json({ error: "repoUrl is required" }, 400);
       }
 
       const result = await ensureGithubRepoRegistered(
@@ -66,34 +120,38 @@ export function registerWorkflowRoutes(
         const status = error.status === 400 ? 400 : 500;
         return c.json({ error: error.message }, status);
       }
-      console.error('GitHub repo provisioning route failed', error);
-      return c.json({ error: 'Internal GitHub repo provisioning route error' }, 500);
+      console.error("GitHub repo provisioning route failed", error);
+      return c.json(
+        { error: "Internal GitHub repo provisioning route error" },
+        500,
+      );
     }
   });
 
-  hono.post('/dashboard/api/webhooks/github', async (c) => {
+  hono.post("/dashboard/api/webhooks/github", async (c) => {
     try {
-      const event = c.req.header('X-GitHub-Event') || '';
+      const event = c.req.header("X-GitHub-Event") || "";
       const rawBody = await c.req.raw.text();
       const signatureResult = verifyGitHubWebhookSignature({
         body: rawBody,
-        secret: options.githubWebhookSecret ?? process.env.GITHUB_WEBHOOK_SECRET,
-        signature: c.req.header('X-Hub-Signature-256'),
+        secret:
+          options.githubWebhookSecret ?? process.env.GITHUB_WEBHOOK_SECRET,
+        signature: c.req.header("X-Hub-Signature-256"),
       });
       if (!signatureResult.ok) {
         return c.json({ error: signatureResult.error }, signatureResult.status);
       }
       const payload = parseJsonBody(rawBody);
-      const delivery = c.req.header('X-GitHub-Delivery') || '';
+      const delivery = c.req.header("X-GitHub-Delivery") || "";
       const payloadSummary = summarizeGitHubWebhookPayload(payload);
-      console.info('GitHub webhook received', {
+      console.info("GitHub webhook received", {
         delivery,
         event,
         ...payloadSummary,
       });
       const run = await runWorkflow(
         options.registry,
-        'github-ci-failure',
+        "github-ci-failure",
         {
           event,
           payload,
@@ -102,26 +160,29 @@ export function registerWorkflowRoutes(
         options.runOptions,
       );
       const outcome = getRunOutcome(run.output);
-      console.info('GitHub webhook workflow completed', {
+      console.info("GitHub webhook workflow completed", {
         delivery,
         event,
         outcome,
         status: run.status,
         runId: run.runId,
       });
-      const status = run.status === 'failed' ? 500 : 200;
+      const status = run.status === "failed" ? 500 : 200;
       return c.json({ outcome, run }, status);
     } catch (error) {
       if (error instanceof WorkflowNotFoundError) {
         return c.json({ error: error.message }, 404);
       }
 
-      console.error('GitHub webhook workflow route failed', error);
-      return c.json({ error: 'Internal GitHub webhook workflow route error' }, 500);
+      console.error("GitHub webhook workflow route failed", error);
+      return c.json(
+        { error: "Internal GitHub webhook workflow route error" },
+        500,
+      );
     }
   });
 
-  hono.post('/dashboard/api/workflows/:workflowId/run', async (c) => {
+  hono.post("/dashboard/api/workflows/:workflowId/run", async (c) => {
     const { workflowId } = c.req.param();
     try {
       const input = await readJsonBody(c.req.raw);
@@ -131,15 +192,15 @@ export function registerWorkflowRoutes(
         input,
         options.runOptions,
       );
-      const status = run.status === 'failed' ? 500 : 200;
+      const status = run.status === "failed" ? 500 : 200;
       return c.json({ run }, status);
     } catch (error) {
       if (error instanceof WorkflowNotFoundError) {
         return c.json({ error: error.message }, 404);
       }
 
-      console.error('Workflow route failed', error);
-      return c.json({ error: 'Internal workflow route error' }, 500);
+      console.error("Workflow route failed", error);
+      return c.json({ error: "Internal workflow route error" }, 500);
     }
   });
 }
@@ -154,13 +215,15 @@ function parseJsonBody(raw: string): unknown {
 }
 
 function getRunOutcome(output: unknown): unknown {
-  if (output && typeof output === 'object' && 'outcome' in output) {
+  if (output && typeof output === "object" && "outcome" in output) {
     return (output as { outcome: unknown }).outcome;
   }
   return undefined;
 }
 
-function summarizeGitHubWebhookPayload(payload: unknown): Record<string, unknown> {
+function summarizeGitHubWebhookPayload(
+  payload: unknown,
+): Record<string, unknown> {
   const record = asRecord(payload);
   const workflowRun = asRecord(record?.workflow_run);
   return {
@@ -172,11 +235,37 @@ function summarizeGitHubWebhookPayload(payload: unknown): Record<string, unknown
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
+  return value && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : null;
 }
 
 function asString(value: unknown): string | undefined {
-  return typeof value === 'string' ? value : undefined;
+  return typeof value === "string" ? value : undefined;
+}
+
+function parseIssueIdentityParams(params: {
+  owner?: string;
+  repo?: string;
+  number?: string;
+}): GithubIssueIdentity | null {
+  const owner = params.owner?.trim().toLowerCase();
+  const repo = params.repo
+    ?.trim()
+    .replace(/\.git$/i, "")
+    .toLowerCase();
+  const number = Number(params.number);
+
+  if (!(owner && repo && Number.isInteger(number) && number > 0)) {
+    return null;
+  }
+
+  return {
+    owner,
+    repo,
+    number,
+    normalizedIssueUrl: `https://github.com/${owner}/${repo}/issues/${number}`,
+  };
 }
 
 async function getCachedRepoAliases(
@@ -187,7 +276,7 @@ async function getCachedRepoAliases(
     const repos = await cache.get();
     return repos.map(normalizeCachedRepoAlias);
   } catch (error) {
-    console.warn('Failed to read Git repo alias cache', error);
+    console.warn("Failed to read Git repo alias cache", error);
     return [];
   }
 }

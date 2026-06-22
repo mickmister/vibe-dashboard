@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
-import { render, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { WorkspaceState } from '../types';
-import { OpenFromGitHub } from './OpenFromGitHub';
-import { vkClient } from '../lib/vk-client';
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { WorkspaceState } from "../types";
+import { OpenFromGitHub } from "./OpenFromGitHub";
+import { vkClient } from "../lib/vk-client";
 
-vi.mock('../lib/vk-client', () => ({
+vi.mock("../lib/vk-client", () => ({
   vkClient: {
     getPrInfo: vi.fn(),
     getWorkspaceSummaries: vi.fn(),
@@ -15,6 +15,10 @@ vi.mock('../lib/vk-client', () => ({
     getRepoRemotes: vi.fn(),
     ensureGithubRepo: vi.fn(),
     createWorkspaceFromPr: vi.fn(),
+    createWorkspaceFromIssue: vi.fn(),
+    getGithubIssueWorkspaceMapping: vi.fn(),
+    putGithubIssueWorkspaceMapping: vi.fn(),
+    updateWorkspace: vi.fn(),
   },
 }));
 
@@ -27,29 +31,32 @@ function deferred<T>() {
 }
 
 const emptyWorkspace = {
-  spaces: [{ id: 'space-a', name: 'A', icon: 'default', tabGroupIds: [] }],
+  spaces: [{ id: "space-a", name: "A", icon: "default", tabGroupIds: [] }],
   tabGroups: [],
   nextId: 1,
 } satisfies WorkspaceState;
 
 const workspaceWithOpenTab = {
   spaces: [
-    { id: 'space-a', name: 'A', icon: 'default', tabGroupIds: ['tg-existing'] },
+    { id: "space-a", name: "A", icon: "default", tabGroupIds: ["tg-existing"] },
   ],
   tabGroups: [
     {
-      id: 'tg-existing',
-      label: 'Existing workspace',
-      tabs: [{ id: 'tab-agent', title: 'Agent', url: '/workspaces/ws-1' }],
+      id: "tg-existing",
+      label: "Existing workspace",
+      tabs: [{ id: "tab-agent", title: "Agent", url: "/workspaces/ws-1" }],
       pairs: [],
       order: 0,
-      lastVisitedAt: '2026-06-22T00:00:00Z',
+      lastVisitedAt: "2026-06-22T00:00:00Z",
     },
   ],
   nextId: 2,
 } satisfies WorkspaceState;
 
-function renderOpenFromGithub(workspace: WorkspaceState) {
+function renderOpenFromGithub(
+  workspace: WorkspaceState,
+  githubUrl = "https://github.com/Owner/Repo/pull/7",
+) {
   const props = {
     workspace,
     addSpace: vi.fn(),
@@ -62,17 +69,21 @@ function renderOpenFromGithub(workspace: WorkspaceState) {
   const view = render(
     <MemoryRouter
       initialEntries={[
-        '/dashboard?voyage=abc&open_from_github=https%3A%2F%2Fgithub.com%2FOwner%2FRepo%2Fpull%2F7',
+        `/dashboard?voyage=abc&open_from_github=${encodeURIComponent(githubUrl)}`,
       ]}
     >
       <OpenFromGitHub {...props} />
-    </MemoryRouter>
+    </MemoryRouter>,
   );
 
   return { ...view, props };
 }
 
-describe('OpenFromGitHub', () => {
+describe("OpenFromGitHub", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
   beforeEach(() => {
     vi.mocked(vkClient.getPrInfo).mockReset();
     vi.mocked(vkClient.getWorkspaceSummaries).mockReset();
@@ -81,17 +92,21 @@ describe('OpenFromGitHub', () => {
     vi.mocked(vkClient.getRepoRemotes).mockReset();
     vi.mocked(vkClient.ensureGithubRepo).mockReset();
     vi.mocked(vkClient.createWorkspaceFromPr).mockReset();
+    vi.mocked(vkClient.createWorkspaceFromIssue).mockReset();
+    vi.mocked(vkClient.getGithubIssueWorkspaceMapping).mockReset();
+    vi.mocked(vkClient.putGithubIssueWorkspaceMapping).mockReset();
+    vi.mocked(vkClient.updateWorkspace).mockReset();
   });
 
-  it('keeps resolving the requested URL when workspace state changes in flight', async () => {
+  it("keeps resolving the requested URL when workspace state changes in flight", async () => {
     const prInfo = deferred<Awaited<ReturnType<typeof vkClient.getPrInfo>>>();
     vi.mocked(vkClient.getPrInfo).mockReturnValue(prInfo.promise);
     vi.mocked(vkClient.getWorkspaceSummaries).mockResolvedValue({
       summaries: [
         {
-          workspace_id: 'ws-1',
+          workspace_id: "ws-1",
           pr_number: 7,
-          pr_url: 'https://github.com/owner/repo/pull/7',
+          pr_url: "https://github.com/owner/repo/pull/7",
           has_pending_approval: false,
           files_changed: null,
           lines_added: null,
@@ -99,7 +114,7 @@ describe('OpenFromGitHub', () => {
           latest_process_status: null,
           has_running_dev_server: false,
           has_unseen_turns: false,
-          pr_status: 'open',
+          pr_status: "open",
         },
       ],
     });
@@ -111,35 +126,35 @@ describe('OpenFromGitHub', () => {
     rerender(
       <MemoryRouter>
         <OpenFromGitHub {...props} workspace={workspaceWithOpenTab} />
-      </MemoryRouter>
+      </MemoryRouter>,
     );
 
     prInfo.resolve({
       number: 7,
-      url: 'https://github.com/owner/repo/pull/7',
-      status: 'open',
-      title: 'Fix bug',
-      base_branch: 'main',
-      head_branch: 'fix-bug',
+      url: "https://github.com/owner/repo/pull/7",
+      status: "open",
+      title: "Fix bug",
+      base_branch: "main",
+      head_branch: "fix-bug",
     });
 
     await waitFor(() => {
       expect(props.selectSessionTabGroup).toHaveBeenCalledWith(
-        'space-a',
-        'tg-existing',
+        "space-a",
+        "tg-existing",
       );
     });
     expect(vkClient.getWorkspace).not.toHaveBeenCalled();
   });
 
-  it('ensures an unregistered GitHub repo before asking where to open the PR', async () => {
+  it("ensures an unregistered GitHub repo before asking where to open the PR", async () => {
     vi.mocked(vkClient.getPrInfo).mockResolvedValue({
       number: 7,
-      url: 'https://github.com/owner/repo/pull/7',
-      status: 'open',
-      title: 'Fix bug',
-      base_branch: 'main',
-      head_branch: 'fix-bug',
+      url: "https://github.com/owner/repo/pull/7",
+      status: "open",
+      title: "Fix bug",
+      base_branch: "main",
+      head_branch: "fix-bug",
     });
     vi.mocked(vkClient.getWorkspaceSummaries).mockResolvedValue({
       summaries: [],
@@ -147,26 +162,200 @@ describe('OpenFromGitHub', () => {
     vi.mocked(vkClient.getRepos).mockResolvedValue([]);
     vi.mocked(vkClient.ensureGithubRepo).mockResolvedValue({
       repo: {
-        id: 'repo-1',
-        name: 'repo',
-        display_name: 'owner/repo',
-        path: '/home/vkuser/repos/repo',
+        id: "repo-1",
+        name: "repo",
+        display_name: "owner/repo",
+        path: "/home/vkuser/repos/repo",
       },
-      path: '/home/vkuser/repos/repo',
+      path: "/home/vkuser/repos/repo",
       cloned: true,
       refreshed: false,
       registered: true,
     });
     vi.mocked(vkClient.getRepoRemotes).mockResolvedValue([
-      { name: 'origin', url: 'https://github.com/owner/repo.git' },
+      { name: "origin", url: "https://github.com/owner/repo.git" },
     ]);
 
     const { findByText } = renderOpenFromGithub(emptyWorkspace);
 
-    await findByText('Open GitHub PR in space');
+    await findByText("Open GitHub PR in space");
     expect(vkClient.ensureGithubRepo).toHaveBeenCalledWith(
-      'https://github.com/owner/repo',
+      "https://github.com/owner/repo",
     );
-    expect(vkClient.getRepoRemotes).toHaveBeenCalledWith('repo-1');
+    expect(vkClient.getRepoRemotes).toHaveBeenCalledWith("repo-1");
+  });
+  it("reuses an active persisted GitHub issue workspace mapping", async () => {
+    vi.mocked(vkClient.getGithubIssueWorkspaceMapping).mockResolvedValue({
+      mapping: {
+        owner: "owner",
+        repo: "repo",
+        number: 7,
+        normalizedIssueUrl: "https://github.com/owner/repo/issues/7",
+        workspaceId: "ws-1",
+        branch: "vk/issue-7",
+        createdAt: "2026-06-22T00:00:00Z",
+        updatedAt: "2026-06-22T00:00:00Z",
+      },
+    });
+    vi.mocked(vkClient.getWorkspace).mockResolvedValue({
+      id: "ws-1",
+      task_id: "task-1",
+      container_ref: "/tmp/ws-1",
+      branch: "vk/issue-7",
+      agent_working_dir: null,
+      created_at: "2026-06-22T00:00:00Z",
+      updated_at: "2026-06-22T00:00:00Z",
+      archived: false,
+      pinned: false,
+      name: "Issue #7",
+    });
+
+    const { props } = renderOpenFromGithub(
+      workspaceWithOpenTab,
+      "https://github.com/OWNER/Repo/issues/7/",
+    );
+
+    await waitFor(() => {
+      expect(props.selectSessionTabGroup).toHaveBeenCalledWith(
+        "space-a",
+        "tg-existing",
+      );
+    });
+    expect(vkClient.createWorkspaceFromIssue).not.toHaveBeenCalled();
+  });
+
+  it("creates and persists a first GitHub issue workspace mapping", async () => {
+    vi.mocked(vkClient.getGithubIssueWorkspaceMapping).mockResolvedValue({
+      mapping: null,
+    });
+    vi.mocked(vkClient.getRepos).mockResolvedValue([
+      {
+        id: "repo-1",
+        name: "repo",
+        display_name: "Repo",
+        default_target_branch: "origin/main",
+      },
+    ]);
+    vi.mocked(vkClient.getRepoRemotes).mockResolvedValue([
+      { name: "origin", url: "https://github.com/owner/repo.git" },
+    ]);
+    vi.mocked(vkClient.createWorkspaceFromIssue).mockResolvedValue({
+      workspace: {
+        id: "ws-issue",
+        task_id: "task-issue",
+        container_ref: "/tmp/ws-issue",
+        branch: "vk/issue-7",
+        agent_working_dir: null,
+        created_at: "2026-06-22T00:00:00Z",
+        updated_at: "2026-06-22T00:00:00Z",
+        archived: false,
+        pinned: false,
+        name: "Issue #7",
+      },
+    });
+    vi.mocked(vkClient.putGithubIssueWorkspaceMapping).mockResolvedValue({
+      mapping: null,
+    });
+
+    const { findByText, props } = renderOpenFromGithub(
+      emptyWorkspace,
+      "https://github.com/owner/repo/issues/7",
+    );
+
+    fireEvent.click(await findByText("A"));
+
+    await waitFor(() => {
+      expect(vkClient.createWorkspaceFromIssue).toHaveBeenCalledWith(
+        expect.objectContaining({
+          repo_id: "repo-1",
+          target_branch: "origin/main",
+          issue_url: "https://github.com/owner/repo/issues/7",
+          issue_number: 7,
+        }),
+      );
+    });
+    expect(vkClient.putGithubIssueWorkspaceMapping).toHaveBeenCalledWith(
+      expect.objectContaining({
+        owner: "owner",
+        repo: "repo",
+        number: 7,
+        workspaceId: "ws-issue",
+        branch: "vk/issue-7",
+      }),
+    );
+    expect(props.addVKWorkspace).toHaveBeenCalledWith(
+      expect.objectContaining({ taskAttemptId: "ws-issue" }),
+    );
+  });
+
+  it("confirms before reopening and unarchiving a persisted archived issue workspace", async () => {
+    vi.mocked(vkClient.getGithubIssueWorkspaceMapping).mockResolvedValue({
+      mapping: {
+        owner: "owner",
+        repo: "repo",
+        number: 7,
+        normalizedIssueUrl: "https://github.com/owner/repo/issues/7",
+        workspaceId: "ws-archived",
+        branch: "vk/issue-7",
+        createdAt: "2026-06-22T00:00:00Z",
+        updatedAt: "2026-06-22T00:00:00Z",
+      },
+    });
+    const archivedWorkspace = {
+      id: "ws-archived",
+      task_id: "task-archived",
+      container_ref: "/tmp/ws-archived",
+      branch: "vk/issue-7",
+      agent_working_dir: null,
+      created_at: "2026-06-22T00:00:00Z",
+      updated_at: "2026-06-22T00:00:00Z",
+      archived: true,
+      pinned: false,
+      name: "Issue #7",
+    };
+    vi.mocked(vkClient.getWorkspace).mockResolvedValue(archivedWorkspace);
+    vi.mocked(vkClient.updateWorkspace).mockResolvedValue({
+      ...archivedWorkspace,
+      archived: false,
+    });
+
+    const { findByText } = renderOpenFromGithub(
+      emptyWorkspace,
+      "https://github.com/owner/repo/issues/7",
+    );
+
+    fireEvent.click(await findByText("Reopen workspace"));
+    fireEvent.click(await findByText("A"));
+
+    await waitFor(() => {
+      expect(vkClient.updateWorkspace).toHaveBeenCalledWith("ws-archived", {
+        archived: false,
+      });
+    });
+    expect(vkClient.createWorkspaceFromIssue).not.toHaveBeenCalled();
+  });
+
+  it("shows an explicit error when a persisted issue workspace was deleted", async () => {
+    vi.mocked(vkClient.getGithubIssueWorkspaceMapping).mockResolvedValue({
+      mapping: {
+        owner: "owner",
+        repo: "repo",
+        number: 7,
+        normalizedIssueUrl: "https://github.com/owner/repo/issues/7",
+        workspaceId: "ws-deleted",
+        branch: "vk/issue-7",
+        createdAt: "2026-06-22T00:00:00Z",
+        updatedAt: "2026-06-22T00:00:00Z",
+      },
+    });
+    vi.mocked(vkClient.getWorkspace).mockRejectedValue(new Error("not found"));
+
+    const { findByText } = renderOpenFromGithub(
+      emptyWorkspace,
+      "https://github.com/owner/repo/issues/7",
+    );
+
+    await findByText("Issue workspace no longer exists");
+    expect(vkClient.createWorkspaceFromIssue).not.toHaveBeenCalled();
   });
 });

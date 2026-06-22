@@ -3,10 +3,10 @@ import type {
   PullRequestDetail,
   Repo,
   WorkspaceSummary,
-} from './vk-client';
-import type { WorkspaceState } from '../types';
+} from "./vk-client";
+import type { WorkspaceState } from "../types";
 
-export const OPEN_FROM_GITHUB_PARAM = 'open_from_github';
+export const OPEN_FROM_GITHUB_PARAM = "open_from_github";
 
 export interface ParsedGithubPrUrl {
   owner: string;
@@ -15,6 +15,18 @@ export interface ParsedGithubPrUrl {
   normalizedRepo: string;
   normalizedPrUrl: string;
 }
+
+export interface ParsedGithubIssueUrl {
+  owner: string;
+  repo: string;
+  number: number;
+  normalizedRepo: string;
+  normalizedIssueUrl: string;
+}
+
+export type ParsedGithubOpenUrl =
+  | { type: "pr"; pr: ParsedGithubPrUrl }
+  | { type: "issue"; issue: ParsedGithubIssueUrl };
 
 export interface MatchingRepoRemote {
   repo: Repo;
@@ -37,44 +49,45 @@ export function removeOpenFromGithubParam(search: string): string {
   const params = new URLSearchParams(search);
   params.delete(OPEN_FROM_GITHUB_PARAM);
   const next = params.toString();
-  return next ? `?${next}` : '';
+  return next ? `?${next}` : "";
 }
 
 export function parseGithubPrUrl(value: string): ParsedGithubPrUrl | null {
-  let url: URL;
-  try {
-    url = new URL(value);
-  } catch {
-    return null;
-  }
+  const parsed = parseGithubNumberedUrl(value, "pull");
+  if (!parsed) return null;
 
-  if (url.hostname.toLowerCase() !== 'github.com') {
-    return null;
-  }
-
-  const parts = url.pathname.split('/').filter(Boolean);
-  if (parts.length < 4 || parts[2] !== 'pull') {
-    return null;
-  }
-
-  const [owner, repo, , prNumber] = parts;
-  if (!(owner && repo && prNumber)) {
-    return null;
-  }
-
-  const number = Number(prNumber);
-  if (!Number.isInteger(number) || number <= 0) {
-    return null;
-  }
-
-  const normalizedRepo = normalizeRepoParts(owner, repo);
   return {
-    owner,
-    repo,
-    number,
-    normalizedRepo,
-    normalizedPrUrl: `https://github.com/${normalizedRepo}/pull/${number}`,
+    owner: parsed.owner,
+    repo: parsed.repo,
+    number: parsed.number,
+    normalizedRepo: parsed.normalizedRepo,
+    normalizedPrUrl: `https://github.com/${parsed.normalizedRepo}/pull/${parsed.number}`,
   };
+}
+
+export function parseGithubIssueUrl(
+  value: string,
+): ParsedGithubIssueUrl | null {
+  const parsed = parseGithubNumberedUrl(value, "issues");
+  if (!parsed) return null;
+
+  return {
+    owner: parsed.owner,
+    repo: parsed.repo,
+    number: parsed.number,
+    normalizedRepo: parsed.normalizedRepo,
+    normalizedIssueUrl: `https://github.com/${parsed.normalizedRepo}/issues/${parsed.number}`,
+  };
+}
+
+export function parseGithubOpenUrl(value: string): ParsedGithubOpenUrl | null {
+  const pr = parseGithubPrUrl(value);
+  if (pr) return { type: "pr", pr };
+
+  const issue = parseGithubIssueUrl(value);
+  if (issue) return { type: "issue", issue };
+
+  return null;
 }
 
 export function normalizeGithubRepoIdentity(value: string): string | null {
@@ -95,11 +108,11 @@ export function normalizeGithubRepoIdentity(value: string): string | null {
     return null;
   }
 
-  if (url.hostname.toLowerCase() !== 'github.com') {
+  if (url.hostname.toLowerCase() !== "github.com") {
     return null;
   }
 
-  const [owner, repo] = url.pathname.split('/').filter(Boolean);
+  const [owner, repo] = url.pathname.split("/").filter(Boolean);
   if (!(owner && repo)) {
     return null;
   }
@@ -161,7 +174,7 @@ export function findOpenWorkspaceLocation(
   for (const space of workspaceState.spaces) {
     for (const tabGroupId of space.tabGroupIds) {
       const tabGroup = workspaceState.tabGroups.find(
-        (entry) => entry.id === tabGroupId
+        (entry) => entry.id === tabGroupId,
       );
       if (!tabGroup) continue;
 
@@ -190,11 +203,59 @@ export function findOpenWorkspaceLocation(
 
 export function normalizeGithubPrUrl(value: string): string {
   const parsed = parseGithubPrUrl(value);
-  return parsed?.normalizedPrUrl ?? value.trim().replace(/\/+$/, '');
+  return parsed?.normalizedPrUrl ?? value.trim().replace(/\/+$/, "");
+}
+
+export function normalizeGithubIssueUrl(value: string): string {
+  const parsed = parseGithubIssueUrl(value);
+  return parsed?.normalizedIssueUrl ?? value.trim().replace(/\/+$/, "");
+}
+
+function parseGithubNumberedUrl(
+  value: string,
+  urlKind: "pull" | "issues",
+): {
+  owner: string;
+  repo: string;
+  number: number;
+  normalizedRepo: string;
+} | null {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return null;
+  }
+
+  if (url.hostname.toLowerCase() !== "github.com") {
+    return null;
+  }
+
+  const parts = url.pathname.split("/").filter(Boolean);
+  if (parts.length < 4 || parts[2] !== urlKind) {
+    return null;
+  }
+
+  const [owner, repo, , rawNumber] = parts;
+  if (!(owner && repo && rawNumber)) {
+    return null;
+  }
+
+  const number = Number(rawNumber);
+  if (!Number.isInteger(number) || number <= 0) {
+    return null;
+  }
+
+  return {
+    owner,
+    repo,
+    number,
+    normalizedRepo: normalizeRepoParts(owner, repo),
+  };
 }
 
 function normalizeRepoParts(owner: string, repo: string): string {
-  return `${owner.toLowerCase()}/${repo.replace(/\.git$/i, '').toLowerCase()}`;
+  return `${owner.toLowerCase()}/${repo.replace(/\.git$/i, "").toLowerCase()}`;
 }
 
 function extractWorkspaceIdFromUrl(value: string): string | null {
@@ -203,7 +264,7 @@ function extractWorkspaceIdFromUrl(value: string): string | null {
 }
 
 function parseTimestamp(value: unknown): number {
-  if (typeof value === 'string' && value.trim()) {
+  if (typeof value === "string" && value.trim()) {
     const parsed = Date.parse(value);
     return Number.isNaN(parsed) ? 0 : parsed;
   }

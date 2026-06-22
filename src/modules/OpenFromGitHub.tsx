@@ -1,30 +1,28 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router';
-import type { WorkspaceState } from '../types';
+import React, { useEffect, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router";
+import type { WorkspaceState } from "../types";
 import {
   findMatchingRepoRemotes,
   findOpenWorkspaceLocation,
   findWorkspaceIdForPr,
   getOpenFromGithubUrl,
-  parseGithubPrUrl,
+  parseGithubOpenUrl,
+  type ParsedGithubIssueUrl,
   removeOpenFromGithubParam,
   type MatchingRepoRemote,
-} from '../lib/openFromGithub';
+} from "../lib/openFromGithub";
 import {
   vkClient,
   type PullRequestDetail,
   type Workspace as VkWorkspace,
-} from '../lib/vk-client';
+} from "../lib/vk-client";
 
 export interface OpenFromGitHubProps {
   workspace: WorkspaceState;
-  addSpace: (
-    args: { name: string }
-  ) => Promise<{ spaceId: string; tabGroupId: string } | undefined>;
-  deleteTabGroup: (args: {
-    spaceId: string;
-    tabGroupId: string;
-  }) => Promise<
+  addSpace: (args: {
+    name: string;
+  }) => Promise<{ spaceId: string; tabGroupId: string } | undefined>;
+  deleteTabGroup: (args: { spaceId: string; tabGroupId: string }) => Promise<
     | {
         wasDeleted: boolean;
         deletedTabGroupId?: string;
@@ -41,44 +39,63 @@ export interface OpenFromGitHubProps {
     { tabGroupId: string; pairId: string; agentTabId: string } | undefined
   >;
   selectSessionTabGroup: (spaceId: string, tabGroupId: string) => void;
-  selectSessionTab: (spaceId: string, tabGroupId: string, tabId: string) => void;
+  selectSessionTab: (
+    spaceId: string,
+    tabGroupId: string,
+    tabId: string,
+  ) => void;
 }
 
 type PendingTarget =
   | {
-      type: 'existing';
+      type: "existing";
       workspace: VkWorkspace;
       prInfo: PullRequestDetail;
     }
   | {
-      type: 'create';
+      type: "create";
       match: MatchingRepoRemote;
       prInfo: PullRequestDetail;
+    }
+  | {
+      type: "existing-issue";
+      workspace: VkWorkspace;
+      issue: ParsedGithubIssueUrl;
+    }
+  | {
+      type: "create-issue";
+      match: MatchingRepoRemote;
+      issue: ParsedGithubIssueUrl;
     };
 
 type DialogState =
   | null
   | {
-      type: 'processing';
+      type: "processing";
       title: string;
       message: string;
     }
   | {
-      type: 'choose-repo';
+      type: "choose-repo";
       prInfo: PullRequestDetail;
       matches: MatchingRepoRemote[];
     }
   | {
-      type: 'choose-space';
+      type: "choose-space";
       target: PendingTarget;
     }
   | {
-      type: 'opening';
+      type: "confirm-reopen-archived";
+      workspace: VkWorkspace;
+      issue: ParsedGithubIssueUrl;
+    }
+  | {
+      type: "opening";
       title: string;
       message: string;
     }
   | {
-      type: 'error';
+      type: "error";
       title: string;
       message: string;
     };
@@ -126,40 +143,30 @@ export function OpenFromGitHub({
     const { location: latestLocation, navigate: latestNavigate } =
       latestRuntimeRef.current;
     const nextSearch = removeOpenFromGithubParam(latestLocation.search);
-    latestNavigate(`${latestLocation.pathname}${nextSearch}`, { replace: true });
+    latestNavigate(`${latestLocation.pathname}${nextSearch}`, {
+      replace: true,
+    });
   };
 
   const openWorkspaceInSpace = async (
     target: PendingTarget,
-    spaceId: string
+    spaceId: string,
   ): Promise<boolean> => {
     try {
       setDialog({
-        type: 'opening',
-        title: 'Opening GitHub PR',
-        message: 'Preparing the VK workspace and opening it in VD.',
+        type: "opening",
+        title: target.type.endsWith("issue")
+          ? "Opening GitHub issue"
+          : "Opening GitHub PR",
+        message: "Preparing the VK workspace and opening it in VD.",
       });
 
-      const workspaceToOpen =
-        target.type === 'existing'
-          ? target.workspace
-          : (
-              await vkClient.createWorkspaceFromPr({
-                repo_id: target.match.repo.id,
-                pr_number: target.prInfo.number,
-                pr_title: target.prInfo.title,
-                pr_url: target.prInfo.url,
-                head_branch: target.prInfo.head_branch,
-                base_branch: target.prInfo.base_branch,
-                run_setup: true,
-                remote_name: target.match.remote.name,
-              })
-            ).workspace;
+      const workspaceToOpen = await resolveWorkspaceToOpen(target);
 
       const result = await latestRuntimeRef.current.addVKWorkspace({
         taskAttemptId: workspaceToOpen.id,
-        name: workspaceToOpen.name || target.prInfo.title,
-        containerRef: workspaceToOpen.container_ref || '',
+        name: workspaceToOpen.name || getTargetTitle(target),
+        containerRef: workspaceToOpen.container_ref || "",
         activeSpaceId: spaceId,
       });
 
@@ -167,7 +174,7 @@ export function OpenFromGitHub({
         latestRuntimeRef.current.selectSessionTab(
           spaceId,
           result.tabGroupId,
-          result.agentTabId
+          result.agentTabId,
         );
       }
 
@@ -176,20 +183,68 @@ export function OpenFromGitHub({
       return true;
     } catch (error) {
       setDialog({
-        type: 'error',
-        title: 'Could not open GitHub PR',
+        type: "error",
+        title: target.type.endsWith("issue")
+          ? "Could not open GitHub issue"
+          : "Could not open GitHub PR",
         message:
           error instanceof Error
             ? error.message
-            : 'Unknown error while opening GitHub PR.',
+            : "Unknown error while opening GitHub PR.",
       });
       clearParam();
       return false;
     }
   };
 
+  const resolveWorkspaceToOpen = async (
+    target: PendingTarget,
+  ): Promise<VkWorkspace> => {
+    if (target.type === "existing" || target.type === "existing-issue") {
+      if (target.workspace.archived) {
+        return vkClient.updateWorkspace(target.workspace.id, {
+          archived: false,
+        });
+      }
+      return target.workspace;
+    }
+
+    if (target.type === "create-issue") {
+      const workspace = (
+        await vkClient.createWorkspaceFromIssue({
+          repo_id: target.match.repo.id,
+          target_branch: getIssueTargetBranch(target.match.repo),
+          issue_url: target.issue.normalizedIssueUrl,
+          issue_number: target.issue.number,
+          run_setup: true,
+        })
+      ).workspace;
+      await vkClient.putGithubIssueWorkspaceMapping({
+        owner: target.issue.owner.toLowerCase(),
+        repo: target.issue.repo.toLowerCase(),
+        number: target.issue.number,
+        workspaceId: workspace.id,
+        branch: workspace.branch,
+      });
+      return workspace;
+    }
+
+    return (
+      await vkClient.createWorkspaceFromPr({
+        repo_id: target.match.repo.id,
+        pr_number: target.prInfo.number,
+        pr_title: target.prInfo.title,
+        pr_url: target.prInfo.url,
+        head_branch: target.prInfo.head_branch,
+        base_branch: target.prInfo.base_branch,
+        run_setup: true,
+        remote_name: target.match.remote.name,
+      })
+    ).workspace;
+  };
+
   const createSpaceAndOpen = async (name: string) => {
-    if (dialog?.type !== 'choose-space') return;
+    if (dialog?.type !== "choose-space") return;
     const result = await latestRuntimeRef.current.addSpace({ name });
     if (!result?.spaceId) return;
     const didOpen = await openWorkspaceInSpace(dialog.target, result.spaceId);
@@ -199,6 +254,140 @@ export function OpenFromGitHub({
         tabGroupId: result.tabGroupId,
       });
     }
+  };
+
+  const runIssueOpen = async (issue: ParsedGithubIssueUrl) => {
+    setDialog({
+      type: "processing",
+      title: "Opening GitHub issue",
+      message: `Resolving ${issue.normalizedIssueUrl}`,
+    });
+
+    try {
+      const mapping = await vkClient.getGithubIssueWorkspaceMapping({
+        owner: issue.owner.toLowerCase(),
+        repo: issue.repo.toLowerCase(),
+        number: issue.number,
+      });
+
+      if (mapping.mapping) {
+        let existingWorkspace: VkWorkspace;
+        try {
+          existingWorkspace = await vkClient.getWorkspace(
+            mapping.mapping.workspaceId,
+          );
+        } catch (error) {
+          setDialog({
+            type: "error",
+            title: "Issue workspace no longer exists",
+            message: `GitHub issue ${issue.normalizedIssueUrl} was previously mapped to workspace ${mapping.mapping.workspaceId}, but that workspace could not be loaded. Please remove or repair the persisted mapping before creating a replacement.`,
+          });
+          clearParam();
+          return;
+        }
+
+        const openLocation = findOpenWorkspaceLocation(
+          latestRuntimeRef.current.workspace,
+          existingWorkspace.id,
+        );
+        if (openLocation && !existingWorkspace.archived) {
+          latestRuntimeRef.current.selectSessionTabGroup(
+            openLocation.spaceId,
+            openLocation.tabGroupId,
+          );
+          setDialog(null);
+          clearParam();
+          return;
+        }
+
+        if (existingWorkspace.archived) {
+          setDialog({
+            type: "confirm-reopen-archived",
+            workspace: existingWorkspace,
+            issue,
+          });
+          return;
+        }
+
+        setDialog({
+          type: "choose-space",
+          target: {
+            type: "existing-issue",
+            workspace: existingWorkspace,
+            issue,
+          },
+        });
+        return;
+      }
+
+      const matches = await findOrEnsureIssueRepo(issue);
+      if (matches.length === 1 && matches[0]) {
+        setDialog({
+          type: "choose-space",
+          target: { type: "create-issue", match: matches[0], issue },
+        });
+        return;
+      }
+
+      setDialog({
+        type: "error",
+        title: "Could not open GitHub issue",
+        message: `Expected one matching repository for ${issue.normalizedRepo}, but found ${matches.length}.`,
+      });
+      clearParam();
+    } catch (error) {
+      setDialog({
+        type: "error",
+        title: "Could not open GitHub issue",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Unknown error while resolving GitHub issue.",
+      });
+      clearParam();
+    }
+  };
+
+  const findOrEnsureIssueRepo = async (issue: ParsedGithubIssueUrl) => {
+    const repos = await vkClient.getRepos();
+    const remoteResults = await Promise.allSettled(
+      repos.map(async (repo) => ({
+        repoId: repo.id,
+        remotes: await vkClient.getRepoRemotes(repo.id),
+      })),
+    );
+    const remotesByRepoId = new Map(
+      remoteResults.flatMap((result) =>
+        result.status === "fulfilled"
+          ? [[result.value.repoId, result.value.remotes] as const]
+          : [],
+      ),
+    );
+    const matches = findMatchingRepoRemotes(repos, remotesByRepoId, {
+      ...issue,
+      normalizedPrUrl: issue.normalizedIssueUrl.replace("/issues/", "/pull/"),
+    });
+    if (matches.length > 0) return matches;
+
+    setDialog({
+      type: "processing",
+      title: "Opening GitHub issue",
+      message: `Cloning and registering ${issue.normalizedRepo}`,
+    });
+    const ensured = await vkClient.ensureGithubRepo(
+      `https://github.com/${issue.normalizedRepo}`,
+    );
+    const ensuredRemotes = await vkClient
+      .getRepoRemotes(ensured.repo.id)
+      .catch(() => []);
+    return findMatchingRepoRemotes(
+      [ensured.repo],
+      new Map([[ensured.repo.id, ensuredRemotes]]),
+      {
+        ...issue,
+        normalizedPrUrl: issue.normalizedIssueUrl.replace("/issues/", "/pull/"),
+      },
+    );
   };
 
   useEffect(() => {
@@ -212,21 +401,28 @@ export function OpenFromGitHub({
     let cancelled = false;
 
     const run = async () => {
-      const parsedPr = parseGithubPrUrl(requestedUrl);
-      if (!parsedPr) {
+      const parsedOpenUrl = parseGithubOpenUrl(requestedUrl);
+      if (!parsedOpenUrl) {
         setDialog({
-          type: 'error',
-          title: 'Unsupported GitHub URL',
+          type: "error",
+          title: "Unsupported GitHub URL",
           message:
-            'Only GitHub pull request URLs are supported for open_from_github right now.',
+            "Only GitHub pull request and issue URLs are supported for open_from_github.",
         });
         clearParam();
         return;
       }
 
+      if (parsedOpenUrl.type === "issue") {
+        await runIssueOpen(parsedOpenUrl.issue);
+        return;
+      }
+
+      const parsedPr = parsedOpenUrl.pr;
+
       setDialog({
-        type: 'processing',
-        title: 'Opening GitHub PR',
+        type: "processing",
+        title: "Opening GitHub PR",
         message: `Resolving ${parsedPr.normalizedPrUrl}`,
       });
 
@@ -244,12 +440,12 @@ export function OpenFromGitHub({
         if (existingWorkspaceId) {
           const openLocation = findOpenWorkspaceLocation(
             latestRuntimeRef.current.workspace,
-            existingWorkspaceId
+            existingWorkspaceId,
           );
           if (openLocation) {
             latestRuntimeRef.current.selectSessionTabGroup(
               openLocation.spaceId,
-              openLocation.tabGroupId
+              openLocation.tabGroupId,
             );
             setDialog(null);
             clearParam();
@@ -260,9 +456,9 @@ export function OpenFromGitHub({
             await vkClient.getWorkspace(existingWorkspaceId);
           if (cancelled) return;
           setDialog({
-            type: 'choose-space',
+            type: "choose-space",
             target: {
-              type: 'existing',
+              type: "existing",
               workspace: existingWorkspace,
               prInfo,
             },
@@ -279,7 +475,7 @@ export function OpenFromGitHub({
         );
         const remotesByRepoId = new Map(
           remoteResults.flatMap((result) =>
-            result.status === 'fulfilled'
+            result.status === "fulfilled"
               ? [[result.value.repoId, result.value.remotes] as const]
               : [],
           ),
@@ -287,15 +483,15 @@ export function OpenFromGitHub({
         const matches = findMatchingRepoRemotes(
           repos,
           remotesByRepoId,
-          parsedPr
+          parsedPr,
         );
 
         if (cancelled) return;
 
         if (matches.length === 0) {
           setDialog({
-            type: 'processing',
-            title: 'Opening GitHub PR',
+            type: "processing",
+            title: "Opening GitHub PR",
             message: `Cloning and registering ${parsedPr.normalizedRepo}`,
           });
           const ensured = await vkClient.ensureGithubRepo(
@@ -306,7 +502,9 @@ export function OpenFromGitHub({
             vkClient.getRepoRemotes(ensured.repo.id),
           ]);
           const ensuredRemotes =
-            remoteResults[0]?.status === 'fulfilled' ? remoteResults[0].value : [];
+            remoteResults[0]?.status === "fulfilled"
+              ? remoteResults[0].value
+              : [];
           const ensuredMatches = findMatchingRepoRemotes(
             [ensured.repo],
             new Map([[ensured.repo.id, ensuredRemotes]]),
@@ -315,13 +513,13 @@ export function OpenFromGitHub({
           const match = ensuredMatches[0] ?? {
             repo: ensured.repo,
             remote: {
-              name: 'origin',
+              name: "origin",
               url: `https://github.com/${parsedPr.normalizedRepo}.git`,
             },
           };
           setDialog({
-            type: 'choose-space',
-            target: { type: 'create', match, prInfo },
+            type: "choose-space",
+            target: { type: "create", match, prInfo },
           });
           return;
         }
@@ -330,26 +528,26 @@ export function OpenFromGitHub({
           const [match] = matches;
           if (!match) return;
           setDialog({
-            type: 'choose-space',
-            target: { type: 'create', match, prInfo },
+            type: "choose-space",
+            target: { type: "create", match, prInfo },
           });
           return;
         }
 
         setDialog({
-          type: 'choose-repo',
+          type: "choose-repo",
           prInfo,
           matches,
         });
       } catch (error) {
         if (cancelled) return;
         setDialog({
-          type: 'error',
-          title: 'Could not open GitHub PR',
+          type: "error",
+          title: "Could not open GitHub PR",
           message:
             error instanceof Error
               ? error.message
-              : 'Unknown error while resolving GitHub PR.',
+              : "Unknown error while resolving GitHub PR.",
         });
         clearParam();
       }
@@ -371,25 +569,54 @@ export function OpenFromGitHub({
         clearParam();
       }}
       onSelectRepo={(match) => {
-        if (dialog?.type !== 'choose-repo') return;
+        if (dialog?.type !== "choose-repo") return;
         setDialog({
-          type: 'choose-space',
+          type: "choose-space",
           target: {
-            type: 'create',
+            type: "create",
             match,
             prInfo: dialog.prInfo,
           },
         });
       }}
       onSelectSpace={(spaceId) => {
-        if (dialog?.type !== 'choose-space') return;
+        if (dialog?.type !== "choose-space") return;
         void openWorkspaceInSpace(dialog.target, spaceId);
+      }}
+      onConfirmReopenArchived={() => {
+        if (dialog?.type !== "confirm-reopen-archived") return;
+        setDialog({
+          type: "choose-space",
+          target: {
+            type: "existing-issue",
+            workspace: dialog.workspace,
+            issue: dialog.issue,
+          },
+        });
       }}
       onCreateSpace={(name) => {
         void createSpaceAndOpen(name);
       }}
     />
   );
+}
+
+function getTargetTitle(target: PendingTarget): string {
+  if (target.type === "existing" || target.type === "create") {
+    return target.prInfo.title;
+  }
+  return `issue #${target.issue.number}`;
+}
+
+function getTargetVerb(target: PendingTarget): string {
+  return target.type.endsWith("issue") ? "Open GitHub issue" : "Open GitHub PR";
+}
+
+function getIssueTargetBranch(repo: {
+  default_target_branch?: string | null;
+}): string {
+  const branch = repo.default_target_branch?.trim();
+  return branch || "origin/main";
 }
 
 function OpenFromGithubDialog({
@@ -399,6 +626,7 @@ function OpenFromGithubDialog({
   onSelectRepo,
   onSelectSpace,
   onCreateSpace,
+  onConfirmReopenArchived,
 }: {
   state: DialogState;
   workspace: WorkspaceState;
@@ -406,24 +634,29 @@ function OpenFromGithubDialog({
   onSelectRepo: (match: MatchingRepoRemote) => void;
   onSelectSpace: (spaceId: string) => void;
   onCreateSpace: (name: string) => void;
+  onConfirmReopenArchived: () => void;
 }) {
-  const [newSpaceName, setNewSpaceName] = useState('');
+  const [newSpaceName, setNewSpaceName] = useState("");
 
   if (!state) return null;
 
   const spaces = workspace.spaces.filter((space) => !space.isSystem);
   const title =
-    state.type === 'choose-repo'
-      ? 'Choose repository'
-      : state.type === 'choose-space'
-        ? 'Open GitHub PR in space'
-        : state.title;
+    state.type === "choose-repo"
+      ? "Choose repository"
+      : state.type === "choose-space"
+        ? `${getTargetVerb(state.target)} in space`
+        : state.type === "confirm-reopen-archived"
+          ? "Reopen archived issue workspace?"
+          : state.title;
   const message =
-    state.type === 'choose-repo'
+    state.type === "choose-repo"
       ? `Multiple VK repos match PR #${state.prInfo.number}: ${state.prInfo.title}`
-      : state.type === 'choose-space'
-        ? `Choose a space for PR #${state.target.prInfo.number}: ${state.target.prInfo.title}`
-        : state.message;
+      : state.type === "choose-space"
+        ? `Choose a space for ${getTargetTitle(state.target)}`
+        : state.type === "confirm-reopen-archived"
+          ? `GitHub issue ${state.issue.normalizedIssueUrl} is mapped to archived workspace ${state.workspace.name || state.workspace.branch}. Reopen and unarchive it instead of creating a duplicate branch?`
+          : state.message;
 
   return (
     <div
@@ -439,17 +672,17 @@ function OpenFromGithubDialog({
           <p className="mt-1 text-sm text-neutral-400">{message}</p>
         </div>
 
-        {state.type === 'processing' || state.type === 'opening' ? (
+        {state.type === "processing" || state.type === "opening" ? (
           <div className="py-6 text-sm text-neutral-300">Working…</div>
         ) : null}
 
-        {state.type === 'error' ? (
+        {state.type === "error" ? (
           <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">
             {state.message}
           </div>
         ) : null}
 
-        {state.type === 'choose-repo' ? (
+        {state.type === "choose-repo" ? (
           <div className="space-y-2">
             {state.matches.map((match) => (
               <button
@@ -469,7 +702,14 @@ function OpenFromGithubDialog({
           </div>
         ) : null}
 
-        {state.type === 'choose-space' ? (
+        {state.type === "confirm-reopen-archived" ? (
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-100">
+            Reopening will make the prior workspace active again and reuse
+            branch <span className="font-mono">{state.workspace.branch}</span>.
+          </div>
+        ) : null}
+
+        {state.type === "choose-space" ? (
           <div className="space-y-4">
             <div className="space-y-2">
               {spaces.length === 0 ? (
@@ -499,9 +739,9 @@ function OpenFromGithubDialog({
                 value={newSpaceName}
                 onChange={(event) => setNewSpaceName(event.target.value)}
                 onKeyDown={(event) => {
-                  if (event.key === 'Enter' && newSpaceName.trim()) {
+                  if (event.key === "Enter" && newSpaceName.trim()) {
                     onCreateSpace(newSpaceName.trim());
-                    setNewSpaceName('');
+                    setNewSpaceName("");
                   }
                 }}
               />
@@ -512,7 +752,7 @@ function OpenFromGithubDialog({
                 onClick={() => {
                   if (!newSpaceName.trim()) return;
                   onCreateSpace(newSpaceName.trim());
-                  setNewSpaceName('');
+                  setNewSpaceName("");
                 }}
               >
                 Create
@@ -521,13 +761,22 @@ function OpenFromGithubDialog({
           </div>
         ) : null}
 
-        <div className="mt-5 flex justify-end">
+        <div className="mt-5 flex justify-end gap-2">
+          {state.type === "confirm-reopen-archived" ? (
+            <button
+              type="button"
+              className="rounded-lg border border-amber-500/50 bg-amber-500/20 px-3 py-2 text-sm font-medium text-amber-100 hover:bg-amber-500/30"
+              onClick={onConfirmReopenArchived}
+            >
+              Reopen workspace
+            </button>
+          ) : null}
           <button
             type="button"
             className="rounded-lg border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-neutral-200 hover:bg-neutral-700"
             onClick={onClose}
           >
-            {state.type === 'error' ? 'Close' : 'Cancel'}
+            {state.type === "error" ? "Close" : "Cancel"}
           </button>
         </div>
       </div>
