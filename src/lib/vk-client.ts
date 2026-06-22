@@ -68,6 +68,14 @@ export interface PullRequestDetail {
   head_branch: string;
 }
 
+export interface EnsureGithubRepoResponse {
+  repo: Repo;
+  path: string;
+  cloned: boolean;
+  refreshed: boolean;
+  registered: boolean;
+}
+
 export interface CreateWorkspaceFromPrBody {
   repo_id: string;
   pr_number: number;
@@ -125,6 +133,26 @@ export class VibeKanbanClient {
     return json.data;
   }
 
+  private async dashboardPost<T>(path: string, body: unknown): Promise<T> {
+    const res = await fetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const json = (await res.json().catch(() => null)) as
+      | { error?: string }
+      | T
+      | null;
+    if (!res.ok) {
+      const message =
+        json && typeof json === 'object' && 'error' in json && json.error
+          ? json.error
+          : res.statusText;
+      throw new Error(`POST ${path} failed: ${message}`);
+    }
+    return json as T;
+  }
+
   getWorkspaces(): Promise<Workspace[]> {
     return this.get('/workspaces');
   }
@@ -157,6 +185,10 @@ export class VibeKanbanClient {
 
   getPrInfo(url: string): Promise<PullRequestDetail> {
     return this.get(`/repos/pr-info?url=${encodeURIComponent(url)}`);
+  }
+
+  ensureGithubRepo(repoUrl: string): Promise<EnsureGithubRepoResponse> {
+    return this.dashboardPost('/dashboard/api/github/ensure-repo', { repoUrl });
   }
 
   createWorkspaceFromPr(

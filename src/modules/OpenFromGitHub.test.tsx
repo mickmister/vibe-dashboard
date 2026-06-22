@@ -13,6 +13,7 @@ vi.mock('../lib/vk-client', () => ({
     getWorkspace: vi.fn(),
     getRepos: vi.fn(),
     getRepoRemotes: vi.fn(),
+    ensureGithubRepo: vi.fn(),
     createWorkspaceFromPr: vi.fn(),
   },
 }));
@@ -78,6 +79,7 @@ describe('OpenFromGitHub', () => {
     vi.mocked(vkClient.getWorkspace).mockReset();
     vi.mocked(vkClient.getRepos).mockReset();
     vi.mocked(vkClient.getRepoRemotes).mockReset();
+    vi.mocked(vkClient.ensureGithubRepo).mockReset();
     vi.mocked(vkClient.createWorkspaceFromPr).mockReset();
   });
 
@@ -128,5 +130,43 @@ describe('OpenFromGitHub', () => {
       );
     });
     expect(vkClient.getWorkspace).not.toHaveBeenCalled();
+  });
+
+  it('ensures an unregistered GitHub repo before asking where to open the PR', async () => {
+    vi.mocked(vkClient.getPrInfo).mockResolvedValue({
+      number: 7,
+      url: 'https://github.com/owner/repo/pull/7',
+      status: 'open',
+      title: 'Fix bug',
+      base_branch: 'main',
+      head_branch: 'fix-bug',
+    });
+    vi.mocked(vkClient.getWorkspaceSummaries).mockResolvedValue({
+      summaries: [],
+    });
+    vi.mocked(vkClient.getRepos).mockResolvedValue([]);
+    vi.mocked(vkClient.ensureGithubRepo).mockResolvedValue({
+      repo: {
+        id: 'repo-1',
+        name: 'repo',
+        display_name: 'owner/repo',
+        path: '/home/vkuser/repos/repo',
+      },
+      path: '/home/vkuser/repos/repo',
+      cloned: true,
+      refreshed: false,
+      registered: true,
+    });
+    vi.mocked(vkClient.getRepoRemotes).mockResolvedValue([
+      { name: 'origin', url: 'https://github.com/owner/repo.git' },
+    ]);
+
+    const { findByText } = renderOpenFromGithub(emptyWorkspace);
+
+    await findByText('Open GitHub PR in space');
+    expect(vkClient.ensureGithubRepo).toHaveBeenCalledWith(
+      'https://github.com/owner/repo',
+    );
+    expect(vkClient.getRepoRemotes).toHaveBeenCalledWith('repo-1');
   });
 });

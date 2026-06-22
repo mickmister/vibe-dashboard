@@ -294,12 +294,35 @@ export function OpenFromGitHub({
 
         if (matches.length === 0) {
           setDialog({
-            type: 'error',
-            title: 'Repository not registered in VK',
-            message:
-              'This PR belongs to a GitHub repo that is not registered in VK. Register or clone the repo in VK, then try again.',
+            type: 'processing',
+            title: 'Opening GitHub PR',
+            message: `Cloning and registering ${parsedPr.normalizedRepo}`,
           });
-          clearParam();
+          const ensured = await vkClient.ensureGithubRepo(
+            `https://github.com/${parsedPr.normalizedRepo}`,
+          );
+          if (cancelled) return;
+          const remoteResults = await Promise.allSettled([
+            vkClient.getRepoRemotes(ensured.repo.id),
+          ]);
+          const ensuredRemotes =
+            remoteResults[0]?.status === 'fulfilled' ? remoteResults[0].value : [];
+          const ensuredMatches = findMatchingRepoRemotes(
+            [ensured.repo],
+            new Map([[ensured.repo.id, ensuredRemotes]]),
+            parsedPr,
+          );
+          const match = ensuredMatches[0] ?? {
+            repo: ensured.repo,
+            remote: {
+              name: 'origin',
+              url: `https://github.com/${parsedPr.normalizedRepo}.git`,
+            },
+          };
+          setDialog({
+            type: 'choose-space',
+            target: { type: 'create', match, prInfo },
+          });
           return;
         }
 

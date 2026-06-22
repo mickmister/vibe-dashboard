@@ -1,4 +1,7 @@
 import { createHmac } from 'node:crypto';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { Hono } from 'hono';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createWorkflowRegistry, type WorkflowDefinition } from '@vibe-dashboard/workflow-core';
@@ -67,7 +70,50 @@ describe('registerWorkflowRoutes', () => {
     });
   });
 
+  it('ensures a GitHub repo via the provisioning route', async () => {
+    const reposRoot = await mkdtemp(join(tmpdir(), 'vd-route-repos-'));
+    try {
+      const registry = createWorkflowRegistry();
+      const app = new Hono();
+      const repo = {
+        id: 'repo-1',
+        name: 'repo',
+        display_name: 'owner/repo',
+        path: join(reposRoot, 'repo'),
+      };
+      const execFile = vi.fn(async (_file: string, args: readonly string[]) => {
+        if (args[0] === 'clone') return { stdout: '', stderr: '' };
+        throw new Error(`unexpected git ${args.join(' ')}`);
+      });
+      registerWorkflowRoutes(app, {
+        registry,
+        githubRepoProvisioning: {
+          reposRoot,
+          execFile,
+          vkClient: {
+            getRepos: vi.fn(async () => []),
+            registerRepo: vi.fn(async () => repo),
+          },
+        },
+      });
 
+      const response = await app.request('/dashboard/api/github/ensure-repo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ repoUrl: 'https://github.com/owner/repo/pull/7' }),
+      });
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        repo,
+        path: join(reposRoot, 'repo'),
+        cloned: true,
+        registered: true,
+      });
+    } finally {
+      await rm(reposRoot, { recursive: true, force: true });
+    }
+  });
 
   it('runs the GitHub CI failure workflow from the GitHub webhook route', async () => {
     const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});

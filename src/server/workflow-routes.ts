@@ -7,12 +7,18 @@ import {
 } from '@vibe-dashboard/workflow-core';
 import { verifyGitHubWebhookSignature } from './github-signature';
 import type { CachedRepoAlias } from '../workflows/github-ci';
+import {
+  ensureGithubRepoRegistered,
+  GithubRepoProvisioningError,
+  type EnsureGithubRepoOptions,
+} from './github-repo-provisioning';
 
 export interface RegisterWorkflowRoutesOptions {
   registry: WorkflowRegistry;
   runOptions?: RunWorkflowOptions;
   githubWebhookSecret?: string;
   repoAliasCache?: RepoAliasCache;
+  githubRepoProvisioning?: EnsureGithubRepoOptions;
 }
 
 export interface RepoAliasCache {
@@ -35,6 +41,35 @@ export function registerWorkflowRoutes(
     });
   });
 
+
+  hono.post('/dashboard/api/github/ensure-repo', async (c) => {
+    try {
+      const body = await readJsonBody(c.req.raw);
+      const repoUrl = asString(asRecord(body)?.repoUrl);
+      if (!repoUrl) {
+        return c.json({ error: 'repoUrl is required' }, 400);
+      }
+
+      const result = await ensureGithubRepoRegistered(
+        { repoUrl },
+        options.githubRepoProvisioning,
+      );
+      return c.json({
+        repo: result.repo,
+        path: result.path,
+        cloned: result.cloned,
+        refreshed: result.refreshed,
+        registered: result.registered,
+      });
+    } catch (error) {
+      if (error instanceof GithubRepoProvisioningError) {
+        const status = error.status === 400 ? 400 : 500;
+        return c.json({ error: error.message }, status);
+      }
+      console.error('GitHub repo provisioning route failed', error);
+      return c.json({ error: 'Internal GitHub repo provisioning route error' }, 500);
+    }
+  });
 
   hono.post('/dashboard/api/webhooks/github', async (c) => {
     try {
