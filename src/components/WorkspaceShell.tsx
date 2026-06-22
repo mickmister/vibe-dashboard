@@ -851,7 +851,7 @@ export function WorkspaceShell({
     name: string,
     containerRef: string,
   ) => {
-    await openCraftMutation.mutateAsync({
+    await runOpenCraftMutation({
       kind: 'add',
       workspaceId: taskAttemptId,
       name,
@@ -865,7 +865,7 @@ export function WorkspaceShell({
     containerRef: string,
     spaceId: string,
   ) => {
-    await openCraftMutation.mutateAsync({
+    await runOpenCraftMutation({
       kind: 'add',
       workspaceId: taskAttemptId,
       name,
@@ -1196,6 +1196,21 @@ export function WorkspaceShell({
     tabGroupId: string,
   ) => {
     await performNavigateToWorkspaceTabGroup(spaceId, tabGroupId);
+  };
+
+  const handleAddTabModalNavigateToWorkspaceTabGroup = async (
+    spaceId: string,
+    tabGroupId: string,
+    workspaceOption?: { id: string; name: string },
+  ) => {
+    const tabGroup = workspace.tabGroups.find((entry) => entry.id === tabGroupId);
+    await runOpenCraftMutation({
+      kind: 'navigate',
+      workspaceId: workspaceOption?.id || tabGroupId,
+      name: workspaceOption?.name || tabGroup?.label || 'craft',
+      spaceId,
+      tabGroupId,
+    });
   };
 
   const handleWorkspaceSearchNavigate = async (
@@ -1919,9 +1934,6 @@ export function WorkspaceShell({
             actions.renameTabGroup({ tabGroupId, label })
           }
           onAddTabGroup={handleAddTabGroup}
-          onAddTab={async (tabGroupId, title, url) => {
-            actions.addTab({ tabGroupId, title, url });
-          }}
           onOpenCreateWorkspaceTab={async () => {
             await handleOpenCreateWorkspaceTab();
             setIsSidebarOpen(false);
@@ -2276,9 +2288,21 @@ export function WorkspaceShell({
           onAdd={handleAddTab}
           onAddVKWorkspace={handleAddVKWorkspace}
           onAddVKWorkspaceToSpace={handleAddVKWorkspaceToSpace}
-          onNavigateToTabGroup={handleNavigateToWorkspaceTabGroup}
+          onNavigateToTabGroup={handleAddTabModalNavigateToWorkspaceTabGroup}
           onAddTabGroup={handleAddTabGroup}
           workspace={workspace}
+          pendingWorkspaceId={
+            openCraftMutation.isPending
+              ? openCraftMutation.variables?.workspaceId ?? null
+              : null
+          }
+          isActionPending={openCraftMutation.isPending}
+          actionError={
+            openCraftMutation.isError
+              ? getErrorMessage(openCraftMutation.error)
+              : null
+          }
+          onResetAction={() => openCraftMutation.reset()}
         />
       )}
 

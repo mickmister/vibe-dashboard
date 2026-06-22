@@ -912,6 +912,7 @@ test.describe('voyage persistence', () => {
     const initialCraftLabel = `Seed Craft ${runId}`;
     const menuCraftLabel = `E2E Menu Craft ${runId}`;
     const commandCraftLabel = `E2E Command Craft ${runId}`;
+    const addViewCraftLabel = `E2E Add View Craft ${runId}`;
     const overviewCraftLabel = `E2E Overview Craft ${runId}`;
     const voyageId = `session_open_craft_${runId}`;
     const voyageSlug = `e2e-open-craft-voyage-${runId}-${voyageId}`;
@@ -928,12 +929,22 @@ test.describe('voyage persistence', () => {
       'command',
       commandCraftLabel,
     );
+    const addViewWorkspace = createNamedMockWorkspace(
+      runId,
+      'add-view',
+      addViewCraftLabel,
+    );
     const overviewWorkspace = createNamedMockWorkspace(
       runId,
       'overview',
       overviewCraftLabel,
     );
-    await mockVkApi(page, [menuWorkspace, commandWorkspace, overviewWorkspace]);
+    await mockVkApi(page, [
+      menuWorkspace,
+      commandWorkspace,
+      addViewWorkspace,
+      overviewWorkspace,
+    ]);
     await waitForKvApi(page.request);
 
     const addCraftResult = await callWorkspaceAction<{
@@ -1038,11 +1049,41 @@ test.describe('voyage persistence', () => {
     if (await openSidebarButton.isVisible().catch(() => false)) {
       await openSidebarButton.click();
     }
+    await page.getByRole('button', { name: '+ View' }).dispatchEvent('click');
+    await page.getByRole('option', { name: 'Open Existing Craft' }).click();
+    await expect(page.getByRole('heading', { name: 'Open VK Workspace' })).toBeVisible();
+    await page.getByPlaceholder('Search workspaces...').fill(menuWorkspace.name);
+    await page.getByRole('button', { name: new RegExp(menuWorkspace.name) }).click();
+    await page
+      .getByRole('button', { name: /Switch to embarked craft/ })
+      .click();
+    await expect(page).toHaveURL(
+      new RegExp(`craft=e2e-menu-craft-${runId}`),
+    );
+    await waitForSavedVoyageWithCraft(page.request, voyageId, menuCraftLabel, 3);
+
+    if (await openSidebarButton.isVisible().catch(() => false)) {
+      await openSidebarButton.click();
+    }
+    await page.getByRole('button', { name: '+ View' }).dispatchEvent('click');
+    await page.getByRole('option', { name: 'Open Existing Craft' }).click();
+    await expect(page.getByRole('heading', { name: 'Open VK Workspace' })).toBeVisible();
+    await page.getByPlaceholder('Search workspaces...').fill(addViewWorkspace.name);
+    await page.getByRole('button', { name: new RegExp(addViewWorkspace.name) }).click();
+    await expect(
+      page.getByRole('heading', { name: 'Choose Space' }),
+    ).toBeVisible();
+    await page.getByRole('button', { name: /^Home \d+ craft/ }).click();
+    await expect(page).toHaveURL(
+      new RegExp(`craft=e2e-add-view-craft-${runId}`),
+    );
+    await waitForSavedVoyageWithCraft(page.request, voyageId, addViewCraftLabel, 4);
+
     await page
       .getByRole('button', { name: /Overview 1 tab/ })
       .filter({ visible: true })
       .first()
-      .click({ force: true });
+      .dispatchEvent('click');
     await expect(page.getByRole('heading', { name: 'VK Workspaces' })).toBeVisible();
     await page
       .getByRole('button', { name: `Open ${overviewWorkspace.name}` })
@@ -1052,7 +1093,7 @@ test.describe('voyage persistence', () => {
     await expect(page).toHaveURL(
       new RegExp(`craft=e2e-overview-craft-${runId}`),
     );
-    await waitForSavedVoyageWithCraft(page.request, voyageId, overviewCraftLabel, 5);
+    await waitForSavedVoyageWithCraft(page.request, voyageId, overviewCraftLabel, 6);
 
     await page.reload();
 
@@ -1066,13 +1107,16 @@ test.describe('voyage persistence', () => {
       page.getByRole('button', { name: `Open ${commandCraftLabel} in Home` }),
     ).toBeVisible();
     await expect(
+      page.getByRole('button', { name: `Open ${addViewCraftLabel} in Home` }),
+    ).toBeVisible();
+    await expect(
       page.getByRole('button', { name: `Open ${overviewCraftLabel} in Home` }),
     ).toBeVisible();
     await expectUrlVoyageToken(page, voyageId);
     await expect(page).toHaveURL(
       new RegExp(`craft=e2e-overview-craft-${runId}`),
     );
-    await waitForSavedVoyageWithCraft(page.request, voyageId, overviewCraftLabel, 5);
+    await waitForSavedVoyageWithCraft(page.request, voyageId, overviewCraftLabel, 6);
   });
 
   test('does not pull the user back when pending Open Craft finishes after switching voyages', async ({ page }) => {
