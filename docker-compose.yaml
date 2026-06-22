@@ -10,7 +10,8 @@ services:
     image: ghcr.io/mickmister/vk-vd:${VKVD_IMAGE_VERSION:-latest}
     pull_policy: always
 
-    network_mode: host
+    ports:
+      - "${CADDY_PORT:-3001}:${CADDY_PORT:-3001}"
     mem_limit: ${DEV_CONTAINER_MEM_LIMIT:-14g}
     mem_reservation: ${DEV_CONTAINER_MEM_RESERVATION:-12g}
 

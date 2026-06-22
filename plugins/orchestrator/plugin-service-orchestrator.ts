@@ -6,6 +6,8 @@ import { promisify } from 'node:util';
 import { gunzipSync, inflateRawSync } from 'node:zlib';
 
 const execFileAsync = promisify(execFile);
+const MAX_ARCHIVE_TREE_UNCOMPRESSED_BYTES = 1024 * 1024 * 1024;
+const MAX_ARCHIVE_TREE_ENTRIES = 10_000;
 
 export interface PluginServiceCatalog {
   plugins: PluginServiceDefinition[];
@@ -736,7 +738,9 @@ function readZipEntryData(
 }
 
 async function extractArchiveTree(bytes: Buffer, materializer: Extract<PluginMaterializerDefinition, { kind: 'archive-tree' }>, targetDir: string): Promise<void> {
-  const archiveBytes = materializer.format === 'tar.gz' ? gunzipSync(bytes) : bytes;
+  const archiveBytes = materializer.format === 'tar.gz'
+    ? gunzipSync(bytes, { maxOutputLength: MAX_ARCHIVE_TREE_UNCOMPRESSED_BYTES + 1 })
+    : bytes;
   if (materializer.format === 'zip') {
     await extractZipTree(archiveBytes, targetDir, materializer.stripComponents ?? 0);
     return;
@@ -748,6 +752,8 @@ async function extractZipTree(zipBytes: Buffer, targetDir: string, stripComponen
   const centralDirectory = findZipCentralDirectory(zipBytes);
   let offset = centralDirectory.offset;
   const end = centralDirectory.offset + centralDirectory.size;
+  let entryCount = 0;
+  let totalUncompressedBytes = 0;
   while (offset < end) {
     if (offset + 46 > zipBytes.length || zipBytes.readUInt32LE(offset) !== 0x02014b50) throw new Error('Invalid zip artifact: malformed central directory');
     const compressionMethod = zipBytes.readUInt16LE(offset + 10);
@@ -758,8 +764,12 @@ async function extractZipTree(zipBytes: Buffer, targetDir: string, stripComponen
     const commentLength = zipBytes.readUInt16LE(offset + 32);
     const localHeaderOffset = zipBytes.readUInt32LE(offset + 42);
     const name = zipBytes.subarray(offset + 46, offset + 46 + fileNameLength).toString('utf8');
+    entryCount += 1;
+    if (entryCount > MAX_ARCHIVE_TREE_ENTRIES) throw new Error(`Archive tree exceeds maximum entry count of ${MAX_ARCHIVE_TREE_ENTRIES}`);
     const relativePath = stripArchivePath(name, stripComponents);
     if (relativePath && !name.endsWith('/')) {
+      totalUncompressedBytes += uncompressedSize;
+      if (totalUncompressedBytes > MAX_ARCHIVE_TREE_UNCOMPRESSED_BYTES) throw new Error(`Archive tree exceeds maximum uncompressed size of ${MAX_ARCHIVE_TREE_UNCOMPRESSED_BYTES} bytes`);
       const data = readZipEntryData(zipBytes, { compressionMethod, compressedSize, uncompressedSize, localHeaderOffset, entryName: name });
       const target = join(targetDir, relativePath);
       await mkdir(dirname(target), { recursive: true });
@@ -773,9 +783,13 @@ async function extractZipTree(zipBytes: Buffer, targetDir: string, stripComponen
 
 async function extractTarTree(tarBytes: Buffer, targetDir: string, stripComponents: number): Promise<void> {
   let offset = 0;
+  let entryCount = 0;
+  let totalUncompressedBytes = 0;
   while (offset + 512 <= tarBytes.length) {
     const header = tarBytes.subarray(offset, offset + 512);
     if (header.every((byte) => byte === 0)) break;
+    entryCount += 1;
+    if (entryCount > MAX_ARCHIVE_TREE_ENTRIES) throw new Error(`Archive tree exceeds maximum entry count of ${MAX_ARCHIVE_TREE_ENTRIES}`);
     const rawName = readTarString(header, 0, 100);
     const prefix = readTarString(header, 345, 155);
     const name = prefix ? `${prefix}/${rawName}` : rawName;
@@ -784,12 +798,15 @@ async function extractTarTree(tarBytes: Buffer, targetDir: string, stripComponen
     const typeflag = header.subarray(156, 157).toString('utf8') || '0';
     const dataOffset = offset + 512;
     const nextOffset = dataOffset + Math.ceil(size / 512) * 512;
+    if (nextOffset > tarBytes.length) throw new Error(`Invalid tar artifact: entry ${name} is out of bounds`);
     const relativePath = stripArchivePath(name, stripComponents);
     if (relativePath) {
       const target = join(targetDir, relativePath);
       if (typeflag === '5') {
         await mkdir(target, { recursive: true });
       } else if (typeflag === '0' || typeflag === '\0' || typeflag === '') {
+        totalUncompressedBytes += size;
+        if (totalUncompressedBytes > MAX_ARCHIVE_TREE_UNCOMPRESSED_BYTES) throw new Error(`Archive tree exceeds maximum uncompressed size of ${MAX_ARCHIVE_TREE_UNCOMPRESSED_BYTES} bytes`);
         await mkdir(dirname(target), { recursive: true });
         await writeFileIfChanged(target, tarBytes.subarray(dataOffset, dataOffset + size));
       }

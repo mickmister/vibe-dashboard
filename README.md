@@ -40,9 +40,9 @@ Caddy forwards `port-<port>.*` subdomains to `localhost:<port>` inside the conta
 | Variable | Default | Notes |
 | --- | --- | --- |
 | `CADDY_PORT` | `3001` | Main Caddy entrypoint host port. |
-| `BACKEND_PORT` | `3007` | Backend port exposed inside container env. |
-| `DASHBOARD_PORT` | `3005` | Dashboard port exposed inside container env. |
-| `CODE_PORT` | `3008` | `code-server` port exposed inside container env. |
+| `BACKEND_PORT` | `3007` | Backend service port inside the container. Not published directly by compose. |
+| `DASHBOARD_PORT` | `3005` | Dashboard service port inside the container. Not published directly by compose. |
+| `CODE_PORT` | `3008` | `code-server` service port inside the container. Not published directly by compose. |
 
 #### Optional auth/system
 

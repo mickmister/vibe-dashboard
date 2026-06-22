@@ -34,14 +34,18 @@ describe('plugin service supervisor orchestration dry run', () => {
     expect(catalog.plugins.map((plugin) => plugin.id)).toEqual(['vd.beads-web']);
     expect(catalog.plugins[0]).toMatchObject({
       id: 'vd.beads-web',
-      version: 'beads-web-assets-42cc6ca1709d4b0aa76833d91d326e6de9659a28',
+      version: 'v0.11.4',
       installers: [
         {
           kind: 'github-release-asset',
-          tag: 'beads-web-assets-42cc6ca1709d4b0aa76833d91d326e6de9659a28',
+          tag: 'v0.11.4',
           variants: {
             'linux-amd64': {
-              sha256: '03691990c33a6695ac2520be9dc59f4dd692730fc35f49a9f5df784fa0e2242d',
+              sha256: '7e3880a399214b49a9c4a6ea2b2585f3b3fdbc69de093e464990395520791620',
+            },
+            'linux-arm64': {
+              asset: 'beads-web-linux-arm64',
+              sha256: '4bf6c69625ae88bbd3438168f6d97267914b6edabe7da14fa2dc9c246fc47a1e',
             },
           },
           materialize: { kind: 'file', installAs: 'bin/beads-web' },
@@ -57,9 +61,9 @@ describe('plugin service supervisor orchestration dry run', () => {
       cachedArtifacts: [
         {
           pluginId: 'vd.beads-web',
-          version: 'beads-web-assets-42cc6ca1709d4b0aa76833d91d326e6de9659a28',
-          sha256: '03691990c33a6695ac2520be9dc59f4dd692730fc35f49a9f5df784fa0e2242d',
-          path: '/var/lib/vd/plugin-cache/github/mickmister/beads-web/beads-web-assets-42cc6ca1709d4b0aa76833d91d326e6de9659a28/beads-web-linux-x64',
+          version: 'v0.11.4',
+          sha256: '7e3880a399214b49a9c4a6ea2b2585f3b3fdbc69de093e464990395520791620',
+          path: '/var/lib/vd/plugin-cache/github/mickmister/beads-web/v0.11.4/beads-web-linux-x64',
         },
       ],
       existingSupervisorConfigs: {},
@@ -108,8 +112,8 @@ describe('plugin service supervisor orchestration dry run', () => {
       service: (firstPartyPluginCatalog as PluginServiceCatalog).plugins[0]!.services[0]!,
       paths,
     });
-    expect(beadsWebConfig).toContain('command=/var/lib/vd/plugins/vd.beads-web/beads-web-assets-42cc6ca1709d4b0aa76833d91d326e6de9659a28/extracted/bin/beads-web');
-    expect(beadsWebConfig).toContain('environment=BEADS_WEB_PORT="3109",BEADS_WEB_PORT_BIND="0.0.0.0",HOST="0.0.0.0",PORT="3109",HOME="/home/vkuser",XDG_CONFIG_HOME="/home/vkuser/.config",VD_PLUGIN_ID="vd.beads-web",VD_PLUGIN_VERSION="beads-web-assets-42cc6ca1709d4b0aa76833d91d326e6de9659a28",VD_SERVICE_ID="web"');
+    expect(beadsWebConfig).toContain('command=/var/lib/vd/plugins/vd.beads-web/v0.11.4/extracted/bin/beads-web');
+    expect(beadsWebConfig).toContain('environment=BEADS_WEB_PORT="3109",BEADS_WEB_PORT_BIND="0.0.0.0",HOST="0.0.0.0",PORT="3109",HOME="/home/vkuser",XDG_CONFIG_HOME="/home/vkuser/.config",VD_PLUGIN_ID="vd.beads-web",VD_PLUGIN_VERSION="v0.11.4",VD_SERVICE_ID="web"');
   });
 
   it('supports a beads-web-only catalog for isolated supervisor experiments', () => {
@@ -124,7 +128,7 @@ describe('plugin service supervisor orchestration dry run', () => {
       expect.objectContaining({
         action: 'download',
         pluginId: 'vd.beads-web',
-        url: 'https://github.com/mickmister/beads-web/releases/download/beads-web-assets-42cc6ca1709d4b0aa76833d91d326e6de9659a28/beads-web-linux-x64',
+        url: 'https://github.com/mickmister/beads-web/releases/download/v0.11.4/beads-web-linux-x64',
       }),
     ]);
     expect(plan.supervisorChanges).toEqual([
@@ -373,14 +377,14 @@ describe('plugin service supervisor orchestration dry run', () => {
 
   it('discovers cached artifacts by hashing files in the persistent artifact cache', async () => {
     const tempRoot = await mkdtemp(join(tmpdir(), 'vd-plugin-cache-'));
-    const cachePath = join(tempRoot, 'cache/github/mickmister/beads-web/beads-web-assets-42cc6ca1709d4b0aa76833d91d326e6de9659a28/beads-web-linux-x64');
+    const cachePath = join(tempRoot, 'cache/github/mickmister/beads-web/v0.11.4/beads-web-linux-x64');
     const bytes = Buffer.from('fake beads-web artifact');
     const sha256 = createHash('sha256').update(bytes).digest('hex');
     const catalog = structuredClone(beadsWebOnlyCatalog) as PluginServiceCatalog;
     const installer = catalog.plugins[0]!.installers[0]!;
     if (installer.kind !== 'github-release-asset') throw new Error('expected github-release-asset fixture');
     installer.variants['linux-amd64']!.sha256 = sha256;
-    await mkdir(join(tempRoot, 'cache/github/mickmister/beads-web/beads-web-assets-42cc6ca1709d4b0aa76833d91d326e6de9659a28'), { recursive: true });
+    await mkdir(join(tempRoot, 'cache/github/mickmister/beads-web/v0.11.4'), { recursive: true });
     await writeFile(cachePath, bytes);
 
     await expect(discoverCachedArtifacts({
@@ -390,7 +394,7 @@ describe('plugin service supervisor orchestration dry run', () => {
         installRoot: join(tempRoot, 'plugins'),
         supervisorConfigDir: join(tempRoot, 'supervisor'),
       },
-    })).resolves.toEqual([{ pluginId: 'vd.beads-web', version: 'beads-web-assets-42cc6ca1709d4b0aa76833d91d326e6de9659a28', sha256, path: cachePath }]);
+    })).resolves.toEqual([{ pluginId: 'vd.beads-web', version: 'v0.11.4', sha256, path: cachePath }]);
   });
 
   it('downloads a binary release asset, allows explicit hash bypass for smoke runs, and installs it executable', async () => {
@@ -409,7 +413,7 @@ describe('plugin service supervisor orchestration dry run', () => {
     expect(materialized).toEqual([
       expect.objectContaining({ action: 'downloaded', pluginId: 'vd.beads-web' }),
     ]);
-    await expect(readFile(join(tempRoot, 'plugins/vd.beads-web/beads-web-assets-42cc6ca1709d4b0aa76833d91d326e6de9659a28/extracted/bin/beads-web'), 'utf8')).resolves.toContain('fake beads-web');
+    await expect(readFile(join(tempRoot, 'plugins/vd.beads-web/v0.11.4/extracted/bin/beads-web'), 'utf8')).resolves.toContain('fake beads-web');
   });
 
   it('does not poison the persistent artifact cache when a download fails sha verification', async () => {
@@ -423,7 +427,7 @@ describe('plugin service supervisor orchestration dry run', () => {
     const installer = catalog.plugins[0]!.installers[0]!;
     if (installer.kind !== 'github-release-asset') throw new Error('expected github-release-asset fixture');
     installer.variants['linux-amd64']!.sha256 = '0'.repeat(64);
-    const cachePath = join(tempRoot, 'cache/github/mickmister/beads-web/beads-web-assets-42cc6ca1709d4b0aa76833d91d326e6de9659a28/beads-web-linux-x64');
+    const cachePath = join(tempRoot, 'cache/github/mickmister/beads-web/v0.11.4/beads-web-linux-x64');
 
     await expect(materializePluginArtifacts({
       catalog,
@@ -456,8 +460,8 @@ describe('plugin service supervisor orchestration dry run', () => {
     if (installer.kind !== 'github-release-asset') throw new Error('expected github-release-asset fixture');
     const validBytes = Buffer.from('#!/bin/sh\necho valid beads-web\n');
     installer.variants['linux-amd64']!.sha256 = createHash('sha256').update(validBytes).digest('hex');
-    const cachePath = join(tempRoot, 'cache/github/mickmister/beads-web/beads-web-assets-42cc6ca1709d4b0aa76833d91d326e6de9659a28/beads-web-linux-x64');
-    await mkdir(join(tempRoot, 'cache/github/mickmister/beads-web/beads-web-assets-42cc6ca1709d4b0aa76833d91d326e6de9659a28'), { recursive: true });
+    const cachePath = join(tempRoot, 'cache/github/mickmister/beads-web/v0.11.4/beads-web-linux-x64');
+    await mkdir(join(tempRoot, 'cache/github/mickmister/beads-web/v0.11.4'), { recursive: true });
     await writeFile(cachePath, 'stale bad cache');
     let fetchCount = 0;
 
@@ -498,7 +502,7 @@ describe('plugin service supervisor orchestration dry run', () => {
     await materializePluginArtifacts({ catalog, paths, fetchBytes });
 
     expect(fetchCount).toBe(1);
-    await expect(readFile(join(tempRoot, 'plugins/vd.beads-web/beads-web-assets-42cc6ca1709d4b0aa76833d91d326e6de9659a28/extracted/bin/beads-web'), 'utf8')).resolves.toContain('stable beads-web');
+    await expect(readFile(join(tempRoot, 'plugins/vd.beads-web/v0.11.4/extracted/bin/beads-web'), 'utf8')).resolves.toContain('stable beads-web');
   });
 
   it('extracts a selected zip entry after download verification and installs it as the runnable artifact', async () => {
@@ -593,6 +597,74 @@ describe('plugin service supervisor orchestration dry run', () => {
     ]);
     await expect(readFile(join(tempRoot, 'plugins/vd.filebrowser/1.0.0/extracted/filebrowser'), 'utf8')).resolves.toBe(executable);
     await expect(readlink(join(tempRoot, 'plugin-bin/filebrowser'))).resolves.toBe(join(tempRoot, 'plugins/vd.filebrowser/1.0.0/extracted/filebrowser'));
+  });
+
+  it('rejects archive trees whose declared uncompressed size exceeds the safety cap', async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), 'vd-plugin-archive-size-cap-'));
+    const paths = {
+      artifactCacheRoot: join(tempRoot, 'cache'),
+      installRoot: join(tempRoot, 'plugins'),
+      supervisorConfigDir: join(tempRoot, 'supervisor'),
+    };
+    const zipBytes = createZipFixtureWithDeclaredSize('huge.bin', 1024 * 1024 * 1024 + 1);
+    const catalog: PluginServiceCatalog = {
+      plugins: [{
+        id: 'vd.huge',
+        name: 'Huge',
+        version: '1.0.0',
+        installers: [{
+          kind: 'github-release-asset',
+          repository: 'example/huge',
+          tag: 'v1.0.0',
+          variants: { 'linux-amd64': { asset: 'huge.zip', sha256: createHash('sha256').update(zipBytes).digest('hex') } },
+          materialize: {
+            kind: 'archive-tree',
+            format: 'zip',
+            outputs: [{ kind: 'file', path: 'huge.bin' }],
+          },
+        }],
+        services: [],
+      }],
+    };
+
+    await expect(materializePluginArtifacts({ catalog, paths, fetchBytes: async () => zipBytes }))
+      .rejects.toThrow('Archive tree exceeds maximum uncompressed size');
+  });
+
+  it('rejects archive trees with excessive entry counts', async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), 'vd-plugin-archive-entry-cap-'));
+    const paths = {
+      artifactCacheRoot: join(tempRoot, 'cache'),
+      installRoot: join(tempRoot, 'plugins'),
+      supervisorConfigDir: join(tempRoot, 'supervisor'),
+    };
+    const tarGzBytes = createTarGzFixture(Array.from({ length: 10_001 }, (_, index) => ({
+      name: `tree/file-${index}.txt`,
+      data: 'x',
+    })));
+    const catalog: PluginServiceCatalog = {
+      plugins: [{
+        id: 'vd.too-many-files',
+        name: 'Too Many Files',
+        version: '1.0.0',
+        installers: [{
+          kind: 'github-release-asset',
+          repository: 'example/too-many-files',
+          tag: 'v1.0.0',
+          variants: { 'linux-amd64': { asset: 'too-many-files.tar.gz', sha256: createHash('sha256').update(tarGzBytes).digest('hex') } },
+          materialize: {
+            kind: 'archive-tree',
+            format: 'tar.gz',
+            stripComponents: 2,
+            outputs: [{ kind: 'file', path: 'file-0.txt' }],
+          },
+        }],
+        services: [],
+      }],
+    };
+
+    await expect(materializePluginArtifacts({ catalog, paths, fetchBytes: async () => tarGzBytes }))
+      .rejects.toThrow('Archive tree exceeds maximum entry count');
   });
 
   it('runs package-manager installers against the persistent toolchain roots', async () => {
@@ -861,6 +933,39 @@ describe('plugin service supervisor orchestration dry run', () => {
     ]);
   });
 });
+
+function createZipFixtureWithDeclaredSize(entryName: string, declaredUncompressedSize: number): Buffer {
+  const name = Buffer.from(entryName);
+  const localHeader = Buffer.alloc(30);
+  localHeader.writeUInt32LE(0x04034b50, 0);
+  localHeader.writeUInt16LE(20, 4);
+  localHeader.writeUInt16LE(0, 8);
+  localHeader.writeUInt32LE(0, 14);
+  localHeader.writeUInt32LE(0, 18);
+  localHeader.writeUInt32LE(declaredUncompressedSize, 22);
+  localHeader.writeUInt16LE(name.length, 26);
+
+  const centralHeader = Buffer.alloc(46);
+  centralHeader.writeUInt32LE(0x02014b50, 0);
+  centralHeader.writeUInt16LE(20, 4);
+  centralHeader.writeUInt16LE(20, 6);
+  centralHeader.writeUInt16LE(0, 10);
+  centralHeader.writeUInt32LE(0, 16);
+  centralHeader.writeUInt32LE(0, 20);
+  centralHeader.writeUInt32LE(declaredUncompressedSize, 24);
+  centralHeader.writeUInt16LE(name.length, 28);
+  centralHeader.writeUInt32LE(0, 42);
+
+  const centralDirectoryOffset = localHeader.length + name.length;
+  const centralDirectory = Buffer.concat([centralHeader, name]);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(1, 8);
+  end.writeUInt16LE(1, 10);
+  end.writeUInt32LE(centralDirectory.length, 12);
+  end.writeUInt32LE(centralDirectoryOffset, 16);
+  return Buffer.concat([localHeader, name, centralDirectory, end]);
+}
 
 function createZipFixture(entries: Array<{ name: string; data: string; deflate?: boolean }>): Buffer {
   const localParts: Buffer[] = [];
