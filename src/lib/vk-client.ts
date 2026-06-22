@@ -46,6 +46,13 @@ export interface GitRemote {
   url: string;
 }
 
+export interface GitBranch {
+  name: string;
+  is_current: boolean;
+  is_remote: boolean;
+  last_commit_date: string | Date;
+}
+
 export interface RepoWithBranch {
   id: string;
   name: string;
@@ -236,6 +243,10 @@ export class VibeKanbanClient {
 
   getRepoRemotes(repoId: string): Promise<GitRemote[]> {
     return this.get(`/repos/${encodeURIComponent(repoId)}/remotes`);
+  }
+
+  getRepoBranches(repoId: string): Promise<GitBranch[]> {
+    return this.get(`/repos/${encodeURIComponent(repoId)}/branches`);
   }
 
   getPrInfo(url: string): Promise<PullRequestDetail> {
