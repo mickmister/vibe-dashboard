@@ -13,6 +13,14 @@ A docker container will run the following:
 - `code-server`
 - `caddy` as the main UI entrypoint
 
+## Development
+
+### Testing
+
+- `npm run check-types` verifies TypeScript types.
+- `npm run test:server` runs Node/server Vitest unit tests with
+  `vitest.server.config.ts`.
+
 ## Dynamic port forwarding
 
 Caddy forwards `port-<port>.*` subdomains to `localhost:<port>` inside the container:
