@@ -98,11 +98,35 @@ export function OpenFromGitHub({
   const location = useLocation();
   const navigate = useNavigate();
   const processedUrlRef = useRef<string | null>(null);
+  const latestRuntimeRef = useRef({
+    workspace,
+    location,
+    navigate,
+    addSpace,
+    deleteTabGroup,
+    addVKWorkspace,
+    selectSessionTabGroup,
+    selectSessionTab,
+  });
+  latestRuntimeRef.current = {
+    workspace,
+    location,
+    navigate,
+    addSpace,
+    deleteTabGroup,
+    addVKWorkspace,
+    selectSessionTabGroup,
+    selectSessionTab,
+  };
   const [dialog, setDialog] = useState<DialogState>(null);
 
+  const requestedUrl = getOpenFromGithubUrl(location.search);
+
   const clearParam = () => {
-    const nextSearch = removeOpenFromGithubParam(location.search);
-    navigate(`${location.pathname}${nextSearch}`, { replace: true });
+    const { location: latestLocation, navigate: latestNavigate } =
+      latestRuntimeRef.current;
+    const nextSearch = removeOpenFromGithubParam(latestLocation.search);
+    latestNavigate(`${latestLocation.pathname}${nextSearch}`, { replace: true });
   };
 
   const openWorkspaceInSpace = async (
@@ -132,7 +156,7 @@ export function OpenFromGitHub({
               })
             ).workspace;
 
-      const result = await addVKWorkspace({
+      const result = await latestRuntimeRef.current.addVKWorkspace({
         taskAttemptId: workspaceToOpen.id,
         name: workspaceToOpen.name || target.prInfo.title,
         containerRef: workspaceToOpen.container_ref || '',
@@ -140,7 +164,11 @@ export function OpenFromGitHub({
       });
 
       if (result) {
-        selectSessionTab(spaceId, result.tabGroupId, result.agentTabId);
+        latestRuntimeRef.current.selectSessionTab(
+          spaceId,
+          result.tabGroupId,
+          result.agentTabId
+        );
       }
 
       setDialog(null);
@@ -162,11 +190,11 @@ export function OpenFromGitHub({
 
   const createSpaceAndOpen = async (name: string) => {
     if (dialog?.type !== 'choose-space') return;
-    const result = await addSpace({ name });
+    const result = await latestRuntimeRef.current.addSpace({ name });
     if (!result?.spaceId) return;
     const didOpen = await openWorkspaceInSpace(dialog.target, result.spaceId);
     if (didOpen) {
-      await deleteTabGroup({
+      await latestRuntimeRef.current.deleteTabGroup({
         spaceId: result.spaceId,
         tabGroupId: result.tabGroupId,
       });
@@ -174,8 +202,10 @@ export function OpenFromGitHub({
   };
 
   useEffect(() => {
-    const requestedUrl = getOpenFromGithubUrl(location.search);
-    if (!requestedUrl) return;
+    if (!requestedUrl) {
+      processedUrlRef.current = null;
+      return;
+    }
     if (processedUrlRef.current === requestedUrl) return;
     processedUrlRef.current = requestedUrl;
 
@@ -213,11 +243,11 @@ export function OpenFromGitHub({
 
         if (existingWorkspaceId) {
           const openLocation = findOpenWorkspaceLocation(
-            workspace,
+            latestRuntimeRef.current.workspace,
             existingWorkspaceId
           );
           if (openLocation) {
-            selectSessionTabGroup(
+            latestRuntimeRef.current.selectSessionTabGroup(
               openLocation.spaceId,
               openLocation.tabGroupId
             );
@@ -307,7 +337,7 @@ export function OpenFromGitHub({
     return () => {
       cancelled = true;
     };
-  }, [location.search, workspace]);
+  }, [requestedUrl]);
 
   return (
     <OpenFromGithubDialog
