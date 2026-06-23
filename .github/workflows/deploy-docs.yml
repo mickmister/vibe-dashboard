@@ -119,6 +119,7 @@ jobs:
         with:
           apiToken: ${{ env.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ env.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: 4.100.0
           workingDirectory: site
           command: >-
             versions upload
@@ -166,5 +167,6 @@ jobs:
         with:
           apiToken: ${{ env.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ env.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: 4.100.0
           workingDirectory: site
           command: deploy
