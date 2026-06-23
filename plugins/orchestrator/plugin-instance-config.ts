@@ -92,8 +92,14 @@ export async function applyAddInstancePlugin(input: {
 export async function readInstancePluginCatalog(configPath: string): Promise<{ exists: boolean; catalog: PluginServiceCatalog }> {
   try {
     const raw = await readFile(configPath, 'utf8');
-    const catalog = JSON.parse(raw) as PluginServiceCatalog;
-    return { exists: true, catalog: { plugins: [...(catalog.plugins ?? [])] } };
+    const catalog = assertPluginServiceCatalog(JSON.parse(raw));
+    return {
+      exists: true,
+      catalog: {
+        plugins: [...catalog.plugins],
+        ...(catalog.pluginStates !== undefined ? { pluginStates: clonePluginStates(catalog.pluginStates) } : {}),
+      },
+    };
   } catch (error) {
     if (isNodeErrorWithCode(error, 'ENOENT')) return { exists: false, catalog: { plugins: [] } };
     throw error;
@@ -105,14 +111,19 @@ function upsertPlugin(catalog: PluginServiceCatalog, plugin: PluginServiceDefini
   catalog: PluginServiceCatalog;
 } {
   const index = catalog.plugins.findIndex((candidate) => candidate.id === plugin.id);
-  if (index === -1) return { action: 'add-plugin', catalog: { plugins: [...catalog.plugins, plugin] } };
+  const pluginStates = catalog.pluginStates !== undefined ? { pluginStates: clonePluginStates(catalog.pluginStates) } : {};
+  if (index === -1) return { action: 'add-plugin', catalog: { plugins: [...catalog.plugins, plugin], ...pluginStates } };
 
   const existing = catalog.plugins[index]!;
   if (JSON.stringify(existing) === JSON.stringify(plugin)) return { action: 'unchanged', catalog };
 
   const plugins = [...catalog.plugins];
   plugins[index] = plugin;
-  return { action: 'update-plugin', catalog: { plugins } };
+  return { action: 'update-plugin', catalog: { plugins, ...pluginStates } };
+}
+
+function clonePluginStates(pluginStates: NonNullable<PluginServiceCatalog['pluginStates']>): NonNullable<PluginServiceCatalog['pluginStates']> {
+  return Object.fromEntries(Object.entries(pluginStates).map(([pluginId, pluginState]) => [pluginId, { ...pluginState }]));
 }
 
 async function defaultCommandRunner(command: string, args: string[], options: { cwd: string }): Promise<void> {

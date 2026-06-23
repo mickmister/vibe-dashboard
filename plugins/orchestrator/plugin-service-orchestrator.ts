@@ -11,6 +11,11 @@ const MAX_ARCHIVE_TREE_ENTRIES = 10_000;
 
 export interface PluginServiceCatalog {
   plugins: PluginServiceDefinition[];
+  pluginStates?: Record<string, PluginStateDefinition>;
+}
+
+export interface PluginStateDefinition {
+  enable: boolean;
 }
 
 export type PlatformKey = 'linux-amd64' | 'linux-arm64';
@@ -261,6 +266,11 @@ export function createPluginServiceDryRunPlan(input: {
 export function assertPluginServiceCatalog(input: unknown): PluginServiceCatalog {
   validateCatalog(input as PluginServiceCatalog);
   return input as PluginServiceCatalog;
+}
+
+export function isPluginEnabled(catalog: PluginServiceCatalog, pluginId: string): boolean {
+  validateCatalog(catalog);
+  return catalog.pluginStates?.[pluginId]?.enable ?? true;
 }
 
 export async function readExistingCaddyPluginConfig(path: string): Promise<string | undefined> {
@@ -1045,6 +1055,7 @@ function expandTemplate(
 function validateCatalog(catalog: PluginServiceCatalog): void {
   if (!isRecord(catalog)) throw new Error('Invalid plugin catalog: expected object');
   if (!Array.isArray(catalog.plugins)) throw new Error('Invalid plugin catalog: plugins must be an array');
+  validatePluginStates(catalog.pluginStates);
   const pluginIds = new Set<string>();
   for (const plugin of catalog.plugins as unknown[]) {
     if (!isRecord(plugin)) throw new Error('Invalid plugin definition: expected object');
@@ -1061,6 +1072,16 @@ function validateCatalog(catalog: PluginServiceCatalog): void {
       serviceIds.add(typedService.id);
       if (typedService.httpExposure) validateCaddyHttpExposure(typedPlugin, typedService);
     }
+  }
+}
+
+function validatePluginStates(pluginStates: PluginServiceCatalog['pluginStates']): void {
+  if (pluginStates === undefined) return;
+  if (!isRecord(pluginStates)) throw new Error('Invalid plugin catalog: pluginStates must be an object');
+  for (const [pluginId, pluginState] of Object.entries(pluginStates)) {
+    if (!isSafeIdentifier(pluginId)) throw new Error(`Invalid plugin state id ${pluginId}`);
+    if (!isRecord(pluginState)) throw new Error(`Invalid plugin state for ${pluginId}: expected object`);
+    if (typeof pluginState.enable !== 'boolean') throw new Error(`Invalid plugin state enable for ${pluginId}: expected boolean`);
   }
 }
 

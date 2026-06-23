@@ -175,14 +175,20 @@ async function readComposedCatalog(catalogPaths: string[], optionalCatalogPaths:
   return assertPluginServiceCatalog(composeCatalogs(catalogs));
 }
 
-function composeCatalogs(catalogs: PluginServiceCatalog[]): PluginServiceCatalog {
+export function composeCatalogs(catalogs: PluginServiceCatalog[]): PluginServiceCatalog {
   const plugins = new Map<string, PluginServiceCatalog['plugins'][number]>();
+  const pluginStates: NonNullable<PluginServiceCatalog['pluginStates']> = {};
   for (const catalog of catalogs) {
     for (const plugin of catalog.plugins ?? []) {
       plugins.set(plugin.id, plugin);
     }
+    for (const [pluginId, pluginState] of Object.entries(catalog.pluginStates ?? {})) {
+      pluginStates[pluginId] = { ...pluginState };
+    }
   }
-  return { plugins: [...plugins.values()] };
+  const composed: PluginServiceCatalog = { plugins: [...plugins.values()] };
+  if (Object.keys(pluginStates).length > 0) composed.pluginStates = pluginStates;
+  return composed;
 }
 
 function requiredArg(args: Map<string, string[]>, key: string): string {

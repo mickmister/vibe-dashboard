@@ -6,12 +6,13 @@ import { deflateRawSync, gzipSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
 import beadsWebOnlyCatalog from '../fixtures/beads-web.plugins.json';
 import firstPartyPluginCatalog from '../builtin.plugins.json';
-import { runPluginServiceOrchestratorCli } from './plugin-service-orchestrator-cli';
+import { composeCatalogs, runPluginServiceOrchestratorCli } from './plugin-service-orchestrator-cli';
 import {
   applySupervisorConfigChanges,
   applyCaddyPluginConfigChange,
   createPluginServiceDryRunPlan,
   discoverCachedArtifacts,
+  isPluginEnabled,
   materializePluginArtifacts,
   readExistingCaddyPluginConfig,
   readExistingSupervisorConfigs,
@@ -322,6 +323,10 @@ describe('plugin service supervisor orchestration dry run', () => {
     const invalidCases: Array<{ catalog: unknown; message: RegExp }> = [
       { catalog: null, message: /Invalid plugin catalog/ },
       { catalog: { plugins: {} }, message: /plugins must be an array/ },
+      { catalog: { plugins: [], pluginStates: [] }, message: /pluginStates must be an object/ },
+      { catalog: { plugins: [], pluginStates: { '../evil': { enable: true } } }, message: /Invalid plugin state id/ },
+      { catalog: { plugins: [], pluginStates: { 'vd.beads-web': null } }, message: /Invalid plugin state for vd\.beads-web/ },
+      { catalog: { plugins: [], pluginStates: { 'vd.beads-web': { enable: 'yes' } } }, message: /Invalid plugin state enable/ },
       { catalog: { plugins: [null] }, message: /Invalid plugin definition/ },
       { catalog: { plugins: [{ ...structuredClone(beadsWebOnlyCatalog).plugins[0], installers: null }] }, message: /Invalid installers/ },
       { catalog: { plugins: [{ ...structuredClone(beadsWebOnlyCatalog).plugins[0], services: [null] }] }, message: /Invalid service definition/ },
@@ -931,6 +936,45 @@ describe('plugin service supervisor orchestration dry run', () => {
         content: expect.stringContaining('/plugins/vd.beads-web/beads-web-assets-override/extracted/bin/beads-web'),
       }),
     ]);
+  });
+
+  it('defaults missing plugin state to enabled while honoring explicit enable states', () => {
+    const catalog = structuredClone(beadsWebOnlyCatalog) as PluginServiceCatalog;
+
+    expect(isPluginEnabled(catalog, 'vd.beads-web')).toBe(true);
+    catalog.pluginStates = { 'vd.beads-web': { enable: false } };
+    expect(isPluginEnabled(catalog, 'vd.beads-web')).toBe(false);
+    catalog.pluginStates = { 'vd.beads-web': { enable: true } };
+    expect(isPluginEnabled(catalog, 'vd.beads-web')).toBe(true);
+  });
+
+  it('composes plugin manifests and plugin states independently with later catalogs winning', () => {
+    const builtinCatalog = structuredClone(beadsWebOnlyCatalog) as PluginServiceCatalog;
+    builtinCatalog.pluginStates = {
+      'vd.beads-web': { enable: true },
+      'vd.only-in-state': { enable: false },
+    };
+    const optionalCatalog = structuredClone(beadsWebOnlyCatalog) as PluginServiceCatalog;
+    const overridePlugin = optionalCatalog.plugins[0]!;
+    const installer = overridePlugin.installers[0]!;
+    if (installer.kind !== 'github-release-asset') throw new Error('expected github-release-asset fixture');
+    overridePlugin.version = 'beads-web-state-override';
+    installer.tag = 'beads-web-state-override';
+    installer.variants['linux-amd64']!.sha256 = 'f'.repeat(64);
+    optionalCatalog.pluginStates = {
+      'vd.beads-web': { enable: false },
+    };
+
+    const composed = composeCatalogs([builtinCatalog, optionalCatalog]);
+
+    expect(composed.plugins).toHaveLength(1);
+    expect(composed.plugins[0]!.version).toBe('beads-web-state-override');
+    expect(composed.pluginStates).toEqual({
+      'vd.beads-web': { enable: false },
+      'vd.only-in-state': { enable: false },
+    });
+    expect(isPluginEnabled(composed, 'vd.beads-web')).toBe(false);
+    expect(isPluginEnabled(composed, 'vd.unmentioned')).toBe(true);
   });
 });
 

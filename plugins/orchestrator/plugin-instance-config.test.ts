@@ -1,5 +1,5 @@
 import { execFile as execFileCallback } from 'node:child_process';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -11,7 +11,7 @@ import {
   createAddInstancePluginDryRunPlan,
   type CommandRunner,
 } from './plugin-instance-config';
-import type { PluginServiceDefinition } from './plugin-service-orchestrator';
+import type { PluginServiceCatalog, PluginServiceDefinition } from './plugin-service-orchestrator';
 
 const execFile = promisify(execFileCallback);
 
@@ -70,6 +70,32 @@ describe('per-instance plugin config CLI', () => {
       'git add plugins.json',
       'git commit -m Install beads-web plugin',
     ]);
+  });
+
+  it('preserves existing plugin enable state when upserting a per-instance plugin', async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), 'vd-instance-config-plugin-states-'));
+    const configRepoDir = join(tempRoot, 'instance-config');
+    const existingCatalog: PluginServiceCatalog = {
+      plugins: [],
+      pluginStates: { 'vd.beads-web': { enable: false } },
+    };
+    const runCommand: CommandRunner = async () => {};
+
+    await mkdir(configRepoDir, { recursive: true });
+    await writeFile(join(configRepoDir, 'plugins.json'), JSON.stringify(existingCatalog));
+
+    await applyAddInstancePlugin({
+      configRepoDir,
+      plugin: beadsWebPlugin as PluginServiceDefinition,
+      push: false,
+      runCommand,
+    });
+
+    await expect(readFile(join(configRepoDir, 'plugins.json'), 'utf8').then((raw) => JSON.parse(raw)))
+      .resolves.toMatchObject({
+        plugins: [expect.objectContaining({ id: 'vd.beads-web' })],
+        pluginStates: { 'vd.beads-web': { enable: false } },
+      });
   });
 
   it('can use real git locally so per-instance config has an auditable commit', async () => {
