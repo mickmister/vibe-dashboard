@@ -1,0 +1,153 @@
+name: Deploy VK/VD Image to Coolify
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: Existing ghcr.io image tag to deploy, for example latest, vd-<full-vd-sha>, or vk-abc1234-vd-def5678
+        required: true
+        default: latest
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: vk-vd-coolify-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to Coolify
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy existing image tag
+        env:
+          COOLIFY_WEBHOOK: ${{ secrets.COOLIFY_WEBHOOK }}
+          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          GITHUB_TOKEN: ${{ github.token }}
+          IMAGE_TAG: ${{ inputs.image_tag }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "$COOLIFY_WEBHOOK" ]]; then
+            echo "::error::COOLIFY_WEBHOOK is not configured."
+            exit 1
+          fi
+
+          if [[ -z "$COOLIFY_TOKEN" ]]; then
+            echo "::error::COOLIFY_TOKEN is not configured."
+            exit 1
+          fi
+
+          if [[ -z "$CF_ACCESS_CLIENT_ID" ]]; then
+            echo "::error::CF_ACCESS_CLIENT_ID is not configured."
+            exit 1
+          fi
+
+          if [[ -z "$CF_ACCESS_CLIENT_SECRET" ]]; then
+            echo "::error::CF_ACCESS_CLIENT_SECRET is not configured."
+            exit 1
+          fi
+
+          if [[ -z "$IMAGE_TAG" ]]; then
+            echo "::error::image_tag input is required."
+            exit 1
+          fi
+
+          if [[ ! "$IMAGE_TAG" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
+            echo "::error::image_tag must be a valid Docker tag."
+            exit 1
+          fi
+
+          image_ref="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/vk-vd:${IMAGE_TAG}"
+          echo "$GITHUB_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+
+          manifest_exists() {
+            local image_ref="$1"
+            local max_attempts=12
+            local retry_delay=10
+
+            for attempt in $(seq 1 "$max_attempts"); do
+              if docker manifest inspect "$image_ref" >/dev/null 2>&1; then
+                return 0
+              fi
+
+              if [[ "$attempt" == "$max_attempts" ]]; then
+                return 1
+              fi
+
+              echo "::notice::Image tag is not readable yet: ${image_ref}. Retrying in ${retry_delay}s (${attempt}/${max_attempts})."
+              sleep "$retry_delay"
+            done
+          }
+
+          if ! manifest_exists "$image_ref"; then
+            echo "::error::Image tag does not exist or is not readable: ${image_ref}"
+            exit 1
+          fi
+
+          echo "Verified image tag exists: ${image_ref}"
+
+          coolify_deploy_url="${COOLIFY_WEBHOOK%%\?*}"
+          coolify_query="${COOLIFY_WEBHOOK#*\?}"
+          if [[ "$coolify_deploy_url" == "$COOLIFY_WEBHOOK" ]]; then
+            echo "::error::COOLIFY_WEBHOOK must include a uuid query parameter."
+            exit 1
+          fi
+
+          if [[ "$coolify_deploy_url" != */api/v1/deploy ]]; then
+            echo "::error::COOLIFY_WEBHOOK must point to /api/v1/deploy."
+            exit 1
+          fi
+
+          coolify_uuid=""
+          IFS='&' read -ra coolify_query_params <<< "$coolify_query"
+          for query_param in "${coolify_query_params[@]}"; do
+            if [[ "$query_param" == uuid=* ]]; then
+              coolify_uuid="${query_param#uuid=}"
+              break
+            fi
+          done
+
+          if [[ -z "$coolify_uuid" ]]; then
+            echo "::error::COOLIFY_WEBHOOK must include a uuid query parameter."
+            exit 1
+          fi
+
+          coolify_env_url="${coolify_deploy_url%/deploy}/applications/${coolify_uuid}/envs"
+          env_payload="$(printf '{"key":"VKVD_IMAGE_VERSION","value":"%s","is_preview":false,"is_literal":true}' "$IMAGE_TAG")"
+
+          curl \
+            --fail-with-body \
+            --show-error \
+            --silent \
+            --retry 5 \
+            --retry-delay 5 \
+            --retry-all-errors \
+            --request PATCH \
+            "$coolify_env_url" \
+            --header "Authorization: Bearer $COOLIFY_TOKEN" \
+            --header "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
+            --header "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
+            --header "Content-Type: application/json" \
+            --data "$env_payload"
+
+          echo "Coolify VKVD_IMAGE_VERSION updated to ${IMAGE_TAG}."
+
+          curl \
+            --fail-with-body \
+            --show-error \
+            --silent \
+            --retry 5 \
+            --retry-delay 5 \
+            --retry-all-errors \
+            --request GET \
+            "$COOLIFY_WEBHOOK" \
+            --header "Authorization: Bearer $COOLIFY_TOKEN" \
+            --header "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
+            --header "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET"
+
+          echo "Coolify deployment notified for image tag ${IMAGE_TAG}."

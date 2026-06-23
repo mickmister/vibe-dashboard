@@ -1,5 +1,10 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
-import type { WorkspaceState, TabGroup } from "../types";
+import { useMutation } from "@tanstack/react-query";
+import type {
+  WorkspaceState,
+  TabGroup,
+  SavedWorkspaceSession,
+} from "../types";
 import {
   vkClient,
   type Workspace,
@@ -64,6 +69,23 @@ function sortDashboardWorkspaces(workspaces: DashboardWorkspace[]) {
     ).getTime();
     return bTime - aTime;
   });
+}
+
+function getTabGroupWorkspaceId(tabGroup: TabGroup): string | null {
+  for (const tab of tabGroup.tabs) {
+    const match = tab.url.match(/\/workspaces\/([^/?#]+)/);
+    if (match?.[1]) return decodeURIComponent(match[1]);
+  }
+  return null;
+}
+
+function getTabGroupDisplayLabel(
+  tabGroup: TabGroup,
+  workspaceNameById: Map<string, string>,
+): string {
+  const workspaceId = getTabGroupWorkspaceId(tabGroup);
+  const workspaceName = workspaceId ? workspaceNameById.get(workspaceId) : undefined;
+  return tabGroup.label.includes('...') && workspaceName ? workspaceName : tabGroup.label;
 }
 
 function useVKDashboardData() {
@@ -287,109 +309,95 @@ function WorkspaceRow({
     ws.has_running_dev_server || isStoppingDevServer;
 
   return (
-    <div className="flex items-center gap-4 px-4 py-3 bg-zinc-800/50 rounded-lg border border-zinc-700/50 hover:border-zinc-600 transition-colors">
-      {/* Unseen dot */}
-      <div className="w-2 shrink-0">
-        {ws.has_unseen_turns && (
-          <span className="block w-2 h-2 rounded-full bg-blue-400" />
-        )}
-      </div>
-
-      {/* Name + branch */}
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5">
-          {ws.pinned && <span className="text-amber-400 text-xs">*</span>}
-          <span className="text-sm text-white font-medium truncate">
-            {ws.name}
-          </span>
+    <div className="flex flex-col gap-3 px-4 py-3 bg-zinc-800/50 rounded-lg border border-zinc-700/50 hover:border-zinc-600 transition-colors sm:flex-row sm:items-start">
+      <div className="flex min-w-0 flex-1 items-start gap-3">
+        {/* Unseen dot */}
+        <div className="w-2 shrink-0 pt-2">
+          {ws.has_unseen_turns && (
+            <span className="block w-2 h-2 rounded-full bg-blue-400" />
+          )}
         </div>
-        <span className="text-xs text-zinc-500 font-mono truncate block">
-          {ws.branch}
-        </span>
+
+        {/* Name + metadata */}
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
+            {ws.pinned && <span className="text-amber-400 text-xs">*</span>}
+            <span className="min-w-0 text-sm text-white font-medium break-words">
+              {ws.name}
+            </span>
+          </div>
+          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-500">
+            <span className="font-mono break-all">{ws.branch}</span>
+            {ws.repos.map((r) => (
+              <span
+                key={r.id}
+                className="rounded bg-zinc-700 px-1.5 py-0.5 text-zinc-400"
+              >
+                {r.display_name || r.name}
+              </span>
+            ))}
+            {hasDiffStats && (
+              <>
+                {ws.files_changed != null && (
+                  <span>{ws.files_changed} file{ws.files_changed !== 1 ? "s" : ""}</span>
+                )}
+                {ws.lines_added != null && ws.lines_added > 0 && (
+                  <span className="font-mono text-green-500">+{ws.lines_added}</span>
+                )}
+                {ws.lines_removed != null && ws.lines_removed > 0 && (
+                  <span className="font-mono text-red-500">-{ws.lines_removed}</span>
+                )}
+              </>
+            )}
+            {showsDevServerControls && (
+              <span className="inline-flex items-center gap-1 rounded-full border border-cyan-500/30 bg-cyan-500/15 px-2 py-0.5 font-medium text-cyan-400">
+                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                Dev server
+              </span>
+            )}
+            {ws.pr_status && ws.pr_status !== "unknown" && (
+              <PRBadge status={ws.pr_status} />
+            )}
+            {(ws.latest_process_status || ws.has_pending_approval) && (
+              <StatusBadge
+                status={ws.latest_process_status}
+                hasPendingApproval={ws.has_pending_approval}
+              />
+            )}
+            <span>{formatRelativeTime(activityTime)}</span>
+          </div>
+        </div>
       </div>
 
-      {/* Repos */}
-      <div className="hidden md:flex gap-1 shrink-0">
-        {ws.repos.map((r) => (
-          <span
-            key={r.id}
-            className="px-1.5 py-0.5 bg-zinc-700 rounded text-xs text-zinc-400 truncate max-w-20"
+      <div className="flex w-full shrink-0 flex-wrap justify-start gap-2 pl-5 sm:w-auto sm:justify-end sm:pl-0">
+        {showsDevServerControls && onStopDevServer && (
+          <button
+            onClick={onStopDevServer}
+            disabled={isStoppingDevServer}
+            className="px-2 py-1 rounded text-xs font-medium bg-red-500/15 text-red-400 border border-red-500/30 hover:bg-red-500/25 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {r.display_name || r.name}
-          </span>
-        ))}
+            {isStoppingDevServer ? "Stopping..." : "Stop server"}
+          </button>
+        )}
+
+        {tabGroupNav ? (
+          <button
+            onClick={tabGroupNav.onNavigate}
+            title={`Go to "${tabGroupNav.label}"`}
+            className="px-2 py-1 rounded text-xs font-medium bg-indigo-500/15 text-indigo-400 border border-indigo-500/30 hover:bg-indigo-500/25 transition-colors"
+          >
+            Go to craft
+          </button>
+        ) : onOpenInNewTabGroup ? (
+          <button
+            onClick={onOpenInNewTabGroup}
+            aria-label={`Open ${ws.name}`}
+            className="px-2 py-1 rounded text-xs font-medium bg-zinc-700 text-zinc-300 border border-zinc-600 hover:bg-zinc-600 hover:text-white transition-colors"
+          >
+            Open
+          </button>
+        ) : null}
       </div>
-
-      {/* Diff stats */}
-      {hasDiffStats && (
-        <div className="hidden sm:flex items-center gap-2 text-xs shrink-0">
-          {ws.files_changed != null && (
-            <span className="text-zinc-400">{ws.files_changed}f</span>
-          )}
-          {ws.lines_added != null && ws.lines_added > 0 && (
-            <span className="text-green-500 font-mono">+{ws.lines_added}</span>
-          )}
-          {ws.lines_removed != null && ws.lines_removed > 0 && (
-            <span className="text-red-500 font-mono">-{ws.lines_removed}</span>
-          )}
-        </div>
-      )}
-
-      {/* Dev server indicator */}
-      {showsDevServerControls && (
-        <span className="shrink-0 px-2 py-0.5 rounded-full text-xs font-medium bg-cyan-500/15 text-cyan-400 border border-cyan-500/30 flex items-center gap-1">
-          <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
-          Dev server
-        </span>
-      )}
-
-      {showsDevServerControls && onStopDevServer && (
-        <button
-          onClick={onStopDevServer}
-          disabled={isStoppingDevServer}
-          className="shrink-0 px-2 py-1 rounded text-xs font-medium bg-red-500/15 text-red-400 border border-red-500/30 hover:bg-red-500/25 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {isStoppingDevServer ? "Stopping..." : "Stop server"}
-        </button>
-      )}
-
-      {/* PR badge */}
-      {ws.pr_status && ws.pr_status !== "unknown" && (
-        <div className="shrink-0">
-          <PRBadge status={ws.pr_status} />
-        </div>
-      )}
-
-      {/* Open workspace action */}
-      {tabGroupNav ? (
-        <button
-          onClick={tabGroupNav.onNavigate}
-          title={`Go to "${tabGroupNav.label}"`}
-          className="shrink-0 px-2 py-1 rounded text-xs font-medium bg-indigo-500/15 text-indigo-400 border border-indigo-500/30 hover:bg-indigo-500/25 transition-colors"
-        >
-          Go to tab group
-        </button>
-      ) : onOpenInNewTabGroup ? (
-        <button
-          onClick={onOpenInNewTabGroup}
-          className="shrink-0 px-2 py-1 rounded text-xs font-medium bg-zinc-700 text-zinc-300 border border-zinc-600 hover:bg-zinc-600 hover:text-white transition-colors"
-        >
-          Open
-        </button>
-      ) : null}
-
-      {/* Status */}
-      <div className="shrink-0">
-        <StatusBadge
-          status={ws.latest_process_status}
-          hasPendingApproval={ws.has_pending_approval}
-        />
-      </div>
-
-      {/* Time */}
-      <span className="text-xs text-zinc-500 whitespace-nowrap shrink-0 w-16 text-right">
-        {formatRelativeTime(activityTime)}
-      </span>
     </div>
   );
 }
@@ -435,29 +443,56 @@ function SpacePickerModal({
   targetWorkspace,
   onSelect,
   onClose,
+  pendingSpaceId,
+  actionError,
+  onRetry,
 }: {
   workspace: WorkspaceState;
   targetWorkspace: DashboardWorkspace;
   onSelect: (spaceId: string) => void;
   onClose: () => void;
+  pendingSpaceId?: string | null;
+  actionError?: string | null;
+  onRetry?: () => void;
 }) {
-  const spaces = ws.spaces.filter((s) => !s.isSystem);
+  const spaces = ws.spaces;
+  const isPending = Boolean(pendingSpaceId);
 
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-      onClick={onClose}
+      onClick={() => {
+        if (!isPending) onClose();
+      }}
     >
       <div
         className="bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl w-full max-w-sm mx-4"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="px-5 pt-5 pb-3">
-          <h3 className="text-sm font-semibold text-white">Open in space</h3>
+          <h3 className="text-sm font-semibold text-white">
+            Open craft in space
+          </h3>
           <p className="text-xs text-zinc-500 mt-1 truncate">
             {targetWorkspace.name}
           </p>
         </div>
+        {actionError && (
+          <div
+            role="alert"
+            className="mx-5 mb-3 rounded-md border border-red-500/40 bg-red-500/10 p-3 text-xs text-red-200"
+          >
+            <div>{actionError}</div>
+            {onRetry && (
+              <button
+                className="mt-2 rounded border border-red-400/50 px-2 py-1 font-medium text-red-100 transition-colors hover:bg-red-500/20"
+                onClick={onRetry}
+              >
+                Retry
+              </button>
+            )}
+          </div>
+        )}
         <div className="px-3 pb-3 max-h-64 overflow-y-auto">
           {spaces.length === 0 ? (
             <p className="text-xs text-zinc-500 px-2 py-4 text-center">
@@ -469,16 +504,20 @@ function SpacePickerModal({
                 <button
                   key={space.id}
                   onClick={() => onSelect(space.id)}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-zinc-800 transition-colors text-left"
+                  disabled={isPending}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-zinc-800 transition-colors text-left disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent"
                 >
                   <span className="text-sm text-white">{space.name}</span>
+                  {pendingSpaceId === space.id && (
+                    <span className="text-xs text-cyan-300">Opening…</span>
+                  )}
                   <span className="text-xs text-zinc-600 ml-auto">
                     {
                       ws.tabGroups.filter((tg) =>
                         space.tabGroupIds.includes(tg.id),
                       ).length
                     }{" "}
-                    tab groups
+                    craft
                   </span>
                 </button>
               ))}
@@ -488,7 +527,8 @@ function SpacePickerModal({
         <div className="px-5 pb-4 pt-2 border-t border-zinc-800">
           <button
             onClick={onClose}
-            className="w-full px-3 py-1.5 rounded text-xs font-medium bg-zinc-800 text-zinc-400 border border-zinc-700 hover:bg-zinc-700 hover:text-zinc-300 transition-colors"
+            disabled={isPending}
+            className="w-full px-3 py-1.5 rounded text-xs font-medium bg-zinc-800 text-zinc-400 border border-zinc-700 hover:bg-zinc-700 hover:text-zinc-300 transition-colors disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-zinc-800 disabled:hover:text-zinc-400"
           >
             Cancel
           </button>
@@ -572,42 +612,42 @@ function RunningDevServersSection({
   );
 }
 
-// ── Tab Group Row ───────────────────────────────────────────────────────────
+// ── Craft Row ───────────────────────────────────────────────────────────
 
 function TabGroupRow({
   space,
   tg,
   onNavigate,
   timeLabel,
+  label,
 }: {
   space: { id: string; name: string };
   tg: TabGroup;
   onNavigate: () => void;
   timeLabel?: string | undefined;
+  label?: string | undefined;
 }) {
   return (
     <button
       onClick={onNavigate}
-      className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg bg-zinc-800/50 border border-zinc-700/50 hover:border-zinc-600 transition-colors group text-left"
+      className="w-full flex items-start gap-3 px-4 py-2.5 rounded-lg bg-zinc-800/50 border border-zinc-700/50 hover:border-zinc-600 transition-colors group text-left"
     >
       <div className="min-w-0 flex-1">
-        <span className="text-sm font-medium text-white truncate block">
-          {tg.label}
+        <span className="text-sm font-medium text-white break-words block">
+          {label ?? tg.label}
+        </span>
+        <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-500">
+          <span>{space.name}</span>
+          <span>
+            {tg.tabs.length} view{tg.tabs.length !== 1 ? "s" : ""}
+            {tg.pairs.length > 0 &&
+              ` / ${tg.pairs.length} pair${tg.pairs.length !== 1 ? "s" : ""}`}
+          </span>
+          {timeLabel && <span>{timeLabel}</span>}
         </span>
       </div>
-      <span className="text-xs text-zinc-500 shrink-0">{space.name}</span>
-      <span className="text-xs text-zinc-600 shrink-0">
-        {tg.tabs.length} tab{tg.tabs.length !== 1 ? "s" : ""}
-        {tg.pairs.length > 0 &&
-          ` / ${tg.pairs.length} pair${tg.pairs.length !== 1 ? "s" : ""}`}
-      </span>
-      {timeLabel && (
-        <span className="text-xs text-zinc-600 shrink-0 w-14 text-right">
-          {timeLabel}
-        </span>
-      )}
       <svg
-        className="w-3.5 h-3.5 text-zinc-600 group-hover:text-white transition-colors shrink-0"
+        className="mt-1 w-3.5 h-3.5 text-zinc-600 group-hover:text-white transition-colors shrink-0"
         fill="none"
         stroke="currentColor"
         viewBox="0 0 24 24"
@@ -623,7 +663,8 @@ function TabGroupRow({
   );
 }
 
-// ── Recent Tab Groups ───────────────────────────────────────────────────────
+
+// ── Recent Craft ───────────────────────────────────────────────────────
 
 const TAB_GROUP_PAGE_SIZE = 10;
 
@@ -649,9 +690,11 @@ function useNonSystemTabGroups(workspace: WorkspaceState): TabGroupWithSpace[] {
 function StarredTabGroups({
   workspace,
   onNavigateToTabGroup,
+  tabGroupDisplayLabelById,
 }: {
   workspace: WorkspaceState;
   onNavigateToTabGroup: (spaceId: string, tabGroupId: string) => void;
+  tabGroupDisplayLabelById: Map<string, string>;
 }) {
   const allItems = useNonSystemTabGroups(workspace);
 
@@ -671,8 +714,235 @@ function StarredTabGroups({
             space={space}
             tg={tg}
             onNavigate={() => onNavigateToTabGroup(space.id, tg.id)}
+            label={tabGroupDisplayLabelById.get(tg.id)}
           />
         ))}
+      </div>
+    </div>
+  );
+}
+
+function RecentSessionsSection({
+  workspace,
+  savedSessions,
+  currentSessionId,
+  onResumeSession,
+  onRenameSession,
+  onDeleteSession,
+  onStartNewSession,
+  onNavigateToTabGroup,
+  tabGroupDisplayLabelById,
+}: {
+  workspace: WorkspaceState;
+  savedSessions: SavedWorkspaceSession[];
+  currentSessionId?: string;
+  onResumeSession: (sessionId: string) => void;
+  onRenameSession: (sessionId: string, name: string) => void;
+  onDeleteSession: (sessionId: string) => void;
+  onStartNewSession: () => void;
+  onNavigateToTabGroup: (spaceId: string, tabGroupId: string) => void;
+  tabGroupDisplayLabelById: Map<string, string>;
+}) {
+  const sortedSessions = useMemo(() => {
+    return [...savedSessions]
+      .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+  }, [savedSessions]);
+  const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
+  const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
+  const [sessionNameDraft, setSessionNameDraft] = useState('');
+
+  if (sortedSessions.length === 0) return null;
+
+  return (
+    <div className="mb-8">
+      <div className="flex items-center justify-between mb-3 gap-3">
+        <h2 className="text-lg font-semibold text-white">All Voyages</h2>
+        <button
+          onClick={onStartNewSession}
+          className="px-3 py-1.5 rounded text-xs font-medium bg-zinc-800 text-zinc-300 border border-zinc-700 hover:bg-zinc-700 hover:text-white transition-colors"
+        >
+          New Voyage
+        </button>
+      </div>
+      <div className="space-y-1">
+        {sortedSessions.map((session) => {
+          const space = workspace.spaces.find((item) => item.id === session.activeSpaceId);
+          const tg = workspace.tabGroups.find((item) => item.id === session.activeTabGroupId);
+
+          const sessionName =
+            session.name?.trim() ||
+            tg?.label ||
+            session.slug ||
+            'Saved voyage';
+          const sessionLocation =
+            space && tg
+              ? `${space.name} / ${tg.label}`
+              : 'Recoverable voyage — saved craft is no longer available';
+          const isExpanded = expandedSessionId === session.id;
+          const sessionTabGroupIds =
+            session.voyageEntries?.map((entry) => entry.tabGroupId) ||
+            session.visitedTabGroupIds;
+          const tabGroups = sessionTabGroupIds
+            .map((tabGroupId, index) => {
+              const tabGroup = workspace.tabGroups.find((item) => item.id === tabGroupId);
+              if (!tabGroup) return null;
+              const ownerSpace = workspace.spaces.find((item) =>
+                item.tabGroupIds.includes(tabGroupId),
+              );
+              if (!ownerSpace) return null;
+              return { tabGroup: tabGroup, space: ownerSpace, key: `${tabGroupId}-${index}` };
+            })
+            .filter(
+              (
+                item,
+              ): item is {
+                tabGroup: TabGroup;
+                space: WorkspaceState['spaces'][number];
+                key: string;
+              } =>
+                item != null,
+            );
+
+          return (
+            <div
+              key={session.id}
+              className="rounded-lg bg-zinc-800/50 border border-zinc-700/50 overflow-hidden"
+            >
+              <div
+                className="flex flex-col gap-2 px-4 py-2.5 cursor-pointer sm:flex-row sm:items-start"
+                onClick={() => onResumeSession(session.id)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(event) => {
+                  if (event.target !== event.currentTarget) return;
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    onResumeSession(session.id);
+                  }
+                }}
+              >
+                <div className="flex min-w-0 flex-1 items-start gap-3">
+                  <button
+                    type="button"
+                    className="mt-0.5 text-zinc-500 hover:text-white transition-colors shrink-0"
+                    aria-label={isExpanded ? 'Collapse voyage' : 'Expand voyage'}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setExpandedSessionId((prev) =>
+                        prev === session.id ? null : session.id,
+                      );
+                    }}
+                  >
+                    {isExpanded ? '▾' : '▸'}
+                  </button>
+                  <div className="min-w-0 flex-1 text-left">
+                  {editingSessionId === session.id ? (
+                    <input
+                      type="text"
+                      value={sessionNameDraft}
+                      onChange={(event) => setSessionNameDraft(event.target.value)}
+                      onClick={(event) => event.stopPropagation()}
+                      onKeyDown={(event) => {
+                        event.stopPropagation();
+                        if (event.key === 'Enter' && sessionNameDraft.trim()) {
+                          onRenameSession(session.id, sessionNameDraft.trim());
+                          setEditingSessionId(null);
+                          setSessionNameDraft('');
+                        }
+                        if (event.key === 'Escape') {
+                          setEditingSessionId(null);
+                          setSessionNameDraft('');
+                        }
+                      }}
+                      onBlur={() => {
+                        if (sessionNameDraft.trim()) {
+                          onRenameSession(session.id, sessionNameDraft.trim());
+                        }
+                        setEditingSessionId(null);
+                        setSessionNameDraft('');
+                      }}
+                      className="w-full rounded border border-zinc-600 bg-zinc-900 px-2 py-1 text-sm text-white"
+                      autoFocus
+                    />
+                  ) : (
+                    <>
+                      <span className="text-sm font-medium text-white break-words block">
+                        {sessionName}
+                      </span>
+                      <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-500">
+                        <span>{sessionLocation}</span>
+                        <span>{formatRelativeTime(session.updatedAt)}</span>
+                        {session.id === currentSessionId && (
+                          <span className="text-primary-300">Current</span>
+                        )}
+                      </span>
+                    </>
+                  )}
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-x-4 gap-y-2 pl-6 sm:pl-0 sm:justify-end">
+                  <button
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setEditingSessionId(session.id);
+                      setSessionNameDraft(sessionName);
+                    }}
+                    className="text-xs text-zinc-400 hover:text-white shrink-0"
+                  >
+                    Rename
+                  </button>
+                  <button
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      if (
+                        confirm(
+                          `Delete voyage "${sessionName}"? This won't delete any spaces or craft.`,
+                        )
+                      ) {
+                        onDeleteSession(session.id);
+                      }
+                    }}
+                    className="text-xs text-red-400 hover:text-red-300 shrink-0"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+              {isExpanded && (
+                <div className="border-t border-zinc-700/50 px-4 py-3 space-y-1 bg-zinc-900/40">
+                  {tabGroups.length > 0 ? (
+                    tabGroups.map(({ tabGroup, space: ownerSpace, key }) => (
+                      <button
+                        key={key}
+                        onClick={() => onNavigateToTabGroup(ownerSpace.id, tabGroup.id)}
+                        className="w-full flex items-start justify-between gap-3 px-3 py-2 rounded bg-zinc-800/70 hover:bg-zinc-700/70 text-left"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm text-white break-words">
+                            {tabGroup.label}
+                            {tabGroup.id === session.activeTabGroupId ? (
+                              <span className="ml-2 text-xs text-primary-300">Active</span>
+                            ) : null}
+                          </div>
+                          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-500">
+                            {ownerSpace.name}
+                            <span>
+                              {tabGroup.tabs.length} view{tabGroup.tabs.length !== 1 ? 's' : ''}
+                            </span>
+                          </div>
+                        </div>
+                      </button>
+                    ))
+                  ) : (
+                    <div className="text-xs text-zinc-500">
+                      No available craft found for this voyage. Resume will recover it with a fallback craft.
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -681,9 +951,11 @@ function StarredTabGroups({
 function RecentlyVisitedTabGroups({
   workspace,
   onNavigateToTabGroup,
+  tabGroupDisplayLabelById,
 }: {
   workspace: WorkspaceState;
   onNavigateToTabGroup: (spaceId: string, tabGroupId: string) => void;
+  tabGroupDisplayLabelById: Map<string, string>;
 }) {
   const allItems = useNonSystemTabGroups(workspace);
   const [page, setPage] = useState(0);
@@ -723,6 +995,7 @@ function RecentlyVisitedTabGroups({
                 ? formatRelativeTime(tg.lastVisitedAt)
                 : undefined
             }
+            label={tabGroupDisplayLabelById.get(tg.id)}
           />
         ))}
       </div>
@@ -734,9 +1007,11 @@ function RecentlyVisitedTabGroups({
 function RecentlyCreatedTabGroups({
   workspace,
   onNavigateToTabGroup,
+  tabGroupDisplayLabelById,
 }: {
   workspace: WorkspaceState;
   onNavigateToTabGroup: (spaceId: string, tabGroupId: string) => void;
+  tabGroupDisplayLabelById: Map<string, string>;
 }) {
   const allItems = useNonSystemTabGroups(workspace);
   const [page, setPage] = useState(0);
@@ -774,6 +1049,7 @@ function RecentlyCreatedTabGroups({
             timeLabel={
               tg.createdAt ? formatRelativeTime(tg.createdAt) : undefined
             }
+            label={tabGroupDisplayLabelById.get(tg.id)}
           />
         ))}
       </div>
@@ -787,9 +1063,11 @@ function RecentlyCreatedTabGroups({
 function SpacesSection({
   workspace,
   onNavigateToTabGroup,
+  tabGroupDisplayLabelById,
 }: {
   workspace: WorkspaceState;
   onNavigateToTabGroup: (spaceId: string, tabGroupId: string) => void;
+  tabGroupDisplayLabelById: Map<string, string>;
 }) {
   const spacesWithTabGroups = workspace.spaces
     .filter((space) => !space.isSystem)
@@ -814,7 +1092,7 @@ function SpacesSection({
                 {space.name}
               </span>
               <span className="text-xs text-zinc-600">
-                {tabGroups.length} tab group{tabGroups.length !== 1 ? "s" : ""}
+                {tabGroups.length} craft
               </span>
             </div>
             {/* Tab group rows */}
@@ -822,20 +1100,25 @@ function SpacesSection({
               <button
                 key={tg.id}
                 onClick={() => onNavigateToTabGroup(space.id, tg.id)}
-                className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg bg-zinc-800/50 border border-zinc-700/50 hover:border-zinc-600 transition-colors group text-left"
+                className="w-full flex items-start gap-3 px-4 py-2.5 rounded-lg bg-zinc-800/50 border border-zinc-700/50 hover:border-zinc-600 transition-colors group text-left"
               >
                 <div className="min-w-0 flex-1">
-                  <span className="text-sm text-white font-medium truncate block">
-                    {tg.label}
+                  <span className="text-sm text-white font-medium break-words block">
+                    {tabGroupDisplayLabelById.get(tg.id) ?? tg.label}
+                  </span>
+                  <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-500">
+                    <span>
+                      {tg.tabs.length} view{tg.tabs.length !== 1 ? "s" : ""}
+                    </span>
+                    {tg.pairs.length > 0 && (
+                      <span>
+                        {tg.pairs.length} pair{tg.pairs.length !== 1 ? "s" : ""}
+                      </span>
+                    )}
                   </span>
                 </div>
-                <span className="text-xs text-zinc-600 shrink-0">
-                  {tg.tabs.length} tab{tg.tabs.length !== 1 ? "s" : ""}
-                  {tg.pairs.length > 0 &&
-                    ` / ${tg.pairs.length} pair${tg.pairs.length !== 1 ? "s" : ""}`}
-                </span>
                 <svg
-                  className="w-3.5 h-3.5 text-zinc-600 group-hover:text-white transition-colors shrink-0"
+                  className="mt-1 w-3.5 h-3.5 text-zinc-600 group-hover:text-white transition-colors shrink-0"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -860,17 +1143,29 @@ function SpacesSection({
 
 interface SpacesOverviewProps {
   workspace: WorkspaceState;
+  savedSessions: SavedWorkspaceSession[];
+  currentSessionId?: string;
+  onResumeSession: (sessionId: string) => void;
+  onRenameSession: (sessionId: string, name: string) => void;
+  onDeleteSession: (sessionId: string) => void;
+  onStartNewSession: () => void;
   onNavigateToTabGroup: (spaceId: string, tabGroupId: string) => void;
   onOpenVKWorkspace?: (
     taskAttemptId: string,
     name: string,
     containerRef: string,
     spaceId: string,
-  ) => void;
+  ) => void | Promise<void>;
 }
 
 export function SpacesOverview({
   workspace,
+  savedSessions,
+  currentSessionId,
+  onResumeSession,
+  onRenameSession,
+  onDeleteSession,
+  onStartNewSession,
   onNavigateToTabGroup,
   onOpenVKWorkspace,
 }: SpacesOverviewProps) {
@@ -879,9 +1174,47 @@ export function SpacesOverview({
   const [page, setPage] = useState(0);
   const [spacePickerTarget, setSpacePickerTarget] =
     useState<DashboardWorkspace | null>(null);
+  const openCraftMutation = useMutation<
+    void,
+    Error,
+    {
+      workspace: DashboardWorkspace;
+      spaceId: string;
+    }
+  >({
+    mutationFn: async ({ workspace: targetWorkspace, spaceId }) => {
+      if (!onOpenVKWorkspace) {
+        throw new Error("Open Craft is unavailable.");
+      }
+
+      await onOpenVKWorkspace(
+        targetWorkspace.id,
+        targetWorkspace.name,
+        targetWorkspace.container_ref || "",
+        spaceId,
+      );
+    },
+    onSuccess: () => {
+      setSpacePickerTarget(null);
+    },
+  });
   const [stoppingDevServerIds, setStoppingDevServerIds] = useState<Set<string>>(
     new Set(),
   );
+  const workspaceNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const item of workspaces) {
+      map.set(item.id, item.name || item.branch);
+    }
+    return map;
+  }, [workspaces]);
+  const tabGroupDisplayLabelById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const tabGroup of workspace.tabGroups) {
+      map.set(tabGroup.id, getTabGroupDisplayLabel(tabGroup, workspaceNameById));
+    }
+    return map;
+  }, [workspace.tabGroups, workspaceNameById]);
 
   const handleStopDevServer = useCallback(
     async (workspaceId: string) => {
@@ -909,6 +1242,11 @@ export function SpacesOverview({
     },
     [refetch, stoppingDevServerIds],
   );
+
+  const openSpacePickerForWorkspace = (targetWorkspace: DashboardWorkspace) => {
+    openCraftMutation.reset();
+    setSpacePickerTarget(targetWorkspace);
+  };
 
   // Derive repos from workspace data if /api/repos returned empty
   const effectiveRepos = useMemo(() => {
@@ -949,7 +1287,7 @@ export function SpacesOverview({
     (page + 1) * PAGE_SIZE,
   );
 
-  // Map workspace IDs to their open tab groups by scanning tab URLs for /workspaces/{id}
+  // Map workspace IDs to their open craft by scanning view URLs for /workspaces/{id}
   const workspaceTabGroupMap = useMemo(() => {
     const map = new Map<
       string,
@@ -986,10 +1324,24 @@ export function SpacesOverview({
           <p className="text-sm text-zinc-500 mt-1">Workspace activity feed</p>
         </div>
 
-        {/* Starred Tab Groups */}
+        {/* Voyages */}
+        <RecentSessionsSection
+          workspace={workspace}
+          savedSessions={savedSessions}
+          currentSessionId={currentSessionId}
+          onResumeSession={onResumeSession}
+          onRenameSession={onRenameSession}
+          onDeleteSession={onDeleteSession}
+          onStartNewSession={onStartNewSession}
+          onNavigateToTabGroup={onNavigateToTabGroup}
+          tabGroupDisplayLabelById={tabGroupDisplayLabelById}
+        />
+
+        {/* Starred Craft */}
         <StarredTabGroups
           workspace={workspace}
           onNavigateToTabGroup={onNavigateToTabGroup}
+          tabGroupDisplayLabelById={tabGroupDisplayLabelById}
         />
 
         {/* Running Dev Servers */}
@@ -1001,20 +1353,22 @@ export function SpacesOverview({
           workspaceTabGroupMap={workspaceTabGroupMap}
           onNavigateToTabGroup={onNavigateToTabGroup}
           onRequestOpenWorkspace={
-            onOpenVKWorkspace ? (ws) => setSpacePickerTarget(ws) : undefined
+            onOpenVKWorkspace ? openSpacePickerForWorkspace : undefined
           }
         />
 
-        {/* Recently Visited Tab Groups */}
+        {/* Recently Visited Craft */}
         <RecentlyVisitedTabGroups
           workspace={workspace}
           onNavigateToTabGroup={onNavigateToTabGroup}
+          tabGroupDisplayLabelById={tabGroupDisplayLabelById}
         />
 
-        {/* Recently Created Tab Groups */}
+        {/* Recently Created Craft */}
         <RecentlyCreatedTabGroups
           workspace={workspace}
           onNavigateToTabGroup={onNavigateToTabGroup}
+          tabGroupDisplayLabelById={tabGroupDisplayLabelById}
         />
 
         {/* VK Workspaces Section */}
@@ -1080,7 +1434,8 @@ export function SpacesOverview({
                       {...(tabGroupNav ? { tabGroupNav } : {})}
                       {...(!tabGroupNav && onOpenVKWorkspace
                         ? {
-                            onOpenInNewTabGroup: () => setSpacePickerTarget(ws),
+                            onOpenInNewTabGroup: () =>
+                              openSpacePickerForWorkspace(ws),
                           }
                         : {})}
                     />
@@ -1103,6 +1458,7 @@ export function SpacesOverview({
             <SpacesSection
               workspace={workspace}
               onNavigateToTabGroup={onNavigateToTabGroup}
+              tabGroupDisplayLabelById={tabGroupDisplayLabelById}
             />
           </>
         )}
@@ -1114,17 +1470,39 @@ export function SpacesOverview({
           workspace={workspace}
           targetWorkspace={spacePickerTarget}
           onSelect={(spaceId) => {
-            onOpenVKWorkspace(
-              spacePickerTarget.id,
-              spacePickerTarget.name,
-              spacePickerTarget.container_ref || "",
+            openCraftMutation.mutate({
+              workspace: spacePickerTarget,
               spaceId,
-            );
-            setSpacePickerTarget(null);
+            });
           }}
-          onClose={() => setSpacePickerTarget(null)}
+          onClose={() => {
+            if (openCraftMutation.isPending) return;
+            setSpacePickerTarget(null);
+            openCraftMutation.reset();
+          }}
+          pendingSpaceId={
+            openCraftMutation.isPending
+              ? openCraftMutation.variables?.spaceId ?? null
+              : null
+          }
+          actionError={
+            openCraftMutation.isError
+              ? getDashboardOpenCraftErrorMessage(openCraftMutation.error)
+              : null
+          }
+          onRetry={
+            openCraftMutation.variables
+              ? () => openCraftMutation.mutate(openCraftMutation.variables!)
+              : undefined
+          }
         />
       )}
     </div>
   );
+}
+
+function getDashboardOpenCraftErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) return error.message;
+  if (typeof error === "string" && error.trim()) return error;
+  return "Open Craft failed. Please retry or cancel.";
 }

@@ -1,4 +1,4 @@
-import type { WorkflowDefinition } from '@vibe-kanban/workflow-core';
+import type { WorkflowDefinition } from '@vibe-dashboard/workflow-core';
 import {
   selectLatestSession,
   type ExecutionProcess,
@@ -70,7 +70,6 @@ const FAILURE_CONCLUSIONS = new Set([
   'action_required',
   'startup_failure',
   'stale',
-  'cancelled',
 ]);
 
 export function createGitHubCiFailureWorkflow(

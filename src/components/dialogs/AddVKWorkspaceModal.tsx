@@ -14,6 +14,7 @@ import {
   type RepoWithBranch,
   type Workspace,
 } from '../../lib/vk-client';
+import { resolveWorkspaceContainerRef } from '../../lib/vkWorkspaceOpen';
 import type { WorkspaceState } from '../../types';
 
 interface WorkspaceOption extends Workspace {
@@ -27,17 +28,28 @@ interface AddVKWorkspaceModalProps {
   isOpen: boolean;
   onClose: () => void;
   onComplete?: () => void;
-  onAdd: (taskAttemptId: string, name: string, containerRef: string) => void;
+  onAdd: (
+    taskAttemptId: string,
+    name: string,
+    containerRef: string,
+  ) => void | Promise<void>;
   onAddToSpace?: (
     taskAttemptId: string,
     name: string,
     containerRef: string,
     spaceId: string
-  ) => void;
-  onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void;
-  onAddWithPath?: (workspacePath: string, name: string) => void;
+  ) => void | Promise<void>;
+  onNavigateToTabGroup?: (
+    spaceId: string,
+    tabGroupId: string,
+    workspace?: { id: string; name: string },
+  ) => void | Promise<void>;
+  onAddWithPath?: (workspacePath: string, name: string) => void | Promise<void>;
   workspaceState?: WorkspaceState;
   allowCustomPath?: boolean;
+  pendingWorkspaceId?: string | null;
+  isActionPending?: boolean;
+  actionError?: string | null;
 }
 
 export function AddVKWorkspaceModal({
@@ -50,6 +62,9 @@ export function AddVKWorkspaceModal({
   onAddWithPath,
   workspaceState,
   allowCustomPath = true,
+  pendingWorkspaceId = null,
+  isActionPending = Boolean(pendingWorkspaceId),
+  actionError = null,
 }: AddVKWorkspaceModalProps) {
   const [taskAttempts, setTaskAttempts] = useState<WorkspaceOption[]>(
     () => cachedWorkspaceOptions ?? []
@@ -65,6 +80,7 @@ export function AddVKWorkspaceModal({
   const [customName, setCustomName] = useState('');
   const [spacePickerTarget, setSpacePickerTarget] =
     useState<WorkspaceOption | null>(null);
+  const [localActionError, setLocalActionError] = useState<string | null>(null);
 
   const workspaceTabGroupMap = useMemo(
     () => buildWorkspaceTabGroupMap(workspaceState),
@@ -90,6 +106,7 @@ export function AddVKWorkspaceModal({
       setLoading(false);
       setRefreshing(false);
       setError(null);
+      setLocalActionError(null);
     }
   }, [isOpen]);
 
@@ -124,11 +141,6 @@ export function AddVKWorkspaceModal({
     return Array.from(repos).sort((a, b) => a.localeCompare(b));
   }, [taskAttempts]);
 
-  const refreshTaskAttemptContainerAndRefetchTaskAttempt = async (taskAttemptId: string) => {
-    await vkClient.getWorkspaceBranchStatus(taskAttemptId);
-    return vkClient.getWorkspace(taskAttemptId);
-  };
-
   const fetchTaskAttempts = async () => {
     const cachedResults = cachedWorkspaceOptions;
     const hasCachedResults = cachedResults != null;
@@ -143,6 +155,7 @@ export function AddVKWorkspaceModal({
     }
 
     setError(null);
+    setLocalActionError(null);
 
     try {
       const workspaces = await fetchWorkspaceOptions();
@@ -158,85 +171,106 @@ export function AddVKWorkspaceModal({
   };
 
   const resolveContainerRef = async (workspace: WorkspaceOption) => {
-    let containerRef = workspace.container_ref;
-
-    if (!containerRef) {
-      try {
-        const attempt = await refreshTaskAttemptContainerAndRefetchTaskAttempt(
-          workspace.id
-        );
-        containerRef = attempt.container_ref;
-      } catch (e) {
-        console.error('Failed to refresh container ref', e);
-      }
-    }
-
-    return containerRef || '';
+    return resolveWorkspaceContainerRef(workspace.id, workspace.container_ref);
   };
 
   const handleWorkspaceSelect = async (workspace: WorkspaceOption) => {
-    const openLocation = workspaceTabGroupMap.get(workspace.id);
-    if (openLocation && onNavigateToTabGroup) {
-      onNavigateToTabGroup(openLocation.spaceId, openLocation.tabGroupId);
+    if (isActionPending) return;
+
+    setLocalActionError(null);
+
+    try {
+      const openLocation = workspaceTabGroupMap.get(workspace.id);
+      if (openLocation && onNavigateToTabGroup) {
+        await onNavigateToTabGroup(openLocation.spaceId, openLocation.tabGroupId, {
+          id: workspace.id,
+          name: workspace.name || 'Untitled Workspace',
+        });
+        onComplete?.();
+        onClose();
+        return;
+      }
+
+      if (onAddToSpace) {
+        setSpacePickerTarget(workspace);
+        return;
+      }
+
+      const containerRef = await resolveContainerRef(workspace);
+      await onAdd(workspace.id, workspace.name || 'Untitled Workspace', containerRef);
       onComplete?.();
       onClose();
-      return;
+    } catch (err) {
+      setLocalActionError(getActionErrorMessage(err));
     }
-
-    if (onAddToSpace) {
-      setSpacePickerTarget(workspace);
-      return;
-    }
-
-    const containerRef = await resolveContainerRef(workspace);
-    onAdd(workspace.id, workspace.name || 'Untitled Workspace', containerRef);
-    onComplete?.();
-    onClose();
   };
 
   const handleSelectSpace = async (spaceId: string) => {
+    if (isActionPending) return;
     if (!spacePickerTarget) return;
 
-    const containerRef = await resolveContainerRef(spacePickerTarget);
+    setLocalActionError(null);
 
-    if (onAddToSpace) {
-      onAddToSpace(
-        spacePickerTarget.id,
-        spacePickerTarget.name || 'Untitled Workspace',
-        containerRef,
-        spaceId
-      );
-    } else {
-      onAdd(
-        spacePickerTarget.id,
-        spacePickerTarget.name || 'Untitled Workspace',
-        containerRef
-      );
+    try {
+      const containerRef = await resolveContainerRef(spacePickerTarget);
+
+      if (onAddToSpace) {
+        await onAddToSpace(
+          spacePickerTarget.id,
+          spacePickerTarget.name || 'Untitled Workspace',
+          containerRef,
+          spaceId
+        );
+      } else {
+        await onAdd(
+          spacePickerTarget.id,
+          spacePickerTarget.name || 'Untitled Workspace',
+          containerRef
+        );
+      }
+
+      onComplete?.();
+      onClose();
+    } catch (err) {
+      setLocalActionError(getActionErrorMessage(err));
     }
-
-    onComplete?.();
-    onClose();
   };
 
-  const handleAddWithPath = () => {
+  const handleAddWithPath = async () => {
+    if (isActionPending) return;
     if (!customPath.trim()) return;
 
     const name = customName.trim() || 'Custom Workspace';
 
-    // If onAddWithPath is provided, use it
-    if (onAddWithPath) {
-      onAddWithPath(customPath.trim(), name);
-    } else {
-      // Fallback: treat path as containerRef and create empty taskAttemptId
-      onAdd('', name, customPath.trim());
+    setLocalActionError(null);
+
+    try {
+      // If onAddWithPath is provided, use it
+      if (onAddWithPath) {
+        await onAddWithPath(customPath.trim(), name);
+      } else {
+        // Fallback: treat path as containerRef and create empty taskAttemptId
+        await onAdd('', name, customPath.trim());
+      }
+      onComplete?.();
+      onClose();
+    } catch (err) {
+      setLocalActionError(getActionErrorMessage(err));
     }
-    onComplete?.();
-    onClose();
   };
 
+  const surfacedActionError = actionError || localActionError;
+
   return (
-    <Modal isOpen={isOpen} onClose={onClose} size="2xl" backdrop="blur">
-      <ModalContent className="bg-neutral-900 border border-neutral-800 text-neutral-100">
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      size="2xl"
+      backdrop="blur"
+      isDismissable={!isActionPending}
+      isKeyboardDismissDisabled={isActionPending}
+    >
+      <ModalContent className="max-h-[85vh] bg-neutral-900 border border-neutral-800 text-neutral-100">
         <ModalHeader className="flex flex-col gap-1 border-b border-neutral-800">
           <h2 className="text-lg font-semibold text-white">
             {spacePickerTarget ? 'Choose Space' : 'Open VK Workspace'}
@@ -246,12 +280,21 @@ export function AddVKWorkspaceModal({
               ? `Select a space for ${spacePickerTarget.name || 'Untitled Workspace'}`
               : showPathInput
               ? 'Enter workspace path or directory'
-              : 'Search workspaces to open, or jump to an already-open tab group'}
+              : 'Search workspaces to open, or jump to an already-open craft'}
           </p>
         </ModalHeader>
         <ModalBody>
+          {surfacedActionError && (
+            <div
+              role="alert"
+              className="rounded-md border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200"
+            >
+              {surfacedActionError}
+            </div>
+          )}
+
           {spacePickerTarget ? (
-            <div className="space-y-2">
+            <div className="max-h-[55vh] space-y-2 overflow-y-auto pr-1">
               {availableSpaces.length === 0 ? (
                 <div className="text-neutral-500 text-center py-8">
                   No spaces available
@@ -269,14 +312,15 @@ export function AddVKWorkspaceModal({
                       onClick={() => {
                         void handleSelectSpace(space.id);
                       }}
-                      className="w-full p-3 rounded-lg bg-neutral-800 hover:bg-neutral-700 border border-transparent transition-colors text-left"
+                      disabled={isActionPending}
+                      className="w-full p-3 rounded-lg bg-neutral-800 hover:bg-neutral-700 border border-transparent transition-colors text-left disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-neutral-800"
                     >
                       <div className="flex items-center justify-between gap-3">
                         <span className="font-medium text-sm text-white">
                           {space.name}
                         </span>
                         <span className="text-xs text-neutral-500">
-                          {tabGroupCount} tab group
+                          {tabGroupCount} craft
                           {tabGroupCount === 1 ? '' : 's'}
                         </span>
                       </div>
@@ -307,7 +351,7 @@ export function AddVKWorkspaceModal({
                 size="sm"
                 autoFocus
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleAddWithPath();
+                  if (e.key === 'Enter') void handleAddWithPath();
                 }}
                 classNames={{
                   inputWrapper: 'bg-neutral-800 border-neutral-700 data-[hover=true]:bg-neutral-800 group-data-[focus=true]:bg-neutral-800',
@@ -339,6 +383,7 @@ export function AddVKWorkspaceModal({
                       size="sm"
                       variant="flat"
                       onPress={() => setShowPathInput(true)}
+                      isDisabled={isActionPending}
                     >
                       Custom Path
                     </Button>
@@ -400,7 +445,8 @@ export function AddVKWorkspaceModal({
                       onClick={() => {
                         void handleWorkspaceSelect(ta);
                       }}
-                      className="p-3 rounded-lg cursor-pointer transition-colors bg-neutral-800 hover:bg-neutral-700 border border-transparent text-left"
+                      disabled={isActionPending}
+                      className="p-3 rounded-lg cursor-pointer transition-colors bg-neutral-800 hover:bg-neutral-700 border border-transparent text-left disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-neutral-800"
                     >
                       <div className="flex items-start justify-between">
                         <div className="flex-1 min-w-0">
@@ -409,6 +455,14 @@ export function AddVKWorkspaceModal({
                             <h3 className="font-medium text-sm truncate">
                               {ta.name || 'Untitled'}
                             </h3>
+                            {pendingWorkspaceId === ta.id && (
+                              <>
+                                <Spinner size="sm" />
+                                <span className="text-xs text-primary-200">
+                                  Opening…
+                                </span>
+                              </>
+                            )}
                           </div>
                           <p className="text-xs text-neutral-400 mt-1">
                             Branch: {ta.branch}
@@ -430,7 +484,7 @@ export function AddVKWorkspaceModal({
                             </p>
                           ) : onAddToSpace ? (
                             <p className="text-xs text-neutral-500 mt-1">
-                              Choose a space for this tab group
+                              Choose a space for this craft
                             </p>
                           ) : null}
                         </div>
@@ -454,19 +508,28 @@ export function AddVKWorkspaceModal({
                   setShowPathInput(false);
                 }
               }}
+              isDisabled={isActionPending}
               className="bg-neutral-800 text-neutral-200"
             >
               Back
             </Button>
           )}
-          <Button color="default" variant="light" onPress={onClose} className="text-neutral-300">
+          <Button
+            color="default"
+            variant="light"
+            onPress={onClose}
+            isDisabled={isActionPending}
+            className="text-neutral-300"
+          >
             Cancel
           </Button>
           {showPathInput && (
             <Button
               color="primary"
-              onPress={handleAddWithPath}
-              isDisabled={!customPath.trim()}
+              onPress={() => {
+                void handleAddWithPath();
+              }}
+              isDisabled={!customPath.trim() || isActionPending}
             >
               Add
             </Button>
@@ -612,6 +675,16 @@ function buildWorkspaceTabGroupMap(
 function extractWorkspaceIdFromUrl(value: string): string | null {
   const match = value.match(/\/workspaces\/([^/?#]+)/);
   return match?.[1] ?? null;
+}
+
+function getActionErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+  if (typeof error === 'string' && error.trim()) {
+    return error;
+  }
+  return 'Failed to open workspace. Please retry.';
 }
 
 function parseTimestamp(value: unknown): number {
