@@ -72,6 +72,28 @@ git config --global user.name "Your Name"
 git config --global user.email "you@example.com"
 ```
 
+## Testing
+
+Run type checks and unit tests:
+
+```bash
+npm run check-types
+npm test
+```
+
+Run Playwright e2e tests:
+
+```bash
+npm run test:e2e:install
+npm run test:e2e
+```
+
+If port `4173` is already in use locally, choose a different isolated e2e port:
+
+```bash
+E2E_PORT=4273 npm run test:e2e
+```
+
 ## Codex auth
 
 Codex caches credentials in `~/.codex/auth.json` when configured for file-based storage; this is persisted via the `codex-data` Docker volume mounted at `/home/vkuser/.codex`.

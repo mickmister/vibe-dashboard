@@ -4,8 +4,9 @@ import type { WorkspaceState, SavedWorkspaceSession, VoyageEntry } from "./types
 
 /**
  * Session-level workspace navigation state.
- * All navigation IDs are synced to URL path params for shareable deep links.
- * sessionStorage is used as a fallback when URL params are incomplete.
+ * All live navigation IDs are derived from URL params or persisted Voyage data
+ * during one-time URL canonicalization. Decomposed sessionStorage navigation is
+ * intentionally not restored, so it cannot become a second source of truth.
  */
 export interface SessionWorkspaceNav {
   activeSpaceId: string;
@@ -33,55 +34,6 @@ export type NewSessionInitialSelection = {
   tabGroupId?: string;
   tabId?: string;
 };
-
-const SESSION_KEY = "workspace-nav";
-const BROWSER_SESSION_ID_KEY = 'workspace-browser-session-id';
-
-function createBrowserSessionId(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID();
-  }
-
-  return `session_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
-}
-
-export function createNewBrowserSessionId(): string {
-  return createBrowserSessionId();
-}
-
-export function getStoredBrowserSessionId(): string | null {
-  try {
-    return sessionStorage.getItem(BROWSER_SESSION_ID_KEY);
-  } catch {
-    return null;
-  }
-}
-
-export function getOrCreateBrowserSessionId(preferredSessionId?: string): string {
-  try {
-    if (preferredSessionId) {
-      sessionStorage.setItem(BROWSER_SESSION_ID_KEY, preferredSessionId);
-      return preferredSessionId;
-    }
-
-    const existing = sessionStorage.getItem(BROWSER_SESSION_ID_KEY);
-    if (existing) return existing;
-
-    const next = createBrowserSessionId();
-    sessionStorage.setItem(BROWSER_SESSION_ID_KEY, next);
-    return next;
-  } catch {
-    return preferredSessionId || createBrowserSessionId();
-  }
-}
-
-export function setBrowserSessionId(sessionId: string) {
-  try {
-    sessionStorage.setItem(BROWSER_SESSION_ID_KEY, sessionId);
-  } catch {
-    // Ignore storage errors
-  }
-}
 
 function getSpaceById(workspace: WorkspaceState, spaceId: string | undefined) {
   return spaceId ? workspace.spaces.find((s) => s.id === spaceId) : undefined;
@@ -195,6 +147,20 @@ function getActiveItemIdForViewIds(
     return normalizedViewIds[0];
   }
   return tabGroup.tabs[0]?.id || tabGroup.pairs[0]?.id || "";
+}
+
+function projectActiveItemsFromVoyageEntries(
+  workspace: WorkspaceState,
+  voyageEntries: VoyageEntry[] | undefined,
+  activeItemsByVoyageEntryId: Record<string, string> | undefined,
+): Record<string, string> {
+  const activeItems: Record<string, string> = {};
+  for (const entry of voyageEntries || []) {
+    activeItems[entry.tabGroupId] =
+      activeItemsByVoyageEntryId?.[entry.id] ||
+      getActiveItemIdForViewIds(workspace, entry.tabGroupId, entry.viewIds);
+  }
+  return activeItems;
 }
 
 function createVoyageEntryId(tabGroupId: string, index = 0): string {
@@ -413,10 +379,17 @@ function createDefaultSessionNav(workspace: WorkspaceState): SessionWorkspaceNav
   );
 }
 
+function loadStoredSessionNavFallback(): Partial<SessionWorkspaceNav> | undefined {
+  // URL-driven navigation must not restore decomposed active voyage/craft state
+  // from sessionStorage. Keep this seam explicit so legacy storage cannot become
+  // a second source of truth again.
+  return undefined;
+}
+
 /**
  * Load session navigation state.
- * Route params take priority, then saved session state, then sessionStorage,
- * then first available defaults.
+ * Route params take priority, then saved session state, then first available
+ * defaults. Legacy decomposed sessionStorage is intentionally ignored.
  */
 function loadSessionNav(
   workspace: WorkspaceState,
@@ -437,13 +410,9 @@ function loadSessionNav(
   let activeSpaceId = "";
   let activeTabGroupId = "";
   let activeVoyageEntryId = "";
-  let parsed: Partial<SessionWorkspaceNav> | undefined;
+  const parsed = loadStoredSessionNavFallback();
 
   try {
-    const stored = sessionStorage.getItem(SESSION_KEY);
-    parsed = stored
-      ? (JSON.parse(stored) as Partial<SessionWorkspaceNav>)
-      : undefined;
     const parsedActiveSpaceId = parsed?.activeSpaceId;
 
     if (spaceExistsInRoute) {
@@ -488,10 +457,15 @@ function loadSessionNav(
     }
 
     if (activeSpaceId && activeTabGroupId) {
+      const savedActiveItems = projectActiveItemsFromVoyageEntries(
+        workspace,
+        savedSession?.voyageEntries,
+        savedSession?.activeItemsByVoyageEntryId,
+      );
       const mergedActiveItems = {
         ...activeItems,
         ...(parsed?.activeItems || {}),
-        ...(savedSession?.activeItems || {}),
+        ...savedActiveItems,
       };
       const mergedEntryActiveItems = {
         ...(parsed?.activeItemsByVoyageEntryId || {}),
@@ -623,29 +597,6 @@ function loadSessionNav(
 }
 
 /**
- * Save session navigation state to sessionStorage.
- * activeSpaceId is managed via React Router, not sessionStorage.
- */
-function saveSessionNav(nav: SessionWorkspaceNav) {
-  try {
-    sessionStorage.setItem(
-      SESSION_KEY,
-      JSON.stringify({
-        activeSpaceId: nav.activeSpaceId,
-        activeTabGroupId: nav.activeTabGroupId,
-        activeVoyageEntryId: nav.activeVoyageEntryId,
-        voyageEntries: nav.voyageEntries,
-        activeItemsByVoyageEntryId: nav.activeItemsByVoyageEntryId,
-        activeItems: nav.activeItems,
-        visitedTabGroupIds: nav.visitedTabGroupIds,
-      }),
-    );
-  } catch {
-    // Ignore storage errors (quota exceeded, etc.)
-  }
-}
-
-/**
  * Build the canonical URL path for the current nav state.
  */
 function buildNavPath(nav: SessionWorkspaceNav): string {
@@ -669,6 +620,23 @@ function getTabGroupById(workspace: WorkspaceState, tabGroupId: string) {
   return workspace.tabGroups.find((tabGroup) => tabGroup.id === tabGroupId);
 }
 
+function getSavedSessionNavSignature(savedSession?: SavedWorkspaceSession): string {
+  if (!savedSession) return '';
+  return JSON.stringify({
+    id: savedSession.id,
+    activeSpaceId: savedSession.activeSpaceId,
+    activeTabGroupId: savedSession.activeTabGroupId,
+    activeVoyageEntryId: savedSession.activeVoyageEntryId,
+    voyageEntries: savedSession.voyageEntries.map((entry) => ({
+      id: entry.id,
+      tabGroupId: entry.tabGroupId,
+      viewIds: entry.viewIds,
+    })),
+    activeItemsByVoyageEntryId: savedSession.activeItemsByVoyageEntryId,
+    visitedTabGroupIds: savedSession.visitedTabGroupIds,
+  });
+}
+
 /**
  * Hook for managing per-window workspace navigation state.
  * Navigation IDs are synced with React Router path params for shareable deep links.
@@ -678,6 +646,7 @@ export function useSessionWorkspaceNav(
   workspace: WorkspaceState,
   route: RouteParams = {},
   savedSession?: SavedWorkspaceSession,
+  _options: { persistToSessionStorage?: boolean } = {},
 ) {
   const [nav, setNav] = useState<SessionWorkspaceNav>(() =>
     loadSessionNav(workspace, route, savedSession),
@@ -691,7 +660,8 @@ export function useSessionWorkspaceNav(
     voyageEntryId: route.voyageEntryId,
     viewIdsKey: route.viewIds?.join(',') || '',
   });
-  const prevSavedSessionIdRef = useRef<string | undefined>(savedSession?.id);
+  const savedSessionNavSignature = getSavedSessionNavSignature(savedSession);
+  const prevSavedSessionNavSignatureRef = useRef(savedSessionNavSignature);
   const pendingSelectionRef = useRef<PendingNavSelection | null>(null);
 
   const rebuildNav = (prev: SessionWorkspaceNav, voyageEntries: VoyageEntry[], activeVoyageEntryId: string) => {
@@ -753,10 +723,10 @@ export function useSessionWorkspaceNav(
   };
 
   useEffect(() => {
-    if (savedSession?.id === prevSavedSessionIdRef.current) return;
-    prevSavedSessionIdRef.current = savedSession?.id;
-    setNav(loadSessionNav(workspace, {}, savedSession));
-  }, [savedSession?.id, workspace]);
+    if (savedSessionNavSignature === prevSavedSessionNavSignatureRef.current) return;
+    prevSavedSessionNavSignatureRef.current = savedSessionNavSignature;
+    setNav(loadSessionNav(workspace, route, savedSession));
+  }, [route, savedSession, savedSessionNavSignature, workspace]);
 
   useEffect(() => {
     const pendingSelection = pendingSelectionRef.current;
@@ -967,11 +937,6 @@ export function useSessionWorkspaceNav(
       return rebuildNav(prev, normalized.entries, normalized.activeVoyageEntryId);
     });
   }, [workspace, nav.activeTabGroupId, nav.activeVoyageEntryId, nav.voyageEntries]);
-
-  // Sync to sessionStorage whenever nav changes
-  useEffect(() => {
-    saveSessionNav(nav);
-  }, [nav]);
 
   // Validate nav whenever workspace changes (e.g., space/tab group deleted or added)
   useEffect(() => {

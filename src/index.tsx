@@ -16,6 +16,7 @@ import type {
   SavedWorkspaceSession,
   SavedWorkspaceSessionState,
   VoyageEntry,
+  VoyageCraftSelection,
 } from './types';
 
 // @platform "browser"
@@ -65,15 +66,420 @@ function createDefaultSavedSessionState(): SavedWorkspaceSessionState {
   return createSavedWorkspaceSessionState();
 }
 
-type OriginSessionResumeState = {
-  lastSessionByOrigin: Record<string, string>;
-};
 
-function createDefaultOriginSessionResumeState(): OriginSessionResumeState {
+function createWorkspaceSessionId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `session_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function createVoyageEntryIdForTabGroup(tabGroupId: string): string {
+  return `ve_${tabGroupId}`;
+}
+
+function getDefaultViewIdsForTabGroup(workspace: WorkspaceState, tabGroupId: string): string[] {
+  const tabGroup = workspace.tabGroups.find((entry) => entry.id === tabGroupId);
+  if (!tabGroup) return [];
+  const firstTabId = tabGroup.tabs[0]?.id;
+  if (firstTabId) return [firstTabId];
+  const firstPair = tabGroup.pairs[0];
+  if (firstPair?.tabIds.length) return [...firstPair.tabIds];
+  return [];
+}
+
+function getActiveItemIdForViewIds(
+  workspace: WorkspaceState,
+  tabGroupId: string,
+  viewIds: string[],
+): string {
+  const tabGroup = workspace.tabGroups.find((entry) => entry.id === tabGroupId);
+  if (!tabGroup) return '';
+  if (viewIds.length > 1) {
+    const pair = tabGroup.pairs.find(
+      (entry) =>
+        entry.tabIds.length === viewIds.length &&
+        entry.tabIds.every((tabId, index) => tabId === viewIds[index]),
+    );
+    if (pair) return pair.id;
+  }
+  if (viewIds[0] && tabGroup.tabs.some((tab) => tab.id === viewIds[0])) {
+    return viewIds[0];
+  }
+  return tabGroup.tabs[0]?.id || tabGroup.pairs[0]?.id || '';
+}
+
+function getSelectedViewIdsForTabGroup(
+  workspace: WorkspaceState,
+  tabGroupId: string,
+  tabId?: string,
+): string[] {
+  const tabGroup = workspace.tabGroups.find((entry) => entry.id === tabGroupId);
+  if (!tabGroup) return [];
+  if (tabId && tabGroup.tabs.some((tab) => tab.id === tabId)) return [tabId];
+  return getDefaultViewIdsForTabGroup(workspace, tabGroupId);
+}
+
+function createUniqueVoyageEntryId(
+  existingEntries: VoyageEntry[],
+  tabGroupId: string,
+): string {
+  const baseId = createVoyageEntryIdForTabGroup(tabGroupId);
+  const existingIds = new Set(existingEntries.map((entry) => entry.id));
+  if (!existingIds.has(baseId)) return baseId;
+
+  let suffix = 1;
+  let nextEntryId = `${baseId}_${suffix}`;
+  while (existingIds.has(nextEntryId)) {
+    suffix += 1;
+    nextEntryId = `${baseId}_${suffix}`;
+  }
+  return nextEntryId;
+}
+
+function createSavedSessionFromSelection({
+  workspace,
+  name,
+  spaceId,
+  tabGroupId,
+  tabId,
+}: {
+  workspace: WorkspaceState;
+  name: string;
+  spaceId: string;
+  tabGroupId: string;
+  tabId?: string;
+}): SavedWorkspaceSession | undefined {
+  const trimmedName = name.trim();
+  if (!trimmedName || trimmedName.toLowerCase() === 'home') return undefined;
+
+  const space = workspace.spaces.find(
+    (entry) => entry.id === spaceId && entry.tabGroupIds.includes(tabGroupId),
+  );
+  const tabGroup = workspace.tabGroups.find((entry) => entry.id === tabGroupId);
+  if (!(space && tabGroup)) return undefined;
+
+  const selectedViewIds = getSelectedViewIdsForTabGroup(
+    workspace,
+    tabGroup.id,
+    tabId,
+  );
+  if (!selectedViewIds.length) return undefined;
+
+  const id = createWorkspaceSessionId();
+  const now = new Date().toISOString();
+  const voyageEntry = {
+    id: createVoyageEntryIdForTabGroup(tabGroup.id),
+    tabGroupId: tabGroup.id,
+    viewIds: selectedViewIds,
+  };
+  const activeItemId = getActiveItemIdForViewIds(
+    workspace,
+    tabGroup.id,
+    selectedViewIds,
+  );
+
   return {
-    lastSessionByOrigin: {},
+    id,
+    slug: buildVoyageSlug(trimmedName, id),
+    name: trimmedName,
+    createdAt: now,
+    updatedAt: now,
+    activeVoyageEntryId: voyageEntry.id,
+    voyageEntries: [voyageEntry],
+    activeSpaceId: space.id,
+    activeTabGroupId: tabGroup.id,
+    activeItemsByVoyageEntryId: {
+      [voyageEntry.id]: activeItemId,
+    },
+    visitedTabGroupIds: [tabGroup.id],
   };
 }
+
+function createSavedSessionFromVoyageEntry({
+  workspace,
+  name,
+  voyageEntry,
+  activeItemId,
+}: {
+  workspace: WorkspaceState;
+  name: string;
+  voyageEntry: VoyageEntry;
+  activeItemId?: string;
+}): SavedWorkspaceSession | undefined {
+  const trimmedName = name.trim();
+  if (!trimmedName || trimmedName.toLowerCase() === 'home') return undefined;
+
+  const normalizedEntry = normalizeVoyageEntryForWorkspace(workspace, voyageEntry);
+  if (!normalizedEntry?.viewIds.length) return undefined;
+
+  const activeSpaceId =
+    workspace.spaces.find((space) =>
+      space.tabGroupIds.includes(normalizedEntry.tabGroupId),
+    )?.id || '';
+  if (!activeSpaceId) return undefined;
+
+  const id = createWorkspaceSessionId();
+  const now = new Date().toISOString();
+  const resolvedActiveItemId =
+    activeItemId ||
+    getActiveItemIdForViewIds(
+      workspace,
+      normalizedEntry.tabGroupId,
+      normalizedEntry.viewIds,
+    );
+
+  return {
+    id,
+    slug: buildVoyageSlug(trimmedName, id),
+    name: trimmedName,
+    createdAt: now,
+    updatedAt: now,
+    activeVoyageEntryId: normalizedEntry.id,
+    voyageEntries: [
+      {
+        ...normalizedEntry,
+        viewIds: [...normalizedEntry.viewIds],
+      },
+    ],
+    activeSpaceId,
+    activeTabGroupId: normalizedEntry.tabGroupId,
+    activeItemsByVoyageEntryId: {
+      [normalizedEntry.id]: resolvedActiveItemId,
+    },
+    visitedTabGroupIds: [normalizedEntry.tabGroupId],
+  };
+}
+
+function addCreateWorkspaceCraftToWorkspace(
+  workspace: WorkspaceState,
+  args: { baseOrigin: string; label?: string },
+): { spaceId: string; tabGroupId: string; tabId: string } | undefined {
+  const defaultSpace = getDefaultSpace(workspace);
+  if (!defaultSpace) return undefined;
+
+  const tabGroupId = `tg_${workspace.nextId++}`;
+  const tabId = `tab_${workspace.nextId++}`;
+  const label = args.label?.trim() || WORKSPACE_CREATE_TAB_TITLE;
+
+  workspace.tabGroups.push({
+    id: tabGroupId,
+    label,
+    mobileEmoji: pickRandomMobileEmoji(),
+    tabs: [
+      {
+        id: tabId,
+        title: WORKSPACE_CREATE_TAB_TITLE,
+        url: buildWorkspaceTabUrl(args.baseOrigin, WORKSPACE_CREATE_PATH),
+      },
+    ],
+    pairs: [],
+    order: defaultSpace.tabGroupIds.length,
+    createdAt: new Date().toISOString(),
+  });
+  defaultSpace.tabGroupIds.push(tabGroupId);
+
+  return {
+    spaceId: defaultSpace.id,
+    tabGroupId,
+    tabId,
+  };
+}
+
+function getSpaceIdForTabGroup(
+  workspace: WorkspaceState,
+  tabGroupId: string,
+): string | undefined {
+  return workspace.spaces.find((space) => space.tabGroupIds.includes(tabGroupId))?.id;
+}
+
+function getTabPathname(url: string): string | undefined {
+  try {
+    return new URL(url, URL_PARSE_BASE).pathname;
+  } catch {
+    return url.startsWith('/') ? url : undefined;
+  }
+}
+
+function findVKWorkspaceSelection(
+  workspace: WorkspaceState,
+  taskAttemptId: string,
+): VoyageCraftSelection | undefined {
+  if (!taskAttemptId) return undefined;
+  const expectedPath = `/workspaces/${taskAttemptId}`;
+
+  for (const tabGroup of workspace.tabGroups) {
+    const agentTab = tabGroup.tabs.find(
+      (tab) => getTabPathname(tab.url) === expectedPath,
+    );
+    if (!agentTab) continue;
+
+    const spaceId = getSpaceIdForTabGroup(workspace, tabGroup.id);
+    if (!spaceId) continue;
+
+    return {
+      spaceId,
+      tabGroupId: tabGroup.id,
+      tabId: agentTab.id,
+    };
+  }
+
+  return undefined;
+}
+
+function addVKWorkspaceCraftToWorkspace(
+  workspace: WorkspaceState,
+  args: {
+    taskAttemptId: string;
+    name: string;
+    containerRef: string;
+    activeSpaceId: string;
+    baseOrigin: string;
+  },
+): VoyageCraftSelection | undefined {
+  const space = workspace.spaces.find((s) => s.id === args.activeSpaceId);
+  if (!space) return undefined;
+
+  const tabGroupId = `tg_${workspace.nextId++}`;
+  const pairId = `pair_${workspace.nextId++}`;
+  const kanbanTabId = `tab_${workspace.nextId++}`;
+  const codeTabId = `tab_${workspace.nextId++}`;
+
+  workspace.tabGroups.push({
+    id: tabGroupId,
+    label: args.name,
+    mobileEmoji: pickRandomMobileEmoji(),
+    createdAt: new Date().toISOString(),
+    tabs: [
+      {
+        id: kanbanTabId,
+        title: 'Agent',
+        url: `${args.baseOrigin}/workspaces/${args.taskAttemptId}`,
+      },
+      {
+        id: codeTabId,
+        title: 'Code',
+        url: buildWorkspaceFolderUrl(args.baseOrigin, args.containerRef),
+      },
+    ],
+    pairs: [
+      {
+        id: pairId,
+        tabIds: [kanbanTabId, codeTabId],
+        ratios: [50, 50],
+      },
+    ],
+    order: space.tabGroupIds.length,
+  });
+
+  space.tabGroupIds.push(tabGroupId);
+
+  return {
+    spaceId: space.id,
+    tabGroupId,
+    tabId: kanbanTabId,
+  };
+}
+
+function cloneSavedSession(session: SavedWorkspaceSession): SavedWorkspaceSession {
+  return {
+    ...session,
+    activeItemsByVoyageEntryId: {
+      ...session.activeItemsByVoyageEntryId,
+    },
+    voyageEntries: session.voyageEntries.map((entry) => ({
+      ...entry,
+      viewIds: [...entry.viewIds],
+    })),
+    visitedTabGroupIds: [...session.visitedTabGroupIds],
+  };
+}
+
+function normalizeVoyageEntryForWorkspace(
+  workspace: WorkspaceState,
+  entry: VoyageEntry,
+): VoyageEntry | undefined {
+  const tabGroup = workspace.tabGroups.find(
+    (candidate) => candidate.id === entry.tabGroupId,
+  );
+  if (!tabGroup) return undefined;
+
+  const validViewIds = entry.viewIds.filter((viewId) =>
+    tabGroup.tabs.some((tab) => tab.id === viewId),
+  );
+  return {
+    ...entry,
+    viewIds: validViewIds.length
+      ? validViewIds
+      : getDefaultViewIdsForTabGroup(workspace, entry.tabGroupId),
+  };
+}
+
+function repairSavedSessionForWorkspace(
+  session: SavedWorkspaceSession,
+  workspace: WorkspaceState,
+): SavedWorkspaceSession | undefined {
+  const voyageEntries = (session.voyageEntries || [])
+    .map((entry) => normalizeVoyageEntryForWorkspace(workspace, entry))
+    .filter((entry): entry is VoyageEntry => Boolean(entry));
+  if (!voyageEntries.length) return undefined;
+
+  const activeVoyageEntryId =
+    voyageEntries.find((entry) => entry.id === session.activeVoyageEntryId)?.id ||
+    voyageEntries[0]!.id;
+  const activeEntry =
+    voyageEntries.find((entry) => entry.id === activeVoyageEntryId) ||
+    voyageEntries[0]!;
+  const activeSpaceId =
+    workspace.spaces.find((space) => space.tabGroupIds.includes(activeEntry.tabGroupId))?.id ||
+    session.activeSpaceId;
+  const activeItemsByVoyageEntryId: Record<string, string> = {};
+
+  voyageEntries.forEach((entry) => {
+    const activeItemId = getActiveItemIdForViewIds(
+      workspace,
+      entry.tabGroupId,
+      entry.viewIds,
+    );
+    activeItemsByVoyageEntryId[entry.id] = activeItemId;
+  });
+
+  return {
+    ...session,
+    activeVoyageEntryId,
+    voyageEntries,
+    activeSpaceId,
+    activeTabGroupId: activeEntry.tabGroupId,
+    activeItemsByVoyageEntryId,
+    visitedTabGroupIds: Array.from(new Set(voyageEntries.map((entry) => entry.tabGroupId))),
+  };
+}
+
+function repairSavedSessionsForWorkspace(
+  state: SavedWorkspaceSessionState,
+  workspace: WorkspaceState,
+): { state: SavedWorkspaceSessionState; removedSessionIds: string[] } {
+  const repairedSessions: SavedWorkspaceSession[] = [];
+  const removedSessionIds: string[] = [];
+
+  getSavedWorkspaceSessions(state).forEach((session) => {
+    const repairedSession = repairSavedSessionForWorkspace(
+      cloneSavedSession(session),
+      workspace,
+    );
+    if (repairedSession) {
+      repairedSessions.push(repairedSession);
+    } else {
+      removedSessionIds.push(session.id);
+    }
+  });
+
+  return {
+    state: createSavedWorkspaceSessionState(repairedSessions),
+    removedSessionIds,
+  };
+}
+
 
 function pickRandomMobileEmoji() {
   return MOBILE_TAB_EMOJIS[Math.floor(Math.random() * MOBILE_TAB_EMOJIS.length)];
@@ -113,11 +519,6 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
         'workspace-sessions',
         createDefaultSavedSessionState(),
       );
-    const originSessionResumeState =
-      await moduleAPI.statesAPI.createPersistentState<OriginSessionResumeState>(
-        'workspace-origin-session-resume',
-        createDefaultOriginSessionResumeState(),
-      );
     // v2 is the first shipped saved-voyage migration. Since no production
     // state has been written as v2 yet, the v2 migration also performs the
     // Home-voyage removal and duplicate cleanup before marking state migrated.
@@ -129,15 +530,21 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
         savedSessionsState.getState(),
         {
           workspace: workspaceState.getState(),
-          originResumeState: originSessionResumeState.getState(),
         },
       );
       savedSessionsState.setState(migratedSavedSessions.state);
-      if (migratedSavedSessions.originResumeState) {
-        originSessionResumeState.setState(
-          migratedSavedSessions.originResumeState,
-        );
-      }
+    }
+
+    const repairSavedVoyagesForCurrentWorkspace = () => {
+      const repaired = repairSavedSessionsForWorkspace(
+        savedSessionsState.getState(),
+        workspaceState.getState(),
+      );
+      savedSessionsState.setState(repaired.state);
+    };
+
+    if (moduleAPI.deps.core.isMaestro()) {
+      repairSavedVoyagesForCurrentWorkspace();
     }
 
     const actions = moduleAPI.createActions({
@@ -190,6 +597,9 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
           draft.spaces.splice(idx, 1);
           wasDeleted = true;
         });
+        if (wasDeleted) {
+          repairSavedVoyagesForCurrentWorkspace();
+        }
 
         return { wasDeleted, deletedSpaceId: args.spaceId };
       },
@@ -335,6 +745,9 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
 
           wasDeleted = true;
         });
+        if (wasDeleted) {
+          repairSavedVoyagesForCurrentWorkspace();
+        }
 
         return {
           wasDeleted,
@@ -354,6 +767,7 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
           tg.pairs = tg.pairs.filter((p) => !p.tabIds.includes(args.tabId));
           tg.tabs = tg.tabs.filter((t) => t.id !== args.tabId);
         });
+        repairSavedVoyagesForCurrentWorkspace();
       },
 
       addTab: async (args: {
@@ -437,6 +851,56 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
         return result;
       },
 
+      createCreateWorkspaceCraft: async (args: { baseOrigin: string; label?: string }) => {
+        let result:
+          | { spaceId: string; tabGroupId: string; tabId: string }
+          | undefined;
+
+        workspaceState.setStateImmer((draft) => {
+          result = addCreateWorkspaceCraftToWorkspace(draft, args);
+        });
+
+        return result;
+      },
+
+      createCreateWorkspaceSavedSession: async (args: {
+        baseOrigin: string;
+        name: string;
+        label?: string;
+      }) => {
+        const voyageName = args.name.trim();
+        if (!voyageName || voyageName.toLowerCase() === 'home') return undefined;
+
+        let result:
+          | { spaceId: string; tabGroupId: string; tabId: string }
+          | undefined;
+
+        workspaceState.setStateImmer((draft) => {
+          result = addCreateWorkspaceCraftToWorkspace(draft, args);
+        });
+
+        if (!result) return undefined;
+
+        const savedSession = createSavedSessionFromSelection({
+          workspace: workspaceState.getState(),
+          name: voyageName,
+          spaceId: result.spaceId,
+          tabGroupId: result.tabGroupId,
+          tabId: result.tabId,
+        });
+        if (!savedSession) return undefined;
+
+        savedSessionsState.setState((current) => {
+          const sessions = getSavedWorkspaceSessions(current).filter(
+            (session) => session.id !== savedSession.id,
+          );
+          sessions.unshift(savedSession);
+          return createSavedWorkspaceSessionState(sessions);
+        });
+
+        return savedSession;
+      },
+
       createPair: async (args: { tabGroupId: string; tabIds: string[] }) => {
         let pairId = '';
 
@@ -487,6 +951,9 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
             tg.pairs = tg.pairs.filter((p) => p.id !== args.pairId);
           }
         });
+        if (firstTabId) {
+          repairSavedVoyagesForCurrentWorkspace();
+        }
 
         return { firstTabId, tabGroupId: args.tabGroupId };
       },
@@ -498,60 +965,149 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
         activeSpaceId: string;
         baseOrigin: string;
       }) => {
-        let tabGroupId: string | undefined;
-        let pairId: string | undefined;
-        let agentTabId: string | undefined;
+        let selection: VoyageCraftSelection | undefined;
 
         workspaceState.setStateImmer((draft) => {
-          const space = draft.spaces.find((s) => s.id === args.activeSpaceId);
-          if (!space) return;
-
-          // Generate IDs for tab group and tabs
-          tabGroupId = `tg_${draft.nextId++}`;
-          pairId = `pair_${draft.nextId++}`;
-          const kanbanTabId = `tab_${draft.nextId++}`;
-          const codeTabId = `tab_${draft.nextId++}`;
-
-          // Store agent tab ID for return
-          agentTabId = kanbanTabId;
-
-          // Create the new tab group with base origin URLs (no port prefix)
-          draft.tabGroups.push({
-            id: tabGroupId,
-            label: args.name,
-            mobileEmoji: pickRandomMobileEmoji(),
-            createdAt: new Date().toISOString(),
-            tabs: [
-              {
-                id: kanbanTabId,
-                title: 'Agent',
-                url: `${args.baseOrigin}/workspaces/${args.taskAttemptId}`,
-              },
-              {
-                id: codeTabId,
-                title: 'Code',
-                url: buildWorkspaceFolderUrl(args.baseOrigin, args.containerRef),
-              },
-            ],
-            pairs: [
-              {
-                id: pairId,
-                tabIds: [kanbanTabId, codeTabId],
-                ratios: [50, 50],
-              },
-            ],
-            order: space.tabGroupIds.length,
-          });
-
-          // Add tab group to the space
-          space.tabGroupIds.push(tabGroupId);
+          selection =
+            findVKWorkspaceSelection(draft, args.taskAttemptId) ||
+            addVKWorkspaceCraftToWorkspace(draft, args);
         });
 
-        if (!(tabGroupId && pairId && agentTabId)) {
+        if (!(selection?.tabGroupId && selection.tabId)) {
           return undefined;
         }
 
-        return { tabGroupId, pairId, agentTabId };
+        return {
+          tabGroupId: selection.tabGroupId,
+          pairId:
+            workspaceState
+              .getState()
+              .tabGroups.find((tabGroup) => tabGroup.id === selection?.tabGroupId)
+              ?.pairs[0]?.id || '',
+          agentTabId: selection.tabId,
+        };
+      },
+
+      createSavedSessionForVKWorkspace: async (args: {
+        voyageName: string;
+        taskAttemptId: string;
+        workspaceName: string;
+        containerRef: string;
+        activeSpaceId: string;
+        baseOrigin: string;
+      }) => {
+        const voyageName = args.voyageName.trim();
+        if (!voyageName || voyageName.toLowerCase() === 'home') return undefined;
+
+        let selection: VoyageCraftSelection | undefined;
+        workspaceState.setStateImmer((draft) => {
+          selection =
+            findVKWorkspaceSelection(draft, args.taskAttemptId) ||
+            addVKWorkspaceCraftToWorkspace(draft, {
+              taskAttemptId: args.taskAttemptId,
+              name: args.workspaceName,
+              containerRef: args.containerRef,
+              activeSpaceId: args.activeSpaceId,
+              baseOrigin: args.baseOrigin,
+            });
+        });
+        if (!(selection?.tabGroupId && selection.tabId)) return undefined;
+
+        const savedSession = createSavedSessionFromSelection({
+          workspace: workspaceState.getState(),
+          name: voyageName,
+          spaceId: selection.spaceId,
+          tabGroupId: selection.tabGroupId,
+          tabId: selection.tabId,
+        });
+        if (!savedSession) return undefined;
+
+        savedSessionsState.setState((current) => {
+          const sessions = getSavedWorkspaceSessions(current).filter(
+            (session) => session.id !== savedSession.id,
+          );
+          sessions.unshift(savedSession);
+          return createSavedWorkspaceSessionState(sessions);
+        });
+
+        return { savedSession, selection };
+      },
+
+      openVKWorkspaceInSavedSession: async (args: {
+        sessionId: string;
+        taskAttemptId: string;
+        name: string;
+        containerRef: string;
+        activeSpaceId: string;
+        baseOrigin: string;
+      }) => {
+        const existingTarget = getSavedWorkspaceSessions(
+          savedSessionsState.getState(),
+        ).find((session) => session.id === args.sessionId);
+        if (!existingTarget) return undefined;
+
+        let selection: VoyageCraftSelection | undefined;
+        workspaceState.setStateImmer((draft) => {
+          selection =
+            findVKWorkspaceSelection(draft, args.taskAttemptId) ||
+            addVKWorkspaceCraftToWorkspace(draft, args);
+        });
+        if (!(selection?.tabGroupId && selection.tabId)) return undefined;
+
+        const workspace = workspaceState.getState();
+        const selectedViewIds = getSelectedViewIdsForTabGroup(
+          workspace,
+          selection.tabGroupId,
+          selection.tabId,
+        );
+        if (!selectedViewIds.length) return undefined;
+
+        const activeItemId = getActiveItemIdForViewIds(
+          workspace,
+          selection.tabGroupId,
+          selectedViewIds,
+        );
+        let savedSession: SavedWorkspaceSession | undefined;
+
+        savedSessionsState.setState((current) => {
+          const sessions = getSavedWorkspaceSessions(current).map(cloneSavedSession);
+          const target = sessions.find((session) => session.id === args.sessionId);
+          if (!target) return createSavedWorkspaceSessionState(sessions);
+
+          const existingEntry = target.voyageEntries.find(
+            (entry) => entry.tabGroupId === selection!.tabGroupId,
+          );
+          const activeEntry =
+            existingEntry ||
+            ({
+              id: createUniqueVoyageEntryId(
+                target.voyageEntries,
+                selection!.tabGroupId,
+              ),
+              tabGroupId: selection!.tabGroupId,
+              viewIds: selectedViewIds,
+            } satisfies VoyageEntry);
+
+          activeEntry.viewIds = selectedViewIds;
+          target.voyageEntries = existingEntry
+            ? target.voyageEntries
+            : [...target.voyageEntries, activeEntry];
+          target.activeVoyageEntryId = activeEntry.id;
+          target.activeSpaceId = selection!.spaceId;
+          target.activeTabGroupId = selection!.tabGroupId;
+          target.activeItemsByVoyageEntryId = {
+            ...target.activeItemsByVoyageEntryId,
+            [activeEntry.id]: activeItemId,
+          };
+          target.visitedTabGroupIds = Array.from(
+            new Set([...target.visitedTabGroupIds, selection!.tabGroupId]),
+          );
+          target.updatedAt = new Date().toISOString();
+          savedSession = cloneSavedSession(target);
+          return createSavedWorkspaceSessionState(sessions);
+        });
+
+        return savedSession ? { savedSession, selection } : undefined;
       },
 
       updateTabUrl: async (args: {
@@ -655,6 +1211,303 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
         }
       },
 
+      createSavedSessionForSelection: async (args: {
+        name: string;
+        spaceId: string;
+        tabGroupId: string;
+        tabId?: string;
+      }) => {
+        const workspace = workspaceState.getState();
+        const savedSession = createSavedSessionFromSelection({
+          workspace,
+          name: args.name,
+          spaceId: args.spaceId,
+          tabGroupId: args.tabGroupId,
+          ...(args.tabId ? { tabId: args.tabId } : {}),
+        });
+        if (!savedSession) return undefined;
+
+        savedSessionsState.setState((current) => {
+          const sessions = getSavedWorkspaceSessions(current).filter(
+            (session) => session.id !== savedSession.id,
+          );
+          sessions.unshift(savedSession);
+          return createSavedWorkspaceSessionState(sessions);
+        });
+
+        return savedSession;
+      },
+
+      createSavedSessionFromVoyageEntry: async (args: {
+        name: string;
+        sourceSessionId?: string;
+        voyageEntry: VoyageEntry;
+        activeItemId?: string;
+      }) => {
+        const workspace = workspaceState.getState();
+        const targetSession = createSavedSessionFromVoyageEntry({
+          workspace,
+          name: args.name,
+          voyageEntry: args.voyageEntry,
+          activeItemId: args.activeItemId,
+        });
+        if (!targetSession) return undefined;
+
+        let result:
+          | {
+              sourceSession?: SavedWorkspaceSession;
+              targetSession: SavedWorkspaceSession;
+            }
+          | undefined;
+
+        savedSessionsState.setState((current) => {
+          const sessions = getSavedWorkspaceSessions(current).map(cloneSavedSession);
+          const nextSessions = sessions.filter(
+            (session) => session.id !== targetSession.id,
+          );
+          let sourceSession: SavedWorkspaceSession | undefined;
+
+          if (args.sourceSessionId) {
+            const source = nextSessions.find(
+              (session) => session.id === args.sourceSessionId,
+            );
+            if (!source || source.voyageEntries.length <= 1) {
+              return createSavedWorkspaceSessionState(sessions);
+            }
+
+            const nextSourceEntries = source.voyageEntries.filter(
+              (entry) => entry.id !== args.voyageEntry.id,
+            );
+            if (nextSourceEntries.length === source.voyageEntries.length) {
+              return createSavedWorkspaceSessionState(sessions);
+            }
+
+            const fallbackEntry =
+              nextSourceEntries.find(
+                (entry) => entry.id === source.activeVoyageEntryId,
+              ) || nextSourceEntries[0];
+            if (!fallbackEntry) return createSavedWorkspaceSessionState(sessions);
+
+            const repairedSource = repairSavedSessionForWorkspace(
+              {
+                ...source,
+                voyageEntries: nextSourceEntries,
+                activeVoyageEntryId: fallbackEntry.id,
+                updatedAt: targetSession.updatedAt,
+              },
+              workspace,
+            );
+            if (!repairedSource) return createSavedWorkspaceSessionState(sessions);
+
+            Object.assign(source, repairedSource);
+            sourceSession = cloneSavedSession(source);
+          }
+
+          nextSessions.unshift(targetSession);
+          result = {
+            ...(sourceSession ? { sourceSession } : {}),
+            targetSession: cloneSavedSession(targetSession),
+          };
+          return createSavedWorkspaceSessionState(nextSessions);
+        });
+
+        return result;
+      },
+
+      addSelectionToSavedSession: async (args: {
+        sessionId: string;
+        spaceId: string;
+        tabGroupId: string;
+        voyageEntryId?: string;
+        tabId?: string;
+        viewIds?: string[];
+      }) => {
+        const workspace = workspaceState.getState();
+        const space = workspace.spaces.find(
+          (entry) => entry.id === args.spaceId && entry.tabGroupIds.includes(args.tabGroupId),
+        );
+        const tabGroup = workspace.tabGroups.find((entry) => entry.id === args.tabGroupId);
+        if (!(space && tabGroup)) return undefined;
+
+        const selectedViewIds = args.viewIds?.length
+          ? normalizeVoyageEntryForWorkspace(workspace, {
+              id: createVoyageEntryIdForTabGroup(tabGroup.id),
+              tabGroupId: tabGroup.id,
+              viewIds: args.viewIds,
+            })?.viewIds || []
+          : getSelectedViewIdsForTabGroup(
+              workspace,
+              tabGroup.id,
+              args.tabId,
+            );
+        if (!selectedViewIds.length) return undefined;
+
+        const now = new Date().toISOString();
+        const activeItemId = getActiveItemIdForViewIds(
+          workspace,
+          tabGroup.id,
+          selectedViewIds,
+        );
+        let updatedSession: SavedWorkspaceSession | undefined;
+
+        savedSessionsState.setState((current) => {
+          const sessions = getSavedWorkspaceSessions(current).map(cloneSavedSession);
+          const target = sessions.find((session) => session.id === args.sessionId);
+          if (!target) return createSavedWorkspaceSessionState(sessions);
+
+          const existingEntries = target.voyageEntries;
+          const requestedEntry = args.voyageEntryId
+            ? existingEntries.find(
+                (entry) =>
+                  entry.id === args.voyageEntryId &&
+                  entry.tabGroupId === tabGroup.id,
+              )
+            : undefined;
+          const existingEntry =
+            requestedEntry ||
+            existingEntries.find((entry) => entry.tabGroupId === tabGroup.id);
+          const activeEntry =
+            existingEntry ||
+            ({
+              id: createUniqueVoyageEntryId(existingEntries, tabGroup.id),
+              tabGroupId: tabGroup.id,
+              viewIds: selectedViewIds,
+            } satisfies VoyageEntry);
+          activeEntry.viewIds = selectedViewIds;
+          const nextEntries = existingEntry
+            ? existingEntries
+            : [...existingEntries, activeEntry];
+
+          target.voyageEntries = nextEntries;
+          target.activeVoyageEntryId = activeEntry.id;
+          target.activeSpaceId = space.id;
+          target.activeTabGroupId = tabGroup.id;
+          target.activeItemsByVoyageEntryId = {
+            ...target.activeItemsByVoyageEntryId,
+            [activeEntry.id]: activeItemId,
+          };
+          target.visitedTabGroupIds = Array.from(
+            new Set([...target.visitedTabGroupIds, tabGroup.id]),
+          );
+          target.updatedAt = now;
+          updatedSession = target;
+          return createSavedWorkspaceSessionState(sessions);
+        });
+
+        return updatedSession;
+      },
+
+      activateSavedVoyageEntry: async (args: {
+        sessionId: string;
+        voyageEntryId: string;
+      }) => {
+        let updatedSession: SavedWorkspaceSession | undefined;
+        savedSessionsState.setState((current) => {
+          const sessions = getSavedWorkspaceSessions(current).map(cloneSavedSession);
+          const target = sessions.find((session) => session.id === args.sessionId);
+          const entry = target?.voyageEntries?.find(
+            (candidate) => candidate.id === args.voyageEntryId,
+          );
+          if (!(target && entry)) return createSavedWorkspaceSessionState(sessions);
+
+          const workspace = workspaceState.getState();
+          const activeSpaceId =
+            workspace.spaces.find((space) => space.tabGroupIds.includes(entry.tabGroupId))?.id ||
+            target.activeSpaceId;
+          const activeItemId = getActiveItemIdForViewIds(
+            workspace,
+            entry.tabGroupId,
+            entry.viewIds,
+          );
+          target.activeVoyageEntryId = entry.id;
+          target.activeTabGroupId = entry.tabGroupId;
+          target.activeSpaceId = activeSpaceId;
+          target.activeItemsByVoyageEntryId = {
+            ...target.activeItemsByVoyageEntryId,
+            [entry.id]: activeItemId,
+          };
+          target.updatedAt = new Date().toISOString();
+          updatedSession = target;
+          return createSavedWorkspaceSessionState(sessions);
+        });
+        return updatedSession;
+      },
+
+      removeVoyageEntryFromSavedSession: async (args: {
+        sessionId: string;
+        voyageEntryId: string;
+      }) => {
+        let updatedSession: SavedWorkspaceSession | undefined;
+        savedSessionsState.setState((current) => {
+          const sessions = getSavedWorkspaceSessions(current).map(cloneSavedSession);
+          const target = sessions.find((session) => session.id === args.sessionId);
+          if (!(target?.voyageEntries?.length)) {
+            return createSavedWorkspaceSessionState(sessions);
+          }
+
+          const nextEntries = target.voyageEntries.filter(
+            (entry) => entry.id !== args.voyageEntryId,
+          );
+          if (nextEntries.length === target.voyageEntries.length || !nextEntries.length) {
+            return createSavedWorkspaceSessionState(sessions);
+          }
+
+          const fallbackEntry =
+            nextEntries.find((entry) => entry.id === target.activeVoyageEntryId) ||
+            nextEntries[0]!;
+          const repaired = repairSavedSessionForWorkspace(
+            {
+              ...target,
+              voyageEntries: nextEntries,
+              activeVoyageEntryId: fallbackEntry.id,
+            },
+            workspaceState.getState(),
+          );
+          if (!repaired) return createSavedWorkspaceSessionState(sessions);
+
+          Object.assign(target, {
+            ...repaired,
+            updatedAt: new Date().toISOString(),
+          });
+          updatedSession = target;
+          return createSavedWorkspaceSessionState(sessions);
+        });
+        return updatedSession;
+      },
+
+      reorderSavedVoyageEntries: async (args: {
+        sessionId: string;
+        sourceEntryId: string;
+        targetEntryId: string;
+      }) => {
+        let updatedSession: SavedWorkspaceSession | undefined;
+        savedSessionsState.setState((current) => {
+          const sessions = getSavedWorkspaceSessions(current).map(cloneSavedSession);
+          const target = sessions.find((session) => session.id === args.sessionId);
+          if (!target?.voyageEntries) return createSavedWorkspaceSessionState(sessions);
+
+          const sourceIndex = target.voyageEntries.findIndex(
+            (entry) => entry.id === args.sourceEntryId,
+          );
+          const targetIndex = target.voyageEntries.findIndex(
+            (entry) => entry.id === args.targetEntryId,
+          );
+          if (sourceIndex === -1 || targetIndex === -1 || sourceIndex === targetIndex) {
+            return createSavedWorkspaceSessionState(sessions);
+          }
+
+          const nextEntries = [...target.voyageEntries];
+          const [moved] = nextEntries.splice(sourceIndex, 1);
+          if (!moved) return createSavedWorkspaceSessionState(sessions);
+          nextEntries.splice(targetIndex, 0, moved);
+          target.voyageEntries = nextEntries;
+          target.updatedAt = new Date().toISOString();
+          updatedSession = target;
+          return createSavedWorkspaceSessionState(sessions);
+        });
+        return updatedSession;
+      },
+
       upsertSavedSession: async (args: SavedWorkspaceSession) => {
         const name = args.name?.trim();
         if (
@@ -664,25 +1517,22 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
           !(args.voyageEntries?.length)
         ) return;
         savedSessionsState.setState((current) => {
-          const sessions = getSavedWorkspaceSessions(current).map((session) => ({
-            ...session,
-          }));
+          const sessions = getSavedWorkspaceSessions(current).map(cloneSavedSession);
+          const nextSession = cloneSavedSession({
+            ...args,
+            slug: buildVoyageSlug(name, args.id),
+            name,
+          });
           const existing = sessions.find((session) => session.id === args.id);
           if (existing) {
-            existing.slug = buildVoyageSlug(name, args.id);
-            existing.name = name;
-            existing.updatedAt = args.updatedAt;
-            existing.activeVoyageEntryId = args.activeVoyageEntryId;
-            existing.voyageEntries = args.voyageEntries;
-            existing.activeSpaceId = args.activeSpaceId;
-            existing.activeTabGroupId = args.activeTabGroupId;
-            existing.activeItemsByVoyageEntryId = args.activeItemsByVoyageEntryId;
-            existing.activeItems = args.activeItems;
-            existing.visitedTabGroupIds = args.visitedTabGroupIds;
+            Object.assign(existing, {
+              ...nextSession,
+              createdAt: existing.createdAt || nextSession.createdAt,
+            });
             return createSavedWorkspaceSessionState(sessions);
           }
 
-          sessions.unshift({ ...args, slug: buildVoyageSlug(name, args.id), name });
+          sessions.unshift(nextSession);
           return createSavedWorkspaceSessionState(sessions);
         });
       },
@@ -710,74 +1560,117 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
             ),
           ),
         );
-        originSessionResumeState.setStateImmer((draft) => {
-          Object.entries(draft.lastSessionByOrigin).forEach(([origin, sessionId]) => {
-            if (sessionId === args.id) {
-              delete draft.lastSessionByOrigin[origin];
-            }
-          });
-        });
       },
-      moveVoyageEntryToSavedSession: async (args: {
+      moveVoyageEntryBetweenSavedSessions: async (args: {
+        sourceSessionId: string;
         targetSessionId: string;
-        voyageEntry: VoyageEntry;
+        voyageEntryId: string;
         activeItemId?: string;
       }) => {
+        if (args.sourceSessionId === args.targetSessionId) return undefined;
+
         const now = new Date().toISOString();
         const workspace = workspaceState.getState();
-        const targetSpaceId =
-          workspace.spaces.find((space) =>
-            space.tabGroupIds.includes(args.voyageEntry.tabGroupId),
-          )?.id || '';
+        let moveResult:
+          | {
+              sourceSession: SavedWorkspaceSession;
+              targetSession: SavedWorkspaceSession;
+            }
+          | undefined;
 
         savedSessionsState.setState((current) => {
-          const sessions = getSavedWorkspaceSessions(current).map((session) => ({
-            ...session,
-          }));
+          const sessions = getSavedWorkspaceSessions(current).map(cloneSavedSession);
+          const source = sessions.find(
+            (session) => session.id === args.sourceSessionId,
+          );
           const target = sessions.find(
             (session) => session.id === args.targetSessionId,
           );
-          if (!target) return createSavedWorkspaceSessionState(sessions);
-
-          const existingEntries = target.voyageEntries || [];
-          const existingIds = new Set(existingEntries.map((entry) => entry.id));
-          let nextEntryId = args.voyageEntry.id;
-          let suffix = 1;
-          while (existingIds.has(nextEntryId)) {
-            nextEntryId = `${args.voyageEntry.id}_moved_${suffix++}`;
+          if (!(source && target) || source.voyageEntries.length <= 1) {
+            return createSavedWorkspaceSessionState(sessions);
           }
 
-          const nextEntry = {
-            ...args.voyageEntry,
+          const sourceEntry = source.voyageEntries.find(
+            (entry) => entry.id === args.voyageEntryId,
+          );
+          if (!sourceEntry) return createSavedWorkspaceSessionState(sessions);
+          if (
+            target.voyageEntries.some(
+              (entry) => entry.tabGroupId === sourceEntry.tabGroupId,
+            )
+          ) {
+            return createSavedWorkspaceSessionState(sessions);
+          }
+
+          const nextSourceEntries = source.voyageEntries.filter(
+            (entry) => entry.id !== args.voyageEntryId,
+          );
+          const fallbackSourceEntry =
+            nextSourceEntries.find((entry) => entry.id === source.activeVoyageEntryId) ||
+            nextSourceEntries[0];
+          if (!fallbackSourceEntry) return createSavedWorkspaceSessionState(sessions);
+
+          const existingTargetIds = new Set(
+            target.voyageEntries.map((entry) => entry.id),
+          );
+          let nextEntryId = sourceEntry.id;
+          let suffix = 1;
+          while (existingTargetIds.has(nextEntryId)) {
+            nextEntryId = `${sourceEntry.id}_moved_${suffix++}`;
+          }
+
+          const movedEntry = {
+            ...sourceEntry,
             id: nextEntryId,
+            viewIds: [...sourceEntry.viewIds],
           };
-          const nextEntries = [...existingEntries, nextEntry];
-          target.voyageEntries = nextEntries;
-          target.activeVoyageEntryId = nextEntry.id;
-          target.activeTabGroupId = nextEntry.tabGroupId;
-          target.activeSpaceId = targetSpaceId || target.activeSpaceId;
+          const targetSpaceId =
+            workspace.spaces.find((space) =>
+              space.tabGroupIds.includes(movedEntry.tabGroupId),
+            )?.id || target.activeSpaceId;
+          const activeItemId =
+            args.activeItemId ||
+            source.activeItemsByVoyageEntryId[sourceEntry.id] ||
+            movedEntry.viewIds[0] ||
+            '';
+
+          const repairedSource = repairSavedSessionForWorkspace(
+            {
+              ...source,
+              voyageEntries: nextSourceEntries,
+              activeVoyageEntryId: fallbackSourceEntry.id,
+              updatedAt: now,
+            },
+            workspace,
+          );
+          if (!repairedSource) return createSavedWorkspaceSessionState(sessions);
+
+          Object.assign(source, {
+            ...repairedSource,
+            updatedAt: now,
+          });
+
+          target.voyageEntries = [...target.voyageEntries, movedEntry];
+          target.activeVoyageEntryId = movedEntry.id;
+          target.activeTabGroupId = movedEntry.tabGroupId;
+          target.activeSpaceId = targetSpaceId;
           target.updatedAt = now;
           target.visitedTabGroupIds = Array.from(
-            new Set([...(target.visitedTabGroupIds || []), nextEntry.tabGroupId]),
+            new Set([...target.visitedTabGroupIds, movedEntry.tabGroupId]),
           );
           target.activeItemsByVoyageEntryId = {
-            ...(target.activeItemsByVoyageEntryId || {}),
-            ...(args.activeItemId ? { [nextEntry.id]: args.activeItemId } : {}),
+            ...target.activeItemsByVoyageEntryId,
+            [movedEntry.id]: activeItemId,
           };
-          target.activeItems = {
-            ...(target.activeItems || {}),
-            ...(args.activeItemId ? { [nextEntry.tabGroupId]: args.activeItemId } : {}),
+
+          moveResult = {
+            sourceSession: cloneSavedSession(source),
+            targetSession: cloneSavedSession(target),
           };
           return createSavedWorkspaceSessionState(sessions);
         });
-      },
-      setOriginDefaultSession: async (args: {
-        origin: string;
-        sessionId: string;
-      }) => {
-        originSessionResumeState.setStateImmer((draft) => {
-          draft.lastSessionByOrigin[args.origin] = args.sessionId;
-        });
+
+        return moveResult;
       },
     });
 
@@ -785,7 +1678,6 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
       states: {
         workspace: workspaceState,
         savedVoyages: savedSessionsState,
-        originVoyageResumeState: originSessionResumeState,
       },
       actions,
     };

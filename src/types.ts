@@ -61,27 +61,55 @@ export interface VoyageEntry {
   viewIds: string[];
 }
 
-export interface SavedWorkspaceSession {
+export interface VoyageCraftSelection {
+  spaceId: string;
+  tabGroupId: string;
+  tabId?: string;
+}
+
+export interface SavedWorkspaceSessionV1 {
   id: string;
   slug?: string;
   name?: string;
   createdAt: string;
   updatedAt: string;
-  activeVoyageEntryId?: string;
-  voyageEntries?: VoyageEntry[];
   activeSpaceId: string;
   activeTabGroupId: string;
-  /** Active item keyed by VoyageEntry ID. Keeps duplicate craft entries independent. */
-  activeItemsByVoyageEntryId?: Record<string, string>;
   /** @deprecated Craft-keyed projection retained for persisted workspace compatibility. */
   activeItems: Record<string, string>;
   visitedTabGroupIds: string[];
 }
 
+export interface SavedWorkspaceSessionV2 extends SavedWorkspaceSessionV1 {
+  activeVoyageEntryId?: string;
+  voyageEntries?: VoyageEntry[];
+  /** Active item keyed by VoyageEntry ID. Keeps duplicate craft entries independent. */
+  activeItemsByVoyageEntryId?: Record<string, string>;
+}
+
+export interface SavedWorkspaceSession {
+  id: string;
+  slug: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+  activeVoyageEntryId: string;
+  voyageEntries: VoyageEntry[];
+  activeSpaceId: string;
+  activeTabGroupId: string;
+  /** Active item keyed by VoyageEntry ID. Keeps duplicate craft entries independent. */
+  activeItemsByVoyageEntryId: Record<string, string>;
+  visitedTabGroupIds: string[];
+}
+
 export type SavedWorkspaceSessionState =
-  | SavedWorkspaceSession[]
+  | SavedWorkspaceSessionV1[]
   | {
       version: 2;
+      data: SavedWorkspaceSessionV2[];
+    }
+  | {
+      version: 3;
       data: SavedWorkspaceSession[];
     };
 

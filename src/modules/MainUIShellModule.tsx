@@ -1,33 +1,28 @@
 import '@vitejs/plugin-react/preamble';
 import '../styles';
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { HeroUIProvider } from '@heroui/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AppLoadingScreen } from '../components/AppLoadingScreen';
 import { WorkspaceShell } from '../components/WorkspaceShell';
 import {
-  createNewBrowserSessionId,
-  getOrCreateBrowserSessionId,
-  getStoredBrowserSessionId,
-  setBrowserSessionId,
   useSessionWorkspaceNav,
 } from '../sessionState';
 import type { NewSessionInitialSelection } from '../sessionState';
 import { resolveWorkspaceContainerRef } from '../lib/vkWorkspaceOpen';
 import {
   buildCanonicalDashboardPath,
-  buildCraftParam,
-  buildViewParam,
-  buildVoyageSlug,
-  getVoyageSlug,
+  buildSavedVoyageDashboardPath,
+  buildVoyageParam,
+  getStoredLastDashboardUrl,
   parseCraftParam,
   parseViewsParam,
+  setStoredLastDashboardUrl,
+  shortIdTokenMatches,
 } from '../lib/voyageUrl';
-import {
-  resolvePreferredVoyageSessionId,
-  resolveRequestedVoyageSessionId,
-} from '../lib/voyageSession';
+import { resolveDashboardVoyage } from '../lib/voyageSession';
 import { getSavedWorkspaceSessions } from '../lib/savedVoyageState';
 
 // Ensure dark class is on the document root so portaled elements (modals, popovers)
@@ -57,6 +52,7 @@ const MOBILE_TAB_EMOJIS = [
   '⚡',
   '🛰️',
 ];
+const queryClient = new QueryClient();
 
 /**
  * Get the base URL without port prefix for creating tab URLs.
@@ -81,11 +77,6 @@ function isHomeVoyageDisplayName(displayName: string): boolean {
   return displayName.trim().toLowerCase() === 'home';
 }
 
-function getIdSuffix(id: string): string {
-  const parts = id.split(/[_-]/).filter(Boolean);
-  return parts[parts.length - 1] || id;
-}
-
 function resolveQueryCraftSelection(
   workspace: WorkspaceState,
   session: SavedWorkspaceSession | undefined,
@@ -104,8 +95,16 @@ function resolveQueryCraftSelection(
 
   const matchingEntry = session.voyageEntries?.find(
     (entry) =>
-      getIdSuffix(entry.id) === parsedCraft.entrySuffix &&
-      getIdSuffix(entry.tabGroupId) === parsedCraft.tabGroupSuffix,
+      shortIdTokenMatches(
+        entry.id,
+        parsedCraft.entrySuffix,
+        session.voyageEntries.map((candidate) => candidate.id),
+      ) &&
+      shortIdTokenMatches(
+        entry.tabGroupId,
+        parsedCraft.tabGroupSuffix,
+        workspace.tabGroups.map((candidate) => candidate.id),
+      ),
   );
   if (!matchingEntry) return {};
 
@@ -113,8 +112,11 @@ function resolveQueryCraftSelection(
   if (!tabGroup) return {};
 
   const viewSuffixes = parseViewsParam(viewParam);
+  const tabIds = tabGroup.tabs.map((tab) => tab.id);
   const viewIds = viewSuffixes
-    .map((suffix) => tabGroup.tabs.find((tab) => getIdSuffix(tab.id) === suffix)?.id)
+    .map((suffix) =>
+      tabGroup.tabs.find((tab) => shortIdTokenMatches(tab.id, suffix, tabIds))?.id,
+    )
     .filter((id): id is string => Boolean(id));
   const resolvedViewIds = viewIds.length ? viewIds : matchingEntry.viewIds;
   const itemId =
@@ -139,16 +141,6 @@ springboard.registerModule(
   'MainUIShell',
   {},
   async (moduleAPI) => {
-    // Redirect component for root path (dev server case)
-    const RootRedirect = () => {
-      const navigate = useNavigate();
-      const location = useLocation();
-      useEffect(() => {
-        navigate(`/dashboard${location.search}`, { replace: true });
-      }, [location.search, navigate]);
-      return null;
-    };
-
     // Shared route component with canonical voyage query-param support
     const WorkspaceRoute = () => {
       const workspaceModule = useModule('workspace');
@@ -156,17 +148,11 @@ springboard.registerModule(
       const workspace = workspaceModule.states.workspace.useState();
       const savedSessions = workspaceModule.states.savedVoyages.useState();
       const savedVoyages = getSavedWorkspaceSessions(savedSessions);
-      const originSessionResume = workspaceModule.states.originVoyageResumeState.useState();
-
       const actions = workspaceModule.actions;
 
       const location = useLocation();
       const navigate = useNavigate();
       const sessionSearchParams = new URLSearchParams(location.search);
-      const initialBrowserSessionRef = useRef<{
-        initialized: boolean;
-        sessionId: string;
-      }>({ initialized: false, sessionId: 'server-session' });
       const requestedVoyageKey = (() => {
         if (typeof window === 'undefined') return undefined;
         const value = sessionSearchParams.get('voyage')?.trim();
@@ -174,48 +160,60 @@ springboard.registerModule(
       })();
       const queryCraftParam = sessionSearchParams.get('craft')?.trim() || undefined;
       const queryViewsParam = sessionSearchParams.get('views')?.trim() || undefined;
-      const currentOrigin =
-        typeof window === 'undefined' ? undefined : window.location.origin;
-      const originDefaultSessionId =
-        currentOrigin
-          ? originSessionResume.lastSessionByOrigin[currentOrigin]
-          : undefined;
-      const requestedSessionId = resolveRequestedVoyageSessionId({
+      const storedDashboardUrl =
+        typeof window === 'undefined' || location.search
+          ? undefined
+          : getStoredLastDashboardUrl();
+      const dashboardVoyage = resolveDashboardVoyage({
         savedSessions: savedVoyages,
         requestedVoyageKey,
+        storedDashboardUrl,
       });
-      if (!initialBrowserSessionRef.current.initialized) {
-        const storedBrowserSessionId =
-          typeof window === 'undefined'
-            ? null
-            : getStoredBrowserSessionId();
-        const preferredSessionId = resolvePreferredVoyageSessionId({
-          savedSessions: savedVoyages,
-          storedBrowserSessionId,
-          originDefaultSessionId,
-        });
-        initialBrowserSessionRef.current = {
-          initialized: true,
-          sessionId:
-            typeof window === 'undefined'
-              ? 'server-session'
-              : getOrCreateBrowserSessionId(preferredSessionId),
-        };
-      }
+      const requestedSessionId =
+        dashboardVoyage.status === 'resolved'
+          ? dashboardVoyage.sessionId
+          : undefined;
+      const missingParamFallbackSession =
+        dashboardVoyage.status === 'missing-param'
+          ? savedVoyages.find((session) => session.id === dashboardVoyage.sessionId) ||
+            savedVoyages.find(
+              (session) => !isHomeVoyageDisplayName(session.name || ''),
+            ) ||
+            savedVoyages[0]
+          : undefined;
+      const missingParamRedirectPath =
+        dashboardVoyage.status === 'missing-param'
+          ? dashboardVoyage.sessionId && storedDashboardUrl
+            ? storedDashboardUrl
+            : missingParamFallbackSession
+              ? buildSavedVoyageDashboardPath({
+                  currentSearch: location.search,
+                  workspace,
+                  session: missingParamFallbackSession,
+                  savedSessions: savedVoyages,
+                })
+              : undefined
+          : undefined;
       const browserSessionId =
         typeof window === 'undefined'
           ? 'server-session'
-          : requestedVoyageKey
-            ? requestedSessionId
-              ? getOrCreateBrowserSessionId(requestedSessionId)
-              : requestedVoyageKey
-            : initialBrowserSessionRef.current.sessionId;
+          : dashboardVoyage.status === 'resolved'
+            ? requestedSessionId || 'server-session'
+            : dashboardVoyage.status === 'missing-param'
+              ? missingParamFallbackSession?.id || 'server-session'
+              : 'server-session';
       const activeSavedSession = savedVoyages.find(
         (session) => session.id === browserSessionId,
       );
-      const previousActiveSavedSessionIdRef = useRef(activeSavedSession?.id);
-      const activeSavedSessionJustChanged =
-        previousActiveSavedSessionIdRef.current !== activeSavedSession?.id;
+      const pendingSavedSessionActivationRef = useRef<
+        { sessionId: string; voyageEntryId?: string } | undefined
+      >(undefined);
+      const [firstVoyageName, setFirstVoyageName] = useState('');
+      const [isCreatingFirstVoyage, setIsCreatingFirstVoyage] = useState(false);
+      const [createFirstVoyageError, setCreateFirstVoyageError] = useState<
+        string | null
+      >(null);
+
       const querySelection = resolveQueryCraftSelection(
         workspace,
         activeSavedSession,
@@ -232,7 +230,83 @@ springboard.registerModule(
           viewIds: querySelection.viewIds,
         },
         activeSavedSession,
+        {
+          persistToSessionStorage: false,
+        },
       );
+
+      const firstVoyageNameIsInvalid =
+        !firstVoyageName.trim() ||
+        isHomeVoyageDisplayName(firstVoyageName);
+
+      const createFirstVoyageFromCurrentCraft = async () => {
+        const voyageName = firstVoyageName.trim();
+        if (!voyageName || isHomeVoyageDisplayName(voyageName)) return;
+        if (!(sessionNav.activeSpaceId && sessionNav.activeTabGroupId)) return;
+
+        setIsCreatingFirstVoyage(true);
+        setCreateFirstVoyageError(null);
+        try {
+          const activeTabGroup = workspace.tabGroups.find(
+            (tabGroup) => tabGroup.id === sessionNav.activeTabGroupId,
+          );
+          const activeItemId = sessionNav.getActiveItem(sessionNav.activeTabGroupId);
+          const activeTabId = activeTabGroup?.tabs.some(
+            (tab) => tab.id === activeItemId,
+          )
+            ? activeItemId
+            : undefined;
+          const savedSession = await actions.createSavedSessionForSelection({
+            name: voyageName,
+            spaceId: sessionNav.activeSpaceId,
+            tabGroupId: sessionNav.activeTabGroupId,
+            ...(activeTabId ? { tabId: activeTabId } : {}),
+          });
+          if (!savedSession) {
+            setCreateFirstVoyageError('Could not create that Voyage. Try another name.');
+            return;
+          }
+
+          navigate(
+            buildSavedVoyageDashboardPath({
+              currentSearch: location.search,
+              workspace,
+              session: savedSession,
+              savedSessions: savedVoyages.some((entry) => entry.id === savedSession.id)
+                ? savedVoyages
+                : [...savedVoyages, savedSession],
+            }),
+            { replace: true },
+          );
+        } finally {
+          setIsCreatingFirstVoyage(false);
+        }
+      };
+
+      useEffect(() => {
+        if (dashboardVoyage.status !== 'missing-param') return;
+        if (!missingParamRedirectPath) return;
+        const currentPath = `${location.pathname}${location.search}`;
+        if (missingParamRedirectPath !== currentPath) {
+          navigate(missingParamRedirectPath, { replace: true });
+        }
+      }, [
+        dashboardVoyage.status,
+        location.pathname,
+        location.search,
+        missingParamRedirectPath,
+        navigate,
+      ]);
+
+      useEffect(() => {
+        if (dashboardVoyage.status !== 'resolved') return;
+        const currentPath = `${location.pathname}${location.search}`;
+        setStoredLastDashboardUrl(currentPath);
+      }, [
+        dashboardVoyage.status,
+        location.pathname,
+        location.search,
+      ]);
 
       // Update document title to reflect active space and tab group
       useEffect(() => {
@@ -254,136 +328,401 @@ springboard.registerModule(
 
       // Record visit timestamp when active tab group changes
       useEffect(() => {
+        if (dashboardVoyage.status === 'not-found') return;
         if (sessionNav.activeTabGroupId) {
           actions.touchTabGroup({ tabGroupId: sessionNav.activeTabGroupId });
         }
-      }, [sessionNav.activeTabGroupId]);
-
-      useEffect(() => {
-        if (!(sessionNav.activeSpaceId && sessionNav.activeTabGroupId)) return;
-        if (activeSavedSessionJustChanged) return;
-
-        const now = new Date().toISOString();
-        const pendingVoyageName =
-          typeof window === 'undefined'
-            ? undefined
-            : ((window as any).__pendingVoyageNames?.[browserSessionId] as
-                | string
-                | undefined);
-        const voyageName = activeSavedSession?.name?.trim() || pendingVoyageName?.trim();
-        if (!voyageName || isHomeVoyageDisplayName(voyageName)) return;
-
-        void actions.upsertSavedSession({
-          id: browserSessionId,
-          slug: buildVoyageSlug(voyageName, browserSessionId),
-          name: voyageName,
-          createdAt: activeSavedSession?.createdAt || now,
-          updatedAt: now,
-          activeVoyageEntryId: sessionNav.activeVoyageEntryId,
-          voyageEntries: sessionNav.voyageEntries,
-          activeSpaceId: sessionNav.activeSpaceId,
-          activeTabGroupId: sessionNav.activeTabGroupId,
-          activeItemsByVoyageEntryId: sessionNav.activeItemsByVoyageEntryId,
-          activeItems: sessionNav.activeItems,
-          visitedTabGroupIds: sessionNav.visitedTabGroupIds,
-        });
-      }, [
-        activeSavedSession?.createdAt,
-        activeSavedSession?.name,
-        activeSavedSession?.slug,
-        activeSavedSessionJustChanged,
-        actions,
-        browserSessionId,
-        sessionNav.activeItems,
-        sessionNav.activeSpaceId,
-        sessionNav.activeTabGroupId,
-        sessionNav.activeVoyageEntryId,
-        sessionNav.activeItemsByVoyageEntryId,
-        sessionNav.voyageEntries,
-        sessionNav.visitedTabGroupIds,
-        workspace.tabGroups,
-      ]);
-
-      useEffect(() => {
-        if (!(currentOrigin && browserSessionId)) return;
-        const activeVoyageName = activeSavedSession?.name?.trim();
-        if (!activeVoyageName || isHomeVoyageDisplayName(activeVoyageName)) return;
-
-        void actions.setOriginDefaultSession({
-          origin: currentOrigin,
-          sessionId: browserSessionId,
-        });
-      }, [
-        actions,
-        activeSavedSession?.name,
-        browserSessionId,
-        currentOrigin,
-        sessionNav.activeTabGroupId,
-      ]);
+      }, [actions, dashboardVoyage.status, sessionNav.activeTabGroupId]);
 
       // Sync URL to match canonical voyage/craft/views query params
       useEffect(() => {
+        if (dashboardVoyage.status !== 'resolved') return;
+        if (!activeSavedSession) return;
+
+        const pendingActivation = pendingSavedSessionActivationRef.current;
+        if (pendingActivation) {
+          if (pendingActivation.sessionId !== browserSessionId) {
+            // A newer/manual URL navigation won. Do not let an old pending activation
+            // suppress canonicalization for the currently URL-selected Voyage.
+            pendingSavedSessionActivationRef.current = undefined;
+          } else {
+            const pendingEntryIsReady = pendingActivation.voyageEntryId
+              ? activeSavedSession.voyageEntries.some(
+                  (entry) => entry.id === pendingActivation.voyageEntryId,
+                )
+              : true;
+            if (!pendingEntryIsReady) {
+              return;
+            }
+
+            // The target entry is visible to route state now; canonicalization can
+            // safely resume without racing the Open Craft navigation back to the
+            // previous active craft.
+            pendingSavedSessionActivationRef.current = undefined;
+          }
+        }
+
         const currentPath = `${location.pathname}${location.search}`;
-        if (activeSavedSessionJustChanged) return;
-        const currentTabGroup = workspace.tabGroups.find(
-          (tg) => tg.id === sessionNav.activeTabGroupId,
-        );
-        const activeVoyageEntry = sessionNav.voyageEntries.find(
-          (entry) => entry.id === sessionNav.activeVoyageEntryId,
-        );
-        const pendingVoyageName =
-          typeof window === 'undefined'
-            ? undefined
-            : ((window as any).__pendingVoyageNames?.[browserSessionId] as
-                | string
-                | undefined);
-        const voyageName = activeSavedSession?.name?.trim() || pendingVoyageName?.trim();
+        const voyageName = activeSavedSession?.name?.trim();
         if (!voyageName || isHomeVoyageDisplayName(voyageName)) {
-          if (requestedVoyageKey && !activeSavedSession) return;
-          const nextPath = buildCanonicalDashboardPath(location.search, undefined);
+          // Missing/invalid current voyage is handled by the route bootstrap or
+          // not-found recovery. Do not clear `voyage` here; that would create a
+          // second current-voyage state outside the URL contract.
+          return;
+        }
+        const currentVoyageSlug = buildVoyageParam(activeSavedSession, savedVoyages);
+
+        if ((queryCraftParam || queryViewsParam) && querySelection.voyageEntryId) {
+          const nextPath = buildCanonicalDashboardPath(location.search, {
+            slug: currentVoyageSlug,
+            craftParam: queryCraftParam,
+            viewTokens: queryViewsParam
+              ? queryViewsParam.split(',').filter(Boolean)
+              : undefined,
+          });
           if (nextPath !== currentPath) {
             navigate(nextPath, { replace: true });
           }
           return;
         }
-        const currentVoyageSlug = buildVoyageSlug(voyageName, browserSessionId);
 
-        const craftParam = buildCraftParam(currentTabGroup, activeVoyageEntry);
-
-        const activeViewIds = activeVoyageEntry?.viewIds || [];
-        const viewTokens = activeViewIds
-          .map((viewId) => {
-            const tab = currentTabGroup?.tabs.find((entry) => entry.id === viewId);
-            return tab ? buildViewParam(tab.title, tab.id) : null;
-          })
-          .filter((token): token is string => Boolean(token));
-
-        const nextPath = buildCanonicalDashboardPath(location.search, {
-          slug: currentVoyageSlug,
-          craftParam,
-          viewTokens,
+        const nextPath = buildSavedVoyageDashboardPath({
+          currentSearch: location.search,
+          workspace,
+          session: activeSavedSession,
+          savedSessions: savedVoyages,
         });
         if (nextPath !== currentPath) {
           navigate(nextPath, { replace: true });
         }
       }, [
+        activeSavedSession?.id,
         activeSavedSession?.name,
         activeSavedSession?.slug,
-        activeSavedSessionJustChanged,
         browserSessionId,
+        dashboardVoyage.status,
         location.search,
         location.pathname,
         navigate,
         requestedVoyageKey,
-        sessionNav.activeTabGroupId,
-        sessionNav.activeVoyageEntryId,
-        sessionNav.voyageEntries,
+        queryCraftParam,
+        querySelection.voyageEntryId,
+        queryViewsParam,
+        savedVoyages,
         workspace.tabGroups,
       ]);
 
-      useEffect(() => {
-        previousActiveSavedSessionIdRef.current = activeSavedSession?.id;
-      }, [activeSavedSession?.id]);
+      const updateBookmarkedSessionSearch = (
+        sessionId: string,
+        name?: string,
+        voyageEntryId?: string,
+        options: {
+          session?: SavedWorkspaceSession;
+          tabId?: string;
+          viewIds?: string[];
+        } = {},
+      ) => {
+        const session =
+          options.session || savedVoyages.find((entry) => entry.id === sessionId);
+        const voyageName = session?.name?.trim() || name?.trim();
+        if (!session || !voyageName || isHomeVoyageDisplayName(voyageName)) return;
+
+        const targetVoyageEntryId =
+          voyageEntryId || session.activeVoyageEntryId || undefined;
+        pendingSavedSessionActivationRef.current = {
+          sessionId: session.id,
+          ...(targetVoyageEntryId ? { voyageEntryId: targetVoyageEntryId } : {}),
+        };
+        const savedSessionPeers = savedVoyages.some((entry) => entry.id === session.id)
+          ? savedVoyages
+          : [...savedVoyages, session];
+        const nextPath = buildSavedVoyageDashboardPath({
+          currentSearch: location.search,
+          workspace,
+          session,
+          savedSessions: savedSessionPeers,
+          ...(voyageEntryId ? { voyageEntryId } : {}),
+          ...(options.tabId ? { tabId: options.tabId } : {}),
+          ...(options.viewIds ? { viewIds: options.viewIds } : {}),
+        });
+        navigate(nextPath, { replace: true });
+      };
+
+      const persistSavedSelection = (args: {
+        spaceId: string;
+        tabGroupId: string;
+        tabId?: string;
+        viewIds?: string[];
+      }): boolean => {
+        if (!activeSavedSession) return false;
+        const activeEntry = sessionNav.voyageEntries.find(
+          (entry) =>
+            entry.id === sessionNav.activeVoyageEntryId &&
+            entry.tabGroupId === args.tabGroupId,
+        ) || sessionNav.voyageEntries.find(
+          (entry) => entry.tabGroupId === args.tabGroupId,
+        );
+        if (activeEntry) {
+          updateBookmarkedSessionSearch(
+            activeSavedSession.id,
+            activeSavedSession.name,
+            activeEntry.id,
+            {
+              ...(args.tabId ? { tabId: args.tabId } : {}),
+              ...(args.viewIds ? { viewIds: args.viewIds } : {}),
+            },
+          );
+          // URL navigation above is the live source of truth. Persistence mirrors it.
+          // The route-derived nav will react to the URL change.
+          const persistence = activeEntry && !args.tabId && !args.viewIds
+            ? actions.activateSavedVoyageEntry({
+                sessionId: activeSavedSession.id,
+                voyageEntryId: activeEntry.id,
+              })
+            : actions.addSelectionToSavedSession({
+                sessionId: activeSavedSession.id,
+                spaceId: args.spaceId,
+                tabGroupId: args.tabGroupId,
+                voyageEntryId: activeEntry.id,
+                ...(args.tabId ? { tabId: args.tabId } : {}),
+                ...(args.viewIds ? { viewIds: args.viewIds } : {}),
+              });
+          void persistence;
+          return true;
+        }
+
+        void actions.addSelectionToSavedSession({
+          sessionId: activeSavedSession.id,
+          spaceId: args.spaceId,
+          tabGroupId: args.tabGroupId,
+          ...(args.tabId ? { tabId: args.tabId } : {}),
+          ...(args.viewIds ? { viewIds: args.viewIds } : {}),
+        }).then(async (result) => {
+          const updatedSession = await result;
+          if (!updatedSession) return;
+          updateBookmarkedSessionSearch(
+            updatedSession.id,
+            updatedSession.name,
+            updatedSession.activeVoyageEntryId,
+            {
+              session: updatedSession,
+              ...(args.tabId ? { tabId: args.tabId } : {}),
+              ...(args.viewIds ? { viewIds: args.viewIds } : {}),
+            },
+          );
+        });
+        return true;
+      };
+
+      const sessionActions = {
+        selectSpace: (spaceId: string) => {
+          const firstTabGroupId = workspace.spaces.find(
+            (space) => space.id === spaceId,
+          )?.tabGroupIds[0];
+          if (
+            firstTabGroupId &&
+            persistSavedSelection({ spaceId, tabGroupId: firstTabGroupId })
+          ) {
+            return;
+          }
+          if (!activeSavedSession) return;
+          sessionNav.selectSpace(spaceId);
+        },
+        selectSessionTabGroup: (spaceId: string, tabGroupId: string) => {
+          if (persistSavedSelection({ spaceId, tabGroupId })) return;
+          if (!activeSavedSession) return;
+          sessionNav.selectSessionTabGroup(spaceId, tabGroupId);
+        },
+        selectSessionTab: (spaceId: string, tabGroupId: string, tabId: string) => {
+          if (persistSavedSelection({ spaceId, tabGroupId, tabId })) return;
+          if (!activeSavedSession) return;
+          sessionNav.selectSessionTab(spaceId, tabGroupId, tabId);
+        },
+        selectSessionPair: (spaceId: string, tabGroupId: string, pairId: string) => {
+          const pair = workspace.tabGroups
+            .find((tabGroup) => tabGroup.id === tabGroupId)
+            ?.pairs.find((candidate) => candidate.id === pairId);
+          if (persistSavedSelection({
+            spaceId,
+            tabGroupId,
+            ...(pair ? { viewIds: pair.tabIds } : {}),
+          })) return;
+          if (!activeSavedSession) return;
+          sessionNav.selectSessionPair(spaceId, tabGroupId, pairId);
+        },
+        selectVoyageEntry: (voyageEntryId: string) => {
+          if (activeSavedSession) {
+            updateBookmarkedSessionSearch(
+              activeSavedSession.id,
+              activeSavedSession.name,
+              voyageEntryId,
+            );
+            void actions.activateSavedVoyageEntry({
+              sessionId: activeSavedSession.id,
+              voyageEntryId,
+            });
+            return;
+          }
+          return;
+        },
+        selectTab: (tabGroupId: string, tabId: string) => {
+          const spaceId =
+            workspace.spaces.find((space) => space.tabGroupIds.includes(tabGroupId))?.id ||
+            sessionNav.activeSpaceId;
+          sessionActions.selectSessionTab(spaceId, tabGroupId, tabId);
+        },
+        selectPair: (tabGroupId: string, pairId: string) => {
+          const spaceId =
+            workspace.spaces.find((space) => space.tabGroupIds.includes(tabGroupId))?.id ||
+            sessionNav.activeSpaceId;
+          sessionActions.selectSessionPair(spaceId, tabGroupId, pairId);
+        },
+        setActiveTabGroup: (tabGroupId: string) => {
+          const spaceId =
+            workspace.spaces.find((space) => space.tabGroupIds.includes(tabGroupId))?.id ||
+            sessionNav.activeSpaceId;
+          if (persistSavedSelection({ spaceId, tabGroupId })) return;
+          if (!activeSavedSession) return;
+          sessionNav.setActiveTabGroup(tabGroupId);
+        },
+        getActiveItem: sessionNav.getActiveItem,
+        resumeSession: (sessionId: string, voyageEntryId?: string) => {
+          const sessionToResume = savedVoyages.find(
+            (session) => session.id === sessionId,
+          );
+          if (!sessionToResume) return;
+          updateBookmarkedSessionSearch(sessionId, undefined, voyageEntryId);
+        },
+        activateSavedSession: (session: SavedWorkspaceSession) => {
+          updateBookmarkedSessionSearch(session.id, session.name, undefined, {
+            session,
+          });
+        },
+        renameSession: (sessionId: string, name: string) => {
+          void actions.renameSavedSession({ id: sessionId, name });
+        },
+        deleteSession: (sessionId: string) => {
+          if (sessionId === browserSessionId) {
+            const fallbackSession =
+              savedVoyages.find(
+                (session) =>
+                  session.id !== sessionId &&
+                  !isHomeVoyageDisplayName(session.name || ''),
+              ) || savedVoyages.find((session) => session.id !== sessionId);
+            if (fallbackSession) {
+              updateBookmarkedSessionSearch(
+                fallbackSession.id,
+                fallbackSession.name,
+              );
+            }
+          }
+          void actions.deleteSavedSession({ id: sessionId });
+        },
+        addTabGroupToSession: (
+          tabGroupId: string,
+          options?: { allowDuplicate?: boolean; select?: boolean },
+        ) => {
+          if (options?.select && !options.allowDuplicate) {
+            const spaceId =
+              workspace.spaces.find((space) => space.tabGroupIds.includes(tabGroupId))?.id ||
+              sessionNav.activeSpaceId;
+            if (persistSavedSelection({ spaceId, tabGroupId })) return;
+          }
+          if (!activeSavedSession) return;
+          sessionNav.addTabGroupToSession(tabGroupId, options);
+        },
+        removeVoyageEntryFromSession: (voyageEntryId: string) => {
+          if (activeSavedSession) {
+            if (voyageEntryId === sessionNav.activeVoyageEntryId) {
+              const currentIndex = sessionNav.voyageEntries.findIndex(
+                (entry) => entry.id === voyageEntryId,
+              );
+              const fallbackEntry =
+                (currentIndex > 0
+                  ? sessionNav.voyageEntries[currentIndex - 1]
+                  : undefined) ||
+                sessionNav.voyageEntries[currentIndex + 1] ||
+                sessionNav.voyageEntries.find((entry) => entry.id !== voyageEntryId);
+              if (fallbackEntry) {
+                updateBookmarkedSessionSearch(
+                  activeSavedSession.id,
+                  activeSavedSession.name,
+                  fallbackEntry.id,
+                );
+              }
+            }
+            void actions.removeVoyageEntryFromSavedSession({
+              sessionId: activeSavedSession.id,
+              voyageEntryId,
+            });
+            return;
+          }
+          return;
+        },
+        removeTabGroupFromSession: (tabGroupId: string) => {
+          if (activeSavedSession) {
+            if (tabGroupId === sessionNav.activeTabGroupId) {
+              const currentIndex = sessionNav.voyageEntries.findIndex(
+                (entry) => entry.tabGroupId === tabGroupId,
+              );
+              const fallbackEntry =
+                (currentIndex > 0
+                  ? sessionNav.voyageEntries[currentIndex - 1]
+                  : undefined) ||
+                sessionNav.voyageEntries[currentIndex + 1] ||
+                sessionNav.voyageEntries.find(
+                  (entry) => entry.tabGroupId !== tabGroupId,
+                );
+              if (fallbackEntry) {
+                updateBookmarkedSessionSearch(
+                  activeSavedSession.id,
+                  activeSavedSession.name,
+                  fallbackEntry.id,
+                );
+              }
+            }
+            activeSavedSession.voyageEntries
+              ?.filter((entry) => entry.tabGroupId === tabGroupId)
+              .forEach((entry) => {
+                void actions.removeVoyageEntryFromSavedSession({
+                  sessionId: activeSavedSession.id,
+                  voyageEntryId: entry.id,
+                });
+              });
+          }
+          return;
+        },
+        reorderVoyageEntries: (sourceEntryId: string, targetEntryId: string) => {
+          if (activeSavedSession) {
+            void actions.reorderSavedVoyageEntries({
+              sessionId: activeSavedSession.id,
+              sourceEntryId,
+              targetEntryId,
+            });
+            return;
+          }
+          return;
+        },
+        reorderSessionTabGroups: (sourceId: string, targetId: string) => {
+          if (activeSavedSession) {
+            const sourceEntry = sessionNav.voyageEntries.find(
+              (entry) => entry.tabGroupId === sourceId,
+            );
+            const targetEntry = sessionNav.voyageEntries.find(
+              (entry) => entry.tabGroupId === targetId,
+            );
+            if (sourceEntry && targetEntry) {
+              void actions.reorderSavedVoyageEntries({
+                sessionId: activeSavedSession.id,
+                sourceEntryId: sourceEntry.id,
+                targetEntryId: targetEntry.id,
+              });
+            }
+            return;
+          }
+          return;
+        },
+      };
 
       // Wrap actions that need session parameters
       const wrappedActions = {
@@ -404,10 +743,7 @@ springboard.registerModule(
           });
           // If action returned a tab to select, select it
           if (result?.selectTabId) {
-            sessionNav.selectTab(
-              sessionNav.activeTabGroupId,
-              result.selectTabId,
-            );
+            sessionActions.selectTab(sessionNav.activeTabGroupId, result.selectTabId);
           }
         },
         addTab: async (args: {
@@ -418,21 +754,21 @@ springboard.registerModule(
           const result = await actions.addTab(args);
           // Auto-select the newly added tab
           if (result?.tabId) {
-            sessionNav.selectTab(result.tabGroupId, result.tabId);
+            sessionActions.selectTab(result.tabGroupId, result.tabId);
           }
         },
         createPair: async (args: { tabGroupId: string; tabIds: string[] }) => {
           const result = await actions.createPair(args);
           // Auto-select the newly created pair
           if (result?.pairId) {
-            sessionNav.selectPair(result.tabGroupId, result.pairId);
+            sessionActions.selectPair(result.tabGroupId, result.pairId);
           }
         },
         deletePair: async (args: { tabGroupId: string; pairId: string }) => {
           const result = await actions.deletePair(args);
           // Auto-select the first tab from the deleted pair
           if (result?.firstTabId) {
-            sessionNav.selectTab(result.tabGroupId, result.firstTabId);
+            sessionActions.selectTab(result.tabGroupId, result.firstTabId);
           }
         },
         addVKWorkspace: async (args: {
@@ -448,105 +784,184 @@ springboard.registerModule(
           );
           return actions.addVKWorkspace({ ...args, containerRef, baseOrigin });
         },
+        createSavedSessionForVKWorkspace: async (args: {
+          voyageName: string;
+          taskAttemptId: string;
+          workspaceName: string;
+          containerRef: string;
+          activeSpaceId: string;
+        }) => {
+          const baseOrigin = getBaseOrigin();
+          const containerRef = await resolveWorkspaceContainerRef(
+            args.taskAttemptId,
+            args.containerRef,
+          );
+          return actions.createSavedSessionForVKWorkspace({
+            ...args,
+            containerRef,
+            baseOrigin,
+          });
+        },
+        openVKWorkspaceInSavedSession: async (args: {
+          sessionId: string;
+          taskAttemptId: string;
+          name: string;
+          containerRef: string;
+          activeSpaceId: string;
+        }) => {
+          const baseOrigin = getBaseOrigin();
+          const containerRef = await resolveWorkspaceContainerRef(
+            args.taskAttemptId,
+            args.containerRef,
+          );
+          return actions.openVKWorkspaceInSavedSession({
+            ...args,
+            containerRef,
+            baseOrigin,
+          });
+        },
         ensureCreateWorkspaceTab: () => {
           const baseOrigin = getBaseOrigin();
           return actions.ensureCreateWorkspaceTab({ baseOrigin });
         },
-      };
-
-      const updateBookmarkedSessionSearch = (sessionId: string, name?: string) => {
-        const nextSearchParams = new URLSearchParams(location.search);
-        const session = savedVoyages.find((entry) => entry.id === sessionId);
-        const voyageName = session?.name?.trim() || name?.trim();
-        nextSearchParams.delete('session');
-
-        if (!voyageName || isHomeVoyageDisplayName(voyageName)) {
-          nextSearchParams.delete('voyage');
-          const nextSearch = nextSearchParams.toString();
-          navigate(`${location.pathname}${nextSearch ? `?${nextSearch}` : ''}`, {
-            replace: true,
+        createCreateWorkspaceCraft: (args: { label?: string } = {}) => {
+          const baseOrigin = getBaseOrigin();
+          return actions.createCreateWorkspaceCraft({ ...args, baseOrigin });
+        },
+        createCreateWorkspaceSavedSession: (args: {
+          name: string;
+          label?: string;
+        }) => {
+          const baseOrigin = getBaseOrigin();
+          return actions.createCreateWorkspaceSavedSession({
+            ...args,
+            baseOrigin,
           });
-          return;
-        }
-
-        nextSearchParams.set(
-          'voyage',
-          session ? getVoyageSlug(session) : buildVoyageSlug(voyageName, sessionId),
-        );
-        navigate(`${location.pathname}?${nextSearchParams.toString()}`, {
-          replace: true,
-        });
+        },
       };
 
-      const sessionActions = {
-        selectSpace: sessionNav.selectSpace,
-        selectSessionTabGroup: sessionNav.selectSessionTabGroup,
-        selectSessionTab: sessionNav.selectSessionTab,
-        selectSessionPair: sessionNav.selectSessionPair,
-        selectVoyageEntry: sessionNav.selectVoyageEntry,
-        selectTab: sessionNav.selectTab,
-        selectPair: sessionNav.selectPair,
-        setActiveTabGroup: sessionNav.setActiveTabGroup,
-        getActiveItem: sessionNav.getActiveItem,
-        resumeSession: (sessionId: string, voyageEntryId?: string) => {
-          const sessionToResume = savedVoyages.find(
-            (session) => session.id === sessionId,
+      if (dashboardVoyage.status === 'not-found') {
+        const fallbackSession =
+          savedVoyages.find(
+            (session) => !isHomeVoyageDisplayName(session.name || ''),
+          ) || savedVoyages[0];
+        const openFallbackVoyage = () => {
+          if (!fallbackSession) return;
+          navigate(
+            buildCanonicalDashboardPath(location.search, {
+              slug: buildVoyageParam(fallbackSession, savedVoyages),
+              craftParam: undefined,
+              viewTokens: undefined,
+            }),
+            { replace: true },
           );
-          if (!sessionToResume) return;
-          if (typeof window !== 'undefined') {
-            setBrowserSessionId(sessionId);
-          }
-          updateBookmarkedSessionSearch(sessionId);
-          if (voyageEntryId) {
-            sessionNav.resumeSession(sessionToResume, voyageEntryId);
-          }
-        },
-        startNewSession: (options?: { name?: string; initialSelection?: NewSessionInitialSelection }) => {
-          const nextSessionId = createNewBrowserSessionId();
-          if (typeof window !== 'undefined') {
-            setBrowserSessionId(nextSessionId);
-            (window as any).__pendingVoyageNames = {
-              ...((window as any).__pendingVoyageNames || {}),
-              [nextSessionId]: options?.name || '',
-            };
-          }
-          updateBookmarkedSessionSearch(nextSessionId, options?.name);
-          sessionNav.startNewSession(options?.initialSelection);
-          return nextSessionId;
-        },
-        renameSession: (sessionId: string, name: string) => {
-          void actions.renameSavedSession({ id: sessionId, name });
-        },
-        deleteSession: (sessionId: string) => {
-          if (sessionId === browserSessionId) {
-            const nextSessionId = createNewBrowserSessionId();
-            if (typeof window !== 'undefined') {
-              setBrowserSessionId(nextSessionId);
-            }
-            updateBookmarkedSessionSearch(nextSessionId);
-            sessionNav.startNewSession();
-          }
-          void actions.deleteSavedSession({ id: sessionId });
-        },
-        addTabGroupToSession: (
-          tabGroupId: string,
-          options?: { allowDuplicate?: boolean; select?: boolean },
-        ) => {
-          sessionNav.addTabGroupToSession(tabGroupId, options);
-        },
-        removeVoyageEntryFromSession: (voyageEntryId: string) => {
-          sessionNav.removeVoyageEntryFromSession(voyageEntryId);
-        },
-        removeTabGroupFromSession: (tabGroupId: string) => {
-          sessionNav.removeTabGroupFromSession(tabGroupId);
-        },
-        reorderVoyageEntries: (sourceEntryId: string, targetEntryId: string) => {
-          sessionNav.reorderVoyageEntries(sourceEntryId, targetEntryId);
-        },
-        reorderSessionTabGroups: (sourceId: string, targetId: string) => {
-          sessionNav.reorderSessionTabGroups(sourceId, targetId);
-        },
-      };
+        };
+
+        return (
+          <div className="dark w-screen h-screen fixed inset-0 bg-neutral-950 text-neutral-100 flex items-center justify-center p-6">
+            <div className="w-full max-w-md rounded-2xl border border-neutral-800 bg-neutral-900 p-6 shadow-2xl">
+              <div className="text-xs font-semibold uppercase tracking-[0.2em] text-neutral-500">
+                Voyage not found
+              </div>
+              <h1 className="mt-3 text-2xl font-semibold">
+                This voyage link no longer resolves.
+              </h1>
+              <p className="mt-3 text-sm leading-6 text-neutral-400">
+                The URL requested “{dashboardVoyage.requestedVoyageKey}”, but
+                that voyage is not available in this workspace. Choose a
+                working voyage to continue.
+              </p>
+              <div className="mt-6 flex flex-col gap-3">
+                {fallbackSession ? (
+                  <button
+                    className="rounded-lg bg-primary-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-400"
+                    onClick={openFallbackVoyage}
+                  >
+                    Open {fallbackSession.name?.trim() || 'available voyage'}
+                  </button>
+                ) : (
+                  <div className="rounded-lg border border-neutral-800 bg-neutral-950 px-4 py-3 text-sm text-neutral-400">
+                    No saved voyages are available to recover this link.
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      if (
+        dashboardVoyage.status === 'missing-param' &&
+        !missingParamFallbackSession
+      ) {
+        const defaultCraftName =
+          workspace.tabGroups.find(
+            (tabGroup) => tabGroup.id === sessionNav.activeTabGroupId,
+          )?.label || 'your first craft';
+
+        return (
+          <div className="dark w-screen h-screen fixed inset-0 bg-neutral-950 text-neutral-100 flex items-center justify-center p-6">
+            <div className="w-full max-w-lg rounded-2xl border border-neutral-800 bg-neutral-900 p-6 shadow-2xl">
+              <div className="text-xs font-semibold uppercase tracking-[0.2em] text-neutral-500">
+                Create your first Voyage
+              </div>
+              <h1 className="mt-3 text-2xl font-semibold">
+                Name the Voyage for this workspace.
+              </h1>
+              <p className="mt-3 text-sm leading-6 text-neutral-400">
+                A Voyage is the named set of craft and views you are working
+                with. Naming it gives the URL a stable Voyage identity, so the
+                app can restore and share this workspace without relying on
+                hidden browser state.
+              </p>
+              <p className="mt-3 text-sm leading-6 text-neutral-400">
+                We will start this Voyage with{' '}
+                <span className="font-medium text-neutral-200">
+                  {defaultCraftName}
+                </span>
+                . You can add or switch craft after it is created.
+              </p>
+
+              <form
+                className="mt-6 space-y-4"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void createFirstVoyageFromCurrentCraft();
+                }}
+              >
+                <label className="block">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
+                    Voyage name
+                  </span>
+                  <input
+                    value={firstVoyageName}
+                    onChange={(event) => {
+                      setFirstVoyageName(event.target.value);
+                      setCreateFirstVoyageError(null);
+                    }}
+                    aria-label="Voyage name"
+                    placeholder="e.g. Client launch, Bug triage, Morning build"
+                    autoFocus
+                    className="mt-2 w-full rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm text-neutral-100 outline-none placeholder:text-neutral-600 focus:border-primary-400"
+                  />
+                </label>
+                {createFirstVoyageError && (
+                  <div className="rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+                    {createFirstVoyageError}
+                  </div>
+                )}
+                <button
+                  type="submit"
+                  disabled={firstVoyageNameIsInvalid || isCreatingFirstVoyage}
+                  className="w-full rounded-lg bg-primary-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-400 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
+                >
+                  {isCreatingFirstVoyage ? 'Creating Voyage…' : 'Create Voyage'}
+                </button>
+              </form>
+            </div>
+          </div>
+        );
+      }
 
       return (
         <>
@@ -564,10 +979,12 @@ springboard.registerModule(
       );
     };
 
-    // Root redirects to /dashboard (for dev server case)
-    moduleAPI.registerRoute('/', { hideApplicationShell: true }, RootRedirect);
+    // Root is the canonical dashboard route so PWA installs/bookmarks start from
+    // a stable app-home path while query params carry Voyage navigation state.
+    moduleAPI.registerRoute('/', { hideApplicationShell: true }, WorkspaceRoute);
 
-    // Canonical dashboard route. Craft/view deep links use query params.
+    // Compatibility dashboard route. It renders the same app and canonical URL
+    // sync redirects Voyage links back to root with the query params intact.
     moduleAPI.registerRoute(
       '/dashboard',
       { hideApplicationShell: true },
@@ -576,7 +993,11 @@ springboard.registerModule(
 
     return {
       Provider: (props: React.PropsWithChildren) => {
-        return <HeroUIProvider>{props.children}</HeroUIProvider>;
+        return (
+          <QueryClientProvider client={queryClient}>
+            <HeroUIProvider>{props.children}</HeroUIProvider>
+          </QueryClientProvider>
+        );
       },
     };
   },
