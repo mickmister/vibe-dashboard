@@ -159,3 +159,64 @@ describe("openFromGithub", () => {
     });
   });
 });
+
+describe("openFromGithub tree/blob", () => {
+  it("parses tree and blob URLs", () => {
+    expect(
+      parseGithubOpenUrl("https://github.com/Owner/Repo/tree/feature/demo/src"),
+    ).toMatchObject({
+      type: "tree-blob",
+      target: {
+        kind: "tree",
+        normalizedRepo: "owner/repo",
+        segments: ["feature", "demo", "src"],
+      },
+    });
+    expect(
+      parseGithubOpenUrl("https://github.com/Owner/Repo/blob/main/src/a.ts"),
+    ).toMatchObject({ type: "tree-blob" });
+  });
+
+  it("resolves branch names with slashes by longest branch match and prefers origin", async () => {
+    const mod = await import("./openFromGithub");
+    const target = mod.parseGithubTreeBlobUrl(
+      "https://github.com/owner/repo/blob/feature/long/name/src/file.ts",
+    );
+    expect(target).not.toBeNull();
+    const result = mod.resolveGithubTreeBlobBranch(
+      target!,
+      [
+        {
+          name: "origin/feature",
+          is_current: false,
+          is_remote: true,
+          last_commit_date: "2026-06-22T00:00:00Z",
+        },
+        {
+          name: "origin/feature/long/name",
+          is_current: false,
+          is_remote: true,
+          last_commit_date: "2026-06-22T00:00:00Z",
+        },
+      ],
+      "origin",
+    );
+    expect(result).toMatchObject({
+      targetBranch: "origin/feature/long/name",
+      resolved: { ref: "feature/long/name", path: "src/file.ts" },
+    });
+  });
+
+  it("chooses safe branch guesses for commit permalinks", async () => {
+    const mod = await import("./openFromGithub");
+    expect(
+      mod.chooseBestContainingBranch(["origin/main", "origin/release"], "origin/main"),
+    ).toBe("origin/main");
+    expect(mod.chooseBestContainingBranch(["origin/release"], "origin/main")).toBe(
+      "origin/release",
+    );
+    expect(
+      mod.chooseBestContainingBranch(["origin/a", "origin/b"], "origin/main"),
+    ).toBeNull();
+  });
+});

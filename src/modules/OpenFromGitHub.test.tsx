@@ -17,6 +17,8 @@ vi.mock("../lib/vk-client", () => ({
     ensureGithubRepo: vi.fn(),
     createWorkspaceFromPr: vi.fn(),
     createWorkspaceFromIssue: vi.fn(),
+    createWorkspaceFromTreeBlob: vi.fn(),
+    getGitBranchesContainingCommit: vi.fn(),
     getGithubIssueWorkspaceMapping: vi.fn(),
     putGithubIssueWorkspaceMapping: vi.fn(),
     updateWorkspace: vi.fn(),
@@ -95,6 +97,8 @@ describe("OpenFromGitHub", () => {
     vi.mocked(vkClient.ensureGithubRepo).mockReset();
     vi.mocked(vkClient.createWorkspaceFromPr).mockReset();
     vi.mocked(vkClient.createWorkspaceFromIssue).mockReset();
+    vi.mocked(vkClient.createWorkspaceFromTreeBlob).mockReset();
+    vi.mocked(vkClient.getGitBranchesContainingCommit).mockReset();
     vi.mocked(vkClient.getGithubIssueWorkspaceMapping).mockReset();
     vi.mocked(vkClient.putGithubIssueWorkspaceMapping).mockReset();
     vi.mocked(vkClient.updateWorkspace).mockReset();
@@ -186,6 +190,209 @@ describe("OpenFromGitHub", () => {
     );
     expect(vkClient.getRepoRemotes).toHaveBeenCalledWith("repo-1");
   });
+
+
+  it("creates a workspace branch from a tree URL remote branch and shows V1 limitation copy", async () => {
+    vi.mocked(vkClient.getRepos).mockResolvedValue([
+      { id: "repo-1", name: "repo", display_name: "Repo" },
+    ]);
+    vi.mocked(vkClient.getRepoRemotes).mockResolvedValue([
+      { name: "origin", url: "https://github.com/owner/repo.git" },
+    ]);
+    vi.mocked(vkClient.getRepoBranches).mockResolvedValue([
+      {
+        name: "origin/feature/demo",
+        is_current: false,
+        is_remote: true,
+        last_commit_date: "2026-06-22T00:00:00Z",
+      },
+    ]);
+    vi.mocked(vkClient.createWorkspaceFromTreeBlob).mockResolvedValue({
+      workspace: {
+        id: "ws-tree",
+        task_id: "task-tree",
+        container_ref: "/tmp/ws-tree",
+        branch: "vk/tree",
+        agent_working_dir: null,
+        created_at: "2026-06-22T00:00:00Z",
+        updated_at: "2026-06-22T00:00:00Z",
+        archived: false,
+        pinned: false,
+        name: "Tree",
+      },
+    });
+
+    const { findByText } = renderOpenFromGithub(
+      emptyWorkspace,
+      "https://github.com/owner/repo/tree/feature/demo/src",
+    );
+
+    await findByText(/V1 creates a new VK workspace branch from origin\/feature\/demo/);
+    fireEvent.click(await findByText("A"));
+
+    await waitFor(() => {
+      expect(vkClient.createWorkspaceFromTreeBlob).toHaveBeenCalledWith(
+        expect.objectContaining({
+          repo_id: "repo-1",
+          target_branch: "origin/feature/demo",
+          kind: "tree",
+          path: "src",
+        }),
+      );
+    });
+  });
+
+  it("ensures an unregistered repo for blob URLs and includes blob path context", async () => {
+    vi.mocked(vkClient.getRepos).mockResolvedValue([]);
+    vi.mocked(vkClient.ensureGithubRepo).mockResolvedValue({
+      repo: { id: "repo-1", name: "repo", display_name: "owner/repo" },
+      path: "/home/vkuser/repos/repo",
+      cloned: true,
+      refreshed: false,
+      registered: true,
+    });
+    vi.mocked(vkClient.getRepoRemotes).mockResolvedValue([
+      { name: "origin", url: "https://github.com/owner/repo.git" },
+    ]);
+    vi.mocked(vkClient.getRepoBranches).mockResolvedValue([
+      {
+        name: "origin/main",
+        is_current: false,
+        is_remote: true,
+        last_commit_date: "2026-06-22T00:00:00Z",
+      },
+    ]);
+    vi.mocked(vkClient.createWorkspaceFromTreeBlob).mockResolvedValue({
+      workspace: {
+        id: "ws-blob",
+        task_id: "task-blob",
+        container_ref: "/tmp/ws-blob",
+        branch: "vk/blob",
+        agent_working_dir: null,
+        created_at: "2026-06-22T00:00:00Z",
+        updated_at: "2026-06-22T00:00:00Z",
+        archived: false,
+        pinned: false,
+        name: "Blob",
+      },
+    });
+
+    const { findByText } = renderOpenFromGithub(
+      emptyWorkspace,
+      "https://github.com/owner/repo/blob/main/src/file.ts",
+    );
+
+    await findByText(/Initial prompt includes path/);
+    fireEvent.click(await findByText("A"));
+
+    await waitFor(() => {
+      expect(vkClient.ensureGithubRepo).toHaveBeenCalledWith(
+        "https://github.com/owner/repo",
+      );
+      expect(vkClient.createWorkspaceFromTreeBlob).toHaveBeenCalledWith(
+        expect.objectContaining({ path: "src/file.ts" }),
+      );
+    });
+  });
+
+  it("uses origin/main as a safe best guess for commit permalink branches", async () => {
+    vi.mocked(vkClient.getRepos).mockResolvedValue([
+      {
+        id: "repo-1",
+        name: "repo",
+        display_name: "Repo",
+        default_target_branch: "origin/main",
+      },
+    ]);
+    vi.mocked(vkClient.getRepoRemotes).mockResolvedValue([
+      { name: "origin", url: "https://github.com/owner/repo.git" },
+    ]);
+    vi.mocked(vkClient.getRepoBranches).mockResolvedValue([
+      {
+        name: "origin/main",
+        is_current: false,
+        is_remote: true,
+        last_commit_date: "2026-06-22T00:00:00Z",
+      },
+    ]);
+    vi.mocked(vkClient.getGitBranchesContainingCommit).mockResolvedValue({
+      branches: ["origin/main", "origin/release"],
+    });
+    vi.mocked(vkClient.createWorkspaceFromTreeBlob).mockResolvedValue({
+      workspace: {
+        id: "ws-sha",
+        task_id: "task-sha",
+        container_ref: "/tmp/ws-sha",
+        branch: "vk/sha",
+        agent_working_dir: null,
+        created_at: "2026-06-22T00:00:00Z",
+        updated_at: "2026-06-22T00:00:00Z",
+        archived: false,
+        pinned: false,
+        name: "Sha",
+      },
+    });
+
+    const sha = "0123456789abcdef0123456789abcdef01234567";
+    const { findByText } = renderOpenFromGithub(
+      emptyWorkspace,
+      `https://github.com/owner/repo/blob/${sha}/src/file.ts`,
+    );
+
+    fireEvent.click(await findByText("A"));
+
+    await waitFor(() => {
+      expect(vkClient.createWorkspaceFromTreeBlob).toHaveBeenCalledWith(
+        expect.objectContaining({
+          target_branch: "origin/main",
+          permalink_commit: sha,
+        }),
+      );
+    });
+  });
+
+  it("prompts for a branch base when a commit permalink is ambiguous", async () => {
+    vi.mocked(vkClient.getRepos).mockResolvedValue([
+      { id: "repo-1", name: "repo", display_name: "Repo" },
+    ]);
+    vi.mocked(vkClient.getRepoRemotes).mockResolvedValue([
+      { name: "origin", url: "https://github.com/owner/repo.git" },
+    ]);
+    vi.mocked(vkClient.getRepoBranches).mockResolvedValue([]);
+    vi.mocked(vkClient.getGitBranchesContainingCommit).mockResolvedValue({
+      branches: ["origin/a", "origin/b"],
+    });
+    vi.mocked(vkClient.createWorkspaceFromTreeBlob).mockResolvedValue({
+      workspace: {
+        id: "ws-ambiguous",
+        task_id: "task-ambiguous",
+        container_ref: "/tmp/ws-ambiguous",
+        branch: "vk/ambiguous",
+        agent_working_dir: null,
+        created_at: "2026-06-22T00:00:00Z",
+        updated_at: "2026-06-22T00:00:00Z",
+        archived: false,
+        pinned: false,
+        name: "Ambiguous",
+      },
+    });
+
+    const { findByText } = renderOpenFromGithub(
+      emptyWorkspace,
+      "https://github.com/owner/repo/tree/0123456789abcdef0123456789abcdef01234567",
+    );
+
+    await findByText("Choose branch base");
+    fireEvent.click(await findByText("origin/b"));
+    fireEvent.click(await findByText("A"));
+
+    await waitFor(() => {
+      expect(vkClient.createWorkspaceFromTreeBlob).toHaveBeenCalledWith(
+        expect.objectContaining({ target_branch: "origin/b" }),
+      );
+    });
+  });
+
   it("reuses an active persisted GitHub issue workspace mapping", async () => {
     vi.mocked(vkClient.getGithubIssueWorkspaceMapping).mockResolvedValue({
       mapping: {

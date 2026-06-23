@@ -16,6 +16,12 @@ import {
   GithubRepoProvisioningError,
   type EnsureGithubRepoOptions,
 } from "./github-repo-provisioning";
+import {
+  findBranchesContainingCommit,
+  GitBranchLookupError,
+  type FindBranchesContainingCommitOptions,
+} from "./git-branches";
+import { VibeKanbanServerClient } from "./vk-client";
 
 export interface RegisterWorkflowRoutesOptions {
   registry: WorkflowRegistry;
@@ -23,6 +29,9 @@ export interface RegisterWorkflowRoutesOptions {
   githubWebhookSecret?: string;
   repoAliasCache?: RepoAliasCache;
   githubRepoProvisioning?: EnsureGithubRepoOptions;
+  githubBranchLookup?: FindBranchesContainingCommitOptions & {
+    vkClient?: Pick<VibeKanbanServerClient, "getRepos">;
+  };
   githubIssueWorkspaceMap?: GithubIssueWorkspaceMapStore;
 }
 
@@ -93,6 +102,43 @@ export function registerWorkflowRoutes(
         branch,
       });
       return c.json({ mapping });
+    },
+  );
+
+  hono.get(
+    "/dashboard/api/github/repos/:repoId/branches-containing/:commit",
+    async (c) => {
+      try {
+        const repoId = c.req.param("repoId");
+        const commit = c.req.param("commit");
+        const vkClient =
+          options.githubBranchLookup?.vkClient ?? new VibeKanbanServerClient();
+        const repos = await vkClient.getRepos();
+        const repo = repos.find((entry) => entry.id === repoId);
+        if (!repo) {
+          return c.json(
+            { error: `VK repository ${repoId} was not found.` },
+            404,
+          );
+        }
+
+        const branches = await findBranchesContainingCommit(repo.path, commit, {
+          execFile: options.githubBranchLookup?.execFile,
+        });
+        return c.json({ branches });
+      } catch (error) {
+        if (error instanceof GitBranchLookupError) {
+          return c.json(
+            { error: error.message },
+            error.status === 400 ? 400 : 500,
+          );
+        }
+        console.error("GitHub branch lookup route failed", error);
+        return c.json(
+          { error: "Internal GitHub branch lookup route error" },
+          500,
+        );
+      }
     },
   );
 

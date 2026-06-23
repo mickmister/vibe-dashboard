@@ -166,6 +166,46 @@ describe("registerWorkflowRoutes", () => {
     }
   });
 
+
+
+  it("returns branches containing a commit via the Git branch lookup route", async () => {
+    const registry = createWorkflowRegistry();
+    const app = new Hono();
+    const execFile = vi.fn(async () => ({
+      stdout: "refs/heads/topic\nrefs/remotes/origin/main\nrefs/remotes/origin/HEAD\n",
+      stderr: "",
+    }));
+    registerWorkflowRoutes(app, {
+      registry,
+      githubBranchLookup: {
+        execFile,
+        vkClient: {
+          getRepos: vi.fn(async () => [
+            {
+              id: "repo-1",
+              name: "repo",
+              display_name: "Repo",
+              path: "/home/vkuser/repos/repo",
+            },
+          ]),
+        },
+      },
+    });
+
+    const response = await app.request(
+      "/dashboard/api/github/repos/repo-1/branches-containing/0123456789abcdef0123456789abcdef01234567",
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      branches: ["topic", "origin/main"],
+    });
+    expect(execFile).toHaveBeenCalledWith(
+      "git",
+      expect.arrayContaining(["/home/vkuser/repos/repo"]),
+    );
+  });
+
   it("runs the GitHub CI failure workflow from the GitHub webhook route", async () => {
     const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
     const registry = createWorkflowRegistry();

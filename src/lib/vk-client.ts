@@ -121,6 +121,20 @@ export interface CreateWorkspaceFromIssueResponse {
   workspace: Workspace;
 }
 
+export interface CreateWorkspaceFromTreeBlobBody {
+  repo_id: string;
+  target_branch: string;
+  normalized_url: string;
+  ref: string;
+  kind: "tree" | "blob";
+  path: string | null;
+  permalink_commit: string | null;
+}
+
+export interface GitBranchesContainingCommitResponse {
+  branches: string[];
+}
+
 // ── API response envelope ───────────────────────────────────────────────────
 
 interface ApiResponse<T> {
@@ -280,6 +294,15 @@ export class VibeKanbanClient {
     return this.dashboardPost("/dashboard/api/github/ensure-repo", { repoUrl });
   }
 
+  getGitBranchesContainingCommit(args: {
+    repoId: string;
+    commit: string;
+  }): Promise<GitBranchesContainingCommitResponse> {
+    return this.dashboardGet(
+      `/dashboard/api/github/repos/${encodeURIComponent(args.repoId)}/branches-containing/${encodeURIComponent(args.commit)}`,
+    );
+  }
+
   createWorkspaceFromPr(
     body: CreateWorkspaceFromPrBody,
   ): Promise<CreateWorkspaceFromPrResponse> {
@@ -301,6 +324,34 @@ export class VibeKanbanClient {
       linked_issue: null,
       executor_config: { executor: "CODEX" },
       prompt: `Open GitHub issue ${body.issue_url}. Review the issue and prepare the workspace branch for implementation.`,
+      attachment_ids: null,
+    }).then((response: { workspace: Workspace }) => ({
+      workspace: response.workspace,
+    }));
+  }
+
+  createWorkspaceFromTreeBlob(
+    body: CreateWorkspaceFromTreeBlobBody,
+  ): Promise<CreateWorkspaceFromIssueResponse> {
+    const location = body.path
+      ? `${body.kind} path ${body.path}`
+      : `${body.kind} root`;
+    const permalinkContext = body.permalink_commit
+      ? ` The URL is a commit permalink for ${body.permalink_commit}; use ${body.target_branch} only as the base branch containing that commit.`
+      : "";
+
+    return this.post<{ workspace: Workspace }>("/workspaces/start", {
+      name: `GitHub ${body.kind} ${body.ref}`,
+      repos: [
+        {
+          repo_id: body.repo_id,
+          target_branch: body.target_branch,
+          create_branch: true,
+        },
+      ],
+      linked_issue: null,
+      executor_config: { executor: "CODEX" },
+      prompt: `Open GitHub ${body.kind} URL ${body.normalized_url}. Create a new VK workspace branch from ${body.target_branch}; do not check out or edit the referenced GitHub branch directly. Review ${location} from ref ${body.ref}.${permalinkContext}`,
       attachment_ids: null,
     }).then((response: { workspace: Workspace }) => ({
       workspace: response.workspace,

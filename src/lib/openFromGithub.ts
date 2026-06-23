@@ -1,5 +1,6 @@
 import type {
   GitRemote,
+  GitBranch,
   PullRequestDetail,
   Repo,
   WorkspaceSummary,
@@ -24,9 +25,30 @@ export interface ParsedGithubIssueUrl {
   normalizedIssueUrl: string;
 }
 
+export interface ParsedGithubTreeBlobUrl {
+  kind: "tree" | "blob";
+  owner: string;
+  repo: string;
+  normalizedRepo: string;
+  segments: string[];
+  normalizedUrl: string;
+}
+
+export interface ResolvedGithubTreeBlobTarget {
+  kind: "tree" | "blob";
+  owner: string;
+  repo: string;
+  normalizedRepo: string;
+  ref: string;
+  path: string | null;
+  normalizedUrl: string;
+  permalinkCommit: string | null;
+}
+
 export type ParsedGithubOpenUrl =
   | { type: "pr"; pr: ParsedGithubPrUrl }
-  | { type: "issue"; issue: ParsedGithubIssueUrl };
+  | { type: "issue"; issue: ParsedGithubIssueUrl }
+  | { type: "tree-blob"; target: ParsedGithubTreeBlobUrl };
 
 export interface MatchingRepoRemote {
   repo: Repo;
@@ -87,7 +109,137 @@ export function parseGithubOpenUrl(value: string): ParsedGithubOpenUrl | null {
   const issue = parseGithubIssueUrl(value);
   if (issue) return { type: "issue", issue };
 
+  const target = parseGithubTreeBlobUrl(value);
+  if (target) return { type: "tree-blob", target };
+
   return null;
+}
+
+export function parseGithubTreeBlobUrl(
+  value: string,
+): ParsedGithubTreeBlobUrl | null {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return null;
+  }
+
+  if (url.hostname.toLowerCase() !== "github.com") {
+    return null;
+  }
+
+  const parts = url.pathname.split("/").filter(Boolean);
+  if (parts.length < 4 || (parts[2] !== "tree" && parts[2] !== "blob")) {
+    return null;
+  }
+
+  const [owner, repo, kind, ...segments] = parts;
+  if (!(owner && repo && kind && segments.length > 0)) {
+    return null;
+  }
+
+  return {
+    kind,
+    owner,
+    repo,
+    normalizedRepo: normalizeRepoParts(owner, repo),
+    segments: segments.map(decodeURIComponent),
+    normalizedUrl: `https://github.com/${normalizeRepoParts(owner, repo)}/${kind}/${segments.join("/")}`,
+  };
+}
+
+export function isLikelyCommitSha(value: string): boolean {
+  return /^[0-9a-f]{7,40}$/i.test(value);
+}
+
+export function resolveGithubTreeBlobBranch(
+  target: ParsedGithubTreeBlobUrl,
+  branches: GitBranch[],
+  remoteName: string,
+): { targetBranch: string; resolved: ResolvedGithubTreeBlobTarget } | null {
+  const candidates = branches
+    .map((branch) => {
+      const githubRef = getGithubRefForBranch(branch, remoteName);
+      if (!githubRef) return null;
+      const refSegments = githubRef.split("/");
+      if (!isSegmentPrefix(refSegments, target.segments)) return null;
+      const pathSegments = target.segments.slice(refSegments.length);
+      if (target.kind === "blob" && pathSegments.length === 0) return null;
+      return {
+        branch,
+        githubRef,
+        path: pathSegments.length ? pathSegments.join("/") : null,
+        score: refSegments.length,
+        remoteScore:
+          branch.is_remote && branch.name === `${remoteName}/${githubRef}`
+            ? 2
+            : branch.is_remote
+              ? 1
+              : 0,
+      };
+    })
+    .filter((candidate): candidate is NonNullable<typeof candidate> =>
+      Boolean(candidate),
+    )
+    .sort((a, b) => b.score - a.score || b.remoteScore - a.remoteScore);
+
+  const best = candidates[0];
+  if (!best) return null;
+
+  return {
+    targetBranch: best.branch.name,
+    resolved: {
+      kind: target.kind,
+      owner: target.owner,
+      repo: target.repo,
+      normalizedRepo: target.normalizedRepo,
+      ref: best.githubRef,
+      path: best.path,
+      normalizedUrl: target.normalizedUrl,
+      permalinkCommit: null,
+    },
+  };
+}
+
+export function resolveGithubTreeBlobCommitTarget(
+  target: ParsedGithubTreeBlobUrl,
+): ResolvedGithubTreeBlobTarget | null {
+  const [commit, ...pathSegments] = target.segments;
+  if (!commit || !isLikelyCommitSha(commit)) return null;
+  if (target.kind === "blob" && pathSegments.length === 0) return null;
+  return {
+    kind: target.kind,
+    owner: target.owner,
+    repo: target.repo,
+    normalizedRepo: target.normalizedRepo,
+    ref: commit,
+    path: pathSegments.length ? pathSegments.join("/") : null,
+    normalizedUrl: target.normalizedUrl,
+    permalinkCommit: commit,
+  };
+}
+
+export function chooseBestContainingBranch(
+  containingBranches: string[],
+  repoDefaultBranch?: string | null,
+): string | null {
+  const candidates = new Set(containingBranches);
+  const defaultBranch = repoDefaultBranch?.trim();
+  const defaults = [
+    defaultBranch,
+    defaultBranch?.replace(/^origin\//, ""),
+    defaultBranch && !defaultBranch.startsWith("origin/")
+      ? `origin/${defaultBranch}`
+      : null,
+    "origin/main",
+    "main",
+  ].filter((branch): branch is string => Boolean(branch));
+
+  for (const branch of defaults) {
+    if (candidates.has(branch)) return branch;
+  }
+  return containingBranches.length === 1 ? containingBranches[0] ?? null : null;
 }
 
 export function normalizeGithubRepoIdentity(value: string): string | null {
@@ -123,7 +275,7 @@ export function normalizeGithubRepoIdentity(value: string): string | null {
 export function findMatchingRepoRemotes(
   repos: Repo[],
   remotesByRepoId: Map<string, GitRemote[]>,
-  parsedPr: ParsedGithubPrUrl,
+  parsedPr: { normalizedRepo: string },
 ): MatchingRepoRemote[] {
   const matches: MatchingRepoRemote[] = [];
 
@@ -256,6 +408,25 @@ function parseGithubNumberedUrl(
 
 function normalizeRepoParts(owner: string, repo: string): string {
   return `${owner.toLowerCase()}/${repo.replace(/\.git$/i, "").toLowerCase()}`;
+}
+
+function getGithubRefForBranch(
+  branch: GitBranch,
+  remoteName: string,
+): string | null {
+  if (!branch.is_remote) {
+    return branch.name;
+  }
+  if (branch.name.startsWith(`${remoteName}/`)) {
+    return branch.name.slice(remoteName.length + 1);
+  }
+  const [_otherRemote, ...rest] = branch.name.split("/");
+  return rest.length > 0 ? rest.join("/") : null;
+}
+
+function isSegmentPrefix(prefix: string[], value: string[]): boolean {
+  if (prefix.length > value.length) return false;
+  return prefix.every((segment, index) => segment === value[index]);
 }
 
 function extractWorkspaceIdFromUrl(value: string): string | null {

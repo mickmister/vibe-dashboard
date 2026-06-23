@@ -2,14 +2,19 @@ import React, { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import type { WorkspaceState } from "../types";
 import {
+  chooseBestContainingBranch,
   findMatchingRepoRemotes,
   findOpenWorkspaceLocation,
   findWorkspaceIdForPr,
   getOpenFromGithubUrl,
   parseGithubOpenUrl,
-  type ParsedGithubIssueUrl,
   removeOpenFromGithubParam,
+  resolveGithubTreeBlobBranch,
+  resolveGithubTreeBlobCommitTarget,
   type MatchingRepoRemote,
+  type ParsedGithubIssueUrl,
+  type ParsedGithubTreeBlobUrl,
+  type ResolvedGithubTreeBlobTarget,
 } from "../lib/openFromGithub";
 import {
   vkClient,
@@ -67,6 +72,12 @@ type PendingTarget =
       type: "create-issue";
       match: MatchingRepoRemote;
       issue: ParsedGithubIssueUrl;
+    }
+  | {
+      type: "create-tree-blob";
+      match: MatchingRepoRemote;
+      target: ResolvedGithubTreeBlobTarget;
+      targetBranch: string;
     };
 
 type DialogState =
@@ -80,8 +91,16 @@ type DialogState =
       type: "choose-repo";
       target:
         | { type: "pr"; prInfo: PullRequestDetail }
-        | { type: "issue"; issue: ParsedGithubIssueUrl };
+        | { type: "issue"; issue: ParsedGithubIssueUrl }
+        | { type: "tree-blob"; target: ParsedGithubTreeBlobUrl };
       matches: MatchingRepoRemote[];
+    }
+  | {
+      type: "choose-branch";
+      match: MatchingRepoRemote;
+      target: ResolvedGithubTreeBlobTarget;
+      branches: string[];
+      message: string;
     }
   | {
       type: "choose-space";
@@ -176,9 +195,11 @@ export function OpenFromGitHub({
     try {
       setDialog({
         type: "opening",
-        title: target.type.endsWith("issue")
-          ? "Opening GitHub issue"
-          : "Opening GitHub PR",
+        title: target.type === "create-tree-blob"
+          ? "Opening GitHub URL"
+          : target.type.endsWith("issue")
+            ? "Opening GitHub issue"
+            : "Opening GitHub PR",
         message: "Preparing the VK workspace and opening it in VD.",
       });
 
@@ -214,13 +235,15 @@ export function OpenFromGitHub({
       }
       setDialog({
         type: "error",
-        title: target.type.endsWith("issue")
-          ? "Could not open GitHub issue"
-          : "Could not open GitHub PR",
+        title: target.type === "create-tree-blob"
+          ? "Could not open GitHub URL"
+          : target.type.endsWith("issue")
+            ? "Could not open GitHub issue"
+            : "Could not open GitHub PR",
         message:
           error instanceof Error
             ? error.message
-            : "Unknown error while opening GitHub PR.",
+            : "Unknown error while opening GitHub URL.",
       });
       clearParam();
       return false;
@@ -240,6 +263,22 @@ export function OpenFromGitHub({
         return workspace;
       }
       return target.workspace;
+    }
+
+    if (target.type === "create-tree-blob") {
+      const workspace = (
+        await vkClient.createWorkspaceFromTreeBlob({
+          repo_id: target.match.repo.id,
+          target_branch: target.targetBranch,
+          normalized_url: target.target.normalizedUrl,
+          ref: target.target.ref,
+          kind: target.target.kind,
+          path: target.target.path,
+          permalink_commit: target.target.permalinkCommit,
+        })
+      ).workspace;
+      if (!isCurrentTarget()) throw new StaleOpenFromGithubRunError();
+      return workspace;
     }
 
     if (target.type === "create-issue") {
@@ -424,10 +463,7 @@ export function OpenFromGitHub({
       ),
     );
     if (isCancelled()) return [];
-    const matches = findMatchingRepoRemotes(repos, remotesByRepoId, {
-      ...issue,
-      normalizedPrUrl: issue.normalizedIssueUrl.replace("/issues/", "/pull/"),
-    });
+    const matches = findMatchingRepoRemotes(repos, remotesByRepoId, issue);
     if (matches.length > 0) return matches;
 
     setDialog({
@@ -446,11 +482,232 @@ export function OpenFromGitHub({
     return findMatchingRepoRemotes(
       [ensured.repo],
       new Map([[ensured.repo.id, ensuredRemotes]]),
-      {
-        ...issue,
-        normalizedPrUrl: issue.normalizedIssueUrl.replace("/issues/", "/pull/"),
-      },
+      issue,
     );
+  };
+
+  const runTreeBlobOpen = async (
+    target: ParsedGithubTreeBlobUrl,
+    isCancelled: () => boolean,
+  ) => {
+    setDialog({
+      type: "processing",
+      title: "Opening GitHub URL",
+      message: `Resolving ${target.normalizedUrl}`,
+    });
+
+    try {
+      const matches = await findOrEnsureTreeBlobRepo(target, isCancelled);
+      if (isCancelled()) return;
+
+      if (matches.length === 1 && matches[0]) {
+        await resolveTreeBlobMatch(matches[0], target, isCancelled);
+        return;
+      }
+
+      if (matches.length > 1) {
+        setDialog({
+          type: "choose-repo",
+          target: { type: "tree-blob", target },
+          matches,
+        });
+        return;
+      }
+
+      setDialog({
+        type: "error",
+        title: "Could not open GitHub URL",
+        message: `No matching repository found for ${target.normalizedRepo}.`,
+      });
+      clearParam();
+    } catch (error) {
+      if (isCancelled()) return;
+      setDialog({
+        type: "error",
+        title: "Could not open GitHub URL",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Unknown error while resolving GitHub URL.",
+      });
+      clearParam();
+    }
+  };
+
+  const findOrEnsureTreeBlobRepo = async (
+    target: ParsedGithubTreeBlobUrl,
+    isCancelled: () => boolean,
+  ) => {
+    const repos = await vkClient.getRepos();
+    if (isCancelled()) return [];
+    const remoteResults = await Promise.allSettled(
+      repos.map(async (repo) => ({
+        repoId: repo.id,
+        remotes: await vkClient.getRepoRemotes(repo.id),
+      })),
+    );
+    const remotesByRepoId = new Map(
+      remoteResults.flatMap((result) =>
+        result.status === "fulfilled"
+          ? [[result.value.repoId, result.value.remotes] as const]
+          : [],
+      ),
+    );
+    if (isCancelled()) return [];
+    const matches = findMatchingRepoRemotes(repos, remotesByRepoId, target);
+    if (matches.length > 0) return matches;
+
+    setDialog({
+      type: "processing",
+      title: "Opening GitHub URL",
+      message: `Cloning and registering ${target.normalizedRepo}`,
+    });
+    const ensured = await vkClient.ensureGithubRepo(
+      `https://github.com/${target.normalizedRepo}`,
+    );
+    if (isCancelled()) return [];
+    const ensuredRemotes = await vkClient
+      .getRepoRemotes(ensured.repo.id)
+      .catch(() => []);
+    if (isCancelled()) return [];
+    const ensuredMatches = findMatchingRepoRemotes(
+      [ensured.repo],
+      new Map([[ensured.repo.id, ensuredRemotes]]),
+      target,
+    );
+    return ensuredMatches.length > 0
+      ? ensuredMatches
+      : [
+          {
+            repo: ensured.repo,
+            remote: {
+              name: "origin",
+              url: `https://github.com/${target.normalizedRepo}.git`,
+            },
+          },
+        ];
+  };
+
+  const resolveTreeBlobMatch = async (
+    match: MatchingRepoRemote,
+    target: ParsedGithubTreeBlobUrl,
+    isCancelled: () => boolean,
+  ) => {
+    setDialog({
+      type: "processing",
+      title: "Opening GitHub URL",
+      message: `Resolving branch/ref for ${target.normalizedUrl}`,
+    });
+
+    let branches: Awaited<ReturnType<typeof vkClient.getRepoBranches>>;
+    try {
+      branches = await vkClient.getRepoBranches(match.repo.id);
+    } catch (error) {
+      if (isCancelled()) return;
+      setDialog({
+        type: "error",
+        title: "Could not load repository branches",
+        message:
+          error instanceof Error
+            ? `Could not load branches for ${match.repo.display_name || match.repo.name}. Fetch/register the repo and try again. ${error.message}`
+            : `Could not load branches for ${match.repo.display_name || match.repo.name}. Fetch/register the repo and try again.`,
+      });
+      clearParam();
+      return;
+    }
+    if (isCancelled()) return;
+
+    const branchResult = resolveGithubTreeBlobBranch(
+      target,
+      branches,
+      match.remote.name,
+    );
+    if (branchResult) {
+      setDialog({
+        type: "choose-space",
+        target: {
+          type: "create-tree-blob",
+          match,
+          target: branchResult.resolved,
+          targetBranch: branchResult.targetBranch,
+        },
+      });
+      return;
+    }
+
+    const commitTarget = resolveGithubTreeBlobCommitTarget(target);
+    if (!commitTarget?.permalinkCommit) {
+      setDialog({
+        type: "error",
+        title: "Unsupported GitHub ref",
+        message: `Could not resolve ${target.normalizedUrl} to a fetched branch. Tags and missing refs are unsupported unless they appear in the VK branch list. Fetch the repo or choose a branch URL and try again.`,
+      });
+      clearParam();
+      return;
+    }
+
+    let containingBranches: string[];
+    try {
+      containingBranches = (
+        await vkClient.getGitBranchesContainingCommit({
+          repoId: match.repo.id,
+          commit: commitTarget.permalinkCommit,
+        })
+      ).branches;
+    } catch (error) {
+      if (isCancelled()) return;
+      setDialog({
+        type: "error",
+        title: "Could not resolve commit permalink",
+        message:
+          error instanceof Error
+            ? `Could not find branches containing ${commitTarget.permalinkCommit}. Fetch the repo and verify the commit exists, then try again. ${error.message}`
+            : `Could not find branches containing ${commitTarget.permalinkCommit}. Fetch the repo and verify the commit exists, then try again.`,
+      });
+      clearParam();
+      return;
+    }
+    if (isCancelled()) return;
+
+    const bestBranch = chooseBestContainingBranch(
+      containingBranches,
+      match.repo.default_target_branch,
+    );
+    if (bestBranch) {
+      setDialog({
+        type: "choose-space",
+        target: {
+          type: "create-tree-blob",
+          match,
+          target: commitTarget,
+          targetBranch: bestBranch,
+        },
+      });
+      return;
+    }
+
+    const availableBranches = containingBranches.length
+      ? containingBranches
+      : branches.map((branch) => branch.name);
+    if (availableBranches.length === 0) {
+      setDialog({
+        type: "error",
+        title: "No branch base available",
+        message: `No branch containing ${commitTarget.permalinkCommit} was found, and no repository branches could be loaded to choose a base manually. Fetch the repo and try again.`,
+      });
+      clearParam();
+      return;
+    }
+
+    setDialog({
+      type: "choose-branch",
+      match,
+      target: commitTarget,
+      branches: availableBranches,
+      message: containingBranches.length
+        ? `Commit ${commitTarget.permalinkCommit} is contained in multiple branches. Choose the branch to use as the base for a new VK workspace branch.`
+        : `No branch containing ${commitTarget.permalinkCommit} was found. Choose an available branch to use as the base for a new VK workspace branch, or cancel and fetch the repo first.`,
+    });
   };
 
   useEffect(() => {
@@ -470,7 +727,7 @@ export function OpenFromGitHub({
           type: "error",
           title: "Unsupported GitHub URL",
           message:
-            "Only GitHub pull request and issue URLs are supported for open_from_github.",
+            "Only GitHub pull request, issue, tree, and blob URLs are supported for open_from_github.",
         });
         clearParam();
         return;
@@ -478,6 +735,11 @@ export function OpenFromGitHub({
 
       if (parsedOpenUrl.type === "issue") {
         await runIssueOpen(parsedOpenUrl.issue, () => cancelled);
+        return;
+      }
+
+      if (parsedOpenUrl.type === "tree-blob") {
+        await runTreeBlobOpen(parsedOpenUrl.target, () => cancelled);
         return;
       }
 
@@ -633,20 +895,42 @@ export function OpenFromGitHub({
       }}
       onSelectRepo={(match) => {
         if (dialog?.type !== "choose-repo") return;
+        if (dialog.target.type === "pr") {
+          setDialog({
+            type: "choose-space",
+            target: {
+              type: "create",
+              match,
+              prInfo: dialog.target.prInfo,
+            },
+          });
+          return;
+        }
+        if (dialog.target.type === "issue") {
+          setDialog({
+            type: "choose-space",
+            target: {
+              type: "create-issue",
+              match,
+              issue: dialog.target.issue,
+            },
+          });
+          return;
+        }
+        void resolveTreeBlobMatch(match, dialog.target.target, () => {
+          return !mountedRef.current;
+        });
+      }}
+      onSelectBranch={(branch) => {
+        if (dialog?.type !== "choose-branch") return;
         setDialog({
           type: "choose-space",
-          target:
-            dialog.target.type === "pr"
-              ? {
-                  type: "create",
-                  match,
-                  prInfo: dialog.target.prInfo,
-                }
-              : {
-                  type: "create-issue",
-                  match,
-                  issue: dialog.target.issue,
-                },
+          target: {
+            type: "create-tree-blob",
+            match: dialog.match,
+            target: dialog.target,
+            targetBranch: branch,
+          },
         });
       }}
       onSelectSpace={(spaceId) => {
@@ -696,6 +980,13 @@ function isSameOpenTarget(
     );
   }
 
+  if (target.type === "create-tree-blob") {
+    return (
+      parsed.type === "tree-blob" &&
+      parsed.target.normalizedUrl === target.target.normalizedUrl
+    );
+  }
+
   return (
     parsed.type === "issue" &&
     parsed.issue.normalizedIssueUrl === target.issue.normalizedIssueUrl
@@ -706,10 +997,14 @@ function getTargetTitle(target: PendingTarget): string {
   if (target.type === "existing" || target.type === "create") {
     return target.prInfo.title;
   }
+  if (target.type === "create-tree-blob") {
+    return `${target.target.kind} ${target.target.ref}`;
+  }
   return `issue #${target.issue.number}`;
 }
 
 function getTargetVerb(target: PendingTarget): string {
+  if (target.type === "create-tree-blob") return "Open GitHub URL";
   return target.type.endsWith("issue") ? "Open GitHub issue" : "Open GitHub PR";
 }
 
@@ -735,6 +1030,7 @@ function OpenFromGithubDialog({
   onClose,
   onSelectRepo,
   onSelectSpace,
+  onSelectBranch,
   onCreateSpace,
   onConfirmReopenArchived,
 }: {
@@ -743,6 +1039,7 @@ function OpenFromGithubDialog({
   onClose: () => void;
   onSelectRepo: (match: MatchingRepoRemote) => void;
   onSelectSpace: (spaceId: string) => void;
+  onSelectBranch: (branch: string) => void;
   onCreateSpace: (name: string) => void;
   onConfirmReopenArchived: () => void;
 }) {
@@ -758,14 +1055,20 @@ function OpenFromGithubDialog({
         ? `${getTargetVerb(state.target)} in space`
         : state.type === "confirm-reopen-archived"
           ? "Reopen archived issue workspace?"
-          : state.title;
+          : state.type === "choose-branch"
+            ? "Choose branch base"
+            : state.title;
   const message =
     state.type === "choose-repo"
       ? state.target.type === "pr"
         ? `Multiple VK repos match PR #${state.target.prInfo.number}: ${state.target.prInfo.title}`
-        : `Multiple VK repos match issue #${state.target.issue.number}: ${state.target.issue.normalizedIssueUrl}`
+        : state.target.type === "issue"
+          ? `Multiple VK repos match issue #${state.target.issue.number}: ${state.target.issue.normalizedIssueUrl}`
+          : `Multiple VK repos match ${state.target.target.normalizedUrl}`
       : state.type === "choose-space"
-        ? `Choose a space for ${getTargetTitle(state.target)}`
+        ? state.target.type === "create-tree-blob"
+          ? `V1 creates a new VK workspace branch from ${state.target.targetBranch} so your existing GitHub branch or permalink commit is not checked out and edited directly. Direct reuse of arbitrary non-PR branches is not supported yet.`
+          : `Choose a space for ${getTargetTitle(state.target)}`
         : state.type === "confirm-reopen-archived"
           ? `GitHub issue ${state.issue.normalizedIssueUrl} is mapped to archived workspace ${state.workspace.name || state.workspace.branch}. Reopen and unarchive it instead of creating a duplicate branch?`
           : state.message;
@@ -814,6 +1117,21 @@ function OpenFromGithubDialog({
           </div>
         ) : null}
 
+        {state.type === "choose-branch" ? (
+          <div className="space-y-2">
+            {state.branches.map((branch) => (
+              <button
+                key={branch}
+                type="button"
+                className="w-full rounded-lg border border-neutral-700 bg-neutral-800 p-3 text-left font-mono text-sm text-white transition-colors hover:bg-neutral-700"
+                onClick={() => onSelectBranch(branch)}
+              >
+                {branch}
+              </button>
+            ))}
+          </div>
+        ) : null}
+
         {state.type === "confirm-reopen-archived" ? (
           <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-100">
             Reopening will make the prior workspace active again and reuse
@@ -823,6 +1141,22 @@ function OpenFromGithubDialog({
 
         {state.type === "choose-space" ? (
           <div className="space-y-4">
+            {state.target.type === "create-tree-blob" ? (
+              <div className="rounded-lg border border-blue-500/30 bg-blue-500/10 p-3 text-sm text-blue-100">
+                Create new VK workspace branch from {" "}
+                <span className="font-mono">{state.target.targetBranch}</span>.
+                {state.target.target.path ? (
+                  <>
+                    {" "}
+                    Initial prompt includes path {" "}
+                    <span className="font-mono">
+                      {state.target.target.path}
+                    </span>
+                    .
+                  </>
+                ) : null}
+              </div>
+            ) : null}
             <div className="space-y-2">
               {spaces.length === 0 ? (
                 <div className="rounded-lg border border-neutral-800 bg-neutral-950 p-3 text-sm text-neutral-500">
