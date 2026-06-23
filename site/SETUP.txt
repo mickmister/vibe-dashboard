@@ -12,4 +12,13 @@ pnpm build generates a static site at .docs/.output/public.
 
 nuxt is listed as a direct dev dependency because Undocs resolves Nuxt from the docs workspace during builds when installed with pnpm.
 
-CI deploys the built docs with Cloudflare Workers using the CLOUDFLARE_API_TOKEN repository secret.
+Deployment:
+  Production URL: https://vibedashboard.dev
+  Production deploys run on pushes to main.
+  PRs from this repository upload Cloudflare Workers preview versions with the alias pr-<number>.
+  Fork PRs run the docs build but do not receive deploy secrets.
+
+Secrets/config:
+  Keep site/.env.schema as the non-secret contract for CI and local docs configuration.
+  Doppler should sync CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN into the docs-preview and docs-production GitHub Environments.
+  Use least-privilege Cloudflare tokens scoped to this Worker/account, and rotate them from Doppler rather than editing GitHub secrets directly.

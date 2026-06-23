@@ -2,8 +2,8 @@ export default {
   name: 'Vibe Kanban VS Code Web',
   shortDescription: 'Documentation',
   description: 'Docs for running and developing Vibe Kanban VS Code Web.',
-  url: 'https://example.com',
-  github: 'vibe-kanban/vibe-kanban-vscode-web',
+  url: process.env.DOCS_SITE_URL || 'https://vibedashboard.dev',
+  github: process.env.DOCS_GITHUB_REPO || 'mickmister/vibe-dashboard',
   themeColor: 'violet',
   landing: {
     heroTitle: 'Vibe Kanban VS Code Web',
