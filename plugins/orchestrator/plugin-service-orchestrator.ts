@@ -229,7 +229,7 @@ export function createPluginServiceDryRunPlan(input: {
   const artifacts = input.catalog.plugins.flatMap((plugin) => createArtifactPlans(plugin, input.paths, input.cachedArtifacts));
   const desiredSupervisorConfigs = new Map<string, SupervisorConfigChange>();
 
-  for (const plugin of input.catalog.plugins) {
+  for (const plugin of enabledPlugins(input.catalog)) {
     for (const service of plugin.services) {
       const path = supervisorConfigPath(input.paths, plugin, service);
       const content = renderSupervisorProgramConfig({ plugin, service, paths: input.paths });
@@ -477,7 +477,7 @@ export function renderCaddyPluginExposureConfig(input: {
   validateCatalog(input.catalog);
 
   const snippets: string[] = [];
-  for (const plugin of input.catalog.plugins) {
+  for (const plugin of enabledPlugins(input.catalog)) {
     for (const service of plugin.services) {
       if (!service.httpExposure) continue;
       const port = getServicePortByName(plugin, service, service.httpExposure.port);
@@ -972,6 +972,10 @@ function createArtifactPlans(
       signature: variant.signature,
     };
   });
+}
+
+function enabledPlugins(catalog: PluginServiceCatalog): PluginServiceDefinition[] {
+  return catalog.plugins.filter((plugin) => catalog.pluginStates?.[plugin.id]?.enable ?? true);
 }
 
 function packageInstallerName(installer: Exclude<PluginInstallerDefinition, { kind: 'github-release-asset' } | { kind: 'bundled-current-repo' }>): string {

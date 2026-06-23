@@ -147,6 +147,68 @@ describe('plugin service supervisor orchestration dry run', () => {
     );
   });
 
+  it('omits built-in plugins disabled via instance pluginStates from runtime Supervisor and Caddy config while planning supervisor removal, then re-enables them', () => {
+    const catalog = composeCatalogs([
+      structuredClone(firstPartyPluginCatalog) as PluginServiceCatalog,
+      { plugins: [], pluginStates: { 'vd.beads-web': { enable: false } } },
+    ]);
+    const existingConfig = renderSupervisorProgramConfig({
+      plugin: (firstPartyPluginCatalog as PluginServiceCatalog).plugins[0]!,
+      service: (firstPartyPluginCatalog as PluginServiceCatalog).plugins[0]!.services[0]!,
+      paths,
+    });
+
+    const disabledPlan = createPluginServiceDryRunPlan({
+      catalog,
+      paths,
+      cachedArtifacts: [],
+      existingSupervisorConfigs: {
+        '/etc/supervisor/conf.d/vd-generated/vd-plugin--vd_beads_web--web.conf': existingConfig,
+      },
+      existingCaddyPluginConfig: '# previous generated plugin routes\n',
+    });
+
+    expect(disabledPlan.supervisorChanges).toEqual([
+      expect.objectContaining({
+        action: 'delete',
+        path: '/etc/supervisor/conf.d/vd-generated/vd-plugin--vd_beads_web--web.conf',
+      }),
+    ]);
+    expect(disabledPlan.caddyConfigChange).toEqual(expect.objectContaining({
+      action: 'update',
+      content: expect.not.stringContaining('beads-web.{$PROXY_DOMAIN}'),
+    }));
+    expect(disabledPlan.artifacts).toEqual([
+      expect.objectContaining({
+        action: 'download',
+        pluginId: 'vd.beads-web',
+      }),
+    ]);
+
+    const reenabledCatalog = composeCatalogs([
+      structuredClone(firstPartyPluginCatalog) as PluginServiceCatalog,
+      { plugins: [], pluginStates: { 'vd.beads-web': { enable: true } } },
+    ]);
+    const reenabledPlan = createPluginServiceDryRunPlan({
+      catalog: reenabledCatalog,
+      paths,
+      cachedArtifacts: [],
+      existingSupervisorConfigs: {},
+      existingCaddyPluginConfig: disabledPlan.caddyConfigChange?.content,
+    });
+
+    expect(reenabledPlan.supervisorChanges).toEqual([
+      expect.objectContaining({
+        action: 'create',
+        program: 'vd-plugin--vd_beads_web--web',
+      }),
+    ]);
+    expect(reenabledPlan.caddyConfigChange).toEqual(expect.objectContaining({
+      action: 'update',
+      content: expect.stringContaining('beads-web.{$PROXY_DOMAIN}'),
+    }));
+  });
+
   it('renders plugin-owned Caddy exposure as structured host snippets without raw Caddyfile input', () => {
     const content = renderCaddyPluginExposureConfig({
       catalog: beadsWebOnlyCatalog as PluginServiceCatalog,
