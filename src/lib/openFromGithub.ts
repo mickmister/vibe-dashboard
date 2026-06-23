@@ -139,12 +139,15 @@ export function parseGithubTreeBlobUrl(
     return null;
   }
 
+  const decodedSegments = safeDecodeSegments(segments);
+  if (!decodedSegments) return null;
+
   return {
     kind,
     owner,
     repo,
     normalizedRepo: normalizeRepoParts(owner, repo),
-    segments: segments.map(decodeURIComponent),
+    segments: decodedSegments,
     normalizedUrl: `https://github.com/${normalizeRepoParts(owner, repo)}/${kind}/${segments.join("/")}`,
   };
 }
@@ -408,6 +411,14 @@ function parseGithubNumberedUrl(
 
 function normalizeRepoParts(owner: string, repo: string): string {
   return `${owner.toLowerCase()}/${repo.replace(/\.git$/i, "").toLowerCase()}`;
+}
+
+function safeDecodeSegments(segments: string[]): string[] | null {
+  try {
+    return segments.map(decodeURIComponent);
+  } catch {
+    return null;
+  }
 }
 
 function getGithubRefForBranch(

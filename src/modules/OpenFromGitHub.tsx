@@ -918,7 +918,15 @@ export function OpenFromGitHub({
           return;
         }
         void resolveTreeBlobMatch(match, dialog.target.target, () => {
-          return !mountedRef.current;
+          const requestedUrl = getOpenFromGithubUrl(
+            latestRuntimeRef.current.location.search,
+          );
+          const parsed = requestedUrl ? parseGithubOpenUrl(requestedUrl) : null;
+          return (
+            !mountedRef.current ||
+            parsed?.type !== "tree-blob" ||
+            parsed.target.normalizedUrl !== dialog.target.target.normalizedUrl
+          );
         });
       }}
       onSelectBranch={(branch) => {
