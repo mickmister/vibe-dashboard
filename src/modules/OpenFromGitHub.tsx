@@ -753,6 +753,7 @@ export function OpenFromGitHub({
 
       try {
         const prInfo = await vkClient.getPrInfo(parsedPr.normalizedPrUrl);
+        if (cancelled) return;
         const summaries = await vkClient.getWorkspaceSummaries(false);
         const existingWorkspaceId = findWorkspaceIdForPr(
           summaries.summaries,
@@ -792,6 +793,7 @@ export function OpenFromGitHub({
         }
 
         const repos = await vkClient.getRepos();
+        if (cancelled) return;
         const remoteResults = await Promise.allSettled(
           repos.map(async (repo) => ({
             repoId: repo.id,

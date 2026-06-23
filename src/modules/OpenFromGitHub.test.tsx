@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { WorkspaceState } from "../types";
 import { OpenFromGitHub } from "./OpenFromGitHub";
@@ -56,11 +56,8 @@ const workspaceWithOpenTab = {
   nextId: 2,
 } satisfies WorkspaceState;
 
-function renderOpenFromGithub(
-  workspace: WorkspaceState,
-  githubUrl = "https://github.com/Owner/Repo/pull/7",
-) {
-  const props = {
+function createOpenFromGithubProps(workspace: WorkspaceState) {
+  return {
     workspace,
     addSpace: vi.fn(),
     deleteTabGroup: vi.fn(),
@@ -68,18 +65,57 @@ function renderOpenFromGithub(
     selectSessionTabGroup: vi.fn(),
     selectSessionTab: vi.fn(),
   };
+}
+
+function renderOpenFromGithub(
+  workspace: WorkspaceState,
+  githubUrl = "https://github.com/Owner/Repo/pull/7",
+) {
+  return renderOpenFromGithubAt(
+    workspace,
+    `/dashboard?voyage=abc&open_from_github=${encodeURIComponent(githubUrl)}`,
+  );
+}
+
+function renderOpenFromGithubAt(
+  workspace: WorkspaceState,
+  initialEntry: string,
+) {
+  const props = createOpenFromGithubProps(workspace);
 
   const view = render(
-    <MemoryRouter
-      initialEntries={[
-        `/dashboard?voyage=abc&open_from_github=${encodeURIComponent(githubUrl)}`,
-      ]}
-    >
+    <MemoryRouter initialEntries={[initialEntry]}>
       <OpenFromGitHub {...props} />
     </MemoryRouter>,
   );
 
   return { ...view, props };
+}
+
+function renderOpenFromGithubWithLocation(
+  workspace: WorkspaceState,
+  initialEntry: string,
+) {
+  const locations: string[] = [];
+
+  function LocationProbe() {
+    const location = useLocation();
+    locations.push(`${location.pathname}${location.search}${location.hash}`);
+    return null;
+  }
+
+  const props = createOpenFromGithubProps(workspace);
+
+  const view = render(
+    <MemoryRouter initialEntries={[initialEntry]}>
+      <LocationProbe />
+      <OpenFromGitHub {...props} />
+    </MemoryRouter>,
+  );
+
+  const latestLocation = () => locations.at(-1) || "";
+
+  return { ...view, props, latestLocation };
 }
 
 describe("OpenFromGitHub", () => {
@@ -151,6 +187,123 @@ describe("OpenFromGitHub", () => {
       );
     });
     expect(vkClient.getWorkspace).not.toHaveBeenCalled();
+  });
+
+  it("cleans only open_from_github after selecting an already-open workspace", async () => {
+    vi.mocked(vkClient.getPrInfo).mockResolvedValue({
+      number: 7,
+      url: "https://github.com/owner/repo/pull/7",
+      status: "open",
+      title: "Fix bug",
+      base_branch: "main",
+      head_branch: "fix-bug",
+    });
+    vi.mocked(vkClient.getWorkspaceSummaries).mockResolvedValue({
+      summaries: [
+        {
+          workspace_id: "ws-1",
+          pr_number: 7,
+          pr_url: "https://github.com/owner/repo/pull/7",
+          has_pending_approval: false,
+          files_changed: null,
+          lines_added: null,
+          lines_removed: null,
+          latest_process_status: null,
+          has_running_dev_server: false,
+          has_unseen_turns: false,
+          pr_status: "open",
+        },
+      ],
+    });
+
+    const githubUrl = encodeURIComponent(
+      "https://github.com/Owner/Repo/pull/7",
+    );
+    const { latestLocation, props } = renderOpenFromGithubWithLocation(
+      workspaceWithOpenTab,
+      `/dashboard?utm=keep&open_from_github=${githubUrl}&voyage=abc`,
+    );
+
+    await waitFor(() => {
+      expect(props.selectSessionTabGroup).toHaveBeenCalledWith(
+        "space-a",
+        "tg-existing",
+      );
+    });
+    await waitFor(() => {
+      const search = new URL(latestLocation(), "https://vd.test").searchParams;
+      expect(search.get("open_from_github")).toBeNull();
+      expect(search.get("utm")).toBe("keep");
+      expect(search.get("voyage")).toBe("abc");
+    });
+    expect(vkClient.getPrInfo).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not start URL-driven orchestration when the cleaned URL is refreshed", async () => {
+    renderOpenFromGithubAt(
+      workspaceWithOpenTab,
+      "/dashboard?utm=keep&voyage=abc",
+    );
+
+    await Promise.resolve();
+
+    expect(vkClient.getPrInfo).not.toHaveBeenCalled();
+    expect(vkClient.ensureGithubRepo).not.toHaveBeenCalled();
+  });
+
+  it("cleans only open_from_github after an unsupported URL error", async () => {
+    const { findByText, latestLocation } = renderOpenFromGithubWithLocation(
+      emptyWorkspace,
+      `/dashboard?utm=keep&open_from_github=${encodeURIComponent(
+        "https://example.com/nope",
+      )}&voyage=abc`,
+    );
+
+    await findByText("Unsupported GitHub URL");
+    await waitFor(() => {
+      const search = new URL(latestLocation(), "https://vd.test").searchParams;
+      expect(search.get("open_from_github")).toBeNull();
+      expect(search.get("utm")).toBe("keep");
+      expect(search.get("voyage")).toBe("abc");
+    });
+  });
+
+  it("cancels in-flight URL orchestration and preserves unrelated query params", async () => {
+    const prInfo = deferred<Awaited<ReturnType<typeof vkClient.getPrInfo>>>();
+    vi.mocked(vkClient.getPrInfo).mockReturnValue(prInfo.promise);
+
+    const githubUrl = encodeURIComponent(
+      "https://github.com/Owner/Repo/pull/7",
+    );
+    const { findByText, latestLocation, props } =
+      renderOpenFromGithubWithLocation(
+        emptyWorkspace,
+        `/dashboard?utm=keep&open_from_github=${githubUrl}&voyage=abc`,
+      );
+
+    fireEvent.click(await findByText("Cancel"));
+
+    await waitFor(() => {
+      const search = new URL(latestLocation(), "https://vd.test").searchParams;
+      expect(search.get("open_from_github")).toBeNull();
+      expect(search.get("utm")).toBe("keep");
+      expect(search.get("voyage")).toBe("abc");
+    });
+
+    prInfo.resolve({
+      number: 7,
+      url: "https://github.com/owner/repo/pull/7",
+      status: "open",
+      title: "Fix bug",
+      base_branch: "main",
+      head_branch: "fix-bug",
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(vkClient.getWorkspaceSummaries).not.toHaveBeenCalled();
+    expect(props.addVKWorkspace).not.toHaveBeenCalled();
+    expect(props.selectSessionTabGroup).not.toHaveBeenCalled();
   });
 
   it("ensures an unregistered GitHub repo before asking where to open the PR", async () => {
