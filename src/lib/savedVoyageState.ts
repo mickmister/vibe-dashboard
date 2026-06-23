@@ -3,6 +3,7 @@ import type {
   SavedWorkspaceSessionState,
   WorkspaceState,
 } from '../types';
+import { buildVoyageSlug } from './voyageUrl';
 
 type SavedWorkspaceSessionState_v1 = {
   sessions?: unknown;
@@ -17,6 +18,46 @@ export function createSavedWorkspaceSessionState(
     version: SAVED_WORKSPACE_SESSION_STATE_VERSION,
     data,
   };
+}
+
+export function upsertSavedWorkspaceSessionState(
+  state: SavedWorkspaceSessionState | SavedWorkspaceSessionState_v1 | unknown,
+  session: SavedWorkspaceSession,
+): SavedWorkspaceSessionState {
+  const name = session.name?.trim();
+  const sessions = getSavedWorkspaceSessions(state).map((entry) => ({
+    ...entry,
+  }));
+
+  if (
+    !name ||
+    name.toLowerCase() === 'home' ||
+    !session.activeTabGroupId ||
+    !(session.voyageEntries?.length)
+  ) {
+    return createSavedWorkspaceSessionState(sessions);
+  }
+
+  const existing = sessions.find((entry) => entry.id === session.id);
+  const slug = buildVoyageSlug(name, session.id);
+
+  if (existing) {
+    existing.slug = slug;
+    existing.name = name;
+    existing.updatedAt = session.updatedAt;
+    existing.activeVoyageEntryId = session.activeVoyageEntryId;
+    existing.voyageEntries = session.voyageEntries;
+    existing.activeSpaceId = session.activeSpaceId;
+    existing.activeTabGroupId = session.activeTabGroupId;
+    existing.activeItemsByVoyageEntryId = session.activeItemsByVoyageEntryId;
+    existing.activeItems = session.activeItems;
+    existing.visitedTabGroupIds = session.visitedTabGroupIds;
+    existing.flowModeType = session.flowModeType;
+    return createSavedWorkspaceSessionState(sessions);
+  }
+
+  sessions.unshift({ ...session, slug, name });
+  return createSavedWorkspaceSessionState(sessions);
 }
 
 export function getSavedWorkspaceSessions(

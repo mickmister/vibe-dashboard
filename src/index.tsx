@@ -6,6 +6,7 @@ import {
   getSavedWorkspaceSessions,
   isSavedWorkspaceSessionStateMigrated,
   migrateSavedWorkspaceSessionStateWithCleanup,
+  upsertSavedWorkspaceSessionState,
 } from './lib/savedVoyageState';
 
 import springboard, { ModuleAPI } from 'springboard';
@@ -663,28 +664,9 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
           !args.activeTabGroupId ||
           !(args.voyageEntries?.length)
         ) return;
-        savedSessionsState.setState((current) => {
-          const sessions = getSavedWorkspaceSessions(current).map((session) => ({
-            ...session,
-          }));
-          const existing = sessions.find((session) => session.id === args.id);
-          if (existing) {
-            existing.slug = buildVoyageSlug(name, args.id);
-            existing.name = name;
-            existing.updatedAt = args.updatedAt;
-            existing.activeVoyageEntryId = args.activeVoyageEntryId;
-            existing.voyageEntries = args.voyageEntries;
-            existing.activeSpaceId = args.activeSpaceId;
-            existing.activeTabGroupId = args.activeTabGroupId;
-            existing.activeItemsByVoyageEntryId = args.activeItemsByVoyageEntryId;
-            existing.activeItems = args.activeItems;
-            existing.visitedTabGroupIds = args.visitedTabGroupIds;
-            return createSavedWorkspaceSessionState(sessions);
-          }
-
-          sessions.unshift({ ...args, slug: buildVoyageSlug(name, args.id), name });
-          return createSavedWorkspaceSessionState(sessions);
-        });
+        savedSessionsState.setState((current) =>
+          upsertSavedWorkspaceSessionState(current, args),
+        );
       },
       renameSavedSession: async (args: { id: string; name: string }) => {
         savedSessionsState.setState((current) => {

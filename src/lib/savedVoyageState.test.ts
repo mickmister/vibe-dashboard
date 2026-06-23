@@ -5,6 +5,7 @@ import {
   isSavedWorkspaceSessionStateMigrated,
   migrateSavedWorkspaceSessionState,
   migrateSavedWorkspaceSessionStateWithCleanup,
+  upsertSavedWorkspaceSessionState,
 } from './savedVoyageState';
 import type { SavedWorkspaceSession } from '../types';
 
@@ -19,6 +20,71 @@ function session(id: string): SavedWorkspaceSession {
     visitedTabGroupIds: ['tg_1'],
   };
 }
+
+function namedVoyage(id: string): SavedWorkspaceSession {
+  return {
+    ...session(id),
+    slug: `old-${id}`,
+    name: 'Focused voyage',
+    activeVoyageEntryId: 'entry_1',
+    voyageEntries: [
+      {
+        id: 'entry_1',
+        tabGroupId: 'tg_1',
+        viewIds: ['tab_1'],
+      },
+    ],
+  };
+}
+
+describe('saved voyage upsert', () => {
+  it('persists flow mode updates for existing voyages', () => {
+    const existing = {
+      ...namedVoyage('voyage_1'),
+      flowModeType: 'round-robin' as const,
+    };
+    const updated = {
+      ...existing,
+      updatedAt: '2026-06-03T00:00:00.000Z',
+      flowModeType: 'priority' as const,
+    };
+
+    expect(
+      upsertSavedWorkspaceSessionState(
+        createSavedWorkspaceSessionState([existing]),
+        updated,
+      ),
+    ).toEqual({
+      version: 2,
+      data: [
+        {
+          ...updated,
+          slug: 'focused-voyage-voyage_1',
+          name: 'Focused voyage',
+        },
+      ],
+    });
+  });
+
+  it('normalizes new voyage name and slug while preserving flow mode', () => {
+    const voyage = {
+      ...namedVoyage('voyage_2'),
+      name: '  Pairing Loop  ',
+      flowModeType: 'static' as const,
+    };
+
+    expect(upsertSavedWorkspaceSessionState([], voyage)).toEqual({
+      version: 2,
+      data: [
+        {
+          ...voyage,
+          slug: 'pairing-loop-voyage_2',
+          name: 'Pairing Loop',
+        },
+      ],
+    });
+  });
+});
 
 describe('savedVoyageState migration', () => {
   it('migrates legacy array state to versioned data', () => {
