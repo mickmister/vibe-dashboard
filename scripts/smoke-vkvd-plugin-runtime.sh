@@ -77,6 +77,22 @@ for attempt in $(seq 1 120); do
 done
 docker exec "$container_name" grep -q 'beads-web.{\$PROXY_DOMAIN}' /etc/caddy/plugins.caddy
 
+echo "Verifying runtime apply restarts manually stopped enabled beads-web plugin..."
+docker exec "$container_name" supervisorctl stop vd-plugin--vd_beads_web--web
+docker exec "$container_name" supervisorctl status vd-plugin--vd_beads_web--web | grep -q STOPPED
+docker exec "$container_name" /usr/local/bin/vd-plugin-runtime-apply.sh
+for attempt in $(seq 1 30); do
+  if docker exec "$container_name" supervisorctl status vd-plugin--vd_beads_web--web | grep -q RUNNING; then
+    break
+  fi
+  if [[ "$attempt" == "30" ]]; then
+    echo "Timed out waiting for runtime apply to return manually stopped beads-web to RUNNING" >&2
+    docker exec "$container_name" supervisorctl status vd-plugin--vd_beads_web--web || true
+    exit 1
+  fi
+  sleep 1
+done
+
 echo "Waiting for beads-web through generated Caddy plugin route..."
 for attempt in $(seq 1 180); do
   if curl -fsS -H "Host: ${beads_host}" "http://127.0.0.1:${caddy_port}/" -o /tmp/vd-beads-web.html; then

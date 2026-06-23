@@ -20,6 +20,69 @@ reload_caddy_with_retry() {
   return 1
 }
 
+desired_autostart_plugin_programs() {
+  config_dir="${VD_PLUGIN_SUPERVISOR_CONFIG_DIR:-/etc/supervisor/conf.d/vd-generated}"
+
+  for config_path in "$config_dir"/*.conf; do
+    [ -e "$config_path" ] || continue
+    awk '
+      /^\[program:vd-plugin--[a-zA-Z0-9_][a-zA-Z0-9_]*--[a-zA-Z0-9_][a-zA-Z0-9_]*\]$/ {
+        program = $0
+        sub(/^\[program:/, "", program)
+        sub(/\]$/, "", program)
+        autostart = ""
+        next
+      }
+
+      /^\[/ {
+        if (program != "" && autostart == "true") print program
+        program = ""
+        autostart = ""
+        next
+      }
+
+      /^autostart[[:space:]]*=[[:space:]]*true[[:space:]]*$/ {
+        if (program != "") autostart = "true"
+      }
+
+      END {
+        if (program != "" && autostart == "true") print program
+      }
+    ' "$config_path"
+  done
+}
+
+reconcile_enabled_plugin_programs() {
+  desired_autostart_plugin_programs | while IFS= read -r program; do
+    [ -n "$program" ] || continue
+
+    status_output="$(supervisorctl status "$program" 2>&1)" || {
+      echo "Failed to read supervisor status for enabled plugin program ${program}: ${status_output}" >&2
+      return 1
+    }
+    status="$(printf '%s\n' "$status_output" | awk 'NR == 1 { print $2 }')"
+    if [ "$status" = "RUNNING" ]; then
+      continue
+    fi
+
+    echo "Starting enabled plugin supervisor program ${program}; current status is ${status:-unknown}." >&2
+    start_output="$(supervisorctl start "$program" 2>&1)" || {
+      echo "Failed to start enabled plugin supervisor program ${program}. Previous status: ${status:-unknown}. supervisorctl output: ${start_output}" >&2
+      return 1
+    }
+
+    status_output="$(supervisorctl status "$program" 2>&1)" || {
+      echo "Failed to verify supervisor status for enabled plugin program ${program} after start: ${status_output}" >&2
+      return 1
+    }
+    status="$(printf '%s\n' "$status_output" | awk 'NR == 1 { print $2 }')"
+    if [ "$status" != "RUNNING" ]; then
+      echo "Enabled plugin supervisor program ${program} did not reach RUNNING after start. Current status: ${status:-unknown}. supervisorctl output: ${status_output}" >&2
+      return 1
+    fi
+  done
+}
+
 # Reconcile plugin services after the core supervisor-managed services have
 # started. Caddy starts with /etc/caddy/plugins.caddy present, and this runtime
 # apply updates that plugin-owned file plus generated supervisor programs when
@@ -39,6 +102,7 @@ VD_PLUGIN_ORCHESTRATOR_INSTALL_ARTIFACTS=true \
 
 supervisorctl reread
 supervisorctl update
+reconcile_enabled_plugin_programs
 
 # Caddy is intentionally kept up during plugin installation. Once plugin-owned
 # routes are generated, reload Caddy in-place so new plugin subdomains activate
