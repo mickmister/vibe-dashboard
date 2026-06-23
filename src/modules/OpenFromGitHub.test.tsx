@@ -191,6 +191,16 @@ describe("OpenFromGitHub", () => {
     expect(vkClient.getRepoRemotes).toHaveBeenCalledWith("repo-1");
   });
 
+  it("shows an unsupported error instead of throwing for malformed tree/blob encodings", async () => {
+    const { findByText } = renderOpenFromGithub(
+      emptyWorkspace,
+      "https://github.com/owner/repo/tree/%E0%A4%A",
+    );
+
+    await findByText("Unsupported GitHub URL");
+    expect(vkClient.getRepos).not.toHaveBeenCalled();
+    expect(vkClient.createWorkspaceFromTreeBlob).not.toHaveBeenCalled();
+  });
 
   it("creates a workspace branch from a tree URL remote branch and shows V1 limitation copy", async () => {
     vi.mocked(vkClient.getRepos).mockResolvedValue([
@@ -240,6 +250,98 @@ describe("OpenFromGitHub", () => {
         }),
       );
     });
+  });
+
+  it("lets tree/blob URLs choose among multiple matching repos before creating", async () => {
+    vi.mocked(vkClient.getRepos).mockResolvedValue([
+      { id: "repo-1", name: "repo-a", display_name: "Repo A" },
+      { id: "repo-2", name: "repo-b", display_name: "Repo B" },
+    ]);
+    vi.mocked(vkClient.getRepoRemotes).mockImplementation(async (repoId) => [
+      {
+        name: "origin",
+        url:
+          repoId === "repo-1"
+            ? "https://github.com/owner/repo.git"
+            : "git@github.com:owner/repo.git",
+      },
+    ]);
+    vi.mocked(vkClient.getRepoBranches).mockImplementation(async (repoId) =>
+      repoId === "repo-2"
+        ? [
+            {
+              name: "origin/feature/demo",
+              is_current: false,
+              is_remote: true,
+              last_commit_date: "2026-06-22T00:00:00Z",
+            },
+          ]
+        : [],
+    );
+    vi.mocked(vkClient.createWorkspaceFromTreeBlob).mockResolvedValue({
+      workspace: {
+        id: "ws-tree",
+        task_id: "task-tree",
+        container_ref: "/tmp/ws-tree",
+        branch: "vk/tree",
+        agent_working_dir: null,
+        created_at: "2026-06-22T00:00:00Z",
+        updated_at: "2026-06-22T00:00:00Z",
+        archived: false,
+        pinned: false,
+        name: "Tree",
+      },
+    });
+
+    const { findByText } = renderOpenFromGithub(
+      emptyWorkspace,
+      "https://github.com/owner/repo/tree/feature/demo/src",
+    );
+
+    await findByText("Choose repository");
+    fireEvent.click(await findByText("Repo B"));
+    await findByText(/V1 creates a new VK workspace branch from origin\/feature\/demo/);
+    fireEvent.click(await findByText("A"));
+
+    await waitFor(() => {
+      expect(vkClient.getRepoBranches).toHaveBeenCalledWith("repo-2");
+      expect(vkClient.createWorkspaceFromTreeBlob).toHaveBeenCalledWith(
+        expect.objectContaining({
+          repo_id: "repo-2",
+          target_branch: "origin/feature/demo",
+          path: "src",
+        }),
+      );
+    });
+  });
+
+  it("shows an actionable error when a tree/blob ref is neither branch nor commit", async () => {
+    vi.mocked(vkClient.getRepos).mockResolvedValue([
+      { id: "repo-1", name: "repo", display_name: "Repo" },
+    ]);
+    vi.mocked(vkClient.getRepoRemotes).mockResolvedValue([
+      { name: "origin", url: "https://github.com/owner/repo.git" },
+    ]);
+    vi.mocked(vkClient.getRepoBranches).mockResolvedValue([
+      {
+        name: "origin/main",
+        is_current: false,
+        is_remote: true,
+        last_commit_date: "2026-06-22T00:00:00Z",
+      },
+    ]);
+
+    const { findAllByText, findByText } = renderOpenFromGithub(
+      emptyWorkspace,
+      "https://github.com/owner/repo/tree/v1.0.0",
+    );
+
+    await findByText("Unsupported GitHub ref");
+    expect(
+      await findAllByText(/Tags and missing refs are unsupported/),
+    ).not.toHaveLength(0);
+    expect(vkClient.getGitBranchesContainingCommit).not.toHaveBeenCalled();
+    expect(vkClient.createWorkspaceFromTreeBlob).not.toHaveBeenCalled();
   });
 
   it("ensures an unregistered repo for blob URLs and includes blob path context", async () => {

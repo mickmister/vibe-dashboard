@@ -917,7 +917,8 @@ export function OpenFromGitHub({
           });
           return;
         }
-        void resolveTreeBlobMatch(match, dialog.target.target, () => {
+        const treeBlobTarget = dialog.target.target;
+        void resolveTreeBlobMatch(match, treeBlobTarget, () => {
           const requestedUrl = getOpenFromGithubUrl(
             latestRuntimeRef.current.location.search,
           );
@@ -925,7 +926,7 @@ export function OpenFromGitHub({
           return (
             !mountedRef.current ||
             parsed?.type !== "tree-blob" ||
-            parsed.target.normalizedUrl !== dialog.target.target.normalizedUrl
+            parsed.target.normalizedUrl !== treeBlobTarget.normalizedUrl
           );
         });
       }}

@@ -177,6 +177,12 @@ describe("openFromGithub tree/blob", () => {
     ).toMatchObject({ type: "tree-blob" });
   });
 
+  it("rejects tree/blob URLs with malformed percent-encoded segments", () => {
+    expect(
+      parseGithubOpenUrl("https://github.com/owner/repo/tree/%E0%A4%A"),
+    ).toBeNull();
+  });
+
   it("resolves branch names with slashes by longest branch match and prefers origin", async () => {
     const mod = await import("./openFromGithub");
     const target = mod.parseGithubTreeBlobUrl(
