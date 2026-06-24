@@ -4,3 +4,6 @@ node_modules
 .data
 .cache
 nitro.json
+.docs/*
+!.docs/public/
+!.docs/public/icon.svg

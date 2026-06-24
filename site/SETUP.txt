@@ -1,4 +1,4 @@
-Vibe Kanban Docs Site
+Vibe Dashboard Docs Site
 
 This folder is a standalone pnpm workspace for the Undocs-powered documentation site.
 
