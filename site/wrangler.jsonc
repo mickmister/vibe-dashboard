@@ -1,6 +1,6 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
-  "name": "vibe-kanban-vscode-web-docs",
+  "name": "vibe-dashboard-docs",
   "compatibility_date": "2026-06-11",
   "preview_urls": true,
   "routes": [
