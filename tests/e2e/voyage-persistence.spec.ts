@@ -175,6 +175,7 @@ async function waitForSavedVoyageWithCraft(
           tabGroups?: Array<{
             id: string;
             label: string;
+            workspace?: { workspaceId: string; workspaceDir: string };
             tabs: Array<{ id: string; title: string }>;
           }>;
         }>(request, WORKSPACE_STATE_KEY),
@@ -187,7 +188,9 @@ async function waitForSavedVoyageWithCraft(
       const activeCraft = workspaceState?.tabGroups?.find(
         (tabGroup) => tabGroup.id === activeEntry?.tabGroupId,
       );
-      const activeAgentTab = activeCraft?.tabs.find((tab) => tab.title === 'Agent');
+      const activeAgentTab =
+        activeCraft?.tabs.find((tab) => tab.title === 'Agent') ||
+        (activeCraft?.workspace ? { id: 'agent', title: 'Agent' } : undefined);
       const activeItemId =
         activeEntry && session?.activeItemsByVoyageEntryId?.[activeEntry.id];
 
@@ -1050,7 +1053,7 @@ test.describe('voyage persistence', () => {
       await openSidebarButton.click();
     }
     await page.getByRole('button', { name: '+ View' }).dispatchEvent('click');
-    await page.getByRole('option', { name: 'Open Existing Craft' }).click();
+    await page.getByRole('option', { name: 'Open Existing Workspace' }).click();
     await expect(page.getByRole('heading', { name: 'Open VK Workspace' })).toBeVisible();
     await page.getByPlaceholder('Search workspaces...').fill(menuWorkspace.name);
     await page.getByRole('button', { name: new RegExp(menuWorkspace.name) }).click();
@@ -1066,7 +1069,7 @@ test.describe('voyage persistence', () => {
       await openSidebarButton.click();
     }
     await page.getByRole('button', { name: '+ View' }).dispatchEvent('click');
-    await page.getByRole('option', { name: 'Open Existing Craft' }).click();
+    await page.getByRole('option', { name: 'Open Existing Workspace' }).click();
     await expect(page.getByRole('heading', { name: 'Open VK Workspace' })).toBeVisible();
     await page.getByPlaceholder('Search workspaces...').fill(addViewWorkspace.name);
     await page.getByRole('button', { name: new RegExp(addViewWorkspace.name) }).click();
@@ -1080,7 +1083,7 @@ test.describe('voyage persistence', () => {
     await waitForSavedVoyageWithCraft(page.request, voyageId, addViewCraftLabel, 4);
 
     await page
-      .getByRole('button', { name: /Overview 1 tab/ })
+      .getByRole('button', { name: /Overview \d+ tabs/ })
       .filter({ visible: true })
       .first()
       .dispatchEvent('click');

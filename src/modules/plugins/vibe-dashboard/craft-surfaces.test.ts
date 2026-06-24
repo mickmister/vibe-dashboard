@@ -150,6 +150,72 @@ describe("dynamic Craft surfaces", () => {
     ).toBe("http://[::1]:3109");
   });
 
+  it("keeps create-workspace tabs even though their URL is under /workspaces", () => {
+    const effective = createEffectiveWorkspaceWithCraftSurfaces({
+      workspace: {
+        ...workspace,
+        tabGroups: [
+          {
+            id: "craft_create_workspace",
+            label: "Create Workspace",
+            tabs: [
+              {
+                id: "tab_create_workspace",
+                title: "Create Workspace",
+                url: "https://vd.example.test/workspaces/create",
+              },
+            ],
+            pairs: [],
+            order: 0,
+          },
+        ],
+      },
+      craftSurfaces: [],
+      origin: "https://vd.example.test",
+    });
+
+    expect(effective.tabGroups[0]!.tabs).toEqual([
+      {
+        id: "tab_create_workspace",
+        title: "Create Workspace",
+        url: "https://vd.example.test/workspaces/create",
+      },
+    ]);
+  });
+
+  it("keeps custom Agent tabs on non-workspace Crafts", () => {
+    const effective = createEffectiveWorkspaceWithCraftSurfaces({
+      workspace: {
+        ...workspace,
+        tabGroups: [
+          {
+            id: "craft_custom_agent",
+            label: "Custom Agent Craft",
+            tabs: [
+              {
+                id: "tab_agent",
+                title: "Agent",
+                url: "https://example.invalid/agent",
+              },
+            ],
+            pairs: [],
+            order: 0,
+          },
+        ],
+      },
+      craftSurfaces: [],
+      origin: "https://vd.example.test",
+    });
+
+    expect(effective.tabGroups[0]!.tabs).toEqual([
+      {
+        id: "tab_agent",
+        title: "Agent",
+        url: "https://example.invalid/agent",
+      },
+    ]);
+  });
+
   it("migrates old persisted Agent and Code tabs into Craft workspace metadata", () => {
     const migrated = migrateWorkspaceBuiltInTabs({
       spaces: [

@@ -75,17 +75,22 @@ export function getEffectiveTabs(
     origin?: string;
   } = {},
 ): Tab[] {
-  const generatedTabs = [
-    ...getBuiltInWorkspaceTabs(tabGroup, options.origin ?? ""),
-    ...getCraftSurfaceTabs({
-      tabGroup,
-      craftSurfaces: options.craftSurfaces ?? [],
-      origin: options.origin ?? "",
-    }),
-  ];
+  const builtInWorkspaceTabs = getBuiltInWorkspaceTabs(
+    tabGroup,
+    options.origin ?? "",
+  );
+  const craftSurfaceTabs = getCraftSurfaceTabs({
+    tabGroup,
+    craftSurfaces: options.craftSurfaces ?? [],
+    origin: options.origin ?? "",
+  });
+  const generatedTabs = [...builtInWorkspaceTabs, ...craftSurfaceTabs];
   const generatedIds = new Set(generatedTabs.map((tab) => tab.id));
   const customTabs = tabGroup.tabs.filter(
-    (tab) => !generatedIds.has(tab.id) && !isGeneratedWorkspaceTab(tab),
+    (tab) =>
+      !generatedIds.has(tab.id) &&
+      !isEphemeralPluginSurfaceTab(tab) &&
+      !(builtInWorkspaceTabs.length > 0 && isGeneratedWorkspaceTab(tab)),
   );
   if (
     generatedTabs.length === 0 &&
@@ -94,6 +99,15 @@ export function getEffectiveTabs(
     return tabGroup.tabs;
   }
   return [...generatedTabs, ...customTabs];
+}
+
+function isEphemeralPluginSurfaceTab(
+  tab: Pick<Tab, "id" | "ephemeral"> | undefined,
+): boolean {
+  return Boolean(
+    tab?.ephemeral?.kind === "craft-surface" ||
+      tab?.id.startsWith(CRAFT_SURFACE_TAB_ID_PREFIX),
+  );
 }
 
 export function getEffectivePairs(tabGroup: TabGroup, origin = ""): ViewPair[] {

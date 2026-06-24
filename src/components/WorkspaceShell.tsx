@@ -374,6 +374,16 @@ export function WorkspaceShell({
   const currentSessionIdRef = useRef(currentSessionId);
   currentSessionIdRef.current = currentSessionId;
   const pendingOpenCraftOperationIdRef = useRef<string | null>(null);
+  const effectiveWorkspace = useMemo(
+    () =>
+      createEffectiveWorkspaceWithCraftSurfaces({
+        workspace,
+        craftSurfaces: Object.values(pluginRegistry.craftSurfaces),
+        origin: typeof window === "undefined" ? "" : window.location.origin,
+      }),
+    [pluginRegistry.craftSurfaces, workspace],
+  );
+
   const openCraftMutation = useMutation<
     void,
     Error,
@@ -387,6 +397,7 @@ export function WorkspaceShell({
           request.name,
           request.containerRef,
           request.spaceId,
+          request.factoryKey,
         );
         return;
       }
@@ -650,7 +661,7 @@ export function WorkspaceShell({
   };
 
   const isWorkspaceSelectionReady = (selection: VoyageCraftSelection) => {
-    const space = workspace.spaces.find(
+    const space = effectiveWorkspace.spaces.find(
       (entry) => entry.id === selection.spaceId,
     );
     if (!space?.tabGroupIds.includes(selection.tabGroupId)) return false;
@@ -658,7 +669,7 @@ export function WorkspaceShell({
     if (!selection.tabId) return true;
 
     return Boolean(
-      workspace.tabGroups
+      effectiveWorkspace.tabGroups
         .find((entry) => entry.id === selection.tabGroupId)
         ?.tabs.some((tab) => tab.id === selection.tabId),
     );
@@ -872,8 +883,8 @@ export function WorkspaceShell({
   }, [
     pendingWorkspaceSelection,
     sessionActions,
-    workspace.spaces,
-    workspace.tabGroups,
+    effectiveWorkspace.spaces,
+    effectiveWorkspace.tabGroups,
   ]);
 
   // --- Add tab modal handler ---
@@ -1505,16 +1516,6 @@ export function WorkspaceShell({
       sessionActions.setActiveTabGroup(result.tabGroupId);
     }
   };
-
-  const effectiveWorkspace = useMemo(
-    () =>
-      createEffectiveWorkspaceWithCraftSurfaces({
-        workspace,
-        craftSurfaces: Object.values(pluginRegistry.craftSurfaces),
-        origin: typeof window === "undefined" ? "" : window.location.origin,
-      }),
-    [pluginRegistry.craftSurfaces, workspace],
-  );
 
   const [ephemeralActiveItems, setEphemeralActiveItems] = useState<
     Record<string, string>

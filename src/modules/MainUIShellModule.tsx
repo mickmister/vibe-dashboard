@@ -1,7 +1,7 @@
 import "@vitejs/plugin-react/preamble";
 import "../styles";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { HeroUIProvider } from "@heroui/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -29,6 +29,7 @@ import {
 } from "../lib/pluginAdminApi";
 import { usePluginRegistry } from "./plugins/vibe-dashboard/registry";
 import type { ResolvedWorkspaceComposition } from "./plugins/vibe-dashboard/workspace-composition";
+import { createEffectiveWorkspaceWithCraftSurfaces } from "./plugins/vibe-dashboard/craft-surfaces";
 
 // Ensure dark class is on the document root so portaled elements (modals, popovers)
 // inherit dark mode styles
@@ -154,6 +155,15 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
 
     const workspace = workspaceModule.states.workspace.useState();
     const pluginRegistryState = usePluginRegistry();
+    const effectiveWorkspace = useMemo(
+      () =>
+        createEffectiveWorkspaceWithCraftSurfaces({
+          workspace,
+          craftSurfaces: Object.values(pluginRegistryState.craftSurfaces),
+          origin: typeof window === "undefined" ? "" : window.location.origin,
+        }),
+      [pluginRegistryState.craftSurfaces, workspace],
+    );
     const savedSessions = workspaceModule.states.savedVoyages.useState();
     const savedVoyages = getSavedWorkspaceSessions(savedSessions);
     const actions = workspaceModule.actions;
@@ -200,7 +210,7 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
           : missingParamFallbackSession
             ? buildSavedVoyageDashboardPath({
                 currentSearch: location.search,
-                workspace,
+                workspace: effectiveWorkspace,
                 session: missingParamFallbackSession,
                 savedSessions: savedVoyages,
               })
@@ -226,14 +236,18 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
       string | null
     >(null);
 
-    const querySelection = resolveQueryCraftSelection(
-      workspace,
-      activeSavedSession,
-      queryCraftParam,
-      queryViewsParam,
+    const querySelection = useMemo(
+      () =>
+        resolveQueryCraftSelection(
+          effectiveWorkspace,
+          activeSavedSession,
+          queryCraftParam,
+          queryViewsParam,
+        ),
+      [activeSavedSession, effectiveWorkspace, queryCraftParam, queryViewsParam],
     );
     const sessionNav = useSessionWorkspaceNav(
-      workspace,
+      effectiveWorkspace,
       {
         spaceId: querySelection.spaceId,
         tabGroupId: querySelection.tabGroupId,
@@ -285,7 +299,7 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
         navigate(
           buildSavedVoyageDashboardPath({
             currentSearch: location.search,
-            workspace,
+            workspace: effectiveWorkspace,
             session: savedSession,
             savedSessions: savedVoyages.some(
               (entry) => entry.id === savedSession.id,
@@ -336,7 +350,7 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
       sessionNav.activeSpaceId,
       sessionNav.activeTabGroupId,
       workspace.spaces,
-      workspace.tabGroups,
+      effectiveWorkspace.tabGroups,
     ]);
 
     // Record visit timestamp when active tab group changes
@@ -388,16 +402,11 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
         savedVoyages,
       );
 
-      if (
-        (queryCraftParam || queryViewsParam) &&
-        querySelection.voyageEntryId
-      ) {
+      if (queryCraftParam && queryViewsParam && querySelection.voyageEntryId) {
         const nextPath = buildCanonicalDashboardPath(location.search, {
           slug: currentVoyageSlug,
           craftParam: queryCraftParam,
-          viewTokens: queryViewsParam
-            ? queryViewsParam.split(",").filter(Boolean)
-            : undefined,
+          viewTokens: queryViewsParam.split(",").filter(Boolean),
         });
         if (nextPath !== currentPath) {
           navigate(nextPath, { replace: true });
@@ -407,28 +416,31 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
 
       const nextPath = buildSavedVoyageDashboardPath({
         currentSearch: location.search,
-        workspace,
+        workspace: effectiveWorkspace,
         session: activeSavedSession,
         savedSessions: savedVoyages,
+        ...(querySelection.voyageEntryId
+          ? { voyageEntryId: querySelection.voyageEntryId }
+          : {}),
+        ...(querySelection.viewIds?.length
+          ? { viewIds: querySelection.viewIds }
+          : {}),
       });
       if (nextPath !== currentPath) {
         navigate(nextPath, { replace: true });
       }
     }, [
-      activeSavedSession?.id,
-      activeSavedSession?.name,
-      activeSavedSession?.slug,
+      activeSavedSession,
       browserSessionId,
       dashboardVoyage.status,
-      location.search,
+      effectiveWorkspace,
       location.pathname,
+      location.search,
       navigate,
-      requestedVoyageKey,
       queryCraftParam,
-      querySelection.voyageEntryId,
+      querySelection,
       queryViewsParam,
       savedVoyages,
-      workspace.tabGroups,
     ]);
 
     const updateBookmarkedSessionSearch = (
@@ -460,7 +472,7 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
         : [...savedVoyages, session];
       const nextPath = buildSavedVoyageDashboardPath({
         currentSearch: location.search,
-        workspace,
+        workspace: effectiveWorkspace,
         session,
         savedSessions: savedSessionPeers,
         ...(voyageEntryId ? { voyageEntryId } : {}),
