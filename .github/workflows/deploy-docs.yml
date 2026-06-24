@@ -1,0 +1,125 @@
+name: Deploy Docs
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+    paths:
+      - site/**
+      - .github/workflows/deploy-docs.yml
+  push:
+    branches:
+      - main
+    paths:
+      - site/**
+      - .github/workflows/deploy-docs.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOCS_SITE_URL: https://vibedashboard.dev
+  DOCS_GITHUB_REPO: ${{ github.repository }}
+
+jobs:
+  build:
+    name: Build docs
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          package_json_file: site/package.json
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: site/pnpm-lock.yaml
+
+      - name: Install docs dependencies
+        working-directory: site
+        run: pnpm install --frozen-lockfile
+
+      - name: Build docs
+        working-directory: site
+        run: pnpm build
+
+      - name: Upload docs artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-static-site
+          path: site/.docs/.output/public
+          if-no-files-found: error
+          include-hidden-files: true
+
+  deploy-production:
+    name: Deploy docs Worker production
+    needs: build
+    if: >-
+      ${{
+        github.event_name == 'workflow_dispatch' ||
+        (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+        (
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.head.repo.full_name == github.repository
+        )
+      }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+
+    env:
+      DOCS_DEPLOY_DOPPLER_TOKEN: ${{ secrets.DOCS_DEPLOY_DOPPLER_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download docs artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: docs-static-site
+          path: site/.docs/.output/public
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          package_json_file: site/package.json
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate deploy environment
+        uses: dmno-dev/varlock-action@v1.0.1
+        with:
+          working-directory: site
+          show-summary: false
+
+      - name: Require Doppler and Cloudflare deploy secrets
+        shell: bash
+        run: |
+          test -n "$DOCS_DEPLOY_DOPPLER_TOKEN" || { echo 'DOCS_DEPLOY_DOPPLER_TOKEN is required'; exit 1; }
+          test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo 'CLOUDFLARE_ACCOUNT_ID is required'; exit 1; }
+          test -n "$CLOUDFLARE_API_TOKEN" || { echo 'CLOUDFLARE_API_TOKEN is required'; exit 1; }
+
+      - name: Deploy production Worker
+        working-directory: site
+        run: pnpm dlx wrangler@4.100.0 deploy

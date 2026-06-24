@@ -1,0 +1,17 @@
+{
+  "name": "vibe-dashboard-docs-site",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.13.1",
+  "scripts": {
+    "dev": "undocs dev .",
+    "build": "NODE_OPTIONS=--max-old-space-size=4096 undocs build .",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "nuxt": "^4.4.6",
+    "undocs": "^0.4.16",
+    "wrangler": "^4.100.0"
+  }
+}

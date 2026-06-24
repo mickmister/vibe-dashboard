@@ -1,0 +1,19 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "vibe-dashboard-docs",
+  "compatibility_date": "2026-06-11",
+  "preview_urls": true,
+  "routes": [
+    {
+      "pattern": "vibedashboard.dev",
+      "custom_domain": true
+    }
+  ],
+  "assets": {
+    "directory": "./.docs/.output/public",
+    "not_found_handling": "404-page"
+  },
+  "observability": {
+    "enabled": true
+  }
+}

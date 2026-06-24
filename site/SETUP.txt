@@ -1,0 +1,26 @@
+Vibe Dashboard Docs Site
+
+This folder is a standalone pnpm workspace for the Undocs-powered documentation site.
+
+Commands:
+  pnpm install
+  pnpm dev
+  pnpm build
+  pnpm deploy
+
+pnpm build generates a static site at .docs/.output/public.
+
+nuxt is listed as a direct dev dependency because Undocs resolves Nuxt from the docs workspace during builds when installed with pnpm.
+
+Deployment:
+  Production URL: https://vibedashboard.dev
+  Production deploys run on pushes to main and on every same-repository PR commit while the PR is open.
+  Same-repository PRs deploy the production Worker directly so vibedashboard.dev reflects the current PR commit.
+  Fork PRs run the docs build but do not receive deploy secrets or deploy production.
+
+Secrets/config:
+  Keep site/.env.schema as the non-secret contract for CI and local docs configuration.
+  Do not use GitHub Environments for this docs workflow.
+  Store only DOCS_DEPLOY_DOPPLER_TOKEN as a GitHub Actions repository secret.
+  Varlock uses @varlock/doppler-plugin to load CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN from Doppler project vibe-dashboard, config prd_docs_deploy, at deploy time.
+  Keep the Cloudflare token least-privilege and scoped to this Worker/account, and rotate it from Doppler.
