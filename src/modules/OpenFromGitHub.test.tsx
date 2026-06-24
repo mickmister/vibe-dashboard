@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { WorkspaceState } from "../types";
+import type { SavedWorkspaceSession, WorkspaceState } from "../types";
 import { OpenFromGitHub } from "./OpenFromGitHub";
 import { vkClient } from "../lib/vk-client";
 
@@ -57,9 +57,13 @@ const workspaceWithOpenTab = {
   nextId: 2,
 } satisfies WorkspaceState;
 
-function createOpenFromGithubProps(workspace: WorkspaceState) {
+function createOpenFromGithubProps(
+  workspace: WorkspaceState,
+  savedVoyages: SavedWorkspaceSession[] = [],
+) {
   return {
     workspace,
+    savedVoyages,
     addSpace: vi.fn(),
     deleteTabGroup: vi.fn(),
     addVKWorkspace: vi.fn(),
@@ -71,18 +75,21 @@ function createOpenFromGithubProps(workspace: WorkspaceState) {
 function renderOpenFromGithub(
   workspace: WorkspaceState,
   githubUrl = "https://github.com/Owner/Repo/pull/7",
+  savedVoyages: SavedWorkspaceSession[] = [],
 ) {
   return renderOpenFromGithubAt(
     workspace,
     `/dashboard?voyage=abc&open_from_github=${encodeURIComponent(githubUrl)}`,
+    savedVoyages,
   );
 }
 
 function renderOpenFromGithubAt(
   workspace: WorkspaceState,
   initialEntry: string,
+  savedVoyages: SavedWorkspaceSession[] = [],
 ) {
-  const props = createOpenFromGithubProps(workspace);
+  const props = createOpenFromGithubProps(workspace, savedVoyages);
 
   const view = render(
     <MemoryRouter initialEntries={[initialEntry]}>
@@ -96,6 +103,7 @@ function renderOpenFromGithubAt(
 function renderOpenFromGithubWithLocation(
   workspace: WorkspaceState,
   initialEntry: string,
+  savedVoyages: SavedWorkspaceSession[] = [],
 ) {
   const locations: string[] = [];
 
@@ -105,7 +113,7 @@ function renderOpenFromGithubWithLocation(
     return null;
   }
 
-  const props = createOpenFromGithubProps(workspace);
+  const props = createOpenFromGithubProps(workspace, savedVoyages);
 
   const view = render(
     <MemoryRouter initialEntries={[initialEntry]}>
@@ -189,6 +197,79 @@ describe("OpenFromGitHub", () => {
       );
     });
     expect(vkClient.getWorkspace).not.toHaveBeenCalled();
+  });
+
+  it("asks before opening an existing PR craft in its saved voyage", async () => {
+    vi.mocked(vkClient.getPrInfo).mockResolvedValue({
+      number: 7,
+      url: "https://github.com/owner/repo/pull/7",
+      status: "open",
+      title: "Fix bug",
+      base_branch: "main",
+      head_branch: "fix-bug",
+    });
+    vi.mocked(vkClient.getWorkspaceSummaries).mockResolvedValue({
+      summaries: [
+        {
+          workspace_id: "ws-1",
+          pr_number: 7,
+          pr_url: "https://github.com/owner/repo/pull/7",
+          has_pending_approval: false,
+          files_changed: null,
+          lines_added: null,
+          lines_removed: null,
+          latest_process_status: null,
+          has_running_dev_server: false,
+          has_unseen_turns: false,
+          pr_status: "open",
+        },
+      ],
+    });
+
+    const savedVoyages: SavedWorkspaceSession[] = [
+      {
+        id: "voyage-1",
+        slug: "existing-voyage",
+        name: "Existing Voyage",
+        createdAt: "2026-06-22T00:00:00Z",
+        updatedAt: "2026-06-22T00:00:00Z",
+        activeVoyageEntryId: "ve-existing",
+        voyageEntries: [
+          {
+            id: "ve-existing",
+            tabGroupId: "tg-existing",
+            viewIds: ["tab-agent"],
+          },
+        ],
+        activeSpaceId: "space-a",
+        activeTabGroupId: "tg-existing",
+        activeItemsByVoyageEntryId: { "ve-existing": "tab-agent" },
+        visitedTabGroupIds: ["tg-existing"],
+      },
+    ];
+
+    const githubUrl = encodeURIComponent(
+      "https://github.com/Owner/Repo/pull/7",
+    );
+    const { findByText, latestLocation, props } =
+      renderOpenFromGithubWithLocation(
+        workspaceWithOpenTab,
+        `/dashboard?open_from_github=${githubUrl}&voyage=arbitrary`,
+        savedVoyages,
+      );
+
+    await findByText("Open existing PR workspace?");
+    expect(props.selectSessionTabGroup).not.toHaveBeenCalled();
+
+    fireEvent.click(await findByText("Open existing Voyage"));
+
+    await waitFor(() => {
+      const location = latestLocation();
+      expect(location).toContain("voyage=existing-voyage");
+      expect(location).toContain("craft=existing-workspace");
+      expect(location).not.toContain("open_from_github");
+    });
+    expect(props.selectSessionTabGroup).not.toHaveBeenCalled();
   });
 
   it("cleans only open_from_github after selecting an already-open workspace", async () => {

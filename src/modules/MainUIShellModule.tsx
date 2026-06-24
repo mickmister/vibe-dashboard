@@ -984,6 +984,7 @@ springboard.registerModule(
           </div>
           <OpenFromGitHub
             workspace={workspace}
+            savedVoyages={savedVoyages}
             addSpace={async (args) => await actions.addSpace(args)}
             deleteTabGroup={async (args) => await actions.deleteTabGroup(args)}
             addVKWorkspace={wrappedActions.addVKWorkspace}

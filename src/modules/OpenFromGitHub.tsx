@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
-import type { WorkspaceState } from "../types";
+import type { SavedWorkspaceSession, WorkspaceState } from "../types";
 import {
   chooseBestContainingBranch,
   findMatchingRepoRemotes,
@@ -14,6 +14,7 @@ import {
   type MatchingRepoRemote,
   type ParsedGithubIssueUrl,
   type ParsedGithubTreeBlobUrl,
+  type OpenWorkspaceLocation,
   type ResolvedGithubTreeBlobTarget,
 } from "../lib/openFromGithub";
 import {
@@ -22,9 +23,11 @@ import {
   type Repo,
   type Workspace as VkWorkspace,
 } from "../lib/vk-client";
+import { buildSavedVoyageDashboardPath } from "../lib/voyageUrl";
 
 export interface OpenFromGitHubProps {
   workspace: WorkspaceState;
+  savedVoyages?: SavedWorkspaceSession[];
   addSpace: (args: {
     name: string;
   }) => Promise<{ spaceId: string; tabGroupId: string } | undefined>;
@@ -117,6 +120,14 @@ type DialogState =
       workspaceId: string;
     }
   | {
+      type: "confirm-open-existing";
+      title: string;
+      message: string;
+      confirmText: string;
+      savedVoyage: SavedWorkspaceSession;
+      voyageEntryId: string;
+    }
+  | {
       type: "opening";
       title: string;
       message: string;
@@ -133,6 +144,7 @@ export function hasOpenFromGitHubParam(search: string): boolean {
 
 export function OpenFromGitHub({
   workspace,
+  savedVoyages = [],
   addSpace,
   deleteTabGroup,
   addVKWorkspace,
@@ -145,6 +157,7 @@ export function OpenFromGitHub({
   const mountedRef = useRef(true);
   const latestRuntimeRef = useRef({
     workspace,
+    savedVoyages,
     location,
     navigate,
     addSpace,
@@ -155,6 +168,7 @@ export function OpenFromGitHub({
   });
   latestRuntimeRef.current = {
     workspace,
+    savedVoyages,
     location,
     navigate,
     addSpace,
@@ -189,6 +203,55 @@ export function OpenFromGitHub({
       target,
       getOpenFromGithubUrl(latestRuntimeRef.current.location.search),
     );
+
+  const promptOrOpenExistingLocation = (args: {
+    openLocation: OpenWorkspaceLocation;
+    title: string;
+    message: string;
+    confirmText: string;
+  }) => {
+    const existingVoyage = findSavedVoyageForTabGroup(
+      latestRuntimeRef.current.savedVoyages,
+      args.openLocation.tabGroupId,
+    );
+
+    if (existingVoyage) {
+      setDialog({
+        type: "confirm-open-existing",
+        title: args.title,
+        message: args.message,
+        confirmText: args.confirmText,
+        savedVoyage: existingVoyage.savedVoyage,
+        voyageEntryId: existingVoyage.voyageEntryId,
+      });
+      return;
+    }
+
+    latestRuntimeRef.current.selectSessionTabGroup(
+      args.openLocation.spaceId,
+      args.openLocation.tabGroupId,
+    );
+    setDialog(null);
+    clearParam();
+  };
+
+  const openExistingVoyage = (
+    savedVoyage: SavedWorkspaceSession,
+    voyageEntryId: string,
+  ) => {
+    const { workspace, savedVoyages, location, navigate } =
+      latestRuntimeRef.current;
+    const nextSearch = removeOpenFromGithubParam(location.search);
+    const nextPath = buildSavedVoyageDashboardPath({
+      currentSearch: nextSearch,
+      workspace,
+      session: savedVoyage,
+      savedSessions: savedVoyages,
+      voyageEntryId,
+    });
+    setDialog(null);
+    navigate(nextPath, { replace: true });
+  };
 
   const openWorkspaceInSpace = async (
     target: PendingTarget,
@@ -379,12 +442,12 @@ export function OpenFromGitHub({
           existingWorkspace.id,
         );
         if (openLocation && !existingWorkspace.archived) {
-          latestRuntimeRef.current.selectSessionTabGroup(
-            openLocation.spaceId,
-            openLocation.tabGroupId,
-          );
-          setDialog(null);
-          clearParam();
+          promptOrOpenExistingLocation({
+            openLocation,
+            title: "Open existing issue workspace?",
+            message: `GitHub issue ${issue.normalizedIssueUrl} is already open in a craft. Open the Voyage that currently contains it?`,
+            confirmText: "Open existing Voyage",
+          });
           return;
         }
 
@@ -823,12 +886,12 @@ export function OpenFromGitHub({
             existingWorkspaceId,
           );
           if (openLocation) {
-            latestRuntimeRef.current.selectSessionTabGroup(
-              openLocation.spaceId,
-              openLocation.tabGroupId,
-            );
-            setDialog(null);
-            clearParam();
+            promptOrOpenExistingLocation({
+              openLocation,
+              title: "Open existing PR workspace?",
+              message: `PR #${prInfo.number}: ${prInfo.title} is already open in a craft. Open the Voyage that currently contains it?`,
+              confirmText: "Open existing Voyage",
+            });
             return;
           }
 
@@ -1017,11 +1080,33 @@ export function OpenFromGitHub({
         if (dialog?.type !== "stale-issue-mapping") return;
         void forgetStaleIssueMappingAndCreateReplacement(dialog.issue);
       }}
+      onOpenExistingVoyage={() => {
+        if (dialog?.type !== "confirm-open-existing") return;
+        openExistingVoyage(dialog.savedVoyage, dialog.voyageEntryId);
+      }}
       onCreateSpace={(name) => {
         void createSpaceAndOpen(name);
       }}
     />
   );
+}
+
+function findSavedVoyageForTabGroup(
+  savedVoyages: SavedWorkspaceSession[],
+  tabGroupId: string,
+): { savedVoyage: SavedWorkspaceSession; voyageEntryId: string } | null {
+  const candidates = savedVoyages
+    .flatMap((savedVoyage) =>
+      savedVoyage.voyageEntries
+        .filter((entry) => entry.tabGroupId === tabGroupId)
+        .map((entry) => ({ savedVoyage, voyageEntryId: entry.id })),
+    )
+    .sort(
+      (a, b) =>
+        Date.parse(b.savedVoyage.updatedAt) - Date.parse(a.savedVoyage.updatedAt),
+    );
+
+  return candidates[0] ?? null;
 }
 
 class StaleOpenFromGithubRunError extends Error {
@@ -1103,6 +1188,7 @@ function OpenFromGithubDialog({
   onCreateSpace,
   onConfirmReopenArchived,
   onForgetStaleIssueMapping,
+  onOpenExistingVoyage,
 }: {
   state: DialogState;
   workspace: WorkspaceState;
@@ -1113,6 +1199,7 @@ function OpenFromGithubDialog({
   onCreateSpace: (name: string) => void;
   onConfirmReopenArchived: () => void;
   onForgetStaleIssueMapping: () => void;
+  onOpenExistingVoyage: () => void;
 }) {
   const [newSpaceName, setNewSpaceName] = useState("");
 
@@ -1128,7 +1215,9 @@ function OpenFromGithubDialog({
           ? "Reopen archived issue workspace?"
           : state.type === "stale-issue-mapping"
             ? "Issue workspace no longer exists"
-            : state.type === "choose-branch"
+            : state.type === "confirm-open-existing"
+              ? state.title
+              : state.type === "choose-branch"
               ? "Choose branch base"
               : state.title;
   const message =
@@ -1221,6 +1310,13 @@ function OpenFromGithubDialog({
           </div>
         ) : null}
 
+        {state.type === "confirm-open-existing" ? (
+          <div className="rounded-lg border border-blue-500/30 bg-blue-500/10 p-3 text-sm text-blue-100">
+            Existing Voyage:{" "}
+            <span className="font-medium">{state.savedVoyage.name}</span>
+          </div>
+        ) : null}
+
         {state.type === "choose-space" ? (
           <div className="space-y-4">
             {state.target.type === "create-tree-blob" ? (
@@ -1306,6 +1402,15 @@ function OpenFromGithubDialog({
               onClick={onForgetStaleIssueMapping}
             >
               Forget mapping and create replacement
+            </button>
+          ) : null}
+          {state.type === "confirm-open-existing" ? (
+            <button
+              type="button"
+              className="rounded-lg border border-blue-500/50 bg-blue-500/20 px-3 py-2 text-sm font-medium text-blue-100 hover:bg-blue-500/30"
+              onClick={onOpenExistingVoyage}
+            >
+              {state.confirmText}
             </button>
           ) : null}
           <button
