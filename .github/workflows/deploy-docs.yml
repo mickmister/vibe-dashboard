@@ -28,7 +28,6 @@ concurrency:
 env:
   DOCS_SITE_URL: https://vibedashboard.dev
   DOCS_GITHUB_REPO: ${{ github.repository }}
-  DOCS_DEPLOY_TARGET: ${{ github.event_name == 'pull_request' && 'preview' || 'production' }}
 
 jobs:
   build:
@@ -82,7 +81,7 @@ jobs:
       contents: read
 
     env:
-      DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
+      DOCS_DEPLOY_DOPPLER_TOKEN: ${{ secrets.DOCS_DEPLOY_DOPPLER_TOKEN }}
 
     steps:
       - name: Checkout
@@ -113,7 +112,7 @@ jobs:
       - name: Require Doppler and Cloudflare deploy secrets
         shell: bash
         run: |
-          test -n "$DOPPLER_TOKEN" || { echo 'DOPPLER_TOKEN is required'; exit 1; }
+          test -n "$DOCS_DEPLOY_DOPPLER_TOKEN" || { echo 'DOCS_DEPLOY_DOPPLER_TOKEN is required'; exit 1; }
           test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo 'CLOUDFLARE_ACCOUNT_ID is required'; exit 1; }
           test -n "$CLOUDFLARE_API_TOKEN" || { echo 'CLOUDFLARE_API_TOKEN is required'; exit 1; }
 
@@ -134,7 +133,7 @@ jobs:
       contents: read
 
     env:
-      DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
+      DOCS_DEPLOY_DOPPLER_TOKEN: ${{ secrets.DOCS_DEPLOY_DOPPLER_TOKEN }}
 
     steps:
       - name: Checkout
@@ -165,7 +164,7 @@ jobs:
       - name: Require Doppler and Cloudflare deploy secrets
         shell: bash
         run: |
-          test -n "$DOPPLER_TOKEN" || { echo 'DOPPLER_TOKEN is required'; exit 1; }
+          test -n "$DOCS_DEPLOY_DOPPLER_TOKEN" || { echo 'DOCS_DEPLOY_DOPPLER_TOKEN is required'; exit 1; }
           test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo 'CLOUDFLARE_ACCOUNT_ID is required'; exit 1; }
           test -n "$CLOUDFLARE_API_TOKEN" || { echo 'CLOUDFLARE_API_TOKEN is required'; exit 1; }
 

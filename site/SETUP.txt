@@ -21,7 +21,6 @@ Deployment:
 Secrets/config:
   Keep site/.env.schema as the non-secret contract for CI and local docs configuration.
   Do not use GitHub Environments for this docs workflow.
-  Store only DOPPLER_TOKEN as a GitHub Actions repository secret.
-  Varlock uses @varlock/doppler-plugin to load CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN from Doppler at deploy time.
-  DOCS_DEPLOY_TARGET is only the Varlock/Doppler selector; it maps to the Doppler config named preview or production.
+  Store only DOCS_DEPLOY_DOPPLER_TOKEN as a GitHub Actions repository secret.
+  Varlock uses @varlock/doppler-plugin to load CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN from Doppler project vibe-dashboard, config prd_docs_deploy, at deploy time.
   Keep the Cloudflare token least-privilege and scoped to this Worker/account, and rotate it from Doppler.
