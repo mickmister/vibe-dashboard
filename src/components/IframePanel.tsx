@@ -7,6 +7,7 @@ import { SpacesOverview } from './SpacesOverview';
 import { hasSameBaseOrigin } from '../lib/originTrust';
 
 const INTERNAL_URL_PREFIX = 'internal://';
+const CADDY_PORT = process.env.CADDY_PORT || '';
 
 const MOBILE_VIEWPORT_INSET_STYLE = {
   bottom: 'var(--mobile-footer-offset)',
@@ -23,8 +24,13 @@ interface IframePanelProps {
   onRenameSession?: (sessionId: string, name: string) => void;
   onDeleteSession?: (sessionId: string) => void;
   onStartNewSession?: () => void;
-  onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void;
-  onOpenVKWorkspace?: (taskAttemptId: string, name: string, containerRef: string, spaceId: string) => void;
+  onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void | Promise<void>;
+  onOpenVKWorkspace?: (
+    taskAttemptId: string,
+    name: string,
+    containerRef: string,
+    spaceId: string,
+  ) => void | Promise<void>;
 }
 
 /**
@@ -102,11 +108,19 @@ function applyIframePolicy(iframe: HTMLIFrameElement, iframeSrc: string) {
 }
 
 function getIframeResolutionOrigin(url: string): string {
+  if (hasExplicitOrigin(url)) {
+    return window.location.origin;
+  }
+
+  const { protocol, host, hostname } = window.location;
+  if (CADDY_PORT && isIpAddress(hostname)) {
+    return `${protocol}//${formatHostnameForOrigin(hostname)}:${CADDY_PORT}`;
+  }
+
   if (!url.startsWith('/')) {
     return window.location.origin;
   }
 
-  const { protocol, host } = window.location;
   const portPrefixMatch = host.match(/^port-\d+\.(.+)$/);
 
   if (portPrefixMatch) {
@@ -114,6 +128,44 @@ function getIframeResolutionOrigin(url: string): string {
   }
 
   return window.location.origin;
+}
+
+function hasExplicitOrigin(url: string): boolean {
+  if (url.startsWith('//')) {
+    return true;
+  }
+
+  try {
+    new URL(url);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function isIpAddress(hostname: string): boolean {
+  const normalizedHostname = hostname.replace(/^\[(.*)]$/, '$1');
+
+  if (normalizedHostname === 'localhost') {
+    return false;
+  }
+
+  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(normalizedHostname)) {
+    return normalizedHostname.split('.').every((segment) => {
+      const value = Number(segment);
+      return Number.isInteger(value) && value >= 0 && value <= 255;
+    });
+  }
+
+  return normalizedHostname.includes(':');
+}
+
+function formatHostnameForOrigin(hostname: string): string {
+  if (hostname.includes(':') && !hostname.startsWith('[')) {
+    return `[${hostname}]`;
+  }
+
+  return hostname;
 }
 
 function isSelfAppPath(pathname: string, searchParams: URLSearchParams): boolean {
@@ -758,8 +810,13 @@ function SingleTabView({
   onRenameSession?: (sessionId: string, name: string) => void;
   onDeleteSession?: (sessionId: string) => void;
   onStartNewSession?: () => void;
-  onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void;
-  onOpenVKWorkspace?: (taskAttemptId: string, name: string, containerRef: string, spaceId: string) => void;
+  onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void | Promise<void>;
+  onOpenVKWorkspace?: (
+    taskAttemptId: string,
+    name: string,
+    containerRef: string,
+    spaceId: string,
+  ) => void | Promise<void>;
 }) {
   const isLoaded = loadingState.get(activeTab.id) ?? false;
   const hasError = errorState.get(activeTab.id) ?? false;

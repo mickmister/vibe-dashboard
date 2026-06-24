@@ -17,6 +17,7 @@ serverRegistry.registerServerModule((api) => {
     repoAliasCache: {
       get: getCachedGitRepos,
       set: setCachedGitRepos,
+      refresh: refreshCachedGitRepos,
     },
   });
 });
@@ -28,6 +29,11 @@ async function getCachedGitRepos(): Promise<CachedRepoAlias[]> {
 
 function setCachedGitRepos(repos: CachedRepoAlias[]): void {
   cachedGitRepos = repos;
+}
+
+async function refreshCachedGitRepos(): Promise<CachedRepoAlias[]> {
+  cachedGitRepos = await hydrateLocalGitRepoAliases(reposRoot);
+  return cachedGitRepos;
 }
 
 async function hydrateLocalGitRepoAliases(root: string): Promise<CachedRepoAlias[]> {

@@ -31,7 +31,7 @@ jobs:
         run: npm run check-types
 
   test-server:
-    name: vitest server tests
+    name: npm test
     runs-on: ubuntu-latest
 
     steps:
@@ -75,3 +75,39 @@ jobs:
 
       - name: Run workflow-core tests
         run: pnpm --filter @vibe-dashboard/workflow-core test
+
+  test-e2e:
+    name: Playwright e2e
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run e2e tests
+        run: npm run test:e2e
+
+      - name: Upload Playwright artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-artifacts
+          path: |
+            playwright-report
+            test-results
+          if-no-files-found: ignore

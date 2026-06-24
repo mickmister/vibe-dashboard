@@ -8,6 +8,7 @@ interface WorkspaceContentViewProps {
   activeTabGroupId: string;
   actions: WorkspaceActions;
   sessionActions: SessionActions;
+  disableSplitViews?: boolean;
   onDragStart: (e: React.DragEvent, tabGroupId: string) => void;
   onDragOver: (e: React.DragEvent) => void;
   onDrop: (e: React.DragEvent, targetGroupId: string) => void;
@@ -20,6 +21,12 @@ interface WorkspaceContentViewProps {
   onDeleteSession: (sessionId: string) => void;
   onStartNewSession: () => void;
   onNavigateToTabGroup: (spaceId: string, tabGroupId: string) => void;
+  onOpenVKWorkspace: (
+    taskAttemptId: string,
+    name: string,
+    containerRef: string,
+    spaceId: string,
+  ) => Promise<void>;
 }
 
 export function WorkspaceContentView({
@@ -27,6 +34,7 @@ export function WorkspaceContentView({
   activeTabGroupId,
   actions,
   sessionActions,
+  disableSplitViews,
   onDragStart,
   onDragOver,
   onDrop,
@@ -39,6 +47,7 @@ export function WorkspaceContentView({
   onDeleteSession,
   onStartNewSession,
   onNavigateToTabGroup,
+  onOpenVKWorkspace,
 }: WorkspaceContentViewProps) {
   if (activeTabGroups.length === 0) {
     return (
@@ -56,6 +65,7 @@ export function WorkspaceContentView({
       activeTabGroupId={activeTabGroupId}
       actions={actions}
       sessionActions={sessionActions}
+      disableSplitViews={disableSplitViews}
       workspace={workspace}
       showAddressBar={showAddressBar}
       savedSessions={savedSessions}
@@ -65,6 +75,7 @@ export function WorkspaceContentView({
       onDeleteSession={onDeleteSession}
       onStartNewSession={onStartNewSession}
       onNavigateToTabGroup={onNavigateToTabGroup}
+      onOpenVKWorkspace={onOpenVKWorkspace}
     />
   );
 }

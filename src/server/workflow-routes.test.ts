@@ -286,7 +286,82 @@ describe("registerWorkflowRoutes", () => {
     });
   });
 
-  it("enforces GitHub webhook signatures before running workflows", async () => {
+
+  it('refreshes repo aliases and retries once when no workspace matches', async () => {
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const registry = createWorkflowRegistry();
+    registry.register({
+      id: 'github-ci-failure',
+      trigger: 'github.workflow_run',
+      run: async (_ctx, input) => {
+        const repoAliases = (input as { repoAliases?: Array<{ aliases: string[] }> }).repoAliases ?? [];
+        const matched = repoAliases.some((repo) => repo.aliases.includes('owner/repo'));
+        return matched
+          ? { outcome: 'message_sent', input }
+          : { outcome: 'no_matching_workspace', input };
+      },
+    });
+    const app = new Hono();
+    const refresh = vi.fn(async () => [{ name: 'local-repo', aliases: ['owner/repo'] }]);
+    registerWorkflowRoutes(app, {
+      registry,
+      githubWebhookSecret: 'secret',
+      repoAliasCache: {
+        get: () => [{ name: 'local-repo', aliases: [] }],
+        set: () => {},
+        refresh,
+      },
+      runOptions: {
+        createRunId: (() => {
+          let index = 0;
+          return () => ['run_initial', 'run_retry'][index++] ?? 'run_extra';
+        })(),
+        now: (() => {
+          let value = 50;
+          return () => value++;
+        })(),
+      },
+    });
+
+    const body = JSON.stringify({ workflow_run: { conclusion: 'failure' } });
+    const response = await app.request('/dashboard/api/webhooks/github', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-GitHub-Event': 'workflow_run',
+        'X-GitHub-Delivery': 'delivery-123',
+        'X-Hub-Signature-256': signBody(body, 'secret'),
+      },
+      body,
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      outcome: 'message_sent',
+      run: {
+        runId: 'run_retry',
+        output: {
+          outcome: 'message_sent',
+          input: {
+            repoAliases: [{ name: 'local-repo', aliases: ['owner/repo'] }],
+          },
+        },
+      },
+    });
+    expect(refresh).toHaveBeenCalledOnce();
+    expect(infoSpy).toHaveBeenCalledWith(
+      'Retrying GitHub webhook workflow after refreshing repo aliases',
+      {
+        delivery: 'delivery-123',
+        event: 'workflow_run',
+      },
+    );
+  });
+
+
+
+  it('enforces GitHub webhook signatures before running workflows', async () => {
+
     const registry = createWorkflowRegistry();
     registry.register({
       id: "github-ci-failure",

@@ -1,6 +1,6 @@
 # Vibe Dashboard
 
-A coding agent dashboard built on top of https://vibekanban.com and https://github.com/coder/code-server
+A coding agent dashboard built on top of https://github.com/BloopAI/vibe-kanban and https://github.com/coder/code-server
 
 ## Quick start
 
@@ -78,6 +78,28 @@ To set your Git identity (also persisted):
 ```bash
 git config --global user.name "Your Name"
 git config --global user.email "you@example.com"
+```
+
+## Testing
+
+Run type checks and unit tests:
+
+```bash
+npm run check-types
+npm test
+```
+
+Run Playwright e2e tests:
+
+```bash
+npm run test:e2e:install
+npm run test:e2e
+```
+
+If port `4173` is already in use locally, choose a different isolated e2e port:
+
+```bash
+E2E_PORT=4273 npm run test:e2e
 ```
 
 ## Codex auth

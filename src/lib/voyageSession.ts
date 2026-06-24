@@ -1,41 +1,96 @@
 import type { SavedWorkspaceSession } from '../types';
-import { getVoyageSlug } from './voyageUrl';
+import {
+  buildVoyageParam,
+  getVoyageKeyFromDashboardUrl,
+  getVoyageSlug,
+  shortIdTokenMatches,
+} from './voyageUrl';
 
-export function resolvePreferredVoyageSessionId({
+function getTrailingToken(value: string): string {
+  const parts = value.split('-').filter(Boolean);
+  return parts[parts.length - 1] || value;
+}
+
+export function resolveRequestedVoyageSessionId({
   savedSessions,
   requestedVoyageKey,
-  requestedLegacySessionId,
-  storedBrowserSessionId,
-  originDefaultSessionId,
-  createReplacementSessionId,
 }: {
   savedSessions: SavedWorkspaceSession[];
   requestedVoyageKey?: string;
-  requestedLegacySessionId?: string;
-  storedBrowserSessionId?: string | null;
-  originDefaultSessionId?: string;
-  createReplacementSessionId: () => string;
 }): string | undefined {
-  const savedSessionIds = new Set(savedSessions.map((session) => session.id));
   const matchedRequestedVoyage = requestedVoyageKey
     ? savedSessions.find(
         (session) =>
           session.id === requestedVoyageKey ||
-          getVoyageSlug(session) === requestedVoyageKey,
+          getVoyageSlug(session) === requestedVoyageKey ||
+          buildVoyageParam(session, savedSessions) === requestedVoyageKey,
       )
+    : undefined;
+  const requestedStableId = requestedVoyageKey
+    ? savedSessions.find((session) => requestedVoyageKey.endsWith(`-${session.id}`))?.id
+    : undefined;
+  const requestedShortId = requestedVoyageKey
+    ? savedSessions.find((session) =>
+        shortIdTokenMatches(
+          session.id,
+          getTrailingToken(requestedVoyageKey),
+          savedSessions.map((entry) => entry.id),
+        ),
+      )?.id
     : undefined;
 
   return (
     matchedRequestedVoyage?.id ||
-    (requestedLegacySessionId && savedSessionIds.has(requestedLegacySessionId)
-      ? requestedLegacySessionId
-      : undefined) ||
-    (storedBrowserSessionId && savedSessionIds.has(storedBrowserSessionId)
-      ? storedBrowserSessionId
-      : undefined) ||
-    (originDefaultSessionId && savedSessionIds.has(originDefaultSessionId)
-      ? originDefaultSessionId
-      : undefined) ||
-    (storedBrowserSessionId ? createReplacementSessionId() : undefined)
+    requestedStableId ||
+    requestedShortId
   );
+}
+
+export function resolveLastDashboardVoyageSessionId({
+  savedSessions,
+  storedDashboardUrl,
+}: {
+  savedSessions: SavedWorkspaceSession[];
+  storedDashboardUrl?: string;
+}): string | undefined {
+  const storedVoyageKey = getVoyageKeyFromDashboardUrl(storedDashboardUrl);
+  if (!storedVoyageKey) return undefined;
+
+  return resolveRequestedVoyageSessionId({
+    savedSessions,
+    requestedVoyageKey: storedVoyageKey,
+  });
+}
+
+export type DashboardVoyageResolution =
+  | { status: 'resolved'; sessionId: string }
+  | { status: 'missing-param'; sessionId?: string }
+  | { status: 'not-found'; requestedVoyageKey: string };
+
+export function resolveDashboardVoyage({
+  savedSessions,
+  requestedVoyageKey,
+  storedDashboardUrl,
+}: {
+  savedSessions: SavedWorkspaceSession[];
+  requestedVoyageKey?: string;
+  storedDashboardUrl?: string;
+}): DashboardVoyageResolution {
+  if (requestedVoyageKey) {
+    const requestedSessionId = resolveRequestedVoyageSessionId({
+      savedSessions,
+      requestedVoyageKey,
+    });
+    return requestedSessionId
+      ? { status: 'resolved', sessionId: requestedSessionId }
+      : { status: 'not-found', requestedVoyageKey };
+  }
+
+  return {
+    status: 'missing-param',
+    sessionId: resolveLastDashboardVoyageSessionId({
+      savedSessions,
+      storedDashboardUrl,
+    }),
+  };
 }
