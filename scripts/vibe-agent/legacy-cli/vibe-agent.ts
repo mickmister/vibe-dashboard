@@ -2182,6 +2182,13 @@ interface PluginsAddOptions {
   json: boolean;
 }
 
+interface PluginsStateOptions {
+  pluginId: string;
+  configRepoDir: string;
+  push?: boolean;
+  json: boolean;
+}
+
 function showPluginsHelp(): void {
   console.log(`vibe-agent plugins
 
@@ -2189,10 +2196,16 @@ Usage:
   vibe-agent plugins add --manifest-json '<plugin-json>'
   vibe-agent plugins add --manifest-json -
   vibe-agent plugins add --file plugin.json
+  vibe-agent plugins enable --plugin-id vd.beads-web
+  vibe-agent plugins disable --plugin-id vd.beads-web
 
 Adds or replaces one plugin manifest in the per-instance plugin config
 repository. The manifest is assumed to be an admin-reviewed
 PluginServiceDefinition object, not a full { "plugins": [...] } catalog.
+Enable/disable records persistent admin desired state in pluginStates; sync
+will omit disabled plugins from Supervisor/Caddy until they are enabled again.
+This is durable config, unlike temporary supervisorctl stop commands that sync
+may later repair for enabled plugins.
 
 Defaults:
   --config-repo-dir /var/lib/vd/instance-config
@@ -2201,6 +2214,7 @@ Defaults:
 Options:
   --manifest-json "<json>"   Plugin manifest JSON object, or "-" to read stdin
   --file <path>              Read plugin manifest JSON from a file
+  --plugin-id <id>           Plugin id for enable/disable
   --config-repo-dir <path>   Instance config repo
   --push                     Force git push after commit
   --no-push                  Do not push after commit
@@ -2223,10 +2237,15 @@ async function pluginsCommand(args: string[]): Promise<void> {
     showPluginsHelp();
     return;
   }
-  if (subcommand !== 'add') {
-    throw new Error(`Unknown plugins subcommand: ${subcommand}`);
+  if (subcommand === 'add') {
+    await pluginsAdd(args.slice(1));
+    return;
   }
-  await pluginsAdd(args.slice(1));
+  if (subcommand === 'enable' || subcommand === 'disable') {
+    await pluginsSetEnabled(subcommand, args.slice(1));
+    return;
+  }
+  throw new Error(`Unknown plugins subcommand: ${subcommand}`);
 }
 
 async function pluginsAdd(args: string[]): Promise<void> {
@@ -2266,6 +2285,38 @@ async function pluginsAdd(args: string[]): Promise<void> {
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
+}
+
+async function pluginsSetEnabled(subcommand: 'enable' | 'disable', args: string[]): Promise<void> {
+  const options = parsePluginsStateArgs(args);
+  const compiledCli = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../plugins-orchestrator/plugin-instance-config-cli.js');
+  if (!fs.existsSync(compiledCli)) {
+    throw new Error(`Compiled plugin instance config CLI is missing at ${compiledCli}. Build it with npm run build:plugin-orchestrator or use the vkvd image.`);
+  }
+  const push = options.push ?? hasGitRemote(options.configRepoDir);
+  const cliArgs = [
+    compiledCli,
+    `apply-${subcommand}`,
+    '--approved', 'true',
+    '--config-repo-dir', options.configRepoDir,
+    '--plugin-id', options.pluginId,
+    '--push', push ? 'true' : 'false',
+  ];
+  const output = execFileSync('node', cliArgs, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  if (options.json) {
+    process.stdout.write(output);
+    return;
+  }
+  const result = JSON.parse(output) as {
+    pluginId: string;
+    action: string;
+    committed: boolean;
+    pushed: boolean;
+    configPath: string;
+    afterEnable: boolean;
+  };
+  console.log(`Plugin ${result.pluginId} ${result.afterEnable ? 'enabled' : 'disabled'} (${result.action}); committed=${result.committed}; pushed=${result.pushed}`);
+  console.log(`Config: ${result.configPath}`);
 }
 
 function parsePluginsAddArgs(args: string[]): PluginsAddOptions {
@@ -2312,6 +2363,45 @@ function parsePluginsAddArgs(args: string[]): PluginsAddOptions {
     throw new Error('plugins add requires exactly one of --manifest-json or --file');
   }
   return options;
+}
+
+function parsePluginsStateArgs(args: string[]): PluginsStateOptions {
+  const options: Partial<PluginsStateOptions> = {
+    configRepoDir: '/var/lib/vd/instance-config',
+    json: false,
+  };
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === '--help' || arg === '-h') {
+      showPluginsHelp();
+      process.exit(0);
+    }
+    if (arg === '--json') {
+      options.json = true;
+      continue;
+    }
+    if (arg === '--push') {
+      options.push = true;
+      continue;
+    }
+    if (arg === '--no-push') {
+      options.push = false;
+      continue;
+    }
+    if (arg === '--plugin-id') {
+      options.pluginId = requireFlagValue(args, index, arg);
+      index += 1;
+      continue;
+    }
+    if (arg === '--config-repo-dir') {
+      options.configRepoDir = requireFlagValue(args, index, arg);
+      index += 1;
+      continue;
+    }
+    throw new Error(`Unexpected plugins state argument: ${arg ?? ''}`);
+  }
+  if (!options.pluginId) throw new Error('plugins enable/disable requires --plugin-id');
+  return options as PluginsStateOptions;
 }
 
 function readPluginManifestJson(options: PluginsAddOptions): string {

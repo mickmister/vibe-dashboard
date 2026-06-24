@@ -26,6 +26,10 @@
     "plugin-services:apply:beads-web": "VD_PLUGIN_ORCHESTRATOR_INSTALL_ARTIFACTS=true node --experimental-strip-types plugins/orchestrator/plugin-service-orchestrator-cli.ts apply --catalog plugins/builtin.plugins.json --optional-catalog /var/lib/vd/instance-config/plugins.json --artifact-cache-root /var/lib/vd/plugin-cache --install-root /var/lib/vd/plugins --plugin-bin-dir /var/lib/vd/plugin-bin --toolchain-root /var/lib/vd/toolchains --supervisor-config-dir /etc/supervisor/conf.d/vd-generated --caddy-plugin-config-path /etc/caddy/plugins.caddy",
     "plugin-instance:dry-run-add:beads-web": "node --experimental-strip-types plugins/orchestrator/plugin-instance-config-cli.ts dry-run-add --config-repo-dir /var/lib/vd/instance-config --plugin plugins/fixtures/beads-web.plugin.json",
     "plugin-instance:apply-add:beads-web": "node --experimental-strip-types plugins/orchestrator/plugin-instance-config-cli.ts apply-add --approved true --config-repo-dir /var/lib/vd/instance-config --plugin plugins/fixtures/beads-web.plugin.json",
+    "plugin-instance:dry-run-disable:beads-web": "node --experimental-strip-types plugins/orchestrator/plugin-instance-config-cli.ts dry-run-disable --config-repo-dir /var/lib/vd/instance-config --plugin-id vd.beads-web",
+    "plugin-instance:apply-disable:beads-web": "node --experimental-strip-types plugins/orchestrator/plugin-instance-config-cli.ts apply-disable --approved true --config-repo-dir /var/lib/vd/instance-config --plugin-id vd.beads-web",
+    "plugin-instance:dry-run-enable:beads-web": "node --experimental-strip-types plugins/orchestrator/plugin-instance-config-cli.ts dry-run-enable --config-repo-dir /var/lib/vd/instance-config --plugin-id vd.beads-web",
+    "plugin-instance:apply-enable:beads-web": "node --experimental-strip-types plugins/orchestrator/plugin-instance-config-cli.ts apply-enable --approved true --config-repo-dir /var/lib/vd/instance-config --plugin-id vd.beads-web",
     "test:server": "vitest run --config vitest.server.config.ts"
   },
   "dependencies": {

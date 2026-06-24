@@ -6,7 +6,7 @@ import {
   assertPluginServiceCatalog,
   type PluginServiceCatalog,
   type PluginServiceDefinition,
-} from './plugin-service-orchestrator';
+} from './plugin-service-orchestrator.ts';
 
 const execFile = promisify(execFileCallback);
 const CONFIG_FILE_NAME = 'plugins.json';
@@ -21,6 +21,21 @@ export interface AddInstancePluginDryRunPlan {
 }
 
 export interface ApplyInstancePluginResult extends AddInstancePluginDryRunPlan {
+  committed: boolean;
+  pushed: boolean;
+  commitMessage?: string;
+}
+
+export interface SetInstancePluginEnabledDryRunPlan {
+  configPath: string;
+  action: 'create-config' | 'set-plugin-state' | 'unchanged';
+  pluginId: string;
+  beforeEnable: boolean;
+  afterEnable: boolean;
+  gitActions: string[];
+}
+
+export interface ApplyInstancePluginEnabledResult extends SetInstancePluginEnabledDryRunPlan {
   committed: boolean;
   pushed: boolean;
   commitMessage?: string;
@@ -41,7 +56,7 @@ export async function createAddInstancePluginDryRunPlan(input: {
 
   return {
     configPath,
-    action: existing.exists ? next.action : 'create-config',
+    action: existing.exists || next.action === 'unchanged' ? next.action : 'create-config',
     pluginId: input.plugin.id,
     beforePluginCount: existing.catalog.plugins.length,
     afterPluginCount: next.catalog.plugins.length,
@@ -61,7 +76,7 @@ export async function applyAddInstancePlugin(input: {
   const next = upsertPlugin(existing.catalog, input.plugin);
   const dryRun = await createAddInstancePluginDryRunPlan({ configRepoDir: input.configRepoDir, plugin: input.plugin });
 
-  if (existing.exists && next.action === 'unchanged') {
+  if (next.action === 'unchanged') {
     return { ...dryRun, committed: false, pushed: false };
   }
 
@@ -69,11 +84,12 @@ export async function applyAddInstancePlugin(input: {
   await writeFile(configPath, `${JSON.stringify(next.catalog, null, 2)}\n`);
 
   const runCommand = input.runCommand ?? defaultCommandRunner;
-  await runCommand('git', ['init'], { cwd: input.configRepoDir });
-  await runCommand('git', ['config', 'user.email', 'vd-instance@localhost'], { cwd: input.configRepoDir });
-  await runCommand('git', ['config', 'user.name', 'Vibe Dashboard'], { cwd: input.configRepoDir });
-  await runCommand('git', ['add', CONFIG_FILE_NAME], { cwd: input.configRepoDir });
-  await runCommand('git', ['commit', '-m', input.commitMessage ?? `Update VD plugin config for ${input.plugin.id}`], { cwd: input.configRepoDir });
+  const commitMessage = input.commitMessage ?? `Update VD plugin config for ${input.plugin.id}`;
+  await commitConfigChange({
+    configRepoDir: input.configRepoDir,
+    commitMessage,
+    runCommand,
+  });
 
   let pushed = false;
   if (input.push) {
@@ -85,7 +101,72 @@ export async function applyAddInstancePlugin(input: {
     ...dryRun,
     committed: true,
     pushed,
-    commitMessage: input.commitMessage ?? `Update VD plugin config for ${input.plugin.id}`,
+    commitMessage,
+  };
+}
+
+export async function createSetInstancePluginEnabledDryRunPlan(input: {
+  configRepoDir: string;
+  pluginId: string;
+  enable: boolean;
+}): Promise<SetInstancePluginEnabledDryRunPlan> {
+  const configPath = join(input.configRepoDir, CONFIG_FILE_NAME);
+  const existing = await readInstancePluginCatalog(configPath);
+  const next = setPluginEnabled(existing.catalog, input.pluginId, input.enable);
+
+  return {
+    configPath,
+    action: existing.exists || next.action === 'unchanged' ? next.action : 'create-config',
+    pluginId: input.pluginId,
+    beforeEnable: next.beforeEnable,
+    afterEnable: input.enable,
+    gitActions: ['git init', 'git config local author defaults', `git add ${CONFIG_FILE_NAME}`, 'git commit', 'git push when requested'],
+  };
+}
+
+export async function applySetInstancePluginEnabled(input: {
+  configRepoDir: string;
+  pluginId: string;
+  enable: boolean;
+  commitMessage?: string;
+  push?: boolean;
+  runCommand?: CommandRunner;
+}): Promise<ApplyInstancePluginEnabledResult> {
+  const configPath = join(input.configRepoDir, CONFIG_FILE_NAME);
+  const existing = await readInstancePluginCatalog(configPath);
+  const next = setPluginEnabled(existing.catalog, input.pluginId, input.enable);
+  const dryRun = await createSetInstancePluginEnabledDryRunPlan({
+    configRepoDir: input.configRepoDir,
+    pluginId: input.pluginId,
+    enable: input.enable,
+  });
+
+  if (next.action === 'unchanged') {
+    return { ...dryRun, committed: false, pushed: false };
+  }
+
+  await mkdir(input.configRepoDir, { recursive: true });
+  await writeFile(configPath, `${JSON.stringify(next.catalog, null, 2)}\n`);
+
+  const runCommand = input.runCommand ?? defaultCommandRunner;
+  const commitMessage = input.commitMessage ?? `Set VD plugin ${input.pluginId} ${input.enable ? 'enabled' : 'disabled'}`;
+  await commitConfigChange({
+    configRepoDir: input.configRepoDir,
+    commitMessage,
+    runCommand,
+  });
+
+  let pushed = false;
+  if (input.push) {
+    await runCommand('git', ['push'], { cwd: input.configRepoDir });
+    pushed = true;
+  }
+
+  return {
+    ...dryRun,
+    committed: true,
+    pushed,
+    commitMessage,
   };
 }
 
@@ -122,12 +203,45 @@ function upsertPlugin(catalog: PluginServiceCatalog, plugin: PluginServiceDefini
   return { action: 'update-plugin', catalog: { plugins, ...pluginStates } };
 }
 
+function setPluginEnabled(catalog: PluginServiceCatalog, pluginId: string, enable: boolean): {
+  action: SetInstancePluginEnabledDryRunPlan['action'];
+  beforeEnable: boolean;
+  catalog: PluginServiceCatalog;
+} {
+  const beforeEnable = catalog.pluginStates?.[pluginId]?.enable ?? true;
+  if (beforeEnable === enable) {
+    return { action: 'unchanged', beforeEnable, catalog };
+  }
+
+  const catalogWithState: PluginServiceCatalog = {
+    plugins: [...catalog.plugins],
+    pluginStates: {
+      ...(catalog.pluginStates !== undefined ? clonePluginStates(catalog.pluginStates) : {}),
+      [pluginId]: { enable },
+    },
+  };
+  assertPluginServiceCatalog(catalogWithState);
+  return { action: 'set-plugin-state', beforeEnable, catalog: catalogWithState };
+}
+
 function clonePluginStates(pluginStates: NonNullable<PluginServiceCatalog['pluginStates']>): NonNullable<PluginServiceCatalog['pluginStates']> {
   return Object.fromEntries(Object.entries(pluginStates).map(([pluginId, pluginState]) => [pluginId, { ...pluginState }]));
 }
 
 async function defaultCommandRunner(command: string, args: string[], options: { cwd: string }): Promise<void> {
   await execFile(command, args, { cwd: options.cwd });
+}
+
+async function commitConfigChange(input: {
+  configRepoDir: string;
+  commitMessage: string;
+  runCommand: CommandRunner;
+}): Promise<void> {
+  await input.runCommand('git', ['init'], { cwd: input.configRepoDir });
+  await input.runCommand('git', ['config', 'user.email', 'vd-instance@localhost'], { cwd: input.configRepoDir });
+  await input.runCommand('git', ['config', 'user.name', 'Vibe Dashboard'], { cwd: input.configRepoDir });
+  await input.runCommand('git', ['add', CONFIG_FILE_NAME], { cwd: input.configRepoDir });
+  await input.runCommand('git', ['commit', '-m', input.commitMessage], { cwd: input.configRepoDir });
 }
 
 function isNodeErrorWithCode(error: unknown, code: string): error is NodeJS.ErrnoException {

@@ -1,39 +1,70 @@
 import { readFile } from 'node:fs/promises';
 import {
   applyAddInstancePlugin,
+  applySetInstancePluginEnabled,
   createAddInstancePluginDryRunPlan,
+  createSetInstancePluginEnabledDryRunPlan,
 } from './plugin-instance-config.ts';
 import type { PluginServiceDefinition } from './plugin-service-orchestrator';
 
 export async function runPluginInstanceConfigCli(argv: string[]): Promise<unknown> {
   const parsed = parseArgs(argv);
-  const plugin = JSON.parse(await readFile(parsed.pluginPath, 'utf8')) as PluginServiceDefinition;
 
   if (parsed.command === 'dry-run-add') {
+    const plugin = await readPluginDefinition(parsed.pluginPath);
     return createAddInstancePluginDryRunPlan({ configRepoDir: parsed.configRepoDir, plugin });
   }
 
-  if (!parsed.approved) throw new Error('apply-add requires --approved true after reviewing dry-run output');
-  return applyAddInstancePlugin({
-    configRepoDir: parsed.configRepoDir,
-    plugin,
-    push: parsed.push,
-    commitMessage: parsed.commitMessage,
+  if (parsed.command === 'apply-add') {
+    const plugin = await readPluginDefinition(parsed.pluginPath);
+    if (!parsed.approved) throw new Error('apply-add requires --approved true after reviewing dry-run output');
+    return applyAddInstancePlugin({
+      configRepoDir: parsed.configRepoDir,
+      plugin,
+      push: parsed.push,
+      commitMessage: parsed.commitMessage,
+    });
+  }
+
+  if (parsed.command === 'dry-run-enable' || parsed.command === 'dry-run-disable') {
+    return createSetInstancePluginEnabledDryRunPlan({
+      configRepoDir: parsed.configRepoDir,
+      pluginId: parsed.pluginId,
+      enable: parsed.command === 'dry-run-enable',
+    });
+  }
+
+  if (!isStateArgs(parsed)) throw new Error(`Unexpected plugin config command: ${parsed.command}`);
+  const stateArgs = parsed;
+  if (!stateArgs.approved) throw new Error(`${stateArgs.command} requires --approved true after reviewing dry-run output`);
+  return applySetInstancePluginEnabled({
+    configRepoDir: stateArgs.configRepoDir,
+    pluginId: stateArgs.pluginId,
+    enable: stateArgs.command === 'apply-enable',
+    push: stateArgs.push,
+    commitMessage: stateArgs.commitMessage,
   });
 }
 
-interface ParsedArgs {
+type ParsedArgs = {
   command: 'dry-run-add' | 'apply-add';
   configRepoDir: string;
   pluginPath: string;
   approved: boolean;
   push: boolean;
   commitMessage?: string;
-}
+} | {
+  command: 'dry-run-enable' | 'apply-enable' | 'dry-run-disable' | 'apply-disable';
+  configRepoDir: string;
+  pluginId: string;
+  approved: boolean;
+  push: boolean;
+  commitMessage?: string;
+};
 
 function parseArgs(argv: string[]): ParsedArgs {
   const command = argv[0];
-  if (command !== 'dry-run-add' && command !== 'apply-add') throw new Error('Expected dry-run-add or apply-add');
+  if (!isCommand(command)) throw new Error('Expected dry-run-add, apply-add, dry-run-enable, apply-enable, dry-run-disable, or apply-disable');
   const args = new Map<string, string>();
   for (let index = 1; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -44,14 +75,36 @@ function parseArgs(argv: string[]): ParsedArgs {
     index += 1;
   }
 
-  return {
-    command,
+  const commonArgs = {
     configRepoDir: requiredArg(args, 'config-repo-dir'),
-    pluginPath: requiredArg(args, 'plugin'),
     approved: args.get('approved') === 'true',
     push: args.get('push') === 'true',
     commitMessage: args.get('commit-message'),
   };
+  if (command === 'dry-run-add' || command === 'apply-add') {
+    return { command, ...commonArgs, pluginPath: requiredArg(args, 'plugin') };
+  }
+  return { command, ...commonArgs, pluginId: requiredArg(args, 'plugin-id') };
+}
+
+async function readPluginDefinition(pluginPath: string): Promise<PluginServiceDefinition> {
+  return JSON.parse(await readFile(pluginPath, 'utf8')) as PluginServiceDefinition;
+}
+
+function isCommand(command: string | undefined): command is ParsedArgs['command'] {
+  return command === 'dry-run-add'
+    || command === 'apply-add'
+    || command === 'dry-run-enable'
+    || command === 'apply-enable'
+    || command === 'dry-run-disable'
+    || command === 'apply-disable';
+}
+
+function isStateArgs(parsed: ParsedArgs): parsed is Extract<ParsedArgs, { pluginId: string }> {
+  return parsed.command === 'dry-run-enable'
+    || parsed.command === 'apply-enable'
+    || parsed.command === 'dry-run-disable'
+    || parsed.command === 'apply-disable';
 }
 
 function requiredArg(args: Map<string, string>, key: string): string {

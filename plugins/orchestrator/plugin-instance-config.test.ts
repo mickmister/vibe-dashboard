@@ -8,7 +8,9 @@ import beadsWebPlugin from '../fixtures/beads-web.plugin.json';
 import { runPluginInstanceConfigCli } from './plugin-instance-config-cli';
 import {
   applyAddInstancePlugin,
+  applySetInstancePluginEnabled,
   createAddInstancePluginDryRunPlan,
+  createSetInstancePluginEnabledDryRunPlan,
   type CommandRunner,
 } from './plugin-instance-config';
 import type { PluginServiceCatalog, PluginServiceDefinition } from './plugin-service-orchestrator';
@@ -96,6 +98,155 @@ describe('per-instance plugin config CLI', () => {
         plugins: [expect.objectContaining({ id: 'vd.beads-web' })],
         pluginStates: { 'vd.beads-web': { enable: false } },
       });
+  });
+
+  it('dry-runs disabling a plugin in persisted instance state without writing files', async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), 'vd-instance-config-disable-dry-run-'));
+    const configRepoDir = join(tempRoot, 'instance-config');
+
+    await expect(createSetInstancePluginEnabledDryRunPlan({
+      configRepoDir,
+      pluginId: 'vd.beads-web',
+      enable: false,
+    })).resolves.toMatchObject({
+      action: 'create-config',
+      configPath: join(configRepoDir, 'plugins.json'),
+      pluginId: 'vd.beads-web',
+      beforeEnable: true,
+      afterEnable: false,
+      gitActions: ['git init', 'git config local author defaults', 'git add plugins.json', 'git commit', 'git push when requested'],
+    });
+
+    await expect(readFile(join(configRepoDir, 'plugins.json'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('applies plugin enable state changes while preserving configured plugins', async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), 'vd-instance-config-disable-apply-'));
+    const configRepoDir = join(tempRoot, 'instance-config');
+    const commands: string[] = [];
+    const runCommand: CommandRunner = async (command, args) => {
+      commands.push([command, ...args].join(' '));
+    };
+
+    await mkdir(configRepoDir, { recursive: true });
+    await writeFile(join(configRepoDir, 'plugins.json'), JSON.stringify({ plugins: [beadsWebPlugin] }));
+
+    const result = await applySetInstancePluginEnabled({
+      configRepoDir,
+      pluginId: 'vd.beads-web',
+      enable: false,
+      push: false,
+      runCommand,
+    });
+
+    expect(result).toMatchObject({
+      action: 'set-plugin-state',
+      beforeEnable: true,
+      afterEnable: false,
+      committed: true,
+      pushed: false,
+    });
+    await expect(readFile(join(configRepoDir, 'plugins.json'), 'utf8').then((raw) => JSON.parse(raw)))
+      .resolves.toMatchObject({
+        plugins: [expect.objectContaining({ id: 'vd.beads-web' })],
+        pluginStates: { 'vd.beads-web': { enable: false } },
+      });
+    expect(commands).toEqual([
+      'git init',
+      'git config user.email vd-instance@localhost',
+      'git config user.name Vibe Dashboard',
+      'git add plugins.json',
+      'git commit -m Set VD plugin vd.beads-web disabled',
+    ]);
+  });
+
+  it('does not commit when applying an unchanged plugin enable state', async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), 'vd-instance-config-disable-unchanged-'));
+    const configRepoDir = join(tempRoot, 'instance-config');
+    const commands: string[] = [];
+    const runCommand: CommandRunner = async (command, args) => {
+      commands.push([command, ...args].join(' '));
+    };
+
+    await mkdir(configRepoDir, { recursive: true });
+    await writeFile(join(configRepoDir, 'plugins.json'), JSON.stringify({
+      plugins: [],
+      pluginStates: { 'vd.beads-web': { enable: false } },
+    }));
+
+    await expect(applySetInstancePluginEnabled({
+      configRepoDir,
+      pluginId: 'vd.beads-web',
+      enable: false,
+      push: false,
+      runCommand,
+    })).resolves.toMatchObject({
+      action: 'unchanged',
+      committed: false,
+      pushed: false,
+    });
+    expect(commands).toEqual([]);
+  });
+
+  it('treats enabling a plugin with no persisted state as unchanged because enabled is the default', async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), 'vd-instance-config-enable-default-'));
+    const configRepoDir = join(tempRoot, 'instance-config');
+    const commands: string[] = [];
+    const runCommand: CommandRunner = async (command, args) => {
+      commands.push([command, ...args].join(' '));
+    };
+
+    await expect(applySetInstancePluginEnabled({
+      configRepoDir,
+      pluginId: 'vd.beads-web',
+      enable: true,
+      push: false,
+      runCommand,
+    })).resolves.toMatchObject({
+      action: 'unchanged',
+      beforeEnable: true,
+      afterEnable: true,
+      committed: false,
+      pushed: false,
+    });
+    await expect(readFile(join(configRepoDir, 'plugins.json'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(commands).toEqual([]);
+  });
+
+  it('rejects malformed plugin ids before writing plugin enable state', async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), 'vd-instance-config-invalid-plugin-state-'));
+    const configRepoDir = join(tempRoot, 'instance-config');
+
+    await expect(applySetInstancePluginEnabled({
+      configRepoDir,
+      pluginId: '../evil',
+      enable: false,
+      runCommand: async () => {
+        throw new Error('git should not run for invalid plugin state');
+      },
+    })).rejects.toThrow('Invalid plugin state id');
+    await expect(readFile(join(configRepoDir, 'plugins.json'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('exposes explicit dry-run-disable and approved apply-enable CLI commands', async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), 'vd-instance-config-state-cli-'));
+    const configRepoDir = join(tempRoot, 'instance-config');
+
+    await expect(runPluginInstanceConfigCli([
+      'dry-run-disable',
+      '--config-repo-dir', configRepoDir,
+      '--plugin-id', 'vd.beads-web',
+    ])).resolves.toMatchObject({
+      action: 'create-config',
+      beforeEnable: true,
+      afterEnable: false,
+    });
+
+    await expect(runPluginInstanceConfigCli([
+      'apply-enable',
+      '--config-repo-dir', configRepoDir,
+      '--plugin-id', 'vd.beads-web',
+    ])).rejects.toThrow('apply-enable requires --approved true');
   });
 
   it('can use real git locally so per-instance config has an auditable commit', async () => {
