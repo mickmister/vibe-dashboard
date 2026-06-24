@@ -1,6 +1,6 @@
 # Vibe Dashboard
 
-A coding agent dashboard built on top of https://vibekanban.com and https://github.com/coder/code-server
+A coding agent dashboard built on top of https://github.com/BloopAI/vibe-kanban and https://github.com/coder/code-server
 
 ## Quick start
 
