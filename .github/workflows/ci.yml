@@ -105,6 +105,42 @@ jobs:
       - name: Build web and node bundles
         run: npm run build
 
+  test-e2e:
+    name: Playwright e2e
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run e2e tests
+        run: npm run test:e2e
+
+      - name: Upload Playwright artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-artifacts
+          path: |
+            playwright-report
+            test-results
+          if-no-files-found: ignore
+
   staging-promotion-e2e:
     name: staging/promotion e2e
     runs-on: ubuntu-latest
@@ -255,6 +291,7 @@ jobs:
       - check-types
       - app-server-tests
       - test-workflow-core
+      - test-e2e
       - build-app
       - staging-promotion-e2e
       - docker-vkvd-build

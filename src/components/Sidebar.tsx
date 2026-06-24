@@ -46,11 +46,6 @@ interface SidebarProps {
   ) => Promise<{ wasDeleted: boolean; nextTabGroupId?: string } | undefined>;
   onRenameTabGroup: (tabGroupId: string, label: string) => void;
   onAddTabGroup: (label: string, spaceId?: string) => Promise<void> | void;
-  onAddTab: (
-    tabGroupId: string,
-    title: string,
-    url: string,
-  ) => Promise<void> | void;
   onOpenCreateWorkspaceTab: () => Promise<void> | void;
   onOpenCraftFlow: () => Promise<void> | void;
   onCreatePair: (tabGroupId: string, tabIds: string[]) => Promise<void> | void;
@@ -97,7 +92,6 @@ export function Sidebar({
   onDeleteTabGroup,
   onRenameTabGroup,
   onAddTabGroup,
-  onAddTab,
   onOpenCreateWorkspaceTab,
   onOpenCraftFlow,
   onCreatePair,
@@ -133,11 +127,9 @@ export function Sidebar({
     position: { x: number; y: number };
   } | null>(null);
   const [mobileAction, setMobileAction] = useState<
-    'group' | 'tab' | 'pair' | null
+    'group' | 'pair' | null
   >(null);
   const [newGroupLabel, setNewGroupLabel] = useState('');
-  const [newTabTitle, setNewTabTitle] = useState('');
-  const [newTabUrl, setNewTabUrl] = useState('');
   const [pairSelection, setPairSelection] = useState<string[]>([]);
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [sessionNameDraft, setSessionNameDraft] = useState('');
@@ -450,17 +442,6 @@ export function Sidebar({
     setMobileAction(null);
   }, [newGroupLabel, onAddTabGroup, viewedSpace?.id]);
 
-  const handleCreateTab = useCallback(async () => {
-    if (!activeTabGroup) return;
-    const title = newTabTitle.trim();
-    const url = newTabUrl.trim();
-    if (!(title && url)) return;
-    await onAddTab(activeTabGroup.id, title, url);
-    setNewTabTitle('');
-    setNewTabUrl('');
-    setMobileAction(null);
-  }, [activeTabGroup, newTabTitle, newTabUrl, onAddTab]);
-
   const togglePairTab = useCallback((tabId: string) => {
     setPairSelection((prev) => {
       if (prev.includes(tabId)) {
@@ -629,7 +610,7 @@ export function Sidebar({
                 void onOpenCreateWorkspaceTab();
               }}
             >
-              New Task
+              New Craft
             </Button>
             <Button
               size="sm"
@@ -654,13 +635,11 @@ export function Sidebar({
               </Button>
               <Button
                 size="sm"
-                variant={mobileAction === 'tab' ? 'solid' : 'flat'}
-                color={mobileAction === 'tab' ? 'primary' : 'default'}
+                variant="flat"
                 onPress={() => {
                   if (!activeTabGroup) return;
-                  setMobileAction((prev) => (prev === 'tab' ? null : 'tab'));
-                  setNewTabTitle((prev) => prev || 'New View');
-                  setNewTabUrl((prev) => prev || '/');
+                  setMobileAction(null);
+                  onOpenAddTabModal(activeTabGroup.id);
                 }}
                 isDisabled={!activeTabGroup}
               >
@@ -697,34 +676,6 @@ export function Sidebar({
                   onPress={handleCreateGroup}
                 >
                   Create Craft
-                </Button>
-              </div>
-            )}
-
-            {mobileAction === 'tab' && (
-              <div className="space-y-1.5">
-                <Input
-                  size="sm"
-                  value={newTabTitle}
-                  onChange={(e) => setNewTabTitle(e.target.value)}
-                  placeholder="View title..."
-                  classNames={{ inputWrapper: 'bg-neutral-800' }}
-                />
-                <Input
-                  size="sm"
-                  value={newTabUrl}
-                  onChange={(e) => setNewTabUrl(e.target.value)}
-                  placeholder="/ or https://..."
-                  classNames={{ inputWrapper: 'bg-neutral-800' }}
-                />
-                <Button
-                  size="sm"
-                  color="primary"
-                  className="w-full"
-                  onPress={handleCreateTab}
-                  isDisabled={!activeTabGroup}
-                >
-                  Create View
                 </Button>
               </div>
             )}

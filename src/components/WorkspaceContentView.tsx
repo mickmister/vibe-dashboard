@@ -21,7 +21,12 @@ interface WorkspaceContentViewProps {
   onDeleteSession: (sessionId: string) => void;
   onStartNewSession: () => void;
   onNavigateToTabGroup: (spaceId: string, tabGroupId: string) => void;
-  onOpenVKWorkspace: (workspaceId: string, name: string, containerRef: string, spaceId: string) => void | Promise<void>;
+  onOpenVKWorkspace: (
+    taskAttemptId: string,
+    name: string,
+    containerRef: string,
+    spaceId: string,
+  ) => Promise<void>;
 }
 
 export function WorkspaceContentView({

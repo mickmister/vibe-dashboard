@@ -33,7 +33,7 @@ permissions:
   packages: write
   id-token: write
   issues: write
-  pull-requests: read
+  pull-requests: write
 
 concurrency:
   group: vk-vd-publish-${{ github.event_name == 'repository_dispatch' && github.event.client_payload.vk_source_ref || github.event_name == 'pull_request' && format('refs/heads/{0}', github.event.pull_request.head.ref) || github.ref }}

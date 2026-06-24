@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState } from "react";
 import {
   Modal,
   ModalContent,
@@ -9,15 +9,15 @@ import {
   Input,
   Listbox,
   ListboxItem,
-} from '@heroui/react';
-import { AddVKWorkspaceModal } from './dialogs/AddVKWorkspaceModal';
-import type { WorkspaceState } from '../types';
+} from "@heroui/react";
+import { AddVKWorkspaceModal } from "./dialogs/AddVKWorkspaceModal";
+import type { WorkspaceState } from "../types";
 import type {
   TabGroupFactoryContribution,
   WorkspaceCompositionContribution,
   TabPresetContribution,
-} from '../modules/plugins/vibe-dashboard/types';
-import { applyUrlTemplate, getBaseOrigin } from '../utils/origin';
+} from "../modules/plugins/vibe-dashboard/types";
+import { applyUrlTemplate, getBaseOrigin } from "../utils/origin";
 
 interface AddTabModalProps {
   isOpen: boolean;
@@ -26,55 +26,63 @@ interface AddTabModalProps {
   tabGroupFactories: TabGroupFactoryContribution[];
   onAdd: (title: string, url: string) => void;
   onAddVKWorkspace?: (
-    workspaceId: string,
+    taskAttemptId: string,
     name: string,
     containerRef: string,
     factoryKey: string,
-  ) => void;
+  ) => void | Promise<void>;
   onAddVKWorkspaceToSpace?: (
-    workspaceId: string,
+    taskAttemptId: string,
     name: string,
     containerRef: string,
     spaceId: string,
     factoryKey: string,
-  ) => void;
-  onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void;
+  ) => void | Promise<void>;
+  onNavigateToTabGroup?: (
+    spaceId: string,
+    tabGroupId: string,
+    workspace?: { id: string; name: string },
+  ) => void | Promise<void>;
   onAddTabGroup?: (label: string) => void;
   workspace?: WorkspaceState;
+  pendingWorkspaceId?: string | null;
+  isActionPending?: boolean;
+  actionError?: string | null;
+  onResetAction?: () => void;
 }
 
 type MenuEntry =
   | {
-      kind: 'factory';
+      kind: "factory";
       key: string;
       title: string;
       description: string;
-      launchMode: 'vk-workspace';
+      launchMode: "vk-workspace";
       order: number;
       workspaceComposition?: WorkspaceCompositionContribution;
     }
   | {
-      kind: 'preset';
+      kind: "preset";
       key: string;
       title: string;
       description: string;
-      mode: 'immediate' | 'urlPrompt';
+      mode: "immediate" | "urlPrompt";
       urlTemplate: string;
       defaultTitle?: string;
       order: number;
       workspaceComposition?: WorkspaceCompositionContribution;
     }
   | {
-      kind: 'custom';
-      key: 'custom-url';
+      kind: "custom";
+      key: "custom-url";
       title: string;
       description: string;
       order: number;
       workspaceComposition?: WorkspaceCompositionContribution;
     }
   | {
-      kind: 'new-tab-group';
-      key: 'new-tab-group';
+      kind: "new-tab-group";
+      key: "new-tab-group";
       title: string;
       description: string;
       order: number;
@@ -92,17 +100,22 @@ export function AddTabModal({
   onNavigateToTabGroup,
   onAddTabGroup,
   workspace,
+  pendingWorkspaceId = null,
+  isActionPending = false,
+  actionError = null,
+  onResetAction,
 }: AddTabModalProps) {
-  const [title, setTitle] = useState('');
-  const [url, setUrl] = useState('');
+  const [title, setTitle] = useState("");
+  const [url, setUrl] = useState("");
   const [showCustom, setShowCustom] = useState(false);
-  const [selectedVKWorkspaceFactoryKey, setSelectedVKWorkspaceFactoryKey] = useState<string | null>(null);
+  const [selectedVKWorkspaceFactoryKey, setSelectedVKWorkspaceFactoryKey] =
+    useState<string | null>(null);
   const [showTabGroupInput, setShowTabGroupInput] = useState(false);
-  const [tabGroupLabel, setTabGroupLabel] = useState('');
+  const [tabGroupLabel, setTabGroupLabel] = useState("");
 
   const entries = useMemo<MenuEntry[]>(() => {
     const pluginFactories: MenuEntry[] = tabGroupFactories.map((factory) => ({
-      kind: 'factory',
+      kind: "factory",
       key: factory.key,
       title: factory.title,
       description: factory.description,
@@ -113,7 +126,7 @@ export function AddTabModal({
 
     const pluginPresets: MenuEntry[] = tabPresets.map((preset) => {
       const entry: MenuEntry = {
-        kind: 'preset',
+        kind: "preset",
         key: preset.key,
         title: preset.title,
         description: preset.description,
@@ -131,52 +144,52 @@ export function AddTabModal({
 
     const builtIns: MenuEntry[] = [
       {
-        kind: 'custom',
-        key: 'custom-url',
-        title: 'Custom URL',
-        description: 'Enter a custom URL',
+        kind: "custom",
+        key: "custom-url",
+        title: "Custom URL",
+        description: "Enter a custom URL",
         order: 900,
       },
       {
-        kind: 'new-tab-group',
-        key: 'new-tab-group',
-        title: 'New Tab Group',
-        description: 'Create another tab group in this space',
+        kind: "new-tab-group",
+        key: "new-tab-group",
+        title: "New Tab Group",
+        description: "Create another tab group in this space",
         order: 910,
       },
     ];
 
     return [...pluginFactories, ...pluginPresets, ...builtIns]
-      .filter((entry) => entry.kind !== 'new-tab-group' || Boolean(onAddTabGroup))
+      .filter(
+        (entry) => entry.kind !== "new-tab-group" || Boolean(onAddTabGroup),
+      )
       .sort((a, b) => a.order - b.order);
   }, [onAddTabGroup, tabGroupFactories, tabPresets]);
 
   const handleEntrySelect = (selectedKey: string) => {
     const entry = entries.find((value) => value.key === selectedKey);
-    if (!entry) {
-      return;
-    }
+    if (!entry) return;
 
-    if (entry.kind === 'custom') {
-      setTitle('');
-      setUrl('');
+    if (entry.kind === "custom") {
+      setTitle("");
+      setUrl("");
       setShowCustom(true);
       return;
     }
 
-    if (entry.kind === 'new-tab-group') {
+    if (entry.kind === "new-tab-group") {
       setShowTabGroupInput(true);
       return;
     }
 
-    if (entry.kind === 'factory') {
-      if (entry.launchMode === 'vk-workspace') {
+    if (entry.kind === "factory") {
+      if (entry.launchMode === "vk-workspace") {
         setSelectedVKWorkspaceFactoryKey(entry.key);
       }
       return;
     }
 
-    if (entry.mode === 'urlPrompt') {
+    if (entry.mode === "urlPrompt") {
       const resolvedDefaultUrl = applyUrlTemplate(entry.urlTemplate, {
         origin: getBaseOrigin(),
       });
@@ -202,31 +215,46 @@ export function AddTabModal({
   };
 
   const handleVKWorkspaceAdd = (
-    workspaceId: string,
+    taskAttemptId: string,
     name: string,
     containerRef: string,
   ) => {
-    if (onAddVKWorkspace) {
-      onAddVKWorkspace(workspaceId, name, containerRef, selectedVKWorkspaceFactoryKey ?? '');
-    }
-    handleClose();
+    if (!onAddVKWorkspace) throw new Error("Open Craft is unavailable.");
+    return onAddVKWorkspace(
+      taskAttemptId,
+      name,
+      containerRef,
+      selectedVKWorkspaceFactoryKey ?? "",
+    );
   };
 
   const handleVKWorkspaceAddToSpace = (
-    workspaceId: string,
+    taskAttemptId: string,
     name: string,
     containerRef: string,
     spaceId: string,
   ) => {
-    if (onAddVKWorkspaceToSpace) {
-      onAddVKWorkspaceToSpace(
-        workspaceId,
-        name,
-        containerRef,
-        spaceId,
-        selectedVKWorkspaceFactoryKey ?? '',
-      );
+    if (!onAddVKWorkspaceToSpace) {
+      throw new Error("Open Craft in space is unavailable.");
     }
+    return onAddVKWorkspaceToSpace(
+      taskAttemptId,
+      name,
+      containerRef,
+      spaceId,
+      selectedVKWorkspaceFactoryKey ?? "",
+    );
+  };
+
+  const handleVKWorkspaceNavigate = (
+    spaceId: string,
+    tabGroupId: string,
+    workspaceOption?: { id: string; name: string },
+  ) => {
+    if (!onNavigateToTabGroup) {
+      throw new Error("Open Craft navigation is unavailable.");
+    }
+    return onNavigateToTabGroup(spaceId, tabGroupId, workspaceOption);
   };
 
   const handleTabGroupSubmit = () => {
@@ -238,12 +266,13 @@ export function AddTabModal({
   };
 
   const handleClose = () => {
-    setTitle('');
-    setUrl('');
-    setTabGroupLabel('');
+    setTitle("");
+    setUrl("");
+    setTabGroupLabel("");
     setShowCustom(false);
     setSelectedVKWorkspaceFactoryKey(null);
     setShowTabGroupInput(false);
+    onResetAction?.();
     onClose();
   };
 
@@ -252,7 +281,7 @@ export function AddTabModal({
       <Modal isOpen={isOpen} onClose={handleClose} size="sm" backdrop="blur">
         <ModalContent className="bg-neutral-900 border border-neutral-800 text-neutral-100">
           <ModalHeader className="text-sm border-b border-neutral-800 text-white">
-            {showTabGroupInput ? 'New Craft' : 'Add View'}
+            {showTabGroupInput ? "New Craft" : "Add View"}
           </ModalHeader>
           <ModalBody>
             {!showCustom && !showTabGroupInput ? (
@@ -266,7 +295,7 @@ export function AddTabModal({
                     description={entry.description}
                     className="text-neutral-100"
                     classNames={{
-                      description: 'text-neutral-400',
+                      description: "text-neutral-400",
                     }}
                   >
                     {entry.title}
@@ -283,13 +312,13 @@ export function AddTabModal({
                   placeholder="Development"
                   autoFocus
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleTabGroupSubmit();
+                    if (e.key === "Enter") handleTabGroupSubmit();
                   }}
                   classNames={{
                     inputWrapper:
-                      'bg-neutral-800 border-neutral-700 data-[hover=true]:bg-neutral-800 group-data-[focus=true]:bg-neutral-800',
-                    input: 'text-white',
-                    label: 'text-neutral-300',
+                      "bg-neutral-800 border-neutral-700 data-[hover=true]:bg-neutral-800 group-data-[focus=true]:bg-neutral-800",
+                    input: "text-white",
+                    label: "text-neutral-300",
                   }}
                 />
               </div>
@@ -304,9 +333,9 @@ export function AddTabModal({
                   autoFocus
                   classNames={{
                     inputWrapper:
-                      'bg-neutral-800 border-neutral-700 data-[hover=true]:bg-neutral-800 group-data-[focus=true]:bg-neutral-800',
-                    input: 'text-white',
-                    label: 'text-neutral-300',
+                      "bg-neutral-800 border-neutral-700 data-[hover=true]:bg-neutral-800 group-data-[focus=true]:bg-neutral-800",
+                    input: "text-white",
+                    label: "text-neutral-300",
                   }}
                 />
                 <Input
@@ -316,13 +345,13 @@ export function AddTabModal({
                   onChange={(e) => setUrl(e.target.value)}
                   placeholder="/path or full URL"
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleCustomSubmit();
+                    if (e.key === "Enter") handleCustomSubmit();
                   }}
                   classNames={{
                     inputWrapper:
-                      'bg-neutral-800 border-neutral-700 data-[hover=true]:bg-neutral-800 group-data-[focus=true]:bg-neutral-800',
-                    input: 'text-white',
-                    label: 'text-neutral-300',
+                      "bg-neutral-800 border-neutral-700 data-[hover=true]:bg-neutral-800 group-data-[focus=true]:bg-neutral-800",
+                    input: "text-white",
+                    label: "text-neutral-300",
                   }}
                 />
               </div>
@@ -363,12 +392,21 @@ export function AddTabModal({
 
       <AddVKWorkspaceModal
         isOpen={selectedVKWorkspaceFactoryKey != null}
-        onClose={() => setSelectedVKWorkspaceFactoryKey(null)}
+        onClose={() => {
+          if (isActionPending) return;
+          setSelectedVKWorkspaceFactoryKey(null);
+          onResetAction?.();
+        }}
         onComplete={handleClose}
         onAdd={handleVKWorkspaceAdd}
-        onAddToSpace={handleVKWorkspaceAddToSpace}
-        onNavigateToTabGroup={onNavigateToTabGroup}
+        onAddToSpace={
+          onAddVKWorkspaceToSpace ? handleVKWorkspaceAddToSpace : undefined
+        }
+        onNavigateToTabGroup={handleVKWorkspaceNavigate}
         workspaceState={workspace}
+        pendingWorkspaceId={pendingWorkspaceId}
+        isActionPending={isActionPending}
+        actionError={actionError}
       />
     </>
   );
