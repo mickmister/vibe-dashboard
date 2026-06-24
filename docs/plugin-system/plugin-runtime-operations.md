@@ -76,4 +76,3 @@ Disabled plugins retain installed artifacts and data. Re-enabling the plugin
 sets `pluginStates[pluginId].enable` back to `true`; the next sync/apply will
 restore the generated Supervisor/Caddy resources and start enabled autostart
 services.
-
