@@ -14,13 +14,7 @@ You only need Docker installed and running on your machine.
 
 ## Start Vibe Dashboard
 
-Run:
-
-```bash
-npx vibe-dashboard
-```
-
-Then open the local URL printed by the command.
+Use the command shown on the home page, then open the local URL printed by the command.
 
 ## What you can do
 
@@ -33,7 +27,7 @@ Then open the local URL printed by the command.
 ## First-run checklist
 
 1. Confirm Docker is running.
-2. Start the dashboard with `npx vibe-dashboard`.
+2. Start the dashboard from your terminal.
 3. Open the printed local URL.
 4. Connect or authenticate tools as prompted, such as GitHub CLI credentials for repository operations.
 5. Create or open a workspace, then start an agent session.
