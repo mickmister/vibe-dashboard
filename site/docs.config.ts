@@ -21,7 +21,8 @@ export default {
     heroTitle: 'Vibe Dashboard',
     heroSubtitle: 'Agent workspace dashboard',
     heroDescription: 'Run a local, Docker-powered command center for coding agents, embedded apps, beads tasks, and GitHub feedback loops.',
-    heroCode: 'npx vibe-dashboard',
+    heroCode: `# With docker installed https://docs.docker.com/engine/install
+npx vibe-dashboard`,
     heroLinks: {
       primary: {
         label: 'Get started',
@@ -32,7 +33,7 @@ export default {
     features: [
       {
         title: 'Start with one command',
-        description: 'Install Docker, launch the dashboard, and open it locally.',
+        description: 'Install Docker, run `npx vibe-dashboard`, and open it locally.',
         icon: 'i-heroicons-command-line'
       },
       {
