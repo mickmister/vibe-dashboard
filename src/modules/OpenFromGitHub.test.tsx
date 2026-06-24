@@ -57,6 +57,36 @@ const workspaceWithOpenTab = {
   nextId: 2,
 } satisfies WorkspaceState;
 
+function makeSavedVoyage(
+  overrides: Partial<SavedWorkspaceSession> = {},
+): SavedWorkspaceSession {
+  const id = overrides.id || "voyage-a";
+  const entryId = overrides.activeVoyageEntryId || "ve-existing";
+  return {
+    id,
+    slug: overrides.slug || id,
+    name: overrides.name || "A",
+    createdAt: overrides.createdAt || "2026-06-22T00:00:00Z",
+    updatedAt: overrides.updatedAt || "2026-06-22T00:00:00Z",
+    activeVoyageEntryId: entryId,
+    voyageEntries: overrides.voyageEntries || [
+      {
+        id: entryId,
+        tabGroupId: "tg-existing",
+        viewIds: ["tab-agent"],
+      },
+    ],
+    activeSpaceId: overrides.activeSpaceId || "space-a",
+    activeTabGroupId: overrides.activeTabGroupId || "tg-existing",
+    activeItemsByVoyageEntryId: overrides.activeItemsByVoyageEntryId || {
+      [entryId]: "tab-agent",
+    },
+    visitedTabGroupIds: overrides.visitedTabGroupIds || ["tg-existing"],
+  };
+}
+
+const recentVoyages = [makeSavedVoyage()];
+
 function createOpenFromGithubProps(
   workspace: WorkspaceState,
   savedVoyages: SavedWorkspaceSession[] = [],
@@ -69,13 +99,15 @@ function createOpenFromGithubProps(
     addVKWorkspace: vi.fn(),
     selectSessionTabGroup: vi.fn(),
     selectSessionTab: vi.fn(),
+    createSavedSessionForSelection: vi.fn(),
+    addSelectionToSavedSession: vi.fn(),
   };
 }
 
 function renderOpenFromGithub(
   workspace: WorkspaceState,
   githubUrl = "https://github.com/Owner/Repo/pull/7",
-  savedVoyages: SavedWorkspaceSession[] = [],
+  savedVoyages: SavedWorkspaceSession[] = recentVoyages,
 ) {
   return renderOpenFromGithubAt(
     workspace,
@@ -87,7 +119,7 @@ function renderOpenFromGithub(
 function renderOpenFromGithubAt(
   workspace: WorkspaceState,
   initialEntry: string,
-  savedVoyages: SavedWorkspaceSession[] = [],
+  savedVoyages: SavedWorkspaceSession[] = recentVoyages,
 ) {
   const props = createOpenFromGithubProps(workspace, savedVoyages);
 
@@ -103,7 +135,7 @@ function renderOpenFromGithubAt(
 function renderOpenFromGithubWithLocation(
   workspace: WorkspaceState,
   initialEntry: string,
-  savedVoyages: SavedWorkspaceSession[] = [],
+  savedVoyages: SavedWorkspaceSession[] = recentVoyages,
 ) {
   const locations: string[] = [];
 
@@ -191,15 +223,13 @@ describe("OpenFromGitHub", () => {
     });
 
     await waitFor(() => {
-      expect(props.selectSessionTabGroup).toHaveBeenCalledWith(
-        "space-a",
-        "tg-existing",
-      );
+      expect(vkClient.getWorkspaceSummaries).toHaveBeenCalledTimes(1);
     });
+    expect(props.selectSessionTabGroup).not.toHaveBeenCalled();
     expect(vkClient.getWorkspace).not.toHaveBeenCalled();
   });
 
-  it("asks before opening an existing PR craft in its saved voyage", async () => {
+  it("opens an existing PR craft directly when it belongs to exactly one saved voyage", async () => {
     vi.mocked(vkClient.getPrInfo).mockResolvedValue({
       number: 7,
       url: "https://github.com/owner/repo/pull/7",
@@ -251,6 +281,65 @@ describe("OpenFromGitHub", () => {
     const githubUrl = encodeURIComponent(
       "https://github.com/Owner/Repo/pull/7",
     );
+    const { queryByText, latestLocation, props } =
+      renderOpenFromGithubWithLocation(
+        workspaceWithOpenTab,
+        `/dashboard?open_from_github=${githubUrl}&voyage=arbitrary`,
+        savedVoyages,
+      );
+
+    await waitFor(() => {
+      const location = latestLocation();
+      expect(location).toContain("voyage=existing-voyage");
+      expect(location).toContain("craft=existing-workspace");
+      expect(location).not.toContain("open_from_github");
+    });
+    expect(queryByText("Open existing PR workspace?")).toBeNull();
+    expect(props.selectSessionTabGroup).not.toHaveBeenCalled();
+  });
+
+  it("asks which Voyage to open when an existing PR craft belongs to multiple saved voyages", async () => {
+    vi.mocked(vkClient.getPrInfo).mockResolvedValue({
+      number: 7,
+      url: "https://github.com/owner/repo/pull/7",
+      status: "open",
+      title: "Fix bug",
+      base_branch: "main",
+      head_branch: "fix-bug",
+    });
+    vi.mocked(vkClient.getWorkspaceSummaries).mockResolvedValue({
+      summaries: [
+        {
+          workspace_id: "ws-1",
+          pr_number: 7,
+          pr_url: "https://github.com/owner/repo/pull/7",
+          has_pending_approval: false,
+          files_changed: null,
+          lines_added: null,
+          lines_removed: null,
+          latest_process_status: null,
+          has_running_dev_server: false,
+          has_unseen_turns: false,
+          pr_status: "open",
+        },
+      ],
+    });
+
+    const savedVoyages = [
+      makeSavedVoyage({
+        id: "voyage-old",
+        name: "Older Voyage",
+        updatedAt: "2026-06-21T00:00:00Z",
+      }),
+      makeSavedVoyage({
+        id: "voyage-new",
+        name: "Newer Voyage",
+        updatedAt: "2026-06-23T00:00:00Z",
+      }),
+    ];
+    const githubUrl = encodeURIComponent(
+      "https://github.com/Owner/Repo/pull/7",
+    );
     const { findByText, latestLocation, props } =
       renderOpenFromGithubWithLocation(
         workspaceWithOpenTab,
@@ -259,17 +348,149 @@ describe("OpenFromGitHub", () => {
       );
 
     await findByText("Open existing PR workspace?");
-    expect(props.selectSessionTabGroup).not.toHaveBeenCalled();
-
-    fireEvent.click(await findByText("Open existing Voyage"));
+    await findByText("Newer Voyage");
+    fireEvent.click(await findByText("Older Voyage"));
 
     await waitFor(() => {
       const location = latestLocation();
-      expect(location).toContain("voyage=existing-voyage");
-      expect(location).toContain("craft=existing-workspace");
+      expect(location).toContain("voyage=older-voyage");
       expect(location).not.toContain("open_from_github");
     });
     expect(props.selectSessionTabGroup).not.toHaveBeenCalled();
+  });
+
+  it("adds an existing PR craft to a recent Voyage when it is not in any saved Voyage", async () => {
+    vi.mocked(vkClient.getPrInfo).mockResolvedValue({
+      number: 7,
+      url: "https://github.com/owner/repo/pull/7",
+      status: "open",
+      title: "Fix bug",
+      base_branch: "main",
+      head_branch: "fix-bug",
+    });
+    vi.mocked(vkClient.getWorkspaceSummaries).mockResolvedValue({
+      summaries: [
+        {
+          workspace_id: "ws-1",
+          pr_number: 7,
+          pr_url: "https://github.com/owner/repo/pull/7",
+          has_pending_approval: false,
+          files_changed: null,
+          lines_added: null,
+          lines_removed: null,
+          latest_process_status: null,
+          has_running_dev_server: false,
+          has_unseen_turns: false,
+          pr_status: "open",
+        },
+      ],
+    });
+
+    const updatedVoyage = makeSavedVoyage({
+      id: "voyage-recent",
+      name: "Recent Voyage",
+      activeVoyageEntryId: "ve-existing",
+    });
+    const savedVoyages = [
+      makeSavedVoyage({
+        id: "voyage-recent",
+        name: "Recent Voyage",
+        activeVoyageEntryId: "ve-other",
+        voyageEntries: [
+          {
+            id: "ve-other",
+            tabGroupId: "tg-other",
+            viewIds: ["tab-other"],
+          },
+        ],
+        activeTabGroupId: "tg-other",
+        activeItemsByVoyageEntryId: { "ve-other": "tab-other" },
+        visitedTabGroupIds: ["tg-other"],
+      }),
+    ];
+    const githubUrl = encodeURIComponent(
+      "https://github.com/Owner/Repo/pull/7",
+    );
+    const { findByText, latestLocation, props } =
+      renderOpenFromGithubWithLocation(
+        workspaceWithOpenTab,
+        `/dashboard?open_from_github=${githubUrl}&voyage=arbitrary`,
+        savedVoyages,
+      );
+    props.addSelectionToSavedSession.mockResolvedValue(updatedVoyage);
+
+    await findByText("Open existing PR workspace?");
+    fireEvent.click(await findByText("Recent Voyage"));
+
+    await waitFor(() => {
+      expect(props.addSelectionToSavedSession).toHaveBeenCalledWith({
+        sessionId: "voyage-recent",
+        spaceId: "space-a",
+        tabGroupId: "tg-existing",
+        voyageEntryId: "ve-other",
+      });
+      expect(latestLocation()).toContain("voyage=recent-voyage");
+      expect(latestLocation()).not.toContain("open_from_github");
+    });
+  });
+
+  it("creates a new Voyage for an existing PR craft when requested", async () => {
+    vi.mocked(vkClient.getPrInfo).mockResolvedValue({
+      number: 7,
+      url: "https://github.com/owner/repo/pull/7",
+      status: "open",
+      title: "Fix bug",
+      base_branch: "main",
+      head_branch: "fix-bug",
+    });
+    vi.mocked(vkClient.getWorkspaceSummaries).mockResolvedValue({
+      summaries: [
+        {
+          workspace_id: "ws-1",
+          pr_number: 7,
+          pr_url: "https://github.com/owner/repo/pull/7",
+          has_pending_approval: false,
+          files_changed: null,
+          lines_added: null,
+          lines_removed: null,
+          latest_process_status: null,
+          has_running_dev_server: false,
+          has_unseen_turns: false,
+          pr_status: "open",
+        },
+      ],
+    });
+
+    const savedVoyage = makeSavedVoyage({
+      id: "voyage-created",
+      name: "Created Voyage",
+    });
+    const githubUrl = encodeURIComponent(
+      "https://github.com/Owner/Repo/pull/7",
+    );
+    const { findByPlaceholderText, findByText, latestLocation, props } =
+      renderOpenFromGithubWithLocation(
+        workspaceWithOpenTab,
+        `/dashboard?open_from_github=${githubUrl}&voyage=arbitrary`,
+        [],
+      );
+    props.createSavedSessionForSelection.mockResolvedValue(savedVoyage);
+
+    await findByText("Open existing PR workspace?");
+    fireEvent.change(await findByPlaceholderText("New Voyage name"), {
+      target: { value: "Created Voyage" },
+    });
+    fireEvent.click(await findByText("Create"));
+
+    await waitFor(() => {
+      expect(props.createSavedSessionForSelection).toHaveBeenCalledWith({
+        name: "Created Voyage",
+        spaceId: "space-a",
+        tabGroupId: "tg-existing",
+      });
+      expect(latestLocation()).toContain("voyage=created-voyage");
+      expect(latestLocation()).not.toContain("open_from_github");
+    });
   });
 
   it("cleans only open_from_github after selecting an already-open workspace", async () => {
@@ -308,17 +529,12 @@ describe("OpenFromGitHub", () => {
     );
 
     await waitFor(() => {
-      expect(props.selectSessionTabGroup).toHaveBeenCalledWith(
-        "space-a",
-        "tg-existing",
-      );
-    });
-    await waitFor(() => {
       const search = new URL(latestLocation(), "https://vd.test").searchParams;
       expect(search.get("open_from_github")).toBeNull();
       expect(search.get("utm")).toBe("keep");
-      expect(search.get("voyage")).toBe("abc");
+      expect(search.get("voyage")).toBe("a-a");
     });
+    expect(props.selectSessionTabGroup).not.toHaveBeenCalled();
     expect(vkClient.getPrInfo).toHaveBeenCalledTimes(1);
   });
 
@@ -420,7 +636,7 @@ describe("OpenFromGitHub", () => {
 
     const { findByText } = renderOpenFromGithub(emptyWorkspace);
 
-    await findByText("Open GitHub PR in space");
+    await findByText("Open GitHub PR in Voyage");
     expect(vkClient.ensureGithubRepo).toHaveBeenCalledWith(
       "https://github.com/owner/repo",
     );
@@ -763,11 +979,9 @@ describe("OpenFromGitHub", () => {
     );
 
     await waitFor(() => {
-      expect(props.selectSessionTabGroup).toHaveBeenCalledWith(
-        "space-a",
-        "tg-existing",
-      );
+      expect(vkClient.getWorkspace).toHaveBeenCalledWith("ws-1");
     });
+    expect(props.selectSessionTabGroup).not.toHaveBeenCalled();
     expect(vkClient.createWorkspaceFromIssue).not.toHaveBeenCalled();
   });
 
@@ -1137,7 +1351,7 @@ describe("OpenFromGitHub", () => {
 
     fireEvent.click(await findByText("Forget mapping and create replacement"));
 
-    await findByText("Open GitHub issue in space");
+    await findByText("Open GitHub issue in Voyage");
     expect(vkClient.deleteGithubIssueWorkspaceMapping).toHaveBeenCalledWith({
       owner: "owner",
       repo: "repo",

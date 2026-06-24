@@ -53,6 +53,20 @@ export interface OpenFromGitHubProps {
     tabGroupId: string,
     tabId: string,
   ) => void;
+  createSavedSessionForSelection: (args: {
+    name: string;
+    spaceId: string;
+    tabGroupId: string;
+    tabId?: string;
+  }) => Promise<SavedWorkspaceSession | undefined>;
+  addSelectionToSavedSession: (args: {
+    sessionId: string;
+    spaceId: string;
+    tabGroupId: string;
+    voyageEntryId?: string;
+    tabId?: string;
+    viewIds?: string[];
+  }) => Promise<SavedWorkspaceSession | undefined>;
 }
 
 type PendingTarget =
@@ -83,6 +97,11 @@ type PendingTarget =
       targetBranch: string;
     };
 
+type ExistingVoyageChoice = {
+  savedVoyage: SavedWorkspaceSession;
+  voyageEntryId?: string;
+};
+
 type DialogState =
   | null
   | {
@@ -110,6 +129,21 @@ type DialogState =
       target: PendingTarget;
     }
   | {
+      type: "choose-voyage";
+      title: string;
+      message: string;
+      choices: ExistingVoyageChoice[];
+      mode:
+        | {
+            type: "existing-location";
+            openLocation: OpenWorkspaceLocation;
+          }
+        | {
+            type: "target";
+            target: PendingTarget;
+          };
+    }
+  | {
       type: "confirm-reopen-archived";
       workspace: VkWorkspace;
       issue: ParsedGithubIssueUrl;
@@ -118,14 +152,6 @@ type DialogState =
       type: "stale-issue-mapping";
       issue: ParsedGithubIssueUrl;
       workspaceId: string;
-    }
-  | {
-      type: "confirm-open-existing";
-      title: string;
-      message: string;
-      confirmText: string;
-      savedVoyage: SavedWorkspaceSession;
-      voyageEntryId: string;
     }
   | {
       type: "opening";
@@ -150,6 +176,8 @@ export function OpenFromGitHub({
   addVKWorkspace,
   selectSessionTabGroup,
   selectSessionTab,
+  createSavedSessionForSelection,
+  addSelectionToSavedSession,
 }: OpenFromGitHubProps) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -165,6 +193,8 @@ export function OpenFromGitHub({
     addVKWorkspace,
     selectSessionTabGroup,
     selectSessionTab,
+    createSavedSessionForSelection,
+    addSelectionToSavedSession,
   });
   latestRuntimeRef.current = {
     workspace,
@@ -176,6 +206,8 @@ export function OpenFromGitHub({
     addVKWorkspace,
     selectSessionTabGroup,
     selectSessionTab,
+    createSavedSessionForSelection,
+    addSelectionToSavedSession,
   };
   const [dialog, setDialog] = useState<DialogState>(null);
 
@@ -204,38 +236,56 @@ export function OpenFromGitHub({
       getOpenFromGithubUrl(latestRuntimeRef.current.location.search),
     );
 
-  const promptOrOpenExistingLocation = (args: {
+  const routeExistingLocation = (args: {
     openLocation: OpenWorkspaceLocation;
     title: string;
     message: string;
-    confirmText: string;
   }) => {
-    const existingVoyage = findSavedVoyageForTabGroup(
+    const existingVoyages = findSavedVoyagesForTabGroup(
       latestRuntimeRef.current.savedVoyages,
       args.openLocation.tabGroupId,
     );
 
-    if (existingVoyage) {
+    if (existingVoyages.length === 1) {
+      const [existingVoyage] = existingVoyages;
+      if (existingVoyage) {
+        openSavedVoyage(
+          existingVoyage.savedVoyage,
+          existingVoyage.voyageEntryId ||
+            existingVoyage.savedVoyage.activeVoyageEntryId,
+        );
+      }
+      return;
+    }
+
+    if (existingVoyages.length > 1) {
       setDialog({
-        type: "confirm-open-existing",
+        type: "choose-voyage",
         title: args.title,
         message: args.message,
-        confirmText: args.confirmText,
-        savedVoyage: existingVoyage.savedVoyage,
-        voyageEntryId: existingVoyage.voyageEntryId,
+        choices: existingVoyages,
+        mode: {
+          type: "existing-location",
+          openLocation: args.openLocation,
+        },
       });
       return;
     }
 
-    latestRuntimeRef.current.selectSessionTabGroup(
-      args.openLocation.spaceId,
-      args.openLocation.tabGroupId,
-    );
-    setDialog(null);
-    clearParam();
+    setDialog({
+      type: "choose-voyage",
+      title: args.title,
+      message:
+        "This craft is open, but it is not part of any saved Voyage yet. Choose a recently opened Voyage to add it to, or create a new Voyage.",
+      choices: getRecentVoyageChoices(latestRuntimeRef.current.savedVoyages),
+      mode: {
+        type: "existing-location",
+        openLocation: args.openLocation,
+      },
+    });
   };
 
-  const openExistingVoyage = (
+  const openSavedVoyage = (
     savedVoyage: SavedWorkspaceSession,
     voyageEntryId: string,
   ) => {
@@ -253,10 +303,177 @@ export function OpenFromGitHub({
     navigate(nextPath, { replace: true });
   };
 
+  const chooseVoyageForTarget = (target: PendingTarget) => {
+    setDialog({
+      type: "choose-voyage",
+      title: `${getTargetVerb(target)} in Voyage`,
+      message:
+        "Choose a recently opened Voyage to add this craft to, or create a new Voyage.",
+      choices: getRecentVoyageChoices(latestRuntimeRef.current.savedVoyages),
+      mode: {
+        type: "target",
+        target,
+      },
+    });
+  };
+
+  const selectVoyageForDialog = async (choice: ExistingVoyageChoice) => {
+    if (dialog?.type !== "choose-voyage") return;
+    if (dialog.mode.type === "existing-location") {
+      await addExistingLocationToVoyage(dialog.mode.openLocation, choice);
+      return;
+    }
+    await openWorkspaceInVoyage(dialog.mode.target, choice.savedVoyage);
+  };
+
+  const addExistingLocationToVoyage = async (
+    openLocation: OpenWorkspaceLocation,
+    choice: ExistingVoyageChoice,
+  ) => {
+    const result = await latestRuntimeRef.current.addSelectionToSavedSession({
+      sessionId: choice.savedVoyage.id,
+      spaceId: openLocation.spaceId,
+      tabGroupId: openLocation.tabGroupId,
+      voyageEntryId: choice.voyageEntryId,
+    });
+    const savedVoyage = result || choice.savedVoyage;
+    const voyageEntryId =
+      result?.activeVoyageEntryId || choice.voyageEntryId || undefined;
+    openSavedVoyage(savedVoyage, voyageEntryId || savedVoyage.activeVoyageEntryId);
+  };
+
+  const createVoyageForDialog = async (name: string) => {
+    if (dialog?.type !== "choose-voyage") return;
+    if (dialog.mode.type === "existing-location") {
+      await createVoyageFromExistingLocation(name, dialog.mode.openLocation);
+      return;
+    }
+    await openWorkspaceInNewVoyage(dialog.mode.target, name);
+  };
+
+  const createVoyageFromExistingLocation = async (
+    name: string,
+    openLocation: OpenWorkspaceLocation,
+  ) => {
+    const savedVoyage =
+      await latestRuntimeRef.current.createSavedSessionForSelection({
+        name,
+        spaceId: openLocation.spaceId,
+        tabGroupId: openLocation.tabGroupId,
+      });
+    if (!savedVoyage) {
+      setDialog({
+        type: "error",
+        title: "Could not create Voyage",
+        message: "The existing craft could not be saved into a new Voyage.",
+      });
+      return;
+    }
+    openSavedVoyage(savedVoyage, savedVoyage.activeVoyageEntryId);
+  };
+
+  const getFallbackSpaceId = (preferredSpaceId?: string): string | undefined => {
+    const { workspace } = latestRuntimeRef.current;
+    if (
+      preferredSpaceId &&
+      workspace.spaces.some((space) => space.id === preferredSpaceId)
+    ) {
+      return preferredSpaceId;
+    }
+    return (
+      workspace.spaces.find((space) => !space.isSystem)?.id ||
+      workspace.spaces[0]?.id
+    );
+  };
+
+  const openWorkspaceInVoyage = async (
+    target: PendingTarget,
+    savedVoyage: SavedWorkspaceSession,
+  ): Promise<boolean> => {
+    const spaceId = getFallbackSpaceId(savedVoyage.activeSpaceId);
+    if (!spaceId) {
+      setDialog({
+        type: "error",
+        title: "Could not open Voyage",
+        message: "No space is available to host the new craft.",
+      });
+      clearParam();
+      return false;
+    }
+
+    const result = await openWorkspaceInSpace(target, spaceId, {
+      clearWhenDone: false,
+      selectWhenDone: false,
+    });
+    if (!result) return false;
+
+    const updatedVoyage =
+      await latestRuntimeRef.current.addSelectionToSavedSession({
+        sessionId: savedVoyage.id,
+        spaceId,
+        tabGroupId: result.tabGroupId,
+        tabId: result.agentTabId,
+      });
+    openSavedVoyage(
+      updatedVoyage || savedVoyage,
+      updatedVoyage?.activeVoyageEntryId || savedVoyage.activeVoyageEntryId,
+    );
+    return true;
+  };
+
+  const openWorkspaceInNewVoyage = async (
+    target: PendingTarget,
+    name: string,
+  ): Promise<boolean> => {
+    const spaceId = getFallbackSpaceId();
+    if (!spaceId) {
+      setDialog({
+        type: "error",
+        title: "Could not create Voyage",
+        message: "No space is available to host the new craft.",
+      });
+      clearParam();
+      return false;
+    }
+
+    const result = await openWorkspaceInSpace(target, spaceId, {
+      clearWhenDone: false,
+      selectWhenDone: false,
+    });
+    if (!result) return false;
+
+    const savedVoyage =
+      await latestRuntimeRef.current.createSavedSessionForSelection({
+        name,
+        spaceId,
+        tabGroupId: result.tabGroupId,
+        tabId: result.agentTabId,
+      });
+    if (!savedVoyage) {
+      setDialog({
+        type: "error",
+        title: "Could not create Voyage",
+        message: "The new craft could not be saved into a new Voyage.",
+      });
+      return false;
+    }
+
+    openSavedVoyage(savedVoyage, savedVoyage.activeVoyageEntryId);
+    return true;
+  };
+
   const openWorkspaceInSpace = async (
     target: PendingTarget,
     spaceId: string,
-  ): Promise<boolean> => {
+    options: { clearWhenDone?: boolean; selectWhenDone?: boolean } = {},
+  ): Promise<
+    | {
+        tabGroupId: string;
+        agentTabId: string;
+      }
+    | false
+  > => {
+    const { clearWhenDone = true, selectWhenDone = true } = options;
     const isCurrentTarget = () => isTargetCurrent(target);
     if (!isCurrentTarget()) return false;
 
@@ -286,7 +503,7 @@ export function OpenFromGitHub({
 
       if (!isCurrentTarget()) return false;
 
-      if (result) {
+      if (result && selectWhenDone) {
         latestRuntimeRef.current.selectSessionTab(
           spaceId,
           result.tabGroupId,
@@ -295,8 +512,15 @@ export function OpenFromGitHub({
       }
 
       setDialog(null);
-      clearParam();
-      return true;
+      if (clearWhenDone) {
+        clearParam();
+      }
+      return result
+        ? {
+            tabGroupId: result.tabGroupId,
+            agentTabId: result.agentTabId,
+          }
+        : false;
     } catch (error) {
       if (error instanceof StaleOpenFromGithubRunError || !isCurrentTarget()) {
         return false;
@@ -442,11 +666,10 @@ export function OpenFromGitHub({
           existingWorkspace.id,
         );
         if (openLocation && !existingWorkspace.archived) {
-          promptOrOpenExistingLocation({
+          routeExistingLocation({
             openLocation,
             title: "Open existing issue workspace?",
-            message: `GitHub issue ${issue.normalizedIssueUrl} is already open in a craft. Open the Voyage that currently contains it?`,
-            confirmText: "Open existing Voyage",
+            message: `GitHub issue ${issue.normalizedIssueUrl} is already open in multiple Voyages. Choose which one to open.`,
           });
           return;
         }
@@ -460,13 +683,10 @@ export function OpenFromGitHub({
           return;
         }
 
-        setDialog({
-          type: "choose-space",
-          target: {
-            type: "existing-issue",
-            workspace: existingWorkspace,
-            issue,
-          },
+        chooseVoyageForTarget({
+          type: "existing-issue",
+          workspace: existingWorkspace,
+          issue,
         });
         return;
       }
@@ -536,10 +756,7 @@ export function OpenFromGitHub({
     const matches = await findOrEnsureIssueRepo(issue, isCancelled);
     if (isCancelled()) return;
     if (matches.length === 1 && matches[0]) {
-      setDialog({
-        type: "choose-space",
-        target: { type: "create-issue", match: matches[0], issue },
-      });
+      chooseVoyageForTarget({ type: "create-issue", match: matches[0], issue });
       return;
     }
 
@@ -886,11 +1103,10 @@ export function OpenFromGitHub({
             existingWorkspaceId,
           );
           if (openLocation) {
-            promptOrOpenExistingLocation({
+            routeExistingLocation({
               openLocation,
               title: "Open existing PR workspace?",
-              message: `PR #${prInfo.number}: ${prInfo.title} is already open in a craft. Open the Voyage that currently contains it?`,
-              confirmText: "Open existing Voyage",
+              message: `PR #${prInfo.number}: ${prInfo.title} is already open in multiple Voyages. Choose which one to open.`,
             });
             return;
           }
@@ -898,13 +1114,10 @@ export function OpenFromGitHub({
           const existingWorkspace =
             await vkClient.getWorkspace(existingWorkspaceId);
           if (cancelled) return;
-          setDialog({
-            type: "choose-space",
-            target: {
-              type: "existing",
-              workspace: existingWorkspace,
-              prInfo,
-            },
+          chooseVoyageForTarget({
+            type: "existing",
+            workspace: existingWorkspace,
+            prInfo,
           });
           return;
         }
@@ -961,20 +1174,14 @@ export function OpenFromGitHub({
               url: `https://github.com/${parsedPr.normalizedRepo}.git`,
             },
           };
-          setDialog({
-            type: "choose-space",
-            target: { type: "create", match, prInfo },
-          });
+          chooseVoyageForTarget({ type: "create", match, prInfo });
           return;
         }
 
         if (matches.length === 1) {
           const [match] = matches;
           if (!match) return;
-          setDialog({
-            type: "choose-space",
-            target: { type: "create", match, prInfo },
-          });
+          chooseVoyageForTarget({ type: "create", match, prInfo });
           return;
         }
 
@@ -1015,24 +1222,18 @@ export function OpenFromGitHub({
       onSelectRepo={(match) => {
         if (dialog?.type !== "choose-repo") return;
         if (dialog.target.type === "pr") {
-          setDialog({
-            type: "choose-space",
-            target: {
-              type: "create",
-              match,
-              prInfo: dialog.target.prInfo,
-            },
+          chooseVoyageForTarget({
+            type: "create",
+            match,
+            prInfo: dialog.target.prInfo,
           });
           return;
         }
         if (dialog.target.type === "issue") {
-          setDialog({
-            type: "choose-space",
-            target: {
-              type: "create-issue",
-              match,
-              issue: dialog.target.issue,
-            },
+          chooseVoyageForTarget({
+            type: "create-issue",
+            match,
+            issue: dialog.target.issue,
           });
           return;
         }
@@ -1065,48 +1266,71 @@ export function OpenFromGitHub({
         if (dialog?.type !== "choose-space") return;
         void openWorkspaceInSpace(dialog.target, spaceId);
       }}
+      onSelectVoyage={(choice) => {
+        void selectVoyageForDialog(choice);
+      }}
       onConfirmReopenArchived={() => {
         if (dialog?.type !== "confirm-reopen-archived") return;
-        setDialog({
-          type: "choose-space",
-          target: {
-            type: "existing-issue",
-            workspace: dialog.workspace,
-            issue: dialog.issue,
-          },
+        chooseVoyageForTarget({
+          type: "existing-issue",
+          workspace: dialog.workspace,
+          issue: dialog.issue,
         });
       }}
       onForgetStaleIssueMapping={() => {
         if (dialog?.type !== "stale-issue-mapping") return;
         void forgetStaleIssueMappingAndCreateReplacement(dialog.issue);
       }}
-      onOpenExistingVoyage={() => {
-        if (dialog?.type !== "confirm-open-existing") return;
-        openExistingVoyage(dialog.savedVoyage, dialog.voyageEntryId);
-      }}
       onCreateSpace={(name) => {
         void createSpaceAndOpen(name);
+      }}
+      onCreateVoyage={(name) => {
+        void createVoyageForDialog(name);
       }}
     />
   );
 }
 
-function findSavedVoyageForTabGroup(
+function findSavedVoyagesForTabGroup(
   savedVoyages: SavedWorkspaceSession[],
   tabGroupId: string,
-): { savedVoyage: SavedWorkspaceSession; voyageEntryId: string } | null {
-  const candidates = savedVoyages
-    .flatMap((savedVoyage) =>
-      savedVoyage.voyageEntries
-        .filter((entry) => entry.tabGroupId === tabGroupId)
-        .map((entry) => ({ savedVoyage, voyageEntryId: entry.id })),
-    )
+): ExistingVoyageChoice[] {
+  return savedVoyages
+    .flatMap((savedVoyage) => {
+      const matchingEntries = savedVoyage.voyageEntries.filter(
+        (entry) => entry.tabGroupId === tabGroupId,
+      );
+      if (!matchingEntries.length) return [];
+      const activeMatchingEntry = matchingEntries.find(
+        (entry) => entry.id === savedVoyage.activeVoyageEntryId,
+      );
+      const entry = activeMatchingEntry || matchingEntries[0];
+      return entry ? [{ savedVoyage, voyageEntryId: entry.id }] : [];
+    })
     .sort(
       (a, b) =>
         Date.parse(b.savedVoyage.updatedAt) - Date.parse(a.savedVoyage.updatedAt),
     );
+}
 
-  return candidates[0] ?? null;
+function getRecentVoyageChoices(
+  savedVoyages: SavedWorkspaceSession[],
+): ExistingVoyageChoice[] {
+  return [...savedVoyages]
+    .sort(
+      (a, b) =>
+        Date.parse(b.updatedAt) - Date.parse(a.updatedAt),
+    )
+    .map((savedVoyage) => ({
+      savedVoyage,
+      voyageEntryId: savedVoyage.activeVoyageEntryId,
+    }));
+}
+
+function formatVoyageTimestamp(value: string): string {
+  const timestamp = Date.parse(value);
+  if (Number.isNaN(timestamp)) return value;
+  return new Date(timestamp).toLocaleString();
 }
 
 class StaleOpenFromGithubRunError extends Error {
@@ -1184,24 +1408,27 @@ function OpenFromGithubDialog({
   onClose,
   onSelectRepo,
   onSelectSpace,
+  onSelectVoyage,
   onSelectBranch,
   onCreateSpace,
+  onCreateVoyage,
   onConfirmReopenArchived,
   onForgetStaleIssueMapping,
-  onOpenExistingVoyage,
 }: {
   state: DialogState;
   workspace: WorkspaceState;
   onClose: () => void;
   onSelectRepo: (match: MatchingRepoRemote) => void;
   onSelectSpace: (spaceId: string) => void;
+  onSelectVoyage: (choice: ExistingVoyageChoice) => void;
   onSelectBranch: (branch: string) => void;
   onCreateSpace: (name: string) => void;
+  onCreateVoyage: (name: string) => void;
   onConfirmReopenArchived: () => void;
   onForgetStaleIssueMapping: () => void;
-  onOpenExistingVoyage: () => void;
 }) {
   const [newSpaceName, setNewSpaceName] = useState("");
+  const [newVoyageName, setNewVoyageName] = useState("");
 
   if (!state) return null;
 
@@ -1215,7 +1442,7 @@ function OpenFromGithubDialog({
           ? "Reopen archived issue workspace?"
           : state.type === "stale-issue-mapping"
             ? "Issue workspace no longer exists"
-            : state.type === "confirm-open-existing"
+            : state.type === "choose-voyage"
               ? state.title
               : state.type === "choose-branch"
               ? "Choose branch base"
@@ -1310,13 +1537,6 @@ function OpenFromGithubDialog({
           </div>
         ) : null}
 
-        {state.type === "confirm-open-existing" ? (
-          <div className="rounded-lg border border-blue-500/30 bg-blue-500/10 p-3 text-sm text-blue-100">
-            Existing Voyage:{" "}
-            <span className="font-medium">{state.savedVoyage.name}</span>
-          </div>
-        ) : null}
-
         {state.type === "choose-space" ? (
           <div className="space-y-4">
             {state.target.type === "create-tree-blob" ? (
@@ -1385,6 +1605,61 @@ function OpenFromGithubDialog({
           </div>
         ) : null}
 
+        {state.type === "choose-voyage" ? (
+          <div className="space-y-4">
+            <div className="space-y-2">
+              {state.choices.length === 0 ? (
+                <div className="rounded-lg border border-neutral-800 bg-neutral-950 p-3 text-sm text-neutral-500">
+                  No recently opened Voyages yet. Create one below.
+                </div>
+              ) : (
+                state.choices.map((choice) => (
+                  <button
+                    key={`${choice.savedVoyage.id}:${choice.voyageEntryId || "active"}`}
+                    type="button"
+                    className="w-full rounded-lg border border-neutral-700 bg-neutral-800 p-3 text-left transition-colors hover:bg-neutral-700"
+                    onClick={() => onSelectVoyage(choice)}
+                  >
+                    <div className="text-sm font-medium text-white">
+                      {choice.savedVoyage.name}
+                    </div>
+                    <div className="mt-1 text-xs text-neutral-400">
+                      Updated {formatVoyageTimestamp(choice.savedVoyage.updatedAt)}
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+
+            <div className="flex gap-2 border-t border-neutral-800 pt-4">
+              <input
+                className="min-w-0 flex-1 rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm text-white outline-none focus:border-neutral-500"
+                placeholder="New Voyage name"
+                value={newVoyageName}
+                onChange={(event) => setNewVoyageName(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && newVoyageName.trim()) {
+                    onCreateVoyage(newVoyageName.trim());
+                    setNewVoyageName("");
+                  }
+                }}
+              />
+              <button
+                type="button"
+                disabled={!newVoyageName.trim()}
+                className="rounded-lg border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
+                onClick={() => {
+                  if (!newVoyageName.trim()) return;
+                  onCreateVoyage(newVoyageName.trim());
+                  setNewVoyageName("");
+                }}
+              >
+                Create
+              </button>
+            </div>
+          </div>
+        ) : null}
+
         <div className="mt-5 flex justify-end gap-2">
           {state.type === "confirm-reopen-archived" ? (
             <button
@@ -1402,15 +1677,6 @@ function OpenFromGithubDialog({
               onClick={onForgetStaleIssueMapping}
             >
               Forget mapping and create replacement
-            </button>
-          ) : null}
-          {state.type === "confirm-open-existing" ? (
-            <button
-              type="button"
-              className="rounded-lg border border-blue-500/50 bg-blue-500/20 px-3 py-2 text-sm font-medium text-blue-100 hover:bg-blue-500/30"
-              onClick={onOpenExistingVoyage}
-            >
-              {state.confirmText}
             </button>
           ) : null}
           <button

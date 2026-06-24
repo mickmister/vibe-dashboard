@@ -990,6 +990,12 @@ springboard.registerModule(
             addVKWorkspace={wrappedActions.addVKWorkspace}
             selectSessionTabGroup={sessionActions.selectSessionTabGroup}
             selectSessionTab={sessionActions.selectSessionTab}
+            createSavedSessionForSelection={async (args) =>
+              await actions.createSavedSessionForSelection(args)
+            }
+            addSelectionToSavedSession={async (args) =>
+              await actions.addSelectionToSavedSession(args)
+            }
           />
         </>
       );
