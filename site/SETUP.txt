@@ -14,9 +14,9 @@ nuxt is listed as a direct dev dependency because Undocs resolves Nuxt from the 
 
 Deployment:
   Production URL: https://vibedashboard.dev
-  Production deploys run on pushes to main.
-  PRs from this repository upload Cloudflare Workers preview versions with the alias pr-<number>.
-  Fork PRs run the docs build but do not receive deploy secrets.
+  Production deploys run on pushes to main and on every same-repository PR commit while the PR is open.
+  Same-repository PRs deploy the production Worker directly so vibedashboard.dev reflects the current PR commit.
+  Fork PRs run the docs build but do not receive deploy secrets or deploy production.
 
 Secrets/config:
   Keep site/.env.schema as the non-secret contract for CI and local docs configuration.

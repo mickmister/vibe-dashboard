@@ -67,66 +67,18 @@ jobs:
           if-no-files-found: error
           include-hidden-files: true
 
-  deploy-preview:
-    name: Upload docs Worker preview
-    needs: build
-    if: >-
-      ${{
-        github.event_name == 'pull_request' &&
-        github.event.pull_request.head.repo.full_name == github.repository
-      }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    permissions:
-      contents: read
-
-    env:
-      DOCS_DEPLOY_DOPPLER_TOKEN: ${{ secrets.DOCS_DEPLOY_DOPPLER_TOKEN }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Download docs artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: docs-static-site
-          path: site/.docs/.output/public
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          package_json_file: site/package.json
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Validate deploy environment
-        uses: dmno-dev/varlock-action@v1.0.1
-        with:
-          working-directory: site
-          show-summary: false
-
-      - name: Require Doppler and Cloudflare deploy secrets
-        shell: bash
-        run: |
-          test -n "$DOCS_DEPLOY_DOPPLER_TOKEN" || { echo 'DOCS_DEPLOY_DOPPLER_TOKEN is required'; exit 1; }
-          test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo 'CLOUDFLARE_ACCOUNT_ID is required'; exit 1; }
-          test -n "$CLOUDFLARE_API_TOKEN" || { echo 'CLOUDFLARE_API_TOKEN is required'; exit 1; }
-
-      - name: Upload preview Worker version
-        working-directory: site
-        run: >-
-          pnpm dlx wrangler@4.100.0 versions upload
-          --preview-alias pr-${{ github.event.pull_request.number }}
-          --message "Docs preview for PR #${{ github.event.pull_request.number }} @ ${{ github.sha }}"
-
   deploy-production:
     name: Deploy docs Worker production
     needs: build
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}
+    if: >-
+      ${{
+        github.event_name == 'workflow_dispatch' ||
+        (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+        (
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.head.repo.full_name == github.repository
+        )
+      }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
