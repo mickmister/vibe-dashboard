@@ -1300,11 +1300,11 @@ function supervisorConfigPath(
   return join(paths.supervisorConfigDir, `${supervisorProgramName(plugin, service)}.conf`);
 }
 
-function supervisorProgramName(plugin: PluginServiceDefinition, service: SupervisorServiceDefinition): string {
+export function supervisorProgramName(plugin: PluginServiceDefinition, service: SupervisorServiceDefinition): string {
   return `vd-plugin--${sanitizeIdentifier(plugin.id)}--${sanitizeIdentifier(service.id)}`;
 }
 
-function pluginInstallPath(paths: PluginServiceOrchestratorPaths, plugin: PluginServiceDefinition): string {
+export function pluginInstallPath(paths: PluginServiceOrchestratorPaths, plugin: PluginServiceDefinition): string {
   return join(paths.installRoot, plugin.id, plugin.version);
 }
 

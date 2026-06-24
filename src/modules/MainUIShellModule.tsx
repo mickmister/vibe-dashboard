@@ -1,7 +1,7 @@
 import '@vitejs/plugin-react/preamble';
 import '../styles';
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { HeroUIProvider } from '@heroui/react';
 import { AppLoadingScreen } from '../components/AppLoadingScreen';
@@ -15,6 +15,11 @@ import {
 } from '../sessionState';
 import type { NewSessionInitialSelection } from '../sessionState';
 import { resolveWorkspaceContainerRef } from '../lib/vkWorkspaceOpen';
+import {
+  fetchPluginAdminStatuses,
+  setPluginAdminDesiredEnabled,
+  type PluginAdminStatus,
+} from '../lib/pluginAdminApi';
 import {
   buildCanonicalDashboardPath,
   buildCraftParam,
@@ -568,6 +573,126 @@ springboard.registerModule(
       );
     };
 
+    const AdminPluginsRoute = () => {
+      const [plugins, setPlugins] = useState<PluginAdminStatus[]>([]);
+      const [loading, setLoading] = useState(true);
+      const [error, setError] = useState<string | null>(null);
+      const [updatingPluginId, setUpdatingPluginId] = useState<string | null>(null);
+
+      const loadStatuses = async () => {
+        setLoading(true);
+        setError(null);
+        try {
+          setPlugins(await fetchPluginAdminStatuses());
+        } catch (caught) {
+          setError(caught instanceof Error ? caught.message : String(caught));
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      useEffect(() => {
+        void loadStatuses();
+      }, []);
+
+      const updatePluginEnabled = async (pluginId: string, enable: boolean) => {
+        setUpdatingPluginId(pluginId);
+        setError(null);
+        try {
+          const plugin = await setPluginAdminDesiredEnabled(pluginId, enable);
+          setPlugins((current) => current.map((entry) => entry.pluginId === plugin.pluginId ? plugin : entry));
+          await loadStatuses();
+        } catch (caught) {
+          setError(caught instanceof Error ? caught.message : String(caught));
+        } finally {
+          setUpdatingPluginId(null);
+        }
+      };
+
+      return (
+        <main className="dark min-h-screen bg-zinc-950 text-zinc-100 p-8">
+          <div className="mx-auto max-w-6xl">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <h1 className="text-2xl font-semibold">Plugin Admin</h1>
+                <p className="mt-1 text-sm text-zinc-400">
+                  Persistent desired state controls sync runtime Supervisor and Caddy exposure.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="rounded-md border border-zinc-700 px-3 py-2 text-sm hover:bg-zinc-900 disabled:opacity-50"
+                onClick={() => void loadStatuses()}
+                disabled={loading || updatingPluginId !== null}
+              >
+                Refresh
+              </button>
+            </div>
+
+            {error ? (
+              <div role="alert" className="mt-6 rounded-md border border-red-800 bg-red-950/40 p-4 text-sm text-red-200">
+                {error}
+              </div>
+            ) : null}
+
+            <div className="mt-6 overflow-hidden rounded-lg border border-zinc-800">
+              <table className="w-full border-collapse text-left text-sm">
+                <thead className="bg-zinc-900 text-xs uppercase tracking-wide text-zinc-400">
+                  <tr>
+                    <th className="px-4 py-3">Plugin</th>
+                    <th className="px-4 py-3">Desired</th>
+                    <th className="px-4 py-3">Runtime</th>
+                    <th className="px-4 py-3">Install path</th>
+                    <th className="px-4 py-3 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {loading ? (
+                    <tr>
+                      <td className="px-4 py-6 text-zinc-400" colSpan={5}>Loading plugin status…</td>
+                    </tr>
+                  ) : plugins.length === 0 ? (
+                    <tr>
+                      <td className="px-4 py-6 text-zinc-400" colSpan={5}>No plugins are configured.</td>
+                    </tr>
+                  ) : plugins.map((plugin) => (
+                    <tr key={plugin.pluginId} className="border-t border-zinc-800">
+                      <td className="px-4 py-3">
+                        <div className="font-medium">{plugin.name}</div>
+                        <div className="text-xs text-zinc-500">{plugin.pluginId} · {plugin.version}</div>
+                      </td>
+                      <td className="px-4 py-3">{plugin.desiredEnabled ? 'Enabled' : 'Disabled'}</td>
+                      <td className="px-4 py-3">
+                        <div>{plugin.observedState}</div>
+                        {plugin.error ? <div className="mt-1 text-xs text-red-300">{plugin.error}</div> : null}
+                      </td>
+                      <td className="max-w-md truncate px-4 py-3 text-xs text-zinc-400" title={plugin.installPath ?? plugin.pluginPath}>
+                        {plugin.installPath ?? plugin.pluginPath ?? 'Unavailable'}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <button
+                          type="button"
+                          className="rounded-md border border-zinc-700 px-3 py-2 hover:bg-zinc-900 disabled:opacity-50"
+                          disabled={updatingPluginId !== null}
+                          onClick={() => void updatePluginEnabled(plugin.pluginId, !plugin.desiredEnabled)}
+                        >
+                          {updatingPluginId === plugin.pluginId
+                            ? 'Applying…'
+                            : plugin.desiredEnabled
+                              ? 'Disable'
+                              : 'Enable'}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </main>
+      );
+    };
+
     // Root redirects to /dashboard (for dev server case)
     moduleAPI.registerRoute('/', { hideApplicationShell: true }, RootRedirect);
 
@@ -576,6 +701,12 @@ springboard.registerModule(
       '/dashboard',
       { hideApplicationShell: true },
       WorkspaceRoute,
+    );
+
+    moduleAPI.registerRoute(
+      '/dashboard/admin/plugins',
+      { hideApplicationShell: true },
+      AdminPluginsRoute,
     );
 
     return {
