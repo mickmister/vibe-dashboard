@@ -85,6 +85,31 @@ export class GithubIssueWorkspaceMapStore {
     return write;
   }
 
+  async delete(identity: GithubIssueIdentity): Promise<boolean> {
+    const write = this.writeQueue.then(async () => {
+      const store = await this.readStore();
+      const nextMappings = store.mappings.filter(
+        (mapping) =>
+          mapping.normalizedIssueUrl !== identity.normalizedIssueUrl,
+      );
+      if (nextMappings.length === store.mappings.length) {
+        return false;
+      }
+
+      await this.writeStore({
+        version: 1,
+        mappings: nextMappings,
+      });
+      return true;
+    });
+
+    this.writeQueue = write.then(
+      () => undefined,
+      () => undefined,
+    );
+    return write;
+  }
+
   private async readStore(): Promise<StoreFile> {
     try {
       const raw = await readFile(this.filePath, "utf8");

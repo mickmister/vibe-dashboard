@@ -203,6 +203,11 @@ export class VibeKanbanClient {
     return this.parseDashboardResponse<T>("PUT", path, res);
   }
 
+  private async dashboardDelete<T>(path: string): Promise<T> {
+    const res = await fetch(path, { method: "DELETE" });
+    return this.parseDashboardResponse<T>("DELETE", path, res);
+  }
+
   private async dashboardPost<T>(path: string, body: unknown): Promise<T> {
     const res = await fetch(path, {
       method: "POST",
@@ -287,6 +292,16 @@ export class VibeKanbanClient {
     return this.dashboardPut(
       `/dashboard/api/github/issue-workspaces/${encodeURIComponent(args.owner)}/${encodeURIComponent(args.repo)}/${args.number}`,
       { workspaceId: args.workspaceId, branch: args.branch },
+    );
+  }
+
+  deleteGithubIssueWorkspaceMapping(args: {
+    owner: string;
+    repo: string;
+    number: number;
+  }): Promise<{ deleted: boolean }> {
+    return this.dashboardDelete(
+      `/dashboard/api/github/issue-workspaces/${encodeURIComponent(args.owner)}/${encodeURIComponent(args.repo)}/${args.number}`,
     );
   }
 

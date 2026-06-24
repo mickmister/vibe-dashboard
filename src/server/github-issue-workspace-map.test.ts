@@ -18,7 +18,6 @@ afterEach(async () => {
     tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })),
   );
 });
-
 describe("GithubIssueWorkspaceMapStore", () => {
   it("persists and reloads issue workspace mappings", async () => {
     const { store, filePath } = await makeStore();
@@ -63,4 +62,20 @@ describe("GithubIssueWorkspaceMapStore", () => {
       branch: "new",
     });
   });
+  it("deletes an existing normalized issue mapping", async () => {
+    const { store } = await makeStore();
+    const identity = {
+      owner: "owner",
+      repo: "repo",
+      number: 42,
+      normalizedIssueUrl: "https://github.com/owner/repo/issues/42",
+    };
+
+    await store.upsert({ identity, workspaceId: "ws-1", branch: "old" });
+
+    await expect(store.delete(identity)).resolves.toBe(true);
+    await expect(store.get(identity)).resolves.toBeNull();
+    await expect(store.delete(identity)).resolves.toBe(false);
+  });
+
 });

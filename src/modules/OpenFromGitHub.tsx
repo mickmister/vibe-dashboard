@@ -112,6 +112,11 @@ type DialogState =
       issue: ParsedGithubIssueUrl;
     }
   | {
+      type: "stale-issue-mapping";
+      issue: ParsedGithubIssueUrl;
+      workspaceId: string;
+    }
+  | {
       type: "opening";
       title: string;
       message: string;
@@ -362,11 +367,10 @@ export function OpenFromGitHub({
         } catch (error) {
           if (isCancelled()) return;
           setDialog({
-            type: "error",
-            title: "Issue workspace no longer exists",
-            message: `GitHub issue ${issue.normalizedIssueUrl} was previously mapped to workspace ${mapping.mapping.workspaceId}, but that workspace could not be loaded. Please remove or repair the persisted mapping before creating a replacement.`,
+            type: "stale-issue-mapping",
+            issue,
+            workspaceId: mapping.mapping.workspaceId,
           });
-          clearParam();
           return;
         }
 
@@ -404,31 +408,7 @@ export function OpenFromGitHub({
         return;
       }
 
-      const matches = await findOrEnsureIssueRepo(issue, isCancelled);
-      if (isCancelled()) return;
-      if (matches.length === 1 && matches[0]) {
-        setDialog({
-          type: "choose-space",
-          target: { type: "create-issue", match: matches[0], issue },
-        });
-        return;
-      }
-
-      if (matches.length > 1) {
-        setDialog({
-          type: "choose-repo",
-          target: { type: "issue", issue },
-          matches,
-        });
-        return;
-      }
-
-      setDialog({
-        type: "error",
-        title: "Could not open GitHub issue",
-        message: `No matching repository found for ${issue.normalizedRepo}.`,
-      });
-      clearParam();
+      await showCreateIssueOptions(issue, isCancelled);
     } catch (error) {
       if (isCancelled()) return;
       setDialog({
@@ -484,6 +464,80 @@ export function OpenFromGitHub({
       new Map([[ensured.repo.id, ensuredRemotes]]),
       issue,
     );
+  };
+
+  const showCreateIssueOptions = async (
+    issue: ParsedGithubIssueUrl,
+    isCancelled: () => boolean,
+  ) => {
+    const matches = await findOrEnsureIssueRepo(issue, isCancelled);
+    if (isCancelled()) return;
+    if (matches.length === 1 && matches[0]) {
+      setDialog({
+        type: "choose-space",
+        target: { type: "create-issue", match: matches[0], issue },
+      });
+      return;
+    }
+
+    if (matches.length > 1) {
+      setDialog({
+        type: "choose-repo",
+        target: { type: "issue", issue },
+        matches,
+      });
+      return;
+    }
+
+    setDialog({
+      type: "error",
+      title: "Could not open GitHub issue",
+      message: `No matching repository found for ${issue.normalizedRepo}.`,
+    });
+    clearParam();
+  };
+
+  const forgetStaleIssueMappingAndCreateReplacement = async (
+    issue: ParsedGithubIssueUrl,
+  ) => {
+    const isCancelled = () => {
+      if (!mountedRef.current) return true;
+      const requestedUrl = getOpenFromGithubUrl(
+        latestRuntimeRef.current.location.search,
+      );
+      const parsed = requestedUrl ? parseGithubOpenUrl(requestedUrl) : null;
+      return (
+        parsed?.type !== "issue" ||
+        parsed.issue.normalizedIssueUrl !== issue.normalizedIssueUrl
+      );
+    };
+
+    setDialog({
+      type: "processing",
+      title: "Repairing GitHub issue mapping",
+      message: `Forgetting stale workspace mapping for ${issue.normalizedIssueUrl}`,
+    });
+
+    try {
+      await vkClient.deleteGithubIssueWorkspaceMapping({
+        owner: issue.owner.toLowerCase(),
+        repo: issue.repo.toLowerCase(),
+        number: issue.number,
+      });
+      if (isCancelled()) return;
+      await showCreateIssueOptions(issue, isCancelled);
+    } catch (error) {
+      if (isCancelled()) return;
+      setDialog({
+        type: "error",
+        title: "Could not repair GitHub issue mapping",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Unknown error while repairing GitHub issue mapping.",
+      });
+      clearParam();
+    }
   };
 
   const runTreeBlobOpen = async (
@@ -959,6 +1013,10 @@ export function OpenFromGitHub({
           },
         });
       }}
+      onForgetStaleIssueMapping={() => {
+        if (dialog?.type !== "stale-issue-mapping") return;
+        void forgetStaleIssueMappingAndCreateReplacement(dialog.issue);
+      }}
       onCreateSpace={(name) => {
         void createSpaceAndOpen(name);
       }}
@@ -1044,6 +1102,7 @@ function OpenFromGithubDialog({
   onSelectBranch,
   onCreateSpace,
   onConfirmReopenArchived,
+  onForgetStaleIssueMapping,
 }: {
   state: DialogState;
   workspace: WorkspaceState;
@@ -1053,6 +1112,7 @@ function OpenFromGithubDialog({
   onSelectBranch: (branch: string) => void;
   onCreateSpace: (name: string) => void;
   onConfirmReopenArchived: () => void;
+  onForgetStaleIssueMapping: () => void;
 }) {
   const [newSpaceName, setNewSpaceName] = useState("");
 
@@ -1066,9 +1126,11 @@ function OpenFromGithubDialog({
         ? `${getTargetVerb(state.target)} in space`
         : state.type === "confirm-reopen-archived"
           ? "Reopen archived issue workspace?"
-          : state.type === "choose-branch"
-            ? "Choose branch base"
-            : state.title;
+          : state.type === "stale-issue-mapping"
+            ? "Issue workspace no longer exists"
+            : state.type === "choose-branch"
+              ? "Choose branch base"
+              : state.title;
   const message =
     state.type === "choose-repo"
       ? state.target.type === "pr"
@@ -1082,7 +1144,9 @@ function OpenFromGithubDialog({
           : `Choose a space for ${getTargetTitle(state.target)}`
         : state.type === "confirm-reopen-archived"
           ? `GitHub issue ${state.issue.normalizedIssueUrl} is mapped to archived workspace ${state.workspace.name || state.workspace.branch}. Reopen and unarchive it instead of creating a duplicate branch?`
-          : state.message;
+          : state.type === "stale-issue-mapping"
+            ? `GitHub issue ${state.issue.normalizedIssueUrl} was mapped to deleted workspace ${state.workspaceId}. Forget the stale mapping before creating a replacement workspace.`
+            : state.message;
 
   return (
     <div
@@ -1147,6 +1211,13 @@ function OpenFromGithubDialog({
           <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-100">
             Reopening will make the prior workspace active again and reuse
             branch <span className="font-mono">{state.workspace.branch}</span>.
+          </div>
+        ) : null}
+
+        {state.type === "stale-issue-mapping" ? (
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-100">
+            The previous workspace record is gone. Forgetting this mapping lets
+            VD create and store a replacement issue workspace.
           </div>
         ) : null}
 
@@ -1226,6 +1297,15 @@ function OpenFromGithubDialog({
               onClick={onConfirmReopenArchived}
             >
               Reopen workspace
+            </button>
+          ) : null}
+          {state.type === "stale-issue-mapping" ? (
+            <button
+              type="button"
+              className="rounded-lg border border-amber-500/50 bg-amber-500/20 px-3 py-2 text-sm font-medium text-amber-100 hover:bg-amber-500/30"
+              onClick={onForgetStaleIssueMapping}
+            >
+              Forget mapping and create replacement
             </button>
           ) : null}
           <button

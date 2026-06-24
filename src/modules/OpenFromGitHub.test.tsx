@@ -21,6 +21,7 @@ vi.mock("../lib/vk-client", () => ({
     getGitBranchesContainingCommit: vi.fn(),
     getGithubIssueWorkspaceMapping: vi.fn(),
     putGithubIssueWorkspaceMapping: vi.fn(),
+    deleteGithubIssueWorkspaceMapping: vi.fn(),
     updateWorkspace: vi.fn(),
   },
 }));
@@ -137,6 +138,7 @@ describe("OpenFromGitHub", () => {
     vi.mocked(vkClient.getGitBranchesContainingCommit).mockReset();
     vi.mocked(vkClient.getGithubIssueWorkspaceMapping).mockReset();
     vi.mocked(vkClient.putGithubIssueWorkspaceMapping).mockReset();
+    vi.mocked(vkClient.deleteGithubIssueWorkspaceMapping).mockReset();
     vi.mocked(vkClient.updateWorkspace).mockReset();
   });
 
@@ -1020,7 +1022,7 @@ describe("OpenFromGitHub", () => {
     expect(vkClient.createWorkspaceFromIssue).not.toHaveBeenCalled();
   });
 
-  it("shows an explicit error when a persisted issue workspace was deleted", async () => {
+  it("repairs a deleted persisted issue workspace mapping before creating a replacement", async () => {
     vi.mocked(vkClient.getGithubIssueWorkspaceMapping).mockResolvedValue({
       mapping: {
         owner: "owner",
@@ -1034,6 +1036,15 @@ describe("OpenFromGitHub", () => {
       },
     });
     vi.mocked(vkClient.getWorkspace).mockRejectedValue(new Error("not found"));
+    vi.mocked(vkClient.deleteGithubIssueWorkspaceMapping).mockResolvedValue({
+      deleted: true,
+    });
+    vi.mocked(vkClient.getRepos).mockResolvedValue([
+      { id: "repo-1", name: "repo-a", display_name: "Repo A" },
+    ]);
+    vi.mocked(vkClient.getRepoRemotes).mockResolvedValue([
+      { name: "origin", url: "https://github.com/owner/repo.git" },
+    ]);
 
     const { findByText } = renderOpenFromGithub(
       emptyWorkspace,
@@ -1042,5 +1053,15 @@ describe("OpenFromGitHub", () => {
 
     await findByText("Issue workspace no longer exists");
     expect(vkClient.createWorkspaceFromIssue).not.toHaveBeenCalled();
+
+    fireEvent.click(await findByText("Forget mapping and create replacement"));
+
+    await findByText("Open GitHub issue in space");
+    expect(vkClient.deleteGithubIssueWorkspaceMapping).toHaveBeenCalledWith({
+      owner: "owner",
+      repo: "repo",
+      number: 7,
+    });
+    expect(vkClient.getRepos).toHaveBeenCalled();
   });
 });

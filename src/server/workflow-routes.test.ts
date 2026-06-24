@@ -117,6 +117,18 @@ describe("registerWorkflowRoutes", () => {
         branch: "vk/issue-42",
       },
     });
+
+    const deleted = await app.request(
+      "/dashboard/api/github/issue-workspaces/OWNER/REPO/42",
+      { method: "DELETE" },
+    );
+    expect(deleted.status).toBe(200);
+    await expect(deleted.json()).resolves.toEqual({ deleted: true });
+
+    const getAfterDelete = await app.request(
+      "/dashboard/api/github/issue-workspaces/owner/repo/42",
+    );
+    await expect(getAfterDelete.json()).resolves.toEqual({ mapping: null });
   });
 
   it("ensures a GitHub repo via the provisioning route", async () => {

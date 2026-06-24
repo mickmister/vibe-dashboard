@@ -105,6 +105,24 @@ export function registerWorkflowRoutes(
     },
   );
 
+  hono.delete(
+    "/dashboard/api/github/issue-workspaces/:owner/:repo/:number",
+    async (c) => {
+      const identity = parseIssueIdentityParams(c.req.param());
+      if (!identity) {
+        return c.json(
+          {
+            error: "A valid GitHub issue owner, repo, and number are required",
+          },
+          400,
+        );
+      }
+
+      const deleted = await issueWorkspaceMap.delete(identity);
+      return c.json({ deleted });
+    },
+  );
+
   hono.get(
     "/dashboard/api/github/repos/:repoId/branches-containing/:commit",
     async (c) => {
