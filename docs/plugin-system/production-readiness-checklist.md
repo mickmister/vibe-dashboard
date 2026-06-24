@@ -16,6 +16,7 @@ Use this checklist before treating external agent-installed plugins as productio
 ## Runtime and observability
 
 - [ ] Staging install runs health checks and smoke tests before promotion.
+- [ ] Operator runbooks link to `docs/plugin-system/plugin-runtime-operations.md` and explain that `pluginStates[pluginId].enable` is the persistent stop/start source of truth.
 - [ ] Logs are visible for install, Deno startup, container lifecycle, health checks, promotion, and rollback.
 - [ ] Runtime diagnostics include microVM, dockerd, image pull, container start, network, and health-check phases.
 - [ ] First-party services expose their broad privileges in a separate audit view from marketplace plugins.

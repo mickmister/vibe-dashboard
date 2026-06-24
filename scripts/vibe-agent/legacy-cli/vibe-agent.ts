@@ -2163,7 +2163,9 @@ Current branch conventions:
   - Runtime/plugin orchestration code belongs under ./plugins, not ./src.
   - ./src is for the VD web application/server source.
   - Built-in plugin service metadata lives under ./plugins.
-  - Per-instance plugin changes should go through vibe-agent plugins add, not hand edits to /var/lib/vd/instance-config/plugins.json.
+  - Per-instance plugin manifest changes should go through vibe-agent plugins add, not hand edits to /var/lib/vd/instance-config/plugins.json.
+  - Persistent plugin stop/start goes through pluginStates enable=false/true via the Plugin Admin UI or vibe-agent plugins disable/enable.
+  - Do not rely on supervisorctl stop for durable plugin disablement; sync/apply self-heals enabled plugin services and may start them again.
   - Plugin manifests are admin-level config. Review installers carefully before adding them.
   - Plugin app files live under /var/lib/vd/plugins, exposed plugin binaries under /var/lib/vd/plugin-bin, and persistent package-manager toolchains under /var/lib/vd/toolchains.
   - Plugin installers can use release assets or package managers; see vibe-agent plugins add --help for manifest/add workflow details.
@@ -2203,9 +2205,13 @@ Adds or replaces one plugin manifest in the per-instance plugin config
 repository. The manifest is assumed to be an admin-reviewed
 PluginServiceDefinition object, not a full { "plugins": [...] } catalog.
 Enable/disable records persistent admin desired state in pluginStates; sync
-will omit disabled plugins from Supervisor/Caddy until they are enabled again.
-This is durable config, unlike temporary supervisorctl stop commands that sync
-may later repair for enabled plugins.
+will omit disabled plugins from plugin-owned Supervisor/Caddy output until they
+are enabled again. Missing pluginStates entries default to enabled. Disabled
+plugins retain installed artifacts, cached downloads, toolchains, and data so
+they can be re-enabled later. This is durable config, unlike temporary
+supervisorctl stop commands that sync may later repair for enabled plugins.
+Runtime apply only reconciles plugin-owned services and routes; it does not
+restart unrelated Supervisor programs.
 
 Defaults:
   --config-repo-dir /var/lib/vd/instance-config
