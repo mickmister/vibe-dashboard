@@ -79,23 +79,38 @@ export function registerPluginAdminRoutes(app: Hono, options: RegisterPluginAdmi
 }
 
 export async function loadPluginAdminStatuses(options: RegisterPluginAdminRoutesOptions = {}): Promise<PluginAdminStatus[]> {
-  const [catalog, supervisorStatuses] = await Promise.all([
-    (options.loadCatalog ?? defaultLoadCatalog(options))(),
-    (options.readSupervisorStatuses ?? defaultReadSupervisorStatuses)(),
-  ]);
-  return buildPluginAdminStatuses({ catalog, paths: resolvePluginAdminPaths(options), supervisorStatuses });
+  const catalog = await (options.loadCatalog ?? defaultLoadCatalog(options))();
+  let supervisorStatuses = new Map<string, SupervisorProgramStatus>();
+  let supervisorStatusCollectionError: string | undefined;
+  try {
+    supervisorStatuses = await (options.readSupervisorStatuses ?? defaultReadSupervisorStatuses)();
+  } catch (error) {
+    supervisorStatusCollectionError = `Supervisor status collection failed: ${error instanceof Error ? error.message : String(error)}`;
+  }
+  return buildPluginAdminStatuses({
+    catalog,
+    paths: resolvePluginAdminPaths(options),
+    supervisorStatuses,
+    ...(supervisorStatusCollectionError ? { supervisorStatusCollectionError } : {}),
+  });
 }
 
 export function buildPluginAdminStatuses(input: {
   catalog: PluginServiceCatalog;
   paths: PluginServiceOrchestratorPaths;
   supervisorStatuses: Map<string, SupervisorProgramStatus>;
+  supervisorStatusCollectionError?: string;
 }): PluginAdminStatus[] {
   assertPluginServiceCatalog(input.catalog);
   return input.catalog.plugins.map((plugin) => {
     const desiredEnabled = isPluginEnabled(input.catalog, plugin.id);
     const installPath = pluginInstallPath(input.paths, plugin);
-    const observed = observePluginRuntimeState(plugin, desiredEnabled, input.supervisorStatuses);
+    const observed = observePluginRuntimeState(
+      plugin,
+      desiredEnabled,
+      input.supervisorStatuses,
+      input.supervisorStatusCollectionError,
+    );
     return {
       pluginId: plugin.id,
       name: plugin.name,
@@ -113,8 +128,10 @@ function observePluginRuntimeState(
   plugin: PluginServiceDefinition,
   desiredEnabled: boolean,
   supervisorStatuses: Map<string, SupervisorProgramStatus>,
+  supervisorStatusCollectionError?: string,
 ): { state: ObservedPluginRuntimeState; error?: string } {
   if (!desiredEnabled) return { state: 'disabled' };
+  if (supervisorStatusCollectionError) return { state: 'failed', error: supervisorStatusCollectionError };
   if (plugin.services.length === 0) return { state: 'not_running' };
 
   const serviceStatuses = plugin.services.map((service) => ({

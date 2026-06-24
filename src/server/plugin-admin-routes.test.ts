@@ -114,6 +114,48 @@ describe('plugin admin API routes', () => {
     });
   });
 
+  it('returns catalog-derived rows when Supervisor status collection fails', async () => {
+    const app = new Hono();
+    registerPluginAdminRoutes(app, {
+      loadCatalog: async () => catalog,
+      paths: {
+        artifactCacheRoot: '/cache',
+        installRoot: '/var/lib/vd/plugins',
+        supervisorConfigDir: '/supervisor',
+      },
+      readSupervisorStatuses: async () => {
+        throw new Error('supervisorctl unavailable');
+      },
+      setPluginEnabled: async () => undefined,
+      applyRuntimeSync: async () => undefined,
+    });
+
+    const response = await app.request('/dashboard/api/admin/plugins/status');
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      plugins: [
+        {
+          pluginId: 'vd.beads-web',
+          desiredEnabled: true,
+          observedState: 'failed',
+          error: 'Supervisor status collection failed: supervisorctl unavailable',
+        },
+        {
+          pluginId: 'app.failed',
+          desiredEnabled: true,
+          observedState: 'failed',
+          error: 'Supervisor status collection failed: supervisorctl unavailable',
+        },
+        {
+          pluginId: 'app.disabled',
+          desiredEnabled: false,
+          observedState: 'disabled',
+        },
+      ],
+    });
+  });
+
   it('persists desired enable state before applying runtime sync and returns refreshed status', async () => {
     const calls: string[] = [];
     let enabled = true;
