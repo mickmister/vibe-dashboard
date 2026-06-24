@@ -63,6 +63,14 @@ on:
         description: "Context to build from in the Git working tree"
         required: false
         default: .
+      source-ref:
+        type: string
+        description: "Git ref to use for the Docker Git context. Defaults to the workflow ref when unset."
+        required: false
+      source-checksum:
+        type: string
+        description: "Resolved commit SHA for source-ref. When set, the Docker Git context is pinned to this commit."
+        required: false
       file:
         type: string
         description: "Path to the Dockerfile"
@@ -669,6 +677,8 @@ jobs:
           INPUT_CACHE-MODE: ${{ inputs.cache-mode }}
           INPUT_LABELS: ${{ inputs.labels }}
           INPUT_CONTEXT: ${{ inputs.context }}
+          INPUT_SOURCE-REF: ${{ inputs.source-ref }}
+          INPUT_SOURCE-CHECKSUM: ${{ inputs.source-checksum }}
           INPUT_OUTPUT: ${{ inputs.output }}
           INPUT_PLATFORMS: ${{ inputs.platforms }}
           INPUT_PUSH: ${{ inputs.push }}
@@ -706,6 +716,8 @@ jobs:
             const inpPlatforms = core.getInput('platforms');
             const inpPush = core.getBooleanInput('push');
             const inpSbom = core.getBooleanInput('sbom');
+            const inpSourceRef = core.getInput('source-ref');
+            const inpSourceChecksum = core.getInput('source-checksum');
             const inpTarget = core.getInput('target');
             
             const inpMetaImages = core.getMultilineInput('meta-images');
@@ -724,7 +736,12 @@ jobs:
             const renderTemplate = value => Util.compileHandlebars(value, {noEscape: true}, {meta});
             const toMultilineInput = value => value.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
 
-            const buildContext = await new Build().gitContext({subdir: inpContext, format: 'fragment'});
+            const buildContext = await new Build().gitContext({
+              ref: inpSourceRef || undefined,
+              checksum: inpSourceChecksum || undefined,
+              subdir: inpContext,
+              format: 'fragment'
+            });
             core.setOutput('context', buildContext);
             
             switch (inpOutput) {
