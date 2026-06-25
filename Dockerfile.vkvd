@@ -259,8 +259,22 @@ RUN su - vkuser -c "npm config set prefix '/home/vkuser/.npm-global'"
 # Create supervisor and caddy log directories
 RUN mkdir -p /var/log/supervisor /var/log/caddy
 
-# Install tools globally as root (will be available system-wide)
-RUN npm install -g @anthropic-ai/claude-code pnpm @openai/codex opencode-ai gitnexus
+# Install tools globally as root (will be available system-wide). The multi-arch
+# publish build occasionally sees transient npm registry resets, especially on
+# arm64 hosted builders, so keep the step deterministic but retry boundedly.
+RUN set -eux; \
+    npm config set fetch-retries 5; \
+    npm config set fetch-retry-mintimeout 20000; \
+    npm config set fetch-retry-maxtimeout 120000; \
+    for attempt in 1 2 3 4 5; do \
+      if npm install -g @anthropic-ai/claude-code pnpm @openai/codex opencode-ai gitnexus; then \
+        break; \
+      fi; \
+      if [ "$attempt" = "5" ]; then \
+        exit 1; \
+      fi; \
+      sleep $((attempt * 10)); \
+    done
 
 # Install Serena globally via uv and make the shared toolchain executable for vkuser
 RUN uv tool install -p 3.13 serena-agent@latest --prerelease=allow \

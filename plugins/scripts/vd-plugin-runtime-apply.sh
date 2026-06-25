@@ -53,6 +53,9 @@ desired_autostart_plugin_programs() {
 }
 
 reconcile_enabled_plugin_programs() {
+  attempts="${VD_PLUGIN_SUPERVISOR_START_ATTEMPTS:-30}"
+  delay="${VD_PLUGIN_SUPERVISOR_START_DELAY_SECONDS:-1}"
+
   desired_autostart_plugin_programs | while IFS= read -r program; do
     [ -n "$program" ] || continue
 
@@ -65,19 +68,34 @@ reconcile_enabled_plugin_programs() {
       continue
     fi
 
-    echo "Starting enabled plugin supervisor program ${program}; current status is ${status:-unknown}." >&2
-    start_output="$(supervisorctl start "$program" 2>&1)" || {
-      echo "Failed to start enabled plugin supervisor program ${program}. Previous status: ${status:-unknown}. supervisorctl output: ${start_output}" >&2
-      return 1
-    }
+    if [ "$status" = "STARTING" ]; then
+      echo "Waiting for enabled plugin supervisor program ${program} to reach RUNNING; current status is STARTING." >&2
+    else
+      echo "Starting enabled plugin supervisor program ${program}; current status is ${status:-unknown}." >&2
+      start_output="$(supervisorctl start "$program" 2>&1)" || {
+        echo "Failed to start enabled plugin supervisor program ${program}. Previous status: ${status:-unknown}. supervisorctl output: ${start_output}" >&2
+        return 1
+      }
+    fi
 
-    status_output="$(supervisorctl status "$program" 2>&1)" || {
-      echo "Failed to verify supervisor status for enabled plugin program ${program} after start: ${status_output}" >&2
-      return 1
-    }
-    status="$(printf '%s\n' "$status_output" | awk 'NR == 1 { print $2 }')"
+    attempt=1
+    while [ "$attempt" -le "$attempts" ]; do
+      status_output="$(supervisorctl status "$program" 2>&1)" || {
+        echo "Failed to verify supervisor status for enabled plugin program ${program} after start: ${status_output}" >&2
+        return 1
+      }
+      status="$(printf '%s\n' "$status_output" | awk 'NR == 1 { print $2 }')"
+      if [ "$status" = "RUNNING" ]; then
+        break
+      fi
+      if [ "$attempt" -lt "$attempts" ]; then
+        sleep "$delay"
+      fi
+      attempt=$((attempt + 1))
+    done
+
     if [ "$status" != "RUNNING" ]; then
-      echo "Enabled plugin supervisor program ${program} did not reach RUNNING after start. Current status: ${status:-unknown}. supervisorctl output: ${status_output}" >&2
+      echo "Enabled plugin supervisor program ${program} did not reach RUNNING after ${attempts} status checks. Current status: ${status:-unknown}. supervisorctl output: ${status_output}" >&2
       return 1
     fi
   done
