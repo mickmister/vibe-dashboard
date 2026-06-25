@@ -79,7 +79,8 @@ docker exec "$container_name" grep -q 'beads-web.{\$PROXY_DOMAIN}' /etc/caddy/pl
 
 echo "Verifying runtime apply restarts manually stopped enabled beads-web plugin..."
 docker exec "$container_name" supervisorctl stop vd-plugin--vd_beads_web--web
-docker exec "$container_name" supervisorctl status vd-plugin--vd_beads_web--web | grep -q STOPPED
+stopped_status="$(docker exec "$container_name" supervisorctl status vd-plugin--vd_beads_web--web || true)"
+echo "$stopped_status" | grep -q STOPPED
 docker exec "$container_name" /usr/local/bin/vd-plugin-runtime-apply.sh
 for attempt in $(seq 1 30); do
   if docker exec "$container_name" supervisorctl status vd-plugin--vd_beads_web--web | grep -q RUNNING; then
