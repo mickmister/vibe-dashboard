@@ -94,6 +94,42 @@ describe("dynamic Craft surfaces", () => {
     ]);
   });
 
+  it("falls back to the current origin when persisted workspace metadata has an empty base origin", () => {
+    const effective = createEffectiveWorkspaceWithCraftSurfaces({
+      workspace: {
+        ...workspace,
+        tabGroups: [
+          {
+            id: "craft_workspace",
+            label: "Workspace Craft",
+            workspace: {
+              workspaceId: "workspace_1",
+              workspaceDir: "/home/vkuser/repos/app",
+              baseOrigin: "",
+            },
+            tabs: [],
+            pairs: [],
+            order: 0,
+          },
+        ],
+      },
+      craftSurfaces: [],
+      origin: "http://localhost:3001",
+    });
+
+    expect(
+      effective.tabGroups[0]!.tabs.map((tab) => [tab.id, tab.title, tab.url]),
+    ).toEqual([
+      ["agent", "Agent", "http://localhost:3001/workspaces/workspace_1"],
+      [
+        "code",
+        "Code",
+        "http://localhost:3001/?folder=%2Fhome%2Fvkuser%2Frepos%2Fapp",
+      ],
+      ["beads", "Beads", "http://beads-web.localhost:3001"],
+    ]);
+  });
+
   it("derives direct beads-web port URLs for IP-hosted workspaces", () => {
     const effective = createEffectiveWorkspaceWithCraftSurfaces({
       workspace: {

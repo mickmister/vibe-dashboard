@@ -184,7 +184,7 @@ export function getBuiltInWorkspaceMetadata(
 function getBuiltInWorkspaceTabs(tabGroup: TabGroup, origin: string): Tab[] {
   const metadata = getBuiltInWorkspaceMetadata(tabGroup);
   if (!metadata) return [];
-  const baseOrigin = metadata.baseOrigin ?? origin;
+  const baseOrigin = metadata.baseOrigin || origin;
   return [
     {
       id: BUILT_IN_AGENT_TAB_ID,

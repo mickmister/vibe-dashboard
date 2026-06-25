@@ -29,7 +29,7 @@ sections, key concepts, and workflow guidance.
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **vibe-dashboard** (2463 symbols, 6057 relationships, 209 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **vibe-kanban-vscode-web** (2731 symbols, 6846 relationships, 232 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 
@@ -53,10 +53,10 @@ This project is indexed by GitNexus as **vibe-dashboard** (2463 symbols, 6057 re
 
 | Resource | Use for |
 |----------|---------|
-| `gitnexus://repo/vibe-dashboard/context` | Codebase overview, check index freshness |
-| `gitnexus://repo/vibe-dashboard/clusters` | All functional areas |
-| `gitnexus://repo/vibe-dashboard/processes` | All execution flows |
-| `gitnexus://repo/vibe-dashboard/process/{name}` | Step-by-step execution trace |
+| `gitnexus://repo/vibe-kanban-vscode-web/context` | Codebase overview, check index freshness |
+| `gitnexus://repo/vibe-kanban-vscode-web/clusters` | All functional areas |
+| `gitnexus://repo/vibe-kanban-vscode-web/processes` | All execution flows |
+| `gitnexus://repo/vibe-kanban-vscode-web/process/{name}` | Step-by-step execution trace |
 
 ## CLI
 
