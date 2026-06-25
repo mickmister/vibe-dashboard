@@ -58,6 +58,10 @@ function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+function escapeUrlTokenRegex(value: string): string {
+  return escapeRegex(value).replace(/_/g, '[_-]');
+}
+
 function getShortIdToken(id: string, peerIds: string[] = [id]): string {
   const parts = id.split(/[_-]/).filter(Boolean);
   if (!parts.length) return id;
@@ -81,7 +85,7 @@ async function expectUrlVoyageToken(
   peerIds: string[] = [voyageId],
 ) {
   await expect(page).toHaveURL(
-    new RegExp(`voyage=[^&#]*${escapeRegex(getShortIdToken(voyageId, peerIds))}`),
+    new RegExp(`voyage=[^&#]*${escapeUrlTokenRegex(getShortIdToken(voyageId, peerIds))}`),
   );
 }
 
