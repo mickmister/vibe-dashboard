@@ -59,11 +59,12 @@ reconcile_enabled_plugin_programs() {
   desired_autostart_plugin_programs | while IFS= read -r program; do
     [ -n "$program" ] || continue
 
-    status_output="$(supervisorctl status "$program" 2>&1)" || {
+    status_output="$(supervisorctl status "$program" 2>&1 || true)"
+    status="$(printf '%s\n' "$status_output" | awk 'NR == 1 { print $2 }')"
+    if [ -z "$status" ]; then
       echo "Failed to read supervisor status for enabled plugin program ${program}: ${status_output}" >&2
       return 1
-    }
-    status="$(printf '%s\n' "$status_output" | awk 'NR == 1 { print $2 }')"
+    fi
     if [ "$status" = "RUNNING" ]; then
       continue
     fi
@@ -80,11 +81,12 @@ reconcile_enabled_plugin_programs() {
 
     attempt=1
     while [ "$attempt" -le "$attempts" ]; do
-      status_output="$(supervisorctl status "$program" 2>&1)" || {
+      status_output="$(supervisorctl status "$program" 2>&1 || true)"
+      status="$(printf '%s\n' "$status_output" | awk 'NR == 1 { print $2 }')"
+      if [ -z "$status" ]; then
         echo "Failed to verify supervisor status for enabled plugin program ${program} after start: ${status_output}" >&2
         return 1
-      }
-      status="$(printf '%s\n' "$status_output" | awk 'NR == 1 { print $2 }')"
+      fi
       if [ "$status" = "RUNNING" ]; then
         break
       fi
