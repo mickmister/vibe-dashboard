@@ -8,7 +8,7 @@ const catalog: PluginServiceCatalog = {
     {
       id: 'vd.beads-web',
       name: 'Beads Web',
-      version: 'v0.11.4',
+      version: 'v0.11.5',
       installers: [{ kind: 'bundled-current-repo' }],
       services: [
         {
@@ -85,9 +85,9 @@ describe('plugin admin API routes', () => {
         {
           pluginId: 'vd.beads-web',
           name: 'Beads Web',
-          version: 'v0.11.4',
-          pluginPath: '/var/lib/vd/plugins/vd.beads-web/v0.11.4',
-          installPath: '/var/lib/vd/plugins/vd.beads-web/v0.11.4',
+          version: 'v0.11.5',
+          pluginPath: '/var/lib/vd/plugins/vd.beads-web/v0.11.5',
+          installPath: '/var/lib/vd/plugins/vd.beads-web/v0.11.5',
           desiredEnabled: true,
           observedState: 'running',
         },

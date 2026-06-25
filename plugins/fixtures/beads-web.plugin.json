@@ -1,7 +1,7 @@
 {
   "id": "vd.beads-web",
   "name": "Beads Web",
-  "version": "v0.11.4",
+  "version": "v0.11.5",
   "services": [
     {
       "id": "web",
@@ -37,15 +37,15 @@
     {
       "kind": "github-release-asset",
       "repository": "mickmister/beads-web",
-      "tag": "v0.11.4",
+      "tag": "v0.11.5",
       "variants": {
         "linux-amd64": {
           "asset": "beads-web-linux-x64",
-          "sha256": "7e3880a399214b49a9c4a6ea2b2585f3b3fdbc69de093e464990395520791620"
+          "sha256": "8e06d418aee1f9f646750689befd53b2a63a331ab0d2c286ef097d2c046f3946"
         },
         "linux-arm64": {
           "asset": "beads-web-linux-arm64",
-          "sha256": "4bf6c69625ae88bbd3438168f6d97267914b6edabe7da14fa2dc9c246fc47a1e"
+          "sha256": "95365fa46d65692580b5c25375ca5a96302d25be7848deb5c6a8e656b9eb55c1"
         }
       },
       "materialize": {
