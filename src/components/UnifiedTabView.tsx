@@ -68,6 +68,16 @@ export function UnifiedTabView({
                 sessionActions.setActiveTabGroup(result.tabGroupId);
               }
             }}
+            onBeadReferenceClick={async (agentTabId, beadId) => {
+              const result = await actions.openBeadSplit({
+                tabGroupId: activeTabGroup.id,
+                agentTabId,
+                beadId,
+              });
+              if (result) {
+                sessionActions.selectPair(result.tabGroupId, result.pairId);
+              }
+            }}
           />
         ) : (
           <div className="flex-1 flex items-center justify-center text-neutral-500">

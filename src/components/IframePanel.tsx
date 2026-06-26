@@ -14,6 +14,7 @@ interface IframePanelProps {
   workspace?: WorkspaceState;
   onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void;
   onOpenVKWorkspace?: (taskAttemptId: string, name: string, containerRef: string, spaceId: string) => void;
+  onBeadReferenceClick?: (agentTabId: string, beadId: string) => void;
 }
 
 /**
@@ -230,6 +231,27 @@ function removeIframe(tabId: string) {
   }
 }
 
+function findTabIdForMessageSource(source: MessageEventSource | null): string | null {
+  if (!source) return null;
+  for (const [tabId, entry] of iframeStore.entries()) {
+    if (entry.iframe.contentWindow === source) return tabId;
+  }
+  return null;
+}
+
+function isBeadReferenceClickMessage(data: unknown): data is {
+  type: 'vk:bead-reference-clicked';
+  beadId: string;
+} {
+  if (!data || typeof data !== 'object') return false;
+  const message = data as { type?: unknown; beadId?: unknown };
+  return (
+    message.type === 'vk:bead-reference-clicked' &&
+    typeof message.beadId === 'string' &&
+    /^[A-Za-z][A-Za-z0-9_]*-[A-Za-z0-9][A-Za-z0-9._-]*$/.test(message.beadId)
+  );
+}
+
 function useImperativeIframes(tabs: Tab[]) {
   for (const tab of tabs) {
     getOrCreateIframe(tab);
@@ -424,6 +446,7 @@ export function IframePanel({
   workspace,
   onNavigateToTabGroup,
   onOpenVKWorkspace,
+  onBeadReferenceClick,
 }: IframePanelProps) {
   const activeTab = tabGroup.tabs.find(
     (t) => t.id === activeItemId
@@ -445,6 +468,23 @@ export function IframePanel({
   });
 
   const { loadingState, errorState, retryTab } = useImperativeIframes(mountedTabs);
+
+  useEffect(() => {
+    if (!onBeadReferenceClick) return;
+
+    const handleMessage = (event: MessageEvent) => {
+      if (!isBeadReferenceClickMessage(event.data)) return;
+
+      const sourceTabId = findTabIdForMessageSource(event.source);
+      if (!sourceTabId) return;
+      if (!tabGroup.tabs.some((tab) => tab.id === sourceTabId)) return;
+
+      onBeadReferenceClick(sourceTabId, event.data.beadId);
+    };
+
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [onBeadReferenceClick, tabGroup.tabs]);
 
   return (
     <>

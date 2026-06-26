@@ -7,6 +7,7 @@ import { useParams, useNavigate } from 'react-router';
 import { HeroUIProvider } from '@heroui/react';
 import { AppLoadingScreen } from './components/AppLoadingScreen';
 import { WorkspaceShell } from './components/WorkspaceShell';
+import { buildBeadsDeepLink, openBeadSplitInWorkspace } from './lib/beadTabs';
 import { useSessionWorkspaceNav } from './sessionState';
 
 // Ensure dark class is on the document root so portaled elements (modals, popovers)
@@ -27,6 +28,7 @@ import type { WorkspaceState } from './types';
 const WORKSPACE_CREATE_PATH = '/workspaces/create';
 const WORKSPACE_CREATE_TAB_TITLE = 'Create Workspace';
 const URL_PARSE_BASE = 'https://workspace.local';
+const DEFAULT_BEADS_WEB_BASE_URL = '/beads';
 
 /**
  * Get the base URL without port prefix for creating tab URLs.
@@ -49,6 +51,11 @@ function getBaseOrigin(): string {
 
 function buildWorkspaceTabUrl(baseOrigin: string, path: string): string {
   return baseOrigin ? `${baseOrigin}${path}` : path;
+}
+
+function getBeadsWebBaseUrl(): string {
+  const env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env;
+  return env?.VITE_BEADS_WEB_BASE_URL || DEFAULT_BEADS_WEB_BASE_URL;
 }
 
 function isWorkspaceTabPath(url: string, expectedPath: string): boolean {
@@ -445,6 +452,21 @@ springboard.registerModule(
         });
       },
 
+      openBeadSplit: async (args: {
+        tabGroupId: string;
+        agentTabId: string;
+        beadId: string;
+        beadsUrl: string;
+      }) => {
+        let result: { tabGroupId: string; pairId: string; beadsTabId: string } | undefined;
+
+        workspaceState.setStateImmer((draft) => {
+          result = openBeadSplitInWorkspace(draft, args);
+        });
+
+        return result;
+      },
+
       reorderTabGroups: async (args: {
         sourceId: string;
         targetId: string;
@@ -656,6 +678,16 @@ springboard.registerModule(
         ensureCreateWorkspaceTab: () => {
           const baseOrigin = getBaseOrigin();
           return actions.ensureCreateWorkspaceTab({ baseOrigin });
+        },
+        openBeadSplit: (args: {
+          tabGroupId: string;
+          agentTabId: string;
+          beadId: string;
+        }) => {
+          return actions.openBeadSplit({
+            ...args,
+            beadsUrl: buildBeadsDeepLink(getBeadsWebBaseUrl(), args.beadId),
+          });
         },
       };
 
