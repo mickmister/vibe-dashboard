@@ -173,6 +173,21 @@ environment=HOST="0.0.0.0",PORT="%(ENV_DASHBOARD_PORT)s",VD_PLUGIN_INSTALL_ROOT=
 user=vkuser
 directory=/home/vkuser/.local/share/vibe-dashboard-runtime`;
 
+
+const VIBE_AGENT_NUDGE_SUPERVISOR = `; vibe-agent nudge daemon (continues newly-stopped coding agent turns)
+[program:vibe-agent-nudge-daemon]
+command=sh -c 'case "\${VD_NUDGE_DAEMON_DISABLED:-}" in 1|true|TRUE|yes|YES|on|ON) echo "vibe-agent nudge daemon disabled (VD_NUDGE_DAEMON_DISABLED)"; exec tail -f /dev/null ;; esac; exec node /opt/vibe-kanban-vscode-web-seed/dist/vibe-agent/nudge/daemon.js'
+autostart=true
+autorestart=true
+startsecs=0
+stdout_logfile=/dev/fd/1
+stdout_logfile_maxbytes=0
+stderr_logfile=/dev/fd/2
+stderr_logfile_maxbytes=0
+environment=VIBE_API_URL="http://127.0.0.1:%(ENV_BACKEND_PORT)s",HOME="/home/vkuser",XDG_CONFIG_HOME="/home/vkuser/.config",PATH="/usr/local/lib/vk-bd-wrapper/bin:/var/lib/vd/plugin-bin:/var/lib/vd/toolchains/bin:/var/lib/vd/toolchains/npm/bin:/home/vkuser/.npm-global/bin:/usr/local/cargo/bin:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+user=vkuser
+directory=/home/vkuser/repos`;
+
 const PLUGIN_SERVICE_ORCHESTRATOR_SUPERVISOR = `; plugin service orchestrator (reconciles persisted per-instance plugin config into generated supervisor programs)
 [program:vd-plugin-service-orchestrator-startup]
 command=/usr/local/bin/vd-plugin-runtime-apply.sh
@@ -319,6 +334,17 @@ export const BUILTIN_FIRST_PARTY_SERVICE_PLUGINS: FirstPartyServicePlugin[] = [
   {
     manifest: manifest({ id: 'first-party.vibe-dashboard', displayName: 'Vibe Dashboard', version: 'bundled', requestedCapabilities: { hostShell: { commands: ['node dist/node/node-entry.mjs'] }, network: { mode: 'ingress', ports: ['${DASHBOARD_PORT}'] } } }),
     privilegeTier: 'core-control-plane', bootCritical: true, supervisorPrograms: ['vibe-dashboard'], supervisorConfig: VIBE_DASHBOARD_SUPERVISOR, installStrategy: 'bundled-runtime-artifact', desiredVersion: 'bundled', stagingRequired: true, rollbackable: true,
+  },
+
+  {
+    manifest: manifest({
+      id: 'first-party.vibe-agent-nudge-daemon',
+      displayName: 'Vibe Agent Nudge Daemon',
+      version: 'bundled',
+      requestedCapabilities: { vkHttpApi: 'agentPrompt', hostShell: { commands: ['node /opt/vibe-kanban-vscode-web-seed/dist/vibe-agent/nudge/daemon.js'] }, filesystem: [{ scope: 'absolute', path: '/var/lib/vd/nudge-daemon', access: 'readWrite' }], network: { mode: 'egress' }, env: ['VD_NUDGE_DAEMON_DISABLED'] },
+      components: { services: [{ id: 'vibe-agent-nudge-daemon', runtime: 'supervisor', command: 'node /opt/vibe-kanban-vscode-web-seed/dist/vibe-agent/nudge/daemon.js' }] },
+    }),
+    privilegeTier: 'core-control-plane', bootCritical: false, supervisorPrograms: ['vibe-agent-nudge-daemon'], supervisorConfig: VIBE_AGENT_NUDGE_SUPERVISOR, installStrategy: 'bundled-runtime-artifact', desiredVersion: 'bundled', stagingRequired: true, rollbackable: true,
   },
   {
     manifest: manifest({ id: 'first-party.plugin-service-orchestrator', displayName: 'Plugin Service Orchestrator', version: 'bundled', requestedCapabilities: { hostShell: { commands: ['vd-plugin-runtime-apply.sh', 'supervisorctl reread', 'supervisorctl update', 'caddy reload'] }, filesystem: [{ scope: 'absolute', path: '/var/lib/vd', access: 'readWrite' }], network: { mode: 'egress' } } }),

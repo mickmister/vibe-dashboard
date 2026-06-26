@@ -33,6 +33,7 @@ describe('first-party service plugin inventory and golden supervisor config', ()
       'code-server',
       'vibe-kanban',
       'vibe-dashboard',
+      'vibe-agent-nudge-daemon',
       'vd-plugin-service-orchestrator-startup',
       'caddy',
       'memory-watchdog',
@@ -45,6 +46,7 @@ describe('first-party service plugin inventory and golden supervisor config', ()
       { id: 'first-party.code-server', privilegeTier: 'trusted-workspace', requiresHostShell: true, repoAccess: 'workspace' },
       { id: 'first-party.vibe-kanban', privilegeTier: 'core-control-plane', vkHttpApi: 'agentPrompt', repoAccess: 'repo' },
       { id: 'first-party.vibe-dashboard', privilegeTier: 'core-control-plane', bootCritical: true },
+      { id: 'first-party.vibe-agent-nudge-daemon', privilegeTier: 'core-control-plane', vkHttpApi: 'agentPrompt' },
       { id: 'first-party.plugin-service-orchestrator', privilegeTier: 'core-control-plane', requiresRoot: true },
       { id: 'first-party.caddy', privilegeTier: 'core-network', bootCritical: true },
       { id: 'first-party.memory-watchdog', privilegeTier: 'host-observability', requiresHostShell: true },
@@ -83,6 +85,9 @@ describe('first-party service plugin inventory and golden supervisor config', ()
     expect(pluginRuntimeApply).not.toContain('VD_PLUGIN_ORCHESTRATOR_ALLOW_HASH_MISMATCH');
     expect(goldenSupervisor).toContain('command=/usr/local/bin/vd-plugin-runtime-apply.sh');
     expect(goldenSupervisor).toContain('[program:caddy]\ncommand=caddy run --config /etc/caddy/Caddyfile --adapter caddyfile\nautostart=true\nautorestart=true\npriority=10');
+    expect(goldenSupervisor).toContain('[program:vibe-agent-nudge-daemon]\ncommand=sh -c');
+    expect(goldenSupervisor).toContain('VD_NUDGE_DAEMON_DISABLED');
+    expect(goldenSupervisor).toContain('dist/vibe-agent/nudge/daemon.js');
     expect(goldenSupervisor).toContain('[program:vd-plugin-service-orchestrator-startup]\ncommand=/usr/local/bin/vd-plugin-runtime-apply.sh\nautostart=true\nautorestart=false\nstartsecs=0\npriority=1000');
   });
 
