@@ -35,18 +35,18 @@ describe('plugin service supervisor orchestration dry run', () => {
     expect(catalog.plugins.map((plugin) => plugin.id)).toEqual(['vd.beads-web']);
     expect(catalog.plugins[0]).toMatchObject({
       id: 'vd.beads-web',
-      version: 'v0.11.5',
+      version: 'v0.11.6',
       installers: [
         {
           kind: 'github-release-asset',
-          tag: 'v0.11.5',
+          tag: 'v0.11.6',
           variants: {
             'linux-amd64': {
-              sha256: '8e06d418aee1f9f646750689befd53b2a63a331ab0d2c286ef097d2c046f3946',
+              sha256: 'd37eb1c979015e1ede0018f8bc049b72f2eb68a6033ff7bf4d63572183200371',
             },
             'linux-arm64': {
               asset: 'beads-web-linux-arm64',
-              sha256: '95365fa46d65692580b5c25375ca5a96302d25be7848deb5c6a8e656b9eb55c1',
+              sha256: '384bd5433ac6fc5dc9fa8f43d87b1d8effe5d5af164622881ae105bea61d504f',
             },
           },
           materialize: { kind: 'file', installAs: 'bin/beads-web' },
@@ -62,9 +62,9 @@ describe('plugin service supervisor orchestration dry run', () => {
       cachedArtifacts: [
         {
           pluginId: 'vd.beads-web',
-          version: 'v0.11.5',
-          sha256: '8e06d418aee1f9f646750689befd53b2a63a331ab0d2c286ef097d2c046f3946',
-          path: '/var/lib/vd/plugin-cache/github/mickmister/beads-web/v0.11.5/beads-web-linux-x64',
+          version: 'v0.11.6',
+          sha256: 'd37eb1c979015e1ede0018f8bc049b72f2eb68a6033ff7bf4d63572183200371',
+          path: '/var/lib/vd/plugin-cache/github/mickmister/beads-web/v0.11.6/beads-web-linux-x64',
         },
       ],
       existingSupervisorConfigs: {},
@@ -113,8 +113,8 @@ describe('plugin service supervisor orchestration dry run', () => {
       service: (firstPartyPluginCatalog as PluginServiceCatalog).plugins[0]!.services[0]!,
       paths,
     });
-    expect(beadsWebConfig).toContain('command=/var/lib/vd/plugins/vd.beads-web/v0.11.5/extracted/bin/beads-web');
-    expect(beadsWebConfig).toContain('environment=BEADS_WEB_PORT="3109",BEADS_WEB_PORT_BIND="0.0.0.0",HOST="0.0.0.0",PORT="3109",HOME="/home/vkuser",XDG_CONFIG_HOME="/home/vkuser/.config",VD_PLUGIN_ID="vd.beads-web",VD_PLUGIN_VERSION="v0.11.5",VD_SERVICE_ID="web"');
+    expect(beadsWebConfig).toContain('command=/var/lib/vd/plugins/vd.beads-web/v0.11.6/extracted/bin/beads-web');
+    expect(beadsWebConfig).toContain('environment=BEADS_WEB_PORT="3109",BEADS_WEB_PORT_BIND="0.0.0.0",HOST="0.0.0.0",PORT="3109",HOME="/home/vkuser",XDG_CONFIG_HOME="/home/vkuser/.config",VD_PLUGIN_ID="vd.beads-web",VD_PLUGIN_VERSION="v0.11.6",VD_SERVICE_ID="web"');
   });
 
   it('supports a beads-web-only catalog for isolated supervisor experiments', () => {
@@ -129,7 +129,7 @@ describe('plugin service supervisor orchestration dry run', () => {
       expect.objectContaining({
         action: 'download',
         pluginId: 'vd.beads-web',
-        url: 'https://github.com/mickmister/beads-web/releases/download/v0.11.5/beads-web-linux-x64',
+        url: 'https://github.com/mickmister/beads-web/releases/download/v0.11.6/beads-web-linux-x64',
       }),
     ]);
     expect(plan.supervisorChanges).toEqual([
@@ -444,14 +444,14 @@ describe('plugin service supervisor orchestration dry run', () => {
 
   it('discovers cached artifacts by hashing files in the persistent artifact cache', async () => {
     const tempRoot = await mkdtemp(join(tmpdir(), 'vd-plugin-cache-'));
-    const cachePath = join(tempRoot, 'cache/github/mickmister/beads-web/v0.11.5/beads-web-linux-x64');
+    const cachePath = join(tempRoot, 'cache/github/mickmister/beads-web/v0.11.6/beads-web-linux-x64');
     const bytes = Buffer.from('fake beads-web artifact');
     const sha256 = createHash('sha256').update(bytes).digest('hex');
     const catalog = structuredClone(beadsWebOnlyCatalog) as PluginServiceCatalog;
     const installer = catalog.plugins[0]!.installers[0]!;
     if (installer.kind !== 'github-release-asset') throw new Error('expected github-release-asset fixture');
     installer.variants['linux-amd64']!.sha256 = sha256;
-    await mkdir(join(tempRoot, 'cache/github/mickmister/beads-web/v0.11.5'), { recursive: true });
+    await mkdir(join(tempRoot, 'cache/github/mickmister/beads-web/v0.11.6'), { recursive: true });
     await writeFile(cachePath, bytes);
 
     await expect(discoverCachedArtifacts({
@@ -461,7 +461,7 @@ describe('plugin service supervisor orchestration dry run', () => {
         installRoot: join(tempRoot, 'plugins'),
         supervisorConfigDir: join(tempRoot, 'supervisor'),
       },
-    })).resolves.toEqual([{ pluginId: 'vd.beads-web', version: 'v0.11.5', sha256, path: cachePath }]);
+    })).resolves.toEqual([{ pluginId: 'vd.beads-web', version: 'v0.11.6', sha256, path: cachePath }]);
   });
 
   it('downloads a binary release asset, allows explicit hash bypass for smoke runs, and installs it executable', async () => {
@@ -480,7 +480,7 @@ describe('plugin service supervisor orchestration dry run', () => {
     expect(materialized).toEqual([
       expect.objectContaining({ action: 'downloaded', pluginId: 'vd.beads-web' }),
     ]);
-    await expect(readFile(join(tempRoot, 'plugins/vd.beads-web/v0.11.5/extracted/bin/beads-web'), 'utf8')).resolves.toContain('fake beads-web');
+    await expect(readFile(join(tempRoot, 'plugins/vd.beads-web/v0.11.6/extracted/bin/beads-web'), 'utf8')).resolves.toContain('fake beads-web');
   });
 
   it('does not poison the persistent artifact cache when a download fails sha verification', async () => {
@@ -494,7 +494,7 @@ describe('plugin service supervisor orchestration dry run', () => {
     const installer = catalog.plugins[0]!.installers[0]!;
     if (installer.kind !== 'github-release-asset') throw new Error('expected github-release-asset fixture');
     installer.variants['linux-amd64']!.sha256 = '0'.repeat(64);
-    const cachePath = join(tempRoot, 'cache/github/mickmister/beads-web/v0.11.5/beads-web-linux-x64');
+    const cachePath = join(tempRoot, 'cache/github/mickmister/beads-web/v0.11.6/beads-web-linux-x64');
 
     await expect(materializePluginArtifacts({
       catalog,
@@ -527,8 +527,8 @@ describe('plugin service supervisor orchestration dry run', () => {
     if (installer.kind !== 'github-release-asset') throw new Error('expected github-release-asset fixture');
     const validBytes = Buffer.from('#!/bin/sh\necho valid beads-web\n');
     installer.variants['linux-amd64']!.sha256 = createHash('sha256').update(validBytes).digest('hex');
-    const cachePath = join(tempRoot, 'cache/github/mickmister/beads-web/v0.11.5/beads-web-linux-x64');
-    await mkdir(join(tempRoot, 'cache/github/mickmister/beads-web/v0.11.5'), { recursive: true });
+    const cachePath = join(tempRoot, 'cache/github/mickmister/beads-web/v0.11.6/beads-web-linux-x64');
+    await mkdir(join(tempRoot, 'cache/github/mickmister/beads-web/v0.11.6'), { recursive: true });
     await writeFile(cachePath, 'stale bad cache');
     let fetchCount = 0;
 
@@ -569,7 +569,7 @@ describe('plugin service supervisor orchestration dry run', () => {
     await materializePluginArtifacts({ catalog, paths, fetchBytes });
 
     expect(fetchCount).toBe(1);
-    await expect(readFile(join(tempRoot, 'plugins/vd.beads-web/v0.11.5/extracted/bin/beads-web'), 'utf8')).resolves.toContain('stable beads-web');
+    await expect(readFile(join(tempRoot, 'plugins/vd.beads-web/v0.11.6/extracted/bin/beads-web'), 'utf8')).resolves.toContain('stable beads-web');
   });
 
   it('extracts a selected zip entry after download verification and installs it as the runnable artifact', async () => {

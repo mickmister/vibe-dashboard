@@ -18,7 +18,7 @@ describe('plugin admin UI API client', () => {
       plugin: {
         pluginId: 'vd.beads-web',
         name: 'Beads Web',
-        version: 'v0.11.5',
+        version: 'v0.11.6',
         desiredEnabled: false,
         observedState: 'disabled',
       },
