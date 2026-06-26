@@ -170,7 +170,7 @@ export class VibeClient {
     return this.request<Task>(config.endpoints.task(taskId));
   }
 
-  // Workspaces (task-attempts)
+  // Workspaces
   async getWorkspaces(taskId: string): Promise<Workspace[]> {
     return this.request<Workspace[]>(config.endpoints.taskAttemptsByTask(taskId));
   }
@@ -180,7 +180,7 @@ export class VibeClient {
   }
 
   async getAllWorkspaces(): Promise<Workspace[]> {
-    return this.request<Workspace[]>(config.endpoints.taskAttempts);
+    return this.request<Workspace[]>(config.endpoints.workspaces);
   }
 
   async getWorkspaceSummary(workspaceIds: string[]): Promise<WorkspaceSummary[]> {

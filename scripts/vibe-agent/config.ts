@@ -17,6 +17,8 @@ export const config = {
     repos: `${BASE_URL}/api/repos`,
     tasks: (projectId: string) => `${BASE_URL}/api/tasks?project_id=${projectId}`,
     task: (taskId: string) => `${BASE_URL}/api/tasks/${taskId}`,
+    workspaces: `${BASE_URL}/api/workspaces`,
+    workspace: (workspaceId: string) => `${BASE_URL}/api/workspaces/${workspaceId}`,
     taskAttempts: `${BASE_URL}/api/task-attempts`,
     taskAttemptsByTask: (taskId: string) => `${BASE_URL}/api/task-attempts?task_id=${taskId}`,
     taskAttempt: (workspaceId: string) => `${BASE_URL}/api/task-attempts/${workspaceId}`,

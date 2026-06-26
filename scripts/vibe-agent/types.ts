@@ -28,7 +28,7 @@ export interface Task {
 
 export interface Workspace {
   id: string;
-  task_id: string;
+  task_id: string | null;
   container_ref: string | null;
   branch: string;
   agent_working_dir: string | null;
@@ -36,6 +36,7 @@ export interface Workspace {
   archived: boolean;
   pinned: boolean;
   name: string | null;
+  worktree_deleted?: boolean;
   created_at: string;
   updated_at: string;
 }
