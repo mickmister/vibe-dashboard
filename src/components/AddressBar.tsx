@@ -1,6 +1,9 @@
 import React, { useState } from 'react';
-import { isEphemeralCraftSurfaceTab } from '../modules/plugins/vibe-dashboard/craft-surfaces';
-import type { TabGroup } from '../types';
+import {
+  isBuiltInWorkspaceTabId,
+  isEphemeralCraftSurfaceTab,
+} from '../modules/plugins/vibe-dashboard/craft-surfaces';
+import type { Tab, TabGroup } from '../types';
 
 interface AddressBarProps {
   tabGroup: TabGroup;
@@ -12,28 +15,7 @@ interface AddressBarProps {
  * Address bar displaying and editing the URL(s) of the currently active tab(s)
  */
 export function AddressBar({ tabGroup, activeItemId, onNavigate }: AddressBarProps) {
-  const activeTab = tabGroup.tabs.find(
-    (t) => t.id === activeItemId
-  );
-  const activePair = tabGroup.pairs.find(
-    (p) => p.id === activeItemId
-  );
-
-  // Collect tab info to display
-  const tabsToShow: { id: string; url: string }[] = [];
-  if (activePair) {
-    // Show URLs of all tabs in the pair
-    const pairTabs = activePair.tabIds
-      .map((id) => tabGroup.tabs.find((t) => t.id === id))
-      .filter((t) => t !== undefined);
-    tabsToShow.push(
-      ...pairTabs
-        .filter((t) => !isEphemeralCraftSurfaceTab(t))
-        .map((t) => ({ id: t.id, url: t.url })),
-    );
-  } else if (activeTab && !isEphemeralCraftSurfaceTab(activeTab)) {
-    tabsToShow.push({ id: activeTab.id, url: activeTab.url });
-  }
+  const tabsToShow = getAddressBarEntries(tabGroup, activeItemId);
 
   if (tabsToShow.length === 0) {
     return null; // Don't render address bar if no tab is active
@@ -45,7 +27,10 @@ export function AddressBar({ tabGroup, activeItemId, onNavigate }: AddressBarPro
         <AddressBarInput
           key={tab.id}
           tabId={tab.id}
+          title={tab.title}
           url={tab.url}
+          displayUrl={tab.displayUrl}
+          readOnly={tab.readOnly}
           showSeparator={index > 0}
           onNavigate={onNavigate}
         />
@@ -54,34 +39,92 @@ export function AddressBar({ tabGroup, activeItemId, onNavigate }: AddressBarPro
   );
 }
 
+interface AddressBarEntry {
+  id: string;
+  title: string;
+  url: string;
+  displayUrl: string;
+  readOnly: boolean;
+}
+
+export function getAddressBarEntries(
+  tabGroup: TabGroup,
+  activeItemId: string,
+): AddressBarEntry[] {
+  const activeTab = tabGroup.tabs.find((tab) => tab.id === activeItemId);
+  const activePair = tabGroup.pairs.find((pair) => pair.id === activeItemId);
+  const tabs = activePair
+    ? activePair.tabIds
+        .map((id) => tabGroup.tabs.find((tab) => tab.id === id))
+        .filter((tab): tab is Tab => tab !== undefined)
+    : activeTab
+      ? [activeTab]
+      : [];
+
+  return tabs
+    .filter(shouldShowTabInAddressBar)
+    .map((tab) => ({
+      id: tab.id,
+      title: tab.title,
+      url: tab.url,
+      displayUrl: isBuiltInWorkspaceTabId(tab.id)
+        ? decodeUrlForDisplay(tab.url)
+        : tab.url,
+      readOnly: isBuiltInWorkspaceTabId(tab.id),
+    }));
+}
+
+function shouldShowTabInAddressBar(tab: Tab): boolean {
+  return !isEphemeralCraftSurfaceTab(tab) || isBuiltInWorkspaceTabId(tab.id);
+}
+
+function decodeUrlForDisplay(url: string): string {
+  try {
+    return decodeURIComponent(url);
+  } catch {
+    return url;
+  }
+}
+
 interface AddressBarInputProps {
   tabId: string;
+  title: string;
   url: string;
+  displayUrl: string;
+  readOnly: boolean;
   showSeparator: boolean;
   onNavigate: (tabId: string, newUrl: string) => void;
 }
 
-function AddressBarInput({ tabId, url, showSeparator, onNavigate }: AddressBarInputProps) {
-  const [editedUrl, setEditedUrl] = useState(url);
+function AddressBarInput({
+  tabId,
+  title,
+  url,
+  displayUrl,
+  readOnly,
+  showSeparator,
+  onNavigate,
+}: AddressBarInputProps) {
+  const [editedUrl, setEditedUrl] = useState(displayUrl);
   const [isEditing, setIsEditing] = useState(false);
 
   // Sync with prop when not editing
   React.useEffect(() => {
     if (!isEditing) {
-      setEditedUrl(url);
+      setEditedUrl(displayUrl);
     }
-  }, [url, isEditing]);
+  }, [displayUrl, isEditing]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      if (editedUrl.trim() && editedUrl !== url) {
+      if (!readOnly && editedUrl.trim() && editedUrl !== url) {
         onNavigate(tabId, editedUrl.trim());
       }
       setIsEditing(false);
       (e.target as HTMLInputElement).blur();
     } else if (e.key === 'Escape') {
-      setEditedUrl(url); // Revert changes
+      setEditedUrl(displayUrl); // Revert changes
       setIsEditing(false);
       (e.target as HTMLInputElement).blur();
     }
@@ -93,15 +136,27 @@ function AddressBarInput({ tabId, url, showSeparator, onNavigate }: AddressBarIn
         <span className="text-neutral-600">|</span>
       )}
       <div className="flex items-center gap-2 flex-1 min-w-0">
-        <span className="text-neutral-500 text-xs flex-shrink-0">🌐</span>
+        <span className="text-neutral-500 text-xs flex-shrink-0" title={title}>
+          🌐
+        </span>
         <input
           type="text"
           value={editedUrl}
           onChange={(e) => setEditedUrl(e.target.value)}
-          onFocus={() => setIsEditing(true)}
+          readOnly={readOnly}
+          aria-label={`${title} address`}
+          title={
+            readOnly
+              ? `${title} address (read-only generated tab)`
+              : `${title} address`
+          }
+          onFocus={(event) => {
+            setIsEditing(true);
+            if (readOnly) event.currentTarget.select();
+          }}
           onBlur={() => {
             setIsEditing(false);
-            setEditedUrl(url); // Revert if not submitted via Enter
+            setEditedUrl(displayUrl); // Revert if not submitted via Enter
           }}
           onKeyDown={handleKeyDown}
           className="bg-neutral-800 text-neutral-300 text-xs px-2 py-1 rounded flex-1 min-w-0 border border-neutral-700 focus:outline-none focus:border-primary-500"
