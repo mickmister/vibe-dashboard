@@ -17,7 +17,23 @@ Use this workflow when updating `vd.beads-web` to a new GitHub release tag.
   - `plugins/orchestrator/plugin-runtime-apply-script.test.ts`
   - `src/lib/pluginAdminApi.test.ts` only if the expected admin API fixture version should track the built-in release.
 
-## Release verification steps
+## CLI refresh steps
+
+Prefer the checked-in CLI when refreshing beads-web:
+
+```sh
+npm run plugin-services:refresh:beads-web -- --tag v0.11.6
+```
+
+This command updates:
+
+- `plugins/builtin.plugins.json`
+- `plugins/fixtures/beads-web.plugin.json`
+- `plugins/fixtures/beads-web.plugins.json`
+
+It downloads each configured GitHub release asset, computes SHA-256 locally, and rewrites the matching `github-release-asset` installer variants.
+
+## Manual release verification steps
 
 1. Set `TAG`, normally like `v0.11.5`.
 2. Download both release assets from `https://github.com/mickmister/beads-web/releases/download/$TAG/`:
@@ -42,8 +58,8 @@ done
 
 ## Config rules
 
-- Set plugin `version` to the release tag in all three JSON files.
-- Set the GitHub release installer `tag` to the same release tag.
+- Set plugin `version` to the release tag in all three JSON files. The refresh CLI does this automatically.
+- Set the GitHub release installer `tag` to the same release tag. The refresh CLI does this automatically.
 - Keep service wiring stable unless the release explicitly changes runtime needs:
   - command: `${PLUGIN_DIR}/bin/beads-web`
   - default HTTP port: `3109`

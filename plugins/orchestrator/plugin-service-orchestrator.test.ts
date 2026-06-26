@@ -868,6 +868,63 @@ describe('plugin service supervisor orchestration dry run', () => {
     ]);
   });
 
+  it('refreshes github-release-asset plugin files to a new release tag with verified sha256 values', async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), 'vd-plugin-cli-refresh-'));
+    const catalogPath = join(tempRoot, 'beads-web.plugins.json');
+    const pluginPath = join(tempRoot, 'beads-web.plugin.json');
+    const catalog = structuredClone(beadsWebOnlyCatalog) as PluginServiceCatalog;
+    await writeFile(catalogPath, JSON.stringify(catalog));
+    await writeFile(pluginPath, JSON.stringify(catalog.plugins[0]));
+
+    const bytesByAsset = new Map([
+      ['beads-web-linux-x64', Buffer.from('linux x64 v9.9.9')],
+      ['beads-web-linux-arm64', Buffer.from('linux arm64 v9.9.9')],
+    ]);
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      const urlString = String(url);
+      const asset = [...bytesByAsset.keys()].find((candidate) => urlString.endsWith(`/${candidate}`));
+      if (!asset) return new Response('not found', { status: 404, statusText: 'Not Found' });
+      return new Response(bytesByAsset.get(asset));
+    }) as typeof fetch;
+
+    try {
+      const result = await runPluginServiceOrchestratorCli([
+        'refresh-github-release',
+        '--plugin-id', 'vd.beads-web',
+        '--tag', 'v9.9.9',
+        '--catalog', catalogPath,
+        '--plugin', pluginPath,
+      ]);
+
+      expect(result).toMatchObject({
+        mode: 'refresh-github-release',
+        pluginId: 'vd.beads-web',
+        tag: 'v9.9.9',
+        files: [
+          expect.objectContaining({ path: catalogPath, kind: 'catalog', previousVersion: 'v0.11.6', version: 'v9.9.9' }),
+          expect.objectContaining({ path: pluginPath, kind: 'plugin', previousVersion: 'v0.11.6', version: 'v9.9.9' }),
+        ],
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    for (const path of [catalogPath, pluginPath]) {
+      const refreshed = JSON.parse(await readFile(path, 'utf8'));
+      const plugin = path === catalogPath ? refreshed.plugins[0] : refreshed;
+      const installer = plugin.installers[0];
+      expect(plugin.version).toBe('v9.9.9');
+      expect(installer.tag).toBe('v9.9.9');
+      expect(installer.variants['linux-amd64'].sha256).toBe(
+        createHash('sha256').update(bytesByAsset.get('beads-web-linux-x64')!).digest('hex'),
+      );
+      expect(installer.variants['linux-arm64'].sha256).toBe(
+        createHash('sha256').update(bytesByAsset.get('beads-web-linux-arm64')!).digest('hex'),
+      );
+    }
+  });
+
   it('composes checked-in catalog with a missing optional per-instance catalog', async () => {
     const tempRoot = await mkdtemp(join(tmpdir(), 'vd-plugin-cli-missing-optional-'));
     const builtinCatalogPath = join(tempRoot, 'builtin.plugins.json');
