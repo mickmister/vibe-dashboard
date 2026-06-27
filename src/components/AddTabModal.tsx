@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { type ReactNode, useState } from 'react';
 import {
   Modal,
   ModalContent,
@@ -13,7 +13,35 @@ import {
 import { AddVKWorkspaceModal } from './dialogs/AddVKWorkspaceModal';
 import type { WorkspaceState } from '../types';
 
-interface AddTabModalProps {
+export type AddTabModalInitialView = 'presets' | 'custom' | 'tab-group' | 'vk-workspace';
+
+interface VKWorkspaceModalRenderProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onComplete: () => void;
+  onAdd: (
+    taskAttemptId: string,
+    name: string,
+    containerRef: string,
+  ) => void | Promise<void>;
+  onAddToSpace?: (
+    taskAttemptId: string,
+    name: string,
+    containerRef: string,
+    spaceId: string,
+  ) => void | Promise<void>;
+  onNavigateToTabGroup?: (
+    spaceId: string,
+    tabGroupId: string,
+    workspace?: { id: string; name: string },
+  ) => void | Promise<void>;
+  workspaceState?: WorkspaceState;
+  pendingWorkspaceId: string | null;
+  isActionPending: boolean;
+  actionError: string | null;
+}
+
+export interface AddTabModalProps {
   isOpen: boolean;
   onClose: () => void;
   onAdd: (title: string, url: string) => void;
@@ -39,6 +67,11 @@ interface AddTabModalProps {
   isActionPending?: boolean;
   actionError?: string | null;
   onResetAction?: () => void;
+  initialView?: AddTabModalInitialView;
+  initialTitle?: string;
+  initialUrl?: string;
+  initialTabGroupLabel?: string;
+  renderVKWorkspaceModal?: (props: VKWorkspaceModalRenderProps) => ReactNode;
 }
 
 const PRESETS = [
@@ -87,13 +120,18 @@ export function AddTabModal({
   isActionPending = false,
   actionError = null,
   onResetAction,
+  initialView = 'presets',
+  initialTitle = '',
+  initialUrl = '',
+  initialTabGroupLabel = '',
+  renderVKWorkspaceModal,
 }: AddTabModalProps) {
-  const [title, setTitle] = useState('');
-  const [url, setUrl] = useState('');
-  const [showCustom, setShowCustom] = useState(false);
-  const [showVKWorkspace, setShowVKWorkspace] = useState(false);
-  const [showTabGroupInput, setShowTabGroupInput] = useState(false);
-  const [tabGroupLabel, setTabGroupLabel] = useState('');
+  const [title, setTitle] = useState(initialTitle);
+  const [url, setUrl] = useState(initialUrl);
+  const [showCustom, setShowCustom] = useState(initialView === 'custom');
+  const [showVKWorkspace, setShowVKWorkspace] = useState(initialView === 'vk-workspace');
+  const [showTabGroupInput, setShowTabGroupInput] = useState(initialView === 'tab-group');
+  const [tabGroupLabel, setTabGroupLabel] = useState(initialTabGroupLabel);
 
   const handlePresetSelect = (key: string) => {
     const preset = PRESETS.find((p) => p.key === key);
@@ -175,12 +213,12 @@ export function AddTabModal({
   };
 
   const handleClose = () => {
-    setTitle('');
-    setUrl('');
-    setTabGroupLabel('');
-    setShowCustom(false);
-    setShowVKWorkspace(false);
-    setShowTabGroupInput(false);
+    setTitle(initialTitle);
+    setUrl(initialUrl);
+    setTabGroupLabel(initialTabGroupLabel);
+    setShowCustom(initialView === 'custom');
+    setShowVKWorkspace(initialView === 'vk-workspace');
+    setShowTabGroupInput(initialView === 'tab-group');
     onResetAction?.();
     onClose();
   };
@@ -300,24 +338,45 @@ export function AddTabModal({
         </ModalContent>
       </Modal>
 
-      <AddVKWorkspaceModal
-        isOpen={showVKWorkspace}
-        onClose={() => {
-          if (isActionPending) return;
-          setShowVKWorkspace(false);
-          onResetAction?.();
-        }}
-        onComplete={handleClose}
-        onAdd={handleVKWorkspaceAdd}
-        onAddToSpace={
-          onAddVKWorkspaceToSpace ? handleVKWorkspaceAddToSpace : undefined
-        }
-        onNavigateToTabGroup={handleVKWorkspaceNavigate}
-        workspaceState={workspace}
-        pendingWorkspaceId={pendingWorkspaceId}
-        isActionPending={isActionPending}
-        actionError={actionError}
-      />
+      {renderVKWorkspaceModal ? (
+        renderVKWorkspaceModal({
+          isOpen: showVKWorkspace,
+          onClose: () => {
+            if (isActionPending) return;
+            setShowVKWorkspace(false);
+            onResetAction?.();
+          },
+          onComplete: handleClose,
+          onAdd: handleVKWorkspaceAdd,
+          onAddToSpace: onAddVKWorkspaceToSpace
+            ? handleVKWorkspaceAddToSpace
+            : undefined,
+          onNavigateToTabGroup: handleVKWorkspaceNavigate,
+          workspaceState: workspace,
+          pendingWorkspaceId,
+          isActionPending,
+          actionError,
+        })
+      ) : (
+        <AddVKWorkspaceModal
+          isOpen={showVKWorkspace}
+          onClose={() => {
+            if (isActionPending) return;
+            setShowVKWorkspace(false);
+            onResetAction?.();
+          }}
+          onComplete={handleClose}
+          onAdd={handleVKWorkspaceAdd}
+          onAddToSpace={
+            onAddVKWorkspaceToSpace ? handleVKWorkspaceAddToSpace : undefined
+          }
+          onNavigateToTabGroup={handleVKWorkspaceNavigate}
+          workspaceState={workspace}
+          pendingWorkspaceId={pendingWorkspaceId}
+          isActionPending={isActionPending}
+          actionError={actionError}
+        />
+      )}
     </>
   );
 }
