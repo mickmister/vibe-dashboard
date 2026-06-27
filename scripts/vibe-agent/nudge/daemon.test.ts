@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { ConversationEntry, ExecutionProcess, SendMessageBody, Session, Workspace } from '../types.js';
 import {
   createNudgeDaemonOptions,
+  isNudgeDaemonEnabled,
   parseBoolean,
   processIsAfterStartupCutoff,
   readNudgeDaemonState,
@@ -115,11 +116,14 @@ function options(statePath = tempStatePath()) {
 }
 
 describe('nudge daemon', () => {
-  it('treats VD_NUDGE_DAEMON_DISABLED as an opt-out flag', () => {
+  it('keeps the daemon disabled by default and allows explicit opt-in', () => {
     expect(parseBoolean(undefined)).toBe(false);
     expect(parseBoolean('0')).toBe(false);
     expect(parseBoolean('true')).toBe(true);
     expect(parseBoolean('1')).toBe(true);
+    expect(isNudgeDaemonEnabled({})).toBe(false);
+    expect(isNudgeDaemonEnabled({ VD_NUDGE_DAEMON_ENABLED: 'true' })).toBe(true);
+    expect(isNudgeDaemonEnabled({ VD_NUDGE_DAEMON_ENABLED: 'true', VD_NUDGE_DAEMON_DISABLED: 'true' })).toBe(false);
   });
 
   it('only considers processes updated after the startup cutoff', () => {

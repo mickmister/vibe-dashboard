@@ -176,7 +176,7 @@ directory=/home/vkuser/.local/share/vibe-dashboard-runtime`;
 
 const VIBE_AGENT_NUDGE_SUPERVISOR = `; vibe-agent nudge daemon (continues newly-stopped coding agent turns)
 [program:vibe-agent-nudge-daemon]
-command=sh -c 'case "\${VD_NUDGE_DAEMON_DISABLED:-}" in 1|true|TRUE|yes|YES|on|ON) echo "vibe-agent nudge daemon disabled (VD_NUDGE_DAEMON_DISABLED)"; exec tail -f /dev/null ;; esac; exec node /opt/vibe-kanban-vscode-web-seed/dist/vibe-agent/nudge/daemon.js'
+command=sh -c 'case "\${VD_NUDGE_DAEMON_ENABLED:-}" in 1|true|TRUE|yes|YES|on|ON) ;; *) echo "vibe-agent nudge daemon disabled (set VD_NUDGE_DAEMON_ENABLED=true to enable)"; exec tail -f /dev/null ;; esac; case "\${VD_NUDGE_DAEMON_DISABLED:-}" in 1|true|TRUE|yes|YES|on|ON) echo "vibe-agent nudge daemon disabled (VD_NUDGE_DAEMON_DISABLED)"; exec tail -f /dev/null ;; esac; exec node /opt/vibe-kanban-vscode-web-seed/dist/vibe-agent/nudge/daemon.js'
 autostart=true
 autorestart=true
 startsecs=0
@@ -341,7 +341,7 @@ export const BUILTIN_FIRST_PARTY_SERVICE_PLUGINS: FirstPartyServicePlugin[] = [
       id: 'first-party.vibe-agent-nudge-daemon',
       displayName: 'Vibe Agent Nudge Daemon',
       version: 'bundled',
-      requestedCapabilities: { vkHttpApi: 'agentPrompt', hostShell: { commands: ['node /opt/vibe-kanban-vscode-web-seed/dist/vibe-agent/nudge/daemon.js'] }, filesystem: [{ scope: 'absolute', path: '/var/lib/vd/nudge-daemon', access: 'readWrite' }], network: { mode: 'egress' }, env: ['VD_NUDGE_DAEMON_DISABLED'] },
+      requestedCapabilities: { vkHttpApi: 'agentPrompt', hostShell: { commands: ['node /opt/vibe-kanban-vscode-web-seed/dist/vibe-agent/nudge/daemon.js'] }, filesystem: [{ scope: 'absolute', path: '/var/lib/vd/nudge-daemon', access: 'readWrite' }], network: { mode: 'egress' }, env: ['VD_NUDGE_DAEMON_ENABLED', 'VD_NUDGE_DAEMON_DISABLED'] },
       components: { services: [{ id: 'vibe-agent-nudge-daemon', runtime: 'supervisor', command: 'node /opt/vibe-kanban-vscode-web-seed/dist/vibe-agent/nudge/daemon.js' }] },
     }),
     privilegeTier: 'core-control-plane', bootCritical: false, supervisorPrograms: ['vibe-agent-nudge-daemon'], supervisorConfig: VIBE_AGENT_NUDGE_SUPERVISOR, installStrategy: 'bundled-runtime-artifact', desiredVersion: 'bundled', stagingRequired: true, rollbackable: true,

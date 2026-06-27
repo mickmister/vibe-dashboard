@@ -48,6 +48,10 @@ export function parseBoolean(value: string | undefined): boolean {
   return ['1', 'true', 'yes', 'on'].includes(String(value ?? '').toLowerCase());
 }
 
+export function isNudgeDaemonEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return parseBoolean(env.VD_NUDGE_DAEMON_ENABLED) && !parseBoolean(env.VD_NUDGE_DAEMON_DISABLED);
+}
+
 export function parsePositiveIntegerEnv(value: string | undefined, fallback: number): number {
   if (!value) return fallback;
   const parsed = Number.parseInt(value, 10);
@@ -204,8 +208,8 @@ export async function runNudgeDaemon(
 }
 
 async function main(): Promise<void> {
-  if (parseBoolean(process.env.VD_NUDGE_DAEMON_DISABLED)) {
-    console.log('vibe-agent nudge daemon disabled because VD_NUDGE_DAEMON_DISABLED is set');
+  if (!isNudgeDaemonEnabled()) {
+    console.log('vibe-agent nudge daemon disabled; set VD_NUDGE_DAEMON_ENABLED=true to enable it');
     return;
   }
 

@@ -86,6 +86,7 @@ describe('first-party service plugin inventory and golden supervisor config', ()
     expect(goldenSupervisor).toContain('command=/usr/local/bin/vd-plugin-runtime-apply.sh');
     expect(goldenSupervisor).toContain('[program:caddy]\ncommand=caddy run --config /etc/caddy/Caddyfile --adapter caddyfile\nautostart=true\nautorestart=true\npriority=10');
     expect(goldenSupervisor).toContain('[program:vibe-agent-nudge-daemon]\ncommand=sh -c');
+    expect(goldenSupervisor).toContain('VD_NUDGE_DAEMON_ENABLED');
     expect(goldenSupervisor).toContain('VD_NUDGE_DAEMON_DISABLED');
     expect(goldenSupervisor).toContain('dist/vibe-agent/nudge/daemon.js');
     expect(goldenSupervisor).toContain('[program:vd-plugin-service-orchestrator-startup]\ncommand=/usr/local/bin/vd-plugin-runtime-apply.sh\nautostart=true\nautorestart=false\nstartsecs=0\npriority=1000');
