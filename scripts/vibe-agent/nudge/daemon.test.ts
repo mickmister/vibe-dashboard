@@ -123,7 +123,7 @@ describe('nudge daemon', () => {
     expect(parseBoolean('1')).toBe(true);
     expect(isNudgeDaemonEnabled({})).toBe(false);
     expect(isNudgeDaemonEnabled({ VD_NUDGE_DAEMON_ENABLED: 'true' })).toBe(true);
-    expect(isNudgeDaemonEnabled({ VD_NUDGE_DAEMON_ENABLED: 'true', VD_NUDGE_DAEMON_DISABLED: 'true' })).toBe(false);
+    expect(isNudgeDaemonEnabled({ VD_NUDGE_DAEMON_ENABLED: 'false' })).toBe(false);
   });
 
   it('only considers processes updated after the startup cutoff', () => {

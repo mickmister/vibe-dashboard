@@ -49,7 +49,7 @@ export function parseBoolean(value: string | undefined): boolean {
 }
 
 export function isNudgeDaemonEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  return parseBoolean(env.VD_NUDGE_DAEMON_ENABLED) && !parseBoolean(env.VD_NUDGE_DAEMON_DISABLED);
+  return parseBoolean(env.VD_NUDGE_DAEMON_ENABLED);
 }
 
 export function parsePositiveIntegerEnv(value: string | undefined, fallback: number): number {
