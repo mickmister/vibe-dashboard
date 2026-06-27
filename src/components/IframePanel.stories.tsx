@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
-import { IframePanel } from './IframePanel';
+import { IframePanel, type IframeRenderMode } from './IframePanel';
 import { storybookTabGroups } from '../stories/fixtures';
 import type { TabGroup } from '../types';
 
@@ -52,10 +52,19 @@ const meta: Meta<typeof IframePanel> = {
       console.info('update pair ratios', { pairId, ratios });
     },
   },
+  render: (args, context) => {
+    const globalMode = context.globals.iframeRenderMode as IframeRenderMode | undefined;
+    return (
+      <IframePanel
+        {...args}
+        iframeRenderMode={globalMode ?? args.iframeRenderMode ?? 'placeholder'}
+      />
+    );
+  },
   argTypes: {
     iframeRenderMode: {
       control: 'inline-radio',
-      options: ['placeholder', 'disabled'],
+      options: ['placeholder', 'disabled', 'real'],
     },
     iframePreviewStatus: {
       control: 'inline-radio',

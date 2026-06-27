@@ -40,6 +40,22 @@ const withAppProviders: Decorator = (Story) => {
 
 const preview: Preview = {
   decorators: [withAppProviders],
+  globalTypes: {
+    iframeRenderMode: {
+      description: 'Controls external iframe rendering in Storybook stories that support iframe safety.',
+      defaultValue: 'placeholder',
+      toolbar: {
+        title: 'Iframes',
+        icon: 'browser',
+        items: [
+          { value: 'placeholder', title: 'Placeholder' },
+          { value: 'disabled', title: 'Disabled' },
+          { value: 'real', title: 'Real iframes' },
+        ],
+        dynamicTitle: true,
+      },
+    },
+  },
   parameters: {
     layout: 'fullscreen',
     controls: {
