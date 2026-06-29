@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -13,6 +14,7 @@ import {
   readExistingCaddyPluginConfig,
   readExistingSupervisorConfigs,
   type PluginServiceCatalog,
+  type PluginServiceDefinition,
   type PluginServiceOrchestratorPaths,
 } from './plugin-service-orchestrator.ts';
 
@@ -30,7 +32,31 @@ export interface PluginServiceCliResult {
   caddyApplied?: Awaited<ReturnType<typeof applyCaddyPluginConfigChange>>;
 }
 
-interface ParsedArgs {
+export interface PluginReleaseRefreshCliResult {
+  mode: 'refresh-github-release';
+  pluginId: string;
+  tag: string;
+  files: PluginReleaseRefreshFileResult[];
+}
+
+export interface PluginReleaseRefreshFileResult {
+  path: string;
+  kind: 'catalog' | 'plugin';
+  pluginId: string;
+  previousVersion: string;
+  version: string;
+  installerKind: 'github-release-asset';
+  variants: Array<{
+    platform: string;
+    asset: string;
+    sha256: string;
+    url: string;
+  }>;
+}
+
+type ParsedArgs = RuntimeParsedArgs | RefreshReleaseParsedArgs;
+
+interface RuntimeParsedArgs {
   mode: 'dry-run' | 'apply';
   catalogPaths: string[];
   optionalCatalogPaths: string[];
@@ -38,8 +64,23 @@ interface ParsedArgs {
   caddyConfigPath?: string;
 }
 
-export async function runPluginServiceOrchestratorCli(argv: string[]): Promise<PluginServiceCliResult> {
+interface RefreshReleaseParsedArgs {
+  mode: 'refresh-github-release';
+  pluginId: string;
+  tag: string;
+  catalogPaths: string[];
+  pluginPaths: string[];
+}
+
+export function runPluginServiceOrchestratorCli(argv: readonly ['refresh-github-release', ...string[]]): Promise<PluginReleaseRefreshCliResult>;
+export function runPluginServiceOrchestratorCli(argv: readonly [('dry-run' | 'apply'), ...string[]]): Promise<PluginServiceCliResult>;
+export function runPluginServiceOrchestratorCli(argv: readonly string[]): Promise<PluginServiceCliResult>;
+export async function runPluginServiceOrchestratorCli(argv: readonly string[]): Promise<PluginServiceCliResult | PluginReleaseRefreshCliResult> {
   const parsed = parseArgs(argv);
+  if (parsed.mode === 'refresh-github-release') {
+    return refreshGithubReleasePlugin(parsed);
+  }
+
   const catalog = await readComposedCatalog(parsed.catalogPaths, parsed.optionalCatalogPaths);
   const [cachedArtifacts, existingSupervisorConfigs] = await Promise.all([
     // Artifact discovery hashes only existing cache files and is safe to run in parallel
@@ -100,9 +141,11 @@ export async function runPluginServiceOrchestratorCli(argv: string[]): Promise<P
   };
 }
 
-function parseArgs(argv: string[]): ParsedArgs {
+function parseArgs(argv: readonly string[]): ParsedArgs {
+  if (argv[0] === 'refresh-github-release') return parseRefreshReleaseArgs(argv.slice(1));
+
   const args = new Map<string, string[]>();
-  let mode: ParsedArgs['mode'] = 'dry-run';
+  let mode: RuntimeParsedArgs['mode'] = 'dry-run';
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -133,6 +176,119 @@ function parseArgs(argv: string[]): ParsedArgs {
     },
     caddyConfigPath: args.get('caddy-config-path')?.at(-1),
   };
+}
+
+function parseRefreshReleaseArgs(argv: readonly string[]): RefreshReleaseParsedArgs {
+  const args = parseRepeatedFlagArgs(argv);
+  const catalogPaths = args.get('catalog') ?? [];
+  const pluginPaths = args.get('plugin') ?? [];
+  if (catalogPaths.length + pluginPaths.length === 0) {
+    throw new Error('refresh-github-release requires at least one --catalog or --plugin file');
+  }
+  return {
+    mode: 'refresh-github-release',
+    pluginId: requiredArg(args, 'plugin-id'),
+    tag: requiredArg(args, 'tag'),
+    catalogPaths,
+    pluginPaths,
+  };
+}
+
+function parseRepeatedFlagArgs(argv: readonly string[]): Map<string, string[]> {
+  const args = new Map<string, string[]>();
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (!arg?.startsWith('--')) throw new Error(`Unexpected argument: ${arg ?? ''}`);
+    const key = arg.slice(2);
+    const value = argv[index + 1];
+    if (!value || value.startsWith('--')) throw new Error(`Missing value for --${key}`);
+    args.set(key, [...(args.get(key) ?? []), value]);
+    index += 1;
+  }
+  return args;
+}
+
+async function refreshGithubReleasePlugin(input: RefreshReleaseParsedArgs): Promise<PluginReleaseRefreshCliResult> {
+  const files: PluginReleaseRefreshFileResult[] = [];
+  for (const path of input.catalogPaths) {
+    files.push(await refreshGithubReleasePluginFile({ ...input, path, kind: 'catalog' }));
+  }
+  for (const path of input.pluginPaths) {
+    files.push(await refreshGithubReleasePluginFile({ ...input, path, kind: 'plugin' }));
+  }
+  return {
+    mode: input.mode,
+    pluginId: input.pluginId,
+    tag: input.tag,
+    files,
+  };
+}
+
+async function refreshGithubReleasePluginFile(input: RefreshReleaseParsedArgs & {
+  path: string;
+  kind: 'catalog' | 'plugin';
+}): Promise<PluginReleaseRefreshFileResult> {
+  const json = JSON.parse(await readFile(input.path, 'utf8'));
+  const plugin = findRefreshTargetPlugin(json, input);
+  const previousVersion = plugin.version;
+  const installer = plugin.installers.find((candidate) => candidate.kind === 'github-release-asset');
+  if (!installer || installer.kind !== 'github-release-asset') {
+    throw new Error(`Plugin ${input.pluginId} in ${input.path} does not have a github-release-asset installer`);
+  }
+
+  const variants: PluginReleaseRefreshFileResult['variants'] = [];
+  plugin.version = input.tag;
+  installer.tag = input.tag;
+  for (const [platform, variant] of Object.entries(installer.variants)) {
+    const url = githubReleaseDownloadUrl(installer.repository, input.tag, variant.asset);
+    const bytes = await fetchReleaseAssetBytes(url);
+    const sha256 = await sha256Hex(bytes);
+    variant.sha256 = sha256;
+    variants.push({ platform, asset: variant.asset, sha256, url });
+  }
+
+  await writeFile(input.path, `${JSON.stringify(json, null, 2)}\n`);
+  return {
+    path: input.path,
+    kind: input.kind,
+    pluginId: plugin.id,
+    previousVersion,
+    version: plugin.version,
+    installerKind: installer.kind,
+    variants,
+  };
+}
+
+function findRefreshTargetPlugin(json: unknown, input: { path: string; kind: 'catalog' | 'plugin'; pluginId: string }): PluginServiceDefinition {
+  if (input.kind === 'catalog') {
+    const catalog = assertPluginServiceCatalog(json);
+    const plugin = catalog.plugins.find((candidate) => candidate.id === input.pluginId);
+    if (!plugin) throw new Error(`Plugin ${input.pluginId} not found in catalog ${input.path}`);
+    return plugin;
+  }
+
+  const plugin = json as PluginServiceDefinition;
+  if (plugin.id !== input.pluginId) {
+    throw new Error(`Plugin file ${input.path} contains ${plugin.id}, expected ${input.pluginId}`);
+  }
+  assertPluginServiceCatalog({ plugins: [plugin] });
+  return plugin;
+}
+
+function githubReleaseDownloadUrl(repository: string, tag: string, asset: string): string {
+  return `https://github.com/${repository}/releases/download/${encodeURIComponent(tag)}/${encodeURIComponent(asset)}`;
+}
+
+async function fetchReleaseAssetBytes(url: string): Promise<Uint8Array> {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to download ${url}: ${response.status} ${response.statusText}`);
+  }
+  return new Uint8Array(await response.arrayBuffer());
+}
+
+function sha256Hex(bytes: Uint8Array): string {
+  return createHash('sha256').update(bytes).digest('hex');
 }
 
 function createCaddyCandidateValidator(input: {
