@@ -347,7 +347,7 @@ export const BUILTIN_FIRST_PARTY_SERVICE_PLUGINS: FirstPartyServicePlugin[] = [
     privilegeTier: 'core-control-plane', bootCritical: false, supervisorPrograms: ['vibe-agent-nudge-daemon'], supervisorConfig: VIBE_AGENT_NUDGE_SUPERVISOR, installStrategy: 'bundled-runtime-artifact', desiredVersion: 'bundled', stagingRequired: true, rollbackable: true,
   },
   {
-    manifest: manifest({ id: 'first-party.plugin-service-orchestrator', displayName: 'Plugin Service Orchestrator', version: 'bundled', requestedCapabilities: { hostShell: { commands: ['vd-plugin-runtime-apply.sh', 'supervisorctl reread', 'supervisorctl update', 'caddy reload'] }, filesystem: [{ scope: 'absolute', path: '/var/lib/vd', access: 'readWrite' }], network: { mode: 'egress' } } }),
+    manifest: manifest({ id: 'first-party.plugin-service-orchestrator', displayName: 'Plugin Service Orchestrator', version: 'bundled', requestedCapabilities: { hostShell: { commands: ['vd-plugin-reload.sh'] }, filesystem: [{ scope: 'absolute', path: '/var/lib/vd', access: 'readWrite' }], network: { mode: 'egress' } } }),
     privilegeTier: 'core-control-plane', bootCritical: false, supervisorPrograms: ['vd-plugin-service-orchestrator-startup'], supervisorConfig: PLUGIN_SERVICE_ORCHESTRATOR_SUPERVISOR, installStrategy: 'bundled-runtime-artifact', desiredVersion: 'bundled', stagingRequired: true, rollbackable: true,
   },
   {

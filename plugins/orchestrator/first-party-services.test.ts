@@ -22,6 +22,7 @@ const goldenCaddyfile = readFileSync(resolve(process.cwd(), 'Caddyfile'), 'utf8'
 const pluginCaddyfile = readFileSync(resolve(process.cwd(), 'Caddyfile.plugins'), 'utf8');
 const dockerEntrypoint = readFileSync(resolve(process.cwd(), 'docker-entrypoint.sh'), 'utf8');
 const pluginRuntimeApply = readFileSync(resolve(process.cwd(), 'plugins/scripts/vd-plugin-runtime-apply.sh'), 'utf8');
+const pluginReload = readFileSync(resolve(process.cwd(), 'plugins/scripts/vd-plugin-reload.sh'), 'utf8');
 
 describe('first-party service plugin inventory and golden supervisor config', () => {
   it('inventories current supervisor-managed programs as first-party plugin manifests with privilege tiers', () => {
@@ -68,6 +69,7 @@ describe('first-party service plugin inventory and golden supervisor config', ()
     expect(pluginCaddyfile).toContain('VD plugin-owned Caddy routes');
     expect(goldenDockerfile).toContain('COPY Caddyfile.plugins /etc/caddy/plugins.caddy');
     expect(goldenDockerfile).toContain('COPY plugins/scripts/vd-plugin-runtime-apply.sh /usr/local/bin/vd-plugin-runtime-apply.sh');
+    expect(goldenDockerfile).toContain('COPY plugins/scripts/vd-plugin-reload.sh /usr/local/bin/vd-plugin-reload.sh');
     expect(goldenDockerfile).toContain('COPY plugins/scripts/vd-plugin-service-runner.mjs /usr/local/bin/vd-plugin-service-runner.mjs');
     expect(goldenDockerfile).toContain('COPY --from=dashboard-builder /app/dist/vibe-agent /opt/vibe-kanban-vscode-web-seed/dist/vibe-agent');
     expect(goldenDockerfile).toContain('exec node /opt/vibe-kanban-vscode-web-seed/dist/vibe-agent/legacy-cli/vibe-agent.js "$@"');
@@ -84,6 +86,7 @@ describe('first-party service plugin inventory and golden supervisor config', ()
     expect(pluginRuntimeApply).toContain('VD_PLUGIN_CADDY_RELOAD_ATTEMPTS');
     expect(pluginRuntimeApply).toContain('caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile');
     expect(pluginRuntimeApply).not.toContain('VD_PLUGIN_ORCHESTRATOR_ALLOW_HASH_MISMATCH');
+    expect(pluginReload).toContain('exec /usr/local/bin/vd-plugin-runtime-apply.sh "$@"');
     expect(goldenSupervisor).toContain('command=/usr/local/bin/vd-plugin-runtime-apply.sh');
     expect(goldenSupervisor).toContain('[program:caddy]\ncommand=caddy run --config /etc/caddy/Caddyfile --adapter caddyfile\nautostart=true\nautorestart=true\npriority=10');
     expect(goldenSupervisor).toContain('[program:vibe-agent-nudge-daemon]\ncommand=sh -c');
