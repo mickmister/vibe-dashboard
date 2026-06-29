@@ -17,6 +17,10 @@ springboard.registerSplashScreen(AppLoadingScreen);
 
 // @platform end
 
+// @platform "node"
+import './modules/BeadFormSubmissionServerModule';
+// @platform end
+
 import './modules/BeadsFormModule';
 
 import springboard from 'springboard';
