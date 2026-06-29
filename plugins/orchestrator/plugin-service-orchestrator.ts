@@ -223,10 +223,12 @@ export function createPluginServiceDryRunPlan(input: {
   cachedArtifacts: CachedPluginArtifact[];
   existingSupervisorConfigs: Record<string, string>;
   existingCaddyPluginConfig?: string;
+  platformKey?: PlatformKey;
 }): PluginServiceDryRunPlan {
   validateCatalog(input.catalog);
 
-  const artifacts = enabledPlugins(input.catalog).flatMap((plugin) => createArtifactPlans(plugin, input.paths, input.cachedArtifacts));
+  const platformKey = input.platformKey ?? currentPlatformKey();
+  const artifacts = enabledPlugins(input.catalog).flatMap((plugin) => createArtifactPlans(plugin, input.paths, input.cachedArtifacts, platformKey));
   const desiredSupervisorConfigs = new Map<string, SupervisorConfigChange>();
 
   for (const plugin of enabledPlugins(input.catalog)) {
@@ -948,6 +950,7 @@ function createArtifactPlans(
   plugin: PluginServiceDefinition,
   paths: PluginServiceOrchestratorPaths,
   cachedArtifacts: CachedPluginArtifact[],
+  platformKey: PlatformKey,
 ): PluginArtifactDryRunPlan[] {
   const installPath = pluginInstallPath(paths, plugin);
   return plugin.installers.map((installer) => {
@@ -958,7 +961,6 @@ function createArtifactPlans(
       return { action: 'install', pluginId: plugin.id, version: plugin.version, url: `${installer.kind}:${packageInstallerName(installer)}`, cachePath: toolchainPaths(paths).root, installPath };
     }
 
-    const platformKey = currentPlatformKey();
     const variant = selectInstallerVariant(installer, platformKey);
     const cachePath = artifactCachePath(paths, installer, variant);
     const cached = cachedArtifacts.some((cachedArtifact) => {

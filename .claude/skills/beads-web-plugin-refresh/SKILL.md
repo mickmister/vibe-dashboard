@@ -19,10 +19,10 @@ Use this workflow when updating `vd.beads-web` to a new GitHub release tag.
 
 ## CLI refresh steps
 
-Prefer the checked-in CLI when refreshing beads-web:
+Prefer the checked-in CLI when refreshing beads-web. The release tag is required and must be passed after `--`:
 
 ```sh
-npm run plugin-services:refresh:beads-web -- --tag v0.11.6
+npm run plugin-services:refresh:beads-web:requires-tag -- --tag v0.11.6
 ```
 
 This command updates:
@@ -70,7 +70,7 @@ done
 
 ## Validation
 
-Run targeted tests first. On macOS, the full `plugin-service-orchestrator.test.ts` suite may fail before version assertions with `Unsupported plugin platform: darwin-*`; run the catalog-specific test locally and run the full orchestrator suite in a Linux/amd64 environment when available.
+Run targeted tests first. The orchestrator suite supports an explicit test platform override, so it should pass on macOS and Linux.
 
 ```sh
 npm test -- --run \

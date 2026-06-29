@@ -19,6 +19,7 @@ import {
   renderCaddyPluginExposureConfig,
   renderSupervisorProgramConfig,
   renderServiceArgv,
+  type PlatformKey,
   type PluginServiceCatalog,
 } from './plugin-service-orchestrator';
 
@@ -29,6 +30,19 @@ describe('plugin service supervisor orchestration dry run', () => {
     supervisorConfigDir: '/etc/supervisor/conf.d/vd-generated',
     caddyPluginConfigPath: '/etc/caddy/plugins.caddy',
   };
+
+  const testPlatformKey: PlatformKey = 'linux-amd64';
+  const createTestPluginServiceDryRunPlan = (
+    input: Omit<Parameters<typeof createPluginServiceDryRunPlan>[0], 'platformKey'> & { platformKey?: PlatformKey },
+  ) => createPluginServiceDryRunPlan({ platformKey: testPlatformKey, ...input });
+
+  const discoverTestCachedArtifacts = (
+    input: Omit<Parameters<typeof discoverCachedArtifacts>[0], 'platformKey'> & { platformKey?: PlatformKey },
+  ) => discoverCachedArtifacts({ platformKey: testPlatformKey, ...input });
+
+  const materializeTestPluginArtifacts = (
+    input: Omit<Parameters<typeof materializePluginArtifacts>[0], 'platformKey'> & { platformKey?: PlatformKey },
+  ) => materializePluginArtifacts({ platformKey: testPlatformKey, ...input });
 
   it('imports the checked-in plugin catalog for startup-managed plugin services', () => {
     const catalog = firstPartyPluginCatalog as PluginServiceCatalog;
@@ -57,7 +71,7 @@ describe('plugin service supervisor orchestration dry run', () => {
   });
 
   it('plans downloads only for release assets that are not already cached with the requested sha', () => {
-    const plan = createPluginServiceDryRunPlan({
+    const plan = createTestPluginServiceDryRunPlan({
       catalog: firstPartyPluginCatalog as PluginServiceCatalog,
       paths,
       cachedArtifacts: [
@@ -83,7 +97,7 @@ describe('plugin service supervisor orchestration dry run', () => {
       paths,
     });
 
-    const plan = createPluginServiceDryRunPlan({
+    const plan = createTestPluginServiceDryRunPlan({
       catalog: firstPartyPluginCatalog as PluginServiceCatalog,
       paths,
       cachedArtifacts: [],
@@ -166,7 +180,7 @@ describe('plugin service supervisor orchestration dry run', () => {
   });
 
   it('supports a beads-web-only catalog for isolated supervisor experiments', () => {
-    const plan = createPluginServiceDryRunPlan({
+    const plan = createTestPluginServiceDryRunPlan({
       catalog: beadsWebOnlyCatalog as PluginServiceCatalog,
       paths,
       cachedArtifacts: [],
@@ -206,7 +220,7 @@ describe('plugin service supervisor orchestration dry run', () => {
       paths,
     });
 
-    const disabledPlan = createPluginServiceDryRunPlan({
+    const disabledPlan = createTestPluginServiceDryRunPlan({
       catalog,
       paths,
       cachedArtifacts: [],
@@ -232,7 +246,7 @@ describe('plugin service supervisor orchestration dry run', () => {
       structuredClone(firstPartyPluginCatalog) as PluginServiceCatalog,
       { plugins: [], pluginStates: { 'vd.beads-web': { enable: true } } },
     ]);
-    const reenabledPlan = createPluginServiceDryRunPlan({
+    const reenabledPlan = createTestPluginServiceDryRunPlan({
       catalog: reenabledCatalog,
       paths,
       cachedArtifacts: [],
@@ -280,7 +294,7 @@ describe('plugin service supervisor orchestration dry run', () => {
       supervisorConfigDir: join(tempRoot, 'supervisor/conf.d/plugins'),
       caddyPluginConfigPath,
     };
-    const firstPlan = createPluginServiceDryRunPlan({
+    const firstPlan = createTestPluginServiceDryRunPlan({
       catalog: beadsWebOnlyCatalog as PluginServiceCatalog,
       paths: isolatedPaths,
       cachedArtifacts: [],
@@ -294,7 +308,7 @@ describe('plugin service supervisor orchestration dry run', () => {
     });
     await expect(readFile(caddyPluginConfigPath, 'utf8')).resolves.toContain('beads-web.{$PROXY_DOMAIN}');
 
-    const secondPlan = createPluginServiceDryRunPlan({
+    const secondPlan = createTestPluginServiceDryRunPlan({
       catalog: beadsWebOnlyCatalog as PluginServiceCatalog,
       paths: isolatedPaths,
       cachedArtifacts: [],
@@ -342,7 +356,7 @@ describe('plugin service supervisor orchestration dry run', () => {
       port: 'http',
     };
 
-    expect(() => createPluginServiceDryRunPlan({
+    expect(() => createTestPluginServiceDryRunPlan({
       catalog,
       paths,
       cachedArtifacts: [],
@@ -354,7 +368,7 @@ describe('plugin service supervisor orchestration dry run', () => {
       subdomain: 'beads-web',
       port: 'missing',
     };
-    expect(() => createPluginServiceDryRunPlan({
+    expect(() => createTestPluginServiceDryRunPlan({
       catalog,
       paths,
       cachedArtifacts: [],
@@ -421,7 +435,7 @@ describe('plugin service supervisor orchestration dry run', () => {
     for (const { mutate, message } of invalidCases) {
       const catalog = structuredClone(beadsWebOnlyCatalog) as PluginServiceCatalog;
       mutate(catalog);
-      expect(() => createPluginServiceDryRunPlan({
+      expect(() => createTestPluginServiceDryRunPlan({
         catalog,
         paths,
         cachedArtifacts: [],
@@ -434,7 +448,7 @@ describe('plugin service supervisor orchestration dry run', () => {
     const catalog = structuredClone(beadsWebOnlyCatalog) as PluginServiceCatalog;
     (catalog.plugins[0]!.services[0]! as unknown as { preStart: string[] }).preStart = ['echo unsafe && touch /tmp/file'];
 
-    expect(() => createPluginServiceDryRunPlan({
+    expect(() => createTestPluginServiceDryRunPlan({
       catalog,
       paths,
       cachedArtifacts: [],
@@ -460,7 +474,7 @@ describe('plugin service supervisor orchestration dry run', () => {
     ];
 
     for (const { catalog, message } of invalidCases) {
-      expect(() => createPluginServiceDryRunPlan({
+      expect(() => createTestPluginServiceDryRunPlan({
         catalog: catalog as PluginServiceCatalog,
         paths,
         cachedArtifacts: [],
@@ -486,7 +500,7 @@ describe('plugin service supervisor orchestration dry run', () => {
       }],
     };
 
-    const plan = createPluginServiceDryRunPlan({
+    const plan = createTestPluginServiceDryRunPlan({
       catalog,
       paths,
       cachedArtifacts: [],
@@ -515,7 +529,7 @@ describe('plugin service supervisor orchestration dry run', () => {
     await mkdir(join(tempRoot, 'cache/github/mickmister/beads-web/v0.11.6'), { recursive: true });
     await writeFile(cachePath, bytes);
 
-    await expect(discoverCachedArtifacts({
+    await expect(discoverTestCachedArtifacts({
       catalog,
       paths: {
         artifactCacheRoot: join(tempRoot, 'cache'),
@@ -527,7 +541,7 @@ describe('plugin service supervisor orchestration dry run', () => {
 
   it('downloads a binary release asset, allows explicit hash bypass for smoke runs, and installs it executable', async () => {
     const tempRoot = await mkdtemp(join(tmpdir(), 'vd-plugin-materialize-'));
-    const materialized = await materializePluginArtifacts({
+    const materialized = await materializeTestPluginArtifacts({
       catalog: beadsWebOnlyCatalog as PluginServiceCatalog,
       paths: {
         artifactCacheRoot: join(tempRoot, 'cache'),
@@ -557,7 +571,7 @@ describe('plugin service supervisor orchestration dry run', () => {
     installer.variants['linux-amd64']!.sha256 = '0'.repeat(64);
     const cachePath = join(tempRoot, 'cache/github/mickmister/beads-web/v0.11.6/beads-web-linux-x64');
 
-    await expect(materializePluginArtifacts({
+    await expect(materializeTestPluginArtifacts({
       catalog,
       paths,
       fetchBytes: async () => Buffer.from('tampered bytes'),
@@ -566,7 +580,7 @@ describe('plugin service supervisor orchestration dry run', () => {
 
     const validBytes = Buffer.from('valid bytes');
     installer.variants['linux-amd64']!.sha256 = createHash('sha256').update(validBytes).digest('hex');
-    await expect(materializePluginArtifacts({
+    await expect(materializeTestPluginArtifacts({
       catalog,
       paths,
       fetchBytes: async () => validBytes,
@@ -593,7 +607,7 @@ describe('plugin service supervisor orchestration dry run', () => {
     await writeFile(cachePath, 'stale bad cache');
     let fetchCount = 0;
 
-    await expect(materializePluginArtifacts({
+    await expect(materializeTestPluginArtifacts({
       catalog,
       paths,
       fetchBytes: async () => {
@@ -626,8 +640,8 @@ describe('plugin service supervisor orchestration dry run', () => {
       return bytes;
     };
 
-    await materializePluginArtifacts({ catalog, paths, fetchBytes });
-    await materializePluginArtifacts({ catalog, paths, fetchBytes });
+    await materializeTestPluginArtifacts({ catalog, paths, fetchBytes });
+    await materializeTestPluginArtifacts({ catalog, paths, fetchBytes });
 
     expect(fetchCount).toBe(1);
     await expect(readFile(join(tempRoot, 'plugins/vd.beads-web/v0.11.6/extracted/bin/beads-web'), 'utf8')).resolves.toContain('stable beads-web');
@@ -672,7 +686,7 @@ describe('plugin service supervisor orchestration dry run', () => {
       ],
     };
 
-    await expect(materializePluginArtifacts({
+    await expect(materializeTestPluginArtifacts({
       catalog,
       paths,
       fetchBytes: async () => zipBytes,
@@ -722,7 +736,7 @@ describe('plugin service supervisor orchestration dry run', () => {
     };
     let fetchCount = 0;
 
-    await expect(materializePluginArtifacts({
+    await expect(materializeTestPluginArtifacts({
       catalog,
       paths,
       fetchBytes: async () => {
@@ -736,7 +750,7 @@ describe('plugin service supervisor orchestration dry run', () => {
     await expect(readlink(join(paths.pluginBinDir, 'filebrowser'))).rejects.toThrow();
 
     catalog.pluginStates = { 'vd.filebrowser': { enable: true } };
-    await expect(materializePluginArtifacts({
+    await expect(materializeTestPluginArtifacts({
       catalog,
       paths,
       fetchBytes: async () => {
@@ -785,7 +799,7 @@ describe('plugin service supervisor orchestration dry run', () => {
       }],
     };
 
-    await expect(materializePluginArtifacts({ catalog, paths, fetchBytes: async () => tarGzBytes })).resolves.toEqual([
+    await expect(materializeTestPluginArtifacts({ catalog, paths, fetchBytes: async () => tarGzBytes })).resolves.toEqual([
       expect.objectContaining({ action: 'downloaded', pluginId: 'vd.filebrowser' }),
     ]);
     await expect(readFile(join(tempRoot, 'plugins/vd.filebrowser/1.0.0/extracted/filebrowser'), 'utf8')).resolves.toBe(executable);
@@ -820,7 +834,7 @@ describe('plugin service supervisor orchestration dry run', () => {
       }],
     };
 
-    await expect(materializePluginArtifacts({ catalog, paths, fetchBytes: async () => zipBytes }))
+    await expect(materializeTestPluginArtifacts({ catalog, paths, fetchBytes: async () => zipBytes }))
       .rejects.toThrow('Archive tree exceeds maximum uncompressed size');
   });
 
@@ -856,7 +870,7 @@ describe('plugin service supervisor orchestration dry run', () => {
       }],
     };
 
-    await expect(materializePluginArtifacts({ catalog, paths, fetchBytes: async () => tarGzBytes }))
+    await expect(materializeTestPluginArtifacts({ catalog, paths, fetchBytes: async () => tarGzBytes }))
       .rejects.toThrow('Archive tree exceeds maximum entry count');
   });
 
@@ -884,7 +898,7 @@ describe('plugin service supervisor orchestration dry run', () => {
     };
     const commands: Array<{ command: string; args: string[]; env: NodeJS.ProcessEnv }> = [];
 
-    await expect(materializePluginArtifacts({
+    await expect(materializeTestPluginArtifacts({
       catalog,
       paths,
       executeCommand: async (command, args, options) => {
@@ -920,7 +934,7 @@ describe('plugin service supervisor orchestration dry run', () => {
       outputs: [{ kind: 'file', path: 'bin/beads-web' }],
     };
 
-    await expect(materializePluginArtifacts({
+    await expect(materializeTestPluginArtifacts({
       catalog,
       paths: {
         artifactCacheRoot: '/tmp/cache',
@@ -939,7 +953,7 @@ describe('plugin service supervisor orchestration dry run', () => {
       supervisorConfigDir: join(tempRoot, 'supervisor/conf.d/plugins'),
     };
     const catalog = beadsWebOnlyCatalog as PluginServiceCatalog;
-    const firstPlan = createPluginServiceDryRunPlan({
+    const firstPlan = createTestPluginServiceDryRunPlan({
       catalog,
       paths: isolatedPaths,
       cachedArtifacts: [],
@@ -953,7 +967,7 @@ describe('plugin service supervisor orchestration dry run', () => {
       '[program:vd-plugin--vd_beads_web--web]',
     );
 
-    const secondPlan = createPluginServiceDryRunPlan({
+    const secondPlan = createTestPluginServiceDryRunPlan({
       catalog,
       paths: isolatedPaths,
       cachedArtifacts: [],
@@ -972,6 +986,7 @@ describe('plugin service supervisor orchestration dry run', () => {
 
     const dryRun = await runPluginServiceOrchestratorCli([
       'dry-run',
+      '--platform', testPlatformKey,
       '--catalog', catalogPath,
       '--artifact-cache-root', join(tempRoot, 'cache'),
       '--install-root', join(tempRoot, 'plugins'),
@@ -984,6 +999,7 @@ describe('plugin service supervisor orchestration dry run', () => {
 
     const applied = await runPluginServiceOrchestratorCli([
       'apply',
+      '--platform', testPlatformKey,
       '--catalog', catalogPath,
       '--artifact-cache-root', join(tempRoot, 'cache'),
       '--install-root', join(tempRoot, 'plugins'),
@@ -1058,6 +1074,7 @@ describe('plugin service supervisor orchestration dry run', () => {
 
     const result = await runPluginServiceOrchestratorCli([
       'dry-run',
+      '--platform', testPlatformKey,
       '--catalog', builtinCatalogPath,
       '--optional-catalog', join(tempRoot, 'missing-instance/plugins.json'),
       '--artifact-cache-root', join(tempRoot, 'cache'),
@@ -1081,6 +1098,7 @@ describe('plugin service supervisor orchestration dry run', () => {
     await writeFile(invalidCatalogPath, 'null');
     await expect(runPluginServiceOrchestratorCli([
       'dry-run',
+      '--platform', testPlatformKey,
       '--catalog', invalidCatalogPath,
       '--artifact-cache-root', join(tempRoot, 'cache'),
       '--install-root', join(tempRoot, 'plugins'),
@@ -1091,6 +1109,7 @@ describe('plugin service supervisor orchestration dry run', () => {
     await writeFile(optionalCatalogPath, JSON.stringify({ plugins: [null] }));
     await expect(runPluginServiceOrchestratorCli([
       'dry-run',
+      '--platform', testPlatformKey,
       '--catalog', builtinCatalogPath,
       '--optional-catalog', optionalCatalogPath,
       '--artifact-cache-root', join(tempRoot, 'cache'),
@@ -1114,6 +1133,7 @@ describe('plugin service supervisor orchestration dry run', () => {
 
     await expect(runPluginServiceOrchestratorCli([
       'dry-run',
+      '--platform', testPlatformKey,
       '--catalog', duplicateCatalogPath,
       '--artifact-cache-root', join(tempRoot, 'cache'),
       '--install-root', join(tempRoot, 'plugins'),
@@ -1132,6 +1152,7 @@ describe('plugin service supervisor orchestration dry run', () => {
 
     const result = await runPluginServiceOrchestratorCli([
       'dry-run',
+      '--platform', testPlatformKey,
       '--catalog', builtinCatalogPath,
       '--optional-catalog', instanceCatalogPath,
       '--artifact-cache-root', join(tempRoot, 'cache'),
@@ -1162,6 +1183,7 @@ describe('plugin service supervisor orchestration dry run', () => {
 
     const result = await runPluginServiceOrchestratorCli([
       'dry-run',
+      '--platform', testPlatformKey,
       '--catalog', builtinCatalogPath,
       '--optional-catalog', instanceCatalogPath,
       '--artifact-cache-root', join(tempRoot, 'cache'),

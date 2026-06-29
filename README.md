@@ -59,6 +59,25 @@ Caddy forwards `port-<port>.*` subdomains to `localhost:<port>` inside the conta
 | `TAILSCALE_HOSTNAME` | `vkdev` | Tailscale node hostname. |
 | `VK_ALLOWED_ORIGINS` | empty | Optional backend CORS allowlist. |
 
+#### Optional noVNC/Chromium sidecar
+
+The browser sidecar is opt-in. Start it alongside the plugin with:
+
+```bash
+COMPOSE_PROFILES=novnc ENABLE_NOVNC_PLUGIN=true docker compose up
+```
+
+The noVNC UI and Chromium CDP ports are bound to localhost only. Set `NOVNC_USER` and `NOVNC_PASSWORD` if you want browser UI auth.
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `NOVNC_UI_PORT` | `3090` | Host localhost port for the noVNC web UI. |
+| `NOVNC_CDP_PORT` | `9223` | Host localhost port for Chromium DevTools Protocol. |
+| `NOVNC_USER` | empty | Optional noVNC UI username. |
+| `NOVNC_PASSWORD` | empty | Optional noVNC UI password. |
+| `NOVNC_IMAGE` | `lscr.io/linuxserver/chromium:latest` | Browser sidecar image. |
+
+
 ## GitHub auth
 
 Run `gh auth login` once after first starting the container. Git is pre-configured to use `gh` as the credential helper, so no additional setup is needed.

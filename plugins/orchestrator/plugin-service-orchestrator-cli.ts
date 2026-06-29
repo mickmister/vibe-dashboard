@@ -13,6 +13,7 @@ import {
   materializePluginArtifacts,
   readExistingCaddyPluginConfig,
   readExistingSupervisorConfigs,
+  type PlatformKey,
   type PluginServiceCatalog,
   type PluginServiceDefinition,
   type PluginServiceOrchestratorPaths,
@@ -61,6 +62,7 @@ interface RuntimeParsedArgs {
   catalogPaths: string[];
   optionalCatalogPaths: string[];
   paths: PluginServiceOrchestratorPaths;
+  platformKey?: PlatformKey;
   caddyConfigPath?: string;
 }
 
@@ -85,7 +87,11 @@ export async function runPluginServiceOrchestratorCli(argv: readonly string[]): 
   const [cachedArtifacts, existingSupervisorConfigs] = await Promise.all([
     // Artifact discovery hashes only existing cache files and is safe to run in parallel
     // with read-only config discovery.
-    discoverCachedArtifacts({ catalog, paths: parsed.paths }),
+    discoverCachedArtifacts({
+      catalog,
+      paths: parsed.paths,
+      ...(parsed.platformKey ? { platformKey: parsed.platformKey } : {}),
+    }),
     readExistingSupervisorConfigs(parsed.paths.supervisorConfigDir),
   ]);
   const existingCaddyPluginConfig = parsed.paths.caddyPluginConfigPath
@@ -96,6 +102,7 @@ export async function runPluginServiceOrchestratorCli(argv: readonly string[]): 
     paths: parsed.paths,
     cachedArtifacts,
     existingSupervisorConfigs,
+    ...(parsed.platformKey ? { platformKey: parsed.platformKey } : {}),
     ...(existingCaddyPluginConfig !== undefined ? { existingCaddyPluginConfig } : {}),
   });
 
@@ -114,6 +121,7 @@ export async function runPluginServiceOrchestratorCli(argv: readonly string[]): 
     ? await materializePluginArtifacts({
       catalog,
       paths: parsed.paths,
+      ...(parsed.platformKey ? { platformKey: parsed.platformKey } : {}),
     })
     : undefined;
   const applied = await applySupervisorConfigChanges(plan.supervisorChanges);
@@ -174,8 +182,15 @@ function parseArgs(argv: readonly string[]): ParsedArgs {
       pluginBinDir: args.get('plugin-bin-dir')?.at(-1),
       toolchainRoot: args.get('toolchain-root')?.at(-1),
     },
+    ...optionalPlatformKeyField(args.get('platform')?.at(-1)),
     caddyConfigPath: args.get('caddy-config-path')?.at(-1),
   };
+}
+
+function optionalPlatformKeyField(value: string | undefined): { platformKey?: PlatformKey } {
+  if (value === undefined) return {};
+  if (value === 'linux-amd64' || value === 'linux-arm64') return { platformKey: value };
+  throw new Error(`Invalid --platform: ${value}`);
 }
 
 function parseRefreshReleaseArgs(argv: readonly string[]): RefreshReleaseParsedArgs {
