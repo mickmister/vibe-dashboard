@@ -130,6 +130,45 @@ describe("dynamic Craft surfaces", () => {
     ]);
   });
 
+  it("routes beads-web to the proxy root instead of nesting under localhost or mysite.com subdomains", () => {
+    const urls = [
+      "http://sub.localhost:3001",
+      "https://sub.mysite.com",
+      "https://workspace.sub.mysite.com",
+    ].map((origin) => {
+      const effective = createEffectiveWorkspaceWithCraftSurfaces({
+        workspace: {
+          ...workspace,
+          tabGroups: [
+            {
+              id: "craft_workspace",
+              label: "Workspace Craft",
+              workspace: {
+                workspaceId: "workspace_1",
+                workspaceDir: "/home/vkuser/repos/app",
+                baseOrigin: origin,
+              },
+              tabs: [],
+              pairs: [],
+              order: 0,
+            },
+          ],
+        },
+        craftSurfaces: [],
+        origin,
+      });
+
+      return effective.tabGroups[0]!.tabs.find((tab) => tab.id === "beads")
+        ?.url;
+    });
+
+    expect(urls).toEqual([
+      "http://beads-web.localhost:3001",
+      "https://beads-web.mysite.com",
+      "https://beads-web.mysite.com",
+    ]);
+  });
+
   it("derives direct beads-web port URLs for IP-hosted workspaces", () => {
     const effective = createEffectiveWorkspaceWithCraftSurfaces({
       workspace: {

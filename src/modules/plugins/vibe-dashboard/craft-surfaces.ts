@@ -421,10 +421,21 @@ function buildBeadsWebUrl(baseOrigin: string): string {
     const baseHostname = parsed.hostname
       .replace(/^port-\d+\./, "")
       .replace(/^\d+\./, "");
-    return `${parsed.protocol}//beads-web.${baseHostname}${parsed.port ? `:${parsed.port}` : ""}`;
+    const beadsWebBaseHostname = getBeadsWebBaseHostname(baseHostname);
+    return `${parsed.protocol}//beads-web.${beadsWebBaseHostname}${parsed.port ? `:${parsed.port}` : ""}`;
   } catch {
     return "/beads";
   }
+}
+
+function getBeadsWebBaseHostname(hostname: string): string {
+  if (hostname === "localhost" || hostname.endsWith(".localhost")) {
+    return "localhost";
+  }
+  if (hostname === "mysite.com" || hostname.endsWith(".mysite.com")) {
+    return "mysite.com";
+  }
+  return hostname;
 }
 
 function formatUrlHostname(hostname: string): string {
