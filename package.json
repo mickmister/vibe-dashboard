@@ -17,7 +17,8 @@
     "serve-storybook": "serve storybook-static -l $PORT",
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install chromium",
-    "hotswap": "npm run build && ./scripts/hotswap-dashboard-dist.sh deploy"
+    "hotswap": "npm run build && ./scripts/hotswap-dashboard-dist.sh deploy",
+    "test:server": "vitest run --config vitest.server.config.ts"
   },
   "dependencies": {
     "@heroui/react": "^2.8.9",
