@@ -111,17 +111,19 @@ services:
       PUID: ${NOVNC_PUID:-1000}
       PGID: ${NOVNC_PGID:-1000}
       TZ: ${TZ:-Etc/UTC}
-      CHROME_CLI: ${NOVNC_CHROME_CLI:-about:blank}
+      CHROME_CLI: ${NOVNC_CHROME_CLI:---remote-debugging-address=0.0.0.0 --remote-debugging-port=9222 about:blank}
       CUSTOM_USER: ${NOVNC_USER:-admin}
       PASSWORD: ${NOVNC_PASSWORD:-admin}
     expose:
       - "3000"
       - "3001"
+      - "9222"
     volumes:
       # Stores the Chromium profile, cookies, localStorage, extensions, and settings.
       - novnc-data:/config
     ports:
         - "3090:3000"
+        - "127.0.0.1:${NOVNC_CDP_PORT:-9223}:9222"
 
   prometheus:
     image: prom/prometheus:v3.4.0
