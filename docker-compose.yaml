@@ -114,8 +114,8 @@ services:
       TITLE: ${NOVNC_TITLE:-Vibe Desktop}
       CUSTOM_PORT: ${NOVNC_HTTP_PORT:-3000}
       CUSTOM_HTTPS_PORT: ${NOVNC_HTTPS_PORT:-3001}
-      CUSTOM_USER: ${NOVNC_USER:-}
-      PASSWORD: ${NOVNC_PASSWORD:-}
+      CUSTOM_USER: ${NOVNC_USER:-admin}
+      PASSWORD: ${NOVNC_PASSWORD:-admin}
       START_DOCKER: ${NOVNC_START_DOCKER:-false}
     expose:
       - "${NOVNC_HTTP_PORT:-3000}"
@@ -124,6 +124,8 @@ services:
       - novnc-data:/config
       # Optional: uncomment to manage host containers from the webtop.
       # - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+        - "3090:3000"
 
   prometheus:
     image: prom/prometheus:v3.4.0
