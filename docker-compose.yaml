@@ -102,8 +102,8 @@ services:
       - bosun-data:/home/vkuser/bosun
 
   novnc:
-    profiles:
-      - novnc
+    # profiles:
+    #   - novnc
     image: ${NOVNC_IMAGE:-lscr.io/linuxserver/webtop:ubuntu-xfce}
     restart: unless-stopped
     shm_size: ${NOVNC_SHM_SIZE:-1gb}
