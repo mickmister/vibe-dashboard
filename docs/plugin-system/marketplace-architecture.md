@@ -42,7 +42,7 @@ Signature flow to adapt:
 4. Verification supports a built-in trusted marketplace public key plus optional admin-configured public keys.
 5. Store the signature alongside the staged artifact so load-time revalidation can be required later.
 
-VD should add explicit capability/restriction metadata that Mattermost does not model deeply enough for frontend iframe RPC, Deno permission flags, and containerized backend units.
+VD should add explicit capability/restriction metadata that Mattermost does not model deeply enough for future frontend iframe RPC, Deno permission flags, and containerized backend units.
 
 ## Plugin bundle contract
 
@@ -68,8 +68,7 @@ Minimal `plugin.json` shape:
     "entry": "frontend/index.html",
     "sandbox": {
       "allowScripts": true,
-      "allowSameOrigin": false,
-      "rpcGrants": ["contribution.register", "fetch.serverSlice"]
+      "allowSameOrigin": false
     }
   },
   "backend": {
@@ -128,8 +127,7 @@ The marketplace catalog should be static JSON that points at release assets rath
           ],
           "capabilities": {
             "frontend": {
-              "sandbox": ["allow-scripts"],
-              "rpcGrants": ["contribution.register"]
+              "sandbox": ["allow-scripts"]
             },
             "backend": {
               "deno": ["--allow-read=$PLUGIN_DATA_DIR"],
@@ -193,7 +191,7 @@ Security notes:
 
 - Prefer `sandbox="allow-scripts"` for untrusted frontend plugins.
 - If Springboard-built plugin assets still require `allow-same-origin`, treat that as an explicit admin-approved capability or serve from a separate plugin origin.
-- Authenticate RPC by registered `contentWindow`, `frameId`, `pluginId`, nonce, and capability grants; do not rely on `event.origin` when running opaque-origin iframes.
+- Future iframe RPC (`vkvw-5h68`) must authenticate by registered `contentWindow`, `frameId`, `pluginId`, nonce, and capability grants; do not rely on `event.origin` when running opaque-origin iframes. This branch only ships asset serving and iframe sandbox policy.
 
 ## Hono RPC vs tRPC
 

@@ -10,7 +10,7 @@ The safest default for an untrusted plugin iframe would be an opaque-origin sand
 <iframe sandbox="allow-scripts">
 ```
 
-That mode preserves parent-to-child communication through `iframe.contentWindow.postMessage(...)` and child-to-parent communication through `window.parent.postMessage(...)`, but the current Springboard browser runtime is not ready for it. In an opaque-origin sandbox, browser APIs that require an origin throw security errors. The current Springboard browser entrypoints touch those APIs during startup.
+That mode can support future parent-to-child communication through `iframe.contentWindow.postMessage(...)` and child-to-parent communication through `window.parent.postMessage(...)`, but this branch does not ship that production RPC bridge and the current Springboard browser runtime is not ready for opaque-origin execution. In an opaque-origin sandbox, browser APIs that require an origin throw security errors. The current Springboard browser entrypoints touch those APIs during startup.
 
 ## Springboard opaque-origin blockers observed in this repo
 
@@ -39,7 +39,7 @@ Those accesses explain why the prototype fixture currently uses:
 
 A same-origin iframe with both `allow-scripts` and `allow-same-origin` can effectively escape important parts of the sandbox. That is not a safe default if plugin assets are served from the same origin as the host app.
 
-The prototype keeps this mode only to prove the Springboard-built iframe RPC flow while we harden the runtime.
+Historical prototypes used this mode to explore Springboard-built iframe RPC. This merge-ready branch does not keep that RPC implementation live.
 
 ## V1 fallback: separate plugin origin
 
@@ -61,8 +61,8 @@ Host policy for separate-origin plugin iframes:
 
 - keep `sandbox="allow-scripts allow-same-origin"` only when the registered plugin manifest/admin grant allows it and the asset URL is on a separate plugin origin,
 - keep same-origin plugin asset iframes opaque with `sandbox="allow-scripts"`; if a plugin requests same-origin storage on the host origin, record the blocked state and warn fail-closed,
-- use an exact `targetOrigin` for parent-to-iframe `postMessage` when the plugin origin is known; opaque-origin frames require wildcard send target plus nonce/source validation,
-- continue authenticating messages by registered `WindowProxy`, `pluginId`, `frameId`, nonce, protocol version, and granted RPC methods,
+- when `vkvw-5h68` revives production iframe RPC, use an exact `targetOrigin` for parent-to-iframe `postMessage` when the plugin origin is known; opaque-origin frames require wildcard send target plus nonce/source validation,
+- continue authenticating future messages by registered `WindowProxy`, `pluginId`, `frameId`, nonce, protocol version, and granted methods,
 - set plugin asset responses with restrictive CSP (`frame-ancestors`, `default-src 'none'`, `nosniff`) and explicit no-store caching while active-version discovery remains request-time,
 - never serve untrusted plugin assets from the same origin with `allow-scripts allow-same-origin`.
 
@@ -73,7 +73,7 @@ To eventually use `sandbox="allow-scripts"` for the default untrusted path, Spri
 1. Does not read `localStorage`/`sessionStorage` at module startup.
 2. Treats storage as an injected optional capability.
 3. Uses in-memory KV storage when origin storage is unavailable.
-4. Allows the host to provide required initial context over postMessage RPC.
+4. Allows the host to provide required initial context over a future authenticated postMessage RPC bridge.
 5. Avoids development-only local toggles such as `isLocal` inside marketplace plugin frames.
 
-Once that exists, the iframe RPC fixture should flip back to `allow-scripts` and the e2e should assert the opaque-origin mode directly.
+Once that exists, a future iframe RPC fixture should use `allow-scripts` and its e2e should assert the opaque-origin mode directly.

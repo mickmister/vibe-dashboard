@@ -226,7 +226,7 @@ export function createPluginServiceDryRunPlan(input: {
 }): PluginServiceDryRunPlan {
   validateCatalog(input.catalog);
 
-  const artifacts = input.catalog.plugins.flatMap((plugin) => createArtifactPlans(plugin, input.paths, input.cachedArtifacts));
+  const artifacts = enabledPlugins(input.catalog).flatMap((plugin) => createArtifactPlans(plugin, input.paths, input.cachedArtifacts));
   const desiredSupervisorConfigs = new Map<string, SupervisorConfigChange>();
 
   for (const plugin of enabledPlugins(input.catalog)) {
@@ -394,7 +394,7 @@ export async function materializePluginArtifacts(input: {
   const platformKey = input.platformKey ?? currentPlatformKey();
   const executeCommand = input.executeCommand ?? defaultExecuteCommand;
 
-  for (const plugin of input.catalog.plugins) {
+  for (const plugin of enabledPlugins(input.catalog)) {
     const installPath = pluginInstallPath(input.paths, plugin);
     for (const installer of plugin.installers) {
       if (installer.kind === 'bundled-current-repo') {
@@ -855,7 +855,7 @@ async function reconcilePluginBins(catalog: PluginServiceCatalog, paths: PluginS
   const binDir = pluginBinDir(paths);
   await mkdir(binDir, { recursive: true });
   const desired = new Map<string, string>();
-  for (const plugin of catalog.plugins) {
+  for (const plugin of enabledPlugins(catalog)) {
     for (const installer of plugin.installers) {
       if (installer.kind !== 'github-release-asset' || !installer.bin) continue;
       for (const [binName, target] of Object.entries(installer.bin)) {
@@ -864,6 +864,16 @@ async function reconcilePluginBins(catalog: PluginServiceCatalog, paths: PluginS
       }
     }
   }
+  for (const entry of await readdir(binDir)) {
+    if (desired.has(entry)) continue;
+    const path = join(binDir, entry);
+    const stat = await lstat(path).catch((error: unknown) => {
+      if (isNodeErrorWithCode(error, 'ENOENT')) return undefined;
+      throw error;
+    });
+    if (stat?.isSymbolicLink()) await unlink(path);
+  }
+
   for (const [binName, target] of desired) {
     const link = join(binDir, binName);
     await unlink(link).catch((error: unknown) => {

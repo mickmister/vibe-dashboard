@@ -43,7 +43,7 @@ Use named secrets and scoped storage instead. If a plugin needs Docker, request 
 
 ## UI patterns
 
-1. **Iframe route or Craft surface**: ship compiled HTML/JS under `frontend/`; declare routes and Craft surfaces in the manifest. The host serves assets under the plugin asset route and communicates through serialized postMessage RPC.
+1. **Iframe route or Craft surface**: ship compiled HTML/JS under `frontend/`; declare routes and Craft surfaces in the manifest. In this branch the host serves assets under the plugin asset route and applies sandbox/internal-route policy. Serialized postMessage RPC is future work tracked by `vkvw-5h68`, not a live production contract.
 2. **Headless bridge plus host UI**: expose Deno bridge methods such as `beads.list`; a trusted host or first-party UI can render data while the bridge runs with Deno read/write/net/run permissions.
 3. **Special component iframe**: for UI that must own its own React tree, register a route and render a dedicated iframe for that component rather than trying to serialize React components into the host.
 

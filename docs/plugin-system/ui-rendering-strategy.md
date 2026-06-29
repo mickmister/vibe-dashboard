@@ -6,7 +6,7 @@ This decision belongs to `vkvw-nzv5.2` — "Compare plugin iframe UI rendering s
 
 Use two explicit trust tiers:
 
-1. **Default marketplace plugins run isolated** in sandboxed iframes and communicate with the host using JSON-only postMessage RPC.
+1. **Default marketplace plugins run isolated** in sandboxed iframes served from verified frontend assets. Production postMessage RPC is a future follow-up (`vkvw-5h68`), not a live contract in this branch.
 2. **Trusted host-script plugins are an elevated mode** that can register real React components in the host process, but must be shown as a high-risk install requirement to admins before enablement.
 
 The default marketplace path should not serialize or import React components from untrusted plugins.
@@ -37,7 +37,7 @@ This is the recommended V1.
 
 ### 2. Plugin-rendered iframe views
 
-Plugins can expose iframe-rendered views for richer UI. The host creates an iframe for the plugin view and passes context over RPC.
+Plugins can expose iframe-rendered views for richer UI. In this branch the host serves and sandboxes the iframe asset; structured host context/postMessage RPC remains future work tracked by `vkvw-5h68`.
 
 Pros:
 
@@ -78,22 +78,9 @@ Default untrusted frontend plugin iframes should start with:
 <iframe sandbox="allow-scripts">
 ```
 
-Parent-to-iframe communication uses `iframe.contentWindow.postMessage(...)`. Iframe-to-parent communication uses `window.parent.postMessage(...)`. Without `allow-same-origin`, the iframe has an opaque origin, so the host must authenticate messages using the registered `contentWindow`, frame id, nonce, plugin id, and granted capabilities rather than `event.origin`.
+This branch does not ship a production postMessage RPC bridge. The live behavior is limited to serving verified plugin frontend assets and applying the iframe sandbox policy. If/when `vkvw-5h68` revives production iframe RPC, messages must be authenticated by registered `contentWindow`, frame id, nonce, plugin id, and granted capabilities rather than relying only on `event.origin` for opaque-origin iframes.
 
-The current Springboard browser runtime touches origin-scoped APIs such as
-`localStorage`, so the checked-in fixture uses `allow-same-origin` to prove the
-RPC path with Springboard-built host and iframe apps:
-
-```html
-<iframe sandbox="allow-scripts allow-same-origin">
-```
-
-That combination is not an acceptable default for untrusted same-origin plugin
-assets because browsers warn that a same-origin iframe with scripts can escape
-the sandbox. Before shipping untrusted marketplace plugins, either harden
-Springboard to run in an opaque-origin iframe, serve plugin frontend assets from
-a separate plugin origin, or expose `allow-same-origin` only as an explicit
-admin-approved frontend capability.
+The current Springboard browser runtime touches origin-scoped APIs such as `localStorage`, so untrusted same-origin plugin assets must stay opaque with `sandbox="allow-scripts"` unless served from a separate plugin origin and explicitly approved for `allow-same-origin`.
 
 ## Archived prototype coverage
 
@@ -102,6 +89,6 @@ The iframe RPC prototype is intentionally omitted from this branch because the m
 - protocol version validation,
 - JSON-only payload validation,
 - iframe source-window and nonce checks,
-- parent-to-iframe postMessage via the registered WindowProxy,
+- parent-to-iframe postMessage via the registered WindowProxy (future only; not wired into production here),
 - data-driven contribution registration,
 - rejection of unsupported RPC methods.

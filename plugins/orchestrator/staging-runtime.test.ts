@@ -102,7 +102,7 @@ describe('staged plugin runtime and promotion workflow', () => {
     manager.runStagingChecks({
       pluginId: 'app.excalidraw.canvas',
       healthResults: { 'frontend-entry': true, 'bridge-entry': true },
-      smokeTests: [{ id: 'iframe-rpc', passed: true, log: 'postMessage nonce accepted' }],
+      smokeTests: [{ id: 'frontend-asset-sandbox', passed: true, log: 'sandbox policy accepted' }],
     });
 
     manager.promoteStaging({ pluginId: 'app.excalidraw.canvas', approval });
@@ -122,7 +122,7 @@ describe('staged plugin runtime and promotion workflow', () => {
     manager.runStagingChecks({
       pluginId: 'app.excalidraw.canvas',
       healthResults: { 'frontend-entry': false, 'bridge-entry': true },
-      smokeTests: [{ id: 'iframe-rpc', passed: true }],
+      smokeTests: [{ id: 'frontend-asset-sandbox', passed: true }],
     });
 
     expect(() => manager.promoteStaging({ pluginId: 'app.excalidraw.canvas', approval })).toThrow(
@@ -162,7 +162,7 @@ describe('staged plugin runtime and promotion workflow', () => {
     manager.runStagingChecks({
       pluginId: 'app.excalidraw.canvas',
       healthResults: { 'frontend-entry': true, 'bridge-entry': true },
-      smokeTests: [{ id: 'iframe-rpc', passed: true }],
+      smokeTests: [{ id: 'frontend-asset-sandbox', passed: true }],
     });
 
     expect(() =>
@@ -195,7 +195,7 @@ describe('staged plugin runtime and promotion workflow', () => {
     manager.runStagingChecks({
       pluginId: 'app.excalidraw.canvas',
       healthResults: { 'frontend-entry': true, 'bridge-entry': true },
-      smokeTests: [{ id: 'iframe-rpc', passed: true }],
+      smokeTests: [{ id: 'frontend-asset-sandbox', passed: true }],
     });
     manager.promoteStaging({ pluginId: 'app.excalidraw.canvas', approval: { ...approval, approvalId: 'approval-2' } });
 
@@ -248,7 +248,7 @@ describe('staged plugin runtime and promotion workflow', () => {
     manager.runStagingChecks({
       pluginId: 'app.excalidraw.canvas',
       healthResults: { 'frontend-entry': true, 'bridge-entry': true },
-      smokeTests: [{ id: 'iframe-rpc', passed: true, log: 'rpc ok' }],
+      smokeTests: [{ id: 'frontend-asset-sandbox', passed: true, log: 'asset sandbox ok' }],
     });
 
     expect(getPluginDeploymentAdminView(state, 'app.excalidraw.canvas')).toMatchObject({
@@ -271,13 +271,13 @@ describe('staged plugin runtime and promotion workflow', () => {
           displayName: 'Excalidraw',
         },
         health: { 'frontend-entry': 'pass', 'bridge-entry': 'pass' },
-        tests: [{ id: 'iframe-rpc', passed: true, log: 'rpc ok' }],
+        tests: [{ id: 'frontend-asset-sandbox', passed: true, log: 'asset sandbox ok' }],
         logs: [
           'agent staged app.excalidraw.canvas@1.0.0',
           'started staging runtime for app.excalidraw.canvas@1.0.0',
           'health frontend-entry pass',
           'health bridge-entry pass',
-          'test iframe-rpc pass',
+          'test frontend-asset-sandbox pass',
         ],
       },
       production: null,

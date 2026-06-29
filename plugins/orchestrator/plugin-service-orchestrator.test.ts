@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { access, mkdtemp, mkdir, readFile, readlink, writeFile } from 'node:fs/promises';
+import { access, mkdtemp, mkdir, readFile, readlink, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { deflateRawSync, gzipSync } from 'node:zlib';
@@ -226,12 +226,7 @@ describe('plugin service supervisor orchestration dry run', () => {
       action: 'update',
       content: expect.not.stringContaining('beads-web.{$PROXY_DOMAIN}'),
     }));
-    expect(disabledPlan.artifacts).toEqual([
-      expect.objectContaining({
-        action: 'download',
-        pluginId: 'vd.beads-web',
-      }),
-    ]);
+    expect(disabledPlan.artifacts).toEqual([]);
 
     const reenabledCatalog = composeCatalogs([
       structuredClone(firstPartyPluginCatalog) as PluginServiceCatalog,
@@ -245,6 +240,12 @@ describe('plugin service supervisor orchestration dry run', () => {
       existingCaddyPluginConfig: disabledPlan.caddyConfigChange?.content,
     });
 
+    expect(reenabledPlan.artifacts).toEqual([
+      expect.objectContaining({
+        action: 'download',
+        pluginId: 'vd.beads-web',
+      }),
+    ]);
     expect(reenabledPlan.supervisorChanges).toEqual([
       expect.objectContaining({
         action: 'create',
@@ -682,6 +683,71 @@ describe('plugin service supervisor orchestration dry run', () => {
     const installTarget = join(tempRoot, 'plugins/vd.silverbullet/2.9.0/extracted/bin/silverbullet');
     await expect(readFile(installTarget, 'utf8')).resolves.toBe(executable);
     await expect(readFile(join(tempRoot, 'cache/github/silverbulletmd/silverbullet/2.9.0/silverbullet-server-linux-x86_64.zip'))).resolves.toEqual(zipBytes);
+  });
+
+  it('skips disabled plugin materialization and removes stale exposed bin symlinks', async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), 'vd-plugin-disabled-materialize-'));
+    const paths = {
+      artifactCacheRoot: join(tempRoot, 'cache'),
+      installRoot: join(tempRoot, 'plugins'),
+      supervisorConfigDir: join(tempRoot, 'supervisor'),
+      pluginBinDir: join(tempRoot, 'plugin-bin'),
+    };
+    await mkdir(paths.pluginBinDir);
+    await symlink('/previous/filebrowser', join(paths.pluginBinDir, 'filebrowser'));
+    const tarGzBytes = createTarGzFixture([
+      { name: 'filebrowser-v1/filebrowser', data: '#!/bin/sh\necho filebrowser\n' },
+    ]);
+    const catalog: PluginServiceCatalog = {
+      plugins: [{
+        id: 'vd.filebrowser',
+        name: 'File Browser',
+        version: '1.0.0',
+        installers: [{
+          kind: 'github-release-asset',
+          repository: 'filebrowser/filebrowser',
+          tag: 'v1.0.0',
+          variants: { 'linux-amd64': { asset: 'linux-amd64-filebrowser.tar.gz', sha256: createHash('sha256').update(tarGzBytes).digest('hex') } },
+          materialize: {
+            kind: 'archive-tree',
+            format: 'tar.gz',
+            stripComponents: 1,
+            outputs: [{ kind: 'file', path: 'filebrowser', mode: '0755' }],
+          },
+          bin: { filebrowser: 'filebrowser' },
+        }],
+        services: [],
+      }],
+      pluginStates: { 'vd.filebrowser': { enable: false } },
+    };
+    let fetchCount = 0;
+
+    await expect(materializePluginArtifacts({
+      catalog,
+      paths,
+      fetchBytes: async () => {
+        fetchCount += 1;
+        return tarGzBytes;
+      },
+    })).resolves.toEqual([]);
+
+    expect(fetchCount).toBe(0);
+    await expect(access(join(tempRoot, 'plugins/vd.filebrowser/1.0.0/extracted/filebrowser'))).rejects.toThrow();
+    await expect(readlink(join(paths.pluginBinDir, 'filebrowser'))).rejects.toThrow();
+
+    catalog.pluginStates = { 'vd.filebrowser': { enable: true } };
+    await expect(materializePluginArtifacts({
+      catalog,
+      paths,
+      fetchBytes: async () => {
+        fetchCount += 1;
+        return tarGzBytes;
+      },
+    })).resolves.toEqual([
+      expect.objectContaining({ action: 'downloaded', pluginId: 'vd.filebrowser' }),
+    ]);
+    expect(fetchCount).toBe(1);
+    await expect(readlink(join(paths.pluginBinDir, 'filebrowser'))).resolves.toBe(join(tempRoot, 'plugins/vd.filebrowser/1.0.0/extracted/filebrowser'));
   });
 
   it('extracts archive trees, strips release directory prefixes, validates outputs, and exposes declared bins', async () => {

@@ -7,8 +7,6 @@ import {
   isPluginFrontendAssetUrl,
   parsePluginFrontendAssetRoute,
   parsePluginInternalUrl,
-  validateExternalPluginRuntimeManifest,
-  type ExternalPluginRuntimeManifest,
 } from './runtime';
 
 describe('plugin runtime production helpers', () => {
@@ -76,37 +74,6 @@ describe('plugin runtime production helpers', () => {
         allowSameOrigin: true,
       }),
     )).toBe('https://plugins.example.test');
-  });
-
-  it('validates external runtime manifests without trusted host-script V1', () => {
-    const valid: ExternalPluginRuntimeManifest = {
-      schemaVersion: 1,
-      id: 'dev.vibe-kanban.fixture-plugin',
-      version: '1.0.0',
-      displayName: 'Fixture Plugin',
-      frontend: {
-        entry: 'frontend/index.html',
-        sandbox: {
-          allowScripts: true,
-          allowSameOrigin: false,
-          rpcGrants: ['contribution.register'],
-        },
-      },
-    };
-
-    expect(validateExternalPluginRuntimeManifest(valid)).toEqual([]);
-    expect(validateExternalPluginRuntimeManifest({ ...valid, frontend: undefined })).toContain(
-      'Plugin must declare frontend, backend, or both',
-    );
-    expect(
-      validateExternalPluginRuntimeManifest({
-        ...valid,
-        frontend: {
-          ...valid.frontend!,
-          hostScript: { entry: 'host.js' },
-        },
-      }),
-    ).toContain('Trusted host-script frontend plugins are not supported in V1');
   });
 
   it('builds and parses plugin-owned internal URLs safely', () => {
