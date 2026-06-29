@@ -111,7 +111,7 @@ services:
       PUID: ${NOVNC_PUID:-1000}
       PGID: ${NOVNC_PGID:-1000}
       TZ: ${TZ:-Etc/UTC}
-      CHROME_CLI: ${NOVNC_CHROME_CLI:---remote-debugging-address=0.0.0.0 --remote-debugging-port=9222 about:blank}
+      CHROME_CLI: ${NOVNC_CHROME_CLI:---remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 about:blank}
       CUSTOM_USER: ${NOVNC_USER:-}
       PASSWORD: ${NOVNC_PASSWORD:-}
     expose:

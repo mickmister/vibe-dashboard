@@ -67,7 +67,14 @@ The browser sidecar is opt-in. Start it alongside the plugin with:
 COMPOSE_PROFILES=novnc ENABLE_NOVNC_PLUGIN=true docker compose up
 ```
 
-The noVNC UI and Chromium CDP ports are bound to localhost only. Set `NOVNC_USER` and `NOVNC_PASSWORD` if you want browser UI auth.
+The noVNC UI and Chromium CDP ports are bound to localhost only. Chromium intentionally binds CDP to loopback inside the sidecar; the `novnc-cdp` bridge exposes it to the Compose network and localhost-published host port. Set `NOVNC_USER` and `NOVNC_PASSWORD` if you want browser UI auth.
+
+Smoke-check CDP from the host and from `code-vibe`:
+
+```bash
+curl -fsS http://127.0.0.1:${NOVNC_CDP_PORT:-9223}/json/version
+docker compose --profile novnc exec code-vibe curl -fsS http://novnc:9222/json/version
+```
 
 | Variable | Default | Notes |
 | --- | --- | --- |
