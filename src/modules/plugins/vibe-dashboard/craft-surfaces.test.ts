@@ -35,10 +35,10 @@ const workspace: WorkspaceState = {
 
 const surfaces: RegisteredCraftSurfaceContribution[] = [
   {
-    pluginId: "dev.mickmister.vibe-kanban",
-    sourceKey: "board",
-    key: "dev.mickmister.vibe-kanban/board",
-    title: "Kanban",
+    pluginId: "app.example.notes",
+    sourceKey: "notes",
+    key: "app.example.notes/notes",
+    title: "Notes",
     urlTemplate: "{{origin}}/",
     order: 20,
   },
@@ -322,23 +322,23 @@ describe("dynamic Craft surfaces", () => {
       effective.tabGroups.map((craft) => craft.tabs.map((tab) => tab.id)),
     ).toEqual([
       [
-        "craft-surface:craft_1:dev.mickmister.vibe-kanban/board",
+        "craft-surface:craft_1:app.example.notes/notes",
         "craft-surface:craft_1:app.excalidraw.canvas/canvas",
         "tab_existing",
       ],
       [
-        "craft-surface:craft_2:dev.mickmister.vibe-kanban/board",
+        "craft-surface:craft_2:app.example.notes/notes",
         "craft-surface:craft_2:app.excalidraw.canvas/canvas",
       ],
     ]);
     expect(effective.tabGroups[0]!.tabs[0]).toMatchObject({
-      title: "Kanban",
+      title: "Notes",
       url: "https://vd.example.test/",
       pinned: true,
       ephemeral: {
         kind: "craft-surface",
-        pluginId: "dev.mickmister.vibe-kanban",
-        sourceKey: "board",
+        pluginId: "app.example.notes",
+        sourceKey: "notes",
       },
     });
     expect(isEphemeralCraftSurfaceTab(effective.tabGroups[0]!.tabs[0])).toBe(
@@ -356,8 +356,8 @@ describe("dynamic Craft surfaces", () => {
             tabs: [
               ...workspace.tabGroups[0]!.tabs,
               {
-                id: "craft-surface:craft_1:dev.mickmister.vibe-kanban/board",
-                title: "Kanban",
+                id: "craft-surface:craft_1:app.example.notes/notes",
+                title: "Notes",
                 url: "https://vd.example.test/",
                 pinned: true,
               },
@@ -372,7 +372,7 @@ describe("dynamic Craft surfaces", () => {
     expect(
       effective.tabGroups[0]!.tabs.filter(
         (tab) =>
-          tab.id === "craft-surface:craft_1:dev.mickmister.vibe-kanban/board",
+          tab.id === "craft-surface:craft_1:app.example.notes/notes",
       ),
     ).toHaveLength(1);
   });

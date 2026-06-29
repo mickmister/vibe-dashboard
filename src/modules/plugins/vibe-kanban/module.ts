@@ -7,33 +7,7 @@ const manifest: PluginManifest = createPluginManifest({
   id: 'dev.mickmister.vibe-kanban',
   displayName: 'Vibe Kanban',
   version: '1.0.0',
-  contributions: {
-    tabPresets: [
-      {
-        key: 'board',
-        title: 'Kanban',
-        description: 'Vibe Kanban board view',
-        mode: 'immediate',
-        urlTemplate: '{{origin}}/',
-        order: 30,
-      },
-    ],
-    spaceTypes: [
-      {
-        key: 'kanban',
-        icon: 'KB',
-      },
-    ],
-    craftSurfaces: [
-      {
-        key: 'board',
-        title: 'Kanban',
-        urlTemplate: '{{origin}}/',
-        defaultTitle: 'Kanban',
-        order: 30,
-      },
-    ],
-  },
+  contributions: {},
 });
 
 registerPlugin(manifest);

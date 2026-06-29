@@ -22,6 +22,7 @@ import {
 } from "../lib/voyageUrl";
 import { resolveDashboardVoyage } from "../lib/voyageSession";
 import { getSavedWorkspaceSessions } from "../lib/savedVoyageState";
+import { getRenderedPairViewIds } from "../lib/renderedWorkspaceSelection";
 import {
   fetchPluginAdminStatuses,
   setPluginAdminDesiredEnabled,
@@ -586,14 +587,16 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
         tabGroupId: string,
         pairId: string,
       ) => {
-        const pair = workspace.tabGroups
-          .find((tabGroup) => tabGroup.id === tabGroupId)
-          ?.pairs.find((candidate) => candidate.id === pairId);
+        const renderedPairViewIds = getRenderedPairViewIds(
+          effectiveWorkspace,
+          tabGroupId,
+          pairId,
+        );
         if (
           persistSavedSelection({
             spaceId,
             tabGroupId,
-            ...(pair ? { viewIds: pair.tabIds } : {}),
+            ...(renderedPairViewIds ? { viewIds: renderedPairViewIds } : {}),
           })
         )
           return;

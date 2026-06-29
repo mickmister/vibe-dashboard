@@ -350,7 +350,8 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 # Copy startup scripts
 COPY scripts/sync-seeded-repo.sh /usr/local/bin/sync-seeded-repo.sh
 COPY plugins/scripts/vd-plugin-runtime-apply.sh /usr/local/bin/vd-plugin-runtime-apply.sh
-RUN chmod +x /usr/local/bin/sync-seeded-repo.sh /usr/local/bin/vd-plugin-runtime-apply.sh
+COPY plugins/scripts/vd-plugin-service-runner.mjs /usr/local/bin/vd-plugin-service-runner.mjs
+RUN chmod +x /usr/local/bin/sync-seeded-repo.sh /usr/local/bin/vd-plugin-runtime-apply.sh /usr/local/bin/vd-plugin-service-runner.mjs
 
 # Install bd wrapper ahead of the real Beads CLI so VD-managed agent shells stamp
 # created beads with branch/workspace/session metadata.

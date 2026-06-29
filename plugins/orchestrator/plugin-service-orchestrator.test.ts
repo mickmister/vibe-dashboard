@@ -18,6 +18,7 @@ import {
   readExistingSupervisorConfigs,
   renderCaddyPluginExposureConfig,
   renderSupervisorProgramConfig,
+  renderServiceArgv,
   type PluginServiceCatalog,
 } from './plugin-service-orchestrator';
 
@@ -113,8 +114,55 @@ describe('plugin service supervisor orchestration dry run', () => {
       service: (firstPartyPluginCatalog as PluginServiceCatalog).plugins[0]!.services[0]!,
       paths,
     });
-    expect(beadsWebConfig).toContain('command=/var/lib/vd/plugins/vd.beads-web/v0.11.5/extracted/bin/beads-web');
-    expect(beadsWebConfig).toContain('environment=BEADS_WEB_PORT="3109",BEADS_WEB_PORT_BIND="0.0.0.0",HOST="0.0.0.0",PORT="3109",HOME="/home/vkuser",XDG_CONFIG_HOME="/home/vkuser/.config",VD_PLUGIN_ID="vd.beads-web",VD_PLUGIN_VERSION="v0.11.5",VD_SERVICE_ID="web"');
+    expect(beadsWebConfig).toContain('command=/usr/local/bin/vd-plugin-service-runner.mjs');
+    expect(beadsWebConfig).not.toContain('command=/var/lib/vd/plugins/vd.beads-web/v0.11.5/extracted/bin/beads-web');
+    expect(beadsWebConfig).toContain('environment=BEADS_WEB_PORT="3109",BEADS_WEB_PORT_BIND="0.0.0.0",HOST="0.0.0.0",PORT="3109",HOME="/home/vkuser",XDG_CONFIG_HOME="/home/vkuser/.config",VD_PLUGIN_ID="vd.beads-web",VD_PLUGIN_VERSION="v0.11.5",VD_SERVICE_ID="web",VD_SERVICE_ARGV_BASE64="');
+
+    const encodedArgv = beadsWebConfig.match(/VD_SERVICE_ARGV_BASE64="([^"]+)"/)?.[1];
+    expect(encodedArgv).toBeDefined();
+    expect(JSON.parse(Buffer.from(encodedArgv!, 'base64').toString('utf8'))).toEqual([
+      '/var/lib/vd/plugins/vd.beads-web/v0.11.5/extracted/bin/beads-web',
+    ]);
+  });
+
+  it('renders plugin service commands as structured argv and preserves shell metacharacters in args', () => {
+    const plugin = {
+      id: 'test.argv',
+      name: 'Argv Test',
+      version: '1.0.0',
+      installers: [{ kind: 'bundled-current-repo' }],
+      services: [],
+    } satisfies PluginServiceCatalog['plugins'][number];
+    const service = {
+      id: 'web',
+      command: '${PLUGIN_DIR}/bin/run service',
+      args: ['--name', 'value with spaces', 'literal; rm -rf /', 'quote"and$HOME'],
+      directory: '${PLUGIN_DIR}',
+      user: 'vkuser',
+      autostart: true,
+      autorestart: true,
+    };
+
+    expect(renderServiceArgv(plugin, service, paths)).toEqual([
+      '/var/lib/vd/plugins/test.argv/1.0.0/extracted/bin/run service',
+      '--name',
+      'value with spaces',
+      'literal; rm -rf /',
+      'quote"and$HOME',
+    ]);
+
+    const config = renderSupervisorProgramConfig({ plugin, service, paths });
+    expect(config).toContain('command=/usr/local/bin/vd-plugin-service-runner.mjs');
+    expect(config).not.toContain('literal; rm -rf /');
+    const encodedArgv = config.match(/VD_SERVICE_ARGV_BASE64="([^"]+)"/)?.[1];
+    expect(encodedArgv).toBeDefined();
+    expect(JSON.parse(Buffer.from(encodedArgv!, 'base64').toString('utf8'))).toEqual([
+      '/var/lib/vd/plugins/test.argv/1.0.0/extracted/bin/run service',
+      '--name',
+      'value with spaces',
+      'literal; rm -rf /',
+      'quote"and$HOME',
+    ]);
   });
 
   it('supports a beads-web-only catalog for isolated supervisor experiments', () => {
@@ -379,6 +427,18 @@ describe('plugin service supervisor orchestration dry run', () => {
         existingSupervisorConfigs: {},
       })).toThrow(message);
     }
+  });
+
+  it('rejects legacy preStart shell hooks instead of rendering them into supervisor commands', () => {
+    const catalog = structuredClone(beadsWebOnlyCatalog) as PluginServiceCatalog;
+    (catalog.plugins[0]!.services[0]! as unknown as { preStart: string[] }).preStart = ['echo unsafe && touch /tmp/file'];
+
+    expect(() => createPluginServiceDryRunPlan({
+      catalog,
+      paths,
+      cachedArtifacts: [],
+      existingSupervisorConfigs: {},
+    })).toThrow(/Unsupported service preStart/);
   });
 
   it('rejects malformed service catalog JSON shapes with validation errors', () => {
@@ -995,8 +1055,16 @@ describe('plugin service supervisor orchestration dry run', () => {
     ]);
     expect(result.plan.supervisorChanges).toEqual([
       expect.objectContaining({
-        content: expect.stringContaining('/plugins/vd.beads-web/beads-web-assets-override/extracted/bin/beads-web'),
+        content: expect.stringContaining('command=/usr/local/bin/vd-plugin-service-runner.mjs'),
       }),
+    ]);
+    const supervisorChange = result.plan.supervisorChanges[0];
+    expect(supervisorChange).toMatchObject({ action: 'create' });
+    if (!supervisorChange || supervisorChange.action === 'delete') throw new Error('expected rendered supervisor config');
+    const encodedArgv = supervisorChange.content.match(/VD_SERVICE_ARGV_BASE64="([^"]+)"/)?.[1];
+    expect(encodedArgv).toBeDefined();
+    expect(JSON.parse(Buffer.from(encodedArgv!, 'base64').toString('utf8'))).toEqual([
+      join(tempRoot, 'plugins/vd.beads-web/beads-web-assets-override/extracted/bin/beads-web'),
     ]);
   });
 
