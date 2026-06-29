@@ -67,6 +67,12 @@ export type WorkspaceActions = {
     agentTabId: string;
     beadId: string;
   }) => Promise<{ tabGroupId: string; pairId: string; beadsTabId: string } | undefined>;
+  openBeadFormsSplit?: (args: {
+    tabGroupId: string;
+    agentTabId: string;
+    beadId: string;
+    formsUrl: string;
+  }) => Promise<{ tabGroupId: string; pairId: string; formsTabId: string } | undefined>;
   touchTabGroup: (args: { tabGroupId: string }) => void;
   toggleStarTabGroup: (args: { tabGroupId: string }) => void;
   reorderSpaces: (args: { sourceId: string; targetId: string }) => void;

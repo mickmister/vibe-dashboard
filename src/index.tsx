@@ -7,7 +7,7 @@ import { useParams, useNavigate } from 'react-router';
 import { HeroUIProvider } from '@heroui/react';
 import { AppLoadingScreen } from './components/AppLoadingScreen';
 import { WorkspaceShell } from './components/WorkspaceShell';
-import { buildBeadsDeepLink, openBeadSplitInWorkspace } from './lib/beadTabs';
+import { buildBeadsDeepLink, openBeadFormsSplitInWorkspace, openBeadSplitInWorkspace } from './lib/beadTabs';
 import { useSessionWorkspaceNav } from './sessionState';
 
 // Ensure dark class is on the document root so portaled elements (modals, popovers)
@@ -17,9 +17,7 @@ springboard.registerSplashScreen(AppLoadingScreen);
 
 // @platform end
 
-// @platform "node"
-import './modules/BeadFormSubmissionServerModule';
-// @platform end
+import './modules/BeadsFormModule';
 
 import springboard from 'springboard';
 import { createDefaultWorkspace } from './types';
@@ -462,6 +460,21 @@ springboard.registerModule(
 
         workspaceState.setStateImmer((draft) => {
           result = openBeadSplitInWorkspace(draft, args);
+        });
+
+        return result;
+      },
+
+      openBeadFormsSplit: async (args: {
+        tabGroupId: string;
+        agentTabId: string;
+        beadId: string;
+        formsUrl: string;
+      }) => {
+        let result: { tabGroupId: string; pairId: string; formsTabId: string } | undefined;
+
+        workspaceState.setStateImmer((draft) => {
+          result = openBeadFormsSplitInWorkspace(draft, args);
         });
 
         return result;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { WorkspaceState } from "../types";
-import { buildBeadsDeepLink, openBeadSplitInWorkspace } from "./beadTabs";
+import { buildBeadFormsLink, buildBeadsDeepLink, openBeadFormsSplitInWorkspace, openBeadSplitInWorkspace } from "./beadTabs";
 
 function workspace(): WorkspaceState {
   return {
@@ -82,5 +82,65 @@ describe("openBeadSplitInWorkspace", () => {
       state.tabGroups[0]?.tabs.find((tab) => tab.id === "tab_10")?.url,
     ).toBe("/beads/project?bead=vkvw-second");
     expect(state.tabGroups[0]?.pairs).toHaveLength(1);
+  });
+});
+
+
+describe("buildBeadFormsLink", () => {
+  it("builds a /dashboard-prefixed forms deep link", () => {
+    expect(buildBeadFormsLink({ dir: "/repo", beadId: "beads-web-biu", formId: "review", returnTo: "/dashboard/spaces/s/tg/agent" })).toBe(
+      "/dashboard/forms?dir=%2Frepo&bead=beads-web-biu&form=review&returnTo=%2Fdashboard%2Fspaces%2Fs%2Ftg%2Fagent",
+    );
+  });
+});
+
+describe("openBeadFormsSplitInWorkspace", () => {
+  it("creates a Forms tab and split pair beside the agent tab", () => {
+    const state = workspace();
+
+    const result = openBeadFormsSplitInWorkspace(state, {
+      tabGroupId: "tg_1",
+      agentTabId: "tab_agent",
+      beadId: "beads-web-biu",
+      formsUrl: "/dashboard/forms?dir=%2Frepo&bead=beads-web-biu",
+    });
+
+    expect(result).toEqual({
+      tabGroupId: "tg_1",
+      pairId: "pair_11",
+      formsTabId: "tab_10",
+    });
+    expect(state.tabGroups[0]?.tabs).toContainEqual({
+      id: "tab_10",
+      title: "Forms",
+      url: "/dashboard/forms?dir=%2Frepo&bead=beads-web-biu",
+    });
+  });
+
+  it("reuses the Forms tab when opening another form for the same craft", () => {
+    const state = workspace();
+    openBeadFormsSplitInWorkspace(state, {
+      tabGroupId: "tg_1",
+      agentTabId: "tab_agent",
+      beadId: "first",
+      formsUrl: "/dashboard/forms?dir=%2Frepo&bead=first",
+    });
+
+    const result = openBeadFormsSplitInWorkspace(state, {
+      tabGroupId: "tg_1",
+      agentTabId: "tab_agent",
+      beadId: "second",
+      formsUrl: "/dashboard/forms?dir=%2Frepo&bead=second",
+    });
+
+    expect(result).toEqual({
+      tabGroupId: "tg_1",
+      pairId: "pair_11",
+      formsTabId: "tab_10",
+    });
+    expect(state.tabGroups[0]?.tabs).toHaveLength(2);
+    expect(state.tabGroups[0]?.tabs.find((tab) => tab.id === "tab_10")?.url).toBe(
+      "/dashboard/forms?dir=%2Frepo&bead=second",
+    );
   });
 });
