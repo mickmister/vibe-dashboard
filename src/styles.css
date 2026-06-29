@@ -17,6 +17,12 @@ html {
   color-scheme: dark;
 }
 
+input,
+select,
+textarea {
+  font-size: 16px;
+}
+
 /* Hide scrollbars in iframes container */
 .iframe-container::-webkit-scrollbar {
   display: none;
@@ -25,6 +31,18 @@ html {
 .iframe-container {
   -ms-overflow-style: none;
   scrollbar-width: none;
+}
+
+:root {
+  --mobile-footer-offset: 0px;
+  --mobile-footer-height: 0px;
+}
+
+@media (max-width: 767px) {
+  :root {
+    --mobile-footer-offset: calc(7.15rem + env(safe-area-inset-bottom));
+    --mobile-footer-height: calc(2.5rem + env(safe-area-inset-bottom));
+  }
 }
 
 /* BeadsForm module: one-root-class styling umbrella for agent-authored forms. */

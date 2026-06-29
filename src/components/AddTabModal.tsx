@@ -17,24 +17,42 @@ interface AddTabModalProps {
   isOpen: boolean;
   onClose: () => void;
   onAdd: (title: string, url: string) => void;
-  onAddVKWorkspace?: (taskAttemptId: string, name: string, containerRef: string) => void;
+  onAddVKWorkspace?: (
+    taskAttemptId: string,
+    name: string,
+    containerRef: string,
+  ) => void | Promise<void>;
   onAddVKWorkspaceToSpace?: (
     taskAttemptId: string,
     name: string,
     containerRef: string,
     spaceId: string
-  ) => void;
-  onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void;
+  ) => void | Promise<void>;
+  onNavigateToTabGroup?: (
+    spaceId: string,
+    tabGroupId: string,
+    workspace?: { id: string; name: string },
+  ) => void | Promise<void>;
   onAddTabGroup?: (label: string) => void;
   workspace?: WorkspaceState;
+  pendingWorkspaceId?: string | null;
+  isActionPending?: boolean;
+  actionError?: string | null;
+  onResetAction?: () => void;
 }
 
 const PRESETS = [
   {
     key: 'vk-workspace',
-    title: 'Open Existing Workspace',
+    title: 'Open Existing Craft',
     url: '',
-    description: 'Add workspace with Agent + Code split view',
+    description: 'Add craft with Agent + Code split view',
+  },
+  {
+    key: 'tab-group',
+    title: 'New Craft',
+    url: '',
+    description: 'Create an empty craft in this space',
   },
   {
     key: 'code',
@@ -65,6 +83,10 @@ export function AddTabModal({
   onNavigateToTabGroup,
   onAddTabGroup,
   workspace,
+  pendingWorkspaceId = null,
+  isActionPending = false,
+  actionError = null,
+  onResetAction,
 }: AddTabModalProps) {
   const [title, setTitle] = useState('');
   const [url, setUrl] = useState('');
@@ -112,10 +134,36 @@ export function AddTabModal({
     name: string,
     containerRef: string
   ) => {
-    if (onAddVKWorkspace) {
-      onAddVKWorkspace(taskAttemptId, name, containerRef);
+    if (!onAddVKWorkspace) {
+      throw new Error('Open Craft is unavailable.');
     }
-    handleClose();
+
+    return onAddVKWorkspace(taskAttemptId, name, containerRef);
+  };
+
+  const handleVKWorkspaceAddToSpace = (
+    taskAttemptId: string,
+    name: string,
+    containerRef: string,
+    spaceId: string,
+  ) => {
+    if (!onAddVKWorkspaceToSpace) {
+      throw new Error('Open Craft in space is unavailable.');
+    }
+
+    return onAddVKWorkspaceToSpace(taskAttemptId, name, containerRef, spaceId);
+  };
+
+  const handleVKWorkspaceNavigate = (
+    spaceId: string,
+    tabGroupId: string,
+    workspaceOption?: { id: string; name: string },
+  ) => {
+    if (!onNavigateToTabGroup) {
+      throw new Error('Open Craft navigation is unavailable.');
+    }
+
+    return onNavigateToTabGroup(spaceId, tabGroupId, workspaceOption);
   };
 
   const handleTabGroupSubmit = () => {
@@ -133,23 +181,28 @@ export function AddTabModal({
     setShowCustom(false);
     setShowVKWorkspace(false);
     setShowTabGroupInput(false);
+    onResetAction?.();
     onClose();
   };
+
+  const visiblePresets = PRESETS.filter(
+    (preset) => preset.key !== 'tab-group' || Boolean(onAddTabGroup),
+  );
 
   return (
     <>
       <Modal isOpen={isOpen} onClose={handleClose} size="sm" backdrop="blur">
         <ModalContent className="bg-neutral-900 border border-neutral-800 text-neutral-100">
           <ModalHeader className="text-sm border-b border-neutral-800 text-white">
-            {showTabGroupInput ? 'New Tab Group' : 'Add Tab'}
+            {showTabGroupInput ? 'New Craft' : 'Add View'}
           </ModalHeader>
           <ModalBody>
             {!showCustom && !showTabGroupInput ? (
               <Listbox
-                aria-label="Tab presets"
+                aria-label="View presets"
                 onAction={(key) => handlePresetSelect(key as string)}
               >
-                {PRESETS.map((preset) => (
+                {visiblePresets.map((preset) => (
                   <ListboxItem
                     key={preset.key}
                     description={preset.description}
@@ -165,7 +218,7 @@ export function AddTabModal({
             ) : showTabGroupInput ? (
               <div className="space-y-3">
                 <Input
-                  label="Tab Group Name"
+                  label="Craft Name"
                   size="sm"
                   value={tabGroupLabel}
                   onChange={(e) => setTabGroupLabel(e.target.value)}
@@ -188,7 +241,7 @@ export function AddTabModal({
                   size="sm"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  placeholder="My Tab"
+                  placeholder="My View"
                   autoFocus
                   classNames={{
                     inputWrapper: 'bg-neutral-800 border-neutral-700 data-[hover=true]:bg-neutral-800 group-data-[focus=true]:bg-neutral-800',
@@ -249,12 +302,21 @@ export function AddTabModal({
 
       <AddVKWorkspaceModal
         isOpen={showVKWorkspace}
-        onClose={() => setShowVKWorkspace(false)}
+        onClose={() => {
+          if (isActionPending) return;
+          setShowVKWorkspace(false);
+          onResetAction?.();
+        }}
         onComplete={handleClose}
         onAdd={handleVKWorkspaceAdd}
-        onAddToSpace={onAddVKWorkspaceToSpace}
-        onNavigateToTabGroup={onNavigateToTabGroup}
+        onAddToSpace={
+          onAddVKWorkspaceToSpace ? handleVKWorkspaceAddToSpace : undefined
+        }
+        onNavigateToTabGroup={handleVKWorkspaceNavigate}
         workspaceState={workspace}
+        pendingWorkspaceId={pendingWorkspaceId}
+        isActionPending={isActionPending}
+        actionError={actionError}
       />
     </>
   );

@@ -5,6 +5,9 @@
     "esModuleInterop": true,
     "moduleResolution": "bundler",
     "module": "es2020",
+    "paths": {
+      "@vibe-dashboard/workflow-core": ["./packages/workflow-core/src/index.ts"]
+    },
 
     // File Layout
     // "rootDir": "./src",
