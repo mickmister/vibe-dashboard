@@ -45,6 +45,11 @@ services:
       MEMORY_WATCHDOG_PROCESS_THRESHOLD_MB: ${MEMORY_WATCHDOG_PROCESS_THRESHOLD_MB:-4096}
       MEMORY_WATCHDOG_TOTAL_THRESHOLD_PERCENT: ${MEMORY_WATCHDOG_TOTAL_THRESHOLD_PERCENT:-60}
 
+      # Optional external noVNC/Webtop sidecar. When true, instance-specific
+      # plugins may assume the compose-level novnc service is running and route
+      # to it by service DNS name.
+      ENABLE_NOVNC_PLUGIN: ${ENABLE_NOVNC_PLUGIN:-false}
+
       # VK Cloud connection (optional - if set, local VK connects to this cloud instance)
       # Uses VK_SHARED_API_BASE (PR #2769) for runtime API URL configuration
       VK_SHARED_API_BASE: ${VK_SHARED_API_BASE:-}
@@ -96,6 +101,30 @@ services:
       # Persist Bosun config (workspaces, .env, bosun.config.json)
       - bosun-data:/home/vkuser/bosun
 
+  novnc:
+    profiles:
+      - novnc
+    image: ${NOVNC_IMAGE:-lscr.io/linuxserver/webtop:ubuntu-xfce}
+    restart: unless-stopped
+    shm_size: ${NOVNC_SHM_SIZE:-1gb}
+    environment:
+      PUID: ${NOVNC_PUID:-1000}
+      PGID: ${NOVNC_PGID:-1000}
+      TZ: ${TZ:-Etc/UTC}
+      TITLE: ${NOVNC_TITLE:-Vibe Desktop}
+      CUSTOM_PORT: ${NOVNC_HTTP_PORT:-3000}
+      CUSTOM_HTTPS_PORT: ${NOVNC_HTTPS_PORT:-3001}
+      CUSTOM_USER: ${NOVNC_USER:-}
+      PASSWORD: ${NOVNC_PASSWORD:-}
+      START_DOCKER: ${NOVNC_START_DOCKER:-false}
+    expose:
+      - "${NOVNC_HTTP_PORT:-3000}"
+      - "${NOVNC_HTTPS_PORT:-3001}"
+    volumes:
+      - novnc-data:/config
+      # Optional: uncomment to manage host containers from the webtop.
+      # - /var/run/docker.sock:/var/run/docker.sock
+
   prometheus:
     image: prom/prometheus:v3.4.0
     network_mode: host
@@ -128,4 +157,5 @@ volumes:
   pnpm-store:
   tailscale-state:
   bosun-data:
+  novnc-data:
   prometheus-data:
