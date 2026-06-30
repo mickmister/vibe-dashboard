@@ -20,7 +20,7 @@ startup_step_end() {
 }
 
 startup_debug_path_summary() {
-    [ "${VD_STARTUP_DEBUG:-true}" = "true" ] || return 0
+    [ "${VD_STARTUP_DEBUG:-false}" = "true" ] || return 0
     local path="$1"
     if [ ! -e "$path" ]; then
         startup_log "DEBUG path=${path} missing"
