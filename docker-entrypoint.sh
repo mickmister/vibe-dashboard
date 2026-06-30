@@ -20,17 +20,20 @@ startup_step_end() {
 }
 
 startup_debug_path_summary() {
-    [ "${VD_STARTUP_DEBUG:-}" = "true" ] || return 0
+    [ "${VD_STARTUP_DEBUG:-true}" = "true" ] || return 0
     local path="$1"
     if [ ! -e "$path" ]; then
         startup_log "DEBUG path=${path} missing"
         return 0
     fi
-    local entries dirs files
-    entries="$(find "$path" -xdev -print 2>/dev/null | wc -l | tr -d ' ')"
-    dirs="$(find "$path" -xdev -type d -print 2>/dev/null | wc -l | tr -d ' ')"
-    files="$(find "$path" -xdev -type f -print 2>/dev/null | wc -l | tr -d ' ')"
-    startup_log "DEBUG path=${path} entries=${entries:-unknown} dirs=${dirs:-unknown} files=${files:-unknown}"
+    local counts
+    counts="$(find "$path" -xdev -printf '%y\n' 2>/dev/null | awk '
+        { entries += 1 }
+        $1 == "d" { dirs += 1 }
+        $1 == "f" { files += 1 }
+        END { printf "entries=%d dirs=%d files=%d", entries, dirs, files }
+    ')"
+    startup_log "DEBUG path=${path} ${counts:-entries=unknown dirs=unknown files=unknown}"
 }
 
 ensure_shared_writable() {
