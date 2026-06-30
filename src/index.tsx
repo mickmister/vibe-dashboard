@@ -8,8 +8,14 @@ import {
   migrateSavedWorkspaceSessionStateWithCleanup,
 } from './lib/savedVoyageState';
 import {
+  activateVoyageEntryInLayout,
   createVoyageLayoutFromEntries,
+  findVoyageEntryInLayout,
+  flattenVoyageLayoutEntries,
   normalizeVoyageLayout,
+  removeVoyageEntryFromLayout,
+  reorderVoyageEntryInLayout,
+  upsertVoyageEntryInLayout,
 } from './sessionState';
 
 import springboard, { ModuleAPI } from 'springboard';
@@ -21,6 +27,7 @@ import type {
   SavedWorkspaceSessionState,
   VoyageEntry,
   VoyageCraftSelection,
+  VoyageLayout,
 } from './types';
 
 // @platform "browser"
@@ -445,50 +452,73 @@ function normalizeVoyageEntryForWorkspace(
   };
 }
 
-function repairSavedSessionForWorkspace(
+function getNormalizedSavedSessionLayout(
   session: SavedWorkspaceSession,
   workspace: WorkspaceState,
+): VoyageLayout {
+  return normalizeVoyageLayout(
+    workspace,
+    session.voyageLayout,
+    session.voyageEntries || [],
+    session.activeVoyageEntryId,
+  );
+}
+
+function syncSavedSessionFromLayout(
+  session: SavedWorkspaceSession,
+  workspace: WorkspaceState,
+  layout: VoyageLayout,
+  options: { activeVoyageEntryId?: string; updatedAt?: string } = {},
 ): SavedWorkspaceSession | undefined {
-  const voyageEntries = (session.voyageEntries || [])
-    .map((entry) => normalizeVoyageEntryForWorkspace(workspace, entry))
-    .filter((entry): entry is VoyageEntry => Boolean(entry));
-  if (!voyageEntries.length) return undefined;
-
-  const activeVoyageEntryId =
-    voyageEntries.find((entry) => entry.id === session.activeVoyageEntryId)?.id ||
-    voyageEntries[0]!.id;
+  const normalizedLayout = options.activeVoyageEntryId
+    ? activateVoyageEntryInLayout(workspace, layout, options.activeVoyageEntryId)
+    : normalizeVoyageLayout(
+        workspace,
+        layout,
+        flattenVoyageLayoutEntries(layout),
+        layout.cells.find((cell) => cell.id === layout.activeCellId)?.activeVoyageEntryId ||
+          session.activeVoyageEntryId,
+      );
+  const activeCell =
+    normalizedLayout.cells.find((cell) => cell.id === normalizedLayout.activeCellId) ||
+    normalizedLayout.cells[0];
   const activeEntry =
-    voyageEntries.find((entry) => entry.id === activeVoyageEntryId) ||
-    voyageEntries[0]!;
-  const activeSpaceId =
-    workspace.spaces.find((space) => space.tabGroupIds.includes(activeEntry.tabGroupId))?.id ||
-    session.activeSpaceId;
-  const activeItemsByVoyageEntryId: Record<string, string> = {};
+    activeCell?.voyageEntries.find((entry) => entry.id === activeCell.activeVoyageEntryId) ||
+    activeCell?.voyageEntries[0];
+  if (!activeEntry) return undefined;
 
+  const voyageEntries = flattenVoyageLayoutEntries(normalizedLayout);
+  const activeItemsByVoyageEntryId: Record<string, string> = {};
   voyageEntries.forEach((entry) => {
-    const activeItemId = getActiveItemIdForViewIds(
+    activeItemsByVoyageEntryId[entry.id] = getActiveItemIdForViewIds(
       workspace,
       entry.tabGroupId,
       entry.viewIds,
     );
-    activeItemsByVoyageEntryId[entry.id] = activeItemId;
   });
 
   return {
     ...session,
-    activeVoyageEntryId,
+    activeVoyageEntryId: activeEntry.id,
     voyageEntries,
-    voyageLayout: normalizeVoyageLayout(
-      workspace,
-      session.voyageLayout,
-      voyageEntries,
-      activeVoyageEntryId,
-    ),
-    activeSpaceId,
+    voyageLayout: normalizedLayout,
+    activeSpaceId:
+      workspace.spaces.find((space) => space.tabGroupIds.includes(activeEntry.tabGroupId))?.id ||
+      session.activeSpaceId,
     activeTabGroupId: activeEntry.tabGroupId,
     activeItemsByVoyageEntryId,
     visitedTabGroupIds: Array.from(new Set(voyageEntries.map((entry) => entry.tabGroupId))),
+    ...(options.updatedAt ? { updatedAt: options.updatedAt } : {}),
   };
+}
+
+function repairSavedSessionForWorkspace(
+  session: SavedWorkspaceSession,
+  workspace: WorkspaceState,
+): SavedWorkspaceSession | undefined {
+  const normalizedLayout = getNormalizedSavedSessionLayout(session, workspace);
+  if (!flattenVoyageLayoutEntries(normalizedLayout).length) return undefined;
+  return syncSavedSessionFromLayout(session, workspace, normalizedLayout);
 }
 
 function repairSavedSessionsForWorkspace(
@@ -1311,27 +1341,15 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
               return createSavedWorkspaceSessionState(sessions);
             }
 
-            const nextSourceEntries = source.voyageEntries.filter(
-              (entry) => entry.id !== args.voyageEntry.id,
-            );
-            if (nextSourceEntries.length === source.voyageEntries.length) {
+            const sourceLayout = getNormalizedSavedSessionLayout(source, workspace);
+            if (!findVoyageEntryInLayout(sourceLayout, args.voyageEntry.id)) {
               return createSavedWorkspaceSessionState(sessions);
             }
-
-            const fallbackEntry =
-              nextSourceEntries.find(
-                (entry) => entry.id === source.activeVoyageEntryId,
-              ) || nextSourceEntries[0];
-            if (!fallbackEntry) return createSavedWorkspaceSessionState(sessions);
-
-            const repairedSource = repairSavedSessionForWorkspace(
-              {
-                ...source,
-                voyageEntries: nextSourceEntries,
-                activeVoyageEntryId: fallbackEntry.id,
-                updatedAt: targetSession.updatedAt,
-              },
+            const repairedSource = syncSavedSessionFromLayout(
+              source,
               workspace,
+              removeVoyageEntryFromLayout(workspace, sourceLayout, args.voyageEntry.id),
+              { updatedAt: targetSession.updatedAt },
             );
             if (!repairedSource) return createSavedWorkspaceSessionState(sessions);
 
@@ -1379,11 +1397,6 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
         if (!selectedViewIds.length) return undefined;
 
         const now = new Date().toISOString();
-        const activeItemId = getActiveItemIdForViewIds(
-          workspace,
-          tabGroup.id,
-          selectedViewIds,
-        );
         let updatedSession: SavedWorkspaceSession | undefined;
 
         savedSessionsState.setState((current) => {
@@ -1391,41 +1404,30 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
           const target = sessions.find((session) => session.id === args.sessionId);
           if (!target) return createSavedWorkspaceSessionState(sessions);
 
-          const existingEntries = target.voyageEntries;
-          const requestedEntry = args.voyageEntryId
-            ? existingEntries.find(
-                (entry) =>
-                  entry.id === args.voyageEntryId &&
-                  entry.tabGroupId === tabGroup.id,
-              )
-            : undefined;
-          const existingEntry =
-            requestedEntry ||
-            existingEntries.find((entry) => entry.tabGroupId === tabGroup.id);
-          const activeEntry =
-            existingEntry ||
-            ({
-              id: createUniqueVoyageEntryId(existingEntries, tabGroup.id),
-              tabGroupId: tabGroup.id,
-              viewIds: selectedViewIds,
-            } satisfies VoyageEntry);
-          activeEntry.viewIds = selectedViewIds;
-          const nextEntries = existingEntry
-            ? existingEntries
-            : [...existingEntries, activeEntry];
-
-          target.voyageEntries = nextEntries;
-          target.activeVoyageEntryId = activeEntry.id;
-          target.activeSpaceId = space.id;
-          target.activeTabGroupId = tabGroup.id;
-          target.activeItemsByVoyageEntryId = {
-            ...target.activeItemsByVoyageEntryId,
-            [activeEntry.id]: activeItemId,
-          };
-          target.visitedTabGroupIds = Array.from(
-            new Set([...target.visitedTabGroupIds, tabGroup.id]),
-          );
-          target.updatedAt = now;
+          const layout = getNormalizedSavedSessionLayout(target, workspace);
+          const existingEntry = args.voyageEntryId
+            ? findVoyageEntryInLayout(layout, args.voyageEntryId)?.entry
+            : flattenVoyageLayoutEntries(layout).find((entry) => entry.tabGroupId === tabGroup.id);
+          if (args.voyageEntryId && existingEntry?.tabGroupId !== tabGroup.id) {
+            return createSavedWorkspaceSessionState(sessions);
+          }
+          const activeEntry: VoyageEntry = existingEntry
+            ? { ...existingEntry, viewIds: selectedViewIds }
+            : {
+                id: createUniqueVoyageEntryId(flattenVoyageLayoutEntries(layout), tabGroup.id),
+                tabGroupId: tabGroup.id,
+                viewIds: selectedViewIds,
+              };
+          const nextLayout = upsertVoyageEntryInLayout(workspace, layout, activeEntry, {
+            existingEntryId: existingEntry?.id,
+            matchTabGroup: !args.voyageEntryId,
+          });
+          const synced = syncSavedSessionFromLayout(target, workspace, nextLayout, {
+            activeVoyageEntryId: activeEntry.id,
+            updatedAt: now,
+          });
+          if (!synced) return createSavedWorkspaceSessionState(sessions);
+          Object.assign(target, synced, { activeSpaceId: space.id });
           updatedSession = target;
           return createSavedWorkspaceSessionState(sessions);
         });
@@ -1439,30 +1441,22 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
       }) => {
         let updatedSession: SavedWorkspaceSession | undefined;
         savedSessionsState.setState((current) => {
+          const workspace = workspaceState.getState();
           const sessions = getSavedWorkspaceSessions(current).map(cloneSavedSession);
           const target = sessions.find((session) => session.id === args.sessionId);
-          const entry = target?.voyageEntries?.find(
-            (candidate) => candidate.id === args.voyageEntryId,
-          );
-          if (!(target && entry)) return createSavedWorkspaceSessionState(sessions);
-
-          const workspace = workspaceState.getState();
-          const activeSpaceId =
-            workspace.spaces.find((space) => space.tabGroupIds.includes(entry.tabGroupId))?.id ||
-            target.activeSpaceId;
-          const activeItemId = getActiveItemIdForViewIds(
+          if (!target) return createSavedWorkspaceSessionState(sessions);
+          const layout = getNormalizedSavedSessionLayout(target, workspace);
+          if (!findVoyageEntryInLayout(layout, args.voyageEntryId)) {
+            return createSavedWorkspaceSessionState(sessions);
+          }
+          const synced = syncSavedSessionFromLayout(
+            target,
             workspace,
-            entry.tabGroupId,
-            entry.viewIds,
+            activateVoyageEntryInLayout(workspace, layout, args.voyageEntryId),
+            { activeVoyageEntryId: args.voyageEntryId, updatedAt: new Date().toISOString() },
           );
-          target.activeVoyageEntryId = entry.id;
-          target.activeTabGroupId = entry.tabGroupId;
-          target.activeSpaceId = activeSpaceId;
-          target.activeItemsByVoyageEntryId = {
-            ...target.activeItemsByVoyageEntryId,
-            [entry.id]: activeItemId,
-          };
-          target.updatedAt = new Date().toISOString();
+          if (!synced) return createSavedWorkspaceSessionState(sessions);
+          Object.assign(target, synced);
           updatedSession = target;
           return createSavedWorkspaceSessionState(sessions);
         });
@@ -1475,36 +1469,23 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
       }) => {
         let updatedSession: SavedWorkspaceSession | undefined;
         savedSessionsState.setState((current) => {
+          const workspace = workspaceState.getState();
           const sessions = getSavedWorkspaceSessions(current).map(cloneSavedSession);
           const target = sessions.find((session) => session.id === args.sessionId);
-          if (!(target?.voyageEntries?.length)) {
+          if (!target) return createSavedWorkspaceSessionState(sessions);
+          const layout = getNormalizedSavedSessionLayout(target, workspace);
+          if (!findVoyageEntryInLayout(layout, args.voyageEntryId)) {
             return createSavedWorkspaceSessionState(sessions);
           }
-
-          const nextEntries = target.voyageEntries.filter(
-            (entry) => entry.id !== args.voyageEntryId,
-          );
-          if (nextEntries.length === target.voyageEntries.length || !nextEntries.length) {
+          const nextLayout = removeVoyageEntryFromLayout(workspace, layout, args.voyageEntryId);
+          if (findVoyageEntryInLayout(nextLayout, args.voyageEntryId)) {
             return createSavedWorkspaceSessionState(sessions);
           }
-
-          const fallbackEntry =
-            nextEntries.find((entry) => entry.id === target.activeVoyageEntryId) ||
-            nextEntries[0]!;
-          const repaired = repairSavedSessionForWorkspace(
-            {
-              ...target,
-              voyageEntries: nextEntries,
-              activeVoyageEntryId: fallbackEntry.id,
-            },
-            workspaceState.getState(),
-          );
-          if (!repaired) return createSavedWorkspaceSessionState(sessions);
-
-          Object.assign(target, {
-            ...repaired,
+          const synced = syncSavedSessionFromLayout(target, workspace, nextLayout, {
             updatedAt: new Date().toISOString(),
           });
+          if (!synced) return createSavedWorkspaceSessionState(sessions);
+          Object.assign(target, synced);
           updatedSession = target;
           return createSavedWorkspaceSessionState(sessions);
         });
@@ -1518,26 +1499,28 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
       }) => {
         let updatedSession: SavedWorkspaceSession | undefined;
         savedSessionsState.setState((current) => {
+          const workspace = workspaceState.getState();
           const sessions = getSavedWorkspaceSessions(current).map(cloneSavedSession);
           const target = sessions.find((session) => session.id === args.sessionId);
-          if (!target?.voyageEntries) return createSavedWorkspaceSessionState(sessions);
-
-          const sourceIndex = target.voyageEntries.findIndex(
-            (entry) => entry.id === args.sourceEntryId,
-          );
-          const targetIndex = target.voyageEntries.findIndex(
-            (entry) => entry.id === args.targetEntryId,
-          );
-          if (sourceIndex === -1 || targetIndex === -1 || sourceIndex === targetIndex) {
+          if (!target) return createSavedWorkspaceSessionState(sessions);
+          const layout = getNormalizedSavedSessionLayout(target, workspace);
+          const source = findVoyageEntryInLayout(layout, args.sourceEntryId);
+          const reorderTarget = findVoyageEntryInLayout(layout, args.targetEntryId);
+          if (!(source && reorderTarget) || source.cell.id !== reorderTarget.cell.id) {
             return createSavedWorkspaceSessionState(sessions);
           }
-
-          const nextEntries = [...target.voyageEntries];
-          const [moved] = nextEntries.splice(sourceIndex, 1);
-          if (!moved) return createSavedWorkspaceSessionState(sessions);
-          nextEntries.splice(targetIndex, 0, moved);
-          target.voyageEntries = nextEntries;
-          target.updatedAt = new Date().toISOString();
+          const nextLayout = reorderVoyageEntryInLayout(
+            workspace,
+            layout,
+            args.sourceEntryId,
+            args.targetEntryId,
+          );
+          const synced = syncSavedSessionFromLayout(target, workspace, nextLayout, {
+            activeVoyageEntryId: target.activeVoyageEntryId,
+            updatedAt: new Date().toISOString(),
+          });
+          if (!synced) return createSavedWorkspaceSessionState(sessions);
+          Object.assign(target, synced);
           updatedSession = target;
           return createSavedWorkspaceSessionState(sessions);
         });

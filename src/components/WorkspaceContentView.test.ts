@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { getSubVoyageDropTarget } from './WorkspaceContentView';
+import {
+  getSubVoyageDropTarget,
+  getTileDropInvalidReasonLabel,
+} from './WorkspaceContentView';
 
 describe('getSubVoyageDropTarget', () => {
   const rect = { left: 100, top: 50, width: 300, height: 180 };
@@ -17,5 +20,13 @@ describe('getSubVoyageDropTarget', () => {
 
   it('defaults a center hover to the right side', () => {
     expect(getSubVoyageDropTarget(rect, { x: 250, y: 140 })).toBe('right');
+  });
+});
+
+describe('getTileDropInvalidReasonLabel', () => {
+  it('explains invalid tile drops instead of presenting a valid no-op dropzone', () => {
+    expect(getTileDropInvalidReasonLabel('max-panes')).toContain('Maximum');
+    expect(getTileDropInvalidReasonLabel('sole-entry')).toContain('Add another tab');
+    expect(getTileDropInvalidReasonLabel('missing-entry')).toContain('no longer available');
   });
 });

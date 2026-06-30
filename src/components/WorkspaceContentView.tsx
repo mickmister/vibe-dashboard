@@ -9,8 +9,11 @@ import type {
   VoyageLayout,
   WorkspaceState,
 } from '../types';
-import type { SubVoyageDropTarget } from '../sessionState';
+import { canTileVoyageEntry } from '../sessionState';
+import type { SubVoyageDropTarget, TileVoyageEntryValidation } from '../sessionState';
 import type { WorkspaceActions, SessionActions } from './WorkspaceShell';
+
+type TileDropInvalidReason = Extract<TileVoyageEntryValidation, { canTile: false }>['reason'];
 
 interface WorkspaceContentViewProps {
   activeTabGroups: TabGroup[];
@@ -61,6 +64,12 @@ export function WorkspaceContentView({
   onOpenVKWorkspace,
 }: WorkspaceContentViewProps) {
   const [dropTarget, setDropTarget] = useState<SubVoyageDropTarget | null>(null);
+  const [dropInvalidReason, setDropInvalidReason] = useState<TileDropInvalidReason | null>(null);
+
+  const clearDropState = () => {
+    setDropTarget(null);
+    setDropInvalidReason(null);
+  };
 
   if (activeTabGroups.length === 0) {
     return (
@@ -75,13 +84,22 @@ export function WorkspaceContentView({
   const handleTileDragOver = (event: React.DragEvent<HTMLDivElement>) => {
     onDragOver(event);
     if (!hasVoyageEntryDragPayload(event.dataTransfer)) {
+      clearDropState();
+      return;
+    }
+    const voyageEntryId = event.dataTransfer.getData('text/plain');
+    const validation = voyageEntryId ? canTileVoyageEntry(voyageLayout, voyageEntryId) : { canTile: true as const };
+    if (!validation.canTile) {
       setDropTarget(null);
+      setDropInvalidReason(validation.reason);
+      event.dataTransfer.dropEffect = 'none';
       return;
     }
     const target = getSubVoyageDropTarget(event.currentTarget.getBoundingClientRect(), {
       x: event.clientX,
       y: event.clientY,
     });
+    setDropInvalidReason(null);
     setDropTarget(target);
   };
 
@@ -94,10 +112,13 @@ export function WorkspaceContentView({
         x: event.clientX,
         y: event.clientY,
       });
-    if (voyageEntryId && target) {
+    const validation = voyageEntryId
+      ? canTileVoyageEntry(voyageLayout, voyageEntryId)
+      : ({ canTile: false as const, reason: 'missing-entry' as const });
+    if (voyageEntryId && target && validation.canTile) {
       sessionActions.tileVoyageEntry(voyageEntryId, target);
     }
-    setDropTarget(null);
+    clearDropState();
   };
 
   if (voyageLayout.cells.length > 1) {
@@ -120,9 +141,10 @@ export function WorkspaceContentView({
         onNavigateToTabGroup={onNavigateToTabGroup}
         onOpenVKWorkspace={onOpenVKWorkspace}
         onDragOver={handleTileDragOver}
-        onDragLeave={() => setDropTarget(null)}
+        onDragLeave={clearDropState}
         onDrop={handleTileDrop}
         dropTarget={dropTarget}
+        dropInvalidReason={dropInvalidReason}
       />
     );
   }
@@ -131,7 +153,7 @@ export function WorkspaceContentView({
     <div
       className="flex-1 min-h-0 relative"
       onDragOver={handleTileDragOver}
-      onDragLeave={() => setDropTarget(null)}
+      onDragLeave={clearDropState}
       onDrop={handleTileDrop}
     >
       <UnifiedTabView
@@ -152,6 +174,7 @@ export function WorkspaceContentView({
         onOpenVKWorkspace={onOpenVKWorkspace}
       />
       {dropTarget && <SubVoyageDropPreview target={dropTarget} />}
+      {dropInvalidReason && <SubVoyageDropDisabledFeedback reason={dropInvalidReason} />}
     </div>
   );
 }
@@ -197,6 +220,7 @@ function SubVoyageGridView({
   onDragLeave,
   onDrop,
   dropTarget,
+  dropInvalidReason,
 }: Omit<
   WorkspaceContentViewProps,
   'activeTabGroups' | 'activeTabGroupId' | 'onDragOver'
@@ -205,18 +229,12 @@ function SubVoyageGridView({
   onDragLeave: () => void;
   onDrop: (event: React.DragEvent<HTMLDivElement>) => void;
   dropTarget: SubVoyageDropTarget | null;
+  dropInvalidReason: TileDropInvalidReason | null;
 }) {
   const visibleTabIds = useMemo(
     () => getVisibleTabIds(workspace, voyageLayout, activeItemsByVoyageEntryId, disableSplitViews),
     [activeItemsByVoyageEntryId, disableSplitViews, voyageLayout, workspace],
   );
-  const gridColsClass =
-    voyageLayout.cols >= 3
-      ? 'md:grid-cols-3'
-      : voyageLayout.cols === 2
-        ? 'md:grid-cols-2'
-        : 'md:grid-cols-1';
-
   return (
     <div
       className="flex flex-1 min-h-0 flex-col relative p-1"
@@ -248,7 +266,13 @@ function SubVoyageGridView({
           );
         })}
       </div>
-      <div className={`grid min-h-0 flex-1 grid-cols-1 ${gridColsClass} gap-1`}>
+      <div
+        className="subvoyage-grid grid min-h-0 flex-1 grid-cols-1 gap-1"
+        style={{
+          '--subvoyage-cols': voyageLayout.cols,
+          '--subvoyage-rows': voyageLayout.rows,
+        } as React.CSSProperties}
+      >
         {voyageLayout.cells.map((cell) => (
           <SubVoyageCellView
             key={cell.id}
@@ -273,6 +297,7 @@ function SubVoyageGridView({
         ))}
       </div>
       {dropTarget && <SubVoyageDropPreview target={dropTarget} />}
+      {dropInvalidReason && <SubVoyageDropDisabledFeedback reason={dropInvalidReason} />}
     </div>
   );
 }
@@ -336,6 +361,10 @@ function SubVoyageCellView({
       className={`${isMobileVisible ? 'flex' : 'hidden'} min-h-0 flex-col overflow-hidden rounded-md border bg-neutral-950 md:flex ${
         isActive ? 'border-sky-500/80 shadow-[0_0_0_1px_rgba(14,165,233,0.35)]' : 'border-neutral-800'
       }`}
+      style={{
+        '--subvoyage-cell-col': cell.col + 1,
+        '--subvoyage-cell-row': cell.row + 1,
+      } as React.CSSProperties}
       onPointerDown={() => sessionActions.selectSubVoyageCell(cell.id)}
     >
       <div className="flex h-9 shrink-0 items-center gap-1 overflow-x-auto border-b border-neutral-800 bg-neutral-900 px-1">
@@ -478,6 +507,27 @@ function SubVoyageDropPreview({ target }: { target: SubVoyageDropTarget }) {
       <div
         className={`absolute rounded-md border-2 border-sky-300 bg-sky-400/30 shadow-[0_0_24px_rgba(56,189,248,0.45)] ${positionClass}`}
       />
+    </div>
+  );
+}
+
+export function getTileDropInvalidReasonLabel(reason: TileDropInvalidReason): string {
+  switch (reason) {
+    case 'max-panes':
+      return 'Maximum of 6 panes reached.';
+    case 'sole-entry':
+      return 'Add another tab before tiling this pane.';
+    case 'missing-entry':
+      return 'This tab is no longer available to tile.';
+  }
+}
+
+function SubVoyageDropDisabledFeedback({ reason }: { reason: TileDropInvalidReason }) {
+  return (
+    <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-lg border border-amber-400/40 bg-neutral-950/50">
+      <div className="rounded-md border border-amber-300/60 bg-neutral-950 px-3 py-2 text-xs font-medium text-amber-100 shadow-lg">
+        {getTileDropInvalidReasonLabel(reason)}
+      </div>
     </div>
   );
 }

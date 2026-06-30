@@ -44,3 +44,15 @@ textarea {
     --mobile-footer-height: calc(2.5rem + env(safe-area-inset-bottom));
   }
 }
+
+@media (min-width: 768px) {
+  .subvoyage-grid {
+    grid-template-columns: repeat(var(--subvoyage-cols), minmax(0, 1fr));
+    grid-template-rows: repeat(var(--subvoyage-rows), minmax(0, 1fr));
+  }
+
+  .subvoyage-grid > * {
+    grid-column: var(--subvoyage-cell-col);
+    grid-row: var(--subvoyage-cell-row);
+  }
+}
