@@ -1,34 +1,11 @@
 import createDOMPurify from 'dompurify';
+import {
+  compileBeadsForm,
+  type BeadsFormControl,
+  type StandardBeadsForm,
+} from '@vibe-dashboard/beads-form';
 
 export type JsonObject = Record<string, unknown>;
-
-export type BeadsFormControlType =
-  | 'checkbox'
-  | 'date'
-  | 'datetime-local'
-  | 'email'
-  | 'hidden'
-  | 'month'
-  | 'number'
-  | 'password'
-  | 'radio'
-  | 'range'
-  | 'search'
-  | 'select'
-  | 'tel'
-  | 'text'
-  | 'textarea'
-  | 'time'
-  | 'url'
-  | 'week';
-
-export type BeadsFormControl = {
-  id: string;
-  name: string;
-  type: BeadsFormControlType;
-  required?: boolean;
-  multiple?: boolean;
-};
 
 export type BeadsFormResponse = {
   submittedBy: string;
@@ -46,6 +23,8 @@ export type BeadsFormDefinition = {
   controls?: BeadsFormControl[];
   responses?: BeadsFormResponse[];
   sourceMessages?: Array<{ source?: string; submittedAt?: string; text: string }>;
+  format?: 'standard';
+  questions?: StandardBeadsForm['questions'];
 };
 
 export type BeadLike = {
@@ -68,7 +47,7 @@ function isObject(value: unknown): value is JsonObject {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
-function isForm(value: unknown): value is BeadsFormDefinition {
+function isHtmlForm(value: unknown): value is BeadsFormDefinition {
   return isObject(value)
     && typeof value.id === 'string'
     && value.id.trim().length > 0
@@ -78,10 +57,26 @@ function isForm(value: unknown): value is BeadsFormDefinition {
     && value.html.trim().length > 0;
 }
 
+function isStandardForm(value: unknown): value is StandardBeadsForm {
+  return isObject(value)
+    && value.format === 'standard'
+    && typeof value.id === 'string'
+    && value.id.trim().length > 0
+    && typeof value.title === 'string'
+    && value.title.trim().length > 0
+    && Array.isArray(value.questions);
+}
+
+function normalizeForm(value: unknown): BeadsFormDefinition | undefined {
+  if (isHtmlForm(value)) return value;
+  if (!isStandardForm(value)) return undefined;
+  return compileBeadsForm(value);
+}
+
 function formsAt(metadata: JsonObject, key: string): BeadsFormDefinition[] {
   const namespace = metadata[key];
   if (!isObject(namespace) || !Array.isArray(namespace.forms)) return [];
-  return namespace.forms.filter(isForm);
+  return namespace.forms.map(normalizeForm).filter((form): form is BeadsFormDefinition => !!form);
 }
 
 export function getBeadsForms(metadata: unknown): BeadsFormDefinition[] {

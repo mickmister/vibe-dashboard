@@ -23,6 +23,9 @@ importers:
       '@tanstack/react-query':
         specifier: ^5.101.0
         version: 5.101.0(react@19.2.4)
+      '@vibe-dashboard/beads-form':
+        specifier: workspace:*
+        version: link:packages/beads-form
       '@vibe-dashboard/workflow-core':
         specifier: workspace:*
         version: link:packages/workflow-core
@@ -138,6 +141,15 @@ importers:
       vite:
         specifier: ^7.3.1
         version: 7.3.1(@types/node@25.2.3)(jiti@2.6.1)(lightningcss@1.30.2)
+      vitest:
+        specifier: ^4.0.18
+        version: 4.0.18(@types/node@25.2.3)(@vitest/browser-playwright@4.0.18)(jiti@2.6.1)(jsdom@29.1.1)(lightningcss@1.30.2)
+
+  packages/beads-form:
+    devDependencies:
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
       vitest:
         specifier: ^4.0.18
         version: 4.0.18(@types/node@25.2.3)(@vitest/browser-playwright@4.0.18)(jiti@2.6.1)(jsdom@29.1.1)(lightningcss@1.30.2)

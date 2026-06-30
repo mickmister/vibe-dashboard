@@ -8,6 +8,10 @@ export default defineConfig({
         __dirname,
         'packages/workflow-core/src/index.ts',
       ),
+      '@vibe-dashboard/beads-form': path.resolve(
+        __dirname,
+        'packages/beads-form/src/index.ts',
+      ),
     },
   },
   test: {

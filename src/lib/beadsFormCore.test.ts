@@ -23,6 +23,34 @@ describe('BeadsForm core', () => {
     expect(forms.map((form) => form.id)).toEqual(['current', 'legacy']);
   });
 
+  it('compiles standard form metadata into renderable html and controls', () => {
+    const forms = getBeadsForms({
+      beadForms: {
+        forms: [{
+          format: 'standard',
+          id: 'planning_review',
+          title: 'Planning Review',
+          questions: [{
+            type: 'choices',
+            id: 'entry_point',
+            title: 'Entry point',
+            description: 'Choose where this should open.',
+            choices: [{ id: 'forms_tab', label: 'Forms tab' }],
+          }],
+        }],
+      },
+    });
+
+    expect(forms).toHaveLength(1);
+    expect(forms[0]!.html).toContain('<form>');
+    expect(forms[0]!.html).toContain('name="entry_point"');
+    expect(forms[0]!.controls?.map((control) => control.name)).toEqual([
+      'entry_point',
+      'entry_point_forms_tab_more_info',
+      'entry_point_more_info',
+    ]);
+  });
+
   it('appends responses under metadata.beadForms while preserving unrelated metadata', () => {
     const next = appendBeadsFormResponse({ untouched: true, beadForms: { forms: [
       { id: 'review', title: 'Review', html: '<form></form>' },

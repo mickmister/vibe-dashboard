@@ -43,7 +43,8 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, 'src'),
-      '@vibe-dashboard/workflow-core': path.resolve(__dirname, 'packages/workflow-core/src/index.ts')
+      '@vibe-dashboard/workflow-core': path.resolve(__dirname, 'packages/workflow-core/src/index.ts'),
+      '@vibe-dashboard/beads-form': path.resolve(__dirname, 'packages/beads-form/src/index.ts')
     }
   },
   define: {
