@@ -199,7 +199,7 @@ npx -y skills add /opt/vibe-kanban-vscode-web-seed/agent-skills \
   --global --agent '*' --skill '*' --copy --yes
 ```
 
-Pros: built-ins are ready on first boot.  
+Pros: built-ins are ready on first boot.
 Cons: image build uses npm/network unless the `skills` package is pinned in repo
 or otherwise cached.
 
@@ -213,7 +213,7 @@ npx -y skills add /opt/vibe-kanban-vscode-web-seed/agent-skills \
   --global --agent '*' --skill '*' --copy --yes
 ```
 
-Pros: same runtime path as plugins; easier to update with a reseeded runtime.  
+Pros: same runtime path as plugins; easier to update with a reseeded runtime.
 Cons: startup/reload may need network unless `skills` is already available.
 
 Recommendation: add `skills` as a pinned package dependency/devDependency and

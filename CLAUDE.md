@@ -94,27 +94,28 @@ bd close <id>         # Complete work
 
 ## Session Completion
 
-**When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
+**When ending a work session**, you MUST complete the local handoff steps below. Pushing to remotes is externally visible and must happen only when the user explicitly requests or authorizes it.
 
-**MANDATORY WORKFLOW:**
+**MANDATORY LOCAL WORKFLOW:**
 
 1. **File issues for remaining work** - Create issues for anything that needs follow-up
 2. **Run quality gates** (if code changed) - Tests, linters, builds
 3. **Update issue status** - Close finished work, update in-progress items
-4. **PUSH TO REMOTE** - This is MANDATORY:
+4. **Commit local changes when requested/appropriate** - Keep the working tree understandable and avoid stranded uncommitted work
+5. **Sync/push only with authorization** - If the user explicitly asks you to push, run the appropriate commands, for example:
    ```bash
    git pull --rebase
    bd dolt push
    git push
-   git status  # MUST show "up to date with origin"
+   git status  # verify remote status after an authorized push
    ```
-5. **Clean up** - Clear stashes, prune remote branches
-6. **Verify** - All changes committed AND pushed
-7. **Hand off** - Provide context for next session
+6. **Clean up** - Clear stashes and temporary files you created
+7. **Verify** - Report local `git status --short --branch` and validation results
+8. **Hand off** - Provide context for next session
 
 **CRITICAL RULES:**
-- Work is NOT complete until `git push` succeeds
-- NEVER stop before pushing - that leaves work stranded locally
-- NEVER say "ready to push when you are" - YOU must push
-- If push fails, resolve and retry until it succeeds
+- Push only when explicitly requested or authorized by the user
+- If push is not authorized, do not push; report the local branch status and the exact commands a user can run to push/sync later
+- Do not describe local work as remotely available until the authorized push succeeds
+- If an authorized push fails, report the failure and the exact next command or fix needed
 <!-- END BEADS INTEGRATION -->
