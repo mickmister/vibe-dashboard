@@ -94,6 +94,40 @@ describe("dynamic Craft surfaces", () => {
     ]);
   });
 
+  it("prefers the current origin over persisted workspace metadata for built-in workspace tabs", () => {
+    const effective = createEffectiveWorkspaceWithCraftSurfaces({
+      workspace: {
+        ...workspace,
+        tabGroups: [
+          {
+            id: "craft_workspace",
+            label: "Workspace Craft",
+            workspace: {
+              workspaceId: "workspace_1",
+              workspaceDir: "/home/vkuser/repos/app",
+              baseOrigin: "http://vd.localhost:3001",
+            },
+            tabs: [],
+            pairs: [],
+            order: 0,
+          },
+        ],
+      },
+      craftSurfaces: [],
+      origin: "http://code-vibe:3001",
+    });
+
+    const tabsById = new Map(
+      effective.tabGroups[0]!.tabs.map((tab) => [tab.id, tab.url]),
+    );
+    expect(tabsById.get("agent")).toBe(
+      "http://code-vibe:3001/workspaces/workspace_1",
+    );
+    expect(tabsById.get("code")).toBe(
+      "http://code-vibe:3001/?folder=%2Fhome%2Fvkuser%2Frepos%2Fapp",
+    );
+  });
+
   it("falls back to the current origin when persisted workspace metadata has an empty base origin", () => {
     const effective = createEffectiveWorkspaceWithCraftSurfaces({
       workspace: {
