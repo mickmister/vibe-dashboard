@@ -800,6 +800,15 @@ function StaticIframePanelContent({
                   tab={tab}
                   iframeRenderMode={iframeRenderMode}
                   iframePreviewStatus={iframePreviewStatus}
+                  {...(workspace ? { workspace } : {})}
+                  {...(savedSessions ? { savedSessions } : {})}
+                  {...(currentSessionId ? { currentSessionId } : {})}
+                  {...(onResumeSession ? { onResumeSession } : {})}
+                  {...(onRenameSession ? { onRenameSession } : {})}
+                  {...(onDeleteSession ? { onDeleteSession } : {})}
+                  {...(onStartNewSession ? { onStartNewSession } : {})}
+                  {...(onNavigateToTabGroup ? { onNavigateToTabGroup } : {})}
+                  {...(onOpenVKWorkspace ? { onOpenVKWorkspace } : {})}
                 />
               </Panel>
               {index < pairTabs.length - 1 && (

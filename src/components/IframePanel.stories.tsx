@@ -46,7 +46,6 @@ const meta: Meta<typeof IframePanel> = {
   args: {
     tabGroup: externalPreviewGroup,
     activeItemId: 'tab_preview',
-    iframeRenderMode: 'placeholder',
     iframePreviewStatus: 'ready',
     onUpdatePairRatios: (pairId, ratios) => {
       console.info('update pair ratios', { pairId, ratios });
@@ -57,7 +56,7 @@ const meta: Meta<typeof IframePanel> = {
     return (
       <IframePanel
         {...args}
-        iframeRenderMode={globalMode ?? args.iframeRenderMode ?? 'placeholder'}
+        iframeRenderMode={args.iframeRenderMode ?? globalMode ?? 'placeholder'}
       />
     );
   },
