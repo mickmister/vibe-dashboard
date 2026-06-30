@@ -65,7 +65,6 @@ describe("dynamic Craft surfaces", () => {
             workspace: {
               workspaceId: "workspace_1",
               workspaceDir: "/home/vkuser/repos/app",
-              baseOrigin: "https://vd.example.test",
             },
             tabs: [],
             pairs: [],
@@ -94,7 +93,7 @@ describe("dynamic Craft surfaces", () => {
     ]);
   });
 
-  it("prefers the current origin over persisted workspace metadata for built-in workspace tabs", () => {
+  it("uses the current origin for built-in workspace tabs", () => {
     const effective = createEffectiveWorkspaceWithCraftSurfaces({
       workspace: {
         ...workspace,
@@ -105,7 +104,6 @@ describe("dynamic Craft surfaces", () => {
             workspace: {
               workspaceId: "workspace_1",
               workspaceDir: "/home/vkuser/repos/app",
-              baseOrigin: "http://vd.localhost:3001",
             },
             tabs: [],
             pairs: [],
@@ -128,7 +126,7 @@ describe("dynamic Craft surfaces", () => {
     );
   });
 
-  it("falls back to the current origin when persisted workspace metadata has an empty base origin", () => {
+  it("derives built-in workspace tabs from the current localhost origin", () => {
     const effective = createEffectiveWorkspaceWithCraftSurfaces({
       workspace: {
         ...workspace,
@@ -139,7 +137,6 @@ describe("dynamic Craft surfaces", () => {
             workspace: {
               workspaceId: "workspace_1",
               workspaceDir: "/home/vkuser/repos/app",
-              baseOrigin: "",
             },
             tabs: [],
             pairs: [],
@@ -180,7 +177,6 @@ describe("dynamic Craft surfaces", () => {
               workspace: {
                 workspaceId: "workspace_1",
                 workspaceDir: "/home/vkuser/repos/app",
-                baseOrigin: origin,
               },
               tabs: [],
               pairs: [],
@@ -214,7 +210,6 @@ describe("dynamic Craft surfaces", () => {
             workspace: {
               workspaceId: "workspace_1",
               workspaceDir: "/home/vkuser/repos/app",
-              baseOrigin: "http://127.0.0.1:3001",
             },
             tabs: [],
             pairs: [],
@@ -242,7 +237,6 @@ describe("dynamic Craft surfaces", () => {
             workspace: {
               workspaceId: "workspace_1",
               workspaceDir: "/home/vkuser/repos/app",
-              baseOrigin: "http://[::1]:3001",
             },
             tabs: [],
             pairs: [],
@@ -373,7 +367,6 @@ describe("dynamic Craft surfaces", () => {
       workspace: {
         workspaceId: "workspace_1",
         workspaceDir: "/home/vkuser/repos/app",
-        baseOrigin: "https://vd.example.test",
       },
       tabs: [
         { id: "tab_custom", title: "Docs", url: "https://example.test/docs" },

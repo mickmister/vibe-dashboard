@@ -177,14 +177,13 @@ export function getBuiltInWorkspaceMetadata(
   return {
     workspaceId,
     workspaceDir,
-    baseOrigin: getAgentBaseOrigin(tabGroup.tabs),
   };
 }
 
 function getBuiltInWorkspaceTabs(tabGroup: TabGroup, origin: string): Tab[] {
   const metadata = getBuiltInWorkspaceMetadata(tabGroup);
   if (!metadata) return [];
-  const baseOrigin = origin || metadata.baseOrigin || "";
+  const baseOrigin = origin;
   return [
     {
       id: BUILT_IN_AGENT_TAB_ID,
@@ -462,17 +461,6 @@ function getWorkspaceDirFromTabs(tabs: Tab[]): string | null {
     }
   }
   return null;
-}
-
-function getAgentBaseOrigin(tabs: Tab[]): string | undefined {
-  const agentTab = tabs.find(isAgentTab);
-  if (!agentTab) return undefined;
-  try {
-    const parsed = new URL(agentTab.url, URL_PARSE_BASE);
-    return parsed.origin === URL_PARSE_BASE ? "" : parsed.origin;
-  } catch {
-    return undefined;
-  }
 }
 
 function isAgentTab(tab: Pick<Tab, "title" | "url">): boolean {

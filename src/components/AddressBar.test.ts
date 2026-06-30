@@ -8,7 +8,6 @@ const workspaceCraft: TabGroup = {
   workspace: {
     workspaceId: "workspace_1",
     workspaceDir: "/home/vkuser/repos/app",
-    baseOrigin: "https://vd.example.test",
   },
   tabs: [
     {

@@ -50,20 +50,6 @@ const MOBILE_TAB_EMOJIS = [
   "🛰️",
 ];
 
-function getBaseOriginFromComposition(
-  composition: ResolvedWorkspaceComposition,
-): string | undefined {
-  const agentTab =
-    composition.tabs.find((tab) => tab.key === "agent") ?? composition.tabs[0];
-  if (!agentTab) return undefined;
-  try {
-    const parsed = new URL(agentTab.url, URL_PARSE_BASE);
-    return parsed.origin === URL_PARSE_BASE ? "" : parsed.origin;
-  } catch {
-    return undefined;
-  }
-}
-
 function buildWorkspaceTabUrl(baseOrigin: string, path: string): string {
   return baseOrigin ? `${baseOrigin}${path}` : path;
 }
@@ -384,7 +370,6 @@ function addVKWorkspaceCraftToWorkspace(
     workspace: {
       workspaceId: args.taskAttemptId,
       workspaceDir: args.containerRef,
-      baseOrigin: getBaseOriginFromComposition(args.composition),
     },
     mobileEmoji: pickRandomMobileEmoji(),
     createdAt: new Date().toISOString(),
