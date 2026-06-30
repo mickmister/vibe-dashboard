@@ -26,7 +26,6 @@ import './modules/MainUIShellModule';
 
 // @platform "node"
 import './modules/WorkflowServerModule';
-import './modules/BeadFormSubmissionServerModule';
 // @platform end
 
 import './modules/BeadsFormModule';
