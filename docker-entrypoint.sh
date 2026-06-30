@@ -36,35 +36,27 @@ startup_debug_path_summary() {
     startup_log "DEBUG path=${path} ${counts:-entries=unknown dirs=unknown files=unknown}"
 }
 
-ensure_shared_writable() {
+ensure_shared_dir() {
+    local path
     mkdir -p "$@"
-    if getent group vkadmin > /dev/null 2>&1; then
-        chgrp -R vkadmin "$@" 2>/dev/null || true
-    fi
-    chmod -R g+rwX "$@" 2>/dev/null || true
-    find "$@" -type d -exec chmod g+s {} + 2>/dev/null || true
+    for path in "$@"; do
+        if getent group vkadmin > /dev/null 2>&1; then
+            chgrp vkadmin "$path" 2>/dev/null || true
+        fi
+        chmod g+rwXs "$path" 2>/dev/null || true
+    done
 }
 
-repair_shared_writable_once() {
-    local root
-    for root in "$@"; do
-        mkdir -p "$root"
+ensure_vkuser_shared_dir() {
+    local path
+    mkdir -p "$@"
+    for path in "$@"; do
         if getent group vkadmin > /dev/null 2>&1; then
-            chgrp vkadmin "$root" 2>/dev/null || true
+            chown vkuser:vkadmin "$path" 2>/dev/null || true
+        else
+            chown vkuser "$path" 2>/dev/null || true
         fi
-        chmod g+rwXs "$root" 2>/dev/null || true
-
-        local marker="$root/.vk-shared-permissions-v1"
-        if [ -e "$marker" ]; then
-            continue
-        fi
-
-        ensure_shared_writable "$root"
-        touch "$marker" 2>/dev/null || true
-        if getent group vkadmin > /dev/null 2>&1; then
-            chgrp vkadmin "$marker" 2>/dev/null || true
-        fi
-        chmod g+rw "$marker" 2>/dev/null || true
+        chmod g+rwXs "$path" 2>/dev/null || true
     done
 }
 
@@ -101,26 +93,25 @@ startup_step_end
 # Ensure mounted mutable volumes keep shared group write semantics. This avoids
 # recurring chown -R fixes when root startup tasks and vkuser agents both manage
 # runtime state.
-startup_step_begin "repair shared runtime volume permissions"
+startup_step_begin "prepare shared runtime volume roots"
 startup_debug_path_summary /var/lib/vd
 startup_debug_path_summary /var/tmp/vibe-kanban
-repair_shared_writable_once /var/lib/vd /var/tmp/vibe-kanban
+ensure_shared_dir /var/lib/vd /var/tmp/vibe-kanban
 startup_step_end
 
-# Initialize vibe-kanban-vscode-web repository in repos volume
+# Initialize vibe-kanban-vscode-web repository in repos volume. The seed copy
+# runs as vkuser, so preserved repos do not need recursive permission repair
+# on every startup.
+startup_step_begin "prepare repository root directory"
+ensure_vkuser_shared_dir /home/vkuser/repos /home/vkuser/repos/vibe-kanban-vscode-web
+startup_step_end
+
 startup_step_begin "sync seeded repository"
 /usr/local/bin/sync-seeded-repo.sh || true
 startup_step_end
 
 startup_debug_path_summary /home/vkuser/repos/vibe-kanban-vscode-web
-startup_step_begin "repair vibe-kanban-vscode-web repository ownership"
-chown -R vkuser:vkadmin /home/vkuser/repos/vibe-kanban-vscode-web 2>/dev/null || true
-startup_step_end
-
-startup_step_begin "repair vibe-kanban-vscode-web repository shared permissions"
-ensure_shared_writable /home/vkuser/repos/vibe-kanban-vscode-web
-startup_step_end
-startup_debug_path_summary /home/vkuser/repos/vibe-kanban-vscode-web
+startup_log "Skipping recursive repository permission repair; repository files are created as vkuser"
 
 # Ensure the packaged vibe-dashboard runtime directory exists before supervisord starts
 startup_step_begin "prepare vibe-dashboard runtime directory"
@@ -133,8 +124,7 @@ startup_step_end
 # Caddy starts so first boot is not blocked on large downloads.
 startup_step_begin "prepare plugin runtime directories"
 mkdir -p /var/lib/vd/instance-config /var/lib/vd/plugin-cache /var/lib/vd/plugins /var/lib/vd/plugin-bin /var/lib/vd/toolchains/bin /var/lib/vd/toolchains/npm /var/lib/vd/plugin-data /var/lib/vd/silverbullet/space /etc/supervisor/conf.d/vd-generated /etc/caddy
-repair_shared_writable_once /var/lib/vd
-ensure_shared_writable /var/lib/vd/instance-config /var/lib/vd/plugin-cache /var/lib/vd/plugins /var/lib/vd/plugin-bin /var/lib/vd/toolchains /var/lib/vd/plugin-data /var/lib/vd/silverbullet
+ensure_shared_dir /var/lib/vd /var/lib/vd/instance-config /var/lib/vd/plugin-cache /var/lib/vd/plugins /var/lib/vd/plugin-bin /var/lib/vd/toolchains /var/lib/vd/plugin-data /var/lib/vd/silverbullet
 startup_debug_path_summary /var/lib/vd
 startup_step_end
 if [ ! -f /etc/caddy/plugins.caddy ]; then
