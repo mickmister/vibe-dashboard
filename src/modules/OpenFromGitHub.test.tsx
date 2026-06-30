@@ -704,6 +704,31 @@ describe("OpenFromGitHub", () => {
     });
   });
 
+  it("does not create a tree/blob workspace from a branch on the wrong remote", async () => {
+    vi.mocked(vkClient.getRepos).mockResolvedValue([
+      { id: "repo-1", name: "repo", display_name: "Repo" },
+    ]);
+    vi.mocked(vkClient.getRepoRemotes).mockResolvedValue([
+      { name: "upstream", url: "https://github.com/owner/repo.git" },
+    ]);
+    vi.mocked(vkClient.getRepoBranches).mockResolvedValue([
+      {
+        name: "origin/feature/demo",
+        is_current: false,
+        is_remote: true,
+        last_commit_date: "2026-06-22T00:00:00Z",
+      },
+    ]);
+
+    const { findByText } = renderOpenFromGithub(
+      emptyWorkspace,
+      "https://github.com/owner/repo/tree/feature/demo/src",
+    );
+
+    await findByText("Unsupported GitHub ref");
+    expect(vkClient.createWorkspaceFromTreeBlob).not.toHaveBeenCalled();
+  });
+
   it("lets tree/blob URLs choose among multiple matching repos before creating", async () => {
     vi.mocked(vkClient.getRepos).mockResolvedValue([
       { id: "repo-1", name: "repo-a", display_name: "Repo A" },
@@ -905,6 +930,55 @@ describe("OpenFromGitHub", () => {
     });
   });
 
+  it("uses the matched remote as the safe best guess for commit permalink branches", async () => {
+    vi.mocked(vkClient.getRepos).mockResolvedValue([
+      {
+        id: "repo-1",
+        name: "repo",
+        display_name: "Repo",
+        default_target_branch: "origin/main",
+      },
+    ]);
+    vi.mocked(vkClient.getRepoRemotes).mockResolvedValue([
+      { name: "upstream", url: "https://github.com/owner/repo.git" },
+    ]);
+    vi.mocked(vkClient.getRepoBranches).mockResolvedValue([]);
+    vi.mocked(vkClient.getGitBranchesContainingCommit).mockResolvedValue({
+      branches: ["origin/main", "upstream/main"],
+    });
+    vi.mocked(vkClient.createWorkspaceFromTreeBlob).mockResolvedValue({
+      workspace: {
+        id: "ws-sha",
+        task_id: "task-sha",
+        container_ref: "/tmp/ws-sha",
+        branch: "vk/sha",
+        agent_working_dir: null,
+        created_at: "2026-06-22T00:00:00Z",
+        updated_at: "2026-06-22T00:00:00Z",
+        archived: false,
+        pinned: false,
+        name: "Sha",
+      },
+    });
+
+    const sha = "0123456789abcdef0123456789abcdef01234567";
+    const { findByText } = renderOpenFromGithub(
+      emptyWorkspace,
+      `https://github.com/owner/repo/blob/${sha}/src/file.ts`,
+    );
+
+    fireEvent.click(await findByText("A"));
+
+    await waitFor(() => {
+      expect(vkClient.createWorkspaceFromTreeBlob).toHaveBeenCalledWith(
+        expect.objectContaining({
+          target_branch: "upstream/main",
+          permalink_commit: sha,
+        }),
+      );
+    });
+  });
+
   it("prompts for a branch base when a commit permalink is ambiguous", async () => {
     vi.mocked(vkClient.getRepos).mockResolvedValue([
       { id: "repo-1", name: "repo", display_name: "Repo" },
@@ -1055,6 +1129,70 @@ describe("OpenFromGitHub", () => {
     expect(props.addVKWorkspace).toHaveBeenCalledWith(
       expect.objectContaining({ taskAttemptId: "ws-issue" }),
     );
+  });
+
+  it("creates issue workspaces from the matched remote instead of origin", async () => {
+    vi.mocked(vkClient.getGithubIssueWorkspaceMapping).mockResolvedValue({
+      mapping: null,
+    });
+    vi.mocked(vkClient.getRepos).mockResolvedValue([
+      {
+        id: "repo-1",
+        name: "repo",
+        display_name: "Repo",
+        default_target_branch: "origin/develop",
+      },
+    ]);
+    vi.mocked(vkClient.getRepoRemotes).mockResolvedValue([
+      { name: "upstream", url: "https://github.com/owner/repo.git" },
+    ]);
+    vi.mocked(vkClient.getRepoBranches).mockResolvedValue([
+      {
+        name: "origin/main",
+        is_current: false,
+        is_remote: true,
+        last_commit_date: "2026-06-22T00:00:00Z",
+      },
+      {
+        name: "upstream/main",
+        is_current: false,
+        is_remote: true,
+        last_commit_date: "2026-06-22T00:00:00Z",
+      },
+    ]);
+    vi.mocked(vkClient.createWorkspaceFromIssue).mockResolvedValue({
+      workspace: {
+        id: "ws-issue",
+        task_id: "task-issue",
+        container_ref: "/tmp/ws-issue",
+        branch: "vk/issue-7",
+        agent_working_dir: null,
+        created_at: "2026-06-22T00:00:00Z",
+        updated_at: "2026-06-22T00:00:00Z",
+        archived: false,
+        pinned: false,
+        name: "Issue #7",
+      },
+    });
+    vi.mocked(vkClient.putGithubIssueWorkspaceMapping).mockResolvedValue({
+      mapping: null,
+    });
+
+    const { findByText } = renderOpenFromGithub(
+      emptyWorkspace,
+      "https://github.com/owner/repo/issues/7",
+    );
+
+    fireEvent.click(await findByText("A"));
+
+    await waitFor(() => {
+      expect(vkClient.createWorkspaceFromIssue).toHaveBeenCalledWith(
+        expect.objectContaining({
+          repo_id: "repo-1",
+          target_branch: "upstream/main",
+        }),
+      );
+    });
   });
 
   it("falls back to the repo default target branch when origin/main is unavailable", async () => {

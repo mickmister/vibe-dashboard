@@ -213,10 +213,36 @@ describe("openFromGithub tree/blob", () => {
     });
   });
 
+  it("does not resolve tree/blob branches from non-selected remotes", async () => {
+    const mod = await import("./openFromGithub");
+    const target = mod.parseGithubTreeBlobUrl(
+      "https://github.com/owner/repo/blob/feature/demo/src/file.ts",
+    );
+    expect(target).not.toBeNull();
+
+    expect(
+      mod.resolveGithubTreeBlobBranch(
+        target!,
+        [
+          {
+            name: "origin/feature/demo",
+            is_current: false,
+            is_remote: true,
+            last_commit_date: "2026-06-22T00:00:00Z",
+          },
+        ],
+        "upstream",
+      ),
+    ).toBeNull();
+  });
+
   it("chooses safe branch guesses for commit permalinks", async () => {
     const mod = await import("./openFromGithub");
     expect(
-      mod.chooseBestContainingBranch(["origin/main", "origin/release"], "origin/main"),
+      mod.chooseBestContainingBranch(
+        ["origin/main", "origin/release"],
+        "origin/main",
+      ),
     ).toBe("origin/main");
     expect(mod.chooseBestContainingBranch(["origin/release"], "origin/main")).toBe(
       "origin/release",
@@ -224,5 +250,39 @@ describe("openFromGithub tree/blob", () => {
     expect(
       mod.chooseBestContainingBranch(["origin/a", "origin/b"], "origin/main"),
     ).toBeNull();
+  });
+
+  it("chooses commit permalink branches from the selected remote only", async () => {
+    const mod = await import("./openFromGithub");
+
+    expect(
+      mod.chooseBestContainingBranch(
+        ["origin/main", "upstream/main", "upstream/release"],
+        "origin/main",
+        "upstream",
+      ),
+    ).toBe("upstream/main");
+    expect(
+      mod.chooseBestContainingBranch(["origin/main"], "origin/main", "upstream"),
+    ).toBeNull();
+  });
+
+  it("selects preferred issue branches from the matched remote", async () => {
+    const mod = await import("./openFromGithub");
+
+    expect(
+      mod.selectPreferredRemoteBranch(
+        ["origin/main", "upstream/main"],
+        "origin/develop",
+        "upstream",
+      ),
+    ).toBe("upstream/main");
+    expect(
+      mod.selectPreferredRemoteBranch(
+        ["origin/main", "upstream/develop"],
+        "origin/develop",
+        "upstream",
+      ),
+    ).toBe("upstream/develop");
   });
 });

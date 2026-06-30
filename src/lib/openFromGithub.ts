@@ -226,23 +226,28 @@ export function resolveGithubTreeBlobCommitTarget(
 export function chooseBestContainingBranch(
   containingBranches: string[],
   repoDefaultBranch?: string | null,
+  remoteName = "origin",
 ): string | null {
-  const candidates = new Set(containingBranches);
+  const eligibleBranches = containingBranches.filter((branch) =>
+    branchBelongsToRemoteOrLocal(branch, remoteName),
+  );
+  const candidates = new Set(eligibleBranches);
   const defaultBranch = repoDefaultBranch?.trim();
-  const defaults = [
+  const remoteDefaultBranch = getRemoteDefaultBranch(
     defaultBranch,
-    defaultBranch?.replace(/^origin\//, ""),
-    defaultBranch && !defaultBranch.startsWith("origin/")
-      ? `origin/${defaultBranch}`
-      : null,
-    "origin/main",
-    "main",
+    remoteName,
+  );
+  const defaults = [
+    `${remoteName}/main`,
+    defaultBranch?.startsWith(`${remoteName}/`) ? defaultBranch : null,
+    remoteDefaultBranch,
+    remoteName === "origin" ? "main" : null,
   ].filter((branch): branch is string => Boolean(branch));
 
   for (const branch of defaults) {
     if (candidates.has(branch)) return branch;
   }
-  return containingBranches.length === 1 ? containingBranches[0] ?? null : null;
+  return eligibleBranches.length === 1 ? eligibleBranches[0] ?? null : null;
 }
 
 export function normalizeGithubRepoIdentity(value: string): string | null {
@@ -431,8 +436,61 @@ function getGithubRefForBranch(
   if (branch.name.startsWith(`${remoteName}/`)) {
     return branch.name.slice(remoteName.length + 1);
   }
-  const [_otherRemote, ...rest] = branch.name.split("/");
-  return rest.length > 0 ? rest.join("/") : null;
+  return null;
+}
+
+export function selectPreferredRemoteBranch(
+  branchNames: string[],
+  repoDefaultBranch: string | null | undefined,
+  remoteName: string,
+): string | null {
+  const candidates = new Set(
+    branchNames.filter((branch) =>
+      branchBelongsToRemoteOrLocal(branch, remoteName),
+    ),
+  );
+  const defaultBranch = repoDefaultBranch?.trim();
+  const remoteDefaultBranch = getRemoteDefaultBranch(
+    defaultBranch,
+    remoteName,
+  );
+  const preferences = [
+    `${remoteName}/main`,
+    defaultBranch?.startsWith(`${remoteName}/`) ? defaultBranch : null,
+    remoteDefaultBranch,
+    remoteName === "origin" ? "main" : null,
+  ].filter((branch): branch is string => Boolean(branch));
+
+  for (const branch of preferences) {
+    if (candidates.has(branch)) return branch;
+  }
+
+  return null;
+}
+
+export function getRemoteDefaultBranch(
+  repoDefaultBranch: string | null | undefined,
+  remoteName: string,
+): string | null {
+  const defaultBranch = repoDefaultBranch?.trim();
+  if (!defaultBranch) return `${remoteName}/main`;
+  if (defaultBranch.startsWith(`${remoteName}/`)) return defaultBranch;
+
+  const defaultSegments = defaultBranch.split("/");
+  const shortDefault =
+    defaultSegments.length > 1
+      ? defaultSegments.slice(1).join("/")
+      : defaultBranch;
+  return shortDefault ? `${remoteName}/${shortDefault}` : null;
+}
+
+export function branchBelongsToRemoteOrLocal(
+  branchName: string,
+  remoteName: string,
+): boolean {
+  if (branchName.startsWith(`${remoteName}/`)) return true;
+  if (!branchName.includes("/")) return true;
+  return false;
 }
 
 function isSegmentPrefix(prefix: string[], value: string[]): boolean {

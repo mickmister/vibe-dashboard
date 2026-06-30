@@ -2,15 +2,18 @@ import React, { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import type { SavedWorkspaceSession, WorkspaceState } from "../types";
 import {
+  branchBelongsToRemoteOrLocal,
   chooseBestContainingBranch,
   findMatchingRepoRemotes,
   findOpenWorkspaceLocation,
   findWorkspaceIdForPr,
+  getRemoteDefaultBranch,
   getOpenFromGithubUrl,
   parseGithubOpenUrl,
   removeOpenFromGithubParam,
   resolveGithubTreeBlobBranch,
   resolveGithubTreeBlobCommitTarget,
+  selectPreferredRemoteBranch,
   type MatchingRepoRemote,
   type ParsedGithubIssueUrl,
   type ParsedGithubTreeBlobUrl,
@@ -20,7 +23,6 @@ import {
 import {
   vkClient,
   type PullRequestDetail,
-  type Repo,
   type Workspace as VkWorkspace,
 } from "../lib/vk-client";
 import { buildSavedVoyageDashboardPath } from "../lib/voyageUrl";
@@ -574,7 +576,7 @@ export function OpenFromGitHub({
     }
 
     if (target.type === "create-issue") {
-      const targetBranch = await getIssueTargetBranch(target.match.repo);
+      const targetBranch = await getIssueTargetBranch(target.match);
       if (!isCurrentTarget()) throw new StaleOpenFromGithubRunError();
       const workspace = (
         await vkClient.createWorkspaceFromIssue({
@@ -1006,6 +1008,7 @@ export function OpenFromGitHub({
     const bestBranch = chooseBestContainingBranch(
       containingBranches,
       match.repo.default_target_branch,
+      match.remote.name,
     );
     if (bestBranch) {
       setDialog({
@@ -1020,9 +1023,13 @@ export function OpenFromGitHub({
       return;
     }
 
-    const availableBranches = containingBranches.length
-      ? containingBranches
-      : branches.map((branch) => branch.name);
+    const availableBranches = (
+      containingBranches.length
+        ? containingBranches
+        : branches.map((branch) => branch.name)
+    ).filter((branch) =>
+      branchBelongsToRemoteOrLocal(branch, match.remote.name),
+    );
     if (availableBranches.length === 0) {
       setDialog({
         type: "error",
@@ -1386,20 +1393,34 @@ function getTargetVerb(target: PendingTarget): string {
   return target.type.endsWith("issue") ? "Open GitHub issue" : "Open GitHub PR";
 }
 
-async function getIssueTargetBranch(repo: Repo): Promise<string> {
-  const fallback = repo.default_target_branch?.trim() || "origin/main";
+async function getIssueTargetBranch(match: MatchingRepoRemote): Promise<string> {
+  const fallback = getRemoteDefaultBranch(
+    match.repo.default_target_branch,
+    match.remote.name,
+  ) ?? `${match.remote.name}/main`;
 
+  let branches: Awaited<ReturnType<typeof vkClient.getRepoBranches>>;
   try {
-    const branches = await vkClient.getRepoBranches(repo.id);
-    if (branches.some((branch) => branch.name === "origin/main")) {
-      return "origin/main";
-    }
+    branches = await vkClient.getRepoBranches(match.repo.id);
   } catch {
     // If branch discovery fails, keep issue provisioning usable by falling back
-    // to the backend's configured repo default.
+    // to the backend's configured repo default, scoped to the matched remote.
+    return fallback;
   }
 
-  return fallback;
+  const selected = selectPreferredRemoteBranch(
+    branches.map((branch) => branch.name),
+    match.repo.default_target_branch,
+    match.remote.name,
+  );
+  if (selected) {
+    return selected;
+  }
+
+  throw new Error(
+    `Could not find ${fallback} or ${match.remote.name}/main in fetched branches for ${match.repo.display_name || match.repo.name}. ` +
+      `Fetch ${match.remote.name} and try again.`,
+  );
 }
 
 function OpenFromGithubDialog({
