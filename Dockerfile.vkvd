@@ -3,11 +3,13 @@
 ARG VK_REPO_URL=https://github.com/mickmister/vibe-kanban.git
 ARG VK_BRANCH=main
 ARG VK_COMMIT=
+ARG VK_RUNTIME_SOURCE=github
 
 FROM alpine:3.19 AS vk-runtime-downloader
 
 ARG VK_BRANCH
 ARG VK_COMMIT
+ARG VK_RUNTIME_SOURCE
 ARG TARGETARCH
 
 RUN apk add --no-cache curl jq tar
@@ -15,6 +17,14 @@ RUN apk add --no-cache curl jq tar
 WORKDIR /vk-release
 RUN set -eux; \
     test -n "${VK_COMMIT}"; \
+    if [ "${VK_RUNTIME_SOURCE}" = "stub" ]; then \
+      mkdir -p /vk-runtime; \
+      printf '#!/bin/sh\nprintf "vibe-kanban CI runtime stub %s\\n" "$*"\n' "${VK_COMMIT}" > /vk-runtime/vibe-kanban; \
+      chmod +x /vk-runtime/vibe-kanban; \
+      printf '%s@%s\n' "${VK_BRANCH}" "$(printf '%s' "${VK_COMMIT}" | cut -c1-12)" > /vk-build-version; \
+      exit 0; \
+    fi; \
+    test "${VK_RUNTIME_SOURCE}" = "github"; \
     case "${TARGETARCH}" in \
       amd64) vk_platform="linux-x64" ;; \
       arm64) vk_platform="linux-arm64" ;; \
@@ -69,7 +79,7 @@ RUN --mount=type=cache,id=vkvw-pnpm-store,target=/pnpm/store \
 
 COPY . .
 
-RUN npm rebuild better-sqlite3 && npm run build
+RUN npm rebuild better-sqlite3 && npm run build && npm run build:plugin-orchestrator
 
 FROM node:22-bookworm
 
@@ -88,6 +98,7 @@ RUN apt-get update && apt-get install -y \
     python3 \
     sqlite3 \
     supervisor \
+    sudo \
     ca-certificates \
     gnupg \
     debian-keyring \
@@ -135,18 +146,13 @@ ENV UV_TOOL_BIN_DIR="/usr/local/bin"
 ENV GOBIN="/usr/local/bin"
 RUN CGO_ENABLED=0 go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
 
-# Copy Caddy module source
+# Copy Caddy module source and shared custom Caddy build script
 COPY caddy-module /tmp/caddy-module
+COPY scripts/build-custom-caddy.sh /tmp/build-custom-caddy.sh
 
 # Build custom Caddy with vibe-kanban rewrite module
-RUN cd /tmp/caddy-module \
-    && CGO_ENABLED=0 xcaddy build v2.10.2 \
-        --output /usr/bin/caddy \
-        --with github.com/yourusername/vibe-kanban-plugins=. \
-    && chmod +x /usr/bin/caddy \
-    && /usr/bin/caddy list-modules | grep -q 'http.handlers.vibe_kanban_rewriter' \
-    && cd / \
-    && rm -rf /tmp/caddy-module /root/.cache/go-build /root/go/pkg
+RUN /tmp/build-custom-caddy.sh /tmp/caddy-module /usr/bin/caddy \
+    && rm -rf /tmp/caddy-module /tmp/build-custom-caddy.sh /root/.cache/go-build /root/go/pkg
 
 # Install Docker CLI for Docker-in-Docker support (socket mounting)
 RUN mkdir -p /etc/apt/keyrings \
@@ -210,8 +216,16 @@ RUN ARCH=$(dpkg --print-architecture) && \
     && dpkg -i /tmp/hugo.deb \
     && rm /tmp/hugo.deb
 
-# Create a non-root user for running applications
-RUN useradd -m -s /bin/bash vkuser && \
+# Create a non-root administrator user for running applications and coding
+# agents. Agents stay non-root for tools that reject UID 0, but can use sudo for
+# normal Linux administration. Shared mutable prefixes are group-writable/setgid
+# so root and vkuser-created files remain mutually manageable without repeated
+# chown -R fixes.
+RUN groupadd -f vkadmin && \
+    useradd -m -s /bin/bash vkuser && \
+    usermod -aG vkadmin,sudo vkuser && \
+    printf 'Defaults:vkuser umask=0002\nDefaults:vkuser umask_override\nvkuser ALL=(ALL) NOPASSWD:ALL\n' > /etc/sudoers.d/vkuser && \
+    chmod 0440 /etc/sudoers.d/vkuser && \
     mkdir -p /home/vkuser/.local/share/vibe-kanban \
              /home/vkuser/.local/share/pnpm \
              /home/vkuser/.local/share/code-server \
@@ -219,6 +233,7 @@ RUN useradd -m -s /bin/bash vkuser && \
              /home/vkuser/.config/gh \
              /home/vkuser/.config/git \
              /home/vkuser/.codex \
+             /home/vkuser/.npm-global/bin \
              /home/vkuser/.npm-global/lib \
              /home/vkuser/.npm \
              /home/vkuser/.cache \
@@ -231,16 +246,37 @@ RUN useradd -m -s /bin/bash vkuser && \
              /var/lib/tailscale && \
     chown -R vkuser:vkuser /home/vkuser && \
     chown -R vkuser:vkuser /var/tmp/vibe-kanban && \
+    chgrp -R vkadmin /usr/local /opt /var/tmp/vibe-kanban && \
+    chmod -R g+rwX /usr/local /opt /var/tmp/vibe-kanban && \
+    find /usr/local /opt /var/tmp/vibe-kanban -type d -exec chmod g+s {} + && \
+    printf '\numask 0002\n' >> /etc/profile && \
+    printf '\numask 0002\n' >> /etc/bash.bashrc && \
+    printf '\numask 0002\nexport PATH=/var/lib/vd/plugin-bin:/var/lib/vd/toolchains/bin:/var/lib/vd/toolchains/npm/bin:$PATH\nexport UV_TOOL_DIR=/var/lib/vd/toolchains/uv/tools\nexport UV_TOOL_BIN_DIR=/var/lib/vd/toolchains/bin\nexport NPM_CONFIG_PREFIX=/var/lib/vd/toolchains/npm\nexport CARGO_HOME=/var/lib/vd/toolchains/cargo\nexport GOBIN=/var/lib/vd/toolchains/bin\nexport GOPATH=/var/lib/vd/toolchains/go\n' >> /home/vkuser/.bashrc && \
     chmod 755 /var/run/tailscale /var/lib/tailscale
 
 # Configure npm to use user-local directory for global packages
 RUN su - vkuser -c "npm config set prefix '/home/vkuser/.npm-global'"
+ENV PATH="/home/vkuser/.npm-global/bin:${PATH}"
 
 # Create supervisor and caddy log directories
 RUN mkdir -p /var/log/supervisor /var/log/caddy
 
-# Install tools globally as root (will be available system-wide)
-RUN npm install -g @anthropic-ai/claude-code pnpm @openai/codex opencode-ai gitnexus
+# Install tools globally as root (will be available system-wide). The multi-arch
+# publish build occasionally sees transient npm registry resets, especially on
+# arm64 hosted builders, so keep the step deterministic but retry boundedly.
+RUN set -eux; \
+    npm config set fetch-retries 5; \
+    npm config set fetch-retry-mintimeout 20000; \
+    npm config set fetch-retry-maxtimeout 120000; \
+    for attempt in 1 2 3 4 5; do \
+      if npm install -g @anthropic-ai/claude-code pnpm @openai/codex opencode-ai gitnexus agent-browser; then \
+        break; \
+      fi; \
+      if [ "$attempt" = "5" ]; then \
+        exit 1; \
+      fi; \
+      sleep $((attempt * 10)); \
+    done
 
 # Install Serena globally via uv and make the shared toolchain executable for vkuser
 RUN uv tool install -p 3.13 serena-agent@latest --prerelease=allow \
@@ -268,14 +304,20 @@ RUN su - vkuser -c "mkdir -p /home/vkuser/.local/share/code-server/extensions &&
 # Install Beads CLI
 RUN curl -fsSL https://raw.githubusercontent.com/gastownhall/beads/main/scripts/install.sh | bash
 
-# Create supervisor config directory
-RUN mkdir -p /etc/supervisor/conf.d
+# Create supervisor config and plugin runtime directories. /var/lib/vd is
+# intentionally writable by vkadmin so the VD app, agents, and root startup
+# reconciliation can all manage persisted per-instance plugin state.
+RUN mkdir -p /etc/supervisor/conf.d /etc/supervisor/conf.d/vd-generated /etc/caddy /var/lib/vd/instance-config /var/lib/vd/plugin-cache /var/lib/vd/plugins /var/lib/vd/plugin-bin /var/lib/vd/toolchains/bin /var/lib/vd/toolchains/npm /var/lib/vd/plugin-data /var/lib/vd/silverbullet/space && \
+    chgrp -R vkadmin /var/lib/vd && \
+    chmod -R g+rwX /var/lib/vd && \
+    find /var/lib/vd -type d -exec chmod g+s {} +
 
 COPY supervisord.vkvd.conf /etc/supervisor/conf.d/supervisord.conf
 COPY ops/process-exporter.yml /etc/process-exporter/process-exporter.yml
 
 # Copy Caddyfile and startup page
 COPY Caddyfile /etc/caddy/Caddyfile
+COPY Caddyfile.plugins /etc/caddy/plugins.caddy
 COPY startup.html /etc/caddy/startup.html
 
 # Copy database backup script
@@ -284,7 +326,18 @@ RUN chmod +x /usr/local/bin/backup-vibe-kanban-db.sh
 
 # Copy project files to a staging location (will be copied to volume at runtime)
 COPY . /opt/vibe-kanban-vscode-web-seed
-RUN chown -R vkuser:vkuser /opt/vibe-kanban-vscode-web-seed
+COPY --from=dashboard-builder /app/dist/plugins-orchestrator /opt/vibe-kanban-vscode-web-seed/dist/plugins-orchestrator
+COPY --from=dashboard-builder /app/dist/vibe-agent /opt/vibe-kanban-vscode-web-seed/dist/vibe-agent
+RUN chown -R vkuser:vkadmin /opt/vibe-kanban-vscode-web-seed && \
+    chmod -R g+rwX /opt/vibe-kanban-vscode-web-seed && \
+    find /opt/vibe-kanban-vscode-web-seed -type d -exec chmod g+s {} +
+RUN printf '#!/bin/sh\nexec node /opt/vibe-kanban-vscode-web-seed/dist/vibe-agent/legacy-cli/vibe-agent.js "$@"\n' > /usr/local/bin/vibe-agent && \
+    printf '#!/bin/sh\nexec node /opt/vibe-kanban-vscode-web-seed/dist/vibe-agent/cli/vk.js "$@"\n' > /usr/local/bin/vk && \
+    chmod 0755 /usr/local/bin/vibe-agent /usr/local/bin/vk
+RUN command -v vibe-agent && \
+    command -v vk && \
+    vibe-agent --help >/dev/null && \
+    vk --help >/dev/null
 
 # Copy packaged vibe-dashboard runtime artifacts to their final runtime path
 RUN mkdir -p /home/vkuser/.local/share/vibe-dashboard-runtime
@@ -298,7 +351,17 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # Copy startup scripts
 COPY scripts/sync-seeded-repo.sh /usr/local/bin/sync-seeded-repo.sh
-RUN chmod +x /usr/local/bin/sync-seeded-repo.sh
+COPY plugins/scripts/vd-plugin-runtime-apply.sh /usr/local/bin/vd-plugin-runtime-apply.sh
+COPY plugins/scripts/vd-plugin-reload.sh /usr/local/bin/vd-plugin-reload.sh
+COPY plugins/scripts/vd-plugin-service-runner.mjs /usr/local/bin/vd-plugin-service-runner.mjs
+RUN chmod +x /usr/local/bin/sync-seeded-repo.sh /usr/local/bin/vd-plugin-runtime-apply.sh /usr/local/bin/vd-plugin-reload.sh /usr/local/bin/vd-plugin-service-runner.mjs
+
+# Install bd wrapper ahead of the real Beads CLI so VD-managed agent shells stamp
+# created beads with branch/workspace/session metadata.
+RUN mkdir -p /usr/local/lib/vk-bd-wrapper/bin
+COPY scripts/bd-wrapper/bin/bd /usr/local/lib/vk-bd-wrapper/bin/bd
+RUN chmod 0755 /usr/local/lib/vk-bd-wrapper/bin/bd \
+    && ln -sf bd /usr/local/lib/vk-bd-wrapper/bin/beads
 
 # Copy default VS Code settings
 RUN mkdir -p /home/vkuser/.local/share/code-server/User
