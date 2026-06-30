@@ -2,6 +2,37 @@
 set -e
 umask 0002
 
+startup_log() {
+    printf '%s [startup] %s\n' "$(date -Iseconds)" "$*"
+}
+
+startup_step_begin() {
+    STARTUP_STEP_LABEL="$1"
+    STARTUP_STEP_START="$(date +%s)"
+    startup_log "BEGIN ${STARTUP_STEP_LABEL}"
+}
+
+startup_step_end() {
+    local status="${1:-0}"
+    local end
+    end="$(date +%s)"
+    startup_log "END ${STARTUP_STEP_LABEL} status=${status} duration=$((end - STARTUP_STEP_START))s"
+}
+
+startup_debug_path_summary() {
+    [ "${VD_STARTUP_DEBUG:-}" = "true" ] || return 0
+    local path="$1"
+    if [ ! -e "$path" ]; then
+        startup_log "DEBUG path=${path} missing"
+        return 0
+    fi
+    local entries dirs files
+    entries="$(find "$path" -xdev -print 2>/dev/null | wc -l | tr -d ' ')"
+    dirs="$(find "$path" -xdev -type d -print 2>/dev/null | wc -l | tr -d ' ')"
+    files="$(find "$path" -xdev -type f -print 2>/dev/null | wc -l | tr -d ' ')"
+    startup_log "DEBUG path=${path} entries=${entries:-unknown} dirs=${dirs:-unknown} files=${files:-unknown}"
+}
+
 ensure_shared_writable() {
     mkdir -p "$@"
     if getent group vkadmin > /dev/null 2>&1; then
@@ -35,6 +66,7 @@ repair_shared_writable_once() {
 }
 
 # Fix docker group GID to match the mounted socket
+startup_step_begin "configure docker socket group"
 if [ -S /var/run/docker.sock ]; then
     DOCKER_SOCK_GID=$(stat -c '%g' /var/run/docker.sock)
 
@@ -61,27 +93,47 @@ if [ -S /var/run/docker.sock ]; then
         usermod -aG docker vkuser
     fi
 fi
+startup_step_end
 
 # Ensure mounted mutable volumes keep shared group write semantics. This avoids
 # recurring chown -R fixes when root startup tasks and vkuser agents both manage
 # runtime state.
+startup_step_begin "repair shared runtime volume permissions"
+startup_debug_path_summary /var/lib/vd
+startup_debug_path_summary /var/tmp/vibe-kanban
 repair_shared_writable_once /var/lib/vd /var/tmp/vibe-kanban
+startup_step_end
 
 # Initialize vibe-kanban-vscode-web repository in repos volume
+startup_step_begin "sync seeded repository"
 /usr/local/bin/sync-seeded-repo.sh || true
+startup_step_end
+
+startup_debug_path_summary /home/vkuser/repos/vibe-kanban-vscode-web
+startup_step_begin "repair vibe-kanban-vscode-web repository ownership"
 chown -R vkuser:vkadmin /home/vkuser/repos/vibe-kanban-vscode-web 2>/dev/null || true
+startup_step_end
+
+startup_step_begin "repair vibe-kanban-vscode-web repository shared permissions"
 ensure_shared_writable /home/vkuser/repos/vibe-kanban-vscode-web
+startup_step_end
+startup_debug_path_summary /home/vkuser/repos/vibe-kanban-vscode-web
 
 # Ensure the packaged vibe-dashboard runtime directory exists before supervisord starts
+startup_step_begin "prepare vibe-dashboard runtime directory"
 mkdir -p /home/vkuser/.local/share/vibe-dashboard-runtime
 chown -R vkuser:vkuser /home/vkuser/.local/share/vibe-dashboard-runtime 2>/dev/null || true
+startup_step_end
 
 # Ensure plugin runtime paths and the plugin-owned Caddy import exist before
 # supervisord starts. Plugin artifact installation intentionally runs after
 # Caddy starts so first boot is not blocked on large downloads.
+startup_step_begin "prepare plugin runtime directories"
 mkdir -p /var/lib/vd/instance-config /var/lib/vd/plugin-cache /var/lib/vd/plugins /var/lib/vd/plugin-bin /var/lib/vd/toolchains/bin /var/lib/vd/toolchains/npm /var/lib/vd/plugin-data /var/lib/vd/silverbullet/space /etc/supervisor/conf.d/vd-generated /etc/caddy
 repair_shared_writable_once /var/lib/vd
 ensure_shared_writable /var/lib/vd/instance-config /var/lib/vd/plugin-cache /var/lib/vd/plugins /var/lib/vd/plugin-bin /var/lib/vd/toolchains /var/lib/vd/plugin-data /var/lib/vd/silverbullet
+startup_debug_path_summary /var/lib/vd
+startup_step_end
 if [ ! -f /etc/caddy/plugins.caddy ]; then
     cat > /etc/caddy/plugins.caddy <<'EOF'
 # VD plugin-owned Caddy routes.
@@ -118,5 +170,6 @@ fi
     done
 ) &
 
+startup_log "Startup preparation complete; exec: $*"
 # Execute the main command
 exec "$@"
