@@ -36,7 +36,7 @@ docker run -d \
   --name "$container_name" \
   --network host \
   -e "CADDY_PORT=${caddy_port}" \
-  -e "PROXY_DOMAIN=localhost" \
+  -e "PROXY_DOMAIN=wrong.example" \
   -e "BACKEND_PORT=${backend_port}" \
   -e "DASHBOARD_PORT=${dashboard_port}" \
   -e "CODE_PORT=${code_port}" \
@@ -75,7 +75,7 @@ for attempt in $(seq 1 120); do
   fi
   sleep 2
 done
-docker exec "$container_name" grep -q 'beads-web.{\$PROXY_DOMAIN}' /etc/caddy/plugins.caddy
+docker exec "$container_name" grep -Fq 'Host ^beads-web\.' /etc/caddy/plugins.caddy
 
 echo "Verifying runtime apply restarts manually stopped enabled beads-web plugin..."
 docker exec "$container_name" supervisorctl stop vd-plugin--vd_beads_web--web

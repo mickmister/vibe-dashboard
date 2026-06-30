@@ -39,7 +39,7 @@ async function main(): Promise<void> {
     pluginCaddyContent: generatedFirstPartyPluginCaddy,
   });
 
-  if (!generatedFirstPartyPluginCaddy.includes('@vd_plugin_vd_beads_web_web host beads-web.{$PROXY_DOMAIN}')) {
+  if (!generatedFirstPartyPluginCaddy.includes('@vd_plugin_vd_beads_web_web header_regexp vd_plugin_vd_beads_web_web_host Host ^beads-web\\.')) {
     throw new Error('Generated first-party plugin Caddy config did not include beads-web host matcher');
   }
   if (!generatedFirstPartyPluginCaddy.includes('reverse_proxy 127.0.0.1:3109')) {

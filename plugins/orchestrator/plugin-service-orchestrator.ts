@@ -484,7 +484,7 @@ export function renderCaddyPluginExposureConfig(input: {
       const matcherName = caddyMatcherName(plugin, service);
       snippets.push([
         `# ${plugin.id}@${plugin.version} service ${service.id}`,
-        `@${matcherName} host ${service.httpExposure.subdomain}.{$PROXY_DOMAIN}`,
+        `@${matcherName} header_regexp ${matcherName}_host Host ^${service.httpExposure.subdomain}\\.`,
         `handle @${matcherName} {`,
         `\treverse_proxy ${caddyUpstreamHost(port.bind)}:${port.default} {`,
         '\t\theader_up Host {upstream_hostport}',
