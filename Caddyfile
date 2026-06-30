@@ -1,5 +1,5 @@
 {
-	admin off
+	admin localhost:2019
 	auto_https off
 }
 
@@ -45,6 +45,11 @@
 			respond "{err.status_code} {err.status_text}"
 		}
 	}
+
+	# Plugin-owned host routes. Caddy starts with this import present; runtime
+	# plugin apply updates this file later and reloads Caddy. This file must
+	# remain the only Caddy file edited for plugin exposure.
+	import /etc/caddy/plugins.caddy
 
 	# Vibe Dashboard app
 	@vibe_dashboard_root {
