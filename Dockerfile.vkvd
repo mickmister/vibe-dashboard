@@ -233,6 +233,7 @@ RUN groupadd -f vkadmin && \
              /home/vkuser/.config/gh \
              /home/vkuser/.config/git \
              /home/vkuser/.codex \
+             /home/vkuser/.npm-global/bin \
              /home/vkuser/.npm-global/lib \
              /home/vkuser/.npm \
              /home/vkuser/.cache \
@@ -255,6 +256,7 @@ RUN groupadd -f vkadmin && \
 
 # Configure npm to use user-local directory for global packages
 RUN su - vkuser -c "npm config set prefix '/home/vkuser/.npm-global'"
+ENV PATH="/home/vkuser/.npm-global/bin:${PATH}"
 
 # Create supervisor and caddy log directories
 RUN mkdir -p /var/log/supervisor /var/log/caddy
@@ -267,7 +269,7 @@ RUN set -eux; \
     npm config set fetch-retry-mintimeout 20000; \
     npm config set fetch-retry-maxtimeout 120000; \
     for attempt in 1 2 3 4 5; do \
-      if npm install -g @anthropic-ai/claude-code pnpm @openai/codex opencode-ai gitnexus; then \
+      if npm install -g @anthropic-ai/claude-code pnpm @openai/codex opencode-ai gitnexus agent-browser; then \
         break; \
       fi; \
       if [ "$attempt" = "5" ]; then \

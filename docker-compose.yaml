@@ -89,6 +89,8 @@ services:
       - git-config:/home/vkuser/.config/git
       # Persist npm cache (speeds up installs)
       - npm-cache:/home/vkuser/.npm
+      # Persist user-local npm global installs made as vkuser
+      - npm-global:/home/vkuser/.npm-global
       # Persist pnpm store
       - pnpm-store:/home/vkuser/.local/share/pnpm
       # Persist Tailscale state (so you don't need to re-authenticate)
@@ -183,6 +185,7 @@ volumes:
   gh-config:
   git-config:
   codex-data:
+  npm-global:
   npm-cache:
   pnpm-store:
   tailscale-state:
