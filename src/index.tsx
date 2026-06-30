@@ -1605,32 +1605,29 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
           const target = sessions.find(
             (session) => session.id === args.targetSessionId,
           );
-          if (!(source && target) || source.voyageEntries.length <= 1) {
+          if (!(source && target)) {
             return createSavedWorkspaceSessionState(sessions);
           }
 
-          const sourceEntry = source.voyageEntries.find(
-            (entry) => entry.id === args.voyageEntryId,
-          );
+          const sourceLayout = getNormalizedSavedSessionLayout(source, workspace);
+          const targetLayout = getNormalizedSavedSessionLayout(target, workspace);
+          const sourceEntries = flattenVoyageLayoutEntries(sourceLayout);
+          if (sourceEntries.length <= 1) {
+            return createSavedWorkspaceSessionState(sessions);
+          }
+
+          const sourceEntry = findVoyageEntryInLayout(sourceLayout, args.voyageEntryId)?.entry;
           if (!sourceEntry) return createSavedWorkspaceSessionState(sessions);
           if (
-            target.voyageEntries.some(
+            flattenVoyageLayoutEntries(targetLayout).some(
               (entry) => entry.tabGroupId === sourceEntry.tabGroupId,
             )
           ) {
             return createSavedWorkspaceSessionState(sessions);
           }
 
-          const nextSourceEntries = source.voyageEntries.filter(
-            (entry) => entry.id !== args.voyageEntryId,
-          );
-          const fallbackSourceEntry =
-            nextSourceEntries.find((entry) => entry.id === source.activeVoyageEntryId) ||
-            nextSourceEntries[0];
-          if (!fallbackSourceEntry) return createSavedWorkspaceSessionState(sessions);
-
           const existingTargetIds = new Set(
-            target.voyageEntries.map((entry) => entry.id),
+            flattenVoyageLayoutEntries(targetLayout).map((entry) => entry.id),
           );
           let nextEntryId = sourceEntry.id;
           let suffix = 1;
@@ -1653,14 +1650,19 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
             movedEntry.viewIds[0] ||
             '';
 
-          const repairedSource = repairSavedSessionForWorkspace(
-            {
-              ...source,
-              voyageEntries: nextSourceEntries,
-              activeVoyageEntryId: fallbackSourceEntry.id,
-              updatedAt: now,
-            },
+          const nextSourceLayout = removeVoyageEntryFromLayout(
             workspace,
+            sourceLayout,
+            args.voyageEntryId,
+          );
+          if (findVoyageEntryInLayout(nextSourceLayout, args.voyageEntryId)) {
+            return createSavedWorkspaceSessionState(sessions);
+          }
+          const repairedSource = syncSavedSessionFromLayout(
+            source,
+            workspace,
+            nextSourceLayout,
+            { updatedAt: now },
           );
           if (!repairedSource) return createSavedWorkspaceSessionState(sessions);
 
@@ -1669,18 +1671,28 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
             updatedAt: now,
           });
 
-          target.voyageEntries = [...target.voyageEntries, movedEntry];
-          target.activeVoyageEntryId = movedEntry.id;
-          target.activeTabGroupId = movedEntry.tabGroupId;
-          target.activeSpaceId = targetSpaceId;
-          target.updatedAt = now;
-          target.visitedTabGroupIds = Array.from(
-            new Set([...target.visitedTabGroupIds, movedEntry.tabGroupId]),
+          const nextTargetLayout = upsertVoyageEntryInLayout(
+            workspace,
+            targetLayout,
+            movedEntry,
           );
-          target.activeItemsByVoyageEntryId = {
-            ...target.activeItemsByVoyageEntryId,
-            [movedEntry.id]: activeItemId,
-          };
+          const repairedTarget = syncSavedSessionFromLayout(
+            target,
+            workspace,
+            nextTargetLayout,
+            { activeVoyageEntryId: movedEntry.id, updatedAt: now },
+          );
+          if (!repairedTarget) return createSavedWorkspaceSessionState(sessions);
+
+          Object.assign(target, {
+            ...repairedTarget,
+            activeSpaceId: targetSpaceId,
+            activeItemsByVoyageEntryId: {
+              ...repairedTarget.activeItemsByVoyageEntryId,
+              [movedEntry.id]: activeItemId,
+            },
+            updatedAt: now,
+          });
 
           moveResult = {
             sourceSession: cloneSavedSession(source),

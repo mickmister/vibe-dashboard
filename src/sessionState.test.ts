@@ -251,6 +251,67 @@ describe('SubVoyage tiling state', () => {
     expect(nextLayout.cells.find((cell) => cell.id === 'cell_2')?.activeVoyageEntryId).toBe('entry_2');
   });
 
+  it('moves an entry from a tiled saved Voyage into another tiled saved Voyage using canonical layouts', () => {
+    const sourceLayout = moveVoyageEntryToSubVoyageCell(
+      workspace(),
+      createVoyageLayoutFromEntries(workspace(), [entry(1), entry(2), entry(3)], 'entry_1'),
+      'entry_2',
+      'right',
+    );
+    const targetLayout = moveVoyageEntryToSubVoyageCell(
+      workspace(),
+      createVoyageLayoutFromEntries(
+        workspace(),
+        [
+          entry(4),
+          entry(5),
+          { ...entry(6), id: 'entry_2' },
+        ],
+        'entry_4',
+      ),
+      'entry_5',
+      'bottom-right',
+    );
+    const movedEntry = {
+      ...findVoyageEntryInLayout(sourceLayout, 'entry_2')!.entry,
+      id: 'entry_2_moved_1',
+    };
+
+    const nextSourceLayout = removeVoyageEntryFromLayout(workspace(), sourceLayout, 'entry_2');
+    const nextTargetLayout = activateVoyageEntryInLayout(
+      workspace(),
+      upsertVoyageEntryInLayout(workspace(), targetLayout, movedEntry),
+      movedEntry.id,
+    );
+
+    expect(findVoyageEntryInLayout(nextSourceLayout, 'entry_2')).toBeUndefined();
+    expect(flattenVoyageLayoutEntries(nextSourceLayout).map((candidate) => candidate.id)).toEqual([
+      'entry_1',
+      'entry_3',
+    ]);
+    expect(flattenVoyageLayoutEntries(nextSourceLayout)).toEqual(
+      nextSourceLayout.cells.flatMap((cell) => cell.voyageEntries),
+    );
+
+    expect(findVoyageEntryInLayout(nextTargetLayout, movedEntry.id)?.entry).toMatchObject({
+      id: 'entry_2_moved_1',
+      tabGroupId: 'craft_2',
+    });
+    expect(nextTargetLayout.activeCellId).toBe('cell_2');
+    expect(nextTargetLayout.cells.find((cell) => cell.id === 'cell_2')?.activeVoyageEntryId).toBe(
+      movedEntry.id,
+    );
+    expect(flattenVoyageLayoutEntries(nextTargetLayout).map((candidate) => candidate.id)).toEqual([
+      'entry_4',
+      'entry_2',
+      'entry_5',
+      'entry_2_moved_1',
+    ]);
+    expect(flattenVoyageLayoutEntries(nextTargetLayout)).toEqual(
+      nextTargetLayout.cells.flatMap((cell) => cell.voyageEntries),
+    );
+  });
+
   it('normalizes persisted layouts to a maximum 3x2 grid with valid craft entries', () => {
     const staleLayout: VoyageLayout = {
       version: 1,
