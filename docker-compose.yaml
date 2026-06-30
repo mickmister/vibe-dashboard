@@ -45,11 +45,6 @@ services:
       MEMORY_WATCHDOG_PROCESS_THRESHOLD_MB: ${MEMORY_WATCHDOG_PROCESS_THRESHOLD_MB:-4096}
       MEMORY_WATCHDOG_TOTAL_THRESHOLD_PERCENT: ${MEMORY_WATCHDOG_TOTAL_THRESHOLD_PERCENT:-60}
 
-      # Optional external browser/noVNC sidecar. When true, instance-specific
-      # plugins may assume the compose-level novnc browser service is running and
-      # route to it by service DNS name.
-      ENABLE_NOVNC_PLUGIN: ${ENABLE_NOVNC_PLUGIN:-false}
-
       # VK Cloud connection (optional - if set, local VK connects to this cloud instance)
       # Uses VK_SHARED_API_BASE (PR #2769) for runtime API URL configuration
       VK_SHARED_API_BASE: ${VK_SHARED_API_BASE:-}
