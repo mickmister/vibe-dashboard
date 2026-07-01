@@ -254,4 +254,49 @@ describe('vardash API boundary', () => {
     });
     expect(await store.listRepoEnvKeys('repo-a')).toEqual([]);
   });
+
+  it('exposes repo process definitions and legacy dev_server_script import without launching processes', async () => {
+    const { app } = await createApi();
+
+    const legacy = await postJson(app, '/dashboard/api/vardash/repos/repo-a/process-definitions/import-legacy-dev-server', {
+      dev_server_script: ' npm run dev ',
+    });
+    expect(legacy.status).toBe(200);
+    expect(await legacy.json()).toMatchObject({
+      process: {
+        repoId: 'repo-a',
+        name: 'Dev server',
+        command: 'npm run dev',
+        source: 'legacy_dev_server_script',
+        isDefault: true,
+      },
+    });
+
+    const worker = await postJson(app, '/dashboard/api/vardash/repos/repo-a/process-definitions', {
+      name: 'Worker',
+      command: 'npm run worker',
+    });
+    expect(worker.status).toBe(200);
+    expect(await worker.json()).toMatchObject({
+      process: { repoId: 'repo-a', name: 'Worker', command: 'npm run worker', source: 'manual' },
+    });
+
+    const repoProcesses = await app.request('/dashboard/api/vardash/repos/repo-a/process-definitions');
+    expect(await repoProcesses.json()).toMatchObject({
+      processes: [
+        { name: 'Dev server', isDefault: true },
+        { name: 'Worker', isDefault: false },
+      ],
+    });
+
+    const workspaceProcesses = await app.request(
+      '/dashboard/api/vardash/workspaces/workspace-1/repos/repo-a/process-definitions',
+    );
+    expect(await workspaceProcesses.json()).toMatchObject({
+      processes: [
+        { workspaceId: 'workspace-1', repoId: 'repo-a', name: 'Dev server' },
+        { workspaceId: 'workspace-1', repoId: 'repo-a', name: 'Worker' },
+      ],
+    });
+  });
 });

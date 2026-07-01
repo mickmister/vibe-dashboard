@@ -126,6 +126,8 @@ Legacy compatibility target:
 - existing `dev_server_script` can be represented as a default repo process definition;
 - current users can still start existing dev scripts;
 - new model can support multiple named process definitions per repo.
+- process definition APIs only persist/return launch metadata for now; process execution,
+  tmux lifecycle, log capture, and inspection remain deferred to the explicit launch bead.
 
 ### UI scope
 

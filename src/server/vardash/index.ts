@@ -14,14 +14,18 @@ export {
   type CreateSavedValueInput,
   type RepoEnvKeyMetadata,
   type RepoEnvSavedValueMetadata,
+  type RepoProcessDefinitionMetadata,
+  type RepoProcessDefinitionSource,
   type ResolveRepoEnvForLaunchInput,
   type ResolvedRepoEnv,
   type SetSelectionInput,
   type SetWorkspaceRepoSelectionInput,
   type SqlcipherVardashStoreOptions,
   type UpsertRepoEnvKeyInput,
+  type UpsertRepoProcessDefinitionInput,
   type VardashStore,
   type VardashValueKind,
+  type WorkspaceRepoProcessDefinition,
 } from './store';
 
 export {
@@ -56,3 +60,10 @@ export {
   type VardashVarlockSchemaKey,
   type VarlockRunCommand,
 } from './varlock-spike';
+
+export {
+  ensureLegacyDevServerProcessDefinition,
+  legacyDevServerProcessInput,
+  type EnsureLegacyDevServerProcessInput,
+  type LegacyDevServerRepoLike,
+} from './process-definitions';

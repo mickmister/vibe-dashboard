@@ -41,6 +41,20 @@ export interface ResolvedRepoEnv {
   }>;
 }
 
+export type RepoProcessDefinitionSource = 'manual' | 'legacy_dev_server_script';
+
+export interface RepoProcessDefinitionMetadata {
+  id: string;
+  repoId: string;
+  name: string;
+  command: string;
+  cwd: string | null;
+  source: RepoProcessDefinitionSource;
+  isDefault: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface UpsertRepoEnvKeyInput {
   repoId: string;
   key: string;
@@ -71,6 +85,19 @@ export interface ResolveRepoEnvForLaunchInput {
   workspaceId?: string;
 }
 
+export interface UpsertRepoProcessDefinitionInput {
+  repoId: string;
+  name: string;
+  command: string;
+  cwd?: string | null;
+  source?: RepoProcessDefinitionSource;
+  isDefault?: boolean;
+}
+
+export interface WorkspaceRepoProcessDefinition extends RepoProcessDefinitionMetadata {
+  workspaceId: string;
+}
+
 export interface VardashStore {
   migrate(): Promise<void>;
   close(): Promise<void>;
@@ -82,6 +109,9 @@ export interface VardashStore {
   setRepoDefaultSelection(input: SetSelectionInput): Promise<void>;
   setWorkspaceRepoSelection(input: SetWorkspaceRepoSelectionInput): Promise<void>;
   resolveRepoEnvForLaunch(input: ResolveRepoEnvForLaunchInput): Promise<ResolvedRepoEnv>;
+  listRepoProcessDefinitions(repoId: string): Promise<RepoProcessDefinitionMetadata[]>;
+  upsertRepoProcessDefinition(input: UpsertRepoProcessDefinitionInput): Promise<RepoProcessDefinitionMetadata>;
+  listWorkspaceRepoProcessDefinitions(input: { workspaceId: string; repoId: string }): Promise<WorkspaceRepoProcessDefinition[]>;
 }
 
 type SqlcipherModule = {
@@ -165,8 +195,28 @@ export class SqlcipherVardashStore implements VardashStore {
         FOREIGN KEY (saved_value_id) REFERENCES repo_env_saved_values(id) ON DELETE SET NULL
       );
 
+      CREATE TABLE IF NOT EXISTS repo_process_definitions (
+        id TEXT PRIMARY KEY,
+        repo_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        command TEXT NOT NULL,
+        cwd TEXT,
+        source TEXT NOT NULL CHECK (source IN ('manual', 'legacy_dev_server_script')),
+        is_default INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE (repo_id, name)
+      );
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_repo_process_definitions_one_default
+      ON repo_process_definitions(repo_id)
+      WHERE is_default = 1;
+
       INSERT OR IGNORE INTO vardash_schema_migrations (version, applied_at)
       VALUES (1, datetime('now'));
+
+      INSERT OR IGNORE INTO vardash_schema_migrations (version, applied_at)
+      VALUES (2, datetime('now'));
     `);
   }
 
@@ -356,6 +406,64 @@ export class SqlcipherVardashStore implements VardashStore {
     return { env, missingRequired, metadata };
   }
 
+  async listRepoProcessDefinitions(repoId: string): Promise<RepoProcessDefinitionMetadata[]> {
+    const db = await this.open();
+    const rows = await all(
+      db,
+      `SELECT id, repo_id, name, command, cwd, source, is_default, created_at, updated_at
+       FROM repo_process_definitions WHERE repo_id = ? ORDER BY is_default DESC, name ASC`,
+      [repoId],
+    );
+    return rows.map(rowToProcessDefinitionMetadata);
+  }
+
+  async upsertRepoProcessDefinition(input: UpsertRepoProcessDefinitionInput): Promise<RepoProcessDefinitionMetadata> {
+    const db = await this.open();
+    const source = input.source ?? 'manual';
+    validateProcessSource(source);
+    validateProcessInput(input);
+    const existing = await get(
+      db,
+      `SELECT id, is_default FROM repo_process_definitions WHERE repo_id = ? AND name = ?`,
+      [input.repoId, input.name],
+    );
+    const id = typeof existing?.id === 'string' ? existing.id : randomUUID();
+    const nextIsDefault = input.isDefault ?? truthyNumber(existing?.is_default);
+    if (input.isDefault === true) {
+      await run(db, `UPDATE repo_process_definitions SET is_default = 0, updated_at = datetime('now') WHERE repo_id = ?`, [
+        input.repoId,
+      ]);
+    }
+    await run(
+      db,
+      `INSERT INTO repo_process_definitions
+         (id, repo_id, name, command, cwd, source, is_default, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+       ON CONFLICT(repo_id, name) DO UPDATE SET
+         command = excluded.command,
+         cwd = excluded.cwd,
+         source = excluded.source,
+         is_default = excluded.is_default,
+         updated_at = datetime('now')`,
+      [id, input.repoId, input.name, input.command, input.cwd ?? null, source, nextIsDefault ? 1 : 0],
+    );
+    const row = await getRequired(
+      db,
+      `SELECT id, repo_id, name, command, cwd, source, is_default, created_at, updated_at
+       FROM repo_process_definitions WHERE id = ?`,
+      [id],
+    );
+    return rowToProcessDefinitionMetadata(row);
+  }
+
+  async listWorkspaceRepoProcessDefinitions(input: {
+    workspaceId: string;
+    repoId: string;
+  }): Promise<WorkspaceRepoProcessDefinition[]> {
+    const definitions = await this.listRepoProcessDefinitions(input.repoId);
+    return definitions.map((definition) => ({ ...definition, workspaceId: input.workspaceId }));
+  }
+
   private async open(): Promise<SqlcipherDatabase> {
     if (this.db != null) return this.db;
     const existingDb = await fileExists(this.options.dbPath);
@@ -515,9 +623,25 @@ function validateKind(kind: string): asserts kind is VardashValueKind {
   if (kind !== 'secret' && kind !== 'plain') throw new Error(`Invalid vardash env kind: ${kind}`);
 }
 
+function validateProcessSource(source: string): asserts source is RepoProcessDefinitionSource {
+  if (source !== 'manual' && source !== 'legacy_dev_server_script') {
+    throw new Error(`Invalid vardash process source: ${source}`);
+  }
+}
+
+function validateProcessInput(input: UpsertRepoProcessDefinitionInput): void {
+  if (input.name.trim() === '') throw new Error('Vardash process definition name is required');
+  if (input.command.trim() === '') throw new Error('Vardash process definition command is required');
+}
+
 function requireKind(value: unknown): VardashValueKind {
   if (value === 'secret' || value === 'plain') return value;
   throw new Error('Invalid vardash env kind in store row');
+}
+
+function requireProcessSource(value: unknown): RepoProcessDefinitionSource {
+  if (value === 'manual' || value === 'legacy_dev_server_script') return value;
+  throw new Error('Invalid vardash process source in store row');
 }
 
 function requireString(value: unknown, field: string): string {
@@ -536,6 +660,20 @@ function optionalString(value: unknown): string | null {
 
 function truthyNumber(value: unknown): boolean {
   return value === 1 || value === true;
+}
+
+function rowToProcessDefinitionMetadata(row: Row): RepoProcessDefinitionMetadata {
+  return {
+    id: requireString(row.id, 'id'),
+    repoId: requireString(row.repo_id, 'repo_id'),
+    name: requireString(row.name, 'name'),
+    command: requireString(row.command, 'command'),
+    cwd: optionalString(row.cwd),
+    source: requireProcessSource(row.source),
+    isDefault: truthyNumber(row.is_default),
+    createdAt: requireString(row.created_at, 'created_at'),
+    updatedAt: requireString(row.updated_at, 'updated_at'),
+  };
 }
 
 function sqlStringLiteral(value: string): string {

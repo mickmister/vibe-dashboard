@@ -181,4 +181,88 @@ describe('SqlcipherVardashStore', () => {
     stores.push(missing);
     await expect(missing.migrate()).rejects.toThrow('key file is missing');
   });
+
+  it('stores multiple repo process definitions and exposes workspace-repo launchable metadata', async () => {
+    const { store } = await createStore();
+
+    const legacy = await store.upsertRepoProcessDefinition({
+      repoId: 'repo-a',
+      name: 'Dev server',
+      command: 'npm run dev',
+      source: 'legacy_dev_server_script',
+      isDefault: true,
+    });
+    const worker = await store.upsertRepoProcessDefinition({
+      repoId: 'repo-a',
+      name: 'Worker',
+      command: 'npm run worker',
+    });
+    await store.upsertRepoProcessDefinition({
+      repoId: 'repo-b',
+      name: 'Dev server',
+      command: 'pnpm dev',
+      isDefault: true,
+    });
+
+    expect(legacy).toMatchObject({
+      repoId: 'repo-a',
+      name: 'Dev server',
+      command: 'npm run dev',
+      source: 'legacy_dev_server_script',
+      isDefault: true,
+    });
+    expect(worker).toMatchObject({
+      repoId: 'repo-a',
+      name: 'Worker',
+      command: 'npm run worker',
+      source: 'manual',
+      isDefault: false,
+    });
+
+    await expect(store.listRepoProcessDefinitions('repo-a')).resolves.toMatchObject([
+      { name: 'Dev server', isDefault: true },
+      { name: 'Worker', isDefault: false },
+    ]);
+    await expect(
+      store.listWorkspaceRepoProcessDefinitions({ workspaceId: 'workspace-1', repoId: 'repo-a' }),
+    ).resolves.toMatchObject([
+      { workspaceId: 'workspace-1', repoId: 'repo-a', name: 'Dev server' },
+      { workspaceId: 'workspace-1', repoId: 'repo-a', name: 'Worker' },
+    ]);
+    await expect(store.listRepoProcessDefinitions('repo-b')).resolves.toMatchObject([
+      { repoId: 'repo-b', name: 'Dev server' },
+    ]);
+  });
+
+  it('keeps one default process definition per repo', async () => {
+    const { store } = await createStore();
+
+    await store.upsertRepoProcessDefinition({
+      repoId: 'repo-a',
+      name: 'Dev server',
+      command: 'npm run dev',
+      isDefault: true,
+    });
+    await store.upsertRepoProcessDefinition({
+      repoId: 'repo-a',
+      name: 'Worker',
+      command: 'npm run worker',
+      isDefault: true,
+    });
+
+    await expect(store.listRepoProcessDefinitions('repo-a')).resolves.toMatchObject([
+      { name: 'Worker', isDefault: true },
+      { name: 'Dev server', isDefault: false },
+    ]);
+
+    await store.upsertRepoProcessDefinition({
+      repoId: 'repo-a',
+      name: 'Worker',
+      command: 'npm run worker:updated',
+    });
+    await expect(store.listRepoProcessDefinitions('repo-a')).resolves.toMatchObject([
+      { name: 'Worker', command: 'npm run worker:updated', isDefault: true },
+      { name: 'Dev server', isDefault: false },
+    ]);
+  });
 });

@@ -3,6 +3,7 @@ import type { Context, Hono } from 'hono';
 
 import { defaultVardashPrivateDir } from './key-manager';
 import { importVardashEnv, parseDotenv, type VardashEnvImportSource } from './import-parser';
+import { ensureLegacyDevServerProcessDefinition } from './process-definitions';
 import { SqlcipherVardashStore, type VardashStore, type VardashValueKind } from './store';
 
 export interface RegisterVardashRoutesOptions {
@@ -122,6 +123,57 @@ export function registerVardashRoutes(app: Hono, options: RegisterVardashRoutesO
       savedValueId: readNullableString(body.savedValueId),
     });
     return c.json({ ok: true, selectionSemantics: 'workspace-null-inherits-repo-default' });
+  });
+
+  app.get('/dashboard/api/vardash/repos/:repoId/process-definitions', async (c) => {
+    const store = await getStore();
+    const processes = await store.listRepoProcessDefinitions(c.req.param('repoId'));
+    return c.json({ processes });
+  });
+
+  app.post('/dashboard/api/vardash/repos/:repoId/process-definitions', async (c) => {
+    const body = await readJson(c);
+    const name = readString(body.name);
+    const command = readString(body.command);
+    if (!name) return c.json({ error: 'name_required' }, 400);
+    if (!command) return c.json({ error: 'command_required' }, 400);
+    try {
+      const store = await getStore();
+      const process = await store.upsertRepoProcessDefinition({
+        repoId: c.req.param('repoId'),
+        name,
+        command,
+        cwd: readNullableString(body.cwd),
+        source: body.source === 'legacy_dev_server_script' ? 'legacy_dev_server_script' : 'manual',
+        isDefault: typeof body.isDefault === 'boolean' ? body.isDefault : undefined,
+      });
+      return c.json({ process });
+    } catch (error) {
+      return c.json({ error: errorMessage(error) }, 409);
+    }
+  });
+
+  app.post('/dashboard/api/vardash/repos/:repoId/process-definitions/import-legacy-dev-server', async (c) => {
+    const body = await readJson(c);
+    const devServerScript = readString(body.dev_server_script);
+    const store = await getStore();
+    const process = await ensureLegacyDevServerProcessDefinition({
+      store,
+      repo: {
+        id: c.req.param('repoId'),
+        dev_server_script: devServerScript,
+      },
+    });
+    return c.json({ process });
+  });
+
+  app.get('/dashboard/api/vardash/workspaces/:workspaceId/repos/:repoId/process-definitions', async (c) => {
+    const store = await getStore();
+    const processes = await store.listWorkspaceRepoProcessDefinitions({
+      workspaceId: c.req.param('workspaceId'),
+      repoId: c.req.param('repoId'),
+    });
+    return c.json({ processes });
   });
 
   app.post('/dashboard/api/vardash/repos/:repoId/import', async (c) => {

@@ -32,9 +32,11 @@ Migration version 1 creates:
 - `repo_env_saved_values`
 - `repo_env_default_selections`
 - `workspace_repo_env_selections`
+- `repo_process_definitions`
 - `vardash_schema_migrations`
 
 The schema supports repo-owned saved values, optional repo defaults, and workspace-repo selections keyed by `workspace_id + repo_id + env_key_id`.
+It also supports multiple repo-scoped process definitions, including a `legacy_dev_server_script` source for importing the existing VK `Repo.dev_server_script` as the default process definition.
 
 ## Secret/plain behavior
 
