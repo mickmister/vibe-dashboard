@@ -15,6 +15,12 @@ services:
     mem_limit: ${DEV_CONTAINER_MEM_LIMIT:-14g}
     mem_reservation: ${DEV_CONTAINER_MEM_RESERVATION:-12g}
 
+    # Run the workspace as a Sysbox system container instead of mounting the host
+    # Docker socket. On Linux, install sysbox-runc on the host. On Docker Desktop
+    # for Mac, enable Enhanced Container Isolation; Docker Desktop then uses
+    # Sysbox for user containers and ignores this runtime flag.
+    runtime: ${VKVD_CONTAINER_RUNTIME:-sysbox-runc}
+
     # Required for Tailscale
     cap_add:
       - NET_ADMIN
@@ -63,8 +69,9 @@ services:
       GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
 
     volumes:
-      # Mount Docker socket for Docker-in-Docker support
-      - /var/run/docker.sock:/var/run/docker.sock
+      # Persist the inner Docker daemon used by agents. Do not mount
+      # /var/run/docker.sock; Docker runs inside this Sysbox container.
+      - docker-data:/var/lib/docker
       # Persist git repositories
       # - ~/repos:/home/vkuser/repos
       - vibe-kanban-repos:/home/vkuser/repos
@@ -192,3 +199,4 @@ volumes:
   bosun-data:
   novnc-data:
   prometheus-data:
+  docker-data:

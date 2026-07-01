@@ -18,6 +18,7 @@ import { validatePluginManifest } from './manifest';
 
 const goldenSupervisor = readFileSync(resolve(process.cwd(), 'supervisord.vkvd.conf'), 'utf8');
 const goldenDockerfile = readFileSync(resolve(process.cwd(), 'Dockerfile.vkvd'), 'utf8');
+const goldenDockerCompose = readFileSync(resolve(process.cwd(), 'docker-compose.yaml'), 'utf8');
 const goldenCaddyfile = readFileSync(resolve(process.cwd(), 'Caddyfile'), 'utf8');
 const pluginCaddyfile = readFileSync(resolve(process.cwd(), 'Caddyfile.plugins'), 'utf8');
 const dockerEntrypoint = readFileSync(resolve(process.cwd(), 'docker-entrypoint.sh'), 'utf8');
@@ -31,6 +32,7 @@ describe('first-party service plugin inventory and golden supervisor config', ()
     }
 
     expect(getSupervisorManagedProgramNames(BUILTIN_FIRST_PARTY_SERVICE_PLUGINS)).toEqual([
+      'dockerd',
       'code-server',
       'vibe-kanban',
       'vibe-dashboard',
@@ -44,6 +46,7 @@ describe('first-party service plugin inventory and golden supervisor config', ()
     ]);
 
     expect(getFirstPartyAdminCapabilitySummaries(BUILTIN_FIRST_PARTY_SERVICE_PLUGINS)).toMatchObject([
+      { id: 'first-party.dockerd', privilegeTier: 'trusted-workspace', requiresHostShell: true },
       { id: 'first-party.code-server', privilegeTier: 'trusted-workspace', requiresHostShell: true, repoAccess: 'workspace' },
       { id: 'first-party.vibe-kanban', privilegeTier: 'core-control-plane', vkHttpApi: 'agentPrompt', repoAccess: 'repo' },
       { id: 'first-party.vibe-dashboard', privilegeTier: 'core-control-plane', bootCritical: true },
@@ -93,6 +96,18 @@ describe('first-party service plugin inventory and golden supervisor config', ()
     expect(goldenSupervisor).toContain('VD_NUDGE_DAEMON_ENABLED');
     expect(goldenSupervisor).toContain('dist/vibe-agent/nudge/daemon.js');
     expect(goldenSupervisor).toContain('[program:vd-plugin-service-orchestrator-startup]\ncommand=/usr/local/bin/vd-plugin-runtime-apply.sh\nautostart=true\nautorestart=false\nstartsecs=0\npriority=1000');
+  });
+
+  it('uses Sysbox-backed Docker-in-Docker without mounting the host Docker socket', () => {
+    expect(goldenDockerCompose).toContain('runtime: ${VKVD_CONTAINER_RUNTIME:-sysbox-runc}');
+    expect(goldenDockerCompose).toContain('docker-data:/var/lib/docker');
+    expect(goldenDockerCompose).not.toContain('/var/run/docker.sock:/var/run/docker.sock');
+    expect(goldenDockerfile).toContain('docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin');
+    expect(goldenDockerfile).toContain('usermod -aG vkadmin,sudo,docker vkuser');
+    expect(dockerEntrypoint).toContain('prepare inner docker daemon');
+    expect(dockerEntrypoint).not.toContain('DOCKER_SOCK_GID');
+    expect(goldenSupervisor).toContain('[program:dockerd]');
+    expect(goldenSupervisor).toContain('command=/usr/bin/dockerd --host=unix:///var/run/docker.sock --data-root=/var/lib/docker');
   });
 
   it('treats Dockerfile.vkvd and supervisord.vkvd.conf as golden runtime config names', () => {

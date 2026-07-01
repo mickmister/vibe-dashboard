@@ -131,6 +131,19 @@ supervisor.rpcinterface_factory = supervisor.rpcinterface:make_main_rpcinterface
 [include]
 files = /etc/supervisor/conf.d/vd-generated/*.conf`;
 
+const DOCKERD_SUPERVISOR = `; inner Docker daemon (requires the outer container to run with Sysbox)
+[program:dockerd]
+command=/usr/bin/dockerd --host=unix:///var/run/docker.sock --data-root=/var/lib/docker
+autostart=true
+autorestart=true
+priority=5
+startsecs=5
+stdout_logfile=/dev/fd/1
+stdout_logfile_maxbytes=0
+stderr_logfile=/dev/fd/2
+stderr_logfile_maxbytes=0
+user=root`;
+
 const CODE_SERVER_SUPERVISOR = `; code-server
 [program:code-server]
 command=sh -c 'if [ -n "\${CODE_PASSWORD}" ] && [ "\${CODE_PASSWORD}" != "__unset__" ]; then export PASSWORD="\${CODE_PASSWORD}"; unset HASHED_PASSWORD; exec code-server --auth password --bind-addr 0.0.0.0:%(ENV_CODE_PORT)s --idle-timeout-seconds=3600; else unset PASSWORD HASHED_PASSWORD; exec code-server --auth none --bind-addr 0.0.0.0:%(ENV_CODE_PORT)s --idle-timeout-seconds=3600; fi'
@@ -314,6 +327,16 @@ export const BEADS_WEB_FIRST_PARTY_PLUGIN: FirstPartyServicePlugin = {
 };
 
 export const BUILTIN_FIRST_PARTY_SERVICE_PLUGINS: FirstPartyServicePlugin[] = [
+  {
+    manifest: manifest({
+      id: 'first-party.dockerd',
+      displayName: 'Inner Docker Daemon',
+      version: 'docker-ce',
+      requestedCapabilities: { hostShell: { commands: ['dockerd', 'docker'] }, filesystem: [{ scope: 'absolute', path: '/var/lib/docker', access: 'readWrite' }], network: { mode: 'egress' } },
+      components: { services: [{ id: 'dockerd', runtime: 'supervisor', command: 'dockerd --host=unix:///var/run/docker.sock' }] },
+    }),
+    privilegeTier: 'trusted-workspace', bootCritical: false, supervisorPrograms: ['dockerd'], supervisorConfig: DOCKERD_SUPERVISOR, installStrategy: 'apt-or-script', desiredVersion: 'docker-ce', stagingRequired: true, rollbackable: true,
+  },
   {
     manifest: manifest({
       id: 'first-party.code-server',
