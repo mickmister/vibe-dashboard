@@ -138,6 +138,7 @@ Legacy compatibility target:
 ### UI scope
 
 UI work must go through UX Pilot first via bead **vkvw-24c5 — Design vardash UI surfaces with UX Pilot**.
+The MVP UI design brief is captured in `docs/vardash-ui-design.md`.
 
 The UI must communicate:
 
