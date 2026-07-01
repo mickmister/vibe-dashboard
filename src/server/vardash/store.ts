@@ -193,10 +193,13 @@ export class SqlcipherVardashStore implements VardashStore {
     validateKind(input.kind);
     const existing = await get(
       db,
-      `SELECT id FROM repo_env_keys WHERE repo_id = ? AND key = ?`,
+      `SELECT id, kind FROM repo_env_keys WHERE repo_id = ? AND key = ?`,
       [input.repoId, input.key],
     );
     const id = typeof existing?.id === 'string' ? existing.id : randomUUID();
+    if (typeof existing?.id === 'string' && existing.kind !== input.kind) {
+      await this.assertKindChangeAllowed(db, id, requireKind(existing.kind), input.kind);
+    }
     await run(
       db,
       `INSERT INTO repo_env_keys (id, repo_id, key, kind, required, description, created_at, updated_at)
@@ -219,7 +222,7 @@ export class SqlcipherVardashStore implements VardashStore {
 
   async createSavedValue(input: CreateSavedValueInput): Promise<RepoEnvSavedValueMetadata> {
     const db = await this.open();
-    const key = await this.getKeyForSavedValue(db, input.repoId, input.envKeyId);
+    await this.getKeyForSavedValue(db, input.repoId, input.envKeyId);
     const id = randomUUID();
     await run(
       db,
@@ -227,20 +230,31 @@ export class SqlcipherVardashStore implements VardashStore {
        VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
       [id, input.repoId, input.envKeyId, input.name, input.value],
     );
-    return this.savedValueMetadata(db, id, key.kind);
+    return this.savedValueMetadata(db, {
+      repoId: input.repoId,
+      envKeyId: input.envKeyId,
+      savedValueId: id,
+    });
   }
 
   async replaceSavedValue(input: CreateSavedValueInput & { savedValueId: string }): Promise<RepoEnvSavedValueMetadata> {
     const db = await this.open();
-    const key = await this.getKeyForSavedValue(db, input.repoId, input.envKeyId);
-    await run(
+    await this.getKeyForSavedValue(db, input.repoId, input.envKeyId);
+    const changes = await run(
       db,
       `UPDATE repo_env_saved_values
        SET name = ?, stored_value = ?, updated_at = datetime('now')
        WHERE id = ? AND repo_id = ? AND env_key_id = ?`,
       [input.name, input.value, input.savedValueId, input.repoId, input.envKeyId],
     );
-    return this.savedValueMetadata(db, input.savedValueId, key.kind);
+    if (changes !== 1) {
+      throw new Error('Expected to replace exactly one vardash saved value');
+    }
+    return this.savedValueMetadata(db, {
+      repoId: input.repoId,
+      envKeyId: input.envKeyId,
+      savedValueId: input.savedValueId,
+    });
   }
 
   async listSavedValues(repoId: string, envKeyId: string): Promise<RepoEnvSavedValueMetadata[]> {
@@ -369,19 +383,34 @@ export class SqlcipherVardashStore implements VardashStore {
 
   private async savedValueMetadata(
     db: SqlcipherDatabase,
-    savedValueId: string,
-    kind: VardashValueKind,
+    input: { repoId: string; envKeyId: string; savedValueId: string },
   ): Promise<RepoEnvSavedValueMetadata> {
     const row = await getRequired(
       db,
-      `SELECT id, repo_id, env_key_id, name, stored_value, created_at, updated_at
-       FROM repo_env_saved_values WHERE id = ?`,
-      [savedValueId],
+      `SELECT
+         v.id AS id,
+         v.repo_id AS repo_id,
+         v.env_key_id AS env_key_id,
+         v.name AS name,
+         v.stored_value AS stored_value,
+         v.created_at AS created_at,
+         v.updated_at AS updated_at,
+         k.kind AS kind
+       FROM repo_env_saved_values v
+       JOIN repo_env_keys k
+         ON k.id = v.env_key_id AND k.repo_id = v.repo_id
+       WHERE v.id = ? AND v.repo_id = ? AND v.env_key_id = ?`,
+      [input.savedValueId, input.repoId, input.envKeyId],
     );
-    return rowToSavedValueMetadata(row, kind);
+    return rowToSavedValueMetadata(row, requireKind(row.kind));
   }
 
   private async assertSavedValueSelection(db: SqlcipherDatabase, input: SetSelectionInput): Promise<void> {
+    await getRequired(
+      db,
+      `SELECT id FROM repo_env_keys WHERE id = ? AND repo_id = ?`,
+      [input.envKeyId, input.repoId],
+    );
     if (input.savedValueId == null) return;
     const row = await get(
       db,
@@ -390,6 +419,23 @@ export class SqlcipherVardashStore implements VardashStore {
       [input.savedValueId, input.repoId, input.envKeyId],
     );
     if (row == null) throw new Error('Selected vardash saved value does not belong to the repo env key');
+  }
+
+  private async assertKindChangeAllowed(
+    db: SqlcipherDatabase,
+    envKeyId: string,
+    existingKind: VardashValueKind,
+    nextKind: VardashValueKind,
+  ): Promise<void> {
+    if (existingKind !== 'secret' || nextKind !== 'plain') return;
+    const row = await getRequired(
+      db,
+      `SELECT COUNT(*) AS value_count FROM repo_env_saved_values WHERE env_key_id = ?`,
+      [envKeyId],
+    );
+    if (requireNumber(row.value_count, 'value_count') > 0) {
+      throw new Error('Cannot change vardash env key from secret to plain while saved values exist');
+    }
   }
 }
 
@@ -410,11 +456,11 @@ function exec(db: SqlcipherDatabase, sql: string): Promise<void> {
   return new Promise((resolve, reject) => db.exec(sql, (error) => (error ? reject(error) : resolve())));
 }
 
-function run(db: SqlcipherDatabase, sql: string, params: unknown[]): Promise<void> {
+function run(db: SqlcipherDatabase, sql: string, params: unknown[]): Promise<number> {
   return new Promise((resolve, reject) => {
     db.run(sql, params, function runCallback(error) {
       if (error) reject(error);
-      else resolve();
+      else resolve(this.changes);
     });
   });
 }
@@ -476,6 +522,11 @@ function requireKind(value: unknown): VardashValueKind {
 
 function requireString(value: unknown, field: string): string {
   if (typeof value !== 'string') throw new Error(`Expected string for ${field}`);
+  return value;
+}
+
+function requireNumber(value: unknown, field: string): number {
+  if (typeof value !== 'number') throw new Error(`Expected number for ${field}`);
   return value;
 }
 

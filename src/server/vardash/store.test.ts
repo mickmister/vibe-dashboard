@@ -78,6 +78,74 @@ describe('SqlcipherVardashStore', () => {
     expect(JSON.stringify(secretList)).not.toContain('still-hidden');
   });
 
+  it('does not reveal a secret when replaceSavedValue is called with a different plain env key', async () => {
+    const { store } = await createStore();
+    const secretKey = await store.upsertRepoEnvKey({ repoId: 'repo-a', key: 'SECRET', kind: 'secret' });
+    const plainKey = await store.upsertRepoEnvKey({ repoId: 'repo-a', key: 'MODE', kind: 'plain' });
+    const secret = await store.createSavedValue({
+      repoId: 'repo-a',
+      envKeyId: secretKey.id,
+      name: 'prod',
+      value: 'must-never-leak',
+    });
+
+    await expect(
+      store.replaceSavedValue({
+        repoId: 'repo-a',
+        envKeyId: plainKey.id,
+        savedValueId: secret.id,
+        name: 'prod',
+        value: 'ignored',
+      }),
+    ).rejects.toThrow('exactly one');
+
+    const plainList = await store.listSavedValues('repo-a', plainKey.id);
+    const secretList = await store.listSavedValues('repo-a', secretKey.id);
+    expect(plainList).toEqual([]);
+    expect(JSON.stringify(secretList)).not.toContain('must-never-leak');
+  });
+
+  it('blocks secret-to-plain downgrades once saved values exist but allows plain-to-secret', async () => {
+    const { store } = await createStore();
+    const secretKey = await store.upsertRepoEnvKey({ repoId: 'repo-a', key: 'TOKEN', kind: 'secret' });
+    await store.createSavedValue({
+      repoId: 'repo-a',
+      envKeyId: secretKey.id,
+      name: 'prod',
+      value: 'already-secret',
+    });
+
+    await expect(
+      store.upsertRepoEnvKey({ repoId: 'repo-a', key: 'TOKEN', kind: 'plain' }),
+    ).rejects.toThrow('Cannot change vardash env key from secret to plain');
+
+    const plainKey = await store.upsertRepoEnvKey({ repoId: 'repo-a', key: 'MODE', kind: 'plain' });
+    await store.createSavedValue({ repoId: 'repo-a', envKeyId: plainKey.id, name: 'dev', value: 'local' });
+    await expect(
+      store.upsertRepoEnvKey({ repoId: 'repo-a', key: 'MODE', kind: 'secret' }),
+    ).resolves.toMatchObject({ key: 'MODE', kind: 'secret' });
+    const modeValues = await store.listSavedValues('repo-a', plainKey.id);
+    expect(modeValues[0]).not.toHaveProperty('value');
+  });
+
+  it('rejects null selections for env keys outside the requested repo', async () => {
+    const { store } = await createStore();
+    const repoAKey = await store.upsertRepoEnvKey({ repoId: 'repo-a', key: 'TOKEN', kind: 'secret' });
+
+    await expect(
+      store.setRepoDefaultSelection({ repoId: 'repo-b', envKeyId: repoAKey.id, savedValueId: null }),
+    ).rejects.toThrow('Expected vardash row was not found');
+
+    await expect(
+      store.setWorkspaceRepoSelection({
+        workspaceId: 'workspace-1',
+        repoId: 'repo-b',
+        envKeyId: repoAKey.id,
+        savedValueId: null,
+      }),
+    ).rejects.toThrow('Expected vardash row was not found');
+  });
+
   it('persists encrypted SQLCipher data and rejects missing or corrupt keys for an existing DB', async () => {
     const { root, store } = await createStore();
     const key = await store.upsertRepoEnvKey({ repoId: 'repo-a', key: 'SECRET', kind: 'secret' });
