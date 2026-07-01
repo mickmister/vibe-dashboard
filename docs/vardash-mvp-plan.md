@@ -117,6 +117,12 @@ Vardash secrets enter only explicit vardash launches. They must not be merged in
 
 For a workspace containing multiple repos, each repo process receives only the env resolved for that repo/worktree.
 
+Launch planning builds a minimal child environment from an allowlist of baseline
+process variables plus the selected repo's resolved vardash env. Normal
+agent/session env construction does not merge vardash env values. Optional
+Varlock wrapping is applied only to explicit vardash launches and remains a
+validation/redaction wrapper, not the source of truth.
+
 ### Process scope
 
 First implement repo process definitions and preserve legacy `Repo.dev_server_script` compatibility. Defer first-class tmux lifecycle/logging/UI/inspection until secret launch correctness is proven.

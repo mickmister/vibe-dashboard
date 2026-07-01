@@ -67,3 +67,12 @@ export {
   type EnsureLegacyDevServerProcessInput,
   type LegacyDevServerRepoLike,
 } from './process-definitions';
+
+export {
+  VardashLaunchError,
+  buildIsolatedVardashLaunchEnv,
+  buildNormalAgentExecutionEnv,
+  prepareVardashRepoProcessLaunch,
+  type PrepareVardashRepoProcessLaunchInput,
+  type VardashRepoProcessLaunchPlan,
+} from './launch';
