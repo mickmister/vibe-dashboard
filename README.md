@@ -40,9 +40,9 @@ Caddy forwards `port-<port>.*` subdomains to `localhost:<port>` inside the conta
 | Variable | Default | Notes |
 | --- | --- | --- |
 | `CADDY_PORT` | `3001` | Main Caddy entrypoint host port. |
-| `BACKEND_PORT` | `3007` | Backend port exposed inside container env. |
-| `DASHBOARD_PORT` | `3005` | Dashboard port exposed inside container env. |
-| `CODE_PORT` | `3008` | `code-server` port exposed inside container env. |
+| `BACKEND_PORT` | `3007` | Backend service port inside the container. Not published directly by compose. |
+| `DASHBOARD_PORT` | `3005` | Dashboard service port inside the container. Not published directly by compose. |
+| `CODE_PORT` | `3008` | `code-server` service port inside the container. Not published directly by compose. |
 
 #### Optional auth/system
 
@@ -58,6 +58,32 @@ Caddy forwards `port-<port>.*` subdomains to `localhost:<port>` inside the conta
 | `TAILSCALE_AUTHKEY` | empty | Tailscale auth key. |
 | `TAILSCALE_HOSTNAME` | `vkdev` | Tailscale node hostname. |
 | `VK_ALLOWED_ORIGINS` | empty | Optional backend CORS allowlist. |
+
+#### Optional noVNC/Chromium sidecar
+
+The browser sidecar is opt-in. Start it alongside the plugin with:
+
+```bash
+COMPOSE_PROFILES=novnc ENABLE_NOVNC_PLUGIN=true docker compose up
+```
+
+The noVNC UI and Chromium CDP ports are bound to localhost only. Chromium intentionally binds CDP to loopback inside the sidecar; the `novnc-cdp` bridge exposes it to the Compose network and localhost-published host port. Set `NOVNC_USER` and `NOVNC_PASSWORD` if you want browser UI auth.
+
+Smoke-check CDP from the host and from `code-vibe`:
+
+```bash
+curl -fsS http://127.0.0.1:${NOVNC_CDP_PORT:-9223}/json/version
+docker compose --profile novnc exec code-vibe curl -fsS http://novnc:9222/json/version
+```
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `NOVNC_UI_PORT` | `3090` | Host localhost port for the noVNC web UI. |
+| `NOVNC_CDP_PORT` | `9223` | Host localhost port for Chromium DevTools Protocol. |
+| `NOVNC_USER` | empty | Optional noVNC UI username. |
+| `NOVNC_PASSWORD` | empty | Optional noVNC UI password. |
+| `NOVNC_IMAGE` | `lscr.io/linuxserver/chromium:latest` | Browser sidecar image. |
+
 
 ## GitHub auth
 

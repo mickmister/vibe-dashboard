@@ -8,30 +8,41 @@ const tab = (id: string): Tab => ({
   url: `https://example.com/${id}`,
 });
 
+const retained = (groupId: string, id: string) => ({
+  tab: tab(id),
+  iframeKey: `${groupId}:${id}`,
+});
+
 describe('getIframeLayerTabsForPanel', () => {
   it('renders only this panel visible iframe tabs when another owner supplies tiled retention scope', () => {
-    const visibleInThisPanel = [tab('tab_a')];
-    const retainedAcrossTiledLayout = [tab('tab_a'), tab('tab_b')];
+    const visibleInThisPanel = [retained('group_a', 'tab_a')];
+    const retainedAcrossTiledLayout = [
+      retained('group_a', 'tab_a'),
+      retained('group_b', 'tab_b'),
+    ];
 
     expect(
       getIframeLayerTabsForPanel(
         new Set(['tab_a', 'tab_b']),
         visibleInThisPanel,
         retainedAcrossTiledLayout,
-      ).map((entry) => entry.id),
+      ).map((entry) => entry.tab.id),
     ).toEqual(['tab_a']);
   });
 
   it('renders retained tabs in normal single-panel mode so hidden iframes stay hosted', () => {
-    const visibleInThisPanel = [tab('tab_a')];
-    const retainedInSinglePanel = [tab('tab_a'), tab('tab_b')];
+    const visibleInThisPanel = [retained('group_a', 'tab_a')];
+    const retainedInSinglePanel = [
+      retained('group_a', 'tab_a'),
+      retained('group_b', 'tab_b'),
+    ];
 
     expect(
       getIframeLayerTabsForPanel(
         undefined,
         visibleInThisPanel,
         retainedInSinglePanel,
-      ).map((entry) => entry.id),
+      ).map((entry) => entry.tab.id),
     ).toEqual(['tab_a', 'tab_b']);
   });
 });

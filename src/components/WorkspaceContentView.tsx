@@ -216,6 +216,7 @@ function SubVoyageGridView({
   onDeleteSession,
   onStartNewSession,
   onNavigateToTabGroup,
+  onOpenVKWorkspace,
   onDragOver,
   onDragLeave,
   onDrop,
@@ -292,6 +293,7 @@ function SubVoyageGridView({
             onDeleteSession={onDeleteSession}
             onStartNewSession={onStartNewSession}
             onNavigateToTabGroup={onNavigateToTabGroup}
+            onOpenVKWorkspace={onOpenVKWorkspace}
             retainedVisibleTabIds={visibleTabIds}
           />
         ))}
@@ -319,6 +321,7 @@ function SubVoyageCellView({
   onDeleteSession,
   onStartNewSession,
   onNavigateToTabGroup,
+  onOpenVKWorkspace,
   retainedVisibleTabIds,
 }: {
   cell: SubVoyageCell;
@@ -337,6 +340,12 @@ function SubVoyageCellView({
   onDeleteSession: (sessionId: string) => void;
   onStartNewSession: () => void;
   onNavigateToTabGroup: (spaceId: string, tabGroupId: string) => void;
+  onOpenVKWorkspace: (
+    taskAttemptId: string,
+    name: string,
+    containerRef: string,
+    spaceId: string,
+  ) => Promise<void>;
   retainedVisibleTabIds: Set<string>;
 }) {
   const activeEntry =
@@ -430,20 +439,7 @@ function SubVoyageCellView({
             onStartNewSession={onStartNewSession}
             onNavigateToTabGroup={onNavigateToTabGroup}
             onOpenVKWorkspace={async (taskAttemptId, name, containerRef, spaceId) => {
-              const result = await actions.addVKWorkspace({
-                taskAttemptId,
-                name,
-                containerRef,
-                activeSpaceId: spaceId,
-              });
-              if (result) {
-                sessionActions.selectSubVoyageCellTab(
-                  cell.id,
-                  activeEntry?.id || cell.activeVoyageEntryId,
-                  result.tabGroupId,
-                  result.agentTabId,
-                );
-              }
+              await onOpenVKWorkspace(taskAttemptId, name, containerRef, spaceId);
             }}
           />
         ) : (

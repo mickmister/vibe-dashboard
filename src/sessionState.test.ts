@@ -312,6 +312,37 @@ describe('SubVoyage tiling state', () => {
     );
   });
 
+  it('opens or updates a VK workspace craft inside a tiled saved Voyage layout', () => {
+    const tiledLayout = moveVoyageEntryToSubVoyageCell(
+      workspace(),
+      createVoyageLayoutFromEntries(workspace(), [entry(1), entry(2), entry(3)], 'entry_1'),
+      'entry_2',
+      'right',
+    );
+    const vkEntry: VoyageEntry = {
+      id: 'entry_vk',
+      tabGroupId: 'craft_4',
+      viewIds: ['tab_4'],
+    };
+
+    const nextLayout = activateVoyageEntryInLayout(
+      workspace(),
+      upsertVoyageEntryInLayout(workspace(), tiledLayout, vkEntry),
+      vkEntry.id,
+    );
+    const owningCell = nextLayout.cells.find((cell) =>
+      cell.voyageEntries.some((candidate) => candidate.id === vkEntry.id),
+    );
+
+    expect(owningCell).toBeDefined();
+    expect(nextLayout.activeCellId).toBe(owningCell?.id);
+    expect(owningCell?.activeVoyageEntryId).toBe(vkEntry.id);
+    expect(findVoyageEntryInLayout(nextLayout, vkEntry.id)?.entry).toMatchObject(vkEntry);
+    expect(flattenVoyageLayoutEntries(nextLayout)).toEqual(
+      nextLayout.cells.flatMap((cell) => cell.voyageEntries),
+    );
+  });
+
   it('normalizes persisted layouts to a maximum 3x2 grid with valid craft entries', () => {
     const staleLayout: VoyageLayout = {
       version: 1,
