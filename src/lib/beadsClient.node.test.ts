@@ -99,6 +99,38 @@ describe('BeadsClient', () => {
     expect(result.repos[1]).toMatchObject({ initialized: false, beads: [] });
   });
 
+  it('resolves owner/repo workspace repo names to basename checkout directories', async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), 'beads-workspace-'));
+    await mkdir(join(workspaceDir, 'repo-a', '.beads'), { recursive: true });
+    const exec = vi.fn<ExecFileLike>(async (_file, args, options) => {
+      expect(options.cwd).toBe(join(workspaceDir, 'repo-a'));
+      if (args[0] === 'list') return { stdout: JSON.stringify([{ id: 'current' }]), stderr: '' };
+      if (args[0] === 'show') {
+        return {
+          stdout: JSON.stringify([
+            { id: 'current', title: 'Current', metadata: { VK_WORKSPACE_ID: 'workspace-1' } },
+          ]),
+          stderr: '',
+        };
+      }
+      return { stdout: '[]', stderr: '' };
+    });
+    const client = new BeadsClient({ execFile: exec });
+
+    const result = await client.listWorkspaceBeads({
+      workspaceId: 'workspace-1',
+      workspaceDir,
+      repos: [{ id: 'repo-a', name: 'owner/repo-a', display_name: 'owner/repo-a' }],
+    });
+
+    expect(result.repos[0]).toMatchObject({
+      dir: join(workspaceDir, 'repo-a'),
+      initialized: true,
+    });
+    expect(result.repos[0]!.error).toBeUndefined();
+    expect(result.repos[0]!.beads.map((bead) => bead.id)).toEqual(['current']);
+  });
+
   it('can opt in to showing unscoped and other-workspace beads', async () => {
     const workspaceDir = await mkdtemp(join(tmpdir(), 'beads-workspace-'));
     await mkdir(join(workspaceDir, 'repo-a', '.beads'), { recursive: true });

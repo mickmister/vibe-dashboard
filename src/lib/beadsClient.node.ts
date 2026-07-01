@@ -4,7 +4,7 @@ import { execFile } from 'node:child_process';
 import { access } from 'node:fs/promises';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { promisify } from 'node:util';
 
 import {
@@ -61,6 +61,7 @@ export type BeadsWorkspaceRepo = {
 export type BeadsRepoListResult = {
   repo: BeadsWorkspaceRepo;
   dir: string;
+  dirExists?: boolean;
   initialized: boolean;
   beads: BeadLike[];
   unscopedCount: number;
@@ -111,13 +112,19 @@ export class BeadsClient {
   async listWorkspaceBeads(input: {
     workspaceId: string;
     workspaceDir: string;
+    agentWorkingDir?: string | null;
     repos: BeadsWorkspaceRepo[];
     includeOtherWorkspaces?: boolean;
   }): Promise<ListWorkspaceBeadsResult> {
     const repos = await Promise.all(input.repos.map(async (repo) => {
-      const dir = join(input.workspaceDir, repo.name);
+      const { dir, exists } = await resolveWorkspaceRepoDir({
+        workspaceDir: input.workspaceDir,
+        agentWorkingDir: input.agentWorkingDir,
+        repo,
+      });
       return this.listRepoBeads({
         dir,
+        dirExists: exists,
         repo,
         workspaceId: input.workspaceId,
         includeOtherWorkspaces: input.includeOtherWorkspaces ?? false,
@@ -128,16 +135,31 @@ export class BeadsClient {
 
   private async listRepoBeads(input: {
     dir: string;
+    dirExists: boolean;
     repo: BeadsWorkspaceRepo;
     workspaceId: string;
     includeOtherWorkspaces: boolean;
   }): Promise<BeadsRepoListResult> {
+    if (!input.dirExists) {
+      return {
+        repo: input.repo,
+        dir: input.dir,
+        dirExists: false,
+        initialized: false,
+        beads: [],
+        unscopedCount: 0,
+        otherWorkspaceCount: 0,
+        error: `Repo directory not found: ${input.dir}`,
+      };
+    }
+
     try {
       await access(join(input.dir, '.beads'));
     } catch {
       return {
         repo: input.repo,
         dir: input.dir,
+        dirExists: true,
         initialized: false,
         beads: [],
         unscopedCount: 0,
@@ -168,6 +190,7 @@ export class BeadsClient {
       return {
         repo: input.repo,
         dir: input.dir,
+        dirExists: true,
         initialized: true,
         beads: input.includeOtherWorkspaces
           ? beads
@@ -179,6 +202,7 @@ export class BeadsClient {
       return {
         repo: input.repo,
         dir: input.dir,
+        dirExists: true,
         initialized: true,
         beads: [],
         unscopedCount: 0,
@@ -258,6 +282,49 @@ export class BeadsClient {
 
 export function createNodeBeadsClient(options?: BeadsClientOptions): BeadsClient {
   return new BeadsClient(options);
+}
+
+async function resolveWorkspaceRepoDir(input: {
+  workspaceDir: string;
+  agentWorkingDir?: string | null;
+  repo: BeadsWorkspaceRepo;
+}): Promise<{ dir: string; exists: boolean }> {
+  const candidates = repoDirCandidates(input);
+  for (const dir of candidates) {
+    try {
+      await access(dir);
+      return { dir, exists: true };
+    } catch {
+      // Try the next documented workspace layout candidate.
+    }
+  }
+
+  return { dir: candidates[0] ?? join(input.workspaceDir, input.repo.name), exists: false };
+}
+
+function repoDirCandidates(input: {
+  workspaceDir: string;
+  agentWorkingDir?: string | null;
+  repo: BeadsWorkspaceRepo;
+}): string[] {
+  const candidates = [
+    join(input.workspaceDir, input.repo.name),
+  ];
+  const displayOrNameBase = cleanRepoDirBasename(input.repo.display_name ?? input.repo.name);
+  if (displayOrNameBase) candidates.push(join(input.workspaceDir, displayOrNameBase));
+
+  const nameBase = cleanRepoDirBasename(input.repo.name);
+  if (nameBase) candidates.push(join(input.workspaceDir, nameBase));
+
+  if (input.agentWorkingDir && nameBase && cleanRepoDirBasename(input.agentWorkingDir) === nameBase) {
+    candidates.push(input.agentWorkingDir);
+  }
+
+  return Array.from(new Set(candidates));
+}
+
+function cleanRepoDirBasename(value: string): string {
+  return basename(value).replace(/\.git$/, '');
 }
 
 function parseBdJsonArray<T>(stdout: string | Buffer): T[] {

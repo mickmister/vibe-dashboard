@@ -227,10 +227,10 @@ function BeadsFormRoute({ actions }: { actions: {
             <section key={repo.dir}>
               <h3>{repo.repo.display_name ?? repo.repo.name}</h3>
               <p><code>{repo.dir}</code></p>
-              {!repo.initialized ? (
-                <p>This repo is not initialized for beads yet. Run <code>bd init</code> in this repo to track beads here.</p>
-              ) : repo.error ? (
+              {repo.error ? (
                 <p role="alert" className="beadsform-error">{repo.error}</p>
+              ) : !repo.initialized ? (
+                <p>This repo is not initialized for beads yet. Run <code>bd init</code> in this repo to track beads here.</p>
               ) : repo.beads.length === 0 ? (
                 <p>No matching beads. {repo.unscopedCount + repo.otherWorkspaceCount > 0 && !includeOtherWorkspaces ? 'Use “Show all beads” to include unscoped and other-workspace beads.' : null}</p>
               ) : (
@@ -326,6 +326,7 @@ springboard.registerModule(
         const workspaceBeads = await nodeClient().listWorkspaceBeads({
           workspaceId: input.workspaceId,
           workspaceDir,
+          agentWorkingDir: workspace.agent_working_dir,
           repos,
           includeOtherWorkspaces: input.includeOtherWorkspaces ?? false,
         });
