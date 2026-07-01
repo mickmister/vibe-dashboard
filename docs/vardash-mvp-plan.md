@@ -146,6 +146,8 @@ The UI must communicate:
 
 - Workspace-repo selection overrides repo default.
 - Repo default is used when workspace-repo selection is unset.
+- A workspace-repo selection row with `savedValueId: null` means "inherit the
+  repo default" for MVP; it does not mean "force no value".
 - Required keys with no resolved value are reported.
 - Secret metadata excludes raw values.
 

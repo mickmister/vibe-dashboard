@@ -23,3 +23,20 @@ export {
   type VardashStore,
   type VardashValueKind,
 } from './store';
+
+export {
+  importVardashEnv,
+  parseDotenv,
+  type DotenvParseDiagnostic,
+  type ImportVardashEnvInput,
+  type ImportVardashEnvResult,
+  type ParsedDotenv,
+  type ParsedDotenvEntry,
+  type VardashEnvImportSource,
+} from './import-parser';
+
+export {
+  resolveVardashRepoEnv,
+  type ResolveVardashRepoEnvInput,
+  type VardashResolvedEnv,
+} from './resolver';
