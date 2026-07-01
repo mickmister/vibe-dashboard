@@ -168,6 +168,48 @@ describe('vardash API boundary', () => {
     expect((await store.listRepoEnvKeys('repo-a')).map((key) => key.key)).toEqual(['API_TOKEN', 'PORT']);
   });
 
+  it('preflights secret-to-plain import conflicts before creating earlier keys', async () => {
+    const { app, store } = await createApi();
+    const tokenKey = await store.upsertRepoEnvKey({ repoId: 'repo-a', key: 'TOKEN', kind: 'secret' });
+    await store.createSavedValue({
+      repoId: 'repo-a',
+      envKeyId: tokenKey.id,
+      name: 'prod',
+      value: 'existing-secret',
+    });
+
+    const response = await postJson(app, '/dashboard/api/vardash/repos/repo-a/import', {
+      source: 'pasted-env',
+      content: 'NEW_KEY=value\nTOKEN=not-plain\n',
+      plainKeys: ['TOKEN'],
+      savedValueName: 'local',
+    });
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      conflicts: [{ key: 'TOKEN', reason: 'secret_to_plain_with_existing_values' }],
+    });
+    expect((await store.listRepoEnvKeys('repo-a')).map((key) => key.key)).toEqual(['TOKEN']);
+  });
+
+  it('does not echo malformed pasted secret material in import diagnostics', async () => {
+    const { app } = await createApi();
+    const pastedSecret = 'sk-live-this-should-not-echo';
+
+    const response = await postJson(app, '/dashboard/api/vardash/repos/repo-a/import', {
+      source: 'pasted-env',
+      content: pastedSecret,
+      dryRun: true,
+    });
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body).toMatchObject({
+      diagnostics: [{ line: 1, message: 'Invalid environment variable key' }],
+    });
+    expect(JSON.stringify(body)).not.toContain(pastedSecret);
+  });
+
   it('supports dry-run sample import plans without mutating the store', async () => {
     const { app, store } = await createApi();
 

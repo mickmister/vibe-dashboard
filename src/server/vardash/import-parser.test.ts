@@ -46,7 +46,16 @@ INVALID-KEY=value
       { key: 'NO_ASSIGNMENT', value: '', line: 7, hasAssignment: false },
       { key: 'ESCAPED', value: 'line\nnext', line: 8, hasAssignment: true },
     ]);
-    expect(parsed.diagnostics).toEqual([{ line: 9, message: 'Invalid environment variable key: INVALID-KEY' }]);
+    expect(parsed.diagnostics).toEqual([{ line: 9, message: 'Invalid environment variable key' }]);
+  });
+
+  it('does not echo malformed secret-like input in diagnostics', () => {
+    const pastedSecret = 'sk-live-this-should-not-echo';
+    const parsed = parseDotenv(pastedSecret);
+
+    expect(parsed.entries).toEqual([]);
+    expect(parsed.diagnostics).toEqual([{ line: 1, message: 'Invalid environment variable key' }]);
+    expect(JSON.stringify(parsed.diagnostics)).not.toContain(pastedSecret);
   });
 });
 

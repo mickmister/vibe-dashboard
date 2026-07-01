@@ -50,7 +50,7 @@ export function parseDotenv(content: string): ParsedDotenv {
     const equalsIndex = withoutExport.indexOf('=');
     const rawKey = equalsIndex >= 0 ? withoutExport.slice(0, equalsIndex).trim() : withoutExport.trim();
     if (!ENV_KEY_PATTERN.test(rawKey)) {
-      diagnostics.push({ line, message: `Invalid environment variable key: ${rawKey || '(empty)'}` });
+      diagnostics.push({ line, message: 'Invalid environment variable key' });
       return;
     }
 

@@ -13,7 +13,7 @@ export interface RegisterVardashRoutesOptions {
 
 export interface VardashImportConflict {
   key: string;
-  reason: 'duplicate_key_in_import' | 'saved_value_name_exists';
+  reason: 'duplicate_key_in_import' | 'saved_value_name_exists' | 'secret_to_plain_with_existing_values';
   savedValueName?: string;
 }
 
@@ -185,6 +185,10 @@ export async function preflightImport(input: {
       const existingKey = existingKeys.find((key) => key.key === entry.key);
       if (!existingKey) continue;
       const values = await input.store.listSavedValues(input.repoId, existingKey.id);
+      const nextKind: VardashValueKind = plainKeys.has(entry.key) ? 'plain' : 'secret';
+      if (existingKey.kind === 'secret' && nextKind === 'plain' && values.length > 0) {
+        conflicts.push({ key: entry.key, reason: 'secret_to_plain_with_existing_values' });
+      }
       if (values.some((value) => value.name === input.savedValueName)) {
         conflicts.push({
           key: entry.key,
