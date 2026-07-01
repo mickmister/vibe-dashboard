@@ -1,3 +1,6 @@
+import { mkdir, mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { BeadsClient, type ExecFileLike } from './beadsClient.node';
 
@@ -60,5 +63,63 @@ describe('BeadsClient', () => {
     expect(result.warnings).toEqual([
       'Form response was saved, but adding label "needs-agent-review" failed: label failed',
     ]);
+  });
+
+  it('lists only current-workspace beads by default across initialized repos', async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), 'beads-workspace-'));
+    await mkdir(join(workspaceDir, 'repo-a', '.beads'), { recursive: true });
+    await mkdir(join(workspaceDir, 'repo-b'), { recursive: true });
+    const exec = vi.fn<ExecFileLike>(async (_file, args, options) => {
+      if (options.cwd.endsWith('repo-a') && args[0] === 'list') {
+        return { stdout: JSON.stringify([{ id: 'current' }, { id: 'other' }, { id: 'unscoped' }]), stderr: '' };
+      }
+      if (options.cwd.endsWith('repo-a') && args[0] === 'show') {
+        return { stdout: JSON.stringify([
+          { id: 'current', title: 'Current', metadata: { VK_WORKSPACE_ID: 'workspace-1' } },
+          { id: 'other', title: 'Other', metadata: { VK_WORKSPACE_ID: 'workspace-2' } },
+          { id: 'unscoped', title: 'Unscoped', metadata: {} },
+        ]), stderr: '' };
+      }
+      return { stdout: '[]', stderr: '' };
+    });
+    const client = new BeadsClient({ execFile: exec });
+
+    const result = await client.listWorkspaceBeads({
+      workspaceId: 'workspace-1',
+      workspaceDir,
+      repos: [{ id: 'repo-a', name: 'repo-a' }, { id: 'repo-b', name: 'repo-b' }],
+    });
+
+    expect(result.repos[0]).toMatchObject({
+      initialized: true,
+      unscopedCount: 1,
+      otherWorkspaceCount: 1,
+    });
+    expect(result.repos[0]!.beads.map((bead) => bead.id)).toEqual(['current']);
+    expect(result.repos[1]).toMatchObject({ initialized: false, beads: [] });
+  });
+
+  it('can opt in to showing unscoped and other-workspace beads', async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), 'beads-workspace-'));
+    await mkdir(join(workspaceDir, 'repo-a', '.beads'), { recursive: true });
+    const exec = vi.fn<ExecFileLike>(async (_file, args) => {
+      if (args[0] === 'list') return { stdout: JSON.stringify([{ id: 'current' }, { id: 'other' }, { id: 'unscoped' }]), stderr: '' };
+      if (args[0] === 'show') return { stdout: JSON.stringify([
+        { id: 'current', title: 'Current', metadata: { VK_WORKSPACE_ID: 'workspace-1' } },
+        { id: 'other', title: 'Other', metadata: { VK_WORKSPACE_ID: 'workspace-2' } },
+        { id: 'unscoped', title: 'Unscoped', metadata: {} },
+      ]), stderr: '' };
+      return { stdout: '[]', stderr: '' };
+    });
+    const client = new BeadsClient({ execFile: exec });
+
+    const result = await client.listWorkspaceBeads({
+      workspaceId: 'workspace-1',
+      workspaceDir,
+      repos: [{ id: 'repo-a', name: 'repo-a' }],
+      includeOtherWorkspaces: true,
+    });
+
+    expect(result.repos[0]!.beads.map((bead) => bead.id)).toEqual(['current', 'other', 'unscoped']);
   });
 });

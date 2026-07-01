@@ -11,9 +11,8 @@ import { createDefaultWorkspace, getDefaultSpace } from "./types";
 import type { ResolvedWorkspaceComposition } from "./modules/plugins/vibe-dashboard/workspace-composition";
 import {
   BUILT_IN_AGENT_CODE_PAIR_ID,
-  BUILT_IN_AGENT_BEADS_PAIR_ID,
   BUILT_IN_AGENT_TAB_ID,
-  BUILT_IN_BEADS_TAB_ID,
+  BUILT_IN_FORMS_TAB_ID,
   isEphemeralCraftSurfaceTabId,
   migrateWorkspaceBuiltInTabs,
 } from "./modules/plugins/vibe-dashboard/craft-surfaces";
@@ -992,21 +991,24 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
       return { firstTabId, tabGroupId: args.tabGroupId };
     },
 
-    openBeadSplit: async (args: {
+    openFormsForBead: async (args: {
       tabGroupId: string;
       agentTabId: string;
       beadId: string;
     }) => {
-      const tabGroup = workspaceState
-        .getState()
-        .tabGroups.find((candidate) => candidate.id === args.tabGroupId);
-      if (!tabGroup?.workspace?.workspaceId) return undefined;
       if (args.agentTabId !== BUILT_IN_AGENT_TAB_ID) return undefined;
+      let opened = false;
+      workspaceState.setStateImmer((draft) => {
+        const tabGroup = draft.tabGroups.find((candidate) => candidate.id === args.tabGroupId);
+        if (!tabGroup?.workspace?.workspaceId) return;
+        tabGroup.workspace.formsBeadId = args.beadId;
+        opened = true;
+      });
+      if (!opened) return undefined;
 
       return {
         tabGroupId: args.tabGroupId,
-        pairId: BUILT_IN_AGENT_BEADS_PAIR_ID,
-        beadsTabId: BUILT_IN_BEADS_TAB_ID,
+        formsTabId: BUILT_IN_FORMS_TAB_ID,
       };
     },
 

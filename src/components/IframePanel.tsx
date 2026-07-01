@@ -29,6 +29,7 @@ interface IframePanelProps {
   onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void | Promise<void>;
   onOpenVKWorkspace?: (taskAttemptId: string, name: string, containerRef: string, spaceId: string) => void | Promise<void>;
   onBeadReferenceClick?: (agentTabId: string, beadId: string) => void | Promise<void>;
+  onBeadFormSubmitted?: (formsTabId: string) => void | Promise<void>;
 }
 
 /**
@@ -227,6 +228,10 @@ function formatHostnameForOrigin(hostname: string): string {
 }
 
 function isSelfAppPath(pathname: string, searchParams: URLSearchParams): boolean {
+  if (pathname === '/dashboard/forms') {
+    return false;
+  }
+
   if (pathname === '/dashboard' || pathname.startsWith('/dashboard/')) {
     return true;
   }
@@ -446,6 +451,14 @@ function isBeadReferenceClickMessage(data: unknown): data is {
     typeof message.beadId === 'string' &&
     /^[A-Za-z][A-Za-z0-9_]*-[A-Za-z0-9][A-Za-z0-9._-]*$/.test(message.beadId)
   );
+}
+
+function isBeadFormSubmittedMessage(data: unknown): data is {
+  type: 'vk:bead-form-submitted';
+} {
+  if (!data || typeof data !== 'object') return false;
+  const message = data as { type?: unknown };
+  return message.type === 'vk:bead-form-submitted';
 }
 
 function getIframeRetentionKey(tabGroupId: string, tabId: string): string {
@@ -727,6 +740,7 @@ export function IframePanel({
   onNavigateToTabGroup,
   onOpenVKWorkspace,
   onBeadReferenceClick,
+  onBeadFormSubmitted,
 }: IframePanelProps) {
   const activeTab = tabGroup.tabs.find(
     (t) => t.id === activeItemId
@@ -776,21 +790,26 @@ export function IframePanel({
   );
 
   useEffect(() => {
-    if (!onBeadReferenceClick) return;
+    if (!onBeadReferenceClick && !onBeadFormSubmitted) return;
 
     const handleMessage = (event: MessageEvent) => {
-      if (!isBeadReferenceClickMessage(event.data)) return;
+      if (!isBeadReferenceClickMessage(event.data) && !isBeadFormSubmittedMessage(event.data)) return;
 
       const sourceTabId = findTabIdForMessageSource(event.source);
       if (!sourceTabId) return;
       if (!tabGroup.tabs.some((tab) => tab.id === sourceTabId)) return;
 
-      void onBeadReferenceClick(sourceTabId, event.data.beadId);
+      if (isBeadReferenceClickMessage(event.data)) {
+        void onBeadReferenceClick?.(sourceTabId, event.data.beadId);
+        return;
+      }
+
+      void onBeadFormSubmitted?.(sourceTabId);
     };
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [onBeadReferenceClick, tabGroup.tabs]);
+  }, [onBeadFormSubmitted, onBeadReferenceClick, tabGroup.tabs]);
 
   return (
     <div className="w-full h-full relative">

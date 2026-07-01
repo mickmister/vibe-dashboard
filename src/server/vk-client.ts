@@ -113,6 +113,10 @@ export class VibeKanbanServerClient {
     return this.get('/workspaces');
   }
 
+  getWorkspace(workspaceId: string): Promise<Workspace> {
+    return this.get(`/workspaces/${encodeURIComponent(workspaceId)}`);
+  }
+
   getWorkspaceRepos(workspaceId: string): Promise<RepoWithBranch[]> {
     return this.get(`/workspaces/${encodeURIComponent(workspaceId)}/repos`);
   }

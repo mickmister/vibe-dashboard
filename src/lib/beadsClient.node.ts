@@ -1,6 +1,7 @@
 /// <reference types="node" />
 
 import { execFile } from 'node:child_process';
+import { access } from 'node:fs/promises';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -50,6 +51,28 @@ export type SubmitBeadsFormResult = {
   warnings: string[];
 };
 
+export type BeadsWorkspaceRepo = {
+  id: string;
+  name: string;
+  display_name?: string;
+  target_branch?: string;
+};
+
+export type BeadsRepoListResult = {
+  repo: BeadsWorkspaceRepo;
+  dir: string;
+  initialized: boolean;
+  beads: BeadLike[];
+  unscopedCount: number;
+  otherWorkspaceCount: number;
+  error?: string;
+};
+
+export type ListWorkspaceBeadsResult = {
+  workspaceId: string;
+  repos: BeadsRepoListResult[];
+};
+
 export class BeadsClient {
   private readonly bdPath: string;
   private readonly exec: ExecFileLike;
@@ -83,6 +106,86 @@ export class BeadsClient {
   async readForms(dir: string, beadId: string): Promise<{ bead: BeadLike; forms: BeadsFormDefinition[] }> {
     const bead = await this.readBead(dir, beadId);
     return { bead, forms: getBeadsForms(bead.metadata) };
+  }
+
+  async listWorkspaceBeads(input: {
+    workspaceId: string;
+    workspaceDir: string;
+    repos: BeadsWorkspaceRepo[];
+    includeOtherWorkspaces?: boolean;
+  }): Promise<ListWorkspaceBeadsResult> {
+    const repos = await Promise.all(input.repos.map(async (repo) => {
+      const dir = join(input.workspaceDir, repo.name);
+      return this.listRepoBeads({
+        dir,
+        repo,
+        workspaceId: input.workspaceId,
+        includeOtherWorkspaces: input.includeOtherWorkspaces ?? false,
+      });
+    }));
+    return { workspaceId: input.workspaceId, repos };
+  }
+
+  private async listRepoBeads(input: {
+    dir: string;
+    repo: BeadsWorkspaceRepo;
+    workspaceId: string;
+    includeOtherWorkspaces: boolean;
+  }): Promise<BeadsRepoListResult> {
+    try {
+      await access(join(input.dir, '.beads'));
+    } catch {
+      return {
+        repo: input.repo,
+        dir: input.dir,
+        initialized: false,
+        beads: [],
+        unscopedCount: 0,
+        otherWorkspaceCount: 0,
+      };
+    }
+
+    try {
+      const { stdout } = await this.exec(this.bdPath, ['list', '--json', '--all', '--limit', '0'], {
+        cwd: input.dir,
+        timeout: 30_000,
+        maxBuffer: 1024 * 1024 * 10,
+      });
+      const listed = parseBdJsonArray<BeadLike>(stdout);
+      const ids = listed.map((bead) => bead.id).filter(Boolean);
+      const beads = ids.length > 0
+        ? parseBdJsonArray<BeadLike>((await this.exec(this.bdPath, ['show', ...ids, '--json', '--long'], {
+          cwd: input.dir,
+          timeout: 30_000,
+          maxBuffer: 1024 * 1024 * 20,
+        })).stdout)
+        : [];
+      const unscopedCount = beads.filter((bead) => !getMetadataString(bead.metadata, 'VK_WORKSPACE_ID')).length;
+      const otherWorkspaceCount = beads.filter((bead) => {
+        const beadWorkspaceId = getMetadataString(bead.metadata, 'VK_WORKSPACE_ID');
+        return !!beadWorkspaceId && beadWorkspaceId !== input.workspaceId;
+      }).length;
+      return {
+        repo: input.repo,
+        dir: input.dir,
+        initialized: true,
+        beads: input.includeOtherWorkspaces
+          ? beads
+          : beads.filter((bead) => getMetadataString(bead.metadata, 'VK_WORKSPACE_ID') === input.workspaceId),
+        unscopedCount,
+        otherWorkspaceCount,
+      };
+    } catch (error) {
+      return {
+        repo: input.repo,
+        dir: input.dir,
+        initialized: true,
+        beads: [],
+        unscopedCount: 0,
+        otherWorkspaceCount: 0,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
   async submitForm(input: SubmitBeadsFormInput): Promise<SubmitBeadsFormResult> {
@@ -155,4 +258,17 @@ export class BeadsClient {
 
 export function createNodeBeadsClient(options?: BeadsClientOptions): BeadsClient {
   return new BeadsClient(options);
+}
+
+function parseBdJsonArray<T>(stdout: string | Buffer): T[] {
+  const text = String(stdout);
+  const jsonStart = text.indexOf('[');
+  if (jsonStart < 0) return [];
+  return JSON.parse(text.slice(jsonStart)) as T[];
+}
+
+function getMetadataString(metadata: unknown, key: string): string | undefined {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return undefined;
+  const value = (metadata as Record<string, unknown>)[key];
+  return typeof value === 'string' && value.trim() ? value : undefined;
 }

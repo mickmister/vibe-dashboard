@@ -13,7 +13,8 @@ import {
 } from '../lib/beadsFormCore';
 
 // @platform "node"
-import { createNodeBeadsClient } from '../lib/beadsClient.node';
+import { createNodeBeadsClient, type ListWorkspaceBeadsResult } from '../lib/beadsClient.node';
+import { VibeKanbanServerClient } from '../server/vk-client';
 // @platform end
 
 type LoadFormsInput = {
@@ -22,10 +23,24 @@ type LoadFormsInput = {
   formId?: string;
 };
 
+type LoadWorkspaceFormsInput = {
+  workspaceId: string;
+  beadId?: string;
+  formId?: string;
+  includeOtherWorkspaces?: boolean;
+};
+
 type LoadFormsResult = {
   bead: BeadLike;
   forms: BeadsFormDefinition[];
   selectedForm?: BeadsFormDefinition;
+  beadRepoDir: string;
+};
+
+type LoadWorkspaceFormsResult = {
+  workspaceId: string;
+  workspaceBeads: ListWorkspaceBeadsResult;
+  selected?: LoadFormsResult;
 };
 
 type SubmitFormInput = {
@@ -52,9 +67,20 @@ function nodeClient() {
   return createNodeBeadsClient();
 }
 
-function formViewUrl(args: { dir: string; beadId: string; formId?: string }): string {
-  const params = new URLSearchParams({ dir: args.dir, bead: args.beadId });
+function vkClient() {
+  if (typeof VibeKanbanServerClient !== 'function') {
+    throw new Error('VK client is only available on the node side of the BeadsForm module');
+  }
+  return new VibeKanbanServerClient();
+}
+
+function formViewUrl(args: { workspaceId?: string; dir?: string; beadId?: string; formId?: string; includeOtherWorkspaces?: boolean }): string {
+  const params = new URLSearchParams();
+  if (args.workspaceId) params.set('workspace', args.workspaceId);
+  if (args.dir) params.set('dir', args.dir);
+  if (args.beadId) params.set('bead', args.beadId);
   if (args.formId) params.set('form', args.formId);
+  if (args.includeOtherWorkspaces) params.set('scope', 'all');
   return `/dashboard/forms?${params.toString()}`;
 }
 
@@ -62,14 +88,17 @@ type MaybeNestedPromise<T> = Promise<T> | Promise<Promise<T>>;
 
 function BeadsFormRoute({ actions }: { actions: {
   loadBeadForms: (input: LoadFormsInput) => MaybeNestedPromise<LoadFormsResult>;
+  loadWorkspaceForms: (input: LoadWorkspaceFormsInput) => MaybeNestedPromise<LoadWorkspaceFormsResult>;
   submitBeadForm: (input: SubmitFormInput) => MaybeNestedPromise<SubmitFormResult>;
 } }) {
   const [params] = useSearchParams();
+  const workspaceId = params.get('workspace') ?? '';
   const dir = params.get('dir') ?? '';
   const beadId = params.get('bead') ?? '';
   const formId = params.get('form') ?? undefined;
+  const includeOtherWorkspaces = params.get('scope') === 'all';
   const returnTo = params.get('returnTo') ?? '';
-  const [loaded, setLoaded] = useState<LoadFormsResult | null>(null);
+  const [loaded, setLoaded] = useState<LoadWorkspaceFormsResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitResult, setSubmitResult] = useState<SubmitFormResult | null>(null);
@@ -81,14 +110,35 @@ function BeadsFormRoute({ actions }: { actions: {
     setError(null);
     setSubmitResult(null);
 
-    if (!dir || !beadId) {
-      setError('Forms require dir and bead query parameters.');
+    if (!workspaceId && (!dir || !beadId)) {
+      setError('Forms require a workspace query parameter, or dir and bead query parameters.');
       return;
     }
 
     void (async () => {
       try {
-        const result = await (await actions.loadBeadForms({ dir, beadId, formId }));
+        const result = workspaceId
+          ? await (await actions.loadWorkspaceForms({
+            workspaceId,
+            ...(beadId ? { beadId } : {}),
+            ...(formId ? { formId } : {}),
+            includeOtherWorkspaces,
+          }))
+          : {
+            workspaceId: '',
+            workspaceBeads: {
+              workspaceId: '',
+              repos: [{
+                repo: { id: 'direct', name: dir },
+                dir,
+                initialized: true,
+                beads: [],
+                unscopedCount: 0,
+                otherWorkspaceCount: 0,
+              }],
+            },
+            selected: await (await actions.loadBeadForms({ dir, beadId, formId })),
+          };
         if (!cancelled) setLoaded(result);
       } catch (reason) {
         if (!cancelled) setError(reason instanceof Error ? reason.message : String(reason));
@@ -98,16 +148,16 @@ function BeadsFormRoute({ actions }: { actions: {
     return () => {
       cancelled = true;
     };
-  }, [actions, beadId, dir, formId]);
+  }, [actions, beadId, dir, formId, includeOtherWorkspaces, workspaceId]);
 
   const selectedHtml = useMemo(() => {
-    if (!loaded?.selectedForm) return '';
-    return sanitizeBeadsFormHtml(loaded.selectedForm.html);
-  }, [loaded?.selectedForm]);
+    if (!loaded?.selected?.selectedForm) return '';
+    return sanitizeBeadsFormHtml(loaded.selected.selectedForm.html);
+  }, [loaded?.selected?.selectedForm]);
 
   const handleSubmit = async (event: React.FormEvent<HTMLDivElement>) => {
     const target = event.target;
-    if (!(target instanceof HTMLFormElement) || !loaded?.selectedForm) return;
+    if (!(target instanceof HTMLFormElement) || !loaded?.selected?.selectedForm) return;
     event.preventDefault();
     if (submitInFlightRef.current) return;
     if (!target.reportValidity()) return;
@@ -118,13 +168,16 @@ function BeadsFormRoute({ actions }: { actions: {
     setError(null);
     try {
       const result = await (await actions.submitBeadForm({
-        dir,
+        dir: loaded.selected.beadRepoDir,
         beadId,
-        formId: loaded.selectedForm.id,
+        formId: loaded.selected.selectedForm.id,
         values,
       }));
       setSubmitResult(result);
       await navigator.clipboard?.writeText(result.agentMessage).catch(() => undefined);
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage({ type: 'vk:bead-form-submitted' }, window.location.origin);
+      }
       if (returnTo) {
         window.location.assign(returnTo);
       }
@@ -144,17 +197,57 @@ function BeadsFormRoute({ actions }: { actions: {
     return <div className="beadsform-root beadsform-page"><h1>Forms</h1><p>Loading bead form…</p></div>;
   }
 
-  const { bead, forms, selectedForm } = loaded;
+  const selected = loaded.selected;
+  const bead = selected?.bead;
+  const forms = selected?.forms ?? [];
+  const selectedForm = selected?.selectedForm;
 
   return (
     <div className="beadsform-root beadsform-page">
       <header>
-        <p className="beadsform-eyebrow">Bead form</p>
-        <h1>{bead.id}: {bead.title ?? 'Untitled bead'}</h1>
-        {bead.description ? <p>{bead.description}</p> : null}
+        <p className="beadsform-eyebrow">Forms</p>
+        <h1>{bead ? `${bead.id}: ${bead.title ?? 'Untitled bead'}` : 'Workspace forms'}</h1>
+        {bead?.description ? <p>{bead.description}</p> : null}
       </header>
 
-      {forms.length === 0 ? (
+      {!selected ? (
+        <section>
+          <div className="beadsform-heading-row">
+            <div>
+              <h2>Workspace beads</h2>
+              <p>Select a bead to view its forms. By default this only shows beads created for this workspace.</p>
+            </div>
+            {workspaceId ? (
+              <a href={formViewUrl({ workspaceId, includeOtherWorkspaces: !includeOtherWorkspaces })}>
+                {includeOtherWorkspaces ? 'Show workspace beads only' : 'Show all beads'}
+              </a>
+            ) : null}
+          </div>
+          {loaded.workspaceBeads.repos.map((repo) => (
+            <section key={repo.dir}>
+              <h3>{repo.repo.display_name ?? repo.repo.name}</h3>
+              <p><code>{repo.dir}</code></p>
+              {!repo.initialized ? (
+                <p>This repo is not initialized for beads yet. Run <code>bd init</code> in this repo to track beads here.</p>
+              ) : repo.error ? (
+                <p role="alert" className="beadsform-error">{repo.error}</p>
+              ) : repo.beads.length === 0 ? (
+                <p>No matching beads. {repo.unscopedCount + repo.otherWorkspaceCount > 0 && !includeOtherWorkspaces ? 'Use “Show all beads” to include unscoped and other-workspace beads.' : null}</p>
+              ) : (
+                <ul>
+                  {repo.beads.map((repoBead) => (
+                    <li key={`${repo.dir}:${repoBead.id}`}>
+                      <a href={formViewUrl({ workspaceId, beadId: repoBead.id, includeOtherWorkspaces })}>
+                        {repoBead.id}: {repoBead.title ?? 'Untitled bead'}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          ))}
+        </section>
+      ) : forms.length === 0 ? (
         <p>This bead has no attached forms.</p>
       ) : !selectedForm ? (
         <section>
@@ -162,7 +255,7 @@ function BeadsFormRoute({ actions }: { actions: {
           <ul>
             {forms.map((form) => (
               <li key={form.id}>
-                <a href={formViewUrl({ dir, beadId, formId: form.id })}>{form.title}</a>
+                <a href={formViewUrl({ workspaceId, dir: selected.beadRepoDir, beadId, formId: form.id, includeOtherWorkspaces })}>{form.title}</a>
                 {form.description ? <p>{form.description}</p> : null}
               </li>
             ))}
@@ -175,7 +268,7 @@ function BeadsFormRoute({ actions }: { actions: {
               <h2>{selectedForm.title}</h2>
               {selectedForm.description ? <p>{selectedForm.description}</p> : null}
             </div>
-            {forms.length > 1 ? <a href={formViewUrl({ dir, beadId })}>All forms</a> : null}
+            {forms.length > 1 ? <a href={formViewUrl({ workspaceId, dir: selected.beadRepoDir, beadId, includeOtherWorkspaces })}>All forms</a> : null}
           </div>
           <div onSubmit={handleSubmit} dangerouslySetInnerHTML={{ __html: selectedHtml }} />
         </section>
@@ -186,7 +279,7 @@ function BeadsFormRoute({ actions }: { actions: {
       {submitResult ? (
         <section className="beadsform-submit-result">
           <h2>Submitted</h2>
-          <p>Copied the agent-facing response text to your clipboard. Navigate back to the Agent tab and paste it there.</p>
+          <p>Copied the agent-facing response text to your clipboard. Paste it into the Agent tab to continue.</p>
           {submitResult.warnings.length > 0 ? (
             <div className="beadsform-warning" role="status">
               <h3>Warnings</h3>
@@ -218,7 +311,42 @@ springboard.registerModule(
         return {
           bead,
           forms,
+          beadRepoDir: input.dir,
           selectedForm: input.formId ? forms.find((form) => form.id === input.formId) : undefined,
+        };
+      },
+      loadWorkspaceForms: async (input: LoadWorkspaceFormsInput): Promise<LoadWorkspaceFormsResult> => {
+        if (!input.workspaceId.trim()) throw new Error('workspaceId is required');
+        const [workspace, repos] = await Promise.all([
+          vkClient().getWorkspace(input.workspaceId),
+          vkClient().getWorkspaceRepos(input.workspaceId),
+        ]);
+        const workspaceDir = workspace.container_ref || workspace.agent_working_dir;
+        if (!workspaceDir) throw new Error(`Workspace ${input.workspaceId} does not have a local workspace directory`);
+        const workspaceBeads = await nodeClient().listWorkspaceBeads({
+          workspaceId: input.workspaceId,
+          workspaceDir,
+          repos,
+          includeOtherWorkspaces: input.includeOtherWorkspaces ?? false,
+        });
+        const selectedRepo = input.beadId
+          ? workspaceBeads.repos.find((repo) => repo.beads.some((bead) => bead.id === input.beadId))
+          : undefined;
+        const selectedBead = input.beadId
+          ? selectedRepo?.beads.find((bead) => bead.id === input.beadId)
+          : undefined;
+        const forms = selectedBead ? getBeadsForms(selectedBead.metadata) : [];
+        return {
+          workspaceId: input.workspaceId,
+          workspaceBeads,
+          ...(selectedBead && selectedRepo ? {
+            selected: {
+              bead: selectedBead,
+              forms,
+              beadRepoDir: selectedRepo.dir,
+              selectedForm: input.formId ? forms.find((form) => form.id === input.formId) : undefined,
+            },
+          } : {}),
         };
       },
       submitBeadForm: async (input: SubmitFormInput): Promise<SubmitFormResult> => {
