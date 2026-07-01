@@ -24,6 +24,7 @@ const pluginCaddyfile = readFileSync(resolve(process.cwd(), 'Caddyfile.plugins')
 const dockerEntrypoint = readFileSync(resolve(process.cwd(), 'docker-entrypoint.sh'), 'utf8');
 const pluginRuntimeApply = readFileSync(resolve(process.cwd(), 'plugins/scripts/vd-plugin-runtime-apply.sh'), 'utf8');
 const pluginReload = readFileSync(resolve(process.cwd(), 'plugins/scripts/vd-plugin-reload.sh'), 'utf8');
+const sysboxSmokeScript = readFileSync(resolve(process.cwd(), 'scripts/smoke-sysbox-dind.sh'), 'utf8');
 
 describe('first-party service plugin inventory and golden supervisor config', () => {
   it('inventories current supervisor-managed programs as first-party plugin manifests with privilege tiers', () => {
@@ -110,6 +111,25 @@ describe('first-party service plugin inventory and golden supervisor config', ()
     expect(goldenSupervisor).toContain('command=/usr/bin/dockerd --host=unix:///var/run/docker.sock --data-root=/var/lib/docker');
   });
 
+
+  it('fails fast when the workspace is not launched with Sysbox unless explicitly bypassed', () => {
+    expect(dockerEntrypoint).toContain('VKVD_ALLOW_NON_SYSBOX_RUNTIME');
+    expect(dockerEntrypoint).toContain('verify Sysbox runtime');
+    expect(dockerEntrypoint).toContain('sysbox-runc on Linux or Docker Desktop Enhanced Container Isolation on Mac');
+    expect(dockerEntrypoint).toContain('mount -t tmpfs tmpfs');
+    expect(dockerEntrypoint).not.toContain('DOCKER_SOCK_GID');
+  });
+
+  it('documents and ships a self-skipping Sysbox Docker-in-Docker smoke test', () => {
+    expect(sysboxSmokeScript).toContain('service_name="${VKVD_SMOKE_SERVICE:-code-vibe}"');
+    expect(sysboxSmokeScript).toContain('compose up -d "$service_name"');
+    expect(sysboxSmokeScript).toContain('docker exec "$container_name" sh -lc');
+    expect(sysboxSmokeScript).toContain('docker info');
+    expect(sysboxSmokeScript).toContain('docker run --rm hello-world');
+    expect(sysboxSmokeScript).toContain('docker run --rm alpine:3.20 true');
+    expect(sysboxSmokeScript).toContain('skip "Sysbox runtime not detected');
+  });
+
   it('treats Dockerfile.vkvd and supervisord.vkvd.conf as golden runtime config names', () => {
     const desired = createFirstPartyDesiredState(BUILTIN_FIRST_PARTY_SERVICE_PLUGINS);
 
@@ -129,6 +149,13 @@ describe('first-party service plugin inventory and golden supervisor config', ()
   it('makes boot-critical first-party services non-removable while keeping restart-only services swappable', () => {
     const policy = createFirstPartyAdminPolicy(BUILTIN_FIRST_PARTY_SERVICE_PLUGINS);
 
+    expect(policy['first-party.dockerd']).toMatchObject({
+      adminRemovable: false,
+      removalBlockedReason: 'inner Docker daemon is required for workspace Docker commands',
+      versionSwapAllowed: true,
+      requiresStagingBeforeProduction: true,
+    });
+    expect(policy['first-party.dockerd']?.removalBlockedReason).not.toContain('boot-critical');
     expect(policy['first-party.vibe-dashboard']).toMatchObject({
       adminRemovable: false,
       removalBlockedReason: 'boot-critical service required for the control plane to start',

@@ -60,6 +60,48 @@ ensure_vkuser_shared_dir() {
     done
 }
 
+vkvd_sysbox_marker_detected() {
+    grep -RqiE 'sysbox|sysboxfs' /proc/self/mountinfo /proc/1/mountinfo /proc/self/cgroup /proc/1/cgroup 2>/dev/null
+}
+
+vkvd_system_container_capability_detected() {
+    local probe_dir="/tmp/vkvd-sysbox-preflight"
+    mkdir -p "$probe_dir"
+    if mount -t tmpfs tmpfs "$probe_dir" 2>/dev/null; then
+        umount "$probe_dir" 2>/dev/null || true
+        rmdir "$probe_dir" 2>/dev/null || true
+        return 0
+    fi
+    rmdir "$probe_dir" 2>/dev/null || true
+    return 1
+}
+
+# Fail fast when the outer container is not running as a Sysbox/ECI system
+# container. Docker Desktop Enhanced Container Isolation may ignore explicit
+# runtime flags, so detect Sysbox behavior/markers from inside the container
+# rather than trusting the compose runtime value. Operators can bypass only for
+# deliberate diagnostics with VKVD_ALLOW_NON_SYSBOX_RUNTIME=true.
+startup_step_begin "verify Sysbox runtime"
+if [ "${VKVD_ALLOW_NON_SYSBOX_RUNTIME:-false}" = "true" ]; then
+    startup_log "WARNING: VKVD_ALLOW_NON_SYSBOX_RUNTIME=true; skipping Sysbox runtime preflight"
+elif vkvd_sysbox_marker_detected || vkvd_system_container_capability_detected; then
+    startup_log "Sysbox/ECI runtime preflight passed"
+else
+    cat >&2 <<'EOF'
+ERROR: This workspace must run with sysbox-runc on Linux or Docker Desktop Enhanced Container Isolation on Mac.
+The host Docker socket is intentionally not mounted, so the inner Docker daemon requires Sysbox system-container capabilities.
+
+Fix:
+  - Linux amd64/arm64: install Sysbox and keep VKVD_CONTAINER_RUNTIME=sysbox-runc.
+  - Mac amd64/arm64: enable Docker Desktop Enhanced Container Isolation.
+  - Diagnostic-only bypass: set VKVD_ALLOW_NON_SYSBOX_RUNTIME=true.
+
+Run scripts/smoke-sysbox-dind.sh after starting to verify Docker-in-Docker.
+EOF
+    exit 78
+fi
+startup_step_end
+
 # Ensure Docker-in-Docker state directories exist for the daemon supervised
 # inside this Sysbox container. We intentionally do not inspect or mount the
 # host Docker socket.

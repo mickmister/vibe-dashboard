@@ -19,6 +19,8 @@ export interface FirstPartyServicePlugin {
   manifest: PluginManifest;
   privilegeTier: FirstPartyPrivilegeTier;
   bootCritical: boolean;
+  adminRemovable?: boolean;
+  removalBlockedReason?: string;
   supervisorPrograms: string[];
   supervisorConfig?: string;
   installStrategy: 'github-release-asset' | 'bundled-runtime-artifact' | 'apt-or-script' | 'generated-config' | 'scoped-bridge';
@@ -335,7 +337,7 @@ export const BUILTIN_FIRST_PARTY_SERVICE_PLUGINS: FirstPartyServicePlugin[] = [
       requestedCapabilities: { hostShell: { commands: ['dockerd', 'docker'] }, filesystem: [{ scope: 'absolute', path: '/var/lib/docker', access: 'readWrite' }], network: { mode: 'egress' } },
       components: { services: [{ id: 'dockerd', runtime: 'supervisor', command: 'dockerd --host=unix:///var/run/docker.sock' }] },
     }),
-    privilegeTier: 'trusted-workspace', bootCritical: false, supervisorPrograms: ['dockerd'], supervisorConfig: DOCKERD_SUPERVISOR, installStrategy: 'apt-or-script', desiredVersion: 'docker-ce', stagingRequired: true, rollbackable: true,
+    privilegeTier: 'trusted-workspace', bootCritical: false, adminRemovable: false, removalBlockedReason: 'inner Docker daemon is required for workspace Docker commands', supervisorPrograms: ['dockerd'], supervisorConfig: DOCKERD_SUPERVISOR, installStrategy: 'apt-or-script', desiredVersion: 'docker-ce', stagingRequired: true, rollbackable: true,
   },
   {
     manifest: manifest({
@@ -436,12 +438,12 @@ export function getFirstPartyAdminCapabilitySummaries(plugins: FirstPartyService
 
 export function createFirstPartyAdminPolicy(plugins: FirstPartyServicePlugin[]): Record<string, FirstPartyAdminPolicyEntry> {
   return Object.fromEntries(plugins.map((plugin) => {
-    const adminRemovable = !plugin.bootCritical;
+    const adminRemovable = plugin.adminRemovable ?? !plugin.bootCritical;
     return [plugin.manifest.id, {
       id: plugin.manifest.id,
       displayName: plugin.manifest.displayName,
       adminRemovable,
-      removalBlockedReason: adminRemovable ? undefined : 'boot-critical service required for the control plane to start',
+      removalBlockedReason: adminRemovable ? undefined : plugin.removalBlockedReason ?? 'boot-critical service required for the control plane to start',
       versionSwapAllowed: plugin.rollbackable,
       requiresStagingBeforeProduction: plugin.stagingRequired,
       rollbackable: plugin.rollbackable,

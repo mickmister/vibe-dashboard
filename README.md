@@ -133,4 +133,21 @@ Platform notes:
 - Linux amd64/arm64: install Sysbox on the Docker host, then start the stack normally. Sysbox publishes amd64 and arm64 Linux packages.
 - Mac amd64/arm64: use Docker Desktop with Enhanced Container Isolation enabled. Docker Desktop uses Sysbox for user containers in that mode and ignores explicit `--runtime` flags.
 
-If the host does not provide Sysbox, container startup should fail rather than silently falling back to the host Docker socket.
+Preflight before starting:
+
+```bash
+# Linux: verify Docker can see the Sysbox runtime.
+docker info --format '{{json .Runtimes}}' | grep sysbox-runc
+
+# Mac: enable Docker Desktop > Settings > Hardened Docker Desktop > Enhanced Container Isolation.
+# Docker Desktop keeps the default runtime as runc, so runtime-name checks are not enough on Mac.
+```
+
+Start and smoke test before merge/release:
+
+```bash
+docker compose up -d code-vibe
+./scripts/smoke-sysbox-dind.sh
+```
+
+The entrypoint fails fast if Sysbox/ECI system-container capabilities are unavailable. Use `VKVD_ALLOW_NON_SYSBOX_RUNTIME=true` only for deliberate diagnostics; that bypass is not a supported release configuration.
