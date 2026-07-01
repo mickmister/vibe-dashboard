@@ -47,3 +47,12 @@ export {
   type RegisterVardashRoutesOptions,
   type VardashImportConflict,
 } from './api';
+
+export {
+  buildVarlockRunCommand,
+  generateVardashVarlockSchema,
+  vardashKeyToVarlockSchemaKey,
+  type BuildVarlockRunCommandInput,
+  type VardashVarlockSchemaKey,
+  type VarlockRunCommand,
+} from './varlock-spike';
