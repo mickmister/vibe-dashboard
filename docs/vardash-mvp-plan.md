@@ -10,6 +10,24 @@
 - agents do not receive vardash secrets in normal session env;
 - Varlock is used where it helps with validation/redaction, but vardash remains source of truth.
 
+## Threat model
+
+Vardash is a better-than-`.env` developer convenience and safety layer, not a full isolation boundary.
+
+Vardash is intended to protect against:
+
+- accidental plaintext secret files in repos/worktrees, including predictable `.env` locations;
+- normal coding-agent/session environment leakage, because vardash values are not added to ordinary agent/session env;
+- UI/API secret recall, because secret values are write/replace only and metadata-only on read paths.
+
+Vardash is not intended to protect against:
+
+- root access, unrestricted sudo, or full devbox/container compromise;
+- the launched process intentionally or accidentally exfiltrating secrets it was explicitly given;
+- `/proc` environment inspection or same-user process isolation issues unless separate OS/container hardening is implemented.
+
+Security-sensitive docs and UI should avoid implying stronger guarantees than this model.
+
 ## Scope decisions
 
 ### Repo-owned values, workspace-repo selections
@@ -89,7 +107,7 @@ Before depending on it, do a small spike proving:
 
 ### Storage
 
-Do a SQLCipher/native package spike before storage implementation. All callers must go through a `vardash-store` interface so storage can change without affecting resolver, API, UI, or launch code.
+Do a SQLCipher/native package spike before storage implementation. Then implement **vkvw-d7ad.8 — Implement vardash encrypted store and migrations** before the metadata-only API boundary. All callers must go through a `vardash-store` interface so storage can change without affecting resolver, API, UI, or launch code.
 
 Do not ship plaintext SQLite as the default. If a plaintext adapter is useful for tests, it must be explicitly non-production/test-only.
 
