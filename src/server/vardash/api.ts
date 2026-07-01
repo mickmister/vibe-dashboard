@@ -179,16 +179,16 @@ export async function preflightImport(input: {
     seen.add(entry.key);
   }
 
-  if (input.source === 'pasted-env') {
-    const existingKeys = await input.store.listRepoEnvKeys(input.repoId);
-    for (const entry of parsed.entries) {
-      const existingKey = existingKeys.find((key) => key.key === entry.key);
-      if (!existingKey) continue;
-      const values = await input.store.listSavedValues(input.repoId, existingKey.id);
-      const nextKind: VardashValueKind = plainKeys.has(entry.key) ? 'plain' : 'secret';
-      if (existingKey.kind === 'secret' && nextKind === 'plain' && values.length > 0) {
-        conflicts.push({ key: entry.key, reason: 'secret_to_plain_with_existing_values' });
-      }
+  const existingKeys = await input.store.listRepoEnvKeys(input.repoId);
+  for (const entry of parsed.entries) {
+    const existingKey = existingKeys.find((key) => key.key === entry.key);
+    if (!existingKey) continue;
+    const values = await input.store.listSavedValues(input.repoId, existingKey.id);
+    const nextKind: VardashValueKind = plainKeys.has(entry.key) ? 'plain' : 'secret';
+    if (existingKey.kind === 'secret' && nextKind === 'plain' && values.length > 0) {
+      conflicts.push({ key: entry.key, reason: 'secret_to_plain_with_existing_values' });
+    }
+    if (input.source === 'pasted-env') {
       if (values.some((value) => value.name === input.savedValueName)) {
         conflicts.push({
           key: entry.key,

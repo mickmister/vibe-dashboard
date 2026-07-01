@@ -192,6 +192,29 @@ describe('vardash API boundary', () => {
     expect((await store.listRepoEnvKeys('repo-a')).map((key) => key.key)).toEqual(['TOKEN']);
   });
 
+  it('preflights sample-template secret-to-plain conflicts before creating earlier keys', async () => {
+    const { app, store } = await createApi();
+    const tokenKey = await store.upsertRepoEnvKey({ repoId: 'repo-a', key: 'TOKEN', kind: 'secret' });
+    await store.createSavedValue({
+      repoId: 'repo-a',
+      envKeyId: tokenKey.id,
+      name: 'prod',
+      value: 'existing-secret',
+    });
+
+    const response = await postJson(app, '/dashboard/api/vardash/repos/repo-a/import', {
+      source: 'sample-template',
+      content: 'NEW_KEY=\nTOKEN=\n',
+      plainKeys: ['TOKEN'],
+    });
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      conflicts: [{ key: 'TOKEN', reason: 'secret_to_plain_with_existing_values' }],
+    });
+    expect((await store.listRepoEnvKeys('repo-a')).map((key) => key.key)).toEqual(['TOKEN']);
+  });
+
   it('does not echo malformed pasted secret material in import diagnostics', async () => {
     const { app } = await createApi();
     const pastedSecret = 'sk-live-this-should-not-echo';
