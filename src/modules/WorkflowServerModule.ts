@@ -6,6 +6,7 @@ import { serverRegistry } from 'springboard/server/register';
 import { registerWorkflowRoutes } from '../server/workflow-routes';
 import { registerPluginAssetRoutes } from '../server/plugin-asset-routes';
 import { registerPluginAdminRoutes } from '../server/plugin-admin-routes';
+import { registerVardashRoutes } from '../server/vardash';
 import { workflowRegistry } from '../workflows/registry';
 import type { CachedRepoAlias } from '../workflows/github-ci';
 
@@ -25,6 +26,7 @@ serverRegistry.registerServerModule((api) => {
   });
   registerPluginAssetRoutes(api.hono, { installRoot: pluginInstallRoot });
   registerPluginAdminRoutes(api.hono);
+  registerVardashRoutes(api.hono);
 });
 
 async function getCachedGitRepos(): Promise<CachedRepoAlias[]> {

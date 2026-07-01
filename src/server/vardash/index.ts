@@ -40,3 +40,10 @@ export {
   type ResolveVardashRepoEnvInput,
   type VardashResolvedEnv,
 } from './resolver';
+
+export {
+  preflightImport,
+  registerVardashRoutes,
+  type RegisterVardashRoutesOptions,
+  type VardashImportConflict,
+} from './api';
