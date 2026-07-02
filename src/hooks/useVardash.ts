@@ -2,6 +2,8 @@ import {
   useMutation,
   useQuery,
   useQueryClient,
+  type QueryClient,
+  type QueryKey,
   type UseMutationResult,
   type UseQueryResult,
 } from '@tanstack/react-query';
@@ -32,6 +34,7 @@ import {
 } from '../lib/vardash-client';
 
 export const vardashQueryKeys = {
+  repoEnv: (repoId: string) => ['vardash', 'repos', repoId, 'env-keys'] as const,
   repoEnvKeys: (repoId: string) => ['vardash', 'repos', repoId, 'env-keys'] as const,
   savedValues: (repoId: string, envKeyId: string) => ['vardash', 'repos', repoId, 'env-keys', envKeyId, 'saved-values'] as const,
   repoProcesses: (repoId: string) => ['vardash', 'repos', repoId, 'process-definitions'] as const,
@@ -56,6 +59,50 @@ export const vardashQueryKeys = {
   ] as const,
   launchStatus: (runId: string) => ['vardash', 'launches', runId, 'status'] as const,
 };
+
+type VardashInvalidateClient = Pick<QueryClient, 'invalidateQueries'>;
+
+export function invalidateVardashRepoEnvQueries(queryClient: VardashInvalidateClient, repoId: string): void {
+  void queryClient.invalidateQueries({ queryKey: vardashQueryKeys.repoEnv(repoId) });
+}
+
+export function invalidateVardashWorkspaceRepoSelectionQueries(
+  queryClient: VardashInvalidateClient,
+  workspaceId: string,
+  repoId: string,
+): void {
+  void queryClient.invalidateQueries({ queryKey: vardashQueryKeys.launchReadiness({ workspaceId, repoId }) });
+}
+
+export function invalidateVardashProcessQueries(queryClient: VardashInvalidateClient, repoId: string): void {
+  void queryClient.invalidateQueries({ queryKey: vardashQueryKeys.repoProcesses(repoId) });
+  void queryClient.invalidateQueries({
+    queryKey: ['vardash', 'workspaces'],
+    predicate: (query) => isWorkspaceRepoProcessQuery(query.queryKey, repoId),
+  });
+  invalidateVardashLaunchReadinessQueries(queryClient, repoId);
+}
+
+export function invalidateVardashLaunchReadinessQueries(queryClient: VardashInvalidateClient, repoId?: string): void {
+  void queryClient.invalidateQueries({
+    queryKey: ['vardash'],
+    predicate: (query) => isLaunchReadinessQuery(query.queryKey, repoId),
+  });
+}
+
+function isWorkspaceRepoProcessQuery(queryKey: QueryKey, repoId: string): boolean {
+  return queryKey[0] === 'vardash'
+    && queryKey[1] === 'workspaces'
+    && queryKey[3] === 'repos'
+    && queryKey[4] === repoId
+    && queryKey[5] === 'process-definitions';
+}
+
+function isLaunchReadinessQuery(queryKey: QueryKey, repoId?: string): boolean {
+  return queryKey[0] === 'vardash'
+    && queryKey[5] === 'launch-readiness'
+    && (repoId == null || queryKey[4] === repoId);
+}
 
 export function useVardashRepoEnvKeys(repoId: string | null): UseQueryResult<VardashEnvKeysResponse, VardashApiError> {
   return useQuery({
@@ -124,7 +171,8 @@ export function useUpsertVardashRepoEnvKey(): UseMutationResult<
   return useMutation({
     mutationFn: ({ repoId, input }) => vardashClient.upsertRepoEnvKey(repoId, input),
     onSuccess: (_data, variables) => {
-      void queryClient.invalidateQueries({ queryKey: vardashQueryKeys.repoEnvKeys(variables.repoId) });
+      invalidateVardashRepoEnvQueries(queryClient, variables.repoId);
+      invalidateVardashLaunchReadinessQueries(queryClient, variables.repoId);
     },
   });
 }
@@ -138,7 +186,8 @@ export function useCreateVardashSavedValue(): UseMutationResult<
   return useMutation({
     mutationFn: ({ repoId, envKeyId, input }) => vardashClient.createSavedValue(repoId, envKeyId, input),
     onSuccess: (_data, variables) => {
-      void queryClient.invalidateQueries({ queryKey: vardashQueryKeys.savedValues(variables.repoId, variables.envKeyId) });
+      invalidateVardashRepoEnvQueries(queryClient, variables.repoId);
+      invalidateVardashLaunchReadinessQueries(queryClient, variables.repoId);
     },
   });
 }
@@ -152,7 +201,8 @@ export function useReplaceVardashSavedValue(): UseMutationResult<
   return useMutation({
     mutationFn: ({ repoId, envKeyId, savedValueId, input }) => vardashClient.replaceSavedValue(repoId, envKeyId, savedValueId, input),
     onSuccess: (_data, variables) => {
-      void queryClient.invalidateQueries({ queryKey: vardashQueryKeys.savedValues(variables.repoId, variables.envKeyId) });
+      invalidateVardashRepoEnvQueries(queryClient, variables.repoId);
+      invalidateVardashLaunchReadinessQueries(queryClient, variables.repoId);
     },
   });
 }
@@ -166,7 +216,8 @@ export function useSetVardashRepoDefaultSelection(): UseMutationResult<
   return useMutation({
     mutationFn: ({ repoId, input }) => vardashClient.setRepoDefaultSelection(repoId, input),
     onSuccess: (_data, variables) => {
-      void queryClient.invalidateQueries({ queryKey: vardashQueryKeys.repoEnvKeys(variables.repoId) });
+      invalidateVardashRepoEnvQueries(queryClient, variables.repoId);
+      invalidateVardashLaunchReadinessQueries(queryClient, variables.repoId);
     },
   });
 }
@@ -176,8 +227,12 @@ export function useSetVardashWorkspaceRepoSelection(): UseMutationResult<
   VardashApiError,
   { workspaceId: string; repoId: string; input: SetVardashSelectionInput }
 > {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ workspaceId, repoId, input }) => vardashClient.setWorkspaceRepoSelection(workspaceId, repoId, input),
+    onSuccess: (_data, variables) => {
+      invalidateVardashWorkspaceRepoSelectionQueries(queryClient, variables.workspaceId, variables.repoId);
+    },
   });
 }
 
@@ -191,7 +246,8 @@ export function useImportVardashRepoEnv(): UseMutationResult<
     mutationFn: ({ repoId, input }) => vardashClient.importRepoEnv(repoId, input),
     onSuccess: (_data, variables) => {
       if (!variables.input.dryRun) {
-        void queryClient.invalidateQueries({ queryKey: vardashQueryKeys.repoEnvKeys(variables.repoId) });
+        invalidateVardashRepoEnvQueries(queryClient, variables.repoId);
+        invalidateVardashLaunchReadinessQueries(queryClient, variables.repoId);
       }
     },
   });
@@ -206,7 +262,7 @@ export function useUpsertVardashRepoProcessDefinition(): UseMutationResult<
   return useMutation({
     mutationFn: ({ repoId, input }) => vardashClient.upsertRepoProcessDefinition(repoId, input),
     onSuccess: (_data, variables) => {
-      void queryClient.invalidateQueries({ queryKey: vardashQueryKeys.repoProcesses(variables.repoId) });
+      invalidateVardashProcessQueries(queryClient, variables.repoId);
     },
   });
 }
@@ -220,7 +276,7 @@ export function useImportLegacyDevServerProcessDefinition(): UseMutationResult<
   return useMutation({
     mutationFn: ({ repoId, devServerScript }) => vardashClient.importLegacyDevServerProcessDefinition(repoId, devServerScript),
     onSuccess: (_data, variables) => {
-      void queryClient.invalidateQueries({ queryKey: vardashQueryKeys.repoProcesses(variables.repoId) });
+      invalidateVardashProcessQueries(queryClient, variables.repoId);
     },
   });
 }
