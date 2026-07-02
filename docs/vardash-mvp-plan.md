@@ -128,29 +128,42 @@ Varlock launches with sanitized errors while non-Varlock launches continue.
 
 ### Process scope
 
-First implement repo process definitions and preserve legacy `Repo.dev_server_script` compatibility. Defer first-class tmux lifecycle/logging/UI/inspection until secret launch correctness is proven.
+The full vardash UI/launch workflow implements repo process definitions,
+explicit launch preparation/execution, and minimal Launch/Status/Stop controls
+while preserving legacy `Repo.dev_server_script` compatibility. First-class
+tmux lifecycle/logging/UI/inspection remains deferred.
 
 Legacy compatibility target:
 
 - existing `dev_server_script` can be represented as a default repo process definition;
 - current users can still start existing dev scripts;
 - new model can support multiple named process definitions per repo.
-- process definition APIs only persist/return launch metadata for now; process execution,
-  tmux lifecycle, log capture, and inspection remain deferred to the explicit launch bead.
+- process definition APIs persist/return launch metadata;
+- explicit vardash launch APIs are the only raw-env execution path;
+- launch execution preserves legacy `sh -lc <command>` semantics by passing the
+  command as one argv item and never concatenating env/user fragments into shell
+  strings;
+- process status exposes run id, status, and exit code only;
+- stop sends SIGTERM; restart is out of scope;
+- stdout/stderr capture, tmux lifecycle, log streaming, and inspection remain
+  deferred.
 
 ### UI scope
 
 UI work must go through UX Pilot first via bead **vkvw-24c5 — Design vardash UI surfaces with UX Pilot**.
 The MVP UI design brief is captured in `docs/vardash-ui-design.md`.
 
-The UI must communicate:
+The UI communicates:
 
 - repo-owned saved values;
 - workspace-repo active selections;
 - secret values cannot be read back after saving;
 - pasted `.env` values default to secret;
 - sample/template imports seed keys only;
-- Varlock status/errors when enabled.
+- Varlock status/errors when enabled;
+- explicit vardash launches are repo-scoped and normal agent/session env is not modified;
+- launch UI is limited to Launch/Status/Stop with no restart, raw env preview,
+  stdout/stderr, tmux, log inspection, or secret reveal.
 
 ## Acceptance tests to bake into first milestones
 

@@ -42,11 +42,12 @@ Recommended information architecture:
 3. **Processes** tab
    - Repo process definitions
    - Legacy Dev server marker
-   - Launch plan/status affordance for later execution bead
 4. **Launch settings/status** panel
    - Missing required values
    - Varlock enabled/disabled and validation errors
    - Reminder that secrets only go to explicit vardash launches
+   - Explicit Launch/Status/Stop controls
+   - No restart, raw env preview, stdout/stderr, tmux, or log inspection
 
 ## Screen 1: repo env overview
 
@@ -201,9 +202,10 @@ Process edit rules:
 - Command field keeps existing dev-script semantics. Future execution code must avoid concatenating user/env-derived fragments into shell command strings.
 - Mark exactly one default per repo.
 
-## Screen 5: launch readiness panel
+## Screen 5: launch readiness and status panel
 
-Purpose: show whether a selected repo/process can be launched, without exposing raw secrets.
+Purpose: show whether a selected repo/process can be launched and controlled,
+without exposing raw secrets or process logs.
 
 Wireframe:
 
@@ -237,6 +239,31 @@ This launch will receive only env values for repo vibe-dashboard.
 Normal agent/session env is not modified.
 [Launch]
 ```
+
+After launch:
+
+```text
+Launch status
+----------------------------------------------------------------------------
+Run id: run_abc123
+State: running
+Exit code: n/a
+
+[Stop]
+
+No stdout/stderr or live logs are exposed here.
+```
+
+Lifecycle rules implemented for MVP:
+
+- UI exposes Launch, Status, and Stop only.
+- Restart is out of scope; users can stop and launch again.
+- Status polling refreshes while a run is starting/running/stopping and stops
+  when the run is stopped/failed.
+- Status and errors are generic and secret-safe; they do not include raw env,
+  stdout/stderr, or captured logs.
+- Varlock readiness mirrors server-controlled runtime policy. Requested Varlock
+  that is disabled or unavailable blocks readiness with generic status.
 
 ## UX copy library
 
@@ -306,5 +333,8 @@ Before implementing UI code:
 - Do not add secret reveal endpoints.
 - Do not call launch resolver from metadata UI in a way that exposes raw `env` values.
 - Import UI must call dry-run/preview first and handle conflicts before apply.
-- Use process definition APIs only for metadata until execution UI is explicitly in scope.
+- Use typed vardash client/hooks for env, import, process, readiness, launch,
+  status, and stop APIs. Do not hand-roll fetch shapes in UI.
+- Process execution UI remains limited to explicit vardash Launch/Status/Stop.
+  Do not add tmux/log inspection or stdout/stderr display without a new scope bead.
 - Route any visual design iteration through UX Pilot output and keep this document as the security/scope source of truth.
