@@ -2,10 +2,35 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
-import { VardashRepoEnvOverviewView } from './VardashRepoEnvManager';
+import {
+  VardashRepoEnvOverviewView,
+  visibleVardashSavedValueDraft,
+  type VardashSavedValueDraft,
+} from './VardashRepoEnvManager';
 import type { VardashRepoEnvOverviewResponse } from '../../lib/vardash-client';
 
 describe('VardashRepoEnvOverviewView', () => {
+  it('does not carry an unsaved secret draft into a plain key field after selection changes', () => {
+    const secretDraft: VardashSavedValueDraft = {
+      keyId: 'key-secret',
+      kind: 'secret',
+      name: 'draft-secret',
+      value: 'typed-before-save-secret',
+      replaceSavedValueId: null,
+    };
+
+    expect(visibleVardashSavedValueDraft(secretDraft, { keyId: 'key-plain', kind: 'plain' })).toEqual({
+      name: '',
+      value: '',
+      replaceSavedValueId: null,
+    });
+    expect(visibleVardashSavedValueDraft(secretDraft, { keyId: 'key-secret', kind: 'secret' })).toEqual({
+      name: 'draft-secret',
+      value: 'typed-before-save-secret',
+      replaceSavedValueId: null,
+    });
+  });
+
   it('renders repo env metadata without revealing secret values', () => {
     const html = renderToStaticMarkup(React.createElement(VardashRepoEnvOverviewView, {
       overview: overviewFixture,

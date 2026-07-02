@@ -81,6 +81,7 @@ export function invalidateVardashWorkspaceRepoSelectionQueries(
   workspaceId: string,
   repoId: string,
 ): void {
+  void queryClient.invalidateQueries({ queryKey: vardashQueryKeys.repoEnvOverview(repoId, workspaceId) });
   void queryClient.invalidateQueries({ queryKey: vardashQueryKeys.launchReadiness({ workspaceId, repoId }) });
 }
 

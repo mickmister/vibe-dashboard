@@ -33,15 +33,16 @@ export function VardashRepoEnvManager({ repoId, workspaceId = null, repoLabel }:
   const [newKind, setNewKind] = useState<VardashValueKind>('secret');
   const [newRequired, setNewRequired] = useState(true);
   const [newDescription, setNewDescription] = useState('');
-  const [savedName, setSavedName] = useState('');
-  const [savedValue, setSavedValue] = useState('');
-  const [replaceSavedValueId, setReplaceSavedValueId] = useState<string | null>(null);
+  const [savedValueDraft, setSavedValueDraft] = useState<VardashSavedValueDraft | null>(null);
 
   const rows = overview.data?.rows ?? [];
   const selectedRow = useMemo(() => {
     if (rows.length === 0) return null;
     return rows.find((row) => row.key.id === selectedKeyId) ?? rows[0] ?? null;
   }, [rows, selectedKeyId]);
+
+  const selectedDraftScope = selectedRow ? { keyId: selectedRow.key.id, kind: selectedRow.key.kind } : null;
+  const visibleSavedValueDraft = visibleVardashSavedValueDraft(savedValueDraft, selectedDraftScope);
 
   if (overview.isLoading) return <section aria-label="Vardash repo env">Loading vardash env…</section>;
   if (overview.error) return <section aria-label="Vardash repo env">Unable to load vardash env metadata.</section>;
@@ -83,33 +84,32 @@ export function VardashRepoEnvManager({ repoId, workspaceId = null, repoLabel }:
         },
       }}
       savedValueForm={{
-        name: savedName,
-        value: savedValue,
-        replaceSavedValueId,
+        name: visibleSavedValueDraft.name,
+        value: visibleSavedValueDraft.value,
+        replaceSavedValueId: visibleSavedValueDraft.replaceSavedValueId,
         busy,
-        onNameChange: setSavedName,
-        onValueChange: setSavedValue,
-        onReplaceSavedValueIdChange: setReplaceSavedValueId,
+        onNameChange: (value) => setSavedValueDraft(nextVardashSavedValueDraft(selectedDraftScope, visibleSavedValueDraft, { name: value })),
+        onValueChange: (value) => setSavedValueDraft(nextVardashSavedValueDraft(selectedDraftScope, visibleSavedValueDraft, { value })),
+        onReplaceSavedValueIdChange: (value) => setSavedValueDraft(nextVardashSavedValueDraft(selectedDraftScope, visibleSavedValueDraft, { replaceSavedValueId: value })),
         onSubmit: async (row) => {
-          const trimmedName = savedName.trim();
-          if (!trimmedName || savedValue === '') return;
-          if (replaceSavedValueId) {
+          const draft = visibleVardashSavedValueDraft(savedValueDraft, { keyId: row.key.id, kind: row.key.kind });
+          const trimmedName = draft.name.trim();
+          if (!trimmedName || draft.value === '') return;
+          if (draft.replaceSavedValueId) {
             await replaceSavedValue.mutateAsync({
               repoId,
               envKeyId: row.key.id,
-              savedValueId: replaceSavedValueId,
-              input: { name: trimmedName, value: savedValue },
+              savedValueId: draft.replaceSavedValueId,
+              input: { name: trimmedName, value: draft.value },
             });
           } else {
             await createSavedValue.mutateAsync({
               repoId,
               envKeyId: row.key.id,
-              input: { name: trimmedName, value: savedValue },
+              input: { name: trimmedName, value: draft.value },
             });
           }
-          setSavedName('');
-          setSavedValue('');
-          setReplaceSavedValueId(null);
+          setSavedValueDraft(null);
         },
       }}
       onSetRepoDefault={(row, savedValueId) => setRepoDefault.mutate({ repoId, input: { envKeyId: row.key.id, savedValueId } })}
@@ -370,4 +370,35 @@ function KindBadge({ kind }: { kind: VardashValueKind }) {
 function valueLabel(savedValue: VardashSavedValueMetadata): string {
   if (savedValue.kind === 'secret') return savedValue.hasValue ? 'Secret saved' : 'No value';
   return savedValue.value ?? '';
+}
+
+export interface VardashSavedValueDraftScope {
+  keyId: string;
+  kind: VardashValueKind;
+}
+
+export interface VardashSavedValueDraft extends VardashSavedValueDraftScope {
+  name: string;
+  value: string;
+  replaceSavedValueId: string | null;
+}
+
+const EMPTY_SAVED_VALUE_DRAFT = { name: '', value: '', replaceSavedValueId: null } as const;
+
+export function visibleVardashSavedValueDraft(
+  draft: VardashSavedValueDraft | null,
+  scope: VardashSavedValueDraftScope | null,
+): Pick<VardashSavedValueDraft, 'name' | 'value' | 'replaceSavedValueId'> {
+  if (!draft || !scope) return EMPTY_SAVED_VALUE_DRAFT;
+  if (draft.keyId !== scope.keyId || draft.kind !== scope.kind) return EMPTY_SAVED_VALUE_DRAFT;
+  return { name: draft.name, value: draft.value, replaceSavedValueId: draft.replaceSavedValueId };
+}
+
+function nextVardashSavedValueDraft(
+  scope: VardashSavedValueDraftScope | null,
+  current: Pick<VardashSavedValueDraft, 'name' | 'value' | 'replaceSavedValueId'>,
+  patch: Partial<Pick<VardashSavedValueDraft, 'name' | 'value' | 'replaceSavedValueId'>>,
+): VardashSavedValueDraft | null {
+  if (!scope) return null;
+  return { ...scope, ...current, ...patch };
 }

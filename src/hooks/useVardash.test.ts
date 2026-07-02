@@ -58,14 +58,20 @@ describe('vardash hook cache invalidation', () => {
 
   it('invalidates readiness for selection/env changes without exposing raw env data', () => {
     const queryClient = new QueryClient();
+    const overviewKey = vardashQueryKeys.repoEnvOverview('repo-a', 'ws-a');
+    const otherWorkspaceOverviewKey = vardashQueryKeys.repoEnvOverview('repo-a', 'ws-b');
     const readinessKey = vardashQueryKeys.launchReadiness({ workspaceId: 'ws-a', repoId: 'repo-a' });
     const otherWorkspaceReadinessKey = vardashQueryKeys.launchReadiness({ workspaceId: 'ws-b', repoId: 'repo-a' });
 
+    queryClient.setQueryData(overviewKey, { rows: [] });
+    queryClient.setQueryData(otherWorkspaceOverviewKey, { rows: [] });
     queryClient.setQueryData(readinessKey, { ready: true });
     queryClient.setQueryData(otherWorkspaceReadinessKey, { ready: true });
 
     invalidateVardashWorkspaceRepoSelectionQueries(queryClient, 'ws-a', 'repo-a');
 
+    expect(queryClient.getQueryState(overviewKey)?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(otherWorkspaceOverviewKey)?.isInvalidated).toBe(false);
     expect(queryClient.getQueryState(readinessKey)?.isInvalidated).toBe(true);
     expect(queryClient.getQueryState(otherWorkspaceReadinessKey)?.isInvalidated).toBe(false);
 
