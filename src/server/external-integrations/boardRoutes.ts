@@ -3,8 +3,10 @@ import type { Kysely } from 'kysely';
 import { EXTERNAL_VIEW_URL_PARAM, parseExternalViewUrl } from '../../lib/externalViewUrl';
 import type { DB } from '../../store/kysely_types';
 import type { ExternalTrackerAuthService } from './auth';
+import { isExternalTrackerProvider } from './config';
 import { fetchJiraBoardView } from './jiraAdapter';
 import type { JiraBoardAdapterResult } from './jiraAdapter';
+import { decorateJiraBoardWithWorkspaceMappings, upsertExternalIssueWorkspaceMapping } from './workspaceMappings';
 
 export type FetchJiraBoardView = typeof fetchJiraBoardView;
 
@@ -56,7 +58,27 @@ export function registerExternalTrackerBoardRoutes(
       return c.json({ ok: false, error: result.error }, statusForJiraAdapterError(result));
     }
 
-    return c.json({ ok: true, boardView: result.boardView });
+    const decoratedBoardView = await decorateJiraBoardWithWorkspaceMappings(options.db, result.boardView);
+    return c.json({ ok: true, boardView: decoratedBoardView });
+  });
+
+  hono.post('/dashboard/api/external-trackers/workspace-links', async (c) => {
+    if (!options.enabled) {
+      return c.json({ ok: false, error: { code: 'external_trackers_disabled', message: 'External tracker workspace links are disabled.', userAction: 'Enable the external tracker feature flag and try again.' } }, 404);
+    }
+
+    const session = await options.auth.getSession(c.req.raw.headers);
+    if (!session) {
+      return c.json({ ok: false, error: { code: 'authentication_required', message: 'Sign in before linking external issues to workspaces.', userAction: 'Sign in and try again.' } }, 401);
+    }
+
+    const body = await c.req.json().catch(() => undefined) as unknown;
+    if (!isWorkspaceLinkRequest(body)) {
+      return c.json({ ok: false, error: { code: 'invalid_workspace_link_request', message: 'The workspace link request was invalid.', userAction: 'Provide an externalIssue object and workspace object.' } }, 400);
+    }
+
+    const mapping = await upsertExternalIssueWorkspaceMapping(options.db, body);
+    return c.json({ ok: true, mapping });
   });
 }
 
@@ -127,4 +149,52 @@ function statusForJiraAdapterError(result: Extract<JiraBoardAdapterResult, { ok:
     case 'jira_http_error':
       return 502;
   }
+}
+
+function isWorkspaceLinkRequest(value: unknown): value is Parameters<typeof upsertExternalIssueWorkspaceMapping>[1] {
+  if (!value || typeof value !== 'object') return false;
+  const record = value as Record<string, unknown>;
+  if (!isPlainObject(record.externalIssue)) return false;
+  if (!isPlainObject(record.workspace)) return false;
+
+  const externalIssue = record.externalIssue as Record<string, unknown>;
+  const workspace = record.workspace as Record<string, unknown>;
+  if (!isNonEmptyString(externalIssue.provider) || !isExternalTrackerProvider(externalIssue.provider)) return false;
+  if (!isNonEmptyString(externalIssue.key)) return false;
+  if (!isNonEmptyString(externalIssue.url)) return false;
+  if (externalIssue.provider === 'jira' && !isNonEmptyString(externalIssue.site)) return false;
+  if (!isOptionalString(externalIssue.id)) return false;
+  if (!isOptionalString(externalIssue.site)) return false;
+  if (!isOptionalPlainObject(externalIssue.metadata)) return false;
+
+  if (!isNonEmptyString(workspace.workspaceId)) return false;
+  if (!isOptionalString(workspace.workspaceDir)) return false;
+  if (!isOptionalString(workspace.displayName)) return false;
+  if (!isOptionalPlainObject(workspace.metadata)) return false;
+
+  if (record.isPrimary !== undefined && typeof record.isPrimary !== 'boolean') return false;
+  if (!isOptionalDateString(record.lastOpenedAt)) return false;
+  if (!isOptionalPlainObject(record.metadata)) return false;
+
+  return true;
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function isOptionalString(value: unknown): value is string | undefined {
+  return value === undefined || typeof value === 'string';
+}
+
+function isOptionalDateString(value: unknown): value is string | undefined {
+  return value === undefined || (typeof value === 'string' && value.trim().length > 0 && !Number.isNaN(Date.parse(value)));
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isOptionalPlainObject(value: unknown): value is Record<string, unknown> | undefined {
+  return value === undefined || isPlainObject(value);
 }

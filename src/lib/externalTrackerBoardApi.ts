@@ -29,6 +29,14 @@ export interface ExternalKanbanCardDto {
     key?: string;
     summary?: string;
   };
+  relatedWorkspaces?: Array<{
+    workspaceId: string;
+    workspaceDir?: string;
+    displayName?: string;
+    isPrimary: boolean;
+    lastOpenedAt?: string;
+    metadata?: Record<string, unknown>;
+  }>;
   rank: number;
   metadata: Record<string, unknown>;
 }

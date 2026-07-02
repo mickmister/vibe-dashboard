@@ -7,6 +7,7 @@ import type { ExternalTrackerAuthService } from './auth';
 import { registerExternalTrackerBoardRoutes, resolveJiraAccessToken } from './boardRoutes';
 import { migrateExternalIntegrationsDb } from './migrate';
 import type { FetchJiraBoardView } from './boardRoutes';
+import { upsertExternalIssueWorkspaceMapping } from './workspaceMappings';
 
 function createAuthService(session: Awaited<ReturnType<ExternalTrackerAuthService['getSession']>>): ExternalTrackerAuthService {
   return {
@@ -123,6 +124,147 @@ describe('external Jira board routes', () => {
       locator: expect.objectContaining({ provider: 'jira', viewKind: 'board', boardId: '42', siteHostname: 'team.atlassian.net' }),
       accessToken: 'jira-token',
     });
+  });
+
+  it('decorates loaded Jira cards with explicitly linked VK workspaces', async () => {
+    await seedUserAndAtlassianAccount(db);
+    await upsertExternalIssueWorkspaceMapping(db, {
+      externalIssue: { provider: 'jira', key: 'VD-1', id: '10001', url: 'https://team.atlassian.net/browse/VD-1', site: 'team.atlassian.net' },
+      workspace: { workspaceId: 'ws-1', workspaceDir: '/repo/a', displayName: 'Workspace A' },
+      isPrimary: true,
+    });
+    const app = new Hono();
+    const adapterBoardView = {
+      ...boardView,
+      pagination: { pageCount: 1, issueCount: 1, maxResults: 50 },
+      cards: [{ id: '10001', key: 'VD-1', title: 'Mapped issue', url: 'https://team.atlassian.net/browse/VD-1', labels: [], rank: 0, metadata: {} }],
+    };
+    const adapter = vi.fn(async () => ({ ok: true, boardView: adapterBoardView })) as unknown as FetchJiraBoardView;
+    registerExternalTrackerBoardRoutes(app, {
+      enabled: true,
+      auth: createAuthService({ user: { id: 'user_1', email: 'u@example.com', name: 'User One' } }),
+      db,
+      fetchJiraBoardView: adapter,
+    });
+
+    const response = await app.request(`/dashboard/api/external-trackers/jira/board?external_view_url=${encodeURIComponent(jiraBoardUrl)}`);
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+      boardView: expect.objectContaining({
+        cards: [expect.objectContaining({
+          key: 'VD-1',
+          relatedWorkspaces: [{ workspaceId: 'ws-1', workspaceDir: '/repo/a', displayName: 'Workspace A', isPrimary: true }],
+        })],
+      }),
+    });
+  });
+
+  it('persists an explicit external issue to VK workspace link', async () => {
+    const app = new Hono();
+    registerExternalTrackerBoardRoutes(app, {
+      enabled: true,
+      auth: createAuthService({ user: { id: 'user_1', email: 'u@example.com', name: 'User One' } }),
+      db,
+    });
+
+    const response = await app.request('/dashboard/api/external-trackers/workspace-links', {
+      method: 'POST',
+      body: JSON.stringify({
+        externalIssue: { provider: 'jira', key: 'VD-1', id: '10001', url: 'https://team.atlassian.net/browse/VD-1', site: 'team.atlassian.net' },
+        workspace: { workspaceId: 'ws-1', workspaceDir: '/repo/a', displayName: 'Workspace A' },
+        isPrimary: true,
+      }),
+      headers: { 'content-type': 'application/json' },
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+      mapping: expect.objectContaining({
+        externalIssue: expect.objectContaining({ provider: 'jira', key: 'VD-1', site: 'team.atlassian.net' }),
+        workspace: expect.objectContaining({ workspaceId: 'ws-1', isPrimary: true }),
+      }),
+    });
+    await expect(db.selectFrom('ExternalIssueWorkspaceLink').selectAll().execute()).resolves.toHaveLength(1);
+  });
+
+  it('rejects workspace links missing explicit Jira site without writing to the DB', async () => {
+    const app = new Hono();
+    registerExternalTrackerBoardRoutes(app, {
+      enabled: true,
+      auth: createAuthService({ user: { id: 'user_1', email: 'u@example.com', name: 'User One' } }),
+      db,
+    });
+
+    const response = await app.request('/dashboard/api/external-trackers/workspace-links', {
+      method: 'POST',
+      body: JSON.stringify({
+        externalIssue: { provider: 'jira', key: 'VD-1', id: '10001', url: 'https://team.atlassian.net/browse/VD-1' },
+        workspace: { workspaceId: 'ws-1', workspaceDir: '/repo/a', displayName: 'Workspace A' },
+      }),
+      headers: { 'content-type': 'application/json' },
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      ok: false,
+      error: expect.objectContaining({ code: 'invalid_workspace_link_request' }),
+    });
+    await expect(db.selectFrom('ExternalIssueWorkspaceLink').selectAll().execute()).resolves.toHaveLength(0);
+  });
+
+  it('rejects non-boolean workspace link isPrimary without writing to the DB', async () => {
+    const app = new Hono();
+    registerExternalTrackerBoardRoutes(app, {
+      enabled: true,
+      auth: createAuthService({ user: { id: 'user_1', email: 'u@example.com', name: 'User One' } }),
+      db,
+    });
+
+    const response = await app.request('/dashboard/api/external-trackers/workspace-links', {
+      method: 'POST',
+      body: JSON.stringify({
+        externalIssue: { provider: 'jira', key: 'VD-1', id: '10001', url: 'https://team.atlassian.net/browse/VD-1', site: 'team.atlassian.net' },
+        workspace: { workspaceId: 'ws-1', workspaceDir: '/repo/a', displayName: 'Workspace A' },
+        isPrimary: 'yes',
+      }),
+      headers: { 'content-type': 'application/json' },
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      ok: false,
+      error: expect.objectContaining({ code: 'invalid_workspace_link_request' }),
+    });
+    await expect(db.selectFrom('ExternalIssueWorkspaceLink').selectAll().execute()).resolves.toHaveLength(0);
+  });
+
+  it('rejects malformed optional workspace link fields without writing to the DB', async () => {
+    const app = new Hono();
+    registerExternalTrackerBoardRoutes(app, {
+      enabled: true,
+      auth: createAuthService({ user: { id: 'user_1', email: 'u@example.com', name: 'User One' } }),
+      db,
+    });
+
+    const response = await app.request('/dashboard/api/external-trackers/workspace-links', {
+      method: 'POST',
+      body: JSON.stringify({
+        externalIssue: { provider: 'jira', key: 'VD-1', id: 10001, url: 'https://team.atlassian.net/browse/VD-1', site: 'team.atlassian.net' },
+        workspace: { workspaceId: 'ws-1', workspaceDir: '/repo/a', displayName: 'Workspace A' },
+        metadata: ['not', 'plain', 'object'],
+      }),
+      headers: { 'content-type': 'application/json' },
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      ok: false,
+      error: expect.objectContaining({ code: 'invalid_workspace_link_request' }),
+    });
+    await expect(db.selectFrom('ExternalIssueWorkspaceLink').selectAll().execute()).resolves.toHaveLength(0);
   });
 
   it('returns a user-actionable connection error when Jira is not connected', async () => {

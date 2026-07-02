@@ -64,6 +64,39 @@ export interface ExternalProviderConnection {
   updatedAt: Generated<Timestamp>;
 }
 
+export interface ExternalIssue {
+  id: string;
+  provider: ExternalProvider;
+  issueKey: string;
+  issueId: string | null;
+  issueUrl: string;
+  site: string | null;
+  metadataJson: string | null;
+  createdAt: Generated<Timestamp>;
+  updatedAt: Generated<Timestamp>;
+}
+
+export interface VKWorkspace {
+  id: string;
+  workspaceId: string;
+  workspaceDir: string | null;
+  displayName: string | null;
+  metadataJson: string | null;
+  createdAt: Generated<Timestamp>;
+  updatedAt: Generated<Timestamp>;
+}
+
+export interface ExternalIssueWorkspaceLink {
+  id: string;
+  externalIssueId: string;
+  vkWorkspaceId: string;
+  isPrimary: SqliteBoolean;
+  lastOpenedAt: NullableTimestamp;
+  metadataJson: string | null;
+  createdAt: Generated<Timestamp>;
+  updatedAt: Generated<Timestamp>;
+}
+
 export interface Migration {
   id: Generated<number>;
   name: string;
@@ -76,5 +109,8 @@ export interface DB {
   BetterAuthAccount: BetterAuthAccount;
   BetterAuthVerification: BetterAuthVerification;
   ExternalProviderConnection: ExternalProviderConnection;
+  ExternalIssue: ExternalIssue;
+  VKWorkspace: VKWorkspace;
+  ExternalIssueWorkspaceLink: ExternalIssueWorkspaceLink;
   Migration: Migration;
 }

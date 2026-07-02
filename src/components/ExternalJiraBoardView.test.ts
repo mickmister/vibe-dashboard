@@ -71,6 +71,24 @@ describe('ExternalJiraBoardContent', () => {
     expect(html).toContain('VD-1');
   });
 
+  it('renders related VK workspaces on cards when provided by the board API', () => {
+    const card = baseBoardView.cards[0];
+    if (!card) throw new Error('expected fixture card');
+    const html = renderToStaticMarkup(React.createElement(ExternalJiraBoardContent, {
+      boardView: {
+        ...baseBoardView,
+        cards: [{
+          ...card,
+          relatedWorkspaces: [{ workspaceId: 'ws-1', workspaceDir: '/repo/a', displayName: 'Workspace A', isPrimary: true }],
+        }],
+      },
+    }));
+
+    expect(html).toContain('Related workspaces');
+    expect(html).toContain('Workspace A');
+    expect(html).toContain('Primary');
+  });
+
   it('renders inferred swimlanes when present', () => {
     const html = renderToStaticMarkup(React.createElement(ExternalJiraBoardContent, {
       boardView: {

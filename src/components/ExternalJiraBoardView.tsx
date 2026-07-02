@@ -173,6 +173,19 @@ function JiraCard({ card }: { card: ExternalKanbanCardDto }) {
           {card.labels.map((label) => <span key={label} className="rounded bg-neutral-800 px-2 py-0.5 text-[11px] text-neutral-300">{label}</span>)}
         </div>
       ) : null}
+      {card.relatedWorkspaces?.length ? (
+        <div className="mt-3 rounded-md border border-emerald-500/20 bg-emerald-500/10 px-2 py-1.5 text-xs text-emerald-100">
+          <div className="font-medium text-emerald-200">Related workspaces</div>
+          <ul className="mt-1 space-y-1">
+            {card.relatedWorkspaces.map((workspace) => (
+              <li key={workspace.workspaceId} className="truncate" title={workspace.workspaceDir ?? workspace.workspaceId}>
+                {workspace.displayName || workspace.workspaceId}
+                {workspace.isPrimary ? <span className="ml-1 text-emerald-300">Primary</span> : null}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
     </article>
   );
 }

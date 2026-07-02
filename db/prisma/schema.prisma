@@ -94,3 +94,54 @@ model ExternalProviderConnection {
   @@index([provider])
   @@index([betterAuthAccountId])
 }
+
+model ExternalIssue {
+  id           String           @id
+  provider     ExternalProvider
+  issueKey     String
+  issueId      String?
+  issueUrl     String
+  site         String?
+  metadataJson String?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  workspaceLinks ExternalIssueWorkspaceLink[]
+
+  @@unique([provider, site, issueKey])
+  @@index([provider, issueKey])
+  @@index([issueId])
+}
+
+model VKWorkspace {
+  id           String   @id
+  workspaceId  String   @unique
+  workspaceDir String?
+  displayName  String?
+  metadataJson String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  externalIssueLinks ExternalIssueWorkspaceLink[]
+
+  @@index([workspaceDir])
+}
+
+model ExternalIssueWorkspaceLink {
+  id              String   @id
+  externalIssueId String
+  vkWorkspaceId   String
+  isPrimary       Boolean  @default(false)
+  lastOpenedAt    DateTime?
+  metadataJson    String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  externalIssue ExternalIssue @relation(fields: [externalIssueId], references: [id], onDelete: Cascade)
+  vkWorkspace   VKWorkspace   @relation(fields: [vkWorkspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([externalIssueId, vkWorkspaceId])
+  @@index([externalIssueId])
+  @@index([vkWorkspaceId])
+  @@index([isPrimary])
+}
