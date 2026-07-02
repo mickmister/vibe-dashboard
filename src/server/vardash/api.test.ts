@@ -2,10 +2,13 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { EventEmitter } from 'node:events';
+
 import { Hono } from 'hono';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { registerVardashRoutes } from './api';
+import { VardashLaunchRunner, type VardashChildProcess, type VardashProcessSpawnOptions, type VardashProcessSpawner } from './launch';
 import { SqlcipherVardashStore } from './store';
 
 const stores: SqlcipherVardashStore[] = [];
@@ -444,4 +447,126 @@ describe('vardash API boundary', () => {
     });
   });
 
+  it('launches explicit vardash process, exposes secret-safe status, and stops by run id', async () => {
+    const validated: Array<{ workspaceId: string; repoId: string }> = [];
+    const spawner = new FakeVardashSpawner();
+    const launchRunner = new VardashLaunchRunner({ spawner, idGenerator: () => 'run-api-1' });
+    const { app, store } = await createApi({
+      validateWorkspaceRepo: async (input) => { validated.push(input); },
+      launchRunner,
+      launchBaseEnv: { PATH: '/usr/bin', API_TOKEN: 'ambient-secret' },
+    });
+    const tokenKey = await store.upsertRepoEnvKey({ repoId: 'repo-a', key: 'API_TOKEN', kind: 'secret', required: true });
+    const token = await store.createSavedValue({ repoId: 'repo-a', envKeyId: tokenKey.id, name: 'local', value: 'launch-secret' });
+    await store.setRepoDefaultSelection({ repoId: 'repo-a', envKeyId: tokenKey.id, savedValueId: token.id });
+    const process = await store.upsertRepoProcessDefinition({ repoId: 'repo-a', name: 'Dev server', command: 'npm run dev', isDefault: true });
+
+    const launch = await postJson(app, '/dashboard/api/vardash/workspaces/ws-a/repos/repo-a/launch', {
+      processDefinitionId: process.id,
+    });
+
+    expect(launch.status).toBe(200);
+    expect(await launch.json()).toEqual({ runId: 'run-api-1', status: 'running' });
+    expect(validated).toEqual([{ workspaceId: 'ws-a', repoId: 'repo-a' }]);
+    expect(spawner.calls[0]).toMatchObject({
+      command: 'sh',
+      args: ['-lc', 'npm run dev'],
+      options: { env: { PATH: '/usr/bin', API_TOKEN: 'launch-secret' }, stdio: 'ignore' },
+    });
+
+    const status = await app.request('/dashboard/api/vardash/launches/run-api-1/status');
+    const statusText = await status.text();
+    expect(status.status).toBe(200);
+    expect(statusText).not.toContain('launch-secret');
+    expect(statusText).not.toContain('ambient-secret');
+    expect(JSON.parse(statusText)).toMatchObject({ runId: 'run-api-1', status: 'running', process: { id: process.id, name: 'Dev server' } });
+
+    const stop = await postJson(app, '/dashboard/api/vardash/launches/run-api-1/stop', {});
+    expect(await stop.json()).toEqual({ runId: 'run-api-1', status: 'stopping' });
+    expect(spawner.children[0]?.killedWith).toBe('SIGTERM');
+    expect(validated).toEqual([
+      { workspaceId: 'ws-a', repoId: 'repo-a' },
+      { workspaceId: 'ws-a', repoId: 'repo-a' },
+      { workspaceId: 'ws-a', repoId: 'repo-a' },
+    ]);
+  });
+
+  it('keeps launch errors generic and validates workspace/repo before resolving env', async () => {
+    const { app } = await createApi({
+      validateWorkspaceRepo: async () => { throw new Error('not allowed launch-secret'); },
+      launchRunner: new VardashLaunchRunner({ spawner: new FakeVardashSpawner() }),
+    });
+
+    const response = await postJson(app, '/dashboard/api/vardash/workspaces/ws-a/repos/repo-a/launch', {});
+
+    expect(response.status).toBe(403);
+    const text = await response.text();
+    expect(text).toContain('workspace_repo_forbidden');
+    expect(text).not.toContain('launch-secret');
+  });
+
+  it('validates status and stop access against the launched workspace/repo', async () => {
+    const spawner = new FakeVardashSpawner();
+    const launchRunner = new VardashLaunchRunner({ spawner, idGenerator: () => 'run-denied' });
+    launchRunner.launch({
+      workspaceId: 'ws-a',
+      repoId: 'repo-a',
+      process: {
+        id: 'proc-a',
+        repoId: 'repo-a',
+        name: 'Dev server',
+        command: 'npm run dev',
+        cwd: null,
+        source: 'manual',
+        isDefault: true,
+        createdAt: 'now',
+        updatedAt: 'now',
+      },
+      command: 'sh',
+      args: ['-lc', 'npm run dev'],
+      env: { API_TOKEN: 'status-secret' },
+      cwd: null,
+      missingRequired: [],
+    });
+    const { app } = await createApi({
+      validateWorkspaceRepo: async () => { throw new Error('forbidden status-secret'); },
+      launchRunner,
+    });
+
+    const status = await app.request('/dashboard/api/vardash/launches/run-denied/status');
+    const statusText = await status.text();
+    expect(status.status).toBe(403);
+    expect(statusText).toContain('workspace_repo_forbidden');
+    expect(statusText).not.toContain('status-secret');
+
+    const stop = await postJson(app, '/dashboard/api/vardash/launches/run-denied/stop', {});
+    const stopText = await stop.text();
+    expect(stop.status).toBe(403);
+    expect(stopText).toContain('workspace_repo_forbidden');
+    expect(stopText).not.toContain('status-secret');
+    expect(spawner.children[0]?.killedWith).toBeUndefined();
+  });
+
 });
+
+
+class FakeVardashSpawner implements VardashProcessSpawner {
+  readonly calls: Array<{ command: string; args: string[]; options: VardashProcessSpawnOptions }> = [];
+  readonly children: FakeVardashChildProcess[] = [];
+
+  spawn(command: string, args: string[], options: VardashProcessSpawnOptions): VardashChildProcess {
+    this.calls.push({ command, args, options });
+    const child = new FakeVardashChildProcess();
+    this.children.push(child);
+    return child;
+  }
+}
+
+class FakeVardashChildProcess extends EventEmitter implements VardashChildProcess {
+  killedWith: NodeJS.Signals | undefined;
+
+  kill(signal?: NodeJS.Signals): boolean {
+    this.killedWith = signal;
+    return true;
+  }
+}

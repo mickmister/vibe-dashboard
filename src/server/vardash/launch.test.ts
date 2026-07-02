@@ -4,10 +4,16 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { EventEmitter } from 'node:events';
+
 import {
   VardashLaunchError,
+  VardashLaunchRunner,
   buildNormalAgentExecutionEnv,
   prepareVardashRepoProcessLaunch,
+  type VardashChildProcess,
+  type VardashProcessSpawnOptions,
+  type VardashProcessSpawner,
 } from './launch';
 import { SqlcipherVardashStore } from './store';
 
@@ -119,4 +125,91 @@ describe('vardash explicit repo launch isolation', () => {
     expect(plan.varlock?.schema).toContain('API_TOKEN=');
     expect(plan.varlock?.schema).not.toContain('repo-a-token');
   });
+  it('executes launch plans with argv-safe spawn, isolated env, stable run id, and no log capture', async () => {
+    const store = await createStore();
+    const tokenKey = await store.upsertRepoEnvKey({ repoId: 'repo-a', key: 'API_TOKEN', kind: 'secret', required: true });
+    const token = await store.createSavedValue({ repoId: 'repo-a', envKeyId: tokenKey.id, name: 'local', value: 'repo-a-token' });
+    await store.setRepoDefaultSelection({ repoId: 'repo-a', envKeyId: tokenKey.id, savedValueId: token.id });
+    await store.upsertRepoProcessDefinition({ repoId: 'repo-a', name: 'Dev server', command: 'npm run dev', isDefault: true });
+    const spawner = new FakeVardashSpawner();
+    const runner = new VardashLaunchRunner({ spawner, idGenerator: () => 'run-1' });
+
+    const plan = await prepareVardashRepoProcessLaunch({
+      store,
+      workspaceId: 'workspace-1',
+      repoId: 'repo-a',
+      baseEnv: { PATH: '/usr/bin', API_TOKEN: 'ambient-secret', OTHER_SECRET: 'nope' },
+    });
+    const started = runner.launch(plan);
+
+    expect(started).toEqual({ runId: 'run-1', status: 'running' });
+    expect(runner.getStatus('run-1')).toMatchObject({ workspaceId: 'workspace-1', repoId: 'repo-a', status: 'running' });
+    expect(spawner.calls).toHaveLength(1);
+    expect(spawner.calls[0]).toMatchObject({
+      command: 'sh',
+      args: ['-lc', 'npm run dev'],
+      options: { env: { PATH: '/usr/bin', API_TOKEN: 'repo-a-token' }, stdio: 'ignore' },
+    });
+    expect(JSON.stringify(runner.getStatus('run-1'))).not.toContain('repo-a-token');
+    expect(JSON.stringify(runner.getStatus('run-1'))).not.toContain('ambient-secret');
+  });
+
+  it('defines stop behavior without restart support', async () => {
+    const spawner = new FakeVardashSpawner();
+    const runner = new VardashLaunchRunner({ spawner, idGenerator: () => 'run-stop' });
+    runner.launch({
+      workspaceId: 'workspace-1',
+      repoId: 'repo-a',
+      process: {
+        id: 'proc-1',
+        repoId: 'repo-a',
+        name: 'Dev server',
+        command: 'npm run dev',
+        cwd: null,
+        source: 'manual',
+        isDefault: true,
+        createdAt: 'now',
+        updatedAt: 'now',
+      },
+      command: 'sh',
+      args: ['-lc', 'npm run dev'],
+      env: { PATH: '/usr/bin', API_TOKEN: 'secret' },
+      cwd: null,
+      missingRequired: [],
+    });
+
+    const stopping = runner.stop('run-stop');
+    expect(stopping.status).toBe('stopping');
+    expect(spawner.children[0]?.killedWith).toBe('SIGTERM');
+    spawner.children[0]?.emitExit(0, 'SIGTERM');
+    expect(runner.getStatus('run-stop')).toMatchObject({ status: 'stopped', exitCode: 0 });
+    expect('restart' in runner).toBe(false);
+  });
+
 });
+
+
+class FakeVardashSpawner implements VardashProcessSpawner {
+  readonly calls: Array<{ command: string; args: string[]; options: VardashProcessSpawnOptions }> = [];
+  readonly children: FakeVardashChildProcess[] = [];
+
+  spawn(command: string, args: string[], options: VardashProcessSpawnOptions): VardashChildProcess {
+    this.calls.push({ command, args, options });
+    const child = new FakeVardashChildProcess();
+    this.children.push(child);
+    return child;
+  }
+}
+
+class FakeVardashChildProcess extends EventEmitter implements VardashChildProcess {
+  killedWith: NodeJS.Signals | undefined;
+
+  kill(signal?: NodeJS.Signals): boolean {
+    this.killedWith = signal;
+    return true;
+  }
+
+  emitExit(code: number | null, signal: NodeJS.Signals | null): void {
+    this.emit('exit', code, signal);
+  }
+}

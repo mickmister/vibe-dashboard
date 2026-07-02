@@ -71,14 +71,23 @@ export {
 
 export {
   VardashLaunchError,
+  VardashLaunchRunner,
   buildIsolatedVardashLaunchEnv,
   buildNormalAgentExecutionEnv,
   getVardashLaunchReadiness,
   prepareVardashRepoProcessLaunch,
   type PrepareVardashRepoProcessLaunchInput,
   type VardashLaunchReadiness,
+  type VardashChildProcess,
+  type VardashLaunchProcessStatus,
   type VardashLaunchReadinessInput,
   type VardashLaunchReadinessProcess,
   type VardashLaunchReadinessSelectedValue,
+  type VardashLaunchRunStatus,
+  type VardashLaunchRunnerOptions,
+  type VardashLaunchStarted,
+  type VardashLaunchStopResult,
+  type VardashProcessSpawnOptions,
+  type VardashProcessSpawner,
   type VardashRepoProcessLaunchPlan,
 } from './launch';

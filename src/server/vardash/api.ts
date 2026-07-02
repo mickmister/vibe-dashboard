@@ -4,7 +4,12 @@ import type { Context, Hono } from 'hono';
 import { defaultVardashPrivateDir } from './key-manager';
 import { importVardashEnv, parseDotenv, type VardashEnvImportSource } from './import-parser';
 import { VibeKanbanServerClient } from '../vk-client';
-import { getVardashLaunchReadiness } from './launch';
+import {
+  VardashLaunchError,
+  VardashLaunchRunner,
+  getVardashLaunchReadiness,
+  prepareVardashRepoProcessLaunch,
+} from './launch';
 import { ensureLegacyDevServerProcessDefinition } from './process-definitions';
 import { SqlcipherVardashStore, type VardashStore, type VardashValueKind } from './store';
 
@@ -18,6 +23,9 @@ export interface RegisterVardashRoutesOptions {
   dbPath?: string;
   privateDir?: string;
   validateWorkspaceRepo?: (input: VardashWorkspaceRepoValidationInput) => Promise<void>;
+  launchRunner?: VardashLaunchRunner;
+  launchBaseEnv?: Record<string, string | undefined>;
+  launchAllowBaseEnvKeys?: readonly string[];
 }
 
 export interface VardashImportConflict {
@@ -28,8 +36,11 @@ export interface VardashImportConflict {
 
 export const VARDASH_DESCRIPTION_GUIDANCE = 'Descriptions are metadata. Do not include secret material.';
 
+const DEFAULT_VARDASH_LAUNCH_RUNNER = new VardashLaunchRunner();
+
 export function registerVardashRoutes(app: Hono, options: RegisterVardashRoutesOptions = {}): void {
   const getStore = memoizeStore(options);
+  const launchRunner = options.launchRunner ?? DEFAULT_VARDASH_LAUNCH_RUNNER;
 
   app.get('/dashboard/api/vardash/workspaces/:workspaceId/repos/:repoId/env-overview', async (c) => {
     const store = await getStore();
@@ -203,6 +214,61 @@ export function registerVardashRoutes(app: Hono, options: RegisterVardashRoutesO
       },
     });
     return c.json({ process });
+  });
+
+  app.post('/dashboard/api/vardash/workspaces/:workspaceId/repos/:repoId/launch', async (c) => {
+    const workspaceId = c.req.param('workspaceId');
+    const repoId = c.req.param('repoId');
+    try {
+      await validateWorkspaceRepo(options, { workspaceId, repoId });
+    } catch {
+      return c.json({ error: 'workspace_repo_forbidden' }, 403);
+    }
+
+    const body = await readJson(c);
+    const store = await getStore();
+    try {
+      const plan = await prepareVardashRepoProcessLaunch({
+        store,
+        workspaceId,
+        repoId,
+        processDefinitionId: readNullableString(body.processDefinitionId) ?? undefined,
+        processName: readNullableString(body.processName) ?? undefined,
+        baseEnv: options.launchBaseEnv,
+        allowBaseEnvKeys: options.launchAllowBaseEnvKeys,
+        useVarlock: body.useVarlock === true,
+        varlockSchemaPath: readNullableString(body.varlockSchemaPath) ?? undefined,
+        varlockBin: readNullableString(body.varlockBin) ?? undefined,
+      });
+      return c.json(launchRunner.launch(plan));
+    } catch (error) {
+      if (error instanceof VardashLaunchError && error.message.startsWith('No vardash process definition')) {
+        return c.json({ error: 'process_not_found' }, 404);
+      }
+      return c.json({ error: 'launch_failed' }, 409);
+    }
+  });
+
+  app.get('/dashboard/api/vardash/launches/:runId/status', async (c) => {
+    try {
+      const status = launchRunner.getStatus(c.req.param('runId'));
+      await validateWorkspaceRepo(options, { workspaceId: status.workspaceId, repoId: status.repoId });
+      return c.json(status);
+    } catch (error) {
+      if (error instanceof VardashLaunchError) return c.json({ error: 'launch_not_found' }, 404);
+      return c.json({ error: 'workspace_repo_forbidden' }, 403);
+    }
+  });
+
+  app.post('/dashboard/api/vardash/launches/:runId/stop', async (c) => {
+    try {
+      const status = launchRunner.getStatus(c.req.param('runId'));
+      await validateWorkspaceRepo(options, { workspaceId: status.workspaceId, repoId: status.repoId });
+      return c.json(launchRunner.stop(c.req.param('runId')));
+    } catch (error) {
+      if (error instanceof VardashLaunchError) return c.json({ error: 'launch_not_found' }, 404);
+      return c.json({ error: 'workspace_repo_forbidden' }, 403);
+    }
   });
 
   app.get('/dashboard/api/vardash/workspaces/:workspaceId/repos/:repoId/launch/readiness', async (c) => {

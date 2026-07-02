@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+import { spawn as nodeSpawn } from 'node:child_process';
 import { resolveVardashRepoEnv } from './resolver';
 import type { RepoEnvKeyMetadata, RepoProcessDefinitionMetadata, VardashStore, VardashValueKind } from './store';
 import {
@@ -61,6 +63,53 @@ export interface VardashLaunchReadiness {
   normalAgentEnvIncludesVardashSecrets: false;
 }
 
+export type VardashLaunchRunStatus = 'starting' | 'running' | 'stopping' | 'stopped' | 'failed';
+
+export interface VardashLaunchProcessStatus {
+  runId: string;
+  workspaceId: string;
+  repoId: string;
+  process: VardashLaunchReadinessProcess;
+  status: VardashLaunchRunStatus;
+  startedAt: string | null;
+  stoppedAt: string | null;
+  exitCode: number | null;
+  error?: string;
+}
+
+export interface VardashLaunchStarted {
+  runId: string;
+  status: Extract<VardashLaunchRunStatus, 'starting' | 'running'>;
+}
+
+export interface VardashLaunchStopResult {
+  runId: string;
+  status: Extract<VardashLaunchRunStatus, 'stopping' | 'stopped'>;
+}
+
+export interface VardashProcessSpawnOptions {
+  cwd?: string;
+  env: Record<string, string>;
+  stdio: 'ignore';
+}
+
+export interface VardashChildProcess {
+  kill(signal?: NodeJS.Signals): boolean;
+  on(event: 'spawn', listener: () => void): this;
+  on(event: 'exit', listener: (code: number | null, signal: NodeJS.Signals | null) => void): this;
+  on(event: 'error', listener: (error: Error) => void): this;
+}
+
+export interface VardashProcessSpawner {
+  spawn(command: string, args: string[], options: VardashProcessSpawnOptions): VardashChildProcess;
+}
+
+export interface VardashLaunchRunnerOptions {
+  spawner?: VardashProcessSpawner;
+  idGenerator?: () => string;
+  now?: () => Date;
+}
+
 export interface VardashRepoProcessLaunchPlan {
   workspaceId: string;
   repoId: string;
@@ -85,6 +134,83 @@ export class VardashLaunchError extends Error {
 }
 
 const DEFAULT_BASE_ENV_KEYS = ['PATH', 'HOME', 'USER', 'LOGNAME', 'SHELL', 'TMPDIR', 'TEMP', 'TMP', 'LANG', 'LC_ALL'];
+
+const NODE_VARDASH_PROCESS_SPAWNER: VardashProcessSpawner = {
+  spawn(command, args, options) {
+    return nodeSpawn(command, args, {
+      cwd: options.cwd,
+      env: options.env,
+      stdio: options.stdio,
+    });
+  },
+};
+
+export class VardashLaunchRunner {
+  private readonly spawner: VardashProcessSpawner;
+  private readonly idGenerator: () => string;
+  private readonly now: () => Date;
+  private readonly runs = new Map<string, { status: VardashLaunchProcessStatus; child: VardashChildProcess }>();
+
+  constructor(options: VardashLaunchRunnerOptions = {}) {
+    this.spawner = options.spawner ?? NODE_VARDASH_PROCESS_SPAWNER;
+    this.idGenerator = options.idGenerator ?? randomUUID;
+    this.now = options.now ?? (() => new Date());
+  }
+
+  launch(plan: VardashRepoProcessLaunchPlan): VardashLaunchStarted {
+    const runId = this.idGenerator();
+    const startedAt = this.now().toISOString();
+    const child = this.spawner.spawn(plan.command, plan.args, {
+      cwd: plan.cwd ?? undefined,
+      env: plan.env,
+      stdio: 'ignore',
+    });
+    const status: VardashLaunchProcessStatus = {
+      runId,
+      workspaceId: plan.workspaceId,
+      repoId: plan.repoId,
+      process: readinessProcess(plan.process),
+      status: 'running',
+      startedAt,
+      stoppedAt: null,
+      exitCode: null,
+    };
+    this.runs.set(runId, { status, child });
+    child.on('exit', (code) => {
+      const current = this.runs.get(runId);
+      if (!current) return;
+      current.status.status = current.status.status === 'stopping' || code === 0 ? 'stopped' : 'failed';
+      current.status.exitCode = code;
+      current.status.stoppedAt = this.now().toISOString();
+    });
+    child.on('error', () => {
+      const current = this.runs.get(runId);
+      if (!current) return;
+      current.status.status = 'failed';
+      current.status.error = 'process_error';
+      current.status.stoppedAt = this.now().toISOString();
+    });
+    return { runId, status: 'running' };
+  }
+
+  getStatus(runId: string): VardashLaunchProcessStatus {
+    const run = this.runs.get(runId);
+    if (!run) throw new VardashLaunchError('Vardash launch run not found');
+    return { ...run.status, process: { ...run.status.process } };
+  }
+
+  stop(runId: string): VardashLaunchStopResult {
+    const run = this.runs.get(runId);
+    if (!run) throw new VardashLaunchError('Vardash launch run not found');
+    if (run.status.status === 'stopped' || run.status.status === 'failed') {
+      return { runId, status: 'stopped' };
+    }
+    run.status.status = 'stopping';
+    run.child.kill('SIGTERM');
+    return { runId, status: 'stopping' };
+  }
+}
+
 
 export async function getVardashLaunchReadiness(
   input: VardashLaunchReadinessInput,
