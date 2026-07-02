@@ -53,6 +53,20 @@ export interface ExternalKanbanCard {
     lastOpenedAt?: string;
     metadata?: Record<string, unknown>;
   }>;
+  relatedBeads?: Array<{
+    id: string;
+    title: string;
+    status?: string;
+    priority?: number | string;
+    externalIssue: {
+      provider: 'jira' | 'github' | 'linear';
+      key: string;
+      url: string;
+      id?: string;
+      site?: string;
+      metadata?: Record<string, unknown>;
+    };
+  }>;
   rank: number;
   metadata: Record<string, unknown>;
 }

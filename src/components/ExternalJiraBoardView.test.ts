@@ -89,6 +89,23 @@ describe('ExternalJiraBoardContent', () => {
     expect(html).toContain('Primary');
   });
 
+  it('renders related beads on cards when provided by the board API', () => {
+    const card = baseBoardView.cards[0];
+    if (!card) throw new Error('expected fixture card');
+    const html = renderToStaticMarkup(React.createElement(ExternalJiraBoardContent, {
+      boardView: {
+        ...baseBoardView,
+        cards: [{
+          ...card,
+          relatedBeads: [{ id: 'vkvw-1', title: 'Linked bead', status: 'open', externalIssue: { provider: 'jira', key: 'VD-1', url: 'https://team.atlassian.net/browse/VD-1', site: 'team.atlassian.net' } }],
+        }],
+      },
+    }));
+
+    expect(html).toContain('Related beads');
+    expect(html).toContain('vkvw-1: Linked bead');
+  });
+
   it('renders inferred swimlanes when present', () => {
     const html = renderToStaticMarkup(React.createElement(ExternalJiraBoardContent, {
       boardView: {

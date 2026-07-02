@@ -6,6 +6,8 @@ import type { ExternalTrackerAuthService } from './auth';
 import { isExternalTrackerProvider } from './config';
 import { fetchJiraBoardView } from './jiraAdapter';
 import type { JiraBoardAdapterResult } from './jiraAdapter';
+import { addBeadExternalIssueLink, decorateJiraBoardWithBeadLinks, isValidBeadId, normalizeExternalIssueRef, removeBeadExternalIssueLink } from './beadExternalIssues';
+import type { BeadsExternalIssueServiceOptions } from './beadExternalIssues';
 import { decorateJiraBoardWithWorkspaceMappings, upsertExternalIssueWorkspaceMapping } from './workspaceMappings';
 
 export type FetchJiraBoardView = typeof fetchJiraBoardView;
@@ -17,6 +19,7 @@ export function registerExternalTrackerBoardRoutes(
     auth: ExternalTrackerAuthService;
     db: Kysely<DB>;
     fetchJiraBoardView?: FetchJiraBoardView;
+    beads?: BeadsExternalIssueServiceOptions;
   },
 ): void {
   hono.get('/dashboard/api/external-trackers/jira/board', async (c) => {
@@ -58,8 +61,9 @@ export function registerExternalTrackerBoardRoutes(
       return c.json({ ok: false, error: result.error }, statusForJiraAdapterError(result));
     }
 
-    const decoratedBoardView = await decorateJiraBoardWithWorkspaceMappings(options.db, result.boardView);
-    return c.json({ ok: true, boardView: decoratedBoardView });
+    const workspaceDecoratedBoardView = await decorateJiraBoardWithWorkspaceMappings(options.db, result.boardView);
+    const fullyDecoratedBoardView = await decorateJiraBoardWithBeadLinks(workspaceDecoratedBoardView, options.beads);
+    return c.json({ ok: true, boardView: fullyDecoratedBoardView });
   });
 
   hono.post('/dashboard/api/external-trackers/workspace-links', async (c) => {
@@ -79,6 +83,52 @@ export function registerExternalTrackerBoardRoutes(
 
     const mapping = await upsertExternalIssueWorkspaceMapping(options.db, body);
     return c.json({ ok: true, mapping });
+  });
+
+  hono.post('/dashboard/api/external-trackers/bead-links', async (c) => {
+    if (!options.enabled) {
+      return c.json({ ok: false, error: { code: 'external_trackers_disabled', message: 'External tracker bead links are disabled.', userAction: 'Enable the external tracker feature flag and try again.' } }, 404);
+    }
+
+    const session = await options.auth.getSession(c.req.raw.headers);
+    if (!session) {
+      return c.json({ ok: false, error: { code: 'authentication_required', message: 'Sign in before linking Beads to external issues.', userAction: 'Sign in and try again.' } }, 401);
+    }
+
+    const body = await c.req.json().catch(() => undefined) as unknown;
+    if (!isBeadLinkRequest(body)) {
+      return c.json({ ok: false, error: { code: 'invalid_bead_link_request', message: 'The bead link request was invalid.', userAction: 'Provide beadId and a valid externalIssue object.' } }, 400);
+    }
+
+    try {
+      const externalIssues = await addBeadExternalIssueLink(body.beadId, body.externalIssue, options.beads);
+      return c.json({ ok: true, beadId: body.beadId, externalIssues });
+    } catch {
+      return c.json({ ok: false, error: beadLinkFailedError('Could not update Beads metadata.') }, 502);
+    }
+  });
+
+  hono.delete('/dashboard/api/external-trackers/bead-links', async (c) => {
+    if (!options.enabled) {
+      return c.json({ ok: false, error: { code: 'external_trackers_disabled', message: 'External tracker bead links are disabled.', userAction: 'Enable the external tracker feature flag and try again.' } }, 404);
+    }
+
+    const session = await options.auth.getSession(c.req.raw.headers);
+    if (!session) {
+      return c.json({ ok: false, error: { code: 'authentication_required', message: 'Sign in before unlinking Beads from external issues.', userAction: 'Sign in and try again.' } }, 401);
+    }
+
+    const body = await c.req.json().catch(() => undefined) as unknown;
+    if (!isBeadLinkRequest(body)) {
+      return c.json({ ok: false, error: { code: 'invalid_bead_link_request', message: 'The bead unlink request was invalid.', userAction: 'Provide beadId and a valid externalIssue object.' } }, 400);
+    }
+
+    try {
+      const externalIssues = await removeBeadExternalIssueLink(body.beadId, body.externalIssue, options.beads);
+      return c.json({ ok: true, beadId: body.beadId, externalIssues });
+    } catch {
+      return c.json({ ok: false, error: beadLinkFailedError('Could not update Beads metadata.') }, 502);
+    }
   });
 }
 
@@ -197,4 +247,18 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 function isOptionalPlainObject(value: unknown): value is Record<string, unknown> | undefined {
   return value === undefined || isPlainObject(value);
+}
+
+function isBeadLinkRequest(value: unknown): value is { beadId: string; externalIssue: NonNullable<ReturnType<typeof normalizeExternalIssueRef>> } {
+  if (!isPlainObject(value)) return false;
+  if (!isValidBeadId(value.beadId)) return false;
+  return Boolean(normalizeExternalIssueRef(value.externalIssue));
+}
+
+function beadLinkFailedError(message: string): { code: 'bead_link_failed'; message: string; userAction: string } {
+  return {
+    code: 'bead_link_failed',
+    message,
+    userAction: 'Verify the bead id and try again.',
+  };
 }

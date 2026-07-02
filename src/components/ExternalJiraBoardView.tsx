@@ -186,6 +186,18 @@ function JiraCard({ card }: { card: ExternalKanbanCardDto }) {
           </ul>
         </div>
       ) : null}
+      {card.relatedBeads?.length ? (
+        <div className="mt-3 rounded-md border border-sky-500/20 bg-sky-500/10 px-2 py-1.5 text-xs text-sky-100">
+          <div className="font-medium text-sky-200">Related beads</div>
+          <ul className="mt-1 space-y-1">
+            {card.relatedBeads.map((bead) => (
+              <li key={bead.id} className="truncate" title={bead.id}>
+                {bead.id}: {bead.title}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
     </article>
   );
 }
