@@ -452,7 +452,10 @@ describe('vardash API boundary', () => {
     const spawner = new FakeVardashSpawner();
     const launchRunner = new VardashLaunchRunner({ spawner, idGenerator: () => 'run-api-1' });
     const { app, store } = await createApi({
-      validateWorkspaceRepo: async (input) => { validated.push(input); },
+      validateWorkspaceRepo: async (input) => {
+        validated.push(input);
+        return { repoRoot: '/workspace/repo-a' };
+      },
       launchRunner,
       launchBaseEnv: { PATH: '/usr/bin', API_TOKEN: 'ambient-secret' },
     });
@@ -471,7 +474,7 @@ describe('vardash API boundary', () => {
     expect(spawner.calls[0]).toMatchObject({
       command: 'sh',
       args: ['-lc', 'npm run dev'],
-      options: { env: { PATH: '/usr/bin', API_TOKEN: 'launch-secret' }, stdio: 'ignore' },
+      options: { cwd: '/workspace/repo-a', env: { PATH: '/usr/bin', API_TOKEN: 'launch-secret' }, stdio: 'ignore' },
     });
 
     const status = await app.request('/dashboard/api/vardash/launches/run-api-1/status');
@@ -505,6 +508,31 @@ describe('vardash API boundary', () => {
     expect(text).not.toContain('launch-secret');
   });
 
+  it('defers Varlock runtime launch integration and blocks unresolved repo roots safely', async () => {
+    const spawner = new FakeVardashSpawner();
+    const { app, store } = await createApi({
+      validateWorkspaceRepo: async () => undefined,
+      launchRunner: new VardashLaunchRunner({ spawner }),
+    });
+    await store.upsertRepoProcessDefinition({ repoId: 'repo-a', name: 'Dev server', command: 'npm run dev', isDefault: true });
+
+    const varlock = await postJson(app, '/dashboard/api/vardash/workspaces/ws-a/repos/repo-a/launch', {
+      useVarlock: true,
+      varlockBin: '/tmp/malicious-varlock',
+      varlockSchemaPath: '/tmp/schema',
+    });
+    expect(varlock.status).toBe(409);
+    expect(await varlock.json()).toEqual({ error: 'launch_failed' });
+    expect(spawner.calls).toHaveLength(0);
+
+    const unresolvedRoot = await postJson(app, '/dashboard/api/vardash/workspaces/ws-a/repos/repo-a/launch', {});
+    const text = await unresolvedRoot.text();
+    expect(unresolvedRoot.status).toBe(409);
+    expect(text).toContain('launch_failed');
+    expect(text).not.toContain('Repo root');
+    expect(spawner.calls).toHaveLength(0);
+  });
+
   it('validates status and stop access against the launched workspace/repo', async () => {
     const spawner = new FakeVardashSpawner();
     const launchRunner = new VardashLaunchRunner({ spawner, idGenerator: () => 'run-denied' });
@@ -525,7 +553,7 @@ describe('vardash API boundary', () => {
       command: 'sh',
       args: ['-lc', 'npm run dev'],
       env: { API_TOKEN: 'status-secret' },
-      cwd: null,
+      cwd: '/workspace/repo-a',
       missingRequired: [],
     });
     const { app } = await createApi({

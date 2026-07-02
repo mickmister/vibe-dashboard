@@ -18,11 +18,15 @@ export interface VardashWorkspaceRepoValidationInput {
   repoId: string;
 }
 
+export interface VardashWorkspaceRepoValidationResult {
+  repoRoot?: string | null;
+}
+
 export interface RegisterVardashRoutesOptions {
   store?: VardashStore;
   dbPath?: string;
   privateDir?: string;
-  validateWorkspaceRepo?: (input: VardashWorkspaceRepoValidationInput) => Promise<void>;
+  validateWorkspaceRepo?: (input: VardashWorkspaceRepoValidationInput) => Promise<void | VardashWorkspaceRepoValidationResult>;
   launchRunner?: VardashLaunchRunner;
   launchBaseEnv?: Record<string, string | undefined>;
   launchAllowBaseEnvKeys?: readonly string[];
@@ -219,13 +223,15 @@ export function registerVardashRoutes(app: Hono, options: RegisterVardashRoutesO
   app.post('/dashboard/api/vardash/workspaces/:workspaceId/repos/:repoId/launch', async (c) => {
     const workspaceId = c.req.param('workspaceId');
     const repoId = c.req.param('repoId');
+    let ownership: VardashWorkspaceRepoValidationResult | void;
     try {
-      await validateWorkspaceRepo(options, { workspaceId, repoId });
+      ownership = await validateWorkspaceRepo(options, { workspaceId, repoId });
     } catch {
       return c.json({ error: 'workspace_repo_forbidden' }, 403);
     }
 
     const body = await readJson(c);
+    if (body.useVarlock === true) return c.json({ error: 'launch_failed' }, 409);
     const store = await getStore();
     try {
       const plan = await prepareVardashRepoProcessLaunch({
@@ -234,11 +240,10 @@ export function registerVardashRoutes(app: Hono, options: RegisterVardashRoutesO
         repoId,
         processDefinitionId: readNullableString(body.processDefinitionId) ?? undefined,
         processName: readNullableString(body.processName) ?? undefined,
+        repoRoot: ownership?.repoRoot,
         baseEnv: options.launchBaseEnv,
         allowBaseEnvKeys: options.launchAllowBaseEnvKeys,
-        useVarlock: body.useVarlock === true,
-        varlockSchemaPath: readNullableString(body.varlockSchemaPath) ?? undefined,
-        varlockBin: readNullableString(body.varlockBin) ?? undefined,
+        useVarlock: false,
       });
       return c.json(launchRunner.launch(plan));
     } catch (error) {
@@ -399,19 +404,22 @@ export async function preflightImport(input: {
 async function validateWorkspaceRepo(
   options: RegisterVardashRoutesOptions,
   input: VardashWorkspaceRepoValidationInput,
-): Promise<void> {
+): Promise<VardashWorkspaceRepoValidationResult | void> {
   if (options.validateWorkspaceRepo) {
-    await options.validateWorkspaceRepo(input);
-    return;
+    return await options.validateWorkspaceRepo(input);
   }
   const client = new VibeKanbanServerClient();
   const workspaces = await client.getWorkspaces();
-  if (!workspaces.some((workspace) => workspace.id === input.workspaceId)) {
+  const workspace = workspaces.find((candidate) => candidate.id === input.workspaceId);
+  if (!workspace) {
     throw new Error('workspace_not_found');
   }
   const repos = await client.getWorkspaceRepos(input.workspaceId);
   if (!repos.some((repo) => repo.id === input.repoId)) {
     throw new Error('repo_not_in_workspace');
+  }
+  if (repos.length === 1 && workspace.agent_working_dir) {
+    return { repoRoot: workspace.agent_working_dir };
   }
 }
 

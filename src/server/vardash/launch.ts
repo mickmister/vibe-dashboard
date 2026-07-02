@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { spawn as nodeSpawn } from 'node:child_process';
+import { isAbsolute, relative, resolve } from 'node:path';
 import { resolveVardashRepoEnv } from './resolver';
 import type { RepoEnvKeyMetadata, RepoProcessDefinitionMetadata, VardashStore, VardashValueKind } from './store';
 import {
@@ -17,6 +18,7 @@ export interface PrepareVardashRepoProcessLaunchInput {
   processName?: string;
   baseEnv?: Record<string, string | undefined>;
   allowBaseEnvKeys?: readonly string[];
+  repoRoot?: string | null;
   useVarlock?: boolean;
   varlockSchemaPath?: string;
   varlockBin?: string;
@@ -88,7 +90,7 @@ export interface VardashLaunchStopResult {
 }
 
 export interface VardashProcessSpawnOptions {
-  cwd?: string;
+  cwd: string;
   env: Record<string, string>;
   stdio: 'ignore';
 }
@@ -108,6 +110,8 @@ export interface VardashLaunchRunnerOptions {
   spawner?: VardashProcessSpawner;
   idGenerator?: () => string;
   now?: () => Date;
+  terminalRunRetentionMs?: number;
+  maxTerminalRuns?: number;
 }
 
 export interface VardashRepoProcessLaunchPlan {
@@ -117,7 +121,7 @@ export interface VardashRepoProcessLaunchPlan {
   command: string;
   args: string[];
   env: Record<string, string>;
-  cwd: string | null;
+  cwd: string;
   missingRequired: string[];
   varlock?: {
     schemaPath: string;
@@ -149,19 +153,24 @@ export class VardashLaunchRunner {
   private readonly spawner: VardashProcessSpawner;
   private readonly idGenerator: () => string;
   private readonly now: () => Date;
+  private readonly terminalRunRetentionMs: number;
+  private readonly maxTerminalRuns: number;
   private readonly runs = new Map<string, { status: VardashLaunchProcessStatus; child: VardashChildProcess }>();
 
   constructor(options: VardashLaunchRunnerOptions = {}) {
     this.spawner = options.spawner ?? NODE_VARDASH_PROCESS_SPAWNER;
     this.idGenerator = options.idGenerator ?? randomUUID;
     this.now = options.now ?? (() => new Date());
+    this.terminalRunRetentionMs = options.terminalRunRetentionMs ?? 5 * 60 * 1000;
+    this.maxTerminalRuns = options.maxTerminalRuns ?? 100;
   }
 
   launch(plan: VardashRepoProcessLaunchPlan): VardashLaunchStarted {
+    this.pruneTerminalRuns();
     const runId = this.idGenerator();
     const startedAt = this.now().toISOString();
     const child = this.spawner.spawn(plan.command, plan.args, {
-      cwd: plan.cwd ?? undefined,
+      cwd: plan.cwd,
       env: plan.env,
       stdio: 'ignore',
     });
@@ -182,6 +191,7 @@ export class VardashLaunchRunner {
       current.status.status = current.status.status === 'stopping' || code === 0 ? 'stopped' : 'failed';
       current.status.exitCode = code;
       current.status.stoppedAt = this.now().toISOString();
+      this.pruneTerminalRuns();
     });
     child.on('error', () => {
       const current = this.runs.get(runId);
@@ -189,17 +199,20 @@ export class VardashLaunchRunner {
       current.status.status = 'failed';
       current.status.error = 'process_error';
       current.status.stoppedAt = this.now().toISOString();
+      this.pruneTerminalRuns();
     });
     return { runId, status: 'running' };
   }
 
   getStatus(runId: string): VardashLaunchProcessStatus {
+    this.pruneTerminalRuns();
     const run = this.runs.get(runId);
     if (!run) throw new VardashLaunchError('Vardash launch run not found');
     return { ...run.status, process: { ...run.status.process } };
   }
 
   stop(runId: string): VardashLaunchStopResult {
+    this.pruneTerminalRuns();
     const run = this.runs.get(runId);
     if (!run) throw new VardashLaunchError('Vardash launch run not found');
     if (run.status.status === 'stopped' || run.status.status === 'failed') {
@@ -208,6 +221,28 @@ export class VardashLaunchRunner {
     run.status.status = 'stopping';
     run.child.kill('SIGTERM');
     return { runId, status: 'stopping' };
+  }
+
+  private pruneTerminalRuns(): void {
+    const nowMs = this.now().getTime();
+    const terminalRuns = [...this.runs.entries()]
+      .filter(([, run]) => isTerminalRunStatus(run.status.status))
+      .sort((a, b) => timestampMs(a[1].status.stoppedAt) - timestampMs(b[1].status.stoppedAt));
+
+    for (const [runId, run] of terminalRuns) {
+      const stoppedAtMs = timestampMs(run.status.stoppedAt);
+      if (Number.isFinite(stoppedAtMs) && nowMs - stoppedAtMs >= this.terminalRunRetentionMs) {
+        this.runs.delete(runId);
+      }
+    }
+
+    const remainingTerminalRuns = [...this.runs.entries()]
+      .filter(([, run]) => isTerminalRunStatus(run.status.status))
+      .sort((a, b) => timestampMs(a[1].status.stoppedAt) - timestampMs(b[1].status.stoppedAt));
+    const overflow = remainingTerminalRuns.length - this.maxTerminalRuns;
+    for (const [runId] of overflow > 0 ? remainingTerminalRuns.slice(0, overflow) : []) {
+      this.runs.delete(runId);
+    }
   }
 }
 
@@ -280,6 +315,7 @@ export async function prepareVardashRepoProcessLaunch(
     repoEnv: resolved.env,
     allowBaseEnvKeys: input.allowBaseEnvKeys,
   });
+  const cwd = resolveVardashProcessCwd(input.repoRoot, process.cwd);
 
   if (input.useVarlock === true) {
     if (!input.varlockSchemaPath) throw new VardashLaunchError('Varlock schema path is required when Varlock is enabled');
@@ -297,7 +333,7 @@ export async function prepareVardashRepoProcessLaunch(
       command: varlock.command,
       args: varlock.args,
       env,
-      cwd: process.cwd,
+      cwd,
       missingRequired,
       varlock: { schemaPath: input.varlockSchemaPath, schema, command: varlock },
     };
@@ -310,9 +346,23 @@ export async function prepareVardashRepoProcessLaunch(
     command: childCommand[0],
     args: childCommand.slice(1),
     env,
-    cwd: process.cwd,
+    cwd,
     missingRequired,
   };
+}
+
+export function resolveVardashProcessCwd(repoRoot: string | null | undefined, processCwd: string | null): string {
+  if (!repoRoot) throw new VardashLaunchError('Repo root is required for vardash launch');
+  const resolvedRepoRoot = resolve(repoRoot);
+  const requested = processCwd?.trim();
+  const resolvedCwd = requested
+    ? resolve(isAbsolute(requested) ? requested : resolve(resolvedRepoRoot, requested))
+    : resolvedRepoRoot;
+  const relativeToRepo = relative(resolvedRepoRoot, resolvedCwd);
+  if (relativeToRepo === '' || (!relativeToRepo.startsWith('..') && !isAbsolute(relativeToRepo))) {
+    return resolvedCwd;
+  }
+  throw new VardashLaunchError('Vardash process cwd must stay inside the repo root');
 }
 
 export function buildIsolatedVardashLaunchEnv(input: {
@@ -358,6 +408,14 @@ function readinessProcess(process: RepoProcessDefinitionMetadata): VardashLaunch
     source: process.source,
     isDefault: process.isDefault,
   };
+}
+
+function isTerminalRunStatus(status: VardashLaunchRunStatus): boolean {
+  return status === 'stopped' || status === 'failed';
+}
+
+function timestampMs(value: string | null): number {
+  return value ? Date.parse(value) : Number.POSITIVE_INFINITY;
 }
 
 function pickAllowedBaseEnv(

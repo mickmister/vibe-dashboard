@@ -76,6 +76,7 @@ export {
   buildNormalAgentExecutionEnv,
   getVardashLaunchReadiness,
   prepareVardashRepoProcessLaunch,
+  resolveVardashProcessCwd,
   type PrepareVardashRepoProcessLaunchInput,
   type VardashLaunchReadiness,
   type VardashChildProcess,

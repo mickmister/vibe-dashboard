@@ -11,6 +11,7 @@ import {
   VardashLaunchRunner,
   buildNormalAgentExecutionEnv,
   prepareVardashRepoProcessLaunch,
+  resolveVardashProcessCwd,
   type VardashChildProcess,
   type VardashProcessSpawnOptions,
   type VardashProcessSpawner,
@@ -51,6 +52,7 @@ describe('vardash explicit repo launch isolation', () => {
       store,
       workspaceId: 'workspace-1',
       repoId: 'repo-a',
+      repoRoot: '/workspace/repo-a',
       baseEnv: {
         PATH: '/usr/bin',
         HOME: '/home/vkuser',
@@ -64,6 +66,7 @@ describe('vardash explicit repo launch isolation', () => {
     expect(plan.env).toEqual({ PATH: '/usr/bin', HOME: '/home/vkuser', API_TOKEN: 'repo-a-token' });
     expect(JSON.stringify(plan.env)).not.toContain('repo-b-token');
     expect(plan.process.repoId).toBe('repo-a');
+    expect(plan.cwd).toBe('/workspace/repo-a');
   });
 
   it('does not merge vardash secrets into normal agent/session env', () => {
@@ -105,6 +108,7 @@ describe('vardash explicit repo launch isolation', () => {
       store,
       workspaceId: 'workspace-1',
       repoId: 'repo-a',
+      repoRoot: '/workspace/repo-a',
       useVarlock: true,
       varlockSchemaPath: '/private/vardash/workspace-1/repo-a/.env.schema',
     });
@@ -138,6 +142,7 @@ describe('vardash explicit repo launch isolation', () => {
       store,
       workspaceId: 'workspace-1',
       repoId: 'repo-a',
+      repoRoot: '/workspace/repo-a',
       baseEnv: { PATH: '/usr/bin', API_TOKEN: 'ambient-secret', OTHER_SECRET: 'nope' },
     });
     const started = runner.launch(plan);
@@ -174,7 +179,7 @@ describe('vardash explicit repo launch isolation', () => {
       command: 'sh',
       args: ['-lc', 'npm run dev'],
       env: { PATH: '/usr/bin', API_TOKEN: 'secret' },
-      cwd: null,
+      cwd: '/workspace/repo-a',
       missingRequired: [],
     });
 
@@ -184,6 +189,60 @@ describe('vardash explicit repo launch isolation', () => {
     spawner.children[0]?.emitExit(0, 'SIGTERM');
     expect(runner.getStatus('run-stop')).toMatchObject({ status: 'stopped', exitCode: 0 });
     expect('restart' in runner).toBe(false);
+  });
+
+  it('requires a repo root and keeps process cwd inside that root', () => {
+    expect(resolveVardashProcessCwd('/workspace/repo-a', null)).toBe('/workspace/repo-a');
+    expect(resolveVardashProcessCwd('/workspace/repo-a', 'packages/api')).toBe('/workspace/repo-a/packages/api');
+    expect(resolveVardashProcessCwd('/workspace/repo-a', '/workspace/repo-a/packages/api')).toBe('/workspace/repo-a/packages/api');
+    expect(() => resolveVardashProcessCwd(null, null)).toThrow('Repo root is required');
+    expect(() => resolveVardashProcessCwd('/workspace/repo-a', '../repo-b')).toThrow('cwd must stay inside');
+    expect(() => resolveVardashProcessCwd('/workspace/repo-a', '/tmp')).toThrow('cwd must stay inside');
+  });
+
+  it('prunes terminal runs by ttl and max-run retention', () => {
+    let nowMs = Date.parse('2026-01-01T00:00:00.000Z');
+    let nextId = 0;
+    const spawner = new FakeVardashSpawner();
+    const runner = new VardashLaunchRunner({
+      spawner,
+      idGenerator: () => `run-${nextId++}`,
+      now: () => new Date(nowMs),
+      terminalRunRetentionMs: 1000,
+      maxTerminalRuns: 1,
+    });
+    const plan = {
+      workspaceId: 'workspace-1',
+      repoId: 'repo-a',
+      process: {
+        id: 'proc-1',
+        repoId: 'repo-a',
+        name: 'Dev server',
+        command: 'npm run dev',
+        cwd: null,
+        source: 'manual' as const,
+        isDefault: true,
+        createdAt: 'now',
+        updatedAt: 'now',
+      },
+      command: 'sh',
+      args: ['-lc', 'npm run dev'],
+      env: { PATH: '/usr/bin' },
+      cwd: '/workspace/repo-a',
+      missingRequired: [],
+    };
+
+    runner.launch(plan);
+    spawner.children[0]?.emitExit(0, null);
+    nowMs += 100;
+    runner.launch(plan);
+    spawner.children[1]?.emitExit(0, null);
+
+    expect(() => runner.getStatus('run-0')).toThrow(VardashLaunchError);
+    expect(runner.getStatus('run-1')).toMatchObject({ status: 'stopped' });
+
+    nowMs += 1000;
+    expect(() => runner.getStatus('run-1')).toThrow(VardashLaunchError);
   });
 
 });
