@@ -181,7 +181,13 @@ export function useVardashLaunchStatus(runId: string | null): UseQueryResult<Var
     queryKey: vardashQueryKeys.launchStatus(runId ?? ''),
     enabled: Boolean(runId),
     queryFn: () => vardashClient.getLaunchStatus(runId!),
+    refetchInterval: (query) => vardashLaunchStatusRefetchInterval(query.state.data as VardashLaunchStatusResponse | undefined),
   });
+}
+
+export function vardashLaunchStatusRefetchInterval(status: VardashLaunchStatusResponse | undefined): number | false {
+  if (!status) return 1500;
+  return status.status === 'stopped' || status.status === 'failed' ? false : 1500;
 }
 
 export function useUpsertVardashRepoEnvKey(): UseMutationResult<

@@ -6,6 +6,7 @@ import {
   invalidateVardashProcessQueries,
   invalidateVardashRepoEnvQueries,
   invalidateVardashWorkspaceRepoSelectionQueries,
+  vardashLaunchStatusRefetchInterval,
   vardashQueryKeys,
 } from './useVardash';
 
@@ -78,5 +79,44 @@ describe('vardash hook cache invalidation', () => {
     invalidateVardashLaunchReadinessQueries(queryClient, 'repo-a');
 
     expect(queryClient.getQueryState(otherWorkspaceReadinessKey)?.isInvalidated).toBe(true);
+  });
+
+  it('polls active launch status and stops polling terminal runs', () => {
+    expect(vardashLaunchStatusRefetchInterval(undefined)).toBe(1500);
+    expect(vardashLaunchStatusRefetchInterval({
+      runId: 'run-1',
+      status: 'starting',
+      startedAt: '2026-07-02T00:00:00.000Z',
+      stoppedAt: null,
+      exitCode: null,
+    })).toBe(1500);
+    expect(vardashLaunchStatusRefetchInterval({
+      runId: 'run-1',
+      status: 'running',
+      startedAt: '2026-07-02T00:00:00.000Z',
+      stoppedAt: null,
+      exitCode: null,
+    })).toBe(1500);
+    expect(vardashLaunchStatusRefetchInterval({
+      runId: 'run-1',
+      status: 'stopping',
+      startedAt: '2026-07-02T00:00:00.000Z',
+      stoppedAt: null,
+      exitCode: null,
+    })).toBe(1500);
+    expect(vardashLaunchStatusRefetchInterval({
+      runId: 'run-1',
+      status: 'stopped',
+      startedAt: '2026-07-02T00:00:00.000Z',
+      stoppedAt: '2026-07-02T00:00:01.000Z',
+      exitCode: 0,
+    })).toBe(false);
+    expect(vardashLaunchStatusRefetchInterval({
+      runId: 'run-1',
+      status: 'failed',
+      startedAt: '2026-07-02T00:00:00.000Z',
+      stoppedAt: '2026-07-02T00:00:01.000Z',
+      exitCode: 1,
+    })).toBe(false);
   });
 });
