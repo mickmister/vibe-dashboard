@@ -1,13 +1,13 @@
 import { mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 
 import { EventEmitter } from 'node:events';
 
 import { Hono } from 'hono';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { registerVardashRoutes } from './api';
+import { encodeVardashVarlockPathSegment, registerVardashRoutes } from './api';
 import { VardashLaunchRunner, type VardashChildProcess, type VardashProcessSpawnOptions, type VardashProcessSpawner } from './launch';
 import { SqlcipherVardashStore } from './store';
 
@@ -45,6 +45,10 @@ async function putJson(app: Hono, path: string, body: unknown) {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
   });
+}
+
+function pathSegment(value: string): string {
+  return encodeVardashVarlockPathSegment(value);
 }
 
 describe('vardash API boundary', () => {
@@ -373,6 +377,7 @@ describe('vardash API boundary', () => {
     const validated: Array<{ workspaceId: string; repoId: string }> = [];
     const { app, store } = await createApi({
       validateWorkspaceRepo: async (input) => { validated.push(input); },
+      varlockRuntime: { enabled: true, isAvailable: async () => true },
     });
     const tokenKey = await store.upsertRepoEnvKey({ repoId: 'repo-a', key: 'API_TOKEN', kind: 'secret', required: true });
     const portKey = await store.upsertRepoEnvKey({ repoId: 'repo-a', key: 'PORT', kind: 'plain', required: true });
@@ -399,9 +404,43 @@ describe('vardash API boundary', () => {
         { key: 'API_TOKEN', kind: 'secret', savedValueId: token.id, savedValueName: 'workspace' },
         { key: 'PORT', kind: 'plain', savedValueId: port.id, savedValueName: 'local' },
       ],
-      varlock: { enabled: true, configured: true, available: null },
+      varlock: { enabled: true, configured: true, available: true },
       selectionSemantics: 'workspace-null-inherits-repo-default',
       normalAgentEnvIncludesVardashSecrets: false,
+    });
+  });
+
+  it('marks readiness ineligible when requested Varlock runtime is disabled or unavailable', async () => {
+    const { app, store } = await createApi({
+      validateWorkspaceRepo: async () => undefined,
+      varlockRuntime: { enabled: true, isAvailable: async () => false },
+    });
+    const tokenKey = await store.upsertRepoEnvKey({ repoId: 'repo-a', key: 'API_TOKEN', kind: 'secret', required: true });
+    const token = await store.createSavedValue({ repoId: 'repo-a', envKeyId: tokenKey.id, name: 'local', value: 'readiness-varlock-secret' });
+    await store.setRepoDefaultSelection({ repoId: 'repo-a', envKeyId: tokenKey.id, savedValueId: token.id });
+    await store.upsertRepoProcessDefinition({ repoId: 'repo-a', name: 'Dev server', command: 'npm run dev', isDefault: true });
+
+    const response = await app.request('/dashboard/api/vardash/workspaces/ws-a/repos/repo-a/launch/readiness?useVarlock=true');
+    const text = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(text).not.toContain('readiness-varlock-secret');
+    expect(JSON.parse(text)).toMatchObject({
+      eligible: false,
+      varlock: { enabled: true, configured: true, available: false, reason: 'varlock_unavailable' },
+    });
+
+    const disabled = await createApi({ validateWorkspaceRepo: async () => undefined });
+    const disabledKey = await disabled.store.upsertRepoEnvKey({ repoId: 'repo-a', key: 'API_TOKEN', kind: 'secret', required: true });
+    const disabledToken = await disabled.store.createSavedValue({ repoId: 'repo-a', envKeyId: disabledKey.id, name: 'local', value: 'disabled-varlock-secret' });
+    await disabled.store.setRepoDefaultSelection({ repoId: 'repo-a', envKeyId: disabledKey.id, savedValueId: disabledToken.id });
+    await disabled.store.upsertRepoProcessDefinition({ repoId: 'repo-a', name: 'Dev server', command: 'npm run dev', isDefault: true });
+    const disabledResponse = await disabled.app.request('/dashboard/api/vardash/workspaces/ws-a/repos/repo-a/launch/readiness?useVarlock=true');
+    const disabledText = await disabledResponse.text();
+    expect(disabledText).not.toContain('disabled-varlock-secret');
+    expect(JSON.parse(disabledText)).toMatchObject({
+      eligible: false,
+      varlock: { enabled: true, configured: false, available: false, reason: 'varlock_not_configured' },
     });
   });
 
@@ -540,7 +579,7 @@ describe('vardash API boundary', () => {
     expect(response.status).toBe(200);
     expect(spawner.calls[0]).toMatchObject({
       command: 'server-varlock',
-      args: ['run', '--path', join(schemaDir, 'ws-a', 'repo-a.env.schema'), '--inject', 'vars', '--', 'sh', '-lc', 'npm run dev'],
+      args: ['run', '--path', join(schemaDir, pathSegment('ws-a'), `${pathSegment('repo-a')}.env.schema`), '--inject', 'vars', '--', 'sh', '-lc', 'npm run dev'],
       options: {
         cwd: '/workspace/repo-a',
         env: { API_TOKEN: 'varlock-secret' },
@@ -550,12 +589,19 @@ describe('vardash API boundary', () => {
     expect(spawner.calls[0]?.args).not.toContain('/tmp/malicious-varlock');
     expect(spawner.calls[0]?.args).not.toContain('/tmp/schema');
     expect(spawner.calls[0]?.options.env).not.toHaveProperty('__VARLOCK_ENV');
-    const schema = await readFile(join(schemaDir, 'ws-a', 'repo-a.env.schema'), 'utf8');
+    const schema = await readFile(join(schemaDir, pathSegment('ws-a'), `${pathSegment('repo-a')}.env.schema`), 'utf8');
     expect(schema).toContain('API_TOKEN=');
     expect(schema).toContain('@sensitive');
     expect(schema).toContain('@required');
     expect(schema).not.toContain('varlock-secret');
     expect(schema).not.toContain('description-secret');
+
+    const traversalSchemaPath = join(schemaDir, encodeVardashVarlockPathSegment('..'), `${encodeVardashVarlockPathSegment('repo-a')}.env.schema`);
+    const relativeTraversalSchemaPath = relative(resolve(schemaDir), resolve(traversalSchemaPath));
+    expect(encodeVardashVarlockPathSegment('..')).not.toBe('..');
+    expect(relativeTraversalSchemaPath).not.toBe('..');
+    expect(relativeTraversalSchemaPath.startsWith('..')).toBe(false);
+    await expect(readFile(join(schemaDir, '..', 'repo-a.env.schema'), 'utf8')).rejects.toThrow();
   });
 
   it('blocks unavailable Varlock and unresolved repo roots with generic launch errors', async () => {

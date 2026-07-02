@@ -295,6 +295,7 @@ export function registerVardashRoutes(app: Hono, options: RegisterVardashRoutesO
   app.get('/dashboard/api/vardash/workspaces/:workspaceId/repos/:repoId/launch/readiness', async (c) => {
     const workspaceId = c.req.param('workspaceId');
     const repoId = c.req.param('repoId');
+    const useVarlock = c.req.query('useVarlock') === 'true';
     try {
       await validateWorkspaceRepo(options, { workspaceId, repoId });
     } catch {
@@ -309,9 +310,14 @@ export function registerVardashRoutes(app: Hono, options: RegisterVardashRoutesO
         repoId,
         processDefinitionId: readNullableString(c.req.query('processDefinitionId')) ?? undefined,
         processName: readNullableString(c.req.query('processName')) ?? undefined,
-        useVarlock: c.req.query('useVarlock') === 'true',
+        useVarlock,
       });
-      return c.json(readiness);
+      const varlock = await getVarlockReadiness(options, useVarlock);
+      return c.json({
+        ...readiness,
+        eligible: readiness.eligible && (!useVarlock || (varlock.configured && varlock.available !== false)),
+        varlock,
+      });
     } catch (error) {
       if (error instanceof Error && error.message.startsWith('No vardash process definition')) {
         return c.json({ error: 'process_not_found' }, 404);
@@ -428,7 +434,7 @@ async function resolveVarlockRuntime(
   const privateDir = options.privateDir ?? defaultVardashPrivateDir();
   const schemaDir = runtime.schemaDir ?? join(privateDir, 'varlock-schemas');
   return {
-    schemaPath: join(schemaDir, safePathSegment(workspaceId), `${safePathSegment(repoId)}.env.schema`),
+    schemaPath: join(schemaDir, encodeVardashVarlockPathSegment(workspaceId), `${encodeVardashVarlockPathSegment(repoId)}.env.schema`),
     bin: runtime.bin,
   };
 }
@@ -460,8 +466,30 @@ async function validateWorkspaceRepo(
   }
 }
 
-function safePathSegment(value: string): string {
-  return encodeURIComponent(value).replace(/[!'()*]/g, (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
+export function encodeVardashVarlockPathSegment(value: string): string {
+  return Buffer.from(value, 'utf8').toString('base64url');
+}
+
+async function getVarlockReadiness(
+  options: RegisterVardashRoutesOptions,
+  enabled: boolean,
+): Promise<{
+  enabled: boolean;
+  configured: boolean;
+  available: boolean | null;
+  reason?: string;
+}> {
+  const runtime = options.varlockRuntime;
+  const configured = runtime?.enabled === true;
+  if (!enabled) return { enabled: false, configured, available: configured ? null : false };
+  if (!configured) return { enabled: true, configured: false, available: false, reason: 'varlock_not_configured' };
+  const available = runtime.isAvailable ? await runtime.isAvailable().catch(() => false) : true;
+  return {
+    enabled: true,
+    configured: true,
+    available,
+    ...(available ? {} : { reason: 'varlock_unavailable' }),
+  };
 }
 
 function memoizeStore(options: RegisterVardashRoutesOptions): () => Promise<VardashStore> {
