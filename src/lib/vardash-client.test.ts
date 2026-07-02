@@ -30,6 +30,9 @@ describe('VardashClient', () => {
           descriptionGuidance: 'Descriptions are metadata. Do not include secret material.',
         });
       }
+      if (input === '/dashboard/api/vardash/repos/repo-a/process-definitions/proc-legacy/default' && init?.method === 'POST') {
+        return jsonResponse({ process: { id: 'proc-legacy', source: 'legacy_dev_server_script', isDefault: true } });
+      }
       if (input === '/dashboard/api/vardash/repos/repo-a/import' && init?.method === 'POST') {
         expect(JSON.parse(String(init.body))).toMatchObject({ dryRun: true, source: 'pasted-env' });
         return jsonResponse({ dryRun: true, keys: [], diagnostics: [], conflicts: [] });
@@ -67,6 +70,9 @@ describe('VardashClient', () => {
       required: true,
       description: null,
     })).resolves.toMatchObject({ key: { id: 'key-1', kind: 'secret' } });
+    await expect(client.setRepoProcessDefinitionDefault('repo-a', 'proc-legacy')).resolves.toMatchObject({
+      process: { id: 'proc-legacy', source: 'legacy_dev_server_script', isDefault: true },
+    });
     await expect(client.importRepoEnv('repo-a', {
       content: 'TOKEN=value',
       source: 'pasted-env',
@@ -80,7 +86,7 @@ describe('VardashClient', () => {
       processDefinitionId: 'proc-1',
     })).resolves.toMatchObject({ eligible: true, varlock: { enabled: false } });
 
-    expect(fetchImpl).toHaveBeenCalledTimes(5);
+    expect(fetchImpl).toHaveBeenCalledTimes(6);
   });
 
   it('maps launch control API requests using typed status/control payloads', async () => {

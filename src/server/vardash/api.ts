@@ -178,6 +178,19 @@ export function registerVardashRoutes(app: Hono, options: RegisterVardashRoutesO
     }
   });
 
+  app.post('/dashboard/api/vardash/repos/:repoId/process-definitions/:processDefinitionId/default', async (c) => {
+    try {
+      const store = await getStore();
+      const process = await store.setRepoProcessDefinitionDefault({
+        repoId: c.req.param('repoId'),
+        processDefinitionId: c.req.param('processDefinitionId'),
+      });
+      return c.json({ process });
+    } catch (error) {
+      return c.json({ error: errorMessage(error) }, 404);
+    }
+  });
+
   app.post('/dashboard/api/vardash/repos/:repoId/process-definitions/import-legacy-dev-server', async (c) => {
     const body = await readJson(c);
     const devServerScript = readString(body.dev_server_script);

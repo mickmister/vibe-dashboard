@@ -266,7 +266,8 @@ describe('vardash API boundary', () => {
       dev_server_script: ' npm run dev ',
     });
     expect(legacy.status).toBe(200);
-    expect(await legacy.json()).toMatchObject({
+    const legacyBody = await legacy.json() as { process: { id: string } };
+    expect(legacyBody).toMatchObject({
       process: {
         repoId: 'repo-a',
         name: 'Dev server',
@@ -282,15 +283,33 @@ describe('vardash API boundary', () => {
       source: 'legacy_dev_server_script',
     });
     expect(worker.status).toBe(200);
-    expect(await worker.json()).toMatchObject({
+    const workerBody = await worker.json() as { process: { id: string } };
+    expect(workerBody).toMatchObject({
       process: { repoId: 'repo-a', name: 'Worker', command: 'npm run worker', source: 'manual' },
+    });
+
+    const workerDefault = await postJson(
+      app,
+      `/dashboard/api/vardash/repos/repo-a/process-definitions/${workerBody.process.id}/default`,
+      {},
+    );
+    expect(await workerDefault.json()).toMatchObject({
+      process: { name: 'Worker', source: 'manual', isDefault: true },
+    });
+    const legacyDefault = await postJson(
+      app,
+      `/dashboard/api/vardash/repos/repo-a/process-definitions/${legacyBody.process.id}/default`,
+      {},
+    );
+    expect(await legacyDefault.json()).toMatchObject({
+      process: { name: 'Dev server', source: 'legacy_dev_server_script', isDefault: true },
     });
 
     const repoProcesses = await app.request('/dashboard/api/vardash/repos/repo-a/process-definitions');
     expect(await repoProcesses.json()).toMatchObject({
       processes: [
-        { name: 'Dev server', isDefault: true },
-        { name: 'Worker', isDefault: false },
+        { name: 'Dev server', source: 'legacy_dev_server_script', isDefault: true },
+        { name: 'Worker', source: 'manual', isDefault: false },
       ],
     });
 

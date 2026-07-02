@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 
 import {
   useImportLegacyDevServerProcessDefinition,
+  useSetVardashRepoProcessDefinitionDefault,
   useUpsertVardashRepoProcessDefinition,
   useVardashRepoProcessDefinitions,
 } from '../../hooks/useVardash';
@@ -31,13 +32,14 @@ export function VardashProcessDefinitionsPanel({ repoId }: VardashProcessDefinit
   const processes = useVardashRepoProcessDefinitions(repoId);
   const upsertProcess = useUpsertVardashRepoProcessDefinition();
   const importLegacy = useImportLegacyDevServerProcessDefinition();
+  const setDefault = useSetVardashRepoProcessDefinitionDefault();
   const [draft, setDraft] = useState<VardashProcessDefinitionDraft>(EMPTY_PROCESS_DRAFT);
   const [legacyScript, setLegacyScript] = useState('');
 
   if (processes.isLoading) return <section aria-label="Vardash process definitions">Loading vardash processes…</section>;
   if (processes.error) return <section aria-label="Vardash process definitions">Unable to load vardash process definitions.</section>;
 
-  const busy = upsertProcess.isPending || importLegacy.isPending;
+  const busy = upsertProcess.isPending || importLegacy.isPending || setDefault.isPending;
 
   return (
     <VardashProcessDefinitionsView
@@ -61,15 +63,7 @@ export function VardashProcessDefinitionsPanel({ repoId }: VardashProcessDefinit
         setDraft(EMPTY_PROCESS_DRAFT);
       }}
       onSetDefault={(process) => {
-        upsertProcess.mutate({
-          repoId,
-          input: {
-            name: process.name,
-            command: process.command,
-            cwd: process.cwd,
-            isDefault: true,
-          },
-        });
+        setDefault.mutate({ repoId, processDefinitionId: process.id });
       }}
       onImportLegacy={async (script) => {
         await importLegacy.mutateAsync({ repoId, devServerScript: script });
@@ -148,7 +142,7 @@ export function VardashProcessDefinitionsView({
       <form className="grid gap-3 rounded border border-neutral-800 p-3 md:grid-cols-5" onSubmit={(event) => { event.preventDefault(); if (canSubmit) void onSubmit(draft); }}>
         <label className="text-sm">
           Name
-          <input className="mt-1 w-full rounded bg-neutral-950 p-2" value={draft.name} onChange={(event) => onDraftChange({ ...draft, name: event.target.value })} placeholder="Dev server" />
+          <input className="mt-1 w-full rounded bg-neutral-950 p-2 disabled:opacity-70" value={draft.name} onChange={(event) => onDraftChange({ ...draft, name: event.target.value })} placeholder="Dev server" readOnly={draft.id != null} aria-readonly={draft.id != null} />
         </label>
         <label className="text-sm md:col-span-2">
           Command
@@ -172,7 +166,7 @@ export function VardashProcessDefinitionsView({
             </button>
           )}
         </div>
-        <p className="md:col-span-5 text-xs text-neutral-400">Generic creates/edits are saved as Manual source. Legacy provenance is reserved for imported dev_server_script definitions.</p>
+        <p className="md:col-span-5 text-xs text-neutral-400">Generic creates/edits are saved as Manual source. Legacy provenance is reserved for imported dev_server_script definitions. Name is read-only while editing so edits target the selected process name.</p>
       </form>
 
       {onImportLegacy && onLegacyScriptChange && (

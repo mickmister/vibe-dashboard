@@ -31,6 +31,29 @@ describe('VardashProcessDefinitionsView', () => {
     expect(html).not.toContain('logs');
   });
 
+  it('calls set-default with process identity and renders edit name read-only', () => {
+    const onSetDefault = vi.fn();
+    const onEdit = vi.fn();
+
+    const html = renderToStaticMarkup(React.createElement(VardashProcessDefinitionsView, {
+      processes,
+      draft: { ...draft, id: 'proc-dev', name: 'Dev server', command: 'npm run dev', cwd: '', isDefault: false },
+      busy: false,
+      onDraftChange: () => undefined,
+      onEdit,
+      onSubmit: () => undefined,
+      onSetDefault,
+    }));
+
+    onSetDefault(processes[0]!);
+    expect(onSetDefault).toHaveBeenCalledWith(expect.objectContaining({
+      id: 'proc-dev',
+      source: 'legacy_dev_server_script',
+    }));
+    expect(html).toContain('readOnly');
+    expect(html).toContain('aria-readonly="true"');
+  });
+
   it('submits manual process definitions without source provenance input', () => {
     const onSubmit = vi.fn();
     const nextDraft = { ...draft, id: 'proc-worker', name: 'Worker', command: 'npm run worker', cwd: 'packages/api', isDefault: true };

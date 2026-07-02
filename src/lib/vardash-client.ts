@@ -334,6 +334,13 @@ export class VardashClient {
     return this.post(`/repos/${encodeURIComponent(repoId)}/process-definitions`, input);
   }
 
+  setRepoProcessDefinitionDefault(repoId: string, processDefinitionId: string): Promise<VardashProcessDefinitionResponse> {
+    return this.post(
+      `/repos/${encodeURIComponent(repoId)}/process-definitions/${encodeURIComponent(processDefinitionId)}/default`,
+      {},
+    );
+  }
+
   importLegacyDevServerProcessDefinition(repoId: string, devServerScript: string | null): Promise<VardashProcessDefinitionResponse> {
     return this.post(`/repos/${encodeURIComponent(repoId)}/process-definitions/import-legacy-dev-server`, {
       dev_server_script: devServerScript,

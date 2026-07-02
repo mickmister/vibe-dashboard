@@ -289,6 +289,20 @@ export function useUpsertVardashRepoProcessDefinition(): UseMutationResult<
   });
 }
 
+export function useSetVardashRepoProcessDefinitionDefault(): UseMutationResult<
+  VardashProcessDefinitionResponse,
+  VardashApiError,
+  { repoId: string; processDefinitionId: string }
+> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ repoId, processDefinitionId }) => vardashClient.setRepoProcessDefinitionDefault(repoId, processDefinitionId),
+    onSuccess: (_data, variables) => {
+      invalidateVardashProcessQueries(queryClient, variables.repoId);
+    },
+  });
+}
+
 export function useImportLegacyDevServerProcessDefinition(): UseMutationResult<
   VardashProcessDefinitionResponse,
   VardashApiError,

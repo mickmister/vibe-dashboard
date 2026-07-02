@@ -219,9 +219,14 @@ describe('SqlcipherVardashStore', () => {
       isDefault: false,
     });
 
+    const workerDefault = await store.setRepoProcessDefinitionDefault({ repoId: 'repo-a', processDefinitionId: worker.id });
+    expect(workerDefault).toMatchObject({ name: 'Worker', source: 'manual', isDefault: true });
+    const legacyDefault = await store.setRepoProcessDefinitionDefault({ repoId: 'repo-a', processDefinitionId: legacy.id });
+    expect(legacyDefault).toMatchObject({ name: 'Dev server', source: 'legacy_dev_server_script', isDefault: true });
+
     await expect(store.listRepoProcessDefinitions('repo-a')).resolves.toMatchObject([
-      { name: 'Dev server', isDefault: true },
-      { name: 'Worker', isDefault: false },
+      { name: 'Dev server', source: 'legacy_dev_server_script', isDefault: true },
+      { name: 'Worker', source: 'manual', isDefault: false },
     ]);
     await expect(
       store.listWorkspaceRepoProcessDefinitions({ workspaceId: 'workspace-1', repoId: 'repo-a' }),

@@ -136,6 +136,7 @@ export interface VardashStore {
   resolveRepoEnvForLaunch(input: ResolveRepoEnvForLaunchInput): Promise<ResolvedRepoEnv>;
   listRepoProcessDefinitions(repoId: string): Promise<RepoProcessDefinitionMetadata[]>;
   upsertRepoProcessDefinition(input: UpsertRepoProcessDefinitionInput): Promise<RepoProcessDefinitionMetadata>;
+  setRepoProcessDefinitionDefault(input: { repoId: string; processDefinitionId: string }): Promise<RepoProcessDefinitionMetadata>;
   listWorkspaceRepoProcessDefinitions(input: { workspaceId: string; repoId: string }): Promise<WorkspaceRepoProcessDefinition[]>;
 }
 
@@ -525,6 +526,31 @@ export class SqlcipherVardashStore implements VardashStore {
       `SELECT id, repo_id, name, command, cwd, source, is_default, created_at, updated_at
        FROM repo_process_definitions WHERE id = ?`,
       [id],
+    );
+    return rowToProcessDefinitionMetadata(row);
+  }
+
+  async setRepoProcessDefinitionDefault(input: { repoId: string; processDefinitionId: string }): Promise<RepoProcessDefinitionMetadata> {
+    const db = await this.open();
+    await getRequired(
+      db,
+      `SELECT id FROM repo_process_definitions WHERE repo_id = ? AND id = ?`,
+      [input.repoId, input.processDefinitionId],
+    );
+    await run(db, `UPDATE repo_process_definitions SET is_default = 0, updated_at = datetime('now') WHERE repo_id = ?`, [
+      input.repoId,
+    ]);
+    const changes = await run(
+      db,
+      `UPDATE repo_process_definitions SET is_default = 1, updated_at = datetime('now') WHERE repo_id = ? AND id = ?`,
+      [input.repoId, input.processDefinitionId],
+    );
+    if (changes !== 1) throw new Error('Expected to set exactly one vardash process definition default');
+    const row = await getRequired(
+      db,
+      `SELECT id, repo_id, name, command, cwd, source, is_default, created_at, updated_at
+       FROM repo_process_definitions WHERE repo_id = ? AND id = ?`,
+      [input.repoId, input.processDefinitionId],
     );
     return rowToProcessDefinitionMetadata(row);
   }
