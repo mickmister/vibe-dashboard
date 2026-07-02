@@ -35,15 +35,20 @@
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install chromium",
     "hotswap": "npm run build && ./scripts/hotswap-dashboard-dist.sh deploy",
-    "plugin-services:refresh:beads-web:requires-tag": "node --experimental-strip-types plugins/orchestrator/plugin-service-orchestrator-cli.ts refresh-github-release --plugin-id vd.beads-web --catalog plugins/builtin.plugins.json --catalog plugins/fixtures/beads-web.plugins.json --plugin plugins/fixtures/beads-web.plugin.json"
+    "plugin-services:refresh:beads-web:requires-tag": "node --experimental-strip-types plugins/orchestrator/plugin-service-orchestrator-cli.ts refresh-github-release --plugin-id vd.beads-web --catalog plugins/builtin.plugins.json --catalog plugins/fixtures/beads-web.plugins.json --plugin plugins/fixtures/beads-web.plugin.json",
+    "db:prepare-schema": "node db/scripts/generate_schemas.cjs",
+    "db:generate-migration-imports": "node db/scripts/generate_migration_imports.cjs",
+    "db:smoke:external-integrations": "node scripts/db/smoke-external-integrations.mjs"
   },
   "dependencies": {
     "@heroui/react": "^2.8.9",
     "@hono/node-server": "^1.19.9",
     "@tabler/icons-react": "^3.44.0",
     "@tailwindcss/vite": "^4.1.18",
+    "@tanstack/react-query": "^5.101.0",
     "@vibe-dashboard/workflow-core": "workspace:*",
     "@vitejs/plugin-react": "^5.1.4",
+    "better-auth": "^1.6.23",
     "better-sqlite3": "^12.6.2",
     "crossws": "^0.4.4",
     "framer-motion": "^12.34.0",
@@ -56,11 +61,11 @@
     "react-router": "^7.13.0",
     "rxjs": "^7.8.2",
     "springboard": "0.0.1-dev-jamapp-12",
-    "tailwindcss": "^4.1.18",
-    "@tanstack/react-query": "^5.101.0"
+    "tailwindcss": "^4.1.18"
   },
   "devDependencies": {
     "@chromatic-com/storybook": "^5.0.1",
+    "@prisma/client": "^6.4.1",
     "@storybook/addon-a11y": "^10.2.10",
     "@storybook/addon-docs": "^10.2.10",
     "@storybook/addon-onboarding": "^10.2.10",
@@ -71,17 +76,21 @@
     "@storybook/test": "^8.6.15",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/react": "^16.3.2",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^25.2.3",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitest/browser-playwright": "^4.0.18",
     "@vitest/coverage-v8": "^4.0.18",
     "playwright": "^1.58.2",
+    "prisma": "^6.4.1",
+    "prisma-kysely": "^1.8.0",
     "serve": "^14.2.5",
     "storybook": "^10.2.10",
     "typescript": "^5.9.3",
     "vite": "^7.3.1",
-    "vitest": "^4.0.18"
+    "vitest": "^4.0.18",
+    "@better-auth/cli": "^1.4.21"
   },
   "bin": {
     "vibe-agent": "./bin/vibe-agent",

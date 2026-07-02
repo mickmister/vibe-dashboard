@@ -30,6 +30,7 @@ import "./modules/MainUIShellModule";
 
 // @platform "node"
 import "./modules/WorkflowServerModule";
+import "./modules/ExternalTrackerServerModule";
 // @platform end
 
 const WORKSPACE_CREATE_PATH = "/workspaces/create";
