@@ -12,10 +12,12 @@ import {
 describe('vardash hook cache invalidation', () => {
   it('invalidates saved-value caches when env keys change kind to avoid stale plaintext display', () => {
     const queryClient = new QueryClient();
+    const overviewKey = vardashQueryKeys.repoEnvOverview('repo-a', 'ws-a');
     const savedValuesKey = vardashQueryKeys.savedValues('repo-a', 'key-plain');
     const otherRepoSavedValuesKey = vardashQueryKeys.savedValues('repo-b', 'key-plain');
 
     queryClient.setQueryData(vardashQueryKeys.repoEnvKeys('repo-a'), { keys: [] });
+    queryClient.setQueryData(overviewKey, { rows: [] });
     queryClient.setQueryData(savedValuesKey, {
       values: [{ id: 'saved-1', kind: 'plain', value: 'cached-plaintext' }],
     });
@@ -26,6 +28,7 @@ describe('vardash hook cache invalidation', () => {
     invalidateVardashRepoEnvQueries(queryClient, 'repo-a');
 
     expect(queryClient.getQueryState(vardashQueryKeys.repoEnvKeys('repo-a'))?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(overviewKey)?.isInvalidated).toBe(true);
     expect(queryClient.getQueryState(savedValuesKey)?.isInvalidated).toBe(true);
     expect(queryClient.getQueryState(otherRepoSavedValuesKey)?.isInvalidated).toBe(false);
   });

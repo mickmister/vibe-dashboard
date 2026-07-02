@@ -26,6 +26,7 @@ import {
   type VardashLaunchStatusResponse,
   type VardashLaunchStopResponse,
   type VardashProcessDefinitionResponse,
+  type VardashRepoEnvOverviewResponse,
   type VardashProcessDefinitionsResponse,
   type VardashSavedValueResponse,
   type VardashSavedValuesResponse,
@@ -35,6 +36,14 @@ import {
 
 export const vardashQueryKeys = {
   repoEnv: (repoId: string) => ['vardash', 'repos', repoId, 'env-keys'] as const,
+  repoEnvOverview: (repoId: string, workspaceId?: string | null) => [
+    'vardash',
+    'repos',
+    repoId,
+    'env-overview',
+    workspaceId ?? null,
+  ] as const,
+  repoEnvOverviewScope: (repoId: string) => ['vardash', 'repos', repoId, 'env-overview'] as const,
   repoEnvKeys: (repoId: string) => ['vardash', 'repos', repoId, 'env-keys'] as const,
   savedValues: (repoId: string, envKeyId: string) => ['vardash', 'repos', repoId, 'env-keys', envKeyId, 'saved-values'] as const,
   repoProcesses: (repoId: string) => ['vardash', 'repos', repoId, 'process-definitions'] as const,
@@ -64,6 +73,7 @@ type VardashInvalidateClient = Pick<QueryClient, 'invalidateQueries'>;
 
 export function invalidateVardashRepoEnvQueries(queryClient: VardashInvalidateClient, repoId: string): void {
   void queryClient.invalidateQueries({ queryKey: vardashQueryKeys.repoEnv(repoId) });
+  void queryClient.invalidateQueries({ queryKey: vardashQueryKeys.repoEnvOverviewScope(repoId) });
 }
 
 export function invalidateVardashWorkspaceRepoSelectionQueries(
@@ -102,6 +112,17 @@ function isLaunchReadinessQuery(queryKey: QueryKey, repoId?: string): boolean {
   return queryKey[0] === 'vardash'
     && queryKey[5] === 'launch-readiness'
     && (repoId == null || queryKey[4] === repoId);
+}
+
+export function useVardashRepoEnvOverview(
+  repoId: string | null,
+  workspaceId?: string | null,
+): UseQueryResult<VardashRepoEnvOverviewResponse, VardashApiError> {
+  return useQuery({
+    queryKey: vardashQueryKeys.repoEnvOverview(repoId ?? '', workspaceId),
+    enabled: Boolean(repoId),
+    queryFn: () => vardashClient.listRepoEnvOverview(repoId!, workspaceId),
+  });
 }
 
 export function useVardashRepoEnvKeys(repoId: string | null): UseQueryResult<VardashEnvKeysResponse, VardashApiError> {

@@ -23,6 +23,21 @@ export const VARDASH_DESCRIPTION_GUIDANCE = 'Descriptions are metadata. Do not i
 export function registerVardashRoutes(app: Hono, options: RegisterVardashRoutesOptions = {}): void {
   const getStore = memoizeStore(options);
 
+  app.get('/dashboard/api/vardash/workspaces/:workspaceId/repos/:repoId/env-overview', async (c) => {
+    const store = await getStore();
+    const overview = await store.listRepoEnvOverview({
+      workspaceId: c.req.param('workspaceId'),
+      repoId: c.req.param('repoId'),
+    });
+    return c.json({ ...overview, descriptionGuidance: VARDASH_DESCRIPTION_GUIDANCE });
+  });
+
+  app.get('/dashboard/api/vardash/repos/:repoId/env-overview', async (c) => {
+    const store = await getStore();
+    const overview = await store.listRepoEnvOverview({ repoId: c.req.param('repoId') });
+    return c.json({ ...overview, descriptionGuidance: VARDASH_DESCRIPTION_GUIDANCE });
+  });
+
   app.get('/dashboard/api/vardash/repos/:repoId/env-keys', async (c) => {
     const store = await getStore();
     const keys = await store.listRepoEnvKeys(c.req.param('repoId'));

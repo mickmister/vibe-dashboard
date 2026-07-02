@@ -30,6 +30,30 @@ export interface RepoEnvSavedValueMetadata {
   updatedAt: string;
 }
 
+export interface VardashSelectionMetadata {
+  savedValueId: string;
+  savedValueName: string;
+  kind: VardashValueKind;
+}
+
+export type VardashWorkspaceSelectionMetadata =
+  | { mode: 'inherit' }
+  | ({ mode: 'selected' } & VardashSelectionMetadata);
+
+export interface VardashRepoEnvOverviewRow {
+  key: RepoEnvKeyMetadata;
+  savedValueCount: number;
+  savedValues: RepoEnvSavedValueMetadata[];
+  repoDefaultSelection: VardashSelectionMetadata | null;
+  workspaceSelection: VardashWorkspaceSelectionMetadata;
+}
+
+export interface VardashRepoEnvOverview {
+  repoId: string;
+  workspaceId: string | null;
+  rows: VardashRepoEnvOverviewRow[];
+}
+
 export interface ResolvedRepoEnv {
   env: Record<string, string>;
   missingRequired: RepoEnvKeyMetadata[];
@@ -102,6 +126,7 @@ export interface VardashStore {
   migrate(): Promise<void>;
   close(): Promise<void>;
   listRepoEnvKeys(repoId: string): Promise<RepoEnvKeyMetadata[]>;
+  listRepoEnvOverview(input: { repoId: string; workspaceId?: string | null }): Promise<VardashRepoEnvOverview>;
   upsertRepoEnvKey(input: UpsertRepoEnvKeyInput): Promise<RepoEnvKeyMetadata>;
   createSavedValue(input: CreateSavedValueInput): Promise<RepoEnvSavedValueMetadata>;
   replaceSavedValue(input: CreateSavedValueInput & { savedValueId: string }): Promise<RepoEnvSavedValueMetadata>;
@@ -236,6 +261,54 @@ export class SqlcipherVardashStore implements VardashStore {
       [repoId],
     );
     return rows.map(rowToEnvKeyMetadata);
+  }
+
+  async listRepoEnvOverview(input: { repoId: string; workspaceId?: string | null }): Promise<VardashRepoEnvOverview> {
+    const db = await this.open();
+    const rows = await all(
+      db,
+      `SELECT
+         k.id, k.repo_id, k.key, k.kind, k.required, k.description, k.created_at, k.updated_at,
+         d.saved_value_id AS repo_default_saved_value_id,
+         dv.name AS repo_default_saved_value_name,
+         w.saved_value_id AS workspace_saved_value_id,
+         wv.name AS workspace_saved_value_name
+       FROM repo_env_keys k
+       LEFT JOIN repo_env_default_selections d
+         ON d.repo_id = k.repo_id AND d.env_key_id = k.id
+       LEFT JOIN repo_env_saved_values dv
+         ON dv.id = d.saved_value_id AND dv.repo_id = k.repo_id AND dv.env_key_id = k.id
+       LEFT JOIN workspace_repo_env_selections w
+         ON w.repo_id = k.repo_id AND w.env_key_id = k.id AND w.workspace_id = ?
+       LEFT JOIN repo_env_saved_values wv
+         ON wv.id = w.saved_value_id AND wv.repo_id = k.repo_id AND wv.env_key_id = k.id
+       WHERE k.repo_id = ?
+       ORDER BY k.key ASC`,
+      [input.workspaceId ?? '', input.repoId],
+    );
+
+    const overviewRows: VardashRepoEnvOverviewRow[] = [];
+    for (const row of rows) {
+      const key = rowToEnvKeyMetadata(row);
+      const savedValues = await this.listSavedValues(input.repoId, key.id);
+      overviewRows.push({
+        key,
+        savedValueCount: savedValues.length,
+        savedValues,
+        repoDefaultSelection: selectionMetadata({
+          savedValueId: row.repo_default_saved_value_id,
+          savedValueName: row.repo_default_saved_value_name,
+          kind: key.kind,
+        }),
+        workspaceSelection: workspaceSelectionMetadata({
+          savedValueId: row.workspace_saved_value_id,
+          savedValueName: row.workspace_saved_value_name,
+          kind: key.kind,
+        }),
+      });
+    }
+
+    return { repoId: input.repoId, workspaceId: input.workspaceId ?? null, rows: overviewRows };
   }
 
   async upsertRepoEnvKey(input: UpsertRepoEnvKeyInput): Promise<RepoEnvKeyMetadata> {
@@ -678,4 +751,14 @@ function rowToProcessDefinitionMetadata(row: Row): RepoProcessDefinitionMetadata
 
 function sqlStringLiteral(value: string): string {
   return `'${value.replaceAll("'", "''")}'`;
+}
+
+function selectionMetadata(input: { savedValueId: unknown; savedValueName: unknown; kind: VardashValueKind }): VardashSelectionMetadata | null {
+  if (typeof input.savedValueId !== 'string' || typeof input.savedValueName !== 'string') return null;
+  return { savedValueId: input.savedValueId, savedValueName: input.savedValueName, kind: input.kind };
+}
+
+function workspaceSelectionMetadata(input: { savedValueId: unknown; savedValueName: unknown; kind: VardashValueKind }): VardashWorkspaceSelectionMetadata {
+  const selected = selectionMetadata(input);
+  return selected ? { mode: 'selected', ...selected } : { mode: 'inherit' };
 }

@@ -304,4 +304,47 @@ describe('vardash API boundary', () => {
       ],
     });
   });
+  it('returns metadata-only repo env overview with defaults and workspace selections', async () => {
+    const { app, store } = await createApi();
+    const tokenKey = await store.upsertRepoEnvKey({ repoId: 'repo-a', key: 'API_TOKEN', kind: 'secret', required: true });
+    const portKey = await store.upsertRepoEnvKey({ repoId: 'repo-a', key: 'PORT', kind: 'plain', required: true });
+    const prodToken = await store.createSavedValue({ repoId: 'repo-a', envKeyId: tokenKey.id, name: 'prod', value: 'super-secret' });
+    const localToken = await store.createSavedValue({ repoId: 'repo-a', envKeyId: tokenKey.id, name: 'local-dev', value: 'local-secret' });
+    const localPort = await store.createSavedValue({ repoId: 'repo-a', envKeyId: portKey.id, name: 'local', value: '3000' });
+    await store.setRepoDefaultSelection({ repoId: 'repo-a', envKeyId: tokenKey.id, savedValueId: prodToken.id });
+    await store.setWorkspaceRepoSelection({ workspaceId: 'ws-a', repoId: 'repo-a', envKeyId: tokenKey.id, savedValueId: localToken.id });
+    await store.setRepoDefaultSelection({ repoId: 'repo-a', envKeyId: portKey.id, savedValueId: localPort.id });
+
+    const response = await app.request('/dashboard/api/vardash/workspaces/ws-a/repos/repo-a/env-overview');
+
+    expect(response.status).toBe(200);
+    const text = await response.text();
+    expect(text).not.toContain('super-secret');
+    expect(text).not.toContain('local-secret');
+    expect(JSON.parse(text)).toMatchObject({
+      repoId: 'repo-a',
+      workspaceId: 'ws-a',
+      descriptionGuidance: 'Descriptions are metadata. Do not include secret material.',
+      rows: [
+        {
+          key: { key: 'API_TOKEN', kind: 'secret', required: true },
+          savedValueCount: 2,
+          repoDefaultSelection: { savedValueId: prodToken.id, savedValueName: 'prod', kind: 'secret' },
+          workspaceSelection: { mode: 'selected', savedValueId: localToken.id, savedValueName: 'local-dev', kind: 'secret' },
+          savedValues: [
+            { name: 'local-dev', kind: 'secret', hasValue: true },
+            { name: 'prod', kind: 'secret', hasValue: true },
+          ],
+        },
+        {
+          key: { key: 'PORT', kind: 'plain', required: true },
+          savedValueCount: 1,
+          repoDefaultSelection: { savedValueId: localPort.id, savedValueName: 'local', kind: 'plain' },
+          workspaceSelection: { mode: 'inherit' },
+          savedValues: [{ name: 'local', kind: 'plain', hasValue: true, value: '3000' }],
+        },
+      ],
+    });
+  });
+
 });

@@ -8,6 +8,9 @@ import {
 describe('VardashClient', () => {
   it('maps metadata API requests without hand-rolled response shapes', async () => {
     const fetchImpl = vi.fn(async (input: string, init?: RequestInit) => {
+      if (input === '/dashboard/api/vardash/workspaces/ws-a/repos/repo-a/env-overview') {
+        return jsonResponse({ repoId: 'repo-a', workspaceId: 'ws-a', rows: [], descriptionGuidance: 'Descriptions are metadata. Do not include secret material.' });
+      }
       if (input === '/dashboard/api/vardash/repos/repo-a/env-keys' && init?.method == null) {
         return jsonResponse({ keys: [], descriptionGuidance: 'Descriptions are metadata. Do not include secret material.' });
       }
@@ -46,6 +49,11 @@ describe('VardashClient', () => {
 
     const client = new VardashClient({ fetch: fetchImpl });
 
+    await expect(client.listRepoEnvOverview('repo-a', 'ws-a')).resolves.toMatchObject({
+      repoId: 'repo-a',
+      workspaceId: 'ws-a',
+      rows: [],
+    });
     await expect(client.listRepoEnvKeys('repo-a')).resolves.toEqual({
       keys: [],
       descriptionGuidance: 'Descriptions are metadata. Do not include secret material.',
@@ -69,7 +77,7 @@ describe('VardashClient', () => {
       processDefinitionId: 'proc-1',
     })).resolves.toMatchObject({ ready: true, varlock: { enabled: false } });
 
-    expect(fetchImpl).toHaveBeenCalledTimes(4);
+    expect(fetchImpl).toHaveBeenCalledTimes(5);
   });
 
   it('maps launch control API requests using typed status/control payloads', async () => {

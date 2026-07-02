@@ -43,6 +43,31 @@ export interface VardashWorkspaceProcessDefinition extends VardashProcessDefinit
   workspaceId: string;
 }
 
+export interface VardashSelectionMetadata {
+  savedValueId: string;
+  savedValueName: string;
+  kind: VardashValueKind;
+}
+
+export type VardashWorkspaceSelectionMetadata =
+  | { mode: 'inherit' }
+  | ({ mode: 'selected' } & VardashSelectionMetadata);
+
+export interface VardashRepoEnvOverviewRow {
+  key: VardashEnvKeyMetadata;
+  savedValueCount: number;
+  savedValues: VardashSavedValueMetadata[];
+  repoDefaultSelection: VardashSelectionMetadata | null;
+  workspaceSelection: VardashWorkspaceSelectionMetadata;
+}
+
+export interface VardashRepoEnvOverviewResponse {
+  repoId: string;
+  workspaceId: string | null;
+  rows: VardashRepoEnvOverviewRow[];
+  descriptionGuidance: string;
+}
+
 export interface VardashEnvKeysResponse {
   keys: VardashEnvKeyMetadata[];
   descriptionGuidance: string;
@@ -230,6 +255,13 @@ export class VardashClient {
   constructor(options: VardashClientOptions = {}) {
     this.baseUrl = (options.baseUrl ?? '/dashboard/api/vardash').replace(/\/+$/, '');
     this.fetchImpl = options.fetch ?? fetch;
+  }
+
+  listRepoEnvOverview(repoId: string, workspaceId?: string | null): Promise<VardashRepoEnvOverviewResponse> {
+    if (workspaceId) {
+      return this.get(`/workspaces/${encodeURIComponent(workspaceId)}/repos/${encodeURIComponent(repoId)}/env-overview`);
+    }
+    return this.get(`/repos/${encodeURIComponent(repoId)}/env-overview`);
   }
 
   listRepoEnvKeys(repoId: string): Promise<VardashEnvKeysResponse> {
