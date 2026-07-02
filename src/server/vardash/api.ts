@@ -3,13 +3,21 @@ import type { Context, Hono } from 'hono';
 
 import { defaultVardashPrivateDir } from './key-manager';
 import { importVardashEnv, parseDotenv, type VardashEnvImportSource } from './import-parser';
+import { VibeKanbanServerClient } from '../vk-client';
+import { getVardashLaunchReadiness } from './launch';
 import { ensureLegacyDevServerProcessDefinition } from './process-definitions';
 import { SqlcipherVardashStore, type VardashStore, type VardashValueKind } from './store';
+
+export interface VardashWorkspaceRepoValidationInput {
+  workspaceId: string;
+  repoId: string;
+}
 
 export interface RegisterVardashRoutesOptions {
   store?: VardashStore;
   dbPath?: string;
   privateDir?: string;
+  validateWorkspaceRepo?: (input: VardashWorkspaceRepoValidationInput) => Promise<void>;
 }
 
 export interface VardashImportConflict {
@@ -184,6 +192,34 @@ export function registerVardashRoutes(app: Hono, options: RegisterVardashRoutesO
     return c.json({ process });
   });
 
+  app.get('/dashboard/api/vardash/workspaces/:workspaceId/repos/:repoId/launch/readiness', async (c) => {
+    const workspaceId = c.req.param('workspaceId');
+    const repoId = c.req.param('repoId');
+    try {
+      await validateWorkspaceRepo(options, { workspaceId, repoId });
+    } catch {
+      return c.json({ error: 'workspace_repo_forbidden' }, 403);
+    }
+
+    const store = await getStore();
+    try {
+      const readiness = await getVardashLaunchReadiness({
+        store,
+        workspaceId,
+        repoId,
+        processDefinitionId: readNullableString(c.req.query('processDefinitionId')) ?? undefined,
+        processName: readNullableString(c.req.query('processName')) ?? undefined,
+        useVarlock: c.req.query('useVarlock') === 'true',
+      });
+      return c.json(readiness);
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith('No vardash process definition')) {
+        return c.json({ error: 'process_not_found' }, 404);
+      }
+      return c.json({ error: 'readiness_failed' }, 409);
+    }
+  });
+
   app.get('/dashboard/api/vardash/workspaces/:workspaceId/repos/:repoId/process-definitions', async (c) => {
     const store = await getStore();
     const processes = await store.listWorkspaceRepoProcessDefinitions({
@@ -279,6 +315,25 @@ export async function preflightImport(input: {
     diagnostics: parsed.diagnostics,
     conflicts,
   };
+}
+
+async function validateWorkspaceRepo(
+  options: RegisterVardashRoutesOptions,
+  input: VardashWorkspaceRepoValidationInput,
+): Promise<void> {
+  if (options.validateWorkspaceRepo) {
+    await options.validateWorkspaceRepo(input);
+    return;
+  }
+  const client = new VibeKanbanServerClient();
+  const workspaces = await client.getWorkspaces();
+  if (!workspaces.some((workspace) => workspace.id === input.workspaceId)) {
+    throw new Error('workspace_not_found');
+  }
+  const repos = await client.getWorkspaceRepos(input.workspaceId);
+  if (!repos.some((repo) => repo.id === input.repoId)) {
+    throw new Error('repo_not_in_workspace');
+  }
 }
 
 function memoizeStore(options: RegisterVardashRoutesOptions): () => Promise<VardashStore> {

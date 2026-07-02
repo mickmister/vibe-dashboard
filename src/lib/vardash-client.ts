@@ -182,22 +182,34 @@ export type VardashLaunchStatus = 'starting' | 'running' | 'stopping' | 'stopped
 
 export interface VardashLaunchReadinessProcessMetadata {
   id: string;
+  repoId: string;
   name: string;
+  source: VardashProcessDefinitionSource;
   isDefault: boolean;
 }
 
+export interface VardashLaunchReadinessSelectedValue {
+  key: string;
+  kind: VardashValueKind;
+  savedValueId: string | null;
+  savedValueName: string | null;
+}
+
 export interface VardashLaunchReadinessResponse {
-  ready: boolean;
+  eligible: boolean;
   workspaceId: string;
   repoId: string;
   process: VardashLaunchReadinessProcessMetadata | null;
   missingRequired: Array<Pick<VardashEnvKeyMetadata, 'id' | 'key' | 'kind' | 'required' | 'description'>>;
+  selectedValues: VardashLaunchReadinessSelectedValue[];
   varlock: {
     enabled: boolean;
+    configured: boolean;
     available: boolean | null;
     reason?: string;
   };
-  errors?: string[];
+  selectionSemantics: 'workspace-null-inherits-repo-default';
+  normalAgentEnvIncludesVardashSecrets: false;
 }
 
 export interface GetVardashLaunchReadinessInput {

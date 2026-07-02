@@ -15,7 +15,7 @@ afterEach(async () => {
   stores.length = 0;
 });
 
-async function createApi() {
+async function createApi(options: Parameters<typeof registerVardashRoutes>[1] = {}) {
   const root = await mkdtemp(join(tmpdir(), 'vardash-api-'));
   const store = new SqlcipherVardashStore({
     dbPath: join(root, 'private/vardash.db'),
@@ -24,7 +24,7 @@ async function createApi() {
   stores.push(store);
   await store.migrate();
   const app = new Hono();
-  registerVardashRoutes(app, { store });
+  registerVardashRoutes(app, { ...options, store });
   return { app, store };
 }
 
@@ -344,6 +344,84 @@ describe('vardash API boundary', () => {
           savedValues: [{ name: 'local', kind: 'plain', hasValue: true, value: '3000' }],
         },
       ],
+    });
+  });
+
+  it('returns metadata-only launch readiness after workspace/repo/process ownership validation', async () => {
+    const validated: Array<{ workspaceId: string; repoId: string }> = [];
+    const { app, store } = await createApi({
+      validateWorkspaceRepo: async (input) => { validated.push(input); },
+    });
+    const tokenKey = await store.upsertRepoEnvKey({ repoId: 'repo-a', key: 'API_TOKEN', kind: 'secret', required: true });
+    const portKey = await store.upsertRepoEnvKey({ repoId: 'repo-a', key: 'PORT', kind: 'plain', required: true });
+    const token = await store.createSavedValue({ repoId: 'repo-a', envKeyId: tokenKey.id, name: 'workspace', value: 'super-secret-readiness' });
+    const port = await store.createSavedValue({ repoId: 'repo-a', envKeyId: portKey.id, name: 'local', value: '3000' });
+    await store.setWorkspaceRepoSelection({ workspaceId: 'ws-a', repoId: 'repo-a', envKeyId: tokenKey.id, savedValueId: token.id });
+    await store.setRepoDefaultSelection({ repoId: 'repo-a', envKeyId: portKey.id, savedValueId: port.id });
+    const process = await store.upsertRepoProcessDefinition({ repoId: 'repo-a', name: 'Dev server', command: 'npm run dev', isDefault: true });
+
+    const response = await app.request(`/dashboard/api/vardash/workspaces/ws-a/repos/repo-a/launch/readiness?processDefinitionId=${process.id}&useVarlock=true`);
+
+    expect(response.status).toBe(200);
+    expect(validated).toEqual([{ workspaceId: 'ws-a', repoId: 'repo-a' }]);
+    const text = await response.text();
+    expect(text).not.toContain('super-secret-readiness');
+    expect(text).not.toContain('3000');
+    expect(JSON.parse(text)).toMatchObject({
+      workspaceId: 'ws-a',
+      repoId: 'repo-a',
+      eligible: true,
+      process: { id: process.id, repoId: 'repo-a', name: 'Dev server', isDefault: true },
+      missingRequired: [],
+      selectedValues: [
+        { key: 'API_TOKEN', kind: 'secret', savedValueId: token.id, savedValueName: 'workspace' },
+        { key: 'PORT', kind: 'plain', savedValueId: port.id, savedValueName: 'local' },
+      ],
+      varlock: { enabled: true, configured: true, available: null },
+      selectionSemantics: 'workspace-null-inherits-repo-default',
+      normalAgentEnvIncludesVardashSecrets: false,
+    });
+  });
+
+  it('blocks readiness for repos outside the workspace and process ids outside the repo without secret echo', async () => {
+    const { app, store } = await createApi({
+      validateWorkspaceRepo: async () => { throw new Error('workspace_repo_not_found super-secret-owner'); },
+    });
+    await store.upsertRepoProcessDefinition({ repoId: 'repo-a', name: 'Dev server', command: 'npm run dev', isDefault: true });
+
+    const response = await app.request('/dashboard/api/vardash/workspaces/ws-a/repos/repo-a/launch/readiness');
+
+    expect(response.status).toBe(403);
+    const text = await response.text();
+    expect(text).toContain('workspace_repo_forbidden');
+    expect(text).not.toContain('super-secret-owner');
+
+    const { app: app2, store: store2 } = await createApi({ validateWorkspaceRepo: async () => undefined });
+    await store2.upsertRepoProcessDefinition({ repoId: 'repo-a', name: 'Dev server', command: 'npm run dev', isDefault: true });
+    await store2.upsertRepoProcessDefinition({ repoId: 'repo-b', name: 'Other', command: 'npm run other', isDefault: true });
+    const otherProcess = (await store2.listRepoProcessDefinitions('repo-b'))[0];
+    expect(otherProcess).toBeDefined();
+
+    const wrongProcess = await app2.request(`/dashboard/api/vardash/workspaces/ws-a/repos/repo-a/launch/readiness?processDefinitionId=${otherProcess!.id}`);
+    expect(wrongProcess.status).toBe(404);
+    expect(await wrongProcess.json()).toEqual({ error: 'process_not_found' });
+  });
+
+  it('reports missing required values by metadata only and never exposes raw resolved env', async () => {
+    const { app, store } = await createApi({ validateWorkspaceRepo: async () => undefined });
+    const tokenKey = await store.upsertRepoEnvKey({ repoId: 'repo-a', key: 'API_TOKEN', kind: 'secret', required: true });
+    await store.createSavedValue({ repoId: 'repo-a', envKeyId: tokenKey.id, name: 'unused', value: 'unused-secret' });
+    await store.upsertRepoProcessDefinition({ repoId: 'repo-a', name: 'Dev server', command: 'npm run dev', isDefault: true });
+
+    const response = await app.request('/dashboard/api/vardash/workspaces/ws-a/repos/repo-a/launch/readiness');
+
+    expect(response.status).toBe(200);
+    const text = await response.text();
+    expect(text).not.toContain('unused-secret');
+    expect(JSON.parse(text)).toMatchObject({
+      eligible: false,
+      missingRequired: [{ key: 'API_TOKEN', kind: 'secret', required: true }],
+      selectedValues: [{ key: 'API_TOKEN', kind: 'secret', savedValueId: null, savedValueName: null }],
     });
   });
 

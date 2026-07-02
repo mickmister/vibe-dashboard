@@ -36,12 +36,15 @@ describe('VardashClient', () => {
       }
       if (input === '/dashboard/api/vardash/workspaces/ws-a/repos/repo-a/launch/readiness?processDefinitionId=proc-1') {
         return jsonResponse({
-          ready: true,
+          eligible: true,
           workspaceId: 'ws-a',
           repoId: 'repo-a',
-          process: { id: 'proc-1', name: 'Dev server', isDefault: true },
+          process: { id: 'proc-1', repoId: 'repo-a', name: 'Dev server', source: 'manual', isDefault: true },
           missingRequired: [],
-          varlock: { enabled: false, available: null },
+          selectedValues: [],
+          varlock: { enabled: false, configured: false, available: null },
+          selectionSemantics: 'workspace-null-inherits-repo-default',
+          normalAgentEnvIncludesVardashSecrets: false,
         });
       }
       return jsonResponse({ error: 'unexpected request' }, 500);
@@ -75,7 +78,7 @@ describe('VardashClient', () => {
       workspaceId: 'ws-a',
       repoId: 'repo-a',
       processDefinitionId: 'proc-1',
-    })).resolves.toMatchObject({ ready: true, varlock: { enabled: false } });
+    })).resolves.toMatchObject({ eligible: true, varlock: { enabled: false } });
 
     expect(fetchImpl).toHaveBeenCalledTimes(5);
   });

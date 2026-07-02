@@ -73,7 +73,12 @@ export {
   VardashLaunchError,
   buildIsolatedVardashLaunchEnv,
   buildNormalAgentExecutionEnv,
+  getVardashLaunchReadiness,
   prepareVardashRepoProcessLaunch,
   type PrepareVardashRepoProcessLaunchInput,
+  type VardashLaunchReadiness,
+  type VardashLaunchReadinessInput,
+  type VardashLaunchReadinessProcess,
+  type VardashLaunchReadinessSelectedValue,
   type VardashRepoProcessLaunchPlan,
 } from './launch';
