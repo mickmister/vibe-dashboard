@@ -54,19 +54,19 @@ This proves the MVP approach can validate/inject values supplied via process env
 
 `src/server/vardash/varlock-spike.ts` includes small, test-covered helpers:
 
-- `generateVardashVarlockSchema(keys)` emits schema metadata only.
+- `generateVardashVarlockSchema(keys)` emits schema metadata only. It omits user-provided descriptions/comments so accidental secret text in descriptions is not copied into generated schema files.
 - `buildVarlockRunCommand(input)` returns `{ command, args }` for direct `spawn`/`execFile` use and never builds a shell string.
 - `vardashKeyToVarlockSchemaKey(key)` maps store metadata to schema metadata.
 
 ## Failure modes and risks
 
-- **Varlock missing from devbox**: wrapper launch should fail with an actionable “Varlock unavailable” message or fall back only if the user/project disables Varlock validation. Do not make Varlock the source of truth.
-- **Validation failure**: Varlock exits non-zero before running the child when config is invalid/missing. Surface sanitized validation errors in VD UI.
+- **Varlock missing from devbox**: when Varlock is requested but the server-controlled runtime policy reports it unavailable, launch fails before spawning with a generic secret-safe `launch_failed` response. Launch still works without Varlock when the user/project does not request it. Do not make Varlock the source of truth.
+- **Validation failure**: Varlock exits non-zero before running the child when config is invalid/missing. VD does not expose stdout/stderr/log capture for vardash launches in this scope; status/errors must remain sanitized and secret-safe.
 - **TTY redaction limits**: forced redaction on interactive TTY output can fail; background process capture should not use an interactive TTY when redaction is required.
 - **Environment inspection**: `--inject vars` avoids `__VARLOCK_ENV`, but the launched process and same-user/root process inspection can still access env vars. This matches the existing vardash threat model.
-- **Schema files**: generated schemas are safe to inspect but should still live in VD private runtime data to avoid repo clutter and accidental project coupling.
+- **Schema files**: generated schemas are safe to inspect but should still live in VD private runtime data to avoid repo clutter and accidental project coupling. Runtime schema paths and the Varlock binary are server-controlled policy, never client-controlled request fields.
 - **Value precedence**: because vardash values are passed in the child environment, launch code must construct a minimal env containing only the repo's resolved env plus required baseline process env.
 
 ## Recommendation
 
-Proceed with Varlock as an optional launch wrapper in **vkvw-d7ad.6 — Implement vardash explicit repo launch isolation**. Use `--inject vars`, generated metadata-only schema files under VD private data, and argv-based spawning. Do not add Varlock as a production resolver/source-of-truth dependency for MVP.
+Proceed with Varlock as an optional launch wrapper. Use `--inject vars`, generated metadata-only schema files under VD private data, and argv-based spawning. Do not add Varlock as a production resolver/source-of-truth dependency for MVP.

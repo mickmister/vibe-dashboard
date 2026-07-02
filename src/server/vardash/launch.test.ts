@@ -99,7 +99,13 @@ describe('vardash explicit repo launch isolation', () => {
 
   it('optionally wraps launch argv with Varlock without putting values in schema', async () => {
     const store = await createStore();
-    const tokenKey = await store.upsertRepoEnvKey({ repoId: 'repo-a', key: 'API_TOKEN', kind: 'secret', required: true });
+    const tokenKey = await store.upsertRepoEnvKey({
+      repoId: 'repo-a',
+      key: 'API_TOKEN',
+      kind: 'secret',
+      required: true,
+      description: 'description-secret should not be in varlock schema',
+    });
     const token = await store.createSavedValue({ repoId: 'repo-a', envKeyId: tokenKey.id, name: 'local', value: 'repo-a-token' });
     await store.setRepoDefaultSelection({ repoId: 'repo-a', envKeyId: tokenKey.id, savedValueId: token.id });
     await store.upsertRepoProcessDefinition({ repoId: 'repo-a', name: 'Dev server', command: 'npm run dev', isDefault: true });
@@ -128,6 +134,7 @@ describe('vardash explicit repo launch isolation', () => {
     expect(plan.env.API_TOKEN).toBe('repo-a-token');
     expect(plan.varlock?.schema).toContain('API_TOKEN=');
     expect(plan.varlock?.schema).not.toContain('repo-a-token');
+    expect(plan.varlock?.schema).not.toContain('description-secret');
   });
   it('executes launch plans with argv-safe spawn, isolated env, stable run id, and no log capture', async () => {
     const store = await createStore();

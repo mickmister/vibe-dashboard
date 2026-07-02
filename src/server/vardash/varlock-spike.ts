@@ -39,7 +39,6 @@ export function generateVardashVarlockSchema(keys: readonly VardashVarlockSchema
 
   for (const key of [...keys].sort((left, right) => left.key.localeCompare(right.key))) {
     assertValidEnvKey(key.key);
-    if (key.description) lines.push(...commentLines(key.description));
     const decorators = [];
     if (key.required) decorators.push('@required');
     if (key.kind === 'secret') decorators.push('@sensitive');
@@ -68,10 +67,4 @@ function assertValidEnvKey(key: string): void {
 
 function assertNonEmptyString(value: string, label: string): void {
   if (value.length === 0) throw new Error(`Expected non-empty ${label}`);
-}
-
-function commentLines(value: string): string[] {
-  return value
-    .split(/\r?\n/)
-    .map((line) => `# ${line.replace(/[\r\n]/g, '')}`);
 }

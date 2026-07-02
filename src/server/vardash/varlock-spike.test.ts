@@ -22,6 +22,7 @@ describe('vardash Varlock spike helpers', () => {
     expect(schema).toContain('# @required @type=string\nPORT=');
     expect(schema).not.toContain('secret-token');
     expect(schema).not.toContain('3000');
+    expect(schema).not.toContain('Token used by the local API client.');
   });
 
   it('builds shell-safe argv using --inject vars and no serialized blob mode', () => {

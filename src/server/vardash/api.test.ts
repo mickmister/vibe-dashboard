@@ -1,4 +1,4 @@
-import { mkdtemp } from 'node:fs/promises';
+import { mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -508,19 +508,66 @@ describe('vardash API boundary', () => {
     expect(text).not.toContain('launch-secret');
   });
 
-  it('defers Varlock runtime launch integration and blocks unresolved repo roots safely', async () => {
+  it('uses server-controlled Varlock runtime config and writes metadata-only schema when enabled', async () => {
+    const schemaDir = await mkdtemp(join(tmpdir(), 'vardash-varlock-schema-'));
     const spawner = new FakeVardashSpawner();
     const { app, store } = await createApi({
-      validateWorkspaceRepo: async () => undefined,
+      validateWorkspaceRepo: async () => ({ repoRoot: '/workspace/repo-a' }),
       launchRunner: new VardashLaunchRunner({ spawner }),
+      varlockRuntime: {
+        enabled: true,
+        bin: 'server-varlock',
+        schemaDir,
+        isAvailable: async () => true,
+      },
     });
+    const tokenKey = await store.upsertRepoEnvKey({
+      repoId: 'repo-a',
+      key: 'API_TOKEN',
+      kind: 'secret',
+      required: true,
+      description: 'do not leak description-secret',
+    });
+    const token = await store.createSavedValue({ repoId: 'repo-a', envKeyId: tokenKey.id, name: 'local', value: 'varlock-secret' });
+    await store.setRepoDefaultSelection({ repoId: 'repo-a', envKeyId: tokenKey.id, savedValueId: token.id });
     await store.upsertRepoProcessDefinition({ repoId: 'repo-a', name: 'Dev server', command: 'npm run dev', isDefault: true });
 
-    const varlock = await postJson(app, '/dashboard/api/vardash/workspaces/ws-a/repos/repo-a/launch', {
+    const response = await postJson(app, '/dashboard/api/vardash/workspaces/ws-a/repos/repo-a/launch', {
       useVarlock: true,
       varlockBin: '/tmp/malicious-varlock',
       varlockSchemaPath: '/tmp/schema',
     });
+    expect(response.status).toBe(200);
+    expect(spawner.calls[0]).toMatchObject({
+      command: 'server-varlock',
+      args: ['run', '--path', join(schemaDir, 'ws-a', 'repo-a.env.schema'), '--inject', 'vars', '--', 'sh', '-lc', 'npm run dev'],
+      options: {
+        cwd: '/workspace/repo-a',
+        env: { API_TOKEN: 'varlock-secret' },
+        stdio: 'ignore',
+      },
+    });
+    expect(spawner.calls[0]?.args).not.toContain('/tmp/malicious-varlock');
+    expect(spawner.calls[0]?.args).not.toContain('/tmp/schema');
+    expect(spawner.calls[0]?.options.env).not.toHaveProperty('__VARLOCK_ENV');
+    const schema = await readFile(join(schemaDir, 'ws-a', 'repo-a.env.schema'), 'utf8');
+    expect(schema).toContain('API_TOKEN=');
+    expect(schema).toContain('@sensitive');
+    expect(schema).toContain('@required');
+    expect(schema).not.toContain('varlock-secret');
+    expect(schema).not.toContain('description-secret');
+  });
+
+  it('blocks unavailable Varlock and unresolved repo roots with generic launch errors', async () => {
+    const spawner = new FakeVardashSpawner();
+    const { app, store } = await createApi({
+      validateWorkspaceRepo: async () => undefined,
+      launchRunner: new VardashLaunchRunner({ spawner }),
+      varlockRuntime: { enabled: true, isAvailable: async () => false },
+    });
+    await store.upsertRepoProcessDefinition({ repoId: 'repo-a', name: 'Dev server', command: 'npm run dev', isDefault: true });
+
+    const varlock = await postJson(app, '/dashboard/api/vardash/workspaces/ws-a/repos/repo-a/launch', { useVarlock: true });
     expect(varlock.status).toBe(409);
     expect(await varlock.json()).toEqual({ error: 'launch_failed' });
     expect(spawner.calls).toHaveLength(0);

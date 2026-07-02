@@ -1,4 +1,5 @@
-import { join } from 'node:path';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import type { Context, Hono } from 'hono';
 
 import { defaultVardashPrivateDir } from './key-manager';
@@ -30,6 +31,14 @@ export interface RegisterVardashRoutesOptions {
   launchRunner?: VardashLaunchRunner;
   launchBaseEnv?: Record<string, string | undefined>;
   launchAllowBaseEnvKeys?: readonly string[];
+  varlockRuntime?: VardashVarlockRuntimeOptions;
+}
+
+export interface VardashVarlockRuntimeOptions {
+  enabled?: boolean;
+  bin?: string;
+  schemaDir?: string;
+  isAvailable?: () => Promise<boolean>;
 }
 
 export interface VardashImportConflict {
@@ -231,7 +240,11 @@ export function registerVardashRoutes(app: Hono, options: RegisterVardashRoutesO
     }
 
     const body = await readJson(c);
-    if (body.useVarlock === true) return c.json({ error: 'launch_failed' }, 409);
+    const useVarlock = body.useVarlock === true;
+    const varlockRuntime = useVarlock
+      ? await resolveVarlockRuntime(options, workspaceId, repoId).catch(() => null)
+      : null;
+    if (useVarlock && !varlockRuntime) return c.json({ error: 'launch_failed' }, 409);
     const store = await getStore();
     try {
       const plan = await prepareVardashRepoProcessLaunch({
@@ -243,8 +256,11 @@ export function registerVardashRoutes(app: Hono, options: RegisterVardashRoutesO
         repoRoot: ownership?.repoRoot,
         baseEnv: options.launchBaseEnv,
         allowBaseEnvKeys: options.launchAllowBaseEnvKeys,
-        useVarlock: false,
+        useVarlock: varlockRuntime != null,
+        varlockSchemaPath: varlockRuntime?.schemaPath,
+        varlockBin: varlockRuntime?.bin,
       });
+      if (plan.varlock) await writeVarlockSchema(plan.varlock.schemaPath, plan.varlock.schema);
       return c.json(launchRunner.launch(plan));
     } catch (error) {
       if (error instanceof VardashLaunchError && error.message.startsWith('No vardash process definition')) {
@@ -401,6 +417,27 @@ export async function preflightImport(input: {
   };
 }
 
+async function resolveVarlockRuntime(
+  options: RegisterVardashRoutesOptions,
+  workspaceId: string,
+  repoId: string,
+): Promise<{ schemaPath: string; bin?: string }> {
+  const runtime = options.varlockRuntime;
+  if (runtime?.enabled !== true) throw new Error('varlock_disabled');
+  if (runtime.isAvailable && !await runtime.isAvailable()) throw new Error('varlock_unavailable');
+  const privateDir = options.privateDir ?? defaultVardashPrivateDir();
+  const schemaDir = runtime.schemaDir ?? join(privateDir, 'varlock-schemas');
+  return {
+    schemaPath: join(schemaDir, safePathSegment(workspaceId), `${safePathSegment(repoId)}.env.schema`),
+    bin: runtime.bin,
+  };
+}
+
+async function writeVarlockSchema(schemaPath: string, schema: string): Promise<void> {
+  await mkdir(dirname(schemaPath), { recursive: true });
+  await writeFile(schemaPath, schema, { encoding: 'utf8', mode: 0o600 });
+}
+
 async function validateWorkspaceRepo(
   options: RegisterVardashRoutesOptions,
   input: VardashWorkspaceRepoValidationInput,
@@ -421,6 +458,10 @@ async function validateWorkspaceRepo(
   if (repos.length === 1 && workspace.agent_working_dir) {
     return { repoRoot: workspace.agent_working_dir };
   }
+}
+
+function safePathSegment(value: string): string {
+  return encodeURIComponent(value).replace(/[!'()*]/g, (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
 }
 
 function memoizeStore(options: RegisterVardashRoutesOptions): () => Promise<VardashStore> {

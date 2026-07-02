@@ -121,7 +121,10 @@ Launch planning builds a minimal child environment from an allowlist of baseline
 process variables plus the selected repo's resolved vardash env. Normal
 agent/session env construction does not merge vardash env values. Optional
 Varlock wrapping is applied only to explicit vardash launches and remains a
-validation/redaction wrapper, not the source of truth.
+validation/redaction wrapper, not the source of truth. The runtime Varlock
+binary/schema location are server-controlled, generated schema files omit
+user-provided descriptions/comments, and unavailable Varlock fails requested
+Varlock launches with sanitized errors while non-Varlock launches continue.
 
 ### Process scope
 
