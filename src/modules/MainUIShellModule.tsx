@@ -20,6 +20,12 @@ import {
   setStoredLastDashboardUrl,
   shortIdTokenMatches,
 } from "../lib/voyageUrl";
+import {
+  EXTERNAL_VIEW_URL_PARAM,
+  LEGACY_FROM_GH_URL_PARAM,
+  LEGACY_OPEN_FROM_GITHUB_PARAM,
+  parseDashboardExternalViewLocator,
+} from "../lib/externalViewUrl";
 import { resolveDashboardVoyage } from "../lib/voyageSession";
 import { getSavedWorkspaceSessions } from "../lib/savedVoyageState";
 import { getRenderedPairViewIds } from "../lib/renderedWorkspaceSelection";
@@ -31,6 +37,7 @@ import {
 import { usePluginRegistry } from "./plugins/vibe-dashboard/registry";
 import type { ResolvedWorkspaceComposition } from "./plugins/vibe-dashboard/workspace-composition";
 import { createEffectiveWorkspaceWithCraftSurfaces } from "./plugins/vibe-dashboard/craft-surfaces";
+import { ExternalJiraBoardRoute } from "../components/ExternalJiraBoardView";
 
 // Ensure dark class is on the document root so portaled elements (modals, popovers)
 // inherit dark mode styles
@@ -150,6 +157,18 @@ function resolveQueryCraftSelection(
 }
 
 springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
+  const DashboardRoute = () => {
+    const location = useLocation();
+    if (hasExternalViewQueryParam(location.search)) {
+      return (
+        <ExternalJiraBoardRoute
+          parseResult={parseDashboardExternalViewLocator(location.search)}
+        />
+      );
+    }
+    return <WorkspaceRoute />;
+  };
+
   // Shared route component with canonical voyage query-param support
   const WorkspaceRoute = () => {
     const workspaceModule = useModule("workspace");
@@ -1199,14 +1218,14 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
 
   // Root is the canonical dashboard route so PWA installs/bookmarks start from
   // a stable app-home path while query params carry Voyage navigation state.
-  moduleAPI.registerRoute("/", { hideApplicationShell: true }, WorkspaceRoute);
+  moduleAPI.registerRoute("/", { hideApplicationShell: true }, DashboardRoute);
 
   // Compatibility dashboard route. It renders the same app and canonical URL
   // sync redirects Voyage links back to root with the query params intact.
   moduleAPI.registerRoute(
     "/dashboard",
     { hideApplicationShell: true },
-    WorkspaceRoute,
+    DashboardRoute,
   );
 
   moduleAPI.registerRoute(
@@ -1240,4 +1259,13 @@ function normalizeActionReturns<
   T extends Record<string, (...args: any[]) => any>,
 >(actions: T) {
   return actions as NormalizeActionReturns<T>;
+}
+
+function hasExternalViewQueryParam(search: string): boolean {
+  const searchParams = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
+  return (
+    searchParams.has(EXTERNAL_VIEW_URL_PARAM) ||
+    searchParams.has(LEGACY_OPEN_FROM_GITHUB_PARAM) ||
+    searchParams.has(LEGACY_FROM_GH_URL_PARAM)
+  );
 }

@@ -2,6 +2,7 @@ import { serverRegistry } from 'springboard/server/register';
 import { createExternalTrackerAuth, createExternalTrackerAuthService } from '../server/external-integrations/auth';
 import { isExternalTrackersEnabled } from '../server/external-integrations/config';
 import { getExternalIntegrationsDb } from '../server/external-integrations/database';
+import { registerExternalTrackerBoardRoutes } from '../server/external-integrations/boardRoutes';
 import { registerExternalTrackerAuthRoutes } from '../server/external-integrations/routes';
 
 serverRegistry.registerServerModule(async (api) => {
@@ -15,4 +16,5 @@ serverRegistry.registerServerModule(async (api) => {
   }));
 
   registerExternalTrackerAuthRoutes(api.hono, { enabled, auth });
+  registerExternalTrackerBoardRoutes(api.hono, { enabled, auth, db: handle.db });
 });
