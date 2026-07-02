@@ -7,18 +7,17 @@ ARG VK_RUNTIME_SOURCE=github
 
 FROM alpine:3.19 AS vk-runtime-downloader
 
-ARG VK_REPO_URL
 ARG VK_BRANCH
 ARG VK_COMMIT
 ARG VK_RUNTIME_SOURCE
 ARG TARGETARCH
 
-RUN apk add --no-cache curl git jq tar
+RUN apk add --no-cache curl jq tar
 
 WORKDIR /vk-release
 RUN set -eux; \
+    test -n "${VK_COMMIT}"; \
     if [ "${VK_RUNTIME_SOURCE}" = "stub" ]; then \
-      VK_COMMIT="${VK_COMMIT:-stub}"; \
       mkdir -p /vk-runtime; \
       printf '#!/bin/sh\nprintf "vibe-kanban CI runtime stub %s\\n" "$*"\n' "${VK_COMMIT}" > /vk-runtime/vibe-kanban; \
       chmod +x /vk-runtime/vibe-kanban; \
@@ -26,15 +25,6 @@ RUN set -eux; \
       exit 0; \
     fi; \
     test "${VK_RUNTIME_SOURCE}" = "github"; \
-    if [ -z "${VK_COMMIT}" ]; then \
-      if printf '%s' "${VK_BRANCH}" | grep -Eq '^[0-9a-f]{40}$'; then \
-        VK_COMMIT="${VK_BRANCH}"; \
-      else \
-        VK_COMMIT="$(git ls-remote "${VK_REPO_URL}" "${VK_BRANCH}" "refs/heads/${VK_BRANCH}" "refs/tags/${VK_BRANCH}^{}" "refs/tags/${VK_BRANCH}" | awk '($2 ~ /\^\{\}$/) { print $1; found=1; exit } !first { first=$1 } END { if (!found && first) print first }')"; \
-      fi; \
-    fi; \
-    test -n "${VK_COMMIT}"; \
-    echo "Using vibe-kanban commit ${VK_COMMIT} from ${VK_REPO_URL} (${VK_BRANCH})"; \
     case "${TARGETARCH}" in \
       amd64) vk_platform="linux-x64" ;; \
       arm64) vk_platform="linux-arm64" ;; \
@@ -43,16 +33,7 @@ RUN set -eux; \
     release_tag="vk-assets-${VK_COMMIT}"; \
     release_base_url="https://github.com/mickmister/vibe-kanban/releases/download/${release_tag}"; \
     manifest_url="${release_base_url}/manifest.json"; \
-    if ! curl -fsSL "${manifest_url}" -o manifest.json; then \
-      echo "VK release assets for ${VK_COMMIT} are not available; using the latest published vk-assets release." >&2; \
-      latest_assets_tag="$(curl -fsSL 'https://api.github.com/repos/mickmister/vibe-kanban/releases?per_page=100' | jq -r '[.[] | select(.tag_name | startswith("vk-assets-"))] | sort_by(.published_at // .created_at // "") | last | .tag_name // ""')"; \
-      test -n "${latest_assets_tag}"; \
-      VK_COMMIT="${latest_assets_tag#vk-assets-}"; \
-      release_tag="${latest_assets_tag}"; \
-      release_base_url="https://github.com/mickmister/vibe-kanban/releases/download/${release_tag}"; \
-      manifest_url="${release_base_url}/manifest.json"; \
-      curl -fsSL "${manifest_url}" -o manifest.json; \
-    fi; \
+    curl -fsSL "${manifest_url}" -o manifest.json; \
     test "$(jq -r '.schema_version' manifest.json)" = "1"; \
     manifest_mode="$(jq -r '.mode' manifest.json)"; \
     case "${manifest_mode}" in \
