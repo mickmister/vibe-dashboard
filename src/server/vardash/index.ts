@@ -46,6 +46,7 @@ export {
 } from './resolver';
 
 export {
+  VARDASH_DESCRIPTION_GUIDANCE,
   preflightImport,
   registerVardashRoutes,
   type RegisterVardashRoutesOptions,

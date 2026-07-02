@@ -51,6 +51,10 @@ describe('vardash API boundary', () => {
       key: 'API_TOKEN',
       kind: 'secret',
       required: true,
+      description: 'Do not put secret material here',
+    });
+    expect(await secretKeyResponse.clone().json()).toMatchObject({
+      descriptionGuidance: 'Descriptions are metadata. Do not include secret material.',
     });
     const secretKeyBody = await secretKeyResponse.json() as { key: { id: string } };
     const plainKeyResponse = await postJson(app, '/dashboard/api/vardash/repos/repo-a/env-keys', {
@@ -275,6 +279,7 @@ describe('vardash API boundary', () => {
     const worker = await postJson(app, '/dashboard/api/vardash/repos/repo-a/process-definitions', {
       name: 'Worker',
       command: 'npm run worker',
+      source: 'legacy_dev_server_script',
     });
     expect(worker.status).toBe(200);
     expect(await worker.json()).toMatchObject({

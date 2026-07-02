@@ -18,13 +18,15 @@ export interface VardashImportConflict {
   savedValueName?: string;
 }
 
+export const VARDASH_DESCRIPTION_GUIDANCE = 'Descriptions are metadata. Do not include secret material.';
+
 export function registerVardashRoutes(app: Hono, options: RegisterVardashRoutesOptions = {}): void {
   const getStore = memoizeStore(options);
 
   app.get('/dashboard/api/vardash/repos/:repoId/env-keys', async (c) => {
     const store = await getStore();
     const keys = await store.listRepoEnvKeys(c.req.param('repoId'));
-    return c.json({ keys });
+    return c.json({ keys, descriptionGuidance: VARDASH_DESCRIPTION_GUIDANCE });
   });
 
   app.post('/dashboard/api/vardash/repos/:repoId/env-keys', async (c) => {
@@ -43,7 +45,7 @@ export function registerVardashRoutes(app: Hono, options: RegisterVardashRoutesO
         required: body.required === true,
         description: body.description == null ? null : readString(body.description),
       });
-      return c.json({ key: envKey });
+      return c.json({ key: envKey, descriptionGuidance: VARDASH_DESCRIPTION_GUIDANCE });
     } catch (error) {
       return c.json({ error: errorMessage(error) }, 409);
     }
@@ -144,7 +146,7 @@ export function registerVardashRoutes(app: Hono, options: RegisterVardashRoutesO
         name,
         command,
         cwd: readNullableString(body.cwd),
-        source: body.source === 'legacy_dev_server_script' ? 'legacy_dev_server_script' : 'manual',
+        source: 'manual',
         isDefault: typeof body.isDefault === 'boolean' ? body.isDefault : undefined,
       });
       return c.json({ process });
