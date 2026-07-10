@@ -63,55 +63,117 @@ export function ExternalJiraBoardLoader({ externalViewUrl }: { externalViewUrl: 
 
 export function ExternalJiraBoardContent({ boardView }: { boardView: ExternalJiraBoardViewDto }) {
   const columns = useMemo(() => normalizeRenderableColumns(boardView), [boardView]);
-  const swimlanes = boardView.swimlanes;
-  const issueCount = boardView.pagination.issueCount;
   const renderableLanes = useMemo(() => createRenderableSwimlanes(boardView), [boardView]);
+
+  return (
+    <ExternalJiraBoardShell
+      boardView={boardView}
+      columns={columns}
+      renderableLanes={renderableLanes}
+    />
+  );
+}
+
+export function ExternalJiraBoardShell({
+  boardView,
+  columns,
+  renderableLanes,
+}: {
+  boardView: ExternalJiraBoardViewDto;
+  columns: ExternalKanbanColumnDto[];
+  renderableLanes: Array<{ id: string; title: string; cards: ExternalKanbanCardDto[] }>;
+}) {
+  const issueCount = boardView.pagination.issueCount;
   const hasLanes = renderableLanes.length > 0;
 
   return (
     <main className="dark min-h-screen bg-neutral-950 text-neutral-100">
-      <header className="border-b border-neutral-800 bg-neutral-950/95 px-6 py-5">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <div className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-300">Read-only Jira board</div>
-            <h1 className="mt-2 text-2xl font-semibold">{boardView.board.name || `Jira board ${boardView.board.id}`}</h1>
-            <p className="mt-1 text-sm text-neutral-400">
-              {boardView.resource.name} · {boardView.siteHostname} · {issueCount} {issueCount === 1 ? 'issue' : 'issues'} fetched live
-            </p>
-          </div>
-          <a className="rounded-lg border border-neutral-700 px-3 py-2 text-sm text-neutral-200 hover:bg-neutral-900" href={boardView.sourceUrl} rel="noreferrer" target="_blank">
-            Open in Jira
-          </a>
-        </div>
-        <div className="mt-4 rounded-lg border border-neutral-800 bg-neutral-900/70 px-3 py-2 text-sm text-neutral-300">
-          Swimlanes: <span className="font-medium text-neutral-100">{swimlanes.fidelity}</span>
-          {swimlanes.reason ? <span className="text-neutral-500"> — {swimlanes.reason}</span> : null}
-        </div>
-      </header>
-
-      {issueCount === 0 ? (
-        <section className="p-6">
-          <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-6 text-neutral-300">This Jira board has no visible issues.</div>
-        </section>
-      ) : hasLanes ? (
-        <section className="space-y-6 p-6">
-          {renderableLanes.map((lane) => (
-            <div key={lane.id} className="rounded-xl border border-neutral-800 bg-neutral-950/60 p-4">
-              <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-neutral-300">{lane.title}</h2>
-              <KanbanColumns columns={columns} cards={lane.cards} />
-            </div>
-          ))}
-        </section>
-      ) : (
-        <section className="p-6">
-          <KanbanColumns columns={columns} cards={boardView.cards} />
-        </section>
-      )}
+      <ExternalJiraBoardHeader boardView={boardView} />
+      <ExternalJiraBoardBody
+        cards={boardView.cards}
+        columns={columns}
+        hasIssues={issueCount > 0}
+        renderableLanes={renderableLanes}
+        showSwimlanes={hasLanes}
+      />
     </main>
   );
 }
 
-function KanbanColumns({ columns, cards }: { columns: ExternalKanbanColumnDto[]; cards: ExternalKanbanCardDto[] }) {
+export function ExternalJiraBoardHeader({ boardView }: { boardView: ExternalJiraBoardViewDto }) {
+  const swimlanes = boardView.swimlanes;
+  const issueCount = boardView.pagination.issueCount;
+
+  return (
+    <header className="border-b border-neutral-800 bg-neutral-950/95 px-6 py-5">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-300">Read-only Jira board</div>
+          <h1 className="mt-2 text-2xl font-semibold">{boardView.board.name || `Jira board ${boardView.board.id}`}</h1>
+          <p className="mt-1 text-sm text-neutral-400">
+            {boardView.resource.name} · {boardView.siteHostname} · {issueCount} {issueCount === 1 ? 'issue' : 'issues'} fetched live
+          </p>
+        </div>
+        <a className="rounded-lg border border-neutral-700 px-3 py-2 text-sm text-neutral-200 hover:bg-neutral-900" href={boardView.sourceUrl} rel="noreferrer" target="_blank">
+          Open in Jira
+        </a>
+      </div>
+      <div className="mt-4 rounded-lg border border-neutral-800 bg-neutral-900/70 px-3 py-2 text-sm text-neutral-300">
+        Swimlanes: <span className="font-medium text-neutral-100">{swimlanes.fidelity}</span>
+        {swimlanes.reason ? <span className="text-neutral-500"> — {swimlanes.reason}</span> : null}
+      </div>
+    </header>
+  );
+}
+
+export function ExternalJiraBoardBody({
+  cards,
+  columns,
+  hasIssues,
+  renderableLanes,
+  showSwimlanes,
+}: {
+  cards: ExternalKanbanCardDto[];
+  columns: ExternalKanbanColumnDto[];
+  hasIssues: boolean;
+  renderableLanes: Array<{ id: string; title: string; cards: ExternalKanbanCardDto[] }>;
+  showSwimlanes: boolean;
+}) {
+  if (!hasIssues) {
+    return (
+      <section className="p-6">
+        <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-6 text-neutral-300">This Jira board has no visible issues.</div>
+      </section>
+    );
+  }
+
+  if (showSwimlanes) {
+    return (
+      <section className="space-y-6 p-6">
+        {renderableLanes.map((lane) => (
+          <ExternalJiraSwimlane key={lane.id} lane={lane} columns={columns} />
+        ))}
+      </section>
+    );
+  }
+
+  return (
+    <section className="p-6">
+      <ExternalJiraKanbanColumns columns={columns} cards={cards} />
+    </section>
+  );
+}
+
+export function ExternalJiraSwimlane({ lane, columns }: { lane: { id: string; title: string; cards: ExternalKanbanCardDto[] }; columns: ExternalKanbanColumnDto[] }) {
+  return (
+    <div className="rounded-xl border border-neutral-800 bg-neutral-950/60 p-4">
+      <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-neutral-300">{lane.title}</h2>
+      <ExternalJiraKanbanColumns columns={columns} cards={lane.cards} />
+    </div>
+  );
+}
+
+export function ExternalJiraKanbanColumns({ columns, cards }: { columns: ExternalKanbanColumnDto[]; cards: ExternalKanbanCardDto[] }) {
   const knownColumnIds = new Set(columns.map((column) => column.id));
   return (
     <div className="grid auto-cols-[minmax(18rem,1fr)] grid-flow-col gap-4 overflow-x-auto pb-2">
@@ -128,7 +190,7 @@ function KanbanColumns({ columns, cards }: { columns: ExternalKanbanColumnDto[];
             </div>
             <div className="space-y-3 p-3">
               {columnCards.length === 0 ? <div className="rounded-lg border border-dashed border-neutral-800 p-3 text-sm text-neutral-500">No issues</div> : null}
-              {columnCards.map((card) => <JiraCard key={card.id} card={card} />)}
+              {columnCards.map((card) => <ExternalJiraCard key={card.id} card={card} />)}
             </div>
           </section>
         );
@@ -158,7 +220,7 @@ function createRenderableSwimlanes(boardView: ExternalJiraBoardViewDto): Array<{
   return lanes;
 }
 
-function JiraCard({ card }: { card: ExternalKanbanCardDto }) {
+export function ExternalJiraCard({ card }: { card: ExternalKanbanCardDto }) {
   return (
     <article className="rounded-lg border border-neutral-800 bg-neutral-950 p-3 shadow-sm">
       <a className="text-xs font-semibold text-sky-300 hover:text-sky-200" href={card.url} rel="noreferrer" target="_blank">{card.key}</a>
@@ -202,7 +264,7 @@ function JiraCard({ card }: { card: ExternalKanbanCardDto }) {
   );
 }
 
-function ExternalTrackerMessage({ title, message, action, code }: { title: string; message: string; action?: string; code?: string }) {
+export function ExternalTrackerMessage({ title, message, action, code }: { title: string; message: string; action?: string; code?: string }) {
   return (
     <main className="dark flex min-h-screen items-center justify-center bg-neutral-950 p-6 text-neutral-100">
       <section className="w-full max-w-xl rounded-2xl border border-neutral-800 bg-neutral-900 p-6 shadow-2xl">
