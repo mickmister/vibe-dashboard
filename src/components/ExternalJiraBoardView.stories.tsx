@@ -48,6 +48,73 @@ const baseBoardView: ExternalJiraBoardViewDto = {
   pagination: { pageCount: 1, issueCount: 2, maxResults: 50 },
 };
 
+function makeCard(index: number, overrides: Partial<ExternalKanbanCardDto> = {}): ExternalKanbanCardDto {
+  const isDone = index % 3 === 0;
+  const key = `VD-${index}`;
+  return {
+    ...baseCard,
+    id: `100${String(index).padStart(2, '0')}`,
+    key,
+    title: `Mobile scrolling fixture issue ${index}`,
+    url: `https://team.atlassian.net/browse/${key}`,
+    statusId: isDone ? '10002' : '10000',
+    statusName: isDone ? 'Done' : 'To Do',
+    columnId: isDone ? 'done-10002' : 'todo-10000',
+    labels: index % 2 === 0 ? ['external-trackers'] : [],
+    rank: index,
+    relatedBeads: undefined,
+    relatedWorkspaces: undefined,
+    ...overrides,
+  };
+}
+
+const manyCards = Array.from({ length: 18 }, (_, index) => makeCard(index + 1));
+
+const mixedDecorationCards: ExternalKanbanCardDto[] = [
+  makeCard(1, {
+    title: 'No linked beads or workspace yet',
+  }),
+  makeCard(2, {
+    title: 'Has two beads with one completed',
+    relatedBeads: [
+      {
+        id: 'vkvw-card-2a',
+        title: 'Create backend adapter',
+        status: 'closed',
+        externalIssue: { provider: 'jira', key: 'VD-2', url: 'https://team.atlassian.net/browse/VD-2', site: 'team.atlassian.net' },
+      },
+      {
+        id: 'vkvw-card-2b',
+        title: 'Polish card states',
+        status: 'open',
+        externalIssue: { provider: 'jira', key: 'VD-2', url: 'https://team.atlassian.net/browse/VD-2', site: 'team.atlassian.net' },
+      },
+    ],
+  }),
+  makeCard(3, {
+    title: 'Has an existing workspace',
+    relatedWorkspaces: [
+      { workspaceId: 'ws-card-3', workspaceDir: '/repos/Vktest', displayName: 'Vktest workspace', isPrimary: true },
+    ],
+  }),
+  makeCard(4, {
+    title: 'Rare multiple-workspace mapping',
+    relatedWorkspaces: [
+      { workspaceId: 'ws-card-4a', workspaceDir: '/repos/Vktest', displayName: 'Primary workspace', isPrimary: true },
+      { workspaceId: 'ws-card-4b', workspaceDir: '/repos/Vktest-spike', displayName: 'Spike workspace', isPrimary: false },
+    ],
+    relatedBeads: [
+      {
+        id: 'vkvw-card-4',
+        title: 'Verify uncommon multi-workspace card',
+        status: 'done',
+        externalIssue: { provider: 'jira', key: 'VD-4', url: 'https://team.atlassian.net/browse/VD-4', site: 'team.atlassian.net' },
+      },
+    ],
+  }),
+  ...Array.from({ length: 10 }, (_, index) => makeCard(index + 5)),
+];
+
 function board(overrides: Partial<ExternalJiraBoardViewDto>): ExternalJiraBoardViewDto {
   return { ...baseBoardView, ...overrides };
 }
@@ -110,6 +177,31 @@ export const PartialSwimlaneFallback: Story = {
         fidelity: 'partial',
         lanes: [{ id: 'EPIC-1', title: 'EPIC-1: External tracker integration', issueKeys: ['VD-1'] }],
         reason: 'Fixture models best-effort Jira swimlane inference.',
+      },
+    }),
+  },
+};
+
+export const MobileScrollManyCards: Story = {
+  args: {
+    boardView: board({
+      board: { ...baseBoardView.board, name: 'VD Integration Board — Mobile scroll fixture' },
+      cards: manyCards,
+      pagination: { ...baseBoardView.pagination, issueCount: manyCards.length },
+    }),
+  },
+};
+
+export const MixedDecorationStates: Story = {
+  args: {
+    boardView: board({
+      board: { ...baseBoardView.board, name: 'VD Integration Board — Mixed decorations' },
+      cards: mixedDecorationCards,
+      pagination: { ...baseBoardView.pagination, issueCount: mixedDecorationCards.length },
+      swimlanes: {
+        fidelity: 'partial',
+        lanes: [{ id: 'EPIC-MIXED', title: 'EPIC-MIXED: Cards with explicit links', issueKeys: ['VD-2', 'VD-3', 'VD-4'] }],
+        reason: 'Mixed fixture leaves most cards in Other issues to show fallback plus mobile vertical scroll.',
       },
     }),
   },

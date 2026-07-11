@@ -221,6 +221,10 @@ function createRenderableSwimlanes(boardView: ExternalJiraBoardViewDto): Array<{
 }
 
 export function ExternalJiraCard({ card }: { card: ExternalKanbanCardDto }) {
+  const workspaceCount = card.relatedWorkspaces?.length ?? 0;
+  const beadCount = card.relatedBeads?.length ?? 0;
+  const completedBeadCount = card.relatedBeads?.filter((bead) => isCompletedBeadStatus(bead.status)).length ?? 0;
+
   return (
     <article className="rounded-lg border border-neutral-800 bg-neutral-950 p-3 shadow-sm">
       <a className="text-xs font-semibold text-sky-300 hover:text-sky-200" href={card.url} rel="noreferrer" target="_blank">{card.key}</a>
@@ -235,6 +239,16 @@ export function ExternalJiraCard({ card }: { card: ExternalKanbanCardDto }) {
           {card.labels.map((label) => <span key={label} className="rounded bg-neutral-800 px-2 py-0.5 text-[11px] text-neutral-300">{label}</span>)}
         </div>
       ) : null}
+      <div className="mt-3 grid gap-1.5 rounded-md border border-neutral-800 bg-neutral-900/70 px-2 py-1.5 text-[11px] text-neutral-300">
+        <div>
+          <span className="font-medium text-neutral-200">Workspace:</span>{' '}
+          {workspaceCount === 0 ? 'None' : workspaceCount === 1 ? 'Existing workspace' : `${workspaceCount} linked workspaces`}
+        </div>
+        <div>
+          <span className="font-medium text-neutral-200">Beads:</span>{' '}
+          {beadCount} created · {completedBeadCount} completed
+        </div>
+      </div>
       {card.relatedWorkspaces?.length ? (
         <div className="mt-3 rounded-md border border-emerald-500/20 bg-emerald-500/10 px-2 py-1.5 text-xs text-emerald-100">
           <div className="font-medium text-emerald-200">Related workspaces</div>
@@ -262,6 +276,11 @@ export function ExternalJiraCard({ card }: { card: ExternalKanbanCardDto }) {
       ) : null}
     </article>
   );
+}
+
+function isCompletedBeadStatus(status: string | undefined): boolean {
+  if (!status) return false;
+  return ['closed', 'complete', 'completed', 'done', 'resolved'].includes(status.toLowerCase());
 }
 
 export function ExternalTrackerMessage({ title, message, action, code }: { title: string; message: string; action?: string; code?: string }) {

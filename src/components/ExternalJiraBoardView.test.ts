@@ -44,6 +44,10 @@ describe('ExternalJiraBoardContent', () => {
     expect(html).toContain('Build external board UI');
     expect(html).toContain('Swimlanes:');
     expect(html).toContain('unknown');
+    expect(html).toContain('Workspace:');
+    expect(html).toContain('None');
+    expect(html).toContain('Beads:');
+    expect(html).toContain('0 created · 0 completed');
   });
 
   it('gracefully renders an empty board', () => {
@@ -87,6 +91,7 @@ describe('ExternalJiraBoardContent', () => {
     expect(html).toContain('Related workspaces');
     expect(html).toContain('Workspace A');
     expect(html).toContain('Primary');
+    expect(html).toContain('Existing workspace');
   });
 
   it('renders related beads on cards when provided by the board API', () => {
@@ -97,13 +102,18 @@ describe('ExternalJiraBoardContent', () => {
         ...baseBoardView,
         cards: [{
           ...card,
-          relatedBeads: [{ id: 'vkvw-1', title: 'Linked bead', status: 'open', externalIssue: { provider: 'jira', key: 'VD-1', url: 'https://team.atlassian.net/browse/VD-1', site: 'team.atlassian.net' } }],
+          relatedBeads: [
+            { id: 'vkvw-1', title: 'Linked bead', status: 'open', externalIssue: { provider: 'jira', key: 'VD-1', url: 'https://team.atlassian.net/browse/VD-1', site: 'team.atlassian.net' } },
+            { id: 'vkvw-2', title: 'Completed linked bead', status: 'closed', externalIssue: { provider: 'jira', key: 'VD-1', url: 'https://team.atlassian.net/browse/VD-1', site: 'team.atlassian.net' } },
+          ],
         }],
       },
     }));
 
     expect(html).toContain('Related beads');
     expect(html).toContain('vkvw-1: Linked bead');
+    expect(html).toContain('vkvw-2: Completed linked bead');
+    expect(html).toContain('2 created · 1 completed');
   });
 
   it('renders inferred swimlanes when present', () => {
