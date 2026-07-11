@@ -63,6 +63,15 @@ export type StandardBeadsForm = {
   title: string;
   description?: string;
   version?: number;
+  /**
+   * Code/file-change permission control. Defaults to shown and checked.
+   * Set to false to hide it, or pass text overrides to customize display.
+   */
+  allowCodeFileChanges?: false | {
+    label?: string;
+    description?: string;
+    defaultChecked?: boolean;
+  };
   questions: BeadsFormQuestion[];
   sourceMessages?: Array<{ source?: string; submittedAt?: string; text: string }>;
 };
@@ -80,6 +89,7 @@ export type BeadsFormMetadata = {
 
 const DEFAULT_TEXTAREA_ROWS = 5;
 const DEFAULT_CHOICE_NOTES_ROWS = 4;
+export const ALLOW_CODE_FILE_CHANGES_FIELD = 'allow_code_file_changes';
 
 function assertIdentifier(id: string, label: string): void {
   if (!/^[A-Za-z][A-Za-z0-9_-]*$/.test(id)) {
@@ -131,14 +141,16 @@ export function defineBeadsForm(input: Omit<StandardBeadsForm, 'format'>): Stand
 export function compileBeadsForm(form: StandardBeadsForm): CompiledBeadsForm {
   assertIdentifier(form.id, 'form.id');
   const controls: BeadsFormControl[] = [];
-  const sections = form.questions.map((question) => compileQuestion(question, controls));
   const description = form.description ? `<p>${escapeHtml(form.description)}</p>` : '';
+  const permissionControl = compileAllowCodeFileChangesControl(form.allowCodeFileChanges, controls);
+  const sections = form.questions.map((question) => compileQuestion(question, controls));
   const html = [
     '<form>',
     '<header>',
     `<h2>${escapeHtml(form.title)}</h2>`,
     description,
     '</header>',
+    permissionControl,
     ...sections,
     '<button type="submit">Submit</button>',
     '</form>',
@@ -153,6 +165,30 @@ export function buildBeadsFormMetadata(forms: StandardBeadsForm[]): BeadsFormMet
       forms: forms.map(compileBeadsForm),
     },
   };
+}
+
+function compileAllowCodeFileChangesControl(
+  config: StandardBeadsForm['allowCodeFileChanges'],
+  controls: BeadsFormControl[],
+): string {
+  if (config === false) return '';
+  const label = config?.label ?? 'Allow code/file changes';
+  const description = config?.description
+    ?? 'When unchecked, agents should keep code/file operations read-only. Discussion, analysis, and non-code metadata operations may continue.';
+  const checked = config?.defaultChecked ?? true;
+  controls.push({
+    id: ALLOW_CODE_FILE_CHANGES_FIELD,
+    name: ALLOW_CODE_FILE_CHANGES_FIELD,
+    type: 'checkbox',
+  });
+
+  return [
+    '<fieldset class="beads-form-permission">',
+    `<legend>${escapeHtml(label)}</legend>`,
+    `<p>${escapeHtml(description)}</p>`,
+    `<label for="${ALLOW_CODE_FILE_CHANGES_FIELD}"><input id="${ALLOW_CODE_FILE_CHANGES_FIELD}" name="${ALLOW_CODE_FILE_CHANGES_FIELD}" type="checkbox" value="true"${checked ? ' checked' : ''}> ${escapeHtml(label)}</label>`,
+    '</fieldset>',
+  ].join('');
 }
 
 function compileQuestion(question: BeadsFormQuestion, controls: BeadsFormControl[]): string {

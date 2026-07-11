@@ -6,7 +6,9 @@ import {
   buildAgentResultMessage,
   getBeadsForms,
   normalizeFormData,
+  normalizeSubmittedValues,
   sanitizeBeadsFormHtml,
+  validateSubmittedValues,
   type BeadLike,
   type BeadsFormDefinition,
   type JsonObject,
@@ -14,8 +16,13 @@ import {
 
 // @platform "node"
 import { createNodeBeadsClient, type ListWorkspaceBeadsResult } from '../lib/beadsClient.node';
+import { loadBeadsFormsFromFolder } from '../lib/beadsFormFolder.node';
 import { VibeKanbanServerClient } from '../server/vk-client';
 // @platform end
+
+type PreviewBeadsForm = BeadsFormDefinition & {
+  sourceFile: string;
+};
 
 type LoadFormsInput = {
   dir: string;
@@ -60,6 +67,28 @@ type SubmitFormResult = {
   warnings: string[];
 };
 
+type LoadPreviewFormsInput = {
+  folder: string;
+  formId?: string;
+};
+
+type LoadPreviewFormsResult = {
+  folder: string;
+  forms: PreviewBeadsForm[];
+  selectedForm?: PreviewBeadsForm;
+};
+
+type SubmitPreviewFormInput = {
+  folder: string;
+  formId: string;
+  values: JsonObject;
+};
+
+type SubmitPreviewFormResult = {
+  formId: string;
+  values: JsonObject;
+};
+
 function nodeClient() {
   if (typeof createNodeBeadsClient !== 'function') {
     throw new Error('Beads client is only available on the node side of the BeadsForm module');
@@ -84,7 +113,131 @@ function formViewUrl(args: { workspaceId?: string; dir?: string; beadId?: string
   return `/dashboard/forms?${params.toString()}`;
 }
 
+function previewFormUrl(args: { folder: string; formId?: string }): string {
+  const params = new URLSearchParams();
+  params.set('folder', args.folder);
+  if (args.formId) params.set('form', args.formId);
+  return `/dashboard/forms/preview?${params.toString()}`;
+}
+
 type MaybeNestedPromise<T> = Promise<T> | Promise<Promise<T>>;
+
+function BeadsFormPreviewRoute({ actions }: { actions: {
+  loadPreviewForms: (input: LoadPreviewFormsInput) => MaybeNestedPromise<LoadPreviewFormsResult>;
+  submitPreviewForm: (input: SubmitPreviewFormInput) => MaybeNestedPromise<SubmitPreviewFormResult>;
+} }) {
+  const [params] = useSearchParams();
+  const folder = params.get('folder') ?? '';
+  const formId = params.get('form') ?? undefined;
+  const [loaded, setLoaded] = useState<LoadPreviewFormsResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitResult, setSubmitResult] = useState<SubmitPreviewFormResult | null>(null);
+  const submitInFlightRef = useRef(false);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    setLoaded(null);
+    setError(null);
+    setSubmitResult(null);
+    if (!folder) {
+      setError('Preview requires a folder query parameter.');
+      return;
+    }
+
+    void (async () => {
+      try {
+        const result = await (await actions.loadPreviewForms({ folder, formId }));
+        if (!cancelled) setLoaded(result);
+      } catch (reason) {
+        if (!cancelled) setError(reason instanceof Error ? reason.message : String(reason));
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [actions, folder, formId]);
+
+  const selectedHtml = useMemo(() => {
+    if (!loaded?.selectedForm) return '';
+    return sanitizeBeadsFormHtml(loaded.selectedForm.html);
+  }, [loaded?.selectedForm]);
+
+  const handleSubmit = async (event: React.FormEvent<HTMLDivElement>) => {
+    const target = event.target;
+    if (!(target instanceof HTMLFormElement) || !loaded?.selectedForm) return;
+    event.preventDefault();
+    if (submitInFlightRef.current) return;
+    if (!target.reportValidity()) return;
+
+    const values = normalizeSubmittedValues(loaded.selectedForm, normalizeFormData(new FormData(target)));
+    submitInFlightRef.current = true;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const result = await (await actions.submitPreviewForm({
+        folder: loaded.folder,
+        formId: loaded.selectedForm.id,
+        values,
+      }));
+      setSubmitResult(result);
+      await navigator.clipboard?.writeText(JSON.stringify(result.values, null, 2)).catch(() => undefined);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      submitInFlightRef.current = false;
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="beadsform-root beadsform-page">
+      <header>
+        <p className="beadsform-eyebrow">Forms preview</p>
+        <h1>{loaded?.selectedForm ? loaded.selectedForm.title : 'Folder forms'}</h1>
+        <p>Load forms from a local folder, submit them without touching beads, and copy normalized JSON only.</p>
+      </header>
+      {error ? <p role="alert" className="beadsform-error">{error}</p> : null}
+      {loaded && !loaded.selectedForm ? (
+        <section>
+          <h2>Forms in <code>{loaded.folder}</code></h2>
+          {loaded.forms.length === 0 ? <p>No .json forms found in this folder.</p> : (
+            <ul>
+              {loaded.forms.map((form) => (
+                <li key={`${form.sourceFile}:${form.id}`}>
+                  <a href={previewFormUrl({ folder: loaded.folder, formId: form.id })}>{form.title}</a>
+                  <p><code>{form.sourceFile}</code></p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      ) : null}
+      {loaded?.selectedForm ? (
+        <section>
+          <div className="beadsform-heading-row">
+            <div>
+              <h2>{loaded.selectedForm.title}</h2>
+              {loaded.selectedForm.description ? <p>{loaded.selectedForm.description}</p> : null}
+              <p><code>{loaded.selectedForm.sourceFile}</code></p>
+            </div>
+            <a href={previewFormUrl({ folder: loaded.folder })}>All forms</a>
+          </div>
+          <div onSubmit={handleSubmit} dangerouslySetInnerHTML={{ __html: selectedHtml }} />
+        </section>
+      ) : null}
+      {submitting ? <p>Submitting…</p> : null}
+      {submitResult ? (
+        <section className="beadsform-submit-result">
+          <h2>JSON copied</h2>
+          <p>Copied normalized JSON to your clipboard.</p>
+          <pre><code>{JSON.stringify(submitResult.values, null, 2)}</code></pre>
+        </section>
+      ) : null}
+    </div>
+  );
+}
 
 function BeadsFormRoute({ actions }: { actions: {
   loadBeadForms: (input: LoadFormsInput) => MaybeNestedPromise<LoadFormsResult>;
@@ -162,7 +315,7 @@ function BeadsFormRoute({ actions }: { actions: {
     if (submitInFlightRef.current) return;
     if (!target.reportValidity()) return;
 
-    const values = normalizeFormData(new FormData(target));
+    const values = normalizeSubmittedValues(loaded.selected.selectedForm, normalizeFormData(new FormData(target)));
     submitInFlightRef.current = true;
     setSubmitting(true);
     setError(null);
@@ -303,6 +456,23 @@ springboard.registerModule(
   { rpcMode: 'remote' },
   async (moduleAPI) => {
     const actions = moduleAPI.createActions({
+      loadPreviewForms: async (input: LoadPreviewFormsInput): Promise<LoadPreviewFormsResult> => {
+        const forms = await loadBeadsFormsFromFolder(input.folder);
+        return {
+          folder: input.folder,
+          forms,
+          selectedForm: input.formId ? forms.find((form) => form.id === input.formId) : undefined,
+        };
+      },
+      submitPreviewForm: async (input: SubmitPreviewFormInput): Promise<SubmitPreviewFormResult> => {
+        const forms = await loadBeadsFormsFromFolder(input.folder);
+        const form = forms.find((candidate) => candidate.id === input.formId);
+        if (!form) throw new Error(`Form not found in folder: ${input.formId}`);
+        const values = normalizeSubmittedValues(form, input.values);
+        const validationErrors = validateSubmittedValues(form, values);
+        if (validationErrors.length > 0) throw new Error(validationErrors.join('\n'));
+        return { formId: form.id, values };
+      },
       loadBeadForms: async (input: LoadFormsInput): Promise<LoadFormsResult> => {
         if (!input.dir.trim()) throw new Error('dir is required');
         if (!input.beadId.trim()) throw new Error('beadId is required');
@@ -378,6 +548,10 @@ springboard.registerModule(
 
     moduleAPI.registerRoute('/dashboard/forms', { hideApplicationShell: true }, () => (
       <BeadsFormRoute actions={actions} />
+    ));
+
+    moduleAPI.registerRoute('/dashboard/forms/preview', { hideApplicationShell: true }, () => (
+      <BeadsFormPreviewRoute actions={actions} />
     ));
 
     return { actions };

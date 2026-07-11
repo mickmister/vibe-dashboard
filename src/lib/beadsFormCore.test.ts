@@ -2,10 +2,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   appendBeadsFormResponse,
+  ALLOW_CODE_FILE_CHANGES_FIELD,
   buildAgentResultMessage,
   buildPrettySummary,
   getBeadsForms,
   normalizeFormEntries,
+  normalizeSubmittedValues,
   sanitizeBeadsFormHtml,
   validateSubmittedValues,
 } from './beadsFormCore';
@@ -43,8 +45,10 @@ describe('BeadsForm core', () => {
 
     expect(forms).toHaveLength(1);
     expect(forms[0]!.html).toContain('<form>');
+    expect(forms[0]!.html).toContain(`name="${ALLOW_CODE_FILE_CHANGES_FIELD}"`);
     expect(forms[0]!.html).toContain('name="entry_point"');
     expect(forms[0]!.controls?.map((control) => control.name)).toEqual([
+      ALLOW_CODE_FILE_CHANGES_FIELD,
       'entry_point',
       'entry_point_forms_tab_more_info',
       'entry_point_more_info',
@@ -72,6 +76,22 @@ describe('BeadsForm core', () => {
     ]);
 
     expect(values).toEqual({ choice: ['a', 'b'], choice_a_more_info: 'because' });
+  });
+
+  it('normalizes allow_code_file_changes to a stable boolean when declared', () => {
+    const form = {
+      id: 'permission',
+      title: 'Permission',
+      html: '<form></form>',
+      controls: [{ id: ALLOW_CODE_FILE_CHANGES_FIELD, name: ALLOW_CODE_FILE_CHANGES_FIELD, type: 'checkbox' as const }],
+    };
+
+    expect(normalizeSubmittedValues(form, { [ALLOW_CODE_FILE_CHANGES_FIELD]: 'true' })).toEqual({
+      [ALLOW_CODE_FILE_CHANGES_FIELD]: true,
+    });
+    expect(normalizeSubmittedValues(form, {})).toEqual({
+      [ALLOW_CODE_FILE_CHANGES_FIELD]: false,
+    });
   });
 
   it('strips dangerous html while preserving forms', () => {

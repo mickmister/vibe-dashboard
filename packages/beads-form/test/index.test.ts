@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ALLOW_CODE_FILE_CHANGES_FIELD,
   buildBeadsFormMetadata,
   buildChoicesQuestion,
   buildTextareaQuestion,
@@ -30,17 +31,57 @@ describe('@vibe-dashboard/beads-form', () => {
     const compiled = compileBeadsForm(form);
 
     expect(compiled.html).toContain('<fieldset>');
+    expect(compiled.html).toContain(`name="${ALLOW_CODE_FILE_CHANGES_FIELD}" type="checkbox" value="true" checked`);
     expect(compiled.html).toContain('name="entry_point" type="checkbox" value="forms_tab"');
     expect(compiled.html).not.toContain('type="checkbox" value="forms_tab" required');
     expect(compiled.html).toContain('name="entry_point_forms_tab_more_info"');
     expect(compiled.html).toContain('name="entry_point_more_info"');
     expect(compiled.controls).toEqual([
+      { id: ALLOW_CODE_FILE_CHANGES_FIELD, name: ALLOW_CODE_FILE_CHANGES_FIELD, type: 'checkbox' },
       { id: 'entry_point_forms_tab', name: 'entry_point', type: 'checkbox', required: true, multiple: true },
       { id: 'entry_point_forms_tab_more_info', name: 'entry_point_forms_tab_more_info', type: 'textarea' },
       { id: 'entry_point_direct_route', name: 'entry_point', type: 'checkbox', required: true, multiple: true },
       { id: 'entry_point_direct_route_more_info', name: 'entry_point_direct_route_more_info', type: 'textarea' },
       { id: 'entry_point_more_info', name: 'entry_point_more_info', type: 'textarea' },
     ]);
+  });
+
+  it('allows hiding or customizing the code/file-change permission control', () => {
+    const hidden = compileBeadsForm(defineBeadsForm({
+      id: 'hidden_permission',
+      title: 'Hidden permission',
+      allowCodeFileChanges: false,
+      questions: [
+        buildTextareaQuestion({
+          id: 'notes',
+          title: 'Notes',
+          description: 'Provide notes.',
+        }),
+      ],
+    }));
+    expect(hidden.html).not.toContain(ALLOW_CODE_FILE_CHANGES_FIELD);
+    expect(hidden.controls.map((control) => control.name)).not.toContain(ALLOW_CODE_FILE_CHANGES_FIELD);
+
+    const customized = compileBeadsForm(defineBeadsForm({
+      id: 'custom_permission',
+      title: 'Custom permission',
+      allowCodeFileChanges: {
+        label: 'May edit files?',
+        description: 'Only check this if implementation should proceed.',
+        defaultChecked: false,
+      },
+      questions: [
+        buildTextareaQuestion({
+          id: 'notes',
+          title: 'Notes',
+          description: 'Provide notes.',
+        }),
+      ],
+    }));
+    expect(customized.html).toContain('May edit files?');
+    expect(customized.html).toContain('Only check this if implementation should proceed.');
+    expect(customized.html).toContain(`name="${ALLOW_CODE_FILE_CHANGES_FIELD}" type="checkbox" value="true"`);
+    expect(customized.html).not.toContain(`name="${ALLOW_CODE_FILE_CHANGES_FIELD}" type="checkbox" value="true" checked`);
   });
 
   it('keeps HTML escaped and builds bead metadata payloads', () => {
@@ -60,6 +101,10 @@ describe('@vibe-dashboard/beads-form', () => {
 
     const form = metadata.beadForms.forms[0]!;
     expect(form.html).toContain('&lt;script&gt;bad&lt;/script&gt;');
-    expect(form.controls.map((control) => control.name)).toEqual(['notes', 'notes_more_info']);
+    expect(form.controls.map((control) => control.name)).toEqual([
+      ALLOW_CODE_FILE_CHANGES_FIELD,
+      'notes',
+      'notes_more_info',
+    ]);
   });
 });

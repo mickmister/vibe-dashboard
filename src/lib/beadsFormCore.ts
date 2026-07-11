@@ -1,9 +1,12 @@
 import createDOMPurify from 'dompurify';
 import {
+  ALLOW_CODE_FILE_CHANGES_FIELD,
   compileBeadsForm,
   type BeadsFormControl,
   type StandardBeadsForm,
 } from '@vibe-dashboard/beads-form';
+
+export { ALLOW_CODE_FILE_CHANGES_FIELD };
 
 export type JsonObject = Record<string, unknown>;
 
@@ -143,6 +146,21 @@ export function normalizeFormEntries(entries: Iterable<[string, FormDataEntryVal
 
 export function normalizeFormData(formData: FormData): JsonObject {
   return normalizeFormEntries(formData.entries());
+}
+
+export function normalizeSubmittedValues(
+  form: Pick<BeadsFormDefinition, 'controls'>,
+  values: JsonObject,
+): JsonObject {
+  const next: JsonObject = { ...values };
+  if (form.controls?.some((control) => control.name === ALLOW_CODE_FILE_CHANGES_FIELD)) {
+    const value = next[ALLOW_CODE_FILE_CHANGES_FIELD];
+    next[ALLOW_CODE_FILE_CHANGES_FIELD] = value === true
+      || value === 'true'
+      || value === 'on'
+      || (Array.isArray(value) && value.some((item) => item === true || item === 'true' || item === 'on'));
+  }
+  return next;
 }
 
 const ALLOWED_TAGS = [
