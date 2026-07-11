@@ -259,14 +259,18 @@ function createRenderableSwimlanes(boardView: ExternalJiraBoardViewDto): Array<{
 
 export function ExternalJiraCard({ card, onSelect }: { card: ExternalKanbanCardDto; onSelect: (card: ExternalKanbanCardDto) => void }) {
   const workspaceCount = card.relatedWorkspaces?.length ?? 0;
-  const beadCount = card.relatedBeads?.length ?? 0;
-  const completedBeadCount = card.relatedBeads?.filter((bead) => isCompletedBeadStatus(bead.status)).length ?? 0;
+  const taskSummary = getTaskSummary(card);
+  const workspaceMetrics = getWorkspaceMetrics(card);
 
   return (
     <article
       className="cursor-pointer rounded-lg border border-neutral-800 bg-neutral-950 p-3 text-left shadow-sm transition hover:border-sky-500/40 hover:bg-neutral-900 focus:outline-none focus:ring-2 focus:ring-sky-500/70"
-      onClick={() => onSelect(card)}
+      onClick={(event) => {
+        if (isFromNestedInteractiveControl(event.target, event.currentTarget)) return;
+        onSelect(card);
+      }}
       onKeyDown={(event) => {
+        if (isFromNestedInteractiveControl(event.target, event.currentTarget)) return;
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault();
           onSelect(card);
@@ -277,49 +281,51 @@ export function ExternalJiraCard({ card, onSelect }: { card: ExternalKanbanCardD
     >
       <span className="text-xs font-semibold text-sky-300">{card.key}</span>
       <h4 className="mt-1 text-sm font-medium leading-5 text-neutral-100">{card.title}</h4>
-      <div className="mt-3 flex flex-wrap gap-2 text-xs text-neutral-400">
-        {card.issueType ? <span>{card.issueType}</span> : null}
-        {card.priority ? <span>{card.priority}</span> : null}
-        {card.assignee ? <span>{card.assignee.displayName}</span> : null}
+      <div className="mt-3 rounded-md border border-neutral-800 bg-neutral-900/70 px-2 py-1.5 text-[11px] text-neutral-300">
+        {workspaceCount === 0 ? (
+          <button
+            type="button"
+            className="cursor-not-allowed rounded border border-emerald-500/20 px-2 py-1 text-emerald-200/60"
+            disabled
+            title="Workspace creation from Jira cards is not wired yet."
+          >
+            Create Workspace <span className="text-emerald-200/40">(coming soon)</span>
+          </button>
+        ) : (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-medium text-neutral-200">{workspaceCount === 1 ? 'Existing workspace' : `${workspaceCount} linked workspaces`}</span>
+              <button
+                type="button"
+                className="cursor-not-allowed rounded border border-emerald-500/20 px-2 py-1 text-emerald-200/60"
+                disabled
+                title="Opening linked workspaces from Jira cards is not wired yet."
+              >
+                Open Workspace <span className="text-emerald-200/40">(coming soon)</span>
+              </button>
+            </div>
+            <WorkspaceMetricsGrid metrics={workspaceMetrics} />
+          </div>
+        )}
       </div>
-      {card.labels.length ? (
-        <div className="mt-3 flex flex-wrap gap-1">
-          {card.labels.map((label) => <span key={label} className="rounded bg-neutral-800 px-2 py-0.5 text-[11px] text-neutral-300">{label}</span>)}
-        </div>
-      ) : null}
-      <div className="mt-3 grid gap-1.5 rounded-md border border-neutral-800 bg-neutral-900/70 px-2 py-1.5 text-[11px] text-neutral-300">
-        <div>
-          <span className="font-medium text-neutral-200">Workspace:</span>{' '}
-          {workspaceCount === 0 ? 'None' : workspaceCount === 1 ? 'Existing workspace' : `${workspaceCount} linked workspaces`}
-        </div>
-        <div>
-          <span className="font-medium text-neutral-200">Beads:</span>{' '}
-          {beadCount} created · {completedBeadCount} completed
-        </div>
-      </div>
-      {card.relatedWorkspaces?.length ? (
-        <div className="mt-3 rounded-md border border-emerald-500/20 bg-emerald-500/10 px-2 py-1.5 text-xs text-emerald-100">
-          <div className="font-medium text-emerald-200">Related workspaces</div>
-          <ul className="mt-1 space-y-1">
-            {card.relatedWorkspaces.map((workspace) => (
-              <li key={workspace.workspaceId} className="truncate" title={workspace.workspaceDir ?? workspace.workspaceId}>
-                {workspace.displayName || workspace.workspaceId}
-                {workspace.isPrimary ? <span className="ml-1 text-emerald-300">Primary</span> : null}
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-      {card.relatedBeads?.length ? (
+      {taskSummary.total > 0 ? (
         <div className="mt-3 rounded-md border border-sky-500/20 bg-sky-500/10 px-2 py-1.5 text-xs text-sky-100">
-          <div className="font-medium text-sky-200">Related beads</div>
-          <ul className="mt-1 space-y-1">
-            {card.relatedBeads.map((bead) => (
-              <li key={bead.id} className="truncate" title={bead.id}>
-                {bead.id}: {bead.title}
-              </li>
-            ))}
-          </ul>
+          <div className="font-medium text-sky-200">{taskSummary.completed}/{taskSummary.total} tasks complete</div>
+          {taskSummary.userAssignedTask ? (
+            <div className="mt-1 rounded bg-sky-400/10 px-2 py-1 text-sky-100">
+              Your task: {taskSummary.userAssignedTask}
+            </div>
+          ) : taskSummary.implicitReviewTask ? (
+            <div className="mt-1 rounded bg-sky-400/10 px-2 py-1 text-sky-100">
+              Suggested review: {taskSummary.implicitReviewTask}
+            </div>
+          ) : null}
+          {taskSummary.inProgressTask ? (
+            <div className="mt-1 text-sky-100/80">In progress: {taskSummary.inProgressTask}</div>
+          ) : null}
+          {taskSummary.nextUpTask ? (
+            <div className="mt-1 text-sky-100/70">Next up: {taskSummary.nextUpTask}</div>
+          ) : null}
         </div>
       ) : null}
     </article>
@@ -348,8 +354,7 @@ export function ExternalJiraIssueDetailSheet({
   totalCards: number;
 }) {
   const workspaceCount = card.relatedWorkspaces?.length ?? 0;
-  const beadCount = card.relatedBeads?.length ?? 0;
-  const completedBeadCount = card.relatedBeads?.filter((bead) => isCompletedBeadStatus(bead.status)).length ?? 0;
+  const taskSummary = getTaskSummary(card);
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 text-neutral-100 sm:bg-black/40" role="dialog" aria-modal="true" aria-label={`${card.key} issue details`}>
@@ -376,7 +381,7 @@ export function ExternalJiraIssueDetailSheet({
           <dl className="mt-5 grid gap-3 rounded-xl border border-neutral-800 bg-neutral-900/60 p-4 text-sm sm:grid-cols-2">
             <div><dt className="text-xs uppercase tracking-wide text-neutral-500">Assignee</dt><dd className="mt-1 text-neutral-200">{card.assignee?.displayName ?? 'Unassigned'}</dd></div>
             <div><dt className="text-xs uppercase tracking-wide text-neutral-500">Workspace</dt><dd className="mt-1 text-neutral-200">{workspaceCount === 0 ? 'None' : workspaceCount === 1 ? 'Existing workspace' : `${workspaceCount} linked workspaces`}</dd></div>
-            <div><dt className="text-xs uppercase tracking-wide text-neutral-500">Beads</dt><dd className="mt-1 text-neutral-200">{beadCount} created · {completedBeadCount} completed</dd></div>
+            <div><dt className="text-xs uppercase tracking-wide text-neutral-500">Tasks</dt><dd className="mt-1 text-neutral-200">{taskSummary.completed}/{taskSummary.total} tasks complete</dd></div>
             <div><dt className="text-xs uppercase tracking-wide text-neutral-500">Source</dt><dd className="mt-1 text-neutral-200">{boardView.siteHostname}</dd></div>
           </dl>
           {card.labels.length ? (
@@ -401,7 +406,7 @@ export function ExternalJiraIssueDetailSheet({
             ) : <p className="mt-2 text-sm text-neutral-400">No existing workspace is associated with this issue.</p>}
           </section>
           <section className="mt-5 rounded-xl border border-neutral-800 bg-neutral-900/60 p-4">
-            <h3 className="text-sm font-semibold text-neutral-200">Related beads</h3>
+            <h3 className="text-sm font-semibold text-neutral-200">Related tasks</h3>
             {card.relatedBeads?.length ? (
               <ul className="mt-3 space-y-2">
                 {card.relatedBeads.map((bead) => (
@@ -411,7 +416,7 @@ export function ExternalJiraIssueDetailSheet({
                   </li>
                 ))}
               </ul>
-            ) : <p className="mt-2 text-sm text-neutral-400">No beads have been created for this issue yet.</p>}
+            ) : <p className="mt-2 text-sm text-neutral-400">No tasks have been created for this issue yet.</p>}
           </section>
           <div className="mt-6">
             <a className="inline-flex rounded-lg border border-neutral-700 px-3 py-2 text-sm text-neutral-200 hover:bg-neutral-900" href={card.url} rel="noreferrer" target="_blank">Open in Jira</a>
@@ -422,9 +427,77 @@ export function ExternalJiraIssueDetailSheet({
   );
 }
 
+function WorkspaceMetricsGrid({ metrics }: { metrics: WorkspaceMetrics }) {
+  return (
+    <dl className="grid grid-cols-2 gap-1 text-[10px] text-neutral-400">
+      <div><dt>Files changed</dt><dd className="font-medium text-neutral-200">{metrics.filesChanged}</dd></div>
+      <div><dt>Lines changed</dt><dd className="font-medium text-neutral-200">{metrics.linesChanged}</dd></div>
+      <div><dt>Agent sessions</dt><dd className="font-medium text-neutral-200">{metrics.agentSessions}</dd></div>
+      <div><dt>Agent messages</dt><dd className="font-medium text-neutral-200">{metrics.agentMessages}</dd></div>
+    </dl>
+  );
+}
+
+interface WorkspaceMetrics {
+  filesChanged: number | string;
+  linesChanged: number | string;
+  agentSessions: number | string;
+  agentMessages: number | string;
+}
+
+function getWorkspaceMetrics(card: ExternalKanbanCardDto): WorkspaceMetrics {
+  const metadata = card.relatedWorkspaces?.[0]?.metadata;
+  return {
+    filesChanged: readMetric(metadata, 'filesChanged'),
+    linesChanged: readMetric(metadata, 'linesChanged'),
+    agentSessions: readMetric(metadata, 'agentSessions'),
+    agentMessages: readMetric(metadata, 'agentMessages'),
+  };
+}
+
+function readMetric(metadata: Record<string, unknown> | undefined, key: string): number | string {
+  const value = metadata?.[key];
+  return typeof value === 'number' || typeof value === 'string' ? value : 0;
+}
+
+function getTaskSummary(card: ExternalKanbanCardDto) {
+  const tasks = card.relatedBeads ?? [];
+  const completedTasks = tasks.filter((task) => isCompletedBeadStatus(task.status));
+  const inProgressTask = tasks.find((task) => isInProgressTaskStatus(task.status));
+  const userAssignedTask = tasks.find((task) => isUserAssignedTask(task) && !isCompletedBeadStatus(task.status));
+  const nextUpTask = tasks.find((task) => task !== userAssignedTask && !isCompletedBeadStatus(task.status) && !isInProgressTaskStatus(task.status));
+  const mostRecentCompleted = [...completedTasks].reverse()[0];
+  return {
+    total: tasks.length,
+    completed: completedTasks.length,
+    inProgressTask: inProgressTask?.title,
+    nextUpTask: nextUpTask?.title,
+    userAssignedTask: userAssignedTask?.title,
+    implicitReviewTask: userAssignedTask || !mostRecentCompleted ? undefined : `Review "${mostRecentCompleted.title}"`,
+  };
+}
+
 function isCompletedBeadStatus(status: string | undefined): boolean {
   if (!status) return false;
   return ['closed', 'complete', 'completed', 'done', 'resolved'].includes(status.toLowerCase());
+}
+
+function isInProgressTaskStatus(status: string | undefined): boolean {
+  if (!status) return false;
+  return ['in_progress', 'in-progress', 'doing', 'started'].includes(status.toLowerCase());
+}
+
+function isUserAssignedTask(task: NonNullable<ExternalKanbanCardDto['relatedBeads']>[number]): boolean {
+  const metadata = task.externalIssue.metadata;
+  return metadata?.assignedToCurrentUser === true || metadata?.userAssigned === true || metadata?.assignee === 'you';
+}
+
+export function isFromNestedInteractiveControl(target: EventTarget | null, currentTarget: EventTarget): boolean {
+  if (target === currentTarget || !target) return false;
+  const closest = (target as { closest?: unknown }).closest;
+  if (typeof closest !== 'function') return false;
+  const interactive = closest.call(target, 'button,a,input,select,textarea,summary,[role="link"],[data-card-interactive="true"]');
+  return Boolean(interactive && interactive !== currentTarget);
 }
 
 export function ExternalTrackerMessage({ title, message, action, code }: { title: string; message: string; action?: string; code?: string }) {

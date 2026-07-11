@@ -1,8 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { ExternalJiraBoardContent, ExternalJiraBoardRoute } from './ExternalJiraBoardView';
-import type { ExternalJiraBoardViewDto } from '../lib/externalTrackerBoardApi';
+import { ExternalJiraBoardContent, ExternalJiraBoardRoute, ExternalJiraCard } from './ExternalJiraBoardView';
+import type { ExternalJiraBoardViewDto, ExternalKanbanCardDto } from '../lib/externalTrackerBoardApi';
 
 const baseBoardView: ExternalJiraBoardViewDto = {
   provider: 'jira',
@@ -44,10 +44,12 @@ describe('ExternalJiraBoardContent', () => {
     expect(html).toContain('Build external board UI');
     expect(html).toContain('Swimlanes:');
     expect(html).toContain('unknown');
-    expect(html).toContain('Workspace:');
-    expect(html).toContain('None');
-    expect(html).toContain('Beads:');
-    expect(html).toContain('0 created · 0 completed');
+    expect(html).toContain('Create Workspace');
+    expect(html).toContain('Workspace creation from Jira cards is not wired yet.');
+    expect(html).toContain('disabled=""');
+    expect(html).not.toContain('0 created · 0 completed');
+    expect(html).not.toContain('Task</span>');
+    expect(html).not.toContain('external-trackers');
     expect(html).not.toContain('href="https://team.atlassian.net/browse/VD-1"');
   });
 
@@ -84,18 +86,21 @@ describe('ExternalJiraBoardContent', () => {
         ...baseBoardView,
         cards: [{
           ...card,
-          relatedWorkspaces: [{ workspaceId: 'ws-1', workspaceDir: '/repo/a', displayName: 'Workspace A', isPrimary: true }],
+          relatedWorkspaces: [{ workspaceId: 'ws-1', workspaceDir: '/repo/a', displayName: 'Workspace A', isPrimary: true, metadata: { filesChanged: 3, linesChanged: 42, agentSessions: 2, agentMessages: 18 } }],
         }],
       },
     }));
 
-    expect(html).toContain('Related workspaces');
-    expect(html).toContain('Workspace A');
-    expect(html).toContain('Primary');
     expect(html).toContain('Existing workspace');
+    expect(html).toContain('Open Workspace');
+    expect(html).toContain('Opening linked workspaces from Jira cards is not wired yet.');
+    expect(html).toContain('Files changed');
+    expect(html).toContain('42');
+    expect(html).toContain('Agent sessions');
+    expect(html).toContain('18');
   });
 
-  it('renders related beads on cards when provided by the board API', () => {
+  it('renders linked task completion, in-progress, next-up, and user-assigned summaries', () => {
     const card = baseBoardView.cards[0];
     if (!card) throw new Error('expected fixture card');
     const html = renderToStaticMarkup(React.createElement(ExternalJiraBoardContent, {
@@ -104,17 +109,78 @@ describe('ExternalJiraBoardContent', () => {
         cards: [{
           ...card,
           relatedBeads: [
-            { id: 'vkvw-1', title: 'Linked bead', status: 'open', externalIssue: { provider: 'jira', key: 'VD-1', url: 'https://team.atlassian.net/browse/VD-1', site: 'team.atlassian.net' } },
+            { id: 'vkvw-1', title: 'Implement card summaries', status: 'in_progress', externalIssue: { provider: 'jira', key: 'VD-1', url: 'https://team.atlassian.net/browse/VD-1', site: 'team.atlassian.net', metadata: { assignedToCurrentUser: true } } },
+            { id: 'vkvw-3', title: 'Wire workspace action', status: 'open', externalIssue: { provider: 'jira', key: 'VD-1', url: 'https://team.atlassian.net/browse/VD-1', site: 'team.atlassian.net' } },
             { id: 'vkvw-2', title: 'Completed linked bead', status: 'closed', externalIssue: { provider: 'jira', key: 'VD-1', url: 'https://team.atlassian.net/browse/VD-1', site: 'team.atlassian.net' } },
           ],
         }],
       },
     }));
 
-    expect(html).toContain('Related beads');
-    expect(html).toContain('vkvw-1: Linked bead');
-    expect(html).toContain('vkvw-2: Completed linked bead');
-    expect(html).toContain('2 created · 1 completed');
+    expect(html).toContain('1/3 tasks complete');
+    expect(html).toContain('Your task: Implement card summaries');
+    expect(html).toContain('In progress: Implement card summaries');
+    expect(html).toContain('Next up: Wire workspace action');
+  });
+
+  it('renders implicit review task when a completed task exists without explicit user assignment', () => {
+    const card = baseBoardView.cards[0];
+    if (!card) throw new Error('expected fixture card');
+    const html = renderToStaticMarkup(React.createElement(ExternalJiraBoardContent, {
+      boardView: {
+        ...baseBoardView,
+        cards: [{
+          ...card,
+          relatedBeads: [
+            { id: 'vkvw-2', title: 'Completed implementation task', status: 'closed', externalIssue: { provider: 'jira', key: 'VD-1', url: 'https://team.atlassian.net/browse/VD-1', site: 'team.atlassian.net' } },
+          ],
+        }],
+      },
+    }));
+
+    expect(html).toContain('1/1 tasks complete');
+    expect(html).toContain('Suggested review: Review &quot;Completed implementation task&quot;');
+  });
+
+  it('does not emphasize completed user-assigned tasks as the current user task', () => {
+    const card = baseBoardView.cards[0];
+    if (!card) throw new Error('expected fixture card');
+    const html = renderToStaticMarkup(React.createElement(ExternalJiraBoardContent, {
+      boardView: {
+        ...baseBoardView,
+        cards: [{
+          ...card,
+          relatedBeads: [
+            { id: 'vkvw-2', title: 'Completed assigned task', status: 'closed', externalIssue: { provider: 'jira', key: 'VD-1', url: 'https://team.atlassian.net/browse/VD-1', site: 'team.atlassian.net', metadata: { assignedToCurrentUser: true } } },
+          ],
+        }],
+      },
+    }));
+
+    expect(html).toContain('1/1 tasks complete');
+    expect(html).not.toContain('Your task: Completed assigned task');
+    expect(html).toContain('Suggested review: Review &quot;Completed assigned task&quot;');
+  });
+
+  it('ignores bubbled keyboard activation from nested workspace controls', () => {
+    const card = baseBoardView.cards[0] as ExternalKanbanCardDto;
+    const onSelect = vi.fn();
+    const element = ExternalJiraCard({ card, onSelect }) as React.ReactElement<{
+      onKeyDown: (event: React.KeyboardEvent<HTMLElement>) => void;
+    }>;
+    const currentTarget = { closest: () => undefined };
+    const nestedButton = { closest: (selector: string) => selector.includes('button') ? true : undefined };
+    const preventDefault = vi.fn();
+
+    element.props.onKeyDown({
+      key: 'Enter',
+      preventDefault,
+      target: nestedButton,
+      currentTarget,
+    } as unknown as React.KeyboardEvent<HTMLElement>);
+
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(preventDefault).not.toHaveBeenCalled();
   });
 
   it('renders inferred swimlanes when present', () => {
@@ -171,7 +237,7 @@ describe('ExternalJiraBoardContent', () => {
         cards: [{
           ...card,
           relatedWorkspaces: [{ workspaceId: 'ws-1', workspaceDir: '/repo/a', displayName: 'Workspace A', isPrimary: true }],
-          relatedBeads: [{ id: 'vkvw-1', title: 'Linked bead', status: 'closed', externalIssue: { provider: 'jira', key: 'VD-1', url: 'https://team.atlassian.net/browse/VD-1', site: 'team.atlassian.net' } }],
+          relatedBeads: [{ id: 'vkvw-1', title: 'Linked task', status: 'closed', externalIssue: { provider: 'jira', key: 'VD-1', url: 'https://team.atlassian.net/browse/VD-1', site: 'team.atlassian.net' } }],
         }],
       },
       initialSelectedCardId: card.id,
@@ -185,8 +251,8 @@ describe('ExternalJiraBoardContent', () => {
     expect(html).toContain('1 / 1');
     expect(html).toContain('Related workspaces');
     expect(html).toContain('Workspace A');
-    expect(html).toContain('Related beads');
-    expect(html).toContain('vkvw-1: Linked bead');
+    expect(html).toContain('Related tasks');
+    expect(html).toContain('vkvw-1: Linked task');
     expect(html).toContain('Open in Jira');
     expect(html).toContain('href="https://team.atlassian.net/browse/VD-1"');
   });

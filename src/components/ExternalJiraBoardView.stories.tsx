@@ -72,10 +72,10 @@ const manyCards = Array.from({ length: 18 }, (_, index) => makeCard(index + 1));
 
 const mixedDecorationCards: ExternalKanbanCardDto[] = [
   makeCard(1, {
-    title: 'No linked beads or workspace yet',
+    title: 'No linked tasks or workspace yet',
   }),
   makeCard(2, {
-    title: 'Has two beads with one completed',
+    title: 'Has two tasks with one completed',
     relatedBeads: [
       {
         id: 'vkvw-card-2a',
@@ -86,21 +86,21 @@ const mixedDecorationCards: ExternalKanbanCardDto[] = [
       {
         id: 'vkvw-card-2b',
         title: 'Polish card states',
-        status: 'open',
-        externalIssue: { provider: 'jira', key: 'VD-2', url: 'https://team.atlassian.net/browse/VD-2', site: 'team.atlassian.net' },
+        status: 'in_progress',
+        externalIssue: { provider: 'jira', key: 'VD-2', url: 'https://team.atlassian.net/browse/VD-2', site: 'team.atlassian.net', metadata: { assignedToCurrentUser: true } },
       },
     ],
   }),
   makeCard(3, {
     title: 'Has an existing workspace',
     relatedWorkspaces: [
-      { workspaceId: 'ws-card-3', workspaceDir: '/repos/Vktest', displayName: 'Vktest workspace', isPrimary: true },
+      { workspaceId: 'ws-card-3', workspaceDir: '/repos/Vktest', displayName: 'Vktest workspace', isPrimary: true, metadata: { filesChanged: 6, linesChanged: 148, agentSessions: 2, agentMessages: 37 } },
     ],
   }),
   makeCard(4, {
     title: 'Rare multiple-workspace mapping',
     relatedWorkspaces: [
-      { workspaceId: 'ws-card-4a', workspaceDir: '/repos/Vktest', displayName: 'Primary workspace', isPrimary: true },
+      { workspaceId: 'ws-card-4a', workspaceDir: '/repos/Vktest', displayName: 'Primary workspace', isPrimary: true, metadata: { filesChanged: 12, linesChanged: 320, agentSessions: 3, agentMessages: 84 } },
       { workspaceId: 'ws-card-4b', workspaceDir: '/repos/Vktest-spike', displayName: 'Spike workspace', isPrimary: false },
     ],
     relatedBeads: [
@@ -207,6 +207,73 @@ export const MixedDecorationStates: Story = {
   },
 };
 
+export const NoWorkspaceNoTasks: Story = {
+  args: {
+    boardView: board({
+      cards: [makeCard(31, { title: 'No workspace and no linked tasks' })],
+      pagination: { ...baseBoardView.pagination, issueCount: 1 },
+    }),
+  },
+};
+
+export const WorkspaceMetrics: Story = {
+  args: {
+    boardView: board({
+      cards: [mixedDecorationCards[2]!],
+      pagination: { ...baseBoardView.pagination, issueCount: 1 },
+    }),
+  },
+};
+
+export const TaskCompletion: Story = {
+  args: {
+    boardView: board({
+      cards: [mixedDecorationCards[1]!],
+      pagination: { ...baseBoardView.pagination, issueCount: 1 },
+    }),
+  },
+};
+
+export const InProgressAndNextUpTasks: Story = {
+  args: {
+    boardView: board({
+      cards: [
+        makeCard(32, {
+          title: 'In-progress and next-up task summary',
+          relatedBeads: [
+            { id: 'vkvw-progress', title: 'Implement detail sheet polish', status: 'in_progress', externalIssue: { provider: 'jira', key: 'VD-32', url: 'https://team.atlassian.net/browse/VD-32', site: 'team.atlassian.net' } },
+            { id: 'vkvw-next', title: 'Add mobile QA pass', status: 'open', externalIssue: { provider: 'jira', key: 'VD-32', url: 'https://team.atlassian.net/browse/VD-32', site: 'team.atlassian.net' } },
+          ],
+        }),
+      ],
+      pagination: { ...baseBoardView.pagination, issueCount: 1 },
+    }),
+  },
+};
+
+export const UserAssignedAndImplicitReviewTasks: Story = {
+  args: {
+    boardView: board({
+      cards: [
+        makeCard(33, {
+          title: 'User assigned task emphasized',
+          relatedBeads: [
+            { id: 'vkvw-yours', title: 'Review user-facing card copy', status: 'open', externalIssue: { provider: 'jira', key: 'VD-33', url: 'https://team.atlassian.net/browse/VD-33', site: 'team.atlassian.net', metadata: { assignedToCurrentUser: true } } },
+            { id: 'vkvw-done', title: 'Ship task count summary', status: 'closed', externalIssue: { provider: 'jira', key: 'VD-33', url: 'https://team.atlassian.net/browse/VD-33', site: 'team.atlassian.net' } },
+          ],
+        }),
+        makeCard(34, {
+          title: 'Implicit review suggested from latest completed task',
+          relatedBeads: [
+            { id: 'vkvw-done-only', title: 'Complete workspace metrics fixture', status: 'closed', externalIssue: { provider: 'jira', key: 'VD-34', url: 'https://team.atlassian.net/browse/VD-34', site: 'team.atlassian.net' } },
+          ],
+        }),
+      ],
+      pagination: { ...baseBoardView.pagination, issueCount: 2 },
+    }),
+  },
+};
+
 export const OpenDetailSheet: Story = {
   args: {
     boardView: board({
@@ -302,7 +369,7 @@ export const RelatedWorkspaces: Story = {
   },
 };
 
-export const RelatedBeads: Story = {
+export const RelatedTasks: Story = {
   args: {
     boardView: board({
       cards: [
