@@ -53,7 +53,14 @@ function board(overrides: Partial<ExternalJiraBoardViewDto>): ExternalJiraBoardV
 }
 
 function StoryFrame({ children }: { children: React.ReactNode }) {
-  return <div className="min-h-screen bg-neutral-950">{children}</div>;
+  return (
+    <div
+      className="h-dvh overflow-y-auto overscroll-contain bg-neutral-950"
+      style={{ WebkitOverflowScrolling: 'touch' }}
+    >
+      {children}
+    </div>
+  );
 }
 
 const meta: Meta<typeof ExternalJiraBoardContent> = {
