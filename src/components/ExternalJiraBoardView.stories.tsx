@@ -207,6 +207,84 @@ export const MixedDecorationStates: Story = {
   },
 };
 
+export const OpenDetailSheet: Story = {
+  args: {
+    boardView: board({
+      cards: mixedDecorationCards,
+      pagination: { ...baseBoardView.pagination, issueCount: mixedDecorationCards.length },
+    }),
+    initialSelectedCardId: mixedDecorationCards[1]?.id,
+  },
+};
+
+export const MobileFullScreenDetailSheet: Story = {
+  args: {
+    boardView: board({
+      cards: mixedDecorationCards,
+      pagination: { ...baseBoardView.pagination, issueCount: mixedDecorationCards.length },
+    }),
+    initialSelectedCardId: mixedDecorationCards[2]?.id,
+  },
+  parameters: {
+    viewport: {
+      defaultViewport: 'mobile1',
+    },
+  },
+};
+
+export const DesktopSideDetailSheet: Story = {
+  args: {
+    boardView: board({
+      cards: mixedDecorationCards,
+      pagination: { ...baseBoardView.pagination, issueCount: mixedDecorationCards.length },
+    }),
+    initialSelectedCardId: mixedDecorationCards[3]?.id,
+  },
+};
+
+export const DetailSheetPagingBoundaries: Story = {
+  args: {
+    boardView: board({
+      cards: [makeCard(1), makeCard(2), makeCard(3)],
+      pagination: { ...baseBoardView.pagination, issueCount: 3 },
+    }),
+    initialSelectedCardId: makeCard(1).id,
+  },
+};
+
+export const LongIssueDetailSheet: Story = {
+  args: {
+    boardView: board({
+      cards: [
+        makeCard(21, {
+          title: 'Long issue title that wraps across multiple lines to demonstrate mobile detail sheet scrolling and readable issue context inside VD',
+          labels: ['external-trackers', 'jira', 'mobile', 'storybook', 'single-pane-of-glass', 'long-content'],
+          relatedBeads: [
+            {
+              id: 'vkvw-long-1',
+              title: 'Collect long issue detail requirements',
+              status: 'closed',
+              externalIssue: { provider: 'jira', key: 'VD-21', url: 'https://team.atlassian.net/browse/VD-21', site: 'team.atlassian.net' },
+            },
+            {
+              id: 'vkvw-long-2',
+              title: 'Validate full-screen mobile panel behavior',
+              status: 'open',
+              externalIssue: { provider: 'jira', key: 'VD-21', url: 'https://team.atlassian.net/browse/VD-21', site: 'team.atlassian.net' },
+            },
+          ],
+          relatedWorkspaces: [
+            { workspaceId: 'ws-long', workspaceDir: '/repos/Vktest/mobile-detail-sheet', displayName: 'Mobile detail workspace', isPrimary: true },
+          ],
+        }),
+        ...manyCards.slice(0, 5),
+      ],
+      pagination: { ...baseBoardView.pagination, issueCount: 6 },
+    }),
+    initialSelectedCardId: '10021',
+  },
+};
+
 export const RelatedWorkspaces: Story = {
   args: {
     boardView: board({

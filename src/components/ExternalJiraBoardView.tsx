@@ -61,15 +61,24 @@ export function ExternalJiraBoardLoader({ externalViewUrl }: { externalViewUrl: 
   return <ExternalJiraBoardContent boardView={response.boardView} />;
 }
 
-export function ExternalJiraBoardContent({ boardView }: { boardView: ExternalJiraBoardViewDto }) {
+export function ExternalJiraBoardContent({ boardView, initialSelectedCardId }: { boardView: ExternalJiraBoardViewDto; initialSelectedCardId?: string }) {
+  const [selectedCardId, setSelectedCardId] = useState<string | undefined>(initialSelectedCardId);
   const columns = useMemo(() => normalizeRenderableColumns(boardView), [boardView]);
   const renderableLanes = useMemo(() => createRenderableSwimlanes(boardView), [boardView]);
+  const selectedCardIndex = selectedCardId ? boardView.cards.findIndex((card) => card.id === selectedCardId) : -1;
+  const selectedCard = selectedCardIndex >= 0 ? boardView.cards[selectedCardIndex] : undefined;
 
   return (
     <ExternalJiraBoardShell
       boardView={boardView}
       columns={columns}
       renderableLanes={renderableLanes}
+      selectedCard={selectedCard}
+      selectedCardIndex={selectedCardIndex}
+      onSelectCard={(card) => setSelectedCardId(card.id)}
+      onCloseCard={() => setSelectedCardId(undefined)}
+      onNextCard={() => setSelectedCardId(boardView.cards[selectedCardIndex + 1]?.id)}
+      onPreviousCard={() => setSelectedCardId(boardView.cards[selectedCardIndex - 1]?.id)}
     />
   );
 }
@@ -77,11 +86,23 @@ export function ExternalJiraBoardContent({ boardView }: { boardView: ExternalJir
 export function ExternalJiraBoardShell({
   boardView,
   columns,
+  onCloseCard,
+  onNextCard,
+  onPreviousCard,
+  onSelectCard,
   renderableLanes,
+  selectedCard,
+  selectedCardIndex,
 }: {
   boardView: ExternalJiraBoardViewDto;
   columns: ExternalKanbanColumnDto[];
+  onCloseCard: () => void;
+  onNextCard: () => void;
+  onPreviousCard: () => void;
+  onSelectCard: (card: ExternalKanbanCardDto) => void;
   renderableLanes: Array<{ id: string; title: string; cards: ExternalKanbanCardDto[] }>;
+  selectedCard?: ExternalKanbanCardDto;
+  selectedCardIndex: number;
 }) {
   const issueCount = boardView.pagination.issueCount;
   const hasLanes = renderableLanes.length > 0;
@@ -93,9 +114,23 @@ export function ExternalJiraBoardShell({
         cards={boardView.cards}
         columns={columns}
         hasIssues={issueCount > 0}
+        onSelectCard={onSelectCard}
         renderableLanes={renderableLanes}
         showSwimlanes={hasLanes}
       />
+      {selectedCard ? (
+        <ExternalJiraIssueDetailSheet
+          boardView={boardView}
+          canGoNext={selectedCardIndex < boardView.cards.length - 1}
+          canGoPrevious={selectedCardIndex > 0}
+          card={selectedCard}
+          cardIndex={selectedCardIndex}
+          onClose={onCloseCard}
+          onNext={onNextCard}
+          onPrevious={onPreviousCard}
+          totalCards={boardView.cards.length}
+        />
+      ) : null}
     </main>
   );
 }
@@ -130,12 +165,14 @@ export function ExternalJiraBoardBody({
   cards,
   columns,
   hasIssues,
+  onSelectCard,
   renderableLanes,
   showSwimlanes,
 }: {
   cards: ExternalKanbanCardDto[];
   columns: ExternalKanbanColumnDto[];
   hasIssues: boolean;
+  onSelectCard: (card: ExternalKanbanCardDto) => void;
   renderableLanes: Array<{ id: string; title: string; cards: ExternalKanbanCardDto[] }>;
   showSwimlanes: boolean;
 }) {
@@ -151,7 +188,7 @@ export function ExternalJiraBoardBody({
     return (
       <section className="space-y-6 p-6">
         {renderableLanes.map((lane) => (
-          <ExternalJiraSwimlane key={lane.id} lane={lane} columns={columns} />
+          <ExternalJiraSwimlane key={lane.id} lane={lane} columns={columns} onSelectCard={onSelectCard} />
         ))}
       </section>
     );
@@ -159,21 +196,21 @@ export function ExternalJiraBoardBody({
 
   return (
     <section className="p-6">
-      <ExternalJiraKanbanColumns columns={columns} cards={cards} />
+      <ExternalJiraKanbanColumns columns={columns} cards={cards} onSelectCard={onSelectCard} />
     </section>
   );
 }
 
-export function ExternalJiraSwimlane({ lane, columns }: { lane: { id: string; title: string; cards: ExternalKanbanCardDto[] }; columns: ExternalKanbanColumnDto[] }) {
+export function ExternalJiraSwimlane({ lane, columns, onSelectCard }: { lane: { id: string; title: string; cards: ExternalKanbanCardDto[] }; columns: ExternalKanbanColumnDto[]; onSelectCard: (card: ExternalKanbanCardDto) => void }) {
   return (
     <div className="rounded-xl border border-neutral-800 bg-neutral-950/60 p-4">
       <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-neutral-300">{lane.title}</h2>
-      <ExternalJiraKanbanColumns columns={columns} cards={lane.cards} />
+      <ExternalJiraKanbanColumns columns={columns} cards={lane.cards} onSelectCard={onSelectCard} />
     </div>
   );
 }
 
-export function ExternalJiraKanbanColumns({ columns, cards }: { columns: ExternalKanbanColumnDto[]; cards: ExternalKanbanCardDto[] }) {
+export function ExternalJiraKanbanColumns({ columns, cards, onSelectCard }: { columns: ExternalKanbanColumnDto[]; cards: ExternalKanbanCardDto[]; onSelectCard: (card: ExternalKanbanCardDto) => void }) {
   const knownColumnIds = new Set(columns.map((column) => column.id));
   return (
     <div className="grid auto-cols-[minmax(18rem,1fr)] grid-flow-col gap-4 overflow-x-auto pb-2">
@@ -190,7 +227,7 @@ export function ExternalJiraKanbanColumns({ columns, cards }: { columns: Externa
             </div>
             <div className="space-y-3 p-3">
               {columnCards.length === 0 ? <div className="rounded-lg border border-dashed border-neutral-800 p-3 text-sm text-neutral-500">No issues</div> : null}
-              {columnCards.map((card) => <ExternalJiraCard key={card.id} card={card} />)}
+              {columnCards.map((card) => <ExternalJiraCard key={card.id} card={card} onSelect={onSelectCard} />)}
             </div>
           </section>
         );
@@ -220,14 +257,25 @@ function createRenderableSwimlanes(boardView: ExternalJiraBoardViewDto): Array<{
   return lanes;
 }
 
-export function ExternalJiraCard({ card }: { card: ExternalKanbanCardDto }) {
+export function ExternalJiraCard({ card, onSelect }: { card: ExternalKanbanCardDto; onSelect: (card: ExternalKanbanCardDto) => void }) {
   const workspaceCount = card.relatedWorkspaces?.length ?? 0;
   const beadCount = card.relatedBeads?.length ?? 0;
   const completedBeadCount = card.relatedBeads?.filter((bead) => isCompletedBeadStatus(bead.status)).length ?? 0;
 
   return (
-    <article className="rounded-lg border border-neutral-800 bg-neutral-950 p-3 shadow-sm">
-      <a className="text-xs font-semibold text-sky-300 hover:text-sky-200" href={card.url} rel="noreferrer" target="_blank">{card.key}</a>
+    <article
+      className="cursor-pointer rounded-lg border border-neutral-800 bg-neutral-950 p-3 text-left shadow-sm transition hover:border-sky-500/40 hover:bg-neutral-900 focus:outline-none focus:ring-2 focus:ring-sky-500/70"
+      onClick={() => onSelect(card)}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onSelect(card);
+        }
+      }}
+      role="button"
+      tabIndex={0}
+    >
+      <span className="text-xs font-semibold text-sky-300">{card.key}</span>
       <h4 className="mt-1 text-sm font-medium leading-5 text-neutral-100">{card.title}</h4>
       <div className="mt-3 flex flex-wrap gap-2 text-xs text-neutral-400">
         {card.issueType ? <span>{card.issueType}</span> : null}
@@ -275,6 +323,102 @@ export function ExternalJiraCard({ card }: { card: ExternalKanbanCardDto }) {
         </div>
       ) : null}
     </article>
+  );
+}
+
+export function ExternalJiraIssueDetailSheet({
+  boardView,
+  canGoNext,
+  canGoPrevious,
+  card,
+  cardIndex,
+  onClose,
+  onNext,
+  onPrevious,
+  totalCards,
+}: {
+  boardView: ExternalJiraBoardViewDto;
+  canGoNext: boolean;
+  canGoPrevious: boolean;
+  card: ExternalKanbanCardDto;
+  cardIndex: number;
+  onClose: () => void;
+  onNext: () => void;
+  onPrevious: () => void;
+  totalCards: number;
+}) {
+  const workspaceCount = card.relatedWorkspaces?.length ?? 0;
+  const beadCount = card.relatedBeads?.length ?? 0;
+  const completedBeadCount = card.relatedBeads?.filter((bead) => isCompletedBeadStatus(bead.status)).length ?? 0;
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/60 text-neutral-100 sm:bg-black/40" role="dialog" aria-modal="true" aria-label={`${card.key} issue details`}>
+      <aside className="ml-auto flex h-dvh w-full flex-col border-l border-neutral-800 bg-neutral-950 shadow-2xl sm:max-w-xl">
+        <header className="border-b border-neutral-800 bg-neutral-950/95 px-4 py-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-1">
+              <button type="button" className="rounded-md border border-neutral-800 px-2 py-1 text-sm text-neutral-200 hover:bg-neutral-900 disabled:cursor-not-allowed disabled:opacity-40" disabled={!canGoPrevious} onClick={onPrevious} aria-label="Previous issue">←</button>
+              <button type="button" className="rounded-md border border-neutral-800 px-2 py-1 text-sm text-neutral-200 hover:bg-neutral-900 disabled:cursor-not-allowed disabled:opacity-40" disabled={!canGoNext} onClick={onNext} aria-label="Next issue">→</button>
+              <span className="ml-2 text-xs text-neutral-500">{cardIndex + 1} / {totalCards}</span>
+            </div>
+            <button type="button" className="rounded-md border border-neutral-800 px-2 py-1 text-sm text-neutral-200 hover:bg-neutral-900" onClick={onClose}>Close</button>
+          </div>
+        </header>
+        <div className="flex-1 overflow-y-auto px-5 py-5">
+          <div className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-300">{boardView.board.name || `Jira board ${boardView.board.id}`}</div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <span className="rounded bg-sky-500/10 px-2 py-0.5 text-sm font-semibold text-sky-200">{card.key}</span>
+            {card.statusName ? <span className="rounded bg-neutral-800 px-2 py-0.5 text-xs text-neutral-300">{card.statusName}</span> : null}
+            {card.issueType ? <span className="rounded bg-neutral-800 px-2 py-0.5 text-xs text-neutral-300">{card.issueType}</span> : null}
+            {card.priority ? <span className="rounded bg-neutral-800 px-2 py-0.5 text-xs text-neutral-300">{card.priority}</span> : null}
+          </div>
+          <h2 className="mt-4 text-2xl font-semibold leading-8 text-neutral-50">{card.title}</h2>
+          <dl className="mt-5 grid gap-3 rounded-xl border border-neutral-800 bg-neutral-900/60 p-4 text-sm sm:grid-cols-2">
+            <div><dt className="text-xs uppercase tracking-wide text-neutral-500">Assignee</dt><dd className="mt-1 text-neutral-200">{card.assignee?.displayName ?? 'Unassigned'}</dd></div>
+            <div><dt className="text-xs uppercase tracking-wide text-neutral-500">Workspace</dt><dd className="mt-1 text-neutral-200">{workspaceCount === 0 ? 'None' : workspaceCount === 1 ? 'Existing workspace' : `${workspaceCount} linked workspaces`}</dd></div>
+            <div><dt className="text-xs uppercase tracking-wide text-neutral-500">Beads</dt><dd className="mt-1 text-neutral-200">{beadCount} created · {completedBeadCount} completed</dd></div>
+            <div><dt className="text-xs uppercase tracking-wide text-neutral-500">Source</dt><dd className="mt-1 text-neutral-200">{boardView.siteHostname}</dd></div>
+          </dl>
+          {card.labels.length ? (
+            <section className="mt-5">
+              <h3 className="text-sm font-semibold text-neutral-200">Labels</h3>
+              <div className="mt-2 flex flex-wrap gap-1">
+                {card.labels.map((label) => <span key={label} className="rounded bg-neutral-800 px-2 py-0.5 text-xs text-neutral-300">{label}</span>)}
+              </div>
+            </section>
+          ) : null}
+          <section className="mt-5 rounded-xl border border-neutral-800 bg-neutral-900/60 p-4">
+            <h3 className="text-sm font-semibold text-neutral-200">Related workspaces</h3>
+            {card.relatedWorkspaces?.length ? (
+              <ul className="mt-3 space-y-2">
+                {card.relatedWorkspaces.map((workspace) => (
+                  <li key={workspace.workspaceId} className="rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-100">
+                    <div className="font-medium">{workspace.displayName || workspace.workspaceId}{workspace.isPrimary ? <span className="ml-2 text-xs text-emerald-300">Primary</span> : null}</div>
+                    {workspace.workspaceDir ? <div className="mt-1 truncate text-xs text-emerald-200/70">{workspace.workspaceDir}</div> : null}
+                  </li>
+                ))}
+              </ul>
+            ) : <p className="mt-2 text-sm text-neutral-400">No existing workspace is associated with this issue.</p>}
+          </section>
+          <section className="mt-5 rounded-xl border border-neutral-800 bg-neutral-900/60 p-4">
+            <h3 className="text-sm font-semibold text-neutral-200">Related beads</h3>
+            {card.relatedBeads?.length ? (
+              <ul className="mt-3 space-y-2">
+                {card.relatedBeads.map((bead) => (
+                  <li key={bead.id} className="rounded-lg border border-sky-500/20 bg-sky-500/10 px-3 py-2 text-sm text-sky-100">
+                    <div className="font-medium">{bead.id}: {bead.title}</div>
+                    {bead.status ? <div className="mt-1 text-xs text-sky-200/70">Status: {bead.status}</div> : null}
+                  </li>
+                ))}
+              </ul>
+            ) : <p className="mt-2 text-sm text-neutral-400">No beads have been created for this issue yet.</p>}
+          </section>
+          <div className="mt-6">
+            <a className="inline-flex rounded-lg border border-neutral-700 px-3 py-2 text-sm text-neutral-200 hover:bg-neutral-900" href={card.url} rel="noreferrer" target="_blank">Open in Jira</a>
+          </div>
+        </div>
+      </aside>
+    </div>
   );
 }
 

@@ -48,6 +48,7 @@ describe('ExternalJiraBoardContent', () => {
     expect(html).toContain('None');
     expect(html).toContain('Beads:');
     expect(html).toContain('0 created · 0 completed');
+    expect(html).not.toContain('href="https://team.atlassian.net/browse/VD-1"');
   });
 
   it('gracefully renders an empty board', () => {
@@ -159,6 +160,57 @@ describe('ExternalJiraBoardContent', () => {
     expect(html).toContain('Other issues');
     expect(html).toContain('Build external board UI');
     expect(html).toContain('Keep unlaned partial swimlane cards visible');
+  });
+
+  it('renders an in-app issue detail sheet for a selected card with secondary Jira action', () => {
+    const card = baseBoardView.cards[0];
+    if (!card) throw new Error('expected fixture card');
+    const html = renderToStaticMarkup(React.createElement(ExternalJiraBoardContent, {
+      boardView: {
+        ...baseBoardView,
+        cards: [{
+          ...card,
+          relatedWorkspaces: [{ workspaceId: 'ws-1', workspaceDir: '/repo/a', displayName: 'Workspace A', isPrimary: true }],
+          relatedBeads: [{ id: 'vkvw-1', title: 'Linked bead', status: 'closed', externalIssue: { provider: 'jira', key: 'VD-1', url: 'https://team.atlassian.net/browse/VD-1', site: 'team.atlassian.net' } }],
+        }],
+      },
+      initialSelectedCardId: card.id,
+    }));
+
+    expect(html).toContain('role="dialog"');
+    expect(html).toContain('VD-1 issue details');
+    expect(html).toContain('Previous issue');
+    expect(html).toContain('Next issue');
+    expect(html).toContain('Close');
+    expect(html).toContain('1 / 1');
+    expect(html).toContain('Related workspaces');
+    expect(html).toContain('Workspace A');
+    expect(html).toContain('Related beads');
+    expect(html).toContain('vkvw-1: Linked bead');
+    expect(html).toContain('Open in Jira');
+    expect(html).toContain('href="https://team.atlassian.net/browse/VD-1"');
+  });
+
+  it('renders issue detail sheet paging controls at board boundaries', () => {
+    const firstCard = baseBoardView.cards[0];
+    if (!firstCard) throw new Error('expected fixture card');
+    const secondCard = {
+      ...firstCard,
+      id: '2',
+      key: 'VD-2',
+      title: 'Second issue',
+      url: 'https://team.atlassian.net/browse/VD-2',
+      rank: 1,
+    };
+    const html = renderToStaticMarkup(React.createElement(ExternalJiraBoardContent, {
+      boardView: { ...baseBoardView, cards: [firstCard, secondCard], pagination: { pageCount: 1, issueCount: 2, maxResults: 50 } },
+      initialSelectedCardId: secondCard.id,
+    }));
+
+    expect(html).toContain('2 / 2');
+    expect(html).toContain('Second issue');
+    expect(html).toContain('aria-label="Previous issue"');
+    expect(html).toContain('aria-label="Next issue"');
   });
 });
 
