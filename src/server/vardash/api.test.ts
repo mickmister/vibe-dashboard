@@ -27,7 +27,11 @@ async function createApi(options: Parameters<typeof registerVardashRoutes>[1] = 
   stores.push(store);
   await store.migrate();
   const app = new Hono();
-  registerVardashRoutes(app, { ...options, store });
+  registerVardashRoutes(app, {
+    validateWorkspaceRepo: async () => ({ repoRoot: '/workspace/repo-a' }),
+    ...options,
+    store,
+  });
   return { app, store };
 }
 
@@ -376,7 +380,7 @@ describe('vardash API boundary', () => {
   it('returns metadata-only launch readiness after workspace/repo/process ownership validation', async () => {
     const validated: Array<{ workspaceId: string; repoId: string }> = [];
     const { app, store } = await createApi({
-      validateWorkspaceRepo: async (input) => { validated.push(input); },
+      validateWorkspaceRepo: async (input) => { validated.push(input); return { repoRoot: '/workspace/repo-a' }; },
       varlockRuntime: { enabled: true, isAvailable: async () => true },
     });
     const tokenKey = await store.upsertRepoEnvKey({ repoId: 'repo-a', key: 'API_TOKEN', kind: 'secret', required: true });
@@ -444,6 +448,26 @@ describe('vardash API boundary', () => {
     });
   });
 
+  it('marks readiness ineligible when workspace repo root cannot be safely resolved', async () => {
+    const { app, store } = await createApi({
+      validateWorkspaceRepo: async () => undefined,
+    });
+    const tokenKey = await store.upsertRepoEnvKey({ repoId: 'repo-a', key: 'API_TOKEN', kind: 'secret', required: true });
+    const token = await store.createSavedValue({ repoId: 'repo-a', envKeyId: tokenKey.id, name: 'local', value: 'repo-root-secret' });
+    await store.setRepoDefaultSelection({ repoId: 'repo-a', envKeyId: tokenKey.id, savedValueId: token.id });
+    await store.upsertRepoProcessDefinition({ repoId: 'repo-a', name: 'Dev server', command: 'npm run dev', isDefault: true });
+
+    const response = await app.request('/dashboard/api/vardash/workspaces/ws-multi/repos/repo-a/launch/readiness');
+    const text = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(text).not.toContain('repo-root-secret');
+    expect(JSON.parse(text)).toMatchObject({
+      eligible: false,
+      launch: { repoRootResolved: false, reason: 'repo_root_unresolved' },
+    });
+  });
+
   it('blocks readiness for repos outside the workspace and process ids outside the repo without secret echo', async () => {
     const { app, store } = await createApi({
       validateWorkspaceRepo: async () => { throw new Error('workspace_repo_not_found super-secret-owner'); },
@@ -466,6 +490,44 @@ describe('vardash API boundary', () => {
     const wrongProcess = await app2.request(`/dashboard/api/vardash/workspaces/ws-a/repos/repo-a/launch/readiness?processDefinitionId=${otherProcess!.id}`);
     expect(wrongProcess.status).toBe(404);
     expect(await wrongProcess.json()).toEqual({ error: 'process_not_found' });
+  });
+
+  it('validates workspace-scoped env and process mutations before touching repo metadata', async () => {
+    const { app, store } = await createApi({
+      validateWorkspaceRepo: async () => { throw new Error('not allowed metadata-secret'); },
+    });
+    const key = await store.upsertRepoEnvKey({ repoId: 'repo-a', key: 'TOKEN', kind: 'secret', required: true });
+
+    const overview = await app.request('/dashboard/api/vardash/workspaces/ws-denied/repos/repo-a/env-overview');
+    const createKey = await postJson(app, '/dashboard/api/vardash/workspaces/ws-denied/repos/repo-a/env-keys', {
+      key: 'NEW_KEY',
+      kind: 'secret',
+    });
+    const createValue = await postJson(
+      app,
+      `/dashboard/api/vardash/workspaces/ws-denied/repos/repo-a/env-keys/${key.id}/saved-values`,
+      { name: 'local', value: 'mutation-secret' },
+    );
+    const importEnv = await postJson(app, '/dashboard/api/vardash/workspaces/ws-denied/repos/repo-a/import', {
+      source: 'pasted-env',
+      content: 'NEW_IMPORT=secret',
+      dryRun: false,
+    });
+    const process = await postJson(app, '/dashboard/api/vardash/workspaces/ws-denied/repos/repo-a/process-definitions', {
+      name: 'Dev server',
+      command: 'npm run dev',
+    });
+
+    for (const response of [overview, createKey, createValue, importEnv, process]) {
+      expect(response.status).toBe(403);
+      const text = await response.text();
+      expect(text).toContain('workspace_repo_forbidden');
+      expect(text).not.toContain('metadata-secret');
+      expect(text).not.toContain('mutation-secret');
+    }
+    expect(await store.listRepoEnvKeys('repo-a')).toHaveLength(1);
+    expect(await store.listSavedValues('repo-a', key.id)).toHaveLength(0);
+    expect(await store.listRepoProcessDefinitions('repo-a')).toHaveLength(0);
   });
 
   it('reports missing required values by metadata only and never exposes raw resolved env', async () => {

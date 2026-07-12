@@ -208,6 +208,10 @@ export interface VardashLaunchReadinessResponse {
     available: boolean | null;
     reason?: string;
   };
+  launch: {
+    repoRootResolved: boolean;
+    reason?: 'repo_root_unresolved';
+  };
   selectionSemantics: 'workspace-null-inherits-repo-default';
   normalAgentEnvIncludesVardashSecrets: false;
 }
@@ -276,24 +280,25 @@ export class VardashClient {
     return this.get(`/repos/${encodeURIComponent(repoId)}/env-overview`);
   }
 
-  listRepoEnvKeys(repoId: string): Promise<VardashEnvKeysResponse> {
-    return this.get(`/repos/${encodeURIComponent(repoId)}/env-keys`);
+  listRepoEnvKeys(repoId: string, workspaceId?: string | null): Promise<VardashEnvKeysResponse> {
+    return this.get(`${repoApiPath(repoId, workspaceId)}/env-keys`);
   }
 
-  upsertRepoEnvKey(repoId: string, input: UpsertVardashEnvKeyInput): Promise<VardashEnvKeyResponse> {
-    return this.post(`/repos/${encodeURIComponent(repoId)}/env-keys`, input);
+  upsertRepoEnvKey(repoId: string, input: UpsertVardashEnvKeyInput, workspaceId?: string | null): Promise<VardashEnvKeyResponse> {
+    return this.post(`${repoApiPath(repoId, workspaceId)}/env-keys`, input);
   }
 
-  listSavedValues(repoId: string, envKeyId: string): Promise<VardashSavedValuesResponse> {
-    return this.get(`/repos/${encodeURIComponent(repoId)}/env-keys/${encodeURIComponent(envKeyId)}/saved-values`);
+  listSavedValues(repoId: string, envKeyId: string, workspaceId?: string | null): Promise<VardashSavedValuesResponse> {
+    return this.get(`${repoApiPath(repoId, workspaceId)}/env-keys/${encodeURIComponent(envKeyId)}/saved-values`);
   }
 
   createSavedValue(
     repoId: string,
     envKeyId: string,
     input: UpsertVardashSavedValueInput,
+    workspaceId?: string | null,
   ): Promise<VardashSavedValueResponse> {
-    return this.post(`/repos/${encodeURIComponent(repoId)}/env-keys/${encodeURIComponent(envKeyId)}/saved-values`, input);
+    return this.post(`${repoApiPath(repoId, workspaceId)}/env-keys/${encodeURIComponent(envKeyId)}/saved-values`, input);
   }
 
   replaceSavedValue(
@@ -301,15 +306,16 @@ export class VardashClient {
     envKeyId: string,
     savedValueId: string,
     input: UpsertVardashSavedValueInput,
+    workspaceId?: string | null,
   ): Promise<VardashSavedValueResponse> {
     return this.put(
-      `/repos/${encodeURIComponent(repoId)}/env-keys/${encodeURIComponent(envKeyId)}/saved-values/${encodeURIComponent(savedValueId)}`,
+      `${repoApiPath(repoId, workspaceId)}/env-keys/${encodeURIComponent(envKeyId)}/saved-values/${encodeURIComponent(savedValueId)}`,
       input,
     );
   }
 
-  setRepoDefaultSelection(repoId: string, input: SetVardashSelectionInput): Promise<VardashSelectionResponse> {
-    return this.post(`/repos/${encodeURIComponent(repoId)}/default-selections`, input);
+  setRepoDefaultSelection(repoId: string, input: SetVardashSelectionInput, workspaceId?: string | null): Promise<VardashSelectionResponse> {
+    return this.post(`${repoApiPath(repoId, workspaceId)}/default-selections`, input);
   }
 
   setWorkspaceRepoSelection(
@@ -323,26 +329,27 @@ export class VardashClient {
     );
   }
 
-  listRepoProcessDefinitions(repoId: string): Promise<VardashProcessDefinitionsResponse> {
-    return this.get(`/repos/${encodeURIComponent(repoId)}/process-definitions`);
+  listRepoProcessDefinitions(repoId: string, workspaceId?: string | null): Promise<VardashProcessDefinitionsResponse> {
+    return this.get(`${repoApiPath(repoId, workspaceId)}/process-definitions`);
   }
 
   upsertRepoProcessDefinition(
     repoId: string,
     input: UpsertVardashProcessDefinitionInput,
+    workspaceId?: string | null,
   ): Promise<VardashProcessDefinitionResponse> {
-    return this.post(`/repos/${encodeURIComponent(repoId)}/process-definitions`, input);
+    return this.post(`${repoApiPath(repoId, workspaceId)}/process-definitions`, input);
   }
 
-  setRepoProcessDefinitionDefault(repoId: string, processDefinitionId: string): Promise<VardashProcessDefinitionResponse> {
+  setRepoProcessDefinitionDefault(repoId: string, processDefinitionId: string, workspaceId?: string | null): Promise<VardashProcessDefinitionResponse> {
     return this.post(
-      `/repos/${encodeURIComponent(repoId)}/process-definitions/${encodeURIComponent(processDefinitionId)}/default`,
+      `${repoApiPath(repoId, workspaceId)}/process-definitions/${encodeURIComponent(processDefinitionId)}/default`,
       {},
     );
   }
 
-  importLegacyDevServerProcessDefinition(repoId: string, devServerScript: string | null): Promise<VardashProcessDefinitionResponse> {
-    return this.post(`/repos/${encodeURIComponent(repoId)}/process-definitions/import-legacy-dev-server`, {
+  importLegacyDevServerProcessDefinition(repoId: string, devServerScript: string | null, workspaceId?: string | null): Promise<VardashProcessDefinitionResponse> {
+    return this.post(`${repoApiPath(repoId, workspaceId)}/process-definitions/import-legacy-dev-server`, {
       dev_server_script: devServerScript,
     });
   }
@@ -354,8 +361,8 @@ export class VardashClient {
     return this.get(`/workspaces/${encodeURIComponent(workspaceId)}/repos/${encodeURIComponent(repoId)}/process-definitions`);
   }
 
-  importRepoEnv(repoId: string, input: ImportVardashEnvInput): Promise<VardashImportResponse> {
-    return this.post(`/repos/${encodeURIComponent(repoId)}/import`, input);
+  importRepoEnv(repoId: string, input: ImportVardashEnvInput, workspaceId?: string | null): Promise<VardashImportResponse> {
+    return this.post(`${repoApiPath(repoId, workspaceId)}/import`, input);
   }
 
   getLaunchReadiness(input: GetVardashLaunchReadinessInput): Promise<VardashLaunchReadinessResponse> {
@@ -406,6 +413,12 @@ export class VardashClient {
 
 export const vardashClient = new VardashClient();
 
+
+function repoApiPath(repoId: string, workspaceId?: string | null): string {
+  return workspaceId
+    ? `/workspaces/${encodeURIComponent(workspaceId)}/repos/${encodeURIComponent(repoId)}`
+    : `/repos/${encodeURIComponent(repoId)}`;
+}
 function launchQuery(input: GetVardashLaunchReadinessInput): string {
   const params = new URLSearchParams();
   if (input.processDefinitionId) params.set('processDefinitionId', input.processDefinitionId);

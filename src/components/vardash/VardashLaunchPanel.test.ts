@@ -57,6 +57,28 @@ describe('VardashLaunchView', () => {
     expect(html).toContain('disabled=""');
   });
 
+  it('shows a generic no-repo-root readiness reason without secret details', () => {
+    const html = renderToStaticMarkup(React.createElement(VardashLaunchView, {
+      readiness: {
+        ...readiness,
+        eligible: false,
+        launch: { repoRootResolved: false, reason: 'repo_root_unresolved' },
+      },
+      status: null,
+      runId: null,
+      useVarlock: false,
+      loading: false,
+      busy: false,
+      onUseVarlockChange: vi.fn(),
+      onLaunch: vi.fn(),
+      onStop: vi.fn(),
+    }));
+
+    expect(html).toContain('Repo root could not be safely resolved');
+    expect(html).not.toContain('/workspace');
+    expect(html).not.toContain('super-secret');
+  });
+
   it('formats generic, secret-safe Varlock and API errors', () => {
     expect(formatVarlockStatus({ ...readiness, varlock: { enabled: true, configured: false, available: false, reason: 'varlock_not_configured' } })).toBe('Varlock requested but not configured.');
     expect(formatVarlockStatus({ ...readiness, varlock: { enabled: true, configured: true, available: false, reason: 'varlock_unavailable' } })).toBe('Varlock requested but unavailable.');
@@ -81,6 +103,7 @@ const readiness: VardashLaunchReadinessResponse = {
     { key: 'PORT', kind: 'plain', savedValueId: 'value-2', savedValueName: 'local-port' },
   ],
   varlock: { enabled: true, configured: true, available: true },
+  launch: { repoRootResolved: true },
   selectionSemantics: 'workspace-null-inherits-repo-default',
   normalAgentEnvIncludesVardashSecrets: false,
 };

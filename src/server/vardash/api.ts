@@ -56,14 +56,59 @@ export function registerVardashRoutes(app: Hono, options: RegisterVardashRoutesO
   const launchRunner = options.launchRunner ?? DEFAULT_VARDASH_LAUNCH_RUNNER;
 
   app.get('/dashboard/api/vardash/workspaces/:workspaceId/repos/:repoId/env-overview', async (c) => {
+    const scoped = await requireWorkspaceRepoAccess(c, options);
+    if ('response' in scoped) return scoped.response;
     const store = await getStore();
     const overview = await store.listRepoEnvOverview({
-      workspaceId: c.req.param('workspaceId'),
-      repoId: c.req.param('repoId'),
+      workspaceId: scoped.workspaceId,
+      repoId: scoped.repoId,
     });
     return c.json({ ...overview, descriptionGuidance: VARDASH_DESCRIPTION_GUIDANCE });
   });
 
+  app.get('/dashboard/api/vardash/workspaces/:workspaceId/repos/:repoId/env-keys', async (c) => {
+    const scoped = await requireWorkspaceRepoAccess(c, options);
+    if ('response' in scoped) return scoped.response;
+    const store = await getStore();
+    const keys = await store.listRepoEnvKeys(scoped.repoId);
+    return c.json({ keys, descriptionGuidance: VARDASH_DESCRIPTION_GUIDANCE });
+  });
+
+  app.post('/dashboard/api/vardash/workspaces/:workspaceId/repos/:repoId/env-keys', async (c) => {
+    const scoped = await requireWorkspaceRepoAccess(c, options);
+    if ('response' in scoped) return scoped.response;
+    return await handleUpsertRepoEnvKey(c, getStore, scoped.repoId);
+  });
+
+  app.get('/dashboard/api/vardash/workspaces/:workspaceId/repos/:repoId/env-keys/:envKeyId/saved-values', async (c) => {
+    const scoped = await requireWorkspaceRepoAccess(c, options);
+    if ('response' in scoped) return scoped.response;
+    const store = await getStore();
+    const values = await store.listSavedValues(scoped.repoId, c.req.param('envKeyId'));
+    return c.json({ values });
+  });
+
+  app.post('/dashboard/api/vardash/workspaces/:workspaceId/repos/:repoId/env-keys/:envKeyId/saved-values', async (c) => {
+    const scoped = await requireWorkspaceRepoAccess(c, options);
+    if ('response' in scoped) return scoped.response;
+    return await handleCreateSavedValue(c, getStore, scoped.repoId);
+  });
+
+  app.put('/dashboard/api/vardash/workspaces/:workspaceId/repos/:repoId/env-keys/:envKeyId/saved-values/:savedValueId', async (c) => {
+    const scoped = await requireWorkspaceRepoAccess(c, options);
+    if ('response' in scoped) return scoped.response;
+    return await handleReplaceSavedValue(c, getStore, scoped.repoId);
+  });
+
+  app.post('/dashboard/api/vardash/workspaces/:workspaceId/repos/:repoId/default-selections', async (c) => {
+    const scoped = await requireWorkspaceRepoAccess(c, options);
+    if ('response' in scoped) return scoped.response;
+    return await handleSetRepoDefaultSelection(c, getStore, scoped.repoId);
+  });
+
+  // Repo-only vardash endpoints are kept for internal/admin callers and legacy
+  // tests. Production workspace UI should prefer the workspace-scoped routes
+  // above so access validation happens before metadata reads/writes.
   app.get('/dashboard/api/vardash/repos/:repoId/env-overview', async (c) => {
     const store = await getStore();
     const overview = await store.listRepoEnvOverview({ repoId: c.req.param('repoId') });
@@ -77,25 +122,7 @@ export function registerVardashRoutes(app: Hono, options: RegisterVardashRoutesO
   });
 
   app.post('/dashboard/api/vardash/repos/:repoId/env-keys', async (c) => {
-    const body = await readJson(c);
-    const kind = readKind(body.kind);
-    if (!kind) return c.json({ error: 'kind_required' }, 400);
-    const key = readString(body.key);
-    if (!key) return c.json({ error: 'key_required' }, 400);
-
-    try {
-      const store = await getStore();
-      const envKey = await store.upsertRepoEnvKey({
-        repoId: c.req.param('repoId'),
-        key,
-        kind,
-        required: body.required === true,
-        description: body.description == null ? null : readString(body.description),
-      });
-      return c.json({ key: envKey, descriptionGuidance: VARDASH_DESCRIPTION_GUIDANCE });
-    } catch (error) {
-      return c.json({ error: errorMessage(error) }, 409);
-    }
+    return await handleUpsertRepoEnvKey(c, getStore, c.req.param('repoId'));
   });
 
   app.get('/dashboard/api/vardash/repos/:repoId/env-keys/:envKeyId/saved-values', async (c) => {
@@ -105,69 +132,27 @@ export function registerVardashRoutes(app: Hono, options: RegisterVardashRoutesO
   });
 
   app.post('/dashboard/api/vardash/repos/:repoId/env-keys/:envKeyId/saved-values', async (c) => {
-    const body = await readJson(c);
-    const name = readString(body.name);
-    const value = readString(body.value);
-    if (!name) return c.json({ error: 'name_required' }, 400);
-    if (value == null) return c.json({ error: 'value_required' }, 400);
-
-    try {
-      const store = await getStore();
-      const savedValue = await store.createSavedValue({
-        repoId: c.req.param('repoId'),
-        envKeyId: c.req.param('envKeyId'),
-        name,
-        value,
-      });
-      return c.json({ savedValue });
-    } catch (error) {
-      return c.json({ error: errorMessage(error) }, 409);
-    }
+    return await handleCreateSavedValue(c, getStore, c.req.param('repoId'));
   });
 
   app.put('/dashboard/api/vardash/repos/:repoId/env-keys/:envKeyId/saved-values/:savedValueId', async (c) => {
-    const body = await readJson(c);
-    const name = readString(body.name);
-    const value = readString(body.value);
-    if (!name) return c.json({ error: 'name_required' }, 400);
-    if (value == null) return c.json({ error: 'value_required' }, 400);
-
-    try {
-      const store = await getStore();
-      const savedValue = await store.replaceSavedValue({
-        repoId: c.req.param('repoId'),
-        envKeyId: c.req.param('envKeyId'),
-        savedValueId: c.req.param('savedValueId'),
-        name,
-        value,
-      });
-      return c.json({ savedValue });
-    } catch (error) {
-      return c.json({ error: errorMessage(error) }, 409);
-    }
+    return await handleReplaceSavedValue(c, getStore, c.req.param('repoId'));
   });
 
   app.post('/dashboard/api/vardash/repos/:repoId/default-selections', async (c) => {
-    const body = await readJson(c);
-    const envKeyId = readString(body.envKeyId);
-    if (!envKeyId) return c.json({ error: 'env_key_id_required' }, 400);
-    const store = await getStore();
-    await store.setRepoDefaultSelection({
-      repoId: c.req.param('repoId'),
-      envKeyId,
-      savedValueId: readNullableString(body.savedValueId),
-    });
-    return c.json({ ok: true });
+    return await handleSetRepoDefaultSelection(c, getStore, c.req.param('repoId'));
   });
 
   app.post('/dashboard/api/vardash/workspaces/:workspaceId/repos/:repoId/selections', async (c) => {
+    const scoped = await requireWorkspaceRepoAccess(c, options);
+    if ('response' in scoped) return scoped.response;
     const body = await readJson(c);
     const envKeyId = readString(body.envKeyId);
     if (!envKeyId) return c.json({ error: 'env_key_id_required' }, 400);
     const store = await getStore();
     await store.setWorkspaceRepoSelection({
-      workspaceId: c.req.param('workspaceId'),
-      repoId: c.req.param('repoId'),
+      workspaceId: scoped.workspaceId,
+      repoId: scoped.repoId,
       envKeyId,
       savedValueId: readNullableString(body.savedValueId),
     });
@@ -181,52 +166,39 @@ export function registerVardashRoutes(app: Hono, options: RegisterVardashRoutesO
   });
 
   app.post('/dashboard/api/vardash/repos/:repoId/process-definitions', async (c) => {
-    const body = await readJson(c);
-    const name = readString(body.name);
-    const command = readString(body.command);
-    if (!name) return c.json({ error: 'name_required' }, 400);
-    if (!command) return c.json({ error: 'command_required' }, 400);
-    try {
-      const store = await getStore();
-      const process = await store.upsertRepoProcessDefinition({
-        repoId: c.req.param('repoId'),
-        name,
-        command,
-        cwd: readNullableString(body.cwd),
-        source: 'manual',
-        isDefault: typeof body.isDefault === 'boolean' ? body.isDefault : undefined,
-      });
-      return c.json({ process });
-    } catch (error) {
-      return c.json({ error: errorMessage(error) }, 409);
-    }
+    return await handleUpsertRepoProcessDefinition(c, getStore, c.req.param('repoId'));
   });
 
   app.post('/dashboard/api/vardash/repos/:repoId/process-definitions/:processDefinitionId/default', async (c) => {
-    try {
-      const store = await getStore();
-      const process = await store.setRepoProcessDefinitionDefault({
-        repoId: c.req.param('repoId'),
-        processDefinitionId: c.req.param('processDefinitionId'),
-      });
-      return c.json({ process });
-    } catch (error) {
-      return c.json({ error: errorMessage(error) }, 404);
-    }
+    return await handleSetRepoProcessDefinitionDefault(c, getStore, c.req.param('repoId'));
   });
 
   app.post('/dashboard/api/vardash/repos/:repoId/process-definitions/import-legacy-dev-server', async (c) => {
-    const body = await readJson(c);
-    const devServerScript = readString(body.dev_server_script);
-    const store = await getStore();
-    const process = await ensureLegacyDevServerProcessDefinition({
-      store,
-      repo: {
-        id: c.req.param('repoId'),
-        dev_server_script: devServerScript,
-      },
-    });
-    return c.json({ process });
+    return await handleImportLegacyDevServerProcessDefinition(c, getStore, c.req.param('repoId'));
+  });
+
+  app.post('/dashboard/api/vardash/workspaces/:workspaceId/repos/:repoId/process-definitions', async (c) => {
+    const scoped = await requireWorkspaceRepoAccess(c, options);
+    if ('response' in scoped) return scoped.response;
+    return await handleUpsertRepoProcessDefinition(c, getStore, scoped.repoId);
+  });
+
+  app.post('/dashboard/api/vardash/workspaces/:workspaceId/repos/:repoId/process-definitions/:processDefinitionId/default', async (c) => {
+    const scoped = await requireWorkspaceRepoAccess(c, options);
+    if ('response' in scoped) return scoped.response;
+    return await handleSetRepoProcessDefinitionDefault(c, getStore, scoped.repoId);
+  });
+
+  app.post('/dashboard/api/vardash/workspaces/:workspaceId/repos/:repoId/process-definitions/import-legacy-dev-server', async (c) => {
+    const scoped = await requireWorkspaceRepoAccess(c, options);
+    if ('response' in scoped) return scoped.response;
+    return await handleImportLegacyDevServerProcessDefinition(c, getStore, scoped.repoId);
+  });
+
+  app.post('/dashboard/api/vardash/workspaces/:workspaceId/repos/:repoId/import', async (c) => {
+    const scoped = await requireWorkspaceRepoAccess(c, options);
+    if ('response' in scoped) return scoped.response;
+    return await handleImportRepoEnv(c, getStore, scoped.repoId);
   });
 
   app.post('/dashboard/api/vardash/workspaces/:workspaceId/repos/:repoId/launch', async (c) => {
@@ -296,8 +268,9 @@ export function registerVardashRoutes(app: Hono, options: RegisterVardashRoutesO
     const workspaceId = c.req.param('workspaceId');
     const repoId = c.req.param('repoId');
     const useVarlock = c.req.query('useVarlock') === 'true';
+    let ownership: VardashWorkspaceRepoValidationResult | void;
     try {
-      await validateWorkspaceRepo(options, { workspaceId, repoId });
+      ownership = await validateWorkspaceRepo(options, { workspaceId, repoId });
     } catch {
       return c.json({ error: 'workspace_repo_forbidden' }, 403);
     }
@@ -313,10 +286,12 @@ export function registerVardashRoutes(app: Hono, options: RegisterVardashRoutesO
         useVarlock,
       });
       const varlock = await getVarlockReadiness(options, useVarlock);
+      const launch = repoRootReadiness(ownership);
       return c.json({
         ...readiness,
-        eligible: readiness.eligible && (!useVarlock || (varlock.configured && varlock.available !== false)),
+        eligible: readiness.eligible && launch.repoRootResolved && (!useVarlock || (varlock.configured && varlock.available !== false)),
         varlock,
+        launch,
       });
     } catch (error) {
       if (error instanceof Error && error.message.startsWith('No vardash process definition')) {
@@ -327,45 +302,210 @@ export function registerVardashRoutes(app: Hono, options: RegisterVardashRoutesO
   });
 
   app.get('/dashboard/api/vardash/workspaces/:workspaceId/repos/:repoId/process-definitions', async (c) => {
+    const scoped = await requireWorkspaceRepoAccess(c, options);
+    if ('response' in scoped) return scoped.response;
     const store = await getStore();
     const processes = await store.listWorkspaceRepoProcessDefinitions({
-      workspaceId: c.req.param('workspaceId'),
-      repoId: c.req.param('repoId'),
+      workspaceId: scoped.workspaceId,
+      repoId: scoped.repoId,
     });
     return c.json({ processes });
   });
 
   app.post('/dashboard/api/vardash/repos/:repoId/import', async (c) => {
-    const body = await readJson(c);
-    const content = readString(body.content);
-    const source = readImportSource(body.source);
-    if (content == null) return c.json({ error: 'content_required' }, 400);
-    if (!source) return c.json({ error: 'source_required' }, 400);
-
-    const store = await getStore();
-    const savedValueName = readString(body.savedValueName) ?? 'imported';
-    const plainKeys = readStringArray(body.plainKeys);
-    const preflight = await preflightImport({
-      store,
-      repoId: c.req.param('repoId'),
-      content,
-      source,
-      plainKeys,
-      savedValueName,
-    });
-    if (body.dryRun === true) return c.json(preflight);
-    if (preflight.conflicts.length > 0) return c.json(preflight, 409);
-
-    const result = await importVardashEnv({
-      store,
-      repoId: c.req.param('repoId'),
-      content,
-      source,
-      plainKeys,
-      savedValueName,
-    });
-    return c.json({ ...preflight, keys: result.keys, savedValues: result.savedValues });
+    return await handleImportRepoEnv(c, getStore, c.req.param('repoId'));
   });
+}
+
+
+type VardashStoreLoader = () => Promise<VardashStore>;
+
+type WorkspaceRepoAccess = {
+  workspaceId: string;
+  repoId: string;
+  ownership: VardashWorkspaceRepoValidationResult | void;
+};
+
+async function requireWorkspaceRepoAccess(
+  c: Context,
+  options: RegisterVardashRoutesOptions,
+): Promise<WorkspaceRepoAccess | { response: Response }> {
+  const workspaceId = c.req.param('workspaceId');
+  const repoId = c.req.param('repoId');
+  try {
+    const ownership = await validateWorkspaceRepo(options, { workspaceId, repoId });
+    return { workspaceId, repoId, ownership };
+  } catch {
+    return { response: c.json({ error: 'workspace_repo_forbidden' }, 403) };
+  }
+}
+
+async function handleUpsertRepoEnvKey(c: Context, getStore: VardashStoreLoader, repoId: string): Promise<Response> {
+  const body = await readJson(c);
+  const kind = readKind(body.kind);
+  if (!kind) return c.json({ error: 'kind_required' }, 400);
+  const key = readString(body.key);
+  if (!key) return c.json({ error: 'key_required' }, 400);
+
+  try {
+    const store = await getStore();
+    const envKey = await store.upsertRepoEnvKey({
+      repoId,
+      key,
+      kind,
+      required: body.required === true,
+      description: body.description == null ? null : readString(body.description),
+    });
+    return c.json({ key: envKey, descriptionGuidance: VARDASH_DESCRIPTION_GUIDANCE });
+  } catch (error) {
+    return c.json({ error: errorMessage(error) }, 409);
+  }
+}
+
+async function handleCreateSavedValue(c: Context, getStore: VardashStoreLoader, repoId: string): Promise<Response> {
+  const body = await readJson(c);
+  const name = readString(body.name);
+  const value = readString(body.value);
+  if (!name) return c.json({ error: 'name_required' }, 400);
+  if (value == null) return c.json({ error: 'value_required' }, 400);
+
+  try {
+    const store = await getStore();
+    const savedValue = await store.createSavedValue({
+      repoId,
+      envKeyId: c.req.param('envKeyId'),
+      name,
+      value,
+    });
+    return c.json({ savedValue });
+  } catch (error) {
+    return c.json({ error: errorMessage(error) }, 409);
+  }
+}
+
+async function handleReplaceSavedValue(c: Context, getStore: VardashStoreLoader, repoId: string): Promise<Response> {
+  const body = await readJson(c);
+  const name = readString(body.name);
+  const value = readString(body.value);
+  if (!name) return c.json({ error: 'name_required' }, 400);
+  if (value == null) return c.json({ error: 'value_required' }, 400);
+
+  try {
+    const store = await getStore();
+    const savedValue = await store.replaceSavedValue({
+      repoId,
+      envKeyId: c.req.param('envKeyId'),
+      savedValueId: c.req.param('savedValueId'),
+      name,
+      value,
+    });
+    return c.json({ savedValue });
+  } catch (error) {
+    return c.json({ error: errorMessage(error) }, 409);
+  }
+}
+
+async function handleSetRepoDefaultSelection(c: Context, getStore: VardashStoreLoader, repoId: string): Promise<Response> {
+  const body = await readJson(c);
+  const envKeyId = readString(body.envKeyId);
+  if (!envKeyId) return c.json({ error: 'env_key_id_required' }, 400);
+  const store = await getStore();
+  await store.setRepoDefaultSelection({
+    repoId,
+    envKeyId,
+    savedValueId: readNullableString(body.savedValueId),
+  });
+  return c.json({ ok: true });
+}
+
+async function handleUpsertRepoProcessDefinition(c: Context, getStore: VardashStoreLoader, repoId: string): Promise<Response> {
+  const body = await readJson(c);
+  const name = readString(body.name);
+  const command = readString(body.command);
+  if (!name) return c.json({ error: 'name_required' }, 400);
+  if (!command) return c.json({ error: 'command_required' }, 400);
+  try {
+    const store = await getStore();
+    const process = await store.upsertRepoProcessDefinition({
+      repoId,
+      name,
+      command,
+      cwd: readNullableString(body.cwd),
+      source: 'manual',
+      isDefault: typeof body.isDefault === 'boolean' ? body.isDefault : undefined,
+    });
+    return c.json({ process });
+  } catch (error) {
+    return c.json({ error: errorMessage(error) }, 409);
+  }
+}
+
+async function handleSetRepoProcessDefinitionDefault(c: Context, getStore: VardashStoreLoader, repoId: string): Promise<Response> {
+  try {
+    const store = await getStore();
+    const process = await store.setRepoProcessDefinitionDefault({
+      repoId,
+      processDefinitionId: c.req.param('processDefinitionId'),
+    });
+    return c.json({ process });
+  } catch (error) {
+    return c.json({ error: errorMessage(error) }, 404);
+  }
+}
+
+async function handleImportLegacyDevServerProcessDefinition(c: Context, getStore: VardashStoreLoader, repoId: string): Promise<Response> {
+  const body = await readJson(c);
+  const devServerScript = readString(body.dev_server_script);
+  const store = await getStore();
+  const process = await ensureLegacyDevServerProcessDefinition({
+    store,
+    repo: {
+      id: repoId,
+      dev_server_script: devServerScript,
+    },
+  });
+  return c.json({ process });
+}
+
+async function handleImportRepoEnv(c: Context, getStore: VardashStoreLoader, repoId: string): Promise<Response> {
+  const body = await readJson(c);
+  const content = readString(body.content);
+  const source = readImportSource(body.source);
+  if (content == null) return c.json({ error: 'content_required' }, 400);
+  if (!source) return c.json({ error: 'source_required' }, 400);
+
+  const store = await getStore();
+  const savedValueName = readString(body.savedValueName) ?? 'imported';
+  const plainKeys = readStringArray(body.plainKeys);
+  const preflight = await preflightImport({
+    store,
+    repoId,
+    content,
+    source,
+    plainKeys,
+    savedValueName,
+  });
+  if (body.dryRun === true) return c.json(preflight);
+  if (preflight.conflicts.length > 0) return c.json(preflight, 409);
+
+  const result = await importVardashEnv({
+    store,
+    repoId,
+    content,
+    source,
+    plainKeys,
+    savedValueName,
+  });
+  return c.json({ ...preflight, keys: result.keys, savedValues: result.savedValues });
+}
+
+function repoRootReadiness(ownership: VardashWorkspaceRepoValidationResult | void): {
+  repoRootResolved: boolean;
+  reason?: 'repo_root_unresolved';
+} {
+  return typeof ownership?.repoRoot === 'string' && ownership.repoRoot.trim() !== ''
+    ? { repoRootResolved: true }
+    : { repoRootResolved: false, reason: 'repo_root_unresolved' };
 }
 
 export async function preflightImport(input: {

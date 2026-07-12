@@ -88,6 +88,18 @@ function getTabGroupDisplayLabel(
   return tabGroup.label.includes('...') && workspaceName ? workspaceName : tabGroup.label;
 }
 
+export function buildVardashWorkspaceRepoHref(
+  workspaceId: string,
+  repo: Pick<RepoWithBranch, "id" | "name" | "display_name">,
+): string {
+  const params = new URLSearchParams({
+    workspaceId,
+    repoId: repo.id,
+    repoName: repo.display_name || repo.name,
+  });
+  return `/dashboard/vardash?${params.toString()}`;
+}
+
 function useVKDashboardData() {
   const [workspaces, setWorkspaces] = useState<DashboardWorkspace[]>([]);
   const [repos, setRepos] = useState<Repo[]>([]);
@@ -379,6 +391,17 @@ function WorkspaceRow({
             {isStoppingDevServer ? "Stopping..." : "Stop server"}
           </button>
         )}
+
+        {ws.repos.map((repo) => (
+          <a
+            key={`vardash-${repo.id}`}
+            href={buildVardashWorkspaceRepoHref(ws.id, repo)}
+            aria-label={`Open Vardash for ${repo.display_name || repo.name}`}
+            className="px-2 py-1 rounded text-xs font-medium bg-violet-500/15 text-violet-300 border border-violet-500/30 hover:bg-violet-500/25 transition-colors"
+          >
+            Vardash {repo.display_name || repo.name}
+          </a>
+        ))}
 
         {tabGroupNav ? (
           <button

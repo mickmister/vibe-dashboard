@@ -338,3 +338,9 @@ Before implementing UI code:
 - Process execution UI remains limited to explicit vardash Launch/Status/Stop.
   Do not add tmux/log inspection or stdout/stderr display without a new scope bead.
 - Route any visual design iteration through UX Pilot output and keep this document as the security/scope source of truth.
+
+## Implementation note: workspace entry point and readiness gating
+
+The first production entry point is `/dashboard/vardash?workspaceId=...&repoId=...&repoName=...`, linked from each repo shown in the dashboard workspace row. The route renders the repo env manager, import flow, process definition manager, and Launch/Status/Stop panel for that workspace+repo only.
+
+UI-facing vardash calls should prefer workspace-scoped API routes so workspace/repo ownership is validated before metadata reads or mutations. Launch readiness is intentionally ineligible when the server cannot safely resolve a repo root for the selected workspace repo; the UI must not show a ready state for launches that would fail due unresolved repo root.

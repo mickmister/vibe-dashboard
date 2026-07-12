@@ -5,11 +5,13 @@ import {
   useSetVardashRepoProcessDefinitionDefault,
   useUpsertVardashRepoProcessDefinition,
   useVardashRepoProcessDefinitions,
+  useVardashWorkspaceRepoProcessDefinitions,
 } from '../../hooks/useVardash';
 import type { VardashProcessDefinitionMetadata } from '../../lib/vardash-client';
 
 export interface VardashProcessDefinitionsPanelProps {
   repoId: string;
+  workspaceId?: string | null;
 }
 
 export interface VardashProcessDefinitionDraft {
@@ -28,8 +30,10 @@ const EMPTY_PROCESS_DRAFT: VardashProcessDefinitionDraft = {
   isDefault: false,
 };
 
-export function VardashProcessDefinitionsPanel({ repoId }: VardashProcessDefinitionsPanelProps) {
-  const processes = useVardashRepoProcessDefinitions(repoId);
+export function VardashProcessDefinitionsPanel({ repoId, workspaceId = null }: VardashProcessDefinitionsPanelProps) {
+  const workspaceProcesses = useVardashWorkspaceRepoProcessDefinitions(workspaceId, repoId);
+  const repoProcesses = useVardashRepoProcessDefinitions(workspaceId ? null : repoId);
+  const processes = workspaceId ? workspaceProcesses : repoProcesses;
   const upsertProcess = useUpsertVardashRepoProcessDefinition();
   const importLegacy = useImportLegacyDevServerProcessDefinition();
   const setDefault = useSetVardashRepoProcessDefinitionDefault();
@@ -53,6 +57,7 @@ export function VardashProcessDefinitionsPanel({ repoId }: VardashProcessDefinit
       onSubmit={async (nextDraft) => {
         await upsertProcess.mutateAsync({
           repoId,
+          workspaceId,
           input: {
             name: nextDraft.name.trim(),
             command: nextDraft.command.trim(),
@@ -63,10 +68,10 @@ export function VardashProcessDefinitionsPanel({ repoId }: VardashProcessDefinit
         setDraft(EMPTY_PROCESS_DRAFT);
       }}
       onSetDefault={(process) => {
-        setDefault.mutate({ repoId, processDefinitionId: process.id });
+        setDefault.mutate({ repoId, workspaceId, processDefinitionId: process.id });
       }}
       onImportLegacy={async (script) => {
-        await importLegacy.mutateAsync({ repoId, devServerScript: script });
+        await importLegacy.mutateAsync({ repoId, workspaceId, devServerScript: script });
         setLegacyScript('');
       }}
     />

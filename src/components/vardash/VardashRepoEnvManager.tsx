@@ -71,6 +71,7 @@ export function VardashRepoEnvManager({ repoId, workspaceId = null, repoLabel }:
           if (!trimmed) return;
           const result = await upsertKey.mutateAsync({
             repoId,
+            workspaceId,
             input: {
               key: trimmed,
               kind: newKind,
@@ -98,6 +99,7 @@ export function VardashRepoEnvManager({ repoId, workspaceId = null, repoLabel }:
           if (draft.replaceSavedValueId) {
             await replaceSavedValue.mutateAsync({
               repoId,
+              workspaceId,
               envKeyId: row.key.id,
               savedValueId: draft.replaceSavedValueId,
               input: { name: trimmedName, value: draft.value },
@@ -105,6 +107,7 @@ export function VardashRepoEnvManager({ repoId, workspaceId = null, repoLabel }:
           } else {
             await createSavedValue.mutateAsync({
               repoId,
+              workspaceId,
               envKeyId: row.key.id,
               input: { name: trimmedName, value: draft.value },
             });
@@ -112,7 +115,7 @@ export function VardashRepoEnvManager({ repoId, workspaceId = null, repoLabel }:
           setSavedValueDraft(null);
         },
       }}
-      onSetRepoDefault={(row, savedValueId) => setRepoDefault.mutate({ repoId, input: { envKeyId: row.key.id, savedValueId } })}
+      onSetRepoDefault={(row, savedValueId) => setRepoDefault.mutate({ repoId, workspaceId, input: { envKeyId: row.key.id, savedValueId } })}
       onSetWorkspaceSelection={workspaceId
         ? (row, savedValueId) => setWorkspaceSelection.mutate({ workspaceId, repoId, input: { envKeyId: row.key.id, savedValueId } })
         : undefined}

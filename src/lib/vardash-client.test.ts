@@ -46,6 +46,7 @@ describe('VardashClient', () => {
           missingRequired: [],
           selectedValues: [],
           varlock: { enabled: false, configured: false, available: null },
+          launch: { repoRootResolved: true },
           selectionSemantics: 'workspace-null-inherits-repo-default',
           normalAgentEnvIncludesVardashSecrets: false,
         });
@@ -110,6 +111,28 @@ describe('VardashClient', () => {
       .resolves.toEqual({ runId: 'run-1', status: 'running' });
     await expect(client.getLaunchStatus('run-1')).resolves.toMatchObject({ runId: 'run-1', status: 'running' });
     await expect(client.stopLaunch('run-1')).resolves.toEqual({ runId: 'run-1', status: 'stopping' });
+  });
+
+  it('uses workspace-scoped metadata routes when workspace id is provided', async () => {
+    const fetchImpl = vi.fn(async (input: string, init?: RequestInit) => {
+      if (input === '/dashboard/api/vardash/workspaces/ws-a/repos/repo-a/env-keys' && init?.method === 'POST') {
+        return jsonResponse({ key: { id: 'key-1', repoId: 'repo-a', kind: 'secret' }, descriptionGuidance: 'Descriptions are metadata. Do not include secret material.' });
+      }
+      if (input === '/dashboard/api/vardash/workspaces/ws-a/repos/repo-a/import' && init?.method === 'POST') {
+        return jsonResponse({ dryRun: true, keys: [], diagnostics: [], conflicts: [] });
+      }
+      if (input === '/dashboard/api/vardash/workspaces/ws-a/repos/repo-a/process-definitions/proc-1/default' && init?.method === 'POST') {
+        return jsonResponse({ process: { id: 'proc-1', repoId: 'repo-a', source: 'manual', isDefault: true } });
+      }
+      return jsonResponse({ error: 'unexpected request' }, 500);
+    });
+    const client = new VardashClient({ fetch: fetchImpl });
+
+    await client.upsertRepoEnvKey('repo-a', { key: 'TOKEN', kind: 'secret' }, 'ws-a');
+    await client.importRepoEnv('repo-a', { content: 'TOKEN=value', source: 'pasted-env', dryRun: true }, 'ws-a');
+    await client.setRepoProcessDefinitionDefault('repo-a', 'proc-1', 'ws-a');
+
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
   });
 
   it('does not expose raw error response bodies to UI callers', async () => {

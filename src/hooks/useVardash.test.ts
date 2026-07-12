@@ -2,7 +2,6 @@ import { QueryClient } from '@tanstack/react-query';
 import { describe, expect, it } from 'vitest';
 
 import {
-  invalidateVardashLaunchReadinessQueries,
   invalidateVardashProcessQueries,
   invalidateVardashRepoEnvQueries,
   invalidateVardashWorkspaceRepoSelectionQueries,
@@ -62,11 +61,18 @@ describe('vardash hook cache invalidation', () => {
     const overviewKey = vardashQueryKeys.repoEnvOverview('repo-a', 'ws-a');
     const otherWorkspaceOverviewKey = vardashQueryKeys.repoEnvOverview('repo-a', 'ws-b');
     const readinessKey = vardashQueryKeys.launchReadiness({ workspaceId: 'ws-a', repoId: 'repo-a' });
+    const processReadinessKey = vardashQueryKeys.launchReadiness({
+      workspaceId: 'ws-a',
+      repoId: 'repo-a',
+      processDefinitionId: 'proc-1',
+      useVarlock: true,
+    });
     const otherWorkspaceReadinessKey = vardashQueryKeys.launchReadiness({ workspaceId: 'ws-b', repoId: 'repo-a' });
 
     queryClient.setQueryData(overviewKey, { rows: [] });
     queryClient.setQueryData(otherWorkspaceOverviewKey, { rows: [] });
     queryClient.setQueryData(readinessKey, { ready: true });
+    queryClient.setQueryData(processReadinessKey, { ready: true });
     queryClient.setQueryData(otherWorkspaceReadinessKey, { ready: true });
 
     invalidateVardashWorkspaceRepoSelectionQueries(queryClient, 'ws-a', 'repo-a');
@@ -74,10 +80,7 @@ describe('vardash hook cache invalidation', () => {
     expect(queryClient.getQueryState(overviewKey)?.isInvalidated).toBe(true);
     expect(queryClient.getQueryState(otherWorkspaceOverviewKey)?.isInvalidated).toBe(false);
     expect(queryClient.getQueryState(readinessKey)?.isInvalidated).toBe(true);
-    expect(queryClient.getQueryState(otherWorkspaceReadinessKey)?.isInvalidated).toBe(false);
-
-    invalidateVardashLaunchReadinessQueries(queryClient, 'repo-a');
-
+    expect(queryClient.getQueryState(processReadinessKey)?.isInvalidated).toBe(true);
     expect(queryClient.getQueryState(otherWorkspaceReadinessKey)?.isInvalidated).toBe(true);
   });
 

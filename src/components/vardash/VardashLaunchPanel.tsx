@@ -106,6 +106,10 @@ export function VardashLaunchView({
             </dl>
           ) : <p className="text-sm text-neutral-400">No process selected.</p>}
 
+          {readiness?.launch?.repoRootResolved === false && (
+            <p className="text-sm text-amber-100">{formatLaunchReadinessReason(readiness.launch.reason)}</p>
+          )}
+
           {readiness?.missingRequired.length ? (
             <div className="space-y-1">
               <p className="text-sm font-medium text-amber-100">Missing required values</p>
@@ -184,6 +188,11 @@ export function formatVardashLaunchError(error: VardashApiError): string {
 function readinessLabel(readiness: VardashLaunchReadinessResponse | null): string {
   if (!readiness) return 'Readiness unknown.';
   return readiness.eligible ? 'Ready to launch.' : 'Not ready to launch.';
+}
+
+function formatLaunchReadinessReason(reason: VardashLaunchReadinessResponse['launch']['reason']): string {
+  if (reason === 'repo_root_unresolved') return 'Repo root could not be safely resolved for this workspace repo.';
+  return 'Launch is not currently available for this workspace repo.';
 }
 
 function isTerminalStatus(status: VardashLaunchStatus): boolean {
