@@ -56,8 +56,34 @@ function pathSegment(value: string): string {
 }
 
 describe('vardash API boundary', () => {
+
+  it('does not expose repo-only vardash routes unless explicitly enabled', async () => {
+    const { app, store } = await createApi();
+    const key = await store.upsertRepoEnvKey({ repoId: 'repo-a', key: 'TOKEN', kind: 'plain' });
+    await store.createSavedValue({ repoId: 'repo-a', envKeyId: key.id, name: 'local', value: 'plain-value' });
+
+    const readKeys = await app.request('/dashboard/api/vardash/repos/repo-a/env-keys');
+    const writeKey = await postJson(app, '/dashboard/api/vardash/repos/repo-a/env-keys', { key: 'NEW_KEY', kind: 'secret' });
+    const listValues = await app.request(`/dashboard/api/vardash/repos/repo-a/env-keys/${key.id}/saved-values`);
+    const importEnv = await postJson(app, '/dashboard/api/vardash/repos/repo-a/import', {
+      source: 'pasted-env',
+      content: 'NEW_IMPORT=value',
+      dryRun: false,
+    });
+    const process = await postJson(app, '/dashboard/api/vardash/repos/repo-a/process-definitions', {
+      name: 'Dev server',
+      command: 'npm run dev',
+    });
+
+    for (const response of [readKeys, writeKey, listValues, importEnv, process]) {
+      expect(response.status).toBe(404);
+    }
+    expect((await store.listRepoEnvKeys('repo-a')).map((entry) => entry.key)).toEqual(['TOKEN']);
+    expect(await store.listRepoProcessDefinitions('repo-a')).toEqual([]);
+  });
+
   it('lists and writes secret values as metadata-only while plain values remain recallable', async () => {
-    const { app } = await createApi();
+    const { app } = await createApi({ exposeRepoOnlyRoutes: true });
     const secretKeyResponse = await postJson(app, '/dashboard/api/vardash/repos/repo-a/env-keys', {
       key: 'API_TOKEN',
       kind: 'secret',
@@ -97,7 +123,7 @@ describe('vardash API boundary', () => {
   });
 
   it('replace responses never expose secret plaintext and no reveal endpoint exists', async () => {
-    const { app } = await createApi();
+    const { app } = await createApi({ exposeRepoOnlyRoutes: true });
     const key = await postJson(app, '/dashboard/api/vardash/repos/repo-a/env-keys', {
       key: 'API_TOKEN',
       kind: 'secret',
@@ -125,7 +151,7 @@ describe('vardash API boundary', () => {
   });
 
   it('does not expose resolved secret env through the metadata API boundary', async () => {
-    const { app } = await createApi();
+    const { app } = await createApi({ exposeRepoOnlyRoutes: true });
     const key = await postJson(app, '/dashboard/api/vardash/repos/repo-a/env-keys', {
       key: 'API_TOKEN',
       kind: 'secret',
@@ -146,7 +172,7 @@ describe('vardash API boundary', () => {
   });
 
   it('preflights import conflicts and avoids partial mutation for duplicate keys', async () => {
-    const { app, store } = await createApi();
+    const { app, store } = await createApi({ exposeRepoOnlyRoutes: true });
 
     const duplicate = await postJson(app, '/dashboard/api/vardash/repos/repo-a/import', {
       source: 'pasted-env',
@@ -161,7 +187,7 @@ describe('vardash API boundary', () => {
   });
 
   it('preflights existing saved-value-name conflicts before applying import', async () => {
-    const { app, store } = await createApi();
+    const { app, store } = await createApi({ exposeRepoOnlyRoutes: true });
     const first = await postJson(app, '/dashboard/api/vardash/repos/repo-a/import', {
       source: 'pasted-env',
       content: 'API_TOKEN=one\nPORT=3000\n',
@@ -184,7 +210,7 @@ describe('vardash API boundary', () => {
   });
 
   it('preflights secret-to-plain import conflicts before creating earlier keys', async () => {
-    const { app, store } = await createApi();
+    const { app, store } = await createApi({ exposeRepoOnlyRoutes: true });
     const tokenKey = await store.upsertRepoEnvKey({ repoId: 'repo-a', key: 'TOKEN', kind: 'secret' });
     await store.createSavedValue({
       repoId: 'repo-a',
@@ -208,7 +234,7 @@ describe('vardash API boundary', () => {
   });
 
   it('preflights sample-template secret-to-plain conflicts before creating earlier keys', async () => {
-    const { app, store } = await createApi();
+    const { app, store } = await createApi({ exposeRepoOnlyRoutes: true });
     const tokenKey = await store.upsertRepoEnvKey({ repoId: 'repo-a', key: 'TOKEN', kind: 'secret' });
     await store.createSavedValue({
       repoId: 'repo-a',
@@ -231,7 +257,7 @@ describe('vardash API boundary', () => {
   });
 
   it('does not echo malformed pasted secret material in import diagnostics', async () => {
-    const { app } = await createApi();
+    const { app } = await createApi({ exposeRepoOnlyRoutes: true });
     const pastedSecret = 'sk-live-this-should-not-echo';
 
     const response = await postJson(app, '/dashboard/api/vardash/repos/repo-a/import', {
@@ -249,7 +275,7 @@ describe('vardash API boundary', () => {
   });
 
   it('supports dry-run sample import plans without mutating the store', async () => {
-    const { app, store } = await createApi();
+    const { app, store } = await createApi({ exposeRepoOnlyRoutes: true });
 
     const dryRun = await postJson(app, '/dashboard/api/vardash/repos/repo-a/import', {
       source: 'sample-template',
@@ -271,7 +297,7 @@ describe('vardash API boundary', () => {
   });
 
   it('exposes repo process definitions and legacy dev_server_script import without launching processes', async () => {
-    const { app } = await createApi();
+    const { app } = await createApi({ exposeRepoOnlyRoutes: true });
 
     const legacy = await postJson(app, '/dashboard/api/vardash/repos/repo-a/process-definitions/import-legacy-dev-server', {
       dev_server_script: ' npm run dev ',
@@ -335,7 +361,7 @@ describe('vardash API boundary', () => {
     });
   });
   it('returns metadata-only repo env overview with defaults and workspace selections', async () => {
-    const { app, store } = await createApi();
+    const { app, store } = await createApi({ exposeRepoOnlyRoutes: true });
     const tokenKey = await store.upsertRepoEnvKey({ repoId: 'repo-a', key: 'API_TOKEN', kind: 'secret', required: true });
     const portKey = await store.upsertRepoEnvKey({ repoId: 'repo-a', key: 'PORT', kind: 'plain', required: true });
     const prodToken = await store.createSavedValue({ repoId: 'repo-a', envKeyId: tokenKey.id, name: 'prod', value: 'super-secret' });

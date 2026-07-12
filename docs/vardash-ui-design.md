@@ -343,4 +343,4 @@ Before implementing UI code:
 
 The first production entry point is `/dashboard/vardash?workspaceId=...&repoId=...&repoName=...`, linked from each repo shown in the dashboard workspace row. The route renders the repo env manager, import flow, process definition manager, and Launch/Status/Stop panel for that workspace+repo only.
 
-UI-facing vardash calls should prefer workspace-scoped API routes so workspace/repo ownership is validated before metadata reads or mutations. Launch readiness is intentionally ineligible when the server cannot safely resolve a repo root for the selected workspace repo; the UI must not show a ready state for launches that would fail due unresolved repo root.
+UI-facing vardash calls must use workspace-scoped API routes so workspace/repo ownership is validated before metadata reads or mutations. Repo-only vardash routes are disabled by default and require an explicit server opt-in for internal/admin use. Launch readiness is intentionally ineligible when the server cannot safely resolve a repo root for the selected workspace repo; the UI must not show a ready state for launches that would fail due unresolved repo root.

@@ -25,6 +25,7 @@ export interface VardashWorkspaceRepoValidationResult {
 
 export interface RegisterVardashRoutesOptions {
   store?: VardashStore;
+  exposeRepoOnlyRoutes?: boolean;
   dbPath?: string;
   privateDir?: string;
   validateWorkspaceRepo?: (input: VardashWorkspaceRepoValidationInput) => Promise<void | VardashWorkspaceRepoValidationResult>;
@@ -106,10 +107,8 @@ export function registerVardashRoutes(app: Hono, options: RegisterVardashRoutesO
     return await handleSetRepoDefaultSelection(c, getStore, scoped.repoId);
   });
 
-  // Repo-only vardash endpoints are kept for internal/admin callers and legacy
-  // tests. Production workspace UI should prefer the workspace-scoped routes
-  // above so access validation happens before metadata reads/writes.
-  app.get('/dashboard/api/vardash/repos/:repoId/env-overview', async (c) => {
+  if (options.exposeRepoOnlyRoutes === true) {
+    app.get('/dashboard/api/vardash/repos/:repoId/env-overview', async (c) => {
     const store = await getStore();
     const overview = await store.listRepoEnvOverview({ repoId: c.req.param('repoId') });
     return c.json({ ...overview, descriptionGuidance: VARDASH_DESCRIPTION_GUIDANCE });
@@ -142,6 +141,7 @@ export function registerVardashRoutes(app: Hono, options: RegisterVardashRoutesO
   app.post('/dashboard/api/vardash/repos/:repoId/default-selections', async (c) => {
     return await handleSetRepoDefaultSelection(c, getStore, c.req.param('repoId'));
   });
+  }
 
   app.post('/dashboard/api/vardash/workspaces/:workspaceId/repos/:repoId/selections', async (c) => {
     const scoped = await requireWorkspaceRepoAccess(c, options);
@@ -159,7 +159,8 @@ export function registerVardashRoutes(app: Hono, options: RegisterVardashRoutesO
     return c.json({ ok: true, selectionSemantics: 'workspace-null-inherits-repo-default' });
   });
 
-  app.get('/dashboard/api/vardash/repos/:repoId/process-definitions', async (c) => {
+  if (options.exposeRepoOnlyRoutes === true) {
+    app.get('/dashboard/api/vardash/repos/:repoId/process-definitions', async (c) => {
     const store = await getStore();
     const processes = await store.listRepoProcessDefinitions(c.req.param('repoId'));
     return c.json({ processes });
@@ -176,6 +177,7 @@ export function registerVardashRoutes(app: Hono, options: RegisterVardashRoutesO
   app.post('/dashboard/api/vardash/repos/:repoId/process-definitions/import-legacy-dev-server', async (c) => {
     return await handleImportLegacyDevServerProcessDefinition(c, getStore, c.req.param('repoId'));
   });
+  }
 
   app.post('/dashboard/api/vardash/workspaces/:workspaceId/repos/:repoId/process-definitions', async (c) => {
     const scoped = await requireWorkspaceRepoAccess(c, options);
@@ -312,9 +314,11 @@ export function registerVardashRoutes(app: Hono, options: RegisterVardashRoutesO
     return c.json({ processes });
   });
 
-  app.post('/dashboard/api/vardash/repos/:repoId/import', async (c) => {
-    return await handleImportRepoEnv(c, getStore, c.req.param('repoId'));
-  });
+  if (options.exposeRepoOnlyRoutes === true) {
+    app.post('/dashboard/api/vardash/repos/:repoId/import', async (c) => {
+      return await handleImportRepoEnv(c, getStore, c.req.param('repoId'));
+    });
+  }
 }
 
 
