@@ -32,13 +32,15 @@ describe('@vibe-dashboard/beads-form', () => {
     const compiled = compileBeadsForm(form);
 
     expect(compiled.html).toContain('<fieldset>');
-    expect(compiled.html).toContain(`name="${ALLOW_CODE_FILE_CHANGES_FIELD}" type="checkbox" value="true" checked`);
+    expect(compiled.html).toContain(`name="${ALLOW_CODE_FILE_CHANGES_FIELD}" type="submit" value="true"`);
+    expect(compiled.html).toContain(`name="${ALLOW_CODE_FILE_CHANGES_FIELD}" type="submit" value="false"`);
+    expect(compiled.html).not.toContain(`name="${ALLOW_CODE_FILE_CHANGES_FIELD}" type="checkbox"`);
     expect(compiled.html).toContain('name="entry_point" type="checkbox" value="forms_tab"');
     expect(compiled.html).not.toContain('type="checkbox" value="forms_tab" required');
     expect(compiled.html).toContain('name="entry_point_forms_tab_more_info"');
     expect(compiled.html).toContain('name="entry_point_more_info"');
     expect(compiled.controls).toEqual([
-      { id: ALLOW_CODE_FILE_CHANGES_FIELD, name: ALLOW_CODE_FILE_CHANGES_FIELD, type: 'checkbox' },
+      { id: ALLOW_CODE_FILE_CHANGES_FIELD, name: ALLOW_CODE_FILE_CHANGES_FIELD, type: 'submit' },
       { id: 'entry_point_forms_tab', name: 'entry_point', type: 'checkbox', required: true, multiple: true },
       { id: 'entry_point_forms_tab_more_info', name: 'entry_point_forms_tab_more_info', type: 'textarea' },
       { id: 'entry_point_direct_route', name: 'entry_point', type: 'checkbox', required: true, multiple: true },
@@ -47,7 +49,7 @@ describe('@vibe-dashboard/beads-form', () => {
     ]);
   });
 
-  it('allows hiding or customizing the code/file-change permission control', () => {
+  it('allows hiding or customizing the code/file-change submit actions', () => {
     const hidden = compileBeadsForm(defineBeadsForm({
       id: 'hidden_permission',
       title: 'Hidden permission',
@@ -67,9 +69,9 @@ describe('@vibe-dashboard/beads-form', () => {
       id: 'custom_permission',
       title: 'Custom permission',
       allowCodeFileChanges: {
-        label: 'May edit files?',
-        description: 'Only check this if implementation should proceed.',
-        defaultChecked: false,
+        allowLabel: 'Submit with edits allowed',
+        avoidLabel: 'Submit read-only',
+        description: 'Choose whether implementation should proceed.',
       },
       questions: [
         buildTextareaQuestion({
@@ -79,10 +81,11 @@ describe('@vibe-dashboard/beads-form', () => {
         }),
       ],
     }));
-    expect(customized.html).toContain('May edit files?');
-    expect(customized.html).toContain('Only check this if implementation should proceed.');
-    expect(customized.html).toContain(`name="${ALLOW_CODE_FILE_CHANGES_FIELD}" type="checkbox" value="true"`);
-    expect(customized.html).not.toContain(`name="${ALLOW_CODE_FILE_CHANGES_FIELD}" type="checkbox" value="true" checked`);
+    expect(customized.html).toContain('Submit with edits allowed');
+    expect(customized.html).toContain('Submit read-only');
+    expect(customized.html).toContain('Choose whether implementation should proceed.');
+    expect(customized.html).toContain(`name="${ALLOW_CODE_FILE_CHANGES_FIELD}" type="submit" value="true"`);
+    expect(customized.html).toContain(`name="${ALLOW_CODE_FILE_CHANGES_FIELD}" type="submit" value="false"`);
   });
 
   it('compiles media galleries without adding submission controls', () => {

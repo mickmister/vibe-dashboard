@@ -42,9 +42,9 @@ const form = defineBeadsForm({
   description: 'Questions to unblock the implementation plan.',
   // Optional. Shown and checked by default if omitted.
   allowCodeFileChanges: {
-    label: 'Allow code/file changes?',
-    description: 'Uncheck this if agents should only discuss and inspect code without editing files.',
-    defaultChecked: true,
+    allowLabel: 'Submit and allow code/file changes',
+    avoidLabel: 'Submit and avoid code/file changes',
+    description: 'Choose whether agents may edit code/files after receiving this response.',
   },
   content: [
     buildMediaGallery({
@@ -83,7 +83,7 @@ const metadataPatch = buildBeadsFormMetadata([form]);
 - Every question needs a `title` and a context-rich `description`.
 - Choice questions default to checkboxes so humans can select more than one answer.
 - Per-choice textareas and per-question textareas are included by default.
-- Standard forms include an `allow_code_file_changes` checkbox by default. If the normalized response has this field as `false`, do not edit code or files.
+- Standard forms include two submit actions by default: one that sets `allow_code_file_changes` to `true`, and one that sets it to `false`. If the normalized response has this field as `false`, do not edit code or files.
 - Use `content: [buildMediaGallery(...)]` for local screenshot/video review blocks. Prefer folder-relative refs like `attachments/candidate-a.png` or attachment-style refs like `attachment://candidate-b.webm`.
 - Use stable lowercase ids with letters, numbers, `_`, or `-`; start ids with a letter.
 - Choice ids become submitted values.

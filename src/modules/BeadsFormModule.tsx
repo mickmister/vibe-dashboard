@@ -131,6 +131,23 @@ function previewFormUrl(args: { folder: string; formId?: string }): string {
 
 type MaybeNestedPromise<T> = Promise<T> | Promise<Promise<T>>;
 
+function normalizeSubmittedFormEvent(
+  event: React.FormEvent<HTMLDivElement>,
+  target: HTMLFormElement,
+  form: BeadsFormDefinition,
+): JsonObject {
+  const values = normalizeFormData(new FormData(target));
+  const submitter = (event.nativeEvent as SubmitEvent).submitter;
+  if (
+    submitter instanceof HTMLElement
+    && (submitter instanceof HTMLButtonElement || submitter instanceof HTMLInputElement)
+    && submitter.name
+  ) {
+    values[submitter.name] = submitter.value;
+  }
+  return normalizeSubmittedValues(form, values);
+}
+
 function BeadsFormPreviewRoute({ actions }: { actions: {
   loadPreviewForms: (input: LoadPreviewFormsInput) => MaybeNestedPromise<LoadPreviewFormsResult>;
   submitPreviewForm: (input: SubmitPreviewFormInput) => MaybeNestedPromise<SubmitPreviewFormResult>;
@@ -180,7 +197,7 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
     if (submitInFlightRef.current) return;
     if (!target.reportValidity()) return;
 
-    const values = normalizeSubmittedValues(loaded.selectedForm, normalizeFormData(new FormData(target)));
+    const values = normalizeSubmittedFormEvent(event, target, loaded.selectedForm);
     submitInFlightRef.current = true;
     setSubmitting(true);
     setError(null);
@@ -324,7 +341,7 @@ function BeadsFormRoute({ actions }: { actions: {
     if (submitInFlightRef.current) return;
     if (!target.reportValidity()) return;
 
-    const values = normalizeSubmittedValues(loaded.selected.selectedForm, normalizeFormData(new FormData(target)));
+    const values = normalizeSubmittedFormEvent(event, target, loaded.selected.selectedForm);
     submitInFlightRef.current = true;
     setSubmitting(true);
     setError(null);

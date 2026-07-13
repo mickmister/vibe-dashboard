@@ -83,11 +83,14 @@ describe('BeadsForm core', () => {
       id: 'permission',
       title: 'Permission',
       html: '<form></form>',
-      controls: [{ id: ALLOW_CODE_FILE_CHANGES_FIELD, name: ALLOW_CODE_FILE_CHANGES_FIELD, type: 'checkbox' as const }],
+      controls: [{ id: ALLOW_CODE_FILE_CHANGES_FIELD, name: ALLOW_CODE_FILE_CHANGES_FIELD, type: 'submit' as const }],
     };
 
     expect(normalizeSubmittedValues(form, { [ALLOW_CODE_FILE_CHANGES_FIELD]: 'true' })).toEqual({
       [ALLOW_CODE_FILE_CHANGES_FIELD]: true,
+    });
+    expect(normalizeSubmittedValues(form, { [ALLOW_CODE_FILE_CHANGES_FIELD]: 'false' })).toEqual({
+      [ALLOW_CODE_FILE_CHANGES_FIELD]: false,
     });
     expect(normalizeSubmittedValues(form, {})).toEqual({
       [ALLOW_CODE_FILE_CHANGES_FIELD]: false,

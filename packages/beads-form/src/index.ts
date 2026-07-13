@@ -11,6 +11,7 @@ export type BeadsFormControlType =
   | 'range'
   | 'search'
   | 'select'
+  | 'submit'
   | 'tel'
   | 'text'
   | 'textarea'
@@ -84,10 +85,12 @@ export type StandardBeadsForm = {
   description?: string;
   version?: number;
   /**
-   * Code/file-change permission control. Defaults to shown and checked.
-   * Set to false to hide it, or pass text overrides to customize display.
+   * Code/file-change permission submit actions. Defaults to shown.
+   * Set to false to hide them, or pass text overrides to customize display.
    */
   allowCodeFileChanges?: false | {
+    allowLabel?: string;
+    avoidLabel?: string;
     label?: string;
     description?: string;
     defaultChecked?: boolean;
@@ -167,7 +170,7 @@ export function compileBeadsForm(form: StandardBeadsForm): CompiledBeadsForm {
   assertIdentifier(form.id, 'form.id');
   const controls: BeadsFormControl[] = [];
   const description = form.description ? `<p>${escapeHtml(form.description)}</p>` : '';
-  const permissionControl = compileAllowCodeFileChangesControl(form.allowCodeFileChanges, controls);
+  const submitActions = compileSubmitActions(form.allowCodeFileChanges, controls);
   const contentBlocks = (form.content ?? []).map(compileContentBlock);
   const sections = form.questions.map((question) => compileQuestion(question, controls));
   const html = [
@@ -176,10 +179,9 @@ export function compileBeadsForm(form: StandardBeadsForm): CompiledBeadsForm {
     `<h2>${escapeHtml(form.title)}</h2>`,
     description,
     '</header>',
-    permissionControl,
     ...contentBlocks,
     ...sections,
-    '<button type="submit">Submit</button>',
+    submitActions,
     '</form>',
   ].join('');
 
@@ -194,27 +196,27 @@ export function buildBeadsFormMetadata(forms: StandardBeadsForm[]): BeadsFormMet
   };
 }
 
-function compileAllowCodeFileChangesControl(
+function compileSubmitActions(
   config: StandardBeadsForm['allowCodeFileChanges'],
   controls: BeadsFormControl[],
 ): string {
-  if (config === false) return '';
-  const label = config?.label ?? 'Allow code/file changes';
+  if (config === false) return '<button type="submit">Submit</button>';
+  const allowLabel = config?.allowLabel ?? config?.label ?? 'Submit and allow code/file changes';
+  const avoidLabel = config?.avoidLabel ?? 'Submit and avoid code/file changes';
   const description = config?.description
-    ?? 'When unchecked, agents should keep code/file operations read-only. Discussion, analysis, and non-code metadata operations may continue.';
-  const checked = config?.defaultChecked ?? true;
+    ?? 'Choose whether agents may edit code/files after receiving this response.';
   controls.push({
     id: ALLOW_CODE_FILE_CHANGES_FIELD,
     name: ALLOW_CODE_FILE_CHANGES_FIELD,
-    type: 'checkbox',
+    type: 'submit',
   });
 
   return [
-    '<fieldset class="beads-form-permission">',
-    `<legend>${escapeHtml(label)}</legend>`,
+    '<div class="beads-form-submit-actions" role="group" aria-label="Submit intent">',
     `<p>${escapeHtml(description)}</p>`,
-    `<label for="${ALLOW_CODE_FILE_CHANGES_FIELD}"><input id="${ALLOW_CODE_FILE_CHANGES_FIELD}" name="${ALLOW_CODE_FILE_CHANGES_FIELD}" type="checkbox" value="true"${checked ? ' checked' : ''}> ${escapeHtml(label)}</label>`,
-    '</fieldset>',
+    `<button id="${ALLOW_CODE_FILE_CHANGES_FIELD}_true" name="${ALLOW_CODE_FILE_CHANGES_FIELD}" type="submit" value="true">${escapeHtml(allowLabel)}</button>`,
+    `<button id="${ALLOW_CODE_FILE_CHANGES_FIELD}_false" name="${ALLOW_CODE_FILE_CHANGES_FIELD}" type="submit" value="false">${escapeHtml(avoidLabel)}</button>`,
+    '</div>',
   ].join('');
 }
 
