@@ -125,6 +125,15 @@ Use folder mode for low-friction testing before attaching forms to beads.
    https://jamtools.dev/dashboard/forms/preview?folder=<urlencoded absolute folder path>
    ```
 
+   In this repo, the easiest local way to run the folder preview is:
+
+   ```sh
+   npm run dev:beads-form-preview -- --folder /tmp/beads-form-preview
+   ```
+
+   The command validates the folder, starts the existing Springboard/Vite dev server, and prints the exact preview URL with the folder path encoded.
+   To force a port, set `BEADS_FORM_PREVIEW_PORT=<port>`.
+
 4. The preview page lists all `.json` forms in the folder. Submitting a form copies normalized JSON only to the clipboard and displays it on screen. It does not update beads.
 
 5. The orchestrating agent should paste/read that JSON exactly. If `allow_code_file_changes` is `false`, keep code/file operations read-only.
