@@ -3,6 +3,7 @@ import {
   ALLOW_CODE_FILE_CHANGES_FIELD,
   compileBeadsForm,
   type BeadsFormControl,
+  type ChoicesQuestion,
   type StandardBeadsForm,
 } from '@vibe-dashboard/beads-form';
 
@@ -28,6 +29,7 @@ export type BeadsFormDefinition = {
   sourceMessages?: Array<{ source?: string; submittedAt?: string; text: string }>;
   format?: 'standard';
   questions?: StandardBeadsForm['questions'];
+  content?: StandardBeadsForm['content'];
 };
 
 export type BeadLike = {
@@ -149,10 +151,21 @@ export function normalizeFormData(formData: FormData): JsonObject {
 }
 
 export function normalizeSubmittedValues(
-  form: Pick<BeadsFormDefinition, 'controls'>,
+  form: Pick<BeadsFormDefinition, 'controls' | 'questions'>,
   values: JsonObject,
 ): JsonObject {
-  const next: JsonObject = { ...values };
+  const next: JsonObject = {};
+  for (const [key, value] of Object.entries(values)) {
+    if (value === '') continue;
+    if (Array.isArray(value) && value.length === 0) continue;
+    next[key] = value;
+  }
+
+  for (const question of form.questions ?? []) {
+    if (question.type !== 'choices') continue;
+    next[question.id] = normalizeChoiceQuestionValue(question, next[question.id]);
+  }
+
   if (form.controls?.some((control) => control.name === ALLOW_CODE_FILE_CHANGES_FIELD)) {
     const value = next[ALLOW_CODE_FILE_CHANGES_FIELD];
     next[ALLOW_CODE_FILE_CHANGES_FIELD] = value === true
@@ -161,6 +174,23 @@ export function normalizeSubmittedValues(
       || (Array.isArray(value) && value.some((item) => item === true || item === 'true' || item === 'on'));
   }
   return next;
+}
+
+function normalizeChoiceQuestionValue(question: ChoicesQuestion, value: unknown): Record<string, boolean> {
+  const selectedValues = new Set<string>();
+  if (Array.isArray(value)) {
+    for (const item of value) selectedValues.add(String(item));
+  } else if (isObject(value)) {
+    for (const [key, selected] of Object.entries(value)) {
+      if (selected === true) selectedValues.add(key);
+    }
+  } else if (value !== undefined && value !== '') {
+    selectedValues.add(String(value));
+  }
+
+  return Object.fromEntries(
+    question.choices.map((choice) => [choice.id, selectedValues.has(choice.id)]),
+  );
 }
 
 const ALLOWED_TAGS = [
@@ -275,11 +305,21 @@ export function validateSubmittedValues(form: BeadsFormDefinition, values: JsonO
   }
 
   for (const [name, namedControls] of controlsByName) {
-    if (!namedControls.some((control) => control.required)) continue;
+    const requiredControls = namedControls.filter((control) => control.required);
+    if (requiredControls.length === 0) continue;
     const value = values[name];
-    if (value === undefined || value === '' || (Array.isArray(value) && value.length === 0)) {
+    if (!hasSubmittedValue(value, requiredControls)) {
       errors.push(`Required field "${name}" is missing`);
     }
   }
   return errors;
+}
+
+function hasSubmittedValue(value: unknown, controls: BeadsFormControl[]): boolean {
+  if (value === undefined || value === '') return false;
+  if (Array.isArray(value)) return value.length > 0;
+  if (isObject(value) && controls.some((control) => control.type === 'checkbox' || control.type === 'radio')) {
+    return Object.values(value).some((selected) => selected === true);
+  }
+  return true;
 }

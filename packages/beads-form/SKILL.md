@@ -89,6 +89,9 @@ const metadataPatch = buildBeadsFormMetadata([form]);
 - Choice ids become submitted values.
 - Question ids become submitted field names.
 - The renderer generates accessible HTML and the validation `controls[]` manifest.
+- Standard choice questions normalize as per-option booleans, for example
+  `"preview_flow_result": { "loaded_successfully": true, "json_copy_worked": false }`.
+- Empty optional text fields, including empty `*_more_info` fields, are omitted from copied JSON.
 
 ## Folder preview workflow
 

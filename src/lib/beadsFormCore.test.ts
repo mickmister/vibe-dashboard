@@ -97,6 +97,69 @@ describe('BeadsForm core', () => {
     });
   });
 
+  it('normalizes standard choice groups to explicit per-option booleans and omits empty notes', () => {
+    const form = {
+      id: 'preview',
+      title: 'Preview',
+      html: '<form></form>',
+      controls: [
+        { id: ALLOW_CODE_FILE_CHANGES_FIELD, name: ALLOW_CODE_FILE_CHANGES_FIELD, type: 'submit' as const },
+        { id: 'preview_loaded_successfully', name: 'preview_flow_result', type: 'checkbox' as const },
+        { id: 'preview_form_rendered_correctly', name: 'preview_flow_result', type: 'checkbox' as const },
+        { id: 'preview_json_copy_worked', name: 'preview_flow_result', type: 'checkbox' as const },
+        { id: 'preview_needs_ux_changes', name: 'preview_flow_result', type: 'checkbox' as const },
+        { id: 'preview_flow_result_loaded_successfully_more_info', name: 'preview_flow_result_loaded_successfully_more_info', type: 'textarea' as const },
+        { id: 'preview_flow_result_needs_ux_changes_more_info', name: 'preview_flow_result_needs_ux_changes_more_info', type: 'textarea' as const },
+        { id: 'preview_flow_result_more_info', name: 'preview_flow_result_more_info', type: 'textarea' as const },
+      ],
+      questions: [{
+        type: 'choices' as const,
+        id: 'preview_flow_result',
+        title: 'Preview flow result',
+        description: 'Select every matching result.',
+        choices: [
+          { id: 'loaded_successfully', label: 'Loaded successfully' },
+          { id: 'form_rendered_correctly', label: 'Form rendered correctly' },
+          { id: 'json_copy_worked', label: 'JSON copy worked' },
+          { id: 'needs_ux_changes', label: 'Needs UX changes' },
+        ],
+      }],
+    };
+
+    expect(normalizeSubmittedValues(form, {
+      [ALLOW_CODE_FILE_CHANGES_FIELD]: 'false',
+      preview_flow_result: ['loaded_successfully', 'form_rendered_correctly', 'needs_ux_changes'],
+      preview_flow_result_loaded_successfully_more_info: '',
+      preview_flow_result_needs_ux_changes_more_info: 'Buttons are clearer now.',
+      preview_flow_result_more_info: '',
+    })).toEqual({
+      [ALLOW_CODE_FILE_CHANGES_FIELD]: false,
+      preview_flow_result: {
+        loaded_successfully: true,
+        form_rendered_correctly: true,
+        json_copy_worked: false,
+        needs_ux_changes: true,
+      },
+      preview_flow_result_needs_ux_changes_more_info: 'Buttons are clearer now.',
+    });
+  });
+
+  it('keeps raw checkbox groups as arrays when no standard questions are available', () => {
+    const form = {
+      id: 'raw',
+      title: 'Raw',
+      html: '<form></form>',
+      controls: [
+        { id: 'a', name: 'raw_choices', type: 'checkbox' as const },
+        { id: 'b', name: 'raw_choices', type: 'checkbox' as const },
+      ],
+    };
+
+    expect(normalizeSubmittedValues(form, { raw_choices: ['a'], raw_notes: '' })).toEqual({
+      raw_choices: ['a'],
+    });
+  });
+
   it('strips dangerous html while preserving forms', () => {
     const html = sanitizeBeadsFormHtml('<form><script>alert(1)</script><img src="x"><input onclick="bad()"><a href="javascript:bad()">bad</a></form>');
 
@@ -179,6 +242,13 @@ describe('BeadsForm core', () => {
       security: ['strict', 'links'],
       route_shape: 'dashboard_forms_query',
     })).toEqual([]);
+
+    expect(validateSubmittedValues(form, {
+      security: { strict: false, links: false },
+      route_shape: { route_query: true, route_scoped: false },
+    })).toEqual([
+      'Required field "security" is missing',
+    ]);
 
     expect(validateSubmittedValues(form, {
       security_strict: 'strict',
