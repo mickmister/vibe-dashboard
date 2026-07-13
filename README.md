@@ -59,6 +59,26 @@ Caddy forwards `port-<port>.*` subdomains to `localhost:<port>` inside the conta
 | `TAILSCALE_HOSTNAME` | `vkdev` | Tailscale node hostname. |
 | `VK_ALLOWED_ORIGINS` | empty | Optional backend CORS allowlist. |
 
+#### Optional Vibe Kanban performance tracing / SigNoz
+
+Tracing is disabled by default. To export Vibe Kanban performance spans from
+the container to SigNoz, set `VK_PERF_TRACING=1` and an OTLP endpoint in your
+`.env` before running `docker compose up`:
+
+```bash
+VK_PERF_TRACING=1
+OTEL_EXPORTER_OTLP_ENDPOINT=https://ingest.<region>.signoz.cloud:443
+OTEL_EXPORTER_OTLP_HEADERS=signoz-ingestion-key=<your-ingestion-key>
+OTEL_SERVICE_NAME=vibe-kanban-backend
+OTEL_RESOURCE_ATTRIBUTES=service.version=local-compose
+```
+
+Use `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` if traces should use a different
+endpoint from other OTLP signals. `OTEL_EXPORTER_OTLP_HEADERS` is needed for
+SigNoz Cloud auth, but is usually unnecessary for a local collector.
+`VK_WS_POLL_TRACING=1` enables extra noisy WebSocket poll tracing and is not
+normally needed.
+
 #### Optional noVNC/Chromium sidecar
 
 The browser sidecar is opt-in. Start it alongside the plugin with:
