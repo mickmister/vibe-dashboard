@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { ExternalJiraBoardContent, ExternalJiraBoardRoute, ExternalJiraCard, ExternalJiraIssueDetailDrawerContent, ExternalJiraIssueDetailSheet } from './ExternalJiraBoardView';
+import { DrawerBody } from '@heroui/drawer';
+import { ExternalJiraBoardContent, ExternalJiraBoardRoute, ExternalJiraCard, ExternalJiraIssueDetailBodyContent, ExternalJiraIssueDetailDrawerContent, ExternalJiraIssueDetailSheet } from './ExternalJiraBoardView';
 import type { ExternalJiraBoardViewDto, ExternalKanbanCardDto } from '../lib/externalTrackerBoardApi';
 
 const baseBoardView: ExternalJiraBoardViewDto = {
@@ -236,27 +237,14 @@ describe('ExternalJiraBoardContent', () => {
       relatedWorkspaces: [{ workspaceId: 'ws-1', workspaceDir: '/repo/a', displayName: 'Workspace A', isPrimary: true }],
       relatedBeads: [{ id: 'vkvw-1', title: 'Linked task', status: 'closed', externalIssue: { provider: 'jira', key: 'VD-1', url: 'https://team.atlassian.net/browse/VD-1', site: 'team.atlassian.net' } }],
     } satisfies ExternalKanbanCardDto;
-    const html = renderToStaticMarkup(React.createElement(ExternalJiraIssueDetailDrawerContent, {
+    const html = renderToStaticMarkup(React.createElement(ExternalJiraIssueDetailBodyContent, {
       boardView: {
         ...baseBoardView,
         cards: [selectedCard],
       },
-      canGoNext: false,
-      canGoPrevious: false,
       card: selectedCard,
-      cardIndex: 0,
-      onClose: () => undefined,
-      onNext: () => undefined,
-      onPrevious: () => undefined,
-      totalCards: 1,
     }));
 
-    expect(html).toContain('Previous issue');
-    expect(html).toContain('flex h-full min-h-0 flex-col');
-    expect(html).toContain('min-h-0 flex-1 overflow-y-auto');
-    expect(html).toContain('Next issue');
-    expect(html).toContain('Close');
-    expect(html).toContain('1 / 1');
     expect(html).toContain('Related workspaces');
     expect(html).toContain('Workspace A');
     expect(html).toContain('Related tasks');
@@ -295,6 +283,27 @@ describe('ExternalJiraBoardContent', () => {
     expect(element.props.classNames.base).toContain('sm:max-w-xl');
   });
 
+  it('uses HeroUI DrawerBody for scrollable long issue detail content', () => {
+    const card = baseBoardView.cards[0];
+    if (!card) throw new Error('expected fixture card');
+    const element = ExternalJiraIssueDetailDrawerContent({
+      boardView: baseBoardView,
+      canGoNext: false,
+      canGoPrevious: false,
+      card,
+      cardIndex: 0,
+      onClose: () => undefined,
+      onNext: () => undefined,
+      onPrevious: () => undefined,
+      totalCards: 1,
+    }) as React.ReactElement<{ className: string; children: React.ReactNode }>;
+    const children = React.Children.toArray(element.props.children) as React.ReactElement<{ className?: string }>[];
+    const drawerBody = children.find((child) => child.type === DrawerBody);
+
+    expect(element.props.className).toContain('flex h-full min-h-0 flex-col');
+    expect(drawerBody?.props.className).toContain('min-h-0 flex-1 overflow-y-auto');
+  });
+
   it('renders issue detail sheet paging controls at board boundaries', () => {
     const firstCard = baseBoardView.cards[0];
     if (!firstCard) throw new Error('expected fixture card');
@@ -306,22 +315,28 @@ describe('ExternalJiraBoardContent', () => {
       url: 'https://team.atlassian.net/browse/VD-2',
       rank: 1,
     };
-    const html = renderToStaticMarkup(React.createElement(ExternalJiraIssueDetailDrawerContent, {
+    const shell = ExternalJiraIssueDetailDrawerContent({
       boardView: { ...baseBoardView, cards: [firstCard, secondCard], pagination: { pageCount: 1, issueCount: 2, maxResults: 50 } },
+      card: secondCard,
       canGoNext: false,
       canGoPrevious: true,
-      card: secondCard,
       cardIndex: 1,
       onClose: () => undefined,
       onNext: () => undefined,
       onPrevious: () => undefined,
       totalCards: 2,
+    }) as React.ReactElement<{ children: React.ReactNode }>;
+    const header = React.Children.toArray(shell.props.children)[0] as React.ReactElement;
+    const headerHtml = renderToStaticMarkup(header);
+    const bodyHtml = renderToStaticMarkup(React.createElement(ExternalJiraIssueDetailBodyContent, {
+      boardView: { ...baseBoardView, cards: [firstCard, secondCard], pagination: { pageCount: 1, issueCount: 2, maxResults: 50 } },
+      card: secondCard,
     }));
 
-    expect(html).toContain('2 / 2');
-    expect(html).toContain('Second issue');
-    expect(html).toContain('aria-label="Previous issue"');
-    expect(html).toContain('aria-label="Next issue"');
+    expect(headerHtml).toContain('2 / 2');
+    expect(headerHtml).toContain('aria-label="Previous issue"');
+    expect(headerHtml).toContain('aria-label="Next issue"');
+    expect(bodyHtml).toContain('Second issue');
   });
 });
 

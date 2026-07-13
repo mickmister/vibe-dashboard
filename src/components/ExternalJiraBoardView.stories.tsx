@@ -1,6 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import React from 'react';
-import { HeroUIProvider } from '@heroui/react';
 import { ExternalJiraBoardContent, ExternalTrackerMessage } from './ExternalJiraBoardView';
 import type { ExternalJiraBoardViewDto, ExternalKanbanCardDto } from '../lib/externalTrackerBoardApi';
 
@@ -122,14 +121,12 @@ function board(overrides: Partial<ExternalJiraBoardViewDto>): ExternalJiraBoardV
 
 function StoryFrame({ children }: { children: React.ReactNode }) {
   return (
-    <HeroUIProvider>
-      <div
-        className="h-dvh overflow-y-auto overscroll-contain bg-neutral-950"
-        style={{ WebkitOverflowScrolling: 'touch' }}
-      >
-        {children}
-      </div>
-    </HeroUIProvider>
+    <div
+      className="h-dvh overflow-y-auto overscroll-contain bg-neutral-950"
+      style={{ WebkitOverflowScrolling: 'touch' }}
+    >
+      {children}
+    </div>
   );
 }
 

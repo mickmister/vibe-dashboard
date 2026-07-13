@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Drawer, DrawerContent } from '@heroui/react';
+import { Drawer, DrawerBody, DrawerContent } from '@heroui/drawer';
 import type { DashboardExternalViewParseResult } from '../lib/externalViewUrl';
 import { fetchExternalJiraBoardView } from '../lib/externalTrackerBoardApi';
 import type { ExternalJiraBoardApiResponse, ExternalJiraBoardViewDto, ExternalKanbanCardDto, ExternalKanbanColumnDto } from '../lib/externalTrackerBoardApi';
@@ -423,60 +423,71 @@ export function ExternalJiraIssueDetailDrawerContent({
           <button type="button" className="rounded-md border border-neutral-800 px-2 py-1 text-sm text-neutral-200 hover:bg-neutral-900" onClick={onClose}>Close</button>
         </div>
       </header>
-      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
-        <div className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-300">{boardView.board.name || `Jira board ${boardView.board.id}`}</div>
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <span className="rounded bg-sky-500/10 px-2 py-0.5 text-sm font-semibold text-sky-200">{card.key}</span>
-          {card.statusName ? <span className="rounded bg-neutral-800 px-2 py-0.5 text-xs text-neutral-300">{card.statusName}</span> : null}
-          {card.issueType ? <span className="rounded bg-neutral-800 px-2 py-0.5 text-xs text-neutral-300">{card.issueType}</span> : null}
-          {card.priority ? <span className="rounded bg-neutral-800 px-2 py-0.5 text-xs text-neutral-300">{card.priority}</span> : null}
-        </div>
-        <h2 className="mt-4 text-2xl font-semibold leading-8 text-neutral-50">{card.title}</h2>
-        <dl className="mt-5 grid gap-3 rounded-xl border border-neutral-800 bg-neutral-900/60 p-4 text-sm sm:grid-cols-2">
-          <div><dt className="text-xs uppercase tracking-wide text-neutral-500">Assignee</dt><dd className="mt-1 text-neutral-200">{card.assignee?.displayName ?? 'Unassigned'}</dd></div>
-          <div><dt className="text-xs uppercase tracking-wide text-neutral-500">Workspace</dt><dd className="mt-1 text-neutral-200">{workspaceCount === 0 ? 'None' : workspaceCount === 1 ? 'Existing workspace' : `${workspaceCount} linked workspaces`}</dd></div>
-          <div><dt className="text-xs uppercase tracking-wide text-neutral-500">Tasks</dt><dd className="mt-1 text-neutral-200">{taskSummary.completed}/{taskSummary.total} tasks complete</dd></div>
-          <div><dt className="text-xs uppercase tracking-wide text-neutral-500">Source</dt><dd className="mt-1 text-neutral-200">{boardView.siteHostname}</dd></div>
-        </dl>
-        {card.labels.length ? (
-          <section className="mt-5">
-            <h3 className="text-sm font-semibold text-neutral-200">Labels</h3>
-            <div className="mt-2 flex flex-wrap gap-1">
-              {card.labels.map((label) => <span key={label} className="rounded bg-neutral-800 px-2 py-0.5 text-xs text-neutral-300">{label}</span>)}
-            </div>
-          </section>
-        ) : null}
-        <section className="mt-5 rounded-xl border border-neutral-800 bg-neutral-900/60 p-4">
-          <h3 className="text-sm font-semibold text-neutral-200">Related workspaces</h3>
-          {card.relatedWorkspaces?.length ? (
-            <ul className="mt-3 space-y-2">
-              {card.relatedWorkspaces.map((workspace) => (
-                <li key={workspace.workspaceId} className="rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-100">
-                  <div className="font-medium">{workspace.displayName || workspace.workspaceId}{workspace.isPrimary ? <span className="ml-2 text-xs text-emerald-300">Primary</span> : null}</div>
-                  {workspace.workspaceDir ? <div className="mt-1 truncate text-xs text-emerald-200/70">{workspace.workspaceDir}</div> : null}
-                </li>
-              ))}
-            </ul>
-          ) : <p className="mt-2 text-sm text-neutral-400">No existing workspace is associated with this issue.</p>}
-        </section>
-        <section className="mt-5 rounded-xl border border-neutral-800 bg-neutral-900/60 p-4">
-          <h3 className="text-sm font-semibold text-neutral-200">Related tasks</h3>
-          {card.relatedBeads?.length ? (
-            <ul className="mt-3 space-y-2">
-              {card.relatedBeads.map((bead) => (
-                <li key={bead.id} className="rounded-lg border border-sky-500/20 bg-sky-500/10 px-3 py-2 text-sm text-sky-100">
-                  <div className="font-medium">{bead.id}: {bead.title}</div>
-                  {bead.status ? <div className="mt-1 text-xs text-sky-200/70">Status: {bead.status}</div> : null}
-                </li>
-              ))}
-            </ul>
-          ) : <p className="mt-2 text-sm text-neutral-400">No tasks have been created for this issue yet.</p>}
-        </section>
-        <div className="mt-6">
-          <a className="inline-flex rounded-lg border border-neutral-700 px-3 py-2 text-sm text-neutral-200 hover:bg-neutral-900" href={card.url} rel="noreferrer" target="_blank">Open in Jira</a>
-        </div>
-      </div>
+      <DrawerBody className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
+        <ExternalJiraIssueDetailBodyContent boardView={boardView} card={card} />
+      </DrawerBody>
     </div>
+  );
+}
+
+export function ExternalJiraIssueDetailBodyContent({ boardView, card }: { boardView: ExternalJiraBoardViewDto; card: ExternalKanbanCardDto }) {
+  const workspaceCount = card.relatedWorkspaces?.length ?? 0;
+  const taskSummary = getTaskSummary(card);
+
+  return (
+    <>
+      <div className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-300">{boardView.board.name || `Jira board ${boardView.board.id}`}</div>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <span className="rounded bg-sky-500/10 px-2 py-0.5 text-sm font-semibold text-sky-200">{card.key}</span>
+        {card.statusName ? <span className="rounded bg-neutral-800 px-2 py-0.5 text-xs text-neutral-300">{card.statusName}</span> : null}
+        {card.issueType ? <span className="rounded bg-neutral-800 px-2 py-0.5 text-xs text-neutral-300">{card.issueType}</span> : null}
+        {card.priority ? <span className="rounded bg-neutral-800 px-2 py-0.5 text-xs text-neutral-300">{card.priority}</span> : null}
+      </div>
+      <h2 className="mt-4 text-2xl font-semibold leading-8 text-neutral-50">{card.title}</h2>
+      <dl className="mt-5 grid gap-3 rounded-xl border border-neutral-800 bg-neutral-900/60 p-4 text-sm sm:grid-cols-2">
+        <div><dt className="text-xs uppercase tracking-wide text-neutral-500">Assignee</dt><dd className="mt-1 text-neutral-200">{card.assignee?.displayName ?? 'Unassigned'}</dd></div>
+        <div><dt className="text-xs uppercase tracking-wide text-neutral-500">Workspace</dt><dd className="mt-1 text-neutral-200">{workspaceCount === 0 ? 'None' : workspaceCount === 1 ? 'Existing workspace' : `${workspaceCount} linked workspaces`}</dd></div>
+        <div><dt className="text-xs uppercase tracking-wide text-neutral-500">Tasks</dt><dd className="mt-1 text-neutral-200">{taskSummary.completed}/{taskSummary.total} tasks complete</dd></div>
+        <div><dt className="text-xs uppercase tracking-wide text-neutral-500">Source</dt><dd className="mt-1 text-neutral-200">{boardView.siteHostname}</dd></div>
+      </dl>
+      {card.labels.length ? (
+        <section className="mt-5">
+          <h3 className="text-sm font-semibold text-neutral-200">Labels</h3>
+          <div className="mt-2 flex flex-wrap gap-1">
+            {card.labels.map((label) => <span key={label} className="rounded bg-neutral-800 px-2 py-0.5 text-xs text-neutral-300">{label}</span>)}
+          </div>
+        </section>
+      ) : null}
+      <section className="mt-5 rounded-xl border border-neutral-800 bg-neutral-900/60 p-4">
+        <h3 className="text-sm font-semibold text-neutral-200">Related workspaces</h3>
+        {card.relatedWorkspaces?.length ? (
+          <ul className="mt-3 space-y-2">
+            {card.relatedWorkspaces.map((workspace) => (
+              <li key={workspace.workspaceId} className="rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-100">
+                <div className="font-medium">{workspace.displayName || workspace.workspaceId}{workspace.isPrimary ? <span className="ml-2 text-xs text-emerald-300">Primary</span> : null}</div>
+                {workspace.workspaceDir ? <div className="mt-1 truncate text-xs text-emerald-200/70">{workspace.workspaceDir}</div> : null}
+              </li>
+            ))}
+          </ul>
+        ) : <p className="mt-2 text-sm text-neutral-400">No existing workspace is associated with this issue.</p>}
+      </section>
+      <section className="mt-5 rounded-xl border border-neutral-800 bg-neutral-900/60 p-4">
+        <h3 className="text-sm font-semibold text-neutral-200">Related tasks</h3>
+        {card.relatedBeads?.length ? (
+          <ul className="mt-3 space-y-2">
+            {card.relatedBeads.map((bead) => (
+              <li key={bead.id} className="rounded-lg border border-sky-500/20 bg-sky-500/10 px-3 py-2 text-sm text-sky-100">
+                <div className="font-medium">{bead.id}: {bead.title}</div>
+                {bead.status ? <div className="mt-1 text-xs text-sky-200/70">Status: {bead.status}</div> : null}
+              </li>
+            ))}
+          </ul>
+        ) : <p className="mt-2 text-sm text-neutral-400">No tasks have been created for this issue yet.</p>}
+      </section>
+      <div className="mt-6">
+        <a className="inline-flex rounded-lg border border-neutral-700 px-3 py-2 text-sm text-neutral-200 hover:bg-neutral-900" href={card.url} rel="noreferrer" target="_blank">Open in Jira</a>
+      </div>
+    </>
   );
 }
 
