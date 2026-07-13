@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Hono } from 'hono';
@@ -10,6 +10,7 @@ describe('BeadsForm preview media routes', () => {
     const folder = await mkdtemp(join(tmpdir(), 'beads-form-media-'));
     await mkdir(join(folder, 'shots'));
     await writeFile(join(folder, 'shots', 'candidate.png'), 'png', 'utf8');
+    await writeFile(join(folder, 'notes.txt'), 'not-media', 'utf8');
 
     await expect(resolvePreviewMediaPath(folder, 'shots/candidate.png')).resolves.toMatchObject({
       ok: true,
@@ -37,5 +38,18 @@ describe('BeadsForm preview media routes', () => {
     expect(response.headers.get('content-type')).toBe('image/webp');
     expect(response.headers.get('x-content-type-options')).toBe('nosniff');
     await expect(response.text()).resolves.toBe('webp-bytes');
+  });
+
+  it('rejects symlinks that resolve outside the preview folder', async () => {
+    const folder = await mkdtemp(join(tmpdir(), 'beads-form-media-'));
+    const outside = await mkdtemp(join(tmpdir(), 'beads-form-media-outside-'));
+    await mkdir(join(folder, 'shots'));
+    await writeFile(join(outside, 'outside.png'), 'outside', 'utf8');
+    await symlink(join(outside, 'outside.png'), join(folder, 'shots', 'linked.png'));
+
+    await expect(resolvePreviewMediaPath(folder, 'shots/linked.png')).resolves.toMatchObject({
+      ok: false,
+      status: 403,
+    });
   });
 });

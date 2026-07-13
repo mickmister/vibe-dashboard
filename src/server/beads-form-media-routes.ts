@@ -1,4 +1,4 @@
-import { readFile, stat } from 'node:fs/promises';
+import { readFile, realpath, stat } from 'node:fs/promises';
 import { extname, resolve, sep } from 'node:path';
 import type { Hono } from 'hono';
 
@@ -37,22 +37,40 @@ export async function resolvePreviewMediaPath(folder: string, file: string): Pro
   if (!file.trim()) return { ok: false, status: 400, error: 'file is required' };
 
   const folderPath = resolve(folder);
-  const filePath = resolve(folderPath, file.replace(/^attachment:\/\//, ''));
-  if (!isPathInside(folderPath, filePath)) {
+  let folderReal: string;
+  try {
+    folderReal = await realpath(folderPath);
+  } catch {
+    return { ok: false, status: 404, error: 'preview folder not found' };
+  }
+
+  const filePath = resolve(folderReal, file.replace(/^attachment:\/\//, ''));
+  if (!isPathInside(folderReal, filePath)) {
     return { ok: false, status: 403, error: 'media file must be inside the preview folder' };
   }
 
-  const contentType = MEDIA_TYPES[extname(filePath).toLowerCase()];
+  let fileReal: string;
+  try {
+    fileReal = await realpath(filePath);
+  } catch {
+    return { ok: false, status: 404, error: 'media file not found' };
+  }
+
+  if (!isPathInside(folderReal, fileReal)) {
+    return { ok: false, status: 403, error: 'media file must be inside the preview folder' };
+  }
+
+  const contentType = MEDIA_TYPES[extname(fileReal).toLowerCase()];
   if (!contentType) return { ok: false, status: 415, error: 'unsupported media type' };
 
   try {
-    const fileStat = await stat(filePath);
+    const fileStat = await stat(fileReal);
     if (!fileStat.isFile()) return { ok: false, status: 404, error: 'media file not found' };
   } catch {
     return { ok: false, status: 404, error: 'media file not found' };
   }
 
-  return { ok: true, path: filePath, contentType };
+  return { ok: true, path: fileReal, contentType };
 }
 
 function isPathInside(parent: string, child: string): boolean {
