@@ -3,6 +3,7 @@ import {
   ALLOW_CODE_FILE_CHANGES_FIELD,
   buildBeadsFormMetadata,
   buildChoicesQuestion,
+  buildMediaGallery,
   buildTextareaQuestion,
   compileBeadsForm,
   defineBeadsForm,
@@ -82,6 +83,47 @@ describe('@vibe-dashboard/beads-form', () => {
     expect(customized.html).toContain('Only check this if implementation should proceed.');
     expect(customized.html).toContain(`name="${ALLOW_CODE_FILE_CHANGES_FIELD}" type="checkbox" value="true"`);
     expect(customized.html).not.toContain(`name="${ALLOW_CODE_FILE_CHANGES_FIELD}" type="checkbox" value="true" checked`);
+  });
+
+  it('compiles media galleries without adding submission controls', () => {
+    const compiled = compileBeadsForm(defineBeadsForm({
+      id: 'screenshot_review',
+      title: 'Screenshot review',
+      content: [
+        buildMediaGallery({
+          id: 'storybook_candidates',
+          title: 'Storybook candidates',
+          description: 'Compare candidate screenshots before selecting an option.',
+          items: [
+            { id: 'candidate_a', type: 'image', src: 'attachments/candidate-a.png', alt: 'Candidate A', caption: 'Candidate A' },
+            { id: 'candidate_b', type: 'video', src: 'attachment://candidate-b.webm', poster: 'attachments/candidate-b.png', caption: 'Candidate B recording' },
+          ],
+        }),
+      ],
+      questions: [
+        buildChoicesQuestion({
+          id: 'preferred_candidate',
+          title: 'Preferred candidate',
+          description: 'Pick every candidate that is acceptable.',
+          choices: [
+            { id: 'candidate_a', label: 'Candidate A' },
+            { id: 'candidate_b', label: 'Candidate B' },
+          ],
+        }),
+      ],
+    }));
+
+    expect(compiled.html).toContain('class="beads-form-media-gallery"');
+    expect(compiled.html).toContain('<img src="attachments/candidate-a.png" alt="Candidate A">');
+    expect(compiled.html).toContain('<video src="attachment://candidate-b.webm" poster="attachments/candidate-b.png" controls preload="metadata">');
+    expect(compiled.controls.map((control) => control.name)).toEqual([
+      ALLOW_CODE_FILE_CHANGES_FIELD,
+      'preferred_candidate',
+      'preferred_candidate_candidate_a_more_info',
+      'preferred_candidate',
+      'preferred_candidate_candidate_b_more_info',
+      'preferred_candidate_more_info',
+    ]);
   });
 
   it('keeps HTML escaped and builds bead metadata payloads', () => {

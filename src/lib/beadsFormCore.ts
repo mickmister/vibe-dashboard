@@ -165,19 +165,19 @@ export function normalizeSubmittedValues(
 
 const ALLOWED_TAGS = [
   'a', 'abbr', 'blockquote', 'br', 'button', 'caption', 'code', 'col', 'colgroup',
-  'dd', 'del', 'details', 'dfn', 'div', 'dl', 'dt', 'em', 'fieldset', 'form', 'h1',
-  'h2', 'h3', 'h4', 'h5', 'h6', 'hr', 'input', 'ins', 'kbd', 'label', 'legend', 'li',
+  'dd', 'del', 'details', 'dfn', 'div', 'dl', 'dt', 'em', 'fieldset', 'figcaption',
+  'figure', 'form', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr', 'img', 'input', 'ins', 'kbd', 'label', 'legend', 'li',
   'mark', 'ol', 'optgroup', 'option', 'output', 'p', 'pre', 's', 'samp', 'section',
   'select', 'small', 'span', 'strong', 'sub', 'summary', 'sup', 'table', 'tbody', 'td',
-  'textarea', 'tfoot', 'th', 'thead', 'tr', 'u', 'ul', 'var',
+  'textarea', 'tfoot', 'th', 'thead', 'tr', 'u', 'ul', 'var', 'video',
 ];
 
 const ALLOWED_ATTR = [
   'accept', 'aria-describedby', 'aria-label', 'aria-labelledby', 'aria-required',
-  'autocomplete', 'checked', 'class', 'cols', 'colspan', 'dir', 'disabled', 'for',
+  'alt', 'autocomplete', 'checked', 'class', 'cols', 'colspan', 'controls', 'dir', 'disabled', 'for',
   'headers', 'href', 'id', 'label', 'lang', 'max', 'maxlength', 'method', 'min',
   'minlength', 'multiple', 'name', 'pattern', 'placeholder', 'readonly', 'rel',
-  'required', 'role', 'rows', 'rowspan', 'scope', 'selected', 'size', 'span', 'step',
+  'poster', 'preload', 'required', 'role', 'rows', 'rowspan', 'scope', 'selected', 'size', 'span', 'src', 'step',
   'target', 'title', 'type', 'value',
 ];
 
@@ -191,8 +191,9 @@ export function sanitizeBeadsFormHtml(html: string): string {
   const sanitized = purifier.sanitize(html, {
     ALLOWED_TAGS,
     ALLOWED_ATTR,
+    ALLOWED_URI_REGEXP: /^(?!\s*(?:javascript|data):)/i,
     ALLOW_DATA_ATTR: false,
-    FORBID_TAGS: ['script', 'style', 'iframe', 'object', 'embed', 'link', 'meta', 'img', 'audio', 'video', 'source'],
+    FORBID_TAGS: ['script', 'style', 'iframe', 'object', 'embed', 'link', 'meta', 'audio', 'source'],
   });
 
   const parsed = new DOMParser().parseFromString(sanitized, 'text/html');
@@ -204,6 +205,9 @@ export function sanitizeBeadsFormHtml(html: string): string {
       if (name === 'href' && !(value.startsWith('#') || value.startsWith('/') || value.startsWith('mailto:'))) {
         element.removeAttribute(attr.name);
       }
+      if ((name === 'src' || name === 'poster') && !isSafeMediaReference(attr.value)) {
+        element.removeAttribute(attr.name);
+      }
     }
 
     if (element.tagName.toLowerCase() === 'form') {
@@ -213,6 +217,20 @@ export function sanitizeBeadsFormHtml(html: string): string {
   }
 
   return parsed.body.innerHTML;
+}
+
+function isSafeMediaReference(value: string): boolean {
+  const trimmed = value.trim();
+  const lower = trimmed.toLowerCase();
+  if (!trimmed) return false;
+  if (lower.startsWith('javascript:') || lower.startsWith('data:') || lower.startsWith('http:') || lower.startsWith('https:') || lower.startsWith('//')) {
+    return false;
+  }
+  return lower.startsWith('/')
+    || lower.startsWith('./')
+    || lower.startsWith('../')
+    || lower.startsWith('attachment://')
+    || !/^[a-z][a-z0-9+.-]*:/i.test(trimmed);
 }
 
 export function buildPrettySummary(form: Pick<BeadsFormDefinition, 'title'>, values: JsonObject): string {

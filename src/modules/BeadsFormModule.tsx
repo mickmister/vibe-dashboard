@@ -13,10 +13,13 @@ import {
   type BeadsFormDefinition,
   type JsonObject,
 } from '../lib/beadsFormCore';
+import { rewriteFolderPreviewMediaRefs } from '../lib/beadsFormPreviewMedia';
 
 // @platform "node"
+import { serverRegistry } from 'springboard/server/register';
 import { createNodeBeadsClient, type ListWorkspaceBeadsResult } from '../lib/beadsClient.node';
 import { loadBeadsFormsFromFolder } from '../lib/beadsFormFolder.node';
+import { registerBeadsFormMediaRoutes } from '../server/beads-form-media-routes';
 import { VibeKanbanServerClient } from '../server/vk-client';
 // @platform end
 
@@ -103,6 +106,12 @@ function vkClient() {
   return new VibeKanbanServerClient();
 }
 
+// @platform "node"
+serverRegistry.registerServerModule((api) => {
+  registerBeadsFormMediaRoutes(api.hono);
+});
+// @platform end
+
 function formViewUrl(args: { workspaceId?: string; dir?: string; beadId?: string; formId?: string; includeOtherWorkspaces?: boolean }): string {
   const params = new URLSearchParams();
   if (args.workspaceId) params.set('workspace', args.workspaceId);
@@ -161,8 +170,8 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
 
   const selectedHtml = useMemo(() => {
     if (!loaded?.selectedForm) return '';
-    return sanitizeBeadsFormHtml(loaded.selectedForm.html);
-  }, [loaded?.selectedForm]);
+    return sanitizeBeadsFormHtml(rewriteFolderPreviewMediaRefs(loaded.selectedForm.html, loaded.folder));
+  }, [loaded?.folder, loaded?.selectedForm]);
 
   const handleSubmit = async (event: React.FormEvent<HTMLDivElement>) => {
     const target = event.target;

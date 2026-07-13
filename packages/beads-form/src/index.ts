@@ -57,6 +57,26 @@ export type TextQuestion = QuestionBase & {
 
 export type BeadsFormQuestion = ChoicesQuestion | TextQuestion;
 
+export type MediaGalleryItem = {
+  id: string;
+  type: 'image' | 'video';
+  src: string;
+  alt?: string;
+  caption?: string;
+  poster?: string;
+};
+
+export type MediaGalleryBlock = {
+  type: 'media-gallery';
+  id: string;
+  title: string;
+  /** Explain what the human should compare or inspect in this gallery. */
+  description: string;
+  items: MediaGalleryItem[];
+};
+
+export type BeadsFormContentBlock = MediaGalleryBlock;
+
 export type StandardBeadsForm = {
   format: 'standard';
   id: string;
@@ -72,6 +92,7 @@ export type StandardBeadsForm = {
     description?: string;
     defaultChecked?: boolean;
   };
+  content?: BeadsFormContentBlock[];
   questions: BeadsFormQuestion[];
   sourceMessages?: Array<{ source?: string; submittedAt?: string; text: string }>;
 };
@@ -134,6 +155,10 @@ export function buildTextareaQuestion(input: Omit<TextQuestion, 'type'>): TextQu
   return { ...input, type: 'textarea' };
 }
 
+export function buildMediaGallery(input: Omit<MediaGalleryBlock, 'type'>): MediaGalleryBlock {
+  return { ...input, type: 'media-gallery' };
+}
+
 export function defineBeadsForm(input: Omit<StandardBeadsForm, 'format'>): StandardBeadsForm {
   return { ...input, format: 'standard' };
 }
@@ -143,6 +168,7 @@ export function compileBeadsForm(form: StandardBeadsForm): CompiledBeadsForm {
   const controls: BeadsFormControl[] = [];
   const description = form.description ? `<p>${escapeHtml(form.description)}</p>` : '';
   const permissionControl = compileAllowCodeFileChangesControl(form.allowCodeFileChanges, controls);
+  const contentBlocks = (form.content ?? []).map(compileContentBlock);
   const sections = form.questions.map((question) => compileQuestion(question, controls));
   const html = [
     '<form>',
@@ -151,6 +177,7 @@ export function compileBeadsForm(form: StandardBeadsForm): CompiledBeadsForm {
     description,
     '</header>',
     permissionControl,
+    ...contentBlocks,
     ...sections,
     '<button type="submit">Submit</button>',
     '</form>',
@@ -188,6 +215,39 @@ function compileAllowCodeFileChangesControl(
     `<p>${escapeHtml(description)}</p>`,
     `<label for="${ALLOW_CODE_FILE_CHANGES_FIELD}"><input id="${ALLOW_CODE_FILE_CHANGES_FIELD}" name="${ALLOW_CODE_FILE_CHANGES_FIELD}" type="checkbox" value="true"${checked ? ' checked' : ''}> ${escapeHtml(label)}</label>`,
     '</fieldset>',
+  ].join('');
+}
+
+function compileContentBlock(block: BeadsFormContentBlock): string {
+  assertIdentifier(block.id, 'content.id');
+  if (block.type === 'media-gallery') return compileMediaGallery(block);
+  return '';
+}
+
+function compileMediaGallery(block: MediaGalleryBlock): string {
+  if (block.items.length === 0) throw new Error(`media gallery ${block.id} must have at least one item`);
+  const items = block.items.map((item) => {
+    assertIdentifier(item.id, `media item id for ${block.id}`);
+    const media = item.type === 'image'
+      ? `<img src="${attr(item.src)}" alt="${attr(item.alt ?? item.caption ?? item.id)}">`
+      : `<video src="${attr(item.src)}"${item.poster ? ` poster="${attr(item.poster)}"` : ''} controls preload="metadata">${escapeHtml(item.alt ?? item.caption ?? item.id)}</video>`;
+    const caption = item.caption ? `<figcaption>${escapeHtml(item.caption)}</figcaption>` : '';
+    return [
+      '<figure class="beads-form-media-item">',
+      media,
+      caption,
+      '</figure>',
+    ].join('');
+  }).join('');
+
+  return [
+    `<section id="${attr(block.id)}" class="beads-form-media-gallery" aria-labelledby="${attr(block.id)}_title">`,
+    `<h3 id="${attr(block.id)}_title">${escapeHtml(block.title)}</h3>`,
+    `<p>${escapeHtml(block.description)}</p>`,
+    '<div class="beads-form-media-grid">',
+    items,
+    '</div>',
+    '</section>',
   ].join('');
 }
 

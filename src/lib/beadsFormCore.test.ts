@@ -99,7 +99,7 @@ describe('BeadsForm core', () => {
 
     expect(html).toContain('<form');
     expect(html).not.toContain('<script');
-    expect(html).not.toContain('<img');
+    expect(html).toContain('<img src="x">');
     expect(html).not.toContain('onclick');
     expect(html).not.toContain('javascript:');
   });
@@ -110,6 +110,10 @@ describe('BeadsForm core', () => {
         <iframe src="https://evil.example"></iframe>
         <object data="bad"></object>
         <embed src="bad">
+        <img src="attachments/safe.png" alt="Safe">
+        <img src="https://evil.example/track.png" alt="Unsafe">
+        <video src="attachment://demo.webm" poster="screenshots/demo.png" controls></video>
+        <video src="data:video/webm;base64,bad" poster="javascript:bad()" controls></video>
         <label for="comment">Comment</label>
         <textarea id="comment" name="comment" required rows="5"></textarea>
         <input id="approved" name="decision" type="checkbox" value="approved" checked>
@@ -123,6 +127,9 @@ describe('BeadsForm core', () => {
     expect(html).not.toContain('<object');
     expect(html).not.toContain('<embed');
     expect(html).not.toContain('https://evil.example');
+    expect(html).toContain('<img src="attachments/safe.png" alt="Safe">');
+    expect(html).toContain('<video src="attachment://demo.webm" poster="screenshots/demo.png" controls=""></video>');
+    expect(html).not.toContain('data:video');
     expect(html).toContain('method="post"');
     expect(html).toContain('textarea');
     expect(html).toContain('name="decision"');
