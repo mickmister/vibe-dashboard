@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { ExternalJiraBoardContent, ExternalJiraBoardRoute, ExternalJiraCard } from './ExternalJiraBoardView';
+import { ExternalJiraBoardContent, ExternalJiraBoardRoute, ExternalJiraCard, ExternalJiraIssueDetailDrawerContent, ExternalJiraIssueDetailSheet } from './ExternalJiraBoardView';
 import type { ExternalJiraBoardViewDto, ExternalKanbanCardDto } from '../lib/externalTrackerBoardApi';
 
 const baseBoardView: ExternalJiraBoardViewDto = {
@@ -231,21 +231,29 @@ describe('ExternalJiraBoardContent', () => {
   it('renders an in-app issue detail sheet for a selected card with secondary Jira action', () => {
     const card = baseBoardView.cards[0];
     if (!card) throw new Error('expected fixture card');
-    const html = renderToStaticMarkup(React.createElement(ExternalJiraBoardContent, {
+    const selectedCard = {
+      ...card,
+      relatedWorkspaces: [{ workspaceId: 'ws-1', workspaceDir: '/repo/a', displayName: 'Workspace A', isPrimary: true }],
+      relatedBeads: [{ id: 'vkvw-1', title: 'Linked task', status: 'closed', externalIssue: { provider: 'jira', key: 'VD-1', url: 'https://team.atlassian.net/browse/VD-1', site: 'team.atlassian.net' } }],
+    } satisfies ExternalKanbanCardDto;
+    const html = renderToStaticMarkup(React.createElement(ExternalJiraIssueDetailDrawerContent, {
       boardView: {
         ...baseBoardView,
-        cards: [{
-          ...card,
-          relatedWorkspaces: [{ workspaceId: 'ws-1', workspaceDir: '/repo/a', displayName: 'Workspace A', isPrimary: true }],
-          relatedBeads: [{ id: 'vkvw-1', title: 'Linked task', status: 'closed', externalIssue: { provider: 'jira', key: 'VD-1', url: 'https://team.atlassian.net/browse/VD-1', site: 'team.atlassian.net' } }],
-        }],
+        cards: [selectedCard],
       },
-      initialSelectedCardId: card.id,
+      canGoNext: false,
+      canGoPrevious: false,
+      card: selectedCard,
+      cardIndex: 0,
+      onClose: () => undefined,
+      onNext: () => undefined,
+      onPrevious: () => undefined,
+      totalCards: 1,
     }));
 
-    expect(html).toContain('role="dialog"');
-    expect(html).toContain('VD-1 issue details');
     expect(html).toContain('Previous issue');
+    expect(html).toContain('flex h-full min-h-0 flex-col');
+    expect(html).toContain('min-h-0 flex-1 overflow-y-auto');
     expect(html).toContain('Next issue');
     expect(html).toContain('Close');
     expect(html).toContain('1 / 1');
@@ -255,6 +263,36 @@ describe('ExternalJiraBoardContent', () => {
     expect(html).toContain('vkvw-1: Linked task');
     expect(html).toContain('Open in Jira');
     expect(html).toContain('href="https://team.atlassian.net/browse/VD-1"');
+  });
+
+  it('uses a right-side HeroUI drawer for the issue detail shell', () => {
+    const card = baseBoardView.cards[0];
+    if (!card) throw new Error('expected fixture card');
+    const element = ExternalJiraIssueDetailSheet({
+      boardView: baseBoardView,
+      canGoNext: false,
+      canGoPrevious: false,
+      card,
+      cardIndex: 0,
+      onClose: () => undefined,
+      onNext: () => undefined,
+      onPrevious: () => undefined,
+      totalCards: 1,
+    }) as React.ReactElement<{
+      isOpen: boolean;
+      placement: string;
+      size: string;
+      scrollBehavior: string;
+      classNames: { base?: string };
+    }>;
+
+    expect(element.props.isOpen).toBe(true);
+    expect(element.props.placement).toBe('right');
+    expect(element.props.size).toBe('full');
+    expect(element.props.scrollBehavior).toBe('inside');
+    expect(element.props.classNames.base).toContain('flex');
+    expect(element.props.classNames.base).toContain('h-dvh');
+    expect(element.props.classNames.base).toContain('sm:max-w-xl');
   });
 
   it('renders issue detail sheet paging controls at board boundaries', () => {
@@ -268,9 +306,16 @@ describe('ExternalJiraBoardContent', () => {
       url: 'https://team.atlassian.net/browse/VD-2',
       rank: 1,
     };
-    const html = renderToStaticMarkup(React.createElement(ExternalJiraBoardContent, {
+    const html = renderToStaticMarkup(React.createElement(ExternalJiraIssueDetailDrawerContent, {
       boardView: { ...baseBoardView, cards: [firstCard, secondCard], pagination: { pageCount: 1, issueCount: 2, maxResults: 50 } },
-      initialSelectedCardId: secondCard.id,
+      canGoNext: false,
+      canGoPrevious: true,
+      card: secondCard,
+      cardIndex: 1,
+      onClose: () => undefined,
+      onNext: () => undefined,
+      onPrevious: () => undefined,
+      totalCards: 2,
     }));
 
     expect(html).toContain('2 / 2');
