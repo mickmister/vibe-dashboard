@@ -76,7 +76,17 @@ export type ShowOptions = {
 
 export type AttachResult = {
   beadId: string;
-  forms: Array<{ id: string; title: string; url: string }>;
+  forms: Array<{
+    id: string;
+    title: string;
+    /** Backward-compatible primary URL. Uses workspace URL when workspaceId is known, otherwise dir URL. */
+    url: string;
+    /** Explicit URL variants. Dir URL is always present as the locked fallback. */
+    urls: {
+      dir: string;
+      workspace?: string;
+    };
+  }>;
   metadata: JsonObject;
 };
 
@@ -291,6 +301,30 @@ function assertNoLocalBeadBackedMediaRefs(form: BeadsFormDefinition): void {
       }
     }
   }
+
+  for (const ref of collectHtmlMediaRefs(form.html)) {
+    if (isLocalMediaRef(ref.value)) {
+      throw new Error(`Form ${form.id} uses local media ${ref.attr} "${ref.value}" in stored HTML; bead-backed media only supports non-local refs for now`);
+    }
+  }
+}
+
+export function collectHtmlMediaRefs(html: string): Array<{ tag: string; attr: 'src' | 'poster'; value: string }> {
+  const refs: Array<{ tag: string; attr: 'src' | 'poster'; value: string }> = [];
+  const mediaTagPattern = /<(img|video|source|track|audio)\b[^>]*>/gi;
+  for (const tagMatch of html.matchAll(mediaTagPattern)) {
+    const tag = tagMatch[1]!.toLowerCase();
+    const tagText = tagMatch[0];
+    const attrPattern = /\b(src|poster)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/gi;
+    for (const attrMatch of tagText.matchAll(attrPattern)) {
+      refs.push({
+        tag,
+        attr: attrMatch[1]!.toLowerCase() as 'src' | 'poster',
+        value: attrMatch[2] ?? attrMatch[3] ?? attrMatch[4] ?? '',
+      });
+    }
+  }
+  return refs;
 }
 
 function isLocalMediaRef(value: string): boolean {
@@ -310,17 +344,21 @@ export async function attachBeadsForms(input: {
   await updateMetadata({ execFile: exec, dir: input.options.dir, beadId: input.options.beadId, metadata });
   return {
     beadId: input.options.beadId,
-    forms: input.forms.map((form) => ({
-      id: form.id,
-      title: form.title,
-      url: buildFillOutUrl({
+    forms: input.forms.map((form) => {
+      const urls = buildFillOutUrls({
         dir: input.options.dir,
         beadId: input.options.beadId,
         formId: form.id,
         origin: input.options.origin,
         workspaceId: input.options.workspaceId,
-      }),
-    })),
+      });
+      return {
+        id: form.id,
+        title: form.title,
+        url: urls.workspace ?? urls.dir,
+        urls,
+      };
+    }),
     metadata,
   };
 }
@@ -356,6 +394,26 @@ export function buildFillOutUrl(args: {
   params.set('form', args.formId);
   const path = `/dashboard/forms?${params.toString()}`;
   return args.origin ? `${args.origin.replace(/\/$/, '')}${path}` : path;
+}
+
+export function buildFillOutUrls(args: {
+  dir: string;
+  beadId: string;
+  formId: string;
+  origin?: string;
+  workspaceId?: string;
+}): { dir: string; workspace?: string } {
+  const dir = buildFillOutUrl({
+    dir: args.dir,
+    beadId: args.beadId,
+    formId: args.formId,
+    origin: args.origin,
+  });
+  if (!args.workspaceId) return { dir };
+  return {
+    workspace: buildFillOutUrl(args),
+    dir,
+  };
 }
 
 async function defaultExecFile(

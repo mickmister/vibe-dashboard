@@ -3,7 +3,9 @@ import {
   attachBeadsForms,
   attachFormsToMetadata,
   buildFillOutUrl,
+  buildFillOutUrls,
   buildShowResult,
+  collectHtmlMediaRefs,
   parseBeadsFormCliArgs,
   parseFormsJsonForAttach,
   selectFormForShow,
@@ -70,6 +72,24 @@ describe('beads-form CLI helpers', () => {
       ...standardForm,
       content: [{ ...standardForm.content[0], items: [{ id: 'local', type: 'image', src: 'attachments/local.png' }] }],
     }))).toThrow('uses local media');
+    expect(() => parseFormsJsonForAttach(JSON.stringify({
+      id: 'raw_img',
+      title: 'Raw image',
+      html: '<form><img src="attachments/x.png"></form>',
+      controls: [],
+    }))).toThrow('uses local media src "attachments/x.png" in stored HTML');
+    expect(() => parseFormsJsonForAttach(JSON.stringify({
+      id: 'raw_video',
+      title: 'Raw video',
+      html: '<form><video src="./x.webm"></video></form>',
+      controls: [],
+    }))).toThrow('uses local media src "./x.webm" in stored HTML');
+    expect(() => parseFormsJsonForAttach(JSON.stringify({
+      id: 'raw_poster',
+      title: 'Raw poster',
+      html: '<form><video poster="../x.png" src="https://example.test/x.webm"></video></form>',
+      controls: [],
+    }))).toThrow('uses local media poster "../x.png" in stored HTML');
 
     const metadata = { untouched: true, beadForms: { forms: [{ id: 'review', title: 'Existing', html: '<form></form>' }] } };
     expect(() => attachFormsToMetadata(metadata, parseFormsJsonForAttach(JSON.stringify({ ...standardForm, id: 'other' })))).not.toThrow();
@@ -86,6 +106,32 @@ describe('beads-form CLI helpers', () => {
       origin: 'https://example.test/',
     })).toBe('https://example.test/dashboard/forms?workspace=workspace-1&bead=bd-1&form=review');
     expect(buildFillOutUrl({ dir: '/repo', beadId: 'bd-1', formId: 'review' })).toBe('/dashboard/forms?dir=%2Frepo&bead=bd-1&form=review');
+    expect(buildFillOutUrls({
+      dir: '/repo',
+      beadId: 'bd-1',
+      formId: 'review',
+      workspaceId: 'workspace-1',
+    })).toEqual({
+      workspace: '/dashboard/forms?workspace=workspace-1&bead=bd-1&form=review',
+      dir: '/dashboard/forms?dir=%2Frepo&bead=bd-1&form=review',
+    });
+    expect(buildFillOutUrls({ dir: '/repo', beadId: 'bd-1', formId: 'review' })).toEqual({
+      dir: '/dashboard/forms?dir=%2Frepo&bead=bd-1&form=review',
+    });
+  });
+
+  it('collects raw html media src and poster refs for bead-backed attach validation', () => {
+    expect(collectHtmlMediaRefs(`
+      <form>
+        <img src=attachments/x.png>
+        <video src="./x.webm" poster='../x.png'></video>
+        <input src="not-media.png">
+      </form>
+    `)).toEqual([
+      { tag: 'img', attr: 'src', value: 'attachments/x.png' },
+      { tag: 'video', attr: 'src', value: './x.webm' },
+      { tag: 'video', attr: 'poster', value: '../x.png' },
+    ]);
   });
 
   it('updates bead metadata only after duplicate-safe attach validation and prints URLs', async () => {
@@ -104,7 +150,14 @@ describe('beads-form CLI helpers', () => {
       options: { dir: '/repo', beadId: 'bd-1', workspaceId: 'workspace-1' } satisfies AttachOptions,
     });
 
-    expect(result.forms[0]).toMatchObject({ id: 'review', url: '/dashboard/forms?workspace=workspace-1&bead=bd-1&form=review' });
+    expect(result.forms[0]).toMatchObject({
+      id: 'review',
+      url: '/dashboard/forms?workspace=workspace-1&bead=bd-1&form=review',
+      urls: {
+        workspace: '/dashboard/forms?workspace=workspace-1&bead=bd-1&form=review',
+        dir: '/dashboard/forms?dir=%2Frepo&bead=bd-1&form=review',
+      },
+    });
     expect(result.metadata.untouched).toBe(true);
     expect(calls.map((args) => args[0])).toEqual(['show', 'update']);
   });
