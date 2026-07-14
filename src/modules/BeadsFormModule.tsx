@@ -221,7 +221,7 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
     <div className="beadsform-root beadsform-page">
       <header>
         <p className="beadsform-eyebrow">Forms preview</p>
-        <h1>{loaded?.selectedForm ? loaded.selectedForm.title : 'Folder forms'}</h1>
+        <h1>Folder forms</h1>
         <p>Load forms from a local folder, submit them without touching beads, and copy normalized JSON only.</p>
       </header>
       {error ? <p role="alert" className="beadsform-error">{error}</p> : null}
@@ -244,8 +244,6 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
         <section>
           <div className="beadsform-heading-row">
             <div>
-              <h2>{loaded.selectedForm.title}</h2>
-              {loaded.selectedForm.description ? <p>{loaded.selectedForm.description}</p> : null}
               <p><code>{loaded.selectedForm.sourceFile}</code></p>
             </div>
             <a href={previewFormUrl({ folder: loaded.folder })}>All forms</a>

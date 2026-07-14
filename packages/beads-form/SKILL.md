@@ -63,7 +63,7 @@ const form = defineBeadsForm({
       title: 'Entry point',
       description: 'Choose how the user should open this feature. Select every acceptable option and explain nuance in the textareas.',
       choices: [
-        { id: 'forms_tab', label: 'Open in a Forms tab' },
+        { id: 'forms_tab', label: 'Open in a Forms tab', recommended: true },
         { id: 'direct_route', label: 'Support a direct dashboard URL' },
       ],
     }),
@@ -89,6 +89,8 @@ const metadataPatch = buildBeadsFormMetadata([form]);
 - Choice ids become submitted values.
 - Question ids become submitted field names.
 - The renderer generates accessible HTML and the validation `controls[]` manifest.
+- Add `recommended: true` to choices the agent recommends; the UI emphasizes those options.
+- Descriptions support safe Markdown such as `**bold**`, `*emphasis*`, `` `code` ``, and safe links. Raw HTML in descriptions is escaped.
 - Standard choice questions normalize as per-option booleans, for example
   `"preview_flow_result": { "loaded_successfully": true, "json_copy_worked": false }`.
 - Empty optional text fields, including empty `*_more_info` fields, are omitted from copied JSON.
@@ -160,17 +162,32 @@ For a copyable best-of-N Storybook screenshot comparison fixture, see:
 packages/beads-form/examples/storybook-best-of-n-gallery.json
 ```
 
-## Attaching to a bead
+## Bead-backed attach workflow
 
-1. Read existing bead metadata with `bd show <bead-id> --json --long`.
-2. Preserve existing metadata.
-3. Merge or append `metadataPatch.beadForms.forms` into `metadata.beadForms.forms`.
-4. Update the bead with `bd update <bead-id> --metadata @metadata.json`.
-5. Give the user a form URL:
+Bead-backed storage is the primary workflow for real agent/user handoff. Folder preview is only a prototyping escape hatch.
 
-```text
-https://jamtools.dev/dashboard/forms?dir=<urlencoded absolute repo dir>&bead=<urlencoded bead id>&form=<urlencoded form id>
-```
+1. Write or generate standard BeadsForm JSON. The attach command accepts a direct form object, an array of forms, `{ "forms": [...] }`, or `{ "beadForms": { "forms": [...] } }`.
+2. Attach it to the bead from the repo that owns the bead:
+
+   ```sh
+   npm run beads-form -- attach --bead <bead-id> --file form.json
+   npm run beads-form -- attach --bead <bead-id> --stdin < form.json
+   npm run beads-form -- attach --bead <bead-id> --json '{"format":"standard",...}'
+   ```
+
+   Use `--dir <repo>` when not running from the bead repo, `--origin <origin>` to print full URLs, and `--workspace <workspace-id>` when `VK_WORKSPACE_ID` is unavailable. Duplicate form ids on the bead are errors by default. Local folder-relative media refs are rejected in bead-backed attach; keep local media in folder preview until bead-backed media policy is designed.
+
+3. Give the human the printed `/dashboard/forms?...` URL.
+
+4. After submission, read handoff output with the read-only show command:
+
+   ```sh
+   npm run beads-form -- show --bead <bead-id>
+   npm run beads-form -- show --bead <bead-id> --form <form-id>
+   npm run beads-form -- show --bead <bead-id> --include-html
+   ```
+
+   `show` prints JSON by default, includes all responses, auto-selects the form if the bead has exactly one form, includes semantic questions/descriptions and media refs as text, and omits compiled HTML unless `--include-html` is passed. If there are no responses yet, it still prints the questions and `noResponses: true`.
 
 Bead-backed storage remains preferred for real workflow state and durable responses. Folder preview is for prototyping and quick review loops.
 

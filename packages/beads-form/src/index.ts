@@ -31,6 +31,8 @@ export type ChoiceQuestionChoice = {
   id: string;
   label: string;
   description?: string;
+  /** Emphasizes the choice as the agent-recommended/default path. */
+  recommended?: boolean;
 };
 
 export type QuestionBase = {
@@ -134,6 +136,44 @@ function attr(value: string): string {
   return escapeHtml(value);
 }
 
+function safeHref(value: string): string | undefined {
+  const trimmed = value.trim();
+  const lower = trimmed.toLowerCase();
+  if (!trimmed) return undefined;
+  if (
+    lower.startsWith('http://')
+    || lower.startsWith('https://')
+    || lower.startsWith('mailto:')
+    || lower.startsWith('/')
+    || lower.startsWith('#')
+  ) {
+    return trimmed;
+  }
+  return undefined;
+}
+
+function renderInlineMarkdown(input: string): string {
+  let html = escapeHtml(input);
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+  html = html.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (match, label: string, href: string) => {
+    const safe = safeHref(href);
+    if (!safe) return label;
+    return `<a href="${attr(safe)}" rel="noopener noreferrer">${label}</a>`;
+  });
+  return html;
+}
+
+function renderMarkdown(value: string): string {
+  return value
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean)
+    .map((paragraph) => `<p>${renderInlineMarkdown(paragraph).replace(/\n/g, '<br>')}</p>`)
+    .join('');
+}
+
 function notesName(questionId: string): string {
   return `${questionId}_more_info`;
 }
@@ -169,7 +209,7 @@ export function defineBeadsForm(input: Omit<StandardBeadsForm, 'format'>): Stand
 export function compileBeadsForm(form: StandardBeadsForm): CompiledBeadsForm {
   assertIdentifier(form.id, 'form.id');
   const controls: BeadsFormControl[] = [];
-  const description = form.description ? `<p>${escapeHtml(form.description)}</p>` : '';
+  const description = form.description ? renderMarkdown(form.description) : '';
   const submitActions = compileSubmitActions(form.allowCodeFileChanges, controls);
   const contentBlocks = (form.content ?? []).map(compileContentBlock);
   const sections = form.questions.map((question) => compileQuestion(question, controls));
@@ -213,7 +253,7 @@ function compileSubmitActions(
 
   return [
     '<div class="beads-form-submit-actions" role="group" aria-label="Submit intent">',
-    `<p>${escapeHtml(description)}</p>`,
+    renderMarkdown(description),
     `<button id="${ALLOW_CODE_FILE_CHANGES_FIELD}_true" name="${ALLOW_CODE_FILE_CHANGES_FIELD}" type="submit" value="true">${escapeHtml(allowLabel)}</button>`,
     `<button id="${ALLOW_CODE_FILE_CHANGES_FIELD}_false" name="${ALLOW_CODE_FILE_CHANGES_FIELD}" type="submit" value="false">${escapeHtml(avoidLabel)}</button>`,
     '</div>',
@@ -245,7 +285,7 @@ function compileMediaGallery(block: MediaGalleryBlock): string {
   return [
     `<section id="${attr(block.id)}" class="beads-form-media-gallery" aria-labelledby="${attr(block.id)}_title">`,
     `<h3 id="${attr(block.id)}_title">${escapeHtml(block.title)}</h3>`,
-    `<p>${escapeHtml(block.description)}</p>`,
+    renderMarkdown(block.description),
     '<div class="beads-form-media-grid">',
     items,
     '</div>',
@@ -278,7 +318,10 @@ function compileChoicesQuestion(question: ChoicesQuestion, controls: BeadsFormCo
     });
 
     const choiceDescription = choice.description
-      ? `<p>${escapeHtml(choice.description)}</p>`
+      ? renderMarkdown(choice.description)
+      : '';
+    const recommended = choice.recommended
+      ? '<span class="beads-form-recommended" aria-label="Recommended choice">Recommended</span>'
       : '';
     const choiceNotes = includePerChoiceNotes
       ? compileNotesTextarea({
@@ -292,7 +335,7 @@ function compileChoicesQuestion(question: ChoicesQuestion, controls: BeadsFormCo
 
     return [
       '<div class="beads-form-choice">',
-      `<label for="${attr(inputId)}"><input id="${attr(inputId)}" name="${attr(question.id)}" type="${inputType}" value="${attr(choice.id)}"${question.required && !allowMultiple ? ' required' : ''}> ${escapeHtml(choice.label)}</label>`,
+      `<label for="${attr(inputId)}"><input id="${attr(inputId)}" name="${attr(question.id)}" type="${inputType}" value="${attr(choice.id)}"${question.required && !allowMultiple ? ' required' : ''}> ${escapeHtml(choice.label)}${recommended ? ` ${recommended}` : ''}</label>`,
       choiceDescription,
       choiceNotes,
       '</div>',
@@ -312,7 +355,7 @@ function compileChoicesQuestion(question: ChoicesQuestion, controls: BeadsFormCo
   return [
     '<fieldset>',
     `<legend>${escapeHtml(question.title)}</legend>`,
-    `<p>${escapeHtml(question.description)}</p>`,
+    renderMarkdown(question.description),
     choiceHtml,
     questionNotes,
     '</fieldset>',
@@ -339,7 +382,7 @@ function compileTextQuestion(question: TextQuestion, controls: BeadsFormControl[
   return [
     '<fieldset>',
     `<legend>${escapeHtml(question.title)}</legend>`,
-    `<p>${escapeHtml(question.description)}</p>`,
+    renderMarkdown(question.description),
     `<label for="${attr(controlId)}">${escapeHtml(question.title)}</label>`,
     input,
     questionNotes,

@@ -152,4 +152,40 @@ describe('@vibe-dashboard/beads-form', () => {
       'notes_more_info',
     ]);
   });
+
+  it('renders safe Markdown descriptions and emphasizes recommended choices', () => {
+    const compiled = compileBeadsForm(defineBeadsForm({
+      id: 'markdown_review',
+      title: 'Markdown review',
+      description: 'Use **bold** and `code`, but not <script>bad</script>.',
+      questions: [
+        buildChoicesQuestion({
+          id: 'path',
+          title: 'Path',
+          description: 'Choose the *recommended* path. See [docs](/docs).',
+          choices: [
+            {
+              id: 'recommended',
+              label: 'Recommended path',
+              description: 'This is **recommended**.',
+              recommended: true,
+            },
+            {
+              id: 'unsafe_link',
+              label: 'Unsafe link',
+              description: 'Do not link [bad](javascript:alert(1)).',
+            },
+          ],
+        }),
+      ],
+    }));
+
+    expect(compiled.html).toContain('<strong>bold</strong>');
+    expect(compiled.html).toContain('<code>code</code>');
+    expect(compiled.html).toContain('&lt;script&gt;bad&lt;/script&gt;');
+    expect(compiled.html).toContain('<em>recommended</em>');
+    expect(compiled.html).toContain('<a href="/docs" rel="noopener noreferrer">docs</a>');
+    expect(compiled.html).toContain('class="beads-form-recommended"');
+    expect(compiled.html).not.toContain('javascript:alert');
+  });
 });
