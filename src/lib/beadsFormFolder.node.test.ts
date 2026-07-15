@@ -1,9 +1,9 @@
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { ALLOW_CODE_FILE_CHANGES_FIELD } from './beadsFormCore';
-import { appendBeadsFormPreviewResponse, loadBeadsFormsFromFolder } from './beadsFormFolder.node';
+import { appendBeadsFormPreviewResponse, loadBeadsFormsFromFolder, tryAppendBeadsFormPreviewResponse } from './beadsFormFolder.node';
 
 describe('loadBeadsFormsFromFolder', () => {
   it('loads a folder of standard and metadata-wrapped form JSON files', async () => {
@@ -69,5 +69,38 @@ describe('loadBeadsFormsFromFolder', () => {
       { formId: 'review/../../unsafe', submittedAt: '2026-07-15T00:01:00.000Z', values: { notes: 'second' } },
     ]);
     await expect(readFile(second.sidecarPath, 'utf8')).resolves.toContain('"notes": "second"');
+  });
+
+  it('rejects sidecar response writes when the sidecar directory is a symlink outside the preview folder', async () => {
+    const folder = await mkdtemp(join(tmpdir(), 'beads-form-folder-'));
+    const outside = await mkdtemp(join(tmpdir(), 'beads-form-outside-'));
+    await symlink(outside, join(folder, '.beads-form-responses'), 'dir');
+
+    await expect(appendBeadsFormPreviewResponse(
+      folder,
+      'review',
+      { notes: 'should not escape' },
+      '2026-07-15T00:00:00.000Z',
+    )).rejects.toThrow('sidecar must stay inside the preview folder');
+    await expect(readFile(join(outside, 'review.responses.json'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('returns a warning instead of writing outside when the sidecar directory is a symlink', async () => {
+    const folder = await mkdtemp(join(tmpdir(), 'beads-form-folder-'));
+    const outside = await mkdtemp(join(tmpdir(), 'beads-form-outside-'));
+    await symlink(outside, join(folder, '.beads-form-responses'), 'dir');
+
+    const result = await tryAppendBeadsFormPreviewResponse(
+      folder,
+      'review',
+      { notes: 'should not escape' },
+      '2026-07-15T00:00:00.000Z',
+    );
+
+    expect(result).toEqual({
+      submittedAt: '2026-07-15T00:00:00.000Z',
+      warnings: [expect.stringContaining('sidecar must stay inside the preview folder')],
+    });
+    await expect(readFile(join(outside, 'review.responses.json'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
   });
 });

@@ -30,7 +30,7 @@ import { rewriteFolderPreviewMediaRefs } from '../lib/beadsFormPreviewMedia';
 // @platform "node"
 import { serverRegistry } from 'springboard/server/register';
 import { createNodeBeadsClient, type ListWorkspaceBeadsResult } from '../lib/beadsClient.node';
-import { appendBeadsFormPreviewResponse, loadBeadsFormsFromFolder } from '../lib/beadsFormFolder.node';
+import { loadBeadsFormsFromFolder, tryAppendBeadsFormPreviewResponse } from '../lib/beadsFormFolder.node';
 import { registerBeadsFormMediaRoutes } from '../server/beads-form-media-routes';
 import { VibeKanbanServerClient } from '../server/vk-client';
 // @platform end
@@ -587,16 +587,14 @@ springboard.registerModule(
         const validationErrors = validateSubmittedValues(form, values);
         if (validationErrors.length > 0) throw new Error(validationErrors.join('\n'));
         const submittedAt = new Date().toISOString();
-        const warnings: string[] = [];
-        let sidecarPath: string | undefined;
-        try {
-          const sidecar = await appendBeadsFormPreviewResponse(input.folder, form.id, values, submittedAt);
-          sidecarPath = sidecar.sidecarPath;
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          warnings.push(`Preview response sidecar write failed: ${message}`);
-        }
-        return { formId: form.id, values, submittedAt, ...(sidecarPath ? { sidecarPath } : {}), warnings };
+        const sidecar = await tryAppendBeadsFormPreviewResponse(input.folder, form.id, values, submittedAt);
+        return {
+          formId: form.id,
+          values,
+          submittedAt,
+          ...(sidecar.sidecarPath ? { sidecarPath: sidecar.sidecarPath } : {}),
+          warnings: sidecar.warnings,
+        };
       },
       loadBeadForms: async (input: LoadFormsInput): Promise<LoadFormsResult> => {
         if (!input.dir.trim()) throw new Error('dir is required');

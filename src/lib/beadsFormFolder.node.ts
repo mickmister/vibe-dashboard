@@ -1,7 +1,7 @@
 /// <reference types="node" />
 
 import { mkdir, readdir, readFile, realpath, stat, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import { getBeadsForms, type BeadsFormDefinition, type JsonObject } from './beadsFormCore';
 
 export type FolderBeadsForm = BeadsFormDefinition & {
@@ -47,12 +47,31 @@ export async function appendBeadsFormPreviewResponse(
   const realFolder = await realpath(folderPath);
   const sidecarDir = join(realFolder, '.beads-form-responses');
   await mkdir(sidecarDir, { recursive: true });
+  const realSidecarDir = await realpath(sidecarDir);
+  if (!isPathInside(realFolder, realSidecarDir)) {
+    throw new Error('BeadsForm preview response sidecar must stay inside the preview folder');
+  }
 
-  const sidecarPath = join(sidecarDir, `${safeSidecarName(formId)}.responses.json`);
+  const sidecarPath = join(realSidecarDir, `${safeSidecarName(formId)}.responses.json`);
   const existing = await readPreviewResponses(sidecarPath);
   const responses = [...existing, { formId, submittedAt, values }];
   await writeFile(sidecarPath, `${JSON.stringify({ responses }, null, 2)}\n`, 'utf8');
   return { submittedAt, sidecarPath, responses };
+}
+
+export async function tryAppendBeadsFormPreviewResponse(
+  folder: string,
+  formId: string,
+  values: JsonObject,
+  submittedAt = new Date().toISOString(),
+): Promise<{ submittedAt: string; sidecarPath?: string; warnings: string[] }> {
+  try {
+    const result = await appendBeadsFormPreviewResponse(folder, formId, values, submittedAt);
+    return { submittedAt: result.submittedAt, sidecarPath: result.sidecarPath, warnings: [] };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { submittedAt, warnings: [`Preview response sidecar write failed: ${message}`] };
+  }
 }
 
 function formsFromJson(parsed: unknown): BeadsFormDefinition[] {
@@ -80,6 +99,10 @@ async function readPreviewResponses(sidecarPath: string): Promise<PreviewRespons
 function safeSidecarName(formId: string): string {
   const safe = formId.replace(/[^A-Za-z0-9_-]+/g, '_').replace(/^_+|_+$/g, '');
   return safe || 'form';
+}
+
+function isPathInside(parent: string, child: string): boolean {
+  return child === parent || child.startsWith(parent.endsWith(sep) ? parent : `${parent}${sep}`);
 }
 
 function isPreviewResponseRecord(value: unknown): value is PreviewResponseRecord {
