@@ -15,4 +15,13 @@ describe('BeadsForm styles', () => {
     expect(css).toMatch(/@media \(max-width:\s*640px\)[\s\S]*\.beadsform-root\s*\{[^}]*padding:\s*1rem 1rem calc\(10rem \+ env\(safe-area-inset-bottom,\s*0px\)\)/);
     expect(css).toMatch(/\.beadsform-root \.beads-form-submit-actions\s*\{[^}]*padding-bottom:\s*env\(safe-area-inset-bottom,\s*0px\)/s);
   });
+
+  it('lays out single-question mode with desktop notes panel and mobile bottom notes', async () => {
+    const css = await readFile(new URL('./styles.css', import.meta.url), 'utf8');
+
+    expect(css).toMatch(/\.beadsform-root \.beadsform-single-question-layout\s*\{[^}]*display:\s*grid[^}]*grid-template-columns:/s);
+    expect(css).toMatch(/\.beadsform-root \.beadsform-single-question-notes\s*\{[^}]*position:\s*sticky/s);
+    expect(css).toMatch(/@media \(max-width:\s*640px\)[\s\S]*\.beadsform-root \.beadsform-single-question-layout\s*\{[^}]*display:\s*flex[^}]*flex-direction:\s*column/s);
+    expect(css).toMatch(/@media \(max-width:\s*640px\)[\s\S]*\.beadsform-root \.beadsform-single-question-notes\s*\{[^}]*position:\s*static/s);
+  });
 });

@@ -27,6 +27,7 @@ import {
   writePreviewSubmission,
 } from '../lib/beadsFormPreviewState';
 import { rewriteFolderPreviewMediaRefs } from '../lib/beadsFormPreviewMedia';
+import { initializeSingleQuestionMode } from '../lib/beadsFormSingleQuestion';
 
 // @platform "node"
 import { serverRegistry } from 'springboard/server/register';
@@ -238,6 +239,13 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
     } : null);
   }, [loaded?.selectedForm, previewStateKey, selectedHtml]);
 
+  React.useEffect(() => {
+    if (loaded?.selectedForm?.format !== 'standard') return undefined;
+    const host = formHostRef.current;
+    if (!host) return undefined;
+    return initializeSingleQuestionMode(host);
+  }, [loaded?.selectedForm?.format, previewStateKey, selectedHtml]);
+
   const handleDraftChange = () => {
     if (submittedLocked || !previewStateKey || typeof window === 'undefined') return;
     const form = formHostRef.current?.querySelector('form');
@@ -444,6 +452,13 @@ function BeadsFormRoute({ actions }: { actions: {
       applyValuesToForm(form, restoredValues);
     }
   }, [beadDraftStorageKey, selectedHtml]);
+
+  React.useEffect(() => {
+    if (loaded?.selected?.selectedForm?.format !== 'standard') return undefined;
+    const host = formHostRef.current;
+    if (!host) return undefined;
+    return initializeSingleQuestionMode(host);
+  }, [beadDraftStorageKey, loaded?.selected?.selectedForm?.format, selectedHtml]);
 
   const handleBeadDraftChange = () => {
     if (!beadDraftStorageKey || typeof window === 'undefined') return;

@@ -209,6 +209,80 @@ textarea {
   gap: 1rem;
 }
 
+.beadsform-root .beadsform-single-question-form {
+  max-width: 76rem;
+}
+
+.beadsform-root .beadsform-single-question-layout {
+  display: grid;
+  grid-template-columns: minmax(10rem, 14rem) minmax(0, 1fr) minmax(16rem, 22rem);
+  gap: 1.25rem;
+  align-items: start;
+  margin: 1.5rem 0;
+}
+
+.beadsform-root .beadsform-single-question-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  border: 1px solid #27272a;
+  border-radius: 0.75rem;
+  padding: 0.75rem;
+  background: #111113;
+}
+
+.beadsform-root .beadsform-single-question-list-button {
+  width: 100%;
+  text-align: left;
+  border-color: #3f3f46;
+  color: #d4d4d8;
+}
+
+.beadsform-root .beadsform-single-question-list-button.is-active {
+  border-color: #60a5fa;
+  background: #1e3a8a;
+  color: #f8fafc;
+}
+
+.beadsform-root .beadsform-single-question-main {
+  min-width: 0;
+  justify-self: center;
+  width: 100%;
+  max-width: 42rem;
+}
+
+.beadsform-root .beadsform-single-question-progress {
+  color: #a1a1aa;
+  margin: 0 0 0.75rem;
+}
+
+.beadsform-root .beadsform-single-question-item {
+  margin-top: 0;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.28);
+}
+
+.beadsform-root .beadsform-single-question-controls {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.beadsform-root .beadsform-single-question-notes {
+  position: sticky;
+  top: 1rem;
+  border: 1px solid #3f3f46;
+  border-radius: 0.75rem;
+  padding: 1rem;
+  background: #111113;
+}
+
+.beadsform-root .beadsform-single-question-master-notes {
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+
 @media (max-width: 640px) {
   .beadsform-root {
     padding: 1rem 1rem calc(10rem + env(safe-area-inset-bottom, 0px));
@@ -221,5 +295,31 @@ textarea {
 
   .beadsform-root .beads-form-submit-actions button {
     width: 100%;
+  }
+
+  .beadsform-root .beadsform-single-question-layout {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .beadsform-root .beadsform-single-question-list {
+    width: 100%;
+    flex-direction: row;
+    overflow-x: auto;
+    padding-bottom: 0.85rem;
+  }
+
+  .beadsform-root .beadsform-single-question-list-button {
+    min-width: 11rem;
+  }
+
+  .beadsform-root .beadsform-single-question-main {
+    max-width: none;
+  }
+
+  .beadsform-root .beadsform-single-question-notes {
+    position: static;
+    width: 100%;
+    order: 3;
   }
 }
