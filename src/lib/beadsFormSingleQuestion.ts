@@ -28,7 +28,6 @@ export function initializeSingleQuestionMode(host: ParentNode): SingleQuestionMo
   const progress = document.createElement('p');
   progress.className = 'beadsform-single-question-progress';
   progress.setAttribute('aria-live', 'polite');
-  main.append(progress);
 
   const controls = document.createElement('div');
   controls.className = 'beadsform-single-question-controls';
@@ -42,7 +41,8 @@ export function initializeSingleQuestionMode(host: ParentNode): SingleQuestionMo
 
   form.insertBefore(layout, firstQuestion);
   layout.append(questionList, main);
-  if (masterNotes) layout.append(notesPanel);
+  main.append(progress);
+  if (masterNotes) main.append(notesPanel);
 
   questions.forEach((question, index) => {
     question.classList.add('beadsform-single-question-item');

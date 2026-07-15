@@ -16,12 +16,14 @@ describe('BeadsForm styles', () => {
     expect(css).toMatch(/\.beadsform-root \.beads-form-submit-actions\s*\{[^}]*padding-bottom:\s*env\(safe-area-inset-bottom,\s*0px\)/s);
   });
 
-  it('lays out single-question mode with desktop notes panel and mobile bottom notes', async () => {
+  it('lays out single-question mode as a centered wide column with notes above the question', async () => {
     const css = await readFile(new URL('./styles.css', import.meta.url), 'utf8');
 
-    expect(css).toMatch(/\.beadsform-root \.beadsform-single-question-layout\s*\{[^}]*display:\s*grid[^}]*grid-template-columns:/s);
-    expect(css).toMatch(/\.beadsform-root \.beadsform-single-question-notes\s*\{[^}]*position:\s*sticky/s);
-    expect(css).toMatch(/@media \(max-width:\s*640px\)[\s\S]*\.beadsform-root \.beadsform-single-question-layout\s*\{[^}]*display:\s*flex[^}]*flex-direction:\s*column/s);
-    expect(css).toMatch(/@media \(max-width:\s*640px\)[\s\S]*\.beadsform-root \.beadsform-single-question-notes\s*\{[^}]*position:\s*static/s);
+    expect(css).toMatch(/\.beadsform-root \.beadsform-single-question-form\s*\{[^}]*max-width:\s*72rem[^}]*margin:\s*0 auto/s);
+    expect(css).toMatch(/\.beadsform-root \.beadsform-single-question-layout\s*\{[^}]*display:\s*flex[^}]*flex-direction:\s*column[^}]*max-width:\s*64rem[^}]*margin:\s*1\.5rem auto/s);
+    expect(css).toMatch(/\.beadsform-root \.beadsform-single-question-main\s*\{[^}]*max-width:\s*64rem[^}]*margin:\s*0 auto/s);
+    expect(css).toMatch(/\.beadsform-root \.beadsform-single-question-notes\s*\{[^}]*position:\s*static[^}]*margin:\s*0 0 1rem/s);
+    expect(css).not.toMatch(/\.beadsform-root \.beadsform-single-question-layout\s*\{[^}]*display:\s*grid/s);
+    expect(css).not.toMatch(/\.beadsform-root \.beadsform-single-question-notes\s*\{[^}]*position:\s*sticky/s);
   });
 });

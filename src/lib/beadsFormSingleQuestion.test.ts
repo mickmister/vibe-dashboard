@@ -17,12 +17,19 @@ describe('BeadsForm single-question mode', () => {
 
     initializeSingleQuestionMode(document.querySelector('#host')!);
 
-    const fieldsets = Array.from(document.querySelectorAll<HTMLFieldSetElement>('fieldset'));
+    const questionItems = Array.from(document.querySelectorAll<HTMLFieldSetElement>('.beadsform-single-question-item'));
     expect(document.querySelector('.beadsform-single-question-progress')?.textContent).toBe('Question 1 of 2');
-    expect(fieldsets[0]!.hidden).toBe(false);
-    expect(fieldsets[1]!.hidden).toBe(true);
+    expect(questionItems[0]!.hidden).toBe(false);
+    expect(questionItems[1]!.hidden).toBe(true);
     expect(document.querySelector<HTMLElement>('.beads-form-submit-actions')?.hidden).toBe(true);
     expect(document.querySelector('.beadsform-single-question-notes textarea[name="additional_notes"]')).toBeTruthy();
+    expect(Array.from(document.querySelector('.beadsform-single-question-main')!.children).map((child) => child.className)).toEqual([
+      'beadsform-single-question-progress',
+      'beadsform-single-question-notes',
+      'beadsform-single-question-item',
+      'beadsform-single-question-item',
+      'beadsform-single-question-controls',
+    ]);
     expect(Array.from(document.querySelectorAll('.beadsform-single-question-list-button')).map((button) => button.textContent)).toEqual([
       'First question',
       'Second question',
@@ -30,8 +37,8 @@ describe('BeadsForm single-question mode', () => {
 
     document.querySelectorAll<HTMLButtonElement>('.beadsform-single-question-controls button')[1]!.click();
     expect(document.querySelector('.beadsform-single-question-progress')?.textContent).toBe('Question 2 of 2');
-    expect(fieldsets[0]!.hidden).toBe(true);
-    expect(fieldsets[1]!.hidden).toBe(false);
+    expect(questionItems[0]!.hidden).toBe(true);
+    expect(questionItems[1]!.hidden).toBe(false);
     expect(document.querySelector<HTMLElement>('.beads-form-submit-actions')?.hidden).toBe(false);
   });
 

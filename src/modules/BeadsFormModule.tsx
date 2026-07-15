@@ -165,6 +165,27 @@ function normalizeSubmittedFormEvent(
   return normalizeSubmittedValues(form, values);
 }
 
+function preserveSubmittedFormDom(
+  host: HTMLDivElement | null,
+  values: JsonObject,
+  options: { lock: boolean; singleQuestionMode: boolean },
+): void {
+  const apply = () => {
+    if (!host) return;
+    if (options.singleQuestionMode) initializeSingleQuestionMode(host);
+    const form = host.querySelector('form');
+    if (!form) return;
+    applyValuesToForm(form, values);
+    setSubmitButtonsDisabled(form, options.lock);
+    setFormFieldsReadOnly(form, options.lock);
+  };
+
+  apply();
+  if (typeof window !== 'undefined') {
+    window.setTimeout(apply, 0);
+  }
+}
+
 function BeadsFormPreviewRoute({ actions }: { actions: {
   loadPreviewForms: (input: LoadPreviewFormsInput) => MaybeNestedPromise<LoadPreviewFormsResult>;
   submitPreviewForm: (input: SubmitPreviewFormInput) => MaybeNestedPromise<SubmitPreviewFormResult>;
@@ -286,9 +307,10 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
       if (typeof window !== 'undefined' && previewStateKey) {
         writePreviewSubmission(window.localStorage, previewStateKey, result.values, result.submittedAt);
       }
-      applyValuesToForm(target, result.values);
-      setSubmitButtonsDisabled(target, true);
-      setFormFieldsReadOnly(target, true);
+      preserveSubmittedFormDom(formHostRef.current, result.values, {
+        lock: true,
+        singleQuestionMode: loaded.selectedForm.format === 'standard',
+      });
       setSubmittedLocked(true);
       setSubmitResult(result);
       await navigator.clipboard?.writeText(JSON.stringify(result.values, null, 2)).catch(() => undefined);
@@ -379,6 +401,7 @@ function BeadsFormRoute({ actions }: { actions: {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitResult, setSubmitResult] = useState<SubmitFormResult | null>(null);
+  const [submittedLocked, setSubmittedLocked] = useState(false);
   const submitInFlightRef = useRef(false);
   const formHostRef = useRef<HTMLDivElement | null>(null);
 
@@ -387,6 +410,7 @@ function BeadsFormRoute({ actions }: { actions: {
     setLoaded(null);
     setError(null);
     setSubmitResult(null);
+    setSubmittedLocked(false);
 
     if (!workspaceId && (!dir || !beadId)) {
       setError('Forms require a workspace query parameter, or dir and bead query parameters.');
@@ -451,6 +475,10 @@ function BeadsFormRoute({ actions }: { actions: {
     if (restoredValues) {
       applyValuesToForm(form, restoredValues);
     }
+    const locked = !!snapshot.latest && !snapshot.editing;
+    setSubmittedLocked(locked);
+    setSubmitButtonsDisabled(form, locked);
+    setFormFieldsReadOnly(form, locked);
   }, [beadDraftStorageKey, selectedHtml]);
 
   React.useEffect(() => {
@@ -461,10 +489,22 @@ function BeadsFormRoute({ actions }: { actions: {
   }, [beadDraftStorageKey, loaded?.selected?.selectedForm?.format, selectedHtml]);
 
   const handleBeadDraftChange = () => {
-    if (!beadDraftStorageKey || typeof window === 'undefined') return;
+    if (submittedLocked || !beadDraftStorageKey || typeof window === 'undefined') return;
     const form = formHostRef.current?.querySelector('form');
     if (!form) return;
     writePreviewDraft(window.localStorage, beadDraftStorageKey, formValuesFromDom(form));
+  };
+
+  const handleEditBeadResponse = () => {
+    setSubmittedLocked(false);
+    if (beadDraftStorageKey && typeof window !== 'undefined') {
+      startPreviewEdit(window.localStorage, beadDraftStorageKey);
+    }
+    const form = formHostRef.current?.querySelector('form');
+    if (form) {
+      setSubmitButtonsDisabled(form, false);
+      setFormFieldsReadOnly(form, false);
+    }
   };
 
   const handleSubmit = async (event: React.FormEvent<HTMLDivElement>) => {
@@ -472,6 +512,7 @@ function BeadsFormRoute({ actions }: { actions: {
     if (!(target instanceof HTMLFormElement) || !loaded?.selected?.selectedForm) return;
     event.preventDefault();
     if (submitInFlightRef.current) return;
+    if (submittedLocked) return;
     if (!target.reportValidity()) return;
 
     const values = normalizeSubmittedFormEvent(event, target, loaded.selected.selectedForm);
@@ -488,7 +529,11 @@ function BeadsFormRoute({ actions }: { actions: {
       if (typeof window !== 'undefined' && beadDraftStorageKey) {
         writePreviewSubmission(window.localStorage, beadDraftStorageKey, result.values);
       }
-      applyValuesToForm(target, result.values);
+      preserveSubmittedFormDom(formHostRef.current, result.values, {
+        lock: true,
+        singleQuestionMode: loaded.selected.selectedForm.format === 'standard',
+      });
+      setSubmittedLocked(true);
       setSubmitResult(result);
       await navigator.clipboard?.writeText(result.agentMessage).catch(() => undefined);
       if (window.parent && window.parent !== window) {
@@ -586,6 +631,12 @@ function BeadsFormRoute({ actions }: { actions: {
             </div>
             {forms.length > 1 ? <a href={formViewUrl({ workspaceId, dir: selected.beadRepoDir, beadId, includeOtherWorkspaces })}>All forms</a> : null}
           </div>
+          {submittedLocked && !submitResult ? (
+            <div className="beadsform-warning" role="status">
+              <p>The visual form is showing the latest submitted response and is locked until you edit it.</p>
+              <button type="button" onClick={handleEditBeadResponse}>Edit response</button>
+            </div>
+          ) : null}
           <div
             ref={formHostRef}
             onInput={handleBeadDraftChange}
@@ -608,6 +659,8 @@ function BeadsFormRoute({ actions }: { actions: {
               <ul>{submitResult.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>
             </div>
           ) : null}
+          {submittedLocked ? <p>The visual form is locked to this submitted response until you edit it.</p> : null}
+          <button type="button" onClick={handleEditBeadResponse}>Edit response</button>
           <h3>Pretty summary</h3>
           <pre>{submitResult.prettySummary}</pre>
           <h3>Normalized JSON</h3>
