@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   applyValuesToForm,
+  beadFormStorageKey,
   previewStorageKey,
   readPreviewStorage,
   setFormFieldsReadOnly,
@@ -13,6 +14,40 @@ import {
 } from './beadsFormPreviewState';
 
 describe('BeadsForm preview state helpers', () => {
+  it('scopes bead-backed storage keys by workspace or repo, bead, and form', () => {
+    expect(beadFormStorageKey({
+      workspaceId: 'workspace-1',
+      dir: '/repo-a',
+      beadId: 'beads-web-1',
+      formId: 'review',
+    })).not.toBe(beadFormStorageKey({
+      workspaceId: 'workspace-2',
+      dir: '/repo-a',
+      beadId: 'beads-web-1',
+      formId: 'review',
+    }));
+    expect(beadFormStorageKey({
+      workspaceId: 'workspace-1',
+      dir: '/repo-a',
+      beadId: 'beads-web-1',
+      formId: 'review',
+    })).not.toBe(beadFormStorageKey({
+      workspaceId: 'workspace-1',
+      dir: '/repo-b',
+      beadId: 'beads-web-1',
+      formId: 'review',
+    }));
+    expect(beadFormStorageKey({
+      dir: '/repo-a',
+      beadId: 'beads-web-1',
+      formId: 'review',
+    })).not.toBe(beadFormStorageKey({
+      dir: '/repo-b',
+      beadId: 'beads-web-1',
+      formId: 'review',
+    }));
+  });
+
   it('persists drafts, latest submission, and submission history in localStorage', () => {
     const key = previewStorageKey({ folder: '/tmp/forms', formId: 'review' });
     localStorage.clear();
@@ -35,6 +70,24 @@ describe('BeadsForm preview state helpers', () => {
       editing: true,
       history: [{ submittedAt: '2026-07-15T00:00:00Z', values: { notes: 'submitted' } }],
     });
+  });
+
+  it('saves and restores bead-backed drafts with the scoped storage key', () => {
+    const key = beadFormStorageKey({
+      workspaceId: 'workspace-1',
+      dir: '/repo-a',
+      beadId: 'beads-web-1',
+      formId: 'review',
+    });
+    localStorage.clear();
+    writePreviewDraft(localStorage, key, { comment: 'Saved draft' });
+
+    document.body.innerHTML = '<form><textarea name="comment"></textarea></form>';
+    const form = document.querySelector('form')!;
+    const snapshot = readPreviewStorage(localStorage, key);
+    applyValuesToForm(form, snapshot.draft ?? {});
+
+    expect(form.querySelector('textarea')?.value).toBe('Saved draft');
   });
 
   it('applies values to controls and disables submit buttons', () => {

@@ -8,9 +8,17 @@ export type PreviewStorageSnapshot = {
 };
 
 const STORAGE_PREFIX = 'beadsform:preview:v1:';
+const BEAD_STORAGE_PREFIX = 'beadsform:bead:v1:';
 
 export function previewStorageKey(args: { folder: string; formId: string }): string {
   return `${STORAGE_PREFIX}${encodeURIComponent(args.folder)}:${encodeURIComponent(args.formId)}`;
+}
+
+export function beadFormStorageKey(args: { workspaceId?: string; dir?: string; beadId: string; formId: string }): string {
+  const scope = args.workspaceId
+    ? `workspace:${args.workspaceId}:dir:${args.dir ?? ''}`
+    : `dir:${args.dir ?? ''}`;
+  return `${BEAD_STORAGE_PREFIX}${encodeURIComponent(scope)}:${encodeURIComponent(args.beadId)}:${encodeURIComponent(args.formId)}`;
 }
 
 export function readPreviewStorage(storage: Storage | undefined, key: string): PreviewStorageSnapshot {

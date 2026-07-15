@@ -136,7 +136,7 @@ Use folder mode for low-friction testing before attaching forms to beads.
    npm run dev:beads-form-preview -- --folder /tmp/beads-form-preview
    ```
 
-   The command validates the folder, starts the existing Springboard/Vite dev server, and prints the exact preview URL with the folder path encoded.
+   The command validates the folder, starts the existing Springboard/Vite dev server, and prints the exact preview URL with the folder path encoded. It sets `BEADS_FORM_DISABLE_HMR=1` by default so Vite does not push HMR/full-reload updates into an open form; manual browser refresh still loads the latest code. Set `BEADS_FORM_DISABLE_HMR=0` only when you want normal dev-server auto-reload behavior.
    To force a port, set `BEADS_FORM_PREVIEW_PORT=<port>`.
 
 4. The preview page lists all `.json` forms in the folder. Submitting a form copies normalized JSON only to the clipboard and displays it on screen. It does not update beads.

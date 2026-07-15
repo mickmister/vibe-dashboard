@@ -7,6 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { storybookTest } from '@storybook/addon-vitest/vitest-plugin';
 import { playwright } from '@vitest/browser-playwright';
+import { buildViteDevServerOptions } from './src/lib/beadsFormDevServer';
 const dirname = typeof __dirname !== 'undefined' ? __dirname : path.dirname(fileURLToPath(import.meta.url));
 
 let serverPort = 3005;
@@ -16,14 +17,6 @@ if (process.env.SERVER_PORT || process.env.PORT) {
 
 // More info at: https://storybook.js.org/docs/next/writing-tests/integrations/vitest-addon
 const platformVariant = process.env.SPRINGBOARD_PLATFORM || '';
-let devPort = 3000;
-const envPort = process.env.PORT || '';
-try {
-  const num = parseInt(envPort);
-  if (!isNaN(num)) {
-    devPort = num;
-  }
-} catch (e) {}
 let platforms: ('browser' | 'node')[] = ['browser', 'node'];
 if (platformVariant === 'node') {
   platforms = ['node'];
@@ -51,10 +44,7 @@ export default defineConfig({
     'process.env.DEBUG_LOG_PERFORMANCE': '""',
     'process.env.CADDY_PORT': JSON.stringify(process.env.CADDY_PORT || '')
   },
-  server: {
-    port: devPort,
-    host: true
-  },
+  server: buildViteDevServerOptions(),
   test: {
     projects: [{
       extends: true,

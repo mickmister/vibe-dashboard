@@ -15,6 +15,7 @@ import {
 } from '../lib/beadsFormCore';
 import {
   applyValuesToForm,
+  beadFormStorageKey,
   formValuesFromDom,
   previewStorageKey,
   readPreviewStorage,
@@ -371,6 +372,7 @@ function BeadsFormRoute({ actions }: { actions: {
   const [submitting, setSubmitting] = useState(false);
   const [submitResult, setSubmitResult] = useState<SubmitFormResult | null>(null);
   const submitInFlightRef = useRef(false);
+  const formHostRef = useRef<HTMLDivElement | null>(null);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -423,6 +425,33 @@ function BeadsFormRoute({ actions }: { actions: {
     return sanitizeBeadsFormHtml(loaded.selected.selectedForm.html);
   }, [loaded?.selected?.selectedForm]);
 
+  const beadDraftStorageKey = useMemo(() => {
+    if (!loaded?.selected?.selectedForm || !beadId) return '';
+    return beadFormStorageKey({
+      ...(workspaceId ? { workspaceId } : {}),
+      dir: loaded.selected.beadRepoDir,
+      beadId,
+      formId: loaded.selected.selectedForm.id,
+    });
+  }, [beadId, loaded?.selected?.beadRepoDir, loaded?.selected?.selectedForm, workspaceId]);
+
+  React.useEffect(() => {
+    const form = formHostRef.current?.querySelector('form');
+    if (!form || !beadDraftStorageKey) return;
+    const snapshot = readPreviewStorage(typeof window === 'undefined' ? undefined : window.localStorage, beadDraftStorageKey);
+    const restoredValues = snapshot.draft ?? snapshot.latest;
+    if (restoredValues) {
+      applyValuesToForm(form, restoredValues);
+    }
+  }, [beadDraftStorageKey, selectedHtml]);
+
+  const handleBeadDraftChange = () => {
+    if (!beadDraftStorageKey || typeof window === 'undefined') return;
+    const form = formHostRef.current?.querySelector('form');
+    if (!form) return;
+    writePreviewDraft(window.localStorage, beadDraftStorageKey, formValuesFromDom(form));
+  };
+
   const handleSubmit = async (event: React.FormEvent<HTMLDivElement>) => {
     const target = event.target;
     if (!(target instanceof HTMLFormElement) || !loaded?.selected?.selectedForm) return;
@@ -441,6 +470,10 @@ function BeadsFormRoute({ actions }: { actions: {
         formId: loaded.selected.selectedForm.id,
         values,
       }));
+      if (typeof window !== 'undefined' && beadDraftStorageKey) {
+        writePreviewSubmission(window.localStorage, beadDraftStorageKey, result.values);
+      }
+      applyValuesToForm(target, result.values);
       setSubmitResult(result);
       await navigator.clipboard?.writeText(result.agentMessage).catch(() => undefined);
       if (window.parent && window.parent !== window) {
@@ -538,7 +571,13 @@ function BeadsFormRoute({ actions }: { actions: {
             </div>
             {forms.length > 1 ? <a href={formViewUrl({ workspaceId, dir: selected.beadRepoDir, beadId, includeOtherWorkspaces })}>All forms</a> : null}
           </div>
-          <div onSubmit={handleSubmit} dangerouslySetInnerHTML={{ __html: selectedHtml }} />
+          <div
+            ref={formHostRef}
+            onInput={handleBeadDraftChange}
+            onChange={handleBeadDraftChange}
+            onSubmit={handleSubmit}
+            dangerouslySetInnerHTML={{ __html: selectedHtml }}
+          />
         </section>
       )}
 
