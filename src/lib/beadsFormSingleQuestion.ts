@@ -63,6 +63,7 @@ export function initializeSingleQuestionMode(host: ParentNode): SingleQuestionMo
 
   let activeIndex = 0;
   const listButtons = Array.from(questionList.querySelectorAll<HTMLButtonElement>('button'));
+  const submitActions = form.querySelector<HTMLElement>('.beads-form-submit-actions');
 
   function render() {
     questions.forEach((question, index) => {
@@ -75,29 +76,60 @@ export function initializeSingleQuestionMode(host: ParentNode): SingleQuestionMo
     progress.textContent = `Question ${activeIndex + 1} of ${questions.length}`;
     previous.disabled = activeIndex === 0;
     next.hidden = activeIndex === questions.length - 1;
+    if (submitActions) {
+      submitActions.hidden = activeIndex !== questions.length - 1;
+    }
   }
 
-  function activeQuestionIsValid(): boolean {
-    const active = questions[activeIndex];
-    if (!active) return true;
-    const invalid = Array.from(active.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>('input, textarea, select'))
+  function firstInvalidControl(question: HTMLFieldSetElement): HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | undefined {
+    return Array.from(question.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>('input, textarea, select'))
       .find((control) => !control.checkValidity());
+  }
+
+  function questionIsValid(index: number): boolean {
+    const question = questions[index];
+    if (!question) return true;
+    const invalid = firstInvalidControl(question);
     if (!invalid) return true;
     invalid.reportValidity();
     return false;
   }
 
+  function firstInvalidQuestionIndex(): number {
+    return questions.findIndex((question) => !!firstInvalidControl(question));
+  }
+
   function goTo(index: number) {
-    if (index > activeIndex && !activeQuestionIsValid()) return;
-    activeIndex = Math.max(0, Math.min(index, questions.length - 1));
+    const target = Math.max(0, Math.min(index, questions.length - 1));
+    if (target > activeIndex) {
+      for (let current = activeIndex; current < target; current += 1) {
+        activeIndex = current;
+        render();
+        if (!questionIsValid(current)) return;
+      }
+    }
+    activeIndex = target;
     render();
+  }
+
+  function handleSubmit(event: SubmitEvent) {
+    const invalidIndex = firstInvalidQuestionIndex();
+    if (invalidIndex < 0 && activeIndex === questions.length - 1) return;
+
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    activeIndex = invalidIndex >= 0 ? invalidIndex : questions.length - 1;
+    render();
+    if (invalidIndex >= 0) questionIsValid(invalidIndex);
   }
 
   previous.addEventListener('click', () => goTo(activeIndex - 1));
   next.addEventListener('click', () => goTo(activeIndex + 1));
+  form.addEventListener('submit', handleSubmit, true);
   render();
 
   return () => {
+    form.removeEventListener('submit', handleSubmit, true);
     form.classList.remove('beadsform-single-question-form');
     delete form.dataset.beadsformSingleQuestion;
   };
