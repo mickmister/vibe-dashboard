@@ -1,9 +1,9 @@
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { ALLOW_CODE_FILE_CHANGES_FIELD } from './beadsFormCore';
-import { loadBeadsFormsFromFolder } from './beadsFormFolder.node';
+import { appendBeadsFormPreviewResponse, loadBeadsFormsFromFolder } from './beadsFormFolder.node';
 
 describe('loadBeadsFormsFromFolder', () => {
   it('loads a folder of standard and metadata-wrapped form JSON files', async () => {
@@ -44,5 +44,30 @@ describe('loadBeadsFormsFromFolder', () => {
     await writeFile(file, '{}', 'utf8');
 
     await expect(loadBeadsFormsFromFolder(file)).rejects.toThrow('not a directory');
+  });
+
+  it('appends folder preview responses to a constrained sidecar file', async () => {
+    const folder = await mkdtemp(join(tmpdir(), 'beads-form-folder-'));
+
+    const first = await appendBeadsFormPreviewResponse(
+      folder,
+      'review/../../unsafe',
+      { notes: 'first' },
+      '2026-07-15T00:00:00.000Z',
+    );
+    const second = await appendBeadsFormPreviewResponse(
+      folder,
+      'review/../../unsafe',
+      { notes: 'second' },
+      '2026-07-15T00:01:00.000Z',
+    );
+
+    expect(first.sidecarPath).toBe(join(folder, '.beads-form-responses', 'review_unsafe.responses.json'));
+    expect(second.sidecarPath).toBe(first.sidecarPath);
+    expect(second.responses).toEqual([
+      { formId: 'review/../../unsafe', submittedAt: '2026-07-15T00:00:00.000Z', values: { notes: 'first' } },
+      { formId: 'review/../../unsafe', submittedAt: '2026-07-15T00:01:00.000Z', values: { notes: 'second' } },
+    ]);
+    await expect(readFile(second.sidecarPath, 'utf8')).resolves.toContain('"notes": "second"');
   });
 });

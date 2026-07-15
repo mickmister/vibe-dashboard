@@ -13,12 +13,24 @@ import {
   type BeadsFormDefinition,
   type JsonObject,
 } from '../lib/beadsFormCore';
+import {
+  applyValuesToForm,
+  formValuesFromDom,
+  previewStorageKey,
+  readPreviewStorage,
+  setFormFieldsReadOnly,
+  setSubmitButtonsDisabled,
+  startPreviewEdit,
+  stripCompiledFormHeader,
+  writePreviewDraft,
+  writePreviewSubmission,
+} from '../lib/beadsFormPreviewState';
 import { rewriteFolderPreviewMediaRefs } from '../lib/beadsFormPreviewMedia';
 
 // @platform "node"
 import { serverRegistry } from 'springboard/server/register';
 import { createNodeBeadsClient, type ListWorkspaceBeadsResult } from '../lib/beadsClient.node';
-import { loadBeadsFormsFromFolder } from '../lib/beadsFormFolder.node';
+import { appendBeadsFormPreviewResponse, loadBeadsFormsFromFolder } from '../lib/beadsFormFolder.node';
 import { registerBeadsFormMediaRoutes } from '../server/beads-form-media-routes';
 import { VibeKanbanServerClient } from '../server/vk-client';
 // @platform end
@@ -90,6 +102,9 @@ type SubmitPreviewFormInput = {
 type SubmitPreviewFormResult = {
   formId: string;
   values: JsonObject;
+  submittedAt: string;
+  sidecarPath?: string;
+  warnings: string[];
 };
 
 function nodeClient() {
@@ -159,13 +174,16 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitResult, setSubmitResult] = useState<SubmitPreviewFormResult | null>(null);
+  const [submittedLocked, setSubmittedLocked] = useState(false);
   const submitInFlightRef = useRef(false);
+  const formHostRef = useRef<HTMLDivElement | null>(null);
 
   React.useEffect(() => {
     let cancelled = false;
     setLoaded(null);
     setError(null);
     setSubmitResult(null);
+    setSubmittedLocked(false);
     if (!folder) {
       setError('Preview requires a folder query parameter.');
       return;
@@ -187,14 +205,63 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
 
   const selectedHtml = useMemo(() => {
     if (!loaded?.selectedForm) return '';
-    return sanitizeBeadsFormHtml(rewriteFolderPreviewMediaRefs(loaded.selectedForm.html, loaded.folder));
+    const sanitized = sanitizeBeadsFormHtml(rewriteFolderPreviewMediaRefs(loaded.selectedForm.html, loaded.folder));
+    return loaded.selectedForm.format === 'standard' ? stripCompiledFormHeader(sanitized) : sanitized;
   }, [loaded?.folder, loaded?.selectedForm]);
+
+  const previewStateKey = useMemo(() => {
+    if (!loaded?.selectedForm) return '';
+    return previewStorageKey({ folder: loaded.folder, formId: loaded.selectedForm.id });
+  }, [loaded?.folder, loaded?.selectedForm]);
+
+  React.useEffect(() => {
+    const host = formHostRef.current;
+    const form = host?.querySelector('form');
+    if (!host || !form || !loaded?.selectedForm || !previewStateKey) return;
+
+    const snapshot = readPreviewStorage(typeof window === 'undefined' ? undefined : window.localStorage, previewStateKey);
+    const restoredValues = snapshot.editing ? (snapshot.draft ?? snapshot.latest) : (snapshot.latest ?? snapshot.draft);
+    if (restoredValues) {
+      applyValuesToForm(form, restoredValues);
+    }
+
+    const locked = !!snapshot.latest && !snapshot.editing;
+    setSubmittedLocked(locked);
+    setSubmitButtonsDisabled(form, locked);
+    setFormFieldsReadOnly(form, locked);
+    setSubmitResult(snapshot.latest ? {
+      formId: loaded.selectedForm.id,
+      values: snapshot.latest,
+      submittedAt: snapshot.history.at(-1)?.submittedAt ?? '',
+      warnings: [],
+    } : null);
+  }, [loaded?.selectedForm, previewStateKey, selectedHtml]);
+
+  const handleDraftChange = () => {
+    if (submittedLocked || !previewStateKey || typeof window === 'undefined') return;
+    const form = formHostRef.current?.querySelector('form');
+    if (!form) return;
+    writePreviewDraft(window.localStorage, previewStateKey, formValuesFromDom(form));
+  };
+
+  const handleEditResponse = () => {
+    setSubmittedLocked(false);
+    if (previewStateKey && typeof window !== 'undefined') {
+      startPreviewEdit(window.localStorage, previewStateKey);
+    }
+    const form = formHostRef.current?.querySelector('form');
+    if (form) {
+      setSubmitButtonsDisabled(form, false);
+      setFormFieldsReadOnly(form, false);
+    }
+  };
 
   const handleSubmit = async (event: React.FormEvent<HTMLDivElement>) => {
     const target = event.target;
     if (!(target instanceof HTMLFormElement) || !loaded?.selectedForm) return;
     event.preventDefault();
     if (submitInFlightRef.current) return;
+    if (submittedLocked) return;
     if (!target.reportValidity()) return;
 
     const values = normalizeSubmittedFormEvent(event, target, loaded.selectedForm);
@@ -207,6 +274,13 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
         formId: loaded.selectedForm.id,
         values,
       }));
+      if (typeof window !== 'undefined' && previewStateKey) {
+        writePreviewSubmission(window.localStorage, previewStateKey, result.values, result.submittedAt);
+      }
+      applyValuesToForm(target, result.values);
+      setSubmitButtonsDisabled(target, true);
+      setFormFieldsReadOnly(target, true);
+      setSubmittedLocked(true);
       setSubmitResult(result);
       await navigator.clipboard?.writeText(JSON.stringify(result.values, null, 2)).catch(() => undefined);
     } catch (reason) {
@@ -219,11 +293,11 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
 
   return (
     <div className="beadsform-root beadsform-page">
-      <header>
+      {!loaded?.selectedForm ? <header>
         <p className="beadsform-eyebrow">Forms preview</p>
         <h1>Folder forms</h1>
         <p>Load forms from a local folder, submit them without touching beads, and copy normalized JSON only.</p>
-      </header>
+      </header> : null}
       {error ? <p role="alert" className="beadsform-error">{error}</p> : null}
       {loaded && !loaded.selectedForm ? (
         <section>
@@ -242,13 +316,21 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
       ) : null}
       {loaded?.selectedForm ? (
         <section>
-          <div className="beadsform-heading-row">
+          <header className="beadsform-heading-row">
             <div>
-              <p><code>{loaded.selectedForm.sourceFile}</code></p>
+              <p className="beadsform-eyebrow">Forms preview</p>
+              <h1>{loaded.selectedForm.title}</h1>
+              {loaded.selectedForm.description ? <p>{loaded.selectedForm.description}</p> : null}
             </div>
             <a href={previewFormUrl({ folder: loaded.folder })}>All forms</a>
-          </div>
-          <div onSubmit={handleSubmit} dangerouslySetInnerHTML={{ __html: selectedHtml }} />
+          </header>
+          <div
+            ref={formHostRef}
+            onInput={handleDraftChange}
+            onChange={handleDraftChange}
+            onSubmit={handleSubmit}
+            dangerouslySetInnerHTML={{ __html: selectedHtml }}
+          />
         </section>
       ) : null}
       {submitting ? <p>Submitting…</p> : null}
@@ -256,6 +338,15 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
         <section className="beadsform-submit-result">
           <h2>JSON copied</h2>
           <p>Copied normalized JSON to your clipboard.</p>
+          {submitResult.sidecarPath ? <p>Saved preview response to <code>{submitResult.sidecarPath}</code>.</p> : null}
+          {submitResult.warnings.length > 0 ? (
+            <div className="beadsform-warning" role="status">
+              <h3>Warnings</h3>
+              <ul>{submitResult.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>
+            </div>
+          ) : null}
+          {submittedLocked ? <p>The visual form is locked to this submitted response until you edit it.</p> : null}
+          <button type="button" onClick={handleEditResponse}>Edit response</button>
           <pre><code>{JSON.stringify(submitResult.values, null, 2)}</code></pre>
         </section>
       ) : null}
@@ -495,7 +586,17 @@ springboard.registerModule(
         const values = normalizeSubmittedValues(form, input.values);
         const validationErrors = validateSubmittedValues(form, values);
         if (validationErrors.length > 0) throw new Error(validationErrors.join('\n'));
-        return { formId: form.id, values };
+        const submittedAt = new Date().toISOString();
+        const warnings: string[] = [];
+        let sidecarPath: string | undefined;
+        try {
+          const sidecar = await appendBeadsFormPreviewResponse(input.folder, form.id, values, submittedAt);
+          sidecarPath = sidecar.sidecarPath;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          warnings.push(`Preview response sidecar write failed: ${message}`);
+        }
+        return { formId: form.id, values, submittedAt, ...(sidecarPath ? { sidecarPath } : {}), warnings };
       },
       loadBeadForms: async (input: LoadFormsInput): Promise<LoadFormsResult> => {
         if (!input.dir.trim()) throw new Error('dir is required');
