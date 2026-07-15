@@ -26,4 +26,12 @@ describe('BeadsForm styles', () => {
     expect(css).not.toMatch(/\.beadsform-root \.beadsform-single-question-layout\s*\{[^}]*display:\s*grid/s);
     expect(css).not.toMatch(/\.beadsform-root \.beadsform-single-question-notes\s*\{[^}]*position:\s*sticky/s);
   });
+
+  it('styles compact more-info toggles and hidden note textareas', async () => {
+    const css = await readFile(new URL('./styles.css', import.meta.url), 'utf8');
+
+    expect(css).toMatch(/\.beadsform-root \.beads-form-more-info-toggle\s*\{[^}]*border-radius:\s*999px/s);
+    expect(css).toMatch(/\.beadsform-root \.beads-form-more-info-toggle\.has-value\s*\{[^}]*border-color:\s*#60a5fa/s);
+    expect(css).toMatch(/\.beadsform-root \.beads-form-more-info-textarea\[hidden\]\s*\{[^}]*display:\s*none/s);
+  });
 });

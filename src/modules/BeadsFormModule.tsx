@@ -28,6 +28,7 @@ import {
 } from '../lib/beadsFormPreviewState';
 import { rewriteFolderPreviewMediaRefs } from '../lib/beadsFormPreviewMedia';
 import { initializeSingleQuestionMode } from '../lib/beadsFormSingleQuestion';
+import { initializeCompactMoreInfo, refreshCompactMoreInfoState } from '../lib/beadsFormMoreInfo';
 
 // @platform "node"
 import { serverRegistry } from 'springboard/server/register';
@@ -173,9 +174,11 @@ function preserveSubmittedFormDom(
   const apply = () => {
     if (!host) return;
     if (options.singleQuestionMode) initializeSingleQuestionMode(host);
+    initializeCompactMoreInfo(host);
     const form = host.querySelector('form');
     if (!form) return;
     applyValuesToForm(form, values);
+    refreshCompactMoreInfoState(host);
     setSubmitButtonsDisabled(form, options.lock);
     setFormFieldsReadOnly(form, options.lock);
   };
@@ -247,6 +250,8 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
     if (restoredValues) {
       applyValuesToForm(form, restoredValues);
     }
+    initializeCompactMoreInfo(host);
+    refreshCompactMoreInfoState(host);
 
     const locked = !!snapshot.latest && !snapshot.editing;
     setSubmittedLocked(locked);
@@ -266,6 +271,13 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
     if (!host) return undefined;
     return initializeSingleQuestionMode(host);
   }, [loaded?.selectedForm?.format, previewStateKey, selectedHtml]);
+
+  React.useEffect(() => {
+    const host = formHostRef.current;
+    if (!host || !loaded?.selectedForm) return;
+    initializeCompactMoreInfo(host);
+    refreshCompactMoreInfoState(host);
+  }, [loaded?.selectedForm, selectedHtml]);
 
   const handleDraftChange = () => {
     if (submittedLocked || !previewStateKey || typeof window === 'undefined') return;
@@ -475,6 +487,11 @@ function BeadsFormRoute({ actions }: { actions: {
     if (restoredValues) {
       applyValuesToForm(form, restoredValues);
     }
+    const host = formHostRef.current;
+    if (host) {
+      initializeCompactMoreInfo(host);
+      refreshCompactMoreInfoState(host);
+    }
     const locked = !!snapshot.latest && !snapshot.editing;
     setSubmittedLocked(locked);
     setSubmitButtonsDisabled(form, locked);
@@ -487,6 +504,13 @@ function BeadsFormRoute({ actions }: { actions: {
     if (!host) return undefined;
     return initializeSingleQuestionMode(host);
   }, [beadDraftStorageKey, loaded?.selected?.selectedForm?.format, selectedHtml]);
+
+  React.useEffect(() => {
+    const host = formHostRef.current;
+    if (!host || !loaded?.selected?.selectedForm) return;
+    initializeCompactMoreInfo(host);
+    refreshCompactMoreInfoState(host);
+  }, [loaded?.selected?.selectedForm, selectedHtml]);
 
   const handleBeadDraftChange = () => {
     if (submittedLocked || !beadDraftStorageKey || typeof window === 'undefined') return;
