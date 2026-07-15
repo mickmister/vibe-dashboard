@@ -80,6 +80,9 @@ describe('BeadsClient', () => {
           { id: 'unscoped', title: 'Unscoped', metadata: {} },
         ]), stderr: '' };
       }
+      if (options.cwd.endsWith('repo-b') && args[0] === 'list') {
+        throw Object.assign(new Error('Command failed: bd list'), { stderr: 'Error: no beads database found' });
+      }
       return { stdout: '[]', stderr: '' };
     });
     const client = new BeadsClient({ execFile: exec });
@@ -97,6 +100,37 @@ describe('BeadsClient', () => {
     });
     expect(result.repos[0]!.beads.map((bead) => bead.id)).toEqual(['current']);
     expect(result.repos[1]).toMatchObject({ initialized: false, beads: [] });
+  });
+
+  it('treats a repo as initialized when bd resolves a database even without a local .beads directory', async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), 'beads-workspace-'));
+    await mkdir(join(workspaceDir, 'repo-a'), { recursive: true });
+    const exec = vi.fn<ExecFileLike>(async (_file, args, options) => {
+      expect(options.cwd).toBe(join(workspaceDir, 'repo-a'));
+      if (args[0] === 'list') return { stdout: JSON.stringify([{ id: 'current' }]), stderr: '' };
+      if (args[0] === 'show') {
+        return {
+          stdout: JSON.stringify([
+            { id: 'current', title: 'Current', metadata: { VK_WORKSPACE_ID: 'workspace-1' } },
+          ]),
+          stderr: '',
+        };
+      }
+      return { stdout: '[]', stderr: '' };
+    });
+    const client = new BeadsClient({ execFile: exec });
+
+    const result = await client.listWorkspaceBeads({
+      workspaceId: 'workspace-1',
+      workspaceDir,
+      repos: [{ id: 'repo-a', name: 'repo-a' }],
+    });
+
+    expect(result.repos[0]).toMatchObject({
+      dir: join(workspaceDir, 'repo-a'),
+      initialized: true,
+      beads: [{ id: 'current', title: 'Current', metadata: { VK_WORKSPACE_ID: 'workspace-1' } }],
+    });
   });
 
   it('resolves owner/repo workspace repo names to basename checkout directories', async () => {

@@ -154,20 +154,6 @@ export class BeadsClient {
     }
 
     try {
-      await access(join(input.dir, '.beads'));
-    } catch {
-      return {
-        repo: input.repo,
-        dir: input.dir,
-        dirExists: true,
-        initialized: false,
-        beads: [],
-        unscopedCount: 0,
-        otherWorkspaceCount: 0,
-      };
-    }
-
-    try {
       const { stdout } = await this.exec(this.bdPath, ['list', '--json', '--all', '--limit', '0'], {
         cwd: input.dir,
         timeout: 30_000,
@@ -199,6 +185,17 @@ export class BeadsClient {
         otherWorkspaceCount,
       };
     } catch (error) {
+      if (isNoBeadsDatabaseError(error)) {
+        return {
+          repo: input.repo,
+          dir: input.dir,
+          dirExists: true,
+          initialized: false,
+          beads: [],
+          unscopedCount: 0,
+          otherWorkspaceCount: 0,
+        };
+      }
       return {
         repo: input.repo,
         dir: input.dir,
@@ -338,4 +335,13 @@ function getMetadataString(metadata: unknown, key: string): string | undefined {
   if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return undefined;
   const value = (metadata as Record<string, unknown>)[key];
   return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+function isNoBeadsDatabaseError(error: unknown): boolean {
+  const text = [
+    error instanceof Error ? error.message : String(error),
+    error && typeof error === 'object' && 'stderr' in error ? String(error.stderr) : '',
+    error && typeof error === 'object' && 'stdout' in error ? String(error.stdout) : '',
+  ].join('\n');
+  return /no beads database found/i.test(text);
 }
