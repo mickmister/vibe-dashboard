@@ -41,11 +41,11 @@ tmux new-session -d -s beadsform-shared-preview-55123 \
   'npm run dev:beads-form-preview -- --folder /tmp/beads-form-preview --port 55123 --server-port 55124 --host https://port-55123.jamtools.dev 2>&1 | tee /tmp/beadsform-shared-preview-55123.log'
 ```
 
-## 2. Create a form JSON
+## 2. Draft standard form JSON inline
 
-Write standard BeadsForm JSON. Prefer the standard DSL, not raw HTML.
+Write standard BeadsForm JSON. Prefer the standard DSL, not raw HTML. The default bead-backed workflow is **inline JSON via stdin** so agents do not need to create a temporary `form.json` file first. Use a file only when the form is large enough that audit/debuggability matters.
 
-Example:
+Example JSON shape:
 
 ```json
 {
@@ -95,9 +95,9 @@ Guidelines:
 - Use `allowCodeFileChanges`; if the answer returns `allow_code_file_changes=false`, do not edit files—make another form or continue discussion.
 - Keep `additional_notes` as the master notes field.
 
-## 3. Attach the form to a bead
+## 3. Attach the form to a bead with inline JSON
 
-Create or choose a bead in the repo where the work belongs, then attach:
+Create or choose a bead in the repo where the work belongs, then attach the form with `--stdin`:
 
 ```bash
 cd /var/tmp/vibe-kanban/worktrees/8299-beads-web-show-m/beads-web
@@ -106,15 +106,39 @@ bd create "Decide implementation questions" --type task --priority 2
 cd /var/tmp/vibe-kanban/worktrees/beadsform-next/vibe-kanban-vscode-web
 beads-form attach \
   --bead <bead-id> \
-  --file /path/to/form.json \
   --dir /var/tmp/vibe-kanban/worktrees/8299-beads-web-show-m/beads-web \
-  --origin https://port-55123.jamtools.dev
+  --origin https://port-55123.jamtools.dev \
+  --stdin <<'JSON'
+{
+  "format": "standard",
+  "id": "implementation_questions",
+  "title": "Implementation questions",
+  "description": "Resolve decisions before code changes.",
+  "allowCodeFileChanges": {
+    "label": "Allow implementation after this response",
+    "description": "Use allow-code only if the next agent may edit code/files.",
+    "defaultChecked": false
+  },
+  "questions": [
+    {
+      "type": "textarea",
+      "id": "additional_notes",
+      "title": "Additional notes",
+      "description": "Anything else the next agent should know?"
+    }
+  ]
+}
+JSON
 ```
 
-If `beads-form` is not on PATH yet, use:
+For very small forms, `--json '<raw-json>'` also works. For large forms, `--file form.json` is still supported and can be easier to review/debug.
+
+If `beads-form` is not on PATH yet, use the same inline flow through npm:
 
 ```bash
-npm run beads-form -- attach -- --bead <bead-id> --file /path/to/form.json --dir <repo-dir> --origin https://port-55123.jamtools.dev
+npm run beads-form -- attach -- --bead <bead-id> --dir <repo-dir> --origin https://port-55123.jamtools.dev --stdin <<'JSON'
+{ "format": "standard", "id": "quick_question", "title": "Quick question", "questions": [] }
+JSON
 ```
 
 The command prints URLs. Prefer the direct `dir=` URL if the workspace URL does not resolve:
