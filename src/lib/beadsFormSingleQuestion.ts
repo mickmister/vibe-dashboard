@@ -65,7 +65,7 @@ export function initializeSingleQuestionMode(host: ParentNode): SingleQuestionMo
   const listButtons = Array.from(questionList.querySelectorAll<HTMLButtonElement>('button'));
   const submitActions = form.querySelector<HTMLElement>('.beads-form-submit-actions');
 
-  function render() {
+  function render(options: { scrollToQuestion?: boolean } = {}) {
     questions.forEach((question, index) => {
       question.hidden = index !== activeIndex;
     });
@@ -79,6 +79,15 @@ export function initializeSingleQuestionMode(host: ParentNode): SingleQuestionMo
     if (submitActions) {
       submitActions.hidden = activeIndex !== questions.length - 1;
     }
+    if (options.scrollToQuestion) scrollActiveQuestionIntoView();
+  }
+
+  function scrollActiveQuestionIntoView() {
+    progress.scrollIntoView?.({
+      block: 'start',
+      inline: 'nearest',
+      behavior: 'smooth',
+    });
   }
 
   function firstInvalidControl(question: HTMLFieldSetElement): HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | undefined {
@@ -101,15 +110,16 @@ export function initializeSingleQuestionMode(host: ParentNode): SingleQuestionMo
 
   function goTo(index: number) {
     const target = Math.max(0, Math.min(index, questions.length - 1));
+    const startingIndex = activeIndex;
     if (target > activeIndex) {
       for (let current = activeIndex; current < target; current += 1) {
         activeIndex = current;
-        render();
+        render({ scrollToQuestion: activeIndex !== startingIndex });
         if (!questionIsValid(current)) return;
       }
     }
     activeIndex = target;
-    render();
+    render({ scrollToQuestion: activeIndex !== startingIndex });
   }
 
   function handleSubmit(event: SubmitEvent) {
@@ -118,8 +128,9 @@ export function initializeSingleQuestionMode(host: ParentNode): SingleQuestionMo
 
     event.preventDefault();
     event.stopImmediatePropagation();
+    const startingIndex = activeIndex;
     activeIndex = invalidIndex >= 0 ? invalidIndex : questions.length - 1;
-    render();
+    render({ scrollToQuestion: activeIndex !== startingIndex });
     if (invalidIndex >= 0) questionIsValid(invalidIndex);
   }
 

@@ -63,6 +63,42 @@ describe('BeadsForm single-question mode', () => {
     expect(document.querySelector('.beadsform-single-question-progress')?.textContent).toBe('Question 1 of 2');
   });
 
+  it('scrolls the question progress into view when navigation changes the active question', () => {
+    document.body.innerHTML = `
+      <div id="host">
+        <form>
+          <fieldset><legend>First</legend><input name="first"></fieldset>
+          <fieldset><legend>Second</legend><input name="second"></fieldset>
+          <fieldset><legend>Third</legend><input name="third"></fieldset>
+        </form>
+      </div>
+    `;
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+    const scrollIntoView = vi.fn();
+    HTMLElement.prototype.scrollIntoView = scrollIntoView;
+    try {
+      initializeSingleQuestionMode(document.querySelector('#host')!);
+      expect(scrollIntoView).not.toHaveBeenCalled();
+
+      document.querySelectorAll<HTMLButtonElement>('.beadsform-single-question-controls button')[1]!.click();
+
+      expect(scrollIntoView).toHaveBeenCalledWith({
+        block: 'start',
+        inline: 'nearest',
+        behavior: 'smooth',
+      });
+      expect(document.querySelector('.beadsform-single-question-progress')?.textContent).toBe('Question 2 of 3');
+
+      scrollIntoView.mockClear();
+      document.querySelectorAll<HTMLButtonElement>('.beadsform-single-question-list-button')[2]!.click();
+
+      expect(scrollIntoView).toHaveBeenCalledTimes(1);
+      expect(document.querySelector('.beadsform-single-question-progress')?.textContent).toBe('Question 3 of 3');
+    } finally {
+      HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
+    }
+  });
+
   it('does not allow question-list jumps to skip an invalid intermediate question', () => {
     document.body.innerHTML = `
       <div id="host">
