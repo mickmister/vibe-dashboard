@@ -73,8 +73,11 @@ describe('first-party service plugin inventory and golden supervisor config', ()
     expect(goldenDockerfile).toContain('COPY plugins/scripts/vd-plugin-service-runner.mjs /usr/local/bin/vd-plugin-service-runner.mjs');
     expect(goldenDockerfile).toContain('COPY --from=dashboard-builder /app/dist/vibe-agent /opt/vibe-kanban-vscode-web-seed/dist/vibe-agent');
     expect(goldenDockerfile).toContain('exec node /opt/vibe-kanban-vscode-web-seed/dist/vibe-agent/legacy-cli/vibe-agent.js "$@"');
+    expect(goldenDockerfile).toContain('exec node --experimental-strip-types /opt/vibe-kanban-vscode-web-seed/scripts/beads-form/cli.ts "$@"');
     expect(goldenDockerfile).toContain('command -v vibe-agent');
+    expect(goldenDockerfile).toContain('command -v beads-form');
     expect(goldenDockerfile).toContain('vibe-agent --help >/dev/null');
+    expect(goldenDockerfile).toContain('beads-form --help >/dev/null');
     expect(goldenDockerfile).toContain('ENV PATH="/usr/local/lib/vk-bd-wrapper/bin:${PATH}"');
     expect(goldenDockerfile).toContain('export PATH=/usr/local/lib/vk-bd-wrapper/bin:/var/lib/vd/plugin-bin');
     expect(dockerEntrypoint).toContain('Runtime plugin apply writes generated routes here after Caddy starts, then reloads Caddy.');

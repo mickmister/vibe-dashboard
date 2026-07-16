@@ -170,18 +170,34 @@ Bead-backed storage is the primary workflow for real agent/user handoff. Folder 
 2. Attach it to the bead from the repo that owns the bead:
 
    ```sh
+   beads-form attach --bead <bead-id> --file form.json
+   beads-form attach --bead <bead-id> --stdin < form.json
+   beads-form attach --bead <bead-id> --json '{"format":"standard",...}'
+
    npm run beads-form -- attach --bead <bead-id> --file form.json
    npm run beads-form -- attach --bead <bead-id> --stdin < form.json
    npm run beads-form -- attach --bead <bead-id> --json '{"format":"standard",...}'
    ```
 
-   Use `--dir <repo>` when not running from the bead repo, `--origin <origin>` to print full URLs, and `--workspace <workspace-id>` when `VK_WORKSPACE_ID` is unavailable. Duplicate form ids on the bead are errors by default. Local folder-relative media refs are rejected in bead-backed attach; keep local media in folder preview until bead-backed media policy is designed.
+   `npm run beads-form -- ...` remains supported, but agent shells in the VD runtime should have the stable `beads-form` command on `PATH` next to `vibe-agent`.
+
+   Use `--dir <repo>` when not running from the bead repo, `--origin <origin>` to print full URLs, and `--workspace <workspace-id>` when `VK_WORKSPACE_ID` is unavailable. Explicit `--origin` has highest precedence. To avoid repeatedly passing it, set `BEADS_FORM_ORIGIN`/`VD_BEADS_FORM_ORIGIN`, or seed `${XDG_CONFIG_HOME:-~/.config}/vibe-dashboard/beads-form.json` with:
+
+   ```json
+   { "origin": "https://your-vd-origin.example" }
+   ```
+
+   Do not hardcode `jamtools.dev`; use the active deployment origin. Duplicate form ids on the bead are errors by default. Local folder-relative media refs are rejected in bead-backed attach; keep local media in folder preview until bead-backed media policy is designed.
 
 3. Give the human the printed `/dashboard/forms?...` URL.
 
 4. After submission, read handoff output with the read-only show command:
 
    ```sh
+   beads-form show --bead <bead-id>
+   beads-form show --bead <bead-id> --form <form-id>
+   beads-form show --bead <bead-id> --include-html
+
    npm run beads-form -- show --bead <bead-id>
    npm run beads-form -- show --bead <bead-id> --form <form-id>
    npm run beads-form -- show --bead <bead-id> --include-html

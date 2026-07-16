@@ -90,6 +90,7 @@
   },
   "bin": {
     "vibe-agent": "./bin/vibe-agent",
-    "vk": "./bin/vk"
+    "vk": "./bin/vk",
+    "beads-form": "./bin/beads-form"
   }
 }

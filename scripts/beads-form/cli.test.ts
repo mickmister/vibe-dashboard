@@ -1,3 +1,6 @@
+import { mkdir, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import {
   attachBeadsForms,
@@ -8,6 +11,7 @@ import {
   collectHtmlMediaRefs,
   parseBeadsFormCliArgs,
   parseFormsJsonForAttach,
+  resolveBeadsFormOrigin,
   selectFormForShow,
   type AttachOptions,
 } from './cli';
@@ -44,6 +48,26 @@ describe('beads-form CLI helpers', () => {
       command: 'show',
       options: expect.objectContaining({ beadId: 'bd-1', formId: 'review', includeHtml: true }),
     });
+  });
+
+  it('resolves attach origin from explicit flag, env, then config without hardcoded defaults', async () => {
+    const configDir = join(tmpdir(), `beads-form-config-${process.pid}-${Date.now()}`);
+    const configPath = join(configDir, 'beads-form.json');
+    await mkdir(configDir, { recursive: true });
+    await writeFile(configPath, JSON.stringify({ origin: 'https://config.example.test/some/path' }), 'utf8');
+
+    expect(resolveBeadsFormOrigin({
+      explicitOrigin: 'https://flag.example.test/path',
+      env: { BEADS_FORM_ORIGIN: 'https://env.example.test' },
+      configPath,
+    })).toBe('https://flag.example.test');
+    expect(resolveBeadsFormOrigin({
+      env: { BEADS_FORM_ORIGIN: 'https://env.example.test/path' },
+      configPath,
+    })).toBe('https://env.example.test');
+    expect(resolveBeadsFormOrigin({ env: {}, configPath })).toBe('https://config.example.test');
+    expect(resolveBeadsFormOrigin({ env: {}, configPath: join(configDir, 'missing.json') })).toBeUndefined();
+    expect(() => resolveBeadsFormOrigin({ explicitOrigin: 'file:///tmp/forms' })).toThrow('Invalid BeadsForm origin protocol');
   });
 
   it('accepts direct, array, forms wrapper, and metadata wrapper JSON input shapes', () => {

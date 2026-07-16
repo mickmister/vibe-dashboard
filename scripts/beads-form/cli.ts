@@ -1,8 +1,9 @@
 /// <reference types="node" />
 
 import { execFile } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
@@ -13,6 +14,8 @@ import {
 } from '../../packages/beads-form/src/index.ts';
 
 const execFileAsync = promisify(execFile);
+const DEFAULT_CONFIG_DIR_NAME = 'vibe-dashboard';
+const DEFAULT_CONFIG_FILE_NAME = 'beads-form.json';
 
 export type JsonObject = Record<string, unknown>;
 
@@ -175,13 +178,14 @@ function normalizeAttachOptions(options: CliOptions): AttachOptions {
   const stdin = options.stdin === true;
   const inputCount = [file, json, stdin ? 'stdin' : undefined].filter(Boolean).length;
   if (inputCount !== 1) throw new Error('attach requires exactly one of --file, --json, or --stdin');
+  const origin = resolveBeadsFormOrigin({ explicitOrigin: stringOption(options, 'origin') });
   return {
     dir: resolve(stringOption(options, 'dir') ?? process.cwd()),
     beadId,
     ...(file ? { file } : {}),
     ...(json ? { json } : {}),
     ...(stdin ? { stdin: true } : {}),
-    ...(stringOption(options, 'origin') ? { origin: stringOption(options, 'origin') } : {}),
+    ...(origin ? { origin } : {}),
     ...(stringOption(options, 'workspace') ?? process.env.VK_WORKSPACE_ID
       ? { workspaceId: stringOption(options, 'workspace') ?? process.env.VK_WORKSPACE_ID }
       : {}),
@@ -202,6 +206,49 @@ function normalizeShowOptions(options: CliOptions): ShowOptions {
 function stringOption(options: CliOptions, key: string): string | undefined {
   const value = options[key];
   return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+export function resolveBeadsFormOrigin(input: {
+  explicitOrigin?: string;
+  env?: NodeJS.ProcessEnv;
+  configPath?: string;
+} = {}): string | undefined {
+  const env = input.env ?? process.env;
+  const candidate = input.explicitOrigin
+    ?? stringEnv(env, 'BEADS_FORM_ORIGIN')
+    ?? stringEnv(env, 'VD_BEADS_FORM_ORIGIN')
+    ?? readOriginConfig(input.configPath ?? defaultOriginConfigPath(env));
+  return candidate ? normalizeOrigin(candidate) : undefined;
+}
+
+function defaultOriginConfigPath(env: NodeJS.ProcessEnv): string {
+  const configHome = stringEnv(env, 'XDG_CONFIG_HOME') ?? join(homedir(), '.config');
+  return join(configHome, DEFAULT_CONFIG_DIR_NAME, DEFAULT_CONFIG_FILE_NAME);
+}
+
+function stringEnv(env: NodeJS.ProcessEnv, key: string): string | undefined {
+  const value = env[key];
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function readOriginConfig(configPath: string): string | undefined {
+  if (!existsSync(configPath)) return undefined;
+  const parsed = JSON.parse(readFileSync(configPath, 'utf8')) as unknown;
+  if (!isObject(parsed) || typeof parsed.origin !== 'string' || !parsed.origin.trim()) return undefined;
+  return parsed.origin;
+}
+
+function normalizeOrigin(origin: string): string {
+  let url: URL;
+  try {
+    url = new URL(origin);
+  } catch {
+    throw new Error(`Invalid BeadsForm origin: ${origin}`);
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new Error(`Invalid BeadsForm origin protocol: ${url.protocol}`);
+  }
+  return url.origin;
 }
 
 export async function readAttachInput(options: AttachOptions, stdin = process.stdin): Promise<string> {
@@ -565,8 +612,17 @@ function isObject(value: unknown): value is JsonObject {
 
 function printHelp(): void {
   console.log(`Usage:
+  beads-form attach --bead <id> (--file form.json | --json raw-json | --stdin) [--dir repo] [--origin origin]
+  beads-form show --bead <id> [--form form-id] [--dir repo] [--include-html]
+
+Also supported:
   npm run beads-form -- attach --bead <id> (--file form.json | --json raw-json | --stdin) [--dir repo] [--origin origin]
   npm run beads-form -- show --bead <id> [--form form-id] [--dir repo] [--include-html]
+
+Attach origin precedence:
+  1. explicit --origin
+  2. BEADS_FORM_ORIGIN or VD_BEADS_FORM_ORIGIN
+  3. ${DEFAULT_CONFIG_FILE_NAME} with {"origin":"https://example.test"} under XDG_CONFIG_HOME/${DEFAULT_CONFIG_DIR_NAME}/
 
 Default show output is JSON and includes all responses.`);
 }

@@ -333,11 +333,14 @@ RUN chown -R vkuser:vkadmin /opt/vibe-kanban-vscode-web-seed && \
     find /opt/vibe-kanban-vscode-web-seed -type d -exec chmod g+s {} +
 RUN printf '#!/bin/sh\nexec node /opt/vibe-kanban-vscode-web-seed/dist/vibe-agent/legacy-cli/vibe-agent.js "$@"\n' > /usr/local/bin/vibe-agent && \
     printf '#!/bin/sh\nexec node /opt/vibe-kanban-vscode-web-seed/dist/vibe-agent/cli/vk.js "$@"\n' > /usr/local/bin/vk && \
-    chmod 0755 /usr/local/bin/vibe-agent /usr/local/bin/vk
+    printf '#!/bin/sh\nexec node --experimental-strip-types /opt/vibe-kanban-vscode-web-seed/scripts/beads-form/cli.ts "$@"\n' > /usr/local/bin/beads-form && \
+    chmod 0755 /usr/local/bin/vibe-agent /usr/local/bin/vk /usr/local/bin/beads-form
 RUN command -v vibe-agent && \
     command -v vk && \
+    command -v beads-form && \
     vibe-agent --help >/dev/null && \
-    vk --help >/dev/null
+    vk --help >/dev/null && \
+    beads-form --help >/dev/null
 
 # Copy packaged vibe-dashboard runtime artifacts to their final runtime path
 RUN mkdir -p /home/vkuser/.local/share/vibe-dashboard-runtime
