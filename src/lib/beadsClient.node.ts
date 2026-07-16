@@ -1,7 +1,7 @@
 /// <reference types="node" />
 
 import { execFile } from 'node:child_process';
-import { access, readdir } from 'node:fs/promises';
+import { access, readdir, realpath } from 'node:fs/promises';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
@@ -156,10 +156,12 @@ export class BeadsClient {
     reposRoot?: string;
     repoLimit?: number;
   } = {}): Promise<PendingBeadsFormQueueResult> {
-    const reposRoot = input.reposRoot ?? join(homedir(), 'repos');
+    const requestedReposRoot = input.reposRoot ?? join(homedir(), 'repos');
     const repoLimit = input.repoLimit ?? 80;
     let repoDirs: string[];
+    let reposRoot: string;
     try {
+      reposRoot = await realpath(requestedReposRoot);
       repoDirs = (await readdir(reposRoot, { withFileTypes: true }))
         .filter((entry) => entry.isDirectory())
         .map((entry) => entry.name)
@@ -169,11 +171,11 @@ export class BeadsClient {
         .map((name) => join(reposRoot, name));
     } catch (error) {
       return {
-        reposRoot,
+        reposRoot: requestedReposRoot,
         repoLimit,
         reposScanned: 0,
         entries: [],
-        skipped: [{ repoDir: reposRoot, reason: error instanceof Error ? error.message : String(error) }],
+        skipped: [{ repoDir: requestedReposRoot, reason: error instanceof Error ? error.message : String(error) }],
         updateStrategy: pendingQueueUpdateStrategy(),
       };
     }
@@ -239,6 +241,7 @@ export class BeadsClient {
     })).stdout);
 
     return beads.flatMap((bead) => {
+      if (isClosedBead(bead)) return [];
       const forms = getBeadsForms(bead.metadata)
         .filter((form) => (form.responses?.length ?? 0) === 0);
       return forms.map((form) => ({
@@ -408,6 +411,10 @@ function pendingQueueUpdateStrategy(): PendingBeadsFormQueueResult['updateStrate
     mode: 'explicit-refresh',
     rationale: 'Use an explicit refresh action for the MVP. bd list --watch is display-oriented, while readonly bounded scans avoid long-lived filesystem/database watchers, unexpected migrations, and cross-repo DB corruption risks.',
   };
+}
+
+function isClosedBead(bead: BeadLike): boolean {
+  return bead.status?.trim().toLowerCase() === 'closed';
 }
 
 export function createNodeBeadsClient(options?: BeadsClientOptions): BeadsClient {

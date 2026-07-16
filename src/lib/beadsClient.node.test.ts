@@ -197,12 +197,13 @@ describe('BeadsClient', () => {
     const exec = vi.fn<ExecFileLike>(async (_file, args, options) => {
       expect(args[0]).toBe('--readonly');
       if (options.cwd.endsWith('repo-a') && args[1] === 'list') {
-        return { stdout: args.includes('beadForms') ? JSON.stringify([{ id: 'pending' }, { id: 'done' }]) : '[]', stderr: '' };
+        return { stdout: args.includes('beadForms') ? JSON.stringify([{ id: 'pending' }, { id: 'done' }, { id: 'closed' }]) : '[]', stderr: '' };
       }
       if (options.cwd.endsWith('repo-a') && args[1] === 'show') {
         return { stdout: JSON.stringify([
           { id: 'pending', title: 'Pending bead', metadata: { beadForms: { forms: [{ id: 'review', title: 'Review', html: '<form></form>' }] } } },
           { id: 'done', title: 'Done bead', metadata: { beadForms: { forms: [{ id: 'done_form', title: 'Done', html: '<form></form>', responses: [{ submittedAt: 'now', submittedBy: 'user', values: {} }] }] } } },
+          { id: 'closed', title: 'Closed bead', status: 'closed', metadata: { beadForms: { forms: [{ id: 'closed_form', title: 'Closed', html: '<form></form>' }] } } },
         ]), stderr: '' };
       }
       if (options.cwd.endsWith('repo-b')) {
@@ -216,6 +217,7 @@ describe('BeadsClient', () => {
 
     expect(result.reposScanned).toBe(2);
     expect(result.repoLimit).toBe(2);
+    expect(result.reposRoot).toBe(reposRoot);
     expect(result.entries).toEqual([{
       repoDir: join(reposRoot, 'repo-a'),
       repoName: 'repo-a',

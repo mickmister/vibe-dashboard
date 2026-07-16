@@ -406,10 +406,11 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
   );
 }
 
-function BeadsFormPendingQueue({ actions }: {
+function BeadsFormPendingQueue({ actions, parentDir }: {
   actions: {
     loadPendingForms: (input: LoadPendingFormsInput) => MaybeNestedPromise<LoadPendingFormsResult>;
   };
+  parentDir?: string;
 }) {
   const [pending, setPending] = useState<LoadPendingFormsResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -419,14 +420,16 @@ function BeadsFormPendingQueue({ actions }: {
     setLoading(true);
     setError(null);
     try {
-      const result = await (await actions.loadPendingForms({}));
+      const result = await (await actions.loadPendingForms({
+        ...(parentDir ? { reposRoot: parentDir } : {}),
+      }));
       setPending(result);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
       setLoading(false);
     }
-  }, [actions]);
+  }, [actions, parentDir]);
 
   React.useEffect(() => {
     void load();
@@ -437,13 +440,13 @@ function BeadsFormPendingQueue({ actions }: {
       <header className="beadsform-heading-row">
         <div>
           <p className="beadsform-eyebrow">Forms</p>
-          <h1>Pending BeadsForm submissions</h1>
-          <p>Forms listed here have no submitted responses yet. Use Refresh after agents attach new forms or humans submit responses.</p>
+          <h1>{parentDir ? 'Open BeadsForms by parent directory' : 'Pending BeadsForm submissions'}</h1>
+          <p>Forms listed here are attached to non-closed beads and have no submitted responses yet. Use Refresh after agents attach new forms or humans submit responses.</p>
         </div>
         <button type="button" onClick={() => void load()} disabled={loading}>{loading ? 'Refreshing…' : 'Refresh'}</button>
       </header>
       {error ? <p role="alert" className="beadsform-error">{error}</p> : null}
-      {!pending && !error ? <p>Scanning bead projects under <code>~/repos</code>…</p> : null}
+      {!pending && !error ? <p>Scanning first-level child directories under <code>{parentDir || '~/repos'}</code>…</p> : null}
       {pending ? (
         <>
           <section className="beadsform-warning" role="note">
@@ -496,6 +499,7 @@ function BeadsFormRoute({ actions }: { actions: {
   const [params] = useSearchParams();
   const workspaceId = params.get('workspace') ?? '';
   const dir = params.get('dir') ?? '';
+  const parentDir = params.get('parentDir') ?? '';
   const beadId = params.get('bead') ?? '';
   const formId = params.get('form') ?? undefined;
   const includeOtherWorkspaces = params.get('scope') === 'all';
@@ -667,7 +671,7 @@ function BeadsFormRoute({ actions }: { actions: {
   };
 
   if (!workspaceId && (!dir || !beadId)) {
-    return <BeadsFormPendingQueue actions={actions} />;
+    return <BeadsFormPendingQueue actions={actions} parentDir={parentDir || undefined} />;
   }
 
   if (error && !loaded) {

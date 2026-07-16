@@ -36,6 +36,7 @@ export type BeadLike = {
   id: string;
   title?: string;
   description?: string;
+  status?: string;
   metadata?: JsonObject | null;
 };
 
