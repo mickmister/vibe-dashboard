@@ -24,12 +24,14 @@ describe('BeadsForm single-question mode', () => {
     expect(document.querySelector<HTMLElement>('.beads-form-submit-actions')?.hidden).toBe(true);
     expect(document.querySelector('.beadsform-single-question-notes textarea[name="additional_notes"]')).toBeTruthy();
     expect(Array.from(document.querySelector('.beadsform-single-question-main')!.children).map((child) => child.className)).toEqual([
-      'beadsform-single-question-progress',
       'beadsform-single-question-notes',
+      'beadsform-single-question-progress',
       'beadsform-single-question-item',
       'beadsform-single-question-item',
       'beadsform-single-question-controls',
     ]);
+    expect(document.querySelector('.beadsform-single-question-progress')?.previousElementSibling?.className).toBe('beadsform-single-question-notes');
+    expect(document.querySelector('.beadsform-single-question-progress')?.nextElementSibling?.textContent).toContain('First question');
     expect(Array.from(document.querySelectorAll('.beadsform-single-question-list-button')).map((button) => button.textContent)).toEqual([
       'First question',
       'Second question',

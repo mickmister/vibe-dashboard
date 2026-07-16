@@ -41,8 +41,8 @@ export function initializeSingleQuestionMode(host: ParentNode): SingleQuestionMo
 
   form.insertBefore(layout, firstQuestion);
   layout.append(questionList, main);
-  main.append(progress);
   if (masterNotes) main.append(notesPanel);
+  main.append(progress);
 
   questions.forEach((question, index) => {
     question.classList.add('beadsform-single-question-item');
