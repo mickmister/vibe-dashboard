@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import {
   applyValuesToForm,
   beadFormStorageKey,
+  clearPreviewStorage,
+  latestSubmittedResponseValues,
   previewStorageKey,
   readPreviewStorage,
   setFormFieldsReadOnly,
@@ -88,6 +90,32 @@ describe('BeadsForm preview state helpers', () => {
     applyValuesToForm(form, snapshot.draft ?? {});
 
     expect(form.querySelector('textarea')?.value).toBe('Saved draft');
+  });
+
+  it('clears bead-backed localStorage after successful backend submission', () => {
+    const key = beadFormStorageKey({
+      workspaceId: 'workspace-1',
+      dir: '/repo-a',
+      beadId: 'beads-web-1',
+      formId: 'review',
+    });
+    localStorage.clear();
+
+    writePreviewDraft(localStorage, key, { comment: 'Unsaved draft' });
+    expect(readPreviewStorage(localStorage, key)).toEqual({ draft: { comment: 'Unsaved draft' }, history: [] });
+
+    clearPreviewStorage(localStorage, key);
+
+    expect(localStorage.getItem(key)).toBeNull();
+    expect(readPreviewStorage(localStorage, key)).toEqual({ history: [] });
+  });
+
+  it('selects latest backend response values so stale local drafts do not override persisted submissions', () => {
+    expect(latestSubmittedResponseValues([
+      { submittedBy: 'user', submittedAt: '2026-07-15T00:00:00Z', values: { comment: 'Older' } },
+      { submittedBy: 'user', submittedAt: '2026-07-16T00:00:00Z', values: { comment: 'Latest backend' } },
+    ])).toEqual({ comment: 'Latest backend' });
+    expect(latestSubmittedResponseValues(undefined)).toBeUndefined();
   });
 
   it('applies values to controls and disables submit buttons', () => {

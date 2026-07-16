@@ -1,4 +1,4 @@
-import { normalizeFormData, type JsonObject } from './beadsFormCore';
+import { normalizeFormData, type BeadsFormResponse, type JsonObject } from './beadsFormCore';
 
 export type PreviewStorageSnapshot = {
   draft?: JsonObject;
@@ -62,6 +62,18 @@ export function writePreviewSubmission(
   };
   writePreviewStorage(storage, key, next);
   return next;
+}
+
+export function latestSubmittedResponseValues(responses: BeadsFormResponse[] | undefined): JsonObject | undefined {
+  return responses?.at(-1)?.values;
+}
+
+export function clearPreviewStorage(storage: Storage | undefined, key: string): void {
+  try {
+    storage?.removeItem(key);
+  } catch {
+    // localStorage can be unavailable; clearing best-effort state should not break the form.
+  }
 }
 
 export function startPreviewEdit(storage: Storage | undefined, key: string): PreviewStorageSnapshot {

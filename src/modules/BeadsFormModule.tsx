@@ -16,7 +16,9 @@ import {
 import {
   applyValuesToForm,
   beadFormStorageKey,
+  clearPreviewStorage,
   formValuesFromDom,
+  latestSubmittedResponseValues,
   previewStorageKey,
   readPreviewStorage,
   setFormFieldsReadOnly,
@@ -569,9 +571,11 @@ function BeadsFormRoute({ actions }: { actions: {
 
   React.useEffect(() => {
     const form = formHostRef.current?.querySelector('form');
-    if (!form || !beadDraftStorageKey) return;
+    const selectedForm = loaded?.selected?.selectedForm;
+    if (!form || !beadDraftStorageKey || !selectedForm) return;
     const snapshot = readPreviewStorage(typeof window === 'undefined' ? undefined : window.localStorage, beadDraftStorageKey);
-    const restoredValues = snapshot.draft ?? snapshot.latest;
+    const backendValues = latestSubmittedResponseValues(selectedForm.responses);
+    const restoredValues = snapshot.editing ? (snapshot.draft ?? backendValues ?? snapshot.latest) : (backendValues ?? snapshot.latest ?? snapshot.draft);
     if (restoredValues) {
       applyValuesToForm(form, restoredValues);
     }
@@ -580,11 +584,11 @@ function BeadsFormRoute({ actions }: { actions: {
       initializeCompactMoreInfo(host);
       refreshCompactMoreInfoState(host);
     }
-    const locked = !!snapshot.latest && !snapshot.editing;
+    const locked = !!(backendValues ?? snapshot.latest) && !snapshot.editing;
     setSubmittedLocked(locked);
     setSubmitButtonsDisabled(form, locked);
     setFormFieldsReadOnly(form, locked);
-  }, [beadDraftStorageKey, selectedHtml]);
+  }, [beadDraftStorageKey, loaded?.selected?.selectedForm, selectedHtml]);
 
   React.useEffect(() => {
     if (loaded?.selected?.selectedForm?.format !== 'standard') return undefined;
@@ -639,7 +643,7 @@ function BeadsFormRoute({ actions }: { actions: {
         values,
       }));
       if (typeof window !== 'undefined' && beadDraftStorageKey) {
-        writePreviewSubmission(window.localStorage, beadDraftStorageKey, result.values);
+        clearPreviewStorage(window.localStorage, beadDraftStorageKey);
       }
       preserveSubmittedFormDom(formHostRef.current, result.values, {
         lock: true,
