@@ -72,6 +72,13 @@ export interface VkvdHotswapCoordinatorDependencies {
   readiness: ReadinessProbe;
 }
 
+export interface VkvdHotswapRunOptions {
+  /** Dry-run is the safe default and never calls injected production operations. */
+  dryRun?: boolean;
+  /** Required for any non-dry-run execution. */
+  applyConfirmed?: boolean;
+}
+
 export type VkvdHotswapPlannedStep =
   | 'resolve-vk-artifact'
   | 'validate-vd-dist'
@@ -93,6 +100,16 @@ export interface VkvdHotswapPlan {
   };
 }
 
+export type VkvdHotswapRunMode = 'dry-run' | 'apply';
+
+export interface VkvdHotswapRunResult {
+  mode: VkvdHotswapRunMode;
+  plan: VkvdHotswapPlan;
+  vkArtifact?: ResolvedVkRuntimeArtifact;
+  vkPromotion?: RuntimePromotionResult;
+  vdPromotion?: RuntimePromotionResult;
+}
+
 export const DEFAULT_VKVD_HOTSWAP_SUPERVISOR_PROGRAMS = {
   vk: 'vibe-kanban',
   vd: 'vibe-dashboard',
@@ -108,3 +125,66 @@ export const VKVD_HOTSWAP_STEP_ORDER: VkvdHotswapPlannedStep[] = [
   'restart-vd',
   'wait-vd-ready',
 ];
+
+export function createVkvdHotswapPlan(request: VkvdHotswapRequest): VkvdHotswapPlan {
+  assertVkArtifactSourceAllowed(request.vkSource);
+  if (!request.id.trim()) throw new Error('VK/VD hotswap requires a non-empty id');
+  if (!request.vdDistPath.trim()) throw new Error('VK/VD hotswap requires --vd-dist');
+
+  return {
+    id: request.id,
+    vkSource: request.vkSource,
+    vdDistPath: request.vdDistPath,
+    steps: [...VKVD_HOTSWAP_STEP_ORDER],
+    supervisorPrograms: request.supervisorPrograms ?? { ...DEFAULT_VKVD_HOTSWAP_SUPERVISOR_PROGRAMS },
+  };
+}
+
+export async function runVkvdHotswap(
+  request: VkvdHotswapRequest,
+  dependencies: VkvdHotswapCoordinatorDependencies,
+  options: VkvdHotswapRunOptions = {},
+): Promise<VkvdHotswapRunResult> {
+  const plan = createVkvdHotswapPlan(request);
+  const dryRun = options.dryRun ?? true;
+
+  if (dryRun) {
+    return { mode: 'dry-run', plan };
+  }
+
+  if (!options.applyConfirmed) {
+    throw new Error('VK/VD hotswap apply requires explicit non-dry-run confirmation');
+  }
+
+  const vkArtifact = await dependencies.artifactResolver.resolve(plan.vkSource);
+  const vkPromotion = await dependencies.vkPromoter.promote(vkArtifact);
+  await dependencies.supervisor.restart(plan.supervisorPrograms.vk);
+  await dependencies.readiness.waitForVkReady();
+
+  const vdPromotion = await dependencies.vdPromoter.promoteDist(plan.vdDistPath);
+  await dependencies.supervisor.restart(plan.supervisorPrograms.vd);
+  await dependencies.readiness.waitForVdReady();
+
+  return {
+    mode: 'apply',
+    plan,
+    vkArtifact,
+    vkPromotion,
+    vdPromotion,
+  };
+}
+
+function assertVkArtifactSourceAllowed(source: VkArtifactSource): void {
+  if (source.kind === 'github-prerelease') {
+    if (!source.repository.trim()) throw new Error('GitHub prerelease source requires repository');
+    if (!source.ref.trim()) throw new Error('GitHub prerelease source requires ref');
+    return;
+  }
+
+  if (source.kind === 'local-rust-build') {
+    if (!source.worktreePath.trim()) throw new Error('Local Rust build source requires worktreePath');
+    if (source.operatorAllowed !== true) {
+      throw new Error('Local Rust build fallback requires explicit operator allowance');
+    }
+  }
+}

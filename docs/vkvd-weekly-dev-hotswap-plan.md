@@ -158,11 +158,14 @@ Cons:
 - Add pending Vitest stubs that lock in the intended behavior without implementing it yet.
 - Keep turn resume out of the coordinator for now.
 
-### Phase 2: Pure planning and validation
+### Phase 2: CLI planning and mocked apply orchestration
 
-- Implement a dry-run planner that validates operator source choice and emits ordered steps.
+- Add a CLI-only entry point, exposed as `npm run hotswap:vkvd -- ...`.
+- Keep dry-run as the safe default.
+- Require `apply --confirm-non-dry-run` before any non-dry-run orchestration can execute.
+- Implement the VK then VD coordinator against injected dependencies so tests can verify ordering without touching real runtime files or supervisord.
 - Validate that local build source is rejected unless `operatorAllowed` is true.
-- Validate GitHub prerelease manifest shape from fixture data.
+- Validate GitHub prerelease manifest shape from fixture data in the artifact resolver follow-up.
 
 ### Phase 3: Artifact resolver
 
