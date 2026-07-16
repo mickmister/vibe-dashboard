@@ -183,6 +183,7 @@ describe('beads-form CLI helpers', () => {
       },
     });
     expect(result.metadata.untouched).toBe(true);
+    expect(result.metadata.VK_WORKSPACE_ID).toBe('workspace-1');
     expect(calls.map((args) => args[0])).toEqual(['show', 'update']);
   });
 

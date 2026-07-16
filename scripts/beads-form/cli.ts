@@ -387,7 +387,9 @@ export async function attachBeadsForms(input: {
 }): Promise<AttachResult> {
   const exec = input.execFile ?? defaultExecFile;
   const bead = await readBead({ execFile: exec, dir: input.options.dir, beadId: input.options.beadId });
-  const metadata = attachFormsToMetadata(bead.metadata, input.forms);
+  const metadata = attachFormsToMetadata(bead.metadata, input.forms, {
+    workspaceId: input.options.workspaceId,
+  });
   await updateMetadata({ execFile: exec, dir: input.options.dir, beadId: input.options.beadId, metadata });
   return {
     beadId: input.options.beadId,
@@ -410,7 +412,11 @@ export async function attachBeadsForms(input: {
   };
 }
 
-export function attachFormsToMetadata(metadata: unknown, forms: BeadsFormDefinition[]): JsonObject {
+export function attachFormsToMetadata(
+  metadata: unknown,
+  forms: BeadsFormDefinition[],
+  options: { workspaceId?: string } = {},
+): JsonObject {
   const next: JsonObject = isObject(metadata) ? structuredClone(metadata) as JsonObject : {};
   const beadForms = isObject(next.beadForms) ? next.beadForms : { forms: [] };
   const existingForms = Array.isArray(beadForms.forms) ? [...beadForms.forms] : [];
@@ -421,6 +427,9 @@ export function attachFormsToMetadata(metadata: unknown, forms: BeadsFormDefinit
     if (existingIds.has(form.id)) throw new Error(`Form id already exists on bead: ${form.id}`);
   }
   next.beadForms = { ...beadForms, forms: [...existingForms, ...forms] };
+  if (options.workspaceId?.trim()) {
+    next.VK_WORKSPACE_ID = options.workspaceId.trim();
+  }
   return next;
 }
 
