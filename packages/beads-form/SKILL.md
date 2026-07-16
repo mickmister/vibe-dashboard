@@ -207,6 +207,10 @@ Bead-backed storage is the primary workflow for real agent/user handoff. Folder 
 
 Bead-backed storage remains preferred for real workflow state and durable responses. Folder preview is for prototyping and quick review loops.
 
+## Pending form queue
+
+Open `/dashboard/forms` without query parameters to view the pending Bead-backed form queue. The queue scans a bounded set of first-level repos under `~/repos` using read-only `bd` commands, lists forms with no responses, and provides direct fill-out links. Use the Refresh button after attaching forms or after a human submits. See `packages/beads-form/PENDING_QUEUE.md` for realtime/update tradeoffs and safety limits.
+
 ## Escape hatch
 
 If the standard helpers are not expressive enough, generate raw HTML only as a fallback. Keep the same naming conventions and provide a complete `controls[]` manifest, because submissions are validated by HTML `name`.

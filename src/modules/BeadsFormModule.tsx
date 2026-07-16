@@ -32,7 +32,7 @@ import { initializeCompactMoreInfo, refreshCompactMoreInfoState } from '../lib/b
 
 // @platform "node"
 import { serverRegistry } from 'springboard/server/register';
-import { createNodeBeadsClient, type ListWorkspaceBeadsResult } from '../lib/beadsClient.node';
+import { createNodeBeadsClient, type ListWorkspaceBeadsResult, type PendingBeadsFormQueueResult } from '../lib/beadsClient.node';
 import { loadBeadsFormsFromFolder, tryAppendBeadsFormPreviewResponse } from '../lib/beadsFormFolder.node';
 import { registerBeadsFormMediaRoutes } from '../server/beads-form-media-routes';
 import { VibeKanbanServerClient } from '../server/vk-client';
@@ -109,6 +109,13 @@ type SubmitPreviewFormResult = {
   sidecarPath?: string;
   warnings: string[];
 };
+
+type LoadPendingFormsInput = {
+  reposRoot?: string;
+  repoLimit?: number;
+};
+
+type LoadPendingFormsResult = PendingBeadsFormQueueResult;
 
 function nodeClient() {
   if (typeof createNodeBeadsClient !== 'function') {
@@ -397,9 +404,91 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
   );
 }
 
+function BeadsFormPendingQueue({ actions }: {
+  actions: {
+    loadPendingForms: (input: LoadPendingFormsInput) => MaybeNestedPromise<LoadPendingFormsResult>;
+  };
+}) {
+  const [pending, setPending] = useState<LoadPendingFormsResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const load = React.useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await (await actions.loadPendingForms({}));
+      setPending(result);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setLoading(false);
+    }
+  }, [actions]);
+
+  React.useEffect(() => {
+    void load();
+  }, [load]);
+
+  return (
+    <div className="beadsform-root beadsform-page">
+      <header className="beadsform-heading-row">
+        <div>
+          <p className="beadsform-eyebrow">Forms</p>
+          <h1>Pending BeadsForm submissions</h1>
+          <p>Forms listed here have no submitted responses yet. Use Refresh after agents attach new forms or humans submit responses.</p>
+        </div>
+        <button type="button" onClick={() => void load()} disabled={loading}>{loading ? 'Refreshing…' : 'Refresh'}</button>
+      </header>
+      {error ? <p role="alert" className="beadsform-error">{error}</p> : null}
+      {!pending && !error ? <p>Scanning bead projects under <code>~/repos</code>…</p> : null}
+      {pending ? (
+        <>
+          <section className="beadsform-warning" role="note">
+            <h2>Update strategy</h2>
+            <p>{pending.updateStrategy.rationale}</p>
+            <p>Scanned {pending.reposScanned} repos under <code>{pending.reposRoot}</code> with a limit of {pending.repoLimit}.</p>
+          </section>
+          {pending.entries.length === 0 ? <p>No pending BeadsForms found.</p> : (
+            <section>
+              <h2>Pending forms</h2>
+              <ul className="beadsform-pending-list">
+                {pending.entries.map((entry) => (
+                  <li key={`${entry.repoDir}:${entry.bead.id}:${entry.form.id}`}>
+                    <article className="beadsform-pending-card">
+                      <p className="beadsform-eyebrow">{entry.repoName}</p>
+                      <h3>{entry.form.title}</h3>
+                      {entry.form.description ? <p>{entry.form.description}</p> : null}
+                      <p>
+                        Bead <strong>{entry.bead.id}</strong>
+                        {entry.bead.title ? <> — {entry.bead.title}</> : null}
+                      </p>
+                      <p><code>{entry.repoDir}</code></p>
+                      <a href={formViewUrl({ dir: entry.repoDir, beadId: entry.bead.id, formId: entry.form.id })}>Fill out form</a>
+                    </article>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+          {pending.skipped.length > 0 ? (
+            <section>
+              <h2>Skipped repos</h2>
+              <ul>
+                {pending.skipped.map((skip) => <li key={`${skip.repoDir}:${skip.reason}`}><code>{skip.repoDir}</code>: {skip.reason}</li>)}
+              </ul>
+            </section>
+          ) : null}
+        </>
+      ) : null}
+    </div>
+  );
+}
+
 function BeadsFormRoute({ actions }: { actions: {
   loadBeadForms: (input: LoadFormsInput) => MaybeNestedPromise<LoadFormsResult>;
   loadWorkspaceForms: (input: LoadWorkspaceFormsInput) => MaybeNestedPromise<LoadWorkspaceFormsResult>;
+  loadPendingForms: (input: LoadPendingFormsInput) => MaybeNestedPromise<LoadPendingFormsResult>;
   submitBeadForm: (input: SubmitFormInput) => MaybeNestedPromise<SubmitFormResult>;
 } }) {
   const [params] = useSearchParams();
@@ -425,7 +514,6 @@ function BeadsFormRoute({ actions }: { actions: {
     setSubmittedLocked(false);
 
     if (!workspaceId && (!dir || !beadId)) {
-      setError('Forms require a workspace query parameter, or dir and bead query parameters.');
       return;
     }
 
@@ -573,6 +661,10 @@ function BeadsFormRoute({ actions }: { actions: {
       setSubmitting(false);
     }
   };
+
+  if (!workspaceId && (!dir || !beadId)) {
+    return <BeadsFormPendingQueue actions={actions} />;
+  }
 
   if (error && !loaded) {
     return <div className="beadsform-root beadsform-page"><h1>Forms</h1><p role="alert">{error}</p></div>;
@@ -774,6 +866,12 @@ springboard.registerModule(
           } : {}),
         };
       },
+      loadPendingForms: async (input: LoadPendingFormsInput): Promise<LoadPendingFormsResult> => (
+        nodeClient().listPendingBeadsFormQueue({
+          ...(input.reposRoot ? { reposRoot: input.reposRoot } : {}),
+          ...(input.repoLimit ? { repoLimit: input.repoLimit } : {}),
+        })
+      ),
       submitBeadForm: async (input: SubmitFormInput): Promise<SubmitFormResult> => {
         const result = await nodeClient().submitForm(input);
         const forms = getBeadsForms(result.metadata);

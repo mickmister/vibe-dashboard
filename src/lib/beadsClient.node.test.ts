@@ -188,4 +188,42 @@ describe('BeadsClient', () => {
 
     expect(result.repos[0]!.beads.map((bead) => bead.id)).toEqual(['current', 'other', 'unscoped']);
   });
+
+  it('lists pending bead forms from a bounded ~/repos-style scan without mutating bead databases', async () => {
+    const reposRoot = await mkdtemp(join(tmpdir(), 'beads-repos-'));
+    await mkdir(join(reposRoot, 'repo-a'), { recursive: true });
+    await mkdir(join(reposRoot, 'repo-b'), { recursive: true });
+    await mkdir(join(reposRoot, 'repo-c'), { recursive: true });
+    const exec = vi.fn<ExecFileLike>(async (_file, args, options) => {
+      expect(args[0]).toBe('--readonly');
+      if (options.cwd.endsWith('repo-a') && args[1] === 'list') {
+        return { stdout: args.includes('beadForms') ? JSON.stringify([{ id: 'pending' }, { id: 'done' }]) : '[]', stderr: '' };
+      }
+      if (options.cwd.endsWith('repo-a') && args[1] === 'show') {
+        return { stdout: JSON.stringify([
+          { id: 'pending', title: 'Pending bead', metadata: { beadForms: { forms: [{ id: 'review', title: 'Review', html: '<form></form>' }] } } },
+          { id: 'done', title: 'Done bead', metadata: { beadForms: { forms: [{ id: 'done_form', title: 'Done', html: '<form></form>', responses: [{ submittedAt: 'now', submittedBy: 'user', values: {} }] }] } } },
+        ]), stderr: '' };
+      }
+      if (options.cwd.endsWith('repo-b')) {
+        throw Object.assign(new Error('Command failed: bd list'), { stderr: 'Error: no beads database found' });
+      }
+      return { stdout: '[]', stderr: '' };
+    });
+    const client = new BeadsClient({ execFile: exec });
+
+    const result = await client.listPendingBeadsFormQueue({ reposRoot, repoLimit: 2 });
+
+    expect(result.reposScanned).toBe(2);
+    expect(result.repoLimit).toBe(2);
+    expect(result.entries).toEqual([{
+      repoDir: join(reposRoot, 'repo-a'),
+      repoName: 'repo-a',
+      bead: { id: 'pending', title: 'Pending bead' },
+      form: { id: 'review', title: 'Review', responseCount: 0 },
+    }]);
+    expect(result.skipped).toEqual([{ repoDir: join(reposRoot, 'repo-b'), reason: 'not initialized for beads' }]);
+    expect(result.updateStrategy.mode).toBe('explicit-refresh');
+    expect(exec.mock.calls.some(([, args]) => args.includes('update'))).toBe(false);
+  });
 });

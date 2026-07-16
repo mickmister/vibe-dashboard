@@ -1,9 +1,9 @@
 /// <reference types="node" />
 
 import { execFile } from 'node:child_process';
-import { access } from 'node:fs/promises';
+import { access, readdir } from 'node:fs/promises';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { promisify } from 'node:util';
 
@@ -74,6 +74,25 @@ export type ListWorkspaceBeadsResult = {
   repos: BeadsRepoListResult[];
 };
 
+export type PendingBeadsFormEntry = {
+  repoDir: string;
+  repoName: string;
+  bead: Pick<BeadLike, 'id' | 'title' | 'description'>;
+  form: Pick<BeadsFormDefinition, 'id' | 'title' | 'description'> & { responseCount: number };
+};
+
+export type PendingBeadsFormQueueResult = {
+  reposRoot: string;
+  repoLimit: number;
+  reposScanned: number;
+  entries: PendingBeadsFormEntry[];
+  skipped: Array<{ repoDir: string; reason: string }>;
+  updateStrategy: {
+    mode: 'explicit-refresh';
+    rationale: string;
+  };
+};
+
 export class BeadsClient {
   private readonly bdPath: string;
   private readonly exec: ExecFileLike;
@@ -131,6 +150,113 @@ export class BeadsClient {
       });
     }));
     return { workspaceId: input.workspaceId, repos };
+  }
+
+  async listPendingBeadsFormQueue(input: {
+    reposRoot?: string;
+    repoLimit?: number;
+  } = {}): Promise<PendingBeadsFormQueueResult> {
+    const reposRoot = input.reposRoot ?? join(homedir(), 'repos');
+    const repoLimit = input.repoLimit ?? 80;
+    let repoDirs: string[];
+    try {
+      repoDirs = (await readdir(reposRoot, { withFileTypes: true }))
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name)
+        .filter((name) => !name.startsWith('.') && name !== 'node_modules')
+        .sort((a, b) => a.localeCompare(b))
+        .slice(0, repoLimit)
+        .map((name) => join(reposRoot, name));
+    } catch (error) {
+      return {
+        reposRoot,
+        repoLimit,
+        reposScanned: 0,
+        entries: [],
+        skipped: [{ repoDir: reposRoot, reason: error instanceof Error ? error.message : String(error) }],
+        updateStrategy: pendingQueueUpdateStrategy(),
+      };
+    }
+
+    const entries: PendingBeadsFormEntry[] = [];
+    const skipped: Array<{ repoDir: string; reason: string }> = [];
+    for (const repoDir of repoDirs) {
+      try {
+        entries.push(...await this.listPendingFormsInRepo(repoDir));
+      } catch (error) {
+        if (isNoBeadsDatabaseError(error)) {
+          skipped.push({ repoDir, reason: 'not initialized for beads' });
+        } else {
+          skipped.push({ repoDir, reason: error instanceof Error ? error.message : String(error) });
+        }
+      }
+    }
+
+    return {
+      reposRoot,
+      repoLimit,
+      reposScanned: repoDirs.length,
+      entries,
+      skipped,
+      updateStrategy: pendingQueueUpdateStrategy(),
+    };
+  }
+
+  private async listPendingFormsInRepo(repoDir: string): Promise<PendingBeadsFormEntry[]> {
+    const candidateIds = new Set<string>();
+    for (const metadataKey of ['beadForms', 'beadsWeb']) {
+      const listed = parseBdJsonArray<BeadLike>((await this.exec(this.bdPath, [
+        '--readonly',
+        'list',
+        '--json',
+        '--all',
+        '--limit',
+        '0',
+        '--has-metadata-key',
+        metadataKey,
+      ], {
+        cwd: repoDir,
+        timeout: 15_000,
+        maxBuffer: 1024 * 1024 * 5,
+      })).stdout);
+      for (const bead of listed) {
+        if (bead.id) candidateIds.add(bead.id);
+      }
+    }
+
+    if (candidateIds.size === 0) return [];
+
+    const beads = parseBdJsonArray<BeadLike>((await this.exec(this.bdPath, [
+      '--readonly',
+      'show',
+      ...candidateIds,
+      '--json',
+      '--long',
+    ], {
+      cwd: repoDir,
+      timeout: 20_000,
+      maxBuffer: 1024 * 1024 * 15,
+    })).stdout);
+
+    return beads.flatMap((bead) => {
+      const forms = getBeadsForms(bead.metadata)
+        .filter((form) => (form.responses?.length ?? 0) === 0);
+      return forms.map((form) => ({
+        repoDir,
+        repoName: basename(repoDir),
+        bead: {
+          id: bead.id,
+          ...(bead.title ? { title: bead.title } : {}),
+          ...(bead.description ? { description: bead.description } : {}),
+        },
+        form: {
+          id: form.id,
+          title: form.title,
+          ...(form.description ? { description: form.description } : {}),
+          responseCount: form.responses?.length ?? 0,
+        },
+      }));
+    });
   }
 
   private async listRepoBeads(input: {
@@ -275,6 +401,13 @@ export class BeadsClient {
       maxBuffer: 1024 * 1024,
     });
   }
+}
+
+function pendingQueueUpdateStrategy(): PendingBeadsFormQueueResult['updateStrategy'] {
+  return {
+    mode: 'explicit-refresh',
+    rationale: 'Use an explicit refresh action for the MVP. bd list --watch is display-oriented, while readonly bounded scans avoid long-lived filesystem/database watchers, unexpected migrations, and cross-repo DB corruption risks.',
+  };
 }
 
 export function createNodeBeadsClient(options?: BeadsClientOptions): BeadsClient {
