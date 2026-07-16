@@ -127,7 +127,6 @@ export async function listActiveCodingAgentTurnsFromExistingEnumeration(
 
   for (const workspace of workspaces) {
     const sessions = (await client.getSessions(workspace.id))
-      .sort((a, b) => parseTimestamp(b.updated_at) - parseTimestamp(a.updated_at))
       .slice(0, options.maxSessionsPerWorkspace ?? 20);
 
     for (const session of sessions) {

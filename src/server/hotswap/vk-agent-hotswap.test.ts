@@ -27,22 +27,23 @@ describe('listActiveCodingAgentTurnsFromExistingEnumeration', () => {
     const client = {
       getWorkspaces: vi.fn(async () => [workspace('ws-1'), workspace('archived', { archived: true })]),
       getSessions: vi.fn(async (workspaceId: string) => workspaceId === 'ws-1'
-        ? [session('s-old', { updated_at: '2026-07-15T00:00:00Z' }), session('s-new')]
+        ? [session('s-vk-first', { updated_at: '2026-07-15T00:00:00Z' }), session('s-vk-second')]
         : []),
-      getSessionProcesses: vi.fn(async (sessionId: string) => sessionId === 's-new'
+      getSessionProcesses: vi.fn(async (sessionId: string) => sessionId === 's-vk-first'
         ? [
             process({ id: 'p-active', session_id: sessionId }),
             process({ id: 'p-devserver', session_id: sessionId, run_reason: 'devserver' }),
             process({ id: 'p-killed', session_id: sessionId, status: 'killed' }),
           ]
-        : [process({ id: 'p-old-session', session_id: sessionId })]),
+        : [process({ id: 'p-capped-out', session_id: sessionId })]),
     };
 
     const turns = await listActiveCodingAgentTurnsFromExistingEnumeration(client, { maxSessionsPerWorkspace: 1 });
 
     expect(turns.map(turn => turn.processId)).toEqual(['p-active']);
     expect(client.getSessions).toHaveBeenCalledWith('ws-1');
-    expect(client.getSessionProcesses).toHaveBeenCalledWith('s-new');
+    expect(client.getSessionProcesses).toHaveBeenCalledWith('s-vk-first');
+    expect(client.getSessionProcesses).not.toHaveBeenCalledWith('s-vk-second');
   });
 });
 
