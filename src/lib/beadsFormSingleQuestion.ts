@@ -1,5 +1,7 @@
 export type SingleQuestionModeCleanup = () => void;
 
+const WIZARD_QUESTION_PARAM = 'formQuestion';
+
 export function initializeSingleQuestionMode(host: ParentNode): SingleQuestionModeCleanup {
   const form = host.querySelector('form');
   if (!form || form.dataset.beadsformSingleQuestion === 'true') return () => undefined;
@@ -61,7 +63,7 @@ export function initializeSingleQuestionMode(host: ParentNode): SingleQuestionMo
   }
   main.append(controls);
 
-  let activeIndex = 0;
+  let activeIndex = initialQuestionIndexFromUrl(questions.length) ?? 0;
   const listButtons = Array.from(questionList.querySelectorAll<HTMLButtonElement>('button'));
   const submitActions = form.querySelector<HTMLElement>('.beads-form-submit-actions');
 
@@ -115,11 +117,15 @@ export function initializeSingleQuestionMode(host: ParentNode): SingleQuestionMo
       for (let current = activeIndex; current < target; current += 1) {
         activeIndex = current;
         render({ scrollToQuestion: activeIndex !== startingIndex });
-        if (!questionIsValid(current)) return;
+        if (!questionIsValid(current)) {
+          if (activeIndex !== startingIndex) writeQuestionIndexToUrl(activeIndex, 'push');
+          return;
+        }
       }
     }
     activeIndex = target;
     render({ scrollToQuestion: activeIndex !== startingIndex });
+    if (activeIndex !== startingIndex) writeQuestionIndexToUrl(activeIndex, 'push');
   }
 
   function handleSubmit(event: SubmitEvent) {
@@ -131,19 +137,48 @@ export function initializeSingleQuestionMode(host: ParentNode): SingleQuestionMo
     const startingIndex = activeIndex;
     activeIndex = invalidIndex >= 0 ? invalidIndex : questions.length - 1;
     render({ scrollToQuestion: activeIndex !== startingIndex });
+    if (activeIndex !== startingIndex) writeQuestionIndexToUrl(activeIndex, 'replace');
     if (invalidIndex >= 0) questionIsValid(invalidIndex);
+  }
+
+  function handlePopState() {
+    const nextIndex = initialQuestionIndexFromUrl(questions.length);
+    if (nextIndex === undefined || nextIndex === activeIndex) return;
+    activeIndex = nextIndex;
+    render();
   }
 
   previous.addEventListener('click', () => goTo(activeIndex - 1));
   next.addEventListener('click', () => goTo(activeIndex + 1));
   form.addEventListener('submit', handleSubmit, true);
+  window.addEventListener('popstate', handlePopState);
   render();
 
   return () => {
     form.removeEventListener('submit', handleSubmit, true);
+    window.removeEventListener('popstate', handlePopState);
     form.classList.remove('beadsform-single-question-form');
     delete form.dataset.beadsformSingleQuestion;
   };
+}
+
+function initialQuestionIndexFromUrl(questionCount: number): number | undefined {
+  const raw = new URLSearchParams(window.location.search).get(WIZARD_QUESTION_PARAM);
+  if (!raw) return undefined;
+  const page = Number(raw);
+  if (!Number.isInteger(page) || page < 1 || page > questionCount) return undefined;
+  return page - 1;
+}
+
+function writeQuestionIndexToUrl(index: number, mode: 'push' | 'replace'): void {
+  const url = new URL(window.location.href);
+  url.searchParams.set(WIZARD_QUESTION_PARAM, String(index + 1));
+  const state = window.history.state;
+  if (mode === 'replace') {
+    window.history.replaceState(state, '', url);
+  } else {
+    window.history.pushState(state, '', url);
+  }
 }
 
 function button(label: string): HTMLButtonElement {

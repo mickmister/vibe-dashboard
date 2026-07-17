@@ -1,8 +1,12 @@
 // @vitest-environment jsdom
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { initializeSingleQuestionMode } from './beadsFormSingleQuestion';
 
 describe('BeadsForm single-question mode', () => {
+  beforeEach(() => {
+    window.history.pushState(null, '', '/dashboard/forms');
+  });
+
   it('pages standard form questions with progress and a question list', () => {
     document.body.innerHTML = `
       <div id="host">
@@ -97,6 +101,39 @@ describe('BeadsForm single-question mode', () => {
     } finally {
       HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
     }
+  });
+
+  it('restores and persists the wizard question through URL query params while preserving route params', () => {
+    window.history.pushState(null, '', '/dashboard/forms?dir=%2Frepo&bead=bd-1&form=review&formQuestion=2');
+    document.body.innerHTML = `
+      <div id="host">
+        <form>
+          <fieldset><legend>First</legend><input name="first"></fieldset>
+          <fieldset><legend>Second</legend><input name="second"></fieldset>
+          <fieldset><legend>Third</legend><input name="third"></fieldset>
+        </form>
+      </div>
+    `;
+
+    initializeSingleQuestionMode(document.querySelector('#host')!);
+
+    expect(document.querySelector('.beadsform-single-question-progress')?.textContent).toBe('Question 2 of 3');
+    expect(document.querySelectorAll<HTMLFieldSetElement>('fieldset')[1]!.hidden).toBe(false);
+
+    document.querySelectorAll<HTMLButtonElement>('.beadsform-single-question-controls button')[1]!.click();
+
+    const params = new URLSearchParams(window.location.search);
+    expect(params.get('dir')).toBe('/repo');
+    expect(params.get('bead')).toBe('bd-1');
+    expect(params.get('form')).toBe('review');
+    expect(params.get('formQuestion')).toBe('3');
+    expect(document.querySelector('.beadsform-single-question-progress')?.textContent).toBe('Question 3 of 3');
+
+    window.history.pushState(null, '', '/dashboard/forms?dir=%2Frepo&bead=bd-1&form=review&formQuestion=1');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+
+    expect(document.querySelector('.beadsform-single-question-progress')?.textContent).toBe('Question 1 of 3');
+    expect(document.querySelectorAll<HTMLFieldSetElement>('fieldset')[0]!.hidden).toBe(false);
   });
 
   it('does not allow question-list jumps to skip an invalid intermediate question', () => {
