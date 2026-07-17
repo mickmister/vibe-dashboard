@@ -1,8 +1,5 @@
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
+import { execFile, type ExecFileOptions } from 'node:child_process';
 import type { SupervisorRestarter } from './vk-agent-hotswap';
-
-const execFileAsync = promisify(execFile);
 
 export interface CommandResult {
   stdout: string;
@@ -10,12 +7,20 @@ export interface CommandResult {
 }
 
 export interface CommandRunner {
-  execFile(file: string, args: string[]): Promise<CommandResult>;
+  execFile(file: string, args: string[], options?: ExecFileOptions): Promise<CommandResult>;
 }
 
 export class ExecFileCommandRunner implements CommandRunner {
-  async execFile(file: string, args: string[]): Promise<CommandResult> {
-    return execFileAsync(file, args);
+  async execFile(file: string, args: string[], options?: ExecFileOptions): Promise<CommandResult> {
+    return new Promise((resolve, reject) => {
+      execFile(file, args, { ...options, encoding: 'utf8' }, (error, stdout, stderr) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve({ stdout, stderr });
+      });
+    });
   }
 }
 

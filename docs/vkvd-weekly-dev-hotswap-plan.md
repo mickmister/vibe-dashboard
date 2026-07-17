@@ -158,14 +158,16 @@ Cons:
 - Add pending Vitest stubs that lock in the intended behavior without implementing it yet.
 - Keep turn resume out of the coordinator for now.
 
-### Phase 2: CLI planning and mocked apply orchestration
+### Phase 2: CLI planning and local-build adapter
 
 - Add a CLI-only entry point, exposed as `npm run hotswap:vkvd -- ...`.
 - Keep dry-run as the safe default.
 - Require `apply --confirm-non-dry-run` before any non-dry-run orchestration can execute.
 - Implement the VK then VD coordinator against injected dependencies so tests can verify ordering without touching real runtime files or supervisord.
 - Validate that local build source is rejected unless `operatorAllowed` is true.
-- Validate GitHub prerelease manifest shape from fixture data in the artifact resolver follow-up.
+- Add the first real VK artifact resolver for `local-rust-build`, still protected by `--allow-local-rust-build`. The adapter runs VK `local-build.sh`, stages the resulting `target/release/server` binary as `vibe-kanban`, makes it executable, and records its SHA256.
+- Wire local-build source into dry-run output and the apply path; the remaining promotion, restart, and readiness adapters stay injected and test-only until follow-up slices.
+- Validate GitHub prerelease manifest shape from fixture data in the GitHub resolver follow-up.
 
 ### Phase 3: Artifact resolver
 

@@ -8,6 +8,7 @@ import {
   type VkvdHotswapRequest,
   type VkvdHotswapRunResult,
 } from '../src/server/hotswap/vkvd-hotswap-system.ts';
+import { LocalVkBuildArtifactResolver } from '../src/server/hotswap/local-vk-build-resolver.ts';
 
 export interface VkvdHotswapCliOutput {
   log(message: string): void;
@@ -21,7 +22,7 @@ export interface ParsedVkvdHotswapCliArgs {
 
 export async function runVkvdHotswapCli(
   argv: readonly string[],
-  dependencies: VkvdHotswapCoordinatorDependencies = createUnavailableProductionDependencies(),
+  dependencies: VkvdHotswapCoordinatorDependencies = createProductionDependencies(),
   output: VkvdHotswapCliOutput = console,
 ): Promise<VkvdHotswapRunResult> {
   const parsed = parseVkvdHotswapCliArgs(argv);
@@ -118,12 +119,18 @@ function requiredArg(args: Map<string, string>, name: string): string {
   return value;
 }
 
-function createUnavailableProductionDependencies(): VkvdHotswapCoordinatorDependencies {
+function createProductionDependencies(): VkvdHotswapCoordinatorDependencies {
   const unavailable = async (): Promise<never> => {
     throw new Error('VK/VD hotswap production adapters are not wired in this slice');
   };
+  const localBuildResolver = new LocalVkBuildArtifactResolver();
   return {
-    artifactResolver: { resolve: unavailable as (source: VkArtifactSource) => Promise<ResolvedVkRuntimeArtifact> },
+    artifactResolver: {
+      resolve: async (source: VkArtifactSource): Promise<ResolvedVkRuntimeArtifact> => {
+        if (source.kind === 'local-rust-build') return localBuildResolver.resolve(source);
+        throw new Error('GitHub prerelease VK artifact resolver is not wired in this slice');
+      },
+    },
     vkPromoter: { promote: unavailable as (artifact: ResolvedVkRuntimeArtifact) => Promise<RuntimePromotionResult> },
     vdPromoter: { promoteDist: unavailable as (distPath: string) => Promise<RuntimePromotionResult> },
     supervisor: { restart: unavailable as (programName: string) => Promise<void> },

@@ -45,9 +45,57 @@ describe('parseVkvdHotswapCliArgs', () => {
       '/repo/vibe-kanban-vscode-web/dist',
     ])).toThrow('local Rust build source requires --allow-local-rust-build');
   });
+
+  it('accepts local Rust build fallback only with the explicit allow flag', () => {
+    const parsed = parseVkvdHotswapCliArgs([
+      '--vk-source',
+      'local-rust-build',
+      '--allow-local-rust-build',
+      '--vk-worktree',
+      '/repo/Vktest',
+      '--vd-dist',
+      '/repo/vibe-kanban-vscode-web/dist',
+    ]);
+
+    expect(parsed.request.vkSource).toEqual({
+      kind: 'local-rust-build',
+      worktreePath: '/repo/Vktest',
+      platform: 'linux-x64',
+      operatorAllowed: true,
+    });
+  });
 });
 
 describe('runVkvdHotswapCli', () => {
+  it('renders local-build dry-run output without invoking hotswap operations', async () => {
+    const calls: string[] = [];
+    const deps = fakeDependencies(calls);
+    const output = { log: vi.fn() };
+
+    const result = await runVkvdHotswapCli([
+      '--vk-source',
+      'local-rust-build',
+      '--allow-local-rust-build',
+      '--vk-worktree',
+      '/repo/Vktest',
+      '--vd-dist',
+      '/repo/vibe-kanban-vscode-web/dist',
+    ], deps, output);
+
+    expect(result.mode).toBe('dry-run');
+    expect(calls).toEqual([]);
+    expect(JSON.parse(output.log.mock.calls[0]![0])).toMatchObject({
+      mode: 'dry-run',
+      plan: {
+        vkSource: {
+          kind: 'local-rust-build',
+          worktreePath: '/repo/Vktest',
+          operatorAllowed: true,
+        },
+      },
+    });
+  });
+
   it('runs the mocked apply path only with explicit non-dry-run confirmation', async () => {
     const calls: string[] = [];
     const deps = fakeDependencies(calls);
@@ -73,6 +121,34 @@ describe('runVkvdHotswapCli', () => {
       'ready-vd',
     ]);
     expect(output.log).toHaveBeenCalledOnce();
+  });
+
+  it('wires local-build source into the mocked apply path behind both explicit flags', async () => {
+    const calls: string[] = [];
+    const deps = fakeDependencies(calls);
+    const output = { log: vi.fn() };
+
+    await runVkvdHotswapCli([
+      'apply',
+      '--confirm-non-dry-run',
+      '--vk-source',
+      'local-rust-build',
+      '--allow-local-rust-build',
+      '--vk-worktree',
+      '/repo/Vktest',
+      '--vd-dist',
+      '/repo/vibe-kanban-vscode-web/dist',
+    ], deps, output);
+
+    expect(calls).toEqual([
+      'resolve:/repo/Vktest',
+      'promote-vk:/staging/vibe-kanban',
+      'restart:vibe-kanban',
+      'ready-vk',
+      'promote-vd:/repo/vibe-kanban-vscode-web/dist',
+      'restart:vibe-dashboard',
+      'ready-vd',
+    ]);
   });
 });
 
