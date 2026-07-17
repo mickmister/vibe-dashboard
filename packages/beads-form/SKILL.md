@@ -214,3 +214,24 @@ Open `/dashboard/forms` without query parameters to view the pending Bead-backed
 ## Escape hatch
 
 If the standard helpers are not expressive enough, generate raw HTML only as a fallback. Keep the same naming conventions and provide a complete `controls[]` manifest, because submissions are validated by HTML `name`.
+
+## Shared preview server maintenance
+
+The shared BeadsForm preview server must run from a stable checkout, not from an ephemeral review/agent worktree. Review agents frequently delete or recreate paths under `/var/tmp/vibe-kanban/worktrees/...` and may relink `node_modules`; a long-running Vite server in those paths can then fail dynamic imports with errors such as `Cannot find module .../vite/dist/node/chunks/dist.js`.
+
+Use the documented shared-preview command instead:
+
+```sh
+npm run dev:beads-form-preview:shared -- --host https://port-55123.jamtools.dev
+```
+
+Defaults:
+
+- Stable checkout: `/var/tmp/beadsform-preview-stable/vibe-kanban-vscode-web`
+- Branch: `vk/8299-beads-web-show-m`
+- tmux session: `beadsform-shared-preview-55123`
+- Preview folder: `/tmp/beads-form-preview`
+- Parent-dir queue: `/var/tmp/vibe-kanban/worktrees`
+- Log: `/tmp/beadsform-shared-preview-55123.log`
+
+The command stops the tmux session, syncs the stable checkout to `origin/<branch>`, runs `pnpm install --frozen-lockfile`, and starts `npm run dev:beads-form-preview` with browser auto-reload disabled. Use `--print-only` to show the planned commands without changing the running server. Do not use or delete the stable checkout for review worktrees.
