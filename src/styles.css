@@ -321,6 +321,7 @@ textarea {
 }
 
 .beadsform-root .beadsform-single-question-notes {
+  display: block;
   position: static;
   width: 100%;
   margin: 0 0 1rem;
@@ -331,6 +332,7 @@ textarea {
 }
 
 .beadsform-root .beadsform-single-question-master-notes {
+  display: block;
   margin: 0;
   border: 0;
   padding: 0;

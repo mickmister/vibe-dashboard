@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { initializeCompactMoreInfo } from './beadsFormMoreInfo';
 import { initializeSingleQuestionMode } from './beadsFormSingleQuestion';
 
 describe('BeadsForm single-question mode', () => {
@@ -159,6 +160,35 @@ describe('BeadsForm single-question mode', () => {
     expect(document.querySelector('.beadsform-single-question-progress')?.textContent).toBe('Question 1 of 2');
     expect(document.querySelectorAll<HTMLFieldSetElement>('fieldset')[0]!.hidden).toBe(false);
     expect(document.querySelectorAll<HTMLFieldSetElement>('fieldset')[1]!.hidden).toBe(true);
+  });
+
+  it('keeps Additional Notes visible above progress and active question after compact more-info initializes', () => {
+    document.body.innerHTML = `
+      <div id="host">
+        <form>
+          <fieldset><legend>First</legend><textarea id="first_more_info" name="first_more_info"></textarea></fieldset>
+          <fieldset><legend>Second</legend><textarea id="second_more_info" name="second_more_info"></textarea></fieldset>
+          <fieldset hidden><legend>Additional Notes</legend><textarea id="additional_notes" name="additional_notes" hidden></textarea></fieldset>
+        </form>
+      </div>
+    `;
+    const host = document.querySelector('#host')!;
+
+    initializeSingleQuestionMode(host);
+    initializeCompactMoreInfo(host);
+
+    const notesPanel = document.querySelector<HTMLElement>('.beadsform-single-question-notes')!;
+    const masterNotes = document.querySelector<HTMLFieldSetElement>('[data-beadsform-master-notes="true"]')!;
+    const textarea = document.querySelector<HTMLTextAreaElement>('#additional_notes')!;
+    const progress = document.querySelector<HTMLElement>('.beadsform-single-question-progress')!;
+
+    expect(notesPanel.hidden).toBe(false);
+    expect(masterNotes.hidden).toBe(false);
+    expect(textarea.hidden).toBe(false);
+    expect(document.querySelector('.beadsform-single-question-notes #additional_notes')).toBeTruthy();
+    expect(progress.previousElementSibling).toBe(notesPanel);
+    expect(progress.nextElementSibling?.textContent).toContain('First');
+    expect(document.querySelectorAll('.beads-form-more-info-toggle')).toHaveLength(2);
   });
 
   it('does not allow question-list jumps to skip an invalid intermediate question', () => {

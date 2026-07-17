@@ -59,6 +59,15 @@ export function initializeSingleQuestionMode(host: ParentNode): SingleQuestionMo
   });
   if (masterNotes) {
     masterNotes.classList.add('beadsform-single-question-master-notes');
+    masterNotes.hidden = false;
+    masterNotes.removeAttribute('hidden');
+    masterNotes.setAttribute('data-beadsform-master-notes', 'true');
+    for (const textarea of Array.from(masterNotes.querySelectorAll('textarea'))) {
+      textarea.hidden = false;
+      textarea.removeAttribute('hidden');
+    }
+    notesPanel.hidden = false;
+    notesPanel.removeAttribute('hidden');
     notesPanel.append(masterNotes);
   }
   main.append(controls);

@@ -23,7 +23,8 @@ describe('BeadsForm styles', () => {
     expect(css).toMatch(/\.beadsform-root \.beadsform-single-question-form\s*\{[^}]*max-width:\s*80rem[^}]*margin:\s*0 auto/s);
     expect(css).toMatch(/\.beadsform-root \.beadsform-single-question-layout\s*\{[^}]*display:\s*flex[^}]*flex-direction:\s*column[^}]*max-width:\s*72rem[^}]*margin:\s*1\.5rem auto/s);
     expect(css).toMatch(/\.beadsform-root \.beadsform-single-question-main\s*\{[^}]*max-width:\s*72rem[^}]*margin:\s*0 auto/s);
-    expect(css).toMatch(/\.beadsform-root \.beadsform-single-question-notes\s*\{[^}]*position:\s*static[^}]*margin:\s*0 0 1rem/s);
+    expect(css).toMatch(/\.beadsform-root \.beadsform-single-question-notes\s*\{[^}]*display:\s*block[^}]*position:\s*static[^}]*margin:\s*0 0 1rem/s);
+    expect(css).toMatch(/\.beadsform-root \.beadsform-single-question-master-notes\s*\{[^}]*display:\s*block/s);
     expect(css).not.toMatch(/\.beadsform-root \.beadsform-single-question-layout\s*\{[^}]*display:\s*grid/s);
     expect(css).not.toMatch(/\.beadsform-root \.beadsform-single-question-notes\s*\{[^}]*position:\s*sticky/s);
   });
