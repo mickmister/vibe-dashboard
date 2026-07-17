@@ -142,8 +142,8 @@ export function initializeSingleQuestionMode(host: ParentNode): SingleQuestionMo
   }
 
   function handlePopState() {
-    const nextIndex = initialQuestionIndexFromUrl(questions.length);
-    if (nextIndex === undefined || nextIndex === activeIndex) return;
+    const nextIndex = initialQuestionIndexFromUrl(questions.length) ?? 0;
+    if (nextIndex === activeIndex) return;
     activeIndex = nextIndex;
     render();
   }

@@ -136,6 +136,31 @@ describe('BeadsForm single-question mode', () => {
     expect(document.querySelectorAll<HTMLFieldSetElement>('fieldset')[0]!.hidden).toBe(false);
   });
 
+  it('restores question one when browser back returns to a URL without formQuestion', () => {
+    window.history.pushState(null, '', '/dashboard/forms?dir=%2Frepo&bead=bd-1&form=review');
+    document.body.innerHTML = `
+      <div id="host">
+        <form>
+          <fieldset><legend>First</legend><input name="first"></fieldset>
+          <fieldset><legend>Second</legend><input name="second"></fieldset>
+        </form>
+      </div>
+    `;
+
+    initializeSingleQuestionMode(document.querySelector('#host')!);
+    document.querySelectorAll<HTMLButtonElement>('.beadsform-single-question-controls button')[1]!.click();
+    expect(new URLSearchParams(window.location.search).get('formQuestion')).toBe('2');
+    expect(document.querySelector('.beadsform-single-question-progress')?.textContent).toBe('Question 2 of 2');
+
+    window.history.pushState(null, '', '/dashboard/forms?dir=%2Frepo&bead=bd-1&form=review');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+
+    expect(new URLSearchParams(window.location.search).get('formQuestion')).toBeNull();
+    expect(document.querySelector('.beadsform-single-question-progress')?.textContent).toBe('Question 1 of 2');
+    expect(document.querySelectorAll<HTMLFieldSetElement>('fieldset')[0]!.hidden).toBe(false);
+    expect(document.querySelectorAll<HTMLFieldSetElement>('fieldset')[1]!.hidden).toBe(true);
+  });
+
   it('does not allow question-list jumps to skip an invalid intermediate question', () => {
     document.body.innerHTML = `
       <div id="host">
