@@ -1,7 +1,6 @@
 import {
   runVkvdHotswap,
   type ResolvedVkRuntimeArtifact,
-  type RuntimePromotionResult,
   type VkArtifactSource,
   type VkRuntimePlatform,
   type VkvdHotswapCoordinatorDependencies,
@@ -9,6 +8,12 @@ import {
   type VkvdHotswapRunResult,
 } from '../src/server/hotswap/vkvd-hotswap-system.ts';
 import { LocalVkBuildArtifactResolver } from '../src/server/hotswap/local-vk-build-resolver.ts';
+import { HttpReadinessProbe } from '../src/server/hotswap/readiness-probes.ts';
+import {
+  VdDistRuntimePromoter,
+  VkBinaryRuntimePromoter,
+} from '../src/server/hotswap/runtime-promoters.node.ts';
+import { SupervisorProgramRestarter } from '../src/server/hotswap/supervisor-runner.ts';
 
 export interface VkvdHotswapCliOutput {
   log(message: string): void;
@@ -120,9 +125,6 @@ function requiredArg(args: Map<string, string>, name: string): string {
 }
 
 function createProductionDependencies(): VkvdHotswapCoordinatorDependencies {
-  const unavailable = async (): Promise<never> => {
-    throw new Error('VK/VD hotswap production adapters are not wired in this slice');
-  };
   const localBuildResolver = new LocalVkBuildArtifactResolver();
   return {
     artifactResolver: {
@@ -131,13 +133,19 @@ function createProductionDependencies(): VkvdHotswapCoordinatorDependencies {
         throw new Error('GitHub prerelease VK artifact resolver is not wired in this slice');
       },
     },
-    vkPromoter: { promote: unavailable as (artifact: ResolvedVkRuntimeArtifact) => Promise<RuntimePromotionResult> },
-    vdPromoter: { promoteDist: unavailable as (distPath: string) => Promise<RuntimePromotionResult> },
-    supervisor: { restart: unavailable as (programName: string) => Promise<void> },
-    readiness: {
-      waitForVkReady: unavailable as () => Promise<void>,
-      waitForVdReady: unavailable as () => Promise<void>,
-    },
+    vkPromoter: new VkBinaryRuntimePromoter({
+      runtimeBinaryPath: process.env.VK_RUNTIME_BINARY_PATH,
+      versionMarkerPath: process.env.VK_BUILD_VERSION_FILE,
+      stateDir: process.env.VK_HOTSWAP_STATE_DIR,
+    }),
+    vdPromoter: new VdDistRuntimePromoter({
+      runtimeDir: process.env.VIBE_DASHBOARD_RUNTIME_DIR,
+      stateDir: process.env.VIBE_DASHBOARD_HOTSWAP_STATE_DIR,
+    }),
+    supervisor: new SupervisorProgramRestarter({
+      supervisorConfigPath: process.env.SUPERVISOR_CONF,
+    }),
+    readiness: new HttpReadinessProbe(),
   };
 }
 

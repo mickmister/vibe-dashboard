@@ -169,11 +169,17 @@ function fakeDependencies(calls: string[]): VkvdHotswapCoordinatorDependencies {
         calls.push(`promote-vk:${artifact.executablePath}`);
         return { promotedPath: '/usr/local/bin/vibe-kanban', rollbackPath: '/rollback/vibe-kanban' };
       }),
+      rollback: vi.fn(async (result) => {
+        calls.push(`rollback-vk:${result.promotedPath}`);
+      }),
     },
     vdPromoter: {
       promoteDist: vi.fn(async (distPath) => {
         calls.push(`promote-vd:${distPath}`);
         return { promotedPath: '/runtime/dist', rollbackPath: '/rollback/dist' };
+      }),
+      rollback: vi.fn(async (result) => {
+        calls.push(`rollback-vd:${result.promotedPath}`);
       }),
     },
     supervisor: {

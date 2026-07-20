@@ -100,6 +100,33 @@ describe('runVkvdHotswap', () => {
       'promote-vk:/staging/vibe-kanban',
       'restart:vibe-kanban',
       'ready-vk',
+      'rollback-vk:/runtime/promoted',
+    ]);
+  });
+
+  it('rolls back VD promotion when VD readiness fails after restart', async () => {
+    const calls: string[] = [];
+    const deps = fakeDependencies(calls, {
+      waitForVdReady: async () => {
+        calls.push('ready-vd');
+        throw new Error('VD not ready');
+      },
+    });
+
+    await expect(runVkvdHotswap(request(), deps, {
+      dryRun: false,
+      applyConfirmed: true,
+    })).rejects.toThrow('VD not ready');
+
+    expect(calls).toEqual([
+      'resolve:github-prerelease:feature/test',
+      'promote-vk:/staging/vibe-kanban',
+      'restart:vibe-kanban',
+      'ready-vk',
+      'promote-vd:/repo/vibe-kanban-vscode-web/dist',
+      'restart:vibe-dashboard',
+      'ready-vd',
+      'rollback-vd:/runtime/promoted',
     ]);
   });
 });
@@ -147,11 +174,17 @@ function fakeDependencies(
         calls.push(`promote-vk:${resolvedArtifact.executablePath}`);
         return promotion;
       }),
+      rollback: vi.fn(async (result) => {
+        calls.push(`rollback-vk:${result.promotedPath}`);
+      }),
     },
     vdPromoter: {
       promoteDist: vi.fn(async (distPath) => {
         calls.push(`promote-vd:${distPath}`);
         return promotion;
+      }),
+      rollback: vi.fn(async (result) => {
+        calls.push(`rollback-vd:${result.promotedPath}`);
       }),
     },
     supervisor: {

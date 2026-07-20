@@ -43,10 +43,12 @@ export interface RuntimePromotionResult {
 
 export interface VkRuntimePromoter {
   promote(artifact: ResolvedVkRuntimeArtifact): Promise<RuntimePromotionResult>;
+  rollback(result: RuntimePromotionResult): Promise<void>;
 }
 
 export interface VdRuntimePromoter {
   promoteDist(distPath: string): Promise<RuntimePromotionResult>;
+  rollback(result: RuntimePromotionResult): Promise<void>;
 }
 
 export interface ReadinessProbe {
@@ -158,12 +160,22 @@ export async function runVkvdHotswap(
 
   const vkArtifact = await dependencies.artifactResolver.resolve(plan.vkSource);
   const vkPromotion = await dependencies.vkPromoter.promote(vkArtifact);
-  await dependencies.supervisor.restart(plan.supervisorPrograms.vk);
-  await dependencies.readiness.waitForVkReady();
+  try {
+    await dependencies.supervisor.restart(plan.supervisorPrograms.vk);
+    await dependencies.readiness.waitForVkReady();
+  } catch (error) {
+    await dependencies.vkPromoter.rollback(vkPromotion);
+    throw error;
+  }
 
   const vdPromotion = await dependencies.vdPromoter.promoteDist(plan.vdDistPath);
-  await dependencies.supervisor.restart(plan.supervisorPrograms.vd);
-  await dependencies.readiness.waitForVdReady();
+  try {
+    await dependencies.supervisor.restart(plan.supervisorPrograms.vd);
+    await dependencies.readiness.waitForVdReady();
+  } catch (error) {
+    await dependencies.vdPromoter.rollback(vdPromotion);
+    throw error;
+  }
 
   return {
     mode: 'apply',
