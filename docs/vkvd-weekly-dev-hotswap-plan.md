@@ -206,3 +206,9 @@ Springboard's Node runtime defaults persistent storage under the process working
 In the weekly dev supervisord layout, `vibe-dashboard` runs from `/home/vkuser/.local/share/vibe-dashboard-runtime`, so the existing default persistent data paths live under sibling paths such as `/home/vkuser/.local/share/vibe-dashboard-runtime/data/kv.db` and `/home/vkuser/.local/share/vibe-dashboard-runtime/data/kv_data.json`.
 
 The TypeScript VD runtime promoter only promotes and rolls back `/home/vkuser/.local/share/vibe-dashboard-runtime/dist`. It stages replacements as a hidden sibling of `dist`, moves the prior `dist` into the hotswap state directory, and never removes or copies the runtime directory itself. Tests cover that representative runtime data files under `runtimeDir/data` survive promote, rollback, and failed replacement restoration.
+
+### Phase 1 VK hotswap permissions
+
+The weekly-dev container runs VK and VD as `vkuser` under supervisord, but the initial VK runtime binary and version marker are seeded into `/usr/local`. For the Phase 1 hotswap path, Dockerfile.vkvd deliberately makes only `/usr/local/bin/vibe-kanban`, `/usr/local/share/vibe-kanban-build-version`, and `/var/lib/vd/hotswap/vk` writable by `vkuser:vkadmin`. The Dockerfile already has broader `vkadmin`-oriented writability for selected tool/runtime areas under `/usr/local`; this hotswap change should not broaden that surface to whole directories such as `/usr/local/bin` or `/usr/local/share`.
+
+Security tradeoff: allowing `vkuser` to overwrite the VK binary weakens the root/vkuser boundary for that specific executable, but it keeps the mutable surface narrow and matches the current hotswap coordinator defaults. A future hardening pass should move the mutable VK runtime to a `vkuser`-owned directory such as `/home/vkuser/.local/share/vibe-kanban-runtime` and keep `/usr/local` as immutable seed/tooling state.
