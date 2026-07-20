@@ -31,11 +31,10 @@ export function initializeSingleQuestionMode(host: ParentNode): SingleQuestionMo
   progress.className = 'beadsform-single-question-progress';
   progress.setAttribute('aria-live', 'polite');
 
-  const controls = document.createElement('div');
-  controls.className = 'beadsform-single-question-controls';
-  const previous = button('Previous');
-  const next = button('Next');
-  controls.append(previous, next);
+  const topControls = navigationControls('top');
+  const bottomControls = navigationControls('bottom');
+  const previousButtons = [topControls.previous, bottomControls.previous];
+  const nextButtons = [topControls.next, bottomControls.next];
 
   const notesPanel = document.createElement('aside');
   notesPanel.className = 'beadsform-single-question-notes';
@@ -43,6 +42,7 @@ export function initializeSingleQuestionMode(host: ParentNode): SingleQuestionMo
 
   form.insertBefore(layout, firstQuestion);
   layout.append(questionList, main);
+  main.append(topControls.container);
   if (masterNotes) main.append(notesPanel);
   main.append(progress);
 
@@ -70,7 +70,7 @@ export function initializeSingleQuestionMode(host: ParentNode): SingleQuestionMo
     notesPanel.removeAttribute('hidden');
     notesPanel.append(masterNotes);
   }
-  main.append(controls);
+  main.append(bottomControls.container);
 
   let activeIndex = initialQuestionIndexFromUrl(questions.length) ?? 0;
   const listButtons = Array.from(questionList.querySelectorAll<HTMLButtonElement>('button'));
@@ -85,8 +85,12 @@ export function initializeSingleQuestionMode(host: ParentNode): SingleQuestionMo
       listButton.classList.toggle('is-active', index === activeIndex);
     });
     progress.textContent = `Question ${activeIndex + 1} of ${questions.length}`;
-    previous.disabled = activeIndex === 0;
-    next.hidden = activeIndex === questions.length - 1;
+    previousButtons.forEach((previous) => {
+      previous.disabled = activeIndex === 0;
+    });
+    nextButtons.forEach((next) => {
+      next.hidden = activeIndex === questions.length - 1;
+    });
     if (submitActions) {
       submitActions.hidden = activeIndex !== questions.length - 1;
     }
@@ -157,8 +161,12 @@ export function initializeSingleQuestionMode(host: ParentNode): SingleQuestionMo
     render();
   }
 
-  previous.addEventListener('click', () => goTo(activeIndex - 1));
-  next.addEventListener('click', () => goTo(activeIndex + 1));
+  previousButtons.forEach((previous) => {
+    previous.addEventListener('click', () => goTo(activeIndex - 1));
+  });
+  nextButtons.forEach((next) => {
+    next.addEventListener('click', () => goTo(activeIndex + 1));
+  });
   form.addEventListener('submit', handleSubmit, true);
   window.addEventListener('popstate', handlePopState);
   render();
@@ -195,6 +203,21 @@ function button(label: string): HTMLButtonElement {
   element.type = 'button';
   element.textContent = label;
   return element;
+}
+
+function navigationControls(position: 'top' | 'bottom'): {
+  container: HTMLDivElement;
+  previous: HTMLButtonElement;
+  next: HTMLButtonElement;
+} {
+  const container = document.createElement('div');
+  container.className = `beadsform-single-question-controls beadsform-single-question-controls--${position}`;
+  container.setAttribute('role', 'group');
+  container.setAttribute('aria-label', `${position === 'top' ? 'Top' : 'Bottom'} question navigation`);
+  const previous = button('Previous');
+  const next = button('Next');
+  container.append(previous, next);
+  return { container, previous, next };
 }
 
 function questionTitle(fieldset: HTMLFieldSetElement): string {

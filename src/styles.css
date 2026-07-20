@@ -320,6 +320,11 @@ textarea {
   margin-top: 1rem;
 }
 
+.beadsform-root .beadsform-single-question-controls--top {
+  margin-top: 0;
+  margin-bottom: 1rem;
+}
+
 .beadsform-root .beadsform-single-question-notes {
   display: block;
   position: static;

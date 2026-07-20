@@ -29,14 +29,18 @@ describe('BeadsForm single-question mode', () => {
     expect(document.querySelector<HTMLElement>('.beads-form-submit-actions')?.hidden).toBe(true);
     expect(document.querySelector('.beadsform-single-question-notes textarea[name="additional_notes"]')).toBeTruthy();
     expect(Array.from(document.querySelector('.beadsform-single-question-main')!.children).map((child) => child.className)).toEqual([
+      'beadsform-single-question-controls beadsform-single-question-controls--top',
       'beadsform-single-question-notes',
       'beadsform-single-question-progress',
       'beadsform-single-question-item',
       'beadsform-single-question-item',
-      'beadsform-single-question-controls',
+      'beadsform-single-question-controls beadsform-single-question-controls--bottom',
     ]);
     expect(document.querySelector('.beadsform-single-question-progress')?.previousElementSibling?.className).toBe('beadsform-single-question-notes');
     expect(document.querySelector('.beadsform-single-question-progress')?.nextElementSibling?.textContent).toContain('First question');
+    expect(document.querySelectorAll('.beadsform-single-question-controls')).toHaveLength(2);
+    expect(document.querySelector('.beadsform-single-question-controls--top')?.getAttribute('role')).toBe('group');
+    expect(document.querySelector('.beadsform-single-question-controls--top')?.getAttribute('aria-label')).toBe('Top question navigation');
     expect(Array.from(document.querySelectorAll('.beadsform-single-question-list-button')).map((button) => button.textContent)).toEqual([
       'First question',
       'Second question',
@@ -47,6 +51,48 @@ describe('BeadsForm single-question mode', () => {
     expect(questionItems[0]!.hidden).toBe(true);
     expect(questionItems[1]!.hidden).toBe(false);
     expect(document.querySelector<HTMLElement>('.beads-form-submit-actions')?.hidden).toBe(false);
+    expect(Array.from(document.querySelectorAll<HTMLButtonElement>('.beadsform-single-question-controls button:nth-child(2)')).every((button) => button.hidden)).toBe(true);
+  });
+
+  it('keeps top and bottom navigation controls synchronized', () => {
+    document.body.innerHTML = `
+      <div id="host">
+        <form>
+          <fieldset><legend>First</legend><input name="first"></fieldset>
+          <fieldset><legend>Second</legend><input name="second"></fieldset>
+          <fieldset><legend>Third</legend><input name="third"></fieldset>
+        </form>
+      </div>
+    `;
+
+    initializeSingleQuestionMode(document.querySelector('#host')!);
+
+    const topPrevious = document.querySelector<HTMLButtonElement>('.beadsform-single-question-controls--top button:first-child')!;
+    const topNext = document.querySelector<HTMLButtonElement>('.beadsform-single-question-controls--top button:nth-child(2)')!;
+    const bottomPrevious = document.querySelector<HTMLButtonElement>('.beadsform-single-question-controls--bottom button:first-child')!;
+    const bottomNext = document.querySelector<HTMLButtonElement>('.beadsform-single-question-controls--bottom button:nth-child(2)')!;
+
+    expect(topPrevious.disabled).toBe(true);
+    expect(bottomPrevious.disabled).toBe(true);
+    expect(topNext.hidden).toBe(false);
+    expect(bottomNext.hidden).toBe(false);
+
+    topNext.click();
+    expect(document.querySelector('.beadsform-single-question-progress')?.textContent).toBe('Question 2 of 3');
+    expect(topPrevious.disabled).toBe(false);
+    expect(bottomPrevious.disabled).toBe(false);
+    expect(topNext.hidden).toBe(false);
+    expect(bottomNext.hidden).toBe(false);
+
+    bottomNext.click();
+    expect(document.querySelector('.beadsform-single-question-progress')?.textContent).toBe('Question 3 of 3');
+    expect(topNext.hidden).toBe(true);
+    expect(bottomNext.hidden).toBe(true);
+
+    topPrevious.click();
+    expect(document.querySelector('.beadsform-single-question-progress')?.textContent).toBe('Question 2 of 3');
+    expect(topNext.hidden).toBe(false);
+    expect(bottomNext.hidden).toBe(false);
   });
 
   it('reports active fieldset validity before navigating forward', () => {
