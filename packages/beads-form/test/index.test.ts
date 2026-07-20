@@ -153,7 +153,7 @@ describe('@vibe-dashboard/beads-form', () => {
     ]);
   });
 
-  it('renders safe Markdown descriptions and emphasizes recommended choices', () => {
+  it('renders safe Markdown descriptions and recommendation reasons', () => {
     const compiled = compileBeadsForm(defineBeadsForm({
       id: 'markdown_review',
       title: 'Markdown review',
@@ -168,7 +168,12 @@ describe('@vibe-dashboard/beads-form', () => {
               id: 'recommended',
               label: 'Recommended path',
               description: 'This is **recommended**.',
-              recommended: true,
+              is_recommended_reason: 'Fastest path with **lowest risk**.',
+            },
+            {
+              id: 'no_reason',
+              label: 'No reason marker',
+              description: 'Should not render a reason-less recommendation marker.',
             },
             {
               id: 'unsafe_link',
@@ -186,6 +191,10 @@ describe('@vibe-dashboard/beads-form', () => {
     expect(compiled.html).toContain('<em>recommended</em>');
     expect(compiled.html).toContain('<a href="/docs" rel="noopener noreferrer">docs</a>');
     expect(compiled.html).toContain('class="beads-form-recommended"');
+    expect(compiled.html.match(/class="beads-form-recommended"/g)).toHaveLength(1);
+    expect(compiled.html).toContain('class="beads-form-recommended-reason"');
+    expect(compiled.html).toContain('Fastest path with <strong>lowest risk</strong>.');
+    expect(compiled.html).not.toContain('No reason marker <span class="beads-form-recommended"');
     expect(compiled.html).not.toContain('javascript:alert');
   });
 });

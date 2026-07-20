@@ -63,7 +63,11 @@ const form = defineBeadsForm({
       title: 'Entry point',
       description: 'Choose how the user should open this feature. Select every acceptable option and explain nuance in the textareas.',
       choices: [
-        { id: 'forms_tab', label: 'Open in a Forms tab', recommended: true },
+        {
+          id: 'forms_tab',
+          label: 'Open in a Forms tab',
+          is_recommended_reason: 'This keeps form filling close to the craft context without splitting attention.',
+        },
         { id: 'direct_route', label: 'Support a direct dashboard URL' },
       ],
     }),
@@ -89,7 +93,7 @@ const metadataPatch = buildBeadsFormMetadata([form]);
 - Choice ids become submitted values.
 - Question ids become submitted field names.
 - The renderer generates accessible HTML and the validation `controls[]` manifest.
-- Add `recommended: true` to choices the agent recommends; the UI emphasizes those options.
+- Add `is_recommended_reason: "..."` to choices the agent recommends; the UI emphasizes those options and renders the reason. Do not use a reason-less boolean recommendation marker.
 - Descriptions support safe Markdown such as `**bold**`, `*emphasis*`, `` `code` ``, and safe links. Raw HTML in descriptions is escaped.
 - Standard choice questions normalize as per-option booleans, for example
   `"preview_flow_result": { "loaded_successfully": true, "json_copy_worked": false }`.

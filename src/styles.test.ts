@@ -37,4 +37,11 @@ describe('BeadsForm styles', () => {
     expect(css).toMatch(/\.beadsform-root \.beads-form-more-info-toggle\.has-value\s*\{[^}]*border-color:\s*#60a5fa/s);
     expect(css).toMatch(/\.beadsform-root \.beads-form-more-info-textarea\[hidden\]\s*\{[^}]*display:\s*none/s);
   });
+
+  it('styles rendered recommendation reasons', async () => {
+    const css = await readFile(new URL('./styles.css', import.meta.url), 'utf8');
+
+    expect(css).toMatch(/\.beadsform-root \.beads-form-recommended-reason\s*\{[^}]*color:\s*#bbf7d0/s);
+    expect(css).toMatch(/\.beadsform-root \.beads-form-recommended-reason-label\s*\{[^}]*font-weight:\s*700/s);
+  });
 });

@@ -31,8 +31,8 @@ export type ChoiceQuestionChoice = {
   id: string;
   label: string;
   description?: string;
-  /** Emphasizes the choice as the agent-recommended/default path. */
-  recommended?: boolean;
+  /** Marks this choice as recommended and explains why. Preferred over boolean markers so humans get the rationale. */
+  is_recommended_reason?: string;
 };
 
 export type QuestionBase = {
@@ -320,8 +320,12 @@ function compileChoicesQuestion(question: ChoicesQuestion, controls: BeadsFormCo
     const choiceDescription = choice.description
       ? renderMarkdown(choice.description)
       : '';
-    const recommended = choice.recommended
+    const recommendationReason = choice.is_recommended_reason?.trim();
+    const recommended = recommendationReason
       ? '<span class="beads-form-recommended" aria-label="Recommended choice">Recommended</span>'
+      : '';
+    const recommendation = recommendationReason
+      ? `<p class="beads-form-recommended-reason"><span class="beads-form-recommended-reason-label">Why recommended:</span> ${renderInlineMarkdown(recommendationReason)}</p>`
       : '';
     const choiceNotes = includePerChoiceNotes
       ? compileNotesTextarea({
@@ -337,6 +341,7 @@ function compileChoicesQuestion(question: ChoicesQuestion, controls: BeadsFormCo
       '<div class="beads-form-choice">',
       `<label for="${attr(inputId)}"><input id="${attr(inputId)}" name="${attr(question.id)}" type="${inputType}" value="${attr(choice.id)}"${question.required && !allowMultiple ? ' required' : ''}> ${escapeHtml(choice.label)}${recommended ? ` ${recommended}` : ''}</label>`,
       choiceDescription,
+      recommendation,
       choiceNotes,
       '</div>',
     ].join('');

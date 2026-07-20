@@ -119,6 +119,16 @@ textarea {
   text-transform: uppercase;
 }
 
+.beadsform-root .beads-form-recommended-reason {
+  margin: 0.35rem 0 0;
+  color: #bbf7d0;
+  font-size: 0.95rem;
+}
+
+.beadsform-root .beads-form-recommended-reason-label {
+  font-weight: 700;
+}
+
 .beadsform-root textarea,
 .beadsform-root input[type="text"],
 .beadsform-root input[type="email"],
