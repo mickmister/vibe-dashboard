@@ -8,7 +8,7 @@ import type {
   VkArtifactSource,
   VkRuntimeArtifactResolver,
 } from './vkvd-hotswap-system';
-import { ExecFileCommandRunner, type CommandRunner } from './supervisor-runner';
+import { ExecFileCommandRunner, type CommandRunner } from './supervisor-runner.ts';
 
 export interface LocalVkBuildResolverOptions {
   runner?: CommandRunner;

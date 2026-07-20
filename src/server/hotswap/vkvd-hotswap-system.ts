@@ -56,10 +56,13 @@ export interface ReadinessProbe {
   waitForVdReady(): Promise<void>;
 }
 
+export type VkvdHotswapScope = 'vk-only' | 'vk-then-vd';
+
 export interface VkvdHotswapRequest {
   id: string;
   vkSource: VkArtifactSource;
-  vdDistPath: string;
+  scope?: VkvdHotswapScope;
+  vdDistPath?: string;
   supervisorPrograms?: {
     vk: string;
     vd: string;
@@ -94,7 +97,8 @@ export type VkvdHotswapPlannedStep =
 export interface VkvdHotswapPlan {
   id: string;
   vkSource: VkArtifactSource;
-  vdDistPath: string;
+  scope: VkvdHotswapScope;
+  vdDistPath?: string;
   steps: VkvdHotswapPlannedStep[];
   supervisorPrograms: {
     vk: string;
@@ -128,16 +132,32 @@ export const VKVD_HOTSWAP_STEP_ORDER: VkvdHotswapPlannedStep[] = [
   'wait-vd-ready',
 ];
 
+export const VK_ONLY_HOTSWAP_STEP_ORDER: VkvdHotswapPlannedStep[] = [
+  'resolve-vk-artifact',
+  'promote-vk-runtime',
+  'restart-vk',
+  'wait-vk-ready',
+];
+
 export function createVkvdHotswapPlan(request: VkvdHotswapRequest): VkvdHotswapPlan {
   assertVkArtifactSourceAllowed(request.vkSource);
+  const scope = request.scope ?? 'vk-then-vd';
   if (!request.id.trim()) throw new Error('VK/VD hotswap requires a non-empty id');
-  if (!request.vdDistPath.trim()) throw new Error('VK/VD hotswap requires --vd-dist');
+  if (scope === 'vk-then-vd' && !request.vdDistPath?.trim()) {
+    throw new Error('VK/VD hotswap requires --vd-dist');
+  }
+  if (scope !== 'vk-only' && scope !== 'vk-then-vd') {
+    throw new Error(`Unsupported VK/VD hotswap scope: ${scope}`);
+  }
 
   return {
     id: request.id,
     vkSource: request.vkSource,
+    scope,
     vdDistPath: request.vdDistPath,
-    steps: [...VKVD_HOTSWAP_STEP_ORDER],
+    steps: scope === 'vk-only'
+      ? [...VK_ONLY_HOTSWAP_STEP_ORDER]
+      : [...VKVD_HOTSWAP_STEP_ORDER],
     supervisorPrograms: request.supervisorPrograms ?? { ...DEFAULT_VKVD_HOTSWAP_SUPERVISOR_PROGRAMS },
   };
 }
@@ -171,6 +191,19 @@ export async function runVkvdHotswap(
       restart: () => dependencies.supervisor.restart(plan.supervisorPrograms.vk),
       waitReady: () => dependencies.readiness.waitForVkReady(),
     });
+  }
+
+  if (plan.scope === 'vk-only') {
+    return {
+      mode: 'apply',
+      plan,
+      vkArtifact,
+      vkPromotion,
+    };
+  }
+
+  if (!plan.vdDistPath) {
+    throw new Error('VK/VD hotswap apply plan is missing --vd-dist');
   }
 
   const vdPromotion = await dependencies.vdPromoter.promoteDist(plan.vdDistPath);

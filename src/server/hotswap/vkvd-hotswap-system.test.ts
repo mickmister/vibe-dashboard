@@ -37,6 +37,22 @@ describe('createVkvdHotswapPlan', () => {
     expect(() => createVkvdHotswapPlan(request({ vkSource: unsafeLocalBuild })))
       .toThrow('Local Rust build fallback requires explicit operator allowance');
   });
+
+  it('builds a VK-only flow without requiring a VD dist path', () => {
+    const plan = createVkvdHotswapPlan(request({
+      scope: 'vk-only',
+      vdDistPath: undefined,
+    }));
+
+    expect(plan.scope).toBe('vk-only');
+    expect(plan.vdDistPath).toBeUndefined();
+    expect(plan.steps).toEqual([
+      'resolve-vk-artifact',
+      'promote-vk-runtime',
+      'restart-vk',
+      'wait-vk-ready',
+    ]);
+  });
 });
 
 describe('runVkvdHotswap', () => {
@@ -78,6 +94,58 @@ describe('runVkvdHotswap', () => {
       'promote-vd:/repo/vibe-kanban-vscode-web/dist',
       'restart:vibe-dashboard',
       'ready-vd',
+    ]);
+  });
+
+  it('applies VK-only scope without promoting or restarting VD', async () => {
+    const calls: string[] = [];
+    const deps = fakeDependencies(calls);
+
+    const result = await runVkvdHotswap(request({
+      scope: 'vk-only',
+      vdDistPath: undefined,
+    }), deps, {
+      dryRun: false,
+      applyConfirmed: true,
+    });
+
+    expect(result.mode).toBe('apply');
+    expect(result.vdPromotion).toBeUndefined();
+    expect(calls).toEqual([
+      'resolve:github-prerelease:feature/test',
+      'promote-vk:/staging/vibe-kanban',
+      'restart:vibe-kanban',
+      'ready-vk',
+    ]);
+  });
+
+  it('rolls back and restarts VK-only scope before failing when VK readiness fails', async () => {
+    const calls: string[] = [];
+    let vkReadinessAttempts = 0;
+    const deps = fakeDependencies(calls, {
+      waitForVkReady: async () => {
+        vkReadinessAttempts += 1;
+        calls.push(vkReadinessAttempts === 1 ? 'ready-vk-fail' : 'ready-vk');
+        if (vkReadinessAttempts === 1) throw new Error('VK not ready');
+      },
+    });
+
+    await expect(runVkvdHotswap(request({
+      scope: 'vk-only',
+      vdDistPath: undefined,
+    }), deps, {
+      dryRun: false,
+      applyConfirmed: true,
+    })).rejects.toThrow('VK not ready');
+
+    expect(calls).toEqual([
+      'resolve:github-prerelease:feature/test',
+      'promote-vk:/staging/vibe-kanban',
+      'restart:vibe-kanban',
+      'ready-vk-fail',
+      'rollback-vk:/runtime/promoted',
+      'restart:vibe-kanban',
+      'ready-vk',
     ]);
   });
 

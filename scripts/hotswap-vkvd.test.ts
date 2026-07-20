@@ -64,6 +64,30 @@ describe('parseVkvdHotswapCliArgs', () => {
       operatorAllowed: true,
     });
   });
+
+  it('accepts VK-only scope without a VD dist path', () => {
+    const parsed = parseVkvdHotswapCliArgs([
+      '--scope',
+      'vk-only',
+      '--vk-source',
+      'local-rust-build',
+      '--allow-local-rust-build',
+      '--vk-worktree',
+      '/repo/Vktest',
+    ]);
+
+    expect(parsed.request.scope).toBe('vk-only');
+    expect(parsed.request.vdDistPath).toBeUndefined();
+  });
+
+  it('rejects unsupported hotswap scopes', () => {
+    expect(() => parseVkvdHotswapCliArgs([
+      '--scope',
+      'vd-only',
+      '--vk-ref',
+      'feature/test',
+    ])).toThrow('Unsupported --scope: vd-only');
+  });
 });
 
 describe('runVkvdHotswapCli', () => {
@@ -148,6 +172,62 @@ describe('runVkvdHotswapCli', () => {
       'promote-vd:/repo/vibe-kanban-vscode-web/dist',
       'restart:vibe-dashboard',
       'ready-vd',
+    ]);
+  });
+
+  it('wires VK-only local-build dry-run without requiring VD dist', async () => {
+    const calls: string[] = [];
+    const deps = fakeDependencies(calls);
+    const output = { log: vi.fn() };
+
+    const result = await runVkvdHotswapCli([
+      '--scope',
+      'vk-only',
+      '--vk-source',
+      'local-rust-build',
+      '--allow-local-rust-build',
+      '--vk-worktree',
+      '/repo/Vktest',
+    ], deps, output);
+
+    expect(result.mode).toBe('dry-run');
+    expect(calls).toEqual([]);
+    expect(JSON.parse(output.log.mock.calls[0]![0])).toMatchObject({
+      mode: 'dry-run',
+      plan: {
+        scope: 'vk-only',
+        steps: [
+          'resolve-vk-artifact',
+          'promote-vk-runtime',
+          'restart-vk',
+          'wait-vk-ready',
+        ],
+      },
+    });
+  });
+
+  it('wires VK-only apply without invoking VD operations', async () => {
+    const calls: string[] = [];
+    const deps = fakeDependencies(calls);
+    const output = { log: vi.fn() };
+
+    await runVkvdHotswapCli([
+      'apply',
+      '--confirm-non-dry-run',
+      '--scope',
+      'vk-only',
+      '--vk-source',
+      'local-rust-build',
+      '--allow-local-rust-build',
+      '--vk-worktree',
+      '/repo/Vktest',
+    ], deps, output);
+
+    expect(calls).toEqual([
+      'resolve:/repo/Vktest',
+      'promote-vk:/staging/vibe-kanban',
+      'restart:vibe-kanban',
+      'ready-vk',
     ]);
   });
 });

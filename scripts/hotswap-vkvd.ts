@@ -3,6 +3,7 @@ import {
   type ResolvedVkRuntimeArtifact,
   type VkArtifactSource,
   type VkRuntimePlatform,
+  type VkvdHotswapScope,
   type VkvdHotswapCoordinatorDependencies,
   type VkvdHotswapRequest,
   type VkvdHotswapRunResult,
@@ -70,19 +71,27 @@ export function parseVkvdHotswapCliArgs(argv: readonly string[]): ParsedVkvdHots
     throw new Error('apply mode requires --confirm-non-dry-run');
   }
 
+  const scope = parseScope(args.get('scope') ?? 'vk-then-vd');
+
   return {
     dryRun: mode === 'dry-run',
     applyConfirmed,
     request: {
       id: args.get('id') ?? `vkvd-hotswap-${new Date().toISOString()}`,
       vkSource: parseVkSource(args, allowLocalRustBuild),
-      vdDistPath: requiredArg(args, 'vd-dist'),
+      scope,
+      vdDistPath: scope === 'vk-only' ? args.get('vd-dist') : requiredArg(args, 'vd-dist'),
       supervisorPrograms: {
         vk: args.get('vk-program') ?? 'vibe-kanban',
         vd: args.get('vd-program') ?? 'vibe-dashboard',
       },
     },
   };
+}
+
+function parseScope(value: string): VkvdHotswapScope {
+  if (value === 'vk-only' || value === 'vk-then-vd') return value;
+  throw new Error(`Unsupported --scope: ${value}`);
 }
 
 function parseVkSource(args: Map<string, string>, allowLocalRustBuild: boolean): VkArtifactSource {
