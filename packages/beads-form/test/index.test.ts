@@ -197,4 +197,27 @@ describe('@vibe-dashboard/beads-form', () => {
     expect(compiled.html).not.toContain('No reason marker <span class="beads-form-recommended"');
     expect(compiled.html).not.toContain('javascript:alert');
   });
+
+  it('ignores reason-less legacy recommended booleans from raw JSON', () => {
+    const compiled = compileBeadsForm(defineBeadsForm({
+      id: 'legacy_recommended',
+      title: 'Legacy recommended',
+      description: 'Raw JSON may still contain a stale boolean recommendation marker.',
+      questions: [{
+        type: 'choices',
+        id: 'path',
+        title: 'Path',
+        description: 'Choose one.',
+        choices: [{
+          id: 'legacy',
+          label: 'Legacy marker',
+          recommended: true,
+        } as unknown as { id: string; label: string }],
+      }],
+    }));
+
+    expect(compiled.html).toContain('Legacy marker');
+    expect(compiled.html).not.toContain('class="beads-form-recommended"');
+    expect(compiled.html).not.toContain('class="beads-form-recommended-reason"');
+  });
 });

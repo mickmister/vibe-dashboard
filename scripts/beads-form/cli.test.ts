@@ -34,7 +34,7 @@ const standardForm = {
     id: 'decision',
     title: 'Decision',
     description: 'Choose one.',
-    choices: [{ id: 'approve', label: 'Approve', recommended: true }],
+    choices: [{ id: 'approve', label: 'Approve', is_recommended_reason: 'Lowest-risk path.' }],
   }],
 } as const;
 

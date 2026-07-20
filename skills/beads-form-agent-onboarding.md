@@ -69,7 +69,6 @@ Example JSON shape:
           "id": "implement",
           "label": "Implement now",
           "description": "Proceed with code changes.",
-          "recommended": true,
           "is_recommended_reason": "This is the smallest merge-safe slice."
         },
         {
@@ -91,7 +90,7 @@ Example JSON shape:
 
 Guidelines:
 - Every question should have a clear title and description.
-- Choices may include `recommended: true` and `is_recommended_reason`.
+- Choices may include `is_recommended_reason` when the agent recommends an option. Do not use `recommended: true`; recommendations should always include the reason text.
 - Use `allowCodeFileChanges`; if the answer returns `allow_code_file_changes=false`, do not edit files—make another form or continue discussion.
 - Keep `additional_notes` as the master notes field.
 
