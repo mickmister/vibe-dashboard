@@ -46,6 +46,17 @@ describe('parseVkvdHotswapCliArgs', () => {
     ])).toThrow('local Rust build source requires --allow-local-rust-build');
   });
 
+  it('requires an explicit flag before accepting local prebuilt VK binary fallback', () => {
+    expect(() => parseVkvdHotswapCliArgs([
+      '--scope',
+      'vk-only',
+      '--vk-source',
+      'local-prebuilt-binary',
+      '--vk-binary',
+      '/repo/Vktest/target/release/server',
+    ])).toThrow('local prebuilt VK binary source requires --allow-local-prebuilt-binary');
+  });
+
   it('accepts local Rust build fallback only with the explicit allow flag', () => {
     const parsed = parseVkvdHotswapCliArgs([
       '--vk-source',
@@ -76,6 +87,30 @@ describe('parseVkvdHotswapCliArgs', () => {
       '/repo/Vktest',
     ]);
 
+    expect(parsed.request.scope).toBe('vk-only');
+    expect(parsed.request.vdDistPath).toBeUndefined();
+  });
+
+  it('accepts VK-only prebuilt binary source without a VD dist path', () => {
+    const parsed = parseVkvdHotswapCliArgs([
+      '--scope',
+      'vk-only',
+      '--vk-source',
+      'local-prebuilt-binary',
+      '--allow-local-prebuilt-binary',
+      '--vk-binary',
+      '/repo/Vktest/target/release/server',
+      '--vk-version-label',
+      'weekly-dev@780f701',
+    ]);
+
+    expect(parsed.request.vkSource).toEqual({
+      kind: 'local-prebuilt-binary',
+      binaryPath: '/repo/Vktest/target/release/server',
+      versionLabel: 'weekly-dev@780f701',
+      platform: 'linux-x64',
+      operatorAllowed: true,
+    });
     expect(parsed.request.scope).toBe('vk-only');
     expect(parsed.request.vdDistPath).toBeUndefined();
   });
@@ -230,13 +265,42 @@ describe('runVkvdHotswapCli', () => {
       'ready-vk',
     ]);
   });
+
+  it('wires VK-only prebuilt binary apply without invoking VD operations', async () => {
+    const calls: string[] = [];
+    const deps = fakeDependencies(calls);
+    const output = { log: vi.fn() };
+
+    await runVkvdHotswapCli([
+      'apply',
+      '--confirm-non-dry-run',
+      '--scope',
+      'vk-only',
+      '--vk-source',
+      'local-prebuilt-binary',
+      '--allow-local-prebuilt-binary',
+      '--vk-binary',
+      '/repo/Vktest/target/release/server',
+    ], deps, output);
+
+    expect(calls).toEqual([
+      'resolve:/repo/Vktest/target/release/server',
+      'promote-vk:/staging/vibe-kanban',
+      'restart:vibe-kanban',
+      'ready-vk',
+    ]);
+  });
 });
 
 function fakeDependencies(calls: string[]): VkvdHotswapCoordinatorDependencies {
   return {
     artifactResolver: {
       resolve: vi.fn(async (source) => {
-        calls.push(`resolve:${source.kind === 'github-prerelease' ? source.ref : source.worktreePath}`);
+        calls.push(`resolve:${source.kind === 'github-prerelease'
+          ? source.ref
+          : source.kind === 'local-rust-build'
+            ? source.worktreePath
+            : source.binaryPath}`);
         return {
           source,
           executablePath: '/staging/vibe-kanban',

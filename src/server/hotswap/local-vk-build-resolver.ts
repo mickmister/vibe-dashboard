@@ -5,7 +5,9 @@ import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import type {
   ResolvedVkRuntimeArtifact,
+  VkLocalPrebuiltBinaryArtifactSource,
   VkArtifactSource,
+  VkLocalRustBuildArtifactSource,
   VkRuntimeArtifactResolver,
 } from './vkvd-hotswap-system';
 import { ExecFileCommandRunner, type CommandRunner } from './supervisor-runner.ts';
@@ -55,6 +57,10 @@ export class LocalVkBuildArtifactResolver implements VkRuntimeArtifactResolver {
   }
 
   async resolve(source: VkArtifactSource): Promise<ResolvedVkRuntimeArtifact> {
+    if (source.kind === 'local-prebuilt-binary') {
+      return this.stagePrebuiltBinary(source);
+    }
+
     if (source.kind !== 'local-rust-build') {
       throw new Error(`Local VK build resolver cannot resolve ${source.kind} sources`);
     }
@@ -73,6 +79,26 @@ export class LocalVkBuildArtifactResolver implements VkRuntimeArtifactResolver {
     });
 
     const builtServerPath = this.builtServerPath(worktreePath);
+    return this.stageBuiltServer(source, builtServerPath, `local-build:${basename(worktreePath)}`);
+  }
+
+  private async stagePrebuiltBinary(source: VkLocalPrebuiltBinaryArtifactSource): Promise<ResolvedVkRuntimeArtifact> {
+    if (source.operatorAllowed !== true) {
+      throw new Error('Local prebuilt VK binary fallback requires explicit operator allowance');
+    }
+    const binaryPath = resolve(source.binaryPath);
+    return this.stageBuiltServer(
+      source,
+      binaryPath,
+      source.versionLabel?.trim() || `local-prebuilt:${basename(binaryPath)}`,
+    );
+  }
+
+  private async stageBuiltServer(
+    source: VkLocalRustBuildArtifactSource | VkLocalPrebuiltBinaryArtifactSource,
+    builtServerPath: string,
+    buildVersionLabel: string,
+  ): Promise<ResolvedVkRuntimeArtifact> {
     const builtServerStat = await this.fileSystem.stat(builtServerPath);
     if (!builtServerStat.isFile()) {
       throw new Error(`Local VK build did not produce server binary: ${builtServerPath}`);
@@ -82,11 +108,10 @@ export class LocalVkBuildArtifactResolver implements VkRuntimeArtifactResolver {
     const executablePath = join(stagingDir, 'vibe-kanban');
     await this.fileSystem.copyFile(builtServerPath, executablePath);
     await this.fileSystem.chmod(executablePath, 0o755);
-
     return {
       source,
       executablePath,
-      buildVersionLabel: `local-build:${basename(worktreePath)}`,
+      buildVersionLabel,
       sha256: await this.sha256(executablePath),
     };
   }

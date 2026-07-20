@@ -40,6 +40,57 @@ describe('LocalVkBuildArtifactResolver', () => {
     ]);
   });
 
+  it('stages a prebuilt VK binary without running the build script', async () => {
+    const calls: string[] = [];
+    const runner: CommandRunner = {
+      execFile: vi.fn(async () => ({ stdout: '', stderr: '' })),
+    };
+    const fs = fakeFileSystem(calls, {
+      '/repo/Vktest/target/release/server': Buffer.from('server-binary'),
+    });
+    const resolver = new LocalVkBuildArtifactResolver({
+      runner,
+      fileSystem: fs,
+      stagingRoot: '/tmp/vk-build-',
+    });
+
+    const artifact = await resolver.resolve({
+      kind: 'local-prebuilt-binary',
+      binaryPath: '/repo/Vktest/target/release/server',
+      versionLabel: 'weekly-dev@780f701',
+      platform: 'linux-x64',
+      operatorAllowed: true,
+    });
+
+    expect(runner.execFile).not.toHaveBeenCalled();
+    expect(artifact.executablePath).toBe('/tmp/vk-build-abc/vibe-kanban');
+    expect(artifact.buildVersionLabel).toBe('weekly-dev@780f701');
+    expect(artifact.sha256).toBe(sha256(Buffer.from('server-binary')));
+    expect(calls).toEqual([
+      'stat:/repo/Vktest/target/release/server',
+      'mkdtemp:/tmp/vk-build-',
+      'copy:/repo/Vktest/target/release/server:/tmp/vk-build-abc/vibe-kanban',
+      'chmod:/tmp/vk-build-abc/vibe-kanban:493',
+      'read:/tmp/vk-build-abc/vibe-kanban',
+    ]);
+  });
+
+  it('requires explicit allowance for a prebuilt VK binary source', async () => {
+    const resolver = new LocalVkBuildArtifactResolver({
+      runner: { execFile: vi.fn() },
+      fileSystem: fakeFileSystem([], {}),
+    });
+
+    await expect(resolver.resolve({
+      kind: 'local-prebuilt-binary',
+      binaryPath: '/repo/Vktest/target/release/server',
+      platform: 'linux-x64',
+      operatorAllowed: false,
+    } as unknown as VkArtifactSource)).rejects.toThrow(
+      'Local prebuilt VK binary fallback requires explicit operator allowance',
+    );
+  });
+
   it('rejects non-local artifact sources', async () => {
     const resolver = new LocalVkBuildArtifactResolver({
       runner: { execFile: vi.fn() },

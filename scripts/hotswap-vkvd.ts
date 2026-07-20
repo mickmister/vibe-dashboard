@@ -45,6 +45,7 @@ export function parseVkvdHotswapCliArgs(argv: readonly string[]): ParsedVkvdHots
   let mode: 'dry-run' | 'apply' = 'dry-run';
   let applyConfirmed = false;
   let allowLocalRustBuild = false;
+  let allowLocalPrebuiltBinary = false;
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -58,6 +59,10 @@ export function parseVkvdHotswapCliArgs(argv: readonly string[]): ParsedVkvdHots
     }
     if (arg === '--allow-local-rust-build') {
       allowLocalRustBuild = true;
+      continue;
+    }
+    if (arg === '--allow-local-prebuilt-binary') {
+      allowLocalPrebuiltBinary = true;
       continue;
     }
     if (!arg?.startsWith('--')) throw new Error(`Unexpected argument: ${arg ?? ''}`);
@@ -78,7 +83,10 @@ export function parseVkvdHotswapCliArgs(argv: readonly string[]): ParsedVkvdHots
     applyConfirmed,
     request: {
       id: args.get('id') ?? `vkvd-hotswap-${new Date().toISOString()}`,
-      vkSource: parseVkSource(args, allowLocalRustBuild),
+      vkSource: parseVkSource(args, {
+        allowLocalRustBuild,
+        allowLocalPrebuiltBinary,
+      }),
       scope,
       vdDistPath: scope === 'vk-only' ? args.get('vd-dist') : requiredArg(args, 'vd-dist'),
       supervisorPrograms: {
@@ -94,7 +102,13 @@ function parseScope(value: string): VkvdHotswapScope {
   throw new Error(`Unsupported --scope: ${value}`);
 }
 
-function parseVkSource(args: Map<string, string>, allowLocalRustBuild: boolean): VkArtifactSource {
+function parseVkSource(
+  args: Map<string, string>,
+  allowances: {
+    allowLocalRustBuild: boolean;
+    allowLocalPrebuiltBinary: boolean;
+  },
+): VkArtifactSource {
   const sourceKind = args.get('vk-source') ?? 'github-prerelease';
   const platform = parsePlatform(args.get('platform') ?? 'linux-x64');
 
@@ -108,12 +122,25 @@ function parseVkSource(args: Map<string, string>, allowLocalRustBuild: boolean):
   }
 
   if (sourceKind === 'local-rust-build') {
-    if (!allowLocalRustBuild) {
+    if (!allowances.allowLocalRustBuild) {
       throw new Error('local Rust build source requires --allow-local-rust-build');
     }
     return {
       kind: 'local-rust-build',
       worktreePath: requiredArg(args, 'vk-worktree'),
+      platform,
+      operatorAllowed: true,
+    };
+  }
+
+  if (sourceKind === 'local-prebuilt-binary') {
+    if (!allowances.allowLocalPrebuiltBinary) {
+      throw new Error('local prebuilt VK binary source requires --allow-local-prebuilt-binary');
+    }
+    return {
+      kind: 'local-prebuilt-binary',
+      binaryPath: requiredArg(args, 'vk-binary'),
+      versionLabel: args.get('vk-version-label'),
       platform,
       operatorAllowed: true,
     };
@@ -138,7 +165,9 @@ function createProductionDependencies(): VkvdHotswapCoordinatorDependencies {
   return {
     artifactResolver: {
       resolve: async (source: VkArtifactSource): Promise<ResolvedVkRuntimeArtifact> => {
-        if (source.kind === 'local-rust-build') return localBuildResolver.resolve(source);
+        if (source.kind === 'local-rust-build' || source.kind === 'local-prebuilt-binary') {
+          return localBuildResolver.resolve(source);
+        }
         throw new Error('GitHub prerelease VK artifact resolver is not wired in this slice');
       },
     },

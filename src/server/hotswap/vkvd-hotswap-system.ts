@@ -4,7 +4,8 @@ export type VkRuntimePlatform = 'linux-x64' | 'linux-arm64';
 
 export type VkArtifactSource =
   | VkGithubPrereleaseArtifactSource
-  | VkLocalRustBuildArtifactSource;
+  | VkLocalRustBuildArtifactSource
+  | VkLocalPrebuiltBinaryArtifactSource;
 
 export interface VkGithubPrereleaseArtifactSource {
   kind: 'github-prerelease';
@@ -19,6 +20,15 @@ export interface VkLocalRustBuildArtifactSource {
   worktreePath: string;
   platform: VkRuntimePlatform;
   /** Local Rust builds are fallback-only and must be explicitly operator allowed. */
+  operatorAllowed: true;
+}
+
+export interface VkLocalPrebuiltBinaryArtifactSource {
+  kind: 'local-prebuilt-binary';
+  binaryPath: string;
+  platform: VkRuntimePlatform;
+  versionLabel?: string;
+  /** Local prebuilt binaries are fallback-only and must be explicitly operator allowed. */
   operatorAllowed: true;
 }
 
@@ -264,6 +274,14 @@ function assertVkArtifactSourceAllowed(source: VkArtifactSource): void {
     if (!source.worktreePath.trim()) throw new Error('Local Rust build source requires worktreePath');
     if (source.operatorAllowed !== true) {
       throw new Error('Local Rust build fallback requires explicit operator allowance');
+    }
+    return;
+  }
+
+  if (source.kind === 'local-prebuilt-binary') {
+    if (!source.binaryPath.trim()) throw new Error('Local prebuilt VK binary source requires binaryPath');
+    if (source.operatorAllowed !== true) {
+      throw new Error('Local prebuilt VK binary fallback requires explicit operator allowance');
     }
   }
 }
