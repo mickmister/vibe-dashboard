@@ -104,11 +104,14 @@ export function plannedSharedPreviewCommands(config: SharedPreviewConfig): strin
       `git -C ${shQuote(config.checkoutDir)} checkout ${shQuote(config.branch)}`,
       `git -C ${shQuote(config.checkoutDir)} reset --hard ${shQuote(`origin/${config.branch}`)}`,
     ]
-    : [`git clone --branch ${shQuote(config.branch)} ${shQuote(config.repoUrl)} ${shQuote(config.checkoutDir)}`];
+    : [
+      `mkdir -p ${shQuote(dirname(config.checkoutDir))}`,
+      `git clone --branch ${shQuote(config.branch)} ${shQuote(config.repoUrl)} ${shQuote(config.checkoutDir)}`,
+    ];
   return [
     `tmux kill-session -t ${shQuote(config.session)} || true`,
     ...sync,
-    `pnpm install --frozen-lockfile`,
+    `pnpm --dir ${shQuote(config.checkoutDir)} install --frozen-lockfile`,
     `tmux new-session -d -s ${shQuote(config.session)} -- sh -lc ${shQuote(buildTmuxStartCommand(config))}`,
   ];
 }

@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import {
   buildTmuxStartCommand,
   parseSharedPreviewArgs,
@@ -64,9 +67,29 @@ describe('shared BeadsForm preview server helper', () => {
     const commands = plannedSharedPreviewCommands(config);
 
     expect(commands[0]).toBe("tmux kill-session -t 'preview' || true");
+    expect(commands).toContain("mkdir -p '/stable'");
     expect(commands).toContain("git clone --branch 'feature/forms' 'https://github.com/mickmister/vibe-dashboard.git' '/stable/vd'");
-    expect(commands).toContain('pnpm install --frozen-lockfile');
+    expect(commands).toContain("pnpm --dir '/stable/vd' install --frozen-lockfile");
+    expect(commands).not.toContain('pnpm install --frozen-lockfile');
     expect(commands.at(-1)).toContain("tmux new-session -d -s 'preview'");
     expect(commands.at(-1)).toContain('BEADS_FORM_DISABLE_HMR=1');
+  });
+
+  it('plans checkout-scoped install for existing stable checkout sync mode', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'beadsform-shared-preview-'));
+    const checkoutDir = join(tempDir, 'vibe-kanban-vscode-web');
+    mkdirSync(join(checkoutDir, '.git'), { recursive: true });
+    try {
+      const config = resolveSharedPreviewConfig({ checkoutDir, branch: 'feature/forms', session: 'preview' }, {});
+      const commands = plannedSharedPreviewCommands(config);
+
+      expect(commands).toContain(`git -C '${checkoutDir}' fetch origin 'feature/forms'`);
+      expect(commands).not.toContain(`mkdir -p '${tempDir}'`);
+      expect(commands.some((command) => command.includes('git clone'))).toBe(false);
+      expect(commands).toContain(`pnpm --dir '${checkoutDir}' install --frozen-lockfile`);
+      expect(commands).not.toContain('pnpm install --frozen-lockfile');
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 });
