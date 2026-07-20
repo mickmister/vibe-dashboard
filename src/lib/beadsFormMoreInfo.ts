@@ -16,7 +16,7 @@ export function initializeCompactMoreInfo(host: ParentNode): void {
       });
       textarea.addEventListener('input', () => updateButtonState(textarea));
     }
-    setTextareaOpen(textarea, false);
+    setTextareaOpen(textarea, textareaHasValue(textarea));
     updateButtonState(textarea);
   }
 }
@@ -28,6 +28,9 @@ function ensureTextareaId(textarea: HTMLTextAreaElement, index: number): void {
 
 export function refreshCompactMoreInfoState(host: ParentNode): void {
   for (const textarea of findMoreInfoTextareas(host)) {
+    if (textareaHasValue(textarea)) {
+      setTextareaOpen(textarea, true);
+    }
     updateButtonState(textarea);
   }
 }
@@ -64,10 +67,14 @@ function setTextareaOpen(textarea: HTMLTextAreaElement, open: boolean): void {
 function updateButtonState(textarea: HTMLTextAreaElement): void {
   const button = buttonForTextarea(textarea);
   if (!button) return;
-  const hasValue = textarea.value.trim().length > 0;
+  const hasValue = textareaHasValue(textarea);
   button.classList.toggle('has-value', hasValue);
   button.setAttribute('aria-label', `${hasValue ? 'View' : 'Add'} optional context: ${textareaLabel(textarea)}`);
   button.title = hasValue ? 'More info added' : 'Add more info';
+}
+
+function textareaHasValue(textarea: HTMLTextAreaElement): boolean {
+  return textarea.value.trim().length > 0;
 }
 
 function textareaLabel(textarea: HTMLTextAreaElement): string {

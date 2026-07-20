@@ -31,7 +31,7 @@ describe('compact BeadsForm more-info fields', () => {
     expect(buttons[0]!.getAttribute('aria-expanded')).toBe('true');
   });
 
-  it('indicates existing values while preserving normal form submission', () => {
+  it('expands and indicates existing values while preserving normal form submission', () => {
     document.body.innerHTML = `
       <form>
         <textarea id="choice_more_info" name="choice_more_info" aria-label="More info for Choice">Saved context</textarea>
@@ -42,7 +42,8 @@ describe('compact BeadsForm more-info fields', () => {
 
     const textarea = document.querySelector<HTMLTextAreaElement>('textarea')!;
     const button = document.querySelector<HTMLButtonElement>('.beads-form-more-info-toggle')!;
-    expect(textarea.hidden).toBe(true);
+    expect(textarea.hidden).toBe(false);
+    expect(button.getAttribute('aria-expanded')).toBe('true');
     expect(button.classList.contains('has-value')).toBe(true);
     expect(button.getAttribute('aria-label')).toBe('View optional context: More info for Choice');
     expect(Object.fromEntries(new FormData(document.querySelector('form')!))).toEqual({
@@ -50,7 +51,7 @@ describe('compact BeadsForm more-info fields', () => {
     });
   });
 
-  it('refreshes the visible indicator after draft restore applies values', () => {
+  it('refreshes the visible indicator and expands after draft restore applies values', () => {
     document.body.innerHTML = '<form><textarea id="choice_more_info" name="choice_more_info"></textarea></form>';
     initializeCompactMoreInfo(document);
     const textarea = document.querySelector<HTMLTextAreaElement>('textarea')!;
@@ -59,8 +60,23 @@ describe('compact BeadsForm more-info fields', () => {
     textarea.value = 'Draft context';
     refreshCompactMoreInfoState(document);
 
+    expect(textarea.hidden).toBe(false);
+    expect(button.getAttribute('aria-expanded')).toBe('true');
     expect(button.classList.contains('has-value')).toBe(true);
     expect(button.getAttribute('aria-label')).toContain('View optional context');
+  });
+
+  it('keeps empty restored more-info fields collapsed', () => {
+    document.body.innerHTML = '<form><textarea id="choice_more_info" name="choice_more_info"></textarea></form>';
+    initializeCompactMoreInfo(document);
+
+    const textarea = document.querySelector<HTMLTextAreaElement>('textarea')!;
+    const button = document.querySelector<HTMLButtonElement>('.beads-form-more-info-toggle')!;
+    refreshCompactMoreInfoState(document);
+
+    expect(textarea.hidden).toBe(true);
+    expect(button.getAttribute('aria-expanded')).toBe('false');
+    expect(button.classList.contains('has-value')).toBe(false);
   });
 
   it('does not compact the master/global Additional notes textarea', () => {
@@ -98,5 +114,31 @@ describe('compact BeadsForm more-info fields', () => {
     expect(document.querySelector<HTMLTextAreaElement>('#overall_more_info')?.hidden).toBe(false);
     expect(document.querySelectorAll('.beads-form-more-info-toggle')).toHaveLength(2);
     expect(document.querySelector('.beadsform-single-question-notes #overall_more_info')).toBeTruthy();
+  });
+
+  it('auto-expands filled more-info fields when revisiting questions in single-question mode', () => {
+    document.body.innerHTML = `
+      <div id="host">
+        <form>
+          <fieldset><legend>First</legend><textarea id="first_more_info" name="first_more_info"></textarea></fieldset>
+          <fieldset><legend>Second</legend><textarea id="second_more_info" name="second_more_info">Submitted context</textarea></fieldset>
+        </form>
+      </div>
+    `;
+
+    const host = document.querySelector('#host')!;
+    initializeSingleQuestionMode(host);
+    initializeCompactMoreInfo(host);
+
+    const secondTextarea = document.querySelector<HTMLTextAreaElement>('#second_more_info')!;
+    const secondButton = document.querySelector<HTMLButtonElement>('[aria-controls="second_more_info"]')!;
+    expect(secondTextarea.hidden).toBe(false);
+    expect(secondButton.classList.contains('has-value')).toBe(true);
+
+    document.querySelector<HTMLButtonElement>('.beadsform-single-question-controls--bottom button:nth-child(2)')!.click();
+
+    expect(document.querySelector('.beadsform-single-question-progress')?.textContent).toBe('Question 2 of 2');
+    expect(secondTextarea.hidden).toBe(false);
+    expect(secondButton.getAttribute('aria-expanded')).toBe('true');
   });
 });
