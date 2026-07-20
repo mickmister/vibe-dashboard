@@ -1,8 +1,24 @@
-import { chmod, mkdir, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
+import {
+  access,
+  chmod,
+  copyFile,
+  cp,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { VdDistRuntimePromoter, VkBinaryRuntimePromoter } from './runtime-promoters.node';
+import {
+  VdDistRuntimePromoter,
+  VkBinaryRuntimePromoter,
+  type NodeRuntimePromoterFileSystem,
+} from './runtime-promoters.node';
 import type { ResolvedVkRuntimeArtifact } from './vkvd-hotswap-system';
 
 describe('VkBinaryRuntimePromoter', () => {
@@ -52,6 +68,35 @@ describe('VdDistRuntimePromoter', () => {
 
     await promoter.rollback(result);
 
+    await expect(readFile(join(runtimeDir, 'dist', 'index.html'), 'utf8')).resolves.toBe('old:index');
+  });
+
+  it('restores old VD dist if atomic replacement fails after current dist is moved', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'vd-promote-replace-fails-'));
+    const runtimeDir = join(root, 'runtime');
+    const stateDir = join(root, 'state');
+    const sourceDist = join(root, 'source-dist');
+    await writeDist(join(runtimeDir, 'dist'), 'old');
+    await writeDist(sourceDist, 'new');
+
+    const failingFs: NodeRuntimePromoterFileSystem = {
+      access,
+      chmod,
+      copyFile,
+      cp,
+      mkdir,
+      rm,
+      writeFile,
+      rename: async (source, destination) => {
+        if (source.includes('.dist-next-') && destination === join(runtimeDir, 'dist')) {
+          throw new Error('failed to install next dist');
+        }
+        await rename(source, destination);
+      },
+    };
+    const promoter = new VdDistRuntimePromoter({ runtimeDir, stateDir, fileSystem: failingFs });
+
+    await expect(promoter.promoteDist(sourceDist)).rejects.toThrow('failed to install next dist');
     await expect(readFile(join(runtimeDir, 'dist', 'index.html'), 'utf8')).resolves.toBe('old:index');
   });
 

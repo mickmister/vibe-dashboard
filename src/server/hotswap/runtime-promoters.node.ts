@@ -1,5 +1,5 @@
 import { constants } from 'node:fs';
-import { access, chmod, copyFile, cp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { access, chmod, copyFile, cp, mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import type {
   ResolvedVkRuntimeArtifact,
@@ -14,6 +14,7 @@ export interface NodeRuntimePromoterFileSystem {
   copyFile(source: string, destination: string): Promise<void>;
   cp(source: string, destination: string, options?: { recursive?: boolean }): Promise<void>;
   mkdir(path: string, options?: { recursive?: boolean }): Promise<unknown>;
+  rename(source: string, destination: string): Promise<void>;
   rm(path: string, options?: { recursive?: boolean; force?: boolean }): Promise<void>;
   writeFile(path: string, data: string): Promise<void>;
 }
@@ -24,6 +25,7 @@ const nodeFileSystem: NodeRuntimePromoterFileSystem = {
   copyFile,
   cp,
   mkdir,
+  rename,
   rm,
   writeFile,
 };
@@ -100,15 +102,31 @@ export class VdDistRuntimePromoter implements VdRuntimePromoter {
     await this.requireDist(runtimeDistPath);
     await this.fs.mkdir(this.stateDir, { recursive: true });
 
-    const rollbackPath = join(this.stateDir, `rollback-dist-${Date.now()}`);
-    const nextPath = join(this.stateDir, `next-dist-${Date.now()}`);
+    const timestamp = Date.now();
+    const rollbackPath = join(this.stateDir, `rollback-dist-${timestamp}`);
+    const nextPath = join(this.runtimeDir, `.dist-next-${timestamp}`);
     await this.fs.rm(rollbackPath, { recursive: true, force: true });
     await this.fs.rm(nextPath, { recursive: true, force: true });
-    await this.fs.cp(runtimeDistPath, rollbackPath, { recursive: true });
     await this.fs.cp(distPath, nextPath, { recursive: true });
     await this.requireDist(nextPath);
-    await this.fs.rm(runtimeDistPath, { recursive: true, force: true });
-    await this.fs.cp(nextPath, runtimeDistPath, { recursive: true });
+
+    let currentMovedToRollback = false;
+    try {
+      await this.fs.rename(runtimeDistPath, rollbackPath);
+      currentMovedToRollback = true;
+      await this.fs.rename(nextPath, runtimeDistPath);
+    } catch (error) {
+      if (currentMovedToRollback) {
+        await this.restoreRuntimeDistAfterFailedPromotion({
+          runtimeDistPath,
+          rollbackPath,
+          replacementError: error,
+        });
+      }
+      await this.fs.rm(nextPath, { recursive: true, force: true });
+      throw error;
+    }
+
     await this.fs.rm(nextPath, { recursive: true, force: true });
 
     return {
@@ -116,6 +134,21 @@ export class VdDistRuntimePromoter implements VdRuntimePromoter {
       rollbackPath,
       versionLabel: distPath,
     };
+  }
+
+  private async restoreRuntimeDistAfterFailedPromotion(args: {
+    runtimeDistPath: string;
+    rollbackPath: string;
+    replacementError: unknown;
+  }): Promise<void> {
+    try {
+      await this.fs.rm(args.runtimeDistPath, { recursive: true, force: true });
+      await this.fs.rename(args.rollbackPath, args.runtimeDistPath);
+    } catch (restoreError) {
+      throw new Error(
+        `Failed to restore VD runtime dist after replacement failure: replacement failure: ${formatError(args.replacementError)}; restore failure: ${formatError(restoreError)}`,
+      );
+    }
   }
 
   async rollback(result: RuntimePromotionResult): Promise<void> {
@@ -130,4 +163,8 @@ export class VdDistRuntimePromoter implements VdRuntimePromoter {
     await this.fs.access(join(distPath, 'node', 'node-entry.mjs'), constants.R_OK);
     await this.fs.access(join(distPath, 'node', 'manifest.json'), constants.R_OK);
   }
+}
+
+function formatError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

@@ -81,12 +81,14 @@ describe('runVkvdHotswap', () => {
     ]);
   });
 
-  it('does not promote or restart VD when VK readiness fails', async () => {
+  it('rolls back and restarts VK before failing when VK readiness fails', async () => {
     const calls: string[] = [];
+    let vkReadinessAttempts = 0;
     const deps = fakeDependencies(calls, {
       waitForVkReady: async () => {
-        calls.push('ready-vk');
-        throw new Error('VK not ready');
+        vkReadinessAttempts += 1;
+        calls.push(vkReadinessAttempts === 1 ? 'ready-vk-fail' : 'ready-vk');
+        if (vkReadinessAttempts === 1) throw new Error('VK not ready');
       },
     });
 
@@ -99,17 +101,21 @@ describe('runVkvdHotswap', () => {
       'resolve:github-prerelease:feature/test',
       'promote-vk:/staging/vibe-kanban',
       'restart:vibe-kanban',
-      'ready-vk',
+      'ready-vk-fail',
       'rollback-vk:/runtime/promoted',
+      'restart:vibe-kanban',
+      'ready-vk',
     ]);
   });
 
-  it('rolls back VD promotion when VD readiness fails after restart', async () => {
+  it('rolls back and restarts VD when VD readiness fails after restart', async () => {
     const calls: string[] = [];
+    let vdReadinessAttempts = 0;
     const deps = fakeDependencies(calls, {
       waitForVdReady: async () => {
-        calls.push('ready-vd');
-        throw new Error('VD not ready');
+        vdReadinessAttempts += 1;
+        calls.push(vdReadinessAttempts === 1 ? 'ready-vd-fail' : 'ready-vd');
+        if (vdReadinessAttempts === 1) throw new Error('VD not ready');
       },
     });
 
@@ -125,8 +131,10 @@ describe('runVkvdHotswap', () => {
       'ready-vk',
       'promote-vd:/repo/vibe-kanban-vscode-web/dist',
       'restart:vibe-dashboard',
-      'ready-vd',
+      'ready-vd-fail',
       'rollback-vd:/runtime/promoted',
+      'restart:vibe-dashboard',
+      'ready-vd',
     ]);
   });
 });

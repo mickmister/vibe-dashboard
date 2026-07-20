@@ -164,8 +164,13 @@ export async function runVkvdHotswap(
     await dependencies.supervisor.restart(plan.supervisorPrograms.vk);
     await dependencies.readiness.waitForVkReady();
   } catch (error) {
-    await dependencies.vkPromoter.rollback(vkPromotion);
-    throw error;
+    await recoverPromotedService({
+      componentLabel: 'VK',
+      originalError: error,
+      rollback: () => dependencies.vkPromoter.rollback(vkPromotion),
+      restart: () => dependencies.supervisor.restart(plan.supervisorPrograms.vk),
+      waitReady: () => dependencies.readiness.waitForVkReady(),
+    });
   }
 
   const vdPromotion = await dependencies.vdPromoter.promoteDist(plan.vdDistPath);
@@ -173,8 +178,13 @@ export async function runVkvdHotswap(
     await dependencies.supervisor.restart(plan.supervisorPrograms.vd);
     await dependencies.readiness.waitForVdReady();
   } catch (error) {
-    await dependencies.vdPromoter.rollback(vdPromotion);
-    throw error;
+    await recoverPromotedService({
+      componentLabel: 'VD',
+      originalError: error,
+      rollback: () => dependencies.vdPromoter.rollback(vdPromotion),
+      restart: () => dependencies.supervisor.restart(plan.supervisorPrograms.vd),
+      waitReady: () => dependencies.readiness.waitForVdReady(),
+    });
   }
 
   return {
@@ -184,6 +194,30 @@ export async function runVkvdHotswap(
     vkPromotion,
     vdPromotion,
   };
+}
+
+async function recoverPromotedService(args: {
+  componentLabel: string;
+  originalError: unknown;
+  rollback: () => Promise<void>;
+  restart: () => Promise<void>;
+  waitReady: () => Promise<void>;
+}): Promise<never> {
+  try {
+    await args.rollback();
+    await args.restart();
+    await args.waitReady();
+  } catch (recoveryError) {
+    throw new Error(
+      `${args.componentLabel} hotswap failed, then rollback recovery failed: original failure: ${formatError(args.originalError)}; recovery failure: ${formatError(recoveryError)}`,
+    );
+  }
+
+  throw args.originalError;
+}
+
+function formatError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function assertVkArtifactSourceAllowed(source: VkArtifactSource): void {
