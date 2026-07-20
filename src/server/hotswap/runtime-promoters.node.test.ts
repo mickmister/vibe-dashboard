@@ -58,6 +58,7 @@ describe('VdDistRuntimePromoter', () => {
     const stateDir = join(root, 'state');
     const sourceDist = join(root, 'source-dist');
     await writeDist(join(runtimeDir, 'dist'), 'old');
+    await writeRuntimeData(runtimeDir);
     await writeDist(sourceDist, 'new');
 
     const promoter = new VdDistRuntimePromoter({ runtimeDir, stateDir });
@@ -65,10 +66,12 @@ describe('VdDistRuntimePromoter', () => {
 
     await expect(readFile(join(runtimeDir, 'dist', 'index.html'), 'utf8')).resolves.toBe('new:index');
     await expect(readFile(join(result.rollbackPath, 'index.html'), 'utf8')).resolves.toBe('old:index');
+    await expectRuntimeData(runtimeDir);
 
     await promoter.rollback(result);
 
     await expect(readFile(join(runtimeDir, 'dist', 'index.html'), 'utf8')).resolves.toBe('old:index');
+    await expectRuntimeData(runtimeDir);
   });
 
   it('restores old VD dist if atomic replacement fails after current dist is moved', async () => {
@@ -77,6 +80,7 @@ describe('VdDistRuntimePromoter', () => {
     const stateDir = join(root, 'state');
     const sourceDist = join(root, 'source-dist');
     await writeDist(join(runtimeDir, 'dist'), 'old');
+    await writeRuntimeData(runtimeDir);
     await writeDist(sourceDist, 'new');
 
     const failingFs: NodeRuntimePromoterFileSystem = {
@@ -98,6 +102,7 @@ describe('VdDistRuntimePromoter', () => {
 
     await expect(promoter.promoteDist(sourceDist)).rejects.toThrow('failed to install next dist');
     await expect(readFile(join(runtimeDir, 'dist', 'index.html'), 'utf8')).resolves.toBe('old:index');
+    await expectRuntimeData(runtimeDir);
   });
 
   it('rejects incomplete source dist before replacing runtime dist', async () => {
@@ -134,4 +139,15 @@ async function writeDist(path: string, label: string): Promise<void> {
   await writeFile(join(path, 'manifest.json'), `${label}:manifest`);
   await writeFile(join(path, 'node', 'node-entry.mjs'), `${label}:entry`);
   await writeFile(join(path, 'node', 'manifest.json'), `${label}:node-manifest`);
+}
+
+async function writeRuntimeData(runtimeDir: string): Promise<void> {
+  await mkdir(join(runtimeDir, 'data'), { recursive: true });
+  await writeFile(join(runtimeDir, 'data', 'kv.db'), 'sqlite data');
+  await writeFile(join(runtimeDir, 'data', 'kv_data.json'), '{"persisted":true}');
+}
+
+async function expectRuntimeData(runtimeDir: string): Promise<void> {
+  await expect(readFile(join(runtimeDir, 'data', 'kv.db'), 'utf8')).resolves.toBe('sqlite data');
+  await expect(readFile(join(runtimeDir, 'data', 'kv_data.json'), 'utf8')).resolves.toBe('{"persisted":true}');
 }

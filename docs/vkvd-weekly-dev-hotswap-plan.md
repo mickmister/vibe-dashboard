@@ -195,3 +195,14 @@ Cons:
 ## Open question before implementation beyond stubs
 
 Should the first runnable entry point be CLI-only, or should VD immediately expose an admin action that spawns a detached runner? CLI-only is lower risk for the first real apply slice; admin action is nicer for dogfooding but requires request lifecycle and auth/operator safety decisions.
+
+## VD runtime data safety finding
+
+Springboard's Node runtime defaults persistent storage under the process working directory unless overridden:
+
+- `SQLITE_DATABASE_FILE` defaults to `data/kv.db`.
+- `NODE_KV_STORE_DATA_FILE` defaults to `./data/kv_data.json`.
+
+In the weekly dev supervisord layout, `vibe-dashboard` runs from `/home/vkuser/.local/share/vibe-dashboard-runtime`, so the existing default persistent data paths live under sibling paths such as `/home/vkuser/.local/share/vibe-dashboard-runtime/data/kv.db` and `/home/vkuser/.local/share/vibe-dashboard-runtime/data/kv_data.json`.
+
+The TypeScript VD runtime promoter only promotes and rolls back `/home/vkuser/.local/share/vibe-dashboard-runtime/dist`. It stages replacements as a hidden sibling of `dist`, moves the prior `dist` into the hotswap state directory, and never removes or copies the runtime directory itself. Tests cover that representative runtime data files under `runtimeDir/data` survive promote, rollback, and failed replacement restoration.
