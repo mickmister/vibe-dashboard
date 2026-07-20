@@ -212,8 +212,8 @@ describe('BeadsForm single-question mode', () => {
     document.body.innerHTML = `
       <div id="host">
         <form>
-          <fieldset><legend>First</legend><textarea id="first_more_info" name="first_more_info"></textarea></fieldset>
-          <fieldset><legend>Second</legend><textarea id="second_more_info" name="second_more_info"></textarea></fieldset>
+          <fieldset><legend>First</legend><div class="beads-form-choice"><textarea id="first_choice_more_info" name="first_choice_more_info"></textarea></div><textarea id="first_more_info" name="first_more_info"></textarea></fieldset>
+          <fieldset><legend>Second</legend><div class="beads-form-choice"><textarea id="second_choice_more_info" name="second_choice_more_info"></textarea></div><textarea id="second_more_info" name="second_more_info"></textarea></fieldset>
           <fieldset hidden><legend>Additional Notes</legend><textarea id="additional_notes" name="additional_notes" hidden></textarea></fieldset>
         </form>
       </div>
@@ -235,6 +235,7 @@ describe('BeadsForm single-question mode', () => {
     expect(progress.previousElementSibling).toBe(notesPanel);
     expect(progress.nextElementSibling?.textContent).toContain('First');
     expect(document.querySelectorAll('.beads-form-more-info-toggle')).toHaveLength(2);
+    expect(document.querySelector<HTMLTextAreaElement>('#first_more_info')?.hidden).toBe(false);
   });
 
   it('does not allow question-list jumps to skip an invalid intermediate question', () => {

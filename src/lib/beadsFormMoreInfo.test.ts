@@ -4,37 +4,44 @@ import { initializeCompactMoreInfo, refreshCompactMoreInfoState } from './beadsF
 import { initializeSingleQuestionMode } from './beadsFormSingleQuestion';
 
 describe('compact BeadsForm more-info fields', () => {
-  it('hides per-question and per-choice more-info fields behind accessible buttons', () => {
+  it('keeps question-level more-info visible and compacts per-choice more-info fields', () => {
     document.body.innerHTML = `
       <form>
         <fieldset>
           <legend>Question</legend>
+          <div class="beads-form-choice">
+            <label><input name="question" type="checkbox" value="choice"> Choice</label>
+            <textarea id="question_choice_more_info" name="question_choice_more_info" aria-label="More info for Choice"></textarea>
+          </div>
           <textarea id="question_more_info" name="question_more_info" aria-label="More info for Question"></textarea>
-          <textarea id="question_choice_more_info" name="question_choice_more_info" aria-label="More info for Choice"></textarea>
         </fieldset>
       </form>
     `;
 
     initializeCompactMoreInfo(document);
 
-    const textareas = Array.from(document.querySelectorAll<HTMLTextAreaElement>('textarea'));
+    const choiceTextarea = document.querySelector<HTMLTextAreaElement>('#question_choice_more_info')!;
+    const questionTextarea = document.querySelector<HTMLTextAreaElement>('#question_more_info')!;
     const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>('.beads-form-more-info-toggle'));
-    expect(textareas.map((textarea) => textarea.hidden)).toEqual([true, true]);
-    expect(buttons).toHaveLength(2);
+    expect(choiceTextarea.hidden).toBe(true);
+    expect(questionTextarea.hidden).toBe(false);
+    expect(buttons).toHaveLength(1);
     expect(buttons[0]!.type).toBe('button');
     expect(buttons[0]!.getAttribute('aria-expanded')).toBe('false');
-    expect(buttons[0]!.getAttribute('aria-label')).toBe('Add optional context: More info for Question');
+    expect(buttons[0]!.getAttribute('aria-label')).toBe('Add optional context: More info for Choice');
 
     buttons[0]!.click();
 
-    expect(textareas[0]!.hidden).toBe(false);
+    expect(choiceTextarea.hidden).toBe(false);
     expect(buttons[0]!.getAttribute('aria-expanded')).toBe('true');
   });
 
   it('expands and indicates existing values while preserving normal form submission', () => {
     document.body.innerHTML = `
       <form>
-        <textarea id="choice_more_info" name="choice_more_info" aria-label="More info for Choice">Saved context</textarea>
+        <div class="beads-form-choice">
+          <textarea id="choice_more_info" name="choice_more_info" aria-label="More info for Choice">Saved context</textarea>
+        </div>
       </form>
     `;
 
@@ -52,7 +59,7 @@ describe('compact BeadsForm more-info fields', () => {
   });
 
   it('refreshes the visible indicator and expands after draft restore applies values', () => {
-    document.body.innerHTML = '<form><textarea id="choice_more_info" name="choice_more_info"></textarea></form>';
+    document.body.innerHTML = '<form><div class="beads-form-choice"><textarea id="choice_more_info" name="choice_more_info"></textarea></div></form>';
     initializeCompactMoreInfo(document);
     const textarea = document.querySelector<HTMLTextAreaElement>('textarea')!;
     const button = document.querySelector<HTMLButtonElement>('.beads-form-more-info-toggle')!;
@@ -67,7 +74,7 @@ describe('compact BeadsForm more-info fields', () => {
   });
 
   it('keeps empty restored more-info fields collapsed', () => {
-    document.body.innerHTML = '<form><textarea id="choice_more_info" name="choice_more_info"></textarea></form>';
+    document.body.innerHTML = '<form><div class="beads-form-choice"><textarea id="choice_more_info" name="choice_more_info"></textarea></div></form>';
     initializeCompactMoreInfo(document);
 
     const textarea = document.querySelector<HTMLTextAreaElement>('textarea')!;
@@ -99,8 +106,8 @@ describe('compact BeadsForm more-info fields', () => {
     document.body.innerHTML = `
       <div id="host">
         <form>
-          <fieldset><legend>First</legend><textarea id="first_more_info" name="first_more_info"></textarea></fieldset>
-          <fieldset><legend>Second</legend><textarea id="second_more_info" name="second_more_info"></textarea></fieldset>
+          <fieldset><legend>First</legend><div class="beads-form-choice"><textarea id="first_choice_more_info" name="first_choice_more_info"></textarea></div><textarea id="first_more_info" name="first_more_info"></textarea></fieldset>
+          <fieldset><legend>Second</legend><div class="beads-form-choice"><textarea id="second_choice_more_info" name="second_choice_more_info"></textarea></div><textarea id="second_more_info" name="second_more_info"></textarea></fieldset>
           <fieldset><legend>Additional notes</legend><textarea id="overall_more_info" name="overall_more_info"></textarea></fieldset>
         </form>
       </div>
@@ -110,7 +117,8 @@ describe('compact BeadsForm more-info fields', () => {
     initializeSingleQuestionMode(host);
     initializeCompactMoreInfo(host);
 
-    expect(document.querySelector<HTMLTextAreaElement>('#first_more_info')?.hidden).toBe(true);
+    expect(document.querySelector<HTMLTextAreaElement>('#first_choice_more_info')?.hidden).toBe(true);
+    expect(document.querySelector<HTMLTextAreaElement>('#first_more_info')?.hidden).toBe(false);
     expect(document.querySelector<HTMLTextAreaElement>('#overall_more_info')?.hidden).toBe(false);
     expect(document.querySelectorAll('.beads-form-more-info-toggle')).toHaveLength(2);
     expect(document.querySelector('.beadsform-single-question-notes #overall_more_info')).toBeTruthy();
@@ -120,8 +128,8 @@ describe('compact BeadsForm more-info fields', () => {
     document.body.innerHTML = `
       <div id="host">
         <form>
-          <fieldset><legend>First</legend><textarea id="first_more_info" name="first_more_info"></textarea></fieldset>
-          <fieldset><legend>Second</legend><textarea id="second_more_info" name="second_more_info">Submitted context</textarea></fieldset>
+          <fieldset><legend>First</legend><div class="beads-form-choice"><textarea id="first_choice_more_info" name="first_choice_more_info"></textarea></div><textarea id="first_more_info" name="first_more_info"></textarea></fieldset>
+          <fieldset><legend>Second</legend><div class="beads-form-choice"><textarea id="second_choice_more_info" name="second_choice_more_info">Submitted context</textarea></div><textarea id="second_more_info" name="second_more_info"></textarea></fieldset>
         </form>
       </div>
     `;
@@ -130,9 +138,11 @@ describe('compact BeadsForm more-info fields', () => {
     initializeSingleQuestionMode(host);
     initializeCompactMoreInfo(host);
 
-    const secondTextarea = document.querySelector<HTMLTextAreaElement>('#second_more_info')!;
-    const secondButton = document.querySelector<HTMLButtonElement>('[aria-controls="second_more_info"]')!;
+    const secondTextarea = document.querySelector<HTMLTextAreaElement>('#second_choice_more_info')!;
+    const questionTextarea = document.querySelector<HTMLTextAreaElement>('#second_more_info')!;
+    const secondButton = document.querySelector<HTMLButtonElement>('[aria-controls="second_choice_more_info"]')!;
     expect(secondTextarea.hidden).toBe(false);
+    expect(questionTextarea.hidden).toBe(false);
     expect(secondButton.classList.contains('has-value')).toBe(true);
 
     document.querySelector<HTMLButtonElement>('.beadsform-single-question-controls--bottom button:nth-child(2)')!.click();

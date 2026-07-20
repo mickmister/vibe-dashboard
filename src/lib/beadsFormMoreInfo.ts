@@ -1,5 +1,9 @@
 export function initializeCompactMoreInfo(host: ParentNode): void {
-  for (const [index, textarea] of findMoreInfoTextareas(host).entries()) {
+  for (const textarea of findVisibleQuestionMoreInfoTextareas(host)) {
+    keepTextareaVisible(textarea);
+  }
+
+  for (const [index, textarea] of findCompactMoreInfoTextareas(host).entries()) {
     textarea.classList.add('beads-form-more-info-textarea');
     ensureTextareaId(textarea, index);
     let button = buttonForTextarea(textarea);
@@ -27,7 +31,11 @@ function ensureTextareaId(textarea: HTMLTextAreaElement, index: number): void {
 }
 
 export function refreshCompactMoreInfoState(host: ParentNode): void {
-  for (const textarea of findMoreInfoTextareas(host)) {
+  for (const textarea of findVisibleQuestionMoreInfoTextareas(host)) {
+    keepTextareaVisible(textarea);
+  }
+
+  for (const textarea of findCompactMoreInfoTextareas(host)) {
     if (textareaHasValue(textarea)) {
       setTextareaOpen(textarea, true);
     }
@@ -35,9 +43,14 @@ export function refreshCompactMoreInfoState(host: ParentNode): void {
   }
 }
 
-function findMoreInfoTextareas(host: ParentNode): HTMLTextAreaElement[] {
+function findCompactMoreInfoTextareas(host: ParentNode): HTMLTextAreaElement[] {
   return Array.from(host.querySelectorAll<HTMLTextAreaElement>('textarea[name$="_more_info"], textarea[id$="_more_info"]'))
-    .filter((textarea) => !isMasterNotesTextarea(textarea));
+    .filter((textarea) => !isMasterNotesTextarea(textarea) && !isQuestionLevelMoreInfoTextarea(textarea));
+}
+
+function findVisibleQuestionMoreInfoTextareas(host: ParentNode): HTMLTextAreaElement[] {
+  return Array.from(host.querySelectorAll<HTMLTextAreaElement>('textarea[name$="_more_info"], textarea[id$="_more_info"]'))
+    .filter((textarea) => !isMasterNotesTextarea(textarea) && isQuestionLevelMoreInfoTextarea(textarea));
 }
 
 function isMasterNotesTextarea(textarea: HTMLTextAreaElement): boolean {
@@ -57,6 +70,22 @@ function buttonForTextarea(textarea: HTMLTextAreaElement): HTMLButtonElement | n
     return previous;
   }
   return null;
+}
+
+function isQuestionLevelMoreInfoTextarea(textarea: HTMLTextAreaElement): boolean {
+  if (textarea.closest('.beads-form-choice')) return false;
+  const fieldset = textarea.closest('fieldset');
+  if (!fieldset) return false;
+  const moreInfoTextareas = Array.from(fieldset.querySelectorAll<HTMLTextAreaElement>('textarea[name$="_more_info"], textarea[id$="_more_info"]'))
+    .filter((candidate) => !isMasterNotesTextarea(candidate));
+  return moreInfoTextareas.at(-1) === textarea;
+}
+
+function keepTextareaVisible(textarea: HTMLTextAreaElement): void {
+  textarea.hidden = false;
+  textarea.removeAttribute('hidden');
+  textarea.classList.remove('beads-form-more-info-textarea');
+  buttonForTextarea(textarea)?.remove();
 }
 
 function setTextareaOpen(textarea: HTMLTextAreaElement, open: boolean): void {
