@@ -63,7 +63,7 @@ let retainedSessionId: string | null = null;
 let retainedTabIds: Set<string> = new Set();
 let keyboardIsolationDocuments: WeakSet<Document> = new WeakSet();
 const MAX_RETAINED_IFRAMES = 5;
-const IFRAME_REVEAL_DELAY_MS = 100;
+const IFRAME_REVEAL_DELAY_MS = 250;
 
 // Preserve iframe store across HMR updates using Vite's HMR API.
 try {
@@ -203,6 +203,14 @@ function markIframeReadyToShow(
     entry.readyToShow = true;
     notifyIframeListeners(entry);
   }, delayMs);
+}
+
+export function getIframeRevealStyle(readyToShow: boolean): React.CSSProperties {
+  return {
+    opacity: readyToShow ? 1 : 0,
+    pointerEvents: readyToShow ? 'auto' : 'none',
+    transition: readyToShow ? 'opacity 120ms ease-out' : 'none',
+  };
 }
 
 function markIframeReadyToShowImmediately(entry: IframeEntry) {
@@ -373,10 +381,10 @@ function getOrCreateIframe(retainedTab: RetainedIframeTab): IframeEntry {
   iframe.addEventListener('load', () => {
     const currentLoadToken = entry.loadToken;
     entry.loaded = true;
+    entry.contentReady = true;
     installIframeKeyboardIsolation(iframe);
 
-    // Start checking if content is ready (not showing white screen)
-    checkContentReady(iframe, entry, currentLoadToken);
+    markIframeReadyToShow(entry, currentLoadToken);
   });
 
   iframe.addEventListener('error', () => {
@@ -396,73 +404,6 @@ function getOrCreateIframe(retainedTab: RetainedIframeTab): IframeEntry {
   iframeStore.set(iframeKey, entry);
 
   return entry;
-}
-
-/**
- * Checks if the iframe content is actually ready by detecting white screens.
- * For same-origin iframes, we can check the background color to see if the SPA has loaded.
- */
-function checkContentReady(iframe: HTMLIFrameElement, entry: IframeEntry, expectedLoadToken: number) {
-  try {
-    // Try to access iframe content (will throw if cross-origin)
-    const doc = iframe.contentDocument || iframe.contentWindow?.document;
-    if (!doc) {
-      // Can't access content (likely cross-origin), assume ready after load
-      entry.contentReady = true;
-      markIframeReadyToShow(entry, expectedLoadToken);
-      return;
-    }
-
-    // Check if the background is white (indicating SPA still loading)
-    const checkInterval = setInterval(() => {
-      try {
-        const body = doc.body;
-        if (!body) return;
-
-        const bgColor = window.getComputedStyle(body).backgroundColor;
-
-        // Check if background is white or transparent
-        const isWhite =
-          bgColor === 'rgb(255, 255, 255)' ||
-          bgColor === '#ffffff' ||
-          bgColor === '#fff' ||
-          bgColor === 'white' ||
-          bgColor === 'rgba(0, 0, 0, 0)' ||
-          bgColor === 'transparent';
-
-        // Also check if there's actual content rendered
-        const hasContent = body.children.length > 0 &&
-          body.offsetHeight > 0 &&
-          body.scrollHeight > 100; // Some minimum content height
-
-        if (!isWhite || hasContent) {
-          // Content is ready!
-          entry.contentReady = true;
-          markIframeReadyToShow(entry, expectedLoadToken);
-          clearInterval(checkInterval);
-        }
-      } catch (e) {
-        // Lost access to iframe (navigation happened), assume ready
-        entry.contentReady = true;
-        markIframeReadyToShow(entry, expectedLoadToken);
-        clearInterval(checkInterval);
-      }
-    }, 100); // Check every 100ms
-
-    // Timeout after 10 seconds to prevent infinite checking
-    setTimeout(() => {
-      clearInterval(checkInterval);
-      if (!entry.contentReady) {
-        entry.contentReady = true;
-        markIframeReadyToShow(entry, expectedLoadToken);
-      }
-    }, 10000);
-
-  } catch (e) {
-    // Cross-origin iframe, can't check content, assume ready
-    entry.contentReady = true;
-    markIframeReadyToShow(entry, expectedLoadToken);
-  }
 }
 
 function removeIframe(tabId: string) {
@@ -821,6 +762,7 @@ export function IframePanel({
         activePair={activePair}
         tabGroup={tabGroup}
         storeVersion={storeVersion}
+        loadingState={loadingState}
       />
       {activePair ? (
         <PairView
@@ -860,12 +802,14 @@ function PersistentIframeLayer({
   activePair,
   tabGroup,
   storeVersion,
+  loadingState,
 }: {
   retainedTabs: RetainedIframeTab[];
   activeTab?: Tab;
   activePair?: { id: string; tabIds: string[]; ratios: number[] };
   tabGroup: TabGroup;
   storeVersion: number;
+  loadingState: Map<string, boolean>;
 }) {
   const layoutStyles = new Map<string, React.CSSProperties>();
 
@@ -908,22 +852,25 @@ function PersistentIframeLayer({
 
   return (
     <div
-      className="absolute inset-x-0 top-0 overflow-hidden box-border md:bottom-0"
+      className="absolute inset-x-0 top-0 overflow-hidden box-border bg-neutral-950 md:bottom-0"
       style={MOBILE_VIEWPORT_INSET_STYLE}
     >
       {retainedTabs.map(({ tab, iframeKey }) => {
         const activeStyle = layoutStyles.get(iframeKey);
+        const readyToShow = loadingState.get(tab.id) ?? false;
         return (
           <div
             key={iframeKey}
             className="absolute inset-0"
             style={
-              activeStyle || {
-                position: 'absolute',
-                inset: 0,
-                visibility: 'hidden',
-                pointerEvents: 'none',
-              }
+              activeStyle
+                ? { ...activeStyle, ...getIframeRevealStyle(readyToShow) }
+                : {
+                    position: 'absolute',
+                    inset: 0,
+                    visibility: 'hidden',
+                    pointerEvents: 'none',
+                  }
             }
           >
             <IframeHost iframeKey={iframeKey} storeVersion={storeVersion} />
