@@ -17,11 +17,11 @@ import type {
 
 export interface VardashRepoEnvManagerProps {
   repoId: string;
-  workspaceId?: string | null;
+  workspaceId: string;
   repoLabel?: string;
 }
 
-export function VardashRepoEnvManager({ repoId, workspaceId = null, repoLabel }: VardashRepoEnvManagerProps) {
+export function VardashRepoEnvManager({ repoId, workspaceId, repoLabel }: VardashRepoEnvManagerProps) {
   const overview = useVardashRepoEnvOverview(repoId, workspaceId);
   const upsertKey = useUpsertVardashRepoEnvKey();
   const createSavedValue = useCreateVardashSavedValue();

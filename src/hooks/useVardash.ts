@@ -36,7 +36,7 @@ import {
 
 export const vardashQueryKeys = {
   repoEnv: (repoId: string) => ['vardash', 'repos', repoId, 'env-keys'] as const,
-  repoEnvOverview: (repoId: string, workspaceId?: string | null) => [
+  repoEnvOverview: (repoId: string, workspaceId: string | null) => [
     'vardash',
     'repos',
     repoId,
@@ -117,46 +117,46 @@ function isLaunchReadinessQuery(queryKey: QueryKey, repoId?: string): boolean {
 
 export function useVardashRepoEnvOverview(
   repoId: string | null,
-  workspaceId?: string | null,
+  workspaceId: string | null,
 ): UseQueryResult<VardashRepoEnvOverviewResponse, VardashApiError> {
   return useQuery({
     queryKey: vardashQueryKeys.repoEnvOverview(repoId ?? '', workspaceId),
-    enabled: Boolean(repoId),
-    queryFn: () => vardashClient.listRepoEnvOverview(repoId!, workspaceId),
+    enabled: Boolean(repoId && workspaceId),
+    queryFn: () => vardashClient.listRepoEnvOverview(workspaceId!, repoId!),
   });
 }
 
 export function useVardashRepoEnvKeys(
   repoId: string | null,
-  workspaceId?: string | null,
+  workspaceId: string | null,
 ): UseQueryResult<VardashEnvKeysResponse, VardashApiError> {
   return useQuery({
     queryKey: vardashQueryKeys.repoEnvKeys(repoId ?? ''),
-    enabled: Boolean(repoId),
-    queryFn: () => vardashClient.listRepoEnvKeys(repoId!, workspaceId),
+    enabled: Boolean(repoId && workspaceId),
+    queryFn: () => vardashClient.listRepoEnvKeys(workspaceId!, repoId!),
   });
 }
 
 export function useVardashSavedValues(
   repoId: string | null,
   envKeyId: string | null,
-  workspaceId?: string | null,
+  workspaceId: string | null,
 ): UseQueryResult<VardashSavedValuesResponse, VardashApiError> {
   return useQuery({
     queryKey: vardashQueryKeys.savedValues(repoId ?? '', envKeyId ?? ''),
-    enabled: Boolean(repoId && envKeyId),
-    queryFn: () => vardashClient.listSavedValues(repoId!, envKeyId!, workspaceId),
+    enabled: Boolean(repoId && envKeyId && workspaceId),
+    queryFn: () => vardashClient.listSavedValues(workspaceId!, repoId!, envKeyId!),
   });
 }
 
 export function useVardashRepoProcessDefinitions(
   repoId: string | null,
-  workspaceId?: string | null,
+  workspaceId: string | null,
 ): UseQueryResult<VardashProcessDefinitionsResponse, VardashApiError> {
   return useQuery({
     queryKey: vardashQueryKeys.repoProcesses(repoId ?? ''),
-    enabled: Boolean(repoId),
-    queryFn: () => vardashClient.listRepoProcessDefinitions(repoId!, workspaceId),
+    enabled: Boolean(repoId && workspaceId),
+    queryFn: () => vardashClient.listRepoProcessDefinitions(workspaceId!, repoId!),
   });
 }
 
@@ -198,11 +198,11 @@ export function vardashLaunchStatusRefetchInterval(status: VardashLaunchStatusRe
 export function useUpsertVardashRepoEnvKey(): UseMutationResult<
   VardashEnvKeyResponse,
   VardashApiError,
-  { repoId: string; workspaceId?: string | null; input: UpsertVardashEnvKeyInput }
+  { repoId: string; workspaceId: string; input: UpsertVardashEnvKeyInput }
 > {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ repoId, workspaceId, input }) => vardashClient.upsertRepoEnvKey(repoId, input, workspaceId),
+    mutationFn: ({ repoId, workspaceId, input }) => vardashClient.upsertRepoEnvKey(workspaceId, repoId, input),
     onSuccess: (_data, variables) => {
       invalidateVardashRepoEnvQueries(queryClient, variables.repoId);
       invalidateVardashLaunchReadinessQueries(queryClient, variables.repoId);
@@ -213,11 +213,11 @@ export function useUpsertVardashRepoEnvKey(): UseMutationResult<
 export function useCreateVardashSavedValue(): UseMutationResult<
   VardashSavedValueResponse,
   VardashApiError,
-  { repoId: string; workspaceId?: string | null; envKeyId: string; input: UpsertVardashSavedValueInput }
+  { repoId: string; workspaceId: string; envKeyId: string; input: UpsertVardashSavedValueInput }
 > {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ repoId, workspaceId, envKeyId, input }) => vardashClient.createSavedValue(repoId, envKeyId, input, workspaceId),
+    mutationFn: ({ repoId, workspaceId, envKeyId, input }) => vardashClient.createSavedValue(workspaceId, repoId, envKeyId, input),
     onSuccess: (_data, variables) => {
       invalidateVardashRepoEnvQueries(queryClient, variables.repoId);
       invalidateVardashLaunchReadinessQueries(queryClient, variables.repoId);
@@ -228,11 +228,11 @@ export function useCreateVardashSavedValue(): UseMutationResult<
 export function useReplaceVardashSavedValue(): UseMutationResult<
   VardashSavedValueResponse,
   VardashApiError,
-  { repoId: string; workspaceId?: string | null; envKeyId: string; savedValueId: string; input: UpsertVardashSavedValueInput }
+  { repoId: string; workspaceId: string; envKeyId: string; savedValueId: string; input: UpsertVardashSavedValueInput }
 > {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ repoId, workspaceId, envKeyId, savedValueId, input }) => vardashClient.replaceSavedValue(repoId, envKeyId, savedValueId, input, workspaceId),
+    mutationFn: ({ repoId, workspaceId, envKeyId, savedValueId, input }) => vardashClient.replaceSavedValue(workspaceId, repoId, envKeyId, savedValueId, input),
     onSuccess: (_data, variables) => {
       invalidateVardashRepoEnvQueries(queryClient, variables.repoId);
       invalidateVardashLaunchReadinessQueries(queryClient, variables.repoId);
@@ -243,11 +243,11 @@ export function useReplaceVardashSavedValue(): UseMutationResult<
 export function useSetVardashRepoDefaultSelection(): UseMutationResult<
   VardashSelectionResponse,
   VardashApiError,
-  { repoId: string; workspaceId?: string | null; input: SetVardashSelectionInput }
+  { repoId: string; workspaceId: string; input: SetVardashSelectionInput }
 > {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ repoId, workspaceId, input }) => vardashClient.setRepoDefaultSelection(repoId, input, workspaceId),
+    mutationFn: ({ repoId, workspaceId, input }) => vardashClient.setRepoDefaultSelection(workspaceId, repoId, input),
     onSuccess: (_data, variables) => {
       invalidateVardashRepoEnvQueries(queryClient, variables.repoId);
       invalidateVardashLaunchReadinessQueries(queryClient, variables.repoId);
@@ -272,11 +272,11 @@ export function useSetVardashWorkspaceRepoSelection(): UseMutationResult<
 export function useImportVardashRepoEnv(): UseMutationResult<
   VardashImportResponse,
   VardashApiError,
-  { repoId: string; workspaceId?: string | null; input: ImportVardashEnvInput }
+  { repoId: string; workspaceId: string; input: ImportVardashEnvInput }
 > {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ repoId, workspaceId, input }) => vardashClient.importRepoEnv(repoId, input, workspaceId),
+    mutationFn: ({ repoId, workspaceId, input }) => vardashClient.importRepoEnv(workspaceId, repoId, input),
     onSuccess: (_data, variables) => {
       if (!variables.input.dryRun) {
         invalidateVardashRepoEnvQueries(queryClient, variables.repoId);
@@ -289,11 +289,11 @@ export function useImportVardashRepoEnv(): UseMutationResult<
 export function useUpsertVardashRepoProcessDefinition(): UseMutationResult<
   VardashProcessDefinitionResponse,
   VardashApiError,
-  { repoId: string; workspaceId?: string | null; input: UpsertVardashProcessDefinitionInput }
+  { repoId: string; workspaceId: string; input: UpsertVardashProcessDefinitionInput }
 > {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ repoId, workspaceId, input }) => vardashClient.upsertRepoProcessDefinition(repoId, input, workspaceId),
+    mutationFn: ({ repoId, workspaceId, input }) => vardashClient.upsertRepoProcessDefinition(workspaceId, repoId, input),
     onSuccess: (_data, variables) => {
       invalidateVardashProcessQueries(queryClient, variables.repoId);
     },
@@ -303,11 +303,11 @@ export function useUpsertVardashRepoProcessDefinition(): UseMutationResult<
 export function useSetVardashRepoProcessDefinitionDefault(): UseMutationResult<
   VardashProcessDefinitionResponse,
   VardashApiError,
-  { repoId: string; workspaceId?: string | null; processDefinitionId: string }
+  { repoId: string; workspaceId: string; processDefinitionId: string }
 > {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ repoId, workspaceId, processDefinitionId }) => vardashClient.setRepoProcessDefinitionDefault(repoId, processDefinitionId, workspaceId),
+    mutationFn: ({ repoId, workspaceId, processDefinitionId }) => vardashClient.setRepoProcessDefinitionDefault(workspaceId, repoId, processDefinitionId),
     onSuccess: (_data, variables) => {
       invalidateVardashProcessQueries(queryClient, variables.repoId);
     },
@@ -317,11 +317,11 @@ export function useSetVardashRepoProcessDefinitionDefault(): UseMutationResult<
 export function useImportLegacyDevServerProcessDefinition(): UseMutationResult<
   VardashProcessDefinitionResponse,
   VardashApiError,
-  { repoId: string; workspaceId?: string | null; devServerScript: string | null }
+  { repoId: string; workspaceId: string; devServerScript: string | null }
 > {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ repoId, workspaceId, devServerScript }) => vardashClient.importLegacyDevServerProcessDefinition(repoId, devServerScript, workspaceId),
+    mutationFn: ({ repoId, workspaceId, devServerScript }) => vardashClient.importLegacyDevServerProcessDefinition(workspaceId, repoId, devServerScript),
     onSuccess: (_data, variables) => {
       invalidateVardashProcessQueries(queryClient, variables.repoId);
     },

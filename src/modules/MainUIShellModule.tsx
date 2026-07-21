@@ -6,10 +6,6 @@ import { useLocation, useNavigate } from "react-router";
 import { HeroUIProvider } from "@heroui/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AppLoadingScreen } from "../components/AppLoadingScreen";
-import { VardashImportPanel } from "../components/vardash/VardashImportPanel";
-import { VardashLaunchPanel } from "../components/vardash/VardashLaunchPanel";
-import { VardashProcessDefinitionsPanel } from "../components/vardash/VardashProcessDefinitionsPanel";
-import { VardashRepoEnvManager } from "../components/vardash/VardashRepoEnvManager";
 import { WorkspaceShell } from "../components/WorkspaceShell";
 import { useSessionWorkspaceNav } from "../sessionState";
 import type { NewSessionInitialSelection } from "../sessionState";
@@ -1044,61 +1040,6 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
     );
   };
 
-  const VardashRoute = () => {
-    const location = useLocation();
-    const params = new URLSearchParams(location.search);
-    const workspaceId = params.get("workspaceId")?.trim() || "";
-    const repoId = params.get("repoId")?.trim() || "";
-    const repoLabel = params.get("repoName")?.trim() || repoId;
-
-    if (!(workspaceId && repoId)) {
-      return (
-        <main className="min-h-screen bg-neutral-950 p-6 text-neutral-100">
-          <section className="mx-auto max-w-4xl rounded border border-neutral-800 p-6">
-            <h1 className="text-2xl font-semibold">Vardash</h1>
-            <p className="mt-2 text-sm text-neutral-300">
-              Select a workspace repo from the dashboard to manage repo-scoped
-              env values and explicit launches.
-            </p>
-          </section>
-        </main>
-      );
-    }
-
-    return (
-      <main className="min-h-screen bg-neutral-950 p-6 text-neutral-100">
-        <div className="mx-auto max-w-6xl space-y-8">
-          <header className="space-y-2">
-            <p className="text-xs uppercase tracking-wide text-violet-300">
-              Vardash
-            </p>
-            <h1 className="text-3xl font-semibold">Repo secrets and launches</h1>
-            <p className="text-sm text-neutral-300">
-              Workspace <span className="font-mono">{workspaceId}</span> · Repo{" "}
-              <span className="font-mono">{repoLabel}</span>
-            </p>
-            <p className="rounded border border-amber-400/40 bg-amber-400/10 p-3 text-sm text-amber-100">
-              Secrets remain write-only in normal UI/API flows. Raw env values
-              are resolved only inside explicit vardash launches.
-            </p>
-          </header>
-
-          <VardashRepoEnvManager
-            repoId={repoId}
-            workspaceId={workspaceId}
-            repoLabel={repoLabel}
-          />
-          <VardashImportPanel repoId={repoId} workspaceId={workspaceId} />
-          <VardashProcessDefinitionsPanel
-            repoId={repoId}
-            workspaceId={workspaceId}
-          />
-          <VardashLaunchPanel workspaceId={workspaceId} repoId={repoId} />
-        </div>
-      </main>
-    );
-  };
-
   const AdminPluginsRoute = () => {
     const [plugins, setPlugins] = useState<PluginAdminStatus[]>([]);
     const [loading, setLoading] = useState(true);
@@ -1268,11 +1209,6 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
     WorkspaceRoute,
   );
 
-  moduleAPI.registerRoute(
-    "/dashboard/vardash",
-    { hideApplicationShell: true },
-    VardashRoute,
-  );
 
   moduleAPI.registerRoute(
     "/dashboard/admin/plugins",

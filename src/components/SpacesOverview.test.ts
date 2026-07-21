@@ -1,13 +1,12 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
 
-import { buildVardashWorkspaceRepoHref } from './SpacesOverview';
+const source = readFileSync(new URL('./SpacesOverview.tsx', import.meta.url), 'utf8');
 
-describe('SpacesOverview vardash entry point', () => {
-  it('builds a workspace-repo scoped vardash route', () => {
-    expect(buildVardashWorkspaceRepoHref('workspace 1', {
-      id: 'repo/a',
-      name: 'repo-name',
-      display_name: 'Repo A',
-    })).toBe('/dashboard/vardash?workspaceId=workspace+1&repoId=repo%2Fa&repoName=Repo+A');
+describe('SpacesOverview Vardash entry points', () => {
+  it('does not expose direct Vardash route links from the overview', () => {
+    expect(source).not.toContain('/dashboard/vardash');
+    expect(source).not.toContain('buildVardashWorkspaceRepoHref');
+    expect(source).not.toContain('Open Vardash for');
   });
 });

@@ -4,14 +4,13 @@ import {
   useImportLegacyDevServerProcessDefinition,
   useSetVardashRepoProcessDefinitionDefault,
   useUpsertVardashRepoProcessDefinition,
-  useVardashRepoProcessDefinitions,
   useVardashWorkspaceRepoProcessDefinitions,
 } from '../../hooks/useVardash';
 import type { VardashProcessDefinitionMetadata } from '../../lib/vardash-client';
 
 export interface VardashProcessDefinitionsPanelProps {
   repoId: string;
-  workspaceId?: string | null;
+  workspaceId: string;
 }
 
 export interface VardashProcessDefinitionDraft {
@@ -30,10 +29,8 @@ const EMPTY_PROCESS_DRAFT: VardashProcessDefinitionDraft = {
   isDefault: false,
 };
 
-export function VardashProcessDefinitionsPanel({ repoId, workspaceId = null }: VardashProcessDefinitionsPanelProps) {
-  const workspaceProcesses = useVardashWorkspaceRepoProcessDefinitions(workspaceId, repoId);
-  const repoProcesses = useVardashRepoProcessDefinitions(workspaceId ? null : repoId);
-  const processes = workspaceId ? workspaceProcesses : repoProcesses;
+export function VardashProcessDefinitionsPanel({ repoId, workspaceId }: VardashProcessDefinitionsPanelProps) {
+  const processes = useVardashWorkspaceRepoProcessDefinitions(workspaceId, repoId);
   const upsertProcess = useUpsertVardashRepoProcessDefinition();
   const importLegacy = useImportLegacyDevServerProcessDefinition();
   const setDefault = useSetVardashRepoProcessDefinitionDefault();

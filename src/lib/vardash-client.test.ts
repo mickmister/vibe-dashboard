@@ -11,10 +11,10 @@ describe('VardashClient', () => {
       if (input === '/dashboard/api/vardash/workspaces/ws-a/repos/repo-a/env-overview') {
         return jsonResponse({ repoId: 'repo-a', workspaceId: 'ws-a', rows: [], descriptionGuidance: 'Descriptions are metadata. Do not include secret material.' });
       }
-      if (input === '/dashboard/api/vardash/repos/repo-a/env-keys' && init?.method == null) {
+      if (input === '/dashboard/api/vardash/workspaces/ws-a/repos/repo-a/env-keys' && init?.method == null) {
         return jsonResponse({ keys: [], descriptionGuidance: 'Descriptions are metadata. Do not include secret material.' });
       }
-      if (input === '/dashboard/api/vardash/repos/repo-a/env-keys' && init?.method === 'POST') {
+      if (input === '/dashboard/api/vardash/workspaces/ws-a/repos/repo-a/env-keys' && init?.method === 'POST') {
         expect(JSON.parse(String(init.body))).toEqual({ key: 'TOKEN', kind: 'secret', required: true, description: null });
         return jsonResponse({
           key: {
@@ -30,10 +30,10 @@ describe('VardashClient', () => {
           descriptionGuidance: 'Descriptions are metadata. Do not include secret material.',
         });
       }
-      if (input === '/dashboard/api/vardash/repos/repo-a/process-definitions/proc-legacy/default' && init?.method === 'POST') {
+      if (input === '/dashboard/api/vardash/workspaces/ws-a/repos/repo-a/process-definitions/proc-legacy/default' && init?.method === 'POST') {
         return jsonResponse({ process: { id: 'proc-legacy', source: 'legacy_dev_server_script', isDefault: true } });
       }
-      if (input === '/dashboard/api/vardash/repos/repo-a/import' && init?.method === 'POST') {
+      if (input === '/dashboard/api/vardash/workspaces/ws-a/repos/repo-a/import' && init?.method === 'POST') {
         expect(JSON.parse(String(init.body))).toMatchObject({ dryRun: true, source: 'pasted-env' });
         return jsonResponse({ dryRun: true, keys: [], diagnostics: [], conflicts: [] });
       }
@@ -56,25 +56,25 @@ describe('VardashClient', () => {
 
     const client = new VardashClient({ fetch: fetchImpl });
 
-    await expect(client.listRepoEnvOverview('repo-a', 'ws-a')).resolves.toMatchObject({
+    await expect(client.listRepoEnvOverview('ws-a', 'repo-a')).resolves.toMatchObject({
       repoId: 'repo-a',
       workspaceId: 'ws-a',
       rows: [],
     });
-    await expect(client.listRepoEnvKeys('repo-a')).resolves.toEqual({
+    await expect(client.listRepoEnvKeys('ws-a', 'repo-a')).resolves.toEqual({
       keys: [],
       descriptionGuidance: 'Descriptions are metadata. Do not include secret material.',
     });
-    await expect(client.upsertRepoEnvKey('repo-a', {
+    await expect(client.upsertRepoEnvKey('ws-a', 'repo-a', {
       key: 'TOKEN',
       kind: 'secret',
       required: true,
       description: null,
     })).resolves.toMatchObject({ key: { id: 'key-1', kind: 'secret' } });
-    await expect(client.setRepoProcessDefinitionDefault('repo-a', 'proc-legacy')).resolves.toMatchObject({
+    await expect(client.setRepoProcessDefinitionDefault('ws-a', 'repo-a', 'proc-legacy')).resolves.toMatchObject({
       process: { id: 'proc-legacy', source: 'legacy_dev_server_script', isDefault: true },
     });
-    await expect(client.importRepoEnv('repo-a', {
+    await expect(client.importRepoEnv('ws-a', 'repo-a', {
       content: 'TOKEN=value',
       source: 'pasted-env',
       dryRun: true,
@@ -128,9 +128,9 @@ describe('VardashClient', () => {
     });
     const client = new VardashClient({ fetch: fetchImpl });
 
-    await client.upsertRepoEnvKey('repo-a', { key: 'TOKEN', kind: 'secret' }, 'ws-a');
-    await client.importRepoEnv('repo-a', { content: 'TOKEN=value', source: 'pasted-env', dryRun: true }, 'ws-a');
-    await client.setRepoProcessDefinitionDefault('repo-a', 'proc-1', 'ws-a');
+    await client.upsertRepoEnvKey('ws-a', 'repo-a', { key: 'TOKEN', kind: 'secret' });
+    await client.importRepoEnv('ws-a', 'repo-a', { content: 'TOKEN=value', source: 'pasted-env', dryRun: true });
+    await client.setRepoProcessDefinitionDefault('ws-a', 'repo-a', 'proc-1');
 
     expect(fetchImpl).toHaveBeenCalledTimes(3);
   });
@@ -140,11 +140,11 @@ describe('VardashClient', () => {
       fetch: async () => jsonResponse({ error: 'conflict', accidentalExtra: 'not surfaced on VardashApiError' }, 409),
     });
 
-    await expect(client.listRepoEnvKeys('repo-a')).rejects.toMatchObject({
+    await expect(client.listRepoEnvKeys('ws-a', 'repo-a')).rejects.toMatchObject({
       status: 409,
       errorCode: 'conflict',
     });
-    await expect(client.listRepoEnvKeys('repo-a')).rejects.not.toHaveProperty('body');
+    await expect(client.listRepoEnvKeys('ws-a', 'repo-a')).rejects.not.toHaveProperty('body');
   });
 
   it('does not allow secret saved-value metadata to carry plaintext at type level', () => {

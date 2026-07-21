@@ -10,7 +10,7 @@ import type {
 
 export interface VardashImportPanelProps {
   repoId: string;
-  workspaceId?: string | null;
+  workspaceId: string;
 }
 
 export interface VardashImportDraft {
@@ -27,7 +27,7 @@ const DEFAULT_IMPORT_DRAFT: VardashImportDraft = {
   plainKeysText: '',
 };
 
-export function VardashImportPanel({ repoId, workspaceId = null }: VardashImportPanelProps) {
+export function VardashImportPanel({ repoId, workspaceId }: VardashImportPanelProps) {
   const importMutation = useImportVardashRepoEnv();
   const [draft, setDraft] = useState<VardashImportDraft>(DEFAULT_IMPORT_DRAFT);
   const [preview, setPreview] = useState<VardashImportResponse | null>(null);

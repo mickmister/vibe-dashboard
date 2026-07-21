@@ -273,49 +273,46 @@ export class VardashClient {
     this.fetchImpl = options.fetch ?? fetch;
   }
 
-  listRepoEnvOverview(repoId: string, workspaceId?: string | null): Promise<VardashRepoEnvOverviewResponse> {
-    if (workspaceId) {
-      return this.get(`/workspaces/${encodeURIComponent(workspaceId)}/repos/${encodeURIComponent(repoId)}/env-overview`);
-    }
-    return this.get(`/repos/${encodeURIComponent(repoId)}/env-overview`);
+  listRepoEnvOverview(workspaceId: string, repoId: string): Promise<VardashRepoEnvOverviewResponse> {
+    return this.get(`${workspaceRepoApiPath(workspaceId, repoId)}/env-overview`);
   }
 
-  listRepoEnvKeys(repoId: string, workspaceId?: string | null): Promise<VardashEnvKeysResponse> {
-    return this.get(`${repoApiPath(repoId, workspaceId)}/env-keys`);
+  listRepoEnvKeys(workspaceId: string, repoId: string): Promise<VardashEnvKeysResponse> {
+    return this.get(`${workspaceRepoApiPath(workspaceId, repoId)}/env-keys`);
   }
 
-  upsertRepoEnvKey(repoId: string, input: UpsertVardashEnvKeyInput, workspaceId?: string | null): Promise<VardashEnvKeyResponse> {
-    return this.post(`${repoApiPath(repoId, workspaceId)}/env-keys`, input);
+  upsertRepoEnvKey(workspaceId: string, repoId: string, input: UpsertVardashEnvKeyInput): Promise<VardashEnvKeyResponse> {
+    return this.post(`${workspaceRepoApiPath(workspaceId, repoId)}/env-keys`, input);
   }
 
-  listSavedValues(repoId: string, envKeyId: string, workspaceId?: string | null): Promise<VardashSavedValuesResponse> {
-    return this.get(`${repoApiPath(repoId, workspaceId)}/env-keys/${encodeURIComponent(envKeyId)}/saved-values`);
+  listSavedValues(workspaceId: string, repoId: string, envKeyId: string): Promise<VardashSavedValuesResponse> {
+    return this.get(`${workspaceRepoApiPath(workspaceId, repoId)}/env-keys/${encodeURIComponent(envKeyId)}/saved-values`);
   }
 
   createSavedValue(
+    workspaceId: string,
     repoId: string,
     envKeyId: string,
     input: UpsertVardashSavedValueInput,
-    workspaceId?: string | null,
   ): Promise<VardashSavedValueResponse> {
-    return this.post(`${repoApiPath(repoId, workspaceId)}/env-keys/${encodeURIComponent(envKeyId)}/saved-values`, input);
+    return this.post(`${workspaceRepoApiPath(workspaceId, repoId)}/env-keys/${encodeURIComponent(envKeyId)}/saved-values`, input);
   }
 
   replaceSavedValue(
+    workspaceId: string,
     repoId: string,
     envKeyId: string,
     savedValueId: string,
     input: UpsertVardashSavedValueInput,
-    workspaceId?: string | null,
   ): Promise<VardashSavedValueResponse> {
     return this.put(
-      `${repoApiPath(repoId, workspaceId)}/env-keys/${encodeURIComponent(envKeyId)}/saved-values/${encodeURIComponent(savedValueId)}`,
+      `${workspaceRepoApiPath(workspaceId, repoId)}/env-keys/${encodeURIComponent(envKeyId)}/saved-values/${encodeURIComponent(savedValueId)}`,
       input,
     );
   }
 
-  setRepoDefaultSelection(repoId: string, input: SetVardashSelectionInput, workspaceId?: string | null): Promise<VardashSelectionResponse> {
-    return this.post(`${repoApiPath(repoId, workspaceId)}/default-selections`, input);
+  setRepoDefaultSelection(workspaceId: string, repoId: string, input: SetVardashSelectionInput): Promise<VardashSelectionResponse> {
+    return this.post(`${workspaceRepoApiPath(workspaceId, repoId)}/default-selections`, input);
   }
 
   setWorkspaceRepoSelection(
@@ -329,27 +326,27 @@ export class VardashClient {
     );
   }
 
-  listRepoProcessDefinitions(repoId: string, workspaceId?: string | null): Promise<VardashProcessDefinitionsResponse> {
-    return this.get(`${repoApiPath(repoId, workspaceId)}/process-definitions`);
+  listRepoProcessDefinitions(workspaceId: string, repoId: string): Promise<VardashProcessDefinitionsResponse> {
+    return this.get(`${workspaceRepoApiPath(workspaceId, repoId)}/process-definitions`);
   }
 
   upsertRepoProcessDefinition(
+    workspaceId: string,
     repoId: string,
     input: UpsertVardashProcessDefinitionInput,
-    workspaceId?: string | null,
   ): Promise<VardashProcessDefinitionResponse> {
-    return this.post(`${repoApiPath(repoId, workspaceId)}/process-definitions`, input);
+    return this.post(`${workspaceRepoApiPath(workspaceId, repoId)}/process-definitions`, input);
   }
 
-  setRepoProcessDefinitionDefault(repoId: string, processDefinitionId: string, workspaceId?: string | null): Promise<VardashProcessDefinitionResponse> {
+  setRepoProcessDefinitionDefault(workspaceId: string, repoId: string, processDefinitionId: string): Promise<VardashProcessDefinitionResponse> {
     return this.post(
-      `${repoApiPath(repoId, workspaceId)}/process-definitions/${encodeURIComponent(processDefinitionId)}/default`,
+      `${workspaceRepoApiPath(workspaceId, repoId)}/process-definitions/${encodeURIComponent(processDefinitionId)}/default`,
       {},
     );
   }
 
-  importLegacyDevServerProcessDefinition(repoId: string, devServerScript: string | null, workspaceId?: string | null): Promise<VardashProcessDefinitionResponse> {
-    return this.post(`${repoApiPath(repoId, workspaceId)}/process-definitions/import-legacy-dev-server`, {
+  importLegacyDevServerProcessDefinition(workspaceId: string, repoId: string, devServerScript: string | null): Promise<VardashProcessDefinitionResponse> {
+    return this.post(`${workspaceRepoApiPath(workspaceId, repoId)}/process-definitions/import-legacy-dev-server`, {
       dev_server_script: devServerScript,
     });
   }
@@ -361,8 +358,8 @@ export class VardashClient {
     return this.get(`/workspaces/${encodeURIComponent(workspaceId)}/repos/${encodeURIComponent(repoId)}/process-definitions`);
   }
 
-  importRepoEnv(repoId: string, input: ImportVardashEnvInput, workspaceId?: string | null): Promise<VardashImportResponse> {
-    return this.post(`${repoApiPath(repoId, workspaceId)}/import`, input);
+  importRepoEnv(workspaceId: string, repoId: string, input: ImportVardashEnvInput): Promise<VardashImportResponse> {
+    return this.post(`${workspaceRepoApiPath(workspaceId, repoId)}/import`, input);
   }
 
   getLaunchReadiness(input: GetVardashLaunchReadinessInput): Promise<VardashLaunchReadinessResponse> {
@@ -414,10 +411,8 @@ export class VardashClient {
 export const vardashClient = new VardashClient();
 
 
-function repoApiPath(repoId: string, workspaceId?: string | null): string {
-  return workspaceId
-    ? `/workspaces/${encodeURIComponent(workspaceId)}/repos/${encodeURIComponent(repoId)}`
-    : `/repos/${encodeURIComponent(repoId)}`;
+function workspaceRepoApiPath(workspaceId: string, repoId: string): string {
+  return `/workspaces/${encodeURIComponent(workspaceId)}/repos/${encodeURIComponent(repoId)}`;
 }
 function launchQuery(input: GetVardashLaunchReadinessInput): string {
   const params = new URLSearchParams();
