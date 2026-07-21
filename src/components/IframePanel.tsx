@@ -42,9 +42,12 @@ type IframeEntry = {
   container: HTMLDivElement;
   loaded: boolean;
   contentReady: boolean;
+  readyToShow: boolean;
   loadError: boolean;
   lastAccessedAt: number;
   listeners: Set<() => void>;
+  revealDelayTimeoutId: ReturnType<typeof setTimeout> | null;
+  loadToken: number;
 };
 
 type TabRenderTarget =
@@ -62,6 +65,7 @@ let retainedSessionId: string | null = null;
 let retainedTabIds: Set<string> = new Set();
 let keyboardIsolationDocuments: WeakSet<Document> = new WeakSet();
 const MAX_RETAINED_IFRAMES = 5;
+const IFRAME_REVEAL_DELAY_MS = 100;
 
 // Preserve iframe store across HMR updates using Vite's HMR API.
 try {
@@ -164,6 +168,59 @@ function installIframeKeyboardIsolation(iframe: HTMLIFrameElement) {
   } catch {
     // Cross-origin iframes keep their own keyboard handling.
   }
+}
+
+function notifyIframeListeners(entry: IframeEntry) {
+  entry.listeners.forEach((fn) => fn());
+}
+
+function clearIframeRevealDelay(entry: IframeEntry) {
+  if (entry.revealDelayTimeoutId == null) return;
+  clearTimeout(entry.revealDelayTimeoutId);
+  entry.revealDelayTimeoutId = null;
+}
+
+function resetIframeLoadReadiness(entry: IframeEntry) {
+  clearIframeRevealDelay(entry);
+  entry.loaded = false;
+  entry.contentReady = false;
+  entry.readyToShow = false;
+  entry.loadError = false;
+  entry.loadToken += 1;
+}
+
+function markIframeReadyToShow(
+  entry: IframeEntry,
+  expectedLoadToken: number,
+  delayMs = IFRAME_REVEAL_DELAY_MS,
+) {
+  if (entry.loadToken !== expectedLoadToken || entry.readyToShow || entry.revealDelayTimeoutId != null) {
+    return;
+  }
+
+  entry.revealDelayTimeoutId = setTimeout(() => {
+    entry.revealDelayTimeoutId = null;
+    if (entry.loadToken !== expectedLoadToken || entry.readyToShow) return;
+
+    entry.readyToShow = true;
+    notifyIframeListeners(entry);
+  }, delayMs);
+}
+
+function markIframeReadyToShowImmediately(entry: IframeEntry) {
+  clearIframeRevealDelay(entry);
+  entry.readyToShow = true;
+  notifyIframeListeners(entry);
+}
+
+function normalizeIframeEntry(entry: IframeEntry) {
+  entry.readyToShow ??= entry.loaded && entry.contentReady;
+  entry.revealDelayTimeoutId ??= null;
+  entry.loadToken ??= 0;
+}
+
+function isIframeReadyToShow(entry: IframeEntry) {
+  return entry.readyToShow ?? (entry.loaded && entry.contentReady);
 }
 
 function getIframeResolutionOrigin(url: string): string {
@@ -289,7 +346,10 @@ function getTabRenderTarget(url: string): TabRenderTarget {
 function getOrCreateIframe(retainedTab: RetainedIframeTab): IframeEntry {
   const { tab, iframeKey } = retainedTab;
   const existing = iframeStore.get(iframeKey);
-  if (existing) return existing;
+  if (existing) {
+    normalizeIframeEntry(existing);
+    return existing;
+  }
   const target = getTabRenderTarget(tab.url);
 
   const container = document.createElement('div');
@@ -308,25 +368,29 @@ function getOrCreateIframe(retainedTab: RetainedIframeTab): IframeEntry {
     container,
     loaded: target.kind !== 'iframe',
     contentReady: target.kind !== 'iframe',
+    readyToShow: target.kind !== 'iframe',
     loadError: false,
     lastAccessedAt: Date.now(),
     listeners: new Set(),
+    revealDelayTimeoutId: null,
+    loadToken: 0,
   };
 
   iframe.addEventListener('load', () => {
+    const currentLoadToken = entry.loadToken;
     entry.loaded = true;
-    entry.listeners.forEach((fn) => fn());
     installIframeKeyboardIsolation(iframe);
 
     // Start checking if content is ready (not showing white screen)
-    checkContentReady(iframe, entry);
+    checkContentReady(iframe, entry, currentLoadToken);
   });
 
   iframe.addEventListener('error', () => {
+    clearIframeRevealDelay(entry);
     entry.loadError = true;
     entry.loaded = true;
     entry.contentReady = true;
-    entry.listeners.forEach((fn) => fn());
+    markIframeReadyToShowImmediately(entry);
   });
 
   if (target.kind === 'iframe') {
@@ -344,14 +408,14 @@ function getOrCreateIframe(retainedTab: RetainedIframeTab): IframeEntry {
  * Checks if the iframe content is actually ready by detecting white screens.
  * For same-origin iframes, we can check the background color to see if the SPA has loaded.
  */
-function checkContentReady(iframe: HTMLIFrameElement, entry: IframeEntry) {
+function checkContentReady(iframe: HTMLIFrameElement, entry: IframeEntry, expectedLoadToken: number) {
   try {
     // Try to access iframe content (will throw if cross-origin)
     const doc = iframe.contentDocument || iframe.contentWindow?.document;
     if (!doc) {
       // Can't access content (likely cross-origin), assume ready after load
       entry.contentReady = true;
-      entry.listeners.forEach((fn) => fn());
+      markIframeReadyToShow(entry, expectedLoadToken);
       return;
     }
 
@@ -380,13 +444,13 @@ function checkContentReady(iframe: HTMLIFrameElement, entry: IframeEntry) {
         if (!isWhite || hasContent) {
           // Content is ready!
           entry.contentReady = true;
-          entry.listeners.forEach((fn) => fn());
+          markIframeReadyToShow(entry, expectedLoadToken);
           clearInterval(checkInterval);
         }
       } catch (e) {
         // Lost access to iframe (navigation happened), assume ready
         entry.contentReady = true;
-        entry.listeners.forEach((fn) => fn());
+        markIframeReadyToShow(entry, expectedLoadToken);
         clearInterval(checkInterval);
       }
     }, 100); // Check every 100ms
@@ -396,20 +460,21 @@ function checkContentReady(iframe: HTMLIFrameElement, entry: IframeEntry) {
       clearInterval(checkInterval);
       if (!entry.contentReady) {
         entry.contentReady = true;
-        entry.listeners.forEach((fn) => fn());
+        markIframeReadyToShow(entry, expectedLoadToken);
       }
     }, 10000);
 
   } catch (e) {
     // Cross-origin iframe, can't check content, assume ready
     entry.contentReady = true;
-    entry.listeners.forEach((fn) => fn());
+    markIframeReadyToShow(entry, expectedLoadToken);
   }
 }
 
 function removeIframe(tabId: string) {
   const entry = iframeStore.get(tabId);
   if (entry) {
+    clearIframeRevealDelay(entry);
     entry.container.remove();
     entry.listeners.clear();
     iframeStore.delete(tabId);
@@ -482,8 +547,8 @@ function useImperativeIframes(
     for (const retainedTab of tabs) {
       const entry = iframeStore.get(retainedTab.iframeKey);
       const tab = retainedTab.tab;
-      // Only consider ready when BOTH loaded AND content is ready
-      initial.set(tab.id, (entry?.loaded && entry?.contentReady) ?? false);
+      // Already-mounted iframes that have completed their reveal delay should show immediately.
+      initial.set(tab.id, entry ? isIframeReadyToShow(entry) : false);
     }
     return initial;
   });
@@ -535,9 +600,12 @@ function useImperativeIframes(
         if (entry.iframe.src !== 'about:blank') {
           entry.iframe.src = 'about:blank';
         }
+        clearIframeRevealDelay(entry);
         entry.loaded = true;
         entry.contentReady = true;
+        entry.readyToShow = true;
         entry.loadError = false;
+        entry.loadToken += 1;
         setLoadingState((prev) => {
           const next = new Map(prev);
           next.set(tab.id, true);
@@ -557,11 +625,8 @@ function useImperativeIframes(
       applyIframePolicy(entry.iframe, target.iframeSrc);
 
       if (entry.iframe.src !== target.iframeSrc) {
+        resetIframeLoadReadiness(entry);
         entry.iframe.src = target.iframeSrc;
-        // Reset loading and error state
-        entry.loaded = false;
-        entry.contentReady = false;
-        entry.loadError = false;
         setLoadingState((prev) => {
           const next = new Map(prev);
           next.set(tab.id, false);
@@ -630,8 +695,8 @@ function useImperativeIframes(
       const tab = retainedTab.tab;
       if (!entry) continue;
 
-      // If already loaded AND content ready, update state immediately
-      if (entry.loaded && entry.contentReady) {
+      // If already loaded, content ready, and past the reveal delay, update state immediately.
+      if (isIframeReadyToShow(entry)) {
         setLoadingState((prev) => {
           if (prev.get(tab.id) === true) return prev;
           const next = new Map(prev);
@@ -650,8 +715,8 @@ function useImperativeIframes(
 
       // Otherwise subscribe to load/content ready events
       const listener = () => {
-        // Only mark as ready when both loaded AND content is ready
-        if (entry.loaded && entry.contentReady) {
+        // Only mark as ready after the iframe loaded, content is ready, and the reveal delay elapsed.
+        if (isIframeReadyToShow(entry)) {
           setLoadingState((prev) => {
             const next = new Map(prev);
             next.set(tab.id, true);
@@ -679,9 +744,7 @@ function useImperativeIframes(
       ?? tabId;
     const entry = iframeStore.get(iframeKey);
     if (!entry) return;
-    entry.loaded = false;
-    entry.contentReady = false;
-    entry.loadError = false;
+    resetIframeLoadReadiness(entry);
     entry.lastAccessedAt = Date.now();
     entry.iframe.src = entry.iframe.src; // reload
     setLoadingState((prev) => {

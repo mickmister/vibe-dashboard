@@ -97,6 +97,12 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     python3 \
     sqlite3 \
+    zip \
+    libgtk-3-dev \
+    libwebkit2gtk-4.1-dev \
+    libayatana-appindicator3-dev \
+    librsvg2-dev \
+    patchelf \
     supervisor \
     sudo \
     ca-certificates \
@@ -135,7 +141,10 @@ ENV CARGO_HOME=/usr/local/cargo
 ENV RUSTUP_HOME=/usr/local/rustup
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 ENV PATH="/usr/local/cargo/bin:/usr/local/go/bin:${PATH}"
-RUN cargo --version >/dev/null && rustc --version >/dev/null
+RUN cargo --version >/dev/null && rustc --version >/dev/null \
+    && ln -sf /usr/local/cargo/bin/cargo /usr/local/bin/cargo \
+    && ln -sf /usr/local/cargo/bin/rustc /usr/local/bin/rustc \
+    && ln -sf /usr/local/cargo/bin/rustup /usr/local/bin/rustup
 
 # Install uv for Python-based CLI tools
 RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_UNMANAGED_INSTALL="/usr/local/bin" sh
@@ -377,6 +386,16 @@ RUN git config --system credential.helper '!gh auth git-credential'
 
 COPY --from=vk-runtime-downloader /vk-runtime/vibe-kanban /usr/local/bin/vibe-kanban
 COPY --from=vk-runtime-downloader /vk-build-version /usr/local/share/vibe-kanban-build-version
+
+# Keep the hotswap write surface narrow: only the VK runtime binary,
+# its version marker, and rollback state are mutable by vkuser/vkadmin.
+RUN mkdir -p /var/lib/vd/hotswap/vk && \
+    chown vkuser:vkadmin /usr/local/bin/vibe-kanban /usr/local/share/vibe-kanban-build-version && \
+    chmod 0775 /usr/local/bin/vibe-kanban && \
+    chmod 0664 /usr/local/share/vibe-kanban-build-version && \
+    chown -R vkuser:vkadmin /var/lib/vd/hotswap && \
+    chmod -R g+rwX /var/lib/vd/hotswap && \
+    find /var/lib/vd/hotswap -type d -exec chmod g+s {} +
 
 RUN chown -R vkuser:vkuser /home/vkuser/.local
 

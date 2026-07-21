@@ -39,7 +39,8 @@
     "beads-form:preview": "node --experimental-strip-types scripts/beads-form/preview.ts",
     "dev:beads-form-preview": "node --experimental-strip-types scripts/beads-form/preview.ts",
     "beads-form": "node --experimental-strip-types scripts/beads-form/cli.ts",
-    "dev:beads-form-preview:shared": "node --experimental-strip-types scripts/beads-form/shared-preview.ts"
+    "dev:beads-form-preview:shared": "node --experimental-strip-types scripts/beads-form/shared-preview.ts",
+    "hotswap:vkvd": "node --experimental-strip-types scripts/hotswap-vkvd.ts"
   },
   "dependencies": {
     "@heroui/react": "^2.8.9",
