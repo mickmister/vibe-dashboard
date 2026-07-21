@@ -64,8 +64,9 @@ let retainedTabIds: Set<string> = new Set();
 let keyboardIsolationDocuments: WeakSet<Document> = new WeakSet();
 let activatedIframeKeys: Set<string> = new Set();
 const MAX_RETAINED_IFRAMES = 5;
-export const IFRAME_REVEAL_DELAY_MS = 1000;
+export const IFRAME_REVEAL_DELAY_MS = 250;
 const IFRAME_ACTIVATION_SHIELD_MS = 1000;
+const IFRAME_VISUAL_READY_TIMEOUT_MS = 30000;
 
 // Preserve iframe store across HMR updates using Vite's HMR API.
 try {
@@ -221,6 +222,80 @@ export function getIframeRevealStyle(readyToShow: boolean): React.CSSProperties 
 
 export function shouldShowIframeLoadingOverlay(isLoaded: boolean, activationShielded: boolean): boolean {
   return !isLoaded || activationShielded;
+}
+
+export function isBlankIframeBackgroundColor(backgroundColor: string): boolean {
+  const normalized = backgroundColor.trim().toLowerCase();
+  return (
+    normalized === '' ||
+    normalized === 'transparent' ||
+    normalized === 'white' ||
+    normalized === '#fff' ||
+    normalized === '#ffffff' ||
+    normalized === 'rgb(255, 255, 255)' ||
+    normalized === 'rgba(255, 255, 255, 1)' ||
+    normalized === 'rgba(0, 0, 0, 0)'
+  );
+}
+
+function hasVisualReadyBackground(doc: Document): boolean {
+  const view = doc.defaultView;
+  if (!view || doc.readyState !== 'complete') return false;
+
+  const bodyBackground = doc.body ? view.getComputedStyle(doc.body).backgroundColor : '';
+  const rootBackground = doc.documentElement ? view.getComputedStyle(doc.documentElement).backgroundColor : '';
+
+  return !isBlankIframeBackgroundColor(bodyBackground) || !isBlankIframeBackgroundColor(rootBackground);
+}
+
+function waitForIframeVisualReadiness(
+  iframe: HTMLIFrameElement,
+  entry: IframeEntry,
+  expectedLoadToken: number,
+) {
+  let stableFrameCount = 0;
+  const startedAt = Date.now();
+
+  const checkReady = () => {
+    if (entry.loadToken !== expectedLoadToken || entry.readyToShow) return;
+
+    let doc: Document | undefined | null;
+    try {
+      doc = iframe.contentDocument || iframe.contentWindow?.document;
+    } catch {
+      entry.contentReady = true;
+      markIframeReadyToShow(entry, expectedLoadToken);
+      return;
+    }
+
+    if (!doc) {
+      entry.contentReady = true;
+      markIframeReadyToShow(entry, expectedLoadToken);
+      return;
+    }
+
+    if (hasVisualReadyBackground(doc)) {
+      stableFrameCount += 1;
+      if (stableFrameCount >= 2) {
+        entry.contentReady = true;
+        markIframeReadyToShow(entry, expectedLoadToken);
+        return;
+      }
+    } else {
+      stableFrameCount = 0;
+    }
+
+    if (Date.now() - startedAt >= IFRAME_VISUAL_READY_TIMEOUT_MS) {
+      console.warn('Timed out waiting for iframe visual readiness; revealing after fallback timeout.', { src: iframe.src });
+      entry.contentReady = true;
+      markIframeReadyToShow(entry, expectedLoadToken);
+      return;
+    }
+
+    requestAnimationFrame(checkReady);
+  };
+
+  requestAnimationFrame(checkReady);
 }
 
 function markIframeReadyToShowImmediately(entry: IframeEntry) {
@@ -391,10 +466,9 @@ function getOrCreateIframe(retainedTab: RetainedIframeTab): IframeEntry {
   iframe.addEventListener('load', () => {
     const currentLoadToken = entry.loadToken;
     entry.loaded = true;
-    entry.contentReady = true;
     installIframeKeyboardIsolation(iframe);
 
-    markIframeReadyToShow(entry, currentLoadToken);
+    waitForIframeVisualReadiness(iframe, entry, currentLoadToken);
   });
 
   iframe.addEventListener('error', () => {
