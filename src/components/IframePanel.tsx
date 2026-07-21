@@ -63,7 +63,7 @@ let retainedSessionId: string | null = null;
 let retainedTabIds: Set<string> = new Set();
 let keyboardIsolationDocuments: WeakSet<Document> = new WeakSet();
 const MAX_RETAINED_IFRAMES = 5;
-const IFRAME_REVEAL_DELAY_MS = 250;
+export const IFRAME_REVEAL_DELAY_MS = 1000;
 
 // Preserve iframe store across HMR updates using Vite's HMR API.
 try {

@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { getIframeRevealStyle } from './IframePanel';
+import { IFRAME_REVEAL_DELAY_MS, getIframeRevealStyle } from './IframePanel';
 
-describe('getIframeRevealStyle', () => {
+describe('iframe reveal behavior', () => {
+  it('keeps the loading overlay up for a full second after iframe load', () => {
+    expect(IFRAME_REVEAL_DELAY_MS).toBe(1000);
+  });
+
   it('hides loading iframes so their unpainted document cannot flash through', () => {
     expect(getIframeRevealStyle(false)).toMatchObject({
       opacity: 0,
