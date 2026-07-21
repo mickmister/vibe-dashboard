@@ -46,6 +46,7 @@ type IframeEntry = {
   listeners: Set<() => void>;
   revealDelayTimeoutId: ReturnType<typeof setTimeout> | null;
   loadToken: number;
+  readinessDebugLastSignature: string | null;
 };
 
 type TabRenderTarget =
@@ -192,6 +193,7 @@ function resetIframeLoadReadiness(entry: IframeEntry) {
   entry.readyToShow = false;
   entry.loadError = false;
   entry.loadToken += 1;
+  entry.readinessDebugLastSignature = null;
 }
 
 function markIframeReadyToShow(
@@ -224,6 +226,167 @@ export function shouldShowIframeLoadingOverlay(isLoaded: boolean, activationShie
   return !isLoaded || activationShielded;
 }
 
+type IframeViewportSample = {
+  label: string;
+  x: number;
+  y: number;
+  element: string;
+  backgroundChain: string[];
+  firstNonBlankBackground: string | null;
+};
+
+type IframeVisualReadinessDebug = {
+  readyState: DocumentReadyState;
+  bodyBackground: string;
+  rootBackground: string;
+  currentCheckReady: boolean;
+  proposedViewportCheckReady: boolean;
+  detectedWhiteScreen: boolean;
+  reasons: string[];
+  samples: IframeViewportSample[];
+};
+
+function describeElement(element: Element | null): string {
+  if (!element) return '<none>';
+
+  const id = element.id ? `#${element.id}` : '';
+  const className = typeof element.className === 'string' && element.className.trim()
+    ? `.${element.className.trim().split(/\s+/).slice(0, 4).join('.')}`
+    : '';
+
+  return `${element.tagName.toLowerCase()}${id}${className}`;
+}
+
+function getElementBackgroundChain(element: Element | null, view: Window): { chain: string[]; firstNonBlankBackground: string | null } {
+  const chain: string[] = [];
+  let firstNonBlankBackground: string | null = null;
+  let current: Element | null = element;
+
+  while (current) {
+    const backgroundColor = view.getComputedStyle(current).backgroundColor;
+    chain.push(`${describeElement(current)}=${backgroundColor}`);
+    if (!firstNonBlankBackground && !isBlankIframeBackgroundColor(backgroundColor)) {
+      firstNonBlankBackground = backgroundColor;
+    }
+    current = current.parentElement;
+  }
+
+  return { chain, firstNonBlankBackground };
+}
+
+function sampleIframeViewport(doc: Document): IframeViewportSample[] {
+  const view = doc.defaultView;
+  if (!view) return [];
+
+  const root = doc.documentElement;
+  const width = Math.max(root.clientWidth, view.innerWidth || 0);
+  const height = Math.max(root.clientHeight, view.innerHeight || 0);
+  if (width <= 0 || height <= 0) return [];
+
+  const points = [
+    { label: 'center', x: 0.5, y: 0.5 },
+    { label: 'top-left', x: 0.1, y: 0.1 },
+    { label: 'top-right', x: 0.9, y: 0.1 },
+    { label: 'bottom-left', x: 0.1, y: 0.9 },
+    { label: 'bottom-right', x: 0.9, y: 0.9 },
+  ];
+
+  return points.map((point) => {
+    const x = Math.min(Math.max(Math.round(width * point.x), 0), Math.max(width - 1, 0));
+    const y = Math.min(Math.max(Math.round(height * point.y), 0), Math.max(height - 1, 0));
+    const element = doc.elementFromPoint(x, y);
+    const { chain, firstNonBlankBackground } = getElementBackgroundChain(element, view);
+    return {
+      label: point.label,
+      x,
+      y,
+      element: describeElement(element),
+      backgroundChain: chain,
+      firstNonBlankBackground,
+    };
+  });
+}
+
+function analyzeIframeVisualReadiness(doc: Document): IframeVisualReadinessDebug {
+  const view = doc.defaultView;
+  const bodyBackground = view && doc.body ? view.getComputedStyle(doc.body).backgroundColor : '';
+  const rootBackground = view && doc.documentElement ? view.getComputedStyle(doc.documentElement).backgroundColor : '';
+  const currentCheckReady = Boolean(
+    view &&
+    doc.readyState === 'complete' &&
+    (!isBlankIframeBackgroundColor(bodyBackground) || !isBlankIframeBackgroundColor(rootBackground))
+  );
+  const samples = view ? sampleIframeViewport(doc) : [];
+  const blankSamples = samples.filter((sample) => !sample.firstNonBlankBackground);
+  const proposedViewportCheckReady = samples.length > 0 && blankSamples.length === 0;
+  const reasons: string[] = [];
+
+  if (!view) reasons.push('iframe document has no defaultView');
+  if (doc.readyState !== 'complete') reasons.push(`iframe document readyState is ${doc.readyState}`);
+  if (isBlankIframeBackgroundColor(bodyBackground)) reasons.push(`body background is blank/white (${bodyBackground || '<empty>'})`);
+  if (isBlankIframeBackgroundColor(rootBackground)) reasons.push(`html background is blank/white (${rootBackground || '<empty>'})`);
+  if (samples.length === 0) {
+    reasons.push('viewport sampling found no measurable iframe viewport');
+  } else {
+    blankSamples.forEach((sample) => {
+      reasons.push(`viewport sample ${sample.label} at ${sample.x},${sample.y} has no non-blank background; element=${sample.element}`);
+    });
+  }
+
+  return {
+    readyState: doc.readyState,
+    bodyBackground,
+    rootBackground,
+    currentCheckReady,
+    proposedViewportCheckReady,
+    detectedWhiteScreen: reasons.length > 0,
+    reasons,
+    samples,
+  };
+}
+
+function logIframeVisualReadinessDebug(
+  entry: IframeEntry,
+  iframe: HTMLIFrameElement,
+  analysis: IframeVisualReadinessDebug,
+  context: { elapsedMs: number; stableFrameCount: number; loadToken: number },
+) {
+  const signature = JSON.stringify({
+    readyState: analysis.readyState,
+    bodyBackground: analysis.bodyBackground,
+    rootBackground: analysis.rootBackground,
+    currentCheckReady: analysis.currentCheckReady,
+    proposedViewportCheckReady: analysis.proposedViewportCheckReady,
+    reasons: analysis.reasons,
+    stableFrameCount: context.stableFrameCount,
+  });
+  if (entry.readinessDebugLastSignature === signature) return;
+  entry.readinessDebugLastSignature = signature;
+
+  const details = {
+    src: iframe.src,
+    elapsedMs: context.elapsedMs,
+    loadToken: context.loadToken,
+    stableFrameCount: context.stableFrameCount,
+    readyState: analysis.readyState,
+    bodyBackground: analysis.bodyBackground,
+    rootBackground: analysis.rootBackground,
+    currentBodyHtmlCheckReady: analysis.currentCheckReady,
+    proposedViewportSampleCheckReady: analysis.proposedViewportCheckReady,
+    samples: analysis.samples,
+  };
+
+  if (analysis.detectedWhiteScreen) {
+    console.warn(
+      `detected white screen condition. reason: ${analysis.reasons.join('; ')}`,
+      details,
+    );
+    return;
+  }
+
+  console.info('iframe visual readiness checks passed', details);
+}
+
 export function isBlankIframeBackgroundColor(backgroundColor: string): boolean {
   const normalized = backgroundColor.trim().toLowerCase();
   return (
@@ -239,13 +402,7 @@ export function isBlankIframeBackgroundColor(backgroundColor: string): boolean {
 }
 
 function hasVisualReadyBackground(doc: Document): boolean {
-  const view = doc.defaultView;
-  if (!view || doc.readyState !== 'complete') return false;
-
-  const bodyBackground = doc.body ? view.getComputedStyle(doc.body).backgroundColor : '';
-  const rootBackground = doc.documentElement ? view.getComputedStyle(doc.documentElement).backgroundColor : '';
-
-  return !isBlankIframeBackgroundColor(bodyBackground) || !isBlankIframeBackgroundColor(rootBackground);
+  return analyzeIframeVisualReadiness(doc).currentCheckReady;
 }
 
 function waitForIframeVisualReadiness(
@@ -274,18 +431,26 @@ function waitForIframeVisualReadiness(
       return;
     }
 
-    if (hasVisualReadyBackground(doc)) {
+    const elapsedMs = Date.now() - startedAt;
+    const analysis = analyzeIframeVisualReadiness(doc);
+    if (analysis.currentCheckReady) {
       stableFrameCount += 1;
-      if (stableFrameCount >= 2) {
-        entry.contentReady = true;
-        markIframeReadyToShow(entry, expectedLoadToken);
-        return;
-      }
     } else {
       stableFrameCount = 0;
     }
+    logIframeVisualReadinessDebug(entry, iframe, analysis, {
+      elapsedMs,
+      stableFrameCount,
+      loadToken: expectedLoadToken,
+    });
 
-    if (Date.now() - startedAt >= IFRAME_VISUAL_READY_TIMEOUT_MS) {
+    if (analysis.currentCheckReady && stableFrameCount >= 2) {
+      entry.contentReady = true;
+      markIframeReadyToShow(entry, expectedLoadToken);
+      return;
+    }
+
+    if (elapsedMs >= IFRAME_VISUAL_READY_TIMEOUT_MS) {
       console.warn('Timed out waiting for iframe visual readiness; revealing after fallback timeout.', { src: iframe.src });
       entry.contentReady = true;
       markIframeReadyToShow(entry, expectedLoadToken);
@@ -308,6 +473,7 @@ function normalizeIframeEntry(entry: IframeEntry) {
   entry.readyToShow ??= entry.loaded && entry.contentReady;
   entry.revealDelayTimeoutId ??= null;
   entry.loadToken ??= 0;
+  entry.readinessDebugLastSignature ??= null;
 }
 
 function isIframeReadyToShow(entry: IframeEntry) {
@@ -461,6 +627,7 @@ function getOrCreateIframe(retainedTab: RetainedIframeTab): IframeEntry {
     listeners: new Set(),
     revealDelayTimeoutId: null,
     loadToken: 0,
+    readinessDebugLastSignature: null,
   };
 
   iframe.addEventListener('load', () => {
