@@ -183,7 +183,7 @@ export function getBuiltInWorkspaceMetadata(
 function getBuiltInWorkspaceTabs(tabGroup: TabGroup, origin: string): Tab[] {
   const metadata = getBuiltInWorkspaceMetadata(tabGroup);
   if (!metadata) return [];
-  const baseOrigin = origin;
+  const baseOrigin = getBuiltInWorkspaceBaseOrigin(origin);
   return [
     {
       id: BUILT_IN_AGENT_TAB_ID,
@@ -404,6 +404,17 @@ function isGeneratedWorkspaceTab(
     isCodeTab(tab) ||
     isBeadsTab(tab)
   );
+}
+
+function getBuiltInWorkspaceBaseOrigin(origin: string): string {
+  if (!origin) return origin;
+  try {
+    const parsed = new URL(origin, URL_PARSE_BASE);
+    parsed.hostname = parsed.hostname.replace(/^port-\d+\./, '');
+    return parsed.toString().replace(/\/$/, '');
+  } catch {
+    return origin;
+  }
 }
 
 function buildWorkspaceTabUrl(baseOrigin: string, workspaceId: string): string {
