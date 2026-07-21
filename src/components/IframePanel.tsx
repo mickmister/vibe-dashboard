@@ -378,13 +378,13 @@ function logIframeVisualReadinessDebug(
 
   if (analysis.detectedWhiteScreen) {
     console.warn(
-      `detected white screen condition. reason: ${analysis.reasons.join('; ')}`,
+      `WHITE SCREEN DEBUG: detected white screen condition. reason: ${analysis.reasons.join('; ')}`,
       details,
     );
     return;
   }
 
-  console.info('iframe visual readiness checks passed', details);
+  console.info('WHITE SCREEN DEBUG: iframe visual readiness checks passed', details);
 }
 
 export function isBlankIframeBackgroundColor(backgroundColor: string): boolean {
@@ -451,7 +451,7 @@ function waitForIframeVisualReadiness(
     }
 
     if (elapsedMs >= IFRAME_VISUAL_READY_TIMEOUT_MS) {
-      console.warn('Timed out waiting for iframe visual readiness; revealing after fallback timeout.', { src: iframe.src });
+      console.warn('WHITE SCREEN DEBUG: Timed out waiting for iframe visual readiness; revealing after fallback timeout.', { src: iframe.src });
       entry.contentReady = true;
       markIframeReadyToShow(entry, expectedLoadToken);
       return;
