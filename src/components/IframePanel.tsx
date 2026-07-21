@@ -68,6 +68,16 @@ const MAX_RETAINED_IFRAMES = 5;
 export const IFRAME_REVEAL_DELAY_MS = 250;
 const IFRAME_ACTIVATION_SHIELD_MS = 1000;
 const IFRAME_VISUAL_READY_TIMEOUT_MS = 30000;
+const WHITE_SCREEN_DEBUG_PREFIX = 'WHITE SCREEN DEBUG:';
+
+function logWhiteScreenDebug(message: string, details?: Record<string, unknown>) {
+  if (details) {
+    console.info(`${WHITE_SCREEN_DEBUG_PREFIX} ${message}`, details);
+    return;
+  }
+
+  console.info(`${WHITE_SCREEN_DEBUG_PREFIX} ${message}`);
+}
 
 // Preserve iframe store across HMR updates using Vite's HMR API.
 try {
@@ -182,11 +192,26 @@ function notifyIframeListeners(entry: IframeEntry) {
 
 function clearIframeRevealDelay(entry: IframeEntry) {
   if (entry.revealDelayTimeoutId == null) return;
+  logWhiteScreenDebug('clear pending iframe reveal delay', {
+    src: entry.iframe.src,
+    loadToken: entry.loadToken,
+    loaded: entry.loaded,
+    contentReady: entry.contentReady,
+    readyToShow: entry.readyToShow,
+  });
   clearTimeout(entry.revealDelayTimeoutId);
   entry.revealDelayTimeoutId = null;
 }
 
 function resetIframeLoadReadiness(entry: IframeEntry) {
+  logWhiteScreenDebug('reset iframe load readiness', {
+    src: entry.iframe.src,
+    previousLoaded: entry.loaded,
+    previousContentReady: entry.contentReady,
+    previousReadyToShow: entry.readyToShow,
+    previousLoadError: entry.loadError,
+    previousLoadToken: entry.loadToken,
+  });
   clearIframeRevealDelay(entry);
   entry.loaded = false;
   entry.contentReady = false;
@@ -202,14 +227,39 @@ function markIframeReadyToShow(
   delayMs = IFRAME_REVEAL_DELAY_MS,
 ) {
   if (entry.loadToken !== expectedLoadToken || entry.readyToShow || entry.revealDelayTimeoutId != null) {
+    logWhiteScreenDebug('skip scheduling iframe reveal delay', {
+      src: entry.iframe.src,
+      expectedLoadToken,
+      actualLoadToken: entry.loadToken,
+      readyToShow: entry.readyToShow,
+      revealDelayAlreadyScheduled: entry.revealDelayTimeoutId != null,
+    });
     return;
   }
 
+  logWhiteScreenDebug('schedule iframe reveal delay', {
+    src: entry.iframe.src,
+    expectedLoadToken,
+    delayMs,
+  });
   entry.revealDelayTimeoutId = setTimeout(() => {
     entry.revealDelayTimeoutId = null;
-    if (entry.loadToken !== expectedLoadToken || entry.readyToShow) return;
+    if (entry.loadToken !== expectedLoadToken || entry.readyToShow) {
+      logWhiteScreenDebug('skip iframe reveal after delay', {
+        src: entry.iframe.src,
+        expectedLoadToken,
+        actualLoadToken: entry.loadToken,
+        readyToShow: entry.readyToShow,
+      });
+      return;
+    }
 
     entry.readyToShow = true;
+    logWhiteScreenDebug('iframe readyToShow set true after reveal delay', {
+      src: entry.iframe.src,
+      expectedLoadToken,
+      delayMs,
+    });
     notifyIframeListeners(entry);
   }, delayMs);
 }
@@ -224,6 +274,50 @@ export function getIframeRevealStyle(readyToShow: boolean): React.CSSProperties 
 
 export function shouldShowIframeLoadingOverlay(isLoaded: boolean, activationShielded: boolean): boolean {
   return !isLoaded || activationShielded;
+}
+
+function useIframeOverlayDebug({
+  context,
+  tab,
+  targetKind,
+  isLoaded,
+  hasError,
+  isActivationShielded,
+}: {
+  context: string;
+  tab: Tab;
+  targetKind: TabRenderTarget['kind'];
+  isLoaded: boolean;
+  hasError: boolean;
+  isActivationShielded: boolean;
+}) {
+  const shouldShowLoadingOverlay = shouldShowIframeLoadingOverlay(isLoaded, isActivationShielded);
+
+  useEffect(() => {
+    logWhiteScreenDebug('overlay state changed', {
+      context,
+      tabId: tab.id,
+      tabTitle: tab.title,
+      tabUrl: tab.url,
+      targetKind,
+      isLoaded,
+      hasError,
+      isActivationShielded,
+      shouldShowLoadingOverlay,
+    });
+  }, [
+    context,
+    tab.id,
+    tab.title,
+    tab.url,
+    targetKind,
+    isLoaded,
+    hasError,
+    isActivationShielded,
+    shouldShowLoadingOverlay,
+  ]);
+
+  return shouldShowLoadingOverlay;
 }
 
 type IframeViewportSample = {
@@ -377,7 +471,7 @@ function logIframeVisualReadinessDebug(
   };
 
   if (analysis.detectedWhiteScreen) {
-    console.warn(
+    console.info(
       `WHITE SCREEN DEBUG: detected white screen condition. reason: ${analysis.reasons.join('; ')}`,
       details,
     );
@@ -420,12 +514,22 @@ function waitForIframeVisualReadiness(
     try {
       doc = iframe.contentDocument || iframe.contentWindow?.document;
     } catch {
+      logWhiteScreenDebug('iframe document inaccessible; revealing after load', {
+        src: iframe.src,
+        elapsedMs: Date.now() - startedAt,
+        loadToken: expectedLoadToken,
+      });
       entry.contentReady = true;
       markIframeReadyToShow(entry, expectedLoadToken);
       return;
     }
 
     if (!doc) {
+      logWhiteScreenDebug('iframe document unavailable; revealing after load', {
+        src: iframe.src,
+        elapsedMs: Date.now() - startedAt,
+        loadToken: expectedLoadToken,
+      });
       entry.contentReady = true;
       markIframeReadyToShow(entry, expectedLoadToken);
       return;
@@ -446,12 +550,18 @@ function waitForIframeVisualReadiness(
 
     if (analysis.currentCheckReady && stableFrameCount >= 2) {
       entry.contentReady = true;
+      logWhiteScreenDebug('iframe visual readiness accepted', {
+        src: iframe.src,
+        elapsedMs,
+        loadToken: expectedLoadToken,
+        stableFrameCount,
+      });
       markIframeReadyToShow(entry, expectedLoadToken);
       return;
     }
 
     if (elapsedMs >= IFRAME_VISUAL_READY_TIMEOUT_MS) {
-      console.warn('WHITE SCREEN DEBUG: Timed out waiting for iframe visual readiness; revealing after fallback timeout.', { src: iframe.src });
+      logWhiteScreenDebug('Timed out waiting for iframe visual readiness; revealing after fallback timeout.', { src: iframe.src });
       entry.contentReady = true;
       markIframeReadyToShow(entry, expectedLoadToken);
       return;
@@ -466,6 +576,13 @@ function waitForIframeVisualReadiness(
 function markIframeReadyToShowImmediately(entry: IframeEntry) {
   clearIframeRevealDelay(entry);
   entry.readyToShow = true;
+  logWhiteScreenDebug('iframe readyToShow set true immediately', {
+    src: entry.iframe.src,
+    loadToken: entry.loadToken,
+    loaded: entry.loaded,
+    contentReady: entry.contentReady,
+    loadError: entry.loadError,
+  });
   notifyIframeListeners(entry);
 }
 
@@ -601,9 +718,28 @@ function getOrCreateIframe(retainedTab: RetainedIframeTab): IframeEntry {
   const existing = iframeStore.get(iframeKey);
   if (existing) {
     normalizeIframeEntry(existing);
+    logWhiteScreenDebug('reuse retained iframe entry', {
+      tabId: tab.id,
+      tabTitle: tab.title,
+      iframeKey,
+      src: existing.iframe.src,
+      loaded: existing.loaded,
+      contentReady: existing.contentReady,
+      readyToShow: existing.readyToShow,
+      loadError: existing.loadError,
+      loadToken: existing.loadToken,
+    });
     return existing;
   }
   const target = getTabRenderTarget(tab.url);
+  logWhiteScreenDebug('create iframe entry', {
+    tabId: tab.id,
+    tabTitle: tab.title,
+    iframeKey,
+    tabUrl: tab.url,
+    targetKind: target.kind,
+    iframeSrc: target.kind === 'iframe' ? target.iframeSrc : undefined,
+  });
 
   const container = document.createElement('div');
   container.style.width = '100%';
@@ -632,6 +768,20 @@ function getOrCreateIframe(retainedTab: RetainedIframeTab): IframeEntry {
 
   iframe.addEventListener('load', () => {
     const currentLoadToken = entry.loadToken;
+    logWhiteScreenDebug('iframe load event fired', {
+      tabId: tab.id,
+      tabTitle: tab.title,
+      iframeKey,
+      src: iframe.src,
+      loadToken: currentLoadToken,
+      readyState: (() => {
+        try {
+          return iframe.contentDocument?.readyState ?? null;
+        } catch {
+          return 'inaccessible';
+        }
+      })(),
+    });
     entry.loaded = true;
     installIframeKeyboardIsolation(iframe);
 
@@ -639,6 +789,13 @@ function getOrCreateIframe(retainedTab: RetainedIframeTab): IframeEntry {
   });
 
   iframe.addEventListener('error', () => {
+    logWhiteScreenDebug('iframe error event fired', {
+      tabId: tab.id,
+      tabTitle: tab.title,
+      iframeKey,
+      src: iframe.src,
+      loadToken: entry.loadToken,
+    });
     clearIframeRevealDelay(entry);
     entry.loadError = true;
     entry.loaded = true;
@@ -648,6 +805,13 @@ function getOrCreateIframe(retainedTab: RetainedIframeTab): IframeEntry {
 
   if (target.kind === 'iframe') {
     applyIframePolicy(iframe, target.iframeSrc);
+    logWhiteScreenDebug('set iframe src on creation', {
+      tabId: tab.id,
+      tabTitle: tab.title,
+      iframeKey,
+      iframeSrc: target.iframeSrc,
+      loadToken: entry.loadToken,
+    });
     iframe.src = target.iframeSrc;
   }
 
@@ -711,6 +875,12 @@ function useIframeActivationShield(
       if (activatedIframeKeys.has(retainedTab.iframeKey)) continue;
 
       activatedIframeKeys.add(retainedTab.iframeKey);
+      logWhiteScreenDebug('activation shield started for first visible iframe activation', {
+        tabId: retainedTab.tab.id,
+        tabTitle: retainedTab.tab.title,
+        iframeKey: retainedTab.iframeKey,
+        durationMs: IFRAME_ACTIVATION_SHIELD_MS,
+      });
       setActivationShieldState((prev) => {
         if (prev.get(retainedTab.tab.id) === true) return prev;
         const next = new Map(prev);
@@ -720,6 +890,12 @@ function useIframeActivationShield(
 
       const timeoutId = setTimeout(() => {
         activationTimeoutIdsRef.current.delete(retainedTab.iframeKey);
+        logWhiteScreenDebug('activation shield timeout elapsed', {
+          tabId: retainedTab.tab.id,
+          tabTitle: retainedTab.tab.title,
+          iframeKey: retainedTab.iframeKey,
+          durationMs: IFRAME_ACTIVATION_SHIELD_MS,
+        });
         setActivationShieldState((prev) => {
           if (prev.get(retainedTab.tab.id) !== true) return prev;
           const next = new Map(prev);
@@ -771,6 +947,11 @@ function useImperativeIframes(
     const nextSessionId = currentSessionId || null;
     if (retainedSessionId === nextSessionId) return;
 
+    logWhiteScreenDebug('iframe retained session changed; removing retained iframes', {
+      previousSessionId: retainedSessionId,
+      nextSessionId,
+      retainedIframeCount: iframeStore.size,
+    });
     retainedSessionId = nextSessionId;
     retainedTabIds = new Set();
     removeAllIframes();
@@ -802,6 +983,13 @@ function useImperativeIframes(
 
       if (target.kind !== 'iframe') {
         if (entry.iframe.src !== 'about:blank') {
+          logWhiteScreenDebug('set iframe src to about:blank for non-iframe target', {
+            tabId: tab.id,
+            tabTitle: tab.title,
+            iframeKey: retainedTab.iframeKey,
+            previousSrc: entry.iframe.src,
+            targetKind: target.kind,
+          });
           entry.iframe.src = 'about:blank';
         }
         clearIframeRevealDelay(entry);
@@ -829,6 +1017,14 @@ function useImperativeIframes(
       applyIframePolicy(entry.iframe, target.iframeSrc);
 
       if (entry.iframe.src !== target.iframeSrc) {
+        logWhiteScreenDebug('iframe tab url changed; updating src', {
+          tabId: tab.id,
+          tabTitle: tab.title,
+          iframeKey: retainedTab.iframeKey,
+          previousSrc: entry.iframe.src,
+          nextSrc: target.iframeSrc,
+          previousLoadToken: entry.loadToken,
+        });
         resetIframeLoadReadiness(entry);
         entry.iframe.src = target.iframeSrc;
         setLoadingState((prev) => {
@@ -948,6 +1144,12 @@ function useImperativeIframes(
       ?? tabId;
     const entry = iframeStore.get(iframeKey);
     if (!entry) return;
+    logWhiteScreenDebug('retry iframe tab requested', {
+      tabId,
+      iframeKey,
+      src: entry.iframe.src,
+      previousLoadToken: entry.loadToken,
+    });
     resetIframeLoadReadiness(entry);
     entry.lastAccessedAt = Date.now();
     entry.iframe.src = entry.iframe.src; // reload
@@ -979,10 +1181,28 @@ function IframeHost({ iframeKey, storeVersion }: { iframeKey: string; storeVersi
     const entry = iframeStore.get(iframeKey);
     if (!host || !entry) return;
 
+    logWhiteScreenDebug('append retained iframe container to React host', {
+      iframeKey,
+      src: entry.iframe.src,
+      loaded: entry.loaded,
+      contentReady: entry.contentReady,
+      readyToShow: entry.readyToShow,
+      loadError: entry.loadError,
+      loadToken: entry.loadToken,
+    });
     host.appendChild(entry.container);
 
     return () => {
       if (entry.container.parentElement === host) {
+        logWhiteScreenDebug('detach retained iframe container from React host', {
+          iframeKey,
+          src: entry.iframe.src,
+          loaded: entry.loaded,
+          contentReady: entry.contentReady,
+          readyToShow: entry.readyToShow,
+          loadError: entry.loadError,
+          loadToken: entry.loadToken,
+        });
         host.removeChild(entry.container);
       }
     };
@@ -1222,6 +1442,14 @@ function SingleTabView({
   const hasError = errorState.get(activeTab.id) ?? false;
   const isActivationShielded = activationShieldState.get(activeTab.id) ?? false;
   const target = getTabRenderTarget(activeTab.url);
+  const shouldShowLoadingOverlay = useIframeOverlayDebug({
+    context: 'single-tab',
+    tab: activeTab,
+    targetKind: target.kind,
+    isLoaded,
+    hasError,
+    isActivationShielded,
+  });
 
   // Check if this is an internal URL that should render a special component
   if (target.kind === 'internal') {
@@ -1269,7 +1497,7 @@ function SingleTabView({
     <div className="absolute inset-x-0 top-0 md:bottom-0 pointer-events-none" style={MOBILE_VIEWPORT_INSET_STYLE}>
       {hasError ? (
         <ErrorOverlay url={activeTab.url} onRetry={() => retryTab(activeTab.id)} />
-      ) : shouldShowIframeLoadingOverlay(isLoaded, isActivationShielded) ? (
+      ) : shouldShowLoadingOverlay ? (
         <AppLoadingScreen className="absolute inset-0 z-30" />
       ) : null}
     </div>
@@ -1351,6 +1579,14 @@ function PairTabView({
   retryTab: (tabId: string) => void;
 }) {
   const target = getTabRenderTarget(tab.url);
+  const shouldShowLoadingOverlay = useIframeOverlayDebug({
+    context: 'pair-tab',
+    tab,
+    targetKind: target.kind,
+    isLoaded,
+    hasError,
+    isActivationShielded,
+  });
 
   if (target.kind === 'blocked-self-app') {
     return <BlockedSelfAppPlaceholder url={tab.url} />;
@@ -1360,7 +1596,7 @@ function PairTabView({
     <div className="relative w-full h-full pointer-events-none">
       {hasError ? (
         <ErrorOverlay url={tab.url} onRetry={() => retryTab(tab.id)} />
-      ) : shouldShowIframeLoadingOverlay(isLoaded, isActivationShielded) ? (
+      ) : shouldShowLoadingOverlay ? (
         <AppLoadingScreen className="absolute inset-0 z-30" />
       ) : null}
     </div>
