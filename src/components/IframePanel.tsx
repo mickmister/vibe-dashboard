@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react';
+import React, { useRef, useEffect, useState, useCallback, useLayoutEffect } from 'react';
 import { Group, Panel, Separator } from 'react-resizable-panels';
 import type { TabGroup, Tab } from '../types';
 import type { WorkspaceState, SavedWorkspaceSession } from '../types';
@@ -62,8 +62,10 @@ let iframeStore: Map<string, IframeEntry> = new Map();
 let retainedSessionId: string | null = null;
 let retainedTabIds: Set<string> = new Set();
 let keyboardIsolationDocuments: WeakSet<Document> = new WeakSet();
+let activatedIframeKeys: Set<string> = new Set();
 const MAX_RETAINED_IFRAMES = 5;
 export const IFRAME_REVEAL_DELAY_MS = 1000;
+const IFRAME_ACTIVATION_SHIELD_MS = 1000;
 
 // Preserve iframe store across HMR updates using Vite's HMR API.
 try {
@@ -82,11 +84,15 @@ try {
     if (hot.data.keyboardIsolationDocuments) {
       keyboardIsolationDocuments = hot.data.keyboardIsolationDocuments;
     }
+    if (hot.data.activatedIframeKeys) {
+      activatedIframeKeys = hot.data.activatedIframeKeys;
+    }
     hot.dispose((data: Record<string, unknown>) => {
       data.iframeStore = iframeStore;
       data.retainedSessionId = retainedSessionId;
       data.retainedTabIds = retainedTabIds;
       data.keyboardIsolationDocuments = keyboardIsolationDocuments;
+      data.activatedIframeKeys = activatedIframeKeys;
     });
   }
 } catch {
@@ -211,6 +217,10 @@ export function getIframeRevealStyle(readyToShow: boolean): React.CSSProperties 
     pointerEvents: readyToShow ? 'auto' : 'none',
     transition: readyToShow ? 'opacity 120ms ease-out' : 'none',
   };
+}
+
+export function shouldShowIframeLoadingOverlay(isLoaded: boolean, activationShielded: boolean): boolean {
+  return !isLoaded || activationShielded;
 }
 
 function markIframeReadyToShowImmediately(entry: IframeEntry) {
@@ -432,6 +442,46 @@ export function hasKnownIframeMessageSource(source: MessageEventSource | null): 
 
 function getIframeRetentionKey(tabGroupId: string, tabId: string): string {
   return `${tabGroupId}:${tabId}`;
+}
+
+const useIsomorphicLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect;
+
+function useIframeActivationShield(
+  tabs: RetainedIframeTab[],
+  visibleIframeKeys: Set<string>,
+) {
+  const [activationShieldState, setActivationShieldState] = useState<Map<string, boolean>>(new Map());
+
+  useIsomorphicLayoutEffect(() => {
+    const timeoutIds: ReturnType<typeof setTimeout>[] = [];
+
+    for (const retainedTab of tabs) {
+      if (!visibleIframeKeys.has(retainedTab.iframeKey)) continue;
+      if (activatedIframeKeys.has(retainedTab.iframeKey)) continue;
+
+      activatedIframeKeys.add(retainedTab.iframeKey);
+      setActivationShieldState((prev) => {
+        if (prev.get(retainedTab.tab.id) === true) return prev;
+        const next = new Map(prev);
+        next.set(retainedTab.tab.id, true);
+        return next;
+      });
+
+      const timeoutId = setTimeout(() => {
+        setActivationShieldState((prev) => {
+          if (prev.get(retainedTab.tab.id) !== true) return prev;
+          const next = new Map(prev);
+          next.set(retainedTab.tab.id, false);
+          return next;
+        });
+      }, IFRAME_ACTIVATION_SHIELD_MS);
+      timeoutIds.push(timeoutId);
+    }
+
+    return () => timeoutIds.forEach((timeoutId) => clearTimeout(timeoutId));
+  }, [tabs, visibleIframeKeys]);
+
+  return activationShieldState;
 }
 
 function useImperativeIframes(
@@ -747,6 +797,7 @@ export function IframePanel({
     ? new Set(allKnownIframeTabs.map((item) => item.iframeKey))
     : undefined;
 
+  const activationShieldState = useIframeActivationShield(retainedTabs, visibleIframeKeys);
   const { loadingState, errorState, retryTab, storeVersion } = useImperativeIframes(
     currentSessionId,
     retainedTabs,
@@ -763,6 +814,7 @@ export function IframePanel({
         tabGroup={tabGroup}
         storeVersion={storeVersion}
         loadingState={loadingState}
+        activationShieldState={activationShieldState}
       />
       {activePair ? (
         <PairView
@@ -770,6 +822,7 @@ export function IframePanel({
           tabGroup={tabGroup}
           loadingState={loadingState}
           errorState={errorState}
+          activationShieldState={activationShieldState}
           retryTab={retryTab}
           onUpdatePairRatios={onUpdatePairRatios}
         />
@@ -778,6 +831,7 @@ export function IframePanel({
             activeTab={activeTab}
             loadingState={loadingState}
             errorState={errorState}
+            activationShieldState={activationShieldState}
             retryTab={retryTab}
             {...(workspace ? { workspace } : {})}
             {...(savedSessions ? { savedSessions } : {})}
@@ -803,6 +857,7 @@ function PersistentIframeLayer({
   tabGroup,
   storeVersion,
   loadingState,
+  activationShieldState,
 }: {
   retainedTabs: RetainedIframeTab[];
   activeTab?: Tab;
@@ -810,6 +865,7 @@ function PersistentIframeLayer({
   tabGroup: TabGroup;
   storeVersion: number;
   loadingState: Map<string, boolean>;
+  activationShieldState: Map<string, boolean>;
 }) {
   const layoutStyles = new Map<string, React.CSSProperties>();
 
@@ -857,7 +913,7 @@ function PersistentIframeLayer({
     >
       {retainedTabs.map(({ tab, iframeKey }) => {
         const activeStyle = layoutStyles.get(iframeKey);
-        const readyToShow = loadingState.get(tab.id) ?? false;
+        const readyToShow = (loadingState.get(tab.id) ?? false) && !(activationShieldState.get(tab.id) ?? false);
         return (
           <div
             key={iframeKey}
@@ -885,6 +941,7 @@ function SingleTabView({
   activeTab,
   loadingState,
   errorState,
+  activationShieldState,
   retryTab,
   workspace,
   savedSessions,
@@ -899,6 +956,7 @@ function SingleTabView({
   activeTab: Tab;
   loadingState: Map<string, boolean>;
   errorState: Map<string, boolean>;
+  activationShieldState: Map<string, boolean>;
   retryTab: (tabId: string) => void;
   workspace?: WorkspaceState;
   savedSessions?: SavedWorkspaceSession[];
@@ -912,6 +970,7 @@ function SingleTabView({
 }) {
   const isLoaded = loadingState.get(activeTab.id) ?? false;
   const hasError = errorState.get(activeTab.id) ?? false;
+  const isActivationShielded = activationShieldState.get(activeTab.id) ?? false;
   const target = getTabRenderTarget(activeTab.url);
 
   // Check if this is an internal URL that should render a special component
@@ -960,8 +1019,8 @@ function SingleTabView({
     <div className="absolute inset-x-0 top-0 md:bottom-0 pointer-events-none" style={MOBILE_VIEWPORT_INSET_STYLE}>
       {hasError ? (
         <ErrorOverlay url={activeTab.url} onRetry={() => retryTab(activeTab.id)} />
-      ) : !isLoaded ? (
-        <AppLoadingScreen className="absolute inset-0 z-10" />
+      ) : shouldShowIframeLoadingOverlay(isLoaded, isActivationShielded) ? (
+        <AppLoadingScreen className="absolute inset-0 z-30" />
       ) : null}
     </div>
   );
@@ -972,6 +1031,7 @@ function PairView({
   tabGroup,
   loadingState,
   errorState,
+  activationShieldState,
   retryTab,
   onUpdatePairRatios,
 }: {
@@ -979,6 +1039,7 @@ function PairView({
   tabGroup: TabGroup;
   loadingState: Map<string, boolean>;
   errorState: Map<string, boolean>;
+  activationShieldState: Map<string, boolean>;
   retryTab: (tabId: string) => void;
   onUpdatePairRatios: (pairId: string, ratios: number[]) => void;
 }) {
@@ -1003,6 +1064,7 @@ function PairView({
       {pairTabs.map((tab, i) => {
         const isLoaded = loadingState.get(tab.id) ?? false;
         const hasError = errorState.get(tab.id) ?? false;
+        const isActivationShielded = activationShieldState.get(tab.id) ?? false;
 
         return (
           <React.Fragment key={tab.id}>
@@ -1011,6 +1073,7 @@ function PairView({
                 tab={tab}
                 isLoaded={isLoaded}
                 hasError={hasError}
+                isActivationShielded={isActivationShielded}
                 retryTab={retryTab}
               />
             </Panel>
@@ -1028,11 +1091,13 @@ function PairTabView({
   tab,
   isLoaded,
   hasError,
+  isActivationShielded,
   retryTab,
 }: {
   tab: Tab;
   isLoaded: boolean;
   hasError: boolean;
+  isActivationShielded: boolean;
   retryTab: (tabId: string) => void;
 }) {
   const target = getTabRenderTarget(tab.url);
@@ -1045,8 +1110,8 @@ function PairTabView({
     <div className="relative w-full h-full pointer-events-none">
       {hasError ? (
         <ErrorOverlay url={tab.url} onRetry={() => retryTab(tab.id)} />
-      ) : !isLoaded ? (
-        <AppLoadingScreen className="absolute inset-0 z-10" />
+      ) : shouldShowIframeLoadingOverlay(isLoaded, isActivationShielded) ? (
+        <AppLoadingScreen className="absolute inset-0 z-30" />
       ) : null}
     </div>
   );
