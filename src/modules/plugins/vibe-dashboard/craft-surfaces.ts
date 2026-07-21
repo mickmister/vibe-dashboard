@@ -407,10 +407,15 @@ function isGeneratedWorkspaceTab(
 }
 
 function getBuiltInWorkspaceBaseOrigin(origin: string): string {
-  // Temporary diagnostic behavior for iframe readiness debugging:
-  // keep port-* origins on built-in Agent/Code tabs so they remain
-  // same-origin with VD and parent-side iframe document checks can run.
-  return origin;
+  try {
+    const url = new URL(origin);
+    const portPrefixMatch = url.hostname.match(/^port-\d+\.(.+)$/);
+    if (!portPrefixMatch) return origin;
+    url.hostname = portPrefixMatch[1]!;
+    return url.origin;
+  } catch {
+    return origin;
+  }
 }
 
 function buildWorkspaceTabUrl(baseOrigin: string, workspaceId: string): string {
