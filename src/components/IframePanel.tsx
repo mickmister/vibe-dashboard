@@ -1177,10 +1177,11 @@ function useImperativeIframes(
 function IframeHost({ iframeKey, storeVersion }: { iframeKey: string; storeVersion: number }) {
   const hostRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
+  useIsomorphicLayoutEffect(() => {
     const host = hostRef.current;
     const entry = iframeStore.get(iframeKey);
     if (!host || !entry) return;
+    if (entry.container.parentElement === host) return;
 
     logWhiteScreenDebug('append retained iframe container to React host', {
       iframeKey,
@@ -1192,8 +1193,14 @@ function IframeHost({ iframeKey, storeVersion }: { iframeKey: string; storeVersi
       loadToken: entry.loadToken,
     });
     host.appendChild(entry.container);
+  }, [storeVersion, iframeKey]);
 
+  useIsomorphicLayoutEffect(() => {
     return () => {
+      const host = hostRef.current;
+      const entry = iframeStore.get(iframeKey);
+      if (!host || !entry) return;
+
       if (entry.container.parentElement === host) {
         logWhiteScreenDebug('detach retained iframe container from React host', {
           iframeKey,
@@ -1207,7 +1214,7 @@ function IframeHost({ iframeKey, storeVersion }: { iframeKey: string; storeVersi
         host.removeChild(entry.container);
       }
     };
-  }, [storeVersion, iframeKey]);
+  }, [iframeKey]);
 
   return (
     <div ref={hostRef} className="w-full h-full relative" />
