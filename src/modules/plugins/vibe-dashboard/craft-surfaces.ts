@@ -407,14 +407,10 @@ function isGeneratedWorkspaceTab(
 }
 
 function getBuiltInWorkspaceBaseOrigin(origin: string): string {
-  if (!origin) return origin;
-  try {
-    const parsed = new URL(origin, URL_PARSE_BASE);
-    parsed.hostname = parsed.hostname.replace(/^port-\d+\./, '');
-    return parsed.toString().replace(/\/$/, '');
-  } catch {
-    return origin;
-  }
+  // Temporary diagnostic behavior for iframe readiness debugging:
+  // keep port-* origins on built-in Agent/Code tabs so they remain
+  // same-origin with VD and parent-side iframe document checks can run.
+  return origin;
 }
 
 function buildWorkspaceTabUrl(baseOrigin: string, workspaceId: string): string {

@@ -93,7 +93,7 @@ describe("dynamic Craft surfaces", () => {
     ]);
   });
 
-  it("strips port-prefixed subdomains from built-in workspace tab URLs", () => {
+  it("temporarily keeps port-prefixed subdomains on Agent and Code built-in workspace tab URLs", () => {
     const effective = createEffectiveWorkspaceWithCraftSurfaces({
       workspace: {
         ...workspace,
@@ -119,10 +119,10 @@ describe("dynamic Craft surfaces", () => {
       effective.tabGroups[0]!.tabs.map((tab) => [tab.id, tab.url]),
     );
     expect(tabsById.get("agent")).toBe(
-      "https://example.com/workspaces/workspace_1",
+      "https://port-5173.example.com/workspaces/workspace_1",
     );
     expect(tabsById.get("code")).toBe(
-      "https://example.com/?folder=%2Fhome%2Fvkuser%2Frepos%2Fapp",
+      "https://port-5173.example.com/?folder=%2Fhome%2Fvkuser%2Frepos%2Fapp",
     );
     expect(tabsById.get("beads")).toBe("https://beads-web.example.com");
   });
