@@ -2,6 +2,7 @@ import React from 'react';
 import { UnifiedTabView } from './UnifiedTabView';
 import type { TabGroup, WorkspaceState, SavedWorkspaceSession } from '../types';
 import type { WorkspaceActions, SessionActions } from './WorkspaceShell';
+import type { RegisteredSettingsMenuContribution } from '../modules/plugins/vibe-dashboard/types';
 
 interface WorkspaceContentViewProps {
   activeTabGroups: TabGroup[];
@@ -13,6 +14,7 @@ interface WorkspaceContentViewProps {
   onDragOver: (e: React.DragEvent) => void;
   onDrop: (e: React.DragEvent, targetGroupId: string) => void;
   workspace: WorkspaceState;
+  settingsMenus: RegisteredSettingsMenuContribution[];
   showAddressBar: boolean;
   savedSessions: SavedWorkspaceSession[];
   currentSessionId: string;
@@ -39,6 +41,7 @@ export function WorkspaceContentView({
   onDragOver,
   onDrop,
   workspace,
+  settingsMenus,
   showAddressBar,
   savedSessions,
   currentSessionId,
@@ -67,6 +70,7 @@ export function WorkspaceContentView({
       sessionActions={sessionActions}
       disableSplitViews={disableSplitViews}
       workspace={workspace}
+      settingsMenus={settingsMenus}
       showAddressBar={showAddressBar}
       savedSessions={savedSessions}
       currentSessionId={currentSessionId}
