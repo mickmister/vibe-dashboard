@@ -279,6 +279,7 @@ export function shouldShowIframeLoadingOverlay(isLoaded: boolean, activationShie
 function useIframeOverlayDebug({
   context,
   tab,
+  iframeKey,
   targetKind,
   isLoaded,
   hasError,
@@ -286,6 +287,7 @@ function useIframeOverlayDebug({
 }: {
   context: string;
   tab: Tab;
+  iframeKey: string;
   targetKind: TabRenderTarget['kind'];
   isLoaded: boolean;
   hasError: boolean;
@@ -299,6 +301,7 @@ function useIframeOverlayDebug({
       tabId: tab.id,
       tabTitle: tab.title,
       tabUrl: tab.url,
+      iframeKey,
       targetKind,
       isLoaded,
       hasError,
@@ -310,6 +313,7 @@ function useIframeOverlayDebug({
     tab.id,
     tab.title,
     tab.url,
+    iframeKey,
     targetKind,
     isLoaded,
     hasError,
@@ -882,9 +886,9 @@ function useIframeActivationShield(
         durationMs: IFRAME_ACTIVATION_SHIELD_MS,
       });
       setActivationShieldState((prev) => {
-        if (prev.get(retainedTab.tab.id) === true) return prev;
+        if (prev.get(retainedTab.iframeKey) === true) return prev;
         const next = new Map(prev);
-        next.set(retainedTab.tab.id, true);
+        next.set(retainedTab.iframeKey, true);
         return next;
       });
 
@@ -897,9 +901,9 @@ function useIframeActivationShield(
           durationMs: IFRAME_ACTIVATION_SHIELD_MS,
         });
         setActivationShieldState((prev) => {
-          if (prev.get(retainedTab.tab.id) !== true) return prev;
+          if (prev.get(retainedTab.iframeKey) !== true) return prev;
           const next = new Map(prev);
-          next.set(retainedTab.tab.id, false);
+          next.set(retainedTab.iframeKey, false);
           return next;
         });
       }, IFRAME_ACTIVATION_SHIELD_MS);
@@ -926,9 +930,8 @@ function useImperativeIframes(
     const initial = new Map<string, boolean>();
     for (const retainedTab of tabs) {
       const entry = iframeStore.get(retainedTab.iframeKey);
-      const tab = retainedTab.tab;
       // Already-mounted iframes that have completed their reveal delay should show immediately.
-      initial.set(tab.id, entry ? isIframeReadyToShow(entry) : false);
+      initial.set(retainedTab.iframeKey, entry ? isIframeReadyToShow(entry) : false);
     }
     return initial;
   });
@@ -937,8 +940,7 @@ function useImperativeIframes(
     const initial = new Map<string, boolean>();
     for (const retainedTab of tabs) {
       const entry = iframeStore.get(retainedTab.iframeKey);
-      const tab = retainedTab.tab;
-      initial.set(tab.id, entry?.loadError ?? false);
+      initial.set(retainedTab.iframeKey, entry?.loadError ?? false);
     }
     return initial;
   });
@@ -1000,12 +1002,12 @@ function useImperativeIframes(
         entry.loadToken += 1;
         setLoadingState((prev) => {
           const next = new Map(prev);
-          next.set(tab.id, true);
+          next.set(retainedTab.iframeKey, true);
           return next;
         });
         setErrorState((prev) => {
           const next = new Map(prev);
-          next.set(tab.id, false);
+          next.set(retainedTab.iframeKey, false);
           return next;
         });
         continue;
@@ -1029,12 +1031,12 @@ function useImperativeIframes(
         entry.iframe.src = target.iframeSrc;
         setLoadingState((prev) => {
           const next = new Map(prev);
-          next.set(tab.id, false);
+          next.set(retainedTab.iframeKey, false);
           return next;
         });
         setErrorState((prev) => {
           const next = new Map(prev);
-          next.set(tab.id, false);
+          next.set(retainedTab.iframeKey, false);
           return next;
         });
       }
@@ -1092,21 +1094,20 @@ function useImperativeIframes(
 
     for (const retainedTab of tabs) {
       const entry = iframeStore.get(retainedTab.iframeKey);
-      const tab = retainedTab.tab;
       if (!entry) continue;
 
       // If already loaded, content ready, and past the reveal delay, update state immediately.
       if (isIframeReadyToShow(entry)) {
         setLoadingState((prev) => {
-          if (prev.get(tab.id) === true) return prev;
+          if (prev.get(retainedTab.iframeKey) === true) return prev;
           const next = new Map(prev);
-          next.set(tab.id, true);
+          next.set(retainedTab.iframeKey, true);
           return next;
         });
         if (entry.loadError) {
           setErrorState((prev) => {
             const next = new Map(prev);
-            next.set(tab.id, true);
+            next.set(retainedTab.iframeKey, true);
             return next;
           });
         }
@@ -1119,13 +1120,13 @@ function useImperativeIframes(
         if (isIframeReadyToShow(entry)) {
           setLoadingState((prev) => {
             const next = new Map(prev);
-            next.set(tab.id, true);
+            next.set(retainedTab.iframeKey, true);
             return next;
           });
           if (entry.loadError) {
             setErrorState((prev) => {
               const next = new Map(prev);
-              next.set(tab.id, true);
+              next.set(retainedTab.iframeKey, true);
               return next;
             });
           }
@@ -1155,12 +1156,12 @@ function useImperativeIframes(
     entry.iframe.src = entry.iframe.src; // reload
     setLoadingState((prev) => {
       const next = new Map(prev);
-      next.set(tabId, false);
+      next.set(iframeKey, false);
       return next;
     });
     setErrorState((prev) => {
       const next = new Map(prev);
-      next.set(tabId, false);
+      next.set(iframeKey, false);
       return next;
     });
   }, [tabs, visibleIframeKeys]);
@@ -1259,6 +1260,7 @@ export function IframePanel({
       })),
   );
   const visibleIframeKeys = new Set(visibleRetainedIframeTabs.map((item) => item.iframeKey));
+  const activeIframeKey = activeTab ? getIframeRetentionKey(tabGroup.id, activeTab.id) : null;
   const retainedTabs =
     allKnownIframeTabs?.filter(
       (item) => retainedTabIds.has(item.iframeKey) || visibleIframeKeys.has(item.iframeKey),
@@ -1299,6 +1301,7 @@ export function IframePanel({
       ) : activeTab ? (
           <SingleTabView
             activeTab={activeTab}
+            activeIframeKey={activeIframeKey ?? activeTab.id}
             loadingState={loadingState}
             errorState={errorState}
             activationShieldState={activationShieldState}
@@ -1383,7 +1386,7 @@ function PersistentIframeLayer({
     >
       {retainedTabs.map(({ tab, iframeKey }) => {
         const activeStyle = layoutStyles.get(iframeKey);
-        const readyToShow = (loadingState.get(tab.id) ?? false) && !(activationShieldState.get(tab.id) ?? false);
+        const readyToShow = (loadingState.get(iframeKey) ?? false) && !(activationShieldState.get(iframeKey) ?? false);
         return (
           <div
             key={iframeKey}
@@ -1409,6 +1412,7 @@ function PersistentIframeLayer({
 
 function SingleTabView({
   activeTab,
+  activeIframeKey,
   loadingState,
   errorState,
   activationShieldState,
@@ -1424,6 +1428,7 @@ function SingleTabView({
   onOpenVKWorkspace,
 }: {
   activeTab: Tab;
+  activeIframeKey: string;
   loadingState: Map<string, boolean>;
   errorState: Map<string, boolean>;
   activationShieldState: Map<string, boolean>;
@@ -1438,13 +1443,14 @@ function SingleTabView({
   onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void | Promise<void>;
   onOpenVKWorkspace?: (taskAttemptId: string, name: string, containerRef: string, spaceId: string) => void | Promise<void>;
 }) {
-  const isLoaded = loadingState.get(activeTab.id) ?? false;
-  const hasError = errorState.get(activeTab.id) ?? false;
-  const isActivationShielded = activationShieldState.get(activeTab.id) ?? false;
+  const isLoaded = loadingState.get(activeIframeKey) ?? false;
+  const hasError = errorState.get(activeIframeKey) ?? false;
+  const isActivationShielded = activationShieldState.get(activeIframeKey) ?? false;
   const target = getTabRenderTarget(activeTab.url);
   const shouldShowLoadingOverlay = useIframeOverlayDebug({
     context: 'single-tab',
     tab: activeTab,
+    iframeKey: activeIframeKey,
     targetKind: target.kind,
     isLoaded,
     hasError,
@@ -1540,15 +1546,17 @@ function PairView({
       onLayoutChanged={handleLayoutChange}
     >
       {pairTabs.map((tab, i) => {
-        const isLoaded = loadingState.get(tab.id) ?? false;
-        const hasError = errorState.get(tab.id) ?? false;
-        const isActivationShielded = activationShieldState.get(tab.id) ?? false;
+        const iframeKey = getIframeRetentionKey(tabGroup.id, tab.id);
+        const isLoaded = loadingState.get(iframeKey) ?? false;
+        const hasError = errorState.get(iframeKey) ?? false;
+        const isActivationShielded = activationShieldState.get(iframeKey) ?? false;
 
         return (
           <React.Fragment key={tab.id}>
             <Panel id={tab.id} defaultSize={percentages[i]} minSize={10} className="pointer-events-none">
               <PairTabView
                 tab={tab}
+                iframeKey={iframeKey}
                 isLoaded={isLoaded}
                 hasError={hasError}
                 isActivationShielded={isActivationShielded}
@@ -1567,12 +1575,14 @@ function PairView({
 
 function PairTabView({
   tab,
+  iframeKey,
   isLoaded,
   hasError,
   isActivationShielded,
   retryTab,
 }: {
   tab: Tab;
+  iframeKey: string;
   isLoaded: boolean;
   hasError: boolean;
   isActivationShielded: boolean;
@@ -1582,6 +1592,7 @@ function PairTabView({
   const shouldShowLoadingOverlay = useIframeOverlayDebug({
     context: 'pair-tab',
     tab,
+    iframeKey,
     targetKind: target.kind,
     isLoaded,
     hasError,
