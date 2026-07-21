@@ -451,10 +451,20 @@ function useIframeActivationShield(
   visibleIframeKeys: Set<string>,
 ) {
   const [activationShieldState, setActivationShieldState] = useState<Map<string, boolean>>(new Map());
+  const activationTimeoutIdsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const visibleActivationSignature = tabs
+    .filter((retainedTab) => visibleIframeKeys.has(retainedTab.iframeKey))
+    .map((retainedTab) => `${retainedTab.iframeKey}:${retainedTab.tab.id}`)
+    .join('|');
+
+  useEffect(() => {
+    return () => {
+      activationTimeoutIdsRef.current.forEach((timeoutId) => clearTimeout(timeoutId));
+      activationTimeoutIdsRef.current.clear();
+    };
+  }, []);
 
   useIsomorphicLayoutEffect(() => {
-    const timeoutIds: ReturnType<typeof setTimeout>[] = [];
-
     for (const retainedTab of tabs) {
       if (!visibleIframeKeys.has(retainedTab.iframeKey)) continue;
       if (activatedIframeKeys.has(retainedTab.iframeKey)) continue;
@@ -468,6 +478,7 @@ function useIframeActivationShield(
       });
 
       const timeoutId = setTimeout(() => {
+        activationTimeoutIdsRef.current.delete(retainedTab.iframeKey);
         setActivationShieldState((prev) => {
           if (prev.get(retainedTab.tab.id) !== true) return prev;
           const next = new Map(prev);
@@ -475,11 +486,9 @@ function useIframeActivationShield(
           return next;
         });
       }, IFRAME_ACTIVATION_SHIELD_MS);
-      timeoutIds.push(timeoutId);
+      activationTimeoutIdsRef.current.set(retainedTab.iframeKey, timeoutId);
     }
-
-    return () => timeoutIds.forEach((timeoutId) => clearTimeout(timeoutId));
-  }, [tabs, visibleIframeKeys]);
+  }, [visibleActivationSignature]);
 
   return activationShieldState;
 }
