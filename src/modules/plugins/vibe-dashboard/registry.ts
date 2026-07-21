@@ -8,9 +8,11 @@ import {
   type RegisteredCraftSurfaceContribution,
   type RegisteredPluginInternalRouteContribution,
   type RegisteredPluginManifest,
+  type RegisteredSettingsMenuContribution,
   type RegisteredSpaceTypeContribution,
   type RegisteredTabGroupFactoryContribution,
   type RegisteredTabPresetContribution,
+  type SettingsMenuContribution,
 } from './types';
 import { parsePluginFrontendAssetRoute, parsePluginInternalUrl } from './runtime';
 
@@ -91,6 +93,29 @@ export function registerPlugin(manifest: PluginManifest): void {
   notifyListeners();
 }
 
+export function addSettingsMenu(pluginId: string, contribution: SettingsMenuContribution): void {
+  if (!registryState.plugins[pluginId]) {
+    throw new Error(`Cannot add settings menu for unregistered plugin ${pluginId}.`);
+  }
+
+  const key = getNamespacedContributionKey(pluginId, contribution.key);
+  const registeredSettingsMenu: RegisteredSettingsMenuContribution = {
+    ...contribution,
+    key,
+    pluginId,
+    sourceKey: contribution.key,
+  };
+
+  registryState = {
+    ...registryState,
+    settingsMenus: {
+      ...registryState.settingsMenus,
+      [key]: registeredSettingsMenu,
+    },
+  };
+  notifyListeners();
+}
+
 export function clearPluginRegistryForTests(): void {
   registryState = createEmptyPluginRegistryState();
   notifyListeners();
@@ -103,6 +128,7 @@ function registerManifest(
 ): PluginRegistryState {
   const nextState: PluginRegistryState = {
     plugins: { ...currentState.plugins },
+    settingsMenus: removePluginContributions(currentState.settingsMenus, manifest.id),
     tabPresets: removePluginContributions(currentState.tabPresets, manifest.id),
     spaceTypes: removePluginContributions(currentState.spaceTypes, manifest.id),
     tabGroupFactories: removePluginContributions(currentState.tabGroupFactories, manifest.id),
@@ -115,6 +141,17 @@ function registerManifest(
     registeredAt,
   };
   nextState.plugins[manifest.id] = plugin;
+
+  for (const settingsMenu of manifest.contributions.settingsMenus || []) {
+    const key = getNamespacedContributionKey(manifest.id, settingsMenu.key);
+    const registeredSettingsMenu: RegisteredSettingsMenuContribution = {
+      ...settingsMenu,
+      key,
+      pluginId: manifest.id,
+      sourceKey: settingsMenu.key,
+    };
+    nextState.settingsMenus[key] = registeredSettingsMenu;
+  }
 
   for (const preset of manifest.contributions.tabPresets || []) {
     const key = getNamespacedContributionKey(manifest.id, preset.key);

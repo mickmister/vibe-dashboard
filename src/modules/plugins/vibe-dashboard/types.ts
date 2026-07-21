@@ -73,6 +73,19 @@ export interface PluginInternalRouteContribution {
   order?: number;
 }
 
+export type SettingsMenuTarget = {
+  kind: 'builtin';
+  id: 'vardash';
+};
+
+export interface SettingsMenuContribution {
+  key: string;
+  title: string;
+  description?: string;
+  target: SettingsMenuTarget;
+  order?: number;
+}
+
 export interface RegisteredCraftSurfaceContribution extends CraftSurfaceContribution {
   pluginId: string;
   sourceKey: string;
@@ -83,11 +96,17 @@ export interface RegisteredPluginInternalRouteContribution extends PluginInterna
   sourceKey: string;
 }
 
+export interface RegisteredSettingsMenuContribution extends SettingsMenuContribution {
+  pluginId: string;
+  sourceKey: string;
+}
+
 export interface PluginFrontendPolicy {
   allowSameOrigin?: boolean;
 }
 
 export interface PluginContributions {
+  settingsMenus?: SettingsMenuContribution[];
   tabPresets?: TabPresetContribution[];
   spaceTypes?: SpaceTypeContribution[];
   tabGroupFactories?: TabGroupFactoryContribution[];
@@ -110,6 +129,7 @@ export interface RegisteredPluginManifest extends PluginManifest {
 
 export interface PluginRegistryState {
   plugins: Record<string, RegisteredPluginManifest>;
+  settingsMenus: Record<string, RegisteredSettingsMenuContribution>;
   tabPresets: Record<string, RegisteredTabPresetContribution>;
   spaceTypes: Record<string, RegisteredSpaceTypeContribution>;
   tabGroupFactories: Record<string, RegisteredTabGroupFactoryContribution>;
@@ -120,6 +140,7 @@ export interface PluginRegistryState {
 export function createEmptyPluginRegistryState(): PluginRegistryState {
   return {
     plugins: {},
+    settingsMenus: {},
     tabPresets: {},
     spaceTypes: {},
     tabGroupFactories: {},

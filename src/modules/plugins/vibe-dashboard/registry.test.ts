@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   clearPluginRegistryForTests,
+  addSettingsMenu,
   createPluginManifest,
   getPluginRegistrySnapshot,
   getRegisteredPluginIframePolicy,
@@ -19,6 +20,13 @@ describe('raw plugin registry', () => {
         displayName: 'Code Server',
         version: '1.0.0',
         contributions: {
+          settingsMenus: [
+            {
+              key: 'vardash',
+              title: 'Vardash',
+              target: { kind: 'builtin', id: 'vardash' },
+            },
+          ],
           tabPresets: [
             {
               key: 'editor',
@@ -53,6 +61,14 @@ describe('raw plugin registry', () => {
         'dev.mickmister.code-server': {
           id: 'dev.mickmister.code-server',
           apiVersion: '1.0.0',
+        },
+      },
+      settingsMenus: {
+        'dev.mickmister.code-server/vardash': {
+          pluginId: 'dev.mickmister.code-server',
+          sourceKey: 'vardash',
+          title: 'Vardash',
+          target: { kind: 'builtin', id: 'vardash' },
         },
       },
       tabPresets: {
@@ -97,6 +113,13 @@ describe('raw plugin registry', () => {
         displayName: 'Example',
         version: '1.0.0',
         contributions: {
+          settingsMenus: [
+            {
+              key: 'old-settings',
+              title: 'Old Settings',
+              target: { kind: 'builtin', id: 'vardash' },
+            },
+          ],
           tabPresets: [
             {
               key: 'old',
@@ -115,6 +138,13 @@ describe('raw plugin registry', () => {
         displayName: 'Example',
         version: '1.0.1',
         contributions: {
+          settingsMenus: [
+            {
+              key: 'new-settings',
+              title: 'New Settings',
+              target: { kind: 'builtin', id: 'vardash' },
+            },
+          ],
           tabPresets: [
             {
               key: 'new',
@@ -131,6 +161,9 @@ describe('raw plugin registry', () => {
 
     expect(snapshots).toEqual(['app.example/old', 'app.example/new']);
     expect(Object.keys(getPluginRegistrySnapshot().tabPresets)).toEqual(['app.example/new']);
+    expect(Object.keys(getPluginRegistrySnapshot().settingsMenus)).toEqual([
+      'app.example/new-settings',
+    ]);
   });
 
   it('rejects unsupported plugin API versions before mutating state', () => {
@@ -149,6 +182,7 @@ describe('raw plugin registry', () => {
     ).toThrow('targets unsupported plugin API version');
     expect(getPluginRegistrySnapshot()).toEqual({
       plugins: {},
+      settingsMenus: {},
       tabPresets: {},
       spaceTypes: {},
       tabGroupFactories: {},
@@ -230,6 +264,79 @@ describe('raw plugin registry', () => {
         origin: 'https://vd.example.test',
       }),
     ).toBeNull();
+  });
+
+  it('adds runtime settings menus with plugin namespacing', () => {
+    clearPluginRegistryForTests();
+    registerPlugin(
+      createPluginManifest({
+        id: 'dev.mickmister.vibe-dashboard',
+        displayName: 'Vibe Dashboard',
+        version: '1.0.0',
+        contributions: {},
+      }),
+    );
+
+    addSettingsMenu('dev.mickmister.vibe-dashboard', {
+      key: 'vardash',
+      title: 'Vardash',
+      description: 'Manage repo environment values and launches',
+      target: { kind: 'builtin', id: 'vardash' },
+      order: 10,
+    });
+
+    expect(getPluginRegistrySnapshot().settingsMenus).toEqual({
+      'dev.mickmister.vibe-dashboard/vardash': {
+        key: 'dev.mickmister.vibe-dashboard/vardash',
+        sourceKey: 'vardash',
+        pluginId: 'dev.mickmister.vibe-dashboard',
+        title: 'Vardash',
+        description: 'Manage repo environment values and launches',
+        target: { kind: 'builtin', id: 'vardash' },
+        order: 10,
+      },
+    });
+  });
+
+  it('requires a registered plugin before adding runtime settings menus', () => {
+    clearPluginRegistryForTests();
+
+    expect(() =>
+      addSettingsMenu('dev.mickmister.missing', {
+        key: 'vardash',
+        title: 'Vardash',
+        target: { kind: 'builtin', id: 'vardash' },
+      }),
+    ).toThrow('Cannot add settings menu for unregistered plugin');
+    expect(getPluginRegistrySnapshot().settingsMenus).toEqual({});
+  });
+
+  it('removes runtime settings menus when a plugin re-registers', () => {
+    clearPluginRegistryForTests();
+    registerPlugin(
+      createPluginManifest({
+        id: 'app.runtime',
+        displayName: 'Runtime Plugin',
+        version: '1.0.0',
+        contributions: {},
+      }),
+    );
+    addSettingsMenu('app.runtime', {
+      key: 'vardash',
+      title: 'Vardash',
+      target: { kind: 'builtin', id: 'vardash' },
+    });
+
+    registerPlugin(
+      createPluginManifest({
+        id: 'app.runtime',
+        displayName: 'Runtime Plugin',
+        version: '1.0.1',
+        contributions: {},
+      }),
+    );
+
+    expect(getPluginRegistrySnapshot().settingsMenus).toEqual({});
   });
 
 });
