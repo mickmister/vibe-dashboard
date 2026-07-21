@@ -5,6 +5,7 @@ import {
   CraftSettingsPanel,
   getCraftSettingsContext,
   getWorkspaceCraftSettingsMenus,
+  renderBuiltInSettingsMenu,
 } from "./CraftSettingsPanel";
 import type { TabGroup } from "../types";
 import type { RegisteredSettingsMenuContribution } from "../modules/plugins/vibe-dashboard/types";
@@ -97,6 +98,26 @@ describe("CraftSettingsPanel", () => {
     );
     expect(unavailableMarkup).toContain("Settings unavailable");
     expect(unavailableMarkup).toContain("workspace-backed crafts");
+  });
+
+  it("maps the built-in Vardash settings target to workspace Craft context", () => {
+    const node = renderBuiltInSettingsMenu(
+      menu({
+        key: "dev.mickmister.vibe-dashboard/vardash",
+        title: "Vardash",
+      }),
+      {
+        tabGroupId: "craft_workspace",
+        workspaceId: "workspace_1",
+        workspaceDir: "/home/vkuser/repos/app",
+      },
+    );
+
+    expect(React.isValidElement(node)).toBe(true);
+    expect((node as React.ReactElement<{ workspaceId: string; workspaceDir: string }>).props).toMatchObject({
+      workspaceId: "workspace_1",
+      workspaceDir: "/home/vkuser/repos/app",
+    });
   });
 });
 

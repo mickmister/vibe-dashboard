@@ -1,7 +1,7 @@
 import springboard from 'springboard';
 import type { PluginManifest } from '../vibe-dashboard/types';
 import type { ResolvedWorkspaceComposition } from '../vibe-dashboard/workspace-composition';
-import { createPluginManifest, registerPlugin } from '../vibe-dashboard/registry';
+import { addSettingsMenu, createPluginManifest, registerPlugin } from '../vibe-dashboard/registry';
 
 const manifest: PluginManifest = createPluginManifest({
   id: 'dev.mickmister.vibe-kanban',
@@ -11,6 +11,13 @@ const manifest: PluginManifest = createPluginManifest({
 });
 
 registerPlugin(manifest);
+addSettingsMenu(manifest.id, {
+  key: 'vardash',
+  title: 'Vardash',
+  description: 'Manage workspace repo environment values and explicit launches.',
+  target: { kind: 'builtin', id: 'vardash' },
+  order: 10,
+});
 
 springboard.registerModule('plugin-vibe-kanban', {}, async (moduleAPI) => {
   const actions = moduleAPI.createActions({

@@ -1,6 +1,7 @@
 import React from "react";
 import type { TabGroup } from "../types";
 import type { RegisteredSettingsMenuContribution } from "../modules/plugins/vibe-dashboard/types";
+import { VardashSettingsPanel } from "./vardash/VardashSettingsPanel";
 
 export type CraftSettingsContext = {
   tabGroupId: string;
@@ -41,6 +42,7 @@ export function CraftSettingsPanel({
   settingsMenus: RegisteredSettingsMenuContribution[];
 }) {
   const context = getCraftSettingsContext(tabGroup);
+  const [activeMenuKey, setActiveMenuKey] = React.useState<string | null>(null);
   if (!context) {
     return (
       <div className="flex h-full items-center justify-center bg-neutral-950 text-neutral-400">
@@ -55,6 +57,7 @@ export function CraftSettingsPanel({
   }
 
   const menus = getWorkspaceCraftSettingsMenus(settingsMenus);
+  const activeMenu = menus.find((menu) => menu.key === activeMenuKey) ?? null;
 
   return (
     <div className="flex h-full min-h-0 bg-neutral-950 text-neutral-100">
@@ -75,7 +78,12 @@ export function CraftSettingsPanel({
               <button
                 key={menu.key}
                 type="button"
-                className="rounded-md px-3 py-2 text-left text-sm text-neutral-200 transition-colors hover:bg-neutral-800"
+                className={`rounded-md px-3 py-2 text-left text-sm transition-colors ${
+                  activeMenu?.key === menu.key
+                    ? "bg-violet-500/15 text-violet-100 ring-1 ring-violet-400/30"
+                    : "text-neutral-200 hover:bg-neutral-800"
+                }`}
+                onClick={() => setActiveMenuKey(menu.key)}
               >
                 <span className="block font-medium">{menu.title}</span>
                 {menu.description ? (
@@ -88,17 +96,47 @@ export function CraftSettingsPanel({
           )}
         </div>
       </aside>
-      <main className="flex min-w-0 flex-1 items-center justify-center p-6">
-        <div className="max-w-md text-center">
-          <p className="text-sm font-medium text-neutral-200">
-            Select a settings menu
-          </p>
-          <p className="mt-2 text-xs text-neutral-500">
-            Settings menus run with this craft&apos;s workspace context. No menu
-            content is registered yet.
-          </p>
-        </div>
+      <main className="min-w-0 flex-1 overflow-y-auto p-6">
+        {activeMenu ? (
+          renderBuiltInSettingsMenu(activeMenu, context)
+        ) : (
+          <div className="flex h-full items-center justify-center">
+            <div className="max-w-md text-center">
+              <p className="text-sm font-medium text-neutral-200">
+                Select a settings menu
+              </p>
+              <p className="mt-2 text-xs text-neutral-500">
+                Settings menus run with this craft&apos;s workspace context.
+              </p>
+            </div>
+          </div>
+        )}
       </main>
+    </div>
+  );
+}
+
+export function renderBuiltInSettingsMenu(
+  menu: RegisteredSettingsMenuContribution,
+  context: CraftSettingsContext,
+): React.ReactNode {
+  if (menu.target.kind === "builtin" && menu.target.id === "vardash") {
+    return (
+      <VardashSettingsPanel
+        workspaceId={context.workspaceId}
+        workspaceDir={context.workspaceDir}
+      />
+    );
+  }
+
+  return (
+    <div className="flex h-full items-center justify-center text-neutral-400">
+      <div className="max-w-md text-center">
+        <p className="text-sm font-medium text-neutral-200">Settings menu unavailable</p>
+        <p className="mt-2 text-xs">
+          This built-in settings menu target is not supported by this version.
+        </p>
+      </div>
     </div>
   );
 }
