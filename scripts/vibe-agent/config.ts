@@ -1,11 +1,12 @@
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from "fs";
+import * as path from "path";
 
 // Vibe Kanban API Configuration
 
 // Support both VIBE_API_URL (preferred) and VK_API_URL (legacy)
-const BASE_URL = process.env.VIBE_API_URL || process.env.VK_API_URL || 'http://localhost:3007';
-const WS_BASE_URL = BASE_URL.replace('http', 'ws');
+const BASE_URL =
+  process.env.VIBE_API_URL || process.env.VK_API_URL || "http://localhost:3007";
+const WS_BASE_URL = BASE_URL.replace("http", "ws");
 
 export const config = {
   BASE_URL,
@@ -15,45 +16,62 @@ export const config = {
   endpoints: {
     projects: `${BASE_URL}/api/projects`,
     repos: `${BASE_URL}/api/repos`,
-    tasks: (projectId: string) => `${BASE_URL}/api/tasks?project_id=${projectId}`,
+    tasks: (projectId: string) =>
+      `${BASE_URL}/api/tasks?project_id=${projectId}`,
     task: (taskId: string) => `${BASE_URL}/api/tasks/${taskId}`,
     workspaces: `${BASE_URL}/api/workspaces`,
-    workspace: (workspaceId: string) => `${BASE_URL}/api/workspaces/${workspaceId}`,
+    workspace: (workspaceId: string) =>
+      `${BASE_URL}/api/workspaces/${workspaceId}`,
     taskAttempts: `${BASE_URL}/api/task-attempts`,
-    taskAttemptsByTask: (taskId: string) => `${BASE_URL}/api/task-attempts?task_id=${taskId}`,
-    taskAttempt: (workspaceId: string) => `${BASE_URL}/api/task-attempts/${workspaceId}`,
+    taskAttemptsByTask: (taskId: string) =>
+      `${BASE_URL}/api/task-attempts?task_id=${taskId}`,
+    taskAttempt: (workspaceId: string) =>
+      `${BASE_URL}/api/task-attempts/${workspaceId}`,
     taskAttemptSummary: `${BASE_URL}/api/task-attempts/summary`,
-    firstMessage: (workspaceId: string) => `${BASE_URL}/api/task-attempts/${workspaceId}/first-message`,
-    sessions: (workspaceId: string) => `${BASE_URL}/api/sessions?workspace_id=${workspaceId}`,
+    firstMessage: (workspaceId: string) =>
+      `${BASE_URL}/api/task-attempts/${workspaceId}/first-message`,
+    sessions: (workspaceId: string) =>
+      `${BASE_URL}/api/sessions?workspace_id=${workspaceId}`,
     session: (sessionId: string) => `${BASE_URL}/api/sessions/${sessionId}`,
     createSession: `${BASE_URL}/api/sessions`,
-    sessionFollowUp: (sessionId: string) => `${BASE_URL}/api/sessions/${sessionId}/follow-up`,
-    executionProcess: (processId: string) => `${BASE_URL}/api/execution-processes/${processId}`,
+    sessionFollowUp: (sessionId: string) =>
+      `${BASE_URL}/api/sessions/${sessionId}/follow-up`,
+    sessionQueue: (sessionId: string) =>
+      `${BASE_URL}/api/sessions/${sessionId}/queue`,
+    executionProcess: (processId: string) =>
+      `${BASE_URL}/api/execution-processes/${processId}`,
     info: `${BASE_URL}/api/info`,
   },
 
   // WebSocket endpoints
   wsEndpoints: {
-    executionLogs: (processId: string) => `${WS_BASE_URL}/api/execution-processes/${processId}/normalized-logs/ws`,
-    sessionProcesses: (sessionId: string) => `${WS_BASE_URL}/api/execution-processes/stream/session/ws?session_id=${sessionId}`,
+    executionLogs: (processId: string) =>
+      `${WS_BASE_URL}/api/execution-processes/${processId}/normalized-logs/ws`,
+    sessionProcesses: (sessionId: string) =>
+      `${WS_BASE_URL}/api/execution-processes/stream/session/ws?session_id=${sessionId}`,
   },
 } as const;
 
 export type Executor =
-  | 'CLAUDE_CODE'
-  | 'CODEX'
-  | 'GEMINI'
-  | 'AMP'
-  | 'CURSOR_AGENT'
-  | 'COPILOT'
-  | 'DROID'
-  | 'OPENCODE'
-  | 'QWEN_CODE';
+  | "CLAUDE_CODE"
+  | "CODEX"
+  | "GEMINI"
+  | "AMP"
+  | "CURSOR_AGENT"
+  | "COPILOT"
+  | "DROID"
+  | "OPENCODE"
+  | "QWEN_CODE";
 
 /** Base roles without numeric suffix */
-export type BaseRole = 'implementer' | 'reviewer' | 'pm' | 'assistant';
+export type BaseRole = "implementer" | "reviewer" | "pm" | "assistant";
 
-export const BASE_ROLES: BaseRole[] = ['implementer', 'reviewer', 'pm', 'assistant'];
+export const BASE_ROLES: BaseRole[] = [
+  "implementer",
+  "reviewer",
+  "pm",
+  "assistant",
+];
 
 /**
  * Agent role - can be a base role or a numbered role (e.g., reviewer-2, reviewer-3)
@@ -62,13 +80,15 @@ export const BASE_ROLES: BaseRole[] = ['implementer', 'reviewer', 'pm', 'assista
 export type AgentRole = string;
 
 // Build regex patterns dynamically from BASE_ROLES to avoid hardcoding
-const baseRolesPattern = BASE_ROLES.join('|');
+const baseRolesPattern = BASE_ROLES.join("|");
 
 /** Pattern for valid role strings: base role optionally followed by -<number> */
 const ROLE_PATTERN = new RegExp(`^(${baseRolesPattern})(-\\d+)?$`);
 
 /** Pattern for base role with arbitrary suffix: base role followed by -<anything> */
-const ROLE_WITH_SUFFIX_PATTERN = new RegExp(`^(${baseRolesPattern})-([a-zA-Z0-9_-]+)$`);
+const ROLE_WITH_SUFFIX_PATTERN = new RegExp(
+  `^(${baseRolesPattern})-([a-zA-Z0-9_-]+)$`,
+);
 
 /**
  * Check if a string is a valid agent role.
@@ -93,7 +113,9 @@ export function isValidRole(role: string): role is AgentRole {
  * For numbered suffixes, suffix is the number as a string.
  * For text suffixes, suffix is the text.
  */
-export function parseRole(role: string): { base: BaseRole; suffix: string | null } | null {
+export function parseRole(
+  role: string,
+): { base: BaseRole; suffix: string | null } | null {
   // Try numbered pattern first
   const numberedMatch = role.match(ROLE_PATTERN);
   if (numberedMatch) {
@@ -149,17 +171,17 @@ export interface RoleProfile {
  */
 export const ROLE_PROFILES: Record<BaseRole, RoleProfile> = {
   implementer: {
-    executor: 'CODEX',
+    executor: "CODEX",
   },
   reviewer: {
-    executor: 'CODEX',
-    variant: 'HIGH',
+    executor: "CODEX",
+    variant: "HIGH",
   },
   pm: {
-    executor: 'CODEX',
+    executor: "CODEX",
   },
   assistant: {
-    executor: 'CODEX',
+    executor: "CODEX",
   },
 };
 
@@ -179,8 +201,8 @@ export const ROLE_PROFILES: Record<BaseRole, RoleProfile> = {
 export function getRoleProfile(role: AgentRole): RoleProfile {
   const parsed = parseRole(role);
 
-  if (role === 'codex' || parsed?.suffix === 'codex') {
-    return { executor: 'CODEX' };
+  if (role === "codex" || parsed?.suffix === "codex") {
+    return { executor: "CODEX" };
   }
 
   // If it's a standard role, use its profile
@@ -190,7 +212,7 @@ export function getRoleProfile(role: AgentRole): RoleProfile {
 
   // For arbitrary/custom roles, default to CODEX
   return {
-    executor: 'CODEX',
+    executor: "CODEX",
   };
 }
 
@@ -199,28 +221,31 @@ export interface AgentYamlConfig {
 }
 
 const CONFIG_FILE_NAMES = [
-  'vibe-agent.yaml',
-  'vibe-agent.yml',
-  '.vibe-agent.yaml',
-  '.vibe-agent.yml',
+  "vibe-agent.yaml",
+  "vibe-agent.yml",
+  ".vibe-agent.yaml",
+  ".vibe-agent.yml",
 ];
 
 function findWorktreeRoot(cwd: string): string | null {
-  const worktreesIdx = cwd.indexOf('/worktrees/');
+  const worktreesIdx = cwd.indexOf("/worktrees/");
   if (worktreesIdx === -1) return null;
-  const afterWorktrees = cwd.slice(worktreesIdx + '/worktrees/'.length);
-  const worktreeName = afterWorktrees.split('/')[0];
-  return cwd.slice(0, worktreesIdx + '/worktrees/'.length + worktreeName.length);
+  const afterWorktrees = cwd.slice(worktreesIdx + "/worktrees/".length);
+  const worktreeName = afterWorktrees.split("/")[0];
+  return cwd.slice(
+    0,
+    worktreesIdx + "/worktrees/".length + worktreeName.length,
+  );
 }
 
 function parseYamlVariant(contents: string): string | null {
-  const lines = contents.split('\n');
+  const lines = contents.split("\n");
   for (const line of lines) {
     const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) continue;
+    if (!trimmed || trimmed.startsWith("#")) continue;
     const match = trimmed.match(/^variant\s*:\s*(.+)\s*$/);
     if (match) {
-      return match[1].replace(/^['"]|['"]$/g, '').trim();
+      return match[1].replace(/^['"]|['"]$/g, "").trim();
     }
   }
   return null;
@@ -228,9 +253,9 @@ function parseYamlVariant(contents: string): string | null {
 
 export type AgentConfigResult =
   | { found: true; config: AgentYamlConfig }
-  | { found: false; reason: 'not_in_worktree' }
-  | { found: false; reason: 'no_config_file'; root: string }
-  | { found: false; reason: 'no_variant'; filePath: string };
+  | { found: false; reason: "not_in_worktree" }
+  | { found: false; reason: "no_config_file"; root: string }
+  | { found: false; reason: "no_variant"; filePath: string };
 
 /**
  * Get the agent YAML config with detailed result.
@@ -242,29 +267,31 @@ export type AgentConfigResult =
  * Note: YAML parsing is minimal - only matches top-level `variant: <value>` lines.
  * Nested or indented variant keys are not supported.
  */
-export function getAgentYamlConfigResult(cwd: string = process.cwd()): AgentConfigResult {
+export function getAgentYamlConfigResult(
+  cwd: string = process.cwd(),
+): AgentConfigResult {
   const root = findWorktreeRoot(cwd);
-  if (!root) return { found: false, reason: 'not_in_worktree' };
+  if (!root) return { found: false, reason: "not_in_worktree" };
 
   let lastFilePath: string | null = null;
   for (const fileName of CONFIG_FILE_NAMES) {
     const filePath = path.join(root, fileName);
     try {
-      const contents = fs.readFileSync(filePath, 'utf-8');
+      const contents = fs.readFileSync(filePath, "utf-8");
       lastFilePath = filePath;
       const variant = parseYamlVariant(contents);
       if (variant) {
         return { found: true, config: { variant } };
       }
       // File exists but no variant - return specific error
-      return { found: false, reason: 'no_variant', filePath };
+      return { found: false, reason: "no_variant", filePath };
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') continue;
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") continue;
       throw err;
     }
   }
 
-  return { found: false, reason: 'no_config_file', root };
+  return { found: false, reason: "no_config_file", root };
 }
 
 /**
@@ -273,7 +300,9 @@ export function getAgentYamlConfigResult(cwd: string = process.cwd()): AgentConf
  *
  * Note: YAML parsing is minimal - only matches top-level `variant: <value>` lines.
  */
-export function getAgentYamlConfig(cwd: string = process.cwd()): AgentYamlConfig | null {
+export function getAgentYamlConfig(
+  cwd: string = process.cwd(),
+): AgentYamlConfig | null {
   const result = getAgentYamlConfigResult(cwd);
   return result.found ? result.config : null;
 }
@@ -281,7 +310,9 @@ export function getAgentYamlConfig(cwd: string = process.cwd()): AgentYamlConfig
 /**
  * Get the required agent YAML config. Throws if config file not found or variant not set.
  */
-export function getRequiredAgentConfig(cwd: string = process.cwd()): AgentYamlConfig {
+export function getRequiredAgentConfig(
+  cwd: string = process.cwd(),
+): AgentYamlConfig {
   const result = getAgentYamlConfigResult(cwd);
 
   if (result.found) {
@@ -289,23 +320,25 @@ export function getRequiredAgentConfig(cwd: string = process.cwd()): AgentYamlCo
   }
 
   switch (result.reason) {
-    case 'not_in_worktree':
+    case "not_in_worktree":
       throw new Error(
-        'Not inside a VK worktree. Cannot locate config file.\n' +
-        'Hint: Run from within a worktree directory.'
+        "Not inside a VK worktree. Cannot locate config file.\n" +
+          "Hint: Run from within a worktree directory.",
       );
 
-    case 'no_config_file':
+    case "no_config_file":
       throw new Error(
         `Config file not found. Create one of:\n` +
-        CONFIG_FILE_NAMES.map(f => `  ${path.join(result.root, f)}`).join('\n') +
-        `\n\nWith contents:\n  variant: DEFAULT`
+          CONFIG_FILE_NAMES.map((f) => `  ${path.join(result.root, f)}`).join(
+            "\n",
+          ) +
+          `\n\nWith contents:\n  variant: DEFAULT`,
       );
 
-    case 'no_variant':
+    case "no_variant":
       throw new Error(
         `Config file found but missing 'variant' field: ${result.filePath}\n` +
-        `Add to the file:\n  variant: DEFAULT`
+          `Add to the file:\n  variant: DEFAULT`,
       );
   }
 }
