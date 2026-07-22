@@ -51,6 +51,23 @@ export interface ExecutionProcess {
   executor_action?: unknown;
 }
 
+export interface QueueStatus {
+  count: number;
+  message: QueuedMessage | null;
+  messages: QueuedMessage[];
+  status: 'empty' | 'queued';
+}
+
+export interface QueuedMessage {
+  id: string;
+  session_id: string;
+  workspace_id: string;
+  status: 'queued' | 'leased' | 'starting' | 'running' | 'completed' | 'failed' | 'cancelled';
+  source: 'from_user' | 'workflow' | 'agent' | 'system';
+  priority: number | bigint;
+  data: { message: string; session_command?: unknown | null };
+}
+
 export interface CreateSessionBody {
   workspace_id: string;
   executor: Executor;
@@ -142,6 +159,13 @@ export class VibeKanbanServerClient {
       retry_process_id: null,
       force_when_dirty: null,
       perform_git_reset: null,
+    });
+  }
+
+  queueFollowUp(sessionId: string, prompt: string): Promise<QueueStatus> {
+    return this.post(`/sessions/${encodeURIComponent(sessionId)}/queue`, {
+      message: prompt,
+      source: 'workflow',
     });
   }
 

@@ -99,6 +99,42 @@ describe('VibeKanbanServerClient', () => {
     });
   });
 
+  it('queues workflow follow-up messages using the guarded VK queue path', async () => {
+    const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === 'http://vk.local/api/sessions/session-1/queue' && init?.method === 'POST') {
+        expect(JSON.parse(String(init.body))).toEqual({
+          message: 'CI failed. Please inspect it.',
+          source: 'workflow',
+        });
+        return jsonResponse({
+          success: true,
+          data: {
+            status: 'queued',
+            count: 1,
+            message: {
+              id: 'queue-1',
+              session_id: 'session-1',
+              workspace_id: 'ws1',
+              status: 'queued',
+              source: 'workflow',
+              priority: 60,
+              data: { message: 'CI failed. Please inspect it.', session_command: null },
+            },
+            messages: [],
+          },
+        });
+      }
+      throw new Error(`unexpected request ${url}`);
+    });
+    const client = new VibeKanbanServerClient({ baseUrl: 'http://vk.local/api', fetch: fetchImpl });
+
+    await expect(client.queueFollowUp('session-1', 'CI failed. Please inspect it.')).resolves.toMatchObject({
+      status: 'queued',
+      count: 1,
+      message: { id: 'queue-1', source: 'workflow' },
+    });
+  });
+
   it('throws VkApiError with status and body for failed HTTP responses', async () => {
     const client = new VibeKanbanServerClient({
       baseUrl: 'http://vk.local/api',
