@@ -5,6 +5,7 @@ import { createWorkflowRegistry, type WorkflowDefinition } from '@vibe-dashboard
 import { registerWorkflowRoutes } from './workflow-routes';
 import { initVdDb, type VdDbHandle } from './database';
 import { DbWorkflowRunRecorder } from './workflow-run-recorder';
+import { DbWorkflowRunReader } from './workflow-run-store';
 
 describe('registerWorkflowRoutes', () => {
   const dbHandles: VdDbHandle[] = [];
@@ -114,6 +115,92 @@ describe('registerWorkflowRoutes', () => {
       .executeTakeFirstOrThrow();
     expect(persisted).toMatchObject({ workflowId: 'persisted', status: 'completed' });
     expect(JSON.parse(persisted.inputJson)).toEqual({ value: 'stored' });
+  });
+
+  it('exposes read-only workflow run list/get/events APIs', async () => {
+    const registry = createWorkflowRegistry();
+    registry.register({
+      id: 'inspectable',
+      trigger: 'manual',
+      run: async (ctx, input) => {
+        ctx.log('inspect', 'inspectable event', 'info', { authorization: 'Bearer secret' });
+        return { outcome: 'message_queued', workspaceId: 'ws-read', sessionId: 'session-read', queueItemId: 'queue-read', input };
+      },
+    });
+    const handle = await initVdDb({ path: ':memory:' });
+    dbHandles.push(handle);
+    const app = new Hono();
+    registerWorkflowRoutes(app, {
+      registry,
+      workflowRunRecorder: new DbWorkflowRunRecorder({ db: handle.db }),
+      workflowRunReader: new DbWorkflowRunReader({ db: handle.db }),
+      runOptions: {
+        createRunId: () => 'run_read',
+        now: (() => {
+          let value = 30;
+          return () => value++;
+        })(),
+      },
+    });
+
+    await app.request('/dashboard/api/workflows/inspectable/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: 'ghp_secret' }),
+    });
+
+    const listResponse = await app.request('/dashboard/api/workflow-runs?workflowId=inspectable&status=completed&vkQueueItemId=queue-read&limit=1');
+    expect(listResponse.status).toBe(200);
+    await expect(listResponse.json()).resolves.toMatchObject({
+      runs: [{
+        runId: 'run_read',
+        workflowId: 'inspectable',
+        status: 'completed',
+        input: { token: '[REDACTED]' },
+        vkWorkspaceId: 'ws-read',
+        vkSessionId: 'session-read',
+        vkQueueItemId: 'queue-read',
+      }],
+      limit: 1,
+      offset: 0,
+      hasMore: false,
+    });
+
+    const getResponse = await app.request('/dashboard/api/workflow-runs/run_read');
+    expect(getResponse.status).toBe(200);
+    await expect(getResponse.json()).resolves.toMatchObject({
+      run: { runId: 'run_read', output: { queueItemId: 'queue-read' } },
+    });
+
+    const eventsResponse = await app.request('/dashboard/api/workflow-runs/run_read/events?limit=2');
+    expect(eventsResponse.status).toBe(200);
+    await expect(eventsResponse.json()).resolves.toMatchObject({
+      events: [
+        { eventType: 'run_started' },
+        { eventType: 'step_log', data: { authorization: '[REDACTED]' } },
+      ],
+      limit: 2,
+      offset: 0,
+      hasMore: true,
+    });
+  });
+
+  it('returns 404 for missing workflow run inspection endpoints', async () => {
+    const handle = await initVdDb({ path: ':memory:' });
+    dbHandles.push(handle);
+    const app = new Hono();
+    registerWorkflowRoutes(app, {
+      registry: createWorkflowRegistry(),
+      workflowRunReader: new DbWorkflowRunReader({ db: handle.db }),
+    });
+
+    const runResponse = await app.request('/dashboard/api/workflow-runs/missing');
+    expect(runResponse.status).toBe(404);
+    await expect(runResponse.json()).resolves.toEqual({ error: 'workflow_run_not_found' });
+
+    const eventsResponse = await app.request('/dashboard/api/workflow-runs/missing/events');
+    expect(eventsResponse.status).toBe(404);
+    await expect(eventsResponse.json()).resolves.toEqual({ error: 'workflow_run_not_found' });
   });
 
 

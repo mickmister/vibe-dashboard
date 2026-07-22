@@ -8,6 +8,7 @@ import { registerPluginAssetRoutes } from '../server/plugin-asset-routes';
 import { registerPluginAdminRoutes } from '../server/plugin-admin-routes';
 import { getVdDb } from '../server/database';
 import { DbWorkflowRunRecorder } from '../server/workflow-run-recorder';
+import { DbWorkflowRunReader } from '../server/workflow-run-store';
 import { workflowRegistry } from '../workflows/registry';
 import type { CachedRepoAlias } from '../workflows/github-ci';
 
@@ -25,6 +26,9 @@ serverRegistry.registerServerModule((api) => {
       refresh: refreshCachedGitRepos,
     },
     workflowRunRecorder: new DbWorkflowRunRecorder({
+      getDb: async () => (await getVdDb()).db,
+    }),
+    workflowRunReader: new DbWorkflowRunReader({
       getDb: async () => (await getVdDb()).db,
     }),
   });

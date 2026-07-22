@@ -7,12 +7,18 @@ import {
   type WorkflowRegistry,
 } from '@vibe-dashboard/workflow-core';
 import { verifyGitHubWebhookSignature } from './github-signature';
+import {
+  parsePositiveInteger,
+  parseWorkflowRunStatus,
+  type WorkflowRunReader,
+} from './workflow-run-store';
 import type { CachedRepoAlias } from '../workflows/github-ci';
 
 export interface RegisterWorkflowRoutesOptions {
   registry: WorkflowRegistry;
   runOptions?: RunWorkflowOptions;
   workflowRunRecorder?: WorkflowRecorder;
+  workflowRunReader?: WorkflowRunReader;
   githubWebhookSecret?: string;
   repoAliasCache?: RepoAliasCache;
 }
@@ -36,6 +42,40 @@ export function registerWorkflowRoutes(
         trigger: workflow.trigger,
       })),
     });
+  });
+
+  hono.get('/dashboard/api/workflow-runs', async (c) => {
+    const reader = options.workflowRunReader;
+    if (!reader) return c.json({ error: 'workflow_run_reader_not_configured' }, 503);
+    const result = await reader.listRuns({
+      workflowId: c.req.query('workflowId') || undefined,
+      status: parseWorkflowRunStatus(c.req.query('status') ?? null),
+      vkWorkspaceId: c.req.query('vkWorkspaceId') || undefined,
+      vkSessionId: c.req.query('vkSessionId') || undefined,
+      vkQueueItemId: c.req.query('vkQueueItemId') || undefined,
+      limit: parsePositiveInteger(c.req.query('limit') ?? null),
+      offset: parsePositiveInteger(c.req.query('offset') ?? null),
+    });
+    return c.json(result);
+  });
+
+  hono.get('/dashboard/api/workflow-runs/:runId', async (c) => {
+    const reader = options.workflowRunReader;
+    if (!reader) return c.json({ error: 'workflow_run_reader_not_configured' }, 503);
+    const run = await reader.getRun(c.req.param('runId'));
+    if (!run) return c.json({ error: 'workflow_run_not_found' }, 404);
+    return c.json({ run });
+  });
+
+  hono.get('/dashboard/api/workflow-runs/:runId/events', async (c) => {
+    const reader = options.workflowRunReader;
+    if (!reader) return c.json({ error: 'workflow_run_reader_not_configured' }, 503);
+    const result = await reader.listRunEvents(c.req.param('runId'), {
+      limit: parsePositiveInteger(c.req.query('limit') ?? null),
+      offset: parsePositiveInteger(c.req.query('offset') ?? null),
+    });
+    if (!result) return c.json({ error: 'workflow_run_not_found' }, 404);
+    return c.json(result);
   });
 
   hono.post('/dashboard/api/webhooks/github', async (c) => {
