@@ -39,6 +39,7 @@
     "hotswap:vkvd": "node --experimental-strip-types scripts/hotswap-vkvd.ts",
     "vk:batch-build": "bash scripts/vk-batch-stage-validate-build.sh",
     "vk:batch-hotswap": "bash scripts/vk-batch-stage-hotswap-apply.sh",
+    "vk:batch-hotswap-gh": "bash scripts/vk-batch-stage-gh-artifact.sh",
     "vk:batch-rollback": "bash scripts/vk-batch-stage-rollback.sh"
   },
   "dependencies": {
