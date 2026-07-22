@@ -1,7 +1,7 @@
 import type { WorkflowDefinition } from '@vibe-dashboard/workflow-core';
 import {
   selectLatestSession,
-  type QueueStatus,
+  type QueueFollowUpResponse,
   type RepoWithBranch,
   type Session,
   type Workspace,
@@ -43,7 +43,7 @@ export type GitHubCiWorkflowOutput =
       outcome: 'message_queued';
       workspaceId: string;
       sessionId: string;
-      queueItemId: string | null;
+      queueItemId: string;
       queuedCount: number;
       repoFullName: string;
       branch: string;
@@ -53,7 +53,7 @@ export interface GitHubCiVkClient {
   getWorkspaces: () => Promise<Workspace[]>;
   getWorkspaceRepos: (workspaceId: string) => Promise<RepoWithBranch[]>;
   getSessions: (workspaceId: string) => Promise<Session[]>;
-  queueFollowUp: (sessionId: string, prompt: string) => Promise<QueueStatus>;
+  queueFollowUp: (sessionId: string, prompt: string) => Promise<QueueFollowUpResponse>;
 }
 
 export interface CreateGitHubCiFailureWorkflowOptions {
@@ -157,24 +157,24 @@ export function createGitHubCiFailureWorkflow(
       ctx.log('select_session', `Selected latest VK session ${session.id}`);
 
       const prompt = formatGitHubCiFailurePrompt(normalized);
-      let queueStatus: QueueStatus;
+      let queueResponse: QueueFollowUpResponse;
       try {
-        queueStatus = await options.vkClient.queueFollowUp(session.id, prompt);
+        queueResponse = await options.vkClient.queueFollowUp(session.id, prompt);
       } catch (error) {
         notifiedFailureShas.delete(normalized.sha);
         throw error;
       }
       ctx.log('queue_follow_up', `Queued CI failure prompt to session ${session.id}`, 'info', {
-        queueItemId: queueStatus.message?.id ?? null,
-        queuedCount: queueStatus.count,
+        queueItemId: queueResponse.queued_item.id,
+        queuedCount: queueResponse.status.count,
       });
 
       return {
         outcome: 'message_queued',
         workspaceId: match.workspace.id,
         sessionId: session.id,
-        queueItemId: queueStatus.message?.id ?? null,
-        queuedCount: queueStatus.count,
+        queueItemId: queueResponse.queued_item.id,
+        queuedCount: queueResponse.status.count,
         repoFullName: normalized.repoFullName,
         branch: normalized.branch,
       };

@@ -224,9 +224,7 @@ function createFakeVkClient(
       { id: 'session-new', workspace_id: 'ws-new', executor: 'CODEX' as const, created_at: '2026-01-03T00:00:00Z', updated_at: '2026-01-03T00:00:00Z' },
     ]),
     queueFollowUp: vi.fn<GitHubCiVkClient['queueFollowUp']>(async () => ({
-      status: 'queued',
-      count: 1,
-      message: {
+      queued_item: {
         id: 'queue-1',
         session_id: 'session-new',
         workspace_id: 'ws-new',
@@ -235,7 +233,20 @@ function createFakeVkClient(
         priority: 60,
         data: { message: 'queued prompt', session_command: null },
       },
-      messages: [],
+      status: {
+        status: 'queued',
+        count: 2,
+        message: {
+          id: 'queue-existing',
+          session_id: 'session-new',
+          workspace_id: 'ws-new',
+          status: 'queued',
+          source: 'from_user',
+          priority: 100,
+          data: { message: 'already queued prompt', session_command: null },
+        },
+        messages: [],
+      },
     })),
   } satisfies GitHubCiVkClient;
   return client;
