@@ -33,7 +33,11 @@ VK_REF=${VK_REF:-HEAD}
 VK_GH_REPO=${VK_GH_REPO:-mickmister/vibe-kanban}
 VK_GH_WORKFLOW=${VK_GH_WORKFLOW:-Release Binaries}
 VK_GH_RUN_ID=${VK_GH_RUN_ID:-}
+VK_GH_REQUIRE_TEST_WORKFLOW=${VK_GH_REQUIRE_TEST_WORKFLOW:-1}
+VK_GH_TEST_WORKFLOW=${VK_GH_TEST_WORKFLOW:-Test}
+VK_GH_TEST_RUN_ID=${VK_GH_TEST_RUN_ID:-}
 VK_GH_ARTIFACT_NAME=${VK_GH_ARTIFACT_NAME:-release-assets-linux-x64}
+VK_GH_ARCHIVE_NAME=${VK_GH_ARCHIVE_NAME:-vibe-kanban-linux-x64.tar.gz}
 VK_GH_DOWNLOAD_ROOT=${VK_GH_DOWNLOAD_ROOT:-/var/tmp/vk-gh-release-artifacts}
 VK_GH_WAIT_INTERVAL_SECONDS=${VK_GH_WAIT_INTERVAL_SECONDS:-30}
 VK_GH_WAIT_TIMEOUT_SECONDS=${VK_GH_WAIT_TIMEOUT_SECONDS:-5400}
@@ -57,14 +61,17 @@ resolve_target_sha() {
 }
 
 resolve_run_id() {
-  if [ -n "$VK_GH_RUN_ID" ]; then
-    printf '%s\n' "$VK_GH_RUN_ID"
+  local workflow="$1"
+  local run_id_override="$2"
+
+  if [ -n "$run_id_override" ]; then
+    printf '%s\n' "$run_id_override"
     return
   fi
 
   gh run list \
     --repo "$VK_GH_REPO" \
-    --workflow "$VK_GH_WORKFLOW" \
+    --workflow "$workflow" \
     --limit 50 \
     --json databaseId,headSha,createdAt \
     --jq ".[] | select(.headSha == \"$TARGET_SHA\") | .databaseId" |
@@ -72,13 +79,17 @@ resolve_run_id() {
 }
 
 run_field() {
-  local field="$1"
-  gh run view "$RUN_ID" --repo "$VK_GH_REPO" --json "$field" --jq ".$field"
+  local run_id="$1"
+  local field="$2"
+  gh run view "$run_id" --repo "$VK_GH_REPO" --json "$field" --jq ".$field"
 }
 
-print_run_summary() {
-  echo "[vk-gh-artifact] run summary"
-  gh run view "$RUN_ID" \
+print_workflow_run_summary() {
+  local label="$1"
+  local run_id="$2"
+
+  echo "[vk-gh-artifact] $label run summary"
+  gh run view "$run_id" \
     --repo "$VK_GH_REPO" \
     --json databaseId,status,conclusion,headSha,url,workflowName,jobs \
     --jq '{
@@ -90,74 +101,105 @@ print_run_summary() {
       url: .url,
       jobs: [.jobs[] | {name, status, conclusion}]
     }'
+}
 
+print_release_artifacts() {
   echo
-  echo "[vk-gh-artifact] artifacts"
-  gh api "repos/$VK_GH_REPO/actions/runs/$RUN_ID/artifacts" \
+  echo "[vk-gh-artifact] release artifacts"
+  gh api "repos/$VK_GH_REPO/actions/runs/$RELEASE_RUN_ID/artifacts" \
     --jq '.artifacts[]? | {name, expired, size_in_bytes}'
 }
 
+print_run_summary() {
+  print_workflow_run_summary "release" "$RELEASE_RUN_ID"
+
+  if [ "$VK_GH_REQUIRE_TEST_WORKFLOW" = "1" ]; then
+    echo
+    print_workflow_run_summary "test" "$TEST_RUN_ID"
+  else
+    echo
+    echo "[vk-gh-artifact] test workflow requirement disabled by VK_GH_REQUIRE_TEST_WORKFLOW=0"
+  fi
+
+  print_release_artifacts
+}
+
 wait_for_run() {
+  local label="$1"
+  local run_id="$2"
   local started
   started=$(date +%s)
 
   while true; do
     local status conclusion elapsed
-    status=$(run_field status)
-    conclusion=$(run_field conclusion)
+    status=$(run_field "$run_id" status)
+    conclusion=$(run_field "$run_id" conclusion)
     elapsed=$(($(date +%s) - started))
 
-    echo "[vk-gh-artifact] run $RUN_ID status=$status conclusion=${conclusion:-none} elapsed=${elapsed}s"
+    echo "[vk-gh-artifact] $label run $run_id status=$status conclusion=${conclusion:-none} elapsed=${elapsed}s"
 
     if [ "$status" = "completed" ]; then
-      [ "$conclusion" = "success" ] || fail "run $RUN_ID completed with conclusion=$conclusion"
+      [ "$conclusion" = "success" ] || fail "$label run $run_id completed with conclusion=$conclusion"
       return
     fi
 
     if [ "$elapsed" -ge "$VK_GH_WAIT_TIMEOUT_SECONDS" ]; then
-      fail "timed out waiting for run $RUN_ID after ${elapsed}s"
+      fail "timed out waiting for $label run $run_id after ${elapsed}s"
     fi
 
     sleep "$VK_GH_WAIT_INTERVAL_SECONDS"
   done
 }
 
-require_successful_run() {
-  local run_sha status conclusion
-  run_sha=$(run_field headSha)
-  status=$(run_field status)
-  conclusion=$(run_field conclusion)
+require_successful_workflow_run() {
+  local label="$1"
+  local run_id="$2"
+  local expected_workflow="$3"
+  local run_sha workflow status conclusion
+  run_sha=$(run_field "$run_id" headSha)
+  workflow=$(run_field "$run_id" workflowName)
+  status=$(run_field "$run_id" status)
+  conclusion=$(run_field "$run_id" conclusion)
 
-  [ "$run_sha" = "$TARGET_SHA" ] || fail "run $RUN_ID head SHA mismatch: expected $TARGET_SHA, got $run_sha"
+  [ "$run_sha" = "$TARGET_SHA" ] || fail "$label run $run_id head SHA mismatch: expected $TARGET_SHA, got $run_sha"
+  [ "$workflow" = "$expected_workflow" ] || fail "$label run $run_id workflow mismatch: expected $expected_workflow, got $workflow"
 
   if [ "$status" != "completed" ]; then
     if [ "$WAIT" = "1" ]; then
-      wait_for_run
+      wait_for_run "$label" "$run_id"
     else
-      fail "run $RUN_ID is $status; re-run with --wait or wait for CI to finish"
+      fail "$label run $run_id is $status; re-run with --wait or wait for CI to finish"
     fi
   elif [ "$conclusion" != "success" ]; then
-    fail "run $RUN_ID completed with conclusion=$conclusion"
+    fail "$label run $run_id completed with conclusion=$conclusion"
+  fi
+}
+
+require_successful_runs() {
+  require_successful_workflow_run "release" "$RELEASE_RUN_ID" "$VK_GH_WORKFLOW"
+
+  if [ "$VK_GH_REQUIRE_TEST_WORKFLOW" = "1" ]; then
+    require_successful_workflow_run "test" "$TEST_RUN_ID" "$VK_GH_TEST_WORKFLOW"
   fi
 }
 
 download_artifact() {
   local run_dir artifact_dir archive checksum extract_dir binary
-  run_dir="$VK_GH_DOWNLOAD_ROOT/$TARGET_SHA/$RUN_ID"
+  run_dir="$VK_GH_DOWNLOAD_ROOT/$TARGET_SHA/$RELEASE_RUN_ID"
   artifact_dir="$run_dir/$VK_GH_ARTIFACT_NAME"
   extract_dir="$run_dir/extracted"
 
   rm -rf "$artifact_dir" "$extract_dir"
   mkdir -p "$artifact_dir" "$extract_dir"
 
-  echo "[vk-gh-artifact] downloading artifact $VK_GH_ARTIFACT_NAME from run $RUN_ID"
-  gh run download "$RUN_ID" \
+  echo "[vk-gh-artifact] downloading artifact $VK_GH_ARTIFACT_NAME from release run $RELEASE_RUN_ID"
+  gh run download "$RELEASE_RUN_ID" \
     --repo "$VK_GH_REPO" \
     --name "$VK_GH_ARTIFACT_NAME" \
     --dir "$artifact_dir"
 
-  archive=$(find "$artifact_dir" -maxdepth 1 -type f -name 'vibe-kanban-*.tar.gz' | sort | head -n 1)
-  [ -n "$archive" ] || fail "downloaded artifact does not contain vibe-kanban-*.tar.gz"
+  archive="$artifact_dir/$VK_GH_ARCHIVE_NAME"
+  [ -s "$archive" ] || fail "downloaded artifact does not contain expected archive: $VK_GH_ARCHIVE_NAME"
   checksum="${archive}.sha256"
   [ -s "$checksum" ] || fail "downloaded artifact is missing checksum file: $checksum"
 
@@ -198,18 +240,28 @@ git -C "$VK_REPO" rev-parse --is-inside-work-tree >/dev/null 2>&1 || fail "VK_RE
 
 TARGET_SHA=$(resolve_target_sha)
 TARGET_SHORT_SHA=$(git -C "$VK_REPO" rev-parse --short "$TARGET_SHA")
-RUN_ID=$(resolve_run_id)
+RELEASE_RUN_ID=$(resolve_run_id "$VK_GH_WORKFLOW" "$VK_GH_RUN_ID")
+TEST_RUN_ID=
+if [ "$VK_GH_REQUIRE_TEST_WORKFLOW" = "1" ]; then
+  TEST_RUN_ID=$(resolve_run_id "$VK_GH_TEST_WORKFLOW" "$VK_GH_TEST_RUN_ID")
+fi
 
 echo "[vk-gh-artifact] starting at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 echo "[vk-gh-artifact] log: $VK_GH_LOG"
 echo "[vk-gh-artifact] GH repo: $VK_GH_REPO"
 echo "[vk-gh-artifact] workflow: $VK_GH_WORKFLOW"
+echo "[vk-gh-artifact] test workflow required: $VK_GH_REQUIRE_TEST_WORKFLOW"
+echo "[vk-gh-artifact] test workflow: $VK_GH_TEST_WORKFLOW"
 echo "[vk-gh-artifact] VK repo: $VK_REPO"
 echo "[vk-gh-artifact] VK ref: $VK_REF"
 echo "[vk-gh-artifact] target sha: $TARGET_SHA"
-echo "[vk-gh-artifact] run id: ${RUN_ID:-none}"
+echo "[vk-gh-artifact] release run id: ${RELEASE_RUN_ID:-none}"
+echo "[vk-gh-artifact] test run id: ${TEST_RUN_ID:-none}"
 
-[ -n "$RUN_ID" ] || fail "no $VK_GH_WORKFLOW run found for $TARGET_SHA"
+[ -n "$RELEASE_RUN_ID" ] || fail "no $VK_GH_WORKFLOW run found for $TARGET_SHA"
+if [ "$VK_GH_REQUIRE_TEST_WORKFLOW" = "1" ]; then
+  [ -n "$TEST_RUN_ID" ] || fail "no $VK_GH_TEST_WORKFLOW run found for $TARGET_SHA"
+fi
 
 print_run_summary
 
@@ -217,7 +269,7 @@ if [ "$MODE" = "status" ]; then
   exit 0
 fi
 
-require_successful_run
+require_successful_runs
 download_artifact
 
 if [ "$MODE" = "download" ]; then
