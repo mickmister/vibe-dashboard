@@ -1,6 +1,6 @@
 // VK API Types
 
-import type { Executor, AgentRole } from "./config.js";
+import type { Executor, AgentRole } from './config.js';
 
 export interface Project {
   id: string;
@@ -16,7 +16,7 @@ export interface Task {
   project_id: string;
   title: string;
   description: string | null;
-  status: "todo" | "inprogress" | "inreview" | "done" | "cancelled";
+  status: 'todo' | 'inprogress' | 'inreview' | 'done' | 'cancelled';
   parent_workspace_id: string | null;
   shared_task_id: string | null;
   has_in_progress_attempt: boolean | null;
@@ -67,7 +67,7 @@ export interface Session {
 export interface ExecutionProcess {
   id: string;
   session_id: string;
-  status: "running" | "completed" | "failed" | "killed";
+  status: 'running' | 'completed' | 'failed' | 'killed';
   created_at: string;
   started_at: string;
   completed_at: string | null;
@@ -82,15 +82,8 @@ export interface QueuedMessage {
   id: string;
   session_id: string;
   workspace_id: string;
-  status:
-    | "queued"
-    | "leased"
-    | "starting"
-    | "running"
-    | "completed"
-    | "failed"
-    | "cancelled";
-  source: "from_user" | "workflow" | "agent" | "system";
+  status: 'queued' | 'leased' | 'starting' | 'running' | 'completed' | 'failed' | 'cancelled';
+  source: 'from_user' | 'workflow' | 'agent' | 'system';
   priority: number | bigint;
   data: { message: string; session_command?: unknown | null };
 }
@@ -99,7 +92,7 @@ export interface QueueStatus {
   count: number;
   message: QueuedMessage | null;
   messages: QueuedMessage[];
-  status: "empty" | "queued";
+  status: 'empty' | 'queued';
 }
 
 export interface QueueMessageResponse {
@@ -110,7 +103,7 @@ export interface QueueMessageResponse {
 export interface WorkspaceSummary {
   workspace_id: string;
   latest_session_id: string | null;
-  latest_process_status: "running" | "completed" | "failed" | "killed";
+  latest_process_status: 'running' | 'completed' | 'failed' | 'killed';
   latest_process_completed_at: string | null;
   has_pending_approval: boolean;
   has_running_dev_server: boolean;
@@ -120,6 +113,7 @@ export interface WorkspaceSummary {
   has_unseen_turns: boolean;
   pr_status: string | null;
 }
+
 
 export interface ConversationEntry {
   content?: {
@@ -143,7 +137,7 @@ export interface CreateTaskBody {
   project_id: string;
   title: string;
   description?: string;
-  status: "todo" | "inprogress" | "inreview" | "done" | "cancelled";
+  status: 'todo' | 'inprogress' | 'inreview' | 'done' | 'cancelled';
 }
 
 export interface CreateWorkspaceBody {
@@ -185,7 +179,7 @@ export interface SendMessageBody {
 
 export interface QueueMessageBody {
   message: string;
-  source?: "from_user" | "workflow" | "agent" | "system";
+  source?: 'from_user' | 'workflow' | 'agent' | 'system';
   priority?: number | null;
 }
 

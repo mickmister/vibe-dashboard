@@ -1,13 +1,13 @@
 export type Executor =
-  | "CLAUDE_CODE"
-  | "CODEX"
-  | "GEMINI"
-  | "AMP"
-  | "CURSOR_AGENT"
-  | "COPILOT"
-  | "DROID"
-  | "OPENCODE"
-  | "QWEN_CODE";
+  | 'CLAUDE_CODE'
+  | 'CODEX'
+  | 'GEMINI'
+  | 'AMP'
+  | 'CURSOR_AGENT'
+  | 'COPILOT'
+  | 'DROID'
+  | 'OPENCODE'
+  | 'QWEN_CODE';
 
 export interface Workspace {
   id: string;
@@ -40,7 +40,7 @@ export interface Session {
 export interface ExecutionProcess {
   id: string;
   session_id: string;
-  status: "running" | "completed" | "failed" | "killed";
+  status: 'running' | 'completed' | 'failed' | 'killed';
   created_at?: string;
   started_at?: string;
   completed_at?: string | null;
@@ -55,7 +55,7 @@ export interface QueueStatus {
   count: number;
   message: QueuedMessage | null;
   messages: QueuedMessage[];
-  status: "empty" | "queued";
+  status: 'empty' | 'queued';
 }
 
 export interface QueueFollowUpResponse {
@@ -67,15 +67,8 @@ export interface QueuedMessage {
   id: string;
   session_id: string;
   workspace_id: string;
-  status:
-    | "queued"
-    | "leased"
-    | "starting"
-    | "running"
-    | "completed"
-    | "failed"
-    | "cancelled";
-  source: "from_user" | "workflow" | "agent" | "system";
+  status: 'queued' | 'leased' | 'starting' | 'running' | 'completed' | 'failed' | 'cancelled';
+  source: 'from_user' | 'workflow' | 'agent' | 'system';
   priority: number | bigint;
   data: { message: string; session_command?: unknown | null };
 }
@@ -111,7 +104,7 @@ export class VkApiError extends Error {
     errorData?: unknown;
   }) {
     super(args.message);
-    this.name = "VkApiError";
+    this.name = 'VkApiError';
     this.status = args.status;
     this.bodyText = args.bodyText;
     this.errorData = args.errorData;
@@ -121,10 +114,9 @@ export class VkApiError extends Error {
 export function resolveVibeApiBaseUrl(
   env: Record<string, string | undefined> = process.env,
 ): string {
-  const configured =
-    env.VIBE_API_URL || env.VK_API_URL || "http://localhost:3007";
-  const withoutTrailingSlash = configured.replace(/\/+$/, "");
-  if (withoutTrailingSlash.endsWith("/api")) {
+  const configured = env.VIBE_API_URL || env.VK_API_URL || 'http://localhost:3007';
+  const withoutTrailingSlash = configured.replace(/\/+$/, '');
+  if (withoutTrailingSlash.endsWith('/api')) {
     return withoutTrailingSlash;
   }
   return `${withoutTrailingSlash}/api`;
@@ -135,15 +127,12 @@ export class VibeKanbanServerClient {
   private readonly fetchImpl: FetchLike;
 
   constructor(options: VibeKanbanServerClientOptions = {}) {
-    this.baseUrl = (options.baseUrl ?? resolveVibeApiBaseUrl()).replace(
-      /\/+$/,
-      "",
-    );
+    this.baseUrl = (options.baseUrl ?? resolveVibeApiBaseUrl()).replace(/\/+$/, '');
     this.fetchImpl = options.fetch ?? fetch;
   }
 
   getWorkspaces(): Promise<Workspace[]> {
-    return this.get("/workspaces");
+    return this.get('/workspaces');
   }
 
   getWorkspaceRepos(workspaceId: string): Promise<RepoWithBranch[]> {
@@ -151,9 +140,7 @@ export class VibeKanbanServerClient {
   }
 
   getSessions(workspaceId: string): Promise<Session[]> {
-    return this.get(
-      `/sessions?workspace_id=${encodeURIComponent(workspaceId)}`,
-    );
+    return this.get(`/sessions?workspace_id=${encodeURIComponent(workspaceId)}`);
   }
 
   getSession(sessionId: string): Promise<Session> {
@@ -161,7 +148,7 @@ export class VibeKanbanServerClient {
   }
 
   createSession(body: CreateSessionBody): Promise<Session> {
-    return this.post("/sessions", body);
+    return this.post('/sessions', body);
   }
 
   async sendFollowUp(
@@ -181,13 +168,10 @@ export class VibeKanbanServerClient {
     });
   }
 
-  queueFollowUp(
-    sessionId: string,
-    prompt: string,
-  ): Promise<QueueFollowUpResponse> {
+  queueFollowUp(sessionId: string, prompt: string): Promise<QueueFollowUpResponse> {
     return this.post(`/sessions/${encodeURIComponent(sessionId)}/queue`, {
       message: prompt,
-      source: "workflow",
+      source: 'workflow',
     });
   }
 
@@ -197,7 +181,7 @@ export class VibeKanbanServerClient {
 
   private post<T>(path: string, body: unknown): Promise<T> {
     return this.request<T>(path, {
-      method: "POST",
+      method: 'POST',
       body: JSON.stringify(body),
     });
   }
@@ -206,7 +190,7 @@ export class VibeKanbanServerClient {
     const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
       ...init,
       headers: {
-        "Content-Type": "application/json",
+        'Content-Type': 'application/json',
         ...init?.headers,
       },
     });
@@ -234,8 +218,7 @@ export class VibeKanbanServerClient {
 
     if (!envelope.success) {
       throw new VkApiError({
-        message:
-          envelope.message || `VK API ${path} returned unsuccessful response`,
+        message: envelope.message || `VK API ${path} returned unsuccessful response`,
         status: response.status,
         bodyText,
         errorData: envelope.error_data,
@@ -248,11 +231,9 @@ export class VibeKanbanServerClient {
 
 export function selectLatestSession(sessions: Session[]): Session | null {
   if (sessions.length === 0) return null;
-  return (
-    [...sessions].sort(
-      (a, b) => parseTimestamp(b.created_at) - parseTimestamp(a.created_at),
-    )[0] ?? null
-  );
+  return [...sessions].sort(
+    (a, b) => parseTimestamp(b.created_at) - parseTimestamp(a.created_at),
+  )[0] ?? null;
 }
 
 function parseTimestamp(value: string): number {
