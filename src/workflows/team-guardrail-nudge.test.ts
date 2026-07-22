@@ -92,6 +92,62 @@ describe('team guardrail nudge workflow', () => {
     expect(result.logs.map((entry) => entry.stepId)).toEqual(['check_team_activity', 'guardrail_escalation']);
   });
 
+
+  it('applies maxNudgesPerRun as a total queue budget across stale agents', async () => {
+    const vk = createFakeVkClient();
+    const workflow = createTeamGuardrailNudgeWorkflow({ vkClient: vk });
+    const team = createAgentTeam({
+      id: 'team-many',
+      name: 'Many Agents',
+      orchestratorAgentId: 'agent-1',
+      policies: { maxNudgesPerRun: 2 },
+      agents: [
+        { id: 'agent-1', role: 'orchestrator', displayName: 'One', vkSessionId: 'session-1' },
+        { id: 'agent-2', role: 'implementer', displayName: 'Two', vkSessionId: 'session-2' },
+        { id: 'agent-3', role: 'reviewer', displayName: 'Three', vkSessionId: 'session-3' },
+        { id: 'agent-4', role: 'pm', displayName: 'Four', vkSessionId: 'session-4' },
+      ],
+    }, { now: '2026-07-22T00:00:00.000Z' });
+
+    const result = await runWorkflow(registryFor(workflow), workflow.id, {
+      team,
+      now: '2026-07-22T12:00:00.000Z',
+      staleAfterMinutes: 20,
+      agentActivity: [
+        { agentId: 'agent-1', lastActivityAt: '2026-07-22T11:00:00.000Z', nudgeCount: 0 },
+        { agentId: 'agent-2', lastActivityAt: '2026-07-22T11:00:00.000Z', nudgeCount: 0 },
+        { agentId: 'agent-3', lastActivityAt: '2026-07-22T11:00:00.000Z', nudgeCount: 0 },
+        { agentId: 'agent-4', lastActivityAt: '2026-07-22T11:00:00.000Z', nudgeCount: 0 },
+      ],
+    });
+
+    expect(result.output).toMatchObject({
+      outcome: 'nudges_queued',
+      nudges: [
+        { agentId: 'agent-1', queueItemId: 'nudge-session-1' },
+        { agentId: 'agent-2', queueItemId: 'nudge-session-2' },
+      ],
+      skipped: [
+        { agentId: 'agent-3', reason: 'nudge_cap_reached' },
+        { agentId: 'agent-4', reason: 'nudge_cap_reached' },
+      ],
+      escalations: [
+        { agentId: 'agent-3', reason: 'nudge_cap_reached' },
+        { agentId: 'agent-4', reason: 'nudge_cap_reached' },
+      ],
+    });
+    expect(vk.queueFollowUp).toHaveBeenCalledTimes(2);
+    expect(vk.queueFollowUp.mock.calls.map((call) => call[0])).toEqual(['session-1', 'session-2']);
+    expect(vk.sendFollowUp).not.toHaveBeenCalled();
+    expect(result.logs.map((entry) => entry.stepId)).toEqual([
+      'check_team_activity',
+      'queue_guardrail_nudge',
+      'queue_guardrail_nudge',
+      'guardrail_escalation',
+      'guardrail_escalation',
+    ]);
+  });
+
   it('persists nudge queue references through the workflow recorder', async () => {
     const handle = await initVdDb({ path: ':memory:' });
     handles.push(handle);

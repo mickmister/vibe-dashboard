@@ -156,6 +156,7 @@ export function decideTeamNudges(inputTeam: AgentTeam, activity: TeamAgentActivi
   const skipped: SkippedTeamNudge[] = [];
   const escalations: SkippedTeamNudge[] = [];
   const maxNudges = Math.max(0, inputTeam.policies.maxNudgesPerRun);
+  let nudgeBudgetUsed = activity.reduce((total, snapshot) => total + Math.max(0, snapshot.nudgeCount ?? 0), 0);
 
   for (const snapshot of activity) {
     const agent = byAgentId.get(snapshot.agentId);
@@ -177,13 +178,14 @@ export function decideTeamNudges(inputTeam: AgentTeam, activity: TeamAgentActivi
       skipped.push({ agentId: agent.id, reason: 'not_stale', staleMs, nudgeCount: snapshot.nudgeCount ?? 0 });
       continue;
     }
-    if ((snapshot.nudgeCount ?? 0) >= maxNudges) {
+    if (nudgeBudgetUsed >= maxNudges) {
       const capped = { agentId: agent.id, reason: 'nudge_cap_reached' as const, staleMs, nudgeCount: snapshot.nudgeCount ?? 0 };
       skipped.push(capped);
       escalations.push(capped);
       continue;
     }
     toNudge.push({ agent, activity: snapshot, staleMs });
+    nudgeBudgetUsed += 1;
   }
 
   return { toNudge, skipped, escalations };
