@@ -36,7 +36,7 @@ VK_GH_RUN_ID=${VK_GH_RUN_ID:-}
 VK_GH_ARTIFACT_NAME=${VK_GH_ARTIFACT_NAME:-release-assets-linux-x64}
 VK_GH_DOWNLOAD_ROOT=${VK_GH_DOWNLOAD_ROOT:-/var/tmp/vk-gh-release-artifacts}
 VK_GH_WAIT_INTERVAL_SECONDS=${VK_GH_WAIT_INTERVAL_SECONDS:-30}
-VK_GH_WAIT_TIMEOUT_SECONDS=${VK_GH_WAIT_TIMEOUT_SECONDS:-3600}
+VK_GH_WAIT_TIMEOUT_SECONDS=${VK_GH_WAIT_TIMEOUT_SECONDS:-5400}
 VK_GH_LOG=${VK_GH_LOG:-/tmp/vk-batch-stage-gh-artifact-$(date -u +%Y%m%dT%H%M%SZ).log}
 
 exec > >(tee -a "$VK_GH_LOG") 2>&1
@@ -230,7 +230,15 @@ if [ "$CONFIRMED" != "1" ]; then
 fi
 
 echo "[vk-gh-artifact] applying verified GitHub Actions artifact"
-VK_ARTIFACT="$VK_ARTIFACT" VK_VERSION_LABEL="$VK_VERSION_LABEL" \
+env \
+  VK_REPO="$VK_REPO" \
+  VK_ARTIFACT="$VK_ARTIFACT" \
+  VK_VERSION_LABEL="$VK_VERSION_LABEL" \
+  VK_PLATFORM="${VK_PLATFORM:-linux-x64}" \
+  VK_SUPERVISOR_PROGRAM="${VK_SUPERVISOR_PROGRAM:-vibe-kanban}" \
+  VK_API_BASE="${VK_API_BASE:-http://127.0.0.1:3007}" \
+  VK_HOTSWAP_ID="${VK_HOTSWAP_ID:-vk-gh-artifact-${TARGET_SHORT_SHA}-$(date -u +%Y%m%dT%H%M%SZ)}" \
+  VK_HOTSWAP_LOG="${VK_HOTSWAP_LOG:-/tmp/vk-gh-artifact-hotswap-${TARGET_SHORT_SHA}-$(date -u +%Y%m%dT%H%M%SZ).log}" \
   bash "$SCRIPT_DIR/vk-batch-stage-hotswap-apply.sh"
 
 echo "[vk-gh-artifact] completed at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
