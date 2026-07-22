@@ -6,6 +6,8 @@ import { serverRegistry } from 'springboard/server/register';
 import { registerWorkflowRoutes } from '../server/workflow-routes';
 import { registerPluginAssetRoutes } from '../server/plugin-asset-routes';
 import { registerPluginAdminRoutes } from '../server/plugin-admin-routes';
+import { getVdDb } from '../server/database';
+import { DbWorkflowRunRecorder } from '../server/workflow-run-recorder';
 import { workflowRegistry } from '../workflows/registry';
 import type { CachedRepoAlias } from '../workflows/github-ci';
 
@@ -22,6 +24,9 @@ serverRegistry.registerServerModule((api) => {
       set: setCachedGitRepos,
       refresh: refreshCachedGitRepos,
     },
+    workflowRunRecorder: new DbWorkflowRunRecorder({
+      getDb: async () => (await getVdDb()).db,
+    }),
   });
   registerPluginAssetRoutes(api.hono, { installRoot: pluginInstallRoot });
   registerPluginAdminRoutes(api.hono);

@@ -3,10 +3,18 @@ import { Hono } from 'hono';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createWorkflowRegistry, type WorkflowDefinition } from '@vibe-dashboard/workflow-core';
 import { registerWorkflowRoutes } from './workflow-routes';
+import { initVdDb, type VdDbHandle } from './database';
+import { DbWorkflowRunRecorder } from './workflow-run-recorder';
 
 describe('registerWorkflowRoutes', () => {
-  afterEach(() => {
+  const dbHandles: VdDbHandle[] = [];
+
+  afterEach(async () => {
     vi.restoreAllMocks();
+    for (const handle of dbHandles.splice(0)) {
+      await handle.db.destroy();
+      handle.sqlite.close();
+    }
   });
 
   it('returns health and registered workflows', async () => {
@@ -65,6 +73,47 @@ describe('registerWorkflowRoutes', () => {
         output: { value: 'hello' },
       },
     });
+  });
+
+  it('persists manual workflow route runs through the configured recorder', async () => {
+    const registry = createWorkflowRegistry();
+    registry.register({
+      id: 'persisted',
+      trigger: 'manual',
+      run: async (ctx, input) => {
+        ctx.log('persist', 'persisting output');
+        return { ok: true, input };
+      },
+    });
+    const handle = await initVdDb({ path: ':memory:' });
+    dbHandles.push(handle);
+    const app = new Hono();
+    registerWorkflowRoutes(app, {
+      registry,
+      workflowRunRecorder: new DbWorkflowRunRecorder({ db: handle.db }),
+      runOptions: {
+        createRunId: () => 'run_route_persisted',
+        now: (() => {
+          let value = 20;
+          return () => value++;
+        })(),
+      },
+    });
+
+    const response = await app.request('/dashboard/api/workflows/persisted/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ value: 'stored' }),
+    });
+
+    expect(response.status).toBe(200);
+    const persisted = await handle.db
+      .selectFrom('WorkflowRun')
+      .selectAll()
+      .where('runId', '=', 'run_route_persisted')
+      .executeTakeFirstOrThrow();
+    expect(persisted).toMatchObject({ workflowId: 'persisted', status: 'completed' });
+    expect(JSON.parse(persisted.inputJson)).toEqual({ value: 'stored' });
   });
 
 

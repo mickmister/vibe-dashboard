@@ -3,6 +3,7 @@ import {
   runWorkflow,
   WorkflowNotFoundError,
   type RunWorkflowOptions,
+  type WorkflowRecorder,
   type WorkflowRegistry,
 } from '@vibe-dashboard/workflow-core';
 import { verifyGitHubWebhookSignature } from './github-signature';
@@ -11,6 +12,7 @@ import type { CachedRepoAlias } from '../workflows/github-ci';
 export interface RegisterWorkflowRoutesOptions {
   registry: WorkflowRegistry;
   runOptions?: RunWorkflowOptions;
+  workflowRunRecorder?: WorkflowRecorder;
   githubWebhookSecret?: string;
   repoAliasCache?: RepoAliasCache;
 }
@@ -90,7 +92,7 @@ export function registerWorkflowRoutes(
         options.registry,
         workflowId,
         input,
-        options.runOptions,
+        getRunOptions(options),
       );
       const status = run.status === 'failed' ? 500 : 200;
       return c.json({ run }, status);
@@ -119,7 +121,7 @@ async function runGitHubCiFailureWorkflow(args: {
       payload: args.payload,
       repoAliases: await getCachedRepoAliases(args.options.repoAliasCache),
     },
-    args.options.runOptions,
+    getRunOptions(args.options),
   );
 
   if (getRunOutcome(firstRun.output) !== 'no_matching_workspace') {
@@ -144,8 +146,36 @@ async function runGitHubCiFailureWorkflow(args: {
       payload: args.payload,
       repoAliases: refreshedRepoAliases,
     },
-    args.options.runOptions,
+    getRunOptions(args.options),
   );
+}
+
+function getRunOptions(options: RegisterWorkflowRoutesOptions): RunWorkflowOptions | undefined {
+  if (!options.workflowRunRecorder) return options.runOptions;
+  return {
+    ...options.runOptions,
+    recorder: composeWorkflowRecorders(
+      options.runOptions?.recorder,
+      options.workflowRunRecorder,
+    ),
+  };
+}
+
+function composeWorkflowRecorders(
+  first: WorkflowRecorder | undefined,
+  second: WorkflowRecorder,
+): WorkflowRecorder {
+  if (!first) return second;
+  return {
+    onRunStarted: async (run) => {
+      await first.onRunStarted?.(run);
+      await second.onRunStarted?.(run);
+    },
+    onRunCompleted: async (run) => {
+      await first.onRunCompleted?.(run);
+      await second.onRunCompleted?.(run);
+    },
+  };
 }
 
 async function readJsonBody(request: Request): Promise<unknown> {
