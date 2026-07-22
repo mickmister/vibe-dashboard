@@ -93,6 +93,40 @@ describe("dynamic Craft surfaces", () => {
     ]);
   });
 
+  it("strips port-prefixed subdomains from Agent and Code built-in workspace tab URLs", () => {
+    const effective = createEffectiveWorkspaceWithCraftSurfaces({
+      workspace: {
+        ...workspace,
+        tabGroups: [
+          {
+            id: "craft_workspace",
+            label: "Workspace Craft",
+            workspace: {
+              workspaceId: "workspace_1",
+              workspaceDir: "/home/vkuser/repos/app",
+            },
+            tabs: [],
+            pairs: [],
+            order: 0,
+          },
+        ],
+      },
+      craftSurfaces: [],
+      origin: "https://port-5173.example.com",
+    });
+
+    const tabsById = new Map(
+      effective.tabGroups[0]!.tabs.map((tab) => [tab.id, tab.url]),
+    );
+    expect(tabsById.get("agent")).toBe(
+      "https://example.com/workspaces/workspace_1",
+    );
+    expect(tabsById.get("code")).toBe(
+      "https://example.com/?folder=%2Fhome%2Fvkuser%2Frepos%2Fapp",
+    );
+    expect(tabsById.get("beads")).toBe("https://beads-web.example.com");
+  });
+
   it("uses the current origin for built-in workspace tabs", () => {
     const effective = createEffectiveWorkspaceWithCraftSurfaces({
       workspace: {
