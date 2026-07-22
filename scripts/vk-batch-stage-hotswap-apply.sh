@@ -54,6 +54,8 @@ require_clean_repo "$VK_REPO" "VK"
 if strings "$VK_ARTIFACT" | grep -q 'Please build @vibe/local-web first'; then
   fail "artifact embeds local-web placeholder; rebuild with scripts/vk-batch-stage-validate-build.sh"
 fi
+EXPECTED_SHA=$(sha256sum "$VK_ARTIFACT" | awk '{print $1}')
+echo "[batch-hotswap] expected artifact sha: $EXPECTED_SHA"
 
 echo "[batch-hotswap] supervisor status before"
 supervisorctl status "$VK_SUPERVISOR_PROGRAM" || true
@@ -96,10 +98,18 @@ curl -fsS "$VK_API_BASE/api/info"
 echo
 
 echo "[batch-hotswap] version marker after"
-cat /usr/local/share/vibe-kanban-build-version 2>/dev/null || true
+ACTUAL_VERSION_LABEL=$(cat /usr/local/share/vibe-kanban-build-version 2>/dev/null || true)
+printf '%s\n' "$ACTUAL_VERSION_LABEL"
+if [ "$ACTUAL_VERSION_LABEL" != "$VK_VERSION_LABEL" ]; then
+  fail "version marker mismatch: expected $VK_VERSION_LABEL, got ${ACTUAL_VERSION_LABEL:-<missing>}"
+fi
 echo
 
 echo "[batch-hotswap] runtime binary sha after"
-sha256sum /usr/local/bin/vibe-kanban
+ACTUAL_SHA=$(sha256sum /usr/local/bin/vibe-kanban | awk '{print $1}')
+printf '%s  /usr/local/bin/vibe-kanban\n' "$ACTUAL_SHA"
+if [ "$ACTUAL_SHA" != "$EXPECTED_SHA" ]; then
+  fail "runtime binary SHA mismatch: expected $EXPECTED_SHA, got $ACTUAL_SHA"
+fi
 
 echo "[batch-hotswap] completed at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
