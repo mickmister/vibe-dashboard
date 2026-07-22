@@ -17,6 +17,7 @@ export PATH=/usr/local/cargo/bin:/home/vkuser/.local/bin:/usr/local/bin:/usr/bin
 export CARGO_TARGET_DIR="$VK_BATCH_TARGET_DIR"
 export VK_SHARED_API_BASE="${VK_SHARED_API_BASE:-https://api.vibekanban.com}"
 export VITE_VK_SHARED_API_BASE="${VITE_VK_SHARED_API_BASE:-$VK_SHARED_API_BASE}"
+export NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=4096}"
 
 cd "$VK_BATCH_REPO"
 
