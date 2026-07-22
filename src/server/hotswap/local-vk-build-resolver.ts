@@ -12,6 +12,8 @@ import type {
 } from './vkvd-hotswap-system';
 import { ExecFileCommandRunner, type CommandRunner } from './supervisor-runner.ts';
 
+const LOCAL_WEB_PLACEHOLDER = 'Please build @vibe/local-web first';
+
 export interface LocalVkBuildResolverOptions {
   runner?: CommandRunner;
   fileSystem?: LocalVkBuildFileSystem;
@@ -102,6 +104,13 @@ export class LocalVkBuildArtifactResolver implements VkRuntimeArtifactResolver {
     const builtServerStat = await this.fileSystem.stat(builtServerPath);
     if (!builtServerStat.isFile()) {
       throw new Error(`Local VK build did not produce server binary: ${builtServerPath}`);
+    }
+
+    const builtServerBytes = await this.fileSystem.readFile(builtServerPath);
+    if (builtServerBytes.includes(Buffer.from(LOCAL_WEB_PLACEHOLDER))) {
+      throw new Error(
+        `Local VK server binary embeds the @vibe/local-web placeholder: ${builtServerPath}. Build packages/local-web before building the server artifact.`,
+      );
     }
 
     const stagingDir = await this.fileSystem.mkdtemp(this.stagingRoot);

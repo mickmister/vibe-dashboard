@@ -33,6 +33,7 @@ describe('LocalVkBuildArtifactResolver', () => {
       `access:/repo/Vktest/local-build.sh:${constants.R_OK}`,
       'exec:bash:./local-build.sh:/repo/Vktest',
       'stat:/repo/Vktest/target/release/server',
+      'read:/repo/Vktest/target/release/server',
       'mkdtemp:/tmp/vk-build-',
       'copy:/repo/Vktest/target/release/server:/tmp/vk-build-abc/vibe-kanban',
       'chmod:/tmp/vk-build-abc/vibe-kanban:493',
@@ -68,11 +69,30 @@ describe('LocalVkBuildArtifactResolver', () => {
     expect(artifact.sha256).toBe(sha256(Buffer.from('server-binary')));
     expect(calls).toEqual([
       'stat:/repo/Vktest/target/release/server',
+      'read:/repo/Vktest/target/release/server',
       'mkdtemp:/tmp/vk-build-',
       'copy:/repo/Vktest/target/release/server:/tmp/vk-build-abc/vibe-kanban',
       'chmod:/tmp/vk-build-abc/vibe-kanban:493',
       'read:/tmp/vk-build-abc/vibe-kanban',
     ]);
+  });
+
+  it('rejects a prebuilt VK binary that embeds the local-web placeholder', async () => {
+    const resolver = new LocalVkBuildArtifactResolver({
+      runner: { execFile: vi.fn() },
+      fileSystem: fakeFileSystem([], {
+        '/repo/Vktest/target/release/server': Buffer.from(
+          '<body><h1>Please build @vibe/local-web first</h1></body>',
+        ),
+      }),
+    });
+
+    await expect(resolver.resolve({
+      kind: 'local-prebuilt-binary',
+      binaryPath: '/repo/Vktest/target/release/server',
+      platform: 'linux-x64',
+      operatorAllowed: true,
+    })).rejects.toThrow('Local VK server binary embeds the @vibe/local-web placeholder');
   });
 
   it('requires explicit allowance for a prebuilt VK binary source', async () => {

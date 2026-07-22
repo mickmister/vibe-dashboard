@@ -36,7 +36,9 @@
     "test:e2e:install": "playwright install chromium",
     "hotswap": "npm run build && ./scripts/hotswap-dashboard-dist.sh deploy",
     "plugin-services:refresh:beads-web:requires-tag": "node --experimental-strip-types plugins/orchestrator/plugin-service-orchestrator-cli.ts refresh-github-release --plugin-id vd.beads-web --catalog plugins/builtin.plugins.json --catalog plugins/fixtures/beads-web.plugins.json --plugin plugins/fixtures/beads-web.plugin.json",
-    "hotswap:vkvd": "node --experimental-strip-types scripts/hotswap-vkvd.ts"
+    "hotswap:vkvd": "node --experimental-strip-types scripts/hotswap-vkvd.ts",
+    "vk:batch-build": "bash scripts/vk-batch-stage-validate-build.sh",
+    "vk:batch-hotswap": "bash scripts/vk-batch-stage-hotswap-apply.sh"
   },
   "dependencies": {
     "@heroui/react": "^2.8.9",
