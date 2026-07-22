@@ -7,6 +7,7 @@ import { HeroUIProvider } from "@heroui/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AppLoadingScreen } from "../components/AppLoadingScreen";
 import { WorkspaceShell } from "../components/WorkspaceShell";
+import { AgentTeamsDashboard } from "../components/AgentTeamsDashboard";
 import { useSessionWorkspaceNav } from "../sessionState";
 import type { NewSessionInitialSelection } from "../sessionState";
 import { resolveWorkspaceContainerRef } from "../lib/vkWorkspaceOpen";
@@ -1213,6 +1214,12 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
     "/dashboard/admin/plugins",
     { hideApplicationShell: true },
     AdminPluginsRoute,
+  );
+
+  moduleAPI.registerRoute(
+    "/dashboard/teams",
+    { hideApplicationShell: true },
+    AgentTeamsDashboard,
   );
 
   return {
