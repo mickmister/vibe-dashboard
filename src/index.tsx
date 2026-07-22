@@ -23,10 +23,11 @@ import type {
   VoyageCraftSelection,
 } from "./types";
 
+import "./modules/AgentTeamsModule";
+
 // @platform "browser"
 import "./modules/plugins";
 import "./modules/MainUIShellModule";
-import "./modules/AgentTeamsModule";
 // @platform end
 
 // @platform "node"
