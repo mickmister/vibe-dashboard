@@ -20,6 +20,7 @@ import {
   type NodeRuntimePromoterFileSystem,
 } from './runtime-promoters.node';
 import type { ResolvedVkRuntimeArtifact } from './vkvd-hotswap-system';
+import { createHash } from 'node:crypto';
 
 describe('VkBinaryRuntimePromoter', () => {
   it('promotes a staged VK binary and can roll back to the prior binary', async () => {
@@ -40,14 +41,146 @@ describe('VkBinaryRuntimePromoter', () => {
     const result = await promoter.promote(artifact(stagedPath));
 
     await expect(readFile(runtimeBinaryPath, 'utf8')).resolves.toBe('new');
-    await expect(readFile(versionMarkerPath, 'utf8')).resolves.toBe('local-build:test\n');
+    await expect(readFile(versionMarkerPath, 'utf8')).rejects.toThrow();
     await expect(readFile(result.rollbackPath, 'utf8')).resolves.toBe('old');
     expect((await stat(runtimeBinaryPath)).mode & 0o777).toBe(0o755);
+
+    await promoter.completePromotion(result);
+
+    await expect(readFile(versionMarkerPath, 'utf8')).resolves.toBe('local-build:test\n');
 
     await promoter.rollback(result);
 
     await expect(readFile(runtimeBinaryPath, 'utf8')).resolves.toBe('old');
-    await expect(readFile(versionMarkerPath, 'utf8')).resolves.toBe('rollback-from:local-build:test\n');
+    await expect(readFile(versionMarkerPath, 'utf8')).rejects.toThrow();
+  });
+
+  it('stages candidate then atomically renames instead of copying over the runtime binary', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'vk-promote-rename-'));
+    const runtimeBinaryPath = join(root, 'bin', 'vibe-kanban');
+    const versionMarkerPath = join(root, 'share', 'vibe-kanban-build-version');
+    const stateDir = join(root, 'state');
+    const stagedPath = join(root, 'staged', 'vibe-kanban');
+    const operations: string[] = [];
+    await mkdir(join(root, 'bin'), { recursive: true });
+    await mkdir(join(root, 'share'), { recursive: true });
+    await mkdir(join(root, 'staged'), { recursive: true });
+    await writeFile(runtimeBinaryPath, 'old');
+    await chmod(runtimeBinaryPath, 0o755);
+    await writeFile(stagedPath, 'new');
+    await chmod(stagedPath, 0o755);
+
+    const observingFs: NodeRuntimePromoterFileSystem = {
+      access,
+      chmod,
+      cp,
+      mkdir,
+      readFile,
+      rm,
+      writeFile,
+      copyFile: async (source, destination) => {
+        operations.push(`copy:${source}->${destination}`);
+        if (destination === runtimeBinaryPath) {
+          throw new Error('ETXTBSY simulated direct runtime write');
+        }
+        await copyFile(source, destination);
+      },
+      rename: async (source, destination) => {
+        operations.push(`rename:${source}->${destination}`);
+        await rename(source, destination);
+      },
+    };
+
+    const promoter = new VkBinaryRuntimePromoter({
+      runtimeBinaryPath,
+      versionMarkerPath,
+      stateDir,
+      fileSystem: observingFs,
+    });
+
+    await promoter.promote(artifact(stagedPath, { sha256: sha256('new') }));
+
+    expect(operations).not.toContain(`copy:${stagedPath}->${runtimeBinaryPath}`);
+    expect(operations.some((operation) => operation.startsWith(`rename:${join(root, 'bin', '.vibe-kanban.next-')}`))).toBe(true);
+    await expect(readFile(runtimeBinaryPath, 'utf8')).resolves.toBe('new');
+  });
+
+  it('leaves runtime binary and marker unchanged when candidate verification fails', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'vk-promote-bad-sha-'));
+    const runtimeBinaryPath = join(root, 'bin', 'vibe-kanban');
+    const versionMarkerPath = join(root, 'share', 'vibe-kanban-build-version');
+    const stagedPath = join(root, 'staged', 'vibe-kanban');
+    await mkdir(join(root, 'bin'), { recursive: true });
+    await mkdir(join(root, 'share'), { recursive: true });
+    await mkdir(join(root, 'staged'), { recursive: true });
+    await writeFile(runtimeBinaryPath, 'old');
+    await chmod(runtimeBinaryPath, 0o755);
+    await writeFile(versionMarkerPath, 'old-marker\n');
+    await writeFile(stagedPath, 'new');
+    await chmod(stagedPath, 0o755);
+
+    const promoter = new VkBinaryRuntimePromoter({
+      runtimeBinaryPath,
+      versionMarkerPath,
+      stateDir: join(root, 'state'),
+    });
+
+    await expect(promoter.promote(artifact(stagedPath, { sha256: 'not-the-real-sha' }))).rejects.toThrow(
+      'Staged VK binary SHA256 mismatch',
+    );
+    await expect(readFile(runtimeBinaryPath, 'utf8')).resolves.toBe('old');
+    await expect(readFile(versionMarkerPath, 'utf8')).resolves.toBe('old-marker\n');
+  });
+
+  it('rolls back using staged rename and restores the previous marker', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'vk-promote-rollback-rename-'));
+    const runtimeBinaryPath = join(root, 'bin', 'vibe-kanban');
+    const versionMarkerPath = join(root, 'share', 'vibe-kanban-build-version');
+    const stagedPath = join(root, 'staged', 'vibe-kanban');
+    const operations: string[] = [];
+    await mkdir(join(root, 'bin'), { recursive: true });
+    await mkdir(join(root, 'share'), { recursive: true });
+    await mkdir(join(root, 'staged'), { recursive: true });
+    await writeFile(runtimeBinaryPath, 'old');
+    await chmod(runtimeBinaryPath, 0o755);
+    await writeFile(versionMarkerPath, 'old-marker\n');
+    await writeFile(stagedPath, 'new');
+    await chmod(stagedPath, 0o755);
+
+    const observingFs: NodeRuntimePromoterFileSystem = {
+      access,
+      chmod,
+      cp,
+      mkdir,
+      readFile,
+      rm,
+      writeFile,
+      copyFile: async (source, destination) => {
+        operations.push(`copy:${source}->${destination}`);
+        if (destination === runtimeBinaryPath) {
+          throw new Error('ETXTBSY simulated direct runtime write');
+        }
+        await copyFile(source, destination);
+      },
+      rename: async (source, destination) => {
+        operations.push(`rename:${source}->${destination}`);
+        await rename(source, destination);
+      },
+    };
+    const promoter = new VkBinaryRuntimePromoter({
+      runtimeBinaryPath,
+      versionMarkerPath,
+      stateDir: join(root, 'state'),
+      fileSystem: observingFs,
+    });
+
+    const result = await promoter.promote(artifact(stagedPath));
+    await writeFile(versionMarkerPath, 'new-marker\n');
+    await promoter.rollback(result);
+
+    expect(operations).not.toContain(`copy:${result.rollbackPath}->${runtimeBinaryPath}`);
+    await expect(readFile(runtimeBinaryPath, 'utf8')).resolves.toBe('old');
+    await expect(readFile(versionMarkerPath, 'utf8')).resolves.toBe('old-marker\n');
   });
 });
 
@@ -89,6 +222,7 @@ describe('VdDistRuntimePromoter', () => {
       copyFile,
       cp,
       mkdir,
+      readFile,
       rm,
       writeFile,
       rename: async (source, destination) => {
@@ -120,7 +254,10 @@ describe('VdDistRuntimePromoter', () => {
   });
 });
 
-function artifact(executablePath: string): ResolvedVkRuntimeArtifact {
+function artifact(
+  executablePath: string,
+  overrides: Partial<ResolvedVkRuntimeArtifact> = {},
+): ResolvedVkRuntimeArtifact {
   return {
     source: {
       kind: 'local-rust-build',
@@ -130,7 +267,12 @@ function artifact(executablePath: string): ResolvedVkRuntimeArtifact {
     },
     executablePath,
     buildVersionLabel: 'local-build:test',
+    ...overrides,
   };
+}
+
+function sha256(content: string): string {
+  return createHash('sha256').update(content).digest('hex');
 }
 
 async function writeDist(path: string, label: string): Promise<void> {

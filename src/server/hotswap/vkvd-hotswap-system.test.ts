@@ -91,6 +91,7 @@ describe('runVkvdHotswap', () => {
       'promote-vk:/staging/vibe-kanban',
       'restart:vibe-kanban',
       'ready-vk',
+      'complete-vk:/runtime/promoted',
       'promote-vd:/repo/vibe-kanban-vscode-web/dist',
       'restart:vibe-dashboard',
       'ready-vd',
@@ -116,6 +117,7 @@ describe('runVkvdHotswap', () => {
       'promote-vk:/staging/vibe-kanban',
       'restart:vibe-kanban',
       'ready-vk',
+      'complete-vk:/runtime/promoted',
     ]);
   });
 
@@ -176,6 +178,38 @@ describe('runVkvdHotswap', () => {
     ]);
   });
 
+  it('includes original VK failure and recovery failure when rollback recovery fails', async () => {
+    const calls: string[] = [];
+    const deps = fakeDependencies(calls, {
+      waitForVkReady: async () => {
+        calls.push('ready-vk-fail');
+        throw new Error('VK not ready');
+      },
+    });
+    deps.vkPromoter.rollback = vi.fn(async (result) => {
+      calls.push(`rollback-vk:${result.promotedPath}`);
+      throw new Error('rollback restore failed');
+    });
+
+    await expect(runVkvdHotswap(request({
+      scope: 'vk-only',
+      vdDistPath: undefined,
+    }), deps, {
+      dryRun: false,
+      applyConfirmed: true,
+    })).rejects.toThrow(
+      'VK hotswap failed, then rollback recovery failed: original failure: VK not ready; recovery failure: rollback restore failed',
+    );
+
+    expect(calls).toEqual([
+      'resolve:github-prerelease:feature/test',
+      'promote-vk:/staging/vibe-kanban',
+      'restart:vibe-kanban',
+      'ready-vk-fail',
+      'rollback-vk:/runtime/promoted',
+    ]);
+  });
+
   it('rolls back and restarts VD when VD readiness fails after restart', async () => {
     const calls: string[] = [];
     let vdReadinessAttempts = 0;
@@ -197,6 +231,7 @@ describe('runVkvdHotswap', () => {
       'promote-vk:/staging/vibe-kanban',
       'restart:vibe-kanban',
       'ready-vk',
+      'complete-vk:/runtime/promoted',
       'promote-vd:/repo/vibe-kanban-vscode-web/dist',
       'restart:vibe-dashboard',
       'ready-vd-fail',
@@ -252,6 +287,9 @@ function fakeDependencies(
       }),
       rollback: vi.fn(async (result) => {
         calls.push(`rollback-vk:${result.promotedPath}`);
+      }),
+      completePromotion: vi.fn(async (result) => {
+        calls.push(`complete-vk:${result.promotedPath}`);
       }),
     },
     vdPromoter: {
