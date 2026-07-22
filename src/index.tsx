@@ -26,6 +26,7 @@ import type {
 // @platform "browser"
 import "./modules/plugins";
 import "./modules/MainUIShellModule";
+import "./modules/AgentTeamsModule";
 // @platform end
 
 // @platform "node"
