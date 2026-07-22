@@ -24,12 +24,47 @@ describe('VD database', () => {
     tempDirs.push(dir);
     const handle = await initVdDb({ path: join(dir, 'vd.sqlite') });
     try {
-      expect(handle.appliedMigrations).toContain('20260722000000_workflow_runs');
+      expect(handle.appliedMigrations).toEqual([
+        '20260722000000_workflow_runs',
+        '20260722010000_workflow_run_indexes',
+      ]);
       const tables = await sql<{ name: string }>`
         SELECT name FROM sqlite_master
         WHERE type = 'table' AND name IN ('WorkflowRun', 'WorkflowRunEvent', 'Migration')
       `.execute(handle.db);
       expect(tables.rows.map((table) => table.name).sort()).toEqual(['Migration', 'WorkflowRun', 'WorkflowRunEvent']);
+    } finally {
+      await handle.db.destroy();
+      handle.sqlite.close();
+    }
+  });
+
+  it('initializes workflow run lookup indexes', async () => {
+    const handle = await initVdDb({ path: ':memory:' });
+    try {
+      const indexes = await sql<{ name: string }>`
+        SELECT name FROM sqlite_master
+        WHERE type = 'index' AND name IN (
+          'idx_workflow_run_workflow_status_started',
+          'idx_workflow_run_trigger_started',
+          'idx_workflow_run_vk_workspace_started',
+          'idx_workflow_run_vk_session_started',
+          'idx_workflow_run_vk_queue_item_started',
+          'idx_workflow_run_vk_execution_process_started',
+          'idx_workflow_run_event_type_run_index',
+          'idx_workflow_run_event_run_index'
+        )
+      `.execute(handle.db);
+      expect(indexes.rows.map((index) => index.name).sort()).toEqual([
+        'idx_workflow_run_event_run_index',
+        'idx_workflow_run_event_type_run_index',
+        'idx_workflow_run_trigger_started',
+        'idx_workflow_run_vk_execution_process_started',
+        'idx_workflow_run_vk_queue_item_started',
+        'idx_workflow_run_vk_session_started',
+        'idx_workflow_run_vk_workspace_started',
+        'idx_workflow_run_workflow_status_started',
+      ]);
     } finally {
       await handle.db.destroy();
       handle.sqlite.close();
