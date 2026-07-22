@@ -10,6 +10,12 @@
 - agents do not receive vardash secrets in normal session env;
 - Varlock is used where it helps with validation/redaction, but vardash remains source of truth.
 
+Production VD UI access is through the built-in Settings tab for
+workspace-backed crafts. The Vardash settings menu receives explicit workspace
+context, requires a selected workspace repo, and uses workspace-scoped API routes
+for UI-facing reads and mutations. Direct `/dashboard/vardash` navigation and
+repo-row Vardash links are not part of the production entry model.
+
 ## Threat model
 
 Vardash is a better-than-`.env` developer convenience and safety layer, not a full isolation boundary.

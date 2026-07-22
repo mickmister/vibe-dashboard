@@ -26,6 +26,18 @@ Bead: **vkvw-24c5 — Design vardash UI surfaces with UX Pilot**
 
 ## Primary navigation shape
 
+Vardash is surfaced through the built-in **Settings** tab for workspace-backed
+crafts. Users open a workspace craft, select the generated Settings tab, choose
+the Vardash settings menu, and then select the repo whose environment settings
+they want to manage. Single-repo workspaces may auto-select that repo; multi-repo
+workspaces must require an explicit repo selection before rendering repo-scoped
+Vardash panels.
+
+The previous direct `/dashboard/vardash?...` entry point and repo-row links are
+not part of the production UI model. The Settings path keeps the active
+workspace/craft context explicit and ensures UI-facing Vardash calls include both
+`workspaceId` and `repoId`.
+
 Add a workspace/repo-scoped vardash surface that can be reached from repo or workspace detail context.
 
 Recommended information architecture:
@@ -329,7 +341,14 @@ Style:
 
 Before implementing UI code:
 
+- Render Vardash from the workspace-backed craft Settings tab via the Vardash
+  settings menu. Do not reintroduce the old direct `/dashboard/vardash` route or
+  repo-row links.
 - Use the metadata-only API boundary from `src/server/vardash/api.ts`.
+- Use workspace-scoped API routes for all UI-facing env, import, process,
+  readiness, launch, status, and stop calls. Production server registration must
+  leave repo-only Vardash routes disabled unless an explicit internal/admin
+  opt-in is provided.
 - Do not add secret reveal endpoints.
 - Do not call launch resolver from metadata UI in a way that exposes raw `env` values.
 - Import UI must call dry-run/preview first and handle conflicts before apply.
@@ -339,8 +358,18 @@ Before implementing UI code:
   Do not add tmux/log inspection or stdout/stderr display without a new scope bead.
 - Route any visual design iteration through UX Pilot output and keep this document as the security/scope source of truth.
 
-## Implementation note: workspace entry point and readiness gating
+## Implementation note: Settings entry point and readiness gating
 
-The first production entry point is `/dashboard/vardash?workspaceId=...&repoId=...&repoName=...`, linked from each repo shown in the dashboard workspace row. The route renders the repo env manager, import flow, process definition manager, and Launch/Status/Stop panel for that workspace+repo only.
+The production entry point is the built-in Settings tab generated for
+workspace-backed crafts. The Settings renderer receives the active tab group and
+workspace metadata explicitly, filters registered settings menus for the craft,
+and renders the built-in Vardash target with that workspace context. Vardash then
+loads the workspace repos and renders the repo env manager, import flow, process
+definition manager, and Launch/Status/Stop panel only after a repo is selected.
 
-UI-facing vardash calls must use workspace-scoped API routes so workspace/repo ownership is validated before metadata reads or mutations. Repo-only vardash routes are disabled by default and require an explicit server opt-in for internal/admin use. Launch readiness is intentionally ineligible when the server cannot safely resolve a repo root for the selected workspace repo; the UI must not show a ready state for launches that would fail due unresolved repo root.
+UI-facing vardash calls must use workspace-scoped API routes so workspace/repo
+ownership is validated before metadata reads or mutations. Repo-only vardash
+routes are disabled by default and require an explicit server opt-in for
+internal/admin use. Launch readiness is intentionally ineligible when the server
+cannot safely resolve a repo root for the selected workspace repo; the UI must
+not show a ready state for launches that would fail due unresolved repo root.
