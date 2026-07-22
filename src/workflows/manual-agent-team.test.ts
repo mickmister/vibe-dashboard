@@ -78,6 +78,23 @@ describe('manual agent team workflow', () => {
     expect(vk.sendFollowUp).not.toHaveBeenCalled();
   });
 
+
+  it('preflight-validates all selected agents before creating queued work', async () => {
+    const vk = createFakeVkClient();
+    const workflow = createManualAgentTeamWorkflow({ vkClient: vk });
+    const team = teamFixture({ implementerSessionId: null });
+
+    const result = await runWorkflow(registryFor(workflow), workflow.id, {
+      team,
+      taskPrompt: 'Do the thing without partial queueing.',
+    });
+
+    expect(result.status).toBe('failed');
+    expect(result.error?.message).toMatch(/Team agent agent-impl \(Implementer\) is missing vkSessionId/);
+    expect(vk.queueFollowUp).not.toHaveBeenCalled();
+    expect(vk.sendFollowUp).not.toHaveBeenCalled();
+  });
+
   it('persists primary and per-agent queue item references through the workflow recorder', async () => {
     const handle = await initVdDb({ path: ':memory:' });
     handles.push(handle);
@@ -152,7 +169,7 @@ function registryFor(workflow: ReturnType<typeof createManualAgentTeamWorkflow>)
   return registry;
 }
 
-function teamFixture(options: { orchestratorSessionId?: string | null; maxConcurrentAgents?: number } = {}): AgentTeam {
+function teamFixture(options: { orchestratorSessionId?: string | null; implementerSessionId?: string | null; maxConcurrentAgents?: number } = {}): AgentTeam {
   return createAgentTeam({
     id: 'team-1',
     name: 'Delivery Team',
@@ -170,7 +187,7 @@ function teamFixture(options: { orchestratorSessionId?: string | null; maxConcur
         id: 'agent-impl',
         role: 'implementer',
         displayName: 'Implementer',
-        vkSessionId: 'session-impl',
+        vkSessionId: options.implementerSessionId === undefined ? 'session-impl' : options.implementerSessionId,
       },
       {
         id: 'agent-disabled',

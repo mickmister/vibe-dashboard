@@ -52,6 +52,7 @@ export function createManualAgentTeamWorkflow(
     run: async (ctx, input) => {
       validateManualTeamInput(input);
       const targetAgents = selectTargetAgents(input.team, input.targetAgentIds);
+      validateSelectedAgents(targetAgents);
       ctx.log('validate_team', `Validated team ${input.team.name}`, 'info', {
         teamId: input.team.id,
         agentCount: input.team.agents.length,
@@ -60,21 +61,19 @@ export function createManualAgentTeamWorkflow(
 
       const queuedAgents: QueuedTeamAgentPrompt[] = [];
       for (const agent of targetAgents) {
-        if (!agent.vkSessionId) {
-          throw new Error(`Team agent ${agent.id} (${agent.displayName}) is missing vkSessionId`);
-        }
+        const sessionId = agent.vkSessionId as string;
         const prompt = formatTeamAgentPrompt({
           team: input.team,
           agent,
           taskPrompt: input.taskPrompt,
           context: input.context ?? null,
         });
-        const queueResponse = await options.vkClient.queueFollowUp(agent.vkSessionId, prompt);
+        const queueResponse = await options.vkClient.queueFollowUp(sessionId, prompt);
         const queued: QueuedTeamAgentPrompt = {
           agentId: agent.id,
           role: agent.role,
           displayName: agent.displayName,
-          sessionId: agent.vkSessionId,
+          sessionId,
           workspaceId: queueResponse.queued_item.workspace_id,
           queueItemId: queueResponse.queued_item.id,
           queuedCount: queueResponse.status.count,
@@ -116,6 +115,18 @@ export function validateManualTeamInput(input: ManualAgentTeamWorkflowInput): vo
   }
   if (input.team.policies.requireOrchestrator && !orchestrator.vkSessionId) {
     throw new Error(`Orchestrator agent ${orchestrator.id} is missing vkSessionId`);
+  }
+}
+
+
+export function validateSelectedAgents(agents: TeamAgent[]): void {
+  if (agents.length === 0) {
+    throw new Error('No team agents were eligible for queueing');
+  }
+  for (const agent of agents) {
+    if (!agent.vkSessionId) {
+      throw new Error(`Team agent ${agent.id} (${agent.displayName}) is missing vkSessionId`);
+    }
   }
 }
 
