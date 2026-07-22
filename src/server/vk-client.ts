@@ -58,6 +58,8 @@ export interface QueueStatus {
   status: 'empty' | 'queued';
 }
 
+export type QueueFollowUpSource = 'from_user' | 'workflow' | 'agent' | 'system';
+
 export interface QueueFollowUpResponse {
   queued_item: QueuedMessage;
   status: QueueStatus;
@@ -168,10 +170,14 @@ export class VibeKanbanServerClient {
     });
   }
 
-  queueFollowUp(sessionId: string, prompt: string): Promise<QueueFollowUpResponse> {
+  queueFollowUp(
+    sessionId: string,
+    prompt: string,
+    options: { source?: QueueFollowUpSource } = {},
+  ): Promise<QueueFollowUpResponse> {
     return this.post(`/sessions/${encodeURIComponent(sessionId)}/queue`, {
       message: prompt,
-      source: 'workflow',
+      source: options.source ?? 'workflow',
     });
   }
 

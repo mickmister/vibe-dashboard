@@ -148,6 +148,34 @@ describe('VibeKanbanServerClient', () => {
     });
   });
 
+  it('can queue system follow-up messages for guardrail traffic', async () => {
+    const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
+      expect(url).toBe('http://vk.local/api/sessions/session-1/queue');
+      expect(init?.method).toBe('POST');
+      expect(JSON.parse(String(init?.body))).toEqual({ message: 'Status?', source: 'system' });
+      return jsonResponse({
+        success: true,
+        data: {
+          queued_item: {
+            id: 'queue-system',
+            session_id: 'session-1',
+            workspace_id: 'ws1',
+            status: 'queued',
+            source: 'system',
+            priority: 25,
+            data: { message: 'Status?', session_command: null },
+          },
+          status: { status: 'queued', count: 1, message: null, messages: [] },
+        },
+      });
+    });
+    const client = new VibeKanbanServerClient({ baseUrl: 'http://vk.local/api', fetch: fetchImpl });
+
+    await expect(client.queueFollowUp('session-1', 'Status?', { source: 'system' })).resolves.toMatchObject({
+      queued_item: { id: 'queue-system', source: 'system' },
+    });
+  });
+
   it('throws VkApiError with status and body for failed HTTP responses', async () => {
     const client = new VibeKanbanServerClient({
       baseUrl: 'http://vk.local/api',

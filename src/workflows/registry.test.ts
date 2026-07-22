@@ -12,6 +12,10 @@ describe('workflowRegistry', () => {
         id: 'manual-agent-team-runner',
         trigger: 'manual',
       }),
+      expect.objectContaining({
+        id: 'team-guardrail-nudge',
+        trigger: 'manual',
+      }),
     ]);
   });
 });
