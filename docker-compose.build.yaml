@@ -1,0 +1,19 @@
+services:
+  code-vibe:
+    build:
+      context: .
+      dockerfile: Dockerfile.vkvd
+      args:
+        VK_REPO_URL: ${VK_REPO_URL:-https://github.com/mickmister/vibe-kanban.git}
+        VK_BRANCH: ${VK_BRANCH:-main}
+        VK_COMMIT: ${VK_COMMIT:?VK_COMMIT is required when building Dockerfile.vkvd}
+        CODEX_USE_CUSTOM_BUILD: ${CODEX_USE_CUSTOM_BUILD:-0}
+        CODEX_REPO_URL: ${CODEX_REPO_URL:-https://github.com/openai/codex.git}
+        CODEX_BRANCH: ${CODEX_BRANCH:-main}
+        CODEX_COMMIT: ${CODEX_COMMIT:-}
+        CODEX_CARGO_BUILD_ARGS: ${CODEX_CARGO_BUILD_ARGS:---locked --release -p codex-cli --bin codex}
+        CODEX_BUILT_BINARY_PATH: ${CODEX_BUILT_BINARY_PATH:-/tmp/codex-target/release/codex}
+        CODEX_RELEASE_REPO: ${CODEX_RELEASE_REPO:-mickmister/codex}
+        CODEX_RELEASE_TAG: ${CODEX_RELEASE_TAG:-codex-cli-assets-8308b5111d2de9bc2a1dc8c5d4ba77bfc9a80f58}
+        CODEX_RELEASE_ASSET: ${CODEX_RELEASE_ASSET:-}
+    pull_policy: build

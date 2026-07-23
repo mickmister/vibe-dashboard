@@ -49,11 +49,13 @@ export interface RuntimePromotionResult {
   promotedPath: string;
   rollbackPath: string;
   versionLabel?: string;
+  previousVersionMarker?: string;
 }
 
 export interface VkRuntimePromoter {
   promote(artifact: ResolvedVkRuntimeArtifact): Promise<RuntimePromotionResult>;
   rollback(result: RuntimePromotionResult): Promise<void>;
+  completePromotion?(result: RuntimePromotionResult): Promise<void>;
 }
 
 export interface VdRuntimePromoter {
@@ -193,6 +195,7 @@ export async function runVkvdHotswap(
   try {
     await dependencies.supervisor.restart(plan.supervisorPrograms.vk);
     await dependencies.readiness.waitForVkReady();
+    await dependencies.vkPromoter.completePromotion?.(vkPromotion);
   } catch (error) {
     await recoverPromotedService({
       componentLabel: 'VK',

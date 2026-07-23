@@ -1,5 +1,6 @@
 import { constants } from 'node:fs';
-import { access, chmod, copyFile, cp, mkdir, rename, rm, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { access, chmod, copyFile, cp, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import type {
   ResolvedVkRuntimeArtifact,
@@ -14,6 +15,7 @@ export interface NodeRuntimePromoterFileSystem {
   copyFile(source: string, destination: string): Promise<void>;
   cp(source: string, destination: string, options?: { recursive?: boolean }): Promise<void>;
   mkdir(path: string, options?: { recursive?: boolean }): Promise<unknown>;
+  readFile(path: string): Promise<Buffer>;
   rename(source: string, destination: string): Promise<void>;
   rm(path: string, options?: { recursive?: boolean; force?: boolean }): Promise<void>;
   writeFile(path: string, data: string): Promise<void>;
@@ -25,6 +27,7 @@ const nodeFileSystem: NodeRuntimePromoterFileSystem = {
   copyFile,
   cp,
   mkdir,
+  readFile,
   rename,
   rm,
   writeFile,
@@ -56,25 +59,78 @@ export class VkBinaryRuntimePromoter implements VkRuntimePromoter {
     await this.fs.mkdir(dirname(this.runtimeBinaryPath), { recursive: true });
     await this.fs.mkdir(dirname(this.versionMarkerPath), { recursive: true });
 
-    const rollbackPath = join(this.stateDir, `rollback-${Date.now()}-${basename(this.runtimeBinaryPath)}`);
+    const timestamp = Date.now();
+    const rollbackPath = join(this.stateDir, `rollback-${timestamp}-${basename(this.runtimeBinaryPath)}`);
+    const previousVersionMarker = await this.readVersionMarkerIfPresent();
     await this.fs.copyFile(this.runtimeBinaryPath, rollbackPath);
-    await this.fs.copyFile(artifact.executablePath, this.runtimeBinaryPath);
-    await this.fs.chmod(this.runtimeBinaryPath, 0o755);
-    await this.fs.writeFile(this.versionMarkerPath, `${artifact.buildVersionLabel}\n`);
+    await this.fs.chmod(rollbackPath, 0o755);
+    await this.installBinaryAtomically({
+      sourcePath: artifact.executablePath,
+      nextPath: this.nextRuntimeBinaryPath(timestamp),
+      expectedSha256: artifact.sha256,
+    });
 
     return {
       promotedPath: this.runtimeBinaryPath,
       rollbackPath,
       versionLabel: artifact.buildVersionLabel,
+      previousVersionMarker,
     };
   }
 
-  async rollback(result: RuntimePromotionResult): Promise<void> {
-    await this.fs.access(result.rollbackPath, constants.R_OK);
-    await this.fs.copyFile(result.rollbackPath, this.runtimeBinaryPath);
-    await this.fs.chmod(this.runtimeBinaryPath, 0o755);
+  async completePromotion(result: RuntimePromotionResult): Promise<void> {
     if (result.versionLabel) {
-      await this.fs.writeFile(this.versionMarkerPath, `rollback-from:${result.versionLabel}\n`);
+      await this.fs.writeFile(this.versionMarkerPath, `${result.versionLabel}\n`);
+    }
+  }
+
+  async rollback(result: RuntimePromotionResult): Promise<void> {
+    await this.fs.access(result.rollbackPath, constants.X_OK);
+    await this.installBinaryAtomically({
+      sourcePath: result.rollbackPath,
+      nextPath: this.nextRuntimeBinaryPath(Date.now()),
+    });
+    if (result.previousVersionMarker !== undefined) {
+      await this.fs.writeFile(this.versionMarkerPath, result.previousVersionMarker);
+    } else {
+      await this.fs.rm(this.versionMarkerPath, { force: true });
+    }
+  }
+
+  private nextRuntimeBinaryPath(timestamp: number): string {
+    return join(dirname(this.runtimeBinaryPath), `.${basename(this.runtimeBinaryPath)}.next-${timestamp}-${process.pid}`);
+  }
+
+  private async installBinaryAtomically(args: {
+    sourcePath: string;
+    nextPath: string;
+    expectedSha256?: string;
+  }): Promise<void> {
+    await this.fs.rm(args.nextPath, { force: true });
+    try {
+      await this.fs.copyFile(args.sourcePath, args.nextPath);
+      await this.fs.chmod(args.nextPath, 0o755);
+      await this.fs.access(args.nextPath, constants.X_OK);
+      if (args.expectedSha256) {
+        const actualSha256 = sha256(await this.fs.readFile(args.nextPath));
+        if (actualSha256 !== args.expectedSha256) {
+          throw new Error(
+            `Staged VK binary SHA256 mismatch: expected ${args.expectedSha256}, got ${actualSha256}`,
+          );
+        }
+      }
+      await this.fs.rename(args.nextPath, this.runtimeBinaryPath);
+    } catch (error) {
+      await this.fs.rm(args.nextPath, { force: true });
+      throw error;
+    }
+  }
+
+  private async readVersionMarkerIfPresent(): Promise<string | undefined> {
+    try {
+      return (await this.fs.readFile(this.versionMarkerPath)).toString('utf8');
+    } catch {
+      return undefined;
     }
   }
 }
@@ -167,4 +223,8 @@ export class VdDistRuntimePromoter implements VdRuntimePromoter {
 
 function formatError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function sha256(buffer: Buffer): string {
+  return createHash('sha256').update(buffer).digest('hex');
 }

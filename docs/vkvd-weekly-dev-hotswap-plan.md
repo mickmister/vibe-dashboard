@@ -32,7 +32,7 @@ VK local build paths exist but are heavier than artifact install:
 - `Vktest/Dockerfile` also builds the web UI and Rust server binary locally.
 - The release workflow uses nightly Rust, target-specific builds, Zig/cargo-zigbuild for Linux musl, and CI caches.
 
-Policy for this project: local Rust build is a fallback only and must require explicit operator allowance because it is slower, more environment-sensitive, and does not have the same prevalidated release-artifact contract.
+Policy update after the weekly-dev disk exhaustion incident: do not use local VK release builds as the default workflow. Local Rust build remains an emergency/manual fallback only, must require explicit operator allowance, and should be avoided in the weekly-dev container because it is slow, environment-sensitive, disk-heavy, and does not have the same prevalidated release-artifact contract. For normal VK hotswap prep, push the source commit and consume the CI prerelease asset keyed by the VK commit SHA.
 
 ### VD hotswap and supervisord
 
@@ -206,6 +206,33 @@ Springboard's Node runtime defaults persistent storage under the process working
 In the weekly dev supervisord layout, `vibe-dashboard` runs from `/home/vkuser/.local/share/vibe-dashboard-runtime`, so the existing default persistent data paths live under sibling paths such as `/home/vkuser/.local/share/vibe-dashboard-runtime/data/kv.db` and `/home/vkuser/.local/share/vibe-dashboard-runtime/data/kv_data.json`.
 
 The TypeScript VD runtime promoter only promotes and rolls back `/home/vkuser/.local/share/vibe-dashboard-runtime/dist`. It stages replacements as a hidden sibling of `dist`, moves the prior `dist` into the hotswap state directory, and never removes or copies the runtime directory itself. Tests cover that representative runtime data files under `runtimeDir/data` survive promote, rollback, and failed replacement restoration.
+
+
+## VK build artifact policy update
+
+A local VK release build during weekly-dev integration exhausted the container filesystem after old Cargo target outputs accumulated under multiple worktrees. After cleanup, disk usage dropped from roughly 99% to 54% with about 143 GB free. The operating assumption is now:
+
+- local VK work in the weekly-dev container is limited to quick checks and focused validation;
+- VK release/build artifact generation is offloaded to CI;
+- the hotswap flow should use GitHub prerelease assets produced by `Vktest/.github/workflows/release-binaries.yml`, keyed by the source commit SHA;
+- local prebuilt/local Rust artifact paths remain available only as explicit fallback tools, not the planned path.
+
+This means future VK hotswap retry plans should wait for or trigger CI release assets, verify `manifest.json` and asset SHA256, then run VK-only hotswap from the downloaded artifact. Do not queue local `cargo build --release`, `local-build.sh`, or `pnpm run build:npx` for VK weekly-dev hotswap unless a human explicitly approves the disk/time risk for that specific run.
+
+## CI-generated artifact maintenance plan
+
+Generated artifacts such as `shared/types.ts` and `crates/db/.sqlx/**` should be maintained by CI instead of relying on agents to run heavyweight local regeneration in weekly-dev containers. The proposed CI job should:
+
+1. run on manual dispatch and/or an explicit maintenance label;
+2. check out the requested branch with write credentials;
+3. use the same Node, pnpm, Rust, SQLx CLI, and disk-space setup as VK backend schema checks;
+4. run `pnpm run generate-types` and `pnpm run prepare-db`;
+5. fail if unexpected files changed;
+6. commit only allowlisted generated paths when stale outputs are detected;
+7. push the update to the same branch or open a small generated-artifacts PR if branch protection requires it;
+8. re-run normal validation against the generated-artifacts commit.
+
+Initial allowlist: `shared/types.ts` and `crates/db/.sqlx/**`. Remote generated outputs can be added later after review.
 
 ### Phase 1 VK hotswap permissions
 
