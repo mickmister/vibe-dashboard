@@ -313,7 +313,7 @@ RUN groupadd -f vkadmin && \
     find /usr/local /opt /var/tmp/vibe-kanban -type d -exec chmod g+s {} + && \
     printf '\numask 0002\n' >> /etc/profile && \
     printf '\numask 0002\n' >> /etc/bash.bashrc && \
-    printf '\numask 0002\nexport PATH=/var/lib/vd/plugin-bin:/var/lib/vd/toolchains/bin:/var/lib/vd/toolchains/npm/bin:$PATH\nexport UV_TOOL_DIR=/var/lib/vd/toolchains/uv/tools\nexport UV_TOOL_BIN_DIR=/var/lib/vd/toolchains/bin\nexport NPM_CONFIG_PREFIX=/var/lib/vd/toolchains/npm\nexport CARGO_HOME=/var/lib/vd/toolchains/cargo\nexport GOBIN=/var/lib/vd/toolchains/bin\nexport GOPATH=/var/lib/vd/toolchains/go\n' >> /home/vkuser/.bashrc && \
+    printf '\numask 0002\nexport PATH=/usr/local/lib/vk-bd-wrapper/bin:/var/lib/vd/plugin-bin:/var/lib/vd/toolchains/bin:/var/lib/vd/toolchains/npm/bin:$PATH\nexport UV_TOOL_DIR=/var/lib/vd/toolchains/uv/tools\nexport UV_TOOL_BIN_DIR=/var/lib/vd/toolchains/bin\nexport NPM_CONFIG_PREFIX=/var/lib/vd/toolchains/npm\nexport CARGO_HOME=/var/lib/vd/toolchains/cargo\nexport GOBIN=/var/lib/vd/toolchains/bin\nexport GOPATH=/var/lib/vd/toolchains/go\n' >> /home/vkuser/.bashrc && \
     chmod 755 /var/run/tailscale /var/lib/tailscale
 
 # Configure npm to use user-local directory for global packages
@@ -453,11 +453,14 @@ RUN chown -R vkuser:vkadmin /opt/vibe-kanban-vscode-web-seed && \
     find /opt/vibe-kanban-vscode-web-seed -type d -exec chmod g+s {} +
 RUN printf '#!/bin/sh\nexec node /opt/vibe-kanban-vscode-web-seed/dist/vibe-agent/legacy-cli/vibe-agent.js "$@"\n' > /usr/local/bin/vibe-agent && \
     printf '#!/bin/sh\nexec node /opt/vibe-kanban-vscode-web-seed/dist/vibe-agent/cli/vk.js "$@"\n' > /usr/local/bin/vk && \
-    chmod 0755 /usr/local/bin/vibe-agent /usr/local/bin/vk
+    printf '#!/bin/sh\nexec node --experimental-strip-types /opt/vibe-kanban-vscode-web-seed/scripts/beads-form/cli.ts "$@"\n' > /usr/local/bin/beads-form && \
+    chmod 0755 /usr/local/bin/vibe-agent /usr/local/bin/vk /usr/local/bin/beads-form
 RUN command -v vibe-agent && \
     command -v vk && \
+    command -v beads-form && \
     vibe-agent --help >/dev/null && \
-    vk --help >/dev/null
+    vk --help >/dev/null && \
+    beads-form --help >/dev/null
 
 # Copy packaged vibe-dashboard runtime artifacts to their final runtime path
 RUN mkdir -p /home/vkuser/.local/share/vibe-dashboard-runtime
@@ -482,6 +485,7 @@ RUN mkdir -p /usr/local/lib/vk-bd-wrapper/bin
 COPY scripts/bd-wrapper/bin/bd /usr/local/lib/vk-bd-wrapper/bin/bd
 RUN chmod 0755 /usr/local/lib/vk-bd-wrapper/bin/bd \
     && ln -sf bd /usr/local/lib/vk-bd-wrapper/bin/beads
+ENV PATH="/usr/local/lib/vk-bd-wrapper/bin:${PATH}"
 
 # Copy default VS Code settings
 RUN mkdir -p /home/vkuser/.local/share/code-server/User
