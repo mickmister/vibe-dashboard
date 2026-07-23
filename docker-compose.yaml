@@ -119,7 +119,7 @@ services:
     environment:
       SIGNOZ_OTLP_HTTP_ENDPOINT: ${SIGNOZ_OTLP_HTTP_ENDPOINT:-http://signoz-otel-collector:4318}
     volumes:
-      - ./ops/otel-collector/config.yaml:/etc/otelcol/config.yaml:ro
+      - ./ops/otel-collector:/etc/otelcol:ro
     expose:
       - "4317"
       - "4318"
