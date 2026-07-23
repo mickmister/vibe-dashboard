@@ -38,6 +38,7 @@ For a feature branch named `feature-x` and current weekly dev branch `dev`:
    - Run validation selected by the merge reviewer for the affected repo.
    - For VD, include targeted tests plus `npm run check-types`, `git diff --check`, and full `npm run test` when feasible.
    - For VK, prefer targeted tests around changed code plus the appropriate package checks or Rust checks; run broader checks when the change size/risk justifies it.
+   - Do not do local VK release builds as the normal artifact path for weekly-dev hotswap. Use CI release/prerelease assets keyed by the VK source commit. Local VK validation should stay focused and bounded unless the human explicitly approves a heavyweight local run.
 
 5. **Realign the feature branch**
    - After weekly dev validation passes and the merge commit is accepted, reset `feature-x` to match `dev` exactly so follow-up work starts from weekly dev.
@@ -54,6 +55,18 @@ A merge candidate request should include:
 - changed-file summary
 - likely validation commands
 - whether archive/squash/reset operations are safe to proceed, or the exact blocker
+
+
+## Generated artifact maintenance
+
+Generated outputs should be checked and maintained by CI. If `generate-types:check` or `prepare-db:check` reports stale generated outputs during weekly integration, prefer triggering the CI generated-artifact maintenance job to update and commit allowlisted generated files. Do not commit broad SQLx/type churn from an agent worktree unless it is deliberate and reviewed.
+
+The proposed CI maintenance contract is:
+
+- regenerate allowlisted outputs, initially `shared/types.ts` and `crates/db/.sqlx/**`;
+- fail if any other file changes;
+- commit the generated update to the source branch, or open a generated-artifacts PR when branch protection requires it;
+- re-run normal validation on the generated commit.
 
 ## Safety notes
 
