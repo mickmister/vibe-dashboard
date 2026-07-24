@@ -20,9 +20,9 @@ on:
         required: true
         default: manual
       vk_branch:
-        description: vibe-kanban git branch, tag, or sha to build from
-        required: true
-        default: main
+        description: vibe-kanban git branch, tag, or sha to build from. Leave blank to prefer a same-named official VK branch, then main.
+        required: false
+        default: ""
       vk_repo_url:
         description: vibe-kanban git repository URL to clone
         required: true
@@ -52,7 +52,13 @@ jobs:
       vk_commit: ${{ steps.resolve.outputs.vk_commit }}
       vk_short_commit: ${{ steps.resolve.outputs.vk_short_commit }}
       vk_repo_url: ${{ steps.resolve.outputs.vk_repo_url }}
+      vk_ref_source: ${{ steps.resolve.outputs.vk_ref_source }}
       vd_short_commit: ${{ steps.resolve.outputs.vd_short_commit }}
+      vd_ref_name: ${{ steps.resolve.outputs.vd_ref_name }}
+      branch_pairing: ${{ steps.resolve.outputs.branch_pairing }}
+      release_tag: ${{ steps.resolve.outputs.release_tag }}
+      release_url: ${{ steps.resolve.outputs.release_url }}
+      workflow_run_url: ${{ steps.resolve.outputs.workflow_run_url }}
       publish_latest: ${{ steps.resolve.outputs.publish_latest }}
     steps:
       - name: Resolve vibe-kanban ref to commit SHA
@@ -61,19 +67,55 @@ jobs:
           IMAGE_TAG_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.image_tag || '' }}
           PR_NUMBER: ${{ github.event_name == 'pull_request' && github.event.pull_request.number || '' }}
           VD_SHA_INPUT: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
-          VK_BRANCH_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.vk_branch || github.event.client_payload.vk_sha || github.event.client_payload.vk_ref || 'main' }}
+          VD_REF_NAME_INPUT: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref_name }}
+          VK_BRANCH_OVERRIDE: ${{ github.event_name == 'workflow_dispatch' && inputs.vk_branch || '' }}
+          VK_DISPATCH_REF: ${{ github.event_name == 'repository_dispatch' && (github.event.client_payload.vk_sha || github.event.client_payload.vk_ref) || '' }}
           # Repository dispatch intentionally ignores client_payload.vk_repo_url.
           # Docker release assets are trusted only from the official VK repository.
           VK_REPO_URL_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.vk_repo_url || 'https://github.com/mickmister/vibe-kanban.git' }}
           VK_SOURCE_REF: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.vk_source_ref || '' }}
+          VK_SOURCE_REF_NAME: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.vk_source_ref_name || '' }}
+          VD_INTENDED_BRANCH: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.vd_branch || '' }}
+          RELEASE_TAG: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.release_tag || '' }}
+          RELEASE_URL: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.release_url || '' }}
+          VK_WORKFLOW_RUN_URL: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.workflow_run_url || '' }}
         run: |
           set -euo pipefail
 
           vd_short_commit="${VD_SHA_INPUT:0:7}"
+          vd_ref_name="$VD_REF_NAME_INPUT"
           deploy_image_tag="vd-${VD_SHA_INPUT}"
 
           if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
             echo "Resolved PR #${PR_NUMBER} deploy image tag to ${deploy_image_tag}"
+          fi
+
+          vk_ref_source=""
+          branch_pairing=""
+
+          if [[ -n "${VK_BRANCH_OVERRIDE:-}" ]]; then
+            VK_BRANCH_INPUT="$VK_BRANCH_OVERRIDE"
+            vk_ref_source="manual workflow_dispatch override"
+            branch_pairing="manual override"
+          elif [[ -n "${VK_DISPATCH_REF:-}" ]]; then
+            VK_BRANCH_INPUT="$VK_DISPATCH_REF"
+            vk_ref_source="VK repository_dispatch payload"
+            if [[ -n "${VD_INTENDED_BRANCH:-}" && "$VD_INTENDED_BRANCH" != "$vd_ref_name" ]]; then
+              branch_pairing="repository_dispatch requested VD branch '${VD_INTENDED_BRANCH}', but repository_dispatch workflows start on the VD default branch/ref '${vd_ref_name}'"
+              echo "::notice::${branch_pairing}. Re-run workflow_dispatch on the paired VD branch if branch-specific VD source is required."
+            else
+              branch_pairing="repository_dispatch on VD ref '${vd_ref_name}'"
+            fi
+          elif [[ -n "$vd_ref_name" ]] && git ls-remote --exit-code --heads "$VK_REPO_URL_INPUT" "$vd_ref_name" >/dev/null 2>&1; then
+            VK_BRANCH_INPUT="$vd_ref_name"
+            vk_ref_source="same-named official VK branch"
+            branch_pairing="paired VD '${vd_ref_name}' with VK '${VK_BRANCH_INPUT}'"
+            echo "::notice::Found same-named VK branch '${VK_BRANCH_INPUT}' for VD ref '${vd_ref_name}'."
+          else
+            VK_BRANCH_INPUT="main"
+            vk_ref_source="fallback main"
+            branch_pairing="no same-named VK branch for VD '${vd_ref_name}'; using VK main"
+            echo "::notice::No same-named VK branch found for VD ref '${vd_ref_name}'; falling back to VK main."
           fi
 
           workdir="$(mktemp -d)"
@@ -136,6 +178,39 @@ jobs:
           echo "Deploy PR preview: $deploy_pr_preview"
 
           {
+            echo "## VK/VD publish correlation"
+            echo
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            echo "| VD repository | \`${GITHUB_REPOSITORY}\` |"
+            echo "| VD ref | \`${GITHUB_REF}\` |"
+            echo "| VD ref name | \`${vd_ref_name}\` |"
+            echo "| VD SHA | \`${VD_SHA_INPUT}\` |"
+            echo "| VK repository | \`${VK_REPO_URL_INPUT}\` |"
+            echo "| VK requested ref | \`${VK_BRANCH_INPUT}\` |"
+            echo "| VK resolved SHA | \`${vk_commit}\` |"
+            echo "| VK ref source | ${vk_ref_source} |"
+            echo "| Branch pairing | ${branch_pairing} |"
+            if [[ -n "${RELEASE_TAG:-}" ]]; then
+              echo "| VK release tag | \`${RELEASE_TAG}\` |"
+            fi
+            if [[ -n "${RELEASE_URL:-}" ]]; then
+              echo "| VK release URL | ${RELEASE_URL} |"
+            fi
+            if [[ -n "${VK_WORKFLOW_RUN_URL:-}" ]]; then
+              echo "| VK workflow run | ${VK_WORKFLOW_RUN_URL} |"
+            fi
+            echo
+            echo "Image tags planned:"
+            [[ -n "$IMAGE_TAG_INPUT" ]] && echo "- \`${IMAGE_TAG_INPUT}\`"
+            echo "- \`${deploy_image_tag}\`"
+            echo "- \`vk-${vk_short_commit}-vd-${vd_short_commit}\`"
+            if [[ "$publish_latest" == "true" ]]; then
+              echo "- \`latest\`"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          {
             echo "image_tag=$IMAGE_TAG_INPUT"
             echo "deploy_image_tag=$deploy_image_tag"
             echo "deploy_pr_preview=$deploy_pr_preview"
@@ -144,7 +219,13 @@ jobs:
             echo "vk_commit=$vk_commit"
             echo "vk_short_commit=$vk_short_commit"
             echo "vk_repo_url=$VK_REPO_URL_INPUT"
+            echo "vk_ref_source=$vk_ref_source"
             echo "vd_short_commit=$vd_short_commit"
+            echo "vd_ref_name=$vd_ref_name"
+            echo "branch_pairing=$branch_pairing"
+            echo "release_tag=$RELEASE_TAG"
+            echo "release_url=$RELEASE_URL"
+            echo "workflow_run_url=$VK_WORKFLOW_RUN_URL"
             echo "publish_latest=$publish_latest"
           } >> "$GITHUB_OUTPUT"
 
