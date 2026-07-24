@@ -68,6 +68,7 @@ export type AttachOptions = {
   stdin?: boolean;
   origin?: string;
   workspaceId?: string;
+  sessionId?: string;
 };
 
 export type ShowOptions = {
@@ -179,6 +180,8 @@ function normalizeAttachOptions(options: CliOptions): AttachOptions {
   const inputCount = [file, json, stdin ? 'stdin' : undefined].filter(Boolean).length;
   if (inputCount !== 1) throw new Error('attach requires exactly one of --file, --json, or --stdin');
   const origin = resolveBeadsFormOrigin({ explicitOrigin: stringOption(options, 'origin') });
+  const workspaceId = stringOption(options, 'workspace') ?? stringEnv(process.env, 'VK_WORKSPACE_ID');
+  const sessionId = stringOption(options, 'session') ?? stringEnv(process.env, 'VK_SESSION_ID');
   return {
     dir: resolve(stringOption(options, 'dir') ?? process.cwd()),
     beadId,
@@ -186,9 +189,8 @@ function normalizeAttachOptions(options: CliOptions): AttachOptions {
     ...(json ? { json } : {}),
     ...(stdin ? { stdin: true } : {}),
     ...(origin ? { origin } : {}),
-    ...(stringOption(options, 'workspace') ?? process.env.VK_WORKSPACE_ID
-      ? { workspaceId: stringOption(options, 'workspace') ?? process.env.VK_WORKSPACE_ID }
-      : {}),
+    ...(workspaceId ? { workspaceId } : {}),
+    ...(sessionId ? { sessionId } : {}),
   };
 }
 
@@ -389,6 +391,7 @@ export async function attachBeadsForms(input: {
   const bead = await readBead({ execFile: exec, dir: input.options.dir, beadId: input.options.beadId });
   const metadata = attachFormsToMetadata(bead.metadata, input.forms, {
     workspaceId: input.options.workspaceId,
+    sessionId: input.options.sessionId,
   });
   await updateMetadata({ execFile: exec, dir: input.options.dir, beadId: input.options.beadId, metadata });
   return {
@@ -415,7 +418,7 @@ export async function attachBeadsForms(input: {
 export function attachFormsToMetadata(
   metadata: unknown,
   forms: BeadsFormDefinition[],
-  options: { workspaceId?: string } = {},
+  options: { workspaceId?: string; sessionId?: string } = {},
 ): JsonObject {
   const next: JsonObject = isObject(metadata) ? structuredClone(metadata) as JsonObject : {};
   const beadForms = isObject(next.beadForms) ? next.beadForms : { forms: [] };
@@ -427,10 +430,14 @@ export function attachFormsToMetadata(
     if (existingIds.has(form.id)) throw new Error(`Form id already exists on bead: ${form.id}`);
   }
   next.beadForms = { ...beadForms, forms: [...existingForms, ...forms] };
-  if (options.workspaceId?.trim()) {
-    next.VK_WORKSPACE_ID = options.workspaceId.trim();
-  }
+  stampStringMetadata(next, 'VK_WORKSPACE_ID', options.workspaceId);
+  stampStringMetadata(next, 'VK_SESSION_ID', options.sessionId);
   return next;
+}
+
+function stampStringMetadata(metadata: JsonObject, key: string, value: string | undefined): void {
+  const trimmed = value?.trim();
+  if (trimmed) metadata[key] = trimmed;
 }
 
 export function buildFillOutUrl(args: {
@@ -621,17 +628,20 @@ function isObject(value: unknown): value is JsonObject {
 
 function printHelp(): void {
   console.log(`Usage:
-  beads-form attach --bead <id> (--file form.json | --json raw-json | --stdin) [--dir repo] [--origin origin]
+  beads-form attach --bead <id> (--file form.json | --json raw-json | --stdin) [--dir repo] [--origin origin] [--workspace id] [--session id]
   beads-form show --bead <id> [--form form-id] [--dir repo] [--include-html]
 
 Also supported:
-  npm run beads-form -- attach --bead <id> (--file form.json | --json raw-json | --stdin) [--dir repo] [--origin origin]
+  npm run beads-form -- attach --bead <id> (--file form.json | --json raw-json | --stdin) [--dir repo] [--origin origin] [--workspace id] [--session id]
   npm run beads-form -- show --bead <id> [--form form-id] [--dir repo] [--include-html]
 
 Attach origin precedence:
   1. explicit --origin
   2. BEADS_FORM_ORIGIN or VD_BEADS_FORM_ORIGIN
   3. ${DEFAULT_CONFIG_FILE_NAME} with {"origin":"https://example.test"} under XDG_CONFIG_HOME/${DEFAULT_CONFIG_DIR_NAME}/
+
+Attach metadata stamps:
+  VK_WORKSPACE_ID from --workspace or env, and VK_SESSION_ID from --session or env, when non-empty.
 
 Default show output is JSON and includes all responses.`);
 }
