@@ -212,7 +212,7 @@ describe('VdDistRuntimePromoter', () => {
     await expectRuntimeData(runtimeDir);
   });
 
-  it('restores old VD dist if atomic replacement fails after current dist is moved', async () => {
+  it('restores old VD dist if atomic replacement fails after current dist is snapshotted', async () => {
     const root = await mkdtemp(join(tmpdir(), 'vd-promote-replace-fails-'));
     const runtimeDir = join(root, 'runtime');
     const stateDir = join(root, 'state');
@@ -220,6 +220,7 @@ describe('VdDistRuntimePromoter', () => {
     await writeDist(join(runtimeDir, 'dist'), 'old');
     await writeRuntimeData(runtimeDir);
     await writeDist(sourceDist, 'new');
+    let failedInstall = false;
 
     const failingFs: NodeRuntimePromoterFileSystem = {
       access,
@@ -233,7 +234,8 @@ describe('VdDistRuntimePromoter', () => {
       stat,
       writeFile,
       rename: async (source, destination) => {
-        if (source.includes('.runtime-next-') && destination === join(runtimeDir, 'dist')) {
+        if (!failedInstall && source.includes('.dist.next-') && destination === join(runtimeDir, 'dist')) {
+          failedInstall = true;
           throw new Error('failed to install next dist');
         }
         await rename(source, destination);
@@ -243,6 +245,129 @@ describe('VdDistRuntimePromoter', () => {
 
     await expect(promoter.promoteDist(sourceDist)).rejects.toThrow('failed to install next dist');
     await expect(readFile(join(runtimeDir, 'dist', 'index.html'), 'utf8')).resolves.toBe('old:index');
+    await expectRuntimeData(runtimeDir);
+  });
+
+  it('copies live runtime paths into rollback instead of renaming them, avoiding EXDEV during snapshot capture', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'vd-promote-exdev-snapshot-'));
+    const runtimeDir = join(root, 'runtime');
+    const stateDir = join(root, 'state');
+    const sourceDist = join(root, 'source-dist');
+    const operations: string[] = [];
+    await writeDist(join(runtimeDir, 'dist'), 'old');
+    await writeRuntimeData(runtimeDir);
+    await writeDist(sourceDist, 'new');
+
+    const exdevOnRollbackRenameFs: NodeRuntimePromoterFileSystem = {
+      access,
+      chmod,
+      copyFile,
+      mkdir,
+      readFile,
+      readdir,
+      rm,
+      stat,
+      writeFile,
+      cp: async (source, destination, options) => {
+        operations.push(`cp:${source}->${destination}`);
+        await cp(source, destination, options);
+      },
+      rename: async (source, destination) => {
+        operations.push(`rename:${source}->${destination}`);
+        if (source === join(runtimeDir, 'dist') && destination.startsWith(stateDir)) {
+          const error = new Error('EXDEV: cross-device link not permitted') as NodeJS.ErrnoException;
+          error.code = 'EXDEV';
+          throw error;
+        }
+        await rename(source, destination);
+      },
+    };
+    const promoter = new VdDistRuntimePromoter({ runtimeDir, stateDir, fileSystem: exdevOnRollbackRenameFs });
+
+    const result = await promoter.promoteDist(sourceDist);
+
+    expect(operations).toContain(`cp:${join(runtimeDir, 'dist')}->${join(result.rollbackPath, 'dist')}`);
+    expect(operations).not.toContain(`rename:${join(runtimeDir, 'dist')}->${join(result.rollbackPath, 'dist')}`);
+    await expect(readFile(join(runtimeDir, 'dist', 'index.html'), 'utf8')).resolves.toBe('new:index');
+    await expect(readFile(join(result.rollbackPath, 'dist', 'index.html'), 'utf8')).resolves.toBe('old:index');
+    await expectRuntimeData(runtimeDir);
+  });
+
+  it('leaves live runtime untouched when rollback snapshot capture fails before promotion', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'vd-promote-snapshot-fails-'));
+    const runtimeDir = join(root, 'runtime');
+    const stateDir = join(root, 'state');
+    const sourceDist = join(root, 'source-dist');
+    await writeDist(join(runtimeDir, 'dist'), 'old');
+    await writeRuntimeData(runtimeDir);
+    await writeDist(sourceDist, 'new');
+
+    const failingSnapshotFs: NodeRuntimePromoterFileSystem = {
+      access,
+      chmod,
+      copyFile,
+      mkdir,
+      readFile,
+      readdir,
+      rename,
+      rm,
+      stat,
+      writeFile,
+      cp: async (source, destination, options) => {
+        if (source === join(runtimeDir, 'dist') && destination.startsWith(stateDir)) {
+          throw new Error('failed to copy live dist into rollback');
+        }
+        await cp(source, destination, options);
+      },
+    };
+    const promoter = new VdDistRuntimePromoter({ runtimeDir, stateDir, fileSystem: failingSnapshotFs });
+
+    await expect(promoter.promoteDist(sourceDist)).rejects.toThrow('failed to copy live dist into rollback');
+    await expect(readFile(join(runtimeDir, 'dist', 'index.html'), 'utf8')).resolves.toBe('old:index');
+    await expectRuntimeData(runtimeDir);
+  });
+
+  it('falls back to copy when installing a managed path hits EXDEV on rename', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'vd-promote-exdev-install-'));
+    const runtimeDir = join(root, 'runtime');
+    const stateDir = join(root, 'state');
+    const sourceDist = join(root, 'source-dist');
+    const operations: string[] = [];
+    await writeDist(join(runtimeDir, 'dist'), 'old');
+    await writeRuntimeData(runtimeDir);
+    await writeDist(sourceDist, 'new');
+
+    const exdevOnInstallRenameFs: NodeRuntimePromoterFileSystem = {
+      access,
+      chmod,
+      copyFile,
+      mkdir,
+      readFile,
+      readdir,
+      rm,
+      stat,
+      writeFile,
+      cp: async (source, destination, options) => {
+        operations.push(`cp:${source}->${destination}`);
+        await cp(source, destination, options);
+      },
+      rename: async (source, destination) => {
+        operations.push(`rename:${source}->${destination}`);
+        if (source.includes('.dist.next-') && destination === join(runtimeDir, 'dist')) {
+          const error = new Error('EXDEV: cross-device link not permitted') as NodeJS.ErrnoException;
+          error.code = 'EXDEV';
+          throw error;
+        }
+        await rename(source, destination);
+      },
+    };
+    const promoter = new VdDistRuntimePromoter({ runtimeDir, stateDir, fileSystem: exdevOnInstallRenameFs });
+
+    await promoter.promoteDist(sourceDist);
+
+    expect(operations.some((operation) => operation.startsWith(`rename:${join(runtimeDir, '.dist.next-')}`))).toBe(true);
+    expect(operations.some((operation) => operation.startsWith(`cp:${join(runtimeDir, '.dist.next-')}`) && operation.endsWith(`->${join(runtimeDir, 'dist')}`))).toBe(true);
+    await expect(readFile(join(runtimeDir, 'dist', 'index.html'), 'utf8')).resolves.toBe('new:index');
     await expectRuntimeData(runtimeDir);
   });
 
@@ -412,6 +537,7 @@ describe('VdDistRuntimePromoter', () => {
     await writeDist(join(sourceRoot, 'dist'), 'new', ['dompurify']);
     await writePackageJson(sourceRoot, { dependencies: { react: '19.0.0', dompurify: '3.4.11' } });
     await writeFile(join(sourceRoot, 'pnpm-lock.yaml'), 'new-lock');
+    let failedInstall = false;
 
     const failingFs: NodeRuntimePromoterFileSystem = {
       access,
@@ -425,7 +551,8 @@ describe('VdDistRuntimePromoter', () => {
       stat,
       writeFile,
       rename: async (source, destination) => {
-        if (source.includes('.runtime-next-') && destination === join(runtimeDir, 'node_modules')) {
+        if (!failedInstall && source.includes('.node_modules.next-') && destination === join(runtimeDir, 'node_modules')) {
+          failedInstall = true;
           throw new Error('failed to install next node_modules');
         }
         await rename(source, destination);

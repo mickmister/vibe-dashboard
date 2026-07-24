@@ -189,6 +189,7 @@ export interface VdDistPromotionInspection {
 
 const MANIFEST_PATHS = ['package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', '.npmrc'] as const;
 const BASE_MANAGED_PATHS = ['dist', 'package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', '.npmrc', 'packages'] as const;
+const VD_MANAGED_PATHS = [...BASE_MANAGED_PATHS, 'node_modules'] as const;
 
 export class VdDistRuntimePromoter implements VdRuntimePromoter {
   private readonly runtimeDir: string;
@@ -298,56 +299,62 @@ export class VdDistRuntimePromoter implements VdRuntimePromoter {
 
   private async replaceManagedRuntimePaths(args: { candidatePath: string; rollbackPath: string }): Promise<void> {
     await this.fs.mkdir(args.rollbackPath, { recursive: true });
-    const movedPaths: string[] = [];
-    const installedPaths: string[] = [];
+    let rollbackSnapshotComplete = false;
     try {
-      for (const relativePath of BASE_MANAGED_PATHS) {
-        const runtimePath = join(this.runtimeDir, relativePath);
-        if (await this.exists(runtimePath)) {
-          await this.fs.rename(runtimePath, join(args.rollbackPath, relativePath));
-          movedPaths.push(relativePath);
-        }
-      }
-      const runtimeNodeModules = join(this.runtimeDir, 'node_modules');
-      if (await this.exists(runtimeNodeModules)) {
-        await this.fs.rename(runtimeNodeModules, join(args.rollbackPath, 'node_modules'));
-        movedPaths.push('node_modules');
-      }
-
-      for (const relativePath of BASE_MANAGED_PATHS) {
+      await this.snapshotManagedRuntimePaths(args.rollbackPath);
+      rollbackSnapshotComplete = true;
+      for (const relativePath of VD_MANAGED_PATHS) {
         const candidate = join(args.candidatePath, relativePath);
         if (await this.exists(candidate)) {
-          await this.fs.rename(candidate, join(this.runtimeDir, relativePath));
-          installedPaths.push(relativePath);
+          await this.installManagedRuntimePath(candidate, relativePath);
+        } else {
+          await this.fs.rm(join(this.runtimeDir, relativePath), { recursive: true, force: true });
         }
       }
-      const candidateNodeModules = join(args.candidatePath, 'node_modules');
-      if (await this.exists(candidateNodeModules)) {
-        await this.fs.rename(candidateNodeModules, runtimeNodeModules);
-        installedPaths.push('node_modules');
+    } catch (error) {
+      if (rollbackSnapshotComplete) {
+        await this.restoreRuntimeBundleAfterFailedPromotion({ rollbackPath: args.rollbackPath, replacementError: error });
+      }
+      throw error;
+    }
+  }
+
+  private async snapshotManagedRuntimePaths(rollbackPath: string): Promise<void> {
+    for (const relativePath of VD_MANAGED_PATHS) {
+      const runtimePath = join(this.runtimeDir, relativePath);
+      if (await this.exists(runtimePath)) {
+        await this.copyManagedPath(runtimePath, join(rollbackPath, relativePath));
+      }
+    }
+    await this.requireDist(join(rollbackPath, 'dist'));
+  }
+
+  private async installManagedRuntimePath(sourcePath: string, relativePath: string): Promise<void> {
+    const runtimePath = join(this.runtimeDir, relativePath);
+    const nextPath = join(this.runtimeDir, `.${basename(relativePath)}.next-${Date.now()}-${process.pid}`);
+    await this.fs.rm(nextPath, { recursive: true, force: true });
+    try {
+      await this.copyManagedPath(sourcePath, nextPath);
+      await this.fs.rm(runtimePath, { recursive: true, force: true });
+      try {
+        await this.fs.rename(nextPath, runtimePath);
+      } catch (error) {
+        if (!isCrossDeviceLinkError(error)) throw error;
+        await this.copyManagedPath(nextPath, runtimePath);
+        await this.fs.rm(nextPath, { recursive: true, force: true });
       }
     } catch (error) {
-      await this.restoreRuntimeBundleAfterFailedPromotion({ rollbackPath: args.rollbackPath, movedPaths, installedPaths, replacementError: error });
+      await this.fs.rm(nextPath, { recursive: true, force: true });
       throw error;
     }
   }
 
   private async restoreRuntimeBundleAfterFailedPromotion(args: {
     rollbackPath: string;
-    movedPaths: string[];
-    installedPaths: string[];
     replacementError: unknown;
   }): Promise<void> {
     try {
-      for (const relativePath of args.installedPaths.reverse()) {
-        await this.fs.rm(join(this.runtimeDir, relativePath), { recursive: true, force: true });
-      }
-      for (const relativePath of args.movedPaths.reverse()) {
-        const rollbackSource = join(args.rollbackPath, relativePath);
-        if (await this.exists(rollbackSource)) {
-          await this.fs.rename(rollbackSource, join(this.runtimeDir, relativePath));
-        }
-      }
+      await this.restoreManagedRuntimePaths(args.rollbackPath);
     } catch (restoreError) {
       throw new Error(
         `Failed to restore VD runtime bundle after replacement failure: replacement failure: ${formatError(args.replacementError)}; restore failure: ${formatError(restoreError)}`,
@@ -356,13 +363,13 @@ export class VdDistRuntimePromoter implements VdRuntimePromoter {
   }
 
   private async restoreManagedRuntimePaths(rollbackPath: string): Promise<void> {
-    for (const relativePath of [...BASE_MANAGED_PATHS, 'node_modules']) {
+    for (const relativePath of VD_MANAGED_PATHS) {
       await this.fs.rm(join(this.runtimeDir, relativePath), { recursive: true, force: true });
     }
-    for (const relativePath of [...BASE_MANAGED_PATHS, 'node_modules']) {
+    for (const relativePath of VD_MANAGED_PATHS) {
       const rollbackSource = join(rollbackPath, relativePath);
       if (await this.exists(rollbackSource)) {
-        await this.fs.rename(rollbackSource, join(this.runtimeDir, relativePath));
+        await this.installManagedRuntimePath(rollbackSource, relativePath);
       }
     }
   }
@@ -443,6 +450,12 @@ export class VdDistRuntimePromoter implements VdRuntimePromoter {
     if (!await this.exists(source)) return;
     await this.fs.rm(destination, { recursive: true, force: true });
     await this.fs.mkdir(dirname(destination), { recursive: true });
+    await this.copyManagedPath(source, destination);
+  }
+
+  private async copyManagedPath(source: string, destination: string): Promise<void> {
+    await this.fs.rm(destination, { recursive: true, force: true });
+    await this.fs.mkdir(dirname(destination), { recursive: true });
     await this.fs.cp(source, destination, { recursive: true });
   }
 
@@ -482,6 +495,10 @@ function formatError(error: unknown): string {
     return `${error.message}${output}`;
   }
   return String(error);
+}
+
+function isCrossDeviceLinkError(error: unknown): boolean {
+  return error instanceof Error && 'code' in error && error.code === 'EXDEV';
 }
 
 function sha256(buffer: Buffer): string {
