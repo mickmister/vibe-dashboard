@@ -155,6 +155,39 @@ describe('runVkvdHotswapCli', () => {
     });
   });
 
+
+  it('renders VD dependency sync reasons in dry-run output when manifests differ', async () => {
+    const calls: string[] = [];
+    const deps = fakeDependencies(calls);
+    deps.vdPromoter.inspectDistPromotion = vi.fn(async (distPath) => {
+      calls.push(`inspect-vd:${distPath}`);
+      return {
+        dependencySyncRequired: true,
+        reasons: ['package.json differs between source and runtime'],
+        managedPaths: ['dist', 'node_modules', 'package.json'],
+      };
+    });
+    const output = { log: vi.fn() };
+
+    await runVkvdHotswapCli([
+      '--vk-ref',
+      'feature/test',
+      '--vd-dist',
+      '/repo/vibe-kanban-vscode-web/dist',
+    ], deps, output);
+
+    expect(calls).toEqual(['inspect-vd:/repo/vibe-kanban-vscode-web/dist']);
+    expect(JSON.parse(output.log.mock.calls[0]![0])).toMatchObject({
+      mode: 'dry-run',
+      vdPromotion: {
+        vdDependencySync: {
+          dependencySyncRequired: true,
+          reasons: ['package.json differs between source and runtime'],
+        },
+      },
+    });
+  });
+
   it('runs the mocked apply path only with explicit non-dry-run confirmation', async () => {
     const calls: string[] = [];
     const deps = fakeDependencies(calls);

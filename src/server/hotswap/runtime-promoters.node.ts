@@ -1,13 +1,31 @@
 import { constants } from 'node:fs';
+import { builtinModules } from 'node:module';
 import { createHash } from 'node:crypto';
-import { access, chmod, copyFile, cp, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
-import { basename, dirname, join } from 'node:path';
+import { execFile } from 'node:child_process';
+import {
+  access,
+  chmod,
+  copyFile,
+  cp,
+  mkdir,
+  readFile,
+  readdir,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises';
+import { basename, dirname, join, resolve } from 'node:path';
+import { promisify } from 'node:util';
 import type {
   ResolvedVkRuntimeArtifact,
   RuntimePromotionResult,
   VdRuntimePromoter,
   VkRuntimePromoter,
 } from './vkvd-hotswap-system';
+
+const execFileAsync = promisify(execFile);
+const BUILTIN_MODULES = new Set([...builtinModules, ...builtinModules.map((name) => `node:${name}`)]);
 
 export interface NodeRuntimePromoterFileSystem {
   access(path: string, mode?: number): Promise<void>;
@@ -16,10 +34,29 @@ export interface NodeRuntimePromoterFileSystem {
   cp(source: string, destination: string, options?: { recursive?: boolean }): Promise<void>;
   mkdir(path: string, options?: { recursive?: boolean }): Promise<unknown>;
   readFile(path: string): Promise<Buffer>;
+  readdir(path: string, options?: { withFileTypes?: false }): Promise<string[]>;
   rename(source: string, destination: string): Promise<void>;
   rm(path: string, options?: { recursive?: boolean; force?: boolean }): Promise<void>;
+  stat(path: string): Promise<{ isDirectory(): boolean; isFile(): boolean }>;
   writeFile(path: string, data: string): Promise<void>;
 }
+
+export interface RuntimePromoterCommandRunner {
+  execFile(command: string, args: readonly string[], options?: { cwd?: string }): Promise<{ stdout: string; stderr: string }>;
+}
+
+const nodeCommandRunner: RuntimePromoterCommandRunner = {
+  execFile: async (command, args, options) => {
+    const result = await execFileAsync(command, [...args], {
+      cwd: options?.cwd,
+      maxBuffer: 10 * 1024 * 1024,
+    });
+    return {
+      stdout: result.stdout,
+      stderr: result.stderr,
+    };
+  },
+};
 
 const nodeFileSystem: NodeRuntimePromoterFileSystem = {
   access,
@@ -28,8 +65,10 @@ const nodeFileSystem: NodeRuntimePromoterFileSystem = {
   cp,
   mkdir,
   readFile,
+  readdir,
   rename,
   rm,
+  stat,
   writeFile,
 };
 
@@ -139,78 +178,235 @@ export interface VdDistRuntimePromoterOptions {
   runtimeDir?: string;
   stateDir?: string;
   fileSystem?: NodeRuntimePromoterFileSystem;
+  commandRunner?: RuntimePromoterCommandRunner;
 }
+
+export interface VdDistPromotionInspection {
+  dependencySyncRequired: boolean;
+  reasons: string[];
+  managedPaths: string[];
+}
+
+const MANIFEST_PATHS = ['package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', '.npmrc'] as const;
+const BASE_MANAGED_PATHS = ['dist', 'package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', '.npmrc', 'packages'] as const;
 
 export class VdDistRuntimePromoter implements VdRuntimePromoter {
   private readonly runtimeDir: string;
   private readonly stateDir: string;
   private readonly fs: NodeRuntimePromoterFileSystem;
+  private readonly commandRunner: RuntimePromoterCommandRunner;
 
   constructor(options: VdDistRuntimePromoterOptions = {}) {
     this.runtimeDir = options.runtimeDir ?? '/home/vkuser/.local/share/vibe-dashboard-runtime';
     this.stateDir = options.stateDir ?? join(this.runtimeDir, '.hotswap');
     this.fs = options.fileSystem ?? nodeFileSystem;
+    this.commandRunner = options.commandRunner ?? nodeCommandRunner;
   }
 
-  async promoteDist(distPath: string): Promise<RuntimePromotionResult> {
+  async inspectDistPromotion(distPath: string): Promise<VdDistPromotionInspection> {
     await this.requireDist(distPath);
-    const runtimeDistPath = join(this.runtimeDir, 'dist');
-    await this.requireDist(runtimeDistPath);
-    await this.fs.mkdir(this.stateDir, { recursive: true });
+    const sourceRoot = sourceRootForDist(distPath);
+    const reasons: string[] = [];
 
-    const timestamp = Date.now();
-    const rollbackPath = join(this.stateDir, `rollback-dist-${timestamp}`);
-    const nextPath = join(this.runtimeDir, `.dist-next-${timestamp}`);
-    await this.fs.rm(rollbackPath, { recursive: true, force: true });
-    await this.fs.rm(nextPath, { recursive: true, force: true });
-    await this.fs.cp(distPath, nextPath, { recursive: true });
-    await this.requireDist(nextPath);
-
-    let currentMovedToRollback = false;
-    try {
-      await this.fs.rename(runtimeDistPath, rollbackPath);
-      currentMovedToRollback = true;
-      await this.fs.rename(nextPath, runtimeDistPath);
-    } catch (error) {
-      if (currentMovedToRollback) {
-        await this.restoreRuntimeDistAfterFailedPromotion({
-          runtimeDistPath,
-          rollbackPath,
-          replacementError: error,
-        });
+    for (const relativePath of MANIFEST_PATHS) {
+      const source = await this.readOptionalText(join(sourceRoot, relativePath));
+      const runtime = await this.readOptionalText(join(this.runtimeDir, relativePath));
+      if (source !== runtime) {
+        reasons.push(`${relativePath} differs between source and runtime`);
       }
-      await this.fs.rm(nextPath, { recursive: true, force: true });
-      throw error;
     }
 
-    await this.fs.rm(nextPath, { recursive: true, force: true });
+    const sourcePackages = await this.packageManifestHashes(join(sourceRoot, 'packages'));
+    const runtimePackages = await this.packageManifestHashes(join(this.runtimeDir, 'packages'));
+    if (JSON.stringify(sourcePackages) !== JSON.stringify(runtimePackages)) {
+      reasons.push('workspace package manifests differ between source and runtime');
+    }
 
     return {
-      promotedPath: runtimeDistPath,
-      rollbackPath,
-      versionLabel: distPath,
+      dependencySyncRequired: reasons.length > 0,
+      reasons,
+      managedPaths: [...BASE_MANAGED_PATHS, ...(reasons.length > 0 ? ['node_modules'] : [])],
     };
   }
 
-  private async restoreRuntimeDistAfterFailedPromotion(args: {
-    runtimeDistPath: string;
+  async promoteDist(distPath: string): Promise<RuntimePromotionResult> {
+    const inspection = await this.inspectDistPromotion(distPath);
+    const sourceRoot = sourceRootForDist(distPath);
+    await this.requireDist(distPath);
+    await this.requireDist(join(this.runtimeDir, 'dist'));
+    await this.fs.mkdir(this.stateDir, { recursive: true });
+
+    const timestamp = Date.now();
+    const rollbackPath = join(this.stateDir, `rollback-runtime-${timestamp}`);
+    const candidatePath = join(this.stateDir, `.runtime-next-${timestamp}-${process.pid}`);
+    await this.fs.rm(rollbackPath, { recursive: true, force: true });
+    await this.fs.rm(candidatePath, { recursive: true, force: true });
+
+    try {
+      await this.stageCandidateRuntime({ sourceRoot, distPath, candidatePath, inspection });
+      await this.replaceManagedRuntimePaths({ candidatePath, rollbackPath });
+    } catch (error) {
+      await this.fs.rm(candidatePath, { recursive: true, force: true });
+      throw error instanceof Error && error.message.includes('Failed to restore VD runtime bundle')
+        ? error
+        : new Error(`${formatError(error)}${inspection.dependencySyncRequired ? '; use Docker image deploy as fallback if dependency staging cannot complete safely' : ''}`);
+    }
+
+    await this.fs.rm(candidatePath, { recursive: true, force: true });
+
+    return {
+      promotedPath: this.runtimeDir,
+      rollbackPath,
+      versionLabel: distPath,
+      vdDependencySync: inspection,
+    };
+  }
+
+  async rollback(result: RuntimePromotionResult): Promise<void> {
+    await this.requireDist(join(result.rollbackPath, 'dist'));
+    await this.restoreManagedRuntimePaths(result.rollbackPath);
+  }
+
+  private async stageCandidateRuntime(args: {
+    sourceRoot: string;
+    distPath: string;
+    candidatePath: string;
+    inspection: VdDistPromotionInspection;
+  }): Promise<void> {
+    await this.fs.mkdir(args.candidatePath, { recursive: true });
+    await this.fs.cp(args.distPath, join(args.candidatePath, 'dist'), { recursive: true });
+    await this.requireDist(join(args.candidatePath, 'dist'));
+    await this.copySourceRuntimeMetadata(args.sourceRoot, args.candidatePath);
+
+    if (args.inspection.dependencySyncRequired) {
+      await this.runDependencyCommand('pnpm', ['install', '--frozen-lockfile'], args.candidatePath);
+      await this.runDependencyCommand('npm', ['rebuild'], args.candidatePath);
+    } else {
+      await this.copyIfExists(join(this.runtimeDir, 'node_modules'), join(args.candidatePath, 'node_modules'));
+    }
+
+    await this.validateStagedRuntimeImports(args.candidatePath);
+  }
+
+  private async copySourceRuntimeMetadata(sourceRoot: string, candidatePath: string): Promise<void> {
+    for (const relativePath of MANIFEST_PATHS) {
+      await this.copyIfExists(join(sourceRoot, relativePath), join(candidatePath, relativePath));
+    }
+    await this.copyIfExists(join(sourceRoot, 'packages'), join(candidatePath, 'packages'));
+  }
+
+  private async replaceManagedRuntimePaths(args: { candidatePath: string; rollbackPath: string }): Promise<void> {
+    await this.fs.mkdir(args.rollbackPath, { recursive: true });
+    const movedPaths: string[] = [];
+    const installedPaths: string[] = [];
+    try {
+      for (const relativePath of BASE_MANAGED_PATHS) {
+        const runtimePath = join(this.runtimeDir, relativePath);
+        if (await this.exists(runtimePath)) {
+          await this.fs.rename(runtimePath, join(args.rollbackPath, relativePath));
+          movedPaths.push(relativePath);
+        }
+      }
+      const runtimeNodeModules = join(this.runtimeDir, 'node_modules');
+      if (await this.exists(runtimeNodeModules)) {
+        await this.fs.rename(runtimeNodeModules, join(args.rollbackPath, 'node_modules'));
+        movedPaths.push('node_modules');
+      }
+
+      for (const relativePath of BASE_MANAGED_PATHS) {
+        const candidate = join(args.candidatePath, relativePath);
+        if (await this.exists(candidate)) {
+          await this.fs.rename(candidate, join(this.runtimeDir, relativePath));
+          installedPaths.push(relativePath);
+        }
+      }
+      const candidateNodeModules = join(args.candidatePath, 'node_modules');
+      if (await this.exists(candidateNodeModules)) {
+        await this.fs.rename(candidateNodeModules, runtimeNodeModules);
+        installedPaths.push('node_modules');
+      }
+    } catch (error) {
+      await this.restoreRuntimeBundleAfterFailedPromotion({ rollbackPath: args.rollbackPath, movedPaths, installedPaths, replacementError: error });
+      throw error;
+    }
+  }
+
+  private async restoreRuntimeBundleAfterFailedPromotion(args: {
     rollbackPath: string;
+    movedPaths: string[];
+    installedPaths: string[];
     replacementError: unknown;
   }): Promise<void> {
     try {
-      await this.fs.rm(args.runtimeDistPath, { recursive: true, force: true });
-      await this.fs.rename(args.rollbackPath, args.runtimeDistPath);
+      for (const relativePath of args.installedPaths.reverse()) {
+        await this.fs.rm(join(this.runtimeDir, relativePath), { recursive: true, force: true });
+      }
+      for (const relativePath of args.movedPaths.reverse()) {
+        const rollbackSource = join(args.rollbackPath, relativePath);
+        if (await this.exists(rollbackSource)) {
+          await this.fs.rename(rollbackSource, join(this.runtimeDir, relativePath));
+        }
+      }
     } catch (restoreError) {
       throw new Error(
-        `Failed to restore VD runtime dist after replacement failure: replacement failure: ${formatError(args.replacementError)}; restore failure: ${formatError(restoreError)}`,
+        `Failed to restore VD runtime bundle after replacement failure: replacement failure: ${formatError(args.replacementError)}; restore failure: ${formatError(restoreError)}`,
       );
     }
   }
 
-  async rollback(result: RuntimePromotionResult): Promise<void> {
-    await this.requireDist(result.rollbackPath);
-    await this.fs.rm(result.promotedPath, { recursive: true, force: true });
-    await this.fs.cp(result.rollbackPath, result.promotedPath, { recursive: true });
+  private async restoreManagedRuntimePaths(rollbackPath: string): Promise<void> {
+    for (const relativePath of [...BASE_MANAGED_PATHS, 'node_modules']) {
+      await this.fs.rm(join(this.runtimeDir, relativePath), { recursive: true, force: true });
+    }
+    for (const relativePath of [...BASE_MANAGED_PATHS, 'node_modules']) {
+      const rollbackSource = join(rollbackPath, relativePath);
+      if (await this.exists(rollbackSource)) {
+        await this.fs.rename(rollbackSource, join(this.runtimeDir, relativePath));
+      }
+    }
+  }
+
+  private async validateStagedRuntimeImports(candidatePath: string): Promise<void> {
+    await this.commandRunner.execFile('node', ['--check', join(candidatePath, 'dist', 'node', 'node-entry.mjs')], { cwd: candidatePath });
+    const imports = await this.extractBareImports(join(candidatePath, 'dist', 'node', 'node-entry.mjs'));
+    for (const specifier of imports) {
+      try {
+        await this.commandRunner.execFile('node', [
+          '--input-type=module',
+          '-e',
+          `import.meta.resolve(${JSON.stringify(specifier)});`,
+        ], { cwd: candidatePath });
+      } catch (error) {
+        throw new Error(`Staged VD runtime cannot resolve dependency ${specifier}: ${formatError(error)}`);
+      }
+    }
+  }
+
+  private async extractBareImports(entryPath: string): Promise<string[]> {
+    const entry = (await this.fs.readFile(entryPath)).toString('utf8');
+    const imports = new Set<string>();
+    const patterns = [
+      /import\s+(?:[^'";]+?\s+from\s+)?["']([^"']+)["']/g,
+      /export\s+[^'";]+?\s+from\s+["']([^"']+)["']/g,
+      /import\(\s*["']([^"']+)["']\s*\)/g,
+    ];
+    for (const pattern of patterns) {
+      for (const match of entry.matchAll(pattern)) {
+        const specifier = match[1];
+        if (specifier && isBareRuntimeImport(specifier)) imports.add(specifier);
+      }
+    }
+    return [...imports].sort();
+  }
+
+  private async runDependencyCommand(command: string, args: string[], cwd: string): Promise<void> {
+    try {
+      await this.commandRunner.execFile(command, args, { cwd });
+    } catch (error) {
+      throw new Error(
+        `VD dependency staging command failed (${command} ${args.join(' ')}): ${formatError(error)}. Use Docker image deploy as fallback.`,
+      );
+    }
   }
 
   private async requireDist(distPath: string): Promise<void> {
@@ -219,10 +415,63 @@ export class VdDistRuntimePromoter implements VdRuntimePromoter {
     await this.fs.access(join(distPath, 'node', 'node-entry.mjs'), constants.R_OK);
     await this.fs.access(join(distPath, 'node', 'manifest.json'), constants.R_OK);
   }
+
+  private async packageManifestHashes(packagesDir: string): Promise<Record<string, string>> {
+    if (!await this.exists(packagesDir)) return {};
+    const entries = await this.fs.readdir(packagesDir);
+    const hashes: Record<string, string> = {};
+    for (const entry of entries.sort()) {
+      const manifestPath = join(packagesDir, entry, 'package.json');
+      if (await this.exists(manifestPath)) {
+        hashes[entry] = sha256(await this.fs.readFile(manifestPath));
+      }
+    }
+    return hashes;
+  }
+
+  private async copyIfExists(source: string, destination: string): Promise<void> {
+    if (!await this.exists(source)) return;
+    await this.fs.rm(destination, { recursive: true, force: true });
+    await this.fs.mkdir(dirname(destination), { recursive: true });
+    await this.fs.cp(source, destination, { recursive: true });
+  }
+
+  private async readOptionalText(path: string): Promise<string | undefined> {
+    try {
+      return (await this.fs.readFile(path)).toString('utf8');
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async exists(path: string): Promise<boolean> {
+    try {
+      await this.fs.stat(path);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
+function sourceRootForDist(distPath: string): string {
+  return dirname(resolve(distPath));
+}
+
+function isBareRuntimeImport(specifier: string): boolean {
+  if (specifier.startsWith('.') || specifier.startsWith('/') || specifier.startsWith('file:')) return false;
+  if (BUILTIN_MODULES.has(specifier)) return false;
+  return true;
 }
 
 function formatError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  if (error instanceof Error) {
+    const output = 'stderr' in error && typeof error.stderr === 'string' && error.stderr.trim()
+      ? `: ${error.stderr.trim()}`
+      : '';
+    return `${error.message}${output}`;
+  }
+  return String(error);
 }
 
 function sha256(buffer: Buffer): string {

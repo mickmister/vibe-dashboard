@@ -50,6 +50,11 @@ export interface RuntimePromotionResult {
   rollbackPath: string;
   versionLabel?: string;
   previousVersionMarker?: string;
+  vdDependencySync?: {
+    dependencySyncRequired: boolean;
+    reasons: string[];
+    managedPaths: string[];
+  };
 }
 
 export interface VkRuntimePromoter {
@@ -59,6 +64,11 @@ export interface VkRuntimePromoter {
 }
 
 export interface VdRuntimePromoter {
+  inspectDistPromotion?(distPath: string): Promise<{
+    dependencySyncRequired: boolean;
+    reasons: string[];
+    managedPaths: string[];
+  }>;
   promoteDist(distPath: string): Promise<RuntimePromotionResult>;
   rollback(result: RuntimePromotionResult): Promise<void>;
 }
@@ -183,7 +193,15 @@ export async function runVkvdHotswap(
   const dryRun = options.dryRun ?? true;
 
   if (dryRun) {
-    return { mode: 'dry-run', plan };
+    const vdPromotion = plan.scope !== 'vk-only' && plan.vdDistPath && dependencies.vdPromoter.inspectDistPromotion
+      ? {
+          promotedPath: '<dry-run>',
+          rollbackPath: '<dry-run>',
+          versionLabel: plan.vdDistPath,
+          vdDependencySync: await dependencies.vdPromoter.inspectDistPromotion(plan.vdDistPath),
+        }
+      : undefined;
+    return { mode: 'dry-run', plan, vdPromotion };
   }
 
   if (!options.applyConfirmed) {
