@@ -145,6 +145,13 @@ describe('@vibe-dashboard/beads-form', () => {
     ]);
 
     const form = metadata.beadForms.forms[0]!;
+    expect(metadata.beadFormsSummary).toEqual({
+      hasForms: true,
+      hasPendingAnswer: true,
+      pendingResponseCount: 1,
+      formIds: ['safe_form'],
+      pendingFormIds: ['safe_form'],
+    });
     expect(form.html).toContain('&lt;script&gt;bad&lt;/script&gt;');
     expect(form.controls.map((control) => control.name)).toEqual([
       ALLOW_CODE_FILE_CHANGES_FIELD,

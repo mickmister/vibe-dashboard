@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   appendBeadsFormResponse,
   ALLOW_CODE_FILE_CHANGES_FIELD,
+  buildBeadsFormsSummary,
   buildAgentResultMessage,
   buildPrettySummary,
   getBeadsForms,
@@ -66,6 +67,26 @@ describe('BeadsForm core', () => {
 
     expect(next.untouched).toBe(true);
     expect((next.beadForms as any).forms[0].responses).toHaveLength(1);
+    expect(next.beadFormsSummary).toEqual({
+      hasForms: true,
+      hasPendingAnswer: false,
+      pendingResponseCount: 0,
+      formIds: ['review'],
+      pendingFormIds: [],
+    });
+  });
+
+  it('builds a lightweight pending-answer summary for BeadsForm metadata', () => {
+    expect(buildBeadsFormsSummary([
+      { id: 'pending', title: 'Pending', html: '<form></form>' },
+      { id: 'answered', title: 'Answered', html: '<form></form>', responses: [{ submittedBy: 'user', submittedAt: 'now', values: {} }] },
+    ])).toEqual({
+      hasForms: true,
+      hasPendingAnswer: true,
+      pendingResponseCount: 1,
+      formIds: ['pending', 'answered'],
+      pendingFormIds: ['pending'],
+    });
   });
 
   it('normalizes repeated form entries as arrays', () => {

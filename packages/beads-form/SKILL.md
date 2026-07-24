@@ -185,7 +185,7 @@ Bead-backed storage is the primary workflow for real agent/user handoff. Folder 
 
    `npm run beads-form -- ...` remains supported, but agent shells in the VD runtime should have the stable `beads-form` command on `PATH` next to `vibe-agent`.
 
-   Use `--dir <repo>` when not running from the bead repo, `--origin <origin>` to print full URLs, `--workspace <workspace-id>` when `VK_WORKSPACE_ID` is unavailable, and `--session <session-id>` when `VK_SESSION_ID` is unavailable. `beads-form attach` stamps non-empty workspace/session values into bead metadata as `VK_WORKSPACE_ID` and `VK_SESSION_ID` so Forms can resolve workspace/session context even if the `bd` wrapper is bypassed. Explicit `--origin` has highest precedence. To avoid repeatedly passing it, set `BEADS_FORM_ORIGIN`/`VD_BEADS_FORM_ORIGIN`, or seed `${XDG_CONFIG_HOME:-~/.config}/vibe-dashboard/beads-form.json` with:
+   Use `--dir <repo>` when not running from the bead repo, `--origin <origin>` to print full URLs, `--workspace <workspace-id>` when `VK_WORKSPACE_ID` is unavailable, and `--session <session-id>` when `VK_SESSION_ID` is unavailable. `beads-form attach` stamps non-empty workspace/session values into bead metadata as `VK_WORKSPACE_ID` and `VK_SESSION_ID` so Forms can resolve workspace/session context even if the `bd` wrapper is bypassed. It also maintains `metadata.beadFormsSummary` with `hasForms`, `hasPendingAnswer`, `pendingResponseCount`, `formIds`, and `pendingFormIds` so workspace and pending queue pages can find form-bearing beads without bulk-loading every bead. Explicit `--origin` has highest precedence. To avoid repeatedly passing it, set `BEADS_FORM_ORIGIN`/`VD_BEADS_FORM_ORIGIN`, or seed `${XDG_CONFIG_HOME:-~/.config}/vibe-dashboard/beads-form.json` with:
 
    ```json
    { "origin": "https://your-vd-origin.example" }
@@ -213,7 +213,7 @@ Bead-backed storage remains preferred for real workflow state and durable respon
 
 ## Pending form queue
 
-Open `/dashboard/forms` without query parameters to view the pending Bead-backed form queue. The queue scans a bounded set of first-level repos under `~/repos` using read-only `bd` commands, lists forms with no responses, and provides direct fill-out links. Use the Refresh button after attaching forms or after a human submits. See `packages/beads-form/PENDING_QUEUE.md` for realtime/update tradeoffs and safety limits.
+Open `/dashboard/forms` without query parameters to view the pending Bead-backed form queue. The queue scans a bounded set of first-level repos under `~/repos` using read-only `bd` commands, prefers the `beadFormsSummary` pending-answer index, falls back to legacy `beadForms` metadata when needed, lists forms with no responses, and provides direct fill-out links. Use the Refresh button after attaching forms or after a human submits. See `packages/beads-form/PENDING_QUEUE.md` for realtime/update tradeoffs and safety limits.
 
 ## Escape hatch
 

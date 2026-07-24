@@ -111,6 +111,15 @@ export type BeadsFormMetadata = {
   beadForms: {
     forms: CompiledBeadsForm[];
   };
+  beadFormsSummary: BeadsFormsSummary;
+};
+
+export type BeadsFormsSummary = {
+  hasForms: boolean;
+  hasPendingAnswer: boolean;
+  pendingResponseCount: number;
+  formIds: string[];
+  pendingFormIds: string[];
 };
 
 const DEFAULT_TEXTAREA_ROWS = 5;
@@ -229,10 +238,23 @@ export function compileBeadsForm(form: StandardBeadsForm): CompiledBeadsForm {
 }
 
 export function buildBeadsFormMetadata(forms: StandardBeadsForm[]): BeadsFormMetadata {
+  const compiledForms = forms.map(compileBeadsForm);
   return {
     beadForms: {
-      forms: forms.map(compileBeadsForm),
+      forms: compiledForms,
     },
+    beadFormsSummary: buildBeadsFormsSummary(compiledForms),
+  };
+}
+
+export function buildBeadsFormsSummary(forms: readonly Pick<CompiledBeadsForm, 'id'>[]): BeadsFormsSummary {
+  const formIds = forms.map((form) => form.id);
+  return {
+    hasForms: formIds.length > 0,
+    hasPendingAnswer: formIds.length > 0,
+    pendingResponseCount: formIds.length,
+    formIds,
+    pendingFormIds: formIds,
   };
 }
 
