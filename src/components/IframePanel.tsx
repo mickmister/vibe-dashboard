@@ -231,6 +231,10 @@ export function shouldShowIframeLoadingOverlay(isLoaded: boolean, activationShie
   return !isLoaded || activationShielded;
 }
 
+export function shouldWaitForIframeVisualReadiness(tab: Pick<Tab, 'id'>): boolean {
+  return tab.id !== 'code';
+}
+
 function hasVisualReadyBackground(doc: Document): boolean {
   const view = doc.defaultView;
   const bodyBackground = view && doc.body ? view.getComputedStyle(doc.body).backgroundColor : '';
@@ -477,7 +481,12 @@ function getOrCreateIframe(retainedTab: RetainedIframeTab): IframeEntry {
     entry.loaded = true;
     installIframeKeyboardIsolation(iframe);
 
-    waitForIframeVisualReadiness(iframe, entry, currentLoadToken);
+    if (shouldWaitForIframeVisualReadiness(tab)) {
+      waitForIframeVisualReadiness(iframe, entry, currentLoadToken);
+    } else {
+      entry.contentReady = true;
+      markIframeReadyToShow(entry, currentLoadToken);
+    }
   });
 
   iframe.addEventListener('error', () => {

@@ -6,6 +6,7 @@ import {
   getIframeRevealDelayMs,
   getIframeRevealStyle,
   isBlankIframeBackgroundColor,
+  shouldWaitForIframeVisualReadiness,
 } from './IframePanel';
 
 describe('iframe reveal behavior', () => {
@@ -20,6 +21,11 @@ describe('iframe reveal behavior', () => {
   it('uses a longer best-effort reveal delay on port-prefixed hosts', () => {
     expect(getIframeRevealDelayMs('port-5173.example.com')).toBe(IFRAME_PORT_PREFIX_REVEAL_DELAY_MS);
     expect(getIframeRevealDelayMs('example.com')).toBe(IFRAME_REVEAL_DELAY_MS);
+  });
+
+  it('does not wait for visual background readiness before revealing Code iframes', () => {
+    expect(shouldWaitForIframeVisualReadiness({ id: 'code' })).toBe(false);
+    expect(shouldWaitForIframeVisualReadiness({ id: 'agent' })).toBe(true);
   });
 
   it('detects blank iframe background colors', () => {
