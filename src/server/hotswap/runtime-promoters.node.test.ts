@@ -279,7 +279,8 @@ describe('VdDistRuntimePromoter', () => {
     const result = await promoter.promoteDist(join(sourceRoot, 'dist'));
 
     expect(commands.some((command) => command.startsWith('pnpm install --frozen-lockfile @ '))).toBe(true);
-    expect(commands.some((command) => command.startsWith('npm rebuild @ '))).toBe(true);
+    expect(commands.some((command) => command.startsWith('pnpm rebuild --pending @ '))).toBe(true);
+    expect(commands.some((command) => command.startsWith('npm rebuild @ '))).toBe(false);
     await expect(readFile(join(runtimeDir, 'dist', 'index.html'), 'utf8')).resolves.toBe('new:index');
     await expect(readFile(join(runtimeDir, 'node_modules', 'dompurify', 'package.json'), 'utf8')).resolves.toContain('new-dompurify');
     await expect(readFile(join(result.rollbackPath, 'node_modules', 'react', 'package.json'), 'utf8')).resolves.toContain('old-react');
@@ -318,6 +319,44 @@ describe('VdDistRuntimePromoter', () => {
     );
     await expect(readFile(join(runtimeDir, 'dist', 'index.html'), 'utf8')).resolves.toBe('old:index');
     await expect(readFile(join(runtimeDir, 'package.json'), 'utf8')).resolves.toContain('react');
+    await expectRuntimeData(runtimeDir);
+  });
+
+  it('fails before promotion when staged pending rebuild fails and leaves runtime untouched', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'vd-promote-pending-rebuild-fails-'));
+    const runtimeDir = join(root, 'runtime');
+    const stateDir = join(root, 'state');
+    const sourceRoot = join(root, 'source');
+    const commands: string[] = [];
+    await writeDist(join(runtimeDir, 'dist'), 'old');
+    await writeRuntimeData(runtimeDir);
+    await writePackageJson(runtimeDir, { dependencies: { react: '19.0.0' } });
+    await writeNodeModule(runtimeDir, 'react', 'old-react');
+    await writeDist(join(sourceRoot, 'dist'), 'new', ['dompurify']);
+    await writePackageJson(sourceRoot, { dependencies: { react: '19.0.0', dompurify: '3.4.11' } });
+    await writeFile(join(sourceRoot, 'pnpm-lock.yaml'), 'new-lock');
+
+    const promoter = new VdDistRuntimePromoter({
+      runtimeDir,
+      stateDir,
+      commandRunner: fakeDependencyCommandRunner(commands, async (command, args, options) => {
+        if (command === 'pnpm' && args.join(' ') === 'install --frozen-lockfile') {
+          await writeNodeModule(options!.cwd!, 'dompurify', 'new-dompurify');
+          await writeNodeModule(options!.cwd!, 'react', 'new-react');
+        }
+        if (command === 'pnpm' && args.join(' ') === 'rebuild --pending') {
+          throw new Error('native rebuild failed');
+        }
+      }),
+    });
+
+    await expect(promoter.promoteDist(join(sourceRoot, 'dist'))).rejects.toThrow(
+      'VD dependency staging command failed (pnpm rebuild --pending)',
+    );
+    expect(commands.some((command) => command.startsWith('npm rebuild @ '))).toBe(false);
+    await expect(readFile(join(runtimeDir, 'dist', 'index.html'), 'utf8')).resolves.toBe('old:index');
+    await expect(readFile(join(runtimeDir, 'node_modules', 'react', 'package.json'), 'utf8')).resolves.toContain('old-react');
+    await expect(readFile(join(runtimeDir, 'node_modules', 'dompurify', 'package.json'), 'utf8')).rejects.toThrow();
     await expectRuntimeData(runtimeDir);
   });
 

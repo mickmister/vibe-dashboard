@@ -280,7 +280,7 @@ export class VdDistRuntimePromoter implements VdRuntimePromoter {
 
     if (args.inspection.dependencySyncRequired) {
       await this.runDependencyCommand('pnpm', ['install', '--frozen-lockfile'], args.candidatePath);
-      await this.runDependencyCommand('npm', ['rebuild'], args.candidatePath);
+      await this.runDependencyCommand('pnpm', ['rebuild', '--pending'], args.candidatePath);
     } else {
       await this.copyIfExists(join(this.runtimeDir, 'node_modules'), join(args.candidatePath, 'node_modules'));
     }
