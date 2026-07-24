@@ -14,6 +14,6 @@ services:
         CODEX_CARGO_BUILD_ARGS: ${CODEX_CARGO_BUILD_ARGS:---locked --release -p codex-cli --bin codex}
         CODEX_BUILT_BINARY_PATH: ${CODEX_BUILT_BINARY_PATH:-/tmp/codex-target/release/codex}
         CODEX_RELEASE_REPO: ${CODEX_RELEASE_REPO:-mickmister/codex}
-        CODEX_RELEASE_TAG: ${CODEX_RELEASE_TAG:-codex-cli-assets-8308b5111d2de9bc2a1dc8c5d4ba77bfc9a80f58}
+        CODEX_RELEASE_TAG: ${CODEX_RELEASE_TAG:-codex-cli-assets-117a276c088b41efc8ab4c12b9186686bdc0c349}
         CODEX_RELEASE_ASSET: ${CODEX_RELEASE_ASSET:-}
     pull_policy: build
