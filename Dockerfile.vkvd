@@ -4,14 +4,8 @@ ARG VK_REPO_URL=https://github.com/mickmister/vibe-kanban.git
 ARG VK_BRANCH=main
 ARG VK_COMMIT=
 ARG VK_RUNTIME_SOURCE=github
-ARG CODEX_USE_CUSTOM_BUILD=0
-ARG CODEX_REPO_URL=https://github.com/openai/codex.git
-ARG CODEX_BRANCH=main
-ARG CODEX_COMMIT=
-ARG CODEX_CARGO_BUILD_ARGS="--locked --release -p codex-cli --bin codex"
-ARG CODEX_BUILT_BINARY_PATH=/tmp/codex-target/release/codex
 ARG CODEX_RELEASE_REPO=mickmister/codex
-ARG CODEX_RELEASE_TAG=codex-cli-assets-8308b5111d2de9bc2a1dc8c5d4ba77bfc9a80f58
+ARG CODEX_RELEASE_TAG=codex-cli-assets-117a276c088b41efc8ab4c12b9186686bdc0c349
 ARG CODEX_RELEASE_ASSET=
 
 FROM alpine:3.19 AS vk-runtime-downloader
@@ -126,12 +120,6 @@ RUN npm rebuild better-sqlite3 && npm run build && npm run build:plugin-orchestr
 
 FROM node:22-bookworm
 
-ARG CODEX_USE_CUSTOM_BUILD
-ARG CODEX_REPO_URL
-ARG CODEX_BRANCH
-ARG CODEX_COMMIT
-ARG CODEX_CARGO_BUILD_ARGS
-ARG CODEX_BUILT_BINARY_PATH
 ARG CODEX_RELEASE_REPO
 ARG CODEX_RELEASE_TAG
 ARG CODEX_RELEASE_ASSET
@@ -326,8 +314,8 @@ RUN mkdir -p /var/log/supervisor /var/log/caddy
 # Install tools globally as root (will be available system-wide). The multi-arch
 # publish build occasionally sees transient npm registry resets, especially on
 # arm64 hosted builders, so keep the step deterministic but retry boundedly.
-# Skip npm @openai/codex when a release asset or source-built Codex binary will
-# be installed to /usr/local/bin/codex below.
+# Skip npm @openai/codex when a configured release asset will be installed to
+# /usr/local/bin/codex below. Clear CODEX_RELEASE_TAG to use official npm Codex.
 RUN set -eux; \
     npm config set fetch-retries 5; \
     npm config set fetch-retry-mintimeout 20000; \
@@ -337,9 +325,6 @@ RUN set -eux; \
     if [ -n "${CODEX_RELEASE_TAG}" ]; then \
       install_codex_npm=0; \
     fi; \
-    case "${CODEX_USE_CUSTOM_BUILD}" in \
-      1|true|TRUE|yes|YES|on|ON) install_codex_npm=0 ;; \
-    esac; \
     if [ "${install_codex_npm}" = "1" ]; then \
       npm_packages="${npm_packages} @openai/codex"; \
     fi; \
@@ -355,48 +340,19 @@ RUN set -eux; \
 
 COPY --from=codex-release-downloader /codex-release-bin/codex /tmp/codex-release/codex
 
-# Optional Codex overrides for profiling/debugging builds. By default the image
-# installs the configured Codex GitHub release asset by default. Clear
-# CODEX_RELEASE_TAG to use npm @openai/codex, or set CODEX_USE_CUSTOM_BUILD=1
-# to compile a source branch during this image build.
-RUN --mount=type=cache,id=codex-cargo-registry,target=/usr/local/cargo/registry \
-    --mount=type=cache,id=codex-cargo-git,target=/usr/local/cargo/git \
-    --mount=type=cache,id=codex-target,target=/tmp/codex-target \
-    set -eux; \
+# By default, install the configured Codex GitHub release asset. Clear
+# CODEX_RELEASE_TAG to use official npm @openai/codex from the global npm
+# install step above.
+RUN set -eux; \
     if [ -n "${CODEX_RELEASE_TAG}" ]; then \
-      case "${CODEX_USE_CUSTOM_BUILD}" in \
-        1|true|TRUE|yes|YES|on|ON) echo "CODEX_RELEASE_TAG and CODEX_USE_CUSTOM_BUILD are mutually exclusive" >&2; exit 1 ;; \
-      esac; \
       test -x /tmp/codex-release/codex; \
       install -m 0755 /tmp/codex-release/codex /usr/local/bin/codex; \
       codex --version; \
       rm -rf /tmp/codex-release; \
       exit 0; \
     fi; \
-    case "${CODEX_USE_CUSTOM_BUILD}" in \
-      1|true|TRUE|yes|YES|on|ON) \
-        test -n "${CODEX_REPO_URL}"; \
-        test -n "${CODEX_BRANCH}"; \
-        rm -rf /tmp/codex-src; \
-        git clone --depth 1 --branch "${CODEX_BRANCH}" "${CODEX_REPO_URL}" /tmp/codex-src; \
-        if [ -n "${CODEX_COMMIT}" ]; then \
-          if ! git -C /tmp/codex-src rev-parse --verify --quiet "${CODEX_COMMIT}^{commit}" >/dev/null; then \
-            git -C /tmp/codex-src fetch --depth 1 origin "${CODEX_COMMIT}"; \
-          fi; \
-          git -C /tmp/codex-src checkout "${CODEX_COMMIT}"; \
-        fi; \
-        cd /tmp/codex-src/codex-rs; \
-        CARGO_TARGET_DIR=/tmp/codex-target cargo build ${CODEX_CARGO_BUILD_ARGS}; \
-        test -x "${CODEX_BUILT_BINARY_PATH}"; \
-        install -m 0755 "${CODEX_BUILT_BINARY_PATH}" /usr/local/bin/codex; \
-        codex --version; \
-        rm -rf /tmp/codex-src; \
-        ;; \
-      *) \
-        command -v codex; \
-        codex --version; \
-        ;; \
-    esac
+    command -v codex; \
+    codex --version
 
 # Install Serena globally via uv and make the shared toolchain executable for vkuser
 RUN uv tool install -p 3.13 serena-agent@latest --prerelease=allow \
