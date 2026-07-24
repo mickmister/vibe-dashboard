@@ -134,7 +134,7 @@ For very small forms, `--json '<raw-json>'` also works. For large forms, `--file
 
 `beads-form attach` stamps non-empty `VK_WORKSPACE_ID` and `VK_SESSION_ID` values from the environment into bead metadata. If either environment variable is unavailable, pass `--workspace <workspace-id>` and/or `--session <session-id>` explicitly. This is defense in depth; the `bd` wrapper may also stamp the same metadata, but the form attach command should not rely on wrapper PATH ordering. Attach also maintains `metadata.beadFormsSummary` (`hasForms`, `hasPendingAnswer`, `pendingResponseCount`, `formIds`, `pendingFormIds`) so Forms can discover pending work efficiently without bulk `bd show` over every bead.
 
-If `beads-form` is not on PATH yet, use the same inline flow through npm:
+In the VD Docker/dev runtime, `beads-form` should be available on `PATH` globally and should work from any bead repo directory. If it is not on PATH yet, use the same inline flow through npm from the VD repo:
 
 ```bash
 npm run beads-form -- attach -- --bead <bead-id> --dir <repo-dir> --origin https://port-55123.jamtools.dev --stdin <<'JSON'

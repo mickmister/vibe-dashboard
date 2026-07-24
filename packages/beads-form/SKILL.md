@@ -183,7 +183,7 @@ Bead-backed storage is the primary workflow for real agent/user handoff. Folder 
    npm run beads-form -- attach --bead <bead-id> --json '{"format":"standard",...}'
    ```
 
-   `npm run beads-form -- ...` remains supported, but agent shells in the VD runtime should have the stable `beads-form` command on `PATH` next to `vibe-agent`.
+   `npm run beads-form -- ...` remains supported, but VD Docker/dev runtimes install a stable `beads-form` command on `PATH` next to `vibe-agent`/`vk`. The global wrapper points at the seeded VD checkout with an absolute script path and preserves the caller's current working directory, so default `--dir` behavior still works from arbitrary bead repo directories.
 
    Use `--dir <repo>` when not running from the bead repo, `--origin <origin>` to print full URLs, `--workspace <workspace-id>` when `VK_WORKSPACE_ID` is unavailable, and `--session <session-id>` when `VK_SESSION_ID` is unavailable. `beads-form attach` stamps non-empty workspace/session values into bead metadata as `VK_WORKSPACE_ID` and `VK_SESSION_ID` so Forms can resolve workspace/session context even if the `bd` wrapper is bypassed. It also maintains `metadata.beadFormsSummary` with `hasForms`, `hasPendingAnswer`, `pendingResponseCount`, `formIds`, and `pendingFormIds` so workspace and pending queue pages can find form-bearing beads without bulk-loading every bead. Explicit `--origin` has highest precedence. To avoid repeatedly passing it, set `BEADS_FORM_ORIGIN`/`VD_BEADS_FORM_ORIGIN`, or seed `${XDG_CONFIG_HOME:-~/.config}/vibe-dashboard/beads-form.json` with:
 

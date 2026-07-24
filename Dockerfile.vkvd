@@ -448,6 +448,7 @@ RUN chmod +x /usr/local/bin/backup-vibe-kanban-db.sh
 COPY . /opt/vibe-kanban-vscode-web-seed
 COPY --from=dashboard-builder /app/dist/plugins-orchestrator /opt/vibe-kanban-vscode-web-seed/dist/plugins-orchestrator
 COPY --from=dashboard-builder /app/dist/vibe-agent /opt/vibe-kanban-vscode-web-seed/dist/vibe-agent
+COPY --from=dashboard-builder /app/packages/beads-form/dist /opt/vibe-kanban-vscode-web-seed/packages/beads-form/dist
 RUN chown -R vkuser:vkadmin /opt/vibe-kanban-vscode-web-seed && \
     chmod -R g+rwX /opt/vibe-kanban-vscode-web-seed && \
     find /opt/vibe-kanban-vscode-web-seed -type d -exec chmod g+s {} +
@@ -460,7 +461,7 @@ RUN command -v vibe-agent && \
     command -v beads-form && \
     vibe-agent --help >/dev/null && \
     vk --help >/dev/null && \
-    beads-form --help >/dev/null
+    (cd /tmp && beads-form --help >/dev/null)
 
 # Copy packaged vibe-dashboard runtime artifacts to their final runtime path
 RUN mkdir -p /home/vkuser/.local/share/vibe-dashboard-runtime
