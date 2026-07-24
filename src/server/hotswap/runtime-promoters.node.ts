@@ -281,6 +281,7 @@ export class VdDistRuntimePromoter implements VdRuntimePromoter {
     if (args.inspection.dependencySyncRequired) {
       await this.runDependencyCommand('pnpm', ['install', '--frozen-lockfile'], args.candidatePath);
       await this.runDependencyCommand('pnpm', ['rebuild', '--pending'], args.candidatePath);
+      await this.failIfIgnoredBuildsRemain(args.candidatePath);
     } else {
       await this.copyIfExists(join(this.runtimeDir, 'node_modules'), join(args.candidatePath, 'node_modules'));
     }
@@ -399,9 +400,18 @@ export class VdDistRuntimePromoter implements VdRuntimePromoter {
     return [...imports].sort();
   }
 
-  private async runDependencyCommand(command: string, args: string[], cwd: string): Promise<void> {
+  private async failIfIgnoredBuildsRemain(cwd: string): Promise<void> {
+    const result = await this.runDependencyCommand('pnpm', ['ignored-builds'], cwd);
+    const output = `${result.stdout}\n${result.stderr}`.trim();
+    if (!output || output.toLowerCase().includes('none')) return;
+    throw new Error(
+      `VD dependency staging has ignored package build scripts after pnpm rebuild --pending: ${output}. Use Docker image deploy as fallback.`,
+    );
+  }
+
+  private async runDependencyCommand(command: string, args: string[], cwd: string): Promise<{ stdout: string; stderr: string }> {
     try {
-      await this.commandRunner.execFile(command, args, { cwd });
+      return await this.commandRunner.execFile(command, args, { cwd });
     } catch (error) {
       throw new Error(
         `VD dependency staging command failed (${command} ${args.join(' ')}): ${formatError(error)}. Use Docker image deploy as fallback.`,
