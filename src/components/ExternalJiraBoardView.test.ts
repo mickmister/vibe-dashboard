@@ -94,7 +94,7 @@ describe('ExternalJiraBoardContent', () => {
 
     expect(html).toContain('Existing workspace');
     expect(html).toContain('Open Workspace');
-    expect(html).toContain('Opening linked workspaces from Jira cards is not wired yet.');
+    expect(html).toContain('Open a side-by-side VK session panel for this workspace.');
     expect(html).toContain('Files changed');
     expect(html).toContain('42');
     expect(html).toContain('Agent sessions');
@@ -166,7 +166,7 @@ describe('ExternalJiraBoardContent', () => {
   it('ignores bubbled keyboard activation from nested workspace controls', () => {
     const card = baseBoardView.cards[0] as ExternalKanbanCardDto;
     const onSelect = vi.fn();
-    const element = ExternalJiraCard({ card, onSelect }) as React.ReactElement<{
+    const element = ExternalJiraCard({ card, onOpenWorkspacePanel: () => undefined, onSelect }) as React.ReactElement<{
       onKeyDown: (event: React.KeyboardEvent<HTMLElement>) => void;
     }>;
     const currentTarget = { closest: () => undefined };
@@ -182,6 +182,46 @@ describe('ExternalJiraBoardContent', () => {
 
     expect(onSelect).not.toHaveBeenCalled();
     expect(preventDefault).not.toHaveBeenCalled();
+  });
+
+  it('opens a side-by-side VK session panel for linked workspaces', () => {
+    const card = baseBoardView.cards[0];
+    if (!card) throw new Error('expected fixture card');
+    const html = renderToStaticMarkup(React.createElement(ExternalJiraBoardContent, {
+      boardView: {
+        ...baseBoardView,
+        cards: [{
+          ...card,
+          relatedWorkspaces: [{ workspaceId: 'ws-1', workspaceDir: '/repo/a', displayName: 'Workspace A', isPrimary: true }],
+        }],
+      },
+      initialSidePanelWorkspaceId: 'ws-1',
+    }));
+
+    expect(html).toContain('VK session');
+    expect(html).toContain('Workspace A');
+    expect(html).toContain('VK session for Workspace A');
+    expect(html).toContain('src="/workspaces/ws-1"');
+    expect(html).toContain('Build external board UI');
+  });
+
+  it('uses the linked workspace card button to open the VK session panel without selecting the card', () => {
+    const baseCard = baseBoardView.cards[0];
+    if (!baseCard) throw new Error('expected fixture card');
+    const workspace = { workspaceId: 'ws-1', workspaceDir: '/repo/a', displayName: 'Workspace A', isPrimary: true };
+    const card = { ...baseCard, relatedWorkspaces: [workspace] } satisfies ExternalKanbanCardDto;
+    const onOpenWorkspacePanel = vi.fn();
+    const onSelect = vi.fn();
+    const element = ExternalJiraCard({ card, onOpenWorkspacePanel, onSelect }) as React.ReactElement;
+    const openButton = findElementByText(element, 'Open Workspace') as React.ReactElement<{ onClick: (event: React.MouseEvent<HTMLButtonElement>) => void }> | undefined;
+    if (!openButton) throw new Error('expected Open Workspace button');
+    const stopPropagation = vi.fn();
+
+    openButton.props.onClick({ stopPropagation } as unknown as React.MouseEvent<HTMLButtonElement>);
+
+    expect(stopPropagation).toHaveBeenCalledOnce();
+    expect(onOpenWorkspacePanel).toHaveBeenCalledWith(workspace);
+    expect(onSelect).not.toHaveBeenCalled();
   });
 
   it('renders inferred swimlanes when present', () => {
@@ -350,3 +390,14 @@ describe('ExternalJiraBoardRoute', () => {
     expect(html).toContain('The external URL was malformed.');
   });
 });
+
+function findElementByText(element: React.ReactNode, text: string): React.ReactElement | undefined {
+  if (!React.isValidElement(element)) return undefined;
+  const children = React.Children.toArray((element.props as { children?: React.ReactNode }).children);
+  if (children.some((child) => typeof child === 'string' && child.includes(text))) return element;
+  for (const child of children) {
+    const match = findElementByText(child, text);
+    if (match) return match;
+  }
+  return undefined;
+}

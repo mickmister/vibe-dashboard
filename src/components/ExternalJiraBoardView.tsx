@@ -4,6 +4,8 @@ import type { DashboardExternalViewParseResult } from '../lib/externalViewUrl';
 import { fetchExternalJiraBoardView } from '../lib/externalTrackerBoardApi';
 import type { ExternalJiraBoardApiResponse, ExternalJiraBoardViewDto, ExternalKanbanCardDto, ExternalKanbanColumnDto } from '../lib/externalTrackerBoardApi';
 
+type ExternalRelatedWorkspace = NonNullable<ExternalKanbanCardDto['relatedWorkspaces']>[number];
+
 export function ExternalJiraBoardRoute({ parseResult }: { parseResult: DashboardExternalViewParseResult }) {
   if (parseResult.status !== 'ok') {
     return <ExternalTrackerMessage title="Unsupported external view" message={messageForUnsupportedReason(parseResult.reason)} action="Open a supported Jira board URL and launch VD again." />;
@@ -62,12 +64,14 @@ export function ExternalJiraBoardLoader({ externalViewUrl }: { externalViewUrl: 
   return <ExternalJiraBoardContent boardView={response.boardView} />;
 }
 
-export function ExternalJiraBoardContent({ boardView, initialSelectedCardId }: { boardView: ExternalJiraBoardViewDto; initialSelectedCardId?: string }) {
+export function ExternalJiraBoardContent({ boardView, initialSelectedCardId, initialSidePanelWorkspaceId }: { boardView: ExternalJiraBoardViewDto; initialSelectedCardId?: string; initialSidePanelWorkspaceId?: string }) {
   const [selectedCardId, setSelectedCardId] = useState<string | undefined>(initialSelectedCardId);
+  const [sidePanelWorkspaceId, setSidePanelWorkspaceId] = useState<string | undefined>(initialSidePanelWorkspaceId);
   const columns = useMemo(() => normalizeRenderableColumns(boardView), [boardView]);
   const renderableLanes = useMemo(() => createRenderableSwimlanes(boardView), [boardView]);
   const selectedCardIndex = selectedCardId ? boardView.cards.findIndex((card) => card.id === selectedCardId) : -1;
   const selectedCard = selectedCardIndex >= 0 ? boardView.cards[selectedCardIndex] : undefined;
+  const sidePanelWorkspace = useMemo(() => findWorkspaceById(boardView, sidePanelWorkspaceId), [boardView, sidePanelWorkspaceId]);
 
   return (
     <ExternalJiraBoardShell
@@ -76,9 +80,12 @@ export function ExternalJiraBoardContent({ boardView, initialSelectedCardId }: {
       renderableLanes={renderableLanes}
       selectedCard={selectedCard}
       selectedCardIndex={selectedCardIndex}
+      sidePanelWorkspace={sidePanelWorkspace}
       onSelectCard={(card) => setSelectedCardId(card.id)}
       onCloseCard={() => setSelectedCardId(undefined)}
+      onCloseWorkspacePanel={() => setSidePanelWorkspaceId(undefined)}
       onNextCard={() => setSelectedCardId(boardView.cards[selectedCardIndex + 1]?.id)}
+      onOpenWorkspacePanel={(workspace) => setSidePanelWorkspaceId(workspace.workspaceId)}
       onPreviousCard={() => setSelectedCardId(boardView.cards[selectedCardIndex - 1]?.id)}
     />
   );
@@ -88,37 +95,51 @@ export function ExternalJiraBoardShell({
   boardView,
   columns,
   onCloseCard,
+  onCloseWorkspacePanel,
   onNextCard,
+  onOpenWorkspacePanel,
   onPreviousCard,
   onSelectCard,
   renderableLanes,
   selectedCard,
   selectedCardIndex,
+  sidePanelWorkspace,
 }: {
   boardView: ExternalJiraBoardViewDto;
   columns: ExternalKanbanColumnDto[];
   onCloseCard: () => void;
+  onCloseWorkspacePanel: () => void;
   onNextCard: () => void;
+  onOpenWorkspacePanel: (workspace: ExternalRelatedWorkspace) => void;
   onPreviousCard: () => void;
   onSelectCard: (card: ExternalKanbanCardDto) => void;
   renderableLanes: Array<{ id: string; title: string; cards: ExternalKanbanCardDto[] }>;
   selectedCard?: ExternalKanbanCardDto;
   selectedCardIndex: number;
+  sidePanelWorkspace?: ExternalRelatedWorkspace;
 }) {
   const issueCount = boardView.pagination.issueCount;
   const hasLanes = renderableLanes.length > 0;
 
   return (
     <main className="dark min-h-screen bg-neutral-950 text-neutral-100">
-      <ExternalJiraBoardHeader boardView={boardView} />
-      <ExternalJiraBoardBody
-        cards={boardView.cards}
-        columns={columns}
-        hasIssues={issueCount > 0}
-        onSelectCard={onSelectCard}
-        renderableLanes={renderableLanes}
-        showSwimlanes={hasLanes}
-      />
+      <div className="flex min-h-screen flex-col lg:flex-row">
+        <div className="min-w-0 flex-1">
+          <ExternalJiraBoardHeader boardView={boardView} />
+          <ExternalJiraBoardBody
+            cards={boardView.cards}
+            columns={columns}
+            hasIssues={issueCount > 0}
+            onOpenWorkspacePanel={onOpenWorkspacePanel}
+            onSelectCard={onSelectCard}
+            renderableLanes={renderableLanes}
+            showSwimlanes={hasLanes}
+          />
+        </div>
+        {sidePanelWorkspace ? (
+          <ExternalVKSessionSidePanel workspace={sidePanelWorkspace} onClose={onCloseWorkspacePanel} />
+        ) : null}
+      </div>
       {selectedCard ? (
         <ExternalJiraIssueDetailSheet
           boardView={boardView}
@@ -166,6 +187,7 @@ export function ExternalJiraBoardBody({
   cards,
   columns,
   hasIssues,
+  onOpenWorkspacePanel,
   onSelectCard,
   renderableLanes,
   showSwimlanes,
@@ -173,6 +195,7 @@ export function ExternalJiraBoardBody({
   cards: ExternalKanbanCardDto[];
   columns: ExternalKanbanColumnDto[];
   hasIssues: boolean;
+  onOpenWorkspacePanel: (workspace: ExternalRelatedWorkspace) => void;
   onSelectCard: (card: ExternalKanbanCardDto) => void;
   renderableLanes: Array<{ id: string; title: string; cards: ExternalKanbanCardDto[] }>;
   showSwimlanes: boolean;
@@ -189,7 +212,7 @@ export function ExternalJiraBoardBody({
     return (
       <section className="space-y-6 p-6">
         {renderableLanes.map((lane) => (
-          <ExternalJiraSwimlane key={lane.id} lane={lane} columns={columns} onSelectCard={onSelectCard} />
+          <ExternalJiraSwimlane key={lane.id} lane={lane} columns={columns} onOpenWorkspacePanel={onOpenWorkspacePanel} onSelectCard={onSelectCard} />
         ))}
       </section>
     );
@@ -197,21 +220,21 @@ export function ExternalJiraBoardBody({
 
   return (
     <section className="p-6">
-      <ExternalJiraKanbanColumns columns={columns} cards={cards} onSelectCard={onSelectCard} />
+      <ExternalJiraKanbanColumns columns={columns} cards={cards} onOpenWorkspacePanel={onOpenWorkspacePanel} onSelectCard={onSelectCard} />
     </section>
   );
 }
 
-export function ExternalJiraSwimlane({ lane, columns, onSelectCard }: { lane: { id: string; title: string; cards: ExternalKanbanCardDto[] }; columns: ExternalKanbanColumnDto[]; onSelectCard: (card: ExternalKanbanCardDto) => void }) {
+export function ExternalJiraSwimlane({ lane, columns, onOpenWorkspacePanel, onSelectCard }: { lane: { id: string; title: string; cards: ExternalKanbanCardDto[] }; columns: ExternalKanbanColumnDto[]; onOpenWorkspacePanel: (workspace: ExternalRelatedWorkspace) => void; onSelectCard: (card: ExternalKanbanCardDto) => void }) {
   return (
     <div className="rounded-xl border border-neutral-800 bg-neutral-950/60 p-4">
       <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-neutral-300">{lane.title}</h2>
-      <ExternalJiraKanbanColumns columns={columns} cards={lane.cards} onSelectCard={onSelectCard} />
+      <ExternalJiraKanbanColumns columns={columns} cards={lane.cards} onOpenWorkspacePanel={onOpenWorkspacePanel} onSelectCard={onSelectCard} />
     </div>
   );
 }
 
-export function ExternalJiraKanbanColumns({ columns, cards, onSelectCard }: { columns: ExternalKanbanColumnDto[]; cards: ExternalKanbanCardDto[]; onSelectCard: (card: ExternalKanbanCardDto) => void }) {
+export function ExternalJiraKanbanColumns({ columns, cards, onOpenWorkspacePanel, onSelectCard }: { columns: ExternalKanbanColumnDto[]; cards: ExternalKanbanCardDto[]; onOpenWorkspacePanel: (workspace: ExternalRelatedWorkspace) => void; onSelectCard: (card: ExternalKanbanCardDto) => void }) {
   const knownColumnIds = new Set(columns.map((column) => column.id));
   return (
     <div className="grid auto-cols-[minmax(18rem,1fr)] grid-flow-col gap-4 overflow-x-auto pb-2">
@@ -228,7 +251,7 @@ export function ExternalJiraKanbanColumns({ columns, cards, onSelectCard }: { co
             </div>
             <div className="space-y-3 p-3">
               {columnCards.length === 0 ? <div className="rounded-lg border border-dashed border-neutral-800 p-3 text-sm text-neutral-500">No issues</div> : null}
-              {columnCards.map((card) => <ExternalJiraCard key={card.id} card={card} onSelect={onSelectCard} />)}
+              {columnCards.map((card) => <ExternalJiraCard key={card.id} card={card} onOpenWorkspacePanel={onOpenWorkspacePanel} onSelect={onSelectCard} />)}
             </div>
           </section>
         );
@@ -258,10 +281,11 @@ function createRenderableSwimlanes(boardView: ExternalJiraBoardViewDto): Array<{
   return lanes;
 }
 
-export function ExternalJiraCard({ card, onSelect }: { card: ExternalKanbanCardDto; onSelect: (card: ExternalKanbanCardDto) => void }) {
+export function ExternalJiraCard({ card, onOpenWorkspacePanel, onSelect }: { card: ExternalKanbanCardDto; onOpenWorkspacePanel: (workspace: ExternalRelatedWorkspace) => void; onSelect: (card: ExternalKanbanCardDto) => void }) {
   const workspaceCount = card.relatedWorkspaces?.length ?? 0;
   const taskSummary = getTaskSummary(card);
   const workspaceMetrics = getWorkspaceMetrics(card);
+  const primaryWorkspace = getPrimaryWorkspace(card);
 
   return (
     <article
@@ -298,11 +322,14 @@ export function ExternalJiraCard({ card, onSelect }: { card: ExternalKanbanCardD
               <span className="font-medium text-neutral-200">{workspaceCount === 1 ? 'Existing workspace' : `${workspaceCount} linked workspaces`}</span>
               <button
                 type="button"
-                className="cursor-not-allowed rounded border border-emerald-500/20 px-2 py-1 text-emerald-200/60"
-                disabled
-                title="Opening linked workspaces from Jira cards is not wired yet."
+                className="rounded border border-emerald-500/30 px-2 py-1 text-emerald-200 hover:bg-emerald-500/10"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  if (primaryWorkspace) onOpenWorkspacePanel(primaryWorkspace);
+                }}
+                title="Open a side-by-side VK session panel for this workspace."
               >
-                Open Workspace <span className="text-emerald-200/40">(coming soon)</span>
+                Open Workspace
               </button>
             </div>
             <WorkspaceMetricsGrid metrics={workspaceMetrics} />
@@ -330,6 +357,35 @@ export function ExternalJiraCard({ card, onSelect }: { card: ExternalKanbanCardD
         </div>
       ) : null}
     </article>
+  );
+}
+
+export function ExternalVKSessionSidePanel({ workspace, onClose }: { workspace: ExternalRelatedWorkspace; onClose: () => void }) {
+  const workspaceTitle = workspace.displayName || workspace.workspaceId;
+  const workspaceUrl = buildVKWorkspaceSessionUrl(workspace.workspaceId);
+
+  return (
+    <aside className="min-h-[32rem] border-t border-neutral-800 bg-neutral-950 lg:sticky lg:top-0 lg:h-screen lg:w-[min(36rem,42vw)] lg:min-w-[24rem] lg:border-l lg:border-t-0" aria-label="VK session side panel">
+      <div className="flex h-full min-h-0 flex-col">
+        <header className="shrink-0 border-b border-neutral-800 bg-neutral-950/95 px-4 py-3">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-300">VK session</div>
+              <h2 className="mt-1 truncate text-sm font-semibold text-neutral-100">{workspaceTitle}</h2>
+              {workspace.workspaceDir ? <p className="mt-1 truncate text-xs text-neutral-500">{workspace.workspaceDir}</p> : null}
+            </div>
+            <button type="button" className="rounded-md border border-neutral-800 px-2 py-1 text-sm text-neutral-200 hover:bg-neutral-900" onClick={onClose}>
+              Close
+            </button>
+          </div>
+        </header>
+        <iframe
+          className="min-h-0 flex-1 border-0 bg-neutral-900"
+          src={workspaceUrl}
+          title={`VK session for ${workspaceTitle}`}
+        />
+      </div>
+    </aside>
   );
 }
 
@@ -517,6 +573,23 @@ function getWorkspaceMetrics(card: ExternalKanbanCardDto): WorkspaceMetrics {
     agentSessions: readMetric(metadata, 'agentSessions'),
     agentMessages: readMetric(metadata, 'agentMessages'),
   };
+}
+
+function getPrimaryWorkspace(card: ExternalKanbanCardDto): ExternalRelatedWorkspace | undefined {
+  return card.relatedWorkspaces?.find((workspace) => workspace.isPrimary) ?? card.relatedWorkspaces?.[0];
+}
+
+function findWorkspaceById(boardView: ExternalJiraBoardViewDto, workspaceId: string | undefined): ExternalRelatedWorkspace | undefined {
+  if (!workspaceId) return undefined;
+  for (const card of boardView.cards) {
+    const workspace = card.relatedWorkspaces?.find((candidate) => candidate.workspaceId === workspaceId);
+    if (workspace) return workspace;
+  }
+  return undefined;
+}
+
+function buildVKWorkspaceSessionUrl(workspaceId: string): string {
+  return `/workspaces/${encodeURIComponent(workspaceId)}`;
 }
 
 function readMetric(metadata: Record<string, unknown> | undefined, key: string): number | string {

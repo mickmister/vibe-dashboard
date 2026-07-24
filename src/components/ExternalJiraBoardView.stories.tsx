@@ -207,6 +207,70 @@ export const MixedDecorationStates: Story = {
   },
 };
 
+export const SidePanelClosed: Story = {
+  args: {
+    boardView: board({
+      cards: mixedDecorationCards,
+      pagination: { ...baseBoardView.pagination, issueCount: mixedDecorationCards.length },
+    }),
+  },
+};
+
+export const SidePanelOpen: Story = {
+  args: {
+    boardView: board({
+      cards: mixedDecorationCards,
+      pagination: { ...baseBoardView.pagination, issueCount: mixedDecorationCards.length },
+    }),
+    initialSidePanelWorkspaceId: 'ws-card-3',
+  },
+};
+
+export const MobileSidePanel: Story = {
+  args: {
+    boardView: board({
+      cards: mixedDecorationCards,
+      pagination: { ...baseBoardView.pagination, issueCount: mixedDecorationCards.length },
+    }),
+    initialSidePanelWorkspaceId: 'ws-card-3',
+  },
+  parameters: {
+    viewport: {
+      defaultViewport: 'mobile1',
+    },
+  },
+};
+
+export const CardWithWorkspaceSession: Story = {
+  args: {
+    boardView: board({
+      cards: [mixedDecorationCards[2]!],
+      pagination: { ...baseBoardView.pagination, issueCount: 1 },
+    }),
+    initialSidePanelWorkspaceId: 'ws-card-3',
+  },
+};
+
+export const CardWithoutWorkspaceSession: Story = {
+  args: {
+    boardView: board({
+      cards: [mixedDecorationCards[0]!],
+      pagination: { ...baseBoardView.pagination, issueCount: 1 },
+    }),
+  },
+};
+
+export const SidePanelWithIssueDetails: Story = {
+  args: {
+    boardView: board({
+      cards: mixedDecorationCards,
+      pagination: { ...baseBoardView.pagination, issueCount: mixedDecorationCards.length },
+    }),
+    initialSelectedCardId: mixedDecorationCards[2]?.id,
+    initialSidePanelWorkspaceId: 'ws-card-3',
+  },
+};
+
 export const NoWorkspaceNoTasks: Story = {
   args: {
     boardView: board({
