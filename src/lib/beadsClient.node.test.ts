@@ -213,13 +213,14 @@ describe('BeadsClient', () => {
     expect(exec).toHaveBeenCalledTimes(2);
   });
 
-  it('targets selected workspace beads by id instead of broad-loading the repo', async () => {
+  it('does not show when selected bead is absent from a repo', async () => {
     const workspaceDir = await mkdtemp(join(tmpdir(), 'beads-workspace-'));
     await mkdir(join(workspaceDir, 'repo-a'), { recursive: true });
     await mkdir(join(workspaceDir, 'repo-b'), { recursive: true });
     const exec = vi.fn<ExecFileLike>(async (_file, args, options) => {
       expect(args).not.toContain('--has-metadata-key');
       expect(args).not.toContain('unrelated-1');
+      if (args[1] === 'show') throw new Error(`unexpected show for ${options.cwd}: ${args.join(' ')}`);
       if (options.cwd.endsWith('repo-a')) return { stdout: '[]', stderr: '' };
       return { stdout: JSON.stringify([
         { id: 'selected', title: 'Selected', metadata: { VK_WORKSPACE_ID: 'workspace-1', beadForms: { forms: [{ id: 'review', title: 'Review', html: '<form></form>' }] } } },
@@ -235,10 +236,10 @@ describe('BeadsClient', () => {
     });
 
     expect(result.repos.flatMap((repo) => repo.beads.map((bead) => bead.id))).toEqual(['selected']);
-    expect(exec.mock.calls.map(([, args]) => args)).toEqual(expect.arrayContaining([
+    expect(exec.mock.calls.map(([, args]) => args)).toEqual([
       ['--readonly', 'list', '--json', '--all', '--limit', '0', '--id', 'selected'],
-      ['--readonly', 'show', 'selected', '--json', '--long'],
-    ]));
+      ['--readonly', 'list', '--json', '--all', '--limit', '0', '--id', 'selected'],
+    ]);
     expect(exec.mock.calls.some(([, args]) => args.includes('--has-metadata-key'))).toBe(false);
   });
 
@@ -267,6 +268,30 @@ describe('BeadsClient', () => {
     expect(exec.mock.calls.map(([, args]) => args)).toEqual([
       ['--readonly', 'list', '--json', '--all', '--limit', '0', '--id', 'selected'],
       ['--readonly', 'show', 'selected', '--json', '--long'],
+    ]);
+  });
+
+  it('does not show when selected list metadata is sufficient to render forms', async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), 'beads-workspace-'));
+    await mkdir(join(workspaceDir, 'repo-a'), { recursive: true });
+    const exec = vi.fn<ExecFileLike>(async (_file, args) => {
+      if (args[1] === 'show') throw new Error(`unexpected show: ${args.join(' ')}`);
+      return { stdout: JSON.stringify([
+        { id: 'selected', title: 'Selected', metadata: { VK_WORKSPACE_ID: 'workspace-1', beadForms: { forms: [{ id: 'review', title: 'Review', html: '<form></form>' }] } } },
+      ]), stderr: '' };
+    });
+    const client = new BeadsClient({ execFile: exec });
+
+    const result = await client.listWorkspaceBeads({
+      workspaceId: 'workspace-1',
+      workspaceDir,
+      repos: [{ id: 'repo-a', name: 'repo-a' }],
+      beadId: 'selected',
+    });
+
+    expect(result.repos[0]!.beads[0]).toMatchObject({ id: 'selected', metadata: { VK_WORKSPACE_ID: 'workspace-1' } });
+    expect(exec.mock.calls.map(([, args]) => args)).toEqual([
+      ['--readonly', 'list', '--json', '--all', '--limit', '0', '--id', 'selected'],
     ]);
   });
 

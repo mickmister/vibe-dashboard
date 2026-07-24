@@ -276,9 +276,7 @@ export class BeadsClient {
       let beads = input.beadId
         ? await this.listBeadsById(input.dir, input.beadId)
         : await this.listFormBearingBeads(input.dir);
-      if (input.beadId && !beads.some((bead) => bead.id === input.beadId)) {
-        beads = await this.tryReadSingleBead(input.dir, input.beadId);
-      } else if (input.beadId && beads.some((bead) => bead.id === input.beadId && !isObject(bead.metadata))) {
+      if (input.beadId && beads.some((bead) => bead.id === input.beadId && !isObject(bead.metadata))) {
         const shown = await this.tryReadSingleBead(input.dir, input.beadId);
         if (shown.length > 0) beads = shown;
       }
