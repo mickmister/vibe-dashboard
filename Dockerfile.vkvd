@@ -5,7 +5,7 @@ ARG VK_BRANCH=main
 ARG VK_COMMIT=
 ARG VK_RUNTIME_SOURCE=github
 ARG CODEX_RELEASE_REPO=mickmister/codex
-ARG CODEX_RELEASE_TAG=codex-cli-assets-117a276c088b41efc8ab4c12b9186686bdc0c349
+ARG CODEX_RELEASE_TAG=codex-cli-assets-fca2e1464870af6a311c8462f39fa7aaca11ce2a
 ARG CODEX_RELEASE_ASSET=
 
 FROM alpine:3.19 AS vk-runtime-downloader
