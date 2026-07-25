@@ -6,6 +6,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  readdir,
   rename,
   rm,
   stat,
@@ -76,7 +77,9 @@ describe('VkBinaryRuntimePromoter', () => {
       cp,
       mkdir,
       readFile,
+      readdir,
       rm,
+      stat,
       writeFile,
       copyFile: async (source, destination) => {
         operations.push(`copy:${source}->${destination}`);
@@ -153,7 +156,9 @@ describe('VkBinaryRuntimePromoter', () => {
       cp,
       mkdir,
       readFile,
+      readdir,
       rm,
+      stat,
       writeFile,
       copyFile: async (source, destination) => {
         operations.push(`copy:${source}->${destination}`);
@@ -198,7 +203,7 @@ describe('VdDistRuntimePromoter', () => {
     const result = await promoter.promoteDist(sourceDist);
 
     await expect(readFile(join(runtimeDir, 'dist', 'index.html'), 'utf8')).resolves.toBe('new:index');
-    await expect(readFile(join(result.rollbackPath, 'index.html'), 'utf8')).resolves.toBe('old:index');
+    await expect(readFile(join(result.rollbackPath, 'dist', 'index.html'), 'utf8')).resolves.toBe('old:index');
     await expectRuntimeData(runtimeDir);
 
     await promoter.rollback(result);
@@ -207,7 +212,7 @@ describe('VdDistRuntimePromoter', () => {
     await expectRuntimeData(runtimeDir);
   });
 
-  it('restores old VD dist if atomic replacement fails after current dist is moved', async () => {
+  it('restores old VD dist if atomic replacement fails after current dist is snapshotted', async () => {
     const root = await mkdtemp(join(tmpdir(), 'vd-promote-replace-fails-'));
     const runtimeDir = join(root, 'runtime');
     const stateDir = join(root, 'state');
@@ -215,6 +220,7 @@ describe('VdDistRuntimePromoter', () => {
     await writeDist(join(runtimeDir, 'dist'), 'old');
     await writeRuntimeData(runtimeDir);
     await writeDist(sourceDist, 'new');
+    let failedInstall = false;
 
     const failingFs: NodeRuntimePromoterFileSystem = {
       access,
@@ -223,10 +229,13 @@ describe('VdDistRuntimePromoter', () => {
       cp,
       mkdir,
       readFile,
+      readdir,
       rm,
+      stat,
       writeFile,
       rename: async (source, destination) => {
-        if (source.includes('.dist-next-') && destination === join(runtimeDir, 'dist')) {
+        if (!failedInstall && source.includes('.dist.next-') && destination === join(runtimeDir, 'dist')) {
+          failedInstall = true;
           throw new Error('failed to install next dist');
         }
         await rename(source, destination);
@@ -236,6 +245,332 @@ describe('VdDistRuntimePromoter', () => {
 
     await expect(promoter.promoteDist(sourceDist)).rejects.toThrow('failed to install next dist');
     await expect(readFile(join(runtimeDir, 'dist', 'index.html'), 'utf8')).resolves.toBe('old:index');
+    await expectRuntimeData(runtimeDir);
+  });
+
+  it('copies live runtime paths into rollback instead of renaming them, avoiding EXDEV during snapshot capture', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'vd-promote-exdev-snapshot-'));
+    const runtimeDir = join(root, 'runtime');
+    const stateDir = join(root, 'state');
+    const sourceDist = join(root, 'source-dist');
+    const operations: string[] = [];
+    await writeDist(join(runtimeDir, 'dist'), 'old');
+    await writeRuntimeData(runtimeDir);
+    await writeDist(sourceDist, 'new');
+
+    const exdevOnRollbackRenameFs: NodeRuntimePromoterFileSystem = {
+      access,
+      chmod,
+      copyFile,
+      mkdir,
+      readFile,
+      readdir,
+      rm,
+      stat,
+      writeFile,
+      cp: async (source, destination, options) => {
+        operations.push(`cp:${source}->${destination}`);
+        await cp(source, destination, options);
+      },
+      rename: async (source, destination) => {
+        operations.push(`rename:${source}->${destination}`);
+        if (source === join(runtimeDir, 'dist') && destination.startsWith(stateDir)) {
+          const error = new Error('EXDEV: cross-device link not permitted') as NodeJS.ErrnoException;
+          error.code = 'EXDEV';
+          throw error;
+        }
+        await rename(source, destination);
+      },
+    };
+    const promoter = new VdDistRuntimePromoter({ runtimeDir, stateDir, fileSystem: exdevOnRollbackRenameFs });
+
+    const result = await promoter.promoteDist(sourceDist);
+
+    expect(operations).toContain(`cp:${join(runtimeDir, 'dist')}->${join(result.rollbackPath, 'dist')}`);
+    expect(operations).not.toContain(`rename:${join(runtimeDir, 'dist')}->${join(result.rollbackPath, 'dist')}`);
+    await expect(readFile(join(runtimeDir, 'dist', 'index.html'), 'utf8')).resolves.toBe('new:index');
+    await expect(readFile(join(result.rollbackPath, 'dist', 'index.html'), 'utf8')).resolves.toBe('old:index');
+    await expectRuntimeData(runtimeDir);
+  });
+
+  it('leaves live runtime untouched when rollback snapshot capture fails before promotion', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'vd-promote-snapshot-fails-'));
+    const runtimeDir = join(root, 'runtime');
+    const stateDir = join(root, 'state');
+    const sourceDist = join(root, 'source-dist');
+    await writeDist(join(runtimeDir, 'dist'), 'old');
+    await writeRuntimeData(runtimeDir);
+    await writeDist(sourceDist, 'new');
+
+    const failingSnapshotFs: NodeRuntimePromoterFileSystem = {
+      access,
+      chmod,
+      copyFile,
+      mkdir,
+      readFile,
+      readdir,
+      rename,
+      rm,
+      stat,
+      writeFile,
+      cp: async (source, destination, options) => {
+        if (source === join(runtimeDir, 'dist') && destination.startsWith(stateDir)) {
+          throw new Error('failed to copy live dist into rollback');
+        }
+        await cp(source, destination, options);
+      },
+    };
+    const promoter = new VdDistRuntimePromoter({ runtimeDir, stateDir, fileSystem: failingSnapshotFs });
+
+    await expect(promoter.promoteDist(sourceDist)).rejects.toThrow('failed to copy live dist into rollback');
+    await expect(readFile(join(runtimeDir, 'dist', 'index.html'), 'utf8')).resolves.toBe('old:index');
+    await expectRuntimeData(runtimeDir);
+  });
+
+  it('falls back to copy when installing a managed path hits EXDEV on rename', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'vd-promote-exdev-install-'));
+    const runtimeDir = join(root, 'runtime');
+    const stateDir = join(root, 'state');
+    const sourceDist = join(root, 'source-dist');
+    const operations: string[] = [];
+    await writeDist(join(runtimeDir, 'dist'), 'old');
+    await writeRuntimeData(runtimeDir);
+    await writeDist(sourceDist, 'new');
+
+    const exdevOnInstallRenameFs: NodeRuntimePromoterFileSystem = {
+      access,
+      chmod,
+      copyFile,
+      mkdir,
+      readFile,
+      readdir,
+      rm,
+      stat,
+      writeFile,
+      cp: async (source, destination, options) => {
+        operations.push(`cp:${source}->${destination}`);
+        await cp(source, destination, options);
+      },
+      rename: async (source, destination) => {
+        operations.push(`rename:${source}->${destination}`);
+        if (source.includes('.dist.next-') && destination === join(runtimeDir, 'dist')) {
+          const error = new Error('EXDEV: cross-device link not permitted') as NodeJS.ErrnoException;
+          error.code = 'EXDEV';
+          throw error;
+        }
+        await rename(source, destination);
+      },
+    };
+    const promoter = new VdDistRuntimePromoter({ runtimeDir, stateDir, fileSystem: exdevOnInstallRenameFs });
+
+    await promoter.promoteDist(sourceDist);
+
+    expect(operations.some((operation) => operation.startsWith(`rename:${join(runtimeDir, '.dist.next-')}`))).toBe(true);
+    expect(operations.some((operation) => operation.startsWith(`cp:${join(runtimeDir, '.dist.next-')}`) && operation.endsWith(`->${join(runtimeDir, 'dist')}`))).toBe(true);
+    await expect(readFile(join(runtimeDir, 'dist', 'index.html'), 'utf8')).resolves.toBe('new:index');
+    await expectRuntimeData(runtimeDir);
+  });
+
+
+  it('syncs full dependencies in staging when manifests differ and restores them on rollback', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'vd-promote-deps-'));
+    const runtimeDir = join(root, 'runtime');
+    const stateDir = join(root, 'state');
+    const sourceRoot = join(root, 'source');
+    const commands: string[] = [];
+    await writeDist(join(runtimeDir, 'dist'), 'old');
+    await writeRuntimeData(runtimeDir);
+    await writePackageJson(runtimeDir, { dependencies: { react: '19.0.0' } });
+    await writeNodeModule(runtimeDir, 'react', 'old-react');
+    await writeDist(join(sourceRoot, 'dist'), 'new', ['dompurify']);
+    await writePackageJson(sourceRoot, { dependencies: { react: '19.0.0', dompurify: '3.4.11' } });
+    await writeFile(join(sourceRoot, 'pnpm-lock.yaml'), 'new-lock');
+
+    const promoter = new VdDistRuntimePromoter({
+      runtimeDir,
+      stateDir,
+      commandRunner: fakeDependencyCommandRunner(commands, async (command, args, options) => {
+        if (command === 'pnpm' && args.join(' ') === 'install --frozen-lockfile') {
+          await writeNodeModule(options!.cwd!, 'dompurify', 'new-dompurify');
+          await writeNodeModule(options!.cwd!, 'react', 'new-react');
+        }
+      }),
+    });
+
+    const inspection = await promoter.inspectDistPromotion(join(sourceRoot, 'dist'));
+    expect(inspection.dependencySyncRequired).toBe(true);
+    expect(inspection.reasons).toContain('package.json differs between source and runtime');
+
+    const result = await promoter.promoteDist(join(sourceRoot, 'dist'));
+
+    expect(commands.some((command) => command.startsWith('pnpm install --frozen-lockfile @ '))).toBe(true);
+    expect(commands.some((command) => command.startsWith('pnpm rebuild --pending @ '))).toBe(true);
+    expect(commands.some((command) => command.startsWith('npm rebuild @ '))).toBe(false);
+    await expect(readFile(join(runtimeDir, 'dist', 'index.html'), 'utf8')).resolves.toBe('new:index');
+    await expect(readFile(join(runtimeDir, 'node_modules', 'dompurify', 'package.json'), 'utf8')).resolves.toContain('new-dompurify');
+    await expect(readFile(join(result.rollbackPath, 'node_modules', 'react', 'package.json'), 'utf8')).resolves.toContain('old-react');
+    await expectRuntimeData(runtimeDir);
+
+    await promoter.rollback(result);
+
+    await expect(readFile(join(runtimeDir, 'dist', 'index.html'), 'utf8')).resolves.toBe('old:index');
+    await expect(readFile(join(runtimeDir, 'node_modules', 'react', 'package.json'), 'utf8')).resolves.toContain('old-react');
+    await expect(readFile(join(runtimeDir, 'node_modules', 'dompurify', 'package.json'), 'utf8')).rejects.toThrow();
+    await expectRuntimeData(runtimeDir);
+  });
+
+  it('fails before promotion when staged module resolution cannot resolve a new bare import', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'vd-promote-missing-dep-'));
+    const runtimeDir = join(root, 'runtime');
+    const sourceRoot = join(root, 'source');
+    await writeDist(join(runtimeDir, 'dist'), 'old');
+    await writeRuntimeData(runtimeDir);
+    await writePackageJson(runtimeDir, { dependencies: { react: '19.0.0' } });
+    await writeNodeModule(runtimeDir, 'react', 'old-react');
+    await writeDist(join(sourceRoot, 'dist'), 'new', ['dompurify']);
+    await writePackageJson(sourceRoot, { dependencies: { react: '19.0.0', dompurify: '3.4.11' } });
+    await writeFile(join(sourceRoot, 'pnpm-lock.yaml'), 'new-lock');
+
+    const promoter = new VdDistRuntimePromoter({
+      runtimeDir,
+      stateDir: join(root, 'state'),
+      commandRunner: fakeDependencyCommandRunner([], async () => {
+        // Simulate an install that did not make dompurify resolvable.
+      }),
+    });
+
+    await expect(promoter.promoteDist(join(sourceRoot, 'dist'))).rejects.toThrow(
+      'Staged VD runtime cannot resolve dependency dompurify',
+    );
+    await expect(readFile(join(runtimeDir, 'dist', 'index.html'), 'utf8')).resolves.toBe('old:index');
+    await expect(readFile(join(runtimeDir, 'package.json'), 'utf8')).resolves.toContain('react');
+    await expectRuntimeData(runtimeDir);
+  });
+
+
+  it('fails before promotion when ignored package builds remain after pending rebuild', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'vd-promote-ignored-builds-'));
+    const runtimeDir = join(root, 'runtime');
+    const stateDir = join(root, 'state');
+    const sourceRoot = join(root, 'source');
+    const commands: string[] = [];
+    await writeDist(join(runtimeDir, 'dist'), 'old');
+    await writeRuntimeData(runtimeDir);
+    await writePackageJson(runtimeDir, { dependencies: { react: '19.0.0' } });
+    await writeNodeModule(runtimeDir, 'react', 'old-react');
+    await writeDist(join(sourceRoot, 'dist'), 'new', ['dompurify']);
+    await writePackageJson(sourceRoot, { dependencies: { react: '19.0.0', dompurify: '3.4.11' } });
+    await writeFile(join(sourceRoot, 'pnpm-lock.yaml'), 'new-lock');
+
+    const promoter = new VdDistRuntimePromoter({
+      runtimeDir,
+      stateDir,
+      commandRunner: fakeDependencyCommandRunner(commands, async (command, args, options) => {
+        if (command === 'pnpm' && args.join(' ') === 'install --frozen-lockfile') {
+          await writeNodeModule(options!.cwd!, 'dompurify', 'new-dompurify');
+          await writeNodeModule(options!.cwd!, 'react', 'new-react');
+        }
+        if (command === 'pnpm' && args.join(' ') === 'ignored-builds') {
+          return { stdout: 'Automatically ignored builds during installation:\n  better-sqlite3', stderr: '' };
+        }
+        return undefined;
+      }),
+    });
+
+    await expect(promoter.promoteDist(join(sourceRoot, 'dist'))).rejects.toThrow(
+      'VD dependency staging has ignored package build scripts after pnpm rebuild --pending',
+    );
+    expect(commands.some((command) => command.startsWith('pnpm ignored-builds @ '))).toBe(true);
+    await expect(readFile(join(runtimeDir, 'dist', 'index.html'), 'utf8')).resolves.toBe('old:index');
+    await expect(readFile(join(runtimeDir, 'node_modules', 'react', 'package.json'), 'utf8')).resolves.toContain('old-react');
+    await expect(readFile(join(runtimeDir, 'node_modules', 'dompurify', 'package.json'), 'utf8')).rejects.toThrow();
+    await expectRuntimeData(runtimeDir);
+  });
+
+  it('fails before promotion when staged pending rebuild fails and leaves runtime untouched', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'vd-promote-pending-rebuild-fails-'));
+    const runtimeDir = join(root, 'runtime');
+    const stateDir = join(root, 'state');
+    const sourceRoot = join(root, 'source');
+    const commands: string[] = [];
+    await writeDist(join(runtimeDir, 'dist'), 'old');
+    await writeRuntimeData(runtimeDir);
+    await writePackageJson(runtimeDir, { dependencies: { react: '19.0.0' } });
+    await writeNodeModule(runtimeDir, 'react', 'old-react');
+    await writeDist(join(sourceRoot, 'dist'), 'new', ['dompurify']);
+    await writePackageJson(sourceRoot, { dependencies: { react: '19.0.0', dompurify: '3.4.11' } });
+    await writeFile(join(sourceRoot, 'pnpm-lock.yaml'), 'new-lock');
+
+    const promoter = new VdDistRuntimePromoter({
+      runtimeDir,
+      stateDir,
+      commandRunner: fakeDependencyCommandRunner(commands, async (command, args, options) => {
+        if (command === 'pnpm' && args.join(' ') === 'install --frozen-lockfile') {
+          await writeNodeModule(options!.cwd!, 'dompurify', 'new-dompurify');
+          await writeNodeModule(options!.cwd!, 'react', 'new-react');
+        }
+        if (command === 'pnpm' && args.join(' ') === 'rebuild --pending') {
+          throw new Error('native rebuild failed');
+        }
+      }),
+    });
+
+    await expect(promoter.promoteDist(join(sourceRoot, 'dist'))).rejects.toThrow(
+      'VD dependency staging command failed (pnpm rebuild --pending)',
+    );
+    expect(commands.some((command) => command.startsWith('npm rebuild @ '))).toBe(false);
+    await expect(readFile(join(runtimeDir, 'dist', 'index.html'), 'utf8')).resolves.toBe('old:index');
+    await expect(readFile(join(runtimeDir, 'node_modules', 'react', 'package.json'), 'utf8')).resolves.toContain('old-react');
+    await expect(readFile(join(runtimeDir, 'node_modules', 'dompurify', 'package.json'), 'utf8')).rejects.toThrow();
+    await expectRuntimeData(runtimeDir);
+  });
+
+  it('restores old dist, dependencies, manifests, and data if dependency-aware replacement fails', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'vd-promote-bundle-replace-fails-'));
+    const runtimeDir = join(root, 'runtime');
+    const stateDir = join(root, 'state');
+    const sourceRoot = join(root, 'source');
+    await writeDist(join(runtimeDir, 'dist'), 'old');
+    await writeRuntimeData(runtimeDir);
+    await writePackageJson(runtimeDir, { dependencies: { react: '19.0.0' } });
+    await writeNodeModule(runtimeDir, 'react', 'old-react');
+    await writeDist(join(sourceRoot, 'dist'), 'new', ['dompurify']);
+    await writePackageJson(sourceRoot, { dependencies: { react: '19.0.0', dompurify: '3.4.11' } });
+    await writeFile(join(sourceRoot, 'pnpm-lock.yaml'), 'new-lock');
+    let failedInstall = false;
+
+    const failingFs: NodeRuntimePromoterFileSystem = {
+      access,
+      chmod,
+      copyFile,
+      cp,
+      mkdir,
+      readFile,
+      readdir,
+      rm,
+      stat,
+      writeFile,
+      rename: async (source, destination) => {
+        if (!failedInstall && source.includes('.node_modules.next-') && destination === join(runtimeDir, 'node_modules')) {
+          failedInstall = true;
+          throw new Error('failed to install next node_modules');
+        }
+        await rename(source, destination);
+      },
+    };
+    const promoter = new VdDistRuntimePromoter({
+      runtimeDir,
+      stateDir,
+      fileSystem: failingFs,
+      commandRunner: fakeDependencyCommandRunner([], async (_command, _args, options) => {
+        await writeNodeModule(options!.cwd!, 'dompurify', 'new-dompurify');
+      }),
+    });
+
+    await expect(promoter.promoteDist(join(sourceRoot, 'dist'))).rejects.toThrow('failed to install next node_modules');
+    await expect(readFile(join(runtimeDir, 'dist', 'index.html'), 'utf8')).resolves.toBe('old:index');
+    await expect(readFile(join(runtimeDir, 'package.json'), 'utf8')).resolves.toContain('react');
+    await expect(readFile(join(runtimeDir, 'node_modules', 'react', 'package.json'), 'utf8')).resolves.toContain('old-react');
     await expectRuntimeData(runtimeDir);
   });
 
@@ -275,12 +610,41 @@ function sha256(content: string): string {
   return createHash('sha256').update(content).digest('hex');
 }
 
-async function writeDist(path: string, label: string): Promise<void> {
+async function writeDist(path: string, label: string, bareImports: string[] = []): Promise<void> {
   await mkdir(join(path, 'node'), { recursive: true });
   await writeFile(join(path, 'index.html'), `${label}:index`);
   await writeFile(join(path, 'manifest.json'), `${label}:manifest`);
-  await writeFile(join(path, 'node', 'node-entry.mjs'), `${label}:entry`);
+  await writeFile(join(path, 'node', 'node-entry.mjs'), `${bareImports.map((specifier) => `import ${JSON.stringify(specifier)};`).join('\n')}\nexport const label = ${JSON.stringify(label)};\n`);
   await writeFile(join(path, 'node', 'manifest.json'), `${label}:node-manifest`);
+}
+
+
+async function writePackageJson(path: string, content: Record<string, unknown>): Promise<void> {
+  await mkdir(path, { recursive: true });
+  await writeFile(join(path, 'package.json'), JSON.stringify({ name: 'vd-test', version: '0.0.0', ...content }, null, 2));
+}
+
+async function writeNodeModule(runtimeDir: string, name: string, label: string): Promise<void> {
+  const moduleDir = join(runtimeDir, 'node_modules', name);
+  await mkdir(moduleDir, { recursive: true });
+  await writeFile(join(moduleDir, 'package.json'), JSON.stringify({ name, version: '0.0.0', label }, null, 2));
+}
+
+function fakeDependencyCommandRunner(
+  commands: string[],
+  onCommand?: (command: string, args: readonly string[], options?: { cwd?: string }) => Promise<void | { stdout: string; stderr: string }>,
+) {
+  return {
+    execFile: async (command: string, args: readonly string[], options?: { cwd?: string }) => {
+      commands.push(`${command} ${args.join(' ')} @ ${options?.cwd ?? ''}`);
+      if (command === 'node' && args.includes('-e')) {
+        const specifier = JSON.parse(args[args.length - 1]!.match(/import\.meta\.resolve\((.*)\);/)![1]!);
+        await access(join(options!.cwd!, 'node_modules', specifier, 'package.json'));
+      }
+      const result = await onCommand?.(command, args, options);
+      return result ?? { stdout: '', stderr: '' };
+    },
+  };
 }
 
 async function writeRuntimeData(runtimeDir: string): Promise<void> {
