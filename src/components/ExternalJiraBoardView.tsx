@@ -188,9 +188,6 @@ export function ExternalJiraBoardShell({
 }
 
 export function ExternalJiraBoardHeader({ boardView }: { boardView: ExternalJiraBoardViewDto }) {
-  const swimlanes = boardView.swimlanes;
-  const issueCount = boardView.pagination.issueCount;
-
   return (
     <header className="border-b border-neutral-800 bg-neutral-950/95 px-6 py-5">
       <div className="flex flex-wrap items-start justify-between gap-4">
