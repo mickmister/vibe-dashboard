@@ -122,8 +122,8 @@ export function ExternalJiraBoardShell({
   const hasLanes = renderableLanes.length > 0;
 
   return (
-    <main className="dark min-h-screen bg-neutral-950 text-neutral-100">
-      <div className="flex min-h-screen flex-col lg:flex-row">
+    <main className="dark h-dvh overflow-y-auto overscroll-contain bg-neutral-950 text-neutral-100">
+      <div className="flex min-h-full flex-col lg:flex-row">
         <div className="min-w-0 flex-1">
           <ExternalJiraBoardHeader boardView={boardView} />
           <ExternalJiraBoardBody

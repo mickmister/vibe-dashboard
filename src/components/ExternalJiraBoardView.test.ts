@@ -35,6 +35,13 @@ const baseBoardView: ExternalJiraBoardViewDto = {
 };
 
 describe('ExternalJiraBoardContent', () => {
+  it('makes the board shell vertically scrollable while preserving horizontal column scrolling', () => {
+    const html = renderToStaticMarkup(React.createElement(ExternalJiraBoardContent, { boardView: baseBoardView }));
+
+    expect(html).toContain('h-dvh overflow-y-auto overscroll-contain');
+    expect(html).toContain('overflow-x-auto');
+  });
+
   it('renders a read-only Jira board with columns and cards', () => {
     const html = renderToStaticMarkup(React.createElement(ExternalJiraBoardContent, { boardView: baseBoardView }));
 
