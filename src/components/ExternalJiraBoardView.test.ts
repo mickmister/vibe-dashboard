@@ -30,7 +30,7 @@ const baseBoardView: ExternalJiraBoardViewDto = {
       metadata: {},
     },
   ],
-  swimlanes: { fidelity: 'unknown', lanes: [], reason: 'No exact swimlane settings available.' },
+  swimlanes: { fidelity: 'none', lanes: [], reason: 'No swimlane grouping was requested.' },
   pagination: { pageCount: 1, issueCount: 1, maxResults: 50 },
 };
 
@@ -51,7 +51,7 @@ describe('ExternalJiraBoardContent', () => {
     expect(html).toContain('VD-1');
     expect(html).toContain('Build external board UI');
     expect(html).toContain('Swimlanes:');
-    expect(html).toContain('unknown');
+    expect(html).toContain('none');
     expect(html).toContain('Create Workspace');
     expect(html).toContain('Workspace creation from Jira cards is not wired yet.');
     expect(html).toContain('disabled=""');
@@ -262,11 +262,11 @@ describe('ExternalJiraBoardContent', () => {
     expect(onSelect).not.toHaveBeenCalled();
   });
 
-  it('renders inferred swimlanes when present', () => {
+  it('renders explicit swimlanes when present', () => {
     const html = renderToStaticMarkup(React.createElement(ExternalJiraBoardContent, {
       boardView: {
         ...baseBoardView,
-        swimlanes: { fidelity: 'partial', lanes: [{ id: 'EPIC-1', title: 'EPIC-1: Lane', issueKeys: ['VD-1'] }], reason: 'Inferred from parent.' },
+        swimlanes: { fidelity: 'partial', lanes: [{ id: 'EPIC-1', title: 'EPIC-1: Lane', issueKeys: ['VD-1'] }], reason: 'Explicit user-selected grouping.' },
       },
     }));
 
@@ -295,7 +295,7 @@ describe('ExternalJiraBoardContent', () => {
         swimlanes: {
           fidelity: 'partial',
           lanes: [{ id: 'EPIC-1', title: 'EPIC-1: Lane', issueKeys: ['VD-1'] }],
-          reason: 'Inferred from parent.',
+          reason: 'Explicit user-selected grouping.',
         },
         pagination: { pageCount: 1, issueCount: 2, maxResults: 50 },
       },

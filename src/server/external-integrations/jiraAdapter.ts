@@ -247,7 +247,7 @@ export async function fetchJiraBoardView({
       board: normalizeBoard(boardConfigResult.value, locator),
       columns: normalizedColumns,
       cards: cards as ExternalKanbanCard[],
-      swimlanes: inferSwimlanes(cards as ExternalKanbanCard[]),
+      swimlanes: inferSwimlanes(),
       pagination: {
         pageCount: issuePagesResult.pageCount,
         issueCount: cards.length,
@@ -309,7 +309,7 @@ async function fetchJiraProjectIssueView({
       },
       columns,
       cards: cards as ExternalKanbanCard[],
-      swimlanes: inferSwimlanes(cards as ExternalKanbanCard[]),
+      swimlanes: inferSwimlanes(),
       pagination: {
         pageCount: issuePagesResult.pageCount,
         issueCount: cards.length,
@@ -852,39 +852,11 @@ function normalizeParent(parent: JsonRecord): ExternalKanbanCard['parent'] {
   };
 }
 
-function inferSwimlanes(cards: ExternalKanbanCard[]): ExternalKanbanSwimlanes {
-  const lanesByParent = new Map<string, ExternalKanbanSwimlane>();
-  let cardsWithParent = 0;
-
-  for (const card of cards) {
-    const parentKey = card.parent?.key;
-    if (!parentKey) continue;
-    cardsWithParent += 1;
-    const existingLane = lanesByParent.get(parentKey);
-    if (existingLane) {
-      existingLane.issueKeys.push(card.key);
-    } else {
-      lanesByParent.set(parentKey, {
-        id: parentKey,
-        title: card.parent?.summary ? `${parentKey}: ${card.parent.summary}` : parentKey,
-        issueKeys: [card.key],
-        metadata: { source: 'jira_parent_field' },
-      });
-    }
-  }
-
-  if (lanesByParent.size === 0) {
-    return {
-      fidelity: 'unknown',
-      lanes: [],
-      reason: 'Jira public board configuration does not expose swimlane settings; no parent grouping was available to infer lanes.',
-    };
-  }
-
+function inferSwimlanes(): ExternalKanbanSwimlanes {
   return {
-    fidelity: cardsWithParent === cards.length ? 'full' : 'partial',
-    lanes: [...lanesByParent.values()],
-    reason: 'Inferred from Jira parent/epic issue metadata; Jira public board configuration does not expose exact swimlane settings.',
+    fidelity: 'none',
+    lanes: [],
+    reason: 'No swimlane grouping was requested or detected from the external Jira URL.',
   };
 }
 

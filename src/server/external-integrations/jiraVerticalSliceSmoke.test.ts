@@ -123,9 +123,9 @@ describe('Jira external board vertical slice smoke', () => {
             },
           ],
           swimlanes: {
-            fidelity: 'partial' as const,
-            lanes: [{ id: 'EPIC-1', title: 'EPIC-1: External tracker integration', issueKeys: ['VD-1'] }],
-            reason: 'Fixture models best-effort swimlane inference.',
+            fidelity: 'none' as const,
+            lanes: [],
+            reason: 'No swimlane grouping was requested.',
           },
           pagination: { pageCount: 1, issueCount: 2, maxResults: 50 },
         },
@@ -176,12 +176,10 @@ describe('Jira external board vertical slice smoke', () => {
       expect(html).toContain('Done');
       expect(html).toContain('Replicate Jira board in VD');
       expect(html).toContain('Keep read-only smoke deterministic');
-      expect(html).toContain('EPIC-1: External tracker integration');
-      expect(html).toContain('Other issues');
-      expect(html).toContain('Related workspaces');
-      expect(html).toContain('Vktest workspace');
-      expect(html).toContain('Related beads');
-      expect(html).toContain('vkvw-573j.8: M8 smoke linked bead');
+      expect(html).toContain('Existing workspace');
+      expect(html).toContain('Open Workspace');
+      expect(html).toContain('0/1 tasks complete');
+      expect(html).toContain('Next up: M8 smoke linked bead');
     } finally {
       await db.destroy();
       sqlite.close();

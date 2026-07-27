@@ -392,9 +392,9 @@ describe('live Jira board adapter', () => {
       }),
     ]);
     expect(result.boardView.swimlanes).toEqual({
-      fidelity: 'unknown',
+      fidelity: 'none',
       lanes: [],
-      reason: expect.stringContaining('does not expose swimlane settings'),
+      reason: expect.stringContaining('No swimlane grouping was requested'),
     });
   });
 
@@ -491,7 +491,7 @@ describe('live Jira board adapter', () => {
     }
   });
 
-  it('infers partial swimlanes from parent issue metadata as a best-effort fallback', async () => {
+  it('does not infer swimlanes from parent issue metadata without explicit grouping', async () => {
     const fetchImpl = createJiraFetch([
       {
         issues: [
@@ -507,9 +507,9 @@ describe('live Jira board adapter', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error(result.error.message);
     expect(result.boardView.swimlanes).toEqual({
-      fidelity: 'partial',
-      lanes: [{ id: 'VD-EPIC', title: 'VD-EPIC: Epic lane', issueKeys: ['VD-1'], metadata: { source: 'jira_parent_field' } }],
-      reason: expect.stringContaining('Inferred from Jira parent'),
+      fidelity: 'none',
+      lanes: [],
+      reason: expect.stringContaining('No swimlane grouping was requested'),
     });
   });
 

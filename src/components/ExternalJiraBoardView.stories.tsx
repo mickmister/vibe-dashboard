@@ -193,13 +193,13 @@ export const UnmappedCards: Story = {
   },
 };
 
-export const PartialSwimlaneFallback: Story = {
+export const ExplicitGroupingSwimlaneFallback: Story = {
   args: {
     boardView: board({
       swimlanes: {
         fidelity: 'partial',
         lanes: [{ id: 'EPIC-1', title: 'EPIC-1: External tracker integration', issueKeys: ['VD-1'] }],
-        reason: 'Fixture models best-effort Jira swimlane inference.',
+        reason: 'Fixture models explicit user-selected grouping; Jira swimlanes are not inferred automatically.',
       },
     }),
   },
@@ -224,7 +224,7 @@ export const MixedDecorationStates: Story = {
       swimlanes: {
         fidelity: 'partial',
         lanes: [{ id: 'EPIC-MIXED', title: 'EPIC-MIXED: Cards with explicit links', issueKeys: ['VD-2', 'VD-3', 'VD-4'] }],
-        reason: 'Mixed fixture leaves most cards in Other issues to show fallback plus mobile vertical scroll.',
+        reason: 'Mixed fixture uses explicit user-selected grouping and leaves most cards in Other issues to show fallback plus mobile vertical scroll.',
       },
     }),
   },
