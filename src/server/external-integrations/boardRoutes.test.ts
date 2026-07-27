@@ -108,6 +108,86 @@ describe('external Jira board routes', () => {
     expect(adapter).not.toHaveBeenCalled();
   });
 
+  it('loads a live Jira board with server-side Jira bot credentials when no user is signed in', async () => {
+    const app = new Hono();
+    const adapter = vi.fn(async () => ({ ok: true, boardView })) as unknown as FetchJiraBoardView;
+    registerExternalTrackerBoardRoutes(app, {
+      enabled: true,
+      auth: createAuthService(null),
+      db,
+      fetchJiraBoardView: adapter,
+      jiraBotAuth: { kind: 'basic', siteHostname: 'team.atlassian.net', email: 'bot@example.com', apiToken: 'secret-token' },
+      beads: noBeadLinks,
+    });
+
+    const response = await app.request(`/dashboard/api/external-trackers/jira/board?external_view_url=${encodeURIComponent(jiraBoardUrl)}`);
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ ok: true, boardView });
+    expect(adapter).toHaveBeenCalledWith({
+      locator: expect.objectContaining({ provider: 'jira', viewKind: 'board', boardId: '42', siteHostname: 'team.atlassian.net' }),
+      auth: { kind: 'basic', siteHostname: 'team.atlassian.net', email: 'bot@example.com', apiToken: 'secret-token' },
+    });
+  });
+
+  it('prefers a linked Atlassian OAuth token over server-side Jira bot credentials', async () => {
+    await seedUserAndAtlassianAccount(db, { accessToken: 'linked-oauth-token' });
+    const app = new Hono();
+    const adapter = vi.fn(async () => ({ ok: true, boardView })) as unknown as FetchJiraBoardView;
+    registerExternalTrackerBoardRoutes(app, {
+      enabled: true,
+      auth: createAuthService({ user: { id: 'user_1', email: 'u@example.com', name: 'User One' } }),
+      db,
+      fetchJiraBoardView: adapter,
+      jiraBotAuth: { kind: 'basic', siteHostname: 'team.atlassian.net', email: 'bot@example.com', apiToken: 'secret-token' },
+      beads: noBeadLinks,
+    });
+
+    const response = await app.request(`/dashboard/api/external-trackers/jira/board?external_view_url=${encodeURIComponent(jiraBoardUrl)}`);
+
+    expect(response.status).toBe(200);
+    expect(adapter).toHaveBeenCalledWith({
+      locator: expect.objectContaining({ provider: 'jira', viewKind: 'board', boardId: '42', siteHostname: 'team.atlassian.net' }),
+      accessToken: 'linked-oauth-token',
+    });
+  });
+
+  it('falls back to server-side Jira bot credentials when the signed-in user has not connected Jira', async () => {
+    const app = new Hono();
+    const adapter = vi.fn(async () => ({ ok: true, boardView })) as unknown as FetchJiraBoardView;
+    registerExternalTrackerBoardRoutes(app, {
+      enabled: true,
+      auth: createAuthService({ user: { id: 'user_1', email: 'u@example.com', name: 'User One' } }),
+      db,
+      fetchJiraBoardView: adapter,
+      jiraBotAuth: { kind: 'basic', siteHostname: 'team.atlassian.net', email: 'bot@example.com', apiToken: 'secret-token' },
+      beads: noBeadLinks,
+    });
+
+    const response = await app.request(`/dashboard/api/external-trackers/jira/board?external_view_url=${encodeURIComponent(jiraBoardUrl)}`);
+
+    expect(response.status).toBe(200);
+    expect(adapter).toHaveBeenCalledWith(expect.objectContaining({
+      auth: { kind: 'basic', siteHostname: 'team.atlassian.net', email: 'bot@example.com', apiToken: 'secret-token' },
+    }));
+  });
+
+  it('returns a stable no-credentials error without exposing bot-token-shaped secrets', async () => {
+    const app = new Hono();
+    const adapter = vi.fn() as unknown as FetchJiraBoardView;
+    registerExternalTrackerBoardRoutes(app, { enabled: true, auth: createAuthService(null), db, fetchJiraBoardView: adapter });
+
+    const response = await app.request(`/dashboard/api/external-trackers/jira/board?external_view_url=${encodeURIComponent(jiraBoardUrl)}`);
+
+    expect(response.status).toBe(401);
+    const bodyText = await response.text();
+    expect(bodyText).toContain('authentication_required');
+    expect(bodyText).toContain('JIRA_SITE_HOSTNAME');
+    expect(bodyText).not.toContain('secret-token');
+    expect(bodyText).not.toContain('JIRA_API_TOKEN=');
+    expect(adapter).not.toHaveBeenCalled();
+  });
+
   it('loads a live Jira board through the M3 adapter using the linked Atlassian token', async () => {
     await seedUserAndAtlassianAccount(db);
     const app = new Hono();

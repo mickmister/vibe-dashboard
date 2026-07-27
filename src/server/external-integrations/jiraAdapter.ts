@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 import type { JiraExternalViewLocator } from '../../lib/externalViewUrl';
 
 const ATLASSIAN_API_ORIGIN = 'https://api.atlassian.com';
@@ -130,9 +131,24 @@ export type JiraBoardAdapterResult =
   | { ok: true; boardView: ExternalJiraBoardView }
   | { ok: false; error: JiraProviderError };
 
+export interface JiraOAuthAuthConfig {
+  kind: 'oauth';
+  accessToken: string;
+}
+
+export interface JiraBasicAuthConfig {
+  kind: 'basic';
+  siteHostname: string;
+  email: string;
+  apiToken: string;
+}
+
+export type JiraAuthConfig = JiraOAuthAuthConfig | JiraBasicAuthConfig;
+
 export interface FetchJiraBoardViewOptions {
   locator: JiraExternalViewLocator;
-  accessToken: string;
+  accessToken?: string;
+  auth?: JiraAuthConfig;
   fetchImpl?: typeof fetch;
   pageSize?: number;
 }
@@ -146,9 +162,11 @@ type JiraFetchResult =
 export async function fetchJiraBoardView({
   locator,
   accessToken,
+  auth,
   fetchImpl = fetch,
   pageSize = DEFAULT_PAGE_SIZE,
 }: FetchJiraBoardViewOptions): Promise<JiraBoardAdapterResult> {
+  const jiraAuth = auth ?? (accessToken ? { kind: 'oauth' as const, accessToken } : undefined);
   if (locator.viewKind !== 'board' || !locator.boardId) {
     return {
       ok: false,
@@ -158,11 +176,19 @@ export async function fetchJiraBoardView({
     };
   }
 
-  const resourceResult = await resolveJiraAccessibleResource({ accessToken, siteHostname: locator.siteHostname, fetchImpl });
-  if (!resourceResult.ok) return resourceResult;
+  if (!jiraAuth) {
+    return {
+      ok: false,
+      error: createProviderError('jira_unauthorized', 'No Jira credentials were available for this board request.', {
+        userAction: 'Connect Jira or configure server-side Jira bot credentials and try again.',
+      }),
+    };
+  }
 
-  const jiraBaseUrl = `${ATLASSIAN_API_ORIGIN}/ex/jira/${encodeURIComponent(resourceResult.resource.id)}`;
-  const boardConfigResult = await jiraJson(fetchImpl, `${jiraBaseUrl}/rest/agile/1.0/board/${encodeURIComponent(locator.boardId)}/configuration`, accessToken);
+  const contextResult = await resolveJiraRequestContext({ auth: jiraAuth, siteHostname: locator.siteHostname, fetchImpl });
+  if (!contextResult.ok) return contextResult;
+
+  const boardConfigResult = await jiraJson(fetchImpl, `${contextResult.context.jiraBaseUrl}/rest/agile/1.0/board/${encodeURIComponent(locator.boardId)}/configuration`, contextResult.context.authHeader);
   if (!boardConfigResult.ok) return boardConfigResult;
 
   if (!isRecord(boardConfigResult.value)) {
@@ -172,9 +198,9 @@ export async function fetchJiraBoardView({
   const normalizedColumns = normalizeColumns(boardConfigResult.value);
   const issuePagesResult = await fetchBoardIssuePages({
     fetchImpl,
-    jiraBaseUrl,
+    jiraBaseUrl: contextResult.context.jiraBaseUrl,
     boardId: locator.boardId,
-    accessToken,
+    authHeader: contextResult.context.authHeader,
     pageSize: clampPageSize(pageSize),
   });
   if (!issuePagesResult.ok) return issuePagesResult;
@@ -195,7 +221,7 @@ export async function fetchJiraBoardView({
       provider: 'jira',
       sourceUrl: locator.originalUrl,
       siteHostname: locator.siteHostname,
-      resource: resourceResult.resource,
+      resource: contextResult.context.resource,
       board: normalizeBoard(boardConfigResult.value, locator),
       columns: normalizedColumns,
       cards: cards as ExternalKanbanCard[],
@@ -218,7 +244,7 @@ export async function resolveJiraAccessibleResource({
   siteHostname: string;
   fetchImpl?: typeof fetch;
 }): Promise<{ ok: true; resource: JiraAccessibleResource } | { ok: false; error: JiraProviderError }> {
-  const resourcesResult = await jiraJson(fetchImpl, `${ATLASSIAN_API_ORIGIN}/oauth/token/accessible-resources`, accessToken);
+  const resourcesResult = await jiraJson(fetchImpl, `${ATLASSIAN_API_ORIGIN}/oauth/token/accessible-resources`, `Bearer ${accessToken}`);
   if (!resourcesResult.ok) return resourcesResult;
   if (!Array.isArray(resourcesResult.value)) {
     return malformedResponse('Jira accessible resources response was not an array.');
@@ -263,17 +289,64 @@ export async function resolveJiraAccessibleResource({
   return { ok: true, resource };
 }
 
+async function resolveJiraRequestContext({
+  auth,
+  siteHostname,
+  fetchImpl,
+}: {
+  auth: JiraAuthConfig;
+  siteHostname: string;
+  fetchImpl: typeof fetch;
+}): Promise<{ ok: true; context: { jiraBaseUrl: string; resource: JiraAccessibleResource; authHeader: string } } | { ok: false; error: JiraProviderError }> {
+  if (auth.kind === 'oauth') {
+    const resourceResult = await resolveJiraAccessibleResource({ accessToken: auth.accessToken, siteHostname, fetchImpl });
+    if (!resourceResult.ok) return resourceResult;
+    return {
+      ok: true,
+      context: {
+        jiraBaseUrl: `${ATLASSIAN_API_ORIGIN}/ex/jira/${encodeURIComponent(resourceResult.resource.id)}`,
+        resource: resourceResult.resource,
+        authHeader: `Bearer ${auth.accessToken}`,
+      },
+    };
+  }
+
+  if (normalizeHostname(auth.siteHostname) !== normalizeHostname(siteHostname)) {
+    return {
+      ok: false,
+      error: createProviderError('jira_resource_not_found', `Server-side Jira bot credentials are configured for ${auth.siteHostname}, not ${siteHostname}.`, {
+        userAction: 'Open a Jira board from the configured bot site or update JIRA_SITE_HOSTNAME.',
+        details: { siteHostname, configuredSiteHostname: auth.siteHostname },
+      }),
+    };
+  }
+
+  const normalizedSiteHostname = normalizeHostname(auth.siteHostname);
+  return {
+    ok: true,
+    context: {
+      jiraBaseUrl: `https://${normalizedSiteHostname}`,
+      resource: {
+        id: `basic:${normalizedSiteHostname}`,
+        name: normalizedSiteHostname,
+        url: `https://${normalizedSiteHostname}`,
+      },
+      authHeader: `Basic ${Buffer.from(`${auth.email}:${auth.apiToken}`, 'utf8').toString('base64')}`,
+    },
+  };
+}
+
 async function fetchBoardIssuePages({
   fetchImpl,
   jiraBaseUrl,
   boardId,
-  accessToken,
+  authHeader,
   pageSize,
 }: {
   fetchImpl: typeof fetch;
   jiraBaseUrl: string;
   boardId: string;
-  accessToken: string;
+  authHeader: string;
   pageSize: number;
 }): Promise<{ ok: true; issues: JsonRecord[]; pageCount: number; maxResults: number } | { ok: false; error: JiraProviderError }> {
   const issues: JsonRecord[] = [];
@@ -292,7 +365,7 @@ async function fetchBoardIssuePages({
       url.searchParams.set('startAt', String(startAt));
     }
 
-    const pageResult = await jiraJson(fetchImpl, url.toString(), accessToken);
+    const pageResult = await jiraJson(fetchImpl, url.toString(), authHeader);
     if (!pageResult.ok) return pageResult;
     if (!isRecord(pageResult.value) || !Array.isArray(pageResult.value.issues)) {
       return malformedResponse('Jira board issues response did not include an issues array.');
@@ -353,13 +426,13 @@ async function fetchBoardIssuePages({
   return { ok: true, issues, pageCount, maxResults: pageSize };
 }
 
-async function jiraJson(fetchImpl: typeof fetch, url: string, accessToken: string): Promise<JiraFetchResult> {
+async function jiraJson(fetchImpl: typeof fetch, url: string, authHeader: string): Promise<JiraFetchResult> {
   let response: Response;
   try {
     response = await fetchImpl(url, {
       headers: {
         accept: 'application/json',
-        authorization: `Bearer ${accessToken}`,
+        authorization: authHeader,
       },
     });
   } catch (error) {
@@ -537,9 +610,13 @@ function createStableColumnId(index: number, name: string, statusIds: string[]):
   return `${slug}-${statusSuffix}`;
 }
 
+function normalizeHostname(hostname: string): string {
+  return hostname.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+}
+
 function hostnameMatches(resourceUrl: string, siteHostname: string): boolean {
   try {
-    return new URL(resourceUrl).hostname.toLowerCase() === siteHostname.toLowerCase();
+    return normalizeHostname(new URL(resourceUrl).hostname) === normalizeHostname(siteHostname);
   } catch {
     return false;
   }

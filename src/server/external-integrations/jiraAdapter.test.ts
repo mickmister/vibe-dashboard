@@ -89,6 +89,57 @@ describe('Jira accessible resource lookup', () => {
 });
 
 describe('live Jira board adapter', () => {
+  it('fetches Jira Cloud boards with Basic auth API-token credentials against the direct site REST API', async () => {
+    const fetchImpl = createJiraFetch([
+      {
+        issues: [{ id: '10010', key: 'VD-1', fields: { summary: 'Build the adapter', status: { id: '10000', name: 'To Do' } } }],
+        isLast: true,
+        maxResults: 50,
+        startAt: 0,
+        total: 1,
+      },
+    ]);
+
+    const result = await fetchJiraBoardView({
+      locator,
+      auth: { kind: 'basic', siteHostname: 'team.atlassian.net', email: 'bot@example.com', apiToken: 'api-token-secret' },
+      fetchImpl,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.error.message);
+    const urls = vi.mocked(fetchImpl).mock.calls.map(([url]) => String(url));
+    expect(urls).not.toContain('https://api.atlassian.com/oauth/token/accessible-resources');
+    expect(urls[0]).toBe('https://team.atlassian.net/rest/agile/1.0/board/42/configuration');
+    expect(urls[1]).toContain('https://team.atlassian.net/rest/agile/1.0/board/42/issue');
+    expect(vi.mocked(fetchImpl).mock.calls[0]?.[1]).toEqual(expect.objectContaining({
+      headers: expect.objectContaining({ authorization: `Basic ${Buffer.from('bot@example.com:api-token-secret').toString('base64')}` }),
+    }));
+    expect(result.boardView.resource).toEqual({
+      id: 'basic:team.atlassian.net',
+      name: 'team.atlassian.net',
+      url: 'https://team.atlassian.net',
+    });
+  });
+
+  it('rejects Basic auth credentials configured for a different Jira hostname without leaking the token', async () => {
+    const fetchImpl = vi.fn() as unknown as typeof fetch;
+
+    const result = await fetchJiraBoardView({
+      locator,
+      auth: { kind: 'basic', siteHostname: 'other.atlassian.net', email: 'bot@example.com', apiToken: 'api-token-secret' },
+      fetchImpl,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe('jira_resource_not_found');
+      expect(JSON.stringify(result.error)).not.toContain('api-token-secret');
+      expect(result.error.userAction).toContain('JIRA_SITE_HOSTNAME');
+    }
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it('fetches board configuration and normalizes columns/cards without persisting issue snapshots', async () => {
     const fetchImpl = createJiraFetch([
       {

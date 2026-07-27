@@ -5,7 +5,7 @@ import type { DB } from '../../store/kysely_types';
 import type { ExternalTrackerAuthService } from './auth';
 import { isExternalTrackerProvider } from './config';
 import { fetchJiraBoardView } from './jiraAdapter';
-import type { JiraBoardAdapterResult } from './jiraAdapter';
+import type { JiraBasicAuthConfig, JiraBoardAdapterResult } from './jiraAdapter';
 import { addBeadExternalIssueLink, decorateJiraBoardWithBeadLinks, isValidBeadId, normalizeExternalIssueRef, removeBeadExternalIssueLink } from './beadExternalIssues';
 import type { BeadsExternalIssueServiceOptions } from './beadExternalIssues';
 import { decorateJiraBoardWithWorkspaceMappings, upsertExternalIssueWorkspaceMapping } from './workspaceMappings';
@@ -19,6 +19,7 @@ export function registerExternalTrackerBoardRoutes(
     auth: ExternalTrackerAuthService;
     db: Kysely<DB>;
     fetchJiraBoardView?: FetchJiraBoardView;
+    jiraBotAuth?: JiraBasicAuthConfig | false;
     beads?: BeadsExternalIssueServiceOptions;
   },
 ): void {
@@ -41,21 +42,17 @@ export function registerExternalTrackerBoardRoutes(
       return c.json({ ok: false, error: { code: 'unsupported_external_view', message: 'Only Jira board URLs are supported in this view.', userAction: 'Open a Jira board URL and try again.' } }, 400);
     }
 
-    const session = await options.auth.getSession(c.req.raw.headers);
-    if (!session) {
-      return c.json({ ok: false, error: { code: 'authentication_required', message: 'Sign in before loading external Jira boards.', userAction: 'Sign in, connect Jira, and try again.' } }, 401);
-    }
-
-    const accessTokenResult = await resolveJiraAccessToken({ db: options.db, userId: session.user.id });
-    if (!accessTokenResult.ok) {
-      return c.json({ ok: false, error: accessTokenResult.error }, accessTokenResult.status);
-    }
-
     const adapter = options.fetchJiraBoardView ?? fetchJiraBoardView;
-    const result = await adapter({
-      locator: parsed.locator,
-      accessToken: accessTokenResult.accessToken,
+    const authResult = await resolveJiraBoardAuth({
+      db: options.db,
+      userId: (await options.auth.getSession(c.req.raw.headers))?.user.id,
+      botAuth: options.jiraBotAuth === undefined ? getEnvJiraBotAuth() : options.jiraBotAuth || undefined,
     });
+    if (!authResult.ok) return c.json({ ok: false, error: authResult.error }, authResult.status);
+
+    const result = await adapter(authResult.auth.kind === 'oauth'
+      ? { locator: parsed.locator, accessToken: authResult.auth.accessToken }
+      : { locator: parsed.locator, auth: authResult.auth });
 
     if (!result.ok) {
       return c.json({ ok: false, error: result.error }, statusForJiraAdapterError(result));
@@ -176,6 +173,56 @@ export async function resolveJiraAccessToken({
   }
 
   return { ok: true, accessToken: account.accessToken };
+}
+
+export async function resolveJiraBoardAuth({
+  db,
+  userId,
+  botAuth,
+}: {
+  db: Kysely<DB>;
+  userId?: string;
+  botAuth?: JiraBasicAuthConfig;
+}): Promise<
+  | { ok: true; auth: { kind: 'oauth'; accessToken: string } | JiraBasicAuthConfig }
+  | { ok: false; status: 401 | 409; error: { code: string; message: string; userAction: string } }
+> {
+  if (userId) {
+    const linkedToken = await resolveJiraAccessToken({ db, userId });
+    if (linkedToken.ok) return { ok: true, auth: { kind: 'oauth', accessToken: linkedToken.accessToken } };
+    if (botAuth) return { ok: true, auth: botAuth };
+    return {
+      ...linkedToken,
+      error: withBotCredentialUserAction(linkedToken.error),
+    };
+  }
+
+  if (botAuth) return { ok: true, auth: botAuth };
+
+  return {
+    ok: false,
+    status: 401,
+    error: {
+      code: 'authentication_required',
+      message: 'Sign in before loading external Jira boards, or configure server-side Jira bot credentials.',
+      userAction: 'Sign in and connect Jira, or set JIRA_SITE_HOSTNAME, JIRA_EMAIL, and JIRA_API_TOKEN on the server.',
+    },
+  };
+}
+
+export function getEnvJiraBotAuth(env: Record<string, string | undefined> = process.env): JiraBasicAuthConfig | undefined {
+  const siteHostname = env.JIRA_SITE_HOSTNAME?.trim();
+  const email = env.JIRA_EMAIL?.trim();
+  const apiToken = env.JIRA_API_TOKEN?.trim();
+  if (!siteHostname || !email || !apiToken) return undefined;
+  return { kind: 'basic', siteHostname, email, apiToken };
+}
+
+function withBotCredentialUserAction(error: { code: string; message: string; userAction: string }) {
+  return {
+    ...error,
+    userAction: `${error.userAction} Alternatively, configure JIRA_SITE_HOSTNAME, JIRA_EMAIL, and JIRA_API_TOKEN on the server for bot-token access.`,
+  };
 }
 
 function statusForJiraAdapterError(result: Extract<JiraBoardAdapterResult, { ok: false }>): 400 | 401 | 403 | 404 | 409 | 429 | 502 {
