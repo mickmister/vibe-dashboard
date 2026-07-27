@@ -137,15 +137,51 @@ describe('live Jira board adapter', () => {
       projectKey: 'SM',
       boardId: undefined,
       endpointFamily: 'enhanced-search-jql',
-      jql: 'project = "SM" ORDER BY Rank ASC',
+      jql: 'project = "SM" AND (<URL filter>) ORDER BY Rank ASC',
       issueCount: 2,
     });
     const searchUrl = String(vi.mocked(fetchImpl).mock.calls[0]?.[0]);
     expect(searchUrl).toContain('/rest/api/3/search/jql?');
-    expect(new URL(searchUrl).searchParams.get('jql')).toBe('project = "SM" ORDER BY Rank ASC');
+    expect(new URL(searchUrl).searchParams.get('jql')).toBe('project = "SM" AND (assignee = "557058:12f5f56d-3d07-4f12-8751-bf00efed200b") ORDER BY Rank ASC');
   });
 
-  it('ignores Jira Core board filter query params so URL input cannot widen bot-token JQL', async () => {
+  it('preserves arbitrary Jira Core board filter query params inside the project scope', async () => {
+    const priorityLocator: JiraExternalViewLocator = {
+      ...coreBoardLocator,
+      originalUrl: 'https://jamtools.atlassian.net/jira/core/projects/SM/board?filter=priority%20%3D%20High%20AND%20status%20!%3D%20Done%20ORDER%20BY%20created%20DESC',
+    };
+    const fetchImpl = vi.fn(async () => jsonResponse({ issues: [], isLast: true, maxResults: 50 })) as unknown as typeof fetch;
+
+    const result = await fetchJiraBoardView({
+      locator: priorityLocator,
+      auth: { kind: 'basic', siteHostname: 'jamtools.atlassian.net', email: 'bot@example.com', apiToken: 'secret' },
+      fetchImpl,
+    });
+
+    expect(result.ok).toBe(true);
+    const searchUrl = String(vi.mocked(fetchImpl).mock.calls[0]?.[0]);
+    expect(new URL(searchUrl).searchParams.get('jql')).toBe('project = "SM" AND (priority = High AND status != Done) ORDER BY Rank ASC');
+  });
+
+  it('keeps structurally valid OR filters constrained by the Jira Core project', async () => {
+    const crossProjectLocator: JiraExternalViewLocator = {
+      ...coreBoardLocator,
+      originalUrl: 'https://jamtools.atlassian.net/jira/core/projects/SM/board?filter=(status%20%3D%20Done%20OR%20project%20%3D%20%22SECRET%22)',
+    };
+    const fetchImpl = vi.fn(async () => jsonResponse({ issues: [], isLast: true, maxResults: 50 })) as unknown as typeof fetch;
+
+    const result = await fetchJiraBoardView({
+      locator: crossProjectLocator,
+      auth: { kind: 'basic', siteHostname: 'jamtools.atlassian.net', email: 'bot@example.com', apiToken: 'secret' },
+      fetchImpl,
+    });
+
+    expect(result.ok).toBe(true);
+    const searchUrl = String(vi.mocked(fetchImpl).mock.calls[0]?.[0]);
+    expect(new URL(searchUrl).searchParams.get('jql')).toBe('project = "SM" AND ((status = Done OR project = "SECRET")) ORDER BY Rank ASC');
+  });
+
+  it('ignores structurally unsafe Jira Core board filter query params so URL input cannot widen bot-token JQL', async () => {
     const maliciousLocator: JiraExternalViewLocator = {
       ...coreBoardLocator,
       originalUrl: 'https://jamtools.atlassian.net/jira/core/projects/SM/board?filter=key%20is%20not%20EMPTY)%20OR%20project%20%3D%20%22SECRET%22%20OR%20(project%20%3D%20%22SM%22',

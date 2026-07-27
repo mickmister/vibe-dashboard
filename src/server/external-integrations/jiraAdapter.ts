@@ -319,7 +319,7 @@ async function fetchJiraProjectIssueView({
         locator,
         jiraMode: 'project-search',
         endpointFamily: 'enhanced-search-jql',
-        jql: buildProjectIssueJql(locator),
+        jql: buildProjectIssueJql(locator, { redactUrlFilter: true }),
         issueCount: cards.length,
       }),
     },
@@ -688,10 +688,85 @@ function inferColumnsFromIssues(issues: JsonRecord[]): ExternalKanbanColumn[] {
   return [...columnsByStatusId.values()];
 }
 
-function buildProjectIssueJql(locator: JiraExternalViewLocator): string {
+function buildProjectIssueJql(locator: JiraExternalViewLocator, options: { redactUrlFilter?: boolean } = {}): string {
   const projectJql = locator.projectKey ? `project = "${escapeJqlString(locator.projectKey)}"` : '';
-  if (projectJql) return `${projectJql} ORDER BY Rank ASC`;
+  const urlFilter = projectJql ? getSafeJiraUrlFilterJql(locator.originalUrl) : undefined;
+  const filterJql = options.redactUrlFilter && urlFilter ? '<URL filter>' : urlFilter;
+  const clauses = [projectJql, filterJql ? `(${filterJql})` : undefined].filter(isPresent);
+  const whereJql = clauses.join(' AND ');
+  if (whereJql) return `${whereJql} ORDER BY Rank ASC`;
   return 'ORDER BY Rank ASC';
+}
+
+function getSafeJiraUrlFilterJql(originalUrl: string): string | undefined {
+  let rawFilter: string | null;
+  try {
+    rawFilter = new URL(originalUrl).searchParams.get('filter');
+  } catch {
+    return undefined;
+  }
+
+  const filter = stripTopLevelOrderBy(rawFilter?.trim() ?? '');
+  if (!filter || !isStructurallySafeJqlClause(filter)) return undefined;
+  return filter;
+}
+
+function stripTopLevelOrderBy(value: string): string {
+  const orderByIndex = findTopLevelOrderByIndex(value);
+  return (orderByIndex === -1 ? value : value.slice(0, orderByIndex)).trim();
+}
+
+function findTopLevelOrderByIndex(value: string): number {
+  let depth = 0;
+  let quote: '"' | "'" | undefined;
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index];
+    const previous = value[index - 1];
+    if (quote) {
+      if (char === quote && previous !== '\\') quote = undefined;
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (char === '(') {
+      depth += 1;
+      continue;
+    }
+    if (char === ')') {
+      depth -= 1;
+      continue;
+    }
+    if (depth === 0 && /^order\s+by\b/i.test(value.slice(index))) return index;
+  }
+  return -1;
+}
+
+function isStructurallySafeJqlClause(value: string): boolean {
+  let depth = 0;
+  let quote: '"' | "'" | undefined;
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index];
+    const previous = value[index - 1];
+    if (quote) {
+      if (char === quote && previous !== '\\') quote = undefined;
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (char === '(') {
+      depth += 1;
+      continue;
+    }
+    if (char === ')') {
+      depth -= 1;
+      if (depth < 0) return false;
+    }
+  }
+  return depth === 0 && quote === undefined;
 }
 
 function createJiraDiagnostics({
