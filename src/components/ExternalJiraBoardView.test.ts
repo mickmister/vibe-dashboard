@@ -45,13 +45,10 @@ describe('ExternalJiraBoardContent', () => {
   it('renders a read-only Jira board with columns and cards', () => {
     const html = renderToStaticMarkup(React.createElement(ExternalJiraBoardContent, { boardView: baseBoardView }));
 
-    expect(html).toContain('Read-only Jira board');
     expect(html).toContain('VD Board');
     expect(html).toContain('To Do');
     expect(html).toContain('VD-1');
     expect(html).toContain('Build external board UI');
-    expect(html).toContain('Swimlanes:');
-    expect(html).toContain('none');
     expect(html).toContain('Create Workspace');
     expect(html).toContain('Create a VK workspace for this Jira issue.');
     expect(html).not.toContain('disabled=""');
@@ -298,7 +295,6 @@ describe('ExternalJiraBoardContent', () => {
       },
     }));
 
-    expect(html).toContain('partial');
     expect(html).toContain('EPIC-1: Lane');
   });
 

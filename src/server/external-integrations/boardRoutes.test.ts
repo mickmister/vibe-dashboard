@@ -7,6 +7,7 @@ import type { ExternalTrackerAuthService } from './auth';
 import { registerExternalTrackerBoardRoutes, resolveJiraAccessToken } from './boardRoutes';
 import { migrateExternalIntegrationsDb } from './migrate';
 import type { FetchJiraBoardView } from './boardRoutes';
+import type { VibeKanbanServerClient } from '../vk-client';
 import { upsertExternalIssueWorkspaceMapping } from './workspaceMappings';
 
 function createAuthService(session: Awaited<ReturnType<ExternalTrackerAuthService['getSession']>>): ExternalTrackerAuthService {
@@ -54,6 +55,22 @@ const jiraCoreBoardUrl = 'https://jamtools.atlassian.net/jira/core/projects/SM/b
 const noBeadLinks = {
   runBd: vi.fn(async () => ({ stdout: '' })),
 };
+
+type TestVkClient = Pick<VibeKanbanServerClient, 'getInfo' | 'listRepos' | 'listDirectory' | 'registerRepo' | 'getRepoBranches' | 'createAndStartWorkspace' | 'getWorkspaceSummaries' | 'getSessions'>;
+
+function createVkClient(overrides: Partial<TestVkClient> = {}): TestVkClient {
+  return {
+    getInfo: vi.fn(),
+    listRepos: vi.fn(),
+    listDirectory: vi.fn(),
+    registerRepo: vi.fn(),
+    getRepoBranches: vi.fn(),
+    createAndStartWorkspace: vi.fn(),
+    getWorkspaceSummaries: vi.fn(async () => ({ summaries: [] })),
+    getSessions: vi.fn(async () => []),
+    ...overrides,
+  } as TestVkClient;
+}
 const boardView = {
   provider: 'jira' as const,
   sourceUrl: jiraBoardUrl,
@@ -234,6 +251,7 @@ describe('external Jira board routes', () => {
       db,
       fetchJiraBoardView: adapter,
       beads: noBeadLinks,
+      vkClient: createVkClient(),
     });
 
     const response = await app.request(`/dashboard/api/external-trackers/jira/board?external_view_url=${encodeURIComponent(jiraBoardUrl)}`);
@@ -280,6 +298,7 @@ describe('external Jira board routes', () => {
       db,
       fetchJiraBoardView: adapter,
       beads: noBeadLinks,
+      vkClient: createVkClient(),
     });
 
     const response = await app.request(`/dashboard/api/external-trackers/jira/board?external_view_url=${encodeURIComponent(jiraBoardUrl)}`);
@@ -290,10 +309,60 @@ describe('external Jira board routes', () => {
       boardView: expect.objectContaining({
         cards: [expect.objectContaining({
           key: 'VD-1',
-          relatedWorkspaces: [{ workspaceId: 'ws-1', workspaceDir: '/repo/a', displayName: 'Workspace A', isPrimary: true }],
+          relatedWorkspaces: [expect.objectContaining({ workspaceId: 'ws-1', workspaceDir: '/repo/a', displayName: 'Workspace A', isPrimary: true })],
         })],
       }),
     });
+  });
+
+
+  it('decorates linked VK workspaces with activity metrics from existing VK APIs', async () => {
+    await seedUserAndAtlassianAccount(db);
+    await upsertExternalIssueWorkspaceMapping(db, {
+      externalIssue: { provider: 'jira', key: 'VD-1', id: '10001', url: 'https://team.atlassian.net/browse/VD-1', site: 'team.atlassian.net' },
+      workspace: { workspaceId: 'ws-1', workspaceDir: '/repo/a', displayName: 'Workspace A' },
+      isPrimary: true,
+    });
+    const app = new Hono();
+    const adapterBoardView = {
+      ...boardView,
+      pagination: { pageCount: 1, issueCount: 1, maxResults: 50 },
+      cards: [{ id: '10001', key: 'VD-1', title: 'Mapped issue', url: 'https://team.atlassian.net/browse/VD-1', labels: [], rank: 0, metadata: {} }],
+    };
+    const adapter = vi.fn(async () => ({ ok: true, boardView: adapterBoardView })) as unknown as FetchJiraBoardView;
+    const vkClient = createVkClient({
+      getWorkspaceSummaries: vi.fn(async (archived: boolean) => ({ summaries: archived ? [] : [{ workspace_id: 'ws-1', latest_session_id: 'session-2', files_changed: 7, lines_added: 30, lines_removed: 12 }] })),
+      getSessions: vi.fn(async () => [
+        { id: 'session-1', workspace_id: 'ws-1', executor: 'CODEX' as const, created_at: '2026-07-27T00:00:00Z', updated_at: '2026-07-27T00:00:00Z' },
+        { id: 'session-2', workspace_id: 'ws-1', executor: 'AMP' as const, created_at: '2026-07-27T01:00:00Z', updated_at: '2026-07-27T01:00:00Z' },
+      ]),
+    });
+    registerExternalTrackerBoardRoutes(app, {
+      enabled: true,
+      auth: createAuthService({ user: { id: 'user_1', email: 'u@example.com', name: 'User One' } }),
+      db,
+      fetchJiraBoardView: adapter,
+      beads: noBeadLinks,
+      vkClient,
+    });
+
+    const response = await app.request(`/dashboard/api/external-trackers/jira/board?external_view_url=${encodeURIComponent(jiraBoardUrl)}`);
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+      boardView: expect.objectContaining({
+        cards: [expect.objectContaining({
+          relatedWorkspaces: [expect.objectContaining({
+            workspaceId: 'ws-1',
+            metadata: expect.objectContaining({ filesChanged: 7, linesChanged: 42, linesAdded: 30, linesRemoved: 12, agentSessions: 2 }),
+          })],
+        })],
+      }),
+    });
+    expect(vkClient.getWorkspaceSummaries).toHaveBeenCalledWith(false);
+    expect(vkClient.getWorkspaceSummaries).toHaveBeenCalledWith(true);
+    expect(vkClient.getSessions).toHaveBeenCalledWith('ws-1');
   });
 
   it('decorates loaded Jira cards with explicit bead external_issues metadata', async () => {
@@ -602,17 +671,14 @@ describe('external Jira board routes', () => {
 
   it('returns ~/repos workspace creation options with default executor config', async () => {
     const app = new Hono();
-    const vkClient = {
+    const vkClient = createVkClient({
       getInfo: vi.fn(async () => ({ config: { executor_profile: { executor: 'AMP' as const } }, executors: { CODEX: {}, AMP: {} } })),
       listRepos: vi.fn(async () => [{ id: 'repo-1', path: '/tmp/repos/app', name: 'app', display_name: 'app', default_target_branch: 'origin/main' }]),
       listDirectory: vi.fn(async () => ({ current_path: '/tmp/repos', entries: [
         { name: 'app', path: '/tmp/repos/app', is_directory: true, is_git_repo: true, last_modified: null },
         { name: 'notes', path: '/tmp/repos/notes', is_directory: true, is_git_repo: false, last_modified: null },
       ] })),
-      registerRepo: vi.fn(),
-      getRepoBranches: vi.fn(),
-      createAndStartWorkspace: vi.fn(),
-    };
+    });
     registerExternalTrackerBoardRoutes(app, { enabled: true, auth: createAuthService(null), db, vkClient, reposRoot: '/tmp/repos' });
 
     const response = await app.request('/dashboard/api/external-trackers/vk/workspace-create-options');
@@ -631,17 +697,12 @@ describe('external Jira board routes', () => {
 
   it('creates a VK workspace and records the external issue mapping', async () => {
     const app = new Hono();
-    const vkClient = {
-      getInfo: vi.fn(),
-      listRepos: vi.fn(),
-      listDirectory: vi.fn(),
-      registerRepo: vi.fn(),
-      getRepoBranches: vi.fn(),
+    const vkClient = createVkClient({
       createAndStartWorkspace: vi.fn(async () => ({
         workspace: { id: 'ws-1', task_id: null, container_ref: '/work/ws-1', agent_working_dir: null, branch: 'vk/ws-1', created_at: '2026-07-27T00:00:00Z', updated_at: '2026-07-27T00:00:00Z', archived: false, pinned: false, name: 'VD-1', worktree_deleted: false },
         execution_process: { id: 'proc-1', session_id: 'session-1', status: 'running' as const },
       })),
-    };
+    });
     registerExternalTrackerBoardRoutes(app, { enabled: true, auth: createAuthService(null), db, vkClient, reposRoot: '/tmp/repos' });
 
     const response = await app.request('/dashboard/api/external-trackers/vk/workspaces/start', {
@@ -663,14 +724,9 @@ describe('external Jira board routes', () => {
   it('clones a GitHub repository under ~/repos and registers it with VK', async () => {
     const app = new Hono();
     const cloneRepo = vi.fn(async () => '/tmp/repos/example');
-    const vkClient = {
-      getInfo: vi.fn(),
-      listRepos: vi.fn(),
-      listDirectory: vi.fn(),
+    const vkClient = createVkClient({
       registerRepo: vi.fn(async () => ({ id: 'repo-2', path: '/tmp/repos/example', name: 'example', display_name: 'example', default_target_branch: 'origin/main' })),
-      getRepoBranches: vi.fn(),
-      createAndStartWorkspace: vi.fn(),
-    };
+    });
     registerExternalTrackerBoardRoutes(app, { enabled: true, auth: createAuthService(null), db, vkClient, cloneRepo, reposRoot: '/tmp/repos' });
 
     const response = await app.request('/dashboard/api/external-trackers/vk/repos/clone', {
@@ -688,14 +744,7 @@ describe('external Jira board routes', () => {
   it('validates GitHub clone URLs before invoking clone/register', async () => {
     const app = new Hono();
     const cloneRepo = vi.fn();
-    const vkClient = {
-      getInfo: vi.fn(),
-      listRepos: vi.fn(),
-      listDirectory: vi.fn(),
-      registerRepo: vi.fn(),
-      getRepoBranches: vi.fn(),
-      createAndStartWorkspace: vi.fn(),
-    };
+    const vkClient = createVkClient();
     registerExternalTrackerBoardRoutes(app, { enabled: true, auth: createAuthService(null), db, vkClient, cloneRepo, reposRoot: '/tmp/repos' });
 
     const response = await app.request('/dashboard/api/external-trackers/vk/repos/clone', {

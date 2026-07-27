@@ -312,6 +312,21 @@ export const WorkspaceMetrics: Story = {
   },
 };
 
+
+export const WorkspaceMetricsUnavailable: Story = {
+  args: {
+    boardView: board({
+      cards: [makeCard(35, {
+        title: 'Existing workspace with metrics still loading or unavailable',
+        relatedWorkspaces: [
+          { workspaceId: 'ws-card-35', workspaceDir: '/repos/Vktest-unavailable', displayName: 'Workspace without activity metrics', isPrimary: true },
+        ],
+      })],
+      pagination: { ...baseBoardView.pagination, issueCount: 1 },
+    }),
+  },
+};
+
 export const TaskCompletion: Story = {
   args: {
     boardView: board({
