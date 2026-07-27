@@ -63,6 +63,24 @@ export interface VkWorkspaceCreateSuccessDto {
 
 export type ExternalWorkspaceApiError = { code: string; message: string; userAction: string };
 
+
+export interface ExternalWorkspaceMetricsDto {
+  filesChanged?: number;
+  linesChanged?: number;
+  linesAdded?: number;
+  linesRemoved?: number;
+  agentSessions?: number;
+  agentMessages?: number;
+}
+
+export async function fetchExternalWorkspaceMetrics(workspaceIds: string[], fetchImpl: typeof fetch = fetch): Promise<ApiEnvelope<{ metricsByWorkspaceId: Record<string, ExternalWorkspaceMetricsDto> }>> {
+  return readEnvelope(await fetchImpl('/dashboard/api/external-trackers/vk/workspace-metrics', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify({ workspaceIds }),
+  }));
+}
+
 type ApiEnvelope<T> = { ok: true } & T | { ok: false; error: ExternalWorkspaceApiError };
 
 export async function fetchExternalWorkspaceCreateOptions(fetchImpl: typeof fetch = fetch): Promise<ApiEnvelope<{ options: ExternalWorkspaceCreateOptionsDto }>> {

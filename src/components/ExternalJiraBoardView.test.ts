@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { DrawerBody } from '@heroui/drawer';
-import { ExternalJiraBoardContent, ExternalJiraBoardRoute, ExternalJiraCard, ExternalJiraIssueDetailBodyContent, ExternalJiraIssueDetailDrawerContent, ExternalJiraIssueDetailSheet, buildVKWorkspaceSessionUrl, stripPortSubdomain } from './ExternalJiraBoardView';
+import { ExternalJiraBoardContent, ExternalJiraBoardRoute, ExternalJiraCard, ExternalJiraIssueDetailBodyContent, ExternalJiraIssueDetailDrawerContent, ExternalJiraIssueDetailSheet, buildVKWorkspaceSessionUrl, mergeWorkspaceMetricsIntoBoardView, stripPortSubdomain } from './ExternalJiraBoardView';
 import type { ExternalJiraBoardViewDto, ExternalKanbanCardDto } from '../lib/externalTrackerBoardApi';
 
 const baseBoardView: ExternalJiraBoardViewDto = {
@@ -152,6 +152,31 @@ describe('ExternalJiraBoardContent', () => {
     expect(html).toContain('42');
     expect(html).toContain('Agent sessions');
     expect(html).toContain('18');
+  });
+
+  it('can merge asynchronously loaded workspace metrics into linked cards', () => {
+    const card = baseBoardView.cards[0];
+    if (!card) throw new Error('expected fixture card');
+    const boardView = {
+      ...baseBoardView,
+      cards: [{
+        ...card,
+        relatedWorkspaces: [{ workspaceId: 'ws-1', workspaceDir: '/repo/a', displayName: 'Workspace A', isPrimary: true, metadata: { existing: 'kept' } }],
+      }],
+    } satisfies ExternalJiraBoardViewDto;
+
+    const merged = mergeWorkspaceMetricsIntoBoardView(boardView, {
+      'ws-1': { filesChanged: 7, linesChanged: 42, linesAdded: 30, linesRemoved: 12, agentSessions: 2 },
+    });
+
+    expect(merged.cards[0]?.relatedWorkspaces?.[0]?.metadata).toEqual({
+      existing: 'kept',
+      filesChanged: 7,
+      linesChanged: 42,
+      linesAdded: 30,
+      linesRemoved: 12,
+      agentSessions: 2,
+    });
   });
 
   it('renders linked task completion, in-progress, next-up, and user-assigned summaries', () => {

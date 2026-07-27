@@ -31,6 +31,7 @@ export function registerExternalTrackerBoardRoutes(
     vkClient?: Pick<VibeKanbanServerClient, 'getInfo' | 'listRepos' | 'listDirectory' | 'registerRepo' | 'getRepoBranches' | 'createAndStartWorkspace' | 'getWorkspaceSummaries' | 'getSessions'>;
     cloneRepo?: typeof cloneGitHubRepoIntoReposRoot;
     reposRoot?: string;
+    workspaceMetricsTimeoutMs?: number;
   },
 ): void {
   const vkClient = options.vkClient ?? new VibeKanbanServerClient();
@@ -146,6 +147,19 @@ export function registerExternalTrackerBoardRoutes(
     }
   });
 
+
+  hono.post('/dashboard/api/external-trackers/vk/workspace-metrics', async (c) => {
+    if (!options.enabled) {
+      return c.json({ ok: false, error: { code: 'external_trackers_disabled', message: 'External tracker workspace metrics are disabled.', userAction: 'Enable the external tracker feature flag and try again.' } }, 404);
+    }
+    const body = await c.req.json().catch(() => undefined) as unknown;
+    if (!isWorkspaceMetricsRequest(body)) {
+      return c.json({ ok: false, error: { code: 'invalid_workspace_metrics_request', message: 'The workspace metrics request was invalid.', userAction: 'Provide a workspaceIds array.' } }, 400);
+    }
+    const metrics = await loadRelatedWorkspaceMetrics(body.workspaceIds, vkClient, options.workspaceMetricsTimeoutMs ?? 2_500);
+    return c.json({ ok: true, metricsByWorkspaceId: Object.fromEntries(metrics) });
+  });
+
   hono.get('/dashboard/api/external-trackers/jira/board', async (c) => {
     if (!options.enabled) {
       return c.json({ ok: false, error: { code: 'external_trackers_disabled', message: 'External tracker views are disabled.', userAction: 'Enable the external tracker feature flag and try again.' } }, 404);
@@ -182,8 +196,7 @@ export function registerExternalTrackerBoardRoutes(
     }
 
     const workspaceDecoratedBoardView = await decorateJiraBoardWithWorkspaceMappings(options.db, result.boardView);
-    const activityDecoratedBoardView = await decorateRelatedWorkspacesWithVkActivityMetrics(workspaceDecoratedBoardView, vkClient);
-    const fullyDecoratedBoardView = await decorateJiraBoardWithBeadLinks(activityDecoratedBoardView, options.beads);
+    const fullyDecoratedBoardView = await decorateJiraBoardWithBeadLinks(workspaceDecoratedBoardView, options.beads);
     const boardViewWithDiagnostics = {
       ...fullyDecoratedBoardView,
       diagnostics: {
@@ -541,51 +554,59 @@ function isExternalIssueWorkspaceCreateRequest(value: unknown): value is {
   return true;
 }
 
-async function decorateRelatedWorkspacesWithVkActivityMetrics(
-  boardView: Awaited<ReturnType<typeof decorateJiraBoardWithWorkspaceMappings>>,
+async function loadRelatedWorkspaceMetrics(
+  workspaceIds: string[],
   vkClient: Pick<VibeKanbanServerClient, 'getWorkspaceSummaries' | 'getSessions'>,
-): Promise<Awaited<ReturnType<typeof decorateJiraBoardWithWorkspaceMappings>>> {
-  const workspaceIds = [...new Set(boardView.cards.flatMap((card) => card.relatedWorkspaces.map((workspace) => workspace.workspaceId)))];
-  if (workspaceIds.length === 0) return boardView;
+  timeoutMs: number,
+): Promise<Map<string, Record<string, number>>> {
+  const uniqueWorkspaceIds = [...new Set(workspaceIds)].filter(Boolean);
+  if (uniqueWorkspaceIds.length === 0) return new Map();
 
-  let summariesByWorkspaceId = new Map<string, WorkspaceSummary>();
-  try {
-    const [active, archived] = await Promise.all([
-      vkClient.getWorkspaceSummaries(false),
-      vkClient.getWorkspaceSummaries(true),
-    ]);
-    summariesByWorkspaceId = new Map([...active.summaries, ...archived.summaries].map((summary) => [summary.workspace_id, summary]));
-  } catch {
-    summariesByWorkspaceId = new Map();
-  }
-
-  const sessionCounts = new Map<string, number>();
-  await Promise.all(workspaceIds.map(async (workspaceId) => {
-    try {
-      const sessions = await vkClient.getSessions(workspaceId);
-      sessionCounts.set(workspaceId, sessions.length);
-    } catch {
-      // Leave unavailable instead of displaying a misleading zero.
-    }
+  const summariesPromise = withTimeoutCall(() => Promise.all([
+    vkClient.getWorkspaceSummaries(false),
+    vkClient.getWorkspaceSummaries(true),
+  ]), timeoutMs).catch(() => undefined);
+  const sessionCountsPromise = Promise.all(uniqueWorkspaceIds.map(async (workspaceId): Promise<[string, number] | undefined> => {
+    const sessions = await withTimeoutCall(() => vkClient.getSessions(workspaceId), timeoutMs).catch(() => undefined);
+    return sessions ? [workspaceId, sessions.length] : undefined;
   }));
 
-  return {
-    ...boardView,
-    cards: boardView.cards.map((card) => ({
-      ...card,
-      relatedWorkspaces: card.relatedWorkspaces.map((workspace) => {
-        const summary = summariesByWorkspaceId.get(workspace.workspaceId);
-        const metrics = vkActivityMetricsFromSummary(summary, sessionCounts.get(workspace.workspaceId));
-        return Object.keys(metrics).length === 0 ? workspace : {
-          ...workspace,
-          metadata: {
-            ...workspace.metadata,
-            ...metrics,
-          },
-        };
+  const [summaries, sessionEntries] = await Promise.all([summariesPromise, sessionCountsPromise]);
+  const summariesByWorkspaceId = summaries
+    ? new Map([...summaries[0].summaries, ...summaries[1].summaries].map((summary) => [summary.workspace_id, summary]))
+    : new Map<string, WorkspaceSummary>();
+  const sessionCounts = new Map(sessionEntries.filter((entry): entry is [string, number] => Boolean(entry)));
+
+  const entries: Array<[string, Record<string, number>]> = [];
+  for (const workspaceId of uniqueWorkspaceIds) {
+    const metrics = vkActivityMetricsFromSummary(summariesByWorkspaceId.get(workspaceId), sessionCounts.get(workspaceId));
+    if (Object.keys(metrics).length > 0) entries.push([workspaceId, metrics]);
+  }
+  return new Map(entries);
+}
+
+
+function isWorkspaceMetricsRequest(value: unknown): value is { workspaceIds: string[] } {
+  if (!isPlainObject(value) || !Array.isArray(value.workspaceIds)) return false;
+  return value.workspaceIds.length <= 100 && value.workspaceIds.every(isNonEmptyString);
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error('timeout')), timeoutMs);
       }),
-    })),
-  };
+    ]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
+function withTimeoutCall<T>(factory: () => Promise<T>, timeoutMs: number): Promise<T> {
+  return withTimeout(Promise.resolve().then(factory), timeoutMs);
 }
 
 function vkActivityMetricsFromSummary(summary: WorkspaceSummary | undefined, agentSessions: number | undefined): Record<string, number> {

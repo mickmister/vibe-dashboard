@@ -316,7 +316,58 @@ describe('external Jira board routes', () => {
   });
 
 
-  it('decorates linked VK workspaces with activity metrics from existing VK APIs', async () => {
+  it('loads linked VK workspace activity metrics from a separate endpoint', async () => {
+    const app = new Hono();
+    const vkClient = createVkClient({
+      getWorkspaceSummaries: vi.fn(async (archived: boolean) => ({ summaries: archived ? [] : [{ workspace_id: 'ws-1', latest_session_id: 'session-2', files_changed: 7, lines_added: 30, lines_removed: 12 }] })),
+      getSessions: vi.fn(async () => [
+        { id: 'session-1', workspace_id: 'ws-1', executor: 'CODEX' as const, created_at: '2026-07-27T00:00:00Z', updated_at: '2026-07-27T00:00:00Z' },
+        { id: 'session-2', workspace_id: 'ws-1', executor: 'AMP' as const, created_at: '2026-07-27T01:00:00Z', updated_at: '2026-07-27T01:00:00Z' },
+      ]),
+    });
+    registerExternalTrackerBoardRoutes(app, { enabled: true, auth: createAuthService(null), db, beads: noBeadLinks, vkClient });
+
+    const response = await app.request('/dashboard/api/external-trackers/vk/workspace-metrics', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ workspaceIds: ['ws-1'] }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+      metricsByWorkspaceId: {
+        'ws-1': { filesChanged: 7, linesChanged: 42, linesAdded: 30, linesRemoved: 12, agentSessions: 2 },
+      },
+    });
+    expect(vkClient.getWorkspaceSummaries).toHaveBeenCalledWith(false);
+    expect(vkClient.getWorkspaceSummaries).toHaveBeenCalledWith(true);
+    expect(vkClient.getSessions).toHaveBeenCalledWith('ws-1');
+  });
+
+
+  it('bounds slow workspace metrics endpoint calls and returns partial/unavailable metrics', async () => {
+    const app = new Hono();
+    const vkClient = createVkClient({
+      getWorkspaceSummaries: vi.fn(() => new Promise<never>(() => undefined)),
+      getSessions: vi.fn(() => new Promise<never>(() => undefined)),
+    });
+    registerExternalTrackerBoardRoutes(app, { enabled: true, auth: createAuthService(null), db, beads: noBeadLinks, vkClient, workspaceMetricsTimeoutMs: 50 });
+
+    const response = await Promise.race([
+      app.request('/dashboard/api/external-trackers/vk/workspace-metrics', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ workspaceIds: ['ws-1'] }),
+      }),
+      new Promise<Response>((_, reject) => setTimeout(() => reject(new Error('metrics response timed out')), 500)),
+    ]);
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ ok: true, metricsByWorkspaceId: {} });
+  });
+
+  it('does not block the Jira board response on slow VK workspace metrics', async () => {
     await seedUserAndAtlassianAccount(db);
     await upsertExternalIssueWorkspaceMapping(db, {
       externalIssue: { provider: 'jira', key: 'VD-1', id: '10001', url: 'https://team.atlassian.net/browse/VD-1', site: 'team.atlassian.net' },
@@ -331,11 +382,8 @@ describe('external Jira board routes', () => {
     };
     const adapter = vi.fn(async () => ({ ok: true, boardView: adapterBoardView })) as unknown as FetchJiraBoardView;
     const vkClient = createVkClient({
-      getWorkspaceSummaries: vi.fn(async (archived: boolean) => ({ summaries: archived ? [] : [{ workspace_id: 'ws-1', latest_session_id: 'session-2', files_changed: 7, lines_added: 30, lines_removed: 12 }] })),
-      getSessions: vi.fn(async () => [
-        { id: 'session-1', workspace_id: 'ws-1', executor: 'CODEX' as const, created_at: '2026-07-27T00:00:00Z', updated_at: '2026-07-27T00:00:00Z' },
-        { id: 'session-2', workspace_id: 'ws-1', executor: 'AMP' as const, created_at: '2026-07-27T01:00:00Z', updated_at: '2026-07-27T01:00:00Z' },
-      ]),
+      getWorkspaceSummaries: vi.fn(() => new Promise<never>(() => undefined)),
+      getSessions: vi.fn(() => new Promise<never>(() => undefined)),
     });
     registerExternalTrackerBoardRoutes(app, {
       enabled: true,
@@ -346,23 +394,23 @@ describe('external Jira board routes', () => {
       vkClient,
     });
 
-    const response = await app.request(`/dashboard/api/external-trackers/jira/board?external_view_url=${encodeURIComponent(jiraBoardUrl)}`);
+    const response = await Promise.race([
+      app.request(`/dashboard/api/external-trackers/jira/board?external_view_url=${encodeURIComponent(jiraBoardUrl)}`),
+      new Promise<Response>((_, reject) => setTimeout(() => reject(new Error('board response timed out')), 250)),
+    ]);
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({
+    const json = await response.json();
+    expect(json).toEqual({
       ok: true,
       boardView: expect.objectContaining({
         cards: [expect.objectContaining({
-          relatedWorkspaces: [expect.objectContaining({
-            workspaceId: 'ws-1',
-            metadata: expect.objectContaining({ filesChanged: 7, linesChanged: 42, linesAdded: 30, linesRemoved: 12, agentSessions: 2 }),
-          })],
+          relatedWorkspaces: [expect.objectContaining({ workspaceId: 'ws-1' })],
         })],
       }),
     });
-    expect(vkClient.getWorkspaceSummaries).toHaveBeenCalledWith(false);
-    expect(vkClient.getWorkspaceSummaries).toHaveBeenCalledWith(true);
-    expect(vkClient.getSessions).toHaveBeenCalledWith('ws-1');
+    expect(vkClient.getWorkspaceSummaries).not.toHaveBeenCalled();
+    expect(vkClient.getSessions).not.toHaveBeenCalled();
   });
 
   it('decorates loaded Jira cards with explicit bead external_issues metadata', async () => {

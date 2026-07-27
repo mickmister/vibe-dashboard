@@ -3,8 +3,8 @@ import { Drawer, DrawerBody, DrawerContent } from '@heroui/drawer';
 import type { DashboardExternalViewParseResult } from '../lib/externalViewUrl';
 import { fetchExternalJiraBoardView } from '../lib/externalTrackerBoardApi';
 import type { ExternalJiraBoardApiResponse, ExternalJiraBoardViewDto, ExternalKanbanCardDto, ExternalKanbanColumnDto } from '../lib/externalTrackerBoardApi';
-import { cloneExternalWorkspaceRepo, createExternalIssueWorkspace, fetchExternalWorkspaceCreateOptions, fetchExternalWorkspaceRepoBranches, registerExternalWorkspaceRepo } from '../lib/externalWorkspaceCreateApi';
-import type { ExternalWorkspaceCandidateRepoDto, ExternalWorkspaceCreateOptionsDto, VkBranchDto, VkExecutorConfigDto, VkRepoDto } from '../lib/externalWorkspaceCreateApi';
+import { cloneExternalWorkspaceRepo, createExternalIssueWorkspace, fetchExternalWorkspaceCreateOptions, fetchExternalWorkspaceMetrics, fetchExternalWorkspaceRepoBranches, registerExternalWorkspaceRepo } from '../lib/externalWorkspaceCreateApi';
+import type { ExternalWorkspaceCandidateRepoDto, ExternalWorkspaceCreateOptionsDto, ExternalWorkspaceMetricsDto, VkBranchDto, VkExecutorConfigDto, VkRepoDto } from '../lib/externalWorkspaceCreateApi';
 
 type ExternalRelatedWorkspace = NonNullable<ExternalKanbanCardDto['relatedWorkspaces']>[number];
 
@@ -34,6 +34,11 @@ export function ExternalJiraBoardLoader({ externalViewUrl }: { externalViewUrl: 
     fetchExternalJiraBoardView({ externalViewUrl })
       .then((nextResponse) => {
         if (!cancelled) setResponse(nextResponse);
+        if (nextResponse.ok) {
+          loadWorkspaceMetricsForBoard(nextResponse.boardView, (boardView) => {
+            if (!cancelled) setResponse({ ok: true, boardView });
+          });
+        }
       })
       .catch((caught) => {
         if (!cancelled) setError(caught instanceof Error ? caught.message : String(caught));
@@ -64,6 +69,35 @@ export function ExternalJiraBoardLoader({ externalViewUrl }: { externalViewUrl: 
   }
 
   return <ExternalJiraBoardContent boardView={response.boardView} />;
+}
+
+
+
+export function mergeWorkspaceMetricsIntoBoardView(
+  boardView: ExternalJiraBoardViewDto,
+  metricsByWorkspaceId: Record<string, ExternalWorkspaceMetricsDto>,
+): ExternalJiraBoardViewDto {
+  return {
+    ...boardView,
+    cards: boardView.cards.map((card) => ({
+      ...card,
+      relatedWorkspaces: card.relatedWorkspaces?.map((workspace) => {
+        const metrics = metricsByWorkspaceId[workspace.workspaceId];
+        return metrics ? { ...workspace, metadata: { ...workspace.metadata, ...metrics } } : workspace;
+      }),
+    })),
+  };
+}
+
+function workspaceIdsForBoard(boardView: ExternalJiraBoardViewDto): string[] {
+  return [...new Set(boardView.cards.flatMap((card) => card.relatedWorkspaces?.map((workspace) => workspace.workspaceId) ?? []))];
+}
+
+async function loadWorkspaceMetricsForBoard(boardView: ExternalJiraBoardViewDto, apply: (boardView: ExternalJiraBoardViewDto) => void): Promise<void> {
+  const workspaceIds = workspaceIdsForBoard(boardView);
+  if (workspaceIds.length === 0) return;
+  const result = await fetchExternalWorkspaceMetrics(workspaceIds).catch(() => undefined);
+  if (result?.ok) apply(mergeWorkspaceMetricsIntoBoardView(boardView, result.metricsByWorkspaceId));
 }
 
 export function ExternalJiraBoardContent({ boardView, initialSelectedCardId, initialSidePanelWorkspaceId }: { boardView: ExternalJiraBoardViewDto; initialSelectedCardId?: string; initialSidePanelWorkspaceId?: string }) {
