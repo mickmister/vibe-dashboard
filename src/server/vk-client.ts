@@ -29,6 +29,18 @@ export interface RepoWithBranch {
   target_branch: string;
 }
 
+export interface WorkspaceSummary {
+  workspace_id: string;
+  latest_session_id?: string | null;
+  files_changed: number | null;
+  lines_added: number | null;
+  lines_removed: number | null;
+}
+
+export interface WorkspaceSummaryResponse {
+  summaries: WorkspaceSummary[];
+}
+
 export interface Repo {
   id: string;
   path: string;
@@ -171,6 +183,10 @@ export class VibeKanbanServerClient {
 
   getWorkspaceRepos(workspaceId: string): Promise<RepoWithBranch[]> {
     return this.get(`/workspaces/${encodeURIComponent(workspaceId)}/repos`);
+  }
+
+  getWorkspaceSummaries(archived: boolean): Promise<WorkspaceSummaryResponse> {
+    return this.post('/workspaces/summaries', { archived });
   }
 
   getSessions(workspaceId: string): Promise<Session[]> {

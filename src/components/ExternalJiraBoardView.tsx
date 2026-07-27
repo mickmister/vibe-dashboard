@@ -874,7 +874,7 @@ export function stripPortSubdomain(hostname: string): string {
 
 function readMetric(metadata: Record<string, unknown> | undefined, key: string): number | string {
   const value = metadata?.[key];
-  return typeof value === 'number' || typeof value === 'string' ? value : 0;
+  return typeof value === 'number' || typeof value === 'string' ? value : '—';
 }
 
 function getTaskSummary(card: ExternalKanbanCardDto) {

@@ -15,7 +15,7 @@ import { addBeadExternalIssueLink, decorateJiraBoardWithBeadLinks, isValidBeadId
 import type { BeadsExternalIssueServiceOptions } from './beadExternalIssues';
 import { decorateJiraBoardWithWorkspaceMappings, upsertExternalIssueWorkspaceMapping } from './workspaceMappings';
 import { VibeKanbanServerClient } from '../vk-client';
-import type { CreateAndStartWorkspaceRequest, DirectoryEntry, Executor, ExecutorConfig, Repo } from '../vk-client';
+import type { CreateAndStartWorkspaceRequest, DirectoryEntry, Executor, ExecutorConfig, Repo, WorkspaceSummary } from '../vk-client';
 
 export type FetchJiraBoardView = typeof fetchJiraBoardView;
 
@@ -28,7 +28,7 @@ export function registerExternalTrackerBoardRoutes(
     fetchJiraBoardView?: FetchJiraBoardView;
     jiraBotAuth?: JiraBasicAuthConfig | false;
     beads?: BeadsExternalIssueServiceOptions;
-    vkClient?: Pick<VibeKanbanServerClient, 'getInfo' | 'listRepos' | 'listDirectory' | 'registerRepo' | 'getRepoBranches' | 'createAndStartWorkspace'>;
+    vkClient?: Pick<VibeKanbanServerClient, 'getInfo' | 'listRepos' | 'listDirectory' | 'registerRepo' | 'getRepoBranches' | 'createAndStartWorkspace' | 'getWorkspaceSummaries' | 'getSessions'>;
     cloneRepo?: typeof cloneGitHubRepoIntoReposRoot;
     reposRoot?: string;
   },
@@ -182,7 +182,8 @@ export function registerExternalTrackerBoardRoutes(
     }
 
     const workspaceDecoratedBoardView = await decorateJiraBoardWithWorkspaceMappings(options.db, result.boardView);
-    const fullyDecoratedBoardView = await decorateJiraBoardWithBeadLinks(workspaceDecoratedBoardView, options.beads);
+    const activityDecoratedBoardView = await decorateRelatedWorkspacesWithVkActivityMetrics(workspaceDecoratedBoardView, vkClient);
+    const fullyDecoratedBoardView = await decorateJiraBoardWithBeadLinks(activityDecoratedBoardView, options.beads);
     const boardViewWithDiagnostics = {
       ...fullyDecoratedBoardView,
       diagnostics: {
@@ -538,4 +539,63 @@ function isExternalIssueWorkspaceCreateRequest(value: unknown): value is {
   if (!isPlainObject(workspace.executor_config) || !isNonEmptyString(workspace.executor_config.executor)) return false;
   if (!(workspace.attachment_ids === null || (Array.isArray(workspace.attachment_ids) && workspace.attachment_ids.every((id) => typeof id === 'string')))) return false;
   return true;
+}
+
+async function decorateRelatedWorkspacesWithVkActivityMetrics(
+  boardView: Awaited<ReturnType<typeof decorateJiraBoardWithWorkspaceMappings>>,
+  vkClient: Pick<VibeKanbanServerClient, 'getWorkspaceSummaries' | 'getSessions'>,
+): Promise<Awaited<ReturnType<typeof decorateJiraBoardWithWorkspaceMappings>>> {
+  const workspaceIds = [...new Set(boardView.cards.flatMap((card) => card.relatedWorkspaces.map((workspace) => workspace.workspaceId)))];
+  if (workspaceIds.length === 0) return boardView;
+
+  let summariesByWorkspaceId = new Map<string, WorkspaceSummary>();
+  try {
+    const [active, archived] = await Promise.all([
+      vkClient.getWorkspaceSummaries(false),
+      vkClient.getWorkspaceSummaries(true),
+    ]);
+    summariesByWorkspaceId = new Map([...active.summaries, ...archived.summaries].map((summary) => [summary.workspace_id, summary]));
+  } catch {
+    summariesByWorkspaceId = new Map();
+  }
+
+  const sessionCounts = new Map<string, number>();
+  await Promise.all(workspaceIds.map(async (workspaceId) => {
+    try {
+      const sessions = await vkClient.getSessions(workspaceId);
+      sessionCounts.set(workspaceId, sessions.length);
+    } catch {
+      // Leave unavailable instead of displaying a misleading zero.
+    }
+  }));
+
+  return {
+    ...boardView,
+    cards: boardView.cards.map((card) => ({
+      ...card,
+      relatedWorkspaces: card.relatedWorkspaces.map((workspace) => {
+        const summary = summariesByWorkspaceId.get(workspace.workspaceId);
+        const metrics = vkActivityMetricsFromSummary(summary, sessionCounts.get(workspace.workspaceId));
+        return Object.keys(metrics).length === 0 ? workspace : {
+          ...workspace,
+          metadata: {
+            ...workspace.metadata,
+            ...metrics,
+          },
+        };
+      }),
+    })),
+  };
+}
+
+function vkActivityMetricsFromSummary(summary: WorkspaceSummary | undefined, agentSessions: number | undefined): Record<string, number> {
+  const metrics: Record<string, number> = {};
+  if (summary?.files_changed != null) metrics.filesChanged = summary.files_changed;
+  if (summary?.lines_added != null || summary?.lines_removed != null) {
+    metrics.linesChanged = (summary.lines_added ?? 0) + (summary.lines_removed ?? 0);
+    if (summary.lines_added != null) metrics.linesAdded = summary.lines_added;
+    if (summary.lines_removed != null) metrics.linesRemoved = summary.lines_removed;
+  }
+  if (agentSessions !== undefined) metrics.agentSessions = agentSessions;
+  return metrics;
 }
