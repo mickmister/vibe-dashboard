@@ -20,3 +20,5 @@ data/*.sqlite-*
 
 # Local generated Jira Storybook fixtures
 src/storybook-fixtures/external-jira/*.generated.json
+
+.env
