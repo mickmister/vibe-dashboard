@@ -90,6 +90,8 @@ Example JSON shape:
 
 Guidelines:
 - Every question should have a clear title and description.
+- Choice questions are always multi-select checkboxes in the current public DSL; do not add radio/single-select options.
+- Per-choice notes and per-question notes are always generated; do not add note-inclusion options.
 - Choices may include `is_recommended_reason` when the agent recommends an option. Do not use `recommended: true`; recommendations should always include the reason text.
 - Use `allowCodeFileChanges`; if the answer returns `allow_code_file_changes=false`, do not edit files—make another form or continue discussion.
 - Keep `additional_notes` as the master notes field.

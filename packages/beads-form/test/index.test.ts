@@ -49,6 +49,49 @@ describe('@vibe-dashboard/beads-form', () => {
     ]);
   });
 
+  it('treats stale note and multiple-choice flags as always enabled for compatibility', () => {
+    const compiled = compileBeadsForm(defineBeadsForm({
+      id: 'legacy_flags',
+      title: 'Legacy flags',
+      questions: [
+        buildChoicesQuestion({
+          id: 'decision',
+          title: 'Decision',
+          description: 'Choose every acceptable option.',
+          allowMultiple: false,
+          includePerChoiceNotes: false,
+          includeQuestionNotes: false,
+          choices: [
+            { id: 'ship', label: 'Ship' },
+            { id: 'wait', label: 'Wait' },
+          ],
+        } as unknown as Parameters<typeof buildChoicesQuestion>[0]),
+        buildTextareaQuestion({
+          id: 'notes',
+          title: 'Notes',
+          description: 'Share extra context.',
+          includeQuestionNotes: false,
+        } as unknown as Parameters<typeof buildTextareaQuestion>[0]),
+      ],
+    }));
+
+    expect(compiled.html).toContain('name="decision" type="checkbox" value="ship"');
+    expect(compiled.html).not.toContain('type="radio"');
+    expect(compiled.html).toContain('name="decision_ship_more_info"');
+    expect(compiled.html).toContain('name="decision_more_info"');
+    expect(compiled.html).toContain('name="notes_more_info"');
+    expect(compiled.controls).toEqual([
+      { id: ALLOW_CODE_FILE_CHANGES_FIELD, name: ALLOW_CODE_FILE_CHANGES_FIELD, type: 'submit' },
+      { id: 'decision_ship', name: 'decision', type: 'checkbox', required: undefined, multiple: true },
+      { id: 'decision_ship_more_info', name: 'decision_ship_more_info', type: 'textarea' },
+      { id: 'decision_wait', name: 'decision', type: 'checkbox', required: undefined, multiple: true },
+      { id: 'decision_wait_more_info', name: 'decision_wait_more_info', type: 'textarea' },
+      { id: 'decision_more_info', name: 'decision_more_info', type: 'textarea' },
+      { id: 'notes', name: 'notes', type: 'textarea', required: undefined },
+      { id: 'notes_more_info', name: 'notes_more_info', type: 'textarea' },
+    ]);
+  });
+
   it('allows hiding or customizing the code/file-change submit actions', () => {
     const hidden = compileBeadsForm(defineBeadsForm({
       id: 'hidden_permission',

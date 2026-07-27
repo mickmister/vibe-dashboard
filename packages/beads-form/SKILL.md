@@ -85,8 +85,8 @@ const metadataPatch = buildBeadsFormMetadata([form]);
 ## Conventions
 
 - Every question needs a `title` and a context-rich `description`.
-- Choice questions default to checkboxes so humans can select more than one answer.
-- Per-choice textareas and per-question textareas are included by default.
+- Choice questions are always rendered as checkboxes so humans can select more than one answer. Do not add single-select/radio configuration; single-select semantics need a separate future DSL addition.
+- Per-choice textareas and per-question textareas are always included. Do not add note-inclusion flags.
 - Standard forms include two submit actions by default: one that sets `allow_code_file_changes` to `true`, and one that sets it to `false`. If the normalized response has this field as `false`, do not edit code or files.
 - Use `content: [buildMediaGallery(...)]` for local screenshot/video review blocks. Prefer folder-relative refs like `attachments/candidate-a.png` or attachment-style refs like `attachment://candidate-b.webm`.
 - Use stable lowercase ids with letters, numbers, `_`, or `-`; start ids with a letter.
