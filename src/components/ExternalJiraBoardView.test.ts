@@ -53,8 +53,8 @@ describe('ExternalJiraBoardContent', () => {
     expect(html).toContain('Swimlanes:');
     expect(html).toContain('none');
     expect(html).toContain('Create Workspace');
-    expect(html).toContain('Workspace creation from Jira cards is not wired yet.');
-    expect(html).toContain('disabled=""');
+    expect(html).toContain('Create a VK workspace for this Jira issue.');
+    expect(html).not.toContain('disabled=""');
     expect(html).not.toContain('0 created · 0 completed');
     expect(html).not.toContain('Task</span>');
     expect(html).not.toContain('external-trackers');
@@ -115,6 +115,24 @@ describe('ExternalJiraBoardContent', () => {
 
     expect(html).toContain('Unmapped');
     expect(html).toContain('VD-1');
+  });
+
+
+
+  it('uses the Create Workspace card button to open workspace creation without selecting the card', () => {
+    const card = baseBoardView.cards[0] as ExternalKanbanCardDto;
+    const onCreateWorkspace = vi.fn();
+    const onSelect = vi.fn();
+    const element = ExternalJiraCard({ card, onCreateWorkspace, onOpenWorkspacePanel: () => undefined, onSelect }) as React.ReactElement;
+    const createButton = findElementByText(element, 'Create Workspace') as React.ReactElement<{ onClick: (event: React.MouseEvent<HTMLButtonElement>) => void }> | undefined;
+    if (!createButton) throw new Error('expected Create Workspace button');
+    const stopPropagation = vi.fn();
+
+    createButton.props.onClick({ stopPropagation } as unknown as React.MouseEvent<HTMLButtonElement>);
+
+    expect(stopPropagation).toHaveBeenCalledOnce();
+    expect(onCreateWorkspace).toHaveBeenCalledWith(card);
+    expect(onSelect).not.toHaveBeenCalled();
   });
 
   it('renders related VK workspaces on cards when provided by the board API', () => {

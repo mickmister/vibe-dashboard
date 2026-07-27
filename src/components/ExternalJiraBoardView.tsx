@@ -3,6 +3,8 @@ import { Drawer, DrawerBody, DrawerContent } from '@heroui/drawer';
 import type { DashboardExternalViewParseResult } from '../lib/externalViewUrl';
 import { fetchExternalJiraBoardView } from '../lib/externalTrackerBoardApi';
 import type { ExternalJiraBoardApiResponse, ExternalJiraBoardViewDto, ExternalKanbanCardDto, ExternalKanbanColumnDto } from '../lib/externalTrackerBoardApi';
+import { cloneExternalWorkspaceRepo, createExternalIssueWorkspace, fetchExternalWorkspaceCreateOptions, fetchExternalWorkspaceRepoBranches, registerExternalWorkspaceRepo } from '../lib/externalWorkspaceCreateApi';
+import type { ExternalWorkspaceCandidateRepoDto, ExternalWorkspaceCreateOptionsDto, VkBranchDto, VkExecutorConfigDto, VkRepoDto } from '../lib/externalWorkspaceCreateApi';
 
 type ExternalRelatedWorkspace = NonNullable<ExternalKanbanCardDto['relatedWorkspaces']>[number];
 
@@ -67,11 +69,13 @@ export function ExternalJiraBoardLoader({ externalViewUrl }: { externalViewUrl: 
 export function ExternalJiraBoardContent({ boardView, initialSelectedCardId, initialSidePanelWorkspaceId }: { boardView: ExternalJiraBoardViewDto; initialSelectedCardId?: string; initialSidePanelWorkspaceId?: string }) {
   const [selectedCardId, setSelectedCardId] = useState<string | undefined>(initialSelectedCardId);
   const [sidePanelWorkspaceId, setSidePanelWorkspaceId] = useState<string | undefined>(initialSidePanelWorkspaceId);
+  const [createdPanelWorkspace, setCreatedPanelWorkspace] = useState<ExternalRelatedWorkspace | undefined>();
+  const [workspaceCreateCard, setWorkspaceCreateCard] = useState<ExternalKanbanCardDto | undefined>();
   const columns = useMemo(() => normalizeRenderableColumns(boardView), [boardView]);
   const renderableLanes = useMemo(() => createRenderableSwimlanes(boardView), [boardView]);
   const selectedCardIndex = selectedCardId ? boardView.cards.findIndex((card) => card.id === selectedCardId) : -1;
   const selectedCard = selectedCardIndex >= 0 ? boardView.cards[selectedCardIndex] : undefined;
-  const sidePanelWorkspace = useMemo(() => findWorkspaceById(boardView, sidePanelWorkspaceId), [boardView, sidePanelWorkspaceId]);
+  const sidePanelWorkspace = useMemo(() => findWorkspaceById(boardView, sidePanelWorkspaceId) ?? (createdPanelWorkspace?.workspaceId === sidePanelWorkspaceId ? createdPanelWorkspace : undefined), [boardView, createdPanelWorkspace, sidePanelWorkspaceId]);
 
   return (
     <ExternalJiraBoardShell
@@ -83,10 +87,18 @@ export function ExternalJiraBoardContent({ boardView, initialSelectedCardId, ini
       sidePanelWorkspace={sidePanelWorkspace}
       onSelectCard={(card) => setSelectedCardId(card.id)}
       onCloseCard={() => setSelectedCardId(undefined)}
+      onCloseWorkspaceCreate={() => setWorkspaceCreateCard(undefined)}
       onCloseWorkspacePanel={() => setSidePanelWorkspaceId(undefined)}
+      onCreateWorkspace={(card) => setWorkspaceCreateCard(card)}
       onNextCard={() => setSelectedCardId(boardView.cards[selectedCardIndex + 1]?.id)}
       onOpenWorkspacePanel={(workspace) => setSidePanelWorkspaceId(workspace.workspaceId)}
       onPreviousCard={() => setSelectedCardId(boardView.cards[selectedCardIndex - 1]?.id)}
+      onWorkspaceCreated={(workspace) => {
+        setCreatedPanelWorkspace(workspace);
+        setSidePanelWorkspaceId(workspace.workspaceId);
+        setWorkspaceCreateCard(undefined);
+      }}
+      workspaceCreateCard={workspaceCreateCard}
     />
   );
 }
@@ -95,7 +107,9 @@ export function ExternalJiraBoardShell({
   boardView,
   columns,
   onCloseCard,
+  onCloseWorkspaceCreate,
   onCloseWorkspacePanel,
+  onCreateWorkspace,
   onNextCard,
   onOpenWorkspacePanel,
   onPreviousCard,
@@ -104,11 +118,15 @@ export function ExternalJiraBoardShell({
   selectedCard,
   selectedCardIndex,
   sidePanelWorkspace,
+  onWorkspaceCreated,
+  workspaceCreateCard,
 }: {
   boardView: ExternalJiraBoardViewDto;
   columns: ExternalKanbanColumnDto[];
   onCloseCard: () => void;
+  onCloseWorkspaceCreate: () => void;
   onCloseWorkspacePanel: () => void;
+  onCreateWorkspace: (card: ExternalKanbanCardDto) => void;
   onNextCard: () => void;
   onOpenWorkspacePanel: (workspace: ExternalRelatedWorkspace) => void;
   onPreviousCard: () => void;
@@ -117,6 +135,8 @@ export function ExternalJiraBoardShell({
   selectedCard?: ExternalKanbanCardDto;
   selectedCardIndex: number;
   sidePanelWorkspace?: ExternalRelatedWorkspace;
+  onWorkspaceCreated: (workspace: ExternalRelatedWorkspace) => void;
+  workspaceCreateCard?: ExternalKanbanCardDto;
 }) {
   const issueCount = boardView.pagination.issueCount;
   const hasLanes = renderableLanes.length > 0;
@@ -131,6 +151,7 @@ export function ExternalJiraBoardShell({
             columns={columns}
             diagnostics={boardView.diagnostics}
             hasIssues={issueCount > 0}
+            onCreateWorkspace={onCreateWorkspace}
             onOpenWorkspacePanel={onOpenWorkspacePanel}
             onSelectCard={onSelectCard}
             renderableLanes={renderableLanes}
@@ -152,6 +173,14 @@ export function ExternalJiraBoardShell({
           onNext={onNextCard}
           onPrevious={onPreviousCard}
           totalCards={boardView.cards.length}
+        />
+      ) : null}
+      {workspaceCreateCard ? (
+        <ExternalWorkspaceCreateDialog
+          boardView={boardView}
+          card={workspaceCreateCard}
+          onClose={onCloseWorkspaceCreate}
+          onCreated={onWorkspaceCreated}
         />
       ) : null}
     </main>
@@ -189,6 +218,7 @@ export function ExternalJiraBoardBody({
   columns,
   diagnostics,
   hasIssues,
+  onCreateWorkspace,
   onOpenWorkspacePanel,
   onSelectCard,
   renderableLanes,
@@ -198,6 +228,7 @@ export function ExternalJiraBoardBody({
   columns: ExternalKanbanColumnDto[];
   diagnostics?: ExternalJiraBoardViewDto['diagnostics'];
   hasIssues: boolean;
+  onCreateWorkspace: (card: ExternalKanbanCardDto) => void;
   onOpenWorkspacePanel: (workspace: ExternalRelatedWorkspace) => void;
   onSelectCard: (card: ExternalKanbanCardDto) => void;
   renderableLanes: Array<{ id: string; title: string; cards: ExternalKanbanCardDto[] }>;
@@ -218,7 +249,7 @@ export function ExternalJiraBoardBody({
     return (
       <section className="space-y-6 p-6">
         {renderableLanes.map((lane) => (
-          <ExternalJiraSwimlane key={lane.id} lane={lane} columns={columns} onOpenWorkspacePanel={onOpenWorkspacePanel} onSelectCard={onSelectCard} />
+          <ExternalJiraSwimlane key={lane.id} lane={lane} columns={columns} onCreateWorkspace={onCreateWorkspace} onOpenWorkspacePanel={onOpenWorkspacePanel} onSelectCard={onSelectCard} />
         ))}
       </section>
     );
@@ -226,16 +257,16 @@ export function ExternalJiraBoardBody({
 
   return (
     <section className="p-6">
-      <ExternalJiraKanbanColumns columns={columns} cards={cards} onOpenWorkspacePanel={onOpenWorkspacePanel} onSelectCard={onSelectCard} />
+      <ExternalJiraKanbanColumns columns={columns} cards={cards} onCreateWorkspace={onCreateWorkspace} onOpenWorkspacePanel={onOpenWorkspacePanel} onSelectCard={onSelectCard} />
     </section>
   );
 }
 
-export function ExternalJiraSwimlane({ lane, columns, onOpenWorkspacePanel, onSelectCard }: { lane: { id: string; title: string; cards: ExternalKanbanCardDto[] }; columns: ExternalKanbanColumnDto[]; onOpenWorkspacePanel: (workspace: ExternalRelatedWorkspace) => void; onSelectCard: (card: ExternalKanbanCardDto) => void }) {
+export function ExternalJiraSwimlane({ lane, columns, onCreateWorkspace, onOpenWorkspacePanel, onSelectCard }: { lane: { id: string; title: string; cards: ExternalKanbanCardDto[] }; columns: ExternalKanbanColumnDto[]; onCreateWorkspace: (card: ExternalKanbanCardDto) => void; onOpenWorkspacePanel: (workspace: ExternalRelatedWorkspace) => void; onSelectCard: (card: ExternalKanbanCardDto) => void }) {
   return (
     <div className="rounded-xl border border-neutral-800 bg-neutral-950/60 p-4">
       <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-neutral-300">{lane.title}</h2>
-      <ExternalJiraKanbanColumns columns={columns} cards={lane.cards} onOpenWorkspacePanel={onOpenWorkspacePanel} onSelectCard={onSelectCard} />
+      <ExternalJiraKanbanColumns columns={columns} cards={lane.cards} onCreateWorkspace={onCreateWorkspace} onOpenWorkspacePanel={onOpenWorkspacePanel} onSelectCard={onSelectCard} />
     </div>
   );
 }
@@ -262,7 +293,7 @@ export function ExternalJiraDiagnosticsPanel({ diagnostics }: { diagnostics: Non
   );
 }
 
-export function ExternalJiraKanbanColumns({ columns, cards, onOpenWorkspacePanel, onSelectCard }: { columns: ExternalKanbanColumnDto[]; cards: ExternalKanbanCardDto[]; onOpenWorkspacePanel: (workspace: ExternalRelatedWorkspace) => void; onSelectCard: (card: ExternalKanbanCardDto) => void }) {
+export function ExternalJiraKanbanColumns({ columns, cards, onCreateWorkspace, onOpenWorkspacePanel, onSelectCard }: { columns: ExternalKanbanColumnDto[]; cards: ExternalKanbanCardDto[]; onCreateWorkspace: (card: ExternalKanbanCardDto) => void; onOpenWorkspacePanel: (workspace: ExternalRelatedWorkspace) => void; onSelectCard: (card: ExternalKanbanCardDto) => void }) {
   const knownColumnIds = new Set(columns.map((column) => column.id));
   return (
     <div className="grid auto-cols-[minmax(18rem,1fr)] grid-flow-col gap-4 overflow-x-auto pb-2">
@@ -279,7 +310,7 @@ export function ExternalJiraKanbanColumns({ columns, cards, onOpenWorkspacePanel
             </div>
             <div className="space-y-3 p-3">
               {columnCards.length === 0 ? <div className="rounded-lg border border-dashed border-neutral-800 p-3 text-sm text-neutral-500">No issues</div> : null}
-              {columnCards.map((card) => <ExternalJiraCard key={card.id} card={card} onOpenWorkspacePanel={onOpenWorkspacePanel} onSelect={onSelectCard} />)}
+              {columnCards.map((card) => <ExternalJiraCard key={card.id} card={card} onCreateWorkspace={onCreateWorkspace} onOpenWorkspacePanel={onOpenWorkspacePanel} onSelect={onSelectCard} />)}
             </div>
           </section>
         );
@@ -309,7 +340,7 @@ function createRenderableSwimlanes(boardView: ExternalJiraBoardViewDto): Array<{
   return lanes;
 }
 
-export function ExternalJiraCard({ card, onOpenWorkspacePanel, onSelect }: { card: ExternalKanbanCardDto; onOpenWorkspacePanel: (workspace: ExternalRelatedWorkspace) => void; onSelect: (card: ExternalKanbanCardDto) => void }) {
+export function ExternalJiraCard({ card, onCreateWorkspace, onOpenWorkspacePanel, onSelect }: { card: ExternalKanbanCardDto; onCreateWorkspace?: (card: ExternalKanbanCardDto) => void; onOpenWorkspacePanel: (workspace: ExternalRelatedWorkspace) => void; onSelect: (card: ExternalKanbanCardDto) => void }) {
   const workspaceCount = card.relatedWorkspaces?.length ?? 0;
   const taskSummary = getTaskSummary(card);
   const workspaceMetrics = getWorkspaceMetrics(card);
@@ -338,11 +369,15 @@ export function ExternalJiraCard({ card, onOpenWorkspacePanel, onSelect }: { car
         {workspaceCount === 0 ? (
           <button
             type="button"
-            className="cursor-not-allowed rounded border border-emerald-500/20 px-2 py-1 text-emerald-200/60"
-            disabled
-            title="Workspace creation from Jira cards is not wired yet."
+            className="rounded border border-emerald-500/30 px-2 py-1 text-emerald-200 hover:bg-emerald-500/10 disabled:cursor-not-allowed disabled:text-emerald-200/60"
+            disabled={!onCreateWorkspace}
+            onClick={(event) => {
+              event.stopPropagation();
+              onCreateWorkspace?.(card);
+            }}
+            title={onCreateWorkspace ? 'Create a VK workspace for this Jira issue.' : 'Workspace creation from Jira cards is not wired yet.'}
           >
-            Create Workspace <span className="text-emerald-200/40">(coming soon)</span>
+            Create Workspace
           </button>
         ) : (
           <div className="space-y-2">
@@ -386,6 +421,217 @@ export function ExternalJiraCard({ card, onOpenWorkspacePanel, onSelect }: { car
       ) : null}
     </article>
   );
+}
+
+
+export function ExternalWorkspaceCreateDialog({
+  boardView,
+  card,
+  onClose,
+  onCreated,
+}: {
+  boardView: ExternalJiraBoardViewDto;
+  card: ExternalKanbanCardDto;
+  onClose: () => void;
+  onCreated: (workspace: ExternalRelatedWorkspace) => void;
+}) {
+  const [options, setOptions] = useState<ExternalWorkspaceCreateOptionsDto | undefined>();
+  const [error, setError] = useState<string | undefined>();
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [cloneUrl, setCloneUrl] = useState('');
+  const [prompt, setPrompt] = useState(`Work on ${card.key}: ${card.title}`);
+  const [executorConfig, setExecutorConfig] = useState<VkExecutorConfigDto>({ executor: 'CODEX' });
+  const [selectedRepos, setSelectedRepos] = useState<SelectedWorkspaceRepo[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(undefined);
+    fetchExternalWorkspaceCreateOptions()
+      .then((result) => {
+        if (cancelled) return;
+        if (!result.ok) {
+          setError(`${result.error.message} ${result.error.userAction}`);
+          return;
+        }
+        setOptions(result.options);
+        setExecutorConfig(result.options.defaultExecutorConfig);
+      })
+      .catch((caught) => {
+        if (!cancelled) setError(caught instanceof Error ? caught.message : String(caught));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function addRepo(candidate: ExternalWorkspaceCandidateRepoDto) {
+    if (selectedRepos.some((repo) => repo.path === candidate.path)) return;
+    const optimistic: SelectedWorkspaceRepo = { name: candidate.name, path: candidate.path, repoId: candidate.registeredRepoId, targetBranch: candidate.defaultTargetBranch ?? 'origin/main', branches: [], loading: true };
+    setSelectedRepos((repos) => [...repos, optimistic]);
+    try {
+      const registered = candidate.registeredRepoId ? { ok: true as const, repo: { id: candidate.registeredRepoId, path: candidate.path, name: candidate.name, display_name: candidate.name } as VkRepoDto } : await registerExternalWorkspaceRepo(candidate.path);
+      if (!registered.ok) throw new Error(`${registered.error.message} ${registered.error.userAction}`);
+      const branchesResult = await fetchExternalWorkspaceRepoBranches(registered.repo.id);
+      if (!branchesResult.ok) throw new Error(`${branchesResult.error.message} ${branchesResult.error.userAction}`);
+      setSelectedRepos((repos) => repos.map((repo) => repo.path === candidate.path ? {
+        ...repo,
+        repoId: registered.repo.id,
+        branches: branchesResult.branches,
+        targetBranch: chooseInitialBranch(branchesResult.branches, optimistic.targetBranch),
+        loading: false,
+      } : repo));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+      setSelectedRepos((repos) => repos.filter((repo) => repo.path !== candidate.path));
+    }
+  }
+
+  async function cloneRepo() {
+    setError(undefined);
+    const trimmed = cloneUrl.trim();
+    if (!trimmed) return;
+    setSubmitting(true);
+    try {
+      const result = await cloneExternalWorkspaceRepo(trimmed);
+      if (!result.ok) throw new Error(`${result.error.message} ${result.error.userAction}`);
+      const candidate = { name: result.repo.display_name || result.repo.name, path: result.repo.path, registeredRepoId: result.repo.id, defaultTargetBranch: result.repo.default_target_branch ?? 'origin/main' };
+      setOptions((current) => current ? { ...current, repos: [...current.repos, candidate].sort((a, b) => a.name.localeCompare(b.name)) } : current);
+      setCloneUrl('');
+      await addRepo(candidate);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function createWorkspace() {
+    setError(undefined);
+    const repos = selectedRepos.filter((repo) => repo.repoId && repo.targetBranch).map((repo) => ({ repo_id: repo.repoId as string, target_branch: repo.targetBranch }));
+    if (repos.length === 0) {
+      setError('Select at least one repository.');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const result = await createExternalIssueWorkspace({ card, prompt, repos, executorConfig, siteHostname: boardView.siteHostname });
+      if (!result.ok) throw new Error(`${result.error.message} ${result.error.userAction}`);
+      onCreated({
+        workspaceId: result.workspace.id,
+        displayName: result.workspace.name ?? card.key,
+        workspaceDir: result.workspace.container_ref ?? undefined,
+        isPrimary: true,
+        metadata: { source: 'external-jira-create-workspace' },
+      });
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  const availableRepos = options?.repos.filter((candidate) => !selectedRepos.some((repo) => repo.path === candidate.path)) ?? [];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4 sm:items-center" role="dialog" aria-modal="true" aria-label={`Create VK workspace for ${card.key}`}>
+      <div className="max-h-[90dvh] w-full max-w-3xl overflow-y-auto rounded-xl border border-neutral-800 bg-neutral-950 p-5 text-neutral-100 shadow-2xl">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-300">Create VK workspace</div>
+            <h2 className="mt-2 text-xl font-semibold">{card.key}: {card.title}</h2>
+            <p className="mt-1 text-sm text-neutral-400">Select one or more repositories from ~/repos, or clone a GitHub repository, then start a VK session.</p>
+          </div>
+          <button type="button" className="rounded border border-neutral-800 px-2 py-1 text-sm hover:bg-neutral-900" onClick={onClose}>Close</button>
+        </div>
+
+        {loading ? <p className="mt-4 text-sm text-neutral-400">Loading VK workspace options…</p> : null}
+        {error ? <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-100">{error}</div> : null}
+
+        <label className="mt-4 block text-sm font-medium text-neutral-200">
+          Prompt
+          <textarea className="mt-2 min-h-24 w-full rounded-lg border border-neutral-800 bg-neutral-900 p-3 text-sm text-neutral-100" value={prompt} onChange={(event) => setPrompt(event.target.value)} />
+        </label>
+
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <label className="block text-sm font-medium text-neutral-200">
+            Executor
+            <select className="mt-2 w-full rounded-lg border border-neutral-800 bg-neutral-900 p-2 text-sm text-neutral-100" value={executorConfig.executor} onChange={(event) => setExecutorConfig({ executor: event.target.value as VkExecutorConfigDto['executor'] })}>
+              {(options?.executors.length ? options.executors : [executorConfig.executor]).map((executor) => <option key={executor} value={executor}>{executor}</option>)}
+            </select>
+          </label>
+          <label className="block text-sm font-medium text-neutral-200">
+            Clone from GitHub
+            <div className="mt-2 flex gap-2">
+              <input className="min-w-0 flex-1 rounded-lg border border-neutral-800 bg-neutral-900 p-2 text-sm text-neutral-100" placeholder="https://github.com/owner/repo" value={cloneUrl} onChange={(event) => setCloneUrl(event.target.value)} />
+              <button type="button" className="rounded-lg border border-neutral-700 px-3 py-2 text-sm hover:bg-neutral-900 disabled:cursor-not-allowed disabled:opacity-50" disabled={submitting || !cloneUrl.trim()} onClick={cloneRepo}>Clone</button>
+            </div>
+          </label>
+        </div>
+
+        <section className="mt-5 grid gap-4 md:grid-cols-2">
+          <div>
+            <h3 className="text-sm font-semibold text-neutral-200">Available repos under ~/repos</h3>
+            <div className="mt-2 max-h-56 overflow-y-auto rounded-lg border border-neutral-800">
+              {availableRepos.length === 0 ? <p className="p-3 text-sm text-neutral-500">No more repositories found.</p> : null}
+              {availableRepos.map((repo) => (
+                <button key={repo.path} type="button" className="block w-full border-b border-neutral-900 px-3 py-2 text-left text-sm hover:bg-neutral-900" onClick={() => addRepo(repo)}>
+                  <span className="font-medium text-neutral-100">{repo.name}</span>
+                  <span className="block truncate text-xs text-neutral-500">{repo.path}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <h3 className="text-sm font-semibold text-neutral-200">Selected repositories</h3>
+            <div className="mt-2 space-y-2">
+              {selectedRepos.length === 0 ? <p className="rounded-lg border border-dashed border-neutral-800 p-3 text-sm text-neutral-500">Select at least one repository.</p> : null}
+              {selectedRepos.map((repo) => (
+                <div key={repo.path} className="rounded-lg border border-neutral-800 bg-neutral-900/70 p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium">{repo.name}</div>
+                      <div className="truncate text-xs text-neutral-500">{repo.path}</div>
+                    </div>
+                    <button type="button" className="text-xs text-neutral-400 hover:text-neutral-100" onClick={() => setSelectedRepos((repos) => repos.filter((candidate) => candidate.path !== repo.path))}>Remove</button>
+                  </div>
+                  <label className="mt-2 block text-xs text-neutral-400">
+                    Target branch
+                    <select className="mt-1 w-full rounded border border-neutral-800 bg-neutral-950 p-2 text-sm text-neutral-100" disabled={repo.loading} value={repo.targetBranch} onChange={(event) => setSelectedRepos((repos) => repos.map((candidate) => candidate.path === repo.path ? { ...candidate, targetBranch: event.target.value } : candidate))}>
+                      {repo.loading ? <option value={repo.targetBranch}>Loading branches…</option> : repo.branches.map((branch) => <option key={branch.name} value={branch.name}>{branch.name}</option>)}
+                    </select>
+                  </label>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <div className="mt-5 flex justify-end gap-2">
+          <button type="button" className="rounded-lg border border-neutral-800 px-3 py-2 text-sm hover:bg-neutral-900" onClick={onClose}>Cancel</button>
+          <button type="button" className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-100 hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-50" disabled={submitting || !prompt.trim() || selectedRepos.some((repo) => repo.loading) || selectedRepos.length === 0} onClick={createWorkspace}>Create workspace</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+interface SelectedWorkspaceRepo {
+  name: string;
+  path: string;
+  repoId?: string;
+  targetBranch: string;
+  branches: VkBranchDto[];
+  loading: boolean;
+}
+
+function chooseInitialBranch(branches: VkBranchDto[], preferred: string): string {
+  if (branches.some((branch) => branch.name === preferred)) return preferred;
+  return branches.find((branch) => branch.name === 'origin/main')?.name ?? branches.find((branch) => branch.name === 'main')?.name ?? branches[0]?.name ?? preferred;
 }
 
 export function ExternalVKSessionSidePanel({ workspace, onClose }: { workspace: ExternalRelatedWorkspace; onClose: () => void }) {

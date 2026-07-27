@@ -1,3 +1,8 @@
+import { execFile } from 'node:child_process';
+import { mkdir } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { promisify } from 'node:util';
 import type { Hono } from 'hono';
 import type { Kysely } from 'kysely';
 import { EXTERNAL_VIEW_URL_PARAM, parseExternalViewUrl } from '../../lib/externalViewUrl';
@@ -9,6 +14,8 @@ import type { JiraBasicAuthConfig, JiraBoardAdapterResult } from './jiraAdapter'
 import { addBeadExternalIssueLink, decorateJiraBoardWithBeadLinks, isValidBeadId, normalizeExternalIssueRef, removeBeadExternalIssueLink } from './beadExternalIssues';
 import type { BeadsExternalIssueServiceOptions } from './beadExternalIssues';
 import { decorateJiraBoardWithWorkspaceMappings, upsertExternalIssueWorkspaceMapping } from './workspaceMappings';
+import { VibeKanbanServerClient } from '../vk-client';
+import type { CreateAndStartWorkspaceRequest, DirectoryEntry, Executor, ExecutorConfig, Repo } from '../vk-client';
 
 export type FetchJiraBoardView = typeof fetchJiraBoardView;
 
@@ -21,8 +28,124 @@ export function registerExternalTrackerBoardRoutes(
     fetchJiraBoardView?: FetchJiraBoardView;
     jiraBotAuth?: JiraBasicAuthConfig | false;
     beads?: BeadsExternalIssueServiceOptions;
+    vkClient?: Pick<VibeKanbanServerClient, 'getInfo' | 'listRepos' | 'listDirectory' | 'registerRepo' | 'getRepoBranches' | 'createAndStartWorkspace'>;
+    cloneRepo?: typeof cloneGitHubRepoIntoReposRoot;
+    reposRoot?: string;
   },
 ): void {
+  const vkClient = options.vkClient ?? new VibeKanbanServerClient();
+  const reposRoot = options.reposRoot ?? defaultReposRoot();
+  const cloneRepo = options.cloneRepo ?? cloneGitHubRepoIntoReposRoot;
+
+
+  hono.get('/dashboard/api/external-trackers/vk/workspace-create-options', async (c) => {
+    if (!options.enabled) {
+      return c.json({ ok: false, error: { code: 'external_trackers_disabled', message: 'External tracker workspace creation is disabled.', userAction: 'Enable the external tracker feature flag and try again.' } }, 404);
+    }
+
+    try {
+      const [info, registeredRepos, directory] = await Promise.all([
+        vkClient.getInfo(),
+        vkClient.listRepos(),
+        vkClient.listDirectory(reposRoot),
+      ]);
+      const registeredByPath = new Map(registeredRepos.map((repo) => [normalizePathKey(repo.path), repo]));
+      const repos = directory.entries
+        .filter((entry) => entry.is_directory && entry.is_git_repo)
+        .map((entry) => ({
+          name: entry.name,
+          path: entry.path,
+          registeredRepoId: registeredByPath.get(normalizePathKey(entry.path))?.id,
+          defaultTargetBranch: registeredByPath.get(normalizePathKey(entry.path))?.default_target_branch ?? 'origin/main',
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      const defaultExecutorConfig = normalizeExecutorConfig(info.config?.executor_profile) ?? { executor: 'CODEX' as const };
+      const executors = Object.keys(info.executors ?? {}) as Executor[];
+      return c.json({ ok: true, options: { reposRoot, repos, defaultExecutorConfig, executors } });
+    } catch {
+      return c.json({ ok: false, error: { code: 'vk_workspace_options_failed', message: 'Could not load VK workspace creation options.', userAction: 'Verify the VK server is running and try again.' } }, 502);
+    }
+  });
+
+  hono.post('/dashboard/api/external-trackers/vk/repos/register', async (c) => {
+    if (!options.enabled) {
+      return c.json({ ok: false, error: { code: 'external_trackers_disabled', message: 'External tracker workspace creation is disabled.', userAction: 'Enable the external tracker feature flag and try again.' } }, 404);
+    }
+    const body = await c.req.json().catch(() => undefined) as unknown;
+    if (!isRegisterRepoRequest(body, reposRoot)) {
+      return c.json({ ok: false, error: { code: 'invalid_vk_repo_register_request', message: 'The repository registration request was invalid.', userAction: 'Choose a git repository under ~/repos.' } }, 400);
+    }
+    try {
+      const repo = await vkClient.registerRepo({ path: body.path, display_name: body.displayName });
+      return c.json({ ok: true, repo });
+    } catch {
+      return c.json({ ok: false, error: { code: 'vk_repo_register_failed', message: 'Could not register the repository with VK.', userAction: 'Verify the repository is valid and try again.' } }, 502);
+    }
+  });
+
+  hono.post('/dashboard/api/external-trackers/vk/repos/clone', async (c) => {
+    if (!options.enabled) {
+      return c.json({ ok: false, error: { code: 'external_trackers_disabled', message: 'External tracker workspace creation is disabled.', userAction: 'Enable the external tracker feature flag and try again.' } }, 404);
+    }
+    const body = await c.req.json().catch(() => undefined) as unknown;
+    if (!isCloneRepoRequest(body)) {
+      return c.json({ ok: false, error: { code: 'invalid_vk_repo_clone_request', message: 'The GitHub clone request was invalid.', userAction: 'Provide an https://github.com/owner/repo URL.' } }, 400);
+    }
+    const parsed = parseGitHubCloneUrl(body.githubUrl);
+    if (!parsed.ok) {
+      return c.json({ ok: false, error: { code: 'invalid_github_repo_url', message: 'Only GitHub repository URLs are supported for cloning.', userAction: 'Use an https://github.com/owner/repo URL.' } }, 400);
+    }
+    try {
+      const clonedPath = await cloneRepo({ githubUrl: parsed.cloneUrl, repoName: parsed.repoName, reposRoot });
+      const repo = await vkClient.registerRepo({ path: clonedPath, display_name: body.displayName });
+      return c.json({ ok: true, repo });
+    } catch {
+      return c.json({ ok: false, error: { code: 'vk_repo_clone_failed', message: 'Could not clone and register the GitHub repository.', userAction: 'Verify the URL, network access, and that the destination under ~/repos does not already exist.' } }, 502);
+    }
+  });
+
+  hono.get('/dashboard/api/external-trackers/vk/repos/:repoId/branches', async (c) => {
+    if (!options.enabled) {
+      return c.json({ ok: false, error: { code: 'external_trackers_disabled', message: 'External tracker workspace creation is disabled.', userAction: 'Enable the external tracker feature flag and try again.' } }, 404);
+    }
+    const repoId = c.req.param('repoId');
+    if (!isNonEmptyString(repoId)) {
+      return c.json({ ok: false, error: { code: 'invalid_vk_repo_id', message: 'The repository id was invalid.', userAction: 'Choose a repository and try again.' } }, 400);
+    }
+    try {
+      const branches = await vkClient.getRepoBranches(repoId);
+      return c.json({ ok: true, branches });
+    } catch {
+      return c.json({ ok: false, error: { code: 'vk_repo_branches_failed', message: 'Could not load repository branches from VK.', userAction: 'Verify the repository and try again.' } }, 502);
+    }
+  });
+
+  hono.post('/dashboard/api/external-trackers/vk/workspaces/start', async (c) => {
+    if (!options.enabled) {
+      return c.json({ ok: false, error: { code: 'external_trackers_disabled', message: 'External tracker workspace creation is disabled.', userAction: 'Enable the external tracker feature flag and try again.' } }, 404);
+    }
+    const body = await c.req.json().catch(() => undefined) as unknown;
+    if (!isExternalIssueWorkspaceCreateRequest(body)) {
+      return c.json({ ok: false, error: { code: 'invalid_vk_workspace_create_request', message: 'The workspace creation request was invalid.', userAction: 'Provide a prompt, selected repositories, executor config, and external issue.' } }, 400);
+    }
+    try {
+      const result = await vkClient.createAndStartWorkspace(body.workspace);
+      await upsertExternalIssueWorkspaceMapping(options.db, {
+        externalIssue: body.externalIssue,
+        workspace: {
+          workspaceId: result.workspace.id,
+          displayName: result.workspace.name ?? body.workspace.name ?? body.externalIssue.key,
+          workspaceDir: result.workspace.container_ref ?? undefined,
+        },
+        isPrimary: true,
+        lastOpenedAt: new Date().toISOString(),
+      });
+      return c.json({ ok: true, workspace: result.workspace, executionProcess: result.execution_process });
+    } catch {
+      return c.json({ ok: false, error: { code: 'vk_workspace_create_failed', message: 'Could not create the VK workspace.', userAction: 'Verify selected repositories, branches, and executor settings, then try again.' } }, 502);
+    }
+  });
+
   hono.get('/dashboard/api/external-trackers/jira/board', async (c) => {
     if (!options.enabled) {
       return c.json({ ok: false, error: { code: 'external_trackers_disabled', message: 'External tracker views are disabled.', userAction: 'Enable the external tracker feature flag and try again.' } }, 404);
@@ -322,4 +445,97 @@ function beadLinkFailedError(message: string): { code: 'bead_link_failed'; messa
     message,
     userAction: 'Verify the bead id and try again.',
   };
+}
+
+const execFileAsync = promisify(execFile);
+
+function defaultReposRoot(): string {
+  return path.join(os.homedir(), 'repos');
+}
+
+function normalizePathKey(value: string): string {
+  return path.resolve(value);
+}
+
+function isPathWithinRoot(candidate: string, root: string): boolean {
+  const resolvedRoot = path.resolve(root);
+  const resolvedCandidate = path.resolve(candidate);
+  return resolvedCandidate === resolvedRoot || resolvedCandidate.startsWith(`${resolvedRoot}${path.sep}`);
+}
+
+function normalizeExecutorConfig(value: unknown): ExecutorConfig | undefined {
+  if (!isPlainObject(value) || !isNonEmptyString(value.executor)) return undefined;
+  const config: ExecutorConfig = { executor: value.executor as Executor };
+  if (isNonEmptyString(value.variant)) config.variant = value.variant;
+  if (isNonEmptyString(value.model_id)) config.model_id = value.model_id;
+  if (isNonEmptyString(value.agent_id)) config.agent_id = value.agent_id;
+  if (isNonEmptyString(value.reasoning_id)) config.reasoning_id = value.reasoning_id;
+  if (isNonEmptyString(value.permission_policy)) config.permission_policy = value.permission_policy;
+  return config;
+}
+
+function isRegisterRepoRequest(value: unknown, reposRoot: string): value is { path: string; displayName?: string } {
+  if (!isPlainObject(value)) return false;
+  if (!isNonEmptyString(value.path) || !isPathWithinRoot(value.path, reposRoot)) return false;
+  return value.displayName === undefined || typeof value.displayName === 'string';
+}
+
+function isCloneRepoRequest(value: unknown): value is { githubUrl: string; displayName?: string } {
+  if (!isPlainObject(value)) return false;
+  if (!isNonEmptyString(value.githubUrl)) return false;
+  return value.displayName === undefined || typeof value.displayName === 'string';
+}
+
+function parseGitHubCloneUrl(value: string): { ok: true; cloneUrl: string; repoName: string } | { ok: false } {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return { ok: false };
+  }
+  if (url.protocol !== 'https:' || url.hostname !== 'github.com') return { ok: false };
+  const [owner, repoWithSuffix, ...rest] = url.pathname.split('/').filter(Boolean);
+  if (!owner || !repoWithSuffix || rest.length > 0) return { ok: false };
+  const repoName = repoWithSuffix.replace(/\.git$/i, '');
+  if (!/^[A-Za-z0-9._-]+$/.test(owner) || !/^[A-Za-z0-9._-]+$/.test(repoName)) return { ok: false };
+  return { ok: true, cloneUrl: `https://github.com/${owner}/${repoName}.git`, repoName };
+}
+
+export async function cloneGitHubRepoIntoReposRoot({
+  githubUrl,
+  repoName,
+  reposRoot,
+}: {
+  githubUrl: string;
+  repoName: string;
+  reposRoot: string;
+}): Promise<string> {
+  if (!/^[A-Za-z0-9._-]+$/.test(repoName)) throw new Error('invalid_repo_name');
+  await mkdir(reposRoot, { recursive: true });
+  const targetPath = path.join(reposRoot, repoName);
+  if (!isPathWithinRoot(targetPath, reposRoot)) throw new Error('invalid_target_path');
+  await execFileAsync('git', ['clone', githubUrl, targetPath], { timeout: 120_000, maxBuffer: 1024 * 1024 });
+  return targetPath;
+}
+
+function isExternalIssueWorkspaceCreateRequest(value: unknown): value is {
+  externalIssue: Parameters<typeof upsertExternalIssueWorkspaceMapping>[1]['externalIssue'];
+  workspace: CreateAndStartWorkspaceRequest;
+} {
+  if (!isPlainObject(value) || !isPlainObject(value.externalIssue) || !isPlainObject(value.workspace)) return false;
+  const externalIssue = value.externalIssue as Record<string, unknown>;
+  if (!isNonEmptyString(externalIssue.provider) || !isExternalTrackerProvider(externalIssue.provider)) return false;
+  if (!isNonEmptyString(externalIssue.key) || !isNonEmptyString(externalIssue.url)) return false;
+  if (externalIssue.provider === 'jira' && !isNonEmptyString(externalIssue.site)) return false;
+  if (!isOptionalString(externalIssue.id) || !isOptionalString(externalIssue.site) || !isOptionalPlainObject(externalIssue.metadata)) return false;
+
+  const workspace = value.workspace as Record<string, unknown>;
+  if (!(typeof workspace.name === 'string' || workspace.name === null)) return false;
+  if (!isNonEmptyString(workspace.prompt)) return false;
+  if (!Array.isArray(workspace.repos) || workspace.repos.length === 0) return false;
+  if (!workspace.repos.every((repo) => isPlainObject(repo) && isNonEmptyString(repo.repo_id) && isNonEmptyString(repo.target_branch))) return false;
+  if (!(workspace.linked_issue === null || isPlainObject(workspace.linked_issue))) return false;
+  if (!isPlainObject(workspace.executor_config) || !isNonEmptyString(workspace.executor_config.executor)) return false;
+  if (!(workspace.attachment_ids === null || (Array.isArray(workspace.attachment_ids) && workspace.attachment_ids.every((id) => typeof id === 'string')))) return false;
+  return true;
 }

@@ -599,6 +599,117 @@ describe('external Jira board routes', () => {
     await expect(db.selectFrom('ExternalIssueWorkspaceLink').selectAll().execute()).resolves.toHaveLength(0);
   });
 
+
+  it('returns ~/repos workspace creation options with default executor config', async () => {
+    const app = new Hono();
+    const vkClient = {
+      getInfo: vi.fn(async () => ({ config: { executor_profile: { executor: 'AMP' as const } }, executors: { CODEX: {}, AMP: {} } })),
+      listRepos: vi.fn(async () => [{ id: 'repo-1', path: '/tmp/repos/app', name: 'app', display_name: 'app', default_target_branch: 'origin/main' }]),
+      listDirectory: vi.fn(async () => ({ current_path: '/tmp/repos', entries: [
+        { name: 'app', path: '/tmp/repos/app', is_directory: true, is_git_repo: true, last_modified: null },
+        { name: 'notes', path: '/tmp/repos/notes', is_directory: true, is_git_repo: false, last_modified: null },
+      ] })),
+      registerRepo: vi.fn(),
+      getRepoBranches: vi.fn(),
+      createAndStartWorkspace: vi.fn(),
+    };
+    registerExternalTrackerBoardRoutes(app, { enabled: true, auth: createAuthService(null), db, vkClient, reposRoot: '/tmp/repos' });
+
+    const response = await app.request('/dashboard/api/external-trackers/vk/workspace-create-options');
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+      options: expect.objectContaining({
+        reposRoot: '/tmp/repos',
+        defaultExecutorConfig: { executor: 'AMP' },
+        executors: expect.arrayContaining(['CODEX', 'AMP']),
+        repos: [{ name: 'app', path: '/tmp/repos/app', registeredRepoId: 'repo-1', defaultTargetBranch: 'origin/main' }],
+      }),
+    });
+  });
+
+  it('creates a VK workspace and records the external issue mapping', async () => {
+    const app = new Hono();
+    const vkClient = {
+      getInfo: vi.fn(),
+      listRepos: vi.fn(),
+      listDirectory: vi.fn(),
+      registerRepo: vi.fn(),
+      getRepoBranches: vi.fn(),
+      createAndStartWorkspace: vi.fn(async () => ({
+        workspace: { id: 'ws-1', task_id: null, container_ref: '/work/ws-1', agent_working_dir: null, branch: 'vk/ws-1', created_at: '2026-07-27T00:00:00Z', updated_at: '2026-07-27T00:00:00Z', archived: false, pinned: false, name: 'VD-1', worktree_deleted: false },
+        execution_process: { id: 'proc-1', session_id: 'session-1', status: 'running' as const },
+      })),
+    };
+    registerExternalTrackerBoardRoutes(app, { enabled: true, auth: createAuthService(null), db, vkClient, reposRoot: '/tmp/repos' });
+
+    const response = await app.request('/dashboard/api/external-trackers/vk/workspaces/start', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        externalIssue: { provider: 'jira', key: 'VD-1', url: 'https://team.atlassian.net/browse/VD-1', site: 'team.atlassian.net' },
+        workspace: { name: 'VD-1', prompt: 'Test', repos: [{ repo_id: 'repo-1', target_branch: 'origin/main' }], linked_issue: null, executor_config: { executor: 'AMP' }, attachment_ids: [] },
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ ok: true, workspace: expect.objectContaining({ id: 'ws-1' }), executionProcess: expect.objectContaining({ id: 'proc-1' }) });
+    expect(vkClient.createAndStartWorkspace).toHaveBeenCalledWith(expect.objectContaining({ executor_config: { executor: 'AMP' } }));
+    await expect(db.selectFrom('ExternalIssueWorkspaceLink').selectAll().execute()).resolves.toHaveLength(1);
+  });
+
+
+  it('clones a GitHub repository under ~/repos and registers it with VK', async () => {
+    const app = new Hono();
+    const cloneRepo = vi.fn(async () => '/tmp/repos/example');
+    const vkClient = {
+      getInfo: vi.fn(),
+      listRepos: vi.fn(),
+      listDirectory: vi.fn(),
+      registerRepo: vi.fn(async () => ({ id: 'repo-2', path: '/tmp/repos/example', name: 'example', display_name: 'example', default_target_branch: 'origin/main' })),
+      getRepoBranches: vi.fn(),
+      createAndStartWorkspace: vi.fn(),
+    };
+    registerExternalTrackerBoardRoutes(app, { enabled: true, auth: createAuthService(null), db, vkClient, cloneRepo, reposRoot: '/tmp/repos' });
+
+    const response = await app.request('/dashboard/api/external-trackers/vk/repos/clone', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ githubUrl: 'https://github.com/acme/example' }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ ok: true, repo: expect.objectContaining({ id: 'repo-2' }) });
+    expect(cloneRepo).toHaveBeenCalledWith({ githubUrl: 'https://github.com/acme/example.git', repoName: 'example', reposRoot: '/tmp/repos' });
+    expect(vkClient.registerRepo).toHaveBeenCalledWith({ path: '/tmp/repos/example', display_name: undefined });
+  });
+
+  it('validates GitHub clone URLs before invoking clone/register', async () => {
+    const app = new Hono();
+    const cloneRepo = vi.fn();
+    const vkClient = {
+      getInfo: vi.fn(),
+      listRepos: vi.fn(),
+      listDirectory: vi.fn(),
+      registerRepo: vi.fn(),
+      getRepoBranches: vi.fn(),
+      createAndStartWorkspace: vi.fn(),
+    };
+    registerExternalTrackerBoardRoutes(app, { enabled: true, auth: createAuthService(null), db, vkClient, cloneRepo, reposRoot: '/tmp/repos' });
+
+    const response = await app.request('/dashboard/api/external-trackers/vk/repos/clone', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ githubUrl: 'https://evil.example/repo.git' }),
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ ok: false, error: expect.objectContaining({ code: 'invalid_github_repo_url' }) });
+    expect(cloneRepo).not.toHaveBeenCalled();
+    expect(vkClient.registerRepo).not.toHaveBeenCalled();
+  });
+
   it('returns a user-actionable connection error when Jira is not connected', async () => {
     const app = new Hono();
     const adapter = vi.fn() as unknown as FetchJiraBoardView;

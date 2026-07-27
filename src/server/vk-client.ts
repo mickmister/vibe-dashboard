@@ -11,7 +11,7 @@ export type Executor =
 
 export interface Workspace {
   id: string;
-  task_id: string;
+  task_id: string | null;
   container_ref: string | null;
   branch: string;
   agent_working_dir: string | null;
@@ -27,6 +27,62 @@ export interface RepoWithBranch {
   name: string;
   display_name: string;
   target_branch: string;
+}
+
+export interface Repo {
+  id: string;
+  path: string;
+  name: string;
+  display_name: string;
+  default_target_branch?: string | null;
+}
+
+export interface DirectoryEntry {
+  name: string;
+  path: string;
+  is_directory: boolean;
+  is_git_repo: boolean;
+  last_modified: string | null;
+}
+
+export interface DirectoryListResponse {
+  entries: DirectoryEntry[];
+  current_path: string;
+}
+
+export interface GitBranch {
+  name: string;
+  is_current: boolean;
+  is_remote: boolean;
+  last_commit_date: string | null;
+}
+
+export interface ExecutorConfig {
+  executor: Executor;
+  variant?: string | null;
+  model_id?: string | null;
+  agent_id?: string | null;
+  reasoning_id?: string | null;
+  permission_policy?: string | null;
+}
+
+export interface UserSystemInfo {
+  config?: { executor_profile?: ExecutorConfig | null };
+  executors?: Partial<Record<Executor, unknown>>;
+}
+
+export interface CreateAndStartWorkspaceRequest {
+  name: string | null;
+  repos: Array<{ repo_id: string; target_branch: string }>;
+  linked_issue: { remote_project_id: string; issue_id: string } | null;
+  executor_config: ExecutorConfig;
+  prompt: string;
+  attachment_ids: string[] | null;
+}
+
+export interface CreateAndStartWorkspaceResponse {
+  workspace: Workspace;
+  execution_process: ExecutionProcess;
 }
 
 export interface Session {
@@ -127,6 +183,30 @@ export class VibeKanbanServerClient {
 
   createSession(body: CreateSessionBody): Promise<Session> {
     return this.post('/sessions', body);
+  }
+
+  getInfo(): Promise<UserSystemInfo> {
+    return this.get('/info');
+  }
+
+  listRepos(): Promise<Repo[]> {
+    return this.get('/repos');
+  }
+
+  registerRepo(body: { path: string; display_name?: string }): Promise<Repo> {
+    return this.post('/repos', body);
+  }
+
+  listDirectory(path: string): Promise<DirectoryListResponse> {
+    return this.get(`/filesystem/directory?path=${encodeURIComponent(path)}`);
+  }
+
+  getRepoBranches(repoId: string): Promise<GitBranch[]> {
+    return this.get(`/repos/${encodeURIComponent(repoId)}/branches`);
+  }
+
+  createAndStartWorkspace(body: CreateAndStartWorkspaceRequest): Promise<CreateAndStartWorkspaceResponse> {
+    return this.post('/workspaces/start', body);
   }
 
   async sendFollowUp(
