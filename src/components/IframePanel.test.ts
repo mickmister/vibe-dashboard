@@ -2,11 +2,74 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   IFRAME_PORT_PREFIX_REVEAL_DELAY_MS,
   IFRAME_REVEAL_DELAY_MS,
+  IFRAME_VISUAL_READY_TIMEOUT_MS,
   __iframePanelTestUtils,
   getIframeRevealDelayMs,
   getIframeRevealStyle,
+  hasVisualReadyBackground,
   isBlankIframeBackgroundColor,
 } from './IframePanel';
+
+function createFakeElement({
+  backgroundColor = 'rgba(0, 0, 0, 0)',
+  width = 800,
+  height = 600,
+  text = '',
+  parentElement = null,
+}: {
+  backgroundColor?: string;
+  width?: number;
+  height?: number;
+  text?: string;
+  parentElement?: Element | null;
+}) {
+  return {
+    backgroundColor,
+    parentElement,
+    innerText: text,
+    textContent: text,
+    getBoundingClientRect: () => ({ width, height }),
+  } as unknown as Element;
+}
+
+function createFakeDocument({
+  bodyBackground = 'rgba(0, 0, 0, 0)',
+  htmlBackground = 'rgba(0, 0, 0, 0)',
+  shellBackground,
+  bodyText = '',
+  readyState = 'complete',
+}: {
+  bodyBackground?: string;
+  htmlBackground?: string;
+  shellBackground?: string;
+  bodyText?: string;
+  readyState?: DocumentReadyState;
+}) {
+  const html = createFakeElement({ backgroundColor: htmlBackground, width: 800, height: 600 });
+  const body = createFakeElement({ backgroundColor: bodyBackground, width: 800, height: 600, text: bodyText, parentElement: html });
+  const shell = shellBackground
+    ? createFakeElement({ backgroundColor: shellBackground, width: 800, height: 600, parentElement: body })
+    : null;
+  const view = {
+    innerWidth: 800,
+    innerHeight: 600,
+    getComputedStyle: (element: Element) => ({
+      backgroundColor: (element as unknown as { backgroundColor?: string }).backgroundColor ?? 'rgba(0, 0, 0, 0)',
+      display: 'block',
+      visibility: 'visible',
+      opacity: '1',
+    }),
+  } as unknown as Window;
+
+  return {
+    readyState,
+    defaultView: view,
+    body,
+    documentElement: Object.assign(html, { clientWidth: 800, clientHeight: 600 }),
+    elementFromPoint: () => shell,
+    querySelector: () => shell,
+  } as unknown as Document;
+}
 
 describe('iframe reveal behavior', () => {
   afterEach(() => {
@@ -17,9 +80,42 @@ describe('iframe reveal behavior', () => {
     expect(IFRAME_REVEAL_DELAY_MS).toBe(250);
   });
 
+  it('uses a 5 second visual readiness fallback timeout', () => {
+    expect(IFRAME_VISUAL_READY_TIMEOUT_MS).toBe(5000);
+  });
+
   it('uses a longer best-effort reveal delay on port-prefixed hosts', () => {
     expect(getIframeRevealDelayMs('port-5173.example.com')).toBe(IFRAME_PORT_PREFIX_REVEAL_DELAY_MS);
     expect(getIframeRevealDelayMs('example.com')).toBe(IFRAME_REVEAL_DELAY_MS);
+  });
+
+  it('accepts rendered app shells with transparent body and html backgrounds', () => {
+    const doc = createFakeDocument({
+      bodyBackground: 'rgba(0, 0, 0, 0)',
+      htmlBackground: 'rgba(0, 0, 0, 0)',
+      shellBackground: 'rgb(37, 37, 38)',
+    });
+
+    expect(hasVisualReadyBackground(doc)).toBe(true);
+  });
+
+  it('accepts complete light-themed pages with visible text content', () => {
+    const doc = createFakeDocument({
+      bodyBackground: 'rgb(255, 255, 255)',
+      htmlBackground: 'rgb(255, 255, 255)',
+      bodyText: 'What would you like to work on?',
+    });
+
+    expect(hasVisualReadyBackground(doc)).toBe(true);
+  });
+
+  it('keeps blank complete pages visually not ready', () => {
+    const doc = createFakeDocument({
+      bodyBackground: 'rgba(0, 0, 0, 0)',
+      htmlBackground: 'rgba(0, 0, 0, 0)',
+    });
+
+    expect(hasVisualReadyBackground(doc)).toBe(false);
   });
 
   it('detects blank iframe background colors', () => {

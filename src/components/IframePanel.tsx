@@ -69,7 +69,7 @@ const MAX_RETAINED_IFRAMES = 5;
 export const IFRAME_REVEAL_DELAY_MS = 250;
 export const IFRAME_PORT_PREFIX_REVEAL_DELAY_MS = 1000;
 const IFRAME_ACTIVATION_SHIELD_MS = 1000;
-const IFRAME_VISUAL_READY_TIMEOUT_MS = 30000;
+export const IFRAME_VISUAL_READY_TIMEOUT_MS = 5000;
 
 // Preserve iframe store across HMR updates using Vite's HMR API.
 try {
@@ -233,14 +233,90 @@ export function shouldShowIframeLoadingOverlay(isLoaded: boolean, activationShie
   return !isLoaded || activationShielded;
 }
 
-function hasVisualReadyBackground(doc: Document): boolean {
+function hasNonBlankElementBackground(element: Element, view: Window): boolean {
+  return !isBlankIframeBackgroundColor(view.getComputedStyle(element).backgroundColor);
+}
+
+function isVisiblySizedElement(element: Element, view: Window): boolean {
+  const style = view.getComputedStyle(element);
+  if (
+    style.display === 'none' ||
+    style.visibility === 'hidden' ||
+    Number(style.opacity) <= 0
+  ) {
+    return false;
+  }
+
+  const rect = element.getBoundingClientRect();
+  return rect.width > 0 && rect.height > 0;
+}
+
+function addElementAndAncestors(candidates: Set<Element>, element: Element | null) {
+  let current = element;
+  while (current) {
+    candidates.add(current);
+    current = current.parentElement;
+  }
+}
+
+function getViewportSampleElements(doc: Document): Element[] {
   const view = doc.defaultView;
-  const bodyBackground = view && doc.body ? view.getComputedStyle(doc.body).backgroundColor : '';
-  const rootBackground = view && doc.documentElement ? view.getComputedStyle(doc.documentElement).backgroundColor : '';
+  if (!view) return [];
+
+  const width = Math.max(doc.documentElement.clientWidth, view.innerWidth || 0);
+  const height = Math.max(doc.documentElement.clientHeight, view.innerHeight || 0);
+  if (width <= 0 || height <= 0) return [];
+
+  const points = [
+    { x: 0.5, y: 0.5 },
+    { x: 0.1, y: 0.1 },
+    { x: 0.9, y: 0.1 },
+    { x: 0.1, y: 0.9 },
+    { x: 0.9, y: 0.9 },
+  ];
+
+  return points.flatMap((point) => {
+    const x = Math.min(Math.max(Math.round(width * point.x), 0), Math.max(width - 1, 0));
+    const y = Math.min(Math.max(Math.round(height * point.y), 0), Math.max(height - 1, 0));
+    const element = doc.elementFromPoint(x, y);
+    return element ? [element] : [];
+  });
+}
+
+function hasVisibleNonBlankBackground(doc: Document, view: Window): boolean {
+  const candidates = new Set<Element>();
+  addElementAndAncestors(candidates, doc.body);
+  addElementAndAncestors(candidates, doc.documentElement);
+
+  for (const element of getViewportSampleElements(doc)) {
+    addElementAndAncestors(candidates, element);
+  }
+
+  for (const selector of ['#root', '[role="application"]', 'main', '.monaco-workbench', '.editor-container']) {
+    const element = doc.querySelector(selector);
+    if (element) {
+      addElementAndAncestors(candidates, element);
+    }
+  }
+
+  return Array.from(candidates).some(
+    (element) => isVisiblySizedElement(element, view) && hasNonBlankElementBackground(element, view),
+  );
+}
+
+function hasVisibleTextContent(doc: Document, view: Window): boolean {
+  if (!(doc.body && isVisiblySizedElement(doc.body, view))) return false;
+  const text = doc.body?.innerText || doc.body?.textContent || '';
+  return text.trim().length > 0;
+}
+
+export function hasVisualReadyBackground(doc: Document): boolean {
+  const view = doc.defaultView;
+  if (!(view && doc.readyState === 'complete')) return false;
+
   return Boolean(
-    view &&
-    doc.readyState === 'complete' &&
-    (!isBlankIframeBackgroundColor(bodyBackground) || !isBlankIframeBackgroundColor(rootBackground))
+    hasVisibleNonBlankBackground(doc, view) ||
+    hasVisibleTextContent(doc, view)
   );
 }
 
