@@ -195,19 +195,14 @@ export function ExternalJiraBoardHeader({ boardView }: { boardView: ExternalJira
     <header className="border-b border-neutral-800 bg-neutral-950/95 px-6 py-5">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <div className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-300">Read-only Jira board</div>
           <h1 className="mt-2 text-2xl font-semibold">{boardView.board.name || `Jira board ${boardView.board.id}`}</h1>
           <p className="mt-1 text-sm text-neutral-400">
-            {boardView.resource.name} · {boardView.siteHostname} · {issueCount} {issueCount === 1 ? 'issue' : 'issues'} fetched live
+            {boardView.resource.name}
           </p>
         </div>
         <a className="rounded-lg border border-neutral-700 px-3 py-2 text-sm text-neutral-200 hover:bg-neutral-900" href={boardView.sourceUrl} rel="noreferrer" target="_blank">
           Open in Jira
         </a>
-      </div>
-      <div className="mt-4 rounded-lg border border-neutral-800 bg-neutral-900/70 px-3 py-2 text-sm text-neutral-300">
-        Swimlanes: <span className="font-medium text-neutral-100">{swimlanes.fidelity}</span>
-        {swimlanes.reason ? <span className="text-neutral-500"> — {swimlanes.reason}</span> : null}
       </div>
     </header>
   );
