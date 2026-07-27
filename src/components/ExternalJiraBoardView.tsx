@@ -100,13 +100,23 @@ async function loadWorkspaceMetricsForBoard(boardView: ExternalJiraBoardViewDto,
   if (result?.ok) apply(mergeWorkspaceMetricsIntoBoardView(boardView, result.metricsByWorkspaceId));
 }
 
-export function ExternalJiraBoardContent({ boardView, initialSelectedCardId, initialSidePanelWorkspaceId }: { boardView: ExternalJiraBoardViewDto; initialSelectedCardId?: string; initialSidePanelWorkspaceId?: string }) {
+export type ExternalJiraColumnVisibility = {
+  showBacklog: boolean;
+  showDone: boolean;
+};
+
+const DEFAULT_COLUMN_VISIBILITY: ExternalJiraColumnVisibility = { showBacklog: false, showDone: false };
+
+export function ExternalJiraBoardContent({ boardView, initialSelectedCardId, initialSidePanelWorkspaceId, initialColumnVisibility = DEFAULT_COLUMN_VISIBILITY }: { boardView: ExternalJiraBoardViewDto; initialSelectedCardId?: string; initialSidePanelWorkspaceId?: string; initialColumnVisibility?: ExternalJiraColumnVisibility }) {
   const [selectedCardId, setSelectedCardId] = useState<string | undefined>(initialSelectedCardId);
   const [sidePanelWorkspaceId, setSidePanelWorkspaceId] = useState<string | undefined>(initialSidePanelWorkspaceId);
   const [createdPanelWorkspace, setCreatedPanelWorkspace] = useState<ExternalRelatedWorkspace | undefined>();
   const [workspaceCreateCard, setWorkspaceCreateCard] = useState<ExternalKanbanCardDto | undefined>();
-  const columns = useMemo(() => normalizeRenderableColumns(boardView), [boardView]);
-  const renderableLanes = useMemo(() => createRenderableSwimlanes(boardView), [boardView]);
+  const [columnVisibility, setColumnVisibility] = useState<ExternalJiraColumnVisibility>(initialColumnVisibility);
+  const allColumns = useMemo(() => normalizeRenderableColumns(boardView), [boardView]);
+  const columns = useMemo(() => getVisibleExternalJiraColumns(allColumns, columnVisibility), [allColumns, columnVisibility]);
+  const visibleCards = useMemo(() => getVisibleExternalJiraCards(boardView.cards, allColumns, columnVisibility), [allColumns, boardView.cards, columnVisibility]);
+  const renderableLanes = useMemo(() => createRenderableSwimlanes(boardView, visibleCards), [boardView, visibleCards]);
   const selectedCardIndex = selectedCardId ? boardView.cards.findIndex((card) => card.id === selectedCardId) : -1;
   const selectedCard = selectedCardIndex >= 0 ? boardView.cards[selectedCardIndex] : undefined;
   const sidePanelWorkspace = useMemo(() => findWorkspaceById(boardView, sidePanelWorkspaceId) ?? (createdPanelWorkspace?.workspaceId === sidePanelWorkspaceId ? createdPanelWorkspace : undefined), [boardView, createdPanelWorkspace, sidePanelWorkspaceId]);
@@ -114,11 +124,15 @@ export function ExternalJiraBoardContent({ boardView, initialSelectedCardId, ini
   return (
     <ExternalJiraBoardShell
       boardView={boardView}
+      allColumns={allColumns}
+      columnVisibility={columnVisibility}
       columns={columns}
+      visibleCards={visibleCards}
       renderableLanes={renderableLanes}
       selectedCard={selectedCard}
       selectedCardIndex={selectedCardIndex}
       sidePanelWorkspace={sidePanelWorkspace}
+      onColumnVisibilityChange={setColumnVisibility}
       onSelectCard={(card) => setSelectedCardId(card.id)}
       onCloseCard={() => setSelectedCardId(undefined)}
       onCloseWorkspaceCreate={() => setWorkspaceCreateCard(undefined)}
@@ -139,10 +153,14 @@ export function ExternalJiraBoardContent({ boardView, initialSelectedCardId, ini
 
 export function ExternalJiraBoardShell({
   boardView,
+  allColumns,
+  columnVisibility,
   columns,
+  visibleCards,
   onCloseCard,
   onCloseWorkspaceCreate,
   onCloseWorkspacePanel,
+  onColumnVisibilityChange,
   onCreateWorkspace,
   onNextCard,
   onOpenWorkspacePanel,
@@ -156,10 +174,14 @@ export function ExternalJiraBoardShell({
   workspaceCreateCard,
 }: {
   boardView: ExternalJiraBoardViewDto;
+  allColumns: ExternalKanbanColumnDto[];
+  columnVisibility: ExternalJiraColumnVisibility;
   columns: ExternalKanbanColumnDto[];
+  visibleCards: ExternalKanbanCardDto[];
   onCloseCard: () => void;
   onCloseWorkspaceCreate: () => void;
   onCloseWorkspacePanel: () => void;
+  onColumnVisibilityChange: (visibility: ExternalJiraColumnVisibility) => void;
   onCreateWorkspace: (card: ExternalKanbanCardDto) => void;
   onNextCard: () => void;
   onOpenWorkspacePanel: (workspace: ExternalRelatedWorkspace) => void;
@@ -172,19 +194,25 @@ export function ExternalJiraBoardShell({
   onWorkspaceCreated: (workspace: ExternalRelatedWorkspace) => void;
   workspaceCreateCard?: ExternalKanbanCardDto;
 }) {
-  const issueCount = boardView.pagination.issueCount;
+  const hiddenIssueCount = boardView.cards.length - visibleCards.length;
   const hasLanes = renderableLanes.length > 0;
 
   return (
     <main className="dark h-dvh overflow-y-auto overscroll-contain bg-neutral-950 text-neutral-100">
       <div className="flex min-h-full flex-col lg:flex-row">
         <div className="min-w-0 flex-1">
-          <ExternalJiraBoardHeader boardView={boardView} />
+          <ExternalJiraBoardHeader
+            boardView={boardView}
+            columnVisibility={columnVisibility}
+            columns={allColumns}
+            onColumnVisibilityChange={onColumnVisibilityChange}
+          />
           <ExternalJiraBoardBody
-            cards={boardView.cards}
+            cards={visibleCards}
             columns={columns}
             diagnostics={boardView.diagnostics}
-            hasIssues={issueCount > 0}
+            hasIssues={visibleCards.length > 0}
+            hiddenIssueCount={hiddenIssueCount}
             onCreateWorkspace={onCreateWorkspace}
             onOpenWorkspacePanel={onOpenWorkspacePanel}
             onSelectCard={onSelectCard}
@@ -221,7 +249,7 @@ export function ExternalJiraBoardShell({
   );
 }
 
-export function ExternalJiraBoardHeader({ boardView }: { boardView: ExternalJiraBoardViewDto }) {
+export function ExternalJiraBoardHeader({ boardView, columns, columnVisibility, onColumnVisibilityChange }: { boardView: ExternalJiraBoardViewDto; columns: ExternalKanbanColumnDto[]; columnVisibility: ExternalJiraColumnVisibility; onColumnVisibilityChange: (visibility: ExternalJiraColumnVisibility) => void }) {
   return (
     <header className="border-b border-neutral-800 bg-neutral-950/95 px-6 py-5">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -231,11 +259,46 @@ export function ExternalJiraBoardHeader({ boardView }: { boardView: ExternalJira
             {boardView.resource.name}
           </p>
         </div>
-        <a className="rounded-lg border border-neutral-700 px-3 py-2 text-sm text-neutral-200 hover:bg-neutral-900" href={boardView.sourceUrl} rel="noreferrer" target="_blank">
-          Open in Jira
-        </a>
+        <div className="flex flex-wrap items-center gap-3">
+          <ExternalJiraColumnVisibilityControls columns={columns} visibility={columnVisibility} onChange={onColumnVisibilityChange} />
+          <a className="rounded-lg border border-neutral-700 px-3 py-2 text-sm text-neutral-200 hover:bg-neutral-900" href={boardView.sourceUrl} rel="noreferrer" target="_blank">
+            Open in Jira
+          </a>
+        </div>
       </div>
     </header>
+  );
+}
+
+export function ExternalJiraColumnVisibilityControls({ columns, visibility, onChange }: { columns: ExternalKanbanColumnDto[]; visibility: ExternalJiraColumnVisibility; onChange: (visibility: ExternalJiraColumnVisibility) => void }) {
+  const hasBacklog = columns.some(isBacklogColumn);
+  const hasDone = columns.some(isDoneColumn);
+  if (!hasBacklog && !hasDone) return null;
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-neutral-800 bg-neutral-900/70 px-2 py-1" aria-label="Column visibility">
+      <span className="px-1 text-xs font-medium uppercase tracking-wide text-neutral-500">Columns</span>
+      {hasBacklog ? (
+        <button
+          type="button"
+          className={columnToggleClassName(visibility.showBacklog)}
+          aria-pressed={visibility.showBacklog}
+          onClick={() => onChange({ ...visibility, showBacklog: !visibility.showBacklog })}
+        >
+          {visibility.showBacklog ? 'Hide Backlog' : 'Show Backlog'}
+        </button>
+      ) : null}
+      {hasDone ? (
+        <button
+          type="button"
+          className={columnToggleClassName(visibility.showDone)}
+          aria-pressed={visibility.showDone}
+          onClick={() => onChange({ ...visibility, showDone: !visibility.showDone })}
+        >
+          {visibility.showDone ? 'Hide Done' : 'Show Done'}
+        </button>
+      ) : null}
+    </div>
   );
 }
 
@@ -244,6 +307,7 @@ export function ExternalJiraBoardBody({
   columns,
   diagnostics,
   hasIssues,
+  hiddenIssueCount,
   onCreateWorkspace,
   onOpenWorkspacePanel,
   onSelectCard,
@@ -254,6 +318,7 @@ export function ExternalJiraBoardBody({
   columns: ExternalKanbanColumnDto[];
   diagnostics?: ExternalJiraBoardViewDto['diagnostics'];
   hasIssues: boolean;
+  hiddenIssueCount: number;
   onCreateWorkspace: (card: ExternalKanbanCardDto) => void;
   onOpenWorkspacePanel: (workspace: ExternalRelatedWorkspace) => void;
   onSelectCard: (card: ExternalKanbanCardDto) => void;
@@ -264,7 +329,8 @@ export function ExternalJiraBoardBody({
     return (
       <section className="p-6">
         <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-6 text-neutral-300">
-          <p>This Jira board has no visible issues.</p>
+          <p>{hiddenIssueCount > 0 ? `${hiddenIssueCount} issues are in hidden Backlog/Done columns.` : 'This Jira board has no visible issues.'}</p>
+          {hiddenIssueCount > 0 ? <p className="mt-2 text-sm text-neutral-400">Use the column controls above to show Backlog or Done.</p> : null}
           {diagnostics ? <ExternalJiraDiagnosticsPanel diagnostics={diagnostics} /> : null}
         </div>
       </section>
@@ -345,7 +411,7 @@ export function ExternalJiraKanbanColumns({ columns, cards, onCreateWorkspace, o
   );
 }
 
-function createRenderableSwimlanes(boardView: ExternalJiraBoardViewDto): Array<{ id: string; title: string; cards: ExternalKanbanCardDto[] }> {
+function createRenderableSwimlanes(boardView: ExternalJiraBoardViewDto, cards: ExternalKanbanCardDto[] = boardView.cards): Array<{ id: string; title: string; cards: ExternalKanbanCardDto[] }> {
   if (boardView.swimlanes.lanes.length === 0) return [];
 
   const assignedIssueKeys = new Set<string>();
@@ -354,11 +420,11 @@ function createRenderableSwimlanes(boardView: ExternalJiraBoardViewDto): Array<{
     return {
       id: lane.id,
       title: lane.title,
-      cards: boardView.cards.filter((card) => lane.issueKeys.includes(card.key)),
+      cards: cards.filter((card) => lane.issueKeys.includes(card.key)),
     };
   });
 
-  const unassignedCards = boardView.cards.filter((card) => !assignedIssueKeys.has(card.key));
+  const unassignedCards = cards.filter((card) => !assignedIssueKeys.has(card.key));
   if (unassignedCards.length > 0) {
     lanes.push({ id: 'no-swimlane', title: 'Other issues', cards: unassignedCards });
   }
@@ -965,6 +1031,43 @@ export function ExternalTrackerMessage({ title, message, action, code }: { title
 }
 
 const UNMAPPED_COLUMN_ID = 'unmapped';
+
+
+export function getVisibleExternalJiraColumns(columns: ExternalKanbanColumnDto[], visibility: ExternalJiraColumnVisibility): ExternalKanbanColumnDto[] {
+  return columns.filter((column) => {
+    if (!visibility.showBacklog && isBacklogColumn(column)) return false;
+    if (!visibility.showDone && isDoneColumn(column)) return false;
+    return true;
+  });
+}
+
+export function getVisibleExternalJiraCards(cards: ExternalKanbanCardDto[], columns: ExternalKanbanColumnDto[], visibility: ExternalJiraColumnVisibility): ExternalKanbanCardDto[] {
+  const hiddenColumnIds = new Set(columns.filter((column) => (
+    (!visibility.showBacklog && isBacklogColumn(column)) ||
+    (!visibility.showDone && isDoneColumn(column))
+  )).map((column) => column.id));
+  if (hiddenColumnIds.size === 0) return cards;
+  return cards.filter((card) => !card.columnId || !hiddenColumnIds.has(card.columnId));
+}
+
+function isBacklogColumn(column: ExternalKanbanColumnDto): boolean {
+  return normalizeColumnTitle(column.title) === 'backlog';
+}
+
+function isDoneColumn(column: ExternalKanbanColumnDto): boolean {
+  return normalizeColumnTitle(column.title) === 'done';
+}
+
+function normalizeColumnTitle(title: string): string {
+  return title.trim().toLowerCase();
+}
+
+function columnToggleClassName(active: boolean): string {
+  return [
+    'rounded-md border px-2.5 py-1 text-xs font-medium transition',
+    active ? 'border-sky-500/50 bg-sky-500/15 text-sky-100' : 'border-neutral-700 bg-neutral-950 text-neutral-300 hover:bg-neutral-800',
+  ].join(' ');
+}
 
 function normalizeRenderableColumns(boardView: ExternalJiraBoardViewDto): ExternalKanbanColumnDto[] {
   if (!boardView.columns.length) return [{ id: UNMAPPED_COLUMN_ID, title: 'Issues', statusIds: [] }];

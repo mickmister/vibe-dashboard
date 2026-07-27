@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { DrawerBody } from '@heroui/drawer';
-import { ExternalJiraBoardContent, ExternalJiraBoardRoute, ExternalJiraCard, ExternalJiraIssueDetailBodyContent, ExternalJiraIssueDetailDrawerContent, ExternalJiraIssueDetailSheet, buildVKWorkspaceSessionUrl, mergeWorkspaceMetricsIntoBoardView, stripPortSubdomain } from './ExternalJiraBoardView';
+import { ExternalJiraBoardContent, ExternalJiraBoardRoute, ExternalJiraCard, ExternalJiraColumnVisibilityControls, getVisibleExternalJiraCards, getVisibleExternalJiraColumns, ExternalJiraIssueDetailBodyContent, ExternalJiraIssueDetailDrawerContent, ExternalJiraIssueDetailSheet, buildVKWorkspaceSessionUrl, mergeWorkspaceMetricsIntoBoardView, stripPortSubdomain } from './ExternalJiraBoardView';
 import type { ExternalJiraBoardViewDto, ExternalKanbanCardDto } from '../lib/externalTrackerBoardApi';
 
 const baseBoardView: ExternalJiraBoardViewDto = {
@@ -62,6 +62,87 @@ describe('ExternalJiraBoardContent', () => {
     const html = renderToStaticMarkup(React.createElement(ExternalJiraBoardContent, { boardView: { ...baseBoardView, cards: [], pagination: { pageCount: 1, issueCount: 0, maxResults: 50 } } }));
 
     expect(html).toContain('This Jira board has no visible issues.');
+  });
+
+  it('hides Backlog and Done columns by default without mutating card data', () => {
+    const todoCard = baseBoardView.cards[0];
+    if (!todoCard) throw new Error('expected fixture card');
+    const backlogCard = { ...todoCard, id: 'backlog-1', key: 'VD-10', title: 'Hidden backlog issue', columnId: 'backlog-999', statusId: '999', statusName: 'Backlog', rank: 1 };
+    const doneCard = { ...todoCard, id: 'done-1', key: 'VD-11', title: 'Hidden completed issue', columnId: 'done-10002', statusId: '10002', statusName: 'Done', rank: 2 };
+    const boardView = {
+      ...baseBoardView,
+      columns: [
+        { id: 'backlog-999', title: 'Backlog', statusIds: ['999'] },
+        ...baseBoardView.columns,
+      ],
+      cards: [backlogCard, todoCard, doneCard],
+      pagination: { pageCount: 1, issueCount: 3, maxResults: 50 },
+    } satisfies ExternalJiraBoardViewDto;
+
+    const html = renderToStaticMarkup(React.createElement(ExternalJiraBoardContent, { boardView }));
+
+    expect(html).toContain('Show Backlog');
+    expect(html).toContain('Show Done');
+    expect(html).toContain('Build external board UI');
+    expect(html).not.toContain('Hidden backlog issue');
+    expect(html).not.toContain('Hidden completed issue');
+    expect(getVisibleExternalJiraColumns(boardView.columns, { showBacklog: false, showDone: false }).map((column) => column.title)).toEqual(['To Do']);
+    expect(getVisibleExternalJiraCards(boardView.cards, boardView.columns, { showBacklog: false, showDone: false }).map((card) => card.key)).toEqual(['VD-1']);
+    expect(boardView.cards.map((card) => card.key)).toEqual(['VD-10', 'VD-1', 'VD-11']);
+  });
+
+  it('can toggle Backlog and Done visibility controls', () => {
+    const onChange = vi.fn();
+    const element = ExternalJiraColumnVisibilityControls({
+      columns: [
+        { id: 'backlog-999', title: 'Backlog', statusIds: ['999'] },
+        ...baseBoardView.columns,
+      ],
+      visibility: { showBacklog: false, showDone: false },
+      onChange,
+    }) as React.ReactElement;
+    const showBacklog = findElementByText(element, 'Show Backlog') as React.ReactElement<{ onClick: () => void }> | undefined;
+    const showDone = findElementByText(element, 'Show Done') as React.ReactElement<{ onClick: () => void }> | undefined;
+    if (!showBacklog || !showDone) throw new Error('expected visibility buttons');
+
+    showBacklog.props.onClick();
+    showDone.props.onClick();
+
+    expect(onChange).toHaveBeenNthCalledWith(1, { showBacklog: true, showDone: false });
+    expect(onChange).toHaveBeenNthCalledWith(2, { showBacklog: false, showDone: true });
+  });
+
+  it('keeps hidden-column cards in underlying board data for detail paging', () => {
+    const todoCard = baseBoardView.cards[0];
+    if (!todoCard) throw new Error('expected fixture card');
+    const hiddenDoneCard = { ...todoCard, id: 'done-hidden', key: 'VD-12', title: 'Selected hidden done issue', columnId: 'done-10002', statusId: '10002', statusName: 'Done', rank: 1 };
+    const boardView = {
+      ...baseBoardView,
+      cards: [todoCard, hiddenDoneCard],
+      pagination: { pageCount: 1, issueCount: 2, maxResults: 50 },
+    } satisfies ExternalJiraBoardViewDto;
+    const visibleCards = getVisibleExternalJiraCards(boardView.cards, boardView.columns, { showBacklog: false, showDone: false });
+    const bodyHtml = renderToStaticMarkup(React.createElement(ExternalJiraIssueDetailBodyContent, {
+      boardView,
+      card: hiddenDoneCard,
+    }));
+    const drawer = ExternalJiraIssueDetailDrawerContent({
+      boardView,
+      card: hiddenDoneCard,
+      cardIndex: 1,
+      totalCards: 2,
+      canGoPrevious: true,
+      canGoNext: false,
+      onClose: () => undefined,
+      onPrevious: () => undefined,
+      onNext: () => undefined,
+    }) as React.ReactElement<{ children: React.ReactNode }>;
+    const drawerHeader = React.Children.toArray(drawer.props.children)[0] as React.ReactElement;
+    const drawerHeaderHtml = renderToStaticMarkup(drawerHeader);
+
+    expect(visibleCards.map((card) => card.key)).toEqual(['VD-1']);
+    expect(bodyHtml).toContain('Selected hidden done issue');
+    expect(drawerHeaderHtml).toContain('2 / 2');
   });
 
   it('renders safe diagnostics for empty Jira project-search loads', () => {
@@ -348,6 +429,7 @@ describe('ExternalJiraBoardContent', () => {
         },
         pagination: { pageCount: 1, issueCount: 2, maxResults: 50 },
       },
+      initialColumnVisibility: { showBacklog: false, showDone: true },
     }));
 
     expect(html).toContain('EPIC-1: Lane');

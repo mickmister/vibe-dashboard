@@ -34,6 +34,18 @@ const doneCard: ExternalKanbanCardDto = {
   metadata: {},
 };
 
+const backlogCard: ExternalKanbanCardDto = {
+  ...baseCard,
+  id: '10000',
+  key: 'VD-0',
+  title: 'Plan external Kanban scope',
+  url: 'https://team.atlassian.net/browse/VD-0',
+  statusId: '99999',
+  statusName: 'Backlog',
+  columnId: 'backlog-99999',
+  rank: -1,
+};
+
 const baseBoardView: ExternalJiraBoardViewDto = {
   provider: 'jira',
   sourceUrl: 'https://team.atlassian.net/jira/software/projects/VD/boards/42',
@@ -41,12 +53,13 @@ const baseBoardView: ExternalJiraBoardViewDto = {
   resource: { id: 'cloud-1', name: 'Team Jira', url: 'https://team.atlassian.net' },
   board: { id: '42', name: 'VD Integration Board', type: 'kanban', projectKey: 'VD' },
   columns: [
+    { id: 'backlog-99999', title: 'Backlog', statusIds: ['99999'] },
     { id: 'todo-10000', title: 'To Do', statusIds: ['10000'] },
     { id: 'done-10002', title: 'Done', statusIds: ['10002'] },
   ],
-  cards: [baseCard, doneCard],
+  cards: [backlogCard, baseCard, doneCard],
   swimlanes: { fidelity: 'none', lanes: [], reason: 'No swimlane configuration available in this fixture.' },
-  pagination: { pageCount: 1, issueCount: 2, maxResults: 50 },
+  pagination: { pageCount: 1, issueCount: 3, maxResults: 50 },
 };
 
 function makeCard(index: number, overrides: Partial<ExternalKanbanCardDto> = {}): ExternalKanbanCardDto {
@@ -173,6 +186,20 @@ export const GeneratedLocalJiraFixture: Story = {
 
 export const NormalBoard: Story = {
   args: { boardView: baseBoardView },
+  parameters: {
+    docs: {
+      description: {
+        story: 'Backlog and Done are hidden by default; use the header controls to show them.',
+      },
+    },
+  },
+};
+
+export const BacklogAndDoneShown: Story = {
+  args: {
+    boardView: baseBoardView,
+    initialColumnVisibility: { showBacklog: true, showDone: true },
+  },
 };
 
 export const EmptyBoard: Story = {
