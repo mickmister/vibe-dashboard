@@ -38,7 +38,8 @@
     "plugin-services:refresh:beads-web:requires-tag": "node --experimental-strip-types plugins/orchestrator/plugin-service-orchestrator-cli.ts refresh-github-release --plugin-id vd.beads-web --catalog plugins/builtin.plugins.json --catalog plugins/fixtures/beads-web.plugins.json --plugin plugins/fixtures/beads-web.plugin.json",
     "db:prepare-schema": "node db/scripts/generate_schemas.cjs",
     "db:generate-migration-imports": "node db/scripts/generate_migration_imports.cjs",
-    "db:smoke:external-integrations": "node scripts/db/smoke-external-integrations.mjs"
+    "db:smoke:external-integrations": "node scripts/db/smoke-external-integrations.mjs",
+    "storybook:jira-fixture": "node --experimental-strip-types scripts/storybook/generate-external-jira-fixture.ts"
   },
   "dependencies": {
     "@heroui/react": "^2.8.9",

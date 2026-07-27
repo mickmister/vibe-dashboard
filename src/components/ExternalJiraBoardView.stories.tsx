@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from '@storybook/react-vite';
 import React from 'react';
 import { ExternalJiraBoardContent, ExternalTrackerMessage } from './ExternalJiraBoardView';
 import type { ExternalJiraBoardViewDto, ExternalKanbanCardDto } from '../lib/externalTrackerBoardApi';
+import { getGeneratedExternalJiraStorybookFixture } from '../storybook/externalJiraGeneratedFixtures';
 
 const baseCard: ExternalKanbanCardDto = {
   id: '10001',
@@ -147,6 +148,28 @@ const meta: Meta<typeof ExternalJiraBoardContent> = {
 
 export default meta;
 type Story = StoryObj<typeof meta>;
+
+const generatedJiraFixture = getGeneratedExternalJiraStorybookFixture();
+
+export const GeneratedLocalJiraFixture: Story = {
+  args: generatedJiraFixture ? { boardView: generatedJiraFixture.boardView } : { boardView: baseBoardView },
+  render: (args) => generatedJiraFixture ? (
+    <ExternalJiraBoardContent {...args} />
+  ) : (
+    <ExternalTrackerMessage
+      title="No generated Jira fixture found"
+      message="Run npm run storybook:jira-fixture with an Atlassian OAuth access token and Jira board URL, then restart Storybook."
+      action="Static Jira stories are still available below."
+    />
+  ),
+  parameters: {
+    docs: {
+      description: {
+        story: 'Uses src/storybook-fixtures/external-jira/*.generated.json when present. The fixture is generated locally and gitignored.',
+      },
+    },
+  },
+};
 
 export const NormalBoard: Story = {
   args: { boardView: baseBoardView },
