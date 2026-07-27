@@ -167,11 +167,11 @@ export async function fetchJiraBoardView({
   pageSize = DEFAULT_PAGE_SIZE,
 }: FetchJiraBoardViewOptions): Promise<JiraBoardAdapterResult> {
   const jiraAuth = auth ?? (accessToken ? { kind: 'oauth' as const, accessToken } : undefined);
-  if (locator.viewKind !== 'board' || !locator.boardId) {
+  if (!locator.boardId && !locator.projectKey) {
     return {
       ok: false,
       error: createProviderError('jira_board_id_required', 'A Jira board URL with a board id is required.', {
-        userAction: 'Open a Jira board URL and launch VD again.',
+        userAction: 'Open a Jira board or project URL and launch VD again.',
       }),
     };
   }
@@ -187,6 +187,15 @@ export async function fetchJiraBoardView({
 
   const contextResult = await resolveJiraRequestContext({ auth: jiraAuth, siteHostname: locator.siteHostname, fetchImpl });
   if (!contextResult.ok) return contextResult;
+
+  if (!locator.boardId) {
+    return fetchJiraProjectIssueView({
+      locator,
+      context: contextResult.context,
+      fetchImpl,
+      pageSize: clampPageSize(pageSize),
+    });
+  }
 
   const boardConfigResult = await jiraJson(fetchImpl, `${contextResult.context.jiraBaseUrl}/rest/agile/1.0/board/${encodeURIComponent(locator.boardId)}/configuration`, contextResult.context.authHeader);
   if (!boardConfigResult.ok) return boardConfigResult;
@@ -224,6 +233,62 @@ export async function fetchJiraBoardView({
       resource: contextResult.context.resource,
       board: normalizeBoard(boardConfigResult.value, locator),
       columns: normalizedColumns,
+      cards: cards as ExternalKanbanCard[],
+      swimlanes: inferSwimlanes(cards as ExternalKanbanCard[]),
+      pagination: {
+        pageCount: issuePagesResult.pageCount,
+        issueCount: cards.length,
+        maxResults: issuePagesResult.maxResults,
+      },
+    },
+  };
+}
+
+async function fetchJiraProjectIssueView({
+  locator,
+  context,
+  fetchImpl,
+  pageSize,
+}: {
+  locator: JiraExternalViewLocator;
+  context: { jiraBaseUrl: string; resource: JiraAccessibleResource; authHeader: string };
+  fetchImpl: typeof fetch;
+  pageSize: number;
+}): Promise<JiraBoardAdapterResult> {
+  const issuePagesResult = await fetchProjectIssuePages({
+    fetchImpl,
+    jiraBaseUrl: context.jiraBaseUrl,
+    locator,
+    authHeader: context.authHeader,
+    pageSize,
+  });
+  if (!issuePagesResult.ok) return issuePagesResult;
+
+  const columns = inferColumnsFromIssues(issuePagesResult.issues);
+  const statusToColumnId = new Map<string, string>();
+  for (const column of columns) {
+    for (const statusId of column.statusIds) statusToColumnId.set(statusId, column.id);
+  }
+
+  const cards = issuePagesResult.issues.map((issue, rank) => normalizeIssue(issue, rank, locator.siteHostname, statusToColumnId));
+  if (cards.some((card) => !card)) {
+    return malformedResponse('Jira issue search response contained an issue without an id or key.');
+  }
+
+  return {
+    ok: true,
+    boardView: {
+      provider: 'jira',
+      sourceUrl: locator.originalUrl,
+      siteHostname: locator.siteHostname,
+      resource: context.resource,
+      board: {
+        id: locator.projectKey ?? 'project',
+        name: locator.projectKey ? `${locator.projectKey} project issues` : 'Jira project issues',
+        type: locator.viewKind,
+        projectKey: locator.projectKey,
+      },
+      columns,
       cards: cards as ExternalKanbanCard[],
       swimlanes: inferSwimlanes(cards as ExternalKanbanCard[]),
       pagination: {
@@ -426,6 +491,67 @@ async function fetchBoardIssuePages({
   return { ok: true, issues, pageCount, maxResults: pageSize };
 }
 
+async function fetchProjectIssuePages({
+  fetchImpl,
+  jiraBaseUrl,
+  locator,
+  authHeader,
+  pageSize,
+}: {
+  fetchImpl: typeof fetch;
+  jiraBaseUrl: string;
+  locator: JiraExternalViewLocator;
+  authHeader: string;
+  pageSize: number;
+}): Promise<{ ok: true; issues: JsonRecord[]; pageCount: number; maxResults: number } | { ok: false; error: JiraProviderError }> {
+  const issues: JsonRecord[] = [];
+  const seenPageTokens = new Set<string>();
+  let pageCount = 0;
+  let nextPageToken: string | undefined;
+
+  while (pageCount < MAX_PAGES) {
+    const url = new URL(`${jiraBaseUrl}/rest/api/3/search/jql`);
+    url.searchParams.set('jql', buildProjectIssueJql(locator));
+    url.searchParams.set('maxResults', String(pageSize));
+    url.searchParams.set('fields', JIRA_BOARD_FIELDS);
+    if (nextPageToken) url.searchParams.set('nextPageToken', nextPageToken);
+
+    const pageResult = await jiraJson(fetchImpl, url.toString(), authHeader);
+    if (!pageResult.ok) return pageResult;
+    if (!isRecord(pageResult.value) || !Array.isArray(pageResult.value.issues)) {
+      return malformedResponse('Jira issue search response did not include an issues array.');
+    }
+
+    for (const issue of pageResult.value.issues) {
+      if (!isRecord(issue)) return malformedResponse('Jira issue search response included a non-object issue.');
+      issues.push(issue);
+    }
+
+    pageCount += 1;
+    const pageIssueCount = pageResult.value.issues.length;
+    nextPageToken = typeof pageResult.value.nextPageToken === 'string' ? pageResult.value.nextPageToken : undefined;
+    const isLast = pageResult.value.isLast === true;
+
+    if (isLast) break;
+    if (pageIssueCount === 0) break;
+
+    if (!nextPageToken) break;
+    if (seenPageTokens.has(nextPageToken)) {
+      return paginationFailed('Jira issue search returned a repeated page token.', { mode: 'search_token', nextPageToken, pageCount });
+    }
+    if (pageCount >= MAX_PAGES) {
+      return paginationFailed('Jira issue search pagination exceeded the maximum page limit before reaching the end.', {
+        mode: 'search_token',
+        pageCount,
+        maxPages: MAX_PAGES,
+      });
+    }
+    seenPageTokens.add(nextPageToken);
+  }
+
+  return { ok: true, issues, pageCount, maxResults: pageSize };
+}
+
 async function jiraJson(fetchImpl: typeof fetch, url: string, authHeader: string): Promise<JiraFetchResult> {
   let response: Response;
   try {
@@ -512,6 +638,38 @@ function normalizeColumns(boardConfig: JsonRecord): ExternalKanbanColumn[] {
       max: typeof column.max === 'number' ? column.max : undefined,
     };
   });
+}
+
+function inferColumnsFromIssues(issues: JsonRecord[]): ExternalKanbanColumn[] {
+  const columnsByStatusId = new Map<string, ExternalKanbanColumn>();
+  for (const issue of issues) {
+    const fields = isRecord(issue.fields) ? issue.fields : {};
+    const status = isRecord(fields.status) ? fields.status : undefined;
+    const statusId = status ? asString(status.id) : undefined;
+    if (!statusId || columnsByStatusId.has(statusId)) continue;
+    const statusName = asString(status?.name) ?? `Status ${columnsByStatusId.size + 1}`;
+    columnsByStatusId.set(statusId, {
+      id: createStableColumnId(columnsByStatusId.size, statusName, [statusId]),
+      title: statusName,
+      statusIds: [statusId],
+    });
+  }
+
+  if (columnsByStatusId.size === 0) {
+    return [{ id: 'jira-issues', title: 'Jira issues', statusIds: [] }];
+  }
+
+  return [...columnsByStatusId.values()];
+}
+
+function buildProjectIssueJql(locator: JiraExternalViewLocator): string {
+  const projectJql = locator.projectKey ? `project = "${escapeJqlString(locator.projectKey)}"` : '';
+  if (projectJql) return `${projectJql} ORDER BY Rank ASC`;
+  return 'ORDER BY Rank ASC';
+}
+
+function escapeJqlString(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 }
 
 function normalizeIssue(issue: JsonRecord, rank: number, siteHostname: string, statusToColumnId: Map<string, string>): ExternalKanbanCard | undefined {

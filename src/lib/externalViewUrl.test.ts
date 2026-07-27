@@ -54,6 +54,21 @@ describe('externalViewUrl', () => {
     });
   });
 
+  it('parses Jira Core project board URLs without requiring an Agile board id', () => {
+    const url = 'https://jamtools.atlassian.net/jira/core/projects/SM/board?filter=assignee%20%3D%20%22557058%3A12f5f56d-3d07-4f12-8751-bf00efed200b%22&groupBy=none';
+
+    expect(parseExternalViewUrl(url)).toEqual({
+      status: 'ok',
+      locator: {
+        provider: 'jira',
+        viewKind: 'list',
+        originalUrl: url,
+        siteHostname: 'jamtools.atlassian.net',
+        projectKey: 'SM',
+      },
+    });
+  });
+
   it('parses Jira project pages as project locators when a board/list view is not present', () => {
     expect(parseExternalViewUrl('https://example.atlassian.net/jira/software/projects/VD')).toEqual({
       status: 'ok',

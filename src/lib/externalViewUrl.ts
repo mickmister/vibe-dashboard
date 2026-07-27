@@ -179,7 +179,7 @@ function parseJiraExternalViewUrl(url: URL, originalUrl: string): ExternalViewPa
     };
   }
 
-  if (segments.includes('list')) {
+  if (segments.includes('list') || segments.includes('board')) {
     return {
       status: 'ok',
       locator: {

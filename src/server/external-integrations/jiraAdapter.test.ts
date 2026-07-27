@@ -11,6 +11,14 @@ const locator: JiraExternalViewLocator = {
   boardId: '42',
 };
 
+const coreBoardLocator: JiraExternalViewLocator = {
+  provider: 'jira',
+  viewKind: 'list',
+  originalUrl: 'https://jamtools.atlassian.net/jira/core/projects/SM/board?filter=assignee%20%3D%20%22557058%3A12f5f56d-3d07-4f12-8751-bf00efed200b%22&groupBy=none',
+  siteHostname: 'jamtools.atlassian.net',
+  projectKey: 'SM',
+};
+
 const resources = [
   { id: 'cloud-1', name: 'Team', url: 'https://team.atlassian.net', scopes: ['read:jira-work'] },
   { id: 'cloud-2', name: 'Other', url: 'https://other.atlassian.net', scopes: ['read:jira-work'] },
@@ -89,6 +97,148 @@ describe('Jira accessible resource lookup', () => {
 });
 
 describe('live Jira board adapter', () => {
+  it('fetches Jira Core project board URLs through Jira search and infers columns from statuses', async () => {
+    const fetchImpl = vi.fn(async (url: string | URL) => {
+      const href = String(url);
+      if (href.includes('/rest/api/3/search/jql')) {
+        return jsonResponse({
+          issues: [
+            { id: '1', key: 'SM-1', fields: { summary: 'Assigned service request', status: { id: '10000', name: 'To Do' } } },
+            { id: '2', key: 'SM-2', fields: { summary: 'Done service request', status: { id: '10002', name: 'Done' } } },
+          ],
+          isLast: true,
+          maxResults: 50,
+        });
+      }
+      return jsonResponse({ error: 'unexpected url', href }, 404);
+    }) as unknown as typeof fetch;
+
+    const result = await fetchJiraBoardView({
+      locator: coreBoardLocator,
+      auth: { kind: 'basic', siteHostname: 'jamtools.atlassian.net', email: 'bot@example.com', apiToken: 'secret' },
+      fetchImpl,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.error.message);
+    expect(result.boardView.board).toEqual({ id: 'SM', name: 'SM project issues', type: 'list', projectKey: 'SM' });
+    expect(result.boardView.columns).toEqual([
+      { id: 'to-do-10000', title: 'To Do', statusIds: ['10000'] },
+      { id: 'done-10002', title: 'Done', statusIds: ['10002'] },
+    ]);
+    expect(result.boardView.cards.map((card) => ({ key: card.key, columnId: card.columnId }))).toEqual([
+      { key: 'SM-1', columnId: 'to-do-10000' },
+      { key: 'SM-2', columnId: 'done-10002' },
+    ]);
+    const searchUrl = String(vi.mocked(fetchImpl).mock.calls[0]?.[0]);
+    expect(searchUrl).toContain('/rest/api/3/search/jql?');
+    expect(new URL(searchUrl).searchParams.get('jql')).toBe('project = "SM" ORDER BY Rank ASC');
+  });
+
+  it('ignores Jira Core board filter query params so URL input cannot widen bot-token JQL', async () => {
+    const maliciousLocator: JiraExternalViewLocator = {
+      ...coreBoardLocator,
+      originalUrl: 'https://jamtools.atlassian.net/jira/core/projects/SM/board?filter=key%20is%20not%20EMPTY)%20OR%20project%20%3D%20%22SECRET%22%20OR%20(project%20%3D%20%22SM%22',
+    };
+    const fetchImpl = vi.fn(async () => jsonResponse({ issues: [], isLast: true, maxResults: 50 })) as unknown as typeof fetch;
+
+    const result = await fetchJiraBoardView({
+      locator: maliciousLocator,
+      auth: { kind: 'basic', siteHostname: 'jamtools.atlassian.net', email: 'bot@example.com', apiToken: 'secret' },
+      fetchImpl,
+    });
+
+    expect(result.ok).toBe(true);
+    const searchUrl = String(vi.mocked(fetchImpl).mock.calls[0]?.[0]);
+    expect(new URL(searchUrl).searchParams.get('jql')).toBe('project = "SM" ORDER BY Rank ASC');
+    expect(searchUrl).not.toContain('SECRET');
+  });
+
+  it('supports enhanced Jira search nextPageToken pagination for Jira Core project board URLs', async () => {
+    const fetchImpl = vi.fn(async (url: string | URL) => {
+      const href = String(url);
+      if (href.includes('nextPageToken=page-2')) {
+        return jsonResponse({
+          issues: [{ id: '2', key: 'SM-2', fields: { summary: 'Second', status: { id: '10002', name: 'Done' } } }],
+          isLast: true,
+          maxResults: 1,
+        });
+      }
+      return jsonResponse({
+        issues: [{ id: '1', key: 'SM-1', fields: { summary: 'First', status: { id: '10000', name: 'To Do' } } }],
+        nextPageToken: 'page-2',
+        maxResults: 1,
+      });
+    }) as unknown as typeof fetch;
+
+    const result = await fetchJiraBoardView({
+      locator: coreBoardLocator,
+      auth: { kind: 'basic', siteHostname: 'jamtools.atlassian.net', email: 'bot@example.com', apiToken: 'secret' },
+      fetchImpl,
+      pageSize: 1,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.error.message);
+    expect(result.boardView.cards.map((card) => card.key)).toEqual(['SM-1', 'SM-2']);
+    const urls = vi.mocked(fetchImpl).mock.calls.map(([url]) => String(url));
+    expect(urls[0]).toContain('/rest/api/3/search/jql?');
+    expect(urls[0]).not.toContain('nextPageToken');
+    expect(urls[1]).toContain('nextPageToken=page-2');
+  });
+
+  it('returns a provider error for repeated enhanced Jira search page tokens', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({
+      issues: [{ id: '1', key: 'SM-1', fields: { summary: 'First', status: { id: '10000' } } }],
+      nextPageToken: 'same-token',
+      maxResults: 1,
+    })) as unknown as typeof fetch;
+
+    const result = await fetchJiraBoardView({
+      locator: coreBoardLocator,
+      auth: { kind: 'basic', siteHostname: 'jamtools.atlassian.net', email: 'bot@example.com', apiToken: 'secret' },
+      fetchImpl,
+      pageSize: 1,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toEqual(expect.objectContaining({
+        code: 'jira_pagination_failed',
+        message: expect.stringContaining('repeated page token'),
+        details: expect.objectContaining({ mode: 'search_token', nextPageToken: 'same-token' }),
+      }));
+    }
+  });
+
+  it('returns a provider error when enhanced Jira search exceeds the page limit', async () => {
+    let page = 0;
+    const fetchImpl = vi.fn(async () => {
+      page += 1;
+      return jsonResponse({
+        issues: [{ id: String(page), key: `SM-${page}`, fields: { summary: 'First', status: { id: '10000' } } }],
+        nextPageToken: `page-${page}`,
+        maxResults: 1,
+      });
+    }) as unknown as typeof fetch;
+
+    const result = await fetchJiraBoardView({
+      locator: coreBoardLocator,
+      auth: { kind: 'basic', siteHostname: 'jamtools.atlassian.net', email: 'bot@example.com', apiToken: 'secret' },
+      fetchImpl,
+      pageSize: 1,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toEqual(expect.objectContaining({
+        code: 'jira_pagination_failed',
+        message: expect.stringContaining('maximum page limit'),
+        details: expect.objectContaining({ mode: 'search_token', pageCount: 100, maxPages: 100 }),
+      }));
+    }
+  });
+
   it('fetches Jira Cloud boards with Basic auth API-token credentials against the direct site REST API', async () => {
     const fetchImpl = createJiraFetch([
       {
@@ -343,10 +493,10 @@ describe('live Jira board adapter', () => {
     }
   });
 
-  it('requires a board locator before fetching Jira resources', async () => {
+  it('requires a board id or project key before fetching Jira resources', async () => {
     const fetchImpl = vi.fn() as unknown as typeof fetch;
 
-    const result = await fetchJiraBoardView({ locator: { ...locator, viewKind: 'project', boardId: undefined }, accessToken: 'token', fetchImpl });
+    const result = await fetchJiraBoardView({ locator: { ...locator, viewKind: 'project', boardId: undefined, projectKey: undefined }, accessToken: 'token', fetchImpl });
 
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe('jira_board_id_required');

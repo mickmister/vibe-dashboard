@@ -38,8 +38,8 @@ export function registerExternalTrackerBoardRoutes(
       return c.json({ ok: false, error: { code: parsed.reason, message: 'The external URL is not supported.', userAction: 'Open this page from a supported Jira board URL.', originalUrl: parsed.originalUrl } }, 400);
     }
 
-    if (parsed.locator.provider !== 'jira' || parsed.locator.viewKind !== 'board') {
-      return c.json({ ok: false, error: { code: 'unsupported_external_view', message: 'Only Jira board URLs are supported in this view.', userAction: 'Open a Jira board URL and try again.' } }, 400);
+    if (parsed.locator.provider !== 'jira') {
+      return c.json({ ok: false, error: { code: 'unsupported_external_view', message: 'Only Jira URLs are supported in this view.', userAction: 'Open a Jira board URL and try again.' } }, 400);
     }
 
     const adapter = options.fetchJiraBoardView ?? fetchJiraBoardView;

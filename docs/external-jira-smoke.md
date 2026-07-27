@@ -53,6 +53,7 @@ Prerequisites:
 
 ```text
 https://<site>.atlassian.net/jira/software/projects/<PROJECT>/boards/<BOARD_ID>
+https://<site>.atlassian.net/jira/core/projects/<PROJECT>/board?groupBy=none
 ```
 
 Manual checks:
@@ -67,5 +68,6 @@ Known limitations for v1:
 
 - Jira data is fetched live on page load; issue snapshots are not persisted.
 - Drag/drop or writeback to Jira is intentionally not implemented.
+- Jira Core/Work Management project board URLs do not include an Agile board id; VD uses enhanced Jira search with project-scoped JQL only and infers columns from returned issue statuses for those URLs. Jira UI `filter=` query fragments are intentionally ignored for now to prevent URL-provided JQL from widening server-side bot-token access.
 - Swimlane fidelity is best-effort and may be `full`, `partial`, `none`, or `unknown` depending on available Jira data.
 - Bead and workspace correlations are explicit only; there is no heuristic auto-linking.

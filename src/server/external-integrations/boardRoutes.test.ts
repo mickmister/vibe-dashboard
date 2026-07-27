@@ -50,6 +50,7 @@ async function seedUserAndAtlassianAccount(db: Kysely<DB>, options: { userId?: s
 }
 
 const jiraBoardUrl = 'https://team.atlassian.net/jira/software/projects/VD/boards/42';
+const jiraCoreBoardUrl = 'https://jamtools.atlassian.net/jira/core/projects/SM/board?filter=assignee%20%3D%20%22557058%3A12f5f56d-3d07-4f12-8751-bf00efed200b%22&groupBy=none';
 const noBeadLinks = {
   runBd: vi.fn(async () => ({ stdout: '' })),
 };
@@ -127,6 +128,27 @@ describe('external Jira board routes', () => {
     expect(adapter).toHaveBeenCalledWith({
       locator: expect.objectContaining({ provider: 'jira', viewKind: 'board', boardId: '42', siteHostname: 'team.atlassian.net' }),
       auth: { kind: 'basic', siteHostname: 'team.atlassian.net', email: 'bot@example.com', apiToken: 'secret-token' },
+    });
+  });
+
+  it('routes Jira Core project board URLs to the adapter instead of rejecting them as unsupported', async () => {
+    const app = new Hono();
+    const adapter = vi.fn(async () => ({ ok: true, boardView: { ...boardView, sourceUrl: jiraCoreBoardUrl, siteHostname: 'jamtools.atlassian.net' } })) as unknown as FetchJiraBoardView;
+    registerExternalTrackerBoardRoutes(app, {
+      enabled: true,
+      auth: createAuthService(null),
+      db,
+      fetchJiraBoardView: adapter,
+      jiraBotAuth: { kind: 'basic', siteHostname: 'jamtools.atlassian.net', email: 'bot@example.com', apiToken: 'secret-token' },
+      beads: noBeadLinks,
+    });
+
+    const response = await app.request(`/dashboard/api/external-trackers/jira/board?external_view_url=${encodeURIComponent(jiraCoreBoardUrl)}`);
+
+    expect(response.status).toBe(200);
+    expect(adapter).toHaveBeenCalledWith({
+      locator: expect.objectContaining({ provider: 'jira', viewKind: 'list', projectKey: 'SM', siteHostname: 'jamtools.atlassian.net' }),
+      auth: { kind: 'basic', siteHostname: 'jamtools.atlassian.net', email: 'bot@example.com', apiToken: 'secret-token' },
     });
   });
 

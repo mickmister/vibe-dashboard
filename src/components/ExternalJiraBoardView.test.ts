@@ -381,6 +381,25 @@ describe('ExternalJiraBoardContent', () => {
 });
 
 describe('ExternalJiraBoardRoute', () => {
+  it('accepts Jira Core project board locators instead of showing the board-only unsupported message', () => {
+    const html = renderToStaticMarkup(React.createElement(ExternalJiraBoardRoute, {
+      parseResult: {
+        status: 'ok',
+        sourceParam: 'external_view_url',
+        locator: {
+          provider: 'jira',
+          viewKind: 'list',
+          originalUrl: 'https://jamtools.atlassian.net/jira/core/projects/SM/board?groupBy=none',
+          siteHostname: 'jamtools.atlassian.net',
+          projectKey: 'SM',
+        },
+      },
+    }));
+
+    expect(html).toContain('Loading Jira board');
+    expect(html).not.toContain('This read-only view currently supports Jira board URLs only.');
+  });
+
   it('renders malformed URL reasons without calling the loader', () => {
     const html = renderToStaticMarkup(React.createElement(ExternalJiraBoardRoute, {
       parseResult: { status: 'unsupported', reason: 'malformed_url', sourceParam: 'external_view_url', originalUrl: 'not-a-url' },

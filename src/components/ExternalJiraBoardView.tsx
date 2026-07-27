@@ -11,8 +11,8 @@ export function ExternalJiraBoardRoute({ parseResult }: { parseResult: Dashboard
     return <ExternalTrackerMessage title="Unsupported external view" message={messageForUnsupportedReason(parseResult.reason)} action="Open a supported Jira board URL and launch VD again." />;
   }
 
-  if (parseResult.locator.provider !== 'jira' || parseResult.locator.viewKind !== 'board') {
-    return <ExternalTrackerMessage title="Unsupported external view" message="This read-only view currently supports Jira board URLs only." action="Open a Jira board URL and launch VD again." />;
+  if (parseResult.locator.provider !== 'jira') {
+    return <ExternalTrackerMessage title="Unsupported external view" message="This read-only view currently supports Jira URLs only." action="Open a Jira board URL and launch VD again." />;
   }
 
   return <ExternalJiraBoardLoader externalViewUrl={parseResult.locator.originalUrl} />;
