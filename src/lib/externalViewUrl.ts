@@ -1,14 +1,9 @@
 export const EXTERNAL_VIEW_URL_PARAM = 'external_view_url';
-export const LEGACY_OPEN_FROM_GITHUB_PARAM = 'open_from_github';
-export const LEGACY_FROM_GH_URL_PARAM = 'from_gh_url';
 
 const JIRA_HOST_SUFFIX = '.atlassian.net';
 const URL_PARSE_BASE = 'https://dashboard.local';
 
-export type ExternalViewQueryParam =
-  | typeof EXTERNAL_VIEW_URL_PARAM
-  | typeof LEGACY_OPEN_FROM_GITHUB_PARAM
-  | typeof LEGACY_FROM_GH_URL_PARAM;
+export type ExternalViewQueryParam = typeof EXTERNAL_VIEW_URL_PARAM;
 
 export type ExternalViewUnsupportedReason =
   | 'missing_external_view_url'
@@ -98,14 +93,6 @@ export function parseDashboardExternalViewLocator(search: string): DashboardExte
 
   const result = parseExternalViewUrl(externalUrl);
   if (result.status === 'ok') {
-    if (sourceParam !== EXTERNAL_VIEW_URL_PARAM && result.locator.provider !== 'github') {
-      return {
-        status: 'unsupported',
-        reason: 'unsupported_provider_url',
-        sourceParam,
-        originalUrl: externalUrl,
-      };
-    }
     return { status: 'ok', sourceParam, locator: result.locator };
   }
 
@@ -127,8 +114,6 @@ export function buildExternalViewDashboardUrl({
 
 function getExternalViewSourceParam(searchParams: URLSearchParams): ExternalViewQueryParam | undefined {
   if (searchParams.has(EXTERNAL_VIEW_URL_PARAM)) return EXTERNAL_VIEW_URL_PARAM;
-  if (searchParams.has(LEGACY_OPEN_FROM_GITHUB_PARAM)) return LEGACY_OPEN_FROM_GITHUB_PARAM;
-  if (searchParams.has(LEGACY_FROM_GH_URL_PARAM)) return LEGACY_FROM_GH_URL_PARAM;
   return undefined;
 }
 

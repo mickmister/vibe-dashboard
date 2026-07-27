@@ -22,8 +22,6 @@ import {
 } from "../lib/voyageUrl";
 import {
   EXTERNAL_VIEW_URL_PARAM,
-  LEGACY_FROM_GH_URL_PARAM,
-  LEGACY_OPEN_FROM_GITHUB_PARAM,
   parseDashboardExternalViewLocator,
 } from "../lib/externalViewUrl";
 import { resolveDashboardVoyage } from "../lib/voyageSession";
@@ -1263,9 +1261,5 @@ function normalizeActionReturns<
 
 function hasExternalViewQueryParam(search: string): boolean {
   const searchParams = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
-  return (
-    searchParams.has(EXTERNAL_VIEW_URL_PARAM) ||
-    searchParams.has(LEGACY_OPEN_FROM_GITHUB_PARAM) ||
-    searchParams.has(LEGACY_FROM_GH_URL_PARAM)
-  );
+  return searchParams.has(EXTERNAL_VIEW_URL_PARAM);
 }
