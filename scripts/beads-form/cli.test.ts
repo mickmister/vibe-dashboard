@@ -50,6 +50,40 @@ describe('beads-form CLI helpers', () => {
     });
   });
 
+  it('parses workspace and session metadata from flags and environment', () => {
+    expect(parseBeadsFormCliArgs([
+      'attach',
+      '--bead',
+      'bd-1',
+      '--file',
+      'form.json',
+      '--workspace',
+      'workspace-flag',
+      '--session',
+      'session-flag',
+    ])).toEqual({
+      command: 'attach',
+      options: expect.objectContaining({
+        workspaceId: 'workspace-flag',
+        sessionId: 'session-flag',
+      }),
+    });
+
+    vi.stubEnv('VK_WORKSPACE_ID', 'workspace-env');
+    vi.stubEnv('VK_SESSION_ID', 'session-env');
+    try {
+      expect(parseBeadsFormCliArgs(['attach', '--bead', 'bd-1', '--file', 'form.json'])).toEqual({
+        command: 'attach',
+        options: expect.objectContaining({
+          workspaceId: 'workspace-env',
+          sessionId: 'session-env',
+        }),
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it('resolves attach origin from explicit flag, env, then config without hardcoded defaults', async () => {
     const configDir = join(tmpdir(), `beads-form-config-${process.pid}-${Date.now()}`);
     const configPath = join(configDir, 'beads-form.json');
@@ -121,6 +155,33 @@ describe('beads-form CLI helpers', () => {
     expect(metadata).toEqual({ untouched: true, beadForms: { forms: [{ id: 'review', title: 'Existing', html: '<form></form>' }] } });
   });
 
+  it('stamps workspace and session metadata while preserving unrelated metadata', () => {
+    const form = parseFormsJsonForAttach(JSON.stringify(standardForm))[0]!;
+    const metadata = attachFormsToMetadata({ untouched: true }, [form], {
+      workspaceId: ' workspace-1 ',
+      sessionId: ' session-1 ',
+    });
+    expect(metadata.untouched).toBe(true);
+    expect(metadata.VK_WORKSPACE_ID).toBe('workspace-1');
+    expect(metadata.VK_SESSION_ID).toBe('session-1');
+    expect((metadata.beadForms as { forms: Array<{ id: string }> }).forms.map((candidate) => candidate.id)).toEqual(['review']);
+  });
+
+  it('does not overwrite existing workspace or session metadata with empty values', () => {
+    const form = parseFormsJsonForAttach(JSON.stringify({ ...standardForm, id: 'followup' }))[0]!;
+    const metadata = attachFormsToMetadata({
+      VK_WORKSPACE_ID: 'existing-workspace',
+      VK_SESSION_ID: 'existing-session',
+      beadForms: { forms: [{ id: 'review', title: 'Existing', html: '<form></form>' }] },
+    }, [form], {
+      workspaceId: '   ',
+      sessionId: '',
+    });
+    expect(metadata.VK_WORKSPACE_ID).toBe('existing-workspace');
+    expect(metadata.VK_SESSION_ID).toBe('existing-session');
+    expect((metadata.beadForms as { forms: Array<{ id: string }> }).forms.map((candidate) => candidate.id)).toEqual(['review', 'followup']);
+  });
+
   it('builds workspace URLs when known and dir URLs otherwise', () => {
     expect(buildFillOutUrl({
       dir: '/repo',
@@ -185,6 +246,29 @@ describe('beads-form CLI helpers', () => {
     expect(result.metadata.untouched).toBe(true);
     expect(result.metadata.VK_WORKSPACE_ID).toBe('workspace-1');
     expect(calls.map((args) => args[0])).toEqual(['show', 'update']);
+  });
+
+  it('passes session metadata through attach updates', async () => {
+    const exec = vi.fn<ExecFileLike>(async (_file, args) => {
+      if (args[0] === 'show') {
+        return { stdout: JSON.stringify([{ id: 'bd-1', title: 'Bead', metadata: {} }]), stderr: '' };
+      }
+      return { stdout: '', stderr: '' };
+    });
+    const form = parseFormsJsonForAttach(JSON.stringify(standardForm))[0]!;
+    const result = await attachBeadsForms({
+      execFile: exec,
+      forms: [form],
+      options: {
+        dir: '/repo',
+        beadId: 'bd-1',
+        workspaceId: 'workspace-1',
+        sessionId: 'session-1',
+      } satisfies AttachOptions,
+    });
+
+    expect(result.metadata.VK_WORKSPACE_ID).toBe('workspace-1');
+    expect(result.metadata.VK_SESSION_ID).toBe('session-1');
   });
 
   it('auto-selects exactly one form and lists forms when ambiguous', () => {
