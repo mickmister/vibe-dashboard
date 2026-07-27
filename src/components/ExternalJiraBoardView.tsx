@@ -129,6 +129,7 @@ export function ExternalJiraBoardShell({
           <ExternalJiraBoardBody
             cards={boardView.cards}
             columns={columns}
+            diagnostics={boardView.diagnostics}
             hasIssues={issueCount > 0}
             onOpenWorkspacePanel={onOpenWorkspacePanel}
             onSelectCard={onSelectCard}
@@ -186,6 +187,7 @@ export function ExternalJiraBoardHeader({ boardView }: { boardView: ExternalJira
 export function ExternalJiraBoardBody({
   cards,
   columns,
+  diagnostics,
   hasIssues,
   onOpenWorkspacePanel,
   onSelectCard,
@@ -194,6 +196,7 @@ export function ExternalJiraBoardBody({
 }: {
   cards: ExternalKanbanCardDto[];
   columns: ExternalKanbanColumnDto[];
+  diagnostics?: ExternalJiraBoardViewDto['diagnostics'];
   hasIssues: boolean;
   onOpenWorkspacePanel: (workspace: ExternalRelatedWorkspace) => void;
   onSelectCard: (card: ExternalKanbanCardDto) => void;
@@ -203,7 +206,10 @@ export function ExternalJiraBoardBody({
   if (!hasIssues) {
     return (
       <section className="p-6">
-        <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-6 text-neutral-300">This Jira board has no visible issues.</div>
+        <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-6 text-neutral-300">
+          <p>This Jira board has no visible issues.</p>
+          {diagnostics ? <ExternalJiraDiagnosticsPanel diagnostics={diagnostics} /> : null}
+        </div>
       </section>
     );
   }
@@ -230,6 +236,28 @@ export function ExternalJiraSwimlane({ lane, columns, onOpenWorkspacePanel, onSe
     <div className="rounded-xl border border-neutral-800 bg-neutral-950/60 p-4">
       <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-neutral-300">{lane.title}</h2>
       <ExternalJiraKanbanColumns columns={columns} cards={lane.cards} onOpenWorkspacePanel={onOpenWorkspacePanel} onSelectCard={onSelectCard} />
+    </div>
+  );
+}
+
+export function ExternalJiraDiagnosticsPanel({ diagnostics }: { diagnostics: NonNullable<ExternalJiraBoardViewDto['diagnostics']> }) {
+  const authLabel = diagnostics.authSource === 'bot' ? 'bot credentials' : diagnostics.authSource === 'oauth' ? 'OAuth credentials' : 'unknown credentials';
+  const modeLabel = diagnostics.jiraMode === 'project-search' ? 'project search' : 'Agile board';
+
+  return (
+    <div className="mt-4 rounded-lg border border-neutral-800 bg-neutral-950/70 p-3 text-sm text-neutral-300">
+      <div className="font-medium text-neutral-100">Load diagnostics</div>
+      <p className="mt-1">
+        Loaded using {authLabel}; mode {modeLabel}; Jira returned {diagnostics.issueCount} visible issues.
+      </p>
+      <dl className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
+        <div><dt className="text-neutral-500">Site</dt><dd className="text-neutral-200">{diagnostics.siteHostname}</dd></div>
+        <div><dt className="text-neutral-500">View kind</dt><dd className="text-neutral-200">{diagnostics.locatorViewKind}</dd></div>
+        {diagnostics.projectKey ? <div><dt className="text-neutral-500">Project</dt><dd className="text-neutral-200">{diagnostics.projectKey}</dd></div> : null}
+        {diagnostics.boardId ? <div><dt className="text-neutral-500">Board id</dt><dd className="text-neutral-200">{diagnostics.boardId}</dd></div> : null}
+        <div><dt className="text-neutral-500">Endpoint family</dt><dd className="text-neutral-200">{diagnostics.endpointFamily}</dd></div>
+        {diagnostics.jql ? <div className="sm:col-span-2"><dt className="text-neutral-500">JQL</dt><dd className="break-words font-mono text-neutral-200">{diagnostics.jql}</dd></div> : null}
+      </dl>
     </div>
   );
 }

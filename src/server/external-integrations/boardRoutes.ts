@@ -60,7 +60,21 @@ export function registerExternalTrackerBoardRoutes(
 
     const workspaceDecoratedBoardView = await decorateJiraBoardWithWorkspaceMappings(options.db, result.boardView);
     const fullyDecoratedBoardView = await decorateJiraBoardWithBeadLinks(workspaceDecoratedBoardView, options.beads);
-    return c.json({ ok: true, boardView: fullyDecoratedBoardView });
+    const boardViewWithDiagnostics = {
+      ...fullyDecoratedBoardView,
+      diagnostics: {
+        jiraMode: parsed.locator.boardId ? 'agile-board' as const : 'project-search' as const,
+        locatorViewKind: parsed.locator.viewKind,
+        siteHostname: parsed.locator.siteHostname,
+        projectKey: parsed.locator.projectKey,
+        boardId: parsed.locator.boardId,
+        endpointFamily: parsed.locator.boardId ? 'agile-board' as const : 'enhanced-search-jql' as const,
+        issueCount: fullyDecoratedBoardView.pagination.issueCount,
+        ...fullyDecoratedBoardView.diagnostics,
+        authSource: authResult.auth.kind === 'oauth' ? 'oauth' as const : 'bot' as const,
+      },
+    };
+    return c.json({ ok: true, boardView: boardViewWithDiagnostics });
   });
 
   hono.post('/dashboard/api/external-trackers/workspace-links', async (c) => {

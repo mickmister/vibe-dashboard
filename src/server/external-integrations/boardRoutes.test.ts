@@ -124,7 +124,21 @@ describe('external Jira board routes', () => {
     const response = await app.request(`/dashboard/api/external-trackers/jira/board?external_view_url=${encodeURIComponent(jiraBoardUrl)}`);
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ ok: true, boardView });
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+      boardView: {
+        ...boardView,
+        diagnostics: expect.objectContaining({
+          authSource: 'bot',
+          jiraMode: 'agile-board',
+          locatorViewKind: 'board',
+          siteHostname: 'team.atlassian.net',
+          projectKey: 'VD',
+          boardId: '42',
+          issueCount: 0,
+        }),
+      },
+    });
     expect(adapter).toHaveBeenCalledWith({
       locator: expect.objectContaining({ provider: 'jira', viewKind: 'board', boardId: '42', siteHostname: 'team.atlassian.net' }),
       auth: { kind: 'basic', siteHostname: 'team.atlassian.net', email: 'bot@example.com', apiToken: 'secret-token' },
@@ -225,7 +239,21 @@ describe('external Jira board routes', () => {
     const response = await app.request(`/dashboard/api/external-trackers/jira/board?external_view_url=${encodeURIComponent(jiraBoardUrl)}`);
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ ok: true, boardView });
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+      boardView: {
+        ...boardView,
+        diagnostics: expect.objectContaining({
+          authSource: 'oauth',
+          jiraMode: 'agile-board',
+          locatorViewKind: 'board',
+          siteHostname: 'team.atlassian.net',
+          projectKey: 'VD',
+          boardId: '42',
+          issueCount: 0,
+        }),
+      },
+    });
     expect(adapter).toHaveBeenCalledWith({
       locator: expect.objectContaining({ provider: 'jira', viewKind: 'board', boardId: '42', siteHostname: 'team.atlassian.net' }),
       accessToken: 'jira-token',

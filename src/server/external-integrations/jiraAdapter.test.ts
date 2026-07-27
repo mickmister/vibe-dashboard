@@ -130,6 +130,16 @@ describe('live Jira board adapter', () => {
       { key: 'SM-1', columnId: 'to-do-10000' },
       { key: 'SM-2', columnId: 'done-10002' },
     ]);
+    expect(result.boardView.diagnostics).toEqual({
+      jiraMode: 'project-search',
+      locatorViewKind: 'list',
+      siteHostname: 'jamtools.atlassian.net',
+      projectKey: 'SM',
+      boardId: undefined,
+      endpointFamily: 'enhanced-search-jql',
+      jql: 'project = "SM" ORDER BY Rank ASC',
+      issueCount: 2,
+    });
     const searchUrl = String(vi.mocked(fetchImpl).mock.calls[0]?.[0]);
     expect(searchUrl).toContain('/rest/api/3/search/jql?');
     expect(new URL(searchUrl).searchParams.get('jql')).toBe('project = "SM" ORDER BY Rank ASC');
@@ -320,6 +330,15 @@ describe('live Jira board adapter', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error(result.error.message);
     expect(result.boardView.board).toEqual({ id: '42', name: 'VD Board', type: 'kanban', projectKey: 'VD' });
+    expect(result.boardView.diagnostics).toEqual(expect.objectContaining({
+      jiraMode: 'agile-board',
+      locatorViewKind: 'board',
+      siteHostname: 'team.atlassian.net',
+      projectKey: 'VD',
+      boardId: '42',
+      endpointFamily: 'agile-board',
+      issueCount: 1,
+    }));
     expect(result.boardView.columns).toEqual([
       { id: 'to-do-10000', title: 'To Do', statusIds: ['10000'], min: undefined, max: undefined },
       { id: 'in-progress-10001', title: 'In Progress', statusIds: ['10001'], min: 1, max: 3 },

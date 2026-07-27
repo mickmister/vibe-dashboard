@@ -60,6 +60,37 @@ describe('ExternalJiraBoardContent', () => {
     expect(html).toContain('This Jira board has no visible issues.');
   });
 
+  it('renders safe diagnostics for empty Jira project-search loads', () => {
+    const html = renderToStaticMarkup(React.createElement(ExternalJiraBoardContent, {
+      boardView: {
+        ...baseBoardView,
+        board: { id: 'SM', name: 'SM project issues', type: 'list', projectKey: 'SM' },
+        siteHostname: 'jamtools.atlassian.net',
+        cards: [],
+        pagination: { pageCount: 1, issueCount: 0, maxResults: 50 },
+        diagnostics: {
+          authSource: 'bot',
+          jiraMode: 'project-search',
+          locatorViewKind: 'list',
+          siteHostname: 'jamtools.atlassian.net',
+          projectKey: 'SM',
+          endpointFamily: 'enhanced-search-jql',
+          jql: 'project = "SM" ORDER BY Rank ASC',
+          issueCount: 0,
+        },
+      },
+    }));
+
+    expect(html).toContain('Loaded using bot credentials');
+    expect(html).toContain('mode project search');
+    expect(html).toContain('Jira returned 0 visible issues');
+    expect(html).toContain('Project');
+    expect(html).toContain('SM');
+    expect(html).toContain('project = &quot;SM&quot; ORDER BY Rank ASC');
+    expect(html).not.toContain('secret-token');
+    expect(html).not.toContain('bot@example.com');
+  });
+
   it('renders unmapped cards when Jira status metadata is missing', () => {
     const card = baseBoardView.cards[0];
     if (!card) throw new Error('expected fixture card');

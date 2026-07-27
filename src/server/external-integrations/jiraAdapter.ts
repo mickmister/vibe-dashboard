@@ -104,6 +104,19 @@ export interface ExternalJiraBoardView {
     issueCount: number;
     maxResults: number;
   };
+  diagnostics?: ExternalJiraBoardDiagnostics;
+}
+
+export interface ExternalJiraBoardDiagnostics {
+  authSource?: 'oauth' | 'bot';
+  jiraMode: 'agile-board' | 'project-search';
+  locatorViewKind: JiraExternalViewLocator['viewKind'];
+  siteHostname: string;
+  projectKey?: string;
+  boardId?: string;
+  endpointFamily: 'agile-board' | 'enhanced-search-jql';
+  jql?: string;
+  issueCount: number;
 }
 
 export type JiraProviderErrorCode =
@@ -240,6 +253,12 @@ export async function fetchJiraBoardView({
         issueCount: cards.length,
         maxResults: issuePagesResult.maxResults,
       },
+      diagnostics: createJiraDiagnostics({
+        locator,
+        jiraMode: 'agile-board',
+        endpointFamily: 'agile-board',
+        issueCount: cards.length,
+      }),
     },
   };
 }
@@ -296,6 +315,13 @@ async function fetchJiraProjectIssueView({
         issueCount: cards.length,
         maxResults: issuePagesResult.maxResults,
       },
+      diagnostics: createJiraDiagnostics({
+        locator,
+        jiraMode: 'project-search',
+        endpointFamily: 'enhanced-search-jql',
+        jql: buildProjectIssueJql(locator),
+        issueCount: cards.length,
+      }),
     },
   };
 }
@@ -666,6 +692,31 @@ function buildProjectIssueJql(locator: JiraExternalViewLocator): string {
   const projectJql = locator.projectKey ? `project = "${escapeJqlString(locator.projectKey)}"` : '';
   if (projectJql) return `${projectJql} ORDER BY Rank ASC`;
   return 'ORDER BY Rank ASC';
+}
+
+function createJiraDiagnostics({
+  locator,
+  jiraMode,
+  endpointFamily,
+  jql,
+  issueCount,
+}: {
+  locator: JiraExternalViewLocator;
+  jiraMode: ExternalJiraBoardDiagnostics['jiraMode'];
+  endpointFamily: ExternalJiraBoardDiagnostics['endpointFamily'];
+  jql?: string;
+  issueCount: number;
+}): ExternalJiraBoardDiagnostics {
+  return {
+    jiraMode,
+    locatorViewKind: locator.viewKind,
+    siteHostname: locator.siteHostname,
+    projectKey: locator.projectKey,
+    boardId: locator.boardId,
+    endpointFamily,
+    jql,
+    issueCount,
+  };
 }
 
 function escapeJqlString(value: string): string {

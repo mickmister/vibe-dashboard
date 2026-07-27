@@ -91,6 +91,19 @@ export interface ExternalJiraBoardViewDto {
     issueCount: number;
     maxResults: number;
   };
+  diagnostics?: ExternalJiraBoardDiagnosticsDto;
+}
+
+export interface ExternalJiraBoardDiagnosticsDto {
+  authSource?: 'oauth' | 'bot';
+  jiraMode: 'agile-board' | 'project-search';
+  locatorViewKind: 'board' | 'list' | 'project';
+  siteHostname: string;
+  projectKey?: string;
+  boardId?: string;
+  endpointFamily: 'agile-board' | 'enhanced-search-jql';
+  jql?: string;
+  issueCount: number;
 }
 
 export interface ExternalTrackerApiErrorDto {
