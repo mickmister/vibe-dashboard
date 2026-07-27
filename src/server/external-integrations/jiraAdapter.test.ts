@@ -285,6 +285,78 @@ describe('live Jira board adapter', () => {
     }
   });
 
+  it('applies Jira Software board issueParent URL filters through Agile board JQL', async () => {
+    const issueParentLocator: JiraExternalViewLocator = {
+      ...locator,
+      originalUrl: 'https://team.atlassian.net/jira/software/c/projects/JT/boards/6?issueParent=10000',
+      projectKey: 'JT',
+      boardId: '6',
+    };
+    const fetchImpl = vi.fn(async (url: string | URL) => {
+      const href = String(url);
+      if (href.includes('/rest/agile/1.0/board/6/configuration')) return jsonResponse({ ...boardConfig, id: 6, location: { key: 'JT' } });
+      if (href.includes('/rest/agile/1.0/board/6/issue')) {
+        return jsonResponse({
+          issues: [{ id: '10071', key: 'JT-71', fields: { summary: 'Child issue', status: { id: '10000', name: 'To Do' } } }],
+          isLast: true,
+          maxResults: 50,
+          startAt: 0,
+          total: 1,
+        });
+      }
+      return jsonResponse({ error: 'unexpected url', href }, 404);
+    }) as unknown as typeof fetch;
+
+    const result = await fetchJiraBoardView({
+      locator: issueParentLocator,
+      auth: { kind: 'basic', siteHostname: 'team.atlassian.net', email: 'bot@example.com', apiToken: 'api-token-secret' },
+      fetchImpl,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.error.message);
+    expect(result.boardView.cards.map((card) => card.key)).toEqual(['JT-71']);
+    expect(result.boardView.diagnostics).toEqual(expect.objectContaining({
+      jiraMode: 'agile-board',
+      boardId: '6',
+      projectKey: 'JT',
+      jql: 'parent = <issueParent>',
+      issueCount: 1,
+    }));
+    const issueUrl = vi.mocked(fetchImpl).mock.calls.map(([url]) => String(url)).find((href) => href.includes('/rest/agile/1.0/board/6/issue'));
+    expect(issueUrl).toBeDefined();
+    expect(new URL(issueUrl as string).searchParams.get('jql')).toBe('parent = 10000');
+    expect(issueUrl).not.toContain('api-token-secret');
+  });
+
+  it('ignores invalid Jira Software board issueParent URL filters', async () => {
+    const invalidIssueParentLocator: JiraExternalViewLocator = {
+      ...locator,
+      originalUrl: 'https://team.atlassian.net/jira/software/c/projects/JT/boards/6?issueParent=10000%22%20OR%20project%20%3D%20SECRET',
+      projectKey: 'JT',
+      boardId: '6',
+    };
+    const fetchImpl = vi.fn(async (url: string | URL) => {
+      const href = String(url);
+      if (href.includes('/rest/agile/1.0/board/6/configuration')) return jsonResponse({ ...boardConfig, id: 6, location: { key: 'JT' } });
+      if (href.includes('/rest/agile/1.0/board/6/issue')) return jsonResponse({ issues: [], isLast: true, maxResults: 50, startAt: 0, total: 0 });
+      return jsonResponse({ error: 'unexpected url', href }, 404);
+    }) as unknown as typeof fetch;
+
+    const result = await fetchJiraBoardView({
+      locator: invalidIssueParentLocator,
+      auth: { kind: 'basic', siteHostname: 'team.atlassian.net', email: 'bot@example.com', apiToken: 'api-token-secret' },
+      fetchImpl,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.error.message);
+    expect(result.boardView.diagnostics?.jql).toBeUndefined();
+    const issueUrl = vi.mocked(fetchImpl).mock.calls.map(([url]) => String(url)).find((href) => href.includes('/rest/agile/1.0/board/6/issue'));
+    expect(issueUrl).toBeDefined();
+    expect(new URL(issueUrl as string).searchParams.get('jql')).toBeNull();
+  });
+
   it('fetches Jira Cloud boards with Basic auth API-token credentials against the direct site REST API', async () => {
     const fetchImpl = createJiraFetch([
       {

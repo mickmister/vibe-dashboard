@@ -218,12 +218,14 @@ export async function fetchJiraBoardView({
   }
 
   const normalizedColumns = normalizeColumns(boardConfigResult.value);
+  const boardIssueJql = buildBoardIssueJql(locator);
   const issuePagesResult = await fetchBoardIssuePages({
     fetchImpl,
     jiraBaseUrl: contextResult.context.jiraBaseUrl,
     boardId: locator.boardId,
     authHeader: contextResult.context.authHeader,
     pageSize: clampPageSize(pageSize),
+    jql: boardIssueJql,
   });
   if (!issuePagesResult.ok) return issuePagesResult;
 
@@ -257,6 +259,7 @@ export async function fetchJiraBoardView({
         locator,
         jiraMode: 'agile-board',
         endpointFamily: 'agile-board',
+        jql: boardIssueJql ? buildBoardIssueJql(locator, { redactUrlFilter: true }) : undefined,
         issueCount: cards.length,
       }),
     },
@@ -433,12 +436,14 @@ async function fetchBoardIssuePages({
   boardId,
   authHeader,
   pageSize,
+  jql,
 }: {
   fetchImpl: typeof fetch;
   jiraBaseUrl: string;
   boardId: string;
   authHeader: string;
   pageSize: number;
+  jql?: string;
 }): Promise<{ ok: true; issues: JsonRecord[]; pageCount: number; maxResults: number } | { ok: false; error: JiraProviderError }> {
   const issues: JsonRecord[] = [];
   const seenPageTokens = new Set<string>();
@@ -450,6 +455,7 @@ async function fetchBoardIssuePages({
     const url = new URL(`${jiraBaseUrl}/rest/agile/1.0/board/${encodeURIComponent(boardId)}/issue`);
     url.searchParams.set('maxResults', String(pageSize));
     url.searchParams.set('fields', JIRA_BOARD_FIELDS);
+    if (jql) url.searchParams.set('jql', jql);
     if (nextPageToken) {
       url.searchParams.set('nextPageToken', nextPageToken);
     } else {
@@ -686,6 +692,23 @@ function inferColumnsFromIssues(issues: JsonRecord[]): ExternalKanbanColumn[] {
   }
 
   return [...columnsByStatusId.values()];
+}
+
+function buildBoardIssueJql(locator: JiraExternalViewLocator, options: { redactUrlFilter?: boolean } = {}): string | undefined {
+  const issueParent = getSafeIssueParentFilter(locator.originalUrl);
+  if (!issueParent) return undefined;
+  return options.redactUrlFilter ? 'parent = <issueParent>' : `parent = ${issueParent}`;
+}
+
+function getSafeIssueParentFilter(originalUrl: string): string | undefined {
+  let value: string | null;
+  try {
+    value = new URL(originalUrl).searchParams.get('issueParent');
+  } catch {
+    return undefined;
+  }
+  const trimmed = value?.trim();
+  return trimmed && /^\d+$/.test(trimmed) ? trimmed : undefined;
 }
 
 function buildProjectIssueJql(locator: JiraExternalViewLocator, options: { redactUrlFilter?: boolean } = {}): string {
