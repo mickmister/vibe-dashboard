@@ -862,8 +862,22 @@ function findWorkspaceById(boardView: ExternalJiraBoardViewDto, workspaceId: str
   return undefined;
 }
 
-function buildVKWorkspaceSessionUrl(workspaceId: string): string {
-  return `/workspaces/${encodeURIComponent(workspaceId)}`;
+export function buildVKWorkspaceSessionUrl(
+  workspaceId: string,
+  locationLike: Pick<Location, 'protocol' | 'hostname'> | undefined = typeof window === 'undefined' ? undefined : window.location,
+): string {
+  const workspacePath = `/workspaces/${encodeURIComponent(workspaceId)}`;
+  const hostname = locationLike?.hostname;
+  if (!hostname) return workspacePath;
+
+  const baseHostname = stripPortSubdomain(hostname);
+  if (baseHostname === hostname) return workspacePath;
+
+  return `${locationLike.protocol}//${baseHostname}${workspacePath}`;
+}
+
+export function stripPortSubdomain(hostname: string): string {
+  return hostname.replace(/^port-[^.]+\./, '');
 }
 
 function readMetric(metadata: Record<string, unknown> | undefined, key: string): number | string {

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { DrawerBody } from '@heroui/drawer';
-import { ExternalJiraBoardContent, ExternalJiraBoardRoute, ExternalJiraCard, ExternalJiraIssueDetailBodyContent, ExternalJiraIssueDetailDrawerContent, ExternalJiraIssueDetailSheet } from './ExternalJiraBoardView';
+import { ExternalJiraBoardContent, ExternalJiraBoardRoute, ExternalJiraCard, ExternalJiraIssueDetailBodyContent, ExternalJiraIssueDetailDrawerContent, ExternalJiraIssueDetailSheet, buildVKWorkspaceSessionUrl, stripPortSubdomain } from './ExternalJiraBoardView';
 import type { ExternalJiraBoardViewDto, ExternalKanbanCardDto } from '../lib/externalTrackerBoardApi';
 
 const baseBoardView: ExternalJiraBoardViewDto = {
@@ -238,6 +238,16 @@ describe('ExternalJiraBoardContent', () => {
 
     expect(onSelect).not.toHaveBeenCalled();
     expect(preventDefault).not.toHaveBeenCalled();
+  });
+
+
+
+  it('strips port-* subdomains from VK session iframe URLs', () => {
+    expect(stripPortSubdomain('port-3000.myapp.com')).toBe('myapp.com');
+    expect(stripPortSubdomain('port-55743.jamtools.dev')).toBe('jamtools.dev');
+    expect(stripPortSubdomain('localhost')).toBe('localhost');
+    expect(buildVKWorkspaceSessionUrl('ws/1', { protocol: 'https:', hostname: 'port-3000.myapp.com' })).toBe('https://myapp.com/workspaces/ws%2F1');
+    expect(buildVKWorkspaceSessionUrl('ws-1', { protocol: 'http:', hostname: 'localhost' })).toBe('/workspaces/ws-1');
   });
 
   it('opens a side-by-side VK session panel for linked workspaces', () => {
