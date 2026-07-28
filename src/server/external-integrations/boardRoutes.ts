@@ -223,21 +223,12 @@ export function registerExternalTrackerBoardRoutes(
       return c.json({ ok: false, error }, session ? authResult.status : 409);
     }
 
-    if (body.repoProjectMappingRepoId) {
-      await upsertBulkJiraRepoProjectMapping(options.db, {
-        repoId: body.repoProjectMappingRepoId,
-        provider: 'jira',
-        siteHostname: body.siteHostname,
-        projectKey: body.projectKey,
-        ...(body.issueTypeName ? { issueTypeName: body.issueTypeName } : {}),
-      });
-    }
-
     const allWorkspaces = (await vkClient.getWorkspaces()).filter((workspace) => !workspace.archived);
     const workspacesById = new Map(allWorkspaces.map((workspace) => [workspace.id, workspace]));
     const workspaceIds = [...new Set(body.workspaceIds.map((workspaceId) => workspaceId.trim()))];
     const linkedJiraIssuesByWorkspace = await getLinkedExternalIssuesForWorkspaces(options.db, workspaceIds, 'jira');
     const results: BulkJiraWorkspaceConversionResult[] = [];
+    let shouldPersistRepoProjectMapping = false;
 
     for (const workspaceId of workspaceIds) {
       const existingLinks = linkedJiraIssuesByWorkspace.get(workspaceId) ?? [];
@@ -253,6 +244,7 @@ export function registerExternalTrackerBoardRoutes(
       }
 
       const repos = await loadWorkspaceReposBestEffort(vkClient, workspace.id, options.workspaceMetricsTimeoutMs ?? 2_500);
+      const workspaceContainsMappingRepo = Boolean(body.repoProjectMappingRepoId && repos.some((repo) => repo.id === body.repoProjectMappingRepoId));
       const issueResult: CreateJiraIssueResult = await createJiraIssueForWorkspace({
         auth: authResult.auth,
         siteHostname: body.siteHostname,
@@ -300,6 +292,17 @@ export function registerExternalTrackerBoardRoutes(
         continue;
       }
       results.push({ workspaceId, status: 'created', issue: issueResult.issue });
+      if (workspaceContainsMappingRepo) shouldPersistRepoProjectMapping = true;
+    }
+
+    if (body.repoProjectMappingRepoId && shouldPersistRepoProjectMapping) {
+      await upsertBulkJiraRepoProjectMapping(options.db, {
+        repoId: body.repoProjectMappingRepoId,
+        provider: 'jira',
+        siteHostname: body.siteHostname,
+        projectKey: body.projectKey,
+        ...(body.issueTypeName ? { issueTypeName: body.issueTypeName } : {}),
+      });
     }
 
     return c.json({ ok: true, results });

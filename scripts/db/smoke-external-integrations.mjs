@@ -87,6 +87,7 @@ try {
     'ExternalIssue',
     'VKWorkspace',
     'ExternalIssueWorkspaceLink',
+    'ExternalRepoProjectMapping',
     'Migration',
   ];
   const missing = requiredTables.filter((tableName) => !tableNames.has(tableName));
@@ -95,6 +96,10 @@ try {
   }
 
   db.close();
+  if (migrationNames.length !== 3) {
+    throw new Error(`Expected 3 external integration migrations, found ${migrationNames.length}`);
+  }
+
   console.log(`External integrations DB smoke passed (${migrationNames.length} migrations applied)`);
 } finally {
   await rm(tempDir, { recursive: true, force: true });
