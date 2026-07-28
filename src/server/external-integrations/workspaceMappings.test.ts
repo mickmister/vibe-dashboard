@@ -8,11 +8,18 @@ import type { ExternalJiraBoardView } from './jiraAdapter';
 
 let sqlite: Database.Database;
 let db: Kysely<DB>;
+let executedSql: string[];
 
 beforeEach(async () => {
   sqlite = new Database(':memory:');
   sqlite.pragma('foreign_keys = ON');
-  db = new Kysely<DB>({ dialect: new SqliteDialect({ database: sqlite }) });
+  executedSql = [];
+  db = new Kysely<DB>({
+    dialect: new SqliteDialect({ database: sqlite }),
+    log(event) {
+      if (event.level === 'query') executedSql.push(event.query.sql);
+    },
+  });
   await migrateExternalIntegrationsDb(db);
 });
 
@@ -94,6 +101,51 @@ describe('external issue workspace mappings', () => {
       }),
       expect.objectContaining({ key: 'VD-2', relatedWorkspaces: [] }),
     ]);
+  });
+
+  it('decorates multiple Jira cards through one batched workspace lookup', async () => {
+    await upsertExternalIssueWorkspaceMapping(db, {
+      externalIssue: { provider: 'jira', key: 'VD-1', id: '10001', url: 'https://team.atlassian.net/browse/VD-1', site: 'team.atlassian.net' },
+      workspace: { workspaceId: 'ws-1', workspaceDir: '/repo/a', displayName: 'Workspace A' },
+      isPrimary: true,
+      lastOpenedAt: '2026-07-02T09:00:00.000Z',
+    });
+    await upsertExternalIssueWorkspaceMapping(db, {
+      externalIssue: { provider: 'jira', key: 'VD-1', id: '10001', url: 'https://team.atlassian.net/browse/VD-1', site: 'team.atlassian.net' },
+      workspace: { workspaceId: 'ws-2', workspaceDir: '/repo/b', displayName: 'Workspace B' },
+    });
+    await upsertExternalIssueWorkspaceMapping(db, {
+      externalIssue: { provider: 'jira', key: 'VD-2', id: '10002', url: 'https://team.atlassian.net/browse/VD-2', site: 'team.atlassian.net' },
+      workspace: { workspaceId: 'ws-3', workspaceDir: '/repo/c', displayName: 'Workspace C' },
+    });
+    const threeCardBoard: ExternalJiraBoardView = {
+      ...boardView,
+      cards: [
+        ...boardView.cards,
+        { id: '10003', key: 'VD-3', title: 'Unmapped issue', url: 'https://team.atlassian.net/browse/VD-3', columnId: 'todo-10000', labels: [], rank: 2, metadata: {} },
+      ],
+      pagination: { ...boardView.pagination, issueCount: 3 },
+    };
+    executedSql = [];
+
+    const decorated = await decorateJiraBoardWithWorkspaceMappings(db, threeCardBoard);
+
+    expect(decorated.cards).toEqual([
+      expect.objectContaining({
+        key: 'VD-1',
+        relatedWorkspaces: [
+          { workspaceId: 'ws-1', workspaceDir: '/repo/a', displayName: 'Workspace A', isPrimary: true, lastOpenedAt: '2026-07-02T09:00:00.000Z' },
+          { workspaceId: 'ws-2', workspaceDir: '/repo/b', displayName: 'Workspace B', isPrimary: false },
+        ],
+      }),
+      expect.objectContaining({
+        key: 'VD-2',
+        relatedWorkspaces: [{ workspaceId: 'ws-3', workspaceDir: '/repo/c', displayName: 'Workspace C', isPrimary: false }],
+      }),
+      expect.objectContaining({ key: 'VD-3', relatedWorkspaces: [] }),
+    ]);
+    const workspaceLookupQueries = executedSql.filter((sql) => sql.includes('from "ExternalIssue"') && sql.includes('inner join "ExternalIssueWorkspaceLink"'));
+    expect(workspaceLookupQueries).toHaveLength(1);
   });
 
   it('rejects invalid explicit mapping inputs', async () => {

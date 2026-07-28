@@ -59,6 +59,8 @@ export type ExternalJiraBoardViewWithWorkspaces = Omit<ExternalJiraBoardView, 'c
   cards: ExternalKanbanCardWithWorkspaces[];
 };
 
+const RELATED_WORKSPACE_LOOKUP_ISSUE_KEY_BATCH_SIZE = 500;
+
 interface NormalizedExternalIssueRef {
   provider: ExternalProvider;
   key: string;
@@ -167,15 +169,28 @@ export async function getRelatedWorkspacesForExternalIssues(
   db: Kysely<DB>,
   externalIssues: ExternalIssueRef[],
 ): Promise<Map<string, RelatedVKWorkspace[]>> {
-  const result = new Map<string, RelatedVKWorkspace[]>();
-  const normalizedIssues = externalIssues.map(normalizeExternalIssueRef);
+  const normalizedIssuesByKey = new Map<string, NormalizedExternalIssueRef>();
+  for (const externalIssue of externalIssues.map(normalizeExternalIssueRef)) {
+    normalizedIssuesByKey.set(issueMapKey(externalIssue), externalIssue);
+  }
 
-  for (const externalIssue of normalizedIssues) {
+  const result = new Map<string, RelatedVKWorkspace[]>([...normalizedIssuesByKey.keys()].map((key) => [key, []]));
+  const normalizedIssues = [...normalizedIssuesByKey.values()];
+  if (normalizedIssues.length === 0) return result;
+
+  const providers = [...new Set(normalizedIssues.map((issue) => issue.provider))];
+  const sites = [...new Set(normalizedIssues.map((issue) => issue.site))];
+  const issueKeys = [...new Set(normalizedIssues.map((issue) => issue.key))];
+
+  for (const issueKeyBatch of chunkArray(issueKeys, RELATED_WORKSPACE_LOOKUP_ISSUE_KEY_BATCH_SIZE)) {
     const rows = await db
       .selectFrom('ExternalIssue')
       .innerJoin('ExternalIssueWorkspaceLink', 'ExternalIssueWorkspaceLink.externalIssueId', 'ExternalIssue.id')
       .innerJoin('VKWorkspace', 'VKWorkspace.id', 'ExternalIssueWorkspaceLink.vkWorkspaceId')
       .select([
+        'ExternalIssue.provider',
+        'ExternalIssue.issueKey',
+        'ExternalIssue.site',
         'VKWorkspace.workspaceId',
         'VKWorkspace.workspaceDir',
         'VKWorkspace.displayName',
@@ -184,22 +199,37 @@ export async function getRelatedWorkspacesForExternalIssues(
         'ExternalIssueWorkspaceLink.lastOpenedAt',
         'ExternalIssueWorkspaceLink.metadataJson as linkMetadataJson',
       ])
-      .where('ExternalIssue.provider', '=', externalIssue.provider)
-      .where('ExternalIssue.site', '=', externalIssue.site)
-      .where('ExternalIssue.issueKey', '=', externalIssue.key)
+      .where('ExternalIssue.provider', 'in', providers)
+      .where('ExternalIssue.site', 'in', sites)
+      .where('ExternalIssue.issueKey', 'in', issueKeyBatch)
+      .orderBy('ExternalIssue.provider', 'asc')
+      .orderBy('ExternalIssue.site', 'asc')
+      .orderBy('ExternalIssue.issueKey', 'asc')
       .orderBy('ExternalIssueWorkspaceLink.isPrimary', 'desc')
       .orderBy('ExternalIssueWorkspaceLink.lastOpenedAt', 'desc')
       .orderBy('VKWorkspace.displayName', 'asc')
       .execute();
 
-    result.set(issueMapKey(externalIssue), rows.map((row) => ({
-      workspaceId: row.workspaceId,
-      ...(row.workspaceDir ? { workspaceDir: row.workspaceDir } : {}),
-      ...(row.displayName ? { displayName: row.displayName } : {}),
-      isPrimary: Boolean(row.isPrimary),
-      ...(row.lastOpenedAt ? { lastOpenedAt: String(row.lastOpenedAt) } : {}),
-      ...mergeWorkspaceMetadata(row.workspaceMetadataJson, row.linkMetadataJson),
-    })));
+    for (const row of rows) {
+      const key = issueMapKey({
+        provider: row.provider,
+        key: row.issueKey,
+        id: null,
+        url: '',
+        site: row.site ?? '',
+        metadataJson: null,
+      });
+      const workspaces = result.get(key);
+      if (!workspaces) continue;
+      workspaces.push({
+        workspaceId: row.workspaceId,
+        ...(row.workspaceDir ? { workspaceDir: row.workspaceDir } : {}),
+        ...(row.displayName ? { displayName: row.displayName } : {}),
+        isPrimary: Boolean(row.isPrimary),
+        ...(row.lastOpenedAt ? { lastOpenedAt: String(row.lastOpenedAt) } : {}),
+        ...mergeWorkspaceMetadata(row.workspaceMetadataJson, row.linkMetadataJson),
+      });
+    }
   }
 
   return result;
@@ -315,6 +345,14 @@ function denormalizeExternalIssueRef(ref: NormalizedExternalIssueRef): ExternalI
 
 function issueMapKey(ref: NormalizedExternalIssueRef): string {
   return `${ref.provider}:${ref.site}:${ref.key}`;
+}
+
+function chunkArray<T>(values: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < values.length; index += size) {
+    chunks.push(values.slice(index, index + size));
+  }
+  return chunks;
 }
 
 function stringifyMetadata(metadata: Record<string, unknown> | undefined): string | null {
