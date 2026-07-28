@@ -7,6 +7,7 @@ import { promisify } from 'node:util';
 import type { Hono } from 'hono';
 import { sql, type Kysely } from 'kysely';
 import { EXTERNAL_VIEW_URL_PARAM, parseExternalViewUrl } from '../../lib/externalViewUrl';
+import { buildVdWorkspaceUrl, normalizeVdSiteOrigin } from '../../lib/vdWorkspaceLinks';
 import type { DB } from '../../store/kysely_types';
 import { setOtelAttributes, withOtelSpan } from '../../lib/otel';
 import type { ExternalTrackerAuthService } from './auth';
@@ -38,6 +39,7 @@ export function registerExternalTrackerBoardRoutes(
     reposRoot?: string;
     workspaceMetricsTimeoutMs?: number;
     upsertWorkspaceMapping?: typeof upsertExternalIssueWorkspaceMapping;
+    siteOrigin?: string;
   },
 ): void {
   const vkClient = options.vkClient ?? new VibeKanbanServerClient();
@@ -45,6 +47,7 @@ export function registerExternalTrackerBoardRoutes(
   const cloneRepo = options.cloneRepo ?? cloneGitHubRepoIntoReposRoot;
   const createJiraIssueForWorkspace = options.createJiraIssue ?? createJiraIssue;
   const upsertWorkspaceMapping = options.upsertWorkspaceMapping ?? upsertExternalIssueWorkspaceMapping;
+  const siteOrigin = normalizeVdSiteOrigin(options.siteOrigin ?? process.env.SITE_ORIGIN);
 
 
   hono.get('/dashboard/api/external-trackers/vk/workspace-create-options', async (c) => {
@@ -252,7 +255,7 @@ export function registerExternalTrackerBoardRoutes(
         issueTypeId: body.issueTypeId,
         issueTypeName: body.issueTypeName,
         summary: bulkIssueSummaryForWorkspace(workspace),
-        description: bulkIssueDescriptionForWorkspace(workspace, repos),
+        description: bulkIssueDescriptionForWorkspace(workspace, repos, siteOrigin),
       }).catch(() => ({
         ok: false as const,
         error: {
@@ -695,20 +698,72 @@ function bulkIssueSummaryForWorkspace(workspace: Workspace): string {
   return (workspace.name ?? workspace.branch ?? workspace.id).trim() || workspace.id;
 }
 
-function bulkIssueDescriptionForWorkspace(workspace: Workspace, repos: RepoWithBranch[]): string {
+function bulkIssueDescriptionForWorkspace(workspace: Workspace, repos: RepoWithBranch[], siteOrigin: string): string {
   const repoLines = repos.length > 0
-    ? repos.map((repo) => `- ${repo.display_name || repo.name} @ ${repo.target_branch}`).join('\n')
+    ? repos.map((repo) => formatBulkJiraRepoLine(repo)).join('\n')
     : '- No repositories reported by VK';
   return [
-    `VK workspace: ${workspace.id}`,
-    `Name: ${workspace.name ?? '(unnamed)'}`,
-    `Branch: ${workspace.branch}`,
+    `VK workspace: ${buildVdWorkspaceUrl(workspace.id, siteOrigin)}`,
+    `Branch: ${formatBulkJiraWorkspaceBranch(workspace.branch)}`,
     '',
     'Repositories:',
     repoLines,
     '',
-    'Created from VD bulk VK workspace conversion.',
-  ].filter((line): line is string => line !== undefined).join('\n');
+    'Created by VD Jira integration',
+  ].join('\n');
+}
+
+function formatBulkJiraWorkspaceBranch(branch: string): string {
+  return branch.startsWith('vk/') ? branch.slice('vk/'.length) : branch;
+}
+
+function formatBulkJiraRepoLine(repo: RepoWithBranch): string {
+  const displayName = repo.display_name || repo.name;
+  const githubTreeUrl = buildGitHubTreeUrlForRepo(repo);
+  if (githubTreeUrl) return `- ${displayName} - ${githubTreeUrl}`;
+  return `- ${displayName} @ ${repo.target_branch}`;
+}
+
+function buildGitHubTreeUrlForRepo(repo: RepoWithBranch): string | undefined {
+  const record = repo as unknown as Record<string, unknown>;
+  const remoteUrl = [
+    record.githubUrl,
+    record.github_url,
+    record.htmlUrl,
+    record.html_url,
+    record.remoteUrl,
+    record.remote_url,
+    record.cloneUrl,
+    record.clone_url,
+    record.gitUrl,
+    record.git_url,
+    record.url,
+  ].find((value): value is string => typeof value === 'string' && value.trim().length > 0);
+  const repoUrl = normalizeGitHubRepoUrl(remoteUrl);
+  if (!repoUrl) return undefined;
+  const branch = formatGitHubTreeBranch(repo.target_branch);
+  if (!branch) return undefined;
+  return `${repoUrl}/tree/${encodeURIComponent(branch).replace(/%2F/g, '/')}`;
+}
+
+function normalizeGitHubRepoUrl(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  const sshMatch = trimmed.match(/^git@github\.com:([^/]+)\/(.+?)(?:\.git)?$/);
+  if (sshMatch) return `https://github.com/${sshMatch[1]}/${sshMatch[2]}`;
+  try {
+    const url = new URL(trimmed);
+    if (url.hostname !== 'github.com') return undefined;
+    const [owner, repo] = url.pathname.replace(/^\/+/, '').split('/');
+    if (!(owner && repo)) return undefined;
+    return `https://github.com/${owner}/${repo.replace(/\.git$/, '')}`;
+  } catch {
+    return undefined;
+  }
+}
+
+function formatGitHubTreeBranch(branch: string): string {
+  return branch.startsWith('origin/') ? branch.slice('origin/'.length) : branch;
 }
 
 async function loadWorkspaceReposBestEffort(

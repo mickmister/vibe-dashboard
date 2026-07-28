@@ -27,6 +27,7 @@ services:
       PROXY_DOMAIN: ${PROXY_DOMAIN:-localhost}
       BACKEND_PORT: ${BACKEND_PORT:-3007}
       DASHBOARD_PORT: ${DASHBOARD_PORT:-3005}
+      SITE_ORIGIN: ${SITE_ORIGIN:-https://jamtools.dev}
       CODE_PORT: ${CODE_PORT:-3008}
       XDG_CONFIG_HOME: /home/vkuser/.config
 

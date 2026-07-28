@@ -7,7 +7,7 @@ import type { ExternalTrackerAuthService } from './auth';
 import { registerExternalTrackerBoardRoutes, resolveJiraAccessToken } from './boardRoutes';
 import { migrateExternalIntegrationsDb } from './migrate';
 import type { CreateJiraIssue, FetchJiraBoardView } from './boardRoutes';
-import type { VibeKanbanServerClient } from '../vk-client';
+import type { RepoWithBranch, VibeKanbanServerClient } from '../vk-client';
 import { upsertExternalIssueWorkspaceMapping } from './workspaceMappings';
 
 function createAuthService(session: Awaited<ReturnType<ExternalTrackerAuthService['getSession']>>): ExternalTrackerAuthService {
@@ -945,9 +945,50 @@ describe('external Jira board routes', () => {
       projectKey: 'VD',
       issueTypeName: 'Task',
       summary: 'Build app flow',
-      description: expect.stringContaining('VK workspace: ws-1'),
+      description: expect.stringContaining('VK workspace: https://jamtools.dev/dashboard/workspaces/ws-1'),
     }));
     await expect(db.selectFrom('ExternalIssueWorkspaceLink').selectAll().execute()).resolves.toHaveLength(2);
+  });
+
+  it('formats bulk Jira descriptions with custom VD workspace URL and GitHub repository tree links', async () => {
+    const app = new Hono();
+    const vkClient = createVkClient({
+      getWorkspaces: vi.fn(async () => [
+        { id: '370dc1c5-4d81-4c80-93a9-145763090324', task_id: null, container_ref: '/work/secret', agent_working_dir: '/repo/secret', branch: 'vk/370d-allow-custom-ico', created_at: '2026-07-28T00:00:00Z', updated_at: '2026-07-28T00:01:00Z', archived: false, pinned: false, name: 'Allow custom icon' },
+      ]),
+      getWorkspaceRepos: vi.fn(async () => [{
+        id: 'repo-vd',
+        name: 'vibe-kanban-vscode-web',
+        display_name: 'vibe-kanban-vscode-web',
+        target_branch: 'vk/370d-allow-custom-ico',
+        remote_url: 'git@github.com:mickmister/vibe-kanban-vscode-web.git',
+      } as RepoWithBranch & { remote_url: string }]),
+    });
+    const createJiraIssue = vi.fn(async () => ({ ok: true as const, issue: { id: '10001', key: 'VD-1', url: 'https://team.atlassian.net/browse/VD-1' } }));
+    registerExternalTrackerBoardRoutes(app, {
+      enabled: true,
+      auth: createAuthService(null),
+      db,
+      vkClient,
+      createJiraIssue,
+      siteOrigin: 'https://vd.example.com/',
+      jiraBotAuth: { kind: 'basic', siteHostname: 'team.atlassian.net', email: 'bot@example.com', apiToken: 'secret-token' },
+    });
+
+    const response = await app.request('/dashboard/api/external-trackers/jira/workspaces/bulk-create-issues', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ siteHostname: 'team.atlassian.net', projectKey: 'VD', issueTypeName: 'Task', workspaceIds: ['370dc1c5-4d81-4c80-93a9-145763090324'] }),
+    });
+
+    expect(response.status).toBe(200);
+    const description = (createJiraIssue as unknown as { mock: { calls: Array<[Parameters<CreateJiraIssue>[0]]> } }).mock.calls[0]?.[0].description ?? '';
+    expect(description).toContain('VK workspace: https://vd.example.com/dashboard/workspaces/370dc1c5-4d81-4c80-93a9-145763090324');
+    expect(description).toContain('Branch: 370d-allow-custom-ico');
+    expect(description).toContain('- vibe-kanban-vscode-web - https://github.com/mickmister/vibe-kanban-vscode-web/tree/vk/370d-allow-custom-ico');
+    expect(description).toContain('Created by VD Jira integration');
+    expect(description).not.toContain('/work/secret');
+    expect(description).not.toContain('/repo/secret');
   });
 
   it('remembers the Jira project associated with a filtered repo after bulk create', async () => {
@@ -1157,8 +1198,10 @@ describe('external Jira board routes', () => {
       description: expect.stringContaining('- No repositories reported by VK'),
     }));
     const description = (createJiraIssue as unknown as { mock: { calls: Array<[Parameters<CreateJiraIssue>[0]]> } }).mock.calls[0]?.[0].description ?? '';
-    expect(description).toContain('VK workspace: ws-1');
-    expect(description).toContain('Branch: vk/ws-1');
+    expect(description).toContain('VK workspace: https://jamtools.dev/dashboard/workspaces/ws-1');
+    expect(description).toContain('Branch: ws-1');
+    expect(description).toContain('Created by VD Jira integration');
+    expect(description).not.toContain('Created from VD bulk VK workspace conversion');
     expect(description).not.toContain('/work/ws-1');
     expect(description).not.toContain('/repo/app');
     expect(description).not.toContain('Container/worktree');

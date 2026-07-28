@@ -2,7 +2,7 @@ import "@vitejs/plugin-react/preamble";
 import "../styles";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useLocation, useNavigate } from "react-router";
+import { useLocation, useNavigate, useParams } from "react-router";
 import { HeroUIProvider } from "@heroui/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AppLoadingScreen } from "../components/AppLoadingScreen";
@@ -36,6 +36,10 @@ import { usePluginRegistry } from "./plugins/vibe-dashboard/registry";
 import type { ResolvedWorkspaceComposition } from "./plugins/vibe-dashboard/workspace-composition";
 import { createEffectiveWorkspaceWithCraftSurfaces } from "./plugins/vibe-dashboard/craft-surfaces";
 import { ExternalJiraBoardRoute } from "../components/ExternalJiraBoardView";
+import { fetchBulkJiraWorkspaceConversionOptions } from "../lib/externalWorkspaceCreateApi";
+import { isValidVdWorkspaceId } from "../lib/vdWorkspaceLinks";
+import { findSavedVoyageForVdWorkspaceRoute } from "../lib/vdWorkspaceRoute";
+import { resolveWorkspaceFactoryComposition } from "./plugins/vibe-dashboard/workspace-composition";
 
 // Ensure dark class is on the document root so portaled elements (modals, popovers)
 // inherit dark mode styles
@@ -44,6 +48,7 @@ springboard.registerSplashScreen(AppLoadingScreen);
 
 import springboard from "springboard";
 import type { WorkspaceState, SavedWorkspaceSession } from "../types";
+import { getDefaultSpace } from "../types";
 import { useModule } from "../hooks/useModule";
 
 const URL_PARSE_BASE = "https://workspace.local";
@@ -154,7 +159,155 @@ function resolveQueryCraftSelection(
   };
 }
 
+
+function getDefaultVKWorkspaceFactoryKeyForRoute(
+  pluginRegistry: ReturnType<typeof usePluginRegistry>,
+): string | undefined {
+  return Object.values(pluginRegistry.tabGroupFactories)
+    .filter((factory) => factory.launchMode === "vk-workspace")
+    .sort(
+      (left, right) =>
+        (left.order ?? 0) - (right.order ?? 0) ||
+        left.key.localeCompare(right.key),
+    )[0]?.key;
+}
+
+
 springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
+  const DashboardWorkspaceRoute = () => {
+    const { workspaceId } = useParams<{ workspaceId: string }>();
+    const navigate = useNavigate();
+    const workspaceModule = useModule("workspace");
+    const workspace = workspaceModule.states.workspace.useState();
+    const savedSessions = workspaceModule.states.savedVoyages.useState();
+    const savedVoyages = useMemo(
+      () => getSavedWorkspaceSessions(savedSessions),
+      [savedSessions],
+    );
+    const pluginRegistryState = usePluginRegistry();
+    const actions = workspaceModule.actions;
+    const [status, setStatus] = useState<"loading" | "error">("loading");
+    const [message, setMessage] = useState("Opening VK workspace…");
+
+    useEffect(() => {
+      let cancelled = false;
+      const openWorkspace = async () => {
+        if (!isValidVdWorkspaceId(workspaceId)) {
+          setStatus("error");
+          setMessage("This VD workspace link is invalid.");
+          return;
+        }
+
+        const existing = findSavedVoyageForVdWorkspaceRoute(
+          workspace,
+          savedVoyages,
+          workspaceId,
+        );
+        if (existing) {
+          navigate(
+            buildCanonicalDashboardPath("", {
+              slug: buildVoyageParam(existing.session, savedVoyages),
+              craftParam: undefined,
+              viewTokens: undefined,
+            }),
+            { replace: true },
+          );
+          return;
+        }
+
+        const space = getDefaultSpace(workspace);
+        const factoryKey = getDefaultVKWorkspaceFactoryKeyForRoute(pluginRegistryState);
+        const factory = factoryKey ? pluginRegistryState.tabGroupFactories[factoryKey] : undefined;
+        if (!(space && factory)) {
+          setStatus("error");
+          setMessage("VD could not find a workspace view factory for this link.");
+          return;
+        }
+
+        const optionsResult = await fetchBulkJiraWorkspaceConversionOptions().catch(() => undefined);
+        if (!optionsResult?.ok) {
+          if (cancelled) return;
+          setStatus("error");
+          setMessage("VD could not load VK workspace details for this link.");
+          return;
+        }
+        const candidate = optionsResult.options.workspaces.find(
+          (entry) => entry.workspaceId === workspaceId,
+        );
+        if (!candidate) {
+          if (cancelled) return;
+          setStatus("error");
+          setMessage("This VK workspace could not be found or is archived.");
+          return;
+        }
+
+        const workspaceName = candidate.displayName || candidate.branch || workspaceId;
+        const containerRef = await resolveWorkspaceContainerRef(
+          workspaceId,
+          candidate.workspaceDir,
+        );
+        const composition = resolveWorkspaceFactoryComposition({
+          factory,
+          context: {
+            origin: typeof window === "undefined" ? "" : window.location.origin,
+            workspaceId,
+            workspaceName,
+            containerRef,
+          },
+        });
+        const result = await actions.createSavedSessionForVKWorkspace({
+          voyageName: workspaceName,
+          taskAttemptId: workspaceId,
+          workspaceName,
+          containerRef,
+          activeSpaceId: space.id,
+          composition,
+        });
+        if (cancelled) return;
+        if (!result?.savedSession) {
+          setStatus("error");
+          setMessage("VD could not open this VK workspace link.");
+          return;
+        }
+        navigate(
+          buildCanonicalDashboardPath("", {
+            slug: buildVoyageParam(result.savedSession, [result.savedSession, ...savedVoyages]),
+            craftParam: undefined,
+            viewTokens: undefined,
+          }),
+          { replace: true },
+        );
+      };
+      void openWorkspace();
+      return () => {
+        cancelled = true;
+      };
+    }, [actions, navigate, pluginRegistryState, savedVoyages, workspace, workspaceId]);
+
+    return (
+      <div className="dark fixed inset-0 flex items-center justify-center bg-neutral-950 p-6 text-neutral-100">
+        <div className="max-w-md rounded-2xl border border-neutral-800 bg-neutral-900 p-6 shadow-2xl">
+          <div className="text-xs font-semibold uppercase tracking-[0.2em] text-neutral-500">
+            VD workspace link
+          </div>
+          <h1 className="mt-3 text-xl font-semibold">
+            {status === "loading" ? "Opening workspace" : "Workspace link unavailable"}
+          </h1>
+          <p className="mt-2 text-sm text-neutral-300">{message}</p>
+          {status === "error" ? (
+            <button
+              type="button"
+              className="mt-4 rounded-lg border border-neutral-700 px-4 py-2 text-sm text-neutral-100 hover:bg-neutral-800"
+              onClick={() => navigate("/dashboard", { replace: true })}
+            >
+              Go to dashboard
+            </button>
+          ) : null}
+        </div>
+      </div>
+    );
+  };
+
   const DashboardRoute = () => {
     const location = useLocation();
     if (hasExternalViewQueryParam(location.search)) {
@@ -1224,6 +1377,12 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
     "/dashboard",
     { hideApplicationShell: true },
     DashboardRoute,
+  );
+
+  moduleAPI.registerRoute(
+    "/dashboard/workspaces/:workspaceId",
+    { hideApplicationShell: true },
+    DashboardWorkspaceRoute,
   );
 
   moduleAPI.registerRoute(
