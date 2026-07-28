@@ -122,6 +122,7 @@ export interface ExternalJiraBoardDiagnostics {
 
 export type JiraProviderErrorCode =
   | 'jira_board_id_required'
+  | 'jira_issue_create_invalid_request'
   | 'jira_resource_not_found'
   | 'jira_resource_ambiguous'
   | 'jira_unauthorized'
@@ -166,6 +167,28 @@ export interface FetchJiraBoardViewOptions {
   fetchImpl?: typeof fetch;
   pageSize?: number;
 }
+
+export interface CreateJiraIssueOptions {
+  auth: JiraAuthConfig;
+  siteHostname: string;
+  projectKey: string;
+  issueTypeId?: string;
+  issueTypeName?: string;
+  summary: string;
+  description?: string;
+  fetchImpl?: typeof fetch;
+}
+
+export interface CreatedJiraIssue {
+  id: string;
+  key: string;
+  url: string;
+  self?: string;
+}
+
+export type CreateJiraIssueResult =
+  | { ok: true; issue: CreatedJiraIssue }
+  | { ok: false; error: JiraProviderError };
 
 type JsonRecord = Record<string, unknown>;
 
@@ -264,6 +287,73 @@ export async function fetchJiraBoardView({
         jql: boardIssueJql ? buildBoardIssueJql(locator, { redactUrlFilter: true }) : undefined,
         issueCount: cards.length,
       }),
+    },
+  };
+}
+
+export async function createJiraIssue({
+  auth,
+  siteHostname,
+  projectKey,
+  issueTypeId,
+  issueTypeName,
+  summary,
+  description,
+  fetchImpl = fetch,
+}: CreateJiraIssueOptions): Promise<CreateJiraIssueResult> {
+  const normalizedSiteHostname = normalizeHostname(siteHostname);
+  const normalizedProjectKey = projectKey.trim();
+  const normalizedIssueTypeId = issueTypeId?.trim();
+  const normalizedIssueTypeName = issueTypeName?.trim();
+  const normalizedSummary = summary.trim();
+
+  if (!normalizedSiteHostname || !normalizedProjectKey || !normalizedSummary || (!normalizedIssueTypeId && !normalizedIssueTypeName)) {
+    return {
+      ok: false,
+      error: createProviderError('jira_issue_create_invalid_request', 'The Jira issue creation request was incomplete.', {
+        userAction: 'Choose a Jira site, project, issue type, and provide a summary.',
+      }),
+    };
+  }
+
+  const contextResult = await withOtelSpan('external_jira.resolve_issue_create_context', {
+    'jira.auth_source': auth.kind,
+    'jira.site_hostname': normalizedSiteHostname,
+    'jira.project_key': normalizedProjectKey,
+  }, () => resolveJiraRequestContext({ auth, siteHostname: normalizedSiteHostname, fetchImpl }));
+  if (!contextResult.ok) return contextResult;
+
+  const fields: JsonRecord = {
+    project: { key: normalizedProjectKey },
+    issuetype: normalizedIssueTypeId ? { id: normalizedIssueTypeId } : { name: normalizedIssueTypeName },
+    summary: normalizedSummary,
+  };
+  if (description?.trim()) {
+    fields.description = textToAdfDocument(description.trim());
+  }
+
+  const result = await withOtelSpan('external_jira.create_issue', {
+    'jira.auth_source': auth.kind,
+    'jira.site_hostname': normalizedSiteHostname,
+    'jira.project_key': normalizedProjectKey,
+  }, () => jiraJsonRequest(fetchImpl, `${contextResult.context.jiraBaseUrl}/rest/api/3/issue`, contextResult.context.authHeader, {
+    method: 'POST',
+    body: { fields },
+  }));
+  if (!result.ok) return result;
+  if (!isRecord(result.value)) return malformedResponse('Jira issue create response was not an object.');
+
+  const id = asString(result.value.id);
+  const key = asString(result.value.key);
+  if (!id || !key) return malformedResponse('Jira issue create response did not include an id and key.');
+
+  return {
+    ok: true,
+    issue: {
+      id,
+      key,
+      url: `https://${normalizedSiteHostname}/browse/${encodeURIComponent(key)}`,
+      ...(asString(result.value.self) ? { self: asString(result.value.self) } : {}),
     },
   };
 }
@@ -587,14 +677,21 @@ async function fetchProjectIssuePages({
 }
 
 async function jiraJson(fetchImpl: typeof fetch, url: string, authHeader: string): Promise<JiraFetchResult> {
-  return withOtelSpan('external_jira.http', jiraHttpSpanAttributes(url), async (span) => {
+  return jiraJsonRequest(fetchImpl, url, authHeader, { method: 'GET' });
+}
+
+async function jiraJsonRequest(fetchImpl: typeof fetch, url: string, authHeader: string, options: { method: 'GET' } | { method: 'POST'; body: unknown }): Promise<JiraFetchResult> {
+  return withOtelSpan('external_jira.http', jiraHttpSpanAttributes(url, options.method), async (span) => {
     let response: Response;
     try {
       response = await fetchImpl(url, {
+        method: options.method,
         headers: {
           accept: 'application/json',
           authorization: authHeader,
+          ...(options.method === 'POST' ? { 'content-type': 'application/json' } : {}),
         },
+        ...(options.method === 'POST' ? { body: JSON.stringify(options.body) } : {}),
       });
     } catch (error) {
       setOtelAttributes(span, { 'vd.error_code': 'jira_fetch_failed' });
@@ -623,22 +720,23 @@ async function jiraJson(fetchImpl: typeof fetch, url: string, authHeader: string
   });
 }
 
-function jiraHttpSpanAttributes(url: string): Record<string, unknown> {
+function jiraHttpSpanAttributes(url: string, method = 'GET'): Record<string, unknown> {
   try {
     const parsed = new URL(url);
     return {
-      'http.request.method': 'GET',
+      'http.request.method': method,
       'server.address': parsed.hostname,
       'url.path': parsed.pathname,
       'jira.endpoint_family': jiraEndpointFamily(parsed.pathname),
     };
   } catch {
-    return { 'http.request.method': 'GET', 'jira.endpoint_family': 'unknown' };
+    return { 'http.request.method': method, 'jira.endpoint_family': 'unknown' };
   }
 }
 
 function jiraEndpointFamily(pathname: string): string {
   if (pathname.includes('/oauth/token/accessible-resources')) return 'accessible_resources';
+  if (pathname.endsWith('/rest/api/3/issue')) return 'issue_create';
   if (pathname.includes('/rest/agile/1.0/board/') && pathname.endsWith('/configuration')) return 'board_configuration';
   if (pathname.includes('/rest/agile/1.0/board/') && pathname.endsWith('/issue')) return 'board_issues';
   if (pathname.includes('/rest/api/3/search/jql')) return 'enhanced_search_jql';
@@ -655,7 +753,7 @@ function normalizeJiraHttpError(response: Response): JiraProviderError {
   if (response.status === 403) {
     return createProviderError('jira_forbidden', 'Jira denied access to this board or API scope.', {
       status: response.status,
-      userAction: 'Ask for board access or reconnect Jira with the required read scopes.',
+      userAction: 'Ask for Jira access or reconnect Jira with the required read/write scopes.',
     });
   }
   if (response.status === 404) {
@@ -885,6 +983,26 @@ function normalizeIssue(issue: JsonRecord, rank: number, siteHostname: string, s
       self: asString(issue.self),
       rawStatusCategory: status && isRecord(status.statusCategory) ? status.statusCategory : undefined,
     },
+  };
+}
+
+function textToAdfDocument(value: string): JsonRecord {
+  const paragraphs = value
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean)
+    .map((paragraph) => ({
+      type: 'paragraph',
+      content: paragraph.split('\n').flatMap((line, index) => [
+        ...(index > 0 ? [{ type: 'hardBreak' }] : []),
+        { type: 'text', text: line },
+      ]),
+    }));
+
+  return {
+    type: 'doc',
+    version: 1,
+    content: paragraphs.length > 0 ? paragraphs : [{ type: 'paragraph', content: [] }],
   };
 }
 

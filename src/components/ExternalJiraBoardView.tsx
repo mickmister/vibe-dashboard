@@ -4,8 +4,8 @@ import type { DashboardExternalViewParseResult } from '../lib/externalViewUrl';
 import { fetchExternalJiraBoardView } from '../lib/externalTrackerBoardApi';
 import { setOtelAttributes, withOtelSpan } from '../lib/otel';
 import type { ExternalJiraBoardApiResponse, ExternalJiraBoardViewDto, ExternalKanbanCardDto, ExternalKanbanColumnDto } from '../lib/externalTrackerBoardApi';
-import { cloneExternalWorkspaceRepo, createExternalIssueWorkspace, fetchExternalWorkspaceCreateOptions, fetchExternalWorkspaceMetrics, fetchExternalWorkspaceRepoBranches, registerExternalWorkspaceRepo } from '../lib/externalWorkspaceCreateApi';
-import type { ExternalWorkspaceCandidateRepoDto, ExternalWorkspaceCreateOptionsDto, ExternalWorkspaceMetricsDto, VkBranchDto, VkExecutorConfigDto, VkRepoDto } from '../lib/externalWorkspaceCreateApi';
+import { bulkCreateJiraTicketsFromWorkspaces, cloneExternalWorkspaceRepo, createExternalIssueWorkspace, fetchBulkJiraWorkspaceConversionOptions, fetchExternalWorkspaceCreateOptions, fetchExternalWorkspaceMetrics, fetchExternalWorkspaceRepoBranches, registerExternalWorkspaceRepo } from '../lib/externalWorkspaceCreateApi';
+import type { BulkJiraWorkspaceConversionResultDto, BulkJiraWorkspaceConversionWorkspaceDto, ExternalWorkspaceCandidateRepoDto, ExternalWorkspaceCreateOptionsDto, ExternalWorkspaceMetricsDto, VkBranchDto, VkExecutorConfigDto, VkRepoDto } from '../lib/externalWorkspaceCreateApi';
 
 type ExternalRelatedWorkspace = NonNullable<ExternalKanbanCardDto['relatedWorkspaces']>[number];
 
@@ -114,6 +114,7 @@ export function ExternalJiraBoardContent({ boardView, initialSelectedCardId, ini
   const [sidePanelWorkspaceId, setSidePanelWorkspaceId] = useState<string | undefined>(initialSidePanelWorkspaceId);
   const [createdPanelWorkspace, setCreatedPanelWorkspace] = useState<ExternalRelatedWorkspace | undefined>();
   const [workspaceCreateCard, setWorkspaceCreateCard] = useState<ExternalKanbanCardDto | undefined>();
+  const [bulkConvertOpen, setBulkConvertOpen] = useState(false);
   const [columnVisibility, setColumnVisibility] = useState<ExternalJiraColumnVisibility>(initialColumnVisibility);
   const allColumns = useMemo(() => normalizeRenderableColumns(boardView), [boardView]);
   const columns = useMemo(() => getVisibleExternalJiraColumns(allColumns, columnVisibility), [allColumns, columnVisibility]);
@@ -139,7 +140,9 @@ export function ExternalJiraBoardContent({ boardView, initialSelectedCardId, ini
       onCloseCard={() => setSelectedCardId(undefined)}
       onCloseWorkspaceCreate={() => setWorkspaceCreateCard(undefined)}
       onCloseWorkspacePanel={() => setSidePanelWorkspaceId(undefined)}
+      onCloseBulkConvert={() => setBulkConvertOpen(false)}
       onCreateWorkspace={(card) => setWorkspaceCreateCard(card)}
+      onOpenBulkConvert={() => setBulkConvertOpen(true)}
       onNextCard={() => setSelectedCardId(boardView.cards[selectedCardIndex + 1]?.id)}
       onOpenWorkspacePanel={(workspace) => setSidePanelWorkspaceId(workspace.workspaceId)}
       onPreviousCard={() => setSelectedCardId(boardView.cards[selectedCardIndex - 1]?.id)}
@@ -148,6 +151,7 @@ export function ExternalJiraBoardContent({ boardView, initialSelectedCardId, ini
         setSidePanelWorkspaceId(workspace.workspaceId);
         setWorkspaceCreateCard(undefined);
       }}
+      bulkConvertOpen={bulkConvertOpen}
       workspaceCreateCard={workspaceCreateCard}
     />
   );
@@ -161,9 +165,11 @@ export function ExternalJiraBoardShell({
   visibleCards,
   onCloseCard,
   onCloseWorkspaceCreate,
+  onCloseBulkConvert,
   onCloseWorkspacePanel,
   onColumnVisibilityChange,
   onCreateWorkspace,
+  onOpenBulkConvert,
   onNextCard,
   onOpenWorkspacePanel,
   onPreviousCard,
@@ -173,6 +179,7 @@ export function ExternalJiraBoardShell({
   selectedCardIndex,
   sidePanelWorkspace,
   onWorkspaceCreated,
+  bulkConvertOpen,
   workspaceCreateCard,
 }: {
   boardView: ExternalJiraBoardViewDto;
@@ -182,9 +189,11 @@ export function ExternalJiraBoardShell({
   visibleCards: ExternalKanbanCardDto[];
   onCloseCard: () => void;
   onCloseWorkspaceCreate: () => void;
+  onCloseBulkConvert: () => void;
   onCloseWorkspacePanel: () => void;
   onColumnVisibilityChange: (visibility: ExternalJiraColumnVisibility) => void;
   onCreateWorkspace: (card: ExternalKanbanCardDto) => void;
+  onOpenBulkConvert: () => void;
   onNextCard: () => void;
   onOpenWorkspacePanel: (workspace: ExternalRelatedWorkspace) => void;
   onPreviousCard: () => void;
@@ -194,6 +203,7 @@ export function ExternalJiraBoardShell({
   selectedCardIndex: number;
   sidePanelWorkspace?: ExternalRelatedWorkspace;
   onWorkspaceCreated: (workspace: ExternalRelatedWorkspace) => void;
+  bulkConvertOpen: boolean;
   workspaceCreateCard?: ExternalKanbanCardDto;
 }) {
   const hiddenIssueCount = boardView.cards.length - visibleCards.length;
@@ -207,6 +217,7 @@ export function ExternalJiraBoardShell({
             boardView={boardView}
             columnVisibility={columnVisibility}
             columns={allColumns}
+            onBulkConvert={onOpenBulkConvert}
             onColumnVisibilityChange={onColumnVisibilityChange}
           />
           <ExternalJiraBoardBody
@@ -247,11 +258,14 @@ export function ExternalJiraBoardShell({
           onCreated={onWorkspaceCreated}
         />
       ) : null}
+      {bulkConvertOpen ? (
+        <BulkJiraWorkspaceConversionDialog boardView={boardView} onClose={onCloseBulkConvert} />
+      ) : null}
     </main>
   );
 }
 
-export function ExternalJiraBoardHeader({ boardView, columns, columnVisibility, onColumnVisibilityChange }: { boardView: ExternalJiraBoardViewDto; columns: ExternalKanbanColumnDto[]; columnVisibility: ExternalJiraColumnVisibility; onColumnVisibilityChange: (visibility: ExternalJiraColumnVisibility) => void }) {
+export function ExternalJiraBoardHeader({ boardView, columns, columnVisibility, onBulkConvert, onColumnVisibilityChange }: { boardView: ExternalJiraBoardViewDto; columns: ExternalKanbanColumnDto[]; columnVisibility: ExternalJiraColumnVisibility; onBulkConvert?: () => void; onColumnVisibilityChange: (visibility: ExternalJiraColumnVisibility) => void }) {
   return (
     <header className="border-b border-neutral-800 bg-neutral-950/95 px-6 py-5">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -263,6 +277,9 @@ export function ExternalJiraBoardHeader({ boardView, columns, columnVisibility, 
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <ExternalJiraColumnVisibilityControls columns={columns} visibility={columnVisibility} onChange={onColumnVisibilityChange} />
+          <button type="button" className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-100 hover:bg-emerald-500/20" onClick={onBulkConvert}>
+            Convert VK workspaces
+          </button>
           <a className="rounded-lg border border-neutral-700 px-3 py-2 text-sm text-neutral-200 hover:bg-neutral-900" href={boardView.sourceUrl} rel="noreferrer" target="_blank">
             Open in Jira
           </a>
@@ -711,6 +728,179 @@ export function ExternalWorkspaceCreateDialog({
         </div>
       </div>
     </div>
+  );
+}
+
+export function BulkJiraWorkspaceConversionDialog({ boardView, onClose }: { boardView: ExternalJiraBoardViewDto; onClose: () => void }) {
+  const [workspaces, setWorkspaces] = useState<BulkJiraWorkspaceConversionWorkspaceDto[]>([]);
+  const [selectedWorkspaceIds, setSelectedWorkspaceIds] = useState<Set<string>>(() => new Set());
+  const [siteHostname, setSiteHostname] = useState(boardView.siteHostname);
+  const [projectKey, setProjectKey] = useState(boardView.board.projectKey ?? '');
+  const [issueTypeName, setIssueTypeName] = useState('Task');
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | undefined>();
+  const [results, setResults] = useState<BulkJiraWorkspaceConversionResultDto[] | undefined>();
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(undefined);
+    fetchBulkJiraWorkspaceConversionOptions()
+      .then((result) => {
+        if (cancelled) return;
+        if (!result.ok) {
+          setError(`${result.error.message} ${result.error.userAction}`);
+          return;
+        }
+        setWorkspaces(result.options.workspaces);
+        setSelectedWorkspaceIds(new Set(result.options.workspaces.filter((workspace) => !workspace.hasLinkedJiraIssue).map((workspace) => workspace.workspaceId)));
+      })
+      .catch((caught) => {
+        if (!cancelled) setError(caught instanceof Error ? caught.message : String(caught));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function submit() {
+    setError(undefined);
+    setResults(undefined);
+    const workspaceIds = [...selectedWorkspaceIds];
+    if (!workspaceIds.length) {
+      setError('Select at least one unlinked workspace.');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const result = await bulkCreateJiraTicketsFromWorkspaces({ siteHostname, projectKey, issueTypeName, workspaceIds });
+      if (!result.ok) throw new Error(`${result.error.message} ${result.error.userAction}`);
+      setResults(result.results);
+      const createdOrSkipped = new Set(result.results.filter((entry) => entry.status === 'created' || entry.status === 'skipped').map((entry) => entry.workspaceId));
+      setWorkspaces((current) => current.map((workspace) => {
+        const created = result.results.find((entry) => entry.workspaceId === workspace.workspaceId && entry.status === 'created');
+        if (created?.status === 'created') {
+          return { ...workspace, hasLinkedJiraIssue: true, linkedJiraIssues: [{ provider: 'jira', key: created.issue.key, id: created.issue.id, url: created.issue.url, site: siteHostname, isPrimary: true }] };
+        }
+        return workspace;
+      }));
+      setSelectedWorkspaceIds((current) => new Set([...current].filter((workspaceId) => !createdOrSkipped.has(workspaceId))));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  const selectedCount = selectedWorkspaceIds.size;
+  const unlinkedCount = workspaces.filter((workspace) => !workspace.hasLinkedJiraIssue).length;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4 sm:items-center" role="dialog" aria-modal="true" aria-label="Convert VK workspaces into Jira tickets">
+      <div className="max-h-[90dvh] w-full max-w-5xl overflow-y-auto rounded-xl border border-neutral-800 bg-neutral-950 p-5 text-neutral-100 shadow-2xl">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-300">Bulk Jira conversion</div>
+            <h2 className="mt-2 text-xl font-semibold">Convert VK workspaces into Jira tickets</h2>
+            <p className="mt-1 text-sm text-neutral-400">Review existing VK workspaces, select unlinked items, and create Jira tickets intentionally.</p>
+          </div>
+          <button type="button" className="rounded border border-neutral-800 px-2 py-1 text-sm hover:bg-neutral-900" onClick={onClose}>Close</button>
+        </div>
+
+        {loading ? <p className="mt-4 text-sm text-neutral-400">Loading VK workspaces…</p> : null}
+        {error ? <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-100">{error}</div> : null}
+
+        <section className="mt-4 grid gap-4 md:grid-cols-3">
+          <label className="block text-sm font-medium text-neutral-200">
+            Jira site hostname
+            <input className="mt-2 w-full rounded-lg border border-neutral-800 bg-neutral-900 p-2 text-sm text-neutral-100" value={siteHostname} onChange={(event) => setSiteHostname(event.target.value)} placeholder="team.atlassian.net" />
+          </label>
+          <label className="block text-sm font-medium text-neutral-200">
+            Project key
+            <input className="mt-2 w-full rounded-lg border border-neutral-800 bg-neutral-900 p-2 text-sm text-neutral-100" value={projectKey} onChange={(event) => setProjectKey(event.target.value.toUpperCase())} placeholder="VD" />
+          </label>
+          <label className="block text-sm font-medium text-neutral-200">
+            Issue type
+            <select className="mt-2 w-full rounded-lg border border-neutral-800 bg-neutral-900 p-2 text-sm text-neutral-100" value={issueTypeName} onChange={(event) => setIssueTypeName(event.target.value)}>
+              {['Task', 'Story', 'Bug'].map((issueType) => <option key={issueType} value={issueType}>{issueType}</option>)}
+            </select>
+          </label>
+        </section>
+
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-sm text-neutral-400">
+          <span>{unlinkedCount} unlinked workspaces available · {selectedCount} selected</span>
+          <button type="button" className="rounded border border-neutral-700 px-2 py-1 text-neutral-200 hover:bg-neutral-900" onClick={() => setSelectedWorkspaceIds(new Set(workspaces.filter((workspace) => !workspace.hasLinkedJiraIssue).map((workspace) => workspace.workspaceId)))}>
+            Select all unlinked
+          </button>
+        </div>
+
+        <div className="mt-3 overflow-hidden rounded-lg border border-neutral-800">
+          {workspaces.length === 0 && !loading ? <p className="p-3 text-sm text-neutral-500">No active VK workspaces found.</p> : null}
+          {workspaces.map((workspace) => {
+            const disabled = workspace.hasLinkedJiraIssue;
+            const selected = selectedWorkspaceIds.has(workspace.workspaceId);
+            return (
+              <label key={workspace.workspaceId} className={`block border-b border-neutral-900 p-3 text-sm ${disabled ? 'bg-neutral-900/40 text-neutral-500' : 'bg-neutral-950 text-neutral-200 hover:bg-neutral-900/80'}`}>
+                <div className="flex items-start gap-3">
+                  <input
+                    type="checkbox"
+                    className="mt-1"
+                    disabled={disabled}
+                    checked={selected}
+                    onChange={(event) => setSelectedWorkspaceIds((current) => {
+                      const next = new Set(current);
+                      if (event.target.checked) next.add(workspace.workspaceId);
+                      else next.delete(workspace.workspaceId);
+                      return next;
+                    })}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-medium text-neutral-100">{workspace.displayName}</span>
+                      <span className="rounded bg-neutral-800 px-2 py-0.5 text-xs text-neutral-300">{workspace.branch}</span>
+                      {disabled ? <span className="rounded bg-sky-500/10 px-2 py-0.5 text-xs text-sky-200">Already linked to {workspace.linkedJiraIssues.map((issue) => issue.key).join(', ')}</span> : null}
+                    </div>
+                    {workspace.workspaceDir ? <div className="mt-1 truncate text-xs text-neutral-500">{workspace.workspaceDir}</div> : null}
+                    {workspace.repos.length ? <div className="mt-1 text-xs text-neutral-500">Repos: {workspace.repos.map((repo) => `${repo.displayName || repo.name} @ ${repo.targetBranch}`).join(', ')}</div> : null}
+                  </div>
+                </div>
+              </label>
+            );
+          })}
+        </div>
+
+        {results ? <BulkJiraWorkspaceConversionResults results={results} /> : null}
+
+        <div className="mt-5 flex justify-end gap-2">
+          <button type="button" className="rounded-lg border border-neutral-800 px-3 py-2 text-sm hover:bg-neutral-900" onClick={onClose}>Cancel</button>
+          <button type="button" className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-100 hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-50" disabled={submitting || selectedCount === 0 || !siteHostname.trim() || !projectKey.trim() || !issueTypeName.trim()} onClick={submit}>
+            {submitting ? 'Creating…' : `Create ${selectedCount} Jira ticket${selectedCount === 1 ? '' : 's'}`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BulkJiraWorkspaceConversionResults({ results }: { results: BulkJiraWorkspaceConversionResultDto[] }) {
+  return (
+    <section className="mt-4 rounded-lg border border-neutral-800 bg-neutral-900/50 p-3 text-sm">
+      <h3 className="font-semibold text-neutral-100">Conversion results</h3>
+      <ul className="mt-2 space-y-2">
+        {results.map((result) => (
+          <li key={result.workspaceId} className="rounded border border-neutral-800 bg-neutral-950 px-3 py-2">
+            <span className="font-medium">{result.workspaceId}</span>
+            {result.status === 'created' ? <span className="ml-2 text-emerald-200">Created <a className="underline" href={result.issue.url} target="_blank" rel="noreferrer">{result.issue.key}</a></span> : null}
+            {result.status === 'skipped' ? <span className="ml-2 text-sky-200">Skipped; already linked to {result.linkedJiraIssues.map((issue) => issue.key).join(', ')}</span> : null}
+            {result.status === 'failed' ? <span className="ml-2 text-red-200">Failed: {result.error.message} {result.error.userAction}</span> : null}
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

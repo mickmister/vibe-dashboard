@@ -56,6 +56,43 @@ export interface VkWorkspaceDto {
   container_ref: string | null;
 }
 
+export interface BulkJiraWorkspaceConversionWorkspaceDto {
+  workspaceId: string;
+  displayName: string;
+  branch: string;
+  workspaceDir?: string;
+  createdAt: string;
+  updatedAt: string;
+  pinned: boolean;
+  repos: Array<{ id: string; name: string; displayName: string; targetBranch: string }>;
+  hasLinkedJiraIssue: boolean;
+  linkedJiraIssues: Array<{
+    provider: 'jira' | 'github' | 'linear';
+    key: string;
+    id?: string;
+    url: string;
+    site?: string;
+    isPrimary: boolean;
+    metadata?: Record<string, unknown>;
+  }>;
+}
+
+export interface BulkJiraWorkspaceConversionOptionsDto {
+  workspaces: BulkJiraWorkspaceConversionWorkspaceDto[];
+}
+
+export interface CreatedJiraIssueDto {
+  id: string;
+  key: string;
+  url: string;
+  self?: string;
+}
+
+export type BulkJiraWorkspaceConversionResultDto =
+  | { workspaceId: string; status: 'created'; issue: CreatedJiraIssueDto }
+  | { workspaceId: string; status: 'skipped'; linkedJiraIssues: BulkJiraWorkspaceConversionWorkspaceDto['linkedJiraIssues'] }
+  | { workspaceId: string; status: 'failed'; error: ExternalWorkspaceApiError };
+
 export interface VkWorkspaceCreateSuccessDto {
   workspace: VkWorkspaceDto;
   executionProcess: { id: string; session_id: string; status: string };
@@ -79,6 +116,10 @@ export async function fetchExternalWorkspaceMetrics(workspaceIds: string[], fetc
     headers: { 'content-type': 'application/json', accept: 'application/json' },
     body: JSON.stringify({ workspaceIds }),
   }));
+}
+
+export async function fetchBulkJiraWorkspaceConversionOptions(fetchImpl: typeof fetch = fetch): Promise<ApiEnvelope<{ options: BulkJiraWorkspaceConversionOptionsDto }>> {
+  return readEnvelope(await fetchImpl('/dashboard/api/external-trackers/vk/workspace-jira-conversion-options', { headers: { accept: 'application/json' } }));
 }
 
 type ApiEnvelope<T> = { ok: true } & T | { ok: false; error: ExternalWorkspaceApiError };
@@ -140,6 +181,26 @@ export async function createExternalIssueWorkspace({
         attachment_ids: [],
       },
     }),
+  }));
+}
+
+export async function bulkCreateJiraTicketsFromWorkspaces({
+  siteHostname,
+  projectKey,
+  issueTypeId,
+  issueTypeName,
+  workspaceIds,
+}: {
+  siteHostname: string;
+  projectKey: string;
+  issueTypeId?: string;
+  issueTypeName?: string;
+  workspaceIds: string[];
+}, fetchImpl: typeof fetch = fetch): Promise<ApiEnvelope<{ results: BulkJiraWorkspaceConversionResultDto[] }>> {
+  return readEnvelope(await fetchImpl('/dashboard/api/external-trackers/jira/workspaces/bulk-create-issues', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify({ siteHostname, projectKey, issueTypeId, issueTypeName, workspaceIds }),
   }));
 }
 

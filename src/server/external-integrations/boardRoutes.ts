@@ -10,15 +10,17 @@ import type { DB } from '../../store/kysely_types';
 import { setOtelAttributes, withOtelSpan } from '../../lib/otel';
 import type { ExternalTrackerAuthService } from './auth';
 import { isExternalTrackerProvider } from './config';
-import { fetchJiraBoardView } from './jiraAdapter';
-import type { JiraBasicAuthConfig, JiraBoardAdapterResult } from './jiraAdapter';
+import { createJiraIssue, fetchJiraBoardView } from './jiraAdapter';
+import type { CreatedJiraIssue, CreateJiraIssueResult, JiraBasicAuthConfig, JiraBoardAdapterResult, JiraProviderError } from './jiraAdapter';
 import { addBeadExternalIssueLink, decorateJiraBoardWithBeadLinks, isValidBeadId, normalizeExternalIssueRef, removeBeadExternalIssueLink } from './beadExternalIssues';
 import type { BeadsExternalIssueServiceOptions } from './beadExternalIssues';
-import { decorateJiraBoardWithWorkspaceMappings, upsertExternalIssueWorkspaceMapping } from './workspaceMappings';
+import { decorateJiraBoardWithWorkspaceMappings, getLinkedExternalIssuesForWorkspaces, upsertExternalIssueWorkspaceMapping } from './workspaceMappings';
+import type { LinkedExternalIssue } from './workspaceMappings';
 import { VibeKanbanServerClient } from '../vk-client';
-import type { CreateAndStartWorkspaceRequest, DirectoryEntry, Executor, ExecutorConfig, Repo, WorkspaceSummary } from '../vk-client';
+import type { CreateAndStartWorkspaceRequest, DirectoryEntry, Executor, ExecutorConfig, Repo, RepoWithBranch, Workspace, WorkspaceSummary } from '../vk-client';
 
 export type FetchJiraBoardView = typeof fetchJiraBoardView;
+export type CreateJiraIssue = typeof createJiraIssue;
 
 export function registerExternalTrackerBoardRoutes(
   hono: Hono,
@@ -29,8 +31,9 @@ export function registerExternalTrackerBoardRoutes(
     fetchJiraBoardView?: FetchJiraBoardView;
     jiraBotAuth?: JiraBasicAuthConfig | false;
     beads?: BeadsExternalIssueServiceOptions;
-    vkClient?: Pick<VibeKanbanServerClient, 'getInfo' | 'listRepos' | 'listDirectory' | 'registerRepo' | 'getRepoBranches' | 'createAndStartWorkspace' | 'getWorkspaceSummaries' | 'getSessions'>;
+    vkClient?: Pick<VibeKanbanServerClient, 'getInfo' | 'listRepos' | 'listDirectory' | 'registerRepo' | 'getRepoBranches' | 'createAndStartWorkspace' | 'getWorkspaceSummaries' | 'getSessions' | 'getWorkspaces' | 'getWorkspaceRepos'>;
     cloneRepo?: typeof cloneGitHubRepoIntoReposRoot;
+    createJiraIssue?: CreateJiraIssue;
     reposRoot?: string;
     workspaceMetricsTimeoutMs?: number;
   },
@@ -38,6 +41,7 @@ export function registerExternalTrackerBoardRoutes(
   const vkClient = options.vkClient ?? new VibeKanbanServerClient();
   const reposRoot = options.reposRoot ?? defaultReposRoot();
   const cloneRepo = options.cloneRepo ?? cloneGitHubRepoIntoReposRoot;
+  const createJiraIssueForWorkspace = options.createJiraIssue ?? createJiraIssue;
 
 
   hono.get('/dashboard/api/external-trackers/vk/workspace-create-options', async (c) => {
@@ -164,6 +168,126 @@ export function registerExternalTrackerBoardRoutes(
     setOtelAttributes(span, { 'vd.metrics_workspace_count': metrics.size });
     return c.json({ ok: true, metricsByWorkspaceId: Object.fromEntries(metrics) });
   }));
+
+  hono.get('/dashboard/api/external-trackers/vk/workspace-jira-conversion-options', async (c) => {
+    if (!options.enabled) {
+      return c.json({ ok: false, error: { code: 'external_trackers_disabled', message: 'External tracker workspace conversion is disabled.', userAction: 'Enable the external tracker feature flag and try again.' } }, 404);
+    }
+
+    const session = await options.auth.getSession(c.req.raw.headers);
+    if (!session) {
+      return c.json({ ok: false, error: { code: 'authentication_required', message: 'Sign in before listing VK workspaces for Jira conversion.', userAction: 'Sign in and try again.' } }, 401);
+    }
+
+    try {
+      const workspaces = (await vkClient.getWorkspaces()).filter((workspace) => !workspace.archived);
+      const workspaceIds = workspaces.map((workspace) => workspace.id);
+      const linkedJiraIssuesByWorkspace = await getLinkedExternalIssuesForWorkspaces(options.db, workspaceIds, 'jira');
+      const reposByWorkspaceId = new Map<string, RepoWithBranch[]>();
+      const repoResults = await Promise.allSettled(workspaces.map(async (workspace) => ({
+        workspaceId: workspace.id,
+        repos: await loadWorkspaceReposBestEffort(vkClient, workspace.id, options.workspaceMetricsTimeoutMs ?? 2_500),
+      })));
+      for (const result of repoResults) {
+        if (result.status === 'fulfilled') reposByWorkspaceId.set(result.value.workspaceId, result.value.repos);
+      }
+
+      const conversionWorkspaces = workspaces
+        .map((workspace) => workspaceToBulkConversionOption(workspace, reposByWorkspaceId.get(workspace.id) ?? [], linkedJiraIssuesByWorkspace.get(workspace.id) ?? []))
+        .sort((a, b) => Number(a.hasLinkedJiraIssue) - Number(b.hasLinkedJiraIssue) || a.displayName.localeCompare(b.displayName));
+      return c.json({ ok: true, options: { workspaces: conversionWorkspaces } });
+    } catch {
+      return c.json({ ok: false, error: { code: 'vk_workspace_conversion_options_failed', message: 'Could not load VK workspaces for Jira conversion.', userAction: 'Verify the VK server is running and try again.' } }, 502);
+    }
+  });
+
+  hono.post('/dashboard/api/external-trackers/jira/workspaces/bulk-create-issues', async (c) => {
+    if (!options.enabled) {
+      return c.json({ ok: false, error: { code: 'external_trackers_disabled', message: 'External tracker workspace conversion is disabled.', userAction: 'Enable the external tracker feature flag and try again.' } }, 404);
+    }
+
+    const session = await options.auth.getSession(c.req.raw.headers);
+    if (!session) {
+      return c.json({ ok: false, error: { code: 'authentication_required', message: 'Sign in before creating Jira tickets from VK workspaces.', userAction: 'Sign in and try again.' } }, 401);
+    }
+
+    const body = await c.req.json().catch(() => undefined) as unknown;
+    if (!isBulkJiraWorkspaceConversionRequest(body)) {
+      return c.json({ ok: false, error: { code: 'invalid_bulk_jira_workspace_conversion_request', message: 'The Jira workspace conversion request was invalid.', userAction: 'Choose a Jira site, project, issue type, and one or more unlinked workspaces.' } }, 400);
+    }
+
+    const authResult = await resolveJiraBoardAuth({
+      db: options.db,
+      userId: session?.user.id,
+      botAuth: options.jiraBotAuth === undefined ? getEnvJiraBotAuth() : options.jiraBotAuth || undefined,
+    });
+    if (!authResult.ok) return c.json({ ok: false, error: authResult.error }, authResult.status);
+
+    const allWorkspaces = (await vkClient.getWorkspaces()).filter((workspace) => !workspace.archived);
+    const workspacesById = new Map(allWorkspaces.map((workspace) => [workspace.id, workspace]));
+    const workspaceIds = [...new Set(body.workspaceIds.map((workspaceId) => workspaceId.trim()))];
+    const linkedJiraIssuesByWorkspace = await getLinkedExternalIssuesForWorkspaces(options.db, workspaceIds, 'jira');
+    const results: BulkJiraWorkspaceConversionResult[] = [];
+
+    for (const workspaceId of workspaceIds) {
+      const existingLinks = linkedJiraIssuesByWorkspace.get(workspaceId) ?? [];
+      if (existingLinks.length > 0) {
+        results.push({ workspaceId, status: 'skipped', linkedJiraIssues: existingLinks });
+        continue;
+      }
+
+      const workspace = workspacesById.get(workspaceId);
+      if (!workspace) {
+        results.push({ workspaceId, status: 'failed', error: { code: 'vk_workspace_not_found', message: 'The VK workspace could not be found or is archived.', userAction: 'Refresh the workspace list and try again.' } });
+        continue;
+      }
+
+      const repos = await loadWorkspaceReposBestEffort(vkClient, workspace.id, options.workspaceMetricsTimeoutMs ?? 2_500);
+      const issueResult: CreateJiraIssueResult = await createJiraIssueForWorkspace({
+        auth: authResult.auth,
+        siteHostname: body.siteHostname,
+        projectKey: body.projectKey,
+        issueTypeId: body.issueTypeId,
+        issueTypeName: body.issueTypeName,
+        summary: bulkIssueSummaryForWorkspace(workspace),
+        description: bulkIssueDescriptionForWorkspace(workspace, repos),
+      }).catch(() => ({
+        ok: false as const,
+        error: {
+          code: 'jira_fetch_failed',
+          message: 'Could not create the Jira issue for this workspace.',
+          userAction: 'Check Jira connectivity and try again.',
+        },
+      }));
+
+      if (!issueResult.ok) {
+        results.push({ workspaceId, status: 'failed', error: safeJiraIssueCreateError(issueResult.error) });
+        continue;
+      }
+
+      await upsertExternalIssueWorkspaceMapping(options.db, {
+        externalIssue: {
+          provider: 'jira',
+          key: issueResult.issue.key,
+          id: issueResult.issue.id,
+          url: issueResult.issue.url,
+          site: body.siteHostname,
+          metadata: { source: 'bulk-vk-workspace-conversion' },
+        },
+        workspace: {
+          workspaceId: workspace.id,
+          workspaceDir: workspace.container_ref ?? workspace.agent_working_dir ?? undefined,
+          displayName: workspace.name ?? workspace.branch,
+          metadata: { source: 'bulk-vk-workspace-conversion' },
+        },
+        isPrimary: true,
+        lastOpenedAt: new Date().toISOString(),
+      });
+      results.push({ workspaceId, status: 'created', issue: issueResult.issue });
+    }
+
+    return c.json({ ok: true, results });
+  });
 
   hono.get('/dashboard/api/external-trackers/jira/board', (c) => withOtelSpan('external_jira.board_route', { 'http.route': '/dashboard/api/external-trackers/jira/board' }, async (span) => {
     if (!options.enabled) {
@@ -413,6 +537,7 @@ function withBotCredentialUserAction(error: { code: string; message: string; use
 function statusForJiraAdapterError(result: Extract<JiraBoardAdapterResult, { ok: false }>): 400 | 401 | 403 | 404 | 409 | 429 | 502 {
   switch (result.error.code) {
     case 'jira_board_id_required':
+    case 'jira_issue_create_invalid_request':
     case 'jira_malformed_response':
     case 'jira_pagination_failed':
       return 400;
@@ -431,6 +556,99 @@ function statusForJiraAdapterError(result: Extract<JiraBoardAdapterResult, { ok:
     case 'jira_http_error':
       return 502;
   }
+}
+
+interface BulkJiraWorkspaceConversionRequest {
+  siteHostname: string;
+  projectKey: string;
+  issueTypeId?: string;
+  issueTypeName?: string;
+  workspaceIds: string[];
+}
+
+type SafeBulkJiraWorkspaceError = { code: string; message: string; userAction: string };
+
+type BulkJiraWorkspaceConversionResult =
+  | { workspaceId: string; status: 'created'; issue: CreatedJiraIssue }
+  | { workspaceId: string; status: 'skipped'; linkedJiraIssues: LinkedExternalIssue[] }
+  | { workspaceId: string; status: 'failed'; error: SafeBulkJiraWorkspaceError };
+
+function isBulkJiraWorkspaceConversionRequest(value: unknown): value is BulkJiraWorkspaceConversionRequest {
+  if (!isPlainObject(value)) return false;
+  if (!isNonEmptyString(value.siteHostname) || !isSafeHostname(value.siteHostname)) return false;
+  if (!isNonEmptyString(value.projectKey) || !/^[A-Za-z][A-Za-z0-9_-]{1,31}$/.test(value.projectKey.trim())) return false;
+  if (!isOptionalString(value.issueTypeId) || !isOptionalString(value.issueTypeName)) return false;
+  if (!isNonEmptyString(value.issueTypeId) && !isNonEmptyString(value.issueTypeName)) return false;
+  if (!Array.isArray(value.workspaceIds) || value.workspaceIds.length === 0 || value.workspaceIds.length > 50) return false;
+  return value.workspaceIds.every(isNonEmptyString);
+}
+
+function isSafeHostname(value: string): boolean {
+  const trimmed = value.trim().toLowerCase();
+  if (trimmed.includes('/') || trimmed.includes('@') || trimmed.includes(':')) return false;
+  return /^[a-z0-9.-]+$/.test(trimmed) && trimmed.includes('.');
+}
+
+function workspaceToBulkConversionOption(
+  workspace: Workspace,
+  repos: RepoWithBranch[],
+  linkedJiraIssues: LinkedExternalIssue[],
+) {
+  return {
+    workspaceId: workspace.id,
+    displayName: workspace.name ?? workspace.branch,
+    branch: workspace.branch,
+    workspaceDir: workspace.container_ref ?? workspace.agent_working_dir ?? undefined,
+    createdAt: workspace.created_at,
+    updatedAt: workspace.updated_at,
+    pinned: workspace.pinned,
+    repos: repos.map((repo) => ({
+      id: repo.id,
+      name: repo.name,
+      displayName: repo.display_name,
+      targetBranch: repo.target_branch,
+    })),
+    hasLinkedJiraIssue: linkedJiraIssues.length > 0,
+    linkedJiraIssues,
+  };
+}
+
+function bulkIssueSummaryForWorkspace(workspace: Workspace): string {
+  return (workspace.name ?? workspace.branch ?? workspace.id).trim() || workspace.id;
+}
+
+function bulkIssueDescriptionForWorkspace(workspace: Workspace, repos: RepoWithBranch[]): string {
+  const repoLines = repos.length > 0
+    ? repos.map((repo) => `- ${repo.display_name || repo.name} @ ${repo.target_branch}`).join('\n')
+    : '- No repositories reported by VK';
+  return [
+    `VK workspace: ${workspace.id}`,
+    `Name: ${workspace.name ?? '(unnamed)'}`,
+    `Branch: ${workspace.branch}`,
+    workspace.container_ref ? `Container/worktree: ${workspace.container_ref}` : undefined,
+    workspace.agent_working_dir ? `Agent working directory: ${workspace.agent_working_dir}` : undefined,
+    '',
+    'Repositories:',
+    repoLines,
+    '',
+    'Created from VD bulk VK workspace conversion.',
+  ].filter((line): line is string => line !== undefined).join('\n');
+}
+
+async function loadWorkspaceReposBestEffort(
+  vkClient: Pick<VibeKanbanServerClient, 'getWorkspaceRepos'>,
+  workspaceId: string,
+  timeoutMs: number,
+): Promise<RepoWithBranch[]> {
+  return withTimeoutCall(() => vkClient.getWorkspaceRepos(workspaceId), timeoutMs).catch(() => []);
+}
+
+function safeJiraIssueCreateError(error: JiraProviderError): SafeBulkJiraWorkspaceError {
+  return {
+    code: error.code,
+    message: error.message,
+    userAction: error.userAction,
+  };
 }
 
 function isWorkspaceLinkRequest(value: unknown): value is Parameters<typeof upsertExternalIssueWorkspaceMapping>[1] {
