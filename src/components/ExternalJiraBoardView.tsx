@@ -32,24 +32,21 @@ export function ExternalJiraBoardLoader({ externalViewUrl }: { externalViewUrl: 
     setError(undefined);
     setResponse(undefined);
 
-    withOtelSpan('external_jira.client_load_board', {}, (span) => fetchExternalJiraBoardView({ externalViewUrl })
-      .then((nextResponse) => {
-        setOtelAttributes(span, nextResponse.ok ? { 'jira.issue_count': nextResponse.boardView.pagination.issueCount } : { 'vd.error_code': nextResponse.error.code });
-        if (!cancelled) setResponse(nextResponse);
-        if (nextResponse.ok) {
-          loadWorkspaceMetricsForBoard(nextResponse.boardView, (boardView) => {
-            if (!cancelled) setResponse({ ok: true, boardView });
-          });
-        }
-      })
+    withOtelSpan('external_jira.client_load_board', {}, async (span) => {
+      const nextResponse = await fetchExternalJiraBoardView({ externalViewUrl });
+      setOtelAttributes(span, nextResponse.ok ? { 'jira.issue_count': nextResponse.boardView.pagination.issueCount } : { 'vd.error_code': nextResponse.error.code });
+      if (!cancelled) setResponse(nextResponse);
+      if (nextResponse.ok) {
+        loadWorkspaceMetricsForBoard(nextResponse.boardView, (boardView) => {
+          if (!cancelled) setResponse({ ok: true, boardView });
+        });
+      }
+    })
       .catch((caught) => {
         if (!cancelled) setError(caught instanceof Error ? caught.message : String(caught));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
-      }))
-      .catch((caught) => {
-        if (!cancelled) setError(caught instanceof Error ? caught.message : String(caught));
       });
 
     return () => {

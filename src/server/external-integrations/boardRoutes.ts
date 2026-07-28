@@ -183,21 +183,22 @@ export function registerExternalTrackerBoardRoutes(
       return c.json({ ok: false, error: { code: parsed.reason, message: 'The external URL is not supported.', userAction: 'Open this page from a supported Jira board URL.', originalUrl: parsed.originalUrl } }, 400);
     }
 
-    setOtelAttributes(span, {
-      'external.provider': parsed.locator.provider,
-      'jira.site_hostname': parsed.locator.siteHostname,
-      'jira.view_kind': parsed.locator.viewKind,
-      'jira.has_board_id': Boolean(parsed.locator.boardId),
-      'jira.project_key': parsed.locator.projectKey,
-    });
-
     if (parsed.locator.provider !== 'jira') {
-      setOtelAttributes(span, { 'vd.error_code': 'unsupported_external_view' });
+      setOtelAttributes(span, { 'external.provider': parsed.locator.provider, 'vd.error_code': 'unsupported_external_view' });
       return c.json({ ok: false, error: { code: 'unsupported_external_view', message: 'Only Jira URLs are supported in this view.', userAction: 'Open a Jira board URL and try again.' } }, 400);
     }
 
+    const jiraLocator = parsed.locator;
+    setOtelAttributes(span, {
+      'external.provider': jiraLocator.provider,
+      'jira.site_hostname': jiraLocator.siteHostname,
+      'jira.view_kind': jiraLocator.viewKind,
+      'jira.has_board_id': Boolean(jiraLocator.boardId),
+      'jira.project_key': jiraLocator.projectKey,
+    });
+
     const adapter = options.fetchJiraBoardView ?? fetchJiraBoardView;
-    const authResult = await withOtelSpan('external_jira.resolve_auth', { 'jira.site_hostname': parsed.locator.siteHostname }, async (authSpan) => {
+    const authResult = await withOtelSpan('external_jira.resolve_auth', { 'jira.site_hostname': jiraLocator.siteHostname }, async (authSpan) => {
       const session = await options.auth.getSession(c.req.raw.headers);
       const resolved = await resolveJiraBoardAuth({
         db: options.db,
@@ -211,12 +212,12 @@ export function registerExternalTrackerBoardRoutes(
 
     const result = await withOtelSpan('external_jira.adapter_fetch_board', {
       'jira.auth_source': authResult.auth.kind,
-      'jira.view_kind': parsed.locator.viewKind,
-      'jira.has_board_id': Boolean(parsed.locator.boardId),
+      'jira.view_kind': jiraLocator.viewKind,
+      'jira.has_board_id': Boolean(jiraLocator.boardId),
     }, async (adapterSpan) => {
       const adapterResult = await adapter(authResult.auth.kind === 'oauth'
-        ? { locator: parsed.locator, accessToken: authResult.auth.accessToken }
-        : { locator: parsed.locator, auth: authResult.auth });
+        ? { locator: jiraLocator, accessToken: authResult.auth.accessToken }
+        : { locator: jiraLocator, auth: authResult.auth });
       setOtelAttributes(adapterSpan, adapterResult.ok
         ? { 'jira.issue_count': adapterResult.boardView.pagination.issueCount, 'jira.page_count': adapterResult.boardView.pagination.pageCount }
         : { 'vd.error_code': adapterResult.error.code });
@@ -232,12 +233,12 @@ export function registerExternalTrackerBoardRoutes(
     const boardViewWithDiagnostics = {
       ...fullyDecoratedBoardView,
       diagnostics: {
-        jiraMode: parsed.locator.boardId ? 'agile-board' as const : 'project-search' as const,
-        locatorViewKind: parsed.locator.viewKind,
-        siteHostname: parsed.locator.siteHostname,
-        projectKey: parsed.locator.projectKey,
-        boardId: parsed.locator.boardId,
-        endpointFamily: parsed.locator.boardId ? 'agile-board' as const : 'enhanced-search-jql' as const,
+        jiraMode: jiraLocator.boardId ? 'agile-board' as const : 'project-search' as const,
+        locatorViewKind: jiraLocator.viewKind,
+        siteHostname: jiraLocator.siteHostname,
+        projectKey: jiraLocator.projectKey,
+        boardId: jiraLocator.boardId,
+        endpointFamily: jiraLocator.boardId ? 'agile-board' as const : 'enhanced-search-jql' as const,
         issueCount: fullyDecoratedBoardView.pagination.issueCount,
         ...fullyDecoratedBoardView.diagnostics,
         authSource: authResult.auth.kind === 'oauth' ? 'oauth' as const : 'bot' as const,

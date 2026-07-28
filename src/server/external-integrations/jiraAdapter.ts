@@ -211,7 +211,8 @@ export async function fetchJiraBoardView({
     });
   }
 
-  const boardConfigResult = await withOtelSpan('external_jira.fetch_board_configuration', { 'jira.board_id_present': true }, () => jiraJson(fetchImpl, `${contextResult.context.jiraBaseUrl}/rest/agile/1.0/board/${encodeURIComponent(locator.boardId)}/configuration`, contextResult.context.authHeader));
+  const boardId = locator.boardId;
+  const boardConfigResult = await withOtelSpan('external_jira.fetch_board_configuration', { 'jira.board_id_present': true }, () => jiraJson(fetchImpl, `${contextResult.context.jiraBaseUrl}/rest/agile/1.0/board/${encodeURIComponent(boardId)}/configuration`, contextResult.context.authHeader));
   if (!boardConfigResult.ok) return boardConfigResult;
 
   if (!isRecord(boardConfigResult.value)) {
@@ -223,7 +224,7 @@ export async function fetchJiraBoardView({
   const issuePagesResult = await withOtelSpan('external_jira.fetch_board_issue_pages', { 'jira.page_size': clampPageSize(pageSize), 'jira.has_jql_filter': Boolean(boardIssueJql) }, () => fetchBoardIssuePages({
     fetchImpl,
     jiraBaseUrl: contextResult.context.jiraBaseUrl,
-    boardId: locator.boardId,
+    boardId,
     authHeader: contextResult.context.authHeader,
     pageSize: clampPageSize(pageSize),
     jql: boardIssueJql,
