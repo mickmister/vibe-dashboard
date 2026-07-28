@@ -780,7 +780,7 @@ export function BulkJiraWorkspaceConversionDialog({ boardView, onClose }: { boar
       const result = await bulkCreateJiraTicketsFromWorkspaces({ siteHostname, projectKey, issueTypeName, workspaceIds });
       if (!result.ok) throw new Error(`${result.error.message} ${result.error.userAction}`);
       setResults(result.results);
-      const createdOrSkipped = new Set(result.results.filter((entry) => entry.status === 'created' || entry.status === 'skipped').map((entry) => entry.workspaceId));
+      const createdOrSkipped = new Set(result.results.filter((entry) => entry.status === 'created' || entry.status === 'skipped' || entry.status === 'created_mapping_failed').map((entry) => entry.workspaceId));
       setWorkspaces((current) => current.map((workspace) => {
         const created = result.results.find((entry) => entry.workspaceId === workspace.workspaceId && entry.status === 'created');
         if (created?.status === 'created') {
@@ -886,7 +886,7 @@ export function BulkJiraWorkspaceConversionDialog({ boardView, onClose }: { boar
   );
 }
 
-function BulkJiraWorkspaceConversionResults({ results }: { results: BulkJiraWorkspaceConversionResultDto[] }) {
+export function BulkJiraWorkspaceConversionResults({ results }: { results: BulkJiraWorkspaceConversionResultDto[] }) {
   return (
     <section className="mt-4 rounded-lg border border-neutral-800 bg-neutral-900/50 p-3 text-sm">
       <h3 className="font-semibold text-neutral-100">Conversion results</h3>
@@ -895,6 +895,7 @@ function BulkJiraWorkspaceConversionResults({ results }: { results: BulkJiraWork
           <li key={result.workspaceId} className="rounded border border-neutral-800 bg-neutral-950 px-3 py-2">
             <span className="font-medium">{result.workspaceId}</span>
             {result.status === 'created' ? <span className="ml-2 text-emerald-200">Created <a className="underline" href={result.issue.url} target="_blank" rel="noreferrer">{result.issue.key}</a></span> : null}
+            {result.status === 'created_mapping_failed' ? <span className="ml-2 text-amber-200">Created <a className="underline" href={result.issue.url} target="_blank" rel="noreferrer">{result.issue.key}</a>, but VD link failed: {result.error.message} {result.error.userAction}</span> : null}
             {result.status === 'skipped' ? <span className="ml-2 text-sky-200">Skipped; already linked to {result.linkedJiraIssues.map((issue) => issue.key).join(', ')}</span> : null}
             {result.status === 'failed' ? <span className="ml-2 text-red-200">Failed: {result.error.message} {result.error.userAction}</span> : null}
           </li>

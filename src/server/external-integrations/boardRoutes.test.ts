@@ -1013,6 +1013,68 @@ describe('external Jira board routes', () => {
     expect(createJiraIssue).toHaveBeenCalledWith(expect.objectContaining({
       description: expect.stringContaining('- No repositories reported by VK'),
     }));
+    const description = (createJiraIssue as unknown as { mock: { calls: Array<[Parameters<CreateJiraIssue>[0]]> } }).mock.calls[0]?.[0].description ?? '';
+    expect(description).toContain('VK workspace: ws-1');
+    expect(description).toContain('Branch: vk/ws-1');
+    expect(description).not.toContain('/work/ws-1');
+    expect(description).not.toContain('/repo/app');
+    expect(description).not.toContain('Container/worktree');
+    expect(description).not.toContain('Agent working directory');
+  });
+
+  it('preserves created Jira issue details when VD workspace mapping persistence fails', async () => {
+    const app = new Hono();
+    const vkClient = createVkClient({
+      getWorkspaces: vi.fn(async () => [
+        { id: 'ws-ok', task_id: null, container_ref: '/work/ws-ok', agent_working_dir: null, branch: 'vk/ok', created_at: '2026-07-28T00:00:00Z', updated_at: '2026-07-28T00:01:00Z', archived: false, pinned: false, name: 'OK workspace' },
+        { id: 'ws-map-fail', task_id: null, container_ref: '/work/ws-map-fail', agent_working_dir: null, branch: 'vk/map-fail', created_at: '2026-07-28T00:02:00Z', updated_at: '2026-07-28T00:03:00Z', archived: false, pinned: false, name: 'Mapping failure workspace' },
+      ]),
+      getWorkspaceRepos: vi.fn(async () => []),
+    });
+    const createJiraIssue = vi.fn(async ({ summary }: Parameters<CreateJiraIssue>[0]) => ({
+      ok: true as const,
+      issue: summary.includes('Mapping')
+        ? { id: '10002', key: 'VD-2', url: 'https://team.atlassian.net/browse/VD-2' }
+        : { id: '10001', key: 'VD-1', url: 'https://team.atlassian.net/browse/VD-1' },
+    }));
+    const upsertWorkspaceMapping = vi.fn()
+      .mockResolvedValueOnce({})
+      .mockRejectedValueOnce(new Error('db down'));
+    registerExternalTrackerBoardRoutes(app, {
+      enabled: true,
+      auth: createAuthService({ user: { id: 'user_1', email: 'u@example.com', name: 'User One' } }),
+      db,
+      vkClient,
+      createJiraIssue,
+      upsertWorkspaceMapping,
+      jiraBotAuth: { kind: 'basic', siteHostname: 'team.atlassian.net', email: 'bot@example.com', apiToken: 'secret-token' },
+    });
+
+    const response = await app.request('/dashboard/api/external-trackers/jira/workspaces/bulk-create-issues', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ siteHostname: 'team.atlassian.net', projectKey: 'VD', issueTypeName: 'Task', workspaceIds: ['ws-ok', 'ws-map-fail'] }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+      results: [
+        expect.objectContaining({ workspaceId: 'ws-ok', status: 'created', issue: expect.objectContaining({ key: 'VD-1' }) }),
+        expect.objectContaining({
+          workspaceId: 'ws-map-fail',
+          status: 'created_mapping_failed',
+          issue: expect.objectContaining({ key: 'VD-2', url: 'https://team.atlassian.net/browse/VD-2' }),
+          error: expect.objectContaining({
+            code: 'jira_issue_mapping_failed',
+            message: 'Jira issue was created, but VD could not persist the workspace link.',
+            userAction: expect.stringContaining('Do not blindly retry'),
+          }),
+        }),
+      ],
+    });
+    expect(createJiraIssue).toHaveBeenCalledTimes(2);
+    expect(upsertWorkspaceMapping).toHaveBeenCalledTimes(2);
   });
 
   it('preserves bulk Jira conversion successes when some workspaces fail', async () => {

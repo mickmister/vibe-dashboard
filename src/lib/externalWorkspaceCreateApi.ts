@@ -90,6 +90,7 @@ export interface CreatedJiraIssueDto {
 
 export type BulkJiraWorkspaceConversionResultDto =
   | { workspaceId: string; status: 'created'; issue: CreatedJiraIssueDto }
+  | { workspaceId: string; status: 'created_mapping_failed'; issue: CreatedJiraIssueDto; error: ExternalWorkspaceApiError }
   | { workspaceId: string; status: 'skipped'; linkedJiraIssues: BulkJiraWorkspaceConversionWorkspaceDto['linkedJiraIssues'] }
   | { workspaceId: string; status: 'failed'; error: ExternalWorkspaceApiError };
 

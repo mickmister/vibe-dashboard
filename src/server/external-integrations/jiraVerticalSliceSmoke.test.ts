@@ -170,12 +170,12 @@ describe('Jira external board vertical slice smoke', () => {
       ]);
 
       const html = renderToStaticMarkup(React.createElement(ExternalJiraBoardContent, { boardView: payload.boardView }));
-      expect(html).toContain('Read-only Jira board');
       expect(html).toContain('VD Integration Board');
+      expect(html).toContain('Open in Jira');
+      expect(html).toContain('Convert VK workspaces');
       expect(html).toContain('To Do');
-      expect(html).toContain('Done');
       expect(html).toContain('Replicate Jira board in VD');
-      expect(html).toContain('Keep read-only smoke deterministic');
+      expect(html).toContain('Show Done');
       expect(html).toContain('Existing workspace');
       expect(html).toContain('Open Workspace');
       expect(html).toContain('0/1 tasks complete');

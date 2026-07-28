@@ -36,12 +36,14 @@ export function registerExternalTrackerBoardRoutes(
     createJiraIssue?: CreateJiraIssue;
     reposRoot?: string;
     workspaceMetricsTimeoutMs?: number;
+    upsertWorkspaceMapping?: typeof upsertExternalIssueWorkspaceMapping;
   },
 ): void {
   const vkClient = options.vkClient ?? new VibeKanbanServerClient();
   const reposRoot = options.reposRoot ?? defaultReposRoot();
   const cloneRepo = options.cloneRepo ?? cloneGitHubRepoIntoReposRoot;
   const createJiraIssueForWorkspace = options.createJiraIssue ?? createJiraIssue;
+  const upsertWorkspaceMapping = options.upsertWorkspaceMapping ?? upsertExternalIssueWorkspaceMapping;
 
 
   hono.get('/dashboard/api/external-trackers/vk/workspace-create-options', async (c) => {
@@ -265,7 +267,7 @@ export function registerExternalTrackerBoardRoutes(
         continue;
       }
 
-      await upsertExternalIssueWorkspaceMapping(options.db, {
+      const mappingResult = await upsertWorkspaceMapping(options.db, {
         externalIssue: {
           provider: 'jira',
           key: issueResult.issue.key,
@@ -282,7 +284,13 @@ export function registerExternalTrackerBoardRoutes(
         },
         isPrimary: true,
         lastOpenedAt: new Date().toISOString(),
-      });
+      })
+        .then(() => ({ ok: true as const }))
+        .catch(() => ({ ok: false as const }));
+      if (!mappingResult.ok) {
+        results.push({ workspaceId, status: 'created_mapping_failed', issue: issueResult.issue, error: jiraIssueMappingFailedError() });
+        continue;
+      }
       results.push({ workspaceId, status: 'created', issue: issueResult.issue });
     }
 
@@ -570,6 +578,7 @@ type SafeBulkJiraWorkspaceError = { code: string; message: string; userAction: s
 
 type BulkJiraWorkspaceConversionResult =
   | { workspaceId: string; status: 'created'; issue: CreatedJiraIssue }
+  | { workspaceId: string; status: 'created_mapping_failed'; issue: CreatedJiraIssue; error: SafeBulkJiraWorkspaceError }
   | { workspaceId: string; status: 'skipped'; linkedJiraIssues: LinkedExternalIssue[] }
   | { workspaceId: string; status: 'failed'; error: SafeBulkJiraWorkspaceError };
 
@@ -625,8 +634,6 @@ function bulkIssueDescriptionForWorkspace(workspace: Workspace, repos: RepoWithB
     `VK workspace: ${workspace.id}`,
     `Name: ${workspace.name ?? '(unnamed)'}`,
     `Branch: ${workspace.branch}`,
-    workspace.container_ref ? `Container/worktree: ${workspace.container_ref}` : undefined,
-    workspace.agent_working_dir ? `Agent working directory: ${workspace.agent_working_dir}` : undefined,
     '',
     'Repositories:',
     repoLines,
@@ -648,6 +655,14 @@ function safeJiraIssueCreateError(error: JiraProviderError): SafeBulkJiraWorkspa
     code: error.code,
     message: error.message,
     userAction: error.userAction,
+  };
+}
+
+function jiraIssueMappingFailedError(): SafeBulkJiraWorkspaceError {
+  return {
+    code: 'jira_issue_mapping_failed',
+    message: 'Jira issue was created, but VD could not persist the workspace link.',
+    userAction: 'Do not blindly retry creating Jira issues. Link the created Jira issue to this workspace manually or retry only the VD link.',
   };
 }
 

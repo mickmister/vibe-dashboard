@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { DrawerBody } from '@heroui/drawer';
-import { ExternalJiraBoardContent, ExternalJiraBoardRoute, ExternalJiraCard, ExternalJiraColumnVisibilityControls, getVisibleExternalJiraCards, getVisibleExternalJiraColumns, ExternalJiraIssueDetailBodyContent, ExternalJiraIssueDetailDrawerContent, ExternalJiraIssueDetailSheet, buildVKWorkspaceSessionUrl, mergeWorkspaceMetricsIntoBoardView, stripPortSubdomain } from './ExternalJiraBoardView';
+import { ExternalJiraBoardContent, ExternalJiraBoardRoute, ExternalJiraCard, ExternalJiraColumnVisibilityControls, getVisibleExternalJiraCards, getVisibleExternalJiraColumns, ExternalJiraIssueDetailBodyContent, ExternalJiraIssueDetailDrawerContent, ExternalJiraIssueDetailSheet, BulkJiraWorkspaceConversionResults, buildVKWorkspaceSessionUrl, mergeWorkspaceMetricsIntoBoardView, stripPortSubdomain } from './ExternalJiraBoardView';
 import type { ExternalJiraBoardViewDto, ExternalKanbanCardDto } from '../lib/externalTrackerBoardApi';
 
 const baseBoardView: ExternalJiraBoardViewDto = {
@@ -40,6 +40,27 @@ describe('ExternalJiraBoardContent', () => {
 
     expect(html).toContain('h-dvh overflow-y-auto overscroll-contain');
     expect(html).toContain('overflow-x-auto');
+  });
+
+
+  it('shows a warning when Jira creation succeeds but VD link persistence fails', () => {
+    const html = renderToStaticMarkup(React.createElement(BulkJiraWorkspaceConversionResults, {
+      results: [{
+        workspaceId: 'ws-map-fail',
+        status: 'created_mapping_failed',
+        issue: { id: '10002', key: 'VD-2', url: 'https://team.atlassian.net/browse/VD-2' },
+        error: {
+          code: 'jira_issue_mapping_failed',
+          message: 'Jira issue was created, but VD could not persist the workspace link.',
+          userAction: 'Do not blindly retry creating Jira issues. Link the created Jira issue to this workspace manually or retry only the VD link.',
+        },
+      }],
+    }));
+
+    expect(html).toContain('Created');
+    expect(html).toContain('VD-2');
+    expect(html).toContain('but VD link failed');
+    expect(html).toContain('Do not blindly retry');
   });
 
   it('renders a read-only Jira board with columns and cards', () => {
