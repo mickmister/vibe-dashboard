@@ -58,6 +58,7 @@ run_resolver() {
     VD_REPO_URL="$vd_bare" \
     VK_REPO_URL_INPUT="$vk_bare" \
     SKIP_ASSET_FALLBACK=true \
+    SKIP_ASSET_WAIT=true \
     GITHUB_OUTPUT="$output_file" \
     "$@" \
     "$resolver" >/dev/null
@@ -91,6 +92,25 @@ vd_only_sha="$(git -C "$vd_work" rev-parse feature/vd-only)"
 vd_main_sha="$(git -C "$vd_work" rev-parse main)"
 vk_feature_sha="$(git -C "$vk_work" rev-parse feature/sync)"
 vk_main_sha="$(git -C "$vk_work" rev-parse main)"
+
+
+output="$(run_resolver \
+  GITHUB_EVENT_NAME=pull_request \
+  PR_NUMBER=44 \
+  PR_HEAD_REF=feature/sync \
+  PR_HEAD_SHA="$vd_feature_sha")"
+assert_equals "feature/sync" "$(read_output "$output" vk_branch)" "pull request selects same-named VK branch"
+assert_equals "$vk_feature_sha" "$(read_output "$output" vk_commit)" "pull request resolves same-named VK commit"
+assert_equals "vk-${vk_feature_sha:0:7}-vd-${vd_feature_sha:0:7}" "$(read_output "$output" deploy_image_tag)" "pull request uses coordinated deploy tag"
+
+output="$(run_resolver \
+  GITHUB_EVENT_NAME=pull_request \
+  PR_NUMBER=45 \
+  PR_HEAD_REF=feature/vd-only \
+  PR_HEAD_SHA="$vd_only_sha")"
+assert_equals "main" "$(read_output "$output" vk_branch)" "pull request falls back to VK main when matching branch is absent"
+assert_equals "$vk_main_sha" "$(read_output "$output" vk_commit)" "pull request fallback resolves VK main commit"
+assert_equals "vk-${vk_main_sha:0:7}-vd-${vd_only_sha:0:7}" "$(read_output "$output" deploy_image_tag)" "pull request fallback still uses coordinated deploy tag"
 
 output="$(run_resolver \
   GITHUB_EVENT_NAME=push \
