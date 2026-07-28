@@ -38,7 +38,7 @@ import { createEffectiveWorkspaceWithCraftSurfaces } from "./plugins/vibe-dashbo
 import { ExternalJiraBoardRoute } from "../components/ExternalJiraBoardView";
 import { fetchBulkJiraWorkspaceConversionOptions } from "../lib/externalWorkspaceCreateApi";
 import { isValidVdWorkspaceId } from "../lib/vdWorkspaceLinks";
-import { findSavedVoyageForVdWorkspaceRoute } from "../lib/vdWorkspaceRoute";
+import { buildExistingVdWorkspaceDashboardPath, findSavedVoyageForVdWorkspaceRoute } from "../lib/vdWorkspaceRoute";
 import { resolveWorkspaceFactoryComposition } from "./plugins/vibe-dashboard/workspace-composition";
 
 // Ensure dark class is on the document root so portaled elements (modals, popovers)
@@ -205,10 +205,10 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
         );
         if (existing) {
           navigate(
-            buildCanonicalDashboardPath("", {
-              slug: buildVoyageParam(existing.session, savedVoyages),
-              craftParam: undefined,
-              viewTokens: undefined,
+            buildExistingVdWorkspaceDashboardPath({
+              workspace,
+              savedVoyages,
+              existing,
             }),
             { replace: true },
           );

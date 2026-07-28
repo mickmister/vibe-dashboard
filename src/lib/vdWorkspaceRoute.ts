@@ -1,4 +1,5 @@
 import type { SavedWorkspaceSession, WorkspaceState } from '../types';
+import { buildSavedVoyageDashboardPath } from './voyageUrl';
 
 const URL_PARSE_BASE = 'https://workspace.local';
 
@@ -31,4 +32,22 @@ export function findSavedVoyageForVdWorkspaceRoute(
   }
 
   return undefined;
+}
+
+export function buildExistingVdWorkspaceDashboardPath({
+  workspace,
+  savedVoyages,
+  existing,
+}: {
+  workspace: WorkspaceState;
+  savedVoyages: SavedWorkspaceSession[];
+  existing: { session: SavedWorkspaceSession; voyageEntryId?: string };
+}): string {
+  return buildSavedVoyageDashboardPath({
+    currentSearch: '',
+    workspace,
+    session: existing.session,
+    savedSessions: savedVoyages,
+    voyageEntryId: existing.voyageEntryId,
+  });
 }
