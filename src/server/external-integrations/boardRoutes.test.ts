@@ -790,7 +790,7 @@ describe('external Jira board routes', () => {
       ]),
       getWorkspaceRepos: vi.fn(async (workspaceId: string) => workspaceId === 'ws-open' ? [{ id: 'repo-1', name: 'api', display_name: 'api', target_branch: 'origin/main' }] : []),
     });
-    registerExternalTrackerBoardRoutes(app, { enabled: true, auth: createAuthService({ user: { id: 'user_1', email: 'u@example.com', name: 'User One' } }), db, vkClient });
+    registerExternalTrackerBoardRoutes(app, { enabled: true, auth: createAuthService(null), db, vkClient });
 
     const response = await app.request('/dashboard/api/external-trackers/vk/workspace-jira-conversion-options');
 
@@ -817,23 +817,27 @@ describe('external Jira board routes', () => {
     expect(vkClient.getWorkspaceRepos).not.toHaveBeenCalledWith('ws-archived');
   });
 
-  it('requires authentication before listing VK workspaces for Jira conversion', async () => {
+  it('lists VK workspaces for bulk conversion without requiring a VD session', async () => {
     const app = new Hono();
     const vkClient = createVkClient({
       getWorkspaces: vi.fn(async () => [
-        { id: 'ws-secret', task_id: null, container_ref: '/secret/worktree', agent_working_dir: '/secret/repo', branch: 'vk/secret', created_at: '2026-07-28T00:00:00Z', updated_at: '2026-07-28T00:01:00Z', archived: false, pinned: false, name: 'Secret Workspace' },
+        { id: 'ws-open', task_id: null, container_ref: '/work/ws-open', agent_working_dir: '/repo/app', branch: 'vk/open', created_at: '2026-07-28T00:00:00Z', updated_at: '2026-07-28T00:01:00Z', archived: false, pinned: false, name: 'Open Workspace' },
       ]),
+      getWorkspaceRepos: vi.fn(async () => []),
     });
     registerExternalTrackerBoardRoutes(app, { enabled: true, auth: createAuthService(null), db, vkClient });
 
     const response = await app.request('/dashboard/api/external-trackers/vk/workspace-jira-conversion-options');
 
-    expect(response.status).toBe(401);
-    const bodyText = await response.text();
-    expect(bodyText).toContain('authentication_required');
-    expect(bodyText).not.toContain('Secret Workspace');
-    expect(bodyText).not.toContain('/secret/worktree');
-    expect(vkClient.getWorkspaces).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    const body = await response.json() as any;
+    expect(body).toEqual({
+      ok: true,
+      options: {
+        workspaces: [expect.objectContaining({ workspaceId: 'ws-open', displayName: 'Open Workspace', hasLinkedJiraIssue: false })],
+      },
+    });
+    expect(JSON.stringify(body)).not.toContain('authentication_required');
   });
 
   it('keeps Jira conversion options usable when a workspace repo lookup hangs', async () => {
@@ -943,13 +947,17 @@ describe('external Jira board routes', () => {
     await expect(db.selectFrom('ExternalIssueWorkspaceLink').selectAll().execute()).resolves.toHaveLength(2);
   });
 
-  it('requires authentication for bulk Jira workspace conversion even when bot credentials are configured', async () => {
+  it('bulk creates Jira issues without a VD session when bot credentials are configured', async () => {
     const app = new Hono();
-    const createJiraIssue = vi.fn() as unknown as CreateJiraIssue;
+    const createJiraIssue = vi.fn(async () => ({
+      ok: true as const,
+      issue: { id: '10001', key: 'VD-1', url: 'https://team.atlassian.net/browse/VD-1' },
+    }));
     const vkClient = createVkClient({
       getWorkspaces: vi.fn(async () => [
         { id: 'ws-1', task_id: null, container_ref: '/work/ws-1', agent_working_dir: null, branch: 'vk/ws-1', created_at: '2026-07-28T00:00:00Z', updated_at: '2026-07-28T00:01:00Z', archived: false, pinned: false, name: 'Workspace' },
       ]),
+      getWorkspaceRepos: vi.fn(async () => []),
     });
     registerExternalTrackerBoardRoutes(app, {
       enabled: true,
@@ -966,12 +974,15 @@ describe('external Jira board routes', () => {
       body: JSON.stringify({ siteHostname: 'team.atlassian.net', projectKey: 'VD', issueTypeName: 'Task', workspaceIds: ['ws-1'] }),
     });
 
-    expect(response.status).toBe(401);
+    expect(response.status).toBe(200);
     const bodyText = await response.text();
-    expect(bodyText).toContain('authentication_required');
+    expect(bodyText).toContain('VD-1');
+    expect(bodyText).not.toContain('authentication_required');
     expect(bodyText).not.toContain('secret-token');
-    expect(createJiraIssue).not.toHaveBeenCalled();
-    expect(vkClient.getWorkspaces).not.toHaveBeenCalled();
+    expect(createJiraIssue).toHaveBeenCalledWith(expect.objectContaining({
+      auth: { kind: 'basic', siteHostname: 'team.atlassian.net', email: 'bot@example.com', apiToken: 'secret-token' },
+    }));
+    expect(vkClient.getWorkspaces).toHaveBeenCalled();
   });
 
   it('bulk creates Jira issues when best-effort workspace repo enrichment hangs', async () => {
@@ -1156,7 +1167,12 @@ describe('external Jira board routes', () => {
   it('returns a safe setup error when bulk Jira conversion has no auth credentials', async () => {
     const app = new Hono();
     const createJiraIssue = vi.fn() as unknown as CreateJiraIssue;
-    registerExternalTrackerBoardRoutes(app, { enabled: true, auth: createAuthService({ user: { id: 'user_1', email: 'u@example.com', name: 'User One' } }), db, createJiraIssue });
+    const vkClient = createVkClient({
+      getWorkspaces: vi.fn(async () => [
+        { id: 'ws-secret', task_id: null, container_ref: '/secret/worktree', agent_working_dir: '/secret/repo', branch: 'vk/secret', created_at: '2026-07-28T00:00:00Z', updated_at: '2026-07-28T00:01:00Z', archived: false, pinned: false, name: 'Secret Workspace' },
+      ]),
+    });
+    registerExternalTrackerBoardRoutes(app, { enabled: true, auth: createAuthService(null), db, vkClient, createJiraIssue, jiraBotAuth: false });
 
     const response = await app.request('/dashboard/api/external-trackers/jira/workspaces/bulk-create-issues', {
       method: 'POST',
@@ -1168,8 +1184,12 @@ describe('external Jira board routes', () => {
     const bodyText = await response.text();
     expect(bodyText).toContain('jira_not_connected');
     expect(bodyText).toContain('JIRA_SITE_HOSTNAME');
+    expect(bodyText).not.toContain('Sign in');
     expect(bodyText).not.toContain('secret-token');
+    expect(bodyText).not.toContain('/secret/worktree');
+    expect(bodyText).not.toContain('/secret/repo');
     expect(createJiraIssue).not.toHaveBeenCalled();
+    expect(vkClient.getWorkspaces).not.toHaveBeenCalled();
   });
 
   it('creates a VK workspace and records the external issue mapping', async () => {

@@ -176,11 +176,6 @@ export function registerExternalTrackerBoardRoutes(
       return c.json({ ok: false, error: { code: 'external_trackers_disabled', message: 'External tracker workspace conversion is disabled.', userAction: 'Enable the external tracker feature flag and try again.' } }, 404);
     }
 
-    const session = await options.auth.getSession(c.req.raw.headers);
-    if (!session) {
-      return c.json({ ok: false, error: { code: 'authentication_required', message: 'Sign in before listing VK workspaces for Jira conversion.', userAction: 'Sign in and try again.' } }, 401);
-    }
-
     try {
       const workspaces = (await vkClient.getWorkspaces()).filter((workspace) => !workspace.archived);
       const workspaceIds = workspaces.map((workspace) => workspace.id);
@@ -208,10 +203,7 @@ export function registerExternalTrackerBoardRoutes(
       return c.json({ ok: false, error: { code: 'external_trackers_disabled', message: 'External tracker workspace conversion is disabled.', userAction: 'Enable the external tracker feature flag and try again.' } }, 404);
     }
 
-    const session = await options.auth.getSession(c.req.raw.headers);
-    if (!session) {
-      return c.json({ ok: false, error: { code: 'authentication_required', message: 'Sign in before creating Jira tickets from VK workspaces.', userAction: 'Sign in and try again.' } }, 401);
-    }
+    const session = await options.auth.getSession(c.req.raw.headers).catch(() => null);
 
     const body = await c.req.json().catch(() => undefined) as unknown;
     if (!isBulkJiraWorkspaceConversionRequest(body)) {
@@ -223,7 +215,10 @@ export function registerExternalTrackerBoardRoutes(
       userId: session?.user.id,
       botAuth: options.jiraBotAuth === undefined ? getEnvJiraBotAuth() : options.jiraBotAuth || undefined,
     });
-    if (!authResult.ok) return c.json({ ok: false, error: authResult.error }, authResult.status);
+    if (!authResult.ok) {
+      const error = session ? authResult.error : allAccessBulkJiraCredentialsRequiredError();
+      return c.json({ ok: false, error }, session ? authResult.status : 409);
+    }
 
     const allWorkspaces = (await vkClient.getWorkspaces()).filter((workspace) => !workspace.archived);
     const workspacesById = new Map(allWorkspaces.map((workspace) => [workspace.id, workspace]));
@@ -655,6 +650,14 @@ function safeJiraIssueCreateError(error: JiraProviderError): SafeBulkJiraWorkspa
     code: error.code,
     message: error.message,
     userAction: error.userAction,
+  };
+}
+
+function allAccessBulkJiraCredentialsRequiredError(): SafeBulkJiraWorkspaceError {
+  return {
+    code: 'jira_not_connected',
+    message: 'Jira credentials are not configured for bulk VK workspace conversion.',
+    userAction: 'Set JIRA_SITE_HOSTNAME, JIRA_EMAIL, and JIRA_API_TOKEN on the server, restart VD, and try again.',
   };
 }
 
