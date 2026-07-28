@@ -174,6 +174,11 @@ export function registerExternalTrackerBoardRoutes(
       return c.json({ ok: false, error: { code: 'external_trackers_disabled', message: 'External tracker workspace conversion is disabled.', userAction: 'Enable the external tracker feature flag and try again.' } }, 404);
     }
 
+    const session = await options.auth.getSession(c.req.raw.headers);
+    if (!session) {
+      return c.json({ ok: false, error: { code: 'authentication_required', message: 'Sign in before listing VK workspaces for Jira conversion.', userAction: 'Sign in and try again.' } }, 401);
+    }
+
     try {
       const workspaces = (await vkClient.getWorkspaces()).filter((workspace) => !workspace.archived);
       const workspaceIds = workspaces.map((workspace) => workspace.id);
@@ -181,7 +186,7 @@ export function registerExternalTrackerBoardRoutes(
       const reposByWorkspaceId = new Map<string, RepoWithBranch[]>();
       const repoResults = await Promise.allSettled(workspaces.map(async (workspace) => ({
         workspaceId: workspace.id,
-        repos: await vkClient.getWorkspaceRepos(workspace.id),
+        repos: await loadWorkspaceReposBestEffort(vkClient, workspace.id, options.workspaceMetricsTimeoutMs ?? 2_500),
       })));
       for (const result of repoResults) {
         if (result.status === 'fulfilled') reposByWorkspaceId.set(result.value.workspaceId, result.value.repos);
@@ -201,12 +206,16 @@ export function registerExternalTrackerBoardRoutes(
       return c.json({ ok: false, error: { code: 'external_trackers_disabled', message: 'External tracker workspace conversion is disabled.', userAction: 'Enable the external tracker feature flag and try again.' } }, 404);
     }
 
+    const session = await options.auth.getSession(c.req.raw.headers);
+    if (!session) {
+      return c.json({ ok: false, error: { code: 'authentication_required', message: 'Sign in before creating Jira tickets from VK workspaces.', userAction: 'Sign in and try again.' } }, 401);
+    }
+
     const body = await c.req.json().catch(() => undefined) as unknown;
     if (!isBulkJiraWorkspaceConversionRequest(body)) {
       return c.json({ ok: false, error: { code: 'invalid_bulk_jira_workspace_conversion_request', message: 'The Jira workspace conversion request was invalid.', userAction: 'Choose a Jira site, project, issue type, and one or more unlinked workspaces.' } }, 400);
     }
 
-    const session = await options.auth.getSession(c.req.raw.headers);
     const authResult = await resolveJiraBoardAuth({
       db: options.db,
       userId: session?.user.id,
@@ -233,7 +242,7 @@ export function registerExternalTrackerBoardRoutes(
         continue;
       }
 
-      const repos = await vkClient.getWorkspaceRepos(workspace.id).catch(() => [] as RepoWithBranch[]);
+      const repos = await loadWorkspaceReposBestEffort(vkClient, workspace.id, options.workspaceMetricsTimeoutMs ?? 2_500);
       const issueResult: CreateJiraIssueResult = await createJiraIssueForWorkspace({
         auth: authResult.auth,
         siteHostname: body.siteHostname,
@@ -624,6 +633,14 @@ function bulkIssueDescriptionForWorkspace(workspace: Workspace, repos: RepoWithB
     '',
     'Created from VD bulk VK workspace conversion.',
   ].filter((line): line is string => line !== undefined).join('\n');
+}
+
+async function loadWorkspaceReposBestEffort(
+  vkClient: Pick<VibeKanbanServerClient, 'getWorkspaceRepos'>,
+  workspaceId: string,
+  timeoutMs: number,
+): Promise<RepoWithBranch[]> {
+  return withTimeoutCall(() => vkClient.getWorkspaceRepos(workspaceId), timeoutMs).catch(() => []);
 }
 
 function safeJiraIssueCreateError(error: JiraProviderError): SafeBulkJiraWorkspaceError {
