@@ -65,7 +65,7 @@
     "react-resizable-panels": "^4.6.5",
     "react-router": "^7.13.0",
     "rxjs": "^7.8.2",
-    "springboard": "0.0.1-dev-jamapp-13",
+    "springboard": "0.0.1-dev-jamapp-15",
     "tailwindcss": "^4.1.18"
   },
   "devDependencies": {

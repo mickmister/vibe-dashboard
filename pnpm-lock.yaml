@@ -78,8 +78,8 @@ importers:
         specifier: ^7.8.2
         version: 7.8.2
       springboard:
-        specifier: 0.0.1-dev-jamapp-13
-        version: 0.0.1-dev-jamapp-13(crossws@0.4.4)(immer@11.1.4)(kysely@0.28.11)(react-dom@19.2.4(react@19.2.4))(react-router@7.13.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react@19.2.4)(rxjs@7.8.2)(vite@7.3.1(@types/node@25.2.3)(jiti@2.6.1)(lightningcss@1.30.2)(yaml@2.9.0))
+        specifier: 0.0.1-dev-jamapp-15
+        version: 0.0.1-dev-jamapp-15(crossws@0.4.4)(immer@11.1.4)(kysely@0.28.11)(react-dom@19.2.4(react@19.2.4))(react-router@7.13.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react@19.2.4)(rxjs@7.8.2)(vite@7.3.1(@types/node@25.2.3)(jiti@2.6.1)(lightningcss@1.30.2)(yaml@2.9.0))
       tailwindcss:
         specifier: ^4.1.18
         version: 4.1.18
@@ -4757,8 +4757,8 @@ packages:
     resolution: {integrity: sha512-UcjcJOWknrNkF6PLX83qcHM6KHgVKNkV62Y8a5uYDVv9ydGQVwAHMKqHdJje1VTWpljG0WYpCDhrCdAOYH4TWg==}
     engines: {node: '>= 10.x'}
 
-  springboard@0.0.1-dev-jamapp-13:
-    resolution: {integrity: sha512-xwTAm8eqiDYIfI/kR9mkKJtyzcherooeZjW6wVaAmkRLiduiYw66/2br5DNhR0rw3LhgPiwqHZNzZygrquRh1w==}
+  springboard@0.0.1-dev-jamapp-15:
+    resolution: {integrity: sha512-/SayRziwqEid8Cs6UBLnGpq5lmp5kvpeWXjpOeRCealLxE3K/6ZLQNuSKz9A5mCqx1X1MGTN9+6Yg/wOBTEGXQ==}
     hasBin: true
     peerDependencies:
       '@tauri-apps/api': ^2.9.0
@@ -10712,7 +10712,7 @@ snapshots:
 
   split2@4.2.0: {}
 
-  springboard@0.0.1-dev-jamapp-13(crossws@0.4.4)(immer@11.1.4)(kysely@0.28.11)(react-dom@19.2.4(react@19.2.4))(react-router@7.13.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react@19.2.4)(rxjs@7.8.2)(vite@7.3.1(@types/node@25.2.3)(jiti@2.6.1)(lightningcss@1.30.2)(yaml@2.9.0)):
+  springboard@0.0.1-dev-jamapp-15(crossws@0.4.4)(immer@11.1.4)(kysely@0.28.11)(react-dom@19.2.4(react@19.2.4))(react-router@7.13.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react@19.2.4)(rxjs@7.8.2)(vite@7.3.1(@types/node@25.2.3)(jiti@2.6.1)(lightningcss@1.30.2)(yaml@2.9.0)):
     dependencies:
       commander: 14.0.3
       dexie: 4.3.0
