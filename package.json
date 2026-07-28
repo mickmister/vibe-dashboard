@@ -35,7 +35,16 @@
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install chromium",
     "hotswap": "npm run build && ./scripts/hotswap-dashboard-dist.sh deploy",
-    "plugin-services:refresh:beads-web:requires-tag": "node --experimental-strip-types plugins/orchestrator/plugin-service-orchestrator-cli.ts refresh-github-release --plugin-id vd.beads-web --catalog plugins/builtin.plugins.json --catalog plugins/fixtures/beads-web.plugins.json --plugin plugins/fixtures/beads-web.plugin.json"
+    "plugin-services:refresh:beads-web:requires-tag": "node --experimental-strip-types plugins/orchestrator/plugin-service-orchestrator-cli.ts refresh-github-release --plugin-id vd.beads-web --catalog plugins/builtin.plugins.json --catalog plugins/fixtures/beads-web.plugins.json --plugin plugins/fixtures/beads-web.plugin.json",
+    "beads-form:preview": "node --experimental-strip-types scripts/beads-form/preview.ts",
+    "dev:beads-form-preview": "node --experimental-strip-types scripts/beads-form/preview.ts",
+    "beads-form": "node --experimental-strip-types scripts/beads-form/cli.ts",
+    "dev:beads-form-preview:shared": "node --experimental-strip-types scripts/beads-form/shared-preview.ts",
+    "hotswap:vkvd": "node --experimental-strip-types scripts/hotswap-vkvd.ts",
+    "vk:batch-build": "bash scripts/vk-batch-stage-validate-build.sh",
+    "vk:batch-hotswap": "bash scripts/vk-batch-stage-hotswap-apply.sh",
+    "vk:batch-hotswap-gh": "bash scripts/vk-batch-stage-gh-artifact.sh",
+    "vk:batch-rollback": "bash scripts/vk-batch-stage-rollback.sh"
   },
   "dependencies": {
     "@heroui/react": "^2.8.9",
@@ -46,6 +55,7 @@
     "@vitejs/plugin-react": "^5.1.4",
     "better-sqlite3": "^12.6.2",
     "crossws": "^0.4.4",
+    "dompurify": "^3.4.11",
     "framer-motion": "^12.34.0",
     "hono": "^4.11.9",
     "immer": "^11.1.4",
@@ -57,7 +67,8 @@
     "rxjs": "^7.8.2",
     "springboard": "0.0.1-dev-jamapp-12",
     "tailwindcss": "^4.1.18",
-    "@tanstack/react-query": "^5.101.0"
+    "@tanstack/react-query": "^5.101.0",
+    "@vibe-dashboard/beads-form": "workspace:*"
   },
   "devDependencies": {
     "@chromatic-com/storybook": "^5.0.1",
@@ -85,6 +96,7 @@
   },
   "bin": {
     "vibe-agent": "./bin/vibe-agent",
-    "vk": "./bin/vk"
+    "vk": "./bin/vk",
+    "beads-form": "./bin/beads-form"
   }
 }
