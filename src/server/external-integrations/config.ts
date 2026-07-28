@@ -11,6 +11,7 @@ export const jiraReadScopes = [
   'read:board-scope.admin:jira-software',
   'read:issue-details:jira',
   'read:project:jira',
+  'write:jira-work',
 ] as const;
 
 export function isExternalTrackersEnabled(env: Record<string, string | undefined> = process.env): boolean {

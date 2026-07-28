@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { JiraExternalViewLocator } from '../../lib/externalViewUrl';
-import { fetchJiraBoardView, resolveJiraAccessibleResource } from './jiraAdapter';
+import { createJiraIssue, fetchJiraBoardView, resolveJiraAccessibleResource } from './jiraAdapter';
 
 const locator: JiraExternalViewLocator = {
   provider: 'jira',
@@ -93,6 +93,71 @@ describe('Jira accessible resource lookup', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe('jira_resource_ambiguous');
+  });
+});
+
+describe('Jira issue creation', () => {
+  it('creates an issue through the Atlassian OAuth cloud resource without leaking tokens', async () => {
+    const fetchImpl = vi.fn(async (url: string | URL, init?: RequestInit) => {
+      const href = String(url);
+      if (href.endsWith('/oauth/token/accessible-resources')) return jsonResponse(resources);
+      if (href.endsWith('/rest/api/3/issue')) return jsonResponse({ id: '10001', key: 'VD-1', self: 'https://api.atlassian.com/ex/jira/cloud-1/rest/api/3/issue/10001' });
+      return jsonResponse({ error: 'unexpected url', href }, 404);
+    }) as unknown as typeof fetch;
+
+    const result = await createJiraIssue({
+      auth: { kind: 'oauth', accessToken: 'secret-token' },
+      siteHostname: 'team.atlassian.net',
+      projectKey: 'VD',
+      issueTypeName: 'Task',
+      summary: 'Bulk workspace ticket',
+      description: 'VK workspace: ws-1',
+      fetchImpl,
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      issue: { id: '10001', key: 'VD-1', url: 'https://team.atlassian.net/browse/VD-1', self: 'https://api.atlassian.com/ex/jira/cloud-1/rest/api/3/issue/10001' },
+    });
+    const createCall = vi.mocked(fetchImpl).mock.calls.find(([url]) => String(url).endsWith('/rest/api/3/issue'));
+    expect(createCall?.[0]).toBe('https://api.atlassian.com/ex/jira/cloud-1/rest/api/3/issue');
+    expect(createCall?.[1]).toEqual(expect.objectContaining({
+      method: 'POST',
+      headers: expect.objectContaining({ authorization: 'Bearer secret-token', 'content-type': 'application/json' }),
+    }));
+    const body = JSON.parse(String(createCall?.[1]?.body));
+    expect(body.fields).toEqual(expect.objectContaining({
+      project: { key: 'VD' },
+      issuetype: { name: 'Task' },
+      summary: 'Bulk workspace ticket',
+      description: expect.objectContaining({ type: 'doc', version: 1 }),
+    }));
+  });
+
+  it('normalizes Jira issue create authorization failures without response body secrets', async () => {
+    const fetchImpl = vi.fn(async (url: string | URL) => {
+      const href = String(url);
+      if (href.endsWith('/rest/api/3/issue')) return jsonResponse({ errorMessages: ['secret-token rejected'] }, 403);
+      return jsonResponse({ error: 'unexpected url', href }, 404);
+    }) as unknown as typeof fetch;
+
+    const result = await createJiraIssue({
+      auth: { kind: 'basic', siteHostname: 'team.atlassian.net', email: 'bot@example.com', apiToken: 'secret-token' },
+      siteHostname: 'team.atlassian.net',
+      projectKey: 'VD',
+      issueTypeName: 'Task',
+      summary: 'Bulk workspace ticket',
+      fetchImpl,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toEqual(expect.objectContaining({
+        code: 'jira_forbidden',
+        message: expect.not.stringContaining('secret-token'),
+        userAction: expect.stringContaining('required read/write scopes'),
+      }));
+    }
   });
 });
 
@@ -600,7 +665,7 @@ describe('live Jira board adapter', () => {
       expect(result.error).toEqual(expect.objectContaining({
         code: 'jira_forbidden',
         status: 403,
-        userAction: expect.stringContaining('required read scopes'),
+        userAction: expect.stringContaining('required read/write scopes'),
       }));
     }
   });

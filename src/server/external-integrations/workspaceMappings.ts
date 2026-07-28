@@ -41,6 +41,16 @@ export interface ExternalIssueWorkspaceMapping {
   workspace: RelatedVKWorkspace;
 }
 
+export interface LinkedExternalIssue {
+  provider: ExternalProvider;
+  key: string;
+  id?: string;
+  url: string;
+  site?: string;
+  isPrimary: boolean;
+  metadata?: Record<string, unknown>;
+}
+
 export type ExternalKanbanCardWithWorkspaces = ExternalKanbanCard & {
   relatedWorkspaces: RelatedVKWorkspace[];
 };
@@ -190,6 +200,55 @@ export async function getRelatedWorkspacesForExternalIssues(
       ...(row.lastOpenedAt ? { lastOpenedAt: String(row.lastOpenedAt) } : {}),
       ...mergeWorkspaceMetadata(row.workspaceMetadataJson, row.linkMetadataJson),
     })));
+  }
+
+  return result;
+}
+
+export async function getLinkedExternalIssuesForWorkspaces(
+  db: Kysely<DB>,
+  workspaceIds: string[],
+  provider?: ExternalProvider,
+): Promise<Map<string, LinkedExternalIssue[]>> {
+  const uniqueWorkspaceIds = [...new Set(workspaceIds.map((id) => id.trim()).filter(Boolean))];
+  const result = new Map<string, LinkedExternalIssue[]>(uniqueWorkspaceIds.map((workspaceId) => [workspaceId, []]));
+  if (uniqueWorkspaceIds.length === 0) return result;
+
+  let query = db
+    .selectFrom('VKWorkspace')
+    .innerJoin('ExternalIssueWorkspaceLink', 'ExternalIssueWorkspaceLink.vkWorkspaceId', 'VKWorkspace.id')
+    .innerJoin('ExternalIssue', 'ExternalIssue.id', 'ExternalIssueWorkspaceLink.externalIssueId')
+    .select([
+      'VKWorkspace.workspaceId',
+      'ExternalIssue.provider',
+      'ExternalIssue.issueKey',
+      'ExternalIssue.issueId',
+      'ExternalIssue.issueUrl',
+      'ExternalIssue.site',
+      'ExternalIssue.metadataJson',
+      'ExternalIssueWorkspaceLink.isPrimary',
+    ])
+    .where('VKWorkspace.workspaceId', 'in', uniqueWorkspaceIds)
+    .orderBy('ExternalIssueWorkspaceLink.isPrimary', 'desc')
+    .orderBy('ExternalIssue.updatedAt', 'desc');
+
+  if (provider) {
+    query = query.where('ExternalIssue.provider', '=', provider);
+  }
+
+  const rows = await query.execute();
+  for (const row of rows) {
+    const issues = result.get(row.workspaceId) ?? [];
+    issues.push({
+      provider: row.provider,
+      key: row.issueKey,
+      ...(row.issueId ? { id: row.issueId } : {}),
+      url: row.issueUrl,
+      ...(row.site ? { site: row.site } : {}),
+      isPrimary: Boolean(row.isPrimary),
+      ...(row.metadataJson ? { metadata: parseMetadata(row.metadataJson) } : {}),
+    });
+    result.set(row.workspaceId, issues);
   }
 
   return result;
