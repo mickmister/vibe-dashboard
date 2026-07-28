@@ -5,7 +5,7 @@ import { fetchExternalJiraBoardView } from '../lib/externalTrackerBoardApi';
 import { setOtelAttributes, withOtelSpan } from '../lib/otel';
 import type { ExternalJiraBoardApiResponse, ExternalJiraBoardViewDto, ExternalKanbanCardDto, ExternalKanbanColumnDto } from '../lib/externalTrackerBoardApi';
 import { bulkCreateJiraTicketsFromWorkspaces, cloneExternalWorkspaceRepo, createExternalIssueWorkspace, fetchBulkJiraWorkspaceConversionOptions, fetchExternalWorkspaceCreateOptions, fetchExternalWorkspaceMetrics, fetchExternalWorkspaceRepoBranches, registerExternalWorkspaceRepo } from '../lib/externalWorkspaceCreateApi';
-import type { BulkJiraWorkspaceConversionResultDto, BulkJiraWorkspaceConversionWorkspaceDto, ExternalWorkspaceCandidateRepoDto, ExternalWorkspaceCreateOptionsDto, ExternalWorkspaceMetricsDto, VkBranchDto, VkExecutorConfigDto, VkRepoDto } from '../lib/externalWorkspaceCreateApi';
+import type { BulkJiraRepoProjectMappingDto, BulkJiraWorkspaceConversionResultDto, BulkJiraWorkspaceConversionWorkspaceDto, ExternalWorkspaceCandidateRepoDto, ExternalWorkspaceCreateOptionsDto, ExternalWorkspaceMetricsDto, VkBranchDto, VkExecutorConfigDto, VkRepoDto } from '../lib/externalWorkspaceCreateApi';
 
 type ExternalRelatedWorkspace = NonNullable<ExternalKanbanCardDto['relatedWorkspaces']>[number];
 
@@ -733,6 +733,8 @@ export function ExternalWorkspaceCreateDialog({
 
 export function BulkJiraWorkspaceConversionDialog({ boardView, onClose }: { boardView: ExternalJiraBoardViewDto; onClose: () => void }) {
   const [workspaces, setWorkspaces] = useState<BulkJiraWorkspaceConversionWorkspaceDto[]>([]);
+  const [repoProjectMappings, setRepoProjectMappings] = useState<BulkJiraRepoProjectMappingDto[]>([]);
+  const [selectedRepoId, setSelectedRepoId] = useState('');
   const [selectedWorkspaceIds, setSelectedWorkspaceIds] = useState<Set<string>>(() => new Set());
   const [siteHostname, setSiteHostname] = useState(boardView.siteHostname);
   const [projectKey, setProjectKey] = useState(boardView.board.projectKey ?? '');
@@ -754,6 +756,7 @@ export function BulkJiraWorkspaceConversionDialog({ boardView, onClose }: { boar
           return;
         }
         setWorkspaces(result.options.workspaces);
+        setRepoProjectMappings(result.options.repoProjectMappings);
         setSelectedWorkspaceIds(new Set(result.options.workspaces.filter((workspace) => !workspace.hasLinkedJiraIssue).map((workspace) => workspace.workspaceId)));
       })
       .catch((caught) => {
@@ -777,9 +780,12 @@ export function BulkJiraWorkspaceConversionDialog({ boardView, onClose }: { boar
     }
     setSubmitting(true);
     try {
-      const result = await bulkCreateJiraTicketsFromWorkspaces({ siteHostname, projectKey, issueTypeName, workspaceIds });
+      const result = await bulkCreateJiraTicketsFromWorkspaces({ siteHostname, projectKey, issueTypeName, workspaceIds, repoProjectMappingRepoId: selectedRepoId || undefined });
       if (!result.ok) throw new Error(`${result.error.message} ${result.error.userAction}`);
       setResults(result.results);
+      if (selectedRepoId) {
+        setRepoProjectMappings((current) => upsertRepoProjectMapping(current, { repoId: selectedRepoId, provider: 'jira', siteHostname, projectKey, issueTypeName }));
+      }
       const createdOrSkipped = new Set(result.results.filter((entry) => entry.status === 'created' || entry.status === 'skipped' || entry.status === 'created_mapping_failed').map((entry) => entry.workspaceId));
       setWorkspaces((current) => current.map((workspace) => {
         const created = result.results.find((entry) => entry.workspaceId === workspace.workspaceId && entry.status === 'created');
@@ -796,8 +802,22 @@ export function BulkJiraWorkspaceConversionDialog({ boardView, onClose }: { boar
     }
   }
 
+  const repoFilterOptions = getBulkWorkspaceRepoFilterOptions(workspaces);
+  const visibleWorkspaces = filterBulkJiraWorkspacesByRepo(workspaces, selectedRepoId);
   const selectedCount = selectedWorkspaceIds.size;
-  const unlinkedCount = workspaces.filter((workspace) => !workspace.hasLinkedJiraIssue).length;
+  const unlinkedCount = visibleWorkspaces.filter((workspace) => !workspace.hasLinkedJiraIssue).length;
+
+  function changeRepoFilter(repoId: string) {
+    setSelectedRepoId(repoId);
+    const nextVisibleWorkspaces = filterBulkJiraWorkspacesByRepo(workspaces, repoId);
+    setSelectedWorkspaceIds(new Set(nextVisibleWorkspaces.filter((workspace) => !workspace.hasLinkedJiraIssue).map((workspace) => workspace.workspaceId)));
+    const mapping = repoProjectMappings.find((candidate) => candidate.repoId === repoId);
+    if (mapping) {
+      setSiteHostname(mapping.siteHostname);
+      setProjectKey(mapping.projectKey);
+      if (mapping.issueTypeName) setIssueTypeName(mapping.issueTypeName);
+    }
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4 sm:items-center" role="dialog" aria-modal="true" aria-label="Convert VK workspaces into Jira tickets">
@@ -814,7 +834,14 @@ export function BulkJiraWorkspaceConversionDialog({ boardView, onClose }: { boar
         {loading ? <p className="mt-4 text-sm text-neutral-400">Loading VK workspaces…</p> : null}
         {error ? <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-100">{error}</div> : null}
 
-        <section className="mt-4 grid gap-4 md:grid-cols-3">
+        <section className="mt-4 grid gap-4 md:grid-cols-4">
+          <label className="block text-sm font-medium text-neutral-200">
+            Repository filter
+            <select className="mt-2 w-full rounded-lg border border-neutral-800 bg-neutral-900 p-2 text-sm text-neutral-100" value={selectedRepoId} onChange={(event) => changeRepoFilter(event.target.value)}>
+              <option value="">All repositories</option>
+              {repoFilterOptions.map((repo) => <option key={repo.id} value={repo.id}>{repo.label}</option>)}
+            </select>
+          </label>
           <label className="block text-sm font-medium text-neutral-200">
             Jira site hostname
             <input className="mt-2 w-full rounded-lg border border-neutral-800 bg-neutral-900 p-2 text-sm text-neutral-100" value={siteHostname} onChange={(event) => setSiteHostname(event.target.value)} placeholder="team.atlassian.net" />
@@ -832,15 +859,16 @@ export function BulkJiraWorkspaceConversionDialog({ boardView, onClose }: { boar
         </section>
 
         <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-sm text-neutral-400">
-          <span>{unlinkedCount} unlinked workspaces available · {selectedCount} selected</span>
-          <button type="button" className="rounded border border-neutral-700 px-2 py-1 text-neutral-200 hover:bg-neutral-900" onClick={() => setSelectedWorkspaceIds(new Set(workspaces.filter((workspace) => !workspace.hasLinkedJiraIssue).map((workspace) => workspace.workspaceId)))}>
+          <span>{unlinkedCount} unlinked workspaces available · {selectedCount} selected{selectedRepoId ? ' in selected repo' : ''}</span>
+          <button type="button" className="rounded border border-neutral-700 px-2 py-1 text-neutral-200 hover:bg-neutral-900" onClick={() => setSelectedWorkspaceIds(new Set(visibleWorkspaces.filter((workspace) => !workspace.hasLinkedJiraIssue).map((workspace) => workspace.workspaceId)))}>
             Select all unlinked
           </button>
         </div>
 
         <div className="mt-3 overflow-hidden rounded-lg border border-neutral-800">
           {workspaces.length === 0 && !loading ? <p className="p-3 text-sm text-neutral-500">No active VK workspaces found.</p> : null}
-          {workspaces.map((workspace) => {
+          {workspaces.length > 0 && visibleWorkspaces.length === 0 && !loading ? <p className="p-3 text-sm text-neutral-500">No workspaces match this repository filter.</p> : null}
+          {visibleWorkspaces.map((workspace) => {
             const disabled = workspace.hasLinkedJiraIssue;
             const selected = selectedWorkspaceIds.has(workspace.workspaceId);
             return (
@@ -884,6 +912,30 @@ export function BulkJiraWorkspaceConversionDialog({ boardView, onClose }: { boar
       </div>
     </div>
   );
+}
+
+
+export function getBulkWorkspaceRepoFilterOptions(workspaces: BulkJiraWorkspaceConversionWorkspaceDto[]): Array<{ id: string; label: string }> {
+  const repos = new Map<string, string>();
+  for (const workspace of workspaces) {
+    for (const repo of workspace.repos) {
+      if (!repos.has(repo.id)) repos.set(repo.id, repo.displayName || repo.name || repo.id);
+    }
+  }
+  return [...repos.entries()]
+    .map(([id, label]) => ({ id, label }))
+    .sort((a, b) => a.label.localeCompare(b.label) || a.id.localeCompare(b.id));
+}
+
+export function filterBulkJiraWorkspacesByRepo(workspaces: BulkJiraWorkspaceConversionWorkspaceDto[], repoId: string): BulkJiraWorkspaceConversionWorkspaceDto[] {
+  const trimmedRepoId = repoId.trim();
+  if (!trimmedRepoId) return workspaces;
+  return workspaces.filter((workspace) => workspace.repos.some((repo) => repo.id === trimmedRepoId));
+}
+
+export function upsertRepoProjectMapping(mappings: BulkJiraRepoProjectMappingDto[], mapping: BulkJiraRepoProjectMappingDto): BulkJiraRepoProjectMappingDto[] {
+  const filtered = mappings.filter((candidate) => candidate.repoId !== mapping.repoId);
+  return [...filtered, mapping];
 }
 
 export function BulkJiraWorkspaceConversionResults({ results }: { results: BulkJiraWorkspaceConversionResultDto[] }) {

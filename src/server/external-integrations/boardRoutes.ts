@@ -1,10 +1,11 @@
 import { execFile } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import type { Hono } from 'hono';
-import type { Kysely } from 'kysely';
+import { sql, type Kysely } from 'kysely';
 import { EXTERNAL_VIEW_URL_PARAM, parseExternalViewUrl } from '../../lib/externalViewUrl';
 import type { DB } from '../../store/kysely_types';
 import { setOtelAttributes, withOtelSpan } from '../../lib/otel';
@@ -192,7 +193,9 @@ export function registerExternalTrackerBoardRoutes(
       const conversionWorkspaces = workspaces
         .map((workspace) => workspaceToBulkConversionOption(workspace, reposByWorkspaceId.get(workspace.id) ?? [], linkedJiraIssuesByWorkspace.get(workspace.id) ?? []))
         .sort((a, b) => Number(a.hasLinkedJiraIssue) - Number(b.hasLinkedJiraIssue) || a.displayName.localeCompare(b.displayName));
-      return c.json({ ok: true, options: { workspaces: conversionWorkspaces } });
+      const repoIds = [...new Set(conversionWorkspaces.flatMap((workspace) => workspace.repos.map((repo) => repo.id)))];
+      const repoProjectMappings = await getBulkJiraRepoProjectMappings(options.db, repoIds);
+      return c.json({ ok: true, options: { workspaces: conversionWorkspaces, repoProjectMappings } });
     } catch {
       return c.json({ ok: false, error: { code: 'vk_workspace_conversion_options_failed', message: 'Could not load VK workspaces for Jira conversion.', userAction: 'Verify the VK server is running and try again.' } }, 502);
     }
@@ -218,6 +221,16 @@ export function registerExternalTrackerBoardRoutes(
     if (!authResult.ok) {
       const error = session ? authResult.error : allAccessBulkJiraCredentialsRequiredError();
       return c.json({ ok: false, error }, session ? authResult.status : 409);
+    }
+
+    if (body.repoProjectMappingRepoId) {
+      await upsertBulkJiraRepoProjectMapping(options.db, {
+        repoId: body.repoProjectMappingRepoId,
+        provider: 'jira',
+        siteHostname: body.siteHostname,
+        projectKey: body.projectKey,
+        ...(body.issueTypeName ? { issueTypeName: body.issueTypeName } : {}),
+      });
     }
 
     const allWorkspaces = (await vkClient.getWorkspaces()).filter((workspace) => !workspace.archived);
@@ -567,6 +580,17 @@ interface BulkJiraWorkspaceConversionRequest {
   issueTypeId?: string;
   issueTypeName?: string;
   workspaceIds: string[];
+  repoProjectMappingRepoId?: string;
+}
+
+interface BulkJiraRepoProjectMapping {
+  repoId: string;
+  repoName?: string;
+  provider: 'jira';
+  siteHostname: string;
+  projectKey: string;
+  issueTypeName?: string;
+  updatedAt?: string;
 }
 
 type SafeBulkJiraWorkspaceError = { code: string; message: string; userAction: string };
@@ -582,6 +606,8 @@ function isBulkJiraWorkspaceConversionRequest(value: unknown): value is BulkJira
   if (!isNonEmptyString(value.siteHostname) || !isSafeHostname(value.siteHostname)) return false;
   if (!isNonEmptyString(value.projectKey) || !/^[A-Za-z][A-Za-z0-9_-]{1,31}$/.test(value.projectKey.trim())) return false;
   if (!isOptionalString(value.issueTypeId) || !isOptionalString(value.issueTypeName)) return false;
+  if (!isOptionalString(value.repoProjectMappingRepoId)) return false;
+  if (value.repoProjectMappingRepoId !== undefined && !isNonEmptyString(value.repoProjectMappingRepoId)) return false;
   if (!isNonEmptyString(value.issueTypeId) && !isNonEmptyString(value.issueTypeName)) return false;
   if (!Array.isArray(value.workspaceIds) || value.workspaceIds.length === 0 || value.workspaceIds.length > 50) return false;
   return value.workspaceIds.every(isNonEmptyString);
@@ -591,6 +617,51 @@ function isSafeHostname(value: string): boolean {
   const trimmed = value.trim().toLowerCase();
   if (trimmed.includes('/') || trimmed.includes('@') || trimmed.includes(':')) return false;
   return /^[a-z0-9.-]+$/.test(trimmed) && trimmed.includes('.');
+}
+
+async function getBulkJiraRepoProjectMappings(db: Kysely<DB>, repoIds: string[]): Promise<BulkJiraRepoProjectMapping[]> {
+  const uniqueRepoIds = [...new Set(repoIds.map((repoId) => repoId.trim()).filter(Boolean))];
+  if (uniqueRepoIds.length === 0) return [];
+  const rows = await db
+    .selectFrom('ExternalRepoProjectMapping')
+    .select(['repoId', 'repoName', 'provider', 'siteHostname', 'projectKey', 'issueTypeName', 'updatedAt'])
+    .where('provider', '=', 'jira')
+    .where('repoId', 'in', uniqueRepoIds)
+    .orderBy('repoName', 'asc')
+    .orderBy('repoId', 'asc')
+    .execute();
+  return rows.map((row) => ({
+    repoId: row.repoId,
+    ...(row.repoName ? { repoName: row.repoName } : {}),
+    provider: 'jira' as const,
+    siteHostname: row.siteHostname,
+    projectKey: row.projectKey,
+    ...(row.issueTypeName ? { issueTypeName: row.issueTypeName } : {}),
+    ...(row.updatedAt ? { updatedAt: String(row.updatedAt) } : {}),
+  }));
+}
+
+async function upsertBulkJiraRepoProjectMapping(db: Kysely<DB>, mapping: Omit<BulkJiraRepoProjectMapping, 'updatedAt'>): Promise<void> {
+  await db
+    .insertInto('ExternalRepoProjectMapping')
+    .values({
+      id: randomUUID(),
+      repoId: mapping.repoId.trim(),
+      repoName: mapping.repoName?.trim() || null,
+      provider: mapping.provider,
+      siteHostname: mapping.siteHostname.trim().toLowerCase(),
+      projectKey: mapping.projectKey.trim().toUpperCase(),
+      issueTypeName: mapping.issueTypeName?.trim() || null,
+      metadataJson: null,
+    })
+    .onConflict((oc) => oc.columns(['repoId', 'provider']).doUpdateSet({
+      repoName: mapping.repoName?.trim() || null,
+      siteHostname: mapping.siteHostname.trim().toLowerCase(),
+      projectKey: mapping.projectKey.trim().toUpperCase(),
+      issueTypeName: mapping.issueTypeName?.trim() || null,
+      updatedAt: sql`CURRENT_TIMESTAMP`,
+    }))
+    .execute();
 }
 
 function workspaceToBulkConversionOption(

@@ -77,8 +77,19 @@ export interface BulkJiraWorkspaceConversionWorkspaceDto {
   }>;
 }
 
+export interface BulkJiraRepoProjectMappingDto {
+  repoId: string;
+  repoName?: string;
+  provider: 'jira';
+  siteHostname: string;
+  projectKey: string;
+  issueTypeName?: string;
+  updatedAt?: string;
+}
+
 export interface BulkJiraWorkspaceConversionOptionsDto {
   workspaces: BulkJiraWorkspaceConversionWorkspaceDto[];
+  repoProjectMappings: BulkJiraRepoProjectMappingDto[];
 }
 
 export interface CreatedJiraIssueDto {
@@ -191,17 +202,19 @@ export async function bulkCreateJiraTicketsFromWorkspaces({
   issueTypeId,
   issueTypeName,
   workspaceIds,
+  repoProjectMappingRepoId,
 }: {
   siteHostname: string;
   projectKey: string;
   issueTypeId?: string;
   issueTypeName?: string;
   workspaceIds: string[];
+  repoProjectMappingRepoId?: string;
 }, fetchImpl: typeof fetch = fetch): Promise<ApiEnvelope<{ results: BulkJiraWorkspaceConversionResultDto[] }>> {
   return readEnvelope(await fetchImpl('/dashboard/api/external-trackers/jira/workspaces/bulk-create-issues', {
     method: 'POST',
     headers: { 'content-type': 'application/json', accept: 'application/json' },
-    body: JSON.stringify({ siteHostname, projectKey, issueTypeId, issueTypeName, workspaceIds }),
+    body: JSON.stringify({ siteHostname, projectKey, issueTypeId, issueTypeName, workspaceIds, repoProjectMappingRepoId }),
   }));
 }
 

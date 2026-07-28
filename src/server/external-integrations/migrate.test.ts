@@ -19,7 +19,7 @@ describe('external integrations migrations', () => {
     try {
       const first = await migrateExternalIntegrationsDb(db);
       const second = await migrateExternalIntegrationsDb(db);
-      expect(first).toEqual(['20260702000000_external_integrations', '20260702010000_external_issue_workspace_mappings']);
+      expect(first).toEqual(['20260702000000_external_integrations', '20260702010000_external_issue_workspace_mappings', '20260702020000_external_repo_project_mappings']);
       expect(second).toEqual([]);
 
       const tables = await (db as unknown as Kysely<{ sqlite_master: { name: string; type: string } }>)
@@ -36,6 +36,7 @@ describe('external integrations migrations', () => {
         'ExternalIssue',
         'VKWorkspace',
         'ExternalIssueWorkspaceLink',
+        'ExternalRepoProjectMapping',
         'Migration',
       ]));
     } finally {

@@ -86,6 +86,19 @@ export interface VKWorkspace {
   updatedAt: Generated<Timestamp>;
 }
 
+export interface ExternalRepoProjectMapping {
+  id: string;
+  repoId: string;
+  repoName: string | null;
+  provider: ExternalProvider;
+  siteHostname: string;
+  projectKey: string;
+  issueTypeName: string | null;
+  metadataJson: string | null;
+  createdAt: Generated<Timestamp>;
+  updatedAt: Generated<Timestamp>;
+}
+
 export interface ExternalIssueWorkspaceLink {
   id: string;
   externalIssueId: string;
@@ -110,6 +123,7 @@ export interface DB {
   BetterAuthVerification: BetterAuthVerification;
   ExternalProviderConnection: ExternalProviderConnection;
   ExternalIssue: ExternalIssue;
+  ExternalRepoProjectMapping: ExternalRepoProjectMapping;
   VKWorkspace: VKWorkspace;
   ExternalIssueWorkspaceLink: ExternalIssueWorkspaceLink;
   Migration: Migration;

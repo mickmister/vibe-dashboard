@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { DrawerBody } from '@heroui/drawer';
-import { ExternalJiraBoardContent, ExternalJiraBoardRoute, ExternalJiraCard, ExternalJiraColumnVisibilityControls, getVisibleExternalJiraCards, getVisibleExternalJiraColumns, ExternalJiraIssueDetailBodyContent, ExternalJiraIssueDetailDrawerContent, ExternalJiraIssueDetailSheet, BulkJiraWorkspaceConversionResults, buildVKWorkspaceSessionUrl, mergeWorkspaceMetricsIntoBoardView, stripPortSubdomain } from './ExternalJiraBoardView';
+import { ExternalJiraBoardContent, ExternalJiraBoardRoute, ExternalJiraCard, ExternalJiraColumnVisibilityControls, getVisibleExternalJiraCards, getVisibleExternalJiraColumns, ExternalJiraIssueDetailBodyContent, ExternalJiraIssueDetailDrawerContent, ExternalJiraIssueDetailSheet, BulkJiraWorkspaceConversionResults, filterBulkJiraWorkspacesByRepo, getBulkWorkspaceRepoFilterOptions, upsertRepoProjectMapping, buildVKWorkspaceSessionUrl, mergeWorkspaceMetricsIntoBoardView, stripPortSubdomain } from './ExternalJiraBoardView';
 import type { ExternalJiraBoardViewDto, ExternalKanbanCardDto } from '../lib/externalTrackerBoardApi';
 
 const baseBoardView: ExternalJiraBoardViewDto = {
@@ -42,6 +42,25 @@ describe('ExternalJiraBoardContent', () => {
     expect(html).toContain('overflow-x-auto');
   });
 
+
+  it('filters bulk conversion workspaces by repository while preserving linked state', () => {
+    const workspaces = [
+      { workspaceId: 'ws-api', displayName: 'API workspace', branch: 'vk/api', createdAt: '2026-07-28T00:00:00Z', updatedAt: '2026-07-28T00:00:00Z', pinned: false, repos: [{ id: 'repo-api', name: 'api', displayName: 'API', targetBranch: 'origin/main' }], hasLinkedJiraIssue: false, linkedJiraIssues: [] },
+      { workspaceId: 'ws-web', displayName: 'Web workspace', branch: 'vk/web', createdAt: '2026-07-28T00:00:00Z', updatedAt: '2026-07-28T00:00:00Z', pinned: false, repos: [{ id: 'repo-web', name: 'web', displayName: 'Web', targetBranch: 'origin/main' }], hasLinkedJiraIssue: true, linkedJiraIssues: [{ provider: 'jira' as const, key: 'VD-1', url: 'https://team.atlassian.net/browse/VD-1', site: 'team.atlassian.net', isPrimary: true }] },
+    ];
+
+    expect(getBulkWorkspaceRepoFilterOptions(workspaces)).toEqual([{ id: 'repo-api', label: 'API' }, { id: 'repo-web', label: 'Web' }]);
+    expect(filterBulkJiraWorkspacesByRepo(workspaces, 'repo-web')).toEqual([expect.objectContaining({ workspaceId: 'ws-web', hasLinkedJiraIssue: true })]);
+    expect(filterBulkJiraWorkspacesByRepo(workspaces, '')).toHaveLength(2);
+  });
+
+  it('updates remembered repo Jira project mapping locally', () => {
+    expect(upsertRepoProjectMapping([
+      { repoId: 'repo-api', provider: 'jira', siteHostname: 'old.atlassian.net', projectKey: 'OLD' },
+    ], { repoId: 'repo-api', provider: 'jira', siteHostname: 'team.atlassian.net', projectKey: 'API', issueTypeName: 'Task' })).toEqual([
+      { repoId: 'repo-api', provider: 'jira', siteHostname: 'team.atlassian.net', projectKey: 'API', issueTypeName: 'Task' },
+    ]);
+  });
 
   it('shows a warning when Jira creation succeeds but VD link persistence fails', () => {
     const html = renderToStaticMarkup(React.createElement(BulkJiraWorkspaceConversionResults, {

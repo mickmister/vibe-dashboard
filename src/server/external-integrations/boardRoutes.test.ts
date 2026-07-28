@@ -798,6 +798,7 @@ describe('external Jira board routes', () => {
     await expect(response.json()).resolves.toEqual({
       ok: true,
       options: {
+        repoProjectMappings: [],
         workspaces: [
           expect.objectContaining({
             workspaceId: 'ws-open',
@@ -834,6 +835,7 @@ describe('external Jira board routes', () => {
     expect(body).toEqual({
       ok: true,
       options: {
+        repoProjectMappings: [],
         workspaces: [expect.objectContaining({ workspaceId: 'ws-open', displayName: 'Open Workspace', hasLinkedJiraIssue: false })],
       },
     });
@@ -862,6 +864,7 @@ describe('external Jira board routes', () => {
     await expect(response.json()).resolves.toEqual({
       ok: true,
       options: {
+        repoProjectMappings: [],
         workspaces: [
           expect.objectContaining({ workspaceId: 'ws-fast', repos: [{ id: 'repo-1', name: 'fast', displayName: 'fast', targetBranch: 'origin/main' }] }),
           expect.objectContaining({ workspaceId: 'ws-hung', repos: [] }),
@@ -945,6 +948,44 @@ describe('external Jira board routes', () => {
       description: expect.stringContaining('VK workspace: ws-1'),
     }));
     await expect(db.selectFrom('ExternalIssueWorkspaceLink').selectAll().execute()).resolves.toHaveLength(2);
+  });
+
+  it('remembers the Jira project associated with a filtered repo after bulk create', async () => {
+    const app = new Hono();
+    const createJiraIssue = vi.fn(async () => ({
+      ok: true as const,
+      issue: { id: '10001', key: 'VD-1', url: 'https://team.atlassian.net/browse/VD-1' },
+    }));
+    const vkClient = createVkClient({
+      getWorkspaces: vi.fn(async () => [
+        { id: 'ws-1', task_id: null, container_ref: '/work/ws-1', agent_working_dir: null, branch: 'vk/ws-1', created_at: '2026-07-28T00:00:00Z', updated_at: '2026-07-28T00:01:00Z', archived: false, pinned: false, name: 'Workspace' },
+      ]),
+      getWorkspaceRepos: vi.fn(async () => [{ id: 'repo-api', name: 'api', display_name: 'API', target_branch: 'origin/main' }]),
+    });
+    registerExternalTrackerBoardRoutes(app, {
+      enabled: true,
+      auth: createAuthService(null),
+      db,
+      vkClient,
+      createJiraIssue,
+      jiraBotAuth: { kind: 'basic', siteHostname: 'team.atlassian.net', email: 'bot@example.com', apiToken: 'secret-token' },
+    });
+
+    const createResponse = await app.request('/dashboard/api/external-trackers/jira/workspaces/bulk-create-issues', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ siteHostname: 'team.atlassian.net', projectKey: 'API', issueTypeName: 'Task', workspaceIds: ['ws-1'], repoProjectMappingRepoId: 'repo-api' }),
+    });
+    expect(createResponse.status).toBe(200);
+
+    const optionsResponse = await app.request('/dashboard/api/external-trackers/vk/workspace-jira-conversion-options');
+    expect(optionsResponse.status).toBe(200);
+    await expect(optionsResponse.json()).resolves.toEqual({
+      ok: true,
+      options: expect.objectContaining({
+        repoProjectMappings: [expect.objectContaining({ repoId: 'repo-api', provider: 'jira', siteHostname: 'team.atlassian.net', projectKey: 'API', issueTypeName: 'Task' })],
+      }),
+    });
   });
 
   it('bulk creates Jira issues without a VD session when bot credentials are configured', async () => {
