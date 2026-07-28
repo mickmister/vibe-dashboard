@@ -189,6 +189,46 @@ textarea {
   border-color: #f59e0b;
 }
 
+.beadsform-root.is-submitting .beadsform-form-host {
+  visibility: hidden;
+}
+
+.beadsform-root .beadsform-submit-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  min-height: 100vh;
+  padding: 2rem;
+  background: rgba(10, 10, 10, 0.92);
+  color: #fafafa;
+  text-align: center;
+}
+
+.beadsform-root .beadsform-submit-overlay p {
+  margin: 0;
+  font-size: 1.125rem;
+}
+
+.beadsform-root .beadsform-submit-spinner {
+  width: 2.75rem;
+  height: 2.75rem;
+  border: 0.25rem solid #3f3f46;
+  border-top-color: #60a5fa;
+  border-radius: 999px;
+  animation: beadsform-spin 0.9s linear infinite;
+}
+
+@keyframes beadsform-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .beadsform-root .beads-form-more-info-toggle {
   display: inline-flex;
   align-items: center;

@@ -31,6 +31,7 @@ import {
 import { rewriteFolderPreviewMediaRefs } from '../lib/beadsFormPreviewMedia';
 import { initializeSingleQuestionMode } from '../lib/beadsFormSingleQuestion';
 import { initializeCompactMoreInfo, refreshCompactMoreInfoState } from '../lib/beadsFormMoreInfo';
+import { preserveSubmittedFormDom } from '../lib/beadsFormSubmissionUi';
 
 // @platform "node"
 import { serverRegistry } from 'springboard/server/register';
@@ -175,27 +176,14 @@ function normalizeSubmittedFormEvent(
   return normalizeSubmittedValues(form, values);
 }
 
-function preserveSubmittedFormDom(
-  host: HTMLDivElement | null,
-  values: JsonObject,
-  options: { lock: boolean; singleQuestionMode: boolean },
-): void {
-  const apply = () => {
-    if (!host) return;
-    if (options.singleQuestionMode) initializeSingleQuestionMode(host);
-    initializeCompactMoreInfo(host);
-    const form = host.querySelector('form');
-    if (!form) return;
-    applyValuesToForm(form, values);
-    refreshCompactMoreInfoState(host);
-    setSubmitButtonsDisabled(form, options.lock);
-    setFormFieldsReadOnly(form, options.lock);
-  };
 
-  apply();
-  if (typeof window !== 'undefined') {
-    window.setTimeout(apply, 0);
-  }
+function SubmittingOverlay() {
+  return (
+    <div className="beadsform-submit-overlay" role="status" aria-live="polite">
+      <div className="beadsform-submit-spinner" aria-hidden="true" />
+      <p>Submitting…</p>
+    </div>
+  );
 }
 
 function BeadsFormPreviewRoute({ actions }: { actions: {
@@ -288,6 +276,14 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
     refreshCompactMoreInfoState(host);
   }, [loaded?.selectedForm, selectedHtml]);
 
+  React.useEffect(() => {
+    if (!submitResult || !loaded?.selectedForm) return;
+    preserveSubmittedFormDom(formHostRef.current, submitResult.values, {
+      lock: submittedLocked,
+      singleQuestionMode: loaded.selectedForm.format === 'standard',
+    });
+  }, [loaded?.selectedForm, selectedHtml, submitResult, submittedLocked]);
+
   const handleDraftChange = () => {
     if (submittedLocked || !previewStateKey || typeof window === 'undefined') return;
     const form = formHostRef.current?.querySelector('form');
@@ -344,7 +340,7 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
   };
 
   return (
-    <div className="beadsform-root beadsform-page">
+    <div className={`beadsform-root beadsform-page${submitting ? ' is-submitting' : ''}`} aria-busy={submitting}>
       {!loaded?.selectedForm ? <header>
         <p className="beadsform-eyebrow">Forms preview</p>
         <h1>Folder forms</h1>
@@ -378,14 +374,16 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
           </header>
           <div
             ref={formHostRef}
+            className="beadsform-form-host"
+            aria-hidden={submitting ? true : undefined}
             onInput={handleDraftChange}
             onChange={handleDraftChange}
             onSubmit={handleSubmit}
             dangerouslySetInnerHTML={{ __html: selectedHtml }}
           />
+          {submitting ? <SubmittingOverlay /> : null}
         </section>
       ) : null}
-      {submitting ? <p>Submitting…</p> : null}
       {submitResult ? (
         <section className="beadsform-submit-result">
           <h2>JSON copied</h2>
@@ -608,6 +606,14 @@ function BeadsFormRoute({ actions }: { actions: {
     refreshCompactMoreInfoState(host);
   }, [loaded?.selected?.selectedForm, selectedHtml]);
 
+  React.useEffect(() => {
+    if (!submitResult || !loaded?.selected?.selectedForm) return;
+    preserveSubmittedFormDom(formHostRef.current, submitResult.values, {
+      lock: submittedLocked,
+      singleQuestionMode: loaded.selected.selectedForm.format === 'standard',
+    });
+  }, [loaded?.selected?.selectedForm, selectedHtml, submitResult, submittedLocked]);
+
   const handleBeadDraftChange = () => {
     if (submittedLocked || !beadDraftStorageKey || typeof window === 'undefined') return;
     const form = formHostRef.current?.querySelector('form');
@@ -688,7 +694,7 @@ function BeadsFormRoute({ actions }: { actions: {
   const selectedForm = selected?.selectedForm;
 
   return (
-    <div className="beadsform-root beadsform-page">
+    <div className={`beadsform-root beadsform-page${submitting ? ' is-submitting' : ''}`} aria-busy={submitting}>
       <header>
         <p className="beadsform-eyebrow">Forms</p>
         <h1>{bead ? `${bead.id}: ${bead.title ?? 'Untitled bead'}` : 'Workspace forms'}</h1>
@@ -763,16 +769,18 @@ function BeadsFormRoute({ actions }: { actions: {
           ) : null}
           <div
             ref={formHostRef}
+            className="beadsform-form-host"
+            aria-hidden={submitting ? true : undefined}
             onInput={handleBeadDraftChange}
             onChange={handleBeadDraftChange}
             onSubmit={handleSubmit}
             dangerouslySetInnerHTML={{ __html: selectedHtml }}
           />
+          {submitting ? <SubmittingOverlay /> : null}
         </section>
       )}
 
       {error ? <p role="alert" className="beadsform-error">{error}</p> : null}
-      {submitting ? <p>Submitting…</p> : null}
       {submitResult ? (
         <section className="beadsform-submit-result">
           <h2>Submitted</h2>

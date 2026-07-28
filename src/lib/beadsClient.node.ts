@@ -110,6 +110,20 @@ export class BeadsClient {
   }
 
   async readBead(dir: string, beadId: string): Promise<BeadLike> {
+    try {
+      const listed = await this.listBeadsById(dir, beadId);
+      const bead = listed.find((candidate) => candidate.id === beadId);
+      if (!bead) throw new Error(`Bead not found: ${beadId}`);
+      if (isObject(bead.metadata)) return bead;
+    } catch (error) {
+      if (isBeadNotFoundError(error, beadId)) throw error;
+      // Older bd versions or schema-skewed list output can fail here. Fall back
+      // to the slower show path so direct bead URLs and submissions still work.
+    }
+    return this.readBeadByShow(dir, beadId);
+  }
+
+  private async readBeadByShow(dir: string, beadId: string): Promise<BeadLike> {
     const { stdout } = await this.exec(this.bdPath, ['--readonly', 'show', beadId, '--json', '--long'], {
       cwd: dir,
       timeout: 30_000,
@@ -356,7 +370,7 @@ export class BeadsClient {
 
   private async tryReadSingleBead(dir: string, beadId: string): Promise<BeadLike[]> {
     try {
-      return [await this.readBead(dir, beadId)];
+      return [await this.readBeadByShow(dir, beadId)];
     } catch (error) {
       if (isBeadNotFoundError(error, beadId)) return [];
       throw error;

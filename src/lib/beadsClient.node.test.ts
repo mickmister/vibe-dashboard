@@ -20,19 +20,34 @@ const reviewMetadata = {
 };
 
 describe('BeadsClient', () => {
-  it('reads a bead with bd show --json --long', async () => {
+  it('reads a bead with targeted bd list metadata before falling back to show', async () => {
     const exec = vi.fn<ExecFileLike>(async () => ({ stdout: beadJson({ beadForms: { forms: [] } }), stderr: '' }));
     const client = new BeadsClient({ execFile: exec });
 
     await expect(client.readBead('/repo', 'beads-web-biu')).resolves.toMatchObject({ id: 'beads-web-biu' });
-    expect(exec).toHaveBeenCalledWith('bd', ['--readonly', 'show', 'beads-web-biu', '--json', '--long'], expect.objectContaining({ cwd: '/repo' }));
+    expect(exec).toHaveBeenCalledWith('bd', ['--readonly', 'list', '--json', '--all', '--limit', '0', '--id', 'beads-web-biu'], expect.objectContaining({ cwd: '/repo' }));
+    expect(exec).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back to bd show when targeted list lacks metadata', async () => {
+    const exec = vi.fn<ExecFileLike>(async (_file, args) => {
+      if (args[1] === 'list') return { stdout: JSON.stringify([{ id: 'beads-web-biu', title: 'Plan' }]), stderr: '' };
+      return { stdout: beadJson({ beadForms: { forms: [] } }), stderr: '' };
+    });
+    const client = new BeadsClient({ execFile: exec });
+
+    await expect(client.readBead('/repo', 'beads-web-biu')).resolves.toMatchObject({ id: 'beads-web-biu' });
+    expect(exec.mock.calls.map(([, args]) => args)).toEqual([
+      ['--readonly', 'list', '--json', '--all', '--limit', '0', '--id', 'beads-web-biu'],
+      ['--readonly', 'show', 'beads-web-biu', '--json', '--long'],
+    ]);
   });
 
   it('submits a response by re-reading, updating metadata with @file, and adding review label', async () => {
     const calls: Array<{ file: string; args: readonly string[]; cwd: string }> = [];
     const exec = vi.fn<ExecFileLike>(async (file, args, options) => {
       calls.push({ file, args, cwd: options.cwd });
-      if (args[0] === '--readonly' && args[1] === 'show') return { stdout: beadJson(reviewMetadata), stderr: '' };
+      if (args[0] === '--readonly' && args[1] === 'list') return { stdout: beadJson(reviewMetadata), stderr: '' };
       return { stdout: '', stderr: '' };
     });
     const client = new BeadsClient({ execFile: exec, now: () => new Date('2026-06-29T00:00:00Z') });
@@ -49,7 +64,7 @@ describe('BeadsClient', () => {
       pendingFormIds: [],
     });
     expect(calls.map((call) => call.args.slice(0, 3))).toEqual([
-      ['--readonly', 'show', 'beads-web-biu'],
+      ['--readonly', 'list', '--json'],
       ['update', 'beads-web-biu', '--metadata'],
       ['update', 'beads-web-biu', '--add-label'],
     ]);
@@ -59,7 +74,7 @@ describe('BeadsClient', () => {
 
   it('returns a warning instead of failing when review label add fails after metadata persistence', async () => {
     const exec = vi.fn<ExecFileLike>(async (_file, args) => {
-      if (args[0] === '--readonly' && args[1] === 'show') return { stdout: beadJson(reviewMetadata), stderr: '' };
+      if (args[0] === '--readonly' && args[1] === 'list') return { stdout: beadJson(reviewMetadata), stderr: '' };
       if (args.includes('--add-label')) throw new Error('label failed');
       return { stdout: '', stderr: '' };
     });
