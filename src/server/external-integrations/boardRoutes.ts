@@ -7,6 +7,7 @@ import type { Hono } from 'hono';
 import type { Kysely } from 'kysely';
 import { EXTERNAL_VIEW_URL_PARAM, parseExternalViewUrl } from '../../lib/externalViewUrl';
 import type { DB } from '../../store/kysely_types';
+import { setOtelAttributes, withOtelSpan } from '../../lib/otel';
 import type { ExternalTrackerAuthService } from './auth';
 import { isExternalTrackerProvider } from './config';
 import { fetchJiraBoardView } from './jiraAdapter';
@@ -148,55 +149,86 @@ export function registerExternalTrackerBoardRoutes(
   });
 
 
-  hono.post('/dashboard/api/external-trackers/vk/workspace-metrics', async (c) => {
+  hono.post('/dashboard/api/external-trackers/vk/workspace-metrics', (c) => withOtelSpan('external_jira.workspace_metrics_route', { 'http.route': '/dashboard/api/external-trackers/vk/workspace-metrics' }, async (span) => {
     if (!options.enabled) {
+      setOtelAttributes(span, { 'vd.error_code': 'external_trackers_disabled' });
       return c.json({ ok: false, error: { code: 'external_trackers_disabled', message: 'External tracker workspace metrics are disabled.', userAction: 'Enable the external tracker feature flag and try again.' } }, 404);
     }
     const body = await c.req.json().catch(() => undefined) as unknown;
     if (!isWorkspaceMetricsRequest(body)) {
+      setOtelAttributes(span, { 'vd.error_code': 'invalid_workspace_metrics_request' });
       return c.json({ ok: false, error: { code: 'invalid_workspace_metrics_request', message: 'The workspace metrics request was invalid.', userAction: 'Provide a workspaceIds array.' } }, 400);
     }
+    setOtelAttributes(span, { 'vd.workspace_count': body.workspaceIds.length });
     const metrics = await loadRelatedWorkspaceMetrics(body.workspaceIds, vkClient, options.workspaceMetricsTimeoutMs ?? 2_500);
+    setOtelAttributes(span, { 'vd.metrics_workspace_count': metrics.size });
     return c.json({ ok: true, metricsByWorkspaceId: Object.fromEntries(metrics) });
-  });
+  }));
 
-  hono.get('/dashboard/api/external-trackers/jira/board', async (c) => {
+  hono.get('/dashboard/api/external-trackers/jira/board', (c) => withOtelSpan('external_jira.board_route', { 'http.route': '/dashboard/api/external-trackers/jira/board' }, async (span) => {
     if (!options.enabled) {
+      setOtelAttributes(span, { 'vd.error_code': 'external_trackers_disabled' });
       return c.json({ ok: false, error: { code: 'external_trackers_disabled', message: 'External tracker views are disabled.', userAction: 'Enable the external tracker feature flag and try again.' } }, 404);
     }
 
     const externalViewUrl = c.req.query(EXTERNAL_VIEW_URL_PARAM)?.trim();
     if (!externalViewUrl) {
+      setOtelAttributes(span, { 'vd.error_code': 'missing_external_view_url' });
       return c.json({ ok: false, error: { code: 'missing_external_view_url', message: 'No external Jira URL was provided.', userAction: 'Open this page from a supported Jira board URL.' } }, 400);
     }
 
-    const parsed = parseExternalViewUrl(externalViewUrl);
+    const parsed = await withOtelSpan('external_jira.parse_external_view_url', {}, () => parseExternalViewUrl(externalViewUrl));
     if (parsed.status !== 'ok') {
+      setOtelAttributes(span, { 'vd.error_code': parsed.reason });
       return c.json({ ok: false, error: { code: parsed.reason, message: 'The external URL is not supported.', userAction: 'Open this page from a supported Jira board URL.', originalUrl: parsed.originalUrl } }, 400);
     }
 
+    setOtelAttributes(span, {
+      'external.provider': parsed.locator.provider,
+      'jira.site_hostname': parsed.locator.siteHostname,
+      'jira.view_kind': parsed.locator.viewKind,
+      'jira.has_board_id': Boolean(parsed.locator.boardId),
+      'jira.project_key': parsed.locator.projectKey,
+    });
+
     if (parsed.locator.provider !== 'jira') {
+      setOtelAttributes(span, { 'vd.error_code': 'unsupported_external_view' });
       return c.json({ ok: false, error: { code: 'unsupported_external_view', message: 'Only Jira URLs are supported in this view.', userAction: 'Open a Jira board URL and try again.' } }, 400);
     }
 
     const adapter = options.fetchJiraBoardView ?? fetchJiraBoardView;
-    const authResult = await resolveJiraBoardAuth({
-      db: options.db,
-      userId: (await options.auth.getSession(c.req.raw.headers))?.user.id,
-      botAuth: options.jiraBotAuth === undefined ? getEnvJiraBotAuth() : options.jiraBotAuth || undefined,
+    const authResult = await withOtelSpan('external_jira.resolve_auth', { 'jira.site_hostname': parsed.locator.siteHostname }, async (authSpan) => {
+      const session = await options.auth.getSession(c.req.raw.headers);
+      const resolved = await resolveJiraBoardAuth({
+        db: options.db,
+        userId: session?.user.id,
+        botAuth: options.jiraBotAuth === undefined ? getEnvJiraBotAuth() : options.jiraBotAuth || undefined,
+      });
+      setOtelAttributes(authSpan, resolved.ok ? { 'jira.auth_source': resolved.auth.kind } : { 'vd.error_code': resolved.error.code });
+      return resolved;
     });
     if (!authResult.ok) return c.json({ ok: false, error: authResult.error }, authResult.status);
 
-    const result = await adapter(authResult.auth.kind === 'oauth'
-      ? { locator: parsed.locator, accessToken: authResult.auth.accessToken }
-      : { locator: parsed.locator, auth: authResult.auth });
+    const result = await withOtelSpan('external_jira.adapter_fetch_board', {
+      'jira.auth_source': authResult.auth.kind,
+      'jira.view_kind': parsed.locator.viewKind,
+      'jira.has_board_id': Boolean(parsed.locator.boardId),
+    }, async (adapterSpan) => {
+      const adapterResult = await adapter(authResult.auth.kind === 'oauth'
+        ? { locator: parsed.locator, accessToken: authResult.auth.accessToken }
+        : { locator: parsed.locator, auth: authResult.auth });
+      setOtelAttributes(adapterSpan, adapterResult.ok
+        ? { 'jira.issue_count': adapterResult.boardView.pagination.issueCount, 'jira.page_count': adapterResult.boardView.pagination.pageCount }
+        : { 'vd.error_code': adapterResult.error.code });
+      return adapterResult;
+    });
 
     if (!result.ok) {
       return c.json({ ok: false, error: result.error }, statusForJiraAdapterError(result));
     }
 
-    const workspaceDecoratedBoardView = await decorateJiraBoardWithWorkspaceMappings(options.db, result.boardView);
-    const fullyDecoratedBoardView = await decorateJiraBoardWithBeadLinks(workspaceDecoratedBoardView, options.beads);
+    const workspaceDecoratedBoardView = await withOtelSpan('external_jira.decorate_workspaces', { 'jira.issue_count': result.boardView.pagination.issueCount }, () => decorateJiraBoardWithWorkspaceMappings(options.db, result.boardView));
+    const fullyDecoratedBoardView = await withOtelSpan('external_jira.decorate_beads', { 'jira.issue_count': workspaceDecoratedBoardView.pagination.issueCount }, () => decorateJiraBoardWithBeadLinks(workspaceDecoratedBoardView, options.beads));
     const boardViewWithDiagnostics = {
       ...fullyDecoratedBoardView,
       diagnostics: {
@@ -211,8 +243,9 @@ export function registerExternalTrackerBoardRoutes(
         authSource: authResult.auth.kind === 'oauth' ? 'oauth' as const : 'bot' as const,
       },
     };
+    setOtelAttributes(span, { 'jira.issue_count': fullyDecoratedBoardView.pagination.issueCount, 'jira.page_count': fullyDecoratedBoardView.pagination.pageCount });
     return c.json({ ok: true, boardView: boardViewWithDiagnostics });
-  });
+  }));
 
   hono.post('/dashboard/api/external-trackers/workspace-links', async (c) => {
     if (!options.enabled) {
@@ -562,10 +595,10 @@ async function loadRelatedWorkspaceMetrics(
   const uniqueWorkspaceIds = [...new Set(workspaceIds)].filter(Boolean);
   if (uniqueWorkspaceIds.length === 0) return new Map();
 
-  const activeSummariesPromise = withTimeoutCall(() => vkClient.getWorkspaceSummaries(false), timeoutMs).catch(() => undefined);
-  const archivedSummariesPromise = withTimeoutCall(() => vkClient.getWorkspaceSummaries(true), timeoutMs).catch(() => undefined);
+  const activeSummariesPromise = withOtelSpan('external_jira.workspace_metrics.summaries', { 'vk.archived': false }, () => withTimeoutCall(() => vkClient.getWorkspaceSummaries(false), timeoutMs)).catch(() => undefined);
+  const archivedSummariesPromise = withOtelSpan('external_jira.workspace_metrics.summaries', { 'vk.archived': true }, () => withTimeoutCall(() => vkClient.getWorkspaceSummaries(true), timeoutMs)).catch(() => undefined);
   const sessionCountsPromise = Promise.all(uniqueWorkspaceIds.map(async (workspaceId): Promise<[string, number] | undefined> => {
-    const sessions = await withTimeoutCall(() => vkClient.getSessions(workspaceId), timeoutMs).catch(() => undefined);
+    const sessions = await withOtelSpan('external_jira.workspace_metrics.sessions', { 'vd.workspace_count': 1 }, () => withTimeoutCall(() => vkClient.getSessions(workspaceId), timeoutMs)).catch(() => undefined);
     return sessions ? [workspaceId, sessions.length] : undefined;
   }));
 

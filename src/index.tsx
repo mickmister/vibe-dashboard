@@ -29,6 +29,7 @@ import "./modules/MainUIShellModule";
 // @platform end
 
 // @platform "node"
+import "./modules/ObservabilityServerModule";
 import "./modules/WorkflowServerModule";
 import "./modules/ExternalTrackerServerModule";
 // @platform end

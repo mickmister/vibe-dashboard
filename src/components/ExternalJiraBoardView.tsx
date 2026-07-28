@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Drawer, DrawerBody, DrawerContent } from '@heroui/drawer';
 import type { DashboardExternalViewParseResult } from '../lib/externalViewUrl';
 import { fetchExternalJiraBoardView } from '../lib/externalTrackerBoardApi';
+import { setOtelAttributes, withOtelSpan } from '../lib/otel';
 import type { ExternalJiraBoardApiResponse, ExternalJiraBoardViewDto, ExternalKanbanCardDto, ExternalKanbanColumnDto } from '../lib/externalTrackerBoardApi';
 import { cloneExternalWorkspaceRepo, createExternalIssueWorkspace, fetchExternalWorkspaceCreateOptions, fetchExternalWorkspaceMetrics, fetchExternalWorkspaceRepoBranches, registerExternalWorkspaceRepo } from '../lib/externalWorkspaceCreateApi';
 import type { ExternalWorkspaceCandidateRepoDto, ExternalWorkspaceCreateOptionsDto, ExternalWorkspaceMetricsDto, VkBranchDto, VkExecutorConfigDto, VkRepoDto } from '../lib/externalWorkspaceCreateApi';
@@ -31,8 +32,9 @@ export function ExternalJiraBoardLoader({ externalViewUrl }: { externalViewUrl: 
     setError(undefined);
     setResponse(undefined);
 
-    fetchExternalJiraBoardView({ externalViewUrl })
+    withOtelSpan('external_jira.client_load_board', {}, (span) => fetchExternalJiraBoardView({ externalViewUrl })
       .then((nextResponse) => {
+        setOtelAttributes(span, nextResponse.ok ? { 'jira.issue_count': nextResponse.boardView.pagination.issueCount } : { 'vd.error_code': nextResponse.error.code });
         if (!cancelled) setResponse(nextResponse);
         if (nextResponse.ok) {
           loadWorkspaceMetricsForBoard(nextResponse.boardView, (boardView) => {
@@ -45,6 +47,9 @@ export function ExternalJiraBoardLoader({ externalViewUrl }: { externalViewUrl: 
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
+      }))
+      .catch((caught) => {
+        if (!cancelled) setError(caught instanceof Error ? caught.message : String(caught));
       });
 
     return () => {
@@ -96,7 +101,7 @@ function workspaceIdsForBoard(boardView: ExternalJiraBoardViewDto): string[] {
 async function loadWorkspaceMetricsForBoard(boardView: ExternalJiraBoardViewDto, apply: (boardView: ExternalJiraBoardViewDto) => void): Promise<void> {
   const workspaceIds = workspaceIdsForBoard(boardView);
   if (workspaceIds.length === 0) return;
-  const result = await fetchExternalWorkspaceMetrics(workspaceIds).catch(() => undefined);
+  const result = await withOtelSpan('external_jira.client_load_workspace_metrics', { 'vd.workspace_count': workspaceIds.length }, () => fetchExternalWorkspaceMetrics(workspaceIds)).catch(() => undefined);
   if (result?.ok) apply(mergeWorkspaceMetricsIntoBoardView(boardView, result.metricsByWorkspaceId));
 }
 

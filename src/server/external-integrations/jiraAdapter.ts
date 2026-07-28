@@ -1,5 +1,6 @@
 import { Buffer } from 'node:buffer';
 import type { JiraExternalViewLocator } from '../../lib/externalViewUrl';
+import { setOtelAttributes, withOtelSpan } from '../../lib/otel';
 
 const ATLASSIAN_API_ORIGIN = 'https://api.atlassian.com';
 const JIRA_BOARD_FIELDS = ['summary', 'status', 'issuetype', 'assignee', 'labels', 'priority', 'parent', 'epic'].join(',');
@@ -198,7 +199,7 @@ export async function fetchJiraBoardView({
     };
   }
 
-  const contextResult = await resolveJiraRequestContext({ auth: jiraAuth, siteHostname: locator.siteHostname, fetchImpl });
+  const contextResult = await withOtelSpan('external_jira.resolve_request_context', { 'jira.auth_source': jiraAuth.kind, 'jira.site_hostname': locator.siteHostname }, () => resolveJiraRequestContext({ auth: jiraAuth, siteHostname: locator.siteHostname, fetchImpl }));
   if (!contextResult.ok) return contextResult;
 
   if (!locator.boardId) {
@@ -210,7 +211,7 @@ export async function fetchJiraBoardView({
     });
   }
 
-  const boardConfigResult = await jiraJson(fetchImpl, `${contextResult.context.jiraBaseUrl}/rest/agile/1.0/board/${encodeURIComponent(locator.boardId)}/configuration`, contextResult.context.authHeader);
+  const boardConfigResult = await withOtelSpan('external_jira.fetch_board_configuration', { 'jira.board_id_present': true }, () => jiraJson(fetchImpl, `${contextResult.context.jiraBaseUrl}/rest/agile/1.0/board/${encodeURIComponent(locator.boardId)}/configuration`, contextResult.context.authHeader));
   if (!boardConfigResult.ok) return boardConfigResult;
 
   if (!isRecord(boardConfigResult.value)) {
@@ -219,14 +220,14 @@ export async function fetchJiraBoardView({
 
   const normalizedColumns = normalizeColumns(boardConfigResult.value);
   const boardIssueJql = buildBoardIssueJql(locator);
-  const issuePagesResult = await fetchBoardIssuePages({
+  const issuePagesResult = await withOtelSpan('external_jira.fetch_board_issue_pages', { 'jira.page_size': clampPageSize(pageSize), 'jira.has_jql_filter': Boolean(boardIssueJql) }, () => fetchBoardIssuePages({
     fetchImpl,
     jiraBaseUrl: contextResult.context.jiraBaseUrl,
     boardId: locator.boardId,
     authHeader: contextResult.context.authHeader,
     pageSize: clampPageSize(pageSize),
     jql: boardIssueJql,
-  });
+  }));
   if (!issuePagesResult.ok) return issuePagesResult;
 
   const statusToColumnId = new Map<string, string>();
@@ -277,13 +278,13 @@ async function fetchJiraProjectIssueView({
   fetchImpl: typeof fetch;
   pageSize: number;
 }): Promise<JiraBoardAdapterResult> {
-  const issuePagesResult = await fetchProjectIssuePages({
+  const issuePagesResult = await withOtelSpan('external_jira.fetch_project_issue_pages', { 'jira.page_size': pageSize, 'jira.project_key': locator.projectKey }, () => fetchProjectIssuePages({
     fetchImpl,
     jiraBaseUrl: context.jiraBaseUrl,
     locator,
     authHeader: context.authHeader,
     pageSize,
-  });
+  }));
   if (!issuePagesResult.ok) return issuePagesResult;
 
   const columns = inferColumnsFromIssues(issuePagesResult.issues);
@@ -338,7 +339,7 @@ export async function resolveJiraAccessibleResource({
   siteHostname: string;
   fetchImpl?: typeof fetch;
 }): Promise<{ ok: true; resource: JiraAccessibleResource } | { ok: false; error: JiraProviderError }> {
-  const resourcesResult = await jiraJson(fetchImpl, `${ATLASSIAN_API_ORIGIN}/oauth/token/accessible-resources`, `Bearer ${accessToken}`);
+  const resourcesResult = await withOtelSpan('external_jira.fetch_accessible_resources', { 'jira.site_hostname': siteHostname }, () => jiraJson(fetchImpl, `${ATLASSIAN_API_ORIGIN}/oauth/token/accessible-resources`, `Bearer ${accessToken}`));
   if (!resourcesResult.ok) return resourcesResult;
   if (!Array.isArray(resourcesResult.value)) {
     return malformedResponse('Jira accessible resources response was not an array.');
@@ -585,31 +586,62 @@ async function fetchProjectIssuePages({
 }
 
 async function jiraJson(fetchImpl: typeof fetch, url: string, authHeader: string): Promise<JiraFetchResult> {
-  let response: Response;
+  return withOtelSpan('external_jira.http', jiraHttpSpanAttributes(url), async (span) => {
+    let response: Response;
+    try {
+      response = await fetchImpl(url, {
+        headers: {
+          accept: 'application/json',
+          authorization: authHeader,
+        },
+      });
+    } catch (error) {
+      setOtelAttributes(span, { 'vd.error_code': 'jira_fetch_failed' });
+      return {
+        ok: false,
+        error: createProviderError('jira_fetch_failed', 'Could not reach Jira.', {
+          userAction: 'Check network connectivity and try again.',
+          details: { cause: error instanceof Error ? error.message : String(error) },
+        }),
+      };
+    }
+
+    setOtelAttributes(span, { 'http.response.status_code': response.status });
+    if (!response.ok) {
+      const error = normalizeJiraHttpError(response);
+      setOtelAttributes(span, { 'vd.error_code': error.code });
+      return { ok: false, error };
+    }
+
+    try {
+      return { ok: true, value: await response.json() };
+    } catch {
+      setOtelAttributes(span, { 'vd.error_code': 'jira_malformed_response' });
+      return malformedResponse('Jira returned invalid JSON.');
+    }
+  });
+}
+
+function jiraHttpSpanAttributes(url: string): Record<string, unknown> {
   try {
-    response = await fetchImpl(url, {
-      headers: {
-        accept: 'application/json',
-        authorization: authHeader,
-      },
-    });
-  } catch (error) {
+    const parsed = new URL(url);
     return {
-      ok: false,
-      error: createProviderError('jira_fetch_failed', 'Could not reach Jira.', {
-        userAction: 'Check network connectivity and try again.',
-        details: { cause: error instanceof Error ? error.message : String(error) },
-      }),
+      'http.request.method': 'GET',
+      'server.address': parsed.hostname,
+      'url.path': parsed.pathname,
+      'jira.endpoint_family': jiraEndpointFamily(parsed.pathname),
     };
-  }
-
-  if (!response.ok) return { ok: false, error: normalizeJiraHttpError(response) };
-
-  try {
-    return { ok: true, value: await response.json() };
   } catch {
-    return malformedResponse('Jira returned invalid JSON.');
+    return { 'http.request.method': 'GET', 'jira.endpoint_family': 'unknown' };
   }
+}
+
+function jiraEndpointFamily(pathname: string): string {
+  if (pathname.includes('/oauth/token/accessible-resources')) return 'accessible_resources';
+  if (pathname.includes('/rest/agile/1.0/board/') && pathname.endsWith('/configuration')) return 'board_configuration';
+  if (pathname.includes('/rest/agile/1.0/board/') && pathname.endsWith('/issue')) return 'board_issues';
+  if (pathname.includes('/rest/api/3/search/jql')) return 'enhanced_search_jql';
+  return 'other';
 }
 
 function normalizeJiraHttpError(response: Response): JiraProviderError {
