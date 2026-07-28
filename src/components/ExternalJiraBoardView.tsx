@@ -757,7 +757,7 @@ export function BulkJiraWorkspaceConversionDialog({ boardView, onClose }: { boar
         }
         setWorkspaces(result.options.workspaces);
         setRepoProjectMappings(result.options.repoProjectMappings);
-        setSelectedWorkspaceIds(new Set(result.options.workspaces.filter((workspace) => !workspace.hasLinkedJiraIssue).map((workspace) => workspace.workspaceId)));
+        setSelectedWorkspaceIds(new Set(getSelectableBulkWorkspaceIds(result.options.workspaces)));
       })
       .catch((caught) => {
         if (!cancelled) setError(caught instanceof Error ? caught.message : String(caught));
@@ -810,7 +810,7 @@ export function BulkJiraWorkspaceConversionDialog({ boardView, onClose }: { boar
   function changeRepoFilter(repoId: string) {
     setSelectedRepoId(repoId);
     const nextVisibleWorkspaces = filterBulkJiraWorkspacesByRepo(workspaces, repoId);
-    setSelectedWorkspaceIds(new Set(nextVisibleWorkspaces.filter((workspace) => !workspace.hasLinkedJiraIssue).map((workspace) => workspace.workspaceId)));
+    setSelectedWorkspaceIds(new Set(getSelectableBulkWorkspaceIds(nextVisibleWorkspaces)));
     const mapping = repoProjectMappings.find((candidate) => candidate.repoId === repoId);
     if (mapping) {
       setSiteHostname(mapping.siteHostname);
@@ -860,9 +860,14 @@ export function BulkJiraWorkspaceConversionDialog({ boardView, onClose }: { boar
 
         <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-sm text-neutral-400">
           <span>{unlinkedCount} unlinked workspaces available · {selectedCount} selected{selectedRepoId ? ' in selected repo' : ''}</span>
-          <button type="button" className="rounded border border-neutral-700 px-2 py-1 text-neutral-200 hover:bg-neutral-900" onClick={() => setSelectedWorkspaceIds(new Set(visibleWorkspaces.filter((workspace) => !workspace.hasLinkedJiraIssue).map((workspace) => workspace.workspaceId)))}>
-            Select all unlinked
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" className="rounded border border-neutral-700 px-2 py-1 text-neutral-200 hover:bg-neutral-900" onClick={() => setSelectedWorkspaceIds(new Set(getSelectableBulkWorkspaceIds(visibleWorkspaces)))}>
+              Select all unlinked
+            </button>
+            <button type="button" className="rounded border border-neutral-700 px-2 py-1 text-neutral-200 hover:bg-neutral-900" onClick={() => setSelectedWorkspaceIds(deselectAllBulkWorkspaceIds())}>
+              Deselect all
+            </button>
+          </div>
         </div>
 
         <div className="mt-3 overflow-hidden rounded-lg border border-neutral-800">
@@ -879,12 +884,7 @@ export function BulkJiraWorkspaceConversionDialog({ boardView, onClose }: { boar
                     className="mt-1"
                     disabled={disabled}
                     checked={selected}
-                    onChange={(event) => setSelectedWorkspaceIds((current) => {
-                      const next = new Set(current);
-                      if (event.target.checked) next.add(workspace.workspaceId);
-                      else next.delete(workspace.workspaceId);
-                      return next;
-                    })}
+                    onChange={(event) => setSelectedWorkspaceIds((current) => setBulkWorkspaceSelected(current, workspace.workspaceId, event.target.checked))}
                   />
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
@@ -931,6 +931,21 @@ export function filterBulkJiraWorkspacesByRepo(workspaces: BulkJiraWorkspaceConv
   const trimmedRepoId = repoId.trim();
   if (!trimmedRepoId) return workspaces;
   return workspaces.filter((workspace) => workspace.repos.some((repo) => repo.id === trimmedRepoId));
+}
+
+export function getSelectableBulkWorkspaceIds(workspaces: BulkJiraWorkspaceConversionWorkspaceDto[]): string[] {
+  return workspaces.filter((workspace) => !workspace.hasLinkedJiraIssue).map((workspace) => workspace.workspaceId);
+}
+
+export function deselectAllBulkWorkspaceIds(): Set<string> {
+  return new Set<string>();
+}
+
+export function setBulkWorkspaceSelected(current: ReadonlySet<string>, workspaceId: string, selected: boolean): Set<string> {
+  const next = new Set(current);
+  if (selected) next.add(workspaceId);
+  else next.delete(workspaceId);
+  return next;
 }
 
 export function upsertRepoProjectMapping(mappings: BulkJiraRepoProjectMappingDto[], mapping: BulkJiraRepoProjectMappingDto): BulkJiraRepoProjectMappingDto[] {

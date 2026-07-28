@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { DrawerBody } from '@heroui/drawer';
-import { ExternalJiraBoardContent, ExternalJiraBoardRoute, ExternalJiraCard, ExternalJiraColumnVisibilityControls, getVisibleExternalJiraCards, getVisibleExternalJiraColumns, ExternalJiraIssueDetailBodyContent, ExternalJiraIssueDetailDrawerContent, ExternalJiraIssueDetailSheet, BulkJiraWorkspaceConversionResults, filterBulkJiraWorkspacesByRepo, getBulkWorkspaceRepoFilterOptions, upsertRepoProjectMapping, buildVKWorkspaceSessionUrl, mergeWorkspaceMetricsIntoBoardView, stripPortSubdomain } from './ExternalJiraBoardView';
+import { ExternalJiraBoardContent, ExternalJiraBoardRoute, ExternalJiraCard, ExternalJiraColumnVisibilityControls, BulkJiraWorkspaceConversionDialog, getVisibleExternalJiraCards, getVisibleExternalJiraColumns, ExternalJiraIssueDetailBodyContent, ExternalJiraIssueDetailDrawerContent, ExternalJiraIssueDetailSheet, BulkJiraWorkspaceConversionResults, deselectAllBulkWorkspaceIds, filterBulkJiraWorkspacesByRepo, getBulkWorkspaceRepoFilterOptions, getSelectableBulkWorkspaceIds, setBulkWorkspaceSelected, upsertRepoProjectMapping, buildVKWorkspaceSessionUrl, mergeWorkspaceMetricsIntoBoardView, stripPortSubdomain } from './ExternalJiraBoardView';
 import type { ExternalJiraBoardViewDto, ExternalKanbanCardDto } from '../lib/externalTrackerBoardApi';
 
 const baseBoardView: ExternalJiraBoardViewDto = {
@@ -52,6 +52,32 @@ describe('ExternalJiraBoardContent', () => {
     expect(getBulkWorkspaceRepoFilterOptions(workspaces)).toEqual([{ id: 'repo-api', label: 'API' }, { id: 'repo-web', label: 'Web' }]);
     expect(filterBulkJiraWorkspacesByRepo(workspaces, 'repo-web')).toEqual([expect.objectContaining({ workspaceId: 'ws-web', hasLinkedJiraIssue: true })]);
     expect(filterBulkJiraWorkspacesByRepo(workspaces, '')).toHaveLength(2);
+  });
+
+  it('renders select-all and deselect-all controls in the bulk conversion dialog', () => {
+    const html = renderToStaticMarkup(React.createElement(BulkJiraWorkspaceConversionDialog, { boardView: baseBoardView, onClose: vi.fn() }));
+
+    expect(html).toContain('Select all unlinked');
+    expect(html).toContain('Deselect all');
+  });
+
+  it('selects all unlinked, deselects all, and re-selects individual bulk workspaces', () => {
+    const workspaces = [
+      { workspaceId: 'ws-api', displayName: 'API workspace', branch: 'vk/api', createdAt: '2026-07-28T00:00:00Z', updatedAt: '2026-07-28T00:00:00Z', pinned: false, repos: [{ id: 'repo-api', name: 'api', displayName: 'API', targetBranch: 'origin/main' }], hasLinkedJiraIssue: false, linkedJiraIssues: [] },
+      { workspaceId: 'ws-linked', displayName: 'Linked workspace', branch: 'vk/linked', createdAt: '2026-07-28T00:00:00Z', updatedAt: '2026-07-28T00:00:00Z', pinned: false, repos: [{ id: 'repo-api', name: 'api', displayName: 'API', targetBranch: 'origin/main' }], hasLinkedJiraIssue: true, linkedJiraIssues: [{ provider: 'jira' as const, key: 'VD-1', url: 'https://team.atlassian.net/browse/VD-1', site: 'team.atlassian.net', isPrimary: true }] },
+      { workspaceId: 'ws-web', displayName: 'Web workspace', branch: 'vk/web', createdAt: '2026-07-28T00:00:00Z', updatedAt: '2026-07-28T00:00:00Z', pinned: false, repos: [{ id: 'repo-web', name: 'web', displayName: 'Web', targetBranch: 'origin/main' }], hasLinkedJiraIssue: false, linkedJiraIssues: [] },
+    ];
+
+    const visibleApiWorkspaces = filterBulkJiraWorkspacesByRepo(workspaces, 'repo-api');
+    const selectedAllUnlinked = new Set(getSelectableBulkWorkspaceIds(visibleApiWorkspaces));
+    expect([...selectedAllUnlinked]).toEqual(['ws-api']);
+
+    const deselected = deselectAllBulkWorkspaceIds();
+    expect([...deselected]).toEqual([]);
+
+    const reselected = setBulkWorkspaceSelected(deselected, 'ws-api', true);
+    expect([...reselected]).toEqual(['ws-api']);
+    expect([...setBulkWorkspaceSelected(reselected, 'ws-api', false)]).toEqual([]);
   });
 
   it('updates remembered repo Jira project mapping locally', () => {
