@@ -345,6 +345,36 @@ describe('external Jira board routes', () => {
     expect(vkClient.getSessions).toHaveBeenCalledWith('ws-1');
   });
 
+  it('keeps active workspace metrics when archived summaries hang', async () => {
+    const app = new Hono();
+    const vkClient = createVkClient({
+      getWorkspaceSummaries: vi.fn((archived: boolean) => archived
+        ? new Promise<never>(() => undefined)
+        : Promise.resolve({ summaries: [{ workspace_id: 'ws-1', latest_session_id: 'session-1', files_changed: 7, lines_added: 30, lines_removed: 12 }] })),
+      getSessions: vi.fn(async () => [
+        { id: 'session-1', workspace_id: 'ws-1', executor: 'CODEX' as const, created_at: '2026-07-27T00:00:00Z', updated_at: '2026-07-27T00:00:00Z' },
+      ]),
+    });
+    registerExternalTrackerBoardRoutes(app, { enabled: true, auth: createAuthService(null), db, beads: noBeadLinks, vkClient, workspaceMetricsTimeoutMs: 50 });
+
+    const response = await app.request('/dashboard/api/external-trackers/vk/workspace-metrics', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ workspaceIds: ['ws-1'] }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+      metricsByWorkspaceId: {
+        'ws-1': { filesChanged: 7, linesChanged: 42, linesAdded: 30, linesRemoved: 12, agentSessions: 1 },
+      },
+    });
+    expect(vkClient.getWorkspaceSummaries).toHaveBeenCalledWith(false);
+    expect(vkClient.getWorkspaceSummaries).toHaveBeenCalledWith(true);
+    expect(vkClient.getSessions).toHaveBeenCalledWith('ws-1');
+  });
+
 
   it('bounds slow workspace metrics endpoint calls and returns partial/unavailable metrics', async () => {
     const app = new Hono();

@@ -562,19 +562,19 @@ async function loadRelatedWorkspaceMetrics(
   const uniqueWorkspaceIds = [...new Set(workspaceIds)].filter(Boolean);
   if (uniqueWorkspaceIds.length === 0) return new Map();
 
-  const summariesPromise = withTimeoutCall(() => Promise.all([
-    vkClient.getWorkspaceSummaries(false),
-    vkClient.getWorkspaceSummaries(true),
-  ]), timeoutMs).catch(() => undefined);
+  const activeSummariesPromise = withTimeoutCall(() => vkClient.getWorkspaceSummaries(false), timeoutMs).catch(() => undefined);
+  const archivedSummariesPromise = withTimeoutCall(() => vkClient.getWorkspaceSummaries(true), timeoutMs).catch(() => undefined);
   const sessionCountsPromise = Promise.all(uniqueWorkspaceIds.map(async (workspaceId): Promise<[string, number] | undefined> => {
     const sessions = await withTimeoutCall(() => vkClient.getSessions(workspaceId), timeoutMs).catch(() => undefined);
     return sessions ? [workspaceId, sessions.length] : undefined;
   }));
 
-  const [summaries, sessionEntries] = await Promise.all([summariesPromise, sessionCountsPromise]);
-  const summariesByWorkspaceId = summaries
-    ? new Map([...summaries[0].summaries, ...summaries[1].summaries].map((summary) => [summary.workspace_id, summary]))
-    : new Map<string, WorkspaceSummary>();
+  const [activeSummaries, archivedSummaries, sessionEntries] = await Promise.all([activeSummariesPromise, archivedSummariesPromise, sessionCountsPromise]);
+  const summariesByWorkspaceId = new Map(
+    [activeSummaries, archivedSummaries]
+      .flatMap((response) => response?.summaries ?? [])
+      .map((summary) => [summary.workspace_id, summary] as const),
+  );
   const sessionCounts = new Map(sessionEntries.filter((entry): entry is [string, number] => Boolean(entry)));
 
   const entries: Array<[string, Record<string, number>]> = [];
