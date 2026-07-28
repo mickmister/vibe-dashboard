@@ -12,6 +12,7 @@ import {
   buildPrettySummary,
   getBeadsForms,
   selectBeadsForm,
+  withBeadsFormsSummary,
   validateSubmittedValues,
   type BeadLike,
   type BeadsFormDefinition,
@@ -109,7 +110,7 @@ export class BeadsClient {
   }
 
   async readBead(dir: string, beadId: string): Promise<BeadLike> {
-    const { stdout } = await this.exec(this.bdPath, ['show', beadId, '--json', '--long'], {
+    const { stdout } = await this.exec(this.bdPath, ['--readonly', 'show', beadId, '--json', '--long'], {
       cwd: dir,
       timeout: 30_000,
       maxBuffer: 1024 * 1024 * 5,
@@ -134,6 +135,7 @@ export class BeadsClient {
     agentWorkingDir?: string | null;
     repos: BeadsWorkspaceRepo[];
     includeOtherWorkspaces?: boolean;
+    beadId?: string;
   }): Promise<ListWorkspaceBeadsResult> {
     const repos = await Promise.all(input.repos.map(async (repo) => {
       const { dir, exists } = await resolveWorkspaceRepoDir({
@@ -147,6 +149,7 @@ export class BeadsClient {
         repo,
         workspaceId: input.workspaceId,
         includeOtherWorkspaces: input.includeOtherWorkspaces ?? false,
+        beadId: input.beadId,
       });
     }));
     return { workspaceId: input.workspaceId, repos };
@@ -205,8 +208,8 @@ export class BeadsClient {
   }
 
   private async listPendingFormsInRepo(repoDir: string): Promise<PendingBeadsFormEntry[]> {
-    const candidateIds = new Set<string>();
-    for (const metadataKey of ['beadForms', 'beadsWeb']) {
+    const candidates = new Map<string, BeadLike>();
+    for (const metadataKey of ['beadFormsSummary', 'beadForms', 'beadsWeb']) {
       const listed = parseBdJsonArray<BeadLike>((await this.exec(this.bdPath, [
         '--readonly',
         'list',
@@ -222,28 +225,14 @@ export class BeadsClient {
         maxBuffer: 1024 * 1024 * 5,
       })).stdout);
       for (const bead of listed) {
-        if (bead.id) candidateIds.add(bead.id);
+        if (bead.id) candidates.set(bead.id, bead);
       }
     }
 
-    if (candidateIds.size === 0) return [];
-
-    const beads = parseBdJsonArray<BeadLike>((await this.exec(this.bdPath, [
-      '--readonly',
-      'show',
-      ...candidateIds,
-      '--json',
-      '--long',
-    ], {
-      cwd: repoDir,
-      timeout: 20_000,
-      maxBuffer: 1024 * 1024 * 15,
-    })).stdout);
-
-    return beads.flatMap((bead) => {
+    return Array.from(candidates.values()).flatMap((bead) => {
       if (isClosedBead(bead)) return [];
       const forms = getBeadsForms(bead.metadata)
-        .filter((form) => (form.responses?.length ?? 0) === 0);
+        .filter((form) => isPendingForm(bead, form));
       return forms.map((form) => ({
         repoDir,
         repoName: basename(repoDir),
@@ -268,6 +257,7 @@ export class BeadsClient {
     repo: BeadsWorkspaceRepo;
     workspaceId: string;
     includeOtherWorkspaces: boolean;
+    beadId?: string;
   }): Promise<BeadsRepoListResult> {
     if (!input.dirExists) {
       return {
@@ -283,20 +273,13 @@ export class BeadsClient {
     }
 
     try {
-      const { stdout } = await this.exec(this.bdPath, ['list', '--json', '--all', '--limit', '0'], {
-        cwd: input.dir,
-        timeout: 30_000,
-        maxBuffer: 1024 * 1024 * 10,
-      });
-      const listed = parseBdJsonArray<BeadLike>(stdout);
-      const ids = listed.map((bead) => bead.id).filter(Boolean);
-      const beads = ids.length > 0
-        ? parseBdJsonArray<BeadLike>((await this.exec(this.bdPath, ['show', ...ids, '--json', '--long'], {
-          cwd: input.dir,
-          timeout: 30_000,
-          maxBuffer: 1024 * 1024 * 20,
-        })).stdout)
-        : [];
+      let beads = input.beadId
+        ? await this.listBeadsById(input.dir, input.beadId)
+        : await this.listFormBearingBeads(input.dir);
+      if (input.beadId && beads.some((bead) => bead.id === input.beadId && !isObject(bead.metadata))) {
+        const shown = await this.tryReadSingleBead(input.dir, input.beadId);
+        if (shown.length > 0) beads = shown;
+      }
       const unscopedCount = beads.filter((bead) => !getMetadataString(bead.metadata, 'VK_WORKSPACE_ID')).length;
       const otherWorkspaceCount = beads.filter((bead) => {
         const beadWorkspaceId = getMetadataString(bead.metadata, 'VK_WORKSPACE_ID');
@@ -338,6 +321,48 @@ export class BeadsClient {
     }
   }
 
+  private async listBeadsById(dir: string, beadId: string): Promise<BeadLike[]> {
+    const { stdout } = await this.exec(this.bdPath, ['--readonly', 'list', '--json', '--all', '--limit', '0', '--id', beadId], {
+      cwd: dir,
+      timeout: 30_000,
+      maxBuffer: 1024 * 1024 * 10,
+    });
+    return parseBdJsonArray<BeadLike>(stdout);
+  }
+
+  private async listFormBearingBeads(dir: string): Promise<BeadLike[]> {
+    const byId = new Map<string, BeadLike>();
+    for (const metadataKey of ['beadForms', 'beadsWeb']) {
+      const { stdout } = await this.exec(this.bdPath, [
+        '--readonly',
+        'list',
+        '--json',
+        '--all',
+        '--limit',
+        '0',
+        '--has-metadata-key',
+        metadataKey,
+      ], {
+        cwd: dir,
+        timeout: 30_000,
+        maxBuffer: 1024 * 1024 * 10,
+      });
+      for (const bead of parseBdJsonArray<BeadLike>(stdout)) {
+        if (bead.id) byId.set(bead.id, bead);
+      }
+    }
+    return Array.from(byId.values());
+  }
+
+  private async tryReadSingleBead(dir: string, beadId: string): Promise<BeadLike[]> {
+    try {
+      return [await this.readBead(dir, beadId)];
+    } catch (error) {
+      if (isBeadNotFoundError(error, beadId)) return [];
+      throw error;
+    }
+  }
+
   async submitForm(input: SubmitBeadsFormInput): Promise<SubmitBeadsFormResult> {
     const bead = await this.readBead(input.dir, input.beadId);
     const form = selectBeadsForm(bead.metadata, input.formId);
@@ -347,12 +372,12 @@ export class BeadsClient {
     if (validationErrors.length > 0) throw new Error(validationErrors.join('\n'));
 
     const prettySummary = buildPrettySummary(form, input.values);
-    const metadata = appendBeadsFormResponse(bead.metadata, form.id, {
+    const metadata = withBeadsFormsSummary(appendBeadsFormResponse(bead.metadata, form.id, {
       submittedBy: this.actor,
       submittedAt: this.now().toISOString(),
       values: input.values,
       prettySummary,
-    });
+    }));
 
     await this.updateMetadata(input.dir, input.beadId, metadata);
     const warnings: string[] = [];
@@ -417,6 +442,16 @@ function isClosedBead(bead: BeadLike): boolean {
   return bead.status?.trim().toLowerCase() === 'closed';
 }
 
+function isPendingForm(bead: BeadLike, form: BeadsFormDefinition): boolean {
+  const summary = isObject(bead.metadata) && isObject(bead.metadata.beadFormsSummary)
+    ? bead.metadata.beadFormsSummary
+    : undefined;
+  if (summary && Array.isArray(summary.pendingFormIds)) {
+    return summary.pendingFormIds.includes(form.id);
+  }
+  return (form.responses?.length ?? 0) === 0;
+}
+
 export function createNodeBeadsClient(options?: BeadsClientOptions): BeadsClient {
   return new BeadsClient(options);
 }
@@ -471,8 +506,12 @@ function parseBdJsonArray<T>(stdout: string | Buffer): T[] {
   return JSON.parse(text.slice(jsonStart)) as T[];
 }
 
+function isObject(value: unknown): value is JsonObject {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
 function getMetadataString(metadata: unknown, key: string): string | undefined {
-  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return undefined;
+  if (!isObject(metadata)) return undefined;
   const value = (metadata as Record<string, unknown>)[key];
   return typeof value === 'string' && value.trim() ? value : undefined;
 }
@@ -484,4 +523,17 @@ function isNoBeadsDatabaseError(error: unknown): boolean {
     error && typeof error === 'object' && 'stdout' in error ? String(error.stdout) : '',
   ].join('\n');
   return /no beads database found/i.test(text);
+}
+
+function isBeadNotFoundError(error: unknown, beadId: string): boolean {
+  const text = [
+    error instanceof Error ? error.message : String(error),
+    error && typeof error === 'object' && 'stderr' in error ? String(error.stderr) : '',
+    error && typeof error === 'object' && 'stdout' in error ? String(error.stdout) : '',
+  ].join('\n');
+  return new RegExp(`\\b${escapeRegExp(beadId)}\\b.*not found|not found.*\\b${escapeRegExp(beadId)}\\b`, 'i').test(text);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

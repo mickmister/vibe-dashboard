@@ -853,6 +853,7 @@ springboard.registerModule(
           agentWorkingDir: workspace.agent_working_dir,
           repos,
           includeOtherWorkspaces: input.includeOtherWorkspaces ?? false,
+          ...(input.beadId ? { beadId: input.beadId } : {}),
         });
         const selectedRepo = input.beadId
           ? workspaceBeads.repos.find((repo) => repo.beads.some((bead) => bead.id === input.beadId))
