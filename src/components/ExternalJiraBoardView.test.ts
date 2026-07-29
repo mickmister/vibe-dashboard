@@ -61,6 +61,18 @@ describe('ExternalJiraBoardContent', () => {
     expect(html).toContain('Deselect all');
   });
 
+  it('keeps the Jira ticket creation modal compact and free of noisy header copy', () => {
+    const html = renderToStaticMarkup(React.createElement(BulkJiraWorkspaceConversionDialog, { boardView: baseBoardView, onClose: vi.fn() }));
+
+    expect(html).toContain('Create Jira tickets');
+    expect(html).toContain('0 selected');
+    expect(html).toContain('flex-col');
+    expect(html).toContain('shrink-0');
+    expect(html).not.toContain('Jira conversion');
+    expect(html).not.toContain('Review VK workspaces, apply the remembered repo mapping when available');
+    expect(html).not.toContain('in repo');
+  });
+
   it('selects all unlinked, deselects all, and re-selects individual bulk workspaces', () => {
     const workspaces = [
       { workspaceId: 'ws-api', displayName: 'API workspace', branch: 'vk/api', createdAt: '2026-07-28T00:00:00Z', updatedAt: '2026-07-28T00:00:00Z', pinned: false, repos: [{ id: 'repo-api', name: 'api', displayName: 'API', targetBranch: 'origin/main' }], hasLinkedJiraIssue: false, linkedJiraIssues: [] },

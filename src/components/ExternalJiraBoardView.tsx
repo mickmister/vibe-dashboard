@@ -111,9 +111,10 @@ export type ExternalJiraColumnVisibility = {
 const DEFAULT_COLUMN_VISIBILITY: ExternalJiraColumnVisibility = { showBacklog: false, showDone: false };
 
 const jiraFieldClassNames = {
-  inputWrapper: 'border border-neutral-700 bg-neutral-950 data-[hover=true]:bg-neutral-900 group-data-[focus=true]:bg-neutral-950',
-  input: 'text-neutral-100 placeholder:text-neutral-600',
-  label: 'text-neutral-300',
+  base: 'justify-end',
+  inputWrapper: 'h-8 min-h-8 border border-neutral-700 bg-neutral-950 px-2 py-0 data-[hover=true]:bg-neutral-900 group-data-[focus=true]:bg-neutral-950',
+  input: 'text-xs text-neutral-100 placeholder:text-neutral-600',
+  label: 'text-xs text-neutral-300',
 };
 
 export function ExternalJiraBoardContent({ boardView, initialSelectedCardId, initialSidePanelWorkspaceId, initialColumnVisibility = DEFAULT_COLUMN_VISIBILITY }: { boardView: ExternalJiraBoardViewDto; initialSelectedCardId?: string; initialSidePanelWorkspaceId?: string; initialColumnVisibility?: ExternalJiraColumnVisibility }) {
@@ -832,27 +833,15 @@ export function BulkJiraWorkspaceConversionDialog({ boardView, onClose }: { boar
   }
 
   const createdResultsCount = results?.filter((result) => result.status === 'created' || result.status === 'created_mapping_failed').length ?? 0;
-  const progressLabel = loading ? 'Loading workspaces' : `${selectedCount} selected`;
-
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-4 backdrop-blur-sm sm:items-center" role="dialog" aria-modal="true" aria-label="Create Jira tickets from VK workspaces">
-      <div className="max-h-[90dvh] w-full max-w-5xl overflow-hidden rounded-2xl border border-neutral-800 bg-neutral-950 text-neutral-100 shadow-2xl">
-        <header className="border-b border-neutral-800">
-          <div className="relative w-full overflow-hidden rounded-t-2xl bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.24),transparent_28%),radial-gradient(circle_at_top_right,rgba(56,189,248,0.18),transparent_32%),linear-gradient(135deg,rgba(15,23,42,0.98),rgba(10,10,10,0.98))] px-6 py-5">
-            <div className="pointer-events-none absolute inset-0 opacity-50">
-              <span className="absolute right-10 top-5 h-2 w-2 rounded-full bg-emerald-300" />
-              <span className="absolute right-20 top-12 h-1.5 w-1.5 rounded-full bg-sky-300" />
-              <span className="absolute right-6 top-16 h-1 w-8 rotate-12 rounded-full bg-amber-300/80" />
-            </div>
+      <div className="flex max-h-[90dvh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-neutral-800 bg-neutral-950 text-neutral-100 shadow-2xl">
+        <header className="shrink-0 border-b border-neutral-800">
+          <div className="relative w-full overflow-hidden rounded-t-2xl bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.20),transparent_30%),linear-gradient(135deg,rgba(15,23,42,0.98),rgba(10,10,10,0.98))] px-5 py-4">
             <div className="relative flex flex-wrap items-start justify-between gap-4">
               <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Chip size="sm" variant="flat" className="border border-emerald-400/20 bg-emerald-500/10 text-emerald-100">Jira conversion</Chip>
-                  <Chip size="sm" variant="flat" className="border border-sky-400/20 bg-sky-500/10 text-sky-100">{progressLabel}</Chip>
-                  {createdResultsCount > 0 ? <Chip size="sm" color="success" variant="flat">🎉 {createdResultsCount} created</Chip> : null}
-                </div>
-                <h2 className="mt-3 text-2xl font-semibold tracking-tight text-neutral-50">Create Jira tickets</h2>
-                <p className="mt-1 max-w-2xl text-sm font-normal text-neutral-400">Review VK workspaces, apply the remembered repo mapping when available, and create Jira tickets intentionally in one clean pass.</p>
+                {createdResultsCount > 0 ? <Chip size="sm" color="success" variant="flat">🎉 {createdResultsCount} created</Chip> : null}
+                <h2 className={createdResultsCount > 0 ? 'mt-2 text-2xl font-semibold tracking-tight text-neutral-50' : 'text-2xl font-semibold tracking-tight text-neutral-50'}>Create Jira tickets</h2>
               </div>
               <Button size="sm" variant="flat" className="border border-neutral-700 bg-neutral-900/80 text-neutral-100" onClick={onClose}>
                 Close
@@ -861,8 +850,8 @@ export function BulkJiraWorkspaceConversionDialog({ boardView, onClose }: { boar
           </div>
         </header>
 
-        <div className="max-h-[calc(90dvh-11rem)] overflow-y-auto">
-          <div className="space-y-5 px-6 py-5">
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="space-y-4 px-5 py-4">
             {loading ? (
               <Card className="border border-neutral-800 bg-neutral-900/70 text-neutral-300" shadow="none">
                 <CardBody className="flex-row items-center gap-3">
@@ -873,10 +862,10 @@ export function BulkJiraWorkspaceConversionDialog({ boardView, onClose }: { boar
             ) : null}
             {error ? <div role="alert" className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-100">{error}</div> : null}
 
-            <section className="grid gap-3 rounded-2xl border border-neutral-800 bg-neutral-900/45 p-4 md:grid-cols-4">
-              <label className="block text-sm font-medium text-neutral-200">
+            <section className="grid items-end gap-3 rounded-2xl border border-neutral-800 bg-neutral-900/45 p-3 md:grid-cols-4">
+              <label className="block text-xs font-medium text-neutral-300">
                 Repository filter
-                <select className="mt-2 h-10 w-full rounded-xl border border-neutral-700 bg-neutral-950 px-3 text-sm text-neutral-100 shadow-inner outline-none transition focus:border-sky-500" value={selectedRepoId} onChange={(event) => changeRepoFilter(event.target.value)}>
+                <select className="mt-1.5 h-8 w-full rounded-lg border border-neutral-700 bg-neutral-950 px-2 text-xs text-neutral-100 shadow-inner outline-none transition focus:border-sky-500" value={selectedRepoId} onChange={(event) => changeRepoFilter(event.target.value)}>
                   <option value="">All repositories</option>
                   {repoFilterOptions.map((repo) => <option key={repo.id} value={repo.id}>{repo.label}</option>)}
                 </select>
@@ -887,6 +876,7 @@ export function BulkJiraWorkspaceConversionDialog({ boardView, onClose }: { boar
                 onValueChange={setSiteHostname}
                 placeholder="team.atlassian.net"
                 size="sm"
+                labelPlacement="outside"
                 classNames={jiraFieldClassNames}
               />
               <Input
@@ -895,11 +885,12 @@ export function BulkJiraWorkspaceConversionDialog({ boardView, onClose }: { boar
                 onValueChange={(value) => setProjectKey(value.toUpperCase())}
                 placeholder="VD"
                 size="sm"
+                labelPlacement="outside"
                 classNames={jiraFieldClassNames}
               />
-              <label className="block text-sm font-medium text-neutral-200">
+              <label className="block text-xs font-medium text-neutral-300">
                 Issue type
-                <select className="mt-2 h-10 w-full rounded-xl border border-neutral-700 bg-neutral-950 px-3 text-sm text-neutral-100 shadow-inner outline-none transition focus:border-sky-500" value={issueTypeName} onChange={(event) => setIssueTypeName(event.target.value)}>
+                <select className="mt-1.5 h-8 w-full rounded-lg border border-neutral-700 bg-neutral-950 px-2 text-xs text-neutral-100 shadow-inner outline-none transition focus:border-sky-500" value={issueTypeName} onChange={(event) => setIssueTypeName(event.target.value)}>
                   {['Task', 'Story', 'Bug'].map((issueType) => <option key={issueType} value={issueType}>{issueType}</option>)}
                 </select>
               </label>
@@ -909,7 +900,7 @@ export function BulkJiraWorkspaceConversionDialog({ boardView, onClose }: { boar
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-neutral-800 px-4 py-3 text-sm text-neutral-400">
                 <div className="flex flex-wrap items-center gap-2">
                   <Chip size="sm" variant="flat" className="bg-neutral-800 text-neutral-200">{unlinkedCount} unlinked</Chip>
-                  <Chip size="sm" variant="flat" className="bg-neutral-800 text-neutral-200">{selectedCount} selected{selectedRepoId ? ' in repo' : ''}</Chip>
+                  <Chip size="sm" variant="flat" className="bg-neutral-800 text-neutral-200">{selectedCount} selected</Chip>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <Button size="sm" variant="flat" className="bg-neutral-800 text-neutral-100" onClick={() => setSelectedWorkspaceIds(new Set(getSelectableBulkWorkspaceIds(visibleWorkspaces)))}>
@@ -921,7 +912,7 @@ export function BulkJiraWorkspaceConversionDialog({ boardView, onClose }: { boar
                 </div>
               </div>
 
-              <div className="max-h-[38dvh] overflow-y-auto p-2">
+              <div className="max-h-[32dvh] overflow-y-auto p-2">
                 {workspaces.length === 0 && !loading ? <p className="p-6 text-center text-sm text-neutral-500">No active VK workspaces found.</p> : null}
                 {workspaces.length > 0 && visibleWorkspaces.length === 0 && !loading ? <p className="p-6 text-center text-sm text-neutral-500">No workspaces match this repository filter.</p> : null}
                 <div className="space-y-2">
@@ -959,7 +950,7 @@ export function BulkJiraWorkspaceConversionDialog({ boardView, onClose }: { boar
           </div>
         </div>
 
-        <footer className="flex justify-end gap-2 border-t border-neutral-800 bg-neutral-950/95 px-6 py-4">
+        <footer className="flex shrink-0 justify-end gap-2 border-t border-neutral-800 bg-neutral-950/95 px-5 py-3">
           <Button variant="light" className="text-neutral-300" onClick={onClose}>Cancel</Button>
           <Button color="success" variant="flat" className="border border-emerald-400/30 bg-emerald-500/15 text-emerald-50" isLoading={submitting} isDisabled={selectedCount === 0 || !siteHostname.trim() || !projectKey.trim() || !issueTypeName.trim()} onClick={submit}>
             {submitting ? 'Creating…' : `Create ${selectedCount} Jira ticket${selectedCount === 1 ? '' : 's'}`}
