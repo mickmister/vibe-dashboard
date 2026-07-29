@@ -5,7 +5,6 @@ import tseslint from "typescript-eslint";
 const translatableObjectProperties = [
   "ariaLabel",
   "caption",
-  "description",
   "emptyContent",
   "errorMessage",
   "helperText",
@@ -61,6 +60,7 @@ export default [
               ["[a-z]*([a-z0-9])", "{placeholder,title}"],
               ["img", "alt"],
             ],
+            exclude: [["FormattedMessage", "description"]],
           },
         },
       ],

@@ -5,6 +5,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
 import { HeroUIProvider } from "@heroui/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { defineMessages, FormattedMessage, useIntl } from "react-intl";
 import { AppLoadingScreen } from "../components/AppLoadingScreen";
 import { WorkspaceShell } from "../components/WorkspaceShell";
 import { useSessionWorkspaceNav } from "../sessionState";
@@ -68,6 +69,40 @@ const MOBILE_TAB_EMOJIS = [
   "🛰️",
 ];
 const queryClient = new QueryClient();
+const dashboardWorkspaceRouteMessages = defineMessages({
+  openingWorkspace: {
+    defaultMessage: "Opening workspace",
+    description: "Title shown while a shared VD workspace link is opening.",
+  },
+  workspaceLinkUnavailable: {
+    defaultMessage: "Workspace link unavailable",
+    description: "Title shown when a shared VD workspace link cannot be opened.",
+  },
+  openingStatus: {
+    defaultMessage: "Opening VK workspace…",
+    description: "Status text shown while loading a shared VK workspace link.",
+  },
+  invalidLink: {
+    defaultMessage: "This VD workspace link is invalid.",
+    description: "Error shown when a shared VD workspace link has an invalid workspace identifier.",
+  },
+  missingFactory: {
+    defaultMessage: "VD could not find a workspace view factory for this link.",
+    description: "Error shown when no workspace view factory can open a shared VD workspace link.",
+  },
+  detailsLoadFailed: {
+    defaultMessage: "VD could not load VK workspace details for this link.",
+    description: "Error shown when workspace metadata cannot be loaded for a shared VD workspace link.",
+  },
+  workspaceNotFound: {
+    defaultMessage: "This VK workspace could not be found or is archived.",
+    description: "Error shown when a shared VK workspace link points to a missing or archived workspace.",
+  },
+  openFailed: {
+    defaultMessage: "VD could not open this VK workspace link.",
+    description: "Error shown when creating a saved dashboard session from a shared VK workspace link fails.",
+  },
+});
 
 /**
  * Get the base URL without port prefix for creating tab URLs.
@@ -176,6 +211,7 @@ function getDefaultVKWorkspaceFactoryKeyForRoute(
 
 springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
   const DashboardWorkspaceRoute = () => {
+    const intl = useIntl();
     const { workspaceId } = useParams<{ workspaceId: string }>();
     const navigate = useNavigate();
     const workspaceModule = useModule("workspace");
@@ -188,14 +224,16 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
     const pluginRegistryState = usePluginRegistry();
     const actions = workspaceModule.actions;
     const [status, setStatus] = useState<"loading" | "error">("loading");
-    const [message, setMessage] = useState("Opening VK workspace…");
+    const [message, setMessage] = useState(() =>
+      intl.formatMessage(dashboardWorkspaceRouteMessages.openingStatus),
+    );
 
     useEffect(() => {
       let cancelled = false;
       const openWorkspace = async () => {
         if (!isValidVdWorkspaceId(workspaceId)) {
           setStatus("error");
-          setMessage("This VD workspace link is invalid.");
+          setMessage(intl.formatMessage(dashboardWorkspaceRouteMessages.invalidLink));
           return;
         }
 
@@ -221,7 +259,7 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
         const factory = factoryKey ? pluginRegistryState.tabGroupFactories[factoryKey] : undefined;
         if (!(space && factory)) {
           setStatus("error");
-          setMessage("VD could not find a workspace view factory for this link.");
+          setMessage(intl.formatMessage(dashboardWorkspaceRouteMessages.missingFactory));
           return;
         }
 
@@ -229,7 +267,7 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
         if (!optionsResult?.ok) {
           if (cancelled) return;
           setStatus("error");
-          setMessage("VD could not load VK workspace details for this link.");
+          setMessage(intl.formatMessage(dashboardWorkspaceRouteMessages.detailsLoadFailed));
           return;
         }
         const candidate = optionsResult.options.workspaces.find(
@@ -238,7 +276,7 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
         if (!candidate) {
           if (cancelled) return;
           setStatus("error");
-          setMessage("This VK workspace could not be found or is archived.");
+          setMessage(intl.formatMessage(dashboardWorkspaceRouteMessages.workspaceNotFound));
           return;
         }
 
@@ -267,7 +305,7 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
         if (cancelled) return;
         if (!result?.savedSession) {
           setStatus("error");
-          setMessage("VD could not open this VK workspace link.");
+          setMessage(intl.formatMessage(dashboardWorkspaceRouteMessages.openFailed));
           return;
         }
         navigate(
@@ -283,16 +321,23 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
       return () => {
         cancelled = true;
       };
-    }, [actions, navigate, pluginRegistryState, savedVoyages, workspace, workspaceId]);
+    }, [actions, intl, navigate, pluginRegistryState, savedVoyages, workspace, workspaceId]);
 
     return (
       <div className="dark fixed inset-0 flex items-center justify-center bg-neutral-950 p-6 text-neutral-100">
         <div className="max-w-md rounded-2xl border border-neutral-800 bg-neutral-900 p-6 shadow-2xl">
           <div className="text-xs font-semibold uppercase tracking-[0.2em] text-neutral-500">
-            VD workspace link
+            <FormattedMessage
+              defaultMessage="VD workspace link"
+              description="Eyebrow label for a shared VD workspace link status page."
+            />
           </div>
           <h1 className="mt-3 text-xl font-semibold">
-            {status === "loading" ? "Opening workspace" : "Workspace link unavailable"}
+            {status === "loading" ? (
+              <FormattedMessage {...dashboardWorkspaceRouteMessages.openingWorkspace} />
+            ) : (
+              <FormattedMessage {...dashboardWorkspaceRouteMessages.workspaceLinkUnavailable} />
+            )}
           </h1>
           <p className="mt-2 text-sm text-neutral-300">{message}</p>
           {status === "error" ? (
@@ -301,7 +346,10 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
               className="mt-4 rounded-lg border border-neutral-700 px-4 py-2 text-sm text-neutral-100 hover:bg-neutral-800"
               onClick={() => navigate("/dashboard", { replace: true })}
             >
-              Go to dashboard
+              <FormattedMessage
+                defaultMessage="Go to dashboard"
+                description="Button label that returns users from a failed shared workspace link to the dashboard."
+              />
             </button>
           ) : null}
         </div>

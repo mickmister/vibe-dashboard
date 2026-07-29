@@ -1,4 +1,5 @@
 import { IntlProvider } from "react-intl";
+import type { ReactNode } from "react";
 
 import enUSMessages from "./compiled/en-US.json";
 
@@ -21,7 +22,7 @@ export function resolveSupportedLocale(locale: string | undefined): SupportedLoc
   return DEFAULT_LOCALE;
 }
 
-export function VibeIntlProvider({ children, locale = DEFAULT_LOCALE }: { children: React.ReactNode; locale?: string }) {
+export function VibeIntlProvider({ children, locale = DEFAULT_LOCALE }: { children: ReactNode; locale?: string }) {
   const resolvedLocale = resolveSupportedLocale(locale);
 
   return (

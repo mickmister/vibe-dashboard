@@ -1,2 +1,92 @@
 {
+  "5pMvcc": {
+    "col": 12,
+    "defaultMessage": "VD workspace link",
+    "description": "Eyebrow label for a shared VD workspace link status page.",
+    "end": 11969,
+    "file": "src/modules/MainUIShellModule.tsx",
+    "line": 330,
+    "start": 11802
+  },
+  "9KTEgJ": {
+    "col": 27,
+    "defaultMessage": "Workspace link unavailable",
+    "description": "Title shown when a shared VD workspace link cannot be opened.",
+    "end": 3170,
+    "file": "src/modules/MainUIShellModule.tsx",
+    "line": 77,
+    "start": 3032
+  },
+  "DJxI1z": {
+    "col": 13,
+    "defaultMessage": "VD could not open this VK workspace link.",
+    "description": "Error shown when creating a saved dashboard session from a shared VK workspace link fails.",
+    "end": 4324,
+    "file": "src/modules/MainUIShellModule.tsx",
+    "line": 101,
+    "start": 4142
+  },
+  "Df/kX7": {
+    "col": 16,
+    "defaultMessage": "Opening VK workspace…",
+    "description": "Status text shown while loading a shared VK workspace link.",
+    "end": 3319,
+    "file": "src/modules/MainUIShellModule.tsx",
+    "line": 81,
+    "start": 3188
+  },
+  "FXME/m": {
+    "col": 19,
+    "defaultMessage": "Opening workspace",
+    "description": "Title shown while a shared VD workspace link is opening.",
+    "end": 3003,
+    "file": "src/modules/MainUIShellModule.tsx",
+    "line": 73,
+    "start": 2879
+  },
+  "O1WrAq": {
+    "col": 17,
+    "defaultMessage": "VD could not find a workspace view factory for this link.",
+    "description": "Error shown when no workspace view factory can open a shared VD workspace link.",
+    "end": 3706,
+    "file": "src/modules/MainUIShellModule.tsx",
+    "line": 89,
+    "start": 3519
+  },
+  "UdaO/m": {
+    "col": 14,
+    "defaultMessage": "Go to dashboard",
+    "description": "Button label that returns users from a failed shared workspace link to the dashboard.",
+    "end": 12888,
+    "file": "src/modules/MainUIShellModule.tsx",
+    "line": 349,
+    "start": 12689
+  },
+  "jWlH5d": {
+    "col": 14,
+    "defaultMessage": "This VD workspace link is invalid.",
+    "description": "Error shown when a shared VD workspace link has an invalid workspace identifier.",
+    "end": 3500,
+    "file": "src/modules/MainUIShellModule.tsx",
+    "line": 85,
+    "start": 3335
+  },
+  "jiZQ3f": {
+    "col": 20,
+    "defaultMessage": "VD could not load VK workspace details for this link.",
+    "description": "Error shown when workspace metadata cannot be loaded for a shared VD workspace link.",
+    "end": 3916,
+    "file": "src/modules/MainUIShellModule.tsx",
+    "line": 93,
+    "start": 3728
+  },
+  "joluou": {
+    "col": 20,
+    "defaultMessage": "This VK workspace could not be found or is archived.",
+    "description": "Error shown when a shared VK workspace link points to a missing or archived workspace.",
+    "end": 4127,
+    "file": "src/modules/MainUIShellModule.tsx",
+    "line": 97,
+    "start": 3938
+  }
 }

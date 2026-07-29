@@ -14,7 +14,7 @@
     "check-types": "tsc --noEmit && npm run check-types:vibe-agent",
     "check-types:vibe-agent": "tsc -p scripts/vibe-agent/tsconfig.json",
     "i18n:compile": "formatjs compile locales/en-US.json --out-file src/i18n/compiled/en-US.json",
-    "i18n:extract": "formatjs extract \"src/**/*.{ts,tsx}\" \"packages/**/*.{ts,tsx}\" \"plugins/**/*.{ts,tsx}\" \"scripts/**/*.{ts,tsx}\" \"tests/**/*.{ts,tsx}\" --ignore \"**/*.d.ts\" --ignore \"scripts/vibe-agent/**\" --ignore \"**/node_modules/**\" --ignore \"dist/**\" --ignore \"storybook-static/**\" --out-file locales/en-US.json --id-interpolation-pattern \"[sha512:contenthash:base64:6]\" --extract-source-location",
+    "i18n:extract": "formatjs extract \"src/**/*.{ts,tsx}\" \"packages/**/*.{ts,tsx}\" \"plugins/**/*.{ts,tsx}\" \"scripts/**/*.{ts,tsx}\" \"tests/**/*.{ts,tsx}\" --ignore \"**/*.d.ts\" --ignore \"**/node_modules/**\" --ignore \"dist/**\" --ignore \"storybook-static/**\" --out-file locales/en-US.json --id-interpolation-pattern \"[sha512:contenthash:base64:6]\" --extract-source-location",
     "i18n:verify": "npm run i18n:extract && npm run i18n:compile && npm run lint:i18n",
     "lint:i18n": "eslint . --max-warnings=0",
     "test": "vitest run --config vitest.server.config.ts",
