@@ -19,10 +19,32 @@ import { validatePluginManifest } from './manifest';
 const goldenSupervisor = readFileSync(resolve(process.cwd(), 'supervisord.vkvd.conf'), 'utf8');
 const goldenDockerfile = readFileSync(resolve(process.cwd(), 'Dockerfile.vkvd'), 'utf8');
 const goldenCaddyfile = readFileSync(resolve(process.cwd(), 'Caddyfile'), 'utf8');
+const rootPackageJson = JSON.parse(readFileSync(resolve(process.cwd(), 'package.json'), 'utf8')) as {
+  scripts: Record<string, string>;
+};
 const pluginCaddyfile = readFileSync(resolve(process.cwd(), 'Caddyfile.plugins'), 'utf8');
 const dockerEntrypoint = readFileSync(resolve(process.cwd(), 'docker-entrypoint.sh'), 'utf8');
 const pluginRuntimeApply = readFileSync(resolve(process.cwd(), 'plugins/scripts/vd-plugin-runtime-apply.sh'), 'utf8');
 const pluginReload = readFileSync(resolve(process.cwd(), 'plugins/scripts/vd-plugin-reload.sh'), 'utf8');
+
+function getSupervisorProgramBlock(config: string, program: string): string {
+  const match = config.match(new RegExp(`\\[program:${program}\\][\\s\\S]*?(?=\\n\\[program:|$)`));
+  expect(match, `expected supervisor program ${program}`).not.toBeNull();
+  return match![0];
+}
+
+function getSupervisorEnvironmentValue(block: string, key: string): string {
+  const environmentLine = block.split('\n').find((line) => line.startsWith('environment='));
+  expect(environmentLine, `expected supervisor environment line containing ${key}`).toBeDefined();
+  const match = environmentLine!.match(new RegExp(`${key}="([^"]*)"`));
+  expect(match, `expected ${key} in supervisor environment`).not.toBeNull();
+  return match![1]!;
+}
+
+function expectBdWrapperFirst(path: string): void {
+  expect(path.startsWith('/usr/local/lib/vk-bd-wrapper/bin:')).toBe(true);
+  expect(path.indexOf('/usr/local/lib/vk-bd-wrapper/bin')).toBeLessThan(path.indexOf('/usr/local/bin'));
+}
 
 describe('first-party service plugin inventory and golden supervisor config', () => {
   it('inventories current supervisor-managed programs as first-party plugin manifests with privilege tiers', () => {
@@ -73,8 +95,13 @@ describe('first-party service plugin inventory and golden supervisor config', ()
     expect(goldenDockerfile).toContain('COPY plugins/scripts/vd-plugin-service-runner.mjs /usr/local/bin/vd-plugin-service-runner.mjs');
     expect(goldenDockerfile).toContain('COPY --from=dashboard-builder /app/dist/vibe-agent /opt/vibe-kanban-vscode-web-seed/dist/vibe-agent');
     expect(goldenDockerfile).toContain('exec node /opt/vibe-kanban-vscode-web-seed/dist/vibe-agent/legacy-cli/vibe-agent.js "$@"');
+    expect(goldenDockerfile).toContain('exec node --experimental-strip-types /opt/vibe-kanban-vscode-web-seed/scripts/beads-form/cli.ts "$@"');
     expect(goldenDockerfile).toContain('command -v vibe-agent');
+    expect(goldenDockerfile).toContain('command -v beads-form');
     expect(goldenDockerfile).toContain('vibe-agent --help >/dev/null');
+    expect(goldenDockerfile).toContain('(cd /tmp && beads-form --help >/dev/null)');
+    expect(goldenDockerfile).toContain('ENV PATH="/usr/local/lib/vk-bd-wrapper/bin:${PATH}"');
+    expect(goldenDockerfile).toContain('export PATH=/usr/local/lib/vk-bd-wrapper/bin:/var/lib/vd/plugin-bin');
     expect(dockerEntrypoint).toContain('Runtime plugin apply writes generated routes here after Caddy starts, then reloads Caddy.');
     expect(goldenCaddyfile).toContain('Caddy starts with this import present; runtime');
     expect(dockerEntrypoint).not.toContain('plugin-service-orchestrator-cli.ts apply');
@@ -93,6 +120,26 @@ describe('first-party service plugin inventory and golden supervisor config', ()
     expect(goldenSupervisor).toContain('VD_NUDGE_DAEMON_ENABLED');
     expect(goldenSupervisor).toContain('dist/vibe-agent/nudge/daemon.js');
     expect(goldenSupervisor).toContain('[program:vd-plugin-service-orchestrator-startup]\ncommand=/usr/local/bin/vd-plugin-runtime-apply.sh\nautostart=true\nautorestart=false\nstartsecs=0\npriority=1000');
+  });
+
+  it('prefers the bd wrapper in vibe-kanban and spawned agent service PATHs', () => {
+    expectBdWrapperFirst(getSupervisorEnvironmentValue(getSupervisorProgramBlock(goldenSupervisor, 'vibe-kanban'), 'PATH'));
+    expectBdWrapperFirst(getSupervisorEnvironmentValue(getSupervisorProgramBlock(goldenSupervisor, 'vibe-agent-nudge-daemon'), 'PATH'));
+    expect(goldenDockerfile).toContain('ENV PATH="/usr/local/lib/vk-bd-wrapper/bin:${PATH}"');
+    expect(goldenDockerfile).toContain('export PATH=/usr/local/lib/vk-bd-wrapper/bin:/var/lib/vd/plugin-bin');
+  });
+
+  it('builds and exposes the BeadsForm CLI as a global Docker command', () => {
+    expect(rootPackageJson.scripts['build:beads-form']).toBe('pnpm --filter @vibe-dashboard/beads-form build');
+    expect(rootPackageJson.scripts.build).toMatch(/^npm run build:beads-form && /);
+    expect(goldenDockerfile).toContain(
+      'COPY --from=dashboard-builder /app/packages/beads-form/dist /opt/vibe-kanban-vscode-web-seed/packages/beads-form/dist',
+    );
+    expect(goldenDockerfile).toContain(
+      'exec node --experimental-strip-types /opt/vibe-kanban-vscode-web-seed/scripts/beads-form/cli.ts "$@"',
+    );
+    expect(goldenDockerfile).toContain('command -v beads-form');
+    expect(goldenDockerfile).toContain('(cd /tmp && beads-form --help >/dev/null)');
   });
 
   it('treats Dockerfile.vkvd and supervisord.vkvd.conf as golden runtime config names', () => {

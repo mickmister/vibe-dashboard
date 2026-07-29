@@ -181,6 +181,10 @@ export class VibeKanbanServerClient {
     return this.get('/workspaces');
   }
 
+  getWorkspace(workspaceId: string): Promise<Workspace> {
+    return this.get(`/workspaces/${encodeURIComponent(workspaceId)}`);
+  }
+
   getWorkspaceRepos(workspaceId: string): Promise<RepoWithBranch[]> {
     return this.get(`/workspaces/${encodeURIComponent(workspaceId)}/repos`);
   }
@@ -223,6 +227,18 @@ export class VibeKanbanServerClient {
 
   createAndStartWorkspace(body: CreateAndStartWorkspaceRequest): Promise<CreateAndStartWorkspaceResponse> {
     return this.post('/workspaces/start', body);
+  }
+
+  getExecutionProcess(processId: string): Promise<ExecutionProcess> {
+    return this.get(`/execution-processes/${encodeURIComponent(processId)}`);
+  }
+
+  async stopExecutionProcess(processId: string): Promise<void> {
+    await this.post(`/execution-processes/${encodeURIComponent(processId)}/stop`, {});
+  }
+
+  async checkHealth(): Promise<void> {
+    await this.get('/health');
   }
 
   async sendFollowUp(

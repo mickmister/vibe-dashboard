@@ -1,0 +1,13 @@
+services:
+  code-vibe:
+    build:
+      context: .
+      dockerfile: Dockerfile.vkvd
+      args:
+        VK_REPO_URL: ${VK_REPO_URL:-https://github.com/mickmister/vibe-kanban.git}
+        VK_BRANCH: ${VK_BRANCH:-main}
+        VK_COMMIT: ${VK_COMMIT:?VK_COMMIT is required when building Dockerfile.vkvd}
+        CODEX_RELEASE_REPO: ${CODEX_RELEASE_REPO:-mickmister/codex}
+        CODEX_RELEASE_TAG: ${CODEX_RELEASE_TAG:-codex-cli-assets-555694bb4817b3edfa8e70e5391c26c14777759b}
+        CODEX_RELEASE_ASSET: ${CODEX_RELEASE_ASSET:-}
+    pull_policy: build

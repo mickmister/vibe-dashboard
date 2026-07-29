@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "start": "node dist/node/node-entry.mjs",
-    "build": "npm run build:web && npm run build:node && npm run build:vibe-agent-cli",
+    "build": "npm run build:beads-form && npm run build:web && npm run build:node && npm run build:vibe-agent-cli",
     "build:plugin-orchestrator": "vite build --config plugins/orchestrator/vite.config.ts",
     "build:vibe-agent-cli": "vite build --config scripts/vibe-agent/vite.config.ts",
     "build:web": "SPRINGBOARD_PLATFORM=web vite build",
@@ -43,7 +43,17 @@
     "db:prepare-schema": "node db/scripts/generate_schemas.cjs",
     "db:generate-migration-imports": "node db/scripts/generate_migration_imports.cjs",
     "db:smoke:external-integrations": "node scripts/db/smoke-external-integrations.mjs",
-    "storybook:jira-fixture": "node --experimental-strip-types scripts/storybook/generate-external-jira-fixture.ts"
+    "storybook:jira-fixture": "node --experimental-strip-types scripts/storybook/generate-external-jira-fixture.ts",
+    "beads-form:preview": "node --experimental-strip-types scripts/beads-form/preview.ts",
+    "dev:beads-form-preview": "node --experimental-strip-types scripts/beads-form/preview.ts",
+    "beads-form": "node --experimental-strip-types scripts/beads-form/cli.ts",
+    "dev:beads-form-preview:shared": "node --experimental-strip-types scripts/beads-form/shared-preview.ts",
+    "hotswap:vkvd": "node --experimental-strip-types scripts/hotswap-vkvd.ts",
+    "vk:batch-build": "bash scripts/vk-batch-stage-validate-build.sh",
+    "vk:batch-hotswap": "bash scripts/vk-batch-stage-hotswap-apply.sh",
+    "vk:batch-hotswap-gh": "bash scripts/vk-batch-stage-gh-artifact.sh",
+    "vk:batch-rollback": "bash scripts/vk-batch-stage-rollback.sh",
+    "build:beads-form": "pnpm --filter @vibe-dashboard/beads-form build"
   },
   "dependencies": {
     "@heroui/react": "^2.8.9",
@@ -60,6 +70,7 @@
     "better-auth": "^1.6.23",
     "better-sqlite3": "^12.6.2",
     "crossws": "^0.4.4",
+    "dompurify": "^3.4.11",
     "framer-motion": "^12.34.0",
     "hono": "^4.11.9",
     "immer": "^11.1.4",
@@ -71,7 +82,8 @@
     "react-router": "^7.13.0",
     "rxjs": "^7.8.2",
     "springboard": "0.0.1-dev-jamapp-15",
-    "tailwindcss": "^4.1.18"
+    "tailwindcss": "^4.1.18",
+    "@vibe-dashboard/beads-form": "workspace:*"
   },
   "devDependencies": {
     "@better-auth/cli": "^1.4.21",
@@ -110,6 +122,7 @@
   },
   "bin": {
     "vibe-agent": "./bin/vibe-agent",
-    "vk": "./bin/vk"
+    "vk": "./bin/vk",
+    "beads-form": "./bin/beads-form"
   }
 }
