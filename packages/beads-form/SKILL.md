@@ -85,6 +85,9 @@ const metadataPatch = buildBeadsFormMetadata([form]);
 ## Conventions
 
 - Every question needs a `title` and a context-rich `description`.
+- Treat the form as the source of truth for the thinking behind the discussion. If other agents or reviewers already provided pros, cons, risks, recommended fixes, or tradeoffs, include that substance in the form instead of forcing the human to reconstruct it from conversation history.
+- Preserve exact prior wording for pros/cons and recommendation rationales when practical, especially for decision choices. Prefer copying known good phrasing into `description` or `is_recommended_reason` over paraphrasing away nuance.
+- Lean toward "explain more" rather than excessive brevity. The form should make the user informed about the in-depth assumptions, forks in the road, and consequences of each option.
 - Choice questions are always rendered as checkboxes so humans can select more than one answer. Do not add single-select/radio configuration; single-select semantics need a separate future DSL addition.
 - Per-choice textareas and per-question textareas are always included. Do not add note-inclusion flags.
 - Standard forms include two submit actions by default: one that sets `allow_code_file_changes` to `true`, and one that sets it to `false`. If the normalized response has this field as `false`, do not edit code or files.
