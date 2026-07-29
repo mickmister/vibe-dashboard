@@ -40,6 +40,7 @@ import { fetchBulkJiraWorkspaceConversionOptions } from "../lib/externalWorkspac
 import { isValidVdWorkspaceId } from "../lib/vdWorkspaceLinks";
 import { buildExistingVdWorkspaceDashboardPath, findSavedVoyageForVdWorkspaceRoute } from "../lib/vdWorkspaceRoute";
 import { resolveWorkspaceFactoryComposition } from "./plugins/vibe-dashboard/workspace-composition";
+import { VibeIntlProvider } from "../i18n";
 
 // Ensure dark class is on the document root so portaled elements (modals, popovers)
 // inherit dark mode styles
@@ -1395,7 +1396,9 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
     Provider: (props: React.PropsWithChildren) => {
       return (
         <QueryClientProvider client={queryClient}>
-          <HeroUIProvider>{props.children}</HeroUIProvider>
+          <VibeIntlProvider>
+            <HeroUIProvider>{props.children}</HeroUIProvider>
+          </VibeIntlProvider>
         </QueryClientProvider>
       );
     },

@@ -68,6 +68,9 @@ describe('ExternalJiraBoardContent', () => {
     expect(html).toContain('0 selected');
     expect(html).toContain('flex-col');
     expect(html).toContain('shrink-0');
+    expect(html).toContain('text-[11px]');
+    expect(html).toContain('selectorIcon');
+    expect(html).toContain('right-2');
     expect(html).not.toContain('Jira conversion');
     expect(html).not.toContain('Review VK workspaces, apply the remembered repo mapping when available');
     expect(html).not.toContain('in repo');

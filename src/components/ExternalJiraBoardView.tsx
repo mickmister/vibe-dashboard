@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Drawer, DrawerBody, DrawerContent } from '@heroui/drawer';
-import { Button, Card, CardBody, Checkbox, Chip, Input, Spinner } from '@heroui/react';
+import { Button, Card, CardBody, Checkbox, Chip, Input, Select, SelectItem, Spinner } from '@heroui/react';
 import type { DashboardExternalViewParseResult } from '../lib/externalViewUrl';
 import { fetchExternalJiraBoardView } from '../lib/externalTrackerBoardApi';
 import { setOtelAttributes, withOtelSpan } from '../lib/otel';
@@ -113,9 +113,21 @@ const DEFAULT_COLUMN_VISIBILITY: ExternalJiraColumnVisibility = { showBacklog: f
 const jiraFieldClassNames = {
   base: 'justify-end',
   inputWrapper: 'h-8 min-h-8 border border-neutral-700 bg-neutral-950 px-2 py-0 data-[hover=true]:bg-neutral-900 group-data-[focus=true]:bg-neutral-950',
-  input: 'text-xs text-neutral-100 placeholder:text-neutral-600',
+  input: 'text-[11px] text-neutral-100 placeholder:text-neutral-600',
   label: 'text-xs text-neutral-300',
 };
+
+const jiraSelectClassNames = {
+  base: 'justify-end',
+  trigger: 'h-8 min-h-8 rounded-lg border border-neutral-700 bg-neutral-950 px-2 pr-7 text-neutral-100 data-[hover=true]:bg-neutral-900',
+  value: 'text-[11px] text-neutral-100',
+  label: 'text-xs text-neutral-300',
+  selectorIcon: 'right-2 text-neutral-500',
+  popoverContent: 'border border-neutral-800 bg-neutral-950 text-neutral-100',
+  listbox: 'text-[11px]',
+};
+
+const BULK_JIRA_ALL_REPOS_KEY = '__all_repositories__';
 
 export function ExternalJiraBoardContent({ boardView, initialSelectedCardId, initialSidePanelWorkspaceId, initialColumnVisibility = DEFAULT_COLUMN_VISIBILITY }: { boardView: ExternalJiraBoardViewDto; initialSelectedCardId?: string; initialSidePanelWorkspaceId?: string; initialColumnVisibility?: ExternalJiraColumnVisibility }) {
   const [selectedCardId, setSelectedCardId] = useState<string | undefined>(initialSelectedCardId);
@@ -816,6 +828,7 @@ export function BulkJiraWorkspaceConversionDialog({ boardView, onClose }: { boar
   }
 
   const repoFilterOptions = getBulkWorkspaceRepoFilterOptions(workspaces);
+  const repoSelectOptions = [{ id: BULK_JIRA_ALL_REPOS_KEY, label: 'All repositories' }, ...repoFilterOptions];
   const visibleWorkspaces = filterBulkJiraWorkspacesByRepo(workspaces, selectedRepoId);
   const selectedCount = selectedWorkspaceIds.size;
   const unlinkedCount = visibleWorkspaces.filter((workspace) => !workspace.hasLinkedJiraIssue).length;
@@ -863,13 +876,21 @@ export function BulkJiraWorkspaceConversionDialog({ boardView, onClose }: { boar
             {error ? <div role="alert" className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-100">{error}</div> : null}
 
             <section className="grid items-end gap-3 rounded-2xl border border-neutral-800 bg-neutral-900/45 p-3 md:grid-cols-4">
-              <label className="block text-xs font-medium text-neutral-300">
-                Repository filter
-                <select className="mt-1.5 h-8 w-full rounded-lg border border-neutral-700 bg-neutral-950 px-2 text-xs text-neutral-100 shadow-inner outline-none transition focus:border-sky-500" value={selectedRepoId} onChange={(event) => changeRepoFilter(event.target.value)}>
-                  <option value="">All repositories</option>
-                  {repoFilterOptions.map((repo) => <option key={repo.id} value={repo.id}>{repo.label}</option>)}
-                </select>
-              </label>
+              <Select
+                label="Repository filter"
+                labelPlacement="outside"
+                size="sm"
+                items={repoSelectOptions}
+                selectedKeys={new Set([selectedRepoId || BULK_JIRA_ALL_REPOS_KEY])}
+                classNames={jiraSelectClassNames}
+                onSelectionChange={(keys) => {
+                  if (keys === 'all') return;
+                  const [nextKey] = [...keys];
+                  changeRepoFilter(nextKey === BULK_JIRA_ALL_REPOS_KEY ? '' : String(nextKey ?? ''));
+                }}
+              >
+                {(repo) => <SelectItem key={repo.id}>{repo.label}</SelectItem>}
+              </Select>
               <Input
                 label="Jira site hostname"
                 value={siteHostname}
@@ -888,12 +909,21 @@ export function BulkJiraWorkspaceConversionDialog({ boardView, onClose }: { boar
                 labelPlacement="outside"
                 classNames={jiraFieldClassNames}
               />
-              <label className="block text-xs font-medium text-neutral-300">
-                Issue type
-                <select className="mt-1.5 h-8 w-full rounded-lg border border-neutral-700 bg-neutral-950 px-2 text-xs text-neutral-100 shadow-inner outline-none transition focus:border-sky-500" value={issueTypeName} onChange={(event) => setIssueTypeName(event.target.value)}>
-                  {['Task', 'Story', 'Bug'].map((issueType) => <option key={issueType} value={issueType}>{issueType}</option>)}
-                </select>
-              </label>
+              <Select
+                label="Issue type"
+                labelPlacement="outside"
+                size="sm"
+                items={['Task', 'Story', 'Bug'].map((issueType) => ({ id: issueType, label: issueType }))}
+                selectedKeys={new Set([issueTypeName])}
+                classNames={jiraSelectClassNames}
+                onSelectionChange={(keys) => {
+                  if (keys === 'all') return;
+                  const [nextKey] = [...keys];
+                  if (nextKey) setIssueTypeName(String(nextKey));
+                }}
+              >
+                {(issueType) => <SelectItem key={issueType.id}>{issueType.label}</SelectItem>}
+              </Select>
             </section>
 
             <section className="rounded-2xl border border-neutral-800 bg-neutral-900/35">
