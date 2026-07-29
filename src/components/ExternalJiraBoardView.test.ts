@@ -116,7 +116,7 @@ describe('ExternalJiraBoardContent', () => {
     expect(html).toContain('VD-1');
     expect(html).toContain('Build external board UI');
     expect(html).toContain('Create Workspace');
-    expect(html).toContain('Convert VK workspaces');
+    expect(html).toContain('Create Jira tickets');
     expect(html).toContain('Create a VK workspace for this Jira issue.');
     expect(html).not.toContain('disabled=""');
     expect(html).not.toContain('0 created · 0 completed');

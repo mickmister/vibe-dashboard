@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Drawer, DrawerBody, DrawerContent } from '@heroui/drawer';
+import { Button, Card, CardBody, Checkbox, Chip, Input, Spinner } from '@heroui/react';
 import type { DashboardExternalViewParseResult } from '../lib/externalViewUrl';
 import { fetchExternalJiraBoardView } from '../lib/externalTrackerBoardApi';
 import { setOtelAttributes, withOtelSpan } from '../lib/otel';
@@ -108,6 +109,12 @@ export type ExternalJiraColumnVisibility = {
 };
 
 const DEFAULT_COLUMN_VISIBILITY: ExternalJiraColumnVisibility = { showBacklog: false, showDone: false };
+
+const jiraFieldClassNames = {
+  inputWrapper: 'border border-neutral-700 bg-neutral-950 data-[hover=true]:bg-neutral-900 group-data-[focus=true]:bg-neutral-950',
+  input: 'text-neutral-100 placeholder:text-neutral-600',
+  label: 'text-neutral-300',
+};
 
 export function ExternalJiraBoardContent({ boardView, initialSelectedCardId, initialSidePanelWorkspaceId, initialColumnVisibility = DEFAULT_COLUMN_VISIBILITY }: { boardView: ExternalJiraBoardViewDto; initialSelectedCardId?: string; initialSidePanelWorkspaceId?: string; initialColumnVisibility?: ExternalJiraColumnVisibility }) {
   const [selectedCardId, setSelectedCardId] = useState<string | undefined>(initialSelectedCardId);
@@ -267,22 +274,25 @@ export function ExternalJiraBoardShell({
 
 export function ExternalJiraBoardHeader({ boardView, columns, columnVisibility, onBulkConvert, onColumnVisibilityChange }: { boardView: ExternalJiraBoardViewDto; columns: ExternalKanbanColumnDto[]; columnVisibility: ExternalJiraColumnVisibility; onBulkConvert?: () => void; onColumnVisibilityChange: (visibility: ExternalJiraColumnVisibility) => void }) {
   return (
-    <header className="border-b border-neutral-800 bg-neutral-950/95 px-6 py-5">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="mt-2 text-2xl font-semibold">{boardView.board.name || `Jira board ${boardView.board.id}`}</h1>
-          <p className="mt-1 text-sm text-neutral-400">
-            {boardView.resource.name}
-          </p>
+    <header className="relative overflow-hidden border-b border-neutral-800 bg-[radial-gradient(circle_at_top_left,rgba(14,165,233,0.18),transparent_30%),linear-gradient(135deg,rgba(15,23,42,0.98),rgba(10,10,10,0.98))] px-6 py-5">
+      <div className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-sky-400/60 to-transparent" />
+      <div className="relative flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <Chip size="sm" variant="flat" className="border border-sky-400/20 bg-sky-500/10 text-sky-100">Jira board</Chip>
+            <Chip size="sm" variant="flat" className="border border-emerald-400/20 bg-emerald-500/10 text-emerald-100">{boardView.cards.length} issues</Chip>
+          </div>
+          <h1 className="mt-3 text-2xl font-semibold tracking-tight text-neutral-50">{boardView.board.name || `Jira board ${boardView.board.id}`}</h1>
+          <p className="mt-1 text-sm text-neutral-400">{boardView.resource.name}</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <ExternalJiraColumnVisibilityControls columns={columns} visibility={columnVisibility} onChange={onColumnVisibilityChange} />
-          <button type="button" className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-100 hover:bg-emerald-500/20" onClick={onBulkConvert}>
-            Convert VK workspaces
-          </button>
-          <a className="rounded-lg border border-neutral-700 px-3 py-2 text-sm text-neutral-200 hover:bg-neutral-900" href={boardView.sourceUrl} rel="noreferrer" target="_blank">
+          <Button size="sm" color="success" variant="flat" className="border border-emerald-400/30 bg-emerald-500/15 text-emerald-50" onClick={onBulkConvert}>
+            Create Jira tickets
+          </Button>
+          <Button as="a" size="sm" variant="bordered" className="border-neutral-700 text-neutral-100" href={boardView.sourceUrl} rel="noreferrer" target="_blank">
             Open in Jira
-          </a>
+          </Button>
         </div>
       </div>
     </header>
@@ -295,27 +305,29 @@ export function ExternalJiraColumnVisibilityControls({ columns, visibility, onCh
   if (!hasBacklog && !hasDone) return null;
 
   return (
-    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-neutral-800 bg-neutral-900/70 px-2 py-1" aria-label="Column visibility">
+    <div className="flex flex-wrap items-center gap-2 rounded-full border border-neutral-800 bg-neutral-900/70 px-2 py-1 shadow-lg shadow-black/10" aria-label="Column visibility">
       <span className="px-1 text-xs font-medium uppercase tracking-wide text-neutral-500">Columns</span>
       {hasBacklog ? (
-        <button
-          type="button"
+        <Button
+          size="sm"
+          variant={visibility.showBacklog ? 'flat' : 'light'}
           className={columnToggleClassName(visibility.showBacklog)}
           aria-pressed={visibility.showBacklog}
           onClick={() => onChange({ ...visibility, showBacklog: !visibility.showBacklog })}
         >
           {visibility.showBacklog ? 'Hide Backlog' : 'Show Backlog'}
-        </button>
+        </Button>
       ) : null}
       {hasDone ? (
-        <button
-          type="button"
+        <Button
+          size="sm"
+          variant={visibility.showDone ? 'flat' : 'light'}
           className={columnToggleClassName(visibility.showDone)}
           aria-pressed={visibility.showDone}
           onClick={() => onChange({ ...visibility, showDone: !visibility.showDone })}
         >
           {visibility.showDone ? 'Hide Done' : 'Show Done'}
-        </button>
+        </Button>
       ) : null}
     </div>
   );
@@ -819,101 +831,144 @@ export function BulkJiraWorkspaceConversionDialog({ boardView, onClose }: { boar
     }
   }
 
+  const createdResultsCount = results?.filter((result) => result.status === 'created' || result.status === 'created_mapping_failed').length ?? 0;
+  const progressLabel = loading ? 'Loading workspaces' : `${selectedCount} selected`;
+
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4 sm:items-center" role="dialog" aria-modal="true" aria-label="Convert VK workspaces into Jira tickets">
-      <div className="max-h-[90dvh] w-full max-w-5xl overflow-y-auto rounded-xl border border-neutral-800 bg-neutral-950 p-5 text-neutral-100 shadow-2xl">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-300">Bulk Jira conversion</div>
-            <h2 className="mt-2 text-xl font-semibold">Convert VK workspaces into Jira tickets</h2>
-            <p className="mt-1 text-sm text-neutral-400">Review existing VK workspaces, select unlinked items, and create Jira tickets intentionally.</p>
-          </div>
-          <button type="button" className="rounded border border-neutral-800 px-2 py-1 text-sm hover:bg-neutral-900" onClick={onClose}>Close</button>
-        </div>
-
-        {loading ? <p className="mt-4 text-sm text-neutral-400">Loading VK workspaces…</p> : null}
-        {error ? <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-100">{error}</div> : null}
-
-        <section className="mt-4 grid gap-4 md:grid-cols-4">
-          <label className="block text-sm font-medium text-neutral-200">
-            Repository filter
-            <select className="mt-2 w-full rounded-lg border border-neutral-800 bg-neutral-900 p-2 text-sm text-neutral-100" value={selectedRepoId} onChange={(event) => changeRepoFilter(event.target.value)}>
-              <option value="">All repositories</option>
-              {repoFilterOptions.map((repo) => <option key={repo.id} value={repo.id}>{repo.label}</option>)}
-            </select>
-          </label>
-          <label className="block text-sm font-medium text-neutral-200">
-            Jira site hostname
-            <input className="mt-2 w-full rounded-lg border border-neutral-800 bg-neutral-900 p-2 text-sm text-neutral-100" value={siteHostname} onChange={(event) => setSiteHostname(event.target.value)} placeholder="team.atlassian.net" />
-          </label>
-          <label className="block text-sm font-medium text-neutral-200">
-            Project key
-            <input className="mt-2 w-full rounded-lg border border-neutral-800 bg-neutral-900 p-2 text-sm text-neutral-100" value={projectKey} onChange={(event) => setProjectKey(event.target.value.toUpperCase())} placeholder="VD" />
-          </label>
-          <label className="block text-sm font-medium text-neutral-200">
-            Issue type
-            <select className="mt-2 w-full rounded-lg border border-neutral-800 bg-neutral-900 p-2 text-sm text-neutral-100" value={issueTypeName} onChange={(event) => setIssueTypeName(event.target.value)}>
-              {['Task', 'Story', 'Bug'].map((issueType) => <option key={issueType} value={issueType}>{issueType}</option>)}
-            </select>
-          </label>
-        </section>
-
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-sm text-neutral-400">
-          <span>{unlinkedCount} unlinked workspaces available · {selectedCount} selected{selectedRepoId ? ' in selected repo' : ''}</span>
-          <div className="flex flex-wrap items-center gap-2">
-            <button type="button" className="rounded border border-neutral-700 px-2 py-1 text-neutral-200 hover:bg-neutral-900" onClick={() => setSelectedWorkspaceIds(new Set(getSelectableBulkWorkspaceIds(visibleWorkspaces)))}>
-              Select all unlinked
-            </button>
-            <button type="button" className="rounded border border-neutral-700 px-2 py-1 text-neutral-200 hover:bg-neutral-900" onClick={() => setSelectedWorkspaceIds(deselectAllBulkWorkspaceIds())}>
-              Deselect all
-            </button>
-          </div>
-        </div>
-
-        <div className="mt-3 overflow-hidden rounded-lg border border-neutral-800">
-          {workspaces.length === 0 && !loading ? <p className="p-3 text-sm text-neutral-500">No active VK workspaces found.</p> : null}
-          {workspaces.length > 0 && visibleWorkspaces.length === 0 && !loading ? <p className="p-3 text-sm text-neutral-500">No workspaces match this repository filter.</p> : null}
-          {visibleWorkspaces.map((workspace) => {
-            const disabled = workspace.hasLinkedJiraIssue;
-            const selected = selectedWorkspaceIds.has(workspace.workspaceId);
-            return (
-              <label key={workspace.workspaceId} className={`block border-b border-neutral-900 p-3 text-sm ${disabled ? 'bg-neutral-900/40 text-neutral-500' : 'bg-neutral-950 text-neutral-200 hover:bg-neutral-900/80'}`}>
-                <div className="flex items-start gap-3">
-                  <input
-                    type="checkbox"
-                    className="mt-1"
-                    disabled={disabled}
-                    checked={selected}
-                    onChange={(event) => setSelectedWorkspaceIds((current) => setBulkWorkspaceSelected(current, workspace.workspaceId, event.target.checked))}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-medium text-neutral-100">{workspace.displayName}</span>
-                      <span className="rounded bg-neutral-800 px-2 py-0.5 text-xs text-neutral-300">{workspace.branch}</span>
-                      {disabled ? <span className="rounded bg-sky-500/10 px-2 py-0.5 text-xs text-sky-200">Already linked to {workspace.linkedJiraIssues.map((issue) => issue.key).join(', ')}</span> : null}
-                    </div>
-                    {workspace.workspaceDir ? <div className="mt-1 truncate text-xs text-neutral-500">{workspace.workspaceDir}</div> : null}
-                    {workspace.repos.length ? <div className="mt-1 text-xs text-neutral-500">Repos: {workspace.repos.map((repo) => `${repo.displayName || repo.name} @ ${repo.targetBranch}`).join(', ')}</div> : null}
-                  </div>
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-4 backdrop-blur-sm sm:items-center" role="dialog" aria-modal="true" aria-label="Create Jira tickets from VK workspaces">
+      <div className="max-h-[90dvh] w-full max-w-5xl overflow-hidden rounded-2xl border border-neutral-800 bg-neutral-950 text-neutral-100 shadow-2xl">
+        <header className="border-b border-neutral-800">
+          <div className="relative w-full overflow-hidden rounded-t-2xl bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.24),transparent_28%),radial-gradient(circle_at_top_right,rgba(56,189,248,0.18),transparent_32%),linear-gradient(135deg,rgba(15,23,42,0.98),rgba(10,10,10,0.98))] px-6 py-5">
+            <div className="pointer-events-none absolute inset-0 opacity-50">
+              <span className="absolute right-10 top-5 h-2 w-2 rounded-full bg-emerald-300" />
+              <span className="absolute right-20 top-12 h-1.5 w-1.5 rounded-full bg-sky-300" />
+              <span className="absolute right-6 top-16 h-1 w-8 rotate-12 rounded-full bg-amber-300/80" />
+            </div>
+            <div className="relative flex flex-wrap items-start justify-between gap-4">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Chip size="sm" variant="flat" className="border border-emerald-400/20 bg-emerald-500/10 text-emerald-100">Jira conversion</Chip>
+                  <Chip size="sm" variant="flat" className="border border-sky-400/20 bg-sky-500/10 text-sky-100">{progressLabel}</Chip>
+                  {createdResultsCount > 0 ? <Chip size="sm" color="success" variant="flat">🎉 {createdResultsCount} created</Chip> : null}
                 </div>
+                <h2 className="mt-3 text-2xl font-semibold tracking-tight text-neutral-50">Create Jira tickets</h2>
+                <p className="mt-1 max-w-2xl text-sm font-normal text-neutral-400">Review VK workspaces, apply the remembered repo mapping when available, and create Jira tickets intentionally in one clean pass.</p>
+              </div>
+              <Button size="sm" variant="flat" className="border border-neutral-700 bg-neutral-900/80 text-neutral-100" onClick={onClose}>
+                Close
+              </Button>
+            </div>
+          </div>
+        </header>
+
+        <div className="max-h-[calc(90dvh-11rem)] overflow-y-auto">
+          <div className="space-y-5 px-6 py-5">
+            {loading ? (
+              <Card className="border border-neutral-800 bg-neutral-900/70 text-neutral-300" shadow="none">
+                <CardBody className="flex-row items-center gap-3">
+                  <Spinner size="sm" />
+                  <span className="text-sm">Loading VK workspaces…</span>
+                </CardBody>
+              </Card>
+            ) : null}
+            {error ? <div role="alert" className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-100">{error}</div> : null}
+
+            <section className="grid gap-3 rounded-2xl border border-neutral-800 bg-neutral-900/45 p-4 md:grid-cols-4">
+              <label className="block text-sm font-medium text-neutral-200">
+                Repository filter
+                <select className="mt-2 h-10 w-full rounded-xl border border-neutral-700 bg-neutral-950 px-3 text-sm text-neutral-100 shadow-inner outline-none transition focus:border-sky-500" value={selectedRepoId} onChange={(event) => changeRepoFilter(event.target.value)}>
+                  <option value="">All repositories</option>
+                  {repoFilterOptions.map((repo) => <option key={repo.id} value={repo.id}>{repo.label}</option>)}
+                </select>
               </label>
-            );
-          })}
+              <Input
+                label="Jira site hostname"
+                value={siteHostname}
+                onValueChange={setSiteHostname}
+                placeholder="team.atlassian.net"
+                size="sm"
+                classNames={jiraFieldClassNames}
+              />
+              <Input
+                label="Project key"
+                value={projectKey}
+                onValueChange={(value) => setProjectKey(value.toUpperCase())}
+                placeholder="VD"
+                size="sm"
+                classNames={jiraFieldClassNames}
+              />
+              <label className="block text-sm font-medium text-neutral-200">
+                Issue type
+                <select className="mt-2 h-10 w-full rounded-xl border border-neutral-700 bg-neutral-950 px-3 text-sm text-neutral-100 shadow-inner outline-none transition focus:border-sky-500" value={issueTypeName} onChange={(event) => setIssueTypeName(event.target.value)}>
+                  {['Task', 'Story', 'Bug'].map((issueType) => <option key={issueType} value={issueType}>{issueType}</option>)}
+                </select>
+              </label>
+            </section>
+
+            <section className="rounded-2xl border border-neutral-800 bg-neutral-900/35">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-neutral-800 px-4 py-3 text-sm text-neutral-400">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Chip size="sm" variant="flat" className="bg-neutral-800 text-neutral-200">{unlinkedCount} unlinked</Chip>
+                  <Chip size="sm" variant="flat" className="bg-neutral-800 text-neutral-200">{selectedCount} selected{selectedRepoId ? ' in repo' : ''}</Chip>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button size="sm" variant="flat" className="bg-neutral-800 text-neutral-100" onClick={() => setSelectedWorkspaceIds(new Set(getSelectableBulkWorkspaceIds(visibleWorkspaces)))}>
+                    Select all unlinked
+                  </Button>
+                  <Button size="sm" variant="light" className="text-neutral-300" onClick={() => setSelectedWorkspaceIds(deselectAllBulkWorkspaceIds())}>
+                    Deselect all
+                  </Button>
+                </div>
+              </div>
+
+              <div className="max-h-[38dvh] overflow-y-auto p-2">
+                {workspaces.length === 0 && !loading ? <p className="p-6 text-center text-sm text-neutral-500">No active VK workspaces found.</p> : null}
+                {workspaces.length > 0 && visibleWorkspaces.length === 0 && !loading ? <p className="p-6 text-center text-sm text-neutral-500">No workspaces match this repository filter.</p> : null}
+                <div className="space-y-2">
+                  {visibleWorkspaces.map((workspace) => {
+                    const disabled = workspace.hasLinkedJiraIssue;
+                    const selected = selectedWorkspaceIds.has(workspace.workspaceId);
+                    return (
+                      <label key={workspace.workspaceId} className={`block rounded-xl border p-3 text-sm transition ${disabled ? 'border-neutral-800 bg-neutral-900/40 text-neutral-500' : selected ? 'border-emerald-500/35 bg-emerald-500/10 text-neutral-100 shadow-lg shadow-emerald-950/20' : 'border-neutral-800 bg-neutral-950 text-neutral-200 hover:border-neutral-700 hover:bg-neutral-900/80'}`}>
+                        <div className="flex items-start gap-3">
+                          <Checkbox
+                            className="mt-0.5"
+                            isDisabled={disabled}
+                            isSelected={selected}
+                            onValueChange={(checked) => setSelectedWorkspaceIds((current) => setBulkWorkspaceSelected(current, workspace.workspaceId, checked))}
+                            aria-label={`Select ${workspace.displayName}`}
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="font-medium text-neutral-100">{workspace.displayName}</span>
+                              <Chip size="sm" variant="flat" className="bg-neutral-800 text-neutral-300">{workspace.branch}</Chip>
+                              {disabled ? <Chip size="sm" variant="flat" className="bg-sky-500/10 text-sky-200">Already linked to {workspace.linkedJiraIssues.map((issue) => issue.key).join(', ')}</Chip> : null}
+                            </div>
+                            {workspace.workspaceDir ? <div className="mt-1 truncate text-xs text-neutral-500">{workspace.workspaceDir}</div> : null}
+                            {workspace.repos.length ? <div className="mt-1 text-xs text-neutral-500">Repos: {workspace.repos.map((repo) => `${repo.displayName || repo.name} @ ${repo.targetBranch}`).join(', ')}</div> : null}
+                          </div>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            </section>
+
+            {results ? <BulkJiraWorkspaceConversionResults results={results} /> : null}
+          </div>
         </div>
 
-        {results ? <BulkJiraWorkspaceConversionResults results={results} /> : null}
-
-        <div className="mt-5 flex justify-end gap-2">
-          <button type="button" className="rounded-lg border border-neutral-800 px-3 py-2 text-sm hover:bg-neutral-900" onClick={onClose}>Cancel</button>
-          <button type="button" className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-100 hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-50" disabled={submitting || selectedCount === 0 || !siteHostname.trim() || !projectKey.trim() || !issueTypeName.trim()} onClick={submit}>
+        <footer className="flex justify-end gap-2 border-t border-neutral-800 bg-neutral-950/95 px-6 py-4">
+          <Button variant="light" className="text-neutral-300" onClick={onClose}>Cancel</Button>
+          <Button color="success" variant="flat" className="border border-emerald-400/30 bg-emerald-500/15 text-emerald-50" isLoading={submitting} isDisabled={selectedCount === 0 || !siteHostname.trim() || !projectKey.trim() || !issueTypeName.trim()} onClick={submit}>
             {submitting ? 'Creating…' : `Create ${selectedCount} Jira ticket${selectedCount === 1 ? '' : 's'}`}
-          </button>
-        </div>
+          </Button>
+        </footer>
       </div>
     </div>
   );
 }
-
 
 export function getBulkWorkspaceRepoFilterOptions(workspaces: BulkJiraWorkspaceConversionWorkspaceDto[]): Array<{ id: string; label: string }> {
   const repos = new Map<string, string>();
