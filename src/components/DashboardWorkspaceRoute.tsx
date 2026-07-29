@@ -1,17 +1,17 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import { defineMessages, FormattedMessage, useIntl } from 'react-intl';
-import type { SavedWorkspaceSession } from '../../../../../types';
-import { getDefaultSpace } from '../../../../../types';
-import { usePluginRegistry } from '../../../vibe-dashboard/registry';
-import type { PluginRegistryState } from '../../../vibe-dashboard/types';
-import { resolveWorkspaceFactoryComposition } from '../../../vibe-dashboard/workspace-composition';
-import { useModule } from '../../../../../hooks/useModule';
-import { resolveWorkspaceContainerRef } from '../../../../../lib/vkWorkspaceOpen';
-import { getSavedWorkspaceSessions } from '../../../../../lib/savedVoyageState';
-import { fetchBulkJiraWorkspaceConversionOptions } from '../externalWorkspaceCreateApi';
-import { isValidVdWorkspaceId } from '../vdWorkspaceLinks';
-import { buildExistingVdWorkspaceDashboardPath, findSavedVoyageForVdWorkspaceRoute } from '../vdWorkspaceRoute';
+import type { SavedWorkspaceSession } from '../types';
+import { getDefaultSpace } from '../types';
+import { usePluginRegistry } from '../modules/plugins/vibe-dashboard/registry';
+import type { PluginRegistryState } from '../modules/plugins/vibe-dashboard/types';
+import { resolveWorkspaceFactoryComposition } from '../modules/plugins/vibe-dashboard/workspace-composition';
+import { useModule } from '../hooks/useModule';
+import { resolveWorkspaceContainerRef } from '../lib/vkWorkspaceOpen';
+import { getSavedWorkspaceSessions } from '../lib/savedVoyageState';
+import { fetchVdWorkspaceOpenOptions } from '../lib/vdWorkspaceOpenApi';
+import { isValidVdWorkspaceId } from '../lib/vdWorkspaceLinks';
+import { buildExistingVdWorkspaceDashboardPath, findSavedVoyageForVdWorkspaceRoute } from '../lib/vdWorkspaceRoute';
 
 const dashboardWorkspaceRouteMessages = defineMessages({
   openingWorkspace: {
@@ -113,14 +113,14 @@ export function DashboardWorkspaceRoute() {
         return;
       }
 
-      const optionsResult = await fetchBulkJiraWorkspaceConversionOptions().catch(() => undefined);
+      const optionsResult = await fetchVdWorkspaceOpenOptions().catch(() => undefined);
       if (!optionsResult?.ok) {
         if (cancelled) return;
         setStatus('error');
         setMessage(intl.formatMessage(dashboardWorkspaceRouteMessages.detailsLoadFailed));
         return;
       }
-      const candidate = optionsResult.options.workspaces.find(
+      const candidate = optionsResult.workspaces.find(
         (entry) => entry.workspaceId === workspaceId,
       );
       if (!candidate) {

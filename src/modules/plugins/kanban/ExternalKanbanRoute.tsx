@@ -1,11 +1,12 @@
 import React from 'react';
 import { Card, CardBody, Chip } from '@heroui/react';
+import { useModule } from '../../../hooks/useModule';
 import {
-  EXTERNAL_VIEW_URL_PARAM,
-  getKanbanProviders,
+  type KanbanProviderRegistration,
   type KanbanExternalViewUnsupportedReason,
 } from './contracts';
 
+export const EXTERNAL_VIEW_URL_PARAM = 'external_view_url';
 const URL_PARSE_BASE = 'https://dashboard.local';
 
 export function hasExternalViewQueryParam(search: string): boolean {
@@ -14,6 +15,22 @@ export function hasExternalViewQueryParam(search: string): boolean {
 }
 
 export function ExternalKanbanDashboardRoute({ search }: { search: string }) {
+  const kanbanModule = useModule('plugin-kanban');
+  return (
+    <ExternalKanbanDashboardRouteWithProviders
+      search={search}
+      providers={kanbanModule.providers.list()}
+    />
+  );
+}
+
+export function ExternalKanbanDashboardRouteWithProviders({
+  search,
+  providers,
+}: {
+  search: string;
+  providers: KanbanProviderRegistration[];
+}) {
   const searchParams = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search);
   const externalUrl = searchParams.get(EXTERNAL_VIEW_URL_PARAM)?.trim();
   if (!externalUrl) {
@@ -37,7 +54,7 @@ export function ExternalKanbanDashboardRoute({ search }: { search: string }) {
     );
   }
 
-  const provider = getKanbanProviders().find((candidate) => candidate.supportsExternalViewUrl(parsedUrl));
+  const provider = providers.find((candidate) => candidate.supportsExternalViewUrl(parsedUrl));
   if (!(provider?.parseExternalViewUrl && provider.renderExternalView)) {
     return (
       <ExternalKanbanMessage

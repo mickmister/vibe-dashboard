@@ -1,4 +1,5 @@
 import type { ExternalKanbanCardDto } from './externalTrackerBoardApi';
+import type { ExternalIssueProvider } from '../contracts';
 
 export type VkExecutor =
   | 'CLAUDE_CODE'
@@ -67,7 +68,7 @@ export interface BulkJiraWorkspaceConversionWorkspaceDto {
   repos: Array<{ id: string; name: string; displayName: string; targetBranch: string }>;
   hasLinkedJiraIssue: boolean;
   linkedJiraIssues: Array<{
-    provider: 'jira' | 'github' | 'linear';
+    provider: ExternalIssueProvider;
     key: string;
     id?: string;
     url: string;

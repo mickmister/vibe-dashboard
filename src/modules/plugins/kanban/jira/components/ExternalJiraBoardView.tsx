@@ -1422,8 +1422,6 @@ function messageForUnsupportedReason(reason: string): string {
       return 'The external URL was malformed.';
     case 'unsupported_jira_url':
       return 'The Jira URL is not a supported board URL.';
-    case 'unsupported_github_url':
-      return 'GitHub external views are not part of this Jira board milestone.';
     case 'unsupported_provider_url':
       return 'This external provider is not supported yet.';
     case 'missing_external_view_url':

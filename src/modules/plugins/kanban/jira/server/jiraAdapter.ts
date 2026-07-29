@@ -1,6 +1,7 @@
 import { Buffer } from 'node:buffer';
 import type { JiraExternalViewLocator } from '../externalViewUrl';
 import { setOtelAttributes, withOtelSpan } from '../../../../../lib/otel';
+import type { ExternalIssueProvider } from '../../contracts';
 
 const ATLASSIAN_API_ORIGIN = 'https://api.atlassian.com';
 const JIRA_BOARD_FIELDS = ['summary', 'status', 'issuetype', 'assignee', 'labels', 'priority', 'parent', 'epic'].join(',');
@@ -61,7 +62,7 @@ export interface ExternalKanbanCard {
     status?: string;
     priority?: number | string;
     externalIssue: {
-      provider: 'jira' | 'github' | 'linear';
+      provider: ExternalIssueProvider;
       key: string;
       url: string;
       id?: string;

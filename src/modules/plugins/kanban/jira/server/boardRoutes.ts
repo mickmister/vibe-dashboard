@@ -7,11 +7,11 @@ import { promisify } from 'node:util';
 import type { Hono } from 'hono';
 import { sql, type Kysely } from 'kysely';
 import { EXTERNAL_VIEW_URL_PARAM, parseExternalViewUrl } from '../externalViewUrl';
-import { buildVdWorkspaceUrl, normalizeVdSiteOrigin } from '../vdWorkspaceLinks';
+import { buildVdWorkspaceUrl, normalizeVdSiteOrigin } from '../../../../../lib/vdWorkspaceLinks';
 import type { DB } from '../../../../../store/kysely_types';
 import { setOtelAttributes, withOtelSpan } from '../../../../../lib/otel';
 import type { ExternalTrackerAuthService } from './auth';
-import { isExternalTrackerProvider } from './config';
+import { isExternalIssueProvider } from '../../providerIds';
 import { createJiraIssue, fetchJiraBoardView } from './jiraAdapter';
 import type { CreatedJiraIssue, CreateJiraIssueResult, JiraBasicAuthConfig, JiraBoardAdapterResult, JiraProviderError } from './jiraAdapter';
 import { addBeadExternalIssueLink, decorateJiraBoardWithBeadLinks, isValidBeadId, normalizeExternalIssueRef, removeBeadExternalIssueLink } from './beadExternalIssues';
@@ -806,7 +806,7 @@ function isWorkspaceLinkRequest(value: unknown): value is Parameters<typeof upse
 
   const externalIssue = record.externalIssue as Record<string, unknown>;
   const workspace = record.workspace as Record<string, unknown>;
-  if (!isNonEmptyString(externalIssue.provider) || !isExternalTrackerProvider(externalIssue.provider)) return false;
+  if (!isNonEmptyString(externalIssue.provider) || !isExternalIssueProvider(externalIssue.provider)) return false;
   if (!isNonEmptyString(externalIssue.key)) return false;
   if (!isNonEmptyString(externalIssue.url)) return false;
   if (externalIssue.provider === 'jira' && !isNonEmptyString(externalIssue.site)) return false;
@@ -937,7 +937,7 @@ function isExternalIssueWorkspaceCreateRequest(value: unknown): value is {
 } {
   if (!isPlainObject(value) || !isPlainObject(value.externalIssue) || !isPlainObject(value.workspace)) return false;
   const externalIssue = value.externalIssue as Record<string, unknown>;
-  if (!isNonEmptyString(externalIssue.provider) || !isExternalTrackerProvider(externalIssue.provider)) return false;
+  if (!isNonEmptyString(externalIssue.provider) || !isExternalIssueProvider(externalIssue.provider)) return false;
   if (!isNonEmptyString(externalIssue.key) || !isNonEmptyString(externalIssue.url)) return false;
   if (externalIssue.provider === 'jira' && !isNonEmptyString(externalIssue.site)) return false;
   if (!isOptionalString(externalIssue.id) || !isOptionalString(externalIssue.site) || !isOptionalPlainObject(externalIssue.metadata)) return false;

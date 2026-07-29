@@ -90,16 +90,16 @@ describe('externalViewUrl', () => {
     });
   });
 
-  it('returns malformed_url instead of throwing for malformed percent-encoded GitHub paths', () => {
+  it('treats malformed percent-encoded non-Jira paths as unsupported provider URLs without throwing', () => {
     expect(
       parseDashboardExternalViewLocator(
-        '?external_view_url=https%3A%2F%2Fgithub.com%2Foctocat%2F%25E0%25A4%25A%2Fissues%2F1',
+        '?external_view_url=https%3A%2F%2Fexample.com%2Fteams%2F%25E0%25A4%25A%2Fissues%2F1',
       ),
     ).toEqual({
       status: 'unsupported',
-      reason: 'malformed_url',
+      reason: 'unsupported_provider_url',
       sourceParam: 'external_view_url',
-      originalUrl: 'https://github.com/octocat/%E0%A4%A/issues/1',
+      originalUrl: 'https://example.com/teams/%E0%A4%A/issues/1',
     });
   });
 
@@ -112,10 +112,10 @@ describe('externalViewUrl', () => {
   });
 
   it('rejects unsupported non-Jira URLs without throwing', () => {
-    expect(parseExternalViewUrl('https://linear.app/acme/team/VD/all')).toEqual({
+    expect(parseExternalViewUrl('https://example.com/acme/team/VD/all')).toEqual({
       status: 'unsupported',
       reason: 'unsupported_provider_url',
-      originalUrl: 'https://linear.app/acme/team/VD/all',
+      originalUrl: 'https://example.com/acme/team/VD/all',
     });
   });
 
@@ -148,7 +148,7 @@ describe('externalViewUrl', () => {
 
 
   it('returns missing_external_view_url when no canonical param is present', () => {
-    expect(parseDashboardExternalViewLocator('?unsupported_external_url=https%3A%2F%2Fgithub.com%2Foctocat%2FHello-World%2Fissues%2F1')).toEqual({
+    expect(parseDashboardExternalViewLocator('?unsupported_external_url=https%3A%2F%2Fexample.com%2Facme%2Fboard')).toEqual({
       status: 'unsupported',
       reason: 'missing_external_view_url',
     });

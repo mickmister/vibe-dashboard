@@ -1,6 +1,6 @@
 import type { Hono } from 'hono';
 import type { ExternalTrackerAuthService } from './auth';
-import { getProviderScopes, isExternalTrackerProvider } from './config';
+import { getJiraProviderScopes, isJiraExternalTrackerProvider } from './config';
 
 export function registerExternalTrackerAuthRoutes(
   hono: Hono,
@@ -35,7 +35,7 @@ export function registerExternalTrackerAuthRoutes(
     }
 
     const provider = c.req.param('provider');
-    if (!isExternalTrackerProvider(provider)) {
+    if (!isJiraExternalTrackerProvider(provider)) {
       return c.json({ error: 'unsupported_external_tracker_provider' }, 400);
     }
 
@@ -52,6 +52,6 @@ export function registerExternalTrackerAuthRoutes(
     });
 
     if (result instanceof Response) return result;
-    return c.json({ provider, scopes: getProviderScopes(provider), result });
+    return c.json({ provider, scopes: getJiraProviderScopes(), result });
   });
 }

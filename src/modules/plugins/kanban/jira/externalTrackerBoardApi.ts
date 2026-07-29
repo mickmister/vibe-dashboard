@@ -1,4 +1,5 @@
 import { EXTERNAL_VIEW_URL_PARAM } from './externalViewUrl';
+import type { ExternalIssueProvider } from '../contracts';
 
 export interface ExternalKanbanColumnDto {
   id: string;
@@ -43,7 +44,7 @@ export interface ExternalKanbanCardDto {
     status?: string;
     priority?: number | string;
     externalIssue: {
-      provider: 'jira' | 'github' | 'linear';
+      provider: ExternalIssueProvider;
       key: string;
       url: string;
       id?: string;

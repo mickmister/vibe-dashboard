@@ -9,8 +9,7 @@ export type ExternalViewUnsupportedReason =
   | 'missing_external_view_url'
   | 'malformed_url'
   | 'unsupported_provider_url'
-  | 'unsupported_jira_url'
-  | 'unsupported_github_url';
+  | 'unsupported_jira_url';
 
 export interface JiraExternalViewLocator {
   provider: 'jira';
@@ -21,16 +20,7 @@ export interface JiraExternalViewLocator {
   boardId?: string;
 }
 
-export interface GitHubExternalViewLocator {
-  provider: 'github';
-  originalUrl: string;
-  owner: string;
-  repo: string;
-  issueNumber?: string;
-  pullNumber?: string;
-}
-
-export type ExternalViewLocator = JiraExternalViewLocator | GitHubExternalViewLocator;
+export type ExternalViewLocator = JiraExternalViewLocator;
 
 export type ExternalViewParseResult =
   | {
@@ -64,16 +54,6 @@ export function parseExternalViewUrl(value: string): ExternalViewParseResult {
 
   if (isJiraCloudUrl(parsed)) {
     return parseJiraExternalViewUrl(parsed, value);
-  }
-
-  if (parsed.hostname.toLowerCase() === 'github.com') {
-    const githubLocator = parseGitHubExternalViewUrl(parsed, value);
-    if (githubLocator === 'malformed_url') {
-      return { status: 'unsupported', reason: 'malformed_url', originalUrl: value };
-    }
-    return githubLocator
-      ? { status: 'ok', locator: githubLocator }
-      : { status: 'unsupported', reason: 'unsupported_github_url', originalUrl: value };
   }
 
   return { status: 'unsupported', reason: 'unsupported_provider_url', originalUrl: value };
@@ -187,24 +167,6 @@ function parseJiraExternalViewUrl(url: URL, originalUrl: string): ExternalViewPa
       projectKey,
     },
   };
-}
-
-function parseGitHubExternalViewUrl(url: URL, originalUrl: string): GitHubExternalViewLocator | 'malformed_url' | undefined {
-  const segments = decodePathSegments(url);
-  if (!segments) return 'malformed_url';
-
-  const [owner, repo, resourceKind, resourceId] = segments;
-  if (!(owner && repo)) return undefined;
-
-  if (resourceKind === 'issues' && resourceId) {
-    return { provider: 'github', originalUrl, owner, repo, issueNumber: resourceId };
-  }
-
-  if (resourceKind === 'pull' && resourceId) {
-    return { provider: 'github', originalUrl, owner, repo, pullNumber: resourceId };
-  }
-
-  return { provider: 'github', originalUrl, owner, repo };
 }
 
 function decodePathSegments(url: URL): string[] | undefined {

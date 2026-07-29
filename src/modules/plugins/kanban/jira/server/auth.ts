@@ -2,8 +2,8 @@ import { betterAuth } from 'better-auth';
 import type Database from 'better-sqlite3';
 import type { Kysely } from 'kysely';
 import type { DB } from '../../../../../store/kysely_types';
-import type { ExternalTrackerProvider } from './config';
-import { getProviderScopes } from './config';
+import type { JiraExternalTrackerProvider } from './config';
+import { getJiraProviderScopes } from './config';
 
 export interface BetterAuthDatabase {
   sqlite: Database.Database;
@@ -14,7 +14,7 @@ export interface ExternalTrackerAuthService {
   getSession(headers: Headers): Promise<{ user: { id: string; email: string; name: string } } | null>;
   linkSocialAccount(args: {
     headers: Headers;
-    provider: ExternalTrackerProvider;
+    provider: JiraExternalTrackerProvider;
     callbackURL?: string;
   }): Promise<unknown>;
   handler(request: Request): Promise<Response>;
@@ -26,7 +26,7 @@ interface BetterAuthInstanceForExternalTrackers {
     linkSocialAccount(args: {
       headers: Headers;
       body: {
-        provider: 'atlassian' | 'github' | 'linear';
+        provider: 'atlassian';
         callbackURL?: string;
         scopes: string[];
         requestSignUp: false;
@@ -64,17 +64,7 @@ export function createExternalTrackerAuth(database: BetterAuthDatabase): BetterA
       atlassian: {
         clientId: process.env.ATLASSIAN_CLIENT_ID || '',
         clientSecret: process.env.ATLASSIAN_CLIENT_SECRET || '',
-        scope: getProviderScopes('jira'),
-      },
-      github: {
-        clientId: process.env.GITHUB_CLIENT_ID || '',
-        clientSecret: process.env.GITHUB_CLIENT_SECRET || '',
-        scope: getProviderScopes('github'),
-      },
-      linear: {
-        clientId: process.env.LINEAR_CLIENT_ID || '',
-        clientSecret: process.env.LINEAR_CLIENT_SECRET || '',
-        scope: getProviderScopes('linear'),
+        scope: getJiraProviderScopes(),
       },
     },
   }) as unknown as BetterAuthInstanceForExternalTrackers;
@@ -90,9 +80,9 @@ export function createExternalTrackerAuthService(auth: BetterAuthInstanceForExte
       return auth.api.linkSocialAccount({
         headers,
         body: {
-          provider: provider === 'jira' ? 'atlassian' : provider,
+          provider: 'atlassian',
           callbackURL,
-          scopes: getProviderScopes(provider),
+          scopes: getJiraProviderScopes(),
           requestSignUp: false,
         },
       });

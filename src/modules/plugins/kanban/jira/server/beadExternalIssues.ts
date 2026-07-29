@@ -1,7 +1,7 @@
 import { execFile as execFileCallback } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { ExternalProvider } from '../../../../../store/kysely_types';
-import { isExternalTrackerProvider } from './config';
+import { isExternalIssueProvider } from '../../providerIds';
 import type { ExternalJiraBoardView, ExternalKanbanCard } from './jiraAdapter';
 
 const execFile = promisify(execFileCallback);
@@ -139,7 +139,7 @@ export function normalizeExternalIssueRef(value: unknown): BeadExternalIssueRef 
   const provider = value.provider;
   const key = value.key;
   const url = value.url;
-  if (!(typeof provider === 'string' && isExternalTrackerProvider(provider))) return undefined;
+  if (!(typeof provider === 'string' && isExternalIssueProvider(provider))) return undefined;
   if (!isNonEmptyString(key)) return undefined;
   if (!isNonEmptyString(url)) return undefined;
   if (!isOptionalString(value.id)) return undefined;

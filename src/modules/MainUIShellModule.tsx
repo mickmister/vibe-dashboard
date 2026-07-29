@@ -24,6 +24,7 @@ import {
   ExternalKanbanDashboardRoute,
   hasExternalViewQueryParam,
 } from "./plugins/kanban/ExternalKanbanRoute";
+import { DashboardWorkspaceRoute } from "../components/DashboardWorkspaceRoute";
 import { resolveDashboardVoyage } from "../lib/voyageSession";
 import { getSavedWorkspaceSessions } from "../lib/savedVoyageState";
 import { getRenderedPairViewIds } from "../lib/renderedWorkspaceSelection";
@@ -1220,6 +1221,12 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
     "/dashboard",
     { hideApplicationShell: true },
     DashboardRoute,
+  );
+
+  moduleAPI.registerRoute(
+    "/dashboard/workspaces/:workspaceId",
+    { hideApplicationShell: true },
+    DashboardWorkspaceRoute,
   );
 
   moduleAPI.registerRoute(
