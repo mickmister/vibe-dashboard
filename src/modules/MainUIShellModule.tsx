@@ -2,10 +2,9 @@ import "@vitejs/plugin-react/preamble";
 import "../styles";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useLocation, useNavigate, useParams } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 import { HeroUIProvider } from "@heroui/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { defineMessages, FormattedMessage, useIntl } from "react-intl";
 import { AppLoadingScreen } from "../components/AppLoadingScreen";
 import { WorkspaceShell } from "../components/WorkspaceShell";
 import { useSessionWorkspaceNav } from "../sessionState";
@@ -22,9 +21,9 @@ import {
   shortIdTokenMatches,
 } from "../lib/voyageUrl";
 import {
-  EXTERNAL_VIEW_URL_PARAM,
-  parseDashboardExternalViewLocator,
-} from "../lib/externalViewUrl";
+  ExternalKanbanDashboardRoute,
+  hasExternalViewQueryParam,
+} from "./plugins/kanban/ExternalKanbanRoute";
 import { resolveDashboardVoyage } from "../lib/voyageSession";
 import { getSavedWorkspaceSessions } from "../lib/savedVoyageState";
 import { getRenderedPairViewIds } from "../lib/renderedWorkspaceSelection";
@@ -36,11 +35,6 @@ import {
 import { usePluginRegistry } from "./plugins/vibe-dashboard/registry";
 import type { ResolvedWorkspaceComposition } from "./plugins/vibe-dashboard/workspace-composition";
 import { createEffectiveWorkspaceWithCraftSurfaces } from "./plugins/vibe-dashboard/craft-surfaces";
-import { ExternalJiraBoardRoute } from "../components/ExternalJiraBoardView";
-import { fetchBulkJiraWorkspaceConversionOptions } from "../lib/externalWorkspaceCreateApi";
-import { isValidVdWorkspaceId } from "../lib/vdWorkspaceLinks";
-import { buildExistingVdWorkspaceDashboardPath, findSavedVoyageForVdWorkspaceRoute } from "../lib/vdWorkspaceRoute";
-import { resolveWorkspaceFactoryComposition } from "./plugins/vibe-dashboard/workspace-composition";
 import { VibeIntlProvider } from "../i18n";
 
 // Ensure dark class is on the document root so portaled elements (modals, popovers)
@@ -50,7 +44,6 @@ springboard.registerSplashScreen(AppLoadingScreen);
 
 import springboard from "springboard";
 import type { WorkspaceState, SavedWorkspaceSession } from "../types";
-import { getDefaultSpace } from "../types";
 import { useModule } from "../hooks/useModule";
 
 const URL_PARSE_BASE = "https://workspace.local";
@@ -69,40 +62,6 @@ const MOBILE_TAB_EMOJIS = [
   "🛰️",
 ];
 const queryClient = new QueryClient();
-const dashboardWorkspaceRouteMessages = defineMessages({
-  openingWorkspace: {
-    defaultMessage: "Opening workspace",
-    description: "Title shown while a shared VD workspace link is opening.",
-  },
-  workspaceLinkUnavailable: {
-    defaultMessage: "Workspace link unavailable",
-    description: "Title shown when a shared VD workspace link cannot be opened.",
-  },
-  openingStatus: {
-    defaultMessage: "Opening VK workspace…",
-    description: "Status text shown while loading a shared VK workspace link.",
-  },
-  invalidLink: {
-    defaultMessage: "This VD workspace link is invalid.",
-    description: "Error shown when a shared VD workspace link has an invalid workspace identifier.",
-  },
-  missingFactory: {
-    defaultMessage: "VD could not find a workspace view factory for this link.",
-    description: "Error shown when no workspace view factory can open a shared VD workspace link.",
-  },
-  detailsLoadFailed: {
-    defaultMessage: "VD could not load VK workspace details for this link.",
-    description: "Error shown when workspace metadata cannot be loaded for a shared VD workspace link.",
-  },
-  workspaceNotFound: {
-    defaultMessage: "This VK workspace could not be found or is archived.",
-    description: "Error shown when a shared VK workspace link points to a missing or archived workspace.",
-  },
-  openFailed: {
-    defaultMessage: "VD could not open this VK workspace link.",
-    description: "Error shown when creating a saved dashboard session from a shared VK workspace link fails.",
-  },
-});
 
 /**
  * Get the base URL without port prefix for creating tab URLs.
@@ -195,176 +154,11 @@ function resolveQueryCraftSelection(
   };
 }
 
-
-function getDefaultVKWorkspaceFactoryKeyForRoute(
-  pluginRegistry: ReturnType<typeof usePluginRegistry>,
-): string | undefined {
-  return Object.values(pluginRegistry.tabGroupFactories)
-    .filter((factory) => factory.launchMode === "vk-workspace")
-    .sort(
-      (left, right) =>
-        (left.order ?? 0) - (right.order ?? 0) ||
-        left.key.localeCompare(right.key),
-    )[0]?.key;
-}
-
-
 springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
-  const DashboardWorkspaceRoute = () => {
-    const intl = useIntl();
-    const { workspaceId } = useParams<{ workspaceId: string }>();
-    const navigate = useNavigate();
-    const workspaceModule = useModule("workspace");
-    const workspace = workspaceModule.states.workspace.useState();
-    const savedSessions = workspaceModule.states.savedVoyages.useState();
-    const savedVoyages = useMemo(
-      () => getSavedWorkspaceSessions(savedSessions),
-      [savedSessions],
-    );
-    const pluginRegistryState = usePluginRegistry();
-    const actions = workspaceModule.actions;
-    const [status, setStatus] = useState<"loading" | "error">("loading");
-    const [message, setMessage] = useState(() =>
-      intl.formatMessage(dashboardWorkspaceRouteMessages.openingStatus),
-    );
-
-    useEffect(() => {
-      let cancelled = false;
-      const openWorkspace = async () => {
-        if (!isValidVdWorkspaceId(workspaceId)) {
-          setStatus("error");
-          setMessage(intl.formatMessage(dashboardWorkspaceRouteMessages.invalidLink));
-          return;
-        }
-
-        const existing = findSavedVoyageForVdWorkspaceRoute(
-          workspace,
-          savedVoyages,
-          workspaceId,
-        );
-        if (existing) {
-          navigate(
-            buildExistingVdWorkspaceDashboardPath({
-              workspace,
-              savedVoyages,
-              existing,
-            }),
-            { replace: true },
-          );
-          return;
-        }
-
-        const space = getDefaultSpace(workspace);
-        const factoryKey = getDefaultVKWorkspaceFactoryKeyForRoute(pluginRegistryState);
-        const factory = factoryKey ? pluginRegistryState.tabGroupFactories[factoryKey] : undefined;
-        if (!(space && factory)) {
-          setStatus("error");
-          setMessage(intl.formatMessage(dashboardWorkspaceRouteMessages.missingFactory));
-          return;
-        }
-
-        const optionsResult = await fetchBulkJiraWorkspaceConversionOptions().catch(() => undefined);
-        if (!optionsResult?.ok) {
-          if (cancelled) return;
-          setStatus("error");
-          setMessage(intl.formatMessage(dashboardWorkspaceRouteMessages.detailsLoadFailed));
-          return;
-        }
-        const candidate = optionsResult.options.workspaces.find(
-          (entry) => entry.workspaceId === workspaceId,
-        );
-        if (!candidate) {
-          if (cancelled) return;
-          setStatus("error");
-          setMessage(intl.formatMessage(dashboardWorkspaceRouteMessages.workspaceNotFound));
-          return;
-        }
-
-        const workspaceName = candidate.displayName || candidate.branch || workspaceId;
-        const containerRef = await resolveWorkspaceContainerRef(
-          workspaceId,
-          candidate.workspaceDir,
-        );
-        const composition = resolveWorkspaceFactoryComposition({
-          factory,
-          context: {
-            origin: typeof window === "undefined" ? "" : window.location.origin,
-            workspaceId,
-            workspaceName,
-            containerRef,
-          },
-        });
-        const result = await actions.createSavedSessionForVKWorkspace({
-          voyageName: workspaceName,
-          taskAttemptId: workspaceId,
-          workspaceName,
-          containerRef,
-          activeSpaceId: space.id,
-          composition,
-        });
-        if (cancelled) return;
-        if (!result?.savedSession) {
-          setStatus("error");
-          setMessage(intl.formatMessage(dashboardWorkspaceRouteMessages.openFailed));
-          return;
-        }
-        navigate(
-          buildCanonicalDashboardPath("", {
-            slug: buildVoyageParam(result.savedSession, [result.savedSession, ...savedVoyages]),
-            craftParam: undefined,
-            viewTokens: undefined,
-          }),
-          { replace: true },
-        );
-      };
-      void openWorkspace();
-      return () => {
-        cancelled = true;
-      };
-    }, [actions, intl, navigate, pluginRegistryState, savedVoyages, workspace, workspaceId]);
-
-    return (
-      <div className="dark fixed inset-0 flex items-center justify-center bg-neutral-950 p-6 text-neutral-100">
-        <div className="max-w-md rounded-2xl border border-neutral-800 bg-neutral-900 p-6 shadow-2xl">
-          <div className="text-xs font-semibold uppercase tracking-[0.2em] text-neutral-500">
-            <FormattedMessage
-              defaultMessage="VD workspace link"
-              description="Eyebrow label for a shared VD workspace link status page."
-            />
-          </div>
-          <h1 className="mt-3 text-xl font-semibold">
-            {status === "loading" ? (
-              <FormattedMessage {...dashboardWorkspaceRouteMessages.openingWorkspace} />
-            ) : (
-              <FormattedMessage {...dashboardWorkspaceRouteMessages.workspaceLinkUnavailable} />
-            )}
-          </h1>
-          <p className="mt-2 text-sm text-neutral-300">{message}</p>
-          {status === "error" ? (
-            <button
-              type="button"
-              className="mt-4 rounded-lg border border-neutral-700 px-4 py-2 text-sm text-neutral-100 hover:bg-neutral-800"
-              onClick={() => navigate("/dashboard", { replace: true })}
-            >
-              <FormattedMessage
-                defaultMessage="Go to dashboard"
-                description="Button label that returns users from a failed shared workspace link to the dashboard."
-              />
-            </button>
-          ) : null}
-        </div>
-      </div>
-    );
-  };
-
   const DashboardRoute = () => {
     const location = useLocation();
     if (hasExternalViewQueryParam(location.search)) {
-      return (
-        <ExternalJiraBoardRoute
-          parseResult={parseDashboardExternalViewLocator(location.search)}
-        />
-      );
+      return <ExternalKanbanDashboardRoute search={location.search} />;
     }
     return <WorkspaceRoute />;
   };
@@ -1429,12 +1223,6 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
   );
 
   moduleAPI.registerRoute(
-    "/dashboard/workspaces/:workspaceId",
-    { hideApplicationShell: true },
-    DashboardWorkspaceRoute,
-  );
-
-  moduleAPI.registerRoute(
     "/dashboard/admin/plugins",
     { hideApplicationShell: true },
     AdminPluginsRoute,
@@ -1467,9 +1255,4 @@ function normalizeActionReturns<
   T extends Record<string, (...args: any[]) => any>,
 >(actions: T) {
   return actions as NormalizeActionReturns<T>;
-}
-
-function hasExternalViewQueryParam(search: string): boolean {
-  const searchParams = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
-  return searchParams.has(EXTERNAL_VIEW_URL_PARAM);
 }

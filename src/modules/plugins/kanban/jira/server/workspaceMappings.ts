@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { sql, type Kysely } from 'kysely';
-import type { DB, ExternalProvider } from '../../store/kysely_types';
+import type { DB, ExternalProvider } from '../../../../../store/kysely_types';
 import type { ExternalJiraBoardView, ExternalKanbanCard } from './jiraAdapter';
 
 export interface ExternalIssueRef {

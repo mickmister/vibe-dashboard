@@ -43,7 +43,7 @@
     "db:prepare-schema": "node db/scripts/generate_schemas.cjs",
     "db:generate-migration-imports": "node db/scripts/generate_migration_imports.cjs",
     "db:smoke:external-integrations": "node scripts/db/smoke-external-integrations.mjs",
-    "storybook:jira-fixture": "node --experimental-strip-types scripts/storybook/generate-external-jira-fixture.ts",
+    "storybook:jira-fixture": "node --experimental-strip-types src/modules/plugins/kanban/jira/scripts/generate-external-jira-fixture.ts",
     "beads-form:preview": "node --experimental-strip-types scripts/beads-form/preview.ts",
     "dev:beads-form-preview": "node --experimental-strip-types scripts/beads-form/preview.ts",
     "beads-form": "node --experimental-strip-types scripts/beads-form/cli.ts",

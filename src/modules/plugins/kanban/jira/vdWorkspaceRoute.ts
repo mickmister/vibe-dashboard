@@ -1,5 +1,5 @@
-import type { SavedWorkspaceSession, WorkspaceState } from '../types';
-import { buildSavedVoyageDashboardPath } from './voyageUrl';
+import type { SavedWorkspaceSession, WorkspaceState } from '../../../../types';
+import { buildSavedVoyageDashboardPath } from '../../../../lib/voyageUrl';
 
 const URL_PARSE_BASE = 'https://workspace.local';
 

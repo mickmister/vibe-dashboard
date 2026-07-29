@@ -6,10 +6,10 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import type { Hono } from 'hono';
 import { sql, type Kysely } from 'kysely';
-import { EXTERNAL_VIEW_URL_PARAM, parseExternalViewUrl } from '../../lib/externalViewUrl';
-import { buildVdWorkspaceUrl, normalizeVdSiteOrigin } from '../../lib/vdWorkspaceLinks';
-import type { DB } from '../../store/kysely_types';
-import { setOtelAttributes, withOtelSpan } from '../../lib/otel';
+import { EXTERNAL_VIEW_URL_PARAM, parseExternalViewUrl } from '../externalViewUrl';
+import { buildVdWorkspaceUrl, normalizeVdSiteOrigin } from '../vdWorkspaceLinks';
+import type { DB } from '../../../../../store/kysely_types';
+import { setOtelAttributes, withOtelSpan } from '../../../../../lib/otel';
 import type { ExternalTrackerAuthService } from './auth';
 import { isExternalTrackerProvider } from './config';
 import { createJiraIssue, fetchJiraBoardView } from './jiraAdapter';
@@ -18,8 +18,8 @@ import { addBeadExternalIssueLink, decorateJiraBoardWithBeadLinks, isValidBeadId
 import type { BeadsExternalIssueServiceOptions } from './beadExternalIssues';
 import { decorateJiraBoardWithWorkspaceMappings, getLinkedExternalIssuesForWorkspaces, upsertExternalIssueWorkspaceMapping } from './workspaceMappings';
 import type { LinkedExternalIssue } from './workspaceMappings';
-import { VibeKanbanServerClient } from '../vk-client';
-import type { CreateAndStartWorkspaceRequest, DirectoryEntry, Executor, ExecutorConfig, Repo, RepoWithBranch, Workspace, WorkspaceSummary } from '../vk-client';
+import { VibeKanbanServerClient } from '../../../../../server/vk-client';
+import type { CreateAndStartWorkspaceRequest, DirectoryEntry, Executor, ExecutorConfig, Repo, RepoWithBranch, Workspace, WorkspaceSummary } from '../../../../../server/vk-client';
 
 export type FetchJiraBoardView = typeof fetchJiraBoardView;
 export type CreateJiraIssue = typeof createJiraIssue;

@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import React from 'react';
 import { ExternalJiraBoardContent, ExternalTrackerMessage } from './ExternalJiraBoardView';
-import type { ExternalJiraBoardViewDto, ExternalKanbanCardDto } from '../lib/externalTrackerBoardApi';
+import type { ExternalJiraBoardViewDto, ExternalKanbanCardDto } from '../externalTrackerBoardApi';
 import { getGeneratedExternalJiraStorybookFixture } from '../storybook/externalJiraGeneratedFixtures';
 
 const baseCard: ExternalKanbanCardDto = {

@@ -4,19 +4,19 @@ import { sanitizeOtelAttributes } from './otel';
 describe('otel helpers', () => {
   it('removes secrets and raw user-controlled query data from span attributes', () => {
     expect(sanitizeOtelAttributes({
-      'jira.site_hostname': 'team.atlassian.net',
+      'provider.site_hostname': 'team.example.test',
       accessToken: 'token-secret',
       apiToken: 'api-secret',
       authorization: 'Bearer secret',
       email: 'user@example.com',
-      external_view_url: 'https://team.atlassian.net/jira/software/projects/VD/boards/1?filter=assignee%3Dabc',
+      external_view_url: 'https://team.example.test/provider/board?filter=assignee%3Dabc',
       jql: 'assignee = "account-id"',
-      'jira.issue_count': 12,
-      'jira.has_board_id': true,
+      'provider.issue_count': 12,
+      'provider.has_board_id': true,
     })).toEqual({
-      'jira.site_hostname': 'team.atlassian.net',
-      'jira.issue_count': 12,
-      'jira.has_board_id': true,
+      'provider.site_hostname': 'team.example.test',
+      'provider.issue_count': 12,
+      'provider.has_board_id': true,
     });
   });
 

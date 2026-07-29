@@ -6,7 +6,7 @@ declare global {
   }
 }
 
-const generatedFixtureModules = import.meta.glob<ExternalJiraStorybookFixture>('../storybook-fixtures/external-jira/*.generated.json', {
+const generatedFixtureModules = import.meta.glob<ExternalJiraStorybookFixture>('../../../../../storybook-fixtures/external-jira/*.generated.json', {
   eager: true,
   import: 'default',
 });

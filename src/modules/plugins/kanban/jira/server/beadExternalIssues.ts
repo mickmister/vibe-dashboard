@@ -1,6 +1,6 @@
 import { execFile as execFileCallback } from 'node:child_process';
 import { promisify } from 'node:util';
-import type { ExternalProvider } from '../../store/kysely_types';
+import type { ExternalProvider } from '../../../../../store/kysely_types';
 import { isExternalTrackerProvider } from './config';
 import type { ExternalJiraBoardView, ExternalKanbanCard } from './jiraAdapter';
 

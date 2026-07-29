@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ExternalJiraBoardViewDto } from '../lib/externalTrackerBoardApi';
+import type { ExternalJiraBoardViewDto } from '../externalTrackerBoardApi';
 import { createExternalJiraStorybookFixture } from './externalJiraFixtureSanitizer';
 
 const boardView: ExternalJiraBoardViewDto = {

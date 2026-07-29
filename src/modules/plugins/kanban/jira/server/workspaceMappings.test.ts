@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
 import { Kysely, SqliteDialect } from 'kysely';
-import type { DB } from '../../store/kysely_types';
+import type { DB } from '../../../../../store/kysely_types';
 import { migrateExternalIntegrationsDb } from './migrate';
 import { decorateJiraBoardWithWorkspaceMappings, getRelatedWorkspacesForExternalIssues, upsertExternalIssueWorkspaceMapping } from './workspaceMappings';
 import type { ExternalJiraBoardView } from './jiraAdapter';

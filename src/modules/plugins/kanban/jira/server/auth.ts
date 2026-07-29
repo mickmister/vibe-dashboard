@@ -1,7 +1,7 @@
 import { betterAuth } from 'better-auth';
 import type Database from 'better-sqlite3';
 import type { Kysely } from 'kysely';
-import type { DB } from '../../store/kysely_types';
+import type { DB } from '../../../../../store/kysely_types';
 import type { ExternalTrackerProvider } from './config';
 import { getProviderScopes } from './config';
 

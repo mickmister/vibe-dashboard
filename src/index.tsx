@@ -32,7 +32,7 @@ import "./modules/MainUIShellModule";
 // @platform "node"
 import "./modules/ObservabilityServerModule";
 import "./modules/WorkflowServerModule";
-import "./modules/ExternalTrackerServerModule";
+import "./modules/plugins/kanban/jira/serverModule";
 // @platform end
 
 import "./modules/BeadsFormModule";

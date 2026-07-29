@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { JiraExternalViewLocator } from '../../lib/externalViewUrl';
+import type { JiraExternalViewLocator } from '../externalViewUrl';
 import { createJiraIssue, fetchJiraBoardView, resolveJiraAccessibleResource } from './jiraAdapter';
 
 const locator: JiraExternalViewLocator = {

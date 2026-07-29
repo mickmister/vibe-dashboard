@@ -2,9 +2,9 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
-import { parseExternalViewUrl } from '../../src/lib/externalViewUrl.ts';
-import { fetchJiraBoardView } from '../../src/server/external-integrations/jiraAdapter.ts';
-import { createExternalJiraStorybookFixture } from '../../src/storybook/externalJiraFixtureSanitizer.ts';
+import { parseExternalViewUrl } from '../externalViewUrl.ts';
+import { fetchJiraBoardView } from '../server/jiraAdapter.ts';
+import { createExternalJiraStorybookFixture } from '../storybook/externalJiraFixtureSanitizer.ts';
 
 const DEFAULT_OUTPUT = 'src/storybook-fixtures/external-jira/local.generated.json';
 

@@ -2,12 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Hono } from 'hono';
 import Database from 'better-sqlite3';
 import { Kysely, SqliteDialect } from 'kysely';
-import type { DB } from '../../store/kysely_types';
+import type { DB } from '../../../../../store/kysely_types';
 import type { ExternalTrackerAuthService } from './auth';
 import { registerExternalTrackerBoardRoutes, resolveJiraAccessToken } from './boardRoutes';
 import { migrateExternalIntegrationsDb } from './migrate';
 import type { CreateJiraIssue, FetchJiraBoardView } from './boardRoutes';
-import type { RepoWithBranch, VibeKanbanServerClient } from '../vk-client';
+import type { RepoWithBranch, VibeKanbanServerClient } from '../../../../../server/vk-client';
 import { upsertExternalIssueWorkspaceMapping } from './workspaceMappings';
 
 function createAuthService(session: Awaited<ReturnType<ExternalTrackerAuthService['getSession']>>): ExternalTrackerAuthService {

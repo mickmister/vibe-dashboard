@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { buildVdWorkspacePath, buildVdWorkspaceUrl, normalizeVdSiteOrigin, isValidVdWorkspaceId } from './vdWorkspaceLinks';
 
 describe('VD workspace links', () => {
-  it('defaults Jira workspace links to jamtools.dev', () => {
+  it('defaults workspace links to jamtools.dev', () => {
     expect(normalizeVdSiteOrigin(undefined)).toBe('https://jamtools.dev');
     expect(buildVdWorkspaceUrl('370dc1c5-4d81-4c80-93a9-145763090324')).toBe('https://jamtools.dev/dashboard/workspaces/370dc1c5-4d81-4c80-93a9-145763090324');
   });

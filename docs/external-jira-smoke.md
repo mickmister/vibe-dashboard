@@ -2,7 +2,7 @@
 
 ## Automated CI-safe smoke
 
-The automated smoke test is `src/server/external-integrations/jiraVerticalSliceSmoke.test.ts`.
+The automated smoke test is `src/modules/plugins/kanban/jira/server/jiraVerticalSliceSmoke.test.ts`.
 It uses no Atlassian credentials or external network calls.
 
 Tested launch URL shape:

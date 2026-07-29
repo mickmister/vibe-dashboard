@@ -1,12 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Drawer, DrawerBody, DrawerContent } from '@heroui/drawer';
 import { Button, Card, CardBody, Checkbox, Chip, Input, Select, SelectItem, Spinner } from '@heroui/react';
-import type { DashboardExternalViewParseResult } from '../lib/externalViewUrl';
-import { fetchExternalJiraBoardView } from '../lib/externalTrackerBoardApi';
-import { setOtelAttributes, withOtelSpan } from '../lib/otel';
-import type { ExternalJiraBoardApiResponse, ExternalJiraBoardViewDto, ExternalKanbanCardDto, ExternalKanbanColumnDto } from '../lib/externalTrackerBoardApi';
-import { bulkCreateJiraTicketsFromWorkspaces, cloneExternalWorkspaceRepo, createExternalIssueWorkspace, fetchBulkJiraWorkspaceConversionOptions, fetchExternalWorkspaceCreateOptions, fetchExternalWorkspaceMetrics, fetchExternalWorkspaceRepoBranches, registerExternalWorkspaceRepo } from '../lib/externalWorkspaceCreateApi';
-import type { BulkJiraRepoProjectMappingDto, BulkJiraWorkspaceConversionResultDto, BulkJiraWorkspaceConversionWorkspaceDto, ExternalWorkspaceCandidateRepoDto, ExternalWorkspaceCreateOptionsDto, ExternalWorkspaceMetricsDto, VkBranchDto, VkExecutorConfigDto, VkRepoDto } from '../lib/externalWorkspaceCreateApi';
+import type { DashboardExternalViewParseResult } from '../externalViewUrl';
+import { fetchExternalJiraBoardView } from '../externalTrackerBoardApi';
+import { setOtelAttributes, withOtelSpan } from '../../../../../lib/otel';
+import type { ExternalJiraBoardApiResponse, ExternalJiraBoardViewDto, ExternalKanbanCardDto, ExternalKanbanColumnDto } from '../externalTrackerBoardApi';
+import { bulkCreateJiraTicketsFromWorkspaces, cloneExternalWorkspaceRepo, createExternalIssueWorkspace, fetchBulkJiraWorkspaceConversionOptions, fetchExternalWorkspaceCreateOptions, fetchExternalWorkspaceMetrics, fetchExternalWorkspaceRepoBranches, registerExternalWorkspaceRepo } from '../externalWorkspaceCreateApi';
+import type { BulkJiraRepoProjectMappingDto, BulkJiraWorkspaceConversionResultDto, BulkJiraWorkspaceConversionWorkspaceDto, ExternalWorkspaceCandidateRepoDto, ExternalWorkspaceCreateOptionsDto, ExternalWorkspaceMetricsDto, VkBranchDto, VkExecutorConfigDto, VkRepoDto } from '../externalWorkspaceCreateApi';
 
 type ExternalRelatedWorkspace = NonNullable<ExternalKanbanCardDto['relatedWorkspaces']>[number];
 

@@ -1,6 +1,6 @@
 import { Buffer } from 'node:buffer';
-import type { JiraExternalViewLocator } from '../../lib/externalViewUrl';
-import { setOtelAttributes, withOtelSpan } from '../../lib/otel';
+import type { JiraExternalViewLocator } from '../externalViewUrl';
+import { setOtelAttributes, withOtelSpan } from '../../../../../lib/otel';
 
 const ATLASSIAN_API_ORIGIN = 'https://api.atlassian.com';
 const JIRA_BOARD_FIELDS = ['summary', 'status', 'issuetype', 'assignee', 'labels', 'priority', 'parent', 'epic'].join(',');

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { SavedWorkspaceSession, WorkspaceState } from '../types';
+import type { SavedWorkspaceSession, WorkspaceState } from '../../../../types';
 import { buildExistingVdWorkspaceDashboardPath, findSavedVoyageForVdWorkspaceRoute } from './vdWorkspaceRoute';
 
 const workspace: WorkspaceState = {
