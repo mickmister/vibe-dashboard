@@ -8,6 +8,7 @@ import {
   type WorkflowRunEventReadModel,
   type WorkflowRunReadModel,
 } from '../lib/workflowRunsApi';
+import { buildVkSessionUrl } from '../utils/origin';
 
 const inputClass = 'w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100';
 const buttonClass = 'rounded-md border border-zinc-700 px-3 py-2 text-sm hover:bg-zinc-900 disabled:opacity-50';
@@ -187,7 +188,7 @@ function TeamEditor(props: { team: AgentTeam; onUpdate: (patch: UpdateAgentTeamI
           <div key={agent.id} className="grid gap-2 rounded-md border border-zinc-800 p-3 md:grid-cols-5">
             <input className={inputClass} value={agent.displayName} onChange={(event) => void props.onUpdateAgent(agent.id, { displayName: event.target.value })} />
             <input className={inputClass} value={agent.role} onChange={(event) => void props.onUpdateAgent(agent.id, { role: event.target.value })} />
-            <input className={`${inputClass} md:col-span-2`} placeholder="VK session id" value={agent.vkSessionId ?? ''} onChange={(event) => void props.onUpdateAgent(agent.id, { vkSessionId: event.target.value || null })} />
+            <div className="md:col-span-2"><input className={inputClass} placeholder="VK session id" value={agent.vkSessionId ?? ''} onChange={(event) => void props.onUpdateAgent(agent.id, { vkSessionId: event.target.value || null })} /><VkSessionLink className="mt-1" workspaceId={agent.vkWorkspaceId} sessionId={agent.vkSessionId} /></div>
             <div className="flex items-center justify-between gap-2"><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={agent.enabled} onChange={(event) => void props.onUpdateAgent(agent.id, { enabled: event.target.checked })} /> Enabled</label><button className="text-xs text-red-300 disabled:opacity-40" disabled={agent.id === team.orchestratorAgentId || team.agents.length <= 1} onClick={() => void props.onUpdate({ agents: team.agents.filter((entry) => entry.id !== agent.id) })}>Remove</button></div>
           </div>
         ))}
@@ -223,9 +224,9 @@ function WorkflowRunsPanel(props: { runs: WorkflowRunReadModel[]; selectedRun: W
         <div className="space-y-4 text-sm">
           {props.selectedRun ? <>
             <dl className="grid gap-2 md:grid-cols-2">
-              <Ref label="Run" value={props.selectedRun.runId} /><Ref label="Workflow" value={props.selectedRun.workflowId} /><Ref label="Status" value={props.selectedRun.status} /><Ref label="Trigger" value={props.selectedRun.trigger} /><Ref label="Started" value={formatTimestamp(props.selectedRun.startedAt)} /><Ref label="Duration" value={props.selectedRun.durationMs == null ? '—' : `${props.selectedRun.durationMs}ms`} /><Ref label="VK workspace" value={props.selectedRun.vkWorkspaceId} /><Ref label="VK session" value={props.selectedRun.vkSessionId} /><Ref label="VK queue item" value={props.selectedRun.vkQueueItemId} />
+              <Ref label="Run" value={props.selectedRun.runId} /><Ref label="Workflow" value={props.selectedRun.workflowId} /><Ref label="Status" value={props.selectedRun.status} /><Ref label="Trigger" value={props.selectedRun.trigger} /><Ref label="Started" value={formatTimestamp(props.selectedRun.startedAt)} /><Ref label="Duration" value={props.selectedRun.durationMs == null ? '—' : `${props.selectedRun.durationMs}ms`} /><Ref label="VK workspace" value={props.selectedRun.vkWorkspaceId} /><Ref label="VK session" value={props.selectedRun.vkSessionId} href={buildVkSessionUrl({ workspaceId: props.selectedRun.vkWorkspaceId, sessionId: props.selectedRun.vkSessionId })} /><Ref label="VK queue item" value={props.selectedRun.vkQueueItemId} />
             </dl>
-            {queuedAgents.length ? <div><h3 className="font-medium">Queued agents</h3><ul className="mt-2 space-y-1">{queuedAgents.map((agent) => <li key={`${agent.agentId}-${agent.queueItemId}`} className="rounded bg-zinc-950 p-2"><span className="font-medium">{agent.displayName}</span> · {agent.role} · {agent.queueItemId}</li>)}</ul></div> : null}
+            {queuedAgents.length ? <div><h3 className="font-medium">Queued agents</h3><ul className="mt-2 space-y-1">{queuedAgents.map((agent) => <li key={`${agent.agentId}-${agent.queueItemId}`} className="rounded bg-zinc-950 p-2"><span className="font-medium">{agent.displayName}</span> · {agent.role} · {agent.queueItemId}<VkSessionLink workspaceId={agent.workspaceId ?? props.selectedRun?.vkWorkspaceId} sessionId={agent.sessionId} /></li>)}</ul></div> : null}
             <div><h3 className="font-medium">Events</h3><div className="mt-2 max-h-96 space-y-2 overflow-auto">{props.events.map((event) => <div key={event.id} className="rounded border border-zinc-800 p-2"><div className="text-xs text-zinc-500">#{event.eventIndex} {event.eventType} {event.stepId ? `· ${event.stepId}` : ''}</div><div>{event.message}</div>{event.data ? <pre className="mt-1 overflow-auto text-xs text-zinc-400">{JSON.stringify(event.data, null, 2)}</pre> : null}</div>)}</div></div>
           </> : <p className="text-zinc-400">No workflow runs yet.</p>}
         </div>
@@ -234,17 +235,24 @@ function WorkflowRunsPanel(props: { runs: WorkflowRunReadModel[]; selectedRun: W
   );
 }
 
-function Ref({ label, value }: { label: string; value: unknown }) {
-  return <div><dt className="text-xs uppercase text-zinc-500">{label}</dt><dd className="break-all text-zinc-200">{value == null || value === '' ? '—' : String(value)}</dd></div>;
+function Ref({ label, value, href }: { label: string; value: unknown; href?: string | null }) {
+  const content = value == null || value === '' ? '—' : String(value);
+  return <div><dt className="text-xs uppercase text-zinc-500">{label}</dt><dd className="break-all text-zinc-200">{href && content !== '—' ? <a className="text-cyan-300 hover:text-cyan-200" href={href} target="_blank" rel="noreferrer">{content}</a> : content}</dd></div>;
 }
 
 function formatTimestamp(value: number): string {
   return Number.isFinite(value) ? new Date(value).toLocaleString() : '—';
 }
 
-function getQueuedAgents(output: unknown): Array<{ agentId: string; role: string; displayName: string; queueItemId: string }> {
+function VkSessionLink({ workspaceId, sessionId, className = '' }: { workspaceId?: string | null; sessionId?: string | null; className?: string }) {
+  const href = buildVkSessionUrl({ workspaceId, sessionId });
+  if (!href) return null;
+  return <div className={`text-xs ${className}`}><a className="text-cyan-300 hover:text-cyan-200" href={href} target="_blank" rel="noreferrer">Open VK session</a></div>;
+}
+
+function getQueuedAgents(output: unknown): Array<{ agentId: string; role: string; displayName: string; queueItemId: string; sessionId?: string; workspaceId?: string }> {
   if (!output || typeof output !== 'object') return [];
   const queuedAgents = (output as { queuedAgents?: unknown }).queuedAgents;
   if (!Array.isArray(queuedAgents)) return [];
-  return queuedAgents.filter((entry): entry is { agentId: string; role: string; displayName: string; queueItemId: string } => Boolean(entry && typeof entry === 'object' && typeof (entry as { queueItemId?: unknown }).queueItemId === 'string'));
+  return queuedAgents.filter((entry): entry is { agentId: string; role: string; displayName: string; queueItemId: string; sessionId?: string; workspaceId?: string } => Boolean(entry && typeof entry === 'object' && typeof (entry as { queueItemId?: unknown }).queueItemId === 'string'));
 }
