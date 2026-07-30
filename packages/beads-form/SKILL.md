@@ -218,6 +218,17 @@ Bead-backed storage remains preferred for real workflow state and durable respon
 
 Open `/dashboard/forms` without query parameters to view the pending Bead-backed form queue. The queue scans a bounded set of first-level repos under `~/repos` using read-only `bd` commands, prefers the `beadFormsSummary` pending-answer index, falls back to legacy `beadForms` metadata when needed, lists forms with no responses, and provides direct fill-out links. Use the Refresh button after attaching forms or after a human submits. See `packages/beads-form/PENDING_QUEUE.md` for realtime/update tradeoffs and safety limits.
 
+Agents can inspect the same pending queue from a shell with JSON output:
+
+```sh
+beads-form pending --parent-dir ~/repos
+beads-form pending --parent-dir ~/repos --limit 80 --origin https://your-vd-origin.example
+
+npm run beads-form -- pending --parent-dir ~/repos
+```
+
+The command scans only first-level child directories, uses read-only `bd list --json --all --limit 0 --has-metadata-key ...` queries, avoids bulk `bd show`, includes skipped repo reasons, and prints direct `/dashboard/forms?dir=...&bead=...&form=...` links. Use `--origin` or `BEADS_FORM_ORIGIN`/`VD_BEADS_FORM_ORIGIN` when a full URL is needed.
+
 ## Escape hatch
 
 If the standard helpers are not expressive enough, generate raw HTML only as a fallback. Keep the same naming conventions and provide a complete `controls[]` manifest, because submissions are validated by HTML `name`.

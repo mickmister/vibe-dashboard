@@ -12,6 +12,7 @@ import {
   type BeadsFormControl,
   type StandardBeadsForm,
 } from '../../packages/beads-form/src/index.ts';
+import { BeadsClient, type PendingBeadsFormQueueResult } from '../../src/lib/beadsClient.node.ts';
 
 const execFileAsync = promisify(execFile);
 const DEFAULT_CONFIG_DIR_NAME = 'vibe-dashboard';
@@ -66,6 +67,7 @@ type CliOptions = { _: string[] } & Record<string, string | boolean | string[] |
 export type BeadsFormCliCommand =
   | { command: 'attach'; options: AttachOptions }
   | { command: 'show'; options: ShowOptions }
+  | { command: 'pending'; options: PendingOptions }
   | { command: 'help'; options: CliOptions };
 
 export type AttachOptions = {
@@ -84,6 +86,12 @@ export type ShowOptions = {
   beadId: string;
   formId?: string;
   includeHtml?: boolean;
+};
+
+export type PendingOptions = {
+  parentDir: string;
+  limit: number;
+  origin?: string;
 };
 
 export type AttachResult = {
@@ -133,6 +141,33 @@ export type ShowMediaRef = {
   alt?: string;
 };
 
+export type PendingFormsCliResult = {
+  parentDir: string;
+  repoLimit: number;
+  reposScanned: number;
+  pendingCount: number;
+  entries: Array<{
+    repo: {
+      name: string;
+      path: string;
+    };
+    bead: {
+      id: string;
+      title?: string;
+      description?: string;
+    };
+    form: {
+      id: string;
+      title: string;
+      description?: string;
+      responseCount: number;
+    };
+    url: string;
+  }>;
+  skipped: Array<{ repoDir: string; reason: string }>;
+  updateStrategy: PendingBeadsFormQueueResult['updateStrategy'];
+};
+
 export function parseBeadsFormCliArgs(argv: string[]): BeadsFormCliCommand {
   const [command = 'help', ...rest] = argv;
   const options = parseOptions(rest);
@@ -141,6 +176,9 @@ export function parseBeadsFormCliArgs(argv: string[]): BeadsFormCliCommand {
   }
   if (command === 'show') {
     return { command, options: normalizeShowOptions(options) };
+  }
+  if (command === 'pending') {
+    return { command, options: normalizePendingOptions(options) };
   }
   return { command: 'help', options };
 }
@@ -210,6 +248,20 @@ function normalizeShowOptions(options: CliOptions): ShowOptions {
     beadId,
     ...(stringOption(options, 'form') ? { formId: stringOption(options, 'form') } : {}),
     includeHtml: options.includeHtml === true,
+  };
+}
+
+function normalizePendingOptions(options: CliOptions): PendingOptions {
+  const parentDir = stringOption(options, 'parent-dir') ?? stringOption(options, 'parentDir');
+  if (!parentDir) throw new Error('Usage: npm run beads-form -- pending --parent-dir <all-repos-dir> [--limit 80] [--origin origin]');
+  const limitText = stringOption(options, 'limit');
+  const limit = limitText ? Number.parseInt(limitText, 10) : 80;
+  if (!Number.isFinite(limit) || limit < 1) throw new Error(`Invalid pending --limit: ${limitText}`);
+  const origin = resolveBeadsFormOrigin({ explicitOrigin: stringOption(options, 'origin') });
+  return {
+    parentDir: resolve(parentDir),
+    limit,
+    ...(origin ? { origin } : {}),
   };
 }
 
@@ -626,6 +678,40 @@ export function buildShowResult(input: {
   };
 }
 
+export async function scanPendingBeadsForms(input: {
+  options: PendingOptions;
+  execFile?: ExecFileLike;
+}): Promise<PendingFormsCliResult> {
+  const client = new BeadsClient(input.execFile ? { execFile: input.execFile } : {});
+  const queue = await client.listPendingBeadsFormQueue({
+    reposRoot: input.options.parentDir,
+    repoLimit: input.options.limit,
+  });
+  const entries = queue.entries.map((entry) => ({
+    repo: {
+      name: entry.repoName,
+      path: entry.repoDir,
+    },
+    bead: entry.bead,
+    form: entry.form,
+    url: buildFillOutUrl({
+      dir: entry.repoDir,
+      beadId: entry.bead.id,
+      formId: entry.form.id,
+      origin: input.options.origin,
+    }),
+  }));
+  return {
+    parentDir: queue.reposRoot,
+    repoLimit: queue.repoLimit,
+    reposScanned: queue.reposScanned,
+    pendingCount: entries.length,
+    entries,
+    skipped: queue.skipped,
+    updateStrategy: queue.updateStrategy,
+  };
+}
+
 export function collectMediaRefs(form: Pick<BeadsFormDefinition, 'content'>): ShowMediaRef[] {
   const refs: ShowMediaRef[] = [];
   for (const block of form.content ?? []) {
@@ -653,10 +739,12 @@ function printHelp(): void {
   console.log(`Usage:
   beads-form attach --bead <id> (--file form.json | --json raw-json | --stdin) [--dir repo] [--origin origin] [--workspace id] [--session id]
   beads-form show --bead <id> [--form form-id] [--dir repo] [--include-html]
+  beads-form pending --parent-dir <all-repos-dir> [--limit 80] [--origin origin]
 
 Also supported:
   npm run beads-form -- attach --bead <id> (--file form.json | --json raw-json | --stdin) [--dir repo] [--origin origin] [--workspace id] [--session id]
   npm run beads-form -- show --bead <id> [--form form-id] [--dir repo] [--include-html]
+  npm run beads-form -- pending --parent-dir <all-repos-dir> [--limit 80] [--origin origin]
 
 Attach origin precedence:
   1. explicit --origin
@@ -680,6 +768,12 @@ async function main(): Promise<void> {
     const text = await readAttachInput(command.options);
     const forms = parseFormsJsonForAttach(text);
     const result = await attachBeadsForms({ options: command.options, forms });
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  if (command.command === 'pending') {
+    const result = await scanPendingBeadsForms({ options: command.options });
     console.log(JSON.stringify(result, null, 2));
     return;
   }

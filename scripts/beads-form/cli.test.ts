@@ -13,6 +13,7 @@ import {
   parseBeadsFormCliArgs,
   parseFormsJsonForAttach,
   resolveBeadsFormOrigin,
+  scanPendingBeadsForms,
   selectFormForShow,
   type AttachOptions,
 } from './cli';
@@ -48,6 +49,14 @@ describe('beads-form CLI helpers', () => {
     expect(parseBeadsFormCliArgs(['show', '--bead', 'bd-1', '--form', 'review', '--include-html'])).toEqual({
       command: 'show',
       options: expect.objectContaining({ beadId: 'bd-1', formId: 'review', includeHtml: true }),
+    });
+    expect(parseBeadsFormCliArgs(['pending', '--parent-dir', '/repos', '--limit', '12', '--origin', 'https://example.test/path'])).toEqual({
+      command: 'pending',
+      options: expect.objectContaining({
+        parentDir: '/repos',
+        limit: 12,
+        origin: 'https://example.test',
+      }),
     });
   });
 
@@ -328,5 +337,99 @@ describe('beads-form CLI helpers', () => {
     expect(result.responseCount).toBe(0);
     expect(result.noResponses).toBe(true);
     expect(result.form.questions?.map((question) => question.id)).toEqual(['decision']);
+  });
+
+  it('scans pending forms from first-level repos with read-only list queries and fill-out URLs', async () => {
+    const reposRoot = join(tmpdir(), `beads-form-pending-${process.pid}-${Date.now()}`);
+    await mkdir(join(reposRoot, 'repo-a'), { recursive: true });
+    await mkdir(join(reposRoot, 'repo-b'), { recursive: true });
+    await mkdir(join(reposRoot, 'repo-c'), { recursive: true });
+
+    const exec = vi.fn<ExecFileLike>(async (_file, args, options) => {
+      expect(args[0]).toBe('--readonly');
+      if (options.cwd.endsWith('repo-a') && args[1] === 'list') {
+        if (args.includes('beadFormsSummary')) {
+          return { stdout: JSON.stringify([
+            {
+              id: 'summary-pending',
+              title: 'Summary pending',
+              status: 'open',
+              metadata: {
+                beadFormsSummary: {
+                  hasForms: true,
+                  hasPendingAnswer: true,
+                  pendingResponseCount: 1,
+                  formIds: ['review'],
+                  pendingFormIds: ['review'],
+                },
+                beadForms: {
+                  forms: [{ id: 'review', title: 'Review', description: 'Needs human review.', html: '<form></form>' }],
+                },
+              },
+            },
+          ]), stderr: '' };
+        }
+        return { stdout: '[]', stderr: '' };
+      }
+      if (options.cwd.endsWith('repo-b') && args[1] === 'list') {
+        if (args.includes('beadForms')) {
+          return { stdout: JSON.stringify([
+            {
+              id: 'legacy-pending',
+              title: 'Legacy pending',
+              metadata: { beadForms: { forms: [{ id: 'legacy-review', title: 'Legacy Review', html: '<form></form>' }] } },
+            },
+            {
+              id: 'legacy-done',
+              title: 'Legacy done',
+              metadata: { beadForms: { forms: [{ id: 'done', title: 'Done', html: '<form></form>', responses: [{ submittedBy: 'user', submittedAt: 'now', values: {} }] }] } },
+            },
+            {
+              id: 'closed',
+              title: 'Closed',
+              status: 'closed',
+              metadata: { beadForms: { forms: [{ id: 'closed-form', title: 'Closed', html: '<form></form>' }] } },
+            },
+          ]), stderr: '' };
+        }
+        return { stdout: '[]', stderr: '' };
+      }
+      throw Object.assign(new Error('Command failed: bd list'), { stderr: 'Error: no beads database found' });
+    });
+
+    const result = await scanPendingBeadsForms({
+      execFile: exec,
+      options: {
+        parentDir: reposRoot,
+        limit: 3,
+        origin: 'https://example.test',
+      },
+    });
+
+    expect(result).toMatchObject({
+      parentDir: reposRoot,
+      repoLimit: 3,
+      reposScanned: 3,
+      pendingCount: 2,
+      skipped: [{ repoDir: join(reposRoot, 'repo-c'), reason: 'not initialized for beads' }],
+      updateStrategy: { mode: 'explicit-refresh' },
+    });
+    expect(result.entries).toEqual([
+      {
+        repo: { name: 'repo-a', path: join(reposRoot, 'repo-a') },
+        bead: { id: 'summary-pending', title: 'Summary pending' },
+        form: { id: 'review', title: 'Review', description: 'Needs human review.', responseCount: 0 },
+        url: `https://example.test/dashboard/forms?dir=${encodeURIComponent(join(reposRoot, 'repo-a'))}&bead=summary-pending&form=review`,
+      },
+      {
+        repo: { name: 'repo-b', path: join(reposRoot, 'repo-b') },
+        bead: { id: 'legacy-pending', title: 'Legacy pending' },
+        form: { id: 'legacy-review', title: 'Legacy Review', responseCount: 0 },
+        url: `https://example.test/dashboard/forms?dir=${encodeURIComponent(join(reposRoot, 'repo-b'))}&bead=legacy-pending&form=legacy-review`,
+      },
+    ]);
+    expect(exec.mock.calls.some(([, args]) => args.includes('show'))).toBe(false);
+    expect(exec.mock.calls.some(([, args]) => args.includes('update'))).toBe(false);
+    expect(exec.mock.calls.every(([, args]) => args.includes('--has-metadata-key'))).toBe(true);
   });
 });

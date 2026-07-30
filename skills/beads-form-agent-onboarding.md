@@ -122,3 +122,12 @@ beads-form show --bead <bead-id> --dir <repo-dir>
 ```
 
 `show` outputs JSON by default. Use `--include-html` only when needed.
+
+## 5. Find pending forms across repos
+
+```bash
+beads-form pending --parent-dir ~/repos
+beads-form pending --parent-dir ~/repos --limit 80 --origin https://your-vd-origin.example
+```
+
+`pending` outputs JSON by default for agent use. It scans first-level child directories only, uses read-only `bd` list queries, avoids bulk `bd show`, includes skipped repo reasons, and returns direct `/dashboard/forms?dir=...&bead=...&form=...` links for each pending form.
