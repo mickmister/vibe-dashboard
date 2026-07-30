@@ -23,7 +23,10 @@ var (
 
 func init() {
 	caddy.RegisterModule(PluginInjector{})
+	caddy.RegisterModule(PreviewResolver{})
 	httpcaddyfile.RegisterHandlerDirective("vk_rewrite", parseCaddyfile)
+	httpcaddyfile.RegisterHandlerDirective("vk_preview_resolver", parsePreviewResolverCaddyfile)
+	httpcaddyfile.RegisterDirectiveOrder("vk_preview_resolver", "before", "reverse_proxy")
 	httpcaddyfile.RegisterDirectiveOrder("vk_rewrite", "before", "reverse_proxy")
 }
 

@@ -4,6 +4,16 @@
 }
 
 :{$CADDY_PORT:3001} {
+	# Encoded preview host resolver. Production Worker traffic reaches Caddy on
+	# the canonical customer host and preserves the public preview hostname in
+	# X-Vibe-Requested-Host; local/dev traffic may still use Host directly.
+	# The handler falls through unless it sees preview-{workspace}-{slot}--{customer}.
+	vk_preview_resolver {
+		resolver_url {$PREVIEW_RESOLVER_URL:http://127.0.0.1:3005/internal/preview/resolve}
+		startup_page /etc/caddy/startup.html
+		timeout {$PREVIEW_RESOLVER_TIMEOUT:2s}
+	}
+
 	# Dynamic port forwarding via subdomain: port-<port_num>.* -> localhost:<port_num>
 	# This must be checked FIRST before other handlers
 	@port_forward header_regexp port Host ^port-([0-9]+)\.
