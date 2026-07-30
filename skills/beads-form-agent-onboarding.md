@@ -52,6 +52,7 @@ Example JSON shape:
 Guidelines:
 - Every question should have a clear title and description.
 - Treat the form as the source of truth for the thinking behind the discussion. If other agents or reviewers already gave pros, cons, risks, recommended fixes, or tradeoffs, carry those points into the form instead of summarizing them away.
+- Please consider pros and cons for each open point, and include the pros/cons in the choice descriptions of the questions. *Be as detailed as possible.*
 - Preserve exact wording for prior pros/cons or recommendation rationales when practical, especially when the human is deciding between named options. Add attribution/context in descriptions or choice text when it helps.
 - Lean toward "explain more" over excessive brevity. A form should let the human understand the in-depth reasoning, assumptions, and forks in the road without rereading the whole conversation.
 - Choice questions are always multi-select checkboxes in the current public DSL; do not add radio/single-select options.
