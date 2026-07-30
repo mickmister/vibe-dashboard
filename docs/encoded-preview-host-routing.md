@@ -15,6 +15,9 @@ preview-workspace-abc-1--mickmister.vibedashboard.dev
 
 The double dash is the separator before the customer slug. Customer slugs must not
 contain `--`, and preview slots are limited to `1..5` for the first capacity model.
+The Caddy handler defaults to this `vibedashboard.dev` base domain via
+`PREVIEW_BASE_DOMAIN`; local/dev deployments using another customer base domain
+must set that variable explicitly.
 
 ## Runtime request flow
 

@@ -140,6 +140,21 @@ func TestPreviewResolverFallsThroughForNonPreviewHosts(t *testing.T) {
 	}
 }
 
+func TestPreviewResolverFallsThroughForPreviewHostsOutsideBaseDomain(t *testing.T) {
+	handler := &PreviewResolver{ResolverURL: "http://127.0.0.1:1/resolve", BaseDomain: "vibedashboard.dev", client: http.DefaultClient}
+	req := httptest.NewRequest(http.MethodGet, "https://preview-workspace-abc-1--mickmister.other.example/", nil)
+	rec := httptest.NewRecorder()
+	if err := handler.ServeHTTP(rec, req, caddyhttp.HandlerFunc(func(w http.ResponseWriter, r *http.Request) error {
+		_, _ = w.Write([]byte("next"))
+		return nil
+	})); err != nil {
+		t.Fatalf("ServeHTTP returned error: %v", err)
+	}
+	if rec.Body.String() != "next" {
+		t.Fatalf("expected preview host outside base domain to fall through, got %q", rec.Body.String())
+	}
+}
+
 func strconvQuote(value string) string {
 	encoded, _ := json.Marshal(value)
 	return string(encoded)

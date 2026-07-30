@@ -10,6 +10,7 @@
 	# The handler falls through unless it sees preview-{workspace}-{slot}--{customer}.
 	vk_preview_resolver {
 		resolver_url {$PREVIEW_RESOLVER_URL:http://127.0.0.1:3005/internal/preview/resolve}
+		base_domain {$PREVIEW_BASE_DOMAIN:vibedashboard.dev}
 		startup_page /etc/caddy/startup.html
 		timeout {$PREVIEW_RESOLVER_TIMEOUT:2s}
 	}
