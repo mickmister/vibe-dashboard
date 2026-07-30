@@ -5,7 +5,7 @@ import {
   type BeadsFormControl,
   type ChoicesQuestion,
   type StandardBeadsForm,
-} from '@vibe-dashboard/beads-form';
+} from '../../packages/beads-form/src/index.ts';
 
 export { ALLOW_CODE_FILE_CHANGES_FIELD };
 

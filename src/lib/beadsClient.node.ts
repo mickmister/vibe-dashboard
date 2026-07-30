@@ -17,7 +17,7 @@ import {
   type BeadLike,
   type BeadsFormDefinition,
   type JsonObject,
-} from './beadsFormCore';
+} from './beadsFormCore.ts';
 
 const execFileAsync = promisify(execFile);
 

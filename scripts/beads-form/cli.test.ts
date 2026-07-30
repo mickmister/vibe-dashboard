@@ -1,6 +1,8 @@
+import { execFile as execFileCallback } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { promisify } from 'node:util';
 import { describe, expect, it, vi } from 'vitest';
 import {
   attachBeadsForms,
@@ -18,6 +20,8 @@ import {
   type AttachOptions,
 } from './cli';
 import type { ExecFileLike } from '../../src/lib/beadsClient.node';
+
+const execFileAsync = promisify(execFileCallback);
 
 const standardForm = {
   format: 'standard',
@@ -41,6 +45,19 @@ const standardForm = {
 } as const;
 
 describe('beads-form CLI helpers', () => {
+  it('runs the CLI help entrypoint under Node strip-types', async () => {
+    const { stdout } = await execFileAsync(process.execPath, [
+      '--experimental-strip-types',
+      'scripts/beads-form/cli.ts',
+      '--help',
+    ], {
+      cwd: process.cwd(),
+      timeout: 10_000,
+    });
+    expect(stdout).toContain('beads-form attach');
+    expect(stdout).toContain('beads-form pending --parent-dir <all-repos-dir>');
+  });
+
   it('parses attach and show subcommands', () => {
     expect(parseBeadsFormCliArgs(['attach', '--bead', 'bd-1', '--file', 'form.json', '--origin', 'https://example.test'])).toEqual({
       command: 'attach',
