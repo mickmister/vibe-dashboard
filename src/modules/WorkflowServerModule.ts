@@ -7,6 +7,8 @@ import { registerWorkflowRoutes } from '../server/workflow-routes';
 import { registerPluginAssetRoutes } from '../server/plugin-asset-routes';
 import { registerPluginAdminRoutes } from '../server/plugin-admin-routes';
 import { registerVkWorkspaceRoutes } from '../server/vk-workspace-routes';
+import { registerVkRepoRoutes } from '../server/vk-repo-routes';
+import { isExternalTrackersEnabled } from './plugins/kanban/config';
 import { workflowRegistry } from '../workflows/registry';
 import type { CachedRepoAlias } from '../workflows/github-ci';
 
@@ -27,6 +29,7 @@ serverRegistry.registerServerModule((api) => {
   registerPluginAssetRoutes(api.hono, { installRoot: pluginInstallRoot });
   registerPluginAdminRoutes(api.hono);
   registerVkWorkspaceRoutes(api.hono);
+  registerVkRepoRoutes(api.hono, { enabled: isExternalTrackersEnabled() });
 });
 
 async function getCachedGitRepos(): Promise<CachedRepoAlias[]> {

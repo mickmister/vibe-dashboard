@@ -1,5 +1,3 @@
-export const EXTERNAL_TRACKERS_FEATURE_ENV = 'VD_EXTERNAL_TRACKERS_ENABLED';
-
 export type JiraExternalTrackerProvider = 'jira';
 
 export const jiraReadScopes = [
@@ -11,10 +9,6 @@ export const jiraReadScopes = [
   'read:project:jira',
   'write:jira-work',
 ] as const;
-
-export function isExternalTrackersEnabled(env: Record<string, string | undefined> = process.env): boolean {
-  return env[EXTERNAL_TRACKERS_FEATURE_ENV] === 'true';
-}
 
 export function isJiraExternalTrackerProvider(value: string): value is JiraExternalTrackerProvider {
   return value === 'jira';

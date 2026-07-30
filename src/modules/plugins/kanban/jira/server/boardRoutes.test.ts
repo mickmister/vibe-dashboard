@@ -950,7 +950,7 @@ describe('external Jira board routes', () => {
     await expect(db.selectFrom('ExternalIssueWorkspaceLink').selectAll().execute()).resolves.toHaveLength(2);
   });
 
-  it('formats bulk Jira descriptions with custom VD workspace URL and GitHub repository tree links', async () => {
+  it('formats bulk Jira descriptions with custom VD workspace URL and repository fallback lines', async () => {
     const app = new Hono();
     const vkClient = createVkClient({
       getWorkspaces: vi.fn(async () => [
@@ -961,8 +961,7 @@ describe('external Jira board routes', () => {
         name: 'vibe-kanban-vscode-web',
         display_name: 'vibe-kanban-vscode-web',
         target_branch: 'vk/370d-allow-custom-ico',
-        remote_url: 'git@github.com:mickmister/vibe-kanban-vscode-web.git',
-      } as RepoWithBranch & { remote_url: string }]),
+      }]),
     });
     const createJiraIssue = vi.fn(async () => ({ ok: true as const, issue: { id: '10001', key: 'VD-1', url: 'https://team.atlassian.net/browse/VD-1' } }));
     registerExternalTrackerBoardRoutes(app, {
@@ -985,7 +984,7 @@ describe('external Jira board routes', () => {
     const description = (createJiraIssue as unknown as { mock: { calls: Array<[Parameters<CreateJiraIssue>[0]]> } }).mock.calls[0]?.[0].description ?? '';
     expect(description).toContain('VK workspace: https://vd.example.com/dashboard/workspaces/370dc1c5-4d81-4c80-93a9-145763090324');
     expect(description).toContain('Branch: 370d-allow-custom-ico');
-    expect(description).toContain('- vibe-kanban-vscode-web - https://github.com/mickmister/vibe-kanban-vscode-web/tree/vk/370d-allow-custom-ico');
+    expect(description).toContain('- vibe-kanban-vscode-web @ vk/370d-allow-custom-ico');
     expect(description).toContain('Created by VD Jira integration');
     expect(description).not.toContain('/work/secret');
     expect(description).not.toContain('/repo/secret');
@@ -1390,45 +1389,6 @@ describe('external Jira board routes', () => {
     await expect(response.json()).resolves.toEqual({ ok: true, workspace: expect.objectContaining({ id: 'ws-1' }), executionProcess: expect.objectContaining({ id: 'proc-1' }) });
     expect(vkClient.createAndStartWorkspace).toHaveBeenCalledWith(expect.objectContaining({ executor_config: { executor: 'AMP' } }));
     await expect(db.selectFrom('ExternalIssueWorkspaceLink').selectAll().execute()).resolves.toHaveLength(1);
-  });
-
-
-  it('clones a GitHub repository under ~/repos and registers it with VK', async () => {
-    const app = new Hono();
-    const cloneRepo = vi.fn(async () => '/tmp/repos/example');
-    const vkClient = createVkClient({
-      registerRepo: vi.fn(async () => ({ id: 'repo-2', path: '/tmp/repos/example', name: 'example', display_name: 'example', default_target_branch: 'origin/main' })),
-    });
-    registerExternalTrackerBoardRoutes(app, { enabled: true, auth: createAuthService(null), db, vkClient, cloneRepo, reposRoot: '/tmp/repos' });
-
-    const response = await app.request('/dashboard/api/external-trackers/vk/repos/clone', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ githubUrl: 'https://github.com/acme/example' }),
-    });
-
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ ok: true, repo: expect.objectContaining({ id: 'repo-2' }) });
-    expect(cloneRepo).toHaveBeenCalledWith({ githubUrl: 'https://github.com/acme/example.git', repoName: 'example', reposRoot: '/tmp/repos' });
-    expect(vkClient.registerRepo).toHaveBeenCalledWith({ path: '/tmp/repos/example', display_name: undefined });
-  });
-
-  it('validates GitHub clone URLs before invoking clone/register', async () => {
-    const app = new Hono();
-    const cloneRepo = vi.fn();
-    const vkClient = createVkClient();
-    registerExternalTrackerBoardRoutes(app, { enabled: true, auth: createAuthService(null), db, vkClient, cloneRepo, reposRoot: '/tmp/repos' });
-
-    const response = await app.request('/dashboard/api/external-trackers/vk/repos/clone', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ githubUrl: 'https://evil.example/repo.git' }),
-    });
-
-    expect(response.status).toBe(400);
-    await expect(response.json()).resolves.toEqual({ ok: false, error: expect.objectContaining({ code: 'invalid_github_repo_url' }) });
-    expect(cloneRepo).not.toHaveBeenCalled();
-    expect(vkClient.registerRepo).not.toHaveBeenCalled();
   });
 
   it('returns a user-actionable connection error when Jira is not connected', async () => {

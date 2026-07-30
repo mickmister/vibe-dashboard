@@ -149,14 +149,6 @@ export async function registerExternalWorkspaceRepo(path: string, fetchImpl: typ
   }));
 }
 
-export async function cloneExternalWorkspaceRepo(githubUrl: string, fetchImpl: typeof fetch = fetch): Promise<ApiEnvelope<{ repo: VkRepoDto }>> {
-  return readEnvelope(await fetchImpl('/dashboard/api/external-trackers/vk/repos/clone', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', accept: 'application/json' },
-    body: JSON.stringify({ githubUrl }),
-  }));
-}
-
 export async function fetchExternalWorkspaceRepoBranches(repoId: string, fetchImpl: typeof fetch = fetch): Promise<ApiEnvelope<{ branches: VkBranchDto[] }>> {
   return readEnvelope(await fetchImpl(`/dashboard/api/external-trackers/vk/repos/${encodeURIComponent(repoId)}/branches`, { headers: { accept: 'application/json' } }));
 }

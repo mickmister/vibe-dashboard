@@ -5,8 +5,10 @@ import type { DashboardExternalViewParseResult } from '../externalViewUrl';
 import { fetchExternalJiraBoardView } from '../externalTrackerBoardApi';
 import { setOtelAttributes, withOtelSpan } from '../../../../../lib/otel';
 import type { ExternalJiraBoardApiResponse, ExternalJiraBoardViewDto, ExternalKanbanCardDto, ExternalKanbanColumnDto } from '../externalTrackerBoardApi';
-import { bulkCreateJiraTicketsFromWorkspaces, cloneExternalWorkspaceRepo, createExternalIssueWorkspace, fetchBulkJiraWorkspaceConversionOptions, fetchExternalWorkspaceCreateOptions, fetchExternalWorkspaceMetrics, fetchExternalWorkspaceRepoBranches, registerExternalWorkspaceRepo } from '../externalWorkspaceCreateApi';
+import { bulkCreateJiraTicketsFromWorkspaces, createExternalIssueWorkspace, fetchBulkJiraWorkspaceConversionOptions, fetchExternalWorkspaceCreateOptions, fetchExternalWorkspaceMetrics, fetchExternalWorkspaceRepoBranches, registerExternalWorkspaceRepo } from '../externalWorkspaceCreateApi';
 import type { BulkJiraRepoProjectMappingDto, BulkJiraWorkspaceConversionResultDto, BulkJiraWorkspaceConversionWorkspaceDto, ExternalWorkspaceCandidateRepoDto, ExternalWorkspaceCreateOptionsDto, ExternalWorkspaceMetricsDto, VkBranchDto, VkExecutorConfigDto, VkRepoDto } from '../externalWorkspaceCreateApi';
+import { cloneExternalWorkspaceRepo } from '../../../../../lib/repoCloneApi';
+import { REPO_CLONE_HELPER_TEXT, REPO_CLONE_LABEL, REPO_CLONE_PLACEHOLDER } from '../../../../../lib/repoCloneUi';
 
 type ExternalRelatedWorkspace = NonNullable<ExternalKanbanCardDto['relatedWorkspaces']>[number];
 
@@ -680,7 +682,7 @@ export function ExternalWorkspaceCreateDialog({
           <div>
             <div className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-300">Create VK workspace</div>
             <h2 className="mt-2 text-xl font-semibold">{card.key}: {card.title}</h2>
-            <p className="mt-1 text-sm text-neutral-400">Select one or more repositories from ~/repos, or clone a GitHub repository, then start a VK session.</p>
+            <p className="mt-1 text-sm text-neutral-400">{REPO_CLONE_HELPER_TEXT}</p>
           </div>
           <button type="button" className="rounded border border-neutral-800 px-2 py-1 text-sm hover:bg-neutral-900" onClick={onClose}>Close</button>
         </div>
@@ -701,9 +703,9 @@ export function ExternalWorkspaceCreateDialog({
             </select>
           </label>
           <label className="block text-sm font-medium text-neutral-200">
-            Clone from GitHub
+            {REPO_CLONE_LABEL}
             <div className="mt-2 flex gap-2">
-              <input className="min-w-0 flex-1 rounded-lg border border-neutral-800 bg-neutral-900 p-2 text-sm text-neutral-100" placeholder="https://github.com/owner/repo" value={cloneUrl} onChange={(event) => setCloneUrl(event.target.value)} />
+              <input className="min-w-0 flex-1 rounded-lg border border-neutral-800 bg-neutral-900 p-2 text-sm text-neutral-100" placeholder={REPO_CLONE_PLACEHOLDER} value={cloneUrl} onChange={(event) => setCloneUrl(event.target.value)} />
               <button type="button" className="rounded-lg border border-neutral-700 px-3 py-2 text-sm hover:bg-neutral-900 disabled:cursor-not-allowed disabled:opacity-50" disabled={submitting || !cloneUrl.trim()} onClick={cloneRepo}>Clone</button>
             </div>
           </label>

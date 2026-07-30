@@ -1,9 +1,6 @@
-import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdir } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { promisify } from 'node:util';
 import type { Hono } from 'hono';
 import { sql, type Kysely } from 'kysely';
 import { EXTERNAL_VIEW_URL_PARAM, parseExternalViewUrl } from '../externalViewUrl';
@@ -12,6 +9,7 @@ import type { DB } from '../../../../../store/kysely_types';
 import { setOtelAttributes, withOtelSpan } from '../../../../../lib/otel';
 import type { ExternalTrackerAuthService } from './auth';
 import { isExternalIssueProvider } from '../../providerIds';
+import { buildRepositoryTreeUrl } from '../../../../../lib/repoRemoteLinks';
 import { createJiraIssue, fetchJiraBoardView } from './jiraAdapter';
 import type { CreatedJiraIssue, CreateJiraIssueResult, JiraBasicAuthConfig, JiraBoardAdapterResult, JiraProviderError } from './jiraAdapter';
 import { addBeadExternalIssueLink, decorateJiraBoardWithBeadLinks, isValidBeadId, normalizeExternalIssueRef, removeBeadExternalIssueLink } from './beadExternalIssues';
@@ -34,7 +32,6 @@ export function registerExternalTrackerBoardRoutes(
     jiraBotAuth?: JiraBasicAuthConfig | false;
     beads?: BeadsExternalIssueServiceOptions;
     vkClient?: Pick<VibeKanbanServerClient, 'getInfo' | 'listRepos' | 'listDirectory' | 'registerRepo' | 'getRepoBranches' | 'createAndStartWorkspace' | 'getWorkspaceSummaries' | 'getSessions' | 'getWorkspaces' | 'getWorkspaceRepos'>;
-    cloneRepo?: typeof cloneGitHubRepoIntoReposRoot;
     createJiraIssue?: CreateJiraIssue;
     reposRoot?: string;
     workspaceMetricsTimeoutMs?: number;
@@ -44,7 +41,6 @@ export function registerExternalTrackerBoardRoutes(
 ): void {
   const vkClient = options.vkClient ?? new VibeKanbanServerClient();
   const reposRoot = options.reposRoot ?? defaultReposRoot();
-  const cloneRepo = options.cloneRepo ?? cloneGitHubRepoIntoReposRoot;
   const createJiraIssueForWorkspace = options.createJiraIssue ?? createJiraIssue;
   const upsertWorkspaceMapping = options.upsertWorkspaceMapping ?? upsertExternalIssueWorkspaceMapping;
   const siteOrigin = normalizeVdSiteOrigin(options.siteOrigin ?? process.env.SITE_ORIGIN);
@@ -92,27 +88,6 @@ export function registerExternalTrackerBoardRoutes(
       return c.json({ ok: true, repo });
     } catch {
       return c.json({ ok: false, error: { code: 'vk_repo_register_failed', message: 'Could not register the repository with VK.', userAction: 'Verify the repository is valid and try again.' } }, 502);
-    }
-  });
-
-  hono.post('/dashboard/api/external-trackers/vk/repos/clone', async (c) => {
-    if (!options.enabled) {
-      return c.json({ ok: false, error: { code: 'external_trackers_disabled', message: 'External tracker workspace creation is disabled.', userAction: 'Enable the external tracker feature flag and try again.' } }, 404);
-    }
-    const body = await c.req.json().catch(() => undefined) as unknown;
-    if (!isCloneRepoRequest(body)) {
-      return c.json({ ok: false, error: { code: 'invalid_vk_repo_clone_request', message: 'The GitHub clone request was invalid.', userAction: 'Provide an https://github.com/owner/repo URL.' } }, 400);
-    }
-    const parsed = parseGitHubCloneUrl(body.githubUrl);
-    if (!parsed.ok) {
-      return c.json({ ok: false, error: { code: 'invalid_github_repo_url', message: 'Only GitHub repository URLs are supported for cloning.', userAction: 'Use an https://github.com/owner/repo URL.' } }, 400);
-    }
-    try {
-      const clonedPath = await cloneRepo({ githubUrl: parsed.cloneUrl, repoName: parsed.repoName, reposRoot });
-      const repo = await vkClient.registerRepo({ path: clonedPath, display_name: body.displayName });
-      return c.json({ ok: true, repo });
-    } catch {
-      return c.json({ ok: false, error: { code: 'vk_repo_clone_failed', message: 'Could not clone and register the GitHub repository.', userAction: 'Verify the URL, network access, and that the destination under ~/repos does not already exist.' } }, 502);
     }
   });
 
@@ -719,51 +694,9 @@ function formatBulkJiraWorkspaceBranch(branch: string): string {
 
 function formatBulkJiraRepoLine(repo: RepoWithBranch): string {
   const displayName = repo.display_name || repo.name;
-  const githubTreeUrl = buildGitHubTreeUrlForRepo(repo);
-  if (githubTreeUrl) return `- ${displayName} - ${githubTreeUrl}`;
+  const treeUrl = buildRepositoryTreeUrl(repo);
+  if (treeUrl) return `- ${displayName} - ${treeUrl}`;
   return `- ${displayName} @ ${repo.target_branch}`;
-}
-
-function buildGitHubTreeUrlForRepo(repo: RepoWithBranch): string | undefined {
-  const record = repo as unknown as Record<string, unknown>;
-  const remoteUrl = [
-    record.githubUrl,
-    record.github_url,
-    record.htmlUrl,
-    record.html_url,
-    record.remoteUrl,
-    record.remote_url,
-    record.cloneUrl,
-    record.clone_url,
-    record.gitUrl,
-    record.git_url,
-    record.url,
-  ].find((value): value is string => typeof value === 'string' && value.trim().length > 0);
-  const repoUrl = normalizeGitHubRepoUrl(remoteUrl);
-  if (!repoUrl) return undefined;
-  const branch = formatGitHubTreeBranch(repo.target_branch);
-  if (!branch) return undefined;
-  return `${repoUrl}/tree/${encodeURIComponent(branch).replace(/%2F/g, '/')}`;
-}
-
-function normalizeGitHubRepoUrl(value: string | undefined): string | undefined {
-  if (!value) return undefined;
-  const trimmed = value.trim();
-  const sshMatch = trimmed.match(/^git@github\.com:([^/]+)\/(.+?)(?:\.git)?$/);
-  if (sshMatch) return `https://github.com/${sshMatch[1]}/${sshMatch[2]}`;
-  try {
-    const url = new URL(trimmed);
-    if (url.hostname !== 'github.com') return undefined;
-    const [owner, repo] = url.pathname.replace(/^\/+/, '').split('/');
-    if (!(owner && repo)) return undefined;
-    return `https://github.com/${owner}/${repo.replace(/\.git$/, '')}`;
-  } catch {
-    return undefined;
-  }
-}
-
-function formatGitHubTreeBranch(branch: string): string {
-  return branch.startsWith('origin/') ? branch.slice('origin/'.length) : branch;
 }
 
 async function loadWorkspaceReposBestEffort(
@@ -860,8 +793,6 @@ function beadLinkFailedError(message: string): { code: 'bead_link_failed'; messa
   };
 }
 
-const execFileAsync = promisify(execFile);
-
 function defaultReposRoot(): string {
   return path.join(os.homedir(), 'repos');
 }
@@ -891,44 +822,6 @@ function isRegisterRepoRequest(value: unknown, reposRoot: string): value is { pa
   if (!isPlainObject(value)) return false;
   if (!isNonEmptyString(value.path) || !isPathWithinRoot(value.path, reposRoot)) return false;
   return value.displayName === undefined || typeof value.displayName === 'string';
-}
-
-function isCloneRepoRequest(value: unknown): value is { githubUrl: string; displayName?: string } {
-  if (!isPlainObject(value)) return false;
-  if (!isNonEmptyString(value.githubUrl)) return false;
-  return value.displayName === undefined || typeof value.displayName === 'string';
-}
-
-function parseGitHubCloneUrl(value: string): { ok: true; cloneUrl: string; repoName: string } | { ok: false } {
-  let url: URL;
-  try {
-    url = new URL(value);
-  } catch {
-    return { ok: false };
-  }
-  if (url.protocol !== 'https:' || url.hostname !== 'github.com') return { ok: false };
-  const [owner, repoWithSuffix, ...rest] = url.pathname.split('/').filter(Boolean);
-  if (!owner || !repoWithSuffix || rest.length > 0) return { ok: false };
-  const repoName = repoWithSuffix.replace(/\.git$/i, '');
-  if (!/^[A-Za-z0-9._-]+$/.test(owner) || !/^[A-Za-z0-9._-]+$/.test(repoName)) return { ok: false };
-  return { ok: true, cloneUrl: `https://github.com/${owner}/${repoName}.git`, repoName };
-}
-
-export async function cloneGitHubRepoIntoReposRoot({
-  githubUrl,
-  repoName,
-  reposRoot,
-}: {
-  githubUrl: string;
-  repoName: string;
-  reposRoot: string;
-}): Promise<string> {
-  if (!/^[A-Za-z0-9._-]+$/.test(repoName)) throw new Error('invalid_repo_name');
-  await mkdir(reposRoot, { recursive: true });
-  const targetPath = path.join(reposRoot, repoName);
-  if (!isPathWithinRoot(targetPath, reposRoot)) throw new Error('invalid_target_path');
-  await execFileAsync('git', ['clone', githubUrl, targetPath], { timeout: 120_000, maxBuffer: 1024 * 1024 });
-  return targetPath;
 }
 
 function isExternalIssueWorkspaceCreateRequest(value: unknown): value is {
