@@ -141,9 +141,14 @@ resolve_vk() {
 
   case "$event_name" in
     pull_request)
-      # PR label events only verify an already-published image; the push workflow
-      # produces branch images with resolved VK runtime assets.
-      return 0
+      local candidate_branch="$vd_branch"
+      if [[ -n "$(remote_head_sha "$vk_repo_url" "$candidate_branch")" ]]; then
+        vk_branch="$candidate_branch"
+        vk_resolution_source="matching_vd_pr_branch"
+      else
+        vk_branch="$default_branch"
+        vk_resolution_source="fallback_default_branch"
+      fi
       ;;
     workflow_dispatch)
       vk_branch="${workflow_vk_ref:-main}"
@@ -173,6 +178,41 @@ resolve_vk() {
   vk_short_commit="${vk_commit:0:7}"
 }
 
+vk_assets_release_url() {
+  local vk_sha="$1"
+  printf 'https://github.com/mickmister/vibe-kanban/releases/download/vk-assets-%s/manifest.json' "$vk_sha"
+}
+
+vk_assets_exist() {
+  local vk_sha="$1"
+  curl -fsI "$(vk_assets_release_url "$vk_sha")" >/dev/null
+}
+
+wait_for_vk_assets() {
+  if [[ "${SKIP_ASSET_WAIT:-false}" == "true" || -z "${vk_commit:-}" ]]; then
+    return 0
+  fi
+
+  local attempts="${VK_ASSET_WAIT_ATTEMPTS:-60}"
+  local delay="${VK_ASSET_WAIT_DELAY_SECONDS:-30}"
+
+  for attempt in $(seq 1 "$attempts"); do
+    if vk_assets_exist "$vk_commit"; then
+      notice "VK release assets are available for $vk_commit."
+      return 0
+    fi
+
+    if [[ "$attempt" == "$attempts" ]]; then
+      break
+    fi
+
+    notice "VK release assets for $vk_commit are not available yet; waiting ${delay}s (${attempt}/${attempts})."
+    sleep "$delay"
+  done
+
+  die "VK release assets for $vk_commit are not available after waiting. Expected release vk-assets-${vk_commit}. Re-run after VK CI publishes assets, or inspect VK CI for this commit."
+}
+
 resolve_asset_fallback_if_needed() {
   used_asset_fallback=false
 
@@ -184,8 +224,7 @@ resolve_asset_fallback_if_needed() {
     return 0
   fi
 
-  local manifest_url="https://github.com/mickmister/vibe-kanban/releases/download/vk-assets-${vk_commit}/manifest.json"
-  if curl -fsI "$manifest_url" >/dev/null; then
+  if vk_assets_exist "$vk_commit"; then
     return 0
   fi
 
@@ -231,6 +270,9 @@ write_outputs() {
 
   local vd_short_commit="${vd_commit:0:7}"
   local deploy_image_tag="vd-${vd_commit}"
+  if [[ -n "$vk_short_commit" ]]; then
+    deploy_image_tag="vk-${vk_short_commit}-vd-${vd_short_commit}"
+  fi
   local output_file="${GITHUB_OUTPUT:-/dev/stdout}"
 
   {
@@ -255,6 +297,7 @@ write_outputs() {
 resolve_vd
 resolve_vk
 resolve_asset_fallback_if_needed
+wait_for_vk_assets
 resolve_publish_latest
 
 echo "Resolved VD ${vd_ref} (${vd_resolution_source}) to ${vd_commit}"

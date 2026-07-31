@@ -1,10 +1,16 @@
 name: CI
 
 on:
+  push:
+    branches:
+      - main
   pull_request:
 
 permissions:
   contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   check-types:
@@ -30,8 +36,8 @@ jobs:
       - name: Check types
         run: npm run check-types
 
-  test-server:
-    name: npm test
+  app-server-tests:
+    name: app server unit tests
     runs-on: ubuntu-latest
 
     steps:
@@ -50,8 +56,8 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Run server tests
-        run: pnpm run test:server
+      - name: Run app server unit tests
+        run: npm run test:server
 
   test-workflow-core:
     name: workflow-core tests
@@ -75,6 +81,29 @@ jobs:
 
       - name: Run workflow-core tests
         run: pnpm --filter @vibe-dashboard/workflow-core test
+
+  build-app:
+    name: full app build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build web and node bundles
+        run: npm run build
 
   test-e2e:
     name: Playwright e2e
@@ -111,3 +140,182 @@ jobs:
             playwright-report
             test-results
           if-no-files-found: ignore
+
+  staging-promotion-e2e:
+    name: staging/promotion e2e
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run staging/promotion e2e
+        run: npm run test:staging-promotion
+
+  docker-vkvd-build:
+    name: Docker build for full vkvd image
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build full vkvd image with CI runtime stub
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile.vkvd
+          build-args: |
+            VK_RUNTIME_SOURCE=stub
+            VK_COMMIT=ci-container-runtime-smoke
+          push: false
+          load: false
+
+  container-runtime-smoke:
+    name: container runtime isolation smoke
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run container runtime isolation smoke tests
+        run: npm run test:container-runtime
+
+  first-party-service-smoke:
+    name: first-party service migration smoke
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify first-party services and golden supervisor config
+        run: npm run test:first-party-services
+
+  first-party-plugin-caddy-validation:
+    name: first-party plugin Caddy validation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.25.7
+
+      - name: Build custom Caddy
+        run: scripts/build-custom-caddy.sh caddy-module .tmp/custom-caddy/caddy
+
+      - name: Validate checked-in and generated plugin Caddy config
+        env:
+          CADDY_BIN: .tmp/custom-caddy/caddy
+        run: npm run validate:caddy
+
+  plugin-api-tests:
+    name: plugin API package tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run plugin API package tests
+        run: pnpm --filter @vibe-kanban/plugin-api test
+
+      - name: Check plugin API package types
+        run: pnpm --filter @vibe-kanban/plugin-api check-types
+
+  ci-tests:
+    name: CI Tests
+    runs-on: ubuntu-latest
+    needs:
+      - check-types
+      - app-server-tests
+      - test-workflow-core
+      - test-e2e
+      - build-app
+      - staging-promotion-e2e
+      - docker-vkvd-build
+      - container-runtime-smoke
+      - first-party-service-smoke
+      - first-party-plugin-caddy-validation
+      - plugin-api-tests
+    if: ${{ always() }}
+    steps:
+      - name: Verify all CI tests passed
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY_CHECK'
+          import json
+          import os
+
+          needs = json.loads(os.environ["NEEDS_JSON"])
+          failed = {name: data.get("result") for name, data in needs.items() if data.get("result") != "success"}
+          if failed:
+              print("One or more CI jobs did not pass:")
+              for name, result in failed.items():
+                  print(f"- {name}: {result}")
+              raise SystemExit(1)
+
+          print("All CI jobs passed.")
+          PY_CHECK

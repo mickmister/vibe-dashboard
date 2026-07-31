@@ -1,0 +1,80 @@
+name: Docker plugin runtime smoke
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/docker-plugin-smoke.yml"
+      - "Caddyfile"
+      - "Caddyfile.plugins"
+      - "Dockerfile.vkvd"
+      - "docker-entrypoint.sh"
+      - "supervisord.vkvd.conf"
+      - "scripts/smoke-vkvd-plugin-runtime.sh"
+      - "scripts/build-custom-caddy.sh"
+      - "plugins/scripts/vd-plugin-runtime-apply.sh"
+      - "src/modules/plugins/vibe-dashboard/**"
+      - "plugins/**"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/docker-plugin-smoke.yml"
+      - "Caddyfile"
+      - "Caddyfile.plugins"
+      - "Dockerfile.vkvd"
+      - "docker-entrypoint.sh"
+      - "supervisord.vkvd.conf"
+      - "scripts/smoke-vkvd-plugin-runtime.sh"
+      - "scripts/build-custom-caddy.sh"
+      - "plugins/scripts/vd-plugin-runtime-apply.sh"
+      - "src/modules/plugins/vibe-dashboard/**"
+      - "plugins/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-plugin-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  beads-web-plugin-runtime:
+    name: beads-web via plugin runtime
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Free up disk space
+        uses: insightsengineering/disk-space-reclaimer@v1
+        with:
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          swap-storage: true
+          docker-images: true
+          tools-cache: true
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build vkvd image with CI runtime stub
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile.vkvd
+          build-args: |
+            VK_RUNTIME_SOURCE=stub
+            VK_COMMIT=ci-plugin-runtime-smoke
+          push: false
+          load: true
+          tags: vk-vd-plugin-runtime-smoke:${{ github.sha }}
+
+      - name: Run beads-web plugin runtime smoke
+        env:
+          VKVD_SMOKE_IMAGE: vk-vd-plugin-runtime-smoke:${{ github.sha }}
+        run: bash scripts/smoke-vkvd-plugin-runtime.sh

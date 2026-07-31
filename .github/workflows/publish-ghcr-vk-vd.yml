@@ -3,9 +3,12 @@ name: Publish VK/VD Image to GHCR
 on:
   push:
     branches:
-      - '**'
+      - main
   pull_request:
     types:
+      - opened
+      - synchronize
+      - reopened
       - labeled
   repository_dispatch:
     types:
@@ -38,7 +41,7 @@ concurrency:
 
 jobs:
   resolve-vk-ref:
-    if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.label.name == 'coolify-deploy') }}
+    if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && (github.event.action != 'labeled' || github.event.label.name == 'coolify-deploy')) }}
     runs-on: ubuntu-latest
     outputs:
       image_tag: ${{ steps.resolve.outputs.image_tag }}
@@ -49,46 +52,35 @@ jobs:
       vk_commit: ${{ steps.resolve.outputs.vk_commit }}
       vk_short_commit: ${{ steps.resolve.outputs.vk_short_commit }}
       vk_repo_url: ${{ steps.resolve.outputs.vk_repo_url }}
-      vk_resolution_source: ${{ steps.resolve.outputs.vk_resolution_source }}
-      vd_branch: ${{ steps.resolve.outputs.vd_branch }}
-      vd_ref: ${{ steps.resolve.outputs.vd_ref }}
-      vd_commit: ${{ steps.resolve.outputs.vd_commit }}
       vd_short_commit: ${{ steps.resolve.outputs.vd_short_commit }}
-      vd_resolution_source: ${{ steps.resolve.outputs.vd_resolution_source }}
       publish_latest: ${{ steps.resolve.outputs.publish_latest }}
     steps:
-      - name: Checkout workflow scripts
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Resolve VK/VD refs
+      - name: Resolve vibe-kanban and vibe-dashboard refs
         id: resolve
         env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch || 'main' }}
           IMAGE_TAG_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.image_tag || '' }}
           PR_NUMBER: ${{ github.event_name == 'pull_request' && github.event.pull_request.number || '' }}
           PR_HEAD_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || '' }}
           PR_HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || '' }}
           WORKFLOW_VK_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.vk_branch || '' }}
           REPOSITORY_DISPATCH_VK_REF: ${{ github.event_name == 'repository_dispatch' && (github.event.client_payload.vk_sha || github.event.client_payload.vk_ref) || '' }}
+          REPOSITORY_DISPATCH_VK_SOURCE_REF: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.vk_source_ref || '' }}
+          REPOSITORY_DISPATCH_VK_SOURCE_REF_NAME: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.vk_source_ref_name || '' }}
           # Repository dispatch intentionally ignores client_payload.vk_repo_url.
           # Docker release assets are trusted only from the official VK repository.
           VK_REPO_URL_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.vk_repo_url || 'https://github.com/mickmister/vibe-kanban.git' }}
-          REPOSITORY_DISPATCH_VK_SOURCE_REF: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.vk_source_ref || '' }}
-          REPOSITORY_DISPATCH_VK_SOURCE_REF_NAME: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.vk_source_ref_name || '' }}
-          VD_REPO_URL: ${{ github.server_url }}/${{ github.repository }}.git
-          DEFAULT_BRANCH: main
-        run: |
-          .github/scripts/resolve-vk-vd-ci-refs.sh
+        run: .github/scripts/resolve-vk-vd-ci-refs.sh
 
   check-types:
     name: npm run check-types
-    needs: resolve-vk-ref
-    if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.resolve-vk-ref.outputs.vd_commit }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -107,7 +99,6 @@ jobs:
 
   publish:
     needs: [resolve-vk-ref, check-types]
-    if: ${{ github.event_name != 'pull_request' }}
     uses: ./.github/workflows/docker-github-builder-build.yml
     permissions:
       contents: read
@@ -117,8 +108,6 @@ jobs:
       output: image
       push: true
       context: .
-      source-ref: ${{ needs.resolve-vk-ref.outputs.vd_ref }}
-      source-checksum: ${{ needs.resolve-vk-ref.outputs.vd_commit }}
       file: ./Dockerfile.vkvd
       platforms: linux/amd64,linux/arm64
       build-args: |

@@ -6,6 +6,7 @@ import React, {
   useMemo,
 } from 'react';
 import { Button, Input } from '@heroui/react';
+import { isEphemeralCraftSurfaceTab } from '../modules/plugins/vibe-dashboard/craft-surfaces';
 import type {
   WorkspaceState,
   Space,
@@ -13,6 +14,7 @@ import type {
   SavedWorkspaceSession,
   VoyageEntry,
 } from '../types';
+import type { SpaceTypeContribution } from '../modules/plugins/vibe-dashboard/types';
 import { TabContextMenu } from './TabContextMenu';
 
 const INTERNAL_URL_PREFIX = 'internal://';
@@ -22,6 +24,7 @@ interface SidebarProps {
   activeSpaceId: string;
   activeTabGroupId: string;
   activeItems: Record<string, string>;
+  spaceTypes: Record<string, SpaceTypeContribution>;
   visitedTabGroupIds: string[];
   voyageEntries: VoyageEntry[];
   activeVoyageEntryId: string;
@@ -72,6 +75,7 @@ export function Sidebar({
   activeSpaceId,
   activeTabGroupId,
   activeItems,
+  spaceTypes,
   visitedTabGroupIds,
   voyageEntries,
   activeVoyageEntryId,
@@ -164,6 +168,17 @@ export function Sidebar({
   const activeTabGroup = activeTabGroups.find(
     (tabGroup) => tabGroup.id === activeTabGroupId,
   );
+  const resolvedSpaceIcons = useMemo(() => {
+    const resolved = new Map<string, string>();
+    Object.values(spaceTypes).forEach((spaceType) => {
+      resolved.set(spaceType.key, spaceType.icon);
+      const sourceKey = (spaceType as { sourceKey?: string }).sourceKey;
+      if (sourceKey) {
+        resolved.set(sourceKey, spaceType.icon);
+      }
+    });
+    return resolved;
+  }, [spaceTypes]);
   const availablePairTabs = useMemo(() => {
     if (!activeTabGroup) return [];
     const tabsInPairs = new Set(
@@ -171,7 +186,9 @@ export function Sidebar({
     );
     return activeTabGroup.tabs.filter(
       (tab) =>
-        !tabsInPairs.has(tab.id) && !tab.url.startsWith(INTERNAL_URL_PREFIX),
+        !tabsInPairs.has(tab.id) &&
+        !isEphemeralCraftSurfaceTab(tab) &&
+        !tab.url.startsWith(INTERNAL_URL_PREFIX),
     );
   }, [activeTabGroup]);
 
@@ -1029,7 +1046,9 @@ export function Sidebar({
               onContextMenu={(e) => handleContextMenu(e, space.id)}
             >
               <span className="text-sm">
-                {SPACE_ICONS[space.icon] || SPACE_ICONS.default}
+                {resolvedSpaceIcons.get(space.icon) ||
+                  SPACE_ICONS[space.icon] ||
+                  SPACE_ICONS.default}
               </span>
               {editingId === space.id ? (
                 <Input

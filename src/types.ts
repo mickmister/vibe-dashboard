@@ -1,9 +1,18 @@
+export interface EphemeralCraftSurfaceView {
+  kind: 'craft-surface';
+  pluginId: string;
+  surfaceKey: string;
+  sourceKey: string;
+}
+
 export interface View {
   id: string;
   title: string;
   url: string;
   /** If true, this view is pinned and cannot be closed */
   pinned?: boolean;
+  /** Runtime-only view metadata. Ephemeral views must never be persisted. */
+  ephemeral?: EphemeralCraftSurfaceView;
 }
 
 /** @deprecated Use View. Retained for persisted workspace compatibility. */
@@ -23,6 +32,12 @@ export type TabPair = ViewPair;
 export interface Craft {
   id: string;
   label: string;
+  /** VK workspace metadata used to derive first-party/runtime views. */
+  workspace?: {
+    workspaceId: string;
+    workspaceDir: string;
+    formsBeadId?: string;
+  };
   /** Optional compact label shown in the mobile craft strip */
   mobileLabel?: string;
   /** Optional emoji shown in the mobile craft strip */
