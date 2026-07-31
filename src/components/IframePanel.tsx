@@ -63,7 +63,6 @@ type RetainedIframeTab = {
 let iframeStore: Map<string, IframeEntry> = new Map();
 let retainedSessionId: string | null = null;
 let retainedTabIds: Set<string> = new Set();
-let keyboardIsolationDocuments: WeakSet<Document> = new WeakSet();
 let activatedIframeKeys: Set<string> = new Set();
 const MAX_RETAINED_IFRAMES = 5;
 export const IFRAME_REVEAL_DELAY_MS = 250;
@@ -85,9 +84,6 @@ try {
     if (hot.data.retainedTabIds) {
       retainedTabIds = hot.data.retainedTabIds;
     }
-    if (hot.data.keyboardIsolationDocuments) {
-      keyboardIsolationDocuments = hot.data.keyboardIsolationDocuments;
-    }
     if (hot.data.activatedIframeKeys) {
       activatedIframeKeys = hot.data.activatedIframeKeys;
     }
@@ -95,7 +91,6 @@ try {
       data.iframeStore = iframeStore;
       data.retainedSessionId = retainedSessionId;
       data.retainedTabIds = retainedTabIds;
-      data.keyboardIsolationDocuments = keyboardIsolationDocuments;
       data.activatedIframeKeys = activatedIframeKeys;
     });
   }
@@ -153,29 +148,6 @@ function applyIframePolicy(iframe: HTMLIFrameElement, iframeSrc: string) {
     'allow',
     trusted ? 'clipboard-read; clipboard-write; fullscreen' : 'fullscreen',
   );
-}
-
-function installIframeKeyboardIsolation(iframe: HTMLIFrameElement) {
-  try {
-    const doc = iframe.contentDocument || iframe.contentWindow?.document;
-    if (!doc) return;
-    if (keyboardIsolationDocuments.has(doc)) return;
-
-    keyboardIsolationDocuments.add(doc);
-
-    doc.addEventListener(
-      'keydown',
-      (event) => {
-        const key = event.key.toLowerCase();
-        if ((event.metaKey || event.ctrlKey) && key === 's') {
-          event.stopPropagation();
-        }
-      },
-      { capture: true },
-    );
-  } catch {
-    // Cross-origin iframes keep their own keyboard handling.
-  }
 }
 
 function notifyIframeListeners(entry: IframeEntry) {
@@ -557,7 +529,6 @@ function getOrCreateIframe(retainedTab: RetainedIframeTab): IframeEntry {
   iframe.addEventListener('load', () => {
     const currentLoadToken = entry.loadToken;
     entry.loaded = true;
-    installIframeKeyboardIsolation(iframe);
 
     waitForIframeVisualReadiness(iframe, entry, currentLoadToken);
   });
