@@ -32,6 +32,13 @@ import { rewriteFolderPreviewMediaRefs } from '../lib/beadsFormPreviewMedia';
 import { initializeSingleQuestionMode } from '../lib/beadsFormSingleQuestion';
 import { initializeCompactMoreInfo, refreshCompactMoreInfoState } from '../lib/beadsFormMoreInfo';
 import { preserveSubmittedFormDom } from '../lib/beadsFormSubmissionUi';
+import {
+  BeadsFormReadCache,
+  directBeadFormsCacheKey,
+  pendingBeadsFormsCacheKey,
+  workspaceBeadFormsCacheKey,
+  type BeadsFormCacheMetadata,
+} from '../lib/beadsFormReadCache';
 
 // @platform "node"
 import { serverRegistry } from 'springboard/server/register';
@@ -63,12 +70,14 @@ type LoadFormsResult = {
   forms: BeadsFormDefinition[];
   selectedForm?: BeadsFormDefinition;
   beadRepoDir: string;
+  cache?: BeadsFormCacheMetadata;
 };
 
 type LoadWorkspaceFormsResult = {
   workspaceId: string;
   workspaceBeads: ListWorkspaceBeadsResult;
   selected?: LoadFormsResult;
+  cache?: BeadsFormCacheMetadata;
 };
 
 type SubmitFormInput = {
@@ -118,7 +127,11 @@ type LoadPendingFormsInput = {
   repoLimit?: number;
 };
 
-type LoadPendingFormsResult = PendingBeadsFormQueueResult;
+type LoadPendingFormsResult = PendingBeadsFormQueueResult & {
+  cache?: BeadsFormCacheMetadata;
+};
+
+const beadsFormReadCache = new BeadsFormReadCache();
 
 function nodeClient() {
   if (typeof createNodeBeadsClient !== 'function') {
@@ -139,6 +152,63 @@ serverRegistry.registerServerModule((api) => {
   registerBeadsFormMediaRoutes(api.hono);
 });
 // @platform end
+
+async function readBeadFormsFresh(input: LoadFormsInput): Promise<LoadFormsResult> {
+  if (!input.dir.trim()) throw new Error('dir is required');
+  if (!input.beadId.trim()) throw new Error('beadId is required');
+  const bead = await nodeClient().readBead(input.dir, input.beadId);
+  const forms = getBeadsForms(bead.metadata);
+  return {
+    bead,
+    forms,
+    beadRepoDir: input.dir,
+    selectedForm: input.formId ? forms.find((form) => form.id === input.formId) : undefined,
+  };
+}
+
+async function readWorkspaceFormsFresh(input: LoadWorkspaceFormsInput): Promise<LoadWorkspaceFormsResult> {
+  if (!input.workspaceId.trim()) throw new Error('workspaceId is required');
+  const [workspace, repos] = await Promise.all([
+    vkClient().getWorkspace(input.workspaceId),
+    vkClient().getWorkspaceRepos(input.workspaceId),
+  ]);
+  const workspaceDir = workspace.container_ref || workspace.agent_working_dir;
+  if (!workspaceDir) throw new Error(`Workspace ${input.workspaceId} does not have a local workspace directory`);
+  const workspaceBeads = await nodeClient().listWorkspaceBeads({
+    workspaceId: input.workspaceId,
+    workspaceDir,
+    agentWorkingDir: workspace.agent_working_dir,
+    repos,
+    includeOtherWorkspaces: input.includeOtherWorkspaces ?? false,
+    ...(input.beadId ? { beadId: input.beadId } : {}),
+  });
+  const selectedRepo = input.beadId
+    ? workspaceBeads.repos.find((repo) => repo.beads.some((bead) => bead.id === input.beadId))
+    : undefined;
+  const selectedBead = input.beadId
+    ? selectedRepo?.beads.find((bead) => bead.id === input.beadId)
+    : undefined;
+  const forms = selectedBead ? getBeadsForms(selectedBead.metadata) : [];
+  return {
+    workspaceId: input.workspaceId,
+    workspaceBeads,
+    ...(selectedBead && selectedRepo ? {
+      selected: {
+        bead: selectedBead,
+        forms,
+        beadRepoDir: selectedRepo.dir,
+        selectedForm: input.formId ? forms.find((form) => form.id === input.formId) : undefined,
+      },
+    } : {}),
+  };
+}
+
+async function readPendingFormsFresh(input: LoadPendingFormsInput): Promise<LoadPendingFormsResult> {
+  return nodeClient().listPendingBeadsFormQueue({
+    ...(input.reposRoot ? { reposRoot: input.reposRoot } : {}),
+    ...(input.repoLimit ? { repoLimit: input.repoLimit } : {}),
+  });
+}
 
 function formViewUrl(args: { workspaceId?: string; dir?: string; beadId?: string; formId?: string; includeOtherWorkspaces?: boolean }): string {
   const params = new URLSearchParams();
@@ -407,25 +477,39 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
 function BeadsFormPendingQueue({ actions, parentDir }: {
   actions: {
     loadPendingForms: (input: LoadPendingFormsInput) => MaybeNestedPromise<LoadPendingFormsResult>;
+    refreshPendingForms: (input: LoadPendingFormsInput) => MaybeNestedPromise<LoadPendingFormsResult>;
   };
   parentDir?: string;
 }) {
   const [pending, setPending] = useState<LoadPendingFormsResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const loadTokenRef = useRef(0);
 
   const load = React.useCallback(async () => {
+    const token = loadTokenRef.current + 1;
+    loadTokenRef.current = token;
+    const input = {
+      ...(parentDir ? { reposRoot: parentDir } : {}),
+    };
     setLoading(true);
     setError(null);
     try {
-      const result = await (await actions.loadPendingForms({
-        ...(parentDir ? { reposRoot: parentDir } : {}),
-      }));
+      const result = await (await actions.loadPendingForms(input));
+      if (token !== loadTokenRef.current) return;
       setPending(result);
+      if (result.cache?.status === 'cached') {
+        void (async () => {
+          const fresh = await (await actions.refreshPendingForms(input));
+          if (token === loadTokenRef.current) setPending(fresh);
+        })().catch((reason) => {
+          if (token === loadTokenRef.current) setError(reason instanceof Error ? reason.message : String(reason));
+        });
+      }
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      if (token === loadTokenRef.current) setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
-      setLoading(false);
+      if (token === loadTokenRef.current) setLoading(false);
     }
   }, [actions, parentDir]);
 
@@ -490,8 +574,11 @@ function BeadsFormPendingQueue({ actions, parentDir }: {
 
 function BeadsFormRoute({ actions }: { actions: {
   loadBeadForms: (input: LoadFormsInput) => MaybeNestedPromise<LoadFormsResult>;
+  refreshBeadForms: (input: LoadFormsInput) => MaybeNestedPromise<LoadFormsResult>;
   loadWorkspaceForms: (input: LoadWorkspaceFormsInput) => MaybeNestedPromise<LoadWorkspaceFormsResult>;
+  refreshWorkspaceForms: (input: LoadWorkspaceFormsInput) => MaybeNestedPromise<LoadWorkspaceFormsResult>;
   loadPendingForms: (input: LoadPendingFormsInput) => MaybeNestedPromise<LoadPendingFormsResult>;
+  refreshPendingForms: (input: LoadPendingFormsInput) => MaybeNestedPromise<LoadPendingFormsResult>;
   submitBeadForm: (input: SubmitFormInput) => MaybeNestedPromise<SubmitFormResult>;
 } }) {
   const [params] = useSearchParams();
@@ -523,14 +610,11 @@ function BeadsFormRoute({ actions }: { actions: {
 
     void (async () => {
       try {
-        const result = workspaceId
-          ? await (await actions.loadWorkspaceForms({
-            workspaceId,
-            ...(beadId ? { beadId } : {}),
-            ...(formId ? { formId } : {}),
-            includeOtherWorkspaces,
-          }))
-          : {
+        const directResult = async (
+          loader: (input: LoadFormsInput) => MaybeNestedPromise<LoadFormsResult>,
+        ): Promise<LoadWorkspaceFormsResult> => {
+          const selected = await (await loader({ dir, beadId, formId }));
+          return {
             workspaceId: '',
             workspaceBeads: {
               workspaceId: '',
@@ -543,9 +627,26 @@ function BeadsFormRoute({ actions }: { actions: {
                 otherWorkspaceCount: 0,
               }],
             },
-            selected: await (await actions.loadBeadForms({ dir, beadId, formId })),
+            selected,
+            ...(selected.cache ? { cache: selected.cache } : {}),
           };
+        };
+        const workspaceInput = {
+          workspaceId,
+          ...(beadId ? { beadId } : {}),
+          ...(formId ? { formId } : {}),
+          includeOtherWorkspaces,
+        };
+        const result = workspaceId
+          ? await (await actions.loadWorkspaceForms(workspaceInput))
+          : await directResult(actions.loadBeadForms);
         if (!cancelled) setLoaded(result);
+        if (result.cache?.status === 'cached') {
+          const fresh = workspaceId
+            ? await (await actions.refreshWorkspaceForms(workspaceInput))
+            : await directResult(actions.refreshBeadForms);
+          if (!cancelled) setLoaded(fresh);
+        }
       } catch (reason) {
         if (!cancelled) setError(reason instanceof Error ? reason.message : String(reason));
       }
@@ -836,61 +937,44 @@ springboard.registerModule(
         };
       },
       loadBeadForms: async (input: LoadFormsInput): Promise<LoadFormsResult> => {
-        if (!input.dir.trim()) throw new Error('dir is required');
-        if (!input.beadId.trim()) throw new Error('beadId is required');
-        const bead = await nodeClient().readBead(input.dir, input.beadId);
-        const forms = getBeadsForms(bead.metadata);
-        return {
-          bead,
-          forms,
-          beadRepoDir: input.dir,
-          selectedForm: input.formId ? forms.find((form) => form.id === input.formId) : undefined,
-        };
+        return beadsFormReadCache.cachedOrLoad(
+          directBeadFormsCacheKey(input),
+          () => readBeadFormsFresh(input),
+        );
+      },
+      refreshBeadForms: async (input: LoadFormsInput): Promise<LoadFormsResult> => {
+        return beadsFormReadCache.refresh(
+          directBeadFormsCacheKey(input),
+          () => readBeadFormsFresh(input),
+        );
       },
       loadWorkspaceForms: async (input: LoadWorkspaceFormsInput): Promise<LoadWorkspaceFormsResult> => {
-        if (!input.workspaceId.trim()) throw new Error('workspaceId is required');
-        const [workspace, repos] = await Promise.all([
-          vkClient().getWorkspace(input.workspaceId),
-          vkClient().getWorkspaceRepos(input.workspaceId),
-        ]);
-        const workspaceDir = workspace.container_ref || workspace.agent_working_dir;
-        if (!workspaceDir) throw new Error(`Workspace ${input.workspaceId} does not have a local workspace directory`);
-        const workspaceBeads = await nodeClient().listWorkspaceBeads({
-          workspaceId: input.workspaceId,
-          workspaceDir,
-          agentWorkingDir: workspace.agent_working_dir,
-          repos,
-          includeOtherWorkspaces: input.includeOtherWorkspaces ?? false,
-          ...(input.beadId ? { beadId: input.beadId } : {}),
-        });
-        const selectedRepo = input.beadId
-          ? workspaceBeads.repos.find((repo) => repo.beads.some((bead) => bead.id === input.beadId))
-          : undefined;
-        const selectedBead = input.beadId
-          ? selectedRepo?.beads.find((bead) => bead.id === input.beadId)
-          : undefined;
-        const forms = selectedBead ? getBeadsForms(selectedBead.metadata) : [];
-        return {
-          workspaceId: input.workspaceId,
-          workspaceBeads,
-          ...(selectedBead && selectedRepo ? {
-            selected: {
-              bead: selectedBead,
-              forms,
-              beadRepoDir: selectedRepo.dir,
-              selectedForm: input.formId ? forms.find((form) => form.id === input.formId) : undefined,
-            },
-          } : {}),
-        };
+        return beadsFormReadCache.cachedOrLoad(
+          workspaceBeadFormsCacheKey(input),
+          () => readWorkspaceFormsFresh(input),
+        );
+      },
+      refreshWorkspaceForms: async (input: LoadWorkspaceFormsInput): Promise<LoadWorkspaceFormsResult> => {
+        return beadsFormReadCache.refresh(
+          workspaceBeadFormsCacheKey(input),
+          () => readWorkspaceFormsFresh(input),
+        );
       },
       loadPendingForms: async (input: LoadPendingFormsInput): Promise<LoadPendingFormsResult> => (
-        nodeClient().listPendingBeadsFormQueue({
-          ...(input.reposRoot ? { reposRoot: input.reposRoot } : {}),
-          ...(input.repoLimit ? { repoLimit: input.repoLimit } : {}),
-        })
+        beadsFormReadCache.cachedOrLoad(
+          pendingBeadsFormsCacheKey(input),
+          () => readPendingFormsFresh(input),
+        )
+      ),
+      refreshPendingForms: async (input: LoadPendingFormsInput): Promise<LoadPendingFormsResult> => (
+        beadsFormReadCache.refresh(
+          pendingBeadsFormsCacheKey(input),
+          () => readPendingFormsFresh(input),
+        )
       ),
       submitBeadForm: async (input: SubmitFormInput): Promise<SubmitFormResult> => {
         const result = await nodeClient().submitForm(input);
+        beadsFormReadCache.invalidateAll();
         const forms = getBeadsForms(result.metadata);
         const form = forms.find((candidate) => candidate.id === input.formId) ?? { id: input.formId, title: input.formId, html: '' };
         return {
