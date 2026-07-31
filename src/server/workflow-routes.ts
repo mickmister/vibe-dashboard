@@ -12,6 +12,11 @@ import {
   parseWorkflowRunStatus,
   type WorkflowRunReader,
 } from './workflow-run-store';
+import {
+  parseWorkflowInstanceStatus,
+  parseWorkflowTriggerStatus,
+  type DbWorkflowOrchestrationStore,
+} from './workflow-orchestration-store';
 import type { CachedRepoAlias } from '../workflows/github-ci';
 
 export interface RegisterWorkflowRoutesOptions {
@@ -19,6 +24,7 @@ export interface RegisterWorkflowRoutesOptions {
   runOptions?: RunWorkflowOptions;
   workflowRunRecorder?: WorkflowRecorder;
   workflowRunReader?: WorkflowRunReader;
+  workflowOrchestrationStore?: DbWorkflowOrchestrationStore;
   githubWebhookSecret?: string;
   repoAliasCache?: RepoAliasCache;
 }
@@ -76,6 +82,52 @@ export function registerWorkflowRoutes(
     });
     if (!result) return c.json({ error: 'workflow_run_not_found' }, 404);
     return c.json(result);
+  });
+
+
+
+  hono.get('/dashboard/api/workflow-instances', async (c) => {
+    const store = options.workflowOrchestrationStore;
+    if (!store) return c.json({ error: 'workflow_orchestration_store_not_configured' }, 503);
+    const result = await store.listInstances({
+      workflowId: c.req.query('workflowId') || undefined,
+      status: parseWorkflowInstanceStatus(c.req.query('status') ?? null),
+      teamId: c.req.query('teamId') || undefined,
+      laneId: c.req.query('laneId') || undefined,
+      limit: parsePositiveInteger(c.req.query('limit') ?? null),
+      offset: parsePositiveInteger(c.req.query('offset') ?? null),
+    });
+    return c.json(result);
+  });
+
+  hono.get('/dashboard/api/workflow-instances/:instanceId', async (c) => {
+    const store = options.workflowOrchestrationStore;
+    if (!store) return c.json({ error: 'workflow_orchestration_store_not_configured' }, 503);
+    const instance = await store.getInstance(c.req.param('instanceId'));
+    if (!instance) return c.json({ error: 'workflow_instance_not_found' }, 404);
+    return c.json({ instance });
+  });
+
+  hono.get('/dashboard/api/workflow-scoped-triggers', async (c) => {
+    const store = options.workflowOrchestrationStore;
+    if (!store) return c.json({ error: 'workflow_orchestration_store_not_configured' }, 503);
+    const result = await store.listTriggers({
+      instanceId: c.req.query('instanceId') || undefined,
+      status: parseWorkflowTriggerStatus(c.req.query('status') ?? null),
+      workspaceId: c.req.query('workspaceId') || undefined,
+      sessionId: c.req.query('sessionId') || undefined,
+      limit: parsePositiveInteger(c.req.query('limit') ?? null),
+      offset: parsePositiveInteger(c.req.query('offset') ?? null),
+    });
+    return c.json(result);
+  });
+
+  hono.get('/dashboard/api/workflow-scoped-triggers/:triggerId', async (c) => {
+    const store = options.workflowOrchestrationStore;
+    if (!store) return c.json({ error: 'workflow_orchestration_store_not_configured' }, 503);
+    const trigger = await store.getTrigger(c.req.param('triggerId'));
+    if (!trigger) return c.json({ error: 'workflow_scoped_trigger_not_found' }, 404);
+    return c.json({ trigger });
   });
 
   hono.post('/dashboard/api/webhooks/github', async (c) => {

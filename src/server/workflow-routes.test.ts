@@ -6,6 +6,7 @@ import { registerWorkflowRoutes } from './workflow-routes';
 import { initVdDb, type VdDbHandle } from './database';
 import { DbWorkflowRunRecorder } from './workflow-run-recorder';
 import { DbWorkflowRunReader } from './workflow-run-store';
+import { DbWorkflowOrchestrationStore } from './workflow-orchestration-store';
 
 describe('registerWorkflowRoutes', () => {
   const dbHandles: VdDbHandle[] = [];
@@ -203,6 +204,79 @@ describe('registerWorkflowRoutes', () => {
     await expect(eventsResponse.json()).resolves.toEqual({ error: 'workflow_run_not_found' });
   });
 
+  it('exposes read-only workflow orchestration instance and trigger APIs', async () => {
+    const handle = await initVdDb({ path: ':memory:' });
+    dbHandles.push(handle);
+    const store = new DbWorkflowOrchestrationStore({ db: handle.db, now: (() => { let value = 1000; return () => value++; })() });
+    await store.createInstance({
+      instanceId: 'instance_route',
+      workflowId: 'durable-workflow',
+      teamId: 'team-route',
+      laneId: 'lane-route',
+      trigger: 'manual',
+      input: { task: 'inspect' },
+    });
+    await store.startInstance('instance_route');
+    await store.createScopedTrigger({
+      triggerId: 'trigger_route',
+      instanceId: 'instance_route',
+      workspaceId: 'ws-route',
+      sessionId: 'session-route',
+      mode: 'next_completion_after_cursor',
+      cursorExecutionProcessId: 'exec-before',
+    });
+
+    const app = new Hono();
+    registerWorkflowRoutes(app, {
+      registry: createWorkflowRegistry(),
+      workflowOrchestrationStore: store,
+    });
+
+    const listResponse = await app.request('/dashboard/api/workflow-instances?workflowId=durable-workflow&status=running&teamId=team-route&limit=1');
+    expect(listResponse.status).toBe(200);
+    await expect(listResponse.json()).resolves.toMatchObject({
+      instances: [{ instanceId: 'instance_route', status: 'running', input: { task: 'inspect' } }],
+      limit: 1,
+      offset: 0,
+      hasMore: false,
+    });
+
+    const getResponse = await app.request('/dashboard/api/workflow-instances/instance_route');
+    expect(getResponse.status).toBe(200);
+    await expect(getResponse.json()).resolves.toMatchObject({
+      instance: { instanceId: 'instance_route', workflowId: 'durable-workflow' },
+    });
+
+    const triggerListResponse = await app.request('/dashboard/api/workflow-scoped-triggers?instanceId=instance_route&status=active&workspaceId=ws-route');
+    expect(triggerListResponse.status).toBe(200);
+    await expect(triggerListResponse.json()).resolves.toMatchObject({
+      triggers: [{ triggerId: 'trigger_route', sessionId: 'session-route', mode: 'next_completion_after_cursor' }],
+    });
+
+    const triggerGetResponse = await app.request('/dashboard/api/workflow-scoped-triggers/trigger_route');
+    expect(triggerGetResponse.status).toBe(200);
+    await expect(triggerGetResponse.json()).resolves.toMatchObject({
+      trigger: { triggerId: 'trigger_route', cursorExecutionProcessId: 'exec-before' },
+    });
+  });
+
+  it('returns 404 for missing workflow orchestration inspection endpoints', async () => {
+    const handle = await initVdDb({ path: ':memory:' });
+    dbHandles.push(handle);
+    const app = new Hono();
+    registerWorkflowRoutes(app, {
+      registry: createWorkflowRegistry(),
+      workflowOrchestrationStore: new DbWorkflowOrchestrationStore({ db: handle.db }),
+    });
+
+    const instanceResponse = await app.request('/dashboard/api/workflow-instances/missing');
+    expect(instanceResponse.status).toBe(404);
+    await expect(instanceResponse.json()).resolves.toEqual({ error: 'workflow_instance_not_found' });
+
+    const triggerResponse = await app.request('/dashboard/api/workflow-scoped-triggers/missing');
+    expect(triggerResponse.status).toBe(404);
+    await expect(triggerResponse.json()).resolves.toEqual({ error: 'workflow_scoped_trigger_not_found' });
+  });
 
 
   it('runs the GitHub CI failure workflow from the GitHub webhook route', async () => {
