@@ -413,13 +413,11 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
         savedVoyages,
       );
 
-      if ((queryCraftParam || queryViewsParam) && querySelection.voyageEntryId) {
+      if (queryCraftParam && queryViewsParam && querySelection.voyageEntryId) {
         const nextPath = buildCanonicalDashboardPath(location.search, {
           slug: currentVoyageSlug,
           craftParam: queryCraftParam,
-          viewTokens: queryViewsParam
-            ? queryViewsParam.split(",").filter(Boolean)
-            : undefined,
+          viewTokens: queryViewsParam.split(",").filter(Boolean),
         });
         if (nextPath !== currentPath) {
           navigate(nextPath, { replace: true });

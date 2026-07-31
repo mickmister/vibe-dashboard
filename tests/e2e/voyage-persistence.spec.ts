@@ -681,7 +681,7 @@ test.describe('voyage persistence', () => {
 
     await openVoyageSwitcher(page);
     await expect(page.getByRole('button', { name: voyageName }).first()).toBeVisible();
-    await page.getByRole('button', { name: 'Go Home' }).click();
+    await page.getByRole('button', { name: 'Go Home', exact: true }).click();
 
     await expect(page.getByRole('heading', { name: 'All Voyages' })).toBeVisible();
     await expect(page.getByText(voyageName).first()).toBeVisible();
