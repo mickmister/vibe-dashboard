@@ -60,6 +60,7 @@ describe('DbWorkflowOrchestrationStore', () => {
     });
 
     await store.startInstance('instance_1', { currentStepId: 'plan', latestRunId: 'run_1' });
+    await store.markStepRunning('instance_1_step_plan');
     const trigger = await store.createScopedTrigger({
       triggerId: 'trigger_1',
       instanceId: 'instance_1',
@@ -86,6 +87,68 @@ describe('DbWorkflowOrchestrationStore', () => {
 
     const waiting = await store.markInstanceWaiting('instance_1', { currentStepId: 'plan', waitingTriggerId: 'trigger_1' });
     expect(waiting).toMatchObject({ status: 'waiting', currentStepId: 'plan' });
+  });
+
+  it('atomically marks a running instance and running step waiting', async () => {
+    const { handle, store } = await createStore();
+    await seedInstance(store);
+    await store.startInstance('instance_1', { currentStepId: 'plan' });
+    await store.markStepRunning('instance_1_step_plan');
+
+    const waiting = await store.markInstanceWaiting('instance_1', {
+      currentStepId: 'plan',
+      waitingTriggerId: 'trigger_1',
+    });
+
+    expect(waiting).toMatchObject({ status: 'waiting', currentStepId: 'plan' });
+    const step = await handle.db
+      .selectFrom('WorkflowStepState')
+      .select(['status', 'waitingTriggerId'])
+      .where('id', '=', 'instance_1_step_plan')
+      .executeTakeFirstOrThrow();
+    expect(step).toEqual({ status: 'waiting', waitingTriggerId: 'trigger_1' });
+  });
+
+  it('does not resurrect terminal steps or leave the instance waiting when step transition fails', async () => {
+    const { handle, store } = await createStore();
+    await seedInstance(store);
+    await store.startInstance('instance_1', { currentStepId: 'plan' });
+    await store.markStepRunning('instance_1_step_plan');
+    await store.completeStep('instance_1_step_plan', { answerRef: 'exec-1' });
+
+    await expect(
+      store.markInstanceWaiting('instance_1', {
+        currentStepId: 'plan',
+        waitingTriggerId: 'trigger_1',
+      }),
+    ).rejects.toBeInstanceOf(WorkflowOrchestrationTransitionError);
+
+    await expect(store.getInstance('instance_1')).resolves.toMatchObject({ status: 'running' });
+    await expect(store.listInstances({ status: 'waiting' })).resolves.toMatchObject({ instances: [] });
+    const step = await handle.db
+      .selectFrom('WorkflowStepState')
+      .select(['status', 'waitingTriggerId'])
+      .where('id', '=', 'instance_1_step_plan')
+      .executeTakeFirstOrThrow();
+    expect(step).toEqual({ status: 'completed', waitingTriggerId: null });
+  });
+
+  it('rolls back instance waiting transition when the current step row is missing', async () => {
+    const { store } = await createStore();
+    await seedInstance(store);
+    await store.startInstance('instance_1', { currentStepId: 'missing-step' });
+
+    await expect(
+      store.markInstanceWaiting('instance_1', {
+        currentStepId: 'missing-step',
+        waitingTriggerId: 'trigger_1',
+      }),
+    ).rejects.toBeInstanceOf(WorkflowOrchestrationTransitionError);
+
+    await expect(store.getInstance('instance_1')).resolves.toMatchObject({
+      status: 'running',
+      currentStepId: 'missing-step',
+    });
   });
 
   it('guards instance pause resume cancel complete and fail transitions', async () => {

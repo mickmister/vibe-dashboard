@@ -232,27 +232,40 @@ export class DbWorkflowOrchestrationStore {
   async markInstanceWaiting(instanceId: string, args: { currentStepId: string; waitingTriggerId?: string | null; expectedVersion?: number }): Promise<WorkflowInstanceReadModel> {
     const db = await this.getDb();
     const now = this.now();
-    let query = db
-      .updateTable('WorkflowInstance')
-      .set((eb) => ({
-        status: 'waiting' as const,
-        currentStepId: args.currentStepId,
-        updatedAt: now,
-        version: eb('version', '+', 1),
-      }))
-      .where('instanceId', '=', instanceId)
-      .where('status', '=', 'running');
-    if (args.expectedVersion != null) query = query.where('version', '=', args.expectedVersion);
-    await assertUpdated(query.executeTakeFirst(), `Cannot mark workflow instance ${instanceId} waiting from its current state`);
-
-    if (args.waitingTriggerId) {
-      await db
-        .updateTable('WorkflowStepState')
-        .set({ status: 'waiting', waitingTriggerId: args.waitingTriggerId, updatedAt: now })
+    await db.transaction().execute(async (trx) => {
+      let instanceQuery = trx
+        .updateTable('WorkflowInstance')
+        .set((eb) => ({
+          status: 'waiting' as const,
+          currentStepId: args.currentStepId,
+          updatedAt: now,
+          version: eb('version', '+', 1),
+        }))
         .where('instanceId', '=', instanceId)
-        .where('stepKey', '=', args.currentStepId)
-        .execute();
-    }
+        .where('status', '=', 'running');
+      if (args.expectedVersion != null) {
+        instanceQuery = instanceQuery.where('version', '=', args.expectedVersion);
+      }
+      await assertUpdated(
+        instanceQuery.executeTakeFirst(),
+        `Cannot mark workflow instance ${instanceId} waiting from its current state`,
+      );
+
+      await assertUpdated(
+        trx
+          .updateTable('WorkflowStepState')
+          .set({
+            status: 'waiting',
+            waitingTriggerId: args.waitingTriggerId ?? null,
+            updatedAt: now,
+          })
+          .where('instanceId', '=', instanceId)
+          .where('stepKey', '=', args.currentStepId)
+          .where('status', '=', 'running')
+          .executeTakeFirst(),
+        `Cannot mark workflow step ${args.currentStepId} waiting from its current state`,
+      );
+    });
 
     return this.getRequiredInstance(instanceId);
   }
