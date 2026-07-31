@@ -114,6 +114,26 @@ export interface WorkflowScopedTrigger {
   cancelledAt: NullableNumber;
 }
 
+export type WorkflowRoleSessionBindingSource = 'user_selected' | 'auto_reused' | 'auto_created' | 'team_config' | 'imported';
+
+export interface WorkflowRoleSessionBinding {
+  bindingId: string;
+  teamId: NullableString;
+  workflowId: NullableString;
+  instanceId: NullableString;
+  laneId: NullableString;
+  roleId: string;
+  roleName: string;
+  workspaceId: string;
+  sessionId: string;
+  executor: NullableString;
+  source: WorkflowRoleSessionBindingSource;
+  valid: number;
+  version: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface DB {
   Migration: Migration;
   WorkflowRun: WorkflowRun;
@@ -121,4 +141,5 @@ export interface DB {
   WorkflowInstance: WorkflowInstance;
   WorkflowStepState: WorkflowStepState;
   WorkflowScopedTrigger: WorkflowScopedTrigger;
+  WorkflowRoleSessionBinding: WorkflowRoleSessionBinding;
 }

@@ -33,6 +33,7 @@ export interface Session {
   id: string;
   workspace_id: string;
   executor: Executor;
+  name?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -78,6 +79,7 @@ export interface QueuedMessage {
 export interface CreateSessionBody {
   workspace_id: string;
   executor: Executor;
+  name?: string | null;
 }
 
 interface ApiEnvelope<T> {
