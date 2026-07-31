@@ -54,10 +54,10 @@ jobs:
           android: true
           dotnet: true
           haskell: true
-          large-packages: false
+          large-packages: true
           swap-storage: true
           docker-images: true
-          tools-cache: false
+          tools-cache: true
 
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3

@@ -152,6 +152,19 @@ export type WorkspaceActions = {
   }) => Promise<
     { tabGroupId: string; pairId?: string; agentTabId: string } | undefined
   >;
+  openFormsForBead: (args: {
+    tabGroupId: string;
+    agentTabId: string;
+    beadId: string;
+  }) => Promise<{ tabGroupId: string; formsTabId: string } | undefined>;
+  openBeadFormsSplit?: (args: {
+    tabGroupId: string;
+    agentTabId: string;
+    beadId: string;
+    dir: string;
+    formId?: string;
+    returnTo?: string;
+  }) => Promise<{ tabGroupId: string; pairId: string; formsTabId: string } | undefined>;
   createSavedSessionForVKWorkspace: (args: {
     voyageName: string;
     taskAttemptId: string;
