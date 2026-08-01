@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { IconChevronUp, IconMenu2, IconUfo } from "@tabler/icons-react";
+import { useNavigate } from "react-router";
 import { Sidebar } from "./Sidebar";
 import { WorkspaceContentView } from "./WorkspaceContentView";
 import { hasKnownIframeMessageSource } from "./IframePanel";
@@ -345,6 +346,7 @@ export function WorkspaceShell({
   savedSessions,
   currentSessionId,
 }: WorkspaceShellProps) {
+  const navigate = useNavigate();
   const [addTabModalOpen, setAddTabModalOpen] = useState(false);
   const [workspaceSearchOpen, setWorkspaceSearchOpen] = useState(false);
   const [workspaceSearchMode, setWorkspaceSearchMode] = useState<
@@ -2163,6 +2165,10 @@ export function WorkspaceShell({
           savedSessions={savedSessions}
           currentSessionId={currentSessionId}
           onRequestClose={() => setIsSidebarOpen(false)}
+          onOpenPluginAdmin={() => {
+            setIsSidebarOpen(false);
+            navigate("/dashboard/admin/plugins");
+          }}
           onSelectTabGroup={(tabGroupId) => {
             const space = effectiveWorkspace.spaces.find((entry) =>
               entry.tabGroupIds.includes(tabGroupId),
