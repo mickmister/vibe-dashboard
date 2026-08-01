@@ -26,6 +26,7 @@ const execFileAsync = promisify(execFileCallback);
 const standardForm = {
   format: 'standard',
   id: 'review',
+  goal: 'Decide whether to approve the reviewed plan.',
   title: 'Review form',
   description: 'Review **decisions**.',
   content: [{
@@ -143,6 +144,7 @@ describe('beads-form CLI helpers', () => {
     expect(form).toMatchObject({
       format: 'standard',
       id: 'review',
+      goal: standardForm.goal,
       questions: standardForm.questions,
       content: standardForm.content,
     });
@@ -153,6 +155,7 @@ describe('beads-form CLI helpers', () => {
   it('rejects duplicate input ids, duplicate bead ids, invalid JSON, and local bead-backed media refs without mutation', () => {
     expect(() => parseFormsJsonForAttach(JSON.stringify([standardForm, standardForm]))).toThrow('Duplicate form id');
     expect(() => parseFormsJsonForAttach('{bad')).toThrow('Invalid JSON');
+    expect(() => parseFormsJsonForAttach(JSON.stringify({ ...standardForm, goal: '' }))).toThrow('form.goal is required');
     expect(() => parseFormsJsonForAttach(JSON.stringify({
       ...standardForm,
       content: [{ ...standardForm.content[0], items: [{ id: 'local', type: 'image', src: 'attachments/local.png' }] }],

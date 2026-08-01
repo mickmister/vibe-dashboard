@@ -20,6 +20,7 @@ export type BeadsFormResponse = {
 
 export type BeadsFormDefinition = {
   id: string;
+  goal?: string;
   title: string;
   description?: string;
   version?: number;
@@ -57,6 +58,7 @@ export type LoadedBeadsForm = {
 const FORM_META_KEY = 'beadForms';
 const LEGACY_FORM_META_KEY = 'beadsWeb';
 const FORM_SUMMARY_META_KEY = 'beadFormsSummary';
+type LegacyStandardBeadsForm = Omit<StandardBeadsForm, 'goal'> & { goal?: string };
 
 function isObject(value: unknown): value is JsonObject {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -72,7 +74,7 @@ function isHtmlForm(value: unknown): value is BeadsFormDefinition {
     && value.html.trim().length > 0;
 }
 
-function isStandardForm(value: unknown): value is StandardBeadsForm {
+function isStandardForm(value: unknown): value is LegacyStandardBeadsForm {
   return isObject(value)
     && value.format === 'standard'
     && typeof value.id === 'string'
@@ -85,7 +87,7 @@ function isStandardForm(value: unknown): value is StandardBeadsForm {
 function normalizeForm(value: unknown): BeadsFormDefinition | undefined {
   if (isHtmlForm(value)) return value;
   if (!isStandardForm(value)) return undefined;
-  return compileBeadsForm(value);
+  return compileBeadsForm({ ...value, goal: value.goal?.trim() ? value.goal : value.title });
 }
 
 function formsAt(metadata: JsonObject, key: string): BeadsFormDefinition[] {

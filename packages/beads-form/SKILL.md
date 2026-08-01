@@ -38,8 +38,9 @@ import {
 ```ts
 const form = defineBeadsForm({
   id: 'planning_review',
+  goal: 'Decide how to unblock the implementation plan.',
   title: 'Planning Review',
-  description: 'Questions to unblock the implementation plan.',
+  description: 'Questions to unblock the **implementation plan**.',
   // Optional. Shown and checked by default if omitted.
   allowCodeFileChanges: {
     allowLabel: 'Submit and allow code/file changes',
@@ -85,7 +86,11 @@ const metadataPatch = buildBeadsFormMetadata([form]);
 ## Conventions
 
 - Every question needs a `title` and a context-rich `description`.
+- Every standard form needs a concise top-level `goal`: one short sentence describing what the form is trying to get from the human.
+- Form `title` and `description` are authored as safe Markdown. Use Markdown for emphasis, `code`, links, and enough context to make the form self-contained; raw HTML is escaped. Long form descriptions are truncated behind a Show more affordance.
 - Treat the form as the source of truth for the thinking behind the discussion. If other agents or reviewers already provided pros, cons, risks, recommended fixes, or tradeoffs, include that substance in the form instead of forcing the human to reconstruct it from conversation history.
+- When a review agent provides blockers, concerns, or non-blocking suggestions, create a dedicated question for each coherent review item. Do not paste one huge unorganized review blob. Preserve exact wording, pros/cons, suggested fixes, and tradeoffs where practical; explicitly call out when an item is non-blocking.
+- There is no automatic review-message extraction tool yet. Use `vibe-agent full_summary` and manually copy the important review/implementation text into dedicated form questions.
 - Preserve exact prior wording for pros/cons and recommendation rationales when practical, especially for decision choices. Prefer copying known good phrasing into `description` or `is_recommended_reason` over paraphrasing away nuance.
 - Lean toward "explain more" rather than excessive brevity. The form should make the user informed about the in-depth assumptions, forks in the road, and consequences of each option.
 - Choice questions are always rendered as checkboxes so humans can select more than one answer. Do not add single-select/radio configuration; single-select semantics need a separate future DSL addition.
@@ -118,8 +123,9 @@ Use folder mode for low-friction testing before attaching forms to beads.
    {
      "format": "standard",
      "id": "planning_review",
+     "goal": "Decide how to unblock the implementation plan.",
      "title": "Planning Review",
-     "description": "Questions to unblock the implementation plan.",
+     "description": "Questions to unblock the **implementation plan**.",
      "questions": [
        {
          "type": "textarea",

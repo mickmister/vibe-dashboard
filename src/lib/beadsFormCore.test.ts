@@ -32,6 +32,7 @@ describe('BeadsForm core', () => {
         forms: [{
           format: 'standard',
           id: 'planning_review',
+          goal: 'Choose where the form should open.',
           title: 'Planning Review',
           questions: [{
             type: 'choices',

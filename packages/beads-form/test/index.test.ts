@@ -13,6 +13,7 @@ describe('@vibe-dashboard/beads-form', () => {
   it('compiles standard choice questions into accessible form HTML and controls', () => {
     const form = defineBeadsForm({
       id: 'planning_review',
+      goal: 'Collect planning feedback from the human.',
       title: 'Planning review',
       description: 'Collect planning feedback.',
       questions: [
@@ -52,6 +53,7 @@ describe('@vibe-dashboard/beads-form', () => {
   it('treats stale note and multiple-choice flags as always enabled for compatibility', () => {
     const compiled = compileBeadsForm(defineBeadsForm({
       id: 'legacy_flags',
+      goal: 'Verify old note flags still compile safely.',
       title: 'Legacy flags',
       questions: [
         buildChoicesQuestion({
@@ -95,6 +97,7 @@ describe('@vibe-dashboard/beads-form', () => {
   it('allows hiding or customizing the code/file-change submit actions', () => {
     const hidden = compileBeadsForm(defineBeadsForm({
       id: 'hidden_permission',
+      goal: 'Collect notes without implementation permission controls.',
       title: 'Hidden permission',
       allowCodeFileChanges: false,
       questions: [
@@ -110,6 +113,7 @@ describe('@vibe-dashboard/beads-form', () => {
 
     const customized = compileBeadsForm(defineBeadsForm({
       id: 'custom_permission',
+      goal: 'Collect notes with custom permission submit text.',
       title: 'Custom permission',
       allowCodeFileChanges: {
         allowLabel: 'Submit with edits allowed',
@@ -134,6 +138,7 @@ describe('@vibe-dashboard/beads-form', () => {
   it('compiles media galleries without adding submission controls', () => {
     const compiled = compileBeadsForm(defineBeadsForm({
       id: 'screenshot_review',
+      goal: 'Choose acceptable screenshot candidates.',
       title: 'Screenshot review',
       content: [
         buildMediaGallery({
@@ -176,6 +181,7 @@ describe('@vibe-dashboard/beads-form', () => {
     const metadata = buildBeadsFormMetadata([
       defineBeadsForm({
         id: 'safe_form',
+        goal: 'Confirm unsafe HTML stays escaped.',
         title: '<script>bad</script>',
         questions: [
           buildTextareaQuestion({
@@ -196,6 +202,7 @@ describe('@vibe-dashboard/beads-form', () => {
       pendingFormIds: ['safe_form'],
     });
     expect(form.html).toContain('&lt;script&gt;bad&lt;/script&gt;');
+    expect(form.goal).toBe('Confirm unsafe HTML stays escaped.');
     expect(form.controls.map((control) => control.name)).toEqual([
       ALLOW_CODE_FILE_CHANGES_FIELD,
       'notes',
@@ -203,10 +210,56 @@ describe('@vibe-dashboard/beads-form', () => {
     ]);
   });
 
+  it('requires a concise form goal', () => {
+    expect(() => compileBeadsForm({
+      format: 'standard',
+      id: 'missing_goal',
+      goal: '',
+      title: 'Missing goal',
+      questions: [
+        buildTextareaQuestion({
+          id: 'notes',
+          title: 'Notes',
+          description: 'Provide notes.',
+        }),
+      ],
+    })).toThrow('form.goal is required');
+  });
+
+  it('truncates long Markdown descriptions behind a Show more affordance', () => {
+    const longDescription = [
+      'This description starts with **important context** that should remain visible.',
+      'It then includes a lot of detailed background, tradeoffs, reviewer notes, and implementation nuance so the human can answer without reading the whole conversation.',
+      'The compiler should keep the first question high on the page while retaining the full Markdown-rendered context behind an explicit expansion control.',
+      'Another sentence adds enough length to cross the truncation threshold and proves this is not merely short-context rendering.',
+      'The expanded section still needs to preserve Markdown, escaped HTML, paragraphs, and links safely.',
+      'This final sentence should only appear in the expanded full description.',
+    ].join(' ');
+    const compiled = compileBeadsForm(defineBeadsForm({
+      id: 'long_context',
+      goal: 'Decide the storage policy.',
+      title: 'Long context',
+      description: longDescription,
+      questions: [
+        buildTextareaQuestion({
+          id: 'notes',
+          title: 'Notes',
+          description: 'Share the decision.',
+        }),
+      ],
+    }));
+
+    expect(compiled.html).toContain('beads-form-description--truncated');
+    expect(compiled.html).toContain('<summary>Show more</summary>');
+    expect(compiled.html).toContain('<strong>important context</strong>');
+    expect(compiled.html).toContain('This final sentence should only appear in the expanded full description.');
+  });
+
   it('renders safe Markdown descriptions and recommendation reasons', () => {
     const compiled = compileBeadsForm(defineBeadsForm({
       id: 'markdown_review',
-      title: 'Markdown review',
+      goal: 'Choose the **lowest-risk** path.',
+      title: '**Markdown** review',
       description: 'Use **bold** and `code`, but not <script>bad</script>.',
       questions: [
         buildChoicesQuestion({
@@ -237,6 +290,8 @@ describe('@vibe-dashboard/beads-form', () => {
 
     expect(compiled.html).toContain('<strong>bold</strong>');
     expect(compiled.html).toContain('<code>code</code>');
+    expect(compiled.html).toContain('<h2><strong>Markdown</strong> review</h2>');
+    expect(compiled.html).toContain('<p class="beads-form-goal"><strong>Goal:</strong> Choose the <strong>lowest-risk</strong> path.</p>');
     expect(compiled.html).toContain('&lt;script&gt;bad&lt;/script&gt;');
     expect(compiled.html).toContain('<em>recommended</em>');
     expect(compiled.html).toContain('<a href="/docs" rel="noopener noreferrer">docs</a>');
@@ -251,6 +306,7 @@ describe('@vibe-dashboard/beads-form', () => {
   it('ignores reason-less legacy recommended booleans from raw JSON', () => {
     const compiled = compileBeadsForm(defineBeadsForm({
       id: 'legacy_recommended',
+      goal: 'Check stale recommended booleans are ignored.',
       title: 'Legacy recommended',
       description: 'Raw JSON may still contain a stale boolean recommendation marker.',
       questions: [{

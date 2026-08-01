@@ -11,6 +11,7 @@ describe('loadBeadsFormsFromFolder', () => {
     await writeFile(join(folder, 'standard.json'), JSON.stringify({
       format: 'standard',
       id: 'planning_review',
+      goal: 'Collect planning notes.',
       title: 'Planning Review',
       questions: [{
         type: 'textarea',

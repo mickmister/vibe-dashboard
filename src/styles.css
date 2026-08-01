@@ -129,6 +129,25 @@ textarea {
   font-weight: 700;
 }
 
+.beadsform-root .beads-form-goal {
+  color: #d4d4d8;
+  font-size: 1rem;
+}
+
+.beadsform-root .beads-form-description {
+  color: #d4d4d8;
+}
+
+.beadsform-root .beads-form-description-preview {
+  margin-bottom: 0.5rem;
+}
+
+.beadsform-root .beads-form-description-details > summary {
+  color: #bfdbfe;
+  cursor: pointer;
+  font-weight: 700;
+}
+
 .beadsform-root textarea,
 .beadsform-root input[type="text"],
 .beadsform-root input[type="email"],

@@ -78,7 +78,11 @@ export type BeadsFormContentBlock = MediaGalleryBlock;
 export type StandardBeadsForm = {
   format: 'standard';
   id: string;
+  /** Short Markdown phrase describing what the form is trying to get from the human. */
+  goal: string;
+  /** Markdown title. Raw HTML is escaped. */
   title: string;
+  /** Markdown context. Raw HTML is escaped and long descriptions are collapsed by default. */
   description?: string;
   version?: number;
   /**
@@ -119,6 +123,8 @@ export type BeadsFormsSummary = {
 
 const DEFAULT_TEXTAREA_ROWS = 5;
 const DEFAULT_CHOICE_NOTES_ROWS = 4;
+const DESCRIPTION_TRUNCATE_THRESHOLD = 480;
+const DESCRIPTION_PREVIEW_LENGTH = 320;
 export const ALLOW_CODE_FILE_CHANGES_FIELD = 'allow_code_file_changes';
 
 function assertIdentifier(id: string, label: string): void {
@@ -212,15 +218,17 @@ export function defineBeadsForm(input: Omit<StandardBeadsForm, 'format'>): Stand
 
 export function compileBeadsForm(form: StandardBeadsForm): CompiledBeadsForm {
   assertIdentifier(form.id, 'form.id');
+  if (!form.goal?.trim()) throw new Error('form.goal is required');
   const controls: BeadsFormControl[] = [];
-  const description = form.description ? renderMarkdown(form.description) : '';
+  const description = form.description ? compileFormDescription(form.description) : '';
   const submitActions = compileSubmitActions(form.allowCodeFileChanges, controls);
   const contentBlocks = (form.content ?? []).map(compileContentBlock);
   const sections = form.questions.map((question) => compileQuestion(question, controls));
   const html = [
     '<form>',
     '<header>',
-    `<h2>${escapeHtml(form.title)}</h2>`,
+    `<h2>${renderInlineMarkdown(form.title)}</h2>`,
+    `<p class="beads-form-goal"><strong>Goal:</strong> ${renderInlineMarkdown(form.goal)}</p>`,
     description,
     '</header>',
     ...contentBlocks,
@@ -230,6 +238,30 @@ export function compileBeadsForm(form: StandardBeadsForm): CompiledBeadsForm {
   ].join('');
 
   return { ...form, html, controls };
+}
+
+function truncateMarkdownText(value: string): string {
+  const normalized = value.trim().replace(/\s+/g, ' ');
+  if (normalized.length <= DESCRIPTION_PREVIEW_LENGTH) return normalized;
+  const candidate = normalized.slice(0, DESCRIPTION_PREVIEW_LENGTH);
+  const lastSpace = candidate.lastIndexOf(' ');
+  const preview = lastSpace > 240 ? candidate.slice(0, lastSpace) : candidate;
+  return `${preview.trim()}…`;
+}
+
+function compileFormDescription(description: string): string {
+  if (description.trim().length <= DESCRIPTION_TRUNCATE_THRESHOLD) {
+    return `<div class="beads-form-description">${renderMarkdown(description)}</div>`;
+  }
+  return [
+    '<div class="beads-form-description beads-form-description--truncated">',
+    `<p class="beads-form-description-preview">${renderInlineMarkdown(truncateMarkdownText(description))}</p>`,
+    '<details class="beads-form-description-details">',
+    '<summary>Show more</summary>',
+    renderMarkdown(description),
+    '</details>',
+    '</div>',
+  ].join('');
 }
 
 export function buildBeadsFormMetadata(forms: StandardBeadsForm[]): BeadsFormMetadata {

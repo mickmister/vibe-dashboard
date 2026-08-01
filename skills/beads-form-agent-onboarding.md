@@ -12,8 +12,9 @@ Example JSON shape:
 {
   "format": "standard",
   "id": "implementation_questions",
+  "goal": "Decide the next implementation step.",
   "title": "Implementation questions",
-  "description": "Resolve decisions before code changes.",
+  "description": "Resolve **decisions** before code changes.",
   "allowCodeFileChanges": {
     "label": "Allow implementation after this response",
     "description": "Use allow-code only if the next agent may edit code/files.",
@@ -51,7 +52,11 @@ Example JSON shape:
 
 Guidelines:
 - Every question should have a clear title and description.
+- Every standard form must include a concise top-level `goal` field: one short sentence saying what the form is trying to get from the human.
+- Treat form `title` and `description` as safe Markdown. Use Markdown for emphasis, lists/context paragraphs, `code`, and safe links; raw HTML is escaped. Long form descriptions are collapsed behind Show more, so include enough context without making the first question unusable.
 - Treat the form as the source of truth for the thinking behind the discussion. If other agents or reviewers already gave pros, cons, risks, recommended fixes, or tradeoffs, carry those points into the form instead of summarizing them away.
+- If review agents provide concerns, blockers, or non-blocking suggestions, parse each coherent item into its own dedicated question. Do not paste one huge unorganized review blob. Preserve exact wording, pros/cons, suggested fixes, and tradeoffs where practical, and explicitly label non-blocking items as non-blocking in the question description.
+- For now, do not rely on automatic extraction tooling for other-agent messages. Use `vibe-agent full_summary` for context, then manually copy the important review/implementation text into dedicated questions so the form is self-contained.
 - Please consider pros and cons for each open point, and include the pros/cons in the choice descriptions of the questions. *Be as detailed as possible.*
 - Preserve exact wording for prior pros/cons or recommendation rationales when practical, especially when the human is deciding between named options. Add attribution/context in descriptions or choice text when it helps.
 - Lean toward "explain more" over excessive brevity. A form should let the human understand the in-depth reasoning, assumptions, and forks in the road without rereading the whole conversation.
@@ -77,8 +82,9 @@ beads-form attach \
 {
   "format": "standard",
   "id": "implementation_questions",
+  "goal": "Decide the next implementation step.",
   "title": "Implementation questions",
-  "description": "Resolve decisions before code changes.",
+  "description": "Resolve **decisions** before code changes.",
   "allowCodeFileChanges": {
     "label": "Allow implementation after this response",
     "description": "Use allow-code only if the next agent may edit code/files.",

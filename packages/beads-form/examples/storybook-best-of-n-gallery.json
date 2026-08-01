@@ -1,6 +1,7 @@
 {
   "format": "standard",
   "id": "storybook_best_of_n_review",
+  "goal": "Choose acceptable Storybook screenshot candidates.",
   "title": "Storybook best-of-N screenshot review",
   "description": "Compare generated Storybook screenshots and choose which candidates are acceptable.",
   "content": [
