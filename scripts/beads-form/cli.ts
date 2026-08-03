@@ -120,6 +120,7 @@ export type ShowResult = {
 
 export type ShowForm = {
   id: string;
+  goal: string;
   title: string;
   description?: string;
   version?: number;
@@ -630,6 +631,7 @@ export function buildShowResult(input: {
   const form = input.form;
   const showForm: ShowForm = {
     id: form.id,
+    goal: form.goal,
     title: form.title,
     ...(form.description ? { description: form.description } : {}),
     ...(form.version !== undefined ? { version: form.version } : {}),

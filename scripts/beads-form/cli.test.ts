@@ -371,6 +371,7 @@ describe('beads-form CLI helpers', () => {
     const withoutHtml = buildShowResult({ bead: { id: 'bd-1', title: 'Bead' }, form });
     expect(withoutHtml.responseCount).toBe(2);
     expect(withoutHtml.noResponses).toBe(false);
+    expect(withoutHtml.form.goal).toBe(standardForm.goal);
     expect(withoutHtml.form.questions).toEqual(standardForm.questions);
     expect(withoutHtml.form).not.toHaveProperty('html');
     expect(withoutHtml.form).not.toHaveProperty('controls');
