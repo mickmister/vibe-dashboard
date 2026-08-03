@@ -9,9 +9,11 @@ import { promisify } from 'node:util';
 
 import {
   compileBeadsForm,
-  type BeadsFormControl,
+  stripGeneratedBeadsFormFields,
   type StandardBeadsForm,
+  type StoredBeadsForm,
 } from '../../packages/beads-form/src/index.ts';
+import { assertMetadataFitsDoltTextColumn } from '../../src/lib/beadsFormCore.ts';
 import { BeadsClient, type PendingBeadsFormQueueResult } from '../../src/lib/beadsClient.node.ts';
 
 const execFileAsync = promisify(execFile);
@@ -29,15 +31,13 @@ export type BeadsFormResponse = {
 
 export type BeadsFormDefinition = {
   id: string;
+  goal: string;
   title: string;
   description?: string;
   version?: number;
-  html: string;
-  controls?: BeadsFormControl[];
   responses?: BeadsFormResponse[];
-  sourceMessages?: Array<{ source?: string; submittedAt?: string; text: string }>;
-  format?: 'standard';
-  questions?: StandardBeadsForm['questions'];
+  format: 'standard';
+  questions: StandardBeadsForm['questions'];
   content?: StandardBeadsForm['content'];
 };
 
@@ -85,7 +85,6 @@ export type ShowOptions = {
   dir: string;
   beadId: string;
   formId?: string;
-  includeHtml?: boolean;
 };
 
 export type PendingOptions = {
@@ -127,8 +126,6 @@ export type ShowForm = {
   format?: BeadsFormDefinition['format'];
   content?: BeadsFormDefinition['content'];
   questions?: BeadsFormDefinition['questions'];
-  html?: string;
-  controls?: BeadsFormControl[];
 };
 
 export type ShowMediaRef = {
@@ -192,10 +189,6 @@ function parseOptions(argv: string[]): CliOptions {
       options.stdin = true;
       continue;
     }
-    if (arg === '--include-html') {
-      options.includeHtml = true;
-      continue;
-    }
     if (arg.startsWith('--')) {
       const [rawKey, inlineValue] = arg.slice(2).split(/=(.*)/s, 2);
       if (!rawKey) continue;
@@ -242,12 +235,14 @@ function normalizeAttachOptions(options: CliOptions): AttachOptions {
 
 function normalizeShowOptions(options: CliOptions): ShowOptions {
   const beadId = stringOption(options, 'bead') ?? stringOption(options, 'bead-id') ?? options._[0];
-  if (!beadId) throw new Error('Usage: npm run beads-form -- show --bead <bead-id> [--form <form-id>] [--include-html]');
+  if (options.includeHtml === true || options['include-html'] === true) {
+    throw new Error('beads-form show no longer supports --include-html; BeadsForms are stored as standard DSL only.');
+  }
+  if (!beadId) throw new Error('Usage: npm run beads-form -- show --bead <bead-id> [--form <form-id>]');
   return {
     dir: resolve(stringOption(options, 'dir') ?? process.cwd()),
     beadId,
     ...(stringOption(options, 'form') ? { formId: stringOption(options, 'form') } : {}),
-    includeHtml: options.includeHtml === true,
   };
 }
 
@@ -355,12 +350,15 @@ function normalizeSingleFormForAttach(value: unknown): BeadsFormDefinition {
 }
 
 function normalizeForm(value: unknown): BeadsFormDefinition | undefined {
-  if (isHtmlForm(value)) return value;
+  if (isHtmlForm(value) && !isStandardForm(value)) {
+    throw new Error('Raw HTML BeadsForms are no longer supported; express the form with the standard BeadsForm DSL.');
+  }
   if (!isStandardForm(value)) return undefined;
-  return compileBeadsForm(value);
+  compileBeadsForm(value);
+  return stripGeneratedBeadsFormFields(value);
 }
 
-function isHtmlForm(value: unknown): value is BeadsFormDefinition {
+function isHtmlForm(value: unknown): value is JsonObject & { id: string; title: string; html: string } {
   return isObject(value)
     && typeof value.id === 'string'
     && value.id.trim().length > 0
@@ -375,6 +373,8 @@ function isStandardForm(value: unknown): value is StandardBeadsForm {
     && value.format === 'standard'
     && typeof value.id === 'string'
     && value.id.trim().length > 0
+    && typeof value.goal === 'string'
+    && value.goal.trim().length > 0
     && typeof value.title === 'string'
     && value.title.trim().length > 0
     && Array.isArray(value.questions);
@@ -410,30 +410,6 @@ function assertNoLocalBeadBackedMediaRefs(form: BeadsFormDefinition): void {
       }
     }
   }
-
-  for (const ref of collectHtmlMediaRefs(form.html)) {
-    if (isLocalMediaRef(ref.value)) {
-      throw new Error(`Form ${form.id} uses local media ${ref.attr} "${ref.value}" in stored HTML; bead-backed media only supports non-local refs for now`);
-    }
-  }
-}
-
-export function collectHtmlMediaRefs(html: string): Array<{ tag: string; attr: 'src' | 'poster'; value: string }> {
-  const refs: Array<{ tag: string; attr: 'src' | 'poster'; value: string }> = [];
-  const mediaTagPattern = /<(img|video|source|track|audio)\b[^>]*>/gi;
-  for (const tagMatch of html.matchAll(mediaTagPattern)) {
-    const tag = tagMatch[1]!.toLowerCase();
-    const tagText = tagMatch[0];
-    const attrPattern = /\b(src|poster)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/gi;
-    for (const attrMatch of tagText.matchAll(attrPattern)) {
-      refs.push({
-        tag,
-        attr: attrMatch[1]!.toLowerCase() as 'src' | 'poster',
-        value: attrMatch[2] ?? attrMatch[3] ?? attrMatch[4] ?? '',
-      });
-    }
-  }
-  return refs;
 }
 
 function isLocalMediaRef(value: string): boolean {
@@ -482,14 +458,16 @@ export function attachFormsToMetadata(
 ): JsonObject {
   const next: JsonObject = isObject(metadata) ? structuredClone(metadata) as JsonObject : {};
   const beadForms = isObject(next.beadForms) ? next.beadForms : { forms: [] };
-  const existingForms = Array.isArray(beadForms.forms) ? [...beadForms.forms] : [];
+  const existingForms = Array.isArray(beadForms.forms)
+    ? beadForms.forms.map(normalizeForm).filter((form): form is BeadsFormDefinition => !!form)
+    : [];
   const existingIds = new Set(existingForms
-    .filter((form): form is JsonObject => isObject(form) && typeof form.id === 'string')
-    .map((form) => form.id as string));
+    .map((form) => form.id));
   for (const form of forms) {
     if (existingIds.has(form.id)) throw new Error(`Form id already exists on bead: ${form.id}`);
   }
-  next.beadForms = { ...beadForms, forms: [...existingForms, ...forms] };
+  const storedForms = [...existingForms, ...forms].map((form) => stripGeneratedBeadsFormFields(form as StoredBeadsForm));
+  next.beadForms = { ...beadForms, forms: storedForms };
   next.beadFormsSummary = buildBeadsFormsSummary(getFormsFromMetadata(next));
   stampStringMetadata(next, 'VK_WORKSPACE_ID', options.workspaceId);
   stampStringMetadata(next, 'VK_SESSION_ID', options.sessionId);
@@ -587,6 +565,7 @@ async function updateMetadata(input: {
   beadId: string;
   metadata: JsonObject;
 }): Promise<void> {
+  assertMetadataFitsDoltTextColumn(input.metadata);
   const tempDir = await mkdtemp(join(tmpdir(), 'beadsform-cli-'));
   const metadataPath = join(tempDir, 'metadata.json');
   try {
@@ -630,7 +609,7 @@ export async function showBeadsForm(input: {
   });
   const forms = getFormsFromMetadata(bead.metadata);
   const form = selectFormForShow(forms, input.options.formId);
-  return buildShowResult({ bead, form, includeHtml: input.options.includeHtml ?? false });
+  return buildShowResult({ bead, form });
 }
 
 export function selectFormForShow(forms: BeadsFormDefinition[], formId?: string): BeadsFormDefinition {
@@ -647,7 +626,6 @@ export function selectFormForShow(forms: BeadsFormDefinition[], formId?: string)
 export function buildShowResult(input: {
   bead: BeadLike;
   form: BeadsFormDefinition;
-  includeHtml?: boolean;
 }): ShowResult {
   const form = input.form;
   const showForm: ShowForm = {
@@ -659,10 +637,6 @@ export function buildShowResult(input: {
     ...(form.content ? { content: form.content } : {}),
     ...(form.questions ? { questions: form.questions } : {}),
   };
-  if (input.includeHtml) {
-    showForm.html = form.html;
-    showForm.controls = form.controls ?? [];
-  }
   const responses = form.responses ?? [];
   return {
     bead: {
@@ -738,12 +712,12 @@ function isObject(value: unknown): value is JsonObject {
 function printHelp(): void {
   console.log(`Usage:
   beads-form attach --bead <id> (--file form.json | --json raw-json | --stdin) [--dir repo] [--origin origin] [--workspace id] [--session id]
-  beads-form show --bead <id> [--form form-id] [--dir repo] [--include-html]
+  beads-form show --bead <id> [--form form-id] [--dir repo]
   beads-form pending --parent-dir <all-repos-dir> [--limit 80] [--origin origin]
 
 Also supported:
   npm run beads-form -- attach --bead <id> (--file form.json | --json raw-json | --stdin) [--dir repo] [--origin origin] [--workspace id] [--session id]
-  npm run beads-form -- show --bead <id> [--form form-id] [--dir repo] [--include-html]
+  npm run beads-form -- show --bead <id> [--form form-id] [--dir repo]
   npm run beads-form -- pending --parent-dir <all-repos-dir> [--limit 80] [--origin origin]
 
 Attach origin precedence:

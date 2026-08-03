@@ -23,10 +23,16 @@ describe('loadBeadsFormsFromFolder', () => {
     await writeFile(join(folder, 'wrapped.json'), JSON.stringify({
       beadForms: {
         forms: [{
-          id: 'raw_review',
-          title: 'Raw Review',
-          html: '<form><textarea name="comment"></textarea></form>',
-          controls: [{ id: 'comment', name: 'comment', type: 'textarea' }],
+          format: 'standard',
+          id: 'wrapped_review',
+          goal: 'Collect wrapped notes.',
+          title: 'Wrapped Review',
+          questions: [{
+            type: 'textarea',
+            id: 'comment',
+            title: 'Comment',
+            description: 'Share wrapped notes.',
+          }],
         }],
       },
     }), 'utf8');
@@ -34,9 +40,21 @@ describe('loadBeadsFormsFromFolder', () => {
 
     const forms = await loadBeadsFormsFromFolder(folder);
 
-    expect(forms.map((form) => form.id)).toEqual(['planning_review', 'raw_review']);
+    expect(forms.map((form) => form.id)).toEqual(['planning_review', 'wrapped_review']);
     expect(forms[0]!.sourceFile).toBe(join(folder, 'standard.json'));
     expect(forms[0]!.controls?.map((control) => control.name)).toContain(ALLOW_CODE_FILE_CHANGES_FIELD);
+  });
+
+  it('rejects raw html form JSON files', async () => {
+    const folder = await mkdtemp(join(tmpdir(), 'beads-form-folder-'));
+    await writeFile(join(folder, 'raw.json'), JSON.stringify({
+      id: 'raw_review',
+      title: 'Raw Review',
+      html: '<form><textarea name="comment"></textarea></form>',
+      controls: [{ id: 'comment', name: 'comment', type: 'textarea' }],
+    }), 'utf8');
+
+    await expect(loadBeadsFormsFromFolder(folder)).rejects.toThrow('Raw HTML BeadsForms are no longer supported');
   });
 
   it('rejects non-directory paths', async () => {

@@ -4,7 +4,7 @@ Use BeadsForm when you need structured answers from a human before proceeding. P
 
 ## 1. Draft standard form JSON inline
 
-Write standard BeadsForm JSON. Prefer the standard DSL, not raw HTML. The default bead-backed workflow is **inline JSON via stdin** so agents do not need to create a temporary `form.json` file first. Use a file only when the form is large enough that audit/debuggability matters.
+Write standard BeadsForm JSON. Use the standard DSL, not raw HTML. The default bead-backed workflow is **inline JSON via stdin** so agents do not need to create a temporary `form.json` file first. Use a file only when the form is large enough that audit/debuggability matters.
 
 Example JSON shape:
 
@@ -105,6 +105,7 @@ JSON
 For very small forms, `--json '<raw-json>'` also works. For large forms, `--file form.json` is still supported and can be easier to review/debug.
 
 `beads-form attach` stamps non-empty `VK_WORKSPACE_ID` and `VK_SESSION_ID` values from the environment into bead metadata. Attach also maintains `metadata.beadFormsSummary` (`hasForms`, `hasPendingAnswer`, `pendingResponseCount`, `formIds`, `pendingFormIds`) so Forms can discover pending work efficiently without bulk `bd show` over every bead.
+Persisted bead metadata stores standard DSL-only forms. The tool strips stale generated `html`/`controls` from valid standard forms, rejects raw/custom HTML forms, and preflights metadata size against the Dolt TEXT-column limit before updating a bead.
 
 In the VD Docker/dev runtime, `beads-form` should be available on `PATH` globally and should work from any bead repo directory.
 
@@ -127,7 +128,7 @@ Send the direct form URL and ask them to submit. After submission:
 beads-form show --bead <bead-id> --dir <repo-dir>
 ```
 
-`show` outputs JSON by default. Use `--include-html` only when needed.
+`show` outputs JSON by default with semantic questions/descriptions, media refs as text, and all responses. It does not support `--include-html` because generated HTML/controls are no longer persisted.
 
 ## 5. Find pending forms across repos
 

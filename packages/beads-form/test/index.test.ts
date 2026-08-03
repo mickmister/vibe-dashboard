@@ -177,21 +177,20 @@ describe('@vibe-dashboard/beads-form', () => {
     ]);
   });
 
-  it('keeps HTML escaped and builds bead metadata payloads', () => {
-    const metadata = buildBeadsFormMetadata([
-      defineBeadsForm({
-        id: 'safe_form',
-        goal: 'Confirm unsafe HTML stays escaped.',
-        title: '<script>bad</script>',
-        questions: [
-          buildTextareaQuestion({
-            id: 'notes',
-            title: 'Notes',
-            description: 'Provide notes without allowing raw HTML.',
-          }),
-        ],
-      }),
-    ]);
+  it('stores bead metadata as DSL-only while runtime compilation escapes HTML', () => {
+    const formInput = defineBeadsForm({
+      id: 'safe_form',
+      goal: 'Confirm unsafe HTML stays escaped.',
+      title: '<script>bad</script>',
+      questions: [
+        buildTextareaQuestion({
+          id: 'notes',
+          title: 'Notes',
+          description: 'Provide notes without allowing raw HTML.',
+        }),
+      ],
+    });
+    const metadata = buildBeadsFormMetadata([formInput]);
 
     const form = metadata.beadForms.forms[0]!;
     expect(metadata.beadFormsSummary).toEqual({
@@ -201,9 +200,13 @@ describe('@vibe-dashboard/beads-form', () => {
       formIds: ['safe_form'],
       pendingFormIds: ['safe_form'],
     });
-    expect(form.html).toContain('&lt;script&gt;bad&lt;/script&gt;');
     expect(form.goal).toBe('Confirm unsafe HTML stays escaped.');
-    expect(form.controls.map((control) => control.name)).toEqual([
+    expect(form).not.toHaveProperty('html');
+    expect(form).not.toHaveProperty('controls');
+
+    const compiled = compileBeadsForm(formInput);
+    expect(compiled.html).toContain('&lt;script&gt;bad&lt;/script&gt;');
+    expect(compiled.controls.map((control) => control.name)).toEqual([
       ALLOW_CODE_FILE_CHANGES_FIELD,
       'notes',
       'notes_more_info',

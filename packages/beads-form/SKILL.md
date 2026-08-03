@@ -9,7 +9,7 @@ Use this skill when an agent needs to ask a human structured questions through a
 
 ## Core rule
 
-Prefer the standard JSON/helper format from `@vibe-dashboard/beads-form`. Do not hand-write raw HTML unless the standard format cannot express the form.
+Use the standard JSON/helper format from `@vibe-dashboard/beads-form`. Do not hand-write raw HTML; bead-backed and preview flows support standard DSL forms only.
 
 ## Agent roles
 
@@ -100,7 +100,7 @@ const metadataPatch = buildBeadsFormMetadata([form]);
 - Use stable lowercase ids with letters, numbers, `_`, or `-`; start ids with a letter.
 - Choice ids become submitted values.
 - Question ids become submitted field names.
-- The renderer generates accessible HTML and the validation `controls[]` manifest.
+- The renderer generates accessible HTML and the validation controls manifest at runtime. Persisted bead metadata stores the standard DSL only; generated `html`, generated `controls`, raw/custom HTML forms, and source-message blobs are not stored.
 - Add `is_recommended_reason: "..."` to choices the agent recommends; the UI emphasizes those options and renders the reason. Do not use a reason-less boolean recommendation marker.
 - Descriptions support safe Markdown such as `**bold**`, `*emphasis*`, `` `code` ``, and safe links. Raw HTML in descriptions is escaped.
 - Standard choice questions normalize as per-option booleans, for example
@@ -209,14 +209,11 @@ Bead-backed storage is the primary workflow for real agent/user handoff. Folder 
    ```sh
    beads-form show --bead <bead-id>
    beads-form show --bead <bead-id> --form <form-id>
-   beads-form show --bead <bead-id> --include-html
-
    npm run beads-form -- show --bead <bead-id>
    npm run beads-form -- show --bead <bead-id> --form <form-id>
-   npm run beads-form -- show --bead <bead-id> --include-html
    ```
 
-   `show` prints JSON by default, includes all responses, auto-selects the form if the bead has exactly one form, includes semantic questions/descriptions and media refs as text, and omits compiled HTML unless `--include-html` is passed. If there are no responses yet, it still prints the questions and `noResponses: true`.
+   `show` prints JSON by default, includes all responses, auto-selects the form if the bead has exactly one form, and includes semantic questions/descriptions and media refs as text. It does not output generated HTML/controls because bead metadata stores standard DSL only. If there are no responses yet, it still prints the questions and `noResponses: true`.
 
 Bead-backed storage remains preferred for real workflow state and durable responses. Folder preview is for prototyping and quick review loops.
 
@@ -234,10 +231,6 @@ npm run beads-form -- pending --parent-dir ~/repos
 ```
 
 The command scans only first-level child directories, uses read-only `bd list --json --all --limit 0 --has-metadata-key ...` queries, avoids bulk `bd show`, includes skipped repo reasons, and prints direct `/dashboard/forms?dir=...&bead=...&form=...` links. Use `--origin` or `BEADS_FORM_ORIGIN`/`VD_BEADS_FORM_ORIGIN` when a full URL is needed.
-
-## Escape hatch
-
-If the standard helpers are not expressive enough, generate raw HTML only as a fallback. Keep the same naming conventions and provide a complete `controls[]` manifest, because submissions are validated by HTML `name`.
 
 ## Shared preview server maintenance
 

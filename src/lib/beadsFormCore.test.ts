@@ -4,6 +4,7 @@ import {
   appendBeadsFormResponse,
   ALLOW_CODE_FILE_CHANGES_FIELD,
   buildBeadsFormsSummary,
+  assertMetadataFitsDoltTextColumn,
   buildAgentResultMessage,
   buildPrettySummary,
   getBeadsForms,
@@ -13,13 +14,26 @@ import {
   validateSubmittedValues,
 } from './beadsFormCore';
 
+const storedForm = (id: string, title = 'Review') => ({
+  format: 'standard' as const,
+  id,
+  goal: `Answer ${title}.`,
+  title,
+  questions: [{
+    type: 'textarea' as const,
+    id: 'comment',
+    title: 'Comment',
+    description: 'Share a comment.',
+  }],
+});
+
 describe('BeadsForm core', () => {
   it('reads current forms before legacy forms and de-duplicates by id', () => {
     const forms = getBeadsForms({
-      beadForms: { forms: [{ id: 'current', title: 'Current', html: '<form></form>' }] },
+      beadForms: { forms: [storedForm('current', 'Current')] },
       beadsWeb: { forms: [
-        { id: 'current', title: 'Legacy duplicate', html: '<form></form>' },
-        { id: 'legacy', title: 'Legacy', html: '<form></form>' },
+        storedForm('current', 'Legacy duplicate'),
+        storedForm('legacy', 'Legacy'),
       ] },
     });
 
@@ -59,7 +73,7 @@ describe('BeadsForm core', () => {
 
   it('appends responses under metadata.beadForms while preserving unrelated metadata', () => {
     const next = appendBeadsFormResponse({ untouched: true, beadForms: { forms: [
-      { id: 'review', title: 'Review', html: '<form></form>' },
+      { ...storedForm('review'), html: '<form></form>', controls: [{ id: 'stale', name: 'stale', type: 'textarea' }] },
     ] } }, 'review', {
       submittedBy: 'user',
       submittedAt: '2026-06-29T00:00:00Z',
@@ -68,6 +82,8 @@ describe('BeadsForm core', () => {
 
     expect(next.untouched).toBe(true);
     expect((next.beadForms as any).forms[0].responses).toHaveLength(1);
+    expect((next.beadForms as any).forms[0].html).toBeUndefined();
+    expect((next.beadForms as any).forms[0].controls).toBeUndefined();
     expect(next.beadFormsSummary).toEqual({
       hasForms: true,
       hasPendingAnswer: false,
@@ -79,8 +95,8 @@ describe('BeadsForm core', () => {
 
   it('builds a lightweight pending-answer summary for BeadsForm metadata', () => {
     expect(buildBeadsFormsSummary([
-      { id: 'pending', title: 'Pending', html: '<form></form>' },
-      { id: 'answered', title: 'Answered', html: '<form></form>', responses: [{ submittedBy: 'user', submittedAt: 'now', values: {} }] },
+      { ...storedForm('pending', 'Pending') },
+      { ...storedForm('answered', 'Answered'), responses: [{ submittedBy: 'user', submittedAt: 'now', values: {} }] },
     ])).toEqual({
       hasForms: true,
       hasPendingAnswer: true,
@@ -88,6 +104,14 @@ describe('BeadsForm core', () => {
       formIds: ['pending', 'answered'],
       pendingFormIds: ['pending'],
     });
+  });
+
+  it('rejects raw html forms and preflights oversized metadata before mutation', () => {
+    expect(() => getBeadsForms({
+      beadForms: { forms: [{ id: 'raw', title: 'Raw', html: '<form></form>' }] },
+    })).toThrow('Raw HTML BeadsForms are no longer supported');
+
+    expect(() => assertMetadataFitsDoltTextColumn({ big: 'x'.repeat(100) }, 40)).toThrow('No bead metadata was changed');
   });
 
   it('normalizes repeated form entries as arrays', () => {

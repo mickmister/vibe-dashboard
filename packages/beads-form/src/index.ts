@@ -98,7 +98,17 @@ export type StandardBeadsForm = {
   };
   content?: BeadsFormContentBlock[];
   questions: BeadsFormQuestion[];
-  sourceMessages?: Array<{ source?: string; submittedAt?: string; text: string }>;
+};
+
+export type BeadsFormResponse = {
+  submittedBy: string;
+  submittedAt: string;
+  values: Record<string, unknown>;
+  prettySummary?: string;
+};
+
+export type StoredBeadsForm = StandardBeadsForm & {
+  responses?: BeadsFormResponse[];
 };
 
 export type CompiledBeadsForm = StandardBeadsForm & {
@@ -108,7 +118,7 @@ export type CompiledBeadsForm = StandardBeadsForm & {
 
 export type BeadsFormMetadata = {
   beadForms: {
-    forms: CompiledBeadsForm[];
+    forms: StoredBeadsForm[];
   };
   beadFormsSummary: BeadsFormsSummary;
 };
@@ -240,6 +250,22 @@ export function compileBeadsForm(form: StandardBeadsForm): CompiledBeadsForm {
   return { ...form, html, controls };
 }
 
+export function stripGeneratedBeadsFormFields<T extends StandardBeadsForm & { responses?: BeadsFormResponse[] }>(
+  form: T,
+): StoredBeadsForm {
+  const {
+    html: _html,
+    controls: _controls,
+    sourceMessages: _sourceMessages,
+    ...stored
+  } = form as T & {
+    html?: unknown;
+    controls?: unknown;
+    sourceMessages?: unknown;
+  };
+  return stored;
+}
+
 function truncateMarkdownText(value: string): string {
   const normalized = value.trim().replace(/\s+/g, ' ');
   if (normalized.length <= DESCRIPTION_PREVIEW_LENGTH) return normalized;
@@ -265,23 +291,29 @@ function compileFormDescription(description: string): string {
 }
 
 export function buildBeadsFormMetadata(forms: StandardBeadsForm[]): BeadsFormMetadata {
-  const compiledForms = forms.map(compileBeadsForm);
+  const storedForms = forms.map((form) => {
+    compileBeadsForm(form);
+    return stripGeneratedBeadsFormFields(form);
+  });
   return {
     beadForms: {
-      forms: compiledForms,
+      forms: storedForms,
     },
-    beadFormsSummary: buildBeadsFormsSummary(compiledForms),
+    beadFormsSummary: buildBeadsFormsSummary(storedForms),
   };
 }
 
-export function buildBeadsFormsSummary(forms: readonly Pick<CompiledBeadsForm, 'id'>[]): BeadsFormsSummary {
+export function buildBeadsFormsSummary(forms: readonly Pick<StoredBeadsForm, 'id' | 'responses'>[]): BeadsFormsSummary {
   const formIds = forms.map((form) => form.id);
+  const pendingFormIds = forms
+    .filter((form) => (form.responses?.length ?? 0) === 0)
+    .map((form) => form.id);
   return {
     hasForms: formIds.length > 0,
-    hasPendingAnswer: formIds.length > 0,
-    pendingResponseCount: formIds.length,
+    hasPendingAnswer: pendingFormIds.length > 0,
+    pendingResponseCount: pendingFormIds.length,
     formIds,
-    pendingFormIds: formIds,
+    pendingFormIds,
   };
 }
 

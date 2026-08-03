@@ -2,9 +2,11 @@ import createDOMPurify from 'dompurify';
 import {
   ALLOW_CODE_FILE_CHANGES_FIELD,
   compileBeadsForm,
+  stripGeneratedBeadsFormFields,
   type BeadsFormControl,
   type ChoicesQuestion,
   type StandardBeadsForm,
+  type StoredBeadsForm,
 } from '../../packages/beads-form/src/index.ts';
 
 export { ALLOW_CODE_FILE_CHANGES_FIELD };
@@ -20,16 +22,15 @@ export type BeadsFormResponse = {
 
 export type BeadsFormDefinition = {
   id: string;
-  goal?: string;
+  goal: string;
   title: string;
   description?: string;
   version?: number;
   html: string;
   controls?: BeadsFormControl[];
   responses?: BeadsFormResponse[];
-  sourceMessages?: Array<{ source?: string; submittedAt?: string; text: string }>;
-  format?: 'standard';
-  questions?: StandardBeadsForm['questions'];
+  format: 'standard';
+  questions: StandardBeadsForm['questions'];
   content?: StandardBeadsForm['content'];
 };
 
@@ -58,13 +59,13 @@ export type LoadedBeadsForm = {
 const FORM_META_KEY = 'beadForms';
 const LEGACY_FORM_META_KEY = 'beadsWeb';
 const FORM_SUMMARY_META_KEY = 'beadFormsSummary';
-type LegacyStandardBeadsForm = Omit<StandardBeadsForm, 'goal'> & { goal?: string };
+export const DOLT_TEXT_COLUMN_MAX_BYTES = 65_535;
 
 function isObject(value: unknown): value is JsonObject {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
-function isHtmlForm(value: unknown): value is BeadsFormDefinition {
+function isHtmlForm(value: unknown): value is JsonObject & { id: string; title: string; html: string } {
   return isObject(value)
     && typeof value.id === 'string'
     && value.id.trim().length > 0
@@ -74,20 +75,29 @@ function isHtmlForm(value: unknown): value is BeadsFormDefinition {
     && value.html.trim().length > 0;
 }
 
-function isStandardForm(value: unknown): value is LegacyStandardBeadsForm {
+function isStandardForm(value: unknown): value is StoredBeadsForm {
   return isObject(value)
     && value.format === 'standard'
     && typeof value.id === 'string'
     && value.id.trim().length > 0
+    && typeof value.goal === 'string'
+    && value.goal.trim().length > 0
     && typeof value.title === 'string'
     && value.title.trim().length > 0
     && Array.isArray(value.questions);
 }
 
 function normalizeForm(value: unknown): BeadsFormDefinition | undefined {
-  if (isHtmlForm(value)) return value;
+  if (isHtmlForm(value) && !isStandardForm(value)) {
+    throw new Error('Raw HTML BeadsForms are no longer supported; express the form with the standard BeadsForm DSL.');
+  }
   if (!isStandardForm(value)) return undefined;
-  return compileBeadsForm({ ...value, goal: value.goal?.trim() ? value.goal : value.title });
+  const stored = stripGeneratedBeadsFormFields(value);
+  const compiled = compileBeadsForm(stored);
+  return {
+    ...compiled,
+    ...(stored.responses ? { responses: stored.responses } : {}),
+  };
 }
 
 function formsAt(metadata: JsonObject, key: string): BeadsFormDefinition[] {
@@ -132,16 +142,25 @@ export function appendBeadsFormResponse(
   if (!form) {
     const legacy = selectBeadsForm(next, formId);
     if (!legacy) throw new Error(`Form not found: ${formId}`);
-    form = structuredClone(legacy) as unknown as JsonObject;
+    form = stripGeneratedBeadsFormFields(legacy) as unknown as JsonObject;
     (beadForms.forms as unknown[]).push(form);
   }
 
-  if (!Array.isArray(form.responses)) form.responses = [];
-  (form.responses as unknown[]).push(response);
+  const normalizedForm = normalizeForm(form);
+  if (!normalizedForm) throw new Error(`Form not found: ${formId}`);
+  const storedForm = stripGeneratedBeadsFormFields(normalizedForm);
+  storedForm.responses = [...(storedForm.responses ?? []), response];
+
+  const forms = (beadForms.forms as unknown[]).map((candidate) => {
+    if (isObject(candidate) && candidate.id === formId) return storedForm;
+    const normalizedCandidate = normalizeForm(candidate);
+    return normalizedCandidate ? stripGeneratedBeadsFormFields(normalizedCandidate) : candidate;
+  });
+  beadForms.forms = forms;
   return withBeadsFormsSummary(next);
 }
 
-export function buildBeadsFormsSummary(forms: readonly BeadsFormDefinition[]): BeadsFormsSummary {
+export function buildBeadsFormsSummary(forms: readonly Pick<BeadsFormDefinition, 'id' | 'responses'>[]): BeadsFormsSummary {
   const formIds = forms.map((form) => form.id);
   const pendingFormIds = forms
     .filter((form) => (form.responses?.length ?? 0) === 0)
@@ -159,6 +178,27 @@ export function withBeadsFormsSummary(metadata: unknown): JsonObject {
   const next: JsonObject = isObject(metadata) ? structuredClone(metadata) as JsonObject : {};
   next[FORM_SUMMARY_META_KEY] = buildBeadsFormsSummary(getBeadsForms(next));
   return next;
+}
+
+export function metadataJsonByteLength(metadata: unknown): number {
+  return new TextEncoder().encode(JSON.stringify(metadata)).byteLength;
+}
+
+export function assertMetadataFitsDoltTextColumn(
+  metadata: unknown,
+  maxBytes = DOLT_TEXT_COLUMN_MAX_BYTES,
+): void {
+  const fields = isObject(metadata)
+    ? Object.entries(metadata).map(([key, value]) => ({ key, bytes: metadataJsonByteLength(value) }))
+    : [{ key: 'metadata', bytes: metadataJsonByteLength(metadata) }];
+  for (const field of fields) {
+    if (field.bytes > maxBytes) {
+      throw new Error(
+        `Beads metadata field "${field.key}" is too large for the Dolt TEXT column (${field.bytes} bytes > ${maxBytes} bytes). `
+        + 'No bead metadata was changed. Split or shorten the BeadsForm content/responses before retrying.',
+      );
+    }
+  }
 }
 
 export function normalizeFormEntries(entries: Iterable<[string, FormDataEntryValue]>): JsonObject {
@@ -183,7 +223,7 @@ export function normalizeFormData(formData: FormData): JsonObject {
 }
 
 export function normalizeSubmittedValues(
-  form: Pick<BeadsFormDefinition, 'controls' | 'questions'>,
+  form: { controls?: BeadsFormControl[]; questions?: StandardBeadsForm['questions'] },
   values: JsonObject,
 ): JsonObject {
   const next: JsonObject = {};
@@ -319,7 +359,10 @@ export function buildAgentResultMessage(args: {
   ].join('\n');
 }
 
-export function validateSubmittedValues(form: BeadsFormDefinition, values: JsonObject): string[] {
+export function validateSubmittedValues(
+  form: { id?: string; title?: string; html?: string; controls?: BeadsFormControl[] },
+  values: JsonObject,
+): string[] {
   const controls = form.controls ?? [];
   if (controls.length === 0) return [];
 

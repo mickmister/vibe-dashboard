@@ -8,14 +8,26 @@ function beadJson(metadata: unknown) {
   return JSON.stringify([{ id: 'beads-web-biu', title: 'Plan', metadata }]);
 }
 
+function storedForm(id = 'review', title = 'Review', extra: Record<string, unknown> = {}) {
+  return {
+    format: 'standard' as const,
+    id,
+    goal: `Answer ${title}.`,
+    title,
+    questions: [{
+      type: 'textarea' as const,
+      id: 'comment',
+      title: 'Comment',
+      description: 'Share a comment.',
+      required: true,
+    }],
+    ...extra,
+  };
+}
+
 const reviewMetadata = {
   beadForms: {
-    forms: [{
-      id: 'review',
-      title: 'Review',
-      html: '<form></form>',
-      controls: [{ id: 'comment_control', name: 'comment', type: 'textarea', required: true }],
-    }],
+    forms: [storedForm()],
   },
 };
 
@@ -96,9 +108,9 @@ describe('BeadsClient', () => {
         expect(args).toContain('--has-metadata-key');
         if (args.includes('beadsWeb')) return { stdout: '[]', stderr: '' };
         return { stdout: JSON.stringify([
-          { id: 'current', title: 'Current', metadata: { VK_WORKSPACE_ID: 'workspace-1', beadForms: { forms: [{ id: 'review', title: 'Review', html: '<form></form>' }] } } },
-          { id: 'other', title: 'Other', metadata: { VK_WORKSPACE_ID: 'workspace-2', beadForms: { forms: [{ id: 'review', title: 'Review', html: '<form></form>' }] } } },
-          { id: 'unscoped', title: 'Unscoped', metadata: { beadForms: { forms: [{ id: 'review', title: 'Review', html: '<form></form>' }] } } },
+          { id: 'current', title: 'Current', metadata: { VK_WORKSPACE_ID: 'workspace-1', beadForms: { forms: [storedForm()] } } },
+          { id: 'other', title: 'Other', metadata: { VK_WORKSPACE_ID: 'workspace-2', beadForms: { forms: [storedForm()] } } },
+          { id: 'unscoped', title: 'Unscoped', metadata: { beadForms: { forms: [storedForm()] } } },
         ]), stderr: '' };
       }
       if (options.cwd.endsWith('repo-b') && args[0] === '--readonly' && args[1] === 'list') {
@@ -130,7 +142,7 @@ describe('BeadsClient', () => {
       expect(options.cwd).toBe(join(workspaceDir, 'repo-a'));
       if (args[0] === '--readonly' && args[1] === 'list') {
         if (args.includes('beadsWeb')) return { stdout: '[]', stderr: '' };
-        return { stdout: JSON.stringify([{ id: 'current', title: 'Current', metadata: { VK_WORKSPACE_ID: 'workspace-1', beadForms: { forms: [{ id: 'review', title: 'Review', html: '<form></form>' }] } } }]), stderr: '' };
+        return { stdout: JSON.stringify([{ id: 'current', title: 'Current', metadata: { VK_WORKSPACE_ID: 'workspace-1', beadForms: { forms: [storedForm()] } } }]), stderr: '' };
       }
       return { stdout: '[]', stderr: '' };
     });
@@ -158,7 +170,7 @@ describe('BeadsClient', () => {
         if (args.includes('beadsWeb')) return { stdout: '[]', stderr: '' };
         return {
           stdout: JSON.stringify([
-            { id: 'current', title: 'Current', metadata: { VK_WORKSPACE_ID: 'workspace-1', beadForms: { forms: [{ id: 'review', title: 'Review', html: '<form></form>' }] } } },
+            { id: 'current', title: 'Current', metadata: { VK_WORKSPACE_ID: 'workspace-1', beadForms: { forms: [storedForm()] } } },
           ]),
           stderr: '',
         };
@@ -186,9 +198,9 @@ describe('BeadsClient', () => {
     await mkdir(join(workspaceDir, 'repo-a', '.beads'), { recursive: true });
     const exec = vi.fn<ExecFileLike>(async (_file, args) => {
       if (args[0] === '--readonly' && args[1] === 'list') return { stdout: args.includes('beadsWeb') ? '[]' : JSON.stringify([
-        { id: 'current', title: 'Current', metadata: { VK_WORKSPACE_ID: 'workspace-1', beadForms: { forms: [{ id: 'review', title: 'Review', html: '<form></form>' }] } } },
-        { id: 'other', title: 'Other', metadata: { VK_WORKSPACE_ID: 'workspace-2', beadForms: { forms: [{ id: 'review', title: 'Review', html: '<form></form>' }] } } },
-        { id: 'unscoped', title: 'Unscoped', metadata: { beadForms: { forms: [{ id: 'review', title: 'Review', html: '<form></form>' }] } } },
+        { id: 'current', title: 'Current', metadata: { VK_WORKSPACE_ID: 'workspace-1', beadForms: { forms: [storedForm()] } } },
+        { id: 'other', title: 'Other', metadata: { VK_WORKSPACE_ID: 'workspace-2', beadForms: { forms: [storedForm()] } } },
+        { id: 'unscoped', title: 'Unscoped', metadata: { beadForms: { forms: [storedForm()] } } },
       ]), stderr: '' };
       return { stdout: '[]', stderr: '' };
     });
@@ -212,8 +224,8 @@ describe('BeadsClient', () => {
       expect(args).toEqual(['--readonly', 'list', '--json', '--all', '--limit', '0', '--has-metadata-key', args.includes('beadsWeb') ? 'beadsWeb' : 'beadForms']);
       if (args.includes('beadsWeb')) return { stdout: '[]', stderr: '' };
       return { stdout: JSON.stringify([
-        { id: 'current', title: 'Current', metadata: { VK_WORKSPACE_ID: 'workspace-1', beadForms: { forms: [{ id: 'review', title: 'Review', html: '<form></form>' }] } } },
-        { id: 'other', title: 'Other', metadata: { VK_WORKSPACE_ID: 'workspace-2', beadForms: { forms: [{ id: 'review', title: 'Review', html: '<form></form>' }] } } },
+        { id: 'current', title: 'Current', metadata: { VK_WORKSPACE_ID: 'workspace-1', beadForms: { forms: [storedForm()] } } },
+        { id: 'other', title: 'Other', metadata: { VK_WORKSPACE_ID: 'workspace-2', beadForms: { forms: [storedForm()] } } },
       ]), stderr: '' };
     });
     const client = new BeadsClient({ execFile: exec });
@@ -238,7 +250,7 @@ describe('BeadsClient', () => {
       if (args[1] === 'show') throw new Error(`unexpected show for ${options.cwd}: ${args.join(' ')}`);
       if (options.cwd.endsWith('repo-a')) return { stdout: '[]', stderr: '' };
       return { stdout: JSON.stringify([
-        { id: 'selected', title: 'Selected', metadata: { VK_WORKSPACE_ID: 'workspace-1', beadForms: { forms: [{ id: 'review', title: 'Review', html: '<form></form>' }] } } },
+        { id: 'selected', title: 'Selected', metadata: { VK_WORKSPACE_ID: 'workspace-1', beadForms: { forms: [storedForm()] } } },
       ]), stderr: '' };
     });
     const client = new BeadsClient({ execFile: exec });
@@ -266,7 +278,7 @@ describe('BeadsClient', () => {
         return { stdout: JSON.stringify([{ id: 'selected', title: 'Selected without metadata' }]), stderr: '' };
       }
       if (args[0] === '--readonly' && args[1] === 'show') {
-        return { stdout: JSON.stringify([{ id: 'selected', title: 'Selected', metadata: { VK_WORKSPACE_ID: 'workspace-1', beadForms: { forms: [{ id: 'review', title: 'Review', html: '<form></form>' }] } } }]), stderr: '' };
+        return { stdout: JSON.stringify([{ id: 'selected', title: 'Selected', metadata: { VK_WORKSPACE_ID: 'workspace-1', beadForms: { forms: [storedForm()] } } }]), stderr: '' };
       }
       return { stdout: '[]', stderr: '' };
     });
@@ -292,7 +304,7 @@ describe('BeadsClient', () => {
     const exec = vi.fn<ExecFileLike>(async (_file, args) => {
       if (args[1] === 'show') throw new Error(`unexpected show: ${args.join(' ')}`);
       return { stdout: JSON.stringify([
-        { id: 'selected', title: 'Selected', metadata: { VK_WORKSPACE_ID: 'workspace-1', beadForms: { forms: [{ id: 'review', title: 'Review', html: '<form></form>' }] } } },
+        { id: 'selected', title: 'Selected', metadata: { VK_WORKSPACE_ID: 'workspace-1', beadForms: { forms: [storedForm()] } } },
       ]), stderr: '' };
     });
     const client = new BeadsClient({ execFile: exec });
@@ -317,7 +329,7 @@ describe('BeadsClient', () => {
     const exec = vi.fn<ExecFileLike>(async (_file, _args, options) => {
       if (options.cwd.endsWith('repo-a')) {
         if (_args.includes('beadsWeb')) return { stdout: '[]', stderr: '' };
-        return { stdout: JSON.stringify([{ id: 'current', metadata: { VK_WORKSPACE_ID: 'workspace-1', beadForms: { forms: [{ id: 'review', title: 'Review', html: '<form></form>' }] } } }]), stderr: '' };
+        return { stdout: JSON.stringify([{ id: 'current', metadata: { VK_WORKSPACE_ID: 'workspace-1', beadForms: { forms: [storedForm()] } } }]), stderr: '' };
       }
       throw new Error('schema skew');
     });
@@ -342,12 +354,12 @@ describe('BeadsClient', () => {
       expect(args[0]).toBe('--readonly');
       if (options.cwd.endsWith('repo-a') && args[1] === 'list') {
         if (args.includes('beadFormsSummary')) return { stdout: JSON.stringify([
-          { id: 'summary_done', title: 'Summary done', metadata: { beadFormsSummary: { hasForms: true, hasPendingAnswer: false, pendingResponseCount: 0, formIds: ['summary_done_form'], pendingFormIds: [] }, beadForms: { forms: [{ id: 'summary_done_form', title: 'Done', html: '<form></form>' }] } } },
+          { id: 'summary_done', title: 'Summary done', metadata: { beadFormsSummary: { hasForms: true, hasPendingAnswer: false, pendingResponseCount: 0, formIds: ['summary_done_form'], pendingFormIds: [] }, beadForms: { forms: [storedForm('summary_done_form', 'Done')] } } },
         ]), stderr: '' };
         return { stdout: args.includes('beadForms') ? JSON.stringify([
-          { id: 'pending', title: 'Pending bead', metadata: { beadForms: { forms: [{ id: 'review', title: 'Review', html: '<form></form>' }] } } },
-          { id: 'done', title: 'Done bead', metadata: { beadForms: { forms: [{ id: 'done_form', title: 'Done', html: '<form></form>', responses: [{ submittedAt: 'now', submittedBy: 'user', values: {} }] }] } } },
-          { id: 'closed', title: 'Closed bead', status: 'closed', metadata: { beadForms: { forms: [{ id: 'closed_form', title: 'Closed', html: '<form></form>' }] } } },
+          { id: 'pending', title: 'Pending bead', metadata: { beadForms: { forms: [storedForm()] } } },
+          { id: 'done', title: 'Done bead', metadata: { beadForms: { forms: [storedForm('done_form', 'Done', { responses: [{ submittedAt: 'now', submittedBy: 'user', values: {} }] })] } } },
+          { id: 'closed', title: 'Closed bead', status: 'closed', metadata: { beadForms: { forms: [storedForm('closed_form', 'Closed')] } } },
         ]) : '[]', stderr: '' };
       }
       if (options.cwd.endsWith('repo-b')) {
