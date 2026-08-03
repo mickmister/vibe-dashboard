@@ -1,7 +1,7 @@
 import { serverRegistry } from 'springboard/server/register';
 import { createExternalTrackerAuth, createExternalTrackerAuthService } from './server/auth';
 import { isExternalTrackersEnabled } from '../config';
-import { getExternalIntegrationsDb } from './server/database';
+import { getExternalIntegrationsDb } from '../server/database';
 import { registerExternalTrackerBoardRoutes } from './server/boardRoutes';
 import { registerExternalTrackerAuthRoutes } from './server/routes';
 

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { sql, type Kysely } from 'kysely';
-import type { DB, ExternalProvider } from '../../../../../store/kysely_types';
-import type { ExternalJiraBoardView, ExternalKanbanCard } from './jiraAdapter';
+import type { DB, ExternalProvider } from '../../../../store/kysely_types';
+import type { ExternalKanbanBoardViewDto, ExternalKanbanCardDto } from '../boardTypes';
 
 export interface ExternalIssueRef {
   provider: ExternalProvider;
@@ -51,11 +51,11 @@ export interface LinkedExternalIssue {
   metadata?: Record<string, unknown>;
 }
 
-export type ExternalKanbanCardWithWorkspaces = ExternalKanbanCard & {
+export type ExternalKanbanCardWithWorkspaces = ExternalKanbanCardDto & {
   relatedWorkspaces: RelatedVKWorkspace[];
 };
 
-export type ExternalJiraBoardViewWithWorkspaces = Omit<ExternalJiraBoardView, 'cards'> & {
+export type ExternalKanbanBoardViewWithWorkspaces<BoardView extends ExternalKanbanBoardViewDto = ExternalKanbanBoardViewDto> = Omit<BoardView, 'cards'> & {
   cards: ExternalKanbanCardWithWorkspaces[];
 };
 
@@ -284,25 +284,25 @@ export async function getLinkedExternalIssuesForWorkspaces(
   return result;
 }
 
-export async function decorateJiraBoardWithWorkspaceMappings(
+export async function decorateExternalKanbanBoardWithWorkspaceMappings<BoardView extends ExternalKanbanBoardViewDto>(
   db: Kysely<DB>,
-  boardView: ExternalJiraBoardView,
-): Promise<ExternalJiraBoardViewWithWorkspaces> {
-  const issueRefs = boardView.cards.map((card) => externalIssueRefForJiraCard(boardView, card));
+  boardView: BoardView,
+): Promise<ExternalKanbanBoardViewWithWorkspaces<BoardView>> {
+  const issueRefs = boardView.cards.map((card) => externalIssueRefForKanbanCard(boardView, card));
   const relatedByIssue = await getRelatedWorkspacesForExternalIssues(db, issueRefs);
 
   return {
     ...boardView,
     cards: boardView.cards.map((card, index) => ({
       ...card,
-      relatedWorkspaces: relatedByIssue.get(issueMapKey(normalizeExternalIssueRef(issueRefs[index] ?? externalIssueRefForJiraCard(boardView, card)))) ?? [],
+      relatedWorkspaces: relatedByIssue.get(issueMapKey(normalizeExternalIssueRef(issueRefs[index] ?? externalIssueRefForKanbanCard(boardView, card)))) ?? [],
     })),
   };
 }
 
-export function externalIssueRefForJiraCard(boardView: ExternalJiraBoardView, card: ExternalKanbanCard): ExternalIssueRef {
+export function externalIssueRefForKanbanCard(boardView: ExternalKanbanBoardViewDto, card: ExternalKanbanCardDto): ExternalIssueRef {
   return {
-    provider: 'jira',
+    provider: boardView.provider,
     key: card.key,
     id: card.id,
     url: card.url,

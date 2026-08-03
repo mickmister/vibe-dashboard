@@ -1,7 +1,13 @@
 import { Buffer } from 'node:buffer';
 import type { JiraExternalViewLocator } from '../externalViewUrl';
 import { setOtelAttributes, withOtelSpan } from '../../../../../lib/otel';
-import type { ExternalIssueProvider } from '../../contracts';
+import type {
+  ExternalKanbanBoardViewDto,
+  ExternalKanbanCardDto,
+  ExternalKanbanColumnDto,
+  ExternalKanbanSwimlaneDto,
+  ExternalKanbanSwimlanesDto,
+} from '../../boardTypes';
 
 const ATLASSIAN_API_ORIGIN = 'https://api.atlassian.com';
 const JIRA_BOARD_FIELDS = ['summary', 'status', 'issuetype', 'assignee', 'labels', 'priority', 'parent', 'epic'].join(',');
@@ -19,95 +25,12 @@ export interface JiraAccessibleResource {
   avatarUrl?: string;
 }
 
-export interface ExternalKanbanColumn {
-  id: string;
-  title: string;
-  statusIds: string[];
-  min?: number;
-  max?: number;
-}
+export type ExternalKanbanColumn = ExternalKanbanColumnDto;
+export type ExternalKanbanCard = ExternalKanbanCardDto;
+export type ExternalKanbanSwimlane = ExternalKanbanSwimlaneDto;
+export type ExternalKanbanSwimlanes = ExternalKanbanSwimlanesDto;
 
-export interface ExternalKanbanCard {
-  id: string;
-  key: string;
-  title: string;
-  url: string;
-  statusId?: string;
-  statusName?: string;
-  columnId?: string;
-  issueType?: string;
-  priority?: string;
-  assignee?: {
-    accountId?: string;
-    displayName: string;
-    avatarUrl?: string;
-  };
-  labels: string[];
-  parent?: {
-    id?: string;
-    key?: string;
-    summary?: string;
-  };
-  relatedWorkspaces?: Array<{
-    workspaceId: string;
-    workspaceDir?: string;
-    displayName?: string;
-    isPrimary: boolean;
-    lastOpenedAt?: string;
-    metadata?: Record<string, unknown>;
-  }>;
-  relatedBeads?: Array<{
-    id: string;
-    title: string;
-    status?: string;
-    priority?: number | string;
-    externalIssue: {
-      provider: ExternalIssueProvider;
-      key: string;
-      url: string;
-      id?: string;
-      site?: string;
-      metadata?: Record<string, unknown>;
-    };
-  }>;
-  rank: number;
-  metadata: Record<string, unknown>;
-}
-
-export interface ExternalKanbanSwimlane {
-  id: string;
-  title: string;
-  issueKeys: string[];
-  metadata?: Record<string, unknown>;
-}
-
-export interface ExternalKanbanSwimlanes {
-  fidelity: JiraBoardSwimlaneFidelity;
-  lanes: ExternalKanbanSwimlane[];
-  reason?: string;
-}
-
-export interface ExternalJiraBoardView {
-  provider: 'jira';
-  sourceUrl: string;
-  siteHostname: string;
-  resource: JiraAccessibleResource;
-  board: {
-    id: string;
-    name?: string;
-    type?: string;
-    projectKey?: string;
-  };
-  columns: ExternalKanbanColumn[];
-  cards: ExternalKanbanCard[];
-  swimlanes: ExternalKanbanSwimlanes;
-  pagination: {
-    pageCount: number;
-    issueCount: number;
-    maxResults: number;
-  };
-  diagnostics?: ExternalJiraBoardDiagnostics;
-}
+export type ExternalJiraBoardView = ExternalKanbanBoardViewDto<'jira', JiraAccessibleResource, ExternalJiraBoardDiagnostics>;
 
 export interface ExternalJiraBoardDiagnostics {
   authSource?: 'oauth' | 'bot';

@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
 import { Kysely, SqliteDialect } from 'kysely';
-import type { DB } from '../../../../../store/kysely_types';
+import type { DB } from '../../../../store/kysely_types';
+import type { ExternalKanbanBoardViewDto } from '../boardTypes';
 import { migrateExternalIntegrationsDb } from './migrate';
-import { decorateJiraBoardWithWorkspaceMappings, getRelatedWorkspacesForExternalIssues, upsertExternalIssueWorkspaceMapping } from './workspaceMappings';
-import type { ExternalJiraBoardView } from './jiraAdapter';
+import { decorateExternalKanbanBoardWithWorkspaceMappings, getRelatedWorkspacesForExternalIssues, upsertExternalIssueWorkspaceMapping } from './workspaceMappings';
 
 let sqlite: Database.Database;
 let db: Kysely<DB>;
@@ -28,7 +28,7 @@ afterEach(async () => {
   sqlite.close();
 });
 
-const boardView: ExternalJiraBoardView = {
+const boardView: ExternalKanbanBoardViewDto<'jira'> = {
   provider: 'jira',
   sourceUrl: 'https://team.atlassian.net/jira/software/projects/VD/boards/42',
   siteHostname: 'team.atlassian.net',
@@ -92,7 +92,7 @@ describe('external issue workspace mappings', () => {
       isPrimary: true,
     });
 
-    const decorated = await decorateJiraBoardWithWorkspaceMappings(db, boardView);
+    const decorated = await decorateExternalKanbanBoardWithWorkspaceMappings(db, boardView);
 
     expect(decorated.cards).toEqual([
       expect.objectContaining({
@@ -100,6 +100,34 @@ describe('external issue workspace mappings', () => {
         relatedWorkspaces: [{ workspaceId: 'ws-1', workspaceDir: '/repo/a', displayName: 'Workspace A', isPrimary: true }],
       }),
       expect.objectContaining({ key: 'VD-2', relatedWorkspaces: [] }),
+    ]);
+  });
+
+  it('decorates non-Jira provider boards without provider-specific imports', async () => {
+    await upsertExternalIssueWorkspaceMapping(db, {
+      externalIssue: { provider: 'github', key: 'jamtools/springboard#12', id: 'I_kwDO1', url: 'https://github.com/jamtools/springboard/issues/12', site: 'github.com' },
+      workspace: { workspaceId: 'ws-gh', displayName: 'GitHub workspace' },
+      isPrimary: true,
+    });
+
+    const githubBoard: ExternalKanbanBoardViewDto<'github'> = {
+      provider: 'github',
+      sourceUrl: 'https://github.com/jamtools/springboard/issues',
+      siteHostname: 'github.com',
+      resource: { id: 'jamtools/springboard', name: 'springboard', url: 'https://github.com/jamtools/springboard' },
+      board: { id: 'jamtools/springboard', name: 'GitHub issues' },
+      columns: [{ id: 'open', title: 'Open', statusIds: ['open'] }],
+      cards: [
+        { id: 'I_kwDO1', key: 'jamtools/springboard#12', title: 'Provider-neutral card', url: 'https://github.com/jamtools/springboard/issues/12', columnId: 'open', labels: [], rank: 0, metadata: {} },
+      ],
+      swimlanes: { fidelity: 'none', lanes: [] },
+      pagination: { pageCount: 1, issueCount: 1, maxResults: 100 },
+    };
+
+    const decorated = await decorateExternalKanbanBoardWithWorkspaceMappings(db, githubBoard);
+
+    expect(decorated.cards[0]?.relatedWorkspaces).toEqual([
+      { workspaceId: 'ws-gh', displayName: 'GitHub workspace', isPrimary: true },
     ]);
   });
 
@@ -118,7 +146,7 @@ describe('external issue workspace mappings', () => {
       externalIssue: { provider: 'jira', key: 'VD-2', id: '10002', url: 'https://team.atlassian.net/browse/VD-2', site: 'team.atlassian.net' },
       workspace: { workspaceId: 'ws-3', workspaceDir: '/repo/c', displayName: 'Workspace C' },
     });
-    const threeCardBoard: ExternalJiraBoardView = {
+    const threeCardBoard: ExternalKanbanBoardViewDto<'jira'> = {
       ...boardView,
       cards: [
         ...boardView.cards,
@@ -128,7 +156,7 @@ describe('external issue workspace mappings', () => {
     };
     executedSql = [];
 
-    const decorated = await decorateJiraBoardWithWorkspaceMappings(db, threeCardBoard);
+    const decorated = await decorateExternalKanbanBoardWithWorkspaceMappings(db, threeCardBoard);
 
     expect(decorated.cards).toEqual([
       expect.objectContaining({

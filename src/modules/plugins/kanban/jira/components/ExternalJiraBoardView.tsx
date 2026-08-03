@@ -4,9 +4,12 @@ import { Button, Card, CardBody, Checkbox, Chip, Input, Select, SelectItem, Spin
 import type { DashboardExternalViewParseResult } from '../externalViewUrl';
 import { fetchExternalJiraBoardView } from '../externalTrackerBoardApi';
 import { setOtelAttributes, withOtelSpan } from '../../../../../lib/otel';
-import type { ExternalJiraBoardApiResponse, ExternalJiraBoardViewDto, ExternalKanbanCardDto, ExternalKanbanColumnDto } from '../externalTrackerBoardApi';
-import { bulkCreateJiraTicketsFromWorkspaces, createExternalIssueWorkspace, fetchBulkJiraWorkspaceConversionOptions, fetchExternalWorkspaceCreateOptions, fetchExternalWorkspaceMetrics, fetchExternalWorkspaceRepoBranches, registerExternalWorkspaceRepo } from '../externalWorkspaceCreateApi';
-import type { BulkJiraRepoProjectMappingDto, BulkJiraWorkspaceConversionResultDto, BulkJiraWorkspaceConversionWorkspaceDto, ExternalWorkspaceCandidateRepoDto, ExternalWorkspaceCreateOptionsDto, ExternalWorkspaceMetricsDto, VkBranchDto, VkExecutorConfigDto, VkRepoDto } from '../externalWorkspaceCreateApi';
+import type { ExternalJiraBoardApiResponse, ExternalJiraBoardViewDto } from '../externalTrackerBoardApi';
+import type { ExternalKanbanCardDto, ExternalKanbanColumnDto } from '../../boardTypes';
+import { fetchExternalWorkspaceCreateOptions, fetchExternalWorkspaceMetrics, fetchExternalWorkspaceRepoBranches, registerExternalWorkspaceRepo } from '../../externalWorkspaceApi';
+import type { ExternalWorkspaceCandidateRepoDto, ExternalWorkspaceCreateOptionsDto, ExternalWorkspaceMetricsDto, VkBranchDto, VkExecutorConfigDto, VkRepoDto } from '../../externalWorkspaceApi';
+import { bulkCreateJiraTicketsFromWorkspaces, createExternalJiraIssueWorkspace, fetchBulkJiraWorkspaceConversionOptions } from '../externalWorkspaceCreateApi';
+import type { BulkJiraRepoProjectMappingDto, BulkJiraWorkspaceConversionResultDto, BulkJiraWorkspaceConversionWorkspaceDto } from '../externalWorkspaceCreateApi';
 import { cloneExternalWorkspaceRepo } from '../../../../../lib/repoCloneApi';
 import { REPO_CLONE_HELPER_TEXT, REPO_CLONE_LABEL, REPO_CLONE_PLACEHOLDER } from '../../../../../lib/repoCloneUi';
 
@@ -657,7 +660,7 @@ export function ExternalWorkspaceCreateDialog({
     }
     setSubmitting(true);
     try {
-      const result = await createExternalIssueWorkspace({ card, prompt, repos, executorConfig, siteHostname: boardView.siteHostname });
+      const result = await createExternalJiraIssueWorkspace({ card, prompt, repos, executorConfig, siteHostname: boardView.siteHostname });
       if (!result.ok) throw new Error(`${result.error.message} ${result.error.userAction}`);
       onCreated({
         workspaceId: result.workspace.id,

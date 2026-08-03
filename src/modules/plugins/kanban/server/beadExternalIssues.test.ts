@@ -1,14 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { ExternalJiraBoardView } from './jiraAdapter';
+import type { ExternalKanbanBoardViewDto } from '../boardTypes';
 import {
   addBeadExternalIssueLink,
-  decorateJiraBoardWithBeadLinks,
+  decorateExternalKanbanBoardWithBeadLinks,
   listBeadExternalIssueLinks,
   parseExternalIssuesMetadata,
   removeBeadExternalIssueLink,
 } from './beadExternalIssues';
 
-const boardView: ExternalJiraBoardView = {
+const boardView: ExternalKanbanBoardViewDto<'jira'> = {
   provider: 'jira',
   sourceUrl: 'https://team.atlassian.net/jira/software/projects/VD/boards/42',
   siteHostname: 'team.atlassian.net',
@@ -58,11 +58,42 @@ describe('Beads external issue links', () => {
       jsonLine({ id: 'vkvw-2', title: 'Other site bead', metadata: { external_issues: [{ provider: 'jira', key: 'VD-1', url: 'https://other.atlassian.net/browse/VD-1', site: 'other.atlassian.net' }] } }),
     ].join('') }));
 
-    const decorated = await decorateJiraBoardWithBeadLinks(boardView, { runBd });
+    const decorated = await decorateExternalKanbanBoardWithBeadLinks(boardView, { runBd });
 
     expect(decorated.cards).toEqual([
       expect.objectContaining({ key: 'VD-1', relatedBeads: [expect.objectContaining({ id: 'vkvw-1', title: 'Linked bead' })] }),
       expect.objectContaining({ key: 'VD-2', relatedBeads: [] }),
+    ]);
+  });
+
+  it('decorates non-Jira provider cards through the shared external_issues metadata contract', async () => {
+    const githubBoard: ExternalKanbanBoardViewDto<'github'> = {
+      provider: 'github',
+      sourceUrl: 'https://github.com/jamtools/springboard/issues',
+      siteHostname: 'github.com',
+      resource: { id: 'jamtools/springboard', name: 'springboard', url: 'https://github.com/jamtools/springboard' },
+      board: { id: 'jamtools/springboard', name: 'GitHub issues' },
+      columns: [{ id: 'open', title: 'Open', statusIds: ['open'] }],
+      cards: [
+        { id: 'I_kwDO1', key: 'jamtools/springboard#12', title: 'Provider-neutral card', url: 'https://github.com/jamtools/springboard/issues/12', columnId: 'open', labels: [], rank: 0, metadata: {} },
+      ],
+      swimlanes: { fidelity: 'none', lanes: [] },
+      pagination: { pageCount: 1, issueCount: 1, maxResults: 100 },
+    };
+    const runBd = vi.fn(async () => ({
+      stdout: jsonLine({
+        id: 'vkvw-gh',
+        title: 'GitHub linked task',
+        metadata: {
+          external_issues: [{ provider: 'github', key: 'jamtools/springboard#12', url: 'https://github.com/jamtools/springboard/issues/12', site: 'github.com' }],
+        },
+      }),
+    }));
+
+    const decorated = await decorateExternalKanbanBoardWithBeadLinks(githubBoard, { runBd });
+
+    expect(decorated.cards[0]?.relatedBeads).toEqual([
+      expect.objectContaining({ id: 'vkvw-gh', title: 'GitHub linked task' }),
     ]);
   });
 

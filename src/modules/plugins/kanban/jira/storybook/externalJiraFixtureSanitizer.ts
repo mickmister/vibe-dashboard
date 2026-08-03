@@ -1,4 +1,5 @@
-import type { ExternalJiraBoardViewDto, ExternalKanbanCardDto } from '../externalTrackerBoardApi';
+import type { ExternalKanbanCardDto } from '../../boardTypes';
+import type { ExternalJiraBoardViewDto } from '../externalTrackerBoardApi';
 
 export interface ExternalJiraStorybookFixture {
   version: 1;

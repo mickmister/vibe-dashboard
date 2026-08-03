@@ -10,8 +10,8 @@ import { ExternalJiraBoardContent } from '../components/ExternalJiraBoardView';
 import type { ExternalTrackerAuthService } from './auth';
 import { registerExternalTrackerBoardRoutes } from './boardRoutes';
 import type { FetchJiraBoardView } from './boardRoutes';
-import { migrateExternalIntegrationsDb } from './migrate';
-import { upsertExternalIssueWorkspaceMapping } from './workspaceMappings';
+import { migrateExternalIntegrationsDb } from '../../server/migrate';
+import { upsertExternalIssueWorkspaceMapping } from '../../server/workspaceMappings';
 
 const jiraBoardUrl = 'https://team.atlassian.net/jira/software/projects/VD/boards/42?selectedIssue=VD-1';
 

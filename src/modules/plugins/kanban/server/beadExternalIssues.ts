@@ -1,8 +1,8 @@
 import { execFile as execFileCallback } from 'node:child_process';
 import { promisify } from 'node:util';
-import type { ExternalProvider } from '../../../../../store/kysely_types';
-import { isExternalIssueProvider } from '../../providerIds';
-import type { ExternalJiraBoardView, ExternalKanbanCard } from './jiraAdapter';
+import type { ExternalProvider } from '../../../../store/kysely_types';
+import type { ExternalKanbanBoardViewDto, ExternalKanbanCardDto } from '../boardTypes';
+import { isExternalIssueProvider } from '../providerIds';
 
 const execFile = promisify(execFileCallback);
 const EXTERNAL_ISSUES_METADATA_KEY = 'external_issues';
@@ -26,11 +26,11 @@ export interface RelatedBead {
   externalIssue: BeadExternalIssueRef;
 }
 
-export type ExternalKanbanCardWithBeads = ExternalKanbanCard & {
+export type ExternalKanbanCardWithBeads = ExternalKanbanCardDto & {
   relatedBeads: RelatedBead[];
 };
 
-export type ExternalJiraBoardViewWithBeads = Omit<ExternalJiraBoardView, 'cards'> & {
+export type ExternalKanbanBoardViewWithBeads<BoardView extends ExternalKanbanBoardViewDto = ExternalKanbanBoardViewDto> = Omit<BoardView, 'cards'> & {
   cards: ExternalKanbanCardWithBeads[];
 };
 
@@ -63,14 +63,14 @@ interface BdIssueJson {
   [key: string]: unknown;
 }
 
-export async function decorateJiraBoardWithBeadLinks(
-  boardView: ExternalJiraBoardView,
+export async function decorateExternalKanbanBoardWithBeadLinks<BoardView extends ExternalKanbanBoardViewDto>(
+  boardView: BoardView,
   options: BeadsExternalIssueServiceOptions = {},
-): Promise<ExternalJiraBoardViewWithBeads> {
+): Promise<ExternalKanbanBoardViewWithBeads<BoardView>> {
   const links = await listBeadExternalIssueLinks(options);
   const cards = boardView.cards.map((card) => ({
     ...card,
-    relatedBeads: links.filter((link) => externalIssueMatchesJiraCard(boardView, card, link.externalIssue)),
+    relatedBeads: links.filter((link) => externalIssueMatchesKanbanCard(boardView, card, link.externalIssue)),
   }));
 
   return { ...boardView, cards };
@@ -162,8 +162,8 @@ export function isValidBeadId(beadId: unknown): beadId is string {
   return beadId === trimmed && BEAD_ID_PATTERN.test(trimmed);
 }
 
-export function externalIssueMatchesJiraCard(boardView: ExternalJiraBoardView, card: ExternalKanbanCard, externalIssue: BeadExternalIssueRef): boolean {
-  if (externalIssue.provider !== 'jira') return false;
+export function externalIssueMatchesKanbanCard(boardView: ExternalKanbanBoardViewDto, card: ExternalKanbanCardDto, externalIssue: BeadExternalIssueRef): boolean {
+  if (externalIssue.provider !== boardView.provider) return false;
   if (externalIssue.key !== card.key) return false;
   if (externalIssue.site) return externalIssue.site === boardView.siteHostname;
   return externalIssue.url === card.url;

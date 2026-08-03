@@ -12,12 +12,13 @@ import { isExternalIssueProvider } from '../../providerIds';
 import { buildRepositoryTreeUrl } from '../../../../../lib/repoRemoteLinks';
 import { createJiraIssue, fetchJiraBoardView } from './jiraAdapter';
 import type { CreatedJiraIssue, CreateJiraIssueResult, JiraBasicAuthConfig, JiraBoardAdapterResult, JiraProviderError } from './jiraAdapter';
-import { addBeadExternalIssueLink, decorateJiraBoardWithBeadLinks, isValidBeadId, normalizeExternalIssueRef, removeBeadExternalIssueLink } from './beadExternalIssues';
-import type { BeadsExternalIssueServiceOptions } from './beadExternalIssues';
-import { decorateJiraBoardWithWorkspaceMappings, getLinkedExternalIssuesForWorkspaces, upsertExternalIssueWorkspaceMapping } from './workspaceMappings';
-import type { LinkedExternalIssue } from './workspaceMappings';
+import { addBeadExternalIssueLink, decorateExternalKanbanBoardWithBeadLinks, isValidBeadId, normalizeExternalIssueRef, removeBeadExternalIssueLink } from '../../server/beadExternalIssues';
+import type { BeadsExternalIssueServiceOptions } from '../../server/beadExternalIssues';
+import { decorateExternalKanbanBoardWithWorkspaceMappings, getLinkedExternalIssuesForWorkspaces, upsertExternalIssueWorkspaceMapping } from '../../server/workspaceMappings';
+import type { LinkedExternalIssue } from '../../server/workspaceMappings';
+import { loadRelatedWorkspaceMetrics, withTimeoutCall } from '../../server/workspaceMetrics';
 import { VibeKanbanServerClient } from '../../../../../server/vk-client';
-import type { CreateAndStartWorkspaceRequest, DirectoryEntry, Executor, ExecutorConfig, Repo, RepoWithBranch, Workspace, WorkspaceSummary } from '../../../../../server/vk-client';
+import type { CreateAndStartWorkspaceRequest, DirectoryEntry, Executor, ExecutorConfig, Repo, RepoWithBranch, Workspace } from '../../../../../server/vk-client';
 
 export type FetchJiraBoardView = typeof fetchJiraBoardView;
 export type CreateJiraIssue = typeof createJiraIssue;
@@ -349,8 +350,8 @@ export function registerExternalTrackerBoardRoutes(
       return c.json({ ok: false, error: result.error }, statusForJiraAdapterError(result));
     }
 
-    const workspaceDecoratedBoardView = await withOtelSpan('external_jira.decorate_workspaces', { 'jira.issue_count': result.boardView.pagination.issueCount }, () => decorateJiraBoardWithWorkspaceMappings(options.db, result.boardView));
-    const fullyDecoratedBoardView = await withOtelSpan('external_jira.decorate_beads', { 'jira.issue_count': workspaceDecoratedBoardView.pagination.issueCount }, () => decorateJiraBoardWithBeadLinks(workspaceDecoratedBoardView, options.beads));
+    const workspaceDecoratedBoardView = await withOtelSpan('external_jira.decorate_workspaces', { 'jira.issue_count': result.boardView.pagination.issueCount }, () => decorateExternalKanbanBoardWithWorkspaceMappings(options.db, result.boardView));
+    const fullyDecoratedBoardView = await withOtelSpan('external_jira.decorate_beads', { 'jira.issue_count': workspaceDecoratedBoardView.pagination.issueCount }, () => decorateExternalKanbanBoardWithBeadLinks(workspaceDecoratedBoardView, options.beads));
     const boardViewWithDiagnostics = {
       ...fullyDecoratedBoardView,
       diagnostics: {
@@ -846,69 +847,7 @@ function isExternalIssueWorkspaceCreateRequest(value: unknown): value is {
   return true;
 }
 
-async function loadRelatedWorkspaceMetrics(
-  workspaceIds: string[],
-  vkClient: Pick<VibeKanbanServerClient, 'getWorkspaceSummaries' | 'getSessions'>,
-  timeoutMs: number,
-): Promise<Map<string, Record<string, number>>> {
-  const uniqueWorkspaceIds = [...new Set(workspaceIds)].filter(Boolean);
-  if (uniqueWorkspaceIds.length === 0) return new Map();
-
-  const activeSummariesPromise = withOtelSpan('external_jira.workspace_metrics.summaries', { 'vk.archived': false }, () => withTimeoutCall(() => vkClient.getWorkspaceSummaries(false), timeoutMs)).catch(() => undefined);
-  const archivedSummariesPromise = withOtelSpan('external_jira.workspace_metrics.summaries', { 'vk.archived': true }, () => withTimeoutCall(() => vkClient.getWorkspaceSummaries(true), timeoutMs)).catch(() => undefined);
-  const sessionCountsPromise = Promise.all(uniqueWorkspaceIds.map(async (workspaceId): Promise<[string, number] | undefined> => {
-    const sessions = await withOtelSpan('external_jira.workspace_metrics.sessions', { 'vd.workspace_count': 1 }, () => withTimeoutCall(() => vkClient.getSessions(workspaceId), timeoutMs)).catch(() => undefined);
-    return sessions ? [workspaceId, sessions.length] : undefined;
-  }));
-
-  const [activeSummaries, archivedSummaries, sessionEntries] = await Promise.all([activeSummariesPromise, archivedSummariesPromise, sessionCountsPromise]);
-  const summariesByWorkspaceId = new Map(
-    [activeSummaries, archivedSummaries]
-      .flatMap((response) => response?.summaries ?? [])
-      .map((summary) => [summary.workspace_id, summary] as const),
-  );
-  const sessionCounts = new Map(sessionEntries.filter((entry): entry is [string, number] => Boolean(entry)));
-
-  const entries: Array<[string, Record<string, number>]> = [];
-  for (const workspaceId of uniqueWorkspaceIds) {
-    const metrics = vkActivityMetricsFromSummary(summariesByWorkspaceId.get(workspaceId), sessionCounts.get(workspaceId));
-    if (Object.keys(metrics).length > 0) entries.push([workspaceId, metrics]);
-  }
-  return new Map(entries);
-}
-
-
 function isWorkspaceMetricsRequest(value: unknown): value is { workspaceIds: string[] } {
   if (!isPlainObject(value) || !Array.isArray(value.workspaceIds)) return false;
   return value.workspaceIds.length <= 100 && value.workspaceIds.every(isNonEmptyString);
-}
-
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
-  let timeoutId: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<T>((_, reject) => {
-        timeoutId = setTimeout(() => reject(new Error('timeout')), timeoutMs);
-      }),
-    ]);
-  } finally {
-    if (timeoutId) clearTimeout(timeoutId);
-  }
-}
-
-function withTimeoutCall<T>(factory: () => Promise<T>, timeoutMs: number): Promise<T> {
-  return withTimeout(Promise.resolve().then(factory), timeoutMs);
-}
-
-function vkActivityMetricsFromSummary(summary: WorkspaceSummary | undefined, agentSessions: number | undefined): Record<string, number> {
-  const metrics: Record<string, number> = {};
-  if (summary?.files_changed != null) metrics.filesChanged = summary.files_changed;
-  if (summary?.lines_added != null || summary?.lines_removed != null) {
-    metrics.linesChanged = (summary.lines_added ?? 0) + (summary.lines_removed ?? 0);
-    if (summary.lines_added != null) metrics.linesAdded = summary.lines_added;
-    if (summary.lines_removed != null) metrics.linesRemoved = summary.lines_removed;
-  }
-  if (agentSessions !== undefined) metrics.agentSessions = agentSessions;
-  return metrics;
 }

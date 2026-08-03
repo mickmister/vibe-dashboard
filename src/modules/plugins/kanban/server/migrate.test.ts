@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Kysely, SqliteDialect } from 'kysely';
 import Database from 'better-sqlite3';
-import type { DB } from '../../../../../store/kysely_types';
+import type { DB } from '../../../../store/kysely_types';
 import { migrateExternalIntegrationsDb, splitSqlStatements } from './migrate';
 
 describe('external integrations migrations', () => {

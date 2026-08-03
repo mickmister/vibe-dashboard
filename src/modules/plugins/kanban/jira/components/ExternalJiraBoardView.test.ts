@@ -3,7 +3,8 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { DrawerBody } from '@heroui/drawer';
 import { ExternalJiraBoardContent, ExternalJiraBoardRoute, ExternalJiraCard, ExternalJiraColumnVisibilityControls, BulkJiraWorkspaceConversionDialog, getVisibleExternalJiraCards, getVisibleExternalJiraColumns, ExternalJiraIssueDetailBodyContent, ExternalJiraIssueDetailDrawerContent, ExternalJiraIssueDetailSheet, BulkJiraWorkspaceConversionResults, deselectAllBulkWorkspaceIds, filterBulkJiraWorkspacesByRepo, getBulkWorkspaceRepoFilterOptions, getSelectableBulkWorkspaceIds, setBulkWorkspaceSelected, upsertRepoProjectMapping, buildVKWorkspaceSessionUrl, mergeWorkspaceMetricsIntoBoardView, stripPortSubdomain } from './ExternalJiraBoardView';
-import type { ExternalJiraBoardViewDto, ExternalKanbanCardDto } from '../externalTrackerBoardApi';
+import type { ExternalKanbanCardDto } from '../../boardTypes';
+import type { ExternalJiraBoardViewDto } from '../externalTrackerBoardApi';
 
 const baseBoardView: ExternalJiraBoardViewDto = {
   provider: 'jira',

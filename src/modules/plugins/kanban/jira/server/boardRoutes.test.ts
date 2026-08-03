@@ -5,10 +5,10 @@ import { Kysely, SqliteDialect } from 'kysely';
 import type { DB } from '../../../../../store/kysely_types';
 import type { ExternalTrackerAuthService } from './auth';
 import { registerExternalTrackerBoardRoutes, resolveJiraAccessToken } from './boardRoutes';
-import { migrateExternalIntegrationsDb } from './migrate';
+import { migrateExternalIntegrationsDb } from '../../server/migrate';
 import type { CreateJiraIssue, FetchJiraBoardView } from './boardRoutes';
 import type { RepoWithBranch, VibeKanbanServerClient } from '../../../../../server/vk-client';
-import { upsertExternalIssueWorkspaceMapping } from './workspaceMappings';
+import { upsertExternalIssueWorkspaceMapping } from '../../server/workspaceMappings';
 
 function createAuthService(session: Awaited<ReturnType<ExternalTrackerAuthService['getSession']>>): ExternalTrackerAuthService {
   return {

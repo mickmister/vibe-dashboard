@@ -1,7 +1,7 @@
 import type { Kysely } from 'kysely';
 import { sql } from 'kysely';
-import type { DB } from '../../../../../store/kysely_types';
-import { migrations } from '../../../../../store/db/imported_migrations/imported_migrations';
+import type { DB } from '../../../../store/kysely_types';
+import { migrations } from '../../../../store/db/imported_migrations/imported_migrations';
 
 export async function migrateExternalIntegrationsDb(db: Kysely<DB>): Promise<string[]> {
   await db.schema
