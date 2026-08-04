@@ -1,6 +1,7 @@
 /// <reference types="node" />
 
 import { execFile } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
@@ -66,6 +67,7 @@ type CliOptions = { _: string[] } & Record<string, string | boolean | string[] |
 
 export type BeadsFormCliCommand =
   | { command: 'attach'; options: AttachOptions }
+  | { command: 'append-questions'; options: AppendQuestionsOptions }
   | { command: 'show'; options: ShowOptions }
   | { command: 'pending'; options: PendingOptions }
   | { command: 'help'; options: CliOptions };
@@ -79,6 +81,19 @@ export type AttachOptions = {
   origin?: string;
   workspaceId?: string;
   sessionId?: string;
+};
+
+export type AppendQuestionsOptions = {
+  dir: string;
+  beadId: string;
+  formId: string;
+  file?: string;
+  json?: string;
+  stdin?: boolean;
+  origin?: string;
+  workspaceId?: string;
+  afterQuestionId?: string;
+  baseHash?: string;
 };
 
 export type ShowOptions = {
@@ -106,6 +121,26 @@ export type AttachResult = {
       workspace?: string;
     };
   }>;
+  metadata: JsonObject;
+};
+
+export type AppendQuestionsPatch = {
+  operation: 'append_questions';
+  questions: StandardBeadsForm['questions'];
+  afterQuestionId?: string;
+};
+
+export type AppendQuestionsResult = {
+  beadId: string;
+  formId: string;
+  appendedQuestionIds: string[];
+  formHashBefore: string;
+  formHashAfter: string;
+  url: string;
+  urls: {
+    dir: string;
+    workspace?: string;
+  };
   metadata: JsonObject;
 };
 
@@ -172,6 +207,9 @@ export function parseBeadsFormCliArgs(argv: string[]): BeadsFormCliCommand {
   if (command === 'attach') {
     return { command, options: normalizeAttachOptions(options) };
   }
+  if (command === 'append-questions') {
+    return { command, options: normalizeAppendQuestionsOptions(options) };
+  }
   if (command === 'show') {
     return { command, options: normalizeShowOptions(options) };
   }
@@ -231,6 +269,34 @@ function normalizeAttachOptions(options: CliOptions): AttachOptions {
     ...(origin ? { origin } : {}),
     ...(workspaceId ? { workspaceId } : {}),
     ...(sessionId ? { sessionId } : {}),
+  };
+}
+
+function normalizeAppendQuestionsOptions(options: CliOptions): AppendQuestionsOptions {
+  const beadId = stringOption(options, 'bead') ?? stringOption(options, 'bead-id') ?? options._[0];
+  const formId = stringOption(options, 'form') ?? stringOption(options, 'form-id') ?? options._[1];
+  if (!beadId || !formId) {
+    throw new Error('Usage: npm run beads-form -- append-questions --bead <bead-id> --form <form-id> (--file questions.json | --json raw-json | --stdin)');
+  }
+  const file = stringOption(options, 'file');
+  const json = stringOption(options, 'json');
+  const stdin = options.stdin === true;
+  const inputCount = [file, json, stdin ? 'stdin' : undefined].filter(Boolean).length;
+  if (inputCount !== 1) throw new Error('append-questions requires exactly one of --file, --json, or --stdin');
+  const origin = resolveBeadsFormOrigin({ explicitOrigin: stringOption(options, 'origin') });
+  const workspaceId = stringOption(options, 'workspace') ?? stringEnv(process.env, 'VK_WORKSPACE_ID');
+  return {
+    dir: resolve(stringOption(options, 'dir') ?? process.cwd()),
+    beadId,
+    formId,
+    ...(file ? { file } : {}),
+    ...(json ? { json } : {}),
+    ...(stdin ? { stdin: true } : {}),
+    ...(origin ? { origin } : {}),
+    ...(workspaceId ? { workspaceId } : {}),
+    ...(stringOption(options, 'after-question') ? { afterQuestionId: stringOption(options, 'after-question') } : {}),
+    ...(stringOption(options, 'after-question-id') ? { afterQuestionId: stringOption(options, 'after-question-id') } : {}),
+    ...(stringOption(options, 'base-hash') ? { baseHash: stringOption(options, 'base-hash') } : {}),
   };
 }
 
@@ -310,10 +376,18 @@ function normalizeOrigin(origin: string): string {
 }
 
 export async function readAttachInput(options: AttachOptions, stdin = process.stdin): Promise<string> {
+  return readJsonInput(options, stdin);
+}
+
+export async function readAppendQuestionsInput(options: AppendQuestionsOptions, stdin = process.stdin): Promise<string> {
+  return readJsonInput(options, stdin);
+}
+
+async function readJsonInput(options: Pick<AttachOptions, 'file' | 'json' | 'stdin'>, stdin = process.stdin): Promise<string> {
   if (options.file) return readFile(resolve(options.file), 'utf8');
   if (options.json) return options.json;
   if (options.stdin) return readStream(stdin);
-  throw new Error('attach requires --file, --json, or --stdin');
+  throw new Error('requires --file, --json, or --stdin');
 }
 
 function readStream(stream: NodeJS.ReadableStream): Promise<string> {
@@ -392,6 +466,64 @@ export function parseFormsJsonForAttach(text: string): BeadsFormDefinition[] {
   assertUniqueFormIds(forms);
   for (const form of forms) assertNoLocalBeadBackedMediaRefs(form);
   return forms;
+}
+
+export function parseQuestionsJsonForAppend(text: string): AppendQuestionsPatch {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (error) {
+    throw new Error(`Invalid JSON: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  const patch = questionsPatchFromJson(parsed);
+  assertUniqueQuestionIds(patch.questions);
+  assertNoGeneratedFormFields(parsed);
+  return patch;
+}
+
+function questionsPatchFromJson(parsed: unknown): AppendQuestionsPatch {
+  if (Array.isArray(parsed)) {
+    return normalizeAppendQuestionsPatch({ operation: 'append_questions', questions: parsed });
+  }
+  if (!isObject(parsed)) throw new Error('append-questions input must be a question array or an object with questions[]');
+  if (parsed.operation !== undefined && parsed.operation !== 'append_questions') {
+    throw new Error(`Unsupported append-questions operation: ${String(parsed.operation)}`);
+  }
+  if ('format' in parsed || ('id' in parsed && 'title' in parsed)) {
+    throw new Error('append-questions accepts questions only, not full BeadsForm definitions');
+  }
+  return normalizeAppendQuestionsPatch(parsed);
+}
+
+function normalizeAppendQuestionsPatch(value: JsonObject): AppendQuestionsPatch {
+  if (!Array.isArray(value.questions)) throw new Error('append-questions input must include a non-empty questions[] array');
+  if (value.questions.length === 0) throw new Error('append-questions requires at least one question');
+  const questions = value.questions as StandardBeadsForm['questions'];
+  const patch: AppendQuestionsPatch = {
+    operation: 'append_questions',
+    questions,
+  };
+  if (typeof value.afterQuestionId === 'string' && value.afterQuestionId.trim()) {
+    patch.afterQuestionId = value.afterQuestionId.trim();
+  }
+  return patch;
+}
+
+function assertUniqueQuestionIds(questions: StandardBeadsForm['questions']): void {
+  const seen = new Set<string>();
+  for (const question of questions) {
+    if (!isObject(question) || typeof question.id !== 'string' || !question.id.trim()) {
+      throw new Error('append-questions input contains a question without an id');
+    }
+    if (seen.has(question.id)) throw new Error(`Duplicate question id in append input: ${question.id}`);
+    seen.add(question.id);
+  }
+}
+
+function assertNoGeneratedFormFields(parsed: unknown): void {
+  if (isObject(parsed) && ('html' in parsed || 'controls' in parsed)) {
+    throw new Error('append-questions accepts standard DSL questions only, not generated html/controls');
+  }
 }
 
 function assertUniqueFormIds(forms: BeadsFormDefinition[]): void {
@@ -473,6 +605,104 @@ export function attachFormsToMetadata(
   stampStringMetadata(next, 'VK_WORKSPACE_ID', options.workspaceId);
   stampStringMetadata(next, 'VK_SESSION_ID', options.sessionId);
   return next;
+}
+
+export async function appendQuestionsToBeadsForm(input: {
+  options: AppendQuestionsOptions;
+  patch: AppendQuestionsPatch;
+  execFile?: ExecFileLike;
+}): Promise<AppendQuestionsResult> {
+  const exec = input.execFile ?? defaultExecFile;
+  const bead = await readBead({ execFile: exec, dir: input.options.dir, beadId: input.options.beadId });
+  const mutation = appendQuestionsToMetadata(bead.metadata, input.options.formId, {
+    ...input.patch,
+    afterQuestionId: input.options.afterQuestionId ?? input.patch.afterQuestionId,
+  }, {
+    baseHash: input.options.baseHash,
+  });
+  await updateMetadata({ execFile: exec, dir: input.options.dir, beadId: input.options.beadId, metadata: mutation.metadata });
+  const urls = buildFillOutUrls({
+    dir: input.options.dir,
+    beadId: input.options.beadId,
+    formId: input.options.formId,
+    origin: input.options.origin,
+    workspaceId: input.options.workspaceId,
+  });
+  return {
+    beadId: input.options.beadId,
+    formId: input.options.formId,
+    appendedQuestionIds: input.patch.questions.map((question) => question.id),
+    formHashBefore: mutation.formHashBefore,
+    formHashAfter: mutation.formHashAfter,
+    url: urls.workspace ?? urls.dir,
+    urls,
+    metadata: mutation.metadata,
+  };
+}
+
+export function appendQuestionsToMetadata(
+  metadata: unknown,
+  formId: string,
+  patch: AppendQuestionsPatch,
+  options: { baseHash?: string } = {},
+): { metadata: JsonObject; formHashBefore: string; formHashAfter: string } {
+  const next: JsonObject = isObject(metadata) ? structuredClone(metadata) as JsonObject : {};
+  const beadForms = isObject(next.beadForms) ? next.beadForms : undefined;
+  if (!beadForms || !Array.isArray(beadForms.forms)) throw new Error('No canonical beadForms.forms[] metadata found on bead');
+
+  const forms = beadForms.forms.map(normalizeStoredFormForUpdate);
+  const formIndex = forms.findIndex((candidate) => candidate.id === formId);
+  if (formIndex < 0) throw new Error(`Form not found: ${formId}`);
+  const form = forms[formIndex]!;
+  const formHashBefore = buildFormDefinitionHash(form);
+  if (options.baseHash && options.baseHash !== formHashBefore) {
+    throw new Error(`Form ${formId} changed since base hash ${options.baseHash}; current hash is ${formHashBefore}`);
+  }
+
+  assertUniqueQuestionIds(patch.questions);
+  const existingQuestionIds = new Set(form.questions.map((question) => question.id));
+  for (const question of patch.questions) {
+    if (existingQuestionIds.has(question.id)) throw new Error(`Question id already exists on form ${formId}: ${question.id}`);
+  }
+
+  const insertionIndex = patch.afterQuestionId
+    ? form.questions.findIndex((question) => question.id === patch.afterQuestionId)
+    : form.questions.length - 1;
+  if (patch.afterQuestionId && insertionIndex < 0) {
+    throw new Error(`afterQuestionId not found on form ${formId}: ${patch.afterQuestionId}`);
+  }
+  const insertAt = patch.afterQuestionId ? insertionIndex + 1 : form.questions.length;
+  const questions = [
+    ...form.questions.slice(0, insertAt),
+    ...patch.questions,
+    ...form.questions.slice(insertAt),
+  ] as StandardBeadsForm['questions'];
+  const updatedForm = stripGeneratedBeadsFormFields({
+    ...form,
+    questions,
+  } as StoredBeadsForm);
+  compileBeadsForm(updatedForm);
+
+  forms[formIndex] = updatedForm;
+  const storedForms = forms.map((candidate) => stripGeneratedBeadsFormFields(candidate as StoredBeadsForm));
+  next.beadForms = { ...beadForms, forms: storedForms };
+  next.beadFormsSummary = buildBeadsFormsSummary(getFormsFromMetadata(next));
+  return {
+    metadata: next,
+    formHashBefore,
+    formHashAfter: buildFormDefinitionHash(updatedForm),
+  };
+}
+
+export function buildFormDefinitionHash(form: BeadsFormDefinition): string {
+  const { responses: _responses, ...definition } = stripGeneratedBeadsFormFields(form as StoredBeadsForm) as BeadsFormDefinition;
+  return createHash('sha256').update(stableStringify(definition)).digest('hex');
+}
+
+function normalizeStoredFormForUpdate(value: unknown): BeadsFormDefinition {
+  const form = normalizeForm(value);
+  if (!form) throw new Error('Cannot update bead metadata because beadForms.forms[] contains a non-standard BeadsForm');
+  return form;
 }
 
 export function buildBeadsFormsSummary(forms: readonly BeadsFormDefinition[]): BeadsFormsSummary {
@@ -711,14 +941,24 @@ function isObject(value: unknown): value is JsonObject {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
+  if (isObject(value)) {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
 function printHelp(): void {
   console.log(`Usage:
   beads-form attach --bead <id> (--file form.json | --json raw-json | --stdin) [--dir repo] [--origin origin] [--workspace id] [--session id]
+  beads-form append-questions --bead <id> --form <form-id> (--file questions.json | --json raw-json | --stdin) [--dir repo] [--after-question id] [--base-hash sha256] [--origin origin] [--workspace id]
   beads-form show --bead <id> [--form form-id] [--dir repo]
   beads-form pending --parent-dir <all-repos-dir> [--limit 80] [--origin origin]
 
 Also supported:
   npm run beads-form -- attach --bead <id> (--file form.json | --json raw-json | --stdin) [--dir repo] [--origin origin] [--workspace id] [--session id]
+  npm run beads-form -- append-questions --bead <id> --form <form-id> (--file questions.json | --json raw-json | --stdin) [--dir repo] [--after-question id] [--base-hash sha256] [--origin origin] [--workspace id]
   npm run beads-form -- show --bead <id> [--form form-id] [--dir repo]
   npm run beads-form -- pending --parent-dir <all-repos-dir> [--limit 80] [--origin origin]
 
@@ -744,6 +984,14 @@ async function main(): Promise<void> {
     const text = await readAttachInput(command.options);
     const forms = parseFormsJsonForAttach(text);
     const result = await attachBeadsForms({ options: command.options, forms });
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  if (command.command === 'append-questions') {
+    const text = await readAppendQuestionsInput(command.options);
+    const patch = parseQuestionsJsonForAppend(text);
+    const result = await appendQuestionsToBeadsForm({ options: command.options, patch });
     console.log(JSON.stringify(result, null, 2));
     return;
   }

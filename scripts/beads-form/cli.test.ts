@@ -5,7 +5,10 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  appendQuestionsToBeadsForm,
+  appendQuestionsToMetadata,
   attachBeadsForms,
+  buildFormDefinitionHash,
   buildBeadsFormsSummary,
   attachFormsToMetadata,
   buildFillOutUrl,
@@ -13,6 +16,7 @@ import {
   buildShowResult,
   parseBeadsFormCliArgs,
   parseFormsJsonForAttach,
+  parseQuestionsJsonForAppend,
   resolveBeadsFormOrigin,
   scanPendingBeadsForms,
   selectFormForShow,
@@ -78,6 +82,28 @@ describe('beads-form CLI helpers', () => {
         parentDir: '/repos',
         limit: 12,
         origin: 'https://example.test',
+      }),
+    });
+    expect(parseBeadsFormCliArgs([
+      'append-questions',
+      '--bead',
+      'bd-1',
+      '--form',
+      'review',
+      '--file',
+      'questions.json',
+      '--after-question',
+      'decision',
+      '--base-hash',
+      'abc123',
+    ])).toEqual({
+      command: 'append-questions',
+      options: expect.objectContaining({
+        beadId: 'bd-1',
+        formId: 'review',
+        file: 'questions.json',
+        afterQuestionId: 'decision',
+        baseHash: 'abc123',
       }),
     });
   });
@@ -216,6 +242,155 @@ describe('beads-form CLI helpers', () => {
       pendingFormIds: ['review'],
     });
     expect((metadata.beadForms as { forms: Array<{ id: string }> }).forms.map((candidate) => candidate.id)).toEqual(['review']);
+  });
+
+  it('parses append-questions inputs and rejects full forms, empty arrays, and duplicate question ids', () => {
+    const question = {
+      type: 'textarea',
+      id: 'review_risk',
+      title: 'Review risk',
+      description: 'Capture a focused reviewer concern.',
+    };
+    expect(parseQuestionsJsonForAppend(JSON.stringify([question]))).toEqual({
+      operation: 'append_questions',
+      questions: [question],
+    });
+    expect(parseQuestionsJsonForAppend(JSON.stringify({
+      operation: 'append_questions',
+      afterQuestionId: 'decision',
+      questions: [question],
+    }))).toEqual({
+      operation: 'append_questions',
+      afterQuestionId: 'decision',
+      questions: [question],
+    });
+    expect(() => parseQuestionsJsonForAppend(JSON.stringify([]))).toThrow('at least one question');
+    expect(() => parseQuestionsJsonForAppend(JSON.stringify([question, question]))).toThrow('Duplicate question id');
+    expect(() => parseQuestionsJsonForAppend(JSON.stringify(standardForm))).toThrow('questions only');
+    expect(() => parseQuestionsJsonForAppend(JSON.stringify({
+      operation: 'replace_form',
+      questions: [question],
+    }))).toThrow('Unsupported append-questions operation');
+    expect(() => parseQuestionsJsonForAppend(JSON.stringify({
+      questions: [question],
+      html: '<form></form>',
+    }))).toThrow('generated html/controls');
+  });
+
+  it('appends questions to a canonical form while preserving responses and lean metadata', () => {
+    const answered = {
+      submittedBy: 'user',
+      submittedAt: '2026-08-04T00:00:00Z',
+      values: { decision: { approve: true } },
+    };
+    const metadata = {
+      untouched: true,
+      beadForms: {
+        forms: [{
+          ...storedReviewForm,
+          responses: [answered],
+          html: '<form>stale</form>',
+          controls: [{ id: 'stale', name: 'stale', type: 'textarea' }],
+        }],
+      },
+    };
+    const appendedQuestion = {
+      type: 'textarea',
+      id: 'review_risk',
+      title: 'Review risk',
+      description: 'Capture a focused reviewer concern.',
+    } as const;
+
+    const result = appendQuestionsToMetadata(metadata, 'review', {
+      operation: 'append_questions',
+      questions: [appendedQuestion],
+      afterQuestionId: 'decision',
+    });
+    const forms = (result.metadata.beadForms as { forms: Array<Record<string, unknown>> }).forms;
+
+    expect(result.metadata.untouched).toBe(true);
+    expect(forms[0]?.responses).toEqual([answered]);
+    expect(forms[0]).not.toHaveProperty('html');
+    expect(forms[0]).not.toHaveProperty('controls');
+    expect((forms[0]?.questions as Array<{ id: string }>).map((question) => question.id)).toEqual(['decision', 'review_risk']);
+    expect(result.metadata.beadFormsSummary).toEqual({
+      hasForms: true,
+      hasPendingAnswer: false,
+      pendingResponseCount: 0,
+      formIds: ['review'],
+      pendingFormIds: [],
+    });
+  });
+
+  it('rejects append-questions duplicates and base hash mismatches without mutating metadata', () => {
+    const metadata = { untouched: true, beadForms: { forms: [storedReviewForm] } };
+    const existingQuestion = {
+      type: 'textarea',
+      id: 'decision',
+      title: 'Duplicate',
+      description: 'Duplicate id.',
+    } as const;
+    const newQuestion = {
+      type: 'textarea',
+      id: 'new_question',
+      title: 'New question',
+      description: 'New id.',
+    } as const;
+
+    expect(() => appendQuestionsToMetadata(metadata, 'review', {
+      operation: 'append_questions',
+      questions: [existingQuestion],
+    })).toThrow('already exists');
+    expect(() => appendQuestionsToMetadata(metadata, 'review', {
+      operation: 'append_questions',
+      questions: [newQuestion],
+    }, {
+      baseHash: 'not-the-current-hash',
+    })).toThrow('changed since base hash');
+    expect(metadata).toEqual({ untouched: true, beadForms: { forms: [storedReviewForm] } });
+  });
+
+  it('updates bead metadata for append-questions and returns hashes plus fill-out URLs', async () => {
+    const calls: string[][] = [];
+    const exec = vi.fn<ExecFileLike>(async (_file, args) => {
+      calls.push([...args]);
+      if (args[0] === 'show') {
+        return { stdout: JSON.stringify([{ id: 'bd-1', title: 'Bead', metadata: { beadForms: { forms: [storedReviewForm] } } }]), stderr: '' };
+      }
+      return { stdout: '', stderr: '' };
+    });
+    const patch = parseQuestionsJsonForAppend(JSON.stringify({
+      questions: [{
+        type: 'textarea',
+        id: 'review_risk',
+        title: 'Review risk',
+        description: 'Capture a focused reviewer concern.',
+      }],
+    }));
+    const result = await appendQuestionsToBeadsForm({
+      execFile: exec,
+      patch,
+      options: {
+        dir: '/repo',
+        beadId: 'bd-1',
+        formId: 'review',
+        workspaceId: 'workspace-1',
+      },
+    });
+
+    expect(result).toMatchObject({
+      beadId: 'bd-1',
+      formId: 'review',
+      appendedQuestionIds: ['review_risk'],
+      url: '/dashboard/forms?workspace=workspace-1&bead=bd-1&form=review',
+      urls: {
+        workspace: '/dashboard/forms?workspace=workspace-1&bead=bd-1&form=review',
+        dir: '/dashboard/forms?dir=%2Frepo&bead=bd-1&form=review',
+      },
+    });
+    expect(result.formHashBefore).toBe(buildFormDefinitionHash(parseFormsJsonForAttach(JSON.stringify(standardForm))[0]!));
+    expect(result.formHashAfter).not.toBe(result.formHashBefore);
+    expect(calls.map((args) => args[0])).toEqual(['show', 'update']);
   });
 
   it('builds pending-answer metadata summaries for attach indexing', () => {

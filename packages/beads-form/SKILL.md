@@ -204,7 +204,31 @@ Bead-backed storage is the primary workflow for real agent/user handoff. Folder 
 
 3. Give the human the printed `/dashboard/forms?...` URL.
 
-4. After submission, read handoff output with the read-only show command:
+4. If another agent needs to contribute to the same canonical form, append focused standard DSL questions instead of creating an uncoordinated duplicate form:
+
+   ```sh
+   beads-form append-questions --bead <bead-id> --form <form-id> --stdin <<'JSON'
+   {
+     "operation": "append_questions",
+     "questions": [
+       {
+         "type": "choices",
+         "id": "review_blocker_resolution",
+         "title": "How should we handle the reviewer blocker?",
+         "description": "Explain the exact blocker and tradeoffs here so the form stays self-contained.",
+         "choices": [
+           { "id": "fix_now", "label": "Fix now", "description": "Address before merging." },
+           { "id": "split_followup", "label": "Split follow-up", "description": "Only use if the blocker is not merge-critical." }
+         ]
+       }
+     ]
+   }
+   JSON
+   ```
+
+   Accepted append input shapes are a direct question array, `{ "questions": [...] }`, or `{ "operation": "append_questions", "questions": [...] }`. Use `--after-question <question-id>` to insert after a specific existing question and `--base-hash <hash>` when coordinating with another agent to fail fast if the form definition changed. The command rejects full forms, raw/custom HTML, generated `html`/`controls`, duplicate question ids, and unknown operations. It preserves existing responses, but older responses naturally will not contain answers for newly appended questions.
+
+5. After submission, read handoff output with the read-only show command:
 
    ```sh
    beads-form show --bead <bead-id>

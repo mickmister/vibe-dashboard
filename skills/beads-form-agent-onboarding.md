@@ -111,7 +111,29 @@ In the VD Docker/dev runtime, `beads-form` should be available on `PATH` globall
 
 The command prints URLs. Provide the remote one to the user, and use explicit markdown link syntax when doing so.
 
-## 3. Share the URL with the human
+## 3. Update a shared canonical form
+
+When multiple agents collaborate on one BeadsForm, mutate the same canonical bead-backed form with focused new questions instead of creating a pile of disconnected forms:
+
+```bash
+beads-form append-questions --bead <bead-id> --form <form-id> --stdin <<'JSON'
+{
+  "operation": "append_questions",
+  "questions": [
+    {
+      "type": "textarea",
+      "id": "review_blocker_context",
+      "title": "What should we do about the review blocker?",
+      "description": "Include the exact reviewer concern, why it matters, and the options/tradeoffs the user should decide."
+    }
+  ]
+}
+JSON
+```
+
+Accepted append input shapes are a direct question array, `{ "questions": [...] }`, or `{ "operation": "append_questions", "questions": [...] }`. Use `--after-question <question-id>` when the new question belongs after a specific existing question. Use `--base-hash <hash>` only when coordinating with another agent and you want the update to fail if the form definition changed first. The command rejects full forms, raw/custom HTML, generated `html`/`controls`, duplicate question ids, unknown operations, and empty question arrays. Existing responses are preserved; if responses already exist, remember that older responses will not answer the newly appended questions.
+
+## 4. Share the URL with the human
 
 Send the direct form URL and ask them to submit. After submission:
 
@@ -122,7 +144,7 @@ Send the direct form URL and ask them to submit. After submission:
   - the raw normalized answers JSON,
   - `Please use 'vibe-agent full_summary' to catch up.`
 
-## 4. Inspect attached forms/responses
+## 5. Inspect attached forms/responses
 
 ```bash
 beads-form show --bead <bead-id> --dir <repo-dir>
@@ -130,7 +152,7 @@ beads-form show --bead <bead-id> --dir <repo-dir>
 
 `show` outputs JSON by default with semantic questions/descriptions, media refs as text, and all responses. It does not support `--include-html` because generated HTML/controls are no longer persisted.
 
-## 5. Find pending forms across repos
+## 6. Find pending forms across repos
 
 ```bash
 beads-form pending --parent-dir ~/repos
