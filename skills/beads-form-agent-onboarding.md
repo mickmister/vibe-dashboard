@@ -1,0 +1,121 @@
+# BeadsForm agent onboarding
+
+Use BeadsForm when you need structured answers from a human before proceeding. Prefer bead-backed forms for real workflow.
+
+## 1. Draft standard form JSON inline
+
+Write standard BeadsForm JSON. Prefer the standard DSL, not raw HTML. The default bead-backed workflow is **inline JSON via stdin** so agents do not need to create a temporary `form.json` file first. Use a file only when the form is large enough that audit/debuggability matters.
+
+Example JSON shape:
+
+```json
+{
+  "format": "standard",
+  "id": "implementation_questions",
+  "title": "Implementation questions",
+  "description": "Resolve decisions before code changes.",
+  "allowCodeFileChanges": {
+    "label": "Allow implementation after this response",
+    "description": "Use allow-code only if the next agent may edit code/files.",
+    "defaultChecked": false
+  },
+  "questions": [
+    {
+      "type": "choices",
+      "id": "next_step",
+      "title": "Next step",
+      "description": "Choose the safest next step.",
+      "choices": [
+        {
+          "id": "implement",
+          "label": "Implement now",
+          "description": "Proceed with code changes.",
+          "is_recommended_reason": "This is the smallest merge-safe slice."
+        },
+        {
+          "id": "ask_more",
+          "label": "Ask more questions",
+          "description": "Make another form before editing code."
+        }
+      ]
+    },
+    {
+      "type": "textarea",
+      "id": "additional_notes",
+      "title": "Additional notes",
+      "description": "Anything else the next agent should know?"
+    }
+  ]
+}
+```
+
+Guidelines:
+- Every question should have a clear title and description.
+- Choice questions are always multi-select checkboxes in the current public DSL; do not add radio/single-select options.
+- Choices may include `is_recommended_reason` when the agent recommends an option.
+- Use `allowCodeFileChanges`; if the answer returns `allow_code_file_changes=false`, do not edit files—make another form or continue discussion.
+- Keep `additional_notes` as the master notes field.
+
+## 2. Attach the form to a bead with inline JSON
+
+Create or choose a bead in the repo where the work belongs, then attach the form with `--stdin`:
+
+```bash
+MY_BEADS_DIR=$PWD/vibe-kanban-vscode-web # just an example
+cd $MY_BEADS_DIR 
+bd create "Decide implementation questions" --type task --priority 2
+
+beads-form attach \
+  --bead <bead-id> \
+  --dir $MY_BEADS_DIR \
+  --origin https://jamtools.dev \
+  --stdin <<'JSON'
+{
+  "format": "standard",
+  "id": "implementation_questions",
+  "title": "Implementation questions",
+  "description": "Resolve decisions before code changes.",
+  "allowCodeFileChanges": {
+    "label": "Allow implementation after this response",
+    "description": "Use allow-code only if the next agent may edit code/files.",
+    "defaultChecked": false
+  },
+  "questions": [
+    {
+      "type": "textarea",
+      "id": "additional_notes",
+      "title": "Additional notes",
+      "description": "Anything else the next agent should know?"
+    }
+  ]
+}
+JSON
+```
+
+For very small forms, `--json '<raw-json>'` also works. For large forms, `--file form.json` is still supported and can be easier to review/debug.
+
+`beads-form attach` stamps non-empty `VK_WORKSPACE_ID` and `VK_SESSION_ID` values from the environment into bead metadata. Attach also maintains `metadata.beadFormsSummary` (`hasForms`, `hasPendingAnswer`, `pendingResponseCount`, `formIds`, `pendingFormIds`) so Forms can discover pending work efficiently without bulk `bd show` over every bead.
+
+In the VD Docker/dev runtime, `beads-form` should be available on `PATH` globally and should work from any bead repo directory.
+
+The command prints URLs. Provide the remote one to the user, and use explicit markdown link syntax when doing so.
+
+## 3. Share the URL with the human
+
+Send the direct form URL and ask them to submit. After submission:
+
+- Read/process the normalized JSON answer.
+- Remove `needs-agent-review` from the bead after processing, if present.
+- When messaging another agent about the response, include:
+  - the raw DSL JSON,
+  - the raw normalized answers JSON,
+  - `Please use 'vibe-agent full_summary' to catch up.`
+
+## 4. Inspect attached forms/responses
+
+```bash
+beads-form show --bead <bead-id> --dir <repo-dir>
+```
+
+`show` outputs JSON by default. Use `--include-html` only when needed.
+
