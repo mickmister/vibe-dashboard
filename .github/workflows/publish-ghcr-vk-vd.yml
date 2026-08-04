@@ -220,7 +220,7 @@ jobs:
             -e VK_SHARED_API_BASE= \
             -e VK_ALLOWED_ORIGINS= \
             -e MATTERMOST_BRIDGE_ENABLED=true \
-            -e MATTERMOST_BRIDGE_PUBLIC_BASE_URL=http://vkvd:3005 \
+            -e MATTERMOST_BRIDGE_PUBLIC_BASE_URL=http://vkvd:3001 \
             -e MATTERMOST_BRIDGE_VK_BASE_URL=http://fake-vk:3000 \
             -e MATTERMOST_BRIDGE_VK_DEFAULT_PROJECT_ID=project-1 \
             -e MATTERMOST_BRIDGE_VK_DEFAULT_ISSUE_STATUS_ID=status-1 \
@@ -239,7 +239,7 @@ jobs:
 
       - name: Run Mattermost container e2e
         env:
-          VD_URL: http://localhost:3005
+          VD_URL: http://localhost:3001
           MATTERMOST_URL: http://localhost:8065
           MATTERMOST_BRIDGE_VK_WEBHOOK_SECRET: vk-webhook-secret
         run: node scripts/e2e/mattermost-container-e2e.mjs
