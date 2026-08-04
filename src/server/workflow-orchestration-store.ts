@@ -112,6 +112,14 @@ export interface WorkflowTriggerListResult {
   hasMore: boolean;
 }
 
+export interface WorkflowTriggerResumeResult {
+  applied: boolean;
+  reason: 'applied' | 'trigger_not_active' | 'instance_not_waiting';
+  trigger: WorkflowScopedTriggerReadModel;
+  instance: WorkflowInstanceReadModel | null;
+  step: WorkflowStepStateReadModel | null;
+}
+
 export interface CreateWorkflowInstanceInput {
   instanceId: string;
   workflowId: string;
@@ -415,6 +423,132 @@ export class DbWorkflowOrchestrationStore {
       `Cannot satisfy scoped trigger ${triggerId} from its current state`,
     );
     return this.getRequiredTrigger(triggerId);
+  }
+
+  async satisfyScopedTriggerAndResumeWaitingStep(
+    triggerId: string,
+    args: { executionProcessId: string; response?: JsonValue },
+  ): Promise<WorkflowTriggerResumeResult> {
+    const db = await this.getDb();
+    const now = this.now();
+    let result: WorkflowTriggerResumeResult | undefined;
+
+    await db.transaction().execute(async (trx) => {
+      const triggerRow = await trx
+        .selectFrom('WorkflowScopedTrigger')
+        .selectAll()
+        .where('triggerId', '=', triggerId)
+        .executeTakeFirst();
+      if (!triggerRow) throw new Error(`Workflow scoped trigger ${triggerId} not found`);
+      const trigger = mapTrigger(triggerRow);
+
+      const instanceRow = await trx
+        .selectFrom('WorkflowInstance')
+        .selectAll()
+        .where('instanceId', '=', trigger.instanceId)
+        .executeTakeFirst();
+      const instance = instanceRow ? mapInstance(instanceRow) : null;
+
+      const stepRow = trigger.stepStateId
+        ? await trx
+            .selectFrom('WorkflowStepState')
+            .selectAll()
+            .where('id', '=', trigger.stepStateId)
+            .executeTakeFirst()
+        : trigger.stepKey
+          ? await trx
+              .selectFrom('WorkflowStepState')
+              .selectAll()
+              .where('instanceId', '=', trigger.instanceId)
+              .where('stepKey', '=', trigger.stepKey)
+              .executeTakeFirst()
+          : null;
+      const step = stepRow ? mapStepState(stepRow) : null;
+
+      if (trigger.status !== 'active') {
+        result = { applied: false, reason: 'trigger_not_active', trigger, instance, step };
+        return;
+      }
+      if (instance?.status !== 'waiting') {
+        result = { applied: false, reason: 'instance_not_waiting', trigger, instance, step };
+        return;
+      }
+      if (!step) {
+        throw new WorkflowOrchestrationTransitionError(
+          `Cannot satisfy scoped trigger ${triggerId}: waiting step is missing`,
+        );
+      }
+
+      await assertUpdated(
+        trx
+          .updateTable('WorkflowScopedTrigger')
+          .set({
+            status: 'satisfied',
+            satisfiedByExecutionProcessId: args.executionProcessId,
+            satisfiedByJson: args.response == null ? null : serializeJson(args.response),
+            satisfiedAt: now,
+            updatedAt: now,
+          })
+          .where('triggerId', '=', triggerId)
+          .where('status', '=', 'active')
+          .executeTakeFirst(),
+        `Cannot satisfy scoped trigger ${triggerId} from its current state`,
+      );
+
+      await assertUpdated(
+        trx
+          .updateTable('WorkflowStepState')
+          .set({
+            status: 'completed',
+            waitingTriggerId: null,
+            outputJson: args.response == null ? null : serializeJson(args.response),
+            completedAt: now,
+            updatedAt: now,
+          })
+          .where('id', '=', step.id)
+          .where('instanceId', '=', trigger.instanceId)
+          .where('status', '=', 'waiting')
+          .where('waitingTriggerId', '=', triggerId)
+          .executeTakeFirst(),
+        `Cannot complete workflow step ${step.id} for scoped trigger ${triggerId} from its current state`,
+      );
+
+      await assertUpdated(
+        trx
+          .updateTable('WorkflowInstance')
+          .set((eb) => ({
+            status: 'running' as const,
+            latestRunId: args.executionProcessId,
+            updatedAt: now,
+            version: eb('version', '+', 1),
+          }))
+          .where('instanceId', '=', trigger.instanceId)
+          .where('status', '=', 'waiting')
+          .executeTakeFirst(),
+        `Cannot resume workflow instance ${trigger.instanceId} from its current state`,
+      );
+
+      const [updatedTriggerRow, updatedInstanceRow, updatedStepRow] = await Promise.all([
+        trx.selectFrom('WorkflowScopedTrigger').selectAll().where('triggerId', '=', triggerId).executeTakeFirstOrThrow(),
+        trx.selectFrom('WorkflowInstance').selectAll().where('instanceId', '=', trigger.instanceId).executeTakeFirstOrThrow(),
+        trx.selectFrom('WorkflowStepState').selectAll().where('id', '=', step.id).executeTakeFirstOrThrow(),
+      ]);
+      result = {
+        applied: true,
+        reason: 'applied',
+        trigger: mapTrigger(updatedTriggerRow),
+        instance: mapInstance(updatedInstanceRow),
+        step: mapStepState(updatedStepRow),
+      };
+    });
+
+    return result ?? {
+      applied: false,
+      reason: 'trigger_not_active',
+      trigger: await this.getRequiredTrigger(triggerId),
+      instance: null,
+      step: null,
+    };
   }
 
   async expireScopedTrigger(triggerId: string): Promise<WorkflowScopedTriggerReadModel> {
