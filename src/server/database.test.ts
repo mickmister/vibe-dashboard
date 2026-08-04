@@ -32,16 +32,19 @@ describe('VD database', () => {
         '20260804000000_workflow_external_waits',
         '20260804010000_response_pipes',
         '20260804020000_factory_work_items',
+        '20260804030000_declarative_workflow_definitions',
       ]);
       const tables = await sql<{ name: string }>`
         SELECT name FROM sqlite_master
         WHERE type = 'table' AND name IN (
           'WorkflowRun', 'WorkflowRunEvent', 'WorkflowInstance', 'WorkflowStepState',
           'WorkflowScopedTrigger', 'WorkflowRoleSessionBinding', 'WorkflowExternalWait',
-          'ResponseCollection', 'ResponsePipeDelivery', 'WorkflowFactoryWorkItem', 'Migration'
+          'ResponseCollection', 'ResponsePipeDelivery', 'WorkflowFactoryWorkItem',
+          'DeclarativeWorkflowDefinition', 'Migration'
         )
       `.execute(handle.db);
       expect(tables.rows.map((table) => table.name).sort()).toEqual([
+        'DeclarativeWorkflowDefinition',
         'Migration',
         'ResponseCollection',
         'ResponsePipeDelivery',
@@ -104,12 +107,16 @@ describe('VD database', () => {
           'idx_response_pipe_delivery_queue_item',
           'idx_factory_work_pending_order',
           'idx_factory_work_workspace_role_lane_status',
+          'idx_declarative_workflow_definition_id_status_version',
+          'idx_declarative_workflow_definition_status_updated',
           'idx_factory_work_assignment',
           'idx_factory_work_queue_item',
           'idx_factory_work_instance_status'
         )
       `.execute(handle.db);
       expect(indexes.rows.map((index) => index.name).sort()).toEqual([
+        'idx_declarative_workflow_definition_id_status_version',
+        'idx_declarative_workflow_definition_status_updated',
         'idx_factory_work_assignment',
         'idx_factory_work_instance_status',
         'idx_factory_work_pending_order',

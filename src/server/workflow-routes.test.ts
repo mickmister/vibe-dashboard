@@ -7,6 +7,7 @@ import { initVdDb, type VdDbHandle } from './database';
 import { DbWorkflowRunRecorder } from './workflow-run-recorder';
 import { DbWorkflowRunReader } from './workflow-run-store';
 import { DbWorkflowOrchestrationStore } from './workflow-orchestration-store';
+import { DbDeclarativeWorkflowDefinitionStore } from './declarative-workflow-definition-store';
 
 describe('registerWorkflowRoutes', () => {
   const dbHandles: VdDbHandle[] = [];
@@ -694,6 +695,72 @@ describe('registerWorkflowRoutes', () => {
     expect(response.status).toBe(400);
     expect(runtime.start).not.toHaveBeenCalled();
     await expect(response.json()).resolves.toMatchObject({ error: expect.stringContaining('does not match requested workflow id') });
+  });
+
+  it('runs declarative workflows from the DB definition registry when no body definition is supplied', async () => {
+    const handle = await initVdDb({ path: ':memory:' });
+    dbHandles.push(handle);
+    const definitionStore = new DbDeclarativeWorkflowDefinitionStore({ db: handle.db });
+    await definitionStore.saveDefinition({ definition: customDefinition('db-review-round') });
+    const runtime = {
+      start: vi.fn(async () => ({
+        instance: { instanceId: 'instance-db', status: 'waiting' },
+        queuedSource: { queueItemId: 'queue-db' },
+      })),
+      runOnce: vi.fn(async () => ({ resumed: [], completed: [], skipped: [], errors: [] })),
+    };
+    const app = new Hono();
+    registerWorkflowRoutes(app, {
+      registry: createWorkflowRegistry(),
+      declarativeWorkflowRuntime: runtime as never,
+      declarativeWorkflowDefinitionStore: definitionStore,
+    });
+
+    const response = await app.request('/dashboard/api/declarative-workflows/db-review-round/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ input: { task: 'Plan', workspaceId: 'ws-1' }, team: { id: 'team-1', agents: [] } }),
+    });
+
+    expect(response.status).toBe(202);
+    expect(runtime.start).toHaveBeenCalledWith(expect.objectContaining({
+      definition: expect.objectContaining({ id: 'db-review-round' }),
+    }));
+  });
+
+  it('exposes declarative workflow definition catalog APIs with built-in fallback and disabled DB definitions', async () => {
+    const handle = await initVdDb({ path: ':memory:' });
+    dbHandles.push(handle);
+    const definitionStore = new DbDeclarativeWorkflowDefinitionStore({ db: handle.db });
+    await definitionStore.saveDefinition({ definition: customDefinition('catalog-round') });
+    const app = new Hono();
+    registerWorkflowRoutes(app, {
+      registry: createWorkflowRegistry(),
+      declarativeWorkflowDefinitionStore: definitionStore,
+    });
+
+    const list = await app.request('/dashboard/api/declarative-workflow-definitions');
+    expect(list.status).toBe(200);
+    await expect(list.json()).resolves.toMatchObject({
+      definitions: expect.arrayContaining([
+        expect.objectContaining({ definitionId: 'catalog-round', source: 'db', status: 'active' }),
+        expect.objectContaining({ definitionId: 'two-agent-review-round', source: 'built_in', status: 'active' }),
+      ]),
+    });
+
+    const get = await app.request('/dashboard/api/declarative-workflow-definitions/catalog-round');
+    expect(get.status).toBe(200);
+    await expect(get.json()).resolves.toMatchObject({ definition: { definitionId: 'catalog-round', definition: { id: 'catalog-round' } } });
+
+    const disabled = await app.request('/dashboard/api/declarative-workflow-definitions/catalog-round', { method: 'DELETE' });
+    expect(disabled.status).toBe(200);
+    await expect(disabled.json()).resolves.toMatchObject({ definition: { definitionId: 'catalog-round', status: 'disabled' } });
+
+    const missingDisabled = await app.request('/dashboard/api/declarative-workflow-definitions/catalog-round');
+    expect(missingDisabled.status).toBe(404);
+    const includeDisabled = await app.request('/dashboard/api/declarative-workflow-definitions/catalog-round?includeDisabled=true');
+    expect(includeDisabled.status).toBe(200);
+    await expect(includeDisabled.json()).resolves.toMatchObject({ definition: { status: 'disabled' } });
   });
 
   it('runs declarative workflow run-once and exposes instance status details', async () => {
