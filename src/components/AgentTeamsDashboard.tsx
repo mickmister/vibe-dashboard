@@ -8,6 +8,12 @@ import {
   type WorkflowRunEventReadModel,
   type WorkflowRunReadModel,
 } from '../lib/workflowRunsApi';
+import {
+  fetchWorkflowActivity,
+  selectAttentionSessions,
+  summarizeActivity,
+  type WorkflowActivityScanResponse,
+} from '../lib/workflowActivityApi';
 import { buildVkSessionUrl } from '../utils/origin';
 
 const inputClass = 'w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100';
@@ -28,11 +34,28 @@ export function AgentTeamsDashboard(): React.ReactElement {
   const [events, setEvents] = useState<WorkflowRunEventReadModel[]>([]);
   const [runsError, setRunsError] = useState<string | null>(null);
   const [loadingRuns, setLoadingRuns] = useState(false);
+  const [activity, setActivity] = useState<WorkflowActivityScanResponse | null>(null);
+  const [activityError, setActivityError] = useState<string | null>(null);
+  const [loadingActivity, setLoadingActivity] = useState(false);
 
   const selectedRun = useMemo(
     () => runs.find((run) => run.runId === selectedRunId) ?? runs[0] ?? null,
     [runs, selectedRunId],
   );
+
+
+
+  const loadActivity = async () => {
+    setLoadingActivity(true);
+    setActivityError(null);
+    try {
+      setActivity(await fetchWorkflowActivity({ maxActiveExecutions: selectedTeam?.policies.maxConcurrentAgents ?? 8 }));
+    } catch (caught) {
+      setActivityError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setLoadingActivity(false);
+    }
+  };
 
   const loadRuns = async () => {
     setLoadingRuns(true);
@@ -50,7 +73,15 @@ export function AgentTeamsDashboard(): React.ReactElement {
 
   useEffect(() => {
     void loadRuns();
+    void loadActivity();
   }, []);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      void loadActivity();
+    }, 5000);
+    return () => window.clearInterval(interval);
+  }, [selectedTeam?.policies.maxConcurrentAgents]);
 
   useEffect(() => {
     if (!selectedRun?.runId) {
@@ -116,7 +147,7 @@ export function AgentTeamsDashboard(): React.ReactElement {
             <p className="mt-1 text-sm text-zinc-400">Configure manual teams, queue guarded VK prompts, and inspect workflow runs.</p>
           </div>
           <div className="flex gap-2">
-            <button className={buttonClass} onClick={() => void loadRuns()} disabled={loadingRuns}>Refresh runs</button>
+            <button className={buttonClass} onClick={() => { void loadActivity(); void loadRuns(); }} disabled={loadingRuns || loadingActivity}>Refresh status</button>
             <button className={primaryButtonClass} onClick={() => void createTeam()}>New team</button>
           </div>
         </header>
@@ -160,6 +191,8 @@ export function AgentTeamsDashboard(): React.ReactElement {
             ) : null}
           </section>
         </div>
+
+        <ActivityAttentionPanel activity={activity} error={activityError} loading={loadingActivity} onRefresh={() => void loadActivity()} />
 
         <WorkflowRunsPanel runs={runs} selectedRun={selectedRun} events={events} error={runsError} loading={loadingRuns} onSelectRun={setSelectedRunId} />
       </div>
@@ -209,6 +242,68 @@ function createBlankAgent(): TeamAgent {
     executor: null,
     instructions: null,
   };
+}
+
+
+function ActivityAttentionPanel(props: { activity: WorkflowActivityScanResponse | null; error: string | null; loading: boolean; onRefresh: () => void }) {
+  const items = selectAttentionSessions(props.activity);
+  const summary = summarizeActivity(props.activity);
+  return (
+    <section className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="font-medium">Live activity & attention</h2>
+          <p className="mt-1 text-xs text-zinc-500">Recently updated sessions that are active, queued/reserved, waiting, or need attention.</p>
+        </div>
+        <button className={buttonClass} onClick={props.onRefresh} disabled={props.loading}>{props.loading ? 'Refreshing…' : 'Refresh activity'}</button>
+      </div>
+      {props.error ? <div role="alert" className="mt-3 rounded border border-red-800 bg-red-950/40 p-3 text-sm text-red-200">{props.error}</div> : null}
+      <div className="mt-3 grid gap-2 sm:grid-cols-4">
+        <Metric label="Active" value={summary.active} className="border-emerald-900 bg-emerald-950/20 text-emerald-200" />
+        <Metric label="Queued/reserved" value={summary.queued} className="border-cyan-900 bg-cyan-950/20 text-cyan-200" />
+        <Metric label="Waiting" value={summary.waiting} className="border-amber-900 bg-amber-950/20 text-amber-200" />
+        <Metric label="Attention" value={summary.attention} className="border-red-900 bg-red-950/20 text-red-200" />
+      </div>
+      {props.activity && !props.activity.callbackStateAvailable ? <p className="mt-3 text-xs text-zinc-500">VK callback live state is not available in this snapshot. VD workflow callback/CI waits are shown when recorded; this does not imply hidden active agent turns.</p> : null}
+      {props.activity?.warnings.length ? <div className="mt-3 rounded border border-amber-900 bg-amber-950/30 p-2 text-xs text-amber-200">{props.activity.warnings.join(' · ')}</div> : null}
+      <div className="mt-4 space-y-2">
+        {items.length === 0 ? <p className="text-sm text-zinc-400">No active or attention sessions right now.</p> : items.slice(0, 20).map((item) => (
+          <div key={`${item.workspaceId}-${item.sessionId}-${item.triggerId ?? item.bindingId ?? ''}`} className={`rounded-md border p-3 ${activityCardClass(item.level, item.needsAttention)}`}>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div className="flex items-center gap-2 text-sm font-medium"><ActivityDot level={item.level} />{item.roleName ?? item.roleId ?? 'Session'} <span className="text-xs font-normal text-zinc-500">{item.label}</span></div>
+                <div className="mt-1 text-xs text-zinc-500">{item.reason} · updated {formatTimestamp(item.updatedAt)}</div>
+              </div>
+              <VkSessionLink workspaceId={item.workspaceId} sessionId={item.sessionId} />
+            </div>
+            <div className="mt-2 grid gap-2 text-xs text-zinc-400 sm:grid-cols-3">
+              <span className="break-all">workspace {item.workspaceId}</span>
+              <span className="break-all">session {item.sessionId}</span>
+              <span>{item.runningExecutionProcessIds.length ? `executions ${item.runningExecutionProcessIds.join(', ')}` : item.queueCount ? `queue ${item.queueCount}` : item.externalWaitId ? `wait ${item.externalWaitId}` : 'no active refs'}</span>
+            </div>
+            {item.warnings.length ? <div className="mt-2 text-xs text-amber-200">{item.warnings.join(' · ')}</div> : null}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function Metric({ label, value, className }: { label: string; value: number; className: string }) {
+  return <div className={`rounded-md border px-3 py-2 ${className}`}><div className="text-xs uppercase opacity-80">{label}</div><div className="text-xl font-semibold">{value}</div></div>;
+}
+
+function ActivityDot({ level }: { level: 'active' | 'queued' | 'waiting' | 'attention' | 'idle' }) {
+  const color = level === 'active' ? 'bg-emerald-400' : level === 'queued' ? 'bg-cyan-400' : level === 'waiting' ? 'bg-amber-400' : level === 'attention' ? 'bg-red-400' : 'bg-zinc-500';
+  return <span className={`inline-block h-2.5 w-2.5 rounded-full ${color} ${level === 'active' ? 'animate-pulse' : ''}`} aria-hidden="true" />;
+}
+
+function activityCardClass(level: 'active' | 'queued' | 'waiting' | 'attention' | 'idle', needsAttention: boolean): string {
+  if (level === 'attention' || needsAttention) return 'border-red-900 bg-red-950/20';
+  if (level === 'active') return 'border-emerald-900 bg-emerald-950/20';
+  if (level === 'waiting') return 'border-amber-900 bg-amber-950/20';
+  if (level === 'queued') return 'border-cyan-900 bg-cyan-950/20';
+  return 'border-zinc-800 bg-zinc-950';
 }
 
 function WorkflowRunsPanel(props: { runs: WorkflowRunReadModel[]; selectedRun: WorkflowRunReadModel | null; events: WorkflowRunEventReadModel[]; error: string | null; loading: boolean; onSelectRun: (runId: string) => void }) {

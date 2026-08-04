@@ -204,6 +204,77 @@ describe('registerWorkflowRoutes', () => {
     await expect(eventsResponse.json()).resolves.toEqual({ error: 'workflow_run_not_found' });
   });
 
+
+  it('exposes workflow activity scanner read API with explicit policy', async () => {
+    const app = new Hono();
+    const scanner = {
+      scanOnce: vi.fn(async () => ({
+        generatedAt: 1000,
+        vkGeneratedAt: '2026-08-04T00:00:00.000Z',
+        callbackStateAvailable: false,
+        sessions: [{
+          workspaceId: 'ws-activity',
+          sessionId: 'session-activity',
+          roleId: 'role-a',
+          roleName: 'agent',
+          laneId: null,
+          instanceId: null,
+          stepStateId: null,
+          triggerId: null,
+          bindingId: 'binding-a',
+          externalWaitId: null,
+          classification: 'running',
+          reason: 'VK activity reports running execution',
+          ownsWorkflowSession: true,
+          consumesExecutionBudget: true,
+          eligibleForUnrelatedWork: false,
+          queueCount: 0,
+          runningExecutionProcessIds: ['exec-a'],
+          completedResponse: null,
+          executionProcess: null,
+          updatedAt: 999,
+          warnings: [],
+        }],
+        budget: {
+          maxActiveExecutions: 4,
+          activeExecutionCount: 1,
+          availableExecutionSlots: 3,
+          maxWorkflowOwnedSessions: 7,
+          workflowOwnedSessionCount: 1,
+          availableWorkflowOwnedSessionSlots: 6,
+          vkQueuedCount: 0,
+          eligibleSessionCount: 0,
+          blockedSessionCount: 1,
+          eligibleSessions: [],
+        },
+        warnings: [],
+      })),
+    };
+    registerWorkflowRoutes(app, {
+      registry: createWorkflowRegistry(),
+      workflowActivityScanner: scanner as never,
+    });
+
+    const response = await app.request('/dashboard/api/workflow-activity?maxActiveExecutions=4&maxWorkflowOwnedSessions=7');
+
+    expect(response.status).toBe(200);
+    expect(scanner.scanOnce).toHaveBeenCalledWith({ maxActiveExecutions: 4, maxWorkflowOwnedSessions: 7 });
+    await expect(response.json()).resolves.toMatchObject({
+      sessions: [{ sessionId: 'session-activity', classification: 'running' }],
+      callbackStateAvailable: false,
+    });
+  });
+
+  it('returns 503 when workflow activity scanner is not configured', async () => {
+    const app = new Hono();
+    registerWorkflowRoutes(app, { registry: createWorkflowRegistry() });
+
+    const response = await app.request('/dashboard/api/workflow-activity');
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({ error: 'workflow_activity_scanner_not_configured' });
+  });
+
   it('exposes read-only workflow orchestration instance and trigger APIs', async () => {
     const handle = await initVdDb({ path: ':memory:' });
     dbHandles.push(handle);

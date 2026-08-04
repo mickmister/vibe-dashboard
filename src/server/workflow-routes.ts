@@ -18,6 +18,7 @@ import {
   type DbWorkflowOrchestrationStore,
 } from './workflow-orchestration-store';
 import type { CachedRepoAlias } from '../workflows/github-ci';
+import type { WorkflowActivityScanner, WorkflowSchedulerBudgetPolicy } from './workflow-session-scanner';
 
 export interface RegisterWorkflowRoutesOptions {
   registry: WorkflowRegistry;
@@ -25,6 +26,7 @@ export interface RegisterWorkflowRoutesOptions {
   workflowRunRecorder?: WorkflowRecorder;
   workflowRunReader?: WorkflowRunReader;
   workflowOrchestrationStore?: DbWorkflowOrchestrationStore;
+  workflowActivityScanner?: WorkflowActivityScanner;
   githubWebhookSecret?: string;
   repoAliasCache?: RepoAliasCache;
 }
@@ -85,6 +87,13 @@ export function registerWorkflowRoutes(
   });
 
 
+
+  hono.get('/dashboard/api/workflow-activity', async (c) => {
+    const scanner = options.workflowActivityScanner;
+    if (!scanner) return c.json({ error: 'workflow_activity_scanner_not_configured' }, 503);
+    const scan = await scanner.scanOnce(parseWorkflowActivityPolicy(c.req.query()));
+    return c.json(scan);
+  });
 
   hono.get('/dashboard/api/workflow-instances', async (c) => {
     const store = options.workflowOrchestrationStore;
@@ -335,5 +344,13 @@ function normalizeCachedRepoAlias(repo: CachedRepoAlias): CachedRepoAlias {
   return {
     name: repo.name,
     aliases: [...new Set(repo.aliases)],
+  };
+}
+
+
+function parseWorkflowActivityPolicy(query: Record<string, string>): WorkflowSchedulerBudgetPolicy {
+  return {
+    maxActiveExecutions: parsePositiveInteger(query.maxActiveExecutions ?? null) ?? 8,
+    maxWorkflowOwnedSessions: parsePositiveInteger(query.maxWorkflowOwnedSessions ?? null),
   };
 }

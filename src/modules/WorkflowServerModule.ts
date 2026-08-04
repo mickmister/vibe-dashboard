@@ -10,6 +10,8 @@ import { getVdDb } from '../server/database';
 import { DbWorkflowRunRecorder } from '../server/workflow-run-recorder';
 import { DbWorkflowRunReader } from '../server/workflow-run-store';
 import { DbWorkflowOrchestrationStore } from '../server/workflow-orchestration-store';
+import { WorkflowActivityScanner } from '../server/workflow-session-scanner';
+import { VibeKanbanServerClient } from '../server/vk-client';
 import { workflowRegistry } from '../workflows/registry';
 import type { CachedRepoAlias } from '../workflows/github-ci';
 
@@ -19,6 +21,10 @@ const pluginInstallRoot = process.env.VD_PLUGIN_INSTALL_ROOT || join(process.cwd
 let cachedGitRepos: CachedRepoAlias[] | null = null;
 
 serverRegistry.registerServerModule((api) => {
+  const workflowOrchestrationStore = new DbWorkflowOrchestrationStore({
+    getDb: async () => (await getVdDb()).db,
+  });
+  const vkClient = new VibeKanbanServerClient();
   registerWorkflowRoutes(api.hono, {
     registry: workflowRegistry,
     repoAliasCache: {
@@ -32,8 +38,11 @@ serverRegistry.registerServerModule((api) => {
     workflowRunReader: new DbWorkflowRunReader({
       getDb: async () => (await getVdDb()).db,
     }),
-    workflowOrchestrationStore: new DbWorkflowOrchestrationStore({
+    workflowOrchestrationStore,
+    workflowActivityScanner: new WorkflowActivityScanner({
       getDb: async () => (await getVdDb()).db,
+      orchestrationStore: workflowOrchestrationStore,
+      vk: vkClient,
     }),
   });
   registerPluginAssetRoutes(api.hono, { installRoot: pluginInstallRoot });
