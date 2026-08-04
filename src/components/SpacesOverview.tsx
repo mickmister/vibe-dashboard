@@ -291,6 +291,7 @@ function WorkspaceRow({
   onOpenInNewTabGroup,
   isStoppingDevServer,
   onStopDevServer,
+  activity,
 }: {
   workspace: DashboardWorkspace;
   tabGroupNav?: {
@@ -302,6 +303,7 @@ function WorkspaceRow({
   onOpenInNewTabGroup?: () => void;
   isStoppingDevServer?: boolean;
   onStopDevServer?: () => void;
+  activity?: CraftActivityIndicator | null;
 }) {
   const activityTime = ws.latest_process_completed_at || ws.updated_at;
   const hasDiffStats =
@@ -352,6 +354,7 @@ function WorkspaceRow({
                 )}
               </>
             )}
+            {activity ? <CraftActivityBadge activity={activity} /> : null}
             {showsDevServerControls && (
               <span className="inline-flex items-center gap-1 rounded-full border border-cyan-500/30 bg-cyan-500/15 px-2 py-0.5 font-medium text-cyan-400">
                 <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
@@ -646,12 +649,14 @@ function TabGroupRow({
   onNavigate,
   timeLabel,
   label,
+  activity,
 }: {
   space: { id: string; name: string };
   tg: TabGroup;
   onNavigate: () => void;
   timeLabel?: string | undefined;
   label?: string | undefined;
+  activity?: CraftActivityIndicator | null;
 }) {
   return (
     <button
@@ -670,6 +675,7 @@ function TabGroupRow({
               ` / ${tg.pairs.length} pair${tg.pairs.length !== 1 ? "s" : ""}`}
           </span>
           {timeLabel && <span>{timeLabel}</span>}
+          {activity ? <CraftActivityBadge activity={activity} /> : null}
         </span>
       </div>
       <svg
@@ -686,6 +692,21 @@ function TabGroupRow({
         />
       </svg>
     </button>
+  );
+}
+
+
+function CraftActivityBadge({ activity }: { activity: CraftActivityIndicator }) {
+  const className = activity.level === "active"
+    ? "border-emerald-700 bg-emerald-950/50 text-emerald-200"
+    : activity.level === "queued"
+      ? "border-cyan-700 bg-cyan-950/50 text-cyan-200"
+      : "border-amber-700 bg-amber-950/50 text-amber-200";
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 ${className}`} title={activity.callbackStateAvailable ? activity.label : `${activity.label}; callback registry unavailable`}>
+      <span className={`h-1.5 w-1.5 rounded-full ${activity.level === "active" ? "animate-pulse bg-emerald-300" : activity.level === "queued" ? "bg-cyan-300" : "bg-amber-300"}`} aria-hidden="true" />
+      {activity.label}
+    </span>
   );
 }
 
@@ -717,10 +738,12 @@ function StarredTabGroups({
   workspace,
   onNavigateToTabGroup,
   tabGroupDisplayLabelById,
+  activityByWorkspaceId,
 }: {
   workspace: WorkspaceState;
   onNavigateToTabGroup: (spaceId: string, tabGroupId: string) => void;
   tabGroupDisplayLabelById: Map<string, string>;
+  activityByWorkspaceId: Map<string, CraftActivityIndicator>;
 }) {
   const allItems = useNonSystemTabGroups(workspace);
 
@@ -741,6 +764,7 @@ function StarredTabGroups({
             tg={tg}
             onNavigate={() => onNavigateToTabGroup(space.id, tg.id)}
             label={tabGroupDisplayLabelById.get(tg.id)}
+            activity={getTabGroupActivity(tg, activityByWorkspaceId)}
           />
         ))}
       </div>
@@ -978,10 +1002,12 @@ function RecentlyVisitedTabGroups({
   workspace,
   onNavigateToTabGroup,
   tabGroupDisplayLabelById,
+  activityByWorkspaceId,
 }: {
   workspace: WorkspaceState;
   onNavigateToTabGroup: (spaceId: string, tabGroupId: string) => void;
   tabGroupDisplayLabelById: Map<string, string>;
+  activityByWorkspaceId: Map<string, CraftActivityIndicator>;
 }) {
   const allItems = useNonSystemTabGroups(workspace);
   const [page, setPage] = useState(0);
@@ -1022,6 +1048,7 @@ function RecentlyVisitedTabGroups({
                 : undefined
             }
             label={tabGroupDisplayLabelById.get(tg.id)}
+            activity={getTabGroupActivity(tg, activityByWorkspaceId)}
           />
         ))}
       </div>
@@ -1034,10 +1061,12 @@ function RecentlyCreatedTabGroups({
   workspace,
   onNavigateToTabGroup,
   tabGroupDisplayLabelById,
+  activityByWorkspaceId,
 }: {
   workspace: WorkspaceState;
   onNavigateToTabGroup: (spaceId: string, tabGroupId: string) => void;
   tabGroupDisplayLabelById: Map<string, string>;
+  activityByWorkspaceId: Map<string, CraftActivityIndicator>;
 }) {
   const allItems = useNonSystemTabGroups(workspace);
   const [page, setPage] = useState(0);
@@ -1076,6 +1105,7 @@ function RecentlyCreatedTabGroups({
               tg.createdAt ? formatRelativeTime(tg.createdAt) : undefined
             }
             label={tabGroupDisplayLabelById.get(tg.id)}
+            activity={getTabGroupActivity(tg, activityByWorkspaceId)}
           />
         ))}
       </div>
@@ -1090,10 +1120,12 @@ function SpacesSection({
   workspace,
   onNavigateToTabGroup,
   tabGroupDisplayLabelById,
+  activityByWorkspaceId,
 }: {
   workspace: WorkspaceState;
   onNavigateToTabGroup: (spaceId: string, tabGroupId: string) => void;
   tabGroupDisplayLabelById: Map<string, string>;
+  activityByWorkspaceId: Map<string, CraftActivityIndicator>;
 }) {
   const spacesWithTabGroups = workspace.spaces
     .filter((space) => !space.isSystem)
@@ -1141,6 +1173,7 @@ function SpacesSection({
                         {tg.pairs.length} pair{tg.pairs.length !== 1 ? "s" : ""}
                       </span>
                     )}
+                    {getTabGroupActivity(tg, activityByWorkspaceId) ? <CraftActivityBadge activity={getTabGroupActivity(tg, activityByWorkspaceId)!} /> : null}
                   </span>
                 </div>
                 <svg
@@ -1196,6 +1229,7 @@ export function SpacesOverview({
   onOpenVKWorkspace,
 }: SpacesOverviewProps) {
   const { workspaces, repos, loading, error, refetch } = useVKDashboardData();
+  const { snapshot: activitySnapshot, error: activityError } = useVKActivityData();
   const [selectedRepoId, setSelectedRepoId] = useState<string | null>(null);
   const [page, setPage] = useState(0);
   const [spacePickerTarget, setSpacePickerTarget] =
@@ -1241,6 +1275,7 @@ export function SpacesOverview({
     }
     return map;
   }, [workspace.tabGroups, workspaceNameById]);
+  const activityByWorkspaceId = useMemo(() => buildWorkspaceActivityMap(activitySnapshot), [activitySnapshot]);
 
   const handleStopDevServer = useCallback(
     async (workspaceId: string) => {
@@ -1363,11 +1398,14 @@ export function SpacesOverview({
           tabGroupDisplayLabelById={tabGroupDisplayLabelById}
         />
 
+        {activityError ? <div className="mb-4 rounded border border-amber-900 bg-amber-950/30 p-2 text-xs text-amber-200">Live VK activity unavailable: {activityError}. Callback visibility remains unavailable until VK exposes a callback registry.</div> : null}
+
         {/* Starred Craft */}
         <StarredTabGroups
           workspace={workspace}
           onNavigateToTabGroup={onNavigateToTabGroup}
           tabGroupDisplayLabelById={tabGroupDisplayLabelById}
+          activityByWorkspaceId={activityByWorkspaceId}
         />
 
         {/* Running Dev Servers */}
@@ -1388,6 +1426,7 @@ export function SpacesOverview({
           workspace={workspace}
           onNavigateToTabGroup={onNavigateToTabGroup}
           tabGroupDisplayLabelById={tabGroupDisplayLabelById}
+          activityByWorkspaceId={activityByWorkspaceId}
         />
 
         {/* Recently Created Craft */}
@@ -1395,6 +1434,7 @@ export function SpacesOverview({
           workspace={workspace}
           onNavigateToTabGroup={onNavigateToTabGroup}
           tabGroupDisplayLabelById={tabGroupDisplayLabelById}
+          activityByWorkspaceId={activityByWorkspaceId}
         />
 
         {/* VK Workspaces Section */}
@@ -1450,6 +1490,7 @@ export function SpacesOverview({
                     <WorkspaceRow
                       key={ws.id}
                       workspace={ws}
+                      activity={activityByWorkspaceId.get(ws.id) ?? null}
                       isStoppingDevServer={stoppingDevServerIds.has(ws.id)}
                       onStopDevServer={
                         ws.has_running_dev_server ||
@@ -1485,6 +1526,7 @@ export function SpacesOverview({
               workspace={workspace}
               onNavigateToTabGroup={onNavigateToTabGroup}
               tabGroupDisplayLabelById={tabGroupDisplayLabelById}
+              activityByWorkspaceId={activityByWorkspaceId}
             />
           </>
         )}
