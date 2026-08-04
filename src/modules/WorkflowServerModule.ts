@@ -17,6 +17,8 @@ import { WorkflowRoleSessionResolver } from '../server/role-session-resolver';
 import { DbResponsePipeStore } from '../server/response-pipe-store';
 import { ResponsePipeService } from '../server/response-pipe-service';
 import { DeclarativeWorkflowRuntime } from '../workflows/declarative/runtime';
+import { TWO_AGENT_REVIEW_ROUND_DEFINITION } from '../workflows/declarative/builtins';
+import { createDeclarativeWorkflowWorker, getDeclarativeWorkflowWorkerIntervalMs, shouldStartDeclarativeWorkflowWorker } from '../workflows/declarative/worker';
 import { workflowRegistry } from '../workflows/registry';
 import type { CachedRepoAlias } from '../workflows/github-ci';
 
@@ -55,6 +57,13 @@ serverRegistry.registerServerModule((api) => {
     }),
     notificationStore: responsePipeStore,
   });
+  if (shouldStartDeclarativeWorkflowWorker()) {
+    createDeclarativeWorkflowWorker({
+      runtime: declarativeWorkflowRuntime,
+      definition: TWO_AGENT_REVIEW_ROUND_DEFINITION,
+      intervalMs: getDeclarativeWorkflowWorkerIntervalMs(),
+    });
+  }
   registerWorkflowRoutes(api.hono, {
     registry: workflowRegistry,
     repoAliasCache: {
