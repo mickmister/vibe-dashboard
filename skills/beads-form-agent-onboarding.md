@@ -144,6 +144,14 @@ Send the direct form URL and ask them to submit. After submission:
   - the raw normalized answers JSON,
   - `Please use 'vibe-agent full_summary' to catch up.`
 
+If multiple agents created separate forms and the user should answer them from one page, use the aggregate route with repeated direct refs:
+
+```text
+/dashboard/forms/aggregate?dir=/repo-a&bead=repo-a-123&form=review_a&dir=/repo-b&bead=repo-b-456&form=review_b
+```
+
+Each grouped section submits independently back to its source bead/form. This is safer than combining responses into a new schema and avoids question-id collisions between forms.
+
 ## 5. Inspect attached forms/responses
 
 ```bash

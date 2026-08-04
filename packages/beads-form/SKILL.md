@@ -241,6 +241,16 @@ Bead-backed storage is the primary workflow for real agent/user handoff. Folder 
 
 Bead-backed storage remains preferred for real workflow state and durable responses. Folder preview is for prototyping and quick review loops.
 
+## Aggregate review URLs
+
+When several agents create separate bead-backed forms and the human should review them from one artifact, build an aggregate URL with repeated direct refs:
+
+```text
+/dashboard/forms/aggregate?dir=/repo-a&bead=repo-a-123&form=review_a&dir=/repo-b&bead=repo-b-456&form=review_b
+```
+
+The route loads each direct `dir`/`bead`/`form` ref independently, renders one grouped section per source form, and submits each section back to its original bead/form. This keeps the normal per-form response model and avoids collisions when different forms reuse the same question ids. If one source form fails to load or submit, the aggregate page shows that source-specific error instead of claiming the whole aggregate succeeded. Use each section’s “Open alone” link when a user should focus on one source form.
+
 ## Pending form queue
 
 Open `/dashboard/forms` without query parameters to view the pending Bead-backed form queue. The queue scans a bounded set of first-level repos under `~/repos` using read-only `bd` commands, prefers the `beadFormsSummary` pending-answer index, falls back to legacy `beadForms` metadata when needed, lists forms with no responses, and provides direct fill-out links. Use the Refresh button after attaching forms or after a human submits. See `packages/beads-form/PENDING_QUEUE.md` for realtime/update tradeoffs and safety limits.

@@ -33,6 +33,11 @@ import { initializeSingleQuestionMode } from '../lib/beadsFormSingleQuestion';
 import { initializeCompactMoreInfo, refreshCompactMoreInfoState } from '../lib/beadsFormMoreInfo';
 import { preserveSubmittedFormDom } from '../lib/beadsFormSubmissionUi';
 import {
+  parseAggregateBeadsFormRefs,
+  type AggregateBeadsFormRef,
+  type AggregateSubmitStatus,
+} from '../lib/beadsFormAggregate';
+import {
   BeadsFormReadCache,
   directBeadFormsCacheKey,
   pendingBeadsFormsCacheKey,
@@ -71,6 +76,26 @@ type LoadFormsResult = {
   selectedForm?: BeadsFormDefinition;
   beadRepoDir: string;
   cache?: BeadsFormCacheMetadata;
+};
+
+type AggregateBeadsFormItem = {
+  ref: AggregateBeadsFormRef;
+  key: string;
+  beadRepoDir?: string;
+  bead?: BeadLike;
+  form?: BeadsFormDefinition;
+  forms?: BeadsFormDefinition[];
+  error?: string;
+  cache?: BeadsFormCacheMetadata;
+};
+
+type LoadAggregateFormsInput = {
+  refs: AggregateBeadsFormRef[];
+};
+
+type LoadAggregateFormsResult = {
+  refs: AggregateBeadsFormRef[];
+  items: AggregateBeadsFormItem[];
 };
 
 type LoadWorkspaceFormsResult = {
@@ -225,6 +250,51 @@ function previewFormUrl(args: { folder: string; formId?: string }): string {
   params.set('folder', args.folder);
   if (args.formId) params.set('form', args.formId);
   return `/dashboard/forms/preview?${params.toString()}`;
+}
+
+function aggregateItemKey(ref: AggregateBeadsFormRef): string {
+  return `${ref.dir}:${ref.beadId}:${ref.formId}`;
+}
+
+async function readAggregateForms(input: LoadAggregateFormsInput): Promise<LoadAggregateFormsResult> {
+  if (input.refs.length === 0) throw new Error('Aggregate BeadsForm URL requires at least one form ref.');
+  const items = await Promise.all(input.refs.map(async (ref): Promise<AggregateBeadsFormItem> => {
+    const key = aggregateItemKey(ref);
+    try {
+      const result = await beadsFormReadCache.cachedOrLoad(
+        directBeadFormsCacheKey({ dir: ref.dir, beadId: ref.beadId, formId: ref.formId }),
+        () => readBeadFormsFresh({ dir: ref.dir, beadId: ref.beadId, formId: ref.formId }),
+      );
+      const form = result.selectedForm;
+      if (!form) {
+        return {
+          ref,
+          key,
+          beadRepoDir: result.beadRepoDir,
+          bead: result.bead,
+          forms: result.forms,
+          error: `Form not found: ${ref.formId}`,
+          ...(result.cache ? { cache: result.cache } : {}),
+        };
+      }
+      return {
+        ref,
+        key,
+        beadRepoDir: result.beadRepoDir,
+        bead: result.bead,
+        form,
+        forms: result.forms,
+        ...(result.cache ? { cache: result.cache } : {}),
+      };
+    } catch (error) {
+      return {
+        ref,
+        key,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }));
+  return { refs: input.refs, items };
 }
 
 type MaybeNestedPromise<T> = Promise<T> | Promise<Promise<T>>;
@@ -567,6 +637,214 @@ function BeadsFormPendingQueue({ actions, parentDir }: {
             </section>
           ) : null}
         </>
+      ) : null}
+    </div>
+  );
+}
+
+function AggregateBeadsFormCard({ item, submitBeadForm }: {
+  item: AggregateBeadsFormItem;
+  submitBeadForm: (input: SubmitFormInput) => MaybeNestedPromise<SubmitFormResult>;
+}) {
+  const [status, setStatus] = useState<AggregateSubmitStatus>({ status: 'idle' });
+  const [submittedLocked, setSubmittedLocked] = useState(false);
+  const submitInFlightRef = useRef(false);
+  const formHostRef = useRef<HTMLDivElement | null>(null);
+  const form = item.form;
+  const html = useMemo(() => (form ? sanitizeBeadsFormHtml(form.html) : ''), [form]);
+  const storageKey = useMemo(() => {
+    if (!form || !item.beadRepoDir) return '';
+    return beadFormStorageKey({
+      dir: item.beadRepoDir,
+      beadId: item.ref.beadId,
+      formId: form.id,
+    });
+  }, [form, item.beadRepoDir, item.ref.beadId]);
+
+  React.useEffect(() => {
+    const element = formHostRef.current?.querySelector('form');
+    if (!element || !form || !storageKey) return;
+    const snapshot = readPreviewStorage(typeof window === 'undefined' ? undefined : window.localStorage, storageKey);
+    const backendValues = latestSubmittedResponseValues(form.responses);
+    const restoredValues = snapshot.editing ? (snapshot.draft ?? backendValues ?? snapshot.latest) : (backendValues ?? snapshot.latest ?? snapshot.draft);
+    if (restoredValues) applyValuesToForm(element, restoredValues);
+    const locked = !!(backendValues ?? snapshot.latest) && !snapshot.editing;
+    setSubmittedLocked(locked);
+    setSubmitButtonsDisabled(element, locked);
+    setFormFieldsReadOnly(element, locked);
+    const host = formHostRef.current;
+    if (host) {
+      initializeCompactMoreInfo(host);
+      refreshCompactMoreInfoState(host);
+    }
+  }, [form, html, storageKey]);
+
+  React.useEffect(() => {
+    const element = formHostRef.current;
+    if (!element || !form) return;
+    initializeCompactMoreInfo(element);
+    refreshCompactMoreInfoState(element);
+  }, [form, html]);
+
+  const handleDraftChange = () => {
+    if (submittedLocked || !storageKey || typeof window === 'undefined') return;
+    const element = formHostRef.current?.querySelector('form');
+    if (!element) return;
+    writePreviewDraft(window.localStorage, storageKey, formValuesFromDom(element));
+  };
+
+  const handleEditResponse = () => {
+    setSubmittedLocked(false);
+    setStatus({ status: 'idle' });
+    if (storageKey && typeof window !== 'undefined') startPreviewEdit(window.localStorage, storageKey);
+    const element = formHostRef.current?.querySelector('form');
+    if (element) {
+      setSubmitButtonsDisabled(element, false);
+      setFormFieldsReadOnly(element, false);
+    }
+  };
+
+  const handleSubmit = async (event: React.FormEvent<HTMLDivElement>) => {
+    const target = event.target;
+    if (!(target instanceof HTMLFormElement) || !form || !item.beadRepoDir) return;
+    event.preventDefault();
+    if (submitInFlightRef.current || submittedLocked) return;
+    if (!target.reportValidity()) return;
+    const values = normalizeSubmittedFormEvent(event, target, form);
+    submitInFlightRef.current = true;
+    setStatus({ status: 'submitting' });
+    try {
+      const result = await (await submitBeadForm({
+        dir: item.beadRepoDir,
+        beadId: item.ref.beadId,
+        formId: form.id,
+        values,
+      }));
+      if (typeof window !== 'undefined' && storageKey) clearPreviewStorage(window.localStorage, storageKey);
+      preserveSubmittedFormDom(formHostRef.current, result.values, {
+        lock: true,
+        singleQuestionMode: false,
+      });
+      setSubmittedLocked(true);
+      setStatus({ status: 'success', values: result.values, warnings: result.warnings });
+      await navigator.clipboard?.writeText(result.agentMessage).catch(() => undefined);
+    } catch (error) {
+      setStatus({ status: 'error', message: error instanceof Error ? error.message : String(error) });
+    } finally {
+      submitInFlightRef.current = false;
+    }
+  };
+
+  return (
+    <article className={`beadsform-aggregate-card${status.status === 'submitting' ? ' is-submitting' : ''}`} aria-busy={status.status === 'submitting'}>
+      <header className="beadsform-heading-row">
+        <div>
+          <p className="beadsform-eyebrow">{item.ref.beadId} / {item.ref.formId}</p>
+          <h2>{form?.title ?? item.ref.formId}</h2>
+          {form?.description ? <p>{form.description}</p> : null}
+          {item.bead?.title ? <p>Bead: {item.bead.title}</p> : null}
+          <p><code>{item.ref.dir}</code></p>
+        </div>
+        <a href={formViewUrl({ dir: item.ref.dir, beadId: item.ref.beadId, formId: item.ref.formId })}>Open alone</a>
+      </header>
+      {item.error ? <p role="alert" className="beadsform-error">{item.error}</p> : null}
+      {form ? (
+        <>
+          {submittedLocked && status.status !== 'success' ? (
+            <div className="beadsform-warning" role="status">
+              <p>This source form is showing the latest submitted response and is locked until you edit it.</p>
+              <button type="button" onClick={handleEditResponse}>Edit response</button>
+            </div>
+          ) : null}
+          <div
+            ref={formHostRef}
+            className="beadsform-form-host"
+            aria-hidden={status.status === 'submitting' ? true : undefined}
+            onInput={handleDraftChange}
+            onChange={handleDraftChange}
+            onSubmit={handleSubmit}
+            dangerouslySetInnerHTML={{ __html: html }}
+          />
+          {status.status === 'submitting' ? <SubmittingOverlay /> : null}
+        </>
+      ) : null}
+      {status.status === 'success' ? (
+        <section className="beadsform-submit-result">
+          <h3>Submitted this source form</h3>
+          <p>Copied this source form’s agent-facing response text to your clipboard.</p>
+          {status.warnings.length > 0 ? (
+            <div className="beadsform-warning" role="status">
+              <h4>Warnings</h4>
+              <ul>{status.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>
+            </div>
+          ) : null}
+          <button type="button" onClick={handleEditResponse}>Edit response</button>
+          <pre>{JSON.stringify(status.values, null, 2)}</pre>
+        </section>
+      ) : status.status === 'error' ? (
+        <p role="alert" className="beadsform-error">Submit failed for this source form: {status.message}</p>
+      ) : null}
+    </article>
+  );
+}
+
+function BeadsFormAggregateRoute({ actions }: { actions: {
+  loadAggregateForms: (input: LoadAggregateFormsInput) => MaybeNestedPromise<LoadAggregateFormsResult>;
+  submitBeadForm: (input: SubmitFormInput) => MaybeNestedPromise<SubmitFormResult>;
+} }) {
+  const [params] = useSearchParams();
+  const [loaded, setLoaded] = useState<LoadAggregateFormsResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const paramString = params.toString();
+  const parsedRefs = useMemo((): { refs: AggregateBeadsFormRef[]; error?: string } => {
+    try {
+      return { refs: parseAggregateBeadsFormRefs(new URLSearchParams(paramString)) };
+    } catch (reason) {
+      return { refs: [], error: reason instanceof Error ? reason.message : String(reason) };
+    }
+  }, [paramString]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    setLoaded(null);
+    if (parsedRefs.error) {
+      setError(parsedRefs.error);
+      return;
+    }
+    if (parsedRefs.refs.length === 0) {
+      setError('Aggregate BeadsForm URL requires repeated dir, bead, and form parameters.');
+      return;
+    }
+    setError(null);
+    void (async () => {
+      try {
+        const result = await (await actions.loadAggregateForms({ refs: parsedRefs.refs }));
+        if (!cancelled) setLoaded(result);
+      } catch (reason) {
+        if (!cancelled) setError(reason instanceof Error ? reason.message : String(reason));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [actions, parsedRefs]);
+
+  return (
+    <div className="beadsform-root beadsform-page beadsform-aggregate-page">
+      <header>
+        <p className="beadsform-eyebrow">Forms</p>
+        <h1>Aggregate BeadsForm review</h1>
+        <p>Answer several bead-backed forms from one page. Each section submits back to its source bead/form independently, so partial failures are visible per source form.</p>
+      </header>
+      {error ? <p role="alert" className="beadsform-error">{error}</p> : null}
+      {!loaded && !error ? <p>Loading aggregate BeadsForms…</p> : null}
+      {loaded ? (
+        <section className="beadsform-aggregate-list">
+          <h2>Source forms</h2>
+          {loaded.items.map((item) => (
+            <AggregateBeadsFormCard key={item.key} item={item} submitBeadForm={actions.submitBeadForm} />
+          ))}
+        </section>
       ) : null}
     </div>
   );
@@ -972,6 +1250,9 @@ springboard.registerModule(
           () => readPendingFormsFresh(input),
         )
       ),
+      loadAggregateForms: async (input: LoadAggregateFormsInput): Promise<LoadAggregateFormsResult> => (
+        readAggregateForms(input)
+      ),
       submitBeadForm: async (input: SubmitFormInput): Promise<SubmitFormResult> => {
         const result = await nodeClient().submitForm(input);
         beadsFormReadCache.invalidateAll();
@@ -1005,6 +1286,10 @@ springboard.registerModule(
 
     moduleAPI.registerRoute('/dashboard/forms/preview', { hideApplicationShell: true }, () => (
       <BeadsFormPreviewRoute actions={actions} />
+    ));
+
+    moduleAPI.registerRoute('/dashboard/forms/aggregate', { hideApplicationShell: true }, () => (
+      <BeadsFormAggregateRoute actions={actions} />
     ));
 
     return { actions };

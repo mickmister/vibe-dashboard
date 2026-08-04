@@ -326,6 +326,23 @@ textarea {
   padding: 1rem;
 }
 
+.beadsform-root .beadsform-aggregate-list {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.beadsform-root .beadsform-aggregate-card {
+  position: relative;
+  border: 1px solid #3f3f46;
+  border-radius: 1rem;
+  background: #111113;
+  padding: 1rem;
+}
+
+.beadsform-root .beadsform-aggregate-card.is-submitting .beadsform-form-host {
+  visibility: hidden;
+}
+
 .beadsform-root .beadsform-single-question-form {
   width: 100%;
   max-width: 80rem;
