@@ -21,8 +21,10 @@ import type { CachedRepoAlias } from '../workflows/github-ci';
 import type { WorkflowActivityScanner, WorkflowSchedulerBudgetPolicy } from './workflow-session-scanner';
 import type { WorkflowRoleSessionResolver } from './role-session-resolver';
 import type { DeclarativeWorkflowRuntime } from '../workflows/declarative/runtime';
-import { getBuiltInDeclarativeWorkflowDefinition } from '../workflows/declarative/builtins';
+import { BUILT_IN_DECLARATIVE_WORKFLOW_DEFINITIONS, getBuiltInDeclarativeWorkflowDefinition } from '../workflows/declarative/builtins';
+import type { DeclarativeWorkflowDefinition } from '../workflows/declarative/definitions';
 import { normalizeDeclarativeWorkflowDefinition } from '../workflows/declarative/definitions';
+import type { DbDeclarativeWorkflowDefinitionStore } from './declarative-workflow-definition-store';
 
 export interface RegisterWorkflowRoutesOptions {
   registry: WorkflowRegistry;
@@ -33,6 +35,7 @@ export interface RegisterWorkflowRoutesOptions {
   workflowActivityScanner?: WorkflowActivityScanner;
   roleSessionResolver?: WorkflowRoleSessionResolver;
   declarativeWorkflowRuntime?: DeclarativeWorkflowRuntime;
+  declarativeWorkflowDefinitionStore?: DbDeclarativeWorkflowDefinitionStore;
   githubWebhookSecret?: string;
   repoAliasCache?: RepoAliasCache;
 }
@@ -48,6 +51,59 @@ export function registerWorkflowRoutes(
   options: RegisterWorkflowRoutesOptions,
 ): void {
   hono.get('/dashboard/api/workflows/health', (c) => c.json({ ok: true }));
+
+  hono.get('/dashboard/api/declarative-workflow-definitions', async (c) => {
+    const store = options.declarativeWorkflowDefinitionStore;
+    const stored = store ? await store.listDefinitions({ includeDisabled: c.req.query('includeDisabled') === 'true' }) : [];
+    const storedKeys = new Set(stored.map((entry) => `${entry.definitionId}:${entry.version}`));
+    const builtIns = BUILT_IN_DECLARATIVE_WORKFLOW_DEFINITIONS
+      .filter((definition) => !storedKeys.has(`${definition.id}:${definition.version}`))
+      .map((definition) => ({ source: 'built_in', definitionId: definition.id, version: definition.version, status: 'active', name: definition.name, description: definition.description ?? null, trigger: definition.trigger, definition }));
+    return c.json({
+      definitions: [
+        ...stored.map((definition) => ({ ...definition, source: 'db' })),
+        ...builtIns,
+      ],
+    });
+  });
+
+  hono.get('/dashboard/api/declarative-workflow-definitions/:definitionId', async (c) => {
+    const definition = await resolveDeclarativeDefinitionFromRegistry(c.req.param('definitionId'), undefined, options, { includeDisabled: c.req.query('includeDisabled') === 'true' });
+    if (!definition) return c.json({ error: 'declarative_workflow_definition_not_found' }, 404);
+    return c.json({ definition });
+  });
+
+  hono.get('/dashboard/api/declarative-workflow-definitions/:definitionId/versions/:version', async (c) => {
+    const version = parsePositiveInteger(c.req.param('version'));
+    if (!version) return c.json({ error: 'invalid_definition_version' }, 400);
+    const definition = await resolveDeclarativeDefinitionFromRegistry(c.req.param('definitionId'), version, options, { includeDisabled: c.req.query('includeDisabled') === 'true' });
+    if (!definition) return c.json({ error: 'declarative_workflow_definition_not_found' }, 404);
+    return c.json({ definition });
+  });
+
+  hono.post('/dashboard/api/declarative-workflow-definitions', async (c) => {
+    const store = options.declarativeWorkflowDefinitionStore;
+    if (!store) return c.json({ error: 'declarative_workflow_definition_store_not_configured' }, 503);
+    try {
+      const body = asRecord(await readJsonBody(c.req.raw));
+      const saved = await store.saveDefinition({
+        definition: body?.definition,
+        status: body?.status === 'disabled' ? 'disabled' : 'active',
+      });
+      return c.json({ definition: saved }, 200);
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 400);
+    }
+  });
+
+  hono.delete('/dashboard/api/declarative-workflow-definitions/:definitionId', async (c) => {
+    const store = options.declarativeWorkflowDefinitionStore;
+    if (!store) return c.json({ error: 'declarative_workflow_definition_store_not_configured' }, 503);
+    const version = parsePositiveInteger(c.req.query('version') ?? null);
+    const disabled = await store.disableDefinition(c.req.param('definitionId'), version);
+    if (!disabled) return c.json({ error: 'declarative_workflow_definition_not_found' }, 404);
+    return c.json({ definition: disabled });
+  });
 
   hono.get('/dashboard/api/workflows', (c) => {
     return c.json({
@@ -153,7 +209,7 @@ export function registerWorkflowRoutes(
     try {
       const workflowId = c.req.param('workflowId');
       const body = asRecord(await readJsonBody(c.req.raw));
-      const definition = resolveDeclarativeDefinition(workflowId, body?.definition);
+      const definition = await resolveDeclarativeDefinition(workflowId, body?.definition, options);
       if (!definition) return c.json({ error: 'declarative_workflow_not_found' }, 404);
       const team = asRecord(body?.team);
       if (!team) return c.json({ error: 'team is required' }, 400);
@@ -176,7 +232,7 @@ export function registerWorkflowRoutes(
     if (!runtime) return c.json({ error: 'declarative_workflow_runtime_not_configured' }, 503);
     try {
       const body = asRecord(await readJsonBody(c.req.raw));
-      const definition = resolveDeclarativeDefinition(c.req.param('workflowId'), body?.definition);
+      const definition = await resolveDeclarativeDefinition(c.req.param('workflowId'), body?.definition, options);
       if (!definition) return c.json({ error: 'declarative_workflow_not_found' }, 404);
       const result = await runtime.runOnce({ definition });
       return c.json({ result });
@@ -382,13 +438,29 @@ function asString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
 }
 
-function resolveDeclarativeDefinition(workflowId: string, rawDefinition: unknown) {
+async function resolveDeclarativeDefinition(workflowId: string, rawDefinition: unknown, options: RegisterWorkflowRoutesOptions): Promise<DeclarativeWorkflowDefinition | null> {
   if (rawDefinition !== undefined) {
     const definition = normalizeDeclarativeWorkflowDefinition(rawDefinition);
     if (definition.id !== workflowId) throw new Error(`definition id ${definition.id} does not match requested workflow id ${workflowId}`);
     return definition;
   }
-  return getBuiltInDeclarativeWorkflowDefinition(workflowId);
+  const stored = await options.declarativeWorkflowDefinitionStore?.getDefinition(workflowId);
+  return stored?.definition ?? getBuiltInDeclarativeWorkflowDefinition(workflowId);
+}
+
+async function resolveDeclarativeDefinitionFromRegistry(
+  definitionId: string,
+  version: number | undefined,
+  options: RegisterWorkflowRoutesOptions,
+  opts: { includeDisabled?: boolean } = {},
+) {
+  const stored = await options.declarativeWorkflowDefinitionStore?.getDefinition(definitionId, version, opts);
+  if (stored) return { ...stored, source: 'db' };
+  if (!version || version === 1) {
+    const builtIn = getBuiltInDeclarativeWorkflowDefinition(definitionId);
+    if (builtIn) return { source: 'built_in', definitionId: builtIn.id, version: builtIn.version, status: 'active', name: builtIn.name, description: builtIn.description ?? null, trigger: builtIn.trigger, definition: builtIn };
+  }
+  return null;
 }
 
 async function getCachedRepoAliases(

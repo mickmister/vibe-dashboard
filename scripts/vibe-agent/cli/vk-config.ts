@@ -38,6 +38,8 @@ export const config = {
     sessionQueue: (sessionId: string) => `${BASE_URL}/api/sessions/${sessionId}/queue`,
     declarativeWorkflowRun: (workflowId: string) => `${BASE_URL}/dashboard/api/declarative-workflows/${encodeURIComponent(workflowId)}/run`,
     declarativeWorkflowRunOnce: (workflowId: string) => `${BASE_URL}/dashboard/api/declarative-workflows/${encodeURIComponent(workflowId)}/run-once`,
+    declarativeWorkflowDefinitions: () => `${BASE_URL}/dashboard/api/declarative-workflow-definitions`,
+    declarativeWorkflowDefinition: (workflowId: string) => `${BASE_URL}/dashboard/api/declarative-workflow-definitions/${encodeURIComponent(workflowId)}`,
     workflowInstanceStatus: (instanceId: string) => `${BASE_URL}/dashboard/api/workflow-instances/${encodeURIComponent(instanceId)}/status`,
   },
 

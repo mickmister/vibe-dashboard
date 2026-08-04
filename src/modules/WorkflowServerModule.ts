@@ -16,6 +16,7 @@ import { VibeKanbanServerClient } from '../server/vk-client';
 import { WorkflowRoleSessionResolver } from '../server/role-session-resolver';
 import { DbResponsePipeStore } from '../server/response-pipe-store';
 import { ResponsePipeService } from '../server/response-pipe-service';
+import { DbDeclarativeWorkflowDefinitionStore } from '../server/declarative-workflow-definition-store';
 import { DeclarativeWorkflowRuntime } from '../workflows/declarative/runtime';
 import { createDeclarativeWorkflowWorker, getDeclarativeWorkflowWorkerIntervalMs, shouldStartDeclarativeWorkflowWorker } from '../workflows/declarative/worker';
 import { workflowRegistry } from '../workflows/registry';
@@ -41,6 +42,7 @@ serverRegistry.registerServerModule((api) => {
     vk: vkClient,
   });
   const responsePipeStore = new DbResponsePipeStore({ getDb: async () => (await getVdDb()).db });
+  const declarativeWorkflowDefinitionStore = new DbDeclarativeWorkflowDefinitionStore({ getDb: async () => (await getVdDb()).db });
   const declarativeWorkflowRuntime = new DeclarativeWorkflowRuntime({
     store: workflowOrchestrationStore,
     resolver: roleSessionResolver,
@@ -79,6 +81,7 @@ serverRegistry.registerServerModule((api) => {
     roleSessionResolver,
     workflowActivityScanner,
     declarativeWorkflowRuntime,
+    declarativeWorkflowDefinitionStore,
   });
   registerPluginAssetRoutes(api.hono, { installRoot: pluginInstallRoot });
   registerPluginAdminRoutes(api.hono);

@@ -9,6 +9,23 @@ export interface Migration {
   createdAt: Generated<string>;
 }
 
+export type DeclarativeWorkflowDefinitionStatus = 'active' | 'disabled';
+
+export interface DeclarativeWorkflowDefinitionRow {
+  definitionId: string;
+  version: number;
+  status: DeclarativeWorkflowDefinitionStatus;
+  name: string;
+  description: NullableString;
+  trigger: string;
+  definitionJson: string;
+  definitionHash: string;
+  createdAt: number;
+  updatedAt: number;
+  activatedAt: NullableNumber;
+  disabledAt: NullableNumber;
+}
+
 export interface WorkflowRun {
   runId: string;
   workflowId: string;
@@ -245,6 +262,7 @@ export interface WorkflowRoleSessionBinding {
 }
 
 export interface DB {
+  DeclarativeWorkflowDefinition: DeclarativeWorkflowDefinitionRow;
   Migration: Migration;
   ResponseCollection: ResponseCollection;
   ResponsePipeDelivery: ResponsePipeDelivery;
