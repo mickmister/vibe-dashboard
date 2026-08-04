@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "start": "node dist/node/node-entry.mjs",
-    "build": "npm run build:web && npm run build:node && npm run build:vibe-agent-cli",
+    "build": "npm run build:beads-form && npm run build:web && npm run build:node && npm run build:vibe-agent-cli",
     "build:plugin-orchestrator": "vite build --config plugins/orchestrator/vite.config.ts",
     "build:vibe-agent-cli": "vite build --config scripts/vibe-agent/vite.config.ts",
     "build:web": "SPRINGBOARD_PLATFORM=web vite build",
@@ -35,7 +35,17 @@
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install chromium",
     "hotswap": "npm run build && ./scripts/hotswap-dashboard-dist.sh deploy",
-    "plugin-services:refresh:beads-web:requires-tag": "node --experimental-strip-types plugins/orchestrator/plugin-service-orchestrator-cli.ts refresh-github-release --plugin-id vd.beads-web --catalog plugins/builtin.plugins.json --catalog plugins/fixtures/beads-web.plugins.json --plugin plugins/fixtures/beads-web.plugin.json"
+    "plugin-services:refresh:beads-web:requires-tag": "node --experimental-strip-types plugins/orchestrator/plugin-service-orchestrator-cli.ts refresh-github-release --plugin-id vd.beads-web --catalog plugins/builtin.plugins.json --catalog plugins/fixtures/beads-web.plugins.json --plugin plugins/fixtures/beads-web.plugin.json",
+    "beads-form:preview": "node --experimental-strip-types scripts/beads-form/preview.ts",
+    "dev:beads-form-preview": "node --experimental-strip-types scripts/beads-form/preview.ts",
+    "beads-form": "node --experimental-strip-types scripts/beads-form/cli.ts",
+    "dev:beads-form-preview:shared": "node --experimental-strip-types scripts/beads-form/shared-preview.ts",
+    "hotswap:vkvd": "node --experimental-strip-types scripts/hotswap-vkvd.ts",
+    "vk:batch-build": "bash scripts/vk-batch-stage-validate-build.sh",
+    "vk:batch-hotswap": "bash scripts/vk-batch-stage-hotswap-apply.sh",
+    "vk:batch-hotswap-gh": "bash scripts/vk-batch-stage-gh-artifact.sh",
+    "vk:batch-rollback": "bash scripts/vk-batch-stage-rollback.sh",
+    "build:beads-form": "pnpm --filter @vibe-dashboard/beads-form build"
   },
   "dependencies": {
     "@heroui/react": "^2.8.9",
@@ -44,10 +54,12 @@
     "@tabler/icons-react": "^3.44.0",
     "@tailwindcss/vite": "^4.1.18",
     "@tanstack/react-query": "^5.101.0",
+    "@vibe-dashboard/beads-form": "workspace:*",
     "@vibe-dashboard/workflow-core": "workspace:*",
     "@vitejs/plugin-react": "^5.1.4",
     "better-sqlite3": "^12.6.2",
     "crossws": "^0.4.4",
+    "dompurify": "^3.4.11",
     "framer-motion": "^12.34.0",
     "hono": "^4.11.9",
     "immer": "^11.1.4",
@@ -86,6 +98,7 @@
   },
   "bin": {
     "vibe-agent": "./bin/vibe-agent",
-    "vk": "./bin/vk"
+    "vk": "./bin/vk",
+    "beads-form": "./bin/beads-form"
   }
 }

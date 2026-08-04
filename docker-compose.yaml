@@ -1,14 +1,17 @@
 services:
   code-vibe:
-    build:
-      context: .
-      dockerfile: Dockerfile.vkvd
-      args:
-        VK_REPO_URL: ${VK_REPO_URL:-https://github.com/mickmister/vibe-kanban.git}
-        VK_BRANCH: ${VK_BRANCH:-main}
-        VK_COMMIT: ${VK_COMMIT:-}
-    # image: ghcr.io/mickmister/vk-vd:${VKVD_IMAGE_VERSION:-latest}
-    # pull_policy: always
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile.vkvd
+    #   args:
+    #     VK_REPO_URL: ${VK_REPO_URL:-https://github.com/mickmister/vibe-kanban.git}
+    #     VK_BRANCH: ${VK_BRANCH:-main}
+    #     VK_COMMIT: ${VK_COMMIT:?VK_COMMIT is required when building Dockerfile.vkvd}
+    image: ghcr.io/mickmister/vk-vd:${VKVD_IMAGE_VERSION:-latest}
+    pull_policy: always
+
+    depends_on:
+      - otel-collector
 
     ports:
       - "${CADDY_PORT:-3001}:${CADDY_PORT:-3001}"
@@ -50,6 +53,16 @@ services:
       VK_SHARED_API_BASE: ${VK_SHARED_API_BASE:-}
       # Optional CORS allowlist for vibe-kanban backend
       VK_ALLOWED_ORIGINS: ${VK_ALLOWED_ORIGINS:-}
+      # Optional Vibe Kanban performance tracing / SigNoz OTLP export
+      VK_PERF_TRACING: ${VK_PERF_TRACING:-}
+      # Defaults to the sibling collector service for trace correlation when VK_PERF_TRACING=1.
+      # Set OTEL_EXPORTER_OTLP_ENDPOINT explicitly to send directly to another collector.
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4318}
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: ${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-}
+      OTEL_RESOURCE_ATTRIBUTES: ${OTEL_RESOURCE_ATTRIBUTES:-}
+      VK_WS_POLL_TRACING: ${VK_WS_POLL_TRACING:-}
       # Startup diagnostics / startup-component bisect flags
       VK_DISABLE_EXECUTOR_PRELOAD: ${VK_DISABLE_EXECUTOR_PRELOAD:-false}
       VK_DISABLE_RELAY_STARTUP: ${VK_DISABLE_RELAY_STARTUP:-false}
@@ -97,6 +110,19 @@ services:
       - tailscale-state:/var/lib/tailscale
       # Persist Bosun config (workspaces, .env, bosun.config.json)
       - bosun-data:/home/vkuser/bosun
+
+  otel-collector:
+    image: otel/opentelemetry-collector:${OTEL_COLLECTOR_IMAGE_VERSION:-0.156.0}
+    restart: unless-stopped
+    command:
+      - --config=/etc/otelcol/config.yaml
+    environment:
+      SIGNOZ_OTLP_HTTP_ENDPOINT: ${SIGNOZ_OTLP_HTTP_ENDPOINT:-http://signoz-otel-collector:4318}
+    volumes:
+      - ./ops/otel-collector:/etc/otelcol:ro
+    expose:
+      - "4317"
+      - "4318"
 
   novnc:
     profiles:

@@ -1,6 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 RUNTIME_DIR="${VIBE_DASHBOARD_RUNTIME_DIR:-/home/vkuser/.local/share/vibe-dashboard-runtime}"
 SUPERVISOR_CONF="${SUPERVISOR_CONF:-/etc/supervisor/conf.d/supervisord.conf}"
 PROGRAM_NAME="${VIBE_DASHBOARD_SUPERVISOR_PROGRAM:-vibe-dashboard}"
@@ -172,15 +174,15 @@ status() {
 case "${1:-}" in
   deploy)
     shift
-    deploy "$@"
+    exec node --experimental-strip-types "$SCRIPT_DIR/hotswap-dashboard-dist.ts" deploy "${1:-$PWD}"
     ;;
   rollback-dev)
     shift
-    rollback_dev "$@"
+    exec node --experimental-strip-types "$SCRIPT_DIR/hotswap-dashboard-dist.ts" rollback-dev
     ;;
   rollback-prod)
     shift
-    rollback_prod "$@"
+    exec node --experimental-strip-types "$SCRIPT_DIR/hotswap-dashboard-dist.ts" rollback-prod
     ;;
   status)
     shift
