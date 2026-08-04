@@ -579,6 +579,19 @@ export class DbWorkflowOrchestrationStore {
     return this.getRequiredTrigger(triggerId);
   }
 
+
+  async listStepStates(instanceId: string): Promise<WorkflowStepStateReadModel[]> {
+    const db = await this.getDb();
+    const rows = await db
+      .selectFrom('WorkflowStepState')
+      .selectAll()
+      .where('instanceId', '=', instanceId)
+      .orderBy('createdAt', 'asc')
+      .orderBy('id', 'asc')
+      .execute();
+    return rows.map(mapStepState);
+  }
+
   async listActiveTriggers(now = this.now()): Promise<WorkflowScopedTriggerReadModel[]> {
     const db = await this.getDb();
     const rows = await db
