@@ -20,6 +20,16 @@ import { BeadsClient, type PendingBeadsFormQueueResult } from '../../src/lib/bea
 const execFileAsync = promisify(execFile);
 const DEFAULT_CONFIG_DIR_NAME = 'vibe-dashboard';
 const DEFAULT_CONFIG_FILE_NAME = 'beads-form.json';
+const FORBIDDEN_APPEND_QUESTION_FIELDS = new Set([
+  'html',
+  'controls',
+  'sourceMessages',
+  'responses',
+  'format',
+  'goal',
+  'content',
+  'allowCodeFileChanges',
+]);
 
 export type JsonObject = Record<string, unknown>;
 
@@ -478,6 +488,7 @@ export function parseQuestionsJsonForAppend(text: string): AppendQuestionsPatch 
   const patch = questionsPatchFromJson(parsed);
   assertUniqueQuestionIds(patch.questions);
   assertNoGeneratedFormFields(parsed);
+  assertNoForbiddenAppendQuestionFields(patch.questions);
   return patch;
 }
 
@@ -523,6 +534,20 @@ function assertUniqueQuestionIds(questions: StandardBeadsForm['questions']): voi
 function assertNoGeneratedFormFields(parsed: unknown): void {
   if (isObject(parsed) && ('html' in parsed || 'controls' in parsed)) {
     throw new Error('append-questions accepts standard DSL questions only, not generated html/controls');
+  }
+}
+
+function assertNoForbiddenAppendQuestionFields(value: unknown, path = 'questions'): void {
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => assertNoForbiddenAppendQuestionFields(item, `${path}[${index}]`));
+    return;
+  }
+  if (!isObject(value)) return;
+  for (const key of Object.keys(value)) {
+    if (FORBIDDEN_APPEND_QUESTION_FIELDS.has(key)) {
+      throw new Error(`append-questions input contains forbidden form/generated field "${key}" at ${path}`);
+    }
+    assertNoForbiddenAppendQuestionFields(value[key], `${path}.${key}`);
   }
 }
 
@@ -660,6 +685,7 @@ export function appendQuestionsToMetadata(
   }
 
   assertUniqueQuestionIds(patch.questions);
+  assertNoForbiddenAppendQuestionFields(patch.questions);
   const existingQuestionIds = new Set(form.questions.map((question) => question.id));
   for (const question of patch.questions) {
     if (existingQuestionIds.has(question.id)) throw new Error(`Question id already exists on form ${formId}: ${question.id}`);

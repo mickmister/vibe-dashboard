@@ -275,6 +275,27 @@ describe('beads-form CLI helpers', () => {
       questions: [question],
       html: '<form></form>',
     }))).toThrow('generated html/controls');
+    expect(() => parseQuestionsJsonForAppend(JSON.stringify([{
+      ...question,
+      html: '<form></form>',
+      controls: [],
+    }]))).toThrow('forbidden form/generated field "html"');
+    expect(() => parseQuestionsJsonForAppend(JSON.stringify({
+      questions: [{
+        ...question,
+        choices: [{
+          id: 'nested',
+          label: 'Nested',
+          sourceMessages: [],
+        }],
+      }],
+    }))).toThrow('forbidden form/generated field "sourceMessages"');
+    expect(() => parseQuestionsJsonForAppend(JSON.stringify({
+      questions: [{
+        ...question,
+        goal: 'Misplaced form goal',
+      }],
+    }))).toThrow('forbidden form/generated field "goal"');
   });
 
   it('appends questions to a canonical form while preserving responses and lean metadata', () => {
@@ -347,6 +368,35 @@ describe('beads-form CLI helpers', () => {
     }, {
       baseHash: 'not-the-current-hash',
     })).toThrow('changed since base hash');
+    expect(metadata).toEqual({ untouched: true, beadForms: { forms: [storedReviewForm] } });
+  });
+
+  it('rejects nested generated append fields before metadata mutation', () => {
+    const metadata = { untouched: true, beadForms: { forms: [storedReviewForm] } };
+    expect(() => appendQuestionsToMetadata(metadata, 'review', {
+      operation: 'append_questions',
+      questions: [{
+        type: 'textarea',
+        id: 'new_question',
+        title: 'New question',
+        description: 'New id.',
+        controls: [],
+      } as never],
+    })).toThrow('forbidden form/generated field "controls"');
+    expect(() => appendQuestionsToMetadata(metadata, 'review', {
+      operation: 'append_questions',
+      questions: [{
+        type: 'choices',
+        id: 'choice_question',
+        title: 'Choice question',
+        description: 'Pick one.',
+        choices: [{
+          id: 'bad_choice',
+          label: 'Bad choice',
+          html: '<form></form>',
+        }],
+      } as never],
+    })).toThrow('forbidden form/generated field "html"');
     expect(metadata).toEqual({ untouched: true, beadForms: { forms: [storedReviewForm] } });
   });
 
