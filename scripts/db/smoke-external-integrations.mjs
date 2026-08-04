@@ -96,8 +96,8 @@ try {
   }
 
   db.close();
-  if (migrationNames.length !== 3) {
-    throw new Error(`Expected 3 external integration migrations, found ${migrationNames.length}`);
+  if (migrationNames.length !== 4) {
+    throw new Error(`Expected 4 external integration migrations, found ${migrationNames.length}`);
   }
 
   console.log(`External integrations DB smoke passed (${migrationNames.length} migrations applied)`);

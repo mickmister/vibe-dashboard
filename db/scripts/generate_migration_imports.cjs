@@ -1,7 +1,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-const DATABASE_VERSION = 3;
+const DATABASE_VERSION = 4;
 const dbRoot = path.resolve(__dirname, '..');
 const repoRoot = path.resolve(dbRoot, '..');
 const MIGRATIONS_FOLDER = path.join(dbRoot, 'dialects', 'sqlite', 'migrations');

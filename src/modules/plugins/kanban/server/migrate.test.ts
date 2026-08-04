@@ -2,7 +2,26 @@ import { describe, expect, it } from 'vitest';
 import { Kysely, SqliteDialect } from 'kysely';
 import Database from 'better-sqlite3';
 import type { DB } from '../../../../store/kysely_types';
-import { migrateExternalIntegrationsDb, splitSqlStatements } from './migrate';
+import { migrations } from '../../../../store/db/imported_migrations/imported_migrations';
+import { executeSqlMigration, migrateExternalIntegrationsDb, splitSqlStatements } from './migrate';
+
+const oldRepoProjectMappingMigration = `
+CREATE TABLE IF NOT EXISTS "ExternalRepoProjectMapping" (
+  "id" TEXT NOT NULL PRIMARY KEY,
+  "repoId" TEXT NOT NULL,
+  "repoName" TEXT,
+  "provider" TEXT NOT NULL CHECK ("provider" IN ('jira', 'github', 'linear')),
+  "siteHostname" TEXT NOT NULL,
+  "projectKey" TEXT NOT NULL,
+  "issueTypeName" TEXT,
+  "metadataJson" TEXT,
+  "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS "ExternalRepoProjectMapping_repoId_provider_key" ON "ExternalRepoProjectMapping"("repoId", "provider");
+CREATE INDEX IF NOT EXISTS "ExternalRepoProjectMapping_provider_site_project_idx" ON "ExternalRepoProjectMapping"("provider", "siteHostname", "projectKey");
+`;
 
 describe('external integrations migrations', () => {
   it('splits SQL statements without splitting semicolons inside strings', () => {
@@ -19,7 +38,12 @@ describe('external integrations migrations', () => {
     try {
       const first = await migrateExternalIntegrationsDb(db);
       const second = await migrateExternalIntegrationsDb(db);
-      expect(first).toEqual(['20260702000000_external_integrations', '20260702010000_external_issue_workspace_mappings', '20260702020000_external_repo_project_mappings']);
+      expect(first).toEqual([
+        '20260702000000_external_integrations',
+        '20260702010000_external_issue_workspace_mappings',
+        '20260702020000_external_repo_project_mappings',
+        '20260804220000_external_repo_project_mapping_site_scope',
+      ]);
       expect(second).toEqual([]);
 
       const tables = await (db as unknown as Kysely<{ sqlite_master: { name: string; type: string } }>)
@@ -99,6 +123,85 @@ describe('external integrations migrations', () => {
         siteHostname: 'linear.app/jamtools',
         projectKey: 'VD2',
         issueTypeName: null,
+        metadataJson: null,
+      }).execute()).rejects.toThrow();
+    } finally {
+      await db.destroy();
+      sqlite.close();
+    }
+  });
+
+  it('upgrades existing DBs from old repo/provider uniqueness to repo/provider/site uniqueness', async () => {
+    const sqlite = new Database(':memory:');
+    const db = new Kysely<DB>({ dialect: new SqliteDialect({ database: sqlite }) });
+
+    try {
+      sqlite.exec('CREATE TABLE IF NOT EXISTS "Migration" ("id" INTEGER PRIMARY KEY AUTOINCREMENT, "name" TEXT NOT NULL UNIQUE, "createdAt" TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)');
+
+      for (const migration of migrations.slice(0, 2)) {
+        await executeSqlMigration(db, migration.migration);
+        await db.insertInto('Migration').values({ name: migration.name }).execute();
+      }
+      await executeSqlMigration(db, oldRepoProjectMappingMigration);
+      await db.insertInto('Migration').values({ name: '20260702020000_external_repo_project_mappings' }).execute();
+
+      await expect(db.insertInto('ExternalRepoProjectMapping').values({
+        id: 'old-unique-first',
+        repoId: 'repo-vd',
+        repoName: 'VD',
+        provider: 'jira',
+        siteHostname: 'team.atlassian.net',
+        projectKey: 'VD',
+        issueTypeName: 'Task',
+        metadataJson: null,
+      }).execute()).resolves.toBeDefined();
+      await expect(db.insertInto('ExternalRepoProjectMapping').values({
+        id: 'old-unique-second',
+        repoId: 'repo-vd',
+        repoName: 'VD',
+        provider: 'jira',
+        siteHostname: 'other.atlassian.net',
+        projectKey: 'OTHER',
+        issueTypeName: 'Task',
+        metadataJson: null,
+      }).execute()).rejects.toThrow();
+
+      await db.deleteFrom('ExternalRepoProjectMapping').execute();
+
+      const applied = await migrateExternalIntegrationsDb(db);
+      expect(applied).toEqual(['20260804220000_external_repo_project_mapping_site_scope']);
+
+      await db.insertInto('ExternalRepoProjectMapping').values([
+        {
+          id: 'new-unique-first',
+          repoId: 'repo-vd',
+          repoName: 'VD',
+          provider: 'jira',
+          siteHostname: 'team.atlassian.net',
+          projectKey: 'VD',
+          issueTypeName: 'Task',
+          metadataJson: null,
+        },
+        {
+          id: 'new-unique-second',
+          repoId: 'repo-vd',
+          repoName: 'VD',
+          provider: 'jira',
+          siteHostname: 'other.atlassian.net',
+          projectKey: 'OTHER',
+          issueTypeName: 'Task',
+          metadataJson: null,
+        },
+      ]).execute();
+
+      await expect(db.insertInto('ExternalRepoProjectMapping').values({
+        id: 'new-unique-duplicate-site',
+        repoId: 'repo-vd',
+        repoName: 'VD',
+        provider: 'jira',
+        siteHostname: 'team.atlassian.net',
+        projectKey: 'VD2',
+        issueTypeName: 'Task',
         metadataJson: null,
       }).execute()).rejects.toThrow();
     } finally {
