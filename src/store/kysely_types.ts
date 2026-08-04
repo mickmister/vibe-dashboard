@@ -114,6 +114,29 @@ export interface WorkflowScopedTrigger {
   cancelledAt: NullableNumber;
 }
 
+
+export type WorkflowExternalWaitKind = 'callback' | 'ci';
+export type WorkflowExternalWaitStatus = 'active' | 'resolved' | 'cancelled';
+
+export interface WorkflowExternalWait {
+  waitId: string;
+  instanceId: NullableString;
+  stepStateId: NullableString;
+  roleId: NullableString;
+  laneId: NullableString;
+  workspaceId: string;
+  sessionId: string;
+  kind: WorkflowExternalWaitKind;
+  status: WorkflowExternalWaitStatus;
+  externalRef: NullableString;
+  sourceExecutionProcessId: NullableString;
+  metadataJson: NullableString;
+  createdAt: number;
+  updatedAt: number;
+  resolvedAt: NullableNumber;
+  cancelledAt: NullableNumber;
+}
+
 export type WorkflowRoleSessionBindingSource = 'user_selected' | 'auto_reused' | 'auto_created' | 'team_config' | 'imported';
 
 export interface WorkflowRoleSessionBinding {
@@ -142,4 +165,5 @@ export interface DB {
   WorkflowStepState: WorkflowStepState;
   WorkflowScopedTrigger: WorkflowScopedTrigger;
   WorkflowRoleSessionBinding: WorkflowRoleSessionBinding;
+  WorkflowExternalWait: WorkflowExternalWait;
 }

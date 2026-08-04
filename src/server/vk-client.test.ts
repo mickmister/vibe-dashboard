@@ -245,6 +245,79 @@ describe("VibeKanbanServerClient", () => {
     });
   });
 
+  it("fetches activity and response-read endpoints used by scanner primitives", async () => {
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (url === "http://vk.local/api/activity") {
+        return jsonResponse({
+          success: true,
+          data: {
+            generated_at: "2026-08-04T00:00:00.000Z",
+            callback_state_available: false,
+            workspaces: [],
+          },
+        });
+      }
+      if (url === "http://vk.local/api/sessions/session-1/latest-response?afterExecutionProcessId=exec-before&afterCompletedAt=2026-08-04T00%3A00%3A00.000Z") {
+        return jsonResponse({
+          success: true,
+          data: {
+            execution_process_id: "exec-after",
+            session_id: "session-1",
+            workspace_id: "ws1",
+            status: "completed",
+            completed_at: "2026-08-04T00:01:00.000Z",
+            coding_agent_turn_id: "turn-1",
+            agent_session_id: "agent-session-1",
+            agent_message_id: "agent-message-1",
+            content: "done",
+            truncated: false,
+            max_chars: 4096,
+            source_kind: "coding_agent_turn_summary",
+          },
+        });
+      }
+      if (url === "http://vk.local/api/execution-processes/exec-after/final-message") {
+        return jsonResponse({
+          success: true,
+          data: {
+            execution_process_id: "exec-after",
+            session_id: "session-1",
+            workspace_id: "ws1",
+            status: "completed",
+            completed_at: "2026-08-04T00:01:00.000Z",
+            coding_agent_turn_id: "turn-1",
+            agent_session_id: "agent-session-1",
+            agent_message_id: "agent-message-1",
+            content: "done",
+            truncated: false,
+            max_chars: 4096,
+            source_kind: "coding_agent_turn_summary",
+          },
+        });
+      }
+      throw new Error(`unexpected request ${url}`);
+    });
+    const client = new VibeKanbanServerClient({
+      baseUrl: "http://vk.local/api",
+      fetch: fetchImpl,
+    });
+
+    await expect(client.getActivitySnapshot()).resolves.toMatchObject({
+      generated_at: "2026-08-04T00:00:00.000Z",
+      workspaces: [],
+    });
+    await expect(
+      client.getSessionLatestResponse("session-1", {
+        afterExecutionProcessId: "exec-before",
+        afterCompletedAt: "2026-08-04T00:00:00.000Z",
+      }),
+    ).resolves.toMatchObject({ execution_process_id: "exec-after", content: "done" });
+    await expect(client.getExecutionProcessFinalMessage("exec-after")).resolves.toMatchObject({
+      execution_process_id: "exec-after",
+      content: "done",
+    });
+  });
+
   it("can queue system follow-up messages for guardrail traffic", async () => {
     const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
       expect(url).toBe("http://vk.local/api/sessions/session-1/queue");

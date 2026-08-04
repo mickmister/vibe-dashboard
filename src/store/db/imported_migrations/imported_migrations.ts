@@ -2,6 +2,7 @@ import { migration as workflowRunsMigration } from '../migrations/20260722000000
 import { migration as workflowRunIndexesMigration } from '../migrations/20260722010000_workflow_run_indexes/migration';
 import { migration as workflowOrchestrationMigration } from '../migrations/20260731000000_workflow_orchestration/migration';
 import { migration as workflowRoleSessionBindingsMigration } from '../migrations/20260731010000_workflow_role_session_bindings/migration';
+import { migration as workflowExternalWaitsMigration } from '../migrations/20260804000000_workflow_external_waits/migration';
 
 export const migrations = [
   {
@@ -19,5 +20,9 @@ export const migrations = [
   {
     name: '20260731010000_workflow_role_session_bindings',
     migration: workflowRoleSessionBindingsMigration,
+  },
+  {
+    name: '20260804000000_workflow_external_waits',
+    migration: workflowExternalWaitsMigration,
   },
 ];

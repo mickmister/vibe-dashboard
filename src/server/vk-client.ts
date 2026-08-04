@@ -52,6 +52,78 @@ export interface ExecutionProcess {
   executor_action?: unknown;
 }
 
+export interface AgentResponse {
+  execution_process_id: string;
+  session_id: string;
+  workspace_id: string;
+  status: ExecutionProcess['status'];
+  completed_at: string | null;
+  coding_agent_turn_id: string | null;
+  agent_session_id: string | null;
+  agent_message_id: string | null;
+  content: string | null;
+  truncated: boolean;
+  max_chars: number;
+  source_kind: 'coding_agent_turn_summary';
+}
+
+export type ActivitySessionStatus = 'idle' | 'queued' | 'running' | 'callback_waiting';
+
+export interface ActivityExecutionProcess {
+  execution_process_id: string;
+  run_reason: string;
+  status: ExecutionProcess['status'];
+  started_at: string;
+  updated_at: string;
+}
+
+export interface ActivityQueueSummary {
+  count: number;
+  queued_count: number;
+  leased_count: number;
+  starting_count: number;
+  running_count: number;
+  first_item_id: string | null;
+  updated_at: string | null;
+}
+
+export interface ActivityCallbackSummary {
+  available: boolean;
+  waiting_count: number;
+}
+
+export interface ActivitySession {
+  workspace_id: string;
+  session_id: string;
+  status: ActivitySessionStatus;
+  active_turn_count: number;
+  running_execution_processes: ActivityExecutionProcess[];
+  queue: ActivityQueueSummary;
+  callback: ActivityCallbackSummary;
+  updated_at: string;
+}
+
+export interface ActivityWorkspace {
+  workspace_id: string;
+  active_turn_count: number;
+  running_turn_count: number;
+  running_dev_server_count: number;
+  queued_count: number;
+  sessions: ActivitySession[];
+  updated_at: string;
+}
+
+export interface ActivitySnapshot {
+  generated_at: string;
+  callback_state_available: boolean;
+  workspaces: ActivityWorkspace[];
+}
+
+export interface LatestResponseCursor {
+  afterExecutionProcessId?: string | null;
+  afterCompletedAt?: string | null;
+}
+
 export interface QueueStatus {
   count: number;
   message: QueuedMessage | null;
@@ -161,6 +233,22 @@ export class VibeKanbanServerClient {
 
   getExecutionProcess(processId: string): Promise<ExecutionProcess> {
     return this.get(`/execution-processes/${encodeURIComponent(processId)}`);
+  }
+
+  getExecutionProcessFinalMessage(processId: string): Promise<AgentResponse> {
+    return this.get(`/execution-processes/${encodeURIComponent(processId)}/final-message`);
+  }
+
+  getSessionLatestResponse(sessionId: string, cursor: LatestResponseCursor = {}): Promise<AgentResponse | null> {
+    const params = new URLSearchParams();
+    if (cursor.afterExecutionProcessId) params.set('afterExecutionProcessId', cursor.afterExecutionProcessId);
+    if (cursor.afterCompletedAt) params.set('afterCompletedAt', cursor.afterCompletedAt);
+    const suffix = params.toString() ? `?${params.toString()}` : '';
+    return this.get(`/sessions/${encodeURIComponent(sessionId)}/latest-response${suffix}`);
+  }
+
+  getActivitySnapshot(): Promise<ActivitySnapshot> {
+    return this.get('/activity');
   }
 
   async stopExecutionProcess(processId: string): Promise<void> {
