@@ -481,6 +481,30 @@ describe('DeclarativeWorkflowRuntime start skeleton', () => {
     await expect(harness.store.getInstance('instance-custom')).resolves.toMatchObject({ status: 'completed' });
   });
 
+  it('uses built-in fallback for old built-in instances before explicit DB override definitions', async () => {
+    const harness = await createHarness();
+    await startAndSatisfySource(harness);
+    await harness.handle.db
+      .updateTable('WorkflowInstance')
+      .set({ stateJson: JSON.stringify({ phase: 'created', definitionId: 'two-agent-review-round', definitionVersion: 1 }) })
+      .where('instanceId', '=', 'instance-resume')
+      .execute();
+
+    const result = await harness.runtime.runOnce({ definition: incompatibleTwoAgentOverrideDefinition() });
+
+    expect(result.errors).toEqual([]);
+    expect(result.resumed).toHaveLength(1);
+    expect(result.resumed[0]).toMatchObject({
+      instanceId: 'instance-resume',
+      reviewerTrigger: { stepKey: 'wait_review' },
+    });
+    expect(harness.vk.queueFollowUp).toHaveBeenCalledWith(
+      'session-review',
+      expect.stringContaining('Implementation plan response'),
+      { source: 'workflow' },
+    );
+  });
+
   it('does not complete while reviewer session has an active external wait', async () => {
     const harness = await createHarness();
     await startAndSatisfyReviewer(harness, { overseerSessionId: 'session-overseer' });
@@ -727,5 +751,30 @@ function customDefinition() {
       { id: 'complete_custom', type: 'complete', summaryTemplate: 'Done {{inputs.task}}' },
     ],
     outputs: {},
+  };
+}
+
+function incompatibleTwoAgentOverrideDefinition() {
+  return {
+    ...customDefinition(),
+    id: 'two-agent-review-round',
+    name: 'Incompatible DB override',
+    steps: [
+      {
+        id: 'resolve_override',
+        type: 'resolve_roles',
+        workspaceInput: 'workspaceId',
+        roles: [
+          { key: 'source', sessionInput: 'sourceSessionId', defaultRole: 'implementer' },
+          { key: 'review', sessionInput: 'reviewSessionId', defaultRole: 'reviewer' },
+        ],
+      },
+      { id: 'ask_override_source', type: 'queue_prompt', target: 'source', template: 'OVERRIDE {{inputs.task}}' },
+      { id: 'wait_override_source', type: 'wait_for_next_completed_response', target: 'source', after: 'ask_override_source' },
+      { id: 'ask_override_review', type: 'pipe_response', source: 'wait_override_source', target: 'review', template: 'OVERRIDE REVIEW {{source.response}}' },
+      { id: 'wait_override_review', type: 'wait_for_next_completed_response', target: 'review', after: 'ask_override_review' },
+      { id: 'notify_override', type: 'notify_overseer', sessionInput: 'overseerSessionId', template: 'Override done: {{responses.wait_override_review}}' },
+      { id: 'complete_override', type: 'complete' },
+    ],
   };
 }

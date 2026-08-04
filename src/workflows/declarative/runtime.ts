@@ -340,15 +340,15 @@ export class DeclarativeWorkflowRuntime {
       }
       return definition;
     }
+    const builtIn = getBuiltInDeclarativeWorkflowDefinition(instance.workflowId);
+    if (builtIn) return builtIn;
     if (explicitDefinition) {
       if (explicitDefinition.id !== instance.workflowId) {
         throw new DeclarativeWorkflowRuntimeError(`Explicit workflow definition ${explicitDefinition.id} does not match instance workflow ${instance.workflowId}`);
       }
       return explicitDefinition;
     }
-    const builtIn = getBuiltInDeclarativeWorkflowDefinition(instance.workflowId);
-    if (!builtIn) throw new DeclarativeWorkflowRuntimeError(`No stored or built-in declarative definition found for workflow ${instance.workflowId}`);
-    return builtIn;
+    throw new DeclarativeWorkflowRuntimeError(`No stored, built-in, or explicit declarative definition found for workflow ${instance.workflowId}`);
   }
 
   async getStatus(instanceId: string): Promise<DeclarativeWorkflowStatus> {
