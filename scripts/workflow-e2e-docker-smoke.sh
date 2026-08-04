@@ -33,13 +33,13 @@ echo "Starting workflow E2E smoke container: ${container_name} (${image})"
 docker run \
   --detach \
   --name "${container_name}" \
-  --volume "${vk_repo_dir}:/workspace/vibe-kanban" \
+  --volume "${vk_repo_dir}:/workspace/vibe-kanban:ro" \
   --workdir /workspace/vibe-kanban \
   "${image}" \
   sleep infinity >/dev/null
 
 echo "Running VK scripted QA executor smoke tests inside Docker via docker exec"
 docker exec "${container_name}" bash -lc \
-  'export PATH="/usr/local/cargo/bin:${PATH}"; cargo test -p executors --features qa-mode qa_mock --no-default-features'
+  'export PATH="/usr/local/cargo/bin:${PATH}"; export CARGO_TARGET_DIR=/tmp/vk-target; cargo test --locked -p executors --features qa-mode qa_mock --no-default-features'
 
 echo "ok - workflow E2E Docker smoke"

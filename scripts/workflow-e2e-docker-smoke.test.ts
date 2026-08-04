@@ -12,8 +12,10 @@ describe("workflow-e2e-docker-smoke harness", () => {
     expect(script).toContain("docker run");
     expect(script).toContain("docker exec");
     expect(script).toContain(
-      "cargo test -p executors --features qa-mode qa_mock --no-default-features",
+      "cargo test --locked -p executors --features qa-mode qa_mock --no-default-features",
     );
+    expect(script).toContain('--volume "${vk_repo_dir}:/workspace/vibe-kanban:ro"');
+    expect(script).toContain("export CARGO_TARGET_DIR=/tmp/vk-target");
     expect(script).toContain('export PATH="/usr/local/cargo/bin:${PATH}"');
 
     const nonCommentLines = script
