@@ -129,6 +129,129 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+  mattermost-container-e2e:
+    name: Mattermost container e2e
+    runs-on: ubuntu-latest
+    needs: [resolve-vk-ref, publish]
+    permissions:
+      contents: read
+      packages: read
+    env:
+      VKVD_IMAGE: ghcr.io/${{ github.repository_owner }}/vk-vd@${{ needs.publish.outputs.digest }}
+      MATTERMOST_BRIDGE_VK_WEBHOOK_SECRET: vk-webhook-secret
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create Docker network
+        run: docker network create vkvd-mm-e2e
+
+      - name: Start Mattermost dependencies
+        run: |
+          set -euo pipefail
+
+          docker run -d \
+            --name mm-postgres \
+            --network vkvd-mm-e2e \
+            -e POSTGRES_PASSWORD=mostest \
+            -e POSTGRES_USER=mmuser \
+            -e POSTGRES_DB=mattermost_test \
+            postgres:16
+
+          docker run -d \
+            --name mattermost \
+            --network vkvd-mm-e2e \
+            -p 8065:8065 \
+            -e MM_SQLSETTINGS_DRIVERNAME=postgres \
+            -e 'MM_SQLSETTINGS_DATASOURCE=postgres://mmuser:mostest@mm-postgres/mattermost_test?sslmode=disable&connect_timeout=10' \
+            -e MM_SERVICESETTINGS_LISTENADDRESS=:8065 \
+            -e MM_SERVICESETTINGS_SITEURL=http://localhost:8065 \
+            -e MM_SERVICESETTINGS_ENABLEBOTACCOUNTCREATION=true \
+            -e MM_SERVICESETTINGS_ENABLEUSERACCESSTOKENS=true \
+            -e MM_SERVICESETTINGS_ENABLEDEVELOPER=true \
+            -e MM_SERVICESETTINGS_ENABLETESTING=true \
+            -e MM_SERVICESETTINGS_ENABLELOCALMODE=true \
+            -e MM_SERVICESETTINGS_LOCALMODESOCKETLOCATION=/var/tmp/mattermost_local.socket \
+            -e MM_PLUGINSETTINGS_AUTOMATICPREPACKAGEDPLUGINS=true \
+            -e MM_LOGSETTINGS_CONSOLELEVEL=INFO \
+            mattermost/mattermost-enterprise-edition:7.9.0
+
+      - name: Bootstrap Mattermost admin token
+        env:
+          MATTERMOST_URL: http://localhost:8065
+          MATTERMOST_CONTAINER: mattermost
+        run: node scripts/e2e/bootstrap-mattermost.mjs >> "$GITHUB_ENV"
+
+      - name: Start fake VK API
+        run: |
+          docker run -d \
+            --name fake-vk \
+            --network vkvd-mm-e2e \
+            -v "$PWD/scripts/e2e:/e2e:ro" \
+            -e PORT=3000 \
+            node:22-alpine \
+            node /e2e/fake-vk-api.mjs
+
+      - name: Start VKVD image
+        run: |
+          docker run -d \
+            --name vkvd \
+            --network vkvd-mm-e2e \
+            -p 3005:3005 \
+            -p 3001:3001 \
+            -e CADDY_PORT=3001 \
+            -e BACKEND_PORT=3007 \
+            -e DASHBOARD_PORT=3005 \
+            -e CODE_PORT=3008 \
+            -e CODE_PASSWORD=__unset__ \
+            -e ENABLE_VIBE_KANBAN=true \
+            -e ENABLE_TAILSCALE=false \
+            -e TAILSCALE_AUTHKEY= \
+            -e TAILSCALE_HOSTNAME=vkvd-e2e \
+            -e MEMORY_WATCHDOG_ENABLED=false \
+            -e MEMORY_WATCHDOG_MATTERMOST_WEBHOOK_URL= \
+            -e VK_SHARED_API_BASE= \
+            -e VK_ALLOWED_ORIGINS= \
+            -e MATTERMOST_BRIDGE_ENABLED=true \
+            -e MATTERMOST_BRIDGE_PUBLIC_BASE_URL=http://vkvd:3005 \
+            -e MATTERMOST_BRIDGE_VK_BASE_URL=http://fake-vk:3000 \
+            -e MATTERMOST_BRIDGE_VK_DEFAULT_PROJECT_ID=project-1 \
+            -e MATTERMOST_BRIDGE_VK_DEFAULT_ISSUE_STATUS_ID=status-1 \
+            -e MATTERMOST_BRIDGE_VK_DEFAULT_REPO_ID=repo-a \
+            -e MATTERMOST_BRIDGE_VK_DEFAULT_REPO_BRANCH=main \
+            -e MATTERMOST_BRIDGE_VK_DEFAULT_EXECUTOR=CODEX \
+            -e MATTERMOST_BRIDGE_VK_WEBHOOK_SECRET="${MATTERMOST_BRIDGE_VK_WEBHOOK_SECRET}" \
+            -e MATTERMOST_BRIDGE_MM_BASE_URL=http://mattermost:8065 \
+            -e MATTERMOST_BRIDGE_MM_USER_BASE_URL=http://localhost:8065 \
+            -e MATTERMOST_BRIDGE_MM_BOT_TOKEN="${MATTERMOST_E2E_BOT_TOKEN}" \
+            -e MATTERMOST_BRIDGE_MM_BOT_USER_ID="${MATTERMOST_E2E_BOT_USER_ID}" \
+            -e MATTERMOST_BRIDGE_MM_CHANNEL_PREFIX=vk \
+            -e MATTERMOST_BRIDGE_MM_WEBSOCKET_ENABLED=false \
+            -e MATTERMOST_BRIDGE_POST_RECONCILIATION_POLL_MS=1000 \
+            "${VKVD_IMAGE}"
+
+      - name: Run Mattermost container e2e
+        env:
+          VD_URL: http://localhost:3005
+          MATTERMOST_URL: http://localhost:8065
+          MATTERMOST_BRIDGE_VK_WEBHOOK_SECRET: vk-webhook-secret
+        run: node scripts/e2e/mattermost-container-e2e.mjs
+
+      - name: Dump container logs on failure
+        if: failure()
+        run: |
+          docker ps -a
+          docker logs mattermost || true
+          docker logs fake-vk || true
+          docker logs vkvd || true
+
   notify-coolify:
     name: Notify Coolify
     needs: [resolve-vk-ref, publish]

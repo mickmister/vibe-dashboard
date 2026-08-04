@@ -46,26 +46,49 @@ export default defineConfig({
   },
   server: buildViteDevServerOptions(),
   test: {
-    projects: [{
-      extends: true,
-      plugins: [
-      // The plugin will run tests for the stories defined in your Storybook config
-      // See options at: https://storybook.js.org/docs/next/writing-tests/integrations/vitest-addon#storybooktest
-      storybookTest({
-        configDir: path.join(dirname, '.storybook')
-      })],
-      test: {
-        name: 'storybook',
-        browser: {
-          enabled: true,
-          headless: true,
-          provider: playwright({}),
-          instances: [{
-            browser: 'chromium'
-          }]
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: 'unit',
+          environment: 'node',
+          include: ['src/**/*.test.ts'],
+          exclude: [
+            'src/**/*.e2e.test.ts',
+            'src/**/*.stories.@(js|jsx|mjs|ts|tsx)',
+            'src/**/*.mdx',
+            '.storybook/**',
+          ],
         },
-        setupFiles: ['.storybook/vitest.setup.ts']
-      }
-    }]
+      },
+      {
+        extends: true,
+        test: {
+          name: 'e2e',
+          environment: 'node',
+          include: ['src/**/*.e2e.test.ts'],
+        },
+      },
+      {
+        extends: true,
+        plugins: [
+          // The plugin will run tests for the stories defined in your Storybook config
+          // See options at: https://storybook.js.org/docs/next/writing-tests/integrations/vitest-addon#storybooktest
+          storybookTest({
+            configDir: path.join(dirname, '.storybook')
+          })],
+        test: {
+          name: 'storybook',
+          browser: {
+            enabled: true,
+            headless: true,
+            provider: playwright({}),
+            instances: [{
+              browser: 'chromium'
+            }]
+          },
+          setupFiles: ['.storybook/vitest.setup.ts']
+        }
+      }]
   }
 });

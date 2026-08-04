@@ -31,6 +31,7 @@ import "./modules/MainUIShellModule";
 
 // @platform "node"
 import "./modules/WorkflowServerModule";
+import "./chat-integration-server";
 // @platform end
 
 import "./modules/BeadsFormModule";
