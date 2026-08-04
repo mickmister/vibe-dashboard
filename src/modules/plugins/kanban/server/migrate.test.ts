@@ -44,4 +44,66 @@ describe('external integrations migrations', () => {
       sqlite.close();
     }
   });
+
+  it('scopes repo project defaults by provider site for Linear-compatible mappings', async () => {
+    const sqlite = new Database(':memory:');
+    const db = new Kysely<DB>({ dialect: new SqliteDialect({ database: sqlite }) });
+
+    try {
+      await migrateExternalIntegrationsDb(db);
+
+      await db.insertInto('ExternalRepoProjectMapping').values([
+        {
+          id: 'mapping-jira-team',
+          repoId: 'repo-vd',
+          repoName: 'VD',
+          provider: 'jira',
+          siteHostname: 'team.atlassian.net',
+          projectKey: 'VD',
+          issueTypeName: 'Task',
+          metadataJson: null,
+        },
+        {
+          id: 'mapping-jira-other',
+          repoId: 'repo-vd',
+          repoName: 'VD',
+          provider: 'jira',
+          siteHostname: 'other.atlassian.net',
+          projectKey: 'OTHER',
+          issueTypeName: 'Task',
+          metadataJson: null,
+        },
+        {
+          id: 'mapping-linear-team',
+          repoId: 'repo-vd',
+          repoName: 'VD',
+          provider: 'linear',
+          siteHostname: 'linear.app/jamtools',
+          projectKey: 'VD',
+          issueTypeName: null,
+          metadataJson: null,
+        },
+      ]).execute();
+
+      await expect(db
+        .selectFrom('ExternalRepoProjectMapping')
+        .select(['provider', 'siteHostname', 'projectKey'])
+        .where('repoId', '=', 'repo-vd')
+        .execute()).resolves.toHaveLength(3);
+
+      await expect(db.insertInto('ExternalRepoProjectMapping').values({
+        id: 'mapping-duplicate-linear-team',
+        repoId: 'repo-vd',
+        repoName: 'VD',
+        provider: 'linear',
+        siteHostname: 'linear.app/jamtools',
+        projectKey: 'VD2',
+        issueTypeName: null,
+        metadataJson: null,
+      }).execute()).rejects.toThrow();
+    } finally {
+      await db.destroy();
+      sqlite.close();
+    }
+  });
 });

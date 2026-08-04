@@ -145,3 +145,19 @@ model ExternalIssueWorkspaceLink {
   @@index([vkWorkspaceId])
   @@index([isPrimary])
 }
+
+model ExternalRepoProjectMapping {
+  id            String           @id
+  repoId        String
+  repoName      String?
+  provider      ExternalProvider
+  siteHostname  String
+  projectKey    String
+  issueTypeName String?
+  metadataJson  String?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  @@unique([repoId, provider, siteHostname])
+  @@index([provider, siteHostname, projectKey])
+}

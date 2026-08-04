@@ -12,6 +12,6 @@ CREATE TABLE IF NOT EXISTS "ExternalRepoProjectMapping" (
   "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS "ExternalRepoProjectMapping_repoId_provider_key" ON "ExternalRepoProjectMapping"("repoId", "provider");
+CREATE UNIQUE INDEX IF NOT EXISTS "ExternalRepoProjectMapping_repoId_provider_siteHostname_key" ON "ExternalRepoProjectMapping"("repoId", "provider", "siteHostname");
 CREATE INDEX IF NOT EXISTS "ExternalRepoProjectMapping_provider_site_project_idx" ON "ExternalRepoProjectMapping"("provider", "siteHostname", "projectKey");
 `;

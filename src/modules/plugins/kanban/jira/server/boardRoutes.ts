@@ -1,8 +1,7 @@
-import { randomUUID } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import type { Hono } from 'hono';
-import { sql, type Kysely } from 'kysely';
+import type { Kysely } from 'kysely';
 import { EXTERNAL_VIEW_URL_PARAM, parseExternalViewUrl } from '../externalViewUrl';
 import { buildVdWorkspaceUrl, normalizeVdSiteOrigin } from '../../../../../lib/vdWorkspaceLinks';
 import type { DB } from '../../../../../store/kysely_types';
@@ -17,6 +16,8 @@ import type { BeadsExternalIssueServiceOptions } from '../../server/beadExternal
 import { decorateExternalKanbanBoardWithWorkspaceMappings, getLinkedExternalIssuesForWorkspaces, upsertExternalIssueWorkspaceMapping } from '../../server/workspaceMappings';
 import type { LinkedExternalIssue } from '../../server/workspaceMappings';
 import { loadRelatedWorkspaceMetrics, withTimeoutCall } from '../../server/workspaceMetrics';
+import { getExternalRepoProjectMappings, upsertExternalRepoProjectMapping } from '../../server/repoProjectMappings';
+import type { ExternalRepoProjectDefaultMapping } from '../../server/repoProjectMappings';
 import { VibeKanbanServerClient } from '../../../../../server/vk-client';
 import type { CreateAndStartWorkspaceRequest, DirectoryEntry, Executor, ExecutorConfig, Repo, RepoWithBranch, Workspace } from '../../../../../server/vk-client';
 
@@ -565,15 +566,7 @@ interface BulkJiraWorkspaceConversionRequest {
   repoProjectMappingRepoId?: string;
 }
 
-interface BulkJiraRepoProjectMapping {
-  repoId: string;
-  repoName?: string;
-  provider: 'jira';
-  siteHostname: string;
-  projectKey: string;
-  issueTypeName?: string;
-  updatedAt?: string;
-}
+type BulkJiraRepoProjectMapping = ExternalRepoProjectDefaultMapping<'jira'>;
 
 type SafeBulkJiraWorkspaceError = { code: string; message: string; userAction: string };
 
@@ -602,48 +595,11 @@ function isSafeHostname(value: string): boolean {
 }
 
 async function getBulkJiraRepoProjectMappings(db: Kysely<DB>, repoIds: string[]): Promise<BulkJiraRepoProjectMapping[]> {
-  const uniqueRepoIds = [...new Set(repoIds.map((repoId) => repoId.trim()).filter(Boolean))];
-  if (uniqueRepoIds.length === 0) return [];
-  const rows = await db
-    .selectFrom('ExternalRepoProjectMapping')
-    .select(['repoId', 'repoName', 'provider', 'siteHostname', 'projectKey', 'issueTypeName', 'updatedAt'])
-    .where('provider', '=', 'jira')
-    .where('repoId', 'in', uniqueRepoIds)
-    .orderBy('repoName', 'asc')
-    .orderBy('repoId', 'asc')
-    .execute();
-  return rows.map((row) => ({
-    repoId: row.repoId,
-    ...(row.repoName ? { repoName: row.repoName } : {}),
-    provider: 'jira' as const,
-    siteHostname: row.siteHostname,
-    projectKey: row.projectKey,
-    ...(row.issueTypeName ? { issueTypeName: row.issueTypeName } : {}),
-    ...(row.updatedAt ? { updatedAt: String(row.updatedAt) } : {}),
-  }));
+  return getExternalRepoProjectMappings(db, { repoIds, provider: 'jira' });
 }
 
 async function upsertBulkJiraRepoProjectMapping(db: Kysely<DB>, mapping: Omit<BulkJiraRepoProjectMapping, 'updatedAt'>): Promise<void> {
-  await db
-    .insertInto('ExternalRepoProjectMapping')
-    .values({
-      id: randomUUID(),
-      repoId: mapping.repoId.trim(),
-      repoName: mapping.repoName?.trim() || null,
-      provider: mapping.provider,
-      siteHostname: mapping.siteHostname.trim().toLowerCase(),
-      projectKey: mapping.projectKey.trim().toUpperCase(),
-      issueTypeName: mapping.issueTypeName?.trim() || null,
-      metadataJson: null,
-    })
-    .onConflict((oc) => oc.columns(['repoId', 'provider']).doUpdateSet({
-      repoName: mapping.repoName?.trim() || null,
-      siteHostname: mapping.siteHostname.trim().toLowerCase(),
-      projectKey: mapping.projectKey.trim().toUpperCase(),
-      issueTypeName: mapping.issueTypeName?.trim() || null,
-      updatedAt: sql`CURRENT_TIMESTAMP`,
-    }))
-    .execute();
+  await upsertExternalRepoProjectMapping(db, mapping);
 }
 
 function workspaceToBulkConversionOption(

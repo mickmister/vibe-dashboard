@@ -1028,6 +1028,56 @@ describe('external Jira board routes', () => {
     });
   });
 
+  it('remembers separate Jira defaults for the same repo on different sites', async () => {
+    const app = new Hono();
+    const createJiraIssue = vi.fn(async (request: Parameters<CreateJiraIssue>[0]) => ({
+      ok: true as const,
+      issue: {
+        id: `10001-${request.siteHostname}`,
+        key: request.siteHostname.startsWith('other') ? 'OPS-1' : 'API-1',
+        url: `https://${request.siteHostname}/browse/${request.siteHostname.startsWith('other') ? 'OPS-1' : 'API-1'}`,
+      },
+    }));
+    const vkClient = createVkClient({
+      getWorkspaces: vi.fn(async () => [
+        { id: 'ws-1', task_id: null, container_ref: '/work/ws-1', agent_working_dir: null, branch: 'vk/ws-1', created_at: '2026-07-28T00:00:00Z', updated_at: '2026-07-28T00:01:00Z', archived: false, pinned: false, name: 'Workspace 1' },
+        { id: 'ws-2', task_id: null, container_ref: '/work/ws-2', agent_working_dir: null, branch: 'vk/ws-2', created_at: '2026-07-28T00:00:00Z', updated_at: '2026-07-28T00:01:00Z', archived: false, pinned: false, name: 'Workspace 2' },
+      ]),
+      getWorkspaceRepos: vi.fn(async () => [{ id: 'repo-api', name: 'api', display_name: 'API', target_branch: 'origin/main' }]),
+    });
+    registerExternalTrackerBoardRoutes(app, {
+      enabled: true,
+      auth: createAuthService(null),
+      db,
+      vkClient,
+      createJiraIssue,
+      jiraBotAuth: { kind: 'basic', siteHostname: 'team.atlassian.net', email: 'bot@example.com', apiToken: 'secret-token' },
+    });
+
+    const firstResponse = await app.request('/dashboard/api/external-trackers/jira/workspaces/bulk-create-issues', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ siteHostname: 'team.atlassian.net', projectKey: 'API', issueTypeName: 'Task', workspaceIds: ['ws-1'], repoProjectMappingRepoId: 'repo-api' }),
+    });
+    const secondResponse = await app.request('/dashboard/api/external-trackers/jira/workspaces/bulk-create-issues', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ siteHostname: 'other.atlassian.net', projectKey: 'OPS', issueTypeName: 'Bug', workspaceIds: ['ws-2'], repoProjectMappingRepoId: 'repo-api' }),
+    });
+
+    expect(firstResponse.status).toBe(200);
+    expect(secondResponse.status).toBe(200);
+    await expect(db
+      .selectFrom('ExternalRepoProjectMapping')
+      .select(['repoId', 'provider', 'siteHostname', 'projectKey', 'issueTypeName'])
+      .where('repoId', '=', 'repo-api')
+      .orderBy('siteHostname', 'asc')
+      .execute()).resolves.toEqual([
+      { repoId: 'repo-api', provider: 'jira', siteHostname: 'other.atlassian.net', projectKey: 'OPS', issueTypeName: 'Bug' },
+      { repoId: 'repo-api', provider: 'jira', siteHostname: 'team.atlassian.net', projectKey: 'API', issueTypeName: 'Task' },
+    ]);
+  });
+
   it('does not remember a Jira project for a repo that is not on selected workspaces', async () => {
     const app = new Hono();
     const createJiraIssue = vi.fn(async () => ({ ok: true as const, issue: { id: '10001', key: 'VD-1', url: 'https://team.atlassian.net/browse/VD-1' } }));
