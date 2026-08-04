@@ -251,29 +251,27 @@ describe('DeclarativeWorkflowRuntime start skeleton', () => {
   it('does not resume while an external callback or CI wait owns the source session', async () => {
     const harness = await createHarness();
     await startAndSatisfySource(harness);
-    await harness.handle.db.insertInto('WorkflowExternalWait').values({
-      waitId: 'wait-1',
-      instanceId: 'instance-resume',
-      stepStateId: 'instance-resume_wait_source',
-      roleId: null,
-      laneId: null,
-      kind: 'callback',
-      status: 'active',
-      externalRef: 'callback-ref',
-      sourceExecutionProcessId: null,
-      workspaceId: 'ws-1',
-      sessionId: 'session-impl',
-      metadataJson: null,
-      createdAt: 1,
-      updatedAt: 1,
-      resolvedAt: null,
-      cancelledAt: null,
-    }).execute();
+    await seedExternalWait(harness, { waitId: 'wait-source', sessionId: 'session-impl', stepStateId: 'instance-resume_wait_source' });
 
     const result = await harness.runtime.runOnce({ definition: TWO_AGENT_REVIEW_ROUND_DEFINITION });
 
     expect(result.resumed).toEqual([]);
     expect(harness.vk.queueFollowUp).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not mutate delivery or queue reviewer while reviewer session has an active external wait', async () => {
+    const harness = await createHarness();
+    await startAndSatisfySource(harness);
+    await seedExternalWait(harness, { waitId: 'wait-review', sessionId: 'session-review', stepStateId: 'instance-resume_wait_review' });
+
+    const result = await harness.runtime.runOnce({ definition: TWO_AGENT_REVIEW_ROUND_DEFINITION });
+
+    expect(result.resumed).toEqual([]);
+    expect(harness.vk.queueFollowUp).toHaveBeenCalledTimes(1);
+    expect(await harness.handle.db.selectFrom('ResponsePipeDelivery').selectAll().execute()).toEqual([]);
+    await expect(harness.store.getInstance('instance-resume')).resolves.toMatchObject({ status: 'running' });
+    const steps = await harness.store.listStepStates('instance-resume');
+    expect(steps.find((step) => step.stepKey === 'ask_review')).toMatchObject({ status: 'pending' });
   });
 });
 
@@ -369,6 +367,30 @@ async function startAndSatisfySource(
     },
   });
   return started;
+}
+
+async function seedExternalWait(
+  harness: Awaited<ReturnType<typeof createHarness>>,
+  args: { waitId: string; sessionId: string; stepStateId: string },
+) {
+  await harness.handle.db.insertInto('WorkflowExternalWait').values({
+    waitId: args.waitId,
+    instanceId: 'instance-resume',
+    stepStateId: args.stepStateId,
+    roleId: null,
+    laneId: null,
+    kind: 'callback',
+    status: 'active',
+    externalRef: 'callback-ref',
+    sourceExecutionProcessId: null,
+    workspaceId: 'ws-1',
+    sessionId: args.sessionId,
+    metadataJson: null,
+    createdAt: 1,
+    updatedAt: 1,
+    resolvedAt: null,
+    cancelledAt: null,
+  }).execute();
 }
 
 function team(): AgentTeam {

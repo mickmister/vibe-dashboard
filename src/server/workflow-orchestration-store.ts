@@ -168,6 +168,15 @@ export interface CreateWorkflowScopedTriggerInput {
   timeoutAt?: number | null;
 }
 
+export interface CompletePipeHandoffInput {
+  instanceId: string;
+  pipeStepStateId: string;
+  waitStepStateId: string;
+  waitStepKey: string;
+  pipeOutput: JsonValue;
+  trigger: CreateWorkflowScopedTriggerInput;
+}
+
 export class WorkflowOrchestrationTransitionError extends Error {
   constructor(message: string) {
     super(message);
@@ -562,6 +571,109 @@ export class DbWorkflowOrchestrationStore {
       instance: null,
       step: null,
     };
+  }
+
+  async completePipeHandoffAndWait(input: CompletePipeHandoffInput): Promise<{ trigger: WorkflowScopedTriggerReadModel; instance: WorkflowInstanceReadModel; pipeStep: WorkflowStepStateReadModel; waitStep: WorkflowStepStateReadModel }> {
+    const db = await this.getDb();
+    const now = this.now();
+    let result:
+      | { trigger: WorkflowScopedTriggerReadModel; instance: WorkflowInstanceReadModel; pipeStep: WorkflowStepStateReadModel; waitStep: WorkflowStepStateReadModel }
+      | undefined;
+
+    await db.transaction().execute(async (trx) => {
+      await assertUpdated(
+        trx
+          .updateTable('WorkflowStepState')
+          .set({
+            status: 'completed',
+            outputJson: serializeJson(input.pipeOutput),
+            completedAt: now,
+            updatedAt: now,
+          })
+          .where('id', '=', input.pipeStepStateId)
+          .where('instanceId', '=', input.instanceId)
+          .where('status', '=', 'running')
+          .executeTakeFirst(),
+        `Cannot complete workflow pipe step ${input.pipeStepStateId} from its current state`,
+      );
+
+      await assertUpdated(
+        trx
+          .updateTable('WorkflowStepState')
+          .set({
+            status: 'waiting',
+            waitingTriggerId: input.trigger.triggerId,
+            startedAt: now,
+            updatedAt: now,
+          })
+          .where('id', '=', input.waitStepStateId)
+          .where('instanceId', '=', input.instanceId)
+          .where('stepKey', '=', input.waitStepKey)
+          .where('status', 'in', ['pending', 'running'])
+          .executeTakeFirst(),
+        `Cannot mark workflow wait step ${input.waitStepStateId} waiting from its current state`,
+      );
+
+      await trx
+        .insertInto('WorkflowScopedTrigger')
+        .values({
+          triggerId: input.trigger.triggerId,
+          instanceId: input.instanceId,
+          stepStateId: input.trigger.stepStateId ?? input.waitStepStateId,
+          stepKey: input.trigger.stepKey ?? input.waitStepKey,
+          type: input.trigger.type ?? 'session_response',
+          status: 'active',
+          roleId: input.trigger.roleId ?? null,
+          laneId: input.trigger.laneId ?? null,
+          workspaceId: input.trigger.workspaceId ?? null,
+          sessionId: input.trigger.sessionId ?? null,
+          mode: input.trigger.mode,
+          cursorCompletedAt: input.trigger.cursorCompletedAt ?? null,
+          cursorExecutionProcessId: input.trigger.cursorExecutionProcessId ?? null,
+          sourceExecutionProcessId: input.trigger.sourceExecutionProcessId ?? null,
+          expectedQueueItemId: input.trigger.expectedQueueItemId ?? null,
+          timeoutAt: input.trigger.timeoutAt ?? null,
+          satisfiedByExecutionProcessId: null,
+          satisfiedByJson: null,
+          createdAt: now,
+          updatedAt: now,
+          satisfiedAt: null,
+          expiredAt: null,
+          cancelledAt: null,
+        })
+        .execute();
+
+      await assertUpdated(
+        trx
+          .updateTable('WorkflowInstance')
+          .set((eb) => ({
+            status: 'waiting' as const,
+            currentStepId: input.waitStepKey,
+            updatedAt: now,
+            version: eb('version', '+', 1),
+          }))
+          .where('instanceId', '=', input.instanceId)
+          .where('status', '=', 'running')
+          .executeTakeFirst(),
+        `Cannot mark workflow instance ${input.instanceId} waiting from its current state`,
+      );
+
+      const [triggerRow, instanceRow, pipeStepRow, waitStepRow] = await Promise.all([
+        trx.selectFrom('WorkflowScopedTrigger').selectAll().where('triggerId', '=', input.trigger.triggerId).executeTakeFirstOrThrow(),
+        trx.selectFrom('WorkflowInstance').selectAll().where('instanceId', '=', input.instanceId).executeTakeFirstOrThrow(),
+        trx.selectFrom('WorkflowStepState').selectAll().where('id', '=', input.pipeStepStateId).executeTakeFirstOrThrow(),
+        trx.selectFrom('WorkflowStepState').selectAll().where('id', '=', input.waitStepStateId).executeTakeFirstOrThrow(),
+      ]);
+      result = {
+        trigger: mapTrigger(triggerRow),
+        instance: mapInstance(instanceRow),
+        pipeStep: mapStepState(pipeStepRow),
+        waitStep: mapStepState(waitStepRow),
+      };
+    });
+
+    if (!result) throw new WorkflowOrchestrationTransitionError(`Cannot complete pipe handoff for workflow instance ${input.instanceId}`);
+    return result;
   }
 
   async expireScopedTrigger(triggerId: string): Promise<WorkflowScopedTriggerReadModel> {

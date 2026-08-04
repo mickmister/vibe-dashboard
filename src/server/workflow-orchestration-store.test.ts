@@ -200,6 +200,76 @@ describe('DbWorkflowOrchestrationStore', () => {
     await expect(store.markStepRunning('instance_1_step_plan')).rejects.toBeInstanceOf(WorkflowOrchestrationTransitionError);
   });
 
+  it('atomically completes a pipe handoff and rolls back on trigger creation failure', async () => {
+    const { handle, store } = await createStore();
+    await seedInstance(store);
+    await store.createStepState({ id: 'instance_1_step_wait', instanceId: 'instance_1', stepKey: 'wait_review' });
+    await store.startInstance('instance_1', { currentStepId: 'plan' });
+    await store.markStepRunning('instance_1_step_plan');
+    await store.createScopedTrigger({
+      triggerId: 'review_trigger',
+      instanceId: 'instance_1',
+      workspaceId: 'ws-a',
+      sessionId: 'session-existing',
+      mode: 'next_completion_after_cursor',
+    });
+
+    await expect(store.completePipeHandoffAndWait({
+      instanceId: 'instance_1',
+      pipeStepStateId: 'instance_1_step_plan',
+      waitStepStateId: 'instance_1_step_wait',
+      waitStepKey: 'wait_review',
+      pipeOutput: { queueItemId: 'queue-review' },
+      trigger: {
+        triggerId: 'review_trigger',
+        instanceId: 'instance_1',
+        stepStateId: 'instance_1_step_wait',
+        stepKey: 'wait_review',
+        workspaceId: 'ws-a',
+        sessionId: 'session-review',
+        mode: 'next_completion_after_cursor',
+        expectedQueueItemId: 'queue-review',
+      },
+    })).rejects.toThrow();
+
+    await expect(store.getInstance('instance_1')).resolves.toMatchObject({ status: 'running', currentStepId: 'plan' });
+    const pipeStep = await handle.db.selectFrom('WorkflowStepState').select(['status', 'outputJson']).where('id', '=', 'instance_1_step_plan').executeTakeFirstOrThrow();
+    const waitStep = await handle.db.selectFrom('WorkflowStepState').select(['status', 'waitingTriggerId']).where('id', '=', 'instance_1_step_wait').executeTakeFirstOrThrow();
+    expect(pipeStep).toEqual({ status: 'running', outputJson: null });
+    expect(waitStep).toEqual({ status: 'pending', waitingTriggerId: null });
+  });
+
+  it('completes pipe handoff, creates trigger, and marks instance waiting in one transition', async () => {
+    const { store } = await createStore();
+    await seedInstance(store);
+    await store.createStepState({ id: 'instance_1_step_wait', instanceId: 'instance_1', stepKey: 'wait_review' });
+    await store.startInstance('instance_1', { currentStepId: 'plan' });
+    await store.markStepRunning('instance_1_step_plan');
+
+    const result = await store.completePipeHandoffAndWait({
+      instanceId: 'instance_1',
+      pipeStepStateId: 'instance_1_step_plan',
+      waitStepStateId: 'instance_1_step_wait',
+      waitStepKey: 'wait_review',
+      pipeOutput: { queueItemId: 'queue-review' },
+      trigger: {
+        triggerId: 'review_trigger',
+        instanceId: 'instance_1',
+        stepStateId: 'instance_1_step_wait',
+        stepKey: 'wait_review',
+        workspaceId: 'ws-a',
+        sessionId: 'session-review',
+        mode: 'next_completion_after_cursor',
+        expectedQueueItemId: 'queue-review',
+      },
+    });
+
+    expect(result.instance).toMatchObject({ status: 'waiting', currentStepId: 'wait_review' });
+    expect(result.pipeStep).toMatchObject({ status: 'completed', output: { queueItemId: 'queue-review' } });
+    expect(result.waitStep).toMatchObject({ status: 'waiting', waitingTriggerId: 'review_trigger' });
+    expect(result.trigger).toMatchObject({ status: 'active', sessionId: 'session-review', expectedQueueItemId: 'queue-review' });
+  });
+
   it('queries active triggers and recoverable instances for worker restart recovery', async () => {
     const { handle, store } = await createStore();
     await seedInstance(store, 'instance_active');

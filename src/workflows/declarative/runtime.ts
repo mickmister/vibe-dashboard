@@ -296,6 +296,9 @@ export class DeclarativeWorkflowRuntime {
     if (await this.store.hasActiveExternalWaitForSession({ workspaceId: sourceRole.workspaceId, sessionId: sourceRole.sessionId })) {
       return null;
     }
+    if (await this.store.hasActiveExternalWaitForSession({ workspaceId: reviewRole.workspaceId, sessionId: reviewRole.sessionId })) {
+      return null;
+    }
 
     if (reviewPipeState.status === 'pending') await this.store.markStepRunning(reviewPipeState.id);
     const reviewerCursor = await this.vk.getSessionLatestResponse(reviewRole.sessionId);
@@ -327,41 +330,42 @@ export class DeclarativeWorkflowRuntime {
       const queueItemId = queuedDelivery?.delivery.queueItemId;
       if (!queueItemId) return null;
 
-      await this.store.completeStep(reviewPipeState.id, {
-        sourceStepId: sourceWaitStep.id,
-        sourceExecutionProcessId: sourceOutput.executionProcessId,
-        targetRoleKey: reviewPipeStep.target,
-        targetSessionId: reviewRole.sessionId,
-        targetWorkspaceId: reviewRole.workspaceId,
-        deliveryId: queuedDelivery.delivery.deliveryId,
-        queueItemId,
-      });
-      await this.store.markStepRunning(reviewWaitState.id);
-      const reviewerTrigger = await this.store.createScopedTrigger({
-        triggerId: `${instance.instanceId}_${reviewWaitStep.id}_trigger`,
+      const handoff = await this.store.completePipeHandoffAndWait({
         instanceId: instance.instanceId,
-        stepStateId: reviewWaitState.id,
-        stepKey: reviewWaitStep.id,
-        roleId: reviewRole.roleId,
-        laneId: instance.laneId,
-        workspaceId: reviewRole.workspaceId,
-        sessionId: reviewRole.sessionId,
-        mode: 'next_completion_after_cursor',
-        cursorCompletedAt: reviewerCursor?.completed_at ? new Date(reviewerCursor.completed_at).getTime() : null,
-        cursorExecutionProcessId: reviewerCursor?.execution_process_id ?? null,
-        expectedQueueItemId: queueItemId,
-        timeoutAt: this.computeTriggerTimeoutAt(definition),
-      });
-      await this.store.markInstanceWaiting(instance.instanceId, {
-        currentStepId: reviewWaitStep.id,
-        waitingTriggerId: reviewerTrigger.triggerId,
+        pipeStepStateId: reviewPipeState.id,
+        waitStepStateId: reviewWaitState.id,
+        waitStepKey: reviewWaitStep.id,
+        pipeOutput: {
+          sourceStepId: sourceWaitStep.id,
+          sourceExecutionProcessId: sourceOutput.executionProcessId,
+          targetRoleKey: reviewPipeStep.target,
+          targetSessionId: reviewRole.sessionId,
+          targetWorkspaceId: reviewRole.workspaceId,
+          deliveryId: queuedDelivery.delivery.deliveryId,
+          queueItemId,
+        },
+        trigger: {
+          triggerId: `${instance.instanceId}_${reviewWaitStep.id}_trigger`,
+          instanceId: instance.instanceId,
+          stepStateId: reviewWaitState.id,
+          stepKey: reviewWaitStep.id,
+          roleId: reviewRole.roleId,
+          laneId: instance.laneId,
+          workspaceId: reviewRole.workspaceId,
+          sessionId: reviewRole.sessionId,
+          mode: 'next_completion_after_cursor',
+          cursorCompletedAt: reviewerCursor?.completed_at ? new Date(reviewerCursor.completed_at).getTime() : null,
+          cursorExecutionProcessId: reviewerCursor?.execution_process_id ?? null,
+          expectedQueueItemId: queueItemId,
+          timeoutAt: this.computeTriggerTimeoutAt(definition),
+        },
       });
       return {
         instanceId: instance.instanceId,
         sourceExecutionProcessId: sourceOutput.executionProcessId,
         reviewerSessionId: reviewRole.sessionId,
         reviewerQueueItemId: queueItemId,
-        reviewerTrigger,
+        reviewerTrigger: handoff.trigger,
         pipeResult,
       };
     } catch (error) {
