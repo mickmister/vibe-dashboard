@@ -40,6 +40,6 @@ docker run \
 
 echo "Running VK scripted QA executor smoke tests inside Docker via docker exec"
 docker exec "${container_name}" bash -lc \
-  'export PATH="/usr/local/cargo/bin:${PATH}"; export CARGO_TARGET_DIR=/tmp/vk-target; cargo test --locked -p executors --features qa-mode qa_mock --no-default-features'
+  'export PATH="/usr/local/cargo/bin:${PATH}"; export CARGO_BUILD_JOBS=1; export CARGO_TARGET_DIR=/tmp/vk-target; cargo test --locked -p executors --features qa-mode qa_mock --no-default-features'
 
 echo "ok - workflow E2E Docker smoke"
