@@ -152,9 +152,15 @@ export function getEffectivePairs(
   const validTabIds = new Set(
     effectiveTabs.map((tab) => tab.id),
   );
-  for (const tab of tabGroup.tabs) {
-    if (isEphemeralPluginSurfaceTab(tab)) {
-      validTabIds.add(tab.id);
+  const shouldPreserveExistingEphemeralTabs =
+    typeof options === "string" ||
+    (!Object.hasOwn(options, "craftSurfaces") &&
+      !Object.hasOwn(options, "effectiveTabs"));
+  if (shouldPreserveExistingEphemeralTabs) {
+    for (const tab of tabGroup.tabs) {
+      if (isEphemeralPluginSurfaceTab(tab)) {
+        validTabIds.add(tab.id);
+      }
     }
   }
   const customPairs = tabGroup.pairs.filter(

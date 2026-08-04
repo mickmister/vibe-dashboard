@@ -276,6 +276,57 @@ describe("dynamic Craft surfaces", () => {
     ]);
   });
 
+  it("drops stale craft-surface pairs during explicit surface regeneration", () => {
+    const staleSurfaceTabId =
+      "craft-surface:craft_workspace:app.example.notes/notes";
+    const effective = createEffectiveWorkspaceWithCraftSurfaces({
+      workspace: {
+        ...workspace,
+        tabGroups: [
+          {
+            id: "craft_workspace",
+            label: "Workspace Craft",
+            tabs: [
+              {
+                id: staleSurfaceTabId,
+                title: "Stale Notes",
+                url: "https://stale.example.test",
+                ephemeral: {
+                  kind: "craft-surface",
+                  pluginId: "app.example.notes",
+                  surfaceKey: "app.example.notes/notes",
+                  sourceKey: "notes",
+                },
+              },
+              {
+                id: "tab_custom",
+                title: "Custom",
+                url: "https://example.test",
+              },
+            ],
+            pairs: [
+              {
+                id: "surface+custom",
+                tabIds: [staleSurfaceTabId, "tab_custom"],
+                ratios: [50, 50],
+              },
+            ],
+            order: 0,
+          },
+        ],
+      },
+      craftSurfaces: [],
+      origin: "https://vd.example.test",
+    });
+
+    expect(effective.tabGroups[0]!.tabs.map((tab) => tab.id)).not.toContain(
+      staleSurfaceTabId,
+    );
+    expect(effective.tabGroups[0]!.pairs.map((pair) => pair.id)).not.toContain(
+      "surface+custom",
+    );
+  });
+
   it("derives built-in workspace tabs from the current localhost origin", () => {
     const effective = createEffectiveWorkspaceWithCraftSurfaces({
       workspace: {
