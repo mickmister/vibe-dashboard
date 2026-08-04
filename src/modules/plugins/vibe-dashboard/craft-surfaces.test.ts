@@ -3,6 +3,7 @@ import {
   createEffectiveWorkspaceWithCraftSurfaces,
   filterEphemeralCraftSurfaceActiveItems,
   getEffectivePairs,
+  getEffectiveTabs,
   isEphemeralCraftSurfaceTab,
   stripEphemeralCraftSurfaceSessionRefs,
   stripEphemeralCraftSurfaceTabsFromWorkspace,
@@ -257,6 +258,22 @@ describe("dynamic Craft surfaces", () => {
         },
       ]),
     );
+    expect(getEffectiveTabs(effective.tabGroups[0]!).map((tab) => tab.id)).toEqual(
+      expect.arrayContaining([
+        "craft-surface:craft_workspace:app.example.notes/notes",
+        "tab_custom",
+      ]),
+    );
+    const tabsById = new Map(
+      getEffectiveTabs(effective.tabGroups[0]!).map((tab) => [tab.id, tab]),
+    );
+    const pair = getEffectivePairs(effective.tabGroups[0]!).find(
+      (candidate) => candidate.id === "surface+custom",
+    );
+    expect(pair?.tabIds.map((tabId) => tabsById.get(tabId)?.title)).toEqual([
+      "Notes",
+      "Custom",
+    ]);
   });
 
   it("derives built-in workspace tabs from the current localhost origin", () => {

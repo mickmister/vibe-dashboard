@@ -88,6 +88,7 @@ export function getEffectiveTabs(
     origin?: string;
   } = {},
 ): Tab[] {
+  const hasExplicitCraftSurfaces = Object.hasOwn(options, "craftSurfaces");
   const builtInWorkspaceTabs = getBuiltInWorkspaceTabs(
     tabGroup,
     options.origin ?? "",
@@ -99,12 +100,18 @@ export function getEffectiveTabs(
   });
   const generatedTabs = [...builtInWorkspaceTabs, ...craftSurfaceTabs];
   const generatedIds = new Set(generatedTabs.map((tab) => tab.id));
-  const customTabs = tabGroup.tabs.filter(
-    (tab) =>
+  const customTabs = tabGroup.tabs.filter((tab) => {
+    const isExistingCraftSurface = isEphemeralPluginSurfaceTab(tab);
+    return (
       !generatedIds.has(tab.id) &&
-      !isEphemeralPluginSurfaceTab(tab) &&
-      !(builtInWorkspaceTabs.length > 0 && isGeneratedWorkspaceTab(tab)),
-  );
+      (!hasExplicitCraftSurfaces || !isExistingCraftSurface) &&
+      !(
+        builtInWorkspaceTabs.length > 0 &&
+        isGeneratedWorkspaceTab(tab) &&
+        !isExistingCraftSurface
+      )
+    );
+  });
   if (
     generatedTabs.length === 0 &&
     customTabs.length === tabGroup.tabs.length
