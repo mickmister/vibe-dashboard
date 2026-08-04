@@ -195,6 +195,57 @@ describe("dynamic Craft surfaces", () => {
     ).toBe("https://vd.example.test/dashboard/forms?workspace=workspace_1&bead=vkvw-123");
   });
 
+  it("keeps custom pairs that reference generated craft-surface tabs", () => {
+    const effective = createEffectiveWorkspaceWithCraftSurfaces({
+      workspace: {
+        ...workspace,
+        tabGroups: [
+          {
+            id: "craft_workspace",
+            label: "Workspace Craft",
+            workspace: {
+              workspaceId: "workspace_1",
+              workspaceDir: "/home/vkuser/repos/app",
+            },
+            tabs: [
+              {
+                id: "tab_custom",
+                title: "Custom",
+                url: "https://example.test",
+              },
+            ],
+            pairs: [
+              {
+                id: "surface+custom",
+                tabIds: [
+                  "craft-surface:craft_workspace:app.example.notes/notes",
+                  "tab_custom",
+                ],
+                ratios: [50, 50],
+              },
+            ],
+            order: 0,
+          },
+        ],
+      },
+      craftSurfaces: [surfaces[0]!],
+      origin: "https://vd.example.test",
+    });
+
+    expect(effective.tabGroups[0]!.pairs).toEqual(
+      expect.arrayContaining([
+        {
+          id: "surface+custom",
+          tabIds: [
+            "craft-surface:craft_workspace:app.example.notes/notes",
+            "tab_custom",
+          ],
+          ratios: [50, 50],
+        },
+      ]),
+    );
+  });
+
   it("derives built-in workspace tabs from the current localhost origin", () => {
     const effective = createEffectiveWorkspaceWithCraftSurfaces({
       workspace: {

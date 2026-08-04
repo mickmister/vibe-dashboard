@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FileDiff } from '@pierre/diffs/react';
 import type {
   DiffLineAnnotation,
@@ -63,8 +63,29 @@ interface DiffViewProps {
   workspaceDir: string;
 }
 
+export function createDiffLoadGuard() {
+  let latestRequestId = 0;
+  return {
+    nextRequestId: () => {
+      latestRequestId += 1;
+      return latestRequestId;
+    },
+    invalidate: () => {
+      latestRequestId += 1;
+    },
+    isCurrent: (requestId: number) => requestId === latestRequestId,
+  };
+}
+
 export function DiffView({ workspaceId, workspaceDir }: DiffViewProps) {
   const gitDiffModule = useModule('GitDiff');
+  const loadGuardRef = useRef<ReturnType<typeof createDiffLoadGuard> | null>(
+    null,
+  );
+  if (!loadGuardRef.current) {
+    loadGuardRef.current = createDiffLoadGuard();
+  }
+  const loadGuard = loadGuardRef.current;
   const [data, setData] = useState<DiffResponse | null>(null);
   const [selectedRepoRelativePath, setSelectedRepoRelativePath] = useState("");
   const [selectedFilePath, setSelectedFilePath] = useState("");
@@ -83,6 +104,7 @@ export function DiffView({ workspaceId, workspaceDir }: DiffViewProps) {
   );
 
   const refresh = useCallback(async () => {
+    const requestId = loadGuard.nextRequestId();
     setLoading(true);
     setError(null);
     try {
@@ -91,6 +113,7 @@ export function DiffView({ workspaceId, workspaceDir }: DiffViewProps) {
         workspaceDir,
         compareModes,
       });
+      if (!loadGuard.isCurrent(requestId)) return;
       setData(diffData);
       const firstRepoWithPatch = diffData.repos.find((repo) => repo.patch);
       setSelectedRepoRelativePath(
@@ -104,15 +127,21 @@ export function DiffView({ workspaceId, workspaceDir }: DiffViewProps) {
         (current) => current || firstRepoWithPatch?.files[0]?.path || "",
       );
     } catch (err) {
+      if (!loadGuard.isCurrent(requestId)) return;
       setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setLoading(false);
+      if (loadGuard.isCurrent(requestId)) {
+        setLoading(false);
+      }
     }
-  }, [compareModes, gitDiffModule.actions, workspaceDir, workspaceId]);
+  }, [compareModes, gitDiffModule.actions, loadGuard, workspaceDir, workspaceId]);
 
   useEffect(() => {
     void refresh();
-  }, [refresh]);
+    return () => {
+      loadGuard.invalidate();
+    };
+  }, [loadGuard, refresh]);
 
   const selectedRepo = useMemo(
     () =>
@@ -467,6 +496,20 @@ function RepoPatchDiff({
     line: OnDiffLineClickProps,
   ) => void;
 }) {
+  const [openFilePaths, setOpenFilePaths] = useState<Set<string>>(
+    () => new Set(selectedFilePath ? [selectedFilePath] : []),
+  );
+
+  useEffect(() => {
+    if (!selectedFilePath) return;
+    setOpenFilePaths((current) => {
+      if (current.has(selectedFilePath)) return current;
+      const next = new Set(current);
+      next.add(selectedFilePath);
+      return next;
+    });
+  }, [selectedFilePath]);
+
   if (parsedPatch.error) {
     return (
       <EmptyState title="Could not parse repo diff" detail={parsedPatch.error} />
@@ -479,78 +522,99 @@ function RepoPatchDiff({
 
   return (
     <div className="space-y-4">
-      {parsedPatch.files.map((fileDiff, index) => (
-        <details
-          id={diffFileElementId(fileDiff.name)}
-          key={`${fileDiff.name}-${fileDiff.prevName || ''}-${index}`}
-          className={`rounded-lg border ${
-            selectedFilePath === fileDiff.name
-              ? 'border-primary-500/70'
-              : 'border-neutral-800'
-          } bg-neutral-900/40`}
-        >
-          <summary className="cursor-pointer list-none px-3 py-2 font-mono text-xs text-neutral-200 hover:bg-neutral-900">
-            <div className="flex items-center gap-2">
-              <span className="text-neutral-500">▸</span>
-              <FileChangeIcon fileDiff={fileDiff} />
-              <span className="min-w-0 flex-1 truncate">
-                {fileDiff.prevName && fileDiff.prevName !== fileDiff.name
-                  ? `${fileDiff.prevName} → ${fileDiff.name}`
-                  : fileDiff.name}
-              </span>
-              <FileDiffStats fileDiff={fileDiff} />
-            </div>
-          </summary>
-          <div className="border-t border-neutral-800 bg-neutral-950">
-            {hasRenderableDiff(fileDiff) ? (
-              <FileDiff
-                fileDiff={fileDiff}
-                lineAnnotations={lineAnnotationsForFile(
-                  fileDiff,
-                  queuedComments,
-                  draftComment,
+      {parsedPatch.files.map((fileDiff, index) => {
+        const isOpen = openFilePaths.has(fileDiff.name);
+        return (
+          <details
+            id={diffFileElementId(fileDiff.name)}
+            key={`${fileDiff.name}-${fileDiff.prevName || ''}-${index}`}
+            open={isOpen}
+            onToggle={(event) => {
+              const isFileOpen = event.currentTarget.open;
+              setOpenFilePaths((current) => {
+                if (isFileOpen === current.has(fileDiff.name)) {
+                  return current;
+                }
+                const next = new Set(current);
+                if (isFileOpen) {
+                  next.add(fileDiff.name);
+                } else {
+                  next.delete(fileDiff.name);
+                }
+                return next;
+              });
+            }}
+            className={`rounded-lg border ${
+              selectedFilePath === fileDiff.name
+                ? 'border-primary-500/70'
+                : 'border-neutral-800'
+            } bg-neutral-900/40`}
+          >
+            <summary className="cursor-pointer list-none px-3 py-2 font-mono text-xs text-neutral-200 hover:bg-neutral-900">
+              <div className="flex items-center gap-2">
+                <span className="text-neutral-500">{isOpen ? '▾' : '▸'}</span>
+                <FileChangeIcon fileDiff={fileDiff} />
+                <span className="min-w-0 flex-1 truncate">
+                  {fileDiff.prevName && fileDiff.prevName !== fileDiff.name
+                    ? `${fileDiff.prevName} → ${fileDiff.name}`
+                    : fileDiff.name}
+                </span>
+                <FileDiffStats fileDiff={fileDiff} />
+              </div>
+            </summary>
+            {isOpen && (
+              <div className="border-t border-neutral-800 bg-neutral-950">
+                {hasRenderableDiff(fileDiff) ? (
+                  <FileDiff
+                    fileDiff={fileDiff}
+                    lineAnnotations={lineAnnotationsForFile(
+                      fileDiff,
+                      queuedComments,
+                      draftComment,
+                    )}
+                    renderAnnotation={(annotation) => {
+                      const metadata = annotation.metadata;
+                      if (!metadata) return null;
+                      if (metadata.kind === 'draft') {
+                        return (
+                          <InlineCommentEditor
+                            comment={metadata.comment}
+                            onChange={(body) =>
+                              onDraftCommentChange({ ...metadata.comment, body })
+                            }
+                            onSubmit={() => onSubmitDraftComment(metadata.comment)}
+                            onCancel={onCancelDraftComment}
+                          />
+                        );
+                      }
+                      return (
+                        <InlineQueuedComment
+                          comment={metadata.comment}
+                          onRemove={() => onRemoveQueuedComment(metadata.comment)}
+                        />
+                      );
+                    }}
+                    options={{
+                      diffStyle: 'split',
+                      themeType: 'dark',
+                      theme: { dark: 'github-dark', light: 'github-light' },
+                      overflow: 'wrap',
+                      hunkSeparators: 'line-info-basic',
+                      disableFileHeader: true,
+                      lineHoverHighlight: 'both',
+                      onLineNumberClick: (line) => {
+                        onLineNumberClick(fileDiff, line);
+                      },
+                    }}
+                  />
+                ) : (
+                  <NonRenderableFileDiff fileDiff={fileDiff} />
                 )}
-                renderAnnotation={(annotation) => {
-                  const metadata = annotation.metadata;
-                  if (!metadata) return null;
-                  if (metadata.kind === 'draft') {
-                    return (
-                      <InlineCommentEditor
-                        comment={metadata.comment}
-                        onChange={(body) =>
-                          onDraftCommentChange({ ...metadata.comment, body })
-                        }
-                        onSubmit={() => onSubmitDraftComment(metadata.comment)}
-                        onCancel={onCancelDraftComment}
-                      />
-                    );
-                  }
-                  return (
-                    <InlineQueuedComment
-                      comment={metadata.comment}
-                      onRemove={() => onRemoveQueuedComment(metadata.comment)}
-                    />
-                  );
-                }}
-                options={{
-                  diffStyle: 'split',
-                  themeType: 'dark',
-                  theme: { dark: 'github-dark', light: 'github-light' },
-                  overflow: 'wrap',
-                  hunkSeparators: 'line-info-basic',
-                  disableFileHeader: true,
-                  lineHoverHighlight: 'both',
-                  onLineNumberClick: (line) => {
-                    onLineNumberClick(fileDiff, line);
-                  },
-                }}
-              />
-            ) : (
-              <NonRenderableFileDiff fileDiff={fileDiff} />
+              </div>
             )}
-          </div>
-        </details>
-      ))}
+          </details>
+        );
+      })}
     </div>
   );
 }

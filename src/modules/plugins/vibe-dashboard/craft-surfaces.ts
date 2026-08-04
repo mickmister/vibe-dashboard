@@ -69,7 +69,11 @@ function createEffectiveCraftWithSurfaces(input: {
     craftSurfaces: input.craftSurfaces,
     origin: input.origin,
   });
-  const pairs = getEffectivePairs({ ...input.tabGroup, tabs }, input.origin);
+  const pairs = getEffectivePairs(input.tabGroup, {
+    craftSurfaces: input.craftSurfaces,
+    effectiveTabs: tabs,
+    origin: input.origin,
+  });
 
   if (tabs === input.tabGroup.tabs && pairs === input.tabGroup.pairs) {
     return input.tabGroup;
@@ -119,11 +123,27 @@ function isEphemeralPluginSurfaceTab(
   );
 }
 
-export function getEffectivePairs(tabGroup: TabGroup, origin = ""): ViewPair[] {
+export function getEffectivePairs(
+  tabGroup: TabGroup,
+  options: string | {
+    craftSurfaces?: RegisteredCraftSurfaceContribution[];
+    effectiveTabs?: Tab[];
+    origin?: string;
+  } = "",
+): ViewPair[] {
+  const origin = typeof options === "string" ? options : options.origin ?? "";
   const builtInPairs = getBuiltInWorkspacePairs(tabGroup, origin);
   const builtInPairIds = new Set(builtInPairs.map((pair) => pair.id));
+  const effectiveTabs =
+    typeof options === "string"
+      ? getEffectiveTabs(tabGroup, { origin })
+      : options.effectiveTabs ??
+        getEffectiveTabs(tabGroup, {
+          craftSurfaces: options.craftSurfaces,
+          origin,
+        });
   const validTabIds = new Set(
-    getEffectiveTabs(tabGroup, { origin }).map((tab) => tab.id),
+    effectiveTabs.map((tab) => tab.id),
   );
   const customPairs = tabGroup.pairs.filter(
     (pair) =>
