@@ -1,8 +1,7 @@
 import type { DeclarativeWorkflowRuntime, DeclarativeWorkflowRunOnceResult } from './runtime';
 
 export interface DeclarativeWorkflowWorkerOptions {
-  runtime: Pick<DeclarativeWorkflowRuntime, 'runOnce'>;
-  definition: unknown;
+  runtime: Pick<DeclarativeWorkflowRuntime, 'runReady'>;
   intervalMs?: number;
   autoStart?: boolean;
   logger?: Pick<Console, 'warn' | 'info'>;
@@ -31,7 +30,7 @@ export function createDeclarativeWorkflowWorker(options: DeclarativeWorkflowWork
     if (stopped || inFlight) return null;
     inFlight = true;
     try {
-      return await options.runtime.runOnce({ definition: options.definition });
+      return await options.runtime.runReady();
     } catch (error) {
       logger.warn('Declarative workflow worker tick failed', { error });
       return null;

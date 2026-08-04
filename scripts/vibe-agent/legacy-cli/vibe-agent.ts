@@ -2470,6 +2470,7 @@ async function workflowRun(args: string[]): Promise<void> {
   if (!workflowId) throw new Error('Usage: vibe-agent workflow run <workflow-id> --team-json <json|file> --workspace-id <id> --task <text>');
   const flags = parseWorkflowFlags(args.slice(1));
   const teamJson = getWorkflowFlag(flags, 'team-json');
+  const definitionJson = getWorkflowFlag(flags, 'definition-json') ?? getWorkflowFlag(flags, 'definition-file');
   const workspaceId = getWorkflowFlag(flags, 'workspace-id');
   const task = getWorkflowFlag(flags, 'task');
   if (!teamJson) throw new Error('--team-json is required');
@@ -2486,6 +2487,7 @@ async function workflowRun(args: string[]): Promise<void> {
     method: 'POST',
     body: JSON.stringify({
       team: readWorkflowJson(teamJson),
+      ...(definitionJson ? { definition: readWorkflowJson(definitionJson) } : {}),
       input,
       instanceId: getWorkflowFlag(flags, 'instance-id'),
     }),
@@ -2525,8 +2527,10 @@ async function workflowStatus(args: string[]): Promise<void> {
 async function workflowRunOnce(args: string[]): Promise<void> {
   const workflowId = args.find((arg) => !arg.startsWith('--')) ?? 'two-agent-review-round';
   const flags = parseWorkflowFlags(args.filter((arg) => arg !== workflowId));
+  const definitionJson = getWorkflowFlag(flags, 'definition-json') ?? getWorkflowFlag(flags, 'definition-file');
   const result = await dashboardRequest(`/dashboard/api/declarative-workflows/${encodeURIComponent(workflowId)}/run-once`, {
     method: 'POST',
+    body: JSON.stringify(definitionJson ? { definition: readWorkflowJson(definitionJson) } : {}),
   });
   if (flags.has('json')) {
     console.log(JSON.stringify(result, null, 2));

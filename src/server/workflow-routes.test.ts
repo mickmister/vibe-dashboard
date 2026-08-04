@@ -642,6 +642,60 @@ describe('registerWorkflowRoutes', () => {
     await expect(response.json()).resolves.toMatchObject({ result: { instance: { instanceId: 'instance-api' } } });
   });
 
+  it('starts declarative workflows from a custom definition body when ids match', async () => {
+    const runtime = {
+      start: vi.fn(async () => ({
+        instance: { instanceId: 'instance-custom', status: 'waiting' },
+        queuedSource: { queueItemId: 'queue-custom' },
+      })),
+      runOnce: vi.fn(),
+    };
+    const app = new Hono();
+    registerWorkflowRoutes(app, {
+      registry: createWorkflowRegistry(),
+      declarativeWorkflowRuntime: runtime as never,
+    });
+    const definition = customDefinition('custom-review-round');
+
+    const response = await app.request('/dashboard/api/declarative-workflows/custom-review-round/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        definition,
+        input: { task: 'Plan', workspaceId: 'ws-1' },
+        team: { id: 'team-1', agents: [] },
+      }),
+    });
+
+    expect(response.status).toBe(202);
+    expect(runtime.start).toHaveBeenCalledWith(expect.objectContaining({
+      definition: expect.objectContaining({ id: 'custom-review-round', name: 'Custom review round' }),
+    }));
+  });
+
+  it('rejects custom declarative definition bodies with a mismatched workflow id', async () => {
+    const runtime = { start: vi.fn(), runOnce: vi.fn() };
+    const app = new Hono();
+    registerWorkflowRoutes(app, {
+      registry: createWorkflowRegistry(),
+      declarativeWorkflowRuntime: runtime as never,
+    });
+
+    const response = await app.request('/dashboard/api/declarative-workflows/requested-id/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        definition: customDefinition('other-id'),
+        input: { task: 'Plan', workspaceId: 'ws-1' },
+        team: { id: 'team-1', agents: [] },
+      }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(runtime.start).not.toHaveBeenCalled();
+    await expect(response.json()).resolves.toMatchObject({ error: expect.stringContaining('does not match requested workflow id') });
+  });
+
   it('runs declarative workflow run-once and exposes instance status details', async () => {
     const handle = await initVdDb({ path: ':memory:' });
     dbHandles.push(handle);
@@ -669,6 +723,41 @@ describe('registerWorkflowRoutes', () => {
     });
   });
 });
+
+function customDefinition(id: string) {
+  return {
+    id,
+    version: 1,
+    name: 'Custom review round',
+    trigger: 'manual',
+    inputs: {
+      task: { type: 'string', required: true },
+      workspaceId: { type: 'string', required: true },
+      sourceSessionId: { type: 'string', required: false },
+      reviewSessionId: { type: 'string', required: false },
+      overseerSessionId: { type: 'string', required: false },
+    },
+    policies: { refsOnlyStorage: true },
+    steps: [
+      {
+        id: 'resolve_custom',
+        type: 'resolve_roles',
+        workspaceInput: 'workspaceId',
+        roles: [
+          { key: 'source', sessionInput: 'sourceSessionId', defaultRole: 'implementer' },
+          { key: 'review', sessionInput: 'reviewSessionId', defaultRole: 'reviewer' },
+        ],
+      },
+      { id: 'ask_custom_source', type: 'queue_prompt', target: 'source', template: '{{inputs.task}}' },
+      { id: 'wait_custom_source', type: 'wait_for_next_completed_response', target: 'source', after: 'ask_custom_source' },
+      { id: 'ask_custom_review', type: 'pipe_response', source: 'wait_custom_source', target: 'review', template: 'Review: {{source.response}}' },
+      { id: 'wait_custom_review', type: 'wait_for_next_completed_response', target: 'review', after: 'ask_custom_review' },
+      { id: 'notify_custom_overseer', type: 'notify_overseer', sessionInput: 'overseerSessionId', template: 'Review: {{responses.wait_custom_review}}' },
+      { id: 'complete_custom', type: 'complete', summaryTemplate: 'Done {{inputs.task}}' },
+    ],
+    outputs: {},
+  };
+}
 
 async function expectJson(
   app: Hono,

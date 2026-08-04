@@ -22,6 +22,7 @@ import type { WorkflowActivityScanner, WorkflowSchedulerBudgetPolicy } from './w
 import type { WorkflowRoleSessionResolver } from './role-session-resolver';
 import type { DeclarativeWorkflowRuntime } from '../workflows/declarative/runtime';
 import { getBuiltInDeclarativeWorkflowDefinition } from '../workflows/declarative/builtins';
+import { normalizeDeclarativeWorkflowDefinition } from '../workflows/declarative/definitions';
 
 export interface RegisterWorkflowRoutesOptions {
   registry: WorkflowRegistry;
@@ -149,10 +150,11 @@ export function registerWorkflowRoutes(
   hono.post('/dashboard/api/declarative-workflows/:workflowId/run', async (c) => {
     const runtime = options.declarativeWorkflowRuntime;
     if (!runtime) return c.json({ error: 'declarative_workflow_runtime_not_configured' }, 503);
-    const definition = getBuiltInDeclarativeWorkflowDefinition(c.req.param('workflowId'));
-    if (!definition) return c.json({ error: 'declarative_workflow_not_found' }, 404);
     try {
+      const workflowId = c.req.param('workflowId');
       const body = asRecord(await readJsonBody(c.req.raw));
+      const definition = resolveDeclarativeDefinition(workflowId, body?.definition);
+      if (!definition) return c.json({ error: 'declarative_workflow_not_found' }, 404);
       const team = asRecord(body?.team);
       if (!team) return c.json({ error: 'team is required' }, 400);
       const result = await runtime.start({
@@ -172,10 +174,15 @@ export function registerWorkflowRoutes(
   hono.post('/dashboard/api/declarative-workflows/:workflowId/run-once', async (c) => {
     const runtime = options.declarativeWorkflowRuntime;
     if (!runtime) return c.json({ error: 'declarative_workflow_runtime_not_configured' }, 503);
-    const definition = getBuiltInDeclarativeWorkflowDefinition(c.req.param('workflowId'));
-    if (!definition) return c.json({ error: 'declarative_workflow_not_found' }, 404);
-    const result = await runtime.runOnce({ definition });
-    return c.json({ result });
+    try {
+      const body = asRecord(await readJsonBody(c.req.raw));
+      const definition = resolveDeclarativeDefinition(c.req.param('workflowId'), body?.definition);
+      if (!definition) return c.json({ error: 'declarative_workflow_not_found' }, 404);
+      const result = await runtime.runOnce({ definition });
+      return c.json({ result });
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 400);
+    }
   });
 
   hono.get('/dashboard/api/workflow-scoped-triggers', async (c) => {
@@ -373,6 +380,15 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 function asString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
+}
+
+function resolveDeclarativeDefinition(workflowId: string, rawDefinition: unknown) {
+  if (rawDefinition !== undefined) {
+    const definition = normalizeDeclarativeWorkflowDefinition(rawDefinition);
+    if (definition.id !== workflowId) throw new Error(`definition id ${definition.id} does not match requested workflow id ${workflowId}`);
+    return definition;
+  }
+  return getBuiltInDeclarativeWorkflowDefinition(workflowId);
 }
 
 async function getCachedRepoAliases(

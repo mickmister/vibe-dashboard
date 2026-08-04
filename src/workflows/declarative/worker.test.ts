@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from 'vitest';
-import { TWO_AGENT_REVIEW_ROUND_DEFINITION } from './builtins';
 import { createDeclarativeWorkflowWorker, getDeclarativeWorkflowWorkerIntervalMs, shouldStartDeclarativeWorkflowWorker } from './worker';
 
 describe('declarative workflow worker', () => {
@@ -7,18 +6,18 @@ describe('declarative workflow worker', () => {
     let release!: (value: unknown) => void;
     const first = new Promise((resolve) => { release = resolve; });
     const runtime = {
-      runOnce: vi.fn(async () => {
+      runReady: vi.fn(async () => {
         await first;
         return { resumed: [], completed: [], skipped: [], errors: [] };
       }),
     };
-    const worker = createDeclarativeWorkflowWorker({ runtime, definition: TWO_AGENT_REVIEW_ROUND_DEFINITION, autoStart: false });
+    const worker = createDeclarativeWorkflowWorker({ runtime, autoStart: false });
 
     const pending = worker.triggerOnce();
     await Promise.resolve();
     expect(worker.isRunning()).toBe(true);
     await expect(worker.triggerOnce()).resolves.toBeNull();
-    expect(runtime.runOnce).toHaveBeenCalledTimes(1);
+    expect(runtime.runReady).toHaveBeenCalledTimes(1);
 
     release(null);
     await expect(pending).resolves.toEqual({ resumed: [], completed: [], skipped: [], errors: [] });
@@ -27,11 +26,10 @@ describe('declarative workflow worker', () => {
 
   it('stops future manual and interval ticks', async () => {
     const intervalIds: Array<() => void> = [];
-    const runtime = { runOnce: vi.fn(async () => ({ resumed: [], completed: [], skipped: [], errors: [] })) };
+    const runtime = { runReady: vi.fn(async () => ({ resumed: [], completed: [], skipped: [], errors: [] })) };
     const clearIntervalFn = vi.fn();
     const worker = createDeclarativeWorkflowWorker({
       runtime,
-      definition: TWO_AGENT_REVIEW_ROUND_DEFINITION,
       intervalMs: 250,
       setIntervalFn: ((callback: () => void) => {
         intervalIds.push(callback);
@@ -46,7 +44,7 @@ describe('declarative workflow worker', () => {
     await expect(worker.triggerOnce()).resolves.toBeNull();
     intervalIds[0]?.();
     await Promise.resolve();
-    expect(runtime.runOnce).not.toHaveBeenCalled();
+    expect(runtime.runReady).not.toHaveBeenCalled();
   });
 
   it('keeps test environments disabled unless explicitly enabled', () => {

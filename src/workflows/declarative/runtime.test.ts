@@ -50,6 +50,12 @@ describe('DeclarativeWorkflowRuntime start skeleton', () => {
       expectedQueueItemId: 'queue-1',
       timeoutAt: 1_800_000,
     });
+    await expect(harness.store.getInstance('instance-1')).resolves.toMatchObject({
+      state: {
+        definitionId: 'two-agent-review-round',
+        definition: { id: 'two-agent-review-round' },
+      },
+    });
 
     const steps = await harness.store.listStepStates('instance-1');
     expect(steps.map((step) => [step.stepKey, step.status])).toEqual([
@@ -393,6 +399,88 @@ describe('DeclarativeWorkflowRuntime start skeleton', () => {
     await expect(harness.store.getInstance('instance-resume')).resolves.toMatchObject({ status: 'completed' });
   });
 
+  it('runReady resumes and completes a custom persisted definition after restart', async () => {
+    const harness = await createHarness();
+    const definition = customDefinition();
+    const started = await harness.runtime.start({
+      definition,
+      input: { task: 'Custom task', workspaceId: 'ws-1' },
+      team: team(),
+      instanceId: 'instance-custom',
+    });
+    await expect(harness.store.getInstance('instance-custom')).resolves.toMatchObject({
+      workflowId: 'custom-review-round',
+      state: { definition: { id: 'custom-review-round' } },
+    });
+
+    const source = responseCursor({
+      executionProcessId: 'exec-custom-source',
+      sessionId: 'session-impl',
+      content: 'Custom source response',
+      completedAt: '2026-08-04T11:00:00.000Z',
+    });
+    harness.vk.finalMessages.set('exec-custom-source', source);
+    await harness.store.satisfyScopedTriggerAndResumeWaitingStep(started.trigger.triggerId, {
+      executionProcessId: 'exec-custom-source',
+      response: {
+        executionProcessId: 'exec-custom-source',
+        sessionId: 'session-impl',
+        workspaceId: 'ws-1',
+        completedAt: source.completed_at,
+        truncated: false,
+        maxChars: source.max_chars,
+        sourceKind: source.source_kind,
+      },
+    });
+
+    const restarted = new DeclarativeWorkflowRuntime({
+      store: harness.store,
+      resolver: harness.resolver,
+      vk: harness.vk,
+      responsePipe: harness.responsePipe,
+      notificationStore: harness.pipeStore,
+      createId: () => 'restarted',
+      now: () => 0,
+    });
+    const handoff = await restarted.runReady();
+    expect(handoff.resumed).toHaveLength(1);
+    expect(harness.vk.queueFollowUp).toHaveBeenCalledWith('session-review', expect.stringContaining('CUSTOM REVIEW'), { source: 'workflow' });
+    expect(harness.vk.queueFollowUp).toHaveBeenCalledWith('session-review', expect.stringContaining('Custom source response'), { source: 'workflow' });
+
+    const review = responseCursor({
+      executionProcessId: 'exec-custom-review',
+      sessionId: 'session-review',
+      content: 'Custom review response',
+      completedAt: '2026-08-04T12:00:00.000Z',
+    });
+    harness.vk.finalMessages.set('exec-custom-review', review);
+    await harness.store.satisfyScopedTriggerAndResumeWaitingStep('instance-custom_wait_reviewer_trigger', {
+      executionProcessId: 'exec-custom-review',
+      response: {
+        executionProcessId: 'exec-custom-review',
+        sessionId: 'session-review',
+        workspaceId: 'ws-1',
+        completedAt: review.completed_at,
+        truncated: false,
+        maxChars: review.max_chars,
+        sourceKind: review.source_kind,
+      },
+    });
+
+    const completed = await restarted.runReady();
+
+    expect(completed.completed).toHaveLength(1);
+    expect(completed.completed[0]).toMatchObject({
+      instanceId: 'instance-custom',
+      output: {
+        workflowId: 'custom-review-round',
+        sourceExecutionProcessId: 'exec-custom-source',
+        reviewExecutionProcessId: 'exec-custom-review',
+      },
+    });
+    await expect(harness.store.getInstance('instance-custom')).resolves.toMatchObject({ status: 'completed' });
+  });
+
   it('does not complete while reviewer session has an active external wait', async () => {
     const harness = await createHarness();
     await startAndSatisfyReviewer(harness, { overseerSessionId: 'session-overseer' });
@@ -597,5 +685,47 @@ function responseCursor(overrides: {
     truncated: overrides.truncated ?? false,
     max_chars: 10000,
     source_kind: 'coding_agent_turn_summary',
+  };
+}
+
+function customDefinition() {
+  return {
+    id: 'custom-review-round',
+    version: 1,
+    name: 'Custom review round',
+    trigger: 'manual',
+    inputs: {
+      task: { type: 'string', required: true },
+      workspaceId: { type: 'string', required: true },
+      sourceSessionId: { type: 'string', required: false },
+      reviewSessionId: { type: 'string', required: false },
+      overseerSessionId: { type: 'string', required: false },
+    },
+    policies: {
+      allowAutoCreateSessions: true,
+      allowTruncatedSourceDelivery: false,
+      blockSameSession: true,
+      notifyOnCompletion: true,
+      refsOnlyStorage: true,
+      stall: { staleAfterMinutes: 30, autoNudge: true, callbackAndCiWaitsStall: true },
+    },
+    steps: [
+      {
+        id: 'resolve_custom',
+        type: 'resolve_roles',
+        workspaceInput: 'workspaceId',
+        roles: [
+          { key: 'source', sessionInput: 'sourceSessionId', defaultRole: 'implementer' },
+          { key: 'review', sessionInput: 'reviewSessionId', defaultRole: 'reviewer' },
+        ],
+      },
+      { id: 'ask_impl', type: 'queue_prompt', target: 'source', template: 'CUSTOM SOURCE: {{inputs.task}}' },
+      { id: 'wait_impl', type: 'wait_for_next_completed_response', target: 'source', after: 'ask_impl' },
+      { id: 'ask_reviewer', type: 'pipe_response', source: 'wait_impl', target: 'review', template: 'CUSTOM REVIEW\n{{source.response}}' },
+      { id: 'wait_reviewer', type: 'wait_for_next_completed_response', target: 'review', after: 'ask_reviewer' },
+      { id: 'notify_custom', type: 'notify_overseer', sessionInput: 'overseerSessionId', template: 'Done: {{responses.wait_reviewer}}' },
+      { id: 'complete_custom', type: 'complete', summaryTemplate: 'Done {{inputs.task}}' },
+    ],
+    outputs: {},
   };
 }

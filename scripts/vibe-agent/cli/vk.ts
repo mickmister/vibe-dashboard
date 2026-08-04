@@ -194,6 +194,17 @@ function readJsonFileFlag(flags: FlagMap, key: string): unknown | undefined {
   return JSON.parse(readFileSync(file, 'utf8')) as unknown;
 }
 
+export function buildDeclarativeWorkflowRunRequestBody(flags: FlagMap, input: unknown, team: unknown): Record<string, unknown> {
+  const definition = readJsonFlag(flags, 'definition-json') ?? readJsonFileFlag(flags, 'definition-file');
+  return {
+    input,
+    team,
+    ...(definition ? { definition } : {}),
+    instanceId: getFlagString(flags, 'instance-id'),
+    teamId: getFlagString(flags, 'team-id'),
+  };
+}
+
 function isExecutor(value: string): value is Executor {
   return Object.prototype.hasOwnProperty.call(config.executors, value);
 }
@@ -886,7 +897,7 @@ async function commandWorkflow(positional: string[], flags: FlagMap) {
     case 'run': {
       const workflowId = positional[1];
       if (!workflowId) {
-        console.error('Usage: vk workflow run <workflow-id> --input-json <json|--input-file file> --team-json <json|--team-file file> [--instance-id id] [--json]');
+        console.error('Usage: vk workflow run <workflow-id> --input-json <json|--input-file file> --team-json <json|--team-file file> [--definition-json json|--definition-file file] [--instance-id id] [--json]');
         process.exit(1);
       }
       const input = readJsonFlag(flags, 'input-json') ?? readJsonFileFlag(flags, 'input-file');
@@ -897,12 +908,7 @@ async function commandWorkflow(positional: string[], flags: FlagMap) {
       }
       const result = await requestDashboardJson<unknown>(config.endpoints.declarativeWorkflowRun(workflowId), {
         method: 'POST',
-        body: JSON.stringify({
-          input,
-          team,
-          instanceId: getFlagString(flags, 'instance-id'),
-          teamId: getFlagString(flags, 'team-id'),
-        }),
+        body: JSON.stringify(buildDeclarativeWorkflowRunRequestBody(flags, input, team)),
       });
       if (flags.json === true) {
         console.log(JSON.stringify(result, null, 2));
@@ -935,7 +941,11 @@ async function commandWorkflow(positional: string[], flags: FlagMap) {
     case 'tick':
     case 'run-once': {
       const workflowId = positional[1] ?? 'two-agent-review-round';
-      const result = await requestDashboardJson<unknown>(config.endpoints.declarativeWorkflowRunOnce(workflowId), { method: 'POST' });
+      const definition = readJsonFlag(flags, 'definition-json') ?? readJsonFileFlag(flags, 'definition-file');
+      const result = await requestDashboardJson<unknown>(config.endpoints.declarativeWorkflowRunOnce(workflowId), {
+        method: 'POST',
+        body: JSON.stringify(definition ? { definition } : {}),
+      });
       console.log(JSON.stringify(result, null, 2));
       return;
     }
@@ -974,8 +984,8 @@ function printHelp() {
   console.log('  create-workspace --message "prompt" --repo <repo[:branch]>   Create and start workspace');
   console.log('  workspace create-from-pr --repo <repo> --remote <remote> --pr <n>  Create workspace from PR');
   console.log('  send <session-id> "<prompt>"               Send message to session');
-  console.log('  workflow run <id> --input-file f --team-file f   Start declarative workflow and return');
-  console.log('  workflow run-once [id]                     Advance declarative workflow worker once');
+  console.log('  workflow run <id> --input-file f --team-file f [--definition-file f]   Start declarative workflow and return');
+  console.log('  workflow run-once [id] [--definition-file f]       Advance declarative workflow worker once');
   console.log('');
   console.log('Options:');
   console.log('  --all                 Show all entry types in conversation');

@@ -22,6 +22,7 @@ import type {
   DeclarativeWorkflowStep,
 } from './definitions';
 import { normalizeDeclarativeWorkflowDefinition } from './definitions';
+import { getBuiltInDeclarativeWorkflowDefinition } from './builtins';
 
 export interface DeclarativeWorkflowRuntimeVkClient {
   queueFollowUp(sessionId: string, prompt: string, options?: { source?: 'workflow' | 'system' | 'agent' | 'from_user' }): Promise<QueueFollowUpResponse>;
@@ -179,7 +180,12 @@ export class DeclarativeWorkflowRuntime {
       teamId: args.teamId ?? args.team.id,
       laneId,
       input: workflowInput,
-      state: { phase: 'created', definitionId: definition.id, definitionVersion: definition.version },
+      state: {
+        phase: 'created',
+        definitionId: definition.id,
+        definitionVersion: definition.version,
+        definition,
+      },
       currentStepId: definition.steps[0]?.id ?? null,
     });
 
@@ -261,22 +267,36 @@ export class DeclarativeWorkflowRuntime {
   async runOnce(args: DeclarativeWorkflowResumeInput): Promise<DeclarativeWorkflowRunOnceResult> {
     if (!this.responsePipe) throw new DeclarativeWorkflowRuntimeError('Declarative workflow runtime resume requires responsePipe');
     await this.scopedTriggerSatisfier?.runOnce();
-
     const definition = normalizeDeclarativeWorkflowDefinition(args.definition);
-    const resolveStep = firstStepOfType(definition, 'resolve_roles');
-    const sourceWaitStep = firstStepOfType(definition, 'wait_for_next_completed_response');
-    const reviewPipeStep = firstStepOfType(definition, 'pipe_response');
-    const reviewWaitStep = findWaitStepAfter(definition, reviewPipeStep.id);
-    const notifyStep = firstStepOfType(definition, 'notify_overseer');
-    const completeStep = firstStepOfType(definition, 'complete');
     const running = await this.store.listInstances({ workflowId: definition.id, status: 'running', limit: 100 });
+    return this.runReadyInstances(running.instances, (instance) => this.resolveDefinitionForInstance(instance, definition));
+  }
+
+  async runReady(): Promise<DeclarativeWorkflowRunOnceResult> {
+    if (!this.responsePipe) throw new DeclarativeWorkflowRuntimeError('Declarative workflow runtime resume requires responsePipe');
+    await this.scopedTriggerSatisfier?.runOnce();
+    const running = await this.listAllRunningInstances();
+    return this.runReadyInstances(running, (instance) => this.resolveDefinitionForInstance(instance));
+  }
+
+  private async runReadyInstances(
+    instances: WorkflowInstanceReadModel[],
+    resolveDefinition: (instance: WorkflowInstanceReadModel) => DeclarativeWorkflowDefinition,
+  ): Promise<DeclarativeWorkflowRunOnceResult> {
     const resumed: DeclarativeWorkflowResumeHandoff[] = [];
     const completed: DeclarativeWorkflowRunOnceResult['completed'] = [];
     const skipped: DeclarativeWorkflowRunOnceResult['skipped'] = [];
     const errors: DeclarativeWorkflowRunOnceResult['errors'] = [];
 
-    for (const instance of running.instances) {
+    for (const instance of instances) {
       try {
+        const definition = resolveDefinition(instance);
+        const resolveStep = firstStepOfType(definition, 'resolve_roles');
+        const sourceWaitStep = firstStepOfType(definition, 'wait_for_next_completed_response');
+        const reviewPipeStep = firstStepOfType(definition, 'pipe_response');
+        const reviewWaitStep = findWaitStepAfter(definition, reviewPipeStep.id);
+        const notifyStep = firstStepOfType(definition, 'notify_overseer');
+        const completeStep = firstStepOfType(definition, 'complete');
         const finished = await this.completeAfterReviewerResponse(definition, instance, sourceWaitStep, reviewWaitStep, notifyStep, completeStep);
         if (finished) {
           completed.push(finished);
@@ -291,6 +311,44 @@ export class DeclarativeWorkflowRuntime {
     }
 
     return { resumed, completed, skipped, errors };
+  }
+
+  private async listAllRunningInstances(): Promise<WorkflowInstanceReadModel[]> {
+    const instances: WorkflowInstanceReadModel[] = [];
+    let offset = 0;
+    for (;;) {
+      const page = await this.store.listInstances({ status: 'running', limit: 100, offset });
+      instances.push(...page.instances);
+      if (!page.hasMore) return instances;
+      offset += page.limit;
+    }
+  }
+
+  private resolveDefinitionForInstance(
+    instance: WorkflowInstanceReadModel,
+    explicitDefinition?: DeclarativeWorkflowDefinition,
+  ): DeclarativeWorkflowDefinition {
+    const state = asOptionalRecord(instance.state);
+    const storedDefinition = state?.definition;
+    if (storedDefinition) {
+      const definition = normalizeDeclarativeWorkflowDefinition(storedDefinition);
+      if (definition.id !== instance.workflowId) {
+        throw new DeclarativeWorkflowRuntimeError(`Stored workflow definition ${definition.id} does not match instance workflow ${instance.workflowId}`);
+      }
+      if (explicitDefinition && explicitDefinition.id !== definition.id) {
+        throw new DeclarativeWorkflowRuntimeError(`Explicit workflow definition ${explicitDefinition.id} does not match stored definition ${definition.id}`);
+      }
+      return definition;
+    }
+    if (explicitDefinition) {
+      if (explicitDefinition.id !== instance.workflowId) {
+        throw new DeclarativeWorkflowRuntimeError(`Explicit workflow definition ${explicitDefinition.id} does not match instance workflow ${instance.workflowId}`);
+      }
+      return explicitDefinition;
+    }
+    const builtIn = getBuiltInDeclarativeWorkflowDefinition(instance.workflowId);
+    if (!builtIn) throw new DeclarativeWorkflowRuntimeError(`No stored or built-in declarative definition found for workflow ${instance.workflowId}`);
+    return builtIn;
   }
 
   async getStatus(instanceId: string): Promise<DeclarativeWorkflowStatus> {
@@ -360,7 +418,13 @@ export class DeclarativeWorkflowRuntime {
           return null;
         }
       }
-      const prompt = renderNotificationTemplate(notifyStep.template, input, instance.instanceId, sourceResponse, reviewResponse);
+      const prompt = renderNotificationTemplate(
+        notifyStep.template,
+        input,
+        instance.instanceId,
+        { stepId: sourceWaitStep.id, response: sourceResponse },
+        { stepId: reviewWaitStep.id, response: reviewResponse },
+      );
       overseerQueueItemId = await this.queueCompletionNotification({
         instance,
         notifyStep,
@@ -701,26 +765,36 @@ function renderPipeTemplateForResponsePipe(template: string, input: Record<strin
   return renderTemplate(template, input).replace(/{{\s*source\.response\s*}}/g, '{{source_response}}');
 }
 
-function renderNotificationTemplate(template: string, input: Record<string, string>, instanceId: string, source: AgentResponse, review: AgentResponse): string {
+function renderNotificationTemplate(
+  template: string,
+  input: Record<string, string>,
+  instanceId: string,
+  source: { stepId: string; response: AgentResponse },
+  review: { stepId: string; response: AgentResponse },
+): string {
   const rendered = renderTemplate(template, input)
-    .replace(/{{\s*responses\.wait_source\s*}}/g, source.content ?? '')
-    .replace(/{{\s*responses\.wait_review\s*}}/g, review.content ?? '')
+    .replace(new RegExp(`{{\\s*responses\\.${escapeRegExp(source.stepId)}\\s*}}`, 'g'), source.response.content ?? '')
+    .replace(new RegExp(`{{\\s*responses\\.${escapeRegExp(review.stepId)}\\s*}}`, 'g'), review.response.content ?? '')
     .replace(/{{\s*instance\.id\s*}}/g, instanceId);
   const truncationNotes = [
-    source.truncated ? `Source response was truncated at ${source.max_chars} chars; inspect VK session ${source.session_id} / execution ${source.execution_process_id} for full context.` : null,
-    review.truncated ? `Review response was truncated at ${review.max_chars} chars; inspect VK session ${review.session_id} / execution ${review.execution_process_id} for full context.` : null,
+    source.response.truncated ? `Source response was truncated at ${source.response.max_chars} chars; inspect VK session ${source.response.session_id} / execution ${source.response.execution_process_id} for full context.` : null,
+    review.response.truncated ? `Review response was truncated at ${review.response.max_chars} chars; inspect VK session ${review.response.session_id} / execution ${review.response.execution_process_id} for full context.` : null,
   ].filter(Boolean);
   return [
     rendered,
     '',
     'Workflow refs:',
     `- Instance: ${instanceId}`,
-    `- Source session: ${source.session_id}`,
-    `- Source execution: ${source.execution_process_id}`,
-    `- Review session: ${review.session_id}`,
-    `- Review execution: ${review.execution_process_id}`,
+    `- Source session: ${source.response.session_id}`,
+    `- Source execution: ${source.response.execution_process_id}`,
+    `- Review session: ${review.response.session_id}`,
+    `- Review execution: ${review.response.execution_process_id}`,
     ...(truncationNotes.length > 0 ? ['', 'Truncation notes:', ...truncationNotes] : []),
   ].join('\n');
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function renderCompleteSummary(template: string | null | undefined, input: Record<string, string>): string | null {
