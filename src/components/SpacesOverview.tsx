@@ -11,7 +11,14 @@ import {
   type WorkspaceSummary,
   type Repo,
   type RepoWithBranch,
+  type ActivitySnapshot,
 } from "../lib/vk-client";
+import {
+  buildWorkspaceActivityMap,
+  extractWorkspaceIdFromTabGroup,
+  getTabGroupActivity,
+  type CraftActivityIndicator,
+} from "../lib/vkActivityIndicators";
 
 interface DashboardWorkspace {
   id: string;
@@ -72,11 +79,7 @@ function sortDashboardWorkspaces(workspaces: DashboardWorkspace[]) {
 }
 
 function getTabGroupWorkspaceId(tabGroup: TabGroup): string | null {
-  for (const tab of tabGroup.tabs) {
-    const match = tab.url.match(/\/workspaces\/([^/?#]+)/);
-    if (match?.[1]) return decodeURIComponent(match[1]);
-  }
-  return null;
+  return extractWorkspaceIdFromTabGroup(tabGroup);
 }
 
 function getTabGroupDisplayLabel(
@@ -610,6 +613,29 @@ function RunningDevServersSection({
       </div>
     </div>
   );
+}
+
+
+function useVKActivityData() {
+  const [snapshot, setSnapshot] = useState<ActivitySnapshot | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchActivity = useCallback(async () => {
+    try {
+      setSnapshot(await vkClient.getActivitySnapshot());
+      setError(null);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    }
+  }, []);
+
+  useEffect(() => {
+    void fetchActivity();
+    const interval = window.setInterval(() => void fetchActivity(), 5000);
+    return () => window.clearInterval(interval);
+  }, [fetchActivity]);
+
+  return { snapshot, error };
 }
 
 // ── Craft Row ───────────────────────────────────────────────────────────
