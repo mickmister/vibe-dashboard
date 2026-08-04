@@ -138,9 +138,7 @@ export class WorkflowActivityScanner {
     const [bindings, triggers, externalWaits, activityResult] =
       await Promise.all([
         this.listValidBindings(db),
-        this.orchestrationStore
-          .listTriggers({ status: "active", limit: 200 })
-          .then((result) => result.triggers),
+        this.listAllActiveTriggers(),
         this.listActiveExternalWaits(db),
         this.vk.getActivitySnapshot().then(
           (snapshot) => ({ ok: true as const, snapshot }),
@@ -195,8 +193,26 @@ export class WorkflowActivityScanner {
     generatedAt: number,
     activityUnavailable: boolean,
   ): Promise<WorkflowSessionScanItem> {
-    const base = makeBaseItem(context, activity, generatedAt);
-    const timeoutAt = context.trigger?.timeoutAt ?? null;
+    let base = makeBaseItem(context, activity, generatedAt);
+    const trigger = context.trigger;
+    const exactExecutionId = getExactExecutionId(trigger);
+    let exactExecutionLookupFailed = false;
+    if (exactExecutionId) {
+      try {
+        base = {
+          ...base,
+          executionProcess: await this.vk.getExecutionProcess(exactExecutionId),
+        };
+      } catch (error) {
+        exactExecutionLookupFailed = true;
+        base = {
+          ...base,
+          warnings: [`VK execution lookup failed: ${formatError(error)}`],
+        };
+      }
+    }
+
+    const timeoutAt = trigger?.timeoutAt ?? null;
     if (timeoutAt != null && timeoutAt <= generatedAt) {
       return applyClassification(
         base,
@@ -220,52 +236,38 @@ export class WorkflowActivityScanner {
       );
     }
 
-    const trigger = context.trigger;
     if (trigger) {
-      const exactExecutionId =
-        trigger.mode === "exact_execution"
-          ? (trigger.sourceExecutionProcessId ??
-            trigger.cursorExecutionProcessId)
-          : null;
       if (exactExecutionId) {
-        try {
-          const execution = await this.vk.getExecutionProcess(exactExecutionId);
-          if (execution.status === "completed") {
-            const response = await this.vk
-              .getExecutionProcessFinalMessage(exactExecutionId)
-              .catch(() => null);
-            return applyClassification(
-              {
-                ...base,
-                executionProcess: execution,
-                completedResponse: response,
-              },
-              "completed_since_cursor",
-              "watched execution completed",
-            );
-          }
-          if (execution.status === "failed" || execution.status === "killed") {
-            return applyClassification(
-              { ...base, executionProcess: execution },
-              "failed_or_killed",
-              `watched execution ${execution.status}`,
-            );
-          }
-          if (execution.status === "running") {
-            return applyClassification(
-              { ...base, executionProcess: execution },
-              "running",
-              "watched execution is running",
-            );
-          }
-        } catch (error) {
+        if (exactExecutionLookupFailed) {
           return applyClassification(
-            {
-              ...base,
-              warnings: [`VK execution lookup failed: ${formatError(error)}`],
-            },
+            base,
             "unknown_unreachable",
             "watched execution lookup failed",
+          );
+        }
+        const execution = base.executionProcess;
+        if (execution?.status === "completed") {
+          const response = await this.vk
+            .getExecutionProcessFinalMessage(exactExecutionId)
+            .catch(() => null);
+          return applyClassification(
+            { ...base, completedResponse: response },
+            "completed_since_cursor",
+            "watched execution completed",
+          );
+        }
+        if (execution?.status === "failed" || execution?.status === "killed") {
+          return applyClassification(
+            base,
+            "failed_or_killed",
+            `watched execution ${execution.status}`,
+          );
+        }
+        if (execution?.status === "running") {
+          return applyClassification(
+            base,
+            "running",
+            "watched execution is running",
           );
         }
       }
@@ -347,6 +349,24 @@ export class WorkflowActivityScanner {
       "idle",
       "no active workflow wait or VK activity",
     );
+  }
+
+  private async listAllActiveTriggers(): Promise<
+    WorkflowScopedTriggerReadModel[]
+  > {
+    const triggers: WorkflowScopedTriggerReadModel[] = [];
+    const limit = 200;
+    let offset = 0;
+    for (;;) {
+      const page = await this.orchestrationStore.listTriggers({
+        status: "active",
+        limit,
+        offset,
+      });
+      triggers.push(...page.triggers);
+      if (!page.hasMore) return triggers;
+      offset += page.triggers.length;
+    }
   }
 
   private async listValidBindings(
@@ -565,8 +585,13 @@ function applyClassification(
   classification: WorkflowSessionClassification,
   reason: string,
 ): WorkflowSessionScanItem {
-  const consumesExecutionBudget = classification === "running";
-  const ownsWorkflowSession = classification !== "idle";
+  const hasRunningExecutionEvidence =
+    item.runningExecutionProcessIds.length > 0 ||
+    item.executionProcess?.status === "running";
+  const consumesExecutionBudget =
+    classification === "running" || hasRunningExecutionEvidence;
+  const ownsWorkflowSession =
+    classification !== "idle" || consumesExecutionBudget;
   return {
     ...item,
     classification,
@@ -575,6 +600,13 @@ function applyClassification(
     ownsWorkflowSession,
     eligibleForUnrelatedWork: !ownsWorkflowSession,
   };
+}
+
+function getExactExecutionId(
+  trigger: WorkflowScopedTriggerReadModel | null,
+): string | null {
+  if (trigger?.mode !== "exact_execution") return null;
+  return trigger.sourceExecutionProcessId ?? trigger.cursorExecutionProcessId;
 }
 
 function mapActivityBySession(

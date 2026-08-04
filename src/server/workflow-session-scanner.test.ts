@@ -174,6 +174,82 @@ describe("WorkflowActivityScanner", () => {
     });
   });
 
+  it("counts running VK activity against execution budget even when an external wait owns classification", async () => {
+    const { handle, scanner } = await createHarness({
+      snapshot: activitySnapshot({
+        sessions: [
+          activitySession({
+            session_id: "s-callback",
+            status: "running",
+            runningIds: ["exec-running"],
+          }),
+        ],
+      }),
+    });
+    await seedBinding(handle, {
+      bindingId: "b-callback",
+      roleId: "callback-role",
+      sessionId: "s-callback",
+    });
+    await seedExternalWait(handle, {
+      waitId: "wait-callback",
+      kind: "callback",
+      sessionId: "s-callback",
+    });
+
+    const scan = await scanner.scanOnce({ maxActiveExecutions: 1 });
+
+    expect(scan.sessions[0]).toMatchObject({
+      sessionId: "s-callback",
+      classification: "waiting_on_callback",
+      consumesExecutionBudget: true,
+      ownsWorkflowSession: true,
+      eligibleForUnrelatedWork: false,
+    });
+    expect(scan.budget).toMatchObject({
+      activeExecutionCount: 1,
+      availableExecutionSlots: 0,
+    });
+  });
+
+  it("counts exact watched running execution against budget even when wait classification wins", async () => {
+    const { handle, orchestrationStore, scanner } = await createHarness({
+      getExecutionProcess: vi.fn(async () =>
+        executionProcess({
+          id: "exec-running",
+          session_id: "s-watch",
+          status: "running",
+        }),
+      ),
+    });
+    await seedExternalWait(handle, {
+      waitId: "wait-ci",
+      kind: "ci",
+      sessionId: "s-watch",
+    });
+    await seedWaitingInstance(orchestrationStore, "instance-1", "step-1");
+    await orchestrationStore.createScopedTrigger({
+      triggerId: "trigger-exact",
+      instanceId: "instance-1",
+      stepStateId: "instance-1_step-1",
+      stepKey: "step-1",
+      workspaceId: "ws-1",
+      sessionId: "s-watch",
+      mode: "exact_execution",
+      sourceExecutionProcessId: "exec-running",
+    });
+
+    const scan = await scanner.scanOnce({ maxActiveExecutions: 1 });
+
+    expect(scan.sessions[0]).toMatchObject({
+      sessionId: "s-watch",
+      classification: "waiting_on_ci",
+      executionProcess: { id: "exec-running", status: "running" },
+      consumesExecutionBudget: true,
+    });
+    expect(scan.budget.activeExecutionCount).toBe(1);
+  });
+
   it("classifies next-completion triggers from latest-response without direct delivery side effects", async () => {
     const { handle, orchestrationStore, scanner, vk } = await createHarness({
       snapshot: activitySnapshot({
@@ -299,6 +375,80 @@ describe("WorkflowActivityScanner", () => {
       classification: "stalled_needs_attention",
       reason: "active workflow trigger timed out",
     });
+  });
+
+  it("counts running VK activity against execution budget even when timed-out trigger classification wins", async () => {
+    const { orchestrationStore, scanner } = await createHarness({
+      snapshot: activitySnapshot({
+        sessions: [
+          activitySession({
+            session_id: "s-stalled",
+            status: "running",
+            runningIds: ["exec-running"],
+          }),
+        ],
+      }),
+    });
+    await seedWaitingInstance(orchestrationStore, "instance-1", "step-1");
+    await orchestrationStore.createScopedTrigger({
+      triggerId: "trigger-timeout",
+      instanceId: "instance-1",
+      stepStateId: "instance-1_step-1",
+      stepKey: "step-1",
+      workspaceId: "ws-1",
+      sessionId: "s-stalled",
+      mode: "next_completion_after_cursor",
+      timeoutAt: 1,
+    });
+
+    const scan = await scanner.scanOnce({ maxActiveExecutions: 1 });
+
+    expect(scan.sessions[0]).toMatchObject({
+      sessionId: "s-stalled",
+      classification: "stalled_needs_attention",
+      consumesExecutionBudget: true,
+      ownsWorkflowSession: true,
+    });
+    expect(scan.budget).toMatchObject({
+      activeExecutionCount: 1,
+      availableExecutionSlots: 0,
+    });
+  });
+
+  it("pages all active triggers so reserved sessions beyond the first page are not treated as idle", async () => {
+    const { orchestrationStore, scanner } = await createHarness();
+    await orchestrationStore.createInstance({
+      instanceId: "instance-many",
+      workflowId: "workflow",
+      trigger: "manual",
+    });
+    await orchestrationStore.startInstance("instance-many");
+    for (let index = 0; index < 201; index += 1) {
+      await orchestrationStore.createScopedTrigger({
+        triggerId: `trigger-${String(index).padStart(3, "0")}`,
+        instanceId: "instance-many",
+        workspaceId: "ws-1",
+        sessionId: `s-${String(index).padStart(3, "0")}`,
+        mode: "next_completion_after_cursor",
+      });
+    }
+
+    const scan = await scanner.scanOnce({ maxActiveExecutions: 10 });
+
+    expect(scan.sessions).toHaveLength(201);
+    expect(
+      scan.sessions.every(
+        (session) => session.classification === "queued_reserved",
+      ),
+    ).toBe(true);
+    expect(scan.budget).toMatchObject({
+      workflowOwnedSessionCount: 201,
+      eligibleSessionCount: 0,
+      blockedSessionCount: 201,
+    });
+    expect(scan.sessions.map((session) => session.sessionId)).toContain(
+      "s-200",
+    );
   });
 
   it("reports unknown_unreachable conservatively when VK activity is unavailable", async () => {

@@ -28,10 +28,12 @@ Budget semantics:
 - `running` consumes active-execution budget and owns the session.
 - `queued_reserved` owns the session but does not consume execution budget.
 - `waiting_on_callback` and `waiting_on_ci` own the session but do not consume
-  execution budget.
+  execution budget unless VK also reports a running turn, or the watched exact
+  execution is still running.
 - `completed_since_cursor`, `failed_or_killed`, `stalled_needs_attention`, and
   `unknown_unreachable` conservatively keep ownership until a later worker/user
-  handles the state.
+  handles the state. A stalled classification can still consume execution budget
+  if VK reports the session is actively running.
 - Only `idle` sessions are eligible for unrelated work.
 
 This slice does not implement trigger satisfaction, response delivery,
