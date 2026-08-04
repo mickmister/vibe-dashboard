@@ -25,6 +25,7 @@ import type {
 } from "./types";
 
 import "./modules/AgentTeamsModule";
+import "./modules/WorkflowTemplatesModule";
 
 // @platform "browser"
 import "./modules/plugins";

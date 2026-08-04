@@ -19,6 +19,7 @@ import { vkClient, type Session } from '../lib/vk-client';
 import { applyResolvedSessionsToTeam, resolveTeamSessionMappings } from '../lib/teamSessionMappingApi';
 import { buildTeamNudgePreview, runTeamGuardrailNudgeWorkflow, type TeamNudgePreview } from '../lib/teamGuardrailNudgeApi';
 import type { TeamAgentActivitySnapshot, TeamGuardrailNudgeWorkflowOutput } from '../workflows/team-guardrail-nudge';
+import type { UpdateWorkflowTemplateInput, WorkflowTemplate } from '../templates/workflowTemplates';
 
 const inputClass = 'w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100';
 const buttonClass = 'rounded-md border border-zinc-700 px-3 py-2 text-sm hover:bg-zinc-900 disabled:opacity-50';
@@ -26,8 +27,12 @@ const primaryButtonClass = 'rounded-md bg-cyan-600 px-3 py-2 text-sm font-medium
 
 export function AgentTeamsDashboard(): React.ReactElement {
   const agentTeamsModule = useModule('agentTeams');
+  const workflowTemplatesModule = useModule('workflowTemplates');
   const teamState = agentTeamsModule.states.teams.useState();
+  const templateState = workflowTemplatesModule.states.templates.useState();
   const selectedTeam = teamState.teams.find((team) => team.id === teamState.selectedTeamId) ?? teamState.teams[0] ?? null;
+  const visibleTemplates = templateState.templates.filter((template) => !template.teamId || template.teamId === selectedTeam?.id);
+  const selectedTemplate = visibleTemplates.find((template) => template.id === templateState.selectedTemplateId) ?? visibleTemplates[0] ?? null;
   const [taskPrompt, setTaskPrompt] = useState('');
   const [context, setContext] = useState('');
   const [targetAgentIds, setTargetAgentIds] = useState<string[]>([]);
@@ -54,6 +59,7 @@ export function AgentTeamsDashboard(): React.ReactElement {
   const [nudgeRunning, setNudgeRunning] = useState(false);
   const [nudgeError, setNudgeError] = useState<string | null>(null);
   const [nudgeResult, setNudgeResult] = useState<{ runId: string; output: TeamGuardrailNudgeWorkflowOutput | null } | null>(null);
+  const [templateError, setTemplateError] = useState<string | null>(null);
 
   const selectedRun = useMemo(
     () => runs.find((run) => run.runId === selectedRunId) ?? runs[0] ?? null,
@@ -135,6 +141,40 @@ export function AgentTeamsDashboard(): React.ReactElement {
         setSessionOptionsError(caught instanceof Error ? caught.message : String(caught));
       });
   }, [mappingWorkspaceId]);
+
+
+  const createTemplate = async () => {
+    setTemplateError(null);
+    try {
+      await workflowTemplatesModule.actions.createTemplate({
+        name: `Workflow template ${templateState.templates.length + 1}`,
+        description: null,
+        teamId: selectedTeam?.id ?? null,
+        body: 'Please work on this task:\n\n{{task}}',
+        targetRoles: selectedTeam?.agents.filter((agent) => agent.enabled).map((agent) => agent.role) ?? [],
+        defaultWorkflowId: 'manual-agent-team-runner',
+      });
+    } catch (caught) {
+      setTemplateError(caught instanceof Error ? caught.message : String(caught));
+    }
+  };
+
+  const updateTemplate = async (templateId: string, patch: UpdateWorkflowTemplateInput) => {
+    setTemplateError(null);
+    try {
+      await workflowTemplatesModule.actions.updateTemplate({ templateId, patch });
+    } catch (caught) {
+      setTemplateError(caught instanceof Error ? caught.message : String(caught));
+    }
+  };
+
+  const useTemplateForManualRun = (template: WorkflowTemplate) => {
+    setTaskPrompt(template.body);
+    if (template.targetRoles.length) {
+      const roles = new Set(template.targetRoles.map((role) => role.toLowerCase()));
+      setTargetAgentIds(selectedTeam?.agents.filter((agent) => roles.has(agent.role.toLowerCase()) && agent.enabled).map((agent) => agent.id) ?? []);
+    }
+  };
 
   const createTeam = async () => {
     await agentTeamsModule.actions.createTeam({
@@ -336,6 +376,20 @@ export function AgentTeamsDashboard(): React.ReactElement {
             onSelectRun={setSelectedRunId}
           />
         ) : null}
+
+        <WorkflowTemplatesPanel
+          templates={visibleTemplates}
+          selectedTemplate={selectedTemplate}
+          selectedTeamId={selectedTeam?.id ?? null}
+          error={templateError}
+          onCreate={() => void createTemplate()}
+          onResetBuiltIn={() => void workflowTemplatesModule.actions.resetBuiltInExample()}
+          onSelect={(templateId) => void workflowTemplatesModule.actions.selectTemplate({ templateId })}
+          onUpdate={(templateId, patch) => void updateTemplate(templateId, patch)}
+          onDelete={(templateId) => void workflowTemplatesModule.actions.deleteTemplate({ templateId })}
+          onDuplicate={(templateId) => void workflowTemplatesModule.actions.duplicateTemplate({ templateId })}
+          onUseTemplate={useTemplateForManualRun}
+        />
 
         <ActivityAttentionPanel activity={activity} error={activityError} loading={loadingActivity} onRefresh={() => void loadActivity()} />
 
