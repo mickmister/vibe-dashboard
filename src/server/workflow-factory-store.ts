@@ -65,6 +65,10 @@ export interface ReserveFactoryWorkItemArgs {
   bindingId?: string | null;
 }
 
+export interface ReleaseStaleReservationsInput {
+  olderThanMs: number;
+}
+
 export class WorkflowFactoryStoreTransitionError extends Error {
   constructor(message: string) {
     super(message);
@@ -205,6 +209,48 @@ export class DbWorkflowFactoryStore {
       `Cannot release factory work item ${itemId} from its current state`,
     );
     return this.getRequiredWorkItem(itemId);
+  }
+
+  async releaseStaleReservations(input: ReleaseStaleReservationsInput): Promise<WorkflowFactoryWorkItemReadModel[]> {
+    const db = await this.getDb();
+    const now = this.now();
+    const cutoff = now - Math.max(0, Math.floor(input.olderThanMs));
+    const staleRows = await db
+      .selectFrom('WorkflowFactoryWorkItem')
+      .select(['itemId'])
+      .where('status', '=', 'reserved')
+      .where('reservedAt', 'is not', null)
+      .where('reservedAt', '<=', cutoff)
+      .orderBy('reservedAt', 'asc')
+      .orderBy('itemId', 'asc')
+      .execute();
+    if (staleRows.length === 0) return [];
+
+    await db
+      .updateTable('WorkflowFactoryWorkItem')
+      .set({
+        status: 'pending',
+        reservedSessionId: null,
+        reservedBindingId: null,
+        reservedAt: null,
+        updatedAt: now,
+        lastErrorJson: serializeJson({ reason: 'reservation_expired' }),
+      })
+      .where('status', '=', 'reserved')
+      .where('reservedAt', 'is not', null)
+      .where('reservedAt', '<=', cutoff)
+      .execute();
+
+    const releasedIds = staleRows.map((row) => row.itemId);
+    const rows = await db
+      .selectFrom('WorkflowFactoryWorkItem')
+      .selectAll()
+      .where('itemId', 'in', releasedIds)
+      .orderBy('priority', 'desc')
+      .orderBy('createdAt', 'asc')
+      .orderBy('itemId', 'asc')
+      .execute();
+    return rows.map(mapWorkItem);
   }
 
   async completeWorkItem(itemId: string): Promise<WorkflowFactoryWorkItemReadModel> {

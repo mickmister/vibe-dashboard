@@ -22,6 +22,7 @@ export interface FactoryAssignmentResult {
 export interface FactorySchedulerRunResult {
   scan: WorkflowActivityScanResult;
   capacity: number;
+  recoveredReservations: WorkflowFactoryWorkItemReadModel[];
   assigned: FactoryAssignmentResult[];
   failed: FactoryAssignmentResult[];
   skipped: WorkflowFactoryWorkItemReadModel[];
@@ -44,16 +45,20 @@ export class WorkflowFactoryScheduler {
       vk: FactorySchedulerVkClient;
       policy: WorkflowSchedulerBudgetPolicy;
       pendingLimit?: number;
+      reservationTimeoutMs?: number;
     },
   ) {}
 
   async runOnce(): Promise<FactorySchedulerRunResult> {
+    const recoveredReservations = await this.options.store.releaseStaleReservations({
+      olderThanMs: this.options.reservationTimeoutMs ?? 5 * 60 * 1000,
+    });
     const scan = await this.options.scanner.scanOnce(this.options.policy);
     const capacity = computeAssignmentCapacity(scan);
     const assigned: FactoryAssignmentResult[] = [];
     const failed: FactoryAssignmentResult[] = [];
     const skipped: WorkflowFactoryWorkItemReadModel[] = [];
-    if (capacity <= 0) return { scan, capacity, assigned, failed, skipped };
+    if (capacity <= 0) return { scan, capacity, recoveredReservations, assigned, failed, skipped };
 
     const pending = await this.options.store.listWorkItems({
       status: 'pending',
@@ -110,7 +115,7 @@ export class WorkflowFactoryScheduler {
       }
     }
 
-    return { scan, capacity, assigned, failed, skipped };
+    return { scan, capacity, recoveredReservations, assigned, failed, skipped };
   }
 }
 

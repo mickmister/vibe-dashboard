@@ -98,6 +98,32 @@ describe('WorkflowFactoryScheduler', () => {
     expect(harness.vk.queueFollowUp).toHaveBeenCalledTimes(2);
   });
 
+  it('recovers stale reservations at run start and can queue the recovered item', async () => {
+    const harness = await createHarness({
+      scan: scanResult({ sessions: [idleSession('session-a', 'role-a')] }),
+      reservationTimeoutMs: 5_000,
+    });
+    await harness.store.createWorkItem(workItem({ itemId: 'item-1' }));
+    await harness.store.reserveWorkItem('item-1', { sessionId: 'session-crashed' });
+    harness.setNow(16_000);
+
+    const result = await harness.scheduler.runOnce();
+
+    expect(result.recoveredReservations).toEqual([
+      expect.objectContaining({
+        itemId: 'item-1',
+        status: 'pending',
+        lastError: { reason: 'reservation_expired' },
+      }),
+    ]);
+    expect(result.assigned).toHaveLength(1);
+    expect(result.assigned[0]).toMatchObject({
+      item: { itemId: 'item-1', status: 'queued', queueItemId: 'queue-1' },
+      session: { sessionId: 'session-a' },
+    });
+    expect(harness.vk.queueFollowUp).toHaveBeenCalledTimes(1);
+  });
+
   it('matches work by workspace role and lane without broad same-workspace assumptions', async () => {
     const harness = await createHarness({
       scan: scanResult({
@@ -117,7 +143,7 @@ describe('WorkflowFactoryScheduler', () => {
   });
 });
 
-async function createHarness(options: { scan: WorkflowActivityScanResult }) {
+async function createHarness(options: { scan: WorkflowActivityScanResult; reservationTimeoutMs?: number }) {
   const handle = await initVdDb({ path: ':memory:' });
   handles.push(handle);
   let now = 10_000;
@@ -132,8 +158,9 @@ async function createHarness(options: { scan: WorkflowActivityScanResult }) {
     store,
     vk,
     policy: { maxActiveExecutions: 8, maxWorkflowOwnedSessions: 8 },
+    reservationTimeoutMs: options.reservationTimeoutMs,
   });
-  return { handle, store, scanner, vk, scheduler };
+  return { handle, store, scanner, vk, scheduler, setNow: (value: number) => { now = value; } };
 }
 
 function workItem(overrides: Partial<Parameters<DbWorkflowFactoryStore['createWorkItem']>[0]> = {}): Parameters<DbWorkflowFactoryStore['createWorkItem']>[0] {

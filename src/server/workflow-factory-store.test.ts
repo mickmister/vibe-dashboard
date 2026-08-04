@@ -67,6 +67,46 @@ describe('DbWorkflowFactoryStore', () => {
       lastError: { message: 'queue failed' },
     });
   });
+
+  it('releases only stale reserved work items and preserves queued/terminal rows', async () => {
+    const harness = await createStore();
+    await harness.store.createWorkItem(workItem({ itemId: 'stale' }));
+    await harness.store.createWorkItem(workItem({ itemId: 'fresh' }));
+    await harness.store.createWorkItem(workItem({ itemId: 'queued' }));
+    await harness.store.createWorkItem(workItem({ itemId: 'cancelled' }));
+
+    harness.setNow(1_000);
+    await harness.store.reserveWorkItem('stale', { sessionId: 'session-stale' });
+    harness.setNow(20_000);
+    await harness.store.reserveWorkItem('fresh', { sessionId: 'session-fresh' });
+    await harness.store.reserveWorkItem('queued', { sessionId: 'session-queued' });
+    await harness.store.markWorkItemQueued('queued', { queueItemId: 'queue-1' });
+    await harness.store.reserveWorkItem('cancelled', { sessionId: 'session-cancelled' });
+    await harness.store.cancelWorkItem('cancelled');
+
+    harness.setNow(24_999);
+    const released = await harness.store.releaseStaleReservations({ olderThanMs: 5_000 });
+
+    expect(released.map((item) => item.itemId)).toEqual(['stale']);
+    await expect(harness.store.getWorkItem('stale')).resolves.toMatchObject({
+      status: 'pending',
+      reservedSessionId: null,
+      reservedAt: null,
+      lastError: { reason: 'reservation_expired' },
+    });
+    await expect(harness.store.getWorkItem('fresh')).resolves.toMatchObject({
+      status: 'reserved',
+      reservedSessionId: 'session-fresh',
+    });
+    await expect(harness.store.getWorkItem('queued')).resolves.toMatchObject({
+      status: 'queued',
+      queueItemId: 'queue-1',
+    });
+    await expect(harness.store.getWorkItem('cancelled')).resolves.toMatchObject({
+      status: 'cancelled',
+      reservedSessionId: 'session-cancelled',
+    });
+  });
 });
 
 async function createStore() {
@@ -74,7 +114,7 @@ async function createStore() {
   handles.push(handle);
   let now = 10_000;
   const store = new DbWorkflowFactoryStore({ db: handle.db, now: () => now++ });
-  return { handle, store };
+  return { handle, store, setNow: (value: number) => { now = value; } };
 }
 
 function workItem(overrides: Partial<Parameters<DbWorkflowFactoryStore['createWorkItem']>[0]> = {}): Parameters<DbWorkflowFactoryStore['createWorkItem']>[0] {
