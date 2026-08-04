@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { AgentTeam, TeamAgent } from '../../teams/agentTeams';
 import type { QueueFollowUpResponse, AgentResponse } from '../../server/vk-client';
-import type { WorkflowRoleSessionResolver, ResolveRoleSessionsResult } from '../../server/role-session-resolver';
+import type { ResolveRoleSessionsInput, ResolveRoleSessionsResult } from '../../server/role-session-resolver';
 import type {
   DbWorkflowOrchestrationStore,
   WorkflowInstanceReadModel,
@@ -20,6 +20,11 @@ import { normalizeDeclarativeWorkflowDefinition } from './definitions';
 export interface DeclarativeWorkflowRuntimeVkClient {
   queueFollowUp(sessionId: string, prompt: string, options?: { source?: 'workflow' | 'system' | 'agent' | 'from_user' }): Promise<QueueFollowUpResponse>;
   getSessionLatestResponse(sessionId: string): Promise<AgentResponse | null>;
+}
+
+export interface DeclarativeWorkflowRuntimeResolver {
+  resolve(input: ResolveRoleSessionsInput): Promise<ResolveRoleSessionsResult>;
+  persistResolvedBindings(input: ResolveRoleSessionsInput, resolution: ResolveRoleSessionsResult): Promise<ResolveRoleSessionsResult>;
 }
 
 export interface DeclarativeWorkflowStartInput {
@@ -75,20 +80,23 @@ interface RuntimeStepIds {
 
 export class DeclarativeWorkflowRuntime {
   private readonly store: DbWorkflowOrchestrationStore;
-  private readonly resolver: Pick<WorkflowRoleSessionResolver, 'resolve'>;
+  private readonly resolver: DeclarativeWorkflowRuntimeResolver;
   private readonly vk: DeclarativeWorkflowRuntimeVkClient;
   private readonly createId: () => string;
+  private readonly now: () => number;
 
   constructor(options: {
     store: DbWorkflowOrchestrationStore;
-    resolver: Pick<WorkflowRoleSessionResolver, 'resolve'>;
+    resolver: DeclarativeWorkflowRuntimeResolver;
     vk: DeclarativeWorkflowRuntimeVkClient;
     createId?: () => string;
+    now?: () => number;
   }) {
     this.store = options.store;
     this.resolver = options.resolver;
     this.vk = options.vk;
     this.createId = options.createId ?? (() => randomUUID());
+    this.now = options.now ?? Date.now;
   }
 
   async start(args: DeclarativeWorkflowStartInput): Promise<DeclarativeWorkflowStartResult> {
@@ -166,6 +174,7 @@ export class DeclarativeWorkflowRuntime {
         cursorCompletedAt: cursor?.completed_at ? new Date(cursor.completed_at).getTime() : null,
         cursorExecutionProcessId: cursor?.execution_process_id ?? null,
         expectedQueueItemId: queued.queued_item.id,
+        timeoutAt: this.computeTriggerTimeoutAt(definition),
       });
       const waitingInstance = await this.store.markInstanceWaiting(ids.instanceId, {
         currentStepId: waitStep.id,
@@ -212,7 +221,7 @@ export class DeclarativeWorkflowRuntime {
         return sessionId ? [[entry.agent.id, { sessionId }]] : [];
       }),
     );
-    const resolution = await this.resolver.resolve({
+    const resolveInput: ResolveRoleSessionsInput = {
       team: args.team,
       workflowId: args.definition.id,
       instanceId: args.instanceId,
@@ -222,24 +231,19 @@ export class DeclarativeWorkflowRuntime {
       overrides,
       allowAutoCreate: args.definition.policies.allowAutoCreateSessions,
       allowRoleNameReuse: true,
-    });
-    if (!resolution.ok) throw new DeclarativeWorkflowRuntimeError(formatResolutionError(resolution));
-    const byRoleId = new Map(resolution.results.map((result) => [result.roleId, result]));
-    const mapped: Record<string, DeclarativeWorkflowResolvedRole> = {};
-    for (const entry of requested) {
-      const result = byRoleId.get(entry.agent.id);
-      if (!result?.sessionId) throw new DeclarativeWorkflowRuntimeError(`Role ${entry.role.key} did not resolve a VK session`);
-      mapped[entry.role.key] = {
-        key: entry.role.key,
-        roleId: result.roleId,
-        roleName: result.roleName,
-        workspaceId: result.workspaceId,
-        sessionId: result.sessionId,
-        bindingId: result.bindingId,
-        warnings: result.warnings,
-      };
-    }
-    return mapped;
+      persistBindings: false,
+    };
+    const preflight = await this.resolver.resolve(resolveInput);
+    if (!preflight.ok) throw new DeclarativeWorkflowRuntimeError(formatResolutionError(preflight));
+    const preflightRoles = mapResolvedRoles(requested, preflight);
+    if (args.definition.policies.blockSameSession) assertDistinctSessions(preflightRoles);
+    const resolution = await this.resolver.persistResolvedBindings({ ...resolveInput, persistBindings: true }, preflight);
+    return mapResolvedRoles(requested, resolution);
+  }
+
+  private computeTriggerTimeoutAt(definition: DeclarativeWorkflowDefinition): number | null {
+    const staleAfterMinutes = definition.policies.stall.staleAfterMinutes;
+    return staleAfterMinutes > 0 ? this.now() + staleAfterMinutes * 60_000 : null;
   }
 
   private async getInstanceSteps(instanceId: string): Promise<WorkflowStepStateReadModel[]> {
@@ -293,6 +297,28 @@ function findAgentForRole(team: AgentTeam, input: Record<string, string>, role: 
     if (agent) return agent;
   }
   throw new DeclarativeWorkflowRuntimeError(`Could not find team agent for role target ${role.key}`);
+}
+
+function mapResolvedRoles(
+  requested: Array<{ role: DeclarativeResolveRolesStep['roles'][number]; agent: TeamAgent }>,
+  resolution: ResolveRoleSessionsResult,
+): Record<string, DeclarativeWorkflowResolvedRole> {
+  const byRoleId = new Map(resolution.results.map((result) => [result.roleId, result]));
+  const mapped: Record<string, DeclarativeWorkflowResolvedRole> = {};
+  for (const entry of requested) {
+    const result = byRoleId.get(entry.agent.id);
+    if (!result?.sessionId) throw new DeclarativeWorkflowRuntimeError(`Role ${entry.role.key} did not resolve a VK session`);
+    mapped[entry.role.key] = {
+      key: entry.role.key,
+      roleId: result.roleId,
+      roleName: result.roleName,
+      workspaceId: result.workspaceId,
+      sessionId: result.sessionId,
+      bindingId: result.bindingId,
+      warnings: result.warnings,
+    };
+  }
+  return mapped;
 }
 
 function assertDistinctSessions(roles: Record<string, DeclarativeWorkflowResolvedRole>): void {

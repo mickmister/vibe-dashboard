@@ -46,6 +46,7 @@ describe('DeclarativeWorkflowRuntime start skeleton', () => {
       sessionId: 'session-impl',
       cursorExecutionProcessId: 'exec-before',
       expectedQueueItemId: 'queue-1',
+      timeoutAt: 1_800_000,
     });
 
     const steps = await harness.store.listStepStates('instance-1');
@@ -86,6 +87,7 @@ describe('DeclarativeWorkflowRuntime start skeleton', () => {
 
     expect(harness.vk.queueFollowUp).not.toHaveBeenCalled();
     await expect(harness.store.getInstance('instance-same')).resolves.toMatchObject({ status: 'failed' });
+    await expect(harness.resolver.listBindings()).resolves.toEqual([]);
   });
 
   it('validates missing workspace before side effects', async () => {
@@ -143,10 +145,11 @@ async function createHarness(options: { sessions?: Session[] } = {}) {
   const handle = await initVdDb({ path: ':memory:' });
   handles.push(handle);
   let now = 1_000;
+  const runtimeNow = 0;
   const store = new DbWorkflowOrchestrationStore({ db: handle.db, now: () => now++ });
   const vk = fakeVk(options.sessions ?? [session('session-impl', 'ws-1', 'implementer'), session('session-review', 'ws-1', 'reviewer')]);
   const resolver = new WorkflowRoleSessionResolver({ db: handle.db, vk, now: () => now++, createBindingId: (() => { let index = 0; return () => `binding-${++index}`; })() });
-  const runtime = new DeclarativeWorkflowRuntime({ store, resolver, vk, createId: () => 'generated' });
+  const runtime = new DeclarativeWorkflowRuntime({ store, resolver, vk, createId: () => 'generated', now: () => runtimeNow });
   return { handle, store, vk, resolver, runtime };
 }
 

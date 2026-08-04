@@ -25,6 +25,7 @@ export interface ResolveRoleSessionsInput {
   overrides?: Record<string, RoleSessionOverride | string | null | undefined>;
   allowAutoCreate?: boolean;
   allowRoleNameReuse?: boolean;
+  persistBindings?: boolean;
 }
 
 export type RoleSessionResolutionStatus = 'resolved' | 'error';
@@ -161,23 +162,34 @@ export class WorkflowRoleSessionResolver {
       return { ok: false, results: errors, errors, warnings: [] };
     }
 
-    const persisted = await this.persistBindings(input, laneId, resolved);
-    const results = persisted.map((binding, index) => {
-      const resolution = resolved[index]!;
-      return {
-        roleId: resolution.roleId,
-        roleName: resolution.roleName,
-        status: 'resolved' as const,
-        sessionId: resolution.session.id,
-        workspaceId: resolution.session.workspace_id,
-        laneId,
-        executor: resolution.session.executor,
-        source: resolution.source,
-        bindingId: binding.bindingId,
-        warnings: resolution.warnings,
-        error: null,
-      };
-    });
+    const results = resolved.map((resolution) => ({
+      roleId: resolution.roleId,
+      roleName: resolution.roleName,
+      status: 'resolved' as const,
+      sessionId: resolution.session.id,
+      workspaceId: resolution.session.workspace_id,
+      laneId,
+      executor: resolution.session.executor,
+      source: resolution.source,
+      bindingId: null,
+      warnings: resolution.warnings,
+      error: null,
+    }));
+    if (input.persistBindings === false) {
+      return { ok: true, results, errors: [], warnings: results.flatMap((result) => result.warnings) };
+    }
+    return this.persistResolvedBindings(input, { ok: true, results, errors: [], warnings: results.flatMap((result) => result.warnings) });
+  }
+
+  async persistResolvedBindings(input: ResolveRoleSessionsInput, resolution: ResolveRoleSessionsResult): Promise<ResolveRoleSessionsResult> {
+    if (!resolution.ok) return resolution;
+    const laneId = input.laneId ?? null;
+    const persisted = await this.persistBindings(input, laneId, resolution.results);
+    const bindingsByRoleId = new Map(persisted.map((binding) => [binding.roleId, binding]));
+    const results = resolution.results.map((result) => ({
+      ...result,
+      bindingId: bindingsByRoleId.get(result.roleId)?.bindingId ?? result.bindingId,
+    }));
     return {
       ok: true,
       results,
@@ -280,16 +292,19 @@ export class WorkflowRoleSessionResolver {
     return row ? mapBinding(row) : null;
   }
 
-  private async persistBindings(input: ResolveRoleSessionsInput, laneId: string | null, resolutions: ResolvedRoleSession[]): Promise<RoleSessionBindingReadModel[]> {
+  private async persistBindings(input: ResolveRoleSessionsInput, laneId: string | null, resolutions: RoleSessionResolutionResult[]): Promise<RoleSessionBindingReadModel[]> {
     const db = await this.getDb();
     const now = this.now();
     return db.transaction().execute(async (trx) => {
       const persisted: RoleSessionBindingReadModel[] = [];
       for (const resolution of resolutions) {
+        if (!resolution.sessionId || !resolution.source) {
+          throw new Error(`Cannot persist unresolved role session binding for ${resolution.roleName}`);
+        }
         await trx
           .updateTable('WorkflowRoleSessionBinding')
           .set({ valid: 0, updatedAt: now })
-          .where('workspaceId', '=', resolution.session.workspace_id)
+          .where('workspaceId', '=', resolution.workspaceId)
           .where('roleId', '=', resolution.roleId)
           .where('valid', '=', 1)
           .$if(laneId === null, (qb) => qb.where('laneId', 'is', null))
@@ -307,9 +322,9 @@ export class WorkflowRoleSessionResolver {
             laneId,
             roleId: resolution.roleId,
             roleName: resolution.roleName,
-            workspaceId: resolution.session.workspace_id,
-            sessionId: resolution.session.id,
-            executor: resolution.session.executor,
+            workspaceId: resolution.workspaceId,
+            sessionId: resolution.sessionId,
+            executor: resolution.executor,
             source: resolution.source,
             valid: 1,
             version: 1,
