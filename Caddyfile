@@ -143,6 +143,25 @@
 		}
 	}
 
+	# Wrapper app — server modules exposed by the dashboard runtime.
+	# Keep these ahead of the VK backend fallback so Mattermost webhooks,
+	# health checks, and routing APIs are reachable through the public VKVD URL.
+	handle /api/chat/* {
+		reverse_proxy localhost:{$DASHBOARD_PORT:3005} {
+			header_up Host {upstream_hostport}
+			header_up Upgrade {http.request.header.Upgrade}
+			header_up Connection {http.request.header.Connection}
+		}
+	}
+
+	handle /api/mattermost/* {
+		reverse_proxy localhost:{$DASHBOARD_PORT:3005} {
+			header_up Host {upstream_hostport}
+			header_up Upgrade {http.request.header.Upgrade}
+			header_up Connection {http.request.header.Connection}
+		}
+	}
+
 	# Route to VSCode Server if URL has "folder" query parameter
 	@vscode_query {
 		query folder=*
