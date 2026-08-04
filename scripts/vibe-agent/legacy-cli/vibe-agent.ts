@@ -2097,6 +2097,10 @@ Commands:
                               Read durable workflow instance/step/trigger status
     --json                     Output as JSON
 
+  workflow run-once [workflow-id]
+                              Advance declarative workflow worker once
+    --json                     Output as JSON
+
   submit "<message>"           Submit work for review (sends to reviewer)
     --files <file1,file2>      List of changed files
     --json                     Output as JSON
@@ -2454,7 +2458,11 @@ async function workflowCommand(args: string[]): Promise<void> {
     await workflowStatus(args.slice(1));
     return;
   }
-  throw new Error('Usage: vibe-agent workflow <run|status|follow> ...');
+  if (subcommand === 'run-once' || subcommand === 'tick') {
+    await workflowRunOnce(args.slice(1));
+    return;
+  }
+  throw new Error('Usage: vibe-agent workflow <run|status|follow|run-once> ...');
 }
 
 async function workflowRun(args: string[]): Promise<void> {
@@ -2512,6 +2520,27 @@ async function workflowStatus(args: string[]): Promise<void> {
   for (const step of steps) {
     console.log(`  ${step.stepKey}: ${step.status}`);
   }
+}
+
+async function workflowRunOnce(args: string[]): Promise<void> {
+  const workflowId = args.find((arg) => !arg.startsWith('--')) ?? 'two-agent-review-round';
+  const flags = parseWorkflowFlags(args.filter((arg) => arg !== workflowId));
+  const result = await dashboardRequest(`/dashboard/api/declarative-workflows/${encodeURIComponent(workflowId)}/run-once`, {
+    method: 'POST',
+  });
+  if (flags.has('json')) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+  const resumed = Array.isArray((result as any)?.result?.resumed) ? (result as any).result.resumed.length : 0;
+  const skipped = Array.isArray((result as any)?.result?.skipped) ? (result as any).result.skipped.length : 0;
+  const completed = Array.isArray((result as any)?.result?.completed) ? (result as any).result.completed.length : 0;
+  const errors = Array.isArray((result as any)?.result?.errors) ? (result as any).result.errors.length : 0;
+  console.log(`Workflow ${workflowId} run-once complete`);
+  console.log(`Resumed: ${resumed}`);
+  console.log(`Completed: ${completed}`);
+  console.log(`Skipped: ${skipped}`);
+  console.log(`Errors: ${errors}`);
 }
 
 function parseWorkflowFlags(args: string[]): Map<string, string | true> {
