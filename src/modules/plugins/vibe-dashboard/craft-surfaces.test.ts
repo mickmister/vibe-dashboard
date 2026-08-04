@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   createEffectiveWorkspaceWithCraftSurfaces,
   filterEphemeralCraftSurfaceActiveItems,
+  getEffectivePairs,
   isEphemeralCraftSurfaceTab,
   stripEphemeralCraftSurfaceSessionRefs,
   stripEphemeralCraftSurfaceTabsFromWorkspace,
@@ -233,6 +234,18 @@ describe("dynamic Craft surfaces", () => {
     });
 
     expect(effective.tabGroups[0]!.pairs).toEqual(
+      expect.arrayContaining([
+        {
+          id: "surface+custom",
+          tabIds: [
+            "craft-surface:craft_workspace:app.example.notes/notes",
+            "tab_custom",
+          ],
+          ratios: [50, 50],
+        },
+      ]),
+    );
+    expect(getEffectivePairs(effective.tabGroups[0]!)).toEqual(
       expect.arrayContaining([
         {
           id: "surface+custom",

@@ -315,7 +315,6 @@ async function loadRepoDiff(
     const patch = await git(repoPath, [
       'diff',
       '--find-renames',
-      '--binary',
       ...comparison.diffRange,
     ]);
     const files = parseNameStatus(
