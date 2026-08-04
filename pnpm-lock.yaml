@@ -4,6 +4,11 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  springboard@0.0.1-dev-jamapp-12:
+    hash: aa8585024c524df26b680948db73718853d2e62293e7d9f93d66109dca25d7c6
+    path: patches/springboard@0.0.1-dev-jamapp-12.patch
+
 importers:
 
   .:
@@ -70,7 +75,7 @@ importers:
         version: 7.8.2
       springboard:
         specifier: 0.0.1-dev-jamapp-12
-        version: 0.0.1-dev-jamapp-12(crossws@0.4.4)(immer@11.1.4)(kysely@0.28.11)(react-dom@19.2.4(react@19.2.4))(react-router@7.13.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react@19.2.4)(rxjs@7.8.2)(vite@7.3.1(@types/node@25.2.3)(jiti@2.6.1)(lightningcss@1.30.2))
+        version: 0.0.1-dev-jamapp-12(patch_hash=aa8585024c524df26b680948db73718853d2e62293e7d9f93d66109dca25d7c6)(crossws@0.4.4)(immer@11.1.4)(kysely@0.28.11)(react-dom@19.2.4(react@19.2.4))(react-router@7.13.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react@19.2.4)(rxjs@7.8.2)(vite@7.3.1(@types/node@25.2.3)(jiti@2.6.1)(lightningcss@1.30.2))
       tailwindcss:
         specifier: ^4.1.18
         version: 4.1.18
@@ -7667,7 +7672,7 @@ snapshots:
 
   source-map@0.6.1: {}
 
-  springboard@0.0.1-dev-jamapp-12(crossws@0.4.4)(immer@11.1.4)(kysely@0.28.11)(react-dom@19.2.4(react@19.2.4))(react-router@7.13.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react@19.2.4)(rxjs@7.8.2)(vite@7.3.1(@types/node@25.2.3)(jiti@2.6.1)(lightningcss@1.30.2)):
+  springboard@0.0.1-dev-jamapp-12(patch_hash=aa8585024c524df26b680948db73718853d2e62293e7d9f93d66109dca25d7c6)(crossws@0.4.4)(immer@11.1.4)(kysely@0.28.11)(react-dom@19.2.4(react@19.2.4))(react-router@7.13.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react@19.2.4)(rxjs@7.8.2)(vite@7.3.1(@types/node@25.2.3)(jiti@2.6.1)(lightningcss@1.30.2)):
     dependencies:
       commander: 14.0.3
       dexie: 4.3.0
