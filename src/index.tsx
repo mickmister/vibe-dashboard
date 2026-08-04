@@ -33,6 +33,7 @@ import "./modules/MainUIShellModule";
 import "./modules/ObservabilityServerModule";
 import "./modules/WorkflowServerModule";
 import "./modules/plugins/kanban/jira/serverModule";
+import "./modules/plugins/kanban/linear/serverModule";
 // @platform end
 
 import "./modules/BeadsFormModule";
