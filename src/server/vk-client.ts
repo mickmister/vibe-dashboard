@@ -70,6 +70,8 @@ interface ApiEnvelope<T> {
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
+const MAX_WORKSPACE_REPOS_BATCH_SIZE = 500;
+
 export interface VibeKanbanServerClientOptions {
   baseUrl?: string;
   fetch?: FetchLike;
@@ -122,11 +124,29 @@ export class VibeKanbanServerClient {
     return this.get(`/workspaces/${encodeURIComponent(workspaceId)}/repos`);
   }
 
-  getWorkspaceReposBatch(
+  async getWorkspaceReposBatch(
     workspaceIds: string[],
   ): Promise<WorkspaceReposResponse[]> {
-    if (workspaceIds.length === 0) return Promise.resolve([]);
-    return this.post('/workspaces/repos/batch', { workspace_ids: workspaceIds });
+    if (workspaceIds.length === 0) return [];
+    const results: WorkspaceReposResponse[] = [];
+    for (
+      let index = 0;
+      index < workspaceIds.length;
+      index += MAX_WORKSPACE_REPOS_BATCH_SIZE
+    ) {
+      results.push(
+        ...(await this.post<WorkspaceReposResponse[]>(
+          '/workspaces/repos/batch',
+          {
+            workspace_ids: workspaceIds.slice(
+              index,
+              index + MAX_WORKSPACE_REPOS_BATCH_SIZE,
+            ),
+          },
+        )),
+      );
+    }
+    return results;
   }
 
   getSessions(workspaceId: string): Promise<Session[]> {

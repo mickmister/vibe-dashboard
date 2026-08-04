@@ -86,6 +86,37 @@ describe('VibeKanbanServerClient', () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
+  it('chunks batch workspace repo requests to stay within VK API limits', async () => {
+    const workspaceIds = Array.from({ length: 501 }, (_, index) => `ws${index}`);
+    const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => {
+      const { workspace_ids: requestedIds } = JSON.parse(String(init?.body)) as {
+        workspace_ids: string[];
+      };
+      return jsonResponse({
+        success: true,
+        data: requestedIds.map((workspace_id) => ({
+          workspace_id,
+          repos: [],
+        })),
+      });
+    });
+    const client = new VibeKanbanServerClient({
+      baseUrl: 'http://vk.local/api',
+      fetch: fetchImpl,
+    });
+
+    await expect(client.getWorkspaceReposBatch(workspaceIds)).resolves.toEqual(
+      workspaceIds.map((workspace_id) => ({ workspace_id, repos: [] })),
+    );
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(
+      JSON.parse(String(fetchImpl.mock.calls[0]![1]?.body)).workspace_ids,
+    ).toEqual(workspaceIds.slice(0, 500));
+    expect(
+      JSON.parse(String(fetchImpl.mock.calls[1]![1]?.body)).workspace_ids,
+    ).toEqual(workspaceIds.slice(500));
+  });
+
   it('fetches workspaces and workspace repos from VK API envelope', async () => {
     const fetchImpl = vi.fn(async (url: string) => {
       if (url === 'http://vk.local/api/workspaces') {
