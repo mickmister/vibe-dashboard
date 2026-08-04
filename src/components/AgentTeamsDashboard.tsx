@@ -488,6 +488,73 @@ function createBlankAgent(): TeamAgent {
 }
 
 
+function WorkflowTemplatesPanel(props: {
+  templates: WorkflowTemplate[];
+  selectedTemplate: WorkflowTemplate | null;
+  selectedTeamId: string | null;
+  error: string | null;
+  onCreate: () => void;
+  onResetBuiltIn: () => void;
+  onSelect: (templateId: string | null) => void;
+  onUpdate: (templateId: string, patch: UpdateWorkflowTemplateInput) => void;
+  onDelete: (templateId: string) => void;
+  onDuplicate: (templateId: string) => void;
+  onUseTemplate: (template: WorkflowTemplate) => void;
+}) {
+  const template = props.selectedTemplate;
+  return (
+    <section className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="font-medium">Workflow templates</h2>
+          <p className="mt-1 text-xs text-zinc-500">Store reusable prompt/workflow defaults. Execution is still manual; templates populate the current team run.</p>
+        </div>
+        <div className="flex gap-2">
+          <button className={buttonClass} onClick={props.onResetBuiltIn}>Add example</button>
+          <button className={primaryButtonClass} onClick={props.onCreate}>New template</button>
+        </div>
+      </div>
+      {props.error ? <div role="alert" className="mt-3 rounded border border-red-800 bg-red-950/40 p-3 text-sm text-red-200">{props.error}</div> : null}
+      <div className="mt-4 grid gap-4 lg:grid-cols-[320px_1fr]">
+        <div className="max-h-80 overflow-auto rounded border border-zinc-800">
+          {props.templates.length ? props.templates.map((entry) => (
+            <button key={entry.id} className={`block w-full border-b border-zinc-800 px-3 py-2 text-left text-sm ${template?.id === entry.id ? 'bg-cyan-950/40' : 'hover:bg-zinc-900'}`} onClick={() => props.onSelect(entry.id)}>
+              <div className="font-medium">{entry.name}</div>
+              <div className="text-xs text-zinc-500">{entry.teamId ? 'Team-scoped' : 'Global'} · {entry.defaultWorkflowId ?? 'no workflow'} · roles {entry.targetRoles.length || 'any'}</div>
+            </button>
+          )) : <p className="p-3 text-sm text-zinc-400">No templates yet. Add one or reset the example.</p>}
+        </div>
+        {template ? (
+          <div className="space-y-3">
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="text-sm">Name<input className={`${inputClass} mt-1`} value={template.name} onChange={(event) => props.onUpdate(template.id, { name: event.target.value })} /></label>
+              <label className="text-sm">Workflow<select className={`${inputClass} mt-1`} value={template.defaultWorkflowId ?? 'manual-agent-team-runner'} onChange={(event) => props.onUpdate(template.id, { defaultWorkflowId: event.target.value || null })}><option value="manual-agent-team-runner">manual-agent-team-runner</option><option value="team-guardrail-nudge">team-guardrail-nudge</option></select></label>
+              <label className="text-sm">Description<input className={`${inputClass} mt-1`} value={template.description ?? ''} onChange={(event) => props.onUpdate(template.id, { description: event.target.value || null })} /></label>
+              <label className="text-sm">Target roles<input className={`${inputClass} mt-1`} placeholder="implementer, reviewer" value={template.targetRoles.join(', ')} onChange={(event) => props.onUpdate(template.id, { targetRoles: parseCsv(event.target.value) })} /></label>
+              <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={template.teamId === props.selectedTeamId && Boolean(props.selectedTeamId)} onChange={(event) => props.onUpdate(template.id, { teamId: event.target.checked ? props.selectedTeamId : null })} disabled={!props.selectedTeamId} /> Scope to selected team</label>
+              <label className="text-sm">Fan-in mode<input className={`${inputClass} mt-1`} placeholder="all_at_once / handle_as_they_come" value={template.policyOverrides?.fanInMode ?? ''} onChange={(event) => props.onUpdate(template.id, { policyOverrides: { ...template.policyOverrides, fanInMode: event.target.value || null } })} /></label>
+              <label className="text-sm">Max concurrency override<input className={`${inputClass} mt-1`} type="number" min={1} value={template.policyOverrides?.maxConcurrentAgents ?? ''} onChange={(event) => props.onUpdate(template.id, { policyOverrides: { ...template.policyOverrides, maxConcurrentAgents: event.target.value ? Number(event.target.value) : null } })} /></label>
+              <label className="text-sm">Max nudges override<input className={`${inputClass} mt-1`} type="number" min={0} value={template.policyOverrides?.maxNudgesPerRun ?? ''} onChange={(event) => props.onUpdate(template.id, { policyOverrides: { ...template.policyOverrides, maxNudgesPerRun: event.target.value ? Number(event.target.value) : null } })} /></label>
+              <label className="text-sm md:col-span-2">Future skill file refs<input className={`${inputClass} mt-1`} placeholder="skills/tdd.md, skills/ux-review.md" value={(template.skillRefs ?? []).join(', ')} onChange={(event) => props.onUpdate(template.id, { skillRefs: parseCsv(event.target.value) })} /></label>
+            </div>
+            <label className="block text-sm">Prompt template body<textarea className={`${inputClass} mt-1`} rows={6} value={template.body} onChange={(event) => props.onUpdate(template.id, { body: event.target.value })} /></label>
+            <div className="flex flex-wrap gap-2">
+              <button className={primaryButtonClass} onClick={() => props.onUseTemplate(template)}>Use for manual run</button>
+              <button className={buttonClass} onClick={() => props.onDuplicate(template.id)}>Duplicate</button>
+              <button className="rounded-md border border-red-900 px-3 py-2 text-sm text-red-200 hover:bg-red-950/40" onClick={() => props.onDelete(template.id)}>Delete</button>
+            </div>
+          </div>
+        ) : <p className="text-sm text-zinc-400">Select a template to edit.</p>}
+      </div>
+    </section>
+  );
+}
+
+function parseCsv(value: string): string[] {
+  return value.split(',').map((entry) => entry.trim()).filter(Boolean);
+}
+
+
 function GuardrailNudgePanel(props: {
   team: AgentTeam;
   activity: TeamAgentActivitySnapshot[];
