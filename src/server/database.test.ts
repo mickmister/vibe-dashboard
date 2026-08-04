@@ -32,12 +32,28 @@ describe('VD database', () => {
         '20260804000000_workflow_external_waits',
         '20260804010000_response_pipes',
         '20260804020000_factory_work_items',
-      ];
+      ]);
       const tables = await sql<{ name: string }>`
         SELECT name FROM sqlite_master
-        WHERE type = 'table' AND name IN ('WorkflowRun', 'WorkflowRunEvent', 'WorkflowInstance', 'WorkflowStepState', 'WorkflowScopedTrigger', 'WorkflowRoleSessionBinding', 'WorkflowExternalWait', 'ResponseCollection', 'ResponsePipeDelivery', 'WorkflowFactoryWorkItem', 'Migration')
+        WHERE type = 'table' AND name IN (
+          'WorkflowRun', 'WorkflowRunEvent', 'WorkflowInstance', 'WorkflowStepState',
+          'WorkflowScopedTrigger', 'WorkflowRoleSessionBinding', 'WorkflowExternalWait',
+          'ResponseCollection', 'ResponsePipeDelivery', 'WorkflowFactoryWorkItem', 'Migration'
+        )
       `.execute(handle.db);
-      expect(tables.rows.map((table) => table.name).sort()).toEqual(['Migration', 'ResponseCollection', 'ResponsePipeDelivery', 'WorkflowExternalWait', 'WorkflowFactoryWorkItem', 'WorkflowInstance', 'WorkflowRoleSessionBinding', 'WorkflowRun', 'WorkflowRunEvent', 'WorkflowScopedTrigger', 'WorkflowStepState']);
+      expect(tables.rows.map((table) => table.name).sort()).toEqual([
+        'Migration',
+        'ResponseCollection',
+        'ResponsePipeDelivery',
+        'WorkflowExternalWait',
+        'WorkflowFactoryWorkItem',
+        'WorkflowInstance',
+        'WorkflowRoleSessionBinding',
+        'WorkflowRun',
+        'WorkflowRunEvent',
+        'WorkflowScopedTrigger',
+        'WorkflowStepState',
+      ]);
     } finally {
       await handle.db.destroy();
       handle.sqlite.close();
@@ -60,20 +76,7 @@ describe('VD database', () => {
           'idx_workflow_run_event_run_index',
           'idx_workflow_instance_workflow_status_updated',
           'idx_workflow_instance_team_status_updated',
-          'idx_factory_work_assignment',
-        'idx_factory_work_instance_status',
-        'idx_factory_work_pending_order',
-        'idx_factory_work_queue_item',
-        'idx_factory_work_workspace_role_lane_status',
-        'idx_response_collection_instance_status',
-        'idx_response_collection_trigger',
-        'idx_response_collection_workflow_run',
-        'idx_response_pipe_delivery_instance_status',
-        'idx_response_pipe_delivery_queue_item',
-        'idx_response_pipe_delivery_source',
-        'idx_response_pipe_delivery_target_status',
-        'idx_response_pipe_delivery_trigger_status',
-        'idx_workflow_instance_lane_status_updated',
+          'idx_workflow_instance_lane_status_updated',
           'idx_workflow_instance_latest_run',
           'idx_workflow_instance_recovery',
           'idx_workflow_step_instance_key',
@@ -91,12 +94,7 @@ describe('VD database', () => {
           'idx_workflow_external_wait_active_session',
           'idx_workflow_external_wait_instance_status',
           'idx_workflow_external_wait_source_execution',
-          'idx_factory_work_assignment',
-        'idx_factory_work_instance_status',
-        'idx_factory_work_pending_order',
-        'idx_factory_work_queue_item',
-        'idx_factory_work_workspace_role_lane_status',
-        'idx_response_collection_instance_status',
+          'idx_response_collection_instance_status',
           'idx_response_collection_trigger',
           'idx_response_collection_workflow_run',
           'idx_response_pipe_delivery_source',
