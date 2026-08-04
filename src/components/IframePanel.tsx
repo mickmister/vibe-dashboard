@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react';
+import React, { useRef, useEffect, useState, useCallback, useLayoutEffect } from 'react';
 import { Group, Panel, Separator } from 'react-resizable-panels';
 import type { TabGroup, Tab } from '../types';
 import type { WorkspaceState, SavedWorkspaceSession } from '../types';
@@ -6,7 +6,12 @@ import { AppLoadingScreen } from './AppLoadingScreen';
 import { SpacesOverview } from './SpacesOverview';
 import { DiffView } from './DiffView';
 import { hasSameBaseOrigin } from '../lib/originTrust';
-import { getEffectivePairs, getEffectiveTabs } from '../lib/builtInWorkspaceTabs';
+import {
+  getEffectivePairs,
+  getEffectiveTabs,
+} from '../modules/plugins/vibe-dashboard/craft-surfaces';
+import { getPluginIframePolicy, getPluginIframePostMessageTargetOrigin, parsePluginInternalUrl } from '../modules/plugins/vibe-dashboard/runtime';
+import { getRegisteredPluginIframePolicy, resolvePluginInternalRouteIframeSrc } from '../modules/plugins/vibe-dashboard/registry';
 
 const INTERNAL_URL_PREFIX = 'internal://';
 const CADDY_PORT = process.env.CADDY_PORT || '';
@@ -26,8 +31,10 @@ interface IframePanelProps {
   onRenameSession?: (sessionId: string, name: string) => void;
   onDeleteSession?: (sessionId: string) => void;
   onStartNewSession?: () => void;
-  onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void;
-  onOpenVKWorkspace?: (taskAttemptId: string, name: string, containerRef: string, spaceId: string) => void;
+  onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void | Promise<void>;
+  onOpenVKWorkspace?: (taskAttemptId: string, name: string, containerRef: string, spaceId: string) => void | Promise<void>;
+  onBeadReferenceClick?: (agentTabId: string, beadId: string) => void | Promise<void>;
+  onBeadFormSubmitted?: (formsTabId: string) => void | Promise<void>;
 }
 
 /**
@@ -40,9 +47,12 @@ type IframeEntry = {
   container: HTMLDivElement;
   loaded: boolean;
   contentReady: boolean;
+  readyToShow: boolean;
   loadError: boolean;
   lastAccessedAt: number;
   listeners: Set<() => void>;
+  revealDelayTimeoutId: ReturnType<typeof setTimeout> | null;
+  loadToken: number;
 };
 
 type TabRenderTarget =
@@ -50,22 +60,20 @@ type TabRenderTarget =
   | { kind: 'blocked-self-app' }
   | { kind: 'iframe'; iframeSrc: string };
 
-function getIframeStoreTabId(tabGroupId: string, tabId: string): string {
-  return `${tabGroupId}:${tabId}`;
-}
-
-function toIframeStoreTab(tabGroupId: string, tab: Tab): Tab {
-  return {
-    ...tab,
-    id: getIframeStoreTabId(tabGroupId, tab.id),
-  };
-}
+type RetainedIframeTab = {
+  tab: Tab;
+  iframeKey: string;
+};
 
 let iframeStore: Map<string, IframeEntry> = new Map();
 let retainedSessionId: string | null = null;
 let retainedTabIds: Set<string> = new Set();
-let keyboardIsolationDocuments: WeakSet<Document> = new WeakSet();
+let activatedIframeKeys: Set<string> = new Set();
 const MAX_RETAINED_IFRAMES = 5;
+export const IFRAME_REVEAL_DELAY_MS = 250;
+export const IFRAME_PORT_PREFIX_REVEAL_DELAY_MS = 1000;
+const IFRAME_ACTIVATION_SHIELD_MS = 1000;
+export const IFRAME_VISUAL_READY_TIMEOUT_MS = 5000;
 
 // Preserve iframe store across HMR updates using Vite's HMR API.
 try {
@@ -81,14 +89,14 @@ try {
     if (hot.data.retainedTabIds) {
       retainedTabIds = hot.data.retainedTabIds;
     }
-    if (hot.data.keyboardIsolationDocuments) {
-      keyboardIsolationDocuments = hot.data.keyboardIsolationDocuments;
+    if (hot.data.activatedIframeKeys) {
+      activatedIframeKeys = hot.data.activatedIframeKeys;
     }
     hot.dispose((data: Record<string, unknown>) => {
       data.iframeStore = iframeStore;
       data.retainedSessionId = retainedSessionId;
       data.retainedTabIds = retainedTabIds;
-      data.keyboardIsolationDocuments = keyboardIsolationDocuments;
+      data.activatedIframeKeys = activatedIframeKeys;
     });
   }
 } catch {
@@ -100,6 +108,33 @@ function isTrustedIframeOrigin(origin: string): boolean {
 }
 
 function applyIframePolicy(iframe: HTMLIFrameElement, iframeSrc: string) {
+  const registeredPolicy = getRegisteredPluginIframePolicy({
+    iframeSrc,
+    origin: window.location.origin,
+  });
+  const pluginPolicy = getPluginIframePolicy({
+    iframeSrc,
+    hostOrigin: window.location.origin,
+    allowSameOrigin: registeredPolicy?.allowSameOrigin,
+  });
+
+  if (pluginPolicy.isPluginFrontendAsset) {
+    iframe.setAttribute('sandbox', pluginPolicy.sandbox);
+    iframe.setAttribute('allow', pluginPolicy.allow);
+    iframe.dataset.pluginEventOrigin = pluginPolicy.targetOrigin;
+    iframe.dataset.pluginPostMessageTargetOrigin = getPluginIframePostMessageTargetOrigin(pluginPolicy);
+    if (pluginPolicy.requiresSeparateOriginForSameOriginStorage) {
+      iframe.dataset.pluginSameOriginStorageBlocked = 'true';
+      console.warn(
+        'Plugin iframe requested allow-same-origin on the host origin; keeping the iframe opaque until a separate plugin origin is configured.',
+        { iframeSrc },
+      );
+    } else {
+      delete iframe.dataset.pluginSameOriginStorageBlocked;
+    }
+    return;
+  }
+
   const trusted = (() => {
     try {
       return isTrustedIframeOrigin(new URL(iframeSrc).origin);
@@ -120,27 +155,227 @@ function applyIframePolicy(iframe: HTMLIFrameElement, iframeSrc: string) {
   );
 }
 
-function installIframeKeyboardIsolation(iframe: HTMLIFrameElement) {
-  try {
-    const doc = iframe.contentDocument || iframe.contentWindow?.document;
-    if (!doc) return;
-    if (keyboardIsolationDocuments.has(doc)) return;
+function notifyIframeListeners(entry: IframeEntry) {
+  entry.listeners.forEach((fn) => fn());
+}
 
-    keyboardIsolationDocuments.add(doc);
+function clearIframeRevealDelay(entry: IframeEntry) {
+  if (entry.revealDelayTimeoutId == null) return;
+  clearTimeout(entry.revealDelayTimeoutId);
+  entry.revealDelayTimeoutId = null;
+}
 
-    doc.addEventListener(
-      'keydown',
-      (event) => {
-        const key = event.key.toLowerCase();
-        if ((event.metaKey || event.ctrlKey) && key === 's') {
-          event.stopPropagation();
-        }
-      },
-      { capture: true },
-    );
-  } catch {
-    // Cross-origin iframes keep their own keyboard handling.
+function resetIframeLoadReadiness(entry: IframeEntry) {
+  clearIframeRevealDelay(entry);
+  entry.loaded = false;
+  entry.contentReady = false;
+  entry.readyToShow = false;
+  entry.loadError = false;
+  entry.loadToken += 1;
+}
+
+export function getIframeRevealDelayMs(host = typeof window === 'undefined' ? '' : window.location.host): number {
+  return /^port-\d+\./.test(host) ? IFRAME_PORT_PREFIX_REVEAL_DELAY_MS : IFRAME_REVEAL_DELAY_MS;
+}
+
+function markIframeReadyToShow(
+  entry: IframeEntry,
+  expectedLoadToken: number,
+  delayMs = getIframeRevealDelayMs(),
+) {
+  if (entry.loadToken !== expectedLoadToken || entry.readyToShow || entry.revealDelayTimeoutId != null) {
+    return;
   }
+
+  entry.revealDelayTimeoutId = setTimeout(() => {
+    entry.revealDelayTimeoutId = null;
+    if (entry.loadToken !== expectedLoadToken || entry.readyToShow) {
+      return;
+    }
+
+    entry.readyToShow = true;
+    notifyIframeListeners(entry);
+  }, delayMs);
+}
+
+export function getIframeRevealStyle(readyToShow: boolean): React.CSSProperties {
+  return {
+    opacity: readyToShow ? 1 : 0,
+    pointerEvents: readyToShow ? 'auto' : 'none',
+    transition: readyToShow ? 'opacity 120ms ease-out' : 'none',
+  };
+}
+
+export function shouldShowIframeLoadingOverlay(isLoaded: boolean, activationShielded: boolean): boolean {
+  return !isLoaded || activationShielded;
+}
+
+function hasNonBlankElementBackground(element: Element, view: Window): boolean {
+  return !isBlankIframeBackgroundColor(view.getComputedStyle(element).backgroundColor);
+}
+
+function isVisiblySizedElement(element: Element, view: Window): boolean {
+  const style = view.getComputedStyle(element);
+  if (
+    style.display === 'none' ||
+    style.visibility === 'hidden' ||
+    Number(style.opacity) <= 0
+  ) {
+    return false;
+  }
+
+  const rect = element.getBoundingClientRect();
+  return rect.width > 0 && rect.height > 0;
+}
+
+function addElementAndAncestors(candidates: Set<Element>, element: Element | null) {
+  let current = element;
+  while (current) {
+    candidates.add(current);
+    current = current.parentElement;
+  }
+}
+
+function getViewportSampleElements(doc: Document): Element[] {
+  const view = doc.defaultView;
+  if (!view) return [];
+
+  const width = Math.max(doc.documentElement.clientWidth, view.innerWidth || 0);
+  const height = Math.max(doc.documentElement.clientHeight, view.innerHeight || 0);
+  if (width <= 0 || height <= 0) return [];
+
+  const points = [
+    { x: 0.5, y: 0.5 },
+    { x: 0.1, y: 0.1 },
+    { x: 0.9, y: 0.1 },
+    { x: 0.1, y: 0.9 },
+    { x: 0.9, y: 0.9 },
+  ];
+
+  return points.flatMap((point) => {
+    const x = Math.min(Math.max(Math.round(width * point.x), 0), Math.max(width - 1, 0));
+    const y = Math.min(Math.max(Math.round(height * point.y), 0), Math.max(height - 1, 0));
+    const element = doc.elementFromPoint(x, y);
+    return element ? [element] : [];
+  });
+}
+
+function hasVisibleNonBlankBackground(doc: Document, view: Window): boolean {
+  const candidates = new Set<Element>();
+  addElementAndAncestors(candidates, doc.body);
+  addElementAndAncestors(candidates, doc.documentElement);
+
+  for (const element of getViewportSampleElements(doc)) {
+    addElementAndAncestors(candidates, element);
+  }
+
+  for (const selector of ['#root', '[role="application"]', 'main', '.monaco-workbench', '.editor-container']) {
+    const element = doc.querySelector(selector);
+    if (element) {
+      addElementAndAncestors(candidates, element);
+    }
+  }
+
+  return Array.from(candidates).some(
+    (element) => isVisiblySizedElement(element, view) && hasNonBlankElementBackground(element, view),
+  );
+}
+
+function hasVisibleTextContent(doc: Document, view: Window): boolean {
+  if (!(doc.body && isVisiblySizedElement(doc.body, view))) return false;
+  const text = doc.body?.innerText || doc.body?.textContent || '';
+  return text.trim().length > 0;
+}
+
+export function hasVisualReadyBackground(doc: Document): boolean {
+  const view = doc.defaultView;
+  if (!(view && doc.readyState === 'complete')) return false;
+
+  return Boolean(
+    hasVisibleNonBlankBackground(doc, view) ||
+    hasVisibleTextContent(doc, view)
+  );
+}
+
+export function isBlankIframeBackgroundColor(backgroundColor: string): boolean {
+  const normalized = backgroundColor.trim().toLowerCase();
+  return (
+    normalized === '' ||
+    normalized === 'transparent' ||
+    normalized === 'white' ||
+    normalized === '#fff' ||
+    normalized === '#ffffff' ||
+    normalized === 'rgb(255, 255, 255)' ||
+    normalized === 'rgba(255, 255, 255, 1)' ||
+    normalized === 'rgba(0, 0, 0, 0)'
+  );
+}
+
+function waitForIframeVisualReadiness(
+  iframe: HTMLIFrameElement,
+  entry: IframeEntry,
+  expectedLoadToken: number,
+) {
+  let stableFrameCount = 0;
+  const startedAt = Date.now();
+
+  const checkReady = () => {
+    if (entry.loadToken !== expectedLoadToken || entry.readyToShow) return;
+
+    let doc: Document | undefined | null;
+    try {
+      doc = iframe.contentDocument || iframe.contentWindow?.document;
+    } catch {
+      entry.contentReady = true;
+      markIframeReadyToShow(entry, expectedLoadToken);
+      return;
+    }
+
+    if (!doc) {
+      entry.contentReady = true;
+      markIframeReadyToShow(entry, expectedLoadToken);
+      return;
+    }
+
+    const elapsedMs = Date.now() - startedAt;
+    if (hasVisualReadyBackground(doc)) {
+      stableFrameCount += 1;
+    } else {
+      stableFrameCount = 0;
+    }
+
+    if (stableFrameCount >= 2) {
+      entry.contentReady = true;
+      markIframeReadyToShow(entry, expectedLoadToken);
+      return;
+    }
+
+    if (elapsedMs >= IFRAME_VISUAL_READY_TIMEOUT_MS) {
+      entry.contentReady = true;
+      markIframeReadyToShow(entry, expectedLoadToken);
+      return;
+    }
+
+    requestAnimationFrame(checkReady);
+  };
+
+  requestAnimationFrame(checkReady);
+}
+
+function markIframeReadyToShowImmediately(entry: IframeEntry) {
+  clearIframeRevealDelay(entry);
+  entry.readyToShow = true;
+  notifyIframeListeners(entry);
+}
+
+function normalizeIframeEntry(entry: IframeEntry) {
+  entry.readyToShow ??= entry.loaded && entry.contentReady;
+  entry.revealDelayTimeoutId ??= null;
+  entry.loadToken ??= 0;
+}
+
+function isIframeReadyToShow(entry: IframeEntry) {
+  return entry.readyToShow ?? (entry.loaded && entry.contentReady);
 }
 
 function getIframeResolutionOrigin(url: string): string {
@@ -205,6 +440,10 @@ function formatHostnameForOrigin(hostname: string): string {
 }
 
 function isSelfAppPath(pathname: string, searchParams: URLSearchParams): boolean {
+  if (pathname === '/dashboard/forms') {
+    return false;
+  }
+
   if (pathname === '/dashboard' || pathname.startsWith('/dashboard/')) {
     return true;
   }
@@ -230,6 +469,14 @@ function isSelfAppOrigin(origin: string): boolean {
 
 function getTabRenderTarget(url: string): TabRenderTarget {
   if (url.startsWith(INTERNAL_URL_PREFIX)) {
+    const pluginIframeSrc = resolvePluginInternalRouteIframeSrc({
+      internalUrl: url,
+      origin: window.location.origin,
+    });
+    if (pluginIframeSrc) {
+      return { kind: 'iframe', iframeSrc: pluginIframeSrc };
+    }
+
     return {
       kind: 'internal',
       internalPath: url.slice(INTERNAL_URL_PREFIX.length),
@@ -251,9 +498,13 @@ function getTabRenderTarget(url: string): TabRenderTarget {
   }
 }
 
-function getOrCreateIframe(tab: Tab): IframeEntry {
-  const existing = iframeStore.get(tab.id);
-  if (existing) return existing;
+function getOrCreateIframe(retainedTab: RetainedIframeTab): IframeEntry {
+  const { tab, iframeKey } = retainedTab;
+  const existing = iframeStore.get(iframeKey);
+  if (existing) {
+    normalizeIframeEntry(existing);
+    return existing;
+  }
   const target = getTabRenderTarget(tab.url);
 
   const container = document.createElement('div');
@@ -272,25 +523,27 @@ function getOrCreateIframe(tab: Tab): IframeEntry {
     container,
     loaded: target.kind !== 'iframe',
     contentReady: target.kind !== 'iframe',
+    readyToShow: target.kind !== 'iframe',
     loadError: false,
     lastAccessedAt: Date.now(),
     listeners: new Set(),
+    revealDelayTimeoutId: null,
+    loadToken: 0,
   };
 
   iframe.addEventListener('load', () => {
+    const currentLoadToken = entry.loadToken;
     entry.loaded = true;
-    entry.listeners.forEach((fn) => fn());
-    installIframeKeyboardIsolation(iframe);
 
-    // Start checking if content is ready (not showing white screen)
-    checkContentReady(iframe, entry);
+    waitForIframeVisualReadiness(iframe, entry, currentLoadToken);
   });
 
   iframe.addEventListener('error', () => {
+    clearIframeRevealDelay(entry);
     entry.loadError = true;
     entry.loaded = true;
     entry.contentReady = true;
-    entry.listeners.forEach((fn) => fn());
+    markIframeReadyToShowImmediately(entry);
   });
 
   if (target.kind === 'iframe') {
@@ -299,86 +552,21 @@ function getOrCreateIframe(tab: Tab): IframeEntry {
   }
 
   container.appendChild(iframe);
-  iframeStore.set(tab.id, entry);
+  iframeStore.set(iframeKey, entry);
 
   return entry;
-}
-
-/**
- * Checks if the iframe content is actually ready by detecting white screens.
- * For same-origin iframes, we can check the background color to see if the SPA has loaded.
- */
-function checkContentReady(iframe: HTMLIFrameElement, entry: IframeEntry) {
-  try {
-    // Try to access iframe content (will throw if cross-origin)
-    const doc = iframe.contentDocument || iframe.contentWindow?.document;
-    if (!doc) {
-      // Can't access content (likely cross-origin), assume ready after load
-      entry.contentReady = true;
-      entry.listeners.forEach((fn) => fn());
-      return;
-    }
-
-    // Check if the background is white (indicating SPA still loading)
-    const checkInterval = setInterval(() => {
-      try {
-        const body = doc.body;
-        if (!body) return;
-
-        const bgColor = window.getComputedStyle(body).backgroundColor;
-
-        // Check if background is white or transparent
-        const isWhite =
-          bgColor === 'rgb(255, 255, 255)' ||
-          bgColor === '#ffffff' ||
-          bgColor === '#fff' ||
-          bgColor === 'white' ||
-          bgColor === 'rgba(0, 0, 0, 0)' ||
-          bgColor === 'transparent';
-
-        // Also check if there's actual content rendered
-        const hasContent = body.children.length > 0 &&
-          body.offsetHeight > 0 &&
-          body.scrollHeight > 100; // Some minimum content height
-
-        if (!isWhite || hasContent) {
-          // Content is ready!
-          entry.contentReady = true;
-          entry.listeners.forEach((fn) => fn());
-          clearInterval(checkInterval);
-        }
-      } catch (e) {
-        // Lost access to iframe (navigation happened), assume ready
-        entry.contentReady = true;
-        entry.listeners.forEach((fn) => fn());
-        clearInterval(checkInterval);
-      }
-    }, 100); // Check every 100ms
-
-    // Timeout after 10 seconds to prevent infinite checking
-    setTimeout(() => {
-      clearInterval(checkInterval);
-      if (!entry.contentReady) {
-        entry.contentReady = true;
-        entry.listeners.forEach((fn) => fn());
-      }
-    }, 10000);
-
-  } catch (e) {
-    // Cross-origin iframe, can't check content, assume ready
-    entry.contentReady = true;
-    entry.listeners.forEach((fn) => fn());
-  }
 }
 
 function removeIframe(tabId: string) {
   const entry = iframeStore.get(tabId);
   if (entry) {
+    clearIframeRevealDelay(entry);
     entry.container.remove();
     entry.listeners.clear();
     iframeStore.delete(tabId);
   }
   retainedTabIds.delete(tabId);
+  activatedIframeKeys.delete(tabId);
 }
 
 function removeAllIframes() {
@@ -387,6 +575,52 @@ function removeAllIframes() {
   }
 }
 
+export const __iframePanelTestUtils = {
+  clearState() {
+    removeAllIframes();
+    iframeStore = new Map();
+    retainedSessionId = null;
+    retainedTabIds = new Set();
+    activatedIframeKeys = new Set();
+  },
+  setActivatedIframeKeys(keys: string[]) {
+    activatedIframeKeys = new Set(keys);
+  },
+  getActivatedIframeKeys() {
+    return Array.from(activatedIframeKeys);
+  },
+  addRetainedIframeForTest(iframeKey: string) {
+    const container = typeof document === 'undefined'
+      ? ({ remove() {} } as HTMLDivElement)
+      : document.createElement('div');
+    const iframe = typeof document === 'undefined'
+      ? ({} as HTMLIFrameElement)
+      : document.createElement('iframe');
+    if (typeof document !== 'undefined') {
+      container.appendChild(iframe);
+    }
+    iframeStore.set(iframeKey, {
+      iframe,
+      container,
+      loaded: false,
+      contentReady: false,
+      readyToShow: false,
+      loadError: false,
+      lastAccessedAt: Date.now(),
+      listeners: new Set(),
+      revealDelayTimeoutId: null,
+      loadToken: 0,
+    });
+    retainedTabIds.add(iframeKey);
+  },
+  removeIframeForTest(iframeKey: string) {
+    removeIframe(iframeKey);
+  },
+  removeAllIframesForTest() {
+    removeAllIframes();
+  },
+};
+
 export function hasKnownIframeMessageSource(source: MessageEventSource | null): boolean {
   if (!source) return false;
   return Array.from(iframeStore.values()).some(
@@ -394,11 +628,95 @@ export function hasKnownIframeMessageSource(source: MessageEventSource | null): 
   );
 }
 
+function findTabIdForMessageSource(source: MessageEventSource | null): string | null {
+  if (!source) return null;
+  for (const [iframeKey, entry] of iframeStore.entries()) {
+    if (entry.iframe.contentWindow === source) {
+      return iframeKey.split(':').at(-1) ?? null;
+    }
+  }
+  return null;
+}
+
+function isBeadReferenceClickMessage(data: unknown): data is {
+  type: 'vk:bead-reference-clicked';
+  beadId: string;
+} {
+  if (!data || typeof data !== 'object') return false;
+  const message = data as { type?: unknown; beadId?: unknown };
+  return (
+    message.type === 'vk:bead-reference-clicked' &&
+    typeof message.beadId === 'string' &&
+    /^[A-Za-z][A-Za-z0-9_]*-[A-Za-z0-9][A-Za-z0-9._-]*$/.test(message.beadId)
+  );
+}
+
+function isBeadFormSubmittedMessage(data: unknown): data is {
+  type: 'vk:bead-form-submitted';
+} {
+  if (!data || typeof data !== 'object') return false;
+  const message = data as { type?: unknown };
+  return message.type === 'vk:bead-form-submitted';
+}
+
+function getIframeRetentionKey(tabGroupId: string, tabId: string): string {
+  return `${tabGroupId}:${tabId}`;
+}
+
+const useIsomorphicLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect;
+
+function useIframeActivationShield(
+  tabs: RetainedIframeTab[],
+  visibleIframeKeys: Set<string>,
+) {
+  const [activationShieldState, setActivationShieldState] = useState<Map<string, boolean>>(new Map());
+  const activationTimeoutIdsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const visibleActivationSignature = tabs
+    .filter((retainedTab) => visibleIframeKeys.has(retainedTab.iframeKey))
+    .map((retainedTab) => `${retainedTab.iframeKey}:${retainedTab.tab.id}`)
+    .join('|');
+
+  useEffect(() => {
+    return () => {
+      activationTimeoutIdsRef.current.forEach((timeoutId) => clearTimeout(timeoutId));
+      activationTimeoutIdsRef.current.clear();
+    };
+  }, []);
+
+  useIsomorphicLayoutEffect(() => {
+    for (const retainedTab of tabs) {
+      if (!visibleIframeKeys.has(retainedTab.iframeKey)) continue;
+      if (activatedIframeKeys.has(retainedTab.iframeKey)) continue;
+
+      activatedIframeKeys.add(retainedTab.iframeKey);
+      setActivationShieldState((prev) => {
+        if (prev.get(retainedTab.iframeKey) === true) return prev;
+        const next = new Map(prev);
+        next.set(retainedTab.iframeKey, true);
+        return next;
+      });
+
+      const timeoutId = setTimeout(() => {
+        activationTimeoutIdsRef.current.delete(retainedTab.iframeKey);
+        setActivationShieldState((prev) => {
+          if (prev.get(retainedTab.iframeKey) !== true) return prev;
+          const next = new Map(prev);
+          next.set(retainedTab.iframeKey, false);
+          return next;
+        });
+      }, IFRAME_ACTIVATION_SHIELD_MS);
+      activationTimeoutIdsRef.current.set(retainedTab.iframeKey, timeoutId);
+    }
+  }, [visibleActivationSignature]);
+
+  return activationShieldState;
+}
+
 function useImperativeIframes(
   currentSessionId: string | undefined,
-  tabs: Tab[],
-  visibleTabIds: Set<string>,
-  allKnownTabIds?: Set<string>,
+  tabs: RetainedIframeTab[],
+  visibleIframeKeys: Set<string>,
+  allKnownIframeKeys?: Set<string>,
 ) {
   const [storeVersion, setStoreVersion] = useState(0);
 
@@ -408,19 +726,19 @@ function useImperativeIframes(
 
   const [loadingState, setLoadingState] = useState<Map<string, boolean>>(() => {
     const initial = new Map<string, boolean>();
-    for (const tab of tabs) {
-      const entry = iframeStore.get(tab.id);
-      // Only consider ready when BOTH loaded AND content is ready
-      initial.set(tab.id, (entry?.loaded && entry?.contentReady) ?? false);
+    for (const retainedTab of tabs) {
+      const entry = iframeStore.get(retainedTab.iframeKey);
+      // Already-mounted iframes that have completed their reveal delay should show immediately.
+      initial.set(retainedTab.iframeKey, entry ? isIframeReadyToShow(entry) : false);
     }
     return initial;
   });
 
   const [errorState, setErrorState] = useState<Map<string, boolean>>(() => {
     const initial = new Map<string, boolean>();
-    for (const tab of tabs) {
-      const entry = iframeStore.get(tab.id);
-      initial.set(tab.id, entry?.loadError ?? false);
+    for (const retainedTab of tabs) {
+      const entry = iframeStore.get(retainedTab.iframeKey);
+      initial.set(retainedTab.iframeKey, entry?.loadError ?? false);
     }
     return initial;
   });
@@ -431,6 +749,7 @@ function useImperativeIframes(
 
     retainedSessionId = nextSessionId;
     retainedTabIds = new Set();
+    activatedIframeKeys = new Set();
     removeAllIframes();
     bumpStoreVersion();
   }, [bumpStoreVersion, currentSessionId]);
@@ -438,10 +757,10 @@ function useImperativeIframes(
   useEffect(() => {
     let createdIframe = false;
 
-    for (const tab of tabs) {
-      const existing = iframeStore.get(tab.id);
+    for (const retainedTab of tabs) {
+      const existing = iframeStore.get(retainedTab.iframeKey);
       if (existing) continue;
-      getOrCreateIframe(tab);
+      getOrCreateIframe(retainedTab);
       createdIframe = true;
     }
 
@@ -452,8 +771,9 @@ function useImperativeIframes(
 
   // Update iframe src when tab URL changes
   useEffect(() => {
-    for (const tab of tabs) {
-      const entry = iframeStore.get(tab.id);
+    for (const retainedTab of tabs) {
+      const entry = iframeStore.get(retainedTab.iframeKey);
+      const tab = retainedTab.tab;
       if (!entry) continue;
       const target = getTabRenderTarget(tab.url);
 
@@ -461,17 +781,20 @@ function useImperativeIframes(
         if (entry.iframe.src !== 'about:blank') {
           entry.iframe.src = 'about:blank';
         }
+        clearIframeRevealDelay(entry);
         entry.loaded = true;
         entry.contentReady = true;
+        entry.readyToShow = true;
         entry.loadError = false;
+        entry.loadToken += 1;
         setLoadingState((prev) => {
           const next = new Map(prev);
-          next.set(tab.id, true);
+          next.set(retainedTab.iframeKey, true);
           return next;
         });
         setErrorState((prev) => {
           const next = new Map(prev);
-          next.set(tab.id, false);
+          next.set(retainedTab.iframeKey, false);
           return next;
         });
         continue;
@@ -483,19 +806,16 @@ function useImperativeIframes(
       applyIframePolicy(entry.iframe, target.iframeSrc);
 
       if (entry.iframe.src !== target.iframeSrc) {
+        resetIframeLoadReadiness(entry);
         entry.iframe.src = target.iframeSrc;
-        // Reset loading and error state
-        entry.loaded = false;
-        entry.contentReady = false;
-        entry.loadError = false;
         setLoadingState((prev) => {
           const next = new Map(prev);
-          next.set(tab.id, false);
+          next.set(retainedTab.iframeKey, false);
           return next;
         });
         setErrorState((prev) => {
           const next = new Map(prev);
-          next.set(tab.id, false);
+          next.set(retainedTab.iframeKey, false);
           return next;
         });
       }
@@ -506,25 +826,25 @@ function useImperativeIframes(
     const now = Date.now();
     let removedIframe = false;
 
-    for (const tab of tabs) {
-      if (!visibleTabIds.has(tab.id)) continue;
-      retainedTabIds.add(tab.id);
-      const entry = iframeStore.get(tab.id);
+    for (const retainedTab of tabs) {
+      if (!visibleIframeKeys.has(retainedTab.iframeKey)) continue;
+      retainedTabIds.add(retainedTab.iframeKey);
+      const entry = iframeStore.get(retainedTab.iframeKey);
       if (entry) {
         entry.lastAccessedAt = now;
       }
     }
 
-    if (allKnownTabIds) {
+    if (allKnownIframeKeys) {
       for (const tabId of Array.from(retainedTabIds)) {
-        if (!allKnownTabIds.has(tabId)) {
+        if (!allKnownIframeKeys.has(tabId)) {
           removeIframe(tabId);
           removedIframe = true;
         }
       }
     }
 
-    const visibleIds = new Set(visibleTabIds);
+    const visibleIds = new Set(visibleIframeKeys);
     const evictableIds = Array.from(retainedTabIds)
       .filter((tabId) => !visibleIds.has(tabId))
       .sort((leftId, rightId) => {
@@ -545,28 +865,28 @@ function useImperativeIframes(
     if (removedIframe) {
       bumpStoreVersion();
     }
-  }, [allKnownTabIds, bumpStoreVersion, tabs, visibleTabIds]);
+  }, [allKnownIframeKeys, bumpStoreVersion, tabs, visibleIframeKeys]);
 
   // Subscribe to load events
   useEffect(() => {
     const unsubs: (() => void)[] = [];
 
-    for (const tab of tabs) {
-      const entry = iframeStore.get(tab.id);
+    for (const retainedTab of tabs) {
+      const entry = iframeStore.get(retainedTab.iframeKey);
       if (!entry) continue;
 
-      // If already loaded AND content ready, update state immediately
-      if (entry.loaded && entry.contentReady) {
+      // If already loaded, content ready, and past the reveal delay, update state immediately.
+      if (isIframeReadyToShow(entry)) {
         setLoadingState((prev) => {
-          if (prev.get(tab.id) === true) return prev;
+          if (prev.get(retainedTab.iframeKey) === true) return prev;
           const next = new Map(prev);
-          next.set(tab.id, true);
+          next.set(retainedTab.iframeKey, true);
           return next;
         });
         if (entry.loadError) {
           setErrorState((prev) => {
             const next = new Map(prev);
-            next.set(tab.id, true);
+            next.set(retainedTab.iframeKey, true);
             return next;
           });
         }
@@ -575,17 +895,17 @@ function useImperativeIframes(
 
       // Otherwise subscribe to load/content ready events
       const listener = () => {
-        // Only mark as ready when both loaded AND content is ready
-        if (entry.loaded && entry.contentReady) {
+        // Only mark as ready after the iframe loaded, content is ready, and the reveal delay elapsed.
+        if (isIframeReadyToShow(entry)) {
           setLoadingState((prev) => {
             const next = new Map(prev);
-            next.set(tab.id, true);
+            next.set(retainedTab.iframeKey, true);
             return next;
           });
           if (entry.loadError) {
             setErrorState((prev) => {
               const next = new Map(prev);
-              next.set(tab.id, true);
+              next.set(retainedTab.iframeKey, true);
               return next;
             });
           }
@@ -599,24 +919,25 @@ function useImperativeIframes(
   }, [tabs]);
 
   const retryTab = useCallback((tabId: string) => {
-    const entry = iframeStore.get(tabId);
+    const iframeKey = tabs.find((item) => visibleIframeKeys.has(item.iframeKey) && item.tab.id === tabId)?.iframeKey
+      ?? tabs.find((item) => item.tab.id === tabId)?.iframeKey
+      ?? tabId;
+    const entry = iframeStore.get(iframeKey);
     if (!entry) return;
-    entry.loaded = false;
-    entry.contentReady = false;
-    entry.loadError = false;
+    resetIframeLoadReadiness(entry);
     entry.lastAccessedAt = Date.now();
     entry.iframe.src = entry.iframe.src; // reload
     setLoadingState((prev) => {
       const next = new Map(prev);
-      next.set(tabId, false);
+      next.set(iframeKey, false);
       return next;
     });
     setErrorState((prev) => {
       const next = new Map(prev);
-      next.set(tabId, false);
+      next.set(iframeKey, false);
       return next;
     });
-  }, []);
+  }, [tabs, visibleIframeKeys]);
 
   return { loadingState, errorState, retryTab, storeVersion };
 }
@@ -626,22 +947,29 @@ function useImperativeIframes(
  * The iframe is appended via useEffect, not rendered by React,
  * so it survives HMR and re-renders.
  */
-function IframeHost({ tabId, storeVersion }: { tabId: string; storeVersion: number }) {
+function IframeHost({ iframeKey, storeVersion }: { iframeKey: string; storeVersion: number }) {
   const hostRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
+  useIsomorphicLayoutEffect(() => {
     const host = hostRef.current;
-    const entry = iframeStore.get(tabId);
+    const entry = iframeStore.get(iframeKey);
     if (!host || !entry) return;
+    if (entry.container.parentElement === host) return;
 
     host.appendChild(entry.container);
+  }, [storeVersion, iframeKey]);
 
+  useIsomorphicLayoutEffect(() => {
     return () => {
+      const host = hostRef.current;
+      const entry = iframeStore.get(iframeKey);
+      if (!host || !entry) return;
+
       if (entry.container.parentElement === host) {
         host.removeChild(entry.container);
       }
     };
-  }, [storeVersion, tabId]);
+  }, [iframeKey]);
 
   return (
     <div ref={hostRef} className="w-full h-full relative" />
@@ -661,6 +989,8 @@ export function IframePanel({
   onStartNewSession,
   onNavigateToTabGroup,
   onOpenVKWorkspace,
+  onBeadReferenceClick,
+  onBeadFormSubmitted,
 }: IframePanelProps) {
   const tabs = getEffectiveTabs(tabGroup);
   const pairs = getEffectivePairs(tabGroup);
@@ -681,44 +1011,59 @@ export function IframePanel({
   const visibleIframeTabs = tabs.filter((tab) => {
     if (!visibleTabIds.has(tab.id)) return false;
     return getTabRenderTarget(tab.url).kind === 'iframe';
-  }).map((tab) => toIframeStoreTab(tabGroup.id, tab));
+  });
 
+  const visibleRetainedIframeTabs = visibleIframeTabs.map((tab): RetainedIframeTab => ({
+    tab,
+    iframeKey: getIframeRetentionKey(tabGroup.id, tab.id),
+  }));
   const allKnownIframeTabs = workspace?.tabGroups.flatMap((group) =>
-    getEffectiveTabs(group).filter(
-      (tab) => getTabRenderTarget(tab.url).kind === 'iframe',
-    ).map((tab) => toIframeStoreTab(group.id, tab)),
+    getEffectiveTabs(group)
+      .filter((tab) => getTabRenderTarget(tab.url).kind === 'iframe')
+      .map((tab): RetainedIframeTab => ({
+        tab,
+        iframeKey: getIframeRetentionKey(group.id, tab.id),
+      })),
   );
-  const visibleIframeTabIds = new Set(visibleIframeTabs.map((tab) => tab.id));
+  const visibleIframeKeys = new Set(visibleRetainedIframeTabs.map((item) => item.iframeKey));
+  const activeIframeKey = activeTab ? getIframeRetentionKey(tabGroup.id, activeTab.id) : null;
   const retainedTabs =
     allKnownIframeTabs?.filter(
-      (tab) => retainedTabIds.has(tab.id) || visibleIframeTabIds.has(tab.id),
-    ) ?? visibleIframeTabs;
-  const allKnownIframeTabIds = allKnownIframeTabs
-    ? new Set(allKnownIframeTabs.map((tab) => tab.id))
+      (item) => retainedTabIds.has(item.iframeKey) || visibleIframeKeys.has(item.iframeKey),
+    ) ?? visibleRetainedIframeTabs;
+  const allKnownIframeKeys = allKnownIframeTabs
+    ? new Set(allKnownIframeTabs.map((item) => item.iframeKey))
     : undefined;
 
+  const activationShieldState = useIframeActivationShield(retainedTabs, visibleIframeKeys);
   const { loadingState, errorState, retryTab, storeVersion } = useImperativeIframes(
     currentSessionId,
     retainedTabs,
-    visibleIframeTabIds,
-    allKnownIframeTabIds,
+    visibleIframeKeys,
+    allKnownIframeKeys,
   );
-  const visibleLoadingState = new Map(
-    tabs.map((tab) => [
-      tab.id,
-      loadingState.get(getIframeStoreTabId(tabGroup.id, tab.id)) ?? false,
-    ]),
-  );
-  const visibleErrorState = new Map(
-    tabs.map((tab) => [
-      tab.id,
-      errorState.get(getIframeStoreTabId(tabGroup.id, tab.id)) ?? false,
-    ]),
-  );
-  const retryVisibleTab = useCallback(
-    (tabId: string) => retryTab(getIframeStoreTabId(tabGroup.id, tabId)),
-    [retryTab, tabGroup.id],
-  );
+
+  useEffect(() => {
+    if (!onBeadReferenceClick && !onBeadFormSubmitted) return;
+
+    const handleMessage = (event: MessageEvent) => {
+      if (!isBeadReferenceClickMessage(event.data) && !isBeadFormSubmittedMessage(event.data)) return;
+
+      const sourceTabId = findTabIdForMessageSource(event.source);
+      if (!sourceTabId) return;
+      if (!tabs.some((tab) => tab.id === sourceTabId)) return;
+
+      if (isBeadReferenceClickMessage(event.data)) {
+        void onBeadReferenceClick?.(sourceTabId, event.data.beadId);
+        return;
+      }
+
+      void onBeadFormSubmitted?.(sourceTabId);
+    };
+
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [onBeadFormSubmitted, onBeadReferenceClick, tabs]);
 
   return (
     <div className="w-full h-full relative">
@@ -729,15 +1074,18 @@ export function IframePanel({
         tabGroup={tabGroup}
         tabs={tabs}
         storeVersion={storeVersion}
+        loadingState={loadingState}
+        activationShieldState={activationShieldState}
       />
       {activePair ? (
         <PairView
           activePair={activePair}
           tabGroup={tabGroup}
           tabs={tabs}
-          loadingState={visibleLoadingState}
-          errorState={visibleErrorState}
-          retryTab={retryVisibleTab}
+          loadingState={loadingState}
+          errorState={errorState}
+          activationShieldState={activationShieldState}
+          retryTab={retryTab}
           onUpdatePairRatios={onUpdatePairRatios}
           {...(workspace ? { workspace } : {})}
           {...(savedSessions ? { savedSessions } : {})}
@@ -752,9 +1100,11 @@ export function IframePanel({
       ) : activeTab ? (
           <SingleTabView
             activeTab={activeTab}
-            loadingState={visibleLoadingState}
-            errorState={visibleErrorState}
-            retryTab={retryVisibleTab}
+            activeIframeKey={activeIframeKey ?? activeTab.id}
+            loadingState={loadingState}
+            errorState={errorState}
+            activationShieldState={activationShieldState}
+            retryTab={retryTab}
             {...(workspace ? { workspace } : {})}
             {...(savedSessions ? { savedSessions } : {})}
             {...(currentSessionId ? { currentSessionId } : {})}
@@ -779,13 +1129,17 @@ function PersistentIframeLayer({
   tabGroup,
   tabs,
   storeVersion,
+  loadingState,
+  activationShieldState,
 }: {
-  retainedTabs: Tab[];
+  retainedTabs: RetainedIframeTab[];
   activeTab?: Tab;
   activePair?: { id: string; tabIds: string[]; ratios: number[] };
   tabGroup: TabGroup;
   tabs: Tab[];
   storeVersion: number;
+  loadingState: Map<string, boolean>;
+  activationShieldState: Map<string, boolean>;
 }) {
   const layoutStyles = new Map<string, React.CSSProperties>();
 
@@ -805,7 +1159,7 @@ function PersistentIframeLayer({
       const ratioFraction = ratio / totalRatio;
       const cumulativeFraction = cumulativeRatio / totalRatio;
 
-      layoutStyles.set(getIframeStoreTabId(tabGroup.id, tab.id), {
+      layoutStyles.set(getIframeRetentionKey(tabGroup.id, tab.id), {
         position: 'absolute',
         top: 0,
         bottom: 0,
@@ -818,7 +1172,7 @@ function PersistentIframeLayer({
       cumulativeRatio += ratio;
     });
   } else if (activeTab && getTabRenderTarget(activeTab.url).kind === 'iframe') {
-    layoutStyles.set(getIframeStoreTabId(tabGroup.id, activeTab.id), {
+    layoutStyles.set(getIframeRetentionKey(tabGroup.id, activeTab.id), {
       position: 'absolute',
       inset: 0,
       visibility: 'visible',
@@ -828,25 +1182,28 @@ function PersistentIframeLayer({
 
   return (
     <div
-      className="absolute inset-x-0 top-0 overflow-hidden box-border md:bottom-0"
+      className="absolute inset-x-0 top-0 overflow-hidden box-border bg-neutral-950 md:bottom-0"
       style={MOBILE_VIEWPORT_INSET_STYLE}
     >
-      {retainedTabs.map((tab) => {
-        const activeStyle = layoutStyles.get(tab.id);
+      {retainedTabs.map(({ tab, iframeKey }) => {
+        const activeStyle = layoutStyles.get(iframeKey);
+        const readyToShow = (loadingState.get(iframeKey) ?? false) && !(activationShieldState.get(iframeKey) ?? false);
         return (
           <div
-            key={tab.id}
+            key={iframeKey}
             className="absolute inset-0"
             style={
-              activeStyle || {
-                position: 'absolute',
-                inset: 0,
-                visibility: 'hidden',
-                pointerEvents: 'none',
-              }
+              activeStyle
+                ? { ...activeStyle, ...getIframeRevealStyle(readyToShow) }
+                : {
+                    position: 'absolute',
+                    inset: 0,
+                    visibility: 'hidden',
+                    pointerEvents: 'none',
+                  }
             }
           >
-            <IframeHost tabId={tab.id} storeVersion={storeVersion} />
+            <IframeHost iframeKey={iframeKey} storeVersion={storeVersion} />
           </div>
         );
       })}
@@ -856,8 +1213,10 @@ function PersistentIframeLayer({
 
 function SingleTabView({
   activeTab,
+  activeIframeKey,
   loadingState,
   errorState,
+  activationShieldState,
   retryTab,
   workspace,
   savedSessions,
@@ -870,8 +1229,10 @@ function SingleTabView({
   onOpenVKWorkspace,
 }: {
   activeTab: Tab;
+  activeIframeKey: string;
   loadingState: Map<string, boolean>;
   errorState: Map<string, boolean>;
+  activationShieldState: Map<string, boolean>;
   retryTab: (tabId: string) => void;
   workspace?: WorkspaceState;
   savedSessions?: SavedWorkspaceSession[];
@@ -880,26 +1241,63 @@ function SingleTabView({
   onRenameSession?: (sessionId: string, name: string) => void;
   onDeleteSession?: (sessionId: string) => void;
   onStartNewSession?: () => void;
-  onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void;
-  onOpenVKWorkspace?: (taskAttemptId: string, name: string, containerRef: string, spaceId: string) => void;
+  onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void | Promise<void>;
+  onOpenVKWorkspace?: (taskAttemptId: string, name: string, containerRef: string, spaceId: string) => void | Promise<void>;
 }) {
-  const isLoaded = loadingState.get(activeTab.id) ?? false;
-  const hasError = errorState.get(activeTab.id) ?? false;
+  const isLoaded = loadingState.get(activeIframeKey) ?? false;
+  const hasError = errorState.get(activeIframeKey) ?? false;
+  const isActivationShielded = activationShieldState.get(activeIframeKey) ?? false;
   const target = getTabRenderTarget(activeTab.url);
+  const shouldShowLoadingOverlay = shouldShowIframeLoadingOverlay(isLoaded, isActivationShielded);
 
   // Check if this is an internal URL that should render a special component
   if (target.kind === 'internal') {
-    return renderInternalView(target.internalPath, {
-      workspace,
-      savedSessions,
-      currentSessionId,
-      onResumeSession,
-      onRenameSession,
-      onDeleteSession,
-      onStartNewSession,
-      onNavigateToTabGroup,
-      onOpenVKWorkspace,
-    });
+    const { internalPath } = target;
+
+    if (
+      internalPath === 'spaces-overview' &&
+      workspace &&
+      onNavigateToTabGroup &&
+      onResumeSession &&
+      onRenameSession &&
+      onDeleteSession &&
+      onStartNewSession
+    ) {
+      return (
+        <div className="flex-1 min-h-0 relative h-full pointer-events-auto">
+          <SpacesOverview
+            workspace={workspace}
+            savedSessions={savedSessions || []}
+            currentSessionId={currentSessionId}
+            onResumeSession={onResumeSession}
+            onRenameSession={onRenameSession}
+            onDeleteSession={onDeleteSession}
+            onStartNewSession={onStartNewSession}
+            onNavigateToTabGroup={onNavigateToTabGroup}
+            {...(onOpenVKWorkspace ? { onOpenVKWorkspace } : {})}
+          />
+        </div>
+      );
+    }
+
+    if (internalPath.startsWith('diff')) {
+      const params = parseInternalPathParams(internalPath);
+      return (
+        <div className="flex-1 min-h-0 relative h-full pointer-events-auto">
+          <DiffView
+            workspaceId={params.get('workspaceId') || ''}
+            workspaceDir={params.get('workspaceDir') || ''}
+          />
+        </div>
+      );
+    }
+
+    const pluginRoute = parsePluginInternalUrl(activeTab.url);
+    if (pluginRoute) {
+      return <PluginInternalRoutePlaceholder pluginId={pluginRoute.pluginId} routePath={pluginRoute.routePath} />;
+    }
+
+    return <UnknownInternalRoutePlaceholder url={activeTab.url} />;
   }
 
   if (target.kind === 'blocked-self-app') {
@@ -910,8 +1308,8 @@ function SingleTabView({
     <div className="absolute inset-x-0 top-0 md:bottom-0 pointer-events-none" style={MOBILE_VIEWPORT_INSET_STYLE}>
       {hasError ? (
         <ErrorOverlay url={activeTab.url} onRetry={() => retryTab(activeTab.id)} />
-      ) : !isLoaded ? (
-        <AppLoadingScreen className="absolute inset-0 z-10" />
+      ) : shouldShowLoadingOverlay ? (
+        <AppLoadingScreen className="absolute inset-0 z-30" />
       ) : null}
     </div>
   );
@@ -923,6 +1321,7 @@ function PairView({
   tabs,
   loadingState,
   errorState,
+  activationShieldState,
   retryTab,
   onUpdatePairRatios,
   workspace,
@@ -940,6 +1339,7 @@ function PairView({
   tabs: Tab[];
   loadingState: Map<string, boolean>;
   errorState: Map<string, boolean>;
+  activationShieldState: Map<string, boolean>;
   retryTab: (tabId: string) => void;
   onUpdatePairRatios: (pairId: string, ratios: number[]) => void;
   workspace?: WorkspaceState;
@@ -949,8 +1349,8 @@ function PairView({
   onRenameSession?: (sessionId: string, name: string) => void;
   onDeleteSession?: (sessionId: string) => void;
   onStartNewSession?: () => void;
-  onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void;
-  onOpenVKWorkspace?: (taskAttemptId: string, name: string, containerRef: string, spaceId: string) => void;
+  onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void | Promise<void>;
+  onOpenVKWorkspace?: (taskAttemptId: string, name: string, containerRef: string, spaceId: string) => void | Promise<void>;
 }) {
   const pairTabs = activePair.tabIds
     .map((id) => tabs.find((t) => t.id === id))
@@ -971,16 +1371,20 @@ function PairView({
       onLayoutChanged={handleLayoutChange}
     >
       {pairTabs.map((tab, i) => {
-        const isLoaded = loadingState.get(tab.id) ?? false;
-        const hasError = errorState.get(tab.id) ?? false;
+        const iframeKey = getIframeRetentionKey(tabGroup.id, tab.id);
+        const isLoaded = loadingState.get(iframeKey) ?? false;
+        const hasError = errorState.get(iframeKey) ?? false;
+        const isActivationShielded = activationShieldState.get(iframeKey) ?? false;
 
         return (
           <React.Fragment key={tab.id}>
             <Panel id={tab.id} defaultSize={percentages[i]} minSize={10} className="pointer-events-none">
               <PairTabView
                 tab={tab}
+                iframeKey={iframeKey}
                 isLoaded={isLoaded}
                 hasError={hasError}
+                isActivationShielded={isActivationShielded}
                 retryTab={retryTab}
                 {...(workspace ? { workspace } : {})}
                 {...(savedSessions ? { savedSessions } : {})}
@@ -1005,8 +1409,10 @@ function PairView({
 
 function PairTabView({
   tab,
+  iframeKey,
   isLoaded,
   hasError,
+  isActivationShielded,
   retryTab,
   workspace,
   savedSessions,
@@ -1019,8 +1425,10 @@ function PairTabView({
   onOpenVKWorkspace,
 }: {
   tab: Tab;
+  iframeKey: string;
   isLoaded: boolean;
   hasError: boolean;
+  isActivationShielded: boolean;
   retryTab: (tabId: string) => void;
   workspace?: WorkspaceState;
   savedSessions?: SavedWorkspaceSession[];
@@ -1029,10 +1437,11 @@ function PairTabView({
   onRenameSession?: (sessionId: string, name: string) => void;
   onDeleteSession?: (sessionId: string) => void;
   onStartNewSession?: () => void;
-  onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void;
-  onOpenVKWorkspace?: (taskAttemptId: string, name: string, containerRef: string, spaceId: string) => void;
+  onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void | Promise<void>;
+  onOpenVKWorkspace?: (taskAttemptId: string, name: string, containerRef: string, spaceId: string) => void | Promise<void>;
 }) {
   const target = getTabRenderTarget(tab.url);
+  const shouldShowLoadingOverlay = shouldShowIframeLoadingOverlay(isLoaded, isActivationShielded);
 
   if (target.kind === 'internal') {
     return renderInternalView(target.internalPath, {
@@ -1056,9 +1465,17 @@ function PairTabView({
     <div className="relative w-full h-full pointer-events-none">
       {hasError ? (
         <ErrorOverlay url={tab.url} onRetry={() => retryTab(tab.id)} />
-      ) : !isLoaded ? (
-        <AppLoadingScreen className="absolute inset-0 z-10" />
+      ) : shouldShowLoadingOverlay ? (
+        <AppLoadingScreen className="absolute inset-0 z-30" />
       ) : null}
+    </div>
+  );
+}
+
+function EmptyView() {
+  return (
+    <div className="absolute inset-x-0 top-0 md:bottom-0 flex items-center justify-center text-neutral-500" style={MOBILE_VIEWPORT_INSET_STYLE}>
+      <p>No tab selected. Click + to add a tab.</p>
     </div>
   );
 }
@@ -1071,13 +1488,13 @@ type InternalViewContext = {
   onRenameSession?: (sessionId: string, name: string) => void;
   onDeleteSession?: (sessionId: string) => void;
   onStartNewSession?: () => void;
-  onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void;
+  onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void | Promise<void>;
   onOpenVKWorkspace?: (
     taskAttemptId: string,
     name: string,
     containerRef: string,
     spaceId: string,
-  ) => void;
+  ) => void | Promise<void>;
 };
 
 function renderInternalView(internalPath: string, context: InternalViewContext) {
@@ -1121,7 +1538,17 @@ function renderInternalView(internalPath: string, context: InternalViewContext) 
     );
   }
 
-  return <BlockedSelfAppPlaceholder url={`internal://${internalPath}`} />;
+  const pluginRoute = parsePluginInternalUrl(`internal://${internalPath}`);
+  if (pluginRoute) {
+    return (
+      <PluginInternalRoutePlaceholder
+        pluginId={pluginRoute.pluginId}
+        routePath={pluginRoute.routePath}
+      />
+    );
+  }
+
+  return <UnknownInternalRoutePlaceholder url={`internal://${internalPath}`} />;
 }
 
 function parseInternalPathParams(internalPath: string): URLSearchParams {
@@ -1130,10 +1557,25 @@ function parseInternalPathParams(internalPath: string): URLSearchParams {
   return new URLSearchParams(internalPath.slice(queryIndex + 1));
 }
 
-function EmptyView() {
+function PluginInternalRoutePlaceholder({ pluginId, routePath }: { pluginId: string; routePath: string }) {
   return (
-    <div className="absolute inset-x-0 top-0 md:bottom-0 flex items-center justify-center text-neutral-500" style={MOBILE_VIEWPORT_INSET_STYLE}>
-      <p>No tab selected. Click + to add a tab.</p>
+    <div className="flex-1 h-full bg-neutral-950 text-neutral-400 flex items-center justify-center">
+      <div className="max-w-md px-6 text-center">
+        <p className="text-sm font-medium text-neutral-200">Plugin route unavailable</p>
+        <p className="mt-2 text-xs">This plugin-owned route is not active in the host registry yet.</p>
+        <p className="mt-2 text-xs break-all">{pluginId}{routePath}</p>
+      </div>
+    </div>
+  );
+}
+
+function UnknownInternalRoutePlaceholder({ url }: { url: string }) {
+  return (
+    <div className="flex-1 h-full bg-neutral-950 text-neutral-400 flex items-center justify-center">
+      <div className="max-w-md px-6 text-center">
+        <p className="text-sm font-medium text-neutral-200">Unknown internal route</p>
+        <p className="mt-2 text-xs break-all">{url}</p>
+      </div>
     </div>
   );
 }

@@ -6,12 +6,7 @@ import React, {
   useMemo,
 } from 'react';
 import { Button, Input } from '@heroui/react';
-import {
-  getEffectivePairs,
-  getEffectiveTabs,
-  isBuiltInWorkspacePairId,
-  isBuiltInWorkspaceTabId,
-} from '../lib/builtInWorkspaceTabs';
+import { isEphemeralCraftSurfaceTab } from '../modules/plugins/vibe-dashboard/craft-surfaces';
 import type {
   WorkspaceState,
   Space,
@@ -19,6 +14,7 @@ import type {
   SavedWorkspaceSession,
   VoyageEntry,
 } from '../types';
+import type { SpaceTypeContribution } from '../modules/plugins/vibe-dashboard/types';
 import { TabContextMenu } from './TabContextMenu';
 
 const INTERNAL_URL_PREFIX = 'internal://';
@@ -28,6 +24,7 @@ interface SidebarProps {
   activeSpaceId: string;
   activeTabGroupId: string;
   activeItems: Record<string, string>;
+  spaceTypes: Record<string, SpaceTypeContribution>;
   visitedTabGroupIds: string[];
   voyageEntries: VoyageEntry[];
   activeVoyageEntryId: string;
@@ -49,11 +46,6 @@ interface SidebarProps {
   ) => Promise<{ wasDeleted: boolean; nextTabGroupId?: string } | undefined>;
   onRenameTabGroup: (tabGroupId: string, label: string) => void;
   onAddTabGroup: (label: string, spaceId?: string) => Promise<void> | void;
-  onAddTab: (
-    tabGroupId: string,
-    title: string,
-    url: string,
-  ) => Promise<void> | void;
   onOpenCreateWorkspaceTab: () => Promise<void> | void;
   onOpenCraftFlow: () => Promise<void> | void;
   onCreatePair: (tabGroupId: string, tabIds: string[]) => Promise<void> | void;
@@ -83,6 +75,7 @@ export function Sidebar({
   activeSpaceId,
   activeTabGroupId,
   activeItems,
+  spaceTypes,
   visitedTabGroupIds,
   voyageEntries,
   activeVoyageEntryId,
@@ -99,7 +92,6 @@ export function Sidebar({
   onDeleteTabGroup,
   onRenameTabGroup,
   onAddTabGroup,
-  onAddTab,
   onOpenCreateWorkspaceTab,
   onOpenCraftFlow,
   onCreatePair,
@@ -135,11 +127,9 @@ export function Sidebar({
     position: { x: number; y: number };
   } | null>(null);
   const [mobileAction, setMobileAction] = useState<
-    'group' | 'tab' | 'pair' | null
+    'group' | 'pair' | null
   >(null);
   const [newGroupLabel, setNewGroupLabel] = useState('');
-  const [newTabTitle, setNewTabTitle] = useState('');
-  const [newTabUrl, setNewTabUrl] = useState('');
   const [pairSelection, setPairSelection] = useState<string[]>([]);
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [sessionNameDraft, setSessionNameDraft] = useState('');
@@ -178,6 +168,17 @@ export function Sidebar({
   const activeTabGroup = activeTabGroups.find(
     (tabGroup) => tabGroup.id === activeTabGroupId,
   );
+  const resolvedSpaceIcons = useMemo(() => {
+    const resolved = new Map<string, string>();
+    Object.values(spaceTypes).forEach((spaceType) => {
+      resolved.set(spaceType.key, spaceType.icon);
+      const sourceKey = (spaceType as { sourceKey?: string }).sourceKey;
+      if (sourceKey) {
+        resolved.set(sourceKey, spaceType.icon);
+      }
+    });
+    return resolved;
+  }, [spaceTypes]);
   const availablePairTabs = useMemo(() => {
     if (!activeTabGroup) return [];
     const tabsInPairs = new Set(
@@ -185,7 +186,9 @@ export function Sidebar({
     );
     return activeTabGroup.tabs.filter(
       (tab) =>
-        !tabsInPairs.has(tab.id) && !tab.url.startsWith(INTERNAL_URL_PREFIX),
+        !tabsInPairs.has(tab.id) &&
+        !isEphemeralCraftSurfaceTab(tab) &&
+        !tab.url.startsWith(INTERNAL_URL_PREFIX),
     );
   }, [activeTabGroup]);
 
@@ -439,17 +442,6 @@ export function Sidebar({
     setMobileAction(null);
   }, [newGroupLabel, onAddTabGroup, viewedSpace?.id]);
 
-  const handleCreateTab = useCallback(async () => {
-    if (!activeTabGroup) return;
-    const title = newTabTitle.trim();
-    const url = newTabUrl.trim();
-    if (!(title && url)) return;
-    await onAddTab(activeTabGroup.id, title, url);
-    setNewTabTitle('');
-    setNewTabUrl('');
-    setMobileAction(null);
-  }, [activeTabGroup, newTabTitle, newTabUrl, onAddTab]);
-
   const togglePairTab = useCallback((tabId: string) => {
     setPairSelection((prev) => {
       if (prev.includes(tabId)) {
@@ -618,7 +610,7 @@ export function Sidebar({
                 void onOpenCreateWorkspaceTab();
               }}
             >
-              New Task
+              New Craft
             </Button>
             <Button
               size="sm"
@@ -643,13 +635,11 @@ export function Sidebar({
               </Button>
               <Button
                 size="sm"
-                variant={mobileAction === 'tab' ? 'solid' : 'flat'}
-                color={mobileAction === 'tab' ? 'primary' : 'default'}
+                variant="flat"
                 onPress={() => {
                   if (!activeTabGroup) return;
-                  setMobileAction((prev) => (prev === 'tab' ? null : 'tab'));
-                  setNewTabTitle((prev) => prev || 'New View');
-                  setNewTabUrl((prev) => prev || '/');
+                  setMobileAction(null);
+                  onOpenAddTabModal(activeTabGroup.id);
                 }}
                 isDisabled={!activeTabGroup}
               >
@@ -686,34 +676,6 @@ export function Sidebar({
                   onPress={handleCreateGroup}
                 >
                   Create Craft
-                </Button>
-              </div>
-            )}
-
-            {mobileAction === 'tab' && (
-              <div className="space-y-1.5">
-                <Input
-                  size="sm"
-                  value={newTabTitle}
-                  onChange={(e) => setNewTabTitle(e.target.value)}
-                  placeholder="View title..."
-                  classNames={{ inputWrapper: 'bg-neutral-800' }}
-                />
-                <Input
-                  size="sm"
-                  value={newTabUrl}
-                  onChange={(e) => setNewTabUrl(e.target.value)}
-                  placeholder="/ or https://..."
-                  classNames={{ inputWrapper: 'bg-neutral-800' }}
-                />
-                <Button
-                  size="sm"
-                  color="primary"
-                  className="w-full"
-                  onPress={handleCreateTab}
-                  isDisabled={!activeTabGroup}
-                >
-                  Create View
                 </Button>
               </div>
             )}
@@ -950,19 +912,15 @@ export function Sidebar({
                 No craft in this space.
               </div>
             ) : (
-              activeTabGroups.map((tabGroup) => {
-                const tabs = getEffectiveTabs(tabGroup);
-                const pairs = getEffectivePairs(tabGroup);
-
-                return (
-                  <div
-                    key={tabGroup.id}
-                    className="space-y-1"
-                    draggable
-                    onDragStart={(e) => handleTabGroupDragStart(e, tabGroup.id)}
-                    onDragOver={handleTabGroupDragOver}
-                    onDrop={(e) => handleTabGroupDrop(e, tabGroup.id)}
-                  >
+              activeTabGroups.map((tabGroup) => (
+                <div
+                  key={tabGroup.id}
+                  className="space-y-1"
+                  draggable
+                  onDragStart={(e) => handleTabGroupDragStart(e, tabGroup.id)}
+                  onDragOver={handleTabGroupDragOver}
+                  onDrop={(e) => handleTabGroupDrop(e, tabGroup.id)}
+                >
                   <div className="flex items-center gap-1">
                     <button
                       className={`shrink-0 w-6 h-6 flex items-center justify-center rounded text-xs transition-colors ${
@@ -993,10 +951,10 @@ export function Sidebar({
                         {tabGroup.label}
                       </div>
                       <div className="text-xs text-neutral-500 mt-0.5">
-                        {tabs.length} tab
-                        {tabs.length !== 1 ? 's' : ''}
-                        {pairs.length > 0
-                          ? ` • ${pairs.length} pair${pairs.length !== 1 ? 's' : ''}`
+                        {tabGroup.tabs.length} tab
+                        {tabGroup.tabs.length !== 1 ? 's' : ''}
+                        {tabGroup.pairs.length > 0
+                          ? ` • ${tabGroup.pairs.length} pair${tabGroup.pairs.length !== 1 ? 's' : ''}`
                           : ''}
                       </div>
                     </button>
@@ -1004,7 +962,7 @@ export function Sidebar({
 
                   {activeTabGroupId === tabGroup.id && (
                     <div className="ml-2 pl-2 border-l border-neutral-800 space-y-0.5">
-                      {tabs.map((tab) => {
+                      {tabGroup.tabs.map((tab) => {
                         const isActiveTab = activeItems[tabGroup.id] === tab.id;
                         return (
                           <button
@@ -1018,10 +976,9 @@ export function Sidebar({
                               e.stopPropagation();
                               onSelectTab(tabGroup.id, tab.id);
                             }}
-                            onContextMenu={(e) => {
-                              if (isBuiltInWorkspaceTabId(tab.id)) return;
-                              handleTabItemContextMenu(e, tabGroup.id, tab.id);
-                            }}
+                            onContextMenu={(e) =>
+                              handleTabItemContextMenu(e, tabGroup.id, tab.id)
+                            }
                             title={tab.title}
                           >
                             <span className="truncate block">{tab.title}</span>
@@ -1029,13 +986,13 @@ export function Sidebar({
                         );
                       })}
 
-                      {pairs.map((pair) => {
+                      {tabGroup.pairs.map((pair) => {
                         const isActivePair =
                           activeItems[tabGroup.id] === pair.id;
                         const pairTitle = pair.tabIds
                           .map(
                             (tabId) =>
-                              tabs.find((t) => t.id === tabId)
+                              tabGroup.tabs.find((t) => t.id === tabId)
                                 ?.title || 'Unknown',
                           )
                           .join(' | ');
@@ -1052,10 +1009,9 @@ export function Sidebar({
                               e.stopPropagation();
                               onSelectPair(tabGroup.id, pair.id);
                             }}
-                            onContextMenu={(e) => {
-                              if (isBuiltInWorkspacePairId(pair.id)) return;
-                              handleTabItemContextMenu(e, tabGroup.id, pair.id);
-                            }}
+                            onContextMenu={(e) =>
+                              handleTabItemContextMenu(e, tabGroup.id, pair.id)
+                            }
                             title={pairTitle ? `Pair: ${pairTitle}` : 'Pair'}
                           >
                             <span className="truncate block">
@@ -1067,8 +1023,7 @@ export function Sidebar({
                     </div>
                   )}
                 </div>
-                );
-              })
+              ))
             )}
             </div>
           </div>
@@ -1091,7 +1046,9 @@ export function Sidebar({
               onContextMenu={(e) => handleContextMenu(e, space.id)}
             >
               <span className="text-sm">
-                {SPACE_ICONS[space.icon] || SPACE_ICONS.default}
+                {resolvedSpaceIcons.get(space.icon) ||
+                  SPACE_ICONS[space.icon] ||
+                  SPACE_ICONS.default}
               </span>
               {editingId === space.id ? (
                 <Input

@@ -2,10 +2,13 @@ import { describe, expect, it } from 'vitest';
 import type { TabGroup, WorkspaceState } from '../types';
 import {
   BUILT_IN_AGENT_CODE_PAIR_ID,
+  BUILT_IN_AGENT_BEADS_PAIR_ID,
   BUILT_IN_AGENT_DIFF_PAIR_ID,
   BUILT_IN_AGENT_TAB_ID,
+  BUILT_IN_BEADS_TAB_ID,
   BUILT_IN_CODE_TAB_ID,
   BUILT_IN_DIFF_TAB_ID,
+  BUILT_IN_FORMS_TAB_ID,
   getEffectivePairs,
   getEffectiveTabs,
   migrateWorkspaceBuiltInTabs,
@@ -45,6 +48,18 @@ describe('built-in workspace tabs', () => {
         url: 'internal://diff?workspaceId=attempt-1&workspaceDir=%2Ftmp%2Fworkspace',
         pinned: true,
       },
+      {
+        id: BUILT_IN_BEADS_TAB_ID,
+        title: 'Beads',
+        url: 'https://beads-web.workspace.example',
+        pinned: true,
+      },
+      {
+        id: BUILT_IN_FORMS_TAB_ID,
+        title: 'Forms',
+        url: 'https://workspace.example/dashboard/forms?workspace=attempt-1',
+        pinned: true,
+      },
       { id: 'tab_custom', title: 'Docs', url: 'https://example.com' },
     ]);
   });
@@ -65,10 +80,13 @@ describe('built-in workspace tabs', () => {
       BUILT_IN_AGENT_TAB_ID,
       BUILT_IN_CODE_TAB_ID,
       BUILT_IN_DIFF_TAB_ID,
+      BUILT_IN_BEADS_TAB_ID,
+      BUILT_IN_FORMS_TAB_ID,
     ]);
     expect(getEffectivePairs(tabGroup).map((pair) => pair.id)).toEqual([
       BUILT_IN_AGENT_CODE_PAIR_ID,
       BUILT_IN_AGENT_DIFF_PAIR_ID,
+      BUILT_IN_AGENT_BEADS_PAIR_ID,
     ]);
   });
 
@@ -103,6 +121,7 @@ describe('built-in workspace tabs', () => {
     expect(getEffectivePairs(tabGroup).map((pair) => pair.id)).toEqual([
       BUILT_IN_AGENT_CODE_PAIR_ID,
       BUILT_IN_AGENT_DIFF_PAIR_ID,
+      BUILT_IN_AGENT_BEADS_PAIR_ID,
       'custom_pair',
     ]);
   });
