@@ -114,7 +114,7 @@ export interface WorkflowTriggerListResult {
 
 export interface WorkflowTriggerResumeResult {
   applied: boolean;
-  reason: 'applied' | 'trigger_not_active' | 'instance_not_waiting';
+  reason: 'applied' | 'trigger_not_active' | 'instance_not_waiting' | 'external_wait_active';
   trigger: WorkflowScopedTriggerReadModel;
   instance: WorkflowInstanceReadModel | null;
   step: WorkflowStepStateReadModel | null;
@@ -472,6 +472,19 @@ export class DbWorkflowOrchestrationStore {
       if (instance?.status !== 'waiting') {
         result = { applied: false, reason: 'instance_not_waiting', trigger, instance, step };
         return;
+      }
+      if (trigger.workspaceId && trigger.sessionId) {
+        const activeExternalWait = await trx
+          .selectFrom('WorkflowExternalWait')
+          .select(['waitId'])
+          .where('status', '=', 'active')
+          .where('workspaceId', '=', trigger.workspaceId)
+          .where('sessionId', '=', trigger.sessionId)
+          .executeTakeFirst();
+        if (activeExternalWait) {
+          result = { applied: false, reason: 'external_wait_active', trigger, instance, step };
+          return;
+        }
       }
       if (!step) {
         throw new WorkflowOrchestrationTransitionError(

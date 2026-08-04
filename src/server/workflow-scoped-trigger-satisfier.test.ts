@@ -218,6 +218,57 @@ describe("WorkflowScopedTriggerSatisfier", () => {
     });
   });
 
+  it("does not satisfy from a stale scan when an external wait becomes active before resume", async () => {
+    const response = agentResponse({ execution_process_id: "exec-after-scan" });
+    const harness = await createHarness({
+      getSessionLatestResponse: vi.fn(async () => response),
+    });
+    await seedWaitingTrigger(harness.store);
+
+    const staleScan = await harness.scanner.scanOnce({ maxActiveExecutions: 8 });
+    expect(staleScan.sessions[0]).toMatchObject({
+      classification: "completed_since_cursor",
+      externalWaitId: null,
+    });
+
+    await seedExternalWait(harness.handle, {
+      waitId: "wait-race",
+      kind: "callback",
+      sessionId: "session-1",
+    });
+
+    const satisfier = new WorkflowScopedTriggerSatisfier({
+      scanner: {
+        scanOnce: vi.fn(async () => staleScan),
+      } as unknown as WorkflowActivityScanner,
+      orchestrationStore: harness.store,
+      policy: { maxActiveExecutions: 8 },
+    });
+
+    const result = await satisfier.runOnce();
+
+    expect(result.satisfied).toEqual([]);
+    expect(result.skipped).toEqual([
+      expect.objectContaining({
+        kind: "resume_skipped",
+        triggerId: "trigger-1",
+        reason: "external_wait_active",
+      }),
+    ]);
+    await expect(harness.store.getTrigger("trigger-1")).resolves.toMatchObject({
+      status: "active",
+      satisfiedByExecutionProcessId: null,
+    });
+    await expect(harness.store.getInstance("instance-1")).resolves.toMatchObject({
+      status: "waiting",
+    });
+    await expect(getStep(harness.handle, "instance-1_step-1")).resolves.toMatchObject({
+      status: "waiting",
+      waitingTriggerId: "trigger-1",
+      output: null,
+    });
+  });
+
   it("skips resume when an instance is paused and avoids satisfying cancelled triggers", async () => {
     const harness = await createHarness({
       getSessionLatestResponse: vi.fn(async () =>
