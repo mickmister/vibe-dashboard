@@ -1,7 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   getSubVoyageDropTarget,
   getTileDropInvalidReasonLabel,
+  selectSubVoyageAgentTab,
+  selectSubVoyageBeadFormsTab,
 } from './WorkspaceContentView';
 
 describe('getSubVoyageDropTarget', () => {
@@ -28,5 +30,72 @@ describe('getTileDropInvalidReasonLabel', () => {
     expect(getTileDropInvalidReasonLabel('max-panes')).toContain('Maximum');
     expect(getTileDropInvalidReasonLabel('sole-entry')).toContain('Add another tab');
     expect(getTileDropInvalidReasonLabel('missing-entry')).toContain('no longer available');
+  });
+});
+
+describe('SubVoyage BeadsForm handlers', () => {
+  it('opens a bead form and selects the Forms tab in the owning SubVoyage cell', async () => {
+    const openFormsForBead = vi.fn().mockResolvedValue({
+      tabGroupId: 'craft_group',
+      formsTabId: 'forms',
+    });
+    const selectSubVoyageCellTab = vi.fn();
+
+    await selectSubVoyageBeadFormsTab({
+      actions: { openFormsForBead },
+      sessionActions: { selectSubVoyageCellTab },
+      cellId: 'cell_2',
+      voyageEntryId: 'entry_2',
+      tabGroupId: 'craft_group',
+      agentTabId: 'agent',
+      beadId: 'vkvw-mu02',
+    });
+
+    expect(openFormsForBead).toHaveBeenCalledWith({
+      tabGroupId: 'craft_group',
+      agentTabId: 'agent',
+      beadId: 'vkvw-mu02',
+    });
+    expect(selectSubVoyageCellTab).toHaveBeenCalledWith(
+      'cell_2',
+      'entry_2',
+      'craft_group',
+      'forms',
+    );
+  });
+
+  it('does not change the SubVoyage cell selection when opening a bead form fails', async () => {
+    const openFormsForBead = vi.fn().mockResolvedValue(undefined);
+    const selectSubVoyageCellTab = vi.fn();
+
+    await selectSubVoyageBeadFormsTab({
+      actions: { openFormsForBead },
+      sessionActions: { selectSubVoyageCellTab },
+      cellId: 'cell_2',
+      voyageEntryId: 'entry_2',
+      tabGroupId: 'craft_group',
+      agentTabId: 'agent',
+      beadId: 'vkvw-mu02',
+    });
+
+    expect(selectSubVoyageCellTab).not.toHaveBeenCalled();
+  });
+
+  it('returns the owning SubVoyage cell to the built-in Agent tab after form submission', () => {
+    const selectSubVoyageCellTab = vi.fn();
+
+    selectSubVoyageAgentTab({
+      sessionActions: { selectSubVoyageCellTab },
+      cellId: 'cell_2',
+      voyageEntryId: 'entry_2',
+      tabGroupId: 'craft_group',
+    });
+
+    expect(selectSubVoyageCellTab).toHaveBeenCalledWith(
+      'cell_2',
+      'entry_2',
+      'craft_group',
+      'agent',
+    );
   });
 });

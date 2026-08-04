@@ -12,8 +12,60 @@ import type {
 import { canTileVoyageEntry } from '../sessionState';
 import type { SubVoyageDropTarget, TileVoyageEntryValidation } from '../sessionState';
 import type { WorkspaceActions, SessionActions } from './WorkspaceShell';
+import { BUILT_IN_AGENT_TAB_ID } from '../modules/plugins/vibe-dashboard/craft-surfaces';
 
 type TileDropInvalidReason = Extract<TileVoyageEntryValidation, { canTile: false }>['reason'];
+
+export async function selectSubVoyageBeadFormsTab({
+  actions,
+  sessionActions,
+  cellId,
+  voyageEntryId,
+  tabGroupId,
+  agentTabId,
+  beadId,
+}: {
+  actions: Pick<WorkspaceActions, 'openFormsForBead'>;
+  sessionActions: Pick<SessionActions, 'selectSubVoyageCellTab'>;
+  cellId: string;
+  voyageEntryId: string;
+  tabGroupId: string;
+  agentTabId: string;
+  beadId: string;
+}) {
+  const result = await actions.openFormsForBead({
+    tabGroupId,
+    agentTabId,
+    beadId,
+  });
+  if (result) {
+    sessionActions.selectSubVoyageCellTab(
+      cellId,
+      voyageEntryId,
+      result.tabGroupId,
+      result.formsTabId,
+    );
+  }
+}
+
+export function selectSubVoyageAgentTab({
+  sessionActions,
+  cellId,
+  voyageEntryId,
+  tabGroupId,
+}: {
+  sessionActions: Pick<SessionActions, 'selectSubVoyageCellTab'>;
+  cellId: string;
+  voyageEntryId: string;
+  tabGroupId: string;
+}) {
+  sessionActions.selectSubVoyageCellTab(
+    cellId,
+    voyageEntryId,
+    tabGroupId,
+    BUILT_IN_AGENT_TAB_ID,
+  );
+}
 
 interface WorkspaceContentViewProps {
   activeTabGroups: TabGroup[];
@@ -418,7 +470,7 @@ function SubVoyageCellView({
         />
       )}
       <div className="min-h-0 flex-1">
-        {activeTabGroup ? (
+        {activeTabGroup && activeEntry ? (
           <IframePanel
             tabGroup={activeTabGroup}
             activeItemId={activeItemId}
@@ -440,6 +492,25 @@ function SubVoyageCellView({
             onNavigateToTabGroup={onNavigateToTabGroup}
             onOpenVKWorkspace={async (taskAttemptId, name, containerRef, spaceId) => {
               await onOpenVKWorkspace(taskAttemptId, name, containerRef, spaceId);
+            }}
+            onBeadReferenceClick={async (agentTabId, beadId) => {
+              await selectSubVoyageBeadFormsTab({
+                actions,
+                sessionActions,
+                cellId: cell.id,
+                voyageEntryId: activeEntry.id,
+                tabGroupId: activeTabGroup.id,
+                agentTabId,
+                beadId,
+              });
+            }}
+            onBeadFormSubmitted={() => {
+              selectSubVoyageAgentTab({
+                sessionActions,
+                cellId: cell.id,
+                voyageEntryId: activeEntry.id,
+                tabGroupId: activeTabGroup.id,
+              });
             }}
           />
         ) : (
