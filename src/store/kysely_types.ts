@@ -137,6 +137,60 @@ export interface WorkflowExternalWait {
   cancelledAt: NullableNumber;
 }
 
+
+export type ResponseCollectionMode = 'manual' | 'all_at_once' | 'as_completed';
+export type ResponseCollectionStatus = 'collecting' | 'ready' | 'completed' | 'failed' | 'cancelled';
+
+export interface ResponseCollection {
+  collectionId: string;
+  workflowInstanceId: NullableString;
+  workflowRunId: NullableString;
+  triggerId: NullableString;
+  mode: ResponseCollectionMode;
+  status: ResponseCollectionStatus;
+  expectedCount: NullableNumber;
+  receivedCount: number;
+  metadataJson: NullableString;
+  createdAt: number;
+  updatedAt: number;
+  completedAt: NullableNumber;
+}
+
+export type ResponsePipeDeliveryStatus = 'planned' | 'rendered' | 'queued' | 'failed' | 'cancelled' | 'skipped';
+
+export interface ResponsePipeDelivery {
+  deliveryId: string;
+  collectionId: NullableString;
+  workflowInstanceId: NullableString;
+  workflowRunId: NullableString;
+  triggerId: NullableString;
+  sourceWorkspaceId: string;
+  sourceSessionId: string;
+  sourceExecutionProcessId: string;
+  sourceCompletedAt: NullableNumber;
+  sourceRoleId: NullableString;
+  sourceLaneId: NullableString;
+  targetWorkspaceId: string;
+  targetSessionId: string;
+  targetRoleId: NullableString;
+  targetLaneId: NullableString;
+  templateId: string;
+  templateVersion: NullableNumber;
+  templateHash: string;
+  renderedPromptHash: NullableString;
+  renderedPromptLength: NullableNumber;
+  dedupeKey: string;
+  status: ResponsePipeDeliveryStatus;
+  attemptCount: number;
+  queueItemId: NullableString;
+  errorJson: NullableString;
+  metadataJson: NullableString;
+  createdAt: number;
+  updatedAt: number;
+  queuedAt: NullableNumber;
+  completedAt: NullableNumber;
+}
+
 export type WorkflowRoleSessionBindingSource = 'user_selected' | 'auto_reused' | 'auto_created' | 'team_config' | 'imported';
 
 export interface WorkflowRoleSessionBinding {
@@ -159,6 +213,8 @@ export interface WorkflowRoleSessionBinding {
 
 export interface DB {
   Migration: Migration;
+  ResponseCollection: ResponseCollection;
+  ResponsePipeDelivery: ResponsePipeDelivery;
   WorkflowRun: WorkflowRun;
   WorkflowRunEvent: WorkflowRunEvent;
   WorkflowInstance: WorkflowInstance;
