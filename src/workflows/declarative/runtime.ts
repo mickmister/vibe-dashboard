@@ -1,9 +1,10 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { AgentTeam, TeamAgent } from '../../teams/agentTeams';
-import type { QueueFollowUpResponse, AgentResponse } from '../../server/vk-client';
+import type { QueueFollowUpResponse, AgentResponse, Session } from '../../server/vk-client';
 import type { ResolveRoleSessionsInput, ResolveRoleSessionsResult } from '../../server/role-session-resolver';
 import type { PipeResponseResult, PipeResponseInput } from '../../server/response-pipe-service';
 import { ResponsePipeValidationError } from '../../server/response-pipe-service';
+import type { DbResponsePipeStore } from '../../server/response-pipe-store';
 import type {
   DbWorkflowOrchestrationStore,
   WorkflowInstanceReadModel,
@@ -26,6 +27,7 @@ export interface DeclarativeWorkflowRuntimeVkClient {
   queueFollowUp(sessionId: string, prompt: string, options?: { source?: 'workflow' | 'system' | 'agent' | 'from_user' }): Promise<QueueFollowUpResponse>;
   getSessionLatestResponse(sessionId: string): Promise<AgentResponse | null>;
   getExecutionProcessFinalMessage(processId: string): Promise<AgentResponse>;
+  getSession(sessionId: string): Promise<Session>;
 }
 
 export interface DeclarativeWorkflowRuntimeResolver {
@@ -40,6 +42,8 @@ export interface DeclarativeWorkflowRuntimeResponsePipe {
 export interface DeclarativeWorkflowRuntimeScopedTriggerSatisfier {
   runOnce(): Promise<unknown>;
 }
+
+export type DeclarativeWorkflowNotificationStore = Pick<DbResponsePipeStore, 'getDeliveryByDedupeKey' | 'planDelivery' | 'markDeliveryRendered' | 'markDeliveryQueued'>;
 
 export interface DeclarativeWorkflowStartInput {
   definition: DeclarativeWorkflowDefinition | unknown;
@@ -125,6 +129,7 @@ export class DeclarativeWorkflowRuntime {
   private readonly vk: DeclarativeWorkflowRuntimeVkClient;
   private readonly responsePipe?: DeclarativeWorkflowRuntimeResponsePipe;
   private readonly scopedTriggerSatisfier?: DeclarativeWorkflowRuntimeScopedTriggerSatisfier;
+  private readonly notificationStore?: DeclarativeWorkflowNotificationStore;
   private readonly createId: () => string;
   private readonly now: () => number;
 
@@ -134,6 +139,7 @@ export class DeclarativeWorkflowRuntime {
     vk: DeclarativeWorkflowRuntimeVkClient;
     responsePipe?: DeclarativeWorkflowRuntimeResponsePipe;
     scopedTriggerSatisfier?: DeclarativeWorkflowRuntimeScopedTriggerSatisfier;
+    notificationStore?: DeclarativeWorkflowNotificationStore;
     createId?: () => string;
     now?: () => number;
   }) {
@@ -142,6 +148,7 @@ export class DeclarativeWorkflowRuntime {
     this.vk = options.vk;
     this.responsePipe = options.responsePipe;
     this.scopedTriggerSatisfier = options.scopedTriggerSatisfier;
+    this.notificationStore = options.notificationStore;
     this.createId = options.createId ?? (() => randomUUID());
     this.now = options.now ?? Date.now;
   }
@@ -334,8 +341,6 @@ export class DeclarativeWorkflowRuntime {
       instanceId: instance.instanceId,
       sourceExecutionProcessId: sourceOutput.executionProcessId,
       reviewExecutionProcessId: reviewOutput.executionProcessId,
-      sourceResponse: sourceResponse.content,
-      reviewResponse: reviewResponse.content,
       refs: {
         source: responseRef(sourceResponse),
         review: responseRef(reviewResponse),
@@ -345,11 +350,26 @@ export class DeclarativeWorkflowRuntime {
     let overseerQueueItemId: string | null = null;
     const input = instance.input as Record<string, string>;
     const overseerSessionId = readOptionalInput(input, notifyStep.sessionInput);
-    if (notifyState.status === 'pending') await this.store.markStepRunning(notifyState.id);
     if (overseerSessionId) {
+      const dedupe = notificationDedupe(instance, notifyStep, overseerSessionId);
+      const existingNotification = await this.notificationStore?.getDeliveryByDedupeKey(dedupe.dedupeKey);
+      let overseerSession: Session | null = null;
+      if (!(existingNotification?.status === 'queued' && existingNotification.queueItemId)) {
+        overseerSession = await this.vk.getSession(overseerSessionId);
+        if (await this.store.hasActiveExternalWaitForSession({ workspaceId: overseerSession.workspace_id, sessionId: overseerSession.id })) {
+          return null;
+        }
+      }
       const prompt = renderNotificationTemplate(notifyStep.template, input, instance.instanceId, sourceResponse, reviewResponse);
-      const queued = await this.vk.queueFollowUp(overseerSessionId, prompt, { source: 'workflow' });
-      overseerQueueItemId = queued.queued_item.id;
+      overseerQueueItemId = await this.queueCompletionNotification({
+        instance,
+        notifyStep,
+        overseerSessionId,
+        overseerSession,
+        prompt,
+        reviewResponse,
+        ...dedupe,
+      });
     }
     await this.store.completeWorkflowAfterNotification({
       instanceId: instance.instanceId,
@@ -368,6 +388,61 @@ export class DeclarativeWorkflowRuntime {
       latestRunId: reviewOutput.executionProcessId,
     });
     return { instanceId: instance.instanceId, notified: Boolean(overseerSessionId), overseerQueueItemId, output };
+  }
+
+  private async queueCompletionNotification(args: {
+    instance: WorkflowInstanceReadModel;
+    notifyStep: DeclarativeNotifyOverseerStep;
+    overseerSessionId: string;
+    overseerSession: Session | null;
+    prompt: string;
+    reviewResponse: AgentResponse;
+    templateHash: string;
+    dedupeKey: string;
+  }): Promise<string> {
+    if (!this.notificationStore) {
+      throw new DeclarativeWorkflowRuntimeError('Declarative workflow notification requires notificationStore');
+    }
+    const overseerSession = args.overseerSession ?? await this.vk.getSession(args.overseerSessionId);
+    const planned = await this.notificationStore.planDelivery({
+      deliveryId: `notification_${this.createId()}`,
+      workflowInstanceId: args.instance.instanceId,
+      triggerId: null,
+      sourceWorkspaceId: args.reviewResponse.workspace_id,
+      sourceSessionId: args.reviewResponse.session_id,
+      sourceExecutionProcessId: args.reviewResponse.execution_process_id,
+      sourceCompletedAt: args.reviewResponse.completed_at == null ? null : new Date(args.reviewResponse.completed_at).getTime(),
+      targetWorkspaceId: overseerSession.workspace_id,
+      targetSessionId: overseerSession.id,
+      templateId: `${args.instance.workflowId}.${args.notifyStep.id}`,
+      templateVersion: args.instance.templateVersion,
+      templateHash: args.templateHash,
+      dedupeKey: args.dedupeKey,
+      metadata: { kind: 'workflow_completion_notification', stepId: args.notifyStep.id },
+    });
+    if (planned.delivery.status === 'queued' && planned.delivery.queueItemId) {
+      return planned.delivery.queueItemId;
+    }
+    if (planned.delivery.status !== 'planned' && planned.delivery.status !== 'rendered') {
+      throw new DeclarativeWorkflowRuntimeError(`Completion notification delivery ${planned.delivery.deliveryId} is ${planned.delivery.status}`);
+    }
+    const rendered = planned.delivery.status === 'rendered'
+      ? planned.delivery
+      : await this.notificationStore.markDeliveryRendered(planned.delivery.deliveryId, {
+          promptHash: sha256(args.prompt),
+          promptLength: args.prompt.length,
+        });
+
+    // If VK accepts the queue item but markDeliveryQueued() fails, retry can
+    // still duplicate the notification. This mirrors the known response-pipe
+    // hard edge; once markDeliveryQueued() succeeds, later DB completion
+    // failures are idempotently recovered without re-queueing.
+    const queued = await this.vk.queueFollowUp(args.overseerSessionId, args.prompt, { source: 'workflow' });
+    const delivery = await this.notificationStore.markDeliveryQueued(rendered.deliveryId, {
+      queueItemId: queued.queued_item.id,
+    });
+    if (!delivery.queueItemId) throw new DeclarativeWorkflowRuntimeError(`Completion notification delivery ${delivery.deliveryId} did not record queue item`);
+    return delivery.queueItemId;
   }
 
   private async resumeSourceToReviewer(
@@ -653,6 +728,7 @@ function renderCompleteSummary(template: string | null | undefined, input: Recor
 }
 
 function responseRef(response: AgentResponse): Record<string, unknown> {
+  const content = response.content ?? '';
   return {
     executionProcessId: response.execution_process_id,
     sessionId: response.session_id,
@@ -664,7 +740,26 @@ function responseRef(response: AgentResponse): Record<string, unknown> {
     truncated: response.truncated,
     maxChars: response.max_chars,
     sourceKind: response.source_kind,
+    contentHash: sha256(content),
+    contentLength: content.length,
   };
+}
+
+function notificationDedupe(instance: WorkflowInstanceReadModel, notifyStep: DeclarativeNotifyOverseerStep, overseerSessionId: string): { templateHash: string; dedupeKey: string } {
+  const templateHash = sha256(notifyStep.template);
+  return {
+    templateHash,
+    dedupeKey: sha256(JSON.stringify({
+      workflowInstanceId: instance.instanceId,
+      notifyStepId: notifyStep.id,
+      overseerSessionId,
+      templateHash,
+    })),
+  };
+}
+
+function sha256(value: string): string {
+  return createHash('sha256').update(value).digest('hex');
 }
 
 function requireStepState(steps: WorkflowStepStateReadModel[], stepKey: string): WorkflowStepStateReadModel {

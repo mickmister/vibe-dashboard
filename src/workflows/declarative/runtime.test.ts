@@ -289,8 +289,10 @@ describe('DeclarativeWorkflowRuntime start skeleton', () => {
       output: {
         sourceExecutionProcessId: 'exec-source',
         reviewExecutionProcessId: 'exec-review',
-        sourceResponse: 'Implementation plan response',
-        reviewResponse: 'Reviewer response',
+        refs: {
+          source: { contentLength: 'Implementation plan response'.length },
+          review: { contentLength: 'Reviewer response'.length },
+        },
       },
     });
     expect(second.completed).toEqual([]);
@@ -307,6 +309,58 @@ describe('DeclarativeWorkflowRuntime start skeleton', () => {
     const steps = await harness.store.listStepStates('instance-resume');
     expect(steps.find((step) => step.stepKey === 'notify_overseer')).toMatchObject({ status: 'completed', output: { notified: true, queueItemId: 'queue-3' } });
     expect(steps.find((step) => step.stepKey === 'complete')).toMatchObject({ status: 'completed' });
+    const durable = JSON.stringify({
+      instance: await harness.store.getInstance('instance-resume'),
+      completeStep: steps.find((step) => step.stepKey === 'complete')?.output,
+    });
+    expect(durable).not.toContain('Implementation plan response');
+    expect(durable).not.toContain('Reviewer response');
+  });
+
+  it('does not duplicate overseer notification when DB completion fails after queue acceptance', async () => {
+    const harness = await createHarness();
+    await startAndSatisfyReviewer(harness, { overseerSessionId: 'session-overseer' });
+    const originalComplete = harness.store.completeWorkflowAfterNotification.bind(harness.store);
+    vi.spyOn(harness.store, 'completeWorkflowAfterNotification')
+      .mockRejectedValueOnce(new Error('DB unavailable after notification queued'))
+      .mockImplementation(originalComplete);
+
+    const failed = await harness.runtime.runOnce({ definition: TWO_AGENT_REVIEW_ROUND_DEFINITION });
+    expect(failed.errors[0]?.error.message).toBe('DB unavailable after notification queued');
+    expect(harness.vk.queueFollowUp).toHaveBeenCalledTimes(3);
+
+    const retried = await harness.runtime.runOnce({ definition: TWO_AGENT_REVIEW_ROUND_DEFINITION });
+
+    expect(retried.completed).toHaveLength(1);
+    expect(retried.completed[0]).toMatchObject({ overseerQueueItemId: 'queue-3' });
+    expect(harness.vk.queueFollowUp).toHaveBeenCalledTimes(3);
+    const notifications = await harness.handle.db
+      .selectFrom('ResponsePipeDelivery')
+      .selectAll()
+      .where('templateId', '=', 'two-agent-review-round.notify_overseer')
+      .execute();
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0]).toMatchObject({ status: 'queued', queueItemId: 'queue-3' });
+  });
+
+  it('does not mutate notify step or queue notification while overseer session has an active external wait', async () => {
+    const harness = await createHarness();
+    await startAndSatisfyReviewer(harness, { overseerSessionId: 'session-overseer' });
+    await seedExternalWait(harness, { waitId: 'wait-overseer', sessionId: 'session-overseer', stepStateId: 'instance-resume_notify_overseer' });
+
+    const result = await harness.runtime.runOnce({ definition: TWO_AGENT_REVIEW_ROUND_DEFINITION });
+
+    expect(result.completed).toEqual([]);
+    expect(harness.vk.queueFollowUp).toHaveBeenCalledTimes(2);
+    expect(await harness.handle.db
+      .selectFrom('ResponsePipeDelivery')
+      .selectAll()
+      .where('templateId', '=', 'two-agent-review-round.notify_overseer')
+      .execute()).toEqual([]);
+    await expect(harness.store.getInstance('instance-resume')).resolves.toMatchObject({ status: 'running' });
+    const steps = await harness.store.listStepStates('instance-resume');
+    expect(steps.find((step) => step.stepKey === 'notify_overseer')).toMatchObject({ status: 'pending' });
+    expect(steps.find((step) => step.stepKey === 'complete')).toMatchObject({ status: 'pending' });
   });
 
   it('completes without notification when overseerSessionId is absent', async () => {
@@ -328,6 +382,7 @@ describe('DeclarativeWorkflowRuntime start skeleton', () => {
       resolver: harness.resolver,
       vk: harness.vk,
       responsePipe: harness.responsePipe,
+      notificationStore: harness.pipeStore,
       createId: () => 'restarted',
       now: () => 0,
     });
@@ -361,7 +416,7 @@ async function createHarness(options: { sessions?: Session[] } = {}) {
   const vk = fakeVk(options.sessions ?? [session('session-impl', 'ws-1', 'implementer'), session('session-review', 'ws-1', 'reviewer'), session('session-overseer', 'ws-1', 'orchestrator')]);
   const resolver = new WorkflowRoleSessionResolver({ db: handle.db, vk, now: () => now++, createBindingId: (() => { let index = 0; return () => `binding-${++index}`; })() });
   const responsePipe = new ResponsePipeService({ store: pipeStore, vk, createId: (() => { let index = 0; return () => `delivery-${++index}`; })() });
-  const runtime = new DeclarativeWorkflowRuntime({ store, resolver, vk, responsePipe, createId: () => 'generated', now: () => runtimeNow });
+  const runtime = new DeclarativeWorkflowRuntime({ store, resolver, vk, responsePipe, notificationStore: pipeStore, createId: () => 'generated', now: () => runtimeNow });
   return { handle, store, pipeStore, responsePipe, vk, resolver, runtime };
 }
 

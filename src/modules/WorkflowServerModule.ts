@@ -39,12 +39,13 @@ serverRegistry.registerServerModule((api) => {
     orchestrationStore: workflowOrchestrationStore,
     vk: vkClient,
   });
+  const responsePipeStore = new DbResponsePipeStore({ getDb: async () => (await getVdDb()).db });
   const declarativeWorkflowRuntime = new DeclarativeWorkflowRuntime({
     store: workflowOrchestrationStore,
     resolver: roleSessionResolver,
     vk: vkClient,
     responsePipe: new ResponsePipeService({
-      store: new DbResponsePipeStore({ getDb: async () => (await getVdDb()).db }),
+      store: responsePipeStore,
       vk: vkClient,
     }),
     scopedTriggerSatisfier: new WorkflowScopedTriggerSatisfier({
@@ -52,6 +53,7 @@ serverRegistry.registerServerModule((api) => {
       orchestrationStore: workflowOrchestrationStore,
       policy: { maxActiveExecutions: 8 },
     }),
+    notificationStore: responsePipeStore,
   });
   registerWorkflowRoutes(api.hono, {
     registry: workflowRegistry,

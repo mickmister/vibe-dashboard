@@ -143,7 +143,7 @@ export function registerWorkflowRoutes(
     if (!instance) return c.json({ error: 'workflow_instance_not_found' }, 404);
     const steps = await store.listStepStates(instance.instanceId);
     const triggers = await store.listTriggers({ instanceId: instance.instanceId, limit: 100 });
-    return c.json({ instance, steps, triggers: triggers.triggers });
+    return c.json({ instance, steps, triggers: triggers.triggers, output: asRecord(instance.state)?.output ?? null });
   });
 
   hono.post('/dashboard/api/declarative-workflows/:workflowId/run', async (c) => {
