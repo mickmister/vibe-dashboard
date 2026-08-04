@@ -177,6 +177,16 @@ export interface CompletePipeHandoffInput {
   trigger: CreateWorkflowScopedTriggerInput;
 }
 
+export interface CompleteWorkflowNotificationInput {
+  instanceId: string;
+  notifyStepStateId: string;
+  notifyOutput: JsonValue;
+  completeStepStateId?: string | null;
+  completeOutput?: JsonValue;
+  finalState: JsonValue;
+  latestRunId?: string | null;
+}
+
 export class WorkflowOrchestrationTransitionError extends Error {
   constructor(message: string) {
     super(message);
@@ -673,6 +683,77 @@ export class DbWorkflowOrchestrationStore {
     });
 
     if (!result) throw new WorkflowOrchestrationTransitionError(`Cannot complete pipe handoff for workflow instance ${input.instanceId}`);
+    return result;
+  }
+
+  async completeWorkflowAfterNotification(input: CompleteWorkflowNotificationInput): Promise<{ instance: WorkflowInstanceReadModel; notifyStep: WorkflowStepStateReadModel; completeStep: WorkflowStepStateReadModel | null }> {
+    const db = await this.getDb();
+    const now = this.now();
+    let result: { instance: WorkflowInstanceReadModel; notifyStep: WorkflowStepStateReadModel; completeStep: WorkflowStepStateReadModel | null } | undefined;
+
+    await db.transaction().execute(async (trx) => {
+      await assertUpdated(
+        trx
+          .updateTable('WorkflowStepState')
+          .set({
+            status: 'completed',
+            outputJson: serializeJson(input.notifyOutput),
+            completedAt: now,
+            updatedAt: now,
+          })
+          .where('id', '=', input.notifyStepStateId)
+          .where('instanceId', '=', input.instanceId)
+          .where('status', 'in', ['pending', 'running'])
+          .executeTakeFirst(),
+        `Cannot complete workflow notify step ${input.notifyStepStateId} from its current state`,
+      );
+
+      if (input.completeStepStateId) {
+        await assertUpdated(
+          trx
+            .updateTable('WorkflowStepState')
+            .set({
+              status: 'completed',
+              outputJson: input.completeOutput === undefined ? null : serializeJson(input.completeOutput),
+              startedAt: now,
+              completedAt: now,
+              updatedAt: now,
+            })
+            .where('id', '=', input.completeStepStateId)
+            .where('instanceId', '=', input.instanceId)
+            .where('status', '=', 'pending')
+            .executeTakeFirst(),
+          `Cannot complete workflow final step ${input.completeStepStateId} from its current state`,
+        );
+      }
+
+      await assertUpdated(
+        trx
+          .updateTable('WorkflowInstance')
+          .set((eb) => ({
+            status: 'completed' as const,
+            stateJson: serializeJson(input.finalState),
+            latestRunId: input.latestRunId ?? null,
+            updatedAt: now,
+            version: eb('version', '+', 1),
+          }))
+          .where('instanceId', '=', input.instanceId)
+          .where('status', '=', 'running')
+          .executeTakeFirst(),
+        `Cannot complete workflow instance ${input.instanceId} from its current state`,
+      );
+
+      const [instanceRow, notifyStepRow, completeStepRow] = await Promise.all([
+        trx.selectFrom('WorkflowInstance').selectAll().where('instanceId', '=', input.instanceId).executeTakeFirstOrThrow(),
+        trx.selectFrom('WorkflowStepState').selectAll().where('id', '=', input.notifyStepStateId).executeTakeFirstOrThrow(),
+        input.completeStepStateId
+          ? trx.selectFrom('WorkflowStepState').selectAll().where('id', '=', input.completeStepStateId).executeTakeFirst()
+          : Promise.resolve(null),
+      ]);
+      result = { instance: mapInstance(instanceRow), notifyStep: mapStepState(notifyStepRow), completeStep: completeStepRow ? mapStepState(completeStepRow) : null };
+    });
+
+    if (!result) throw new WorkflowOrchestrationTransitionError(`Cannot complete workflow instance ${input.instanceId} after notification`);
     return result;
   }
 

@@ -14,6 +14,8 @@ import type {
   DeclarativeQueuePromptStep,
   DeclarativePipeResponseStep,
   DeclarativeResolveRolesStep,
+  DeclarativeNotifyOverseerStep,
+  DeclarativeCompleteStep,
   DeclarativeWaitForNextCompletedResponseStep,
   DeclarativeWorkflowDefinition,
   DeclarativeWorkflowStep,
@@ -23,6 +25,7 @@ import { normalizeDeclarativeWorkflowDefinition } from './definitions';
 export interface DeclarativeWorkflowRuntimeVkClient {
   queueFollowUp(sessionId: string, prompt: string, options?: { source?: 'workflow' | 'system' | 'agent' | 'from_user' }): Promise<QueueFollowUpResponse>;
   getSessionLatestResponse(sessionId: string): Promise<AgentResponse | null>;
+  getExecutionProcessFinalMessage(processId: string): Promise<AgentResponse>;
 }
 
 export interface DeclarativeWorkflowRuntimeResolver {
@@ -91,8 +94,16 @@ export interface DeclarativeWorkflowResumeHandoff {
 
 export interface DeclarativeWorkflowRunOnceResult {
   resumed: DeclarativeWorkflowResumeHandoff[];
+  completed: Array<{ instanceId: string; notified: boolean; overseerQueueItemId: string | null; output: Record<string, unknown> }>;
   skipped: Array<{ instanceId: string; reason: string }>;
   errors: Array<{ instanceId: string; error: { message: string; name?: string } }>;
+}
+
+export interface DeclarativeWorkflowStatus {
+  instance: WorkflowInstanceReadModel | null;
+  steps: WorkflowStepStateReadModel[];
+  triggers: WorkflowScopedTriggerReadModel[];
+  output: unknown;
 }
 
 export class DeclarativeWorkflowRuntimeError extends Error {
@@ -249,13 +260,21 @@ export class DeclarativeWorkflowRuntime {
     const sourceWaitStep = firstStepOfType(definition, 'wait_for_next_completed_response');
     const reviewPipeStep = firstStepOfType(definition, 'pipe_response');
     const reviewWaitStep = findWaitStepAfter(definition, reviewPipeStep.id);
+    const notifyStep = firstStepOfType(definition, 'notify_overseer');
+    const completeStep = firstStepOfType(definition, 'complete');
     const running = await this.store.listInstances({ workflowId: definition.id, status: 'running', limit: 100 });
     const resumed: DeclarativeWorkflowResumeHandoff[] = [];
+    const completed: DeclarativeWorkflowRunOnceResult['completed'] = [];
     const skipped: DeclarativeWorkflowRunOnceResult['skipped'] = [];
     const errors: DeclarativeWorkflowRunOnceResult['errors'] = [];
 
     for (const instance of running.instances) {
       try {
+        const finished = await this.completeAfterReviewerResponse(definition, instance, sourceWaitStep, reviewWaitStep, notifyStep, completeStep);
+        if (finished) {
+          completed.push(finished);
+          continue;
+        }
         const handoff = await this.resumeSourceToReviewer(definition, instance, resolveStep, sourceWaitStep, reviewPipeStep, reviewWaitStep);
         if (handoff) resumed.push(handoff);
         else skipped.push({ instanceId: instance.instanceId, reason: 'not_ready' });
@@ -264,7 +283,91 @@ export class DeclarativeWorkflowRuntime {
       }
     }
 
-    return { resumed, skipped, errors };
+    return { resumed, completed, skipped, errors };
+  }
+
+  async getStatus(instanceId: string): Promise<DeclarativeWorkflowStatus> {
+    const instance = await this.store.getInstance(instanceId);
+    if (!instance) return { instance: null, steps: [], triggers: [], output: null };
+    const [steps, triggers] = await Promise.all([
+      this.store.listStepStates(instanceId),
+      this.store.listTriggers({ instanceId, limit: 100 }),
+    ]);
+    return {
+      instance,
+      steps,
+      triggers: triggers.triggers,
+      output: asOptionalRecord(instance.state)?.output ?? null,
+    };
+  }
+
+  private async completeAfterReviewerResponse(
+    definition: DeclarativeWorkflowDefinition,
+    instance: WorkflowInstanceReadModel,
+    sourceWaitStep: DeclarativeWaitForNextCompletedResponseStep,
+    reviewWaitStep: DeclarativeWaitForNextCompletedResponseStep,
+    notifyStep: DeclarativeNotifyOverseerStep,
+    completeStep: DeclarativeCompleteStep,
+  ): Promise<{ instanceId: string; notified: boolean; overseerQueueItemId: string | null; output: Record<string, unknown> } | null> {
+    const steps = await this.getInstanceSteps(instance.instanceId);
+    const reviewWaitState = requireStepState(steps, reviewWaitStep.id);
+    const notifyState = requireStepState(steps, notifyStep.id);
+    const completeState = requireStepState(steps, completeStep.id);
+    if (reviewWaitState.status !== 'completed') return null;
+    if (completeState.status === 'completed') return null;
+    if (notifyState.status !== 'pending' && notifyState.status !== 'running') return null;
+
+    const resolvedRoles = readResolvedRoles(requireStepState(steps, firstStepOfType(definition, 'resolve_roles').id).output);
+    const reviewRole = resolvedRoles[reviewWaitStep.target];
+    if (reviewRole && await this.store.hasActiveExternalWaitForSession({ workspaceId: reviewRole.workspaceId, sessionId: reviewRole.sessionId })) {
+      return null;
+    }
+
+    const sourceOutput = readResponseStepOutput(requireStepState(steps, sourceWaitStep.id).output);
+    const reviewOutput = readResponseStepOutput(reviewWaitState.output);
+    const [sourceResponse, reviewResponse] = await Promise.all([
+      this.vk.getExecutionProcessFinalMessage(sourceOutput.executionProcessId),
+      this.vk.getExecutionProcessFinalMessage(reviewOutput.executionProcessId),
+    ]);
+    const output = {
+      workflowId: definition.id,
+      instanceId: instance.instanceId,
+      sourceExecutionProcessId: sourceOutput.executionProcessId,
+      reviewExecutionProcessId: reviewOutput.executionProcessId,
+      sourceResponse: sourceResponse.content,
+      reviewResponse: reviewResponse.content,
+      refs: {
+        source: responseRef(sourceResponse),
+        review: responseRef(reviewResponse),
+      },
+    };
+
+    let overseerQueueItemId: string | null = null;
+    const input = instance.input as Record<string, string>;
+    const overseerSessionId = readOptionalInput(input, notifyStep.sessionInput);
+    if (notifyState.status === 'pending') await this.store.markStepRunning(notifyState.id);
+    if (overseerSessionId) {
+      const prompt = renderNotificationTemplate(notifyStep.template, input, instance.instanceId, sourceResponse, reviewResponse);
+      const queued = await this.vk.queueFollowUp(overseerSessionId, prompt, { source: 'workflow' });
+      overseerQueueItemId = queued.queued_item.id;
+    }
+    await this.store.completeWorkflowAfterNotification({
+      instanceId: instance.instanceId,
+      notifyStepStateId: notifyState.id,
+      notifyOutput: {
+        notified: Boolean(overseerSessionId),
+        overseerSessionId: overseerSessionId ?? null,
+        queueItemId: overseerQueueItemId,
+      },
+      completeStepStateId: completeState.id,
+      completeOutput: {
+        summary: renderCompleteSummary(completeStep.summaryTemplate, input),
+        output,
+      },
+      finalState: { phase: 'completed', output },
+      latestRunId: reviewOutput.executionProcessId,
+    });
+    return { instanceId: instance.instanceId, notified: Boolean(overseerSessionId), overseerQueueItemId, output };
   }
 
   private async resumeSourceToReviewer(
@@ -523,6 +626,47 @@ function renderPipeTemplateForResponsePipe(template: string, input: Record<strin
   return renderTemplate(template, input).replace(/{{\s*source\.response\s*}}/g, '{{source_response}}');
 }
 
+function renderNotificationTemplate(template: string, input: Record<string, string>, instanceId: string, source: AgentResponse, review: AgentResponse): string {
+  const rendered = renderTemplate(template, input)
+    .replace(/{{\s*responses\.wait_source\s*}}/g, source.content ?? '')
+    .replace(/{{\s*responses\.wait_review\s*}}/g, review.content ?? '')
+    .replace(/{{\s*instance\.id\s*}}/g, instanceId);
+  const truncationNotes = [
+    source.truncated ? `Source response was truncated at ${source.max_chars} chars; inspect VK session ${source.session_id} / execution ${source.execution_process_id} for full context.` : null,
+    review.truncated ? `Review response was truncated at ${review.max_chars} chars; inspect VK session ${review.session_id} / execution ${review.execution_process_id} for full context.` : null,
+  ].filter(Boolean);
+  return [
+    rendered,
+    '',
+    'Workflow refs:',
+    `- Instance: ${instanceId}`,
+    `- Source session: ${source.session_id}`,
+    `- Source execution: ${source.execution_process_id}`,
+    `- Review session: ${review.session_id}`,
+    `- Review execution: ${review.execution_process_id}`,
+    ...(truncationNotes.length > 0 ? ['', 'Truncation notes:', ...truncationNotes] : []),
+  ].join('\n');
+}
+
+function renderCompleteSummary(template: string | null | undefined, input: Record<string, string>): string | null {
+  return template ? renderTemplate(template, input) : null;
+}
+
+function responseRef(response: AgentResponse): Record<string, unknown> {
+  return {
+    executionProcessId: response.execution_process_id,
+    sessionId: response.session_id,
+    workspaceId: response.workspace_id,
+    completedAt: response.completed_at,
+    codingAgentTurnId: response.coding_agent_turn_id,
+    agentSessionId: response.agent_session_id,
+    agentMessageId: response.agent_message_id,
+    truncated: response.truncated,
+    maxChars: response.max_chars,
+    sourceKind: response.source_kind,
+  };
+}
+
 function requireStepState(steps: WorkflowStepStateReadModel[], stepKey: string): WorkflowStepStateReadModel {
   const step = steps.find((entry) => entry.stepKey === stepKey);
   if (!step) throw new DeclarativeWorkflowRuntimeError(`Missing workflow step state ${stepKey}`);
@@ -544,6 +688,10 @@ function asRecord(value: unknown, label: string): Record<string, any> {
     throw new DeclarativeWorkflowRuntimeError(`${label} must be an object`);
   }
   return value as Record<string, any>;
+}
+
+function asOptionalRecord(value: unknown): Record<string, any> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, any> : null;
 }
 
 function readStringField(record: Record<string, any>, key: string): string {

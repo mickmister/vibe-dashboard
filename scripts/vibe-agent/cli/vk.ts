@@ -3,6 +3,7 @@
 // Manages workspaces, sessions, and read-only inspection commands
 
 import { fileURLToPath } from 'url';
+import { readFileSync } from 'node:fs';
 import { VKService, type PullRequestDetail, type WorkspaceRepoInput } from './vk-service.js';
 import { config, type Executor } from './vk-config.js';
 
@@ -127,6 +128,10 @@ async function main() {
         await commandSummary(flags);
         break;
 
+      case 'workflow':
+        await commandWorkflow(positional, flags);
+        break;
+
       case 'help':
       case '--help':
       case '-h':
@@ -161,6 +166,32 @@ function getFlagStrings(flags: FlagMap, key: string): string[] {
   if (typeof value === 'string') return [value];
   if (Array.isArray(value)) return value;
   return [];
+}
+
+async function requestDashboardJson<T>(url: string, options?: RequestInit): Promise<T> {
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options?.headers,
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+  }
+  return response.json() as Promise<T>;
+}
+
+function readJsonFlag(flags: FlagMap, key: string): unknown | undefined {
+  const inline = getFlagString(flags, key);
+  if (!inline) return undefined;
+  return JSON.parse(inline) as unknown;
+}
+
+function readJsonFileFlag(flags: FlagMap, key: string): unknown | undefined {
+  const file = getFlagString(flags, key);
+  if (!file) return undefined;
+  return JSON.parse(readFileSync(file, 'utf8')) as unknown;
 }
 
 function isExecutor(value: string): value is Executor {
@@ -849,6 +880,71 @@ async function commandSummary(flags: FlagMap) {
   }
 }
 
+async function commandWorkflow(positional: string[], flags: FlagMap) {
+  const subcommand = positional[0];
+  switch (subcommand) {
+    case 'run': {
+      const workflowId = positional[1];
+      if (!workflowId) {
+        console.error('Usage: vk workflow run <workflow-id> --input-json <json|--input-file file> --team-json <json|--team-file file> [--instance-id id] [--json]');
+        process.exit(1);
+      }
+      const input = readJsonFlag(flags, 'input-json') ?? readJsonFileFlag(flags, 'input-file');
+      const team = readJsonFlag(flags, 'team-json') ?? readJsonFileFlag(flags, 'team-file');
+      if (!input || !team) {
+        console.error('workflow run requires --input-json/--input-file and --team-json/--team-file');
+        process.exit(1);
+      }
+      const result = await requestDashboardJson<unknown>(config.endpoints.declarativeWorkflowRun(workflowId), {
+        method: 'POST',
+        body: JSON.stringify({
+          input,
+          team,
+          instanceId: getFlagString(flags, 'instance-id'),
+          teamId: getFlagString(flags, 'team-id'),
+        }),
+      });
+      if (flags.json === true) {
+        console.log(JSON.stringify(result, null, 2));
+        return;
+      }
+      const instanceId = (result as any)?.result?.instance?.instanceId ?? '(unknown)';
+      console.log(`Workflow ${workflowId} started: ${instanceId}`);
+      console.log('Use `vk workflow status <instance-id>` to inspect progress.');
+      return;
+    }
+    case 'status': {
+      const instanceId = positional[1];
+      if (!instanceId) {
+        console.error('Usage: vk workflow status <instance-id> [--json]');
+        process.exit(1);
+      }
+      const status = await requestDashboardJson<any>(config.endpoints.workflowInstanceStatus(instanceId));
+      if (flags.json === true) {
+        console.log(JSON.stringify(status, null, 2));
+        return;
+      }
+      console.log(`Workflow instance: ${status.instance?.instanceId}`);
+      console.log(`Status: ${status.instance?.status}`);
+      console.log(`Current step: ${status.instance?.currentStepId ?? '(none)'}`);
+      for (const step of status.steps ?? []) {
+        console.log(`- ${step.stepKey}: ${step.status}`);
+      }
+      return;
+    }
+    case 'tick':
+    case 'run-once': {
+      const workflowId = positional[1] ?? 'two-agent-review-round';
+      const result = await requestDashboardJson<unknown>(config.endpoints.declarativeWorkflowRunOnce(workflowId), { method: 'POST' });
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+    default:
+      console.error('Usage: vk workflow <run|status|run-once> ...');
+      process.exit(1);
+  }
+}
+
 function printHelp() {
   console.log('Vibe Kanban CLI');
   console.log('================');
@@ -865,6 +961,7 @@ function printHelp() {
   console.log('  processes <session-id>                     List execution processes');
   console.log('  fetch <process-id> [--all] [--json]        Fetch conversation logs');
   console.log('  summary --workspace <workspace-id>         Show latest messages per session');
+  console.log('  workflow status <instance-id> [--json]     Inspect durable workflow state');
   console.log('');
   console.log('Action Commands:');
   console.log('  dev-script set <repo-id> "<script>"        Update repo dev server script');
@@ -877,6 +974,8 @@ function printHelp() {
   console.log('  create-workspace --message "prompt" --repo <repo[:branch]>   Create and start workspace');
   console.log('  workspace create-from-pr --repo <repo> --remote <remote> --pr <n>  Create workspace from PR');
   console.log('  send <session-id> "<prompt>"               Send message to session');
+  console.log('  workflow run <id> --input-file f --team-file f   Start declarative workflow and return');
+  console.log('  workflow run-once [id]                     Advance declarative workflow worker once');
   console.log('');
   console.log('Options:');
   console.log('  --all                 Show all entry types in conversation');

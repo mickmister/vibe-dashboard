@@ -11,8 +11,12 @@ import { DbWorkflowRunRecorder } from '../server/workflow-run-recorder';
 import { DbWorkflowRunReader } from '../server/workflow-run-store';
 import { DbWorkflowOrchestrationStore } from '../server/workflow-orchestration-store';
 import { WorkflowActivityScanner } from '../server/workflow-session-scanner';
+import { WorkflowScopedTriggerSatisfier } from '../server/workflow-scoped-trigger-satisfier';
 import { VibeKanbanServerClient } from '../server/vk-client';
 import { WorkflowRoleSessionResolver } from '../server/role-session-resolver';
+import { DbResponsePipeStore } from '../server/response-pipe-store';
+import { ResponsePipeService } from '../server/response-pipe-service';
+import { DeclarativeWorkflowRuntime } from '../workflows/declarative/runtime';
 import { workflowRegistry } from '../workflows/registry';
 import type { CachedRepoAlias } from '../workflows/github-ci';
 
@@ -30,6 +34,25 @@ serverRegistry.registerServerModule((api) => {
     getDb: async () => (await getVdDb()).db,
     vk: vkClient,
   });
+  const workflowActivityScanner = new WorkflowActivityScanner({
+    getDb: async () => (await getVdDb()).db,
+    orchestrationStore: workflowOrchestrationStore,
+    vk: vkClient,
+  });
+  const declarativeWorkflowRuntime = new DeclarativeWorkflowRuntime({
+    store: workflowOrchestrationStore,
+    resolver: roleSessionResolver,
+    vk: vkClient,
+    responsePipe: new ResponsePipeService({
+      store: new DbResponsePipeStore({ getDb: async () => (await getVdDb()).db }),
+      vk: vkClient,
+    }),
+    scopedTriggerSatisfier: new WorkflowScopedTriggerSatisfier({
+      scanner: workflowActivityScanner,
+      orchestrationStore: workflowOrchestrationStore,
+      policy: { maxActiveExecutions: 8 },
+    }),
+  });
   registerWorkflowRoutes(api.hono, {
     registry: workflowRegistry,
     repoAliasCache: {
@@ -45,11 +68,8 @@ serverRegistry.registerServerModule((api) => {
     }),
     workflowOrchestrationStore,
     roleSessionResolver,
-    workflowActivityScanner: new WorkflowActivityScanner({
-      getDb: async () => (await getVdDb()).db,
-      orchestrationStore: workflowOrchestrationStore,
-      vk: vkClient,
-    }),
+    workflowActivityScanner,
+    declarativeWorkflowRuntime,
   });
   registerPluginAssetRoutes(api.hono, { installRoot: pluginInstallRoot });
   registerPluginAdminRoutes(api.hono);

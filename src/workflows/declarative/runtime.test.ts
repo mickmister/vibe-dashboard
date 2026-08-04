@@ -273,6 +273,82 @@ describe('DeclarativeWorkflowRuntime start skeleton', () => {
     const steps = await harness.store.listStepStates('instance-resume');
     expect(steps.find((step) => step.stepKey === 'ask_review')).toMatchObject({ status: 'pending' });
   });
+
+  it('completes after reviewer response and notifies overseer once', async () => {
+    const harness = await createHarness();
+    await startAndSatisfyReviewer(harness, { overseerSessionId: 'session-overseer' });
+
+    const result = await harness.runtime.runOnce({ definition: TWO_AGENT_REVIEW_ROUND_DEFINITION });
+    const second = await harness.runtime.runOnce({ definition: TWO_AGENT_REVIEW_ROUND_DEFINITION });
+
+    expect(result.completed).toHaveLength(1);
+    expect(result.completed[0]).toMatchObject({
+      instanceId: 'instance-resume',
+      notified: true,
+      overseerQueueItemId: 'queue-3',
+      output: {
+        sourceExecutionProcessId: 'exec-source',
+        reviewExecutionProcessId: 'exec-review',
+        sourceResponse: 'Implementation plan response',
+        reviewResponse: 'Reviewer response',
+      },
+    });
+    expect(second.completed).toEqual([]);
+    expect(harness.vk.queueFollowUp).toHaveBeenCalledTimes(3);
+    expect(harness.vk.queueFollowUp).toHaveBeenLastCalledWith(
+      'session-overseer',
+      expect.stringContaining('Reviewer response'),
+      { source: 'workflow' },
+    );
+    await expect(harness.store.getInstance('instance-resume')).resolves.toMatchObject({
+      status: 'completed',
+      state: { phase: 'completed', output: { reviewExecutionProcessId: 'exec-review' } },
+    });
+    const steps = await harness.store.listStepStates('instance-resume');
+    expect(steps.find((step) => step.stepKey === 'notify_overseer')).toMatchObject({ status: 'completed', output: { notified: true, queueItemId: 'queue-3' } });
+    expect(steps.find((step) => step.stepKey === 'complete')).toMatchObject({ status: 'completed' });
+  });
+
+  it('completes without notification when overseerSessionId is absent', async () => {
+    const harness = await createHarness();
+    await startAndSatisfyReviewer(harness);
+
+    const result = await harness.runtime.runOnce({ definition: TWO_AGENT_REVIEW_ROUND_DEFINITION });
+
+    expect(result.completed).toMatchObject([{ notified: false, overseerQueueItemId: null }]);
+    expect(harness.vk.queueFollowUp).toHaveBeenCalledTimes(2);
+    await expect(harness.store.getInstance('instance-resume')).resolves.toMatchObject({ status: 'completed' });
+  });
+
+  it('can complete from DB state with a new runtime instance after restart', async () => {
+    const harness = await createHarness();
+    await startAndSatisfyReviewer(harness, { overseerSessionId: 'session-overseer' });
+    const restarted = new DeclarativeWorkflowRuntime({
+      store: harness.store,
+      resolver: harness.resolver,
+      vk: harness.vk,
+      responsePipe: harness.responsePipe,
+      createId: () => 'restarted',
+      now: () => 0,
+    });
+
+    const result = await restarted.runOnce({ definition: TWO_AGENT_REVIEW_ROUND_DEFINITION });
+
+    expect(result.completed).toHaveLength(1);
+    await expect(harness.store.getInstance('instance-resume')).resolves.toMatchObject({ status: 'completed' });
+  });
+
+  it('does not complete while reviewer session has an active external wait', async () => {
+    const harness = await createHarness();
+    await startAndSatisfyReviewer(harness, { overseerSessionId: 'session-overseer' });
+    await seedExternalWait(harness, { waitId: 'wait-review-complete', sessionId: 'session-review', stepStateId: 'instance-resume_wait_review' });
+
+    const result = await harness.runtime.runOnce({ definition: TWO_AGENT_REVIEW_ROUND_DEFINITION });
+
+    expect(result.completed).toEqual([]);
+    expect(harness.vk.queueFollowUp).toHaveBeenCalledTimes(2);
+    await expect(harness.store.getInstance('instance-resume')).resolves.toMatchObject({ status: 'running' });
+  });
 });
 
 async function createHarness(options: { sessions?: Session[] } = {}) {
@@ -282,11 +358,11 @@ async function createHarness(options: { sessions?: Session[] } = {}) {
   const runtimeNow = 0;
   const store = new DbWorkflowOrchestrationStore({ db: handle.db, now: () => now++ });
   const pipeStore = new DbResponsePipeStore({ db: handle.db, now: () => now++ });
-  const vk = fakeVk(options.sessions ?? [session('session-impl', 'ws-1', 'implementer'), session('session-review', 'ws-1', 'reviewer')]);
+  const vk = fakeVk(options.sessions ?? [session('session-impl', 'ws-1', 'implementer'), session('session-review', 'ws-1', 'reviewer'), session('session-overseer', 'ws-1', 'orchestrator')]);
   const resolver = new WorkflowRoleSessionResolver({ db: handle.db, vk, now: () => now++, createBindingId: (() => { let index = 0; return () => `binding-${++index}`; })() });
   const responsePipe = new ResponsePipeService({ store: pipeStore, vk, createId: (() => { let index = 0; return () => `delivery-${++index}`; })() });
   const runtime = new DeclarativeWorkflowRuntime({ store, resolver, vk, responsePipe, createId: () => 'generated', now: () => runtimeNow });
-  return { handle, store, pipeStore, vk, resolver, runtime };
+  return { handle, store, pipeStore, responsePipe, vk, resolver, runtime };
 }
 
 function fakeVk(initialSessions: Session[]) {
@@ -338,11 +414,11 @@ function fakeVk(initialSessions: Session[]) {
 
 async function startAndSatisfySource(
   harness: Awaited<ReturnType<typeof createHarness>>,
-  options: { truncated?: boolean } = {},
+  options: { truncated?: boolean; overseerSessionId?: string } = {},
 ) {
   const started = await harness.runtime.start({
     definition: TWO_AGENT_REVIEW_ROUND_DEFINITION,
-    input: { task: 'Plan the work', workspaceId: 'ws-1' },
+    input: { task: 'Plan the work', workspaceId: 'ws-1', ...(options.overseerSessionId ? { overseerSessionId: options.overseerSessionId } : {}) },
     team: team(),
     instanceId: 'instance-resume',
   });
@@ -367,6 +443,33 @@ async function startAndSatisfySource(
     },
   });
   return started;
+}
+
+async function startAndSatisfyReviewer(
+  harness: Awaited<ReturnType<typeof createHarness>>,
+  options: { overseerSessionId?: string } = {},
+) {
+  await startAndSatisfySource(harness, options);
+  await harness.runtime.runOnce({ definition: TWO_AGENT_REVIEW_ROUND_DEFINITION });
+  const review = responseCursor({
+    executionProcessId: 'exec-review',
+    sessionId: 'session-review',
+    content: 'Reviewer response',
+    completedAt: '2026-08-04T12:00:00.000Z',
+  });
+  harness.vk.finalMessages.set('exec-review', review);
+  await harness.store.satisfyScopedTriggerAndResumeWaitingStep('instance-resume_wait_review_trigger', {
+    executionProcessId: 'exec-review',
+    response: {
+      executionProcessId: 'exec-review',
+      sessionId: 'session-review',
+      workspaceId: 'ws-1',
+      completedAt: review.completed_at,
+      truncated: false,
+      maxChars: review.max_chars,
+      sourceKind: review.source_kind,
+    },
+  });
 }
 
 async function seedExternalWait(

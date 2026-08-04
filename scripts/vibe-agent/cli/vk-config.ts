@@ -36,6 +36,9 @@ export const config = {
     createSession: `${BASE_URL}/api/sessions`,
     sessionFollowUp: (sessionId: string) => `${BASE_URL}/api/sessions/${sessionId}/follow-up`,
     sessionQueue: (sessionId: string) => `${BASE_URL}/api/sessions/${sessionId}/queue`,
+    declarativeWorkflowRun: (workflowId: string) => `${BASE_URL}/dashboard/api/declarative-workflows/${encodeURIComponent(workflowId)}/run`,
+    declarativeWorkflowRunOnce: (workflowId: string) => `${BASE_URL}/dashboard/api/declarative-workflows/${encodeURIComponent(workflowId)}/run-once`,
+    workflowInstanceStatus: (instanceId: string) => `${BASE_URL}/dashboard/api/workflow-instances/${encodeURIComponent(instanceId)}/status`,
   },
 
   // WebSocket endpoints

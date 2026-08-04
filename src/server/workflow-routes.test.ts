@@ -612,6 +612,62 @@ describe('registerWorkflowRoutes', () => {
       },
     });
   });
+
+  it('starts declarative workflows through submit-and-return route', async () => {
+    const runtime = {
+      start: vi.fn(async () => ({
+        instance: { instanceId: 'instance-api', status: 'waiting' },
+        queuedSource: { queueItemId: 'queue-api' },
+      })),
+      runOnce: vi.fn(),
+    };
+    const app = new Hono();
+    registerWorkflowRoutes(app, {
+      registry: createWorkflowRegistry(),
+      declarativeWorkflowRuntime: runtime as never,
+    });
+
+    const response = await app.request('/dashboard/api/declarative-workflows/two-agent-review-round/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ input: { task: 'Plan', workspaceId: 'ws-1' }, team: { id: 'team-1', agents: [] }, instanceId: 'instance-api' }),
+    });
+
+    expect(response.status).toBe(202);
+    expect(runtime.start).toHaveBeenCalledWith(expect.objectContaining({
+      input: { task: 'Plan', workspaceId: 'ws-1' },
+      team: { id: 'team-1', agents: [] },
+      instanceId: 'instance-api',
+    }));
+    await expect(response.json()).resolves.toMatchObject({ result: { instance: { instanceId: 'instance-api' } } });
+  });
+
+  it('runs declarative workflow run-once and exposes instance status details', async () => {
+    const handle = await initVdDb({ path: ':memory:' });
+    dbHandles.push(handle);
+    const store = new DbWorkflowOrchestrationStore({ db: handle.db });
+    await store.createInstance({ instanceId: 'instance-status', workflowId: 'two-agent-review-round', trigger: 'manual' });
+    await store.createStepState({ id: 'instance-status_step', instanceId: 'instance-status', stepKey: 'resolve_sessions' });
+    const runtime = { start: vi.fn(), runOnce: vi.fn(async () => ({ resumed: [], completed: [{ instanceId: 'instance-status' }], skipped: [], errors: [] })) };
+    const app = new Hono();
+    registerWorkflowRoutes(app, {
+      registry: createWorkflowRegistry(),
+      workflowOrchestrationStore: store,
+      declarativeWorkflowRuntime: runtime as never,
+    });
+
+    const runOnce = await app.request('/dashboard/api/declarative-workflows/two-agent-review-round/run-once', { method: 'POST' });
+    expect(runOnce.status).toBe(200);
+    await expect(runOnce.json()).resolves.toMatchObject({ result: { completed: [{ instanceId: 'instance-status' }] } });
+
+    const status = await app.request('/dashboard/api/workflow-instances/instance-status/status');
+    expect(status.status).toBe(200);
+    await expect(status.json()).resolves.toMatchObject({
+      instance: { instanceId: 'instance-status' },
+      steps: [{ stepKey: 'resolve_sessions' }],
+      triggers: [],
+    });
+  });
 });
 
 async function expectJson(

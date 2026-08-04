@@ -19,7 +19,7 @@ import {
   getSessionForRole,
   roleToExecutor,
 } from '../core/context.js';
-import { BASE_ROLES, isValidRole } from '../config.js';
+import { BASE_ROLES, config, isValidRole } from '../config.js';
 
 // Message helpers
 
@@ -2080,6 +2080,23 @@ Commands:
     --timeout-ms <ms>          Timeout for the response wait in milliseconds
     --json                     Output as JSON
 
+  workflow run two-agent-review-round
+                              Start a durable declarative workflow and return immediately
+    --team-json <json|file>    AgentTeam JSON payload or path to JSON file
+    --workspace-id <id>        VK workspace id
+    --task "<text>"            Task prompt
+    --source-role <role>       Optional source role/name
+    --review-role <role>       Optional reviewer role/name
+    --source-session-id <id>   Optional explicit source session
+    --review-session-id <id>   Optional explicit reviewer session
+    --overseer-session-id <id> Optional completion notification session
+    --instance-id <id>         Optional deterministic workflow instance id
+    --json                     Output as JSON
+
+  workflow status <instance-id>
+                              Read durable workflow instance/step/trigger status
+    --json                     Output as JSON
+
   submit "<message>"           Submit work for review (sends to reviewer)
     --files <file1,file2>      List of changed files
     --json                     Output as JSON
@@ -2427,6 +2444,129 @@ function hasGitRemote(configRepoDir: string): boolean {
   }
 }
 
+async function workflowCommand(args: string[]): Promise<void> {
+  const subcommand = args[0];
+  if (subcommand === 'run') {
+    await workflowRun(args.slice(1));
+    return;
+  }
+  if (subcommand === 'status' || subcommand === 'follow') {
+    await workflowStatus(args.slice(1));
+    return;
+  }
+  throw new Error('Usage: vibe-agent workflow <run|status|follow> ...');
+}
+
+async function workflowRun(args: string[]): Promise<void> {
+  const workflowId = args[0];
+  if (!workflowId) throw new Error('Usage: vibe-agent workflow run <workflow-id> --team-json <json|file> --workspace-id <id> --task <text>');
+  const flags = parseWorkflowFlags(args.slice(1));
+  const teamJson = getWorkflowFlag(flags, 'team-json');
+  const workspaceId = getWorkflowFlag(flags, 'workspace-id');
+  const task = getWorkflowFlag(flags, 'task');
+  if (!teamJson) throw new Error('--team-json is required');
+  if (!workspaceId) throw new Error('--workspace-id is required');
+  if (!task) throw new Error('--task is required');
+  const input: Record<string, string> = { workspaceId, task };
+  copyFlag(flags, input, 'source-role', 'sourceRole');
+  copyFlag(flags, input, 'review-role', 'reviewRole');
+  copyFlag(flags, input, 'source-session-id', 'sourceSessionId');
+  copyFlag(flags, input, 'review-session-id', 'reviewSessionId');
+  copyFlag(flags, input, 'overseer-session-id', 'overseerSessionId');
+  copyFlag(flags, input, 'lane-id', 'laneId');
+  const result = await dashboardRequest(`/dashboard/api/declarative-workflows/${encodeURIComponent(workflowId)}/run`, {
+    method: 'POST',
+    body: JSON.stringify({
+      team: readWorkflowJson(teamJson),
+      input,
+      instanceId: getWorkflowFlag(flags, 'instance-id'),
+    }),
+  });
+  if (flags.has('json')) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+  const instanceId = (result as any)?.result?.instance?.instanceId ?? '(unknown)';
+  const status = (result as any)?.result?.instance?.status ?? '(unknown)';
+  const queueItemId = (result as any)?.result?.queuedSource?.queueItemId ?? '(unknown)';
+  console.log(`Started workflow ${workflowId}`);
+  console.log(`Instance: ${instanceId}`);
+  console.log(`Status: ${status}`);
+  console.log(`Source queue item: ${queueItemId}`);
+}
+
+async function workflowStatus(args: string[]): Promise<void> {
+  const instanceId = args.find((arg) => !arg.startsWith('--'));
+  if (!instanceId) throw new Error('Usage: vibe-agent workflow status <instance-id> [--json]');
+  const flags = parseWorkflowFlags(args.filter((arg) => arg !== instanceId));
+  const status = await dashboardRequest(`/dashboard/api/workflow-instances/${encodeURIComponent(instanceId)}/status`);
+  if (flags.has('json')) {
+    console.log(JSON.stringify(status, null, 2));
+    return;
+  }
+  const instance = (status as any).instance;
+  console.log(`Workflow instance: ${instance?.instanceId ?? instanceId}`);
+  console.log(`Status: ${instance?.status ?? 'missing'}`);
+  if (instance?.currentStepId) console.log(`Current step: ${instance.currentStepId}`);
+  const steps = Array.isArray((status as any).steps) ? (status as any).steps : [];
+  for (const step of steps) {
+    console.log(`  ${step.stepKey}: ${step.status}`);
+  }
+}
+
+function parseWorkflowFlags(args: string[]): Map<string, string | true> {
+  const flags = new Map<string, string | true>();
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (!arg.startsWith('--')) continue;
+    const eq = arg.indexOf('=');
+    if (eq !== -1) {
+      flags.set(arg.slice(2, eq), arg.slice(eq + 1));
+      continue;
+    }
+    const key = arg.slice(2);
+    const next = args[i + 1];
+    if (next && !next.startsWith('--')) {
+      flags.set(key, next);
+      i++;
+    } else {
+      flags.set(key, true);
+    }
+  }
+  return flags;
+}
+
+function getWorkflowFlag(flags: Map<string, string | true>, key: string): string | undefined {
+  const value = flags.get(key);
+  return typeof value === 'string' ? value : undefined;
+}
+
+function copyFlag(flags: Map<string, string | true>, input: Record<string, string>, flag: string, key: string): void {
+  const value = getWorkflowFlag(flags, flag);
+  if (value) input[key] = value;
+}
+
+function readWorkflowJson(value: string): unknown {
+  const maybePath = path.resolve(value);
+  const raw = fs.existsSync(maybePath) ? fs.readFileSync(maybePath, 'utf8') : value;
+  return JSON.parse(raw);
+}
+
+async function dashboardRequest(pathname: string, init: RequestInit = {}): Promise<unknown> {
+  const base = config.BASE_URL.replace(/\/+$/, '');
+  const response = await fetch(`${base}${pathname}`, {
+    ...init,
+    headers: { 'Content-Type': 'application/json', ...init.headers },
+  });
+  const text = await response.text();
+  const parsed = text ? JSON.parse(text) as unknown : null;
+  if (!response.ok) {
+    const message = parsed && typeof parsed === 'object' && 'error' in parsed ? String((parsed as { error: unknown }).error) : text;
+    throw new Error(`Workflow API failed (${response.status}): ${message}`);
+  }
+  return parsed;
+}
+
 // Main entry point
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
@@ -2456,6 +2596,9 @@ async function main(): Promise<void> {
       break;
     case 'request-review':
       await requestReview(commandArgs);
+      break;
+    case 'workflow':
+      await workflowCommand(commandArgs);
       break;
     case 'submit':
       await submit(commandArgs);
