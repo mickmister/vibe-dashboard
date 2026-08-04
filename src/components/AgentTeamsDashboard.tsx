@@ -17,6 +17,8 @@ import {
 import { buildVkSessionUrl } from '../utils/origin';
 import { vkClient, type Session } from '../lib/vk-client';
 import { applyResolvedSessionsToTeam, resolveTeamSessionMappings } from '../lib/teamSessionMappingApi';
+import { buildTeamNudgePreview, runTeamGuardrailNudgeWorkflow, type TeamNudgePreview } from '../lib/teamGuardrailNudgeApi';
+import type { TeamAgentActivitySnapshot, TeamGuardrailNudgeWorkflowOutput } from '../workflows/team-guardrail-nudge';
 
 const inputClass = 'w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100';
 const buttonClass = 'rounded-md border border-zinc-700 px-3 py-2 text-sm hover:bg-zinc-900 disabled:opacity-50';
@@ -46,6 +48,12 @@ export function AgentTeamsDashboard(): React.ReactElement {
   const [sessionMappingError, setSessionMappingError] = useState<string | null>(null);
   const [allowAutoCreate, setAllowAutoCreate] = useState(true);
   const [allowRoleNameReuse, setAllowRoleNameReuse] = useState(true);
+  const [nudgeActivity, setNudgeActivity] = useState<TeamAgentActivitySnapshot[]>([]);
+  const [nudgeTaskPrompt, setNudgeTaskPrompt] = useState('');
+  const [nudgeStaleAfterMinutes, setNudgeStaleAfterMinutes] = useState('');
+  const [nudgeRunning, setNudgeRunning] = useState(false);
+  const [nudgeError, setNudgeError] = useState<string | null>(null);
+  const [nudgeResult, setNudgeResult] = useState<{ runId: string; output: TeamGuardrailNudgeWorkflowOutput | null } | null>(null);
 
   const selectedRun = useMemo(
     () => runs.find((run) => run.runId === selectedRunId) ?? runs[0] ?? null,
@@ -105,6 +113,10 @@ export function AgentTeamsDashboard(): React.ReactElement {
   useEffect(() => {
     setTargetAgentIds(selectedTeam?.agents.filter((agent) => agent.enabled).map((agent) => agent.id) ?? []);
     setMappingWorkspaceId(selectedTeam?.agents.find((agent) => agent.vkWorkspaceId)?.vkWorkspaceId ?? '');
+    setNudgeActivity(createDefaultNudgeActivity(selectedTeam));
+    setNudgeResult(null);
+    setNudgeError(null);
+    setNudgeStaleAfterMinutes(selectedTeam?.policies.nudgeAfterMs ? String(Math.max(1, Math.round(selectedTeam.policies.nudgeAfterMs / 60_000))) : '');
   }, [selectedTeam?.id]);
 
   useEffect(() => {
@@ -177,6 +189,55 @@ export function AgentTeamsDashboard(): React.ReactElement {
       return null;
     } finally {
       setResolvingSessions(false);
+    }
+  };
+
+
+  const nudgePreview = useMemo<TeamNudgePreview | null>(() => {
+    if (!selectedTeam) return null;
+    try {
+      return buildTeamNudgePreview({
+        team: selectedTeam,
+        agentActivity: nudgeActivity,
+        staleAfterMinutes: nudgeStaleAfterMinutes.trim() ? Number(nudgeStaleAfterMinutes) : null,
+      });
+    } catch {
+      return null;
+    }
+  }, [selectedTeam, nudgeActivity, nudgeStaleAfterMinutes]);
+
+  const updateNudgeActivity = (agentId: string, patch: Partial<TeamAgentActivitySnapshot>) => {
+    setNudgeActivity((current) => {
+      const next = current.some((snapshot) => snapshot.agentId === agentId)
+        ? current.map((snapshot) => snapshot.agentId === agentId ? { ...snapshot, ...patch } : snapshot)
+        : [...current, { agentId, lastActivityAt: null, nudgeCount: 0, ...patch }];
+      return next;
+    });
+  };
+
+  const runGuardrailNudge = async () => {
+    if (!selectedTeam) return;
+    setNudgeRunning(true);
+    setNudgeError(null);
+    setNudgeResult(null);
+    try {
+      const staleAfterMinutes = nudgeStaleAfterMinutes.trim() ? Number(nudgeStaleAfterMinutes) : undefined;
+      if (staleAfterMinutes !== undefined && (!Number.isFinite(staleAfterMinutes) || staleAfterMinutes <= 0)) {
+        throw new Error('Stale threshold must be a positive number of minutes.');
+      }
+      const response = await runTeamGuardrailNudgeWorkflow({
+        team: selectedTeam,
+        agentActivity: nudgeActivity,
+        taskPrompt: nudgeTaskPrompt.trim() ? nudgeTaskPrompt : null,
+        staleAfterMinutes,
+      });
+      setNudgeResult({ runId: response.run.runId, output: (response.run.output as TeamGuardrailNudgeWorkflowOutput | null) ?? null });
+      setSelectedRunId(response.run.runId);
+      await loadRuns();
+    } catch (caught) {
+      setNudgeError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setNudgeRunning(false);
     }
   };
 
@@ -257,6 +318,24 @@ export function AgentTeamsDashboard(): React.ReactElement {
             ) : null}
           </section>
         </div>
+
+        {selectedTeam ? (
+          <GuardrailNudgePanel
+            team={selectedTeam}
+            activity={nudgeActivity}
+            preview={nudgePreview}
+            taskPrompt={nudgeTaskPrompt}
+            staleAfterMinutes={nudgeStaleAfterMinutes}
+            running={nudgeRunning}
+            error={nudgeError}
+            result={nudgeResult}
+            onActivityChange={updateNudgeActivity}
+            onTaskPromptChange={setNudgeTaskPrompt}
+            onStaleAfterMinutesChange={setNudgeStaleAfterMinutes}
+            onRun={() => void runGuardrailNudge()}
+            onSelectRun={setSelectedRunId}
+          />
+        ) : null}
 
         <ActivityAttentionPanel activity={activity} error={activityError} loading={loadingActivity} onRefresh={() => void loadActivity()} />
 
@@ -352,6 +431,109 @@ function createBlankAgent(): TeamAgent {
     executor: null,
     instructions: null,
   };
+}
+
+
+function GuardrailNudgePanel(props: {
+  team: AgentTeam;
+  activity: TeamAgentActivitySnapshot[];
+  preview: TeamNudgePreview | null;
+  taskPrompt: string;
+  staleAfterMinutes: string;
+  running: boolean;
+  error: string | null;
+  result: { runId: string; output: TeamGuardrailNudgeWorkflowOutput | null } | null;
+  onActivityChange: (agentId: string, patch: Partial<TeamAgentActivitySnapshot>) => void;
+  onTaskPromptChange: (value: string) => void;
+  onStaleAfterMinutesChange: (value: string) => void;
+  onRun: () => void;
+  onSelectRun: (runId: string) => void;
+}) {
+  const preview = props.preview;
+  const canRun = Boolean(preview && props.activity.length > 0 && !props.running);
+  return (
+    <section className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="font-medium">Manual guardrail nudges</h2>
+          <p className="mt-1 text-xs text-zinc-500">Preview stale agents, then run the guarded team-guardrail-nudge workflow. Nudges are queued through VK /queue as system messages.</p>
+        </div>
+        <button className={primaryButtonClass} disabled={!canRun} onClick={props.onRun}>{props.running ? 'Queueing nudges…' : 'Run nudges now'}</button>
+      </div>
+      {props.error ? <div role="alert" className="mt-3 rounded border border-red-800 bg-red-950/40 p-3 text-sm text-red-200">{props.error}</div> : null}
+      <div className="mt-3 grid gap-3 md:grid-cols-3">
+        <label className="text-sm">Stale threshold minutes
+          <input className={`${inputClass} mt-1`} type="number" min={1} placeholder={String(props.preview?.staleAfterMinutes ?? 30)} value={props.staleAfterMinutes} onChange={(event) => props.onStaleAfterMinutesChange(event.target.value)} />
+        </label>
+        <div className="rounded border border-zinc-800 bg-zinc-950 p-3 text-sm">
+          <div className="text-xs uppercase text-zinc-500">Max nudge cap</div>
+          <div className="mt-1 text-lg font-semibold text-zinc-100">{props.team.policies.maxNudgesPerRun}</div>
+          <div className="text-xs text-zinc-500">per workflow run</div>
+        </div>
+        <label className="text-sm md:col-span-1">Optional task context
+          <input className={`${inputClass} mt-1`} placeholder="Task or run context for the nudge" value={props.taskPrompt} onChange={(event) => props.onTaskPromptChange(event.target.value)} />
+        </label>
+      </div>
+      <div className="mt-4 overflow-auto rounded border border-zinc-800">
+        <table className="min-w-full text-left text-sm">
+          <thead className="bg-zinc-950 text-xs uppercase text-zinc-500"><tr><th className="px-3 py-2">Agent</th><th className="px-3 py-2">Last activity</th><th className="px-3 py-2">Prior nudges</th><th className="px-3 py-2">Session</th></tr></thead>
+          <tbody>
+            {props.team.agents.map((agent) => {
+              const snapshot = props.activity.find((entry) => entry.agentId === agent.id) ?? { agentId: agent.id, lastActivityAt: null, nudgeCount: 0 };
+              return (
+                <tr key={agent.id} className="border-t border-zinc-800">
+                  <td className="px-3 py-2"><div className="font-medium">{agent.displayName}</div><div className="text-xs text-zinc-500">{agent.role}{agent.enabled ? '' : ' · disabled'}</div></td>
+                  <td className="px-3 py-2"><input className={inputClass} placeholder="ISO timestamp, blank = unknown" value={snapshot.lastActivityAt == null ? '' : String(snapshot.lastActivityAt)} onChange={(event) => props.onActivityChange(agent.id, { lastActivityAt: event.target.value || null })} /></td>
+                  <td className="px-3 py-2"><input className={inputClass} type="number" min={0} value={snapshot.nudgeCount ?? 0} onChange={(event) => props.onActivityChange(agent.id, { nudgeCount: Math.max(0, Number(event.target.value) || 0) })} /></td>
+                  <td className="px-3 py-2"><span className="break-all text-xs text-zinc-400">{agent.vkSessionId ?? 'missing session'}</span><VkSessionLink workspaceId={agent.vkWorkspaceId} sessionId={agent.vkSessionId} /></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div className="mt-4 grid gap-3 lg:grid-cols-3">
+        <NudgePreviewColumn title="Will nudge" items={preview?.nudges ?? []} tone="cyan" empty="No stale eligible agents." />
+        <NudgePreviewColumn title="Skipped" items={preview?.skipped.filter((item) => item.action === 'skip') ?? []} tone="zinc" empty="No skipped agents." />
+        <NudgePreviewColumn title="Escalations" items={preview?.escalations ?? []} tone="amber" empty="No cap escalations." />
+      </div>
+      {props.result ? <NudgeResult result={props.result} onSelectRun={props.onSelectRun} /> : null}
+    </section>
+  );
+}
+
+function NudgePreviewColumn(props: { title: string; items: TeamNudgePreview['nudges']; tone: 'cyan' | 'zinc' | 'amber'; empty: string }) {
+  const toneClass = props.tone === 'cyan' ? 'border-cyan-900 bg-cyan-950/20' : props.tone === 'amber' ? 'border-amber-900 bg-amber-950/20' : 'border-zinc-800 bg-zinc-950';
+  return (
+    <div className={`rounded-md border p-3 ${toneClass}`}>
+      <h3 className="text-sm font-medium">{props.title}</h3>
+      <div className="mt-2 space-y-2">
+        {props.items.length ? props.items.map((item) => <div key={`${item.agentId}-${item.reason}`} className="rounded bg-zinc-950/70 p-2 text-xs"><div className="font-medium text-zinc-100">{item.displayName} · {item.role}</div><div className="mt-1 text-zinc-400">{item.reason}{item.staleMinutes == null ? '' : ` · stale ${item.staleMinutes}m`} · nudges {item.nudgeCount}</div>{!item.sessionId && item.action === 'nudge' ? <div className="mt-1 text-red-200">Missing VK session; workflow will fail before queueing.</div> : null}</div>) : <p className="text-xs text-zinc-500">{props.empty}</p>}
+      </div>
+    </div>
+  );
+}
+
+function NudgeResult(props: { result: { runId: string; output: TeamGuardrailNudgeWorkflowOutput | null }; onSelectRun: (runId: string) => void }) {
+  const output = props.result.output;
+  return (
+    <div className="mt-4 rounded-md border border-zinc-800 bg-zinc-950 p-3 text-sm">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div><span className="font-medium">Guardrail run:</span> {props.result.runId}</div>
+        <button className={buttonClass} onClick={() => props.onSelectRun(props.result.runId)}>Show run details</button>
+      </div>
+      {output ? <div className="mt-3 grid gap-3 md:grid-cols-3"><ResultList title="Queued" items={'nudges' in output ? output.nudges.map((entry) => `${entry.displayName} · ${entry.queueItemId}`) : []} /><ResultList title="Skipped" items={output.skipped.map((entry) => `${entry.agentId} · ${entry.reason}`)} /><ResultList title="Escalations" items={output.escalations.map((entry) => `${entry.agentId} · ${entry.reason}`)} /></div> : <p className="mt-2 text-xs text-zinc-500">Run output was not available in the response; select the run for persisted details.</p>}
+    </div>
+  );
+}
+
+function ResultList(props: { title: string; items: string[] }) {
+  return <div><h4 className="text-xs uppercase text-zinc-500">{props.title}</h4>{props.items.length ? <ul className="mt-1 space-y-1 text-xs text-zinc-300">{props.items.map((item) => <li key={item}>{item}</li>)}</ul> : <p className="mt-1 text-xs text-zinc-500">None</p>}</div>;
+}
+
+function createDefaultNudgeActivity(team: AgentTeam | null): TeamAgentActivitySnapshot[] {
+  if (!team) return [];
+  return team.agents.map((agent) => ({ agentId: agent.id, lastActivityAt: null, nudgeCount: 0 }));
 }
 
 
