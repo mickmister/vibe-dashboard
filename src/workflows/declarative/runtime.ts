@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import type { AgentTeam, TeamAgent } from '../../teams/agentTeams';
 import type { QueueFollowUpResponse, AgentResponse } from '../../server/vk-client';
 import type { ResolveRoleSessionsInput, ResolveRoleSessionsResult } from '../../server/role-session-resolver';
+import type { PipeResponseResult, PipeResponseInput } from '../../server/response-pipe-service';
+import { ResponsePipeValidationError } from '../../server/response-pipe-service';
 import type {
   DbWorkflowOrchestrationStore,
   WorkflowInstanceReadModel,
@@ -10,6 +12,7 @@ import type {
 } from '../../server/workflow-orchestration-store';
 import type {
   DeclarativeQueuePromptStep,
+  DeclarativePipeResponseStep,
   DeclarativeResolveRolesStep,
   DeclarativeWaitForNextCompletedResponseStep,
   DeclarativeWorkflowDefinition,
@@ -25,6 +28,14 @@ export interface DeclarativeWorkflowRuntimeVkClient {
 export interface DeclarativeWorkflowRuntimeResolver {
   resolve(input: ResolveRoleSessionsInput): Promise<ResolveRoleSessionsResult>;
   persistResolvedBindings(input: ResolveRoleSessionsInput, resolution: ResolveRoleSessionsResult): Promise<ResolveRoleSessionsResult>;
+}
+
+export interface DeclarativeWorkflowRuntimeResponsePipe {
+  pipeResponse(input: PipeResponseInput): Promise<PipeResponseResult>;
+}
+
+export interface DeclarativeWorkflowRuntimeScopedTriggerSatisfier {
+  runOnce(): Promise<unknown>;
 }
 
 export interface DeclarativeWorkflowStartInput {
@@ -65,6 +76,25 @@ export interface DeclarativeWorkflowStartResult {
   };
 }
 
+export interface DeclarativeWorkflowResumeInput {
+  definition: DeclarativeWorkflowDefinition | unknown;
+}
+
+export interface DeclarativeWorkflowResumeHandoff {
+  instanceId: string;
+  sourceExecutionProcessId: string;
+  reviewerSessionId: string;
+  reviewerQueueItemId: string;
+  reviewerTrigger: WorkflowScopedTriggerReadModel;
+  pipeResult: PipeResponseResult;
+}
+
+export interface DeclarativeWorkflowRunOnceResult {
+  resumed: DeclarativeWorkflowResumeHandoff[];
+  skipped: Array<{ instanceId: string; reason: string }>;
+  errors: Array<{ instanceId: string; error: { message: string; name?: string } }>;
+}
+
 export class DeclarativeWorkflowRuntimeError extends Error {
   constructor(message: string) {
     super(message);
@@ -82,6 +112,8 @@ export class DeclarativeWorkflowRuntime {
   private readonly store: DbWorkflowOrchestrationStore;
   private readonly resolver: DeclarativeWorkflowRuntimeResolver;
   private readonly vk: DeclarativeWorkflowRuntimeVkClient;
+  private readonly responsePipe?: DeclarativeWorkflowRuntimeResponsePipe;
+  private readonly scopedTriggerSatisfier?: DeclarativeWorkflowRuntimeScopedTriggerSatisfier;
   private readonly createId: () => string;
   private readonly now: () => number;
 
@@ -89,12 +121,16 @@ export class DeclarativeWorkflowRuntime {
     store: DbWorkflowOrchestrationStore;
     resolver: DeclarativeWorkflowRuntimeResolver;
     vk: DeclarativeWorkflowRuntimeVkClient;
+    responsePipe?: DeclarativeWorkflowRuntimeResponsePipe;
+    scopedTriggerSatisfier?: DeclarativeWorkflowRuntimeScopedTriggerSatisfier;
     createId?: () => string;
     now?: () => number;
   }) {
     this.store = options.store;
     this.resolver = options.resolver;
     this.vk = options.vk;
+    this.responsePipe = options.responsePipe;
+    this.scopedTriggerSatisfier = options.scopedTriggerSatisfier;
     this.createId = options.createId ?? (() => randomUUID());
     this.now = options.now ?? Date.now;
   }
@@ -204,6 +240,140 @@ export class DeclarativeWorkflowRuntime {
     }
   }
 
+  async runOnce(args: DeclarativeWorkflowResumeInput): Promise<DeclarativeWorkflowRunOnceResult> {
+    if (!this.responsePipe) throw new DeclarativeWorkflowRuntimeError('Declarative workflow runtime resume requires responsePipe');
+    await this.scopedTriggerSatisfier?.runOnce();
+
+    const definition = normalizeDeclarativeWorkflowDefinition(args.definition);
+    const resolveStep = firstStepOfType(definition, 'resolve_roles');
+    const sourceWaitStep = firstStepOfType(definition, 'wait_for_next_completed_response');
+    const reviewPipeStep = firstStepOfType(definition, 'pipe_response');
+    const reviewWaitStep = findWaitStepAfter(definition, reviewPipeStep.id);
+    const running = await this.store.listInstances({ workflowId: definition.id, status: 'running', limit: 100 });
+    const resumed: DeclarativeWorkflowResumeHandoff[] = [];
+    const skipped: DeclarativeWorkflowRunOnceResult['skipped'] = [];
+    const errors: DeclarativeWorkflowRunOnceResult['errors'] = [];
+
+    for (const instance of running.instances) {
+      try {
+        const handoff = await this.resumeSourceToReviewer(definition, instance, resolveStep, sourceWaitStep, reviewPipeStep, reviewWaitStep);
+        if (handoff) resumed.push(handoff);
+        else skipped.push({ instanceId: instance.instanceId, reason: 'not_ready' });
+      } catch (error) {
+        errors.push({ instanceId: instance.instanceId, error: serializeError(error) });
+      }
+    }
+
+    return { resumed, skipped, errors };
+  }
+
+  private async resumeSourceToReviewer(
+    definition: DeclarativeWorkflowDefinition,
+    instance: WorkflowInstanceReadModel,
+    resolveStep: DeclarativeResolveRolesStep,
+    sourceWaitStep: DeclarativeWaitForNextCompletedResponseStep,
+    reviewPipeStep: DeclarativePipeResponseStep,
+    reviewWaitStep: DeclarativeWaitForNextCompletedResponseStep,
+  ): Promise<DeclarativeWorkflowResumeHandoff | null> {
+    const steps = await this.getInstanceSteps(instance.instanceId);
+    const sourceWaitState = requireStepState(steps, sourceWaitStep.id);
+    const reviewPipeState = requireStepState(steps, reviewPipeStep.id);
+    const reviewWaitState = requireStepState(steps, reviewWaitStep.id);
+    if (sourceWaitState.status !== 'completed') return null;
+    if (reviewWaitState.status === 'waiting') return null;
+    if (reviewPipeState.status === 'completed') return null;
+    if (reviewPipeState.status !== 'pending' && reviewPipeState.status !== 'running') return null;
+
+    const resolvedRoles = readResolvedRoles(requireStepState(steps, resolveStep.id).output);
+    const sourceRole = resolvedRoles[reviewPipeStep.source === sourceWaitStep.id ? sourceWaitStep.target : reviewPipeStep.source] ?? resolvedRoles.source;
+    const reviewRole = resolvedRoles[reviewPipeStep.target];
+    if (!sourceRole) throw new DeclarativeWorkflowRuntimeError(`No resolved source role for pipe step ${reviewPipeStep.id}`);
+    if (!reviewRole) throw new DeclarativeWorkflowRuntimeError(`No resolved reviewer role for pipe step ${reviewPipeStep.id}`);
+    if (definition.policies.blockSameSession) assertDistinctSessions({ source: sourceRole, review: reviewRole });
+
+    const sourceOutput = readResponseStepOutput(sourceWaitState.output);
+    const sourceTrigger = await this.findTriggerForStep(instance.instanceId, sourceWaitStep.id, 'satisfied');
+    if (await this.store.hasActiveExternalWaitForSession({ workspaceId: sourceRole.workspaceId, sessionId: sourceRole.sessionId })) {
+      return null;
+    }
+
+    if (reviewPipeState.status === 'pending') await this.store.markStepRunning(reviewPipeState.id);
+    const reviewerCursor = await this.vk.getSessionLatestResponse(reviewRole.sessionId);
+
+    try {
+      const pipeResult = await this.responsePipe!.pipeResponse({
+        sourceExecutionProcessId: sourceOutput.executionProcessId,
+        template: {
+          templateId: `${definition.id}.${reviewPipeStep.id}`,
+          templateVersion: definition.version,
+          body: renderPipeTemplateForResponsePipe(reviewPipeStep.template, instance.input as Record<string, string>),
+        },
+        targets: [{
+          workspaceId: reviewRole.workspaceId,
+          sessionId: reviewRole.sessionId,
+          roleId: reviewRole.roleId,
+          laneId: instance.laneId,
+        }],
+        workflowInstanceId: instance.instanceId,
+        triggerId: sourceTrigger?.triggerId ?? sourceWaitState.waitingTriggerId,
+        sourceRoleId: sourceRole.roleId,
+        sourceLaneId: instance.laneId,
+        allowCrossWorkspace: false,
+        allowTruncatedSource: definition.policies.allowTruncatedSourceDelivery,
+        queueSource: 'workflow',
+        metadata: { stepId: reviewPipeStep.id },
+      });
+      const queuedDelivery = pipeResult.deliveries.find((delivery) => delivery.delivery.queueItemId);
+      const queueItemId = queuedDelivery?.delivery.queueItemId;
+      if (!queueItemId) return null;
+
+      await this.store.completeStep(reviewPipeState.id, {
+        sourceStepId: sourceWaitStep.id,
+        sourceExecutionProcessId: sourceOutput.executionProcessId,
+        targetRoleKey: reviewPipeStep.target,
+        targetSessionId: reviewRole.sessionId,
+        targetWorkspaceId: reviewRole.workspaceId,
+        deliveryId: queuedDelivery.delivery.deliveryId,
+        queueItemId,
+      });
+      await this.store.markStepRunning(reviewWaitState.id);
+      const reviewerTrigger = await this.store.createScopedTrigger({
+        triggerId: `${instance.instanceId}_${reviewWaitStep.id}_trigger`,
+        instanceId: instance.instanceId,
+        stepStateId: reviewWaitState.id,
+        stepKey: reviewWaitStep.id,
+        roleId: reviewRole.roleId,
+        laneId: instance.laneId,
+        workspaceId: reviewRole.workspaceId,
+        sessionId: reviewRole.sessionId,
+        mode: 'next_completion_after_cursor',
+        cursorCompletedAt: reviewerCursor?.completed_at ? new Date(reviewerCursor.completed_at).getTime() : null,
+        cursorExecutionProcessId: reviewerCursor?.execution_process_id ?? null,
+        expectedQueueItemId: queueItemId,
+        timeoutAt: this.computeTriggerTimeoutAt(definition),
+      });
+      await this.store.markInstanceWaiting(instance.instanceId, {
+        currentStepId: reviewWaitStep.id,
+        waitingTriggerId: reviewerTrigger.triggerId,
+      });
+      return {
+        instanceId: instance.instanceId,
+        sourceExecutionProcessId: sourceOutput.executionProcessId,
+        reviewerSessionId: reviewRole.sessionId,
+        reviewerQueueItemId: queueItemId,
+        reviewerTrigger,
+        pipeResult,
+      };
+    } catch (error) {
+      if (error instanceof ResponsePipeValidationError) {
+        const serialized = serializeError(error);
+        await this.store.failStep(reviewPipeState.id, serialized, serialized.message);
+        await this.store.failInstance(instance.instanceId, serialized);
+      }
+      throw error;
+    }
+  }
+
   private async runResolveRoles(args: {
     definition: DeclarativeWorkflowDefinition;
     instanceId: string;
@@ -250,6 +420,11 @@ export class DeclarativeWorkflowRuntime {
     return this.store.listStepStates(instanceId);
   }
 
+  private async findTriggerForStep(instanceId: string, stepKey: string, status: WorkflowScopedTriggerReadModel['status']): Promise<WorkflowScopedTriggerReadModel | null> {
+    const triggers = await this.store.listTriggers({ instanceId, status, limit: 100 });
+    return triggers.triggers.find((trigger) => trigger.stepKey === stepKey) ?? null;
+  }
+
   private async markFailedBestEffort(instanceId: string, steps: DeclarativeWorkflowStep[], ids: RuntimeStepIds, error: unknown): Promise<void> {
     const serialized = serializeError(error);
     for (const step of steps) {
@@ -285,6 +460,12 @@ function validateWorkflowInput(definition: DeclarativeWorkflowDefinition, input:
 function firstStepOfType<T extends DeclarativeWorkflowStep['type']>(definition: DeclarativeWorkflowDefinition, type: T): Extract<DeclarativeWorkflowStep, { type: T }> {
   const step = definition.steps.find((entry): entry is Extract<DeclarativeWorkflowStep, { type: T }> => entry.type === type);
   if (!step) throw new DeclarativeWorkflowRuntimeError(`Definition ${definition.id} is missing required ${type} step`);
+  return step;
+}
+
+function findWaitStepAfter(definition: DeclarativeWorkflowDefinition, afterStepId: string): DeclarativeWaitForNextCompletedResponseStep {
+  const step = definition.steps.find((entry): entry is DeclarativeWaitForNextCompletedResponseStep => entry.type === 'wait_for_next_completed_response' && entry.after === afterStepId);
+  if (!step) throw new DeclarativeWorkflowRuntimeError(`Definition ${definition.id} is missing wait step after ${afterStepId}`);
   return step;
 }
 
@@ -332,6 +513,39 @@ function assertDistinctSessions(roles: Record<string, DeclarativeWorkflowResolve
 
 function renderTemplate(template: string, input: Record<string, string>): string {
   return template.replace(/{{\s*inputs\.([a-zA-Z0-9_]+)\s*}}/g, (_match, key: string) => input[key] ?? '');
+}
+
+function renderPipeTemplateForResponsePipe(template: string, input: Record<string, string>): string {
+  return renderTemplate(template, input).replace(/{{\s*source\.response\s*}}/g, '{{source_response}}');
+}
+
+function requireStepState(steps: WorkflowStepStateReadModel[], stepKey: string): WorkflowStepStateReadModel {
+  const step = steps.find((entry) => entry.stepKey === stepKey);
+  if (!step) throw new DeclarativeWorkflowRuntimeError(`Missing workflow step state ${stepKey}`);
+  return step;
+}
+
+function readResolvedRoles(value: unknown): Record<string, DeclarativeWorkflowResolvedRole> {
+  const record = asRecord(value, 'resolved roles output');
+  return asRecord(record.roles, 'resolved roles');
+}
+
+function readResponseStepOutput(value: unknown): { executionProcessId: string } {
+  const record = asRecord(value, 'response step output');
+  return { executionProcessId: readStringField(record, 'executionProcessId') };
+}
+
+function asRecord(value: unknown, label: string): Record<string, any> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new DeclarativeWorkflowRuntimeError(`${label} must be an object`);
+  }
+  return value as Record<string, any>;
+}
+
+function readStringField(record: Record<string, any>, key: string): string {
+  const value = record[key];
+  if (typeof value !== 'string' || !value) throw new DeclarativeWorkflowRuntimeError(`${key} must be a non-empty string`);
+  return value;
 }
 
 function readRequiredInput(input: Record<string, string>, key: string): string {

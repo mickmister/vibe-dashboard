@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { initVdDb, type VdDbHandle } from '../../server/database';
+import { DbResponsePipeStore } from '../../server/response-pipe-store';
+import { ResponsePipeService } from '../../server/response-pipe-service';
 import { WorkflowRoleSessionResolver } from '../../server/role-session-resolver';
 import { DbWorkflowOrchestrationStore } from '../../server/workflow-orchestration-store';
 import type { QueueFollowUpResponse, Session, AgentResponse } from '../../server/vk-client';
@@ -139,6 +141,140 @@ describe('DeclarativeWorkflowRuntime start skeleton', () => {
 
     expect(harness.vk.queueFollowUp).toHaveBeenCalledTimes(1);
   });
+
+  it('resumes a satisfied source wait into a reviewer queue and reviewer wait trigger', async () => {
+    const harness = await createHarness();
+    const started = await startAndSatisfySource(harness);
+
+    const result = await harness.runtime.runOnce({ definition: TWO_AGENT_REVIEW_ROUND_DEFINITION });
+
+    expect(result.errors).toEqual([]);
+    expect(result.resumed).toHaveLength(1);
+    expect(harness.vk.queueFollowUp).toHaveBeenCalledTimes(2);
+    expect(harness.vk.queueFollowUp).toHaveBeenLastCalledWith(
+      'session-review',
+      expect.stringContaining('Implementation plan response'),
+      { source: 'workflow' },
+    );
+    expect(harness.vk.queueFollowUp.mock.calls[1]?.[1]).toContain('Plan the work');
+    expect(harness.vk.sendFollowUp).not.toHaveBeenCalled();
+    expect(result.resumed[0]).toMatchObject({
+      instanceId: 'instance-resume',
+      sourceExecutionProcessId: 'exec-source',
+      reviewerSessionId: 'session-review',
+      reviewerQueueItemId: 'queue-2',
+      reviewerTrigger: {
+        status: 'active',
+        stepKey: 'wait_review',
+        sessionId: 'session-review',
+        expectedQueueItemId: 'queue-2',
+        timeoutAt: 1_800_000,
+      },
+    });
+
+    const steps = await harness.store.listStepStates(started.instance.instanceId);
+    expect(steps.map((step) => [step.stepKey, step.status])).toEqual([
+      ['resolve_sessions', 'completed'],
+      ['ask_source', 'completed'],
+      ['wait_source', 'completed'],
+      ['ask_review', 'completed'],
+      ['wait_review', 'waiting'],
+      ['notify_overseer', 'pending'],
+      ['complete', 'pending'],
+    ]);
+    const delivery = await harness.pipeStore.getDelivery(result.resumed[0]!.pipeResult.deliveries[0]!.delivery.deliveryId);
+    expect(delivery).toMatchObject({
+      status: 'queued',
+      sourceExecutionProcessId: 'exec-source',
+      targetSessionId: 'session-review',
+      queueItemId: 'queue-2',
+      renderedPromptLength: expect.any(Number),
+    });
+    expect(delivery?.renderedPromptHash).toEqual(expect.any(String));
+  });
+
+  it('does not queue reviewer twice on repeated runOnce', async () => {
+    const harness = await createHarness();
+    await startAndSatisfySource(harness);
+
+    await harness.runtime.runOnce({ definition: TWO_AGENT_REVIEW_ROUND_DEFINITION });
+    const second = await harness.runtime.runOnce({ definition: TWO_AGENT_REVIEW_ROUND_DEFINITION });
+
+    expect(second.resumed).toEqual([]);
+    expect(harness.vk.queueFollowUp).toHaveBeenCalledTimes(2);
+    const deliveries = await harness.handle.db.selectFrom('ResponsePipeDelivery').selectAll().execute();
+    expect(deliveries).toHaveLength(1);
+  });
+
+  it('blocks truncated source responses with built-in policy and no reviewer queue', async () => {
+    const harness = await createHarness();
+    await startAndSatisfySource(harness, { truncated: true });
+
+    const result = await harness.runtime.runOnce({ definition: TWO_AGENT_REVIEW_ROUND_DEFINITION });
+
+    expect(result.resumed).toEqual([]);
+    expect(result.errors[0]?.error.message).toMatch(/truncated/);
+    expect(harness.vk.queueFollowUp).toHaveBeenCalledTimes(1);
+    await expect(harness.store.getInstance('instance-resume')).resolves.toMatchObject({ status: 'failed' });
+    const steps = await harness.store.listStepStates('instance-resume');
+    expect(steps.find((step) => step.stepKey === 'ask_review')).toMatchObject({ status: 'failed' });
+  });
+
+  it('leaves reviewer queue failures retryable without duplicate delivery records', async () => {
+    const harness = await createHarness();
+    await startAndSatisfySource(harness);
+    harness.vk.queueFollowUp.mockRejectedValueOnce(new Error('VK queue down'));
+
+    const failed = await harness.runtime.runOnce({ definition: TWO_AGENT_REVIEW_ROUND_DEFINITION });
+    expect(failed.resumed).toEqual([]);
+    expect(failed.errors[0]?.error.message).toBe('VK queue down');
+    await expect(harness.store.getInstance('instance-resume')).resolves.toMatchObject({ status: 'running' });
+    expect((await harness.handle.db.selectFrom('ResponsePipeDelivery').selectAll().execute())).toHaveLength(1);
+
+    const retried = await harness.runtime.runOnce({ definition: TWO_AGENT_REVIEW_ROUND_DEFINITION });
+    expect(retried.resumed).toHaveLength(1);
+    expect(harness.vk.queueFollowUp).toHaveBeenCalledTimes(3);
+    expect((await harness.handle.db.selectFrom('ResponsePipeDelivery').selectAll().execute())).toHaveLength(1);
+  });
+
+  it('does not resume paused instances', async () => {
+    const harness = await createHarness();
+    await startAndSatisfySource(harness);
+    await harness.store.pauseInstance('instance-resume');
+
+    const result = await harness.runtime.runOnce({ definition: TWO_AGENT_REVIEW_ROUND_DEFINITION });
+
+    expect(result.resumed).toEqual([]);
+    expect(harness.vk.queueFollowUp).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not resume while an external callback or CI wait owns the source session', async () => {
+    const harness = await createHarness();
+    await startAndSatisfySource(harness);
+    await harness.handle.db.insertInto('WorkflowExternalWait').values({
+      waitId: 'wait-1',
+      instanceId: 'instance-resume',
+      stepStateId: 'instance-resume_wait_source',
+      roleId: null,
+      laneId: null,
+      kind: 'callback',
+      status: 'active',
+      externalRef: 'callback-ref',
+      sourceExecutionProcessId: null,
+      workspaceId: 'ws-1',
+      sessionId: 'session-impl',
+      metadataJson: null,
+      createdAt: 1,
+      updatedAt: 1,
+      resolvedAt: null,
+      cancelledAt: null,
+    }).execute();
+
+    const result = await harness.runtime.runOnce({ definition: TWO_AGENT_REVIEW_ROUND_DEFINITION });
+
+    expect(result.resumed).toEqual([]);
+    expect(harness.vk.queueFollowUp).toHaveBeenCalledTimes(1);
+  });
 });
 
 async function createHarness(options: { sessions?: Session[] } = {}) {
@@ -147,17 +283,21 @@ async function createHarness(options: { sessions?: Session[] } = {}) {
   let now = 1_000;
   const runtimeNow = 0;
   const store = new DbWorkflowOrchestrationStore({ db: handle.db, now: () => now++ });
+  const pipeStore = new DbResponsePipeStore({ db: handle.db, now: () => now++ });
   const vk = fakeVk(options.sessions ?? [session('session-impl', 'ws-1', 'implementer'), session('session-review', 'ws-1', 'reviewer')]);
   const resolver = new WorkflowRoleSessionResolver({ db: handle.db, vk, now: () => now++, createBindingId: (() => { let index = 0; return () => `binding-${++index}`; })() });
-  const runtime = new DeclarativeWorkflowRuntime({ store, resolver, vk, createId: () => 'generated', now: () => runtimeNow });
-  return { handle, store, vk, resolver, runtime };
+  const responsePipe = new ResponsePipeService({ store: pipeStore, vk, createId: (() => { let index = 0; return () => `delivery-${++index}`; })() });
+  const runtime = new DeclarativeWorkflowRuntime({ store, resolver, vk, responsePipe, createId: () => 'generated', now: () => runtimeNow });
+  return { handle, store, pipeStore, vk, resolver, runtime };
 }
 
 function fakeVk(initialSessions: Session[]) {
   const sessions = new Map(initialSessions.map((entry) => [entry.id, entry]));
   let createIndex = 0;
+  let queueIndex = 0;
   const vk = {
     latestResponse: null as AgentResponse | null,
+    finalMessages: new Map<string, AgentResponse>(),
     sendFollowUp: vi.fn(),
     getSessions: vi.fn(async (workspaceId: string) => [...sessions.values()].filter((entry) => entry.workspace_id === workspaceId)),
     getSession: vi.fn(async (sessionId: string) => {
@@ -172,12 +312,18 @@ function fakeVk(initialSessions: Session[]) {
       return created;
     }),
     getSessionLatestResponse: vi.fn(async () => vk.latestResponse),
-    queueFollowUp: vi.fn(async (sessionId: string): Promise<QueueFollowUpResponse> => {
+    getExecutionProcessFinalMessage: vi.fn(async (processId: string) => {
+      const message = vk.finalMessages.get(processId);
+      if (!message) throw new Error(`final message not found: ${processId}`);
+      return message;
+    }),
+    queueFollowUp: vi.fn(async (sessionId: string, _prompt: string, _options?: { source?: string }): Promise<QueueFollowUpResponse> => {
       const target = sessions.get(sessionId);
       if (!target) throw new Error(`session not found: ${sessionId}`);
+      queueIndex += 1;
       return {
         queued_item: {
-          id: 'queue-1',
+          id: `queue-${queueIndex}`,
           session_id: sessionId,
           workspace_id: target.workspace_id,
           status: 'queued',
@@ -190,6 +336,39 @@ function fakeVk(initialSessions: Session[]) {
     }),
   };
   return vk;
+}
+
+async function startAndSatisfySource(
+  harness: Awaited<ReturnType<typeof createHarness>>,
+  options: { truncated?: boolean } = {},
+) {
+  const started = await harness.runtime.start({
+    definition: TWO_AGENT_REVIEW_ROUND_DEFINITION,
+    input: { task: 'Plan the work', workspaceId: 'ws-1' },
+    team: team(),
+    instanceId: 'instance-resume',
+  });
+  const source = responseCursor({
+    executionProcessId: 'exec-source',
+    sessionId: 'session-impl',
+    content: 'Implementation plan response',
+    completedAt: '2026-08-04T11:00:00.000Z',
+    truncated: options.truncated ?? false,
+  });
+  harness.vk.finalMessages.set('exec-source', source);
+  await harness.store.satisfyScopedTriggerAndResumeWaitingStep(started.trigger.triggerId, {
+    executionProcessId: 'exec-source',
+    response: {
+      executionProcessId: 'exec-source',
+      sessionId: 'session-impl',
+      workspaceId: 'ws-1',
+      completedAt: source.completed_at,
+      truncated: source.truncated,
+      maxChars: source.max_chars,
+      sourceKind: source.source_kind,
+    },
+  });
+  return started;
 }
 
 function team(): AgentTeam {
@@ -218,18 +397,24 @@ function session(id: string, workspaceId: string, name: string, executor: Sessio
   return { id, workspace_id: workspaceId, executor, name, created_at: '2026-08-04T00:00:00.000Z', updated_at: '2026-08-04T00:00:00.000Z' };
 }
 
-function responseCursor(): AgentResponse {
+function responseCursor(overrides: {
+  executionProcessId?: string;
+  sessionId?: string;
+  content?: string;
+  completedAt?: string;
+  truncated?: boolean;
+} = {}): AgentResponse {
   return {
-    execution_process_id: 'exec-before',
-    session_id: 'session-impl',
+    execution_process_id: overrides.executionProcessId ?? 'exec-before',
+    session_id: overrides.sessionId ?? 'session-impl',
     workspace_id: 'ws-1',
     status: 'completed',
-    completed_at: '2026-08-04T10:00:00.000Z',
+    completed_at: overrides.completedAt ?? '2026-08-04T10:00:00.000Z',
     coding_agent_turn_id: 'turn-before',
     agent_session_id: 'agent-session-before',
     agent_message_id: 'message-before',
-    content: 'Previous response',
-    truncated: false,
+    content: overrides.content ?? 'Previous response',
+    truncated: overrides.truncated ?? false,
     max_chars: 10000,
     source_kind: 'coding_agent_turn_summary',
   };

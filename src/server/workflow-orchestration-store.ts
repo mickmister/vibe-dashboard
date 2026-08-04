@@ -592,6 +592,20 @@ export class DbWorkflowOrchestrationStore {
     return rows.map(mapStepState);
   }
 
+  async hasActiveExternalWaitForSession(args: { workspaceId: string; sessionId: string; instanceId?: string | null; stepStateId?: string | null }): Promise<boolean> {
+    const db = await this.getDb();
+    let query = db
+      .selectFrom('WorkflowExternalWait')
+      .select(['waitId'])
+      .where('status', '=', 'active')
+      .where('workspaceId', '=', args.workspaceId)
+      .where('sessionId', '=', args.sessionId);
+    if (args.instanceId) query = query.where('instanceId', '=', args.instanceId);
+    if (args.stepStateId) query = query.where('stepStateId', '=', args.stepStateId);
+    const row = await query.executeTakeFirst();
+    return Boolean(row);
+  }
+
   async listActiveTriggers(now = this.now()): Promise<WorkflowScopedTriggerReadModel[]> {
     const db = await this.getDb();
     const rows = await db
