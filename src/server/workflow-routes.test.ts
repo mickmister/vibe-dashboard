@@ -205,6 +205,43 @@ describe('registerWorkflowRoutes', () => {
   });
 
 
+
+  it('resolves team role sessions through configured resolver', async () => {
+    const app = new Hono();
+    const resolver = {
+      resolve: vi.fn(async () => ({
+        ok: true,
+        results: [{ roleId: 'agent-a', roleName: 'orchestrator', status: 'resolved', sessionId: 'session-a', workspaceId: 'ws-1', laneId: null, executor: 'CODEX', source: 'auto_created', bindingId: 'binding-a', warnings: [], error: null }],
+        errors: [],
+        warnings: [],
+      })),
+    };
+    registerWorkflowRoutes(app, {
+      registry: createWorkflowRegistry(),
+      roleSessionResolver: resolver as never,
+    });
+
+    const response = await app.request('/dashboard/api/agent-team-session-mappings/resolve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ team: { id: 'team-1', agents: [] }, workspaceId: 'ws-1', roleIds: ['agent-a'], allowAutoCreate: true }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(resolver.resolve).toHaveBeenCalledWith(expect.objectContaining({ workspaceId: 'ws-1', roleIds: ['agent-a'], allowAutoCreate: true }));
+    await expect(response.json()).resolves.toMatchObject({ ok: true, results: [{ sessionId: 'session-a' }] });
+  });
+
+  it('returns 503 when role session resolver is not configured', async () => {
+    const app = new Hono();
+    registerWorkflowRoutes(app, { registry: createWorkflowRegistry() });
+
+    const response = await app.request('/dashboard/api/agent-team-session-mappings/resolve', { method: 'POST' });
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({ error: 'role_session_resolver_not_configured' });
+  });
+
   it('exposes workflow activity scanner read API with explicit policy', async () => {
     const app = new Hono();
     const scanner = {

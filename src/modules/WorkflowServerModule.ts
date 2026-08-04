@@ -12,6 +12,7 @@ import { DbWorkflowRunReader } from '../server/workflow-run-store';
 import { DbWorkflowOrchestrationStore } from '../server/workflow-orchestration-store';
 import { WorkflowActivityScanner } from '../server/workflow-session-scanner';
 import { VibeKanbanServerClient } from '../server/vk-client';
+import { WorkflowRoleSessionResolver } from '../server/role-session-resolver';
 import { workflowRegistry } from '../workflows/registry';
 import type { CachedRepoAlias } from '../workflows/github-ci';
 
@@ -25,6 +26,10 @@ serverRegistry.registerServerModule((api) => {
     getDb: async () => (await getVdDb()).db,
   });
   const vkClient = new VibeKanbanServerClient();
+  const roleSessionResolver = new WorkflowRoleSessionResolver({
+    getDb: async () => (await getVdDb()).db,
+    vk: vkClient,
+  });
   registerWorkflowRoutes(api.hono, {
     registry: workflowRegistry,
     repoAliasCache: {
@@ -39,6 +44,7 @@ serverRegistry.registerServerModule((api) => {
       getDb: async () => (await getVdDb()).db,
     }),
     workflowOrchestrationStore,
+    roleSessionResolver,
     workflowActivityScanner: new WorkflowActivityScanner({
       getDb: async () => (await getVdDb()).db,
       orchestrationStore: workflowOrchestrationStore,

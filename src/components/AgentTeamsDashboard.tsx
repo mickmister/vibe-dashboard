@@ -15,6 +15,8 @@ import {
   type WorkflowActivityScanResponse,
 } from '../lib/workflowActivityApi';
 import { buildVkSessionUrl } from '../utils/origin';
+import { vkClient, type Session } from '../lib/vk-client';
+import { applyResolvedSessionsToTeam, resolveTeamSessionMappings } from '../lib/teamSessionMappingApi';
 
 const inputClass = 'w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100';
 const buttonClass = 'rounded-md border border-zinc-700 px-3 py-2 text-sm hover:bg-zinc-900 disabled:opacity-50';
@@ -37,6 +39,13 @@ export function AgentTeamsDashboard(): React.ReactElement {
   const [activity, setActivity] = useState<WorkflowActivityScanResponse | null>(null);
   const [activityError, setActivityError] = useState<string | null>(null);
   const [loadingActivity, setLoadingActivity] = useState(false);
+  const [mappingWorkspaceId, setMappingWorkspaceId] = useState('');
+  const [sessionOptions, setSessionOptions] = useState<Session[]>([]);
+  const [sessionOptionsError, setSessionOptionsError] = useState<string | null>(null);
+  const [resolvingSessions, setResolvingSessions] = useState(false);
+  const [sessionMappingError, setSessionMappingError] = useState<string | null>(null);
+  const [allowAutoCreate, setAllowAutoCreate] = useState(true);
+  const [allowRoleNameReuse, setAllowRoleNameReuse] = useState(true);
 
   const selectedRun = useMemo(
     () => runs.find((run) => run.runId === selectedRunId) ?? runs[0] ?? null,
@@ -95,7 +104,25 @@ export function AgentTeamsDashboard(): React.ReactElement {
 
   useEffect(() => {
     setTargetAgentIds(selectedTeam?.agents.filter((agent) => agent.enabled).map((agent) => agent.id) ?? []);
+    setMappingWorkspaceId(selectedTeam?.agents.find((agent) => agent.vkWorkspaceId)?.vkWorkspaceId ?? '');
   }, [selectedTeam?.id]);
+
+  useEffect(() => {
+    if (!mappingWorkspaceId.trim()) {
+      setSessionOptions([]);
+      setSessionOptionsError(null);
+      return;
+    }
+    void vkClient.getSessions(mappingWorkspaceId.trim())
+      .then((sessions) => {
+        setSessionOptions(sessions);
+        setSessionOptionsError(null);
+      })
+      .catch((caught) => {
+        setSessionOptions([]);
+        setSessionOptionsError(caught instanceof Error ? caught.message : String(caught));
+      });
+  }, [mappingWorkspaceId]);
 
   const createTeam = async () => {
     await agentTeamsModule.actions.createTeam({
@@ -117,13 +144,51 @@ export function AgentTeamsDashboard(): React.ReactElement {
     });
   };
 
+
+
+  const resolveSessionMappings = async (): Promise<AgentTeam | null> => {
+    if (!selectedTeam) return null;
+    const workspaceId = mappingWorkspaceId.trim();
+    if (!workspaceId) {
+      setSessionMappingError('Choose a VK workspace before resolving sessions.');
+      return null;
+    }
+    setResolvingSessions(true);
+    setSessionMappingError(null);
+    try {
+      const resolution = await resolveTeamSessionMappings({
+        team: selectedTeam,
+        workspaceId,
+        workflowId: 'manual-agent-team-runner',
+        roleIds: targetAgentIds.length ? targetAgentIds : undefined,
+        overrides: Object.fromEntries(selectedTeam.agents.flatMap((agent) => agent.vkSessionId ? [[agent.id, { sessionId: agent.vkSessionId, executor: agent.executor ?? null }]] : [])),
+        allowAutoCreate,
+        allowRoleNameReuse,
+      });
+      if (!resolution.ok) {
+        setSessionMappingError(resolution.errors.map((error) => error.error ?? error.roleName).join('; ') || 'Unable to resolve sessions');
+        return null;
+      }
+      const resolvedTeam = applyResolvedSessionsToTeam(selectedTeam, resolution);
+      await updateTeam({ agents: resolvedTeam.agents });
+      return resolvedTeam;
+    } catch (caught) {
+      setSessionMappingError(caught instanceof Error ? caught.message : String(caught));
+      return null;
+    } finally {
+      setResolvingSessions(false);
+    }
+  };
+
   const launchRun = async () => {
     if (!selectedTeam) return;
     setRunning(true);
     setRunError(null);
     try {
+      const mappedTeam = mappingWorkspaceId.trim() ? await resolveSessionMappings() : selectedTeam;
+      if (!mappedTeam) return;
       const response = await runManualAgentTeamWorkflow({
-        team: selectedTeam,
+        team: mappedTeam,
         taskPrompt,
         context: context.trim() ? context : null,
         targetAgentIds,
@@ -167,7 +232,7 @@ export function AgentTeamsDashboard(): React.ReactElement {
 
           <section className="space-y-6">
             {selectedTeam ? (
-              <TeamEditor team={selectedTeam} onUpdate={updateTeam} onUpdateAgent={updateAgent} onDelete={() => void agentTeamsModule.actions.deleteTeam({ teamId: selectedTeam.id })} />
+              <TeamEditor team={selectedTeam} sessions={sessionOptions} mappingWorkspaceId={mappingWorkspaceId} onUpdate={updateTeam} onUpdateAgent={updateAgent} onDelete={() => void agentTeamsModule.actions.deleteTeam({ teamId: selectedTeam.id })} />
             ) : null}
 
             {selectedTeam ? (
@@ -175,6 +240,7 @@ export function AgentTeamsDashboard(): React.ReactElement {
                 <h2 className="font-medium">Launch manual team run</h2>
                 {runError ? <div role="alert" className="mt-3 rounded border border-red-800 bg-red-950/40 p-3 text-sm text-red-200">{runError}</div> : null}
                 <div className="mt-3 grid gap-3">
+                  <SessionMappingControls workspaceId={mappingWorkspaceId} onWorkspaceIdChange={setMappingWorkspaceId} sessions={sessionOptions} sessionsError={sessionOptionsError} allowAutoCreate={allowAutoCreate} onAllowAutoCreateChange={setAllowAutoCreate} allowRoleNameReuse={allowRoleNameReuse} onAllowRoleNameReuseChange={setAllowRoleNameReuse} resolving={resolvingSessions} mappingError={sessionMappingError} onResolve={() => void resolveSessionMappings()} />
                   <textarea className={inputClass} rows={4} placeholder="Task/backlog prompt" value={taskPrompt} onChange={(event) => setTaskPrompt(event.target.value)} />
                   <textarea className={inputClass} rows={3} placeholder="Optional context" value={context} onChange={(event) => setContext(event.target.value)} />
                   <div className="grid gap-2 sm:grid-cols-2">
@@ -185,7 +251,7 @@ export function AgentTeamsDashboard(): React.ReactElement {
                       </label>
                     ))}
                   </div>
-                  <button className={primaryButtonClass} disabled={running || !taskPrompt.trim()} onClick={() => void launchRun()}>{running ? 'Queueing…' : 'Run team workflow'}</button>
+                  <button className={primaryButtonClass} disabled={running || resolvingSessions || !taskPrompt.trim()} onClick={() => void launchRun()}>{running || resolvingSessions ? 'Preparing…' : 'Run team workflow'}</button>
                 </div>
               </section>
             ) : null}
@@ -200,7 +266,41 @@ export function AgentTeamsDashboard(): React.ReactElement {
   );
 }
 
-function TeamEditor(props: { team: AgentTeam; onUpdate: (patch: UpdateAgentTeamInput) => Promise<void>; onUpdateAgent: (agentId: string, patch: Partial<TeamAgent>) => Promise<void>; onDelete: () => void }) {
+
+function SessionMappingControls(props: {
+  workspaceId: string;
+  onWorkspaceIdChange: (value: string) => void;
+  sessions: Session[];
+  sessionsError: string | null;
+  allowAutoCreate: boolean;
+  onAllowAutoCreateChange: (value: boolean) => void;
+  allowRoleNameReuse: boolean;
+  onAllowRoleNameReuseChange: (value: boolean) => void;
+  resolving: boolean;
+  mappingError: string | null;
+  onResolve: () => void;
+}) {
+  return (
+    <div className="rounded-md border border-zinc-800 bg-zinc-950/70 p-3">
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="min-w-64 flex-1 text-sm">VK workspace for this run
+          <input className={`${inputClass} mt-1`} placeholder="Workspace id" value={props.workspaceId} onChange={(event) => props.onWorkspaceIdChange(event.target.value)} />
+        </label>
+        <button className={buttonClass} type="button" onClick={props.onResolve} disabled={props.resolving || !props.workspaceId.trim()}>{props.resolving ? 'Resolving…' : 'Resolve role sessions'}</button>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-4 text-sm text-zinc-300">
+        <label className="flex items-center gap-2"><input type="checkbox" checked={props.allowRoleNameReuse} onChange={(event) => props.onAllowRoleNameReuseChange(event.target.checked)} /> Reuse sessions by role/name</label>
+        <label className="flex items-center gap-2"><input type="checkbox" checked={props.allowAutoCreate} onChange={(event) => props.onAllowAutoCreateChange(event.target.checked)} /> Auto-create missing role sessions</label>
+        <span className="text-xs text-zinc-500">{props.sessions.length ? `${props.sessions.length} existing sessions loaded` : 'No existing sessions loaded'}</span>
+      </div>
+      {props.sessionsError ? <div role="alert" className="mt-2 text-xs text-amber-200">Unable to load existing sessions: {props.sessionsError}</div> : null}
+      {props.mappingError ? <div role="alert" className="mt-2 rounded border border-red-800 bg-red-950/40 p-2 text-xs text-red-200">{props.mappingError}</div> : null}
+      <p className="mt-2 text-xs text-zinc-500">Workflow launch uses the resolver first. Existing selections win; otherwise VD reuses by role/name or creates sessions when enabled.</p>
+    </div>
+  );
+}
+
+function TeamEditor(props: { team: AgentTeam; sessions: Session[]; mappingWorkspaceId: string; onUpdate: (patch: UpdateAgentTeamInput) => Promise<void>; onUpdateAgent: (agentId: string, patch: Partial<TeamAgent>) => Promise<void>; onDelete: () => void }) {
   const { team } = props;
   return (
     <section className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-4">
@@ -221,7 +321,17 @@ function TeamEditor(props: { team: AgentTeam; onUpdate: (patch: UpdateAgentTeamI
           <div key={agent.id} className="grid gap-2 rounded-md border border-zinc-800 p-3 md:grid-cols-5">
             <input className={inputClass} value={agent.displayName} onChange={(event) => void props.onUpdateAgent(agent.id, { displayName: event.target.value })} />
             <input className={inputClass} value={agent.role} onChange={(event) => void props.onUpdateAgent(agent.id, { role: event.target.value })} />
-            <div className="md:col-span-2"><input className={inputClass} placeholder="VK session id" value={agent.vkSessionId ?? ''} onChange={(event) => void props.onUpdateAgent(agent.id, { vkSessionId: event.target.value || null })} /><VkSessionLink className="mt-1" workspaceId={agent.vkWorkspaceId} sessionId={agent.vkSessionId} /></div>
+            <div className="md:col-span-2 space-y-1">
+              <select className={inputClass} value={agent.vkSessionId ?? ''} onChange={(event) => {
+                const session = props.sessions.find((entry) => entry.id === event.target.value);
+                void props.onUpdateAgent(agent.id, { vkSessionId: event.target.value || null, vkWorkspaceId: session?.workspace_id ?? (props.mappingWorkspaceId || (agent.vkWorkspaceId ?? null)), executor: session?.executor ?? agent.executor ?? null });
+              }}>
+                <option value="">Resolve/create on launch</option>
+                {props.sessions.map((session) => <option key={session.id} value={session.id}>{session.name || session.id} · {session.executor}</option>)}
+              </select>
+              <input className={inputClass} placeholder="Advanced: VK session id" value={agent.vkSessionId ?? ''} onChange={(event) => void props.onUpdateAgent(agent.id, { vkSessionId: event.target.value || null, vkWorkspaceId: props.mappingWorkspaceId || (agent.vkWorkspaceId ?? null) })} />
+              <VkSessionLink className="mt-1" workspaceId={agent.vkWorkspaceId} sessionId={agent.vkSessionId} />
+            </div>
             <div className="flex items-center justify-between gap-2"><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={agent.enabled} onChange={(event) => void props.onUpdateAgent(agent.id, { enabled: event.target.checked })} /> Enabled</label><button className="text-xs text-red-300 disabled:opacity-40" disabled={agent.id === team.orchestratorAgentId || team.agents.length <= 1} onClick={() => void props.onUpdate({ agents: team.agents.filter((entry) => entry.id !== agent.id) })}>Remove</button></div>
           </div>
         ))}

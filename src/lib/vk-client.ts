@@ -48,6 +48,26 @@ export interface RepoWithBranch {
   target_branch: string;
 }
 
+export type Executor =
+  | 'CLAUDE_CODE'
+  | 'CODEX'
+  | 'GEMINI'
+  | 'AMP'
+  | 'CURSOR_AGENT'
+  | 'COPILOT'
+  | 'DROID'
+  | 'OPENCODE'
+  | 'QWEN_CODE';
+
+export interface Session {
+  id: string;
+  workspace_id: string;
+  executor: Executor;
+  name?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 // ── API response envelope ───────────────────────────────────────────────────
 
 interface ApiResponse<T> {
@@ -104,6 +124,14 @@ export class VibeKanbanClient {
 
   getWorkspaceRepos(id: string): Promise<RepoWithBranch[]> {
     return this.get(`/workspaces/${id}/repos`);
+  }
+
+  getSessions(workspaceId: string): Promise<Session[]> {
+    return this.get(`/sessions?workspace_id=${encodeURIComponent(workspaceId)}`);
+  }
+
+  createSession(body: { workspace_id: string; executor: Executor; name?: string | null }): Promise<Session> {
+    return this.post('/sessions', body);
   }
 
   getWorkspaceBranchStatus(id: string): Promise<unknown> {

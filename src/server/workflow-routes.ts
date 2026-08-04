@@ -19,6 +19,7 @@ import {
 } from './workflow-orchestration-store';
 import type { CachedRepoAlias } from '../workflows/github-ci';
 import type { WorkflowActivityScanner, WorkflowSchedulerBudgetPolicy } from './workflow-session-scanner';
+import type { WorkflowRoleSessionResolver } from './role-session-resolver';
 
 export interface RegisterWorkflowRoutesOptions {
   registry: WorkflowRegistry;
@@ -27,6 +28,7 @@ export interface RegisterWorkflowRoutesOptions {
   workflowRunReader?: WorkflowRunReader;
   workflowOrchestrationStore?: DbWorkflowOrchestrationStore;
   workflowActivityScanner?: WorkflowActivityScanner;
+  roleSessionResolver?: WorkflowRoleSessionResolver;
   githubWebhookSecret?: string;
   repoAliasCache?: RepoAliasCache;
 }
@@ -87,6 +89,20 @@ export function registerWorkflowRoutes(
   });
 
 
+
+
+  hono.post('/dashboard/api/agent-team-session-mappings/resolve', async (c) => {
+    const resolver = options.roleSessionResolver;
+    if (!resolver) return c.json({ error: 'role_session_resolver_not_configured' }, 503);
+    try {
+      const input = await readJsonBody(c.req.raw);
+      const result = await resolver.resolve(parseRoleSessionResolveRequest(input));
+      const status = result.ok ? 200 : 400;
+      return c.json(result, status);
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 400);
+    }
+  });
 
   hono.get('/dashboard/api/workflow-activity', async (c) => {
     const scanner = options.workflowActivityScanner;
@@ -352,5 +368,25 @@ function parseWorkflowActivityPolicy(query: Record<string, string>): WorkflowSch
   return {
     maxActiveExecutions: parsePositiveInteger(query.maxActiveExecutions ?? null) ?? 8,
     maxWorkflowOwnedSessions: parsePositiveInteger(query.maxWorkflowOwnedSessions ?? null),
+  };
+}
+
+
+function parseRoleSessionResolveRequest(input: unknown) {
+  const record = asRecord(input);
+  const team = asRecord(record?.team);
+  const workspaceId = asString(record?.workspaceId);
+  if (!team) throw new Error('team is required');
+  if (!workspaceId) throw new Error('workspaceId is required');
+  return {
+    team: team as never,
+    workspaceId,
+    workflowId: asString(record?.workflowId) ?? 'manual-agent-team-runner',
+    instanceId: asString(record?.instanceId) ?? null,
+    laneId: asString(record?.laneId) ?? null,
+    roleIds: Array.isArray(record?.roleIds) ? record.roleIds.filter((value): value is string => typeof value === 'string') : undefined,
+    overrides: (asRecord(record?.overrides) ?? undefined) as never,
+    allowAutoCreate: typeof record?.allowAutoCreate === 'boolean' ? record.allowAutoCreate : true,
+    allowRoleNameReuse: typeof record?.allowRoleNameReuse === 'boolean' ? record.allowRoleNameReuse : true,
   };
 }
