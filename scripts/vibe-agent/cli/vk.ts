@@ -894,6 +894,9 @@ async function commandSummary(flags: FlagMap) {
 async function commandWorkflow(positional: string[], flags: FlagMap) {
   const subcommand = positional[0];
   switch (subcommand) {
+    case 'definitions':
+      await commandWorkflowDefinitions(positional.slice(1), flags);
+      return;
     case 'run': {
       const workflowId = positional[1];
       if (!workflowId) {
@@ -950,7 +953,68 @@ async function commandWorkflow(positional: string[], flags: FlagMap) {
       return;
     }
     default:
-      console.error('Usage: vk workflow <run|status|run-once> ...');
+      console.error('Usage: vk workflow <definitions|run|status|run-once> ...');
+      process.exit(1);
+  }
+}
+
+async function commandWorkflowDefinitions(positional: string[], flags: FlagMap) {
+  const subcommand = positional[0] ?? 'list';
+  switch (subcommand) {
+    case 'list': {
+      const result = await requestDashboardJson<any>(`${config.endpoints.declarativeWorkflowDefinitions()}${flags['include-disabled'] === true ? '?includeDisabled=true' : ''}`);
+      if (flags.json === true) {
+        console.log(JSON.stringify(result, null, 2));
+        return;
+      }
+      for (const entry of result.definitions ?? []) {
+        console.log(`${entry.definitionId}@${entry.version} ${entry.status} ${entry.source ?? 'db'} - ${entry.name}`);
+      }
+      return;
+    }
+    case 'get': {
+      const workflowId = positional[1];
+      if (!workflowId) {
+        console.error('Usage: vk workflow definitions get <workflow-id> [--json]');
+        process.exit(1);
+      }
+      const result = await requestDashboardJson<unknown>(config.endpoints.declarativeWorkflowDefinition(workflowId));
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+    case 'save': {
+      const definition = readJsonFlag(flags, 'definition-json') ?? readJsonFileFlag(flags, 'definition-file');
+      if (!definition) {
+        console.error('Usage: vk workflow definitions save --definition-json <json|--definition-file file> [--json]');
+        process.exit(1);
+      }
+      const result = await requestDashboardJson<any>(config.endpoints.declarativeWorkflowDefinitions(), {
+        method: 'POST',
+        body: JSON.stringify({ definition, status: flags.disabled === true ? 'disabled' : 'active' }),
+      });
+      if (flags.json === true) {
+        console.log(JSON.stringify(result, null, 2));
+        return;
+      }
+      console.log(`Saved workflow definition ${result.definition?.definitionId}@${result.definition?.version} (${result.definition?.status})`);
+      return;
+    }
+    case 'disable': {
+      const workflowId = positional[1];
+      if (!workflowId) {
+        console.error('Usage: vk workflow definitions disable <workflow-id> [--json]');
+        process.exit(1);
+      }
+      const result = await requestDashboardJson<any>(config.endpoints.declarativeWorkflowDefinition(workflowId), { method: 'DELETE' });
+      if (flags.json === true) {
+        console.log(JSON.stringify(result, null, 2));
+        return;
+      }
+      console.log(`Disabled workflow definition ${result.definition?.definitionId}@${result.definition?.version}`);
+      return;
+    }
+    default:
+      console.error('Usage: vk workflow definitions <list|get|save|disable> ...');
       process.exit(1);
   }
 }
@@ -986,6 +1050,7 @@ function printHelp() {
   console.log('  send <session-id> "<prompt>"               Send message to session');
   console.log('  workflow run <id> --input-file f --team-file f [--definition-file f]   Start declarative workflow and return');
   console.log('  workflow run-once [id] [--definition-file f]       Advance declarative workflow worker once');
+  console.log('  workflow definitions <list|get|save|disable>       Manage declarative workflow definitions');
   console.log('');
   console.log('Options:');
   console.log('  --all                 Show all entry types in conversation');
