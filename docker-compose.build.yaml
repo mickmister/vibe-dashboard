@@ -8,6 +8,6 @@ services:
         VK_BRANCH: ${VK_BRANCH:-main}
         VK_COMMIT: ${VK_COMMIT:?VK_COMMIT is required when building Dockerfile.vkvd}
         CODEX_RELEASE_REPO: ${CODEX_RELEASE_REPO:-mickmister/codex}
-        CODEX_RELEASE_TAG: ${CODEX_RELEASE_TAG:-codex-cli-assets-f4f50344c27ac2eff064c1287953baff9866fdbc}
+        CODEX_RELEASE_TAG: ${CODEX_RELEASE_TAG:-codex-cli-assets-dc198b6aa9597a0b82a7488d2d2777933ad01329}
         CODEX_RELEASE_ASSET: ${CODEX_RELEASE_ASSET:-}
     pull_policy: build
