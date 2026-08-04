@@ -39,6 +39,7 @@ springboard.registerSplashScreen(AppLoadingScreen);
 
 import springboard from "springboard";
 import type { WorkspaceState, SavedWorkspaceSession } from "../types";
+import { DEFAULT_FLOW_MODE_TYPE } from "../types";
 import { useModule } from "../hooks/useModule";
 
 const URL_PARSE_BASE = "https://workspace.local";
@@ -365,16 +366,18 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
     useEffect(() => {
       if (dashboardVoyage.status !== "resolved") return;
       if (!activeSavedSession) return;
-      if (activeSavedSession.flowModeType === sessionNav.flowModeType) return;
+      const persistedFlowModeType =
+        activeSavedSession.flowModeType ?? DEFAULT_FLOW_MODE_TYPE;
+      if (persistedFlowModeType === sessionNav.flowModeType) return;
 
-      void actions.upsertSavedSession({
-        ...activeSavedSession,
+      void actions.updateSavedSessionFlowModeType({
+        sessionId: activeSavedSession.id,
         flowModeType: sessionNav.flowModeType,
-        updatedAt: new Date().toISOString(),
       });
     }, [
       actions,
-      activeSavedSession,
+      activeSavedSession?.flowModeType,
+      activeSavedSession?.id,
       dashboardVoyage.status,
       sessionNav.flowModeType,
     ]);

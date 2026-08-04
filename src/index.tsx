@@ -4,6 +4,7 @@ import {
   getSavedWorkspaceSessions,
   isSavedWorkspaceSessionStateMigrated,
   migrateSavedWorkspaceSessionStateWithCleanup,
+  updateSavedWorkspaceSessionFlowModeState,
 } from "./lib/savedVoyageState";
 
 import springboard, { ModuleAPI } from "springboard";
@@ -21,6 +22,7 @@ import type {
   SavedWorkspaceSessionState,
   VoyageEntry,
   VoyageCraftSelection,
+  FlowModeType,
 } from "./types";
 
 // @platform "browser"
@@ -1599,6 +1601,17 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
         sessions.unshift(nextSession);
         return createSavedWorkspaceSessionState(sessions);
       });
+    },
+    updateSavedSessionFlowModeType: async (args: {
+      sessionId: string;
+      flowModeType: FlowModeType;
+    }) => {
+      savedSessionsState.setState((current) =>
+        updateSavedWorkspaceSessionFlowModeState(current, {
+          ...args,
+          updatedAt: new Date().toISOString(),
+        }),
+      );
     },
     renameSavedSession: async (args: { id: string; name: string }) => {
       savedSessionsState.setState((current) => {

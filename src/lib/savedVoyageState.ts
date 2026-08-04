@@ -1,4 +1,5 @@
 import type {
+  FlowModeType,
   SavedWorkspaceSession,
   SavedWorkspaceSessionState,
   SavedWorkspaceSessionV1,
@@ -6,6 +7,7 @@ import type {
   VoyageEntry,
   WorkspaceState,
 } from '../types';
+import { DEFAULT_FLOW_MODE_TYPE } from '../types';
 import { buildVoyageSlug } from './voyageUrl';
 
 type SavedWorkspaceSessionState_v1 = {
@@ -68,6 +70,32 @@ export function upsertSavedWorkspaceSessionState(
   }
 
   sessions.unshift({ ...session, slug, name });
+  return createSavedWorkspaceSessionState(sessions);
+}
+
+export function updateSavedWorkspaceSessionFlowModeState(
+  state: SavedWorkspaceSessionState | SavedWorkspaceSessionState_v1 | unknown,
+  args: {
+    sessionId: string;
+    flowModeType: FlowModeType;
+    updatedAt: string;
+  },
+): SavedWorkspaceSessionState {
+  const sessions = getSavedWorkspaceSessions(state).map((entry) => ({
+    ...entry,
+  }));
+  const existing = sessions.find((entry) => entry.id === args.sessionId);
+  if (!existing) {
+    return createSavedWorkspaceSessionState(sessions);
+  }
+
+  const currentFlowModeType = existing.flowModeType ?? DEFAULT_FLOW_MODE_TYPE;
+  if (currentFlowModeType === args.flowModeType) {
+    return createSavedWorkspaceSessionState(sessions);
+  }
+
+  existing.flowModeType = args.flowModeType;
+  existing.updatedAt = args.updatedAt;
   return createSavedWorkspaceSessionState(sessions);
 }
 
