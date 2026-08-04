@@ -624,11 +624,35 @@ export function hasKnownIframeMessageSource(source: MessageEventSource | null): 
   );
 }
 
-function findTabIdForMessageSource(source: MessageEventSource | null): string | null {
+export function getIframeMessageSourceOwner(
+  iframeKey: string,
+): { tabGroupId: string; tabId: string } | null {
+  const separatorIndex = iframeKey.lastIndexOf(':');
+  if (separatorIndex <= 0 || separatorIndex === iframeKey.length - 1) return null;
+  return {
+    tabGroupId: iframeKey.slice(0, separatorIndex),
+    tabId: iframeKey.slice(separatorIndex + 1),
+  };
+}
+
+export function isIframeMessageSourceOwnedByTabGroup(
+  sourceOwner: { tabGroupId: string; tabId: string },
+  tabGroup: Pick<TabGroup, 'id' | 'tabs'>,
+): boolean {
+  return (
+    sourceOwner.tabGroupId === tabGroup.id &&
+    tabGroup.tabs.some((tab) => tab.id === sourceOwner.tabId)
+  );
+}
+
+function findIframeMessageSourceOwner(
+  source: MessageEventSource | null,
+): { iframeKey: string; tabGroupId: string; tabId: string } | null {
   if (!source) return null;
   for (const [iframeKey, entry] of iframeStore.entries()) {
     if (entry.iframe.contentWindow === source) {
-      return iframeKey.split(':').at(-1) ?? null;
+      const owner = getIframeMessageSourceOwner(iframeKey);
+      return owner ? { iframeKey, ...owner } : null;
     }
   }
   return null;
@@ -1063,21 +1087,21 @@ export function IframePanel({
     const handleMessage = (event: MessageEvent) => {
       if (!isBeadReferenceClickMessage(event.data) && !isBeadFormSubmittedMessage(event.data)) return;
 
-      const sourceTabId = findTabIdForMessageSource(event.source);
-      if (!sourceTabId) return;
-      if (!tabGroup.tabs.some((tab) => tab.id === sourceTabId)) return;
+      const sourceOwner = findIframeMessageSourceOwner(event.source);
+      if (!sourceOwner) return;
+      if (!isIframeMessageSourceOwnedByTabGroup(sourceOwner, tabGroup)) return;
 
       if (isBeadReferenceClickMessage(event.data)) {
-        void onBeadReferenceClick?.(sourceTabId, event.data.beadId);
+        void onBeadReferenceClick?.(sourceOwner.tabId, event.data.beadId);
         return;
       }
 
-      void onBeadFormSubmitted?.(sourceTabId);
+      void onBeadFormSubmitted?.(sourceOwner.tabId);
     };
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [onBeadFormSubmitted, onBeadReferenceClick, tabGroup.tabs]);
+  }, [onBeadFormSubmitted, onBeadReferenceClick, tabGroup.id, tabGroup.tabs]);
 
   return (
     <div className="w-full h-full relative">

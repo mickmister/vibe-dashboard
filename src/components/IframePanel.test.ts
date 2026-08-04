@@ -4,13 +4,15 @@ import {
   IFRAME_REVEAL_DELAY_MS,
   IFRAME_VISUAL_READY_TIMEOUT_MS,
   __iframePanelTestUtils,
+  getIframeMessageSourceOwner,
   getIframeLayerTabsForPanel,
   getIframeRevealDelayMs,
   getIframeRevealStyle,
   hasVisualReadyBackground,
   isBlankIframeBackgroundColor,
+  isIframeMessageSourceOwnedByTabGroup,
 } from './IframePanel';
-import type { Tab } from '../types';
+import type { Tab, TabGroup } from '../types';
 
 const tab = (id: string): Tab => ({
   id,
@@ -21,6 +23,14 @@ const tab = (id: string): Tab => ({
 const retained = (groupId: string, id: string) => ({
   tab: tab(id),
   iframeKey: `${groupId}:${id}`,
+});
+
+const tabGroupWithBuiltIns = (id: string): TabGroup => ({
+  id,
+  label: id,
+  order: 0,
+  tabs: [tab('agent'), tab('forms')],
+  pairs: [],
 });
 
 function createFakeElement({
@@ -115,6 +125,52 @@ describe('getIframeLayerTabsForPanel', () => {
         retainedInSinglePanel,
       ).map((entry) => entry.tab.id),
     ).toEqual(['tab_a', 'tab_b']);
+  });
+});
+
+describe('getIframeMessageSourceOwner', () => {
+  it('keeps repeated built-in Agent tab ids scoped to their owning tab group', () => {
+    expect(getIframeMessageSourceOwner('group_a:agent')).toEqual({
+      tabGroupId: 'group_a',
+      tabId: 'agent',
+    });
+    expect(getIframeMessageSourceOwner('group_b:agent')).toEqual({
+      tabGroupId: 'group_b',
+      tabId: 'agent',
+    });
+  });
+
+  it('keeps repeated built-in Forms tab ids scoped to their owning tab group', () => {
+    expect(getIframeMessageSourceOwner('group_a:forms')).toEqual({
+      tabGroupId: 'group_a',
+      tabId: 'forms',
+    });
+    expect(getIframeMessageSourceOwner('group_b:forms')).toEqual({
+      tabGroupId: 'group_b',
+      tabId: 'forms',
+    });
+  });
+
+  it('rejects unscoped iframe keys that cannot identify a source owner', () => {
+    expect(getIframeMessageSourceOwner('agent')).toBeNull();
+    expect(getIframeMessageSourceOwner(':agent')).toBeNull();
+    expect(getIframeMessageSourceOwner('group_a:')).toBeNull();
+  });
+
+  it('accepts a repeated built-in tab id only for the owning panel tab group', () => {
+    const sourceOwner = getIframeMessageSourceOwner('group_a:agent');
+    expect(sourceOwner).not.toBeNull();
+
+    expect(isIframeMessageSourceOwnedByTabGroup(sourceOwner!, tabGroupWithBuiltIns('group_a'))).toBe(true);
+    expect(isIframeMessageSourceOwnedByTabGroup(sourceOwner!, tabGroupWithBuiltIns('group_b'))).toBe(false);
+  });
+
+  it('applies the same owner check to repeated Forms tab ids', () => {
+    const sourceOwner = getIframeMessageSourceOwner('group_b:forms');
+    expect(sourceOwner).not.toBeNull();
+
+    expect(isIframeMessageSourceOwnedByTabGroup(sourceOwner!, tabGroupWithBuiltIns('group_a'))).toBe(false);
+    expect(isIframeMessageSourceOwnedByTabGroup(sourceOwner!, tabGroupWithBuiltIns('group_b'))).toBe(true);
   });
 });
 
