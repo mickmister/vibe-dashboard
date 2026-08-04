@@ -10,3 +10,6 @@ onlyBuiltDependencies:
   - '@heroui/shared-utils'
   - better-sqlite3
   - esbuild
+
+patchedDependencies:
+  springboard@0.0.1-dev-jamapp-12: patches/springboard@0.0.1-dev-jamapp-12.patch

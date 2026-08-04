@@ -54,7 +54,7 @@ const surfaces: RegisteredCraftSurfaceContribution[] = [
 ];
 
 describe("dynamic Craft surfaces", () => {
-  it("derives Agent, Code, Beads, and built-in split pairs from Craft workspace metadata", () => {
+  it("derives Agent, Code, Beads, Forms, and built-in split pairs from Craft workspace metadata", () => {
     const effective = createEffectiveWorkspaceWithCraftSurfaces({
       workspace: {
         ...workspace,
@@ -86,11 +86,46 @@ describe("dynamic Craft surfaces", () => {
         "https://vd.example.test/?folder=%2Fhome%2Fvkuser%2Frepos%2Fapp",
       ],
       ["beads", "Beads", "https://beads-web.vd.example.test"],
+      ["forms", "Forms", "https://vd.example.test/dashboard/forms?workspace=workspace_1"],
     ]);
     expect(effective.tabGroups[0]!.pairs).toEqual([
       { id: "agent+code", tabIds: ["agent", "code"], ratios: [50, 50] },
       { id: "agent+beads", tabIds: ["agent", "beads"], ratios: [50, 50] },
     ]);
+  });
+
+  it("strips port-prefixed subdomains from Agent and Code built-in workspace tab URLs", () => {
+    const effective = createEffectiveWorkspaceWithCraftSurfaces({
+      workspace: {
+        ...workspace,
+        tabGroups: [
+          {
+            id: "craft_workspace",
+            label: "Workspace Craft",
+            workspace: {
+              workspaceId: "workspace_1",
+              workspaceDir: "/home/vkuser/repos/app",
+            },
+            tabs: [],
+            pairs: [],
+            order: 0,
+          },
+        ],
+      },
+      craftSurfaces: [],
+      origin: "https://port-5173.example.com",
+    });
+
+    const tabsById = new Map(
+      effective.tabGroups[0]!.tabs.map((tab) => [tab.id, tab.url]),
+    );
+    expect(tabsById.get("agent")).toBe(
+      "https://example.com/workspaces/workspace_1",
+    );
+    expect(tabsById.get("code")).toBe(
+      "https://example.com/?folder=%2Fhome%2Fvkuser%2Frepos%2Fapp",
+    );
+    expect(tabsById.get("beads")).toBe("https://beads-web.example.com");
   });
 
   it("uses the current origin for built-in workspace tabs", () => {
@@ -126,6 +161,34 @@ describe("dynamic Craft surfaces", () => {
     );
   });
 
+  it("includes selected Forms bead id in the generated Forms tab URL", () => {
+    const effective = createEffectiveWorkspaceWithCraftSurfaces({
+      workspace: {
+        ...workspace,
+        tabGroups: [
+          {
+            id: "craft_workspace",
+            label: "Workspace Craft",
+            workspace: {
+              workspaceId: "workspace_1",
+              workspaceDir: "/home/vkuser/repos/app",
+              formsBeadId: "vkvw-123",
+            },
+            tabs: [],
+            pairs: [],
+            order: 0,
+          },
+        ],
+      },
+      craftSurfaces: [],
+      origin: "https://vd.example.test",
+    });
+
+    expect(
+      effective.tabGroups[0]!.tabs.find((tab) => tab.id === "forms")?.url,
+    ).toBe("https://vd.example.test/dashboard/forms?workspace=workspace_1&bead=vkvw-123");
+  });
+
   it("derives built-in workspace tabs from the current localhost origin", () => {
     const effective = createEffectiveWorkspaceWithCraftSurfaces({
       workspace: {
@@ -158,6 +221,7 @@ describe("dynamic Craft surfaces", () => {
         "http://localhost:3001/?folder=%2Fhome%2Fvkuser%2Frepos%2Fapp",
       ],
       ["beads", "Beads", "http://beads-web.localhost:3001"],
+      ["forms", "Forms", "http://localhost:3001/dashboard/forms?workspace=workspace_1"],
     ]);
   });
 

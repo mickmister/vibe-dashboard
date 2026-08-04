@@ -1,0 +1,54 @@
+# Adapted from:
+# https://github.com/mattermost/mattermost-app-examples/blob/master/docker-compose.yml
+#
+# Local changes:
+# - Site URL targets localhost for host-browser access.
+# - Local mode is enabled so mmctl can be used from inside the server container.
+# - The socket path is pinned explicitly for predictable mmctl usage.
+networks:
+  default:
+    name: "mattermost-apps-dev"
+
+volumes:
+  mattermost_logs:
+
+services:
+  mattermost:
+    image: "mattermost/mattermost-enterprise-edition:7.9.0"
+    restart: "unless-stopped"
+    depends_on:
+      - "db"
+    ports:
+      - "8065:8065"
+    env_file:
+      - ".docker.env"
+    environment:
+      MM_SQLSETTINGS_DRIVERNAME: "postgres"
+      MM_SQLSETTINGS_DATASOURCE: "postgres://mmuser:mostest@db/mattermost_test?sslmode=disable&connect_timeout=10"
+      MM_SERVICESETTINGS_LISTENADDRESS: ":8065"
+      MM_SERVICESETTINGS_SITEURL: "http://localhost:8065"
+      MM_SERVICESETTINGS_ENABLEBOTACCOUNTCREATION: "true"
+      MM_SERVICESETTINGS_ENABLEUSERACCESSTOKENS: "true"
+      MM_SERVICESETTINGS_ENABLEOAUTHSERVICEPROVIDER: "true"
+      MM_SERVICESETTINGS_ENABLEDEVELOPER: "true"
+      MM_SERVICESETTINGS_ENABLETESTING: "true"
+      MM_SERVICESETTINGS_ENABLELOCALMODE: "true"
+      MM_SERVICESETTINGS_LOCALMODESOCKETLOCATION: "/var/tmp/mattermost_local.socket"
+      MM_PLUGINSETTINGS_AUTOMATICPREPACKAGEDPLUGINS: "true"
+      MM_EXPERIMENTALSETTINGS_ENABLEAPPBAR: "true"
+      MM_PLUGINSETTINGS_ENABLEUPLOADS: "true"
+      MM_LOGSETTINGS_CONSOLELEVEL: "DEBUG"
+      MM_LOGSETTINGS_FILELEVEL: "DEBUG"
+      MM_FILESETTINGS_MAXFILESIZE: 123524266
+      MM_FEATUREFLAGS_AppsEnabled: "true"
+      MM_FEATUREFLAGS_PluginApps: "1.2.2"
+    volumes:
+      - "mattermost_logs:/mattermost/logs:rw"
+
+  db:
+    image: "postgres"
+    restart: "unless-stopped"
+    environment:
+      POSTGRES_PASSWORD: "mostest"
+      POSTGRES_USER: "mmuser"
+      POSTGRES_DB: "mattermost_test"

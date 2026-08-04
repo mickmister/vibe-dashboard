@@ -3,6 +3,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 
 REAL_BD = os.environ.get('REAL_BD', '/usr/local/bin/bd')
 
@@ -21,6 +22,37 @@ def current_branch() -> str:
         ).stdout.strip()
     except Exception:
         return ''
+
+
+def stamp_metadata(metadata: dict, *, include_empty: bool) -> dict:
+    stamped = {}
+    branch = current_branch()
+    if include_empty or branch:
+        stamped['branch'] = branch
+    for key in ['VK_WORKSPACE_ID', 'VK_SESSION_ID']:
+        value = os.environ.get(key, '')
+        if include_empty or value:
+            stamped[key] = value
+    metadata.update(stamped)
+    return metadata
+
+
+def read_metadata(raw_metadata: str) -> dict:
+    if raw_metadata.startswith('@'):
+        with open(raw_metadata[1:], 'r', encoding='utf-8') as metadata_file:
+            parsed = json.load(metadata_file)
+    else:
+        parsed = json.loads(raw_metadata)
+    if not isinstance(parsed, dict):
+        raise SystemExit('--metadata must be a JSON object')
+    return parsed
+
+
+def write_metadata_arg(metadata: dict) -> str:
+    tmp = tempfile.NamedTemporaryFile('w', encoding='utf-8', prefix='vk-bd-metadata-', suffix='.json', delete=False)
+    with tmp:
+        json.dump(metadata, tmp, separators=(',', ':'))
+    return '@' + tmp.name
 
 
 def split_metadata_args(args: list[str]) -> tuple[list[str], dict]:
@@ -45,28 +77,35 @@ def split_metadata_args(args: list[str]) -> tuple[list[str], dict]:
             continue
 
         if raw_metadata:
-            parsed = json.loads(raw_metadata)
-            if not isinstance(parsed, dict):
-                raise SystemExit('--metadata must be a JSON object')
-            metadata.update(parsed)
+            metadata.update(read_metadata(raw_metadata))
     return remaining, metadata
+
+
+def command_with_stamped_metadata(command: str, args: list[str], *, include_empty: bool) -> list[str] | None:
+    command_args, metadata = split_metadata_args(args)
+    if not metadata:
+        return None
+    stamped = stamp_metadata(metadata, include_empty=include_empty)
+    return [REAL_BD, command, *command_args, '--metadata', write_metadata_arg(stamped)]
 
 
 def main() -> None:
     argv = sys.argv[1:]
-    if not argv or argv[0] != 'create':
-        os.execv(REAL_BD, [REAL_BD, *argv])
+    if not argv:
+        os.execv(REAL_BD, [REAL_BD])
 
-    create_args, metadata = split_metadata_args(argv[1:])
-    stamped = {
-        'branch': current_branch(),
-        'VK_WORKSPACE_ID': os.environ.get('VK_WORKSPACE_ID', ''),
-        'VK_SESSION_ID': os.environ.get('VK_SESSION_ID', ''),
-    }
-    # Existing explicit metadata wins for custom keys, but wrapper-owned keys are
-    # refreshed so agents can reliably filter beads by the current VD context.
-    metadata.update(stamped)
-    os.execv(REAL_BD, [REAL_BD, 'create', *create_args, '--metadata', json.dumps(metadata, separators=(',', ':'))])
+    if argv[0] == 'create':
+        command = command_with_stamped_metadata('create', argv[1:], include_empty=True)
+        if command is None:
+            command = [REAL_BD, 'create', *argv[1:], '--metadata', write_metadata_arg(stamp_metadata({}, include_empty=True))]
+        os.execv(REAL_BD, command)
+
+    if argv[0] == 'update':
+        command = command_with_stamped_metadata('update', argv[1:], include_empty=False)
+        if command is not None:
+            os.execv(REAL_BD, command)
+
+    os.execv(REAL_BD, [REAL_BD, *argv])
 
 
 if __name__ == '__main__':

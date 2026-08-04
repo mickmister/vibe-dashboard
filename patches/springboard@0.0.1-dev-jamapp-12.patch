@@ -1,0 +1,125 @@
+diff --git a/dist/server/hono_app.js b/dist/server/hono_app.js
+index 3698e57..a706153 100644
+--- a/dist/server/hono_app.js
++++ b/dist/server/hono_app.js
+@@ -201,22 +201,22 @@ export const initApp = (initArgs) => {
+             getEngine: () => storedEngine,
+         };
+     };
+-    // Catch-all route for SPA
+-    // app.use('*', serveStatic({
+-    //     root: webappDistFolder,
+-    //     path: 'index.html',
+-    //     getContent: async (path, c) => {
+-    //         return serveFile('index.html', 'text/html', c);
+-    //     },
+-    //     onFound: (path, c) => {
+-    //         // c.header('Cross-Origin-Embedder-Policy',  'require-corp');
+-    //         // c.header('Cross-Origin-Opener-Policy',  'same-origin');
+-    //         c.header('Cache-Control', 'no-store, no-cache, must-revalidate');
+-    //         c.header('Pragma', 'no-cache');
+-    //         c.header('Expires', '0');
+-    //     },
+-    // }));
+-    if (enableStaticRoutes) {
++    const registerStaticFallbackRoutes = () => {
++        // Catch-all route for SPA
++        // app.use('*', serveStatic({
++        //     root: webappDistFolder,
++        //     path: 'index.html',
++        //     getContent: async (path, c) => {
++        //         return serveFile('index.html', 'text/html', c);
++        //     },
++        //     onFound: (path, c) => {
++        //         // c.header('Cross-Origin-Embedder-Policy',  'require-corp');
++        //         // c.header('Cross-Origin-Opener-Policy',  'same-origin');
++        //         c.header('Cache-Control', 'no-store, no-cache, must-revalidate');
++        //         c.header('Pragma', 'no-cache');
++        //         c.header('Expires', '0');
++        //     },
++        // }));
+         app.use('*', async (c) => {
+             if (!serveStaticFileFn) {
+                 return c.text('Server not fully initialized', 500);
+@@ -229,7 +229,7 @@ export const initApp = (initArgs) => {
+             };
+             return serveStaticFileFn(c, 'index.html', headers);
+         });
+-    }
++    };
+     const injectResources = (args) => {
+         if (storedEngine) {
+             throw new Error('Resources already injected');
+@@ -245,6 +245,9 @@ export const initApp = (initArgs) => {
+         for (const call of registeredServerModuleCallbacks) {
+             call(makeServerModuleAPI());
+         }
++        if (enableStaticRoutes) {
++            registerStaticFallbackRoutes();
++        }
+     };
+     const createWebSocketHooks = (enableRpc) => {
+         if (enableRpc) {
+diff --git a/src/server/hono_app.ts b/src/server/hono_app.ts
+index 552ebe5..4962766 100644
+--- a/src/server/hono_app.ts
++++ b/src/server/hono_app.ts
+@@ -276,23 +276,22 @@ export const initApp = (initArgs: InitServerAppArgs): InitAppReturnValue => {
+         };
+     };
+ 
+-    // Catch-all route for SPA
+-    // app.use('*', serveStatic({
+-    //     root: webappDistFolder,
+-    //     path: 'index.html',
+-    //     getContent: async (path, c) => {
+-    //         return serveFile('index.html', 'text/html', c);
+-    //     },
+-    //     onFound: (path, c) => {
+-    //         // c.header('Cross-Origin-Embedder-Policy',  'require-corp');
+-    //         // c.header('Cross-Origin-Opener-Policy',  'same-origin');
+-    //         c.header('Cache-Control', 'no-store, no-cache, must-revalidate');
+-    //         c.header('Pragma', 'no-cache');
+-    //         c.header('Expires', '0');
+-    //     },
+-    // }));
+-
+-    if (enableStaticRoutes) {
++    const registerStaticFallbackRoutes = () => {
++        // Catch-all route for SPA
++        // app.use('*', serveStatic({
++        //     root: webappDistFolder,
++        //     path: 'index.html',
++        //     getContent: async (path, c) => {
++        //         return serveFile('index.html', 'text/html', c);
++        //     },
++        //     onFound: (path, c) => {
++        //         // c.header('Cross-Origin-Embedder-Policy',  'require-corp');
++        //         // c.header('Cross-Origin-Opener-Policy',  'same-origin');
++        //         c.header('Cache-Control', 'no-store, no-cache, must-revalidate');
++        //         c.header('Pragma', 'no-cache');
++        //         c.header('Expires', '0');
++        //     },
++        // }));
+         app.use('*', async (c) => {
+             if (!serveStaticFileFn) {
+                 return c.text('Server not fully initialized', 500);
+@@ -306,7 +305,7 @@ export const initApp = (initArgs: InitServerAppArgs): InitAppReturnValue => {
+ 
+             return serveStaticFileFn(c, 'index.html', headers);
+         });
+-    }
++    };
+ 
+     const injectResources = (args: InjectResourcesArgs) => {
+         if (storedEngine) {
+@@ -327,6 +326,9 @@ export const initApp = (initArgs: InitServerAppArgs): InitAppReturnValue => {
+         for (const call of registeredServerModuleCallbacks) {
+             call(makeServerModuleAPI());
+         }
++        if (enableStaticRoutes) {
++            registerStaticFallbackRoutes();
++        }
+     };
+ 
+     const createWebSocketHooks = (enableRpc?: boolean) => {
