@@ -138,6 +138,39 @@ export interface WorkflowExternalWait {
 }
 
 
+
+export type WorkflowFactoryWorkItemStatus = 'pending' | 'reserved' | 'queued' | 'completed' | 'failed' | 'cancelled';
+export type WorkflowFactoryWorkItemSource = 'workflow' | 'agent' | 'system';
+
+export interface WorkflowFactoryWorkItem {
+  itemId: string;
+  factoryId: NullableString;
+  workflowInstanceId: NullableString;
+  workflowRunId: NullableString;
+  teamId: NullableString;
+  laneId: NullableString;
+  roleId: NullableString;
+  workspaceId: string;
+  status: WorkflowFactoryWorkItemStatus;
+  priority: number;
+  prompt: string;
+  promptHash: string;
+  promptLength: number;
+  source: WorkflowFactoryWorkItemSource;
+  reservedSessionId: NullableString;
+  reservedBindingId: NullableString;
+  queueItemId: NullableString;
+  attemptCount: number;
+  lastErrorJson: NullableString;
+  metadataJson: NullableString;
+  createdAt: number;
+  updatedAt: number;
+  reservedAt: NullableNumber;
+  queuedAt: NullableNumber;
+  completedAt: NullableNumber;
+  cancelledAt: NullableNumber;
+}
+
 export type ResponseCollectionMode = 'manual' | 'all_at_once' | 'as_completed';
 export type ResponseCollectionStatus = 'collecting' | 'ready' | 'completed' | 'failed' | 'cancelled';
 
@@ -215,6 +248,7 @@ export interface DB {
   Migration: Migration;
   ResponseCollection: ResponseCollection;
   ResponsePipeDelivery: ResponsePipeDelivery;
+  WorkflowFactoryWorkItem: WorkflowFactoryWorkItem;
   WorkflowRun: WorkflowRun;
   WorkflowRunEvent: WorkflowRunEvent;
   WorkflowInstance: WorkflowInstance;
