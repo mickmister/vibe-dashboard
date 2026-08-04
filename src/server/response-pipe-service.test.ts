@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { initVdDb, type VdDbHandle } from './database';
 import { DbResponsePipeStore } from './response-pipe-store';
@@ -53,6 +54,86 @@ describe('ResponsePipeService', () => {
     expect(first.deliveries.at(0)).toMatchObject({ queued: true, duplicate: false });
     expect(second.deliveries.at(0)).toMatchObject({ queued: false, duplicate: true });
     expect(second.deliveries.at(0)?.delivery.deliveryId).toBe(first.deliveries.at(0)?.delivery.deliveryId);
+    expect(harness.vk.queueFollowUp).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries queueing when the previous attempt failed after rendering', async () => {
+    const harness = await createHarness();
+    vi.mocked(harness.vk.queueFollowUp).mockRejectedValueOnce(new Error('VK queue unavailable'));
+
+    await expect(harness.service.pipeResponse(pipeInput())).rejects.toThrow('VK queue unavailable');
+    await expect(getOnlyDelivery(harness.handle)).resolves.toMatchObject({
+      status: 'rendered',
+      queueItemId: null,
+      renderedPromptHash: expect.any(String),
+    });
+
+    const retry = await harness.service.pipeResponse(pipeInput());
+
+    expect(retry.deliveries.at(0)).toMatchObject({
+      queued: true,
+      duplicate: true,
+      delivery: {
+        status: 'queued',
+        queueItemId: 'queue-1',
+      },
+    });
+    expect(harness.vk.queueFollowUp).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not queue again for an existing queued delivery', async () => {
+    const harness = await createHarness();
+
+    const first = await harness.service.pipeResponse(pipeInput());
+    vi.mocked(harness.vk.queueFollowUp).mockClear();
+    const second = await harness.service.pipeResponse(pipeInput());
+
+    expect(first.deliveries.at(0)).toMatchObject({ queued: true, duplicate: false });
+    expect(second.deliveries.at(0)).toMatchObject({
+      queued: false,
+      duplicate: true,
+      delivery: { status: 'queued', queueItemId: 'queue-1' },
+    });
+    expect(harness.vk.queueFollowUp).not.toHaveBeenCalled();
+  });
+
+  it('queues an existing rendered delivery instead of treating it as a terminal duplicate', async () => {
+    const harness = await createHarness();
+    const input = pipeInput();
+    const templateHash = sha256(input.template.body);
+    const planned = await harness.store.planDelivery({
+      deliveryId: 'existing-rendered',
+      workflowInstanceId: input.workflowInstanceId,
+      triggerId: input.triggerId,
+      sourceWorkspaceId: 'ws-1',
+      sourceSessionId: 'session-a',
+      sourceExecutionProcessId: 'exec-source',
+      sourceCompletedAt: new Date('2026-08-04T00:00:02.000Z').getTime(),
+      targetWorkspaceId: 'ws-1',
+      targetSessionId: 'session-b',
+      templateId: input.template.templateId,
+      templateVersion: input.template.templateVersion,
+      templateHash,
+      dedupeKey: responsePipeDedupeKey(input, templateHash),
+    });
+    await harness.store.markDeliveryRendered(planned.delivery.deliveryId, {
+      promptHash: 'existing-prompt-hash',
+      promptLength: 123,
+    });
+
+    const result = await harness.service.pipeResponse(input);
+
+    expect(result.deliveries.at(0)).toMatchObject({
+      queued: true,
+      duplicate: true,
+      delivery: {
+        deliveryId: 'existing-rendered',
+        status: 'queued',
+        renderedPromptHash: 'existing-prompt-hash',
+        renderedPromptLength: 123,
+        queueItemId: 'queue-1',
+      },
+    });
     expect(harness.vk.queueFollowUp).toHaveBeenCalledTimes(1);
   });
 
@@ -189,4 +270,23 @@ function queueResponse(id: string): QueueFollowUpResponse {
     },
     status: { count: 1, message: null, messages: [], status: 'queued' },
   };
+}
+
+async function getOnlyDelivery(handle: VdDbHandle) {
+  const row = await handle.db.selectFrom('ResponsePipeDelivery').selectAll().executeTakeFirstOrThrow();
+  return row;
+}
+
+function responsePipeDedupeKey(input: Parameters<ResponsePipeService['pipeResponse']>[0], templateHash: string): string {
+  return sha256(JSON.stringify({
+    workflowInstanceId: input.workflowInstanceId ?? null,
+    triggerId: input.triggerId ?? null,
+    sourceExecutionProcessId: input.sourceExecutionProcessId,
+    targetSessionId: input.targets[0]?.sessionId,
+    templateHash,
+  }));
+}
+
+function sha256(value: string): string {
+  return createHash('sha256').update(value).digest('hex');
 }

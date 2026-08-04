@@ -135,22 +135,34 @@ export class ResponsePipeService {
         metadata: input.metadata ?? null,
       });
 
-      if (!planned.created) {
+      if (planned.delivery.status === 'queued') {
+        deliveries.push({ delivery: planned.delivery, queued: false, duplicate: true });
+        continue;
+      }
+      if (planned.delivery.status === 'failed' || planned.delivery.status === 'cancelled' || planned.delivery.status === 'skipped') {
         deliveries.push({ delivery: planned.delivery, queued: false, duplicate: true });
         continue;
       }
 
-      const rendered = await this.options.store.markDeliveryRendered(planned.delivery.deliveryId, {
-        promptHash: sha256(plan.prompt),
-        promptLength: plan.prompt.length,
-      });
+      const rendered = planned.delivery.status === 'rendered'
+        ? planned.delivery
+        : await this.options.store.markDeliveryRendered(planned.delivery.deliveryId, {
+            promptHash: sha256(plan.prompt),
+            promptLength: plan.prompt.length,
+          });
+
+      // If VK accepts the queue item but markDeliveryQueued() fails, this
+      // primitive can still leave a duplicate side effect. Queue item
+      // idempotency/cancellation is intentionally deferred to a later delivery
+      // worker slice; this retry path only repairs the safe rendered-before-queue
+      // failure window.
       const queue = await this.options.vk.queueFollowUp(plan.target.sessionId, plan.prompt, {
         source: input.queueSource ?? 'workflow',
       });
       const queued = await this.options.store.markDeliveryQueued(rendered.deliveryId, {
         queueItemId: queue.queued_item.id,
       });
-      deliveries.push({ delivery: queued, queued: true, duplicate: false });
+      deliveries.push({ delivery: queued, queued: true, duplicate: !planned.created });
     }
 
     return { source, templateHash, deliveries };
