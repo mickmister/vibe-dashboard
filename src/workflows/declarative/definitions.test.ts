@@ -14,9 +14,10 @@ describe('declarative workflow definitions', () => {
     expect(definition).toMatchObject({
       id: 'two-agent-review-round',
       trigger: 'manual',
+      inputs: { workspaceId: { required: true } },
       policies: {
         allowAutoCreateSessions: true,
-        allowTruncatedSourceDelivery: true,
+        allowTruncatedSourceDelivery: false,
         blockSameSession: true,
         notifyOnCompletion: true,
         refsOnlyStorage: true,
@@ -64,10 +65,11 @@ describe('declarative workflow definitions', () => {
       trigger: 'manual',
       inputs: {
         task: { type: 'string', required: true },
+        workspaceId: { type: 'string', required: true },
         sourceRole: { type: 'string', required: false },
       },
       steps: [
-        { id: 'resolve', type: 'resolve_roles', roles: [{ key: 'source', roleInput: 'sourceRole' }] },
+        { id: 'resolve', type: 'resolve_roles', workspaceInput: 'workspaceId', roles: [{ key: 'source', roleInput: 'sourceRole' }] },
         { id: 'ask', type: 'queue_prompt', target: 'source', template: 'Do {{inputs.task}}' },
         { id: 'done', type: 'complete' },
       ],
@@ -84,13 +86,23 @@ describe('declarative workflow definitions', () => {
     expect(minimal.outputs).toEqual({});
   });
 
-  it('declares truncated source delivery and an explicit reviewer note', () => {
+  it('blocks truncated source delivery by default in the built-in definition', () => {
     const definition = getBuiltInDeclarativeWorkflowDefinition('two-agent-review-round');
     const pipeStep = definition?.steps.find((step) => step.id === 'ask_review');
-    expect(definition?.policies.allowTruncatedSourceDelivery).toBe(true);
+    expect(definition?.policies.allowTruncatedSourceDelivery).toBe(false);
     expect(pipeStep).toMatchObject({ type: 'pipe_response' });
-    expect(pipeStep && 'template' in pipeStep ? pipeStep.template : '').toContain('marked truncated');
-    expect(pipeStep && 'template' in pipeStep ? pipeStep.template : '').toContain('full_summary/session logs');
+    expect(pipeStep && 'template' in pipeStep ? pipeStep.template : '').not.toContain('marked truncated');
+  });
+
+
+  it('validates resolve_roles workspace and lane input references', () => {
+    const definition = getBuiltInDeclarativeWorkflowDefinition('two-agent-review-round');
+    const resolveStep = definition?.steps.find((step) => step.id === 'resolve_sessions');
+    expect(resolveStep).toMatchObject({ type: 'resolve_roles', workspaceInput: 'workspaceId', laneInput: 'laneId' });
+
+    const bad = structuredClone(TWO_AGENT_REVIEW_ROUND_DEFINITION) as unknown as { steps: Array<Record<string, unknown>> };
+    bad.steps = bad.steps.map((step, index) => index === 0 ? { ...step, workspaceInput: 'missingWorkspaceInput' } : step);
+    expect(() => normalizeDeclarativeWorkflowDefinition(bad)).toThrow(/workspaceInput references unknown input: missingWorkspaceInput/);
   });
 
   it('is JSON serializable', () => {
@@ -104,9 +116,9 @@ describe('declarative workflow definitions', () => {
       version: 1,
       name: 'Bad template',
       trigger: 'manual',
-      inputs: { task: { type: 'string', required: true }, role: { type: 'string', required: false } },
+      inputs: { task: { type: 'string', required: true }, workspaceId: { type: 'string', required: true }, role: { type: 'string', required: false } },
       steps: [
-        { id: 'resolve', type: 'resolve_roles', roles: [{ key: 'source', roleInput: 'role' }] },
+        { id: 'resolve', type: 'resolve_roles', workspaceInput: 'workspaceId', roles: [{ key: 'source', roleInput: 'role' }] },
         { id: 'ask', type: 'queue_prompt', target: 'source', template: 'Do {{env.SECRET}}' },
       ],
     })).toThrow(DeclarativeWorkflowDefinitionError);
@@ -116,9 +128,9 @@ describe('declarative workflow definitions', () => {
       version: 1,
       name: 'Unknown input',
       trigger: 'manual',
-      inputs: { role: { type: 'string', required: false } },
+      inputs: { workspaceId: { type: 'string', required: true }, role: { type: 'string', required: false } },
       steps: [
-        { id: 'resolve', type: 'resolve_roles', roles: [{ key: 'source', roleInput: 'role' }] },
+        { id: 'resolve', type: 'resolve_roles', workspaceInput: 'workspaceId', roles: [{ key: 'source', roleInput: 'role' }] },
         { id: 'ask', type: 'queue_prompt', target: 'source', template: 'Do {{inputs.task}}' },
       ],
     })).toThrow(/unknown input variable/);

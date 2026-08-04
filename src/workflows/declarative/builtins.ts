@@ -9,6 +9,7 @@ export const TWO_AGENT_REVIEW_ROUND_DEFINITION = {
   trigger: 'manual',
   inputs: {
     task: { type: 'string', required: true, description: 'Task or question for the source agent.' },
+    workspaceId: { type: 'string', required: true, description: 'VK workspace id used to safely reuse or create role sessions.' },
     sourceRole: { type: 'string', required: false, description: 'Team role/name for the source agent when sourceSessionId is not supplied.' },
     reviewRole: { type: 'string', required: false, description: 'Team role/name for the reviewer when reviewSessionId is not supplied.' },
     sourceSessionId: { type: 'string', required: false, description: 'Explicit VK session id for the source agent.' },
@@ -18,7 +19,7 @@ export const TWO_AGENT_REVIEW_ROUND_DEFINITION = {
   },
   policies: {
     allowAutoCreateSessions: true,
-    allowTruncatedSourceDelivery: true,
+    allowTruncatedSourceDelivery: false,
     blockSameSession: true,
     notifyOnCompletion: true,
     refsOnlyStorage: true,
@@ -32,6 +33,8 @@ export const TWO_AGENT_REVIEW_ROUND_DEFINITION = {
     {
       id: 'resolve_sessions',
       type: 'resolve_roles',
+      workspaceInput: 'workspaceId',
+      laneInput: 'laneId',
       roles: [
         { key: 'source', roleInput: 'sourceRole', sessionInput: 'sourceSessionId', defaultRole: 'implementer' },
         { key: 'review', roleInput: 'reviewRole', sessionInput: 'reviewSessionId', defaultRole: 'reviewer' },
@@ -63,8 +66,6 @@ export const TWO_AGENT_REVIEW_ROUND_DEFINITION = {
         '',
         'Source response:',
         '{{source.response}}',
-        '',
-        'If the source response is marked truncated ({{source.truncated}}), say that explicitly and use full_summary/session logs if needed before making final claims.',
       ].join('\n'),
     },
     {

@@ -40,6 +40,8 @@ export interface DeclarativeResolveRolesStep {
   id: string;
   type: 'resolve_roles';
   roles: DeclarativeRoleTargetSpec[];
+  workspaceInput: string;
+  laneInput?: string | null;
 }
 
 export interface DeclarativeQueuePromptStep {
@@ -229,7 +231,13 @@ function normalizeStep(value: unknown, index: number): DeclarativeWorkflowStep {
   const type = requiredString(record.type, `step ${id} type is required`);
   if (!KNOWN_STEP_TYPES.has(type as DeclarativeWorkflowStepType)) throw new DeclarativeWorkflowDefinitionError(`unknown step type: ${type}`);
   switch (type) {
-    case 'resolve_roles': return { id, type, roles: normalizeRoles(record.roles, id) };
+    case 'resolve_roles': return {
+      id,
+      type,
+      roles: normalizeRoles(record.roles, id),
+      workspaceInput: requiredString(record.workspaceInput, `step ${id} workspaceInput is required`),
+      laneInput: optionalString(record.laneInput),
+    };
     case 'queue_prompt': return { id, type, target: requiredString(record.target, `step ${id} target is required`), template: requiredString(record.template, `step ${id} template is required`) };
     case 'wait_for_next_completed_response': return { id, type, target: requiredString(record.target, `step ${id} target is required`), after: requiredString(record.after, `step ${id} after is required`) };
     case 'pipe_response': return { id, type, source: requiredString(record.source, `step ${id} source is required`), target: requiredString(record.target, `step ${id} target is required`), template: requiredString(record.template, `step ${id} template is required`) };
@@ -292,6 +300,8 @@ function validateSteps(definition: DeclarativeWorkflowDefinition): void {
     if (!KNOWN_STEP_TYPES.has(step.type)) throw new DeclarativeWorkflowDefinitionError(`unknown step type: ${step.type}`);
 
     if (step.type === 'resolve_roles') {
+      assertInputExists(inputKeys, step.workspaceInput, `step ${step.id} workspaceInput`);
+      if (step.laneInput) assertInputExists(inputKeys, step.laneInput, `step ${step.id} laneInput`);
       const localRoleKeys = new Set<string>();
       for (const role of step.roles) {
         if (localRoleKeys.has(role.key)) throw new DeclarativeWorkflowDefinitionError(`duplicate role key: ${role.key}`);
