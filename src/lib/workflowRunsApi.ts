@@ -50,6 +50,18 @@ export interface RunManualWorkflowResponse {
   run: WorkflowRunReadModel & { logs?: unknown[] };
 }
 
+export class WorkflowLaunchRequestError extends Error {
+  readonly status: number;
+  readonly persistedRun: WorkflowRunReadModel | null;
+
+  constructor(message: string, args: { status: number; persistedRun?: WorkflowRunReadModel | null }) {
+    super(message);
+    this.name = 'WorkflowLaunchRequestError';
+    this.status = args.status;
+    this.persistedRun = args.persistedRun ?? null;
+  }
+}
+
 export async function fetchWorkflowRuns(args: { workflowId?: string; status?: WorkflowRunStatus; limit?: number; offset?: number } = {}): Promise<WorkflowRunListResponse> {
   const params = new URLSearchParams();
   if (args.workflowId) params.set('workflowId', args.workflowId);
@@ -72,13 +84,20 @@ export async function fetchWorkflowRunEvents(runId: string, args: { limit?: numb
   return response.json() as Promise<WorkflowRunEventsResponse>;
 }
 
-export async function runManualAgentTeamWorkflow(input: unknown): Promise<RunManualWorkflowResponse> {
-  const response = await fetch('/dashboard/api/workflows/manual-agent-team-runner/run', {
+export async function runWorkflowById(workflowId: string, input: unknown): Promise<RunManualWorkflowResponse> {
+  const response = await fetch(`/dashboard/api/workflows/${encodeURIComponent(workflowId)}/run`, {
     method: 'POST',
     headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
   });
-  const payload = await response.json().catch(() => ({})) as RunManualWorkflowResponse & { error?: string };
-  if (!response.ok) throw new Error(payload.error || `Failed to run manual agent team workflow: ${response.status}`);
-  return payload;
+  const payload = await response.json().catch(() => ({})) as Partial<RunManualWorkflowResponse> & { error?: string };
+  if (payload.run) return payload as RunManualWorkflowResponse;
+  if (!response.ok) {
+    throw new WorkflowLaunchRequestError(payload.error || `Failed to run workflow ${workflowId}: ${response.status}`, { status: response.status });
+  }
+  throw new WorkflowLaunchRequestError(`Workflow ${workflowId} did not return a run`, { status: response.status });
+}
+
+export async function runManualAgentTeamWorkflow(input: unknown): Promise<RunManualWorkflowResponse> {
+  return runWorkflowById('manual-agent-team-runner', input);
 }

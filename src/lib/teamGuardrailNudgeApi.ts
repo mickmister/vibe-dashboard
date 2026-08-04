@@ -4,7 +4,7 @@ import type {
   TeamAgentActivitySnapshot,
   TeamGuardrailNudgeWorkflowOutput,
 } from '../workflows/team-guardrail-nudge';
-import type { RunManualWorkflowResponse } from './workflowRunsApi';
+import { runWorkflowById, type RunManualWorkflowResponse } from './workflowRunsApi';
 
 export interface TeamGuardrailNudgeInput {
   team: AgentTeam;
@@ -35,14 +35,7 @@ export interface TeamNudgePreview {
 }
 
 export async function runTeamGuardrailNudgeWorkflow(input: TeamGuardrailNudgeInput): Promise<RunManualWorkflowResponse & { run: RunManualWorkflowResponse['run'] & { output?: TeamGuardrailNudgeWorkflowOutput | null } }> {
-  const response = await fetch('/dashboard/api/workflows/team-guardrail-nudge/run', {
-    method: 'POST',
-    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
-  });
-  const payload = await response.json().catch(() => ({})) as RunManualWorkflowResponse & { error?: string };
-  if (!response.ok) throw new Error(payload.error || `Failed to run guardrail nudge workflow: ${response.status}`);
-  return payload as RunManualWorkflowResponse & { run: RunManualWorkflowResponse['run'] & { output?: TeamGuardrailNudgeWorkflowOutput | null } };
+  return runWorkflowById('team-guardrail-nudge', input) as Promise<RunManualWorkflowResponse & { run: RunManualWorkflowResponse['run'] & { output?: TeamGuardrailNudgeWorkflowOutput | null } }>;
 }
 
 export function buildTeamNudgePreview(args: { team: AgentTeam; agentActivity: TeamAgentActivitySnapshot[]; staleAfterMinutes?: number | null; now?: number | string }): TeamNudgePreview {

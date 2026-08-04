@@ -4,6 +4,7 @@ import type { AgentTeam, TeamAgent, UpdateAgentTeamInput } from '../teams/agentT
 import {
   fetchWorkflowRunEvents,
   fetchWorkflowRuns,
+  WorkflowLaunchRequestError,
   runManualAgentTeamWorkflow,
   type WorkflowRunEventReadModel,
   type WorkflowRunReadModel,
@@ -20,6 +21,7 @@ import { applyResolvedSessionsToTeam, resolveTeamSessionMappings } from '../lib/
 import { buildTeamNudgePreview, runTeamGuardrailNudgeWorkflow, type TeamNudgePreview } from '../lib/teamGuardrailNudgeApi';
 import type { TeamAgentActivitySnapshot, TeamGuardrailNudgeWorkflowOutput } from '../workflows/team-guardrail-nudge';
 import type { UpdateWorkflowTemplateInput, WorkflowTemplate } from '../templates/workflowTemplates';
+import { collectWorkflowQueueRefs, summarizeWorkflowError, workflowStatusLabel, type WorkflowQueueRef } from '../lib/workflowRunDetails';
 
 const inputClass = 'w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100';
 const buttonClass = 'rounded-md border border-zinc-700 px-3 py-2 text-sm hover:bg-zinc-900 disabled:opacity-50';
@@ -273,6 +275,9 @@ export function AgentTeamsDashboard(): React.ReactElement {
       });
       setNudgeResult({ runId: response.run.runId, output: (response.run.output as TeamGuardrailNudgeWorkflowOutput | null) ?? null });
       setSelectedRunId(response.run.runId);
+      if (response.run.status === 'failed') {
+        setNudgeError(`Workflow run failed after it was persisted: ${summarizeWorkflowError(response.run.error) ?? 'select the run for details'}`);
+      }
       await loadRuns();
     } catch (caught) {
       setNudgeError(caught instanceof Error ? caught.message : String(caught));
@@ -294,11 +299,15 @@ export function AgentTeamsDashboard(): React.ReactElement {
         context: context.trim() ? context : null,
         targetAgentIds,
       });
-      setTaskPrompt('');
+      if (response.run.status === 'failed') {
+        setRunError(`Workflow run failed after it was persisted: ${summarizeWorkflowError(response.run.error) ?? 'events below may have details'}`);
+      } else {
+        setTaskPrompt('');
+      }
       setSelectedRunId(response.run.runId);
       await loadRuns();
     } catch (caught) {
-      setRunError(caught instanceof Error ? caught.message : String(caught));
+      setRunError(formatWorkflowLaunchCatch(caught));
     } finally {
       setRunning(false);
     }
@@ -720,28 +729,75 @@ function activityCardClass(level: 'active' | 'queued' | 'waiting' | 'attention' 
 }
 
 function WorkflowRunsPanel(props: { runs: WorkflowRunReadModel[]; selectedRun: WorkflowRunReadModel | null; events: WorkflowRunEventReadModel[]; error: string | null; loading: boolean; onSelectRun: (runId: string) => void }) {
-  const queuedAgents = getQueuedAgents(props.selectedRun?.output);
+  const queueRefs = collectWorkflowQueueRefs(props.selectedRun);
+  const errorSummary = summarizeWorkflowError(props.selectedRun?.error);
   return (
     <section className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-4">
       <div className="flex items-center justify-between"><h2 className="font-medium">Workflow runs</h2>{props.loading ? <span className="text-xs text-zinc-500">Loading…</span> : null}</div>
       {props.error ? <div role="alert" className="mt-3 rounded border border-red-800 bg-red-950/40 p-3 text-sm text-red-200">{props.error}</div> : null}
       <div className="mt-3 grid gap-4 lg:grid-cols-[360px_1fr]">
         <div className="max-h-96 overflow-auto rounded border border-zinc-800">
-          {props.runs.map((run) => <button key={run.runId} className={`block w-full border-b border-zinc-800 px-3 py-2 text-left text-sm ${props.selectedRun?.runId === run.runId ? 'bg-cyan-950/40' : 'hover:bg-zinc-900'}`} onClick={() => props.onSelectRun(run.runId)}><div className="font-medium">{run.workflowId}</div><div className="text-xs text-zinc-500">{run.status} · {run.runId}</div></button>)}
+          {props.runs.map((run) => <button key={run.runId} className={`block w-full border-b border-zinc-800 px-3 py-2 text-left text-sm ${props.selectedRun?.runId === run.runId ? 'bg-cyan-950/40' : 'hover:bg-zinc-900'}`} onClick={() => props.onSelectRun(run.runId)}><div className="flex items-center justify-between gap-2"><span className="font-medium">{run.workflowId}</span><RunStatusBadge status={run.status} /></div><div className="mt-1 text-xs text-zinc-500">{run.runId}</div></button>)}
         </div>
         <div className="space-y-4 text-sm">
           {props.selectedRun ? <>
             <dl className="grid gap-2 md:grid-cols-2">
-              <Ref label="Run" value={props.selectedRun.runId} /><Ref label="Workflow" value={props.selectedRun.workflowId} /><Ref label="Status" value={props.selectedRun.status} /><Ref label="Trigger" value={props.selectedRun.trigger} /><Ref label="Started" value={formatTimestamp(props.selectedRun.startedAt)} /><Ref label="Duration" value={props.selectedRun.durationMs == null ? '—' : `${props.selectedRun.durationMs}ms`} /><Ref label="VK workspace" value={props.selectedRun.vkWorkspaceId} /><Ref label="VK session" value={props.selectedRun.vkSessionId} href={buildVkSessionUrl({ workspaceId: props.selectedRun.vkWorkspaceId, sessionId: props.selectedRun.vkSessionId })} /><Ref label="VK queue item" value={props.selectedRun.vkQueueItemId} />
+              <Ref label="Run" value={props.selectedRun.runId} /><Ref label="Workflow" value={props.selectedRun.workflowId} /><Ref label="Status" value={workflowStatusLabel(props.selectedRun.status)} /><Ref label="Trigger" value={props.selectedRun.trigger} /><Ref label="Started" value={formatTimestamp(props.selectedRun.startedAt)} /><Ref label="Duration" value={props.selectedRun.durationMs == null ? '—' : `${props.selectedRun.durationMs}ms`} /><Ref label="VK workspace" value={props.selectedRun.vkWorkspaceId} /><Ref label="VK session" value={props.selectedRun.vkSessionId} href={buildVkSessionUrl({ workspaceId: props.selectedRun.vkWorkspaceId, sessionId: props.selectedRun.vkSessionId })} /><Ref label="VK queue item" value={props.selectedRun.vkQueueItemId} />
             </dl>
-            {queuedAgents.length ? <div><h3 className="font-medium">Queued agents</h3><ul className="mt-2 space-y-1">{queuedAgents.map((agent) => <li key={`${agent.agentId}-${agent.queueItemId}`} className="rounded bg-zinc-950 p-2"><span className="font-medium">{agent.displayName}</span> · {agent.role} · {agent.queueItemId}<VkSessionLink workspaceId={agent.workspaceId ?? props.selectedRun?.vkWorkspaceId} sessionId={agent.sessionId} /></li>)}</ul></div> : null}
-            <div><h3 className="font-medium">Events</h3><div className="mt-2 max-h-96 space-y-2 overflow-auto">{props.events.map((event) => <div key={event.id} className="rounded border border-zinc-800 p-2"><div className="text-xs text-zinc-500">#{event.eventIndex} {event.eventType} {event.stepId ? `· ${event.stepId}` : ''}</div><div>{event.message}</div>{event.data ? <pre className="mt-1 overflow-auto text-xs text-zinc-400">{JSON.stringify(event.data, null, 2)}</pre> : null}</div>)}</div></div>
+            {props.selectedRun.status === 'failed' ? <div className="rounded border border-red-900 bg-red-950/30 p-3 text-sm text-red-100"><div className="font-medium">Workflow failed after a run was persisted.</div><div className="mt-1 text-red-200">{errorSummary ?? 'Check events below for step-level details.'}</div>{props.selectedRun.error ? <pre className="mt-2 max-h-48 overflow-auto text-xs text-red-100/80">{JSON.stringify(props.selectedRun.error, null, 2)}</pre> : null}</div> : null}
+            {queueRefs.length ? <QueueRefsPanel refs={queueRefs} /> : null}
+            <div><h3 className="font-medium">Events</h3><div className="mt-2 max-h-96 space-y-2 overflow-auto">{props.events.map((event) => <div key={event.id} className={`rounded border p-2 ${event.level === 'error' ? 'border-red-900 bg-red-950/20' : event.level === 'warn' ? 'border-amber-900 bg-amber-950/20' : 'border-zinc-800'}`}><div className="text-xs text-zinc-500">#{event.eventIndex} {event.eventType} {event.stepId ? `· ${event.stepId}` : ''} · {event.level}</div><div>{event.message}</div>{event.data ? <pre className="mt-1 overflow-auto text-xs text-zinc-400">{JSON.stringify(event.data, null, 2)}</pre> : null}</div>)}</div></div>
           </> : <p className="text-zinc-400">No workflow runs yet.</p>}
         </div>
       </div>
     </section>
   );
 }
+
+
+function QueueRefsPanel(props: { refs: WorkflowQueueRef[] }) {
+  return (
+    <div>
+      <h3 className="font-medium">VK queue/session refs</h3>
+      <div className="mt-2 space-y-2">
+        {props.refs.map((ref) => (
+          <div key={`${ref.label}-${ref.workspaceId ?? ''}-${ref.sessionId ?? ''}-${ref.queueItemId ?? ''}-${ref.agentId ?? ''}`} className="rounded bg-zinc-950 p-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div><span className="font-medium">{ref.displayName ?? ref.label}</span>{ref.role ? <span className="text-zinc-500"> · {ref.role}</span> : null}</div>
+              <QueueStatusBadge status={ref.status} />
+            </div>
+            <div className="mt-1 grid gap-1 text-xs text-zinc-400 md:grid-cols-3">
+              <span className="break-all">queue {ref.queueItemId ?? '—'}</span>
+              <span className="break-all">session {ref.sessionId ?? '—'}</span>
+              <span className="break-all">workspace {ref.workspaceId ?? '—'}</span>
+            </div>
+            <VkSessionLink workspaceId={ref.workspaceId} sessionId={ref.sessionId} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function RunStatusBadge({ status }: { status: WorkflowRunReadModel['status'] }) {
+  const className = status === 'completed' ? 'border-emerald-800 bg-emerald-950/40 text-emerald-200' : status === 'failed' ? 'border-red-800 bg-red-950/40 text-red-200' : 'border-cyan-800 bg-cyan-950/40 text-cyan-200';
+  return <span className={`rounded border px-2 py-0.5 text-xs ${className}`}>{workflowStatusLabel(status)}</span>;
+}
+
+function QueueStatusBadge({ status }: { status: WorkflowQueueRef['status'] }) {
+  const label = status === 'queued' ? 'Queued' : status === 'running' ? 'Running' : status === 'failed' ? 'Failed' : status === 'cancelled' ? 'Cancelled' : 'Unknown';
+  const className = status === 'queued' ? 'border-cyan-800 bg-cyan-950/40 text-cyan-200' : status === 'running' ? 'border-emerald-800 bg-emerald-950/40 text-emerald-200' : status === 'failed' ? 'border-red-800 bg-red-950/40 text-red-200' : status === 'cancelled' ? 'border-amber-800 bg-amber-950/40 text-amber-200' : 'border-zinc-700 bg-zinc-900 text-zinc-300';
+  return <span className={`rounded border px-2 py-0.5 text-xs ${className}`}>{label}</span>;
+}
+
+function formatWorkflowLaunchCatch(caught: unknown): string {
+  if (caught instanceof WorkflowLaunchRequestError && !caught.persistedRun) {
+    return `Validation or request failed before a workflow run was persisted: ${caught.message}`;
+  }
+  if (caught instanceof Error) return caught.message;
+  return String(caught);
+}
+
 
 function Ref({ label, value, href }: { label: string; value: unknown; href?: string | null }) {
   const content = value == null || value === '' ? '—' : String(value);
@@ -756,11 +812,4 @@ function VkSessionLink({ workspaceId, sessionId, className = '' }: { workspaceId
   const href = buildVkSessionUrl({ workspaceId, sessionId });
   if (!href) return null;
   return <div className={`text-xs ${className}`}><a className="text-cyan-300 hover:text-cyan-200" href={href} target="_blank" rel="noreferrer">Open VK session</a></div>;
-}
-
-function getQueuedAgents(output: unknown): Array<{ agentId: string; role: string; displayName: string; queueItemId: string; sessionId?: string; workspaceId?: string }> {
-  if (!output || typeof output !== 'object') return [];
-  const queuedAgents = (output as { queuedAgents?: unknown }).queuedAgents;
-  if (!Array.isArray(queuedAgents)) return [];
-  return queuedAgents.filter((entry): entry is { agentId: string; role: string; displayName: string; queueItemId: string; sessionId?: string; workspaceId?: string } => Boolean(entry && typeof entry === 'object' && typeof (entry as { queueItemId?: unknown }).queueItemId === 'string'));
 }

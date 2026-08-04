@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetchWorkflowRunEvents, fetchWorkflowRuns, runManualAgentTeamWorkflow } from './workflowRunsApi';
+import { WorkflowLaunchRequestError, fetchWorkflowRunEvents, fetchWorkflowRuns, runManualAgentTeamWorkflow, runWorkflowById } from './workflowRunsApi';
 
 describe('workflow run API client', () => {
   afterEach(() => vi.restoreAllMocks());
@@ -24,5 +24,16 @@ describe('workflow run API client', () => {
       headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
       body: JSON.stringify({ taskPrompt: 'Do it' }),
     });
+  });
+
+  it('returns persisted failed workflow runs for inspection', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ run: { runId: 'run_failed', status: 'failed', error: { message: 'Missing session' } } }), { status: 500 }));
+    await expect(runWorkflowById('team-guardrail-nudge', { team: 'bad' })).resolves.toMatchObject({ run: { runId: 'run_failed', status: 'failed' } });
+  });
+
+  it('throws validation/request failures that have no persisted run', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ error: 'team is required' }), { status: 400 }));
+    await expect(runWorkflowById('manual-agent-team-runner', {})).rejects.toMatchObject({ name: 'WorkflowLaunchRequestError', status: 400, persistedRun: null });
+    await expect(runWorkflowById('manual-agent-team-runner', {})).rejects.toBeInstanceOf(WorkflowLaunchRequestError);
   });
 });
