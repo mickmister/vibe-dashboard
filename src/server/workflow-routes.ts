@@ -18,6 +18,7 @@ export interface RegisterWorkflowRoutesOptions {
 export interface RepoAliasCache {
   get: () => CachedRepoAlias[] | Promise<CachedRepoAlias[]>;
   set: (repos: CachedRepoAlias[]) => void | Promise<void>;
+  refresh?: () => CachedRepoAlias[] | Promise<CachedRepoAlias[]>;
 }
 
 export function registerWorkflowRoutes(
@@ -34,7 +35,6 @@ export function registerWorkflowRoutes(
       })),
     });
   });
-
 
   hono.post('/dashboard/api/webhooks/github', async (c) => {
     try {
@@ -56,16 +56,12 @@ export function registerWorkflowRoutes(
         event,
         ...payloadSummary,
       });
-      const run = await runWorkflow(
-        options.registry,
-        'github-ci-failure',
-        {
-          event,
-          payload,
-          repoAliases: await getCachedRepoAliases(options.repoAliasCache),
-        },
-        options.runOptions,
-      );
+      const run = await runGitHubCiFailureWorkflow({
+        event,
+        payload,
+        options,
+        delivery,
+      });
       const outcome = getRunOutcome(run.output);
       console.info('GitHub webhook workflow completed', {
         delivery,
@@ -107,6 +103,49 @@ export function registerWorkflowRoutes(
       return c.json({ error: 'Internal workflow route error' }, 500);
     }
   });
+}
+
+async function runGitHubCiFailureWorkflow(args: {
+  event: string;
+  payload: unknown;
+  options: RegisterWorkflowRoutesOptions;
+  delivery: string;
+}) {
+  const firstRun = await runWorkflow(
+    args.options.registry,
+    'github-ci-failure',
+    {
+      event: args.event,
+      payload: args.payload,
+      repoAliases: await getCachedRepoAliases(args.options.repoAliasCache),
+    },
+    args.options.runOptions,
+  );
+
+  if (getRunOutcome(firstRun.output) !== 'no_matching_workspace') {
+    return firstRun;
+  }
+
+  const refreshedRepoAliases = await refreshCachedRepoAliases(args.options.repoAliasCache);
+  if (!refreshedRepoAliases) {
+    return firstRun;
+  }
+
+  console.info('Retrying GitHub webhook workflow after refreshing repo aliases', {
+    delivery: args.delivery,
+    event: args.event,
+  });
+
+  return runWorkflow(
+    args.options.registry,
+    'github-ci-failure',
+    {
+      event: args.event,
+      payload: args.payload,
+      repoAliases: refreshedRepoAliases,
+    },
+    args.options.runOptions,
+  );
 }
 
 async function readJsonBody(request: Request): Promise<unknown> {
@@ -154,6 +193,19 @@ async function getCachedRepoAliases(
   } catch (error) {
     console.warn('Failed to read Git repo alias cache', error);
     return [];
+  }
+}
+
+async function refreshCachedRepoAliases(
+  cache: RepoAliasCache | undefined,
+): Promise<CachedRepoAlias[] | null> {
+  if (!cache?.refresh) return null;
+  try {
+    const repos = await cache.refresh();
+    return repos.map(normalizeCachedRepoAlias);
+  } catch (error) {
+    console.warn('Failed to refresh Git repo alias cache', error);
+    return null;
   }
 }
 

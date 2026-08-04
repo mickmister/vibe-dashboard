@@ -1,0 +1,6 @@
+# VD plugin-owned Caddy routes.
+#
+# This file is imported from /etc/caddy/Caddyfile inside the main :{$CADDY_PORT}
+# server block. It is intentionally Caddy-valid when no plugins expose HTTP
+# services. The plugin service orchestrator owns edits to the deployed copy at
+# /etc/caddy/plugins.caddy.

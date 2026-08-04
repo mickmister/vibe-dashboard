@@ -1,0 +1,73 @@
+#!/usr/bin/env python3
+import json
+import os
+import subprocess
+import sys
+
+REAL_BD = os.environ.get('REAL_BD', '/usr/local/bin/bd')
+
+
+def current_branch() -> str:
+    override = os.environ.get('VK_BD_WRAPPER_BRANCH')
+    if override is not None:
+        return override
+    try:
+        return subprocess.run(
+            ['git', 'branch', '--show-current'],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).stdout.strip()
+    except Exception:
+        return ''
+
+
+def split_metadata_args(args: list[str]) -> tuple[list[str], dict]:
+    remaining: list[str] = []
+    metadata: dict = {}
+    skip_next = False
+    for index, arg in enumerate(args):
+        if skip_next:
+            skip_next = False
+            continue
+        raw_metadata = None
+        if arg == '--metadata':
+            if index + 1 >= len(args):
+                remaining.append(arg)
+                continue
+            raw_metadata = args[index + 1]
+            skip_next = True
+        elif arg.startswith('--metadata='):
+            raw_metadata = arg.split('=', 1)[1]
+        else:
+            remaining.append(arg)
+            continue
+
+        if raw_metadata:
+            parsed = json.loads(raw_metadata)
+            if not isinstance(parsed, dict):
+                raise SystemExit('--metadata must be a JSON object')
+            metadata.update(parsed)
+    return remaining, metadata
+
+
+def main() -> None:
+    argv = sys.argv[1:]
+    if not argv or argv[0] != 'create':
+        os.execv(REAL_BD, [REAL_BD, *argv])
+
+    create_args, metadata = split_metadata_args(argv[1:])
+    stamped = {
+        'branch': current_branch(),
+        'VK_WORKSPACE_ID': os.environ.get('VK_WORKSPACE_ID', ''),
+        'VK_SESSION_ID': os.environ.get('VK_SESSION_ID', ''),
+    }
+    # Existing explicit metadata wins for custom keys, but wrapper-owned keys are
+    # refreshed so agents can reliably filter beads by the current VD context.
+    metadata.update(stamped)
+    os.execv(REAL_BD, [REAL_BD, 'create', *create_args, '--metadata', json.dumps(metadata, separators=(',', ':'))])
+
+
+if __name__ == '__main__':
+    main()

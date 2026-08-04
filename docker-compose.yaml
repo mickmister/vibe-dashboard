@@ -6,11 +6,12 @@ services:
     #   args:
     #     VK_REPO_URL: ${VK_REPO_URL:-https://github.com/mickmister/vibe-kanban.git}
     #     VK_BRANCH: ${VK_BRANCH:-main}
-    #     VK_COMMIT: ${VK_COMMIT:-}
+    #     VK_COMMIT: ${VK_COMMIT:?VK_COMMIT is required when building Dockerfile.vkvd}
     image: ghcr.io/mickmister/vk-vd:${VKVD_IMAGE_VERSION:-latest}
     pull_policy: always
 
-    network_mode: host
+    ports:
+      - "${CADDY_PORT:-3001}:${CADDY_PORT:-3001}"
     mem_limit: ${DEV_CONTAINER_MEM_LIMIT:-14g}
     mem_reservation: ${DEV_CONTAINER_MEM_RESERVATION:-12g}
 
@@ -23,6 +24,7 @@ services:
 
     environment:
       CADDY_PORT: ${CADDY_PORT:-3001}
+      PROXY_DOMAIN: ${PROXY_DOMAIN:-localhost}
       BACKEND_PORT: ${BACKEND_PORT:-3007}
       DASHBOARD_PORT: ${DASHBOARD_PORT:-3005}
       CODE_PORT: ${CODE_PORT:-3008}
@@ -48,6 +50,14 @@ services:
       VK_SHARED_API_BASE: ${VK_SHARED_API_BASE:-}
       # Optional CORS allowlist for vibe-kanban backend
       VK_ALLOWED_ORIGINS: ${VK_ALLOWED_ORIGINS:-}
+      # Optional Vibe Kanban performance tracing / SigNoz OTLP export
+      VK_PERF_TRACING: ${VK_PERF_TRACING:-}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: ${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-}
+      OTEL_RESOURCE_ATTRIBUTES: ${OTEL_RESOURCE_ATTRIBUTES:-}
+      VK_WS_POLL_TRACING: ${VK_WS_POLL_TRACING:-}
       # Startup diagnostics / startup-component bisect flags
       VK_DISABLE_EXECUTOR_PRELOAD: ${VK_DISABLE_EXECUTOR_PRELOAD:-false}
       VK_DISABLE_RELAY_STARTUP: ${VK_DISABLE_RELAY_STARTUP:-false}
@@ -72,6 +82,9 @@ services:
       - vibe-kanban-worktrees:/var/tmp/vibe-kanban/worktrees
       # Persist vibe-dashboard application data only; runtime code is reseeded from the image
       - vibe-dashboard-data:/home/vkuser/.local/share/vibe-dashboard-runtime/data
+      # Persist VD plugin instance config, downloaded release assets, installed plugin versions,
+      # and plugin runtime state. Generated supervisor config is recreated from this state.
+      - vibe-dashboard-plugin-data:/var/lib/vd
       # Persist code-server settings (optional, but allows user customizations to persist)
       - code-server-data:/home/vkuser/.local/share/code-server
       # Persist Claude Code data
@@ -84,6 +97,8 @@ services:
       - git-config:/home/vkuser/.config/git
       # Persist npm cache (speeds up installs)
       - npm-cache:/home/vkuser/.npm
+      # Persist user-local npm global installs made as vkuser
+      - npm-global:/home/vkuser/.npm-global
       # Persist pnpm store
       - pnpm-store:/home/vkuser/.local/share/pnpm
       # Persist Tailscale state (so you don't need to re-authenticate)
@@ -91,9 +106,68 @@ services:
       # Persist Bosun config (workspaces, .env, bosun.config.json)
       - bosun-data:/home/vkuser/bosun
 
+  novnc:
+    profiles:
+      - novnc
+    image: ${NOVNC_IMAGE:-lscr.io/linuxserver/chromium:latest}
+    restart: unless-stopped
+    shm_size: ${NOVNC_SHM_SIZE:-1gb}
+    environment:
+      PUID: ${NOVNC_PUID:-1000}
+      PGID: ${NOVNC_PGID:-1000}
+      TZ: ${TZ:-Etc/UTC}
+      CHROME_CLI: ${NOVNC_CHROME_CLI:---remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 about:blank}
+      CUSTOM_USER: ${NOVNC_USER:-}
+      PASSWORD: ${NOVNC_PASSWORD:-}
+    expose:
+      - "3000"
+      - "3001"
+      - "9222"
+    volumes:
+      # Stores the Chromium profile, cookies, localStorage, extensions, and settings.
+      - novnc-data:/config
+    ports:
+        - "127.0.0.1:${NOVNC_UI_PORT:-3090}:3000"
+        - "127.0.0.1:${NOVNC_CDP_PORT:-9223}:9222"
+
+  novnc-cdp:
+    profiles:
+      - novnc
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on:
+      - novnc
+    network_mode: service:novnc
+    entrypoint:
+      - /bin/sh
+      - -c
+    command:
+      - |
+        set -eu
+        addr="$$(hostname -i | awk '{print $$1}')"
+        cat >/etc/nginx/conf.d/default.conf <<'EOF'
+        server {
+          listen __NOVNC_ADDR__:9222;
+          server_name _;
+
+          location / {
+            proxy_http_version 1.1;
+            proxy_set_header Host 127.0.0.1:9222;
+            proxy_set_header Upgrade $$http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_set_header Accept-Encoding "";
+            sub_filter_types application/json;
+            sub_filter 'ws://127.0.0.1:9222/' 'ws://$$http_host/';
+            sub_filter_once off;
+            proxy_pass http://127.0.0.1:9222;
+          }
+        }
+        EOF
+        sed -i "s/__NOVNC_ADDR__/$${addr}/g" /etc/nginx/conf.d/default.conf
+        exec nginx -g 'daemon off;'
+
   prometheus:
     image: prom/prometheus:v3.4.0
-    network_mode: host
     user: "0:0"
     mem_limit: ${PROMETHEUS_MEM_LIMIT:-1g}
     mem_reservation: ${PROMETHEUS_MEM_RESERVATION:-256m}
@@ -113,13 +187,16 @@ volumes:
   vibe-kanban-data:
   vibe-kanban-worktrees:
   vibe-dashboard-data:
+  vibe-dashboard-plugin-data:
   code-server-data:
   claude-data:
   gh-config:
   git-config:
   codex-data:
+  npm-global:
   npm-cache:
   pnpm-store:
   tailscale-state:
   bosun-data:
+  novnc-data:
   prometheus-data:

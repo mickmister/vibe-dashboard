@@ -4,11 +4,14 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { serverRegistry } from 'springboard/server/register';
 import { registerWorkflowRoutes } from '../server/workflow-routes';
+import { registerPluginAssetRoutes } from '../server/plugin-asset-routes';
+import { registerPluginAdminRoutes } from '../server/plugin-admin-routes';
 import { workflowRegistry } from '../workflows/registry';
 import type { CachedRepoAlias } from '../workflows/github-ci';
 
 const execFileAsync = promisify(execFile);
 const reposRoot = process.env.VK_REPOS_ROOT || join(process.env.HOME || '/home/vkuser', 'repos');
+const pluginInstallRoot = process.env.VD_PLUGIN_INSTALL_ROOT || join(process.cwd(), 'plugins');
 let cachedGitRepos: CachedRepoAlias[] | null = null;
 
 serverRegistry.registerServerModule((api) => {
@@ -17,8 +20,11 @@ serverRegistry.registerServerModule((api) => {
     repoAliasCache: {
       get: getCachedGitRepos,
       set: setCachedGitRepos,
+      refresh: refreshCachedGitRepos,
     },
   });
+  registerPluginAssetRoutes(api.hono, { installRoot: pluginInstallRoot });
+  registerPluginAdminRoutes(api.hono);
 });
 
 async function getCachedGitRepos(): Promise<CachedRepoAlias[]> {
@@ -28,6 +34,11 @@ async function getCachedGitRepos(): Promise<CachedRepoAlias[]> {
 
 function setCachedGitRepos(repos: CachedRepoAlias[]): void {
   cachedGitRepos = repos;
+}
+
+async function refreshCachedGitRepos(): Promise<CachedRepoAlias[]> {
+  cachedGitRepos = await hydrateLocalGitRepoAliases(reposRoot);
+  return cachedGitRepos;
 }
 
 async function hydrateLocalGitRepoAliases(root: string): Promise<CachedRepoAlias[]> {

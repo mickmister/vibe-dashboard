@@ -7,9 +7,9 @@ import {
   migrateSavedWorkspaceSessionStateWithCleanup,
   upsertSavedWorkspaceSessionState,
 } from './savedVoyageState';
-import type { SavedWorkspaceSession } from '../types';
+import type { SavedWorkspaceSession, SavedWorkspaceSessionV1 } from '../types';
 
-function session(id: string): SavedWorkspaceSession {
+function legacySession(id: string): SavedWorkspaceSessionV1 {
   return {
     id,
     createdAt: '2026-06-02T00:00:00.000Z',
@@ -21,87 +21,39 @@ function session(id: string): SavedWorkspaceSession {
   };
 }
 
-function namedVoyage(id: string): SavedWorkspaceSession {
+function session(id: string): SavedWorkspaceSession {
+  const entry = { id: 've_tg_1', tabGroupId: 'tg_1', viewIds: ['tab_1'] };
   return {
-    ...session(id),
-    slug: `old-${id}`,
-    name: 'Focused voyage',
-    activeVoyageEntryId: 'entry_1',
-    voyageEntries: [
-      {
-        id: 'entry_1',
-        tabGroupId: 'tg_1',
-        viewIds: ['tab_1'],
-      },
-    ],
+    id,
+    slug: `saved-voyage-${id}`,
+    name: '',
+    createdAt: '2026-06-02T00:00:00.000Z',
+    updatedAt: '2026-06-02T00:00:00.000Z',
+    activeVoyageEntryId: entry.id,
+    voyageEntries: [entry],
+    activeSpaceId: 'space_home',
+    activeTabGroupId: 'tg_1',
+    activeItemsByVoyageEntryId: { [entry.id]: 'tab_1' },
+    visitedTabGroupIds: ['tg_1'],
   };
 }
 
-describe('saved voyage upsert', () => {
-  it('persists flow mode updates for existing voyages', () => {
-    const existing = {
-      ...namedVoyage('voyage_1'),
-      flowModeType: 'round-robin' as const,
-    };
-    const updated = {
-      ...existing,
-      updatedAt: '2026-06-03T00:00:00.000Z',
-      flowModeType: 'priority' as const,
-    };
-
-    expect(
-      upsertSavedWorkspaceSessionState(
-        createSavedWorkspaceSessionState([existing]),
-        updated,
-      ),
-    ).toEqual({
-      version: 2,
-      data: [
-        {
-          ...updated,
-          slug: 'focused-voyage-voyage_1',
-          name: 'Focused voyage',
-        },
-      ],
-    });
-  });
-
-  it('normalizes new voyage name and slug while preserving flow mode', () => {
-    const voyage = {
-      ...namedVoyage('voyage_2'),
-      name: '  Pairing Loop  ',
-      flowModeType: 'static' as const,
-    };
-
-    expect(upsertSavedWorkspaceSessionState([], voyage)).toEqual({
-      version: 2,
-      data: [
-        {
-          ...voyage,
-          slug: 'pairing-loop-voyage_2',
-          name: 'Pairing Loop',
-        },
-      ],
-    });
-  });
-});
-
 describe('savedVoyageState migration', () => {
   it('migrates legacy array state to versioned data', () => {
-    const legacy = [session('a')];
+    const legacy = [legacySession('a')];
 
     expect(migrateSavedWorkspaceSessionState(legacy)).toEqual({
-      version: 2,
-      data: legacy,
+      version: 3,
+      data: [session('a')],
     });
   });
 
   it('migrates legacy sessions-object state to versioned data', () => {
     const legacy = {
       sessions: [
-        session('a'),
+        legacySession('a'),
         {
-          ...session('b'),
+          ...legacySession('b'),
           activeTabGroupId: 'tg_2',
           activeItems: { tg_2: 'tab_2' },
           visitedTabGroupIds: ['tg_2'],
@@ -110,8 +62,15 @@ describe('savedVoyageState migration', () => {
     };
 
     expect(migrateSavedWorkspaceSessionState(legacy)).toEqual({
-      version: 2,
-      data: legacy.sessions,
+      version: 3,
+      data: [session('a'), {
+        ...session('b'),
+        activeTabGroupId: 'tg_2',
+        activeVoyageEntryId: 've_tg_2',
+        voyageEntries: [{ id: 've_tg_2', tabGroupId: 'tg_2', viewIds: ['tab_2'] }],
+        activeItemsByVoyageEntryId: { ve_tg_2: 'tab_2' },
+        visitedTabGroupIds: ['tg_2'],
+      }],
     });
   });
 
@@ -122,11 +81,86 @@ describe('savedVoyageState migration', () => {
     expect(getSavedWorkspaceSessions(migrated)).toEqual([session('a')]);
   });
 
+  it('ignores malformed persisted session records instead of throwing', () => {
+    expect(() =>
+      getSavedWorkspaceSessions([
+        null,
+        'bad',
+        { id: 123 },
+        legacySession('valid'),
+      ]),
+    ).not.toThrow();
+
+    expect(
+      getSavedWorkspaceSessions([
+        null,
+        'bad',
+        { id: 123 },
+        legacySession('valid'),
+      ]),
+    ).toEqual([session('valid')]);
+  });
+
+  it('migrates legacy active pair items to split view ids when workspace metadata is available', () => {
+    const legacy = {
+      ...legacySession('split'),
+      activeItems: { tg_1: 'pair_agent_code' },
+      visitedTabGroupIds: ['tg_1'],
+    };
+
+    expect(
+      migrateSavedWorkspaceSessionState([legacy], {
+        workspace: {
+          tabGroups: [
+            {
+              id: 'tg_1',
+              label: 'Agent + Code',
+              tabs: [
+                { id: 'tab_agent', title: 'Agent', url: 'about:blank' },
+                { id: 'tab_code', title: 'Code', url: 'about:blank' },
+              ],
+              pairs: [
+                {
+                  id: 'pair_agent_code',
+                  tabIds: ['tab_agent', 'tab_code'],
+                  ratios: [50, 50],
+                },
+              ],
+              order: 0,
+            },
+          ],
+        },
+      }),
+    ).toEqual({
+      version: 3,
+      data: [
+        {
+          ...session('split'),
+          activeVoyageEntryId: 've_tg_1',
+          voyageEntries: [
+            {
+              id: 've_tg_1',
+              tabGroupId: 'tg_1',
+              viewIds: ['tab_agent', 'tab_code'],
+            },
+          ],
+          activeItemsByVoyageEntryId: {
+            ve_tg_1: 'pair_agent_code',
+          },
+        },
+      ],
+    });
+  });
+
   it('removes home voyages by explicit name or active craft label', () => {
     const explicitHome = { ...session('home_name'), name: 'Home' };
     const implicitHome = {
       ...session('home_label'),
       activeTabGroupId: 'tg_home',
+      activeVoyageEntryId: 've_tg_home',
+      voyageEntries: [{ id: 've_tg_home', tabGroupId: 'tg_home', viewIds: [] }],
+      activeItemsByVoyageEntryId: { ve_tg_home: '' },
+      visitedTabGroupIds: ['tg_home'],
     };
     const realVoyage = { ...session('real'), name: 'Real voyage' };
 
@@ -148,12 +182,12 @@ describe('savedVoyageState migration', () => {
         },
       ).state,
     ).toEqual({
-      version: 2,
+      version: 3,
       data: [realVoyage],
     });
   });
 
-  it('dedupes duplicate voyages and rewrites origin resume references to the keeper', () => {
+  it('dedupes duplicate voyages to the best keeper', () => {
     const older = {
       ...session('older'),
       name: 'Pairing',
@@ -166,31 +200,19 @@ describe('savedVoyageState migration', () => {
     };
     const other = { ...session('other'), name: 'Other' };
 
-    const result = migrateSavedWorkspaceSessionStateWithCleanup(
-      [older, newer, other],
-      {
-        originResumeState: {
-          lastSessionByOrigin: {
-            'https://example.test': 'older',
-            'https://other.example.test': 'newer',
-          },
-        },
-      },
-    );
+    const result = migrateSavedWorkspaceSessionStateWithCleanup([
+      older,
+      newer,
+      other,
+    ]);
 
     expect(result.state).toEqual({
-      version: 2,
+      version: 3,
       data: [newer, other],
-    });
-    expect(result.originResumeState).toEqual({
-      lastSessionByOrigin: {
-        'https://example.test': 'newer',
-        'https://other.example.test': 'newer',
-      },
     });
   });
 
-  it('treats v2 as a single legacy-to-cleaned-state migration', () => {
+  it('treats pre-v3 state as a single legacy-to-cleaned-state migration', () => {
     const home = { ...session('home'), name: 'Home' };
     const duplicateOlder = {
       ...session('duplicate-older'),
@@ -203,60 +225,53 @@ describe('savedVoyageState migration', () => {
       updatedAt: '2026-06-03T00:00:00.000Z',
     };
 
-    const result = migrateSavedWorkspaceSessionStateWithCleanup(
-      { sessions: [home, duplicateOlder, duplicateNewer] },
-      {
-        originResumeState: {
-          lastSessionByOrigin: {
-            'https://home.example.test': 'home',
-            'https://dupe.example.test': 'duplicate-older',
-          },
-        },
-      },
-    );
+    const result = migrateSavedWorkspaceSessionStateWithCleanup({
+      sessions: [home, duplicateOlder, duplicateNewer],
+    });
 
     expect(result.state).toEqual({
-      version: 2,
-      data: [duplicateOlder],
+      version: 3,
+      data: [duplicateNewer],
     });
-    expect(result.originResumeState).toEqual({
-      lastSessionByOrigin: {
-        'https://dupe.example.test': 'duplicate-older',
-      },
+  });
+});
+
+describe('saved voyage upsert', () => {
+  it('updates an existing voyage and persists flow mode', () => {
+    const existing = { ...session('a'), name: 'Existing' };
+    const updated = {
+      ...existing,
+      name: 'Updated',
+      flowModeType: 'priority' as const,
+    };
+
+    expect(
+      upsertSavedWorkspaceSessionState(
+        createSavedWorkspaceSessionState([existing]),
+        updated,
+      ),
+    ).toEqual({
+      version: 3,
+      data: [{ ...updated, slug: 'updated-a' }],
     });
   });
 
-  it('keeps the origin-referenced duplicate when choosing a dedupe keeper', () => {
-    const referenced = {
-      ...session('referenced'),
-      name: 'Pairing',
-      updatedAt: '2026-06-01T00:00:00.000Z',
-    };
-    const newer = {
-      ...session('newer'),
-      name: 'Pairing',
-      updatedAt: '2026-06-02T00:00:00.000Z',
+  it('adds a new voyage with flow mode before existing voyages', () => {
+    const existing = { ...session('a'), name: 'Existing' };
+    const added = {
+      ...session('b'),
+      name: 'Added',
+      flowModeType: 'static' as const,
     };
 
-    const result = migrateSavedWorkspaceSessionStateWithCleanup(
-      [referenced, newer],
-      {
-        originResumeState: {
-          lastSessionByOrigin: {
-            'https://example.test': 'referenced',
-          },
-        },
-      },
-    );
-
-    expect(result.state).toEqual({
-      version: 2,
-      data: [referenced],
-    });
-    expect(result.originResumeState).toEqual({
-      lastSessionByOrigin: {
-        'https://example.test': 'referenced',
-      },
+    expect(
+      upsertSavedWorkspaceSessionState(
+        createSavedWorkspaceSessionState([existing]),
+        added,
+      ),
+    ).toEqual({
+      version: 3,
+      data: [{ ...added, slug: 'added-b' }, existing],
     });
   });
 });
