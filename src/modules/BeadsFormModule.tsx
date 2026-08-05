@@ -1,4 +1,5 @@
 import React, { useMemo, useRef, useState } from 'react';
+import { addToast, Button, Card, CardBody, Spinner } from '@heroui/react';
 import { useSearchParams } from 'react-router';
 import springboard from 'springboard';
 
@@ -51,6 +52,12 @@ import {
 import { serverRegistry } from 'springboard/server/register';
 import { createNodeBeadsClient, type ListWorkspaceBeadsResult, type PendingBeadsFormQueueResult } from '../lib/beadsClient.node';
 import { loadBeadsFormsFromFolder, tryAppendBeadsFormPreviewResponse } from '../lib/beadsFormFolder.node';
+import {
+  normalizePendingQueueInput,
+  readPendingQueueDiskCache,
+  shouldWarmPendingQueueOnStartup,
+  writePendingQueueDiskCache,
+} from '../lib/beadsFormPendingQueueCache.node';
 import { registerBeadsFormMediaRoutes } from '../server/beads-form-media-routes';
 import { VibeKanbanServerClient } from '../server/vk-client';
 // @platform end
@@ -177,6 +184,7 @@ function vkClient() {
 // @platform "node"
 serverRegistry.registerServerModule((api) => {
   registerBeadsFormMediaRoutes(api.hono);
+  warmPendingQueueCacheOnStartup();
 });
 // @platform end
 
@@ -231,9 +239,39 @@ async function readWorkspaceFormsFresh(input: LoadWorkspaceFormsInput): Promise<
 }
 
 async function readPendingFormsFresh(input: LoadPendingFormsInput): Promise<LoadPendingFormsResult> {
-  return nodeClient().listPendingBeadsFormQueue({
-    ...(input.reposRoot ? { reposRoot: input.reposRoot } : {}),
-    ...(input.repoLimit ? { repoLimit: input.repoLimit } : {}),
+  const normalized = normalizePendingQueueInput(input);
+  return nodeClient().listPendingBeadsFormQueue(normalized);
+}
+
+async function readPendingFormsCached(input: LoadPendingFormsInput): Promise<LoadPendingFormsResult> {
+  const normalized = normalizePendingQueueInput(input);
+  const key = pendingBeadsFormsCacheKey(normalized);
+  const memory = beadsFormReadCache.get<PendingBeadsFormQueueResult>(key);
+  if (memory) return memory;
+
+  const disk = await readPendingQueueDiskCache(normalized);
+  if (disk) return beadsFormReadCache.set(key, disk.result, disk.loadedAtMs);
+
+  return refreshPendingFormsCached(normalized);
+}
+
+async function refreshPendingFormsCached(input: LoadPendingFormsInput): Promise<LoadPendingFormsResult> {
+  const normalized = normalizePendingQueueInput(input);
+  const key = pendingBeadsFormsCacheKey(normalized);
+  return beadsFormReadCache.refresh(key, async () => {
+    const result = await readPendingFormsFresh(normalized);
+    await writePendingQueueDiskCache(normalized, result);
+    return result;
+  });
+}
+
+let pendingQueueWarmStarted = false;
+
+function warmPendingQueueCacheOnStartup(): void {
+  if (pendingQueueWarmStarted || !shouldWarmPendingQueueOnStartup()) return;
+  pendingQueueWarmStarted = true;
+  void refreshPendingFormsCached(normalizePendingQueueInput()).catch((error) => {
+    console.warn('BeadsForm pending queue startup warm failed:', error);
   });
 }
 
@@ -256,6 +294,21 @@ function previewFormUrl(args: { folder: string; formId?: string }): string {
 
 function aggregateItemKey(ref: AggregateBeadsFormRef): string {
   return `${ref.dir}:${ref.beadId}:${ref.formId}`;
+}
+
+function pendingQueueFingerprint(result: PendingBeadsFormQueueResult): string {
+  return JSON.stringify({
+    reposRoot: result.reposRoot,
+    repoLimit: result.repoLimit,
+    reposScanned: result.reposScanned,
+    entries: result.entries.map((entry) => ({
+      repoDir: entry.repoDir,
+      beadId: entry.bead.id,
+      formId: entry.form.id,
+      responseCount: entry.form.responseCount,
+    })),
+    skipped: result.skipped.map((skip) => ({ repoDir: skip.repoDir, reason: skip.reason })),
+  });
 }
 
 async function readAggregateForms(input: LoadAggregateFormsInput): Promise<LoadAggregateFormsResult> {
@@ -322,8 +375,30 @@ function normalizeSubmittedFormEvent(
 function SubmittingOverlay() {
   return (
     <div className="beadsform-submit-overlay" role="status" aria-live="polite">
-      <div className="beadsform-submit-spinner" aria-hidden="true" />
+      <Spinner size="lg" aria-hidden="true" />
       <p>Submitting…</p>
+    </div>
+  );
+}
+
+function BeadsFormLoadingCard({ title, description }: { title: string; description: React.ReactNode }) {
+  return (
+    <div className="beadsform-loading-shell" role="status" aria-live="polite">
+      <Card className="beadsform-loading-card" shadow="sm">
+        <CardBody className="beadsform-loading-card-body">
+          <Spinner size="lg" />
+          <h1>{title}</h1>
+          <p>{description}</p>
+        </CardBody>
+      </Card>
+    </div>
+  );
+}
+
+function BeadsFormLoadingPage({ title, description }: { title: string; description: React.ReactNode }) {
+  return (
+    <div className="beadsform-root beadsform-page">
+      <BeadsFormLoadingCard title={title} description={description} />
     </div>
   );
 }
@@ -556,7 +631,14 @@ function BeadsFormPendingQueue({ actions, parentDir }: {
   const [pending, setPending] = useState<LoadPendingFormsResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshNotice, setRefreshNotice] = useState<string | null>(null);
   const loadTokenRef = useRef(0);
+  const pendingRef = useRef<LoadPendingFormsResult | null>(null);
+
+  React.useEffect(() => {
+    pendingRef.current = pending;
+  }, [pending]);
 
   const load = React.useCallback(async () => {
     const token = loadTokenRef.current + 1;
@@ -564,24 +646,40 @@ function BeadsFormPendingQueue({ actions, parentDir }: {
     const input = {
       ...(parentDir ? { reposRoot: parentDir } : {}),
     };
-    setLoading(true);
+    setLoading(!pendingRef.current);
+    setRefreshing(!!pendingRef.current);
     setError(null);
+    setRefreshNotice(null);
     try {
       const result = await (await actions.loadPendingForms(input));
       if (token !== loadTokenRef.current) return;
+      pendingRef.current = result;
       setPending(result);
       if (result.cache?.status === 'cached') {
+        setRefreshing(true);
         void (async () => {
           const fresh = await (await actions.refreshPendingForms(input));
-          if (token === loadTokenRef.current) setPending(fresh);
+          if (token === loadTokenRef.current) {
+            const changed = pendingQueueFingerprint(result) !== pendingQueueFingerprint(fresh);
+            pendingRef.current = fresh;
+            setPending(fresh);
+            if (changed) {
+              const message = 'Fresh scan found updated pending BeadsForms.';
+              setRefreshNotice(message);
+              addToast({ title: 'Pending BeadsForms updated', description: message, color: 'primary' });
+            }
+          }
         })().catch((reason) => {
           if (token === loadTokenRef.current) setError(reason instanceof Error ? reason.message : String(reason));
+        }).finally(() => {
+          if (token === loadTokenRef.current) setRefreshing(false);
         });
       }
     } catch (reason) {
       if (token === loadTokenRef.current) setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
       if (token === loadTokenRef.current) setLoading(false);
+      if (token === loadTokenRef.current && !pendingRef.current) setRefreshing(false);
     }
   }, [actions, parentDir]);
 
@@ -597,16 +695,38 @@ function BeadsFormPendingQueue({ actions, parentDir }: {
           <h1>{parentDir ? 'Open BeadsForms by parent directory' : 'Pending BeadsForm submissions'}</h1>
           <p>Forms listed here are attached to non-closed beads and have no submitted responses yet. Use Refresh after agents attach new forms or humans submit responses.</p>
         </div>
-        <button type="button" onClick={() => void load()} disabled={loading}>{loading ? 'Refreshing…' : 'Refresh'}</button>
+        <Button type="button" color="primary" variant="flat" onPress={() => void load()} isDisabled={loading || refreshing} isLoading={loading || refreshing}>
+          {loading || refreshing ? 'Refreshing…' : 'Refresh'}
+        </Button>
       </header>
       {error ? <p role="alert" className="beadsform-error">{error}</p> : null}
-      {!pending && !error ? <p>Scanning first-level child directories under <code>{parentDir || '~/repos'}</code>…</p> : null}
+      {!pending && !error ? (
+        <BeadsFormLoadingCard
+          title="Loading pending BeadsForms"
+          description={<>Checking first-level child directories under <code>{parentDir || '~/repos'}</code>…</>}
+        />
+      ) : null}
       {pending ? (
         <>
+          {refreshing ? (
+            <Card className="beadsform-refresh-card" shadow="sm" role="status" aria-live="polite">
+              <CardBody className="beadsform-refresh-card-body">
+                <Spinner size="sm" />
+                <span>Refreshing in the background… cached results remain visible.</span>
+              </CardBody>
+            </Card>
+          ) : null}
+          {refreshNotice ? <p className="beadsform-refresh-notice" role="status">{refreshNotice}</p> : null}
           <section className="beadsform-warning" role="note">
             <h2>Update strategy</h2>
             <p>{pending.updateStrategy.rationale}</p>
             <p>Scanned {pending.reposScanned} repos under <code>{pending.reposRoot}</code> with a limit of {pending.repoLimit}.</p>
+            {pending.cache ? (
+              <p>
+                Showing {pending.cache.status === 'cached' ? 'cached' : 'fresh'} results from {pending.cache.loadedAt}
+                {pending.cache.stale ? ' (stale; refreshing in the background when possible)' : null}.
+              </p>
+            ) : null}
           </section>
           {pending.entries.length === 0 ? <p>No pending BeadsForms found.</p> : (
             <section>
@@ -844,7 +964,12 @@ function BeadsFormAggregateRoute({ actions }: { actions: {
         <p>Answer several bead-backed forms from one page. Each section submits back to its source bead/form independently, so partial failures are visible per source form.</p>
       </header>
       {error ? <p role="alert" className="beadsform-error">{error}</p> : null}
-      {!loaded && !error ? <p>Loading aggregate BeadsForms…</p> : null}
+      {!loaded && !error ? (
+        <BeadsFormLoadingCard
+          title="Loading aggregate BeadsForms"
+          description="Fetching each source form directly without scanning the whole workspace."
+        />
+      ) : null}
       {loaded ? (
         <section className="beadsform-aggregate-list">
           <h2>Source forms</h2>
@@ -1071,7 +1196,12 @@ function BeadsFormRoute({ actions }: { actions: {
   }
 
   if (!loaded) {
-    return <div className="beadsform-root beadsform-page"><h1>Forms</h1><p>Loading bead form…</p></div>;
+    return (
+      <BeadsFormLoadingPage
+        title={workspaceId ? 'Loading workspace forms' : 'Loading bead form'}
+        description={workspaceId ? 'Reading workspace BeadsForm metadata…' : 'Reading this bead-backed form directly…'}
+      />
+    );
   }
 
   const selected = loaded.selected;
@@ -1246,16 +1376,10 @@ springboard.registerModule(
         );
       },
       loadPendingForms: async (input: LoadPendingFormsInput): Promise<LoadPendingFormsResult> => (
-        beadsFormReadCache.cachedOrLoad(
-          pendingBeadsFormsCacheKey(input),
-          () => readPendingFormsFresh(input),
-        )
+        readPendingFormsCached(input)
       ),
       refreshPendingForms: async (input: LoadPendingFormsInput): Promise<LoadPendingFormsResult> => (
-        beadsFormReadCache.refresh(
-          pendingBeadsFormsCacheKey(input),
-          () => readPendingFormsFresh(input),
-        )
+        refreshPendingFormsCached(input)
       ),
       loadAggregateForms: async (input: LoadAggregateFormsInput): Promise<LoadAggregateFormsResult> => (
         readAggregateForms(input)

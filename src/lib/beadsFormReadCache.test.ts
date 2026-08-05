@@ -59,6 +59,24 @@ describe('BeadsFormReadCache', () => {
     });
   });
 
+  it('allows preloading a cached value with an older loaded timestamp', () => {
+    let now = Date.parse('2026-07-31T00:01:00Z');
+    const cache = new BeadsFormReadCache({ now: () => now, ttlMs: 30_000 });
+    const loadedAtMs = Date.parse('2026-07-31T00:00:00Z');
+
+    expect(cache.set('key', { value: 'disk' }, loadedAtMs)).toEqual({
+      value: 'disk',
+      cache: {
+        key: 'key',
+        status: 'cached',
+        loadedAt: '2026-07-31T00:00:00.000Z',
+        ageMs: 60_000,
+        stale: true,
+      },
+    });
+    expect(cache.get<{ value: string }>('key')?.value).toBe('disk');
+  });
+
   it('invalidates and bounds cached entries', async () => {
     const cache = new BeadsFormReadCache({ maxEntries: 1 });
     await cache.cachedOrLoad('a', async () => ({ value: 'a' }));

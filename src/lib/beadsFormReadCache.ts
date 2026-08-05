@@ -38,11 +38,22 @@ export class BeadsFormReadCache {
   }
 
   async cachedOrLoad<T extends object>(key: string, load: () => Promise<T>): Promise<BeadsFormCachedResult<T>> {
-    const existing = this.entries.get(key);
-    if (existing) {
-      return this.withMetadata(key, existing, 'cached');
-    }
+    const cached = this.get<T>(key);
+    if (cached) return cached;
     return this.refresh(key, load);
+  }
+
+  get<T extends object>(key: string): BeadsFormCachedResult<T> | undefined {
+    const existing = this.entries.get(key);
+    if (!existing) return undefined;
+    return this.withMetadata<T>(key, existing, 'cached');
+  }
+
+  set<T extends object>(key: string, value: T, loadedAtMs = this.now()): BeadsFormCachedResult<T> {
+    const entry = { value, loadedAtMs };
+    this.entries.set(key, entry);
+    this.evictOldestIfNeeded();
+    return this.withMetadata<T>(key, entry, 'cached');
   }
 
   async refresh<T extends object>(key: string, load: () => Promise<T>): Promise<BeadsFormCachedResult<T>> {
