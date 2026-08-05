@@ -6,7 +6,8 @@
 :{$CADDY_PORT:3001} {
 	# Encoded preview host resolver. Production Worker traffic reaches Caddy on
 	# the canonical customer host and preserves the public preview hostname in
-	# X-Vibe-Requested-Host; local/dev traffic may still use Host directly.
+	# X-Vibe-Requested-Host only when PREVIEW_REQUESTED_HOST_SECRET matches the
+	# Worker's X-Vibe-Preview-Secret; local/dev traffic may still use Host directly.
 	# The handler falls through unless it sees preview-{workspace}-{slot}--{customer}.
 	vk_preview_resolver {
 		resolver_url {$PREVIEW_RESOLVER_URL:http://127.0.0.1:3005/internal/preview/resolve}

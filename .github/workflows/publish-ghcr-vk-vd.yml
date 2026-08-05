@@ -108,6 +108,8 @@ jobs:
       output: image
       push: true
       context: .
+      source-ref: ${{ needs.resolve-vk-ref.outputs.vd_ref }}
+      source-checksum: ${{ needs.resolve-vk-ref.outputs.vd_commit }}
       file: ./Dockerfile.vkvd
       platforms: linux/amd64,linux/arm64
       build-args: |
