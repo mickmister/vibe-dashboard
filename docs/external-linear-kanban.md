@@ -4,14 +4,6 @@ The Linear Kanban provider is read-only in v1. It loads Linear issues from the
 server and renders them through the shared external Kanban view; it does not
 write status changes back to Linear.
 
-## Feature flag
-
-Enable external tracker routes:
-
-```bash
-VD_EXTERNAL_TRACKERS_ENABLED=true
-```
-
 ## Linear API key auth
 
 For local smoke testing, configure a Linear personal API key on the server:
@@ -50,4 +42,5 @@ fetch live Linear data.
 
 `LINEAR_KANBAN_API_KEY` and `LINEAR_KANBAN_API_URL` are read in node-only server
 modules. The key is not returned in API responses, client bundles, Storybook, or
-provider diagnostics.
+provider diagnostics. For Doppler-backed local secrets, see
+`packages/integrations-env/README.md`.

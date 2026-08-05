@@ -27,7 +27,8 @@ export type CreateJiraIssue = typeof createJiraIssue;
 export function registerExternalTrackerBoardRoutes(
   hono: Hono,
   options: {
-    enabled: boolean;
+    /** @deprecated Ignored; external Kanban routes are always registered. */
+    enabled?: boolean;
     auth: ExternalTrackerAuthService;
     db: Kysely<DB>;
     fetchJiraBoardView?: FetchJiraBoardView;
@@ -49,10 +50,6 @@ export function registerExternalTrackerBoardRoutes(
 
 
   hono.get('/dashboard/api/external-trackers/vk/workspace-create-options', async (c) => {
-    if (!options.enabled) {
-      return c.json({ ok: false, error: { code: 'external_trackers_disabled', message: 'External tracker workspace creation is disabled.', userAction: 'Enable the external tracker feature flag and try again.' } }, 404);
-    }
-
     try {
       const [info, registeredRepos, directory] = await Promise.all([
         vkClient.getInfo(),
@@ -78,9 +75,6 @@ export function registerExternalTrackerBoardRoutes(
   });
 
   hono.post('/dashboard/api/external-trackers/vk/repos/register', async (c) => {
-    if (!options.enabled) {
-      return c.json({ ok: false, error: { code: 'external_trackers_disabled', message: 'External tracker workspace creation is disabled.', userAction: 'Enable the external tracker feature flag and try again.' } }, 404);
-    }
     const body = await c.req.json().catch(() => undefined) as unknown;
     if (!isRegisterRepoRequest(body, reposRoot)) {
       return c.json({ ok: false, error: { code: 'invalid_vk_repo_register_request', message: 'The repository registration request was invalid.', userAction: 'Choose a git repository under ~/repos.' } }, 400);
@@ -94,9 +88,6 @@ export function registerExternalTrackerBoardRoutes(
   });
 
   hono.get('/dashboard/api/external-trackers/vk/repos/:repoId/branches', async (c) => {
-    if (!options.enabled) {
-      return c.json({ ok: false, error: { code: 'external_trackers_disabled', message: 'External tracker workspace creation is disabled.', userAction: 'Enable the external tracker feature flag and try again.' } }, 404);
-    }
     const repoId = c.req.param('repoId');
     if (!isNonEmptyString(repoId)) {
       return c.json({ ok: false, error: { code: 'invalid_vk_repo_id', message: 'The repository id was invalid.', userAction: 'Choose a repository and try again.' } }, 400);
@@ -110,9 +101,6 @@ export function registerExternalTrackerBoardRoutes(
   });
 
   hono.post('/dashboard/api/external-trackers/vk/workspaces/start', async (c) => {
-    if (!options.enabled) {
-      return c.json({ ok: false, error: { code: 'external_trackers_disabled', message: 'External tracker workspace creation is disabled.', userAction: 'Enable the external tracker feature flag and try again.' } }, 404);
-    }
     const body = await c.req.json().catch(() => undefined) as unknown;
     if (!isExternalIssueWorkspaceCreateRequest(body)) {
       return c.json({ ok: false, error: { code: 'invalid_vk_workspace_create_request', message: 'The workspace creation request was invalid.', userAction: 'Provide a prompt, selected repositories, executor config, and external issue.' } }, 400);
@@ -137,10 +125,6 @@ export function registerExternalTrackerBoardRoutes(
 
 
   hono.post('/dashboard/api/external-trackers/vk/workspace-metrics', (c) => withOtelSpan('external_jira.workspace_metrics_route', { 'http.route': '/dashboard/api/external-trackers/vk/workspace-metrics' }, async (span) => {
-    if (!options.enabled) {
-      setOtelAttributes(span, { 'vd.error_code': 'external_trackers_disabled' });
-      return c.json({ ok: false, error: { code: 'external_trackers_disabled', message: 'External tracker workspace metrics are disabled.', userAction: 'Enable the external tracker feature flag and try again.' } }, 404);
-    }
     const body = await c.req.json().catch(() => undefined) as unknown;
     if (!isWorkspaceMetricsRequest(body)) {
       setOtelAttributes(span, { 'vd.error_code': 'invalid_workspace_metrics_request' });
@@ -153,10 +137,6 @@ export function registerExternalTrackerBoardRoutes(
   }));
 
   hono.get('/dashboard/api/external-trackers/vk/workspace-jira-conversion-options', async (c) => {
-    if (!options.enabled) {
-      return c.json({ ok: false, error: { code: 'external_trackers_disabled', message: 'External tracker workspace conversion is disabled.', userAction: 'Enable the external tracker feature flag and try again.' } }, 404);
-    }
-
     try {
       const workspaces = (await vkClient.getWorkspaces()).filter((workspace) => !workspace.archived);
       const workspaceIds = workspaces.map((workspace) => workspace.id);
@@ -182,10 +162,6 @@ export function registerExternalTrackerBoardRoutes(
   });
 
   hono.post('/dashboard/api/external-trackers/jira/workspaces/bulk-create-issues', async (c) => {
-    if (!options.enabled) {
-      return c.json({ ok: false, error: { code: 'external_trackers_disabled', message: 'External tracker workspace conversion is disabled.', userAction: 'Enable the external tracker feature flag and try again.' } }, 404);
-    }
-
     const session = await options.auth.getSession(c.req.raw.headers).catch(() => null);
 
     const body = await c.req.json().catch(() => undefined) as unknown;
@@ -289,11 +265,6 @@ export function registerExternalTrackerBoardRoutes(
   });
 
   hono.get('/dashboard/api/external-trackers/jira/board', (c) => withOtelSpan('external_jira.board_route', { 'http.route': '/dashboard/api/external-trackers/jira/board' }, async (span) => {
-    if (!options.enabled) {
-      setOtelAttributes(span, { 'vd.error_code': 'external_trackers_disabled' });
-      return c.json({ ok: false, error: { code: 'external_trackers_disabled', message: 'External tracker views are disabled.', userAction: 'Enable the external tracker feature flag and try again.' } }, 404);
-    }
-
     const externalViewUrl = c.req.query(EXTERNAL_VIEW_URL_PARAM)?.trim();
     if (!externalViewUrl) {
       setOtelAttributes(span, { 'vd.error_code': 'missing_external_view_url' });
@@ -372,10 +343,6 @@ export function registerExternalTrackerBoardRoutes(
   }));
 
   hono.post('/dashboard/api/external-trackers/workspace-links', async (c) => {
-    if (!options.enabled) {
-      return c.json({ ok: false, error: { code: 'external_trackers_disabled', message: 'External tracker workspace links are disabled.', userAction: 'Enable the external tracker feature flag and try again.' } }, 404);
-    }
-
     const session = await options.auth.getSession(c.req.raw.headers);
     if (!session) {
       return c.json({ ok: false, error: { code: 'authentication_required', message: 'Sign in before linking external issues to workspaces.', userAction: 'Sign in and try again.' } }, 401);
@@ -391,10 +358,6 @@ export function registerExternalTrackerBoardRoutes(
   });
 
   hono.post('/dashboard/api/external-trackers/bead-links', async (c) => {
-    if (!options.enabled) {
-      return c.json({ ok: false, error: { code: 'external_trackers_disabled', message: 'External tracker bead links are disabled.', userAction: 'Enable the external tracker feature flag and try again.' } }, 404);
-    }
-
     const session = await options.auth.getSession(c.req.raw.headers);
     if (!session) {
       return c.json({ ok: false, error: { code: 'authentication_required', message: 'Sign in before linking Beads to external issues.', userAction: 'Sign in and try again.' } }, 401);
@@ -414,10 +377,6 @@ export function registerExternalTrackerBoardRoutes(
   });
 
   hono.delete('/dashboard/api/external-trackers/bead-links', async (c) => {
-    if (!options.enabled) {
-      return c.json({ ok: false, error: { code: 'external_trackers_disabled', message: 'External tracker bead links are disabled.', userAction: 'Enable the external tracker feature flag and try again.' } }, 404);
-    }
-
     const session = await options.auth.getSession(c.req.raw.headers);
     if (!session) {
       return c.json({ ok: false, error: { code: 'authentication_required', message: 'Sign in before unlinking Beads from external issues.', userAction: 'Sign in and try again.' } }, 401);

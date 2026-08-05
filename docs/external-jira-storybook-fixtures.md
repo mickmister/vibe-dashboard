@@ -4,7 +4,7 @@ The app's live Jira board route uses Better Auth with a linked Atlassian OAuth a
 
 ## Current Jira integration status
 
-- External tracker UI/API is gated by `VD_EXTERNAL_TRACKERS_ENABLED=true`.
+- External tracker UI/API routes are registered by default.
 - App OAuth is scaffolded with Better Auth's Atlassian provider.
 - App OAuth env vars are `ATLASSIAN_CLIENT_ID` and `ATLASSIAN_CLIENT_SECRET`.
 - The live app board route reads a linked Better Auth Atlassian account token from `BetterAuthAccount`.

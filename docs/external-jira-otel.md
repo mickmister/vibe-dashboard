@@ -9,7 +9,6 @@ Console exporter, useful for a quick local profile:
 ```bash
 VD_OTEL_ENABLED=true \
 VD_OTEL_TRACES_EXPORTER=console \
-VD_EXTERNAL_TRACKERS_ENABLED=true \
 npm run dev
 ```
 
@@ -19,7 +18,6 @@ OTLP HTTP exporter, useful with a local OpenTelemetry Collector or a trace backe
 VD_OTEL_ENABLED=true \
 OTEL_SERVICE_NAME=vibe-dashboard \
 OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://localhost:4318/v1/traces \
-VD_EXTERNAL_TRACKERS_ENABLED=true \
 npm run dev
 ```
 

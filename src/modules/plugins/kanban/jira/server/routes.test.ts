@@ -12,12 +12,12 @@ function createAuthService(session: Awaited<ReturnType<ExternalTrackerAuthServic
 }
 
 describe('external tracker auth routes', () => {
-  it('gates auth status when external trackers are disabled', async () => {
+  it('reports auth status without a feature gate', async () => {
     const app = new Hono();
     registerExternalTrackerAuthRoutes(app, { enabled: false, auth: createAuthService(null) });
 
     const response = await app.request('/dashboard/api/external-trackers/auth/status');
-    await expect(response.json()).resolves.toEqual({ enabled: false, authenticated: false });
+    await expect(response.json()).resolves.toEqual({ enabled: true, authenticated: false });
   });
 
   it('requires an existing signed-in user before provider linking', async () => {

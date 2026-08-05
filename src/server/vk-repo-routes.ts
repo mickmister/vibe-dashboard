@@ -11,20 +11,18 @@ const execFileAsync = promisify(execFile);
 export function registerVkRepoRoutes(
   hono: Hono,
   options: {
-    enabled: boolean;
+    /** @deprecated Ignored; external Kanban workspace repo routes are always registered. */
+    enabled?: boolean;
     vkClient?: Pick<VibeKanbanServerClient, 'registerRepo'>;
     cloneRepo?: typeof cloneGitHubRepoIntoReposRoot;
     reposRoot?: string;
-  },
+  } = {},
 ): void {
   const vkClient = options.vkClient ?? new VibeKanbanServerClient();
   const cloneRepo = options.cloneRepo ?? cloneGitHubRepoIntoReposRoot;
   const reposRoot = options.reposRoot ?? defaultReposRoot();
 
   hono.post('/dashboard/api/external-trackers/vk/repos/clone', async (c) => {
-    if (!options.enabled) {
-      return c.json({ ok: false, error: { code: 'external_trackers_disabled', message: 'External tracker workspace creation is disabled.', userAction: 'Enable the external tracker feature flag and try again.' } }, 404);
-    }
     const body = await c.req.json().catch(() => undefined) as unknown;
     if (!isCloneRepoRequest(body)) {
       return c.json({ ok: false, error: { code: 'invalid_vk_repo_clone_request', message: 'The remote repository clone request was invalid.', userAction: 'Provide an https://github.com/owner/repo URL.' } }, 400);

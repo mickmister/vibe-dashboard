@@ -15,7 +15,8 @@ export type FetchLinearBoardView = typeof fetchLinearBoardView;
 export function registerLinearBoardRoutes(
   hono: Hono,
   options: {
-    enabled: boolean;
+    /** @deprecated Ignored; external Kanban routes are always registered. */
+    enabled?: boolean;
     db: Kysely<DB>;
     fetchLinearBoardView?: FetchLinearBoardView;
     linearAuth?: FetchLinearBoardViewOptions['auth'] | false;
@@ -25,10 +26,6 @@ export function registerLinearBoardRoutes(
   const fetchBoard = options.fetchLinearBoardView ?? fetchLinearBoardView;
 
   hono.get('/dashboard/api/external-trackers/linear/board', async (c) => {
-    if (!options.enabled) {
-      return c.json({ ok: false, error: { code: 'external_trackers_disabled', message: 'External tracker views are disabled or unavailable.', userAction: 'Enable the external tracker feature flag and try again.' } }, 404);
-    }
-
     const externalViewUrl = c.req.query(EXTERNAL_VIEW_URL_PARAM)?.trim();
     if (!externalViewUrl) {
       return c.json({ ok: false, error: { code: 'missing_external_view_url', message: 'VD did not receive an external Linear URL to open.', userAction: 'Open a Linear issue, team, or project URL and launch VD again.' } }, 400);

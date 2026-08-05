@@ -44,6 +44,8 @@
     "db:generate-migration-imports": "node db/scripts/generate_migration_imports.cjs",
     "db:smoke:external-integrations": "node scripts/db/smoke-external-integrations.mjs",
     "db:check:external-integrations": "node scripts/db/check-external-integrations.mjs",
+    "integrations:env:load": "pnpm --filter @vibe-dashboard/integrations-env varlock:load",
+    "dev:integrations": "pnpm --filter @vibe-dashboard/integrations-env dev:vd",
     "storybook:jira-fixture": "node --experimental-strip-types src/modules/plugins/kanban/jira/scripts/generate-external-jira-fixture.ts",
     "beads-form:preview": "node --experimental-strip-types scripts/beads-form/preview.ts",
     "dev:beads-form-preview": "node --experimental-strip-types scripts/beads-form/preview.ts",

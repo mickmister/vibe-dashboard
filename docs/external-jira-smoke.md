@@ -15,7 +15,7 @@ Covered path:
 
 1. Extension-style VD launch URL uses canonical `external_view_url`.
 2. VD parses the Jira Cloud board URL as provider `jira`, project `VD`, board `42`, site `team.atlassian.net`.
-3. The gated board API resolves Jira credentials from a linked Atlassian OAuth token or server-side Jira bot token fallback.
+3. The board API resolves Jira credentials from a linked Atlassian OAuth token or server-side Jira bot token fallback.
 4. A mocked Jira adapter returns columns, cards, and best-effort partial swimlanes.
 5. VD decorates card `VD-1` from explicit VK workspace DB mapping.
 6. VD decorates card `VD-1` from explicit Beads `metadata.external_issues` read via mocked `bd export`.
@@ -23,10 +23,9 @@ Covered path:
 
 ## Server-side Jira bot token fallback
 
-Before login/connect UI is available, the external Jira board API can fall back to server-side Jira Cloud API-token credentials when no linked Atlassian OAuth token is available. The feature gate is still required:
+Before login/connect UI is available, the external Jira board API can fall back to server-side Jira Cloud API-token credentials when no linked Atlassian OAuth token is available:
 
 ```bash
-VD_EXTERNAL_TRACKERS_ENABLED=true
 JIRA_SITE_HOSTNAME=<site>.atlassian.net
 JIRA_EMAIL=<bot-or-service-account-email>
 JIRA_API_TOKEN=<atlassian-api-token>
@@ -46,7 +45,6 @@ Secrets are read only in server route/adapter code and must not be placed in Sto
 
 Prerequisites:
 
-- External tracker feature gate enabled.
 - Either a user is signed in with a linked Atlassian/Jira OAuth account, or the server-side Jira bot token fallback env vars above are configured.
 - Browser extension build with Jira launch support installed.
 - A Jira Cloud board URL such as:
@@ -71,3 +69,5 @@ Known limitations for v1:
 - Jira Core/Work Management project board URLs do not include an Agile board id; VD uses enhanced Jira search with project-scoped JQL only and infers columns from returned issue statuses for those URLs. Jira UI `filter=` query fragments are intentionally ignored for now to prevent URL-provided JQL from widening server-side bot-token access.
 - Swimlane fidelity is best-effort and may be `full`, `partial`, `none`, or `unknown` depending on available Jira data.
 - Bead and workspace correlations are explicit only; there is no heuristic auto-linking.
+
+For Doppler-backed local Jira/Linear secrets, see `packages/integrations-env/README.md`.

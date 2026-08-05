@@ -9,6 +9,8 @@ storybook-static
 debug-*
 .env.vkcloud
 .env
+.env.integrations
+packages/integrations-env/.env.integrations
 .vscode/settings.json
 test-results
 playwright-report

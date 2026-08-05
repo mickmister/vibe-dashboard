@@ -30,7 +30,7 @@ export async function fetchExternalKanbanBoardView<BoardView extends ExternalKan
       error: {
         code: 'external_trackers_disabled',
         message: 'External tracker views are disabled or unavailable.',
-        userAction: 'Enable the external tracker feature flag and try again.',
+        userAction: 'Verify the external Kanban provider server module is registered and try again.',
       },
     };
   }

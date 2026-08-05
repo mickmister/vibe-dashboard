@@ -100,16 +100,16 @@ describe('external Jira board routes', () => {
     sqlite.close();
   });
 
-  it('requires the external tracker feature gate', async () => {
+  it('loads external tracker routes without a feature gate', async () => {
     const app = new Hono();
     registerExternalTrackerBoardRoutes(app, { enabled: false, auth: createAuthService(null), db });
 
     const response = await app.request(`/dashboard/api/external-trackers/jira/board?external_view_url=${encodeURIComponent(jiraBoardUrl)}`);
 
-    expect(response.status).toBe(404);
+    expect(response.status).toBe(401);
     await expect(response.json()).resolves.toEqual({
       ok: false,
-      error: expect.objectContaining({ code: 'external_trackers_disabled' }),
+      error: expect.objectContaining({ code: 'authentication_required' }),
     });
   });
 
