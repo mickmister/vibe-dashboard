@@ -104,6 +104,7 @@ describe('registerLinearBoardRoutes', () => {
       db,
       fetchLinearBoardView,
       linearAuth: { kind: 'api_key', apiKey: 'secret', apiUrl: 'https://api.linear.test/graphql' },
+      beads: { runBd: vi.fn(async () => ({ stdout: '' })) },
     });
 
     const response = await app.request('/dashboard/api/external-trackers/linear/board?external_view_url=https%3A%2F%2Flinear.app%2Fjamtools%2Fview%2Freported-by-me-c10a8b8b98c26');

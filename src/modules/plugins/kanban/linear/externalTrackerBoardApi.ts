@@ -14,11 +14,14 @@ export interface LinearWorkspaceResourceDto {
 
 export interface ExternalLinearBoardDiagnosticsDto {
   authSource: 'api_key';
-  linearMode: 'issue' | 'issues';
+  linearMode: 'issue' | 'issues' | 'customView';
   locatorViewKind: LinearExternalViewKind;
   workspaceSlug: string;
   teamKey?: string;
   projectSlugOrId?: string;
+  customViewId?: string;
+  customViewName?: string;
+  customViewLayout?: string;
   issueCount: number;
 }
 
