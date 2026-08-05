@@ -347,20 +347,18 @@ describe('BeadsClient', () => {
 
   it('lists pending bead forms from a bounded ~/repos-style scan without mutating bead databases', async () => {
     const reposRoot = await mkdtemp(join(tmpdir(), 'beads-repos-'));
-    await mkdir(join(reposRoot, 'repo-a'), { recursive: true });
-    await mkdir(join(reposRoot, 'repo-b'), { recursive: true });
+    await mkdir(join(reposRoot, 'repo-a', '.beads'), { recursive: true });
+    await mkdir(join(reposRoot, 'repo-b', '.beads'), { recursive: true });
     await mkdir(join(reposRoot, 'repo-c'), { recursive: true });
     const exec = vi.fn<ExecFileLike>(async (_file, args, options) => {
       expect(args[0]).toBe('--readonly');
       if (options.cwd.endsWith('repo-a') && args[1] === 'list') {
-        if (args.includes('beadFormsSummary')) return { stdout: JSON.stringify([
-          { id: 'summary_done', title: 'Summary done', metadata: { beadFormsSummary: { hasForms: true, hasPendingAnswer: false, pendingResponseCount: 0, formIds: ['summary_done_form'], pendingFormIds: [] }, beadForms: { forms: [storedForm('summary_done_form', 'Done')] } } },
+        expect(args).toEqual(['--readonly', 'list', '--json', '--all', '--limit', '0', '--has-metadata-key', 'beadFormsSummary']);
+        return { stdout: JSON.stringify([
+          { id: 'done', title: 'Done bead', metadata: { beadFormsSummary: { hasForms: true, hasPendingAnswer: false, pendingResponseCount: 0, formIds: ['done_form'], pendingFormIds: [] }, beadForms: { forms: [storedForm('done_form', 'Done')] } } },
+          { id: 'pending', title: 'Pending bead', created_at: '2026-08-01T00:00:00Z', metadata: { beadFormsSummary: { hasForms: true, hasPendingAnswer: true, pendingResponseCount: 1, formIds: ['review'], pendingFormIds: ['review'] }, beadForms: { forms: [storedForm()] } } },
+          { id: 'closed', title: 'Closed bead', status: 'closed', metadata: { beadFormsSummary: { hasForms: true, hasPendingAnswer: true, pendingResponseCount: 1, formIds: ['closed_form'], pendingFormIds: ['closed_form'] }, beadForms: { forms: [storedForm('closed_form', 'Closed')] } } },
         ]), stderr: '' };
-        return { stdout: args.includes('beadForms') ? JSON.stringify([
-          { id: 'pending', title: 'Pending bead', metadata: { beadForms: { forms: [storedForm()] } } },
-          { id: 'done', title: 'Done bead', metadata: { beadForms: { forms: [storedForm('done_form', 'Done', { responses: [{ submittedAt: 'now', submittedBy: 'user', values: {} }] })] } } },
-          { id: 'closed', title: 'Closed bead', status: 'closed', metadata: { beadForms: { forms: [storedForm('closed_form', 'Closed')] } } },
-        ]) : '[]', stderr: '' };
       }
       if (options.cwd.endsWith('repo-b')) {
         throw Object.assign(new Error('Command failed: bd list'), { stderr: 'Error: no beads database found' });
@@ -377,12 +375,75 @@ describe('BeadsClient', () => {
     expect(result.entries).toEqual([{
       repoDir: join(reposRoot, 'repo-a'),
       repoName: 'repo-a',
-      bead: { id: 'pending', title: 'Pending bead' },
+      bead: { id: 'pending', title: 'Pending bead', createdAt: '2026-08-01T00:00:00Z' },
       form: { id: 'review', title: 'Review', responseCount: 0 },
     }]);
-    expect(result.skipped).toEqual([{ repoDir: join(reposRoot, 'repo-b'), reason: 'not initialized for beads' }]);
+    expect(result.skipped).toEqual([]);
     expect(result.updateStrategy.mode).toBe('explicit-refresh');
     expect(exec.mock.calls.some(([, args]) => args.includes('update'))).toBe(false);
     expect(exec.mock.calls.some(([, args]) => args.includes('show'))).toBe(false);
+    expect(exec.mock.calls.some(([, args]) => args.includes('beadForms') || args.includes('beadsWeb'))).toBe(false);
+    expect(exec.mock.calls.map(([, , options]) => options.cwd).sort()).toEqual([
+      join(reposRoot, 'repo-a'),
+      join(reposRoot, 'repo-b'),
+    ]);
+  });
+
+  it('caps pending queue bd checks at five repos at a time and sorts most recent first', async () => {
+    const reposRoot = await mkdtemp(join(tmpdir(), 'beads-repos-concurrent-'));
+    for (let index = 0; index < 6; index += 1) {
+      await mkdir(join(reposRoot, `repo-${index}`, '.beads'), { recursive: true });
+    }
+    let active = 0;
+    let maxActive = 0;
+    const exec = vi.fn<ExecFileLike>(async (_file, args, options) => {
+      expect(args).toEqual(['--readonly', 'list', '--json', '--all', '--limit', '0', '--has-metadata-key', 'beadFormsSummary']);
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      active -= 1;
+      const repoIndex = Number(options.cwd.match(/repo-(\d+)$/)?.[1] ?? 0);
+      return { stdout: JSON.stringify([
+        {
+          id: `bead-${repoIndex}`,
+          title: `Bead ${repoIndex}`,
+          updated_at: `2026-08-0${repoIndex + 1}T00:00:00Z`,
+          metadata: {
+            beadFormsSummary: { hasForms: true, hasPendingAnswer: true, pendingResponseCount: 1, formIds: ['review'], pendingFormIds: ['review'] },
+            beadForms: { forms: [storedForm('review', `Review ${repoIndex}`)] },
+          },
+        },
+      ]), stderr: '' };
+    });
+    const client = new BeadsClient({ execFile: exec });
+
+    const result = await client.listPendingBeadsFormQueue({ reposRoot, repoLimit: 6 });
+
+    expect(maxActive).toBeLessThanOrEqual(5);
+    expect(result.entries.map((entry) => entry.bead.id)).toEqual(['bead-5', 'bead-4', 'bead-3', 'bead-2', 'bead-1', 'bead-0']);
+  });
+
+  it('skips unsupported raw-html-only pending forms while accepting standard DSL with stale generated fields', async () => {
+    const reposRoot = await mkdtemp(join(tmpdir(), 'beads-repos-raw-'));
+    await mkdir(join(reposRoot, 'repo-a', '.beads'), { recursive: true });
+    const exec = vi.fn<ExecFileLike>(async () => ({ stdout: JSON.stringify([
+      {
+        id: 'mixed',
+        title: 'Mixed',
+        metadata: {
+          beadFormsSummary: { hasForms: true, hasPendingAnswer: true, pendingResponseCount: 2, formIds: ['raw', 'standard'], pendingFormIds: ['raw', 'standard'] },
+          beadForms: { forms: [
+            { id: 'raw', title: 'Raw', html: '<form></form>' },
+            { ...storedForm('standard', 'Standard'), html: '<form><input name="stale"></form>', controls: [{ id: 'stale', name: 'stale', type: 'textarea' }] },
+          ] },
+        },
+      },
+    ]), stderr: '' }));
+    const client = new BeadsClient({ execFile: exec });
+
+    const result = await client.listPendingBeadsFormQueue({ reposRoot });
+
+    expect(result.entries.map((entry) => entry.form.id)).toEqual(['standard']);
+    expect(result.skipped).toEqual([]);
   });
 });

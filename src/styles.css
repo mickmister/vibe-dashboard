@@ -280,21 +280,9 @@ textarea {
   color: #d4d4d8;
 }
 
-.beadsform-root .beadsform-refresh-card {
-  border: 1px solid #2563eb;
-  background: rgba(30, 64, 175, 0.18);
-}
-
-.beadsform-root .beadsform-refresh-card-body {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 0.75rem;
-  color: #bfdbfe;
-}
-
 .beadsform-root .beadsform-refresh-notice {
   color: #bfdbfe;
+  font-size: 0.9rem;
 }
 
 .beadsform-root .beads-form-more-info-toggle {

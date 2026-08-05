@@ -45,7 +45,8 @@ export function normalizePendingQueueInput(
 }
 
 export function pendingQueueCacheDir(env: NodeJS.ProcessEnv = process.env): string {
-  return normalizeDir(env[BEADS_FORM_PENDING_CACHE_DIR_ENV] ?? join(homedir(), '.cache', 'vibe-dashboard', 'beads-form-pending'));
+  const xdgCacheHome = env.XDG_CACHE_HOME ? normalizeDir(env.XDG_CACHE_HOME) : join(homedir(), '.cache');
+  return normalizeDir(env[BEADS_FORM_PENDING_CACHE_DIR_ENV] ?? join(xdgCacheHome, 'vibe-dashboard', 'beads-form-pending'));
 }
 
 export function pendingQueueCachePath(

@@ -47,6 +47,10 @@ export type BeadLike = {
   title?: string;
   description?: string;
   status?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  created_at?: string;
+  updated_at?: string;
   metadata?: JsonObject | null;
 };
 
@@ -100,10 +104,19 @@ function normalizeForm(value: unknown): BeadsFormDefinition | undefined {
   };
 }
 
-function formsAt(metadata: JsonObject, key: string): BeadsFormDefinition[] {
+function formsAt(metadata: JsonObject, key: string, options: { skipUnsupported?: boolean } = {}): BeadsFormDefinition[] {
   const namespace = metadata[key];
   if (!isObject(namespace) || !Array.isArray(namespace.forms)) return [];
-  return namespace.forms.map(normalizeForm).filter((form): form is BeadsFormDefinition => !!form);
+  const forms: BeadsFormDefinition[] = [];
+  for (const candidate of namespace.forms) {
+    try {
+      const form = normalizeForm(candidate);
+      if (form) forms.push(form);
+    } catch (error) {
+      if (!options.skipUnsupported) throw error;
+    }
+  }
+  return forms;
 }
 
 export function getBeadsForms(metadata: unknown): BeadsFormDefinition[] {
@@ -112,6 +125,17 @@ export function getBeadsForms(metadata: unknown): BeadsFormDefinition[] {
   const legacy = formsAt(metadata, LEGACY_FORM_META_KEY);
   const seen = new Set<string>();
   return [...current, ...legacy].filter((form) => {
+    if (seen.has(form.id)) return false;
+    seen.add(form.id);
+    return true;
+  });
+}
+
+export function getSupportedBeadsForms(metadata: unknown): BeadsFormDefinition[] {
+  if (!isObject(metadata)) return [];
+  const current = formsAt(metadata, FORM_META_KEY, { skipUnsupported: true });
+  const seen = new Set<string>();
+  return current.filter((form) => {
     if (seen.has(form.id)) return false;
     seen.add(form.id);
     return true;

@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { addToast, Button, Card, CardBody, Spinner } from '@heroui/react';
+import { addToast, Card, CardBody, Spinner } from '@heroui/react';
 import { useSearchParams } from 'react-router';
 import springboard from 'springboard';
 
@@ -309,6 +309,13 @@ function pendingQueueFingerprint(result: PendingBeadsFormQueueResult): string {
     })),
     skipped: result.skipped.map((skip) => ({ repoDir: skip.repoDir, reason: skip.reason })),
   });
+}
+
+function formatPendingEntryDate(value: string | undefined): string {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString();
 }
 
 async function readAggregateForms(input: LoadAggregateFormsInput): Promise<LoadAggregateFormsResult> {
@@ -689,16 +696,7 @@ function BeadsFormPendingQueue({ actions, parentDir }: {
 
   return (
     <div className="beadsform-root beadsform-page">
-      <header className="beadsform-heading-row">
-        <div>
-          <p className="beadsform-eyebrow">Forms</p>
-          <h1>{parentDir ? 'Open BeadsForms by parent directory' : 'Pending BeadsForm submissions'}</h1>
-          <p>Forms listed here are attached to non-closed beads and have no submitted responses yet. Use Refresh after agents attach new forms or humans submit responses.</p>
-        </div>
-        <Button type="button" color="primary" variant="flat" onPress={() => void load()} isDisabled={loading || refreshing} isLoading={loading || refreshing}>
-          {loading || refreshing ? 'Refreshing…' : 'Refresh'}
-        </Button>
-      </header>
+      {pending ? <h1>Pending BeadsForms</h1> : null}
       {error ? <p role="alert" className="beadsform-error">{error}</p> : null}
       {!pending && !error ? (
         <BeadsFormLoadingCard
@@ -708,29 +706,10 @@ function BeadsFormPendingQueue({ actions, parentDir }: {
       ) : null}
       {pending ? (
         <>
-          {refreshing ? (
-            <Card className="beadsform-refresh-card" shadow="sm" role="status" aria-live="polite">
-              <CardBody className="beadsform-refresh-card-body">
-                <Spinner size="sm" />
-                <span>Refreshing in the background… cached results remain visible.</span>
-              </CardBody>
-            </Card>
-          ) : null}
+          {refreshing ? <p className="beadsform-refresh-notice" role="status">Checking for updates…</p> : null}
           {refreshNotice ? <p className="beadsform-refresh-notice" role="status">{refreshNotice}</p> : null}
-          <section className="beadsform-warning" role="note">
-            <h2>Update strategy</h2>
-            <p>{pending.updateStrategy.rationale}</p>
-            <p>Scanned {pending.reposScanned} repos under <code>{pending.reposRoot}</code> with a limit of {pending.repoLimit}.</p>
-            {pending.cache ? (
-              <p>
-                Showing {pending.cache.status === 'cached' ? 'cached' : 'fresh'} results from {pending.cache.loadedAt}
-                {pending.cache.stale ? ' (stale; refreshing in the background when possible)' : null}.
-              </p>
-            ) : null}
-          </section>
           {pending.entries.length === 0 ? <p>No pending BeadsForms found.</p> : (
             <section>
-              <h2>Pending forms</h2>
               <ul className="beadsform-pending-list">
                 {pending.entries.map((entry) => (
                   <li key={`${entry.repoDir}:${entry.bead.id}:${entry.form.id}`}>
@@ -742,6 +721,9 @@ function BeadsFormPendingQueue({ actions, parentDir }: {
                         Bead <strong>{entry.bead.id}</strong>
                         {entry.bead.title ? <> — {entry.bead.title}</> : null}
                       </p>
+                      {entry.bead.updatedAt || entry.bead.createdAt ? (
+                        <p>{entry.bead.updatedAt ? 'Updated' : 'Created'} {formatPendingEntryDate(entry.bead.updatedAt ?? entry.bead.createdAt)}</p>
+                      ) : null}
                       <p><code>{entry.repoDir}</code></p>
                       <a href={formViewUrl({ dir: entry.repoDir, beadId: entry.bead.id, formId: entry.form.id })}>Fill out form</a>
                     </article>
@@ -750,14 +732,6 @@ function BeadsFormPendingQueue({ actions, parentDir }: {
               </ul>
             </section>
           )}
-          {pending.skipped.length > 0 ? (
-            <section>
-              <h2>Skipped repos</h2>
-              <ul>
-                {pending.skipped.map((skip) => <li key={`${skip.repoDir}:${skip.reason}`}><code>{skip.repoDir}</code>: {skip.reason}</li>)}
-              </ul>
-            </section>
-          ) : null}
         </>
       ) : null}
     </div>

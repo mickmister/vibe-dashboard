@@ -255,7 +255,7 @@ Aggregate URL params must be ordered as exact repeated `dir`, then `bead`, then 
 
 ## Pending form queue
 
-Open `/dashboard/forms` without query parameters to view the pending Bead-backed form queue. The queue scans a bounded set of first-level repos under `~/repos` by default; set `BEADS_FORM_PENDING_PARENT_DIR=/path/to/all-repos` on the VD server to change the default. Results are cached in memory and persisted under `${XDG_CACHE_HOME:-~/.cache}/vibe-dashboard/beads-form-pending` so stale cached data can be served immediately after a stable-server restart while a fresh read runs in the background. The scanner uses read-only `bd` commands, prefers the `beadFormsSummary` pending-answer index, falls back to legacy `beadForms` metadata when needed, lists forms with no responses, and provides direct fill-out links. Production can warm the configured parent dir on startup; Vite/dev does not scan every repo on each restart unless explicitly opted in with `BEADS_FORM_PENDING_WARM_ON_STARTUP=1`. See `packages/beads-form/PENDING_QUEUE.md` for realtime/update tradeoffs and safety limits.
+Open `/dashboard/forms` without query parameters to view the pending Bead-backed form queue. The queue scans a bounded set of first-level repos under `~/repos` by default; set `BEADS_FORM_PENDING_PARENT_DIR=/path/to/all-repos` on the VD server to change the default. Results are cached in memory and persisted under `${XDG_CACHE_HOME:-~/.cache}/vibe-dashboard/beads-form-pending` so stale cached data can be served immediately after a stable-server restart while a fresh read runs in the background. The scanner first filters to immediate child repos with a local `.beads` folder, then runs read-only `bd` commands at most five repos at a time. It only queries the `beadFormsSummary` pending-answer index for this page; attach/submit should keep that summary current. Production can warm the configured parent dir on startup; Vite/dev does not scan every repo on each restart unless explicitly opted in with `BEADS_FORM_PENDING_WARM_ON_STARTUP=1`. See `packages/beads-form/PENDING_QUEUE.md` for realtime/update tradeoffs and safety limits.
 
 Agents can inspect the same pending queue from a shell with JSON output:
 
@@ -266,7 +266,7 @@ beads-form pending --parent-dir ~/repos --limit 80 --origin https://your-vd-orig
 npm run beads-form -- pending --parent-dir ~/repos
 ```
 
-The command scans only first-level child directories, uses read-only `bd list --json --all --limit 0 --has-metadata-key ...` queries, avoids bulk `bd show`, includes skipped repo reasons, and prints direct `/dashboard/forms?dir=...&bead=...&form=...` links. Use `--origin` or `BEADS_FORM_ORIGIN`/`VD_BEADS_FORM_ORIGIN` when a full URL is needed.
+The command scans only first-level child directories, prefilters to repos with a local `.beads` folder, uses read-only `bd list --json --all --limit 0 --has-metadata-key beadFormsSummary`, avoids bulk `bd show`, and prints direct `/dashboard/forms?dir=...&bead=...&form=...` links. Use `--origin` or `BEADS_FORM_ORIGIN`/`VD_BEADS_FORM_ORIGIN` when a full URL is needed.
 
 ## Shared preview server maintenance
 

@@ -8,6 +8,7 @@ import {
   buildAgentResultMessage,
   buildPrettySummary,
   getBeadsForms,
+  getSupportedBeadsForms,
   normalizeFormEntries,
   normalizeSubmittedValues,
   sanitizeBeadsFormHtml,
@@ -71,6 +72,21 @@ describe('BeadsForm core', () => {
     ]);
   });
 
+  it('ignores stale generated html and controls on valid standard DSL forms', () => {
+    const forms = getBeadsForms({
+      beadForms: { forms: [{
+        ...storedForm('review'),
+        html: '<form><input name="stale"></form>',
+        controls: [{ id: 'stale', name: 'stale', type: 'textarea' }],
+      }] },
+    });
+
+    expect(forms).toHaveLength(1);
+    expect(forms[0]!.html).toContain('name="comment"');
+    expect(forms[0]!.html).not.toContain('name="stale"');
+    expect(forms[0]!.controls?.map((control) => control.name)).toContain('comment');
+  });
+
   it('appends responses under metadata.beadForms while preserving unrelated metadata', () => {
     const next = appendBeadsFormResponse({ untouched: true, beadForms: { forms: [
       { ...storedForm('review'), html: '<form></form>', controls: [{ id: 'stale', name: 'stale', type: 'textarea' }] },
@@ -112,6 +128,31 @@ describe('BeadsForm core', () => {
     })).toThrow('Raw HTML BeadsForms are no longer supported');
 
     expect(() => assertMetadataFitsDoltTextColumn({ big: 'x'.repeat(100) }, 40)).toThrow('No bead metadata was changed');
+  });
+
+  it('can skip unsupported raw html-only forms for pending queue discovery', () => {
+    const forms = getSupportedBeadsForms({
+      beadForms: { forms: [
+        { id: 'raw', title: 'Raw', html: '<form></form>' },
+        storedForm('standard'),
+      ] },
+      beadsWeb: { forms: [storedForm('legacy')] },
+    });
+
+    expect(forms.map((form) => form.id)).toEqual(['standard']);
+  });
+
+  it('accepts standard DSL forms while stripping stale generated html and controls', () => {
+    const [form] = getSupportedBeadsForms({
+      beadForms: { forms: [
+        { ...storedForm('standard'), html: '<form>stale generated html</form>', controls: [] },
+      ] },
+    });
+
+    expect(form?.id).toBe('standard');
+    expect(form?.html).toContain('<form>');
+    expect(form?.html).not.toContain('stale generated html');
+    expect(form?.controls?.length).toBeGreaterThan(0);
   });
 
   it('normalizes repeated form entries as arrays', () => {

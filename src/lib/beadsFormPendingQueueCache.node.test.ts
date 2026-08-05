@@ -50,11 +50,11 @@ describe('beadsFormPendingQueueCache.node', () => {
   });
 
   it('keys disk cache by normalized parent dir and limit', () => {
-    const env = { [BEADS_FORM_PENDING_CACHE_DIR_ENV]: '/tmp/cache' };
+    const env = { XDG_CACHE_HOME: '/var/cache/app' };
     const left = pendingQueueCachePath(normalizePendingQueueInput({ reposRoot: '/tmp/repos', repoLimit: 5 }, env), env);
     const right = pendingQueueCachePath(normalizePendingQueueInput({ reposRoot: '/tmp/repos', repoLimit: 6 }, env), env);
 
-    expect(left).toMatch(/^\/tmp\/cache\/[a-f0-9]{24}\.json$/);
+    expect(left).toMatch(/^\/var\/cache\/app\/vibe-dashboard\/beads-form-pending\/[a-f0-9]{24}\.json$/);
     expect(right).not.toBe(left);
   });
 

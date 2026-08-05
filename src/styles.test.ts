@@ -38,12 +38,11 @@ describe('BeadsForm styles', () => {
     expect(css).toMatch(/\.beadsform-root \.beads-form-more-info-textarea\[hidden\]\s*\{[^}]*display:\s*none/s);
   });
 
-  it('styles BeadsForm loading and refresh states as centered cards', async () => {
+  it('styles BeadsForm loading states as centered cards', async () => {
     const css = await readFile(new URL('./styles.css', import.meta.url), 'utf8');
 
     expect(css).toMatch(/\.beadsform-root \.beadsform-loading-shell\s*\{[^}]*display:\s*grid[^}]*place-items:\s*center[^}]*min-height:\s*min\(28rem,\s*70vh\)/s);
     expect(css).toMatch(/\.beadsform-root \.beadsform-loading-card\s*\{[^}]*width:\s*min\(100%,\s*32rem\)/s);
-    expect(css).toMatch(/\.beadsform-root \.beadsform-refresh-card-body\s*\{[^}]*display:\s*flex[^}]*align-items:\s*center/s);
   });
 
   it('styles rendered recommendation reasons', async () => {

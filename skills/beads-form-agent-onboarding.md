@@ -169,6 +169,6 @@ beads-form pending --parent-dir ~/repos
 beads-form pending --parent-dir ~/repos --limit 80 --origin https://your-vd-origin.example
 ```
 
-`pending` outputs JSON by default for agent use. It scans first-level child directories only, uses read-only `bd` list queries, avoids bulk `bd show`, includes skipped repo reasons, and returns direct `/dashboard/forms?dir=...&bead=...&form=...` links for each pending form.
+`pending` outputs JSON by default for agent use. It scans first-level child directories only, prefilters to repos with a local `.beads` folder, uses read-only `bd list --has-metadata-key beadFormsSummary` queries, avoids bulk `bd show`, and returns direct `/dashboard/forms?dir=...&bead=...&form=...` links for each pending form.
 
 The VD pending Forms page defaults to `~/repos`; server operators can set `BEADS_FORM_PENDING_PARENT_DIR` to point at a different parent directory. Pending queue results are also persisted to a local server cache so stale data can render immediately after stable-server restarts while the server refreshes in the background.

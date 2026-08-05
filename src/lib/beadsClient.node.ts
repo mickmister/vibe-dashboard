@@ -12,6 +12,7 @@ import {
   assertMetadataFitsDoltTextColumn,
   buildPrettySummary,
   getBeadsForms,
+  getSupportedBeadsForms,
   selectBeadsForm,
   withBeadsFormsSummary,
   validateSubmittedValues,
@@ -79,7 +80,7 @@ export type ListWorkspaceBeadsResult = {
 export type PendingBeadsFormEntry = {
   repoDir: string;
   repoName: string;
-  bead: Pick<BeadLike, 'id' | 'title' | 'description'>;
+  bead: Pick<BeadLike, 'id' | 'title' | 'description' | 'createdAt' | 'updatedAt'>;
   form: Pick<BeadsFormDefinition, 'id' | 'title' | 'description'> & { responseCount: number };
 };
 
@@ -185,7 +186,6 @@ export class BeadsClient {
         .map((entry) => entry.name)
         .filter((name) => !name.startsWith('.') && name !== 'node_modules')
         .sort((a, b) => a.localeCompare(b))
-        .slice(0, repoLimit)
         .map((name) => join(reposRoot, name));
     } catch (error) {
       return {
@@ -198,24 +198,34 @@ export class BeadsClient {
       };
     }
 
+    const candidateRepoDirs = (await mapWithConcurrency(repoDirs, 20, async (repoDir) => (
+      await hasLocalBeadsDir(repoDir) ? repoDir : undefined
+    )))
+      .filter((repoDir): repoDir is string => !!repoDir)
+      .slice(0, repoLimit);
+
     const entries: PendingBeadsFormEntry[] = [];
     const skipped: Array<{ repoDir: string; reason: string }> = [];
-    for (const repoDir of repoDirs) {
+    const perRepoResults = await mapWithConcurrency(candidateRepoDirs, 5, async (repoDir) => {
       try {
-        entries.push(...await this.listPendingFormsInRepo(repoDir));
+        return { repoDir, entries: await this.listPendingFormsInRepo(repoDir) };
       } catch (error) {
         if (isNoBeadsDatabaseError(error)) {
-          skipped.push({ repoDir, reason: 'not initialized for beads' });
-        } else {
-          skipped.push({ repoDir, reason: error instanceof Error ? error.message : String(error) });
+          return { repoDir, entries: [] };
         }
+        return { repoDir, entries: [], reason: error instanceof Error ? error.message : String(error) };
       }
+    });
+    for (const result of perRepoResults) {
+      entries.push(...result.entries);
+      if (result.reason) skipped.push({ repoDir: result.repoDir, reason: result.reason });
     }
+    entries.sort(comparePendingEntriesMostRecent);
 
     return {
       reposRoot,
       repoLimit,
-      reposScanned: repoDirs.length,
+      reposScanned: candidateRepoDirs.length,
       entries,
       skipped,
       updateStrategy: pendingQueueUpdateStrategy(),
@@ -224,29 +234,27 @@ export class BeadsClient {
 
   private async listPendingFormsInRepo(repoDir: string): Promise<PendingBeadsFormEntry[]> {
     const candidates = new Map<string, BeadLike>();
-    for (const metadataKey of ['beadFormsSummary', 'beadForms', 'beadsWeb']) {
-      const listed = parseBdJsonArray<BeadLike>((await this.exec(this.bdPath, [
-        '--readonly',
-        'list',
-        '--json',
-        '--all',
-        '--limit',
-        '0',
-        '--has-metadata-key',
-        metadataKey,
-      ], {
-        cwd: repoDir,
-        timeout: 15_000,
-        maxBuffer: 1024 * 1024 * 5,
-      })).stdout);
-      for (const bead of listed) {
-        if (bead.id) candidates.set(bead.id, bead);
-      }
+    const listed = parseBdJsonArray<BeadLike>((await this.exec(this.bdPath, [
+      '--readonly',
+      'list',
+      '--json',
+      '--all',
+      '--limit',
+      '0',
+      '--has-metadata-key',
+      'beadFormsSummary',
+    ], {
+      cwd: repoDir,
+      timeout: 15_000,
+      maxBuffer: 1024 * 1024 * 5,
+    })).stdout);
+    for (const bead of listed) {
+      if (bead.id) candidates.set(bead.id, bead);
     }
 
     return Array.from(candidates.values()).flatMap((bead) => {
       if (isClosedBead(bead)) return [];
-      const forms = getBeadsForms(bead.metadata)
+      const forms = getSupportedBeadsForms(bead.metadata)
         .filter((form) => isPendingForm(bead, form));
       return forms.map((form) => ({
         repoDir,
@@ -255,6 +263,8 @@ export class BeadsClient {
           id: bead.id,
           ...(bead.title ? { title: bead.title } : {}),
           ...(bead.description ? { description: bead.description } : {}),
+          ...(beadCreatedAt(bead) ? { createdAt: beadCreatedAt(bead) } : {}),
+          ...(beadUpdatedAt(bead) ? { updatedAt: beadUpdatedAt(bead) } : {}),
         },
         form: {
           id: form.id,
@@ -454,6 +464,49 @@ function pendingQueueUpdateStrategy(): PendingBeadsFormQueueResult['updateStrate
   };
 }
 
+async function hasLocalBeadsDir(repoDir: string): Promise<boolean> {
+  try {
+    await access(join(repoDir, '.beads'));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await mapper(items[index] as T, index);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+function comparePendingEntriesMostRecent(left: PendingBeadsFormEntry, right: PendingBeadsFormEntry): number {
+  const leftTime = Date.parse(left.bead.updatedAt ?? left.bead.createdAt ?? '');
+  const rightTime = Date.parse(right.bead.updatedAt ?? right.bead.createdAt ?? '');
+  if (Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime !== rightTime) return rightTime - leftTime;
+  if (Number.isFinite(leftTime) !== Number.isFinite(rightTime)) return Number.isFinite(rightTime) ? 1 : -1;
+  return `${left.repoName}:${left.bead.id}:${left.form.id}`.localeCompare(`${right.repoName}:${right.bead.id}:${right.form.id}`);
+}
+
+function beadCreatedAt(bead: BeadLike): string | undefined {
+  return bead.createdAt ?? bead.created_at;
+}
+
+function beadUpdatedAt(bead: BeadLike): string | undefined {
+  return bead.updatedAt ?? bead.updated_at;
+}
+
 function isClosedBead(bead: BeadLike): boolean {
   return bead.status?.trim().toLowerCase() === 'closed';
 }
@@ -465,7 +518,7 @@ function isPendingForm(bead: BeadLike, form: BeadsFormDefinition): boolean {
   if (summary && Array.isArray(summary.pendingFormIds)) {
     return summary.pendingFormIds.includes(form.id);
   }
-  return (form.responses?.length ?? 0) === 0;
+  return false;
 }
 
 export function createNodeBeadsClient(options?: BeadsClientOptions): BeadsClient {
