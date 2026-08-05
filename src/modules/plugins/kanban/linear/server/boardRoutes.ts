@@ -28,12 +28,12 @@ export function registerLinearBoardRoutes(
   hono.get('/dashboard/api/external-trackers/linear/board', async (c) => {
     const externalViewUrl = c.req.query(EXTERNAL_VIEW_URL_PARAM)?.trim();
     if (!externalViewUrl) {
-      return c.json({ ok: false, error: { code: 'missing_external_view_url', message: 'VD did not receive an external Linear URL to open.', userAction: 'Open a Linear issue board/list view, team issue list, project issue list, or single issue URL and launch VD again.' } }, 400);
+      return c.json({ ok: false, error: { code: 'missing_external_view_url', message: 'VD did not receive an external Linear URL to open.', userAction: 'Open a Linear issue board/list view, active cycle, team issue list, project issue list, or single issue URL and launch VD again.' } }, 400);
     }
 
     const parsed = parseLinearExternalViewUrl(externalViewUrl);
     if (parsed.status !== 'ok') {
-      return c.json({ ok: false, error: { code: parsed.reason, message: 'The Linear URL could not be parsed.', userAction: 'Open a Linear issue board/list view, team issue list, project issue list, or single issue URL and launch VD again.', originalUrl: parsed.originalUrl } }, 400);
+      return c.json({ ok: false, error: { code: parsed.reason, message: 'The Linear URL could not be parsed.', userAction: 'Open a Linear issue board/list view, active cycle, team issue list, project issue list, or single issue URL and launch VD again.', originalUrl: parsed.originalUrl } }, 400);
     }
 
     const result = await fetchBoard({

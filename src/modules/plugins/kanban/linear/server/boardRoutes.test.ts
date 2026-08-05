@@ -121,6 +121,57 @@ describe('registerLinearBoardRoutes', () => {
     }));
   });
 
+  it('passes supported Linear active cycle URLs to the adapter', async () => {
+    const app = new Hono();
+    const fetchLinearBoardView = vi.fn(async () => ({ ok: true as const, boardView: boardView() }));
+    registerLinearBoardRoutes(app, {
+      enabled: true,
+      db,
+      fetchLinearBoardView,
+      linearAuth: { kind: 'api_key', apiKey: 'secret', apiUrl: 'https://api.linear.test/graphql' },
+      beads: { runBd: vi.fn(async () => ({ stdout: '' })) },
+    });
+
+    const response = await app.request('/dashboard/api/external-trackers/linear/board?external_view_url=https%3A%2F%2Flinear.app%2Fjamtools%2Fteam%2FVD%2Fcycle%2Factive');
+
+    expect(response.status).toBe(200);
+    expect(fetchLinearBoardView).toHaveBeenCalledWith(expect.objectContaining({
+      locator: expect.objectContaining({
+        provider: 'linear',
+        viewKind: 'cycle',
+        teamKey: 'VD',
+        cycleIdentifier: 'active',
+        queryParams: {},
+      }),
+      auth: expect.objectContaining({ kind: 'api_key' }),
+    }));
+  });
+
+  it('rejects unsupported Linear specific cycle URLs before fetching', async () => {
+    const app = new Hono();
+    const fetchLinearBoardView = vi.fn(async () => ({ ok: true as const, boardView: boardView() }));
+    registerLinearBoardRoutes(app, {
+      enabled: true,
+      db,
+      fetchLinearBoardView,
+      linearAuth: { kind: 'api_key', apiKey: 'secret', apiUrl: 'https://api.linear.test/graphql' },
+    });
+
+    const response = await app.request('/dashboard/api/external-trackers/linear/board?external_view_url=https%3A%2F%2Flinear.app%2Fjamtools%2Fteam%2FVD%2Fcycle%2F123');
+    const json = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(fetchLinearBoardView).not.toHaveBeenCalled();
+    expect(json).toMatchObject({
+      ok: false,
+      error: {
+        code: 'unsupported_linear_url',
+        userAction: 'Open a Linear issue board/list view, active cycle, team issue list, project issue list, or single issue URL and launch VD again.',
+      },
+    });
+    expect(JSON.stringify(json)).not.toContain('secret');
+  });
+
   it('returns a clear board/list-only error for non-issue Linear custom views', async () => {
     const app = new Hono();
     const fetchLinearBoardView = vi.fn(async () => ({
@@ -128,7 +179,7 @@ describe('registerLinearBoardRoutes', () => {
       error: {
         code: 'linear_unsupported_view' as const,
         message: 'This Linear custom view is not an issue board or issue list view.',
-        userAction: 'Open a Linear issue board/list view, team issue list, project issue list, or single issue URL and try again.',
+        userAction: 'Open a Linear issue board/list view, active cycle, team issue list, project issue list, or single issue URL and try again.',
       },
     }));
     registerLinearBoardRoutes(app, {
@@ -147,7 +198,7 @@ describe('registerLinearBoardRoutes', () => {
       error: {
         code: 'linear_unsupported_view',
         message: 'This Linear custom view is not an issue board or issue list view.',
-        userAction: 'Open a Linear issue board/list view, team issue list, project issue list, or single issue URL and try again.',
+        userAction: 'Open a Linear issue board/list view, active cycle, team issue list, project issue list, or single issue URL and try again.',
         originalUrl: 'https://linear.app/jamtools/view/project-view',
       },
     });
@@ -173,7 +224,7 @@ describe('registerLinearBoardRoutes', () => {
       ok: false,
       error: {
         code: 'unsupported_linear_url',
-        userAction: 'Open a Linear issue board/list view, team issue list, project issue list, or single issue URL and launch VD again.',
+        userAction: 'Open a Linear issue board/list view, active cycle, team issue list, project issue list, or single issue URL and launch VD again.',
       },
     });
   });

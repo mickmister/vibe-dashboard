@@ -14,7 +14,7 @@ export interface LinearWorkspaceResourceDto {
 
 export interface ExternalLinearBoardDiagnosticsDto {
   authSource: 'api_key';
-  linearMode: 'issue' | 'issues' | 'customView';
+  linearMode: 'issue' | 'issues' | 'customView' | 'cycle';
   locatorViewKind: LinearExternalViewKind;
   workspaceSlug: string;
   teamKey?: string;
@@ -22,6 +22,11 @@ export interface ExternalLinearBoardDiagnosticsDto {
   customViewId?: string;
   customViewName?: string;
   customViewLayout?: string;
+  cycleIdentifier?: string;
+  cycleId?: string;
+  cycleName?: string;
+  cycleNumber?: number;
+  cycleStatus?: 'active' | 'none';
   issueCount: number;
 }
 

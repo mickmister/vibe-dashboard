@@ -4,7 +4,7 @@ const URL_PARSE_BASE = 'https://dashboard.local';
 const ISSUE_IDENTIFIER_PATTERN = /^[A-Z][A-Z0-9]*-\d+$/;
 const SUPPORTED_QUERY_PARAMS = new Set(['status']);
 
-export type LinearExternalViewKind = 'issue' | 'team' | 'project' | 'customView';
+export type LinearExternalViewKind = 'issue' | 'team' | 'project' | 'customView' | 'cycle';
 
 export type LinearExternalViewUnsupportedReason =
   | 'malformed_url'
@@ -20,6 +20,7 @@ export interface LinearExternalViewLocator {
   issueIdentifier?: string;
   projectSlugOrId?: string;
   customViewId?: string;
+  cycleIdentifier?: string;
   queryParams: Record<string, string | string[]>;
 }
 
@@ -81,7 +82,21 @@ function parseLinearUrl(url: URL, originalUrl: string): LinearExternalViewParseR
   }
 
   if (cycleIndex >= 0) {
-    return { status: 'unsupported', reason: 'unsupported_linear_url', originalUrl };
+    const teamKey = teamIndex >= 0 ? segments[teamIndex + 1]?.toUpperCase() : undefined;
+    const cycleIdentifier = segments[cycleIndex + 1];
+    const isSupportedTeamCycle = teamIndex === 1
+      && cycleIndex === 3
+      && segments.length === cycleIndex + 2
+      && Boolean(teamKey)
+      && cycleIdentifier === 'active'
+      && Object.keys(queryParams).length === 0;
+    if (!isSupportedTeamCycle || !teamKey) {
+      return { status: 'unsupported', reason: 'unsupported_linear_url', originalUrl };
+    }
+    return {
+      status: 'ok',
+      locator: { provider: 'linear', viewKind: 'cycle', originalUrl, workspaceSlug, teamKey, cycleIdentifier, queryParams },
+    };
   }
 
   if (projectIndex >= 0) {

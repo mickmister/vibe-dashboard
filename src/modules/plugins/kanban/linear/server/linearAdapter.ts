@@ -15,7 +15,7 @@ export type ExternalLinearBoardView = ExternalKanbanBoardViewDto<'linear', {
 
 export interface ExternalLinearBoardDiagnostics {
   authSource: 'api_key';
-  linearMode: 'issue' | 'issues' | 'customView';
+  linearMode: 'issue' | 'issues' | 'customView' | 'cycle';
   locatorViewKind: LinearExternalViewLocator['viewKind'];
   workspaceSlug: string;
   teamKey?: string;
@@ -23,6 +23,11 @@ export interface ExternalLinearBoardDiagnostics {
   customViewId?: string;
   customViewName?: string;
   customViewLayout?: string;
+  cycleIdentifier?: string;
+  cycleId?: string;
+  cycleName?: string;
+  cycleNumber?: number;
+  cycleStatus?: 'active' | 'none';
   issueCount: number;
 }
 
@@ -98,6 +103,26 @@ interface LinearCustomView {
   } | null;
 }
 
+interface LinearCycle {
+  id: string;
+  number?: number | null;
+  name?: string | null;
+  startsAt?: string | null;
+  endsAt?: string | null;
+  completedAt?: string | null;
+  issues?: {
+    nodes?: unknown[];
+    pageInfo?: { hasNextPage?: unknown; endCursor?: unknown } | null;
+  } | null;
+}
+
+interface LinearTeamWithActiveCycle {
+  id: string;
+  key: string;
+  name: string;
+  activeCycle?: LinearCycle | null;
+}
+
 const LINEAR_ISSUE_FIELDS = `
   id
   identifier
@@ -167,6 +192,35 @@ const CUSTOM_VIEW_ISSUES_QUERY = `
   }
 `;
 
+const ACTIVE_CYCLE_ISSUES_QUERY = `
+  query LinearActiveCycleIssues($teamKey: String!, $first: Int!, $after: String) {
+    teams(first: 2, filter: { key: { eq: $teamKey } }) {
+      nodes {
+        id
+        key
+        name
+        activeCycle {
+          id
+          number
+          name
+          startsAt
+          endsAt
+          completedAt
+          issues(first: $first, after: $after) {
+            nodes {
+              ${LINEAR_ISSUE_FIELDS}
+            }
+            pageInfo { hasNextPage endCursor }
+          }
+        }
+      }
+    }
+    workflowStates(first: 250) {
+      nodes { id name type position team { id key name } }
+    }
+  }
+`;
+
 export async function fetchLinearBoardView({
   locator,
   auth,
@@ -188,6 +242,10 @@ export async function fetchLinearBoardView({
 
   if (locator.viewKind === 'customView' && locator.customViewId) {
     return fetchCustomViewIssuePages({ locator, auth, fetchImpl, pageSize: clampPageSize(pageSize) });
+  }
+
+  if (locator.viewKind === 'cycle' && locator.teamKey && locator.cycleIdentifier === 'active') {
+    return fetchActiveCycleIssuePages({ locator, auth, fetchImpl, pageSize: clampPageSize(pageSize) });
   }
 
   return fetchIssuePages({ locator, auth, fetchImpl, pageSize: clampPageSize(pageSize) });
@@ -220,6 +278,95 @@ async function fetchSingleIssue({
       mode: 'issue',
     }),
   };
+}
+
+async function fetchActiveCycleIssuePages({
+  locator,
+  auth,
+  fetchImpl,
+  pageSize,
+}: {
+  locator: LinearExternalViewLocator;
+  auth: LinearApiKeyAuthConfig;
+  fetchImpl: typeof fetch;
+  pageSize: number;
+}): Promise<LinearBoardAdapterResult> {
+  const issues: LinearIssue[] = [];
+  let states: LinearWorkflowState[] = [];
+  let activeCycle: LinearCycle | undefined;
+  let team: LinearTeamWithActiveCycle | undefined;
+  let cursor: string | undefined;
+  const seenCursors = new Set<string>();
+
+  for (let pageCount = 0; pageCount < MAX_PAGES; pageCount += 1) {
+    const result = await linearGraphql(fetchImpl, auth, ACTIVE_CYCLE_ISSUES_QUERY, {
+      teamKey: locator.teamKey,
+      first: pageSize,
+      after: cursor ?? null,
+    });
+    if (!result.ok) return { ok: false, error: result.error };
+    const data = result.data;
+    if (!isRecord(data) || !isRecord(data.teams) || !Array.isArray(data.teams.nodes)) {
+      return { ok: false, error: malformedResponse('Linear returned an unexpected team cycle response.') };
+    }
+    const matchingTeams = data.teams.nodes.filter(isLinearTeamWithActiveCycle);
+    team = matchingTeams.find((candidate) => candidate.key === locator.teamKey);
+    if (!team) {
+      return { ok: false, error: unsupportedView('Linear did not return a matching team for this cycle URL.') };
+    }
+    states = parseWorkflowStates(data.workflowStates);
+    if (!team.activeCycle) {
+      return {
+        ok: true,
+        boardView: buildBoardView({
+          locator,
+          issues: [],
+          states,
+          pageCount: 1,
+          maxResults: pageSize,
+          mode: 'cycle',
+          cycleStatus: 'none',
+          teamName: team.name,
+        }),
+      };
+    }
+
+    activeCycle = team.activeCycle;
+    if (!isRecord(activeCycle.issues) || !Array.isArray(activeCycle.issues.nodes) || !isRecord(activeCycle.issues.pageInfo)) {
+      return { ok: false, error: malformedResponse('Linear returned an unexpected active cycle issues response.') };
+    }
+    const pageIssues = activeCycle.issues.nodes;
+    if (!pageIssues.every(isLinearIssue)) {
+      return { ok: false, error: malformedResponse('Linear returned malformed active cycle issue data.') };
+    }
+    issues.push(...pageIssues);
+
+    const hasNextPage = activeCycle.issues.pageInfo.hasNextPage === true;
+    const nextCursor = typeof activeCycle.issues.pageInfo.endCursor === 'string' ? activeCycle.issues.pageInfo.endCursor : undefined;
+    if (!hasNextPage) {
+      return {
+        ok: true,
+        boardView: buildBoardView({
+          locator,
+          issues,
+          states,
+          pageCount: pageCount + 1,
+          maxResults: pageSize,
+          mode: 'cycle',
+          cycle: activeCycle,
+          cycleStatus: 'active',
+          teamName: team.name,
+        }),
+      };
+    }
+    if (!nextCursor || seenCursors.has(nextCursor)) {
+      return { ok: false, error: paginationFailed('Linear active cycle pagination did not advance.', { cursor: nextCursor, pageCount: pageCount + 1 }) };
+    }
+    seenCursors.add(nextCursor);
+    cursor = nextCursor;
+  }
+
+  return { ok: false, error: paginationFailed('Linear active cycle pagination exceeded the safety limit.', { maxPages: MAX_PAGES }) };
 }
 
 async function fetchCustomViewIssuePages({
@@ -358,14 +505,20 @@ function buildBoardView({
   maxResults,
   mode,
   customView,
+  cycle,
+  cycleStatus,
+  teamName,
 }: {
   locator: LinearExternalViewLocator;
   issues: LinearIssue[];
   states: LinearWorkflowState[];
   pageCount: number;
   maxResults: number;
-  mode: 'issue' | 'issues' | 'customView';
+  mode: 'issue' | 'issues' | 'customView' | 'cycle';
   customView?: LinearCustomView;
+  cycle?: LinearCycle;
+  cycleStatus?: 'active' | 'none';
+  teamName?: string;
 }): ExternalLinearBoardView {
   const relevantStates = statesForIssues(states, issues, locator);
   const columns = columnsFromStates(relevantStates, issues);
@@ -384,7 +537,7 @@ function buildBoardView({
     },
     board: {
       id: boardIdForLocator(locator),
-      name: customView?.name ?? boardNameForLocator(locator),
+      name: boardNameForLocator(locator, { customView, cycle, cycleStatus, teamName }),
       type: locator.viewKind,
       ...(locator.teamKey ? { projectKey: locator.teamKey } : {}),
     },
@@ -402,6 +555,11 @@ function buildBoardView({
       ...(locator.customViewId ? { customViewId: locator.customViewId } : {}),
       ...(customView?.name ? { customViewName: customView.name } : {}),
       ...(customView?.viewPreferencesValues?.layout ? { customViewLayout: customView.viewPreferencesValues.layout } : {}),
+      ...(locator.cycleIdentifier ? { cycleIdentifier: locator.cycleIdentifier } : {}),
+      ...(cycle?.id ? { cycleId: cycle.id } : {}),
+      ...(cycle?.name ? { cycleName: cycle.name } : {}),
+      ...(typeof cycle?.number === 'number' ? { cycleNumber: cycle.number } : {}),
+      ...(cycleStatus ? { cycleStatus } : {}),
       issueCount: issues.length,
     },
   };
@@ -544,6 +702,18 @@ function isLinearCustomView(value: unknown): value is LinearCustomView {
   return isRecord(value) && typeof value.id === 'string' && typeof value.name === 'string';
 }
 
+function isLinearCycle(value: unknown): value is LinearCycle {
+  return isRecord(value) && typeof value.id === 'string';
+}
+
+function isLinearTeamWithActiveCycle(value: unknown): value is LinearTeamWithActiveCycle {
+  return isRecord(value)
+    && typeof value.id === 'string'
+    && typeof value.key === 'string'
+    && typeof value.name === 'string'
+    && (value.activeCycle === null || value.activeCycle === undefined || isLinearCycle(value.activeCycle));
+}
+
 function isRecord(value: unknown): value is Record<string, any> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -564,13 +734,25 @@ function boardIdForLocator(locator: LinearExternalViewLocator): string {
     locator.teamKey,
     locator.projectSlugOrId,
     locator.customViewId,
+    locator.cycleIdentifier,
     locator.issueIdentifier,
   ].filter(Boolean).join(':');
 }
 
-function boardNameForLocator(locator: LinearExternalViewLocator): string {
+function boardNameForLocator(
+  locator: LinearExternalViewLocator,
+  options: { customView?: LinearCustomView; cycle?: LinearCycle; cycleStatus?: 'active' | 'none'; teamName?: string } = {},
+): string {
   if (locator.issueIdentifier) return locator.issueIdentifier;
+  if (options.customView?.name) return options.customView.name;
   if (locator.customViewId) return `Linear view ${locator.customViewId}`;
+  if (locator.viewKind === 'cycle') {
+    const teamName = options.teamName ?? locator.teamKey ?? locator.workspaceSlug;
+    if (options.cycleStatus === 'none') return `${teamName} active cycle (none)`;
+    if (options.cycle?.name) return `${teamName} ${options.cycle.name}`;
+    if (typeof options.cycle?.number === 'number') return `${teamName} Cycle ${options.cycle.number}`;
+    return `${teamName} active cycle`;
+  }
   if (locator.projectSlugOrId) return `Linear project ${locator.projectSlugOrId}`;
   if (locator.teamKey) return `Linear team ${locator.teamKey}`;
   return `Linear ${locator.workspaceSlug}`;
@@ -603,7 +785,7 @@ function paginationFailed(message: string, details: Record<string, unknown>): Li
 
 function unsupportedView(message: string): LinearProviderError {
   return createProviderError('linear_unsupported_view', message, {
-    userAction: 'Open a Linear issue board/list view, team issue list, project issue list, or single issue URL and try again.',
+    userAction: 'Open a Linear issue board/list view, active cycle, team issue list, project issue list, or single issue URL and try again.',
   });
 }
 

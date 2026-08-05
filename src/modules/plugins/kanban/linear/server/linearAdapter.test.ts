@@ -27,6 +27,16 @@ const customViewLocator: LinearExternalViewLocator = {
   queryParams: {},
 };
 
+const activeCycleLocator: LinearExternalViewLocator = {
+  provider: 'linear',
+  viewKind: 'cycle',
+  originalUrl: 'https://linear.app/jamtools/team/VD/cycle/active',
+  workspaceSlug: 'jamtools',
+  teamKey: 'VD',
+  cycleIdentifier: 'active',
+  queryParams: {},
+};
+
 const workflowStates = {
   nodes: [
     { id: 'state-todo', name: 'Todo', type: 'unstarted', position: 10, team: { id: 'team-1', key: 'VD', name: 'VD' } },
@@ -48,6 +58,26 @@ function issue(overrides: Record<string, unknown> = {}) {
     assignee: { id: 'user-1', name: 'Ada', displayName: 'Ada Lovelace', avatarUrl: null },
     ...overrides,
   };
+}
+
+function activeCycle(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'cycle-1',
+    number: 42,
+    name: 'Cycle 42',
+    startsAt: '2026-08-01T00:00:00.000Z',
+    endsAt: '2026-08-15T00:00:00.000Z',
+    completedAt: null,
+    issues: {
+      nodes: [issue({ id: 'issue-cycle-1', identifier: 'VD-42', title: 'Cycle issue' })],
+      pageInfo: { hasNextPage: false, endCursor: null },
+    },
+    ...overrides,
+  };
+}
+
+function teamWithActiveCycle(cycle: unknown = activeCycle()) {
+  return { id: 'team-1', key: 'VD', name: 'VD', activeCycle: cycle };
 }
 
 describe('fetchLinearBoardView', () => {
@@ -256,6 +286,115 @@ describe('fetchLinearBoardView', () => {
     }), { headers: { 'content-type': 'application/json' } })) as unknown as typeof fetch;
 
     const result = await fetchLinearBoardView({ locator: customViewLocator, auth, fetchImpl });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('linear_pagination_failed');
+  });
+
+  it('loads Linear active cycle URLs through team activeCycle issues exactly', async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({
+      data: {
+        teams: { nodes: [teamWithActiveCycle()] },
+        workflowStates,
+      },
+    }), { headers: { 'content-type': 'application/json' } })) as unknown as typeof fetch;
+
+    const result = await fetchLinearBoardView({ locator: activeCycleLocator, auth, fetchImpl });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const requestBody = JSON.parse(String(vi.mocked(fetchImpl).mock.calls[0]?.[1]?.body));
+    expect(requestBody.query).toContain('activeCycle');
+    expect(requestBody.variables).toEqual({ teamKey: 'VD', first: 50, after: null });
+    expect(result.boardView.board).toMatchObject({ id: 'jamtools:cycle:VD:active', name: 'VD Cycle 42', type: 'cycle', projectKey: 'VD' });
+    expect(result.boardView.cards.map((card) => card.key)).toEqual(['VD-42']);
+    expect(result.boardView.diagnostics).toMatchObject({
+      linearMode: 'cycle',
+      locatorViewKind: 'cycle',
+      teamKey: 'VD',
+      cycleIdentifier: 'active',
+      cycleId: 'cycle-1',
+      cycleName: 'Cycle 42',
+      cycleNumber: 42,
+      cycleStatus: 'active',
+      issueCount: 1,
+    });
+  });
+
+  it('returns an honest empty board when the team has no active cycle', async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({
+      data: {
+        teams: { nodes: [teamWithActiveCycle(null)] },
+        workflowStates,
+      },
+    }), { headers: { 'content-type': 'application/json' } })) as unknown as typeof fetch;
+
+    const result = await fetchLinearBoardView({ locator: activeCycleLocator, auth, fetchImpl });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.boardView.cards).toEqual([]);
+    expect(result.boardView.board.name).toBe('VD active cycle (none)');
+    expect(result.boardView.diagnostics).toMatchObject({
+      linearMode: 'cycle',
+      cycleIdentifier: 'active',
+      cycleStatus: 'none',
+      issueCount: 0,
+    });
+  });
+
+  it('returns an honest empty board when the active cycle has no issues', async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({
+      data: {
+        teams: { nodes: [teamWithActiveCycle(activeCycle({ issues: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } } }))] },
+        workflowStates,
+      },
+    }), { headers: { 'content-type': 'application/json' } })) as unknown as typeof fetch;
+
+    const result = await fetchLinearBoardView({ locator: activeCycleLocator, auth, fetchImpl });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.boardView.cards).toEqual([]);
+    expect(result.boardView.board.name).toBe('VD Cycle 42');
+    expect(result.boardView.diagnostics).toMatchObject({ cycleStatus: 'active', issueCount: 0 });
+  });
+
+  it('paginates Linear active cycle issues with endCursor', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        data: {
+          teams: { nodes: [teamWithActiveCycle(activeCycle({ issues: { nodes: [issue({ id: 'issue-1', identifier: 'VD-1' })], pageInfo: { hasNextPage: true, endCursor: 'cursor-1' } } }))] },
+          workflowStates,
+        },
+      }), { headers: { 'content-type': 'application/json' } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        data: {
+          teams: { nodes: [teamWithActiveCycle(activeCycle({ issues: { nodes: [issue({ id: 'issue-2', identifier: 'VD-2' })], pageInfo: { hasNextPage: false, endCursor: null } } }))] },
+          workflowStates,
+        },
+      }), { headers: { 'content-type': 'application/json' } })) as unknown as typeof fetch;
+
+    const result = await fetchLinearBoardView({ locator: activeCycleLocator, auth, fetchImpl });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.boardView.cards.map((card) => card.key)).toEqual(['VD-1', 'VD-2']);
+    expect(result.boardView.pagination.pageCount).toBe(2);
+    expect(JSON.parse(String(vi.mocked(fetchImpl).mock.calls[1]?.[1]?.body)).variables.after).toBe('cursor-1');
+  });
+
+  it('fails safely when active cycle pagination cursor repeats', async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({
+      data: {
+        teams: { nodes: [teamWithActiveCycle(activeCycle({ issues: { nodes: [issue()], pageInfo: { hasNextPage: true, endCursor: 'cursor-1' } } }))] },
+        workflowStates,
+      },
+    }), { headers: { 'content-type': 'application/json' } })) as unknown as typeof fetch;
+
+    const result = await fetchLinearBoardView({ locator: activeCycleLocator, auth, fetchImpl });
 
     expect(result.ok).toBe(false);
     if (result.ok) return;

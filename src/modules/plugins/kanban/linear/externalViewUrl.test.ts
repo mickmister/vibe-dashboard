@@ -69,6 +69,34 @@ describe('parseLinearExternalViewUrl', () => {
     });
   });
 
+  it('parses Linear active team cycle URLs for exact active cycle loading', () => {
+    expect(parseLinearExternalViewUrl('https://linear.app/jamtools/team/VD/cycle/active')).toEqual({
+      status: 'ok',
+      locator: {
+        provider: 'linear',
+        viewKind: 'cycle',
+        originalUrl: 'https://linear.app/jamtools/team/VD/cycle/active',
+        workspaceSlug: 'jamtools',
+        teamKey: 'VD',
+        cycleIdentifier: 'active',
+        queryParams: {},
+      },
+    });
+  });
+
+  it('rejects Linear cycle URLs that cannot be loaded exactly yet', () => {
+    expect(parseLinearExternalViewUrl('https://linear.app/jamtools/team/VD/cycle/123')).toEqual({
+      status: 'unsupported',
+      reason: 'unsupported_linear_url',
+      originalUrl: 'https://linear.app/jamtools/team/VD/cycle/123',
+    });
+    expect(parseLinearExternalViewUrl('https://linear.app/jamtools/team/VD/cycle/active?status=Todo')).toEqual({
+      status: 'unsupported',
+      reason: 'unsupported_linear_url',
+      originalUrl: 'https://linear.app/jamtools/team/VD/cycle/active?status=Todo',
+    });
+  });
+
   it('rejects custom view URLs with query filters until exact query filtering is implemented', () => {
     expect(parseLinearExternalViewUrl('https://linear.app/jamtools/view/reported-by-me-c10a8b8b98c26?status=Todo')).toEqual({
       status: 'unsupported',
@@ -77,7 +105,7 @@ describe('parseLinearExternalViewUrl', () => {
     });
   });
 
-  it('rejects cycle, nested view, and bare workspace URLs until exact filtering is implemented', () => {
+  it('rejects nested view and bare workspace URLs until exact filtering is implemented', () => {
     expect(parseLinearExternalViewUrl('https://linear.app/jamtools/project/kanban-provider/views/open')).toEqual({
       status: 'unsupported',
       reason: 'unsupported_linear_url',
@@ -87,11 +115,6 @@ describe('parseLinearExternalViewUrl', () => {
       status: 'unsupported',
       reason: 'unsupported_linear_url',
       originalUrl: 'https://linear.app/jamtools/project/kanban-provider/cycle/current',
-    });
-    expect(parseLinearExternalViewUrl('https://linear.app/jamtools/team/VD/cycle/current')).toEqual({
-      status: 'unsupported',
-      reason: 'unsupported_linear_url',
-      originalUrl: 'https://linear.app/jamtools/team/VD/cycle/current',
     });
     expect(parseLinearExternalViewUrl('https://linear.app/jamtools')).toEqual({
       status: 'unsupported',
