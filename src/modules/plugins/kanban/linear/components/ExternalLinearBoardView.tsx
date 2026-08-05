@@ -6,6 +6,7 @@ import { fetchExternalLinearBoardView } from '../externalTrackerBoardApi';
 import type { ExternalLinearBoardApiResponse, ExternalLinearBoardViewDto } from '../externalTrackerBoardApi';
 import type { ExternalKanbanCardDto, ExternalKanbanColumnDto, ExternalKanbanRelatedWorkspaceDto } from '../../boardTypes';
 import { ExternalKanbanBoardShell, ExternalKanbanColumns, ExternalKanbanSingleIssuePage } from '../../components/ExternalKanbanBoardShell';
+import { ExternalWorkspaceCreateDialog } from '../../components/ExternalWorkspaceCreateDialog';
 
 export function ExternalLinearBoardRoute({ locator }: { locator: LinearExternalViewLocator }) {
   return <ExternalLinearBoardLoader externalViewUrl={locator.originalUrl} />;
@@ -61,7 +62,19 @@ export function ExternalLinearBoardLoader({ externalViewUrl }: { externalViewUrl
 export function ExternalLinearBoardContent({ boardView }: { boardView: ExternalLinearBoardViewDto }) {
   const [selectedCardId, setSelectedCardId] = useState<string | undefined>();
   const [sidePanelWorkspaceId, setSidePanelWorkspaceId] = useState<string | undefined>();
-  const sortedCards = useMemo(() => [...boardView.cards].sort((left, right) => left.rank - right.rank), [boardView.cards]);
+  const [workspaceCreateCard, setWorkspaceCreateCard] = useState<ExternalKanbanCardDto | undefined>();
+  const [createdWorkspacesByCardId, setCreatedWorkspacesByCardId] = useState<Record<string, ExternalKanbanRelatedWorkspaceDto[]>>({});
+  const displayBoardView = useMemo(() => ({
+    ...boardView,
+    cards: boardView.cards.map((card) => ({
+      ...card,
+      relatedWorkspaces: [
+        ...(card.relatedWorkspaces ?? []),
+        ...(createdWorkspacesByCardId[card.id] ?? []),
+      ],
+    })),
+  }), [boardView, createdWorkspacesByCardId]);
+  const sortedCards = useMemo(() => [...displayBoardView.cards].sort((left, right) => left.rank - right.rank), [displayBoardView.cards]);
   const selectedCard = sortedCards.find((card) => card.id === selectedCardId);
   const selectedIndex = selectedCard ? sortedCards.findIndex((card) => card.id === selectedCard.id) : -1;
 
@@ -89,13 +102,33 @@ export function ExternalLinearBoardContent({ boardView }: { boardView: ExternalL
 
   if (boardView.viewMode === 'issue' && sortedCards[0]) {
     return (
-      <ExternalKanbanBoardShell sidePanel={sidePanel}>
+      <ExternalKanbanBoardShell
+        sidePanel={sidePanel}
+        overlays={workspaceCreateCard ? (
+          <ExternalWorkspaceCreateDialog
+            provider="linear"
+            siteHostname={displayBoardView.siteHostname}
+            card={workspaceCreateCard}
+            onClose={() => setWorkspaceCreateCard(undefined)}
+            onCreated={(workspace) => {
+              setCreatedWorkspacesByCardId((current) => ({
+                ...current,
+                [workspaceCreateCard.id]: [...(current[workspaceCreateCard.id] ?? []), workspace],
+              }));
+              setSidePanelWorkspaceId(workspace.workspaceId);
+              setWorkspaceCreateCard(undefined);
+            }}
+          />
+        ) : undefined}
+      >
         <ExternalKanbanSingleIssuePage
-          boardView={boardView}
+          boardView={displayBoardView}
           card={sortedCards[0]}
           providerLabel="Linear"
           providerColorClassName="bg-purple-500/15 text-purple-200"
           openInProviderLabel="Open in Linear"
+          metadataItems={linearMetadataItems(sortedCards[0])}
+          onCreateWorkspace={(card) => setWorkspaceCreateCard(card)}
           onOpenWorkspacePanel={(workspace) => setSidePanelWorkspaceId(workspace.workspaceId)}
         />
       </ExternalKanbanBoardShell>
@@ -324,4 +357,11 @@ function ExternalLinearMessage({ title, message, action, compact = false }: { ti
 function normalizeColumns(boardView: ExternalLinearBoardViewDto): ExternalKanbanColumnDto[] {
   if (boardView.columns.length > 0) return boardView.columns;
   return [{ id: 'linear-status-unknown', title: 'No status', statusIds: [] }];
+}
+
+function linearMetadataItems(card: ExternalKanbanCardDto): Array<{ label: string; value: string }> {
+  const projectName = card.metadata.projectName;
+  return typeof projectName === 'string' && projectName.trim()
+    ? [{ label: 'Project', value: projectName }]
+    : [];
 }

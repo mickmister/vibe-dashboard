@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { afterEach, describe, expect, it } from 'vitest';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { HeroUIProvider } from '@heroui/react';
 import { ExternalLinearBoardContent } from './ExternalLinearBoardView';
 import type { ExternalLinearBoardViewDto } from '../externalTrackerBoardApi';
@@ -50,6 +50,7 @@ function renderBoard(view = boardView) {
 
 afterEach(() => {
   cleanup();
+  vi.unstubAllGlobals();
 });
 
 describe('ExternalLinearBoardContent', () => {
@@ -91,11 +92,13 @@ describe('ExternalLinearBoardContent', () => {
     expect(html).toContain('In Progress');
     expect(html).toContain('Open in Linear');
     expect(html).toContain('Open Workspace');
+    expect(html).toContain('Project');
+    expect(html).toContain('Kanban providers');
     expect(html).not.toContain('No visible Linear issues');
     expect(html.match(/Single Linear issue in progress/g) ?? []).toHaveLength(1);
   });
 
-  it('shows Create Workspace in single issue mode when no workspace is linked', () => {
+  it('shows enabled Create Workspace in single issue mode when no workspace is linked', () => {
     const singleIssueView: ExternalLinearBoardViewDto = {
       ...boardView,
       viewMode: 'issue',
@@ -110,7 +113,64 @@ describe('ExternalLinearBoardContent', () => {
     expect(html).toContain('Single issue without workspace');
     expect(html).toContain('No existing workspace is associated with this issue.');
     expect(html).toContain('Create Workspace');
+    expect(html).not.toContain('disabled=""');
     expect(html).not.toContain('Todo</h3>');
+  });
+
+  it('opens and submits the real workspace creation dialog from a Linear single issue page', async () => {
+    const singleIssueView: ExternalLinearBoardViewDto = {
+      ...boardView,
+      viewMode: 'issue',
+      sourceUrl: 'https://linear.app/jamtools/issue/VD-2/no-workspace',
+      board: { ...boardView.board, id: 'jamtools:issue:VD-2', name: 'VD-2', type: 'issue' },
+      cards: [{ ...boardView.cards[0]!, id: 'issue-2', key: 'VD-2', title: 'Single issue without workspace', relatedWorkspaces: [] }],
+      pagination: { pageCount: 1, issueCount: 1, maxResults: 1 },
+      diagnostics: { authSource: 'api_key', linearMode: 'issue', locatorViewKind: 'issue', workspaceSlug: 'jamtools', issueCount: 1 },
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes('/dashboard/api/external-trackers/vk/workspace-create-options')) {
+        return new Response(JSON.stringify({
+          ok: true,
+          options: {
+            reposRoot: '/home/vkuser/repos',
+            repos: [{ name: 'vibe-kanban-vscode-web', path: '/home/vkuser/repos/vibe-kanban-vscode-web', registeredRepoId: 'repo-1', defaultTargetBranch: 'origin/main' }],
+            defaultExecutorConfig: { executor: 'CODEX' },
+            executors: ['CODEX'],
+          },
+        }), { headers: { 'content-type': 'application/json' } });
+      }
+      if (String(input).includes('/dashboard/api/external-trackers/vk/repos/repo-1/branches')) {
+        return new Response(JSON.stringify({
+          ok: true,
+          branches: [{ name: 'origin/main', is_current: false, is_remote: true, last_commit_date: null }],
+        }), { headers: { 'content-type': 'application/json' } });
+      }
+      if (String(input).includes('/dashboard/api/external-trackers/vk/workspaces/start')) {
+        return new Response(JSON.stringify({
+          ok: true,
+          workspace: { id: 'workspace-created', name: 'VD-2 workspace', branch: 'vk/vd-2', container_ref: '/workspaces/vd-2' },
+          executionProcess: { id: 'process-1', session_id: 'session-1', status: 'running' },
+        }), { headers: { 'content-type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({ ok: false, error: { code: 'unexpected', message: 'Unexpected request', userAction: 'Fix test.' } }), { status: 500 });
+    }) as unknown as typeof fetch;
+    vi.stubGlobal('fetch', fetchMock);
+    renderBoard(singleIssueView);
+
+    const createButtons = screen.getAllByRole('button', { name: 'Create Workspace' });
+    expect(createButtons[0]?.getAttribute('disabled')).toBeNull();
+    fireEvent.click(createButtons[0]!);
+
+    expect(await screen.findByRole('dialog', { name: 'Create VK workspace for VD-2' })).toBeTruthy();
+    expect(await screen.findByText('vibe-kanban-vscode-web')).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledWith('/dashboard/api/external-trackers/vk/workspace-create-options', expect.any(Object));
+    fireEvent.click(screen.getAllByText('vibe-kanban-vscode-web')[0]!);
+    await screen.findByText('/home/vkuser/repos/vibe-kanban-vscode-web');
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/dashboard/api/external-trackers/vk/repos/repo-1/branches', expect.any(Object)));
+    fireEvent.click(screen.getByRole('button', { name: 'Create workspace' }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/dashboard/api/external-trackers/vk/workspaces/start', expect.objectContaining({ method: 'POST' })));
+    expect((await screen.findByTitle('VK workspace session')).getAttribute('src')).toBe('/dashboard/workspaces/workspace-created');
   });
 
   it('renders workflow columns, cards, task summaries, and workspace action', () => {

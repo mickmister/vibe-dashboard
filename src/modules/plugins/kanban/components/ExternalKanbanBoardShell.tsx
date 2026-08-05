@@ -62,6 +62,7 @@ export function ExternalKanbanSingleIssuePage({
   providerLabel,
   providerColorClassName = 'bg-neutral-800 text-neutral-200',
   openInProviderLabel = 'Open in provider',
+  metadataItems = [],
   onCreateWorkspace,
   onOpenWorkspacePanel,
 }: {
@@ -70,6 +71,7 @@ export function ExternalKanbanSingleIssuePage({
   providerLabel: string;
   providerColorClassName?: string;
   openInProviderLabel?: string;
+  metadataItems?: Array<{ label: string; value: string }>;
   onCreateWorkspace?: (card: ExternalKanbanCardDto) => void;
   onOpenWorkspacePanel?: (workspace: ExternalKanbanRelatedWorkspaceDto) => void;
 }) {
@@ -115,6 +117,7 @@ export function ExternalKanbanSingleIssuePage({
           <DetailStat label="Workspace" value={workspaceCount === 0 ? 'None' : workspaceCount === 1 ? 'Existing workspace' : `${workspaceCount} linked workspaces`} />
           <DetailStat label="Tasks" value={`${taskSummary.completed}/${taskSummary.total} tasks complete`} />
           <DetailStat label="Source" value={boardView.resource.name} />
+          {metadataItems.map((item) => <DetailStat key={`${item.label}:${item.value}`} label={item.label} value={item.value} />)}
         </section>
 
         <section className="rounded-2xl border border-neutral-800 bg-neutral-900/60 p-5">
