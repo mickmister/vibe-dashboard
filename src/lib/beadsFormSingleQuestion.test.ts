@@ -95,6 +95,24 @@ describe('BeadsForm single-question mode', () => {
     expect(bottomNext.hidden).toBe(false);
   });
 
+  it('can initialize wizard mode without writing aggregate card navigation to URL state', () => {
+    window.history.pushState(null, '', '/dashboard/forms/aggregate?dir=%2Frepo&bead=bd-1&form=review');
+    document.body.innerHTML = `
+      <div id="host">
+        <form>
+          <fieldset><legend>First</legend><input name="first"></fieldset>
+          <fieldset><legend>Second</legend><input name="second"></fieldset>
+        </form>
+      </div>
+    `;
+
+    initializeSingleQuestionMode(document.querySelector('#host')!, { urlState: false });
+
+    document.querySelector<HTMLButtonElement>('.beadsform-single-question-controls--top button:nth-child(2)')!.click();
+    expect(document.querySelector('.beadsform-single-question-progress')?.textContent).toBe('Question 2 of 2');
+    expect(new URL(window.location.href).searchParams.get('formQuestion')).toBeNull();
+  });
+
   it('reports active fieldset validity before navigating forward', () => {
     document.body.innerHTML = `
       <div id="host">

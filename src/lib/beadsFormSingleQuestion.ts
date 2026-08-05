@@ -2,9 +2,10 @@ export type SingleQuestionModeCleanup = () => void;
 
 const WIZARD_QUESTION_PARAM = 'formQuestion';
 
-export function initializeSingleQuestionMode(host: ParentNode): SingleQuestionModeCleanup {
+export function initializeSingleQuestionMode(host: ParentNode, options: { urlState?: boolean } = {}): SingleQuestionModeCleanup {
   const form = host.querySelector('form');
   if (!form || form.dataset.beadsformSingleQuestion === 'true') return () => undefined;
+  const useUrlState = options.urlState ?? true;
 
   const fieldsets = Array.from(form.children).filter((child): child is HTMLFieldSetElement => (
     child instanceof HTMLFieldSetElement
@@ -72,7 +73,7 @@ export function initializeSingleQuestionMode(host: ParentNode): SingleQuestionMo
   }
   main.append(bottomControls.container);
 
-  let activeIndex = initialQuestionIndexFromUrl(questions.length) ?? 0;
+  let activeIndex = useUrlState ? (initialQuestionIndexFromUrl(questions.length) ?? 0) : 0;
   const listButtons = Array.from(questionList.querySelectorAll<HTMLButtonElement>('button'));
   const submitActions = form.querySelector<HTMLElement>('.beads-form-submit-actions');
 
@@ -131,14 +132,14 @@ export function initializeSingleQuestionMode(host: ParentNode): SingleQuestionMo
         activeIndex = current;
         render({ scrollToQuestion: activeIndex !== startingIndex });
         if (!questionIsValid(current)) {
-          if (activeIndex !== startingIndex) writeQuestionIndexToUrl(activeIndex, 'push');
+          if (useUrlState && activeIndex !== startingIndex) writeQuestionIndexToUrl(activeIndex, 'push');
           return;
         }
       }
     }
     activeIndex = target;
     render({ scrollToQuestion: activeIndex !== startingIndex });
-    if (activeIndex !== startingIndex) writeQuestionIndexToUrl(activeIndex, 'push');
+    if (useUrlState && activeIndex !== startingIndex) writeQuestionIndexToUrl(activeIndex, 'push');
   }
 
   function handleSubmit(event: SubmitEvent) {
@@ -150,7 +151,7 @@ export function initializeSingleQuestionMode(host: ParentNode): SingleQuestionMo
     const startingIndex = activeIndex;
     activeIndex = invalidIndex >= 0 ? invalidIndex : questions.length - 1;
     render({ scrollToQuestion: activeIndex !== startingIndex });
-    if (activeIndex !== startingIndex) writeQuestionIndexToUrl(activeIndex, 'replace');
+    if (useUrlState && activeIndex !== startingIndex) writeQuestionIndexToUrl(activeIndex, 'replace');
     if (invalidIndex >= 0) questionIsValid(invalidIndex);
   }
 
@@ -168,12 +169,12 @@ export function initializeSingleQuestionMode(host: ParentNode): SingleQuestionMo
     next.addEventListener('click', () => goTo(activeIndex + 1));
   });
   form.addEventListener('submit', handleSubmit, true);
-  window.addEventListener('popstate', handlePopState);
+  if (useUrlState) window.addEventListener('popstate', handlePopState);
   render();
 
   return () => {
     form.removeEventListener('submit', handleSubmit, true);
-    window.removeEventListener('popstate', handlePopState);
+    if (useUrlState) window.removeEventListener('popstate', handlePopState);
     form.classList.remove('beadsform-single-question-form');
     delete form.dataset.beadsformSingleQuestion;
   };

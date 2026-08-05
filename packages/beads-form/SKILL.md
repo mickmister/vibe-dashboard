@@ -251,6 +251,8 @@ When several agents create separate bead-backed forms and the human should revie
 
 The route loads each direct `dir`/`bead`/`form` ref independently, renders one grouped section per source form, and submits each section back to its original bead/form. This keeps the normal per-form response model and avoids collisions when different forms reuse the same question ids. If one source form fails to load or submit, the aggregate page shows that source-specific error instead of claiming the whole aggregate succeeded. Use each section’s “Open alone” link when a user should focus on one source form.
 
+Aggregate URL params must be ordered as exact repeated `dir`, then `bead`, then `form` triplets. Do not group all `dir` params first or append unrelated query params to the aggregate URL; malformed ordering is rejected so refs cannot be silently misaligned.
+
 ## Pending form queue
 
 Open `/dashboard/forms` without query parameters to view the pending Bead-backed form queue. The queue scans a bounded set of first-level repos under `~/repos` using read-only `bd` commands, prefers the `beadFormsSummary` pending-answer index, falls back to legacy `beadForms` metadata when needed, lists forms with no responses, and provides direct fill-out links. Use the Refresh button after attaching forms or after a human submits. See `packages/beads-form/PENDING_QUEUE.md` for realtime/update tradeoffs and safety limits.

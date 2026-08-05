@@ -33,6 +33,8 @@ import { initializeSingleQuestionMode } from '../lib/beadsFormSingleQuestion';
 import { initializeCompactMoreInfo, refreshCompactMoreInfoState } from '../lib/beadsFormMoreInfo';
 import { preserveSubmittedFormDom } from '../lib/beadsFormSubmissionUi';
 import {
+  aggregateFormDomPrefix,
+  namespaceAggregateFormHtml,
   parseAggregateBeadsFormRefs,
   type AggregateBeadsFormRef,
   type AggregateSubmitStatus,
@@ -651,7 +653,10 @@ function AggregateBeadsFormCard({ item, submitBeadForm }: {
   const submitInFlightRef = useRef(false);
   const formHostRef = useRef<HTMLDivElement | null>(null);
   const form = item.form;
-  const html = useMemo(() => (form ? sanitizeBeadsFormHtml(form.html) : ''), [form]);
+  const domPrefix = useMemo(() => aggregateFormDomPrefix(item.ref), [item.ref]);
+  const html = useMemo(() => (
+    form ? namespaceAggregateFormHtml(sanitizeBeadsFormHtml(form.html), domPrefix) : ''
+  ), [domPrefix, form]);
   const storageKey = useMemo(() => {
     if (!form || !item.beadRepoDir) return '';
     return beadFormStorageKey({
@@ -682,6 +687,7 @@ function AggregateBeadsFormCard({ item, submitBeadForm }: {
   React.useEffect(() => {
     const element = formHostRef.current;
     if (!element || !form) return;
+    if (form.format === 'standard') initializeSingleQuestionMode(element, { urlState: false });
     initializeCompactMoreInfo(element);
     refreshCompactMoreInfoState(element);
   }, [form, html]);
@@ -723,7 +729,8 @@ function AggregateBeadsFormCard({ item, submitBeadForm }: {
       if (typeof window !== 'undefined' && storageKey) clearPreviewStorage(window.localStorage, storageKey);
       preserveSubmittedFormDom(formHostRef.current, result.values, {
         lock: true,
-        singleQuestionMode: false,
+        singleQuestionMode: form.format === 'standard',
+        singleQuestionModeUrlState: false,
       });
       setSubmittedLocked(true);
       setStatus({ status: 'success', values: result.values, warnings: result.warnings });

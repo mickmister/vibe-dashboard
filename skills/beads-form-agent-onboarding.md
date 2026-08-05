@@ -152,6 +152,8 @@ If multiple agents created separate forms and the user should answer them from o
 
 Each grouped section submits independently back to its source bead/form. This is safer than combining responses into a new schema and avoids question-id collisions between forms.
 
+Aggregate URL params must be ordered as exact repeated `dir`, then `bead`, then `form` triplets. Do not group all `dir` params first or add unrelated query params to aggregate URLs; malformed ordering is rejected so refs cannot be silently misaligned.
+
 ## 5. Inspect attached forms/responses
 
 ```bash
