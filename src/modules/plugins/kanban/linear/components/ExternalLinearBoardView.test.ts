@@ -63,6 +63,7 @@ describe('ExternalLinearBoardContent', () => {
   it('renders a single Linear issue response in a non-default status instead of the empty state', () => {
     const singleIssueView: ExternalLinearBoardViewDto = {
       ...boardView,
+      viewMode: 'issue',
       sourceUrl: 'https://linear.app/jamtools/issue/VD-1/build-linear-provider',
       board: { ...boardView.board, id: 'jamtools:issue:VD-1', name: 'VD-1', type: 'issue' },
       columns: [
@@ -85,10 +86,31 @@ describe('ExternalLinearBoardContent', () => {
     };
     const html = renderToStaticMarkup(React.createElement(ExternalLinearBoardContent, { boardView: singleIssueView }));
 
+    expect(html).toContain('Single issue');
     expect(html).toContain('Single Linear issue in progress');
     expect(html).toContain('In Progress');
+    expect(html).toContain('Open in Linear');
+    expect(html).toContain('Open Workspace');
     expect(html).not.toContain('No visible Linear issues');
     expect(html.match(/Single Linear issue in progress/g) ?? []).toHaveLength(1);
+  });
+
+  it('shows Create Workspace in single issue mode when no workspace is linked', () => {
+    const singleIssueView: ExternalLinearBoardViewDto = {
+      ...boardView,
+      viewMode: 'issue',
+      sourceUrl: 'https://linear.app/jamtools/issue/VD-2/no-workspace',
+      board: { ...boardView.board, id: 'jamtools:issue:VD-2', name: 'VD-2', type: 'issue' },
+      cards: [{ ...boardView.cards[0]!, id: 'issue-2', key: 'VD-2', title: 'Single issue without workspace', relatedWorkspaces: [] }],
+      pagination: { pageCount: 1, issueCount: 1, maxResults: 1 },
+      diagnostics: { authSource: 'api_key', linearMode: 'issue', locatorViewKind: 'issue', workspaceSlug: 'jamtools', issueCount: 1 },
+    };
+    const html = renderToStaticMarkup(React.createElement(ExternalLinearBoardContent, { boardView: singleIssueView }));
+
+    expect(html).toContain('Single issue without workspace');
+    expect(html).toContain('No existing workspace is associated with this issue.');
+    expect(html).toContain('Create Workspace');
+    expect(html).not.toContain('Todo</h3>');
   });
 
   it('renders workflow columns, cards, task summaries, and workspace action', () => {

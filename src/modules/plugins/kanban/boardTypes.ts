@@ -1,6 +1,7 @@
 import type { ExternalIssueProvider } from './contracts';
 
 export type ExternalKanbanSwimlaneFidelity = 'full' | 'partial' | 'none' | 'unknown';
+export type ExternalKanbanViewMode = 'board' | 'list' | 'issue';
 
 export interface ExternalKanbanColumnDto {
   id: string;
@@ -86,6 +87,7 @@ export interface ExternalKanbanBoardViewDto<
   Diagnostics = unknown,
 > {
   provider: Provider;
+  viewMode?: ExternalKanbanViewMode;
   sourceUrl: string;
   siteHostname: string;
   resource: Resource;

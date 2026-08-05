@@ -5,7 +5,7 @@ import type { LinearExternalViewLocator } from '../externalViewUrl';
 import { fetchExternalLinearBoardView } from '../externalTrackerBoardApi';
 import type { ExternalLinearBoardApiResponse, ExternalLinearBoardViewDto } from '../externalTrackerBoardApi';
 import type { ExternalKanbanCardDto, ExternalKanbanColumnDto, ExternalKanbanRelatedWorkspaceDto } from '../../boardTypes';
-import { ExternalKanbanBoardShell, ExternalKanbanColumns } from '../../components/ExternalKanbanBoardShell';
+import { ExternalKanbanBoardShell, ExternalKanbanColumns, ExternalKanbanSingleIssuePage } from '../../components/ExternalKanbanBoardShell';
 
 export function ExternalLinearBoardRoute({ locator }: { locator: LinearExternalViewLocator }) {
   return <ExternalLinearBoardLoader externalViewUrl={locator.originalUrl} />;
@@ -86,6 +86,21 @@ export function ExternalLinearBoardContent({ boardView }: { boardView: ExternalL
       />
     </aside>
   ) : undefined;
+
+  if (boardView.viewMode === 'issue' && sortedCards[0]) {
+    return (
+      <ExternalKanbanBoardShell sidePanel={sidePanel}>
+        <ExternalKanbanSingleIssuePage
+          boardView={boardView}
+          card={sortedCards[0]}
+          providerLabel="Linear"
+          providerColorClassName="bg-purple-500/15 text-purple-200"
+          openInProviderLabel="Open in Linear"
+          onOpenWorkspacePanel={(workspace) => setSidePanelWorkspaceId(workspace.workspaceId)}
+        />
+      </ExternalKanbanBoardShell>
+    );
+  }
 
   return (
     <ExternalKanbanBoardShell

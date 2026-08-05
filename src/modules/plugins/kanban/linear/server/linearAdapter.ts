@@ -531,6 +531,7 @@ function buildBoardView({
 
   return {
     provider: 'linear',
+    viewMode: mode === 'issue' ? 'issue' : 'board',
     sourceUrl: locator.originalUrl,
     siteHostname: `linear.app/${locator.workspaceSlug}`,
     resource: {

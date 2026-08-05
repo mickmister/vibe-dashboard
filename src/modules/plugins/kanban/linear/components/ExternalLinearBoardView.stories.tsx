@@ -92,3 +92,49 @@ export const EmptyLinearView: Story = {
     },
   },
 };
+
+export const SingleIssuePage: Story = {
+  args: {
+    boardView: {
+      ...fullCircleInspiredBoard,
+      viewMode: 'issue',
+      sourceUrl: 'https://linear.app/jamtools/issue/VD-102/render-linear-workflow-states',
+      board: { id: 'jamtools:issue:VD-102', name: 'VD-102', type: 'issue' },
+      cards: [
+        {
+          ...fullCircleInspiredBoard.cards[1]!,
+          relatedBeads: [
+            { id: 'vkvw-linear-single', title: 'Implement provider-neutral single issue page', status: 'open', externalIssue: { provider: 'linear', key: 'VD-102', url: 'https://linear.app/jamtools/issue/VD-102/render-linear-workflow-states', site: 'linear.app/jamtools' } },
+            { id: 'vkvw-linear-review', title: 'Review single issue page', status: 'closed', externalIssue: { provider: 'linear', key: 'VD-102', url: 'https://linear.app/jamtools/issue/VD-102/render-linear-workflow-states', site: 'linear.app/jamtools' } },
+          ],
+        },
+      ],
+      pagination: { pageCount: 1, issueCount: 1, maxResults: 1 },
+      diagnostics: { authSource: 'api_key', linearMode: 'issue', locatorViewKind: 'issue', workspaceSlug: 'jamtools', issueCount: 1 },
+    },
+  },
+};
+
+export const SingleIssueWithoutWorkspace: Story = {
+  args: {
+    boardView: {
+      ...fullCircleInspiredBoard,
+      viewMode: 'issue',
+      sourceUrl: 'https://linear.app/jamtools/issue/VD-104/create-workspace-from-single-issue',
+      board: { id: 'jamtools:issue:VD-104', name: 'VD-104', type: 'issue' },
+      cards: [
+        {
+          ...fullCircleInspiredBoard.cards[0]!,
+          id: 'issue-4',
+          key: 'VD-104',
+          title: 'Create workspace from a single Linear issue',
+          url: 'https://linear.app/jamtools/issue/VD-104/create-workspace-from-single-issue',
+          relatedWorkspaces: [],
+          relatedBeads: [],
+        },
+      ],
+      pagination: { pageCount: 1, issueCount: 1, maxResults: 1 },
+      diagnostics: { authSource: 'api_key', linearMode: 'issue', locatorViewKind: 'issue', workspaceSlug: 'jamtools', issueCount: 1 },
+    },
+  },
+};
