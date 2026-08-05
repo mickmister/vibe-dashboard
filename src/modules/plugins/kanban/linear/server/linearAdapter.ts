@@ -15,11 +15,14 @@ export type ExternalLinearBoardView = ExternalKanbanBoardViewDto<'linear', {
 
 export interface ExternalLinearBoardDiagnostics {
   authSource: 'api_key';
-  linearMode: 'issue' | 'issues';
+  linearMode: 'issue' | 'issues' | 'customView';
   locatorViewKind: LinearExternalViewLocator['viewKind'];
   workspaceSlug: string;
   teamKey?: string;
   projectSlugOrId?: string;
+  customViewId?: string;
+  customViewName?: string;
+  customViewLayout?: string;
   issueCount: number;
 }
 
@@ -30,7 +33,8 @@ export type LinearProviderErrorCode =
   | 'linear_fetch_failed'
   | 'linear_graphql_error'
   | 'linear_malformed_response'
-  | 'linear_pagination_failed';
+  | 'linear_pagination_failed'
+  | 'linear_unsupported_view';
 
 export interface LinearProviderError {
   code: LinearProviderErrorCode;
@@ -76,6 +80,24 @@ interface LinearWorkflowState {
   team?: { id: string; key: string; name: string } | null;
 }
 
+interface LinearCustomView {
+  id: string;
+  name: string;
+  slugId?: string | null;
+  modelName?: string | null;
+  url?: string | null;
+  team?: { id: string; key: string; name: string } | null;
+  viewPreferencesValues?: {
+    layout?: string | null;
+    issueGrouping?: string | null;
+    issueSubGrouping?: string | null;
+  } | null;
+  issues?: {
+    nodes?: unknown[];
+    pageInfo?: { hasNextPage?: unknown; endCursor?: unknown } | null;
+  } | null;
+}
+
 const LINEAR_ISSUE_FIELDS = `
   id
   identifier
@@ -118,6 +140,33 @@ const ISSUES_QUERY = `
   }
 `;
 
+const CUSTOM_VIEW_ISSUES_QUERY = `
+  query LinearCustomViewIssues($id: String!, $first: Int!, $after: String) {
+    customView(id: $id) {
+      id
+      name
+      slugId
+      modelName
+      url
+      team { id key name }
+      viewPreferencesValues {
+        layout
+        issueGrouping
+        issueSubGrouping
+      }
+      issues(first: $first, after: $after) {
+        nodes {
+          ${LINEAR_ISSUE_FIELDS}
+        }
+        pageInfo { hasNextPage endCursor }
+      }
+    }
+    workflowStates(first: 250) {
+      nodes { id name type position team { id key name } }
+    }
+  }
+`;
+
 export async function fetchLinearBoardView({
   locator,
   auth,
@@ -135,6 +184,10 @@ export async function fetchLinearBoardView({
 
   if (locator.viewKind === 'issue' && locator.issueIdentifier) {
     return fetchSingleIssue({ locator, auth, fetchImpl });
+  }
+
+  if (locator.viewKind === 'customView' && locator.customViewId) {
+    return fetchCustomViewIssuePages({ locator, auth, fetchImpl, pageSize: clampPageSize(pageSize) });
   }
 
   return fetchIssuePages({ locator, auth, fetchImpl, pageSize: clampPageSize(pageSize) });
@@ -167,6 +220,75 @@ async function fetchSingleIssue({
       mode: 'issue',
     }),
   };
+}
+
+async function fetchCustomViewIssuePages({
+  locator,
+  auth,
+  fetchImpl,
+  pageSize,
+}: {
+  locator: LinearExternalViewLocator;
+  auth: LinearApiKeyAuthConfig;
+  fetchImpl: typeof fetch;
+  pageSize: number;
+}): Promise<LinearBoardAdapterResult> {
+  const issues: LinearIssue[] = [];
+  let states: LinearWorkflowState[] = [];
+  let customView: LinearCustomView | undefined;
+  let cursor: string | undefined;
+  const seenCursors = new Set<string>();
+
+  for (let pageCount = 0; pageCount < MAX_PAGES; pageCount += 1) {
+    const result = await linearGraphql(fetchImpl, auth, CUSTOM_VIEW_ISSUES_QUERY, {
+      id: locator.customViewId,
+      first: pageSize,
+      after: cursor ?? null,
+    });
+    if (!result.ok) return { ok: false, error: result.error };
+    const data = result.data;
+    if (!isRecord(data) || !isLinearCustomView(data.customView)) {
+      return { ok: false, error: unsupportedView('Linear did not return this URL as an issue board or issue list view.') };
+    }
+    customView = data.customView;
+    if (customView.modelName !== 'Issue') {
+      return { ok: false, error: unsupportedView('This Linear custom view is not an issue board or issue list view.') };
+    }
+    if (!isRecord(customView.issues) || !Array.isArray(customView.issues.nodes) || !isRecord(customView.issues.pageInfo)) {
+      return { ok: false, error: malformedResponse('Linear returned an unexpected custom view issues response.') };
+    }
+
+    const pageIssues = customView.issues.nodes;
+    if (!pageIssues.every(isLinearIssue)) {
+      return { ok: false, error: malformedResponse('Linear returned malformed custom view issue data.') };
+    }
+    issues.push(...pageIssues);
+    states = parseWorkflowStates(data.workflowStates);
+
+    const hasNextPage = customView.issues.pageInfo.hasNextPage === true;
+    const nextCursor = typeof customView.issues.pageInfo.endCursor === 'string' ? customView.issues.pageInfo.endCursor : undefined;
+    if (!hasNextPage) {
+      return {
+        ok: true,
+        boardView: buildBoardView({
+          locator,
+          issues,
+          states,
+          pageCount: pageCount + 1,
+          maxResults: pageSize,
+          mode: 'customView',
+          customView,
+        }),
+      };
+    }
+    if (!nextCursor || seenCursors.has(nextCursor)) {
+      return { ok: false, error: paginationFailed('Linear custom view pagination did not advance.', { cursor: nextCursor, pageCount: pageCount + 1 }) };
+    }
+    seenCursors.add(nextCursor);
+    cursor = nextCursor;
+  }
+
+  return { ok: false, error: paginationFailed('Linear custom view pagination exceeded the safety limit.', { maxPages: MAX_PAGES }) };
 }
 
 async function fetchIssuePages({
@@ -235,13 +357,15 @@ function buildBoardView({
   pageCount,
   maxResults,
   mode,
+  customView,
 }: {
   locator: LinearExternalViewLocator;
   issues: LinearIssue[];
   states: LinearWorkflowState[];
   pageCount: number;
   maxResults: number;
-  mode: 'issue' | 'issues';
+  mode: 'issue' | 'issues' | 'customView';
+  customView?: LinearCustomView;
 }): ExternalLinearBoardView {
   const relevantStates = statesForIssues(states, issues, locator);
   const columns = columnsFromStates(relevantStates, issues);
@@ -260,7 +384,7 @@ function buildBoardView({
     },
     board: {
       id: boardIdForLocator(locator),
-      name: boardNameForLocator(locator),
+      name: customView?.name ?? boardNameForLocator(locator),
       type: locator.viewKind,
       ...(locator.teamKey ? { projectKey: locator.teamKey } : {}),
     },
@@ -275,6 +399,9 @@ function buildBoardView({
       workspaceSlug: locator.workspaceSlug,
       ...(locator.teamKey ? { teamKey: locator.teamKey } : {}),
       ...(locator.projectSlugOrId ? { projectSlugOrId: locator.projectSlugOrId } : {}),
+      ...(locator.customViewId ? { customViewId: locator.customViewId } : {}),
+      ...(customView?.name ? { customViewName: customView.name } : {}),
+      ...(customView?.viewPreferencesValues?.layout ? { customViewLayout: customView.viewPreferencesValues.layout } : {}),
       issueCount: issues.length,
     },
   };
@@ -413,6 +540,10 @@ function isWorkflowState(value: unknown): value is LinearWorkflowState {
   return isRecord(value) && typeof value.id === 'string' && typeof value.name === 'string';
 }
 
+function isLinearCustomView(value: unknown): value is LinearCustomView {
+  return isRecord(value) && typeof value.id === 'string' && typeof value.name === 'string';
+}
+
 function isRecord(value: unknown): value is Record<string, any> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -432,12 +563,14 @@ function boardIdForLocator(locator: LinearExternalViewLocator): string {
     locator.viewKind,
     locator.teamKey,
     locator.projectSlugOrId,
+    locator.customViewId,
     locator.issueIdentifier,
   ].filter(Boolean).join(':');
 }
 
 function boardNameForLocator(locator: LinearExternalViewLocator): string {
   if (locator.issueIdentifier) return locator.issueIdentifier;
+  if (locator.customViewId) return `Linear view ${locator.customViewId}`;
   if (locator.projectSlugOrId) return `Linear project ${locator.projectSlugOrId}`;
   if (locator.teamKey) return `Linear team ${locator.teamKey}`;
   return `Linear ${locator.workspaceSlug}`;
@@ -465,6 +598,12 @@ function paginationFailed(message: string, details: Record<string, unknown>): Li
   return createProviderError('linear_pagination_failed', message, {
     userAction: 'Try again; if this persists, narrow the Linear view or report pagination details.',
     details,
+  });
+}
+
+function unsupportedView(message: string): LinearProviderError {
+  return createProviderError('linear_unsupported_view', message, {
+    userAction: 'Open a Linear issue board/list view, team issue list, project issue list, or single issue URL and try again.',
   });
 }
 

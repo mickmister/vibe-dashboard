@@ -55,12 +55,29 @@ describe('parseLinearExternalViewUrl', () => {
     });
   });
 
-  it('rejects view, cycle, and bare workspace URLs until exact filtering is implemented', () => {
-    expect(parseLinearExternalViewUrl('https://linear.app/jamtools/view/custom-view')).toEqual({
+  it('parses top-level Linear custom view URLs for exact custom view loading', () => {
+    expect(parseLinearExternalViewUrl('https://linear.app/jamtools/view/im-behind-2e841d573fab6')).toEqual({
+      status: 'ok',
+      locator: {
+        provider: 'linear',
+        viewKind: 'customView',
+        originalUrl: 'https://linear.app/jamtools/view/im-behind-2e841d573fab6',
+        workspaceSlug: 'jamtools',
+        customViewId: 'im-behind-2e841d573fab6',
+        queryParams: {},
+      },
+    });
+  });
+
+  it('rejects custom view URLs with query filters until exact query filtering is implemented', () => {
+    expect(parseLinearExternalViewUrl('https://linear.app/jamtools/view/reported-by-me-c10a8b8b98c26?status=Todo')).toEqual({
       status: 'unsupported',
       reason: 'unsupported_linear_url',
-      originalUrl: 'https://linear.app/jamtools/view/custom-view',
+      originalUrl: 'https://linear.app/jamtools/view/reported-by-me-c10a8b8b98c26?status=Todo',
     });
+  });
+
+  it('rejects cycle, nested view, and bare workspace URLs until exact filtering is implemented', () => {
     expect(parseLinearExternalViewUrl('https://linear.app/jamtools/project/kanban-provider/views/open')).toEqual({
       status: 'unsupported',
       reason: 'unsupported_linear_url',

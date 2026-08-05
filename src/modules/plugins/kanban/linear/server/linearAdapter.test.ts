@@ -18,6 +18,15 @@ const teamLocator: LinearExternalViewLocator = {
   queryParams: {},
 };
 
+const customViewLocator: LinearExternalViewLocator = {
+  provider: 'linear',
+  viewKind: 'customView',
+  originalUrl: 'https://linear.app/jamtools/view/reported-by-me-c10a8b8b98c26',
+  workspaceSlug: 'jamtools',
+  customViewId: 'reported-by-me-c10a8b8b98c26',
+  queryParams: {},
+};
+
 const workflowStates = {
   nodes: [
     { id: 'state-todo', name: 'Todo', type: 'unstarted', position: 10, team: { id: 'team-1', key: 'VD', name: 'VD' } },
@@ -133,6 +142,124 @@ describe('fetchLinearBoardView', () => {
     expect(result.boardView.cards.map((card) => card.key)).toEqual(['VD-1', 'VD-2']);
     expect(result.boardView.pagination.pageCount).toBe(2);
     expect(JSON.parse(String(vi.mocked(fetchImpl).mock.calls[1]?.[1]?.body)).variables.after).toBe('cursor-1');
+  });
+
+  it('loads Linear custom issue view URLs through customView issues exactly', async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({
+      data: {
+        customView: {
+          id: 'custom-view-1',
+          name: 'Reported by me',
+          slugId: 'reported-by-me-c10a8b8b98c26',
+          modelName: 'Issue',
+          url: 'https://linear.app/jamtools/view/reported-by-me-c10a8b8b98c26',
+          team: { id: 'team-1', key: 'VD', name: 'VD' },
+          viewPreferencesValues: { layout: 'list', issueGrouping: 'workflowState', issueSubGrouping: 'none' },
+          issues: {
+            nodes: [issue({ id: 'issue-7', identifier: 'VD-7', title: 'Custom view issue' })],
+            pageInfo: { hasNextPage: false, endCursor: null },
+          },
+        },
+        workflowStates,
+      },
+    }), { headers: { 'content-type': 'application/json' } })) as unknown as typeof fetch;
+
+    const result = await fetchLinearBoardView({ locator: customViewLocator, auth, fetchImpl });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const requestBody = JSON.parse(String(vi.mocked(fetchImpl).mock.calls[0]?.[1]?.body));
+    expect(requestBody.query).toContain('customView');
+    expect(requestBody.variables).toEqual({ id: 'reported-by-me-c10a8b8b98c26', first: 50, after: null });
+    expect(result.boardView.board).toMatchObject({ id: 'jamtools:customView:reported-by-me-c10a8b8b98c26', name: 'Reported by me', type: 'customView' });
+    expect(result.boardView.cards.map((card) => card.key)).toEqual(['VD-7']);
+    expect(result.boardView.diagnostics).toMatchObject({
+      linearMode: 'customView',
+      locatorViewKind: 'customView',
+      customViewId: 'reported-by-me-c10a8b8b98c26',
+      customViewName: 'Reported by me',
+      customViewLayout: 'list',
+      issueCount: 1,
+    });
+  });
+
+  it('rejects Linear custom views that are not issue board/list views', async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({
+      data: {
+        customView: {
+          id: 'custom-view-1',
+          name: 'Project view',
+          modelName: 'Project',
+          issues: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
+        },
+        workflowStates,
+      },
+    }), { headers: { 'content-type': 'application/json' } })) as unknown as typeof fetch;
+
+    const result = await fetchLinearBoardView({ locator: customViewLocator, auth, fetchImpl });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toMatchObject({
+      code: 'linear_unsupported_view',
+      message: 'This Linear custom view is not an issue board or issue list view.',
+    });
+    expect(JSON.stringify(result.error)).not.toContain('linear-secret');
+  });
+
+  it('paginates Linear custom view issues with endCursor', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        data: {
+          customView: {
+            id: 'custom-view-1',
+            name: 'Custom issue view',
+            modelName: 'Issue',
+            issues: { nodes: [issue({ id: 'issue-1', identifier: 'VD-1' })], pageInfo: { hasNextPage: true, endCursor: 'cursor-1' } },
+          },
+          workflowStates,
+        },
+      }), { headers: { 'content-type': 'application/json' } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        data: {
+          customView: {
+            id: 'custom-view-1',
+            name: 'Custom issue view',
+            modelName: 'Issue',
+            issues: { nodes: [issue({ id: 'issue-2', identifier: 'VD-2' })], pageInfo: { hasNextPage: false, endCursor: null } },
+          },
+          workflowStates,
+        },
+      }), { headers: { 'content-type': 'application/json' } })) as unknown as typeof fetch;
+
+    const result = await fetchLinearBoardView({ locator: customViewLocator, auth, fetchImpl });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.boardView.cards.map((card) => card.key)).toEqual(['VD-1', 'VD-2']);
+    expect(result.boardView.pagination.pageCount).toBe(2);
+    expect(JSON.parse(String(vi.mocked(fetchImpl).mock.calls[1]?.[1]?.body)).variables.after).toBe('cursor-1');
+  });
+
+  it('fails safely when custom view pagination cursor repeats', async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({
+      data: {
+        customView: {
+          id: 'custom-view-1',
+          name: 'Custom issue view',
+          modelName: 'Issue',
+          issues: { nodes: [issue()], pageInfo: { hasNextPage: true, endCursor: 'cursor-1' } },
+        },
+        workflowStates,
+      },
+    }), { headers: { 'content-type': 'application/json' } })) as unknown as typeof fetch;
+
+    const result = await fetchLinearBoardView({ locator: customViewLocator, auth, fetchImpl });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('linear_pagination_failed');
   });
 
   it('loads a single issue URL with Linear issue(id)', async () => {
