@@ -56,7 +56,10 @@ export function ExternalKanbanColumns({
 }
 
 function isCardInColumn(card: ExternalKanbanCardDto, column: ExternalKanbanColumnDto, knownColumnIds: Set<string>): boolean {
-  if (card.columnId === column.id) return true;
+  if (card.columnId) {
+    if (knownColumnIds.has(card.columnId)) return card.columnId === column.id;
+    return column.id === 'unmapped';
+  }
   if (card.statusId && column.statusIds.includes(card.statusId)) return true;
-  return column.id === 'unmapped' && (!card.columnId || !knownColumnIds.has(card.columnId));
+  return column.id === 'unmapped';
 }

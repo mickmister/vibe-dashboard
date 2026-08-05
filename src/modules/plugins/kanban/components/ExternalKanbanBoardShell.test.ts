@@ -52,4 +52,25 @@ describe('ExternalKanbanBoardShell', () => {
     expect(html).toContain('Done');
     expect(html).toContain('No issues');
   });
+
+  it('treats explicit unknown column ids as unmapped instead of duplicating via status fallback', () => {
+    const cardWithUnknownExplicitColumn: ExternalKanbanCardDto = {
+      ...cards[0]!,
+      id: 'issue-unknown-column',
+      title: 'Unknown explicit column issue',
+      columnId: 'unknown-column',
+      statusId: 'todo-status',
+    };
+    const html = renderToStaticMarkup(
+      React.createElement(ExternalKanbanColumns, {
+        columns: [...columns, { id: 'unmapped', title: 'Unmapped', statusIds: [] }],
+        cards: [cardWithUnknownExplicitColumn],
+        renderCard: (card) => React.createElement('article', null, card.title),
+      }),
+    );
+
+    expect(html.match(/Unknown explicit column issue/g) ?? []).toHaveLength(1);
+    expect(html).toContain('Unmapped');
+    expect(html).toContain('Todo');
+  });
 });
