@@ -6,7 +6,12 @@ integration secrets. The app still reads normal `process.env` variables; use
 
 ## Required local file
 
-Create `packages/integrations-env/.env.integrations` locally:
+Create `.env.integrations` in the workspace root next to this repository
+checkout, for example:
+
+```text
+/var/tmp/vibe-kanban/worktrees/80ff-vd-kanban-integr/.env.integrations
+```
 
 ```dotenv
 DOPPLER_TOKEN=
@@ -15,14 +20,15 @@ DOPPLER_TOKEN=
 Then encrypt it before keeping it around locally:
 
 ```bash
-pnpm --filter @vibe-dashboard/integrations-env exec varlock encrypt --file .env.integrations
+pnpm --filter @vibe-dashboard/integrations-env exec varlock encrypt --file ../../../.env.integrations
 ```
 
 `DOPPLER_TOKEN` is marked `@internal`, so it is used by Varlock to fetch Doppler
 secrets but is not injected into the VD process by default.
 
-The repository root `.gitignore` also ignores a root `.env.integrations`, but
-the committed package scripts load the file from this package directory.
+The committed schema imports `../../../.env.integrations` with
+`allowMissing=true`. That keeps the encrypted local token outside the app repo
+while allowing the package-local Varlock scripts to load it when present.
 
 ## Doppler config
 
@@ -54,4 +60,6 @@ pnpm --filter @vibe-dashboard/integrations-env varlock:load
 
 Varlock documentation notes that `varlock run` executes a child process with
 resolved and validated variables injected, while `--inject vars` avoids passing
-the serialized Varlock config graph blob to long-lived processes.
+the serialized Varlock config graph blob to long-lived processes. In this
+installed Varlock version, `load` supports `--env integrations`, while `run`
+loads from the package cwd/schema and does not take `--env`.
