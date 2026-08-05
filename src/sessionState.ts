@@ -1496,7 +1496,19 @@ export function useSessionWorkspaceNav(
   useEffect(() => {
     if (savedSessionNavSignature === prevSavedSessionNavSignatureRef.current) return;
     prevSavedSessionNavSignatureRef.current = savedSessionNavSignature;
-    setNav(loadSessionNav(workspace, route, savedSession));
+    const previousRoute = prevRouteRef.current;
+    const routeUnchanged =
+      previousRoute.spaceId === route.spaceId &&
+      previousRoute.tabGroupId === route.tabGroupId &&
+      previousRoute.itemId === route.itemId &&
+      previousRoute.voyageEntryId === route.voyageEntryId &&
+      previousRoute.viewIdsKey === (route.viewIds?.join(',') || '');
+    const staleRouteVoyageEntry =
+      routeUnchanged &&
+      savedSession?.activeVoyageEntryId &&
+      route.voyageEntryId &&
+      route.voyageEntryId !== savedSession.activeVoyageEntryId;
+    setNav(loadSessionNav(workspace, staleRouteVoyageEntry ? {} : route, savedSession));
   }, [route, savedSession, savedSessionNavSignature, workspace]);
 
   useEffect(() => {

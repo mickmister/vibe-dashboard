@@ -24,6 +24,7 @@ import {
 import { resolveDashboardVoyage } from "../lib/voyageSession";
 import { getSavedWorkspaceSessions } from "../lib/savedVoyageState";
 import { getRenderedPairViewIds } from "../lib/renderedWorkspaceSelection";
+import { shouldDeferStaleRouteNavPersistence } from "../lib/savedVoyageRouteSync";
 import {
   fetchPluginAdminStatuses,
   setPluginAdminDesiredEnabled,
@@ -393,12 +394,38 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
           visitedTabGroupIds: activeSavedSession.visitedTabGroupIds,
         })
       : "";
+    const savedSessionNavPersistenceRef = useRef({
+      locationKey: "",
+      activeSavedSessionSignature: "",
+    });
 
     useEffect(() => {
       if (dashboardVoyage.status !== "resolved") return;
       if (!activeSavedSession) return;
       const voyageName = activeSavedSession.name?.trim();
       if (!voyageName || isHomeVoyageDisplayName(voyageName)) return;
+      const locationKey = `${location.pathname}${location.search}`;
+      const previousPersistence = savedSessionNavPersistenceRef.current;
+      const routeUnchanged =
+        previousPersistence.locationKey === locationKey;
+      const savedSessionChanged =
+        previousPersistence.activeSavedSessionSignature !==
+        activeSavedSessionSignature;
+      savedSessionNavPersistenceRef.current = {
+        locationKey,
+        activeSavedSessionSignature,
+      };
+      if (
+        shouldDeferStaleRouteNavPersistence({
+          routeUnchanged,
+          savedSessionChanged,
+          savedSessionActiveVoyageEntryId:
+            activeSavedSession.activeVoyageEntryId,
+          sessionNavActiveVoyageEntryId: sessionNav.activeVoyageEntryId,
+        })
+      ) {
+        return;
+      }
       if (persistedSessionNavSignature === activeSavedSessionSignature) return;
 
       void actions.upsertSavedSession({
@@ -418,6 +445,8 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
       activeSavedSessionSignature,
       actions,
       dashboardVoyage.status,
+      location.pathname,
+      location.search,
       persistedVoyageEntries,
       persistedSessionNavSignature,
       sessionNav.activeItemsByVoyageEntryId,
