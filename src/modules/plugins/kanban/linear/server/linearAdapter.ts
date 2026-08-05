@@ -248,6 +248,10 @@ export async function fetchLinearBoardView({
     return fetchActiveCycleIssuePages({ locator, auth, fetchImpl, pageSize: clampPageSize(pageSize) });
   }
 
+  if (locator.viewKind === 'cycle') {
+    return { ok: false, error: unsupportedView('This Linear cycle URL is not supported yet. Open a team active cycle URL and try again.') };
+  }
+
   return fetchIssuePages({ locator, auth, fetchImpl, pageSize: clampPageSize(pageSize) });
 }
 

@@ -401,6 +401,25 @@ describe('fetchLinearBoardView', () => {
     expect(result.error.code).toBe('linear_pagination_failed');
   });
 
+  it('rejects unsupported direct cycle locators before fetching', async () => {
+    const fetchImpl = vi.fn() as unknown as typeof fetch;
+
+    const result = await fetchLinearBoardView({
+      locator: { ...activeCycleLocator, cycleIdentifier: '123', originalUrl: 'https://linear.app/jamtools/team/VD/cycle/123' },
+      auth,
+      fetchImpl,
+    });
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toMatchObject({
+      code: 'linear_unsupported_view',
+      message: 'This Linear cycle URL is not supported yet. Open a team active cycle URL and try again.',
+    });
+    expect(JSON.stringify(result.error)).not.toContain('linear-secret');
+  });
+
   it('loads a single issue URL with Linear issue(id)', async () => {
     const fetchImpl = vi.fn(async () => new Response(JSON.stringify({
       data: { issue: issue({ identifier: 'VD-2', title: 'Single issue' }), workflowStates },
