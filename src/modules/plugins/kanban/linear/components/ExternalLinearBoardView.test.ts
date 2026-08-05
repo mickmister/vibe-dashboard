@@ -60,6 +60,37 @@ describe('ExternalLinearBoardContent', () => {
     expect(html).toContain('overflow-x-auto');
   });
 
+  it('renders a single Linear issue response in a non-default status instead of the empty state', () => {
+    const singleIssueView: ExternalLinearBoardViewDto = {
+      ...boardView,
+      sourceUrl: 'https://linear.app/jamtools/issue/VD-1/build-linear-provider',
+      board: { ...boardView.board, id: 'jamtools:issue:VD-1', name: 'VD-1', type: 'issue' },
+      columns: [
+        { id: 'todo', title: 'Todo', statusIds: ['todo'] },
+        { id: 'started', title: 'In Progress', statusIds: ['started'] },
+      ],
+      cards: [
+        {
+          ...boardView.cards[0]!,
+          id: 'single-issue-1',
+          key: 'VD-1',
+          title: 'Single Linear issue in progress',
+          columnId: 'started',
+          statusId: 'started',
+          statusName: 'In Progress',
+        },
+      ],
+      pagination: { pageCount: 1, issueCount: 1, maxResults: 1 },
+      diagnostics: { authSource: 'api_key', linearMode: 'issue', locatorViewKind: 'issue', workspaceSlug: 'jamtools', issueCount: 1 },
+    };
+    const html = renderToStaticMarkup(React.createElement(ExternalLinearBoardContent, { boardView: singleIssueView }));
+
+    expect(html).toContain('Single Linear issue in progress');
+    expect(html).toContain('In Progress');
+    expect(html).not.toContain('No visible Linear issues');
+    expect(html.match(/Single Linear issue in progress/g) ?? []).toHaveLength(1);
+  });
+
   it('renders workflow columns, cards, task summaries, and workspace action', () => {
     renderBoard();
 

@@ -73,4 +73,25 @@ describe('ExternalKanbanBoardShell', () => {
     expect(html).toContain('Unmapped');
     expect(html).toContain('Todo');
   });
+
+  it('adds an implicit unmapped column when an existing card cannot match provider columns', () => {
+    const cardWithoutMatchingColumn: ExternalKanbanCardDto = {
+      ...cards[0]!,
+      id: 'issue-unmatched',
+      title: 'Visible unmatched issue',
+      columnId: 'missing-provider-column',
+      statusId: 'missing-status',
+    };
+    const html = renderToStaticMarkup(
+      React.createElement(ExternalKanbanColumns, {
+        columns,
+        cards: [cardWithoutMatchingColumn],
+        renderCard: (card) => React.createElement('article', null, card.title),
+      }),
+    );
+
+    expect(html).toContain('Unmapped');
+    expect(html).toContain('Visible unmatched issue');
+    expect(html).not.toContain('No visible');
+  });
 });

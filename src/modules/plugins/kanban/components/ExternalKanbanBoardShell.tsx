@@ -33,10 +33,11 @@ export function ExternalKanbanColumns({
   renderCard: (card: ExternalKanbanCardDto) => React.ReactNode;
   emptyLabel?: string;
 }) {
-  const knownColumnIds = new Set(columns.map((column) => column.id));
+  const renderColumns = withImplicitUnmappedColumn(columns, cards);
+  const knownColumnIds = new Set(renderColumns.map((column) => column.id));
   return (
     <div className="grid auto-cols-[minmax(18rem,1fr)] grid-flow-col gap-4 overflow-x-auto pb-2">
-      {columns.map((column) => {
+      {renderColumns.map((column) => {
         const columnCards = cards.filter((card) => isCardInColumn(card, column, knownColumnIds));
         return (
           <section key={column.id} className="min-w-72 rounded-xl border border-neutral-800 bg-neutral-900/80">
@@ -53,6 +54,18 @@ export function ExternalKanbanColumns({
       })}
     </div>
   );
+}
+
+function withImplicitUnmappedColumn(columns: ExternalKanbanColumnDto[], cards: ExternalKanbanCardDto[]): ExternalKanbanColumnDto[] {
+  const knownColumnIds = new Set(columns.map((column) => column.id));
+  if (knownColumnIds.has('unmapped')) return columns;
+  const needsUnmapped = cards.some((card) => {
+    if (card.columnId) return !knownColumnIds.has(card.columnId);
+    if (card.statusId) return !columns.some((column) => column.statusIds.includes(card.statusId as string));
+    return true;
+  });
+  if (!needsUnmapped) return columns;
+  return [...columns, { id: 'unmapped', title: 'Unmapped', statusIds: [] }];
 }
 
 function isCardInColumn(card: ExternalKanbanCardDto, column: ExternalKanbanColumnDto, knownColumnIds: Set<string>): boolean {
