@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { HeroUIProvider } from '@heroui/react';
@@ -52,6 +53,13 @@ afterEach(() => {
 });
 
 describe('ExternalLinearBoardContent', () => {
+  it('uses the shared scrollable Kanban shell while preserving horizontal column scrolling', () => {
+    const html = renderToStaticMarkup(React.createElement(ExternalLinearBoardContent, { boardView }));
+
+    expect(html).toContain('h-dvh overflow-y-auto overscroll-contain');
+    expect(html).toContain('overflow-x-auto');
+  });
+
   it('renders workflow columns, cards, task summaries, and workspace action', () => {
     renderBoard();
 

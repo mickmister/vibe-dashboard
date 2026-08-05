@@ -5,6 +5,7 @@ import type { LinearExternalViewLocator } from '../externalViewUrl';
 import { fetchExternalLinearBoardView } from '../externalTrackerBoardApi';
 import type { ExternalLinearBoardApiResponse, ExternalLinearBoardViewDto } from '../externalTrackerBoardApi';
 import type { ExternalKanbanCardDto, ExternalKanbanColumnDto, ExternalKanbanRelatedWorkspaceDto } from '../../boardTypes';
+import { ExternalKanbanBoardShell, ExternalKanbanColumns } from '../../components/ExternalKanbanBoardShell';
 
 export function ExternalLinearBoardRoute({ locator }: { locator: LinearExternalViewLocator }) {
   return <ExternalLinearBoardLoader externalViewUrl={locator.originalUrl} />;
@@ -69,50 +70,53 @@ export function ExternalLinearBoardContent({ boardView }: { boardView: ExternalL
     if (next) setSelectedCardId(next.id);
   };
 
-  return (
-    <div className="min-h-screen overflow-y-auto bg-neutral-950 text-neutral-100">
-      <div className={sidePanelWorkspaceId ? 'grid min-h-screen grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(360px,36vw)]' : 'min-h-screen'}>
-        <main className="min-w-0 p-4 sm:p-6">
-          <ExternalLinearBoardHeader boardView={boardView} />
-          {boardView.cards.length === 0 ? (
-            <ExternalLinearMessage title="No visible Linear issues" message="Linear returned 0 issues for this view." action="Open the Linear URL to verify filters and API key access." compact />
-          ) : (
-            <ExternalLinearKanbanColumns
-              columns={normalizeColumns(boardView)}
-              cards={boardView.cards}
-              onSelectCard={(card) => setSelectedCardId(card.id)}
-              onOpenWorkspacePanel={(workspace) => setSidePanelWorkspaceId(workspace.workspaceId)}
-            />
-          )}
-        </main>
-        {sidePanelWorkspaceId ? (
-          <aside className="min-h-[60vh] border-t border-neutral-800 bg-neutral-950 xl:border-l xl:border-t-0">
-            <div className="flex items-center justify-between border-b border-neutral-800 p-3">
-              <div>
-                <p className="text-xs uppercase tracking-wide text-neutral-500">VK workspace</p>
-                <p className="text-sm font-medium text-neutral-100">{sidePanelWorkspaceId}</p>
-              </div>
-              <Button size="sm" variant="flat" onPress={() => setSidePanelWorkspaceId(undefined)}>Close</Button>
-            </div>
-            <iframe
-              title="VK workspace session"
-              src={`/dashboard/workspaces/${encodeURIComponent(sidePanelWorkspaceId)}`}
-              className="h-[70vh] w-full xl:h-[calc(100vh-57px)]"
-            />
-          </aside>
-        ) : null}
+  const sidePanel = sidePanelWorkspaceId ? (
+    <aside className="min-h-[60vh] border-t border-neutral-800 bg-neutral-950 lg:border-l lg:border-t-0 lg:min-w-[360px] lg:basis-[36vw]">
+      <div className="flex items-center justify-between border-b border-neutral-800 p-3">
+        <div>
+          <p className="text-xs uppercase tracking-wide text-neutral-500">VK workspace</p>
+          <p className="text-sm font-medium text-neutral-100">{sidePanelWorkspaceId}</p>
+        </div>
+        <Button size="sm" variant="flat" onPress={() => setSidePanelWorkspaceId(undefined)}>Close</Button>
       </div>
-      <ExternalLinearIssueDrawer
-        boardView={boardView}
-        card={selectedCard}
-        canGoPrevious={selectedIndex > 0}
-        canGoNext={selectedIndex >= 0 && selectedIndex < sortedCards.length - 1}
-        onPrevious={() => selectOffset(-1)}
-        onNext={() => selectOffset(1)}
-        onClose={() => setSelectedCardId(undefined)}
-        onOpenWorkspacePanel={(workspace) => setSidePanelWorkspaceId(workspace.workspaceId)}
+      <iframe
+        title="VK workspace session"
+        src={`/dashboard/workspaces/${encodeURIComponent(sidePanelWorkspaceId)}`}
+        className="h-[70vh] w-full lg:h-[calc(100vh-57px)]"
       />
-    </div>
+    </aside>
+  ) : undefined;
+
+  return (
+    <ExternalKanbanBoardShell
+      sidePanel={sidePanel}
+      overlays={(
+        <ExternalLinearIssueDrawer
+          boardView={boardView}
+          card={selectedCard}
+          canGoPrevious={selectedIndex > 0}
+          canGoNext={selectedIndex >= 0 && selectedIndex < sortedCards.length - 1}
+          onPrevious={() => selectOffset(-1)}
+          onNext={() => selectOffset(1)}
+          onClose={() => setSelectedCardId(undefined)}
+          onOpenWorkspacePanel={(workspace) => setSidePanelWorkspaceId(workspace.workspaceId)}
+        />
+      )}
+    >
+      <main className="min-w-0 p-4 sm:p-6">
+        <ExternalLinearBoardHeader boardView={boardView} />
+        {boardView.cards.length === 0 ? (
+          <ExternalLinearMessage title="No visible Linear issues" message="Linear returned 0 issues for this view." action="Open the Linear URL to verify filters and API key access." compact />
+        ) : (
+          <ExternalLinearKanbanColumns
+            columns={normalizeColumns(boardView)}
+            cards={boardView.cards}
+            onSelectCard={(card) => setSelectedCardId(card.id)}
+            onOpenWorkspacePanel={(workspace) => setSidePanelWorkspaceId(workspace.workspaceId)}
+          />
+        )}
+      </main>
+    </ExternalKanbanBoardShell>
   );
 }
 
@@ -144,22 +148,11 @@ function ExternalLinearKanbanColumns({
   onOpenWorkspacePanel: (workspace: ExternalKanbanRelatedWorkspaceDto) => void;
 }) {
   return (
-    <div className="flex min-h-[70vh] gap-4 overflow-x-auto pb-6">
-      {columns.map((column) => {
-        const columnCards = cards.filter((card) => card.columnId === column.id || column.statusIds.includes(card.statusId ?? ''));
-        return (
-          <section key={column.id} className="w-80 shrink-0 rounded-2xl border border-neutral-800 bg-neutral-900/70 p-3">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-neutral-100">{column.title}</h2>
-              <Chip size="sm" variant="flat" className="bg-neutral-800 text-neutral-300">{columnCards.length}</Chip>
-            </div>
-            <div className="space-y-3">
-              {columnCards.map((card) => <ExternalLinearCard key={card.id} card={card} onSelect={onSelectCard} onOpenWorkspacePanel={onOpenWorkspacePanel} />)}
-            </div>
-          </section>
-        );
-      })}
-    </div>
+    <ExternalKanbanColumns
+      columns={columns}
+      cards={cards}
+      renderCard={(card) => <ExternalLinearCard card={card} onSelect={onSelectCard} onOpenWorkspacePanel={onOpenWorkspacePanel} />}
+    />
   );
 }
 

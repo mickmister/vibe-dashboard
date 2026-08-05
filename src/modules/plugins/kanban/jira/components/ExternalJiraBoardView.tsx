@@ -12,6 +12,7 @@ import { bulkCreateJiraTicketsFromWorkspaces, createExternalJiraIssueWorkspace, 
 import type { BulkJiraRepoProjectMappingDto, BulkJiraWorkspaceConversionResultDto, BulkJiraWorkspaceConversionWorkspaceDto } from '../externalWorkspaceCreateApi';
 import { cloneExternalWorkspaceRepo } from '../../../../../lib/repoCloneApi';
 import { REPO_CLONE_HELPER_TEXT, REPO_CLONE_LABEL, REPO_CLONE_PLACEHOLDER } from '../../../../../lib/repoCloneUi';
+import { ExternalKanbanBoardShell, ExternalKanbanColumns } from '../../components/ExternalKanbanBoardShell';
 
 type ExternalRelatedWorkspace = NonNullable<ExternalKanbanCardDto['relatedWorkspaces']>[number];
 
@@ -235,58 +236,59 @@ export function ExternalJiraBoardShell({
   const hasLanes = renderableLanes.length > 0;
 
   return (
-    <main className="dark h-dvh overflow-y-auto overscroll-contain bg-neutral-950 text-neutral-100">
-      <div className="flex min-h-full flex-col lg:flex-row">
-        <div className="min-w-0 flex-1">
-          <ExternalJiraBoardHeader
-            boardView={boardView}
-            columnVisibility={columnVisibility}
-            columns={allColumns}
-            onBulkConvert={onOpenBulkConvert}
-            onColumnVisibilityChange={onColumnVisibilityChange}
-          />
-          <ExternalJiraBoardBody
-            cards={visibleCards}
-            columns={columns}
-            diagnostics={boardView.diagnostics}
-            hasIssues={visibleCards.length > 0}
-            hiddenIssueCount={hiddenIssueCount}
-            onCreateWorkspace={onCreateWorkspace}
-            onOpenWorkspacePanel={onOpenWorkspacePanel}
-            onSelectCard={onSelectCard}
-            renderableLanes={renderableLanes}
-            showSwimlanes={hasLanes}
-          />
-        </div>
-        {sidePanelWorkspace ? (
-          <ExternalVKSessionSidePanel workspace={sidePanelWorkspace} onClose={onCloseWorkspacePanel} />
-        ) : null}
-      </div>
-      {selectedCard ? (
-        <ExternalJiraIssueDetailSheet
-          boardView={boardView}
-          canGoNext={selectedCardIndex < boardView.cards.length - 1}
-          canGoPrevious={selectedCardIndex > 0}
-          card={selectedCard}
-          cardIndex={selectedCardIndex}
-          onClose={onCloseCard}
-          onNext={onNextCard}
-          onPrevious={onPreviousCard}
-          totalCards={boardView.cards.length}
-        />
-      ) : null}
-      {workspaceCreateCard ? (
-        <ExternalWorkspaceCreateDialog
-          boardView={boardView}
-          card={workspaceCreateCard}
-          onClose={onCloseWorkspaceCreate}
-          onCreated={onWorkspaceCreated}
-        />
-      ) : null}
-      {bulkConvertOpen ? (
-        <BulkJiraWorkspaceConversionDialog boardView={boardView} onClose={onCloseBulkConvert} />
-      ) : null}
-    </main>
+    <ExternalKanbanBoardShell
+      sidePanel={sidePanelWorkspace ? (
+        <ExternalVKSessionSidePanel workspace={sidePanelWorkspace} onClose={onCloseWorkspacePanel} />
+      ) : undefined}
+      overlays={(
+        <>
+          {selectedCard ? (
+            <ExternalJiraIssueDetailSheet
+              boardView={boardView}
+              canGoNext={selectedCardIndex < boardView.cards.length - 1}
+              canGoPrevious={selectedCardIndex > 0}
+              card={selectedCard}
+              cardIndex={selectedCardIndex}
+              onClose={onCloseCard}
+              onNext={onNextCard}
+              onPrevious={onPreviousCard}
+              totalCards={boardView.cards.length}
+            />
+          ) : null}
+          {workspaceCreateCard ? (
+            <ExternalWorkspaceCreateDialog
+              boardView={boardView}
+              card={workspaceCreateCard}
+              onClose={onCloseWorkspaceCreate}
+              onCreated={onWorkspaceCreated}
+            />
+          ) : null}
+          {bulkConvertOpen ? (
+            <BulkJiraWorkspaceConversionDialog boardView={boardView} onClose={onCloseBulkConvert} />
+          ) : null}
+        </>
+      )}
+    >
+      <ExternalJiraBoardHeader
+        boardView={boardView}
+        columnVisibility={columnVisibility}
+        columns={allColumns}
+        onBulkConvert={onOpenBulkConvert}
+        onColumnVisibilityChange={onColumnVisibilityChange}
+      />
+      <ExternalJiraBoardBody
+        cards={visibleCards}
+        columns={columns}
+        diagnostics={boardView.diagnostics}
+        hasIssues={visibleCards.length > 0}
+        hiddenIssueCount={hiddenIssueCount}
+        onCreateWorkspace={onCreateWorkspace}
+        onOpenWorkspacePanel={onOpenWorkspacePanel}
+        onSelectCard={onSelectCard}
+        renderableLanes={renderableLanes}
+        showSwimlanes={hasLanes}
+      />
+    </ExternalKanbanBoardShell>
   );
 }
 
@@ -435,28 +437,12 @@ export function ExternalJiraDiagnosticsPanel({ diagnostics }: { diagnostics: Non
 }
 
 export function ExternalJiraKanbanColumns({ columns, cards, onCreateWorkspace, onOpenWorkspacePanel, onSelectCard }: { columns: ExternalKanbanColumnDto[]; cards: ExternalKanbanCardDto[]; onCreateWorkspace: (card: ExternalKanbanCardDto) => void; onOpenWorkspacePanel: (workspace: ExternalRelatedWorkspace) => void; onSelectCard: (card: ExternalKanbanCardDto) => void }) {
-  const knownColumnIds = new Set(columns.map((column) => column.id));
   return (
-    <div className="grid auto-cols-[minmax(18rem,1fr)] grid-flow-col gap-4 overflow-x-auto pb-2">
-      {columns.map((column) => {
-        const columnCards = cards.filter((card) => (
-          card.columnId === column.id ||
-          (column.id === UNMAPPED_COLUMN_ID && (!card.columnId || !knownColumnIds.has(card.columnId)))
-        ));
-        return (
-          <section key={column.id} className="min-w-72 rounded-xl border border-neutral-800 bg-neutral-900/80">
-            <div className="flex items-center justify-between border-b border-neutral-800 px-4 py-3">
-              <h3 className="text-sm font-semibold text-neutral-100">{column.title}</h3>
-              <span className="rounded-full bg-neutral-800 px-2 py-0.5 text-xs text-neutral-300">{columnCards.length}</span>
-            </div>
-            <div className="space-y-3 p-3">
-              {columnCards.length === 0 ? <div className="rounded-lg border border-dashed border-neutral-800 p-3 text-sm text-neutral-500">No issues</div> : null}
-              {columnCards.map((card) => <ExternalJiraCard key={card.id} card={card} onCreateWorkspace={onCreateWorkspace} onOpenWorkspacePanel={onOpenWorkspacePanel} onSelect={onSelectCard} />)}
-            </div>
-          </section>
-        );
-      })}
-    </div>
+    <ExternalKanbanColumns
+      columns={columns}
+      cards={cards}
+      renderCard={(card) => <ExternalJiraCard card={card} onCreateWorkspace={onCreateWorkspace} onOpenWorkspacePanel={onOpenWorkspacePanel} onSelect={onSelectCard} />}
+    />
   );
 }
 
