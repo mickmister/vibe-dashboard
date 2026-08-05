@@ -6,6 +6,7 @@ import {
   buildViewParam,
   buildVoyageParam,
   buildVoyageSlug,
+  getCanonicalVoyageEntryIdForUrl,
   getShortIdToken,
   getStoredLastDashboardUrl,
   parseCraftParam,
@@ -159,6 +160,81 @@ describe('voyageUrl', () => {
     ).toBe(
       '/?from_gh_url=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fpull%2F1&voyage=focused-abc&craft=workspace-42-42&views=code-2',
     );
+  });
+
+  it('uses the active nav entry instead of a stale query craft after allocation', () => {
+    const workspace = {
+      spaces: [],
+      nextId: 0,
+      tabGroups: [
+        {
+          id: 'tg_workspace_old',
+          label: 'Old Workspace',
+          tabs: [{ id: 'tab_agent_old', title: 'Agent', url: 'https://old.invalid' }],
+          pairs: [],
+          order: 0,
+        },
+        {
+          id: 'tg_workspace_new',
+          label: 'New Workspace',
+          tabs: [{ id: 'tab_agent_new', title: 'Agent', url: 'https://new.invalid' }],
+          pairs: [],
+          order: 1,
+        },
+      ],
+    } satisfies WorkspaceState;
+    const session = {
+      id: 'session_abc',
+      slug: 'focused-session_abc',
+      name: 'Focused',
+      createdAt: '2026-06-11T00:00:00.000Z',
+      updatedAt: '2026-06-11T00:00:00.000Z',
+      activeVoyageEntryId: 've_tg_workspace_new',
+      voyageEntries: [
+        {
+          id: 've_tg_workspace_old',
+          tabGroupId: 'tg_workspace_old',
+          viewIds: ['tab_agent_old'],
+        },
+        {
+          id: 've_tg_workspace_new',
+          tabGroupId: 'tg_workspace_new',
+          viewIds: ['tab_agent_new'],
+        },
+      ],
+      activeSpaceId: 'space_1',
+      activeTabGroupId: 'tg_workspace_new',
+      activeItemsByVoyageEntryId: {
+        ve_tg_workspace_old: 'tab_agent_old',
+        ve_tg_workspace_new: 'tab_agent_new',
+      },
+      visitedTabGroupIds: ['tg_workspace_old', 'tg_workspace_new'],
+    } satisfies SavedWorkspaceSession;
+
+    const canonicalVoyageEntryId = getCanonicalVoyageEntryIdForUrl({
+      queryVoyageEntryId: 've_tg_workspace_old',
+      activeVoyageEntryId: 've_tg_workspace_new',
+    });
+
+    expect(canonicalVoyageEntryId).toBe('ve_tg_workspace_new');
+    expect(
+      buildSavedVoyageDashboardPath({
+        currentSearch: '?voyage=focused-abc&craft=old-workspace-old-old&views=agent-old',
+        workspace,
+        session,
+        savedSessions: [session],
+        voyageEntryId: canonicalVoyageEntryId,
+      }),
+    ).toBe('/?voyage=focused-abc&craft=new-workspace-new-new&views=agent-new');
+  });
+
+  it('preserves a query craft only when it already matches the active nav entry', () => {
+    expect(
+      getCanonicalVoyageEntryIdForUrl({
+        queryVoyageEntryId: 've_tg_workspace_new',
+        activeVoyageEntryId: 've_tg_workspace_new',
+      }),
+    ).toBe('ve_tg_workspace_new');
   });
 
   it('stores only canonical root Voyage URLs with a voyage param as resume hints', () => {

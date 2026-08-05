@@ -205,6 +205,19 @@ export function buildSavedVoyageDashboardPath({
   });
 }
 
+export function getCanonicalVoyageEntryIdForUrl({
+  queryVoyageEntryId,
+  activeVoyageEntryId,
+}: {
+  queryVoyageEntryId?: string;
+  activeVoyageEntryId?: string;
+}): string | undefined {
+  if (queryVoyageEntryId && queryVoyageEntryId === activeVoyageEntryId) {
+    return queryVoyageEntryId;
+  }
+  return activeVoyageEntryId || undefined;
+}
+
 export function normalizeStoredDashboardUrl(value: string | null | undefined): string | undefined {
   if (!value) return undefined;
 

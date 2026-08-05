@@ -14,6 +14,7 @@ import {
   buildCanonicalDashboardPath,
   buildSavedVoyageDashboardPath,
   buildVoyageParam,
+  getCanonicalVoyageEntryIdForUrl,
   getStoredLastDashboardUrl,
   parseCraftParam,
   parseViewsParam,
@@ -467,8 +468,18 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
         activeSavedSession,
         savedVoyages,
       );
+      const canonicalVoyageEntryId = getCanonicalVoyageEntryIdForUrl({
+        queryVoyageEntryId: querySelection.voyageEntryId,
+        activeVoyageEntryId: sessionNav.activeVoyageEntryId,
+      });
+      const querySelectionMatchesCanonicalEntry =
+        querySelection.voyageEntryId === canonicalVoyageEntryId;
 
-      if ((queryCraftParam || queryViewsParam) && querySelection.voyageEntryId) {
+      if (
+        (queryCraftParam || queryViewsParam) &&
+        querySelection.voyageEntryId &&
+        querySelectionMatchesCanonicalEntry
+      ) {
         const nextPath = buildCanonicalDashboardPath(location.search, {
           slug: currentVoyageSlug,
           ...(queryCraftParam ? { craftParam: queryCraftParam } : {}),
@@ -487,10 +498,10 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
         workspace: effectiveWorkspace,
         session: activeSavedSession,
         savedSessions: savedVoyages,
-        ...(querySelection.voyageEntryId
-          ? { voyageEntryId: querySelection.voyageEntryId }
+        ...(canonicalVoyageEntryId
+          ? { voyageEntryId: canonicalVoyageEntryId }
           : {}),
-        ...(querySelection.viewIds?.length
+        ...(querySelectionMatchesCanonicalEntry && querySelection.viewIds?.length
           ? { viewIds: querySelection.viewIds }
           : {}),
       });
