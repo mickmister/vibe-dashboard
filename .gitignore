@@ -15,3 +15,4 @@ playwright-report
 blob-report
 .e2e
 .vk-mocked-sandbox
+.playwright-cli
