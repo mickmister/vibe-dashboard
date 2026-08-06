@@ -1,5 +1,5 @@
 import { createServer } from 'node:net';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -46,6 +46,7 @@ export interface PortAllocator {
 
 const DEFAULT_PORT_START = 50_000;
 const MAX_PORT = 65_535;
+const SANDBOX_CADDYFILE_NAME = 'Caddyfile.mocked-sandbox';
 
 function envInt(name: string, fallback: number, env = process.env): number {
   const raw = env[name]?.trim();
@@ -115,53 +116,15 @@ export async function allocatePorts(
   };
 }
 
-export function renderCaddyfile(ports: SandboxPorts): string {
-  return `{
-\tadmin off
-\tauto_https off
-}
-
-:${ports.vdCaddy} {
-\t# VD browser code calls /vk-api/*; strip that prefix to reach VK /api/*.
-\thandle_path /vk-api/* {
-\t\trewrite * /api{uri}
-\t\treverse_proxy 127.0.0.1:${ports.vkBackend}
-\t}
-
-\t# VD app and Springboard dev assets.
-\t@vd {
-\t\tpath /
-\t\tpath /dashboard /dashboard/*
-\t\tpath /.springboard/*
-\t\tpath /node_modules/*
-\t\tpath /packages/*
-\t\tpath /src/*
-\t\tpath /@vite/*
-\t\tpath /@id/*
-\t\tpath /@react-refresh
-\t\tpath /@fs/*
-\t\tpath /kv/*
-\t\tpath /rpc/*
-\t\tpath /assets/*
-\t\tpath /ws
-\t\tpath /manifest.json
-\t}
-\thandle @vd {
-\t\treverse_proxy 127.0.0.1:${ports.vdDashboard}
-\t}
-
-\t# VK workspace-create and agent routes fall through to VK local-web dev.
-\thandle {
-\t\treverse_proxy 127.0.0.1:${ports.vkFrontend}
-\t}
-}
-`;
+export async function loadSandboxCaddyfile(vdRoot: string): Promise<string> {
+  return await readFile(join(vdRoot, SANDBOX_CADDYFILE_NAME), 'utf8');
 }
 
 export function createSandboxPlan(input: {
   workspaceRoot?: string;
   ports: SandboxPorts;
   runDir?: string;
+  caddyfile: string;
 }): SandboxPlan {
   const workspaceRoot = resolve(input.workspaceRoot ?? process.cwd(), '..');
   const vdRoot = resolve(workspaceRoot, 'vibe-kanban-vscode-web');
@@ -263,7 +226,7 @@ export function createSandboxPlan(input: {
     paths: { workspaceRoot, vdRoot, vkRoot, runDir },
     urls: { vd: vdUrl, vkFrontend: vkFrontendUrl },
     env: commonEnv,
-    caddyfile: renderCaddyfile(input.ports),
+    caddyfile: input.caddyfile,
     commands,
   };
 }
@@ -321,9 +284,13 @@ function spawnCommand(
 async function main(): Promise<void> {
   const mode = process.argv[2] ?? 'prepare';
   const ports = await allocatePorts();
+  const workspaceRoot = resolve(process.cwd(), '..');
+  const vdRoot = resolve(workspaceRoot, 'vibe-kanban-vscode-web');
+  const caddyfile = await loadSandboxCaddyfile(vdRoot);
   const plan = createSandboxPlan({
     workspaceRoot: process.cwd(),
     ports,
+    caddyfile,
   });
   await writeSandboxFiles(plan);
 

@@ -370,7 +370,7 @@ describe("dynamic Craft surfaces", () => {
               {
                 id: "tab_create_workspace",
                 title: "Create Workspace",
-                url: "https://vd.example.test/workspaces/create",
+                url: "https://vd.example.test/workspaces",
               },
             ],
             pairs: [],
@@ -386,7 +386,7 @@ describe("dynamic Craft surfaces", () => {
       {
         id: "tab_create_workspace",
         title: "Create Workspace",
-        url: "https://vd.example.test/workspaces/create",
+        url: "https://vd.example.test/workspaces",
       },
     ]);
   });

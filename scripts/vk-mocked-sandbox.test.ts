@@ -4,7 +4,7 @@ import {
   allocatePorts,
   createSandboxPlan,
   findFreePort,
-  renderCaddyfile,
+  loadSandboxCaddyfile,
   type PortAllocator,
 } from './vk-mocked-sandbox';
 
@@ -106,22 +106,17 @@ describe('VK mocked sandbox helpers', () => {
     );
   });
 
-  it('renders a local Caddy front door with /vk-api routed to VK backend', () => {
-    const caddyfile = renderCaddyfile({
-      vkBackend: 4107,
-      vkFrontend: 4100,
-      vkPreviewProxy: 4106,
-      vdDashboard: 4105,
-      vdServer: 4104,
-      vdCaddy: 4101,
-    });
+  it('loads the committed Caddy front door with /vk-api routed to VK backend', async () => {
+    const caddyfile = await loadSandboxCaddyfile(process.cwd());
 
-    expect(caddyfile).toContain(':4101');
+    expect(caddyfile).toContain(':{$VK_MOCKED_CADDY_PORT}');
     expect(caddyfile).toContain('handle_path /vk-api/*');
     expect(caddyfile).toContain('rewrite * /api{uri}');
-    expect(caddyfile).toContain('reverse_proxy 127.0.0.1:4107');
-    expect(caddyfile).toContain('reverse_proxy 127.0.0.1:4105');
-    expect(caddyfile).toContain('reverse_proxy 127.0.0.1:4100');
+    expect(caddyfile).toContain('reverse_proxy 127.0.0.1:{$VK_MOCKED_BACKEND_PORT}');
+    expect(caddyfile).toContain(
+      'reverse_proxy 127.0.0.1:{$VK_MOCKED_VD_DASHBOARD_PORT}',
+    );
+    expect(caddyfile).toContain('reverse_proxy 127.0.0.1:{$VK_MOCKED_FRONTEND_PORT}');
     expect(caddyfile).toContain('path /packages/*');
     expect(caddyfile).not.toContain('/var/log/caddy');
   });
@@ -138,6 +133,7 @@ describe('VK mocked sandbox helpers', () => {
         vdCaddy: 4101,
       },
       runDir: '/tmp/run',
+      caddyfile: 'mocked sandbox caddyfile',
     });
 
     expect(plan.urls).toEqual({
@@ -150,6 +146,7 @@ describe('VK mocked sandbox helpers', () => {
       vkRoot: '/tmp/worktrees/example/Vktest',
       runDir: '/tmp/run',
     });
+    expect(plan.caddyfile).toBe('mocked sandbox caddyfile');
     expect(plan.commands.map((command) => command.name)).toEqual([
       'vk-backend-qa',
       'vk-local-web',
