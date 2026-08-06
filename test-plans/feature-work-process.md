@@ -97,6 +97,10 @@ on their implementation or QA bead as JSON keyed by the test-case IDs.
 After implementation review is approved, a separate tester agent should create a
 new tester bead for their own session.
 
+Use [`independent-tester-prompt.md`](./independent-tester-prompt.md) as the
+reusable feature-agnostic prompt template. The actual tester message should only
+fill in the feature/test-plan bead and approved test-plan document paths.
+
 The tester should:
 
 1. Use the same approved markdown test plan.
