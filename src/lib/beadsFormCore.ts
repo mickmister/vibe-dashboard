@@ -84,11 +84,17 @@ function isStandardForm(value: unknown): value is StoredBeadsForm {
     && value.format === 'standard'
     && typeof value.id === 'string'
     && value.id.trim().length > 0
-    && typeof value.goal === 'string'
-    && value.goal.trim().length > 0
     && typeof value.title === 'string'
     && value.title.trim().length > 0
     && Array.isArray(value.questions);
+}
+
+function withLegacyFallbackGoal(form: StoredBeadsForm): StoredBeadsForm {
+  if (typeof form.goal === 'string' && form.goal.trim().length > 0) return form;
+  return {
+    ...form,
+    goal: `Answer ${form.title}.`,
+  };
 }
 
 function normalizeForm(value: unknown): BeadsFormDefinition | undefined {
@@ -96,7 +102,7 @@ function normalizeForm(value: unknown): BeadsFormDefinition | undefined {
     throw new Error('Raw HTML BeadsForms are no longer supported; express the form with the standard BeadsForm DSL.');
   }
   if (!isStandardForm(value)) return undefined;
-  const stored = stripGeneratedBeadsFormFields(value);
+  const stored = stripGeneratedBeadsFormFields(withLegacyFallbackGoal(value));
   const compiled = compileBeadsForm(stored);
   return {
     ...compiled,

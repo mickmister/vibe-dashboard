@@ -55,6 +55,40 @@ describe('BeadsClient', () => {
     ]);
   });
 
+  it('reads legacy standard forms with stale generated fields and a missing goal', async () => {
+    const exec = vi.fn<ExecFileLike>(async () => ({
+      stdout: beadJson({
+        beadForms: {
+          forms: [{
+            format: 'standard',
+            id: 'legacy_review',
+            title: 'Legacy Review',
+            questions: [{
+              type: 'textarea',
+              id: 'comment',
+              title: 'Comment',
+              description: 'Share a comment.',
+            }],
+            html: '<form><input name="stale"></form>',
+            controls: [{ id: 'stale', name: 'stale', type: 'textarea' }],
+          }],
+        },
+      }),
+      stderr: '',
+    }));
+    const client = new BeadsClient({ execFile: exec });
+
+    const result = await client.readForms('/repo', 'beads-web-biu');
+
+    expect(result.forms[0]).toMatchObject({
+      id: 'legacy_review',
+      goal: 'Answer Legacy Review.',
+      title: 'Legacy Review',
+    });
+    expect(result.forms[0]!.html).toContain('name="comment"');
+    expect(result.forms[0]!.html).not.toContain('name="stale"');
+  });
+
   it('submits a response by re-reading, updating metadata with @file, and adding review label', async () => {
     const calls: Array<{ file: string; args: readonly string[]; cwd: string }> = [];
     const exec = vi.fn<ExecFileLike>(async (file, args, options) => {

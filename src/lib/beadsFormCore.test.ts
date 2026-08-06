@@ -87,6 +87,30 @@ describe('BeadsForm core', () => {
     expect(forms[0]!.controls?.map((control) => control.name)).toContain('comment');
   });
 
+  it('loads legacy standard DSL forms with missing goal while ignoring stale generated fields', () => {
+    const forms = getBeadsForms({
+      beadForms: { forms: [{
+        format: 'standard',
+        id: 'legacy_review',
+        title: 'Legacy Review',
+        questions: [{
+          type: 'textarea',
+          id: 'comment',
+          title: 'Comment',
+          description: 'Share a comment.',
+        }],
+        html: '<form><input name="stale"></form>',
+        controls: [{ id: 'stale', name: 'stale', type: 'textarea' }],
+      }] },
+    });
+
+    expect(forms).toHaveLength(1);
+    expect(forms[0]!.goal).toBe('Answer Legacy Review.');
+    expect(forms[0]!.html).toContain('name="comment"');
+    expect(forms[0]!.html).not.toContain('name="stale"');
+    expect(forms[0]!.controls?.map((control) => control.name)).toContain('comment');
+  });
+
   it('appends responses under metadata.beadForms while preserving unrelated metadata', () => {
     const next = appendBeadsFormResponse({ untouched: true, beadForms: { forms: [
       { ...storedForm('review'), html: '<form></form>', controls: [{ id: 'stale', name: 'stale', type: 'textarea' }] },
@@ -107,6 +131,34 @@ describe('BeadsForm core', () => {
       formIds: ['review'],
       pendingFormIds: [],
     });
+  });
+
+  it('persists legacy missing-goal standard forms as DSL-only with a fallback goal on submit', () => {
+    const next = appendBeadsFormResponse({ beadForms: { forms: [
+      {
+        format: 'standard',
+        id: 'legacy_review',
+        title: 'Legacy Review',
+        questions: [{
+          type: 'textarea',
+          id: 'comment',
+          title: 'Comment',
+          description: 'Share a comment.',
+        }],
+        html: '<form><input name="stale"></form>',
+        controls: [{ id: 'stale', name: 'stale', type: 'textarea' }],
+      },
+    ] } }, 'legacy_review', {
+      submittedBy: 'user',
+      submittedAt: '2026-06-29T00:00:00Z',
+      values: { comment: 'LGTM' },
+    });
+
+    const stored = (next.beadForms as any).forms[0];
+    expect(stored.goal).toBe('Answer Legacy Review.');
+    expect(stored.html).toBeUndefined();
+    expect(stored.controls).toBeUndefined();
+    expect(stored.responses).toHaveLength(1);
   });
 
   it('builds a lightweight pending-answer summary for BeadsForm metadata', () => {
