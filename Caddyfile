@@ -49,7 +49,7 @@
 	# Plugin-owned host routes. Caddy starts with this import present; runtime
 	# plugin apply updates this file later and reloads Caddy. This file must
 	# remain the only Caddy file edited for plugin exposure.
-	import /etc/caddy/plugins.caddy
+	import {$CADDY_PLUGINS_CADDY:/etc/caddy/plugins.caddy}
 
 	# VK built frontend assets for the same-origin mocked sandbox. The sandbox
 	# builds VK local-web with base /vk-static/ so its /workspaces HTML can load

@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 
 import {
   allocatePorts,
   createSandboxPlan,
   findFreePort,
   loadSandboxCaddyfile,
+  writeSandboxFiles,
   type PortAllocator,
 } from './vk-mocked-sandbox';
 
@@ -117,7 +121,9 @@ describe('VK mocked sandbox helpers', () => {
     expect(caddyfile).toContain('reverse_proxy localhost:{$BACKEND_PORT:3007}');
     expect(caddyfile).toContain('reverse_proxy localhost:{$DASHBOARD_PORT:3005}');
     expect(caddyfile).toContain('reverse_proxy localhost:{$CODE_PORT:3008}');
-    expect(caddyfile).toContain('import /etc/caddy/plugins.caddy');
+    expect(caddyfile).toContain(
+      'import {$CADDY_PLUGINS_CADDY:/etc/caddy/plugins.caddy}',
+    );
     expect(caddyfile).toContain(
       'output file {$CADDY_ACCESS_LOG:/var/log/caddy/access.log}',
     );
@@ -202,6 +208,38 @@ describe('VK mocked sandbox helpers', () => {
       BACKEND_PORT: '4107',
       CODE_PORT: '4106',
       CADDY_ACCESS_LOG: '/tmp/run/access.log',
+      CADDY_PLUGINS_CADDY: '/tmp/run/plugins.caddy',
     });
+    expect(plan.env.CADDY_PLUGINS_CADDY).toBe('/tmp/run/plugins.caddy');
+  });
+
+  it('writes a sandbox-local plugins.caddy stub for Caddy imports', async () => {
+    const runDir = await mkdtemp(join(tmpdir(), 'vk-mocked-sandbox-test-'));
+    try {
+      const plan = createSandboxPlan({
+        workspaceRoot: '/tmp/worktrees/example/vibe-kanban-vscode-web',
+        ports: {
+          vkBackend: 4107,
+          vkFrontend: 4100,
+          vkPreviewProxy: 4106,
+          vdDashboard: 4105,
+          vdServer: 4104,
+          vdCaddy: 4101,
+        },
+        runDir,
+        caddyfile: 'mocked sandbox caddyfile',
+      });
+
+      await writeSandboxFiles(plan);
+
+      await expect(readFile(join(runDir, 'plugins.caddy'), 'utf8')).resolves.toBe(
+        '',
+      );
+      await expect(readFile(join(runDir, 'env.sh'), 'utf8')).resolves.toContain(
+        `export CADDY_PLUGINS_CADDY="${join(runDir, 'plugins.caddy')}"`,
+      );
+    } finally {
+      await rm(runDir, { recursive: true, force: true });
+    }
   });
 });

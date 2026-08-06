@@ -154,6 +154,7 @@ export function createSandboxPlan(input: {
     VK_MOCKED_VD_DASHBOARD_PORT: String(input.ports.vdDashboard),
     VK_MOCKED_VD_SERVER_PORT: String(input.ports.vdServer),
     VK_MOCKED_CADDY_PORT: String(input.ports.vdCaddy),
+    CADDY_PLUGINS_CADDY: join(runDir, 'plugins.caddy'),
   };
 
   const vkAllowedOrigins = [
@@ -230,6 +231,7 @@ export function createSandboxPlan(input: {
         BACKEND_PORT: String(input.ports.vkBackend),
         CODE_PORT: String(input.ports.vkPreviewProxy),
         CADDY_ACCESS_LOG: join(runDir, 'access.log'),
+        CADDY_PLUGINS_CADDY: commonEnv.CADDY_PLUGINS_CADDY,
       },
     },
   ];
@@ -248,6 +250,7 @@ export function createSandboxPlan(input: {
 export async function writeSandboxFiles(plan: SandboxPlan): Promise<void> {
   await mkdir(plan.paths.runDir, { recursive: true });
   await writeFile(join(plan.paths.runDir, 'Caddyfile'), plan.caddyfile);
+  await writeFile(join(plan.paths.runDir, 'plugins.caddy'), '');
   await writeFile(
     join(plan.paths.runDir, 'env.sh'),
     Object.entries(plan.env)

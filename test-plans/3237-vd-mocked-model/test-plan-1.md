@@ -2,6 +2,8 @@
 
 Branch: `vk/3237-vd-mocked-model`
 
+Sandbox overview: [`../vk-mocked-sandbox.md`](../vk-mocked-sandbox.md)
+
 Process reference: [`sandbox-test-process.md`](./sandbox-test-process.md)
 
 ## Goal
@@ -108,27 +110,19 @@ Steps:
    under the VD repo, for example:
    `.vk-mocked-sandbox/repos`
 4. Click `Create Repository`.
-5. Capture the `Create New Repository` dialog state after clicking
-   `Create Repository`.
-6. Press `Escape` to close the create-repository dialog.
-7. In the repository-source row, click `Browse`.
-8. In the `Select Git Repository` dialog, fill the manual path textbox with the
-   full path to the repository created by steps 1-4, for example:
-   `/var/tmp/vibe-kanban/worktrees/<branch>/vibe-kanban-vscode-web/.vk-mocked-sandbox/repos/mocked-provider-test-<date-time>`
-9. Click `Go`.
-10. Click `Select Current`.
-11. The command bar opens for branch selection. Select the `main` branch entry.
-12. Back on the repository selection screen, verify the selected repository chip
+5. Verify the `Create New Repository` dialog closes.
+6. The command bar opens for branch selection. Select the `main` branch entry.
+7. Back on the repository selection screen, verify the selected repository chip
     appears.
-13. Click `Continue`.
+8. Click `Continue`.
 
 Expected:
 
 - Repository is created and selected.
 - The workspace prompt screen appears.
 - No real provider credentials are required.
-- The create-repository dialog behavior is recorded for
-  `vkvw-71cd — Bug: VK Create Repository dialog stays on Creating in mocked sandbox UI`.
+- The create-repository dialog closes without requiring Escape or Browse
+  recovery.
 
 ### TEST_CASE_5A — Create craft/workspace with qa-mode prompt
 
@@ -284,7 +278,7 @@ Expected:
   },
   "TEST_CASE_4A": {
     "status": "PASS",
-    "notes": "Create Repository dialog state captured for vkvw-71cd, then Browse workaround selected the created repository and main branch."
+    "notes": "Create Repository dialog closed after successful creation, then main branch was selected from the command bar."
   },
   "TEST_CASE_5A": { "status": "PASS" },
   "TEST_CASE_6A": { "status": "PASS" },

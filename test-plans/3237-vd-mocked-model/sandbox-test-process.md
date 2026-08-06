@@ -267,26 +267,6 @@ during the 2026-08-06 smoke. Same-origin DOM access still worked through
 This workaround is reasonable for acceptance smoke testing, but semantic
 iframe-scoped clicks would be preferable for a larger automated suite.
 
-## Known UI workaround
-
-`vkvw-71cd — Bug: VK Create Repository dialog stays on Creating in mocked
-sandbox UI` is still open. During repository creation, the repository is created
-successfully, but the dialog can remain on `Creating...`.
-
-Accepted manual workaround:
-
-1. Capture the dialog state for the tester bead.
-2. Press `Escape` to close the dialog.
-3. Use `Browse`.
-4. Enter the full path to the created repository under
-   `.vk-mocked-sandbox/repos`.
-5. Click `Go`.
-6. Click `Select Current`.
-7. Select the `main` branch.
-
-Keep this workaround in the test plan until `vkvw-71cd — Bug: VK Create
-Repository dialog stays on Creating in mocked sandbox UI` is fixed.
-
 ## Stopping the sandbox
 
 Stop the foreground `npm run dev:vk-mocked-sandbox` process with Ctrl-C.
