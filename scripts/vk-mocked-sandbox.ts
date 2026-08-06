@@ -46,7 +46,7 @@ export interface PortAllocator {
 
 const DEFAULT_PORT_START = 50_000;
 const MAX_PORT = 65_535;
-const SANDBOX_CADDYFILE_NAME = 'Caddyfile.mocked-sandbox';
+const SANDBOX_CADDYFILE_NAME = 'Caddyfile';
 
 function envInt(name: string, fallback: number, env = process.env): number {
   const raw = env[name]?.trim();
@@ -217,6 +217,12 @@ export function createSandboxPlan(input: {
         ...commonEnv,
         XDG_CONFIG_HOME: join(runDir, 'xdg-config'),
         XDG_DATA_HOME: join(runDir, 'xdg-data'),
+        CADDY_ADMIN: 'off',
+        CADDY_PORT: String(input.ports.vdCaddy),
+        DASHBOARD_PORT: String(input.ports.vdDashboard),
+        BACKEND_PORT: String(input.ports.vkBackend),
+        CODE_PORT: String(input.ports.vkPreviewProxy),
+        CADDY_ACCESS_LOG: join(runDir, 'access.log'),
       },
     },
   ];

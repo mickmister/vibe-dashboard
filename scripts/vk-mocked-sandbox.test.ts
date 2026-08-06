@@ -109,16 +109,17 @@ describe('VK mocked sandbox helpers', () => {
   it('loads the committed Caddy front door with /vk-api routed to VK backend', async () => {
     const caddyfile = await loadSandboxCaddyfile(process.cwd());
 
-    expect(caddyfile).toContain(':{$VK_MOCKED_CADDY_PORT}');
+    expect(caddyfile).toContain('admin {$CADDY_ADMIN:localhost:2019}');
+    expect(caddyfile).toContain(':{$CADDY_PORT:3001}');
     expect(caddyfile).toContain('handle_path /vk-api/*');
     expect(caddyfile).toContain('rewrite * /api{uri}');
-    expect(caddyfile).toContain('reverse_proxy 127.0.0.1:{$VK_MOCKED_BACKEND_PORT}');
+    expect(caddyfile).toContain('reverse_proxy localhost:{$BACKEND_PORT:3007}');
+    expect(caddyfile).toContain('reverse_proxy localhost:{$DASHBOARD_PORT:3005}');
+    expect(caddyfile).toContain('reverse_proxy localhost:{$CODE_PORT:3008}');
+    expect(caddyfile).toContain('import /etc/caddy/plugins.caddy');
     expect(caddyfile).toContain(
-      'reverse_proxy 127.0.0.1:{$VK_MOCKED_VD_DASHBOARD_PORT}',
+      'output file {$CADDY_ACCESS_LOG:/var/log/caddy/access.log}',
     );
-    expect(caddyfile).toContain('reverse_proxy 127.0.0.1:{$VK_MOCKED_FRONTEND_PORT}');
-    expect(caddyfile).toContain('path /packages/*');
-    expect(caddyfile).not.toContain('/var/log/caddy');
   });
 
   it('plans qa-mode VK, VD dev, and Caddy commands with matching env', () => {
@@ -180,5 +181,13 @@ describe('VK mocked sandbox helpers', () => {
       '/tmp/run/xdg-config',
     );
     expect(plan.commands[3]?.env.XDG_DATA_HOME).toBe('/tmp/run/xdg-data');
+    expect(plan.commands[3]?.env).toMatchObject({
+      CADDY_ADMIN: 'off',
+      CADDY_PORT: '4101',
+      DASHBOARD_PORT: '4105',
+      BACKEND_PORT: '4107',
+      CODE_PORT: '4106',
+      CADDY_ACCESS_LOG: '/tmp/run/access.log',
+    });
   });
 });
