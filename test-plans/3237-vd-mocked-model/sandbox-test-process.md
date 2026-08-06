@@ -8,6 +8,28 @@ This document describes the reusable testing process for VD + VK mocked sandbox
 runs. Individual acceptance scenarios should live in separate `test-plan-*.md`
 files in this directory and reference this process.
 
+The sandbox is intended to exercise VD end-to-end against a real local VK
+backend while VK runs in `qa-mode`. VK `qa-mode` uses a mocked model provider,
+so normal craft creation and follow-up flows can be tested without real
+model-provider tokens.
+
+## Current shape
+
+- One Caddy front door serves the whole sandbox.
+- VD and VK iframes use the same browser origin, for example
+  `http://localhost:50005`.
+- VD runs in Vite dev mode behind Caddy.
+- VK backend runs as `cargo run --features qa-mode --bin server`.
+- VK frontend is built once before the services start, using Vite base
+  `/vk-static/`, then served by the VK backend through Caddy.
+- VK frontend assets load from `/vk-static/assets/...`; VD assets continue to
+  use VD's normal `/assets/...` routing.
+- Caddy uses the checked-in repo `Caddyfile`. The sandbox writes a prepared copy
+  to `.vk-mocked-sandbox/current/Caddyfile` after selecting ports/env.
+
+This setup intentionally prioritizes prod-like same-origin iframe behavior over
+VK frontend hot module replacement.
+
 ## Bead workflow
 
 1. The canonical test-plan bead references the markdown test plan.
@@ -48,13 +70,18 @@ the JSON `notes` fields or in a separate bead note.
   separate VK Vite origin, and VK built assets should load from
   `/vk-static/assets/...` instead of competing with VD assets under `/assets`.
 
-Recommended prebuilds to avoid first-run compile/build delay:
+Optional prebuilds to reduce the first sandbox startup delay:
 
 ```bash
 cd ../Vktest
 cargo build --features qa-mode --bin server
 NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter @vibe/local-web run build --base /vk-static/
 ```
+
+The first VK Rust build can be slow. Subsequent Rust starts usually reuse
+incremental build artifacts. The VK frontend build is currently still performed
+by `npm run dev:vk-mocked-sandbox` so that the served assets match the sandbox
+base path.
 
 ## Fresh data guidance
 
@@ -74,12 +101,23 @@ local development state. Do **not** delete tracked files.
 VD browser state can be reset by using a fresh `agent-browser --session` name,
 or by clearing browser local/session storage before opening VD.
 
+Create disposable repositories under `.vk-mocked-sandbox/repos` so cleanup stays
+inside the VD worktree.
+
 ## Starting the sandbox
 
 From the VD repo:
 
 ```bash
 npm run dev:vk-mocked-sandbox
+```
+
+The script chooses open ports starting at `50000` and writes the selected values
+to `.vk-mocked-sandbox/current/env.sh`. To preview the plan without starting the
+servers, run:
+
+```bash
+npm run prepare:vk-mocked-sandbox
 ```
 
 Record the printed:
@@ -107,19 +145,60 @@ Expected same-origin shape:
 The command should stay running in the foreground. If any child process exits
 unexpectedly, the sandbox should stop and report a failure.
 
+### Useful environment overrides
+
+| Variable | Purpose |
+| --- | --- |
+| `VK_MOCKED_SANDBOX_PORT_START` | First candidate port for automatic allocation. |
+| `VK_MOCKED_BACKEND_PORT` | Explicit VK backend port. |
+| `VK_MOCKED_FRONTEND_PORT` | Allocated for compatibility with older plans; the default same-origin sandbox does not start a separate VK Vite frontend. |
+| `VK_MOCKED_PREVIEW_PROXY_PORT` | Explicit VK preview/code proxy port. |
+| `VK_MOCKED_VD_DASHBOARD_PORT` | Explicit VD Vite port. |
+| `VK_MOCKED_VD_SERVER_PORT` | Explicit VD server port. |
+| `VK_MOCKED_CADDY_PORT` | Explicit front-door Caddy port. |
+| `RUST_LOG` | VK backend log level; defaults to `debug` in the sandbox. |
+
+Explicit port overrides must be unique. The sandbox rejects duplicate explicit
+ports instead of starting with ambiguous routing.
+
+## Quick health checks
+
+Use these checks after the sandbox reports ready:
+
+```bash
+# Caddy front door responds with VD.
+curl -I "$VD_URL"
+
+# VK workspace HTML comes through the same Caddy origin and references
+# /vk-static assets.
+curl -sS "$VD_URL/workspaces" | grep /vk-static/assets
+
+# VK built JS is served by the VK backend through Caddy.
+ASSET_PATH="$(curl -sS "$VD_URL/workspaces" | grep -o '/vk-static/assets/[^"]*\.js' | head -1)"
+curl -I "$VD_URL$ASSET_PATH"
+```
+
+For browser-level verification, open VD with a fresh named session:
+
+```bash
+agent-browser --session vk-mocked-sandbox set viewport 1280 900
+agent-browser --session vk-mocked-sandbox open "$VD_URL"
+agent-browser --session vk-mocked-sandbox snapshot -i
+```
+
 ## Editing and reloading during development
 
 The default sandbox optimizes for prod-like same-origin behavior rather than VK
 frontend hot module replacement.
 
-### VD source changes
+### VD source changes: hot reload
 
 VD runs through Vite dev mode. Edit VD source in this repo, then use Vite HMR or
 reload the browser. Restart the sandbox for changes to the checked-in
 `Caddyfile`, `scripts/vk-mocked-sandbox.ts`, env/port behavior, or server
 startup behavior.
 
-### VK frontend source changes
+### VK frontend source changes: rebuild and reload
 
 VK frontend is served from the built `@vibe/local-web` output through VK
 backend/Caddy. After editing VK frontend source under `../Vktest`, rebuild and
@@ -134,7 +213,11 @@ This is usually much cheaper than a cold VK Rust/backend build. No Caddy restart
 is expected for ordinary VK frontend source edits because the VK backend serves
 the rebuilt static files from disk.
 
-### VK backend source changes
+Main drawback: this is not a VK frontend HMR loop. The rebuild keeps iframe
+origin behavior close to production, but it is slower than running VK local-web
+directly with Vite.
+
+### VK backend source changes: restart sandbox
 
 After editing VK backend/Rust source under `../Vktest`, stop and restart the
 sandbox:
@@ -170,6 +253,39 @@ Use fixed viewport dimensions before coordinate-sensitive steps. For iframe
 interactions, calculate visible control positions from the same-origin iframe
 DOM and click those coordinates from the VD page. Record the iframe `src`,
 final VD URL, and screenshot path in the tester bead result.
+
+Known limitation: `agent-browser frame` did not select the same-origin VK iframe
+during the 2026-08-06 smoke. Same-origin DOM access still worked through
+`iframe.contentDocument`, so the accepted workaround is:
+
+1. Use `agent-browser eval` to inspect iframe text, scripts, and element
+   positions.
+2. Use visible coordinate clicks from the VD page for controls inside the
+   iframe.
+3. Continue to record the iframe `src` and screenshots as evidence.
+
+This workaround is reasonable for acceptance smoke testing, but semantic
+iframe-scoped clicks would be preferable for a larger automated suite.
+
+## Known UI workaround
+
+`vkvw-71cd — Bug: VK Create Repository dialog stays on Creating in mocked
+sandbox UI` is still open. During repository creation, the repository is created
+successfully, but the dialog can remain on `Creating...`.
+
+Accepted manual workaround:
+
+1. Capture the dialog state for the tester bead.
+2. Press `Escape` to close the dialog.
+3. Use `Browse`.
+4. Enter the full path to the created repository under
+   `.vk-mocked-sandbox/repos`.
+5. Click `Go`.
+6. Click `Select Current`.
+7. Select the `main` branch.
+
+Keep this workaround in the test plan until `vkvw-71cd — Bug: VK Create
+Repository dialog stays on Creating in mocked sandbox UI` is fixed.
 
 ## Stopping the sandbox
 
