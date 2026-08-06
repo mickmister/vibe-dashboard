@@ -1,21 +1,20 @@
-# Reusable independent tester prompt
+# Independent tester onboarding
 
-Use this prompt when asking a tester agent to run an independent pass for a
-feature branch. Keep the actual message to the tester small by filling only the
-feature-specific placeholders below.
+You are running an independent tester pass for the current feature branch.
 
-## Prompt template
+The short message that referenced this file should also include the
+feature-specific context:
 
-```text
-Run an independent tester pass for the current feature branch.
+- Feature/test-plan bead: `<TEST_PLAN_BEAD_ID> — <TEST_PLAN_BEAD_TITLE>`
+- Approved test-plan document path(s)
 
 Use `vibe-agent full_summary` to catch up.
 
 Create a fresh tester bead for this testing session. The tester bead should
 reference:
 
-- Feature/test-plan bead: <TEST_PLAN_BEAD_ID> — <TEST_PLAN_BEAD_TITLE>
-- Approved test-plan document(s): <TEST_PLAN_DOC_PATHS>
+- the feature/test-plan bead
+- the approved test-plan document path(s)
 
 Follow the approved test plan literally. Treat the markdown test plan as the
 source of truth for:
@@ -60,12 +59,11 @@ include:
 - expected behavior
 - artifact paths
 - smallest actionable fix needed
-```
 
-## Minimal feature-specific message shape
+## Expected small feature-specific message shape
 
 ```text
-Run an independent tester pass using the reusable tester prompt:
+Run an independent tester pass.
 
 <PATH_TO_THIS_FILE>
 
