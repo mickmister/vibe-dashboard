@@ -24,7 +24,10 @@ import {
 import { resolveDashboardVoyage } from "../lib/voyageSession";
 import { getSavedWorkspaceSessions } from "../lib/savedVoyageState";
 import { getRenderedPairViewIds } from "../lib/renderedWorkspaceSelection";
-import { shouldDeferStaleRouteNavPersistence } from "../lib/savedVoyageRouteSync";
+import {
+  shouldDeferExplicitRouteCanonicalization,
+  shouldDeferStaleRouteNavPersistence,
+} from "../lib/savedVoyageRouteSync";
 import {
   fetchPluginAdminStatuses,
   setPluginAdminDesiredEnabled,
@@ -398,6 +401,9 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
       locationKey: "",
       activeSavedSessionSignature: "",
     });
+    const savedSessionUrlSyncRef = useRef({
+      locationKey: "",
+    });
 
     useEffect(() => {
       if (dashboardVoyage.status !== "resolved") return;
@@ -486,6 +492,12 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
       }
 
       const currentPath = `${location.pathname}${location.search}`;
+      const previousUrlSync = savedSessionUrlSyncRef.current;
+      const locationKey = currentPath;
+      const urlRouteChanged =
+        previousUrlSync.locationKey !== "" &&
+        previousUrlSync.locationKey !== locationKey;
+      savedSessionUrlSyncRef.current = { locationKey };
       const voyageName = activeSavedSession?.name?.trim();
       if (!voyageName || isHomeVoyageDisplayName(voyageName)) {
         // Missing/invalid current voyage is handled by the route bootstrap or
@@ -503,6 +515,15 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
       });
       const querySelectionMatchesCanonicalEntry =
         querySelection.voyageEntryId === canonicalVoyageEntryId;
+      if (
+        shouldDeferExplicitRouteCanonicalization({
+          routeChanged: urlRouteChanged,
+          queryVoyageEntryId: querySelection.voyageEntryId,
+          sessionNavActiveVoyageEntryId: sessionNav.activeVoyageEntryId,
+        })
+      ) {
+        return;
+      }
 
       if (
         (queryCraftParam || queryViewsParam) &&
@@ -549,6 +570,7 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
       querySelection,
       queryViewsParam,
       savedVoyages,
+      sessionNav.activeVoyageEntryId,
     ]);
 
     const updateBookmarkedSessionSearch = (

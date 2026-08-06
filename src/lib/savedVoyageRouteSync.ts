@@ -17,3 +17,20 @@ export function shouldDeferStaleRouteNavPersistence({
       savedSessionActiveVoyageEntryId !== sessionNavActiveVoyageEntryId,
   );
 }
+
+export function shouldDeferExplicitRouteCanonicalization({
+  routeChanged,
+  queryVoyageEntryId,
+  sessionNavActiveVoyageEntryId,
+}: {
+  routeChanged: boolean;
+  queryVoyageEntryId?: string;
+  sessionNavActiveVoyageEntryId?: string;
+}): boolean {
+  return Boolean(
+    routeChanged &&
+      queryVoyageEntryId &&
+      sessionNavActiveVoyageEntryId &&
+      queryVoyageEntryId !== sessionNavActiveVoyageEntryId,
+  );
+}
