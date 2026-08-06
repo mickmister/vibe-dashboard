@@ -5,6 +5,8 @@
   "packageManager": "pnpm@10.13.1",
   "scripts": {
     "dev": "vite",
+    "dev:vk-mocked-sandbox": "node --experimental-strip-types scripts/vk-mocked-sandbox.ts start",
+    "prepare:vk-mocked-sandbox": "node --experimental-strip-types scripts/vk-mocked-sandbox.ts prepare",
     "start": "node dist/node/node-entry.mjs",
     "build": "npm run build:beads-form && npm run build:web && npm run build:node && npm run build:vibe-agent-cli",
     "build:plugin-orchestrator": "vite build --config plugins/orchestrator/vite.config.ts",
