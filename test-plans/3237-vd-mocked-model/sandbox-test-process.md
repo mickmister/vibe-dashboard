@@ -41,15 +41,17 @@ the JSON `notes` fields or in a separate bead note.
 - Caddy is installed and available on `PATH`.
 - VK `qa-mode` backend has either already been built, or the tester accepts the
   initial Rust compile time.
-- Before executing sandbox acceptance plans, the sandbox should use the real
-  committed Caddy config/template rather than hardcoded inline Caddyfile
-  rendering in `scripts/vk-mocked-sandbox.ts`.
+- The sandbox uses the real checked-in `Caddyfile`.
+- The sandbox builds VK `@vibe/local-web` before starting services, then serves
+  VK frontend through the VK backend and Caddy. VK iframes should therefore use
+  the printed VD/Caddy origin rather than a separate VK Vite origin.
 
-Recommended prebuild to avoid first-run Rust compile delay:
+Recommended prebuilds to avoid first-run compile/build delay:
 
 ```bash
 cd ../Vktest
 cargo build --features qa-mode --bin server
+pnpm --filter @vibe/local-web run build
 ```
 
 ## Fresh data guidance
@@ -58,13 +60,14 @@ For a fully fresh manual run, clear sandbox-local state before starting:
 
 ```bash
 rm -rf .vk-mocked-sandbox/current
+rm -rf data
+rm -rf ../Vktest/dev_assets
 ```
 
 VK dev sqlite/config currently lives under the worktree-local
-`../Vktest/dev_assets`. If strict VK freshness is required for the session, use
-a throwaway VK worktree or clear/replace the relevant untracked dev assets
-according to the current sandbox implementation. Do **not** delete tracked
-files.
+`../Vktest/dev_assets`. VD server-side state currently lives under the
+worktree-local `data` directory. These directories are expected to be untracked
+local development state. Do **not** delete tracked files.
 
 VD browser state can be reset by using a fresh `agent-browser --session` name,
 or by clearing browser local/session storage before opening VD.
@@ -80,18 +83,83 @@ npm run dev:vk-mocked-sandbox
 Record the printed:
 
 - VD URL
-- VK local-web URL
+- VK frontend URL
 - run dir
 
 Wait until all services report ready:
 
 - VK backend qa-mode process is running.
-- VK local-web Vite server is ready.
+- VK local-web build setup command completes.
 - VD Vite server is ready.
 - Caddy is serving the front-door URL.
 
+Expected same-origin shape:
+
+- VD loads from the printed VD URL, for example `http://localhost:50005`.
+- VK frontend iframes also load from that same origin, for example
+  `http://localhost:50005/workspaces/...`.
+- VD browser requests to `/vk-api/*` route through Caddy to VK backend `/api/*`.
+- There is no separate VK Vite frontend server in the default sandbox.
+
 The command should stay running in the foreground. If any child process exits
 unexpectedly, the sandbox should stop and report a failure.
+
+## Editing and reloading during development
+
+The default sandbox optimizes for prod-like same-origin behavior rather than VK
+frontend hot module replacement.
+
+### VD source changes
+
+VD runs through Vite dev mode. Edit VD source in this repo, then use Vite HMR or
+reload the browser. Restart the sandbox for changes to the checked-in
+`Caddyfile`, `scripts/vk-mocked-sandbox.ts`, env/port behavior, or server
+startup behavior.
+
+### VK frontend source changes
+
+VK frontend is served from the built `@vibe/local-web` output through VK
+backend/Caddy. After editing VK frontend source under `../Vktest`, rebuild and
+reload the browser:
+
+```bash
+cd ../Vktest
+pnpm --filter @vibe/local-web run build
+```
+
+This is usually much cheaper than a cold VK Rust/backend build. No Caddy restart
+is expected for ordinary VK frontend source edits because the VK backend serves
+the rebuilt static files from disk.
+
+### VK backend source changes
+
+After editing VK backend/Rust source under `../Vktest`, stop and restart the
+sandbox:
+
+```bash
+npm run dev:vk-mocked-sandbox
+```
+
+Rust incremental rebuilds should be faster after the first successful build.
+
+## Browser automation and iframes
+
+All mutating acceptance-test actions should be performed through the VD UI. The
+default sandbox serves VK iframes from the same Caddy origin as VD so
+`agent-browser frame` can be attempted against the VD-hosted iframe rather than
+opening a separate VK tab.
+
+Recommended frame workflow:
+
+```bash
+agent-browser snapshot -i
+agent-browser frame "iframe[title='Create Workspace']"
+agent-browser snapshot -i
+agent-browser frame main
+```
+
+Use fixed viewport dimensions before coordinate-sensitive steps. Record the
+iframe `src`, final VD URL, and screenshot path in the tester bead result.
 
 ## Stopping the sandbox
 
@@ -105,6 +173,6 @@ pgrep -af 'vk-mocked-sandbox|cargo run --features qa-mode|pnpm --filter @vibe/lo
 
 Expected:
 
-- Caddy, VD Vite, VK local-web, and VK backend child processes stop.
+- Caddy, VD Vite, and VK backend child processes stop.
 - No leftover `vk-mocked-sandbox`, sandbox Caddy, qa-mode backend, or sandbox
   Vite processes remain.

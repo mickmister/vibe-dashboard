@@ -139,7 +139,7 @@ describe('VK mocked sandbox helpers', () => {
 
     expect(plan.urls).toEqual({
       vd: 'http://localhost:4101',
-      vkFrontend: 'http://localhost:4100',
+      vkFrontend: 'http://localhost:4101',
     });
     expect(plan.paths).toMatchObject({
       workspaceRoot: '/tmp/worktrees/example',
@@ -148,40 +148,46 @@ describe('VK mocked sandbox helpers', () => {
       runDir: '/tmp/run',
     });
     expect(plan.caddyfile).toBe('mocked sandbox caddyfile');
+    expect(plan.setupCommands.map((command) => command.name)).toEqual([
+      'vk-build-local-web',
+    ]);
     expect(plan.commands.map((command) => command.name)).toEqual([
       'vk-backend-qa',
-      'vk-local-web',
       'vd-dashboard',
       'caddy',
     ]);
+    expect(plan.setupCommands[0]).toMatchObject({
+      command: 'pnpm',
+      args: ['--filter', '@vibe/local-web', 'run', 'build'],
+      env: {
+        BACKEND_PORT: '4107',
+        FRONTEND_PORT: '4101',
+        PREVIEW_PROXY_PORT: '4106',
+      },
+    });
+    expect(plan.setupCommands[0]?.env.NODE_OPTIONS).toContain(
+      '--max-old-space-size=8192',
+    );
     expect(plan.commands[0]).toMatchObject({
       command: 'cargo',
       args: ['run', '--features', 'qa-mode', '--bin', 'server'],
       env: {
         BACKEND_PORT: '4107',
-        FRONTEND_PORT: '4100',
+        FRONTEND_PORT: '4101',
         PREVIEW_PROXY_PORT: '4106',
       },
     });
-    expect(plan.commands[2]?.env.VITE_VK_BASE_ORIGIN).toBe(
-      'http://localhost:4100',
+    const vdCommand = plan.commands.find((command) => command.name === 'vd-dashboard');
+    const caddyCommand = plan.commands.find((command) => command.name === 'caddy');
+
+    expect(vdCommand?.env.VITE_VK_BASE_ORIGIN).toBe(
+      'http://localhost:4101',
     );
-    expect(plan.commands[1]?.args).toEqual([
-      '--filter',
-      '@vibe/local-web',
-      'exec',
-      'vite',
-      '--host',
-      '127.0.0.1',
-      '--port',
-      '4100',
-      '--strictPort',
-    ]);
-    expect(plan.commands[3]?.env.XDG_CONFIG_HOME).toBe(
+    expect(caddyCommand?.env.XDG_CONFIG_HOME).toBe(
       '/tmp/run/xdg-config',
     );
-    expect(plan.commands[3]?.env.XDG_DATA_HOME).toBe('/tmp/run/xdg-data');
-    expect(plan.commands[3]?.env).toMatchObject({
+    expect(caddyCommand?.env.XDG_DATA_HOME).toBe('/tmp/run/xdg-data');
+    expect(caddyCommand?.env).toMatchObject({
       CADDY_ADMIN: 'off',
       CADDY_PORT: '4101',
       DASHBOARD_PORT: '4105',

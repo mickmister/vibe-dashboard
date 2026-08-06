@@ -29,6 +29,7 @@ export interface SandboxPlan {
   };
   env: Record<string, string>;
   caddyfile: string;
+  setupCommands: CommandSpec[];
   commands: CommandSpec[];
 }
 
@@ -56,6 +57,13 @@ function envInt(name: string, fallback: number, env = process.env): number {
     throw new Error(`${name} must be a TCP port number, got ${raw}`);
   }
   return parsed;
+}
+
+function appendNodeOption(existingOptions: string | undefined, option: string): string {
+  const trimmedOptions = existingOptions?.trim();
+  if (!trimmedOptions) return option;
+  if (trimmedOptions.includes(option)) return trimmedOptions;
+  return `${trimmedOptions} ${option}`;
 }
 
 export async function isTcpPortAvailable(port: number): Promise<boolean> {
@@ -133,7 +141,7 @@ export function createSandboxPlan(input: {
     input.runDir ?? join(vdRoot, '.vk-mocked-sandbox', 'current'),
   );
   const vdUrl = `http://localhost:${input.ports.vdCaddy}`;
-  const vkFrontendUrl = `http://localhost:${input.ports.vkFrontend}`;
+  const vkFrontendUrl = vdUrl;
 
   const commonEnv = {
     VK_MOCKED_SANDBOX: '1',
@@ -151,8 +159,23 @@ export function createSandboxPlan(input: {
   const vkAllowedOrigins = [
     vdUrl,
     `http://localhost:${input.ports.vdDashboard}`,
-    vkFrontendUrl,
   ].join(',');
+
+  const setupCommands: CommandSpec[] = [
+    {
+      name: 'vk-build-local-web',
+      cwd: vkRoot,
+      command: 'pnpm',
+      args: ['--filter', '@vibe/local-web', 'run', 'build'],
+      env: {
+        ...commonEnv,
+        BACKEND_PORT: String(input.ports.vkBackend),
+        FRONTEND_PORT: String(input.ports.vdCaddy),
+        PREVIEW_PROXY_PORT: String(input.ports.vkPreviewProxy),
+        NODE_OPTIONS: appendNodeOption(process.env.NODE_OPTIONS, '--max-old-space-size=8192'),
+      },
+    },
+  ];
 
   const commands: CommandSpec[] = [
     {
@@ -165,34 +188,11 @@ export function createSandboxPlan(input: {
         HOST: '127.0.0.1',
         BACKEND_PORT: String(input.ports.vkBackend),
         PORT: String(input.ports.vkBackend),
-        FRONTEND_PORT: String(input.ports.vkFrontend),
+        FRONTEND_PORT: String(input.ports.vdCaddy),
         PREVIEW_PROXY_PORT: String(input.ports.vkPreviewProxy),
         VK_ALLOWED_ORIGINS: vkAllowedOrigins,
         DISABLE_WORKTREE_CLEANUP: '1',
         RUST_LOG: process.env.RUST_LOG ?? 'debug',
-      },
-    },
-    {
-      name: 'vk-local-web',
-      cwd: vkRoot,
-      command: 'pnpm',
-      args: [
-        '--filter',
-        '@vibe/local-web',
-        'exec',
-        'vite',
-        '--host',
-        '127.0.0.1',
-        '--port',
-        String(input.ports.vkFrontend),
-        '--strictPort',
-      ],
-      env: {
-        ...commonEnv,
-        BACKEND_PORT: String(input.ports.vkBackend),
-        FRONTEND_PORT: String(input.ports.vkFrontend),
-        PREVIEW_PROXY_PORT: String(input.ports.vkPreviewProxy),
-        VITE_OPEN: 'false',
       },
     },
     {
@@ -233,6 +233,7 @@ export function createSandboxPlan(input: {
     urls: { vd: vdUrl, vkFrontend: vkFrontendUrl },
     env: commonEnv,
     caddyfile: input.caddyfile,
+    setupCommands,
     commands,
   };
 }
@@ -251,12 +252,42 @@ export async function writeSandboxFiles(plan: SandboxPlan): Promise<void> {
 
 function printPlan(plan: SandboxPlan): void {
   console.log(`VD URL: ${plan.urls.vd}`);
-  console.log(`VK local-web URL: ${plan.urls.vkFrontend}`);
+  console.log(`VK frontend URL: ${plan.urls.vkFrontend}`);
   console.log(`Run dir: ${plan.paths.runDir}`);
+  console.log('\nSetup commands:');
+  for (const spec of plan.setupCommands) {
+    console.log(`- ${spec.name}: (cd ${spec.cwd} && ${spec.command} ${spec.args.join(' ')})`);
+  }
   console.log('\nCommands:');
   for (const spec of plan.commands) {
     console.log(`- ${spec.name}: (cd ${spec.cwd} && ${spec.command} ${spec.args.join(' ')})`);
   }
+}
+
+function runCommandToCompletion(spec: CommandSpec): Promise<void> {
+  return new Promise((resolveCommand, rejectCommand) => {
+    const child = spawn(spec.command, spec.args, {
+      cwd: spec.cwd,
+      env: { ...process.env, ...spec.env },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    const prefix = `[${spec.name}]`;
+    child.stdout?.on('data', (chunk) => process.stdout.write(`${prefix} ${chunk}`));
+    child.stderr?.on('data', (chunk) => process.stderr.write(`${prefix} ${chunk}`));
+    child.on('error', (error) => {
+      rejectCommand(new Error(`${spec.name} failed to start: ${error.message}`));
+    });
+    child.on('exit', (code, signal) => {
+      console.log(`${prefix} exited code=${code ?? 'null'} signal=${signal ?? 'null'}`);
+      if (code === 0) {
+        resolveCommand();
+        return;
+      }
+      rejectCommand(
+        new Error(`${spec.name} failed with code=${code ?? 'null'} signal=${signal ?? 'null'}`),
+      );
+    });
+  });
 }
 
 function spawnCommand(
@@ -314,6 +345,9 @@ async function main(): Promise<void> {
   }
 
   printPlan(plan);
+  for (const spec of plan.setupCommands) {
+    await runCommandToCompletion(spec);
+  }
   let stopping = false;
   const children: ChildProcess[] = [];
   const stop = (): void => {
