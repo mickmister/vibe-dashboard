@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 
 import {
   allocatePorts,
+  childProcessSignalTarget,
   createSandboxPlan,
   findFreePort,
   loadSandboxCaddyfile,
@@ -24,6 +25,13 @@ describe('VK mocked sandbox helpers', () => {
 
     await expect(findFreePort(50_000, allocator)).resolves.toBe(50_002);
     expect(checked).toEqual([50_000, 50_001, 50_002]);
+  });
+
+  it('targets long-running child process groups on POSIX for shutdown cleanup', () => {
+    const pid = 12_345;
+    expect(childProcessSignalTarget(pid)).toBe(
+      process.platform === 'win32' ? pid : -pid,
+    );
   });
 
   it('uses explicit env port overrides when present', async () => {

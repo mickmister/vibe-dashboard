@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
+import { once } from 'node:events';
 
 export interface SandboxPorts {
   vkBackend: number;
@@ -48,6 +49,7 @@ export interface PortAllocator {
 const DEFAULT_PORT_START = 50_000;
 const MAX_PORT = 65_535;
 const SANDBOX_CADDYFILE_NAME = 'Caddyfile';
+const CHILD_SHUTDOWN_TIMEOUT_MS = 5_000;
 
 function envInt(name: string, fallback: number, env = process.env): number {
   const raw = env[name]?.trim();
@@ -86,6 +88,10 @@ export async function findFreePort(
     if (await allocator.isAvailable(port)) return port;
   }
   throw new Error(`Could not find a free port at or above ${start}`);
+}
+
+export function childProcessSignalTarget(pid: number): number {
+  return process.platform === 'win32' ? pid : -pid;
 }
 
 export async function allocatePorts(
@@ -308,6 +314,7 @@ function spawnCommand(
     cwd: spec.cwd,
     env: { ...process.env, ...spec.env },
     stdio: ['ignore', 'pipe', 'pipe'],
+    detached: process.platform !== 'win32',
   });
   const prefix = `[${spec.name}]`;
   let reportedUnexpectedExit = false;
@@ -326,6 +333,54 @@ function spawnCommand(
     onUnexpectedExit(spec, `exit code=${code ?? 'null'} signal=${signal ?? 'null'}`);
   });
   return child;
+}
+
+function signalChild(child: ChildProcess, signal: NodeJS.Signals): void {
+  if (!child.pid) return;
+  try {
+    process.kill(childProcessSignalTarget(child.pid), signal);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ESRCH') return;
+    child.kill(signal);
+  }
+}
+
+function isChildExited(child: ChildProcess): boolean {
+  return child.exitCode !== null || child.signalCode !== null;
+}
+
+async function waitForChildExit(
+  child: ChildProcess,
+  timeoutMs: number,
+): Promise<'exited' | 'timeout'> {
+  if (isChildExited(child)) return 'exited';
+  let timeout: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      once(child, 'exit').then(() => 'exited' as const),
+      new Promise<'timeout'>((resolveTimeout) => {
+        timeout = setTimeout(() => resolveTimeout('timeout'), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+async function stopChild(
+  child: ChildProcess,
+  name: string,
+  timeoutMs = CHILD_SHUTDOWN_TIMEOUT_MS,
+): Promise<void> {
+  const prefix = `[${name}]`;
+  if (isChildExited(child)) return;
+
+  signalChild(child, 'SIGTERM');
+  if ((await waitForChildExit(child, timeoutMs)) === 'exited') return;
+
+  console.error(`${prefix} did not exit after SIGTERM; sending SIGKILL.`);
+  signalChild(child, 'SIGKILL');
+  await waitForChildExit(child, timeoutMs);
 }
 
 async function main(): Promise<void> {
@@ -359,22 +414,31 @@ async function main(): Promise<void> {
     await runCommandToCompletion(spec);
   }
   let stopping = false;
-  const children: ChildProcess[] = [];
-  const stop = (): void => {
-    if (stopping) return;
+  let stopPromise: Promise<void> | undefined;
+  const children: { spec: CommandSpec; child: ChildProcess }[] = [];
+  const stop = (exitCode?: number): Promise<void> => {
+    if (stopPromise) return stopPromise;
     stopping = true;
-    for (const child of children) child.kill('SIGTERM');
+    if (exitCode !== undefined) process.exitCode = exitCode;
+    stopPromise = Promise.all(
+      children.map(({ spec, child }) => stopChild(child, spec.name)),
+    ).then(() => undefined);
+    return stopPromise;
   };
   for (const spec of plan.commands) {
-    children.push(spawnCommand(spec, (exitedSpec, reason) => {
+    const child = spawnCommand(spec, (exitedSpec, reason) => {
       if (stopping) return;
       console.error(`${exitedSpec.name} exited unexpectedly (${reason}); stopping sandbox.`);
-      process.exitCode = 1;
-      stop();
-    }));
+      void stop(1).then(() => process.exit(1));
+    });
+    children.push({ spec, child });
   }
-  process.on('SIGINT', stop);
-  process.on('SIGTERM', stop);
+  process.on('SIGINT', () => {
+    void stop().then(() => process.exit(process.exitCode ?? 0));
+  });
+  process.on('SIGTERM', () => {
+    void stop().then(() => process.exit(process.exitCode ?? 0));
+  });
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
