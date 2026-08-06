@@ -112,6 +112,7 @@ describe('VK mocked sandbox helpers', () => {
     expect(caddyfile).toContain('admin {$CADDY_ADMIN:localhost:2019}');
     expect(caddyfile).toContain(':{$CADDY_PORT:3001}');
     expect(caddyfile).toContain('handle_path /vk-api/*');
+    expect(caddyfile).toContain('handle_path /vk-static/*');
     expect(caddyfile).toContain('rewrite * /api{uri}');
     expect(caddyfile).toContain('reverse_proxy localhost:{$BACKEND_PORT:3007}');
     expect(caddyfile).toContain('reverse_proxy localhost:{$DASHBOARD_PORT:3005}');
@@ -158,7 +159,14 @@ describe('VK mocked sandbox helpers', () => {
     ]);
     expect(plan.setupCommands[0]).toMatchObject({
       command: 'pnpm',
-      args: ['--filter', '@vibe/local-web', 'run', 'build'],
+      args: [
+        '--filter',
+        '@vibe/local-web',
+        'run',
+        'build',
+        '--base',
+        '/vk-static/',
+      ],
       env: {
         BACKEND_PORT: '4107',
         FRONTEND_PORT: '4101',

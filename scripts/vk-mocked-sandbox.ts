@@ -166,7 +166,14 @@ export function createSandboxPlan(input: {
       name: 'vk-build-local-web',
       cwd: vkRoot,
       command: 'pnpm',
-      args: ['--filter', '@vibe/local-web', 'run', 'build'],
+      args: [
+        '--filter',
+        '@vibe/local-web',
+        'run',
+        'build',
+        '--base',
+        '/vk-static/',
+      ],
       env: {
         ...commonEnv,
         BACKEND_PORT: String(input.ports.vkBackend),

@@ -51,6 +51,19 @@
 	# remain the only Caddy file edited for plugin exposure.
 	import /etc/caddy/plugins.caddy
 
+	# VK built frontend assets for the same-origin mocked sandbox. The sandbox
+	# builds VK local-web with base /vk-static/ so its /workspaces HTML can load
+	# assets without competing with VD's own /assets namespace.
+	handle_path /vk-static/* {
+		vk_rewrite
+		reverse_proxy localhost:{$BACKEND_PORT:3007} {
+			header_up Host {upstream_hostport}
+			header_up Upgrade {http.request.header.Upgrade}
+			header_up Connection {http.request.header.Connection}
+			header_up Accept-Encoding identity
+		}
+	}
+
 	# Vibe Dashboard app
 	@vibe_dashboard_root {
 		path /
@@ -97,22 +110,19 @@
 
 	# Wrapper app — static assets and API routes
 	handle @vibe_dashboard_assets {
-		# Proxy /assets to vibe-kanban first; if missing there, fall back to wrapper.
-		# VK built frontend and VD built frontend both publish hashed files under
-		# /assets. Backend-first keeps same-origin VK iframe assets working while
-		# preserving VD asset fallback for names the backend does not own.
+		# Proxy /assets to wrapper first; if missing there, fall back to vibe-kanban.
 		@asset_path path /assets/*
 		handle @asset_path {
 			vk_rewrite
-			reverse_proxy localhost:{$BACKEND_PORT:3007} {
+			reverse_proxy localhost:{$DASHBOARD_PORT:3005} {
 				header_up Host {upstream_hostport}
 				header_up Upgrade {http.request.header.Upgrade}
 				header_up Connection {http.request.header.Connection}
 				header_up Accept-Encoding identity
 
-				@backend_asset_error status 404 502
-				handle_response @backend_asset_error {
-					reverse_proxy localhost:{$DASHBOARD_PORT:3005} {
+				@wrapper_asset_error status 404 502
+				handle_response @wrapper_asset_error {
+					reverse_proxy localhost:{$BACKEND_PORT:3007} {
 						header_up Host {upstream_hostport}
 						header_up Upgrade {http.request.header.Upgrade}
 						header_up Connection {http.request.header.Connection}

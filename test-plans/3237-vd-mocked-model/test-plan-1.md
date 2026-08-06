@@ -77,21 +77,23 @@ Steps:
 3. Wait for the main content area to show the VK workspace creation iframe.
 4. Verify the iframe `src` uses the printed VD/Caddy origin and the path
    `/workspaces`.
-5. Use `agent-browser frame` to switch into the `Create Workspace` iframe.
-6. Verify the VK iframe shows the heading
+5. Use `agent-browser eval` from the VD page to inspect the same-origin
+   `Create Workspace` iframe's `contentDocument`.
+6. Verify the VK iframe document loads assets from `/vk-static/assets/...`.
+7. Verify the VK iframe shows the heading
    `Which repositories would you like to work on?`
-7. Verify the VK iframe shows the repository-source buttons:
+8. Verify the VK iframe shows the repository-source buttons:
    - `Recent`
    - `Browse`
    - `Create`
-8. Switch `agent-browser` back to the main frame.
 
 Expected:
 
 - The VD `New Craft` button opens VK workspace creation UI directly.
 - The iframe is not blank.
 - The iframe is same-origin with the printed VD/Caddy URL.
-- VK iframe controls are available through `agent-browser frame`.
+- VK iframe controls are inspectable through the VD page's same-origin iframe
+  DOM and can be driven with visible coordinate clicks from the VD page.
 
 ### TEST_CASE_4A — Create repository in VK UI
 

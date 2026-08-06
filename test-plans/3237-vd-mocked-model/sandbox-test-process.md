@@ -42,16 +42,18 @@ the JSON `notes` fields or in a separate bead note.
 - VK `qa-mode` backend has either already been built, or the tester accepts the
   initial Rust compile time.
 - The sandbox uses the real checked-in `Caddyfile`.
-- The sandbox builds VK `@vibe/local-web` before starting services, then serves
-  VK frontend through the VK backend and Caddy. VK iframes should therefore use
-  the printed VD/Caddy origin rather than a separate VK Vite origin.
+- The sandbox builds VK `@vibe/local-web` before starting services with Vite
+  base `/vk-static/`, then serves VK frontend through the VK backend and Caddy.
+  VK iframes should therefore use the printed VD/Caddy origin rather than a
+  separate VK Vite origin, and VK built assets should load from
+  `/vk-static/assets/...` instead of competing with VD assets under `/assets`.
 
 Recommended prebuilds to avoid first-run compile/build delay:
 
 ```bash
 cd ../Vktest
 cargo build --features qa-mode --bin server
-pnpm --filter @vibe/local-web run build
+NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter @vibe/local-web run build --base /vk-static/
 ```
 
 ## Fresh data guidance
@@ -98,6 +100,7 @@ Expected same-origin shape:
 - VD loads from the printed VD URL, for example `http://localhost:50005`.
 - VK frontend iframes also load from that same origin, for example
   `http://localhost:50005/workspaces/...`.
+- VK frontend built assets load from that same origin under `/vk-static`.
 - VD browser requests to `/vk-api/*` route through Caddy to VK backend `/api/*`.
 - There is no separate VK Vite frontend server in the default sandbox.
 
@@ -124,7 +127,7 @@ reload the browser:
 
 ```bash
 cd ../Vktest
-pnpm --filter @vibe/local-web run build
+NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter @vibe/local-web run build --base /vk-static/
 ```
 
 This is usually much cheaper than a cold VK Rust/backend build. No Caddy restart
@@ -145,21 +148,28 @@ Rust incremental rebuilds should be faster after the first successful build.
 ## Browser automation and iframes
 
 All mutating acceptance-test actions should be performed through the VD UI. The
-default sandbox serves VK iframes from the same Caddy origin as VD so
-`agent-browser frame` can be attempted against the VD-hosted iframe rather than
-opening a separate VK tab.
+default sandbox serves VK iframes from the same Caddy origin as VD so tests can
+inspect the VD-hosted iframe's `contentDocument` directly rather than opening a
+separate VK tab.
 
-Recommended frame workflow:
+Recommended same-origin iframe inspection workflow:
 
 ```bash
 agent-browser snapshot -i
-agent-browser frame "iframe[title='Create Workspace']"
-agent-browser snapshot -i
-agent-browser frame main
+agent-browser eval "(() => {
+  const frame = document.querySelector('iframe[title=\"Create Workspace\"]');
+  return {
+    src: frame?.src,
+    text: frame?.contentDocument?.body?.innerText?.slice(0, 1000),
+    scripts: [...(frame?.contentDocument?.scripts ?? [])].map((s) => s.src),
+  };
+})()"
 ```
 
-Use fixed viewport dimensions before coordinate-sensitive steps. Record the
-iframe `src`, final VD URL, and screenshot path in the tester bead result.
+Use fixed viewport dimensions before coordinate-sensitive steps. For iframe
+interactions, calculate visible control positions from the same-origin iframe
+DOM and click those coordinates from the VD page. Record the iframe `src`,
+final VD URL, and screenshot path in the tester bead result.
 
 ## Stopping the sandbox
 
