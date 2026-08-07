@@ -32,6 +32,9 @@ General expectations:
 - Do not use shortcuts, direct API mutation, seeded data, or alternate flows
   unless the test plan explicitly instructs you to.
 - Start with fresh state/data exactly as documented.
+- For browser-driven testing, use the Playwright CLI snapshot/ref workflow from
+  [`feature-work-process.md`](./feature-work-process.md) unless the approved
+  test plan explicitly requires a different tool.
 - Capture screenshots or other artifacts when the test plan requests them.
 - Record exact commands, URLs, artifact paths, notable environment details, and
   any deviations from the plan.

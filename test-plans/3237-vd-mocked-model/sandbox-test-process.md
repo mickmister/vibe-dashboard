@@ -98,8 +98,9 @@ VK dev sqlite/config currently lives under the worktree-local
 worktree-local `data` directory. These directories are expected to be untracked
 local development state. Do **not** delete tracked files.
 
-VD browser state can be reset by using a fresh `agent-browser --session` name,
-or by clearing browser local/session storage before opening VD.
+VD browser state can be reset by using a fresh Playwright CLI `-s=<session>`
+name, deleting Playwright CLI session data, or clearing browser local/session
+storage before opening VD.
 
 Create disposable repositories under `.vk-mocked-sandbox/repos` so cleanup stays
 inside the VD worktree.
@@ -181,9 +182,9 @@ curl -I "$VD_URL$ASSET_PATH"
 For browser-level verification, open VD with a fresh named session:
 
 ```bash
-agent-browser --session vk-mocked-sandbox set viewport 1280 900
-agent-browser --session vk-mocked-sandbox open "$VD_URL"
-agent-browser --session vk-mocked-sandbox snapshot -i
+PLAYWRIGHT_MCP_SANDBOX=false npx -y @playwright/cli@latest -s=vk-mocked-sandbox open "$VD_URL"
+PLAYWRIGHT_MCP_SANDBOX=false npx -y @playwright/cli@latest -s=vk-mocked-sandbox resize 1280 900
+PLAYWRIGHT_MCP_SANDBOX=false npx -y @playwright/cli@latest -s=vk-mocked-sandbox snapshot --json
 ```
 
 ## Editing and reloading during development
@@ -235,11 +236,34 @@ default sandbox serves VK iframes from the same Caddy origin as VD so tests can
 inspect the VD-hosted iframe's `contentDocument` directly rather than opening a
 separate VK tab.
 
+Use Playwright CLI as the default agent-driven browser tool. The workflow is:
+
+1. Open the printed VD URL with a fresh session.
+2. Capture `snapshot --json`.
+3. Interact using refs from the latest snapshot.
+4. Capture a fresh snapshot after navigation, modal changes, iframe changes, or
+   major re-renders.
+5. Generate stable locator hints for important refs.
+6. Record commands, URLs, snapshot paths, locator hints, screenshots, and
+   observed results on the tester bead.
+
+Example:
+
+```bash
+PLAYWRIGHT_MCP_SANDBOX=false npx -y @playwright/cli@latest -s=vk-mocked-sandbox open "$VD_URL"
+PLAYWRIGHT_MCP_SANDBOX=false npx -y @playwright/cli@latest -s=vk-mocked-sandbox snapshot --json
+PLAYWRIGHT_MCP_SANDBOX=false npx -y @playwright/cli@latest -s=vk-mocked-sandbox click e<N> --json
+PLAYWRIGHT_MCP_SANDBOX=false npx -y @playwright/cli@latest -s=vk-mocked-sandbox generate-locator e<N> --json
+```
+
+Refs such as `e<N>` are temporary exploration handles. They must not be copied
+into committed E2E tests.
+
 Recommended same-origin iframe inspection workflow:
 
 ```bash
-agent-browser snapshot -i
-agent-browser eval "(() => {
+PLAYWRIGHT_MCP_SANDBOX=false npx -y @playwright/cli@latest -s=vk-mocked-sandbox snapshot --json
+PLAYWRIGHT_MCP_SANDBOX=false npx -y @playwright/cli@latest -s=vk-mocked-sandbox eval "(() => {
   const frame = document.querySelector('iframe[title=\"Create Workspace\"]');
   return {
     src: frame?.src,
@@ -249,23 +273,54 @@ agent-browser eval "(() => {
 })()"
 ```
 
-Use fixed viewport dimensions before coordinate-sensitive steps. For iframe
-interactions, calculate visible control positions from the same-origin iframe
-DOM and click those coordinates from the VD page. Record the iframe `src`,
-final VD URL, and screenshot path in the tester bead result.
+Prefer semantic refs and generated locator hints. For same-origin iframes,
+prefer Playwright E2E `frameLocator(...)` in the final test. Use fixed viewport
+dimensions before coordinate-sensitive steps. If a manual acceptance pass must
+fall back to coordinates, calculate visible control positions from the
+same-origin iframe DOM and click those coordinates from the VD page. Record the
+iframe `src`, final VD URL, and screenshot path in the tester bead result.
 
-Known limitation: `agent-browser frame` did not select the same-origin VK iframe
-during the 2026-08-06 smoke. Same-origin DOM access still worked through
-`iframe.contentDocument`, so the accepted workaround is:
+Known fallback: if Playwright CLI cannot operate a same-origin VK iframe
+semantically during an exploratory pass, same-origin DOM access should still
+work through `iframe.contentDocument`. The accepted fallback is:
 
-1. Use `agent-browser eval` to inspect iframe text, scripts, and element
-   positions.
+1. Use Playwright CLI `eval` to inspect iframe text, scripts, and element
+   positions from the VD page.
 2. Use visible coordinate clicks from the VD page for controls inside the
    iframe.
 3. Continue to record the iframe `src` and screenshots as evidence.
 
 This workaround is reasonable for acceptance smoke testing, but semantic
 iframe-scoped clicks would be preferable for a larger automated suite.
+
+## Creating the E2E test from the browser pass
+
+When this sandbox plan exposes behavior that should remain covered, create a
+Playwright E2E test from the completed Playwright CLI session.
+
+1. Save a transcript artifact outside tracked source, for example under
+   `/tmp` or another ignored scratch directory. Include:
+   - the exact Playwright CLI commands
+   - each snapshot path
+   - each ref used for exploration
+   - the generated locator hint for important refs
+   - assertions observed in the UI
+   - screenshot paths and final URLs
+2. Convert the transcript into a draft spec under `tests/e2e`.
+3. Polish before committing:
+   - import from `playwright/test`
+   - replace refs with semantic locators
+   - use `frameLocator(...)` for VK iframe interactions when possible
+   - use `expect` web-first assertions for visible outcomes
+   - avoid direct API mutation and separate VK tabs for mutating actions
+4. Run the focused E2E test:
+
+   ```bash
+   npx playwright test tests/e2e/<spec-name>.spec.ts --trace on
+   ```
+
+5. Run required repo checks, including `npm run check-types` when source or test
+   TypeScript changes are made.
 
 ## Stopping the sandbox
 
