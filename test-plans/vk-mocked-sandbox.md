@@ -293,8 +293,9 @@ This section is for implementers/developers. Independent testers should record
 transcripts and artifacts only; they should not create or commit E2E tests
 unless explicitly instructed.
 
-When this sandbox plan exposes behavior that should remain covered, create a
-Playwright E2E test from the completed Playwright CLI session.
+When this sandbox plan exposes behavior that should remain covered, follow
+[`onboarding/playwright-manual-to-e2e.md`](./onboarding/playwright-manual-to-e2e.md)
+to create a Playwright E2E test from the completed Playwright CLI session.
 
 1. Save a transcript artifact outside tracked source, for example under `/tmp`
    or another ignored scratch directory. Include:
@@ -304,7 +305,14 @@ Playwright E2E test from the completed Playwright CLI session.
    - the generated locator hint for important refs
    - assertions observed in the UI
    - screenshot paths and final URLs
-2. Convert the transcript into a draft spec under `tests/e2e`.
+2. Convert the transcript into a draft feature-oriented spec under
+   `tests/e2e`, preferably:
+
+   ```text
+   tests/e2e/features/<feature-id-or-slug>/<behavior>.spec.ts
+   ```
+
+   Link the spec to the approved test plan and covered `TEST_CASE_*` IDs.
 3. Polish before committing:
    - import from `playwright/test`
    - replace refs with semantic locators
@@ -314,7 +322,7 @@ Playwright E2E test from the completed Playwright CLI session.
 4. Run the focused E2E test:
 
    ```bash
-   pnpm exec playwright test tests/e2e/<spec-name>.spec.ts --trace on
+   pnpm exec playwright test tests/e2e/features/<feature-id-or-slug>/<spec-name>.spec.ts --trace on
    ```
 
 5. Run required repo checks, including `npm run check-types` when source or test
