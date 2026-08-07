@@ -35,7 +35,8 @@ Expected:
 
 Steps:
 
-1. Open the printed VD URL with `agent-browser`.
+1. Open the printed VD URL with Playwright CLI using the workflow in
+   [`sandbox-test-process.md`](./sandbox-test-process.md).
 2. Wait for the VD app shell to render.
 3. Verify the top voyage bar is visible across the top of the page.
 4. Verify the left sidebar is visible. The sidebar top section contains:
@@ -79,8 +80,9 @@ Steps:
 3. Wait for the main content area to show the VK workspace creation iframe.
 4. Verify the iframe `src` uses the printed VD/Caddy origin and the path
    `/workspaces`.
-5. Use `agent-browser eval` from the VD page to inspect the same-origin
-   `Create Workspace` iframe's `contentDocument`.
+5. Use Playwright CLI `eval` from the VD page to inspect the same-origin
+   `Create Workspace` iframe's `contentDocument`, if direct semantic iframe
+   interaction is not available in the exploratory pass.
 6. Verify the VK iframe document loads assets from `/vk-static/assets/...`.
 7. Verify the VK iframe shows the heading
    `Which repositories would you like to work on?`
@@ -95,7 +97,8 @@ Expected:
 - The iframe is not blank.
 - The iframe is same-origin with the printed VD/Caddy URL.
 - VK iframe controls are inspectable through the VD page's same-origin iframe
-  DOM and can be driven with visible coordinate clicks from the VD page.
+  DOM and can be driven from the VD page. The final E2E test should use
+  Playwright `frameLocator(...)` when possible.
 
 ### TEST_CASE_4A — Create repository in VK UI
 
