@@ -171,16 +171,26 @@ test('submits the profile form', async ({ page }) => {
 
 Implement the feature after the user approves the full test plan.
 
-During implementation:
+During implementation, follow
+[`implementer-testing-process.md`](./implementer-testing-process.md). In
+particular:
 
 - Keep code changes minimal and reviewable.
-- Add automated tests where practical.
+- Practice TDD when practical.
+- Add automated tests for changed behavior.
+- For browser-visible work, create or update Playwright E2E coverage unless E2E
+  is not relevant to the work being created. If unsure whether E2E is
+  necessary, ask the user directly.
 - Run focused tests and type checks.
 - Use the mocked VK sandbox when the story involves VD/VK end-to-end behavior or
   model-provider flows that should avoid real tokens.
 
 The implementer should manually run the approved test plan and record results
 on their implementation or QA bead as JSON keyed by the test-case IDs.
+
+Assume E2E tests are slow. Run the focused feature E2E while implementing, and
+leave broad/full E2E reverification available for explicit, scheduled, or later
+validation rather than requiring every E2E test on every commit.
 
 ## 7. Independent sandbox tester pass after approval
 

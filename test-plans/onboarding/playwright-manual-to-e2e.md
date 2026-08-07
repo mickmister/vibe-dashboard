@@ -6,7 +6,7 @@ Playwright E2E test.
 The workflow has two separate outputs:
 
 1. **Manual-run evidence** from `pnpm playwright:cli`.
-2. **A polished Playwright Test spec** committed to `tests/e2e`.
+2. **A polished Playwright Test spec** committed under `tests/e2e`.
 
 Do not commit raw Playwright CLI snapshots, transient refs, traces, screenshots,
 videos, or generated scratch drafts unless a test plan explicitly says an
@@ -174,7 +174,22 @@ avoid it, or file a product/test-plan issue.
 
 ## Converting the transcript into a Playwright Test
 
-Create or update a spec under `tests/e2e`.
+Create or update a feature-oriented spec under `tests/e2e`, preferably:
+
+```text
+tests/e2e/features/<feature-id-or-slug>/<behavior>.spec.ts
+```
+
+At the top of the spec, link the relevant test plan and test-case IDs:
+
+```ts
+/**
+ * Covers:
+ * - test-plans/<feature>/test-plan-1.md
+ * - TEST_CASE_2A
+ * - TEST_CASE_3A
+ */
+```
 
 Use the transcript to map each manual action into stable Playwright Test code:
 
@@ -237,7 +252,7 @@ Before committing an E2E test, verify that it:
 Run the focused test first:
 
 ```bash
-pnpm exec playwright test tests/e2e/<spec-name>.spec.ts --trace on
+pnpm exec playwright test tests/e2e/features/<feature-id-or-slug>/<spec-name>.spec.ts --trace on
 ```
 
 Then run any required repo checks for the changed files, such as:
@@ -249,7 +264,7 @@ npm run check-types
 If a run is long-lived, use the callback workflow requested by the project:
 
 ```bash
-vibe-agent callback "pnpm exec playwright test tests/e2e/<spec-name>.spec.ts --trace on"
+vibe-agent callback "pnpm exec playwright test tests/e2e/features/<feature-id-or-slug>/<spec-name>.spec.ts --trace on"
 ```
 
 ## Relationship to Playwright codegen
