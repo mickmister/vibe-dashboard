@@ -131,7 +131,7 @@ Each feature spec should link to the relevant test plan and test-case IDs:
 ```ts
 /**
  * Covers:
- * - test-plans/<feature>/test-plan-1.md
+ * - test-plans/branches/<feature>/test-plan-1.md
  * - TEST_CASE_2A
  * - TEST_CASE_3A
  */
@@ -173,7 +173,7 @@ Use the mocked VK sandbox when the work involves:
 - model-provider paths that should avoid real tokens
 - same-origin Caddy/VK/VD routing
 
-Follow [`../vk-mocked-sandbox.md`](../vk-mocked-sandbox.md) for sandbox startup,
+Follow [`vk-mocked-sandbox.md`](./vk-mocked-sandbox.md) for sandbox startup,
 fresh or seeded data, Playwright CLI usage, and cleanup.
 
 Use fresh data when the test plan requires it. Use seeded or fixture data only

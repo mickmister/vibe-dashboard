@@ -294,7 +294,7 @@ transcripts and artifacts only; they should not create or commit E2E tests
 unless explicitly instructed.
 
 When this sandbox plan exposes behavior that should remain covered, follow
-[`onboarding/playwright-manual-to-e2e.md`](./onboarding/playwright-manual-to-e2e.md)
+[`playwright-manual-to-e2e.md`](./playwright-manual-to-e2e.md)
 to create a Playwright E2E test from the completed Playwright CLI session.
 
 1. Save a transcript artifact outside tracked source, for example under `/tmp`

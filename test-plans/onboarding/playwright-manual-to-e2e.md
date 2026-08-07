@@ -59,7 +59,7 @@ Example:
 # E2E candidate transcript
 
 - Bead: vkvw-1234 — Example feature
-- Test plan: ./test-plans/example/test-plan-1.md
+- Test plan: ./test-plans/branches/example/test-plan-1.md
 - Branch: vk/example
 - URL: http://localhost:50005
 - Data mode: fresh
@@ -185,7 +185,7 @@ At the top of the spec, link the relevant test plan and test-case IDs:
 ```ts
 /**
  * Covers:
- * - test-plans/<feature>/test-plan-1.md
+ * - test-plans/branches/<feature>/test-plan-1.md
  * - TEST_CASE_2A
  * - TEST_CASE_3A
  */

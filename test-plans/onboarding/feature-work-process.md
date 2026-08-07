@@ -3,6 +3,16 @@
 Use this process when preparing a new feature that should be validated through
 manual testing and, when relevant, the mocked VK sandbox.
 
+## Test-plan directory layout
+
+Keep `test-plans` organized with exactly these top-level directories:
+
+- `test-plans/onboarding/` for reusable process and sandbox documentation.
+- `test-plans/branches/<branch-slug>/` for branch-specific approved test plans.
+
+Store feature plans under the matching branch directory, for example
+`test-plans/branches/3237-vd-mocked-model/test-plan-1.md`.
+
 ## 1. Confirm the user story first
 
 Start by writing the user story in plain language:
