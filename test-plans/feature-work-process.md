@@ -80,8 +80,8 @@ coverage.
 ## 4. Required agent-driven browser workflow
 
 All test plans that require browser interaction should include an
-agent-driven browser workflow section. Prefer Playwright's agent-friendly CLI
-over `agent-browser` for new testing plans.
+agent-driven browser workflow section. Use Playwright's agent-friendly CLI for
+new testing plans.
 
 Use the Playwright CLI snapshot/ref loop:
 
@@ -108,8 +108,8 @@ Guidelines:
 - Record exact commands, URLs, snapshot paths, generated locator hints,
   screenshot paths, and observed results on the testing bead.
 - Keep Playwright CLI artifacts such as `.playwright-cli/` out of commits.
-- Use `agent-browser` only as a documented fallback when Playwright CLI cannot
-  reach or operate the required browser surface.
+- Use another browser automation tool only as a documented fallback when
+  Playwright CLI cannot reach or operate the required browser surface.
 
 ## 5. Required E2E test creation workflow
 
