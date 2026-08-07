@@ -81,7 +81,9 @@ coverage.
 
 All test plans that require browser interaction should include an
 agent-driven browser workflow section. Use Playwright's agent-friendly CLI for
-new testing plans.
+new testing plans. For browser-driven manual tests that should become committed
+E2E coverage, also follow
+[`playwright-manual-to-e2e.md`](./playwright-manual-to-e2e.md).
 
 Use the Playwright CLI snapshot/ref loop:
 
@@ -120,7 +122,9 @@ Guidelines:
 
 When a manual browser test proves behavior that should remain covered, create a
 Playwright E2E test from the agent-driven session rather than authoring the
-test upfront.
+test upfront. Use
+[`playwright-manual-to-e2e.md`](./playwright-manual-to-e2e.md) as the source of
+truth for transcript artifacts, locator conversion, polishing, and validation.
 
 Required flow:
 

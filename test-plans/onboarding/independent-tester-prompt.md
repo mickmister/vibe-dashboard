@@ -36,6 +36,10 @@ General expectations:
 - For browser-driven testing, use the Playwright CLI snapshot/ref workflow from
   [`feature-work-process.md`](./feature-work-process.md) unless the approved
   test plan explicitly requires a different tool.
+- For browser-driven tests, produce an E2E-conversion transcript artifact using
+  [`playwright-manual-to-e2e.md`](./playwright-manual-to-e2e.md) so a later
+  implementation pass can convert the manual run into a polished Playwright
+  test when requested.
 - Capture screenshots or other artifacts when the test plan requests them.
 - Record exact commands, URLs, artifact paths, notable environment details, and
   any deviations from the plan.
