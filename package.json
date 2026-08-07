@@ -6,6 +6,9 @@
   "scripts": {
     "dev": "vite",
     "dev:vk-mocked-sandbox": "node --experimental-strip-types scripts/vk-mocked-sandbox.ts start",
+    "e2e:vk-mocked-sandbox:reset": "node --experimental-strip-types scripts/e2e-vk-mocked-sandbox-fixtures.ts reset",
+    "e2e:vk-mocked-sandbox:snapshot": "node --experimental-strip-types scripts/e2e-vk-mocked-sandbox-fixtures.ts snapshot",
+    "e2e:vk-mocked-sandbox:validate": "node --experimental-strip-types scripts/e2e-vk-mocked-sandbox-fixtures.ts validate",
     "prepare:vk-mocked-sandbox": "node --experimental-strip-types scripts/vk-mocked-sandbox.ts prepare",
     "start": "node dist/node/node-entry.mjs",
     "build": "npm run build:beads-form && npm run build:web && npm run build:node && npm run build:vibe-agent-cli",

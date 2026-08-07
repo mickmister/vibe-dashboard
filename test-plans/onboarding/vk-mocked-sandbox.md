@@ -76,7 +76,48 @@ path.
 
 ## Fresh data guidance
 
-For a fully fresh manual run, clear sandbox-local state before starting:
+Most VD feature E2E tests should start from a checked-in fixture instead of
+clicking through first-run onboarding. The sandbox currently supports two
+fixture variants:
+
+- `empty`: no VD/VK sqlite state and no canonical seeded repo.
+- `basic-seeded`: a VD voyage/craft backed by a VK qa-mode workspace with an
+  initial prompt and follow-up, using the canonical repository path
+  `/home/vkuser/e2e/repos/basic-seeded-repo`.
+
+Reset fixtures only while the sandbox is stopped. The reset command refuses to
+run when sandbox ports, sandbox processes, or sqlite handles appear live.
+
+```bash
+# Typical default for VD feature specs that do not need onboarding coverage.
+npm run e2e:vk-mocked-sandbox:reset -- --variant basic-seeded
+npm run dev:vk-mocked-sandbox
+
+# Fresh creation/onboarding tests.
+npm run e2e:vk-mocked-sandbox:reset -- --variant empty
+npm run dev:vk-mocked-sandbox
+```
+
+Validate checked-in fixture artifacts without starting the sandbox:
+
+```bash
+npm run e2e:vk-mocked-sandbox:validate -- --variant basic-seeded
+```
+
+When regenerating `basic-seeded`, create the state through the real sandbox UI
+or supported APIs/RPCs, stop the sandbox, then snapshot:
+
+```bash
+npm run e2e:vk-mocked-sandbox:snapshot -- --variant basic-seeded
+```
+
+The checked-in fixture manifest records the expected voyage, craft, repository,
+prompt, and model names. Tests may reset fixtures in `beforeAll` or
+`beforeEach`; use `beforeAll` for suites that can share the seeded baseline and
+`beforeEach` for suites that intentionally mutate shared fixture state.
+
+For a fully fresh manual run without using the fixture reset command, clear
+sandbox-local state before starting:
 
 ```bash
 rm -rf .vk-mocked-sandbox/current
@@ -95,8 +136,11 @@ name, deleting Playwright CLI session data, or clearing browser local/session
 storage before opening VD.
 
 Create disposable repositories under the VD worktree's absolute
-`.vk-mocked-sandbox/repos` path so cleanup stays inside the VD worktree. When
-the VK Create Repository UI asks for `Current directory`, use:
+`.vk-mocked-sandbox/repos` path so cleanup stays inside the VD worktree. The
+exception is checked-in seeded fixture data, which intentionally uses
+`/home/vkuser/e2e/repos/basic-seeded-repo` so Docker and CI have one stable
+absolute path. When the VK Create Repository UI asks for `Current directory`,
+use:
 
 ```bash
 "$(pwd)/.vk-mocked-sandbox/repos"

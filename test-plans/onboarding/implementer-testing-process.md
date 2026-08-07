@@ -176,8 +176,13 @@ Use the mocked VK sandbox when the work involves:
 Follow [`vk-mocked-sandbox.md`](./vk-mocked-sandbox.md) for sandbox startup,
 fresh or seeded data, Playwright CLI usage, and cleanup.
 
-Use fresh data when the test plan requires it. Use seeded or fixture data only
-when the approved plan or user explicitly allows it.
+Most VD feature work should use the `basic-seeded` mocked-sandbox fixture so
+tests start with a configured VK repo, a completed VK qa-mode workspace, and a
+VD voyage/craft without repeating onboarding. Use `empty` or fresh data when the
+feature specifically covers first-run onboarding, voyage creation, repository
+creation, or workspace creation. Each Playwright suite may choose whether to
+reset in `beforeAll` or `beforeEach`; prefer `beforeAll` when the tests can
+share the seeded baseline and `beforeEach` when the suite mutates shared state.
 
 ## Recording implementer results
 
