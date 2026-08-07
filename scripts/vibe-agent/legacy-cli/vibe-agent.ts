@@ -6,6 +6,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { execFileSync, spawn } from 'child_process';
 import { fileURLToPath } from 'url';
+import { SpanStatusCode, trace, type Span, type Tracer } from '@opentelemetry/api';
 import { client } from '../core/client.js';
 import type { ConversationEntry, ExecutionProcess, Session } from '../types.js';
 import {
@@ -218,6 +219,11 @@ export function buildNoAssistantResponseLogMessage(processId: string): string {
 const TERMINAL_PROCESS_STATUSES = new Set(['completed', 'failed', 'killed']);
 const CALLBACK_IDLE_POLL_INTERVAL_MS = 2_000;
 const REQUEST_REVIEW_QUIET_WINDOW_MS = 10_000;
+const FULL_SUMMARY_DEFAULT_LIMIT_TURNS = 100;
+const FULL_SUMMARY_DEFAULT_LIMIT_SESSIONS = 25;
+const FULL_SUMMARY_DEFAULT_CONVERSATION_TIMEOUT_MS = 30_000;
+const FULL_SUMMARY_SESSION_FETCH_CONCURRENCY = 8;
+const FULL_SUMMARY_CONVERSATION_FETCH_CONCURRENCY = 6;
 
 export interface SessionTurnProcess {
   id?: string;
@@ -325,6 +331,7 @@ export interface ParsedFullSummaryArgs {
   includeRunning: boolean;
   limitTurns: number;
   limitSessions: number;
+  conversationTimeoutMs: number;
 }
 
 export interface ToolCallSummary {
@@ -355,6 +362,18 @@ export interface CommitSummary {
   linesAdded: number;
   linesDeleted: number;
   files: CommitFileSummary[];
+}
+
+type FullSummaryTraceAttribute = string | number | boolean | null | undefined;
+
+interface FullSummarySpan {
+  setAttribute(key: string, value: FullSummaryTraceAttribute): void;
+  recordException(error: unknown): void;
+  end(): void;
+}
+
+interface FullSummaryTracer {
+  startSpan(name: string, attrs?: Record<string, FullSummaryTraceAttribute>): FullSummarySpan;
 }
 
 interface FullSummaryPagerState {
@@ -471,8 +490,9 @@ export function parseFullSummaryArgs(args: string[]): ParsedFullSummaryArgs {
     noAdvance: false,
     jsonOutput: false,
     includeRunning: false,
-    limitTurns: 200,
-    limitSessions: 50,
+    limitTurns: FULL_SUMMARY_DEFAULT_LIMIT_TURNS,
+    limitSessions: FULL_SUMMARY_DEFAULT_LIMIT_SESSIONS,
+    conversationTimeoutMs: FULL_SUMMARY_DEFAULT_CONVERSATION_TIMEOUT_MS,
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -524,12 +544,129 @@ export function parseFullSummaryArgs(args: string[]): ParsedFullSummaryArgs {
       parsed.limitSessions = parsePositiveInteger(arg.slice('--limit-sessions='.length), '--limit-sessions');
       continue;
     }
+    if (arg === '--conversation-timeout') {
+      parsed.conversationTimeoutMs = parseTimeoutMs(requireFlagValue(args, i, arg));
+      i++;
+      continue;
+    }
+    if (arg === '--conversation-timeout-ms') {
+      parsed.conversationTimeoutMs = parseTimeoutMs(requireFlagValue(args, i, arg), 'ms');
+      i++;
+      continue;
+    }
+    if (arg.startsWith('--conversation-timeout=')) {
+      parsed.conversationTimeoutMs = parseTimeoutMs(arg.slice('--conversation-timeout='.length));
+      continue;
+    }
+    if (arg.startsWith('--conversation-timeout-ms=')) {
+      parsed.conversationTimeoutMs = parseTimeoutMs(arg.slice('--conversation-timeout-ms='.length), 'ms');
+      continue;
+    }
 
     throw new Error(`Unknown full_summary option: ${arg}`);
   }
 
   parsed.sessionIds = [...new Set(parsed.sessionIds)];
   return parsed;
+}
+
+function shouldEmitFullSummaryTraceEvents(): boolean {
+  return process.env.VIBE_AGENT_FULL_SUMMARY_TRACE === '1' || process.env.VIBE_AGENT_FULL_SUMMARY_OTEL_DEBUG === '1';
+}
+
+function normalizeTraceAttributeValue(value: FullSummaryTraceAttribute): string | number | boolean | undefined {
+  return value ?? undefined;
+}
+
+function formatTraceError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+async function createFullSummaryTracer(): Promise<FullSummaryTracer> {
+  const emitTraceEvents = shouldEmitFullSummaryTraceEvents();
+  const otelTracer: Tracer = trace.getTracer('vibe-agent.full_summary');
+
+  return {
+    startSpan(name, attrs = {}) {
+      const start = process.hrtime.bigint();
+      const attributes = Object.fromEntries(
+        Object.entries(attrs)
+          .map(([key, value]) => [key, normalizeTraceAttributeValue(value)])
+          .filter((entry): entry is [string, string | number | boolean] => entry[1] !== undefined),
+      );
+      const span: Span = otelTracer.startSpan(name, { attributes });
+      const debugAttrs = { ...attributes };
+
+      return {
+        setAttribute(key, value) {
+          const normalized = normalizeTraceAttributeValue(value);
+          if (normalized === undefined) return;
+          debugAttrs[key] = normalized;
+          span.setAttribute(key, normalized);
+        },
+        recordException(error) {
+          const message = formatTraceError(error);
+          debugAttrs.error = true;
+          debugAttrs['error.message'] = message;
+          span.recordException(error instanceof Error ? error : String(error));
+          span.setStatus({ code: SpanStatusCode.ERROR, message });
+        },
+        end() {
+          const durationMs = Number(process.hrtime.bigint() - start) / 1_000_000;
+          span.setAttribute('duration.ms', durationMs);
+          span.end();
+          if (emitTraceEvents) {
+            console.error(JSON.stringify({
+              event: 'vibe_agent.full_summary.span',
+              name,
+              duration_ms: Math.round(durationMs * 10) / 10,
+              attributes: debugAttrs,
+            }));
+          }
+        },
+      };
+    },
+  };
+}
+
+async function withFullSummarySpan<T>(
+  tracer: FullSummaryTracer,
+  name: string,
+  attrs: Record<string, FullSummaryTraceAttribute>,
+  fn: (span: FullSummarySpan) => Promise<T>,
+): Promise<T> {
+  const span = tracer.startSpan(name, attrs);
+  try {
+    return await fn(span);
+  } catch (error) {
+    span.recordException(error);
+    throw error;
+  } finally {
+    span.end();
+  }
+}
+
+export async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  if (items.length === 0) return [];
+  if (!Number.isSafeInteger(concurrency) || concurrency <= 0) {
+    throw new Error('concurrency must be a positive integer');
+  }
+
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await mapper(items[index] as T, index);
+    }
+  });
+  await Promise.all(workers);
+  return results;
 }
 
 function entryType(entry: ConversationEntry | undefined): string | undefined {
@@ -1704,6 +1841,7 @@ interface FullSummaryTurn {
   agentPreResponse: string | null;
   toolCalls: ToolCallSummary;
   agentResponse: string | null;
+  conversationFetchError: string | null;
   gitCommits: CommitSummary[];
   gitCommitSummaryNote: string | null;
   gitRepositoryPath: string | null;
@@ -1797,6 +1935,9 @@ export function formatFullSummaryText(result: FullSummaryTextResult): string {
       web_searches: turn.toolCalls.webSearches,
       other: turn.toolCalls.other,
     })} />`);
+    if (turn.conversationFetchError) {
+      lines.push(xmlTextElement('      ', 'conversation_fetch_error', truncateText(turn.conversationFetchError, 2000), ''));
+    }
     lines.push(xmlTextElement('      ', 'agent_response', truncateText(turn.agentResponse, 6000), '(none)'));
     lines.push(`      <git_commit_summary${xmlAttrs({ repository_path: turn.gitRepositoryPath })}>`);
     if (turn.gitCommitSummaryNote) {
@@ -1841,7 +1982,7 @@ async function fullSummary(args: string[]): Promise<void> {
     parsed = parseFullSummaryArgs(args);
   } catch (err) {
     console.error(`Error: ${(err as Error).message}`);
-    console.error('Usage: vibe-agent full_summary [--session <id>] [--all] [--no-advance] [--include-running] [--limit-turns <n>] [--limit-sessions <n>] [--json]');
+    console.error('Usage: vibe-agent full_summary [--session <id>] [--all] [--no-advance] [--include-running] [--limit-turns <n>] [--limit-sessions <n>] [--conversation-timeout <duration>] [--json]');
     process.exit(1);
   }
 
@@ -1851,80 +1992,172 @@ async function fullSummary(args: string[]): Promise<void> {
     process.exit(1);
   }
 
+  const tracer = await createFullSummaryTracer();
+
   try {
     const currentSessionId = process.env.VK_SESSION_ID ?? null;
     const readerId = getReaderId();
-    const workspaceName = getWorkspaceDisplayName(workspaceId);
-    const state = readFullSummaryState(workspaceId);
-    const readerState = state.readers[readerId] ?? { seenProcessIds: [], lastQueriedAt: new Date(0).toISOString() };
-    const seenProcessIds = new Set(parsed.all ? [] : readerState.seenProcessIds);
-    const excludedSessionIds = new Set(state.excludedSessionIds ?? []);
+    const {
+      workspaceName,
+      state,
+      readerState,
+      excludedSessionIds,
+      sessionFile,
+      sessions,
+      totalMatchingSessions,
+      sessionLimitHit,
+      plannedTurns,
+      messageLimitHit,
+    } = await withFullSummarySpan(tracer, 'vibe_agent.full_summary.plan', {
+      'workspace.id': workspaceId,
+      'reader.session_id': readerId,
+      all: parsed.all,
+      'limit.turns': parsed.limitTurns,
+      'limit.sessions': parsed.limitSessions,
+    }, async (span) => {
+      const workspaceName = getWorkspaceDisplayName(workspaceId);
+      const state = readFullSummaryState(workspaceId);
+      const readerState = state.readers[readerId] ?? { seenProcessIds: [], lastQueriedAt: new Date(0).toISOString() };
+      const seenProcessIds = new Set(parsed.all ? [] : readerState.seenProcessIds);
+      const excludedSessionIds = new Set(state.excludedSessionIds ?? []);
+      const sessionFile = readSessionFile(workspaceId);
+      let sessions = await withFullSummarySpan(tracer, 'vibe_agent.full_summary.get_sessions', {
+        'workspace.id': workspaceId,
+      }, async (getSessionsSpan) => {
+        const fetchedSessions = await client.getSessions(workspaceId);
+        getSessionsSpan.setAttribute('sessions.fetched', fetchedSessions.length);
+        return fetchedSessions;
+      });
 
-    const sessionFile = readSessionFile(workspaceId);
-    let sessions = await client.getSessions(workspaceId);
-    sessions = sessions.filter(s => s.id !== currentSessionId && !excludedSessionIds.has(s.id));
-    if (parsed.sessionIds.length > 0) {
-      const wanted = new Set(parsed.sessionIds);
-      sessions = sessions.filter(s => wanted.has(s.id));
-    }
-    sessions = sessions.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
-
-    const totalMatchingSessions = sessions.length;
-    const sessionLimitHit = sessions.length > parsed.limitSessions;
-    sessions = sessions.slice(0, parsed.limitSessions);
-
-    const turns: FullSummaryTurn[] = [];
-    let messageLimitHit = false;
-    for (let sessionIndex = 0; sessionIndex < sessions.length; sessionIndex++) {
-      const session = sessions[sessionIndex];
-      const processes = (await client.getSessionProcesses(session.id))
-        .filter(process => parsed.includeRunning || isTerminalProcess(process))
-        .filter(process => !seenProcessIds.has(process.id))
-        .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-
-      if (turns.length + processes.length > parsed.limitTurns) {
-        messageLimitHit = true;
+      sessions = sessions.filter(s => s.id !== currentSessionId && !excludedSessionIds.has(s.id));
+      if (parsed.sessionIds.length > 0) {
+        const wanted = new Set(parsed.sessionIds);
+        sessions = sessions.filter(s => wanted.has(s.id));
       }
+      sessions = sessions.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
 
-      for (const process of processes) {
-        if (turns.length >= parsed.limitTurns) break;
-        const entries = await client.fetchConversation(process.id, 10_000);
-        const conversation = summarizeTurnConversation(entries);
-        const gitRepositoryPath = resolveProcessWorkingDirectory(process, workspaceId, globalThis.process.cwd());
-        const gitNote = gitRepositoryPath
-          ? null
-          : 'Skipped: process working directory could not be resolved to a local git repository without using deprecated workspace APIs.';
-        turns.push({
-          session: {
-            id: session.id,
-            executor: session.executor,
-            role: sessionFile[session.id] ?? session.name ?? null,
-            name: session.name ?? null,
-            created_at: session.created_at,
-          },
-          process: {
-            id: process.id,
-            status: process.status,
-            created_at: process.created_at,
-            completed_at: process.completed_at,
-            run_reason: process.run_reason,
-          },
-          initialUserPrompt: extractPromptFromProcess(process) ?? extractInitialUserMessage(entries),
-          agentPreResponse: conversation.agentPreResponse,
-          toolCalls: conversation.toolCalls,
-          agentResponse: conversation.agentResponse,
-          gitCommits: gitRepositoryPath ? getCommitSummariesForTurn(process, conversation.agentResponse, conversation.toolCalls, gitRepositoryPath) : [],
-          gitCommitSummaryNote: gitNote,
-          gitRepositoryPath,
+      const totalMatchingSessions = sessions.length;
+      const sessionLimitHit = sessions.length > parsed.limitSessions;
+      sessions = sessions.slice(0, parsed.limitSessions);
+      span.setAttribute('sessions.matching', totalMatchingSessions);
+      span.setAttribute('sessions.scanned', sessions.length);
+
+      const sessionProcessBatches = await withFullSummarySpan(tracer, 'vibe_agent.full_summary.fetch_session_processes', {
+        'sessions.count': sessions.length,
+        concurrency: FULL_SUMMARY_SESSION_FETCH_CONCURRENCY,
+      }, async (fetchSpan) => {
+        const batches = await mapWithConcurrency(sessions, FULL_SUMMARY_SESSION_FETCH_CONCURRENCY, async (session) => {
+          const processes = (await client.getSessionProcesses(session.id))
+            .filter(process => parsed.includeRunning || isTerminalProcess(process))
+            .filter(process => !seenProcessIds.has(process.id))
+            .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+          return { session, processes };
         });
-      }
-      if (turns.length >= parsed.limitTurns) {
-        if (sessionIndex < sessions.length - 1) {
+        fetchSpan.setAttribute('processes.unseen', batches.reduce((sum, batch) => sum + batch.processes.length, 0));
+        return batches;
+      });
+
+      const plannedTurns: Array<{ session: Session; process: ExecutionProcess }> = [];
+      let messageLimitHit = false;
+      for (const [sessionIndex, batch] of sessionProcessBatches.entries()) {
+        if (plannedTurns.length + batch.processes.length > parsed.limitTurns) {
           messageLimitHit = true;
         }
-        break;
+        for (const process of batch.processes) {
+          if (plannedTurns.length >= parsed.limitTurns) break;
+          plannedTurns.push({ session: batch.session, process });
+        }
+        if (plannedTurns.length >= parsed.limitTurns) {
+          if (sessionIndex < sessionProcessBatches.length - 1) {
+            messageLimitHit = true;
+          }
+          break;
+        }
       }
-    }
+      span.setAttribute('turns.planned', plannedTurns.length);
+
+      return {
+        workspaceName,
+        state,
+        readerState,
+        excludedSessionIds,
+        sessionFile,
+        sessions,
+        totalMatchingSessions,
+        sessionLimitHit,
+        plannedTurns,
+        messageLimitHit,
+      };
+    });
+
+    const gitRepositoryPathCache = new Map<string, string | null>();
+    const turns = await withFullSummarySpan(tracer, 'vibe_agent.full_summary.build_turns', {
+      'turns.count': plannedTurns.length,
+      concurrency: FULL_SUMMARY_CONVERSATION_FETCH_CONCURRENCY,
+      'conversation.timeout_ms': parsed.conversationTimeoutMs,
+    }, async (span) => {
+      const builtTurns = await mapWithConcurrency(
+        plannedTurns,
+        FULL_SUMMARY_CONVERSATION_FETCH_CONCURRENCY,
+        async ({ session, process }) => {
+          let entries: ConversationEntry[] = [];
+          let conversationFetchError: string | null = null;
+          await withFullSummarySpan(tracer, 'vibe_agent.full_summary.fetch_conversation', {
+            'session.id': session.id,
+            'process.id': process.id,
+            'conversation.timeout_ms': parsed.conversationTimeoutMs,
+          }, async (conversationSpan) => {
+            try {
+              entries = await client.fetchConversation(process.id, parsed.conversationTimeoutMs);
+              conversationSpan.setAttribute('conversation.entries', entries.length);
+            } catch (error) {
+              conversationFetchError = formatTraceError(error);
+              conversationSpan.recordException(error);
+            }
+          });
+
+          const conversation = summarizeTurnConversation(entries);
+          const workingDirKey = extractWorkingDirFromProcess(process) ?? '';
+          let gitRepositoryPath: string | null;
+          if (gitRepositoryPathCache.has(workingDirKey)) {
+            gitRepositoryPath = gitRepositoryPathCache.get(workingDirKey) ?? null;
+          } else {
+            gitRepositoryPath = resolveProcessWorkingDirectory(process, workspaceId, globalThis.process.cwd());
+            gitRepositoryPathCache.set(workingDirKey, gitRepositoryPath);
+          }
+          const gitNote = gitRepositoryPath
+            ? null
+            : 'Skipped: process working directory could not be resolved to a local git repository without using deprecated workspace APIs.';
+          return {
+            session: {
+              id: session.id,
+              executor: session.executor,
+              role: sessionFile[session.id] ?? session.name ?? null,
+              name: session.name ?? null,
+              created_at: session.created_at,
+            },
+            process: {
+              id: process.id,
+              status: process.status,
+              created_at: process.created_at,
+              completed_at: process.completed_at,
+              run_reason: process.run_reason,
+            },
+            initialUserPrompt: extractPromptFromProcess(process) ?? extractInitialUserMessage(entries),
+            agentPreResponse: conversation.agentPreResponse,
+            toolCalls: conversation.toolCalls,
+            agentResponse: conversation.agentResponse,
+            conversationFetchError,
+            gitCommits: gitRepositoryPath ? getCommitSummariesForTurn(process, conversation.agentResponse, conversation.toolCalls, gitRepositoryPath) : [],
+            gitCommitSummaryNote: gitNote,
+            gitRepositoryPath,
+          };
+        },
+      );
+      span.setAttribute('git.repository_cache_entries', gitRepositoryPathCache.size);
+      span.setAttribute('conversation.errors', builtTurns.filter(turn => turn.conversationFetchError).length);
+      return builtTurns;
+    });
 
     const limited = sessionLimitHit || messageLimitHit;
     const result = {
@@ -1939,6 +2172,7 @@ async function fullSummary(args: string[]): Promise<void> {
         include_running: parsed.includeRunning,
         limit_turns: parsed.limitTurns,
         limit_sessions: parsed.limitSessions,
+        conversation_timeout_ms: parsed.conversationTimeoutMs,
       },
       guardrails: {
         total_matching_sessions: totalMatchingSessions,
@@ -1946,7 +2180,7 @@ async function fullSummary(args: string[]): Promise<void> {
         turns_returned: turns.length,
         limited,
         message: limited
-          ? 'Output was limited by guardrails. Re-run with --session <id>, --limit-messages <n> (alias: --limit-turns), --limit-sessions <n>, or --all intentionally.'
+          ? 'Output was limited by guardrails. Re-run with --session <id>, --limit-messages <n> (alias: --limit-turns), --limit-sessions <n>, --conversation-timeout <duration>, or --all intentionally.'
           : null,
       },
       turns,
@@ -2109,9 +2343,13 @@ Commands:
     --all                      Ignore this caller's pager state for this run
     --no-advance               Do not update this caller's pager state
     --include-running          Include non-terminal turns too
-    --limit-messages <n>       Max turns/messages to print (default: 200)
+    --limit-messages <n>       Max turns/messages to print (default: ${FULL_SUMMARY_DEFAULT_LIMIT_TURNS})
     --limit-turns <n>          Alias for --limit-messages
-    --limit-sessions <n>       Max sessions to scan (default: 50)
+    --limit-sessions <n>       Max sessions to scan (default: ${FULL_SUMMARY_DEFAULT_LIMIT_SESSIONS})
+    --conversation-timeout <duration>
+                               Timeout per conversation fetch (default: 30s)
+    --conversation-timeout-ms <ms>
+                               Timeout per conversation fetch in milliseconds
     --json                     Output as JSON
 
   callback "command to run"    Run a shell command in the background and
