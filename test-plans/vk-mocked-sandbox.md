@@ -73,9 +73,15 @@ The reusable tester process is:
   prepared copy and an empty `plugins.caddy` stub under
   `.vk-mocked-sandbox/current`.
 
-## Current automation caveat
+## Required browser testing workflow
 
-`agent-browser frame` may not select the VK iframe. The iframe is still
-same-origin, so testers can inspect `iframe.contentDocument` from the VD page
-and use visible coordinate clicks when semantic iframe-scoped clicks are not
-available.
+Use Playwright CLI for agent-driven browser testing on this branch. Follow the
+snapshot/ref workflow and E2E creation guidance in:
+
+- [`feature-work-process.md`](./feature-work-process.md)
+- [`3237-vd-mocked-model/sandbox-test-process.md`](./3237-vd-mocked-model/sandbox-test-process.md)
+
+The VK iframe is same-origin with VD in the mocked sandbox. During exploratory
+testing, testers may inspect `iframe.contentDocument` from the VD page if
+semantic iframe interaction is not available. The committed E2E test should use
+stable Playwright locators and `frameLocator(...)` whenever possible.
