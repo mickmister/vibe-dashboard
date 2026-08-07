@@ -4,8 +4,6 @@ Branch: `vk/3237-vd-mocked-model`
 
 Sandbox overview: [`../vk-mocked-sandbox.md`](../vk-mocked-sandbox.md)
 
-Process reference: [`sandbox-test-process.md`](./sandbox-test-process.md)
-
 ## Goal
 
 Verify that a developer can run the local VD + VK mocked sandbox, use VD UI to
@@ -20,7 +18,7 @@ model-provider tokens.
 Steps:
 
 1. Follow `Starting the sandbox` in
-   [`sandbox-test-process.md`](./sandbox-test-process.md).
+   [`../vk-mocked-sandbox.md`](../vk-mocked-sandbox.md).
 
 Expected:
 
@@ -36,7 +34,7 @@ Expected:
 Steps:
 
 1. Open the printed VD URL with Playwright CLI using the workflow in
-   [`sandbox-test-process.md`](./sandbox-test-process.md).
+   [`../vk-mocked-sandbox.md`](../vk-mocked-sandbox.md).
 2. Wait for the VD app shell to render.
 3. Verify the top voyage bar is visible across the top of the page.
 4. Verify the left sidebar is visible. The sidebar top section contains:
@@ -257,7 +255,7 @@ Expected:
 Steps:
 
 1. Follow `Stopping the sandbox` in
-   [`sandbox-test-process.md`](./sandbox-test-process.md).
+   [`../vk-mocked-sandbox.md`](../vk-mocked-sandbox.md).
 
 Expected:
 

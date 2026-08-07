@@ -28,7 +28,8 @@ source of truth for:
 
 General expectations:
 
-- Use the real product UI as much as possible.
+- Use the real product UI for all mutating actions unless the test plan
+  explicitly says otherwise.
 - Do not use shortcuts, direct API mutation, seeded data, or alternate flows
   unless the test plan explicitly instructs you to.
 - Start with fresh state/data exactly as documented.
@@ -68,7 +69,8 @@ include:
 ```text
 Run an independent tester pass.
 
-<PATH_TO_THIS_FILE>
+Use the tester onboarding file:
+- <PATH_TO_THIS_FILE>
 
 Feature/test-plan bead:
 - <TEST_PLAN_BEAD_ID> — <TEST_PLAN_BEAD_TITLE>
