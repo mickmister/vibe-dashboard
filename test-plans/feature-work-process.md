@@ -86,11 +86,16 @@ new testing plans.
 Use the Playwright CLI snapshot/ref loop:
 
 ```bash
-PLAYWRIGHT_MCP_SANDBOX=false npx -y @playwright/cli@latest -s=<session> open "$URL"
-PLAYWRIGHT_MCP_SANDBOX=false npx -y @playwright/cli@latest -s=<session> snapshot --json
-PLAYWRIGHT_MCP_SANDBOX=false npx -y @playwright/cli@latest -s=<session> click e<N> --json
-PLAYWRIGHT_MCP_SANDBOX=false npx -y @playwright/cli@latest -s=<session> fill e<N> "value" --json
+PW_SESSION='<unique-session-name>'
+
+pnpm playwright:cli -s="$PW_SESSION" open "$URL"
+pnpm playwright:cli -s="$PW_SESSION" snapshot --json
+pnpm playwright:cli -s="$PW_SESSION" click e<N> --json
+pnpm playwright:cli -s="$PW_SESSION" fill e<N> "value" --json
 ```
+
+The `playwright:cli` package script invokes the repo-pinned
+`@playwright/cli` dev dependency and sets `PLAYWRIGHT_MCP_SANDBOX=false`.
 
 Guidelines:
 
@@ -102,7 +107,7 @@ Guidelines:
 - For each important ref, ask Playwright CLI for a stable locator:
 
   ```bash
-  PLAYWRIGHT_MCP_SANDBOX=false npx -y @playwright/cli@latest -s=<session> generate-locator e<N> --json
+  pnpm playwright:cli -s="$PW_SESSION" generate-locator e<N> --json
   ```
 
 - Record exact commands, URLs, snapshot paths, generated locator hints,

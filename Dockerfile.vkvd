@@ -320,7 +320,7 @@ RUN set -eux; \
     npm config set fetch-retries 5; \
     npm config set fetch-retry-mintimeout 20000; \
     npm config set fetch-retry-maxtimeout 120000; \
-    npm_packages="@anthropic-ai/claude-code pnpm opencode-ai gitnexus agent-browser"; \
+    npm_packages="@anthropic-ai/claude-code pnpm opencode-ai gitnexus"; \
     install_codex_npm=1; \
     if [ -n "${CODEX_RELEASE_TAG}" ]; then \
       install_codex_npm=0; \

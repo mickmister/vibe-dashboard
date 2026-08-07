@@ -182,9 +182,11 @@ curl -I "$VD_URL$ASSET_PATH"
 For browser-level verification, open VD with a fresh named session:
 
 ```bash
-PLAYWRIGHT_MCP_SANDBOX=false npx -y @playwright/cli@latest -s=vk-mocked-sandbox open "$VD_URL"
-PLAYWRIGHT_MCP_SANDBOX=false npx -y @playwright/cli@latest -s=vk-mocked-sandbox resize 1280 900
-PLAYWRIGHT_MCP_SANDBOX=false npx -y @playwright/cli@latest -s=vk-mocked-sandbox snapshot --json
+PW_SESSION="vk-mocked-sandbox-$(date +%Y%m%d%H%M%S)"
+
+pnpm playwright:cli -s="$PW_SESSION" open "$VD_URL"
+pnpm playwright:cli -s="$PW_SESSION" resize 1280 900
+pnpm playwright:cli -s="$PW_SESSION" snapshot --json
 ```
 
 ## Editing and reloading during development
@@ -250,11 +252,16 @@ Use Playwright CLI as the default agent-driven browser tool. The workflow is:
 Example:
 
 ```bash
-PLAYWRIGHT_MCP_SANDBOX=false npx -y @playwright/cli@latest -s=vk-mocked-sandbox open "$VD_URL"
-PLAYWRIGHT_MCP_SANDBOX=false npx -y @playwright/cli@latest -s=vk-mocked-sandbox snapshot --json
-PLAYWRIGHT_MCP_SANDBOX=false npx -y @playwright/cli@latest -s=vk-mocked-sandbox click e<N> --json
-PLAYWRIGHT_MCP_SANDBOX=false npx -y @playwright/cli@latest -s=vk-mocked-sandbox generate-locator e<N> --json
+PW_SESSION="vk-mocked-sandbox-$(date +%Y%m%d%H%M%S)"
+
+pnpm playwright:cli -s="$PW_SESSION" open "$VD_URL"
+pnpm playwright:cli -s="$PW_SESSION" snapshot --json
+pnpm playwright:cli -s="$PW_SESSION" click e<N> --json
+pnpm playwright:cli -s="$PW_SESSION" generate-locator e<N> --json
 ```
+
+The `playwright:cli` package script invokes the repo-pinned
+`@playwright/cli` dev dependency and sets `PLAYWRIGHT_MCP_SANDBOX=false`.
 
 Refs such as `e<N>` are temporary exploration handles. They must not be copied
 into committed E2E tests.
@@ -262,8 +269,8 @@ into committed E2E tests.
 Recommended same-origin iframe inspection workflow:
 
 ```bash
-PLAYWRIGHT_MCP_SANDBOX=false npx -y @playwright/cli@latest -s=vk-mocked-sandbox snapshot --json
-PLAYWRIGHT_MCP_SANDBOX=false npx -y @playwright/cli@latest -s=vk-mocked-sandbox eval "(() => {
+pnpm playwright:cli -s="$PW_SESSION" snapshot --json
+pnpm playwright:cli -s="$PW_SESSION" eval "(() => {
   const frame = document.querySelector('iframe[title=\"Create Workspace\"]');
   return {
     src: frame?.src,
@@ -316,7 +323,7 @@ Playwright E2E test from the completed Playwright CLI session.
 4. Run the focused E2E test:
 
    ```bash
-   npx playwright test tests/e2e/<spec-name>.spec.ts --trace on
+   pnpm exec playwright test tests/e2e/<spec-name>.spec.ts --trace on
    ```
 
 5. Run required repo checks, including `npm run check-types` when source or test
