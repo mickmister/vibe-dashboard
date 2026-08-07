@@ -19,6 +19,8 @@ Steps:
 
 1. Follow `Starting the sandbox` in
    [`../vk-mocked-sandbox.md`](../vk-mocked-sandbox.md).
+2. Record the absolute disposable repository directory for this VD worktree:
+   `$(pwd)/.vk-mocked-sandbox/repos`.
 
 Expected:
 
@@ -28,6 +30,8 @@ Expected:
 - VK frontend URL is the same as the printed VD/Caddy URL.
 - VK local-web build setup command completed before long-running services
   started.
+- The disposable repository directory exists under the VD worktree before the
+  VK Create Repository UI is used.
 
 ### TEST_CASE_1B — Verify routing/health
 
@@ -107,9 +111,9 @@ Steps:
 2. In the `Create New Repository` dialog, fill the repository-name textbox with
    a unique name, for example:
    `mocked-provider-test-<date-time>`
-3. Fill the `Current directory` textbox with a disposable sandbox directory
-   under the VD repo, for example:
-   `.vk-mocked-sandbox/repos`
+3. Fill the `Current directory` textbox with the absolute disposable sandbox
+   directory under the VD repo. From the VD repo, this is:
+   `$(pwd)/.vk-mocked-sandbox/repos`
 4. Click `Create Repository`.
 5. Verify the `Create New Repository` dialog closes.
 6. The command bar opens for branch selection. Select the `main` branch entry.
@@ -174,26 +178,22 @@ Expected:
   - `Beads`
   - `Forms`
 
-### TEST_CASE_6B — Mobile viewport sidebar and craft navigation
+### TEST_CASE_6B — Mobile viewport voyage actions and craft navigation
 
 Steps:
 
 1. Set the browser viewport to mobile size, for example `390x844`.
 2. Keep the current voyage selected.
-3. Click the hamburger button in the top-left voyage bar to open the mobile
-   left sidebar.
-4. Verify the mobile sidebar top action section contains:
+3. In the mobile voyage bar, click the UFO `Voyage actions` button.
+4. Verify the `Voyage actions` menu contains:
    - `New Craft`
    - `Open Craft`
-   - `+ Craft`
-   - `+ View`
-   - `+ Pair`
-5. Click `New Craft`.
+   - `Switch Voyage`
+5. Click `New Craft` from the `Voyage actions` menu.
 6. Verify VD selects a `Create Workspace` craft and shows a same-origin VK
    iframe with path `/workspaces`.
-7. Click the hamburger button in the top-left voyage bar to open the mobile
-   left sidebar.
-8. Click `Open Craft`.
+7. In the mobile voyage bar, click the UFO `Voyage actions` button.
+8. Click `Open Craft` from the `Voyage actions` menu.
 9. In the `Open VK Workspace` dialog, locate the `Search workspaces...`
    textbox near the top of the dialog.
 10. Type the unique first line from `TEST_CASE_5A`.
@@ -205,8 +205,9 @@ Steps:
 
 Expected:
 
-- Mobile sidebar opens from the hamburger button.
-- `New Craft` and `Open Craft` are usable at mobile width.
+- Mobile `Voyage actions` opens from the UFO button.
+- `New Craft` and `Open Craft` are usable from the mobile `Voyage actions`
+  menu.
 - The created craft can be selected again after the mobile navigation pass.
 
 ### TEST_CASE_7A — Send follow-up from VD Agent iframe
@@ -279,7 +280,7 @@ Expected:
   },
   "TEST_CASE_4A": {
     "status": "PASS",
-    "notes": "Create Repository dialog closed after successful creation, then main branch was selected from the command bar."
+    "notes": "Create Repository dialog closed after successful creation using the absolute VD .vk-mocked-sandbox/repos path, then main branch was selected from the command bar."
   },
   "TEST_CASE_5A": { "status": "PASS" },
   "TEST_CASE_6A": { "status": "PASS" },

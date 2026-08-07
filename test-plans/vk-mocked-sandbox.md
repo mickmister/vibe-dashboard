@@ -82,6 +82,7 @@ For a fully fresh manual run, clear sandbox-local state before starting:
 rm -rf .vk-mocked-sandbox/current
 rm -rf data
 rm -rf ../Vktest/dev_assets
+mkdir -p .vk-mocked-sandbox/repos
 ```
 
 VK dev sqlite/config currently lives under worktree-local
@@ -93,8 +94,17 @@ VD browser state can be reset by using a fresh Playwright CLI `-s=<session>`
 name, deleting Playwright CLI session data, or clearing browser local/session
 storage before opening VD.
 
-Create disposable repositories under `.vk-mocked-sandbox/repos` so cleanup stays
-inside the VD worktree.
+Create disposable repositories under the VD worktree's absolute
+`.vk-mocked-sandbox/repos` path so cleanup stays inside the VD worktree. When
+the VK Create Repository UI asks for `Current directory`, use:
+
+```bash
+"$(pwd)/.vk-mocked-sandbox/repos"
+```
+
+Do not enter a relative `.vk-mocked-sandbox/repos` path in the VK UI. VK
+resolves relative repository paths from the VK backend working directory, which
+is the sibling `../Vktest` repo in this sandbox.
 
 ## Useful environment overrides
 
@@ -153,11 +163,15 @@ pnpm playwright:cli -s="$PW_SESSION" snapshot --json
 1. Open the printed VD URL.
 2. Name the first voyage.
 3. Use the VD sidebar `New Craft` button.
-4. Create or select a repository in the VD-hosted VK iframe.
+4. Create or select a repository in the VD-hosted VK iframe. For newly created
+   repositories, use the absolute VD worktree path printed by
+   `pwd` plus `/.vk-mocked-sandbox/repos` as the `Current directory`.
 5. Submit a workspace prompt.
 6. Use VD `Open Craft` to open the created workspace.
-7. Send a follow-up from the VD `Agent` iframe.
-8. Capture a screenshot.
+7. At mobile width, use the UFO `Voyage actions` button in the mobile voyage
+   bar for `New Craft` and `Open Craft` actions.
+8. Send a follow-up from the VD `Agent` iframe.
+9. Capture a screenshot.
 
 Feature-specific acceptance plans should link to this sandbox guide rather than
 duplicating startup, health-check, browser, and cleanup instructions.
