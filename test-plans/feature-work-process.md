@@ -77,7 +77,88 @@ marker only when a follow-up decision is still needed.
 Stop again and verify the whole test plan with the user after adding error
 coverage.
 
-## 4. Implement, review, and run the same plan
+## 4. Required agent-driven browser workflow
+
+All test plans that require browser interaction should include an
+agent-driven browser workflow section. Prefer Playwright's agent-friendly CLI
+over `agent-browser` for new testing plans.
+
+Use the Playwright CLI snapshot/ref loop:
+
+```bash
+PLAYWRIGHT_MCP_SANDBOX=false npx -y @playwright/cli@latest -s=<session> open "$URL"
+PLAYWRIGHT_MCP_SANDBOX=false npx -y @playwright/cli@latest -s=<session> snapshot --json
+PLAYWRIGHT_MCP_SANDBOX=false npx -y @playwright/cli@latest -s=<session> click e<N> --json
+PLAYWRIGHT_MCP_SANDBOX=false npx -y @playwright/cli@latest -s=<session> fill e<N> "value" --json
+```
+
+Guidelines:
+
+- Use a unique `-s=<session>` name for each testing session.
+- Take a fresh `snapshot --json` before interacting, and again after
+  navigation, modal changes, iframe changes, or major re-renders.
+- Use refs from the latest snapshot for exploration only. Refs such as `e4`
+  are transient and must not appear in committed tests.
+- For each important ref, ask Playwright CLI for a stable locator:
+
+  ```bash
+  PLAYWRIGHT_MCP_SANDBOX=false npx -y @playwright/cli@latest -s=<session> generate-locator e<N> --json
+  ```
+
+- Record exact commands, URLs, snapshot paths, generated locator hints,
+  screenshot paths, and observed results on the testing bead.
+- Keep Playwright CLI artifacts such as `.playwright-cli/` out of commits.
+- Use `agent-browser` only as a documented fallback when Playwright CLI cannot
+  reach or operate the required browser surface.
+
+## 5. Required E2E test creation workflow
+
+When a manual browser test proves behavior that should remain covered, create a
+Playwright E2E test from the agent-driven session rather than authoring the
+test upfront.
+
+Required flow:
+
+1. Run the approved browser test interactively with Playwright CLI.
+2. Save a transcript artifact that maps each action to:
+   - the command that was run
+   - the latest snapshot/ref used
+   - the generated stable locator hint, when available
+   - the expected user-visible result
+3. Convert the transcript into a draft Playwright Test spec.
+4. Polish the draft before committing:
+   - import from `playwright/test` in this repo
+   - replace transient refs with semantic locators such as `getByRole`,
+     `getByLabel`, `getByText`, `getByPlaceholder`, or `frameLocator`
+   - use web-first assertions with `expect`
+   - avoid coordinate clicks unless there is no stable semantic path
+   - split repeated flow into small helpers only when it improves readability
+5. Run the focused E2E test and required repo checks.
+6. Commit only the polished test and supporting helpers/docs. Do not commit raw
+   recordings, Playwright CLI snapshots, traces, screenshots, or generated
+   scratch drafts unless the test plan explicitly says an artifact should be
+   versioned.
+
+Example polished output:
+
+```ts
+import { expect, test } from 'playwright/test';
+
+test('submits the profile form', async ({ page }) => {
+  await page.goto(process.env.E2E_BASE_URL!);
+
+  await page.getByRole('textbox', { name: 'Name' }).fill('Ada Lovelace');
+  await page.getByLabel('Role').selectOption('developer');
+  await page.getByRole('checkbox', { name: 'Subscribe to updates' }).check();
+  await page.getByRole('button', { name: 'Save profile' }).click();
+
+  await expect(page.getByRole('status')).toHaveText(
+    'Saved Ada Lovelace as developer; subscribe=true',
+  );
+});
+```
+
+## 6. Implement, review, and run the same plan
 
 Implement the feature after the user approves the full test plan.
 
@@ -92,7 +173,7 @@ During implementation:
 The implementer should manually run the approved test plan and record results
 on their implementation or QA bead as JSON keyed by the test-case IDs.
 
-## 5. Independent sandbox tester pass after approval
+## 7. Independent sandbox tester pass after approval
 
 After implementation review is approved, a separate tester agent should create a
 new tester bead for their own session.
