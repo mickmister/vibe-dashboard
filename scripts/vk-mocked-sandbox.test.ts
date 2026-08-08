@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -219,6 +219,102 @@ describe('VK mocked sandbox helpers', () => {
       CADDY_PLUGINS_CADDY: '/tmp/run/plugins.caddy',
     });
     expect(plan.env.CADDY_PLUGINS_CADDY).toBe('/tmp/run/plugins.caddy');
+  });
+
+  it('uses an explicit VK checkout path when provided', () => {
+    const plan = createSandboxPlan({
+      workspaceRoot: '/tmp/worktrees/example/vibe-kanban-vscode-web',
+      env: {
+        VK_CHECKOUT: '/tmp/custom-vk-checkout',
+      } as NodeJS.ProcessEnv,
+      ports: {
+        vkBackend: 4107,
+        vkFrontend: 4100,
+        vkPreviewProxy: 4106,
+        vdDashboard: 4105,
+        vdServer: 4104,
+        vdCaddy: 4101,
+      },
+      runDir: '/tmp/run',
+      caddyfile: 'mocked sandbox caddyfile',
+    });
+
+    expect(plan.paths.vkRoot).toBe('/tmp/custom-vk-checkout');
+    expect(plan.setupCommands[0]?.cwd).toBe('/tmp/custom-vk-checkout');
+    expect(plan.commands[0]?.cwd).toBe('/tmp/custom-vk-checkout');
+  });
+
+  it('falls back to the sibling VK checkout when VK_CHECKOUT is blank', () => {
+    const plan = createSandboxPlan({
+      workspaceRoot: '/tmp/worktrees/example/vibe-kanban-vscode-web',
+      env: {
+        VK_CHECKOUT: '  ',
+      } as NodeJS.ProcessEnv,
+      ports: {
+        vkBackend: 4107,
+        vkFrontend: 4100,
+        vkPreviewProxy: 4106,
+        vdDashboard: 4105,
+        vdServer: 4104,
+        vdCaddy: 4101,
+      },
+      runDir: '/tmp/run',
+      caddyfile: 'mocked sandbox caddyfile',
+    });
+
+    expect(plan.paths.vkRoot).toBe('/tmp/worktrees/example/Vktest');
+  });
+
+  it('skips the VK local-web build when prebuilt assets are available', async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'vk-mocked-sandbox-workspace-'));
+    const vkRoot = join(workspaceRoot, 'Vktest');
+    const localWebDist = join(vkRoot, 'packages/local-web/dist');
+    try {
+      const planWithoutDist = createSandboxPlan({
+        workspaceRoot: join(workspaceRoot, 'vibe-kanban-vscode-web'),
+        env: {
+          VK_MOCKED_SKIP_LOCAL_WEB_BUILD: '1',
+        } as NodeJS.ProcessEnv,
+        ports: {
+          vkBackend: 4107,
+          vkFrontend: 4100,
+          vkPreviewProxy: 4106,
+          vdDashboard: 4105,
+          vdServer: 4104,
+          vdCaddy: 4101,
+        },
+        runDir: join(workspaceRoot, 'run'),
+        caddyfile: 'mocked sandbox caddyfile',
+      });
+
+      expect(planWithoutDist.setupCommands.map((command) => command.name)).toEqual([
+        'vk-build-local-web',
+      ]);
+
+      await mkdir(localWebDist, { recursive: true });
+      await writeFile(join(localWebDist, 'index.html'), '<!doctype html>');
+
+      const planWithDist = createSandboxPlan({
+        workspaceRoot: join(workspaceRoot, 'vibe-kanban-vscode-web'),
+        env: {
+          VK_MOCKED_SKIP_LOCAL_WEB_BUILD: '1',
+        } as NodeJS.ProcessEnv,
+        ports: {
+          vkBackend: 4107,
+          vkFrontend: 4100,
+          vkPreviewProxy: 4106,
+          vdDashboard: 4105,
+          vdServer: 4104,
+          vdCaddy: 4101,
+        },
+        runDir: join(workspaceRoot, 'run'),
+        caddyfile: 'mocked sandbox caddyfile',
+      });
+
+      expect(planWithDist.setupCommands).toEqual([]);
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
   });
 
   it('writes a sandbox-local plugins.caddy stub for Caddy imports', async () => {

@@ -136,13 +136,16 @@ export async function loadSandboxCaddyfile(vdRoot: string): Promise<string> {
 
 export function createSandboxPlan(input: {
   workspaceRoot?: string;
+  env?: NodeJS.ProcessEnv;
   ports: SandboxPorts;
   runDir?: string;
   caddyfile: string;
 }): SandboxPlan {
+  const env = input.env ?? process.env;
   const workspaceRoot = resolve(input.workspaceRoot ?? process.cwd(), '..');
   const vdRoot = resolve(workspaceRoot, 'vibe-kanban-vscode-web');
-  const vkRoot = resolve(workspaceRoot, 'Vktest');
+  const configuredVkCheckout = env.VK_CHECKOUT?.trim();
+  const vkRoot = resolve(workspaceRoot, configuredVkCheckout || 'Vktest');
   const runDir = resolve(
     input.runDir ?? join(vdRoot, '.vk-mocked-sandbox', 'current'),
   );
@@ -168,28 +171,33 @@ export function createSandboxPlan(input: {
     `http://localhost:${input.ports.vdDashboard}`,
   ].join(',');
 
-  const setupCommands: CommandSpec[] = [
-    {
-      name: 'vk-build-local-web',
-      cwd: vkRoot,
-      command: 'pnpm',
-      args: [
-        '--filter',
-        '@vibe/local-web',
-        'run',
-        'build',
-        '--base',
-        '/vk-static/',
-      ],
-      env: {
-        ...commonEnv,
-        BACKEND_PORT: String(input.ports.vkBackend),
-        FRONTEND_PORT: String(input.ports.vdCaddy),
-        PREVIEW_PROXY_PORT: String(input.ports.vkPreviewProxy),
-        NODE_OPTIONS: appendNodeOption(process.env.NODE_OPTIONS, '--max-old-space-size=8192'),
-      },
-    },
-  ];
+  const canUsePrebuiltLocalWeb =
+    env.VK_MOCKED_SKIP_LOCAL_WEB_BUILD === '1' &&
+    existsSync(join(vkRoot, 'packages/local-web/dist/index.html'));
+  const setupCommands: CommandSpec[] = canUsePrebuiltLocalWeb
+    ? []
+    : [
+        {
+          name: 'vk-build-local-web',
+          cwd: vkRoot,
+          command: 'pnpm',
+          args: [
+            '--filter',
+            '@vibe/local-web',
+            'run',
+            'build',
+            '--base',
+            '/vk-static/',
+          ],
+          env: {
+            ...commonEnv,
+            BACKEND_PORT: String(input.ports.vkBackend),
+            FRONTEND_PORT: String(input.ports.vdCaddy),
+            PREVIEW_PROXY_PORT: String(input.ports.vkPreviewProxy),
+            NODE_OPTIONS: appendNodeOption(env.NODE_OPTIONS, '--max-old-space-size=8192'),
+          },
+        },
+      ];
 
   const commands: CommandSpec[] = [
     {
