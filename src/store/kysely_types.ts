@@ -3,6 +3,33 @@ import type { ColumnType, Generated } from 'kysely';
 export type NullableNumber = ColumnType<number | null, number | null | undefined, number | null | undefined>;
 export type NullableString = ColumnType<string | null, string | null | undefined, string | null | undefined>;
 
+
+export type WorkflowWebhookInboxStatus = 'received' | 'processed' | 'failed';
+
+export interface WorkflowWebhookInbox {
+  inboxId: string;
+  source: string;
+  deliveryId: NullableString;
+  dedupeKey: string;
+  eventType: string;
+  eventStatus: NullableString;
+  workspaceId: NullableString;
+  sessionId: NullableString;
+  executionProcessId: NullableString;
+  queueItemId: NullableString;
+  payloadJson: string;
+  payloadHash: string;
+  signatureHeader: NullableString;
+  timestampHeader: NullableString;
+  receivedAt: number;
+  duplicateOfInboxId: NullableString;
+  processedAt: NullableNumber;
+  status: WorkflowWebhookInboxStatus;
+  errorJson: NullableString;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface Migration {
   id: Generated<number>;
   name: string;
@@ -274,4 +301,5 @@ export interface DB {
   WorkflowScopedTrigger: WorkflowScopedTrigger;
   WorkflowRoleSessionBinding: WorkflowRoleSessionBinding;
   WorkflowExternalWait: WorkflowExternalWait;
+  WorkflowWebhookInbox: WorkflowWebhookInbox;
 }

@@ -6,6 +6,7 @@ import { migration as workflowExternalWaitsMigration } from '../migrations/20260
 import { migration as responsePipesMigration } from '../migrations/20260804010000_response_pipes/migration';
 import { migration as factoryWorkItemsMigration } from '../migrations/20260804020000_factory_work_items/migration';
 import { migration as declarativeWorkflowDefinitionsMigration } from '../migrations/20260804030000_declarative_workflow_definitions/migration';
+import { migration as workflowWebhookInboxMigration } from '../migrations/20260808000000_workflow_webhook_inbox/migration';
 
 export const migrations = [
   {
@@ -39,5 +40,9 @@ export const migrations = [
   {
     name: '20260804030000_declarative_workflow_definitions',
     migration: declarativeWorkflowDefinitionsMigration,
+  },
+  {
+    name: '20260808000000_workflow_webhook_inbox',
+    migration: workflowWebhookInboxMigration,
   },
 ];
