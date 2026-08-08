@@ -35,7 +35,9 @@ export default defineConfig({
     command:
       'npm run e2e:vk-mocked-sandbox:reset -- --variant basic-seeded' +
       ` && ${sandboxEnv} npm run dev:vk-mocked-sandbox`,
-    url: `${sandboxUrl}/kv/get-all`,
+    // Wait for a VK-backed route, not just the VD dev server, so cold CI
+    // Rust builds finish before the browser tests begin.
+    url: `${sandboxUrl}/workspaces`,
     reuseExistingServer: false,
     timeout: 600_000,
   },
