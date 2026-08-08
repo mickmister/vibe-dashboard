@@ -13,7 +13,7 @@ type InstanceStatusResponse = {
 
 test.describe('Docker qa-mode durable workflow UI', () => {
   test('launches and completes a two-agent review workflow through webhook wakeups', async ({ page }) => {
-    test.setTimeout(300_000);
+    test.setTimeout(900_000);
 
     await expectDashboardHealth(page.request);
     const workspace = await firstWorkspace(page.request);
@@ -73,25 +73,42 @@ test.describe('Docker qa-mode durable workflow UI', () => {
 });
 
 async function expectDashboardHealth(request: APIRequestContext) {
-  const response = await request.get(new URL('/dashboard/api/workflows/health', sandboxUrl).toString());
-  expect(response.ok()).toBeTruthy();
-  await expect(response.json()).resolves.toEqual({ ok: true });
+  await expect.poll(async () => {
+    const response = await request.get(new URL('/dashboard/api/workflows/health', sandboxUrl).toString());
+    if (!response.ok()) return null;
+    try {
+      return await response.json() as { ok?: boolean };
+    } catch {
+      // Caddy/Vite can briefly serve the dashboard HTML before Springboard's
+      // node middleware is ready. Keep polling until the API route returns JSON.
+      return null;
+    }
+  }, { timeout: 120_000, message: 'dashboard workflow health should return JSON' }).toEqual({ ok: true });
 }
 
 async function firstWorkspace(request: APIRequestContext): Promise<Workspace> {
-  const response = await request.get(new URL('/vk-api/workspaces', sandboxUrl).toString());
-  expect(response.ok()).toBeTruthy();
-  const body = await response.json() as { data?: Workspace[] };
-  const workspace = body.data?.[0];
+  let workspace: Workspace | null = null;
+  await expect.poll(async () => {
+    const response = await request.get(new URL('/vk-api/workspaces', sandboxUrl).toString());
+    if (!response.ok()) return null;
+    const body = await response.json() as { data?: Workspace[] };
+    workspace = body.data?.[0] ?? null;
+    return workspace?.id ?? null;
+  }, { timeout: 600_000, intervals: [1_000, 2_000, 5_000], message: 'seeded VK workspace should become available' }).not.toBeNull();
   if (!workspace) throw new Error('Expected seeded VK workspace in qa-mode sandbox');
   return workspace;
 }
 
 async function sessionsForWorkspace(request: APIRequestContext, workspaceId: string): Promise<Session[]> {
-  const response = await request.get(new URL(`/vk-api/sessions?workspace_id=${encodeURIComponent(workspaceId)}`, sandboxUrl).toString());
-  expect(response.ok()).toBeTruthy();
-  const body = await response.json() as { data?: Session[] };
-  return body.data ?? [];
+  let sessions: Session[] = [];
+  await expect.poll(async () => {
+    const response = await request.get(new URL(`/vk-api/sessions?workspace_id=${encodeURIComponent(workspaceId)}`, sandboxUrl).toString());
+    if (!response.ok()) return false;
+    const body = await response.json() as { data?: Session[] };
+    sessions = body.data ?? [];
+    return true;
+  }, { timeout: 120_000, intervals: [1_000, 2_000, 5_000], message: 'seeded VK sessions should become available' }).toBe(true);
+  return sessions;
 }
 
 async function webhookProvisioning(request: APIRequestContext): Promise<{ status?: string } | null> {

@@ -142,8 +142,11 @@ describe('VK mocked sandbox helpers', () => {
       VK_MOCKED_CADDYFILE: 'Caddyfile.workflow-e2e',
     } as NodeJS.ProcessEnv);
 
+    expect(caddyfile).toContain('handle /dashboard/api/*');
+    expect(caddyfile).toContain('reverse_proxy localhost:{$DASHBOARD_PORT:3005}');
     expect(caddyfile).toContain('handle_path /vk-api/*');
     expect(caddyfile).not.toContain('vk_rewrite');
+    expect(caddyfile).not.toContain('import {$CADDY_PLUGINS_CADDY');
   });
 
   it('plans qa-mode VK, VD dev, and Caddy commands with matching env', () => {
@@ -201,7 +204,7 @@ describe('VK mocked sandbox helpers', () => {
     );
     expect(plan.commands[0]).toMatchObject({
       command: 'cargo',
-      args: ['run', '--features', 'qa-mode', '--bin', 'server'],
+      args: ['run', '--quiet', '--features', 'qa-mode', '--bin', 'server'],
       env: {
         BACKEND_PORT: '4107',
         FRONTEND_PORT: '4101',
@@ -214,6 +217,7 @@ describe('VK mocked sandbox helpers', () => {
     expect(vdCommand?.env.VITE_VK_BASE_ORIGIN).toBe(
       'http://localhost:4101',
     );
+    expect(vdCommand?.env.VD_WORKFLOW_WEBHOOK_PORT).toBe('4101');
     expect(caddyCommand?.env.XDG_CONFIG_HOME).toBe(
       '/tmp/run/xdg-config',
     );
@@ -225,6 +229,7 @@ describe('VK mocked sandbox helpers', () => {
       BACKEND_PORT: '4107',
       CODE_PORT: '4106',
       CADDY_ACCESS_LOG: '/tmp/run/access.log',
+      VD_SERVER_PORT: '4104',
       CADDY_PLUGINS_CADDY: '/tmp/run/plugins.caddy',
     });
     expect(plan.env.CADDY_PLUGINS_CADDY).toBe('/tmp/run/plugins.caddy');

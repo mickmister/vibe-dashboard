@@ -38,7 +38,7 @@ export default defineConfig({
     command:
       'npm run e2e:vk-mocked-sandbox:reset -- --variant basic-seeded --force' +
       ` &&${vkCheckoutEnv} ${sandboxEnv} npm run dev:vk-mocked-sandbox`,
-    url: `${sandboxUrl}/dashboard/api/workflows/health`,
+    url: `${sandboxUrl}/vk-api/workspaces`,
     reuseExistingServer: false,
     timeout: 900_000,
   },

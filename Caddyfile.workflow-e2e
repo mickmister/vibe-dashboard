@@ -4,7 +4,6 @@
 }
 
 :{$CADDY_PORT:3001} {
-	import {$CADDY_PLUGINS_CADDY:/etc/caddy/plugins.caddy}
 
 	handle_path /vk-static/* {
 		reverse_proxy localhost:{$BACKEND_PORT:3007} {
@@ -12,6 +11,14 @@
 			header_up Upgrade {http.request.header.Upgrade}
 			header_up Connection {http.request.header.Connection}
 			header_up Accept-Encoding identity
+		}
+	}
+
+	# Dashboard API routes are handled by Springboard's dev middleware on the Vite port.
+	# Route them before the SPA fallback so protocol errors surface as JSON.
+	handle /dashboard/api/* {
+		reverse_proxy localhost:{$DASHBOARD_PORT:3005} {
+			header_up Host {upstream_hostport}
 		}
 	}
 

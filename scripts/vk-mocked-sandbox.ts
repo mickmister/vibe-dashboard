@@ -206,7 +206,7 @@ export function createSandboxPlan(input: {
       name: 'vk-backend-qa',
       cwd: vkRoot,
       command: 'cargo',
-      args: ['run', '--features', 'qa-mode', '--bin', 'server'],
+      args: ['run', '--quiet', '--features', 'qa-mode', '--bin', 'server'],
       env: {
         ...commonEnv,
         HOST: '127.0.0.1',
@@ -230,6 +230,7 @@ export function createSandboxPlan(input: {
         SERVER_PORT: String(input.ports.vdServer),
         VITE_VK_BASE_ORIGIN: vkFrontendUrl,
         CADDY_PORT: String(input.ports.vdCaddy),
+        VD_WORKFLOW_WEBHOOK_PORT: String(input.ports.vdCaddy),
       },
     },
     {
@@ -243,6 +244,7 @@ export function createSandboxPlan(input: {
         XDG_DATA_HOME: join(runDir, 'xdg-data'),
         CADDY_ADMIN: 'off',
         CADDY_PORT: String(input.ports.vdCaddy),
+        VD_SERVER_PORT: String(input.ports.vdServer),
         DASHBOARD_PORT: String(input.ports.vdDashboard),
         BACKEND_PORT: String(input.ports.vkBackend),
         CODE_PORT: String(input.ports.vkPreviewProxy),

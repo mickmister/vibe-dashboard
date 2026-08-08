@@ -1,0 +1,26 @@
+ARG PLAYWRIGHT_IMAGE=mcr.microsoft.com/playwright:v1.58.2-noble
+FROM ${PLAYWRIGHT_IMAGE}
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+    curl \
+    ca-certificates \
+    build-essential \
+    pkg-config \
+    libssl-dev \
+    libclang-dev \
+    lld \
+    clang \
+    sqlite3 \
+    git \
+    caddy \
+  && rm -rf /var/lib/apt/lists/*
+
+RUN curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs -o /tmp/rustup-init.sh \
+  && sh /tmp/rustup-init.sh -y --profile minimal --default-toolchain stable \
+  && rm /tmp/rustup-init.sh
+
+ENV PATH="/root/.cargo/bin:${PATH}"
+ENV RUSTUP_TOOLCHAIN=stable
+RUN corepack enable

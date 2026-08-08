@@ -8,14 +8,44 @@ describe('workflow-e2e-docker-playwright harness', () => {
       resolve('scripts/workflow-e2e-docker-playwright.sh'),
       'utf8',
     );
+    const dockerfile = readFileSync(
+      resolve('scripts/Dockerfile.workflow-e2e'),
+      'utf8',
+    );
 
+    expect(script).toContain('docker build');
+    expect(script).toContain('scripts/Dockerfile.workflow-e2e');
     expect(script).toContain('docker run');
     expect(script).toContain('docker exec');
     expect(script).toContain('--volume "${vd_repo_dir}:/mnt/source/vibe-kanban-vscode-web:ro"');
     expect(script).toContain('--volume "${vk_repo_dir}:/mnt/source/vibe-kanban:ro"');
+    expect(script).toContain('--volume "${log_dir}:/tmp/workflow-e2e-logs"');
+    expect(script).toContain('--volume "${cargo_target_volume}:/tmp/vk-target"');
+    expect(script).toContain('--volume "${cargo_registry_volume}:/root/.cargo/registry"');
+    expect(script).toContain('--volume "${cargo_git_volume}:/root/.cargo/git"');
     expect(script).toContain('tar -C /mnt/source/vibe-kanban-vscode-web');
     expect(script).toContain('tar -C /mnt/source/vibe-kanban');
     expect(script).toContain('npx playwright test --config playwright.vk-workflows-docker.config.ts');
+    expect(dockerfile).toContain('libclang-dev');
+    expect(dockerfile).toContain('lld');
+    expect(dockerfile).toContain('clang');
+    expect(dockerfile).toContain('--profile minimal --default-toolchain stable');
+    expect(script).toContain('--env VK_MOCKED_SKIP_LOCAL_WEB_BUILD=1');
+    expect(script).toContain('VK mocked local web stub');
+    expect(script).toContain('find /root/.cargo/git /tmp/vk-target -name "*.lock" -delete');
+    expect(script).toContain('run_with_log vk-cargo-build cargo build --features qa-mode --bin server');
+    expect(script).toContain('run_with_log');
+    expect(script).toContain('still running');
+    expect(script).toContain('run_with_log playwright npx playwright test --config playwright.vk-workflows-docker.config.ts');
+    expect(script).toContain('--env CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-1}"');
+    expect(script).toContain('--env CARGO_TARGET_DIR=/tmp/vk-target');
+    expect(script).toContain('WORKFLOW_E2E_CARGO_TARGET_VOLUME');
+    expect(script).toContain('--env CARGO_PROFILE_DEV_DEBUG=0');
+    expect(script).toContain('PNPM_CONFIG_CHILD_CONCURRENCY');
+    expect(script).toContain('--env OPENSSL_NO_VENDOR=1');
+    expect(script).toContain('--child-concurrency=1');
+    expect(script).toContain('--env RUSTFLAGS="${RUSTFLAGS:--C debuginfo=0 -C linker=clang -C link-arg=-fuse-ld=lld}"');
+    expect(script).toContain('--env RUSTUP_TOOLCHAIN=stable');
 
     const dockerExecIndex = script.indexOf('docker exec');
     const playwrightIndex = script.indexOf('npx playwright test --config playwright.vk-workflows-docker.config.ts');
