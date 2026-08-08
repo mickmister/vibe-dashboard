@@ -42,6 +42,6 @@
   "commit_reminder_enabled": true,
   "commit_reminder_prompt": null,
   "send_message_shortcut": "ModifierEnter",
-  "relay_enabled": true,
+  "relay_enabled": false,
   "host_nickname": null
 }

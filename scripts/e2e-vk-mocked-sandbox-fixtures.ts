@@ -52,7 +52,7 @@ const sandboxPlanPath = path.join(
 const sandboxProcessPattern =
   'vk-mocked-sandbox|vk-backend-qa|vd-dashboard|VK_MOCKED_SANDBOX';
 
-const vkDevAssetFiles = [
+const generatedVkDevAssetFiles = [
   'db.v2.sqlite',
   'config.json',
   'profiles.json',
@@ -61,6 +61,9 @@ const vkDevAssetFiles = [
   'server_ed25519_signing_key',
   'relay_host_credentials.json',
 ];
+const fixtureVkDevAssetFiles = generatedVkDevAssetFiles.filter(
+  (fileName) => fileName !== 'server_ed25519_signing_key',
+);
 
 function usage(): never {
   console.error(`Usage:
@@ -137,7 +140,9 @@ async function runningSandboxProcesses(): Promise<string[]> {
       .map((line) => line.trim())
       .filter((line) => line && !line.includes('pgrep -af'))
       .filter((line) => !line.includes('e2e-vk-mocked-sandbox-fixtures.ts'))
-      .filter((line) => !line.includes('e2e:vk-mocked-sandbox:'));
+      .filter((line) => !line.includes('e2e:vk-mocked-sandbox:'))
+      .filter((line) => !line.includes('test:e2e:vk-mocked-sandbox'))
+      .filter((line) => !line.includes('playwright.vk-mocked-sandbox.config.ts'));
   } catch {
     return [];
   }
@@ -251,7 +256,9 @@ async function resetCommonState() {
   await removeIfExists(`${vkDbPath}-shm`);
   await removeIfExists(vkSessionLogsPath);
 
-  for (const fileName of vkDevAssetFiles.filter((file) => file !== 'db.v2.sqlite')) {
+  for (const fileName of generatedVkDevAssetFiles.filter(
+    (file) => file !== 'db.v2.sqlite',
+  )) {
     await removeIfExists(path.join(vkDevAssetsPath, fileName));
   }
 }
@@ -265,7 +272,7 @@ async function resetVariant(variant: Variant, force: boolean) {
   const fixtureDir = path.join(fixtureRoot, variant);
   if (variant === 'basic-seeded') {
     await copyFile(path.join(fixtureDir, 'vd/kv.db'), vdDbPath);
-    for (const fileName of vkDevAssetFiles) {
+    for (const fileName of fixtureVkDevAssetFiles) {
       await copyFileIfExists(
         path.join(fixtureDir, 'vk/dev_assets', fileName),
         path.join(vkDevAssetsPath, fileName),
@@ -326,7 +333,7 @@ async function snapshotVariant(variant: Variant, force: boolean) {
 
   if (variant === 'basic-seeded') {
     await copyFile(vdDbPath, path.join(fixtureDir, 'vd/kv.db'));
-    for (const fileName of vkDevAssetFiles) {
+    for (const fileName of fixtureVkDevAssetFiles) {
       await copyFileIfExists(
         path.join(vkDevAssetsPath, fileName),
         path.join(fixtureDir, 'vk/dev_assets', fileName),

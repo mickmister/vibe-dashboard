@@ -38,6 +38,7 @@
     "plugin-instance:apply-enable:beads-web": "node --experimental-strip-types plugins/orchestrator/plugin-instance-config-cli.ts apply-enable --approved true --config-repo-dir /var/lib/vd/instance-config --plugin-id vd.beads-web",
     "test:server": "vitest run --config vitest.server.config.ts",
     "test:e2e": "playwright test",
+    "test:e2e:vk-mocked-sandbox": "playwright test --config playwright.vk-mocked-sandbox.config.ts",
     "test:e2e:install": "playwright install chromium",
     "playwright:cli": "PLAYWRIGHT_MCP_SANDBOX=false playwright-cli",
     "hotswap": "npm run build && ./scripts/hotswap-dashboard-dist.sh deploy",

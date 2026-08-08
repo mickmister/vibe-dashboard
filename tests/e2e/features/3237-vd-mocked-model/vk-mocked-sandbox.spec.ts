@@ -21,11 +21,10 @@ import path from 'node:path';
  * - TEST_CASE_7A
  * - TEST_CASE_8A
  *
- * This feature spec targets an already-running mocked VK sandbox. It should fail
- * if the sandbox is not reachable. Start it with `npm run dev:vk-mocked-sandbox`,
- * then run:
+ * This feature spec runs through the dedicated mocked VK sandbox E2E config,
+ * which resets fixture state and starts `npm run dev:vk-mocked-sandbox`:
  *
- * pnpm exec playwright test tests/e2e/features/3237-vd-mocked-model
+ * npm run test:e2e:vk-mocked-sandbox
  */
 
 const sandboxUrl = process.env.VK_MOCKED_SANDBOX_URL ?? 'http://localhost:50005';
