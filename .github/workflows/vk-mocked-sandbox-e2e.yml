@@ -137,6 +137,13 @@ jobs:
         working-directory: vibe-kanban-vscode-web
         run: pnpm exec playwright install --with-deps chromium
 
+      - name: Prepare canonical VK mocked sandbox fixture directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo mkdir -p /home/vkuser/e2e/repos
+          sudo chown -R "$USER":"$USER" /home/vkuser
+
       - name: Validate VK mocked sandbox fixture
         working-directory: vibe-kanban-vscode-web
         run: npm run e2e:vk-mocked-sandbox:validate -- --variant basic-seeded
