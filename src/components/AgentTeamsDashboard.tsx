@@ -16,12 +16,14 @@ import {
   type WorkflowActivityScanResponse,
 } from '../lib/workflowActivityApi';
 import { buildVkSessionUrl } from '../utils/origin';
-import { vkClient, type Session } from '../lib/vk-client';
+import { vkClient, type Session, type Workspace } from '../lib/vk-client';
 import { applyResolvedSessionsToTeam, resolveTeamSessionMappings } from '../lib/teamSessionMappingApi';
 import { buildTeamNudgePreview, runTeamGuardrailNudgeWorkflow, type TeamNudgePreview } from '../lib/teamGuardrailNudgeApi';
 import type { TeamAgentActivitySnapshot, TeamGuardrailNudgeWorkflowOutput } from '../workflows/team-guardrail-nudge';
 import type { UpdateWorkflowTemplateInput, WorkflowTemplate } from '../templates/workflowTemplates';
 import { collectWorkflowQueueRefs, summarizeWorkflowError, workflowStatusLabel, type WorkflowQueueRef } from '../lib/workflowRunDetails';
+import { fetchDeclarativeWorkflowDefinitions, fetchWorkflowInstanceStatus, fetchWorkflowWebhookInbox, fetchWorkflowWebhookProvisioningStatus, runDeclarativeWorkflow, type DeclarativeWorkflowDefinitionEntry, type WorkflowInstanceStatusResponse, type WorkflowWebhookInboxListResponse, type WorkflowWebhookProvisioningStatus } from '../lib/declarativeWorkflowsApi';
+import { buildDeclarativeWorkflowInput, createDraftFromDefinition, createMinimalWorkflowTeam, describeDefinitionRoles, validateDeclarativeWorkflowLaunch, type DeclarativeWorkflowLaunchDraft } from '../lib/declarativeWorkflowLaunch';
 
 const inputClass = 'w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100';
 const buttonClass = 'rounded-md border border-zinc-700 px-3 py-2 text-sm hover:bg-zinc-900 disabled:opacity-50';
@@ -62,13 +64,73 @@ export function AgentTeamsDashboard(): React.ReactElement {
   const [nudgeError, setNudgeError] = useState<string | null>(null);
   const [nudgeResult, setNudgeResult] = useState<{ runId: string; output: TeamGuardrailNudgeWorkflowOutput | null } | null>(null);
   const [templateError, setTemplateError] = useState<string | null>(null);
+  const [workflowDefinitions, setWorkflowDefinitions] = useState<DeclarativeWorkflowDefinitionEntry[]>([]);
+  const [selectedDefinitionId, setSelectedDefinitionId] = useState('two-agent-review-round');
+  const [definitionError, setDefinitionError] = useState<string | null>(null);
+  const [loadingDefinitions, setLoadingDefinitions] = useState(false);
+  const [workflowDraft, setWorkflowDraft] = useState<DeclarativeWorkflowLaunchDraft>(() => createDraftFromDefinition(null));
+  const [workflowLaunchErrors, setWorkflowLaunchErrors] = useState<Partial<Record<keyof DeclarativeWorkflowLaunchDraft, string>>>({});
+  const [workflowLaunchError, setWorkflowLaunchError] = useState<string | null>(null);
+  const [launchingDeclarative, setLaunchingDeclarative] = useState(false);
+  const [selectedInstanceId, setSelectedInstanceId] = useState<string | null>(() => readSavedWorkflowInstanceId());
+  const [instanceStatus, setInstanceStatus] = useState<WorkflowInstanceStatusResponse | null>(null);
+  const [instanceStatusError, setInstanceStatusError] = useState<string | null>(null);
+  const [loadingInstanceStatus, setLoadingInstanceStatus] = useState(false);
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [workspaceError, setWorkspaceError] = useState<string | null>(null);
+  const [webhookProvisioning, setWebhookProvisioning] = useState<WorkflowWebhookProvisioningStatus | null>(null);
+  const [webhookInbox, setWebhookInbox] = useState<WorkflowWebhookInboxListResponse | null>(null);
+  const [webhookStatusError, setWebhookStatusError] = useState<string | null>(null);
 
   const selectedRun = useMemo(
     () => runs.find((run) => run.runId === selectedRunId) ?? runs[0] ?? null,
     [runs, selectedRunId],
   );
+  const selectedDefinition = useMemo(
+    () => workflowDefinitions.find((entry) => entry.definition.id === selectedDefinitionId)?.definition ?? workflowDefinitions[0]?.definition ?? null,
+    [workflowDefinitions, selectedDefinitionId],
+  );
 
+  const loadWorkflowDefinitions = async () => {
+    setLoadingDefinitions(true);
+    setDefinitionError(null);
+    try {
+      const response = await fetchDeclarativeWorkflowDefinitions();
+      const active = response.definitions.filter((entry) => entry.status === 'active');
+      setWorkflowDefinitions(active);
+      setSelectedDefinitionId((current) => active.some((entry) => entry.definition.id === current) ? current : active.find((entry) => entry.definition.id === 'two-agent-review-round')?.definition.id ?? active[0]?.definition.id ?? '');
+    } catch (caught) {
+      setDefinitionError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setLoadingDefinitions(false);
+    }
+  };
 
+  const loadWorkflowInfrastructureStatus = async () => {
+    setWebhookStatusError(null);
+    try {
+      const [provisioning, inbox] = await Promise.all([
+        fetchWorkflowWebhookProvisioningStatus(),
+        fetchWorkflowWebhookInbox({ limit: 5 }),
+      ]);
+      setWebhookProvisioning(provisioning);
+      setWebhookInbox(inbox);
+    } catch (caught) {
+      setWebhookStatusError(caught instanceof Error ? caught.message : String(caught));
+    }
+  };
+
+  const loadInstanceStatus = async (instanceId: string) => {
+    setLoadingInstanceStatus(true);
+    setInstanceStatusError(null);
+    try {
+      setInstanceStatus(await fetchWorkflowInstanceStatus(instanceId));
+    } catch (caught) {
+      setInstanceStatusError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setLoadingInstanceStatus(false);
+    }
+  };
 
   const loadActivity = async () => {
     setLoadingActivity(true);
@@ -99,6 +161,11 @@ export function AgentTeamsDashboard(): React.ReactElement {
   useEffect(() => {
     void loadRuns();
     void loadActivity();
+    void loadWorkflowDefinitions();
+    void loadWorkflowInfrastructureStatus();
+    void vkClient.getWorkspaces()
+      .then((loaded) => { setWorkspaces(loaded); setWorkspaceError(null); })
+      .catch((caught) => { setWorkspaceError(caught instanceof Error ? caught.message : String(caught)); });
   }, []);
 
   useEffect(() => {
@@ -128,12 +195,33 @@ export function AgentTeamsDashboard(): React.ReactElement {
   }, [selectedTeam?.id]);
 
   useEffect(() => {
-    if (!mappingWorkspaceId.trim()) {
+    setWorkflowDraft((current) => createDraftFromDefinition(selectedDefinition, current));
+    setWorkflowLaunchErrors({});
+    setWorkflowLaunchError(null);
+  }, [selectedDefinition?.id]);
+
+  useEffect(() => {
+    writeSavedWorkflowInstanceId(selectedInstanceId);
+    if (!selectedInstanceId) {
+      setInstanceStatus(null);
+      return;
+    }
+    void loadInstanceStatus(selectedInstanceId);
+    const interval = window.setInterval(() => {
+      void loadInstanceStatus(selectedInstanceId);
+      void loadWorkflowInfrastructureStatus();
+    }, 5000);
+    return () => window.clearInterval(interval);
+  }, [selectedInstanceId]);
+
+  useEffect(() => {
+    const workspaceForSessions = mappingWorkspaceId.trim() || workflowDraft.workspaceId.trim();
+    if (!workspaceForSessions) {
       setSessionOptions([]);
       setSessionOptionsError(null);
       return;
     }
-    void vkClient.getSessions(mappingWorkspaceId.trim())
+    void vkClient.getSessions(workspaceForSessions)
       .then((sessions) => {
         setSessionOptions(sessions);
         setSessionOptionsError(null);
@@ -142,8 +230,38 @@ export function AgentTeamsDashboard(): React.ReactElement {
         setSessionOptions([]);
         setSessionOptionsError(caught instanceof Error ? caught.message : String(caught));
       });
-  }, [mappingWorkspaceId]);
+  }, [mappingWorkspaceId, workflowDraft.workspaceId]);
 
+
+  const launchDeclarativeWorkflow = async () => {
+    const validation = validateDeclarativeWorkflowLaunch(selectedDefinition, workflowDraft);
+    setWorkflowLaunchErrors(validation.fieldErrors);
+    setWorkflowLaunchError(validation.formError);
+    if (!validation.ok || !selectedDefinition) return;
+    setLaunchingDeclarative(true);
+    setWorkflowLaunchError(null);
+    try {
+      const input = buildDeclarativeWorkflowInput(workflowDraft);
+      const response = await runDeclarativeWorkflow(selectedDefinition.id, {
+        input,
+        team: createMinimalWorkflowTeam({
+          sourceRole: workflowDraft.sourceRole.trim() || 'implementer',
+          reviewRole: workflowDraft.reviewRole.trim() || 'reviewer',
+          sourceSessionId: workflowDraft.sourceSessionId.trim() || null,
+          reviewSessionId: workflowDraft.reviewSessionId.trim() || null,
+          workspaceId: workflowDraft.workspaceId.trim(),
+          workflowId: selectedDefinition.id,
+        }),
+        trigger: 'manual_ui',
+      });
+      setSelectedInstanceId(response.result.instance.instanceId);
+      await loadInstanceStatus(response.result.instance.instanceId);
+    } catch (caught) {
+      setWorkflowLaunchError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setLaunchingDeclarative(false);
+    }
+  };
 
   const createTemplate = async () => {
     setTemplateError(null);
@@ -322,10 +440,38 @@ export function AgentTeamsDashboard(): React.ReactElement {
             <p className="mt-1 text-sm text-zinc-400">Configure manual teams, queue guarded VK prompts, and inspect workflow runs.</p>
           </div>
           <div className="flex gap-2">
-            <button className={buttonClass} onClick={() => { void loadActivity(); void loadRuns(); }} disabled={loadingRuns || loadingActivity}>Refresh status</button>
+            <button className={buttonClass} onClick={() => { void loadActivity(); void loadRuns(); void loadWorkflowInfrastructureStatus(); if (selectedInstanceId) void loadInstanceStatus(selectedInstanceId); }} disabled={loadingRuns || loadingActivity || loadingInstanceStatus}>Refresh status</button>
             <button className={primaryButtonClass} onClick={() => void createTeam()}>New team</button>
           </div>
         </header>
+
+        <DeclarativeWorkflowPanel
+          definitions={workflowDefinitions}
+          selectedDefinition={selectedDefinition}
+          selectedDefinitionId={selectedDefinitionId}
+          draft={workflowDraft}
+          fieldErrors={workflowLaunchErrors}
+          launchError={workflowLaunchError}
+          loadingDefinitions={loadingDefinitions}
+          definitionError={definitionError}
+          launching={launchingDeclarative}
+          workspaces={workspaces}
+          workspaceError={workspaceError}
+          sessions={sessionOptions}
+          sessionsError={sessionOptionsError}
+          selectedInstanceId={selectedInstanceId}
+          instanceStatus={instanceStatus}
+          instanceStatusError={instanceStatusError}
+          loadingInstanceStatus={loadingInstanceStatus}
+          webhookProvisioning={webhookProvisioning}
+          webhookInbox={webhookInbox}
+          webhookStatusError={webhookStatusError}
+          onReloadDefinitions={() => void loadWorkflowDefinitions()}
+          onDefinitionChange={setSelectedDefinitionId}
+          onDraftChange={(patch) => setWorkflowDraft((current) => ({ ...current, ...patch }))}
+          onLaunch={() => void launchDeclarativeWorkflow()}
+          onRefreshInstance={() => selectedInstanceId ? void loadInstanceStatus(selectedInstanceId) : undefined}
+        />
 
         <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
           <section className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-4">
@@ -408,6 +554,188 @@ export function AgentTeamsDashboard(): React.ReactElement {
   );
 }
 
+
+function DeclarativeWorkflowPanel(props: {
+  definitions: DeclarativeWorkflowDefinitionEntry[];
+  selectedDefinition: DeclarativeWorkflowDefinitionEntry['definition'] | null;
+  selectedDefinitionId: string;
+  draft: DeclarativeWorkflowLaunchDraft;
+  fieldErrors: Partial<Record<keyof DeclarativeWorkflowLaunchDraft, string>>;
+  launchError: string | null;
+  loadingDefinitions: boolean;
+  definitionError: string | null;
+  launching: boolean;
+  workspaces: Workspace[];
+  workspaceError: string | null;
+  sessions: Session[];
+  sessionsError: string | null;
+  selectedInstanceId: string | null;
+  instanceStatus: WorkflowInstanceStatusResponse | null;
+  instanceStatusError: string | null;
+  loadingInstanceStatus: boolean;
+  webhookProvisioning: WorkflowWebhookProvisioningStatus | null;
+  webhookInbox: WorkflowWebhookInboxListResponse | null;
+  webhookStatusError: string | null;
+  onReloadDefinitions: () => void;
+  onDefinitionChange: (definitionId: string) => void;
+  onDraftChange: (patch: Partial<DeclarativeWorkflowLaunchDraft>) => void;
+  onLaunch: () => void;
+  onRefreshInstance: () => void | undefined;
+}) {
+  const definition = props.selectedDefinition;
+  const roles = definition ? describeDefinitionRoles(definition) : [];
+  const requiredInputs = definition ? Object.entries(definition.inputs).filter(([, spec]) => spec.required) : [];
+  const selectedWorkspaceSessions = props.sessions.filter((session) => !props.draft.workspaceId || session.workspace_id === props.draft.workspaceId);
+  return (
+    <section className="rounded-lg border border-cyan-900/60 bg-cyan-950/10 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-medium text-cyan-100">Durable workflow launch</h2>
+          <p className="mt-1 text-sm text-zinc-400">Choose a declarative workflow, map source/reviewer roles or sessions, launch, then let VD own durable handoff and webhook wakeups.</p>
+        </div>
+        <button className={buttonClass} onClick={props.onReloadDefinitions} disabled={props.loadingDefinitions}>{props.loadingDefinitions ? 'Loading definitions…' : 'Reload definitions'}</button>
+      </div>
+      {props.definitionError ? <div role="alert" className="mt-3 rounded border border-red-800 bg-red-950/40 p-3 text-sm text-red-200">Workflow definition load failed: {props.definitionError}</div> : null}
+      {props.definitions.length === 0 && !props.loadingDefinitions ? <div role="alert" className="mt-3 rounded border border-amber-800 bg-amber-950/40 p-3 text-sm text-amber-100">No active workflow definitions are available. Restore the built-in definitions or save an active JSON definition before launching.</div> : null}
+      <div className="mt-4 grid gap-4 lg:grid-cols-[360px_1fr]">
+        <div className="space-y-3">
+          <label className="block text-sm">Workflow definition
+            <select className={`${inputClass} mt-1`} value={props.selectedDefinitionId} onChange={(event) => props.onDefinitionChange(event.target.value)}>
+              {props.definitions.map((entry) => <option key={`${entry.definitionId}:${entry.version}:${entry.source}`} value={entry.definition.id}>{entry.name} v{entry.version} · {entry.source}</option>)}
+            </select>
+          </label>
+          {definition ? (
+            <div className="rounded-md border border-zinc-800 bg-zinc-950/70 p-3 text-sm">
+              <div className="font-medium">{definition.name}</div>
+              <div className="mt-1 text-xs text-zinc-500">{definition.id} · v{definition.version} · {definition.trigger}</div>
+              {definition.description ? <p className="mt-2 text-zinc-300">{definition.description}</p> : null}
+              <div className="mt-3 grid gap-2 text-xs text-zinc-400 sm:grid-cols-2">
+                <div><span className="text-zinc-500">Required:</span> {requiredInputs.map(([key]) => key).join(', ') || 'none'}</div>
+                <div><span className="text-zinc-500">Roles:</span> {roles.join(', ') || 'none'}</div>
+                <div><span className="text-zinc-500">Refs-only:</span> {definition.policies.refsOnlyStorage ? 'yes' : 'no'}</div>
+                <div><span className="text-zinc-500">Stale:</span> {definition.policies.stall.staleAfterMinutes}m{definition.policies.stall.autoNudge ? ' + auto-nudge policy' : ''}</div>
+              </div>
+            </div>
+          ) : <p className="rounded border border-zinc-800 bg-zinc-950 p-3 text-sm text-zinc-400">Select an active workflow definition.</p>}
+          <WebhookStatusCard provisioning={props.webhookProvisioning} inbox={props.webhookInbox} error={props.webhookStatusError} />
+        </div>
+        <div className="space-y-4">
+          {props.launchError ? <div role="alert" className="rounded border border-red-800 bg-red-950/40 p-3 text-sm text-red-200">{props.launchError}</div> : null}
+          <div className="grid gap-3 md:grid-cols-2">
+            <label className="text-sm">Workspace
+              <select className={`${inputClass} mt-1`} value={props.draft.workspaceId} onChange={(event) => props.onDraftChange({ workspaceId: event.target.value })}>
+                <option value="">Choose workspace…</option>
+                {props.workspaces.map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.name || workspace.branch || workspace.id}</option>)}
+              </select>
+              <FieldError message={props.fieldErrors.workspaceId || props.workspaceError} />
+            </label>
+            <label className="text-sm">Optional lane
+              <input className={`${inputClass} mt-1`} value={props.draft.laneId} onChange={(event) => props.onDraftChange({ laneId: event.target.value })} placeholder="default lane" />
+            </label>
+            <label className="text-sm md:col-span-2">Task / prompt
+              <textarea className={`${inputClass} mt-1`} rows={4} value={props.draft.task} onChange={(event) => props.onDraftChange({ task: event.target.value })} placeholder="Ask implementer/source agent to research, plan, or implement…" />
+              <FieldError message={props.fieldErrors.task} />
+            </label>
+            <RoleOrSessionFields label="Source / implementer" role={props.draft.sourceRole} sessionId={props.draft.sourceSessionId} roleError={props.fieldErrors.sourceRole} sessionError={props.fieldErrors.sourceSessionId} sessions={selectedWorkspaceSessions} defaultRole="implementer" onChange={(patch) => props.onDraftChange({ sourceRole: patch.role, sourceSessionId: patch.sessionId })} />
+            <RoleOrSessionFields label="Reviewer" role={props.draft.reviewRole} sessionId={props.draft.reviewSessionId} roleError={props.fieldErrors.reviewRole} sessionError={props.fieldErrors.reviewSessionId} sessions={selectedWorkspaceSessions} defaultRole="reviewer" onChange={(patch) => props.onDraftChange({ reviewRole: patch.role, reviewSessionId: patch.sessionId })} />
+            <label className="text-sm md:col-span-2">Optional overseer notification session
+              <select className={`${inputClass} mt-1`} value={props.draft.overseerSessionId} onChange={(event) => props.onDraftChange({ overseerSessionId: event.target.value })}>
+                <option value="">No completion notification</option>
+                {selectedWorkspaceSessions.map((session) => <option key={session.id} value={session.id}>{session.name || session.id} · {session.executor}</option>)}
+              </select>
+              <p className="mt-1 text-xs text-zinc-500">If set, VD queues exactly one guarded completion notification after reviewer completion.</p>
+            </label>
+          </div>
+          {props.sessionsError ? <div role="alert" className="rounded border border-amber-800 bg-amber-950/40 p-2 text-xs text-amber-100">Session picker could not load sessions for the selected workspace controls: {props.sessionsError}</div> : null}
+          <div className="flex flex-wrap items-center gap-3">
+            <button className={primaryButtonClass} disabled={props.launching || !definition} onClick={props.onLaunch}>{props.launching ? 'Launching durable workflow…' : 'Launch durable workflow'}</button>
+            <span className="text-xs text-zinc-500">Returns immediately after queuing the source prompt and creating a durable wait trigger.</span>
+          </div>
+          <WorkflowInstanceTimeline status={props.instanceStatus} selectedInstanceId={props.selectedInstanceId} error={props.instanceStatusError} loading={props.loadingInstanceStatus} onRefresh={props.onRefreshInstance} />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function RoleOrSessionFields(props: { label: string; role: string; sessionId: string; roleError?: string; sessionError?: string; sessions: Session[]; defaultRole: string; onChange: (patch: { role: string; sessionId: string }) => void }) {
+  return (
+    <div className="rounded-md border border-zinc-800 bg-zinc-950/70 p-3">
+      <div className="text-sm font-medium">{props.label}</div>
+      <label className="mt-2 block text-xs text-zinc-400">Role/name for auto-create or reuse
+        <input className={`${inputClass} mt-1`} value={props.role} onChange={(event) => props.onChange({ role: event.target.value, sessionId: props.sessionId })} placeholder={props.defaultRole} />
+        <FieldError message={props.roleError} />
+      </label>
+      <label className="mt-2 block text-xs text-zinc-400">Or explicit existing VK session
+        <select className={`${inputClass} mt-1`} value={props.sessionId} onChange={(event) => props.onChange({ role: props.role, sessionId: event.target.value })}>
+          <option value="">Resolver may reuse/create by role</option>
+          {props.sessions.map((session) => <option key={session.id} value={session.id}>{session.name || session.id} · {session.executor}</option>)}
+        </select>
+        <FieldError message={props.sessionError} />
+      </label>
+      <VkSessionLink workspaceId={props.sessions.find((session) => session.id === props.sessionId)?.workspace_id ?? null} sessionId={props.sessionId} className="mt-2" />
+    </div>
+  );
+}
+
+function WorkflowInstanceTimeline(props: { status: WorkflowInstanceStatusResponse | null; selectedInstanceId: string | null; error: string | null; loading: boolean; onRefresh: () => void | undefined }) {
+  if (!props.selectedInstanceId && !props.status) return <p className="rounded border border-zinc-800 bg-zinc-950 p-3 text-sm text-zinc-400">No durable workflow instance launched in this browser session yet. Existing instances remain available in persisted run/status APIs.</p>;
+  return (
+    <div className="rounded-md border border-zinc-800 bg-zinc-950/70 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="font-medium">Durable instance status</h3>
+        <button className={buttonClass} onClick={props.onRefresh} disabled={props.loading}>{props.loading ? 'Refreshing…' : 'Refresh instance'}</button>
+      </div>
+      {props.error ? <div role="alert" className="mt-2 rounded border border-red-800 bg-red-950/40 p-2 text-sm text-red-200">Instance status failed to load: {props.error}</div> : null}
+      {props.status ? <>
+        <dl className="mt-3 grid gap-2 text-sm md:grid-cols-3">
+          <Ref label="Instance" value={props.status.instance.instanceId} />
+          <Ref label="Workflow" value={props.status.instance.workflowId} />
+          <Ref label="Status" value={props.status.instance.status} />
+          <Ref label="Current step" value={props.status.instance.currentStepId} />
+          <Ref label="Created" value={formatTimestamp(props.status.instance.createdAt)} />
+          <Ref label="Updated" value={formatTimestamp(props.status.instance.updatedAt)} />
+        </dl>
+        {props.status.instance.error ? <div className="mt-3 rounded border border-red-900 bg-red-950/30 p-3 text-sm text-red-100"><div className="font-medium">Workflow instance error</div><pre className="mt-2 max-h-48 overflow-auto text-xs">{JSON.stringify(props.status.instance.error, null, 2)}</pre></div> : null}
+        <div className="mt-4 grid gap-3 lg:grid-cols-2">
+          <div><h4 className="text-sm font-medium">Steps</h4><div className="mt-2 space-y-2">{props.status.steps.map((step) => <StepStateCard key={step.id} step={step} />)}</div></div>
+          <div><h4 className="text-sm font-medium">Triggers / waits</h4><div className="mt-2 space-y-2">{props.status.triggers.length ? props.status.triggers.map((trigger) => <TriggerCard key={trigger.triggerId} trigger={trigger} />) : <p className="text-sm text-zinc-500">No triggers recorded.</p>}</div></div>
+        </div>
+        {props.status.output ? <div className="mt-4"><h4 className="text-sm font-medium">Final output refs</h4><pre className="mt-2 max-h-56 overflow-auto rounded border border-zinc-800 bg-zinc-950 p-2 text-xs text-zinc-300">{JSON.stringify(props.status.output, null, 2)}</pre></div> : null}
+      </> : null}
+    </div>
+  );
+}
+
+function StepStateCard({ step }: { step: WorkflowInstanceStatusResponse['steps'][number] }) {
+  return <div className={`rounded border p-2 text-xs ${step.status === 'failed' ? 'border-red-900 bg-red-950/20' : step.status === 'waiting' ? 'border-amber-900 bg-amber-950/20' : 'border-zinc-800 bg-zinc-950'}`}><div className="flex justify-between gap-2"><span className="font-medium text-zinc-100">{step.stepKey}</span><span>{step.status}</span></div><div className="mt-1 text-zinc-500">attempts {step.attemptCount}{step.waitingTriggerId ? ` · wait ${step.waitingTriggerId}` : ''}</div>{step.blockedReason ? <div className="mt-1 text-amber-200">{step.blockedReason}</div> : null}{step.error ? <pre className="mt-2 max-h-32 overflow-auto text-red-100">{JSON.stringify(step.error, null, 2)}</pre> : null}{step.output ? <pre className="mt-2 max-h-32 overflow-auto text-zinc-400">{JSON.stringify(step.output, null, 2)}</pre> : null}</div>;
+}
+
+function TriggerCard({ trigger }: { trigger: WorkflowInstanceStatusResponse['triggers'][number] }) {
+  return <div className={`rounded border p-2 text-xs ${trigger.status === 'active' ? 'border-cyan-900 bg-cyan-950/20' : trigger.status === 'satisfied' ? 'border-emerald-900 bg-emerald-950/20' : 'border-zinc-800 bg-zinc-950'}`}><div className="flex justify-between gap-2"><span className="font-medium text-zinc-100">{trigger.stepKey ?? trigger.triggerId}</span><span>{trigger.status}</span></div><div className="mt-1 grid gap-1 text-zinc-500"><span>session {trigger.sessionId ?? '—'}</span><span>mode {trigger.mode}</span><span>timeout {trigger.timeoutAt ? formatTimestamp(trigger.timeoutAt) : '—'}</span><span>satisfied by {trigger.satisfiedByExecutionProcessId ?? '—'}</span></div><VkSessionLink workspaceId={trigger.workspaceId} sessionId={trigger.sessionId} className="mt-1" /></div>;
+}
+
+function WebhookStatusCard(props: { provisioning: WorkflowWebhookProvisioningStatus | null; inbox: WorkflowWebhookInboxListResponse | null; error: string | null }) {
+  const state = props.provisioning?.state;
+  return <div className="rounded-md border border-zinc-800 bg-zinc-950/70 p-3 text-sm"><h3 className="font-medium">Webhook wakeup status</h3>{props.error ? <div role="alert" className="mt-2 text-xs text-amber-200">Webhook status failed to load: {props.error}</div> : null}{state ? <dl className="mt-2 grid gap-1 text-xs text-zinc-400"><Ref label="Provisioning" value={state.status} /><Ref label="Subscription" value={state.vkSubscriptionId} /><Ref label="Target" value={state.targetUrl} /><Ref label="Secret" value={state.secretSet ? 'configured (redacted)' : 'missing'} /><Ref label="Last success" value={state.lastSuccessAt ? formatTimestamp(state.lastSuccessAt) : '—'} /></dl> : <p className="mt-2 text-xs text-zinc-500">Provisioning state not recorded yet.</p>}{state?.lastError ? <pre className="mt-2 max-h-28 overflow-auto text-xs text-amber-100">{JSON.stringify(state.lastError, null, 2)}</pre> : null}<div className="mt-3 text-xs text-zinc-500">Recent terminal webhook events: {props.inbox?.events.length ?? 0}</div>{props.inbox?.events.slice(0, 3).map((event) => <div key={event.inboxId} className="mt-1 rounded bg-zinc-900 p-1 text-xs text-zinc-400">{event.eventType} · {event.eventStatus ?? 'unknown'} · {event.status} · {event.executionProcessId ?? 'no execution ref'}</div>)}</div>;
+}
+
+function FieldError({ message }: { message?: string | null }) {
+  return message ? <div role="alert" className="mt-1 text-xs text-red-200">{message}</div> : null;
+}
+
+
+
+function readSavedWorkflowInstanceId(): string | null {
+  if (typeof window === 'undefined') return null;
+  return window.localStorage.getItem('vd.lastWorkflowInstanceId');
+}
+
+function writeSavedWorkflowInstanceId(instanceId: string | null): void {
+  if (typeof window === 'undefined') return;
+  if (instanceId) window.localStorage.setItem('vd.lastWorkflowInstanceId', instanceId);
+  else window.localStorage.removeItem('vd.lastWorkflowInstanceId');
+}
 
 function SessionMappingControls(props: {
   workspaceId: string;
