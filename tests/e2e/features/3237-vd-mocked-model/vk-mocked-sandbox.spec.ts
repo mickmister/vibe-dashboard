@@ -283,7 +283,7 @@ async function ensureRepositorySelectionStep(
   }
 
   const selectedRepoButton = createWorkspaceFrame
-    .locator('button[title$="(main)"]')
+    .getByRole('button', { name: / · main$/ })
     .first();
   if (await selectedRepoButton.isVisible({ timeout: 5_000 }).catch(() => false)) {
     await selectedRepoButton.evaluate((button) =>
