@@ -217,6 +217,7 @@ export function createSandboxPlan(input: {
         VK_ALLOWED_ORIGINS: vkAllowedOrigins,
         DISABLE_WORKTREE_CLEANUP: '1',
         RUST_LOG: process.env.RUST_LOG ?? 'debug',
+        VK_QA_SCRIPTED_OUTCOME: env.VK_QA_SCRIPTED_OUTCOME ?? JSON.stringify({ outcome: 'completed', final_message: 'QA scripted workflow response completed successfully.', session_id: 'qa-scripted-session', message_id: 'qa-scripted-message', delay_ms: 0 }),
       },
     },
     {
@@ -229,6 +230,8 @@ export function createSandboxPlan(input: {
         PORT: String(input.ports.vdDashboard),
         SERVER_PORT: String(input.ports.vdServer),
         VITE_VK_BASE_ORIGIN: vkFrontendUrl,
+        VIBE_API_URL: `http://127.0.0.1:${input.ports.vkBackend}/api`,
+        VK_API_URL: `http://127.0.0.1:${input.ports.vkBackend}/api`,
         CADDY_PORT: String(input.ports.vdCaddy),
         VD_WORKFLOW_WEBHOOK_PORT: String(input.ports.vdCaddy),
       },

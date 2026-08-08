@@ -21,7 +21,7 @@ test.describe('Docker qa-mode durable workflow UI', () => {
 
     await page.goto('/dashboard/teams');
     await expect(page.getByRole('heading', { name: 'Durable workflow launch' })).toBeVisible();
-    await expect(page.getByLabel('Workflow definition')).toContainText('two-agent-review-round');
+    await expect(page.getByLabel('Workflow definition')).toContainText('Two agent review round');
 
     // Product-level validation should be actionable before any durable launch.
     await page.getByRole('button', { name: 'Launch durable workflow' }).click();
@@ -45,7 +45,7 @@ test.describe('Docker qa-mode durable workflow UI', () => {
 
     await page.getByRole('button', { name: 'Launch durable workflow' }).click();
     await expect(page.getByRole('heading', { name: 'Durable instance status' })).toBeVisible();
-    await expect(page.getByText('wait_source')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText('wait_source').first()).toBeVisible({ timeout: 30_000 });
 
     const instanceId = await currentInstanceId(page);
     expect(instanceId).toMatch(/^workflow_instance_/);
@@ -65,7 +65,7 @@ test.describe('Docker qa-mode durable workflow UI', () => {
 
     await page.reload();
     await expect(page.getByRole('heading', { name: 'Durable instance status' })).toBeVisible();
-    await expect(page.getByText(instanceId)).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText(instanceId).first()).toBeVisible({ timeout: 30_000 });
     await expect(page.getByText('Final output refs')).toBeVisible();
     await expect(page.getByText('Open VK session').first()).toBeVisible();
     await expect.poll(async () => (await fetchInstanceStatus(page.request, instanceId)).instance.status, { timeout: 30_000 }).toBe('completed');

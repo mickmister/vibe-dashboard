@@ -209,6 +209,7 @@ describe('VK mocked sandbox helpers', () => {
         BACKEND_PORT: '4107',
         FRONTEND_PORT: '4101',
         PREVIEW_PROXY_PORT: '4106',
+        VK_QA_SCRIPTED_OUTCOME: JSON.stringify({ outcome: 'completed', final_message: 'QA scripted workflow response completed successfully.', session_id: 'qa-scripted-session', message_id: 'qa-scripted-message', delay_ms: 0 }),
       },
     });
     const vdCommand = plan.commands.find((command) => command.name === 'vd-dashboard');
@@ -218,6 +219,8 @@ describe('VK mocked sandbox helpers', () => {
       'http://localhost:4101',
     );
     expect(vdCommand?.env.VD_WORKFLOW_WEBHOOK_PORT).toBe('4101');
+    expect(vdCommand?.env.VIBE_API_URL).toBe('http://127.0.0.1:4107/api');
+    expect(vdCommand?.env.VK_API_URL).toBe('http://127.0.0.1:4107/api');
     expect(caddyCommand?.env.XDG_CONFIG_HOME).toBe(
       '/tmp/run/xdg-config',
     );
