@@ -228,6 +228,7 @@ async function copyDirectoryWithoutGit(source: string, destination: string) {
 async function ensureGitRepo(repoPath: string) {
   if (await exists(path.join(repoPath, '.git'))) return;
   await execFileAsync('git', ['init', repoPath]);
+  await execFileAsync('git', ['-C', repoPath, 'checkout', '-B', 'main']);
   await execFileAsync('git', ['-C', repoPath, 'config', 'user.name', 'Vibe Kanban']);
   await execFileAsync('git', [
     '-C',

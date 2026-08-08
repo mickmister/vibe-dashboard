@@ -316,7 +316,7 @@ async function openSidebarIfNeeded(page: Page) {
 async function closeSidebarOverlayIfPresent(page: Page) {
   const overlay = page.getByRole('button', { name: 'Close sidebar overlay' });
   if (await overlay.isVisible().catch(() => false)) {
-    await overlay.click();
+    await overlay.evaluate((button) => (button as HTMLButtonElement).click());
   }
 }
 
