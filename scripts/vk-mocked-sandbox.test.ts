@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 
 import {
@@ -137,6 +137,15 @@ describe('VK mocked sandbox helpers', () => {
     );
   });
 
+  it('can load an explicit Caddyfile for Docker workflow E2E without custom plugins', async () => {
+    const caddyfile = await loadSandboxCaddyfile(process.cwd(), {
+      VK_MOCKED_CADDYFILE: 'Caddyfile.workflow-e2e',
+    } as NodeJS.ProcessEnv);
+
+    expect(caddyfile).toContain('handle_path /vk-api/*');
+    expect(caddyfile).not.toContain('vk_rewrite');
+  });
+
   it('plans qa-mode VK, VD dev, and Caddy commands with matching env', () => {
     const plan = createSandboxPlan({
       workspaceRoot: '/tmp/worktrees/example/vibe-kanban-vscode-web',
@@ -219,6 +228,13 @@ describe('VK mocked sandbox helpers', () => {
       CADDY_PLUGINS_CADDY: '/tmp/run/plugins.caddy',
     });
     expect(plan.env.CADDY_PLUGINS_CADDY).toBe('/tmp/run/plugins.caddy');
+  });
+
+  it('fixture reset honors explicit VK checkout path for Docker-copied worktrees', async () => {
+    const source = await readFile(resolve('scripts/e2e-vk-mocked-sandbox-fixtures.ts'), 'utf8');
+
+    expect(source).toContain('process.env.VK_CHECKOUT');
+    expect(source).toContain("path.resolve(process.env.VK_CHECKOUT ?? path.join(workspaceRoot, 'Vktest'))");
   });
 
   it('uses an explicit VK checkout path when provided', () => {

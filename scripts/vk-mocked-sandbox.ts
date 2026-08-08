@@ -49,6 +49,7 @@ export interface PortAllocator {
 const DEFAULT_PORT_START = 50_000;
 const MAX_PORT = 65_535;
 const SANDBOX_CADDYFILE_NAME = 'Caddyfile';
+const SANDBOX_CADDYFILE_ENV = 'VK_MOCKED_CADDYFILE';
 const CHILD_SHUTDOWN_TIMEOUT_MS = 5_000;
 
 function envInt(name: string, fallback: number, env = process.env): number {
@@ -130,8 +131,9 @@ export async function allocatePorts(
   };
 }
 
-export async function loadSandboxCaddyfile(vdRoot: string): Promise<string> {
-  return await readFile(join(vdRoot, SANDBOX_CADDYFILE_NAME), 'utf8');
+export async function loadSandboxCaddyfile(vdRoot: string, env: NodeJS.ProcessEnv = process.env): Promise<string> {
+  const configured = env[SANDBOX_CADDYFILE_ENV]?.trim() || SANDBOX_CADDYFILE_NAME;
+  return await readFile(join(vdRoot, configured), 'utf8');
 }
 
 export function createSandboxPlan(input: {

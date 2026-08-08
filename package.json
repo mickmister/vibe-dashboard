@@ -52,7 +52,9 @@
     "vk:batch-hotswap": "bash scripts/vk-batch-stage-hotswap-apply.sh",
     "vk:batch-hotswap-gh": "bash scripts/vk-batch-stage-gh-artifact.sh",
     "vk:batch-rollback": "bash scripts/vk-batch-stage-rollback.sh",
-    "build:beads-form": "pnpm --filter @vibe-dashboard/beads-form build"
+    "build:beads-form": "pnpm --filter @vibe-dashboard/beads-form build",
+    "test:e2e:vk-workflows-docker": "bash scripts/workflow-e2e-docker-playwright.sh",
+    "test:e2e:vk-workflows": "playwright test --config playwright.vk-workflows-docker.config.ts"
   },
   "dependencies": {
     "@heroui/react": "^2.8.9",

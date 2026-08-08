@@ -1,0 +1,131 @@
+import { expect, test, type APIRequestContext, type Page } from 'playwright/test';
+
+const sandboxUrl = process.env.VK_MOCKED_SANDBOX_URL ?? 'http://127.0.0.1:50005';
+
+type Workspace = { id: string; name?: string | null; branch?: string | null };
+type Session = { id: string; workspace_id: string; name?: string | null; executor?: string };
+type InstanceStatusResponse = {
+  instance: { instanceId: string; status: string; currentStepId: string | null };
+  steps: Array<{ stepKey: string; status: string; output: unknown }>;
+  triggers: Array<{ stepKey: string | null; status: string; satisfiedByExecutionProcessId: string | null }>;
+  output: unknown;
+};
+
+test.describe('Docker qa-mode durable workflow UI', () => {
+  test('launches and completes a two-agent review workflow through webhook wakeups', async ({ page }) => {
+    test.setTimeout(300_000);
+
+    await expectDashboardHealth(page.request);
+    const workspace = await firstWorkspace(page.request);
+    const sessions = await sessionsForWorkspace(page.request, workspace.id);
+
+    await page.goto('/dashboard/teams');
+    await expect(page.getByRole('heading', { name: 'Durable workflow launch' })).toBeVisible();
+    await expect(page.getByLabel('Workflow definition')).toContainText('two-agent-review-round');
+
+    // Product-level validation should be actionable before any durable launch.
+    await page.getByRole('button', { name: 'Launch durable workflow' }).click();
+    await expect(page.getByRole('alert').filter({ hasText: 'Workspace id is required.' })).toBeVisible();
+    await expect(page.getByRole('alert').filter({ hasText: 'Task is required.' })).toBeVisible();
+
+    await page.getByLabel('Workspace').selectOption(workspace.id);
+    await expect(page.getByText('Webhook wakeup status')).toBeVisible();
+    await expect.poll(async () => {
+      const state = await webhookProvisioning(page.request);
+      return state?.status ?? 'missing';
+    }, { timeout: 60_000, message: 'VD should self-provision VK terminal execution webhook' }).toBe('provisioned');
+
+    const task = `Docker qa-mode workflow E2E proof ${Date.now()}`;
+    await page.getByLabel('Task / prompt').fill(task);
+    await page.getByLabel('Role/name for auto-create or reuse').nth(0).fill('workflow-source-e2e');
+    await page.getByLabel('Role/name for auto-create or reuse').nth(1).fill('workflow-reviewer-e2e');
+    if (sessions[0]) {
+      await page.getByLabel('Optional overseer notification session').selectOption(sessions[0].id);
+    }
+
+    await page.getByRole('button', { name: 'Launch durable workflow' }).click();
+    await expect(page.getByRole('heading', { name: 'Durable instance status' })).toBeVisible();
+    await expect(page.getByText('wait_source')).toBeVisible({ timeout: 30_000 });
+
+    const instanceId = await currentInstanceId(page);
+    expect(instanceId).toMatch(/^workflow_instance_/);
+
+    const completed = await waitForWorkflowCompleted(page.request, instanceId);
+    expect(completed.steps.find((step) => step.stepKey === 'ask_source')?.status).toBe('completed');
+    expect(completed.steps.find((step) => step.stepKey === 'wait_source')?.status).toBe('completed');
+    expect(completed.steps.find((step) => step.stepKey === 'ask_review')?.status).toBe('completed');
+    expect(completed.steps.find((step) => step.stepKey === 'wait_review')?.status).toBe('completed');
+    expect(completed.steps.find((step) => step.stepKey === 'complete')?.status).toBe('completed');
+    if (sessions[0]) {
+      expect(completed.steps.find((step) => step.stepKey === 'notify_overseer')?.status).toBe('completed');
+    }
+
+    const terminalInboxEvents = await webhookInboxCount(page.request);
+    expect(terminalInboxEvents).toBeGreaterThanOrEqual(2);
+
+    await page.reload();
+    await expect(page.getByRole('heading', { name: 'Durable instance status' })).toBeVisible();
+    await expect(page.getByText(instanceId)).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText('Final output refs')).toBeVisible();
+    await expect(page.getByText('Open VK session').first()).toBeVisible();
+    await expect.poll(async () => (await fetchInstanceStatus(page.request, instanceId)).instance.status, { timeout: 30_000 }).toBe('completed');
+  });
+});
+
+async function expectDashboardHealth(request: APIRequestContext) {
+  const response = await request.get(new URL('/dashboard/api/workflows/health', sandboxUrl).toString());
+  expect(response.ok()).toBeTruthy();
+  await expect(response.json()).resolves.toEqual({ ok: true });
+}
+
+async function firstWorkspace(request: APIRequestContext): Promise<Workspace> {
+  const response = await request.get(new URL('/vk-api/workspaces', sandboxUrl).toString());
+  expect(response.ok()).toBeTruthy();
+  const body = await response.json() as { data?: Workspace[] };
+  const workspace = body.data?.[0];
+  if (!workspace) throw new Error('Expected seeded VK workspace in qa-mode sandbox');
+  return workspace;
+}
+
+async function sessionsForWorkspace(request: APIRequestContext, workspaceId: string): Promise<Session[]> {
+  const response = await request.get(new URL(`/vk-api/sessions?workspace_id=${encodeURIComponent(workspaceId)}`, sandboxUrl).toString());
+  expect(response.ok()).toBeTruthy();
+  const body = await response.json() as { data?: Session[] };
+  return body.data ?? [];
+}
+
+async function webhookProvisioning(request: APIRequestContext): Promise<{ status?: string } | null> {
+  const response = await request.get(new URL('/dashboard/api/workflow-webhooks/provisioning', sandboxUrl).toString());
+  if (!response.ok()) return null;
+  const body = await response.json() as { state?: { status?: string } | null };
+  return body.state ?? null;
+}
+
+async function webhookInboxCount(request: APIRequestContext): Promise<number> {
+  const response = await request.get(new URL('/dashboard/api/workflow-webhooks/inbox?limit=20', sandboxUrl).toString());
+  expect(response.ok()).toBeTruthy();
+  const body = await response.json() as { events?: unknown[] };
+  return body.events?.length ?? 0;
+}
+
+async function currentInstanceId(page: Page): Promise<string> {
+  return page.evaluate(() => window.localStorage.getItem('vd.lastWorkflowInstanceId')).then((value) => {
+    if (!value) throw new Error('Expected launched workflow instance id in localStorage');
+    return value;
+  });
+}
+
+async function fetchInstanceStatus(request: APIRequestContext, instanceId: string): Promise<InstanceStatusResponse> {
+  const response = await request.get(new URL(`/dashboard/api/workflow-instances/${encodeURIComponent(instanceId)}/status`, sandboxUrl).toString());
+  expect(response.ok()).toBeTruthy();
+  return await response.json() as InstanceStatusResponse;
+}
+
+async function waitForWorkflowCompleted(request: APIRequestContext, instanceId: string): Promise<InstanceStatusResponse> {
+  let last: InstanceStatusResponse | null = null;
+  await expect.poll(async () => {
+    last = await fetchInstanceStatus(request, instanceId);
+    return last.instance.status;
+  }, { timeout: 180_000, intervals: [1_000, 2_000, 5_000] }).toBe('completed');
+  return last!;
+}
