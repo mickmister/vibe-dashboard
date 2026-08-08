@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { BUILT_IN_DECLARATIVE_WORKFLOW_DEFINITIONS } from '../workflows/declarative/builtins';
 
 const TWO_AGENT_REVIEW_ROUND_DEFINITION = BUILT_IN_DECLARATIVE_WORKFLOW_DEFINITIONS[0]!;
-import { buildDeclarativeWorkflowInput, createDraftFromDefinition, createMinimalWorkflowTeam, describeDefinitionRoles, validateDeclarativeWorkflowLaunch } from './declarativeWorkflowLaunch';
+import { buildDeclarativeWorkflowInput, createDraftFromDefinition, createMinimalWorkflowTeam, describeDefinitionRoles, filterWorkflowSessionsForWorkspace, validateDeclarativeWorkflowLaunch } from './declarativeWorkflowLaunch';
 
 describe('declarative workflow launch helpers', () => {
   it('validates required inputs and role/session choices before launch', () => {
@@ -59,6 +59,14 @@ describe('declarative workflow launch helpers', () => {
       policies: { requireOrchestrator: false, allowWorkspaceParallelism: false },
       workflowBindings: [{ workflowId: 'two-agent-review-round', trigger: 'manual', enabled: true }],
     });
+  });
+
+
+  it('filters workflow launch sessions strictly by workflow workspace', () => {
+    expect(filterWorkflowSessionsForWorkspace([
+      { id: 'mapping-session', workspace_id: 'mapping-ws', executor: 'CODEX', created_at: '', updated_at: '' },
+      { id: 'workflow-session', workspace_id: 'workflow-ws', executor: 'CODEX', created_at: '', updated_at: '' },
+    ], 'workflow-ws').map((session) => session.id)).toEqual(['workflow-session']);
   });
 
   it('summarizes role-resolution expectations from a definition', () => {

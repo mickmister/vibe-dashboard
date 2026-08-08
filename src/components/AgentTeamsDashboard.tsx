@@ -23,7 +23,7 @@ import type { TeamAgentActivitySnapshot, TeamGuardrailNudgeWorkflowOutput } from
 import type { UpdateWorkflowTemplateInput, WorkflowTemplate } from '../templates/workflowTemplates';
 import { collectWorkflowQueueRefs, summarizeWorkflowError, workflowStatusLabel, type WorkflowQueueRef } from '../lib/workflowRunDetails';
 import { fetchDeclarativeWorkflowDefinitions, fetchWorkflowInstanceStatus, fetchWorkflowWebhookInbox, fetchWorkflowWebhookProvisioningStatus, runDeclarativeWorkflow, type DeclarativeWorkflowDefinitionEntry, type WorkflowInstanceStatusResponse, type WorkflowWebhookInboxListResponse, type WorkflowWebhookProvisioningStatus } from '../lib/declarativeWorkflowsApi';
-import { buildDeclarativeWorkflowInput, createDraftFromDefinition, createMinimalWorkflowTeam, describeDefinitionRoles, validateDeclarativeWorkflowLaunch, type DeclarativeWorkflowLaunchDraft } from '../lib/declarativeWorkflowLaunch';
+import { buildDeclarativeWorkflowInput, createDraftFromDefinition, createMinimalWorkflowTeam, describeDefinitionRoles, filterWorkflowSessionsForWorkspace, validateDeclarativeWorkflowLaunch, type DeclarativeWorkflowLaunchDraft } from '../lib/declarativeWorkflowLaunch';
 
 const inputClass = 'w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100';
 const buttonClass = 'rounded-md border border-zinc-700 px-3 py-2 text-sm hover:bg-zinc-900 disabled:opacity-50';
@@ -53,6 +53,8 @@ export function AgentTeamsDashboard(): React.ReactElement {
   const [mappingWorkspaceId, setMappingWorkspaceId] = useState('');
   const [sessionOptions, setSessionOptions] = useState<Session[]>([]);
   const [sessionOptionsError, setSessionOptionsError] = useState<string | null>(null);
+  const [workflowSessionOptions, setWorkflowSessionOptions] = useState<Session[]>([]);
+  const [workflowSessionOptionsError, setWorkflowSessionOptionsError] = useState<string | null>(null);
   const [resolvingSessions, setResolvingSessions] = useState(false);
   const [sessionMappingError, setSessionMappingError] = useState<string | null>(null);
   const [allowAutoCreate, setAllowAutoCreate] = useState(true);
@@ -215,7 +217,7 @@ export function AgentTeamsDashboard(): React.ReactElement {
   }, [selectedInstanceId]);
 
   useEffect(() => {
-    const workspaceForSessions = mappingWorkspaceId.trim() || workflowDraft.workspaceId.trim();
+    const workspaceForSessions = mappingWorkspaceId.trim();
     if (!workspaceForSessions) {
       setSessionOptions([]);
       setSessionOptionsError(null);
@@ -230,7 +232,25 @@ export function AgentTeamsDashboard(): React.ReactElement {
         setSessionOptions([]);
         setSessionOptionsError(caught instanceof Error ? caught.message : String(caught));
       });
-  }, [mappingWorkspaceId, workflowDraft.workspaceId]);
+  }, [mappingWorkspaceId]);
+
+  useEffect(() => {
+    const workspaceForWorkflow = workflowDraft.workspaceId.trim();
+    if (!workspaceForWorkflow) {
+      setWorkflowSessionOptions([]);
+      setWorkflowSessionOptionsError(null);
+      return;
+    }
+    void vkClient.getSessions(workspaceForWorkflow)
+      .then((sessions) => {
+        setWorkflowSessionOptions(sessions);
+        setWorkflowSessionOptionsError(null);
+      })
+      .catch((caught) => {
+        setWorkflowSessionOptions([]);
+        setWorkflowSessionOptionsError(caught instanceof Error ? caught.message : String(caught));
+      });
+  }, [workflowDraft.workspaceId]);
 
 
   const launchDeclarativeWorkflow = async () => {
@@ -457,8 +477,8 @@ export function AgentTeamsDashboard(): React.ReactElement {
           launching={launchingDeclarative}
           workspaces={workspaces}
           workspaceError={workspaceError}
-          sessions={sessionOptions}
-          sessionsError={sessionOptionsError}
+          sessions={workflowSessionOptions}
+          sessionsError={workflowSessionOptionsError}
           selectedInstanceId={selectedInstanceId}
           instanceStatus={instanceStatus}
           instanceStatusError={instanceStatusError}
@@ -585,7 +605,7 @@ function DeclarativeWorkflowPanel(props: {
   const definition = props.selectedDefinition;
   const roles = definition ? describeDefinitionRoles(definition) : [];
   const requiredInputs = definition ? Object.entries(definition.inputs).filter(([, spec]) => spec.required) : [];
-  const selectedWorkspaceSessions = props.sessions.filter((session) => !props.draft.workspaceId || session.workspace_id === props.draft.workspaceId);
+  const selectedWorkspaceSessions = filterWorkflowSessionsForWorkspace(props.sessions, props.draft.workspaceId);
   return (
     <section className="rounded-lg border border-cyan-900/60 bg-cyan-950/10 p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">

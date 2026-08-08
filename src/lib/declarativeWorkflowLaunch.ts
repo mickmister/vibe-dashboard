@@ -1,5 +1,6 @@
 import type { DeclarativeWorkflowDefinition, DeclarativeWorkflowInputSpec } from '../workflows/declarative/definitions';
 import type { AgentTeam } from '../teams/agentTeams';
+import type { Session } from './vk-client';
 
 export interface DeclarativeWorkflowLaunchDraft {
   workspaceId: string;
@@ -86,6 +87,12 @@ export function createMinimalWorkflowTeam(args: { sourceRole: string; reviewRole
 
 export function describeDefinitionRoles(definition: DeclarativeWorkflowDefinition): string[] {
   return definition.steps.flatMap((step) => step.type === 'resolve_roles' ? step.roles.map((role) => `${role.key}: ${role.defaultRole ?? role.roleInput ?? role.sessionInput ?? 'role'}`) : []);
+}
+
+export function filterWorkflowSessionsForWorkspace(sessions: Session[], workspaceId: string): Session[] {
+  const normalizedWorkspaceId = workspaceId.trim();
+  if (!normalizedWorkspaceId) return [];
+  return sessions.filter((session) => session.workspace_id === normalizedWorkspaceId);
 }
 
 function isRequiredStringInput(spec: DeclarativeWorkflowInputSpec): boolean {

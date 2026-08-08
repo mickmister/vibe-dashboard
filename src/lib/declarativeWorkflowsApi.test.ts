@@ -35,6 +35,27 @@ describe('declarative workflow API client', () => {
     await expect(fetchWorkflowWebhookProvisioningStatus()).resolves.toMatchObject({ state: { secretSet: true, status: 'provisioned' } });
   });
 
+
+  it('fails fast when a successful dashboard API response is not JSON', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('<html>SPA fallback</html>', { status: 200, headers: { 'Content-Type': 'text/html' } }));
+
+    await expect(fetchDeclarativeWorkflowDefinitions()).rejects.toMatchObject({
+      name: 'DeclarativeWorkflowRequestError',
+      status: 200,
+      message: 'Failed to load workflow definitions: expected JSON from /dashboard/api/declarative-workflow-definitions but received non-JSON response',
+    });
+  });
+
+  it('fails fast when definitions response is JSON but missing definitions array', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(json({ ok: true }));
+
+    await expect(fetchDeclarativeWorkflowDefinitions()).rejects.toMatchObject({
+      name: 'DeclarativeWorkflowRequestError',
+      status: 200,
+      message: 'Failed to load workflow definitions: expected JSON object with definitions array from /dashboard/api/declarative-workflow-definitions',
+    });
+  });
+
   it('throws actionable request errors with payload detail', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(json({ error: 'same_session', message: 'Source and reviewer must be different sessions' }, { status: 400 }));
 

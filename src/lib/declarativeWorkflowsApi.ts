@@ -132,7 +132,11 @@ export class DeclarativeWorkflowRequestError extends Error {
 }
 
 export async function fetchDeclarativeWorkflowDefinitions(): Promise<DeclarativeWorkflowDefinitionsResponse> {
-  return requestJson('/dashboard/api/declarative-workflow-definitions', { errorPrefix: 'Failed to load workflow definitions' });
+  const payload = await requestJson<unknown>('/dashboard/api/declarative-workflow-definitions', { errorPrefix: 'Failed to load workflow definitions' });
+  if (!isRecord(payload) || !Array.isArray(payload.definitions)) {
+    throw new DeclarativeWorkflowRequestError('Failed to load workflow definitions: expected JSON object with definitions array from /dashboard/api/declarative-workflow-definitions', { status: 200, payload });
+  }
+  return payload as unknown as DeclarativeWorkflowDefinitionsResponse;
 }
 
 export async function runDeclarativeWorkflow(workflowId: string, body: { input: Record<string, unknown>; team: unknown; trigger?: string; teamId?: string | null }): Promise<DeclarativeWorkflowRunResponse> {
@@ -167,10 +171,20 @@ async function requestJson<T>(path: string, options: RequestInit & { errorPrefix
       ...options.headers,
     },
   });
-  const payload = await response.json().catch(() => ({})) as { error?: string; message?: string } & Record<string, unknown>;
+  let payload: ({ error?: string; message?: string } & Record<string, unknown>) | unknown;
+  try {
+    payload = await response.json();
+  } catch (error) {
+    throw new DeclarativeWorkflowRequestError(`${options.errorPrefix}: expected JSON from ${path} but received non-JSON response`, { status: response.status, payload: { parseError: error instanceof Error ? error.message : String(error) } });
+  }
   if (!response.ok) {
-    const detail = payload.message || payload.error || `${response.status}`;
+    const record = isRecord(payload) ? payload : {};
+    const detail = typeof record.message === 'string' ? record.message : typeof record.error === 'string' ? record.error : `${response.status}`;
     throw new DeclarativeWorkflowRequestError(`${options.errorPrefix}: ${detail}`, { status: response.status, payload });
   }
   return payload as T;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
