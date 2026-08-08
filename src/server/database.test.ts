@@ -34,6 +34,7 @@ describe('VD database', () => {
         '20260804020000_factory_work_items',
         '20260804030000_declarative_workflow_definitions',
         '20260808000000_workflow_webhook_inbox',
+        '20260808010000_workflow_webhook_provisioning',
       ]);
       const tables = await sql<{ name: string }>`
         SELECT name FROM sqlite_master
@@ -41,7 +42,8 @@ describe('VD database', () => {
           'WorkflowRun', 'WorkflowRunEvent', 'WorkflowInstance', 'WorkflowStepState',
           'WorkflowScopedTrigger', 'WorkflowRoleSessionBinding', 'WorkflowExternalWait',
           'ResponseCollection', 'ResponsePipeDelivery', 'WorkflowFactoryWorkItem',
-          'DeclarativeWorkflowDefinition', 'WorkflowWebhookInbox', 'Migration'
+          'DeclarativeWorkflowDefinition', 'WorkflowWebhookInbox',
+          'WorkflowWebhookProvisioningState', 'Migration'
         )
       `.execute(handle.db);
       expect(tables.rows.map((table) => table.name).sort()).toEqual([
@@ -58,6 +60,7 @@ describe('VD database', () => {
         'WorkflowScopedTrigger',
         'WorkflowStepState',
         'WorkflowWebhookInbox',
+        'WorkflowWebhookProvisioningState',
       ]);
     } finally {
       await handle.db.destroy();
@@ -114,6 +117,8 @@ describe('VD database', () => {
           'idx_workflow_webhook_inbox_status_received',
           'idx_workflow_webhook_inbox_execution',
           'idx_workflow_webhook_inbox_session_received',
+          'idx_workflow_webhook_provisioning_upsert_key',
+          'idx_workflow_webhook_provisioning_status_updated',
           'idx_declarative_workflow_definition_status_updated',
           'idx_factory_work_assignment',
           'idx_factory_work_queue_item',
@@ -168,6 +173,8 @@ describe('VD database', () => {
         'idx_workflow_webhook_inbox_session_received',
         'idx_workflow_webhook_inbox_source_received',
         'idx_workflow_webhook_inbox_status_received',
+        'idx_workflow_webhook_provisioning_status_updated',
+        'idx_workflow_webhook_provisioning_upsert_key',
       ]);
     } finally {
       await handle.db.destroy();

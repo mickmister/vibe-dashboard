@@ -354,6 +354,53 @@ describe("VibeKanbanServerClient", () => {
     });
   });
 
+
+  it("upserts generic VK webhook subscriptions without leaking response secrets", async () => {
+    const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
+      expect(url).toBe("http://vk.local/api/webhook-subscriptions");
+      expect(init?.method).toBe("POST");
+      expect(JSON.parse(String(init?.body))).toEqual({
+        id: null,
+        name: "VD workflow wakeups",
+        upsert_key: "vd.workflow_wakeups.v1",
+        url: "http://127.0.0.1:3109/dashboard/api/workflow-webhooks/vk",
+        enabled: true,
+        event_filters: ["execution.completed", "execution.failed", "execution.killed"],
+        signing_secret: "secret",
+        allow_external_url: false,
+      });
+      return jsonResponse({
+        success: true,
+        data: {
+          created: true,
+          subscription: {
+            id: "sub-1",
+            name: "VD workflow wakeups",
+            upsert_key: "vd.workflow_wakeups.v1",
+            url: "http://127.0.0.1:3109/dashboard/api/workflow-webhooks/vk",
+            enabled: true,
+            event_filters: ["execution.completed", "execution.failed", "execution.killed"],
+            signing_secret_set: true,
+            created_at: "2026-08-08T00:00:00Z",
+            updated_at: "2026-08-08T00:00:00Z",
+          },
+        },
+      });
+    });
+    const client = new VibeKanbanServerClient({ baseUrl: "http://vk.local/api", fetch: fetchImpl });
+
+    await expect(client.createOrUpsertWebhookSubscription({
+      id: null,
+      name: "VD workflow wakeups",
+      upsert_key: "vd.workflow_wakeups.v1",
+      url: "http://127.0.0.1:3109/dashboard/api/workflow-webhooks/vk",
+      enabled: true,
+      event_filters: ["execution.completed", "execution.failed", "execution.killed"],
+      signing_secret: "secret",
+      allow_external_url: false,
+    })).resolves.toMatchObject({ created: true, subscription: { id: "sub-1", signing_secret_set: true } });
+  });
+
   it("throws VkApiError with status and body for failed HTTP responses", async () => {
     const client = new VibeKanbanServerClient({
       baseUrl: "http://vk.local/api",

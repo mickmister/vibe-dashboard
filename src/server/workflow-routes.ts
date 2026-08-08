@@ -25,6 +25,7 @@ import { BUILT_IN_DECLARATIVE_WORKFLOW_DEFINITIONS, getBuiltInDeclarativeWorkflo
 import type { DeclarativeWorkflowDefinition } from '../workflows/declarative/definitions';
 import { normalizeDeclarativeWorkflowDefinition } from '../workflows/declarative/definitions';
 import type { DbDeclarativeWorkflowDefinitionStore } from './declarative-workflow-definition-store';
+import type { DbWorkflowWebhookProvisioningStore } from './workflow-webhook-provisioning-store';
 import {
   parseVkWorkflowWebhookPayload,
   verifyVkWebhookSignature,
@@ -46,6 +47,7 @@ export interface RegisterWorkflowRoutesOptions {
   declarativeWorkflowDefinitionStore?: DbDeclarativeWorkflowDefinitionStore;
   workflowWebhookInboxStore?: DbWorkflowWebhookInboxStore;
   workflowWebhookWakeup?: Pick<WorkflowWebhookWakeup, 'trigger'>;
+  workflowWebhookProvisioningStore?: Pick<DbWorkflowWebhookProvisioningStore, 'getSecret' | 'getPublicState'>;
   vkWorkflowWebhookSecret?: string;
   githubWebhookSecret?: string;
   repoAliasCache?: RepoAliasCache;
@@ -72,11 +74,18 @@ export function registerWorkflowRoutes(
     }));
   });
 
+  hono.get('/dashboard/api/workflow-webhooks/provisioning', async (c) => {
+    const store = options.workflowWebhookProvisioningStore;
+    if (!store) return c.json({ error: 'workflow_webhook_provisioning_store_not_configured' }, 503);
+    const state = await store.getPublicState();
+    return c.json({ state });
+  });
+
   hono.post('/dashboard/api/workflow-webhooks/vk', async (c) => {
     const store = options.workflowWebhookInboxStore;
     if (!store) return c.json({ error: 'workflow_webhook_inbox_store_not_configured' }, 503);
-    const secret = options.vkWorkflowWebhookSecret ?? process.env.VD_VK_WEBHOOK_SECRET;
-    if (!secret) return c.json({ error: 'vk_workflow_webhook_secret_not_configured' }, 503);
+    const secret = options.vkWorkflowWebhookSecret ?? process.env.VD_VK_WEBHOOK_SECRET ?? await options.workflowWebhookProvisioningStore?.getSecret();
+    if (!secret) return c.json({ error: 'vk_workflow_webhook_secret_not_configured', message: 'VK workflow webhook HMAC secret is not configured. Wait for webhook provisioning or configure VD_VK_WEBHOOK_SECRET.' }, 503);
     const rawBody = await c.req.raw.text();
     try {
       verifyVkWebhookSignature({

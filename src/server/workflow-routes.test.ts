@@ -9,6 +9,7 @@ import { DbWorkflowRunReader } from './workflow-run-store';
 import { DbWorkflowOrchestrationStore } from './workflow-orchestration-store';
 import { DbDeclarativeWorkflowDefinitionStore } from './declarative-workflow-definition-store';
 import { DbWorkflowWebhookInboxStore, WorkflowWebhookWakeup, signVkWebhookPayload } from './workflow-webhook-inbox';
+import { DbWorkflowWebhookProvisioningStore } from './workflow-webhook-provisioning-store';
 
 describe('registerWorkflowRoutes', () => {
   const dbHandles: VdDbHandle[] = [];
@@ -915,6 +916,54 @@ describe('registerWorkflowRoutes', () => {
     await expect(second.json()).resolves.toMatchObject({ accepted: true, duplicate: true });
     expect(wakeup.trigger).toHaveBeenCalledTimes(1);
     await expect(inboxStore.listEvents()).resolves.toMatchObject({ events: [expect.objectContaining({ inboxId: 'inbox-route-1' })] });
+  });
+
+
+  it('uses provisioned VK webhook secret when no env override is configured', async () => {
+    const handle = await initVdDb({ path: ':memory:' });
+    dbHandles.push(handle);
+    const inboxStore = new DbWorkflowWebhookInboxStore({ db: handle.db, createId: () => 'inbox-provisioned-secret', now: () => 40 });
+    const provisioningStore = new DbWorkflowWebhookProvisioningStore({ db: handle.db, createSecret: () => 'provisioned-secret', now: () => 30 });
+    await provisioningStore.ensureState({ upsertKey: 'vd.workflow_wakeups.v1', targetUrl: 'http://127.0.0.1:3109/dashboard/api/workflow-webhooks/vk' });
+    const wakeup = { trigger: vi.fn(async () => ({ started: true, queued: false })) };
+    const app = new Hono();
+    registerWorkflowRoutes(app, {
+      registry: createWorkflowRegistry(),
+      workflowWebhookInboxStore: inboxStore,
+      workflowWebhookProvisioningStore: provisioningStore,
+      workflowWebhookWakeup: wakeup,
+    });
+    const body = JSON.stringify(vkWebhookPayload({ delivery_id: 'delivery-provisioned-secret' }));
+
+    const response = await app.request('/dashboard/api/workflow-webhooks/vk', {
+      method: 'POST',
+      headers: signedVkWebhookHeaders('provisioned-secret', body),
+      body,
+    });
+
+    expect(response.status).toBe(202);
+    expect(wakeup.trigger).toHaveBeenCalledTimes(1);
+    await expect(response.json()).resolves.toMatchObject({ accepted: true, inbox: { inboxId: 'inbox-provisioned-secret' } });
+  });
+
+  it('exposes redacted VK workflow webhook provisioning status', async () => {
+    const handle = await initVdDb({ path: ':memory:' });
+    dbHandles.push(handle);
+    const provisioningStore = new DbWorkflowWebhookProvisioningStore({ db: handle.db, createSecret: () => 'do-not-leak', now: () => 50 });
+    await provisioningStore.ensureState({ upsertKey: 'vd.workflow_wakeups.v1', targetUrl: 'http://127.0.0.1:3109/dashboard/api/workflow-webhooks/vk' });
+    const app = new Hono();
+    registerWorkflowRoutes(app, {
+      registry: createWorkflowRegistry(),
+      workflowWebhookProvisioningStore: provisioningStore,
+    });
+
+    const response = await app.request('/dashboard/api/workflow-webhooks/provisioning');
+
+    expect(response.status).toBe(200);
+    const json = await response.json();
+    expect(json).toMatchObject({ state: { secretSet: true, upsertKey: 'vd.workflow_wakeups.v1' } });
+    expect(JSON.stringify(json)).not.toContain('do-not-leak');
+    expect(JSON.stringify(json)).not.toContain('secret":"');
   });
 
   it('rejects invalid VK webhook signatures without storing or waking', async () => {

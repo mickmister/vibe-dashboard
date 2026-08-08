@@ -18,6 +18,8 @@ import { DbResponsePipeStore } from '../server/response-pipe-store';
 import { ResponsePipeService } from '../server/response-pipe-service';
 import { DbDeclarativeWorkflowDefinitionStore } from '../server/declarative-workflow-definition-store';
 import { DbWorkflowWebhookInboxStore, WorkflowWebhookWakeup } from '../server/workflow-webhook-inbox';
+import { DbWorkflowWebhookProvisioningStore } from '../server/workflow-webhook-provisioning-store';
+import { WorkflowWebhookProvisioner, shouldStartWorkflowWebhookProvisioner } from '../server/workflow-webhook-provisioner';
 import { DeclarativeWorkflowRuntime } from '../workflows/declarative/runtime';
 import { createDeclarativeWorkflowWorker, getDeclarativeWorkflowWorkerIntervalMs, shouldStartDeclarativeWorkflowWorker } from '../workflows/declarative/worker';
 import { workflowRegistry } from '../workflows/registry';
@@ -45,6 +47,7 @@ serverRegistry.registerServerModule((api) => {
   const responsePipeStore = new DbResponsePipeStore({ getDb: async () => (await getVdDb()).db });
   const declarativeWorkflowDefinitionStore = new DbDeclarativeWorkflowDefinitionStore({ getDb: async () => (await getVdDb()).db });
   const workflowWebhookInboxStore = new DbWorkflowWebhookInboxStore({ getDb: async () => (await getVdDb()).db });
+  const workflowWebhookProvisioningStore = new DbWorkflowWebhookProvisioningStore({ getDb: async () => (await getVdDb()).db });
   const declarativeWorkflowRuntime = new DeclarativeWorkflowRuntime({
     store: workflowOrchestrationStore,
     resolver: roleSessionResolver,
@@ -61,6 +64,13 @@ serverRegistry.registerServerModule((api) => {
     notificationStore: responsePipeStore,
   });
   const workflowWebhookWakeup = new WorkflowWebhookWakeup(() => declarativeWorkflowRuntime.runReady());
+  if (shouldStartWorkflowWebhookProvisioner()) {
+    new WorkflowWebhookProvisioner({
+      store: workflowWebhookProvisioningStore,
+      vk: vkClient,
+      logger: console,
+    }).start();
+  }
   if (shouldStartDeclarativeWorkflowWorker()) {
     createDeclarativeWorkflowWorker({
       runtime: declarativeWorkflowRuntime,
@@ -87,6 +97,7 @@ serverRegistry.registerServerModule((api) => {
     declarativeWorkflowDefinitionStore,
     workflowWebhookInboxStore,
     workflowWebhookWakeup,
+    workflowWebhookProvisioningStore,
   });
   registerPluginAssetRoutes(api.hono, { installRoot: pluginInstallRoot });
   registerPluginAdminRoutes(api.hono);

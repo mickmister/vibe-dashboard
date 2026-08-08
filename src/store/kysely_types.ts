@@ -3,6 +3,22 @@ import type { ColumnType, Generated } from 'kysely';
 export type NullableNumber = ColumnType<number | null, number | null | undefined, number | null | undefined>;
 export type NullableString = ColumnType<string | null, string | null | undefined, string | null | undefined>;
 
+export type WorkflowWebhookProvisioningStatus = 'pending' | 'provisioned' | 'retrying' | 'failed';
+
+export interface WorkflowWebhookProvisioningState {
+  stateKey: string;
+  secret: string;
+  vkSubscriptionId: NullableString;
+  upsertKey: string;
+  targetUrl: string;
+  status: WorkflowWebhookProvisioningStatus;
+  attemptCount: number;
+  lastAttemptAt: NullableNumber;
+  lastSuccessAt: NullableNumber;
+  lastErrorJson: NullableString;
+  createdAt: number;
+  updatedAt: number;
+}
 
 export type WorkflowWebhookInboxStatus = 'received' | 'processed' | 'failed';
 
@@ -302,4 +318,5 @@ export interface DB {
   WorkflowRoleSessionBinding: WorkflowRoleSessionBinding;
   WorkflowExternalWait: WorkflowExternalWait;
   WorkflowWebhookInbox: WorkflowWebhookInbox;
+  WorkflowWebhookProvisioningState: WorkflowWebhookProvisioningState;
 }

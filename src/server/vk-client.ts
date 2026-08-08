@@ -154,6 +154,35 @@ export interface CreateSessionBody {
   name?: string | null;
 }
 
+export interface WebhookSubscriptionPublic {
+  id: string;
+  name: string;
+  upsert_key: string | null;
+  url: string;
+  enabled: boolean;
+  event_filters: string[];
+  signing_secret_set: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateWebhookSubscriptionBody {
+  id?: string | null;
+  name: string;
+  upsert_key?: string | null;
+  url: string;
+  enabled: boolean;
+  event_filters: string[];
+  signing_secret: string;
+  allow_external_url: boolean;
+}
+
+export interface UpsertWebhookSubscriptionResponse {
+  subscription: WebhookSubscriptionPublic;
+  created: boolean;
+}
+
+
 interface ApiEnvelope<T> {
   success: boolean;
   data: T;
@@ -261,6 +290,10 @@ export class VibeKanbanServerClient {
 
   async getInfo(): Promise<unknown> {
     return this.get('/info');
+  }
+
+  createOrUpsertWebhookSubscription(body: CreateWebhookSubscriptionBody): Promise<UpsertWebhookSubscriptionResponse> {
+    return this.post('/webhook-subscriptions', body);
   }
 
   async sendFollowUp(
