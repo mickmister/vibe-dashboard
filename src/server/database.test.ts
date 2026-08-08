@@ -33,6 +33,7 @@ describe('VD database', () => {
         '20260804010000_response_pipes',
         '20260804020000_factory_work_items',
         '20260804030000_declarative_workflow_definitions',
+        '20260808000000_workflow_webhook_inbox',
       ]);
       const tables = await sql<{ name: string }>`
         SELECT name FROM sqlite_master
@@ -40,7 +41,7 @@ describe('VD database', () => {
           'WorkflowRun', 'WorkflowRunEvent', 'WorkflowInstance', 'WorkflowStepState',
           'WorkflowScopedTrigger', 'WorkflowRoleSessionBinding', 'WorkflowExternalWait',
           'ResponseCollection', 'ResponsePipeDelivery', 'WorkflowFactoryWorkItem',
-          'DeclarativeWorkflowDefinition', 'Migration'
+          'DeclarativeWorkflowDefinition', 'WorkflowWebhookInbox', 'Migration'
         )
       `.execute(handle.db);
       expect(tables.rows.map((table) => table.name).sort()).toEqual([
@@ -56,6 +57,7 @@ describe('VD database', () => {
         'WorkflowRunEvent',
         'WorkflowScopedTrigger',
         'WorkflowStepState',
+        'WorkflowWebhookInbox',
       ]);
     } finally {
       await handle.db.destroy();
@@ -108,6 +110,10 @@ describe('VD database', () => {
           'idx_factory_work_pending_order',
           'idx_factory_work_workspace_role_lane_status',
           'idx_declarative_workflow_definition_id_status_version',
+          'idx_workflow_webhook_inbox_source_received',
+          'idx_workflow_webhook_inbox_status_received',
+          'idx_workflow_webhook_inbox_execution',
+          'idx_workflow_webhook_inbox_session_received',
           'idx_declarative_workflow_definition_status_updated',
           'idx_factory_work_assignment',
           'idx_factory_work_queue_item',
@@ -158,6 +164,10 @@ describe('VD database', () => {
         'idx_workflow_trigger_instance_status',
         'idx_workflow_trigger_source_execution',
         'idx_workflow_trigger_timeout',
+        'idx_workflow_webhook_inbox_execution',
+        'idx_workflow_webhook_inbox_session_received',
+        'idx_workflow_webhook_inbox_source_received',
+        'idx_workflow_webhook_inbox_status_received',
       ]);
     } finally {
       await handle.db.destroy();

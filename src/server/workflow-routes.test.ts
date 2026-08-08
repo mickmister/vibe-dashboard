@@ -8,6 +8,7 @@ import { DbWorkflowRunRecorder } from './workflow-run-recorder';
 import { DbWorkflowRunReader } from './workflow-run-store';
 import { DbWorkflowOrchestrationStore } from './workflow-orchestration-store';
 import { DbDeclarativeWorkflowDefinitionStore } from './declarative-workflow-definition-store';
+import { DbWorkflowWebhookInboxStore, signVkWebhookPayload } from './workflow-webhook-inbox';
 
 describe('registerWorkflowRoutes', () => {
   const dbHandles: VdDbHandle[] = [];
@@ -789,6 +790,85 @@ describe('registerWorkflowRoutes', () => {
       triggers: [],
     });
   });
+
+  it('accepts valid VK workflow webhooks, stores inbox refs, and wakes runReady once', async () => {
+    const handle = await initVdDb({ path: ':memory:' });
+    dbHandles.push(handle);
+    const inboxStore = new DbWorkflowWebhookInboxStore({ db: handle.db, createId: () => 'inbox-route-1', now: () => 10 });
+    const wakeup = { trigger: vi.fn(async () => ({ started: true })) };
+    const app = new Hono();
+    registerWorkflowRoutes(app, {
+      registry: createWorkflowRegistry(),
+      workflowWebhookInboxStore: inboxStore,
+      workflowWebhookWakeup: wakeup,
+      vkWorkflowWebhookSecret: 'secret',
+    });
+    const body = JSON.stringify(vkWebhookPayload());
+    const response = await app.request('/dashboard/api/workflow-webhooks/vk', {
+      method: 'POST',
+      headers: signedVkWebhookHeaders('secret', body),
+      body,
+    });
+
+    expect(response.status).toBe(202);
+    await expect(response.json()).resolves.toMatchObject({ accepted: true, duplicate: false, wakeup: { started: true } });
+    expect(wakeup.trigger).toHaveBeenCalledTimes(1);
+    const rows = await inboxStore.listEvents();
+    expect(rows.events).toHaveLength(1);
+    expect(rows.events[0]).toMatchObject({ inboxId: 'inbox-route-1', status: 'processed', executionProcessId: 'exec-1' });
+    expect(JSON.stringify(rows.events[0]?.payload)).not.toContain('full notification message');
+  });
+
+  it('acknowledges duplicate valid VK workflow webhooks without duplicate wakeups', async () => {
+    const handle = await initVdDb({ path: ':memory:' });
+    dbHandles.push(handle);
+    let id = 0;
+    const inboxStore = new DbWorkflowWebhookInboxStore({ db: handle.db, createId: () => `inbox-route-${++id}`, now: () => 10 + id });
+    const wakeup = { trigger: vi.fn(async () => ({ started: true })) };
+    const app = new Hono();
+    registerWorkflowRoutes(app, {
+      registry: createWorkflowRegistry(),
+      workflowWebhookInboxStore: inboxStore,
+      workflowWebhookWakeup: wakeup,
+      vkWorkflowWebhookSecret: 'secret',
+    });
+    const body = JSON.stringify(vkWebhookPayload());
+    const headers = signedVkWebhookHeaders('secret', body);
+
+    const first = await app.request('/dashboard/api/workflow-webhooks/vk', { method: 'POST', headers, body });
+    const second = await app.request('/dashboard/api/workflow-webhooks/vk', { method: 'POST', headers, body });
+
+    expect(first.status).toBe(202);
+    expect(second.status).toBe(202);
+    await expect(second.json()).resolves.toMatchObject({ accepted: true, duplicate: true });
+    expect(wakeup.trigger).toHaveBeenCalledTimes(1);
+    await expect(inboxStore.listEvents()).resolves.toMatchObject({ events: [expect.objectContaining({ inboxId: 'inbox-route-1' })] });
+  });
+
+  it('rejects invalid VK webhook signatures without storing or waking', async () => {
+    const handle = await initVdDb({ path: ':memory:' });
+    dbHandles.push(handle);
+    const inboxStore = new DbWorkflowWebhookInboxStore({ db: handle.db });
+    const wakeup = { trigger: vi.fn(async () => ({ started: true })) };
+    const app = new Hono();
+    registerWorkflowRoutes(app, {
+      registry: createWorkflowRegistry(),
+      workflowWebhookInboxStore: inboxStore,
+      workflowWebhookWakeup: wakeup,
+      vkWorkflowWebhookSecret: 'secret',
+    });
+    const body = JSON.stringify(vkWebhookPayload());
+    const response = await app.request('/dashboard/api/workflow-webhooks/vk', {
+      method: 'POST',
+      headers: { ...signedVkWebhookHeaders('wrong', body), 'Content-Type': 'application/json' },
+      body,
+    });
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toMatchObject({ error: 'invalid_vk_workflow_webhook_signature' });
+    expect(wakeup.trigger).not.toHaveBeenCalled();
+    await expect(inboxStore.listEvents()).resolves.toMatchObject({ events: [] });
+  });
 });
 
 function customDefinition(id: string) {
@@ -823,6 +903,29 @@ function customDefinition(id: string) {
       { id: 'complete_custom', type: 'complete', summaryTemplate: 'Done {{inputs.task}}' },
     ],
     outputs: {},
+  };
+}
+
+function vkWebhookPayload() {
+  return {
+    event_type: 'execution.completed',
+    delivery_id: 'delivery-route-1',
+    timestamp: '2026-08-08T00:00:00.000Z',
+    workspace_id: 'ws-1',
+    session_id: 'session-1',
+    execution_id: 'exec-1',
+    queue_item_id: 'queue-1',
+    message: 'full notification message should not be persisted',
+  };
+}
+
+function signedVkWebhookHeaders(secret: string, body: string): Record<string, string> {
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  return {
+    'Content-Type': 'application/json',
+    'X-VK-Webhook-Timestamp': timestamp,
+    'X-VK-Webhook-Algorithm': 'hmac-sha256',
+    'X-VK-Webhook-Signature': signVkWebhookPayload(secret, timestamp, body),
   };
 }
 

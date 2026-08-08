@@ -1,5 +1,5 @@
 export const migration = `
-CREATE TABLE WorkflowWebhookInbox (
+CREATE TABLE IF NOT EXISTS WorkflowWebhookInbox (
   inboxId TEXT PRIMARY KEY NOT NULL,
   source TEXT NOT NULL,
   deliveryId TEXT,
@@ -17,7 +17,7 @@ CREATE TABLE WorkflowWebhookInbox (
   receivedAt INTEGER NOT NULL,
   duplicateOfInboxId TEXT,
   processedAt INTEGER,
-  status TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('received', 'processed', 'failed')),
   errorJson TEXT,
   createdAt INTEGER NOT NULL,
   updatedAt INTEGER NOT NULL,
@@ -25,8 +25,8 @@ CREATE TABLE WorkflowWebhookInbox (
   FOREIGN KEY (duplicateOfInboxId) REFERENCES WorkflowWebhookInbox(inboxId) ON DELETE SET NULL
 );
 
-CREATE INDEX idx_workflow_webhook_inbox_source_received ON WorkflowWebhookInbox(source, receivedAt DESC);
-CREATE INDEX idx_workflow_webhook_inbox_status_received ON WorkflowWebhookInbox(status, receivedAt DESC);
-CREATE INDEX idx_workflow_webhook_inbox_execution ON WorkflowWebhookInbox(executionProcessId);
-CREATE INDEX idx_workflow_webhook_inbox_session_received ON WorkflowWebhookInbox(workspaceId, sessionId, receivedAt DESC);
+CREATE INDEX IF NOT EXISTS idx_workflow_webhook_inbox_source_received ON WorkflowWebhookInbox(source, receivedAt DESC);
+CREATE INDEX IF NOT EXISTS idx_workflow_webhook_inbox_status_received ON WorkflowWebhookInbox(status, receivedAt DESC);
+CREATE INDEX IF NOT EXISTS idx_workflow_webhook_inbox_execution ON WorkflowWebhookInbox(executionProcessId);
+CREATE INDEX IF NOT EXISTS idx_workflow_webhook_inbox_session_received ON WorkflowWebhookInbox(workspaceId, sessionId, receivedAt DESC);
 `;

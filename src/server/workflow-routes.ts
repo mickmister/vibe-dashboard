@@ -25,6 +25,14 @@ import { BUILT_IN_DECLARATIVE_WORKFLOW_DEFINITIONS, getBuiltInDeclarativeWorkflo
 import type { DeclarativeWorkflowDefinition } from '../workflows/declarative/definitions';
 import { normalizeDeclarativeWorkflowDefinition } from '../workflows/declarative/definitions';
 import type { DbDeclarativeWorkflowDefinitionStore } from './declarative-workflow-definition-store';
+import {
+  parseVkWorkflowWebhookPayload,
+  verifyVkWebhookSignature,
+  WorkflowWebhookPayloadError,
+  WorkflowWebhookSignatureError,
+  type DbWorkflowWebhookInboxStore,
+  type WorkflowWebhookWakeup,
+} from './workflow-webhook-inbox';
 
 export interface RegisterWorkflowRoutesOptions {
   registry: WorkflowRegistry;
@@ -36,6 +44,9 @@ export interface RegisterWorkflowRoutesOptions {
   roleSessionResolver?: WorkflowRoleSessionResolver;
   declarativeWorkflowRuntime?: DeclarativeWorkflowRuntime;
   declarativeWorkflowDefinitionStore?: DbDeclarativeWorkflowDefinitionStore;
+  workflowWebhookInboxStore?: DbWorkflowWebhookInboxStore;
+  workflowWebhookWakeup?: Pick<WorkflowWebhookWakeup, 'trigger'>;
+  vkWorkflowWebhookSecret?: string;
   githubWebhookSecret?: string;
   repoAliasCache?: RepoAliasCache;
 }
@@ -51,6 +62,57 @@ export function registerWorkflowRoutes(
   options: RegisterWorkflowRoutesOptions,
 ): void {
   hono.get('/dashboard/api/workflows/health', (c) => c.json({ ok: true }));
+
+  hono.get('/dashboard/api/workflow-webhooks/inbox', async (c) => {
+    const store = options.workflowWebhookInboxStore;
+    if (!store) return c.json({ error: 'workflow_webhook_inbox_store_not_configured' }, 503);
+    return c.json(await store.listEvents({
+      limit: parsePositiveInteger(c.req.query('limit') ?? null),
+      offset: parsePositiveInteger(c.req.query('offset') ?? null),
+    }));
+  });
+
+  hono.post('/dashboard/api/workflow-webhooks/vk', async (c) => {
+    const store = options.workflowWebhookInboxStore;
+    if (!store) return c.json({ error: 'workflow_webhook_inbox_store_not_configured' }, 503);
+    const secret = options.vkWorkflowWebhookSecret ?? process.env.VD_VK_WEBHOOK_SECRET;
+    if (!secret) return c.json({ error: 'vk_workflow_webhook_secret_not_configured' }, 503);
+    const rawBody = await c.req.raw.text();
+    try {
+      verifyVkWebhookSignature({
+        secret,
+        timestamp: c.req.header('X-VK-Webhook-Timestamp') ?? null,
+        algorithm: c.req.header('X-VK-Webhook-Algorithm') ?? null,
+        signature: c.req.header('X-VK-Webhook-Signature') ?? null,
+        body: rawBody,
+      });
+      const event = parseVkWorkflowWebhookPayload(parseJsonBody(rawBody));
+      const inserted = await store.insertEvent({
+        event,
+        signatureHeader: c.req.header('X-VK-Webhook-Signature') ?? null,
+        timestampHeader: c.req.header('X-VK-Webhook-Timestamp') ?? null,
+      });
+      if (inserted.duplicate) {
+        return c.json({ accepted: true, duplicate: true, inbox: inserted.inbox }, 202);
+      }
+      try {
+        const wakeup = await options.workflowWebhookWakeup?.trigger();
+        await store.markProcessed(inserted.inbox.inboxId);
+        return c.json({ accepted: true, duplicate: false, inbox: inserted.inbox, wakeup: { started: Boolean(wakeup?.started) } }, 202);
+      } catch (error) {
+        await store.markFailed(inserted.inbox.inboxId, error);
+        return c.json({ accepted: true, duplicate: false, inbox: inserted.inbox, wakeup: { started: true, error: error instanceof Error ? error.message : String(error) } }, 202);
+      }
+    } catch (error) {
+      if (error instanceof WorkflowWebhookSignatureError) {
+        return c.json({ error: 'invalid_vk_workflow_webhook_signature', message: error.message }, 401);
+      }
+      if (error instanceof WorkflowWebhookPayloadError) {
+        return c.json({ error: 'invalid_vk_workflow_webhook_payload', message: error.message }, 400);
+      }
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 400);
+    }
+  });
 
   hono.get('/dashboard/api/declarative-workflow-definitions', async (c) => {
     const store = options.declarativeWorkflowDefinitionStore;
