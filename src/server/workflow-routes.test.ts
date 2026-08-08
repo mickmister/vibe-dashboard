@@ -8,7 +8,7 @@ import { DbWorkflowRunRecorder } from './workflow-run-recorder';
 import { DbWorkflowRunReader } from './workflow-run-store';
 import { DbWorkflowOrchestrationStore } from './workflow-orchestration-store';
 import { DbDeclarativeWorkflowDefinitionStore } from './declarative-workflow-definition-store';
-import { DbWorkflowWebhookInboxStore, signVkWebhookPayload } from './workflow-webhook-inbox';
+import { DbWorkflowWebhookInboxStore, WorkflowWebhookWakeup, signVkWebhookPayload } from './workflow-webhook-inbox';
 
 describe('registerWorkflowRoutes', () => {
   const dbHandles: VdDbHandle[] = [];
@@ -795,7 +795,7 @@ describe('registerWorkflowRoutes', () => {
     const handle = await initVdDb({ path: ':memory:' });
     dbHandles.push(handle);
     const inboxStore = new DbWorkflowWebhookInboxStore({ db: handle.db, createId: () => 'inbox-route-1', now: () => 10 });
-    const wakeup = { trigger: vi.fn(async () => ({ started: true })) };
+    const wakeup = { trigger: vi.fn(async () => ({ started: true, queued: false })) };
     const app = new Hono();
     registerWorkflowRoutes(app, {
       registry: createWorkflowRegistry(),
@@ -819,12 +819,84 @@ describe('registerWorkflowRoutes', () => {
     expect(JSON.stringify(rows.events[0]?.payload)).not.toContain('full notification message');
   });
 
+  it('accepts execution.killed VK workflow webhooks and stores killed status', async () => {
+    const handle = await initVdDb({ path: ':memory:' });
+    dbHandles.push(handle);
+    const inboxStore = new DbWorkflowWebhookInboxStore({ db: handle.db, createId: () => 'inbox-route-killed', now: () => 12 });
+    const wakeup = { trigger: vi.fn(async () => ({ started: true, queued: false })) };
+    const app = new Hono();
+    registerWorkflowRoutes(app, {
+      registry: createWorkflowRegistry(),
+      workflowWebhookInboxStore: inboxStore,
+      workflowWebhookWakeup: wakeup,
+      vkWorkflowWebhookSecret: 'secret',
+    });
+    const body = JSON.stringify(vkWebhookPayload({ event_type: 'execution.killed', delivery_id: 'delivery-route-killed' }));
+    const response = await app.request('/dashboard/api/workflow-webhooks/vk', {
+      method: 'POST',
+      headers: signedVkWebhookHeaders('secret', body),
+      body,
+    });
+
+    expect(response.status).toBe(202);
+    await expect(response.json()).resolves.toMatchObject({
+      accepted: true,
+      duplicate: false,
+      inbox: { status: 'processed', eventType: 'execution.killed', eventStatus: 'killed' },
+    });
+    expect(wakeup.trigger).toHaveBeenCalledTimes(1);
+  });
+
+  it('coalesces overlapping non-duplicate VK webhook wakeups into a follow-up runReady pass', async () => {
+    const handle = await initVdDb({ path: ':memory:' });
+    dbHandles.push(handle);
+    let id = 0;
+    const inboxStore = new DbWorkflowWebhookInboxStore({ db: handle.db, createId: () => `inbox-route-overlap-${++id}`, now: () => 20 + id });
+    const releases: Array<() => void> = [];
+    const runReady = vi.fn(async () => {
+      await new Promise<void>((resolve) => { releases.push(resolve); });
+    });
+    const wakeup = new WorkflowWebhookWakeup(runReady);
+    const app = new Hono();
+    registerWorkflowRoutes(app, {
+      registry: createWorkflowRegistry(),
+      workflowWebhookInboxStore: inboxStore,
+      workflowWebhookWakeup: wakeup,
+      vkWorkflowWebhookSecret: 'secret',
+    });
+    const bodyA = JSON.stringify(vkWebhookPayload({ delivery_id: 'delivery-route-overlap-a', execution_id: 'exec-overlap-a' }));
+    const bodyB = JSON.stringify(vkWebhookPayload({ delivery_id: 'delivery-route-overlap-b', execution_id: 'exec-overlap-b' }));
+
+    const first = app.request('/dashboard/api/workflow-webhooks/vk', { method: 'POST', headers: signedVkWebhookHeaders('secret', bodyA), body: bodyA });
+    await waitUntil(() => releases.length === 1);
+    const second = await app.request('/dashboard/api/workflow-webhooks/vk', { method: 'POST', headers: signedVkWebhookHeaders('secret', bodyB), body: bodyB });
+
+    expect(second.status).toBe(202);
+    await expect(second.json()).resolves.toMatchObject({ accepted: true, duplicate: false, wakeup: { started: false, queued: true } });
+    expect(runReady).toHaveBeenCalledTimes(1);
+
+    releases[0]!();
+    await waitUntil(() => releases.length === 2);
+    expect(runReady).toHaveBeenCalledTimes(2);
+    releases[1]!();
+    const firstResponse = await first;
+    expect(firstResponse.status).toBe(202);
+    await expect(firstResponse.json()).resolves.toMatchObject({ accepted: true, duplicate: false, wakeup: { started: true, queued: false, passes: 2 } });
+
+    await expect(inboxStore.listEvents({ limit: 10 })).resolves.toMatchObject({
+      events: [
+        expect.objectContaining({ deliveryId: 'delivery-route-overlap-b', status: 'processed' }),
+        expect.objectContaining({ deliveryId: 'delivery-route-overlap-a', status: 'processed' }),
+      ],
+    });
+  });
+
   it('acknowledges duplicate valid VK workflow webhooks without duplicate wakeups', async () => {
     const handle = await initVdDb({ path: ':memory:' });
     dbHandles.push(handle);
     let id = 0;
     const inboxStore = new DbWorkflowWebhookInboxStore({ db: handle.db, createId: () => `inbox-route-${++id}`, now: () => 10 + id });
-    const wakeup = { trigger: vi.fn(async () => ({ started: true })) };
+    const wakeup = { trigger: vi.fn(async () => ({ started: true, queued: false })) };
     const app = new Hono();
     registerWorkflowRoutes(app, {
       registry: createWorkflowRegistry(),
@@ -849,7 +921,7 @@ describe('registerWorkflowRoutes', () => {
     const handle = await initVdDb({ path: ':memory:' });
     dbHandles.push(handle);
     const inboxStore = new DbWorkflowWebhookInboxStore({ db: handle.db });
-    const wakeup = { trigger: vi.fn(async () => ({ started: true })) };
+    const wakeup = { trigger: vi.fn(async () => ({ started: true, queued: false })) };
     const app = new Hono();
     registerWorkflowRoutes(app, {
       registry: createWorkflowRegistry(),
@@ -906,7 +978,7 @@ function customDefinition(id: string) {
   };
 }
 
-function vkWebhookPayload() {
+function vkWebhookPayload(overrides: Record<string, unknown> = {}) {
   return {
     event_type: 'execution.completed',
     delivery_id: 'delivery-route-1',
@@ -916,6 +988,7 @@ function vkWebhookPayload() {
     execution_id: 'exec-1',
     queue_item_id: 'queue-1',
     message: 'full notification message should not be persisted',
+    ...overrides,
   };
 }
 
@@ -942,4 +1015,12 @@ async function expectJson(
 
 function signBody(body: string, secret: string): string {
   return `sha256=${createHmac('sha256', secret).update(body).digest('hex')}`;
+}
+
+async function waitUntil(predicate: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  throw new Error('condition not met');
 }

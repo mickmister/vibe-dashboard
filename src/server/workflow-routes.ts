@@ -97,11 +97,11 @@ export function registerWorkflowRoutes(
       }
       try {
         const wakeup = await options.workflowWebhookWakeup?.trigger();
-        await store.markProcessed(inserted.inbox.inboxId);
-        return c.json({ accepted: true, duplicate: false, inbox: inserted.inbox, wakeup: { started: Boolean(wakeup?.started) } }, 202);
+        const processed = await store.markProcessed(inserted.inbox.inboxId);
+        return c.json({ accepted: true, duplicate: false, inbox: processed, wakeup: { started: Boolean(wakeup?.started), queued: Boolean(wakeup?.queued), passes: wakeup?.passes ?? null } }, 202);
       } catch (error) {
-        await store.markFailed(inserted.inbox.inboxId, error);
-        return c.json({ accepted: true, duplicate: false, inbox: inserted.inbox, wakeup: { started: true, error: error instanceof Error ? error.message : String(error) } }, 202);
+        const failed = await store.markFailed(inserted.inbox.inboxId, error);
+        return c.json({ accepted: true, duplicate: false, inbox: failed, wakeup: { started: true, error: error instanceof Error ? error.message : String(error) } }, 202);
       }
     } catch (error) {
       if (error instanceof WorkflowWebhookSignatureError) {

@@ -12,6 +12,7 @@ const DEFAULT_TIMESTAMP_TOLERANCE_MS = 5 * 60_000;
 const TERMINAL_EXECUTION_EVENTS = new Set([
   'execution.completed',
   'execution.failed',
+  'execution.killed',
   'execution.cancelled',
   'execution.halted',
 ]);
@@ -199,15 +200,25 @@ export class DbWorkflowWebhookInboxStore {
 
 export class WorkflowWebhookWakeup {
   private inFlight = false;
+  private pending = false;
 
   constructor(private readonly runReady: () => Promise<unknown>) {}
 
-  async trigger(): Promise<{ started: boolean; result?: unknown }> {
-    if (this.inFlight) return { started: false };
+  async trigger(): Promise<{ started: boolean; queued: boolean; passes?: number; result?: unknown }> {
+    if (this.inFlight) {
+      this.pending = true;
+      return { started: false, queued: true };
+    }
     this.inFlight = true;
+    let passes = 0;
+    let result: unknown;
     try {
-      const result = await this.runReady();
-      return { started: true, result };
+      do {
+        this.pending = false;
+        passes += 1;
+        result = await this.runReady();
+      } while (this.pending);
+      return { started: true, queued: false, passes, result };
     } finally {
       this.inFlight = false;
     }
@@ -282,6 +293,7 @@ export function parseVkWorkflowWebhookPayload(rawPayload: unknown): WorkflowWebh
 function eventStatusFromType(eventType: string): string | null {
   if (eventType === 'execution.completed') return 'completed';
   if (eventType === 'execution.failed') return 'failed';
+  if (eventType === 'execution.killed') return 'killed';
   if (eventType === 'execution.cancelled') return 'cancelled';
   if (eventType === 'execution.halted') return 'halted';
   return null;

@@ -65,6 +65,17 @@ describe('workflow webhook inbox', () => {
     expect(JSON.stringify(event.payload)).not.toContain('full message text');
   });
 
+  it('accepts execution.killed terminal events', () => {
+    const event = parseVkWorkflowWebhookPayload({ ...payload(), event_type: 'execution.killed', delivery_id: 'delivery-killed' });
+
+    expect(event).toMatchObject({
+      deliveryId: 'delivery-killed',
+      eventType: 'execution.killed',
+      eventStatus: 'killed',
+      executionProcessId: 'exec-1',
+    });
+  });
+
   it('stores and dedupes inbox events', async () => {
     const { store } = await createStore();
     const event = parseVkWorkflowWebhookPayload(payload());
@@ -77,18 +88,23 @@ describe('workflow webhook inbox', () => {
     await expect(store.listEvents()).resolves.toMatchObject({ events: [{ inboxId: first.inbox.inboxId }] });
   });
 
-  it('guards overlapping wakeups', async () => {
-    let release!: () => void;
-    const pending = new Promise<void>((resolve) => { release = resolve; });
-    const runReady = vi.fn(async () => { await pending; });
+  it('coalesces overlapping wakeups into a follow-up pass without parallel runReady calls', async () => {
+    const releases: Array<() => void> = [];
+    const runReady = vi.fn(async () => {
+      await new Promise<void>((resolve) => { releases.push(resolve); });
+    });
     const wakeup = new WorkflowWebhookWakeup(runReady);
 
     const first = wakeup.trigger();
-    await Promise.resolve();
-    await expect(wakeup.trigger()).resolves.toEqual({ started: false });
-    release();
-    await expect(first).resolves.toEqual({ started: true, result: undefined });
+    await waitUntil(() => releases.length === 1);
+    await expect(wakeup.trigger()).resolves.toEqual({ started: false, queued: true });
     expect(runReady).toHaveBeenCalledTimes(1);
+
+    releases[0]!();
+    await waitUntil(() => releases.length === 2);
+    expect(runReady).toHaveBeenCalledTimes(2);
+    releases[1]!();
+    await expect(first).resolves.toEqual({ started: true, queued: false, passes: 2, result: undefined });
   });
 });
 
@@ -110,4 +126,12 @@ function payload() {
     queue_item_id: 'queue-1',
     exit_code: 0,
   };
+}
+
+async function waitUntil(predicate: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  throw new Error('condition not met');
 }
