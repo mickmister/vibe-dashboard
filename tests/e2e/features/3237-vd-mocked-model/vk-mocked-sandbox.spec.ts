@@ -166,8 +166,8 @@ test.describe('VK mocked-provider sandbox through VD UI', () => {
     );
 
     await openCreatedCraftFromVd(page, promptTitle);
-    const agentFrame = page.frameLocator('iframe[title="Agent"]');
-    await expect(agentFrame.first().locator('body')).toContainText(promptTitle);
+    const agentFrame = page.frameLocator('iframe[title="Agent"]').last();
+    await expect(agentFrame.locator('body')).toContainText(promptTitle);
     await expect(
       page.getByRole('button', { name: 'Agent', exact: true }),
     ).toBeVisible();
@@ -204,11 +204,11 @@ test.describe('VK mocked-provider sandbox through VD UI', () => {
       .getByRole('button', { name: new RegExp(escapeRegex(promptTitle)) })
       .click();
     await expect(
-      page.frameLocator('iframe[title="Agent"]').first().locator('body'),
+      page.frameLocator('iframe[title="Agent"]').last().locator('body'),
     ).toContainText(promptTitle);
 
     await page.setViewportSize({ width: 1280, height: 720 });
-    const reopenedAgentFrame = page.frameLocator('iframe[title="Agent"]').first();
+    const reopenedAgentFrame = page.frameLocator('iframe[title="Agent"]').last();
     await reopenedAgentFrame
       .getByRole('textbox', { name: 'Markdown editor' })
       .last()
