@@ -37,7 +37,7 @@ export default defineConfig({
       ` && ${sandboxEnv} npm run dev:vk-mocked-sandbox`,
     url: `${sandboxUrl}/kv/get-all`,
     reuseExistingServer: false,
-    timeout: 180_000,
+    timeout: 600_000,
   },
   projects: [
     {
