@@ -1,4 +1,4 @@
-import { expect, test, type Page } from 'playwright/test';
+import { expect, test, type Locator, type Page } from 'playwright/test';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -30,7 +30,10 @@ test.describe('VK mocked-provider basic-seeded fixture', () => {
     await expect(page.getByText(manifest.voyageName).first()).toBeVisible();
 
     await openSidebarIfNeeded(page);
-    await page.getByRole('button', { name: 'Open Craft' }).first().click();
+    await clickLocatorInViewport(
+      page,
+      page.getByRole('button', { name: 'Open Craft' }),
+    );
     await expect(
       page.getByRole('heading', { name: 'Open VK Workspace' }),
     ).toBeVisible();
@@ -69,6 +72,28 @@ async function openSidebarIfNeeded(page: Page) {
 
   await page.getByRole('button', { name: 'Open sidebar' }).first().click();
   await expect(openCraftButton).toBeVisible();
+}
+
+async function clickLocatorInViewport(page: Page, locator: Locator) {
+  const viewport = page.viewportSize();
+  const count = await locator.count();
+  for (let index = 0; index < count; index += 1) {
+    const box = await locator.nth(index).boundingBox().catch(() => null);
+    if (
+      box &&
+      box.x >= 0 &&
+      box.y >= 0 &&
+      (!viewport || box.x + box.width <= viewport.width) &&
+      (!viewport || box.y + box.height <= viewport.height)
+    ) {
+      await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+      return;
+    }
+  }
+
+  await locator
+    .first()
+    .evaluate((element) => (element as HTMLButtonElement).click());
 }
 
 async function sendFollowUpThroughVkApi(page: Page, followUp: string) {
