@@ -19,8 +19,8 @@ Steps:
 
 1. Follow `Starting the sandbox` in
    [`../../onboarding/vk-mocked-sandbox.md`](../../onboarding/vk-mocked-sandbox.md).
-2. Record the absolute disposable repository directory for this VD worktree:
-   `$(pwd)/.vk-mocked-sandbox/repos`.
+2. Record the absolute disposable repository directory for this VD checkout:
+   `$DISPOSABLE_REPO_DIR`.
 
 Expected:
 
@@ -30,7 +30,7 @@ Expected:
 - VK frontend URL is the same as the printed VD/Caddy URL.
 - VK local-web build setup command completed before long-running services
   started.
-- The disposable repository directory exists under the VD worktree before the
+- The disposable repository directory exists under the VD checkout before the
   VK Create Repository UI is used.
 
 ### TEST_CASE_1B — Verify routing/health
@@ -112,8 +112,8 @@ Steps:
    a unique name, for example:
    `mocked-provider-test-<date-time>`
 3. Fill the `Current directory` textbox with the absolute disposable sandbox
-   directory under the VD repo. From the VD repo, this is:
-   `$(pwd)/.vk-mocked-sandbox/repos`
+   directory under the VD checkout. In the container path conventions from the
+   sandbox guide, this is `$DISPOSABLE_REPO_DIR`.
 4. Click `Create Repository`.
 5. Verify the `Create New Repository` dialog closes.
 6. The command bar opens for branch selection. Select the `main` branch entry.
@@ -280,7 +280,7 @@ Expected:
   },
   "TEST_CASE_4A": {
     "status": "PASS",
-    "notes": "Create Repository dialog closed after successful creation using the absolute VD .vk-mocked-sandbox/repos path, then main branch was selected from the command bar."
+    "notes": "Create Repository dialog closed after successful creation using $DISPOSABLE_REPO_DIR, then main branch was selected from the command bar."
   },
   "TEST_CASE_5A": { "status": "PASS" },
   "TEST_CASE_6A": { "status": "PASS" },

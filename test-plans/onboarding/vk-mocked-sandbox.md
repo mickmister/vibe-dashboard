@@ -20,17 +20,51 @@ and UI flow, not real model-provider behavior.
 - VK frontend assets load from `/vk-static/assets/...`; VD assets continue to
   use VD's normal `/assets/...` routing.
 - Caddy uses the checked-in repo `Caddyfile`. The sandbox writes a prepared copy
-  to `.vk-mocked-sandbox/current/Caddyfile` after selecting ports/env, plus an
-  empty `.vk-mocked-sandbox/current/plugins.caddy` stub for plugin imports.
+  to `$SANDBOX_RUN_DIR/Caddyfile` after selecting ports/env, plus an empty
+  `$SANDBOX_RUN_DIR/plugins.caddy` stub for plugin imports.
 
 This setup intentionally prioritizes prod-like same-origin iframe behavior over
 VK frontend hot module replacement.
 
-## Quick start
+## Container path conventions
 
-From the VD repo:
+The canonical Docker/container paths for this sandbox are:
+
+| Name | Path | Purpose |
+| --- | --- | --- |
+| `WORKSPACE_ROOT` | `/path/to/workspace` | Parent directory that contains both source checkouts. Agent workspaces normally use this sibling-checkout shape. |
+| `VD_CHECKOUT` | `$WORKSPACE_ROOT/vibe-kanban-vscode-web` | Mutable VD source checkout where sandbox dev commands normally run. |
+| `VK_CHECKOUT` | `$WORKSPACE_ROOT/Vktest` | Mutable VK source checkout used by the sandbox backend/frontend build. |
+| `VD_RUNTIME` | `/home/vkuser/.local/share/vibe-dashboard-runtime` | Packaged runtime/dist location used by supervisor/hotswap; this is not where dev sandbox commands normally run. |
+| `VD_SEED` | `/opt/vibe-kanban-vscode-web-seed` | Image seed/read-only source copy used to initialize `VD_CHECKOUT`; do not use it for mutable sandbox state. |
+| `SANDBOX_RUN_DIR` | `$VD_CHECKOUT/.vk-mocked-sandbox/current` | Generated Caddy/run files for the active mocked sandbox run. |
+| `DISPOSABLE_REPO_DIR` | `$VD_CHECKOUT/.vk-mocked-sandbox/repos` | Disposable repository parent directory to enter in the VK Create Repository UI. |
+| `SEEDED_FIXTURE_REPO` | `/home/vkuser/e2e/repos/basic-seeded-repo` | Canonical absolute repo path recorded by the checked-in `basic-seeded` fixture. |
+
+`SANDBOX_RUN_DIR` and `DISPOSABLE_REPO_DIR` are under `VD_CHECKOUT`; do not write
+them as root-relative `/.vk-mocked-sandbox/...` paths. Substitute your actual
+workspace root for `WORKSPACE_ROOT`; do not assume a hardcoded checkout location
+exists.
+
+Before copying command snippets that use these names, set `WORKSPACE_ROOT` to the
+parent directory for your current sibling checkouts. The derived paths should
+then be set from that workspace root:
 
 ```bash
+WORKSPACE_ROOT=/path/to/workspace
+VD_CHECKOUT="$WORKSPACE_ROOT/vibe-kanban-vscode-web"
+VK_CHECKOUT="$WORKSPACE_ROOT/Vktest"
+SANDBOX_RUN_DIR="$VD_CHECKOUT/.vk-mocked-sandbox/current"
+DISPOSABLE_REPO_DIR="$VD_CHECKOUT/.vk-mocked-sandbox/repos"
+SEEDED_FIXTURE_REPO=/home/vkuser/e2e/repos/basic-seeded-repo
+```
+
+## Quick start
+
+From `VD_CHECKOUT`:
+
+```bash
+cd "$VD_CHECKOUT"
 npm run dev:vk-mocked-sandbox
 ```
 
@@ -53,8 +87,8 @@ Record the printed:
 
 ## Preconditions
 
-- VD repo is checked out at the target branch.
-- VK repo exists as sibling `../Vktest`.
+- `VD_CHECKOUT` is checked out at the target branch.
+- `VK_CHECKOUT` exists.
 - Node/pnpm dependencies are installed for VD and VK.
 - VK Rust dependencies are installed.
 - Caddy is installed and available on `PATH`.
@@ -64,7 +98,7 @@ Record the printed:
 Optional prebuilds to reduce first sandbox startup delay:
 
 ```bash
-cd ../Vktest
+cd "$VK_CHECKOUT"
 cargo build --features qa-mode --bin server
 NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter @vibe/local-web run build --base /vk-static/
 ```
@@ -83,7 +117,7 @@ fixture variants:
 - `empty`: no VD/VK sqlite state and no canonical seeded repo.
 - `basic-seeded`: a VD voyage/craft backed by a VK qa-mode workspace with an
   initial prompt and follow-up, using the canonical repository path
-  `/home/vkuser/e2e/repos/basic-seeded-repo`.
+  `$SEEDED_FIXTURE_REPO`.
 
 Reset fixtures only while the sandbox is stopped. The reset command refuses to
 run when sandbox ports, sandbox processes, or sqlite handles appear live.
@@ -120,35 +154,34 @@ For a fully fresh manual run without using the fixture reset command, clear
 sandbox-local state before starting:
 
 ```bash
-rm -rf .vk-mocked-sandbox/current
-rm -rf data
-rm -rf ../Vktest/dev_assets
-mkdir -p .vk-mocked-sandbox/repos
+rm -rf "$SANDBOX_RUN_DIR"
+rm -rf "$VD_CHECKOUT/data"
+rm -rf "$VK_CHECKOUT/dev_assets"
+mkdir -p "$DISPOSABLE_REPO_DIR"
 ```
 
-VK dev sqlite/config currently lives under worktree-local
-`../Vktest/dev_assets`. VD server-side state currently lives under the
-worktree-local `data` directory. These directories are expected to be untracked
-local development state. Do **not** delete tracked files.
+VK dev sqlite/config currently lives under checkout-local
+`$VK_CHECKOUT/dev_assets`. VD server-side state currently lives under the
+checkout-local `data` directory in `VD_CHECKOUT`. These directories are expected
+to be untracked local development state. Do **not** delete tracked files.
 
 VD browser state can be reset by using a fresh Playwright CLI `-s=<session>`
 name, deleting Playwright CLI session data, or clearing browser local/session
 storage before opening VD.
 
-Create disposable repositories under the VD worktree's absolute
-`.vk-mocked-sandbox/repos` path so cleanup stays inside the VD worktree. The
-exception is checked-in seeded fixture data, which intentionally uses
-`/home/vkuser/e2e/repos/basic-seeded-repo` so Docker and CI have one stable
+Create disposable repositories under `$DISPOSABLE_REPO_DIR` so cleanup stays
+inside the VD checkout. The exception is checked-in seeded fixture data, which
+intentionally uses `$SEEDED_FIXTURE_REPO` so Docker and CI have one stable
 absolute path. When the VK Create Repository UI asks for `Current directory`,
-use:
+use the expanded value of:
 
 ```bash
-"$(pwd)/.vk-mocked-sandbox/repos"
+"$DISPOSABLE_REPO_DIR"
 ```
 
 Do not enter a relative `.vk-mocked-sandbox/repos` path in the VK UI. VK
 resolves relative repository paths from the VK backend working directory, which
-is the sibling `../Vktest` repo in this sandbox.
+is `VK_CHECKOUT` in this sandbox.
 
 ## Useful environment overrides
 
@@ -208,8 +241,7 @@ pnpm playwright:cli -s="$PW_SESSION" snapshot --json
 2. Name the first voyage.
 3. Use the VD sidebar `New Craft` button.
 4. Create or select a repository in the VD-hosted VK iframe. For newly created
-   repositories, use the absolute VD worktree path printed by
-   `pwd` plus `/.vk-mocked-sandbox/repos` as the `Current directory`.
+   repositories, use `$DISPOSABLE_REPO_DIR` as the `Current directory`.
 5. Submit a workspace prompt.
 6. Use VD `Open Craft` to open the created workspace.
 7. At mobile width, use the UFO `Voyage actions` button in the mobile voyage
@@ -227,19 +259,20 @@ frontend hot module replacement.
 
 ### VD source changes: hot reload
 
-VD runs through Vite dev mode. Edit VD source in this repo, then use Vite HMR or
-reload the browser. Restart the sandbox for changes to the checked-in
+VD runs through Vite dev mode from `VD_CHECKOUT`. Edit VD source in this repo,
+then use Vite HMR or reload the browser. Restart the sandbox for changes to the
+checked-in
 `Caddyfile`, `scripts/vk-mocked-sandbox.ts`, env/port behavior, or server
 startup behavior.
 
 ### VK frontend source changes: rebuild and reload
 
 VK frontend is served from the built `@vibe/local-web` output through VK
-backend/Caddy. After editing VK frontend source under `../Vktest`, rebuild and
+backend/Caddy. After editing VK frontend source under `VK_CHECKOUT`, rebuild and
 reload the browser:
 
 ```bash
-cd ../Vktest
+cd "$VK_CHECKOUT"
 NODE_OPTIONS=--max-old-space-size=8192 pnpm --filter @vibe/local-web run build --base /vk-static/
 ```
 
@@ -253,7 +286,7 @@ directly with Vite.
 
 ### VK backend source changes: restart sandbox
 
-After editing VK backend/Rust source under `../Vktest`, stop and restart the
+After editing VK backend/Rust source under `VK_CHECKOUT`, stop and restart the
 sandbox:
 
 ```bash
@@ -389,5 +422,5 @@ Expected:
   Vite processes remain.
 
 When reading `pgrep` output, ignore the `pgrep` command itself and unrelated
-commands from other worktrees/sessions. Treat it as a blocker only when a live
-process belongs to this sandbox worktree/run directory.
+commands from other checkouts/sessions. Treat it as a blocker only when a live
+process belongs to this sandbox checkout/run directory.
