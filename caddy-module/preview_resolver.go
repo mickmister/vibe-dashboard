@@ -14,7 +14,6 @@ import (
 	"net/url"
 	"os"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
@@ -28,7 +27,7 @@ const defaultPreviewResolverTimeout = 2 * time.Second
 const defaultTrustedRequestedHostHeader = "X-Vibe-Requested-Host"
 const defaultTrustedRequestedHostSecretHeader = "X-Vibe-Preview-Secret"
 
-var encodedPreviewLabelPattern = regexp.MustCompile(`^preview-([a-z0-9][a-z0-9-]*)-([1-5])--([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)$`)
+var encodedPreviewLabelPattern = regexp.MustCompile(`^([a-z0-9]{16})-([a-z0-9]{1,18})-([a-z0-9]{1,10})-([a-z0-9]{1,16})$`)
 
 // PreviewResolver routes encoded preview hostnames through a local resolver API.
 type PreviewResolver struct {
@@ -45,20 +44,22 @@ type PreviewResolver struct {
 }
 
 type previewHostMatch struct {
-	Host        string
-	WorkspaceID string
-	Slot        int
-	Customer    string
+	Host           string
+	WorkspaceToken string
+	RepoSlug       string
+	SlotSlug       string
+	CustomerSlug   string
 }
 
 type previewResolveRequest struct {
-	Host        string `json:"host"`
-	WorkspaceID string `json:"workspaceId"`
-	Slot        int    `json:"slot"`
-	Customer    string `json:"customer"`
-	Ensure      bool   `json:"ensure"`
-	Method      string `json:"method"`
-	Path        string `json:"path"`
+	Host           string `json:"host"`
+	WorkspaceToken string `json:"workspaceToken"`
+	RepoSlug       string `json:"repoSlug"`
+	SlotSlug       string `json:"slotSlug"`
+	CustomerSlug   string `json:"customerSlug"`
+	Ensure         bool   `json:"ensure"`
+	Method         string `json:"method"`
+	Path           string `json:"path"`
 }
 
 type previewResolveResponse struct {
@@ -256,34 +257,32 @@ func parseEncodedPreviewHost(host string, baseDomain string) (previewHostMatch, 
 	if baseDomain != "" && rest != baseDomain {
 		return previewHostMatch{}, false
 	}
-	if strings.Count(firstLabel, "--") != 1 {
+	if strings.Count(firstLabel, "-") != 3 {
 		return previewHostMatch{}, false
 	}
 	matches := encodedPreviewLabelPattern.FindStringSubmatch(firstLabel)
 	if matches == nil {
 		return previewHostMatch{}, false
 	}
-	slot, err := strconv.Atoi(matches[2])
-	if err != nil || slot < 1 || slot > 5 {
-		return previewHostMatch{}, false
-	}
 	return previewHostMatch{
-		Host:        host,
-		WorkspaceID: matches[1],
-		Slot:        slot,
-		Customer:    matches[3],
+		Host:           host,
+		WorkspaceToken: matches[1],
+		RepoSlug:       matches[2],
+		SlotSlug:       matches[3],
+		CustomerSlug:   matches[4],
 	}, true
 }
 
 func (p *PreviewResolver) resolvePreview(ctx context.Context, r *http.Request, match previewHostMatch) (previewResolveResponse, error) {
 	payload := previewResolveRequest{
-		Host:        match.Host,
-		WorkspaceID: match.WorkspaceID,
-		Slot:        match.Slot,
-		Customer:    match.Customer,
-		Ensure:      isPreviewEnsureRequest(r),
-		Method:      r.Method,
-		Path:        r.URL.RequestURI(),
+		Host:           match.Host,
+		WorkspaceToken: match.WorkspaceToken,
+		RepoSlug:       match.RepoSlug,
+		SlotSlug:       match.SlotSlug,
+		CustomerSlug:   match.CustomerSlug,
+		Ensure:         isPreviewEnsureRequest(r),
+		Method:         r.Method,
+		Path:           r.URL.RequestURI(),
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -334,9 +333,10 @@ func (p *PreviewResolver) proxyPreview(w http.ResponseWriter, r *http.Request, m
 		baseDirector(out)
 		out.Host = target.Host
 		out.Header.Set("X-Vibe-Requested-Host", match.Host)
-		out.Header.Set("X-Vibe-Preview-Workspace-ID", match.WorkspaceID)
-		out.Header.Set("X-Vibe-Preview-Slot", strconv.Itoa(match.Slot))
-		out.Header.Set("X-Vibe-Preview-Customer", match.Customer)
+		out.Header.Set("X-Vibe-Preview-Workspace-Token", match.WorkspaceToken)
+		out.Header.Set("X-Vibe-Preview-Repo", match.RepoSlug)
+		out.Header.Set("X-Vibe-Preview-Slot", match.SlotSlug)
+		out.Header.Set("X-Vibe-Preview-Customer", match.CustomerSlug)
 	}
 	proxy.ErrorHandler = func(w http.ResponseWriter, req *http.Request, err error) {
 		if p.logger != nil {

@@ -4,17 +4,27 @@ Vibe Dashboard preview hosts use a first-level encoded hostname so Cloudflare TL
 and wildcard routing only need to cover `*.vibedashboard.dev`:
 
 ```text
-preview-{workspace_id}-{slot}--{customer}.vibedashboard.dev
+{workspaceToken}-{repoSlug}-{slotSlug}-{customerSlug}.vibedashboard.dev
 ```
 
 Example:
 
 ```text
-preview-workspace-abc-1--mickmister.vibedashboard.dev
+0123456789abcdef-vibekanban-web-mickmister.vibedashboard.dev
 ```
 
-The double dash is the separator before the customer slug. Customer slugs must not
-contain `--`, and preview slots are limited to `1..5` for the first capacity model.
+The encoded data must fit in the first DNS label, so V1 uses fixed separators
+and dashless lowercase alphanumeric slugs:
+
+- `workspaceToken`: exactly 16 lowercase alphanumeric characters.
+- `repoSlug`: 1–18 lowercase alphanumeric characters.
+- `slotSlug`: 1–10 lowercase alphanumeric characters.
+- `customerSlug`: 1–16 lowercase alphanumeric characters.
+
+The full first-label budget is `16 + 18 + 10 + 16 + 3 separators = 63`
+characters. Old `preview-{workspace}-{slot}--{customer}` numeric hosts are
+intentionally rejected; this branch is a hard break with no backwards
+compatibility for numeric slots.
 The Caddy handler defaults to this `vibedashboard.dev` base domain via
 `PREVIEW_BASE_DOMAIN`; local/dev deployments using another customer base domain
 must set that variable explicitly.
@@ -41,10 +51,11 @@ must set that variable explicitly.
 
 ```json
 {
-  "host": "preview-workspace-abc-1--mickmister.vibedashboard.dev",
-  "workspaceId": "workspace-abc",
-  "slot": 1,
-  "customer": "mickmister",
+  "host": "0123456789abcdef-vibekanban-web-mickmister.vibedashboard.dev",
+  "workspaceToken": "0123456789abcdef",
+  "repoSlug": "vibekanban",
+  "slotSlug": "web",
+  "customerSlug": "mickmister",
   "ensure": true,
   "method": "GET",
   "path": "/"
@@ -82,7 +93,7 @@ To enable the Worker canonical-host path, configure the same secret in both the
 Worker and Caddy:
 
 - Worker request to Caddy:
-  - `X-Vibe-Requested-Host: preview-{workspace_id}-{slot}--{customer}.vibedashboard.dev`
+  - `X-Vibe-Requested-Host: {workspaceToken}-{repoSlug}-{slotSlug}-{customerSlug}.vibedashboard.dev`
   - `X-Vibe-Preview-Secret: <shared secret>`
 - Caddy environment:
   - `PREVIEW_REQUESTED_HOST_SECRET=<shared secret>`
