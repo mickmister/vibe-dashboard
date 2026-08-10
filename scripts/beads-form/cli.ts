@@ -465,6 +465,24 @@ function isStandardForm(value: unknown): value is StandardBeadsForm {
     && Array.isArray(value.questions);
 }
 
+function isStoredStandardFormLike(value: unknown): value is StoredBeadsForm {
+  return isObject(value)
+    && value.format === 'standard'
+    && typeof value.id === 'string'
+    && value.id.trim().length > 0
+    && typeof value.title === 'string'
+    && value.title.trim().length > 0
+    && Array.isArray(value.questions);
+}
+
+function withLegacyFallbackGoal(form: StoredBeadsForm): StoredBeadsForm {
+  if (typeof form.goal === 'string' && form.goal.trim().length > 0) return form;
+  return {
+    ...form,
+    goal: `Answer ${form.title}.`,
+  };
+}
+
 export function parseFormsJsonForAttach(text: string): BeadsFormDefinition[] {
   let parsed: unknown;
   try {
@@ -726,9 +744,15 @@ export function buildFormDefinitionHash(form: BeadsFormDefinition): string {
 }
 
 function normalizeStoredFormForUpdate(value: unknown): BeadsFormDefinition {
-  const form = normalizeForm(value);
-  if (!form) throw new Error('Cannot update bead metadata because beadForms.forms[] contains a non-standard BeadsForm');
-  return form;
+  if (isHtmlForm(value) && !isStoredStandardFormLike(value)) {
+    throw new Error('Raw HTML BeadsForms are no longer supported; express the form with the standard BeadsForm DSL.');
+  }
+  if (!isStoredStandardFormLike(value)) {
+    throw new Error('Cannot update bead metadata because beadForms.forms[] contains a non-standard BeadsForm');
+  }
+  const stored = stripGeneratedBeadsFormFields(withLegacyFallbackGoal(value));
+  compileBeadsForm(stored);
+  return stored;
 }
 
 export function buildBeadsFormsSummary(forms: readonly BeadsFormDefinition[]): BeadsFormsSummary {

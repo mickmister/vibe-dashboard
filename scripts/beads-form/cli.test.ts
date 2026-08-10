@@ -343,6 +343,56 @@ describe('beads-form CLI helpers', () => {
     });
   });
 
+  it('appends questions to legacy missing-goal standard forms while stripping stale generated fields', () => {
+    const answered = {
+      submittedBy: 'user',
+      submittedAt: '2026-08-04T00:00:00Z',
+      values: { decision: { approve: true } },
+    };
+    const legacyForm = {
+      format: 'standard',
+      id: 'review',
+      title: 'Legacy review form',
+      questions: storedReviewForm.questions,
+      responses: [answered],
+      html: '<form><input name="stale"></form>',
+      controls: [{ id: 'stale', name: 'stale', type: 'textarea' }],
+    };
+    const metadata = {
+      untouched: true,
+      beadForms: { forms: [legacyForm] },
+    };
+    const appendedQuestion = {
+      type: 'textarea',
+      id: 'review_risk',
+      title: 'Review risk',
+      description: 'Capture a focused reviewer concern.',
+    } as const;
+
+    const result = appendQuestionsToMetadata(metadata, 'review', {
+      operation: 'append_questions',
+      questions: [appendedQuestion],
+    });
+    const forms = (result.metadata.beadForms as { forms: Array<Record<string, unknown>> }).forms;
+
+    expect(forms[0]?.goal).toBe('Answer Legacy review form.');
+    expect(forms[0]?.responses).toEqual([answered]);
+    expect(forms[0]).not.toHaveProperty('html');
+    expect(forms[0]).not.toHaveProperty('controls');
+    expect((forms[0]?.questions as Array<{ id: string }>).map((question) => question.id)).toEqual(['decision', 'review_risk']);
+    expect(result.metadata.beadFormsSummary).toEqual({
+      hasForms: true,
+      hasPendingAnswer: false,
+      pendingResponseCount: 0,
+      formIds: ['review'],
+      pendingFormIds: [],
+    });
+    expect(metadata).toEqual({
+      untouched: true,
+      beadForms: { forms: [legacyForm] },
+    });
+  });
+
   it('rejects append-questions duplicates and base hash mismatches without mutating metadata', () => {
     const metadata = { untouched: true, beadForms: { forms: [storedReviewForm] } };
     const existingQuestion = {
