@@ -20,6 +20,7 @@ import {
   resolveBeadsFormOrigin,
   scanPendingBeadsForms,
   selectFormForShow,
+  showBeadsForm,
   type AttachOptions,
 } from './cli';
 import type { ExecFileLike } from '../../src/lib/beadsClient.node';
@@ -655,6 +656,44 @@ describe('beads-form CLI helpers', () => {
     const second = buildShowResult({ bead: { id: 'bd-1' }, form });
     expect(second.form).not.toHaveProperty('html');
     expect(second.form).not.toHaveProperty('controls');
+  });
+
+  it('shows legacy missing-goal standard forms while stripping stale generated fields', async () => {
+    const exec = vi.fn<ExecFileLike>(async () => ({
+      stdout: JSON.stringify([{
+        id: 'bd-1',
+        title: 'Bead',
+        metadata: {
+          beadForms: {
+            forms: [{
+              format: 'standard',
+              id: 'legacy_review',
+              title: 'Legacy review form',
+              questions: storedReviewForm.questions,
+              responses: [{ submittedBy: 'user', submittedAt: '2026-08-10T00:00:00Z', values: { decision: { approve: true } } }],
+              html: '<form><input name="stale"></form>',
+              controls: [{ id: 'stale', name: 'stale', type: 'textarea' }],
+            }],
+          },
+        },
+      }]),
+      stderr: '',
+    }));
+
+    const result = await showBeadsForm({
+      execFile: exec,
+      options: { dir: '/repo', beadId: 'bd-1', formId: 'legacy_review' },
+    });
+
+    expect(result.form).toMatchObject({
+      id: 'legacy_review',
+      goal: 'Answer Legacy review form.',
+      title: 'Legacy review form',
+      questions: storedReviewForm.questions,
+    });
+    expect(result.form).not.toHaveProperty('html');
+    expect(result.form).not.toHaveProperty('controls');
+    expect(result.responses).toHaveLength(1);
   });
 
   it('shows questions with no responses instead of erroring', () => {

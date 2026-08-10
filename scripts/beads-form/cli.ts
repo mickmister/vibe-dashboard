@@ -693,7 +693,7 @@ export function appendQuestionsToMetadata(
   const beadForms = isObject(next.beadForms) ? next.beadForms : undefined;
   if (!beadForms || !Array.isArray(beadForms.forms)) throw new Error('No canonical beadForms.forms[] metadata found on bead');
 
-  const forms = beadForms.forms.map(normalizeStoredFormForUpdate);
+  const forms = beadForms.forms.map(normalizeStoredForm);
   const formIndex = forms.findIndex((candidate) => candidate.id === formId);
   if (formIndex < 0) throw new Error(`Form not found: ${formId}`);
   const form = forms[formIndex]!;
@@ -743,7 +743,7 @@ export function buildFormDefinitionHash(form: BeadsFormDefinition): string {
   return createHash('sha256').update(stableStringify(definition)).digest('hex');
 }
 
-function normalizeStoredFormForUpdate(value: unknown): BeadsFormDefinition {
+function normalizeStoredForm(value: unknown): BeadsFormDefinition {
   if (isHtmlForm(value) && !isStoredStandardFormLike(value)) {
     throw new Error('Raw HTML BeadsForms are no longer supported; express the form with the standard BeadsForm DSL.');
   }
@@ -876,7 +876,7 @@ function getFormsFromMetadata(metadata: unknown): BeadsFormDefinition[] {
 function formsAt(metadata: JsonObject, key: string): BeadsFormDefinition[] {
   const namespace = metadata[key];
   if (!isObject(namespace) || !Array.isArray(namespace.forms)) return [];
-  return namespace.forms.map(normalizeForm).filter((form): form is BeadsFormDefinition => !!form);
+  return namespace.forms.map(normalizeStoredForm);
 }
 
 export async function showBeadsForm(input: {
