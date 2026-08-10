@@ -111,7 +111,7 @@ describe('BeadsForm core', () => {
     expect(forms[0]!.controls?.map((control) => control.name)).toContain('comment');
   });
 
-  it('appends responses under metadata.beadForms while preserving unrelated metadata', () => {
+  it('appends responses under split metadata while preserving unrelated metadata', () => {
     const next = appendBeadsFormResponse({ untouched: true, beadForms: { forms: [
       { ...storedForm('review'), html: '<form></form>', controls: [{ id: 'stale', name: 'stale', type: 'textarea' }] },
     ] } }, 'review', {
@@ -121,9 +121,11 @@ describe('BeadsForm core', () => {
     });
 
     expect(next.untouched).toBe(true);
-    expect((next.beadForms as any).forms[0].responses).toHaveLength(1);
+    expect((next.beadForms as any).forms[0].responses).toBeUndefined();
+    expect((next.beadFormResponses as any).responsesByFormId.review).toHaveLength(1);
     expect((next.beadForms as any).forms[0].html).toBeUndefined();
     expect((next.beadForms as any).forms[0].controls).toBeUndefined();
+    expect(getBeadsForms(next)[0]?.responses).toHaveLength(1);
     expect(next.beadFormsSummary).toEqual({
       hasForms: true,
       hasPendingAnswer: false,
@@ -158,7 +160,33 @@ describe('BeadsForm core', () => {
     expect(stored.goal).toBe('Answer Legacy Review.');
     expect(stored.html).toBeUndefined();
     expect(stored.controls).toBeUndefined();
-    expect(stored.responses).toHaveLength(1);
+    expect(stored.responses).toBeUndefined();
+    expect((next.beadFormResponses as any).responsesByFormId.legacy_review).toHaveLength(1);
+    expect(getBeadsForms(next)[0]?.responses).toHaveLength(1);
+  });
+
+  it('keeps definitions and responses in separate metadata fields so each can fit the Dolt TEXT limit', () => {
+    const forms = Array.from({ length: 8 }, (_, index) => ({
+      ...storedForm(`review_${index}`, `Review ${index}`),
+      description: 'definition '.repeat(70),
+      responses: [{
+        submittedBy: 'user',
+        submittedAt: `2026-08-10T00:00:0${index}Z`,
+        values: { notes: 'response '.repeat(70) },
+      }],
+    }));
+    const inlineMetadata = { beadForms: { forms } };
+
+    expect(() => assertMetadataFitsDoltTextColumn(inlineMetadata, 12_000)).toThrow('beadForms');
+
+    let splitMetadata: any = { beadForms: { forms: forms.map(({ responses: _responses, ...form }) => form) } };
+    for (const form of forms) {
+      splitMetadata = appendBeadsFormResponse(splitMetadata, form.id, form.responses[0]!);
+    }
+
+    expect((splitMetadata.beadForms.forms as any[]).every((form) => form.responses === undefined)).toBe(true);
+    expect(Object.keys(splitMetadata.beadFormResponses.responsesByFormId)).toHaveLength(8);
+    expect(() => assertMetadataFitsDoltTextColumn(splitMetadata, 12_000)).not.toThrow();
   });
 
   it('builds a lightweight pending-answer summary for BeadsForm metadata', () => {

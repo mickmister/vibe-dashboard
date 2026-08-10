@@ -60,6 +60,10 @@ export type BeadsFormsSummary = {
   pendingFormIds: string[];
 };
 
+type BeadFormResponsesMetadata = {
+  responsesByFormId: Record<string, BeadsFormResponse[]>;
+};
+
 export type BeadLike = {
   id: string;
   title?: string;
@@ -634,16 +638,16 @@ export function attachFormsToMetadata(
 ): JsonObject {
   const next: JsonObject = isObject(metadata) ? structuredClone(metadata) as JsonObject : {};
   const beadForms = isObject(next.beadForms) ? next.beadForms : { forms: [] };
-  const existingForms = Array.isArray(beadForms.forms)
-    ? beadForms.forms.map(normalizeForm).filter((form): form is BeadsFormDefinition => !!form)
-    : [];
+  const existingForms = getFormsFromMetadata(next);
   const existingIds = new Set(existingForms
     .map((form) => form.id));
   for (const form of forms) {
     if (existingIds.has(form.id)) throw new Error(`Form id already exists on bead: ${form.id}`);
   }
-  const storedForms = [...existingForms, ...forms].map((form) => stripGeneratedBeadsFormFields(form as StoredBeadsForm));
+  const allForms = [...existingForms, ...forms];
+  const storedForms = allForms.map(stripResponsesFromForm);
   next.beadForms = { ...beadForms, forms: storedForms };
+  writeSplitResponses(next, allForms);
   next.beadFormsSummary = buildBeadsFormsSummary(getFormsFromMetadata(next));
   stampStringMetadata(next, 'VK_WORKSPACE_ID', options.workspaceId);
   stampStringMetadata(next, 'VK_SESSION_ID', options.sessionId);
@@ -693,7 +697,7 @@ export function appendQuestionsToMetadata(
   const beadForms = isObject(next.beadForms) ? next.beadForms : undefined;
   if (!beadForms || !Array.isArray(beadForms.forms)) throw new Error('No canonical beadForms.forms[] metadata found on bead');
 
-  const forms = beadForms.forms.map(normalizeStoredForm);
+  const forms = getFormsFromMetadata(next);
   const formIndex = forms.findIndex((candidate) => candidate.id === formId);
   if (formIndex < 0) throw new Error(`Form not found: ${formId}`);
   const form = forms[formIndex]!;
@@ -728,8 +732,9 @@ export function appendQuestionsToMetadata(
   compileBeadsForm(updatedForm);
 
   forms[formIndex] = updatedForm;
-  const storedForms = forms.map((candidate) => stripGeneratedBeadsFormFields(candidate as StoredBeadsForm));
+  const storedForms = forms.map(stripResponsesFromForm);
   next.beadForms = { ...beadForms, forms: storedForms };
+  writeSplitResponses(next, forms);
   next.beadFormsSummary = buildBeadsFormsSummary(getFormsFromMetadata(next));
   return {
     metadata: next,
@@ -753,6 +758,51 @@ function normalizeStoredForm(value: unknown): BeadsFormDefinition {
   const stored = stripGeneratedBeadsFormFields(withLegacyFallbackGoal(value));
   compileBeadsForm(stored);
   return stored;
+}
+
+function isBeadsFormResponse(value: unknown): value is BeadsFormResponse {
+  return isObject(value)
+    && typeof value.submittedBy === 'string'
+    && typeof value.submittedAt === 'string'
+    && isObject(value.values);
+}
+
+function getSplitResponsesByFormId(metadata: JsonObject): Map<string, BeadsFormResponse[]> {
+  const responsesByFormId = new Map<string, BeadsFormResponse[]>();
+  const namespace = metadata.beadFormResponses;
+  if (!isObject(namespace) || !isObject(namespace.responsesByFormId)) return responsesByFormId;
+  for (const [formId, responses] of Object.entries(namespace.responsesByFormId)) {
+    if (Array.isArray(responses) && responses.every(isBeadsFormResponse)) {
+      responsesByFormId.set(formId, responses);
+    }
+  }
+  return responsesByFormId;
+}
+
+function applySplitResponses(metadata: JsonObject, forms: BeadsFormDefinition[]): BeadsFormDefinition[] {
+  const splitResponses = getSplitResponsesByFormId(metadata);
+  return forms.map((form) => {
+    const responses = splitResponses.get(form.id) ?? form.responses;
+    if (!responses) return form;
+    return { ...form, responses };
+  });
+}
+
+function stripResponsesFromForm(form: BeadsFormDefinition): StoredBeadsForm {
+  const { responses: _responses, ...stored } = stripGeneratedBeadsFormFields(form as StoredBeadsForm) as BeadsFormDefinition;
+  return stored as StoredBeadsForm;
+}
+
+function writeSplitResponses(next: JsonObject, forms: BeadsFormDefinition[]): void {
+  const responsesByFormId: BeadFormResponsesMetadata['responsesByFormId'] = {};
+  for (const form of forms) {
+    if ((form.responses?.length ?? 0) > 0) responsesByFormId[form.id] = form.responses!;
+  }
+  if (Object.keys(responsesByFormId).length > 0) {
+    next.beadFormResponses = { responsesByFormId };
+  } else {
+    delete next.beadFormResponses;
+  }
 }
 
 export function buildBeadsFormsSummary(forms: readonly BeadsFormDefinition[]): BeadsFormsSummary {
@@ -866,11 +916,12 @@ function getFormsFromMetadata(metadata: unknown): BeadsFormDefinition[] {
   const current = formsAt(metadata, 'beadForms');
   const legacy = formsAt(metadata, 'beadsWeb');
   const seen = new Set<string>();
-  return [...current, ...legacy].filter((form) => {
+  const forms = [...current, ...legacy].filter((form) => {
     if (seen.has(form.id)) return false;
     seen.add(form.id);
     return true;
   });
+  return applySplitResponses(metadata, forms);
 }
 
 function formsAt(metadata: JsonObject, key: string): BeadsFormDefinition[] {

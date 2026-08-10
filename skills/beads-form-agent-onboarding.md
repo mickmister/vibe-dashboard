@@ -105,7 +105,7 @@ JSON
 For very small forms, `--json '<raw-json>'` also works. For large forms, `--file form.json` is still supported and can be easier to review/debug.
 
 `beads-form attach` stamps non-empty `VK_WORKSPACE_ID` and `VK_SESSION_ID` values from the environment into bead metadata. Attach also maintains `metadata.beadFormsSummary` (`hasForms`, `hasPendingAnswer`, `pendingResponseCount`, `formIds`, `pendingFormIds`) so Forms can discover pending work efficiently without bulk `bd show` over every bead.
-Persisted bead metadata stores standard DSL-only forms. The tool strips stale generated `html`/`controls` from valid standard forms, rejects raw/custom HTML forms, and preflights metadata size against the Dolt TEXT-column limit before updating a bead.
+Persisted bead metadata stores standard DSL-only form definitions in `metadata.beadForms.forms[]`; responses are stored separately in `metadata.beadFormResponses.responsesByFormId[formId]` so multi-form beads have more room under the Dolt TEXT-column limit. The tool strips stale generated `html`/`controls` from valid standard forms, rejects raw/custom HTML forms, joins definitions/responses at runtime for show/render, compacts older inline responses during mutations, and preflights metadata size before updating a bead.
 
 In the VD Docker/dev runtime, `beads-form` should be available on `PATH` globally and should work from any bead repo directory.
 

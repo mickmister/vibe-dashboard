@@ -120,6 +120,9 @@ export type BeadsFormMetadata = {
   beadForms: {
     forms: StoredBeadsForm[];
   };
+  beadFormResponses?: {
+    responsesByFormId: Record<string, BeadsFormResponse[]>;
+  };
   beadFormsSummary: BeadsFormsSummary;
 };
 

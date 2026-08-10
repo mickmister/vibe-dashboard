@@ -62,6 +62,7 @@ export type LoadedBeadsForm = {
 
 const FORM_META_KEY = 'beadForms';
 const LEGACY_FORM_META_KEY = 'beadsWeb';
+const FORM_RESPONSES_META_KEY = 'beadFormResponses';
 const FORM_SUMMARY_META_KEY = 'beadFormsSummary';
 export const DOLT_TEXT_COLUMN_MAX_BYTES = 65_535;
 
@@ -110,6 +111,56 @@ function normalizeForm(value: unknown): BeadsFormDefinition | undefined {
   };
 }
 
+function isBeadsFormResponse(value: unknown): value is BeadsFormResponse {
+  return isObject(value)
+    && typeof value.submittedBy === 'string'
+    && typeof value.submittedAt === 'string'
+    && isObject(value.values);
+}
+
+function getSplitResponsesByFormId(metadata: JsonObject): Map<string, BeadsFormResponse[]> {
+  const responsesByFormId = new Map<string, BeadsFormResponse[]>();
+  const namespace = metadata[FORM_RESPONSES_META_KEY];
+  if (!isObject(namespace) || !isObject(namespace.responsesByFormId)) return responsesByFormId;
+  for (const [formId, responses] of Object.entries(namespace.responsesByFormId)) {
+    if (Array.isArray(responses) && responses.every(isBeadsFormResponse)) {
+      responsesByFormId.set(formId, responses);
+    }
+  }
+  return responsesByFormId;
+}
+
+function applySplitResponses(
+  metadata: JsonObject,
+  forms: BeadsFormDefinition[],
+): BeadsFormDefinition[] {
+  const splitResponses = getSplitResponsesByFormId(metadata);
+  return forms.map((form) => {
+    const responses = splitResponses.get(form.id) ?? form.responses;
+    if (!responses) return form;
+    return { ...form, responses };
+  });
+}
+
+function stripResponsesFromStoredForm(form: BeadsFormDefinition): StoredBeadsForm {
+  const { responses: _responses, ...stored } = stripGeneratedBeadsFormFields(form as StoredBeadsForm) as BeadsFormDefinition;
+  return stored as StoredBeadsForm;
+}
+
+function writeSplitResponses(next: JsonObject, forms: BeadsFormDefinition[]): void {
+  const responsesByFormId: Record<string, BeadsFormResponse[]> = {};
+  for (const form of forms) {
+    if ((form.responses?.length ?? 0) > 0) {
+      responsesByFormId[form.id] = form.responses!;
+    }
+  }
+  if (Object.keys(responsesByFormId).length > 0) {
+    next[FORM_RESPONSES_META_KEY] = { responsesByFormId };
+  } else {
+    delete next[FORM_RESPONSES_META_KEY];
+  }
+}
+
 function formsAt(metadata: JsonObject, key: string, options: { skipUnsupported?: boolean } = {}): BeadsFormDefinition[] {
   const namespace = metadata[key];
   if (!isObject(namespace) || !Array.isArray(namespace.forms)) return [];
@@ -130,22 +181,24 @@ export function getBeadsForms(metadata: unknown): BeadsFormDefinition[] {
   const current = formsAt(metadata, FORM_META_KEY);
   const legacy = formsAt(metadata, LEGACY_FORM_META_KEY);
   const seen = new Set<string>();
-  return [...current, ...legacy].filter((form) => {
+  const forms = [...current, ...legacy].filter((form) => {
     if (seen.has(form.id)) return false;
     seen.add(form.id);
     return true;
   });
+  return applySplitResponses(metadata, forms);
 }
 
 export function getSupportedBeadsForms(metadata: unknown): BeadsFormDefinition[] {
   if (!isObject(metadata)) return [];
   const current = formsAt(metadata, FORM_META_KEY, { skipUnsupported: true });
   const seen = new Set<string>();
-  return current.filter((form) => {
+  const forms = current.filter((form) => {
     if (seen.has(form.id)) return false;
     seen.add(form.id);
     return true;
   });
+  return applySplitResponses(metadata, forms);
 }
 
 export function selectBeadsForm(metadata: unknown, formId?: string): BeadsFormDefinition | undefined {
@@ -160,33 +213,23 @@ export function appendBeadsFormResponse(
   response: BeadsFormResponse,
 ): JsonObject {
   const next: JsonObject = isObject(metadata) ? structuredClone(metadata) as JsonObject : {};
-  const namespace = next[FORM_META_KEY];
-  if (!isObject(namespace)) next[FORM_META_KEY] = { forms: [] };
-  const beadForms = next[FORM_META_KEY] as JsonObject;
-  if (!Array.isArray(beadForms.forms)) beadForms.forms = [];
+  const namespace = isObject(next[FORM_META_KEY]) ? next[FORM_META_KEY] as JsonObject : { forms: [] };
+  const forms = getBeadsForms(next);
+  const formIndex = forms.findIndex((candidate) => candidate.id === formId);
+  if (formIndex < 0) throw new Error(`Form not found: ${formId}`);
 
-  let form = (beadForms.forms as unknown[]).find(
-    (candidate) => isObject(candidate) && candidate.id === formId,
-  ) as JsonObject | undefined;
-
-  if (!form) {
-    const legacy = selectBeadsForm(next, formId);
-    if (!legacy) throw new Error(`Form not found: ${formId}`);
-    form = stripGeneratedBeadsFormFields(legacy) as unknown as JsonObject;
-    (beadForms.forms as unknown[]).push(form);
-  }
-
-  const normalizedForm = normalizeForm(form);
-  if (!normalizedForm) throw new Error(`Form not found: ${formId}`);
-  const storedForm = stripGeneratedBeadsFormFields(normalizedForm);
-  storedForm.responses = [...(storedForm.responses ?? []), response];
-
-  const forms = (beadForms.forms as unknown[]).map((candidate) => {
-    if (isObject(candidate) && candidate.id === formId) return storedForm;
-    const normalizedCandidate = normalizeForm(candidate);
-    return normalizedCandidate ? stripGeneratedBeadsFormFields(normalizedCandidate) : candidate;
+  const updatedForms = forms.map((form, index) => {
+    if (index !== formIndex) return form;
+    return {
+      ...form,
+      responses: [...(form.responses ?? []), response],
+    };
   });
-  beadForms.forms = forms;
+  next[FORM_META_KEY] = {
+    ...namespace,
+    forms: updatedForms.map(stripResponsesFromStoredForm),
+  };
+  writeSplitResponses(next, updatedForms);
   return withBeadsFormsSummary(next);
 }
 

@@ -331,7 +331,8 @@ describe('beads-form CLI helpers', () => {
     const forms = (result.metadata.beadForms as { forms: Array<Record<string, unknown>> }).forms;
 
     expect(result.metadata.untouched).toBe(true);
-    expect(forms[0]?.responses).toEqual([answered]);
+    expect(forms[0]?.responses).toBeUndefined();
+    expect((result.metadata.beadFormResponses as any).responsesByFormId.review).toEqual([answered]);
     expect(forms[0]).not.toHaveProperty('html');
     expect(forms[0]).not.toHaveProperty('controls');
     expect((forms[0]?.questions as Array<{ id: string }>).map((question) => question.id)).toEqual(['decision', 'review_risk']);
@@ -377,7 +378,8 @@ describe('beads-form CLI helpers', () => {
     const forms = (result.metadata.beadForms as { forms: Array<Record<string, unknown>> }).forms;
 
     expect(forms[0]?.goal).toBe('Answer Legacy review form.');
-    expect(forms[0]?.responses).toEqual([answered]);
+    expect(forms[0]?.responses).toBeUndefined();
+    expect((result.metadata.beadFormResponses as any).responsesByFormId.review).toEqual([answered]);
     expect(forms[0]).not.toHaveProperty('html');
     expect(forms[0]).not.toHaveProperty('controls');
     expect((forms[0]?.questions as Array<{ id: string }>).map((question) => question.id)).toEqual(['decision', 'review_risk']);
@@ -521,6 +523,29 @@ describe('beads-form CLI helpers', () => {
     expect(metadata.VK_WORKSPACE_ID).toBe('existing-workspace');
     expect(metadata.VK_SESSION_ID).toBe('existing-session');
     expect((metadata.beadForms as { forms: Array<{ id: string }> }).forms.map((candidate) => candidate.id)).toEqual(['review', 'followup']);
+  });
+
+  it('moves existing inline responses to split response storage when attaching another form', () => {
+    const answered = {
+      submittedBy: 'user',
+      submittedAt: '2026-08-04T00:00:00Z',
+      values: { decision: { approve: true } },
+    };
+    const form = parseFormsJsonForAttach(JSON.stringify({ ...standardForm, id: 'followup' }))[0]!;
+    const metadata = attachFormsToMetadata({
+      beadForms: { forms: [{ ...storedReviewForm, responses: [answered] }] },
+    }, [form]);
+
+    expect((metadata.beadForms as any).forms.map((candidate: any) => candidate.id)).toEqual(['review', 'followup']);
+    expect((metadata.beadForms as any).forms[0].responses).toBeUndefined();
+    expect((metadata.beadFormResponses as any).responsesByFormId.review).toEqual([answered]);
+    expect(metadata.beadFormsSummary).toEqual({
+      hasForms: true,
+      hasPendingAnswer: true,
+      pendingResponseCount: 1,
+      formIds: ['review', 'followup'],
+      pendingFormIds: ['followup'],
+    });
   });
 
   it('builds workspace URLs when known and dir URLs otherwise', () => {
