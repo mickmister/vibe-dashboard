@@ -35,13 +35,17 @@ npm run beads-form -- pending --parent-dir /absolute/path/to/beads-form-sandbox-
 
 ## Fixture shape
 
-The harness creates two first-level child repos:
+The harness creates three first-level child repos:
 
 - `beads-form-sandbox-alpha`
   - `bfalpha-pending` with one pending standard DSL form
   - `bfalpha-submitted` with one already-submitted standard DSL form
 - `beads-form-sandbox-beta`
   - `bfbeta-pending` with one pending standard DSL form
+- `beads-form-sandbox-gamma`
+  - `bfgamma-submitted` with submitted-only standard DSL data and no pending
+    forms, for verifying that repos without pending forms do not pollute the
+    queue
 
 Each bead stores lean standard DSL forms plus `beadFormsSummary`. No generated
 `html` or `controls` are persisted.

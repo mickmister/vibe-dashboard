@@ -23,11 +23,13 @@ describe('beads-form sandbox repos', () => {
     expect(plan.repos.map((repo) => repo.name)).toEqual([
       'beads-form-sandbox-alpha',
       'beads-form-sandbox-beta',
+      'beads-form-sandbox-gamma',
     ]);
     expect(plan.repos.flatMap((repo) => repo.beads.map((bead) => bead.id))).toEqual([
       'bfalpha-pending',
       'bfalpha-submitted',
       'bfbeta-pending',
+      'bfgamma-submitted',
     ]);
     expect(plan.repos[0]!.beads[0]!.forms[0]).toMatchObject({
       format: 'standard',
@@ -55,12 +57,14 @@ describe('beads-form sandbox repos', () => {
       expect(plan.parentDir).toBe(parentDir);
       expect(calls.some((call) => call.cwd === join(parentDir, 'beads-form-sandbox-alpha'))).toBe(true);
       expect(calls.some((call) => call.cwd === join(parentDir, 'beads-form-sandbox-beta'))).toBe(true);
+      expect(calls.some((call) => call.cwd === join(parentDir, 'beads-form-sandbox-gamma'))).toBe(true);
       expect(calls.every((call) => call.cwd.startsWith(parentDir))).toBe(true);
-      expect(calls.filter((call) => call.file === 'bd' && call.args[0] === 'init')).toHaveLength(2);
+      expect(calls.filter((call) => call.file === 'bd' && call.args[0] === 'init')).toHaveLength(3);
       expect(calls.filter((call) => call.file === 'bd' && call.args[0] === 'create').map((call) => call.args.slice(0, 3))).toEqual([
         ['create', '--id', 'bfalpha-pending'],
         ['create', '--id', 'bfalpha-submitted'],
         ['create', '--id', 'bfbeta-pending'],
+        ['create', '--id', 'bfgamma-submitted'],
       ]);
       expect(calls.filter((call) => call.file === 'bd' && call.args[0] === 'create').every((call) => (
         call.args.includes('--metadata') && call.args.some((arg) => String(arg).startsWith('@'))

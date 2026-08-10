@@ -105,6 +105,19 @@ export function buildBeadsFormSandboxPlan(input: {
           },
         ],
       },
+      {
+        name: 'beads-form-sandbox-gamma',
+        prefix: 'bfgamma',
+        branch: 'sandbox/beads-form-gamma',
+        beads: [
+          {
+            id: 'bfgamma-submitted',
+            title: 'Gamma submitted-only BeadsForm',
+            description: 'A deterministic repo with forms but no pending forms for queue filtering tests.',
+            forms: [submittedSandboxReviewForm('gamma_submitted_review', 'Gamma submitted review form')],
+          },
+        ],
+      },
     ],
     env: {
       BEADS_FORM_PENDING_PARENT_DIR: parentDir,
@@ -216,6 +229,20 @@ function sandboxReviewForm(id: string, title: string): StandardBeadsForm {
       id: 'notes',
       title: 'Sandbox notes',
       description: 'Optional notes for validating draft/submit behavior.',
+    }],
+  };
+}
+
+function submittedSandboxReviewForm(id: string, title: string): StoredBeadsForm {
+  return {
+    ...sandboxReviewForm(id, title),
+    responses: [{
+      submittedBy: 'sandbox',
+      submittedAt: '2026-08-10T00:00:00.000Z',
+      values: {
+        ready: { yes: true, no: false },
+        ready_more_info: 'Seeded completed response.',
+      },
     }],
   };
 }
