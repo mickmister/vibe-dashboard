@@ -8,7 +8,7 @@
 	# the canonical customer host and preserves the public preview hostname in
 	# X-Vibe-Requested-Host only when PREVIEW_REQUESTED_HOST_SECRET matches the
 	# Worker's X-Vibe-Preview-Secret; local/dev traffic may still use Host directly.
-	# The handler falls through unless it sees preview-{workspace}-{slot}--{customer}.
+	# The handler falls through unless it sees {workspaceToken}-{repoSlug}-{slotSlug}-{customerSlug}.
 	vk_preview_resolver {
 		resolver_url {$PREVIEW_RESOLVER_URL:http://127.0.0.1:3005/internal/preview/resolve}
 		base_domain {$PREVIEW_BASE_DOMAIN:vibedashboard.dev}

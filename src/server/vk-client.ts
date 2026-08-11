@@ -51,6 +51,24 @@ export interface ExecutionProcess {
   executor_action?: unknown;
 }
 
+export interface PreviewResolveRequest {
+  host: string;
+  workspaceToken: string;
+  repoSlug: string;
+  slotSlug: string;
+  customerSlug: string;
+  ensure: boolean;
+  method: string;
+  path: string;
+}
+
+export interface PreviewResolveResponse {
+  status: 'ready' | 'starting' | 'not_found' | 'capacity_full' | 'failed' | 'unavailable' | 'error';
+  upstream?: string | null;
+  message?: string | null;
+  executionProcessId?: string | null;
+}
+
 export interface CreateSessionBody {
   workspace_id: string;
   executor: Executor;
@@ -147,6 +165,10 @@ export class VibeKanbanServerClient {
 
   async getInfo(): Promise<unknown> {
     return this.get('/info');
+  }
+
+  resolvePreview(request: PreviewResolveRequest): Promise<PreviewResolveResponse> {
+    return this.post('/preview/resolve', request);
   }
 
   async sendFollowUp(

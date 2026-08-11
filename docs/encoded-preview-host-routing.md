@@ -16,7 +16,7 @@ Example:
 The encoded data must fit in the first DNS label, so V1 uses fixed separators
 and dashless lowercase alphanumeric slugs:
 
-- `workspaceToken`: exactly 16 lowercase alphanumeric characters.
+- `workspaceToken`: exactly 16 lowercase hexadecimal characters (`[a-f0-9]{16}`).
 - `repoSlug`: 1–18 lowercase alphanumeric characters.
 - `slotSlug`: 1–10 lowercase alphanumeric characters.
 - `customerSlug`: 1–16 lowercase alphanumeric characters.
@@ -28,6 +28,11 @@ compatibility for numeric slots.
 The Caddy handler defaults to this `vibedashboard.dev` base domain via
 `PREVIEW_BASE_DOMAIN`; local/dev deployments using another customer base domain
 must set that variable explicitly.
+
+This compact first-label pattern is reserved under `PREVIEW_BASE_DOMAIN`.
+Customer hostnames that merely contain dashes are not preview hosts unless the
+first label satisfies the full `workspaceToken-repoSlug-slotSlug-customerSlug`
+grammar.
 
 ## Runtime request flow
 
@@ -43,6 +48,21 @@ must set that variable explicitly.
 6. The resolver returns `ready` with an upstream, `starting`, `not_found`,
    `capacity_full`, or `failed`/`unavailable`.
 7. Caddy proxies ready traffic or serves a startup/unavailable response.
+
+## Hard-break compatibility contract
+
+The named-host shape is the only supported Preview URL contract for this branch.
+Backend and Worker code must be deployed with the same grammar:
+
+- Caddy no longer sends `workspaceId`, numeric `slot`, or `customer`.
+- The resolver must map `workspaceToken` to the durable VK workspace ID.
+- `repoSlug` and `slotSlug` are lookup slugs for the repo-level run config and
+  preview slot; they are not database IDs.
+- `customerSlug` is the customer alias used by the Worker/control plane to find
+  the canonical customer runtime.
+- The Worker must parse or preserve the full encoded preview host, route it to
+  the matching canonical customer runtime, and forward the original host in
+  `X-Vibe-Requested-Host` on the trusted Worker path.
 
 ## Resolver API
 
@@ -81,6 +101,14 @@ Other statuses:
 
 The resolver owns workspace validation, preview process state, max-running-server
 capacity, and eviction policy. The Caddy module owns request parsing and proxying.
+
+When proxying a ready preview upstream, Caddy forwards preview metadata headers:
+
+- `X-Vibe-Requested-Host`
+- `X-Vibe-Preview-Workspace-Token`
+- `X-Vibe-Preview-Repo`
+- `X-Vibe-Preview-Slot`
+- `X-Vibe-Preview-Customer`
 
 ## Trusted Worker header
 

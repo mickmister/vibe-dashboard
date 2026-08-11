@@ -20,20 +20,43 @@ func TestParseEncodedPreviewHost(t *testing.T) {
 	}
 }
 
-func TestParseEncodedPreviewHostRejectsInvalidHosts(t *testing.T) {
-	cases := []string{
-		"port-3000--mickmister.vibedashboard.dev",
-		"preview-workspace-6--mickmister.vibedashboard.dev",
-		"preview-workspace-1--bad--slug.vibedashboard.dev",
-		"0123456789abcdef-vibekanban-web-mickmister.other.dev",
-		"0123456789abcde-vibekanban-web-mickmister.vibedashboard.dev",
-		"0123456789abcdef-vibe-kanban-web-mickmister.vibedashboard.dev",
-		"0123456789abcdef-vibekanban-web-longcustomeralias1.vibedashboard.dev",
-		"0123456789abcdef-vibekanban-web-mickmister-extra.vibedashboard.dev",
+func TestParseEncodedPreviewHostAcceptsDnsBoundaryLengths(t *testing.T) {
+	repoSlug := strings.Repeat("r", 18)
+	slotSlug := strings.Repeat("s", 10)
+	customerSlug := strings.Repeat("c", 16)
+	host := "0123456789abcdef-" + repoSlug + "-" + slotSlug + "-" + customerSlug + ".vibedashboard.dev"
+	firstLabel, _, _ := strings.Cut(host, ".")
+	if len(firstLabel) != 63 {
+		t.Fatalf("test host first label must be exactly 63 chars, got %d", len(firstLabel))
 	}
-	for _, tc := range cases {
+
+	match, ok := parseEncodedPreviewHost(host, "vibedashboard.dev")
+	if !ok {
+		t.Fatal("expected exact DNS-boundary preview host to match")
+	}
+	if match.RepoSlug != repoSlug || match.SlotSlug != slotSlug || match.CustomerSlug != customerSlug {
+		t.Fatalf("unexpected boundary match: %+v", match)
+	}
+}
+
+func TestParseEncodedPreviewHostRejectsInvalidHosts(t *testing.T) {
+	cases := map[string]string{
+		"port-style":                "port-3000--mickmister.vibedashboard.dev",
+		"old numeric preview":       "preview-workspace-6--mickmister.vibedashboard.dev",
+		"old double dash preview":   "preview-workspace-1--bad--slug.vibedashboard.dev",
+		"wrong base domain":         "0123456789abcdef-vibekanban-web-mickmister.other.dev",
+		"workspace token too short": "0123456789abcde-vibekanban-web-mickmister.vibedashboard.dev",
+		"workspace token too long":  "0123456789abcdef0-vibekanban-web-mickmister.vibedashboard.dev",
+		"workspace token non-hex":   "0123456789abcdeg-vibekanban-web-mickmister.vibedashboard.dev",
+		"repo with dash":            "0123456789abcdef-vibe-kanban-web-mickmister.vibedashboard.dev",
+		"repo too long":             "0123456789abcdef-" + strings.Repeat("r", 19) + "-web-mickmister.vibedashboard.dev",
+		"slot too long":             "0123456789abcdef-vibekanban-" + strings.Repeat("s", 11) + "-mickmister.vibedashboard.dev",
+		"customer too long":         "0123456789abcdef-vibekanban-web-" + strings.Repeat("c", 17) + ".vibedashboard.dev",
+		"extra label part":          "0123456789abcdef-vibekanban-web-mickmister-extra.vibedashboard.dev",
+	}
+	for name, tc := range cases {
 		if _, ok := parseEncodedPreviewHost(tc, "vibedashboard.dev"); ok {
-			t.Fatalf("expected %q to be rejected", tc)
+			t.Fatalf("expected %s host %q to be rejected", name, tc)
 		}
 	}
 }
@@ -146,9 +169,17 @@ func TestPreviewResolverDoesNotEnsureForAssetsOrWebSockets(t *testing.T) {
 func TestPreviewResolverProxiesReadyUpstreamWithPreviewHeaders(t *testing.T) {
 	var upstreamHost string
 	var requestedHost string
+	var workspaceToken string
+	var repoSlug string
+	var slotSlug string
+	var customerSlug string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		upstreamHost = r.Host
 		requestedHost = r.Header.Get("X-Vibe-Requested-Host")
+		workspaceToken = r.Header.Get("X-Vibe-Preview-Workspace-Token")
+		repoSlug = r.Header.Get("X-Vibe-Preview-Repo")
+		slotSlug = r.Header.Get("X-Vibe-Preview-Slot")
+		customerSlug = r.Header.Get("X-Vibe-Preview-Customer")
 		_, _ = w.Write([]byte("preview ok"))
 	}))
 	defer upstream.Close()
@@ -173,6 +204,9 @@ func TestPreviewResolverProxiesReadyUpstreamWithPreviewHeaders(t *testing.T) {
 	}
 	if upstreamHost == "" || requestedHost != "0123456789abcdef-vibekanban-web-mickmister.vibedashboard.dev" {
 		t.Fatalf("unexpected upstream host/header: host=%q requested=%q", upstreamHost, requestedHost)
+	}
+	if workspaceToken != "0123456789abcdef" || repoSlug != "vibekanban" || slotSlug != "web" || customerSlug != "mickmister" {
+		t.Fatalf("unexpected preview metadata headers: workspace=%q repo=%q slot=%q customer=%q", workspaceToken, repoSlug, slotSlug, customerSlug)
 	}
 }
 

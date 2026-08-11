@@ -27,7 +27,7 @@ const defaultPreviewResolverTimeout = 2 * time.Second
 const defaultTrustedRequestedHostHeader = "X-Vibe-Requested-Host"
 const defaultTrustedRequestedHostSecretHeader = "X-Vibe-Preview-Secret"
 
-var encodedPreviewLabelPattern = regexp.MustCompile(`^([a-z0-9]{16})-([a-z0-9]{1,18})-([a-z0-9]{1,10})-([a-z0-9]{1,16})$`)
+var encodedPreviewLabelPattern = regexp.MustCompile(`^([a-f0-9]{16})-([a-z0-9]{1,18})-([a-z0-9]{1,10})-([a-z0-9]{1,16})$`)
 
 // PreviewResolver routes encoded preview hostnames through a local resolver API.
 type PreviewResolver struct {
