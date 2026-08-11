@@ -1,573 +1,808 @@
 # Agent Workflow Core Implementation Plan
 
+This document is the reviewer-facing plan for the workflow routing/state-machine
+core. It intentionally focuses on the generic workflow logic, not the VK webhook
+transport, queue internals, or conversation protocol implementation details.
+
+Milestone: `vibe-kanban-vscode-web-450.1` — M82 update workflow core plan with
+final schema decisions.
+
+Roadmap/test plan: [`../../test-plans/branches/8b79-vd-workflows/test-plan-2.md`](../../test-plans/branches/8b79-vd-workflows/test-plan-2.md).
+
 ## Purpose
 
-This document is a reviewer-facing implementation plan for the next workflow
-foundation slice. It assumes the reviewer has not followed the recent workflow
-architecture discussion.
+We want a workflow system that can route work between agents, later humans, and
+later child workflows without requiring a separate orchestrator agent to decide
+what happens next. The workflow config should describe the allowed states,
+ordered steps in each state, final decision contracts, and transitions. The pure
+core should advance one turn at a time from durable snapshots so that runtime
+retries, duplicate wakes, and process restarts do not duplicate work.
 
-The goal is to implement a pure TypeScript state-machine core for agent
-workflows before integrating with VK queueing, XML parsing, XSD generation,
-persistence, or UI editing.
+M82 is docs-only. It finalizes the executable V1 JSON shape and implementation
+plan before the TDD/code milestone begins.
 
 ## Background
 
-The branch currently contains workflow infrastructure in two areas:
+The branch already has workflow concepts in VD/VK integration work, but much of
+that is runtime plumbing: queueing, webhook wakeups, VK session references, and
+status/presentation data. This plan separates the pure routing logic from those
+transport concerns.
 
-1. `vibe-kanban` provides execution substrate pieces such as queued follow-up
-   messages, queue statuses, activity snapshots, and terminal execution webhooks.
-2. `vibe-kanban-vscode-web` contains workflow/runtime code, including the current
-   durable declarative runtime in `src/workflows/declarative/`.
+Related decision sources:
 
-The existing VD declarative runtime is useful but narrow: it models a specific
-source-agent → reviewer-agent → optional overseer pattern. The next system needs
-a more general routing core where workflows are represented as serializable data
-and the workflow engine, not an orchestrator agent, determines allowed state
-transitions.
-
-The architecture direction is captured in:
-
-- `docs/adr/0001-agent-workflow-state-machine-core.md`
-
-Deferred decisions are tracked separately:
-
-- `vibe-kanban-vscode-web-1ws`: parsed XML / Zod-like validation layer
-- `vibe-kanban-vscode-web-9jh`: artifact extension points such as beads-form in
-  workflow XML responses
+- `vibe-kanban-vscode-web-5jq` — final workflow schema details.
+- `vibe-kanban-vscode-web-fvm` — workflow core modeling details.
+- `vibe-kanban-vscode-web-o4n` — follow-up/turn semantics.
+- `vibe-kanban-vscode-web-okj` — plain-English turn progression.
+- `vibe-kanban-vscode-web-3vb` — strict V1 workflow core semantics.
+- `vibe-kanban-vscode-web-cb7` — contributor-review follow-up decisions.
+- `vibe-kanban-vscode-web-b8n` — workflow-to-workflow schema discussion.
+- `vibe-kanban-vscode-web-e3p` — workflow-to-workflow and bulk queue design.
 
 ## Core mental model
 
-The central workflow model is:
+A workflow instance has:
 
-```text
-current state + current turn + agent result/action => next state + next turn plan
+1. a workflow definition,
+2. a durable runtime snapshot,
+3. the current state,
+4. the current step within that state, and
+5. zero or one active external turn being waited on.
+
+The core answers one deterministic question:
+
+> Given the workflow definition, the current snapshot, and an optional completed
+> turn observation, what is the next snapshot and what external work, if any,
+> should the runtime perform?
+
+In V1, the only executable step type is an agent turn. Agent turns are processed
+one at a time:
+
+- plan one agent turn,
+- let the runtime adapter send the prompt to VK,
+- wait for that agent turn to complete,
+- observe the completion through an opaque response reference and optional
+  result payload,
+- advance to the next step or state.
+
+There is no V1 fire-and-forget agent message path. Even a non-decision turn must
+complete before the workflow proceeds.
+
+## XState relationship
+
+The schema is XState-inspired, not XState-compatible JSON.
+
+We are borrowing state-machine/statechart ideas: an initial state, named states,
+transitions, terminal states, and deterministic transition handling. We are not
+adopting XState's authored JSON shape directly. The canonical workflow config
+uses product/domain names such as `initialState`, `states`, `owner`, `steps`,
+`actions`, and `targetState` instead of XState names such as `initial`, `on`,
+and `target`.
+
+Reasons:
+
+- Workflow authors should see terms that match this product's domain.
+- Agent-owned states need ordered turns and decision XML contracts, which do not
+  map cleanly to raw XState config.
+- Runtime capacity, VK queueing, response refs, and future human/workflow steps
+  are product concepts, not generic statechart authoring primitives.
+- We can still implement the pure core with state-machine discipline and may add
+  an exporter/adapter later if that becomes useful.
+
+## V1 executable workflow JSON
+
+### Top-level shape
+
+```json
+{
+  "schemaVersion": 1,
+  "name": "dev-review-test-loop",
+  "description": "Developer implements, reviews self, reviewer approves, tester validates.",
+  "inputs": {
+    "featureRequest": { "type": "markdown", "required": true }
+  },
+  "roles": {
+    "dev": {
+      "label": "Dev",
+      "agent": { "kind": "vk_role", "role": "implementer" }
+    },
+    "review": {
+      "label": "Review",
+      "agent": { "kind": "vk_role", "role": "reviewer" }
+    },
+    "tester": {
+      "label": "Tester",
+      "agent": { "kind": "vk_role", "role": "tester" }
+    }
+  },
+  "initialState": "devImplementing",
+  "states": {
+    "devImplementing": {
+      "owner": "dev",
+      "steps": [
+        {
+          "id": "implement",
+          "type": "agent_turn",
+          "turnType": "non_decision",
+          "prompt": {
+            "template": "Implement the requested change.\n\nRequest:\n{{input.featureRequest}}"
+          }
+        },
+        {
+          "id": "selfReviewDecision",
+          "type": "agent_turn",
+          "turnType": "decision",
+          "prompt": {
+            "template": "Review your changes. Return only XML matching this state's schema."
+          },
+          "response": {
+            "format": "xml",
+            "schema": {
+              "format": "xsd",
+              "source": "state_actions"
+            },
+            "invalidXmlRetry": {
+              "maxAttempts": 2,
+              "prompt": "engine_default_with_validation_errors",
+              "onExhausted": "blocked"
+            },
+            "storeRawXml": true,
+            "rawXmlMaxChars": 20000,
+            "storeParsedFields": true,
+            "unknownFields": "reject_unless_allowed_by_result_contract"
+          }
+        }
+      ],
+      "actions": {
+        "readyForReview": {
+          "label": "Ready for review",
+          "targetState": "reviewing",
+          "handoff": {
+            "prompt": {
+              "template": "Dev completed implementation and self-review.\n\nDecision XML:\n{{transition.rawXml}}"
+            }
+          }
+        },
+        "continueEditing": {
+          "label": "Continue editing",
+          "targetState": "devImplementing",
+          "handoff": {
+            "prompt": {
+              "template": "Continue editing based on your own concerns.\n\nPrevious decision XML:\n{{transition.rawXml}}"
+            }
+          }
+        }
+      }
+    },
+    "reviewing": {
+      "owner": "review",
+      "steps": [
+        {
+          "id": "review",
+          "type": "agent_turn",
+          "turnType": "decision",
+          "prompt": {
+            "template": "Review the implementation. Return XML choosing an allowed action."
+          },
+          "response": {
+            "format": "xml",
+            "schema": { "format": "xsd", "source": "state_actions" },
+            "invalidXmlRetry": {
+              "maxAttempts": 2,
+              "prompt": "engine_default_with_validation_errors",
+              "onExhausted": "blocked"
+            },
+            "storeRawXml": true,
+            "rawXmlMaxChars": 20000,
+            "storeParsedFields": true,
+            "unknownFields": "reject_unless_allowed_by_result_contract"
+          }
+        }
+      ],
+      "actions": {
+        "approved": {
+          "label": "Approved",
+          "targetState": "done"
+        },
+        "changesRequested": {
+          "label": "Changes requested",
+          "targetState": "devImplementing",
+          "handoff": {
+            "prompt": {
+              "template": "Review requested changes.\n\nReview XML:\n{{transition.rawXml}}"
+            }
+          }
+        }
+      }
+    },
+    "done": { "terminal": true }
+  }
+}
 ```
 
-A state means **who has the ball now**. The role that owns a state is the role
-expected to perform the next workflow-owned turn(s). A state may contain multiple
-sequential turns before a transition decision is requested.
+### Authored-ID policy
 
-Example:
+Map keys are IDs for `roles`, `states`, and `actions`. Authored JSON must not
+repeat those IDs inside nested objects. For example, the state key
+`"reviewing"` is the state ID and its actions map key `"approved"` is the action
+ID.
 
-```text
-implementationInProgress [Dev]
-  1. instruction: implement the requested change
-  2. instruction: review your own diff and identify concerns
-  3. decision: choose continueEditing or submitCodeForReview using XML
+Ordered `steps` are arrays, so each step keeps an `id` field for stable history,
+read-model display, and future targeted retry/debug output.
+
+### Active-state invariant
+
+In V1, every non-terminal state is an active state and must satisfy all of these
+rules:
+
+- `owner` is required and must reference a configured role.
+- `steps` is required and non-empty.
+- `actions` is required and non-empty.
+- `steps` contains exactly one decision step.
+- The decision step is the final step in the state.
+- No steps appear after the decision step.
+- Every action has a `targetState` that references an existing state.
+
+Actionless active states are deferred. If a future workflow needs a state with
+no final decision action, that should be designed intentionally rather than
+smuggled into V1.
+
+### Terminal-state invariant
+
+A terminal state is authored exactly as:
+
+```json
+{ "terminal": true }
 ```
 
-Instruction turns queue normal agent messages and do not transition state.
-Decision turns ask the agent to choose one available action and provide a
-structured result. The agent may choose an action, but the workflow engine owns
-the target state declared by that action.
+No `owner`, `steps`, `actions`, prompts, or additional fields are allowed on an
+authored terminal state. The normalized model may represent terminal states as
+ownerless states with empty steps/actions, but that is an implementation detail.
+Terminal state means normal workflow completion.
 
-Configured loops are allowed. For example, `continueEditing` may target
-`implementationInProgress`; this is an intentional workflow transition, not an
-implicit retry.
+## Agent turns and step semantics
 
-## Important XML/XSD context
+### Step type
 
-The final decision response format is expected to be XML. The XSD is mainly for
-agent guidance and validation: the generated XSD for the current state will be
-given to the agent verbatim during the final decision instruction turn so the
-agent knows exactly which actions and result fields are valid.
+V1 executable JSON supports only:
 
-However, this implementation slice should **not** implement XML parsing, XSD
-generation, or parsed XML validation. Those should remain behind interfaces so
-we can first prove the state-machine model with pure tests.
-
-The parsed XML validation strategy, including whether/how to use Zod, is a
-follow-up decision.
-
-## Non-goals for this slice
-
-Do not implement these yet:
-
-- real XML parsing
-- real XSD generation
-- Zod or parsed-object validation details
-- beads-form artifact embedding
-- VK queue adapter integration
-- DB persistence or migration changes
-- integration into `src/workflows/declarative/runtime.ts`
-- workflow editor UI
-- browser-visible changes or E2E tests
-
-## Proposed location
-
-Add the new pure workflow core under the reusable package:
-
-```text
-packages/workflow-core/src/agent-workflow/
+```json
+{ "type": "agent_turn" }
 ```
 
-Proposed files:
+The `steps` array is intentionally generic so future milestones can add step
+types such as `human_turn` or `workflow_call` without renaming the core concept.
+Those future step types are not executable in V1.
 
-```text
-packages/workflow-core/src/agent-workflow/types.ts
-packages/workflow-core/src/agent-workflow/errors.ts
-packages/workflow-core/src/agent-workflow/normalize.ts
-packages/workflow-core/src/agent-workflow/model.ts
-packages/workflow-core/src/agent-workflow/instance.ts
-packages/workflow-core/src/agent-workflow/planning.ts
-packages/workflow-core/src/agent-workflow/index.ts
-packages/workflow-core/test/agent-workflow.test.ts
+### Turn types
+
+Agent-turn `turnType` values are:
+
+- `"non_decision"` — send the prompt to the state's owner agent, wait for the
+  turn to finish, store the opaque response ref, and advance to the next step in
+  the same state.
+- `"decision"` — send the prompt to the state's owner agent, wait for the turn
+  to finish, parse/validate the XML final response, choose one configured action,
+  record transition data, and move to the action's `targetState`.
+
+The engine never continues past either turn type until the runtime observes that
+the current agent turn completed.
+
+### Follow-up turns
+
+A state may contain multiple sequential agent turns before its final decision
+turn. This supports patterns such as:
+
+1. ask Dev to implement,
+2. ask Dev to self-review and express concerns,
+3. parse the final XML decision,
+4. relay that decision context to Review through the transition handoff prompt.
+
+For V1, all these turns are state-local and owned by the state's `owner` role.
+Cross-agent communication happens by transitioning to another state whose owner
+is a different role.
+
+## Decision XML/XSD contract
+
+Decision turns use XML as the agent's final response format. The XSD for the
+current state is supplied to the agent in the final instruction turn so the
+agent can see the valid action choices and required result shape.
+
+XML is preferred here because it allows agents to return declarative structured
+data with markdown-capable child elements without forcing heavy JSON string
+escaping. Markdown text elements should preserve whitespace. CDATA is allowed
+where needed for markdown blocks.
+
+V1 parser/validator policy:
+
+- The decision response must select one configured action for the current state.
+- The selected action must exist in that state's `actions` map.
+- The engine stores parsed fields needed for routing and future prompt
+  templates when `storeParsedFields` is true.
+- The engine stores bounded raw XML when `storeRawXml` is true.
+- Default raw XML cap is `20000` characters per decision response.
+- If raw XML exceeds the cap, store the truncated raw XML plus a truncation flag
+  and original character count. Do not silently pretend the stored value is
+  complete.
+- Unknown agent-result fields are rejected by default. They may be preserved only
+  when the result contract explicitly describes that as result semantics.
+- Unknown workflow config fields are rejected. The executable workflow JSON is
+  strict.
+
+Invalid XML handling:
+
+1. Ask the same agent to retry the same decision turn.
+2. Use the engine default retry prompt.
+3. Include validation errors in that retry prompt.
+4. Stop after the configured `maxAttempts`.
+5. On exhaustion, set the runtime snapshot status to `blocked`.
+
+`notify_user` is not an invalid-response escape hatch in V1. User notification is
+a normal workflow action/future adapter concern, not part of the XML retry
+fallback path.
+
+## Transition context and handoff prompts
+
+When a decision action moves the workflow into a new state, the engine records a
+transition entry. In V1, `transition.*` in templates means the latest transition
+into the current state.
+
+Example data available to the receiving state's prompt templates:
+
+- `transition.fromState`
+- `transition.toState`
+- `transition.action`
+- `transition.responseRef`
+- `transition.rawXml` when stored and not omitted by policy
+- `transition.rawXmlTruncated`
+- `transition.parsed` when parsed fields are stored
+
+A transition handoff prompt is not a separate independent queued message after a
+state transition. It is prompt context used when planning the next agent turn in
+the target state. For example, if Review chooses `changesRequested`, the next
+Dev state can render a prompt that includes Review's XML:
+
+```md
+Review requested changes.
+
+Review XML:
+{{transition.rawXml}}
 ```
 
-Export the public API from:
+The receiving Dev agent sees this content as part of its next planned agent-turn
+message. The workflow engine owns rendering the prompt from the configured
+handoff/template context; VK still only sees a normal queued agent message.
 
-```text
-packages/workflow-core/src/index.ts
-```
+## Runtime snapshot statuses
 
-Rationale: this logic should be independent from VD server runtime and reusable
-by tests, future persistence adapters, XML/XSD adapters, and UI/editor code.
+Recommended V1 status values:
 
-## Proposed TypeScript shapes
+- `running` — the workflow can plan or is waiting on an active turn.
+- `completed` — the workflow reached a terminal state normally.
+- `blocked` — recoverable needs-attention condition, such as decision XML retry
+  exhaustion. This is a first-class runtime snapshot status, not a configured
+  workflow state.
+- `failed` — unrecoverable system/config/runtime failure.
+- `cancelled` — intentionally stopped by user/system action.
 
-The canonical representation should be plain serializable data.
+Terminal states and `completed` snapshots represent normal workflow completion.
+`blocked` is not a normal configured workflow state and should not be targeted by
+workflow `actions`.
+
+Planning behavior:
+
+- `completed`, `failed`, `cancelled`, and `blocked` snapshots produce no-op plan
+  results in the happy path.
+- No-op terminal/non-running behavior prevents duplicate webhooks or polling
+  wakes from becoming error-prone.
+- Invalid workflow definitions, invalid normalized models, or impossible active
+  running snapshots remain hard errors because they indicate code/config bugs,
+  not normal duplicate observations.
+- Stale or duplicate observations should be idempotent. V1 should record enough
+  active-turn identity/response refs to ignore observations that do not match the
+  current wait target.
+
+## Proposed normalized TypeScript shapes
+
+The executable JSON should be parsed into a normalized internal model before the
+engine advances snapshots. The exact names can change during TDD, but the shape
+should preserve the authored semantics above.
 
 ```ts
-export type WorkflowDefinitionVersion = 1;
 export type WorkflowId = string;
 export type WorkflowStateId = string;
 export type WorkflowRoleId = string;
-export type WorkflowTurnId = string;
 export type WorkflowActionId = string;
-export type WorkflowTemplate = string;
+export type WorkflowStepId = string;
 
-export interface AgentWorkflowDefinition {
-  id: WorkflowId;
-  version: WorkflowDefinitionVersion;
+export type AgentWorkflowDefinitionV1 = {
+  schemaVersion: 1;
   name: string;
-  description?: string | null;
-  initialStateId: WorkflowStateId;
-  roles: Record<WorkflowRoleId, AgentWorkflowRole>;
-  states: Record<WorkflowStateId, AgentWorkflowState>;
-}
+  description?: string;
+  inputs?: Record<string, WorkflowInputSpec>;
+  roles: Record<WorkflowRoleId, WorkflowRoleDefinition>;
+  initialState: WorkflowStateId;
+  states: Record<WorkflowStateId, AuthoredWorkflowStateV1>;
+};
 
-export interface AgentWorkflowRole {
-  id: WorkflowRoleId;
-  displayName: string;
-  description?: string | null;
-}
+export type AuthoredWorkflowStateV1 =
+  | { terminal: true }
+  | {
+      owner: WorkflowRoleId;
+      steps: AgentWorkflowStepV1[];
+      actions: Record<WorkflowActionId, WorkflowActionV1>;
+    };
 
-export interface AgentWorkflowState {
-  id: WorkflowStateId;
-  ownerRoleId: WorkflowRoleId;
-  description?: string | null;
-  terminal?: boolean;
-  turns: AgentWorkflowTurn[];
-  on: Record<WorkflowActionId, AgentWorkflowAction>;
-}
+export type AgentWorkflowStepV1 = {
+  id: WorkflowStepId;
+  type: 'agent_turn';
+  turnType: 'non_decision' | 'decision';
+  prompt: PromptTemplateRef;
+  response?: DecisionResponsePolicyV1;
+};
 
-export type AgentWorkflowTurn =
-  | AgentWorkflowInstructionTurn
-  | AgentWorkflowDecisionTurn;
-
-export interface AgentWorkflowInstructionTurn {
-  id: WorkflowTurnId;
-  type: 'instruction';
-  prompt: WorkflowPromptSpec;
-  expectation: {
-    type: 'none' | 'completed_response';
+export type WorkflowActionV1 = {
+  label?: string;
+  description?: string;
+  targetState: WorkflowStateId;
+  handoff?: {
+    prompt?: PromptTemplateRef;
   };
-}
+};
 
-export interface AgentWorkflowDecisionTurn {
-  id: WorkflowTurnId;
-  type: 'decision';
-  prompt: WorkflowPromptSpec;
-  responseContract: WorkflowDecisionResponseContractRef;
-}
-
-export interface WorkflowPromptSpec {
-  template: WorkflowTemplate;
-  include?: WorkflowPromptInclude[];
-}
-
-export type WorkflowPromptInclude =
-  | { type: 'input'; key: string }
-  | { type: 'state'; path: string }
-  | { type: 'transitionResult'; transitionId: string; path?: string }
-  | { type: 'xmlFragment'; transitionId: string; actionId?: WorkflowActionId };
-
-export interface AgentWorkflowAction {
-  id: WorkflowActionId;
-  label: string;
-  description?: string | null;
-  targetStateId: WorkflowStateId;
-  result: WorkflowResultContract;
-  handoff?: WorkflowHandoffSpec[];
-}
-
-export interface WorkflowHandoffSpec {
-  toRoleId: WorkflowRoleId;
-  prompt: WorkflowPromptSpec;
-}
-
-export interface WorkflowResultContract {
-  fields: Record<string, WorkflowResultField>;
-  required?: string[];
-  extensions?: WorkflowResultExtensionPoint[];
-}
-
-export type WorkflowResultField =
-  | { type: 'string'; description?: string | null }
-  | { type: 'markdown'; description?: string | null; cdata?: boolean }
-  | { type: 'stringList'; description?: string | null; itemName?: string }
-  | { type: 'enum'; values: string[]; description?: string | null };
-
-export interface WorkflowResultExtensionPoint {
-  id: string;
-  description?: string | null;
-  minItems?: number;
-  maxItems?: number;
-}
-
-export interface WorkflowDecisionResponseContractRef {
-  compiler: 'xsd';
-  includeActions: 'currentState';
-}
+export type DecisionResponsePolicyV1 = {
+  format: 'xml';
+  schema: {
+    format: 'xsd';
+    source: 'state_actions' | { inline: string } | { ref: string };
+  };
+  invalidXmlRetry: {
+    maxAttempts: number;
+    prompt: 'engine_default_with_validation_errors';
+    onExhausted: 'blocked';
+  };
+  storeRawXml: boolean;
+  rawXmlMaxChars?: number;
+  storeParsedFields: boolean;
+  unknownFields: 'reject_unless_allowed_by_result_contract';
+};
 ```
 
-## Runtime snapshot shapes
-
-The first slice should use serializable snapshots rather than a DB-backed model.
-A later adapter can persist this shape or map it into existing orchestration
-storage.
+Runtime snapshot sketch:
 
 ```ts
-export interface AgentWorkflowInstanceSnapshot {
+export type WorkflowSnapshotStatus =
+  | 'running'
+  | 'completed'
+  | 'blocked'
+  | 'failed'
+  | 'cancelled';
+
+export type WorkflowRuntimeSnapshot = {
   instanceId: string;
   workflowId: WorkflowId;
-  status: 'running' | 'waiting' | 'completed' | 'failed' | 'cancelled';
-  currentStateId: WorkflowStateId;
-  currentTurnIndex: number;
+  status: WorkflowSnapshotStatus;
+  currentState: WorkflowStateId;
+  currentStepIndex: number;
+  visitId: string;
   input: Record<string, unknown>;
-  transitionHistory: AgentWorkflowTransitionEvent[];
-}
+  waitingFor?: {
+    kind: 'agent_turn';
+    state: WorkflowStateId;
+    stepId: WorkflowStepId;
+    turnId: string;
+    responseRef?: string;
+  };
+  latestTransition?: WorkflowTransitionRecord;
+  history: WorkflowHistoryEntry[];
+};
 
-export interface AgentWorkflowTransitionEvent {
-  id: string;
-  fromStateId: WorkflowStateId;
-  actionId: WorkflowActionId;
-  targetStateId: WorkflowStateId;
-  actorRoleId: WorkflowRoleId;
-  result: Record<string, unknown>;
+export type WorkflowTransitionRecord = {
+  fromState: WorkflowStateId;
+  toState: WorkflowStateId;
+  action: WorkflowActionId;
+  responseRef?: string;
   rawXml?: string;
-  occurredAt: string;
-}
+  rawXmlTruncated?: boolean;
+  rawXmlOriginalChars?: number;
+  parsed?: Record<string, unknown>;
+};
 ```
 
 ## Boundary interfaces
 
-These interfaces let the planner include XML/XSD concepts without implementing
-them in this slice.
+The pure core should not import VK, DB, Springboard modules, XML parser
+libraries, notification adapters, or scheduler implementations.
+
+Recommended boundaries:
 
 ```ts
-export interface AgentDecisionSchemaCompiler {
-  compileCurrentStateDecisionSchema(args: {
-    workflow: AgentWorkflowDefinition;
-    stateId: WorkflowStateId;
-  }): Promise<AgentDecisionSchema> | AgentDecisionSchema;
+export interface AgentTurnObservation {
+  kind: 'agent_turn_completed';
+  turnId: string;
+  responseRef: string;
+  finalResponseText?: string;
 }
 
-export interface AgentDecisionSchema {
-  format: 'xsd';
-  schemaText: string;
-  instructions: string;
-}
+export type WorkflowPlanEffect =
+  | {
+      kind: 'send_agent_turn';
+      role: WorkflowRoleId;
+      state: WorkflowStateId;
+      stepId: WorkflowStepId;
+      prompt: string;
+    }
+  | { kind: 'none' };
 
-export interface AgentDecisionResponseParser {
-  parse(args: {
-    workflow: AgentWorkflowDefinition;
-    stateId: WorkflowStateId;
-    xml: string;
-  }): Promise<ParsedAgentDecision> | ParsedAgentDecision;
-}
-
-export interface ParsedAgentDecision {
-  actionId: WorkflowActionId;
-  result: Record<string, unknown>;
-  rawXml: string;
-}
-```
-
-## Public API to implement
-
-### Definition normalization
-
-```ts
-normalizeAgentWorkflowDefinition(raw: unknown): AgentWorkflowDefinition
-```
-
-Validation requirements:
-
-- input is an object
-- `version` is supported
-- required strings are present and non-empty
-- `initialStateId` references an existing state
-- role map keys match role IDs
-- state map keys match state IDs
-- every `ownerRoleId` references an existing role
-- every action target references an existing state
-- action map keys match action IDs
-- turn IDs are unique per state
-- terminal states cannot expose actions
-- non-terminal states have at least one turn
-- result contract required fields reference declared fields
-- enum fields have at least one value
-
-### Query model
-
-```ts
-createAgentWorkflowModel(definition: AgentWorkflowDefinition): AgentWorkflowDefinitionModel
-```
-
-```ts
-export interface AgentWorkflowDefinitionModel {
-  getInitialState(): AgentWorkflowState;
-  getState(stateId: WorkflowStateId): AgentWorkflowState;
-  getOwner(stateId: WorkflowStateId): AgentWorkflowRole;
-  getCurrentTurn(snapshot: AgentWorkflowInstanceSnapshot): AgentWorkflowTurn;
-  getAvailableActions(stateId: WorkflowStateId): AgentWorkflowAction[];
-  getAction(stateId: WorkflowStateId, actionId: WorkflowActionId): AgentWorkflowAction;
-  getTargetState(stateId: WorkflowStateId, actionId: WorkflowActionId): AgentWorkflowState;
-  getResultContract(stateId: WorkflowStateId, actionId: WorkflowActionId): WorkflowResultContract;
+export interface DecisionResponseValidator {
+  validate(args: {
+    state: WorkflowStateId;
+    stepId: WorkflowStepId;
+    actions: Record<WorkflowActionId, WorkflowActionV1>;
+    responseText: string;
+    rawXmlMaxChars: number;
+  }): DecisionValidationResult;
 }
 ```
 
-### Instance helpers
-
-```ts
-createInitialSnapshot(definition, input, options): AgentWorkflowInstanceSnapshot
-completeInstructionTurn(definition, snapshot, completedResponseRef): AgentWorkflowInstanceSnapshot
-applyDecision(definition, snapshot, parsedDecision, options): AgentWorkflowDecisionApplyResult
-```
-
-Important behavior:
-
-- instruction turns advance `currentTurnIndex`
-- instruction turns do not create transition events
-- decisions are accepted only during decision turns
-- invalid or unavailable action IDs are rejected
-- the action target state comes from the definition, not from agent output
-- configured loops are allowed
-- terminal target states set snapshot status to `completed`
-- raw XML, when supplied, is preserved on the transition event
-
-### Planning helpers
-
-```ts
-planCurrentTurn(definition, snapshot, options): Promise<AgentWorkflowTurnPlan>
-planTransitionHandoffs(definition, transitionEvent): AgentWorkflowHandoffPlan[]
-```
-
-`planCurrentTurn` should return enough information for a later runtime adapter to
-queue the next message to the current owner role.
-
-For decision turns, it should call the injected `AgentDecisionSchemaCompiler` and
-include the returned XSD/instructions in the plan.
+The VD runtime adapter is responsible for durable storage, queueing VK agent
+messages, polling/webhook wakeups, and calling the validator implementation. The
+core is responsible for deterministic state/step routing decisions.
 
 ## Planned call stacks
 
-### Normalize definition
+### Start workflow instance
 
 ```text
-normalizeAgentWorkflowDefinition(raw)
-  -> assert serializable object
-  -> normalize roles
-  -> normalize states
-  -> assert initialStateId exists
-  -> assert every state ownerRoleId exists
-  -> assert every transition targetStateId exists
-  -> assert every state has unique turn ids
-  -> assert every state action id matches its map key
-  -> assert terminal states do not declare actions
-  -> return normalized AgentWorkflowDefinition
+VD action starts workflow
+  -> load workflow JSON
+  -> normalize/validate definition
+  -> create initial runtime snapshot
+  -> workflowCore.planNext(snapshot)
+  -> runtime persists snapshot with waitingFor turn
+  -> runtime adapter sends one VK agent turn
+  -> runtime stores opaque turn/session refs
 ```
 
-### Start instance
+### Observe non-decision agent completion
 
 ```text
-createInitialSnapshot(definition, input)
-  -> normalized = normalizeAgentWorkflowDefinition(definition)
-  -> state = normalized.states[normalized.initialStateId]
-  -> currentTurnIndex = 0
-  -> status = terminal ? completed : running
-  -> return AgentWorkflowInstanceSnapshot
+VK webhook or poll notices agent turn completed
+  -> VD runtime fetches final response/read-model data by ref when needed
+  -> runtime builds AgentTurnObservation
+  -> workflowCore.advance(snapshot, observation)
+  -> core verifies observation matches waitingFor
+  -> core stores responseRef/history
+  -> core advances currentStepIndex
+  -> core plans the next agent turn in the same state
 ```
 
-### Plan current turn
+### Observe decision agent completion
 
 ```text
-planCurrentTurn(definition, snapshot)
-  -> state = getState(snapshot.currentStateId)
-  -> owner = getOwner(state.id)
-  -> turn = state.turns[snapshot.currentTurnIndex]
-  -> render or expose prompt template data
-  -> if turn.type === 'decision':
-       compile current-state XSD through AgentDecisionSchemaCompiler
-       attach XSD text to final decision instructions
-  -> return WorkflowTurnPlan(ownerRoleId, turnId, prompt, expectation)
+VK webhook or poll notices decision turn completed
+  -> VD runtime fetches final XML by response/session ref
+  -> runtime calls XML/XSD validation boundary
+  -> workflowCore.advance(snapshot, observation + validation result)
+  -> valid result records raw/parsed transition data according to policy
+  -> selected action targetState becomes currentState
+  -> same-state target creates a new visit/history entry
+  -> terminal target sets status=completed
+  -> active target plans exactly one next agent turn
 ```
 
-### Complete non-decision turn
+### Invalid decision XML
 
 ```text
-completeInstructionTurn(definition, snapshot, completedResponseRef)
-  -> assert current turn type is instruction
-  -> store or expose response ref in runtime turn state, if modeled now
-  -> currentTurnIndex += 1
-  -> return updated snapshot
+Decision XML validation fails
+  -> workflowCore records retry attempt in history
+  -> if attempts remain: plan same decision turn again with engine default retry prompt and validation errors
+  -> if attempts exhausted: status=blocked with needs-attention reason
 ```
 
-### Apply decision
+### Duplicate wake or non-running snapshot
 
 ```text
-applyDecision(definition, snapshot, parsedDecision)
-  -> assert current turn type is decision
-  -> state = getState(snapshot.currentStateId)
-  -> action = state.on[parsedDecision.actionId]
-  -> reject if action does not exist
-  -> validate basic result required fields
-  -> target = getState(action.targetStateId)
-  -> append transition event with raw XML and parsed result
-  -> set currentStateId = target.id
-  -> set currentTurnIndex = 0
-  -> status = target.terminal ? completed : running
-  -> return updated snapshot and planned handoff prompts
+Webhook/poll wakes an already completed, blocked, failed, or cancelled snapshot
+  -> workflowCore returns no-op
+  -> runtime performs no external side effect
 ```
 
-### Render handoff prompts
+## Capacity and workspace access
 
-```text
-planTransitionHandoffs(definition, transitionEvent)
-  -> action = getAction(transitionEvent.fromStateId, transitionEvent.actionId)
-  -> for each handoff spec:
-       render prompt with transition result and optionally selected XML fragments
-       resolve to target role/session in a later runtime layer
-  -> return handoff prompt plans
-```
+No capacity, concurrency, or `workspaceAccess` fields belong in executable V1
+workflow JSON.
 
-## First test fixture
+The runtime scheduler owns capacity:
 
-Use a compact Dev / Review / Tester workflow that reflects the intended real
-process while staying pure and deterministic.
+- global active-turn limits,
+- per-workspace active-turn limits,
+- durable pending runs,
+- FIFO/priority behavior,
+- retry/backoff scheduling.
 
-```text
-implementationInProgress [Dev]
-  turns:
-    - implement
-    - self-review code and list concerns
-    - decision: continueEditing | submitCodeForReview
+The expected initial runtime policy is usually one active turn per workspace so
+agents do not edit the same worktree at the same time. Future read-only parallel
+turns or parallel write turns should be modeled outside V1 JSON first, likely via
+scheduler/runtime config and later optional step-level `workspaceAccess` hints.
+If added later, `workspaceAccess` should live on executable step definitions,
+not on states or global workflow config, because access needs are tied to the
+specific external turn being planned.
 
-codeReadyForReview [Review]
-  turns:
-    - review code and developer concerns
-    - decision: requestCodeChanges | approveForTesting
+A future VK sub-workspace/worktree-lane model can permit parallel write work in
+separate lanes without weakening the default one-writer-per-workspace policy.
 
-codeReadyForTesting [Tester]
-  turns:
-    - test code
-    - decision: approve | denyNotTestable | denyBugOrIncorrect
-```
+## Workflow-to-workflow calls
 
-Expected configured transitions:
+Workflow-to-workflow calls are design/prose only for V1. The executable V1 JSON
+must not include a `future` field or executable `workflow_call` step/action
+fields.
 
-```text
-Dev.submitCodeForReview -> codeReadyForReview
-Dev.continueEditing -> implementationInProgress
-Review.requestCodeChanges -> implementationInProgress
-Review.approveForTesting -> codeReadyForTesting
-Tester.denyNotTestable -> implementationInProgress
-Tester.denyBugOrIncorrect -> implementationInProgress
-Tester.approve -> completed
-```
+The reserved future behaviors are documented so V1 does not paint us into a
+corner:
 
-The `completed` state can be a terminal state owned by Dev or a special terminal
-role, depending on what makes the implementation simplest. The test should make
-that decision explicit.
+- blocking child workflow call,
+- fire-and-forget child workflow call,
+- terminal/handoff action that starts another workflow,
+- mid-workflow child call step,
+- bulk/batch enqueue of many child workflow runs.
 
-## Test plan
+Future call arguments should be templated from workflow context and validated
+against the child workflow input contract. Parent snapshots should record child
+instance refs. Blocking calls should also expose child output refs and a child
+status summary. Fire-and-forget calls should be ref-only unless a later state
+explicitly waits on them.
 
-Add tests in:
+Bulk calls should become durable pending runs processed by the runtime scheduler
+under global and workspace/worktree-lane capacity limits.
 
-```text
-packages/workflow-core/test/agent-workflow.test.ts
-```
+## Human steps
 
-Recommended tests:
+Human steps are conceptually part of the same `steps` model, but they are not
+V1-executable. A future `human_turn` should create a durable attention item or
+form request and resume the workflow when the user responds. Invalid XML retry
+exhaustion uses `blocked`; it does not create an implicit human step in V1.
 
-1. normalizes a valid Dev/Review/Tester workflow
-2. rejects missing initial state
-3. rejects unknown owner role
-4. rejects unknown transition target
-5. rejects invalid terminal state with actions
-6. rejects required result fields that are not declared
-7. returns owner as “who has the ball now”
-8. plans sequential instruction turns before decision
-9. does not transition after instruction turn completion
-10. decision turn exposes only current-state actions
-11. rejects unavailable action
-12. applies engine-owned target state
-13. allows configured loop transition
-14. renders handoff plan using transition result
-15. marks terminal target completed
-16. preserves raw XML on transition event when supplied
+Beads-form artifacts and notification adapters should be integrated through
+future explicit step/action semantics, not hidden transport-specific branches in
+the pure core.
 
-## Suggested implementation order
+## Public API to implement in M83+
 
-1. Add `types.ts` and `errors.ts`.
-2. Add failing tests for definition normalization.
-3. Implement `normalizeAgentWorkflowDefinition`.
-4. Add failing tests for query model helpers.
-5. Implement `createAgentWorkflowModel`.
-6. Add failing tests for initial snapshot and instruction-turn advancement.
-7. Implement `createInitialSnapshot` and `completeInstructionTurn`.
-8. Add failing tests for decision application and configured loops.
-9. Implement `applyDecision`.
-10. Add failing tests for turn planning with a fake XSD compiler and handoff
-    prompt planning.
-11. Implement `planCurrentTurn` and `planTransitionHandoffs`.
-12. Export the public API from package index.
-13. Run focused package tests and type checks.
+Suggested TDD target API names:
 
-## Validation commands
+- `normalizeWorkflowDefinitionV1(definition)`
+  - rejects unknown fields,
+  - enforces authored-ID policy,
+  - enforces active/terminal invariants,
+  - emits normalized model with stable IDs from map keys.
+- `createInitialWorkflowSnapshot(model, input)`
+  - validates input contract enough for V1,
+  - initializes first active state or completed terminal state.
+- `planNextWorkflowEffect(model, snapshot)`
+  - returns exactly one planned agent turn or no-op,
+  - no-ops for terminal/non-running snapshots.
+- `advanceWorkflow(model, snapshot, observation, validation?)`
+  - applies matching turn completions,
+  - advances non-decision steps,
+  - applies decision transitions,
+  - handles invalid XML retry/blocking,
+  - ignores stale/duplicate observations idempotently.
+- `renderWorkflowPrompt(model, snapshot, step, context)`
+  - renders input and latest-transition context for the next agent turn.
 
-Preferred focused validation:
+## Test setup and TDD plan
 
-```bash
-pnpm --filter @vibe-dashboard/workflow-core test
-```
+M82 itself is docs-only. No implementation tests are added in this milestone.
+The following test layers should be used as the later milestones implement the
+plan.
 
-If that is not wired in this workspace, use:
+### Pure workflow-core unit tests
 
-```bash
-pnpm exec vitest run --config packages/workflow-core/vitest.config.ts
-```
+Target: M83 (`vibe-kanban-vscode-web-450.2`).
 
-Then run repo type checks:
+Tests should run without VK, VD runtime DB, Springboard, HTTP, or browser
+fixtures. They should cover:
 
-```bash
-npm run check-types
-```
+- strict config parsing and unknown-field rejection,
+- map-key ID normalization,
+- active-state invariant failures,
+- terminal-state exact authored shape,
+- one-agent-turn-at-a-time planning,
+- non-decision completion advancing to the next step,
+- decision XML valid action transition,
+- same-state loop creates a new visit/history entry,
+- terminal transition sets `completed`,
+- non-running snapshots return no-op,
+- invalid XML retry attempts and eventual `blocked` status,
+- stale/duplicate observation idempotence.
 
-This slice is pure logic and docs; no browser-visible behavior is expected, so
-Playwright/E2E validation is not required unless implementation unexpectedly
-changes UI behavior.
+Preferred location: a new workflow-core test file near the pure package, such as
+`packages/workflow-core/test/agent-workflow.test.ts`, or the nearest existing
+package test convention discovered during M83.
 
-## Reviewer questions
+### VD runtime integration tests
 
-Please review these decisions before implementation:
+Target: M84 (`vibe-kanban-vscode-web-450.3`).
 
-1. Is `packages/workflow-core/src/agent-workflow/` the right home for this pure
-   core?
-2. Is it acceptable to keep XML/XSD as interfaces only in this first slice?
-3. Does the Dev / Review / Tester fixture capture enough of the intended
-   workflow behavior for initial TDD?
-4. Should terminal states have an owner role, or should the model support an
-   ownerless terminal state?
-5. Should instruction-turn completion store response refs in the snapshot now,
-   or should that wait until persistence/runtime integration?
+These tests should prove the durable VD runtime adapter uses the pure core
+without breaking restart recovery, polling, webhook wakeups, stored definitions,
+or legacy built-in fallback behavior. They should cover idempotent side effects
+and duplicate wake behavior.
+
+### VK/VD HTTP read-model tests
+
+Target: M85 (`vibe-kanban-vscode-web-450.4`) and presentation dependencies in
+M86/M87.
+
+These tests should prove VD reads workflow-relevant VK data through bounded HTTP
+APIs rather than scraping logs/websocket streams. Expected data includes final
+response refs/content where permitted, prompt previews if needed for the clean
+page, and commit/session refs needed for presentation.
+
+### Docker qa-mode/mock LLM E2E
+
+Target: M89 (`vibe-kanban-vscode-web-450.8`), after the weekly-dev mock branch
+merge/harness is available on this branch.
+
+The E2E suite should run through the real VD/VK paths in the containerized
+qa-mode sandbox with deterministic mock agent final messages, including malformed
+XML for retry/error coverage. This validates the real integration path without
+real model tokens.
+
+## Mapping to test-plan-2.md
+
+This plan supports the roadmap user stories in
+[`../../test-plans/branches/8b79-vd-workflows/test-plan-2.md`](../../test-plans/branches/8b79-vd-workflows/test-plan-2.md):
+
+- `USER_STORY_1` — directly covered by the final V1 JSON schema decisions in
+  this document.
+- `USER_STORY_2` — directly covered by the one-turn-at-a-time engine semantics,
+  status handling, invalid XML retry/blocking behavior, and pure-core TDD plan.
+- `USER_STORY_3` — covered by the runtime boundary and VD runtime integration
+  test plan.
+- `USER_STORY_4` — covered by the VK/VD HTTP read-model test layer and the rule
+  that webhooks are wakeups, not source of truth.
+- `USER_STORY_5` — supported by bounded raw XML/parsed-field storage, response
+  refs, history, and transition context needed for clean presentation.
+- `USER_STORY_6` — reserved through future `human_turn` step semantics and
+  `blocked` needs-attention status.
+- `USER_STORY_7` — reserved in prose without adding executable V1 fields.
+- `USER_STORY_8` — covered by the planned Docker qa-mode/mock LLM E2E layer.
+
+M82 acceptance:
+
+- Update this implementation plan with final schema decisions.
+- Keep the milestone docs-only.
+- State that the schema is XState-inspired but not XState-compatible JSON.
+- Include exact V1 active/terminal invariants.
+- Include blocked/runtime status policy.
+- Include raw XML storage/truncation policy.
+- Include test setup across pure unit, runtime integration, HTTP read-model, and
+  Docker qa-mode/mock LLM E2E layers.
+- Validate docs locally and commit the plan update for review.
+
+## Validation for M82
+
+Expected validation for this docs-only milestone:
+
+1. Manually review the rendered/linked markdown.
+2. Run any lightweight markdown/link/check command if available.
+3. Run `git diff --check`.
+4. Do not run browser/E2E tests for this docs-only update.
+
+If no markdown checker exists in the repo scripts, record that explicitly in the
+handoff.
+
+## Remaining review considerations
+
+No remaining decision blocks M82. The following are intentionally deferred to
+future beads/milestones:
+
+- exact XML parser/XSD implementation library and security limits beyond the
+  stored raw XML cap,
+- exact shape of future `human_turn` and beads-form artifact integration,
+- exact shape of future workflow-to-workflow call steps/actions,
+- future scheduler capacity configuration and any step-level `workspaceAccess`
+  hint,
+- clean presentation page read-model details.
