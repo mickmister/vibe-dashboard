@@ -10,6 +10,7 @@ import { WorkspaceShell } from "../components/WorkspaceShell";
 import { AgentTeamsDashboard } from "../components/AgentTeamsDashboard";
 import { WorkflowPresentationPage } from "../components/WorkflowPresentationPage";
 import { WorkspaceWorkflowsPage } from "./plugins/workflows/components/WorkspaceWorkflowsPage";
+import { WorkflowGraphEditorPage } from "./plugins/workflows/components/WorkflowGraphEditorPage";
 import { useSessionWorkspaceNav } from "../sessionState";
 import type { NewSessionInitialSelection } from "../sessionState";
 import { resolveWorkspaceContainerRef } from "../lib/vkWorkspaceOpen";
@@ -1228,6 +1229,12 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
     "/dashboard/workflows",
     { hideApplicationShell: true },
     WorkspaceWorkflowsPage,
+  );
+
+  moduleAPI.registerRoute(
+    "/dashboard/workflows/editor/:designId",
+    { hideApplicationShell: true },
+    WorkflowGraphEditorPage,
   );
 
   moduleAPI.registerRoute(

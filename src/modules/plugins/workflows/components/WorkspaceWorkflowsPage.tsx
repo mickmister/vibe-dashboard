@@ -107,7 +107,10 @@ function WorkflowCard({ workflow, onRun }: { workflow: WorkspaceWorkflowSummary;
         <StatusPill label={workflow.status === 'ready' ? 'Ready' : 'Unavailable'} tone={workflow.status === 'ready' ? 'emerald' : 'amber'} />
       </div>
       {workflow.unavailableReason ? <p className="mt-3 text-sm text-amber-200">{workflow.unavailableReason}</p> : null}
-      {workflow.canRun ? <button className="mt-4 rounded-md bg-cyan-500 px-3 py-2 text-sm font-medium text-zinc-950 hover:bg-cyan-400" onClick={onRun}>Run</button> : null}
+      <div className="mt-4 flex flex-wrap gap-2">
+        {workflow.canRun ? <button className="rounded-md bg-cyan-500 px-3 py-2 text-sm font-medium text-zinc-950 hover:bg-cyan-400" onClick={onRun}>Run</button> : null}
+        {workflow.source === 'published_design' ? <a className="rounded-md border border-zinc-700 px-3 py-2 text-sm hover:bg-zinc-800" href={`/dashboard/workflows/editor/${encodeURIComponent(workflow.id)}`}>Edit graph</a> : null}
+      </div>
     </article>
   );
 }

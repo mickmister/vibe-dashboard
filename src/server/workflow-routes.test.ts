@@ -79,6 +79,34 @@ describe('registerWorkflowRoutes', () => {
     });
   });
 
+  it('TEST_CASE_M97_1B loads and saves workflow graph editor draft definitions', async () => {
+    const handle = await initVdDb({ path: ':memory:' });
+    dbHandles.push(handle);
+    const designStore = new DbWorkflowDesignStore({ db: handle.db });
+    await designStore.createDesign({ designId: 'design-graph', draftId: 'draft-graph', name: 'Graph Workflow', definition: routeValidDefinition() });
+    await designStore.publishDraft('draft-graph');
+    const app = new Hono();
+    registerWorkflowRoutes(app, { registry: createWorkflowRegistry(), workflowHomeDb: handle.db, workflowDesignStore: designStore });
+
+    const loaded = await app.request('/dashboard/api/workflow-designs/design-graph/editor');
+    expect(loaded.status).toBe(200);
+    const loadedJson = await loaded.json() as { editor: { draftId: string; readonly: boolean; definition: any } };
+    expect(loadedJson.editor).toMatchObject({ draftId: 'draft-graph', readonly: false, definition: { name: 'Home Workflow', initialState: 'dev' } });
+
+    const definition = loadedJson.editor.definition;
+    definition.states.dev.actions.done.label = 'Ship it';
+    const saved = await app.request('/dashboard/api/workflow-design-drafts/draft-graph', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ definition }),
+    });
+
+    expect(saved.status).toBe(200);
+    await expect(saved.json()).resolves.toMatchObject({ editor: { draftId: 'draft-graph', definition: { states: { dev: { actions: { done: { label: 'Ship it', targetState: 'done' } } } } } } });
+    const draft = await designStore.getDraft('draft-graph');
+    expect((draft?.definition as any).states.dev.actions.done.label).toBe('Ship it');
+  });
+
   it('TEST_CASE_M95_1A launches a persisted workflow with required inputs and existing sessions', async () => {
     const handle = await initVdDb({ path: ':memory:' });
     dbHandles.push(handle);

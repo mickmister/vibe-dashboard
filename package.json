@@ -61,8 +61,11 @@
     "@hono/node-server": "^1.19.9",
     "@tabler/icons-react": "^3.44.0",
     "@tailwindcss/vite": "^4.1.18",
+    "@tanstack/react-query": "^5.101.0",
+    "@vibe-dashboard/beads-form": "workspace:*",
     "@vibe-dashboard/workflow-core": "workspace:*",
     "@vitejs/plugin-react": "^5.1.4",
+    "@xyflow/react": "^12.11.2",
     "better-sqlite3": "^12.6.2",
     "crossws": "^0.4.4",
     "dompurify": "^3.4.11",
@@ -76,9 +79,7 @@
     "react-router": "^7.13.0",
     "rxjs": "^7.8.2",
     "springboard": "0.0.1-dev-jamapp-16",
-    "tailwindcss": "^4.1.18",
-    "@tanstack/react-query": "^5.101.0",
-    "@vibe-dashboard/beads-form": "workspace:*"
+    "tailwindcss": "^4.1.18"
   },
   "devDependencies": {
     "@chromatic-com/storybook": "^5.0.1",

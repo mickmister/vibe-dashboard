@@ -15,6 +15,8 @@ describe('WorkspaceWorkflowsHomeView', () => {
     expect(html).toContain('Needs your input');
     expect(html).toContain('Dev Review Tester');
     expect(html).toContain('Run');
+    expect(html).toContain('Edit graph');
+    expect(html).toContain('href="/dashboard/workflows/editor/design-drt"');
     expect(html).toContain('Create form from agent');
     expect(html).toContain('Feature workflow run');
     expect(html).not.toContain('href="/dashboard/workflows/run-a"');

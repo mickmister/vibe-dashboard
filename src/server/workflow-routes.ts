@@ -4,6 +4,7 @@ import type { Kysely } from 'kysely';
 import {
   runWorkflow,
   WorkflowNotFoundError,
+  type AgentWorkflowDefinitionV1,
   type RunWorkflowOptions,
   type WorkflowRecorder,
   type WorkflowRegistry,
@@ -149,6 +150,39 @@ export function registerWorkflowRoutes(
       }
       const message = error instanceof Error ? error.message : String(error);
       return c.json({ error: 'workflow_launch_failed', message }, 400);
+    }
+  });
+
+
+  hono.get('/dashboard/api/workflow-designs/:designId/editor', async (c) => {
+    const designId = c.req.param('designId')?.trim();
+    if (!designId) return c.json({ error: 'workflow_design_required', message: 'Workflow design is required' }, 400);
+    const db = options.workflowHomeDb ?? (await getVdDb()).db;
+    const designStore = options.workflowDesignStore ?? new DbWorkflowDesignStore({ db });
+    try {
+      const editor = await buildWorkflowDesignEditorModel(designStore, designId);
+      if (!editor) return c.json({ error: 'workflow_design_not_found', message: 'Workflow design was not found' }, 404);
+      return c.json({ editor });
+    } catch (error) {
+      return c.json({ error: 'workflow_design_editor_failed', message: error instanceof Error ? error.message : String(error) }, 400);
+    }
+  });
+
+  hono.patch('/dashboard/api/workflow-design-drafts/:draftId', async (c) => {
+    const draftId = c.req.param('draftId')?.trim();
+    if (!draftId) return c.json({ error: 'workflow_draft_required', message: 'Workflow draft is required' }, 400);
+    const body = asRecord(await readJsonBody(c.req.raw));
+    const definition = body?.definition;
+    if (!definition || typeof definition !== 'object') return c.json({ error: 'workflow_definition_required', message: 'Workflow definition is required' }, 400);
+    const db = options.workflowHomeDb ?? (await getVdDb()).db;
+    const designStore = options.workflowDesignStore ?? new DbWorkflowDesignStore({ db });
+    try {
+      const draft = await designStore.updateDraft(draftId, definition);
+      const editor = await buildWorkflowDesignEditorModel(designStore, draft.designId);
+      if (!editor) return c.json({ error: 'workflow_design_not_found', message: 'Workflow design was not found' }, 404);
+      return c.json({ editor });
+    } catch (error) {
+      return c.json({ error: 'workflow_draft_update_failed', message: error instanceof Error ? error.message : String(error) }, 400);
     }
   });
 
@@ -743,6 +777,38 @@ async function buildLaunchWorkflowSummary(designStore: DbWorkflowDesignStore, de
     canRun: Boolean(published),
     inputs: published ? summarizeLaunchInputs(published.resolvedDefinition) : [],
     roles: published ? summarizeLaunchRoles(published.resolvedDefinition) : [],
+  };
+}
+
+async function buildWorkflowDesignEditorModel(designStore: DbWorkflowDesignStore, designId: string) {
+  const design = await designStore.getDesign(designId);
+  if (!design) return null;
+  const draft = design.currentDraftId ? await designStore.getDraft(design.currentDraftId) : null;
+  if (draft) {
+    return {
+      designId: design.designId,
+      name: design.name,
+      description: design.description,
+      draftId: draft.draftId,
+      version: draft.baseVersion,
+      readonly: false,
+      definition: draft.definition as AgentWorkflowDefinitionV1,
+      validationStatus: draft.validationStatus,
+      validationIssues: draft.validationIssues,
+    };
+  }
+  const published = design.latestPublishedVersion == null ? null : await designStore.getVersion(design.designId, design.latestPublishedVersion);
+  if (!published) throw new Error('Workflow design has no draft or published version.');
+  return {
+    designId: design.designId,
+    name: design.name,
+    description: design.description,
+    draftId: null,
+    version: published.version,
+    readonly: true,
+    definition: published.resolvedDefinition,
+    validationStatus: 'valid' as const,
+    validationIssues: [],
   };
 }
 
