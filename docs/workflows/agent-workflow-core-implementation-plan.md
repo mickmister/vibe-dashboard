@@ -718,6 +718,199 @@ explicitly waits on them.
 Bulk calls should become durable pending runs processed by the runtime scheduler
 under global and workspace/worktree-lane capacity limits.
 
+### M88 reserved design: call shapes
+
+The following shapes are intentionally not executable V1 JSON. They document the
+future contract that later milestones can turn into a new schema version or a
+feature-gated extension after separate TDD.
+
+#### Blocking child workflow call
+
+A blocking call starts a child workflow and pauses the parent on the call step
+until the child reaches a terminal result.
+
+Conceptual future shape:
+
+```json
+{
+  "id": "runImplementation",
+  "type": "workflow_call",
+  "mode": "blocking",
+  "workflow": "implementationWorkflow",
+  "args": {
+    "featureRequest": "{{inputs.featureRequest}}",
+    "reviewNotes": "{{transition.parsed.requiredChanges}}"
+  },
+  "inputContract": "child_workflow_inputs"
+}
+```
+
+Runtime semantics:
+
+1. Render `args` from the parent context.
+2. Validate rendered args against the child workflow input contract before
+   creating the child instance.
+3. Create a durable child instance/run record and store a parent-child edge.
+4. Mark the parent waiting on the child instance ref.
+5. Resume the parent when the child completes, fails, cancels, or blocks.
+
+Parent context after a completed blocking call should expose:
+
+- `child.instanceRef` — opaque child workflow instance ref.
+- `child.outputRef` — refs-only pointer to child output/artifacts.
+- `child.statusSummary` — compact status such as `completed`, `blocked`,
+  `failed`, or `cancelled`.
+
+The parent should not inline large child outputs into its snapshot. Prompt
+templates can include selected child summaries or artifact refs.
+
+#### Fire-and-forget child workflow call
+
+A fire-and-forget call starts child work and lets the parent continue without
+waiting. It still returns durable refs so the user or a later workflow can find
+the child run.
+
+Conceptual future shape:
+
+```json
+{
+  "id": "notifyTester",
+  "type": "workflow_call",
+  "mode": "fire_and_forget",
+  "workflow": "testerFollowupWorkflow",
+  "args": {
+    "sourceWorkflowInstance": "{{runtime.instanceId}}",
+    "approvedSummary": "{{transition.parsed.summary}}"
+  }
+}
+```
+
+Runtime semantics:
+
+1. Render and validate child args.
+2. Create a durable pending child run.
+3. Store a child instance ref on the parent step result.
+4. Continue to the next parent step without observing child completion.
+
+Fire-and-forget does not mean "untracked." The call result is ref-only, and a
+future clean presentation page can link to child progress using those refs.
+
+#### Terminal/handoff action call
+
+A terminal/handoff action call starts another workflow as the selected action
+from a decision state. It is useful when a completed workflow hands the user or
+another team into the next reusable workflow.
+
+Conceptual future action shape:
+
+```json
+{
+  "actions": {
+    "approvedAndTest": {
+      "label": "Approved; start tester workflow",
+      "targetState": "done",
+      "call": {
+        "mode": "handoff",
+        "workflow": "testerWorkflow",
+        "args": {
+          "implementationInstance": "{{runtime.instanceId}}",
+          "reviewXmlRef": "{{transition.rawXmlRef}}"
+        }
+      }
+    }
+  }
+}
+```
+
+The parent action transition remains normal: select action, record transition,
+enter `targetState`, and complete if the target is terminal. The call is an
+additional durable side effect owned by the runtime transition helper, not an
+agent turn and not a hidden `notify_user` fallback.
+
+#### Mid-workflow call step
+
+A mid-workflow call step behaves like any other ordered step: it has a stable
+step ID, can run before the final decision step, and contributes context for
+later prompts. This is the natural fit for reusable sub-workflows inside a
+larger workflow.
+
+V1 does not execute this. In V1, authored steps with `"type": "workflow_call"`
+must fail normalization with a stable `WORKFLOW_CONFIG_INVALID_STEP` issue at the
+step type path.
+
+### M88 reserved design: bulk run queue
+
+Bulk enqueueing is a runtime API concern, not workflow JSON. A future API should
+accept one workflow ID plus many input items, or a mixed set of workflow
+references if needed later. It should create durable pending runs first, then
+let the scheduler start them under capacity limits.
+
+Conceptual future API input:
+
+```json
+{
+  "workflow": "implementationWorkflow",
+  "items": [
+    { "clientRequestId": "feature-a", "args": { "featureRequest": "A" } },
+    { "clientRequestId": "feature-b", "args": { "featureRequest": "B" } }
+  ],
+  "priority": "normal"
+}
+```
+
+Conceptual future API result:
+
+```json
+{
+  "batchRef": "opaque-batch-ref",
+  "items": [
+    { "clientRequestId": "feature-a", "status": "pending", "childInstanceRef": "opaque-child-a" },
+    { "clientRequestId": "feature-b", "status": "pending", "childInstanceRef": "opaque-child-b" }
+  ],
+  "errors": []
+}
+```
+
+Bulk semantics:
+
+1. Validate every item independently.
+2. Persist each valid item as `pending` before starting agent work.
+3. Return per-item refs and per-item validation/creation errors.
+4. Do not start all child workflows immediately.
+5. Let the runtime scheduler lease pending runs under global active-turn limits.
+6. Apply workspace capacity separately, usually one active write turn per
+   workspace.
+
+This keeps bulk enqueue cheap and durable while avoiding memory pressure from
+many live in-process workflow calls.
+
+### M88 reserved design: scheduler capacity
+
+Capacity remains runtime scheduler configuration:
+
+- `globalActiveTurnLimit` caps all concurrently active agent turns.
+- `perWorkspaceActiveWriteTurnLimit` defaults to `1`.
+- Queue order is durable FIFO with room for priority.
+- A queued run moves from `pending` to `active` only when both global and
+  workspace capacity are available.
+- If an agent turn completes, fails, blocks, or is cancelled, the scheduler
+  releases capacity and leases the next eligible pending run.
+
+Read-only parallelism is not part of executable V1. A later design may add
+step-level `workspaceAccess: "read" | "write"` hints, and a later VK
+sub-workspace/worktree-lane model may allow parallel write work in isolated
+lanes. Until then, treat workflow-owned agent turns as write access.
+
+### M88 V1 guardrails
+
+M88 does not implement workflow-call execution. The current V1 guardrails are:
+
+- Top-level `future` is rejected as an unknown field.
+- Step `type` values other than `agent_turn` are rejected.
+- No capacity or `workspaceAccess` field is accepted in executable workflow JSON.
+- Bulk run capacity is described here and in beads; it is not represented inside
+  a workflow definition.
+
 ## Human steps
 
 Human steps are conceptually part of the same `steps` model, but they are not
@@ -864,7 +1057,8 @@ future beads/milestones:
 - exact XML parser/XSD implementation library and security limits beyond the
   stored raw XML cap,
 - exact shape of future `human_turn` and beads-form artifact integration,
-- exact shape of future workflow-to-workflow call steps/actions,
-- future scheduler capacity configuration and any step-level `workspaceAccess`
-  hint,
+- executable implementation and schema-versioning path for the M88
+  workflow-to-workflow call shapes,
+- concrete runtime scheduler capacity values and any step-level
+  `workspaceAccess` hint,
 - clean presentation page read-model details.

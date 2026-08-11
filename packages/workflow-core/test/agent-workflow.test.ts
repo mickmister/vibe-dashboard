@@ -277,6 +277,31 @@ describe('agent workflow V1 normalization', () => {
       'WORKFLOW_CONFIG_UNKNOWN_FIELD',
       'surprise',
     );
+    expectDefinitionError(
+      () => normalizeWorkflowDefinitionV1({ ...makeDefinition(), future: { workflowCall: true } } as never),
+      'WORKFLOW_CONFIG_UNKNOWN_FIELD',
+      'future',
+    );
+  });
+
+  it('TEST_CASE_M88_1A rejects reserved workflow_call steps in V1 executable JSON', () => {
+    expectDefinitionError(
+      () => {
+        const def = makeDefinition();
+        activeAuthoredState(def, 'devImplementing').steps = [
+          {
+            id: 'call_child',
+            type: 'workflow_call',
+            workflow: 'childWorkflow',
+            args: { featureRequest: '{{inputs.featureRequest}}' },
+          } as never,
+          activeAuthoredState(def, 'devImplementing').steps[1]!,
+        ];
+        return normalizeWorkflowDefinitionV1(def);
+      },
+      'WORKFLOW_CONFIG_INVALID_STEP',
+      'states.devImplementing.steps.0.type',
+    );
   });
 
   it('TEST_CASE_M83_1B enforces strict active-state decision invariants', () => {
