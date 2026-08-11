@@ -25,7 +25,7 @@ describe('workflow-e2e-docker-playwright harness', () => {
     expect(script).toContain('--volume "${cargo_git_volume}:/root/.cargo/git"');
     expect(script).toContain('tar -C /mnt/source/vibe-kanban-vscode-web');
     expect(script).toContain('tar -C /mnt/source/vibe-kanban');
-    expect(script).toContain('npx playwright test --config playwright.vk-workflows-docker.config.ts');
+    expect(script).toContain('npx playwright test --config playwright.vk-workflows-docker.config.ts --output=/tmp/workflow-e2e-logs/playwright-test-results');
     expect(dockerfile).toContain('libclang-dev');
     expect(dockerfile).toContain('lld');
     expect(dockerfile).toContain('clang');
@@ -36,7 +36,10 @@ describe('workflow-e2e-docker-playwright harness', () => {
     expect(script).toContain('run_with_log vk-cargo-build cargo build --features qa-mode --bin server');
     expect(script).toContain('run_with_log');
     expect(script).toContain('still running');
-    expect(script).toContain('run_with_log playwright npx playwright test --config playwright.vk-workflows-docker.config.ts');
+    expect(script).toContain('run_with_log playwright npx playwright test --config playwright.vk-workflows-docker.config.ts --output=/tmp/workflow-e2e-logs/playwright-test-results');
+    const playwrightConfig = readFileSync(resolve('playwright.vk-workflows-docker.config.ts'), 'utf8');
+    expect(playwrightConfig).toContain("trace: 'on'");
+    expect(playwrightConfig).toContain("video: 'on'");
     expect(script).toContain('--env CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-1}"');
     expect(script).toContain('--env CARGO_TARGET_DIR=/tmp/vk-target');
     expect(script).toContain('WORKFLOW_E2E_CARGO_TARGET_VOLUME');

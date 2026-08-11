@@ -3,6 +3,8 @@
  * - test-plans/branches/8b79-vd-workflows/test-plan-2.md
  * - TEST_CASE_M84_1A
  * - TEST_CASE_M87_1A
+ * - TEST_CASE_M89_1A
+ * - TEST_CASE_M89_1D
  */
 import { expect, test, type APIRequestContext, type Page } from 'playwright/test';
 
@@ -10,6 +12,8 @@ const sandboxUrl = process.env.VK_MOCKED_SANDBOX_URL ?? 'http://127.0.0.1:50005'
 
 type Workspace = { id: string; name?: string | null; branch?: string | null };
 type Session = { id: string; workspace_id: string; name?: string | null; executor?: string };
+const scriptedQaResponse = 'QA scripted workflow response completed successfully.';
+
 type InstanceStatusResponse = {
   instance: { instanceId: string; status: string; currentStepId: string | null };
   steps: Array<{ stepKey: string; status: string; output: unknown }>;
@@ -73,6 +77,10 @@ test.describe('Docker qa-mode durable workflow UI', () => {
     expect(presentation.workflowName).toBe('Two Agent Review Round');
     expect(presentation.originalTask).toBe(task);
     expect(presentation.timeline.map((item) => item.role)).toEqual(['Implementer', 'Reviewer']);
+    expect(presentation.timeline.map((item) => item.finalResponse?.text)).toEqual([
+      expect.stringContaining(scriptedQaResponse),
+      expect.stringContaining(scriptedQaResponse),
+    ]);
 
     await page.goto(`/dashboard/workflows/${encodeURIComponent(instanceId)}`);
     await expect(page.getByRole('heading', { name: 'Two Agent Review Round' })).toBeVisible();
@@ -83,6 +91,7 @@ test.describe('Docker qa-mode durable workflow UI', () => {
     await expect(page.getByText('Reviewer').first()).toBeVisible();
     await expect(page.getByText('Initial message').first()).toBeVisible();
     await expect(page.getByText('Final response').first()).toBeVisible();
+    await expect(page.getByText(scriptedQaResponse).first()).toBeVisible();
     await expect(page.getByRole('link', { name: 'Open Implementer session' })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Open Reviewer session' })).toBeVisible();
     const cleanPageText = await page.locator('body').innerText();
@@ -182,7 +191,7 @@ type PresentationResponse = {
   presentation: {
     workflowName: string;
     originalTask: string | null;
-    timeline: Array<{ role: string }>;
+    timeline: Array<{ role: string; finalResponse: { text: string } | null }>;
   };
 };
 

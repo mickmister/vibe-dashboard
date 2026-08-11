@@ -143,7 +143,7 @@ docker exec \
     find /root/.cargo/git /tmp/vk-target -name "*.lock" -delete 2>/dev/null || true
     run_with_log vk-cargo-build cargo build --features qa-mode --bin server
     cd /workspace/vibe-kanban-vscode-web
-    run_with_log playwright npx playwright test --config playwright.vk-workflows-docker.config.ts
+    run_with_log playwright npx playwright test --config playwright.vk-workflows-docker.config.ts --output=/tmp/workflow-e2e-logs/playwright-test-results
   '
 
 echo "ok - workflow Docker Playwright E2E"

@@ -32,7 +32,8 @@ export default defineConfig({
   reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : 'list',
   use: {
     baseURL: sandboxUrl,
-    trace: 'on-first-retry',
+    trace: 'on',
+    video: 'on',
   },
   webServer: {
     command:
