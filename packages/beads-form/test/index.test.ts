@@ -6,6 +6,7 @@ import {
   buildMediaGallery,
   buildTextareaQuestion,
   compileBeadsForm,
+  createBeadsFormWorkflowArtifactRef,
   defineBeadsForm,
 } from '../src/index';
 
@@ -129,6 +130,21 @@ describe('@vibe-dashboard/beads-form', () => {
     expect(customized.html).toContain('Choose whether implementation should proceed.');
     expect(customized.html).toContain(`name="${ALLOW_CODE_FILE_CHANGES_FIELD}" type="submit" value="true"`);
     expect(customized.html).toContain(`name="${ALLOW_CODE_FILE_CHANGES_FIELD}" type="submit" value="false"`);
+  });
+
+  it('creates first-party workflow artifact refs for human form providers', () => {
+    expect(createBeadsFormWorkflowArtifactRef({
+      idempotencyKey: 'run-1:visit-1:approval',
+      title: 'Approve plan',
+      formSchema: { fields: { approved: { required: true } } },
+      submitLabel: 'Submit approval',
+    })).toEqual({
+      providerType: 'beads_form',
+      artifactKind: 'form',
+      artifactId: 'run-1:visit-1:approval',
+      durableRef: 'beads-form://workflow/run-1%3Avisit-1%3Aapproval',
+      metadata: { title: 'Approve plan', submitLabel: 'Submit approval' },
+    });
   });
 
   it('compiles media galleries without adding submission controls', () => {

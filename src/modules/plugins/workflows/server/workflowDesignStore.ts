@@ -660,7 +660,9 @@ function appendAdditionalInstructionsToDefinition(
   for (const state of Object.values(cloned.states)) {
     if ('terminal' in state) continue;
     for (const step of state.steps) {
-      step.prompt = { template: appendBlock(step.prompt.template, block) };
+      if (step.type === 'agent_turn') {
+        step.prompt = { template: appendBlock(step.prompt.template, block) };
+      }
     }
   }
   return cloned;

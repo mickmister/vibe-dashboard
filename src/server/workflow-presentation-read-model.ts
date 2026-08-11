@@ -70,7 +70,8 @@ export async function buildWorkflowPresentationModel(args: {
   const latestAttention = activeAttention ?? attentionItems.items[0] ?? null;
   const definition = asRecord(instance.state)?.definition;
   const workflowName = stringFrom(asRecord(definition)?.name) ?? humanizeWorkflowId(instance.workflowId);
-  const originalTask = stringFrom(asRecord(instance.input)?.task) ?? null;
+  const inputRecord = asRecord(instance.input);
+  const originalTask = stringFrom(inputRecord?.task) ?? stringFrom(inputRecord?.featureRequest) ?? null;
   const resolvedRoles = readResolvedRoles(steps.find((step) => step.stepKey === 'resolve_sessions')?.output);
   const source = await buildAgentTurnItem({
     role: 'Implementer',

@@ -60,7 +60,7 @@ export interface RegisterWorkflowRoutesOptions {
   workflowWebhookProvisioningStore?: Pick<DbWorkflowWebhookProvisioningStore, 'getSecret' | 'getPublicState'>;
   workflowDesignStore?: DbWorkflowDesignStore;
   workflowHomeDb?: Kysely<DB>;
-  persistedWorkflowRuntime?: Pick<PersistedWorkflowRuntimeService, 'launch'>;
+  persistedWorkflowRuntime?: Pick<PersistedWorkflowRuntimeService, 'launch' | 'completeHumanForm'>;
   vkClient?: Partial<Pick<VibeKanbanServerClient, 'getExecutionProcessFinalMessage' | 'getExecutionProcessRepoStates' | 'getSessions' | 'getSession' | 'createSession' | 'queueFollowUp'>>;
   vkWorkflowWebhookSecret?: string;
   githubWebhookSecret?: string;
@@ -404,6 +404,17 @@ export function registerWorkflowRoutes(
         stateVisitId: asString(body.stateVisitId),
         submission: body.submission ?? {},
       });
+      if (result.applied && result.attention.instanceId) {
+        const db = options.workflowHomeDb ?? (await getVdDb()).db;
+        const designStore = options.workflowDesignStore ?? new DbWorkflowDesignStore({ db });
+        const runtime = await resolvePersistedWorkflowRuntime(options, db, designStore);
+        await runtime?.completeHumanForm({
+          runId: result.attention.instanceId,
+          turnId: result.attention.attentionItemId.startsWith('attention-') ? result.attention.attentionItemId.slice('attention-'.length) : result.attention.stepId,
+          responseRef: result.attention.attentionItemId,
+          submission: asRecord(body.submission) ?? {},
+        }).catch(() => null);
+      }
       const status = result.reason === 'invalid_submission' || result.reason === 'stale_state_visit' ? 400 : 200;
       return c.json({ result }, status);
     } catch (error) {
@@ -813,12 +824,13 @@ function normalizeRoleBindings(input: Record<string, unknown>): Record<string, W
   return bindings;
 }
 
-async function resolvePersistedWorkflowRuntime(options: RegisterWorkflowRoutesOptions, db: Kysely<DB>, designStore: DbWorkflowDesignStore): Promise<Pick<PersistedWorkflowRuntimeService, 'launch'> | null> {
+async function resolvePersistedWorkflowRuntime(options: RegisterWorkflowRoutesOptions, db: Kysely<DB>, designStore: DbWorkflowDesignStore): Promise<Pick<PersistedWorkflowRuntimeService, 'launch' | 'completeHumanForm'> | null> {
   if (options.persistedWorkflowRuntime) return options.persistedWorkflowRuntime;
   if (!options.vkClient?.queueFollowUp) return null;
   return new PersistedWorkflowRuntimeService({
     db,
     designStore,
+    orchestrationStore: options.workflowOrchestrationStore,
     queue: {
       queueAgentTurn: async (request) => {
         const queued = await options.vkClient!.queueFollowUp!(request.sessionId, request.prompt, { source: 'workflow' });

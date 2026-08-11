@@ -62,6 +62,33 @@ describe('WorkflowPresentationView', () => {
     for (const term of forbiddenDebugTerms) {
       expect(attentionHtml).not.toContain(term);
     }
+
+    const answeredHtml = renderToStaticMarkup(React.createElement(WorkflowPresentationView, {
+      presentation: {
+        ...presentationFixture(),
+        humanStatus: 'resolved',
+        attention: { title: 'Answer planning questions', description: null, formRef: 'beads-form://attention', status: 'resolved' },
+        timeline: [
+          ...presentationFixture().timeline,
+          {
+            id: 'human-attention',
+            role: 'User',
+            title: 'Answer planning questions',
+            status: 'Answered',
+            session: null,
+            initialMessage: null,
+            finalResponse: { text: 'approved: true', truncated: false, maxChars: null },
+            responseUnavailable: null,
+            commits: [],
+          },
+        ],
+      },
+      error: null,
+      loading: false,
+      onRefresh: () => {},
+    }));
+    expect(answeredHtml).toContain('Answered');
+    expect(answeredHtml).toContain('approved: true');
   });
 });
 

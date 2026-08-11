@@ -6,6 +6,7 @@ import {
   normalizeWorkflowDefinitionV1,
   planNextWorkflowEffect,
   type AgentWorkflowDefinitionV1,
+  type AgentWorkflowStepV1,
   type DecisionResponseValidator,
   type NormalizedWorkflowState,
   type WorkflowRuntimeSnapshot,
@@ -31,7 +32,7 @@ function activeNormalizedState(
 
 function decisionResponse(definition: AgentWorkflowDefinitionV1, stateId = 'devImplementing') {
   const step = activeAuthoredState(definition, stateId).steps.find(
-    (candidate) => candidate.turnType === 'decision',
+    (candidate): candidate is AgentWorkflowStepV1 => candidate.type === 'agent_turn' && candidate.turnType === 'decision',
   );
   if (!step?.response) {
     throw new Error(`Expected decision response policy for ${stateId}`);
@@ -145,6 +146,53 @@ function makeDefinition(): AgentWorkflowDefinitionV1 {
       },
       done: { terminal: true },
     },
+  };
+}
+
+function makeHumanFormDefinition(): AgentWorkflowDefinitionV1 {
+  return {
+    schemaVersion: 1,
+    name: 'human-form-core',
+    roles: { dev: { label: 'Dev' } },
+    initialState: 'approval',
+    states: {
+      approval: {
+        owner: 'dev',
+        steps: [
+          {
+            id: 'approval',
+            type: 'human_form',
+            title: 'Approve plan',
+            form: { providerType: 'beads_form', formSchema: { fields: { approved: { required: true } } } },
+          },
+          {
+            id: 'decide',
+            type: 'agent_turn',
+            turnType: 'decision',
+            prompt: { template: 'Approved: {{human.approval.approved}}' },
+            response: decisionPolicy(),
+          },
+        ],
+        actions: { done: { targetState: 'done' } },
+      },
+      done: { terminal: true },
+    },
+  };
+}
+
+function decisionPolicy() {
+  return {
+    format: 'xml' as const,
+    schema: { format: 'xsd' as const, source: 'state_actions' as const },
+    invalidXmlRetry: {
+      maxAttempts: 1,
+      prompt: 'engine_default_with_validation_errors' as const,
+      onExhausted: 'blocked' as const,
+    },
+    storeRawXml: true,
+    rawXmlMaxChars: 20,
+    storeParsedFields: true,
+    unknownFields: 'reject_unless_allowed_by_result_contract' as const,
   };
 }
 
@@ -304,6 +352,38 @@ describe('agent workflow V1 normalization', () => {
     );
   });
 
+  it('TEST_CASE_M96_1A plans and resumes human_form steps before the final decision turn', () => {
+    const model = normalizeWorkflowDefinitionV1(makeHumanFormDefinition());
+    const snapshot = createInitialWorkflowSnapshot(model, {
+      instanceId: 'instance_human',
+      inputs: {},
+      now: clock(1_000),
+      createId: ids('id-1'),
+    });
+    const planned = planNextWorkflowEffect(model, snapshot, {
+      now: clock(2_000),
+      createId: ids('turn-1'),
+      validator,
+    });
+    expect(planned.effect).toMatchObject({ kind: 'create_human_form', stepId: 'approval', title: 'Approve plan' });
+
+    const advanced = advanceWorkflow(model, planned.snapshot, {
+      kind: 'human_form_completed',
+      turnId: planned.effect.kind === 'create_human_form' ? planned.effect.turnId : 'missing',
+      responseRef: 'attention-1',
+      submission: { approved: true },
+    }, {
+      now: clock(3_000),
+      createId: ids('after-1'),
+      validator,
+    });
+
+    expect(advanced.effect).toMatchObject({ kind: 'send_agent_turn', stepId: 'decide', prompt: 'Approved: true' });
+    expect(advanced.snapshot.history).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'human_form_completed', submission: { approved: true } }),
+    ]));
+  });
+
   it('TEST_CASE_M83_1B enforces strict active-state decision invariants', () => {
     const invalidState = (state: unknown, path: string) => {
       expectDefinitionError(
@@ -335,7 +415,7 @@ describe('agent workflow V1 normalization', () => {
     );
 
     const model = normalizeWorkflowDefinitionV1(makeDefinition());
-    expect(activeNormalizedState(model.states.devImplementing).steps.map((step) => step.turnType)).toEqual([
+    expect(activeNormalizedState(model.states.devImplementing).steps.filter((step) => step.type === 'agent_turn').map((step) => step.turnType)).toEqual([
       'non_decision',
       'decision',
     ]);

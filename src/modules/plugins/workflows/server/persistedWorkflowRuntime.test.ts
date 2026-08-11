@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { initVdDb, type VdDbHandle } from '../../../../server/database';
+import { DbWorkflowOrchestrationStore } from '../../../../server/workflow-orchestration-store';
 import { DbWorkflowDesignStore } from './workflowDesignStore';
 import { PersistedWorkflowRuntimeError, PersistedWorkflowRuntimeService, type WorkflowQueueAgentTurnRequest } from './persistedWorkflowRuntime';
 
@@ -166,6 +167,65 @@ describe('PersistedWorkflowRuntimeService M93', () => {
     const publishedVersion = await designStore.getVersion('design.prompts', 1);
     expect(promptText(publishedVersion?.resolvedDefinition)).not.toContain('Keep this run small.');
   });
+
+  it('TEST_CASE_M96_1A creates durable human form attention and resumes after one valid submission', async () => {
+    const { runtime, queued, orchestrationStore } = await createRuntime({ withAttention: true });
+    await publishWorkflow('design.human', makeHumanFormWorkflow());
+
+    const launched = await runtime.launch({
+      runId: 'run-human',
+      runSnapshotId: 'snapshot-human',
+      designId: 'design.human',
+      workspaceId: 'workspace-a',
+      inputs: {},
+      roleBindings: { dev: { sessionId: 'session-dev' } },
+    });
+
+    expect(launched.coreSnapshot.waitingFor).toMatchObject({ kind: 'human_form', stepId: 'approval' });
+    const humanTurnId = launched.coreSnapshot.waitingFor?.turnId ?? 'missing-turn';
+    const humanVisitId = launched.coreSnapshot.visitId;
+    const attentionId = `attention-${humanTurnId}`;
+    const attention = await orchestrationStore.getAttentionItem(attentionId);
+    expect(attention).toMatchObject({
+      status: 'active',
+      title: 'Approve implementation plan',
+      formRef: `beads-form://workflow/${encodeURIComponent(`run-human:${humanVisitId}:approval`)}`,
+      formSchema: { fields: { approved: { required: true } } },
+      presentationUrl: '/dashboard/workflows/run-human',
+    });
+
+    const duplicateReady = await runtime.runReady('run-human');
+    expect(duplicateReady.events.filter((entry) => entry.kind === 'human_form_created')).toHaveLength(1);
+
+    const invalid = await orchestrationStore.completeHumanAttention({ attentionItemId: attentionId, stateVisitId: humanVisitId, submission: {} });
+    expect(invalid).toMatchObject({ applied: false, reason: 'invalid_submission' });
+
+    const completedAttention = await orchestrationStore.completeHumanAttention({
+      attentionItemId: attentionId,
+      stateVisitId: humanVisitId,
+      submission: { approved: true, remarks: 'Ship it.' },
+    });
+    expect(completedAttention).toMatchObject({ applied: true, reason: 'applied', attention: { status: 'resolved' } });
+
+    const resumed = await runtime.completeHumanForm({
+      runId: 'run-human',
+      turnId: humanTurnId,
+      responseRef: attentionId,
+      submission: { approved: true, remarks: 'Ship it.' },
+    });
+    expect(resumed).toMatchObject({ applied: true, reason: 'applied' });
+    expect(queued).toHaveLength(1);
+    expect(queuedAt(queued, 0).prompt).toContain('Human approval: true');
+
+    const duplicate = await runtime.completeHumanForm({
+      runId: 'run-human',
+      turnId: humanTurnId,
+      responseRef: `${attentionId}-duplicate`,
+      submission: { approved: false },
+    });
+    expect(duplicate).toMatchObject({ applied: false, reason: 'duplicate' });
+    expect(queued).toHaveLength(1);
+  });
 });
 
 let designStore: DbWorkflowDesignStore;
@@ -185,10 +245,11 @@ function promptText(definition: unknown): string {
   return (dev.steps[0] as { prompt?: { template?: string } } | undefined)?.prompt?.template ?? '';
 }
 
-async function createRuntime() {
+async function createRuntime(options: { withAttention?: boolean } = {}) {
   const handle = await initVdDb({ path: ':memory:' });
   handles.push(handle);
   designStore = new DbWorkflowDesignStore({ db: handle.db, now: (() => { let value = 1_000; return () => value++; })() });
+  const orchestrationStore = new DbWorkflowOrchestrationStore({ db: handle.db, now: (() => { let value = 3_000; return () => value++; })() });
   const queued: WorkflowQueueAgentTurnRequest[] = [];
   const queue = {
     failNext: false,
@@ -206,10 +267,11 @@ async function createRuntime() {
     db: handle.db,
     designStore,
     queue,
+    orchestrationStore: options.withAttention ? orchestrationStore : undefined,
     now: (() => { let value = 2_000; return () => value++; })(),
     createId: () => `id-${id++}`,
   });
-  return { handle, runtime, queued, queue };
+  return { handle, runtime, queued, queue, orchestrationStore };
 }
 
 async function publishWorkflow(designId: string, definition: unknown) {
@@ -286,6 +348,42 @@ function makePromptWorkflow() {
           prompt: { refs: [{ kind: 'prompt', id: 'prompt.one', version: 1 }, { kind: 'prompt', id: 'prompt.two', version: 1 }], template: 'Inline prompt for {{inputs.featureRequest}}.' },
           response: decisionResponsePolicy(1),
         }],
+        actions: { done: { targetState: 'done' } },
+      },
+      done: { terminal: true },
+    },
+  };
+}
+
+function makeHumanFormWorkflow() {
+  return {
+    schemaVersion: 1,
+    name: 'human-form-workflow',
+    roles: { dev: { label: 'Dev' } },
+    initialState: 'approval',
+    states: {
+      approval: {
+        owner: 'dev',
+        steps: [
+          {
+            id: 'approval',
+            type: 'human_form',
+            title: 'Approve implementation plan',
+            description: 'Review the plan before the agent continues.',
+            form: {
+              providerType: 'beads_form',
+              formSchema: { fields: { approved: { required: true }, remarks: { required: false } } },
+              submitLabel: 'Submit approval',
+            },
+          },
+          {
+            id: 'afterApproval',
+            type: 'agent_turn',
+            turnType: 'decision',
+            prompt: { template: 'Human approval: {{human.approval.approved}}. Remarks: {{human.approval.remarks}}' },
+            response: decisionResponsePolicy(1),
+          },
+        ],
         actions: { done: { targetState: 'done' } },
       },
       done: { terminal: true },

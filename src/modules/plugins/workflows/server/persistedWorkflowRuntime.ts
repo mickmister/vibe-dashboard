@@ -7,6 +7,7 @@ import {
   type AgentTurnObservation,
   type DecisionResponseValidator,
   type DecisionValidationResult,
+  type HumanFormObservation,
   type NormalizedAgentWorkflowModel,
   type NormalizedWorkflowAction,
   type WorkflowAdvanceResult,
@@ -15,6 +16,8 @@ import {
   type WorkflowRuntimeSnapshot,
 } from '@vibe-dashboard/workflow-core';
 import type { DB, WorkflowPersistedRun, WorkflowPersistedRunStatus } from '../../../../store/kysely_types';
+import type { DbWorkflowOrchestrationStore } from '../../../../server/workflow-orchestration-store';
+import { WorkflowExtensionRegistry, createDefaultWorkflowExtensionRegistry } from '../extensions/workflowExtensionRegistry';
 import { DbWorkflowDesignStore } from './workflowDesignStore';
 
 export interface WorkflowRoleSessionBindingInput {
@@ -46,6 +49,8 @@ export interface PersistedWorkflowRuntimeEvent {
     | 'run_created'
     | 'agent_turn_queued'
     | 'agent_turn_observed'
+    | 'human_form_created'
+    | 'human_form_submitted'
     | 'observation_ignored'
     | 'workflow_status_changed'
     | 'queue_failed';
@@ -90,11 +95,15 @@ export class PersistedWorkflowRuntimeService {
   private readonly now: () => number;
   private readonly createId: () => string;
   private readonly validator: DecisionResponseValidator;
+  private readonly orchestrationStore?: DbWorkflowOrchestrationStore;
+  private readonly extensionRegistry: WorkflowExtensionRegistry;
 
   constructor(options: {
     db: Kysely<DB>;
     designStore?: DbWorkflowDesignStore;
     queue: PersistedWorkflowRuntimeQueue;
+    orchestrationStore?: DbWorkflowOrchestrationStore;
+    extensionRegistry?: WorkflowExtensionRegistry;
     now?: () => number;
     createId?: () => string;
     validator?: DecisionResponseValidator;
@@ -105,6 +114,8 @@ export class PersistedWorkflowRuntimeService {
     this.now = options.now ?? Date.now;
     this.createId = options.createId ?? (() => `workflow_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`);
     this.validator = options.validator ?? new SimpleWorkflowXmlDecisionValidator();
+    this.orchestrationStore = options.orchestrationStore;
+    this.extensionRegistry = options.extensionRegistry ?? createDefaultWorkflowExtensionRegistry();
   }
 
   async launch(input: {
@@ -178,10 +189,48 @@ export class PersistedWorkflowRuntimeService {
   async runReady(runId: string): Promise<PersistedWorkflowRunReadModel> {
     const run = await this.getRequiredRun(runId);
     if (run.coreSnapshot.status !== 'running') return run;
-    if (run.coreSnapshot.waitingFor) return run;
+    if (run.coreSnapshot.waitingFor) {
+      if (run.coreSnapshot.waitingFor.kind === 'human_form') {
+        const state = run.coreModel.states[run.coreSnapshot.waitingFor.state];
+        const step = state && !state.terminal ? state.steps.find((candidate) => candidate.id === run.coreSnapshot.waitingFor?.stepId) : null;
+        if (step?.type === 'human_form') {
+          return this.createHumanFormEffect(run, {
+            kind: 'create_human_form',
+            state: run.coreSnapshot.waitingFor.state,
+            stepId: step.id,
+            turnId: run.coreSnapshot.waitingFor.turnId,
+            title: step.title,
+            description: step.description,
+            form: step.form,
+          });
+        }
+      }
+      return run;
+    }
 
     const planned = planNextWorkflowEffect(run.coreModel, run.coreSnapshot, this.deps());
     return this.persistPlanResult(run, planned.snapshot, planned.effect);
+  }
+
+  async completeHumanForm(input: { runId: string; turnId: string; responseRef: string; submission: Record<string, unknown> }): Promise<{ applied: boolean; reason: 'applied' | 'duplicate' | 'stale' | 'terminal'; run: PersistedWorkflowRunReadModel }> {
+    const run = await this.getRequiredRun(input.runId);
+    if (run.coreSnapshot.status !== 'running') return { applied: false, reason: 'terminal', run };
+    if (run.coreSnapshot.history.some((entry) => entry.kind === 'human_form_completed' && entry.turnId === input.turnId)) {
+      return { applied: false, reason: 'duplicate', run };
+    }
+    const observation: HumanFormObservation = {
+      kind: 'human_form_completed',
+      turnId: input.turnId,
+      responseRef: input.responseRef,
+      submission: input.submission,
+    };
+    const advanced = advanceWorkflow(run.coreModel, run.coreSnapshot, observation, this.deps());
+    if (advanced.ignored) {
+      const ignoredRun = await this.updateRun(run, run.coreSnapshot, run.pendingEffect, [event('observation_ignored', this.now(), { turnId: input.turnId, reason: advanced.ignored })]);
+      return { applied: false, reason: 'stale', run: ignoredRun };
+    }
+    const persisted = await this.persistAdvanceResult(run, advanced, { turnId: input.turnId, responseRef: input.responseRef }, [], 'human_form_submitted');
+    return { applied: true, reason: 'applied', run: persisted };
   }
 
   async completeAgentTurn(input: { runId: string; turnId: string; responseRef: string; finalResponseText?: string }): Promise<{ applied: boolean; reason: 'applied' | 'duplicate' | 'stale' | 'terminal'; run: PersistedWorkflowRunReadModel }> {
@@ -215,15 +264,18 @@ export class PersistedWorkflowRuntimeService {
     previous: PersistedWorkflowRunReadModel,
     advanced: WorkflowAdvanceResult,
     observation: { turnId: string; responseRef: string },
+    extraEvents: PersistedWorkflowRuntimeEvent[] = [],
+    observedKind: PersistedWorkflowRuntimeEvent['kind'] = 'agent_turn_observed',
   ): Promise<PersistedWorkflowRunReadModel> {
-    const observed = event('agent_turn_observed', this.now(), { turnId: observation.turnId, responseRef: observation.responseRef });
+    const observed = event(observedKind, this.now(), { turnId: observation.turnId, responseRef: observation.responseRef });
     const statusChanged = previous.coreSnapshot.status !== advanced.snapshot.status
       ? [event('workflow_status_changed', this.now(), { from: previous.coreSnapshot.status, to: advanced.snapshot.status })]
       : [];
-    const withObservation = await this.updateRun(previous, advanced.snapshot, advanced.effect, [observed, ...statusChanged]);
+    const withObservation = await this.updateRun(previous, advanced.snapshot, advanced.effect, [...extraEvents, observed, ...statusChanged]);
     if (advanced.effect.kind === 'send_agent_turn') {
       return this.queueEffect(withObservation, advanced.effect);
     }
+    if (advanced.effect.kind === 'create_human_form') return this.createHumanFormEffect(withObservation, advanced.effect);
     return withObservation;
   }
 
@@ -234,7 +286,75 @@ export class PersistedWorkflowRuntimeService {
   ): Promise<PersistedWorkflowRunReadModel> {
     const planned = await this.updateRun(previous, snapshot, effect, []);
     if (effect.kind === 'send_agent_turn') return this.queueEffect(planned, effect);
+    if (effect.kind === 'create_human_form') return this.createHumanFormEffect(planned, effect);
     return planned;
+  }
+
+  private async createHumanFormEffect(run: PersistedWorkflowRunReadModel, effect: Extract<WorkflowPlanEffect, { kind: 'create_human_form' }>): Promise<PersistedWorkflowRunReadModel> {
+    if (!this.orchestrationStore) return run;
+    const idempotencyKey = `${run.runId}:${run.coreSnapshot.visitId}:${effect.stepId}`;
+    const artifact = await this.extensionRegistry.createArtifact({
+      providerType: effect.form.providerType,
+      artifactKind: 'form',
+      idempotencyKey,
+      input: {
+        title: effect.title,
+        descriptionMarkdown: effect.description,
+        formSchema: effect.form.formSchema,
+        submitLabel: effect.form.submitLabel,
+      },
+    }, {
+      run: {
+        runId: run.runId,
+        workspaceId: run.workspaceId,
+        stateId: effect.state,
+        visitId: run.coreSnapshot.visitId,
+      },
+    });
+    await this.ensureMirrorHumanInstance(run, effect, artifact.artifactRef.durableRef);
+    const attention = await this.orchestrationStore.createHumanAttention({
+      attentionItemId: `attention-${effect.turnId}`,
+      instanceId: run.runId,
+      stepStateId: `${run.runId}-${effect.turnId}`,
+      stepKey: effect.stepId,
+      stateId: effect.state,
+      stateVisitId: run.coreSnapshot.visitId,
+      idempotencyKey,
+      title: effect.title,
+      description: effect.description ?? null,
+      presentationUrl: `/dashboard/workflows/${run.runId}`,
+      formRef: artifact.artifactRef.durableRef,
+      formSchema: effect.form.formSchema,
+    });
+    return this.updateRun(run, run.coreSnapshot, effect, attention.created ? [event('human_form_created', this.now(), { turnId: effect.turnId, attentionItemId: attention.item.attentionItemId, formRef: artifact.artifactRef.durableRef })] : []);
+  }
+
+  private async ensureMirrorHumanInstance(run: PersistedWorkflowRunReadModel, effect: Extract<WorkflowPlanEffect, { kind: 'create_human_form' }>, formRef: string): Promise<void> {
+    if (!this.orchestrationStore) return;
+    const existing = await this.orchestrationStore.getInstance(run.runId);
+    if (!existing) {
+      await this.orchestrationStore.createInstance({
+        instanceId: run.runId,
+        workflowId: run.coreModel.workflowId,
+        trigger: 'workflow_run',
+        input: { ...run.coreSnapshot.inputs, workspaceId: run.workspaceId },
+        state: { definition: { name: run.coreModel.name }, persistedWorkflowRunId: run.runId },
+      });
+      await this.orchestrationStore.startInstance(run.runId, { currentStepId: effect.stepId });
+    } else if (existing.status !== 'running') {
+      return;
+    }
+    const stepStateId = `${run.runId}-${effect.turnId}`;
+    const existingSteps = await this.orchestrationStore.listStepStates(run.runId);
+    if (!existingSteps.some((step) => step.id === stepStateId)) {
+      await this.orchestrationStore.createStepState({
+        id: stepStateId,
+        instanceId: run.runId,
+        stepKey: effect.stepId,
+        input: { title: effect.title, description: effect.description ?? null, formRef },
+      });
+      await this.orchestrationStore.markStepRunning(stepStateId);
+    }
   }
 
   private async queueEffect(run: PersistedWorkflowRunReadModel, effect: Extract<WorkflowPlanEffect, { kind: 'send_agent_turn' }>): Promise<PersistedWorkflowRunReadModel> {

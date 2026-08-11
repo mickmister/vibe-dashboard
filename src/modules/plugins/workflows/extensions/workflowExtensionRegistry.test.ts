@@ -35,7 +35,8 @@ describe('WorkflowExtensionRegistry M92 foundation', () => {
   });
 
   it('TEST_CASE_M92_1B creates artifact refs without handing providers mutable workflow state', async () => {
-    const registry = createDefaultWorkflowExtensionRegistry();
+    const registry = new WorkflowExtensionRegistry();
+    registry.registerStepProvider({ type: 'agent_turn', label: 'Agent turn' });
     registry.registerArtifactProvider({
       providerType: 'beads_form',
       label: 'Beads form',
@@ -111,7 +112,8 @@ describe('WorkflowExtensionRegistry M92 foundation', () => {
   });
 
   it('TEST_CASE_M92_1C keeps markdown skill refs separate from executable providers', async () => {
-    const registry = createDefaultWorkflowExtensionRegistry();
+    const registry = new WorkflowExtensionRegistry();
+    registry.registerStepProvider({ type: 'agent_turn', label: 'Agent turn' });
     const calls: string[] = [];
     registry.registerStepProvider({
       type: 'human_form',
@@ -138,6 +140,12 @@ describe('WorkflowExtensionRegistry M92 foundation', () => {
         message: 'unknown workflow step provider skill.testing.notes',
       },
     ]);
+  });
+
+  it('TEST_CASE_M96_1A registers the supported human_form and beads_form providers by default', () => {
+    const registry = createDefaultWorkflowExtensionRegistry();
+    expect(registry.validateWorkflowConfig(workflowWithHumanFormStep())).toEqual([]);
+    expect(registry.getArtifactProvider('beads_form')).toMatchObject({ label: 'Beads form' });
   });
 });
 
@@ -188,6 +196,28 @@ function workflowWithSkillPromptRef() {
               template: 'Use this as markdown only.',
             },
           },
+        ],
+      },
+    },
+  };
+}
+
+function workflowWithHumanFormStep() {
+  const workflow = workflowWithStepType('agent_turn');
+  return {
+    ...workflow,
+    states: {
+      ...workflow.states,
+      dev: {
+        ...workflow.states.dev,
+        steps: [
+          {
+            id: 'approval',
+            type: 'human_form',
+            title: 'Approve plan',
+            form: { providerType: 'beads_form', formSchema: { fields: { approved: { required: true } } } },
+          },
+          workflow.states.dev.steps[0],
         ],
       },
     },

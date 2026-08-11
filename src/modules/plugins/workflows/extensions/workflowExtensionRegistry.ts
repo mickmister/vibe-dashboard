@@ -1,3 +1,5 @@
+import { createBeadsFormWorkflowArtifactRef } from '@vibe-dashboard/beads-form';
+
 export type WorkflowExtensionIssueCode =
   | 'WORKFLOW_EXTENSION_DUPLICATE_PROVIDER'
   | 'WORKFLOW_EXTENSION_UNKNOWN_STEP_PROVIDER'
@@ -231,7 +233,49 @@ export function createDefaultWorkflowExtensionRegistry(): WorkflowExtensionRegis
     label: 'Agent turn',
     description: 'Built-in workflow-core agent turn step provider.',
   });
+  registry.registerStepProvider({
+    type: 'human_form',
+    label: 'Human form',
+    description: 'Beads-form-backed human attention workflow step.',
+    validateStep(step, context) {
+      const record = isRecord(step) ? step : {};
+      const issues: WorkflowExtensionIssue[] = [];
+      if (typeof record.title !== 'string' || !record.title.trim()) {
+        issues.push({ code: 'WORKFLOW_EXTENSION_PROVIDER_ERROR', path: `${context.path}.title`, message: 'human_form title is required' });
+      }
+      const form = isRecord(record.form) ? record.form : null;
+      if (!form || form.providerType !== 'beads_form') {
+        issues.push({ code: 'WORKFLOW_EXTENSION_UNKNOWN_ARTIFACT_PROVIDER', path: `${context.path}.form.providerType`, message: 'human_form providerType must be beads_form' });
+      }
+      return issues;
+    },
+  });
+  registry.registerArtifactProvider(createBeadsFormArtifactProvider());
   return registry;
+}
+
+export function createBeadsFormArtifactProvider(): WorkflowArtifactProvider {
+  return {
+    providerType: 'beads_form',
+    label: 'Beads form',
+    description: 'First-party beads-form workflow artifact provider.',
+    async createArtifact(request) {
+      const input = isRecord(request.input) ? request.input : {};
+      const title = typeof input.title === 'string' && input.title.trim() ? input.title : 'Workflow form';
+      const artifactRef = createBeadsFormWorkflowArtifactRef({
+        idempotencyKey: request.idempotencyKey,
+        title,
+        formSchema: input.formSchema,
+        submitLabel: typeof input.submitLabel === 'string' ? input.submitLabel : undefined,
+      });
+      return {
+        artifactRef: {
+          ...artifactRef,
+          metadata: artifactRef.metadata,
+        },
+      };
+    },
+  };
 }
 
 function assertProviderType(type: string, label: string): void {

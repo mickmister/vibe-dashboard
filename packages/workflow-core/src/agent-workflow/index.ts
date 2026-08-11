@@ -66,11 +66,25 @@ export type AgentWorkflowStepV1 = {
   response?: DecisionResponsePolicyV1;
 };
 
+export type HumanFormWorkflowStepV1 = {
+  id: WorkflowStepId;
+  type: 'human_form';
+  title: string;
+  description?: string;
+  form: {
+    providerType: 'beads_form';
+    formSchema: unknown;
+    submitLabel?: string;
+  };
+};
+
+export type WorkflowStepV1 = AgentWorkflowStepV1 | HumanFormWorkflowStepV1;
+
 export type AuthoredWorkflowStateV1 =
   | { terminal: true }
   | {
       owner: WorkflowRoleId;
-      steps: AgentWorkflowStepV1[];
+      steps: WorkflowStepV1[];
       actions: Record<WorkflowActionId, WorkflowActionV1>;
     };
 
@@ -106,7 +120,7 @@ export type NormalizedWorkflowState =
       id: WorkflowStateId;
       terminal: false;
       owner: WorkflowRoleId;
-      steps: AgentWorkflowStepV1[];
+      steps: WorkflowStepV1[];
       actions: Record<WorkflowActionId, NormalizedWorkflowAction>;
     };
 
@@ -159,7 +173,7 @@ export type WorkflowRuntimeSnapshot = {
   visitId: string;
   inputs: Record<string, unknown>;
   waitingFor?: {
-    kind: 'agent_turn';
+    kind: 'agent_turn' | 'human_form';
     state: WorkflowStateId;
     stepId: WorkflowStepId;
     turnId: string;
@@ -209,6 +223,23 @@ export type WorkflowHistoryEntry =
       responseRef: string;
     }
   | {
+      kind: 'human_form_planned';
+      at: number;
+      state: WorkflowStateId;
+      stepId: WorkflowStepId;
+      turnId: string;
+      title: string;
+    }
+  | {
+      kind: 'human_form_completed';
+      at: number;
+      state: WorkflowStateId;
+      stepId: WorkflowStepId;
+      turnId: string;
+      responseRef: string;
+      submission: Record<string, unknown>;
+    }
+  | {
       kind: 'decision_validation_failed';
       at: number;
       state: WorkflowStateId;
@@ -251,6 +282,15 @@ export interface AgentTurnObservation {
   finalResponseText?: string;
 }
 
+export interface HumanFormObservation {
+  kind: 'human_form_completed';
+  turnId: string;
+  responseRef: string;
+  submission: Record<string, unknown>;
+}
+
+export type WorkflowObservation = AgentTurnObservation | HumanFormObservation;
+
 export type WorkflowPlanEffect =
   | {
       kind: 'send_agent_turn';
@@ -259,6 +299,15 @@ export type WorkflowPlanEffect =
       stepId: WorkflowStepId;
       turnId: string;
       prompt: string;
+    }
+  | {
+      kind: 'create_human_form';
+      state: WorkflowStateId;
+      stepId: WorkflowStepId;
+      turnId: string;
+      title: string;
+      description?: string;
+      form: HumanFormWorkflowStepV1['form'];
     }
   | { kind: 'none' };
 
@@ -363,7 +412,7 @@ export function normalizeWorkflowDefinitionV1(
         issues.push(issue('WORKFLOW_CONFIG_INVALID_ACTIVE_STATE', `states.${stateId}.actions`, 'actions must be non-empty'));
       }
 
-      const normalizedSteps: AgentWorkflowStepV1[] = [];
+      const normalizedSteps: WorkflowStepV1[] = [];
       if (Array.isArray(steps)) {
         let decisionCount = 0;
         steps.forEach((step, index) => {
@@ -372,27 +421,34 @@ export function normalizeWorkflowDefinitionV1(
             issues.push(issue('WORKFLOW_CONFIG_INVALID_STEP', path, 'step must be an object'));
             return;
           }
-          assertKnownKeys(step, ['id', 'type', 'turnType', 'prompt', 'response'], path, issues);
           if (typeof step.id !== 'string') {
             issues.push(issue('WORKFLOW_CONFIG_INVALID_STEP', `${path}.id`, 'step id is required'));
           }
-          if (step.type !== 'agent_turn') {
-            issues.push(issue('WORKFLOW_CONFIG_INVALID_STEP', `${path}.type`, 'only agent_turn is supported in V1'));
-          }
-          if (step.turnType !== 'non_decision' && step.turnType !== 'decision') {
-            issues.push(issue('WORKFLOW_CONFIG_INVALID_STEP', `${path}.turnType`, 'turnType must be non_decision or decision'));
-          }
-          if (step.turnType === 'decision') {
-            decisionCount += 1;
-            if (index !== steps.length - 1) {
-              issues.push(issue('WORKFLOW_CONFIG_INVALID_ACTIVE_STATE', path, 'decision step must be final'));
+          if (step.type === 'agent_turn') {
+            assertKnownKeys(step, ['id', 'type', 'turnType', 'prompt', 'response'], path, issues);
+            if (step.turnType !== 'non_decision' && step.turnType !== 'decision') {
+              issues.push(issue('WORKFLOW_CONFIG_INVALID_STEP', `${path}.turnType`, 'turnType must be non_decision or decision'));
             }
+            if (step.turnType === 'decision') {
+              decisionCount += 1;
+              if (index !== steps.length - 1) {
+                issues.push(issue('WORKFLOW_CONFIG_INVALID_ACTIVE_STATE', path, 'decision step must be final'));
+              }
+            }
+            validatePrompt(step.prompt, `${path}.prompt`, issues);
+            if (step.turnType === 'decision') {
+              validateDecisionResponse(step.response, `${path}.response`, issues);
+            }
+          } else if (step.type === 'human_form') {
+            assertKnownKeys(step, ['id', 'type', 'title', 'description', 'form'], path, issues);
+            validateHumanFormStep(step, path, issues);
+            if (index === steps.length - 1) {
+              issues.push(issue('WORKFLOW_CONFIG_INVALID_ACTIVE_STATE', path, 'human_form step must be followed by a final decision step in V1'));
+            }
+          } else {
+            issues.push(issue('WORKFLOW_CONFIG_INVALID_STEP', `${path}.type`, 'only agent_turn and human_form are supported in V1'));
           }
-          validatePrompt(step.prompt, `${path}.prompt`, issues);
-          if (step.turnType === 'decision') {
-            validateDecisionResponse(step.response, `${path}.response`, issues);
-          }
-          normalizedSteps.push(deepClone(step as AgentWorkflowStepV1));
+          normalizedSteps.push(deepClone(step as WorkflowStepV1));
         });
         if (decisionCount !== 1) {
           issues.push(issue('WORKFLOW_CONFIG_INVALID_ACTIVE_STATE', `states.${stateId}.steps`, 'active state must have exactly one final decision step'));
@@ -510,6 +566,41 @@ export function planNextWorkflowEffect(
 
   const turnId = deps.createId();
   const at = deps.now();
+  if (step.type === 'human_form') {
+    const planned: WorkflowRuntimeSnapshot = {
+      ...snapshot,
+      waitingFor: {
+        kind: 'human_form',
+        state: state.id,
+        stepId: step.id,
+        turnId,
+      },
+      history: [
+        ...snapshot.history,
+        {
+          kind: 'human_form_planned',
+          at,
+          state: state.id,
+          stepId: step.id,
+          turnId,
+          title: step.title,
+        },
+      ],
+      updatedAt: at,
+    };
+    return {
+      snapshot: planned,
+      effect: {
+        kind: 'create_human_form',
+        state: state.id,
+        stepId: step.id,
+        turnId,
+        title: step.title,
+        description: step.description,
+        form: deepClone(step.form),
+      },
+    };
+  }
   const planned: WorkflowRuntimeSnapshot = {
     ...snapshot,
     waitingFor: cloneWithDefined({
@@ -547,7 +638,7 @@ export function planNextWorkflowEffect(
 export function advanceWorkflow(
   model: NormalizedAgentWorkflowModel,
   snapshot: WorkflowRuntimeSnapshot,
-  observation: AgentTurnObservation,
+  observation: WorkflowObservation,
   deps: WorkflowRuntimeDeps,
 ): WorkflowAdvanceResult {
   if (snapshot.status !== 'running') {
@@ -555,7 +646,7 @@ export function advanceWorkflow(
   }
 
   const waitingFor = snapshot.waitingFor;
-  if (!waitingFor || waitingFor.turnId !== observation.turnId) {
+  if (!waitingFor || waitingFor.turnId !== observation.turnId || waitingFor.kind !== observation.kind.replace('_completed', '')) {
     return {
       snapshot,
       effect: { kind: 'none' },
@@ -571,6 +662,42 @@ export function advanceWorkflow(
   const step = state?.steps[snapshot.currentStepIndex];
   if (!state || !step) {
     return { snapshot, effect: { kind: 'none' } };
+  }
+
+  if (step.type === 'human_form' && observation.kind === 'human_form_completed') {
+    const at = deps.now();
+    const advanced: WorkflowRuntimeSnapshot = {
+      ...snapshot,
+      waitingFor: undefined,
+      currentStepIndex: snapshot.currentStepIndex + 1,
+      history: [
+        ...snapshot.history,
+        {
+          kind: 'human_form_completed',
+          at,
+          state: state.id,
+          stepId: step.id,
+          turnId: observation.turnId,
+          responseRef: observation.responseRef,
+          submission: deepClone(observation.submission),
+        },
+      ],
+      updatedAt: at,
+    };
+    const { snapshot: plannedSnapshot, effect } = planNextWorkflowEffect(model, advanced, deps);
+    return { snapshot: plannedSnapshot, effect };
+  }
+
+  if (step.type !== 'agent_turn' || observation.kind !== 'agent_turn_completed') {
+    return {
+      snapshot,
+      effect: { kind: 'none' },
+      ignored: {
+        code: 'WORKFLOW_STALE_OBSERVATION',
+        path: 'observation.kind',
+        message: 'observation kind does not match the active workflow step',
+      },
+    };
   }
 
   const at = deps.now();
@@ -964,7 +1091,18 @@ function readContextValue(snapshot: WorkflowRuntimeSnapshot, expression: string)
   if (parts[0] === 'transition') {
     return readPath(snapshot.latestTransition, parts.slice(1));
   }
+  if (parts[0] === 'human') {
+    return readPath(readHumanSubmissions(snapshot), parts.slice(1));
+  }
   return undefined;
+}
+
+function readHumanSubmissions(snapshot: WorkflowRuntimeSnapshot): Record<string, Record<string, unknown>> {
+  const submissions: Record<string, Record<string, unknown>> = {};
+  for (const entry of snapshot.history) {
+    if (entry.kind === 'human_form_completed') submissions[entry.stepId] = entry.submission;
+  }
+  return submissions;
 }
 
 function readPath(source: unknown, parts: string[]): unknown {
@@ -994,6 +1132,29 @@ function validatePrompt(value: unknown, path: string, issues: WorkflowConfigIssu
   assertKnownKeys(value, ['template'], path, issues);
   if (typeof value.template !== 'string') {
     issues.push(issue('WORKFLOW_CONFIG_REQUIRED_FIELD', `${path}.template`, 'template is required'));
+  }
+}
+
+function validateHumanFormStep(value: Record<string, unknown>, path: string, issues: WorkflowConfigIssue[]) {
+  if (typeof value.title !== 'string' || !value.title.trim()) {
+    issues.push(issue('WORKFLOW_CONFIG_REQUIRED_FIELD', `${path}.title`, 'human form title is required'));
+  }
+  if (value.description !== undefined && typeof value.description !== 'string') {
+    issues.push(issue('WORKFLOW_CONFIG_INVALID_STEP', `${path}.description`, 'human form description must be a string'));
+  }
+  if (!isRecord(value.form)) {
+    issues.push(issue('WORKFLOW_CONFIG_REQUIRED_FIELD', `${path}.form`, 'human form provider config is required'));
+    return;
+  }
+  assertKnownKeys(value.form, ['providerType', 'formSchema', 'submitLabel'], `${path}.form`, issues);
+  if (value.form.providerType !== 'beads_form') {
+    issues.push(issue('WORKFLOW_CONFIG_INVALID_STEP', `${path}.form.providerType`, 'human form providerType must be beads_form'));
+  }
+  if (value.form.formSchema === undefined) {
+    issues.push(issue('WORKFLOW_CONFIG_REQUIRED_FIELD', `${path}.form.formSchema`, 'human form formSchema is required'));
+  }
+  if (value.form.submitLabel !== undefined && typeof value.form.submitLabel !== 'string') {
+    issues.push(issue('WORKFLOW_CONFIG_INVALID_STEP', `${path}.form.submitLabel`, 'human form submitLabel must be a string'));
   }
 }
 

@@ -108,6 +108,43 @@ describe('buildWorkflowPresentationModel', () => {
     }
   });
 
+  it('includes submitted human form answers as a safe user summary', async () => {
+    const handle = await initVdDb({ path: ':memory:' });
+    try {
+      const store = new DbWorkflowOrchestrationStore({ db: handle.db, now: clock(3500) });
+      await store.createInstance({ instanceId: 'instance_answered', workflowId: 'human-workflow', trigger: 'manual', input: { featureRequest: 'Approve plan' } });
+      await store.createStepState({ id: 'step_answered', instanceId: 'instance_answered', stepKey: 'approval' });
+      await store.startInstance('instance_answered', { currentStepId: 'approval' });
+      await store.markStepRunning('step_answered');
+      await store.createHumanAttention({
+        attentionItemId: 'attention_answered',
+        instanceId: 'instance_answered',
+        stepStateId: 'step_answered',
+        stepKey: 'approval',
+        stateVisitId: 'visit_answered',
+        idempotencyKey: 'instance_answered:visit_answered:approval',
+        title: 'Approve implementation plan',
+        formRef: 'beads-form://attention_answered',
+        formSchema: { fields: { approved: { required: true } } },
+      });
+      await store.completeHumanAttention({ attentionItemId: 'attention_answered', stateVisitId: 'visit_answered', submission: { approved: true, remarks: 'Looks good.' } });
+
+      const model = await buildWorkflowPresentationModel({ store, instanceId: 'instance_answered' });
+
+      expect(model).toMatchObject({ humanStatus: 'resolved', originalTask: 'Approve plan', attention: { status: 'resolved' } });
+      expect(model?.timeline).toEqual([
+        expect.objectContaining({
+          role: 'User',
+          status: 'Answered',
+          finalResponse: { text: 'approved: true\nremarks: Looks good.', truncated: false, maxChars: null },
+        }),
+      ]);
+    } finally {
+      await handle.db.destroy();
+      handle.sqlite.close();
+    }
+  });
+
   it('returns null when the workflow instance does not exist', async () => {
     const handle = await initVdDb({ path: ':memory:' });
     try {

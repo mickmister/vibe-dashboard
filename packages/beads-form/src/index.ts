@@ -411,3 +411,31 @@ function compileNotesTextarea(args: {
   args.controls.push({ id: args.id, name: args.name, type: 'textarea' });
   return `<textarea id="${attr(args.id)}" name="${attr(args.name)}" rows="${args.rows}" aria-label="${attr(args.ariaLabel)}" placeholder="Optional context"></textarea>`;
 }
+
+export interface BeadsFormWorkflowArtifactInput {
+  idempotencyKey: string;
+  title: string;
+  formSchema: unknown;
+  submitLabel?: string;
+}
+
+export interface BeadsFormWorkflowArtifactRef {
+  providerType: 'beads_form';
+  artifactKind: 'form';
+  artifactId: string;
+  durableRef: string;
+  metadata: { title: string; submitLabel?: string };
+}
+
+export function createBeadsFormWorkflowArtifactRef(input: BeadsFormWorkflowArtifactInput): BeadsFormWorkflowArtifactRef {
+  return {
+    providerType: 'beads_form',
+    artifactKind: 'form',
+    artifactId: input.idempotencyKey,
+    durableRef: `beads-form://workflow/${encodeURIComponent(input.idempotencyKey)}`,
+    metadata: {
+      title: input.title,
+      submitLabel: input.submitLabel,
+    },
+  };
+}

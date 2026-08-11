@@ -201,6 +201,66 @@ describe('registerWorkflowRoutes', () => {
     expect(JSON.parse(runRow.roleBindingsJson)).toMatchObject({ dev: { sessionId: 'session-created-1' }, review: { sessionId: 'session-review-reuse' } });
   });
 
+  it('TEST_CASE_M96_1B completes beads-form human attention and resumes persisted workflow once', async () => {
+    const handle = await initVdDb({ path: ':memory:' });
+    dbHandles.push(handle);
+    const app = new Hono();
+    const designStore = new DbWorkflowDesignStore({ db: handle.db });
+    const orchestrationStore = new DbWorkflowOrchestrationStore({ db: handle.db, now: (() => { let value = 9000; return () => value++; })() });
+    await designStore.createDesign({ designId: 'design-human-route', draftId: 'draft-human-route', name: 'Human Route Workflow', definition: routeHumanFormDefinition() });
+    await designStore.publishDraft('draft-human-route');
+    const sessions = [vkSession('session-dev', 'workspace-a', 'Dev')];
+    const queued: Array<{ sessionId: string; prompt: string }> = [];
+    registerWorkflowRoutes(app, {
+      registry: createWorkflowRegistry(),
+      workflowHomeDb: handle.db,
+      workflowDesignStore: designStore,
+      workflowOrchestrationStore: orchestrationStore,
+      vkClient: {
+        getSessions: async () => sessions,
+        getSession: async () => sessions[0]!,
+        queueFollowUp: async (sessionId, prompt) => {
+          queued.push({ sessionId, prompt });
+          return { queued_item: { id: `queue-${queued.length}`, session_id: sessionId, workspace_id: 'workspace-a', status: 'queued', source: 'workflow', priority: 0, data: { message: prompt } }, status: { count: 1, message: null, messages: [], status: 'queued' } };
+        },
+      },
+    });
+
+    const launch = await app.request('/dashboard/api/workflows/launch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workspaceId: 'workspace-a', designId: 'design-human-route', inputs: {}, roleBindings: { dev: { mode: 'existing', sessionId: 'session-dev' } } }),
+    });
+    expect(launch.status).toBe(201);
+    const attention = (await orchestrationStore.listAttentionItems({ status: 'active' })).items[0]!;
+
+    const invalid = await app.request(`/dashboard/api/workflow-attention-items/${attention.attentionItemId}/complete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stateVisitId: attention.stateVisitId, submission: {} }),
+    });
+    expect(invalid.status).toBe(400);
+    await expect(invalid.json()).resolves.toMatchObject({ result: { reason: 'invalid_submission' } });
+
+    const complete = await app.request(`/dashboard/api/workflow-attention-items/${attention.attentionItemId}/complete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stateVisitId: attention.stateVisitId, submission: { approved: true } }),
+    });
+    expect(complete.status).toBe(200);
+    await expect(complete.json()).resolves.toMatchObject({ result: { applied: true, reason: 'applied', attention: { status: 'resolved' } } });
+    expect(queued).toMatchObject([{ sessionId: 'session-dev', prompt: expect.stringContaining('Approved: true') }]);
+
+    const duplicate = await app.request(`/dashboard/api/workflow-attention-items/${attention.attentionItemId}/complete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stateVisitId: attention.stateVisitId, submission: { approved: false } }),
+    });
+    expect(duplicate.status).toBe(200);
+    await expect(duplicate.json()).resolves.toMatchObject({ result: { applied: false, reason: 'attention_not_active' } });
+    expect(queued).toHaveLength(1);
+  });
+
   it('runs workflows by id and returns the workflow run record', async () => {
     const registry = createWorkflowRegistry();
     const workflow = {
@@ -1403,6 +1463,40 @@ function routeLaunchDefinition() {
       dev: {
         owner: 'dev',
         steps: [{ id: 'decide', type: 'agent_turn', turnType: 'decision', prompt: { template: 'Decide {{inputs.featureRequest}}' }, response: { format: 'xml', schema: { format: 'xsd', source: 'state_actions' }, invalidXmlRetry: { maxAttempts: 1, prompt: 'engine_default_with_validation_errors', onExhausted: 'blocked' }, storeRawXml: true, storeParsedFields: true, unknownFields: 'reject_unless_allowed_by_result_contract' } }],
+        actions: { done: { targetState: 'done' } },
+      },
+      done: { terminal: true },
+    },
+  };
+}
+
+function routeHumanFormDefinition() {
+  return {
+    schemaVersion: 1,
+    name: 'Human Route Workflow',
+    roles: { dev: { label: 'Dev' } },
+    initialState: 'human',
+    states: {
+      human: {
+        owner: 'dev',
+        steps: [
+          {
+            id: 'approval',
+            type: 'human_form',
+            title: 'Approve plan',
+            form: {
+              providerType: 'beads_form',
+              formSchema: { fields: { approved: { required: true } } },
+            },
+          },
+          {
+            id: 'continue',
+            type: 'agent_turn',
+            turnType: 'decision',
+            prompt: { template: 'Approved: {{human.approval.approved}}' },
+            response: { format: 'xml', schema: { format: 'xsd', source: 'state_actions' }, invalidXmlRetry: { maxAttempts: 1, prompt: 'engine_default_with_validation_errors', onExhausted: 'blocked' }, storeRawXml: true, storeParsedFields: true, unknownFields: 'reject_unless_allowed_by_result_contract' },
+          },
+        ],
         actions: { done: { targetState: 'done' } },
       },
       done: { terminal: true },
