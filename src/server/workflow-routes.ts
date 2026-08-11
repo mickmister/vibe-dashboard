@@ -46,6 +46,7 @@ import {
   WorkflowWebhookPayloadError,
   WorkflowWebhookSignatureError,
   type DbWorkflowWebhookInboxStore,
+  type WorkflowWebhookEventRefs,
   type WorkflowWebhookWakeup,
 } from './workflow-webhook-inbox';
 
@@ -64,7 +65,7 @@ export interface RegisterWorkflowRoutesOptions {
   workflowWebhookProvisioningStore?: Pick<DbWorkflowWebhookProvisioningStore, 'getSecret' | 'getPublicState'>;
   workflowDesignStore?: DbWorkflowDesignStore;
   workflowHomeDb?: Kysely<DB>;
-  persistedWorkflowRuntime?: Pick<PersistedWorkflowRuntimeService, 'launch' | 'completeHumanForm'>;
+  persistedWorkflowRuntime?: Pick<PersistedWorkflowRuntimeService, 'launch' | 'completeHumanForm' | 'completeAgentTurn'>;
   vkClient?: Partial<Pick<VibeKanbanServerClient, 'getExecutionProcessFinalMessage' | 'getExecutionProcessRepoStates' | 'getSessions' | 'getSession' | 'createSession' | 'queueFollowUp'>>;
   vkWorkflowWebhookSecret?: string;
   githubWebhookSecret?: string;
@@ -272,9 +273,18 @@ export function registerWorkflowRoutes(
         return c.json({ accepted: true, duplicate: true, inbox: inserted.inbox }, 202);
       }
       try {
+        const db = options.workflowHomeDb ?? (await getVdDb()).db;
+        const designStore = options.workflowDesignStore ?? new DbWorkflowDesignStore({ db, templates: BUILT_IN_WORKFLOW_TEMPLATES });
+        const persistedWorkflow = await completePersistedWorkflowTurnFromVkWebhook(options, db, designStore, event);
         const wakeup = await options.workflowWebhookWakeup?.trigger();
         const processed = await store.markProcessed(inserted.inbox.inboxId);
-        return c.json({ accepted: true, duplicate: false, inbox: processed, wakeup: { started: Boolean(wakeup?.started), queued: Boolean(wakeup?.queued), passes: wakeup?.passes ?? null } }, 202);
+        return c.json({
+          accepted: true,
+          duplicate: false,
+          inbox: processed,
+          persistedWorkflow,
+          wakeup: { started: Boolean(wakeup?.started), queued: Boolean(wakeup?.queued), passes: wakeup?.passes ?? null },
+        }, 202);
       } catch (error) {
         const failed = await store.markFailed(inserted.inbox.inboxId, error);
         return c.json({ accepted: true, duplicate: false, inbox: failed, wakeup: { started: true, error: error instanceof Error ? error.message : String(error) } }, 202);
@@ -986,7 +996,7 @@ function normalizeRoleBindings(input: Record<string, unknown>): Record<string, W
   return bindings;
 }
 
-async function resolvePersistedWorkflowRuntime(options: RegisterWorkflowRoutesOptions, db: Kysely<DB>, designStore: DbWorkflowDesignStore): Promise<Pick<PersistedWorkflowRuntimeService, 'launch' | 'completeHumanForm'> | null> {
+async function resolvePersistedWorkflowRuntime(options: RegisterWorkflowRoutesOptions, db: Kysely<DB>, designStore: DbWorkflowDesignStore): Promise<Pick<PersistedWorkflowRuntimeService, 'launch' | 'completeHumanForm' | 'completeAgentTurn'> | null> {
   if (options.persistedWorkflowRuntime) return options.persistedWorkflowRuntime;
   if (!options.vkClient?.queueFollowUp) return null;
   return new PersistedWorkflowRuntimeService({
@@ -1000,6 +1010,75 @@ async function resolvePersistedWorkflowRuntime(options: RegisterWorkflowRoutesOp
       },
     },
   });
+}
+
+interface PersistedWorkflowWebhookCompletion {
+  applied: boolean;
+  reason:
+    | 'applied'
+    | 'duplicate'
+    | 'stale'
+    | 'terminal'
+    | 'not_persisted_workflow_turn'
+    | 'not_completed_event';
+  runId: string | null;
+  turnId: string | null;
+  status: string | null;
+}
+
+async function completePersistedWorkflowTurnFromVkWebhook(
+  options: RegisterWorkflowRoutesOptions,
+  db: Kysely<DB>,
+  designStore: DbWorkflowDesignStore,
+  event: WorkflowWebhookEventRefs,
+): Promise<PersistedWorkflowWebhookCompletion> {
+  if (event.eventStatus !== 'completed') {
+    return { applied: false, reason: 'not_completed_event', runId: null, turnId: null, status: event.eventStatus };
+  }
+  if (!event.queueItemId || !event.executionProcessId) {
+    return { applied: false, reason: 'not_persisted_workflow_turn', runId: null, turnId: null, status: null };
+  }
+  const match = await findPersistedWorkflowTurnByQueueItem(db, event.queueItemId);
+  if (!match) {
+    return { applied: false, reason: 'not_persisted_workflow_turn', runId: null, turnId: null, status: null };
+  }
+  const runtime = await resolvePersistedWorkflowRuntime(options, db, designStore);
+  if (!runtime) {
+    throw new Error(`Persisted workflow runtime is not configured for queued turn ${match.turnId}`);
+  }
+  if (!options.vkClient?.getExecutionProcessFinalMessage) {
+    throw new Error(`VK final-message read model is not configured for queued turn ${match.turnId}`);
+  }
+  const finalResponse = await options.vkClient.getExecutionProcessFinalMessage(event.executionProcessId);
+  const completed = await runtime.completeAgentTurn({
+    runId: match.runId,
+    turnId: match.turnId,
+    responseRef: event.executionProcessId,
+    finalResponseText: finalResponse?.content ?? undefined,
+  });
+  return {
+    applied: completed.applied,
+    reason: completed.reason,
+    runId: match.runId,
+    turnId: match.turnId,
+    status: completed.run.status,
+  };
+}
+
+async function findPersistedWorkflowTurnByQueueItem(db: Kysely<DB>, queueItemId: string): Promise<{ runId: string; turnId: string } | null> {
+  const rows = await db
+    .selectFrom('WorkflowPersistedRun')
+    .select(['runId', 'queuedTurnsJson'])
+    .where('status', 'in', ['running', 'blocked'])
+    .execute();
+  for (const row of rows) {
+    const queuedTurns = parseJsonRecord(row.queuedTurnsJson);
+    for (const [turnId, rawTurn] of Object.entries(queuedTurns)) {
+      const turn = asRecord(rawTurn);
+      if (asString(turn?.queueItemRef) === queueItemId) return { runId: row.runId, turnId };
+    }
+  }
+  return null;
 }
 
 function summarizePersistedRun(run: PersistedWorkflowRunReadModel) {

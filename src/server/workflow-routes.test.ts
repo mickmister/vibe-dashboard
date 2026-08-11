@@ -377,6 +377,7 @@ describe('registerWorkflowRoutes', () => {
       persistedWorkflowRuntime: {
         launch: async () => { throw new Error('not used'); },
         completeHumanForm: async () => { throw new Error('persisted resume failed'); },
+        completeAgentTurn: async () => { throw new Error('not used'); },
       },
     });
     const failed = await failingApp.request(`/dashboard/api/workflow-attention-items/${attention.attentionItemId}/complete`, {
@@ -1465,6 +1466,135 @@ describe('registerWorkflowRoutes', () => {
     expect(rows.events).toHaveLength(1);
     expect(rows.events[0]).toMatchObject({ inboxId: 'inbox-route-1', status: 'processed', executionProcessId: 'exec-1' });
     expect(JSON.stringify(rows.events[0]?.payload)).not.toContain('full notification message');
+  });
+
+  it('TEST_CASE_M98_1B completes generic persisted Dev / Review / Tester runs from VK qa-mode webhook refs', async () => {
+    const handle = await initVdDb({ path: ':memory:' });
+    dbHandles.push(handle);
+    const designStore = new DbWorkflowDesignStore({ db: handle.db, templates: BUILT_IN_WORKFLOW_TEMPLATES });
+    await designStore.useTemplate({ templateId: 'built-in/dev-review-tester', designId: 'design.webhook.drt', draftId: 'draft.webhook.drt' });
+    await designStore.publishDraft('draft.webhook.drt');
+    const inboxStore = new DbWorkflowWebhookInboxStore({ db: handle.db, createId: (() => { let value = 1; return () => `inbox-drt-${value++}`; })(), now: (() => { let value = 20_000; return () => value++; })() });
+    const sessions = [
+      vkSession('session-dev', 'workspace-a', 'Dev'),
+      vkSession('session-review', 'workspace-a', 'Review'),
+      vkSession('session-tester', 'workspace-a', 'Tester'),
+    ];
+    const queued: Array<{ id: string; sessionId: string; prompt: string }> = [];
+    const finalResponses: Record<string, string> = {
+      'exec-dev-implement-1': 'Implemented pass one.',
+      'exec-dev-self-1': '<decision action="ready_for_review"><summary>Implemented pass one</summary><concerns>Risk noted</concerns></decision>',
+      'exec-review-changes': '<decision action="changes_requested"><requestedChanges>Fix review issue</requestedChanges><concerns>Concern</concerns></decision>',
+      'exec-dev-implement-2': 'Implemented review fixes.',
+      'exec-dev-self-2': '<decision action="ready_for_review"><summary>Fixed review issue</summary></decision>',
+      'exec-review-approved-1': '<decision action="approved"><remarks>Looks good</remarks></decision>',
+      'exec-tester-bug': '<decision action="bug_found"><bugReport>Bug found during test</bugReport></decision>',
+      'exec-dev-implement-3': 'Fixed tester bug.',
+      'exec-dev-self-3': '<decision action="ready_for_review"><summary>Fixed tester bug</summary></decision>',
+      'exec-review-approved-2': '<decision action="approved"><remarks>Still good</remarks></decision>',
+      'exec-tester-approved': '<decision action="approved"><testSummary>Acceptance passed</testSummary></decision>',
+    };
+    const app = new Hono();
+    registerWorkflowRoutes(app, {
+      registry: createWorkflowRegistry(),
+      workflowHomeDb: handle.db,
+      workflowDesignStore: designStore,
+      workflowWebhookInboxStore: inboxStore,
+      vkWorkflowWebhookSecret: 'secret',
+      vkClient: {
+        getSessions: async (workspaceId) => sessions.filter((session) => session.workspace_id === workspaceId),
+        getSession: async (sessionId) => sessions.find((session) => session.id === sessionId) ?? sessions[0]!,
+        queueFollowUp: async (sessionId, prompt) => {
+          const id = `queue-drt-${queued.length + 1}`;
+          queued.push({ id, sessionId, prompt });
+          return { queued_item: { id, session_id: sessionId, workspace_id: 'workspace-a', status: 'queued', source: 'workflow', priority: 0, data: { message: prompt } }, status: { count: queued.length, message: null, messages: [], status: 'queued' } };
+        },
+        getExecutionProcessFinalMessage: async (executionProcessId) => ({
+          execution_process_id: executionProcessId,
+          session_id: 'session-from-execution',
+          workspace_id: 'workspace-a',
+          status: 'completed',
+          completed_at: '2026-08-11T00:00:00.000Z',
+          coding_agent_turn_id: null,
+          agent_session_id: null,
+          agent_message_id: null,
+          content: finalResponses[executionProcessId] ?? null,
+          truncated: false,
+          max_chars: 20_000,
+          source_kind: 'coding_agent_turn_summary',
+          prompt_preview: null,
+          prompt_truncated: false,
+          prompt_max_chars: 0,
+          prompt_source_kind: 'coding_agent_turn_prompt',
+        }),
+      },
+    });
+
+    const launched = await app.request('/dashboard/api/workflows/launch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        workspaceId: 'workspace-a',
+        designId: 'design.webhook.drt',
+        inputs: { featureRequest: 'Build a generic persisted DRT workflow' },
+        roleBindings: {
+          dev: { mode: 'existing', sessionId: 'session-dev' },
+          review: { mode: 'existing', sessionId: 'session-review' },
+          tester: { mode: 'existing', sessionId: 'session-tester' },
+        },
+      }),
+    });
+    expect(launched.status).toBe(201);
+    const launchedJson = await launched.json() as { run: { runId: string } };
+
+    async function postWebhook(queueIndex: number, executionId: string) {
+      const queuedTurn = queued[queueIndex];
+      expect(queuedTurn).toBeTruthy();
+      const body = JSON.stringify(vkWebhookPayload({
+        delivery_id: `delivery-${executionId}`,
+        workspace_id: 'workspace-a',
+        session_id: queuedTurn!.sessionId,
+        execution_id: executionId,
+        queue_item_id: queuedTurn!.id,
+      }));
+      const response = await app.request('/dashboard/api/workflow-webhooks/vk', {
+        method: 'POST',
+        headers: signedVkWebhookHeaders('secret', body),
+        body,
+      });
+      expect(response.status).toBe(202);
+      const payload = await response.json() as { persistedWorkflow: { applied: boolean; reason: string; status: string | null } };
+      expect(payload.persistedWorkflow).toMatchObject({ applied: true, reason: 'applied' });
+      return payload;
+    }
+
+    await postWebhook(0, 'exec-dev-implement-1');
+    expect(queued[1]).toMatchObject({ sessionId: 'session-dev' });
+    await postWebhook(1, 'exec-dev-self-1');
+    expect(queued[2]).toMatchObject({ sessionId: 'session-review' });
+    await postWebhook(2, 'exec-review-changes');
+    expect(queued[3]).toMatchObject({ sessionId: 'session-dev' });
+    await postWebhook(3, 'exec-dev-implement-2');
+    await postWebhook(4, 'exec-dev-self-2');
+    await postWebhook(5, 'exec-review-approved-1');
+    expect(queued[6]).toMatchObject({ sessionId: 'session-tester' });
+    await postWebhook(6, 'exec-tester-bug');
+    expect(queued[7]).toMatchObject({ sessionId: 'session-dev' });
+    await postWebhook(7, 'exec-dev-implement-3');
+    await postWebhook(8, 'exec-dev-self-3');
+    await postWebhook(9, 'exec-review-approved-2');
+    const finished = await postWebhook(10, 'exec-tester-approved');
+    expect(finished.persistedWorkflow).toMatchObject({ status: 'completed' });
+
+    const runRow = await handle.db.selectFrom('WorkflowPersistedRun').selectAll().where('runId', '=', launchedJson.run.runId).executeTakeFirstOrThrow();
+    expect(runRow.status).toBe('completed');
+    expect(JSON.parse(runRow.eventsJson).filter((entry: any) => entry.kind === 'agent_turn_observed')).toHaveLength(11);
+    const presentation = await app.request(`/dashboard/api/workflow-instances/${launchedJson.run.runId}/presentation`);
+    expect(presentation.status).toBe(200);
+    const presentationJson = await presentation.json() as { presentation: any };
+    expect(presentationJson.presentation).toMatchObject({ workflowName: 'Dev / Review / Tester', status: 'completed' });
+    expect(presentationJson.presentation.timeline.map((item: any) => item.role)).toEqual(['Dev', 'Dev', 'Review', 'Dev', 'Dev', 'Review', 'Tester', 'Dev', 'Dev', 'Review', 'Tester']);
+    expect(presentationJson.presentation.timeline.at(-1).finalResponse.text).toContain('Acceptance passed');
   });
 
   it('accepts execution.killed VK workflow webhooks and stores killed status', async () => {
