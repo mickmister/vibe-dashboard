@@ -53,8 +53,13 @@ encoding orchestration behavior in code.
 
 Success means:
 
-- The authored JSON uses `initialState`, `states`, `owner`, `steps`, `actions`,
-  and `targetState`.
+- The authored JSON uses `schemaVersion: 1`, `initialState`, `states`, `owner`,
+  `steps`, `actions`, and `targetState`.
+- The authored JSON does not include a root workflow `id`; `workflowId` comes
+  from the external registry, file key, database key, or runtime registration
+  key that loads the config.
+- The authored JSON does not use a separate root `version: 1`;
+  `schemaVersion: 1` is the canonical schema-version field.
 - State/role/action IDs come from map keys, not duplicated nested `id` fields.
 - Every non-terminal V1 state has one owner, non-empty steps, non-empty actions,
   and exactly one final decision step.
@@ -333,8 +338,12 @@ User story coverage: `USER_STORY_1`, `USER_STORY_2`
 Steps:
 
 1. In pure workflow-core unit tests, construct a V1 definition with:
-   - root `id`, `version: 1`, `name`, `inputs`, `roles`, `initialState`,
+   - root `schemaVersion: 1`, `name`, `inputs`, `roles`, `initialState`,
      `states`
+   - no authored root workflow `id`; pass or derive `workflowId` from the
+     external registry/file/runtime key used to load the config
+   - no root `version: 1`; `schemaVersion: 1` is the canonical schema-version
+     field
    - active states keyed by state ID
    - roles keyed by role ID
    - actions keyed by action ID
@@ -360,6 +369,8 @@ Product-level error cases:
 Expected:
 
 - Normalization is pure and does not mutate input JSON.
+- Normalization preserves/records the external `workflowId` without requiring an
+  authored root workflow `id`.
 - Authored JSON derives role/state/action IDs from map keys.
 - Internal normalized objects may have explicit IDs, but the authored JSON does
   not require duplicated `id` fields.
