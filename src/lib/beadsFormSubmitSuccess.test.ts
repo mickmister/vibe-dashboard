@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   copyNormalizedSubmittedResultJson,
   normalizedSubmittedResultJson,
+  pendingNormalizedSubmittedResultCopy,
 } from './beadsFormSubmitSuccess';
 
 describe('BeadsForm submit success helpers', () => {
@@ -19,7 +20,7 @@ describe('BeadsForm submit success helpers', () => {
     const result = await copyNormalizedSubmittedResultJson({ writeText }, { answer: 'saved' });
 
     expect(result).toEqual({
-      copied: true,
+      status: 'copied',
       text: '{\n  "answer": "saved"\n}',
     });
     expect(writeText).toHaveBeenCalledWith('{\n  "answer": "saved"\n}');
@@ -32,8 +33,15 @@ describe('BeadsForm submit success helpers', () => {
 
     const result = await copyNormalizedSubmittedResultJson({ writeText }, { answer: 'saved' });
 
-    expect(result.copied).toBe(false);
+    expect(result.status).toBe('failed');
     expect(result.text).toBe('{\n  "answer": "saved"\n}');
     expect(result.warning).toContain('Clipboard copy failed: denied');
+  });
+
+  it('represents pending clipboard copy without a false failure warning', () => {
+    expect(pendingNormalizedSubmittedResultCopy({ answer: 'saved' })).toEqual({
+      status: 'pending',
+      text: '{\n  "answer": "saved"\n}',
+    });
   });
 });

@@ -11,7 +11,7 @@ export type AggregateSubmitStatus =
     status: 'success';
     values: Record<string, unknown>;
     warnings: string[];
-    clipboardCopied: boolean;
+    clipboardStatus: 'pending' | 'copied' | 'failed' | 'unavailable';
     clipboardText: string;
     clipboardWarning?: string;
   }

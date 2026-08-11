@@ -34,7 +34,12 @@ import { shouldHydrateRefreshedWorkspaceForms } from '../lib/beadsFormRefreshSta
 import { initializeSingleQuestionMode, prehideInactiveSingleQuestionItems } from '../lib/beadsFormSingleQuestion';
 import { initializeCompactMoreInfo, refreshCompactMoreInfoState } from '../lib/beadsFormMoreInfo';
 import { preserveSubmittedFormDom } from '../lib/beadsFormSubmissionUi';
-import { copyNormalizedSubmittedResultJson, normalizedSubmittedResultJson, type ClipboardCopyResult } from '../lib/beadsFormSubmitSuccess';
+import {
+  copyNormalizedSubmittedResultJson,
+  normalizedSubmittedResultJson,
+  pendingNormalizedSubmittedResultCopy,
+  type ClipboardCopyResult,
+} from '../lib/beadsFormSubmitSuccess';
 import {
   aggregateFormDomPrefix,
   namespaceAggregateFormHtml,
@@ -414,8 +419,10 @@ function SubmitSuccessSummary({
     <section className="beadsform-submit-result" aria-live="polite">
       <h2>{title}</h2>
       <p>Your BeadsForm response was saved and the form is locked to the submitted answers.</p>
-      {clipboardResult?.copied ? (
+      {clipboardResult?.status === 'copied' ? (
         <p>Copied normalized submitted response JSON to your clipboard.</p>
+      ) : !clipboardResult || clipboardResult.status === 'pending' ? (
+        <p>Copying normalized submitted response JSON…</p>
       ) : (
         <div className="beadsform-warning" role="status">
           <p>{clipboardResult?.warning ?? 'Clipboard copy is unavailable. Use the manual copy field below.'}</p>
@@ -614,8 +621,9 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
       });
       submittedLockedRef.current = true;
       setSubmittedLocked(true);
+      setClipboardResult(pendingNormalizedSubmittedResultCopy(result.values));
       setSubmitResult(result);
-      setClipboardResult(await copyNormalizedSubmittedResultJson(navigator.clipboard, result.values));
+      void copyNormalizedSubmittedResultJson(navigator.clipboard, result.values).then(setClipboardResult);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
@@ -895,14 +903,24 @@ function AggregateBeadsFormCard({ item, submitBeadForm }: {
       });
       submittedLockedRef.current = true;
       setSubmittedLocked(true);
-      const copyResult = await copyNormalizedSubmittedResultJson(navigator.clipboard, result.values);
+      const pendingCopy = pendingNormalizedSubmittedResultCopy(result.values);
       setStatus({
         status: 'success',
         values: result.values,
         warnings: result.warnings,
-        clipboardCopied: copyResult.copied,
-        clipboardText: copyResult.text,
-        ...(copyResult.warning ? { clipboardWarning: copyResult.warning } : {}),
+        clipboardStatus: pendingCopy.status,
+        clipboardText: pendingCopy.text,
+      });
+      void copyNormalizedSubmittedResultJson(navigator.clipboard, result.values).then((copyResult) => {
+        setStatus((current) => {
+          if (current.status !== 'success') return current;
+          return {
+            ...current,
+            clipboardStatus: copyResult.status,
+            clipboardText: copyResult.text,
+            ...(copyResult.warning ? { clipboardWarning: copyResult.warning } : {}),
+          };
+        });
       });
     } catch (error) {
       setStatus({ status: 'error', message: error instanceof Error ? error.message : String(error) });
@@ -948,7 +966,7 @@ function AggregateBeadsFormCard({ item, submitBeadForm }: {
         <SubmitSuccessSummary
           title="Submitted this source form"
           clipboardResult={{
-            copied: status.clipboardCopied,
+            status: status.clipboardStatus,
             text: status.clipboardText,
             ...(status.clipboardWarning ? { warning: status.clipboardWarning } : {}),
           }}
@@ -1241,8 +1259,9 @@ function BeadsFormRoute({ actions }: { actions: {
       });
       submittedLockedRef.current = true;
       setSubmittedLocked(true);
+      setClipboardResult(pendingNormalizedSubmittedResultCopy(result.values));
       setSubmitResult(result);
-      setClipboardResult(await copyNormalizedSubmittedResultJson(navigator.clipboard, result.values));
+      void copyNormalizedSubmittedResultJson(navigator.clipboard, result.values).then(setClipboardResult);
       if (window.parent && window.parent !== window) {
         window.parent.postMessage({ type: 'vk:bead-form-submitted' }, window.location.origin);
       }

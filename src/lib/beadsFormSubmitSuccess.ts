@@ -1,13 +1,20 @@
 import type { JsonObject } from './beadsFormCore';
 
 export type ClipboardCopyResult = {
-  copied: boolean;
+  status: 'pending' | 'copied' | 'failed' | 'unavailable';
   text: string;
   warning?: string;
 };
 
 export function normalizedSubmittedResultJson(values: JsonObject): string {
   return JSON.stringify(values, null, 2);
+}
+
+export function pendingNormalizedSubmittedResultCopy(values: JsonObject): ClipboardCopyResult {
+  return {
+    status: 'pending',
+    text: normalizedSubmittedResultJson(values),
+  };
 }
 
 export async function copyNormalizedSubmittedResultJson(
@@ -17,7 +24,7 @@ export async function copyNormalizedSubmittedResultJson(
   const text = normalizedSubmittedResultJson(values);
   if (!clipboard) {
     return {
-      copied: false,
+      status: 'unavailable',
       text,
       warning: 'Clipboard copy is unavailable. Use the manual copy field below.',
     };
@@ -25,10 +32,10 @@ export async function copyNormalizedSubmittedResultJson(
 
   try {
     await clipboard.writeText(text);
-    return { copied: true, text };
+    return { status: 'copied', text };
   } catch (error) {
     return {
-      copied: false,
+      status: 'failed',
       text,
       warning: `Clipboard copy failed: ${error instanceof Error ? error.message : String(error)}. Use the manual copy field below.`,
     };

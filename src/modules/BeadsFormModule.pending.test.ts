@@ -18,11 +18,21 @@ describe('BeadsForm pending queue UI source', () => {
     const source = await readFile(new URL('./BeadsFormModule.tsx', import.meta.url), 'utf8');
 
     expect(source).toContain('copyNormalizedSubmittedResultJson(navigator.clipboard, result.values)');
+    expect(source).toContain('pendingNormalizedSubmittedResultCopy(result.values)');
+    expect(source).toContain('Copying normalized submitted response JSON…');
     expect(source).toContain('Normalized submitted response JSON');
     expect(source).toContain('Clipboard copy is unavailable. Use the manual copy field below.');
     expect(source).toContain('loaded?.selectedForm && !submitResult');
     expect(source).toContain("form && status.status !== 'success'");
     expect(source).toContain('selectedForm && submitResult');
     expect(source).not.toContain('Copied the agent-facing response text to your clipboard');
+  });
+
+  it('sets aggregate success before awaiting clipboard completion', async () => {
+    const source = await readFile(new URL('./BeadsFormModule.tsx', import.meta.url), 'utf8');
+
+    expect(source).not.toContain('await copyNormalizedSubmittedResultJson');
+    expect(source).toContain('clipboardStatus: pendingCopy.status');
+    expect(source).toContain('void copyNormalizedSubmittedResultJson(navigator.clipboard, result.values).then((copyResult) => {');
   });
 });
