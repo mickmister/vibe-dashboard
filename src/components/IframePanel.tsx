@@ -4,6 +4,7 @@ import type { TabGroup, Tab } from '../types';
 import type { WorkspaceState, SavedWorkspaceSession } from '../types';
 import { AppLoadingScreen } from './AppLoadingScreen';
 import { SpacesOverview } from './SpacesOverview';
+import { PreviewRunConfigsPanel } from './PreviewRunConfigsPanel';
 import { hasSameBaseOrigin } from '../lib/originTrust';
 import { getPluginIframePolicy, getPluginIframePostMessageTargetOrigin, parsePluginInternalUrl } from '../modules/plugins/vibe-dashboard/runtime';
 import { getRegisteredPluginIframePolicy, resolvePluginInternalRouteIframeSrc } from '../modules/plugins/vibe-dashboard/registry';
@@ -1111,6 +1112,7 @@ export function IframePanel({
       ) : activeTab ? (
           <SingleTabView
             activeTab={activeTab}
+            tabGroup={tabGroup}
             activeIframeKey={activeIframeKey ?? activeTab.id}
             loadingState={loadingState}
             errorState={errorState}
@@ -1222,6 +1224,7 @@ function PersistentIframeLayer({
 
 function SingleTabView({
   activeTab,
+  tabGroup,
   activeIframeKey,
   loadingState,
   errorState,
@@ -1238,6 +1241,7 @@ function SingleTabView({
   onOpenVKWorkspace,
 }: {
   activeTab: Tab;
+  tabGroup: TabGroup;
   activeIframeKey: string;
   loadingState: Map<string, boolean>;
   errorState: Map<string, boolean>;
@@ -1285,6 +1289,14 @@ function SingleTabView({
             onNavigateToTabGroup={onNavigateToTabGroup}
             {...(onOpenVKWorkspace ? { onOpenVKWorkspace } : {})}
           />
+        </div>
+      );
+    }
+
+    if (internalPath === 'preview-run-configs' && tabGroup.workspace?.workspaceId) {
+      return (
+        <div className="flex-1 min-h-0 relative h-full">
+          <PreviewRunConfigsPanel workspaceId={tabGroup.workspace.workspaceId} />
         </div>
       );
     }
