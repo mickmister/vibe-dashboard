@@ -78,12 +78,14 @@ them.
 8. **Workflow versioning:** mutable drafts and immutable published versions.
    Runs use published versions and snapshot the exact resolved workflow/prompt
    content needed for reproducibility.
-9. **Storage model:** runtime/product workflow designs and prompt assets are DB
-   records. Checked-in built-in templates may exist as source/catalog templates,
-   but they are not automatically seeded into the DB as real workflow designs.
-   They become real DB designs/versions only when a user uses, duplicates, or
-   publishes them. This keeps built-ins easy to iterate while making user-visible
-   workflows and runs DB-backed.
+9. **Storage model:** runtime/product workflow designs and prompt/skill assets
+   are DB records. Checked-in built-in workflow templates and prompt/skill
+   snippets may exist as source/catalog entries, but they are not automatically
+   seeded into the DB as real product records. Use/Duplicate first creates a DB
+   draft/design and materializes any needed prompt/skill assets; Publish then
+   creates an immutable DB version. Runs snapshot the resolved workflow and
+   prompt/skill content used for reproducibility. This keeps built-ins easy to
+   iterate while making user-visible workflows and runs DB-backed.
 10. **Prompt refs and skill refs are centralized markdown/instruction assets.**
     Skill refs are not executable tool/plugin calls in this plan.
 11. **Extension providers are executable handlers.**
@@ -129,8 +131,9 @@ lifecycle semantics:
 - DB-backed workflow designs.
 - Mutable drafts.
 - Immutable published versions.
-- DB-backed prompt/skill assets.
-- Built-in template catalog entries that are not real DB designs until used.
+- DB-backed prompt/skill assets once used, copied, or created.
+- Built-in workflow/prompt/skill catalog entries that are not real DB product
+  records until used.
 - Duplicate/copy operations that copy design, prompts, roles, and graph shape but
   never sessions or run history.
 - Launch-time session binding.
@@ -353,6 +356,9 @@ Success means:
   prompt text.
 - It produces a form schema/artifact/ref according to what beads-form supports at
   that time.
+- Form creation should be driven by a structured XML decision/result response;
+  XML result responses should generally support creating a form artifact when a
+  workflow step is configured for that output.
 - Aggregate-forms workflows remain deferred because that beads-form capability is
   still WIP.
 
@@ -446,10 +452,11 @@ Deliverables:
 - Immutable published workflow versions.
 - DB-backed prompt assets.
 - DB-backed skill assets as markdown/instruction snippets.
-- Optional checked-in built-in template catalog that is not automatically seeded
-  into the DB.
-- “Use template” / “duplicate template” service semantics that create real DB
-  workflow designs only when the user chooses to use a template.
+- Optional checked-in built-in workflow/prompt/skill template catalog that is
+  not automatically seeded into the DB.
+- “Use template” / “duplicate template” service semantics that create a DB
+  draft/design first, materialize any needed prompt/skill assets, and only create
+  immutable published versions when the user publishes.
 - Publish validation.
 - Run snapshot model that pins published workflow and resolved prompt/skill
   content.
@@ -1383,8 +1390,10 @@ implementation if they become relevant:
 - Whether workspace-level launch defaults should be added after M95. Current
   decision: defer.
 - Exact create-form-from-agent artifact output once beads-form provider support
-  is known: saved form artifact if available; otherwise schema JSON plus a
+  is known. The intended direction is structured XML response → form artifact/ref;
+  if saved form artifacts are not yet available, use validated schema JSON plus a
   reviewable artifact/ref.
-- Whether M96 needs to split into M96A/M96B if human execution plus authoring is
-  too large.
+- M96 remains one conceptual milestone, but implementation may split into
+  reviewable sub-beads/commits such as M96A provider/runtime/resume and M96B
+  authoring UI if human execution plus authoring is too large.
 - Whether M99 should include fire-and-forget calls or only blocking calls.
