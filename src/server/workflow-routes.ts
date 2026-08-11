@@ -399,21 +399,38 @@ export function registerWorkflowRoutes(
     if (!store) return c.json({ error: 'workflow_orchestration_store_not_configured' }, 503);
     try {
       const body = asRecord(await readJsonBody(c.req.raw)) ?? {};
+      const attention = await store.getAttentionItem(c.req.param('attentionItemId'));
+      if (!attention) return c.json({ error: 'workflow_attention_item_not_found' }, 404);
+      const db = options.workflowHomeDb ?? (await getVdDb()).db;
+      const designStore = options.workflowDesignStore ?? new DbWorkflowDesignStore({ db });
+      const persistedRun = await db.selectFrom('WorkflowPersistedRun').select(['runId']).where('runId', '=', attention.instanceId).executeTakeFirst();
+      const runtime = persistedRun ? await resolvePersistedWorkflowRuntime(options, db, designStore) : null;
+      if (persistedRun && !runtime) {
+        return c.json({
+          error: 'workflow_persisted_runtime_not_configured',
+          message: 'Workflow answer cannot be submitted because persisted workflow resume is not configured.',
+        }, 503);
+      }
       const result = await store.completeHumanAttention({
         attentionItemId: c.req.param('attentionItemId'),
         stateVisitId: asString(body.stateVisitId),
         submission: body.submission ?? {},
       });
-      if (result.applied && result.attention.instanceId) {
-        const db = options.workflowHomeDb ?? (await getVdDb()).db;
-        const designStore = options.workflowDesignStore ?? new DbWorkflowDesignStore({ db });
-        const runtime = await resolvePersistedWorkflowRuntime(options, db, designStore);
-        await runtime?.completeHumanForm({
-          runId: result.attention.instanceId,
-          turnId: result.attention.attentionItemId.startsWith('attention-') ? result.attention.attentionItemId.slice('attention-'.length) : result.attention.stepId,
-          responseRef: result.attention.attentionItemId,
-          submission: asRecord(body.submission) ?? {},
-        }).catch(() => null);
+      if (result.applied && persistedRun && runtime) {
+        try {
+          await runtime.completeHumanForm({
+            runId: result.attention.instanceId,
+            turnId: result.attention.attentionItemId.startsWith('attention-') ? result.attention.attentionItemId.slice('attention-'.length) : result.attention.stepId,
+            responseRef: result.attention.attentionItemId,
+            submission: asRecord(body.submission) ?? {},
+          });
+        } catch (error) {
+          return c.json({
+            error: 'workflow_persisted_resume_failed',
+            message: error instanceof Error ? error.message : 'Workflow answer was saved but workflow resume failed.',
+            result,
+          }, 500);
+        }
       }
       const status = result.reason === 'invalid_submission' || result.reason === 'stale_state_visit' ? 400 : 200;
       return c.json({ result }, status);

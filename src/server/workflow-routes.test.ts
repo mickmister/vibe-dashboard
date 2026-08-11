@@ -261,6 +261,73 @@ describe('registerWorkflowRoutes', () => {
     expect(queued).toHaveLength(1);
   });
 
+  it('TEST_CASE_M96_1B does not report success when persisted workflow resume is unavailable or fails', async () => {
+    const handle = await initVdDb({ path: ':memory:' });
+    dbHandles.push(handle);
+    const designStore = new DbWorkflowDesignStore({ db: handle.db });
+    const orchestrationStore = new DbWorkflowOrchestrationStore({ db: handle.db, now: (() => { let value = 9500; return () => value++; })() });
+    await designStore.createDesign({ designId: 'design-human-failure', draftId: 'draft-human-failure', name: 'Human Failure Workflow', definition: routeHumanFormDefinition() });
+    await designStore.publishDraft('draft-human-failure');
+    const sessions = [vkSession('session-dev', 'workspace-a', 'Dev')];
+    const launchApp = new Hono();
+    registerWorkflowRoutes(launchApp, {
+      registry: createWorkflowRegistry(),
+      workflowHomeDb: handle.db,
+      workflowDesignStore: designStore,
+      workflowOrchestrationStore: orchestrationStore,
+      vkClient: {
+        getSessions: async () => sessions,
+        getSession: async () => sessions[0]!,
+        queueFollowUp: async (sessionId, prompt) => ({ queued_item: { id: `queue-${sessionId}`, session_id: sessionId, workspace_id: 'workspace-a', status: 'queued', source: 'workflow', priority: 0, data: { message: prompt } }, status: { count: 1, message: null, messages: [], status: 'queued' } }),
+      },
+    });
+    const launch = await launchApp.request('/dashboard/api/workflows/launch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workspaceId: 'workspace-a', designId: 'design-human-failure', inputs: {}, roleBindings: { dev: { mode: 'existing', sessionId: 'session-dev' } } }),
+    });
+    expect(launch.status).toBe(201);
+    const attention = (await orchestrationStore.listAttentionItems({ status: 'active' })).items[0]!;
+
+    const unavailableApp = new Hono();
+    registerWorkflowRoutes(unavailableApp, {
+      registry: createWorkflowRegistry(),
+      workflowHomeDb: handle.db,
+      workflowDesignStore: designStore,
+      workflowOrchestrationStore: orchestrationStore,
+    });
+    const unavailable = await unavailableApp.request(`/dashboard/api/workflow-attention-items/${attention.attentionItemId}/complete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stateVisitId: attention.stateVisitId, submission: { approved: true } }),
+    });
+    expect(unavailable.status).toBe(503);
+    await expect(unavailable.json()).resolves.toMatchObject({ error: 'workflow_persisted_runtime_not_configured' });
+    await expect(orchestrationStore.getAttentionItem(attention.attentionItemId)).resolves.toMatchObject({ status: 'active' });
+
+    const failingApp = new Hono();
+    registerWorkflowRoutes(failingApp, {
+      registry: createWorkflowRegistry(),
+      workflowHomeDb: handle.db,
+      workflowDesignStore: designStore,
+      workflowOrchestrationStore: orchestrationStore,
+      persistedWorkflowRuntime: {
+        launch: async () => { throw new Error('not used'); },
+        completeHumanForm: async () => { throw new Error('persisted resume failed'); },
+      },
+    });
+    const failed = await failingApp.request(`/dashboard/api/workflow-attention-items/${attention.attentionItemId}/complete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stateVisitId: attention.stateVisitId, submission: { approved: true } }),
+    });
+    expect(failed.status).toBe(500);
+    await expect(failed.json()).resolves.toMatchObject({ error: 'workflow_persisted_resume_failed', message: 'persisted resume failed' });
+    await expect(handle.db.selectFrom('WorkflowPersistedRun').select(['status', 'coreSnapshotJson']).executeTakeFirstOrThrow()).resolves.toMatchObject({ status: 'running' });
+    const persisted = await handle.db.selectFrom('WorkflowPersistedRun').select(['coreSnapshotJson']).executeTakeFirstOrThrow();
+    expect(JSON.parse(persisted.coreSnapshotJson)).toMatchObject({ waitingFor: { kind: 'human_form' } });
+  });
+
   it('runs workflows by id and returns the workflow run record', async () => {
     const registry = createWorkflowRegistry();
     const workflow = {
