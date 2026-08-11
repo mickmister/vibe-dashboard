@@ -112,6 +112,7 @@ test.describe('Workspace Workflows tab shell', () => {
 
   test('renders workflow graph and validates transition edits before save', async ({ page }) => {
     let savedDefinition: any = null;
+    let published = false;
     await page.route('**/dashboard/api/workflow-designs/design-dev-review-tester/editor', async (route) => {
       await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ editor: editorFixture(savedDefinition ?? graphDefinition()) }) });
     });
@@ -120,7 +121,15 @@ test.describe('Workspace Workflows tab shell', () => {
       savedDefinition = body.definition;
       expect(savedDefinition.states.dev.actions.ready_for_review.label).toBe('Proceed to review');
       expect(savedDefinition.states.dev.actions.ready_for_review.targetState).toBe('review');
+      expect(savedDefinition.name).toBe('Dev Review Tester Copy');
+      expect(savedDefinition.roles.dev.label).toBe('Implementer');
+      expect(savedDefinition.states.dev.steps[0].prompt.refs[0]).toMatchObject({ kind: 'prompt', id: 'prompt.drt.dev.implement', version: 1 });
       await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ editor: editorFixture(savedDefinition) }) });
+    });
+
+    await page.route('**/dashboard/api/workflow-design-drafts/draft-dev-review-tester/publish', async (route) => {
+      published = true;
+      await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ editor: editorFixture(savedDefinition ?? graphDefinition()) }) });
     });
 
     await page.goto('/dashboard/workflows/editor/design-dev-review-tester');
@@ -135,6 +144,9 @@ test.describe('Workspace Workflows tab shell', () => {
     await expect(details.getByText('self_review', { exact: true })).toBeVisible();
     await expect(details.getByText('prompt:prompt.dev.implement@1')).toBeVisible();
     await expect(page.getByText('Ready to save.')).toBeVisible();
+    await page.getByLabel('Workflow name').fill('Dev Review Tester Copy');
+    await page.getByLabel('dev label').fill('Implementer');
+    await page.getByLabel('implement prompt refs').fill('prompt:prompt.drt.dev.implement@1');
 
     await page.getByLabel('Target state').selectOption('');
     await expect(page.getByText('Choose an existing target state.')).toBeVisible();
@@ -145,6 +157,9 @@ test.describe('Workspace Workflows tab shell', () => {
     await expect(page.getByText('Ready to save.')).toBeVisible();
     await page.getByRole('button', { name: 'Save draft' }).click();
     await expect(page.getByText('Saved workflow draft.')).toBeVisible();
+    await page.getByRole('button', { name: 'Publish' }).click();
+    await expect(page.getByText(/Published workflow version/)).toBeVisible();
+    expect(published).toBe(true);
 
     const bodyText = await page.locator('body').innerText();
     expect(bodyText).not.toContain('workflow_call');

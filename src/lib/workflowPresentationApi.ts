@@ -14,7 +14,7 @@ export interface WorkflowPresentationModel {
 
 export interface WorkflowPresentationTimelineItem {
   id: string;
-  role: 'Implementer' | 'Reviewer' | 'User';
+  role: string;
   title: string;
   status: string;
   session: { label: string; workspaceId: string | null; sessionId: string | null } | null;

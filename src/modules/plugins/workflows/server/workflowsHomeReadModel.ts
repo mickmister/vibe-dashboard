@@ -149,7 +149,7 @@ async function listRecentRuns(db: Kysely<DB>, workspaceId: string, limit: number
       status: row.status,
       startedAt: row.createdAt,
       updatedAt: row.updatedAt,
-      detailUrl: null,
+      detailUrl: `/dashboard/workflows/${row.runId}`,
     };
   });
 }

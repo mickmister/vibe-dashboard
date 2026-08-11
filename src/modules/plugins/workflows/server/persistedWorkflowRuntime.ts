@@ -1,4 +1,5 @@
 import type { Kysely, Selectable } from 'kysely';
+import { compileBeadsForm, createBeadsFormWorkflowArtifactRef } from '@vibe-dashboard/beads-form';
 import {
   advanceWorkflow,
   createInitialWorkflowSnapshot,
@@ -53,7 +54,9 @@ export interface PersistedWorkflowRuntimeEvent {
     | 'human_form_submitted'
     | 'observation_ignored'
     | 'workflow_status_changed'
-    | 'queue_failed';
+    | 'queue_failed'
+    | 'form_artifact_created'
+    | 'form_artifact_failed';
   at: number;
   data: Record<string, unknown>;
 }
@@ -271,12 +274,55 @@ export class PersistedWorkflowRuntimeService {
     const statusChanged = previous.coreSnapshot.status !== advanced.snapshot.status
       ? [event('workflow_status_changed', this.now(), { from: previous.coreSnapshot.status, to: advanced.snapshot.status })]
       : [];
-    const withObservation = await this.updateRun(previous, advanced.snapshot, advanced.effect, [...extraEvents, observed, ...statusChanged]);
+    const formArtifact = this.applyFormArtifactResult(previous, advanced.snapshot);
+    const nextSnapshot = formArtifact.snapshot;
+    const nextStatusChanged = previous.coreSnapshot.status !== nextSnapshot.status
+      ? [event('workflow_status_changed', this.now(), { from: previous.coreSnapshot.status, to: nextSnapshot.status })]
+      : statusChanged;
+    const withObservation = await this.updateRun(previous, nextSnapshot, formArtifact.effect ?? advanced.effect, [...extraEvents, observed, ...formArtifact.events, ...nextStatusChanged]);
+    if (formArtifact.effect?.kind === 'none') return withObservation;
     if (advanced.effect.kind === 'send_agent_turn') {
       return this.queueEffect(withObservation, advanced.effect);
     }
     if (advanced.effect.kind === 'create_human_form') return this.createHumanFormEffect(withObservation, advanced.effect);
     return withObservation;
+  }
+
+
+  private applyFormArtifactResult(previous: PersistedWorkflowRunReadModel, snapshot: WorkflowRuntimeSnapshot): { snapshot: WorkflowRuntimeSnapshot; events: PersistedWorkflowRuntimeEvent[]; effect?: WorkflowPlanEffect } {
+    const transition = snapshot.latestTransition;
+    const parsed = transition?.parsed;
+    if (!transition || !parsed) return { snapshot, events: [] };
+    const rawFormSchema = parsed.formSchema;
+    if (typeof rawFormSchema !== 'string' || !rawFormSchema.trim()) return { snapshot, events: [] };
+    try {
+      const form = JSON.parse(rawFormSchema) as Parameters<typeof compileBeadsForm>[0];
+      assertStandardBeadsForm(form);
+      const compiled = compileBeadsForm(form);
+      const ref = createBeadsFormWorkflowArtifactRef({
+        idempotencyKey: `${previous.runId}:${transition.visitId}:${transition.action}:formSchema`,
+        title: compiled.title,
+        formSchema: form,
+      });
+      const nextParsed = { ...parsed, artifactRef: typeof parsed.artifactRef === 'string' && parsed.artifactRef.trim() ? parsed.artifactRef : ref.durableRef };
+      return {
+        snapshot: { ...snapshot, latestTransition: { ...transition, parsed: nextParsed } },
+        events: [event('form_artifact_created', this.now(), { action: transition.action, artifactRef: nextParsed.artifactRef, formId: compiled.id })],
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const failedSnapshot: WorkflowRuntimeSnapshot = {
+        ...snapshot,
+        status: 'failed',
+        blockedReason: { code: 'WORKFLOW_DECISION_VALIDATION_FAILED', path: 'latestTransition.parsed.formSchema', message: `Invalid beads-form schema: ${message}` },
+        updatedAt: this.now(),
+      };
+      return {
+        snapshot: failedSnapshot,
+        events: [event('form_artifact_failed', this.now(), { action: transition.action, error: message })],
+        effect: { kind: 'none' },
+      };
+    }
   }
 
   private async persistPlanResult(
@@ -373,7 +419,7 @@ export class PersistedWorkflowRuntimeService {
         prompt: effect.prompt,
       });
       const queuedTurns = { ...run.queuedTurns, [effect.turnId]: { ...queued, role: effect.role, sessionId: binding.sessionId } };
-      return this.updateRun(run, run.coreSnapshot, effect, [event('agent_turn_queued', this.now(), { turnId: effect.turnId, role: effect.role, sessionId: binding.sessionId, queueItemRef: queued.queueItemRef })], queuedTurns);
+      return this.updateRun(run, run.coreSnapshot, effect, [event('agent_turn_queued', this.now(), { turnId: effect.turnId, role: effect.role, sessionId: binding.sessionId, queueItemRef: queued.queueItemRef, promptPreview: effect.prompt.slice(0, 4096), promptTruncated: effect.prompt.length > 4096 })], queuedTurns);
     } catch (error) {
       const runtimeError = normalizeError(error);
       const failedSnapshot: WorkflowRuntimeSnapshot = {
@@ -470,6 +516,13 @@ function stripCdata(value: string): string {
 
 function invalidXml(message: string): DecisionValidationResult {
   return { valid: false, errors: [{ code: 'WORKFLOW_DECISION_VALIDATION_FAILED', path: '$', message }] };
+}
+
+function assertStandardBeadsForm(form: Parameters<typeof compileBeadsForm>[0]): void {
+  const record = form as { format?: unknown; title?: unknown; questions?: unknown };
+  if (record.format !== 'standard') throw new Error('form format must be standard');
+  if (typeof record.title !== 'string' || !record.title.trim()) throw new Error('form title is required');
+  if (!Array.isArray(record.questions) || record.questions.length === 0) throw new Error('form questions must be non-empty');
 }
 
 function event(kind: PersistedWorkflowRuntimeEvent['kind'], at: number, data: Record<string, unknown>): PersistedWorkflowRuntimeEvent {

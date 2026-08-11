@@ -37,6 +37,7 @@ import { buildWorkspaceWorkflowsHomeModel } from '../modules/plugins/workflows/s
 import { DbWorkflowDesignStore } from '../modules/plugins/workflows/server/workflowDesignStore';
 import { PersistedWorkflowRuntimeService, type PersistedWorkflowRunReadModel } from '../modules/plugins/workflows/server/persistedWorkflowRuntime';
 import { BUILT_IN_WORKFLOW_TEMPLATES } from '../modules/plugins/workflows/templates/builtInWorkflowTemplates';
+import { buildPersistedWorkflowPresentationModel } from '../modules/plugins/workflows/server/persistedWorkflowPresentationReadModel';
 import { getVdDb } from './database';
 import type { DB } from '../store/kysely_types';
 import {
@@ -441,15 +442,20 @@ export function registerWorkflowRoutes(
   });
 
   hono.get('/dashboard/api/workflow-instances/:instanceId/presentation', async (c) => {
+    const instanceId = c.req.param('instanceId');
     const store = options.workflowOrchestrationStore;
-    if (!store) return c.json({ error: 'workflow_orchestration_store_not_configured' }, 503);
-    const presentation = await buildWorkflowPresentationModel({
-      store,
-      vk: getPresentationVkClient(options),
-      instanceId: c.req.param('instanceId'),
-    });
-    if (!presentation) return c.json({ error: 'workflow_presentation_not_found', message: 'Workflow not found' }, 404);
-    return c.json({ presentation });
+    if (store) {
+      const presentation = await buildWorkflowPresentationModel({
+        store,
+        vk: getPresentationVkClient(options),
+        instanceId,
+      });
+      if (presentation) return c.json({ presentation });
+    }
+    const db = options.workflowHomeDb ?? (await getVdDb()).db;
+    const persistedPresentation = await buildPersistedWorkflowPresentationModel({ db, runId: instanceId });
+    if (!persistedPresentation) return c.json({ error: 'workflow_presentation_not_found', message: 'Workflow not found' }, 404);
+    return c.json({ presentation: persistedPresentation });
   });
 
   hono.get('/dashboard/api/workflow-attention-items', async (c) => {
@@ -1001,7 +1007,7 @@ function summarizePersistedRun(run: PersistedWorkflowRunReadModel) {
     runId: run.runId,
     workspaceId: run.workspaceId,
     status: run.status,
-    detailUrl: null,
+    detailUrl: `/dashboard/workflows/${run.runId}`,
   };
 }
 

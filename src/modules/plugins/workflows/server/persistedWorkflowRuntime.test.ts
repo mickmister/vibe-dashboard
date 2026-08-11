@@ -206,12 +206,39 @@ describe('PersistedWorkflowRuntimeService M93', () => {
       runId: 'run-create-form',
       turnId: queuedAt(queued, 0).turnId,
       responseRef: 'form-response',
-      finalResponseText: '<decision action="form_created"><formSchema><![CDATA[{"fields":{"concerns":{"type":"markdown","required":true}}}]]></formSchema><artifactRef>beads-form://draft/reviewer-concerns</artifactRef><summary>Created concern form</summary></decision>',
+      finalResponseText: '<decision action="form_created"><formSchema><![CDATA[{"format":"standard","id":"reviewerConcerns","title":"Reviewer concerns","questions":[{"id":"concerns","type":"textarea","title":"Concerns","description":"What concerns should be reviewed?","required":true}]}]]></formSchema><artifactRef>beads-form://draft/reviewer-concerns</artifactRef><summary>Created concern form</summary></decision>',
     });
 
     expect(completed.run.status).toBe('completed');
     expect(completed.run.coreSnapshot.latestTransition).toMatchObject({ action: 'form_created', parsed: { artifactRef: 'beads-form://draft/reviewer-concerns', summary: 'Created concern form' } });
     expect(completed.run.coreSnapshot.latestTransition?.parsed?.formSchema).toContain('concerns');
+    expect(completed.run.events).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'form_artifact_created', data: expect.objectContaining({ artifactRef: 'beads-form://draft/reviewer-concerns' }) })]));
+  });
+
+
+  it('TEST_CASE_M98_2A fails Create form from agent when the XML contains invalid beads-form schema', async () => {
+    const { runtime, queued } = await createRuntime({ templates: BUILT_IN_WORKFLOW_TEMPLATES });
+    await designStore.useTemplate({ templateId: 'built-in/create-form-from-agent', designId: 'design.create-form.invalid', draftId: 'draft.create-form.invalid' });
+    await designStore.publishDraft('draft.create-form.invalid');
+    await runtime.launch({
+      runId: 'run-create-form-invalid',
+      runSnapshotId: 'snapshot-create-form-invalid',
+      designId: 'design.create-form.invalid',
+      workspaceId: 'workspace-a',
+      inputs: { formRequest: 'Collect reviewer concerns' },
+      roleBindings: { form_author: { sessionId: 'session-form-author' } },
+    });
+
+    const failed = await runtime.completeAgentTurn({
+      runId: 'run-create-form-invalid',
+      turnId: queuedAt(queued, 0).turnId,
+      responseRef: 'bad-form-response',
+      finalResponseText: '<decision action="form_created"><formSchema><![CDATA[{"format":"standard","id":"bad","title":"Bad form","questions":[]}]]></formSchema></decision>',
+    });
+
+    expect(failed.run.status).toBe('failed');
+    expect(failed.run.coreSnapshot.blockedReason).toMatchObject({ path: 'latestTransition.parsed.formSchema' });
+    expect(failed.run.events).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'form_artifact_failed' })]));
   });
 
   it('TEST_CASE_M93_1C preserves prompt composition and additional run remark in queued prompt and snapshot', async () => {

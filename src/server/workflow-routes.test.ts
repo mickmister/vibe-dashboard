@@ -12,6 +12,7 @@ import { DbWorkflowWebhookInboxStore, WorkflowWebhookWakeup, signVkWebhookPayloa
 import { DbWorkflowWebhookProvisioningStore } from './workflow-webhook-provisioning-store';
 import { DbWorkflowDesignStore } from '../modules/plugins/workflows/server/workflowDesignStore';
 import { BUILT_IN_WORKFLOW_TEMPLATES } from '../modules/plugins/workflows/templates/builtInWorkflowTemplates';
+import { PersistedWorkflowRuntimeService } from '../modules/plugins/workflows/server/persistedWorkflowRuntime';
 
 describe('registerWorkflowRoutes', () => {
   const dbHandles: VdDbHandle[] = [];
@@ -74,7 +75,7 @@ describe('registerWorkflowRoutes', () => {
       home: {
         workspaceId: 'workspace-a',
         availableWorkflows: [{ id: 'design-home', title: 'Home Workflow', status: 'ready' }],
-        recentRuns: [{ runId: 'run-home-a', workflowName: 'Home Workflow', detailUrl: null }],
+        recentRuns: [{ runId: 'run-home-a', workflowName: 'Home Workflow', detailUrl: '/dashboard/workflows/run-home-a' }],
         needsInput: [],
       },
     });
@@ -191,7 +192,10 @@ describe('registerWorkflowRoutes', () => {
 
     expect(launched.status).toBe(201);
     const payload = await launched.json();
-    expect(payload).toMatchObject({ run: { workspaceId: 'workspace-a', status: 'running', detailUrl: null }, home: { recentRuns: [{ workflowName: 'Launch Workflow', detailUrl: null }] } });
+    expect(payload.run).toMatchObject({ workspaceId: 'workspace-a', status: 'running' });
+    expect(payload.run.detailUrl).toMatch(/^\/dashboard\/workflows\/workflow-run-/);
+    expect(payload.home.recentRuns[0]).toMatchObject({ workflowName: 'Launch Workflow' });
+    expect(payload.home.recentRuns[0].detailUrl).toBe(payload.run.detailUrl);
     expect(queued).toMatchObject([{ sessionId: 'session-dev' }]);
     expect(JSON.stringify(await designStore.getDesign('design-launch'))).not.toContain('session-dev');
     const runRow = await handle.db.selectFrom('WorkflowPersistedRun').selectAll().executeTakeFirstOrThrow();
@@ -909,6 +913,41 @@ describe('registerWorkflowRoutes', () => {
         resolution: { submission: { approved: true, remarks: 'Ship it.' } },
       },
     });
+  });
+
+  it('TEST_CASE_M98_1B exposes a clean persisted workflow run presentation read model', async () => {
+    const handle = await initVdDb({ path: ':memory:' });
+    dbHandles.push(handle);
+    const designStore = new DbWorkflowDesignStore({ db: handle.db, templates: BUILT_IN_WORKFLOW_TEMPLATES });
+    await designStore.useTemplate({ templateId: 'built-in/dev-review-tester', designId: 'design.presentation.drt', draftId: 'draft.presentation.drt' });
+    await designStore.publishDraft('draft.presentation.drt');
+    const queued: any[] = [];
+    const runtime = new PersistedWorkflowRuntimeService({
+      db: handle.db,
+      designStore,
+      queue: { async queueAgentTurn(request) { queued.push(request); return { queueItemRef: `queue://${request.turnId}` }; } },
+      now: (() => { let value = 10_000; return () => value++; })(),
+      createId: (() => { let value = 1; return () => `id-${value++}`; })(),
+    });
+    await runtime.launch({ runId: 'run-presentation-drt', runSnapshotId: 'snapshot-presentation-drt', designId: 'design.presentation.drt', workspaceId: 'workspace-a', inputs: { featureRequest: 'Build presentation for persisted runs' }, roleBindings: { dev: { sessionId: 'session-dev' }, review: { sessionId: 'session-review' }, tester: { sessionId: 'session-tester' } } });
+    await runtime.completeAgentTurn({ runId: 'run-presentation-drt', turnId: queued[0].turnId, responseRef: 'dev-impl' });
+    await runtime.completeAgentTurn({ runId: 'run-presentation-drt', turnId: queued[1].turnId, responseRef: 'dev-self', finalResponseText: '<decision action="ready_for_review"><summary>Done</summary></decision>' });
+    await runtime.completeAgentTurn({ runId: 'run-presentation-drt', turnId: queued[2].turnId, responseRef: 'review-ok', finalResponseText: '<decision action="approved"><remarks>Looks good</remarks></decision>' });
+    await runtime.completeAgentTurn({ runId: 'run-presentation-drt', turnId: queued[3].turnId, responseRef: 'tester-ok', finalResponseText: '<decision action="approved"><testSummary>Passed</testSummary></decision>' });
+    const app = new Hono();
+    registerWorkflowRoutes(app, { registry: createWorkflowRegistry(), workflowHomeDb: handle.db, workflowDesignStore: designStore });
+
+    const response = await app.request('/dashboard/api/workflow-instances/run-presentation-drt/presentation');
+
+    expect(response.status).toBe(200);
+    const body = await response.json() as { presentation: any };
+    expect(body.presentation).toMatchObject({ workflowName: 'Dev / Review / Tester', status: 'completed', originalTask: 'Build presentation for persisted runs' });
+    expect(body.presentation.timeline.map((item: any) => item.role)).toEqual(['Dev', 'Dev', 'Review', 'Tester']);
+    expect(body.presentation.timeline[0]).toMatchObject({ title: 'Implement turn', status: 'Complete' });
+    expect(body.presentation.timeline[0].initialMessage.text).toContain('Implement the requested feature');
+    expect(body.presentation.timeline[1].finalResponse.text).toContain('ready_for_review');
+    expect(body.presentation.timeline[2].finalResponse.text).toContain('approved');
+    expect(body.presentation.timeline[3].finalResponse.text).toContain('Passed');
   });
 
   it('exposes a clean workflow presentation read model', async () => {

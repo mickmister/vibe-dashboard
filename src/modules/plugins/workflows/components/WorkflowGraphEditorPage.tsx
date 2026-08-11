@@ -3,7 +3,7 @@ import '@xyflow/react/dist/style.css';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router';
 import { Background, Controls, MiniMap, ReactFlow, type Edge, type Node } from '@xyflow/react';
-import type { AgentWorkflowDefinitionV1 } from '@vibe-dashboard/workflow-core';
+import type { AgentWorkflowDefinitionV1, WorkflowStepV1 } from '@vibe-dashboard/workflow-core';
 import { fetchWorkflowDesignEditor, publishWorkflowDesignDraft, saveWorkflowDesignDraft, type WorkflowDesignEditorModel } from '../client/workflowDesignEditorApi';
 import { applyWorkflowGraphActionEdit, validateWorkflowGraph, workflowDefinitionToGraph, type WorkflowGraphEdgeModel, type WorkflowGraphNodeModel, type WorkflowGraphValidationIssue } from './graph/workflowGraphModel';
 
@@ -133,8 +133,9 @@ export function WorkflowGraphEditorView({ editor, definition, onDefinitionChange
       </div>
       <aside className="space-y-4">
         {saveMessage ? <div className="rounded-lg border border-emerald-800 bg-emerald-950/30 p-3 text-sm text-emerald-100">{saveMessage}</div> : null}
+        <DesignDetails definition={definition} onChange={onDefinitionChange} />
         <ValidationPanel issues={issues} />
-        {selectedNode ? <NodeDetails node={selectedNode} /> : null}
+        {selectedNode ? <NodeDetails node={selectedNode} definition={definition} onChange={onDefinitionChange} /> : null}
         {selectedEdge ? <EdgeEditor edge={selectedEdge} states={graph.nodes} onChange={updateEdge} /> : null}
         <JsonDiagnostics definition={definition} />
       </aside>
@@ -142,7 +143,19 @@ export function WorkflowGraphEditorView({ editor, definition, onDefinitionChange
   );
 }
 
-function NodeDetails({ node }: { node: WorkflowGraphNodeModel }) {
+function DesignDetails({ definition, onChange }: { definition: AgentWorkflowDefinitionV1; onChange: (definition: AgentWorkflowDefinitionV1) => void }) {
+  return (
+    <section className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
+      <h2 className="font-semibold">Design details</h2>
+      <label className="mt-3 block text-sm"><span className="font-medium">Workflow name</span><input className="mt-2 w-full rounded-md border border-zinc-700 bg-zinc-950 p-2" value={definition.name} onChange={(event) => onChange({ ...definition, name: event.target.value })} /></label>
+      <label className="mt-3 block text-sm"><span className="font-medium">Description</span><textarea className="mt-2 min-h-20 w-full rounded-md border border-zinc-700 bg-zinc-950 p-2" value={definition.description ?? ''} onChange={(event) => onChange({ ...definition, description: event.target.value || undefined })} /></label>
+      <h3 className="mt-4 font-medium">Roles</h3>
+      <div className="mt-2 space-y-2">{Object.entries(definition.roles).map(([roleId, role]) => <label key={roleId} className="block text-sm"><span className="font-medium">{roleId} label</span><input className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 p-2" value={role.label ?? roleId} onChange={(event) => onChange({ ...definition, roles: { ...definition.roles, [roleId]: { ...role, label: event.target.value } } })} /></label>)}</div>
+    </section>
+  );
+}
+
+function NodeDetails({ node, definition, onChange }: { node: WorkflowGraphNodeModel; definition: AgentWorkflowDefinitionV1; onChange: (definition: AgentWorkflowDefinitionV1) => void }) {
   return (
     <section className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
       <div className="text-xs uppercase tracking-wide text-cyan-300">Selected state</div>
@@ -152,21 +165,49 @@ function NodeDetails({ node }: { node: WorkflowGraphNodeModel }) {
         <div><dt className="text-zinc-500">State id</dt><dd>{node.id}</dd></div>
       </dl>
       <h3 className="mt-4 font-medium">Steps</h3>
-      {node.steps.length ? <ul className="mt-2 space-y-2">{node.steps.map((step) => <li key={step.id} className="rounded-lg border border-zinc-800 bg-zinc-950 p-3 text-sm"><StepSummary step={step} /></li>)}</ul> : <p className="mt-2 text-sm text-zinc-400">No steps in this state.</p>}
+      {node.steps.length ? <ul className="mt-2 space-y-2">{node.steps.map((step) => <li key={step.id} className="rounded-lg border border-zinc-800 bg-zinc-950 p-3 text-sm"><StepSummary step={step} definition={definition} stateId={node.id} onChange={onChange} /></li>)}</ul> : <p className="mt-2 text-sm text-zinc-400">No steps in this state.</p>}
     </section>
   );
 }
 
-function StepSummary({ step }: { step: WorkflowGraphNodeModel['steps'][number] }) {
+function StepSummary({ step, definition, stateId, onChange }: { step: WorkflowGraphNodeModel['steps'][number]; definition: AgentWorkflowDefinitionV1; stateId: string; onChange: (definition: AgentWorkflowDefinitionV1) => void }) {
   return (
     <div>
       <div className="font-medium">{step.id}</div>
       <div className="mt-1 text-zinc-400">{step.type === 'agent_turn' ? `Agent turn · ${step.turnType}` : `Human form · ${step.humanFormTitle ?? 'Untitled form'}`}</div>
       {step.promptTemplate ? <div className="mt-2 text-xs text-zinc-500">Prompt: {step.promptTemplate}</div> : null}
       {step.promptRefs.length ? <div className="mt-2 text-xs text-zinc-500">Refs: {step.promptRefs.join(', ')}</div> : null}
+      {step.type === 'agent_turn' ? <PromptRefsEditor definition={definition} stateId={stateId} stepId={step.id} onChange={onChange} /> : null}
       {step.humanFormProvider ? <div className="mt-2 text-xs text-zinc-500">Form provider: {step.humanFormProvider}</div> : null}
     </div>
   );
+}
+
+
+function PromptRefsEditor({ definition, stateId, stepId, onChange }: { definition: AgentWorkflowDefinitionV1; stateId: string; stepId: string; onChange: (definition: AgentWorkflowDefinitionV1) => void }) {
+  const state = definition.states[stateId];
+  if (!state || 'terminal' in state) return null;
+  const step = state.steps.find((candidate) => candidate.id === stepId) as (WorkflowStepV1 & { prompt?: { refs?: Array<{ kind: string; id: string; version?: number }> } }) | undefined;
+  if (!step || step.type !== 'agent_turn') return null;
+  const value = (step.prompt.refs ?? []).map((ref) => `${ref.kind}:${ref.id}${ref.version ? `@${ref.version}` : ''}`).join(', ');
+  const update = (raw: string) => {
+    const refs = raw.split(',').map((part) => part.trim()).filter(Boolean).map((part) => {
+      const [kindAndId, versionRaw] = part.split('@');
+      const separator = kindAndId?.indexOf(':') ?? -1;
+      const kind = separator > 0 ? kindAndId!.slice(0, separator) : 'prompt';
+      const id = separator > 0 ? kindAndId!.slice(separator + 1) : kindAndId!;
+      const version = versionRaw ? Number(versionRaw) : undefined;
+      return Number.isFinite(version) ? { kind, id, version } : { kind, id };
+    });
+    const next = JSON.parse(JSON.stringify(definition)) as AgentWorkflowDefinitionV1;
+    const nextState = next.states[stateId];
+    if (!nextState || 'terminal' in nextState) return;
+    const nextStep = nextState.steps.find((candidate) => candidate.id === stepId) as (WorkflowStepV1 & { prompt?: { refs?: unknown[] } }) | undefined;
+    if (!nextStep || nextStep.type !== 'agent_turn') return;
+    nextStep.prompt = { ...nextStep.prompt, refs } as typeof nextStep.prompt;
+    onChange(next);
+  };
+  return <label className="mt-2 block text-xs text-zinc-400"><span>Prompt refs</span><input aria-label={`${stepId} prompt refs`} className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 p-2" value={value} onChange={(event) => update(event.target.value)} /></label>;
 }
 
 function EdgeEditor({ edge, states, onChange }: { edge: WorkflowGraphEdgeModel; states: WorkflowGraphNodeModel[]; onChange: (edgeId: string, edit: { actionLabel?: string; targetState?: string }) => void }) {
