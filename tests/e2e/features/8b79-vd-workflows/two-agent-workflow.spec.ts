@@ -76,7 +76,8 @@ test.describe('Docker qa-mode durable workflow UI', () => {
 
     await page.goto(`/dashboard/workflows/${encodeURIComponent(instanceId)}`);
     await expect(page.getByRole('heading', { name: 'Two Agent Review Round' })).toBeVisible();
-    await expect(page.getByText(task)).toBeVisible();
+    const originalTaskSection = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Original task' }) });
+    await expect(originalTaskSection.getByText(task, { exact: true })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Timeline' })).toBeVisible();
     await expect(page.getByText('Implementer').first()).toBeVisible();
     await expect(page.getByText('Reviewer').first()).toBeVisible();
