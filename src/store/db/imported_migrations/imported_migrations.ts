@@ -9,6 +9,7 @@ import { migration as declarativeWorkflowDefinitionsMigration } from '../migrati
 import { migration as workflowWebhookInboxMigration } from '../migrations/20260808000000_workflow_webhook_inbox/migration';
 import { migration as workflowWebhookProvisioningMigration } from '../migrations/20260808010000_workflow_webhook_provisioning/migration';
 import { migration as workflowAttentionItemsMigration } from '../migrations/20260811000000_workflow_attention_items/migration';
+import { migration as workflowDesignLibraryMigration } from '../migrations/20260811010000_workflow_design_library/migration';
 
 export const migrations = [
   {
@@ -54,5 +55,9 @@ export const migrations = [
   {
     name: '20260811000000_workflow_attention_items',
     migration: workflowAttentionItemsMigration,
+  },
+  {
+    name: '20260811010000_workflow_design_library',
+    migration: workflowDesignLibraryMigration,
   },
 ];

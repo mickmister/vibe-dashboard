@@ -35,6 +35,8 @@ describe('VD database', () => {
         '20260804030000_declarative_workflow_definitions',
         '20260808000000_workflow_webhook_inbox',
         '20260808010000_workflow_webhook_provisioning',
+        '20260811000000_workflow_attention_items',
+        '20260811010000_workflow_design_library',
       ]);
       const tables = await sql<{ name: string }>`
         SELECT name FROM sqlite_master
@@ -43,7 +45,10 @@ describe('VD database', () => {
           'WorkflowScopedTrigger', 'WorkflowRoleSessionBinding', 'WorkflowExternalWait',
           'ResponseCollection', 'ResponsePipeDelivery', 'WorkflowFactoryWorkItem',
           'DeclarativeWorkflowDefinition', 'WorkflowWebhookInbox',
-          'WorkflowWebhookProvisioningState', 'Migration'
+          'WorkflowWebhookProvisioningState', 'WorkflowAttentionItem',
+          'WorkflowDesign', 'WorkflowDesignDraft', 'WorkflowDesignVersion',
+          'WorkflowPromptAsset', 'WorkflowSkillAsset', 'WorkflowDesignRunSnapshot',
+          'Migration'
         )
       `.execute(handle.db);
       expect(tables.rows.map((table) => table.name).sort()).toEqual([
@@ -51,13 +56,20 @@ describe('VD database', () => {
         'Migration',
         'ResponseCollection',
         'ResponsePipeDelivery',
+        'WorkflowAttentionItem',
+        'WorkflowDesign',
+        'WorkflowDesignDraft',
+        'WorkflowDesignRunSnapshot',
+        'WorkflowDesignVersion',
         'WorkflowExternalWait',
         'WorkflowFactoryWorkItem',
         'WorkflowInstance',
+        'WorkflowPromptAsset',
         'WorkflowRoleSessionBinding',
         'WorkflowRun',
         'WorkflowRunEvent',
         'WorkflowScopedTrigger',
+        'WorkflowSkillAsset',
         'WorkflowStepState',
         'WorkflowWebhookInbox',
         'WorkflowWebhookProvisioningState',

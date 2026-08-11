@@ -331,7 +331,89 @@ export interface WorkflowRoleSessionBinding {
   updatedAt: number;
 }
 
+
+export type WorkflowLibraryRecordSource = 'built_in' | 'user' | 'plugin';
+export type WorkflowDesignDraftValidationStatus = 'unknown' | 'valid' | 'invalid';
+
+export interface WorkflowDesign {
+  designId: string;
+  source: WorkflowLibraryRecordSource;
+  name: string;
+  description: NullableString;
+  currentDraftId: NullableString;
+  latestPublishedVersion: NullableNumber;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface WorkflowDesignDraft {
+  draftId: string;
+  designId: string;
+  baseVersion: NullableNumber;
+  definitionJson: string;
+  validationStatus: WorkflowDesignDraftValidationStatus;
+  validationIssuesJson: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface WorkflowDesignVersion {
+  designId: string;
+  version: number;
+  sourceDraftId: NullableString;
+  definitionJson: string;
+  resolvedDefinitionJson: string;
+  resolvedPromptSnapshotJson: string;
+  definitionHash: string;
+  publishedAt: number;
+  createdAt: number;
+}
+
+export interface WorkflowPromptAsset {
+  promptAssetId: string;
+  version: number;
+  source: WorkflowLibraryRecordSource;
+  name: string;
+  description: NullableString;
+  bodyMarkdown: string;
+  inputSchemaJson: NullableString;
+  contentHash: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface WorkflowSkillAsset {
+  skillAssetId: string;
+  version: number;
+  source: WorkflowLibraryRecordSource;
+  name: string;
+  description: NullableString;
+  bodyMarkdown: string;
+  contentHash: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface WorkflowDesignRunSnapshot {
+  runSnapshotId: string;
+  designId: string;
+  designVersion: number;
+  workspaceId: string;
+  runInputJson: string;
+  roleBindingsJson: string;
+  additionalInstructions: NullableString;
+  resolvedDefinitionJson: string;
+  resolvedPromptSnapshotJson: string;
+  createdAt: number;
+}
+
 export interface DB {
+  WorkflowDesign: WorkflowDesign;
+  WorkflowDesignDraft: WorkflowDesignDraft;
+  WorkflowDesignVersion: WorkflowDesignVersion;
+  WorkflowPromptAsset: WorkflowPromptAsset;
+  WorkflowSkillAsset: WorkflowSkillAsset;
+  WorkflowDesignRunSnapshot: WorkflowDesignRunSnapshot;
   DeclarativeWorkflowDefinition: DeclarativeWorkflowDefinitionRow;
   Migration: Migration;
   ResponseCollection: ResponseCollection;
