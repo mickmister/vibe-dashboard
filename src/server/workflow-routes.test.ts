@@ -371,6 +371,98 @@ describe('registerWorkflowRoutes', () => {
     });
   });
 
+  it('exposes workflow attention feed and completion APIs for human-turn form submissions', async () => {
+    const handle = await initVdDb({ path: ':memory:' });
+    dbHandles.push(handle);
+    const store = new DbWorkflowOrchestrationStore({ db: handle.db, now: (() => { let value = 5000; return () => value++; })() });
+    await store.createInstance({
+      instanceId: 'instance_attention',
+      workflowId: 'human-workflow',
+      teamId: 'team-route',
+      laneId: 'lane-route',
+      trigger: 'manual',
+      input: { task: 'needs approval' },
+    });
+    await store.createStepState({
+      id: 'step_human',
+      instanceId: 'instance_attention',
+      stepKey: 'human_approval',
+    });
+    await store.startInstance('instance_attention', { currentStepId: 'human_approval' });
+    await store.markStepRunning('step_human');
+    await store.createHumanAttention({
+      attentionItemId: 'attention_route',
+      instanceId: 'instance_attention',
+      stepStateId: 'step_human',
+      stepKey: 'human_approval',
+      stateId: 'waiting_for_user',
+      stateVisitId: 'visit_route',
+      idempotencyKey: 'instance_attention:visit_route:human_approval',
+      title: 'Answer planning questions',
+      presentationUrl: '/dashboard/workflows/instance_attention',
+      formRef: 'beads-form://vibe-kanban-vscode-web/attention_route',
+      formSchema: { fields: { approved: { required: true } } },
+    });
+
+    const app = new Hono();
+    registerWorkflowRoutes(app, {
+      registry: createWorkflowRegistry(),
+      workflowOrchestrationStore: store,
+    });
+
+    const listResponse = await app.request('/dashboard/api/workflow-attention-items?status=active&teamId=team-route&limit=1');
+    expect(listResponse.status).toBe(200);
+    await expect(listResponse.json()).resolves.toMatchObject({
+      items: [{
+        attentionItemId: 'attention_route',
+        status: 'active',
+        kind: 'human_turn',
+        title: 'Answer planning questions',
+        presentationUrl: '/dashboard/workflows/instance_attention',
+        formRef: 'beads-form://vibe-kanban-vscode-web/attention_route',
+      }],
+      hasMore: false,
+    });
+
+    const invalidResponse = await app.request('/dashboard/api/workflow-attention-items/attention_route/complete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stateVisitId: 'visit_route', submission: {} }),
+    });
+    expect(invalidResponse.status).toBe(400);
+    await expect(invalidResponse.json()).resolves.toMatchObject({
+      result: {
+        applied: false,
+        reason: 'invalid_submission',
+        validationErrors: [{ path: 'submission.approved' }],
+      },
+    });
+
+    const completeResponse = await app.request('/dashboard/api/workflow-attention-items/attention_route/complete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stateVisitId: 'visit_route', submission: { approved: true, remarks: 'Ship it.' } }),
+    });
+    expect(completeResponse.status).toBe(200);
+    await expect(completeResponse.json()).resolves.toMatchObject({
+      result: {
+        applied: true,
+        reason: 'applied',
+        attention: { status: 'resolved' },
+        instance: { status: 'running' },
+      },
+    });
+
+    const getResponse = await app.request('/dashboard/api/workflow-attention-items/attention_route');
+    expect(getResponse.status).toBe(200);
+    await expect(getResponse.json()).resolves.toMatchObject({
+      item: {
+        status: 'resolved',
+        resolution: { submission: { approved: true, remarks: 'Ship it.' } },
+      },
+    });
+  });
+
   it('returns 404 for missing workflow orchestration inspection endpoints', async () => {
     const handle = await initVdDb({ path: ':memory:' });
     dbHandles.push(handle);
@@ -387,6 +479,10 @@ describe('registerWorkflowRoutes', () => {
     const triggerResponse = await app.request('/dashboard/api/workflow-scoped-triggers/missing');
     expect(triggerResponse.status).toBe(404);
     await expect(triggerResponse.json()).resolves.toEqual({ error: 'workflow_scoped_trigger_not_found' });
+
+    const attentionResponse = await app.request('/dashboard/api/workflow-attention-items/missing');
+    expect(attentionResponse.status).toBe(404);
+    await expect(attentionResponse.json()).resolves.toEqual({ error: 'workflow_attention_item_not_found' });
   });
 
 

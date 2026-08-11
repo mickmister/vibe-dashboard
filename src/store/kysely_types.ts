@@ -174,6 +174,33 @@ export interface WorkflowScopedTrigger {
   cancelledAt: NullableNumber;
 }
 
+export type WorkflowAttentionItemStatus = 'active' | 'resolved' | 'cancelled';
+export type WorkflowAttentionItemKind = 'human_turn';
+
+export interface WorkflowAttentionItem {
+  attentionItemId: string;
+  instanceId: string;
+  stepStateId: NullableString;
+  workflowId: string;
+  teamId: NullableString;
+  laneId: NullableString;
+  status: WorkflowAttentionItemStatus;
+  kind: WorkflowAttentionItemKind;
+  title: string;
+  description: NullableString;
+  stateId: NullableString;
+  stepId: string;
+  stateVisitId: string;
+  idempotencyKey: string;
+  presentationUrl: NullableString;
+  formRef: NullableString;
+  formSchemaJson: NullableString;
+  resolutionJson: NullableString;
+  createdAt: number;
+  updatedAt: number;
+  resolvedAt: NullableNumber;
+  cancelledAt: NullableNumber;
+}
 
 export type WorkflowExternalWaitKind = 'callback' | 'ci';
 export type WorkflowExternalWaitStatus = 'active' | 'resolved' | 'cancelled';
@@ -313,6 +340,7 @@ export interface DB {
   WorkflowRun: WorkflowRun;
   WorkflowRunEvent: WorkflowRunEvent;
   WorkflowInstance: WorkflowInstance;
+  WorkflowAttentionItem: WorkflowAttentionItem;
   WorkflowStepState: WorkflowStepState;
   WorkflowScopedTrigger: WorkflowScopedTrigger;
   WorkflowRoleSessionBinding: WorkflowRoleSessionBinding;

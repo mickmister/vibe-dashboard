@@ -8,6 +8,7 @@ import { migration as factoryWorkItemsMigration } from '../migrations/2026080402
 import { migration as declarativeWorkflowDefinitionsMigration } from '../migrations/20260804030000_declarative_workflow_definitions/migration';
 import { migration as workflowWebhookInboxMigration } from '../migrations/20260808000000_workflow_webhook_inbox/migration';
 import { migration as workflowWebhookProvisioningMigration } from '../migrations/20260808010000_workflow_webhook_provisioning/migration';
+import { migration as workflowAttentionItemsMigration } from '../migrations/20260811000000_workflow_attention_items/migration';
 
 export const migrations = [
   {
@@ -49,5 +50,9 @@ export const migrations = [
   {
     name: '20260808010000_workflow_webhook_provisioning',
     migration: workflowWebhookProvisioningMigration,
+  },
+  {
+    name: '20260811000000_workflow_attention_items',
+    migration: workflowAttentionItemsMigration,
   },
 ];

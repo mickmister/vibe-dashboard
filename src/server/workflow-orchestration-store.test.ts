@@ -307,6 +307,164 @@ describe('DbWorkflowOrchestrationStore', () => {
     ]);
   });
 
+  it('creates a durable human attention item idempotently and pauses the workflow step without an agent turn', async () => {
+    const { store } = await createStore();
+    await seedInstance(store);
+    await store.startInstance('instance_1', { currentStepId: 'plan' });
+    await store.markStepRunning('instance_1_step_plan');
+
+    const first = await store.createHumanAttention({
+      attentionItemId: 'attention_1',
+      instanceId: 'instance_1',
+      stepStateId: 'instance_1_step_plan',
+      stepKey: 'plan',
+      stateId: 'needs_user',
+      stateVisitId: 'visit_1',
+      idempotencyKey: 'instance_1:visit_1:plan',
+      title: 'Approve implementation plan',
+      description: 'Review Dev and Review questions before implementation.',
+      presentationUrl: '/dashboard/workflows/instance_1',
+      formRef: 'beads-form://vibe-kanban-vscode-web/attention_1',
+      formSchema: {
+        fields: {
+          approved: { required: true },
+          remarks: { required: false },
+        },
+      },
+    });
+
+    expect(first.created).toBe(true);
+    expect(first.item).toMatchObject({
+      attentionItemId: 'attention_1',
+      workflowId: 'durable-workflow',
+      teamId: 'team-a',
+      laneId: 'lane-a',
+      status: 'active',
+      kind: 'human_turn',
+      stateId: 'needs_user',
+      stepId: 'plan',
+      stateVisitId: 'visit_1',
+      formRef: 'beads-form://vibe-kanban-vscode-web/attention_1',
+      formSchema: { fields: { approved: { required: true } } },
+    });
+    expect(first.instance).toMatchObject({ status: 'waiting', currentStepId: 'plan' });
+    expect(first.step).toMatchObject({ status: 'waiting', blockedReason: 'human_attention_required' });
+
+    const duplicate = await store.createHumanAttention({
+      attentionItemId: 'attention_duplicate',
+      instanceId: 'instance_1',
+      stepStateId: 'instance_1_step_plan',
+      stepKey: 'plan',
+      stateVisitId: 'visit_1',
+      idempotencyKey: 'instance_1:visit_1:plan',
+      title: 'Duplicate wakeup',
+    });
+    expect(duplicate.created).toBe(false);
+    expect(duplicate.item.attentionItemId).toBe('attention_1');
+
+    await expect(store.listAttentionItems({ status: 'active' })).resolves.toMatchObject({
+      items: [{ attentionItemId: 'attention_1', title: 'Approve implementation plan' }],
+      hasMore: false,
+    });
+  });
+
+  it('completes a human attention item from form submission and resumes the workflow idempotently', async () => {
+    const { store } = await createStore();
+    await seedInstance(store);
+    await store.startInstance('instance_1', { currentStepId: 'plan' });
+    await store.markStepRunning('instance_1_step_plan');
+    await store.createHumanAttention({
+      attentionItemId: 'attention_1',
+      instanceId: 'instance_1',
+      stepStateId: 'instance_1_step_plan',
+      stepKey: 'plan',
+      stateVisitId: 'visit_1',
+      idempotencyKey: 'instance_1:visit_1:plan',
+      title: 'Approve implementation plan',
+      formSchema: { fields: { approved: { required: true } } },
+    });
+
+    const invalid = await store.completeHumanAttention({
+      attentionItemId: 'attention_1',
+      stateVisitId: 'visit_1',
+      submission: { remarks: 'missing required decision' },
+    });
+    expect(invalid).toMatchObject({
+      applied: false,
+      reason: 'invalid_submission',
+      validationErrors: [{ path: 'submission.approved', message: 'field is required' }],
+    });
+    await expect(store.getAttentionItem('attention_1')).resolves.toMatchObject({ status: 'active' });
+
+    const stale = await store.completeHumanAttention({
+      attentionItemId: 'attention_1',
+      stateVisitId: 'old_visit',
+      submission: { approved: true },
+    });
+    expect(stale).toMatchObject({ applied: false, reason: 'stale_state_visit' });
+
+    const completed = await store.completeHumanAttention({
+      attentionItemId: 'attention_1',
+      stateVisitId: 'visit_1',
+      submission: { approved: true, remarks: 'Looks good.' },
+    });
+    expect(completed).toMatchObject({
+      applied: true,
+      reason: 'applied',
+      attention: {
+        status: 'resolved',
+        resolution: { submission: { approved: true, remarks: 'Looks good.' } },
+      },
+      instance: { status: 'running' },
+      step: {
+        status: 'completed',
+        output: {
+          kind: 'human_turn_submission',
+          attentionItemId: 'attention_1',
+          submission: { approved: true, remarks: 'Looks good.' },
+        },
+      },
+    });
+
+    const duplicate = await store.completeHumanAttention({
+      attentionItemId: 'attention_1',
+      stateVisitId: 'visit_1',
+      submission: { approved: false },
+    });
+    expect(duplicate).toMatchObject({ applied: false, reason: 'attention_not_active' });
+  });
+
+  it('treats human attention submission after terminal workflow completion as a no-op', async () => {
+    const { store } = await createStore();
+    await seedInstance(store);
+    await store.startInstance('instance_1', { currentStepId: 'plan' });
+    await store.markStepRunning('instance_1_step_plan');
+    await store.createHumanAttention({
+      attentionItemId: 'attention_1',
+      instanceId: 'instance_1',
+      stepStateId: 'instance_1_step_plan',
+      stepKey: 'plan',
+      stateVisitId: 'visit_1',
+      idempotencyKey: 'instance_1:visit_1:plan',
+      title: 'Approve implementation plan',
+      formSchema: { fields: { approved: { required: true } } },
+    });
+    await store.completeInstance('instance_1', { state: { done: true } });
+
+    const result = await store.completeHumanAttention({
+      attentionItemId: 'attention_1',
+      stateVisitId: 'visit_1',
+      submission: {},
+    });
+
+    expect(result).toMatchObject({
+      applied: false,
+      reason: 'attention_not_active',
+      instance: { status: 'completed' },
+      attention: { status: 'cancelled' },
+    });
+  });
+
   it('satisfies triggers once and cancels active triggers when the instance is cancelled', async () => {
     const { store } = await createStore();
     await seedInstance(store);

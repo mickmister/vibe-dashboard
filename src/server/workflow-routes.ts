@@ -13,6 +13,7 @@ import {
   type WorkflowRunReader,
 } from './workflow-run-store';
 import {
+  parseWorkflowAttentionStatus,
   parseWorkflowInstanceStatus,
   parseWorkflowTriggerStatus,
   type DbWorkflowOrchestrationStore,
@@ -272,6 +273,45 @@ export function registerWorkflowRoutes(
     const steps = await store.listStepStates(instance.instanceId);
     const triggers = await store.listTriggers({ instanceId: instance.instanceId, limit: 100 });
     return c.json({ instance, steps, triggers: triggers.triggers, output: asRecord(instance.state)?.output ?? null });
+  });
+
+  hono.get('/dashboard/api/workflow-attention-items', async (c) => {
+    const store = options.workflowOrchestrationStore;
+    if (!store) return c.json({ error: 'workflow_orchestration_store_not_configured' }, 503);
+    const result = await store.listAttentionItems({
+      status: parseWorkflowAttentionStatus(c.req.query('status') ?? null),
+      teamId: c.req.query('teamId') || undefined,
+      laneId: c.req.query('laneId') || undefined,
+      instanceId: c.req.query('instanceId') || undefined,
+      limit: parsePositiveInteger(c.req.query('limit') ?? null),
+      offset: parsePositiveInteger(c.req.query('offset') ?? null),
+    });
+    return c.json(result);
+  });
+
+  hono.get('/dashboard/api/workflow-attention-items/:attentionItemId', async (c) => {
+    const store = options.workflowOrchestrationStore;
+    if (!store) return c.json({ error: 'workflow_orchestration_store_not_configured' }, 503);
+    const item = await store.getAttentionItem(c.req.param('attentionItemId'));
+    if (!item) return c.json({ error: 'workflow_attention_item_not_found' }, 404);
+    return c.json({ item });
+  });
+
+  hono.post('/dashboard/api/workflow-attention-items/:attentionItemId/complete', async (c) => {
+    const store = options.workflowOrchestrationStore;
+    if (!store) return c.json({ error: 'workflow_orchestration_store_not_configured' }, 503);
+    try {
+      const body = asRecord(await readJsonBody(c.req.raw)) ?? {};
+      const result = await store.completeHumanAttention({
+        attentionItemId: c.req.param('attentionItemId'),
+        stateVisitId: asString(body.stateVisitId),
+        submission: body.submission ?? {},
+      });
+      const status = result.reason === 'invalid_submission' || result.reason === 'stale_state_visit' ? 400 : 200;
+      return c.json({ result }, status);
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 400);
+    }
   });
 
   hono.post('/dashboard/api/declarative-workflows/:workflowId/run', async (c) => {

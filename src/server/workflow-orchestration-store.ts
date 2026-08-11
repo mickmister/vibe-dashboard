@@ -1,6 +1,9 @@
 import type { Kysely, Selectable } from 'kysely';
 import type {
   DB,
+  WorkflowAttentionItem,
+  WorkflowAttentionItemKind,
+  WorkflowAttentionItemStatus,
   WorkflowInstance,
   WorkflowInstanceStatus,
   WorkflowScopedTrigger,
@@ -120,6 +123,84 @@ export interface WorkflowTriggerResumeResult {
   step: WorkflowStepStateReadModel | null;
 }
 
+export interface WorkflowAttentionItemReadModel {
+  attentionItemId: string;
+  instanceId: string;
+  stepStateId: string | null;
+  workflowId: string;
+  teamId: string | null;
+  laneId: string | null;
+  status: WorkflowAttentionItemStatus;
+  kind: WorkflowAttentionItemKind;
+  title: string;
+  description: string | null;
+  stateId: string | null;
+  stepId: string;
+  stateVisitId: string;
+  idempotencyKey: string;
+  presentationUrl: string | null;
+  formRef: string | null;
+  formSchema: JsonValue | null;
+  resolution: JsonValue | null;
+  createdAt: number;
+  updatedAt: number;
+  resolvedAt: number | null;
+  cancelledAt: number | null;
+}
+
+export interface WorkflowAttentionListFilters {
+  status?: WorkflowAttentionItemStatus;
+  teamId?: string;
+  laneId?: string;
+  instanceId?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface WorkflowAttentionListResult {
+  items: WorkflowAttentionItemReadModel[];
+  limit: number;
+  offset: number;
+  hasMore: boolean;
+}
+
+export interface CreateHumanAttentionInput {
+  attentionItemId: string;
+  instanceId: string;
+  stepStateId: string;
+  stepKey: string;
+  stateVisitId: string;
+  idempotencyKey: string;
+  title: string;
+  description?: string | null;
+  stateId?: string | null;
+  presentationUrl?: string | null;
+  formRef?: string | null;
+  formSchema?: JsonValue | null;
+}
+
+export interface CompleteHumanAttentionInput {
+  attentionItemId: string;
+  stateVisitId?: string | null;
+  submission: JsonValue;
+}
+
+export type CompleteHumanAttentionReason =
+  | 'applied'
+  | 'attention_not_active'
+  | 'instance_not_waiting'
+  | 'stale_state_visit'
+  | 'invalid_submission';
+
+export interface CompleteHumanAttentionResult {
+  applied: boolean;
+  reason: CompleteHumanAttentionReason;
+  attention: WorkflowAttentionItemReadModel;
+  instance: WorkflowInstanceReadModel | null;
+  step: WorkflowStepStateReadModel | null;
+  validationErrors: Array<{ path: string; message: string }>;
+}
+
 export interface CreateWorkflowInstanceInput {
   instanceId: string;
   workflowId: string;
@@ -199,6 +280,8 @@ const DEFAULT_INSTANCE_LIMIT = 50;
 const MAX_INSTANCE_LIMIT = 100;
 const DEFAULT_TRIGGER_LIMIT = 50;
 const MAX_TRIGGER_LIMIT = 200;
+const DEFAULT_ATTENTION_LIMIT = 50;
+const MAX_ATTENTION_LIMIT = 200;
 const ACTIVE_INSTANCE_STATUSES: WorkflowInstanceStatus[] = ['running', 'waiting'];
 const CANCELLABLE_INSTANCE_STATUSES: WorkflowInstanceStatus[] = ['created', 'running', 'waiting', 'paused'];
 const PAUSABLE_INSTANCE_STATUSES: WorkflowInstanceStatus[] = ['created', 'running', 'waiting'];
@@ -330,6 +413,7 @@ export class DbWorkflowOrchestrationStore {
       expectedVersion,
     });
     await this.cancelActiveTriggersForInstance(instanceId, now);
+    await this.cancelActiveAttentionForInstance(instanceId, now);
     return this.getRequiredInstance(instanceId);
   }
 
@@ -339,6 +423,7 @@ export class DbWorkflowOrchestrationStore {
       latestRunId: args.latestRunId,
       expectedVersion: args.expectedVersion,
     });
+    await this.cancelActiveAttentionForInstance(instanceId, this.now());
     return this.getRequiredInstance(instanceId);
   }
 
@@ -347,6 +432,7 @@ export class DbWorkflowOrchestrationStore {
       error,
       expectedVersion,
     });
+    await this.cancelActiveAttentionForInstance(instanceId, this.now());
     return this.getRequiredInstance(instanceId);
   }
 
@@ -819,6 +905,256 @@ export class DbWorkflowOrchestrationStore {
     return this.getRequiredTrigger(triggerId);
   }
 
+  async createHumanAttention(input: CreateHumanAttentionInput): Promise<{ item: WorkflowAttentionItemReadModel; created: boolean; instance: WorkflowInstanceReadModel; step: WorkflowStepStateReadModel }> {
+    const db = await this.getDb();
+    const now = this.now();
+    let result: { item: WorkflowAttentionItemReadModel; created: boolean; instance: WorkflowInstanceReadModel; step: WorkflowStepStateReadModel } | undefined;
+
+    await db.transaction().execute(async (trx) => {
+      const existing = await trx
+        .selectFrom('WorkflowAttentionItem')
+        .selectAll()
+        .where('idempotencyKey', '=', input.idempotencyKey)
+        .executeTakeFirst();
+      if (existing) {
+        const [instanceRow, stepRow] = await Promise.all([
+          trx.selectFrom('WorkflowInstance').selectAll().where('instanceId', '=', existing.instanceId).executeTakeFirstOrThrow(),
+          existing.stepStateId
+            ? trx.selectFrom('WorkflowStepState').selectAll().where('id', '=', existing.stepStateId).executeTakeFirstOrThrow()
+            : trx.selectFrom('WorkflowStepState').selectAll().where('instanceId', '=', existing.instanceId).where('stepKey', '=', existing.stepId).executeTakeFirstOrThrow(),
+        ]);
+        result = {
+          item: mapAttentionItem(existing),
+          created: false,
+          instance: mapInstance(instanceRow),
+          step: mapStepState(stepRow),
+        };
+        return;
+      }
+
+      const instanceRow = await trx
+        .selectFrom('WorkflowInstance')
+        .selectAll()
+        .where('instanceId', '=', input.instanceId)
+        .executeTakeFirst();
+      if (!instanceRow) throw new Error(`Workflow instance ${input.instanceId} not found`);
+      if (instanceRow.status !== 'running') {
+        throw new WorkflowOrchestrationTransitionError(`Cannot create human attention item for workflow instance ${input.instanceId} from status ${instanceRow.status}`);
+      }
+
+      await assertUpdated(
+        trx
+          .updateTable('WorkflowStepState')
+          .set({
+            status: 'waiting',
+            blockedReason: 'human_attention_required',
+            updatedAt: now,
+          })
+          .where('id', '=', input.stepStateId)
+          .where('instanceId', '=', input.instanceId)
+          .where('stepKey', '=', input.stepKey)
+          .where('status', '=', 'running')
+          .executeTakeFirst(),
+        `Cannot mark human workflow step ${input.stepStateId} waiting from its current state`,
+      );
+
+      await trx
+        .insertInto('WorkflowAttentionItem')
+        .values({
+          attentionItemId: input.attentionItemId,
+          instanceId: input.instanceId,
+          stepStateId: input.stepStateId,
+          workflowId: instanceRow.workflowId,
+          teamId: instanceRow.teamId,
+          laneId: instanceRow.laneId,
+          status: 'active',
+          kind: 'human_turn',
+          title: input.title,
+          description: input.description ?? null,
+          stateId: input.stateId ?? null,
+          stepId: input.stepKey,
+          stateVisitId: input.stateVisitId,
+          idempotencyKey: input.idempotencyKey,
+          presentationUrl: input.presentationUrl ?? null,
+          formRef: input.formRef ?? null,
+          formSchemaJson: input.formSchema == null ? null : serializeJson(input.formSchema),
+          resolutionJson: null,
+          createdAt: now,
+          updatedAt: now,
+          resolvedAt: null,
+          cancelledAt: null,
+        })
+        .execute();
+
+      await assertUpdated(
+        trx
+          .updateTable('WorkflowInstance')
+          .set((eb) => ({
+            status: 'waiting' as const,
+            currentStepId: input.stepKey,
+            updatedAt: now,
+            version: eb('version', '+', 1),
+          }))
+          .where('instanceId', '=', input.instanceId)
+          .where('status', '=', 'running')
+          .executeTakeFirst(),
+        `Cannot mark workflow instance ${input.instanceId} waiting for human attention from its current state`,
+      );
+
+      const [itemRow, updatedInstanceRow, updatedStepRow] = await Promise.all([
+        trx.selectFrom('WorkflowAttentionItem').selectAll().where('attentionItemId', '=', input.attentionItemId).executeTakeFirstOrThrow(),
+        trx.selectFrom('WorkflowInstance').selectAll().where('instanceId', '=', input.instanceId).executeTakeFirstOrThrow(),
+        trx.selectFrom('WorkflowStepState').selectAll().where('id', '=', input.stepStateId).executeTakeFirstOrThrow(),
+      ]);
+      result = {
+        item: mapAttentionItem(itemRow),
+        created: true,
+        instance: mapInstance(updatedInstanceRow),
+        step: mapStepState(updatedStepRow),
+      };
+    });
+
+    if (!result) throw new WorkflowOrchestrationTransitionError(`Cannot create human attention item for workflow instance ${input.instanceId}`);
+    return result;
+  }
+
+  async completeHumanAttention(input: CompleteHumanAttentionInput): Promise<CompleteHumanAttentionResult> {
+    const db = await this.getDb();
+    const now = this.now();
+    let result: CompleteHumanAttentionResult | undefined;
+
+    await db.transaction().execute(async (trx) => {
+      const itemRow = await trx
+        .selectFrom('WorkflowAttentionItem')
+        .selectAll()
+        .where('attentionItemId', '=', input.attentionItemId)
+        .executeTakeFirst();
+      if (!itemRow) throw new Error(`Workflow attention item ${input.attentionItemId} not found`);
+
+      const instanceRow = await trx
+        .selectFrom('WorkflowInstance')
+        .selectAll()
+        .where('instanceId', '=', itemRow.instanceId)
+        .executeTakeFirst();
+      const stepRow = itemRow.stepStateId
+        ? await trx.selectFrom('WorkflowStepState').selectAll().where('id', '=', itemRow.stepStateId).executeTakeFirst()
+        : await trx.selectFrom('WorkflowStepState').selectAll().where('instanceId', '=', itemRow.instanceId).where('stepKey', '=', itemRow.stepId).executeTakeFirst();
+      const attention = mapAttentionItem(itemRow);
+      const instance = instanceRow ? mapInstance(instanceRow) : null;
+      const step = stepRow ? mapStepState(stepRow) : null;
+
+      if (itemRow.status !== 'active') {
+        result = { applied: false, reason: 'attention_not_active', attention, instance, step, validationErrors: [] };
+        return;
+      }
+      if (input.stateVisitId && input.stateVisitId !== itemRow.stateVisitId) {
+        result = { applied: false, reason: 'stale_state_visit', attention, instance, step, validationErrors: [] };
+        return;
+      }
+
+      if (instanceRow?.status !== 'waiting' || stepRow?.status !== 'waiting') {
+        result = { applied: false, reason: 'instance_not_waiting', attention, instance, step, validationErrors: [] };
+        return;
+      }
+
+      const validationErrors = validateHumanSubmission(input.submission, attention.formSchema);
+      if (validationErrors.length > 0) {
+        result = { applied: false, reason: 'invalid_submission', attention, instance, step, validationErrors };
+        return;
+      }
+
+      const resolution = {
+        submittedAt: now,
+        submission: input.submission,
+      };
+
+      await assertUpdated(
+        trx
+          .updateTable('WorkflowAttentionItem')
+          .set({
+            status: 'resolved',
+            resolutionJson: serializeJson(resolution),
+            resolvedAt: now,
+            updatedAt: now,
+          })
+          .where('attentionItemId', '=', input.attentionItemId)
+          .where('status', '=', 'active')
+          .executeTakeFirst(),
+        `Cannot resolve workflow attention item ${input.attentionItemId} from its current state`,
+      );
+
+      await assertUpdated(
+        trx
+          .updateTable('WorkflowStepState')
+          .set({
+            status: 'completed',
+            outputJson: serializeJson({
+              kind: 'human_turn_submission',
+              attentionItemId: input.attentionItemId,
+              formRef: itemRow.formRef,
+              submission: input.submission,
+            }),
+            completedAt: now,
+            updatedAt: now,
+          })
+          .where('id', '=', stepRow.id)
+          .where('instanceId', '=', itemRow.instanceId)
+          .where('status', '=', 'waiting')
+          .executeTakeFirst(),
+        `Cannot complete human workflow step ${stepRow.id} from its current state`,
+      );
+
+      await assertUpdated(
+        trx
+          .updateTable('WorkflowInstance')
+          .set((eb) => ({
+            status: 'running' as const,
+            updatedAt: now,
+            version: eb('version', '+', 1),
+          }))
+          .where('instanceId', '=', itemRow.instanceId)
+          .where('status', '=', 'waiting')
+          .executeTakeFirst(),
+        `Cannot resume workflow instance ${itemRow.instanceId} after human attention from its current state`,
+      );
+
+      const [updatedItemRow, updatedInstanceRow, updatedStepRow] = await Promise.all([
+        trx.selectFrom('WorkflowAttentionItem').selectAll().where('attentionItemId', '=', input.attentionItemId).executeTakeFirstOrThrow(),
+        trx.selectFrom('WorkflowInstance').selectAll().where('instanceId', '=', itemRow.instanceId).executeTakeFirstOrThrow(),
+        trx.selectFrom('WorkflowStepState').selectAll().where('id', '=', stepRow.id).executeTakeFirstOrThrow(),
+      ]);
+      result = {
+        applied: true,
+        reason: 'applied',
+        attention: mapAttentionItem(updatedItemRow),
+        instance: mapInstance(updatedInstanceRow),
+        step: mapStepState(updatedStepRow),
+        validationErrors: [],
+      };
+    });
+
+    if (!result) throw new WorkflowOrchestrationTransitionError(`Cannot complete workflow attention item ${input.attentionItemId}`);
+    return result;
+  }
+
+  async listAttentionItems(filters: WorkflowAttentionListFilters = {}): Promise<WorkflowAttentionListResult> {
+    const db = await this.getDb();
+    const limit = clampLimit(filters.limit, DEFAULT_ATTENTION_LIMIT, MAX_ATTENTION_LIMIT);
+    const offset = normalizeOffset(filters.offset);
+    let query = db.selectFrom('WorkflowAttentionItem').selectAll();
+    if (filters.status) query = query.where('status', '=', filters.status);
+    if (filters.teamId) query = query.where('teamId', '=', filters.teamId);
+    if (filters.laneId) query = query.where('laneId', '=', filters.laneId);
+    if (filters.instanceId) query = query.where('instanceId', '=', filters.instanceId);
+    const rows = await query.orderBy('updatedAt', 'desc').orderBy('attentionItemId', 'desc').limit(limit + 1).offset(offset).execute();
+    return { items: rows.slice(0, limit).map(mapAttentionItem), limit, offset, hasMore: rows.length > limit };
+  }
+
+  async getAttentionItem(attentionItemId: string): Promise<WorkflowAttentionItemReadModel | null> {
+    const db = await this.getDb();
+    const row = await db.selectFrom('WorkflowAttentionItem').selectAll().where('attentionItemId', '=', attentionItemId).executeTakeFirst();
+    return row ? mapAttentionItem(row) : null;
+  }
 
   async listStepStates(instanceId: string): Promise<WorkflowStepStateReadModel[]> {
     const db = await this.getDb();
@@ -1011,6 +1347,16 @@ export class DbWorkflowOrchestrationStore {
       .execute();
   }
 
+  private async cancelActiveAttentionForInstance(instanceId: string, now: number): Promise<void> {
+    const db = await this.getDb();
+    await db
+      .updateTable('WorkflowAttentionItem')
+      .set({ status: 'cancelled', cancelledAt: now, updatedAt: now })
+      .where('instanceId', '=', instanceId)
+      .where('status', '=', 'active')
+      .execute();
+  }
+
   private async getDb(): Promise<Kysely<DB>> {
     return this.getDbHandle();
   }
@@ -1024,12 +1370,20 @@ export function parseWorkflowTriggerStatus(value: string | null): WorkflowScoped
   return isWorkflowTriggerStatus(value) ? value : undefined;
 }
 
+export function parseWorkflowAttentionStatus(value: string | null): WorkflowAttentionItemStatus | undefined {
+  return isWorkflowAttentionStatus(value) ? value : undefined;
+}
+
 export function isWorkflowInstanceStatus(value: unknown): value is WorkflowInstanceStatus {
   return value === 'created' || value === 'running' || value === 'waiting' || value === 'paused' || value === 'completed' || value === 'failed' || value === 'cancelled';
 }
 
 export function isWorkflowTriggerStatus(value: unknown): value is WorkflowScopedTriggerStatus {
   return value === 'active' || value === 'satisfied' || value === 'expired' || value === 'cancelled';
+}
+
+export function isWorkflowAttentionStatus(value: unknown): value is WorkflowAttentionItemStatus {
+  return value === 'active' || value === 'resolved' || value === 'cancelled';
 }
 
 function mapInstance(row: Selectable<WorkflowInstance>): WorkflowInstanceReadModel {
@@ -1057,6 +1411,33 @@ function mapInstance(row: Selectable<WorkflowInstance>): WorkflowInstanceReadMod
   };
 }
 
+function mapAttentionItem(row: Selectable<WorkflowAttentionItem>): WorkflowAttentionItemReadModel {
+  return {
+    attentionItemId: row.attentionItemId,
+    instanceId: row.instanceId,
+    stepStateId: row.stepStateId,
+    workflowId: row.workflowId,
+    teamId: row.teamId,
+    laneId: row.laneId,
+    status: row.status,
+    kind: row.kind,
+    title: row.title,
+    description: row.description,
+    stateId: row.stateId,
+    stepId: row.stepId,
+    stateVisitId: row.stateVisitId,
+    idempotencyKey: row.idempotencyKey,
+    presentationUrl: row.presentationUrl,
+    formRef: row.formRef,
+    formSchema: row.formSchemaJson == null ? null : parseStoredJson(row.formSchemaJson),
+    resolution: row.resolutionJson == null ? null : parseStoredJson(row.resolutionJson),
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    resolvedAt: row.resolvedAt,
+    cancelledAt: row.cancelledAt,
+  };
+}
+
 function mapStepState(row: Selectable<WorkflowStepState>): WorkflowStepStateReadModel {
   return {
     id: row.id,
@@ -1075,6 +1456,29 @@ function mapStepState(row: Selectable<WorkflowStepState>): WorkflowStepStateRead
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
+}
+
+function validateHumanSubmission(
+  submission: JsonValue,
+  formSchema: JsonValue,
+): Array<{ path: string; message: string }> {
+  const fields = asRecord(asRecord(formSchema)?.fields);
+  if (!fields) return [];
+  const submitted = asRecord(submission) ?? {};
+  const errors: Array<{ path: string; message: string }> = [];
+  for (const [fieldName, specValue] of Object.entries(fields)) {
+    const spec = asRecord(specValue);
+    if (spec?.required === true && (submitted[fieldName] == null || submitted[fieldName] === '')) {
+      errors.push({ path: `submission.${fieldName}`, message: 'field is required' });
+    }
+  }
+  return errors;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
 }
 
 function mapTrigger(row: Selectable<WorkflowScopedTrigger>): WorkflowScopedTriggerReadModel {
