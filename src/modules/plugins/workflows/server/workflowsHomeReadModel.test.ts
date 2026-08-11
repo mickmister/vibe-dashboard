@@ -30,7 +30,7 @@ describe('buildWorkspaceWorkflowsHomeModel', () => {
     const home = await buildWorkspaceWorkflowsHomeModel({ db: handle.db, designStore, orchestrationStore, workspaceId: 'workspace-a' });
 
     expect(home.availableWorkflows.map((workflow) => workflow.title).sort()).toEqual(['Create form from agent', 'Dev Review Tester']);
-    expect(home.recentRuns).toEqual([{ runId: 'run-workspace-a', workflowName: 'Workspace A run', status: 'running', startedAt: 10, updatedAt: 20, detailUrl: '/dashboard/workflows/run-workspace-a' }]);
+    expect(home.recentRuns).toEqual([{ runId: 'run-workspace-a', workflowName: 'Workspace A run', status: 'running', startedAt: 10, updatedAt: 20, detailUrl: null }]);
     expect(home.needsInput).toMatchObject([{ attentionItemId: 'attention-a', title: 'Answer planning questions' }]);
     expect(JSON.stringify(home)).not.toContain('workspace-b');
   });

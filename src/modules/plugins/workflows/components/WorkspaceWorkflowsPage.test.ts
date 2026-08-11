@@ -16,7 +16,8 @@ describe('WorkspaceWorkflowsHomeView', () => {
     expect(html).toContain('Dev Review Tester');
     expect(html).toContain('Create form from agent');
     expect(html).toContain('Feature workflow run');
-    expect(html).toContain('/dashboard/workflows/run-a');
+    expect(html).not.toContain('href="/dashboard/workflows/run-a"');
+    expect(html).toContain('href="/dashboard/workflows/legacy-attention"');
     for (const term of forbiddenTerms) expect(html).not.toContain(term);
   });
 
@@ -38,10 +39,10 @@ function fixture(): WorkspaceWorkflowsHomeModel {
       { id: 'template-form', title: 'Create form from agent', description: null, source: 'template', status: 'ready', version: null, unavailableReason: null },
     ],
     recentRuns: [
-      { runId: 'run-a', workflowName: 'Feature workflow run', status: 'running', startedAt: 1, updatedAt: 2, detailUrl: '/dashboard/workflows/run-a' },
+      { runId: 'run-a', workflowName: 'Feature workflow run', status: 'running', startedAt: 1, updatedAt: 2, detailUrl: null },
     ],
     needsInput: [
-      { attentionItemId: 'attention-a', title: 'Answer planning questions', description: 'Please fill out the form.', workflowName: 'Feature workflow run', createdAt: 3, detailUrl: '/dashboard/workflows/run-a' },
+      { attentionItemId: 'attention-a', title: 'Answer planning questions', description: 'Please fill out the form.', workflowName: 'Feature workflow run', createdAt: 3, detailUrl: '/dashboard/workflows/legacy-attention' },
     ],
   };
 }

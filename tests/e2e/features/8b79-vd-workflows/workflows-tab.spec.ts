@@ -22,10 +22,10 @@ test.describe('Workspace Workflows tab shell', () => {
               { id: 'design-dev-review-tester', title: 'Dev Review Tester', description: 'Feature work loop', source: 'published_design', status: 'ready', version: 1, unavailableReason: null },
             ],
             recentRuns: [
-              { runId: 'run-clean', workflowName: 'Feature workflow run', status: 'running', startedAt: 1, updatedAt: 2, detailUrl: '/dashboard/workflows/run-clean' },
+              { runId: 'run-clean', workflowName: 'Feature workflow run', status: 'running', startedAt: 1, updatedAt: 2, detailUrl: null },
             ],
             needsInput: [
-              { attentionItemId: 'attention-clean', title: 'Answer planning questions', description: 'Please fill out the form.', workflowName: 'Feature workflow run', createdAt: 3, detailUrl: '/dashboard/workflows/run-clean' },
+              { attentionItemId: 'attention-clean', title: 'Answer planning questions', description: 'Please fill out the form.', workflowName: 'Feature workflow run', createdAt: 3, detailUrl: '/dashboard/workflows/legacy-clean' },
             ],
           },
         }),
@@ -38,8 +38,9 @@ test.describe('Workspace Workflows tab shell', () => {
     await expect(page.getByRole('heading', { name: 'Available workflows' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Recent runs' })).toBeVisible();
     await expect(page.getByText('Dev Review Tester')).toBeVisible();
-    await expect(page.getByRole('link', { name: /Feature workflow run/ })).toHaveAttribute('href', '/dashboard/workflows/run-clean');
+    await expect(page.locator('a[href="/dashboard/workflows/legacy-clean"]')).toBeVisible();
     await expect(page.getByText('Answer planning questions')).toBeVisible();
+    await expect(page.locator('a[href="/dashboard/workflows/run-clean"]')).toHaveCount(0);
     for (const term of forbiddenTerms) {
       await expect(page.getByText(term, { exact: false })).toHaveCount(0);
     }

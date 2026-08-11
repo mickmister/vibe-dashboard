@@ -26,7 +26,7 @@ export interface WorkspaceWorkflowRunSummary {
   status: string;
   startedAt: number;
   updatedAt: number;
-  detailUrl: string;
+  detailUrl: string | null;
 }
 
 export interface WorkspaceWorkflowAttentionSummary {
@@ -96,7 +96,7 @@ async function listRecentRuns(db: Kysely<DB>, workspaceId: string, limit: number
       status: row.status,
       startedAt: row.createdAt,
       updatedAt: row.updatedAt,
-      detailUrl: `/dashboard/workflows/${encodeURIComponent(row.runId)}`,
+      detailUrl: null,
     };
   });
 }

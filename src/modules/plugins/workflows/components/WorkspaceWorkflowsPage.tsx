@@ -87,15 +87,17 @@ function WorkflowCard({ workflow }: { workflow: WorkspaceWorkflowSummary }) {
 }
 
 function RunRow({ run }: { run: WorkspaceWorkflowRunSummary }) {
-  return (
-    <a className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-zinc-800 bg-zinc-950 p-4 hover:border-cyan-800" href={run.detailUrl}>
+  const body = (
+    <>
       <div>
         <h3 className="font-semibold">{run.workflowName}</h3>
         <p className="mt-1 text-sm text-zinc-400">Updated {formatTime(run.updatedAt)}</p>
       </div>
       <StatusPill label={humanRunStatus(run.status)} tone={run.status === 'completed' ? 'emerald' : run.status === 'blocked' ? 'amber' : run.status === 'failed' ? 'red' : 'cyan'} />
-    </a>
+    </>
   );
+  const classes = "flex flex-wrap items-center justify-between gap-3 rounded-lg border border-zinc-800 bg-zinc-950 p-4";
+  return run.detailUrl ? <a className={`${classes} hover:border-cyan-800`} href={run.detailUrl}>{body}</a> : <div className={classes}>{body}</div>;
 }
 
 function AttentionCard({ item }: { item: WorkspaceWorkflowAttentionSummary }) {

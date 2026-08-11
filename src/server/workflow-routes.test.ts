@@ -73,7 +73,7 @@ describe('registerWorkflowRoutes', () => {
       home: {
         workspaceId: 'workspace-a',
         availableWorkflows: [{ id: 'design-home', title: 'Home Workflow', status: 'ready' }],
-        recentRuns: [{ runId: 'run-home-a', workflowName: 'Home Workflow', detailUrl: '/dashboard/workflows/run-home-a' }],
+        recentRuns: [{ runId: 'run-home-a', workflowName: 'Home Workflow', detailUrl: null }],
         needsInput: [],
       },
     });

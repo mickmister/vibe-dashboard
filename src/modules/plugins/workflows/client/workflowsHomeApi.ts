@@ -21,7 +21,7 @@ export interface WorkspaceWorkflowRunSummary {
   status: string;
   startedAt: number;
   updatedAt: number;
-  detailUrl: string;
+  detailUrl: string | null;
 }
 
 export interface WorkspaceWorkflowAttentionSummary {
