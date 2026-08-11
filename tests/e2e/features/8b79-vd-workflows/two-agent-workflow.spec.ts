@@ -70,12 +70,12 @@ test.describe('Docker qa-mode durable workflow UI', () => {
     expect(terminalInboxEvents).toBeGreaterThanOrEqual(2);
 
     const presentation = await fetchPresentation(page.request, instanceId);
-    expect(presentation.workflowName).toBe('Two agent review round');
+    expect(presentation.workflowName).toBe('Two Agent Review Round');
     expect(presentation.originalTask).toBe(task);
     expect(presentation.timeline.map((item) => item.role)).toEqual(['Implementer', 'Reviewer']);
 
     await page.goto(`/dashboard/workflows/${encodeURIComponent(instanceId)}`);
-    await expect(page.getByRole('heading', { name: 'Two agent review round' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Two Agent Review Round' })).toBeVisible();
     await expect(page.getByText(task)).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Timeline' })).toBeVisible();
     await expect(page.getByText('Implementer').first()).toBeVisible();
@@ -90,7 +90,7 @@ test.describe('Docker qa-mode durable workflow UI', () => {
     }
 
     await page.reload();
-    await expect(page.getByRole('heading', { name: 'Two agent review round' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Two Agent Review Round' })).toBeVisible();
 
     await page.goto('/dashboard/teams');
     await page.reload();
