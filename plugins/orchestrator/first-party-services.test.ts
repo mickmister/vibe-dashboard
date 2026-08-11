@@ -101,6 +101,7 @@ describe('first-party service plugin inventory and golden supervisor config', ()
 
   it('uses Sysbox-backed Docker-in-Docker without mounting the host Docker socket', () => {
     expect(goldenDockerCompose).toContain('runtime: ${VKVD_CONTAINER_RUNTIME:-sysbox-runc}');
+    expect(goldenDockerCompose).toContain('VKVD_ALLOW_NON_SYSBOX_RUNTIME: ${VKVD_ALLOW_NON_SYSBOX_RUNTIME:-false}');
     expect(goldenDockerCompose).toContain('docker-data:/var/lib/docker');
     expect(goldenDockerCompose).not.toContain('/var/run/docker.sock:/var/run/docker.sock');
     expect(goldenDockerfile).toContain('docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin');
