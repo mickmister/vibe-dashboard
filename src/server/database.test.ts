@@ -37,6 +37,7 @@ describe('VD database', () => {
         '20260808010000_workflow_webhook_provisioning',
         '20260811000000_workflow_attention_items',
         '20260811010000_workflow_design_library',
+        '20260811020000_workflow_persisted_runs',
       ]);
       const tables = await sql<{ name: string }>`
         SELECT name FROM sqlite_master
@@ -48,7 +49,7 @@ describe('VD database', () => {
           'WorkflowWebhookProvisioningState', 'WorkflowAttentionItem',
           'WorkflowDesign', 'WorkflowDesignDraft', 'WorkflowDesignVersion',
           'WorkflowPromptAsset', 'WorkflowSkillAsset', 'WorkflowDesignRunSnapshot',
-          'Migration'
+          'WorkflowPersistedRun', 'Migration'
         )
       `.execute(handle.db);
       expect(tables.rows.map((table) => table.name).sort()).toEqual([
@@ -64,6 +65,7 @@ describe('VD database', () => {
         'WorkflowExternalWait',
         'WorkflowFactoryWorkItem',
         'WorkflowInstance',
+        'WorkflowPersistedRun',
         'WorkflowPromptAsset',
         'WorkflowRoleSessionBinding',
         'WorkflowRun',

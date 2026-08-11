@@ -407,6 +407,27 @@ export interface WorkflowDesignRunSnapshot {
   createdAt: number;
 }
 
+
+export type WorkflowPersistedRunStatus = 'running' | 'completed' | 'blocked' | 'failed' | 'cancelled';
+
+export interface WorkflowPersistedRun {
+  runId: string;
+  runSnapshotId: string;
+  designId: string;
+  designVersion: number;
+  workspaceId: string;
+  status: WorkflowPersistedRunStatus;
+  coreModelJson: string;
+  coreSnapshotJson: string;
+  roleBindingsJson: string;
+  pendingEffectJson: NullableString;
+  queuedTurnsJson: string;
+  eventsJson: string;
+  errorJson: NullableString;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface DB {
   WorkflowDesign: WorkflowDesign;
   WorkflowDesignDraft: WorkflowDesignDraft;
@@ -414,6 +435,7 @@ export interface DB {
   WorkflowPromptAsset: WorkflowPromptAsset;
   WorkflowSkillAsset: WorkflowSkillAsset;
   WorkflowDesignRunSnapshot: WorkflowDesignRunSnapshot;
+  WorkflowPersistedRun: WorkflowPersistedRun;
   DeclarativeWorkflowDefinition: DeclarativeWorkflowDefinitionRow;
   Migration: Migration;
   ResponseCollection: ResponseCollection;
