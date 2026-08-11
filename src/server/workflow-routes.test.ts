@@ -79,6 +79,128 @@ describe('registerWorkflowRoutes', () => {
     });
   });
 
+  it('TEST_CASE_M95_1A launches a persisted workflow with required inputs and existing sessions', async () => {
+    const handle = await initVdDb({ path: ':memory:' });
+    dbHandles.push(handle);
+    const app = new Hono();
+    const designStore = new DbWorkflowDesignStore({ db: handle.db });
+    await designStore.createDesign({ designId: 'design-launch', draftId: 'draft-launch', name: 'Launch Workflow', definition: routeLaunchDefinition() });
+    await designStore.publishDraft('draft-launch');
+    const sessions = [
+      vkSession('session-dev', 'workspace-a', 'Dev'),
+      vkSession('session-review', 'workspace-a', 'Review'),
+    ];
+    const queued: Array<{ sessionId: string; prompt: string }> = [];
+    registerWorkflowRoutes(app, {
+      registry: createWorkflowRegistry(),
+      workflowHomeDb: handle.db,
+      workflowDesignStore: designStore,
+      vkClient: {
+        getSessions: async () => sessions,
+        getSession: async (sessionId) => {
+          const session = sessions.find((candidate) => candidate.id === sessionId);
+          if (!session) throw new Error('session not found');
+          return session;
+        },
+        createSession: async () => { throw new Error('should not create session'); },
+        queueFollowUp: async (sessionId, prompt) => {
+          queued.push({ sessionId, prompt });
+          return { queued_item: { id: `queue-${queued.length}`, session_id: sessionId, workspace_id: 'workspace-a', status: 'queued', source: 'workflow', priority: 0, data: { message: prompt } }, status: { count: 1, message: null, messages: [], status: 'queued' } };
+        },
+      },
+    });
+
+    const missing = await app.request('/dashboard/api/workflows/launch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workspaceId: 'workspace-a', designId: 'design-launch', inputs: {}, roleBindings: {} }),
+    });
+    expect(missing.status).toBe(400);
+    await expect(missing.json()).resolves.toMatchObject({ fieldErrors: { featureRequest: 'This field is required.' } });
+
+    const launched = await app.request('/dashboard/api/workflows/launch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        workspaceId: 'workspace-a',
+        designId: 'design-launch',
+        inputs: { featureRequest: 'Build launch flow' },
+        additionalInstructions: 'Keep it clean.',
+        roleBindings: { dev: { mode: 'existing', sessionId: 'session-dev' }, review: { mode: 'existing', sessionId: 'session-review' } },
+      }),
+    });
+
+    expect(launched.status).toBe(201);
+    const payload = await launched.json();
+    expect(payload).toMatchObject({ run: { workspaceId: 'workspace-a', status: 'running', detailUrl: null }, home: { recentRuns: [{ workflowName: 'Launch Workflow', detailUrl: null }] } });
+    expect(queued).toMatchObject([{ sessionId: 'session-dev' }]);
+    expect(JSON.stringify(await designStore.getDesign('design-launch'))).not.toContain('session-dev');
+    const runRow = await handle.db.selectFrom('WorkflowPersistedRun').selectAll().executeTakeFirstOrThrow();
+    expect(JSON.parse(runRow.roleBindingsJson)).toMatchObject({ dev: { sessionId: 'session-dev' }, review: { sessionId: 'session-review' } });
+  });
+
+  it('TEST_CASE_M95_1B creates or reuses launch sessions by role name and rejects workspace mismatches', async () => {
+    const handle = await initVdDb({ path: ':memory:' });
+    dbHandles.push(handle);
+    const app = new Hono();
+    const designStore = new DbWorkflowDesignStore({ db: handle.db });
+    await designStore.createDesign({ designId: 'design-create-session', draftId: 'draft-create-session', name: 'Session Workflow', definition: routeLaunchDefinition() });
+    await designStore.publishDraft('draft-create-session');
+    const sessions = [
+      vkSession('session-review-reuse', 'workspace-a', 'Review'),
+      vkSession('session-other-workspace', 'workspace-b', 'Dev'),
+    ];
+    const created: string[] = [];
+    registerWorkflowRoutes(app, {
+      registry: createWorkflowRegistry(),
+      workflowHomeDb: handle.db,
+      workflowDesignStore: designStore,
+      vkClient: {
+        getSessions: async (workspaceId) => sessions.filter((session) => session.workspace_id === workspaceId),
+        getSession: async (sessionId) => {
+          const session = sessions.find((candidate) => candidate.id === sessionId);
+          if (!session) throw new Error('session not found');
+          return session;
+        },
+        createSession: async (body) => {
+          created.push(body.name ?? '');
+          const session = vkSession(`session-created-${created.length}`, body.workspace_id, body.name ?? null);
+          sessions.push(session);
+          return session;
+        },
+        queueFollowUp: async (sessionId, prompt) => ({ queued_item: { id: `queue-${sessionId}`, session_id: sessionId, workspace_id: 'workspace-a', status: 'queued', source: 'workflow', priority: 0, data: { message: prompt } }, status: { count: 1, message: null, messages: [], status: 'queued' } }),
+      },
+    });
+
+    const mismatch = await app.request('/dashboard/api/workflows/launch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        workspaceId: 'workspace-a',
+        designId: 'design-create-session',
+        inputs: { featureRequest: 'Build launch flow' },
+        roleBindings: { dev: { mode: 'existing', sessionId: 'session-other-workspace' }, review: { mode: 'create_or_reuse', name: 'Review' } },
+      }),
+    });
+    expect(mismatch.status).toBe(400);
+    await expect(mismatch.json()).resolves.toMatchObject({ message: 'Dev session belongs to another workspace.', fieldErrors: { 'role.dev': 'Dev session belongs to another workspace.' } });
+
+    const launched = await app.request('/dashboard/api/workflows/launch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        workspaceId: 'workspace-a',
+        designId: 'design-create-session',
+        inputs: { featureRequest: 'Build launch flow' },
+        roleBindings: { dev: { mode: 'create_or_reuse', name: 'Dev' }, review: { mode: 'create_or_reuse', name: 'Review' } },
+      }),
+    });
+    expect(launched.status).toBe(201);
+    expect(created).toEqual(['Dev']);
+    const runRow = await handle.db.selectFrom('WorkflowPersistedRun').selectAll().executeTakeFirstOrThrow();
+    expect(JSON.parse(runRow.roleBindingsJson)).toMatchObject({ dev: { sessionId: 'session-created-1' }, review: { sessionId: 'session-review-reuse' } });
+  });
+
   it('runs workflows by id and returns the workflow run record', async () => {
     const registry = createWorkflowRegistry();
     const workflow = {
@@ -1267,6 +1389,35 @@ function routeValidDefinition() {
       },
       done: { terminal: true },
     },
+  };
+}
+
+function routeLaunchDefinition() {
+  return {
+    schemaVersion: 1,
+    name: 'Launch Workflow',
+    inputs: { featureRequest: { type: 'markdown', required: true, description: 'What should the workflow do?' } },
+    roles: { dev: { label: 'Dev' }, review: { label: 'Review' } },
+    initialState: 'dev',
+    states: {
+      dev: {
+        owner: 'dev',
+        steps: [{ id: 'decide', type: 'agent_turn', turnType: 'decision', prompt: { template: 'Decide {{inputs.featureRequest}}' }, response: { format: 'xml', schema: { format: 'xsd', source: 'state_actions' }, invalidXmlRetry: { maxAttempts: 1, prompt: 'engine_default_with_validation_errors', onExhausted: 'blocked' }, storeRawXml: true, storeParsedFields: true, unknownFields: 'reject_unless_allowed_by_result_contract' } }],
+        actions: { done: { targetState: 'done' } },
+      },
+      done: { terminal: true },
+    },
+  };
+}
+
+function vkSession(id: string, workspaceId: string, name: string | null) {
+  return {
+    id,
+    workspace_id: workspaceId,
+    executor: 'CODEX' as const,
+    name,
+    created_at: '2026-08-11T00:00:00.000Z',
+    updated_at: '2026-08-11T00:00:00.000Z',
   };
 }
 

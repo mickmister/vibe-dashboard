@@ -1,6 +1,18 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router';
-import { fetchWorkspaceWorkflowsHome, type WorkspaceWorkflowsHomeModel, type WorkspaceWorkflowAttentionSummary, type WorkspaceWorkflowRunSummary, type WorkspaceWorkflowSummary } from '../client/workflowsHomeApi';
+import {
+  fetchWorkflowLaunchOptions,
+  fetchWorkspaceWorkflowsHome,
+  launchWorkspaceWorkflow,
+  WorkflowApiError,
+  type WorkflowLaunchOptions,
+  type WorkflowLaunchRoleBindingRequest,
+  type WorkspaceWorkflowInputSummary,
+  type WorkspaceWorkflowsHomeModel,
+  type WorkspaceWorkflowAttentionSummary,
+  type WorkspaceWorkflowRunSummary,
+  type WorkspaceWorkflowSummary,
+} from '../client/workflowsHomeApi';
 
 export function WorkspaceWorkflowsPage(): React.ReactElement {
   const [params] = useSearchParams();
@@ -28,15 +40,17 @@ export function WorkspaceWorkflowsPage(): React.ReactElement {
 
   useEffect(() => { void load(); }, [workspaceId]);
 
-  return <WorkspaceWorkflowsHomeView home={home} loading={loading} error={error} onRefresh={() => void load()} />;
+  return <WorkspaceWorkflowsHomeView home={home} loading={loading} error={error} onRefresh={() => void load()} onHomeUpdated={setHome} />;
 }
 
-export function WorkspaceWorkflowsHomeView({ home, loading, error, onRefresh }: {
+export function WorkspaceWorkflowsHomeView({ home, loading, error, onRefresh, onHomeUpdated }: {
   home: WorkspaceWorkflowsHomeModel | null;
   loading: boolean;
   error: string | null;
   onRefresh: () => void;
+  onHomeUpdated?: (home: WorkspaceWorkflowsHomeModel) => void;
 }): React.ReactElement {
+  const [launchWorkflow, setLaunchWorkflow] = useState<WorkspaceWorkflowSummary | null>(null);
   return (
     <main className="min-h-screen bg-zinc-950 p-6 text-zinc-100">
       <div className="mx-auto max-w-6xl space-y-5">
@@ -55,13 +69,24 @@ export function WorkspaceWorkflowsHomeView({ home, loading, error, onRefresh }: 
         </Section>
 
         <Section title="Available workflows">
-          {home?.availableWorkflows.length ? <div className="grid gap-3 md:grid-cols-2">{home.availableWorkflows.map((workflow) => <WorkflowCard key={`${workflow.source}:${workflow.id}`} workflow={workflow} />)}</div> : <EmptyState text="No workflows are available yet." />}
+          {home?.availableWorkflows.length ? <div className="grid gap-3 md:grid-cols-2">{home.availableWorkflows.map((workflow) => <WorkflowCard key={`${workflow.source}:${workflow.id}`} workflow={workflow} onRun={() => setLaunchWorkflow(workflow)} />)}</div> : <EmptyState text="No workflows are available yet." />}
         </Section>
 
         <Section title="Recent runs">
           {home?.recentRuns.length ? <div className="space-y-3">{home.recentRuns.map((run) => <RunRow key={run.runId} run={run} />)}</div> : <EmptyState text="No workflow runs in this workspace yet." />}
         </Section>
       </div>
+      {home && launchWorkflow ? (
+        <RunWorkflowDialog
+          workspaceId={home.workspaceId}
+          workflow={launchWorkflow}
+          onClose={() => setLaunchWorkflow(null)}
+          onLaunched={(updated) => {
+            onHomeUpdated?.(updated);
+            setLaunchWorkflow(null);
+          }}
+        />
+      ) : null}
     </main>
   );
 }
@@ -70,7 +95,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   return <section className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-5"><h2 className="text-lg font-semibold">{title}</h2><div className="mt-4">{children}</div></section>;
 }
 
-function WorkflowCard({ workflow }: { workflow: WorkspaceWorkflowSummary }) {
+function WorkflowCard({ workflow, onRun }: { workflow: WorkspaceWorkflowSummary; onRun: () => void }) {
   return (
     <article className="rounded-lg border border-zinc-800 bg-zinc-950 p-4">
       <div className="flex items-start justify-between gap-3">
@@ -82,7 +107,156 @@ function WorkflowCard({ workflow }: { workflow: WorkspaceWorkflowSummary }) {
         <StatusPill label={workflow.status === 'ready' ? 'Ready' : 'Unavailable'} tone={workflow.status === 'ready' ? 'emerald' : 'amber'} />
       </div>
       {workflow.unavailableReason ? <p className="mt-3 text-sm text-amber-200">{workflow.unavailableReason}</p> : null}
+      {workflow.canRun ? <button className="mt-4 rounded-md bg-cyan-500 px-3 py-2 text-sm font-medium text-zinc-950 hover:bg-cyan-400" onClick={onRun}>Run</button> : null}
     </article>
+  );
+}
+
+function RunWorkflowDialog({ workspaceId, workflow, onClose, onLaunched }: {
+  workspaceId: string;
+  workflow: WorkspaceWorkflowSummary;
+  onClose: () => void;
+  onLaunched: (home: WorkspaceWorkflowsHomeModel) => void;
+}) {
+  const [options, setOptions] = useState<WorkflowLaunchOptions | null>(null);
+  const [inputs, setInputs] = useState<Record<string, string>>({});
+  const [additionalInstructions, setAdditionalInstructions] = useState('');
+  const [roleModes, setRoleModes] = useState<Record<string, 'existing' | 'create_or_reuse'>>({});
+  const [existingSessions, setExistingSessions] = useState<Record<string, string>>({});
+  const [newSessionNames, setNewSessionNames] = useState<Record<string, string>>({});
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [submitting, setSubmitting] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    setLoadError(null);
+    fetchWorkflowLaunchOptions(workspaceId, workflow.id, workflow.version)
+      .then((loaded) => {
+        if (!active) return;
+        setOptions(loaded);
+        const modes: Record<string, 'existing' | 'create_or_reuse'> = {};
+        const names: Record<string, string> = {};
+        for (const role of loaded.workflow.roles) {
+          modes[role.id] = loaded.sessions.length ? 'existing' : 'create_or_reuse';
+          names[role.id] = role.label;
+        }
+        setRoleModes(modes);
+        setNewSessionNames(names);
+      })
+      .catch((caught) => { if (active) setLoadError(caught instanceof Error ? caught.message : String(caught)); });
+    return () => { active = false; };
+  }, [workspaceId, workflow.id, workflow.version]);
+
+  const launchInputs = useMemo(() => options?.workflow.inputs ?? workflow.inputs, [options, workflow.inputs]);
+  const launchRoles = useMemo(() => options?.workflow.roles ?? workflow.roles, [options, workflow.roles]);
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const nextErrors: Record<string, string> = {};
+    for (const input of launchInputs) {
+      if (input.required && !inputs[input.id]?.trim()) nextErrors[input.id] = 'This field is required.';
+    }
+    const roleBindings: Record<string, WorkflowLaunchRoleBindingRequest> = {};
+    for (const role of launchRoles) {
+      const mode = roleModes[role.id] ?? 'existing';
+      if (mode === 'existing') {
+        const sessionId = existingSessions[role.id];
+        if (!sessionId) nextErrors[`role.${role.id}`] = `Choose a session for ${role.label}.`;
+        roleBindings[role.id] = { mode, sessionId: sessionId ?? '' };
+      } else {
+        const name = newSessionNames[role.id]?.trim() || role.label;
+        roleBindings[role.id] = { mode, name };
+      }
+    }
+    setFieldErrors(nextErrors);
+    if (Object.keys(nextErrors).length > 0) return;
+    setSubmitting(true);
+    try {
+      const launched = await launchWorkspaceWorkflow({
+        workspaceId,
+        designId: workflow.id,
+        version: workflow.version,
+        inputs,
+        additionalInstructions: additionalInstructions.trim() || null,
+        roleBindings,
+      });
+      if (launched.home) onLaunched(launched.home);
+      else onClose();
+    } catch (caught) {
+      if (caught instanceof WorkflowApiError) setFieldErrors({ form: caught.message, ...caught.fieldErrors });
+      else setFieldErrors({ form: caught instanceof Error ? caught.message : String(caught) });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true" aria-label={`Run ${workflow.title}`}>
+      <form onSubmit={submit} className="max-h-[90vh] w-full max-w-3xl overflow-auto rounded-xl border border-zinc-700 bg-zinc-950 p-5 shadow-2xl">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="text-xs uppercase tracking-wide text-cyan-300">Run workflow</div>
+            <h2 className="mt-1 text-xl font-semibold">{workflow.title}</h2>
+          </div>
+          <button type="button" className="rounded-md border border-zinc-700 px-3 py-2 text-sm" onClick={onClose}>Close</button>
+        </div>
+        {loadError ? <div role="alert" className="mt-4 rounded-md border border-amber-900 bg-amber-950/30 p-3 text-sm text-amber-100">{loadError}</div> : null}
+        {fieldErrors.form ? <div role="alert" className="mt-4 rounded-md border border-amber-900 bg-amber-950/30 p-3 text-sm text-amber-100">{fieldErrors.form}</div> : null}
+
+        <div className="mt-5 space-y-5">
+          <div className="space-y-3">
+            <h3 className="font-medium">Workflow inputs</h3>
+            {launchInputs.length ? launchInputs.map((input) => (
+              <WorkflowInputField key={input.id} input={input} value={inputs[input.id] ?? ''} error={fieldErrors[input.id]} onChange={(value) => setInputs((current) => ({ ...current, [input.id]: value }))} />
+            )) : <p className="text-sm text-zinc-400">This workflow has no required inputs.</p>}
+          </div>
+
+          <label className="block">
+            <span className="text-sm font-medium">Additional instructions for this run</span>
+            <textarea className="mt-2 min-h-24 w-full rounded-md border border-zinc-700 bg-zinc-900 p-3 text-sm" value={additionalInstructions} onChange={(event) => setAdditionalInstructions(event.target.value)} placeholder="Optional notes for this run only" />
+          </label>
+
+          <div className="space-y-3">
+            <h3 className="font-medium">Role sessions</h3>
+            {launchRoles.map((role) => (
+              <div key={role.id} className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-4">
+                <div className="font-medium">{role.label}</div>
+                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  <label className="flex items-center gap-2 text-sm"><input type="radio" checked={(roleModes[role.id] ?? 'existing') === 'existing'} onChange={() => setRoleModes((current) => ({ ...current, [role.id]: 'existing' }))} /> Choose existing session</label>
+                  <label className="flex items-center gap-2 text-sm"><input type="radio" checked={roleModes[role.id] === 'create_or_reuse'} onChange={() => setRoleModes((current) => ({ ...current, [role.id]: 'create_or_reuse' }))} /> Create or reuse by name</label>
+                </div>
+                {(roleModes[role.id] ?? 'existing') === 'existing' ? (
+                  <select aria-label={`${role.label} session`} className="mt-3 w-full rounded-md border border-zinc-700 bg-zinc-950 p-2 text-sm" value={existingSessions[role.id] ?? ''} onChange={(event) => setExistingSessions((current) => ({ ...current, [role.id]: event.target.value }))}>
+                    <option value="">Select a session</option>
+                    {(options?.sessions ?? []).map((session) => <option key={session.sessionId} value={session.sessionId}>{session.name || session.sessionId}</option>)}
+                  </select>
+                ) : (
+                  <input aria-label={`${role.label} session name`} className="mt-3 w-full rounded-md border border-zinc-700 bg-zinc-950 p-2 text-sm" value={newSessionNames[role.id] ?? role.label} onChange={(event) => setNewSessionNames((current) => ({ ...current, [role.id]: event.target.value }))} />
+                )}
+                {fieldErrors[`role.${role.id}`] ? <p className="mt-2 text-sm text-amber-200">{fieldErrors[`role.${role.id}`]}</p> : null}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-6 flex justify-end gap-3">
+          <button type="button" className="rounded-md border border-zinc-700 px-3 py-2 text-sm" onClick={onClose}>Cancel</button>
+          <button type="submit" className="rounded-md bg-cyan-500 px-3 py-2 text-sm font-medium text-zinc-950 disabled:opacity-60" disabled={submitting || Boolean(loadError)}>{submitting ? 'Launching…' : 'Launch workflow'}</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function WorkflowInputField({ input, value, error, onChange }: { input: WorkspaceWorkflowInputSummary; value: string; error?: string; onChange: (value: string) => void }) {
+  return (
+    <label className="block">
+      <span className="text-sm font-medium">{input.id}{input.required ? ' *' : ''}</span>
+      <textarea className="mt-2 min-h-20 w-full rounded-md border border-zinc-700 bg-zinc-900 p-3 text-sm" value={value} onChange={(event) => onChange(event.target.value)} />
+      {input.description ? <p className="mt-1 text-xs text-zinc-500">{input.description}</p> : null}
+      {error ? <p className="mt-1 text-sm text-amber-200">{error}</p> : null}
+    </label>
   );
 }
 

@@ -14,6 +14,7 @@ describe('WorkspaceWorkflowsHomeView', () => {
     expect(html).toContain('Recent runs');
     expect(html).toContain('Needs your input');
     expect(html).toContain('Dev Review Tester');
+    expect(html).toContain('Run');
     expect(html).toContain('Create form from agent');
     expect(html).toContain('Feature workflow run');
     expect(html).not.toContain('href="/dashboard/workflows/run-a"');
@@ -35,8 +36,8 @@ function fixture(): WorkspaceWorkflowsHomeModel {
   return {
     workspaceId: 'workspace-a',
     availableWorkflows: [
-      { id: 'design-drt', title: 'Dev Review Tester', description: 'Feature work loop', source: 'published_design', status: 'ready', version: 1, unavailableReason: null },
-      { id: 'template-form', title: 'Create form from agent', description: null, source: 'template', status: 'ready', version: null, unavailableReason: null },
+      { id: 'design-drt', title: 'Dev Review Tester', description: 'Feature work loop', source: 'published_design', status: 'ready', version: 1, unavailableReason: null, canRun: true, inputs: [{ id: 'featureRequest', type: 'markdown', required: true, description: null }], roles: [{ id: 'dev', label: 'Dev', description: null }] },
+      { id: 'template-form', title: 'Create form from agent', description: null, source: 'template', status: 'ready', version: null, unavailableReason: null, canRun: false, inputs: [], roles: [] },
     ],
     recentRuns: [
       { runId: 'run-a', workflowName: 'Feature workflow run', status: 'running', startedAt: 1, updatedAt: 2, detailUrl: null },

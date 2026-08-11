@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { Hono } from 'hono';
 import type { Kysely } from 'kysely';
 import {
@@ -31,7 +32,8 @@ import { normalizeDeclarativeWorkflowDefinition } from '../workflows/declarative
 import type { DbDeclarativeWorkflowDefinitionStore } from './declarative-workflow-definition-store';
 import type { DbWorkflowWebhookProvisioningStore } from './workflow-webhook-provisioning-store';
 import { buildWorkspaceWorkflowsHomeModel } from '../modules/plugins/workflows/server/workflowsHomeReadModel';
-import type { DbWorkflowDesignStore } from '../modules/plugins/workflows/server/workflowDesignStore';
+import { DbWorkflowDesignStore } from '../modules/plugins/workflows/server/workflowDesignStore';
+import { PersistedWorkflowRuntimeService, type PersistedWorkflowRunReadModel } from '../modules/plugins/workflows/server/persistedWorkflowRuntime';
 import { getVdDb } from './database';
 import type { DB } from '../store/kysely_types';
 import {
@@ -58,7 +60,8 @@ export interface RegisterWorkflowRoutesOptions {
   workflowWebhookProvisioningStore?: Pick<DbWorkflowWebhookProvisioningStore, 'getSecret' | 'getPublicState'>;
   workflowDesignStore?: DbWorkflowDesignStore;
   workflowHomeDb?: Kysely<DB>;
-  vkClient?: Pick<VibeKanbanServerClient, 'getExecutionProcessFinalMessage' | 'getExecutionProcessRepoStates'>;
+  persistedWorkflowRuntime?: Pick<PersistedWorkflowRuntimeService, 'launch'>;
+  vkClient?: Partial<Pick<VibeKanbanServerClient, 'getExecutionProcessFinalMessage' | 'getExecutionProcessRepoStates' | 'getSessions' | 'getSession' | 'createSession' | 'queueFollowUp'>>;
   vkWorkflowWebhookSecret?: string;
   githubWebhookSecret?: string;
   repoAliasCache?: RepoAliasCache;
@@ -87,6 +90,65 @@ export function registerWorkflowRoutes(
       workspaceId,
     });
     return c.json({ home });
+  });
+
+  hono.get('/dashboard/api/workflows/launch-options', async (c) => {
+    const workspaceId = c.req.query('workspaceId')?.trim();
+    const designId = c.req.query('designId')?.trim();
+    if (!workspaceId) return c.json({ error: 'workspace_id_required', message: 'Workspace is required' }, 400);
+    if (!designId) return c.json({ error: 'workflow_required', message: 'Workflow is required' }, 400);
+    const db = options.workflowHomeDb ?? (await getVdDb()).db;
+    const designStore = options.workflowDesignStore ?? new DbWorkflowDesignStore({ db });
+    try {
+      const workflow = await buildLaunchWorkflowSummary(designStore, designId, parsePositiveInteger(c.req.query('version') ?? null) ?? undefined);
+      if (!workflow.canRun) return c.json({ error: 'workflow_unavailable', message: workflow.unavailableReason ?? 'Workflow is not available to run' }, 400);
+      const sessions = await listLaunchSessions(options, workspaceId);
+      return c.json({ options: { workspaceId, workflow, sessions } });
+    } catch (error) {
+      return c.json({ error: 'workflow_launch_options_failed', message: error instanceof Error ? error.message : String(error) }, 400);
+    }
+  });
+
+  hono.post('/dashboard/api/workflows/launch', async (c) => {
+    const body = asRecord(await readJsonBody(c.req.raw));
+    const parsed = parseWorkflowLaunchRequest(body);
+    if (!parsed.ok) return c.json({ error: parsed.error, message: parsed.message, fieldErrors: parsed.fieldErrors }, parsed.status);
+    const db = options.workflowHomeDb ?? (await getVdDb()).db;
+    const designStore = options.workflowDesignStore ?? new DbWorkflowDesignStore({ db });
+    try {
+      const workflow = await buildLaunchWorkflowSummary(designStore, parsed.request.designId, parsed.request.version ?? undefined);
+      if (!workflow.canRun) return c.json({ error: 'workflow_unavailable', message: workflow.unavailableReason ?? 'Workflow is not available to run' }, 400);
+      const validationErrors = validateLaunchInputs(workflow, parsed.request.inputs);
+      if (Object.keys(validationErrors).length > 0) {
+        return c.json({ error: 'workflow_launch_validation_failed', message: 'Please fill out the required workflow fields.', fieldErrors: validationErrors }, 400);
+      }
+      const roleBindings = await resolveLaunchRoleBindings(options, parsed.request.workspaceId, workflow, parsed.request.roleBindings);
+      const runtime = await resolvePersistedWorkflowRuntime(options, db, designStore);
+      if (!runtime) return c.json({ error: 'workflow_runtime_not_configured', message: 'Workflow launch is not configured.' }, 503);
+      const run = await runtime.launch({
+        runId: `workflow-run-${randomUUID()}`,
+        runSnapshotId: `workflow-run-snapshot-${randomUUID()}`,
+        designId: parsed.request.designId,
+        version: workflow.version ?? undefined,
+        workspaceId: parsed.request.workspaceId,
+        inputs: parsed.request.inputs,
+        additionalInstructions: parsed.request.additionalInstructions,
+        roleBindings,
+      });
+      const home = await buildWorkspaceWorkflowsHomeModel({
+        db,
+        designStore,
+        orchestrationStore: options.workflowOrchestrationStore,
+        workspaceId: parsed.request.workspaceId,
+      });
+      return c.json({ run: summarizePersistedRun(run), home }, 201);
+    } catch (error) {
+      if (error instanceof WorkflowLaunchFieldError) {
+        return c.json({ error: 'workflow_launch_validation_failed', message: error.message, fieldErrors: error.fieldErrors }, 400);
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      return c.json({ error: 'workflow_launch_failed', message }, 400);
+    }
   });
 
   hono.get('/dashboard/api/workflow-webhooks/inbox', async (c) => {
@@ -303,7 +365,7 @@ export function registerWorkflowRoutes(
     if (!store) return c.json({ error: 'workflow_orchestration_store_not_configured' }, 503);
     const presentation = await buildWorkflowPresentationModel({
       store,
-      vk: options.vkClient,
+      vk: getPresentationVkClient(options),
       instanceId: c.req.param('instanceId'),
     });
     if (!presentation) return c.json({ error: 'workflow_presentation_not_found', message: 'Workflow not found' }, 404);
@@ -582,6 +644,207 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 function asString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
+}
+
+interface WorkflowLaunchRoleBindingRequest {
+  mode: 'existing' | 'create_or_reuse';
+  sessionId?: string;
+  name?: string;
+}
+
+interface WorkflowLaunchRequest {
+  workspaceId: string;
+  designId: string;
+  version: number | null;
+  inputs: Record<string, unknown>;
+  additionalInstructions: string | null;
+  roleBindings: Record<string, WorkflowLaunchRoleBindingRequest>;
+}
+
+class WorkflowLaunchFieldError extends Error {
+  readonly fieldErrors: Record<string, string>;
+
+  constructor(path: string, message: string) {
+    super(message);
+    this.name = 'WorkflowLaunchFieldError';
+    this.fieldErrors = { [path]: message };
+  }
+}
+
+async function buildLaunchWorkflowSummary(designStore: DbWorkflowDesignStore, designId: string, version?: number) {
+  const design = await designStore.getDesign(designId);
+  if (!design) throw new Error('Workflow was not found.');
+  const publishedVersion = version ?? design.latestPublishedVersion;
+  const published = publishedVersion == null ? null : await designStore.getVersion(designId, publishedVersion);
+  return {
+    id: design.designId,
+    title: design.name,
+    description: design.description,
+    source: 'published_design' as const,
+    status: published ? 'ready' as const : 'unavailable' as const,
+    version: published?.version ?? publishedVersion ?? null,
+    unavailableReason: published ? null : 'Publish this workflow before running it.',
+    canRun: Boolean(published),
+    inputs: published ? summarizeLaunchInputs(published.resolvedDefinition) : [],
+    roles: published ? summarizeLaunchRoles(published.resolvedDefinition) : [],
+  };
+}
+
+function summarizeLaunchInputs(definition: unknown) {
+  const inputs = asRecord(definition)?.inputs;
+  const inputRecord = asRecord(inputs) ?? {};
+  return Object.entries(inputRecord).map(([id, spec]) => {
+    const record = asRecord(spec) ?? {};
+    return {
+      id,
+      type: asString(record.type) ?? 'string',
+      required: record.required === true,
+      description: asString(record.description) ?? null,
+    };
+  });
+}
+
+function summarizeLaunchRoles(definition: unknown) {
+  const roles = asRecord(definition)?.roles;
+  const roleRecord = asRecord(roles) ?? {};
+  return Object.entries(roleRecord).map(([id, spec]) => {
+    const record = asRecord(spec) ?? {};
+    return {
+      id,
+      label: asString(record.label) ?? id,
+      description: asString(record.description) ?? null,
+    };
+  });
+}
+
+async function listLaunchSessions(options: RegisterWorkflowRoutesOptions, workspaceId: string) {
+  if (!options.vkClient?.getSessions) return [];
+  const sessions = await options.vkClient.getSessions(workspaceId);
+  return sessions.map((session) => ({
+    sessionId: session.id,
+    name: session.name ?? null,
+    executor: session.executor,
+    workspaceId: session.workspace_id,
+  }));
+}
+
+async function resolveLaunchRoleBindings(
+  options: RegisterWorkflowRoutesOptions,
+  workspaceId: string,
+  workflow: Awaited<ReturnType<typeof buildLaunchWorkflowSummary>>,
+  requested: Record<string, WorkflowLaunchRoleBindingRequest>,
+) {
+  const result: Record<string, { sessionId: string; workspaceId: string }> = {};
+  for (const role of workflow.roles) {
+    const binding = requested[role.id];
+    if (!binding) throw new WorkflowLaunchFieldError(`role.${role.id}`, `Choose a session for ${role.label}.`);
+    if (binding.mode === 'existing') {
+      const sessionId = binding.sessionId?.trim();
+      if (!sessionId) throw new WorkflowLaunchFieldError(`role.${role.id}`, `Choose an existing session for ${role.label}.`);
+      if (options.vkClient?.getSession) {
+        const session = await options.vkClient.getSession(sessionId);
+        if (session.workspace_id !== workspaceId) throw new WorkflowLaunchFieldError(`role.${role.id}`, `${role.label} session belongs to another workspace.`);
+      }
+      result[role.id] = { sessionId, workspaceId };
+      continue;
+    }
+    const name = binding.name?.trim() || role.label;
+    if (!options.vkClient?.getSessions || !options.vkClient.createSession) {
+      throw new WorkflowLaunchFieldError(`role.${role.id}`, `Cannot create or reuse a session for ${role.label}.`);
+    }
+    try {
+      const sessions = await options.vkClient.getSessions(workspaceId);
+      const reusable = [...sessions].sort((left, right) => Date.parse(right.updated_at) - Date.parse(left.updated_at)).find((session) => session.name === name);
+      const session = reusable ?? await options.vkClient.createSession({ workspace_id: workspaceId, executor: 'CODEX', name });
+      if (session.workspace_id !== workspaceId) throw new Error(`${role.label} session belongs to another workspace.`);
+      result[role.id] = { sessionId: session.id, workspaceId };
+    } catch (error) {
+      throw new WorkflowLaunchFieldError(`role.${role.id}`, error instanceof Error ? error.message : `Cannot create or reuse a session for ${role.label}.`);
+    }
+  }
+  return result;
+}
+
+function validateLaunchInputs(workflow: Awaited<ReturnType<typeof buildLaunchWorkflowSummary>>, inputs: Record<string, unknown>): Record<string, string> {
+  const errors: Record<string, string> = {};
+  for (const input of workflow.inputs) {
+    const value = inputs[input.id];
+    if (!input.required) continue;
+    if (value === undefined || value === null || (typeof value === 'string' && value.trim() === '')) {
+      errors[input.id] = 'This field is required.';
+    }
+  }
+  return errors;
+}
+
+function parseWorkflowLaunchRequest(record: Record<string, unknown> | null):
+  | { ok: true; request: WorkflowLaunchRequest }
+  | { ok: false; status: 400; error: string; message: string; fieldErrors?: Record<string, string> } {
+  const workspaceId = asString(record?.workspaceId)?.trim();
+  const designId = asString(record?.designId)?.trim();
+  const inputs = asRecord(record?.inputs) ?? {};
+  const roleBindings = asRecord(record?.roleBindings) ?? {};
+  const fieldErrors: Record<string, string> = {};
+  if (!workspaceId) fieldErrors.workspaceId = 'Workspace is required.';
+  if (!designId) fieldErrors.designId = 'Workflow is required.';
+  if (Object.keys(fieldErrors).length > 0) return { ok: false, status: 400, error: 'workflow_launch_validation_failed', message: 'Please fix the launch details.', fieldErrors };
+  return {
+    ok: true,
+    request: {
+      workspaceId: workspaceId!,
+      designId: designId!,
+      version: typeof record?.version === 'number' ? record.version : null,
+      inputs,
+      additionalInstructions: asString(record?.additionalInstructions)?.trim() || null,
+      roleBindings: normalizeRoleBindings(roleBindings),
+    },
+  };
+}
+
+function normalizeRoleBindings(input: Record<string, unknown>): Record<string, WorkflowLaunchRoleBindingRequest> {
+  const bindings: Record<string, WorkflowLaunchRoleBindingRequest> = {};
+  for (const [roleId, raw] of Object.entries(input)) {
+    const record = asRecord(raw) ?? {};
+    const mode = record.mode === 'create_or_reuse' ? 'create_or_reuse' : 'existing';
+    bindings[roleId] = mode === 'existing'
+      ? { mode, sessionId: asString(record.sessionId) }
+      : { mode, name: asString(record.name) };
+  }
+  return bindings;
+}
+
+async function resolvePersistedWorkflowRuntime(options: RegisterWorkflowRoutesOptions, db: Kysely<DB>, designStore: DbWorkflowDesignStore): Promise<Pick<PersistedWorkflowRuntimeService, 'launch'> | null> {
+  if (options.persistedWorkflowRuntime) return options.persistedWorkflowRuntime;
+  if (!options.vkClient?.queueFollowUp) return null;
+  return new PersistedWorkflowRuntimeService({
+    db,
+    designStore,
+    queue: {
+      queueAgentTurn: async (request) => {
+        const queued = await options.vkClient!.queueFollowUp!(request.sessionId, request.prompt, { source: 'workflow' });
+        return { queueItemRef: queued.queued_item.id };
+      },
+    },
+  });
+}
+
+function summarizePersistedRun(run: PersistedWorkflowRunReadModel) {
+  return {
+    runId: run.runId,
+    workspaceId: run.workspaceId,
+    status: run.status,
+    detailUrl: null,
+  };
+}
+
+function getPresentationVkClient(options: RegisterWorkflowRoutesOptions) {
+  if (options.vkClient?.getExecutionProcessFinalMessage && options.vkClient.getExecutionProcessRepoStates) {
+    return {
+      getExecutionProcessFinalMessage: options.vkClient.getExecutionProcessFinalMessage,
+      getExecutionProcessRepoStates: options.vkClient.getExecutionProcessRepoStates,
+    };
+  }
+  return undefined;
 }
 
 async function resolveDeclarativeDefinition(workflowId: string, rawDefinition: unknown, options: RegisterWorkflowRoutesOptions): Promise<DeclarativeWorkflowDefinition | null> {

@@ -18,6 +18,22 @@ export interface WorkspaceWorkflowSummary {
   status: 'ready' | 'unavailable';
   version: number | null;
   unavailableReason: string | null;
+  canRun: boolean;
+  inputs: WorkspaceWorkflowInputSummary[];
+  roles: WorkspaceWorkflowRoleSummary[];
+}
+
+export interface WorkspaceWorkflowInputSummary {
+  id: string;
+  type: string;
+  required: boolean;
+  description: string | null;
+}
+
+export interface WorkspaceWorkflowRoleSummary {
+  id: string;
+  label: string;
+  description: string | null;
 }
 
 export interface WorkspaceWorkflowRunSummary {
@@ -59,16 +75,24 @@ async function listAvailableWorkflows(designStore: DbWorkflowDesignStore): Promi
     designStore.listDesigns(),
     designStore.listTemplateCatalogReadModels(),
   ]);
-  return [
-    ...designs.map((design): WorkspaceWorkflowSummary => ({
+  const designSummaries = await Promise.all(designs.map(async (design): Promise<WorkspaceWorkflowSummary> => {
+    const version = design.latestPublishedVersion;
+    const published = version == null ? null : await designStore.getVersion(design.designId, version);
+    return {
       id: design.designId,
       title: design.name,
       description: design.description,
       source: 'published_design',
-      status: design.latestPublishedVersion == null ? 'unavailable' : 'ready',
-      version: design.latestPublishedVersion,
-      unavailableReason: design.latestPublishedVersion == null ? 'Publish this workflow before running it.' : null,
-    })),
+      status: version == null ? 'unavailable' : 'ready',
+      version,
+      unavailableReason: version == null ? 'Publish this workflow before running it.' : null,
+      canRun: version != null,
+      inputs: published ? summarizeInputs(published.resolvedDefinition) : [],
+      roles: published ? summarizeRoles(published.resolvedDefinition) : [],
+    };
+  }));
+  return [
+    ...designSummaries,
     ...templates.map((template): WorkspaceWorkflowSummary => ({
       id: template.templateId,
       title: template.name,
@@ -77,8 +101,36 @@ async function listAvailableWorkflows(designStore: DbWorkflowDesignStore): Promi
       status: template.validationStatus === 'valid' ? 'ready' : 'unavailable',
       version: null,
       unavailableReason: template.unavailableReason,
+      canRun: false,
+      inputs: [],
+      roles: [],
     })),
   ].sort((left, right) => left.title.localeCompare(right.title));
+}
+
+function summarizeInputs(definition: unknown): WorkspaceWorkflowInputSummary[] {
+  const inputs = isRecord(definition) && isRecord(definition.inputs) ? definition.inputs : {};
+  return Object.entries(inputs).map(([id, spec]) => {
+    const record = isRecord(spec) ? spec : {};
+    return {
+      id,
+      type: typeof record.type === 'string' ? record.type : 'string',
+      required: record.required === true,
+      description: typeof record.description === 'string' ? record.description : null,
+    };
+  });
+}
+
+function summarizeRoles(definition: unknown): WorkspaceWorkflowRoleSummary[] {
+  const roles = isRecord(definition) && isRecord(definition.roles) ? definition.roles : {};
+  return Object.entries(roles).map(([id, spec]) => {
+    const record = isRecord(spec) ? spec : {};
+    return {
+      id,
+      label: typeof record.label === 'string' ? record.label : id,
+      description: typeof record.description === 'string' ? record.description : null,
+    };
+  });
 }
 
 async function listRecentRuns(db: Kysely<DB>, workspaceId: string, limit: number): Promise<WorkspaceWorkflowRunSummary[]> {
