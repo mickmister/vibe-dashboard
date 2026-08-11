@@ -903,6 +903,14 @@ function persistedHumanFormCatchUp(
   if (waitingFor?.kind !== 'human_form') return null;
   const turnId = asString(waitingFor.turnId);
   if (!turnId) return null;
+  const currentVisitId = asString(snapshot.visitId);
+  const currentState = asString(waitingFor.state);
+  const currentStepId = asString(waitingFor.stepId);
+  const expectedAttentionId = `attention-${turnId}`;
+  if (attention.attentionItemId !== expectedAttentionId) return null;
+  if (!currentVisitId || attention.stateVisitId !== currentVisitId) return null;
+  if (!currentStepId || attention.stepId !== currentStepId) return null;
+  if (currentState && attention.stateId !== currentState) return null;
   const resolution = asRecord(attention.resolution);
   const submission = asRecord(resolution?.submission);
   if (!submission) return null;

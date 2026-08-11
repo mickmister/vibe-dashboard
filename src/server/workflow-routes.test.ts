@@ -354,6 +354,79 @@ describe('registerWorkflowRoutes', () => {
     expect(JSON.parse(resumed.coreSnapshotJson)).toMatchObject({ waitingFor: { kind: 'agent_turn' } });
   });
 
+  it('TEST_CASE_M96_1B does not catch up persisted resume from an old resolved attention item', async () => {
+    const handle = await initVdDb({ path: ':memory:' });
+    dbHandles.push(handle);
+    const designStore = new DbWorkflowDesignStore({ db: handle.db });
+    const orchestrationStore = new DbWorkflowOrchestrationStore({ db: handle.db, now: (() => { let value = 9800; return () => value++; })() });
+    await designStore.createDesign({ designId: 'design-human-stale', draftId: 'draft-human-stale', name: 'Human Stale Workflow', definition: routeHumanFormDefinition() });
+    await designStore.publishDraft('draft-human-stale');
+    const sessions = [vkSession('session-dev', 'workspace-a', 'Dev')];
+    const launchApp = new Hono();
+    registerWorkflowRoutes(launchApp, {
+      registry: createWorkflowRegistry(),
+      workflowHomeDb: handle.db,
+      workflowDesignStore: designStore,
+      workflowOrchestrationStore: orchestrationStore,
+      vkClient: {
+        getSessions: async () => sessions,
+        getSession: async () => sessions[0]!,
+        queueFollowUp: async (sessionId, prompt) => ({ queued_item: { id: `queue-${sessionId}`, session_id: sessionId, workspace_id: 'workspace-a', status: 'queued', source: 'workflow', priority: 0, data: { message: prompt } }, status: { count: 1, message: null, messages: [], status: 'queued' } }),
+      },
+    });
+    const launch = await launchApp.request('/dashboard/api/workflows/launch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workspaceId: 'workspace-a', designId: 'design-human-stale', inputs: {}, roleBindings: { dev: { mode: 'existing', sessionId: 'session-dev' } } }),
+    });
+    expect(launch.status).toBe(201);
+    const currentAttention = (await orchestrationStore.listAttentionItems({ status: 'active' })).items[0]!;
+
+    await orchestrationStore.createInstance({ instanceId: 'old-resolved-run', workflowId: 'old-workflow', trigger: 'manual', input: { workspaceId: 'workspace-a' } });
+    await orchestrationStore.createStepState({ id: 'old-step', instanceId: 'old-resolved-run', stepKey: currentAttention.stepId });
+    await orchestrationStore.startInstance('old-resolved-run', { currentStepId: currentAttention.stepId });
+    await orchestrationStore.markStepRunning('old-step');
+    await orchestrationStore.createHumanAttention({
+      attentionItemId: 'attention-old-turn',
+      instanceId: 'old-resolved-run',
+      stepStateId: 'old-step',
+      stepKey: currentAttention.stepId,
+      stateId: currentAttention.stateId,
+      stateVisitId: 'old-visit',
+      idempotencyKey: 'old-resolved-run:old-visit:approval',
+      title: 'Old approval',
+      formSchema: { fields: { approved: { required: true } } },
+    });
+    await orchestrationStore.completeHumanAttention({ attentionItemId: 'attention-old-turn', stateVisitId: 'old-visit', submission: { approved: false } });
+    await handle.db.updateTable('WorkflowAttentionItem').set({ instanceId: currentAttention.instanceId }).where('attentionItemId', '=', 'attention-old-turn').execute();
+
+    const queued: Array<{ sessionId: string; prompt: string }> = [];
+    const app = new Hono();
+    registerWorkflowRoutes(app, {
+      registry: createWorkflowRegistry(),
+      workflowHomeDb: handle.db,
+      workflowDesignStore: designStore,
+      workflowOrchestrationStore: orchestrationStore,
+      vkClient: {
+        queueFollowUp: async (sessionId, prompt) => {
+          queued.push({ sessionId, prompt });
+          return { queued_item: { id: `queue-stale-${queued.length}`, session_id: sessionId, workspace_id: 'workspace-a', status: 'queued', source: 'workflow', priority: 0, data: { message: prompt } }, status: { count: 1, message: null, messages: [], status: 'queued' } };
+        },
+      },
+    });
+    const stale = await app.request('/dashboard/api/workflow-attention-items/attention-old-turn/complete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stateVisitId: 'old-visit', submission: { approved: false } }),
+    });
+
+    expect(stale.status).toBe(200);
+    await expect(stale.json()).resolves.toMatchObject({ result: { applied: false, reason: 'attention_not_active' } });
+    expect(queued).toEqual([]);
+    const persisted = await handle.db.selectFrom('WorkflowPersistedRun').select(['coreSnapshotJson']).executeTakeFirstOrThrow();
+    expect(JSON.parse(persisted.coreSnapshotJson)).toMatchObject({ waitingFor: { kind: 'human_form' } });
+  });
+
   it('runs workflows by id and returns the workflow run record', async () => {
     const registry = createWorkflowRegistry();
     const workflow = {
