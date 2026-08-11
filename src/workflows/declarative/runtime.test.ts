@@ -870,6 +870,10 @@ function responseCursor(overrides: {
     truncated: overrides.truncated ?? false,
     max_chars: 10000,
     source_kind: 'coding_agent_turn_summary',
+    prompt_preview: 'prompt preview',
+    prompt_truncated: false,
+    prompt_max_chars: 4096,
+    prompt_source_kind: 'coding_agent_turn_prompt',
   };
 }
 

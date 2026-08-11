@@ -65,6 +65,21 @@ export interface AgentResponse {
   truncated: boolean;
   max_chars: number;
   source_kind: 'coding_agent_turn_summary';
+  prompt_preview: string | null;
+  prompt_truncated: boolean;
+  prompt_max_chars: number;
+  prompt_source_kind: 'coding_agent_turn_prompt';
+}
+
+export interface ExecutionProcessRepoState {
+  id: string;
+  execution_process_id: string;
+  repo_id: string;
+  before_head_commit: string | null;
+  after_head_commit: string | null;
+  merge_commit: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export type ActivitySessionStatus = 'idle' | 'queued' | 'running' | 'callback_waiting';
@@ -266,6 +281,10 @@ export class VibeKanbanServerClient {
 
   getExecutionProcessFinalMessage(processId: string): Promise<AgentResponse> {
     return this.get(`/execution-processes/${encodeURIComponent(processId)}/final-message`);
+  }
+
+  getExecutionProcessRepoStates(processId: string): Promise<ExecutionProcessRepoState[]> {
+    return this.get(`/execution-processes/${encodeURIComponent(processId)}/repo-states`);
   }
 
   getSessionLatestResponse(sessionId: string, cursor: LatestResponseCursor = {}): Promise<AgentResponse | null> {

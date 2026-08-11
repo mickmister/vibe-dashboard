@@ -543,5 +543,9 @@ function agentResponse(args: Partial<AgentResponse> = {}): AgentResponse {
     truncated: args.truncated ?? false,
     max_chars: args.max_chars ?? 4096,
     source_kind: "coding_agent_turn_summary",
+    prompt_preview: args.prompt_preview ?? "prompt preview",
+    prompt_truncated: args.prompt_truncated ?? false,
+    prompt_max_chars: args.prompt_max_chars ?? 4096,
+    prompt_source_kind: "coding_agent_turn_prompt",
   };
 }

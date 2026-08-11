@@ -273,7 +273,28 @@ describe("VibeKanbanServerClient", () => {
             truncated: false,
             max_chars: 4096,
             source_kind: "coding_agent_turn_summary",
+            prompt_preview: "bounded prompt",
+            prompt_truncated: false,
+            prompt_max_chars: 4096,
+            prompt_source_kind: "coding_agent_turn_prompt",
           },
+        });
+      }
+      if (url === "http://vk.local/api/execution-processes/exec-after/repo-states") {
+        return jsonResponse({
+          success: true,
+          data: [
+            {
+              id: "repo-state-1",
+              execution_process_id: "exec-after",
+              repo_id: "repo-1",
+              before_head_commit: "before",
+              after_head_commit: "after",
+              merge_commit: null,
+              created_at: "2026-08-04T00:00:00.000Z",
+              updated_at: "2026-08-04T00:01:00.000Z",
+            },
+          ],
         });
       }
       if (url === "http://vk.local/api/execution-processes/exec-after/final-message") {
@@ -292,6 +313,10 @@ describe("VibeKanbanServerClient", () => {
             truncated: false,
             max_chars: 4096,
             source_kind: "coding_agent_turn_summary",
+            prompt_preview: "bounded prompt",
+            prompt_truncated: false,
+            prompt_max_chars: 4096,
+            prompt_source_kind: "coding_agent_turn_prompt",
           },
         });
       }
@@ -311,11 +336,26 @@ describe("VibeKanbanServerClient", () => {
         afterExecutionProcessId: "exec-before",
         afterCompletedAt: "2026-08-04T00:00:00.000Z",
       }),
-    ).resolves.toMatchObject({ execution_process_id: "exec-after", content: "done" });
+    ).resolves.toMatchObject({
+      execution_process_id: "exec-after",
+      content: "done",
+      prompt_preview: "bounded prompt",
+      prompt_truncated: false,
+      prompt_source_kind: "coding_agent_turn_prompt",
+    });
     await expect(client.getExecutionProcessFinalMessage("exec-after")).resolves.toMatchObject({
       execution_process_id: "exec-after",
       content: "done",
+      prompt_preview: "bounded prompt",
     });
+    await expect(client.getExecutionProcessRepoStates("exec-after")).resolves.toEqual([
+      expect.objectContaining({
+        execution_process_id: "exec-after",
+        repo_id: "repo-1",
+        before_head_commit: "before",
+        after_head_commit: "after",
+      }),
+    ]);
   });
 
   it("can queue system follow-up messages for guardrail traffic", async () => {
