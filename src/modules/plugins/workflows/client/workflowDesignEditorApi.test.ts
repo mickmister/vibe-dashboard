@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetchWorkflowDesignEditor, saveWorkflowDesignDraft } from './workflowDesignEditorApi';
+import { fetchWorkflowDesignEditor, publishWorkflowDesignDraft, saveWorkflowDesignDraft } from './workflowDesignEditorApi';
 
 describe('workflowDesignEditorApi', () => {
   afterEach(() => { vi.restoreAllMocks(); });
@@ -19,5 +19,13 @@ describe('workflowDesignEditorApi', () => {
 
     await expect(saveWorkflowDesignDraft('draft-a', definition)).resolves.toMatchObject({ designId: 'design-a' });
     expect(fetchMock).toHaveBeenCalledWith('/dashboard/api/workflow-design-drafts/draft-a', expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ definition }) }));
+  });
+
+  it('publishes workflow design drafts', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ editor: { designId: 'design-a', name: 'Workflow A', description: null, draftId: 'draft-a', version: 2, readonly: false, definition: { schemaVersion: 1, name: 'Workflow A', roles: {}, initialState: 'done', states: { done: { terminal: true } } }, validationStatus: 'valid', validationIssues: [] } }), { status: 200, headers: { 'Content-Type': 'application/json' } })) as unknown as typeof fetch;
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(publishWorkflowDesignDraft('draft-a')).resolves.toMatchObject({ version: 2 });
+    expect(fetchMock).toHaveBeenCalledWith('/dashboard/api/workflow-design-drafts/draft-a/publish', expect.objectContaining({ method: 'POST' }));
   });
 });

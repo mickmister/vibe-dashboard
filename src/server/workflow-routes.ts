@@ -36,6 +36,7 @@ import type { DbWorkflowWebhookProvisioningStore } from './workflow-webhook-prov
 import { buildWorkspaceWorkflowsHomeModel } from '../modules/plugins/workflows/server/workflowsHomeReadModel';
 import { DbWorkflowDesignStore } from '../modules/plugins/workflows/server/workflowDesignStore';
 import { PersistedWorkflowRuntimeService, type PersistedWorkflowRunReadModel } from '../modules/plugins/workflows/server/persistedWorkflowRuntime';
+import { BUILT_IN_WORKFLOW_TEMPLATES } from '../modules/plugins/workflows/templates/builtInWorkflowTemplates';
 import { getVdDb } from './database';
 import type { DB } from '../store/kysely_types';
 import {
@@ -100,7 +101,7 @@ export function registerWorkflowRoutes(
     if (!workspaceId) return c.json({ error: 'workspace_id_required', message: 'Workspace is required' }, 400);
     if (!designId) return c.json({ error: 'workflow_required', message: 'Workflow is required' }, 400);
     const db = options.workflowHomeDb ?? (await getVdDb()).db;
-    const designStore = options.workflowDesignStore ?? new DbWorkflowDesignStore({ db });
+    const designStore = options.workflowDesignStore ?? new DbWorkflowDesignStore({ db, templates: BUILT_IN_WORKFLOW_TEMPLATES });
     try {
       const workflow = await buildLaunchWorkflowSummary(designStore, designId, parsePositiveInteger(c.req.query('version') ?? null) ?? undefined);
       if (!workflow.canRun) return c.json({ error: 'workflow_unavailable', message: workflow.unavailableReason ?? 'Workflow is not available to run' }, 400);
@@ -116,7 +117,7 @@ export function registerWorkflowRoutes(
     const parsed = parseWorkflowLaunchRequest(body);
     if (!parsed.ok) return c.json({ error: parsed.error, message: parsed.message, fieldErrors: parsed.fieldErrors }, parsed.status);
     const db = options.workflowHomeDb ?? (await getVdDb()).db;
-    const designStore = options.workflowDesignStore ?? new DbWorkflowDesignStore({ db });
+    const designStore = options.workflowDesignStore ?? new DbWorkflowDesignStore({ db, templates: BUILT_IN_WORKFLOW_TEMPLATES });
     try {
       const workflow = await buildLaunchWorkflowSummary(designStore, parsed.request.designId, parsed.request.version ?? undefined);
       if (!workflow.canRun) return c.json({ error: 'workflow_unavailable', message: workflow.unavailableReason ?? 'Workflow is not available to run' }, 400);
@@ -154,11 +155,55 @@ export function registerWorkflowRoutes(
   });
 
 
+
+  hono.post('/dashboard/api/workflow-templates/:templateId/use', async (c) => {
+    const templateId = decodeURIComponent(c.req.param('templateId') ?? '').trim();
+    if (!templateId) return c.json({ error: 'workflow_template_required', message: 'Workflow template is required' }, 400);
+    const body = asRecord(await readJsonBody(c.req.raw));
+    const db = options.workflowHomeDb ?? (await getVdDb()).db;
+    const designStore = options.workflowDesignStore ?? new DbWorkflowDesignStore({ db, templates: BUILT_IN_WORKFLOW_TEMPLATES });
+    try {
+      const designId = asString(body?.designId) ?? `workflow-design-${randomUUID()}`;
+      const draftId = asString(body?.draftId) ?? `workflow-draft-${randomUUID()}`;
+      const used = await designStore.useTemplate({
+        templateId,
+        designId,
+        draftId,
+        name: asString(body?.name) ?? undefined,
+        description: asString(body?.description) ?? undefined,
+      });
+      const shouldPublish = body?.publish !== false;
+      const version = shouldPublish ? await designStore.publishDraft(used.draft.draftId) : null;
+      const home = asString(body?.workspaceId)
+        ? await buildWorkspaceWorkflowsHomeModel({ db, designStore, orchestrationStore: options.workflowOrchestrationStore, workspaceId: asString(body?.workspaceId)! })
+        : undefined;
+      return c.json({ design: await designStore.getDesign(used.design.designId), draft: await designStore.getDraft(used.draft.draftId), version, home }, 201);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return c.json({ error: 'workflow_template_use_failed', message }, 400);
+    }
+  });
+
+  hono.post('/dashboard/api/workflow-design-drafts/:draftId/publish', async (c) => {
+    const draftId = c.req.param('draftId')?.trim();
+    if (!draftId) return c.json({ error: 'workflow_draft_required', message: 'Workflow draft is required' }, 400);
+    const db = options.workflowHomeDb ?? (await getVdDb()).db;
+    const designStore = options.workflowDesignStore ?? new DbWorkflowDesignStore({ db, templates: BUILT_IN_WORKFLOW_TEMPLATES });
+    try {
+      const version = await designStore.publishDraft(draftId);
+      const editor = await buildWorkflowDesignEditorModel(designStore, version.designId);
+      return c.json({ version, editor });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return c.json({ error: 'workflow_publish_failed', message }, 400);
+    }
+  });
+
   hono.get('/dashboard/api/workflow-designs/:designId/editor', async (c) => {
     const designId = c.req.param('designId')?.trim();
     if (!designId) return c.json({ error: 'workflow_design_required', message: 'Workflow design is required' }, 400);
     const db = options.workflowHomeDb ?? (await getVdDb()).db;
-    const designStore = options.workflowDesignStore ?? new DbWorkflowDesignStore({ db });
+    const designStore = options.workflowDesignStore ?? new DbWorkflowDesignStore({ db, templates: BUILT_IN_WORKFLOW_TEMPLATES });
     try {
       const editor = await buildWorkflowDesignEditorModel(designStore, designId);
       if (!editor) return c.json({ error: 'workflow_design_not_found', message: 'Workflow design was not found' }, 404);
@@ -175,7 +220,7 @@ export function registerWorkflowRoutes(
     const definition = body?.definition;
     if (!definition || typeof definition !== 'object') return c.json({ error: 'workflow_definition_required', message: 'Workflow definition is required' }, 400);
     const db = options.workflowHomeDb ?? (await getVdDb()).db;
-    const designStore = options.workflowDesignStore ?? new DbWorkflowDesignStore({ db });
+    const designStore = options.workflowDesignStore ?? new DbWorkflowDesignStore({ db, templates: BUILT_IN_WORKFLOW_TEMPLATES });
     try {
       const draft = await designStore.updateDraft(draftId, definition);
       const editor = await buildWorkflowDesignEditorModel(designStore, draft.designId);
@@ -437,7 +482,7 @@ export function registerWorkflowRoutes(
       const attention = await store.getAttentionItem(c.req.param('attentionItemId'));
       if (!attention) return c.json({ error: 'workflow_attention_item_not_found' }, 404);
       const db = options.workflowHomeDb ?? (await getVdDb()).db;
-      const designStore = options.workflowDesignStore ?? new DbWorkflowDesignStore({ db });
+      const designStore = options.workflowDesignStore ?? new DbWorkflowDesignStore({ db, templates: BUILT_IN_WORKFLOW_TEMPLATES });
       const persistedRun = await db.selectFrom('WorkflowPersistedRun').select(['runId', 'coreSnapshotJson']).where('runId', '=', attention.instanceId).executeTakeFirst();
       const runtime = persistedRun ? await resolvePersistedWorkflowRuntime(options, db, designStore) : null;
       if (persistedRun && !runtime) {

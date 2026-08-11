@@ -58,10 +58,12 @@ describe('DbWorkflowDesignStore M91 foundation', () => {
   it('TEST_CASE_M91_1B keeps checked-in templates as catalog entries until Use/Duplicate materializes DB records', async () => {
     const { store } = await createStore({ templates: BUILT_IN_WORKFLOW_TEMPLATES });
 
-    expect(store.listTemplateCatalog()).toHaveLength(1);
-    await expect(store.listTemplateCatalogReadModels()).resolves.toMatchObject([
-      { templateId: 'built-in/simple-agent-decision', validationStatus: 'valid', unavailableReason: null },
-    ]);
+    expect(store.listTemplateCatalog().map((entry) => entry.templateId)).toEqual(expect.arrayContaining(['built-in/simple-agent-decision', 'built-in/dev-review-tester', 'built-in/create-form-from-agent']));
+    await expect(store.listTemplateCatalogReadModels()).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ templateId: 'built-in/simple-agent-decision', validationStatus: 'valid', unavailableReason: null }),
+      expect.objectContaining({ templateId: 'built-in/dev-review-tester', validationStatus: 'valid', unavailableReason: null }),
+      expect.objectContaining({ templateId: 'built-in/create-form-from-agent', validationStatus: 'valid', unavailableReason: null }),
+    ]));
     await expect(store.listDesigns()).resolves.toEqual([]);
     await expect(store.getPromptAsset('prompt.simple-agent.instructions', 1)).resolves.toBeNull();
     await expect(store.getSkillAsset('skill.workflow.markdown-response', 1)).resolves.toBeNull();
@@ -136,6 +138,35 @@ describe('DbWorkflowDesignStore M91 foundation', () => {
     await expect(store.getDraft('draft.conflict-template')).resolves.toBeNull();
     await expect(store.getPromptAsset('prompt.simple-agent.instructions', 1)).resolves.toBeNull();
     await expect(store.getSkillAsset('skill.workflow.markdown-response', 1)).resolves.toBeNull();
+  });
+
+
+
+  it('TEST_CASE_M98_1A and TEST_CASE_M98_2A catalog built-ins materialize as publishable real workflow designs', async () => {
+    const { store } = await createStore({ templates: BUILT_IN_WORKFLOW_TEMPLATES });
+    const catalog = await store.listTemplateCatalogReadModels();
+    expect(catalog).toEqual(expect.arrayContaining([
+      expect.objectContaining({ templateId: 'built-in/dev-review-tester', name: 'Dev / Review / Tester', validationStatus: 'valid' }),
+      expect.objectContaining({ templateId: 'built-in/create-form-from-agent', name: 'Create form from agent', validationStatus: 'valid' }),
+    ]));
+
+    const drt = await store.useTemplate({ templateId: 'built-in/dev-review-tester', designId: 'design.drt', draftId: 'draft.drt' });
+    expect(drt.draft.definition).toMatchObject({
+      roles: { dev: { label: 'Dev' }, review: { label: 'Review' }, tester: { label: 'Tester' } },
+      states: {
+        dev: { steps: [{ id: 'implement' }, { id: 'self_review', turnType: 'decision' }] },
+        review: { actions: { changes_requested: { targetState: 'dev' } } },
+        tester: { actions: { bug_found: { targetState: 'dev' }, not_testable: { targetState: 'dev' }, approved: { targetState: 'done' } } },
+      },
+    });
+    await expect(store.publishDraft('draft.drt')).resolves.toMatchObject({ designId: 'design.drt', version: 1 });
+
+    const form = await store.useTemplate({ templateId: 'built-in/create-form-from-agent', designId: 'design.form', draftId: 'draft.form' });
+    expect(form.draft.definition).toMatchObject({
+      inputs: { formRequest: { required: true } },
+      states: { create_form: { actions: { form_created: { result: { fields: { formSchema: { type: 'markdown' }, artifactRef: { type: 'string' } } } } } } },
+    });
+    await expect(store.publishDraft('draft.form')).resolves.toMatchObject({ designId: 'design.form', version: 1 });
   });
 
   it('TEST_CASE_M91_2A resolves prompt and skill refs for published versions and pins run snapshots', async () => {

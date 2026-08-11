@@ -75,6 +75,21 @@ export interface LaunchWorkspaceWorkflowRequest {
   roleBindings: Record<string, WorkflowLaunchRoleBindingRequest>;
 }
 
+
+export interface UseWorkflowTemplateRequest {
+  templateId: string;
+  workspaceId?: string;
+  name?: string;
+  publish?: boolean;
+}
+
+export interface UseWorkflowTemplateResponse {
+  design: { designId: string; name: string; latestPublishedVersion: number | null };
+  draft: { draftId: string; designId: string } | null;
+  version: { designId: string; version: number } | null;
+  home?: WorkspaceWorkflowsHomeModel;
+}
+
 export interface LaunchWorkspaceWorkflowResponse {
   run: { runId: string; workspaceId: string; status: string; detailUrl: string | null };
   home?: WorkspaceWorkflowsHomeModel;
@@ -116,4 +131,16 @@ export async function launchWorkspaceWorkflow(request: LaunchWorkspaceWorkflowRe
   const payload = await response.json().catch(() => ({})) as LaunchWorkspaceWorkflowResponse & { error?: string; message?: string; fieldErrors?: Record<string, string> };
   if (response.ok && payload.run) return payload;
   throw new WorkflowApiError(payload.message || payload.error || `Failed to launch workflow: ${response.status}`, payload.fieldErrors ?? {});
+}
+
+
+export async function useWorkflowTemplate(request: UseWorkflowTemplateRequest): Promise<UseWorkflowTemplateResponse> {
+  const response = await fetch(`/dashboard/api/workflow-templates/${encodeURIComponent(request.templateId)}/use`, {
+    method: 'POST',
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ workspaceId: request.workspaceId, name: request.name, publish: request.publish ?? true }),
+  });
+  const payload = await response.json().catch(() => ({})) as UseWorkflowTemplateResponse & { error?: string; message?: string };
+  if (response.ok && payload.design) return payload;
+  throw new WorkflowApiError(payload.message || payload.error || `Failed to use workflow template: ${response.status}`);
 }

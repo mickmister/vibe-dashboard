@@ -2,6 +2,7 @@ import type { Kysely } from 'kysely';
 import type { DB } from '../../../../store/kysely_types';
 import type { DbWorkflowOrchestrationStore, WorkflowAttentionItemReadModel } from '../../../../server/workflow-orchestration-store';
 import { DbWorkflowDesignStore } from './workflowDesignStore';
+import { BUILT_IN_WORKFLOW_TEMPLATES } from '../templates/builtInWorkflowTemplates';
 
 export interface WorkspaceWorkflowsHomeModel {
   workspaceId: string;
@@ -61,7 +62,7 @@ export async function buildWorkspaceWorkflowsHomeModel(args: {
   workspaceId: string;
   recentRunLimit?: number;
 }): Promise<WorkspaceWorkflowsHomeModel> {
-  const designStore = args.designStore ?? new DbWorkflowDesignStore({ db: args.db });
+  const designStore = args.designStore ?? new DbWorkflowDesignStore({ db: args.db, templates: BUILT_IN_WORKFLOW_TEMPLATES });
   const [availableWorkflows, recentRuns, needsInput] = await Promise.all([
     listAvailableWorkflows(designStore),
     listRecentRuns(args.db, args.workspaceId, args.recentRunLimit ?? 10),

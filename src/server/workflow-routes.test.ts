@@ -11,6 +11,7 @@ import { DbDeclarativeWorkflowDefinitionStore } from './declarative-workflow-def
 import { DbWorkflowWebhookInboxStore, WorkflowWebhookWakeup, signVkWebhookPayload } from './workflow-webhook-inbox';
 import { DbWorkflowWebhookProvisioningStore } from './workflow-webhook-provisioning-store';
 import { DbWorkflowDesignStore } from '../modules/plugins/workflows/server/workflowDesignStore';
+import { BUILT_IN_WORKFLOW_TEMPLATES } from '../modules/plugins/workflows/templates/builtInWorkflowTemplates';
 
 describe('registerWorkflowRoutes', () => {
   const dbHandles: VdDbHandle[] = [];
@@ -105,6 +106,36 @@ describe('registerWorkflowRoutes', () => {
     await expect(saved.json()).resolves.toMatchObject({ editor: { draftId: 'draft-graph', definition: { states: { dev: { actions: { done: { label: 'Ship it', targetState: 'done' } } } } } } });
     const draft = await designStore.getDraft('draft-graph');
     expect((draft?.definition as any).states.dev.actions.done.label).toBe('Ship it');
+  });
+
+  it('TEST_CASE_M98_1A uses built-in templates as DB-backed published workflow designs', async () => {
+    const handle = await initVdDb({ path: ':memory:' });
+    dbHandles.push(handle);
+    const app = new Hono();
+    const designStore = new DbWorkflowDesignStore({ db: handle.db, templates: BUILT_IN_WORKFLOW_TEMPLATES });
+    registerWorkflowRoutes(app, { registry: createWorkflowRegistry(), workflowHomeDb: handle.db, workflowDesignStore: designStore });
+
+    const home = await app.request('/dashboard/api/workflows/home?workspaceId=workspace-a');
+    expect(home.status).toBe(200);
+    await expect(home.json()).resolves.toMatchObject({ home: { availableWorkflows: expect.arrayContaining([
+      expect.objectContaining({ id: 'built-in/dev-review-tester', title: 'Dev / Review / Tester', source: 'template', status: 'ready' }),
+      expect.objectContaining({ id: 'built-in/create-form-from-agent', title: 'Create form from agent', source: 'template', status: 'ready' }),
+    ]) } });
+
+    const used = await app.request('/dashboard/api/workflow-templates/built-in%2Fdev-review-tester/use', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workspaceId: 'workspace-a', designId: 'design.drt.route', draftId: 'draft.drt.route', publish: true }),
+    });
+
+    expect(used.status).toBe(201);
+    await expect(used.json()).resolves.toMatchObject({
+      design: { designId: 'design.drt.route', latestPublishedVersion: 1 },
+      draft: { draftId: 'draft.drt.route', validationStatus: 'valid' },
+      version: { designId: 'design.drt.route', version: 1 },
+      home: { availableWorkflows: expect.arrayContaining([expect.objectContaining({ id: 'design.drt.route', source: 'published_design', status: 'ready', canRun: true })]) },
+    });
+    expect(await designStore.getVersion('design.drt.route', 1)).toMatchObject({ resolvedDefinition: { states: { dev: { steps: [{ id: 'implement' }, { id: 'self_review' }] } } } });
   });
 
   it('TEST_CASE_M95_1A launches a persisted workflow with required inputs and existing sessions', async () => {

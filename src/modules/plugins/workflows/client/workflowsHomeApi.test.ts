@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetchWorkflowLaunchOptions, fetchWorkspaceWorkflowsHome, launchWorkspaceWorkflow } from './workflowsHomeApi';
+import { fetchWorkflowLaunchOptions, fetchWorkspaceWorkflowsHome, launchWorkspaceWorkflow, useWorkflowTemplate } from './workflowsHomeApi';
 
 describe('workflows home API client', () => {
   afterEach(() => vi.restoreAllMocks());
@@ -26,5 +26,13 @@ describe('workflows home API client', () => {
     expect(fetchMock.mock.calls[0]?.[0]).toBe('/dashboard/api/workflows/launch-options?workspaceId=workspace-a&designId=design-a&version=1');
     expect(fetchMock.mock.calls[1]?.[0]).toBe('/dashboard/api/workflows/launch');
     expect(JSON.parse(String((fetchMock.mock.calls[1]?.[1] as RequestInit).body))).toMatchObject({ additionalInstructions: 'Keep it clean.' });
+  });
+
+  it('uses workflow templates through the product API', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ design: { designId: 'design-drt', name: 'Dev / Review / Tester', latestPublishedVersion: 1 }, draft: { draftId: 'draft-drt', designId: 'design-drt' }, version: { designId: 'design-drt', version: 1 }, home: { workspaceId: 'workspace-a', availableWorkflows: [], recentRuns: [], needsInput: [] } }), { status: 201, headers: { 'Content-Type': 'application/json' } })) as unknown as typeof fetch;
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(useWorkflowTemplate({ templateId: 'built-in/dev-review-tester', workspaceId: 'workspace-a' })).resolves.toMatchObject({ version: { version: 1 } });
+    expect(fetchMock).toHaveBeenCalledWith('/dashboard/api/workflow-templates/built-in%2Fdev-review-tester/use', expect.objectContaining({ method: 'POST', body: JSON.stringify({ workspaceId: 'workspace-a', name: undefined, publish: true }) }));
   });
 });

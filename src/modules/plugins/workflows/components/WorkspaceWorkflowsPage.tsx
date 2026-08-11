@@ -4,6 +4,7 @@ import {
   fetchWorkflowLaunchOptions,
   fetchWorkspaceWorkflowsHome,
   launchWorkspaceWorkflow,
+  useWorkflowTemplate,
   WorkflowApiError,
   type WorkflowLaunchOptions,
   type WorkflowLaunchRoleBindingRequest,
@@ -69,7 +70,7 @@ export function WorkspaceWorkflowsHomeView({ home, loading, error, onRefresh, on
         </Section>
 
         <Section title="Available workflows">
-          {home?.availableWorkflows.length ? <div className="grid gap-3 md:grid-cols-2">{home.availableWorkflows.map((workflow) => <WorkflowCard key={`${workflow.source}:${workflow.id}`} workflow={workflow} onRun={() => setLaunchWorkflow(workflow)} />)}</div> : <EmptyState text="No workflows are available yet." />}
+          {home?.availableWorkflows.length ? <div className="grid gap-3 md:grid-cols-2">{home.availableWorkflows.map((workflow) => <WorkflowCard key={`${workflow.source}:${workflow.id}`} workflow={workflow} workspaceId={home.workspaceId} onRun={() => setLaunchWorkflow(workflow)} onUsed={(updated) => onHomeUpdated?.(updated)} />)}</div> : <EmptyState text="No workflows are available yet." />}
         </Section>
 
         <Section title="Recent runs">
@@ -95,7 +96,21 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   return <section className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-5"><h2 className="text-lg font-semibold">{title}</h2><div className="mt-4">{children}</div></section>;
 }
 
-function WorkflowCard({ workflow, onRun }: { workflow: WorkspaceWorkflowSummary; onRun: () => void }) {
+function WorkflowCard({ workflow, workspaceId, onRun, onUsed }: { workflow: WorkspaceWorkflowSummary; workspaceId: string; onRun: () => void; onUsed?: (home: WorkspaceWorkflowsHomeModel) => void }) {
+  const [usingTemplate, setUsingTemplate] = useState(false);
+  const [useError, setUseError] = useState<string | null>(null);
+  const handleUseTemplate = async () => {
+    setUsingTemplate(true);
+    setUseError(null);
+    try {
+      const used = await useWorkflowTemplate({ templateId: workflow.id, workspaceId, publish: true });
+      if (used.home) onUsed?.(used.home);
+    } catch (caught) {
+      setUseError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setUsingTemplate(false);
+    }
+  };
   return (
     <article className="rounded-lg border border-zinc-800 bg-zinc-950 p-4">
       <div className="flex items-start justify-between gap-3">
@@ -107,8 +122,10 @@ function WorkflowCard({ workflow, onRun }: { workflow: WorkspaceWorkflowSummary;
         <StatusPill label={workflow.status === 'ready' ? 'Ready' : 'Unavailable'} tone={workflow.status === 'ready' ? 'emerald' : 'amber'} />
       </div>
       {workflow.unavailableReason ? <p className="mt-3 text-sm text-amber-200">{workflow.unavailableReason}</p> : null}
+      {useError ? <p role="alert" className="mt-3 text-sm text-amber-200">{useError}</p> : null}
       <div className="mt-4 flex flex-wrap gap-2">
         {workflow.canRun ? <button className="rounded-md bg-cyan-500 px-3 py-2 text-sm font-medium text-zinc-950 hover:bg-cyan-400" onClick={onRun}>Run</button> : null}
+        {workflow.source === 'template' && workflow.status === 'ready' ? <button className="rounded-md border border-cyan-700 px-3 py-2 text-sm text-cyan-100 hover:bg-cyan-950/40 disabled:opacity-50" onClick={handleUseTemplate} disabled={usingTemplate}>{usingTemplate ? 'Using…' : 'Use template'}</button> : null}
         {workflow.source === 'published_design' ? <a className="rounded-md border border-zinc-700 px-3 py-2 text-sm hover:bg-zinc-800" href={`/dashboard/workflows/editor/${encodeURIComponent(workflow.id)}`}>Edit graph</a> : null}
       </div>
     </article>

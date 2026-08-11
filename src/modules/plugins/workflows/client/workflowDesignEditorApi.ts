@@ -29,3 +29,14 @@ export async function saveWorkflowDesignDraft(draftId: string, definition: Agent
   if (response.ok && payload.editor) return payload.editor;
   throw new Error(payload.message || payload.error || `Failed to save workflow design: ${response.status}`);
 }
+
+
+export async function publishWorkflowDesignDraft(draftId: string): Promise<WorkflowDesignEditorModel> {
+  const response = await fetch(`/dashboard/api/workflow-design-drafts/${encodeURIComponent(draftId)}/publish`, {
+    method: 'POST',
+    headers: { Accept: 'application/json' },
+  });
+  const payload = await response.json().catch(() => ({})) as { editor?: WorkflowDesignEditorModel; error?: string; message?: string };
+  if (response.ok && payload.editor) return payload.editor;
+  throw new Error(payload.message || payload.error || `Failed to publish workflow design: ${response.status}`);
+}

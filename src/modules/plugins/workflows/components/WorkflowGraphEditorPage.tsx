@@ -4,7 +4,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router';
 import { Background, Controls, MiniMap, ReactFlow, type Edge, type Node } from '@xyflow/react';
 import type { AgentWorkflowDefinitionV1 } from '@vibe-dashboard/workflow-core';
-import { fetchWorkflowDesignEditor, saveWorkflowDesignDraft, type WorkflowDesignEditorModel } from '../client/workflowDesignEditorApi';
+import { fetchWorkflowDesignEditor, publishWorkflowDesignDraft, saveWorkflowDesignDraft, type WorkflowDesignEditorModel } from '../client/workflowDesignEditorApi';
 import { applyWorkflowGraphActionEdit, validateWorkflowGraph, workflowDefinitionToGraph, type WorkflowGraphEdgeModel, type WorkflowGraphNodeModel, type WorkflowGraphValidationIssue } from './graph/workflowGraphModel';
 
 export function WorkflowGraphEditorPage(): React.ReactElement {
@@ -14,6 +14,7 @@ export function WorkflowGraphEditorPage(): React.ReactElement {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [publishing, setPublishing] = useState(false);
 
   useEffect(() => {
     if (!designId) {
@@ -34,6 +35,22 @@ export function WorkflowGraphEditorPage(): React.ReactElement {
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [designId]);
+
+  const publish = async () => {
+    if (!editor?.draftId) return;
+    setPublishing(true);
+    setSaveMessage(null);
+    try {
+      const updated = await publishWorkflowDesignDraft(editor.draftId);
+      setEditor(updated);
+      setDefinition(updated.definition);
+      setSaveMessage(`Published workflow version ${updated.version ?? ''}.`.trim());
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setPublishing(false);
+    }
+  };
 
   const save = async () => {
     if (!editor?.draftId || !definition) return;
@@ -58,17 +75,19 @@ export function WorkflowGraphEditorPage(): React.ReactElement {
         </header>
         {loading ? <div className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-5">Loading workflow graph…</div> : null}
         {error ? <div role="alert" className="rounded-lg border border-amber-900 bg-amber-950/30 p-4 text-sm text-amber-100">{error}</div> : null}
-        {definition ? <WorkflowGraphEditorView editor={editor} definition={definition} onDefinitionChange={setDefinition} onSave={() => void save()} saveMessage={saveMessage} /> : null}
+        {definition ? <WorkflowGraphEditorView editor={editor} definition={definition} onDefinitionChange={setDefinition} onSave={() => void save()} onPublish={() => void publish()} publishing={publishing} saveMessage={saveMessage} /> : null}
       </div>
     </main>
   );
 }
 
-export function WorkflowGraphEditorView({ editor, definition, onDefinitionChange, onSave, saveMessage }: {
+export function WorkflowGraphEditorView({ editor, definition, onDefinitionChange, onSave, onPublish, publishing, saveMessage }: {
   editor: WorkflowDesignEditorModel | null;
   definition: AgentWorkflowDefinitionV1;
   onDefinitionChange: (definition: AgentWorkflowDefinitionV1) => void;
   onSave: () => void;
+  onPublish: () => void;
+  publishing?: boolean;
   saveMessage?: string | null;
 }): React.ReactElement {
   const graph = useMemo(() => workflowDefinitionToGraph(definition), [definition]);
@@ -93,7 +112,7 @@ export function WorkflowGraphEditorView({ editor, definition, onDefinitionChange
             <h2 className="font-semibold">Graph</h2>
             <p className="text-sm text-zinc-400">States are nodes. Decision actions are labeled edges.</p>
           </div>
-          <button className="rounded-md bg-cyan-500 px-3 py-2 text-sm font-medium text-zinc-950 disabled:opacity-50" disabled={!canSave} onClick={onSave}>Save draft</button>
+          <div className="flex gap-2"><button className="rounded-md border border-zinc-700 px-3 py-2 text-sm disabled:opacity-50" disabled={!canSave} onClick={onSave}>Save draft</button><button className="rounded-md bg-cyan-500 px-3 py-2 text-sm font-medium text-zinc-950 disabled:opacity-50" disabled={!canSave || publishing} onClick={onPublish}>{publishing ? 'Publishing…' : 'Publish'}</button></div>
         </div>
         <div className="h-[34rem] bg-zinc-950" data-testid="workflow-react-flow-canvas">
           <ReactFlow

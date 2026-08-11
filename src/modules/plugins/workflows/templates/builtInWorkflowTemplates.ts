@@ -1,6 +1,122 @@
 import type { WorkflowTemplateCatalogEntry } from '../server/workflowDesignStore';
 
+const decisionResponse = {
+  format: 'xml' as const,
+  schema: { format: 'xsd' as const, source: 'state_actions' as const },
+  invalidXmlRetry: {
+    maxAttempts: 1,
+    prompt: 'engine_default_with_validation_errors' as const,
+    onExhausted: 'blocked' as const,
+  },
+  storeRawXml: true,
+  rawXmlMaxChars: 20000,
+  storeParsedFields: true,
+  unknownFields: 'reject_unless_allowed_by_result_contract' as const,
+};
+
 export const BUILT_IN_WORKFLOW_TEMPLATES: WorkflowTemplateCatalogEntry[] = [
+  {
+    templateId: 'built-in/dev-review-tester',
+    name: 'Dev / Review / Tester',
+    description: 'Generic three-role feature workflow with Dev implementation plus self-review, Review approval/change loop, and Tester acceptance loop.',
+    promptAssets: [
+      { promptAssetId: 'prompt.drt.dev.implement', version: 1, source: 'built_in', name: 'Dev implementation prompt', bodyMarkdown: 'Implement the requested feature from {{inputs.featureRequest}}. Keep notes on tests and risks.' },
+      { promptAssetId: 'prompt.drt.dev.self-review', version: 1, source: 'built_in', name: 'Dev self-review prompt', bodyMarkdown: 'Review your own changes. Return XML choosing ready_for_review when the work is ready, with markdown concerns if any.' },
+      { promptAssetId: 'prompt.drt.review', version: 1, source: 'built_in', name: 'Reviewer prompt', bodyMarkdown: 'Review the implementation and Dev self-review concerns. Approve or request changes with clear markdown remarks.' },
+      { promptAssetId: 'prompt.drt.tester', version: 1, source: 'built_in', name: 'Tester prompt', bodyMarkdown: 'Test the feature against the request and review approval. Approve, report a bug, or explain why the work is not testable.' },
+    ],
+    skillAssets: [
+      { skillAssetId: 'skill.workflow.xml-decision', version: 1, source: 'built_in', name: 'Workflow XML decision skill', bodyMarkdown: 'Return your final workflow decision as XML matching the current state actions. Markdown content belongs inside child elements or CDATA.' },
+    ],
+    definition: {
+      schemaVersion: 1,
+      name: 'Dev / Review / Tester',
+      description: 'Implement, self-review, review, and test feature work with loops back to Dev.',
+      inputs: { featureRequest: { type: 'markdown', required: true, description: 'Feature request or task to implement.' } },
+      roles: {
+        dev: { label: 'Dev', description: 'Implements changes and performs required self-review.' },
+        review: { label: 'Review', description: 'Reviews the code and either approves or requests changes.' },
+        tester: { label: 'Tester', description: 'Tests the reviewed implementation and approves or sends failures back.' },
+      },
+      initialState: 'dev',
+      states: {
+        dev: {
+          owner: 'dev',
+          steps: [
+            { id: 'implement', type: 'agent_turn', turnType: 'non_decision', prompt: { refs: [{ kind: 'prompt', id: 'prompt.drt.dev.implement', version: 1 }] } },
+            { id: 'self_review', type: 'agent_turn', turnType: 'decision', prompt: { refs: [{ kind: 'prompt', id: 'prompt.drt.dev.self-review', version: 1 }, { kind: 'skill', id: 'skill.workflow.xml-decision', version: 1 }] }, response: decisionResponse },
+          ],
+          actions: {
+            ready_for_review: {
+              label: 'Ready for review',
+              targetState: 'review',
+              result: { fields: { summary: { type: 'markdown' }, concerns: { type: 'markdown' } }, required: ['summary'], unknownFields: 'reject' },
+            },
+          },
+        },
+        review: {
+          owner: 'review',
+          steps: [{ id: 'review', type: 'agent_turn', turnType: 'decision', prompt: { refs: [{ kind: 'prompt', id: 'prompt.drt.review', version: 1 }, { kind: 'skill', id: 'skill.workflow.xml-decision', version: 1 }] }, response: decisionResponse }],
+          actions: {
+            approved: { label: 'Approved', targetState: 'tester', result: { fields: { remarks: { type: 'markdown' } }, unknownFields: 'reject' } },
+            changes_requested: { label: 'Request changes', targetState: 'dev', result: { fields: { concerns: { type: 'markdown' }, requestedChanges: { type: 'markdown' } }, required: ['requestedChanges'], unknownFields: 'reject' } },
+          },
+        },
+        tester: {
+          owner: 'tester',
+          steps: [{ id: 'test', type: 'agent_turn', turnType: 'decision', prompt: { refs: [{ kind: 'prompt', id: 'prompt.drt.tester', version: 1 }, { kind: 'skill', id: 'skill.workflow.xml-decision', version: 1 }] }, response: decisionResponse }],
+          actions: {
+            approved: { label: 'Approved', targetState: 'done', result: { fields: { testSummary: { type: 'markdown' } }, required: ['testSummary'], unknownFields: 'reject' } },
+            bug_found: { label: 'Bug found', targetState: 'dev', result: { fields: { bugReport: { type: 'markdown' } }, required: ['bugReport'], unknownFields: 'reject' } },
+            not_testable: { label: 'Not testable', targetState: 'dev', result: { fields: { advice: { type: 'markdown' } }, required: ['advice'], unknownFields: 'reject' } },
+          },
+        },
+        done: { terminal: true },
+      },
+    },
+  },
+  {
+    templateId: 'built-in/create-form-from-agent',
+    name: 'Create form from agent',
+    description: 'Small workflow that asks an agent to draft a beads-form-compatible form schema from a request.',
+    promptAssets: [
+      { promptAssetId: 'prompt.create-form.agent', version: 1, source: 'built_in', name: 'Create form prompt', bodyMarkdown: 'Create a beads-form-compatible form schema for {{inputs.formRequest}}. Return XML with formSchema and artifactRef fields for review.' },
+    ],
+    skillAssets: [
+      { skillAssetId: 'skill.beads-form.schema', version: 1, source: 'built_in', name: 'Beads-form schema skill', bodyMarkdown: 'Represent forms as reviewable JSON schema-like objects compatible with beads-form. Include labels, required fields, and field types.' },
+      { skillAssetId: 'skill.workflow.xml-decision', version: 1, source: 'built_in', name: 'Workflow XML decision skill', bodyMarkdown: 'Return your final workflow decision as XML matching the current state actions. Markdown content belongs inside child elements or CDATA.' },
+    ],
+    definition: {
+      schemaVersion: 1,
+      name: 'Create form from agent',
+      description: 'Produce a supported form schema/artifact ref from an agent response.',
+      inputs: { formRequest: { type: 'markdown', required: true, description: 'What form should the agent create?' } },
+      roles: { form_author: { label: 'Form author', description: 'Creates a form schema/artifact for review.' } },
+      initialState: 'create_form',
+      states: {
+        create_form: {
+          owner: 'form_author',
+          steps: [{ id: 'draft_form', type: 'agent_turn', turnType: 'decision', prompt: { refs: [{ kind: 'prompt', id: 'prompt.create-form.agent', version: 1 }, { kind: 'skill', id: 'skill.beads-form.schema', version: 1 }, { kind: 'skill', id: 'skill.workflow.xml-decision', version: 1 }] }, response: decisionResponse }],
+          actions: {
+            form_created: {
+              label: 'Form created',
+              targetState: 'done',
+              result: {
+                fields: {
+                  formSchema: { type: 'markdown', description: 'The supported beads-form schema JSON or markdown representation.' },
+                  artifactRef: { type: 'string', description: 'Durable form artifact/reference if available.' },
+                  summary: { type: 'markdown' },
+                },
+                required: ['formSchema'],
+                unknownFields: 'reject',
+              },
+            },
+          },
+        },
+        done: { terminal: true },
+      },
+    },
+  },
   {
     templateId: 'built-in/simple-agent-decision',
     name: 'Simple Agent Decision',
@@ -48,19 +164,7 @@ export const BUILT_IN_WORKFLOW_TEMPLATES: WorkflowTemplateCatalogEntry[] = [
                 ],
                 template: 'Return workflow XML for the selected action.',
               },
-              response: {
-                format: 'xml',
-                schema: { format: 'xsd', source: 'state_actions' },
-                invalidXmlRetry: {
-                  maxAttempts: 1,
-                  prompt: 'engine_default_with_validation_errors',
-                  onExhausted: 'blocked',
-                },
-                storeRawXml: true,
-                rawXmlMaxChars: 20000,
-                storeParsedFields: true,
-                unknownFields: 'reject_unless_allowed_by_result_contract',
-              },
+              response: decisionResponse,
             },
           ],
           actions: {

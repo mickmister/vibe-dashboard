@@ -7,6 +7,8 @@
  * - TEST_CASE_M95_1B
  * - TEST_CASE_M97_1A
  * - TEST_CASE_M97_1B
+ * - TEST_CASE_M98_1A
+ * - TEST_CASE_M98_2A
  */
 import { expect, test } from 'playwright/test';
 
@@ -30,7 +32,10 @@ test.describe('Workspace Workflows tab shell', () => {
     await expect(page.getByRole('heading', { name: 'Available workflows' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Recent runs' })).toBeVisible();
     await expect(page.getByText('Dev Review Tester')).toBeVisible();
+    await expect(page.getByText('Dev / Review / Tester')).toBeVisible();
+    await expect(page.getByText('Create form from agent')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Run' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Use template' }).first()).toBeVisible();
     await expect(page.locator('a[href="/dashboard/workflows/legacy-clean"]')).toBeVisible();
     await expect(page.getByText('Answer planning questions')).toBeVisible();
     await expect(page.locator('a[href="/dashboard/workflows/run-clean"]')).toHaveCount(0);
@@ -79,6 +84,32 @@ test.describe('Workspace Workflows tab shell', () => {
   });
 
 
+  test('uses built-in Dev Review Tester and Create form templates as real designs', async ({ page }) => {
+    let used = false;
+    await page.route('**/dashboard/api/workflows/home?**', async (route) => {
+      await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ home: homeFixture(false, used) }) });
+    });
+    await page.route('**/dashboard/api/workflow-templates/built-in%2Fdev-review-tester/use', async (route) => {
+      const body = route.request().postDataJSON();
+      expect(body).toMatchObject({ workspaceId: 'workspace-e2e', publish: true });
+      used = true;
+      await route.fulfill({
+        contentType: 'application/json',
+        status: 201,
+        body: JSON.stringify({ design: { designId: 'design-drt-used', name: 'Dev / Review / Tester', latestPublishedVersion: 1 }, draft: { draftId: 'draft-drt-used', designId: 'design-drt-used' }, version: { designId: 'design-drt-used', version: 1 }, home: homeFixture(false, true) }),
+      });
+    });
+
+    await page.goto('/dashboard/workflows?workspaceId=workspace-e2e');
+    await expect(page.getByText('Dev / Review / Tester')).toBeVisible();
+    await expect(page.getByText('Create form from agent')).toBeVisible();
+    await page.locator('article').filter({ hasText: 'Dev / Review / Tester' }).getByRole('button', { name: 'Use template' }).click();
+    await expect(page.locator('a[href="/dashboard/workflows/editor/design-drt-used"]')).toBeVisible();
+    await expect(page.locator('article').filter({ hasText: 'Dev / Review / Tester' }).getByRole('button', { name: 'Run' })).toBeVisible();
+    await expect(page.locator('article').filter({ hasText: 'Create form from agent' }).getByRole('button', { name: 'Use template' })).toBeVisible();
+  });
+
+
   test('renders workflow graph and validates transition edits before save', async ({ page }) => {
     let savedDefinition: any = null;
     await page.route('**/dashboard/api/workflow-designs/design-dev-review-tester/editor', async (route) => {
@@ -121,10 +152,15 @@ test.describe('Workspace Workflows tab shell', () => {
   });
 });
 
-function homeFixture(launched: boolean) {
+function homeFixture(launched: boolean, usedTemplate = false) {
   return {
     workspaceId: 'workspace-e2e',
-    availableWorkflows: [workflow],
+    availableWorkflows: [
+      workflow,
+      { id: 'built-in/dev-review-tester', title: 'Dev / Review / Tester', description: 'Three role workflow', source: 'template', status: 'ready', version: null, unavailableReason: null, canRun: false, inputs: [], roles: [] },
+      { id: 'built-in/create-form-from-agent', title: 'Create form from agent', description: 'Create a form schema', source: 'template', status: 'ready', version: null, unavailableReason: null, canRun: false, inputs: [], roles: [] },
+      ...(usedTemplate ? [{ id: 'design-drt-used', title: 'Dev / Review / Tester', description: 'Three role workflow', source: 'published_design', status: 'ready', version: 1, unavailableReason: null, canRun: true, inputs: workflow.inputs, roles: workflow.roles }] : []),
+    ],
     recentRuns: launched
       ? [{ runId: 'run-launched', workflowName: 'Launched workflow run', status: 'running', startedAt: 4, updatedAt: 5, detailUrl: null }]
       : [{ runId: 'run-clean', workflowName: 'Feature workflow run', status: 'running', startedAt: 1, updatedAt: 2, detailUrl: null }],

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { initVdDb, type VdDbHandle } from '../../../../server/database';
 import { DbWorkflowOrchestrationStore } from '../../../../server/workflow-orchestration-store';
 import { DbWorkflowDesignStore } from './workflowDesignStore';
+import { BUILT_IN_WORKFLOW_TEMPLATES } from '../templates/builtInWorkflowTemplates';
 import { PersistedWorkflowRuntimeError, PersistedWorkflowRuntimeService, type WorkflowQueueAgentTurnRequest } from './persistedWorkflowRuntime';
 
 const handles: VdDbHandle[] = [];
@@ -141,6 +142,78 @@ describe('PersistedWorkflowRuntimeService M93', () => {
     expect(queued).toHaveLength(4);
   });
 
+  it('TEST_CASE_M98_1B runs Dev / Review / Tester template through generic runtime loops', async () => {
+    const { runtime, queued } = await createRuntime({ templates: BUILT_IN_WORKFLOW_TEMPLATES });
+    await designStore.useTemplate({ templateId: 'built-in/dev-review-tester', designId: 'design.drt.runtime', draftId: 'draft.drt.runtime' });
+    await designStore.publishDraft('draft.drt.runtime');
+
+    const launched = await runtime.launch({
+      runId: 'run-drt',
+      runSnapshotId: 'snapshot-drt',
+      designId: 'design.drt.runtime',
+      workspaceId: 'workspace-a',
+      inputs: { featureRequest: 'Build the three agent workflow' },
+      roleBindings: { dev: { sessionId: 'session-dev' }, review: { sessionId: 'session-review' }, tester: { sessionId: 'session-tester' } },
+    });
+
+    expect(launched.coreModel.name).toBe('Dev / Review / Tester');
+    expect(queuedAt(queued, 0)).toMatchObject({ role: 'dev', stepId: 'implement' });
+    expect(queuedAt(queued, 0).prompt).toContain('Implement the requested feature');
+
+    await runtime.completeAgentTurn({ runId: 'run-drt', turnId: queuedAt(queued, 0).turnId, responseRef: 'dev-implement-1' });
+    expect(queuedAt(queued, 1)).toMatchObject({ role: 'dev', stepId: 'self_review' });
+    await runtime.completeAgentTurn({ runId: 'run-drt', turnId: queuedAt(queued, 1).turnId, responseRef: 'dev-self-review-1', finalResponseText: '<decision action="ready_for_review"><summary>Implemented pass one</summary><concerns>Risk noted</concerns></decision>' });
+    expect(queuedAt(queued, 2)).toMatchObject({ role: 'review', sessionId: 'session-review', stepId: 'review' });
+
+    await runtime.completeAgentTurn({ runId: 'run-drt', turnId: queuedAt(queued, 2).turnId, responseRef: 'review-changes', finalResponseText: '<decision action="changes_requested"><requestedChanges>Fix review issue</requestedChanges><concerns>Concern</concerns></decision>' });
+    expect(queuedAt(queued, 3)).toMatchObject({ role: 'dev', stepId: 'implement' });
+
+    await runtime.completeAgentTurn({ runId: 'run-drt', turnId: queuedAt(queued, 3).turnId, responseRef: 'dev-implement-2' });
+    await runtime.completeAgentTurn({ runId: 'run-drt', turnId: queuedAt(queued, 4).turnId, responseRef: 'dev-self-review-2', finalResponseText: '<decision action="ready_for_review"><summary>Fixed review issue</summary></decision>' });
+    await runtime.completeAgentTurn({ runId: 'run-drt', turnId: queuedAt(queued, 5).turnId, responseRef: 'review-approved-1', finalResponseText: '<decision action="approved"><remarks>Looks good</remarks></decision>' });
+    expect(queuedAt(queued, 6)).toMatchObject({ role: 'tester', sessionId: 'session-tester', stepId: 'test' });
+
+    await runtime.completeAgentTurn({ runId: 'run-drt', turnId: queuedAt(queued, 6).turnId, responseRef: 'tester-bug', finalResponseText: '<decision action="bug_found"><bugReport>Bug found during test</bugReport></decision>' });
+    expect(queuedAt(queued, 7)).toMatchObject({ role: 'dev', stepId: 'implement' });
+
+    await runtime.completeAgentTurn({ runId: 'run-drt', turnId: queuedAt(queued, 7).turnId, responseRef: 'dev-implement-3' });
+    await runtime.completeAgentTurn({ runId: 'run-drt', turnId: queuedAt(queued, 8).turnId, responseRef: 'dev-self-review-3', finalResponseText: '<decision action="ready_for_review"><summary>Fixed tester bug</summary></decision>' });
+    await runtime.completeAgentTurn({ runId: 'run-drt', turnId: queuedAt(queued, 9).turnId, responseRef: 'review-approved-2', finalResponseText: '<decision action="approved"><remarks>Still good</remarks></decision>' });
+    const completed = await runtime.completeAgentTurn({ runId: 'run-drt', turnId: queuedAt(queued, 10).turnId, responseRef: 'tester-approved', finalResponseText: '<decision action="approved"><testSummary>Acceptance passed</testSummary></decision>' });
+
+    expect(completed.run.status).toBe('completed');
+    expect(completed.run.coreSnapshot.currentState).toBe('done');
+    expect(completed.run.events.filter((entry) => entry.kind === 'agent_turn_queued')).toHaveLength(11);
+  });
+
+  it('TEST_CASE_M98_2A runs Create form from agent template and stores structured form result fields', async () => {
+    const { runtime, queued } = await createRuntime({ templates: BUILT_IN_WORKFLOW_TEMPLATES });
+    await designStore.useTemplate({ templateId: 'built-in/create-form-from-agent', designId: 'design.create-form.runtime', draftId: 'draft.create-form.runtime' });
+    await designStore.publishDraft('draft.create-form.runtime');
+
+    await runtime.launch({
+      runId: 'run-create-form',
+      runSnapshotId: 'snapshot-create-form',
+      designId: 'design.create-form.runtime',
+      workspaceId: 'workspace-a',
+      inputs: { formRequest: 'Collect reviewer concerns' },
+      roleBindings: { form_author: { sessionId: 'session-form-author' } },
+    });
+
+    expect(queuedAt(queued, 0)).toMatchObject({ role: 'form_author', stepId: 'draft_form' });
+    expect(queuedAt(queued, 0).prompt).toContain('beads-form-compatible form schema');
+    const completed = await runtime.completeAgentTurn({
+      runId: 'run-create-form',
+      turnId: queuedAt(queued, 0).turnId,
+      responseRef: 'form-response',
+      finalResponseText: '<decision action="form_created"><formSchema><![CDATA[{"fields":{"concerns":{"type":"markdown","required":true}}}]]></formSchema><artifactRef>beads-form://draft/reviewer-concerns</artifactRef><summary>Created concern form</summary></decision>',
+    });
+
+    expect(completed.run.status).toBe('completed');
+    expect(completed.run.coreSnapshot.latestTransition).toMatchObject({ action: 'form_created', parsed: { artifactRef: 'beads-form://draft/reviewer-concerns', summary: 'Created concern form' } });
+    expect(completed.run.coreSnapshot.latestTransition?.parsed?.formSchema).toContain('concerns');
+  });
+
   it('TEST_CASE_M93_1C preserves prompt composition and additional run remark in queued prompt and snapshot', async () => {
     const { runtime, queued } = await createRuntime();
     await designStore.createPromptAsset({ promptAssetId: 'prompt.one', version: 1, name: 'Prompt one', bodyMarkdown: 'First saved prompt.' });
@@ -245,10 +318,10 @@ function promptText(definition: unknown): string {
   return (dev.steps[0] as { prompt?: { template?: string } } | undefined)?.prompt?.template ?? '';
 }
 
-async function createRuntime(options: { withAttention?: boolean } = {}) {
+async function createRuntime(options: { withAttention?: boolean; templates?: ConstructorParameters<typeof DbWorkflowDesignStore>[0]['templates'] } = {}) {
   const handle = await initVdDb({ path: ':memory:' });
   handles.push(handle);
-  designStore = new DbWorkflowDesignStore({ db: handle.db, now: (() => { let value = 1_000; return () => value++; })() });
+  designStore = new DbWorkflowDesignStore({ db: handle.db, now: (() => { let value = 1_000; return () => value++; })(), templates: options.templates });
   const orchestrationStore = new DbWorkflowOrchestrationStore({ db: handle.db, now: (() => { let value = 3_000; return () => value++; })() });
   const queued: WorkflowQueueAgentTurnRequest[] = [];
   const queue = {
