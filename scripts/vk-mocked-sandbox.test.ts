@@ -12,6 +12,7 @@ import {
   writeSandboxFiles,
   type PortAllocator,
 } from './vk-mocked-sandbox';
+import { isSandboxRuntimeProcessLine } from './e2e-vk-mocked-sandbox-fixtures';
 
 describe('VK mocked sandbox helpers', () => {
   it('finds the first available port at or above the requested start', async () => {
@@ -32,6 +33,16 @@ describe('VK mocked sandbox helpers', () => {
     expect(childProcessSignalTarget(pid)).toBe(
       process.platform === 'win32' ? pid : -pid,
     );
+  });
+
+  it('does not treat CI orchestration commands as live sandbox runtime processes', () => {
+    expect(isSandboxRuntimeProcessLine(
+      '9416 bash scripts/ci-run-vk-mocked-sandbox-e2e.sh',
+    )).toBe(false);
+    expect(isSandboxRuntimeProcessLine(
+      '1234 node --experimental-strip-types scripts/vk-mocked-sandbox.ts start',
+    )).toBe(true);
+    expect(isSandboxRuntimeProcessLine('5678 cargo run --features qa-mode --bin server vk-backend-qa')).toBe(true);
   });
 
   it('uses explicit env port overrides when present', async () => {
