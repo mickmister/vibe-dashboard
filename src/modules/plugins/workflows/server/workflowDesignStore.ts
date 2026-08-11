@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { Kysely, Selectable } from 'kysely';
+import type { Kysely, Selectable, Transaction } from 'kysely';
 import {
   WorkflowDefinitionError,
   normalizeWorkflowDefinitionV1,
@@ -38,6 +38,23 @@ export interface WorkflowTemplateCatalogEntry {
   promptAssets?: CreateWorkflowPromptAssetInput[];
   skillAssets?: CreateWorkflowSkillAssetInput[];
 }
+
+export interface WorkflowTemplateCatalogReadModel extends WorkflowTemplateCatalogEntry {
+  validationStatus: 'valid' | 'invalid';
+  validationIssues: WorkflowConfigIssue[];
+  unavailableReason: string | null;
+}
+
+type WorkflowDesignDb = Kysely<DB> | Transaction<DB>;
+
+type ResolvedWorkflowAsset = {
+  kind: WorkflowAssetRefKind;
+  id: string;
+  version: number;
+  name: string;
+  bodyMarkdown: string;
+  contentHash: string;
+};
 
 export interface WorkflowDesignReadModel {
   designId: string;
@@ -172,30 +189,25 @@ export class DbWorkflowDesignStore {
     return deepClone(this.templates);
   }
 
+  async listTemplateCatalogReadModels(): Promise<WorkflowTemplateCatalogReadModel[]> {
+    const rows: WorkflowTemplateCatalogReadModel[] = [];
+    for (const template of this.templates) {
+      const validation = await this.validateTemplateEntry(template);
+      rows.push({
+        ...deepClone(template),
+        validationStatus: validation.issues.length > 0 ? 'invalid' : 'valid',
+        validationIssues: validation.issues,
+        unavailableReason: validation.issues.length > 0 ? validation.issues.map((issue) => `${issue.code} at ${issue.path}: ${issue.message}`).join('\n') : null,
+      });
+    }
+    return rows;
+  }
+
   async createPromptAsset(input: CreateWorkflowPromptAssetInput): Promise<WorkflowPromptAssetReadModel> {
     const db = await this.getDb();
     const now = this.now();
     const version = input.version ?? 1;
-    await db.insertInto('WorkflowPromptAsset').values({
-      promptAssetId: input.promptAssetId,
-      version,
-      source: input.source ?? 'user',
-      name: input.name,
-      description: input.description ?? null,
-      bodyMarkdown: input.bodyMarkdown,
-      inputSchemaJson: input.inputSchema == null ? null : stableJson(input.inputSchema),
-      contentHash: sha256(input.bodyMarkdown),
-      createdAt: now,
-      updatedAt: now,
-    }).onConflict((oc) => oc.columns(['promptAssetId', 'version']).doUpdateSet({
-      source: input.source ?? 'user',
-      name: input.name,
-      description: input.description ?? null,
-      bodyMarkdown: input.bodyMarkdown,
-      inputSchemaJson: input.inputSchema == null ? null : stableJson(input.inputSchema),
-      contentHash: sha256(input.bodyMarkdown),
-      updatedAt: now,
-    })).execute();
+    await this.upsertPromptAsset(db, input, now);
     return this.getRequiredPromptAsset(input.promptAssetId, version);
   }
 
@@ -203,24 +215,7 @@ export class DbWorkflowDesignStore {
     const db = await this.getDb();
     const now = this.now();
     const version = input.version ?? 1;
-    await db.insertInto('WorkflowSkillAsset').values({
-      skillAssetId: input.skillAssetId,
-      version,
-      source: input.source ?? 'user',
-      name: input.name,
-      description: input.description ?? null,
-      bodyMarkdown: input.bodyMarkdown,
-      contentHash: sha256(input.bodyMarkdown),
-      createdAt: now,
-      updatedAt: now,
-    }).onConflict((oc) => oc.columns(['skillAssetId', 'version']).doUpdateSet({
-      source: input.source ?? 'user',
-      name: input.name,
-      description: input.description ?? null,
-      bodyMarkdown: input.bodyMarkdown,
-      contentHash: sha256(input.bodyMarkdown),
-      updatedAt: now,
-    })).execute();
+    await this.upsertSkillAsset(db, input, now);
     return this.getRequiredSkillAsset(input.skillAssetId, version);
   }
 
@@ -245,26 +240,17 @@ export class DbWorkflowDesignStore {
     const now = this.now();
     const validation = await this.validateDefinition(input.definition);
     await db.transaction().execute(async (trx) => {
-      await trx.insertInto('WorkflowDesign').values({
+      await this.insertDesignWithDraft(trx, {
         designId: input.designId,
-        source: input.source ?? 'user',
+        draftId: input.draftId,
         name: input.name,
         description: input.description ?? null,
-        currentDraftId: input.draftId,
-        latestPublishedVersion: null,
-        createdAt: now,
-        updatedAt: now,
-      }).execute();
-      await trx.insertInto('WorkflowDesignDraft').values({
-        draftId: input.draftId,
-        designId: input.designId,
+        source: input.source ?? 'user',
+        definition: input.definition,
         baseVersion: input.baseVersion ?? null,
-        definitionJson: stableJson(input.definition),
-        validationStatus: validation.issues.length ? 'invalid' : 'valid',
-        validationIssuesJson: stableJson(validation.issues),
-        createdAt: now,
-        updatedAt: now,
-      }).execute();
+        validationIssues: validation.issues,
+        now,
+      });
     });
     return { design: await this.getRequiredDesign(input.designId), draft: await this.getRequiredDraft(input.draftId) };
   }
@@ -285,20 +271,31 @@ export class DbWorkflowDesignStore {
   async useTemplate(input: { templateId: string; designId: string; draftId: string; name?: string; description?: string | null }): Promise<{ design: WorkflowDesignReadModel; draft: WorkflowDesignDraftReadModel }> {
     const template = this.templates.find((entry) => entry.templateId === input.templateId);
     if (!template) throw new Error(`Workflow template ${input.templateId} not found`);
-    for (const prompt of template.promptAssets ?? []) {
-      await this.createPromptAsset({ ...prompt, source: prompt.source ?? 'built_in' });
-    }
-    for (const skill of template.skillAssets ?? []) {
-      await this.createSkillAsset({ ...skill, source: skill.source ?? 'built_in' });
-    }
-    return this.createDesign({
-      designId: input.designId,
-      draftId: input.draftId,
-      name: input.name ?? template.name,
-      description: input.description ?? template.description ?? null,
-      source: 'user',
-      definition: deepClone(template.definition),
+    const validation = await this.validateTemplateEntry(template);
+    if (validation.issues.length > 0) throw new WorkflowDesignValidationError(validation.issues);
+
+    const db = await this.getDb();
+    const now = this.now();
+    await db.transaction().execute(async (trx) => {
+      for (const prompt of template.promptAssets ?? []) {
+        await this.upsertPromptAsset(trx, { ...prompt, source: prompt.source ?? 'built_in' }, now);
+      }
+      for (const skill of template.skillAssets ?? []) {
+        await this.upsertSkillAsset(trx, { ...skill, source: skill.source ?? 'built_in' }, now);
+      }
+      await this.insertDesignWithDraft(trx, {
+        designId: input.designId,
+        draftId: input.draftId,
+        name: input.name ?? template.name,
+        description: input.description ?? template.description ?? null,
+        source: 'user',
+        definition: deepClone(template.definition),
+        baseVersion: null,
+        validationIssues: [],
+        now,
+      });
     });
+    return { design: await this.getRequiredDesign(input.designId), draft: await this.getRequiredDraft(input.draftId) };
   }
 
   async publishDraft(draftId: string): Promise<WorkflowDesignVersionReadModel> {
@@ -411,6 +408,85 @@ export class DbWorkflowDesignStore {
     return row ? mapRunSnapshot(row) : null;
   }
 
+  private async insertDesignWithDraft(db: WorkflowDesignDb, input: { designId: string; name: string; description?: string | null; source: WorkflowLibraryRecordSource; draftId: string; definition: unknown; baseVersion?: number | null; validationIssues: WorkflowConfigIssue[]; now: number }): Promise<void> {
+    await db.insertInto('WorkflowDesign').values({
+      designId: input.designId,
+      source: input.source,
+      name: input.name,
+      description: input.description ?? null,
+      currentDraftId: input.draftId,
+      latestPublishedVersion: null,
+      createdAt: input.now,
+      updatedAt: input.now,
+    }).execute();
+    await db.insertInto('WorkflowDesignDraft').values({
+      draftId: input.draftId,
+      designId: input.designId,
+      baseVersion: input.baseVersion ?? null,
+      definitionJson: stableJson(input.definition),
+      validationStatus: input.validationIssues.length ? 'invalid' : 'valid',
+      validationIssuesJson: stableJson(input.validationIssues),
+      createdAt: input.now,
+      updatedAt: input.now,
+    }).execute();
+  }
+
+  private async upsertPromptAsset(db: WorkflowDesignDb, input: CreateWorkflowPromptAssetInput, now: number): Promise<void> {
+    const version = input.version ?? 1;
+    await db.insertInto('WorkflowPromptAsset').values({
+      promptAssetId: input.promptAssetId,
+      version,
+      source: input.source ?? 'user',
+      name: input.name,
+      description: input.description ?? null,
+      bodyMarkdown: input.bodyMarkdown,
+      inputSchemaJson: input.inputSchema == null ? null : stableJson(input.inputSchema),
+      contentHash: sha256(input.bodyMarkdown),
+      createdAt: now,
+      updatedAt: now,
+    }).onConflict((oc) => oc.columns(['promptAssetId', 'version']).doUpdateSet({
+      source: input.source ?? 'user',
+      name: input.name,
+      description: input.description ?? null,
+      bodyMarkdown: input.bodyMarkdown,
+      inputSchemaJson: input.inputSchema == null ? null : stableJson(input.inputSchema),
+      contentHash: sha256(input.bodyMarkdown),
+      updatedAt: now,
+    })).execute();
+  }
+
+  private async upsertSkillAsset(db: WorkflowDesignDb, input: CreateWorkflowSkillAssetInput, now: number): Promise<void> {
+    const version = input.version ?? 1;
+    await db.insertInto('WorkflowSkillAsset').values({
+      skillAssetId: input.skillAssetId,
+      version,
+      source: input.source ?? 'user',
+      name: input.name,
+      description: input.description ?? null,
+      bodyMarkdown: input.bodyMarkdown,
+      contentHash: sha256(input.bodyMarkdown),
+      createdAt: now,
+      updatedAt: now,
+    }).onConflict((oc) => oc.columns(['skillAssetId', 'version']).doUpdateSet({
+      source: input.source ?? 'user',
+      name: input.name,
+      description: input.description ?? null,
+      bodyMarkdown: input.bodyMarkdown,
+      contentHash: sha256(input.bodyMarkdown),
+      updatedAt: now,
+    })).execute();
+  }
+
+  private async validateTemplateEntry(template: WorkflowTemplateCatalogEntry): Promise<{ issues: WorkflowConfigIssue[] }> {
+    try {
+      const resolved = await this.resolveDefinition(template.definition, { assetOverrides: buildTemplateAssetOverrides(template) });
+      return { issues: validateResolvedDefinition(resolved.definition) };
+    } catch (error) {
+      if (error instanceof WorkflowDesignValidationError) return { issues: error.issues };
+      throw error;
+    }
+  }
+
   private async getRequiredDesign(designId: string): Promise<WorkflowDesignReadModel> {
     const design = await this.getDesign(designId);
     if (!design) throw new Error(`Workflow design ${designId} not found`);
@@ -462,7 +538,7 @@ export class DbWorkflowDesignStore {
     }
   }
 
-  private async resolveDefinition(definition: unknown, options: { additionalInstructions?: string | null }): Promise<{ definition: AgentWorkflowDefinitionV1; promptSnapshot: WorkflowResolvedPromptSnapshot }> {
+  private async resolveDefinition(definition: unknown, options: { additionalInstructions?: string | null; assetOverrides?: Map<string, ResolvedWorkflowAsset> }): Promise<{ definition: AgentWorkflowDefinitionV1; promptSnapshot: WorkflowResolvedPromptSnapshot }> {
     const cloned = deepClone(definition) as Record<string, unknown>;
     const snapshot: WorkflowResolvedPromptSnapshot = { assets: [], prompts: [] };
     const states = isRecord(cloned.states) ? cloned.states : {};
@@ -480,7 +556,7 @@ export class DbWorkflowDesignStore {
           const handoffRecord = isRecord(action) && isRecord(action.handoff) ? action.handoff : null;
           const promptHolder = handoffRecord && isRecord(handoffRecord.prompt) ? handoffRecord.prompt : null;
           if (promptHolder) {
-            handoffRecord!.prompt = await this.resolvePromptComposition(promptHolder, `states.${stateId}.actions.${actionId}.handoff.prompt`, snapshot, {});
+            handoffRecord!.prompt = await this.resolvePromptComposition(promptHolder, `states.${stateId}.actions.${actionId}.handoff.prompt`, snapshot, { assetOverrides: options.assetOverrides });
           }
         }
       }
@@ -488,7 +564,7 @@ export class DbWorkflowDesignStore {
     return { definition: cloned as unknown as AgentWorkflowDefinitionV1, promptSnapshot: snapshot };
   }
 
-  private async resolvePromptComposition(value: unknown, path: string, snapshot: WorkflowResolvedPromptSnapshot, options: { additionalInstructions?: string | null }): Promise<unknown> {
+  private async resolvePromptComposition(value: unknown, path: string, snapshot: WorkflowResolvedPromptSnapshot, options: { additionalInstructions?: string | null; assetOverrides?: Map<string, ResolvedWorkflowAsset> }): Promise<unknown> {
     const record = asRecord(value);
     if (!record) return value;
     for (const key of Object.keys(record)) {
@@ -508,9 +584,11 @@ export class DbWorkflowDesignStore {
       return parsed;
     }) : [];
     for (const ref of refs) {
-      const asset = ref.kind === 'prompt'
-        ? await this.getPromptAsset(ref.id, ref.version)
-        : await this.getSkillAsset(ref.id, ref.version);
+      const asset = options.assetOverrides?.get(assetKey(ref.kind, ref.id, ref.version))
+        ?? options.assetOverrides?.get(assetKey(ref.kind, ref.id))
+        ?? (ref.kind === 'prompt'
+          ? await this.getPromptAsset(ref.id, ref.version)
+          : await this.getSkillAsset(ref.id, ref.version));
       if (!asset) {
         throw new WorkflowDesignValidationError([{ code: 'WORKFLOW_CONFIG_INVALID_REFERENCE', path: `${path}.refs`, message: `unknown ${ref.kind} asset ${ref.id}${ref.version ? `@${ref.version}` : ''}` }]);
       }
@@ -529,6 +607,48 @@ export class DbWorkflowDesignStore {
   }
 }
 
+
+
+function buildTemplateAssetOverrides(template: WorkflowTemplateCatalogEntry): Map<string, ResolvedWorkflowAsset> {
+  const assets = new Map<string, ResolvedWorkflowAsset>();
+  for (const prompt of template.promptAssets ?? []) {
+    const asset = templatePromptAsset(prompt);
+    assets.set(assetKey(asset.kind, asset.id, asset.version), asset);
+    if (prompt.version == null) assets.set(assetKey(asset.kind, asset.id), asset);
+  }
+  for (const skill of template.skillAssets ?? []) {
+    const asset = templateSkillAsset(skill);
+    assets.set(assetKey(asset.kind, asset.id, asset.version), asset);
+    if (skill.version == null) assets.set(assetKey(asset.kind, asset.id), asset);
+  }
+  return assets;
+}
+
+function templatePromptAsset(input: CreateWorkflowPromptAssetInput): ResolvedWorkflowAsset {
+  return {
+    kind: 'prompt',
+    id: input.promptAssetId,
+    version: input.version ?? 1,
+    name: input.name,
+    bodyMarkdown: input.bodyMarkdown,
+    contentHash: sha256(input.bodyMarkdown),
+  };
+}
+
+function templateSkillAsset(input: CreateWorkflowSkillAssetInput): ResolvedWorkflowAsset {
+  return {
+    kind: 'skill',
+    id: input.skillAssetId,
+    version: input.version ?? 1,
+    name: input.name,
+    bodyMarkdown: input.bodyMarkdown,
+    contentHash: sha256(input.bodyMarkdown),
+  };
+}
+
+function assetKey(kind: WorkflowAssetRefKind, id: string, version?: number): string {
+  return `${kind}:${id}:${version ?? 'latest'}`;
+}
 
 function appendAdditionalInstructionsToDefinition(
   definition: AgentWorkflowDefinitionV1,

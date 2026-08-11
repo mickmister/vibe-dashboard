@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { initVdDb, type VdDbHandle } from '../../../../server/database';
 import { BUILT_IN_WORKFLOW_TEMPLATES } from '../templates/builtInWorkflowTemplates';
-import { DbWorkflowDesignStore, WorkflowDesignValidationError } from './workflowDesignStore';
+import { DbWorkflowDesignStore, WorkflowDesignValidationError, type WorkflowTemplateCatalogEntry } from './workflowDesignStore';
 
 const handles: VdDbHandle[] = [];
 
@@ -59,6 +59,9 @@ describe('DbWorkflowDesignStore M91 foundation', () => {
     const { store } = await createStore({ templates: BUILT_IN_WORKFLOW_TEMPLATES });
 
     expect(store.listTemplateCatalog()).toHaveLength(1);
+    await expect(store.listTemplateCatalogReadModels()).resolves.toMatchObject([
+      { templateId: 'built-in/simple-agent-decision', validationStatus: 'valid', unavailableReason: null },
+    ]);
     await expect(store.listDesigns()).resolves.toEqual([]);
     await expect(store.getPromptAsset('prompt.simple-agent.instructions', 1)).resolves.toBeNull();
     await expect(store.getSkillAsset('skill.workflow.markdown-response', 1)).resolves.toBeNull();
@@ -85,6 +88,54 @@ describe('DbWorkflowDesignStore M91 foundation', () => {
     expect(duplicate.design).toMatchObject({ source: 'user', currentDraftId: 'draft.from-template-copy' });
     expect(JSON.stringify(duplicate.draft.definition)).not.toContain('session');
     expect(await store.listDesigns()).toHaveLength(2);
+  });
+
+
+  it('TEST_CASE_M91_1B marks invalid checked-in templates unavailable and does not leave partial DB records', async () => {
+    const invalidTemplate = invalidBuiltInTemplate();
+    const { store } = await createStore({ templates: [invalidTemplate] });
+
+    const catalog = await store.listTemplateCatalogReadModels();
+    expect(catalog).toMatchObject([
+      {
+        templateId: 'built-in/invalid-template',
+        validationStatus: 'invalid',
+        validationIssues: [{ code: 'WORKFLOW_CONFIG_INVALID_ACTIVE_STATE', path: 'states.dev.owner' }],
+      },
+    ]);
+    expect(catalog[0]?.unavailableReason).toContain('WORKFLOW_CONFIG_INVALID_ACTIVE_STATE at states.dev.owner');
+
+    await expect(store.useTemplate({
+      templateId: 'built-in/invalid-template',
+      designId: 'design.invalid-template',
+      draftId: 'draft.invalid-template',
+    })).rejects.toBeInstanceOf(WorkflowDesignValidationError);
+
+    await expect(store.getDesign('design.invalid-template')).resolves.toBeNull();
+    await expect(store.getDraft('draft.invalid-template')).resolves.toBeNull();
+    await expect(store.getPromptAsset('prompt.invalid-template', 1)).resolves.toBeNull();
+    await expect(store.getSkillAsset('skill.invalid-template', 1)).resolves.toBeNull();
+  });
+
+  it('TEST_CASE_M91_1B materializes template assets and draft atomically when design creation fails', async () => {
+    const { store } = await createStore({ templates: BUILT_IN_WORKFLOW_TEMPLATES });
+    await seedPromptAssets(store);
+    await store.createDesign({
+      designId: 'design.conflict',
+      draftId: 'draft.conflict-existing',
+      name: 'Existing design',
+      definition: workflowDefinition('existing-design'),
+    });
+
+    await expect(store.useTemplate({
+      templateId: 'built-in/simple-agent-decision',
+      designId: 'design.conflict',
+      draftId: 'draft.conflict-template',
+    })).rejects.toThrow();
+
+    await expect(store.getDraft('draft.conflict-template')).resolves.toBeNull();
+    await expect(store.getPromptAsset('prompt.simple-agent.instructions', 1)).resolves.toBeNull();
+    await expect(store.getSkillAsset('skill.workflow.markdown-response', 1)).resolves.toBeNull();
   });
 
   it('TEST_CASE_M91_2A resolves prompt and skill refs for published versions and pins run snapshots', async () => {
@@ -194,6 +245,46 @@ async function seedPromptAssets(
     name: 'Testing skill notes',
     bodyMarkdown: options.skillBody ?? 'Testing shared skill body.',
   });
+}
+
+
+function invalidBuiltInTemplate(): WorkflowTemplateCatalogEntry {
+  return {
+    templateId: 'built-in/invalid-template',
+    name: 'Invalid template',
+    promptAssets: [
+      {
+        promptAssetId: 'prompt.invalid-template',
+        version: 1,
+        name: 'Invalid template prompt',
+        bodyMarkdown: 'This asset must not be materialized when the template is invalid.',
+      },
+    ],
+    skillAssets: [
+      {
+        skillAssetId: 'skill.invalid-template',
+        version: 1,
+        name: 'Invalid template skill',
+        bodyMarkdown: 'This skill must not be materialized when the template is invalid.',
+      },
+    ],
+    definition: {
+      ...workflowDefinition('invalid-template'),
+      states: {
+        ...workflowDefinition('invalid-template').states,
+        dev: {
+          ...workflowDefinition('invalid-template').states.dev,
+          owner: undefined,
+          steps: [
+            {
+              ...workflowDefinition('invalid-template').states.dev.steps[0],
+              prompt: { refs: [{ kind: 'prompt', id: 'prompt.invalid-template', version: 1 }], template: 'Invalid template prompt.' },
+            },
+          ],
+        },
+      },
+    },
+  };
 }
 
 function workflowDefinition(name: string, extraPrompt = 'Implement with the shared prompt.') {
