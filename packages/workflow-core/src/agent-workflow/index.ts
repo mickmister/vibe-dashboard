@@ -237,6 +237,7 @@ export type WorkflowRuntimeIssue = {
     | 'WORKFLOW_DECISION_UNKNOWN_ACTION'
     | 'WORKFLOW_DECISION_MISSING_REQUIRED_FIELD'
     | 'WORKFLOW_DECISION_UNKNOWN_FIELD'
+    | 'WORKFLOW_DECISION_FIELD_TYPE_MISMATCH'
     | 'WORKFLOW_DECISION_RETRY_EXHAUSTED'
     | 'WORKFLOW_DECISION_VALIDATOR_REQUIRED';
   path: string;
@@ -875,16 +876,10 @@ function validateDecisionResultFields(
   parsed: Record<string, unknown>,
   unknownFields: string[],
 ): WorkflowRuntimeIssue[] {
-  const result = action.result;
-  if (!result) {
-    return unknownFields.map((field) => ({
-      code: 'WORKFLOW_DECISION_UNKNOWN_FIELD',
-      path: `states.${stateId}.actions.${action.id}.result.${field}`,
-      message: `unknown result field ${field}`,
-    }));
-  }
+  const result = action.result ?? { fields: {}, unknownFields: 'reject' as const };
   const fields = result.fields ?? {};
   const issues: WorkflowRuntimeIssue[] = [];
+
   for (const required of result.required ?? []) {
     if (parsed[required] === undefined) {
       issues.push({
@@ -894,16 +889,64 @@ function validateDecisionResultFields(
       });
     }
   }
-  if ((result.unknownFields ?? 'reject') === 'reject') {
-    for (const field of [...unknownFields, ...Object.keys(parsed).filter((field) => !Object.hasOwn(fields, field))]) {
+
+  for (const [fieldName, value] of Object.entries(parsed)) {
+    const spec = fields[fieldName];
+    if (!spec) {
+      if ((result.unknownFields ?? 'reject') === 'reject') {
+        issues.push({
+          code: 'WORKFLOW_DECISION_UNKNOWN_FIELD',
+          path: `states.${stateId}.actions.${action.id}.result.${fieldName}`,
+          message: `unknown result field ${fieldName}`,
+        });
+      }
+      continue;
+    }
+    if (!matchesResultFieldSpec(value, spec)) {
       issues.push({
-        code: 'WORKFLOW_DECISION_UNKNOWN_FIELD',
-        path: `states.${stateId}.actions.${action.id}.result.${field}`,
-        message: `unknown result field ${field}`,
+        code: 'WORKFLOW_DECISION_FIELD_TYPE_MISMATCH',
+        path: `states.${stateId}.actions.${action.id}.result.${fieldName}`,
+        message: `result field ${fieldName} does not match type ${spec.type}${spec.multiple ? '[]' : ''}`,
       });
     }
   }
+
+  if ((result.unknownFields ?? 'reject') === 'reject') {
+    for (const field of unknownFields) {
+      if (!Object.hasOwn(fields, field)) {
+        issues.push({
+          code: 'WORKFLOW_DECISION_UNKNOWN_FIELD',
+          path: `states.${stateId}.actions.${action.id}.result.${field}`,
+          message: `unknown result field ${field}`,
+        });
+      }
+    }
+  }
+
   return issues;
+}
+
+function matchesResultFieldSpec(value: unknown, spec: ResultFieldSpec): boolean {
+  if (spec.multiple) {
+    return Array.isArray(value) && value.every((item) => matchesResultBaseType(item, spec.type));
+  }
+  return matchesResultBaseType(value, spec.type);
+}
+
+function matchesResultBaseType(value: unknown, type: ResultFieldSpec['type']): boolean {
+  switch (type) {
+    case 'string':
+    case 'markdown':
+      return typeof value === 'string';
+    case 'number':
+      return typeof value === 'number';
+    case 'boolean':
+      return typeof value === 'boolean';
+  }
+}
+
+function isSupportedResultFieldType(value: unknown): value is ResultFieldSpec['type'] {
+  return value === 'string' || value === 'markdown' || value === 'number' || value === 'boolean';
 }
 
 function renderTemplate(template: string, snapshot: WorkflowRuntimeSnapshot): string {
@@ -967,11 +1010,40 @@ function validateDecisionResponse(value: unknown, path: string, issues: Workflow
     issues.push(issue('WORKFLOW_CONFIG_REQUIRED_FIELD', `${path}.schema`, 'schema is required'));
   } else {
     assertKnownKeys(value.schema, ['format', 'source'], `${path}.schema`, issues);
+    if (value.schema.format !== 'xsd') {
+      issues.push(issue('WORKFLOW_CONFIG_INVALID_STEP', `${path}.schema.format`, 'schema format must be xsd'));
+    }
+    if (value.schema.source !== 'state_actions') {
+      issues.push(issue('WORKFLOW_CONFIG_INVALID_STEP', `${path}.schema.source`, 'schema source must be state_actions'));
+    }
   }
   if (!isRecord(value.invalidXmlRetry)) {
     issues.push(issue('WORKFLOW_CONFIG_REQUIRED_FIELD', `${path}.invalidXmlRetry`, 'invalidXmlRetry is required'));
   } else {
     assertKnownKeys(value.invalidXmlRetry, ['maxAttempts', 'prompt', 'onExhausted'], `${path}.invalidXmlRetry`, issues);
+    const maxAttempts = value.invalidXmlRetry.maxAttempts;
+    if (!Number.isInteger(maxAttempts) || typeof maxAttempts !== 'number' || maxAttempts < 0) {
+      issues.push(issue('WORKFLOW_CONFIG_INVALID_STEP', `${path}.invalidXmlRetry.maxAttempts`, 'maxAttempts must be a nonnegative integer'));
+    }
+    if (value.invalidXmlRetry.prompt !== 'engine_default_with_validation_errors') {
+      issues.push(issue('WORKFLOW_CONFIG_INVALID_STEP', `${path}.invalidXmlRetry.prompt`, 'retry prompt must be engine_default_with_validation_errors'));
+    }
+    if (value.invalidXmlRetry.onExhausted !== 'blocked') {
+      issues.push(issue('WORKFLOW_CONFIG_INVALID_STEP', `${path}.invalidXmlRetry.onExhausted`, 'retry exhaustion must be blocked'));
+    }
+  }
+  if (typeof value.storeRawXml !== 'boolean') {
+    issues.push(issue('WORKFLOW_CONFIG_INVALID_STEP', `${path}.storeRawXml`, 'storeRawXml must be boolean'));
+  }
+  const rawXmlMaxChars = value.rawXmlMaxChars;
+  if (rawXmlMaxChars !== undefined && (!Number.isInteger(rawXmlMaxChars) || typeof rawXmlMaxChars !== 'number' || rawXmlMaxChars <= 0)) {
+    issues.push(issue('WORKFLOW_CONFIG_INVALID_STEP', `${path}.rawXmlMaxChars`, 'rawXmlMaxChars must be a positive integer'));
+  }
+  if (typeof value.storeParsedFields !== 'boolean') {
+    issues.push(issue('WORKFLOW_CONFIG_INVALID_STEP', `${path}.storeParsedFields`, 'storeParsedFields must be boolean'));
+  }
+  if (value.unknownFields !== 'reject_unless_allowed_by_result_contract') {
+    issues.push(issue('WORKFLOW_CONFIG_INVALID_STEP', `${path}.unknownFields`, 'unknownFields must be reject_unless_allowed_by_result_contract'));
   }
 }
 
@@ -995,6 +1067,26 @@ function validateResultContract(value: unknown, path: string, issues: WorkflowCo
       continue;
     }
     assertKnownKeys(field, ['type', 'multiple', 'description'], fieldPath, issues);
+    if (!isSupportedResultFieldType(field.type)) {
+      issues.push(issue('WORKFLOW_CONFIG_INVALID_ACTIVE_STATE', `${fieldPath}.type`, 'field type must be string, markdown, number, or boolean'));
+    }
+    if (field.multiple !== undefined && typeof field.multiple !== 'boolean') {
+      issues.push(issue('WORKFLOW_CONFIG_INVALID_ACTIVE_STATE', `${fieldPath}.multiple`, 'multiple must be boolean'));
+    }
+  }
+  if (value.unknownFields !== undefined && value.unknownFields !== 'reject' && value.unknownFields !== 'preserve') {
+    issues.push(issue('WORKFLOW_CONFIG_INVALID_ACTIVE_STATE', `${path}.unknownFields`, 'unknownFields must be reject or preserve'));
+  }
+  if (value.required !== undefined) {
+    if (!Array.isArray(value.required)) {
+      issues.push(issue('WORKFLOW_CONFIG_INVALID_ACTIVE_STATE', `${path}.required`, 'required must be an array'));
+    } else {
+      for (const [index, required] of value.required.entries()) {
+        if (typeof required !== 'string' || !Object.hasOwn(value.fields, required)) {
+          issues.push(issue('WORKFLOW_CONFIG_INVALID_REFERENCE', `${path}.required.${index}`, 'required field must reference result.fields'));
+        }
+      }
+    }
   }
 }
 

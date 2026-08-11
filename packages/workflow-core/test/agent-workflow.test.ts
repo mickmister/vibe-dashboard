@@ -7,7 +7,6 @@ import {
   planNextWorkflowEffect,
   type AgentWorkflowDefinitionV1,
   type DecisionResponseValidator,
-  type AuthoredWorkflowStateV1,
   type NormalizedWorkflowState,
   type WorkflowRuntimeSnapshot,
 } from '../src/index';
@@ -28,6 +27,16 @@ function activeNormalizedState(
     throw new Error('Expected active normalized state');
   }
   return state;
+}
+
+function decisionResponse(definition: AgentWorkflowDefinitionV1, stateId = 'devImplementing') {
+  const step = activeAuthoredState(definition, stateId).steps.find(
+    (candidate) => candidate.turnType === 'decision',
+  );
+  if (!step?.response) {
+    throw new Error(`Expected decision response policy for ${stateId}`);
+  }
+  return step.response;
 }
 
 function makeDefinition(): AgentWorkflowDefinitionV1 {
@@ -306,6 +315,89 @@ describe('agent workflow V1 normalization', () => {
       'decision',
     ]);
   });
+
+  it('rejects invalid V1 decision response and result policy values with stable paths', () => {
+    const invalidDecisionPolicy = (mutate: (def: AgentWorkflowDefinitionV1) => void, path: string) => {
+      expectDefinitionError(
+        () => {
+          const def = makeDefinition();
+          mutate(def);
+          return normalizeWorkflowDefinitionV1(def);
+        },
+        'WORKFLOW_CONFIG_INVALID_STEP',
+        path,
+      );
+    };
+    invalidDecisionPolicy(
+      (def) => { decisionResponse(def).schema.format = 'json' as never; },
+      'states.devImplementing.steps.1.response.schema.format',
+    );
+    invalidDecisionPolicy(
+      (def) => { decisionResponse(def).schema.source = 'current_state_actions' as never; },
+      'states.devImplementing.steps.1.response.schema.source',
+    );
+    invalidDecisionPolicy(
+      (def) => { decisionResponse(def).invalidXmlRetry.maxAttempts = -1; },
+      'states.devImplementing.steps.1.response.invalidXmlRetry.maxAttempts',
+    );
+    invalidDecisionPolicy(
+      (def) => { decisionResponse(def).invalidXmlRetry.prompt = 'custom' as never; },
+      'states.devImplementing.steps.1.response.invalidXmlRetry.prompt',
+    );
+    invalidDecisionPolicy(
+      (def) => { decisionResponse(def).invalidXmlRetry.onExhausted = 'failed' as never; },
+      'states.devImplementing.steps.1.response.invalidXmlRetry.onExhausted',
+    );
+    invalidDecisionPolicy(
+      (def) => { decisionResponse(def).storeRawXml = 'yes' as never; },
+      'states.devImplementing.steps.1.response.storeRawXml',
+    );
+    invalidDecisionPolicy(
+      (def) => { decisionResponse(def).storeParsedFields = 'yes' as never; },
+      'states.devImplementing.steps.1.response.storeParsedFields',
+    );
+    invalidDecisionPolicy(
+      (def) => { decisionResponse(def).unknownFields = 'preserve' as never; },
+      'states.devImplementing.steps.1.response.unknownFields',
+    );
+
+    const invalidResultPolicy = (
+      mutate: (result: NonNullable<ReturnType<typeof activeAuthoredState>['actions']['readyForReview']>['result']) => void,
+      code: string,
+      path: string,
+    ) => {
+      expectDefinitionError(
+        () => {
+          const def = makeDefinition();
+          const result = activeAuthoredState(def, 'devImplementing').actions.readyForReview!.result;
+          mutate(result);
+          return normalizeWorkflowDefinitionV1(def);
+        },
+        code,
+        path,
+      );
+    };
+    invalidResultPolicy(
+      (result) => { result!.unknownFields = 'keep' as never; },
+      'WORKFLOW_CONFIG_INVALID_ACTIVE_STATE',
+      'states.devImplementing.actions.readyForReview.result.unknownFields',
+    );
+    invalidResultPolicy(
+      (result) => { result!.fields.summary!.type = 'object' as never; },
+      'WORKFLOW_CONFIG_INVALID_ACTIVE_STATE',
+      'states.devImplementing.actions.readyForReview.result.fields.summary.type',
+    );
+    invalidResultPolicy(
+      (result) => { result!.fields.summary!.multiple = 'yes' as never; },
+      'WORKFLOW_CONFIG_INVALID_ACTIVE_STATE',
+      'states.devImplementing.actions.readyForReview.result.fields.summary.multiple',
+    );
+    invalidResultPolicy(
+      (result) => { result!.required = ['missing']; },
+      'WORKFLOW_CONFIG_INVALID_REFERENCE',
+      'states.devImplementing.actions.readyForReview.result.required.0',
+    );
+  });
 });
 
 describe('agent workflow V1 advancement', () => {
@@ -538,5 +630,190 @@ describe('agent workflow V1 advancement', () => {
     expect(missingRequired.effect.kind === 'send_agent_turn' && missingRequired.effect.prompt).toContain(
       'WORKFLOW_DECISION_MISSING_REQUIRED_FIELD',
     );
+  });
+
+  it('validates per-action result contracts for absent result, unknown fields, types, and multiple arrays', () => {
+    const makeWaitingReviewSnapshot = (model: ReturnType<typeof normalizeWorkflowDefinitionV1>): WorkflowRuntimeSnapshot => ({
+      instanceId: 'result_contracts',
+      workflowId: model.workflowId,
+      status: 'running',
+      currentState: 'reviewing',
+      currentStepIndex: 0,
+      visitId: 'review_visit',
+      inputs: {},
+      waitingFor: {
+        kind: 'agent_turn',
+        state: 'reviewing',
+        stepId: 'reviewDecision',
+        turnId: 'review_turn',
+      },
+      history: [],
+      createdAt: 1,
+      updatedAt: 1,
+    });
+
+    const baseModel = normalizeWorkflowDefinitionV1(makeDefinition());
+    const extraWithoutResult = advanceWorkflow(
+      baseModel,
+      makeWaitingReviewSnapshot(baseModel),
+      {
+        kind: 'agent_turn_completed',
+        turnId: 'review_turn',
+        responseRef: 'response_extra',
+        finalResponseText: 'extra',
+      },
+      {
+        now: clock(10),
+        createId: ids('retry_extra'),
+        validator: { validate: () => ({ valid: true, action: 'approved', parsed: { extra: 'not declared' } }) },
+      },
+    );
+    expect(extraWithoutResult.effect.kind === 'send_agent_turn' && extraWithoutResult.effect.prompt).toContain(
+      'WORKFLOW_DECISION_UNKNOWN_FIELD',
+    );
+
+    const rejectKnownResultModel = normalizeWorkflowDefinitionV1(makeDefinition());
+    const extraWithRejectResult = advanceWorkflow(
+      rejectKnownResultModel,
+      {
+        ...makeWaitingReviewSnapshot(rejectKnownResultModel),
+        currentState: 'devImplementing',
+        currentStepIndex: 1,
+        waitingFor: {
+          kind: 'agent_turn',
+          state: 'devImplementing',
+          stepId: 'selfReview',
+          turnId: 'self_review_turn',
+        },
+      },
+      {
+        kind: 'agent_turn_completed',
+        turnId: 'self_review_turn',
+        responseRef: 'response_extra_known_result',
+        finalResponseText: 'extra-known-result',
+      },
+      {
+        now: clock(15),
+        createId: ids('retry_extra_known'),
+        validator: {
+          validate: () => ({
+            valid: true,
+            action: 'readyForReview',
+            parsed: { summary: 'ok', extra: 'not declared' },
+          }),
+        },
+      },
+    );
+    expect(
+      extraWithRejectResult.effect.kind === 'send_agent_turn' && extraWithRejectResult.effect.prompt,
+    ).toContain('WORKFLOW_DECISION_UNKNOWN_FIELD');
+
+    const preserveDefinition = makeDefinition();
+    activeAuthoredState(preserveDefinition, 'reviewing').actions.approved!.result = {
+      fields: {},
+      unknownFields: 'preserve',
+    };
+    const preserveModel = normalizeWorkflowDefinitionV1(preserveDefinition);
+    const preserved = advanceWorkflow(
+      preserveModel,
+      makeWaitingReviewSnapshot(preserveModel),
+      {
+        kind: 'agent_turn_completed',
+        turnId: 'review_turn',
+        responseRef: 'response_preserve',
+        finalResponseText: 'extra',
+      },
+      {
+        now: clock(20),
+        createId: ids('unused'),
+        validator: { validate: () => ({ valid: true, action: 'approved', parsed: { extra: 'preserved' } }) },
+      },
+    );
+    expect(preserved.snapshot.status).toBe('completed');
+    expect(preserved.snapshot.latestTransition?.parsed).toEqual({ extra: 'preserved' });
+
+    const typedDefinition = makeDefinition();
+    activeAuthoredState(typedDefinition, 'reviewing').actions.approved!.result = {
+      fields: {
+        title: { type: 'string' },
+        notes: { type: 'markdown', multiple: true },
+        count: { type: 'number' },
+        ok: { type: 'boolean' },
+      },
+      required: ['title', 'notes', 'count', 'ok'],
+    };
+    const typedModel = normalizeWorkflowDefinitionV1(typedDefinition);
+    const wrongType = advanceWorkflow(
+      typedModel,
+      makeWaitingReviewSnapshot(typedModel),
+      {
+        kind: 'agent_turn_completed',
+        turnId: 'review_turn',
+        responseRef: 'response_wrong_type',
+        finalResponseText: 'wrong-type',
+      },
+      {
+        now: clock(30),
+        createId: ids('retry_type'),
+        validator: {
+          validate: () => ({
+            valid: true,
+            action: 'approved',
+            parsed: { title: 'ok', notes: ['a'], count: '1', ok: true },
+          }),
+        },
+      },
+    );
+    expect(wrongType.effect.kind === 'send_agent_turn' && wrongType.effect.prompt).toContain(
+      'WORKFLOW_DECISION_FIELD_TYPE_MISMATCH',
+    );
+
+    const wrongMultiple = advanceWorkflow(
+      typedModel,
+      makeWaitingReviewSnapshot(typedModel),
+      {
+        kind: 'agent_turn_completed',
+        turnId: 'review_turn',
+        responseRef: 'response_wrong_multiple',
+        finalResponseText: 'wrong-multiple',
+      },
+      {
+        now: clock(40),
+        createId: ids('retry_multiple'),
+        validator: {
+          validate: () => ({
+            valid: true,
+            action: 'approved',
+            parsed: { title: 'ok', notes: 'not an array', count: 1, ok: true },
+          }),
+        },
+      },
+    );
+    expect(wrongMultiple.effect.kind === 'send_agent_turn' && wrongMultiple.effect.prompt).toContain(
+      'WORKFLOW_DECISION_FIELD_TYPE_MISMATCH',
+    );
+
+    const validTyped = advanceWorkflow(
+      typedModel,
+      makeWaitingReviewSnapshot(typedModel),
+      {
+        kind: 'agent_turn_completed',
+        turnId: 'review_turn',
+        responseRef: 'response_valid_typed',
+        finalResponseText: 'valid-typed',
+      },
+      {
+        now: clock(50),
+        createId: ids('unused'),
+        validator: {
+          validate: () => ({
+            valid: true,
+            action: 'approved',
+            parsed: { title: 'ok', notes: ['a', 'b'], count: 1, ok: true },
+          }),
+        },
+      },
+    );
+    expect(validTyped.snapshot.status).toBe('completed');
   });
 });
