@@ -104,7 +104,13 @@ Expected:
 
 Steps:
 1. Run TEST_CASE_1B on macOS using the local mocked sandbox.
-2. Run TEST_CASE_1B on Linux using the Docker/mocked-sandbox path from `vk-mocked-sandbox.md` or the CI workflow.
+2. Run TEST_CASE_1B on Linux using the Docker/mocked-sandbox path from `vk-mocked-sandbox.md` or the CI workflow. For a focused Docker/CI-backed bwrap acceptance probe from a macOS host, run this in the VK checkout:
+
+   ```bash
+   scripts/ci-run-linux-bwrap-sandbox-probe.sh
+   ```
+
+   Expected focused-probe result: `bwrap --version` prints, `cargo test -p executors bwrap_ -- --nocapture` passes, and `cargo test -p executors --features qa-mode qa_sandbox_probe_runs_inside_prepared_sandbox -- --nocapture` passes inside Linux. This exercises the TEST_CASE_1B-equivalent prepared child process with `network=none`, workspace write allowed, and `node_modules` readonly write denied.
 
 Expected:
 - macOS uses the automatic sandbox-exec backend internally and passes the probe expectations.
