@@ -181,7 +181,7 @@ Current policy decisions from the forms:
 | `vk/6586-vd-silverbullet` | 2026-04-12 | `82cf88e` Implemented the SilverBullet integration end to end. | ahead 1, behind 199, files 10 | not covered in user forms; needs triage before any merge |
 | `vk/e80b-vd-add-authentic` | 2026-04-07 | `d29a072` Add Keycloak auth stack for Caddy routes | ahead 1, behind 199, files 5 | not covered in user forms; needs triage before any merge |
 | `vk/36e8-vd-review-wip-br` | 2026-04-02 | `48a4aac` Revert "use bullseye again" | ahead 0, behind 199, files 0 | local no-delta/stale or already merged; not selected |
-| `vk/a43e-vd-install-agent` | 2026-03-22 | `8cb1ce5` Install agent-browser in Dockerfile | ahead 1, behind 230, files 1 | not covered in user forms; needs triage before any merge |
+| `vk/a43e-vd-install-agent` | 2026-03-22 | `8cb1ce5` Install legacy browser automation helper in Dockerfile | ahead 1, behind 230, files 1 | not covered in user forms; needs triage before any merge |
 | `vk/0a3b-put-tab-bar-in-l` | 2026-03-17 | `667c1ee` Move tab and pair navigation/actions into sidebar and keep URL bar only | ahead 0, behind 222, files 0 | local no-delta/stale or already merged; not selected |
 | `vk/370d-allow-custom-ico` | 2026-03-10 | `d1f4004` Add per-space custom app icon with runtime favicon/apple-touch updates | ahead 1, behind 249, files 4 | not covered in user forms; needs triage before any merge |
 | `vk/64e0-require-authenti` | 2026-03-06 | `a2a4a00` Add Authentik forward-auth overlay for passkey-only single-user access | ahead 1, behind 270, files 6 | not covered in user forms; needs triage before any merge |

@@ -2,8 +2,6 @@ name: Publish VK/VD Image to GHCR
 
 on:
   push:
-    branches:
-      - main
   pull_request:
     types:
       - opened
