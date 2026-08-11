@@ -1,11 +1,38 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { initializeCompactMoreInfo } from './beadsFormMoreInfo';
-import { initializeSingleQuestionMode } from './beadsFormSingleQuestion';
+import { initializeSingleQuestionMode, prehideInactiveSingleQuestionItems } from './beadsFormSingleQuestion';
 
 describe('BeadsForm single-question mode', () => {
   beforeEach(() => {
     window.history.pushState(null, '', '/dashboard/forms');
+  });
+
+  it('pre-hides inactive questions before wizard initialization to prevent all-question flashes', () => {
+    window.history.pushState(null, '', '/dashboard/forms?formQuestion=2');
+
+    const html = prehideInactiveSingleQuestionItems(`
+      <form>
+        <fieldset><legend>First question</legend><input name="first"></fieldset>
+        <fieldset><legend>Second question</legend><input name="second"></fieldset>
+        <fieldset><legend>Additional notes</legend><textarea name="additional_notes"></textarea></fieldset>
+        <div class="beads-form-submit-actions"><button type="submit">Submit</button></div>
+      </form>
+    `);
+    document.body.innerHTML = html;
+
+    const fieldsets = Array.from(document.querySelectorAll<HTMLFieldSetElement>('fieldset'));
+    expect(fieldsets[0]!.hidden).toBe(true);
+    expect(fieldsets[1]!.hidden).toBe(false);
+    expect(fieldsets[2]!.hidden).toBe(false);
+    expect(document.querySelector<HTMLElement>('.beads-form-submit-actions')!.hidden).toBe(false);
+
+    initializeSingleQuestionMode(document.body);
+
+    const questionItems = Array.from(document.querySelectorAll<HTMLFieldSetElement>('.beadsform-single-question-item'));
+    expect(document.querySelector('.beadsform-single-question-progress')?.textContent).toBe('Question 2 of 2');
+    expect(questionItems[0]!.hidden).toBe(true);
+    expect(questionItems[1]!.hidden).toBe(false);
   });
 
   it('pages standard form questions with progress and a question list', () => {

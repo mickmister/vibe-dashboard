@@ -2,6 +2,32 @@ export type SingleQuestionModeCleanup = () => void;
 
 const WIZARD_QUESTION_PARAM = 'formQuestion';
 
+export function prehideInactiveSingleQuestionItems(
+  html: string,
+  options: { urlState?: boolean } = {},
+): string {
+  if (typeof window === 'undefined' || typeof DOMParser === 'undefined') return html;
+  const document = new DOMParser().parseFromString(html, 'text/html');
+  const form = document.body.querySelector('form');
+  if (!form) return html;
+  const fieldsets = Array.from(form.children).filter((child): child is HTMLFieldSetElement => (
+    child instanceof HTMLFieldSetElement
+  ));
+  const masterNotes = fieldsets.find(isMasterNotesFieldset);
+  const questions = fieldsets.filter((fieldset) => fieldset !== masterNotes);
+  if (questions.length <= 1) return html;
+
+  const activeIndex = (options.urlState ?? true) ? (initialQuestionIndexFromUrl(questions.length) ?? 0) : 0;
+  questions.forEach((question, index) => {
+    question.hidden = index !== activeIndex;
+  });
+  const submitActions = form.querySelector<HTMLElement>('.beads-form-submit-actions');
+  if (submitActions) {
+    submitActions.hidden = activeIndex !== questions.length - 1;
+  }
+  return document.body.innerHTML;
+}
+
 export function initializeSingleQuestionMode(host: ParentNode, options: { urlState?: boolean } = {}): SingleQuestionModeCleanup {
   const form = host.querySelector('form');
   if (!form || form.dataset.beadsformSingleQuestion === 'true') return () => undefined;
