@@ -23,6 +23,12 @@ import type {
 } from './definitions';
 import { normalizeDeclarativeWorkflowDefinition } from './definitions';
 import { getBuiltInDeclarativeWorkflowDefinition } from './builtins';
+import {
+  advanceDeclarativeWorkflowCoreSnapshot,
+  createInitialDeclarativeWorkflowCoreSnapshot,
+  readDeclarativeWorkflowCoreSnapshot,
+  withDeclarativeWorkflowCoreState,
+} from './core-bridge';
 
 export interface DeclarativeWorkflowRuntimeVkClient {
   queueFollowUp(sessionId: string, prompt: string, options?: { source?: 'workflow' | 'system' | 'agent' | 'from_user' }): Promise<QueueFollowUpResponse>;
@@ -240,8 +246,22 @@ export class DeclarativeWorkflowRuntime {
         currentStepId: waitStep.id,
         waitingTriggerId: trigger.triggerId,
       });
+      const workflowCoreSnapshot = createInitialDeclarativeWorkflowCoreSnapshot({
+        definition,
+        instanceId: ids.instanceId,
+        inputs: workflowInput,
+        sourceWaitStep: waitStep,
+        reviewWaitStep: findWaitStepAfter(definition, firstStepOfType(definition, 'pipe_response').id),
+        sourceTriggerId: trigger.triggerId,
+        now: this.now,
+        createId: this.createId,
+      });
+      const waitingInstanceWithCore = await this.store.updateInstanceState(
+        ids.instanceId,
+        withDeclarativeWorkflowCoreState(asOptionalRecord(waitingInstance.state) ?? {}, workflowCoreSnapshot),
+      );
       return {
-        instance: waitingInstance,
+        instance: waitingInstanceWithCore,
         steps: await this.getInstanceSteps(ids.instanceId),
         trigger,
         resolvedRoles,
@@ -404,6 +424,17 @@ export class DeclarativeWorkflowRuntime {
         review: responseRef(reviewResponse),
       },
     };
+    const workflowCoreSnapshot = advanceDeclarativeWorkflowCoreSnapshot({
+      definition,
+      snapshot: readDeclarativeWorkflowCoreSnapshot(instance.state),
+      completedWaitStepId: reviewWaitStep.id,
+      completedTriggerId: reviewWaitState.waitingTriggerId ?? `${instance.instanceId}_${reviewWaitStep.id}_trigger`,
+      responseRef: reviewOutput.executionProcessId,
+      sourceWaitStep,
+      reviewWaitStep,
+      now: this.now,
+      createId: this.createId,
+    });
 
     let overseerQueueItemId: string | null = null;
     const input = instance.input as Record<string, string>;
@@ -448,7 +479,7 @@ export class DeclarativeWorkflowRuntime {
         summary: renderCompleteSummary(completeStep.summaryTemplate, input),
         output,
       },
-      finalState: { phase: 'completed', output },
+      finalState: withDeclarativeWorkflowCoreState({ phase: 'completed', output }, workflowCoreSnapshot),
       latestRunId: reviewOutput.executionProcessId,
     });
     return { instanceId: instance.instanceId, notified: Boolean(overseerSessionId), overseerQueueItemId, output };
@@ -602,6 +633,24 @@ export class DeclarativeWorkflowRuntime {
           timeoutAt: this.computeTriggerTimeoutAt(definition),
         },
       });
+      const workflowCoreSnapshot = advanceDeclarativeWorkflowCoreSnapshot({
+        definition,
+        snapshot: readDeclarativeWorkflowCoreSnapshot(instance.state),
+        completedWaitStepId: sourceWaitStep.id,
+        completedTriggerId: sourceTrigger?.triggerId ?? sourceWaitState.waitingTriggerId ?? '',
+        responseRef: sourceOutput.executionProcessId,
+        sourceWaitStep,
+        reviewWaitStep,
+        nextTriggerId: handoff.trigger.triggerId,
+        now: this.now,
+        createId: this.createId,
+      });
+      if (workflowCoreSnapshot) {
+        await this.store.updateInstanceState(
+          instance.instanceId,
+          withDeclarativeWorkflowCoreState(asOptionalRecord(handoff.instance.state) ?? asOptionalRecord(instance.state) ?? {}, workflowCoreSnapshot),
+        );
+      }
       return {
         instanceId: instance.instanceId,
         sourceExecutionProcessId: sourceOutput.executionProcessId,

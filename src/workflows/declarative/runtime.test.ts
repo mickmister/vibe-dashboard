@@ -54,6 +54,17 @@ describe('DeclarativeWorkflowRuntime start skeleton', () => {
       state: {
         definitionId: 'two-agent-review-round',
         definition: { id: 'two-agent-review-round' },
+        workflowCoreSnapshot: {
+          status: 'running',
+          currentState: 'source',
+          currentStepIndex: 0,
+          waitingFor: {
+            kind: 'agent_turn',
+            state: 'source',
+            stepId: 'wait_source',
+            turnId: 'instance-1_wait_source_trigger',
+          },
+        },
       },
     });
 
@@ -397,6 +408,102 @@ describe('DeclarativeWorkflowRuntime start skeleton', () => {
 
     expect(result.completed).toHaveLength(1);
     await expect(harness.store.getInstance('instance-resume')).resolves.toMatchObject({ status: 'completed' });
+  });
+
+  it('bridges persisted runtime waits through workflow-core snapshots and no-ops after completion', async () => {
+    const harness = await createHarness();
+    const started = await startAndSatisfySource(harness);
+    await expect(harness.store.getInstance(started.instance.instanceId)).resolves.toMatchObject({
+      status: 'running',
+      state: {
+        workflowCoreSnapshot: {
+          status: 'running',
+          currentState: 'source',
+          waitingFor: { turnId: 'instance-resume_wait_source_trigger' },
+        },
+      },
+    });
+
+    const restarted = new DeclarativeWorkflowRuntime({
+      store: harness.store,
+      resolver: harness.resolver,
+      vk: harness.vk,
+      responsePipe: harness.responsePipe,
+      notificationStore: harness.pipeStore,
+      createId: () => 'restarted',
+      now: () => 0,
+    });
+
+    const handoff = await restarted.runReady();
+
+    expect(handoff.errors).toEqual([]);
+    expect(handoff.resumed).toHaveLength(1);
+    await expect(harness.store.getInstance(started.instance.instanceId)).resolves.toMatchObject({
+      status: 'waiting',
+      currentStepId: 'wait_review',
+      state: {
+        workflowCoreSnapshot: {
+          status: 'running',
+          currentState: 'review',
+          currentStepIndex: 0,
+          latestTransition: {
+            fromState: 'source',
+            toState: 'review',
+            action: 'source_completed',
+            responseRef: 'exec-source',
+          },
+          waitingFor: {
+            kind: 'agent_turn',
+            state: 'review',
+            stepId: 'wait_review',
+            turnId: 'instance-resume_wait_review_trigger',
+          },
+        },
+      },
+    });
+
+    const review = responseCursor({
+      executionProcessId: 'exec-review',
+      sessionId: 'session-review',
+      content: 'Reviewer response',
+      completedAt: '2026-08-04T12:00:00.000Z',
+    });
+    harness.vk.finalMessages.set('exec-review', review);
+    await harness.store.satisfyScopedTriggerAndResumeWaitingStep('instance-resume_wait_review_trigger', {
+      executionProcessId: 'exec-review',
+      response: {
+        executionProcessId: 'exec-review',
+        sessionId: 'session-review',
+        workspaceId: 'ws-1',
+        completedAt: review.completed_at,
+        truncated: false,
+        maxChars: review.max_chars,
+        sourceKind: review.source_kind,
+      },
+    });
+
+    const completed = await restarted.runReady();
+    const duplicate = await restarted.runReady();
+
+    expect(completed.completed).toHaveLength(1);
+    expect(duplicate).toEqual({ resumed: [], completed: [], skipped: [], errors: [] });
+    expect(harness.vk.queueFollowUp).toHaveBeenCalledTimes(2);
+    await expect(harness.store.getInstance(started.instance.instanceId)).resolves.toMatchObject({
+      status: 'completed',
+      state: {
+        phase: 'completed',
+        workflowCoreSnapshot: {
+          status: 'completed',
+          currentState: 'done',
+          latestTransition: {
+            fromState: 'review',
+            toState: 'done',
+            action: 'review_completed',
+            responseRef: 'exec-review',
+          },
+        },
+      },
+    });
   });
 
   it('runReady resumes and completes a custom persisted definition after restart', async () => {

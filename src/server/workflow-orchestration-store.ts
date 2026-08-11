@@ -341,6 +341,22 @@ export class DbWorkflowOrchestrationStore {
     return this.getRequiredInstance(instanceId);
   }
 
+  async updateInstanceState(instanceId: string, state: JsonValue, expectedVersion?: number): Promise<WorkflowInstanceReadModel> {
+    const db = await this.getDb();
+    const now = this.now();
+    let query = db
+      .updateTable('WorkflowInstance')
+      .set((eb) => ({
+        stateJson: serializeJson(state),
+        updatedAt: now,
+        version: eb('version', '+', 1),
+      }))
+      .where('instanceId', '=', instanceId);
+    if (expectedVersion != null) query = query.where('version', '=', expectedVersion);
+    await assertUpdated(query.executeTakeFirst(), `Cannot update workflow instance ${instanceId} state`);
+    return this.getRequiredInstance(instanceId);
+  }
+
   async createStepState(input: CreateWorkflowStepStateInput): Promise<WorkflowStepStateReadModel> {
     const db = await this.getDb();
     const now = this.now();
