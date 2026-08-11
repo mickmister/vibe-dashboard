@@ -11,12 +11,12 @@ describe('workflow graph model', () => {
       expect.objectContaining({ id: 'implement', type: 'agent_turn', turnType: 'non_decision', promptRefs: ['prompt:prompt.dev.implement@1'] }),
       expect.objectContaining({ id: 'self_review', type: 'agent_turn', turnType: 'decision' }),
     ]);
-    expect(graph.nodes.find((node) => node.id === 'tester')?.steps).toEqual([expect.objectContaining({ id: 'acceptance_form', type: 'human_form', humanFormProvider: 'beads_form' })]);
+    expect(graph.nodes.find((node) => node.id === 'tester')?.steps).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'acceptance_form', type: 'human_form', humanFormProvider: 'beads_form' })]));
     expect(graph.edges).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'dev:ready_for_review', source: 'dev', target: 'review', label: 'Ready for review' }),
-      expect.objectContaining({ id: 'review:changes_requested', source: 'review', target: 'dev', label: 'Request changes' }),
-      expect.objectContaining({ id: 'tester:bug_found', source: 'tester', target: 'dev', label: 'Bug found' }),
-      expect.objectContaining({ id: 'tester:approved', source: 'tester', target: 'done', label: 'Approved' }),
+      expect.objectContaining({ actionId: 'ready_for_review', source: 'dev', target: 'review', label: 'Ready for review' }),
+      expect.objectContaining({ actionId: 'changes_requested', source: 'review', target: 'dev', label: 'Request changes' }),
+      expect.objectContaining({ actionId: 'bug_found', source: 'tester', target: 'dev', label: 'Bug found' }),
+      expect.objectContaining({ actionId: 'approved', source: 'tester', target: 'done', label: 'Approved' }),
     ]));
     expect(validateWorkflowGraph(devReviewTesterFixture())).toEqual([]);
   });
@@ -44,7 +44,7 @@ describe('workflow graph model', () => {
     ]));
 
     const decisionWithoutActions = devReviewTesterFixture();
-    if (!('terminal' in decisionWithoutActions.states.review!)) decisionWithoutActions.states.review!.actions = {}; 
+    if (!('terminal' in decisionWithoutActions.states.review!)) decisionWithoutActions.states.review!.actions = {};
     expect(validateWorkflowGraph(decisionWithoutActions)).toEqual(expect.arrayContaining([
       expect.objectContaining({ code: 'WORKFLOW_GRAPH_DECISION_WITHOUT_ACTIONS', path: 'states.review.actions' }),
     ]));
@@ -59,7 +59,10 @@ describe('workflow graph model', () => {
     unsupported.states.dev.steps.push({ id: 'call-child', type: 'workflow_call' });
     expect(validateWorkflowGraph(unsupported)).toEqual(expect.arrayContaining([
       expect.objectContaining({ code: 'WORKFLOW_GRAPH_UNSUPPORTED_STEP_TYPE', path: 'states.dev.steps.2.type' }),
+      expect.objectContaining({ code: 'WORKFLOW_GRAPH_CORE_INVALID', path: 'states.dev.steps.2.type' }),
     ]));
+    expect(() => workflowDefinitionToGraph(unsupported)).not.toThrow();
+    expect(workflowDefinitionToGraph(unsupported).nodes.find((node) => node.id === 'dev')?.steps.at(-1)).toMatchObject({ id: 'call-child', type: 'workflow_call' });
   });
 });
 
@@ -86,7 +89,10 @@ function devReviewTesterFixture(): AgentWorkflowDefinitionV1 {
       },
       tester: {
         owner: 'tester',
-        steps: [{ id: 'acceptance_form', type: 'human_form', title: 'Acceptance results', form: { providerType: 'beads_form', formSchema: { fields: { approved: { type: 'boolean' } } } } }],
+        steps: [
+          { id: 'acceptance_form', type: 'human_form', title: 'Acceptance results', form: { providerType: 'beads_form', formSchema: { fields: { approved: { type: 'boolean' } } } } },
+          { id: 'tester_decision', type: 'agent_turn', turnType: 'decision', prompt: { template: 'Choose acceptance outcome' }, response: decisionResponse() },
+        ],
         actions: { approved: { label: 'Approved', targetState: 'done' }, bug_found: { label: 'Bug found', targetState: 'dev' } },
       },
       done: { terminal: true },

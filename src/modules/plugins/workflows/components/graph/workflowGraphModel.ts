@@ -1,4 +1,4 @@
-import type { AgentWorkflowDefinitionV1, AuthoredWorkflowStateV1, WorkflowStepV1 } from '@vibe-dashboard/workflow-core';
+import { WorkflowDefinitionError, normalizeWorkflowDefinitionV1, type AgentWorkflowDefinitionV1, type AuthoredWorkflowStateV1, type WorkflowStepV1 } from '@vibe-dashboard/workflow-core';
 
 export interface WorkflowGraphNodeModel {
   id: string;
@@ -40,7 +40,8 @@ export interface WorkflowGraphValidationIssue {
     | 'WORKFLOW_GRAPH_UNREACHABLE_STATE'
     | 'WORKFLOW_GRAPH_NO_TERMINAL_PATH'
     | 'WORKFLOW_GRAPH_DECISION_WITHOUT_ACTIONS'
-    | 'WORKFLOW_GRAPH_UNSUPPORTED_STEP_TYPE';
+    | 'WORKFLOW_GRAPH_UNSUPPORTED_STEP_TYPE'
+    | 'WORKFLOW_GRAPH_CORE_INVALID';
   path: string;
   message: string;
 }
@@ -53,7 +54,7 @@ export interface WorkflowGraphEdit {
 export function workflowDefinitionToGraph(definition: AgentWorkflowDefinitionV1): WorkflowGraphModel {
   const nodes = Object.entries(definition.states).map(([stateId, state]) => {
     const terminal = isTerminalState(state);
-    const ownerRoleId = terminal ? null : state.owner;
+    const ownerRoleId = terminal ? null : typeof (state as { owner?: unknown }).owner === 'string' ? (state as { owner: string }).owner : null;
     const role = ownerRoleId ? definition.roles[ownerRoleId] : undefined;
     return {
       id: stateId,
@@ -62,16 +63,16 @@ export function workflowDefinitionToGraph(definition: AgentWorkflowDefinitionV1)
       ownerLabel: role?.label ?? ownerRoleId,
       terminal,
       initial: stateId === definition.initialState,
-      steps: terminal ? [] : state.steps.map(summarizeStep),
+      steps: terminal ? [] : getStateSteps(state).map(summarizeStep),
     } satisfies WorkflowGraphNodeModel;
   });
 
   const edges: WorkflowGraphEdgeModel[] = [];
   for (const [stateId, state] of Object.entries(definition.states)) {
     if (isTerminalState(state)) continue;
-    for (const [actionId, action] of Object.entries(state.actions)) {
+    for (const [actionId, action] of Object.entries(getStateActions(state))) {
       edges.push({
-        id: `${stateId}:${actionId}`,
+        id: encodeEdgeId(stateId, actionId),
         source: stateId,
         target: action.targetState,
         actionId,
@@ -84,32 +85,49 @@ export function workflowDefinitionToGraph(definition: AgentWorkflowDefinitionV1)
 }
 
 export function applyWorkflowGraphActionEdit(definition: AgentWorkflowDefinitionV1, edgeId: string, edit: WorkflowGraphEdit): AgentWorkflowDefinitionV1 {
-  const [stateId, actionId] = edgeId.split(':');
-  if (!stateId || !actionId) return deepClone(definition);
+  const parsedEdge = decodeEdgeId(edgeId);
+  if (!parsedEdge) return deepClone(definition);
+  const { stateId, actionId } = parsedEdge;
   const next = deepClone(definition);
   const state = next.states[stateId];
-  if (!state || isTerminalState(state) || !state.actions[actionId]) return next;
-  if (edit.actionLabel !== undefined) state.actions[actionId].label = edit.actionLabel;
-  if (edit.targetState !== undefined) state.actions[actionId].targetState = edit.targetState;
+  if (!state || isTerminalState(state) || !getStateActions(state)[actionId]) return next;
+  if (edit.actionLabel !== undefined) {
+    const label = edit.actionLabel.trim();
+    getStateActions(state)[actionId]!.label = label || undefined;
+  }
+  if (edit.targetState !== undefined) getStateActions(state)[actionId]!.targetState = edit.targetState;
   return next;
 }
 
 export function validateWorkflowGraph(definition: AgentWorkflowDefinitionV1): WorkflowGraphValidationIssue[] {
   const issues: WorkflowGraphValidationIssue[] = [];
+  try {
+    normalizeWorkflowDefinitionV1(definitionForCoreValidation(definition), { workflowId: 'graph-editor-validation' });
+  } catch (error) {
+    if (error instanceof WorkflowDefinitionError) {
+      for (const issue of error.issues) {
+        issues.push({ code: 'WORKFLOW_GRAPH_CORE_INVALID', path: issue.path, message: issue.message });
+      }
+    } else {
+      throw error;
+    }
+  }
   const stateIds = new Set(Object.keys(definition.states));
   for (const [stateId, state] of Object.entries(definition.states)) {
     if (isTerminalState(state)) continue;
-    for (let index = 0; index < state.steps.length; index += 1) {
-      const rawStep = state.steps[index] as { type?: unknown };
+    const steps = getStateSteps(state);
+    const actions = getStateActions(state);
+    for (let index = 0; index < steps.length; index += 1) {
+      const rawStep = steps[index] as { type?: unknown };
       if (rawStep.type !== 'agent_turn' && rawStep.type !== 'human_form') {
         issues.push({ code: 'WORKFLOW_GRAPH_UNSUPPORTED_STEP_TYPE', path: `states.${stateId}.steps.${index}.type`, message: `Unsupported step type ${String(rawStep.type)}` });
       }
     }
-    const hasDecision = state.steps.some((step) => step.type === 'agent_turn' && step.turnType === 'decision');
-    if (hasDecision && Object.keys(state.actions).length === 0) {
+    const hasDecision = steps.some((step) => step.type === 'agent_turn' && step.turnType === 'decision');
+    if (hasDecision && Object.keys(actions).length === 0) {
       issues.push({ code: 'WORKFLOW_GRAPH_DECISION_WITHOUT_ACTIONS', path: `states.${stateId}.actions`, message: 'Decision states need at least one action.' });
     }
-    for (const [actionId, action] of Object.entries(state.actions)) {
+    for (const [actionId, action] of Object.entries(getStateActions(state))) {
       if (!action.targetState || !stateIds.has(action.targetState)) {
         issues.push({ code: 'WORKFLOW_GRAPH_INVALID_TARGET', path: `states.${stateId}.actions.${actionId}.targetState`, message: 'Choose an existing target state.' });
       }
@@ -133,14 +151,26 @@ export function validateWorkflowGraph(definition: AgentWorkflowDefinitionV1): Wo
   return issues;
 }
 
+function getStateSteps(state: AuthoredWorkflowStateV1): WorkflowStepV1[] {
+  const steps = (state as { steps?: unknown }).steps;
+  return Array.isArray(steps) ? steps as WorkflowStepV1[] : [];
+}
+
+function getStateActions(state: AuthoredWorkflowStateV1): Record<string, { targetState: string; label?: string; description?: string }> {
+  const actions = (state as { actions?: unknown }).actions;
+  return actions && typeof actions === 'object' && !Array.isArray(actions) ? actions as Record<string, { targetState: string; label?: string; description?: string }> : {};
+}
+
 function isTerminalState(state: AuthoredWorkflowStateV1): state is { terminal: true } {
   return 'terminal' in state && state.terminal === true;
 }
 
 function summarizeStep(step: WorkflowStepV1): WorkflowGraphStepSummary {
+  const rawStep = step as WorkflowStepV1 & { id?: unknown; type?: unknown; form?: { providerType?: unknown }; title?: unknown };
+  const id = typeof rawStep.id === 'string' ? rawStep.id : 'unknown-step';
   if (step.type === 'agent_turn') {
     return {
-      id: step.id,
+      id,
       type: step.type,
       turnType: step.turnType,
       promptTemplate: step.prompt.template,
@@ -148,10 +178,10 @@ function summarizeStep(step: WorkflowStepV1): WorkflowGraphStepSummary {
     };
   }
   return {
-    id: step.id,
-    type: step.type,
-    humanFormTitle: step.title,
-    humanFormProvider: step.form.providerType,
+    id,
+    type: typeof rawStep.type === 'string' ? rawStep.type : 'unsupported',
+    humanFormTitle: typeof rawStep.title === 'string' ? rawStep.title : undefined,
+    humanFormProvider: typeof rawStep.form?.providerType === 'string' ? rawStep.form.providerType : undefined,
     promptRefs: [],
   };
 }
@@ -175,7 +205,7 @@ function reachableStates(definition: AgentWorkflowDefinitionV1, start: string): 
     reached.add(stateId);
     const state = definition.states[stateId];
     if (!state || isTerminalState(state)) continue;
-    for (const action of Object.values(state.actions)) {
+    for (const action of Object.values(getStateActions(state))) {
       if (definition.states[action.targetState] && !reached.has(action.targetState)) pending.push(action.targetState);
     }
   }
@@ -188,11 +218,39 @@ function hasTerminalPath(definition: AgentWorkflowDefinitionV1, stateId: string,
   const state = definition.states[stateId];
   if (!state || isTerminalState(state)) return Boolean(state && isTerminalState(state));
   visiting.add(stateId);
-  for (const action of Object.values(state.actions)) {
+  for (const action of Object.values(getStateActions(state))) {
     if (hasTerminalPath(definition, action.targetState, visiting, terminalStates)) return true;
   }
   visiting.delete(stateId);
   return false;
+}
+
+function definitionForCoreValidation(definition: AgentWorkflowDefinitionV1): AgentWorkflowDefinitionV1 {
+  const clone = deepClone(definition) as AgentWorkflowDefinitionV1 & { states: Record<string, { steps?: Array<{ prompt?: Record<string, unknown> }> }> };
+  for (const state of Object.values(clone.states)) {
+    const steps = Array.isArray(state.steps) ? state.steps : [];
+    for (const step of steps) {
+      if (step.prompt && typeof step.prompt === 'object' && 'refs' in step.prompt) delete step.prompt.refs;
+    }
+  }
+  return clone;
+}
+
+function encodeEdgeId(stateId: string, actionId: string): string {
+  return JSON.stringify([stateId, actionId]);
+}
+
+function decodeEdgeId(edgeId: string): { stateId: string; actionId: string } | null {
+  try {
+    const parsed = JSON.parse(edgeId) as unknown;
+    if (Array.isArray(parsed) && typeof parsed[0] === 'string' && typeof parsed[1] === 'string') {
+      return { stateId: parsed[0], actionId: parsed[1] };
+    }
+  } catch {
+    const separator = edgeId.indexOf(':');
+    if (separator > 0) return { stateId: edgeId.slice(0, separator), actionId: edgeId.slice(separator + 1) };
+  }
+  return null;
 }
 
 function labelFromId(id: string): string {
