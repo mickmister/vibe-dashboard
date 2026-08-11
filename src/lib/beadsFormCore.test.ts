@@ -165,7 +165,7 @@ describe('BeadsForm core', () => {
     expect(getBeadsForms(next)[0]?.responses).toHaveLength(1);
   });
 
-  it('keeps definitions and responses in separate metadata fields so storage stays compact', () => {
+  it('keeps definitions and responses in separate metadata fields so each can fit the Dolt TEXT limit', () => {
     const forms = Array.from({ length: 8 }, (_, index) => ({
       ...storedForm(`review_${index}`, `Review ${index}`),
       description: 'definition '.repeat(70),
