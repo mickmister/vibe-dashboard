@@ -4,11 +4,12 @@ import {
   appendBeadsFormResponse,
   ALLOW_CODE_FILE_CHANGES_FIELD,
   buildBeadsFormsSummary,
-  assertMetadataFitsDoltTextColumn,
+  assertMetadataWithinIssueJsonGuard,
   buildAgentResultMessage,
   buildPrettySummary,
   getBeadsForms,
   getSupportedBeadsForms,
+  metadataJsonByteLength,
   normalizeFormEntries,
   normalizeSubmittedValues,
   sanitizeBeadsFormHtml,
@@ -135,6 +136,28 @@ describe('BeadsForm core', () => {
     });
   });
 
+  it('seeds split response metadata from legacy inline responses on first write', () => {
+    const next = appendBeadsFormResponse({ beadForms: { forms: [
+      {
+        ...storedForm('review'),
+        responses: [
+          { submittedBy: 'user', submittedAt: 'old', values: { comment: 'old' } },
+        ],
+      },
+    ] } }, 'review', {
+      submittedBy: 'user',
+      submittedAt: '2026-06-29T00:00:00Z',
+      values: { comment: 'new' },
+    });
+
+    expect((next.beadForms as any).forms[0].responses).toBeUndefined();
+    expect((next.beadFormResponses as any).responsesByFormId.review).toEqual([
+      { submittedBy: 'user', submittedAt: 'old', values: { comment: 'old' } },
+      { submittedBy: 'user', submittedAt: '2026-06-29T00:00:00Z', values: { comment: 'new' } },
+    ]);
+    expect(getBeadsForms(next)[0]?.responses).toHaveLength(2);
+  });
+
   it('persists legacy missing-goal standard forms as DSL-only with a fallback goal on submit', () => {
     const next = appendBeadsFormResponse({ beadForms: { forms: [
       {
@@ -165,7 +188,7 @@ describe('BeadsForm core', () => {
     expect(getBeadsForms(next)[0]?.responses).toHaveLength(1);
   });
 
-  it('keeps definitions and responses in separate metadata fields so each can fit the Dolt TEXT limit', () => {
+  it('keeps definitions and responses in separate metadata fields without applying a 64 KiB TEXT limit', () => {
     const forms = Array.from({ length: 8 }, (_, index) => ({
       ...storedForm(`review_${index}`, `Review ${index}`),
       description: 'definition '.repeat(70),
@@ -177,8 +200,6 @@ describe('BeadsForm core', () => {
     }));
     const inlineMetadata = { beadForms: { forms } };
 
-    expect(() => assertMetadataFitsDoltTextColumn(inlineMetadata, 12_000)).toThrow('beadForms');
-
     let splitMetadata: any = { beadForms: { forms: forms.map(({ responses: _responses, ...form }) => form) } };
     for (const form of forms) {
       splitMetadata = appendBeadsFormResponse(splitMetadata, form.id, form.responses[0]!);
@@ -186,7 +207,32 @@ describe('BeadsForm core', () => {
 
     expect((splitMetadata.beadForms.forms as any[]).every((form) => form.responses === undefined)).toBe(true);
     expect(Object.keys(splitMetadata.beadFormResponses.responsesByFormId)).toHaveLength(8);
-    expect(() => assertMetadataFitsDoltTextColumn(splitMetadata, 12_000)).not.toThrow();
+    expect(() => assertMetadataWithinIssueJsonGuard(inlineMetadata, 80_000)).not.toThrow();
+    expect(() => assertMetadataWithinIssueJsonGuard(splitMetadata, 80_000)).not.toThrow();
+  });
+
+  it('allows existing large issue metadata that exceeds the legacy 64 KiB TEXT size', () => {
+    const metadata80k = {
+      beadForms: {
+        forms: [{
+          ...storedForm('large_80k', 'Large 80K'),
+          description: 'x'.repeat(80 * 1024),
+        }],
+      },
+    };
+    const metadata275k = {
+      beadForms: {
+        forms: [{
+          ...storedForm('large_275k', 'Large 275K'),
+          description: 'x'.repeat(275 * 1024),
+        }],
+      },
+    };
+
+    expect(metadataJsonByteLength(metadata80k)).toBeGreaterThan(65_535);
+    expect(metadataJsonByteLength(metadata275k)).toBeGreaterThan(65_535);
+    expect(() => assertMetadataWithinIssueJsonGuard(metadata80k)).not.toThrow();
+    expect(() => assertMetadataWithinIssueJsonGuard(metadata275k)).not.toThrow();
   });
 
   it('builds a lightweight pending-answer summary for BeadsForm metadata', () => {
@@ -207,7 +253,8 @@ describe('BeadsForm core', () => {
       beadForms: { forms: [{ id: 'raw', title: 'Raw', html: '<form></form>' }] },
     })).toThrow('Raw HTML BeadsForms are no longer supported');
 
-    expect(() => assertMetadataFitsDoltTextColumn({ big: 'x'.repeat(100) }, 40)).toThrow('No bead metadata was changed');
+    expect(() => assertMetadataWithinIssueJsonGuard({ big: 'x'.repeat(100) }, 40)).toThrow('No bead metadata was changed');
+    expect(() => assertMetadataWithinIssueJsonGuard({ big: 'x'.repeat(100) }, 40)).toThrow('issues.metadata JSON column');
   });
 
   it('can skip unsupported raw html-only forms for pending queue discovery', () => {

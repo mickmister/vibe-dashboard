@@ -64,7 +64,7 @@ const FORM_META_KEY = 'beadForms';
 const LEGACY_FORM_META_KEY = 'beadsWeb';
 const FORM_RESPONSES_META_KEY = 'beadFormResponses';
 const FORM_SUMMARY_META_KEY = 'beadFormsSummary';
-export const DOLT_TEXT_COLUMN_MAX_BYTES = 65_535;
+export const BEAD_ISSUE_METADATA_JSON_MAX_BYTES = 16 * 1024 * 1024;
 
 function isObject(value: unknown): value is JsonObject {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -257,20 +257,16 @@ export function metadataJsonByteLength(metadata: unknown): number {
   return new TextEncoder().encode(JSON.stringify(metadata)).byteLength;
 }
 
-export function assertMetadataFitsDoltTextColumn(
+export function assertMetadataWithinIssueJsonGuard(
   metadata: unknown,
-  maxBytes = DOLT_TEXT_COLUMN_MAX_BYTES,
+  maxBytes = BEAD_ISSUE_METADATA_JSON_MAX_BYTES,
 ): void {
-  const fields = isObject(metadata)
-    ? Object.entries(metadata).map(([key, value]) => ({ key, bytes: metadataJsonByteLength(value) }))
-    : [{ key: 'metadata', bytes: metadataJsonByteLength(metadata) }];
-  for (const field of fields) {
-    if (field.bytes > maxBytes) {
-      throw new Error(
-        `Beads metadata field "${field.key}" is too large for the Dolt TEXT column (${field.bytes} bytes > ${maxBytes} bytes). `
-        + 'No bead metadata was changed. Split or shorten the BeadsForm content/responses before retrying.',
-      );
-    }
+  const bytes = metadataJsonByteLength(metadata);
+  if (bytes > maxBytes) {
+    throw new Error(
+      `Bead JSON metadata is too large for the configured BeadsForm performance guard (${bytes} bytes > ${maxBytes} bytes). `
+      + 'No bead metadata was changed. Bead issue metadata is stored in the Dolt issues.metadata JSON column, not the global metadata.value TEXT table; reduce form/response payload size or raise the app guard before retrying.',
+    );
   }
 }
 

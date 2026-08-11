@@ -14,7 +14,7 @@ import {
   type StandardBeadsForm,
   type StoredBeadsForm,
 } from '../../packages/beads-form/src/index.ts';
-import { assertMetadataFitsDoltTextColumn } from '../../src/lib/beadsFormCore.ts';
+import { assertMetadataWithinIssueJsonGuard } from '../../src/lib/beadsFormCore.ts';
 import { BeadsClient, type PendingBeadsFormQueueResult } from '../../src/lib/beadsClient.node.ts';
 
 const execFileAsync = promisify(execFile);
@@ -896,7 +896,7 @@ async function updateMetadata(input: {
   beadId: string;
   metadata: JsonObject;
 }): Promise<void> {
-  assertMetadataFitsDoltTextColumn(input.metadata);
+  assertMetadataWithinIssueJsonGuard(input.metadata);
   const tempDir = await mkdtemp(join(tmpdir(), 'beadsform-cli-'));
   const metadataPath = join(tempDir, 'metadata.json');
   try {
