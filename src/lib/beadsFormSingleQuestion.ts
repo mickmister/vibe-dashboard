@@ -1,6 +1,7 @@
 export type SingleQuestionModeCleanup = () => void;
 
 const WIZARD_QUESTION_PARAM = 'formQuestion';
+const WIZARD_REVIEW_PARAM = 'formReview';
 
 export function prehideInactiveSingleQuestionItems(
   html: string,
@@ -23,7 +24,7 @@ export function prehideInactiveSingleQuestionItems(
   });
   const submitActions = form.querySelector<HTMLElement>('.beads-form-submit-actions');
   if (submitActions) {
-    submitActions.hidden = activeIndex !== questions.length - 1;
+    submitActions.hidden = true;
   }
   return document.body.innerHTML;
 }
@@ -62,10 +63,17 @@ export function initializeSingleQuestionMode(host: ParentNode, options: { urlSta
   const bottomControls = navigationControls('bottom');
   const previousButtons = [topControls.previous, bottomControls.previous];
   const nextButtons = [topControls.next, bottomControls.next];
+  const reviewIndex = questions.length;
 
   const notesPanel = document.createElement('aside');
   notesPanel.className = 'beadsform-single-question-notes';
   notesPanel.setAttribute('aria-label', 'Additional notes');
+
+  const reviewPanel = document.createElement('section');
+  reviewPanel.className = 'beadsform-single-question-review';
+  reviewPanel.setAttribute('aria-live', 'polite');
+  reviewPanel.setAttribute('aria-labelledby', 'beadsform-review-title');
+  reviewPanel.hidden = true;
 
   form.insertBefore(layout, firstQuestion);
   layout.append(questionList, main);
@@ -84,6 +92,12 @@ export function initializeSingleQuestionMode(host: ParentNode, options: { urlSta
     });
     questionList.append(listButton);
   });
+  const reviewListButton = button('Review answers');
+  reviewListButton.className = 'beadsform-single-question-list-button';
+  reviewListButton.addEventListener('click', () => {
+    goTo(reviewIndex);
+  });
+  questionList.append(reviewListButton);
   if (masterNotes) {
     masterNotes.classList.add('beadsform-single-question-master-notes');
     masterNotes.hidden = false;
@@ -97,11 +111,16 @@ export function initializeSingleQuestionMode(host: ParentNode, options: { urlSta
     notesPanel.removeAttribute('hidden');
     notesPanel.append(masterNotes);
   }
+  main.append(reviewPanel);
   main.append(bottomControls.container);
 
-  let activeIndex = useUrlState ? (initialQuestionIndexFromUrl(questions.length) ?? 0) : 0;
+  let activeIndex = useUrlState ? initialStepIndexFromUrl(questions.length) : 0;
   const listButtons = Array.from(questionList.querySelectorAll<HTMLButtonElement>('button'));
   const submitActions = form.querySelector<HTMLElement>('.beads-form-submit-actions');
+  if (submitActions) {
+    submitActions.hidden = true;
+    reviewPanel.append(submitActions);
+  }
 
   function render(options: { scrollToQuestion?: boolean } = {}) {
     questions.forEach((question, index) => {
@@ -111,15 +130,19 @@ export function initializeSingleQuestionMode(host: ParentNode, options: { urlSta
       listButton.setAttribute('aria-current', index === activeIndex ? 'step' : 'false');
       listButton.classList.toggle('is-active', index === activeIndex);
     });
-    progress.textContent = `Question ${activeIndex + 1} of ${questions.length}`;
+    const reviewing = activeIndex === reviewIndex;
+    reviewPanel.hidden = !reviewing;
+    if (reviewing) renderReviewSummary();
+    progress.textContent = reviewing ? 'Review answers' : `Question ${activeIndex + 1} of ${questions.length}`;
     previousButtons.forEach((previous) => {
       previous.disabled = activeIndex === 0;
     });
     nextButtons.forEach((next) => {
-      next.hidden = activeIndex === questions.length - 1;
+      next.hidden = reviewing;
+      next.textContent = activeIndex === questions.length - 1 ? 'Review answers' : 'Next';
     });
     if (submitActions) {
-      submitActions.hidden = activeIndex !== questions.length - 1;
+      submitActions.hidden = !reviewing;
     }
     if (options.scrollToQuestion) scrollActiveQuestionIntoView();
   }
@@ -151,41 +174,110 @@ export function initializeSingleQuestionMode(host: ParentNode, options: { urlSta
   }
 
   function goTo(index: number) {
-    const target = Math.max(0, Math.min(index, questions.length - 1));
+    const target = Math.max(0, Math.min(index, reviewIndex));
     const startingIndex = activeIndex;
     if (target > activeIndex) {
       for (let current = activeIndex; current < target; current += 1) {
+        if (current >= questions.length) break;
         activeIndex = current;
         render({ scrollToQuestion: activeIndex !== startingIndex });
         if (!questionIsValid(current)) {
-          if (useUrlState && activeIndex !== startingIndex) writeQuestionIndexToUrl(activeIndex, 'push');
+          if (useUrlState && activeIndex !== startingIndex) writeStepIndexToUrl(activeIndex, 'push', questions.length);
           return;
         }
       }
     }
     activeIndex = target;
     render({ scrollToQuestion: activeIndex !== startingIndex });
-    if (useUrlState && activeIndex !== startingIndex) writeQuestionIndexToUrl(activeIndex, 'push');
+    if (useUrlState && activeIndex !== startingIndex) writeStepIndexToUrl(activeIndex, 'push', questions.length);
   }
 
   function handleSubmit(event: SubmitEvent) {
     const invalidIndex = firstInvalidQuestionIndex();
-    if (invalidIndex < 0 && activeIndex === questions.length - 1) return;
+    if (invalidIndex < 0 && activeIndex === reviewIndex) return;
 
     event.preventDefault();
     event.stopImmediatePropagation();
     const startingIndex = activeIndex;
-    activeIndex = invalidIndex >= 0 ? invalidIndex : questions.length - 1;
+    activeIndex = invalidIndex >= 0 ? invalidIndex : reviewIndex;
     render({ scrollToQuestion: activeIndex !== startingIndex });
-    if (useUrlState && activeIndex !== startingIndex) writeQuestionIndexToUrl(activeIndex, 'replace');
+    if (useUrlState && activeIndex !== startingIndex) writeStepIndexToUrl(activeIndex, 'replace', questions.length);
     if (invalidIndex >= 0) questionIsValid(invalidIndex);
   }
 
   function handlePopState() {
-    const nextIndex = initialQuestionIndexFromUrl(questions.length) ?? 0;
+    const nextIndex = initialStepIndexFromUrl(questions.length);
     if (nextIndex === activeIndex) return;
     activeIndex = nextIndex;
     render();
+  }
+
+  function renderReviewSummary() {
+    reviewPanel.replaceChildren();
+    const title = document.createElement('h3');
+    title.id = 'beadsform-review-title';
+    title.textContent = 'Review your answers';
+    const description = document.createElement('p');
+    description.textContent = 'Confirm the current answers before choosing a submit intent. Use Edit to change any answer without losing your draft.';
+    const list = document.createElement('ol');
+    list.className = 'beadsform-single-question-review-list';
+    questions.forEach((question, index) => {
+      list.append(reviewItemForQuestion(question, index));
+    });
+    if (masterNotes) {
+      list.append(reviewItemForAdditionalNotes(masterNotes));
+    }
+    reviewPanel.append(title, description, list);
+    if (submitActions) reviewPanel.append(submitActions);
+  }
+
+  function reviewItemForQuestion(question: HTMLFieldSetElement, index: number): HTMLLIElement {
+    const item = document.createElement('li');
+    item.className = 'beadsform-single-question-review-item';
+    const heading = document.createElement('h4');
+    heading.textContent = questionTitle(question) || `Question ${index + 1}`;
+    const answers = document.createElement('ul');
+    answers.className = 'beadsform-single-question-review-answers';
+    const rows = reviewRowsForQuestion(question);
+    rows.forEach((row) => {
+      const answer = document.createElement('li');
+      answer.textContent = row;
+      answers.append(answer);
+    });
+    const edit = button('Edit');
+    edit.setAttribute('aria-label', `Edit ${heading.textContent}`);
+    edit.setAttribute('data-beadsform-review-edit', String(index));
+    edit.addEventListener('click', () => goTo(index));
+    item.append(heading, answers, edit);
+    return item;
+  }
+
+  function reviewItemForAdditionalNotes(notes: HTMLFieldSetElement): HTMLLIElement {
+    const item = document.createElement('li');
+    item.className = 'beadsform-single-question-review-item';
+    const heading = document.createElement('h4');
+    heading.textContent = questionTitle(notes) || 'Additional Notes';
+    const answers = document.createElement('ul');
+    answers.className = 'beadsform-single-question-review-answers';
+    const values = Array.from(notes.querySelectorAll<HTMLTextAreaElement>('textarea'))
+      .map((textarea) => textarea.value.trim())
+      .filter(Boolean);
+    const answer = document.createElement('li');
+    answer.textContent = `Answer: ${values.length > 0 ? values.join('\n\n') : 'Unanswered'}`;
+    answers.append(answer);
+    const edit = button('Edit');
+    edit.setAttribute('aria-label', `Edit ${heading.textContent}`);
+    edit.addEventListener('click', () => {
+      const firstTextarea = notes.querySelector<HTMLTextAreaElement>('textarea');
+      firstTextarea?.focus();
+      firstTextarea?.scrollIntoView?.({
+        block: 'center',
+        inline: 'nearest',
+        behavior: 'smooth',
+      });
+    });
+    item.append(heading, answers, edit);
+    return item;
   }
 
   previousButtons.forEach((previous) => {
@@ -206,6 +298,11 @@ export function initializeSingleQuestionMode(host: ParentNode, options: { urlSta
   };
 }
 
+function initialStepIndexFromUrl(questionCount: number): number {
+  if (new URLSearchParams(window.location.search).get(WIZARD_REVIEW_PARAM) === '1') return questionCount;
+  return initialQuestionIndexFromUrl(questionCount) ?? 0;
+}
+
 function initialQuestionIndexFromUrl(questionCount: number): number | undefined {
   const raw = new URLSearchParams(window.location.search).get(WIZARD_QUESTION_PARAM);
   if (!raw) return undefined;
@@ -214,9 +311,15 @@ function initialQuestionIndexFromUrl(questionCount: number): number | undefined 
   return page - 1;
 }
 
-function writeQuestionIndexToUrl(index: number, mode: 'push' | 'replace'): void {
+function writeStepIndexToUrl(index: number, mode: 'push' | 'replace', questionCount: number): void {
   const url = new URL(window.location.href);
-  url.searchParams.set(WIZARD_QUESTION_PARAM, String(index + 1));
+  if (index >= questionCount) {
+    url.searchParams.delete(WIZARD_QUESTION_PARAM);
+    url.searchParams.set(WIZARD_REVIEW_PARAM, '1');
+  } else {
+    url.searchParams.set(WIZARD_QUESTION_PARAM, String(index + 1));
+    url.searchParams.delete(WIZARD_REVIEW_PARAM);
+  }
   const state = window.history.state;
   if (mode === 'replace') {
     window.history.replaceState(state, '', url);
@@ -230,6 +333,74 @@ function button(label: string): HTMLButtonElement {
   element.type = 'button';
   element.textContent = label;
   return element;
+}
+
+function reviewRowsForQuestion(question: HTMLFieldSetElement): string[] {
+  const choices = Array.from(question.querySelectorAll<HTMLElement>('.beads-form-choice'));
+  if (choices.length > 0) return reviewRowsForChoices(question, choices);
+
+  const rows: string[] = [];
+  const controls = Array.from(question.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>('input, textarea, select'))
+    .filter((control) => control.type !== 'hidden' && control.type !== 'submit');
+  const answerControls = controls.filter((control) => !isQuestionNotesControl(control));
+  const answerValues = answerControls.map(controlReviewValue).filter((value) => value.length > 0);
+  rows.push(`Answer: ${answerValues.length > 0 ? answerValues.join(', ') : 'Unanswered'}`);
+
+  for (const note of controls.filter(isQuestionNotesControl)) {
+    const value = controlReviewValue(note);
+    if (value) rows.push(`Question notes: ${value}`);
+  }
+  return rows;
+}
+
+function reviewRowsForChoices(question: HTMLFieldSetElement, choices: HTMLElement[]): string[] {
+  const selected: string[] = [];
+  const rows: string[] = [];
+  for (const choice of choices) {
+    const checkbox = choice.querySelector<HTMLInputElement>('input[type="checkbox"], input[type="radio"]');
+    const label = choiceLabel(choice);
+    if (checkbox?.checked) selected.push(label);
+    for (const note of Array.from(choice.querySelectorAll<HTMLTextAreaElement>('textarea'))) {
+      const value = controlReviewValue(note);
+      if (value) rows.push(`Note for ${label}: ${value}`);
+    }
+  }
+  return [
+    `Selected choices: ${selected.length > 0 ? selected.join(', ') : 'None'}`,
+    ...rows,
+    ...Array.from(question.querySelectorAll<HTMLTextAreaElement>(':scope > textarea'))
+      .map((note) => controlReviewValue(note))
+      .filter((value) => value.length > 0)
+      .map((value) => `Question notes: ${value}`),
+  ];
+}
+
+function choiceLabel(choice: HTMLElement): string {
+  const label = choice.querySelector('label')?.textContent?.replace(/\s+/g, ' ').trim() ?? 'choice';
+  return label.replace(/\s*Recommended\s*$/, '').trim() || 'choice';
+}
+
+function isQuestionNotesControl(control: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement): boolean {
+  return control.name.endsWith('_more_info') || control.getAttribute('aria-label')?.toLowerCase().startsWith('more info') === true;
+}
+
+function controlReviewValue(control: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement): string {
+  if (control instanceof HTMLInputElement && (control.type === 'checkbox' || control.type === 'radio')) {
+    return control.checked ? labelForControl(control) || control.value : '';
+  }
+  if (control instanceof HTMLSelectElement) {
+    return Array.from(control.selectedOptions).map((option) => option.textContent?.trim() || option.value).filter(Boolean).join(', ');
+  }
+  return control.value.trim();
+}
+
+function labelForControl(control: HTMLInputElement): string {
+  if (!control.id) return '';
+  return Array.from(control.ownerDocument.querySelectorAll<HTMLLabelElement>('label'))
+    .find((label) => label.htmlFor === control.id)
+    ?.textContent
+    ?.replace(/\s+/g, ' ')
+    .trim() ?? '';
 }
 
 function navigationControls(position: 'top' | 'bottom'): {

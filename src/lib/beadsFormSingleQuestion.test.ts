@@ -25,7 +25,7 @@ describe('BeadsForm single-question mode', () => {
     expect(fieldsets[0]!.hidden).toBe(true);
     expect(fieldsets[1]!.hidden).toBe(false);
     expect(fieldsets[2]!.hidden).toBe(false);
-    expect(document.querySelector<HTMLElement>('.beads-form-submit-actions')!.hidden).toBe(false);
+    expect(document.querySelector<HTMLElement>('.beads-form-submit-actions')!.hidden).toBe(true);
 
     initializeSingleQuestionMode(document.body);
 
@@ -61,6 +61,7 @@ describe('BeadsForm single-question mode', () => {
       'beadsform-single-question-progress',
       'beadsform-single-question-item',
       'beadsform-single-question-item',
+      'beadsform-single-question-review',
       'beadsform-single-question-controls beadsform-single-question-controls--bottom',
     ]);
     expect(document.querySelector('.beadsform-single-question-progress')?.previousElementSibling?.className).toBe('beadsform-single-question-notes');
@@ -71,14 +72,21 @@ describe('BeadsForm single-question mode', () => {
     expect(Array.from(document.querySelectorAll('.beadsform-single-question-list-button')).map((button) => button.textContent)).toEqual([
       'First question',
       'Second question',
+      'Review answers',
     ]);
 
     document.querySelectorAll<HTMLButtonElement>('.beadsform-single-question-controls button')[1]!.click();
     expect(document.querySelector('.beadsform-single-question-progress')?.textContent).toBe('Question 2 of 2');
     expect(questionItems[0]!.hidden).toBe(true);
     expect(questionItems[1]!.hidden).toBe(false);
+    expect(document.querySelector<HTMLElement>('.beads-form-submit-actions')?.hidden).toBe(true);
+    expect(Array.from(document.querySelectorAll<HTMLButtonElement>('.beadsform-single-question-controls button:nth-child(2)')).every((button) => !button.hidden && button.textContent === 'Review answers')).toBe(true);
+
+    document.querySelectorAll<HTMLButtonElement>('.beadsform-single-question-controls button')[1]!.click();
+    expect(document.querySelector('.beadsform-single-question-progress')?.textContent).toBe('Review answers');
+    expect(questionItems.every((question) => question.hidden)).toBe(true);
+    expect(document.querySelector<HTMLElement>('.beadsform-single-question-review')?.hidden).toBe(false);
     expect(document.querySelector<HTMLElement>('.beads-form-submit-actions')?.hidden).toBe(false);
-    expect(Array.from(document.querySelectorAll<HTMLButtonElement>('.beadsform-single-question-controls button:nth-child(2)')).every((button) => button.hidden)).toBe(true);
   });
 
   it('keeps top and bottom navigation controls synchronized', () => {
@@ -113,11 +121,18 @@ describe('BeadsForm single-question mode', () => {
 
     bottomNext.click();
     expect(document.querySelector('.beadsform-single-question-progress')?.textContent).toBe('Question 3 of 3');
+    expect(topNext.hidden).toBe(false);
+    expect(bottomNext.hidden).toBe(false);
+    expect(topNext.textContent).toBe('Review answers');
+    expect(bottomNext.textContent).toBe('Review answers');
+
+    bottomNext.click();
+    expect(document.querySelector('.beadsform-single-question-progress')?.textContent).toBe('Review answers');
     expect(topNext.hidden).toBe(true);
     expect(bottomNext.hidden).toBe(true);
 
     topPrevious.click();
-    expect(document.querySelector('.beadsform-single-question-progress')?.textContent).toBe('Question 2 of 3');
+    expect(document.querySelector('.beadsform-single-question-progress')?.textContent).toBe('Question 3 of 3');
     expect(topNext.hidden).toBe(false);
     expect(bottomNext.hidden).toBe(false);
   });
@@ -329,5 +344,121 @@ describe('BeadsForm single-question mode', () => {
     expect(reportValidity).toHaveBeenCalled();
     expect(document.querySelector('.beadsform-single-question-progress')?.textContent).toBe('Question 1 of 2');
     expect(document.querySelectorAll<HTMLFieldSetElement>('fieldset')[0]!.hidden).toBe(false);
+  });
+
+  it('shows a compact review step with answers before submit and edits jump back to the question', () => {
+    document.body.innerHTML = `
+      <div id="host">
+        <form>
+          <fieldset>
+            <legend>Scope choice</legend>
+            <div class="beads-form-choice">
+              <label for="scope_fix"><input id="scope_fix" name="scope" type="checkbox" value="fix" checked> Fix the bug</label>
+              <textarea name="scope_fix_more_info">Only the regression</textarea>
+            </div>
+            <div class="beads-form-choice">
+              <label for="scope_refactor"><input id="scope_refactor" name="scope" type="checkbox" value="refactor"> Refactor broadly</label>
+              <textarea name="scope_refactor_more_info"></textarea>
+            </div>
+            <textarea name="scope_more_info">Keep it small</textarea>
+          </fieldset>
+          <fieldset>
+            <legend>Implementation notes</legend>
+            <label for="notes">Implementation notes</label>
+            <textarea id="notes" name="notes">Use the cached draft</textarea>
+            <textarea name="notes_more_info"></textarea>
+          </fieldset>
+          <fieldset>
+            <legend>Optional follow-up</legend>
+            <label for="followup">Optional follow-up</label>
+            <input id="followup" name="followup">
+          </fieldset>
+          <fieldset hidden><legend>Additional Notes</legend><textarea name="additional_notes" hidden></textarea></fieldset>
+          <div class="beads-form-submit-actions"><button type="submit">Submit</button></div>
+        </form>
+      </div>
+    `;
+    initializeSingleQuestionMode(document.querySelector('#host')!);
+
+    document.querySelectorAll<HTMLButtonElement>('.beadsform-single-question-list-button')[3]!.click();
+
+    const review = document.querySelector<HTMLElement>('.beadsform-single-question-review')!;
+    expect(review.hidden).toBe(false);
+    expect(document.querySelector('.beadsform-single-question-progress')?.textContent).toBe('Review answers');
+    expect(Array.from(document.querySelectorAll<HTMLFieldSetElement>('.beadsform-single-question-item')).every((question) => question.hidden)).toBe(true);
+    expect(review.textContent).toContain('Scope choice');
+    expect(review.textContent).toContain('Selected choices: Fix the bug');
+    expect(review.textContent).toContain('Note for Fix the bug: Only the regression');
+    expect(review.textContent).toContain('Question notes: Keep it small');
+    expect(review.textContent).toContain('Implementation notes');
+    expect(review.textContent).toContain('Answer: Use the cached draft');
+    expect(review.textContent).toContain('Optional follow-up');
+    expect(review.textContent).toContain('Answer: Unanswered');
+    expect(review.textContent).toContain('Additional Notes');
+    expect(review.textContent).toContain('Answer: Unanswered');
+    expect(document.querySelector<HTMLElement>('.beads-form-submit-actions')?.hidden).toBe(false);
+
+    document.querySelector<HTMLButtonElement>('[data-beadsform-review-edit="1"]')!.click();
+
+    expect(document.querySelector('.beadsform-single-question-progress')?.textContent).toBe('Question 2 of 3');
+    expect(document.querySelector<HTMLTextAreaElement>('#notes')?.value).toBe('Use the cached draft');
+    expect(review.hidden).toBe(true);
+    expect(document.querySelector<HTMLElement>('.beads-form-submit-actions')?.hidden).toBe(true);
+  });
+
+  it('routes submit attempts to review after valid questions instead of submitting from the final question', () => {
+    document.body.innerHTML = `
+      <div id="host">
+        <form>
+          <fieldset><legend>First</legend><input name="first" value="ok" required></fieldset>
+          <fieldset><legend>Second</legend><input name="second" value="ok" required></fieldset>
+          <div class="beads-form-submit-actions"><button type="submit">Submit</button></div>
+        </form>
+      </div>
+    `;
+    initializeSingleQuestionMode(document.querySelector('#host')!);
+    document.querySelectorAll<HTMLButtonElement>('.beadsform-single-question-list-button')[1]!.click();
+
+    const form = document.querySelector('form')!;
+    const submitEvent = new SubmitEvent('submit', { bubbles: true, cancelable: true });
+    const notCancelled = form.dispatchEvent(submitEvent);
+
+    expect(notCancelled).toBe(false);
+    expect(document.querySelector('.beadsform-single-question-progress')?.textContent).toBe('Review answers');
+    expect(document.querySelector<HTMLElement>('.beadsform-single-question-review')?.hidden).toBe(false);
+    expect(document.querySelector<HTMLElement>('.beads-form-submit-actions')?.hidden).toBe(false);
+  });
+
+  it('preserves review state in the URL and allows submit from review', () => {
+    window.history.pushState(null, '', '/dashboard/forms?dir=%2Frepo&bead=bd-1&form=review');
+    document.body.innerHTML = `
+      <div id="host">
+        <form>
+          <fieldset><legend>First</legend><input name="first" value="ok" required></fieldset>
+          <fieldset><legend>Second</legend><input name="second" value="ok" required></fieldset>
+          <div class="beads-form-submit-actions"><button type="submit">Submit</button></div>
+        </form>
+      </div>
+    `;
+    initializeSingleQuestionMode(document.querySelector('#host')!);
+
+    document.querySelectorAll<HTMLButtonElement>('.beadsform-single-question-list-button')[2]!.click();
+
+    let params = new URLSearchParams(window.location.search);
+    expect(params.get('formReview')).toBe('1');
+    expect(params.get('formQuestion')).toBeNull();
+    expect(params.get('dir')).toBe('/repo');
+    expect(document.querySelector('.beadsform-single-question-progress')?.textContent).toBe('Review answers');
+
+    const form = document.querySelector('form')!;
+    const submitEvent = new SubmitEvent('submit', { bubbles: true, cancelable: true });
+    const notCancelled = form.dispatchEvent(submitEvent);
+
+    expect(notCancelled).toBe(true);
+
+    document.querySelector<HTMLButtonElement>('[data-beadsform-review-edit="0"]')!.click();
+    params = new URLSearchParams(window.location.search);
+    expect(params.get('formQuestion')).toBe('1');
+    expect(params.get('formReview')).toBeNull();
   });
 });
