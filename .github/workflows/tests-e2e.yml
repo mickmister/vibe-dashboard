@@ -2,11 +2,10 @@ name: tests-e2e
 
 on:
   push:
-  pull_request:
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -152,7 +151,7 @@ jobs:
 
       - name: Run VK mocked sandbox e2e
         working-directory: vibe-kanban-vscode-web
-        run: npm run test:e2e:vk-mocked-sandbox
+        run: scripts/ci-run-vk-mocked-sandbox-e2e.sh
 
       - name: Upload VK mocked sandbox artifacts
         if: always()

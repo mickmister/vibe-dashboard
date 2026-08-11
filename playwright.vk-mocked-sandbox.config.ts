@@ -31,16 +31,19 @@ export default defineConfig({
     baseURL: sandboxUrl,
     trace: 'on-first-retry',
   },
-  webServer: {
-    command:
-      'npm run e2e:vk-mocked-sandbox:reset -- --variant basic-seeded' +
-      ` && ${sandboxEnv} npm run dev:vk-mocked-sandbox`,
-    // Wait for a VK-backed route, not just the VD dev server, so cold CI
-    // Rust builds finish before the browser tests begin.
-    url: `${sandboxUrl}/workspaces`,
-    reuseExistingServer: false,
-    timeout: 600_000,
-  },
+  webServer: process.env.CI
+    ? undefined
+    : {
+        command:
+          'npm run e2e:vk-mocked-sandbox:reset -- --variant basic-seeded' +
+          ` && ${sandboxEnv} npm run dev:vk-mocked-sandbox`,
+        // Wait for a VK-backed route, not just the VD dev server, so local
+        // Rust builds finish before the browser tests begin. CI prepares and
+        // starts the sandbox explicitly before invoking Playwright.
+        url: `${sandboxUrl}/workspaces`,
+        reuseExistingServer: false,
+        timeout: 600_000,
+      },
   projects: [
     {
       name: 'chromium',

@@ -174,30 +174,38 @@ export function createSandboxPlan(input: {
   const canUsePrebuiltLocalWeb =
     env.VK_MOCKED_SKIP_LOCAL_WEB_BUILD === '1' &&
     existsSync(join(vkRoot, 'packages/local-web/dist/index.html'));
-  const setupCommands: CommandSpec[] = canUsePrebuiltLocalWeb
-    ? []
-    : [
-        {
-          name: 'vk-build-local-web',
-          cwd: vkRoot,
-          command: 'pnpm',
-          args: [
-            '--filter',
-            '@vibe/local-web',
-            'run',
-            'build',
-            '--base',
-            '/vk-static/',
-          ],
-          env: {
-            ...commonEnv,
-            BACKEND_PORT: String(input.ports.vkBackend),
-            FRONTEND_PORT: String(input.ports.vdCaddy),
-            PREVIEW_PROXY_PORT: String(input.ports.vkPreviewProxy),
-            NODE_OPTIONS: appendNodeOption(env.NODE_OPTIONS, '--max-old-space-size=8192'),
-          },
-        },
-      ];
+  const setupCommands: CommandSpec[] = [];
+  if (!canUsePrebuiltLocalWeb) {
+    setupCommands.push({
+      name: 'vk-build-local-web',
+      cwd: vkRoot,
+      command: 'pnpm',
+      args: [
+        '--filter',
+        '@vibe/local-web',
+        'run',
+        'build',
+        '--base',
+        '/vk-static/',
+      ],
+      env: {
+        ...commonEnv,
+        BACKEND_PORT: String(input.ports.vkBackend),
+        FRONTEND_PORT: String(input.ports.vdCaddy),
+        PREVIEW_PROXY_PORT: String(input.ports.vkPreviewProxy),
+        NODE_OPTIONS: appendNodeOption(env.NODE_OPTIONS, '--max-old-space-size=8192'),
+      },
+    });
+  }
+  if (env.VK_MOCKED_PREBUILD_BACKEND === '1') {
+    setupCommands.push({
+      name: 'vk-build-backend-qa',
+      cwd: vkRoot,
+      command: 'cargo',
+      args: ['build', '--features', 'qa-mode', '--bin', 'server'],
+      env: commonEnv,
+    });
+  }
 
   const commands: CommandSpec[] = [
     {
@@ -409,17 +417,26 @@ async function main(): Promise<void> {
     return;
   }
 
-  if (mode !== 'start') {
-    throw new Error(`Unknown mode ${mode}. Usage: vk-mocked-sandbox.ts [prepare|start]`);
-  }
-
   if (!existsSync(plan.paths.vkRoot)) {
     throw new Error(`VK repo not found at ${plan.paths.vkRoot}`);
   }
 
   printPlan(plan);
-  for (const spec of plan.setupCommands) {
-    await runCommandToCompletion(spec);
+  if (mode === 'setup') {
+    for (const spec of plan.setupCommands) {
+      await runCommandToCompletion(spec);
+    }
+    return;
+  }
+
+  if (mode !== 'start') {
+    throw new Error(`Unknown mode ${mode}. Usage: vk-mocked-sandbox.ts [prepare|setup|start]`);
+  }
+
+  if (process.env.VK_MOCKED_SKIP_SETUP_COMMANDS !== '1') {
+    for (const spec of plan.setupCommands) {
+      await runCommandToCompletion(spec);
+    }
   }
   let stopping = false;
   let stopPromise: Promise<void> | undefined;
