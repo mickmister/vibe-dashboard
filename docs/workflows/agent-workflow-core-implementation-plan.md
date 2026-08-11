@@ -93,6 +93,12 @@ Reasons:
 
 ### Top-level shape
 
+The executable config does not contain an authored workflow `id`. The workflow
+ID comes from the registry key, file key, database key, or other runtime
+registration mechanism that loads the config. Runtime snapshots store that
+external `workflowId` so instances can be resumed and displayed without
+requiring every authored JSON file to duplicate its own ID.
+
 ```json
 {
   "schemaVersion": 1,
@@ -104,15 +110,15 @@ Reasons:
   "roles": {
     "dev": {
       "label": "Dev",
-      "agent": { "kind": "vk_role", "role": "implementer" }
+      "description": "Implementation agent role"
     },
     "review": {
       "label": "Review",
-      "agent": { "kind": "vk_role", "role": "reviewer" }
+      "description": "Code review agent role"
     },
     "tester": {
       "label": "Tester",
-      "agent": { "kind": "vk_role", "role": "tester" }
+      "description": "Validation agent role"
     }
   },
   "initialState": "devImplementing",
@@ -125,7 +131,7 @@ Reasons:
           "type": "agent_turn",
           "turnType": "non_decision",
           "prompt": {
-            "template": "Implement the requested change.\n\nRequest:\n{{input.featureRequest}}"
+            "template": "Implement the requested change.\n\nRequest:\n{{inputs.featureRequest}}\n\nPrior handoff, if any:\n{{transition.handoffText}}"
           }
         },
         {
@@ -157,6 +163,14 @@ Reasons:
         "readyForReview": {
           "label": "Ready for review",
           "targetState": "reviewing",
+          "result": {
+            "fields": {
+              "summary": { "type": "markdown" },
+              "concerns": { "type": "markdown", "multiple": true }
+            },
+            "required": ["summary"],
+            "unknownFields": "reject"
+          },
           "handoff": {
             "prompt": {
               "template": "Dev completed implementation and self-review.\n\nDecision XML:\n{{transition.rawXml}}"
@@ -182,7 +196,7 @@ Reasons:
           "type": "agent_turn",
           "turnType": "decision",
           "prompt": {
-            "template": "Review the implementation. Return XML choosing an allowed action."
+            "template": "Review the implementation. Return XML choosing an allowed action.\n\nHandoff from prior state:\n{{transition.handoffText}}"
           },
           "response": {
             "format": "xml",
@@ -207,6 +221,14 @@ Reasons:
         "changesRequested": {
           "label": "Changes requested",
           "targetState": "devImplementing",
+          "result": {
+            "fields": {
+              "concerns": { "type": "markdown", "multiple": true },
+              "requiredChanges": { "type": "markdown" }
+            },
+            "required": ["requiredChanges"],
+            "unknownFields": "reject"
+          },
           "handoff": {
             "prompt": {
               "template": "Review requested changes.\n\nReview XML:\n{{transition.rawXml}}"
@@ -229,6 +251,15 @@ ID.
 
 Ordered `steps` are arrays, so each step keeps an `id` field for stable history,
 read-model display, and future targeted retry/debug output.
+
+### Role binding policy
+
+Pure workflow roles are domain roles, not VK transport bindings. V1 executable
+workflow JSON should keep role definitions to workflow-owned metadata such as
+`label` and `description`. The VD runtime/team/workspace layer resolves a
+workflow role like `dev` or `review` to the actual VK session, agent profile, or
+queue target. This keeps the pure core independent from VK while still allowing
+the runtime adapter to send the planned turn to the correct external agent.
 
 ### Active-state invariant
 
@@ -317,6 +348,12 @@ V1 parser/validator policy:
 
 - The decision response must select one configured action for the current state.
 - The selected action must exist in that state's `actions` map.
+- The selected action's optional `result` contract defines which XML child
+  elements/fields are valid for that action, which are required, and whether
+  unknown fields are rejected or preserved.
+- `schema.source: "state_actions"` means the engine derives/supplies an XSD for
+  the current state's action set, including each action's `result.fields`,
+  `result.required`, and `result.unknownFields` semantics.
 - The engine stores parsed fields needed for routing and future prompt
   templates when `storeParsedFields` is true.
 - The engine stores bounded raw XML when `storeRawXml` is true.
@@ -325,7 +362,7 @@ V1 parser/validator policy:
   and original character count. Do not silently pretend the stored value is
   complete.
 - Unknown agent-result fields are rejected by default. They may be preserved only
-  when the result contract explicitly describes that as result semantics.
+  when the selected action's `result.unknownFields` explicitly says `"preserve"`.
 - Unknown workflow config fields are rejected. The executable workflow JSON is
   strict.
 
@@ -356,22 +393,33 @@ Example data available to the receiving state's prompt templates:
 - `transition.rawXml` when stored and not omitted by policy
 - `transition.rawXmlTruncated`
 - `transition.parsed` when parsed fields are stored
+- `transition.handoffText` when the selected action has `handoff.prompt`
 
-A transition handoff prompt is not a separate independent queued message after a
-state transition. It is prompt context used when planning the next agent turn in
-the target state. For example, if Review chooses `changesRequested`, the next
-Dev state can render a prompt that includes Review's XML:
+Exact V1 handoff behavior:
+
+1. The selected action's `handoff.prompt` is rendered immediately after the
+   decision result is accepted.
+2. The rendered text is stored on the transition as `transition.handoffText`.
+3. No VK message is queued for `handoff.prompt` by itself.
+4. The target state's next step prompt remains the actual queued agent message.
+5. The target step prompt must explicitly include `{{transition.handoffText}}`,
+   `{{transition.rawXml}}`, or parsed transition fields if it wants the receiving
+   agent to see that context.
+
+For example, if Review chooses `changesRequested`, the next Dev state's first
+step prompt can include the handoff text:
 
 ```md
-Review requested changes.
+{{transition.handoffText}}
 
-Review XML:
+Full review XML, if needed:
 {{transition.rawXml}}
 ```
 
-The receiving Dev agent sees this content as part of its next planned agent-turn
-message. The workflow engine owns rendering the prompt from the configured
-handoff/template context; VK still only sees a normal queued agent message.
+The receiving Dev agent sees this content only because the target state's step
+prompt included it. The workflow engine owns rendering handoff text into
+transition context; VK still only sees one normal queued agent message for the
+target step.
 
 ## Runtime snapshot statuses
 
@@ -445,9 +493,22 @@ export type WorkflowActionV1 = {
   label?: string;
   description?: string;
   targetState: WorkflowStateId;
+  result?: WorkflowActionResultContractV1;
   handoff?: {
     prompt?: PromptTemplateRef;
   };
+};
+
+export type WorkflowActionResultContractV1 = {
+  fields: Record<string, ResultFieldSpec>;
+  required?: string[];
+  unknownFields?: 'reject' | 'preserve';
+};
+
+export type ResultFieldSpec = {
+  type: 'string' | 'markdown' | 'number' | 'boolean';
+  multiple?: boolean;
+  description?: string;
 };
 
 export type DecisionResponsePolicyV1 = {
@@ -485,7 +546,7 @@ export type WorkflowRuntimeSnapshot = {
   currentState: WorkflowStateId;
   currentStepIndex: number;
   visitId: string;
-  input: Record<string, unknown>;
+  inputs: Record<string, unknown>;
   waitingFor?: {
     kind: 'agent_turn';
     state: WorkflowStateId;
@@ -506,6 +567,7 @@ export type WorkflowTransitionRecord = {
   rawXmlTruncated?: boolean;
   rawXmlOriginalChars?: number;
   parsed?: Record<string, unknown>;
+  handoffText?: string;
 };
 ```
 
@@ -689,7 +751,7 @@ Suggested TDD target API names:
   - handles invalid XML retry/blocking,
   - ignores stale/duplicate observations idempotently.
 - `renderWorkflowPrompt(model, snapshot, step, context)`
-  - renders input and latest-transition context for the next agent turn.
+  - renders `inputs.*` and latest-transition context for the next agent turn.
 
 ## Test setup and TDD plan
 
