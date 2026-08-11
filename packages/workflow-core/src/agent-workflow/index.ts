@@ -1,0 +1,1036 @@
+export type WorkflowId = string;
+export type WorkflowStateId = string;
+export type WorkflowRoleId = string;
+export type WorkflowActionId = string;
+export type WorkflowStepId = string;
+
+export type WorkflowInputSpec = {
+  type: 'string' | 'markdown' | 'number' | 'boolean';
+  required?: boolean;
+  description?: string;
+};
+
+export type WorkflowRoleDefinition = {
+  label?: string;
+  description?: string;
+};
+
+export type PromptTemplateRef = {
+  template: string;
+};
+
+export type ResultFieldSpec = {
+  type: 'string' | 'markdown' | 'number' | 'boolean';
+  multiple?: boolean;
+  description?: string;
+};
+
+export type WorkflowActionResultContractV1 = {
+  fields: Record<string, ResultFieldSpec>;
+  required?: string[];
+  unknownFields?: 'reject' | 'preserve';
+};
+
+export type WorkflowActionV1 = {
+  label?: string;
+  description?: string;
+  targetState: WorkflowStateId;
+  result?: WorkflowActionResultContractV1;
+  handoff?: {
+    prompt?: PromptTemplateRef;
+  };
+};
+
+export type DecisionResponsePolicyV1 = {
+  format: 'xml';
+  schema: {
+    format: 'xsd';
+    source: 'state_actions' | { inline: string } | { ref: string };
+  };
+  invalidXmlRetry: {
+    maxAttempts: number;
+    prompt: 'engine_default_with_validation_errors';
+    onExhausted: 'blocked';
+  };
+  storeRawXml: boolean;
+  rawXmlMaxChars?: number;
+  storeParsedFields: boolean;
+  unknownFields: 'reject_unless_allowed_by_result_contract';
+};
+
+export type AgentWorkflowStepV1 = {
+  id: WorkflowStepId;
+  type: 'agent_turn';
+  turnType: 'non_decision' | 'decision';
+  prompt: PromptTemplateRef;
+  response?: DecisionResponsePolicyV1;
+};
+
+export type AuthoredWorkflowStateV1 =
+  | { terminal: true }
+  | {
+      owner: WorkflowRoleId;
+      steps: AgentWorkflowStepV1[];
+      actions: Record<WorkflowActionId, WorkflowActionV1>;
+    };
+
+export type AgentWorkflowDefinitionV1 = {
+  schemaVersion: 1;
+  name: string;
+  description?: string;
+  inputs?: Record<string, WorkflowInputSpec>;
+  roles: Record<WorkflowRoleId, WorkflowRoleDefinition>;
+  initialState: WorkflowStateId;
+  states: Record<WorkflowStateId, AuthoredWorkflowStateV1>;
+};
+
+export type NormalizedWorkflowRole = WorkflowRoleDefinition & {
+  id: WorkflowRoleId;
+};
+
+export type NormalizedWorkflowAction = Omit<WorkflowActionV1, 'handoff'> & {
+  id: WorkflowActionId;
+  handoff?: {
+    prompt?: PromptTemplateRef;
+  };
+};
+
+export type NormalizedWorkflowState =
+  | {
+      id: WorkflowStateId;
+      terminal: true;
+      steps: [];
+      actions: {};
+    }
+  | {
+      id: WorkflowStateId;
+      terminal: false;
+      owner: WorkflowRoleId;
+      steps: AgentWorkflowStepV1[];
+      actions: Record<WorkflowActionId, NormalizedWorkflowAction>;
+    };
+
+export type NormalizedAgentWorkflowModel = {
+  workflowId: WorkflowId;
+  schemaVersion: 1;
+  name: string;
+  description?: string;
+  inputs: Record<string, WorkflowInputSpec>;
+  roles: Record<WorkflowRoleId, NormalizedWorkflowRole>;
+  initialState: WorkflowStateId;
+  states: Record<WorkflowStateId, NormalizedWorkflowState>;
+};
+
+export type WorkflowConfigIssue = {
+  code:
+    | 'WORKFLOW_CONFIG_REQUIRED_FIELD'
+    | 'WORKFLOW_CONFIG_UNKNOWN_FIELD'
+    | 'WORKFLOW_CONFIG_INVALID_REFERENCE'
+    | 'WORKFLOW_CONFIG_INVALID_TERMINAL_STATE'
+    | 'WORKFLOW_CONFIG_INVALID_ACTIVE_STATE'
+    | 'WORKFLOW_CONFIG_INVALID_STEP';
+  path: string;
+  message: string;
+};
+
+export class WorkflowDefinitionError extends Error {
+  readonly issues: WorkflowConfigIssue[];
+
+  constructor(issues: WorkflowConfigIssue[]) {
+    super(`Invalid workflow definition: ${issues.map((issue) => `${issue.path} ${issue.message}`).join('; ')}`);
+    this.name = 'WorkflowDefinitionError';
+    this.issues = issues;
+  }
+}
+
+export type WorkflowSnapshotStatus =
+  | 'running'
+  | 'completed'
+  | 'blocked'
+  | 'failed'
+  | 'cancelled';
+
+export type WorkflowRuntimeSnapshot = {
+  instanceId: string;
+  workflowId: WorkflowId;
+  status: WorkflowSnapshotStatus;
+  currentState: WorkflowStateId;
+  currentStepIndex: number;
+  visitId: string;
+  inputs: Record<string, unknown>;
+  waitingFor?: {
+    kind: 'agent_turn';
+    state: WorkflowStateId;
+    stepId: WorkflowStepId;
+    turnId: string;
+    retryAttempt?: number;
+  };
+  latestTransition?: WorkflowTransitionRecord;
+  history: WorkflowHistoryEntry[];
+  blockedReason?: WorkflowRuntimeIssue;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type WorkflowTransitionRecord = {
+  visitId: string;
+  fromState: WorkflowStateId;
+  toState: WorkflowStateId;
+  action: WorkflowActionId;
+  responseRef?: string;
+  rawXml?: string;
+  rawXmlTruncated?: boolean;
+  rawXmlOriginalChars?: number;
+  parsed?: Record<string, unknown>;
+  handoffText?: string;
+};
+
+export type WorkflowHistoryEntry =
+  | {
+      kind: 'workflow_started';
+      at: number;
+      state: WorkflowStateId;
+      visitId: string;
+    }
+  | {
+      kind: 'agent_turn_planned';
+      at: number;
+      state: WorkflowStateId;
+      stepId: WorkflowStepId;
+      turnId: string;
+      retryAttempt?: number;
+    }
+  | {
+      kind: 'agent_turn_completed';
+      at: number;
+      state: WorkflowStateId;
+      stepId: WorkflowStepId;
+      turnId: string;
+      responseRef: string;
+    }
+  | {
+      kind: 'decision_validation_failed';
+      at: number;
+      state: WorkflowStateId;
+      stepId: WorkflowStepId;
+      turnId: string;
+      responseRef: string;
+      retryAttempt: number;
+      errors: WorkflowRuntimeIssue[];
+    }
+  | {
+      kind: 'state_transitioned';
+      at: number;
+      transition: WorkflowTransitionRecord;
+      nextVisitId?: string;
+    }
+  | {
+      kind: 'workflow_blocked';
+      at: number;
+      reason: WorkflowRuntimeIssue;
+    };
+
+export type WorkflowRuntimeIssue = {
+  code:
+    | 'WORKFLOW_STALE_OBSERVATION'
+    | 'WORKFLOW_DECISION_VALIDATION_FAILED'
+    | 'WORKFLOW_DECISION_UNKNOWN_ACTION'
+    | 'WORKFLOW_DECISION_MISSING_REQUIRED_FIELD'
+    | 'WORKFLOW_DECISION_UNKNOWN_FIELD'
+    | 'WORKFLOW_DECISION_RETRY_EXHAUSTED'
+    | 'WORKFLOW_DECISION_VALIDATOR_REQUIRED';
+  path: string;
+  message: string;
+};
+
+export interface AgentTurnObservation {
+  kind: 'agent_turn_completed';
+  turnId: string;
+  responseRef: string;
+  finalResponseText?: string;
+}
+
+export type WorkflowPlanEffect =
+  | {
+      kind: 'send_agent_turn';
+      role: WorkflowRoleId;
+      state: WorkflowStateId;
+      stepId: WorkflowStepId;
+      turnId: string;
+      prompt: string;
+    }
+  | { kind: 'none' };
+
+export type WorkflowAdvanceResult = {
+  snapshot: WorkflowRuntimeSnapshot;
+  effect: WorkflowPlanEffect;
+  ignored?: WorkflowRuntimeIssue;
+};
+
+export type DecisionValidationResult =
+  | {
+      valid: true;
+      action: WorkflowActionId;
+      rawXml?: string;
+      parsed?: Record<string, unknown>;
+      unknownFields?: string[];
+    }
+  | {
+      valid: false;
+      errors: WorkflowRuntimeIssue[];
+    };
+
+export interface DecisionResponseValidator {
+  validate(args: {
+    state: WorkflowStateId;
+    stepId: WorkflowStepId;
+    actions: Record<WorkflowActionId, NormalizedWorkflowAction>;
+    responseText: string;
+    rawXmlMaxChars: number;
+  }): DecisionValidationResult;
+}
+
+export type WorkflowRuntimeDeps = {
+  now: () => number;
+  createId: () => string;
+  validator?: DecisionResponseValidator;
+};
+
+export function normalizeWorkflowDefinitionV1(
+  definition: unknown,
+  options: { workflowId?: WorkflowId } = {},
+): NormalizedAgentWorkflowModel {
+  const issues: WorkflowConfigIssue[] = [];
+  const def = definition as Partial<AgentWorkflowDefinitionV1> | null;
+  if (!isRecord(def)) {
+    throw new WorkflowDefinitionError([
+      issue('WORKFLOW_CONFIG_REQUIRED_FIELD', '', 'workflow definition must be an object'),
+    ]);
+  }
+
+  assertKnownKeys(def, ['schemaVersion', 'name', 'description', 'inputs', 'roles', 'initialState', 'states'], '', issues);
+  requireField(def, 'schemaVersion', 'schemaVersion', issues);
+  requireField(def, 'name', 'name', issues);
+  requireField(def, 'roles', 'roles', issues);
+  requireField(def, 'initialState', 'initialState', issues);
+  requireField(def, 'states', 'states', issues);
+
+  if (def.schemaVersion !== 1) {
+    issues.push(issue('WORKFLOW_CONFIG_INVALID_ACTIVE_STATE', 'schemaVersion', 'must be 1'));
+  }
+
+  const roles: Record<string, NormalizedWorkflowRole> = {};
+  if (isRecord(def.roles)) {
+    for (const [roleId, role] of Object.entries(def.roles)) {
+      if (!isRecord(role)) {
+        issues.push(issue('WORKFLOW_CONFIG_INVALID_ACTIVE_STATE', `roles.${roleId}`, 'role must be an object'));
+        continue;
+      }
+      assertKnownKeys(role, ['label', 'description'], `roles.${roleId}`, issues);
+      roles[roleId] = cloneWithDefined({ id: roleId, label: role.label, description: role.description });
+    }
+  }
+
+  const states: Record<string, NormalizedWorkflowState> = {};
+  if (isRecord(def.states)) {
+    for (const [stateId, state] of Object.entries(def.states)) {
+      if (!isRecord(state)) {
+        issues.push(issue('WORKFLOW_CONFIG_INVALID_ACTIVE_STATE', `states.${stateId}`, 'state must be an object'));
+        continue;
+      }
+      const stateRecord = state as Record<string, unknown>;
+      const terminal = stateRecord.terminal;
+      if (terminal === true) {
+        assertKnownKeys(stateRecord, ['terminal'], `states.${stateId}`, issues, 'WORKFLOW_CONFIG_INVALID_TERMINAL_STATE');
+        states[stateId] = { id: stateId, terminal: true, steps: [], actions: {} };
+        continue;
+      }
+
+      assertKnownKeys(stateRecord, ['owner', 'steps', 'actions'], `states.${stateId}`, issues);
+      const owner = stateRecord.owner;
+      const steps = stateRecord.steps;
+      const actions = stateRecord.actions;
+      if (typeof owner !== 'string') {
+        issues.push(issue('WORKFLOW_CONFIG_INVALID_ACTIVE_STATE', `states.${stateId}.owner`, 'owner is required'));
+      } else if (isRecord(def.roles) && !Object.hasOwn(def.roles, owner)) {
+        issues.push(issue('WORKFLOW_CONFIG_INVALID_REFERENCE', `states.${stateId}.owner`, `unknown role ${owner}`));
+      }
+      if (!Array.isArray(steps) || steps.length === 0) {
+        issues.push(issue('WORKFLOW_CONFIG_INVALID_ACTIVE_STATE', `states.${stateId}.steps`, 'steps must be non-empty'));
+      }
+      if (!isRecord(actions) || Object.keys(actions).length === 0) {
+        issues.push(issue('WORKFLOW_CONFIG_INVALID_ACTIVE_STATE', `states.${stateId}.actions`, 'actions must be non-empty'));
+      }
+
+      const normalizedSteps: AgentWorkflowStepV1[] = [];
+      if (Array.isArray(steps)) {
+        let decisionCount = 0;
+        steps.forEach((step, index) => {
+          const path = `states.${stateId}.steps.${index}`;
+          if (!isRecord(step)) {
+            issues.push(issue('WORKFLOW_CONFIG_INVALID_STEP', path, 'step must be an object'));
+            return;
+          }
+          assertKnownKeys(step, ['id', 'type', 'turnType', 'prompt', 'response'], path, issues);
+          if (typeof step.id !== 'string') {
+            issues.push(issue('WORKFLOW_CONFIG_INVALID_STEP', `${path}.id`, 'step id is required'));
+          }
+          if (step.type !== 'agent_turn') {
+            issues.push(issue('WORKFLOW_CONFIG_INVALID_STEP', `${path}.type`, 'only agent_turn is supported in V1'));
+          }
+          if (step.turnType !== 'non_decision' && step.turnType !== 'decision') {
+            issues.push(issue('WORKFLOW_CONFIG_INVALID_STEP', `${path}.turnType`, 'turnType must be non_decision or decision'));
+          }
+          if (step.turnType === 'decision') {
+            decisionCount += 1;
+            if (index !== steps.length - 1) {
+              issues.push(issue('WORKFLOW_CONFIG_INVALID_ACTIVE_STATE', path, 'decision step must be final'));
+            }
+          }
+          validatePrompt(step.prompt, `${path}.prompt`, issues);
+          if (step.turnType === 'decision') {
+            validateDecisionResponse(step.response, `${path}.response`, issues);
+          }
+          normalizedSteps.push(deepClone(step as AgentWorkflowStepV1));
+        });
+        if (decisionCount !== 1) {
+          issues.push(issue('WORKFLOW_CONFIG_INVALID_ACTIVE_STATE', `states.${stateId}.steps`, 'active state must have exactly one final decision step'));
+        }
+      }
+
+      const normalizedActions: Record<string, NormalizedWorkflowAction> = {};
+      if (isRecord(actions)) {
+        for (const [actionId, action] of Object.entries(actions)) {
+          const path = `states.${stateId}.actions.${actionId}`;
+          if (!isRecord(action)) {
+            issues.push(issue('WORKFLOW_CONFIG_INVALID_ACTIVE_STATE', path, 'action must be an object'));
+            continue;
+          }
+          assertKnownKeys(action, ['label', 'description', 'targetState', 'result', 'handoff'], path, issues);
+          if (typeof action.targetState !== 'string') {
+            issues.push(issue('WORKFLOW_CONFIG_REQUIRED_FIELD', `${path}.targetState`, 'targetState is required'));
+          } else if (isRecord(def.states) && !Object.hasOwn(def.states, action.targetState)) {
+            issues.push(issue('WORKFLOW_CONFIG_INVALID_REFERENCE', `${path}.targetState`, `unknown state ${action.targetState}`));
+          }
+          validateResultContract(action.result, `${path}.result`, issues);
+          if (isRecord(action.handoff)) {
+            assertKnownKeys(action.handoff, ['prompt'], `${path}.handoff`, issues);
+            validatePrompt(action.handoff.prompt, `${path}.handoff.prompt`, issues);
+          } else if (action.handoff !== undefined) {
+            issues.push(issue('WORKFLOW_CONFIG_INVALID_ACTIVE_STATE', `${path}.handoff`, 'handoff must be an object'));
+          }
+          normalizedActions[actionId] = cloneWithDefined({
+            id: actionId,
+            label: action.label,
+            description: action.description,
+            targetState: action.targetState,
+            result: deepClone(action.result),
+            handoff: deepClone(action.handoff),
+          }) as NormalizedWorkflowAction;
+        }
+      }
+
+      states[stateId] = {
+        id: stateId,
+        terminal: false,
+        owner: typeof owner === 'string' ? owner : '',
+        steps: normalizedSteps,
+        actions: normalizedActions,
+      };
+    }
+  }
+
+  if (typeof def.initialState === 'string' && isRecord(def.states) && !Object.hasOwn(def.states, def.initialState)) {
+    issues.push(issue('WORKFLOW_CONFIG_INVALID_REFERENCE', 'initialState', `unknown state ${def.initialState}`));
+  }
+
+  if (issues.length > 0) {
+    throw new WorkflowDefinitionError(issues);
+  }
+
+  return cloneWithDefined({
+    workflowId: options.workflowId ?? def.name ?? 'workflow',
+    schemaVersion: 1 as const,
+    name: def.name as string,
+    description: def.description,
+    inputs: deepClone(def.inputs ?? {}),
+    roles,
+    initialState: def.initialState as string,
+    states,
+  });
+}
+
+export function createInitialWorkflowSnapshot(
+  model: NormalizedAgentWorkflowModel,
+  options: {
+    instanceId: string;
+    inputs: Record<string, unknown>;
+    now: () => number;
+    createId: () => string;
+  },
+): WorkflowRuntimeSnapshot {
+  const now = options.now();
+  const visitId = options.createId();
+  const initialState = model.states[model.initialState];
+  return {
+    instanceId: options.instanceId,
+    workflowId: model.workflowId,
+    status: initialState?.terminal ? 'completed' : 'running',
+    currentState: model.initialState,
+    currentStepIndex: 0,
+    visitId,
+    inputs: deepClone(options.inputs),
+    history: [{ kind: 'workflow_started', at: now, state: model.initialState, visitId }],
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+export function planNextWorkflowEffect(
+  model: NormalizedAgentWorkflowModel,
+  snapshot: WorkflowRuntimeSnapshot,
+  deps: WorkflowRuntimeDeps,
+): { snapshot: WorkflowRuntimeSnapshot; effect: WorkflowPlanEffect } {
+  if (snapshot.status !== 'running') {
+    return { snapshot, effect: { kind: 'none' } };
+  }
+  if (snapshot.waitingFor) {
+    return { snapshot, effect: { kind: 'none' } };
+  }
+
+  const state = getActiveState(model, snapshot.currentState);
+  if (!state) {
+    return { snapshot: { ...snapshot, status: 'completed', updatedAt: deps.now() }, effect: { kind: 'none' } };
+  }
+  const step = state.steps[snapshot.currentStepIndex];
+  if (!step) {
+    return { snapshot, effect: { kind: 'none' } };
+  }
+
+  const turnId = deps.createId();
+  const at = deps.now();
+  const planned: WorkflowRuntimeSnapshot = {
+    ...snapshot,
+    waitingFor: cloneWithDefined({
+      kind: 'agent_turn' as const,
+      state: state.id,
+      stepId: step.id,
+      turnId,
+    }),
+    history: [
+      ...snapshot.history,
+      cloneWithDefined({
+        kind: 'agent_turn_planned' as const,
+        at,
+        state: state.id,
+        stepId: step.id,
+        turnId,
+      }),
+    ],
+    updatedAt: at,
+  };
+
+  return {
+    snapshot: planned,
+    effect: {
+      kind: 'send_agent_turn',
+      role: state.owner,
+      state: state.id,
+      stepId: step.id,
+      turnId,
+      prompt: renderWorkflowPrompt(model, planned, step),
+    },
+  };
+}
+
+export function advanceWorkflow(
+  model: NormalizedAgentWorkflowModel,
+  snapshot: WorkflowRuntimeSnapshot,
+  observation: AgentTurnObservation,
+  deps: WorkflowRuntimeDeps,
+): WorkflowAdvanceResult {
+  if (snapshot.status !== 'running') {
+    return { snapshot, effect: { kind: 'none' } };
+  }
+
+  const waitingFor = snapshot.waitingFor;
+  if (!waitingFor || waitingFor.turnId !== observation.turnId) {
+    return {
+      snapshot,
+      effect: { kind: 'none' },
+      ignored: {
+        code: 'WORKFLOW_STALE_OBSERVATION',
+        path: 'observation.turnId',
+        message: 'observation does not match the active workflow turn',
+      },
+    };
+  }
+
+  const state = getActiveState(model, snapshot.currentState);
+  const step = state?.steps[snapshot.currentStepIndex];
+  if (!state || !step) {
+    return { snapshot, effect: { kind: 'none' } };
+  }
+
+  const at = deps.now();
+  const completedEntry: WorkflowHistoryEntry = {
+    kind: 'agent_turn_completed',
+    at,
+    state: state.id,
+    stepId: step.id,
+    turnId: observation.turnId,
+    responseRef: observation.responseRef,
+  };
+
+  if (step.turnType === 'non_decision') {
+    const advanced: WorkflowRuntimeSnapshot = {
+      ...snapshot,
+      waitingFor: undefined,
+      currentStepIndex: snapshot.currentStepIndex + 1,
+      history: [...snapshot.history, completedEntry],
+      updatedAt: at,
+    };
+    const { snapshot: plannedSnapshot, effect } = planNextWorkflowEffect(model, advanced, deps);
+    return { snapshot: plannedSnapshot, effect };
+  }
+
+  const validation = validateDecision(model, state, step, observation, deps);
+  if (!validation.valid) {
+    return handleInvalidDecision(snapshot, state, step, observation, validation.errors, at, completedEntry, deps);
+  }
+
+  const action = state.actions[validation.action];
+  if (!action) {
+    return handleInvalidDecision(
+      snapshot,
+      state,
+      step,
+      observation,
+      [
+        {
+          code: 'WORKFLOW_DECISION_UNKNOWN_ACTION',
+          path: `states.${state.id}.actions.${validation.action}`,
+          message: `decision selected unknown action ${validation.action}`,
+        },
+      ],
+      at,
+      completedEntry,
+      deps,
+    );
+  }
+  const target = model.states[action.targetState];
+  if (!target) {
+    return handleInvalidDecision(
+      snapshot,
+      state,
+      step,
+      observation,
+      [
+        {
+          code: 'WORKFLOW_DECISION_UNKNOWN_ACTION',
+          path: `states.${state.id}.actions.${validation.action}.targetState`,
+          message: `decision action ${validation.action} targets a missing state`,
+        },
+      ],
+      at,
+      completedEntry,
+      deps,
+    );
+  }
+  const transition = buildTransition(snapshot, observation, action, validation, step);
+  const transitionedAt = at;
+  const history: WorkflowHistoryEntry[] = [
+    ...snapshot.history,
+    completedEntry,
+    { kind: 'state_transitioned', at: transitionedAt, transition },
+  ];
+
+  if (target.terminal) {
+    const completed: WorkflowRuntimeSnapshot = {
+      ...snapshot,
+      status: 'completed',
+      currentState: target.id,
+      currentStepIndex: 0,
+      waitingFor: undefined,
+      latestTransition: transition,
+      history,
+      updatedAt: transitionedAt,
+    };
+    return { snapshot: completed, effect: { kind: 'none' } };
+  }
+
+  const nextVisitId = deps.createId();
+  const transitioned: WorkflowRuntimeSnapshot = {
+    ...snapshot,
+    currentState: target.id,
+    currentStepIndex: 0,
+    visitId: nextVisitId,
+    waitingFor: undefined,
+    latestTransition: transition,
+    history: [
+      ...history.slice(0, -1),
+      { kind: 'state_transitioned', at: transitionedAt, transition, nextVisitId },
+    ],
+    updatedAt: transitionedAt,
+  };
+  const { snapshot: plannedSnapshot, effect } = planNextWorkflowEffect(model, transitioned, deps);
+  return { snapshot: plannedSnapshot, effect };
+}
+
+export function renderWorkflowPrompt(
+  _model: NormalizedAgentWorkflowModel,
+  snapshot: WorkflowRuntimeSnapshot,
+  step: AgentWorkflowStepV1,
+  extra: { validationErrors?: WorkflowRuntimeIssue[] } = {},
+): string {
+  let rendered = step.prompt.template.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (_match, expression: string) => {
+    const value = readContextValue(snapshot, expression.trim());
+    return value === undefined || value === null ? '' : String(value);
+  });
+
+  if (extra.validationErrors?.length) {
+    rendered += `\n\nYour previous XML response did not match the workflow contract. Fix these validation errors and return the XML again:\n${extra.validationErrors
+      .map((error) => `- ${error.code} at ${error.path}: ${error.message}`)
+      .join('\n')}`;
+  }
+
+  return rendered;
+}
+
+function validateDecision(
+  model: NormalizedAgentWorkflowModel,
+  state: Extract<NormalizedWorkflowState, { terminal: false }>,
+  step: AgentWorkflowStepV1,
+  observation: AgentTurnObservation,
+  deps: WorkflowRuntimeDeps,
+): DecisionValidationResult {
+  const policy = step.response;
+  if (!deps.validator) {
+    return {
+      valid: false,
+      errors: [
+        {
+          code: 'WORKFLOW_DECISION_VALIDATOR_REQUIRED',
+          path: `states.${state.id}.steps.${step.id}.response`,
+          message: 'decision validator is required for decision turns',
+        },
+      ],
+    };
+  }
+  const rawXmlMaxChars = policy?.rawXmlMaxChars ?? 20000;
+  const validation = deps.validator.validate({
+    state: state.id,
+    stepId: step.id,
+    actions: state.actions,
+    responseText: observation.finalResponseText ?? '',
+    rawXmlMaxChars,
+  });
+  if (!validation.valid) {
+    return validation;
+  }
+  const action = state.actions[validation.action];
+  if (!action) {
+    return {
+      valid: false,
+      errors: [
+        {
+          code: 'WORKFLOW_DECISION_UNKNOWN_ACTION',
+          path: `states.${state.id}.actions.${validation.action}`,
+          message: `decision selected unknown action ${validation.action}`,
+        },
+      ],
+    };
+  }
+  const resultIssues = validateDecisionResultFields(state.id, action, validation.parsed ?? {}, validation.unknownFields ?? []);
+  if (resultIssues.length > 0) {
+    return { valid: false, errors: resultIssues };
+  }
+  return validation;
+}
+
+function handleInvalidDecision(
+  snapshot: WorkflowRuntimeSnapshot,
+  state: Extract<NormalizedWorkflowState, { terminal: false }>,
+  step: AgentWorkflowStepV1,
+  observation: AgentTurnObservation,
+  errors: WorkflowRuntimeIssue[],
+  at: number,
+  completedEntry: WorkflowHistoryEntry,
+  deps: WorkflowRuntimeDeps,
+): WorkflowAdvanceResult {
+  const previousRetries = snapshot.waitingFor?.retryAttempt ?? 0;
+  const nextRetryAttempt = previousRetries + 1;
+  const maxAttempts = step.response?.invalidXmlRetry.maxAttempts ?? 0;
+  const validationFailed: WorkflowHistoryEntry = {
+    kind: 'decision_validation_failed',
+    at,
+    state: state.id,
+    stepId: step.id,
+    turnId: observation.turnId,
+    responseRef: observation.responseRef,
+    retryAttempt: nextRetryAttempt,
+    errors,
+  };
+
+  if (nextRetryAttempt > maxAttempts) {
+    const reason: WorkflowRuntimeIssue = {
+      code: 'WORKFLOW_DECISION_RETRY_EXHAUSTED',
+      path: `states.${state.id}.steps.${step.id}`,
+      message: `decision response failed validation after ${maxAttempts} retry attempts`,
+    };
+    const blockedAt = deps.now();
+    return {
+      snapshot: {
+        ...snapshot,
+        status: 'blocked',
+        waitingFor: undefined,
+        blockedReason: reason,
+        history: [
+          ...snapshot.history,
+          completedEntry,
+          validationFailed,
+          { kind: 'workflow_blocked', at: blockedAt, reason },
+        ],
+        updatedAt: blockedAt,
+      },
+      effect: { kind: 'none' },
+    };
+  }
+
+  const retryTurnId = deps.createId();
+  const retryAt = deps.now();
+  const retrySnapshot: WorkflowRuntimeSnapshot = {
+    ...snapshot,
+    waitingFor: {
+      kind: 'agent_turn',
+      state: state.id,
+      stepId: step.id,
+      turnId: retryTurnId,
+      retryAttempt: nextRetryAttempt,
+    },
+    history: [
+      ...snapshot.history,
+      completedEntry,
+      validationFailed,
+      {
+        kind: 'agent_turn_planned',
+        at: retryAt,
+        state: state.id,
+        stepId: step.id,
+        turnId: retryTurnId,
+        retryAttempt: nextRetryAttempt,
+      },
+    ],
+    updatedAt: retryAt,
+  };
+
+  return {
+    snapshot: retrySnapshot,
+    effect: {
+      kind: 'send_agent_turn',
+      role: state.owner,
+      state: state.id,
+      stepId: step.id,
+      turnId: retryTurnId,
+      prompt: renderWorkflowPrompt({} as NormalizedAgentWorkflowModel, retrySnapshot, step, { validationErrors: errors }),
+    },
+  };
+}
+
+function buildTransition(
+  snapshot: WorkflowRuntimeSnapshot,
+  observation: AgentTurnObservation,
+  action: NormalizedWorkflowAction,
+  validation: Extract<DecisionValidationResult, { valid: true }>,
+  step: AgentWorkflowStepV1,
+): WorkflowTransitionRecord {
+  const rawPolicy = step.response;
+  const rawXml = validation.rawXml;
+  const rawCap = rawPolicy?.rawXmlMaxChars ?? 20000;
+  const rawXmlOriginalChars = rawXml?.length;
+  const rawXmlTruncated = rawXmlOriginalChars !== undefined && rawXmlOriginalChars > rawCap;
+  const transitionBase: WorkflowTransitionRecord = cloneWithDefined({
+    visitId: snapshot.visitId,
+    fromState: snapshot.currentState,
+    toState: action.targetState,
+    action: action.id,
+    responseRef: observation.responseRef,
+    rawXml: rawPolicy?.storeRawXml && rawXml !== undefined ? rawXml.slice(0, rawCap) : undefined,
+    rawXmlTruncated: rawPolicy?.storeRawXml && rawXmlTruncated ? true : false,
+    rawXmlOriginalChars: rawPolicy?.storeRawXml && rawXmlOriginalChars !== undefined ? rawXmlOriginalChars : undefined,
+    parsed: rawPolicy?.storeParsedFields ? deepClone(validation.parsed ?? {}) : undefined,
+  });
+  if (action.handoff?.prompt) {
+    transitionBase.handoffText = renderTemplate(action.handoff.prompt.template, {
+      ...snapshot,
+      latestTransition: transitionBase,
+    });
+  }
+  return transitionBase;
+}
+
+function validateDecisionResultFields(
+  stateId: string,
+  action: NormalizedWorkflowAction,
+  parsed: Record<string, unknown>,
+  unknownFields: string[],
+): WorkflowRuntimeIssue[] {
+  const result = action.result;
+  if (!result) {
+    return unknownFields.map((field) => ({
+      code: 'WORKFLOW_DECISION_UNKNOWN_FIELD',
+      path: `states.${stateId}.actions.${action.id}.result.${field}`,
+      message: `unknown result field ${field}`,
+    }));
+  }
+  const fields = result.fields ?? {};
+  const issues: WorkflowRuntimeIssue[] = [];
+  for (const required of result.required ?? []) {
+    if (parsed[required] === undefined) {
+      issues.push({
+        code: 'WORKFLOW_DECISION_MISSING_REQUIRED_FIELD',
+        path: `states.${stateId}.actions.${action.id}.result.${required}`,
+        message: `required result field ${required} is missing`,
+      });
+    }
+  }
+  if ((result.unknownFields ?? 'reject') === 'reject') {
+    for (const field of [...unknownFields, ...Object.keys(parsed).filter((field) => !Object.hasOwn(fields, field))]) {
+      issues.push({
+        code: 'WORKFLOW_DECISION_UNKNOWN_FIELD',
+        path: `states.${stateId}.actions.${action.id}.result.${field}`,
+        message: `unknown result field ${field}`,
+      });
+    }
+  }
+  return issues;
+}
+
+function renderTemplate(template: string, snapshot: WorkflowRuntimeSnapshot): string {
+  return template.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (_match, expression: string) => {
+    const value = readContextValue(snapshot, expression.trim());
+    return value === undefined || value === null ? '' : String(value);
+  });
+}
+
+function readContextValue(snapshot: WorkflowRuntimeSnapshot, expression: string): unknown {
+  const parts = expression.split('.');
+  if (parts[0] === 'inputs') {
+    return readPath(snapshot.inputs, parts.slice(1));
+  }
+  if (parts[0] === 'transition') {
+    return readPath(snapshot.latestTransition, parts.slice(1));
+  }
+  return undefined;
+}
+
+function readPath(source: unknown, parts: string[]): unknown {
+  let current = source;
+  for (const part of parts) {
+    if (!isRecord(current)) {
+      return undefined;
+    }
+    current = current[part];
+  }
+  return current;
+}
+
+function getActiveState(
+  model: NormalizedAgentWorkflowModel,
+  stateId: string,
+): Extract<NormalizedWorkflowState, { terminal: false }> | undefined {
+  const state = model.states[stateId];
+  return state && !state.terminal ? state : undefined;
+}
+
+function validatePrompt(value: unknown, path: string, issues: WorkflowConfigIssue[]) {
+  if (!isRecord(value)) {
+    issues.push(issue('WORKFLOW_CONFIG_REQUIRED_FIELD', path, 'prompt is required'));
+    return;
+  }
+  assertKnownKeys(value, ['template'], path, issues);
+  if (typeof value.template !== 'string') {
+    issues.push(issue('WORKFLOW_CONFIG_REQUIRED_FIELD', `${path}.template`, 'template is required'));
+  }
+}
+
+function validateDecisionResponse(value: unknown, path: string, issues: WorkflowConfigIssue[]) {
+  if (!isRecord(value)) {
+    issues.push(issue('WORKFLOW_CONFIG_REQUIRED_FIELD', path, 'decision response policy is required'));
+    return;
+  }
+  assertKnownKeys(value, ['format', 'schema', 'invalidXmlRetry', 'storeRawXml', 'rawXmlMaxChars', 'storeParsedFields', 'unknownFields'], path, issues);
+  if (value.format !== 'xml') {
+    issues.push(issue('WORKFLOW_CONFIG_INVALID_STEP', `${path}.format`, 'decision response format must be xml'));
+  }
+  if (!isRecord(value.schema)) {
+    issues.push(issue('WORKFLOW_CONFIG_REQUIRED_FIELD', `${path}.schema`, 'schema is required'));
+  } else {
+    assertKnownKeys(value.schema, ['format', 'source'], `${path}.schema`, issues);
+  }
+  if (!isRecord(value.invalidXmlRetry)) {
+    issues.push(issue('WORKFLOW_CONFIG_REQUIRED_FIELD', `${path}.invalidXmlRetry`, 'invalidXmlRetry is required'));
+  } else {
+    assertKnownKeys(value.invalidXmlRetry, ['maxAttempts', 'prompt', 'onExhausted'], `${path}.invalidXmlRetry`, issues);
+  }
+}
+
+function validateResultContract(value: unknown, path: string, issues: WorkflowConfigIssue[]) {
+  if (value === undefined) {
+    return;
+  }
+  if (!isRecord(value)) {
+    issues.push(issue('WORKFLOW_CONFIG_INVALID_ACTIVE_STATE', path, 'result must be an object'));
+    return;
+  }
+  assertKnownKeys(value, ['fields', 'required', 'unknownFields'], path, issues);
+  if (!isRecord(value.fields)) {
+    issues.push(issue('WORKFLOW_CONFIG_REQUIRED_FIELD', `${path}.fields`, 'result fields are required'));
+    return;
+  }
+  for (const [fieldName, field] of Object.entries(value.fields)) {
+    const fieldPath = `${path}.fields.${fieldName}`;
+    if (!isRecord(field)) {
+      issues.push(issue('WORKFLOW_CONFIG_INVALID_ACTIVE_STATE', fieldPath, 'field must be an object'));
+      continue;
+    }
+    assertKnownKeys(field, ['type', 'multiple', 'description'], fieldPath, issues);
+  }
+}
+
+function requireField(record: Record<string, unknown>, key: string, path: string, issues: WorkflowConfigIssue[]) {
+  if (record[key] === undefined) {
+    issues.push(issue('WORKFLOW_CONFIG_REQUIRED_FIELD', path, 'is required'));
+  }
+}
+
+function assertKnownKeys(
+  record: Record<string, unknown>,
+  knownKeys: string[],
+  path: string,
+  issues: WorkflowConfigIssue[],
+  code: WorkflowConfigIssue['code'] = 'WORKFLOW_CONFIG_UNKNOWN_FIELD',
+) {
+  const known = new Set(knownKeys);
+  for (const key of Object.keys(record)) {
+    if (!known.has(key)) {
+      issues.push(issue(code, path ? `${path}.${key}` : key, 'unknown field'));
+    }
+  }
+}
+
+function issue(code: WorkflowConfigIssue['code'], path: string, message: string): WorkflowConfigIssue {
+  return { code, path, message };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function deepClone<T>(value: T): T {
+  return value === undefined ? value : structuredClone(value);
+}
+
+function cloneWithDefined<T extends Record<string, unknown>>(value: T): T {
+  return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined)) as T;
+}
