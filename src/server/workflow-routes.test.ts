@@ -323,9 +323,35 @@ describe('registerWorkflowRoutes', () => {
     });
     expect(failed.status).toBe(500);
     await expect(failed.json()).resolves.toMatchObject({ error: 'workflow_persisted_resume_failed', message: 'persisted resume failed' });
+    await expect(orchestrationStore.getAttentionItem(attention.attentionItemId)).resolves.toMatchObject({ status: 'resolved' });
     await expect(handle.db.selectFrom('WorkflowPersistedRun').select(['status', 'coreSnapshotJson']).executeTakeFirstOrThrow()).resolves.toMatchObject({ status: 'running' });
     const persisted = await handle.db.selectFrom('WorkflowPersistedRun').select(['coreSnapshotJson']).executeTakeFirstOrThrow();
     expect(JSON.parse(persisted.coreSnapshotJson)).toMatchObject({ waitingFor: { kind: 'human_form' } });
+
+    const recoveredQueued: Array<{ sessionId: string; prompt: string }> = [];
+    const recoveryApp = new Hono();
+    registerWorkflowRoutes(recoveryApp, {
+      registry: createWorkflowRegistry(),
+      workflowHomeDb: handle.db,
+      workflowDesignStore: designStore,
+      workflowOrchestrationStore: orchestrationStore,
+      vkClient: {
+        queueFollowUp: async (sessionId, prompt) => {
+          recoveredQueued.push({ sessionId, prompt });
+          return { queued_item: { id: `queue-recovered-${recoveredQueued.length}`, session_id: sessionId, workspace_id: 'workspace-a', status: 'queued', source: 'workflow', priority: 0, data: { message: prompt } }, status: { count: 1, message: null, messages: [], status: 'queued' } };
+        },
+      },
+    });
+    const recovered = await recoveryApp.request(`/dashboard/api/workflow-attention-items/${attention.attentionItemId}/complete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stateVisitId: attention.stateVisitId, submission: { approved: true } }),
+    });
+    expect(recovered.status).toBe(200);
+    await expect(recovered.json()).resolves.toMatchObject({ recovered: true, result: { applied: true, reason: 'applied' } });
+    expect(recoveredQueued).toEqual([{ sessionId: 'session-dev', prompt: expect.stringContaining('Approved: true') }]);
+    const resumed = await handle.db.selectFrom('WorkflowPersistedRun').select(['coreSnapshotJson']).executeTakeFirstOrThrow();
+    expect(JSON.parse(resumed.coreSnapshotJson)).toMatchObject({ waitingFor: { kind: 'agent_turn' } });
   });
 
   it('runs workflows by id and returns the workflow run record', async () => {

@@ -19,6 +19,7 @@ import {
   parseWorkflowInstanceStatus,
   parseWorkflowTriggerStatus,
   type DbWorkflowOrchestrationStore,
+  type WorkflowAttentionItemReadModel,
 } from './workflow-orchestration-store';
 import type { CachedRepoAlias } from '../workflows/github-ci';
 import type { WorkflowActivityScanner, WorkflowSchedulerBudgetPolicy } from './workflow-session-scanner';
@@ -403,13 +404,40 @@ export function registerWorkflowRoutes(
       if (!attention) return c.json({ error: 'workflow_attention_item_not_found' }, 404);
       const db = options.workflowHomeDb ?? (await getVdDb()).db;
       const designStore = options.workflowDesignStore ?? new DbWorkflowDesignStore({ db });
-      const persistedRun = await db.selectFrom('WorkflowPersistedRun').select(['runId']).where('runId', '=', attention.instanceId).executeTakeFirst();
+      const persistedRun = await db.selectFrom('WorkflowPersistedRun').select(['runId', 'coreSnapshotJson']).where('runId', '=', attention.instanceId).executeTakeFirst();
       const runtime = persistedRun ? await resolvePersistedWorkflowRuntime(options, db, designStore) : null;
       if (persistedRun && !runtime) {
         return c.json({
           error: 'workflow_persisted_runtime_not_configured',
           message: 'Workflow answer cannot be submitted because persisted workflow resume is not configured.',
         }, 503);
+      }
+      const catchUp = persistedRun && runtime && attention.status === 'resolved' ? persistedHumanFormCatchUp(attention, persistedRun.coreSnapshotJson) : null;
+      if (catchUp && runtime) {
+        try {
+          await runtime.completeHumanForm({
+            runId: attention.instanceId,
+            turnId: catchUp.turnId,
+            responseRef: attention.attentionItemId,
+            submission: catchUp.submission,
+          });
+          return c.json({
+            result: {
+              applied: true,
+              reason: 'applied',
+              attention,
+              instance: null,
+              step: null,
+              validationErrors: [],
+            },
+            recovered: true,
+          });
+        } catch (error) {
+          return c.json({
+            error: 'workflow_persisted_resume_failed',
+            message: error instanceof Error ? error.message : 'Workflow answer was saved but workflow resume failed.',
+          }, 500);
+        }
       }
       const result = await store.completeHumanAttention({
         attentionItemId: c.req.param('attentionItemId'),
@@ -864,6 +892,29 @@ function summarizePersistedRun(run: PersistedWorkflowRunReadModel) {
     status: run.status,
     detailUrl: null,
   };
+}
+
+function persistedHumanFormCatchUp(
+  attention: WorkflowAttentionItemReadModel,
+  coreSnapshotJson: string,
+): { turnId: string; submission: Record<string, unknown> } | null {
+  const snapshot = parseJsonRecord(coreSnapshotJson);
+  const waitingFor = asRecord(snapshot.waitingFor);
+  if (waitingFor?.kind !== 'human_form') return null;
+  const turnId = asString(waitingFor.turnId);
+  if (!turnId) return null;
+  const resolution = asRecord(attention.resolution);
+  const submission = asRecord(resolution?.submission);
+  if (!submission) return null;
+  return { turnId, submission };
+}
+
+function parseJsonRecord(json: string): Record<string, unknown> {
+  try {
+    return asRecord(JSON.parse(json) as unknown) ?? {};
+  } catch {
+    return {};
+  }
 }
 
 function getPresentationVkClient(options: RegisterWorkflowRoutesOptions) {
