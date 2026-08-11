@@ -98,6 +98,7 @@ serverRegistry.registerServerModule((api) => {
     workflowWebhookInboxStore,
     workflowWebhookWakeup,
     workflowWebhookProvisioningStore,
+    vkClient,
   });
   registerPluginAssetRoutes(api.hono, { installRoot: pluginInstallRoot });
   registerPluginAdminRoutes(api.hono);

@@ -463,6 +463,66 @@ describe('registerWorkflowRoutes', () => {
     });
   });
 
+  it('exposes a clean workflow presentation read model', async () => {
+    const handle = await initVdDb({ path: ':memory:' });
+    dbHandles.push(handle);
+    const store = new DbWorkflowOrchestrationStore({ db: handle.db, now: (() => { let value = 6000; return () => value++; })() });
+    await store.createInstance({
+      instanceId: 'instance_presentation',
+      workflowId: 'two-agent-review-round',
+      trigger: 'manual',
+      input: { task: 'show clean story' },
+      state: { definition: { name: 'Two agent review round' } },
+    });
+    await store.startInstance('instance_presentation');
+    await store.createStepState({ id: 'ask_source_presentation', instanceId: 'instance_presentation', stepKey: 'ask_source', status: 'completed', input: { template: 'Implement {{inputs.task}}' }, output: { workspaceId: 'ws-source', sessionId: 'session-source' } });
+    await store.createStepState({ id: 'wait_source_presentation', instanceId: 'instance_presentation', stepKey: 'wait_source', status: 'completed', output: { executionProcessId: 'exec-source', workspaceId: 'ws-source', sessionId: 'session-source' } });
+    await store.createStepState({ id: 'ask_review_presentation', instanceId: 'instance_presentation', stepKey: 'ask_review', status: 'completed', input: { template: 'Review {{source.response}}' }, output: { workspaceId: 'ws-review', sessionId: 'session-review' } });
+    await store.createStepState({ id: 'wait_review_presentation', instanceId: 'instance_presentation', stepKey: 'wait_review', status: 'completed', output: { executionProcessId: 'exec-review', workspaceId: 'ws-review', sessionId: 'session-review' } });
+    await store.completeInstance('instance_presentation');
+
+    const app = new Hono();
+    registerWorkflowRoutes(app, {
+      registry: createWorkflowRegistry(),
+      workflowOrchestrationStore: store,
+      vkClient: {
+        getExecutionProcessFinalMessage: async (processId) => ({
+          execution_process_id: processId,
+          session_id: processId === 'exec-source' ? 'session-source' : 'session-review',
+          workspace_id: processId === 'exec-source' ? 'ws-source' : 'ws-review',
+          status: 'completed',
+          completed_at: '2026-08-11T00:00:00Z',
+          coding_agent_turn_id: null,
+          agent_session_id: null,
+          agent_message_id: null,
+          content: processId === 'exec-source' ? 'Implemented.' : 'Approved.',
+          truncated: false,
+          max_chars: 20_000,
+          source_kind: 'coding_agent_turn_summary',
+          prompt_preview: null,
+          prompt_truncated: false,
+          prompt_max_chars: 4096,
+          prompt_source_kind: 'coding_agent_turn_prompt',
+        }),
+        getExecutionProcessRepoStates: async () => [],
+      },
+    });
+
+    const response = await app.request('/dashboard/api/workflow-instances/instance_presentation/presentation');
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      presentation: {
+        workflowName: 'Two agent review round',
+        originalTask: 'show clean story',
+        status: 'completed',
+        timeline: [
+          { role: 'Implementer', initialMessage: { text: 'Implement show clean story' }, finalResponse: { text: 'Implemented.' } },
+          { role: 'Reviewer', initialMessage: { text: 'Review Implementer response included above.' }, finalResponse: { text: 'Approved.' } },
+        ],
+      },
+    });
+  });
+
   it('returns 404 for missing workflow orchestration inspection endpoints', async () => {
     const handle = await initVdDb({ path: ':memory:' });
     dbHandles.push(handle);
@@ -483,6 +543,10 @@ describe('registerWorkflowRoutes', () => {
     const attentionResponse = await app.request('/dashboard/api/workflow-attention-items/missing');
     expect(attentionResponse.status).toBe(404);
     await expect(attentionResponse.json()).resolves.toEqual({ error: 'workflow_attention_item_not_found' });
+
+    const presentationResponse = await app.request('/dashboard/api/workflow-instances/missing/presentation');
+    expect(presentationResponse.status).toBe(404);
+    await expect(presentationResponse.json()).resolves.toEqual({ error: 'workflow_presentation_not_found', message: 'Workflow not found' });
   });
 
 

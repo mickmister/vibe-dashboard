@@ -704,7 +704,10 @@ function WorkflowInstanceTimeline(props: { status: WorkflowInstanceStatusRespons
     <div className="rounded-md border border-zinc-800 bg-zinc-950/70 p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="font-medium">Durable instance status</h3>
-        <button className={buttonClass} onClick={props.onRefresh} disabled={props.loading}>{props.loading ? 'Refreshing…' : 'Refresh instance'}</button>
+        <div className="flex flex-wrap gap-2">
+          {props.selectedInstanceId ? <a className={buttonClass} href={`/dashboard/workflows/${encodeURIComponent(props.selectedInstanceId)}`}>Open clean page</a> : null}
+          <button className={buttonClass} onClick={props.onRefresh} disabled={props.loading}>{props.loading ? 'Refreshing…' : 'Refresh instance'}</button>
+        </div>
       </div>
       {props.error ? <div role="alert" className="mt-2 rounded border border-red-800 bg-red-950/40 p-2 text-sm text-red-200">Instance status failed to load: {props.error}</div> : null}
       {props.status ? <>

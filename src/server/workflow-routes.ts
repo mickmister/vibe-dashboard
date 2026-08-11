@@ -22,6 +22,8 @@ import type { CachedRepoAlias } from '../workflows/github-ci';
 import type { WorkflowActivityScanner, WorkflowSchedulerBudgetPolicy } from './workflow-session-scanner';
 import type { WorkflowRoleSessionResolver } from './role-session-resolver';
 import type { DeclarativeWorkflowRuntime } from '../workflows/declarative/runtime';
+import type { VibeKanbanServerClient } from './vk-client';
+import { buildWorkflowPresentationModel } from './workflow-presentation-read-model';
 import { BUILT_IN_DECLARATIVE_WORKFLOW_DEFINITIONS, getBuiltInDeclarativeWorkflowDefinition } from '../workflows/declarative/builtins';
 import type { DeclarativeWorkflowDefinition } from '../workflows/declarative/definitions';
 import { normalizeDeclarativeWorkflowDefinition } from '../workflows/declarative/definitions';
@@ -49,6 +51,7 @@ export interface RegisterWorkflowRoutesOptions {
   workflowWebhookInboxStore?: DbWorkflowWebhookInboxStore;
   workflowWebhookWakeup?: Pick<WorkflowWebhookWakeup, 'trigger'>;
   workflowWebhookProvisioningStore?: Pick<DbWorkflowWebhookProvisioningStore, 'getSecret' | 'getPublicState'>;
+  vkClient?: Pick<VibeKanbanServerClient, 'getExecutionProcessFinalMessage' | 'getExecutionProcessRepoStates'>;
   vkWorkflowWebhookSecret?: string;
   githubWebhookSecret?: string;
   repoAliasCache?: RepoAliasCache;
@@ -273,6 +276,18 @@ export function registerWorkflowRoutes(
     const steps = await store.listStepStates(instance.instanceId);
     const triggers = await store.listTriggers({ instanceId: instance.instanceId, limit: 100 });
     return c.json({ instance, steps, triggers: triggers.triggers, output: asRecord(instance.state)?.output ?? null });
+  });
+
+  hono.get('/dashboard/api/workflow-instances/:instanceId/presentation', async (c) => {
+    const store = options.workflowOrchestrationStore;
+    if (!store) return c.json({ error: 'workflow_orchestration_store_not_configured' }, 503);
+    const presentation = await buildWorkflowPresentationModel({
+      store,
+      vk: options.vkClient,
+      instanceId: c.req.param('instanceId'),
+    });
+    if (!presentation) return c.json({ error: 'workflow_presentation_not_found', message: 'Workflow not found' }, 404);
+    return c.json({ presentation });
   });
 
   hono.get('/dashboard/api/workflow-attention-items', async (c) => {

@@ -1,3 +1,9 @@
+/**
+ * Covers:
+ * - test-plans/branches/8b79-vd-workflows/test-plan-2.md
+ * - TEST_CASE_M84_1A
+ * - TEST_CASE_M87_1A
+ */
 import { expect, test, type APIRequestContext, type Page } from 'playwright/test';
 
 const sandboxUrl = process.env.VK_MOCKED_SANDBOX_URL ?? 'http://127.0.0.1:50005';
@@ -63,6 +69,30 @@ test.describe('Docker qa-mode durable workflow UI', () => {
     const terminalInboxEvents = await webhookInboxCount(page.request);
     expect(terminalInboxEvents).toBeGreaterThanOrEqual(2);
 
+    const presentation = await fetchPresentation(page.request, instanceId);
+    expect(presentation.workflowName).toBe('Two agent review round');
+    expect(presentation.originalTask).toBe(task);
+    expect(presentation.timeline.map((item) => item.role)).toEqual(['Implementer', 'Reviewer']);
+
+    await page.goto(`/dashboard/workflows/${encodeURIComponent(instanceId)}`);
+    await expect(page.getByRole('heading', { name: 'Two agent review round' })).toBeVisible();
+    await expect(page.getByText(task)).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Timeline' })).toBeVisible();
+    await expect(page.getByText('Implementer').first()).toBeVisible();
+    await expect(page.getByText('Reviewer').first()).toBeVisible();
+    await expect(page.getByText('Initial message').first()).toBeVisible();
+    await expect(page.getByText('Final response').first()).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Open Implementer session' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Open Reviewer session' })).toBeVisible();
+    const cleanPageText = await page.locator('body').innerText();
+    for (const forbidden of ['HMAC', 'delivery id', 'trigger id', 'queue item id', 'execution process id', 'WorkflowStepState', 'runReady', 'raw JSON']) {
+      expect(cleanPageText).not.toContain(forbidden);
+    }
+
+    await page.reload();
+    await expect(page.getByRole('heading', { name: 'Two agent review round' })).toBeVisible();
+
+    await page.goto('/dashboard/teams');
     await page.reload();
     await expect(page.getByRole('heading', { name: 'Durable instance status' })).toBeVisible();
     await expect(page.getByText(instanceId).first()).toBeVisible({ timeout: 30_000 });
@@ -145,4 +175,19 @@ async function waitForWorkflowCompleted(request: APIRequestContext, instanceId: 
     return last.instance.status;
   }, { timeout: 180_000, intervals: [1_000, 2_000, 5_000] }).toBe('completed');
   return last!;
+}
+
+type PresentationResponse = {
+  presentation: {
+    workflowName: string;
+    originalTask: string | null;
+    timeline: Array<{ role: string }>;
+  };
+};
+
+async function fetchPresentation(request: APIRequestContext, instanceId: string): Promise<PresentationResponse['presentation']> {
+  const response = await request.get(new URL(`/dashboard/api/workflow-instances/${encodeURIComponent(instanceId)}/presentation`, sandboxUrl).toString());
+  expect(response.ok()).toBeTruthy();
+  const body = await response.json() as PresentationResponse;
+  return body.presentation;
 }
