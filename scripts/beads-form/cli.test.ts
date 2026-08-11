@@ -609,7 +609,7 @@ describe('beads-form CLI helpers', () => {
     expect(calls.map((args) => args[0])).toEqual(['show', 'update']);
   });
 
-  it('preflights metadata size before bd update without writing a recovery artifact', async () => {
+  it('does not reject bead issue metadata at the legacy 64 KiB TEXT limit', async () => {
     const calls: string[][] = [];
     const exec = vi.fn<ExecFileLike>(async (_file, args) => {
       calls.push([...args]);
@@ -627,8 +627,8 @@ describe('beads-form CLI helpers', () => {
       execFile: exec,
       forms: [form],
       options: { dir: '/repo', beadId: 'bd-1' } satisfies AttachOptions,
-    })).rejects.toThrow('No bead metadata was changed');
-    expect(calls.map((args) => args[0])).toEqual(['show']);
+    })).resolves.toMatchObject({ beadId: 'bd-1' });
+    expect(calls.map((args) => args[0])).toEqual(['show', 'update']);
   });
 
   it('passes session metadata through attach updates', async () => {

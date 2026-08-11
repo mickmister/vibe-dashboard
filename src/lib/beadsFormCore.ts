@@ -64,7 +64,12 @@ const FORM_META_KEY = 'beadForms';
 const LEGACY_FORM_META_KEY = 'beadsWeb';
 const FORM_RESPONSES_META_KEY = 'beadFormResponses';
 const FORM_SUMMARY_META_KEY = 'beadFormsSummary';
-export const DOLT_TEXT_COLUMN_MAX_BYTES = 65_535;
+// Bead metadata is stored in issues.metadata as JSON, not in the global
+// metadata.value TEXT column. In the embedded Dolt repos we checked,
+// @@max_allowed_packet is 1 GiB, so do not reject normal bead metadata at
+// MySQL TEXT's 64 KiB boundary.
+export const DOLT_JSON_METADATA_MAX_BYTES = 1_073_741_824;
+export const DOLT_TEXT_COLUMN_MAX_BYTES = DOLT_JSON_METADATA_MAX_BYTES;
 
 function isObject(value: unknown): value is JsonObject {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -259,7 +264,7 @@ export function metadataJsonByteLength(metadata: unknown): number {
 
 export function assertMetadataFitsDoltTextColumn(
   metadata: unknown,
-  maxBytes = DOLT_TEXT_COLUMN_MAX_BYTES,
+  maxBytes = DOLT_JSON_METADATA_MAX_BYTES,
 ): void {
   const fields = isObject(metadata)
     ? Object.entries(metadata).map(([key, value]) => ({ key, bytes: metadataJsonByteLength(value) }))
@@ -267,8 +272,8 @@ export function assertMetadataFitsDoltTextColumn(
   for (const field of fields) {
     if (field.bytes > maxBytes) {
       throw new Error(
-        `Beads metadata field "${field.key}" is too large for the Dolt TEXT column (${field.bytes} bytes > ${maxBytes} bytes). `
-        + 'No bead metadata was changed. Split or shorten the BeadsForm content/responses before retrying.',
+        `Beads metadata field "${field.key}" is too large for the Dolt JSON metadata limit (${field.bytes} bytes > ${maxBytes} bytes). `
+        + 'No bead metadata was changed. Split, shorten, or archive the BeadsForm content/responses before retrying.',
       );
     }
   }
