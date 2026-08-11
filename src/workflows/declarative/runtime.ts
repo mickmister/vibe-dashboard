@@ -242,10 +242,6 @@ export class DeclarativeWorkflowRuntime {
         expectedQueueItemId: queued.queued_item.id,
         timeoutAt: this.computeTriggerTimeoutAt(definition),
       });
-      const waitingInstance = await this.store.markInstanceWaiting(ids.instanceId, {
-        currentStepId: waitStep.id,
-        waitingTriggerId: trigger.triggerId,
-      });
       const workflowCoreSnapshot = createInitialDeclarativeWorkflowCoreSnapshot({
         definition,
         instanceId: ids.instanceId,
@@ -256,10 +252,11 @@ export class DeclarativeWorkflowRuntime {
         now: this.now,
         createId: this.createId,
       });
-      const waitingInstanceWithCore = await this.store.updateInstanceState(
-        ids.instanceId,
-        withDeclarativeWorkflowCoreState(asOptionalRecord(waitingInstance.state) ?? {}, workflowCoreSnapshot),
-      );
+      const waitingInstanceWithCore = await this.store.markInstanceWaiting(ids.instanceId, {
+        currentStepId: waitStep.id,
+        waitingTriggerId: trigger.triggerId,
+        workflowCoreSnapshot,
+      });
       return {
         instance: waitingInstanceWithCore,
         steps: await this.getInstanceSteps(ids.instanceId),
@@ -288,15 +285,15 @@ export class DeclarativeWorkflowRuntime {
     if (!this.responsePipe) throw new DeclarativeWorkflowRuntimeError('Declarative workflow runtime resume requires responsePipe');
     await this.scopedTriggerSatisfier?.runOnce();
     const definition = normalizeDeclarativeWorkflowDefinition(args.definition);
-    const running = await this.store.listInstances({ workflowId: definition.id, status: 'running', limit: 100 });
-    return this.runReadyInstances(running.instances, (instance) => this.resolveDefinitionForInstance(instance, definition));
+    const active = await this.listActiveInstances(definition.id);
+    return this.runReadyInstances(active, (instance) => this.resolveDefinitionForInstance(instance, definition));
   }
 
   async runReady(): Promise<DeclarativeWorkflowRunOnceResult> {
     if (!this.responsePipe) throw new DeclarativeWorkflowRuntimeError('Declarative workflow runtime resume requires responsePipe');
     await this.scopedTriggerSatisfier?.runOnce();
-    const running = await this.listAllRunningInstances();
-    return this.runReadyInstances(running, (instance) => this.resolveDefinitionForInstance(instance));
+    const active = await this.listAllActiveInstances();
+    return this.runReadyInstances(active, (instance) => this.resolveDefinitionForInstance(instance));
   }
 
   private async runReadyInstances(
@@ -333,11 +330,18 @@ export class DeclarativeWorkflowRuntime {
     return { resumed, completed, skipped, errors };
   }
 
-  private async listAllRunningInstances(): Promise<WorkflowInstanceReadModel[]> {
+  private async listAllActiveInstances(): Promise<WorkflowInstanceReadModel[]> {
+    return [
+      ...await this.listActiveInstances(undefined, 'running'),
+      ...await this.listActiveInstances(undefined, 'waiting'),
+    ];
+  }
+
+  private async listActiveInstances(workflowId?: string, status: WorkflowInstanceReadModel['status'] = 'running'): Promise<WorkflowInstanceReadModel[]> {
     const instances: WorkflowInstanceReadModel[] = [];
     let offset = 0;
     for (;;) {
-      const page = await this.store.listInstances({ status: 'running', limit: 100, offset });
+      const page = await this.store.listInstances({ workflowId, status, limit: 100, offset });
       instances.push(...page.instances);
       if (!page.hasMore) return instances;
       offset += page.limit;
@@ -424,9 +428,24 @@ export class DeclarativeWorkflowRuntime {
         review: responseRef(reviewResponse),
       },
     };
+    const sourceTrigger = await this.findTriggerForStep(instance.instanceId, sourceWaitStep.id, 'satisfied');
+    const reviewTrigger = await this.findTriggerForStep(instance.instanceId, reviewWaitStep.id, 'satisfied');
+    const existingCoreSnapshot = readDeclarativeWorkflowCoreSnapshot(instance.state);
+    const reviewSnapshotStart = existingCoreSnapshot?.waitingFor?.stepId === reviewWaitStep.id
+      ? existingCoreSnapshot
+      : this.computeSourceToReviewCoreSnapshot(
+          definition,
+          instance,
+          sourceWaitStep,
+          reviewWaitStep,
+          requireStepState(steps, sourceWaitStep.id),
+          sourceTrigger?.triggerId ?? '',
+          sourceOutput.executionProcessId,
+          reviewTrigger?.triggerId ?? reviewWaitState.waitingTriggerId ?? `${instance.instanceId}_${reviewWaitStep.id}_trigger`,
+        ) ?? existingCoreSnapshot;
     const workflowCoreSnapshot = advanceDeclarativeWorkflowCoreSnapshot({
       definition,
-      snapshot: readDeclarativeWorkflowCoreSnapshot(instance.state),
+      snapshot: reviewSnapshotStart,
       completedWaitStepId: reviewWaitStep.id,
       completedTriggerId: reviewWaitState.waitingTriggerId ?? `${instance.instanceId}_${reviewWaitStep.id}_trigger`,
       responseRef: reviewOutput.executionProcessId,
@@ -553,8 +572,14 @@ export class DeclarativeWorkflowRuntime {
     const reviewPipeState = requireStepState(steps, reviewPipeStep.id);
     const reviewWaitState = requireStepState(steps, reviewWaitStep.id);
     if (sourceWaitState.status !== 'completed') return null;
-    if (reviewWaitState.status === 'waiting') return null;
-    if (reviewPipeState.status === 'completed') return null;
+    if (reviewWaitState.status === 'waiting') {
+      await this.persistSourceToReviewCoreSnapshotIfNeeded(definition, instance, sourceWaitStep, reviewWaitStep, sourceWaitState, reviewWaitState);
+      return null;
+    }
+    if (reviewPipeState.status === 'completed') {
+      await this.persistSourceToReviewCoreSnapshotIfNeeded(definition, instance, sourceWaitStep, reviewWaitStep, sourceWaitState, reviewWaitState);
+      return null;
+    }
     if (reviewPipeState.status !== 'pending' && reviewPipeState.status !== 'running') return null;
 
     const resolvedRoles = readResolvedRoles(requireStepState(steps, resolveStep.id).output);
@@ -602,6 +627,17 @@ export class DeclarativeWorkflowRuntime {
       const queuedDelivery = pipeResult.deliveries.find((delivery) => delivery.delivery.queueItemId);
       const queueItemId = queuedDelivery?.delivery.queueItemId;
       if (!queueItemId) return null;
+      const reviewTriggerId = `${instance.instanceId}_${reviewWaitStep.id}_trigger`;
+      const workflowCoreSnapshot = this.computeSourceToReviewCoreSnapshot(
+        definition,
+        instance,
+        sourceWaitStep,
+        reviewWaitStep,
+        sourceWaitState,
+        sourceTrigger?.triggerId ?? sourceWaitState.waitingTriggerId ?? '',
+        sourceOutput.executionProcessId,
+        reviewTriggerId,
+      );
 
       const handoff = await this.store.completePipeHandoffAndWait({
         instanceId: instance.instanceId,
@@ -618,7 +654,7 @@ export class DeclarativeWorkflowRuntime {
           queueItemId,
         },
         trigger: {
-          triggerId: `${instance.instanceId}_${reviewWaitStep.id}_trigger`,
+          triggerId: reviewTriggerId,
           instanceId: instance.instanceId,
           stepStateId: reviewWaitState.id,
           stepKey: reviewWaitStep.id,
@@ -632,25 +668,8 @@ export class DeclarativeWorkflowRuntime {
           expectedQueueItemId: queueItemId,
           timeoutAt: this.computeTriggerTimeoutAt(definition),
         },
+        workflowCoreSnapshot,
       });
-      const workflowCoreSnapshot = advanceDeclarativeWorkflowCoreSnapshot({
-        definition,
-        snapshot: readDeclarativeWorkflowCoreSnapshot(instance.state),
-        completedWaitStepId: sourceWaitStep.id,
-        completedTriggerId: sourceTrigger?.triggerId ?? sourceWaitState.waitingTriggerId ?? '',
-        responseRef: sourceOutput.executionProcessId,
-        sourceWaitStep,
-        reviewWaitStep,
-        nextTriggerId: handoff.trigger.triggerId,
-        now: this.now,
-        createId: this.createId,
-      });
-      if (workflowCoreSnapshot) {
-        await this.store.updateInstanceState(
-          instance.instanceId,
-          withDeclarativeWorkflowCoreState(asOptionalRecord(handoff.instance.state) ?? asOptionalRecord(instance.state) ?? {}, workflowCoreSnapshot),
-        );
-      }
       return {
         instanceId: instance.instanceId,
         sourceExecutionProcessId: sourceOutput.executionProcessId,
@@ -667,6 +686,69 @@ export class DeclarativeWorkflowRuntime {
       }
       throw error;
     }
+  }
+
+  private async persistSourceToReviewCoreSnapshotIfNeeded(
+    definition: DeclarativeWorkflowDefinition,
+    instance: WorkflowInstanceReadModel,
+    sourceWaitStep: DeclarativeWaitForNextCompletedResponseStep,
+    reviewWaitStep: DeclarativeWaitForNextCompletedResponseStep,
+    sourceWaitState: WorkflowStepStateReadModel,
+    reviewWaitState: WorkflowStepStateReadModel,
+  ): Promise<void> {
+    if (reviewWaitState.status !== 'waiting' && reviewWaitState.status !== 'completed') return;
+    const sourceOutput = readResponseStepOutput(sourceWaitState.output);
+    const sourceTrigger = await this.findTriggerForStep(instance.instanceId, sourceWaitStep.id, 'satisfied');
+    const reviewTrigger = await this.findTriggerForStep(instance.instanceId, reviewWaitStep.id, reviewWaitState.status === 'completed' ? 'satisfied' : 'active');
+    const workflowCoreSnapshot = this.computeSourceToReviewCoreSnapshot(
+      definition,
+      instance,
+      sourceWaitStep,
+      reviewWaitStep,
+      sourceWaitState,
+      sourceTrigger?.triggerId ?? sourceWaitState.waitingTriggerId ?? '',
+      sourceOutput.executionProcessId,
+      reviewTrigger?.triggerId ?? reviewWaitState.waitingTriggerId ?? `${instance.instanceId}_${reviewWaitStep.id}_trigger`,
+    );
+    if (!workflowCoreSnapshot || readDeclarativeWorkflowCoreSnapshot(instance.state)?.waitingFor?.stepId === reviewWaitStep.id) return;
+    await this.store.updateWorkflowCoreSnapshot(instance.instanceId, workflowCoreSnapshot);
+  }
+
+  private computeSourceToReviewCoreSnapshot(
+    definition: DeclarativeWorkflowDefinition,
+    instance: WorkflowInstanceReadModel,
+    sourceWaitStep: DeclarativeWaitForNextCompletedResponseStep,
+    reviewWaitStep: DeclarativeWaitForNextCompletedResponseStep,
+    sourceWaitState: WorkflowStepStateReadModel,
+    sourceTriggerId: string,
+    sourceExecutionProcessId: string,
+    reviewTriggerId: string,
+  ) {
+    const existing = readDeclarativeWorkflowCoreSnapshot(instance.state);
+    const sourceSnapshot = existing?.waitingFor?.stepId === sourceWaitStep.id
+      ? existing
+      : createInitialDeclarativeWorkflowCoreSnapshot({
+          definition,
+          instanceId: instance.instanceId,
+          inputs: instance.input as Record<string, unknown>,
+          sourceWaitStep,
+          reviewWaitStep,
+          sourceTriggerId,
+          now: this.now,
+          createId: this.createId,
+        });
+    return advanceDeclarativeWorkflowCoreSnapshot({
+      definition,
+      snapshot: sourceSnapshot,
+      completedWaitStepId: sourceWaitStep.id,
+      completedTriggerId: sourceTriggerId || sourceSnapshot.waitingFor?.turnId || sourceWaitState.waitingTriggerId || '',
+      responseRef: sourceExecutionProcessId,
+      sourceWaitStep,
+      reviewWaitStep,
+      nextTriggerId: reviewTriggerId,
+      now: this.now,
+      createId: this.createId,
+    });
   }
 
   private async runResolveRoles(args: {

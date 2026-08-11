@@ -506,6 +506,60 @@ describe('DeclarativeWorkflowRuntime start skeleton', () => {
     });
   });
 
+  it('recovers stale core snapshot after reviewer handoff side effects are already durable', async () => {
+    const harness = await createHarness();
+    const started = await startAndSatisfySource(harness);
+    await harness.handle.db
+      .updateTable('WorkflowInstance')
+      .set({ stateJson: JSON.stringify({ ...(started.instance.state as Record<string, unknown>), unrelatedMarker: 'preserve-me' }) })
+      .where('instanceId', '=', started.instance.instanceId)
+      .execute();
+    const originalHandoff = harness.store.completePipeHandoffAndWait.bind(harness.store);
+    vi.spyOn(harness.store, 'completePipeHandoffAndWait').mockImplementationOnce((input) =>
+      originalHandoff({ ...input, workflowCoreSnapshot: undefined }),
+    );
+
+    const handoff = await harness.runtime.runReady();
+    expect(handoff.resumed).toHaveLength(1);
+    expect(harness.vk.queueFollowUp).toHaveBeenCalledTimes(2);
+    await expect(harness.store.getInstance(started.instance.instanceId)).resolves.toMatchObject({
+      status: 'waiting',
+      state: {
+        unrelatedMarker: 'preserve-me',
+        workflowCoreSnapshot: {
+          currentState: 'source',
+          waitingFor: { stepId: 'wait_source' },
+        },
+      },
+    });
+
+    const retry = await harness.runtime.runReady();
+
+    expect(retry.resumed).toEqual([]);
+    expect(retry.errors).toEqual([]);
+    expect(harness.vk.queueFollowUp).toHaveBeenCalledTimes(2);
+    await expect(harness.store.getInstance(started.instance.instanceId)).resolves.toMatchObject({
+      status: 'waiting',
+      state: {
+        unrelatedMarker: 'preserve-me',
+        workflowCoreSnapshot: {
+          status: 'running',
+          currentState: 'review',
+          latestTransition: {
+            fromState: 'source',
+            toState: 'review',
+            action: 'source_completed',
+            responseRef: 'exec-source',
+          },
+          waitingFor: {
+            stepId: 'wait_review',
+            turnId: 'instance-resume_wait_review_trigger',
+          },
+        },
+      },
+    });
+  });
+
   it('runReady resumes and completes a custom persisted definition after restart', async () => {
     const harness = await createHarness();
     const definition = customDefinition();

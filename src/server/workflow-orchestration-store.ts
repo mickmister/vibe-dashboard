@@ -175,6 +175,7 @@ export interface CompletePipeHandoffInput {
   waitStepKey: string;
   pipeOutput: JsonValue;
   trigger: CreateWorkflowScopedTriggerInput;
+  workflowCoreSnapshot?: JsonValue;
 }
 
 export interface CompleteWorkflowNotificationInput {
@@ -256,15 +257,23 @@ export class DbWorkflowOrchestrationStore {
     return this.getRequiredInstance(instanceId);
   }
 
-  async markInstanceWaiting(instanceId: string, args: { currentStepId: string; waitingTriggerId?: string | null; expectedVersion?: number }): Promise<WorkflowInstanceReadModel> {
+  async markInstanceWaiting(instanceId: string, args: { currentStepId: string; waitingTriggerId?: string | null; workflowCoreSnapshot?: JsonValue; expectedVersion?: number }): Promise<WorkflowInstanceReadModel> {
     const db = await this.getDb();
     const now = this.now();
     await db.transaction().execute(async (trx) => {
+      const existingInstance = args.workflowCoreSnapshot !== undefined
+        ? await trx
+            .selectFrom('WorkflowInstance')
+            .select(['stateJson'])
+            .where('instanceId', '=', instanceId)
+            .executeTakeFirst()
+        : null;
       let instanceQuery = trx
         .updateTable('WorkflowInstance')
         .set((eb) => ({
           status: 'waiting' as const,
           currentStepId: args.currentStepId,
+          ...(args.workflowCoreSnapshot !== undefined ? { stateJson: serializeJson(mergeWorkflowCoreSnapshotJson(existingInstance?.stateJson, args.workflowCoreSnapshot)) } : {}),
           updatedAt: now,
           version: eb('version', '+', 1),
         }))
@@ -341,19 +350,32 @@ export class DbWorkflowOrchestrationStore {
     return this.getRequiredInstance(instanceId);
   }
 
-  async updateInstanceState(instanceId: string, state: JsonValue, expectedVersion?: number): Promise<WorkflowInstanceReadModel> {
+  async updateWorkflowCoreSnapshot(instanceId: string, snapshot: JsonValue, expectedVersion?: number): Promise<WorkflowInstanceReadModel> {
     const db = await this.getDb();
     const now = this.now();
-    let query = db
-      .updateTable('WorkflowInstance')
-      .set((eb) => ({
-        stateJson: serializeJson(state),
-        updatedAt: now,
-        version: eb('version', '+', 1),
-      }))
-      .where('instanceId', '=', instanceId);
-    if (expectedVersion != null) query = query.where('version', '=', expectedVersion);
-    await assertUpdated(query.executeTakeFirst(), `Cannot update workflow instance ${instanceId} state`);
+    await db.transaction().execute(async (trx) => {
+      const existing = await trx
+        .selectFrom('WorkflowInstance')
+        .select(['stateJson', 'version'])
+        .where('instanceId', '=', instanceId)
+        .executeTakeFirst();
+      if (!existing) throw new Error(`Workflow instance ${instanceId} not found`);
+      if (expectedVersion != null && existing.version !== expectedVersion) {
+        throw new WorkflowOrchestrationTransitionError(`Cannot update workflow instance ${instanceId} workflow core snapshot from stale version`);
+      }
+      await assertUpdated(
+        trx
+          .updateTable('WorkflowInstance')
+          .set((eb) => ({
+            stateJson: serializeJson(mergeWorkflowCoreSnapshotJson(existing.stateJson, snapshot)),
+            updatedAt: now,
+            version: eb('version', '+', 1),
+          }))
+          .where('instanceId', '=', instanceId)
+          .executeTakeFirst(),
+        `Cannot update workflow instance ${instanceId} workflow core snapshot`,
+      );
+    });
     return this.getRequiredInstance(instanceId);
   }
 
@@ -669,12 +691,21 @@ export class DbWorkflowOrchestrationStore {
         })
         .execute();
 
+      const instanceRowForCoreState = input.workflowCoreSnapshot !== undefined
+        ? await trx
+            .selectFrom('WorkflowInstance')
+            .select(['stateJson'])
+            .where('instanceId', '=', input.instanceId)
+            .executeTakeFirst()
+        : null;
+
       await assertUpdated(
         trx
           .updateTable('WorkflowInstance')
           .set((eb) => ({
             status: 'waiting' as const,
             currentStepId: input.waitStepKey,
+            ...(input.workflowCoreSnapshot !== undefined ? { stateJson: serializeJson(mergeWorkflowCoreSnapshotJson(instanceRowForCoreState?.stateJson, input.workflowCoreSnapshot)) } : {}),
             updatedAt: now,
             version: eb('version', '+', 1),
           }))
@@ -1081,6 +1112,21 @@ async function assertUpdated(resultPromise: Promise<{ numUpdatedRows: bigint | n
 
 function serializeJson(value: JsonValue): string {
   return JSON.stringify(value ?? null);
+}
+
+function mergeWorkflowCoreSnapshotJson(stateJson: string | null | undefined, snapshot: JsonValue): JsonValue {
+  const state = stateJson ? parseStoredJson(stateJson) : null;
+  const record = state && typeof state === 'object' && !Array.isArray(state)
+    ? state as Record<string, unknown>
+    : {};
+  return {
+    ...record,
+    workflowCoreBridge: {
+      schemaVersion: 1,
+      kind: 'declarative_two_agent_review_round',
+    },
+    workflowCoreSnapshot: snapshot,
+  };
 }
 
 function parseStoredJson(value: string): JsonValue {
