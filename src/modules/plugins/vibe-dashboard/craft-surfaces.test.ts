@@ -54,7 +54,7 @@ const surfaces: RegisteredCraftSurfaceContribution[] = [
 ];
 
 describe("dynamic Craft surfaces", () => {
-  it("derives Agent, Code, Beads, Forms, and built-in split pairs from Craft workspace metadata", () => {
+  it("derives Agent, Code, Beads, Forms, Workflows, and built-in split pairs from Craft workspace metadata", () => {
     const effective = createEffectiveWorkspaceWithCraftSurfaces({
       workspace: {
         ...workspace,
@@ -87,6 +87,7 @@ describe("dynamic Craft surfaces", () => {
       ],
       ["beads", "Beads", "https://beads-web.vd.example.test"],
       ["forms", "Forms", "https://vd.example.test/dashboard/forms?workspace=workspace_1"],
+      ["workflows", "Workflows", "https://vd.example.test/dashboard/workflows?workspaceId=workspace_1"],
     ]);
     expect(effective.tabGroups[0]!.pairs).toEqual([
       { id: "agent+code", tabIds: ["agent", "code"], ratios: [50, 50] },
@@ -222,6 +223,7 @@ describe("dynamic Craft surfaces", () => {
       ],
       ["beads", "Beads", "http://beads-web.localhost:3001"],
       ["forms", "Forms", "http://localhost:3001/dashboard/forms?workspace=workspace_1"],
+      ["workflows", "Workflows", "http://localhost:3001/dashboard/workflows?workspaceId=workspace_1"],
     ]);
   });
 
@@ -260,6 +262,7 @@ describe("dynamic Craft surfaces", () => {
         ],
         ["beads", "Beads", "http://beads-web.localhost:4101"],
         ["forms", "Forms", "http://localhost:4101/dashboard/forms?workspace=workspace_1"],
+        ["workflows", "Workflows", "http://localhost:4101/dashboard/workflows?workspaceId=workspace_1"],
       ]);
     } finally {
       vi.unstubAllEnvs();

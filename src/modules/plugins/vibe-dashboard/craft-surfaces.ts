@@ -14,6 +14,7 @@ export const BUILT_IN_AGENT_TAB_ID = "agent";
 export const BUILT_IN_CODE_TAB_ID = "code";
 export const BUILT_IN_BEADS_TAB_ID = "beads";
 export const BUILT_IN_FORMS_TAB_ID = "forms";
+export const BUILT_IN_WORKFLOWS_TAB_ID = "workflows";
 export const BUILT_IN_AGENT_CODE_PAIR_ID = "agent+code";
 export const BUILT_IN_AGENT_BEADS_PAIR_ID = "agent+beads";
 
@@ -22,6 +23,7 @@ const BUILT_IN_WORKSPACE_TAB_IDS = new Set([
   BUILT_IN_CODE_TAB_ID,
   BUILT_IN_BEADS_TAB_ID,
   BUILT_IN_FORMS_TAB_ID,
+  BUILT_IN_WORKFLOWS_TAB_ID,
 ]);
 const BUILT_IN_WORKSPACE_PAIR_IDS = new Set([
   BUILT_IN_AGENT_CODE_PAIR_ID,
@@ -217,6 +219,12 @@ function getBuiltInWorkspaceTabs(tabGroup: TabGroup, origin: string): Tab[] {
       id: BUILT_IN_FORMS_TAB_ID,
       title: "Forms",
       url: buildFormsUrl(dashboardBaseOrigin, metadata.workspaceId, metadata.formsBeadId),
+      pinned: true,
+    },
+    {
+      id: BUILT_IN_WORKFLOWS_TAB_ID,
+      title: "Workflows",
+      url: buildWorkflowsUrl(dashboardBaseOrigin, metadata.workspaceId),
       pinned: true,
     },
   ];
@@ -461,6 +469,11 @@ function getConfiguredVkBaseOrigin(): string | null {
 
 function buildWorkspaceTabUrl(baseOrigin: string, workspaceId: string): string {
   return `${baseOrigin}/workspaces/${workspaceId}`;
+}
+
+function buildWorkflowsUrl(baseOrigin: string, workspaceId: string): string {
+  const params = new URLSearchParams({ workspaceId });
+  return `${baseOrigin}/dashboard/workflows?${params.toString()}`;
 }
 
 function buildFormsUrl(baseOrigin: string, workspaceId: string, beadId?: string): string {

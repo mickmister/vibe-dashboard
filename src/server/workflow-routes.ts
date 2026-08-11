@@ -1,4 +1,5 @@
 import type { Hono } from 'hono';
+import type { Kysely } from 'kysely';
 import {
   runWorkflow,
   WorkflowNotFoundError,
@@ -29,6 +30,10 @@ import type { DeclarativeWorkflowDefinition } from '../workflows/declarative/def
 import { normalizeDeclarativeWorkflowDefinition } from '../workflows/declarative/definitions';
 import type { DbDeclarativeWorkflowDefinitionStore } from './declarative-workflow-definition-store';
 import type { DbWorkflowWebhookProvisioningStore } from './workflow-webhook-provisioning-store';
+import { buildWorkspaceWorkflowsHomeModel } from '../modules/plugins/workflows/server/workflowsHomeReadModel';
+import type { DbWorkflowDesignStore } from '../modules/plugins/workflows/server/workflowDesignStore';
+import { getVdDb } from './database';
+import type { DB } from '../store/kysely_types';
 import {
   parseVkWorkflowWebhookPayload,
   verifyVkWebhookSignature,
@@ -51,6 +56,8 @@ export interface RegisterWorkflowRoutesOptions {
   workflowWebhookInboxStore?: DbWorkflowWebhookInboxStore;
   workflowWebhookWakeup?: Pick<WorkflowWebhookWakeup, 'trigger'>;
   workflowWebhookProvisioningStore?: Pick<DbWorkflowWebhookProvisioningStore, 'getSecret' | 'getPublicState'>;
+  workflowDesignStore?: DbWorkflowDesignStore;
+  workflowHomeDb?: Kysely<DB>;
   vkClient?: Pick<VibeKanbanServerClient, 'getExecutionProcessFinalMessage' | 'getExecutionProcessRepoStates'>;
   vkWorkflowWebhookSecret?: string;
   githubWebhookSecret?: string;
@@ -68,6 +75,19 @@ export function registerWorkflowRoutes(
   options: RegisterWorkflowRoutesOptions,
 ): void {
   hono.get('/dashboard/api/workflows/health', (c) => c.json({ ok: true }));
+
+  hono.get('/dashboard/api/workflows/home', async (c) => {
+    const workspaceId = c.req.query('workspaceId')?.trim();
+    if (!workspaceId) return c.json({ error: 'workspace_id_required', message: 'Workspace is required' }, 400);
+    const db = options.workflowHomeDb ?? (await getVdDb()).db;
+    const home = await buildWorkspaceWorkflowsHomeModel({
+      db,
+      designStore: options.workflowDesignStore,
+      orchestrationStore: options.workflowOrchestrationStore,
+      workspaceId,
+    });
+    return c.json({ home });
+  });
 
   hono.get('/dashboard/api/workflow-webhooks/inbox', async (c) => {
     const store = options.workflowWebhookInboxStore;

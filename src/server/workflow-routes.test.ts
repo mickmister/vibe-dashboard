@@ -10,6 +10,7 @@ import { DbWorkflowOrchestrationStore } from './workflow-orchestration-store';
 import { DbDeclarativeWorkflowDefinitionStore } from './declarative-workflow-definition-store';
 import { DbWorkflowWebhookInboxStore, WorkflowWebhookWakeup, signVkWebhookPayload } from './workflow-webhook-inbox';
 import { DbWorkflowWebhookProvisioningStore } from './workflow-webhook-provisioning-store';
+import { DbWorkflowDesignStore } from '../modules/plugins/workflows/server/workflowDesignStore';
 
 describe('registerWorkflowRoutes', () => {
   const dbHandles: VdDbHandle[] = [];
@@ -35,6 +36,46 @@ describe('registerWorkflowRoutes', () => {
     await expectJson(app, '/dashboard/api/workflows/health', 200, { ok: true });
     await expectJson(app, '/dashboard/api/workflows', 200, {
       workflows: [{ id: 'example', trigger: 'manual' }],
+    });
+  });
+
+  it('returns workspace workflows home read model scoped to workspace', async () => {
+    const handle = await initVdDb({ path: ':memory:' });
+    dbHandles.push(handle);
+    const app = new Hono();
+    const designStore = new DbWorkflowDesignStore({ db: handle.db });
+    await designStore.createDesign({ designId: 'design-home', draftId: 'draft-home', name: 'Home Workflow', definition: routeValidDefinition() });
+    await designStore.publishDraft('draft-home');
+    await designStore.createRunSnapshot({ runSnapshotId: 'snapshot-home-a', designId: 'design-home', workspaceId: 'workspace-a', runInput: {}, roleBindings: {} });
+    await handle.db.insertInto('WorkflowPersistedRun').values({
+      runId: 'run-home-a',
+      runSnapshotId: 'snapshot-home-a',
+      designId: 'design-home',
+      designVersion: 1,
+      workspaceId: 'workspace-a',
+      status: 'completed',
+      coreModelJson: JSON.stringify({ name: 'Home Workflow' }),
+      coreSnapshotJson: '{}',
+      roleBindingsJson: '{}',
+      pendingEffectJson: null,
+      queuedTurnsJson: '{}',
+      eventsJson: '[]',
+      errorJson: null,
+      createdAt: 1,
+      updatedAt: 2,
+    }).execute();
+    registerWorkflowRoutes(app, { registry: createWorkflowRegistry(), workflowHomeDb: handle.db, workflowDesignStore: designStore });
+
+    const response = await app.request('/dashboard/api/workflows/home?workspaceId=workspace-a');
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      home: {
+        workspaceId: 'workspace-a',
+        availableWorkflows: [{ id: 'design-home', title: 'Home Workflow', status: 'ready' }],
+        recentRuns: [{ runId: 'run-home-a', workflowName: 'Home Workflow', detailUrl: '/dashboard/workflows/run-home-a' }],
+        needsInput: [],
+      },
     });
   });
 
@@ -1208,6 +1249,24 @@ function signedVkWebhookHeaders(secret: string, body: string): Record<string, st
     'X-VK-Webhook-Timestamp': timestamp,
     'X-VK-Webhook-Algorithm': 'hmac-sha256',
     'X-VK-Webhook-Signature': signVkWebhookPayload(secret, timestamp, body),
+  };
+}
+
+
+function routeValidDefinition() {
+  return {
+    schemaVersion: 1,
+    name: 'Home Workflow',
+    roles: { dev: { label: 'Dev' } },
+    initialState: 'dev',
+    states: {
+      dev: {
+        owner: 'dev',
+        steps: [{ id: 'decide', type: 'agent_turn', turnType: 'decision', prompt: { template: 'Decide' }, response: { format: 'xml', schema: { format: 'xsd', source: 'state_actions' }, invalidXmlRetry: { maxAttempts: 1, prompt: 'engine_default_with_validation_errors', onExhausted: 'blocked' }, storeRawXml: true, storeParsedFields: true, unknownFields: 'reject_unless_allowed_by_result_contract' } }],
+        actions: { done: { targetState: 'done' } },
+      },
+      done: { terminal: true },
+    },
   };
 }
 

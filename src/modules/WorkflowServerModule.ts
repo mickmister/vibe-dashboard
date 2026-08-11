@@ -19,6 +19,7 @@ import { ResponsePipeService } from '../server/response-pipe-service';
 import { DbDeclarativeWorkflowDefinitionStore } from '../server/declarative-workflow-definition-store';
 import { DbWorkflowWebhookInboxStore, WorkflowWebhookWakeup } from '../server/workflow-webhook-inbox';
 import { DbWorkflowWebhookProvisioningStore } from '../server/workflow-webhook-provisioning-store';
+import { DbWorkflowDesignStore } from './plugins/workflows/server/workflowDesignStore';
 import { WorkflowWebhookProvisioner, shouldStartWorkflowWebhookProvisioner } from '../server/workflow-webhook-provisioner';
 import { DeclarativeWorkflowRuntime } from '../workflows/declarative/runtime';
 import { createDeclarativeWorkflowWorker, getDeclarativeWorkflowWorkerIntervalMs, shouldStartDeclarativeWorkflowWorker } from '../workflows/declarative/worker';
@@ -48,6 +49,7 @@ serverRegistry.registerServerModule((api) => {
   const declarativeWorkflowDefinitionStore = new DbDeclarativeWorkflowDefinitionStore({ getDb: async () => (await getVdDb()).db });
   const workflowWebhookInboxStore = new DbWorkflowWebhookInboxStore({ getDb: async () => (await getVdDb()).db });
   const workflowWebhookProvisioningStore = new DbWorkflowWebhookProvisioningStore({ getDb: async () => (await getVdDb()).db });
+  const workflowDesignStore = new DbWorkflowDesignStore({ getDb: async () => (await getVdDb()).db });
   const declarativeWorkflowRuntime = new DeclarativeWorkflowRuntime({
     store: workflowOrchestrationStore,
     resolver: roleSessionResolver,
@@ -98,6 +100,7 @@ serverRegistry.registerServerModule((api) => {
     workflowWebhookInboxStore,
     workflowWebhookWakeup,
     workflowWebhookProvisioningStore,
+    workflowDesignStore,
     vkClient,
   });
   registerPluginAssetRoutes(api.hono, { installRoot: pluginInstallRoot });
