@@ -7,7 +7,14 @@ export type AggregateBeadsFormRef = {
 export type AggregateSubmitStatus =
   | { status: 'idle' }
   | { status: 'submitting' }
-  | { status: 'success'; values: Record<string, unknown>; warnings: string[] }
+  | {
+    status: 'success';
+    values: Record<string, unknown>;
+    warnings: string[];
+    clipboardCopied: boolean;
+    clipboardText: string;
+    clipboardWarning?: string;
+  }
   | { status: 'error'; message: string };
 
 export function parseAggregateBeadsFormRefs(params: URLSearchParams): AggregateBeadsFormRef[] {

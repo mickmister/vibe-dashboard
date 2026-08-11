@@ -34,6 +34,7 @@ import { shouldHydrateRefreshedWorkspaceForms } from '../lib/beadsFormRefreshSta
 import { initializeSingleQuestionMode, prehideInactiveSingleQuestionItems } from '../lib/beadsFormSingleQuestion';
 import { initializeCompactMoreInfo, refreshCompactMoreInfoState } from '../lib/beadsFormMoreInfo';
 import { preserveSubmittedFormDom } from '../lib/beadsFormSubmissionUi';
+import { copyNormalizedSubmittedResultJson, normalizedSubmittedResultJson, type ClipboardCopyResult } from '../lib/beadsFormSubmitSuccess';
 import {
   aggregateFormDomPrefix,
   namespaceAggregateFormHtml,
@@ -393,6 +394,47 @@ function SubmittingOverlay() {
   );
 }
 
+function SubmitSuccessSummary({
+  title,
+  clipboardResult,
+  values,
+  warnings,
+  onEdit,
+  children,
+}: {
+  title: string;
+  clipboardResult?: ClipboardCopyResult | null;
+  values: JsonObject;
+  warnings: string[];
+  onEdit: () => void;
+  children?: React.ReactNode;
+}) {
+  const manualCopyText = clipboardResult?.text ?? normalizedSubmittedResultJson(values);
+  return (
+    <section className="beadsform-submit-result" aria-live="polite">
+      <h2>{title}</h2>
+      <p>Your BeadsForm response was saved and the form is locked to the submitted answers.</p>
+      {clipboardResult?.copied ? (
+        <p>Copied normalized submitted response JSON to your clipboard.</p>
+      ) : (
+        <div className="beadsform-warning" role="status">
+          <p>{clipboardResult?.warning ?? 'Clipboard copy is unavailable. Use the manual copy field below.'}</p>
+        </div>
+      )}
+      {warnings.length > 0 ? (
+        <div className="beadsform-warning" role="status">
+          <h3>Warnings</h3>
+          <ul>{warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>
+        </div>
+      ) : null}
+      {children}
+      <button type="button" onClick={onEdit}>Edit response</button>
+      <h3>Normalized submitted response JSON</h3>
+      <textarea readOnly rows={Math.min(20, Math.max(6, manualCopyText.split('\n').length + 1))} value={manualCopyText} />
+    </section>
+  );
+}
+
 function BeadsFormLoadingCard({ title, description }: { title: string; description: React.ReactNode }) {
   return (
     <div className="beadsform-loading-shell" role="status" aria-live="polite">
@@ -426,6 +468,7 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitResult, setSubmitResult] = useState<SubmitPreviewFormResult | null>(null);
+  const [clipboardResult, setClipboardResult] = useState<ClipboardCopyResult | null>(null);
   const [submittedLocked, setSubmittedLocked] = useState(false);
   const submittedLockedRef = useRef(false);
   const submitInFlightRef = useRef(false);
@@ -440,6 +483,7 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
     setLoaded(null);
     setError(null);
     setSubmitResult(null);
+    setClipboardResult(null);
     submittedLockedRef.current = false;
     setSubmittedLocked(false);
     if (!folder) {
@@ -531,6 +575,8 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
   const handleEditResponse = () => {
     submittedLockedRef.current = false;
     setSubmittedLocked(false);
+    setSubmitResult(null);
+    setClipboardResult(null);
     if (previewStateKey && typeof window !== 'undefined') {
       startPreviewEdit(window.localStorage, previewStateKey);
     }
@@ -569,7 +615,7 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
       submittedLockedRef.current = true;
       setSubmittedLocked(true);
       setSubmitResult(result);
-      await navigator.clipboard?.writeText(JSON.stringify(result.values, null, 2)).catch(() => undefined);
+      setClipboardResult(await copyNormalizedSubmittedResultJson(navigator.clipboard, result.values));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
@@ -601,7 +647,7 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
           )}
         </section>
       ) : null}
-      {loaded?.selectedForm ? (
+      {loaded?.selectedForm && !submitResult ? (
         <section>
           <header className="beadsform-heading-row">
             <div>
@@ -624,20 +670,15 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
         </section>
       ) : null}
       {submitResult ? (
-        <section className="beadsform-submit-result">
-          <h2>JSON copied</h2>
-          <p>Copied normalized JSON to your clipboard.</p>
+        <SubmitSuccessSummary
+          title="Preview response submitted"
+          clipboardResult={clipboardResult}
+          values={submitResult.values}
+          warnings={submitResult.warnings}
+          onEdit={handleEditResponse}
+        >
           {submitResult.sidecarPath ? <p>Saved preview response to <code>{submitResult.sidecarPath}</code>.</p> : null}
-          {submitResult.warnings.length > 0 ? (
-            <div className="beadsform-warning" role="status">
-              <h3>Warnings</h3>
-              <ul>{submitResult.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>
-            </div>
-          ) : null}
-          {submittedLocked ? <p>The visual form is locked to this submitted response until you edit it.</p> : null}
-          <button type="button" onClick={handleEditResponse}>Edit response</button>
-          <pre><code>{JSON.stringify(submitResult.values, null, 2)}</code></pre>
-        </section>
+        </SubmitSuccessSummary>
       ) : null}
     </div>
   );
@@ -854,8 +895,15 @@ function AggregateBeadsFormCard({ item, submitBeadForm }: {
       });
       submittedLockedRef.current = true;
       setSubmittedLocked(true);
-      setStatus({ status: 'success', values: result.values, warnings: result.warnings });
-      await navigator.clipboard?.writeText(result.agentMessage).catch(() => undefined);
+      const copyResult = await copyNormalizedSubmittedResultJson(navigator.clipboard, result.values);
+      setStatus({
+        status: 'success',
+        values: result.values,
+        warnings: result.warnings,
+        clipboardCopied: copyResult.copied,
+        clipboardText: copyResult.text,
+        ...(copyResult.warning ? { clipboardWarning: copyResult.warning } : {}),
+      });
     } catch (error) {
       setStatus({ status: 'error', message: error instanceof Error ? error.message : String(error) });
     } finally {
@@ -876,9 +924,9 @@ function AggregateBeadsFormCard({ item, submitBeadForm }: {
         <a href={formViewUrl({ dir: item.ref.dir, beadId: item.ref.beadId, formId: item.ref.formId })}>Open alone</a>
       </header>
       {item.error ? <p role="alert" className="beadsform-error">{item.error}</p> : null}
-      {form ? (
+      {form && status.status !== 'success' ? (
         <>
-          {submittedLocked && status.status !== 'success' ? (
+          {submittedLocked ? (
             <div className="beadsform-warning" role="status">
               <p>This source form is showing the latest submitted response and is locked until you edit it.</p>
               <button type="button" onClick={handleEditResponse}>Edit response</button>
@@ -897,18 +945,17 @@ function AggregateBeadsFormCard({ item, submitBeadForm }: {
         </>
       ) : null}
       {status.status === 'success' ? (
-        <section className="beadsform-submit-result">
-          <h3>Submitted this source form</h3>
-          <p>Copied this source form’s agent-facing response text to your clipboard.</p>
-          {status.warnings.length > 0 ? (
-            <div className="beadsform-warning" role="status">
-              <h4>Warnings</h4>
-              <ul>{status.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>
-            </div>
-          ) : null}
-          <button type="button" onClick={handleEditResponse}>Edit response</button>
-          <pre>{JSON.stringify(status.values, null, 2)}</pre>
-        </section>
+        <SubmitSuccessSummary
+          title="Submitted this source form"
+          clipboardResult={{
+            copied: status.clipboardCopied,
+            text: status.clipboardText,
+            ...(status.clipboardWarning ? { warning: status.clipboardWarning } : {}),
+          }}
+          values={status.values}
+          warnings={status.warnings}
+          onEdit={handleEditResponse}
+        />
       ) : status.status === 'error' ? (
         <p role="alert" className="beadsform-error">Submit failed for this source form: {status.message}</p>
       ) : null}
@@ -1004,6 +1051,7 @@ function BeadsFormRoute({ actions }: { actions: {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitResult, setSubmitResult] = useState<SubmitFormResult | null>(null);
+  const [clipboardResult, setClipboardResult] = useState<ClipboardCopyResult | null>(null);
   const [submittedLocked, setSubmittedLocked] = useState(false);
   const submittedLockedRef = useRef(false);
   const submitInFlightRef = useRef(false);
@@ -1018,6 +1066,7 @@ function BeadsFormRoute({ actions }: { actions: {
     setLoaded(null);
     setError(null);
     setSubmitResult(null);
+    setClipboardResult(null);
     submittedLockedRef.current = false;
     setSubmittedLocked(false);
 
@@ -1152,6 +1201,8 @@ function BeadsFormRoute({ actions }: { actions: {
   const handleEditBeadResponse = () => {
     submittedLockedRef.current = false;
     setSubmittedLocked(false);
+    setSubmitResult(null);
+    setClipboardResult(null);
     if (beadDraftStorageKey && typeof window !== 'undefined') {
       startPreviewEdit(window.localStorage, beadDraftStorageKey);
     }
@@ -1191,7 +1242,7 @@ function BeadsFormRoute({ actions }: { actions: {
       submittedLockedRef.current = true;
       setSubmittedLocked(true);
       setSubmitResult(result);
-      await navigator.clipboard?.writeText(result.agentMessage).catch(() => undefined);
+      setClipboardResult(await copyNormalizedSubmittedResultJson(navigator.clipboard, result.values));
       if (window.parent && window.parent !== window) {
         window.parent.postMessage({ type: 'vk:bead-form-submitted' }, window.location.origin);
       }
@@ -1287,6 +1338,18 @@ function BeadsFormRoute({ actions }: { actions: {
             ))}
           </ul>
         </section>
+      ) : selectedForm && submitResult ? (
+        <SubmitSuccessSummary
+          title="BeadsForm submitted"
+          clipboardResult={clipboardResult}
+          values={submitResult.values}
+          warnings={submitResult.warnings}
+          onEdit={handleEditBeadResponse}
+        >
+          <p>Response saved on bead <code>{beadId}</code>.</p>
+          <h3>Pretty summary</h3>
+          <pre>{submitResult.prettySummary}</pre>
+        </SubmitSuccessSummary>
       ) : (
         <section>
           <div className="beadsform-heading-row">
@@ -1316,26 +1379,6 @@ function BeadsFormRoute({ actions }: { actions: {
       )}
 
       {error ? <p role="alert" className="beadsform-error">{error}</p> : null}
-      {submitResult ? (
-        <section className="beadsform-submit-result">
-          <h2>Submitted</h2>
-          <p>Copied the agent-facing response text to your clipboard. Paste it into the Agent tab to continue.</p>
-          {submitResult.warnings.length > 0 ? (
-            <div className="beadsform-warning" role="status">
-              <h3>Warnings</h3>
-              <ul>{submitResult.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>
-            </div>
-          ) : null}
-          {submittedLocked ? <p>The visual form is locked to this submitted response until you edit it.</p> : null}
-          <button type="button" onClick={handleEditBeadResponse}>Edit response</button>
-          <h3>Pretty summary</h3>
-          <pre>{submitResult.prettySummary}</pre>
-          <h3>Normalized JSON</h3>
-          <pre>{JSON.stringify(submitResult.values, null, 2)}</pre>
-          <h3>Agent message</h3>
-          <pre>{submitResult.agentMessage}</pre>
-        </section>
-      ) : null}
     </div>
   );
 }
