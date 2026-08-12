@@ -38,6 +38,7 @@ import { DbWorkflowDesignStore } from '../modules/plugins/workflows/server/workf
 import { PersistedWorkflowRuntimeService, type PersistedWorkflowRunReadModel } from '../modules/plugins/workflows/server/persistedWorkflowRuntime';
 import { BUILT_IN_WORKFLOW_TEMPLATES } from '../modules/plugins/workflows/templates/builtInWorkflowTemplates';
 import { buildPersistedWorkflowPresentationModel } from '../modules/plugins/workflows/server/persistedWorkflowPresentationReadModel';
+import { DEFAULT_WORKFLOW_BATCH_CAPACITY, WorkflowBatchSchedulerService } from '../modules/plugins/workflows/server/workflowBatchScheduler';
 import { getVdDb } from './database';
 import type { DB } from '../store/kysely_types';
 import {
@@ -66,6 +67,7 @@ export interface RegisterWorkflowRoutesOptions {
   workflowDesignStore?: DbWorkflowDesignStore;
   workflowHomeDb?: Kysely<DB>;
   persistedWorkflowRuntime?: Pick<PersistedWorkflowRuntimeService, 'launch' | 'completeHumanForm' | 'completeAgentTurn' | 'getRun'>;
+  workflowBatchCapacity?: Partial<typeof DEFAULT_WORKFLOW_BATCH_CAPACITY>;
   vkClient?: Partial<Pick<VibeKanbanServerClient, 'getExecutionProcessFinalMessage' | 'getExecutionProcessRepoStates' | 'getSessions' | 'getSession' | 'createSession' | 'queueFollowUp'>>;
   vkWorkflowWebhookSecret?: string;
   githubWebhookSecret?: string;
@@ -111,6 +113,58 @@ export function registerWorkflowRoutes(
       return c.json({ options: { workspaceId, workflow, sessions } });
     } catch (error) {
       return c.json({ error: 'workflow_launch_options_failed', message: error instanceof Error ? error.message : String(error) }, 400);
+    }
+  });
+
+  hono.post('/dashboard/api/workflows/batches', async (c) => {
+    const body = asRecord(await readJsonBody(c.req.raw));
+    const parsed = parseWorkflowBatchLaunchRequest(body);
+    if (!parsed.ok) return c.json({ error: parsed.error, message: parsed.message, fieldErrors: parsed.fieldErrors }, parsed.status);
+    const db = options.workflowHomeDb ?? (await getVdDb()).db;
+    const designStore = options.workflowDesignStore ?? new DbWorkflowDesignStore({ db, templates: BUILT_IN_WORKFLOW_TEMPLATES });
+    try {
+      const workflow = await buildLaunchWorkflowSummary(designStore, parsed.request.designId, parsed.request.version ?? undefined);
+      if (!workflow.canRun) return c.json({ error: 'workflow_unavailable', message: workflow.unavailableReason ?? 'Workflow is not available to run' }, 400);
+      const roleBindings = await resolveLaunchRoleBindings(options, parsed.request.workspaceId, workflow, parsed.request.roleBindings);
+      const items = parsed.request.items.map((item, index) => {
+        const validationErrors = validateLaunchInputs(workflow, item.inputs);
+        return {
+          inputs: item.inputs,
+          additionalInstructions: item.additionalInstructions,
+          roleBindings,
+          error: Object.keys(validationErrors).length > 0
+            ? { code: 'workflow_launch_validation_failed', message: `Batch item ${index + 1} is missing required workflow fields.`, fieldErrors: validationErrors }
+            : null,
+        };
+      });
+      const runtime = await resolvePersistedWorkflowRuntime(options, db, designStore);
+      if (!runtime) return c.json({ error: 'workflow_runtime_not_configured', message: 'Workflow launch is not configured.' }, 503);
+      const scheduler = new WorkflowBatchSchedulerService({
+        db,
+        designStore,
+        runtime,
+        capacity: options.workflowBatchCapacity,
+      });
+      const batch = await scheduler.enqueueBatch({
+        batchId: `workflow-batch-${randomUUID()}`,
+        designId: parsed.request.designId,
+        version: workflow.version ?? undefined,
+        workspaceId: parsed.request.workspaceId,
+        items,
+      });
+      const home = await buildWorkspaceWorkflowsHomeModel({
+        db,
+        designStore,
+        orchestrationStore: options.workflowOrchestrationStore,
+        workspaceId: parsed.request.workspaceId,
+      });
+      return c.json({ batch: summarizeWorkflowBatch(batch, workflow.title), home }, 201);
+    } catch (error) {
+      if (error instanceof WorkflowLaunchFieldError) {
+        return c.json({ error: 'workflow_launch_validation_failed', message: error.message, fieldErrors: error.fieldErrors }, 400);
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      return c.json({ error: 'workflow_batch_launch_failed', message }, 400);
     }
   });
 
@@ -813,6 +867,14 @@ interface WorkflowLaunchRequest {
   roleBindings: Record<string, WorkflowLaunchRoleBindingRequest>;
 }
 
+interface WorkflowBatchLaunchRequest {
+  workspaceId: string;
+  designId: string;
+  version: number | null;
+  items: Array<{ inputs: Record<string, unknown>; additionalInstructions: string | null }>;
+  roleBindings: Record<string, WorkflowLaunchRoleBindingRequest>;
+}
+
 class WorkflowLaunchFieldError extends Error {
   readonly fieldErrors: Record<string, string>;
 
@@ -985,6 +1047,36 @@ function parseWorkflowLaunchRequest(record: Record<string, unknown> | null):
   };
 }
 
+function parseWorkflowBatchLaunchRequest(record: Record<string, unknown> | null):
+  | { ok: true; request: WorkflowBatchLaunchRequest }
+  | { ok: false; status: 400; error: string; message: string; fieldErrors?: Record<string, string> } {
+  const workspaceId = asString(record?.workspaceId)?.trim();
+  const designId = asString(record?.designId)?.trim();
+  const roleBindings = asRecord(record?.roleBindings) ?? {};
+  const rawItems = Array.isArray(record?.items) ? record.items : [];
+  const fieldErrors: Record<string, string> = {};
+  if (!workspaceId) fieldErrors.workspaceId = 'Workspace is required.';
+  if (!designId) fieldErrors.designId = 'Workflow is required.';
+  if (rawItems.length === 0) fieldErrors.items = 'Add at least one batch item.';
+  if (Object.keys(fieldErrors).length > 0) return { ok: false, status: 400, error: 'workflow_batch_validation_failed', message: 'Please fix the batch details.', fieldErrors };
+  return {
+    ok: true,
+    request: {
+      workspaceId: workspaceId!,
+      designId: designId!,
+      version: typeof record?.version === 'number' ? record.version : null,
+      items: rawItems.map((item) => {
+        const itemRecord = asRecord(item) ?? {};
+        return {
+          inputs: asRecord(itemRecord.inputs) ?? {},
+          additionalInstructions: asString(itemRecord.additionalInstructions)?.trim() || null,
+        };
+      }),
+      roleBindings: normalizeRoleBindings(roleBindings),
+    },
+  };
+}
+
 function normalizeRoleBindings(input: Record<string, unknown>): Record<string, WorkflowLaunchRoleBindingRequest> {
   const bindings: Record<string, WorkflowLaunchRoleBindingRequest> = {};
   for (const [roleId, raw] of Object.entries(input)) {
@@ -1133,6 +1225,18 @@ async function findPersistedWorkflowTurnByQueueItem(db: Kysely<DB>, queueItemId:
     }
   }
   return null;
+}
+
+function summarizeWorkflowBatch(batch: { batchId: string; designId: string; designVersion: number; workspaceId: string; status: string; counts: unknown; items: unknown[]; updatedAt: number }, workflowName: string) {
+  return {
+    batchId: batch.batchId,
+    workflowName,
+    status: batch.status,
+    counts: batch.counts,
+    items: batch.items,
+    updatedAt: batch.updatedAt,
+    detailUrl: null,
+  };
 }
 
 function summarizePersistedRun(run: PersistedWorkflowRunReadModel) {

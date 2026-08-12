@@ -3,12 +3,23 @@ import type { DB } from '../../../../store/kysely_types';
 import type { DbWorkflowOrchestrationStore, WorkflowAttentionItemReadModel } from '../../../../server/workflow-orchestration-store';
 import { DbWorkflowDesignStore } from './workflowDesignStore';
 import { BUILT_IN_WORKFLOW_TEMPLATES } from '../templates/builtInWorkflowTemplates';
+import { WorkflowBatchSchedulerService, type WorkflowBatchReadModel } from './workflowBatchScheduler';
 
 export interface WorkspaceWorkflowsHomeModel {
   workspaceId: string;
   availableWorkflows: WorkspaceWorkflowSummary[];
   recentRuns: WorkspaceWorkflowRunSummary[];
   needsInput: WorkspaceWorkflowAttentionSummary[];
+  recentBatches: WorkspaceWorkflowBatchSummary[];
+}
+
+export interface WorkspaceWorkflowBatchSummary {
+  batchId: string;
+  workflowName: string;
+  status: string;
+  counts: WorkflowBatchReadModel['counts'];
+  updatedAt: number;
+  detailUrl: string | null;
 }
 
 export interface WorkspaceWorkflowSummary {
@@ -63,12 +74,13 @@ export async function buildWorkspaceWorkflowsHomeModel(args: {
   recentRunLimit?: number;
 }): Promise<WorkspaceWorkflowsHomeModel> {
   const designStore = args.designStore ?? new DbWorkflowDesignStore({ db: args.db, templates: BUILT_IN_WORKFLOW_TEMPLATES });
-  const [availableWorkflows, recentRuns, needsInput] = await Promise.all([
+  const [availableWorkflows, recentRuns, needsInput, recentBatches] = await Promise.all([
     listAvailableWorkflows(designStore),
     listRecentRuns(args.db, args.workspaceId, args.recentRunLimit ?? 10),
     listNeedsInput(args.orchestrationStore, args.workspaceId),
+    listRecentBatches(args.db, designStore, args.workspaceId),
   ]);
-  return { workspaceId: args.workspaceId, availableWorkflows, recentRuns, needsInput };
+  return { workspaceId: args.workspaceId, availableWorkflows, recentRuns, needsInput, recentBatches };
 }
 
 async function listAvailableWorkflows(designStore: DbWorkflowDesignStore): Promise<WorkspaceWorkflowSummary[]> {
@@ -132,6 +144,27 @@ function summarizeRoles(definition: unknown): WorkspaceWorkflowRoleSummary[] {
       description: typeof record.description === 'string' ? record.description : null,
     };
   });
+}
+
+
+async function listRecentBatches(db: Kysely<DB>, designStore: DbWorkflowDesignStore, workspaceId: string): Promise<WorkspaceWorkflowBatchSummary[]> {
+  const scheduler = new WorkflowBatchSchedulerService({
+    db,
+    designStore,
+    runtime: { async launch() { throw new Error('batch read model cannot launch runs'); } },
+  });
+  const batches = await scheduler.listBatches(workspaceId, 5);
+  return Promise.all(batches.map(async (batch) => {
+    const design = await designStore.getDesign(batch.designId);
+    return {
+      batchId: batch.batchId,
+      workflowName: design?.name ?? 'Workflow batch',
+      status: batch.status,
+      counts: batch.counts,
+      updatedAt: batch.updatedAt,
+      detailUrl: null,
+    };
+  }));
 }
 
 async function listRecentRuns(db: Kysely<DB>, workspaceId: string, limit: number): Promise<WorkspaceWorkflowRunSummary[]> {

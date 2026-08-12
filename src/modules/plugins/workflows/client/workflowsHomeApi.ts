@@ -3,6 +3,16 @@ export interface WorkspaceWorkflowsHomeModel {
   availableWorkflows: WorkspaceWorkflowSummary[];
   recentRuns: WorkspaceWorkflowRunSummary[];
   needsInput: WorkspaceWorkflowAttentionSummary[];
+  recentBatches: WorkspaceWorkflowBatchSummary[];
+}
+
+export interface WorkspaceWorkflowBatchSummary {
+  batchId: string;
+  workflowName: string;
+  status: string;
+  counts: { total: number; pending: number; running: number; completed: number; blocked: number; failed: number; cancelled: number };
+  updatedAt: number;
+  detailUrl: string | null;
 }
 
 export interface WorkspaceWorkflowInputSummary {
@@ -75,6 +85,14 @@ export interface LaunchWorkspaceWorkflowRequest {
   roleBindings: Record<string, WorkflowLaunchRoleBindingRequest>;
 }
 
+export interface BatchLaunchWorkspaceWorkflowRequest {
+  workspaceId: string;
+  designId: string;
+  version?: number | null;
+  items: Array<{ inputs: Record<string, unknown>; additionalInstructions?: string | null }>;
+  roleBindings: Record<string, WorkflowLaunchRoleBindingRequest>;
+}
+
 
 export interface UseWorkflowTemplateRequest {
   templateId: string;
@@ -92,6 +110,11 @@ export interface UseWorkflowTemplateResponse {
 
 export interface LaunchWorkspaceWorkflowResponse {
   run: { runId: string; workspaceId: string; status: string; detailUrl: string | null };
+  home?: WorkspaceWorkflowsHomeModel;
+}
+
+export interface BatchLaunchWorkspaceWorkflowResponse {
+  batch: WorkspaceWorkflowBatchSummary & { items?: unknown[] };
   home?: WorkspaceWorkflowsHomeModel;
 }
 
@@ -120,6 +143,17 @@ export async function fetchWorkflowLaunchOptions(workspaceId: string, designId: 
   const payload = await response.json().catch(() => ({})) as { options?: WorkflowLaunchOptions; error?: string; message?: string };
   if (response.ok && payload.options) return payload.options;
   throw new Error(payload.message || payload.error || `Failed to load launch options: ${response.status}`);
+}
+
+export async function batchLaunchWorkspaceWorkflow(request: BatchLaunchWorkspaceWorkflowRequest): Promise<BatchLaunchWorkspaceWorkflowResponse> {
+  const response = await fetch('/dashboard/api/workflows/batches', {
+    method: 'POST',
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+  });
+  const payload = await response.json().catch(() => ({})) as BatchLaunchWorkspaceWorkflowResponse & { error?: string; message?: string; fieldErrors?: Record<string, string> };
+  if (response.ok && payload.batch) return payload;
+  throw new WorkflowApiError(payload.message || payload.error || `Failed to batch workflow: ${response.status}`, payload.fieldErrors ?? {});
 }
 
 export async function launchWorkspaceWorkflow(request: LaunchWorkspaceWorkflowRequest): Promise<LaunchWorkspaceWorkflowResponse> {
