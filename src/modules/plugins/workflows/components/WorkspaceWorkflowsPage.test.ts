@@ -23,6 +23,10 @@ describe('WorkspaceWorkflowsHomeView', () => {
     expect(html).toContain('Create form from agent');
     expect(html).toContain('Feature workflow run');
     expect(html).toContain('1 complete · 1 running · 2 pending · 1 errors');
+    expect(html).toContain('Batch item details');
+    expect(html).toContain('Line 2');
+    expect(html).toContain('Batch item 2 is missing required workflow fields.');
+    expect(html).toContain('featureRequest: This field is required.');
     expect(html).not.toContain('href="/dashboard/workflows/run-a"');
     expect(html).toContain('href="/dashboard/workflows/legacy-attention"');
     for (const term of forbiddenTerms) expect(html).not.toContain(term);
@@ -51,7 +55,18 @@ function fixture(): WorkspaceWorkflowsHomeModel {
       { runId: 'run-a', workflowName: 'Feature workflow run', status: 'running', startedAt: 1, updatedAt: 2, detailUrl: null },
     ],
     recentBatches: [
-      { batchId: 'batch-a', workflowName: 'Feature workflow run', status: 'running', counts: { total: 5, completed: 1, running: 1, pending: 2, failed: 1, blocked: 0, cancelled: 0 }, updatedAt: 4, detailUrl: null },
+      {
+        batchId: 'batch-a',
+        workflowName: 'Feature workflow run',
+        status: 'running',
+        counts: { total: 5, completed: 1, running: 1, pending: 2, failed: 1, blocked: 0, cancelled: 0 },
+        items: [
+          { batchItemId: 'batch-a-item-0', itemIndex: 0, status: 'completed', runId: 'run-0', error: null },
+          { batchItemId: 'batch-a-item-1', itemIndex: 1, status: 'failed', runId: null, error: { code: 'workflow_launch_validation_failed', message: 'Batch item 2 is missing required workflow fields.', fieldErrors: { featureRequest: 'This field is required.' } } },
+        ],
+        updatedAt: 4,
+        detailUrl: null,
+      },
     ],
     needsInput: [
       { attentionItemId: 'attention-a', title: 'Answer planning questions', description: 'Please fill out the form.', workflowName: 'Feature workflow run', createdAt: 3, detailUrl: '/dashboard/workflows/legacy-attention' },

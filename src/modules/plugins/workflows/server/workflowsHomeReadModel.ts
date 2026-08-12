@@ -18,8 +18,17 @@ export interface WorkspaceWorkflowBatchSummary {
   workflowName: string;
   status: string;
   counts: WorkflowBatchReadModel['counts'];
+  items: WorkspaceWorkflowBatchItemSummary[];
   updatedAt: number;
   detailUrl: string | null;
+}
+
+export interface WorkspaceWorkflowBatchItemSummary {
+  batchItemId: string;
+  itemIndex: number;
+  status: string;
+  runId: string | null;
+  error: { code: string; message: string; fieldErrors?: Record<string, string> } | null;
 }
 
 export interface WorkspaceWorkflowSummary {
@@ -161,6 +170,13 @@ async function listRecentBatches(db: Kysely<DB>, designStore: DbWorkflowDesignSt
       workflowName: design?.name ?? 'Workflow batch',
       status: batch.status,
       counts: batch.counts,
+      items: batch.items.map((item) => ({
+        batchItemId: item.batchItemId,
+        itemIndex: item.itemIndex,
+        status: item.status,
+        runId: item.runId,
+        error: item.error,
+      })),
       updatedAt: batch.updatedAt,
       detailUrl: null,
     };

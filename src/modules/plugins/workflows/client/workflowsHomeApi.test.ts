@@ -30,8 +30,8 @@ describe('workflows home API client', () => {
 
 
   it('posts workflow batch launch requests', async () => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ batch: { batchId: 'batch-a', workflowName: 'Workflow', status: 'running', counts: { total: 2, pending: 1, running: 1, completed: 0, blocked: 0, failed: 0, cancelled: 0 }, updatedAt: 1, detailUrl: null } }), { status: 201 }));
-    await expect(batchLaunchWorkspaceWorkflow({ workspaceId: 'workspace-a', designId: 'design-a', items: [{ inputs: { featureRequest: 'One' } }], roleBindings: {} })).resolves.toMatchObject({ batch: { batchId: 'batch-a' } });
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ batch: { batchId: 'batch-a', workflowName: 'Workflow', status: 'running', counts: { total: 2, pending: 1, running: 1, completed: 0, blocked: 0, failed: 0, cancelled: 0 }, items: [{ itemIndex: 1, status: 'failed', runId: null, error: { code: 'workflow_launch_validation_failed', message: 'Missing field', fieldErrors: { featureRequest: 'This field is required.' } } }], updatedAt: 1, detailUrl: null } }), { status: 201 }));
+    await expect(batchLaunchWorkspaceWorkflow({ workspaceId: 'workspace-a', designId: 'design-a', items: [{ inputs: { featureRequest: 'One' } }], roleBindings: {} })).resolves.toMatchObject({ batch: { batchId: 'batch-a', items: [{ error: { fieldErrors: { featureRequest: 'This field is required.' } } }] } });
     expect(fetchMock).toHaveBeenCalledWith('/dashboard/api/workflows/batches', expect.objectContaining({ method: 'POST' }));
   });
 

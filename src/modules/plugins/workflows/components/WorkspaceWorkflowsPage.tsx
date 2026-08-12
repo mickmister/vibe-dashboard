@@ -364,9 +364,43 @@ function WorkflowInputField({ input, value, error, onChange }: { input: Workspac
 
 function BatchRow({ batch }: { batch: WorkspaceWorkflowBatchSummary }) {
   const classes = "rounded-lg border border-zinc-800 bg-zinc-950 p-4";
+  const errorCount = batch.counts.failed + batch.counts.blocked + batch.counts.cancelled;
+  const items = batch.items ?? [];
   return <div className={classes}>
-    <div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-semibold">{batch.workflowName}</h3><p className="mt-1 text-sm text-zinc-400">{batch.counts.completed} complete · {batch.counts.running} running · {batch.counts.pending} pending · {batch.counts.failed + batch.counts.blocked + batch.counts.cancelled} errors</p></div><StatusPill label={humanBatchStatus(batch.status)} tone={batch.status === 'completed' ? 'emerald' : batch.status === 'failed' ? 'amber' : 'cyan'} /></div>
+    <div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-semibold">{batch.workflowName}</h3><p className="mt-1 text-sm text-zinc-400">{batch.counts.completed} complete · {batch.counts.running} running · {batch.counts.pending} pending · {errorCount} errors</p></div><StatusPill label={humanBatchStatus(batch.status)} tone={batch.status === 'completed' ? 'emerald' : batch.status === 'failed' ? 'amber' : 'cyan'} /></div>
+    {items.length ? (
+      <details className="mt-3 rounded-md border border-zinc-800 bg-zinc-900/50 p-3">
+        <summary className="cursor-pointer text-sm font-medium text-zinc-200">Batch item details</summary>
+        <ul className="mt-3 space-y-2">
+          {items.map((item) => <BatchItemRow key={item.batchItemId ?? `${batch.batchId}-${item.itemIndex}`} item={item} />)}
+        </ul>
+      </details>
+    ) : null}
   </div>;
+}
+
+function BatchItemRow({ item }: { item: NonNullable<WorkspaceWorkflowBatchSummary['items']>[number] }) {
+  const lineNumber = item.itemIndex + 1;
+  const fieldErrors = item.error?.fieldErrors ? Object.entries(item.error.fieldErrors) : [];
+  const isError = item.status === 'failed' || item.status === 'blocked' || item.status === 'cancelled';
+  return (
+    <li className={`rounded-md border p-3 text-sm ${isError ? 'border-amber-900 bg-amber-950/20' : 'border-zinc-800 bg-zinc-950/60'}`}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="font-medium">Line {lineNumber}</span>
+        <span className={isError ? 'text-amber-200' : 'text-zinc-300'}>{humanBatchItemStatus(item.status)}</span>
+      </div>
+      {item.error ? (
+        <div className="mt-2 text-amber-100">
+          <p>{item.error.message}</p>
+          {fieldErrors.length ? (
+            <ul className="mt-1 list-disc pl-5 text-amber-200">
+              {fieldErrors.map(([field, message]) => <li key={field}>{field}: {message}</li>)}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
+    </li>
+  );
 }
 
 function RunRow({ run }: { run: WorkspaceWorkflowRunSummary }) {
@@ -414,6 +448,16 @@ function humanBatchStatus(status: string): string {
   if (status === 'failed') return 'Finished with errors';
   if (status === 'cancelled') return 'Cancelled';
   return 'Running';
+}
+
+function humanBatchItemStatus(status: string): string {
+  if (status === 'completed') return 'Complete';
+  if (status === 'running') return 'Running';
+  if (status === 'pending') return 'Pending';
+  if (status === 'blocked') return 'Needs attention';
+  if (status === 'cancelled') return 'Cancelled';
+  if (status === 'failed') return 'Failed';
+  return status;
 }
 
 function humanRunStatus(status: string): string {

@@ -660,6 +660,9 @@ Out of scope:
 
 - Workflow-call semantics not completed in M99.
 - Full capacity tuning/admin console unless explicitly approved.
+- Batch cancellation and retry controls are intentionally deferred from M100;
+  M100 should make item errors inspectable and keep scheduler/enqueue behavior
+  idempotent enough for safe follow-up design.
 
 ## Product test cases
 
@@ -1308,7 +1311,8 @@ Product-level error cases:
   unless policy explicitly says all-or-nothing.
 - Scheduler should not start more active turns than configured limits allow.
 - Workspace write-turn capacity should prevent unsafe simultaneous write turns.
-- Batch cancellation/retry should be idempotent.
+- Batch cancellation/retry should be idempotent when those controls are added in a
+  future milestone; M100 documents that cancellation/retry controls are deferred.
 
 Expected:
 

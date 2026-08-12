@@ -9,6 +9,7 @@
  * - TEST_CASE_M97_1B
  * - TEST_CASE_M98_1A
  * - TEST_CASE_M98_2A
+ * - TEST_CASE_M100_1A
  */
 import { expect, test } from 'playwright/test';
 
@@ -78,6 +79,51 @@ test.describe('Workspace Workflows tab shell', () => {
 
     await expect(page.getByText('Launched workflow run')).toBeVisible();
     await expect(page.locator('a[href="/dashboard/workflows/run-launched"]')).toHaveCount(0);
+    for (const term of forbiddenTerms) {
+      await expect(page.getByText(term, { exact: false })).toHaveCount(0);
+    }
+  });
+
+
+  test('queues a batch run and shows per-item errors', async ({ page }) => {
+    let batchQueued = false;
+    await page.route('**/dashboard/api/workflows/home?**', async (route) => {
+      await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ home: homeFixture(false, false, batchQueued) }) });
+    });
+    await page.route('**/dashboard/api/workflows/launch-options?**', async (route) => {
+      const url = new URL(route.request().url());
+      expect(url.searchParams.get('workspaceId')).toBe('workspace-e2e');
+      expect(url.searchParams.get('designId')).toBe('design-dev-review-tester');
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({ options: { workspaceId: 'workspace-e2e', workflow, sessions: [{ sessionId: 'session-dev', name: 'Dev session', executor: 'CODEX', workspaceId: 'workspace-e2e' }] } }),
+      });
+    });
+    await page.route('**/dashboard/api/workflows/batches', async (route) => {
+      const body = route.request().postDataJSON();
+      expect(body).toMatchObject({
+        workspaceId: 'workspace-e2e',
+        designId: 'design-dev-review-tester',
+        items: [{ inputs: { featureRequest: 'One' } }, { inputs: {} }],
+        roleBindings: { dev: { mode: 'existing', sessionId: 'session-dev' }, review: { mode: 'existing', sessionId: 'session-dev' } },
+      });
+      batchQueued = true;
+      const home = homeFixture(false, false, true);
+      await route.fulfill({ contentType: 'application/json', status: 201, body: JSON.stringify({ batch: home.recentBatches[0], home }) });
+    });
+
+    await page.goto('/dashboard/workflows?workspaceId=workspace-e2e');
+    await page.locator('article').filter({ hasText: 'Dev Review Tester' }).getByRole('button', { name: 'Batch run' }).click();
+    await expect(page.getByRole('dialog', { name: 'Batch run Dev Review Tester' })).toBeVisible();
+    await page.getByLabel('Batch items').fill('{\"featureRequest\":\"One\"}\n{}');
+    await page.getByLabel('Batch session').selectOption('session-dev');
+    await page.getByRole('button', { name: 'Queue batch' }).click();
+
+    await expect(page.getByText('1 complete · 1 running · 1 pending · 1 errors')).toBeVisible();
+    await page.getByText('Batch item details').click();
+    await expect(page.getByText('Line 2')).toBeVisible();
+    await expect(page.getByText('Batch item 2 is missing required workflow fields.')).toBeVisible();
+    await expect(page.getByText('featureRequest: This field is required.')).toBeVisible();
     for (const term of forbiddenTerms) {
       await expect(page.getByText(term, { exact: false })).toHaveCount(0);
     }
@@ -163,11 +209,10 @@ test.describe('Workspace Workflows tab shell', () => {
 
     const bodyText = await page.locator('body').innerText();
     expect(bodyText).not.toContain('workflow_call');
-    expect(bodyText).not.toContain('batch');
   });
 });
 
-function homeFixture(launched: boolean, usedTemplate = false) {
+function homeFixture(launched: boolean, usedTemplate = false, batchQueued = false) {
   return {
     workspaceId: 'workspace-e2e',
     availableWorkflows: [
@@ -182,6 +227,24 @@ function homeFixture(launched: boolean, usedTemplate = false) {
     needsInput: [
       { attentionItemId: 'attention-clean', title: 'Answer planning questions', description: 'Please fill out the form.', workflowName: 'Feature workflow run', createdAt: 3, detailUrl: '/dashboard/workflows/legacy-clean' },
     ],
+    recentBatches: batchQueued ? [batchFixture()] : [],
+  };
+}
+
+function batchFixture() {
+  return {
+    batchId: 'batch-e2e',
+    workflowName: 'Dev Review Tester',
+    status: 'running',
+    counts: { total: 4, pending: 1, running: 1, completed: 1, failed: 1, blocked: 0, cancelled: 0 },
+    items: [
+      { batchItemId: 'batch-e2e-item-0', itemIndex: 0, status: 'completed', runId: 'run-batch-0', error: null },
+      { batchItemId: 'batch-e2e-item-1', itemIndex: 1, status: 'failed', runId: null, error: { code: 'workflow_launch_validation_failed', message: 'Batch item 2 is missing required workflow fields.', fieldErrors: { featureRequest: 'This field is required.' } } },
+      { batchItemId: 'batch-e2e-item-2', itemIndex: 2, status: 'running', runId: 'run-batch-2', error: null },
+      { batchItemId: 'batch-e2e-item-3', itemIndex: 3, status: 'pending', runId: null, error: null },
+    ],
+    updatedAt: 6,
+    detailUrl: null,
   };
 }
 

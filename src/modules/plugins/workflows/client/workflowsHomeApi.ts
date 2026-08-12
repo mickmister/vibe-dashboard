@@ -11,8 +11,17 @@ export interface WorkspaceWorkflowBatchSummary {
   workflowName: string;
   status: string;
   counts: { total: number; pending: number; running: number; completed: number; blocked: number; failed: number; cancelled: number };
+  items: WorkspaceWorkflowBatchItemSummary[];
   updatedAt: number;
   detailUrl: string | null;
+}
+
+export interface WorkspaceWorkflowBatchItemSummary {
+  batchItemId?: string;
+  itemIndex: number;
+  status: string;
+  runId: string | null;
+  error: { code: string; message: string; fieldErrors?: Record<string, string> } | null;
 }
 
 export interface WorkspaceWorkflowInputSummary {
@@ -114,7 +123,7 @@ export interface LaunchWorkspaceWorkflowResponse {
 }
 
 export interface BatchLaunchWorkspaceWorkflowResponse {
-  batch: WorkspaceWorkflowBatchSummary & { items?: unknown[] };
+  batch: WorkspaceWorkflowBatchSummary;
   home?: WorkspaceWorkflowsHomeModel;
 }
 
