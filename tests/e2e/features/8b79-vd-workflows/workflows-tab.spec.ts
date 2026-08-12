@@ -315,7 +315,7 @@ test.describe('Workspace Workflows tab shell', () => {
     await expect(implementPicker.getByLabel('prompt:prompt.dev.implement@1')).toBeChecked();
     await expect(implementPicker.locator('label').filter({ hasText: 'DRT implement prompt' })).toContainText('v1 · Built-in');
     await expect(implementPicker.locator('label').filter({ hasText: 'Testing notes' })).toContainText('v1 · User');
-    await expect(details.getByText('Raw JSON remains diagnostics-only.')).toBeVisible();
+    await expect(implementPicker.getByText('Raw JSON remains diagnostics-only.')).toBeVisible();
     await expect(page.getByText('Ready to save.')).toBeVisible();
     await page.getByLabel('Workflow name').fill('Dev Review Tester Copy');
     await page.getByLabel('dev label').fill('Implementer');
