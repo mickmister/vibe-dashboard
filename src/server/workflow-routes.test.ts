@@ -179,6 +179,21 @@ describe('registerWorkflowRoutes', () => {
       },
     });
 
+    const optionsResponse = await app.request('/dashboard/api/workflows/launch-options?workspaceId=workspace-a&designId=design-launch');
+    expect(optionsResponse.status).toBe(200);
+    await expect(optionsResponse.json()).resolves.toMatchObject({
+      options: {
+        workflow: {
+          title: 'Launch Workflow',
+          version: 1,
+          inputs: [expect.objectContaining({ id: 'featureRequest', required: true })],
+          roles: [expect.objectContaining({ id: 'dev', label: 'Dev' }), expect.objectContaining({ id: 'review', label: 'Review' })],
+          launchSummary: expect.objectContaining({ firstStateId: 'dev', firstActorRoleId: 'dev', firstActorLabel: 'Dev', mayNeedHumanInput: false, mayCallWorkflows: false }),
+        },
+        sessions: expect.arrayContaining([expect.objectContaining({ sessionId: 'session-dev', workspaceId: 'workspace-a' })]),
+      },
+    });
+
     const missing = await app.request('/dashboard/api/workflows/launch', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

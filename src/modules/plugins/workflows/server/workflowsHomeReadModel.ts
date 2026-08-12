@@ -43,6 +43,15 @@ export interface WorkspaceWorkflowSummary {
   canRun: boolean;
   inputs: WorkspaceWorkflowInputSummary[];
   roles: WorkspaceWorkflowRoleSummary[];
+  launchSummary?: WorkspaceWorkflowLaunchSummary;
+}
+
+export interface WorkspaceWorkflowLaunchSummary {
+  firstStateId: string | null;
+  firstActorRoleId: string | null;
+  firstActorLabel: string | null;
+  mayNeedHumanInput: boolean;
+  mayCallWorkflows: boolean;
 }
 
 export interface WorkspaceWorkflowInputSummary {
@@ -110,6 +119,7 @@ async function listUserWorkflows(designStore: DbWorkflowDesignStore): Promise<Wo
       canRun: Boolean(published),
       inputs: published ? summarizeInputs(published.resolvedDefinition) : [],
       roles: published ? summarizeRoles(published.resolvedDefinition) : [],
+      launchSummary: published ? summarizeLaunchSummary(published.resolvedDefinition) : emptyLaunchSummary(),
     };
   }));
   return summaries.sort((left, right) => left.title.localeCompare(right.title));
@@ -128,7 +138,34 @@ async function listStarterTemplates(designStore: DbWorkflowDesignStore): Promise
     canRun: false,
     inputs: [],
     roles: [],
+    launchSummary: emptyLaunchSummary(),
   })).sort((left, right) => left.title.localeCompare(right.title));
+}
+
+function summarizeLaunchSummary(definition: unknown): WorkspaceWorkflowLaunchSummary {
+  const record = isRecord(definition) ? definition : {};
+  const states = isRecord(record.states) ? record.states : {};
+  const roles = isRecord(record.roles) ? record.roles : {};
+  const firstStateId = typeof record.initialState === 'string' ? record.initialState : null;
+  const firstState = firstStateId && isRecord(states[firstStateId]) ? states[firstStateId] : null;
+  const firstActorRoleId = firstState && typeof firstState.owner === 'string' ? firstState.owner : null;
+  const firstRole = firstActorRoleId && isRecord(roles[firstActorRoleId]) ? roles[firstActorRoleId] : null;
+  return {
+    firstStateId,
+    firstActorRoleId,
+    firstActorLabel: firstRole && typeof firstRole.label === 'string' ? firstRole.label : firstActorRoleId,
+    mayNeedHumanInput: Object.values(states).some((state) => hasStepType(state, 'human_form')),
+    mayCallWorkflows: Object.values(states).some((state) => hasStepType(state, 'workflow_call')),
+  };
+}
+
+function hasStepType(state: unknown, type: string): boolean {
+  if (!isRecord(state) || !Array.isArray(state.steps)) return false;
+  return state.steps.some((step) => isRecord(step) && step.type === type);
+}
+
+function emptyLaunchSummary(): WorkspaceWorkflowLaunchSummary {
+  return { firstStateId: null, firstActorRoleId: null, firstActorLabel: null, mayNeedHumanInput: false, mayCallWorkflows: false };
 }
 
 function summarizeInputs(definition: unknown): WorkspaceWorkflowInputSummary[] {

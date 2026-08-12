@@ -1,7 +1,7 @@
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { WorkspaceWorkflowsHomeView } from './WorkspaceWorkflowsPage';
+import { LaunchSummary, WorkspaceWorkflowsHomeView } from './WorkspaceWorkflowsPage';
 import type { WorkspaceWorkflowsHomeModel } from '../client/workflowsHomeApi';
 
 const forbiddenTerms = ['webhook', 'HMAC', 'queue item', 'trigger', 'delivery ID', 'execution process ID', 'runReady', 'raw JSON', 'raw XML', 'WorkflowStepState'];
@@ -46,6 +46,21 @@ describe('WorkspaceWorkflowsHomeView', () => {
     expect(html).toContain('Nothing needs your input right now.');
     expect(html).toContain('Workspace is required.');
     for (const term of forbiddenTerms) expect(html).not.toContain(term);
+  });
+
+  it('TEST_CASE_M104_1A renders launch summary, run-scoped instructions context, and session choices', () => {
+    const html = renderToStaticMarkup(React.createElement(LaunchSummary, {
+      workflow: { id: 'design-drt', title: 'Dev Review Tester', description: null, source: 'published_design', status: 'ready', version: 2, unavailableReason: null, canRun: true, inputs: [], roles: [], launchSummary: { firstStateId: 'dev', firstActorRoleId: 'dev', firstActorLabel: 'Dev', mayNeedHumanInput: true, mayCallWorkflows: true } },
+      inputs: [{ id: 'featureRequest', type: 'markdown', required: true, description: null }],
+      selectedSessions: [{ role: { id: 'dev', label: 'Dev' }, text: 'Create or reuse “Dev”', warning: null }],
+    }));
+    expect(html).toContain('Launch summary');
+    expect(html).toContain('Dev Review Tester · Published v2');
+    expect(html).toContain('featureRequest');
+    expect(html).toContain('Dev in dev');
+    expect(html).toContain('This workflow may ask you for input.');
+    expect(html).toContain('This workflow may call another workflow.');
+    expect(html).toContain('Create or reuse');
   });
 });
 

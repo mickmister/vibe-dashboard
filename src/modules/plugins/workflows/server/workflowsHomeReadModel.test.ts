@@ -32,7 +32,7 @@ describe('buildWorkspaceWorkflowsHomeModel', () => {
 
     expect(home.userWorkflows.map((workflow) => workflow.title).sort()).toEqual(['Dev Review Tester', 'Planning Workflow Draft']);
     expect(home.starterTemplates.map((workflow) => workflow.title)).toEqual(['Create form from agent']);
-    expect(home.userWorkflows.find((workflow) => workflow.id === 'design.dev-review')).toMatchObject({ source: 'published_design', status: 'ready', version: 1, canRun: true });
+    expect(home.userWorkflows.find((workflow) => workflow.id === 'design.dev-review')).toMatchObject({ source: 'published_design', status: 'ready', version: 1, canRun: true, launchSummary: { firstStateId: 'dev', firstActorRoleId: 'dev', firstActorLabel: 'Dev', mayNeedHumanInput: false, mayCallWorkflows: false } });
     expect(home.userWorkflows.find((workflow) => workflow.id === 'design.draft')).toMatchObject({ source: 'published_design', status: 'unavailable', version: null, canRun: false, unavailableReason: 'Publish this workflow before running it.' });
     expect(home.starterTemplates[0]).toMatchObject({ source: 'template', canRun: false });
     expect(home.recentRuns).toEqual([{ runId: 'run-workspace-a', workflowName: 'Workspace A run', status: 'running', startedAt: 10, updatedAt: 20, detailUrl: '/dashboard/workflows/run-workspace-a' }]);

@@ -49,6 +49,15 @@ export interface WorkspaceWorkflowSummary {
   canRun: boolean;
   inputs: WorkspaceWorkflowInputSummary[];
   roles: WorkspaceWorkflowRoleSummary[];
+  launchSummary?: WorkspaceWorkflowLaunchSummary;
+}
+
+export interface WorkspaceWorkflowLaunchSummary {
+  firstStateId: string | null;
+  firstActorRoleId: string | null;
+  firstActorLabel: string | null;
+  mayNeedHumanInput: boolean;
+  mayCallWorkflows: boolean;
 }
 
 export interface WorkspaceWorkflowRunSummary {

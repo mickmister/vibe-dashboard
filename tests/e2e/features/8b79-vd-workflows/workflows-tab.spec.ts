@@ -14,7 +14,7 @@
 import { expect, test } from 'playwright/test';
 
 const forbiddenTerms = ['webhook', 'HMAC', 'queue item', 'trigger', 'delivery ID', 'execution process ID', 'runReady', 'raw JSON', 'raw XML', 'WorkflowStepState'];
-const workflow = { id: 'design-dev-review-tester', title: 'Dev Review Tester', description: 'Feature work loop', source: 'published_design', status: 'ready', version: 1, unavailableReason: null, canRun: true, inputs: [{ id: 'featureRequest', type: 'markdown', required: true, description: null }], roles: [{ id: 'dev', label: 'Dev', description: null }, { id: 'review', label: 'Review', description: null }] };
+const workflow = { id: 'design-dev-review-tester', title: 'Dev Review Tester', description: 'Feature work loop', source: 'published_design', status: 'ready', version: 1, unavailableReason: null, canRun: true, inputs: [{ id: 'featureRequest', type: 'markdown', required: true, description: null }], roles: [{ id: 'dev', label: 'Dev', description: null }, { id: 'review', label: 'Review', description: null }], launchSummary: { firstStateId: 'dev', firstActorRoleId: 'dev', firstActorLabel: 'Dev', mayNeedHumanInput: true, mayCallWorkflows: false } };
 
 test.describe('Workspace Workflows tab shell', () => {
   test('shows workspace-scoped workflows home without debug terms', async ({ page }) => {
@@ -65,24 +65,27 @@ test.describe('Workspace Workflows tab shell', () => {
     });
     await page.route('**/dashboard/api/workflows/launch', async (route) => {
       const body = route.request().postDataJSON();
-      expect(body).toMatchObject({ workspaceId: 'workspace-e2e', designId: 'design-dev-review-tester', inputs: { featureRequest: 'Build a clean launch flow' }, additionalInstructions: 'Keep this run small.', roleBindings: { dev: { mode: 'existing', sessionId: 'session-dev' }, review: { mode: 'create_or_reuse', name: 'Review agent' } } });
+      expect(body).toMatchObject({ workspaceId: 'workspace-e2e', designId: 'design-dev-review-tester', inputs: { featureRequest: 'Build a clean launch flow' }, additionalInstructions: 'Keep this run small.', roleBindings: { dev: { mode: 'create_or_reuse', name: 'Dev' }, review: { mode: 'create_or_reuse', name: 'Review' } } });
       launched = true;
-      await route.fulfill({ contentType: 'application/json', status: 201, body: JSON.stringify({ run: { runId: 'run-launched', workspaceId: 'workspace-e2e', status: 'running', detailUrl: null }, home: homeFixture(true) }) });
+      await route.fulfill({ contentType: 'application/json', status: 201, body: JSON.stringify({ run: { runId: 'run-launched', workspaceId: 'workspace-e2e', status: 'running', detailUrl: '/dashboard/workflows/run-launched' }, home: homeFixture(true) }) });
     });
 
     await page.goto('/dashboard/workflows?workspaceId=workspace-e2e');
     await page.getByRole('button', { name: 'Run', exact: true }).click();
+    await expect(page.getByLabel('Launch summary')).toContainText('Dev Review Tester · Published v1');
+    await expect(page.getByLabel('Launch summary')).toContainText('featureRequest');
+    await expect(page.getByLabel('Launch summary')).toContainText('Dev in dev');
+    await expect(page.getByLabel('Launch summary')).toContainText('This workflow may ask you for input.');
+    await expect(page.getByText('Applies only to this run. It will not change the workflow design or future runs.')).toBeVisible();
+    await page.getByRole('button', { name: 'Create sessions for all roles' }).click();
     await page.getByRole('button', { name: 'Launch workflow' }).click();
     await expect(page.getByText('This field is required.')).toBeVisible();
     await page.getByLabel('featureRequest *').fill('Build a clean launch flow');
     await page.getByLabel('Additional instructions for this run').fill('Keep this run small.');
-    await page.getByLabel('Dev session').selectOption('session-dev');
-    await page.getByText('Create or reuse by name').nth(1).click();
-    await page.getByLabel('Review session name').fill('Review agent');
     await page.getByRole('button', { name: 'Launch workflow' }).click();
 
-    await expect(page.getByText('Launched workflow run')).toBeVisible();
-    await expect(page.locator('a[href="/dashboard/workflows/run-launched"]')).toHaveCount(0);
+    await expect(page.getByLabel('Launch result')).toContainText('Workflow launched');
+    await expect(page.locator('a[href="/dashboard/workflows/run-launched"]', { hasText: 'Open run page' })).toBeVisible();
     for (const term of forbiddenTerms) {
       await expect(page.getByText(term, { exact: false })).toHaveCount(0);
     }

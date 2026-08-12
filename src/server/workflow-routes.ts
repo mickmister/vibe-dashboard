@@ -901,6 +901,7 @@ async function buildLaunchWorkflowSummary(designStore: DbWorkflowDesignStore, de
     canRun: Boolean(published),
     inputs: published ? summarizeLaunchInputs(published.resolvedDefinition) : [],
     roles: published ? summarizeLaunchRoles(published.resolvedDefinition) : [],
+    launchSummary: published ? summarizeLaunchSummary(published.resolvedDefinition) : emptyLaunchSummary(),
   };
 }
 
@@ -934,6 +935,33 @@ async function buildWorkflowDesignEditorModel(designStore: DbWorkflowDesignStore
     validationStatus: 'valid' as const,
     validationIssues: [],
   };
+}
+
+function summarizeLaunchSummary(definition: unknown) {
+  const record = asRecord(definition) ?? {};
+  const states = asRecord(record.states) ?? {};
+  const roles = asRecord(record.roles) ?? {};
+  const firstStateId = asString(record.initialState) ?? null;
+  const firstState = firstStateId ? asRecord(states[firstStateId]) : null;
+  const firstActorRoleId = firstState ? asString(firstState.owner) ?? null : null;
+  const firstRole = firstActorRoleId ? asRecord(roles[firstActorRoleId]) : null;
+  return {
+    firstStateId,
+    firstActorRoleId,
+    firstActorLabel: firstRole ? asString(firstRole.label) ?? firstActorRoleId : firstActorRoleId,
+    mayNeedHumanInput: Object.values(states).some((state) => hasLaunchStepType(state, 'human_form')),
+    mayCallWorkflows: Object.values(states).some((state) => hasLaunchStepType(state, 'workflow_call')),
+  };
+}
+
+function hasLaunchStepType(state: unknown, type: string): boolean {
+  const steps = asRecord(state)?.steps;
+  if (!Array.isArray(steps)) return false;
+  return steps.some((step) => asRecord(step)?.type === type);
+}
+
+function emptyLaunchSummary() {
+  return { firstStateId: null, firstActorRoleId: null, firstActorLabel: null, mayNeedHumanInput: false, mayCallWorkflows: false };
 }
 
 function summarizeLaunchInputs(definition: unknown) {

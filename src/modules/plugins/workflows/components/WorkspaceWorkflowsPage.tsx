@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router';
+import { buildVkSessionUrl } from '../../../../utils/origin';
 import { StandaloneDashboardPage } from '../../../../components/StandaloneDashboardPage';
 import {
   batchLaunchWorkspaceWorkflow,
@@ -16,6 +17,7 @@ import {
   type WorkspaceWorkflowBatchSummary,
   type WorkspaceWorkflowRunSummary,
   type WorkspaceWorkflowSummary,
+  type LaunchWorkspaceWorkflowResponse,
 } from '../client/workflowsHomeApi';
 
 export function WorkspaceWorkflowsPage(): React.ReactElement {
@@ -94,7 +96,6 @@ export function WorkspaceWorkflowsHomeView({ home, loading, error, onRefresh, on
           onClose={() => setLaunchWorkflow(null)}
           onLaunched={(updated) => {
             onHomeUpdated?.(updated);
-            setLaunchWorkflow(null);
           }}
         />
       ) : null}
@@ -187,6 +188,8 @@ function RunWorkflowDialog({ workspaceId, workflow, onClose, onLaunched }: {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [launched, setLaunched] = useState<LaunchWorkspaceWorkflowResponse['run'] | null>(null);
+  const [launchedFirstSessionId, setLaunchedFirstSessionId] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -197,19 +200,35 @@ function RunWorkflowDialog({ workspaceId, workflow, onClose, onLaunched }: {
         setOptions(loaded);
         const modes: Record<string, 'existing' | 'create_or_reuse'> = {};
         const names: Record<string, string> = {};
+        const existing: Record<string, string> = {};
         for (const role of loaded.workflow.roles) {
-          modes[role.id] = loaded.sessions.length ? 'existing' : 'create_or_reuse';
+          const matchingSession = loaded.sessions.find((session) => normalizeName(session.name) === normalizeName(role.label));
+          modes[role.id] = matchingSession ? 'existing' : 'create_or_reuse';
+          if (matchingSession) existing[role.id] = matchingSession.sessionId;
           names[role.id] = role.label;
         }
         setRoleModes(modes);
+        setExistingSessions(existing);
         setNewSessionNames(names);
       })
       .catch((caught) => { if (active) setLoadError(caught instanceof Error ? caught.message : String(caught)); });
     return () => { active = false; };
   }, [workspaceId, workflow.id, workflow.version]);
 
-  const launchInputs = useMemo(() => options?.workflow.inputs ?? workflow.inputs, [options, workflow.inputs]);
-  const launchRoles = useMemo(() => options?.workflow.roles ?? workflow.roles, [options, workflow.roles]);
+  const launchWorkflowModel = options?.workflow ?? workflow;
+  const launchInputs = useMemo(() => launchWorkflowModel.inputs, [launchWorkflowModel.inputs]);
+  const launchRoles = useMemo(() => launchWorkflowModel.roles, [launchWorkflowModel.roles]);
+  const selectedSessionSummaries = useMemo(() => launchRoles.map((role) => {
+    const mode = roleModes[role.id] ?? 'existing';
+    if (mode === 'create_or_reuse') return { role, text: `Create or reuse “${newSessionNames[role.id]?.trim() || role.label}”`, warning: null as string | null };
+    const session = options?.sessions.find((candidate) => candidate.sessionId === existingSessions[role.id]);
+    const warning = session && session.workspaceId !== workspaceId ? `${role.label} session belongs to another workspace.` : null;
+    return { role, text: session ? (session.name || session.sessionId) : 'No session selected', warning };
+  }), [existingSessions, launchRoles, newSessionNames, options?.sessions, roleModes, workspaceId]);
+  const useCreateReuseForAllRoles = () => {
+    setRoleModes(Object.fromEntries(launchRoles.map((role) => [role.id, 'create_or_reuse'])));
+    setNewSessionNames((current) => Object.fromEntries(launchRoles.map((role) => [role.id, current[role.id]?.trim() || role.label])));
+  };
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -233,6 +252,7 @@ function RunWorkflowDialog({ workspaceId, workflow, onClose, onLaunched }: {
     if (Object.keys(nextErrors).length > 0) return;
     setSubmitting(true);
     try {
+      setLaunchedFirstSessionId(Object.values(roleBindings).find((binding) => binding.mode === 'existing')?.sessionId ?? null);
       const launched = await launchWorkspaceWorkflow({
         workspaceId,
         designId: workflow.id,
@@ -241,8 +261,8 @@ function RunWorkflowDialog({ workspaceId, workflow, onClose, onLaunched }: {
         additionalInstructions: additionalInstructions.trim() || null,
         roleBindings,
       });
+      setLaunched(launched.run);
       if (launched.home) onLaunched(launched.home);
-      else onClose();
     } catch (caught) {
       if (caught instanceof WorkflowApiError) setFieldErrors({ form: caught.message, ...caught.fieldErrors });
       else setFieldErrors({ form: caught instanceof Error ? caught.message : String(caught) });
@@ -251,6 +271,7 @@ function RunWorkflowDialog({ workspaceId, workflow, onClose, onLaunched }: {
     }
   };
 
+  const firstSessionHref = launchedFirstSessionId ? buildVkSessionUrl({ workspaceId, sessionId: launchedFirstSessionId }) : null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true" aria-label={`Run ${workflow.title}`}>
       <form onSubmit={submit} className="max-h-[90vh] w-full max-w-3xl overflow-auto rounded-xl border border-zinc-700 bg-zinc-950 p-5 shadow-2xl">
@@ -261,10 +282,13 @@ function RunWorkflowDialog({ workspaceId, workflow, onClose, onLaunched }: {
           </div>
           <button type="button" className="rounded-md border border-zinc-700 px-3 py-2 text-sm" onClick={onClose}>Close</button>
         </div>
+        {launched ? <LaunchSuccess run={launched} firstSessionHref={firstSessionHref} onClose={onClose} /> : null}
         {loadError ? <div role="alert" className="mt-4 rounded-md border border-amber-900 bg-amber-950/30 p-3 text-sm text-amber-100">{loadError}</div> : null}
         {fieldErrors.form ? <div role="alert" className="mt-4 rounded-md border border-amber-900 bg-amber-950/30 p-3 text-sm text-amber-100">{fieldErrors.form}</div> : null}
 
-        <div className="mt-5 space-y-5">
+        {!launched ? <div className="mt-5 space-y-5">
+          <LaunchSummary workflow={launchWorkflowModel} inputs={launchInputs} selectedSessions={selectedSessionSummaries} />
+
           <div className="space-y-3">
             <h3 className="font-medium">Workflow inputs</h3>
             {launchInputs.length ? launchInputs.map((input) => (
@@ -275,13 +299,18 @@ function RunWorkflowDialog({ workspaceId, workflow, onClose, onLaunched }: {
           <label className="block">
             <span className="text-sm font-medium">Additional instructions for this run</span>
             <textarea className="mt-2 min-h-24 w-full rounded-md border border-zinc-700 bg-zinc-900 p-3 text-sm" value={additionalInstructions} onChange={(event) => setAdditionalInstructions(event.target.value)} placeholder="Optional notes for this run only" />
+            <p className="mt-1 text-xs text-zinc-500">Applies only to this run. It will not change the workflow design or future runs.</p>
           </label>
 
           <div className="space-y-3">
-            <h3 className="font-medium">Role sessions</h3>
-            {launchRoles.map((role) => (
-              <div key={role.id} className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-4">
-                <div className="font-medium">{role.label}</div>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div><h3 className="font-medium">Role sessions</h3><p className="mt-1 text-xs text-zinc-500">Only sessions from this workspace are shown. Creating by role name will reuse a matching session or create one.</p></div>
+              <button type="button" className="rounded-md border border-cyan-700 px-3 py-2 text-sm text-cyan-100 hover:bg-cyan-950/40" onClick={useCreateReuseForAllRoles}>Create sessions for all roles</button>
+            </div>
+            {launchRoles.map((role) => {
+              const selected = selectedSessionSummaries.find((entry) => entry.role.id === role.id);
+              return <div key={role.id} className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2"><div className="font-medium">{role.label}</div><span className="text-xs text-zinc-400">{selected?.text}</span></div>
                 <div className="mt-3 grid gap-3 md:grid-cols-2">
                   <label className="flex items-center gap-2 text-sm"><input type="radio" checked={(roleModes[role.id] ?? 'existing') === 'existing'} onChange={() => setRoleModes((current) => ({ ...current, [role.id]: 'existing' }))} /> Choose existing session</label>
                   <label className="flex items-center gap-2 text-sm"><input type="radio" checked={roleModes[role.id] === 'create_or_reuse'} onChange={() => setRoleModes((current) => ({ ...current, [role.id]: 'create_or_reuse' }))} /> Create or reuse by name</label>
@@ -294,15 +323,16 @@ function RunWorkflowDialog({ workspaceId, workflow, onClose, onLaunched }: {
                 ) : (
                   <input aria-label={`${role.label} session name`} className="mt-3 w-full rounded-md border border-zinc-700 bg-zinc-950 p-2 text-sm" value={newSessionNames[role.id] ?? role.label} onChange={(event) => setNewSessionNames((current) => ({ ...current, [role.id]: event.target.value }))} />
                 )}
+                {selected?.warning ? <p role="alert" className="mt-2 text-sm text-amber-200">{selected.warning}</p> : null}
                 {fieldErrors[`role.${role.id}`] ? <p className="mt-2 text-sm text-amber-200">{fieldErrors[`role.${role.id}`]}</p> : null}
-              </div>
-            ))}
+              </div>;
+            })}
           </div>
-        </div>
+        </div> : null}
 
         <div className="mt-6 flex justify-end gap-3">
-          <button type="button" className="rounded-md border border-zinc-700 px-3 py-2 text-sm" onClick={onClose}>Cancel</button>
-          <button type="submit" className="rounded-md bg-cyan-500 px-3 py-2 text-sm font-medium text-zinc-950 disabled:opacity-60" disabled={submitting || Boolean(loadError)}>{submitting ? 'Launching…' : 'Launch workflow'}</button>
+          <button type="button" className="rounded-md border border-zinc-700 px-3 py-2 text-sm" onClick={onClose}>{launched ? 'Done' : 'Cancel'}</button>
+          {!launched ? <button type="submit" className="rounded-md bg-cyan-500 px-3 py-2 text-sm font-medium text-zinc-950 disabled:opacity-60" disabled={submitting || Boolean(loadError)}>{submitting ? 'Launching…' : 'Launch workflow'}</button> : null}
         </div>
       </form>
     </div>
@@ -369,6 +399,51 @@ function BatchRunWorkflowDialog({ workspaceId, workflow, onClose, onQueued }: {
       </form>
     </div>
   );
+}
+
+export function LaunchSummary({ workflow, inputs, selectedSessions }: { workflow: WorkspaceWorkflowSummary; inputs: WorkspaceWorkflowInputSummary[]; selectedSessions: Array<{ role: { id: string; label: string }; text: string; warning: string | null }> }) {
+  const requiredInputs = inputs.filter((input) => input.required).map((input) => input.id);
+  const summary = workflow.launchSummary ?? emptyClientLaunchSummary();
+  return (
+    <section className="rounded-lg border border-cyan-900/60 bg-cyan-950/20 p-4" aria-label="Launch summary">
+      <div className="text-xs uppercase tracking-wide text-cyan-300">Launch summary</div>
+      <h3 className="mt-1 font-semibold">{workflow.title}{workflow.version ? ` · Published v${workflow.version}` : ''}</h3>
+      <dl className="mt-3 grid gap-3 text-sm md:grid-cols-2">
+        <div><dt className="text-zinc-500">Required inputs</dt><dd>{requiredInputs.length ? requiredInputs.join(', ') : 'None'}</dd></div>
+        <div><dt className="text-zinc-500">First actor</dt><dd>{summary.firstActorLabel ?? 'Not specified'}{summary.firstStateId ? ` in ${summary.firstStateId}` : ''}</dd></div>
+        <div><dt className="text-zinc-500">Human input</dt><dd>{summary.mayNeedHumanInput ? 'This workflow may ask you for input.' : 'No human input step is expected.'}</dd></div>
+        <div><dt className="text-zinc-500">Workflow calls</dt><dd>{summary.mayCallWorkflows ? 'This workflow may call another workflow.' : 'No child workflow call is expected.'}</dd></div>
+      </dl>
+      <div className="mt-3 rounded-md border border-zinc-800 bg-zinc-950/70 p-3">
+        <div className="text-sm font-medium">Selected sessions</div>
+        <ul className="mt-2 space-y-1 text-sm text-zinc-300">
+          {selectedSessions.map((entry) => <li key={entry.role.id}><span className="text-zinc-500">{entry.role.label}:</span> {entry.text}{entry.warning ? <span className="ml-2 text-amber-200">{entry.warning}</span> : null}</li>)}
+        </ul>
+      </div>
+    </section>
+  );
+}
+
+export function LaunchSuccess({ run, firstSessionHref, onClose }: { run: LaunchWorkspaceWorkflowResponse['run']; firstSessionHref: string | null; onClose: () => void }) {
+  return (
+    <section className="mt-5 rounded-lg border border-emerald-800 bg-emerald-950/30 p-4" aria-label="Launch result">
+      <div className="text-xs uppercase tracking-wide text-emerald-200">Workflow launched</div>
+      <h3 className="mt-1 font-semibold">Run is {humanRunStatus(run.status).toLowerCase()}.</h3>
+      <div className="mt-4 flex flex-wrap gap-2">
+        {run.detailUrl ? <a className="rounded-md bg-cyan-500 px-3 py-2 text-sm font-medium text-zinc-950 hover:bg-cyan-400" href={run.detailUrl}>Open run page</a> : null}
+        {firstSessionHref ? <a className="rounded-md border border-cyan-700 px-3 py-2 text-sm text-cyan-100 hover:bg-cyan-950/40" href={firstSessionHref} target="_blank" rel="noreferrer">Open first session</a> : null}
+        <button type="button" className="rounded-md border border-zinc-700 px-3 py-2 text-sm hover:bg-zinc-800" onClick={onClose}>Back to workflows</button>
+      </div>
+    </section>
+  );
+}
+
+function emptyClientLaunchSummary() {
+  return { firstStateId: null, firstActorRoleId: null, firstActorLabel: null, mayNeedHumanInput: false, mayCallWorkflows: false };
+}
+
+function normalizeName(value: string | null): string {
+  return (value ?? '').trim().toLowerCase();
 }
 
 function WorkflowInputField({ input, value, error, onChange }: { input: WorkspaceWorkflowInputSummary; value: string; error?: string; onChange: (value: string) => void }) {
