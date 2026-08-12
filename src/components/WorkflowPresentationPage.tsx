@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router';
 import { fetchWorkflowPresentation, type WorkflowPresentationModel, type WorkflowPresentationTimelineItem } from '../lib/workflowPresentationApi';
 import { buildVkSessionUrl } from '../utils/origin';
+import { StandaloneDashboardPage } from './StandaloneDashboardPage';
 
 export function WorkflowPresentationPage(): React.ReactElement {
   const params = useParams();
@@ -44,25 +45,24 @@ export function WorkflowPresentationView({ presentation, error, loading, onRefre
   onRefresh: () => void;
 }): React.ReactElement {
   if (loading && !presentation) {
-    return <main className="min-h-screen bg-zinc-950 p-6 text-zinc-100"><div className="mx-auto max-w-5xl text-sm text-zinc-400">Loading workflow…</div></main>;
+    return <StandaloneDashboardPage contentClassName="mx-auto max-w-5xl text-sm text-zinc-400">Loading workflow…</StandaloneDashboardPage>;
   }
   if (error && !presentation) {
     return (
-      <main className="min-h-screen bg-zinc-950 p-6 text-zinc-100">
-        <div className="mx-auto max-w-5xl rounded-lg border border-red-900 bg-red-950/30 p-5">
+      <StandaloneDashboardPage contentClassName="mx-auto max-w-5xl">
+        <div className="rounded-lg border border-red-900 bg-red-950/30 p-5">
           <h1 className="text-xl font-semibold">Workflow not found</h1>
           <p className="mt-2 text-sm text-red-100">{error}</p>
         </div>
-      </main>
+      </StandaloneDashboardPage>
     );
   }
   if (!presentation) {
-    return <main className="min-h-screen bg-zinc-950 p-6 text-zinc-100"><div className="mx-auto max-w-5xl">Workflow not found</div></main>;
+    return <StandaloneDashboardPage contentClassName="mx-auto max-w-5xl">Workflow not found</StandaloneDashboardPage>;
   }
 
   return (
-    <main className="min-h-screen bg-zinc-950 p-6 text-zinc-100">
-      <div className="mx-auto max-w-5xl space-y-5">
+    <StandaloneDashboardPage contentClassName="mx-auto max-w-5xl space-y-5">
         <header className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-5">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -99,8 +99,7 @@ export function WorkflowPresentationView({ presentation, error, loading, onRefre
             {presentation.timeline.length ? presentation.timeline.map((item) => <TurnCard key={item.id} item={item} />) : <p className="text-sm text-zinc-400">No timeline entries yet.</p>}
           </div>
         </section>
-      </div>
-    </main>
+    </StandaloneDashboardPage>
   );
 }
 

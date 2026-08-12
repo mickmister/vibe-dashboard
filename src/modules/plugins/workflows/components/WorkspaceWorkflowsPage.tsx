@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router';
+import { StandaloneDashboardPage } from '../../../../components/StandaloneDashboardPage';
 import {
   batchLaunchWorkspaceWorkflow,
   fetchWorkflowLaunchOptions,
@@ -56,8 +57,7 @@ export function WorkspaceWorkflowsHomeView({ home, loading, error, onRefresh, on
   const [launchWorkflow, setLaunchWorkflow] = useState<WorkspaceWorkflowSummary | null>(null);
   const [batchWorkflow, setBatchWorkflow] = useState<WorkspaceWorkflowSummary | null>(null);
   return (
-    <main className="min-h-screen bg-zinc-950 p-6 text-zinc-100">
-      <div className="mx-auto max-w-6xl space-y-5">
+    <StandaloneDashboardPage contentClassName="mx-auto max-w-6xl space-y-5">
         <header className="flex flex-wrap items-start justify-between gap-4 rounded-xl border border-zinc-800 bg-zinc-900/60 p-5">
           <div>
             <div className="text-xs uppercase tracking-wide text-cyan-300">Workspace</div>
@@ -83,7 +83,6 @@ export function WorkspaceWorkflowsHomeView({ home, loading, error, onRefresh, on
         <Section title="Recent runs">
           {home?.recentRuns.length ? <div className="space-y-3">{home.recentRuns.map((run) => <RunRow key={run.runId} run={run} />)}</div> : <EmptyState text="No workflow runs in this workspace yet." />}
         </Section>
-      </div>
       {home && launchWorkflow ? (
         <RunWorkflowDialog
           workspaceId={home.workspaceId}
@@ -106,7 +105,7 @@ export function WorkspaceWorkflowsHomeView({ home, loading, error, onRefresh, on
           }}
         />
       ) : null}
-    </main>
+    </StandaloneDashboardPage>
   );
 }
 

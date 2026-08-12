@@ -1,10 +1,12 @@
 import '@xyflow/react/dist/style.css';
+import './WorkflowGraphEditorPage.css';
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router';
-import { Background, Controls, MiniMap, ReactFlow, type Edge, type Node } from '@xyflow/react';
+import { Background, Controls, MarkerType, MiniMap, ReactFlow, type Edge, type Node } from '@xyflow/react';
 import type { AgentWorkflowDefinitionV1, WorkflowStepV1 } from '@vibe-dashboard/workflow-core';
 import { fetchWorkflowDesignEditor, publishWorkflowDesignDraft, saveWorkflowDesignDraft, type WorkflowDesignEditorModel } from '../client/workflowDesignEditorApi';
+import { StandaloneDashboardPage } from '../../../../components/StandaloneDashboardPage';
 import { applyWorkflowGraphActionEdit, validateWorkflowGraph, workflowDefinitionToGraph, type WorkflowGraphEdgeModel, type WorkflowGraphNodeModel, type WorkflowGraphValidationIssue } from './graph/workflowGraphModel';
 
 export function WorkflowGraphEditorPage(): React.ReactElement {
@@ -66,8 +68,7 @@ export function WorkflowGraphEditorPage(): React.ReactElement {
   };
 
   return (
-    <main className="min-h-screen bg-zinc-950 p-6 text-zinc-100">
-      <div className="mx-auto max-w-7xl space-y-5">
+    <StandaloneDashboardPage contentClassName="mx-auto max-w-7xl space-y-5">
         <header className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-5">
           <div className="text-xs uppercase tracking-wide text-cyan-300">Workflow builder</div>
           <h1 className="mt-1 text-2xl font-semibold">{editor?.name ?? 'Workflow graph'}</h1>
@@ -76,8 +77,7 @@ export function WorkflowGraphEditorPage(): React.ReactElement {
         {loading ? <div className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-5">Loading workflow graph…</div> : null}
         {error ? <div role="alert" className="rounded-lg border border-amber-900 bg-amber-950/30 p-4 text-sm text-amber-100">{error}</div> : null}
         {definition ? <WorkflowGraphEditorView editor={editor} definition={definition} onDefinitionChange={setDefinition} onSave={() => void save()} onPublish={() => void publish()} publishing={publishing} saveMessage={saveMessage} /> : null}
-      </div>
-    </main>
+    </StandaloneDashboardPage>
   );
 }
 
@@ -114,8 +114,9 @@ export function WorkflowGraphEditorView({ editor, definition, onDefinitionChange
           </div>
           <div className="flex gap-2"><button className="rounded-md border border-zinc-700 px-3 py-2 text-sm disabled:opacity-50" disabled={!canSave} onClick={onSave}>Save draft</button><button className="rounded-md bg-cyan-500 px-3 py-2 text-sm font-medium text-zinc-950 disabled:opacity-50" disabled={!canSave || publishing} onClick={onPublish}>{publishing ? 'Publishing…' : 'Publish'}</button></div>
         </div>
-        <div className="h-[34rem] bg-zinc-950" data-testid="workflow-react-flow-canvas">
+        <div className="h-[34rem] bg-slate-950" data-testid="workflow-react-flow-canvas">
           <ReactFlow
+            className="workflow-graph-canvas"
             nodes={flowNodes}
             edges={flowEdges}
             fitView
@@ -256,15 +257,55 @@ function JsonDiagnostics({ definition }: { definition: AgentWorkflowDefinitionV1
   );
 }
 
-function toFlowNodes(nodes: WorkflowGraphNodeModel[]): Node[] {
-  return nodes.map((node, index) => ({
-    id: node.id,
-    position: { x: (index % 3) * 260, y: Math.floor(index / 3) * 170 },
-    data: { label: `${node.initial ? 'Start · ' : ''}${node.label}${node.terminal ? ' · Done' : ''}` },
-    className: node.terminal ? 'workflow-terminal-node' : undefined,
-  }));
+export function toFlowNodes(nodes: WorkflowGraphNodeModel[]): Node[] {
+  return nodes.map((node, index) => {
+    const classes = ['workflow-state-node'];
+    if (node.initial) classes.push('workflow-initial-node');
+    if (node.terminal) classes.push('workflow-terminal-node');
+    return {
+      id: node.id,
+      position: { x: (index % 3) * 280, y: Math.floor(index / 3) * 180 },
+      data: { label: `${node.initial ? 'Start · ' : ''}${node.label}${node.terminal ? ' · Done' : ''}` },
+      className: classes.join(' '),
+      style: node.terminal ? terminalNodeStyle : stateNodeStyle,
+    };
+  });
 }
 
-function toFlowEdges(edges: WorkflowGraphEdgeModel[]): Edge[] {
-  return edges.map((edge) => ({ id: edge.id, source: edge.source, target: edge.target, label: edge.label, animated: edge.source === edge.target }));
+export function toFlowEdges(edges: WorkflowGraphEdgeModel[]): Edge[] {
+  return edges.map((edge) => {
+    const loop = edge.source === edge.target;
+    const color = loop ? '#f59e0b' : '#38bdf8';
+    return {
+      id: edge.id,
+      source: edge.source,
+      target: edge.target,
+      label: edge.label,
+      animated: loop,
+      className: loop ? 'workflow-graph-edge workflow-loop-edge' : 'workflow-graph-edge',
+      style: { stroke: color, strokeWidth: loop ? 2.5 : 2 },
+      markerEnd: { type: MarkerType.ArrowClosed, color },
+      labelStyle: { fill: '#e0f2fe', fontWeight: 700 },
+      labelBgStyle: { fill: '#0f172a', fillOpacity: 0.95 },
+      labelBgPadding: [8, 4],
+      labelBgBorderRadius: 6,
+    };
+  });
 }
+
+const stateNodeStyle: React.CSSProperties = {
+  background: '#0f172a',
+  border: '1px solid #2563eb',
+  borderRadius: 12,
+  color: '#e2e8f0',
+  fontWeight: 700,
+  padding: '10px 14px',
+  boxShadow: '0 16px 32px rgba(2, 6, 23, 0.32)',
+};
+
+const terminalNodeStyle: React.CSSProperties = {
+  ...stateNodeStyle,
+  background: '#052e2b',
+  border: '1px solid #10b981',
+  color: '#d1fae5',
+};

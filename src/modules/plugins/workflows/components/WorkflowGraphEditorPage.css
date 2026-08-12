@@ -1,0 +1,87 @@
+.workflow-graph-canvas {
+  background: #020617;
+  color: #e2e8f0;
+}
+
+.workflow-graph-canvas .react-flow__pane {
+  cursor: default;
+}
+
+.workflow-graph-canvas .react-flow__node {
+  transition: border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+}
+
+.workflow-graph-canvas .react-flow__node:hover,
+.workflow-graph-canvas .react-flow__node:focus-visible {
+  border-color: #67e8f9 !important;
+  box-shadow: 0 0 0 2px rgba(103, 232, 249, 0.32), 0 18px 36px rgba(2, 6, 23, 0.4) !important;
+}
+
+.workflow-graph-canvas .react-flow__node.selected {
+  border-color: #22d3ee !important;
+  box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.35), 0 18px 36px rgba(2, 6, 23, 0.45) !important;
+}
+
+.workflow-graph-canvas .react-flow__node.workflow-initial-node {
+  border-color: #38bdf8 !important;
+}
+
+.workflow-graph-canvas .react-flow__node.workflow-terminal-node {
+  border-color: #10b981 !important;
+}
+
+.workflow-graph-canvas .react-flow__edge-path {
+  stroke: #38bdf8;
+  stroke-width: 2;
+}
+
+.workflow-graph-canvas .react-flow__edge.workflow-loop-edge .react-flow__edge-path {
+  stroke: #f59e0b;
+  stroke-dasharray: 6 4;
+}
+
+.workflow-graph-canvas .react-flow__edge:hover .react-flow__edge-path,
+.workflow-graph-canvas .react-flow__edge.selected .react-flow__edge-path {
+  stroke: #67e8f9;
+  stroke-width: 3;
+}
+
+.workflow-graph-canvas .react-flow__edge-textbg {
+  fill: #0f172a;
+  stroke: #334155;
+  stroke-width: 1;
+}
+
+.workflow-graph-canvas .react-flow__edge-text {
+  fill: #e0f2fe;
+  font-weight: 700;
+}
+
+.workflow-graph-canvas .react-flow__attribution {
+  background: rgba(15, 23, 42, 0.88);
+  color: #94a3b8;
+}
+
+.workflow-graph-canvas .react-flow__controls {
+  box-shadow: 0 12px 28px rgba(2, 6, 23, 0.36);
+}
+
+.workflow-graph-canvas .react-flow__controls-button {
+  background: #0f172a;
+  border-bottom-color: #334155;
+  color: #e2e8f0;
+}
+
+.workflow-graph-canvas .react-flow__controls-button:hover {
+  background: #1e293b;
+}
+
+.workflow-graph-canvas .react-flow__controls-button svg {
+  fill: currentColor;
+}
+
+.workflow-graph-canvas .react-flow__minimap {
+  background: #020617;
+  border: 1px solid #1e293b;
+  border-radius: 0.75rem;
+}

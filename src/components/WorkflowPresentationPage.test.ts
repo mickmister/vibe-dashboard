@@ -25,6 +25,9 @@ describe('WorkflowPresentationView', () => {
       onRefresh: () => {},
     }));
 
+    expect(html).toContain('data-testid="standalone-dashboard-page"');
+    expect(html).toContain('h-screen');
+    expect(html).toContain('overflow-y-auto');
     expect(html).toContain('Two agent review round');
     expect(html).toContain('Original task');
     expect(html).toContain('Build the clean workflow page');

@@ -24,6 +24,7 @@ import type { UpdateWorkflowTemplateInput, WorkflowTemplate } from '../templates
 import { collectWorkflowQueueRefs, summarizeWorkflowError, workflowStatusLabel, type WorkflowQueueRef } from '../lib/workflowRunDetails';
 import { fetchDeclarativeWorkflowDefinitions, fetchWorkflowInstanceStatus, fetchWorkflowWebhookInbox, fetchWorkflowWebhookProvisioningStatus, runDeclarativeWorkflow, type DeclarativeWorkflowDefinitionEntry, type WorkflowInstanceStatusResponse, type WorkflowWebhookInboxListResponse, type WorkflowWebhookProvisioningStatus } from '../lib/declarativeWorkflowsApi';
 import { buildDeclarativeWorkflowInput, createDraftFromDefinition, createMinimalWorkflowTeam, describeDefinitionRoles, filterWorkflowSessionsForWorkspace, validateDeclarativeWorkflowLaunch, type DeclarativeWorkflowLaunchDraft } from '../lib/declarativeWorkflowLaunch';
+import { StandaloneDashboardPage } from './StandaloneDashboardPage';
 
 const inputClass = 'w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100';
 const buttonClass = 'rounded-md border border-zinc-700 px-3 py-2 text-sm hover:bg-zinc-900 disabled:opacity-50';
@@ -452,8 +453,7 @@ export function AgentTeamsDashboard(): React.ReactElement {
   };
 
   return (
-    <main className="dark min-h-screen overflow-auto bg-zinc-950 p-6 text-zinc-100">
-      <div className="mx-auto max-w-7xl space-y-6">
+    <StandaloneDashboardPage contentClassName="mx-auto max-w-7xl space-y-6">
         <header className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-semibold">Agent Teams</h1>
@@ -569,8 +569,7 @@ export function AgentTeamsDashboard(): React.ReactElement {
         <ActivityAttentionPanel activity={activity} error={activityError} loading={loadingActivity} onRefresh={() => void loadActivity()} />
 
         <WorkflowRunsPanel runs={runs} selectedRun={selectedRun} events={events} error={runsError} loading={loadingRuns} onSelectRun={setSelectedRunId} />
-      </div>
-    </main>
+    </StandaloneDashboardPage>
   );
 }
 

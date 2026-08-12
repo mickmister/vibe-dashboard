@@ -29,6 +29,8 @@ test.describe('Workspace Workflows tab shell', () => {
 
     await page.goto('/dashboard/workflows?workspaceId=workspace-e2e');
 
+    await expect(page.getByTestId('standalone-dashboard-page')).toHaveClass(/h-screen/);
+    await expect(page.getByTestId('standalone-dashboard-page')).toHaveClass(/overflow-y-auto/);
     await expect(page.getByRole('heading', { name: 'Workflows', exact: true })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Available workflows' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Recent runs' })).toBeVisible();
@@ -181,8 +183,13 @@ test.describe('Workspace Workflows tab shell', () => {
     await page.goto('/dashboard/workflows/editor/design-dev-review-tester');
 
     await expect(page.getByRole('heading', { name: 'Dev Review Tester' })).toBeVisible();
+    await expect(page.getByTestId('standalone-dashboard-page')).toHaveClass(/h-screen/);
+    await expect(page.getByTestId('standalone-dashboard-page')).toHaveClass(/overflow-y-auto/);
     await expect(page.getByTestId('workflow-react-flow-canvas')).toBeVisible();
     await expect(page.getByText('States are nodes. Decision actions are labeled edges.')).toBeVisible();
+    await expect(page.locator('.react-flow__node.workflow-state-node').first()).toHaveCSS('background-color', 'rgb(15, 23, 42)');
+    await expect(page.locator('.react-flow__node.workflow-terminal-node')).toHaveCSS('background-color', 'rgb(5, 46, 43)');
+    await expect(page.locator('.react-flow__edge.workflow-loop-edge')).toHaveCount(1);
     const details = page.locator('aside');
     await expect(details.getByText('Owner role')).toBeVisible();
     await expect(details.getByRole('heading', { name: 'Dev', exact: true })).toBeVisible();
@@ -277,7 +284,7 @@ function graphDefinition() {
           { id: 'implement', type: 'agent_turn', turnType: 'non_decision', prompt: { template: 'Implement feature', refs: [{ kind: 'prompt', id: 'prompt.dev.implement', version: 1 }] } },
           { id: 'self_review', type: 'agent_turn', turnType: 'decision', prompt: { template: 'Self-review' }, response: decisionResponse() },
         ],
-        actions: { ready_for_review: { label: 'Ready for review', targetState: 'review' } },
+        actions: { ready_for_review: { label: 'Ready for review', targetState: 'review' }, keep_working: { label: 'Keep working', targetState: 'dev' } },
       },
       review: {
         owner: 'review',

@@ -9,6 +9,9 @@ const forbiddenTerms = ['webhook', 'HMAC', 'queue item', 'trigger', 'delivery ID
 describe('WorkspaceWorkflowsHomeView', () => {
   it('renders a clean workspace workflows shell without debug terms', () => {
     const html = renderToStaticMarkup(React.createElement(WorkspaceWorkflowsHomeView, { home: fixture(), loading: false, error: null, onRefresh: () => {} }));
+    expect(html).toContain('data-testid="standalone-dashboard-page"');
+    expect(html).toContain('h-screen');
+    expect(html).toContain('overflow-y-auto');
     expect(html).toContain('Workflows');
     expect(html).toContain('Available workflows');
     expect(html).toContain('Recent batches');
