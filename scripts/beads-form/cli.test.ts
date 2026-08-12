@@ -549,6 +549,32 @@ describe('beads-form CLI helpers', () => {
     });
   });
 
+  it('preserves existing split responses when attaching another form', () => {
+    const answered = {
+      submittedBy: 'user',
+      submittedAt: '2026-08-04T00:00:00Z',
+      values: { decision: { approve: true } },
+    };
+    const form = parseFormsJsonForAttach(JSON.stringify({ ...standardForm, id: 'followup' }))[0]!;
+    const metadata = attachFormsToMetadata({
+      unrelated: { keep: true },
+      beadForms: { forms: [{ ...storedReviewForm, responses: [{ submittedBy: 'stale', submittedAt: 'inline', values: {} }] }] },
+      beadFormResponses: { responsesByFormId: { review: [answered] } },
+    }, [form]);
+
+    expect(metadata.unrelated).toEqual({ keep: true });
+    expect((metadata.beadForms as any).forms.map((candidate: any) => candidate.id)).toEqual(['review', 'followup']);
+    expect((metadata.beadForms as any).forms[0].responses).toBeUndefined();
+    expect((metadata.beadFormResponses as any).responsesByFormId.review).toEqual([answered]);
+    expect(metadata.beadFormsSummary).toEqual({
+      hasForms: true,
+      hasPendingAnswer: true,
+      pendingResponseCount: 1,
+      formIds: ['review', 'followup'],
+      pendingFormIds: ['followup'],
+    });
+  });
+
   it('builds selected URLs with workspace context and direct repo identity', () => {
     expect(buildFillOutUrl({
       dir: '/repo',
@@ -723,6 +749,81 @@ describe('beads-form CLI helpers', () => {
     expect(result.form).not.toHaveProperty('html');
     expect(result.form).not.toHaveProperty('controls');
     expect(result.responses).toHaveLength(1);
+  });
+
+  it('shows split responses with semantic DSL-only output and does not mutate metadata', async () => {
+    const answered = {
+      submittedBy: 'user',
+      submittedAt: '2026-08-10T00:00:00Z',
+      values: { decision: { approve: true } },
+    };
+    const calls: string[][] = [];
+    const exec = vi.fn<ExecFileLike>(async (_file, args) => {
+      calls.push([...args]);
+      return {
+        stdout: JSON.stringify([{
+          id: 'bd-1',
+          title: 'Bead',
+          metadata: {
+            beadForms: {
+              forms: [{
+                ...storedReviewForm,
+                html: '<form><input name="stale"></form>',
+                controls: [{ id: 'stale', name: 'stale', type: 'textarea' }],
+              }],
+            },
+            beadFormResponses: { responsesByFormId: { review: [answered] } },
+          },
+        }]),
+        stderr: '',
+      };
+    });
+
+    const result = await showBeadsForm({
+      execFile: exec,
+      options: { dir: '/repo', beadId: 'bd-1', formId: 'review' },
+    });
+
+    expect(result.form).toMatchObject({
+      id: 'review',
+      goal: standardForm.goal,
+      questions: standardForm.questions,
+    });
+    expect(result.form).not.toHaveProperty('html');
+    expect(result.form).not.toHaveProperty('controls');
+    expect(result.responses).toEqual([answered]);
+    expect(result.responseCount).toBe(1);
+    expect(calls.map((args) => args[0])).toEqual(['show']);
+  });
+
+  it('rejects raw html-only forms during show without updating metadata', async () => {
+    const calls: string[][] = [];
+    const exec = vi.fn<ExecFileLike>(async (_file, args) => {
+      calls.push([...args]);
+      return {
+        stdout: JSON.stringify([{
+          id: 'bd-1',
+          title: 'Bead',
+          metadata: {
+            beadForms: {
+              forms: [{
+                id: 'raw',
+                title: 'Raw legacy form',
+                html: '<form><textarea name="notes"></textarea></form>',
+                controls: [{ id: 'notes', name: 'notes', type: 'textarea' }],
+              }],
+            },
+          },
+        }]),
+        stderr: '',
+      };
+    });
+
+    await expect(showBeadsForm({
+      execFile: exec,
+      options: { dir: '/repo', beadId: 'bd-1', formId: 'raw' },
+    })).rejects.toThrow('Raw HTML BeadsForms are no longer supported');
+    expect(calls.map((args) => args[0])).toEqual(['show']);
   });
 
   it('shows questions with no responses instead of erroring', () => {
