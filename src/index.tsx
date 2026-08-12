@@ -596,11 +596,13 @@ const createWorkspaceModule = async (moduleAPI: ModuleAPI) => {
     repairSavedVoyagesForCurrentWorkspace();
   }
 
-  const currentWorkspace = workspaceState.getState();
-  const builtInMigratedWorkspace =
-    migrateWorkspaceBuiltInTabs(currentWorkspace);
-  if (builtInMigratedWorkspace !== currentWorkspace) {
-    workspaceState.setState(builtInMigratedWorkspace);
+  if (moduleAPI.deps.core.isMaestro()) {
+    const currentWorkspace = workspaceState.getState();
+    const builtInMigratedWorkspace =
+      migrateWorkspaceBuiltInTabs(currentWorkspace);
+    if (builtInMigratedWorkspace !== currentWorkspace) {
+      workspaceState.setState(builtInMigratedWorkspace);
+    }
   }
 
   const actions = moduleAPI.createActions({

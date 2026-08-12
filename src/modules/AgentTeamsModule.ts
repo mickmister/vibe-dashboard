@@ -3,7 +3,6 @@ import {
   addAgentTeam,
   createDefaultAgentTeamState,
   deleteAgentTeam,
-  migrateAgentTeamState,
   selectAgentTeam,
   updateAgentTeam,
   type AgentTeamState,
@@ -22,11 +21,6 @@ export async function createAgentTeamsModule(moduleAPI: ModuleAPI) {
     'agent-teams',
     createDefaultAgentTeamState(),
   );
-
-  const migrated = migrateAgentTeamState(teamState.getState());
-  if (migrated !== teamState.getState()) {
-    teamState.setState(migrated);
-  }
 
   const actions = moduleAPI.createActions({
     createTeam: async (input: CreateAgentTeamInput) => {

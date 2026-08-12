@@ -435,7 +435,7 @@ function formatHostnameForOrigin(hostname: string): string {
 }
 
 function isSelfAppPath(pathname: string, searchParams: URLSearchParams): boolean {
-  if (pathname === '/dashboard/forms') {
+  if (pathname === '/dashboard/forms' || pathname.startsWith('/dashboard/workflows')) {
     return false;
   }
 

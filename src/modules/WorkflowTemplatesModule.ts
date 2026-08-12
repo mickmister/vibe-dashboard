@@ -25,11 +25,6 @@ export async function createWorkflowTemplatesModule(moduleAPI: ModuleAPI) {
     createDefaultWorkflowTemplateState(),
   );
 
-  const migrated = migrateWorkflowTemplateState(templateState.getState());
-  if (migrated !== templateState.getState()) {
-    templateState.setState(migrated);
-  }
-
   const actions = moduleAPI.createActions({
     createTemplate: async (input: CreateWorkflowTemplateInput) => {
       return templateState.setState((state) => addWorkflowTemplate(state, input));
