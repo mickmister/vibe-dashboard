@@ -62,7 +62,7 @@ Create or choose a bead in the repo where the work belongs, then attach the form
 
 ```bash
 MY_BEADS_DIR=$PWD/vibe-kanban-vscode-web # just an example
-cd $MY_BEADS_DIR 
+cd $MY_BEADS_DIR
 bd create "Decide implementation questions" --type task --priority 2
 
 beads-form attach \
@@ -118,4 +118,3 @@ beads-form show --bead <bead-id> --dir <repo-dir>
 ```
 
 `show` outputs JSON by default. Use `--include-html` only when needed.
-
