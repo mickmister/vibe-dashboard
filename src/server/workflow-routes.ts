@@ -116,6 +116,36 @@ export function registerWorkflowRoutes(
     }
   });
 
+  hono.get('/dashboard/api/workflow-assets', async (c) => {
+    const db = options.workflowHomeDb ?? (await getVdDb()).db;
+    const designStore = options.workflowDesignStore ?? new DbWorkflowDesignStore({ db, templates: BUILT_IN_WORKFLOW_TEMPLATES });
+    const limit = parsePositiveInteger(c.req.query('limit') ?? null) ?? 100;
+    const [prompts, skills] = await Promise.all([
+      designStore.listPromptAssets(limit),
+      designStore.listSkillAssets(limit),
+    ]);
+    return c.json({
+      prompts: prompts.map((asset) => ({
+        kind: 'prompt',
+        id: asset.promptAssetId,
+        version: asset.version,
+        name: asset.name,
+        description: asset.description,
+        source: asset.source,
+        preview: asset.bodyMarkdown.slice(0, 240),
+      })),
+      skills: skills.map((asset) => ({
+        kind: 'skill',
+        id: asset.skillAssetId,
+        version: asset.version,
+        name: asset.name,
+        description: asset.description,
+        source: asset.source,
+        preview: asset.bodyMarkdown.slice(0, 240),
+      })),
+    });
+  });
+
   hono.post('/dashboard/api/workflows/batches', async (c) => {
     const body = asRecord(await readJsonBody(c.req.raw));
     const parsed = parseWorkflowBatchLaunchRequest(body);

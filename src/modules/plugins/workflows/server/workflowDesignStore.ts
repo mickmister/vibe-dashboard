@@ -227,12 +227,24 @@ export class DbWorkflowDesignStore {
     return row ? mapPromptAsset(row) : null;
   }
 
+  async listPromptAssets(limit = 100): Promise<WorkflowPromptAssetReadModel[]> {
+    const db = await this.getDb();
+    const rows = await db.selectFrom('WorkflowPromptAsset').selectAll().orderBy('updatedAt', 'desc').limit(limit).execute();
+    return rows.map(mapPromptAsset);
+  }
+
   async getSkillAsset(skillAssetId: string, version?: number): Promise<WorkflowSkillAssetReadModel | null> {
     const db = await this.getDb();
     let query = db.selectFrom('WorkflowSkillAsset').selectAll().where('skillAssetId', '=', skillAssetId);
     if (version != null) query = query.where('version', '=', version);
     const row = await query.orderBy('version', 'desc').executeTakeFirst();
     return row ? mapSkillAsset(row) : null;
+  }
+
+  async listSkillAssets(limit = 100): Promise<WorkflowSkillAssetReadModel[]> {
+    const db = await this.getDb();
+    const rows = await db.selectFrom('WorkflowSkillAsset').selectAll().orderBy('updatedAt', 'desc').limit(limit).execute();
+    return rows.map(mapSkillAsset);
   }
 
   async createDesign(input: { designId: string; name: string; description?: string | null; source?: WorkflowLibraryRecordSource; draftId: string; definition: unknown; baseVersion?: number | null }): Promise<{ design: WorkflowDesignReadModel; draft: WorkflowDesignDraftReadModel }> {

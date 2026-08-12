@@ -22,6 +22,11 @@
  * - TEST_CASE_M107_1C
  * - TEST_CASE_M107_1E
  * - TEST_CASE_M107_1F
+ * - TEST_CASE_M108_1A
+ * - TEST_CASE_M108_1B
+ * - TEST_CASE_M108_1C
+ * - TEST_CASE_M108_1D
+ * - TEST_CASE_M108_1E
  */
 import { expect, test } from 'playwright/test';
 
@@ -271,6 +276,9 @@ test.describe('Workspace Workflows tab shell', () => {
     await page.route('**/dashboard/api/workflow-designs/design-dev-review-tester/editor', async (route) => {
       await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ editor: editorFixture(savedDefinition ?? graphDefinition()) }) });
     });
+    await page.route('**/dashboard/api/workflow-assets', async (route) => {
+      await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ prompts: [{ kind: 'prompt', id: 'prompt.dev.implement', version: 1, name: 'Old implement prompt', description: 'Existing prompt ref', source: 'built_in', preview: 'Implement feature' }, { kind: 'prompt', id: 'prompt.drt.dev.implement', version: 1, name: 'DRT implement prompt', description: 'Materialized starter prompt', source: 'built_in', preview: 'Implement the requested feature' }], skills: [{ kind: 'skill', id: 'skill.testing.notes', version: 1, name: 'Testing notes', description: 'Markdown skill snippet', source: 'user', preview: 'Write focused tests.' }] }) });
+    });
     await page.route('**/dashboard/api/workflow-design-drafts/draft-dev-review-tester', async (route) => {
       const body = route.request().postDataJSON();
       savedDefinition = body.definition;
@@ -303,10 +311,15 @@ test.describe('Workspace Workflows tab shell', () => {
     await expect(details.getByText('implement', { exact: true })).toBeVisible();
     await expect(details.getByText('self_review', { exact: true })).toBeVisible();
     await expect(details.getByText('prompt:prompt.dev.implement@1')).toBeVisible();
+    await expect(details.getByText('Prompt and skill snippets')).toBeVisible();
+    await expect(details.locator('label').filter({ hasText: 'DRT implement prompt' })).toContainText('v1 · Built-in');
+    await expect(details.locator('label').filter({ hasText: 'Testing notes' })).toContainText('v1 · User');
+    await expect(details.getByText('Raw JSON remains diagnostics-only.')).toBeVisible();
     await expect(page.getByText('Ready to save.')).toBeVisible();
     await page.getByLabel('Workflow name').fill('Dev Review Tester Copy');
     await page.getByLabel('dev label').fill('Implementer');
-    await page.getByLabel('implement prompt refs').fill('prompt:prompt.drt.dev.implement@1');
+    await page.getByLabel('prompt:prompt.dev.implement@1').uncheck();
+    await page.getByLabel('prompt:prompt.drt.dev.implement@1').check();
 
     await page.getByLabel('Target state').selectOption('');
     await expect(page.getByText('Choose an existing target state.')).toBeVisible();

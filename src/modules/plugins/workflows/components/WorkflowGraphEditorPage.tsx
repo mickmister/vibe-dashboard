@@ -6,6 +6,7 @@ import { useParams } from 'react-router';
 import { Background, Controls, MarkerType, MiniMap, ReactFlow, type Edge, type Node } from '@xyflow/react';
 import type { AgentWorkflowDefinitionV1, WorkflowStepV1 } from '@vibe-dashboard/workflow-core';
 import { fetchWorkflowDesignEditor, publishWorkflowDesignDraft, saveWorkflowDesignDraft, type WorkflowDesignEditorModel } from '../client/workflowDesignEditorApi';
+import { fetchWorkflowAssets, type WorkflowAssetPickerItem, type WorkflowAssetsModel } from '../client/workflowAssetsApi';
 import { StandaloneDashboardPage } from '../../../../components/StandaloneDashboardPage';
 import { applyWorkflowGraphActionEdit, validateWorkflowGraph, workflowDefinitionToGraph, type WorkflowGraphEdgeModel, type WorkflowGraphNodeModel, type WorkflowGraphValidationIssue } from './graph/workflowGraphModel';
 
@@ -17,6 +18,7 @@ export function WorkflowGraphEditorPage(): React.ReactElement {
   const [error, setError] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [publishing, setPublishing] = useState(false);
+  const [assets, setAssets] = useState<WorkflowAssetsModel>({ prompts: [], skills: [] });
 
   useEffect(() => {
     if (!designId) {
@@ -35,6 +37,9 @@ export function WorkflowGraphEditorPage(): React.ReactElement {
       })
       .catch((caught) => { if (active) setError(caught instanceof Error ? caught.message : String(caught)); })
       .finally(() => { if (active) setLoading(false); });
+    fetchWorkflowAssets()
+      .then((loaded) => { if (active) setAssets(loaded); })
+      .catch((caught) => { if (active) setError(caught instanceof Error ? caught.message : String(caught)); });
     return () => { active = false; };
   }, [designId]);
 
@@ -76,14 +81,15 @@ export function WorkflowGraphEditorPage(): React.ReactElement {
         </header>
         {loading ? <div className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-5">Loading workflow graph…</div> : null}
         {error ? <div role="alert" className="rounded-lg border border-amber-900 bg-amber-950/30 p-4 text-sm text-amber-100">{error}</div> : null}
-        {definition ? <WorkflowGraphEditorView editor={editor} definition={definition} onDefinitionChange={setDefinition} onSave={() => void save()} onPublish={() => void publish()} publishing={publishing} saveMessage={saveMessage} /> : null}
+        {definition ? <WorkflowGraphEditorView editor={editor} definition={definition} assets={assets} onDefinitionChange={setDefinition} onSave={() => void save()} onPublish={() => void publish()} publishing={publishing} saveMessage={saveMessage} /> : null}
     </StandaloneDashboardPage>
   );
 }
 
-export function WorkflowGraphEditorView({ editor, definition, onDefinitionChange, onSave, onPublish, publishing, saveMessage }: {
+export function WorkflowGraphEditorView({ editor, definition, assets, onDefinitionChange, onSave, onPublish, publishing, saveMessage }: {
   editor: WorkflowDesignEditorModel | null;
   definition: AgentWorkflowDefinitionV1;
+  assets?: WorkflowAssetsModel;
   onDefinitionChange: (definition: AgentWorkflowDefinitionV1) => void;
   onSave: () => void;
   onPublish: () => void;
@@ -136,7 +142,7 @@ export function WorkflowGraphEditorView({ editor, definition, onDefinitionChange
         {saveMessage ? <div className="rounded-lg border border-emerald-800 bg-emerald-950/30 p-3 text-sm text-emerald-100">{saveMessage}</div> : null}
         <DesignDetails definition={definition} onChange={onDefinitionChange} />
         <ValidationPanel issues={issues} />
-        {selectedNode ? <NodeDetails node={selectedNode} definition={definition} onChange={onDefinitionChange} /> : null}
+        {selectedNode ? <NodeDetails node={selectedNode} definition={definition} assets={assets ?? { prompts: [], skills: [] }} onChange={onDefinitionChange} /> : null}
         {selectedEdge ? <EdgeEditor edge={selectedEdge} states={graph.nodes} onChange={updateEdge} /> : null}
         <JsonDiagnostics definition={definition} />
       </aside>
@@ -156,7 +162,7 @@ function DesignDetails({ definition, onChange }: { definition: AgentWorkflowDefi
   );
 }
 
-function NodeDetails({ node, definition, onChange }: { node: WorkflowGraphNodeModel; definition: AgentWorkflowDefinitionV1; onChange: (definition: AgentWorkflowDefinitionV1) => void }) {
+function NodeDetails({ node, definition, assets, onChange }: { node: WorkflowGraphNodeModel; definition: AgentWorkflowDefinitionV1; assets: WorkflowAssetsModel; onChange: (definition: AgentWorkflowDefinitionV1) => void }) {
   return (
     <section className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
       <div className="text-xs uppercase tracking-wide text-cyan-300">Selected state</div>
@@ -166,19 +172,19 @@ function NodeDetails({ node, definition, onChange }: { node: WorkflowGraphNodeMo
         <div><dt className="text-zinc-500">State id</dt><dd>{node.id}</dd></div>
       </dl>
       <h3 className="mt-4 font-medium">Steps</h3>
-      {node.steps.length ? <ul className="mt-2 space-y-2">{node.steps.map((step) => <li key={step.id} className="rounded-lg border border-zinc-800 bg-zinc-950 p-3 text-sm"><StepSummary step={step} definition={definition} stateId={node.id} onChange={onChange} /></li>)}</ul> : <p className="mt-2 text-sm text-zinc-400">No steps in this state.</p>}
+      {node.steps.length ? <ul className="mt-2 space-y-2">{node.steps.map((step) => <li key={step.id} className="rounded-lg border border-zinc-800 bg-zinc-950 p-3 text-sm"><StepSummary step={step} definition={definition} assets={assets} stateId={node.id} onChange={onChange} /></li>)}</ul> : <p className="mt-2 text-sm text-zinc-400">No steps in this state.</p>}
     </section>
   );
 }
 
-function StepSummary({ step, definition, stateId, onChange }: { step: WorkflowGraphNodeModel['steps'][number]; definition: AgentWorkflowDefinitionV1; stateId: string; onChange: (definition: AgentWorkflowDefinitionV1) => void }) {
+function StepSummary({ step, definition, assets, stateId, onChange }: { step: WorkflowGraphNodeModel['steps'][number]; definition: AgentWorkflowDefinitionV1; assets: WorkflowAssetsModel; stateId: string; onChange: (definition: AgentWorkflowDefinitionV1) => void }) {
   return (
     <div>
       <div className="font-medium">{step.id}</div>
       <div className="mt-1 text-zinc-400">{stepSubtitle(step)}</div>
       {step.promptTemplate ? <div className="mt-2 text-xs text-zinc-500">Prompt: {step.promptTemplate}</div> : null}
-      {step.promptRefs.length ? <div className="mt-2 text-xs text-zinc-500">Refs: {step.promptRefs.join(', ')}</div> : null}
-      {step.type === 'agent_turn' ? <PromptRefsEditor definition={definition} stateId={stateId} stepId={step.id} onChange={onChange} /> : null}
+      {step.promptRefs.length ? <div className="mt-2 text-xs text-zinc-500">Selected refs: {step.promptRefs.join(', ')}</div> : null}
+      {step.type === 'agent_turn' ? <PromptRefsEditor definition={definition} assets={assets} stateId={stateId} stepId={step.id} onChange={onChange} /> : null}
       {step.humanFormProvider ? <div className="mt-2 text-xs text-zinc-500">Form provider: {step.humanFormProvider}</div> : null}
       {step.workflowCallDesignId ? <div className="mt-2 text-xs text-zinc-500">Child workflow: {step.workflowCallDesignId}{step.workflowCallVersion ? `@${step.workflowCallVersion}` : ''}</div> : null}
     </div>
@@ -193,21 +199,18 @@ function stepSubtitle(step: WorkflowGraphNodeModel['steps'][number]): string {
 }
 
 
-function PromptRefsEditor({ definition, stateId, stepId, onChange }: { definition: AgentWorkflowDefinitionV1; stateId: string; stepId: string; onChange: (definition: AgentWorkflowDefinitionV1) => void }) {
+function PromptRefsEditor({ definition, assets, stateId, stepId, onChange }: { definition: AgentWorkflowDefinitionV1; assets: WorkflowAssetsModel; stateId: string; stepId: string; onChange: (definition: AgentWorkflowDefinitionV1) => void }) {
   const state = definition.states[stateId];
   if (!state || 'terminal' in state) return null;
   const step = state.steps.find((candidate) => candidate.id === stepId) as (WorkflowStepV1 & { prompt?: { refs?: Array<{ kind: string; id: string; version?: number }> } }) | undefined;
   if (!step || step.type !== 'agent_turn') return null;
-  const value = (step.prompt.refs ?? []).map((ref) => `${ref.kind}:${ref.id}${ref.version ? `@${ref.version}` : ''}`).join(', ');
-  const update = (raw: string) => {
-    const refs = raw.split(',').map((part) => part.trim()).filter(Boolean).map((part) => {
-      const [kindAndId, versionRaw] = part.split('@');
-      const separator = kindAndId?.indexOf(':') ?? -1;
-      const kind = separator > 0 ? kindAndId!.slice(0, separator) : 'prompt';
-      const id = separator > 0 ? kindAndId!.slice(separator + 1) : kindAndId!;
-      const version = versionRaw ? Number(versionRaw) : undefined;
-      return Number.isFinite(version) ? { kind, id, version } : { kind, id };
-    });
+  const selectedRefs = step.prompt.refs ?? [];
+  const allAssets = [...assets.prompts, ...assets.skills];
+  const missingRefs = selectedRefs.filter((ref) => !allAssets.some((asset) => asset.kind === ref.kind && asset.id === ref.id && (ref.version == null || asset.version === ref.version)));
+  const toggle = (asset: WorkflowAssetPickerItem, checked: boolean) => {
+    const refs = checked
+      ? [...selectedRefs.filter((ref) => !(ref.kind === asset.kind && ref.id === asset.id)), { kind: asset.kind, id: asset.id, version: asset.version }]
+      : selectedRefs.filter((ref) => !(ref.kind === asset.kind && ref.id === asset.id && (ref.version == null || ref.version === asset.version)));
     const next = JSON.parse(JSON.stringify(definition)) as AgentWorkflowDefinitionV1;
     const nextState = next.states[stateId];
     if (!nextState || 'terminal' in nextState) return;
@@ -216,7 +219,44 @@ function PromptRefsEditor({ definition, stateId, stepId, onChange }: { definitio
     nextStep.prompt = { ...nextStep.prompt, refs } as typeof nextStep.prompt;
     onChange(next);
   };
-  return <label className="mt-2 block text-xs text-zinc-400"><span>Prompt refs</span><input aria-label={`${stepId} prompt refs`} className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 p-2" value={value} onChange={(event) => update(event.target.value)} /></label>;
+  return (
+    <section className="mt-3 rounded-md border border-zinc-800 bg-zinc-900/50 p-3" aria-label={`${stepId} prompt and skill picker`}>
+      <h4 className="text-sm font-medium text-zinc-200">Prompt and skill snippets</h4>
+      <p className="mt-1 text-xs text-zinc-500">Skills are markdown instruction snippets, not executable tools. Raw JSON remains diagnostics-only.</p>
+      {missingRefs.length ? <div className="mt-2 rounded border border-amber-900 bg-amber-950/30 p-2 text-xs text-amber-100">Missing prompt or skill refs: {missingRefs.map(formatAssetRef).join(', ')}</div> : null}
+      <AssetChecklist title="Prompts" assets={assets.prompts} selectedRefs={selectedRefs} onToggle={toggle} />
+      <AssetChecklist title="Skills" assets={assets.skills} selectedRefs={selectedRefs} onToggle={toggle} />
+      {selectedRefs.length ? <div className="mt-3 text-xs text-zinc-400">Selected: {selectedRefs.map(formatAssetRef).join(', ')}</div> : null}
+    </section>
+  );
+}
+
+function AssetChecklist({ title, assets, selectedRefs, onToggle }: { title: string; assets: WorkflowAssetPickerItem[]; selectedRefs: Array<{ kind: string; id: string; version?: number }>; onToggle: (asset: WorkflowAssetPickerItem, checked: boolean) => void }) {
+  return (
+    <div className="mt-3">
+      <div className="text-xs font-medium uppercase tracking-wide text-zinc-500">{title}</div>
+      {assets.length ? <div className="mt-2 space-y-2">{assets.map((asset) => {
+        const checked = selectedRefs.some((ref) => ref.kind === asset.kind && ref.id === asset.id && (ref.version == null || ref.version === asset.version));
+        return (
+          <label key={`${asset.kind}:${asset.id}@${asset.version}`} className="flex gap-2 rounded border border-zinc-800 bg-zinc-950 p-2 text-xs">
+            <input type="checkbox" checked={checked} onChange={(event) => onToggle(asset, event.target.checked)} aria-label={`${asset.kind}:${asset.id}@${asset.version}`} />
+            <span><span className="font-medium text-zinc-200">{asset.name}</span> <span className="text-zinc-500">v{asset.version} · {sourceLabel(asset.source)}</span>{asset.description ? <span className="block text-zinc-400">{asset.description}</span> : null}<span className="block text-zinc-500">{asset.preview}</span></span>
+          </label>
+        );
+      })}</div> : <div className="mt-2 rounded border border-dashed border-zinc-800 p-2 text-xs text-zinc-500">No {title.toLowerCase()} available.</div>}
+    </div>
+  );
+}
+
+function formatAssetRef(ref: { kind: string; id: string; version?: number }): string {
+  return `${ref.kind}:${ref.id}${ref.version ? `@${ref.version}` : ''}`;
+}
+
+function sourceLabel(source: string): string {
+  if (source === 'built_in') return 'Built-in';
+  if (source === 'plugin') return 'Plugin';
+  if (source === 'user') return 'User';
+  return source;
 }
 
 function EdgeEditor({ edge, states, onChange }: { edge: WorkflowGraphEdgeModel; states: WorkflowGraphNodeModel[]; onChange: (edgeId: string, edit: { actionLabel?: string; targetState?: string }) => void }) {

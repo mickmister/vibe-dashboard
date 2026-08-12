@@ -54,3 +54,54 @@ function node(patch: Partial<WorkflowGraphNodeModel>): WorkflowGraphNodeModel {
     ...patch,
   };
 }
+
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { WorkflowGraphEditorView } from './WorkflowGraphEditorPage';
+import type { AgentWorkflowDefinitionV1 } from '@vibe-dashboard/workflow-core';
+
+describe('WorkflowGraphEditorView prompt and skill picker', () => {
+  it('TEST_CASE_M108_1A-E renders picker assets, selected refs, missing refs, and view-only JSON diagnostics', () => {
+    const html = renderToStaticMarkup(React.createElement(WorkflowGraphEditorView, {
+      editor: { designId: 'design-a', name: 'Workflow A', description: null, draftId: 'draft-a', version: 1, readonly: false, definition: promptDefinition(), validationStatus: 'valid', validationIssues: [] },
+      definition: promptDefinition(),
+      assets: {
+        prompts: [{ kind: 'prompt', id: 'prompt.dev.instructions', version: 1, name: 'Dev instructions', description: 'Implementation prompt', source: 'built_in', preview: 'Implement carefully.' }],
+        skills: [{ kind: 'skill', id: 'skill.testing.notes', version: 2, name: 'Testing notes', description: 'Markdown only', source: 'user', preview: 'Write focused tests.' }],
+      },
+      onDefinitionChange: () => {},
+      onSave: () => {},
+      onPublish: () => {},
+    }));
+
+    expect(html).toContain('Prompt and skill snippets');
+    expect(html).toContain('Dev instructions');
+    expect(html).toContain('v1 · Built-in');
+    expect(html).toContain('Testing notes');
+    expect(html).toContain('v2 · User');
+    expect(html).toContain('Skills are markdown instruction snippets, not executable tools.');
+    expect(html).toContain('Selected: prompt:prompt.dev.instructions@1, skill:skill.missing@1');
+    expect(html).toContain('Missing prompt or skill refs: skill:skill.missing@1');
+    expect(html).toContain('JSON diagnostics');
+    expect(html).toContain('aria-readonly="true"');
+    expect(html).not.toContain('prompt refs</span><input');
+  });
+});
+
+function promptDefinition(): AgentWorkflowDefinitionV1 {
+  return {
+    schemaVersion: 1,
+    name: 'Workflow A',
+    inputs: { featureRequest: { type: 'markdown', required: true } },
+    roles: { dev: { label: 'Dev' } },
+    initialState: 'dev',
+    states: {
+      dev: {
+        owner: 'dev',
+        steps: [{ id: 'decide', type: 'agent_turn', turnType: 'decision', prompt: { template: 'Do work', refs: [{ kind: 'prompt', id: 'prompt.dev.instructions', version: 1 }, { kind: 'skill', id: 'skill.missing', version: 1 }] } as any, response: { format: 'xml', schema: { format: 'xsd', source: 'state_actions' }, invalidXmlRetry: { maxAttempts: 1, prompt: 'engine_default_with_validation_errors', onExhausted: 'blocked' }, storeRawXml: true, storeParsedFields: true, unknownFields: 'reject_unless_allowed_by_result_contract' } }],
+        actions: { done: { label: 'Done', targetState: 'done' } },
+      },
+      done: { terminal: true },
+    },
+  };
+}

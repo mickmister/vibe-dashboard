@@ -226,6 +226,24 @@ describe('registerWorkflowRoutes', () => {
     expect(JSON.parse(runRow.roleBindingsJson)).toMatchObject({ dev: { sessionId: 'session-dev' }, review: { sessionId: 'session-review' } });
   });
 
+  it('TEST_CASE_M108_1C exposes prompt and skill picker assets with source/version metadata', async () => {
+    const handle = await initVdDb({ path: ':memory:' });
+    dbHandles.push(handle);
+    const app = new Hono();
+    const designStore = new DbWorkflowDesignStore({ db: handle.db });
+    await designStore.createPromptAsset({ promptAssetId: 'prompt.dev.instructions', version: 1, name: 'Dev instructions', description: 'Implementation prompt', bodyMarkdown: 'Implement carefully.', source: 'built_in' });
+    await designStore.createSkillAsset({ skillAssetId: 'skill.testing.notes', version: 2, name: 'Testing notes', description: 'Markdown testing guidance', bodyMarkdown: 'Write focused tests.', source: 'user' });
+    registerWorkflowRoutes(app, { registry: createWorkflowRegistry(), workflowHomeDb: handle.db, workflowDesignStore: designStore });
+
+    const response = await app.request('/dashboard/api/workflow-assets');
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      prompts: [expect.objectContaining({ kind: 'prompt', id: 'prompt.dev.instructions', version: 1, source: 'built_in', preview: 'Implement carefully.' })],
+      skills: [expect.objectContaining({ kind: 'skill', id: 'skill.testing.notes', version: 2, source: 'user', preview: 'Write focused tests.' })],
+    });
+  });
+
   it('TEST_CASE_M107_1B/C/E creates, duplicates, and publishes wizard workflow designs', async () => {
     const handle = await initVdDb({ path: ':memory:' });
     dbHandles.push(handle);
