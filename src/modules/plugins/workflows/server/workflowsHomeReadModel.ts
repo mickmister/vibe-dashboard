@@ -7,7 +7,8 @@ import { WorkflowBatchSchedulerService, type WorkflowBatchReadModel } from './wo
 
 export interface WorkspaceWorkflowsHomeModel {
   workspaceId: string;
-  availableWorkflows: WorkspaceWorkflowSummary[];
+  userWorkflows: WorkspaceWorkflowSummary[];
+  starterTemplates: WorkspaceWorkflowSummary[];
   recentRuns: WorkspaceWorkflowRunSummary[];
   needsInput: WorkspaceWorkflowAttentionSummary[];
   recentBatches: WorkspaceWorkflowBatchSummary[];
@@ -83,21 +84,19 @@ export async function buildWorkspaceWorkflowsHomeModel(args: {
   recentRunLimit?: number;
 }): Promise<WorkspaceWorkflowsHomeModel> {
   const designStore = args.designStore ?? new DbWorkflowDesignStore({ db: args.db, templates: BUILT_IN_WORKFLOW_TEMPLATES });
-  const [availableWorkflows, recentRuns, needsInput, recentBatches] = await Promise.all([
-    listAvailableWorkflows(designStore),
+  const [userWorkflows, starterTemplates, recentRuns, needsInput, recentBatches] = await Promise.all([
+    listUserWorkflows(designStore),
+    listStarterTemplates(designStore),
     listRecentRuns(args.db, args.workspaceId, args.recentRunLimit ?? 10),
     listNeedsInput(args.orchestrationStore, args.workspaceId),
     listRecentBatches(args.db, designStore, args.workspaceId),
   ]);
-  return { workspaceId: args.workspaceId, availableWorkflows, recentRuns, needsInput, recentBatches };
+  return { workspaceId: args.workspaceId, userWorkflows, starterTemplates, recentRuns, needsInput, recentBatches };
 }
 
-async function listAvailableWorkflows(designStore: DbWorkflowDesignStore): Promise<WorkspaceWorkflowSummary[]> {
-  const [designs, templates] = await Promise.all([
-    designStore.listDesigns(),
-    designStore.listTemplateCatalogReadModels(),
-  ]);
-  const designSummaries = await Promise.all(designs.map(async (design): Promise<WorkspaceWorkflowSummary> => {
+async function listUserWorkflows(designStore: DbWorkflowDesignStore): Promise<WorkspaceWorkflowSummary[]> {
+  const designs = await designStore.listDesigns();
+  const summaries = await Promise.all(designs.map(async (design): Promise<WorkspaceWorkflowSummary> => {
     const version = design.latestPublishedVersion;
     const published = version == null ? null : await designStore.getVersion(design.designId, version);
     return {
@@ -105,29 +104,31 @@ async function listAvailableWorkflows(designStore: DbWorkflowDesignStore): Promi
       title: design.name,
       description: design.description,
       source: 'published_design',
-      status: version == null ? 'unavailable' : 'ready',
-      version,
-      unavailableReason: version == null ? 'Publish this workflow before running it.' : null,
-      canRun: version != null,
+      status: published ? 'ready' : 'unavailable',
+      version: published?.version ?? version ?? null,
+      unavailableReason: published ? null : 'Publish this workflow before running it.',
+      canRun: Boolean(published),
       inputs: published ? summarizeInputs(published.resolvedDefinition) : [],
       roles: published ? summarizeRoles(published.resolvedDefinition) : [],
     };
   }));
-  return [
-    ...designSummaries,
-    ...templates.map((template): WorkspaceWorkflowSummary => ({
-      id: template.templateId,
-      title: template.name,
-      description: template.description ?? null,
-      source: 'template',
-      status: template.validationStatus === 'valid' ? 'ready' : 'unavailable',
-      version: null,
-      unavailableReason: template.unavailableReason,
-      canRun: false,
-      inputs: [],
-      roles: [],
-    })),
-  ].sort((left, right) => left.title.localeCompare(right.title));
+  return summaries.sort((left, right) => left.title.localeCompare(right.title));
+}
+
+async function listStarterTemplates(designStore: DbWorkflowDesignStore): Promise<WorkspaceWorkflowSummary[]> {
+  const templates = await designStore.listTemplateCatalogReadModels();
+  return templates.map((template): WorkspaceWorkflowSummary => ({
+    id: template.templateId,
+    title: template.name,
+    description: template.description ?? null,
+    source: 'template',
+    status: template.validationStatus === 'valid' ? 'ready' : 'unavailable',
+    version: null,
+    unavailableReason: template.unavailableReason,
+    canRun: false,
+    inputs: [],
+    roles: [],
+  })).sort((left, right) => left.title.localeCompare(right.title));
 }
 
 function summarizeInputs(definition: unknown): WorkspaceWorkflowInputSummary[] {

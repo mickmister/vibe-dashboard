@@ -75,7 +75,7 @@ describe('registerWorkflowRoutes', () => {
     await expect(response.json()).resolves.toMatchObject({
       home: {
         workspaceId: 'workspace-a',
-        availableWorkflows: [{ id: 'design-home', title: 'Home Workflow', status: 'ready' }],
+        userWorkflows: [{ id: 'design-home', title: 'Home Workflow', status: 'ready' }],
         recentRuns: [{ runId: 'run-home-a', workflowName: 'Home Workflow', detailUrl: '/dashboard/workflows/run-home-a' }],
         needsInput: [],
       },
@@ -119,7 +119,7 @@ describe('registerWorkflowRoutes', () => {
 
     const home = await app.request('/dashboard/api/workflows/home?workspaceId=workspace-a');
     expect(home.status).toBe(200);
-    await expect(home.json()).resolves.toMatchObject({ home: { availableWorkflows: expect.arrayContaining([
+    await expect(home.json()).resolves.toMatchObject({ home: { starterTemplates: expect.arrayContaining([
       expect.objectContaining({ id: 'built-in/dev-review-tester', title: 'Dev / Review / Tester', source: 'template', status: 'ready' }),
       expect.objectContaining({ id: 'built-in/create-form-from-agent', title: 'Create form from agent', source: 'template', status: 'ready' }),
     ]) } });
@@ -135,7 +135,7 @@ describe('registerWorkflowRoutes', () => {
       design: { designId: 'design.drt.route', latestPublishedVersion: 1 },
       draft: { draftId: 'draft.drt.route', validationStatus: 'valid' },
       version: { designId: 'design.drt.route', version: 1 },
-      home: { availableWorkflows: expect.arrayContaining([expect.objectContaining({ id: 'design.drt.route', source: 'published_design', status: 'ready', canRun: true })]) },
+      home: { userWorkflows: expect.arrayContaining([expect.objectContaining({ id: 'design.drt.route', source: 'published_design', status: 'ready', canRun: true })]) },
     });
     expect(await designStore.getVersion('design.drt.route', 1)).toMatchObject({ resolvedDefinition: { states: { dev: { steps: [{ id: 'implement' }, { id: 'self_review' }] } } } });
 

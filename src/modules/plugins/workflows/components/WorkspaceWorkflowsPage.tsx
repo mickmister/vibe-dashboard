@@ -72,8 +72,12 @@ export function WorkspaceWorkflowsHomeView({ home, loading, error, onRefresh, on
           {home?.needsInput.length ? <div className="grid gap-3 md:grid-cols-2">{home.needsInput.map((item) => <AttentionCard key={item.attentionItemId} item={item} />)}</div> : <EmptyState text="Nothing needs your input right now." />}
         </Section>
 
-        <Section title="Available workflows">
-          {home?.availableWorkflows.length ? <div className="grid gap-3 md:grid-cols-2">{home.availableWorkflows.map((workflow) => <WorkflowCard key={`${workflow.source}:${workflow.id}`} workflow={workflow} workspaceId={home.workspaceId} onRun={() => setLaunchWorkflow(workflow)} onBatch={() => setBatchWorkflow(workflow)} onUsed={(updated) => onHomeUpdated?.(updated)} />)}</div> : <EmptyState text="No workflows are available yet." />}
+        <Section title="Your workflows" description="Designs you have created, copied, customized, or published.">
+          {home?.userWorkflows.length ? <div className="grid gap-3 md:grid-cols-2">{home.userWorkflows.map((workflow) => <WorkflowCard key={`user:${workflow.id}`} workflow={workflow} workspaceId={home.workspaceId} onRun={() => setLaunchWorkflow(workflow)} onBatch={() => setBatchWorkflow(workflow)} onUsed={(updated) => onHomeUpdated?.(updated)} />)}</div> : <EmptyState text="No workflows yet. Create a copy from a starter template to make your first workflow." />}
+        </Section>
+
+        <Section title="Starter templates" description="Starting points you can copy and customize before running.">
+          {home?.starterTemplates.length ? <div className="grid gap-3 md:grid-cols-2">{home.starterTemplates.map((workflow) => <WorkflowCard key={`starter:${workflow.id}`} workflow={workflow} workspaceId={home.workspaceId} onRun={() => setLaunchWorkflow(workflow)} onBatch={() => setBatchWorkflow(workflow)} onUsed={(updated) => onHomeUpdated?.(updated)} />)}</div> : <EmptyState text="No starter templates are available right now." />}
         </Section>
 
         <Section title="Recent batches">
@@ -109,8 +113,8 @@ export function WorkspaceWorkflowsHomeView({ home, loading, error, onRefresh, on
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return <section className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-5"><h2 className="text-lg font-semibold">{title}</h2><div className="mt-4">{children}</div></section>;
+function Section({ title, description, children }: { title: string; description?: string; children: React.ReactNode }) {
+  return <section className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-5"><h2 className="text-lg font-semibold">{title}</h2>{description ? <p className="mt-1 text-sm text-zinc-400">{description}</p> : null}<div className="mt-4">{children}</div></section>;
 }
 
 function WorkflowCard({ workflow, workspaceId, onRun, onBatch, onUsed }: { workflow: WorkspaceWorkflowSummary; workspaceId: string; onRun: () => void; onBatch: () => void; onUsed?: (home: WorkspaceWorkflowsHomeModel) => void }) {
@@ -134,20 +138,38 @@ function WorkflowCard({ workflow, workspaceId, onRun, onBatch, onUsed }: { workf
         <div>
           <h3 className="font-semibold">{workflow.title}</h3>
           {workflow.description ? <p className="mt-2 text-sm text-zinc-300">{workflow.description}</p> : null}
-          <p className="mt-3 text-xs text-zinc-500">{workflow.source === 'template' ? 'Template' : workflow.version ? `Published version ${workflow.version}` : 'Draft'}</p>
+          <p className="mt-3 text-xs text-zinc-500">{workflowCaption(workflow)}</p>
         </div>
-        <StatusPill label={workflow.status === 'ready' ? 'Ready' : 'Unavailable'} tone={workflow.status === 'ready' ? 'emerald' : 'amber'} />
+        <StatusPill label={workflowStatusLabel(workflow)} tone={workflowStatusTone(workflow)} />
       </div>
       {workflow.unavailableReason ? <p className="mt-3 text-sm text-amber-200">{workflow.unavailableReason}</p> : null}
       {useError ? <p role="alert" className="mt-3 text-sm text-amber-200">{useError}</p> : null}
       <div className="mt-4 flex flex-wrap gap-2">
         {workflow.canRun ? <button className="rounded-md bg-cyan-500 px-3 py-2 text-sm font-medium text-zinc-950 hover:bg-cyan-400" onClick={onRun}>Run</button> : null}
         {workflow.canRun ? <button className="rounded-md border border-cyan-700 px-3 py-2 text-sm text-cyan-100 hover:bg-cyan-950/40" onClick={onBatch}>Batch run</button> : null}
-        {workflow.source === 'template' && workflow.status === 'ready' ? <button className="rounded-md border border-cyan-700 px-3 py-2 text-sm text-cyan-100 hover:bg-cyan-950/40 disabled:opacity-50" onClick={handleUseTemplate} disabled={usingTemplate}>{usingTemplate ? 'Using…' : 'Use template'}</button> : null}
-        {workflow.source === 'published_design' ? <a className="rounded-md border border-zinc-700 px-3 py-2 text-sm hover:bg-zinc-800" href={`/dashboard/workflows/editor/${encodeURIComponent(workflow.id)}`}>Edit graph</a> : null}
+        {workflow.source === 'template' && workflow.status === 'ready' ? <button className="rounded-md border border-cyan-700 px-3 py-2 text-sm text-cyan-100 hover:bg-cyan-950/40 disabled:opacity-50" onClick={handleUseTemplate} disabled={usingTemplate}>{usingTemplate ? 'Creating copy…' : 'Create copy'}</button> : null}
+        {workflow.source === 'published_design' ? <a className="rounded-md border border-zinc-700 px-3 py-2 text-sm hover:bg-zinc-800" href={`/dashboard/workflows/editor/${encodeURIComponent(workflow.id)}`}>Edit</a> : null}
       </div>
     </article>
   );
+}
+
+function workflowCaption(workflow: WorkspaceWorkflowSummary): string {
+  if (workflow.source === 'template') return 'Copy this starter template to make an editable workflow.';
+  if (workflow.version) return `Published v${workflow.version}`;
+  return 'Draft workflow';
+}
+
+function workflowStatusLabel(workflow: WorkspaceWorkflowSummary): string {
+  if (workflow.source === 'template') return workflow.status === 'ready' ? 'Starter template' : 'Unavailable';
+  if (workflow.version) return `Published v${workflow.version}`;
+  return 'Draft';
+}
+
+function workflowStatusTone(workflow: WorkspaceWorkflowSummary): 'emerald' | 'cyan' | 'amber' | 'red' {
+  if (workflow.source === 'template' && workflow.status === 'ready') return 'cyan';
+  if (workflow.version && workflow.status === 'ready') return 'emerald';
+  return 'amber';
 }
 
 function RunWorkflowDialog({ workspaceId, workflow, onClose, onLaunched }: {

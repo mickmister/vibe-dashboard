@@ -1,6 +1,7 @@
 export interface WorkspaceWorkflowsHomeModel {
   workspaceId: string;
-  availableWorkflows: WorkspaceWorkflowSummary[];
+  userWorkflows: WorkspaceWorkflowSummary[];
+  starterTemplates: WorkspaceWorkflowSummary[];
   recentRuns: WorkspaceWorkflowRunSummary[];
   needsInput: WorkspaceWorkflowAttentionSummary[];
   recentBatches: WorkspaceWorkflowBatchSummary[];

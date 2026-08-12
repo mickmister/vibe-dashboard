@@ -32,13 +32,15 @@ test.describe('Workspace Workflows tab shell', () => {
     await expect(page.getByTestId('standalone-dashboard-page')).toHaveClass(/h-screen/);
     await expect(page.getByTestId('standalone-dashboard-page')).toHaveClass(/overflow-y-auto/);
     await expect(page.getByRole('heading', { name: 'Workflows', exact: true })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Available workflows' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Your workflows' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Starter templates' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Recent runs' })).toBeVisible();
     await expect(page.getByText('Dev Review Tester')).toBeVisible();
     await expect(page.getByText('Dev / Review / Tester')).toBeVisible();
     await expect(page.getByText('Create form from agent')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Run', exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Use template' }).first()).toBeVisible();
+    await expect(page.locator('article').filter({ hasText: 'Dev / Review / Tester' }).getByRole('button', { name: 'Create copy' })).toBeVisible();
+    await expect(page.locator('article').filter({ hasText: 'Dev / Review / Tester' }).getByRole('button', { name: 'Run', exact: true })).toHaveCount(0);
     await expect(page.locator('a[href="/dashboard/workflows/legacy-clean"]')).toBeVisible();
     await expect(page.getByText('Answer planning questions')).toBeVisible();
     await expect(page.locator('a[href="/dashboard/workflows/run-clean"]')).toHaveCount(0);
@@ -151,10 +153,10 @@ test.describe('Workspace Workflows tab shell', () => {
     await page.goto('/dashboard/workflows?workspaceId=workspace-e2e');
     await expect(page.getByText('Dev / Review / Tester')).toBeVisible();
     await expect(page.getByText('Create form from agent')).toBeVisible();
-    await page.locator('article').filter({ hasText: 'Dev / Review / Tester' }).getByRole('button', { name: 'Use template' }).click();
+    await page.locator('article').filter({ hasText: 'Dev / Review / Tester' }).getByRole('button', { name: 'Create copy' }).click();
     await expect(page.locator('a[href="/dashboard/workflows/editor/design-drt-used"]')).toBeVisible();
     await expect(page.locator('article').filter({ hasText: 'Dev / Review / Tester' }).getByRole('button', { name: 'Run', exact: true })).toBeVisible();
-    await expect(page.locator('article').filter({ hasText: 'Create form from agent' }).getByRole('button', { name: 'Use template' })).toBeVisible();
+    await expect(page.locator('article').filter({ hasText: 'Create form from agent' }).getByRole('button', { name: 'Create copy' })).toBeVisible();
   });
 
 
@@ -222,11 +224,13 @@ test.describe('Workspace Workflows tab shell', () => {
 function homeFixture(launched: boolean, usedTemplate = false, batchQueued = false) {
   return {
     workspaceId: 'workspace-e2e',
-    availableWorkflows: [
+    userWorkflows: [
       workflow,
+      ...(usedTemplate ? [{ id: 'design-drt-used', title: 'Dev / Review / Tester', description: 'Three role workflow', source: 'published_design', status: 'ready', version: 1, unavailableReason: null, canRun: true, inputs: workflow.inputs, roles: workflow.roles }] : []),
+    ],
+    starterTemplates: [
       { id: 'built-in/dev-review-tester', title: 'Dev / Review / Tester', description: 'Three role workflow', source: 'template', status: 'ready', version: null, unavailableReason: null, canRun: false, inputs: [], roles: [] },
       { id: 'built-in/create-form-from-agent', title: 'Create form from agent', description: 'Create a form schema', source: 'template', status: 'ready', version: null, unavailableReason: null, canRun: false, inputs: [], roles: [] },
-      ...(usedTemplate ? [{ id: 'design-drt-used', title: 'Dev / Review / Tester', description: 'Three role workflow', source: 'published_design', status: 'ready', version: 1, unavailableReason: null, canRun: true, inputs: workflow.inputs, roles: workflow.roles }] : []),
     ],
     recentRuns: launched
       ? [{ runId: 'run-launched', workflowName: 'Launched workflow run', status: 'running', startedAt: 4, updatedAt: 5, detailUrl: null }]

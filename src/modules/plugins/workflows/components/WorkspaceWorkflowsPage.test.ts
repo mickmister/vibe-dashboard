@@ -13,16 +13,18 @@ describe('WorkspaceWorkflowsHomeView', () => {
     expect(html).toContain('h-screen');
     expect(html).toContain('overflow-y-auto');
     expect(html).toContain('Workflows');
-    expect(html).toContain('Available workflows');
+    expect(html).toContain('Your workflows');
+    expect(html).toContain('Starter templates');
     expect(html).toContain('Recent batches');
     expect(html).toContain('Recent runs');
     expect(html).toContain('Needs your input');
     expect(html).toContain('Dev Review Tester');
     expect(html).toContain('Run');
     expect(html).toContain('Batch run');
-    expect(html).toContain('Use template');
-    expect(html).toContain('Edit graph');
+    expect(html).toContain('Create copy');
+    expect(html).toContain('Edit');
     expect(html).toContain('href="/dashboard/workflows/editor/design-drt"');
+    expect(html).toContain('Starter template');
     expect(html).toContain('Create form from agent');
     expect(html).toContain('Feature workflow run');
     expect(html).toContain('1 complete · 1 running · 2 pending · 1 errors');
@@ -36,8 +38,9 @@ describe('WorkspaceWorkflowsHomeView', () => {
   });
 
   it('renders calm empty states and product error text', () => {
-    const html = renderToStaticMarkup(React.createElement(WorkspaceWorkflowsHomeView, { home: { workspaceId: 'workspace-a', availableWorkflows: [], recentRuns: [], needsInput: [], recentBatches: [] }, loading: false, error: 'Workspace is required.', onRefresh: () => {} }));
-    expect(html).toContain('No workflows are available yet.');
+    const html = renderToStaticMarkup(React.createElement(WorkspaceWorkflowsHomeView, { home: { workspaceId: 'workspace-a', userWorkflows: [], starterTemplates: [], recentRuns: [], needsInput: [], recentBatches: [] }, loading: false, error: 'Workspace is required.', onRefresh: () => {} }));
+    expect(html).toContain('No workflows yet. Create a copy from a starter template to make your first workflow.');
+    expect(html).toContain('No starter templates are available right now.');
     expect(html).toContain('No workflow batches in this workspace yet.');
     expect(html).toContain('No workflow runs in this workspace yet.');
     expect(html).toContain('Nothing needs your input right now.');
@@ -49,8 +52,11 @@ describe('WorkspaceWorkflowsHomeView', () => {
 function fixture(): WorkspaceWorkflowsHomeModel {
   return {
     workspaceId: 'workspace-a',
-    availableWorkflows: [
+    userWorkflows: [
       { id: 'design-drt', title: 'Dev Review Tester', description: 'Feature work loop', source: 'published_design', status: 'ready', version: 1, unavailableReason: null, canRun: true, inputs: [{ id: 'featureRequest', type: 'markdown', required: true, description: null }], roles: [{ id: 'dev', label: 'Dev', description: null }] },
+      { id: 'design-draft', title: 'Planning Draft', description: 'Not published yet', source: 'published_design', status: 'unavailable', version: null, unavailableReason: 'Publish this workflow before running it.', canRun: false, inputs: [], roles: [] },
+    ],
+    starterTemplates: [
       { id: 'built-in/dev-review-tester', title: 'Dev / Review / Tester', description: null, source: 'template', status: 'ready', version: null, unavailableReason: null, canRun: false, inputs: [], roles: [] },
       { id: 'built-in/create-form-from-agent', title: 'Create form from agent', description: null, source: 'template', status: 'ready', version: null, unavailableReason: null, canRun: false, inputs: [], roles: [] },
     ],
