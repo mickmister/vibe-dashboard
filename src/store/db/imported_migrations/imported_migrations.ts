@@ -11,6 +11,7 @@ import { migration as workflowWebhookProvisioningMigration } from '../migrations
 import { migration as workflowAttentionItemsMigration } from '../migrations/20260811000000_workflow_attention_items/migration';
 import { migration as workflowDesignLibraryMigration } from '../migrations/20260811010000_workflow_design_library/migration';
 import { migration as workflowPersistedRunsMigration } from '../migrations/20260811020000_workflow_persisted_runs/migration';
+import { migration as workflowBatchesMigration } from '../migrations/20260811030000_workflow_batches/migration';
 
 export const migrations = [
   {
@@ -64,5 +65,9 @@ export const migrations = [
   {
     name: '20260811020000_workflow_persisted_runs',
     migration: workflowPersistedRunsMigration,
+  },
+  {
+    name: '20260811030000_workflow_batches',
+    migration: workflowBatchesMigration,
   },
 ];

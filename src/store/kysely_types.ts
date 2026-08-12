@@ -408,6 +408,37 @@ export interface WorkflowDesignRunSnapshot {
 }
 
 
+
+export type WorkflowBatchStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+export type WorkflowBatchItemStatus = 'pending' | 'running' | 'completed' | 'blocked' | 'failed' | 'cancelled';
+
+export interface WorkflowBatch {
+  batchId: string;
+  designId: string;
+  designVersion: number;
+  workspaceId: string;
+  status: WorkflowBatchStatus;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface WorkflowBatchItem {
+  batchItemId: string;
+  batchId: string;
+  itemIndex: number;
+  status: WorkflowBatchItemStatus;
+  runId: NullableString;
+  runSnapshotId: NullableString;
+  inputJson: string;
+  additionalInstructions: NullableString;
+  roleBindingsJson: string;
+  errorJson: NullableString;
+  createdAt: number;
+  updatedAt: number;
+  startedAt: NullableNumber;
+  completedAt: NullableNumber;
+}
+
 export type WorkflowPersistedRunStatus = 'running' | 'completed' | 'blocked' | 'failed' | 'cancelled';
 
 export interface WorkflowPersistedRun {
@@ -436,6 +467,8 @@ export interface DB {
   WorkflowSkillAsset: WorkflowSkillAsset;
   WorkflowDesignRunSnapshot: WorkflowDesignRunSnapshot;
   WorkflowPersistedRun: WorkflowPersistedRun;
+  WorkflowBatch: WorkflowBatch;
+  WorkflowBatchItem: WorkflowBatchItem;
   DeclarativeWorkflowDefinition: DeclarativeWorkflowDefinitionRow;
   Migration: Migration;
   ResponseCollection: ResponseCollection;
