@@ -10,6 +10,7 @@ import { WorkspaceShell } from "../components/WorkspaceShell";
 import { AgentTeamsDashboard } from "../components/AgentTeamsDashboard";
 import { WorkflowPresentationPage } from "../components/WorkflowPresentationPage";
 import { WorkspaceWorkflowsPage } from "./plugins/workflows/components/WorkspaceWorkflowsPage";
+import { WorkflowBatchDetailPage } from "./plugins/workflows/components/WorkflowBatchDetailPage";
 import { WorkflowGraphEditorPage } from "./plugins/workflows/components/WorkflowGraphEditorPage";
 import { useSessionWorkspaceNav } from "../sessionState";
 import type { NewSessionInitialSelection } from "../sessionState";
@@ -1235,6 +1236,12 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
     "/dashboard/workflows/editor/:designId",
     { hideApplicationShell: true },
     WorkflowGraphEditorPage,
+  );
+
+  moduleAPI.registerRoute(
+    "/dashboard/workflow-batches/:batchId",
+    { hideApplicationShell: true },
+    WorkflowBatchDetailPage,
   );
 
   moduleAPI.registerRoute(

@@ -38,7 +38,7 @@ import { DbWorkflowDesignStore } from '../modules/plugins/workflows/server/workf
 import { PersistedWorkflowRuntimeService, type PersistedWorkflowRunReadModel } from '../modules/plugins/workflows/server/persistedWorkflowRuntime';
 import { BUILT_IN_WORKFLOW_TEMPLATES } from '../modules/plugins/workflows/templates/builtInWorkflowTemplates';
 import { buildPersistedWorkflowPresentationModel } from '../modules/plugins/workflows/server/persistedWorkflowPresentationReadModel';
-import { DEFAULT_WORKFLOW_BATCH_CAPACITY, WorkflowBatchSchedulerService } from '../modules/plugins/workflows/server/workflowBatchScheduler';
+import { DEFAULT_WORKFLOW_BATCH_CAPACITY, WorkflowBatchSchedulerService, type WorkflowBatchCapacitySnapshot, type WorkflowBatchReadModel } from '../modules/plugins/workflows/server/workflowBatchScheduler';
 import { getVdDb } from './database';
 import type { DB } from '../store/kysely_types';
 import {
@@ -166,6 +166,25 @@ export function registerWorkflowRoutes(
       const message = error instanceof Error ? error.message : String(error);
       return c.json({ error: 'workflow_batch_launch_failed', message }, 400);
     }
+  });
+
+  hono.get('/dashboard/api/workflows/batches/:batchId', async (c) => {
+    const batchId = c.req.param('batchId')?.trim();
+    if (!batchId) return c.json({ error: 'workflow_batch_required', message: 'Batch is required' }, 400);
+    const db = options.workflowHomeDb ?? (await getVdDb()).db;
+    const designStore = options.workflowDesignStore ?? new DbWorkflowDesignStore({ db, templates: BUILT_IN_WORKFLOW_TEMPLATES });
+    const capacity = { ...DEFAULT_WORKFLOW_BATCH_CAPACITY, ...(options.workflowBatchCapacity ?? {}) };
+    const scheduler = new WorkflowBatchSchedulerService({
+      db,
+      designStore,
+      runtime: { async launch() { throw new Error('batch detail read model cannot launch runs'); } },
+      capacity,
+    });
+    const batch = await scheduler.getBatch(batchId);
+    if (!batch) return c.json({ error: 'workflow_batch_not_found', message: 'Workflow batch not found' }, 404);
+    const design = await designStore.getDesign(batch.designId);
+    const capacitySnapshot = await scheduler.getCapacitySnapshot(batch.workspaceId);
+    return c.json({ batch: summarizeWorkflowBatchDetail(batch, design?.name ?? 'Workflow batch', capacitySnapshot) });
   });
 
   hono.post('/dashboard/api/workflows/launch', async (c) => {
@@ -1269,8 +1288,54 @@ function summarizeWorkflowBatch(batch: { batchId: string; designId: string; desi
     counts: batch.counts,
     items: batch.items,
     updatedAt: batch.updatedAt,
-    detailUrl: null,
+    detailUrl: `/dashboard/workflow-batches/${batch.batchId}`,
   };
+}
+
+function summarizeWorkflowBatchDetail(batch: WorkflowBatchReadModel, workflowName: string, capacity: WorkflowBatchCapacitySnapshot) {
+  const explanation = batch.counts.pending > 0 ? batchPendingExplanation(capacity) : null;
+  return {
+    batchId: batch.batchId,
+    workflowName,
+    status: batch.status,
+    counts: batch.counts,
+    capacity: { ...capacity, explanation },
+    items: batch.items.map((item) => ({
+      batchItemId: item.batchItemId,
+      lineNumber: item.itemIndex + 1,
+      itemIndex: item.itemIndex,
+      inputSummary: summarizeBatchInput(item.input),
+      status: item.status,
+      runId: item.runId,
+      runUrl: item.runId ? `/dashboard/workflows/${item.runId}` : null,
+      error: item.error,
+      startedAt: item.startedAt,
+      completedAt: item.completedAt,
+      updatedAt: item.updatedAt,
+      pendingReason: item.status === 'pending' ? batchPendingExplanation(capacity) ?? 'This item will start when capacity is available.' : null,
+    })),
+    createdAt: batch.createdAt,
+    updatedAt: batch.updatedAt,
+  };
+}
+
+function batchPendingExplanation(capacity: { globalActiveRunLimit: number; workspaceActiveRunLimit: number; globalActiveRuns: number; workspaceActiveRuns: number }): string | null {
+  if (capacity.workspaceActiveRuns >= capacity.workspaceActiveRunLimit) return `Pending items are waiting because this workspace already has ${capacity.workspaceActiveRuns} active run${capacity.workspaceActiveRuns === 1 ? '' : 's'}; the workspace limit is ${capacity.workspaceActiveRunLimit}.`;
+  if (capacity.globalActiveRuns >= capacity.globalActiveRunLimit) return `Pending items are waiting because ${capacity.globalActiveRuns} workflow runs are active globally; the global limit is ${capacity.globalActiveRunLimit}.`;
+  return 'Pending items will start on the next scheduler pass.';
+}
+
+function summarizeBatchInput(input: Record<string, unknown>): string {
+  const entries = Object.entries(input);
+  if (!entries.length) return 'No input fields provided.';
+  return entries.slice(0, 3).map(([key, value]) => `${key}: ${summarizeValue(value)}`).join(' · ');
+}
+
+function summarizeValue(value: unknown): string {
+  if (typeof value === 'string') return value.length > 80 ? `${value.slice(0, 77)}…` : value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (value == null) return 'empty';
+  return JSON.stringify(value).slice(0, 80);
 }
 
 function summarizePersistedRun(run: PersistedWorkflowRunReadModel) {

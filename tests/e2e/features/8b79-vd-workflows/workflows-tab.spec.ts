@@ -13,6 +13,11 @@
  * - TEST_CASE_M105_1A
  * - TEST_CASE_M105_1D
  * - TEST_CASE_M105_1F
+ * - TEST_CASE_M106_1A
+ * - TEST_CASE_M106_1B
+ * - TEST_CASE_M106_1C
+ * - TEST_CASE_M106_1D
+ * - TEST_CASE_M106_1E
  */
 import { expect, test } from 'playwright/test';
 
@@ -161,6 +166,34 @@ test.describe('Workspace Workflows tab shell', () => {
     await expect(page.getByText('Line 2')).toBeVisible();
     await expect(page.getByText('Batch item 2 is missing required workflow fields.')).toBeVisible();
     await expect(page.getByText('featureRequest: This field is required.')).toBeVisible();
+    await expect(page.locator('a[href="/dashboard/workflow-batches/batch-e2e"]', { hasText: 'Open batch details' })).toBeVisible();
+    for (const term of forbiddenTerms) {
+      await expect(page.getByText(term, { exact: false })).toHaveCount(0);
+    }
+  });
+
+  test('renders workflow batch detail with filters, run links, errors, and capacity explanation', async ({ page }) => {
+    await page.route('**/dashboard/api/workflows/batches/batch-e2e', async (route) => {
+      await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ batch: batchDetailFixture() }) });
+    });
+
+    await page.goto('/dashboard/workflow-batches/batch-e2e');
+    await expect(page.getByRole('heading', { name: 'Dev Review Tester' })).toBeVisible();
+    await expect(page.getByText('1 complete · 1 running · 1 pending · 1 failed/blocked')).toBeVisible();
+    await expect(page.getByText('Workspace active runs')).toBeVisible();
+    await expect(page.getByText('Pending items are waiting because this workspace already has 1 active run')).toBeVisible();
+    await expect(page.getByText('Line 1')).toBeVisible();
+    await expect(page.locator('a[href="/dashboard/workflows/run-batch-0"]', { hasText: 'Open run' })).toBeVisible();
+    await page.getByRole('button', { name: 'Failed/blocked' }).click();
+    await expect(page.getByText('Line 2')).toBeVisible();
+    await expect(page.getByText('Batch item 2 is missing required workflow fields.')).toBeVisible();
+    await expect(page.getByText('featureRequest: This field is required.')).toBeVisible();
+    await expect(page.getByText('Line 1')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Pending' }).click();
+    await expect(page.getByText('Line 4')).toBeVisible();
+    await expect(page.getByText('This item will start when workspace capacity is available.')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Retry' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Cancel' })).toHaveCount(0);
     for (const term of forbiddenTerms) {
       await expect(page.getByText(term, { exact: false })).toHaveCount(0);
     }
@@ -318,7 +351,25 @@ function batchFixture() {
       { batchItemId: 'batch-e2e-item-3', itemIndex: 3, status: 'pending', runId: null, error: null },
     ],
     updatedAt: 6,
-    detailUrl: null,
+    detailUrl: '/dashboard/workflow-batches/batch-e2e',
+  };
+}
+
+function batchDetailFixture() {
+  return {
+    batchId: 'batch-e2e',
+    workflowName: 'Dev Review Tester',
+    status: 'running',
+    counts: { total: 4, pending: 1, running: 1, completed: 1, failed: 1, blocked: 0, cancelled: 0 },
+    capacity: { globalActiveRunLimit: 4, workspaceActiveRunLimit: 1, globalActiveRuns: 1, workspaceActiveRuns: 1, explanation: 'Pending items are waiting because this workspace already has 1 active run; the workspace limit is 1.' },
+    items: [
+      { batchItemId: 'batch-e2e-item-0', lineNumber: 1, itemIndex: 0, inputSummary: 'featureRequest: One', status: 'completed', runId: 'run-batch-0', runUrl: '/dashboard/workflows/run-batch-0', error: null, startedAt: 1, completedAt: 2, updatedAt: 2, pendingReason: null },
+      { batchItemId: 'batch-e2e-item-1', lineNumber: 2, itemIndex: 1, inputSummary: 'No input fields provided.', status: 'failed', runId: null, runUrl: null, error: { code: 'workflow_launch_validation_failed', message: 'Batch item 2 is missing required workflow fields.', fieldErrors: { featureRequest: 'This field is required.' } }, startedAt: null, completedAt: 3, updatedAt: 3, pendingReason: null },
+      { batchItemId: 'batch-e2e-item-2', lineNumber: 3, itemIndex: 2, inputSummary: 'featureRequest: Two', status: 'running', runId: 'run-batch-2', runUrl: '/dashboard/workflows/run-batch-2', error: null, startedAt: 4, completedAt: null, updatedAt: 5, pendingReason: null },
+      { batchItemId: 'batch-e2e-item-3', lineNumber: 4, itemIndex: 3, inputSummary: 'featureRequest: Three', status: 'pending', runId: null, runUrl: null, error: null, startedAt: null, completedAt: null, updatedAt: 6, pendingReason: 'This item will start when workspace capacity is available.' },
+    ],
+    createdAt: 1,
+    updatedAt: 6,
   };
 }
 

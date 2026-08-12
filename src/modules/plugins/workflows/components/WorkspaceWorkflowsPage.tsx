@@ -464,6 +464,7 @@ function BatchRow({ batch }: { batch: WorkspaceWorkflowBatchSummary }) {
   const items = batch.items ?? [];
   return <div className={classes}>
     <div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-semibold">{batch.workflowName}</h3><p className="mt-1 text-sm text-zinc-400">{batch.counts.completed} complete · {batch.counts.running} running · {batch.counts.pending} pending · {errorCount} errors</p></div><StatusPill label={humanBatchStatus(batch.status)} tone={batch.status === 'completed' ? 'emerald' : batch.status === 'failed' ? 'amber' : 'cyan'} /></div>
+    {batch.detailUrl ? <a className="mt-3 inline-block rounded-md border border-cyan-900 px-3 py-2 text-sm text-cyan-200 hover:bg-cyan-950/40" href={batch.detailUrl}>Open batch details</a> : null}
     {items.length ? (
       <details className="mt-3 rounded-md border border-zinc-800 bg-zinc-900/50 p-3">
         <summary className="cursor-pointer text-sm font-medium text-zinc-200">Batch item details</summary>

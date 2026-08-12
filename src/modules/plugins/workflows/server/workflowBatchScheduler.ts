@@ -20,6 +20,11 @@ export interface WorkflowBatchItemInput {
   error?: { code: string; message: string; fieldErrors?: Record<string, string> } | null;
 }
 
+export interface WorkflowBatchCapacitySnapshot extends WorkflowBatchCapacityConfig {
+  globalActiveRuns: number;
+  workspaceActiveRuns: number;
+}
+
 export interface WorkflowBatchReadModel {
   batchId: string;
   designId: string;
@@ -156,6 +161,15 @@ export class WorkflowBatchSchedulerService {
     if (!batch) return null;
     const items = await this.db.selectFrom('WorkflowBatchItem').selectAll().where('batchId', '=', batchId).orderBy('itemIndex', 'asc').execute();
     return mapBatch(batch, items);
+  }
+
+  async getCapacitySnapshot(workspaceId: string): Promise<WorkflowBatchCapacitySnapshot> {
+    const active = await this.countActiveRuns(workspaceId);
+    return {
+      ...this.capacity,
+      globalActiveRuns: active.global,
+      workspaceActiveRuns: active.workspace,
+    };
   }
 
   async listBatches(workspaceId: string, limit = 10): Promise<WorkflowBatchReadModel[]> {

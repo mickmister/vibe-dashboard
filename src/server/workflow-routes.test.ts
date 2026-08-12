@@ -291,12 +291,33 @@ describe('registerWorkflowRoutes', () => {
     expect(response.status).toBe(201);
     const payload = await response.json();
     expect(payload.batch).toMatchObject({ workflowName: 'Batch Route Workflow', status: 'running', counts: { total: 3, running: 1, pending: 1, failed: 1 } });
+    expect(payload.batch.detailUrl).toMatch(/^\/dashboard\/workflow-batches\/workflow-batch-/);
     expect(payload.batch.items).toEqual(expect.arrayContaining([
       expect.objectContaining({ itemIndex: 1, status: 'failed', error: expect.objectContaining({ fieldErrors: { featureRequest: 'This field is required.' } }) }),
     ]));
     expect(payload.home.recentBatches[0]).toMatchObject({ workflowName: 'Batch Route Workflow', counts: { total: 3, running: 1, pending: 1, failed: 1 } });
+    expect(payload.home.recentBatches[0].detailUrl).toBe(payload.batch.detailUrl);
     expect(queued).toHaveLength(1);
     await expect(handle.db.selectFrom('WorkflowPersistedRun').selectAll().execute()).resolves.toHaveLength(1);
+
+    const detailResponse = await app.request(`/dashboard/api/workflows/batches/${payload.batch.batchId}`);
+    expect(detailResponse.status).toBe(200);
+    const detailPayload = await detailResponse.json() as { batch: any };
+    expect(detailPayload.batch).toMatchObject({
+      workflowName: 'Batch Route Workflow',
+      capacity: {
+        workspaceActiveRunLimit: 1,
+        globalActiveRunLimit: 1,
+        workspaceActiveRuns: 1,
+        globalActiveRuns: 1,
+      },
+    });
+    expect(detailPayload.batch.capacity.explanation).toContain('workspace already has 1 active run');
+    expect(detailPayload.batch.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ lineNumber: 1, inputSummary: expect.stringContaining('featureRequest: First'), runUrl: expect.stringMatching(/^\/dashboard\/workflows\//) }),
+      expect.objectContaining({ lineNumber: 2, status: 'failed', error: expect.objectContaining({ message: 'Batch item 2 is missing required workflow fields.' }) }),
+      expect.objectContaining({ lineNumber: 3, status: 'pending', pendingReason: expect.stringContaining('workspace already has 1 active run') }),
+    ]));
 
     const webhookBody = JSON.stringify(vkWebhookPayload({
       delivery_id: 'delivery-batch-first',

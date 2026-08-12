@@ -28,6 +28,8 @@ describe('WorkspaceWorkflowsHomeView', () => {
     expect(html).toContain('Create form from agent');
     expect(html).toContain('Feature workflow run');
     expect(html).toContain('1 complete · 1 running · 2 pending · 1 errors');
+    expect(html).toContain('Open batch details');
+    expect(html).toContain('href="/dashboard/workflow-batches/batch-a"');
     expect(html).toContain('Batch item details');
     expect(html).toContain('Line 2');
     expect(html).toContain('Batch item 2 is missing required workflow fields.');
@@ -89,7 +91,7 @@ function fixture(): WorkspaceWorkflowsHomeModel {
           { batchItemId: 'batch-a-item-1', itemIndex: 1, status: 'failed', runId: null, error: { code: 'workflow_launch_validation_failed', message: 'Batch item 2 is missing required workflow fields.', fieldErrors: { featureRequest: 'This field is required.' } } },
         ],
         updatedAt: 4,
-        detailUrl: null,
+        detailUrl: '/dashboard/workflow-batches/batch-a',
       },
     ],
     needsInput: [

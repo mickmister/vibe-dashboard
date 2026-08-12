@@ -216,7 +216,7 @@ async function listRecentBatches(db: Kysely<DB>, designStore: DbWorkflowDesignSt
         error: item.error,
       })),
       updatedAt: batch.updatedAt,
-      detailUrl: null,
+      detailUrl: `/dashboard/workflow-batches/${batch.batchId}`,
     };
   }));
 }
