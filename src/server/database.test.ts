@@ -38,6 +38,7 @@ describe('VD database', () => {
         '20260811000000_workflow_attention_items',
         '20260811010000_workflow_design_library',
         '20260811020000_workflow_persisted_runs',
+        '20260811030000_workflow_batches',
       ]);
       const tables = await sql<{ name: string }>`
         SELECT name FROM sqlite_master
@@ -49,7 +50,9 @@ describe('VD database', () => {
           'WorkflowWebhookProvisioningState', 'WorkflowAttentionItem',
           'WorkflowDesign', 'WorkflowDesignDraft', 'WorkflowDesignVersion',
           'WorkflowPromptAsset', 'WorkflowSkillAsset', 'WorkflowDesignRunSnapshot',
-          'WorkflowPersistedRun', 'Migration'
+          'WorkflowPersistedRun',
+        'WorkflowBatch',
+        'WorkflowBatchItem', 'WorkflowBatch', 'WorkflowBatchItem', 'Migration'
         )
       `.execute(handle.db);
       expect(tables.rows.map((table) => table.name).sort()).toEqual([
@@ -66,6 +69,8 @@ describe('VD database', () => {
         'WorkflowFactoryWorkItem',
         'WorkflowInstance',
         'WorkflowPersistedRun',
+        'WorkflowBatch',
+        'WorkflowBatchItem',
         'WorkflowPromptAsset',
         'WorkflowRoleSessionBinding',
         'WorkflowRun',
@@ -136,7 +141,11 @@ describe('VD database', () => {
           'idx_declarative_workflow_definition_status_updated',
           'idx_factory_work_assignment',
           'idx_factory_work_queue_item',
-          'idx_factory_work_instance_status'
+          'idx_factory_work_instance_status',
+          'idx_workflow_batch_workspace_updated',
+          'idx_workflow_batch_item_batch_status_index',
+          'idx_workflow_batch_item_pending',
+          'idx_workflow_batch_item_run'
         )
       `.execute(handle.db);
       expect(indexes.rows.map((index) => index.name).sort()).toEqual([
