@@ -14,9 +14,6 @@ importers:
       '@hono/node-server':
         specifier: ^1.19.9
         version: 1.19.9(hono@4.11.9)
-      '@opentelemetry/api':
-        specifier: ^1.9.1
-        version: 1.9.1
       '@tabler/icons-react':
         specifier: ^3.44.0
         version: 3.44.0(react@19.2.4)

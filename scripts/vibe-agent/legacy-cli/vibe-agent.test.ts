@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   formatFullSummaryText,
+  getAdvanceableFullSummaryProcessIds,
   mapWithConcurrency,
   parseFullSummaryArgs,
 } from './vibe-agent.js';
@@ -17,6 +18,18 @@ describe('parseFullSummaryArgs', () => {
   it('parses conversation timeout duration flags', () => {
     expect(parseFullSummaryArgs(['--conversation-timeout', '45s']).conversationTimeoutMs).toBe(45_000);
     expect(parseFullSummaryArgs(['--conversation-timeout-ms=12000']).conversationTimeoutMs).toBe(12_000);
+  });
+});
+
+describe('getAdvanceableFullSummaryProcessIds', () => {
+  it('excludes turns with failed conversation fetches from pager advancement', () => {
+    expect(getAdvanceableFullSummaryProcessIds([
+      { process: { id: 'successful-process' }, conversationFetchError: null },
+      {
+        process: { id: 'timed-out-process' },
+        conversationFetchError: 'Timed out waiting for process timed-out-process after 30000ms',
+      },
+    ])).toEqual(['successful-process']);
   });
 });
 
