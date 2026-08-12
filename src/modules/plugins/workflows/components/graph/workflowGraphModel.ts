@@ -243,10 +243,21 @@ function definitionForCoreValidation(definition: AgentWorkflowDefinitionV1): Age
   for (const state of Object.values(clone.states)) {
     const steps = Array.isArray(state.steps) ? state.steps : [];
     for (const step of steps) {
-      if (step.prompt && typeof step.prompt === 'object' && 'refs' in step.prompt) delete step.prompt.refs;
+      if (!step.prompt || typeof step.prompt !== 'object') continue;
+      const refs = Array.isArray(step.prompt.refs) ? step.prompt.refs : [];
+      const template = typeof step.prompt.template === 'string' ? step.prompt.template.trim() : '';
+      if (!template && refs.length > 0) {
+        step.prompt.template = validationPlaceholderForPromptRefs(refs);
+      }
+      if ('refs' in step.prompt) delete step.prompt.refs;
     }
   }
   return clone;
+}
+
+function validationPlaceholderForPromptRefs(refs: unknown[]): string {
+  const labels = summarizeRefs(refs);
+  return labels.length ? `Prompt refs: ${labels.join(', ')}` : 'Prompt refs';
 }
 
 function encodeEdgeId(stateId: string, actionId: string): string {

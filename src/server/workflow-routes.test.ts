@@ -13,6 +13,7 @@ import { DbWorkflowWebhookProvisioningStore } from './workflow-webhook-provision
 import { DbWorkflowDesignStore } from '../modules/plugins/workflows/server/workflowDesignStore';
 import { BUILT_IN_WORKFLOW_TEMPLATES } from '../modules/plugins/workflows/templates/builtInWorkflowTemplates';
 import { PersistedWorkflowRuntimeService } from '../modules/plugins/workflows/server/persistedWorkflowRuntime';
+import { validateWorkflowGraph } from '../modules/plugins/workflows/components/graph/workflowGraphModel';
 
 describe('registerWorkflowRoutes', () => {
   const dbHandles: VdDbHandle[] = [];
@@ -137,6 +138,14 @@ describe('registerWorkflowRoutes', () => {
       home: { availableWorkflows: expect.arrayContaining([expect.objectContaining({ id: 'design.drt.route', source: 'published_design', status: 'ready', canRun: true })]) },
     });
     expect(await designStore.getVersion('design.drt.route', 1)).toMatchObject({ resolvedDefinition: { states: { dev: { steps: [{ id: 'implement' }, { id: 'self_review' }] } } } });
+
+    const editor = await app.request('/dashboard/api/workflow-designs/design.drt.route/editor');
+    expect(editor.status).toBe(200);
+    const editorJson = await editor.json() as { editor: { definition: any } };
+    expect(editorJson.editor.definition.states.dev.steps[0].prompt).toMatchObject({ refs: [{ id: 'prompt.drt.dev.implement' }] });
+    expect(editorJson.editor.definition.states.dev.steps[0].prompt.template).toBeUndefined();
+    expect(validateWorkflowGraph(editorJson.editor.definition).map((issue) => issue.message)).not.toContain('template is required');
+    expect(validateWorkflowGraph(editorJson.editor.definition)).toEqual([]);
   });
 
   it('TEST_CASE_M95_1A launches a persisted workflow with required inputs and existing sessions', async () => {

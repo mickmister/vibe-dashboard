@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentWorkflowDefinitionV1 } from '@vibe-dashboard/workflow-core';
 import { applyWorkflowGraphActionEdit, validateWorkflowGraph, workflowDefinitionToGraph } from './workflowGraphModel';
+import { BUILT_IN_WORKFLOW_TEMPLATES } from '../../templates/builtInWorkflowTemplates';
 
 describe('workflow graph model', () => {
   it('TEST_CASE_M97_1A renders states as nodes and actions including loops as labeled edges', () => {
@@ -19,6 +20,21 @@ describe('workflow graph model', () => {
       expect.objectContaining({ actionId: 'approved', source: 'tester', target: 'done', label: 'Approved' }),
     ]));
     expect(validateWorkflowGraph(devReviewTesterFixture())).toEqual([]);
+  });
+
+  it('accepts built-in prompt-ref templates in graph editor validation without requiring inline prompt templates', () => {
+    const drt = BUILT_IN_WORKFLOW_TEMPLATES.find((template) => template.templateId === 'built-in/dev-review-tester');
+    expect(drt).toBeTruthy();
+    const definition = drt!.definition as AgentWorkflowDefinitionV1;
+    const dev = definition.states.dev;
+    if (!dev || 'terminal' in dev) throw new Error('expected active dev state');
+    expect((dev.steps[0] as any).prompt).toMatchObject({ refs: [{ id: 'prompt.drt.dev.implement' }] });
+    expect((dev.steps[0] as any).prompt.template).toBeUndefined();
+
+    const issues = validateWorkflowGraph(definition);
+
+    expect(issues).toEqual([]);
+    expect(issues.map((issue) => issue.message)).not.toContain('template is required');
   });
 
   it('TEST_CASE_M97_1B edits action labels and targets through canonical domain JSON', () => {
