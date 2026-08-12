@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { describe, expect, it, vi } from 'vitest';
+import { BEAD_ISSUE_METADATA_JSON_MAX_BYTES } from '../../src/lib/beadsFormCore';
 import {
   appendQuestionsToBeadsForm,
   appendQuestionsToMetadata,
@@ -610,12 +611,15 @@ describe('beads-form CLI helpers', () => {
   });
 
   it('preflights metadata size before bd update without writing a recovery artifact', async () => {
+    const oversizedExistingMetadata = {
+      alreadyLarge: 'x'.repeat(BEAD_ISSUE_METADATA_JSON_MAX_BYTES + 1024),
+    };
     const calls: string[][] = [];
     const exec = vi.fn<ExecFileLike>(async (_file, args) => {
       calls.push([...args]);
       if (args[0] === 'show') {
         return {
-          stdout: JSON.stringify([{ id: 'bd-1', title: 'Bead', metadata: { alreadyLarge: 'x'.repeat(66_000) } }]),
+          stdout: JSON.stringify([{ id: 'bd-1', title: 'Bead', metadata: oversizedExistingMetadata }]),
           stderr: '',
         };
       }
