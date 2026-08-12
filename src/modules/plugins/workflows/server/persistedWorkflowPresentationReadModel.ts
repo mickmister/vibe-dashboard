@@ -250,6 +250,58 @@ function buildTimeline(args: {
           : "Waiting for child workflow to finish.",
         commits: [],
       });
+    } else if (entry.kind === "github_ci_wait_planned") {
+      const complete = args.snapshot.history.find(
+        (candidate) =>
+          candidate.kind === "github_ci_wait_completed" &&
+          candidate.turnId === entry.turnId,
+      ) as { status: string; statusSummary: string; detailsUrl?: string } | undefined;
+      const pollError = [...args.events]
+        .reverse()
+        .find(
+          (event) =>
+            event.kind === "github_ci_watch_poll_error" &&
+            event.data.turnId === entry.turnId,
+        );
+      const waitingCopy = pollError
+        ? `Waiting for GitHub CI. Last polling problem: ${String((pollError.data.error as { message?: unknown } | undefined)?.message ?? "GitHub polling is backing off.")}`
+        : "Waiting for GitHub CI to finish.";
+      timeline.push({
+        id: entry.turnId,
+        role: "GitHub CI",
+        title: "Wait for CI",
+        kind: "github_ci",
+        state: labelFromId(entry.state),
+        step: labelFromId(entry.stepId),
+        status: complete
+          ? complete.status === "success"
+            ? "Passed"
+            : "Needs attention"
+          : "Waiting",
+        session: null,
+        initialMessage: {
+          text: [
+            entry.repo ? `Repository: ${entry.repo}` : "",
+            entry.sha ? `Commit: ${entry.sha}` : "",
+            entry.ciRunId ? `Run: ${entry.ciRunId}` : "",
+            entry.checkRunId ? `Check: ${entry.checkRunId}` : "",
+          ].filter(Boolean).join("\n") || "Started GitHub CI watch.",
+          truncated: false,
+          maxChars: null,
+        },
+        finalResponse: complete
+          ? {
+              text: [
+                complete.statusSummary,
+                complete.detailsUrl ? `Details: ${complete.detailsUrl}` : "",
+              ].filter(Boolean).join("\n"),
+              truncated: false,
+              maxChars: null,
+            }
+          : null,
+        responseUnavailable: complete ? null : waitingCopy,
+        commits: [],
+      });
     }
   }
   for (const artifact of args.events.filter(
