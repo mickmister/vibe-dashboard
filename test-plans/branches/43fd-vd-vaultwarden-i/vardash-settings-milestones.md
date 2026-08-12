@@ -18,8 +18,8 @@ This document may be used by `impl`, `review4`, and the coordinator to discuss
 scope and testability. Do not start the independent `tester` pass until:
 
 1. review approves this plan or a revised version;
-2. a human chooses whether to merge the `vk/3237-vd-mocked-model` testability
-   branch into `vk/43fd-vd-vaultwarden-i`;
+2. a human chooses whether to merge the mocked-sandbox testability work into
+   `vk/43fd-vd-vaultwarden-i`;
 3. any approved testability merge is implemented, reviewed, validated, and
    pushed for feature-branch CI if requested.
 
@@ -34,11 +34,13 @@ This plan follows the onboarding and mocked-sandbox process from
 - `test-plans/onboarding/playwright-manual-to-e2e.md`
 - `test-plans/onboarding/vk-mocked-sandbox.md`
 
-Use the mocked VK sandbox branch for testability improvements before running the
-browser-visible acceptance plan when practical. The sandbox provides a same-origin
-VD/VK front door, qa-mode VK backend, fresh and `basic-seeded` fixture reset
-commands, Playwright CLI snapshot/ref workflow, and transcript requirements for
-manual-to-E2E conversion.
+Use the mocked VK sandbox testability work before running the browser-visible
+acceptance plan when practical. In this branch, that work was merged from local
+weekly-dev `vk/05a2-vd-weekly-dev-br` at `351aa1c`, which already contained the
+mocked-model sandbox changes. The sandbox provides a same-origin VD/VK front
+door, qa-mode VK backend, `empty` and `basic-seeded` fixture reset commands,
+one unified mocked-sandbox E2E entrypoint, Playwright CLI snapshot/ref workflow,
+and transcript requirements for manual-to-E2E conversion.
 
 Implementation and review for the Vardash/Settings branch are already complete.
 The remaining goal of this plan is to make acceptance testing deterministic
@@ -184,15 +186,17 @@ manual setup, or unsafe local-state cleanup.
     result recording.
 
 - `TEST_CASE_M0B — mocked-model branch testability review`
-  - Inspect `vk/3237-vd-mocked-model` for the sandbox/testability improvements
-    needed by this plan.
+  - Inspect the mocked-sandbox/testability changes merged from local weekly-dev
+    `351aa1c`, and compare them with `vk/3237-vd-mocked-model` if needed.
   - Expected: branch provides or preserves `dev:vk-mocked-sandbox`, fixture
-    reset/validate/snapshot commands, split fresh/seeded E2E entrypoints,
-    same-origin Caddy routing, qa-mode VK execution, and Playwright CLI support.
+    reset/validate/snapshot commands, unified
+    `test:e2e:vk-mocked-sandbox` entrypoint, same-origin Caddy routing,
+    qa-mode VK execution, and Playwright CLI support.
 
 - `TEST_CASE_M0C — merge feasibility for testability branch`
   - Without modifying the feature branch, check merge-tree feasibility for
-    merging `vk/3237-vd-mocked-model` into `vk/43fd-vd-vaultwarden-i`.
+    merging the selected mocked-sandbox source into
+    `vk/43fd-vd-vaultwarden-i`.
   - Expected: report whether conflicts are absent, automatic but high-risk, or
     manual. Highlight broad areas such as Dockerfile, package/lock, Caddy/CI,
     WorkspaceShell, craft-surface code/tests, Forms tab, and Settings tab.
@@ -213,13 +217,14 @@ approved Vardash/Settings or weekly-dev Forms behavior.
 
 ### Acceptance and tests
 
-- `TEST_CASE_M0E — feature-branch-only mocked-model merge`
-  - Only if human-authorized, merge `vk/3237-vd-mocked-model` into this feature
-    branch. The human form should specify whether to use local mocked-model HEAD
-    or pushed `origin/vk/3237-vd-mocked-model`.
+- `TEST_CASE_M0E — feature-branch-only mocked-sandbox merge`
+  - Only if human-authorized, merge the selected mocked-sandbox source into this
+    feature branch. For the 2026-08-12 authorization, the selected source was
+    local weekly-dev `vk/05a2-vd-weekly-dev-br` at `351aa1c` because it already
+    contained the mock test changes.
   - Expected: no weekly-dev merge occurs. Vardash files are preserved even
-    though the mocked-model branch predates them. Weekly-dev Forms and Vardash
-    Settings both remain generated workspace tabs.
+    though the mocked-sandbox source predates some Vardash work. Weekly-dev
+    Forms and Vardash Settings both remain generated workspace tabs.
 
 - `TEST_CASE_M0F — sandbox dependency and fixture smoke`
   - From the merged/testability-ready branch, run:
@@ -234,6 +239,14 @@ approved Vardash/Settings or weekly-dev Forms behavior.
   - Expected: PR or local validation includes `npm run check-types`,
     targeted Vardash/Settings tests, `git diff --check`, and any focused
     sandbox harness tests affected by the merge.
+
+- `TEST_CASE_M0H — mocked-sandbox E2E entrypoint list`
+  - Run `npm run test:e2e:vk-mocked-sandbox -- --list`.
+  - Expected: the unified mocked-sandbox E2E entrypoint lists available tests
+    successfully. Fixture variants are selected through reset commands such as
+    `npm run e2e:vk-mocked-sandbox:reset -- --variant basic-seeded` and
+    `npm run e2e:vk-mocked-sandbox:reset -- --variant empty`, not separate
+    `fresh` / `seeded` npm scripts in this merged branch.
 
 ## M1 — Workspace Settings entry and repo selection
 
