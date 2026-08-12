@@ -259,6 +259,8 @@ Aggregate URL params must be ordered as exact repeated `dir`, then `bead`, then 
 
 Open `/dashboard/forms` without query parameters to view the pending Bead-backed form queue. The queue scans a bounded set of first-level repos under `~/repos` by default; set `BEADS_FORM_PENDING_PARENT_DIR=/path/to/all-repos` on the VD server to change the default. Results are cached in memory and persisted under `${XDG_CACHE_HOME:-~/.cache}/vibe-dashboard/beads-form-pending` so stale cached data can be served immediately after a stable-server restart while a fresh read runs in the background. The scanner first filters to immediate child repos with a local `.beads` folder, then runs read-only `bd` commands at most five repos at a time. It only queries the `beadFormsSummary` pending-answer index for this page; attach/submit should keep that summary current. Production can warm the configured parent dir on startup; Vite/dev does not scan every repo on each restart unless explicitly opted in with `BEADS_FORM_PENDING_WARM_ON_STARTUP=1`. See `packages/beads-form/PENDING_QUEUE.md` for realtime/update tradeoffs and safety limits.
 
+When a bead-backed form submit succeeds inside VD, VD invalidates its BeadsForm read cache and touches a lightweight Springboard pending queue sentinel. The `/dashboard/forms` page observes that sentinel, keeps current/cached pending results visible, and refreshes fresh pending data in the background. External CLI attach/update commands run outside the VD process and cannot reliably update that in-memory sentinel; external changes are repaired by the XDG disk cache plus the pending page's background fresh refresh when the page is opened or reloaded.
+
 Agents can inspect the same pending queue from a shell with JSON output:
 
 ```sh
