@@ -35,7 +35,7 @@ test.describe('Workspace Workflows tab shell', () => {
     await expect(page.getByText('Dev Review Tester')).toBeVisible();
     await expect(page.getByText('Dev / Review / Tester')).toBeVisible();
     await expect(page.getByText('Create form from agent')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Run' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Run', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Use template' }).first()).toBeVisible();
     await expect(page.locator('a[href="/dashboard/workflows/legacy-clean"]')).toBeVisible();
     await expect(page.getByText('Answer planning questions')).toBeVisible();
@@ -67,7 +67,7 @@ test.describe('Workspace Workflows tab shell', () => {
     });
 
     await page.goto('/dashboard/workflows?workspaceId=workspace-e2e');
-    await page.getByRole('button', { name: 'Run' }).click();
+    await page.getByRole('button', { name: 'Run', exact: true }).click();
     await page.getByRole('button', { name: 'Launch workflow' }).click();
     await expect(page.getByText('This field is required.')).toBeVisible();
     await page.getByLabel('featureRequest *').fill('Build a clean launch flow');
@@ -151,7 +151,7 @@ test.describe('Workspace Workflows tab shell', () => {
     await expect(page.getByText('Create form from agent')).toBeVisible();
     await page.locator('article').filter({ hasText: 'Dev / Review / Tester' }).getByRole('button', { name: 'Use template' }).click();
     await expect(page.locator('a[href="/dashboard/workflows/editor/design-drt-used"]')).toBeVisible();
-    await expect(page.locator('article').filter({ hasText: 'Dev / Review / Tester' }).getByRole('button', { name: 'Run' })).toBeVisible();
+    await expect(page.locator('article').filter({ hasText: 'Dev / Review / Tester' }).getByRole('button', { name: 'Run', exact: true })).toBeVisible();
     await expect(page.locator('article').filter({ hasText: 'Create form from agent' }).getByRole('button', { name: 'Use template' })).toBeVisible();
   });
 
