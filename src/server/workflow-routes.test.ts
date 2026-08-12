@@ -202,6 +202,99 @@ describe('registerWorkflowRoutes', () => {
     expect(JSON.parse(runRow.roleBindingsJson)).toMatchObject({ dev: { sessionId: 'session-dev' }, review: { sessionId: 'session-review' } });
   });
 
+  it('TEST_CASE_M100_1A batch launch creates pending items, per-item errors, and respects route capacity', async () => {
+    const handle = await initVdDb({ path: ':memory:' });
+    dbHandles.push(handle);
+    const app = new Hono();
+    const designStore = new DbWorkflowDesignStore({ db: handle.db });
+    await designStore.createDesign({ designId: 'design-batch-route', draftId: 'draft-batch-route', name: 'Batch Route Workflow', definition: routeLaunchDefinition() });
+    await designStore.publishDraft('draft-batch-route');
+    const sessions = [vkSession('session-dev', 'workspace-a', 'Dev'), vkSession('session-review', 'workspace-a', 'Review')];
+    const queued: Array<{ id: string; sessionId: string; prompt: string }> = [];
+    const inboxStore = new DbWorkflowWebhookInboxStore({ db: handle.db, createId: (() => { let value = 1; return () => `inbox-batch-route-${value++}`; })(), now: (() => { let value = 50_000; return () => value++; })() });
+    const finalResponses: Record<string, string> = { 'exec-batch-first': '<decision action="done"></decision>' };
+    registerWorkflowRoutes(app, {
+      registry: createWorkflowRegistry(),
+      workflowHomeDb: handle.db,
+      workflowDesignStore: designStore,
+      workflowWebhookInboxStore: inboxStore,
+      vkWorkflowWebhookSecret: 'secret',
+      workflowBatchCapacity: { globalActiveRunLimit: 1, workspaceActiveRunLimit: 1 },
+      vkClient: {
+        getSessions: async () => sessions,
+        getSession: async (sessionId) => sessions.find((session) => session.id === sessionId)!,
+        getExecutionProcessFinalMessage: async (executionProcessId) => ({
+          execution_process_id: executionProcessId,
+          session_id: 'session-dev',
+          workspace_id: 'workspace-a',
+          status: 'completed',
+          completed_at: '2026-08-11T00:00:00.000Z',
+          coding_agent_turn_id: null,
+          agent_session_id: null,
+          agent_message_id: null,
+          content: finalResponses[executionProcessId] ?? '<decision action="done"></decision>',
+          truncated: false,
+          max_chars: 20_000,
+          source_kind: 'coding_agent_turn_summary',
+          prompt_preview: null,
+          prompt_truncated: false,
+          prompt_max_chars: 0,
+          prompt_source_kind: 'coding_agent_turn_prompt',
+        }),
+        queueFollowUp: async (sessionId, prompt) => {
+          const id = `queue-batch-${queued.length + 1}`;
+          queued.push({ id, sessionId, prompt });
+          return { queued_item: { id, session_id: sessionId, workspace_id: 'workspace-a', status: 'queued', source: 'workflow', priority: 0, data: { message: prompt } }, status: { count: 1, message: null, messages: [], status: 'queued' } };
+        },
+      },
+    });
+
+    const response = await app.request('/dashboard/api/workflows/batches', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        workspaceId: 'workspace-a',
+        designId: 'design-batch-route',
+        items: [
+          { inputs: { featureRequest: 'First' } },
+          { inputs: {} },
+          { inputs: { featureRequest: 'Second' } },
+        ],
+        roleBindings: { dev: { mode: 'existing', sessionId: 'session-dev' }, review: { mode: 'existing', sessionId: 'session-review' } },
+      }),
+    });
+
+    expect(response.status).toBe(201);
+    const payload = await response.json();
+    expect(payload.batch).toMatchObject({ workflowName: 'Batch Route Workflow', status: 'running', counts: { total: 3, running: 1, pending: 1, failed: 1 } });
+    expect(payload.batch.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ itemIndex: 1, status: 'failed', error: expect.objectContaining({ fieldErrors: { featureRequest: 'This field is required.' } }) }),
+    ]));
+    expect(payload.home.recentBatches[0]).toMatchObject({ workflowName: 'Batch Route Workflow', counts: { total: 3, running: 1, pending: 1, failed: 1 } });
+    expect(queued).toHaveLength(1);
+    await expect(handle.db.selectFrom('WorkflowPersistedRun').selectAll().execute()).resolves.toHaveLength(1);
+
+    const webhookBody = JSON.stringify(vkWebhookPayload({
+      delivery_id: 'delivery-batch-first',
+      workspace_id: 'workspace-a',
+      session_id: 'session-dev',
+      execution_id: 'exec-batch-first',
+      queue_item_id: queued[0]!.id,
+    }));
+    const webhook = await app.request('/dashboard/api/workflow-webhooks/vk', {
+      method: 'POST',
+      headers: signedVkWebhookHeaders('secret', webhookBody),
+      body: webhookBody,
+    });
+    expect(webhook.status).toBe(202);
+    expect(queued).toHaveLength(2);
+    const afterWebhook = await handle.db.selectFrom('WorkflowBatchItem').select(['itemIndex', 'status', 'runId']).orderBy('itemIndex').execute();
+    expect(afterWebhook[0]).toMatchObject({ itemIndex: 0, status: 'completed' });
+    expect(afterWebhook[1]).toMatchObject({ itemIndex: 1, status: 'failed' });
+    expect(afterWebhook[2]).toMatchObject({ itemIndex: 2, status: 'running' });
+    expect(afterWebhook[2]?.runId).toContain('-item-2-run');
+  });
+
   it('TEST_CASE_M95_1B creates or reuses launch sessions by role name and rejects workspace mismatches', async () => {
     const handle = await initVdDb({ path: ':memory:' });
     dbHandles.push(handle);

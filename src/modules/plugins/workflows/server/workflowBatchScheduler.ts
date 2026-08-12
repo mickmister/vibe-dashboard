@@ -112,7 +112,9 @@ export class WorkflowBatchSchedulerService {
         }).execute();
       }
     });
-    return this.schedule({ batchId });
+    const scheduled = await this.schedule({ batchId });
+    if (!scheduled) throw new Error(`Workflow batch ${batchId} was not found after enqueue`);
+    return scheduled;
   }
 
   async schedule(input: { batchId?: string } = {}): Promise<WorkflowBatchReadModel | null> {
@@ -182,7 +184,7 @@ export class WorkflowBatchSchedulerService {
     const now = this.now();
     const runId = `${item.batchItemId}-run`;
     const runSnapshotId = `${item.batchItemId}-snapshot`;
-    await this.db.updateTable('WorkflowBatchItem').set({ status: 'running', runId, runSnapshotId, startedAt: now, updatedAt: now }).where('batchItemId', '=', item.batchItemId).where('status', '=', 'pending').execute();
+    await this.db.updateTable('WorkflowBatchItem').set({ status: 'running', startedAt: now, updatedAt: now }).where('batchItemId', '=', item.batchItemId).where('status', '=', 'pending').execute();
     try {
       await this.runtime.launch({
         runId,
@@ -194,6 +196,7 @@ export class WorkflowBatchSchedulerService {
         additionalInstructions: item.additionalInstructions,
         roleBindings: parseRoleBindings(item.roleBindingsJson),
       });
+      await this.db.updateTable('WorkflowBatchItem').set({ runId, runSnapshotId, updatedAt: this.now() }).where('batchItemId', '=', item.batchItemId).execute();
     } catch (error) {
       const failedAt = this.now();
       await this.db.updateTable('WorkflowBatchItem').set({

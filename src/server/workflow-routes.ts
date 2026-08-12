@@ -1150,6 +1150,12 @@ async function completePersistedWorkflowTurnFromVkWebhook(
     finalResponseText: finalResponse?.content ?? undefined,
   });
   const caughtUp = await catchUpPersistedWorkflowCompletedTurns(options, db, runtime, match.runId, new Set([event.executionProcessId]));
+  await new WorkflowBatchSchedulerService({
+    db,
+    designStore,
+    runtime,
+    capacity: options.workflowBatchCapacity,
+  }).schedule();
   return {
     applied: completed.applied,
     reason: completed.reason,

@@ -50,9 +50,7 @@ describe('VD database', () => {
           'WorkflowWebhookProvisioningState', 'WorkflowAttentionItem',
           'WorkflowDesign', 'WorkflowDesignDraft', 'WorkflowDesignVersion',
           'WorkflowPromptAsset', 'WorkflowSkillAsset', 'WorkflowDesignRunSnapshot',
-          'WorkflowPersistedRun',
-        'WorkflowBatch',
-        'WorkflowBatchItem', 'WorkflowBatch', 'WorkflowBatchItem', 'Migration'
+          'WorkflowPersistedRun', 'WorkflowBatch', 'WorkflowBatchItem', 'Migration'
         )
       `.execute(handle.db);
       expect(tables.rows.map((table) => table.name).sort()).toEqual([
@@ -61,6 +59,8 @@ describe('VD database', () => {
         'ResponseCollection',
         'ResponsePipeDelivery',
         'WorkflowAttentionItem',
+        'WorkflowBatch',
+        'WorkflowBatchItem',
         'WorkflowDesign',
         'WorkflowDesignDraft',
         'WorkflowDesignRunSnapshot',
@@ -69,8 +69,6 @@ describe('VD database', () => {
         'WorkflowFactoryWorkItem',
         'WorkflowInstance',
         'WorkflowPersistedRun',
-        'WorkflowBatch',
-        'WorkflowBatchItem',
         'WorkflowPromptAsset',
         'WorkflowRoleSessionBinding',
         'WorkflowRun',
@@ -164,6 +162,10 @@ describe('VD database', () => {
         'idx_response_pipe_delivery_source',
         'idx_response_pipe_delivery_target_status',
         'idx_response_pipe_delivery_trigger_status',
+        'idx_workflow_batch_item_batch_status_index',
+        'idx_workflow_batch_item_pending',
+        'idx_workflow_batch_item_run',
+        'idx_workflow_batch_workspace_updated',
         'idx_workflow_external_wait_active_session',
         'idx_workflow_external_wait_instance_status',
         'idx_workflow_external_wait_source_execution',
