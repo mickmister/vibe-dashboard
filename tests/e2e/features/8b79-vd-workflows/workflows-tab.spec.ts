@@ -310,8 +310,8 @@ test.describe('Workspace Workflows tab shell', () => {
     await expect(details.getByRole('heading', { name: 'Dev', exact: true })).toBeVisible();
     await expect(details.getByText('implement', { exact: true })).toBeVisible();
     await expect(details.getByText('self_review', { exact: true })).toBeVisible();
-    await expect(details.getByText('prompt:prompt.dev.implement@1')).toBeVisible();
     await expect(details.getByText('Prompt and skill snippets')).toBeVisible();
+    await expect(details.getByLabel('prompt:prompt.dev.implement@1')).toBeChecked();
     await expect(details.locator('label').filter({ hasText: 'DRT implement prompt' })).toContainText('v1 · Built-in');
     await expect(details.locator('label').filter({ hasText: 'Testing notes' })).toContainText('v1 · User');
     await expect(details.getByText('Raw JSON remains diagnostics-only.')).toBeVisible();
