@@ -332,23 +332,68 @@ describe('agent workflow V1 normalization', () => {
     );
   });
 
-  it('TEST_CASE_M88_1A rejects reserved workflow_call steps in V1 executable JSON', () => {
+  it('TEST_CASE_M99_1A normalizes and advances blocking workflow_call steps', () => {
+    const def = makeDefinition();
+    activeAuthoredState(def, 'devImplementing').steps = [
+      {
+        id: 'call_child',
+        type: 'workflow_call',
+        mode: 'blocking',
+        workflow: { designId: 'child.design', version: 2 },
+        args: { featureRequest: '{{inputs.featureRequest}}', nested: { handoff: '{{transition.handoffText}}' } },
+      },
+      activeAuthoredState(def, 'devImplementing').steps[1]!,
+    ];
+    const model = normalizeWorkflowDefinitionV1(def);
+    const initial = createInitialWorkflowSnapshot(model, {
+      instanceId: 'parent-run',
+      inputs: { featureRequest: 'Build child' },
+      now: clock(1_000),
+      createId: ids('visit-parent'),
+    });
+
+    const planned = planNextWorkflowEffect(model, initial, {
+      now: clock(2_000),
+      createId: ids('call-turn'),
+      validator,
+    });
+
+    expect(planned.effect).toMatchObject({
+      kind: 'start_workflow_call',
+      stepId: 'call_child',
+      turnId: 'call-turn',
+      childRunId: 'parent-run-call-turn',
+      workflow: { designId: 'child.design', version: 2 },
+      args: { featureRequest: 'Build child', nested: { handoff: '' } },
+    });
+
+    const advanced = advanceWorkflow(model, planned.snapshot, {
+      kind: 'workflow_call_completed',
+      turnId: 'call-turn',
+      childRunId: 'parent-run-call-turn',
+      responseRef: 'parent-run-call-turn',
+      childStatus: 'completed',
+      outputRef: 'workflow-run://parent-run-call-turn/output',
+    }, {
+      now: clock(3_000),
+      createId: ids('after-call'),
+      validator,
+    });
+
+    expect(advanced.effect).toMatchObject({ kind: 'send_agent_turn', stepId: 'selfReview' });
+    expect(advanced.effect.kind === 'send_agent_turn' ? advanced.effect.prompt : '').toContain('Choose next action');
+    expect(advanced.snapshot.history).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'workflow_call_completed', childRunId: 'parent-run-call-turn', outputRef: 'workflow-run://parent-run-call-turn/output' }),
+    ]));
+
     expectDefinitionError(
       () => {
-        const def = makeDefinition();
-        activeAuthoredState(def, 'devImplementing').steps = [
-          {
-            id: 'call_child',
-            type: 'workflow_call',
-            workflow: 'childWorkflow',
-            args: { featureRequest: '{{inputs.featureRequest}}' },
-          } as never,
-          activeAuthoredState(def, 'devImplementing').steps[1]!,
-        ];
-        return normalizeWorkflowDefinitionV1(def);
+        const invalid = makeDefinition();
+        activeAuthoredState(invalid, 'devImplementing').steps = [{ id: 'call_child', type: 'workflow_call', mode: 'fire_and_forget', workflow: { designId: 'child.design' } } as never, activeAuthoredState(invalid, 'devImplementing').steps[1]!];
+        return normalizeWorkflowDefinitionV1(invalid);
       },
       'WORKFLOW_CONFIG_INVALID_STEP',
-      'states.devImplementing.steps.0.type',
+      'states.devImplementing.steps.0.mode',
     );
   });
 

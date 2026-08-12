@@ -326,6 +326,87 @@ describe('PersistedWorkflowRuntimeService M93', () => {
     expect(duplicate).toMatchObject({ applied: false, reason: 'duplicate' });
     expect(queued).toHaveLength(1);
   });
+
+  it('TEST_CASE_M99_1A starts a blocking child workflow call, waits, and resumes parent with child refs', async () => {
+    const { runtime, queued } = await createRuntime();
+    await publishWorkflow('design.child', makeChildWorkflow());
+    await publishWorkflow('design.parent', makeParentWorkflowCallWorkflow('design.child'));
+
+    const launched = await runtime.launch({
+      runId: 'run-parent',
+      runSnapshotId: 'snapshot-parent',
+      designId: 'design.parent',
+      workspaceId: 'workspace-a',
+      inputs: { featureRequest: 'Compose child workflow' },
+      roleBindings: { dev: { sessionId: 'session-dev' } },
+    });
+
+    expect(launched.coreSnapshot.waitingFor).toMatchObject({
+      kind: 'workflow_call',
+      stepId: 'call_child',
+      childRunId: 'run-parent-id-2',
+    });
+    expect(launched.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'workflow_call_started', data: expect.objectContaining({ turnId: 'id-2', childRunId: 'run-parent-id-2', childDesignId: 'design.child' }) }),
+    ]));
+    expect(queuedAt(queued, 0)).toMatchObject({ runId: 'run-parent-id-2', role: 'dev', sessionId: 'session-dev', stepId: 'child_decide' });
+
+    await runtime.runReady('run-parent');
+    expect(queued).toHaveLength(1);
+
+    const childComplete = await runtime.completeAgentTurn({
+      runId: 'run-parent-id-2',
+      turnId: queuedAt(queued, 0).turnId,
+      responseRef: 'child-response',
+      finalResponseText: '<decision action="done"><summary>Child completed work</summary></decision>',
+    });
+    expect(childComplete.run.status).toBe('completed');
+
+    const parent = await runtime.getRun('run-parent');
+    expect(parent?.status).toBe('running');
+    expect(parent?.coreSnapshot.history).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'workflow_call_completed', childRunId: 'run-parent-id-2', outputRef: 'workflow-run://run-parent-id-2/output' }),
+    ]));
+    expect(queuedAt(queued, 1)).toMatchObject({ runId: 'run-parent', stepId: 'parent_decide' });
+    expect(queuedAt(queued, 1).prompt).toContain('Child status: completed');
+    expect(queuedAt(queued, 1).prompt).toContain('workflow-run://run-parent-id-2/output');
+
+    const duplicate = await runtime.completeWorkflowCall({
+      runId: 'run-parent',
+      turnId: 'id-2',
+      childRunId: 'run-parent-id-2',
+      responseRef: 'duplicate-child',
+      childStatus: 'completed',
+    });
+    expect(duplicate).toMatchObject({ applied: false, reason: 'duplicate' });
+    expect(queued).toHaveLength(2);
+
+    const completedParent = await runtime.completeAgentTurn({
+      runId: 'run-parent',
+      turnId: queuedAt(queued, 1).turnId,
+      responseRef: 'parent-response',
+      finalResponseText: '<decision action="done"><summary>Parent complete</summary></decision>',
+    });
+    expect(completedParent.run.status).toBe('completed');
+  });
+
+  it('TEST_CASE_M99_1A blocks publish when a workflow_call targets a missing child workflow', async () => {
+    await createRuntime();
+    await designStore.createDesign({
+      designId: 'design.parent.missing-child',
+      draftId: 'draft.parent.missing-child',
+      name: 'Parent missing child',
+      definition: makeParentWorkflowCallWorkflow('design.missing-child'),
+    });
+    const draft = await designStore.getDraft('draft.parent.missing-child');
+    expect(draft?.validationStatus).toBe('invalid');
+    expect(draft?.validationIssues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'WORKFLOW_CONFIG_INVALID_REFERENCE', path: 'states.parent.steps.0.workflow.designId' }),
+    ]));
+    await expect(designStore.publishDraft('draft.parent.missing-child')).rejects.toMatchObject({
+      issues: expect.arrayContaining([expect.objectContaining({ path: 'states.parent.steps.0.workflow.designId' })]),
+    });
+  });
 });
 
 let designStore: DbWorkflowDesignStore;
@@ -485,6 +566,57 @@ function makeHumanFormWorkflow() {
           },
         ],
         actions: { done: { targetState: 'done' } },
+      },
+      done: { terminal: true },
+    },
+  };
+}
+
+function makeChildWorkflow() {
+  return {
+    schemaVersion: 1,
+    name: 'child-workflow',
+    inputs: { featureRequest: { type: 'markdown', required: false } },
+    roles: { dev: { label: 'Dev' } },
+    initialState: 'child',
+    states: {
+      child: {
+        owner: 'dev',
+        steps: [{ id: 'child_decide', type: 'agent_turn', turnType: 'decision', prompt: { template: 'Child handles {{inputs.featureRequest}}' }, response: decisionResponsePolicy(1) }],
+        actions: { done: { targetState: 'done', result: { fields: { summary: { type: 'markdown' } }, unknownFields: 'reject' } } },
+      },
+      done: { terminal: true },
+    },
+  };
+}
+
+function makeParentWorkflowCallWorkflow(childDesignId: string) {
+  return {
+    schemaVersion: 1,
+    name: 'parent-workflow-call',
+    inputs: { featureRequest: { type: 'markdown', required: false } },
+    roles: { dev: { label: 'Dev' } },
+    initialState: 'parent',
+    states: {
+      parent: {
+        owner: 'dev',
+        steps: [
+          {
+            id: 'call_child',
+            type: 'workflow_call',
+            mode: 'blocking',
+            workflow: { designId: childDesignId },
+            args: { featureRequest: '{{inputs.featureRequest}}' },
+          },
+          {
+            id: 'parent_decide',
+            type: 'agent_turn',
+            turnType: 'decision',
+            prompt: { template: 'Child status: {{child.call_child.childStatus}}. Output: {{child.call_child.outputRef}}' },
+            response: decisionResponsePolicy(1),
+          },
+        ],
+        actions: { done: { targetState: 'done', result: { fields: { summary: { type: 'markdown' } }, unknownFields: 'reject' } } },
       },
       done: { terminal: true },
     },

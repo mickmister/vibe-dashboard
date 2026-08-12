@@ -1397,3 +1397,5 @@ implementation if they become relevant:
   reviewable sub-beads/commits such as M96A provider/runtime/resume and M96B
   authoring UI if human execution plus authoring is too large.
 - Whether M99 should include fire-and-forget calls or only blocking calls.
+  Resolved in M99: only executable blocking child workflow calls are included;
+  fire-and-forget and terminal/handoff calls remain follow-up work.

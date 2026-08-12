@@ -250,6 +250,23 @@ export function createDefaultWorkflowExtensionRegistry(): WorkflowExtensionRegis
       return issues;
     },
   });
+  registry.registerStepProvider({
+    type: 'workflow_call',
+    label: 'Workflow call',
+    description: 'Executable blocking child workflow call step.',
+    validateStep(step, context) {
+      const record = isRecord(step) ? step : {};
+      const issues: WorkflowExtensionIssue[] = [];
+      if (record.mode !== 'blocking') {
+        issues.push({ code: 'WORKFLOW_EXTENSION_PROVIDER_ERROR', path: `${context.path}.mode`, message: 'workflow_call mode must be blocking' });
+      }
+      const workflow = isRecord(record.workflow) ? record.workflow : null;
+      if (!workflow || typeof workflow.designId !== 'string' || !workflow.designId.trim()) {
+        issues.push({ code: 'WORKFLOW_EXTENSION_PROVIDER_ERROR', path: `${context.path}.workflow.designId`, message: 'workflow_call workflow designId is required' });
+      }
+      return issues;
+    },
+  });
   registry.registerArtifactProvider(createBeadsFormArtifactProvider());
   return registry;
 }

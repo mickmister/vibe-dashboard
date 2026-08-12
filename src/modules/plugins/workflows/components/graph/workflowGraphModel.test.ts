@@ -56,13 +56,38 @@ describe('workflow graph model', () => {
     ]));
 
     const unsupported = devReviewTesterFixture() as AgentWorkflowDefinitionV1 & { states: Record<string, any> };
-    unsupported.states.dev.steps.push({ id: 'call-child', type: 'workflow_call' });
+    unsupported.states.dev.steps.push({ id: 'unknown-step', type: 'unsupported_step' });
     expect(validateWorkflowGraph(unsupported)).toEqual(expect.arrayContaining([
       expect.objectContaining({ code: 'WORKFLOW_GRAPH_UNSUPPORTED_STEP_TYPE', path: 'states.dev.steps.2.type' }),
       expect.objectContaining({ code: 'WORKFLOW_GRAPH_CORE_INVALID', path: 'states.dev.steps.2.type' }),
     ]));
     expect(() => workflowDefinitionToGraph(unsupported)).not.toThrow();
-    expect(workflowDefinitionToGraph(unsupported).nodes.find((node) => node.id === 'dev')?.steps.at(-1)).toMatchObject({ id: 'call-child', type: 'workflow_call' });
+    expect(workflowDefinitionToGraph(unsupported).nodes.find((node) => node.id === 'dev')?.steps.at(-1)).toMatchObject({ id: 'unknown-step', type: 'unsupported_step' });
+  });
+
+  it('TEST_CASE_M99_1A shows executable blocking workflow calls as supported graph steps', () => {
+    const definition = devReviewTesterFixture();
+    const dev = definition.states.dev;
+    if (!dev || 'terminal' in dev) throw new Error('expected active dev state');
+    dev.steps = [
+      {
+        id: 'call_child',
+        type: 'workflow_call',
+        mode: 'blocking',
+        workflow: { designId: 'design.child', version: 1 },
+        args: { featureRequest: '{{inputs.featureRequest}}' },
+      },
+      dev.steps[1]!,
+    ];
+    const graph = workflowDefinitionToGraph(definition);
+    expect(graph.nodes.find((node) => node.id === 'dev')?.steps[0]).toMatchObject({
+      id: 'call_child',
+      type: 'workflow_call',
+      workflowCallMode: 'blocking',
+      workflowCallDesignId: 'design.child',
+      workflowCallVersion: 1,
+    });
+    expect(validateWorkflowGraph(definition)).toEqual([]);
   });
 });
 

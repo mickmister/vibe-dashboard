@@ -302,7 +302,10 @@ export class DbWorkflowDesignStore {
     const db = await this.getDb();
     const draft = await this.getRequiredDraft(draftId);
     const resolved = await this.resolveDefinition(draft.definition, {});
-    const issues = validateResolvedDefinition(resolved.definition);
+    const issues = [
+      ...validateResolvedDefinition(resolved.definition),
+      ...await validateWorkflowCallReferences(db, resolved.definition),
+    ];
     if (issues.length) {
       await this.markDraftInvalid(draftId, issues);
       throw new WorkflowDesignValidationError(issues);
@@ -530,8 +533,14 @@ export class DbWorkflowDesignStore {
 
   private async validateDefinition(definition: unknown): Promise<{ issues: WorkflowConfigIssue[] }> {
     try {
+      const db = await this.getDb();
       const resolved = await this.resolveDefinition(definition, {});
-      return { issues: validateResolvedDefinition(resolved.definition) };
+      return {
+        issues: [
+          ...validateResolvedDefinition(resolved.definition),
+          ...await validateWorkflowCallReferences(db, resolved.definition),
+        ],
+      };
     } catch (error) {
       if (error instanceof WorkflowDesignValidationError) return { issues: error.issues };
       throw error;
@@ -700,6 +709,31 @@ function validateResolvedDefinition(definition: unknown): WorkflowConfigIssue[] 
     if (error instanceof WorkflowDefinitionError) return error.issues;
     throw error;
   }
+}
+
+async function validateWorkflowCallReferences(
+  db: WorkflowDesignDb,
+  definition: AgentWorkflowDefinitionV1,
+): Promise<WorkflowConfigIssue[]> {
+  const issues: WorkflowConfigIssue[] = [];
+  for (const [stateId, state] of Object.entries(definition.states)) {
+    if ('terminal' in state) continue;
+    for (const [index, step] of state.steps.entries()) {
+      if (step.type !== 'workflow_call') continue;
+      const path = `states.${stateId}.steps.${index}.workflow.designId`;
+      const design = await db.selectFrom('WorkflowDesign').select(['designId', 'latestPublishedVersion']).where('designId', '=', step.workflow.designId).executeTakeFirst();
+      const version = step.workflow.version ?? design?.latestPublishedVersion;
+      if (!design || version == null) {
+        issues.push({ code: 'WORKFLOW_CONFIG_INVALID_REFERENCE', path, message: `child workflow design ${step.workflow.designId} is not published` });
+        continue;
+      }
+      const published = await db.selectFrom('WorkflowDesignVersion').select(['designId']).where('designId', '=', step.workflow.designId).where('version', '=', version).executeTakeFirst();
+      if (!published) {
+        issues.push({ code: 'WORKFLOW_CONFIG_INVALID_REFERENCE', path: `states.${stateId}.steps.${index}.workflow.version`, message: `child workflow design ${step.workflow.designId} version ${version} not found` });
+      }
+    }
+  }
+  return issues;
 }
 
 function mapDesign(row: Selectable<WorkflowDesign>): WorkflowDesignReadModel {

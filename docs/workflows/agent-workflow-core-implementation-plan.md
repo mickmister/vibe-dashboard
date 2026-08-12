@@ -696,75 +696,72 @@ separate lanes without weakening the default one-writer-per-workspace policy.
 
 ## Workflow-to-workflow calls
 
-Workflow-to-workflow calls are design/prose only for V1. The executable V1 JSON
-must not include a `future` field or executable `workflow_call` step/action
-fields.
+M88 kept workflow-to-workflow calls design/prose only. M99 makes one call shape
+executable: a mid-workflow `workflow_call` step with `"mode": "blocking"`. The
+executable JSON still must not include a top-level `future` field, unsupported
+workflow-call modes, or workflow-call action fields.
 
 The reserved future behaviors are documented so V1 does not paint us into a
 corner:
 
-- blocking child workflow call,
 - fire-and-forget child workflow call,
 - terminal/handoff action that starts another workflow,
-- mid-workflow child call step,
 - bulk/batch enqueue of many child workflow runs.
 
-Future call arguments should be templated from workflow context and validated
-against the child workflow input contract. Parent snapshots should record child
-instance refs. Blocking calls should also expose child output refs and a child
-status summary. Fire-and-forget calls should be ref-only unless a later state
-explicitly waits on them.
+Call arguments are templated from workflow context. Parent snapshots record child
+run refs. Blocking calls expose child output refs and a child status summary.
+Fire-and-forget calls should remain ref-only unless a later state explicitly
+waits on them.
 
 Bulk calls should become durable pending runs processed by the runtime scheduler
 under global and workspace/worktree-lane capacity limits.
 
-### M88 reserved design: call shapes
+### M88/M99 call shapes
 
-The following shapes are intentionally not executable V1 JSON. They document the
-future contract that later milestones can turn into a new schema version or a
-feature-gated extension after separate TDD.
+Blocking mid-workflow call steps are executable as of M99. The remaining shapes
+document the future contract that later milestones can turn into executable
+schema after separate TDD.
 
-#### Blocking child workflow call
+#### M99 executable: blocking child workflow call
 
 A blocking call starts a child workflow and pauses the parent on the call step
 until the child reaches a terminal result.
 
-Conceptual future shape:
+Executable M99 shape:
 
 ```json
 {
   "id": "runImplementation",
   "type": "workflow_call",
   "mode": "blocking",
-  "workflow": "implementationWorkflow",
+  "workflow": { "designId": "implementationWorkflow" },
   "args": {
     "featureRequest": "{{inputs.featureRequest}}",
     "reviewNotes": "{{transition.parsed.requiredChanges}}"
-  },
-  "inputContract": "child_workflow_inputs"
+  }
 }
 ```
 
 Runtime semantics:
 
 1. Render `args` from the parent context.
-2. Validate rendered args against the child workflow input contract before
-   creating the child instance.
+2. Validate the child workflow exists and is published before publish/run.
 3. Create a durable child instance/run record and store a parent-child edge.
 4. Mark the parent waiting on the child instance ref.
-5. Resume the parent when the child completes, fails, cancels, or blocks.
+5. Resume the parent when the child completes. If the child fails, cancels, or
+   blocks, put the parent into a visible failed/blocked state with the child ref.
 
 Parent context after a completed blocking call should expose:
 
-- `child.instanceRef` — opaque child workflow instance ref.
-- `child.outputRef` — refs-only pointer to child output/artifacts.
-- `child.statusSummary` — compact status such as `completed`, `blocked`,
-  `failed`, or `cancelled`.
+- `child.<stepId>.childRunId` — opaque child workflow run ref.
+- `child.<stepId>.outputRef` — refs-only pointer to child output/artifacts.
+- `child.<stepId>.childStatus` — compact terminal status such as `completed`,
+  `blocked`, `failed`, or `cancelled`.
 
 The parent should not inline large child outputs into its snapshot. Prompt
 templates can include selected child summaries or artifact refs.
 
-#### Fire-and-forget child workflow call
+#### Deferred: fire-and-forget child workflow call
 
 A fire-and-forget call starts child work and lets the parent continue without
 waiting. It still returns durable refs so the user or a later workflow can find
@@ -795,7 +792,7 @@ Runtime semantics:
 Fire-and-forget does not mean "untracked." The call result is ref-only, and a
 future clean presentation page can link to child progress using those refs.
 
-#### Terminal/handoff action call
+#### Deferred: terminal/handoff action call
 
 A terminal/handoff action call starts another workflow as the selected action
 from a decision state. It is useful when a completed workflow hands the user or
@@ -834,9 +831,9 @@ step ID, can run before the final decision step, and contributes context for
 later prompts. This is the natural fit for reusable sub-workflows inside a
 larger workflow.
 
-V1 does not execute this. In V1, authored steps with `"type": "workflow_call"`
-must fail normalization with a stable `WORKFLOW_CONFIG_INVALID_STEP` issue at the
-step type path.
+M99 executes this only for `"mode": "blocking"`. Unsupported modes, such as
+`"fire_and_forget"`, and action-level call fields remain rejected/hidden until
+later milestones.
 
 ### M88 reserved design: bulk run queue
 

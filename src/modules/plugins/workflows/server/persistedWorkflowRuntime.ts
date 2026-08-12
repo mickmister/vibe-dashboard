@@ -15,6 +15,7 @@ import {
   type WorkflowPlanEffect,
   type WorkflowRuntimeIssue,
   type WorkflowRuntimeSnapshot,
+  type WorkflowSnapshotStatus,
 } from '@vibe-dashboard/workflow-core';
 import type { DB, WorkflowPersistedRun, WorkflowPersistedRunStatus } from '../../../../store/kysely_types';
 import type { DbWorkflowOrchestrationStore } from '../../../../server/workflow-orchestration-store';
@@ -52,6 +53,8 @@ export interface PersistedWorkflowRuntimeEvent {
     | 'agent_turn_observed'
     | 'human_form_created'
     | 'human_form_submitted'
+    | 'workflow_call_started'
+    | 'workflow_call_completed'
     | 'observation_ignored'
     | 'workflow_status_changed'
     | 'queue_failed'
@@ -193,6 +196,9 @@ export class PersistedWorkflowRuntimeService {
     const run = await this.getRequiredRun(runId);
     if (run.coreSnapshot.status !== 'running') return run;
     if (run.coreSnapshot.waitingFor) {
+      if (run.coreSnapshot.waitingFor.kind === 'workflow_call' && run.pendingEffect?.kind === 'start_workflow_call') {
+        return this.startWorkflowCallEffect(run, run.pendingEffect);
+      }
       if (run.coreSnapshot.waitingFor.kind === 'human_form') {
         const state = run.coreModel.states[run.coreSnapshot.waitingFor.state];
         const step = state && !state.terminal ? state.steps.find((candidate) => candidate.id === run.coreSnapshot.waitingFor?.stepId) : null;
@@ -233,6 +239,7 @@ export class PersistedWorkflowRuntimeService {
       return { applied: false, reason: 'stale', run: ignoredRun };
     }
     const persisted = await this.persistAdvanceResult(run, advanced, { turnId: input.turnId, responseRef: input.responseRef }, [], 'human_form_submitted');
+    await this.resumeParentsIfTerminal(persisted);
     return { applied: true, reason: 'applied', run: persisted };
   }
 
@@ -255,6 +262,31 @@ export class PersistedWorkflowRuntimeService {
       return { applied: false, reason: 'stale', run: ignoredRun };
     }
     const persisted = await this.persistAdvanceResult(run, advanced, input);
+    await this.resumeParentsIfTerminal(persisted);
+    return { applied: true, reason: 'applied', run: persisted };
+  }
+
+  async completeWorkflowCall(input: { runId: string; turnId: string; childRunId: string; responseRef: string; childStatus: WorkflowSnapshotStatus; outputRef?: string; statusSummary?: string }): Promise<{ applied: boolean; reason: 'applied' | 'duplicate' | 'stale' | 'terminal'; run: PersistedWorkflowRunReadModel }> {
+    const run = await this.getRequiredRun(input.runId);
+    if (run.coreSnapshot.status !== 'running') return { applied: false, reason: 'terminal', run };
+    if (run.coreSnapshot.history.some((entry) => entry.kind === 'workflow_call_completed' && entry.turnId === input.turnId)) {
+      return { applied: false, reason: 'duplicate', run };
+    }
+    const advanced = advanceWorkflow(run.coreModel, run.coreSnapshot, {
+      kind: 'workflow_call_completed',
+      turnId: input.turnId,
+      responseRef: input.responseRef,
+      childRunId: input.childRunId,
+      childStatus: input.childStatus,
+      outputRef: input.outputRef,
+      statusSummary: input.statusSummary,
+    }, this.deps());
+    if (advanced.ignored) {
+      const ignoredRun = await this.updateRun(run, run.coreSnapshot, run.pendingEffect, [event('observation_ignored', this.now(), { turnId: input.turnId, reason: advanced.ignored })]);
+      return { applied: false, reason: 'stale', run: ignoredRun };
+    }
+    const persisted = await this.persistAdvanceResult(run, advanced, { turnId: input.turnId, responseRef: input.responseRef }, [event('workflow_call_completed', this.now(), { turnId: input.turnId, childRunId: input.childRunId, childStatus: input.childStatus, outputRef: input.outputRef ?? null })], 'workflow_call_completed');
+    await this.resumeParentsIfTerminal(persisted);
     return { applied: true, reason: 'applied', run: persisted };
   }
 
@@ -285,6 +317,7 @@ export class PersistedWorkflowRuntimeService {
       return this.queueEffect(withObservation, advanced.effect);
     }
     if (advanced.effect.kind === 'create_human_form') return this.createHumanFormEffect(withObservation, advanced.effect);
+    if (advanced.effect.kind === 'start_workflow_call') return this.startWorkflowCallEffect(withObservation, advanced.effect);
     return withObservation;
   }
 
@@ -333,7 +366,46 @@ export class PersistedWorkflowRuntimeService {
     const planned = await this.updateRun(previous, snapshot, effect, []);
     if (effect.kind === 'send_agent_turn') return this.queueEffect(planned, effect);
     if (effect.kind === 'create_human_form') return this.createHumanFormEffect(planned, effect);
+    if (effect.kind === 'start_workflow_call') return this.startWorkflowCallEffect(planned, effect);
     return planned;
+  }
+
+  private async startWorkflowCallEffect(run: PersistedWorkflowRunReadModel, effect: Extract<WorkflowPlanEffect, { kind: 'start_workflow_call' }>): Promise<PersistedWorkflowRunReadModel> {
+    const existingStart = run.events.find((entry) => entry.kind === 'workflow_call_started' && entry.data.turnId === effect.turnId);
+    let childRun = await this.getRun(effect.childRunId);
+    if (!childRun) {
+      const roleBindings = await this.resolveChildRoleBindings(effect, run.roleBindings);
+      childRun = await this.launch({
+        runId: effect.childRunId,
+        runSnapshotId: `${effect.childRunId}-snapshot`,
+        designId: effect.workflow.designId,
+        version: effect.workflow.version,
+        workspaceId: run.workspaceId,
+        inputs: effect.args,
+        roleBindings,
+      });
+    }
+    const withStart = existingStart
+      ? run
+      : await this.updateRun(run, run.coreSnapshot, effect, [event('workflow_call_started', this.now(), {
+        turnId: effect.turnId,
+        childRunId: childRun.runId,
+        childDesignId: childRun.designId,
+        childDesignVersion: childRun.designVersion,
+        childStatus: childRun.status,
+      })]);
+    if (childRun.status !== 'running') {
+      return (await this.completeWorkflowCall({
+        runId: run.runId,
+        turnId: effect.turnId,
+        childRunId: childRun.runId,
+        responseRef: childRun.runId,
+        childStatus: childRun.status,
+        outputRef: childOutputRef(childRun.runId),
+        statusSummary: childRun.status,
+      })).run;
+    }
+    return withStart;
   }
 
   private async createHumanFormEffect(run: PersistedWorkflowRunReadModel, effect: Extract<WorkflowPlanEffect, { kind: 'create_human_form' }>): Promise<PersistedWorkflowRunReadModel> {
@@ -468,6 +540,48 @@ export class PersistedWorkflowRuntimeService {
     }
   }
 
+  private async resolveChildRoleBindings(
+    effect: Extract<WorkflowPlanEffect, { kind: 'start_workflow_call' }>,
+    parentBindings: Record<string, WorkflowRoleSessionBindingInput>,
+  ): Promise<Record<string, WorkflowRoleSessionBindingInput>> {
+    const design = await this.designStore.getDesign(effect.workflow.designId);
+    const version = effect.workflow.version ?? design?.latestPublishedVersion;
+    if (version == null) throw new PersistedWorkflowRuntimeError('WORKFLOW_RUNTIME_RUN_NOT_FOUND', `workflowCall.${effect.stepId}.workflow.designId`, `workflow design ${effect.workflow.designId} has no published version`);
+    const childVersion = await this.designStore.getVersion(effect.workflow.designId, version);
+    if (!childVersion) throw new PersistedWorkflowRuntimeError('WORKFLOW_RUNTIME_RUN_NOT_FOUND', `workflowCall.${effect.stepId}.workflow.designId`, `workflow design ${effect.workflow.designId} version ${version} not found`);
+    const childModel = normalizeWorkflowDefinitionV1(childVersion.resolvedDefinition, { workflowId: `${childVersion.designId}@${childVersion.version}` });
+    const bindings: Record<string, WorkflowRoleSessionBindingInput> = {};
+    for (const roleId of Object.keys(childModel.roles)) {
+      const explicit = effect.roleBindings?.[roleId]?.fromParentRole;
+      const parentRole = explicit ?? roleId;
+      const binding = parentBindings[parentRole];
+      if (!binding?.sessionId) {
+        throw new PersistedWorkflowRuntimeError('WORKFLOW_RUNTIME_MISSING_ROLE_BINDING', `workflowCall.${effect.stepId}.roleBindings.${roleId}`, `missing parent session binding for child role ${roleId}`);
+      }
+      bindings[roleId] = { ...binding };
+    }
+    return bindings;
+  }
+
+  private async resumeParentsIfTerminal(child: PersistedWorkflowRunReadModel): Promise<void> {
+    if (child.status === 'running') return;
+    const parents = await this.db.selectFrom('WorkflowPersistedRun').selectAll().where('status', '=', 'running').execute();
+    for (const row of parents) {
+      const parent = mapRun(row);
+      const waitingFor = parent.coreSnapshot.waitingFor;
+      if (waitingFor?.kind !== 'workflow_call' || waitingFor.childRunId !== child.runId) continue;
+      await this.completeWorkflowCall({
+        runId: parent.runId,
+        turnId: waitingFor.turnId,
+        childRunId: child.runId,
+        responseRef: child.runId,
+        childStatus: child.status,
+        outputRef: childOutputRef(child.runId),
+        statusSummary: child.status,
+      });
+    }
+  }
+
   private deps() {
     return { now: this.now, createId: this.createId, validator: this.validator };
   }
@@ -556,4 +670,8 @@ function stableJson(value: unknown): string {
 function normalizeError(error: unknown): { name: string; message: string } {
   if (error instanceof Error) return { name: error.name, message: error.message };
   return { name: 'NonErrorThrown', message: String(error) };
+}
+
+function childOutputRef(childRunId: string): string {
+  return `workflow-run://${encodeURIComponent(childRunId)}/output`;
 }

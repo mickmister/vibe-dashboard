@@ -78,7 +78,19 @@ export type HumanFormWorkflowStepV1 = {
   };
 };
 
-export type WorkflowStepV1 = AgentWorkflowStepV1 | HumanFormWorkflowStepV1;
+export type WorkflowCallStepV1 = {
+  id: WorkflowStepId;
+  type: 'workflow_call';
+  mode: 'blocking';
+  workflow: {
+    designId: string;
+    version?: number;
+  };
+  args?: Record<string, unknown>;
+  roleBindings?: Record<string, { fromParentRole: WorkflowRoleId }>;
+};
+
+export type WorkflowStepV1 = AgentWorkflowStepV1 | HumanFormWorkflowStepV1 | WorkflowCallStepV1;
 
 export type AuthoredWorkflowStateV1 =
   | { terminal: true }
@@ -173,11 +185,12 @@ export type WorkflowRuntimeSnapshot = {
   visitId: string;
   inputs: Record<string, unknown>;
   waitingFor?: {
-    kind: 'agent_turn' | 'human_form';
+    kind: 'agent_turn' | 'human_form' | 'workflow_call';
     state: WorkflowStateId;
     stepId: WorkflowStepId;
     turnId: string;
     retryAttempt?: number;
+    childRunId?: string;
   };
   latestTransition?: WorkflowTransitionRecord;
   history: WorkflowHistoryEntry[];
@@ -240,6 +253,28 @@ export type WorkflowHistoryEntry =
       submission: Record<string, unknown>;
     }
   | {
+      kind: 'workflow_call_planned';
+      at: number;
+      state: WorkflowStateId;
+      stepId: WorkflowStepId;
+      turnId: string;
+      childRunId: string;
+      childDesignId: string;
+      childVersion?: number;
+    }
+  | {
+      kind: 'workflow_call_completed';
+      at: number;
+      state: WorkflowStateId;
+      stepId: WorkflowStepId;
+      turnId: string;
+      childRunId: string;
+      childStatus: WorkflowSnapshotStatus;
+      responseRef: string;
+      outputRef?: string;
+      statusSummary: string;
+    }
+  | {
       kind: 'decision_validation_failed';
       at: number;
       state: WorkflowStateId;
@@ -270,7 +305,10 @@ export type WorkflowRuntimeIssue = {
     | 'WORKFLOW_DECISION_UNKNOWN_FIELD'
     | 'WORKFLOW_DECISION_FIELD_TYPE_MISMATCH'
     | 'WORKFLOW_DECISION_RETRY_EXHAUSTED'
-    | 'WORKFLOW_DECISION_VALIDATOR_REQUIRED';
+    | 'WORKFLOW_DECISION_VALIDATOR_REQUIRED'
+    | 'WORKFLOW_CALL_CHILD_BLOCKED'
+    | 'WORKFLOW_CALL_CHILD_FAILED'
+    | 'WORKFLOW_CALL_CHILD_CANCELLED';
   path: string;
   message: string;
 };
@@ -289,7 +327,17 @@ export interface HumanFormObservation {
   submission: Record<string, unknown>;
 }
 
-export type WorkflowObservation = AgentTurnObservation | HumanFormObservation;
+export interface WorkflowCallObservation {
+  kind: 'workflow_call_completed';
+  turnId: string;
+  responseRef: string;
+  childRunId: string;
+  childStatus: WorkflowSnapshotStatus;
+  outputRef?: string;
+  statusSummary?: string;
+}
+
+export type WorkflowObservation = AgentTurnObservation | HumanFormObservation | WorkflowCallObservation;
 
 export type WorkflowPlanEffect =
   | {
@@ -308,6 +356,16 @@ export type WorkflowPlanEffect =
       title: string;
       description?: string;
       form: HumanFormWorkflowStepV1['form'];
+    }
+  | {
+      kind: 'start_workflow_call';
+      state: WorkflowStateId;
+      stepId: WorkflowStepId;
+      turnId: string;
+      childRunId: string;
+      workflow: WorkflowCallStepV1['workflow'];
+      args: Record<string, unknown>;
+      roleBindings?: WorkflowCallStepV1['roleBindings'];
     }
   | { kind: 'none' };
 
@@ -445,8 +503,14 @@ export function normalizeWorkflowDefinitionV1(
             if (index === steps.length - 1) {
               issues.push(issue('WORKFLOW_CONFIG_INVALID_ACTIVE_STATE', path, 'human_form step must be followed by a final decision step in V1'));
             }
+          } else if (step.type === 'workflow_call') {
+            assertKnownKeys(step, ['id', 'type', 'mode', 'workflow', 'args', 'roleBindings'], path, issues);
+            validateWorkflowCallStep(step, path, issues);
+            if (index === steps.length - 1) {
+              issues.push(issue('WORKFLOW_CONFIG_INVALID_ACTIVE_STATE', path, 'workflow_call step must be followed by a final decision step in V1'));
+            }
           } else {
-            issues.push(issue('WORKFLOW_CONFIG_INVALID_STEP', `${path}.type`, 'only agent_turn and human_form are supported in V1'));
+            issues.push(issue('WORKFLOW_CONFIG_INVALID_STEP', `${path}.type`, 'only agent_turn, human_form, and workflow_call are supported in V1'));
           }
           normalizedSteps.push(deepClone(step as WorkflowStepV1));
         });
@@ -601,6 +665,46 @@ export function planNextWorkflowEffect(
       },
     };
   }
+  if (step.type === 'workflow_call') {
+    const childRunId = `${snapshot.instanceId}-${turnId}`;
+    const planned: WorkflowRuntimeSnapshot = {
+      ...snapshot,
+      waitingFor: {
+        kind: 'workflow_call',
+        state: state.id,
+        stepId: step.id,
+        turnId,
+        childRunId,
+      },
+      history: [
+        ...snapshot.history,
+        cloneWithDefined({
+          kind: 'workflow_call_planned' as const,
+          at,
+          state: state.id,
+          stepId: step.id,
+          turnId,
+          childRunId,
+          childDesignId: step.workflow.designId,
+          childVersion: step.workflow.version,
+        }),
+      ],
+      updatedAt: at,
+    };
+    return {
+      snapshot: planned,
+      effect: {
+        kind: 'start_workflow_call',
+        state: state.id,
+        stepId: step.id,
+        turnId,
+        childRunId,
+        workflow: deepClone(step.workflow),
+        args: renderWorkflowCallArgs(snapshot, step.args ?? {}),
+        roleBindings: deepClone(step.roleBindings),
+      },
+    };
+  }
   const planned: WorkflowRuntimeSnapshot = {
     ...snapshot,
     waitingFor: cloneWithDefined({
@@ -682,6 +786,57 @@ export function advanceWorkflow(
           submission: deepClone(observation.submission),
         },
       ],
+      updatedAt: at,
+    };
+    const { snapshot: plannedSnapshot, effect } = planNextWorkflowEffect(model, advanced, deps);
+    return { snapshot: plannedSnapshot, effect };
+  }
+
+  if (step.type === 'workflow_call' && observation.kind === 'workflow_call_completed') {
+    const at = deps.now();
+    const statusSummary = observation.statusSummary ?? observation.childStatus;
+    const completedEntry: WorkflowHistoryEntry = cloneWithDefined({
+      kind: 'workflow_call_completed' as const,
+      at,
+      state: state.id,
+      stepId: step.id,
+      turnId: observation.turnId,
+      childRunId: observation.childRunId,
+      childStatus: observation.childStatus,
+      responseRef: observation.responseRef,
+      outputRef: observation.outputRef,
+      statusSummary,
+    });
+
+    if (observation.childStatus !== 'completed') {
+      const code = observation.childStatus === 'failed'
+        ? 'WORKFLOW_CALL_CHILD_FAILED'
+        : observation.childStatus === 'cancelled'
+          ? 'WORKFLOW_CALL_CHILD_CANCELLED'
+          : 'WORKFLOW_CALL_CHILD_BLOCKED';
+      const issue: WorkflowRuntimeIssue = {
+        code,
+        path: `states.${state.id}.steps.${step.id}`,
+        message: `child workflow ${observation.childRunId} ended with status ${observation.childStatus}`,
+      };
+      return {
+        snapshot: {
+          ...snapshot,
+          status: observation.childStatus === 'failed' ? 'failed' : 'blocked',
+          waitingFor: undefined,
+          blockedReason: issue,
+          history: [...snapshot.history, completedEntry, { kind: 'workflow_blocked', at, reason: issue }],
+          updatedAt: at,
+        },
+        effect: { kind: 'none' },
+      };
+    }
+
+    const advanced: WorkflowRuntimeSnapshot = {
+      ...snapshot,
+      waitingFor: undefined,
+      currentStepIndex: snapshot.currentStepIndex + 1,
+      history: [...snapshot.history, completedEntry],
       updatedAt: at,
     };
     const { snapshot: plannedSnapshot, effect } = planNextWorkflowEffect(model, advanced, deps);
@@ -1094,7 +1249,27 @@ function readContextValue(snapshot: WorkflowRuntimeSnapshot, expression: string)
   if (parts[0] === 'human') {
     return readPath(readHumanSubmissions(snapshot), parts.slice(1));
   }
+  if (parts[0] === 'child') {
+    return readPath(readWorkflowCallResults(snapshot), parts.slice(1));
+  }
   return undefined;
+}
+
+function renderWorkflowCallArgs(snapshot: WorkflowRuntimeSnapshot, args: Record<string, unknown>): Record<string, unknown> {
+  const rendered: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(args)) {
+    rendered[key] = renderWorkflowCallArgValue(snapshot, value);
+  }
+  return rendered;
+}
+
+function renderWorkflowCallArgValue(snapshot: WorkflowRuntimeSnapshot, value: unknown): unknown {
+  if (typeof value === 'string') return renderTemplate(value, snapshot);
+  if (Array.isArray(value)) return value.map((item) => renderWorkflowCallArgValue(snapshot, item));
+  if (isRecord(value)) {
+    return Object.fromEntries(Object.entries(value).map(([key, nested]) => [key, renderWorkflowCallArgValue(snapshot, nested)]));
+  }
+  return deepClone(value);
 }
 
 function readHumanSubmissions(snapshot: WorkflowRuntimeSnapshot): Record<string, Record<string, unknown>> {
@@ -1103,6 +1278,21 @@ function readHumanSubmissions(snapshot: WorkflowRuntimeSnapshot): Record<string,
     if (entry.kind === 'human_form_completed') submissions[entry.stepId] = entry.submission;
   }
   return submissions;
+}
+
+function readWorkflowCallResults(snapshot: WorkflowRuntimeSnapshot): Record<string, Record<string, unknown>> {
+  const calls: Record<string, Record<string, unknown>> = {};
+  for (const entry of snapshot.history) {
+    if (entry.kind === 'workflow_call_completed') {
+      calls[entry.stepId] = cloneWithDefined({
+        childRunId: entry.childRunId,
+        childStatus: entry.childStatus,
+        outputRef: entry.outputRef,
+        statusSummary: entry.statusSummary,
+      });
+    }
+  }
+  return calls;
 }
 
 function readPath(source: unknown, parts: string[]): unknown {
@@ -1155,6 +1345,43 @@ function validateHumanFormStep(value: Record<string, unknown>, path: string, iss
   }
   if (value.form.submitLabel !== undefined && typeof value.form.submitLabel !== 'string') {
     issues.push(issue('WORKFLOW_CONFIG_INVALID_STEP', `${path}.form.submitLabel`, 'human form submitLabel must be a string'));
+  }
+}
+
+function validateWorkflowCallStep(value: Record<string, unknown>, path: string, issues: WorkflowConfigIssue[]) {
+  if (value.mode !== 'blocking') {
+    issues.push(issue('WORKFLOW_CONFIG_INVALID_STEP', `${path}.mode`, 'workflow_call mode must be blocking'));
+  }
+  if (!isRecord(value.workflow)) {
+    issues.push(issue('WORKFLOW_CONFIG_REQUIRED_FIELD', `${path}.workflow`, 'workflow call target is required'));
+  } else {
+    assertKnownKeys(value.workflow, ['designId', 'version'], `${path}.workflow`, issues);
+    if (typeof value.workflow.designId !== 'string' || !value.workflow.designId.trim()) {
+      issues.push(issue('WORKFLOW_CONFIG_REQUIRED_FIELD', `${path}.workflow.designId`, 'workflow designId is required'));
+    }
+    if (value.workflow.version !== undefined && (!Number.isInteger(value.workflow.version) || typeof value.workflow.version !== 'number' || value.workflow.version <= 0)) {
+      issues.push(issue('WORKFLOW_CONFIG_INVALID_STEP', `${path}.workflow.version`, 'workflow version must be a positive integer'));
+    }
+  }
+  if (value.args !== undefined && !isRecord(value.args)) {
+    issues.push(issue('WORKFLOW_CONFIG_INVALID_STEP', `${path}.args`, 'workflow call args must be an object'));
+  }
+  if (value.roleBindings !== undefined) {
+    if (!isRecord(value.roleBindings)) {
+      issues.push(issue('WORKFLOW_CONFIG_INVALID_STEP', `${path}.roleBindings`, 'workflow call roleBindings must be an object'));
+    } else {
+      for (const [roleId, binding] of Object.entries(value.roleBindings)) {
+        const bindingPath = `${path}.roleBindings.${roleId}`;
+        if (!isRecord(binding)) {
+          issues.push(issue('WORKFLOW_CONFIG_INVALID_STEP', bindingPath, 'workflow call role binding must be an object'));
+          continue;
+        }
+        assertKnownKeys(binding, ['fromParentRole'], bindingPath, issues);
+        if (typeof binding.fromParentRole !== 'string' || !binding.fromParentRole.trim()) {
+          issues.push(issue('WORKFLOW_CONFIG_REQUIRED_FIELD', `${bindingPath}.fromParentRole`, 'fromParentRole is required'));
+        }
+      }
+    }
   }
 }
 

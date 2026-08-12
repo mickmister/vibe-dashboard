@@ -174,13 +174,21 @@ function StepSummary({ step, definition, stateId, onChange }: { step: WorkflowGr
   return (
     <div>
       <div className="font-medium">{step.id}</div>
-      <div className="mt-1 text-zinc-400">{step.type === 'agent_turn' ? `Agent turn · ${step.turnType}` : `Human form · ${step.humanFormTitle ?? 'Untitled form'}`}</div>
+      <div className="mt-1 text-zinc-400">{stepSubtitle(step)}</div>
       {step.promptTemplate ? <div className="mt-2 text-xs text-zinc-500">Prompt: {step.promptTemplate}</div> : null}
       {step.promptRefs.length ? <div className="mt-2 text-xs text-zinc-500">Refs: {step.promptRefs.join(', ')}</div> : null}
       {step.type === 'agent_turn' ? <PromptRefsEditor definition={definition} stateId={stateId} stepId={step.id} onChange={onChange} /> : null}
       {step.humanFormProvider ? <div className="mt-2 text-xs text-zinc-500">Form provider: {step.humanFormProvider}</div> : null}
+      {step.workflowCallDesignId ? <div className="mt-2 text-xs text-zinc-500">Child workflow: {step.workflowCallDesignId}{step.workflowCallVersion ? `@${step.workflowCallVersion}` : ''}</div> : null}
     </div>
   );
+}
+
+function stepSubtitle(step: WorkflowGraphNodeModel['steps'][number]): string {
+  if (step.type === 'agent_turn') return `Agent turn · ${step.turnType}`;
+  if (step.type === 'human_form') return `Human form · ${step.humanFormTitle ?? 'Untitled form'}`;
+  if (step.type === 'workflow_call') return `Workflow call · ${step.workflowCallMode ?? 'blocking'}`;
+  return `Unsupported step · ${step.type}`;
 }
 
 
