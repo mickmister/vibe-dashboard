@@ -1065,9 +1065,16 @@ describe('registerWorkflowRoutes', () => {
     expect(body.presentation.timeline.map((item: any) => item.kind)).toEqual(expect.arrayContaining(['decision']));
     expect(body.presentation.timeline[0]).toMatchObject({ title: 'Implement turn', status: 'Complete' });
     expect(body.presentation.timeline[0].initialMessage.text).toContain('Implement the requested feature');
-    expect(body.presentation.timeline[1].finalResponse.text).toContain('ready_for_review');
-    expect(body.presentation.timeline.find((item: any) => item.id === queued[2].turnId).finalResponse.text).toContain('approved');
+    expect(body.presentation.timeline[1].finalResponse.text).toContain('Ready for review');
+    expect(body.presentation.timeline.find((item: any) => item.id === queued[2].turnId).finalResponse.text).toContain('Approved');
     expect(body.presentation.timeline.find((item: any) => item.id === queued[3].turnId).finalResponse.text).toContain('Passed');
+    const rendered = JSON.stringify(body.presentation.timeline.map((item: any) => item.finalResponse));
+    expect(rendered).not.toContain('<decision');
+    expect(rendered).not.toContain('rawXml');
+    expect(rendered).not.toContain('dev-self');
+    expect(rendered).not.toContain('review-ok');
+    expect(rendered).not.toContain('tester-ok');
+    expect(rendered).not.toContain('responseRef');
   });
 
   it('exposes a clean workflow presentation read model', async () => {

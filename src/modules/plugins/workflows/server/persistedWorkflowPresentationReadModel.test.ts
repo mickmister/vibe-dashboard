@@ -79,8 +79,16 @@ describe('buildPersistedWorkflowPresentationModel', () => {
         expect.objectContaining({ kind: 'retry', title: 'Decision retry requested' }),
         expect.objectContaining({ kind: 'blocked', title: 'Workflow needs attention' }),
       ]));
-      expect(JSON.stringify(presentation)).not.toContain('webhook');
-      expect(JSON.stringify(presentation)).not.toContain('queue item');
+      const rendered = JSON.stringify(presentation);
+      expect(rendered).toContain('Action: Ready for review');
+      expect(rendered).toContain('Remarks: Needs tests');
+      expect(rendered).not.toContain('webhook');
+      expect(rendered).not.toContain('queue item');
+      expect(rendered).not.toContain('<decision');
+      expect(rendered).not.toContain('rawXml');
+      expect(rendered).not.toContain('response-dev');
+      expect(rendered).not.toContain('response-review');
+      expect(rendered).not.toContain('responseRef');
     } finally {
       await handle.db.destroy();
       handle.sqlite.close();

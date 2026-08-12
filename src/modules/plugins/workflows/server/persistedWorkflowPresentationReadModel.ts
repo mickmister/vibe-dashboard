@@ -50,7 +50,7 @@ function buildTimeline(args: { model: NormalizedAgentWorkflowModel; snapshot: Wo
         status: complete ? 'Complete' : 'Waiting',
         session: args.queued[entry.turnId]?.sessionId ? { label: `${roleLabel(args.model, roleId)} session`, workspaceId: args.workspaceId, sessionId: args.queued[entry.turnId]!.sessionId } : null,
         initialMessage: promptPreview ? { text: promptPreview, truncated: queueEvent?.data.promptTruncated === true, maxChars: 4096 } : null,
-        finalResponse: complete ? responseTextFor(args.snapshot, complete.responseRef) : null,
+        finalResponse: complete ? responseTextFor(args.model, args.snapshot, complete.responseRef) : null,
         responseUnavailable: complete ? null : 'This turn is still waiting for a response.',
         commits: [],
       });
@@ -67,7 +67,7 @@ function buildTimeline(args: { model: NormalizedAgentWorkflowModel; snapshot: Wo
         status: entry.transition.fromState === entry.transition.toState ? 'Looped' : 'Complete',
         session: null,
         initialMessage: null,
-        finalResponse: transitionText(entry.transition),
+        finalResponse: transitionText(args.model, entry.transition),
         responseUnavailable: null,
         commits: [],
       });
@@ -139,18 +139,27 @@ function nextActionForIssue(issue: WorkflowRuntimeIssue): string {
   return 'Review the problem and update the workflow or run inputs.';
 }
 
-function responseTextFor(snapshot: WorkflowRuntimeSnapshot, responseRef: string) {
-  const transition = snapshot.history.find((entry) => entry.kind === 'state_transitioned' && entry.transition.responseRef === responseRef) as { transition: { rawXml?: string; parsed?: Record<string, unknown> } } | undefined;
-  if (transition?.transition.rawXml) return { text: transition.transition.rawXml, truncated: false, maxChars: null };
-  if (transition?.transition.parsed) return { text: JSON.stringify(transition.transition.parsed, null, 2), truncated: false, maxChars: null };
-  return { text: `Response recorded: ${responseRef}`, truncated: false, maxChars: null };
+function responseTextFor(model: NormalizedAgentWorkflowModel, snapshot: WorkflowRuntimeSnapshot, responseRef: string) {
+  const transition = snapshot.history.find((entry) => entry.kind === 'state_transitioned' && entry.transition.responseRef === responseRef) as { transition: WorkflowTransitionSummary } | undefined;
+  return transition ? transitionText(model, transition.transition) : { text: 'Turn completed.', truncated: false, maxChars: null };
 }
 
-function transitionText(transition: { handoffText?: string; parsed?: Record<string, unknown>; rawXml?: string; rawXmlTruncated?: boolean }) {
-  if (transition.handoffText) return { text: transition.handoffText, truncated: false, maxChars: null };
-  if (transition.parsed && Object.keys(transition.parsed).length) return { text: Object.entries(transition.parsed).map(([key, value]) => `${key}: ${String(value)}`).join('\n'), truncated: false, maxChars: null };
-  if (transition.rawXml) return { text: transition.rawXml, truncated: transition.rawXmlTruncated === true, maxChars: null };
-  return null;
+type WorkflowTransitionSummary = {
+  fromState: string;
+  action: string;
+  handoffText?: string;
+  parsed?: Record<string, unknown>;
+};
+
+function transitionText(model: NormalizedAgentWorkflowModel, transition: WorkflowTransitionSummary) {
+  const lines: string[] = [];
+  if (transition.handoffText?.trim()) lines.push(transition.handoffText.trim());
+  lines.push(`Action: ${actionLabel(model, transition.fromState, transition.action)}`);
+  for (const [key, value] of Object.entries(transition.parsed ?? {})) {
+    if (key === 'action' || key === 'rawXml' || key === 'responseRef') continue;
+    lines.push(`${labelFromId(key)}: ${formatResultValue(value)}`);
+  }
+  return { text: lines.join('\n'), truncated: false, maxChars: null };
 }
 
 function roleForState(model: NormalizedAgentWorkflowModel, stateId: string): string {
@@ -160,6 +169,19 @@ function roleForState(model: NormalizedAgentWorkflowModel, stateId: string): str
 
 function roleLabel(model: NormalizedAgentWorkflowModel, roleId: string): string {
   return model.roles[roleId]?.label ?? labelFromId(roleId);
+}
+
+function actionLabel(model: NormalizedAgentWorkflowModel, stateId: string, actionId: string): string {
+  const state = model.states[stateId];
+  return state && !state.terminal ? state.actions[actionId]?.label ?? labelFromId(actionId) : labelFromId(actionId);
+}
+
+function formatResultValue(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (Array.isArray(value)) return value.map(formatResultValue).join(', ');
+  if (value === null || value === undefined) return '';
+  return JSON.stringify(value);
 }
 
 function labelFromId(id: string): string {

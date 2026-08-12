@@ -14,6 +14,10 @@ const forbiddenDebugTerms = [
   'WorkflowStepState',
   'runReady',
   'raw JSON',
+  '<decision',
+  'rawXml',
+  'responseRef',
+  'response-dev',
 ];
 
 describe('WorkflowPresentationView', () => {
