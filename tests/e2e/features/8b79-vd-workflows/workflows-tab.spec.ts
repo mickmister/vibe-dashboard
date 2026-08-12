@@ -226,8 +226,9 @@ test.describe('Workspace Workflows tab shell', () => {
     await expect(page.getByText('Review graph')).toBeVisible();
     await page.getByLabel('Workflow name').fill('Wizard Smoke Workflow');
     await page.getByLabel('Purpose').fill('Create a simple workflow through the wizard.');
-    await expect(page.getByText('Done')).toBeVisible();
-    await expect(page.getByText('Continue working')).toBeVisible();
+    const graphPreview = page.locator('aside').filter({ hasText: 'Review graph' });
+    await expect(graphPreview.getByText('work → done: Done', { exact: true })).toBeVisible();
+    await expect(graphPreview.getByText('work → work: Continue working', { exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Save & publish' }).click();
     await expect(page.getByLabel('Wizard result')).toContainText('Published v1');
     await expect(page.locator('a[href="/dashboard/workflows/editor/design-wizard-smoke"]', { hasText: 'Open graph editor' })).toBeVisible();
