@@ -310,16 +310,17 @@ test.describe('Workspace Workflows tab shell', () => {
     await expect(details.getByRole('heading', { name: 'Dev', exact: true })).toBeVisible();
     await expect(details.getByText('implement', { exact: true })).toBeVisible();
     await expect(details.getByText('self_review', { exact: true })).toBeVisible();
-    await expect(details.getByText('Prompt and skill snippets')).toBeVisible();
-    await expect(details.getByLabel('prompt:prompt.dev.implement@1')).toBeChecked();
-    await expect(details.locator('label').filter({ hasText: 'DRT implement prompt' })).toContainText('v1 · Built-in');
-    await expect(details.locator('label').filter({ hasText: 'Testing notes' })).toContainText('v1 · User');
+    const implementPicker = details.locator('section[aria-label="implement prompt and skill picker"]');
+    await expect(implementPicker.getByRole('heading', { name: 'Prompt and skill snippets' })).toBeVisible();
+    await expect(implementPicker.getByLabel('prompt:prompt.dev.implement@1')).toBeChecked();
+    await expect(implementPicker.locator('label').filter({ hasText: 'DRT implement prompt' })).toContainText('v1 · Built-in');
+    await expect(implementPicker.locator('label').filter({ hasText: 'Testing notes' })).toContainText('v1 · User');
     await expect(details.getByText('Raw JSON remains diagnostics-only.')).toBeVisible();
     await expect(page.getByText('Ready to save.')).toBeVisible();
     await page.getByLabel('Workflow name').fill('Dev Review Tester Copy');
     await page.getByLabel('dev label').fill('Implementer');
-    await page.getByLabel('prompt:prompt.dev.implement@1').uncheck();
-    await page.getByLabel('prompt:prompt.drt.dev.implement@1').check();
+    await implementPicker.getByLabel('prompt:prompt.dev.implement@1').uncheck();
+    await implementPicker.getByLabel('prompt:prompt.drt.dev.implement@1').check();
 
     await page.getByLabel('Target state').selectOption('');
     await expect(page.getByText('Choose an existing target state.')).toBeVisible();
