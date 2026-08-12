@@ -384,6 +384,42 @@ describe('BeadsForm core', () => {
     });
   });
 
+  it('normalizes grouped checkbox choices as plain booleans while enforcing group constraints', () => {
+    const form = {
+      questions: [{
+        type: 'choices' as const,
+        id: 'scope',
+        title: 'Scope',
+        description: 'Choose scope.',
+        choiceGroups: [
+          { id: 'timing', mode: 'atMostOne' as const, choiceIds: ['now', 'later'] },
+          { id: 'risk', mode: 'exactlyOne' as const, choiceIds: ['low', 'high', 'none'], defaultChoiceId: 'none' },
+        ],
+        choices: [
+          { id: 'now', label: 'Now' },
+          { id: 'later', label: 'Later' },
+          { id: 'low', label: 'Low' },
+          { id: 'high', label: 'High' },
+          { id: 'none', label: 'No preference' },
+          { id: 'tests', label: 'Tests' },
+        ],
+      }],
+    };
+
+    expect(normalizeSubmittedValues(form, {
+      scope: ['now', 'later', 'tests'],
+    })).toEqual({
+      scope: {
+        now: true,
+        later: false,
+        low: false,
+        high: false,
+        none: true,
+        tests: true,
+      },
+    });
+  });
+
   it('keeps raw checkbox groups as arrays when no standard questions are available', () => {
     const form = {
       id: 'raw',

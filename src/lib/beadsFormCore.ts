@@ -329,9 +329,23 @@ function normalizeChoiceQuestionValue(question: ChoicesQuestion, value: unknown)
     selectedValues.add(String(value));
   }
 
-  return Object.fromEntries(
+  const next = Object.fromEntries(
     question.choices.map((choice) => [choice.id, selectedValues.has(choice.id)]),
   );
+  for (const group of question.choiceGroups ?? []) {
+    if (group.mode === 'any') continue;
+    const selectedInGroup = group.choiceIds.filter((choiceId) => next[choiceId] === true);
+    if (selectedInGroup.length > 1) {
+      for (const choiceId of selectedInGroup.slice(1)) next[choiceId] = false;
+    }
+    if (group.mode === 'exactlyOne' && selectedInGroup.length === 0) {
+      const fallback = group.defaultChoiceId
+        ?? group.choiceIds.find((choiceId) => question.choices.find((choice) => choice.id === choiceId)?.defaultValue === true)
+        ?? group.choiceIds[0];
+      if (fallback) next[fallback] = true;
+    }
+  }
+  return next;
 }
 
 const ALLOWED_TAGS = [

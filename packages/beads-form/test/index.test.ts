@@ -84,6 +84,103 @@ describe('@vibe-dashboard/beads-form', () => {
     expect(compiled.html.match(/class="beads-form-default"/g)).toHaveLength(1);
   });
 
+  it('compiles grouped checkbox choices with per-group metadata and default choice support', () => {
+    const compiled = compileBeadsForm(defineBeadsForm({
+      id: 'grouped_choice_review',
+      goal: 'Choose grouped options without radio buttons.',
+      title: 'Grouped choice review',
+      questions: [
+        buildChoicesQuestion({
+          id: 'implementation_scope',
+          title: 'Implementation scope',
+          description: 'Choose compatible options.',
+          choiceGroups: [
+            {
+              id: 'risk_level',
+              title: 'Risk level',
+              description: 'Choose exactly one risk level.',
+              mode: 'exactlyOne',
+              choiceIds: ['low_risk', 'high_risk', 'no_preference'],
+              defaultChoiceId: 'no_preference',
+            },
+            {
+              id: 'timing',
+              title: 'Timing',
+              mode: 'atMostOne',
+              choiceIds: ['now', 'later'],
+            },
+          ],
+          choices: [
+            { id: 'low_risk', label: 'Low risk' },
+            { id: 'high_risk', label: 'High risk' },
+            { id: 'no_preference', label: 'No preference' },
+            { id: 'now', label: 'Now' },
+            { id: 'later', label: 'Later' },
+            { id: 'add_tests', label: 'Add tests' },
+          ],
+        }),
+      ],
+    }));
+
+    expect(compiled.html).toContain('class="beads-form-choice-group beads-form-choice-group--exactlyOne"');
+    expect(compiled.html).toContain('aria-labelledby="implementation_scope_risk_level_choice_group_title"');
+    expect(compiled.html).toContain('aria-describedby="implementation_scope_risk_level_choice_group_description"');
+    expect(compiled.html).toContain('Choose exactly one risk level.');
+    expect(compiled.html).toContain('type="hidden" name="__beadsform_choice_group_implementation_scope_risk_level"');
+    expect(compiled.html).toContain('&quot;mode&quot;:&quot;exactlyOne&quot;');
+    expect(compiled.html).toContain('name="implementation_scope" type="checkbox" value="no_preference" checked');
+    expect(compiled.html).toContain('No preference <span class="beads-form-default" aria-label="Default selected choice">Default</span>');
+    expect(compiled.html).toContain('class="beads-form-choice-group beads-form-choice-group--atMostOne"');
+    expect(compiled.html).toContain('name="implementation_scope" type="checkbox" value="add_tests"');
+    expect(compiled.html).not.toContain('type="radio"');
+  });
+
+  it('rejects invalid choice group authoring', () => {
+    const baseQuestion = {
+      type: 'choices' as const,
+      id: 'decision',
+      title: 'Decision',
+      description: 'Choose.',
+      choices: [
+        { id: 'a', label: 'A' },
+        { id: 'b', label: 'B' },
+      ],
+    };
+    const base = {
+      id: 'invalid_choice_group',
+      goal: 'Reject invalid group metadata.',
+      title: 'Invalid choice group',
+    };
+
+    expect(() => compileBeadsForm(defineBeadsForm({
+      ...base,
+      questions: [{
+        ...baseQuestion,
+        choiceGroups: [{ id: 'mode', mode: 'exactlyOne', choiceIds: ['a', 'missing'], defaultChoiceId: 'a' }],
+      }],
+    }))).toThrow('unknown choice id "missing"');
+
+    expect(() => compileBeadsForm(defineBeadsForm({
+      ...base,
+      questions: [{
+        ...baseQuestion,
+        choiceGroups: [{ id: 'mode', mode: 'exactlyOne', choiceIds: ['a', 'b'] }],
+      }],
+    }))).toThrow('must define defaultChoiceId or exactly one defaultValue:true choice');
+
+    expect(() => compileBeadsForm(defineBeadsForm({
+      ...base,
+      questions: [{
+        ...baseQuestion,
+        choices: [
+          { id: 'a', label: 'A', defaultValue: true },
+          { id: 'b', label: 'B', defaultValue: true },
+        ],
+        choiceGroups: [{ id: 'mode', mode: 'atMostOne', choiceIds: ['a', 'b'] }],
+      }],
+    }))).toThrow('cannot have multiple defaultValue:true choices');
+  });
+
   it('treats stale note and multiple-choice flags as always enabled for compatibility', () => {
     const compiled = compileBeadsForm(defineBeadsForm({
       id: 'legacy_flags',

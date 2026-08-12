@@ -37,6 +37,17 @@ export type ChoiceQuestionChoice = {
   is_recommended_reason?: string;
 };
 
+export type ChoiceGroupMode = 'any' | 'atMostOne' | 'exactlyOne';
+
+export type ChoiceGroup = {
+  id: string;
+  title?: string;
+  description?: string;
+  choiceIds: string[];
+  mode: ChoiceGroupMode;
+  defaultChoiceId?: string;
+};
+
 export type QuestionBase = {
   id: string;
   title: string;
@@ -48,6 +59,7 @@ export type QuestionBase = {
 export type ChoicesQuestion = QuestionBase & {
   type: 'choices';
   choices: ChoiceQuestionChoice[];
+  choiceGroups?: ChoiceGroup[];
 };
 
 export type TextQuestion = QuestionBase & {
@@ -387,8 +399,9 @@ function compileQuestion(question: BeadsFormQuestion, controls: BeadsFormControl
 
 function compileChoicesQuestion(question: ChoicesQuestion, controls: BeadsFormControl[]): string {
   if (question.choices.length === 0) throw new Error(`choices question ${question.id} must have at least one choice`);
+  validateChoiceGroups(question);
 
-  const choiceHtml = question.choices.map((choice) => {
+  const choiceHtmlById = new Map(question.choices.map((choice) => {
     assertIdentifier(choice.id, `choice.id for ${question.id}`);
     const inputId = `${question.id}_${choice.id}`;
     controls.push({
@@ -406,7 +419,7 @@ function compileChoicesQuestion(question: ChoicesQuestion, controls: BeadsFormCo
     const recommended = recommendationReason
       ? '<span class="beads-form-recommended" aria-label="Recommended choice">Recommended</span>'
       : '';
-    const defaultBadge = choice.defaultValue === true
+    const defaultBadge = isInitiallyChecked(question, choice)
       ? '<span class="beads-form-default" aria-label="Default selected choice">Default</span>'
       : '';
     const recommendation = recommendationReason
@@ -420,15 +433,23 @@ function compileChoicesQuestion(question: ChoicesQuestion, controls: BeadsFormCo
       controls,
     });
 
-    return [
+    const html = [
       '<div class="beads-form-choice">',
-      `<label for="${attr(inputId)}"><input id="${attr(inputId)}" name="${attr(question.id)}" type="checkbox" value="${attr(choice.id)}"${choice.defaultValue === true ? ' checked' : ''}> ${escapeHtml(choice.label)}${defaultBadge ? ` ${defaultBadge}` : ''}${recommended ? ` ${recommended}` : ''}</label>`,
+      `<label for="${attr(inputId)}"><input id="${attr(inputId)}" name="${attr(question.id)}" type="checkbox" value="${attr(choice.id)}"${isInitiallyChecked(question, choice) ? ' checked' : ''}> ${escapeHtml(choice.label)}${defaultBadge ? ` ${defaultBadge}` : ''}${recommended ? ` ${recommended}` : ''}</label>`,
       choiceDescription,
       recommendation,
       choiceNotes,
       '</div>',
     ].join('');
-  }).join('');
+    return [choice.id, html] as const;
+  }));
+
+  const groupedChoiceIds = new Set((question.choiceGroups ?? []).flatMap((group) => group.choiceIds));
+  const groupHtml = (question.choiceGroups ?? []).map((group) => renderChoiceGroup(question, group, choiceHtmlById)).join('');
+  const ungroupedHtml = question.choices
+    .filter((choice) => !groupedChoiceIds.has(choice.id))
+    .map((choice) => choiceHtmlById.get(choice.id) ?? '')
+    .join('');
 
   const questionNotes = compileNotesTextarea({
     id: notesName(question.id),
@@ -442,10 +463,82 @@ function compileChoicesQuestion(question: ChoicesQuestion, controls: BeadsFormCo
     '<fieldset>',
     `<legend>${escapeHtml(question.title)}</legend>`,
     renderMarkdown(question.description),
-    choiceHtml,
+    groupHtml,
+    ungroupedHtml,
     questionNotes,
     '</fieldset>',
   ].join('');
+}
+
+function validateChoiceGroups(question: ChoicesQuestion): void {
+  const groups = question.choiceGroups ?? [];
+  const choicesById = new Map(question.choices.map((choice) => [choice.id, choice]));
+  const groupIds = new Set<string>();
+  const groupedChoiceIds = new Set<string>();
+  for (const group of groups) {
+    assertIdentifier(group.id, `choiceGroups.id for ${question.id}`);
+    if (groupIds.has(group.id)) throw new Error(`choice group "${group.id}" is duplicated in ${question.id}`);
+    groupIds.add(group.id);
+    if (!['any', 'atMostOne', 'exactlyOne'].includes(group.mode)) {
+      throw new Error(`choice group "${group.id}" has invalid mode "${String(group.mode)}"`);
+    }
+    if (group.choiceIds.length === 0) throw new Error(`choice group "${group.id}" must include at least one choice id`);
+    const idsInGroup = new Set<string>();
+    for (const choiceId of group.choiceIds) {
+      if (!choicesById.has(choiceId)) throw new Error(`choice group "${group.id}" references unknown choice id "${choiceId}"`);
+      if (idsInGroup.has(choiceId)) throw new Error(`choice group "${group.id}" repeats choice id "${choiceId}"`);
+      idsInGroup.add(choiceId);
+      if (groupedChoiceIds.has(choiceId)) throw new Error(`choice "${choiceId}" appears in multiple choice groups for ${question.id}`);
+      groupedChoiceIds.add(choiceId);
+    }
+    if (group.defaultChoiceId !== undefined && !idsInGroup.has(group.defaultChoiceId)) {
+      throw new Error(`choice group "${group.id}" defaultChoiceId "${group.defaultChoiceId}" must reference a choice in the group`);
+    }
+    if (group.mode === 'any') continue;
+    const defaultTrueChoices = group.choiceIds.filter((choiceId) => choicesById.get(choiceId)?.defaultValue === true);
+    if (defaultTrueChoices.length > 1) throw new Error(`choice group "${group.id}" cannot have multiple defaultValue:true choices`);
+    if (group.defaultChoiceId && defaultTrueChoices.length === 1 && defaultTrueChoices[0] !== group.defaultChoiceId) {
+      throw new Error(`choice group "${group.id}" defaultChoiceId conflicts with defaultValue:true choice "${defaultTrueChoices[0]}"`);
+    }
+    if (group.mode === 'exactlyOne' && !group.defaultChoiceId && defaultTrueChoices.length !== 1) {
+      throw new Error(`choice group "${group.id}" must define defaultChoiceId or exactly one defaultValue:true choice`);
+    }
+  }
+}
+
+function renderChoiceGroup(
+  question: ChoicesQuestion,
+  group: ChoiceGroup,
+  choiceHtmlById: Map<string, string>,
+): string {
+  const title = group.title?.trim();
+  const description = group.description?.trim();
+  const titleId = `${question.id}_${group.id}_choice_group_title`;
+  const descriptionId = `${question.id}_${group.id}_choice_group_description`;
+  const config = escapeHtml(JSON.stringify({
+    questionId: question.id,
+    id: group.id,
+    mode: group.mode,
+    choiceIds: group.choiceIds,
+    ...(group.defaultChoiceId ? { defaultChoiceId: group.defaultChoiceId } : {}),
+  }));
+  const accessibility = title
+    ? ` role="group" aria-labelledby="${attr(titleId)}"${description ? ` aria-describedby="${attr(descriptionId)}"` : ''}`
+    : ` role="group"${description ? ` aria-describedby="${attr(descriptionId)}"` : ''}`;
+  return [
+    `<div class="beads-form-choice-group beads-form-choice-group--${attr(group.mode)}"${accessibility}>`,
+    `<input type="hidden" name="__beadsform_choice_group_${attr(question.id)}_${attr(group.id)}" value="${config}">`,
+    title ? `<h4 id="${attr(titleId)}">${escapeHtml(title)}</h4>` : '',
+    description ? `<div id="${attr(descriptionId)}">${renderMarkdown(description)}</div>` : '',
+    ...group.choiceIds.map((choiceId) => choiceHtmlById.get(choiceId) ?? ''),
+    '</div>',
+  ].join('');
+}
+
+function isInitiallyChecked(question: ChoicesQuestion, choice: ChoiceQuestionChoice): boolean {
+  const group = (question.choiceGroups ?? []).find((candidate) => candidate.choiceIds.includes(choice.id));
+  if (group?.defaultChoiceId) return group.defaultChoiceId === choice.id;
+  return choice.defaultValue === true;
 }
 
 function compileTextQuestion(question: TextQuestion, controls: BeadsFormControl[]): string {

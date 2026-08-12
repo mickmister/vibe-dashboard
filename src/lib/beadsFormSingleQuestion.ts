@@ -1,3 +1,5 @@
+import { initializeChoiceGroups } from './beadsFormChoiceGroups';
+
 export type SingleQuestionModeCleanup = () => void;
 
 const WIZARD_QUESTION_PARAM = 'formQuestion';
@@ -32,6 +34,7 @@ export function prehideInactiveSingleQuestionItems(
 export function initializeSingleQuestionMode(host: ParentNode, options: { urlState?: boolean } = {}): SingleQuestionModeCleanup {
   const form = host.querySelector('form');
   if (!form || form.dataset.beadsformSingleQuestion === 'true') return () => undefined;
+  const choiceGroupsCleanup = initializeChoiceGroups(host);
   const useUrlState = options.urlState ?? true;
 
   const fieldsets = Array.from(form.children).filter((child): child is HTMLFieldSetElement => (
@@ -39,7 +42,7 @@ export function initializeSingleQuestionMode(host: ParentNode, options: { urlSta
   ));
   const masterNotes = fieldsets.find(isMasterNotesFieldset);
   const questions = fieldsets.filter((fieldset) => fieldset !== masterNotes);
-  if (questions.length <= 1) return () => undefined;
+  if (questions.length <= 1) return choiceGroupsCleanup;
 
   form.dataset.beadsformSingleQuestion = 'true';
   form.classList.add('beadsform-single-question-form');
@@ -293,6 +296,7 @@ export function initializeSingleQuestionMode(host: ParentNode, options: { urlSta
   return () => {
     form.removeEventListener('submit', handleSubmit, true);
     if (useUrlState) window.removeEventListener('popstate', handlePopState);
+    choiceGroupsCleanup();
     form.classList.remove('beadsform-single-question-form');
     delete form.dataset.beadsformSingleQuestion;
   };

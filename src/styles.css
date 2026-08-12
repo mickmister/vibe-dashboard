@@ -135,6 +135,19 @@ textarea {
   font-weight: 700;
 }
 
+.beadsform-root .beads-form-choice-group {
+  display: grid;
+  gap: 0.75rem;
+  border: 1px solid #27272a;
+  border-radius: 0.75rem;
+  padding: 0.75rem;
+  background: rgba(24, 24, 27, 0.72);
+}
+
+.beadsform-root .beads-form-choice-group h4 {
+  margin: 0;
+}
+
 .beadsform-root .beads-form-goal {
   color: #d4d4d8;
   font-size: 1rem;
