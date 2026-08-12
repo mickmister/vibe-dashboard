@@ -43,4 +43,14 @@ describe('BeadsForm pending queue UI source', () => {
     expect(source).toContain('shouldUseDirectSelectedLoad\n          ? await directResult(actions.loadBeadForms)\n          : await (await actions.loadWorkspaceForms(workspaceInput))');
     expect(source).toContain('shouldUseDirectSelectedLoad\n            ? await directResult(actions.refreshBeadForms)\n            : await (await actions.refreshWorkspaceForms(workspaceInput))');
   });
+
+  it('uses a pending queue sentinel to refresh cached inbox results without blocking initial render', async () => {
+    const source = await readFile(new URL('./BeadsFormModule.tsx', import.meta.url), 'utf8');
+
+    expect(source).toContain('pendingQueueSentinel: initialPendingQueueSentinel');
+    expect(source).toContain('markPendingQueueDirtyForRepo(states.pendingQueueSentinel, input.dir)');
+    expect(source).toContain('shouldRefreshPendingQueueForSentinel({');
+    expect(source).toContain('const fresh = await (await actions.refreshPendingForms(input));');
+    expect(source).toContain('if (!pendingRef.current) return;');
+  });
 });
