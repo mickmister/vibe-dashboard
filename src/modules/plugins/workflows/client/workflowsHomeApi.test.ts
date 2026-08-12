@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetchWorkflowLaunchOptions, fetchWorkspaceWorkflowsHome, launchWorkspaceWorkflow, useWorkflowTemplate } from './workflowsHomeApi';
+import { batchLaunchWorkspaceWorkflow, fetchWorkflowLaunchOptions, fetchWorkspaceWorkflowsHome, launchWorkspaceWorkflow, useWorkflowTemplate } from './workflowsHomeApi';
 
 describe('workflows home API client', () => {
   afterEach(() => vi.restoreAllMocks());
 
   it('loads workspace workflows home by workspace id', async () => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ home: { workspaceId: 'workspace-a', availableWorkflows: [], recentRuns: [], needsInput: [] } })));
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ home: { workspaceId: 'workspace-a', availableWorkflows: [], recentRuns: [], needsInput: [], recentBatches: [] } })));
 
     await expect(fetchWorkspaceWorkflowsHome('workspace-a')).resolves.toMatchObject({ workspaceId: 'workspace-a' });
     expect(fetchMock).toHaveBeenCalledWith('/dashboard/api/workflows/home?workspaceId=workspace-a', { headers: { Accept: 'application/json' } });
@@ -28,8 +28,15 @@ describe('workflows home API client', () => {
     expect(JSON.parse(String((fetchMock.mock.calls[1]?.[1] as RequestInit).body))).toMatchObject({ additionalInstructions: 'Keep it clean.' });
   });
 
+
+  it('posts workflow batch launch requests', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ batch: { batchId: 'batch-a', workflowName: 'Workflow', status: 'running', counts: { total: 2, pending: 1, running: 1, completed: 0, blocked: 0, failed: 0, cancelled: 0 }, updatedAt: 1, detailUrl: null } }), { status: 201 }));
+    await expect(batchLaunchWorkspaceWorkflow({ workspaceId: 'workspace-a', designId: 'design-a', items: [{ inputs: { featureRequest: 'One' } }], roleBindings: {} })).resolves.toMatchObject({ batch: { batchId: 'batch-a' } });
+    expect(fetchMock).toHaveBeenCalledWith('/dashboard/api/workflows/batches', expect.objectContaining({ method: 'POST' }));
+  });
+
   it('uses workflow templates through the product API', async () => {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ design: { designId: 'design-drt', name: 'Dev / Review / Tester', latestPublishedVersion: 1 }, draft: { draftId: 'draft-drt', designId: 'design-drt' }, version: { designId: 'design-drt', version: 1 }, home: { workspaceId: 'workspace-a', availableWorkflows: [], recentRuns: [], needsInput: [] } }), { status: 201, headers: { 'Content-Type': 'application/json' } })) as unknown as typeof fetch;
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ design: { designId: 'design-drt', name: 'Dev / Review / Tester', latestPublishedVersion: 1 }, draft: { draftId: 'draft-drt', designId: 'design-drt' }, version: { designId: 'design-drt', version: 1 }, home: { workspaceId: 'workspace-a', availableWorkflows: [], recentRuns: [], needsInput: [], recentBatches: [] } }), { status: 201, headers: { 'Content-Type': 'application/json' } })) as unknown as typeof fetch;
     vi.stubGlobal('fetch', fetchMock);
 
     await expect(useWorkflowTemplate({ templateId: 'built-in/dev-review-tester', workspaceId: 'workspace-a' })).resolves.toMatchObject({ version: { version: 1 } });
