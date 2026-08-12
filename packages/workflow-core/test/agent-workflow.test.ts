@@ -367,6 +367,27 @@ describe('agent workflow V1 normalization', () => {
       args: { featureRequest: 'Build child', nested: { handoff: '' } },
     });
 
+    const staleChild = advanceWorkflow(model, planned.snapshot, {
+      kind: 'workflow_call_completed',
+      turnId: 'call-turn',
+      childRunId: 'wrong-child-run',
+      responseRef: 'wrong-child-run',
+      childStatus: 'completed',
+      outputRef: 'workflow-run://wrong-child-run/output',
+    }, {
+      now: clock(2_500),
+      createId: ids('ignored-call'),
+      validator,
+    });
+    expect(staleChild).toMatchObject({
+      effect: { kind: 'none' },
+      ignored: {
+        code: 'WORKFLOW_STALE_OBSERVATION',
+        path: 'observation.childRunId',
+      },
+    });
+    expect(staleChild.snapshot).toBe(planned.snapshot);
+
     const advanced = advanceWorkflow(model, planned.snapshot, {
       kind: 'workflow_call_completed',
       turnId: 'call-turn',

@@ -354,6 +354,21 @@ describe('PersistedWorkflowRuntimeService M93', () => {
     await runtime.runReady('run-parent');
     expect(queued).toHaveLength(1);
 
+    const wrongChild = await runtime.completeWorkflowCall({
+      runId: 'run-parent',
+      turnId: 'id-2',
+      childRunId: 'wrong-child-run',
+      responseRef: 'wrong-child-run',
+      childStatus: 'completed',
+      outputRef: 'workflow-run://wrong-child-run/output',
+    });
+    expect(wrongChild).toMatchObject({ applied: false, reason: 'stale' });
+    expect(wrongChild.run.coreSnapshot.waitingFor).toMatchObject({ kind: 'workflow_call', childRunId: 'run-parent-id-2' });
+    expect(wrongChild.run.coreSnapshot.history).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'workflow_call_completed', childRunId: 'wrong-child-run' }),
+    ]));
+    expect(queued).toHaveLength(1);
+
     const childComplete = await runtime.completeAgentTurn({
       runId: 'run-parent-id-2',
       turnId: queuedAt(queued, 0).turnId,

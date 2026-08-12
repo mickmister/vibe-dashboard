@@ -761,6 +761,21 @@ export function advanceWorkflow(
       },
     };
   }
+  if (
+    waitingFor.kind === 'workflow_call'
+    && observation.kind === 'workflow_call_completed'
+    && waitingFor.childRunId !== observation.childRunId
+  ) {
+    return {
+      snapshot,
+      effect: { kind: 'none' },
+      ignored: {
+        code: 'WORKFLOW_STALE_OBSERVATION',
+        path: 'observation.childRunId',
+        message: 'workflow call completion does not match the active child workflow run',
+      },
+    };
+  }
 
   const state = getActiveState(model, snapshot.currentState);
   const step = state?.steps[snapshot.currentStepIndex];
