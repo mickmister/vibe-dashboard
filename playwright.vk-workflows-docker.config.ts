@@ -15,6 +15,10 @@ const fixedSandboxPorts = {
 const sandboxEnv = Object.entries(fixedSandboxPorts)
   .map(([key, value]) => `${key}=${value}`)
   .join(' ');
+const qaScriptedOutcomeFile = process.env.VK_QA_SCRIPTED_OUTCOME_FILE;
+const qaScriptedOutcomeFileEnv = qaScriptedOutcomeFile
+  ? ` VK_QA_SCRIPTED_OUTCOME_FILE=${JSON.stringify(qaScriptedOutcomeFile)}`
+  : '';
 const vkCheckoutEnv = process.env.VK_CHECKOUT
   ? ` VK_CHECKOUT=${JSON.stringify(process.env.VK_CHECKOUT)}`
   : '';
@@ -38,7 +42,7 @@ export default defineConfig({
   webServer: {
     command:
       'npm run e2e:vk-mocked-sandbox:reset -- --variant basic-seeded --force' +
-      ` &&${vkCheckoutEnv} ${sandboxEnv} npm run dev:vk-mocked-sandbox`,
+      ` &&${vkCheckoutEnv} ${sandboxEnv}${qaScriptedOutcomeFileEnv} npm run dev:vk-mocked-sandbox`,
     url: `${sandboxUrl}/vk-api/workspaces`,
     reuseExistingServer: false,
     timeout: 900_000,

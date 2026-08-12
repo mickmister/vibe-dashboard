@@ -97,6 +97,8 @@ docker exec \
   --env VK_MOCKED_CADDY_PORT=50005 \
   --env VK_MOCKED_CADDYFILE=Caddyfile.workflow-e2e \
   --env VK_MOCKED_SKIP_LOCAL_WEB_BUILD=1 \
+  --env VK_QA_SCRIPTED_OUTCOME_FILE="${VK_QA_SCRIPTED_OUTCOME_FILE:-}" \
+  --env WORKFLOW_E2E_PLAYWRIGHT_ARGS="${WORKFLOW_E2E_PLAYWRIGHT_ARGS:-}" \
   "${container_name}" bash -lc '
     set -euo pipefail
     run_with_log() {
@@ -143,7 +145,7 @@ docker exec \
     find /root/.cargo/git /tmp/vk-target -name "*.lock" -delete 2>/dev/null || true
     run_with_log vk-cargo-build cargo build --features qa-mode --bin server
     cd /workspace/vibe-kanban-vscode-web
-    run_with_log playwright npx playwright test --config playwright.vk-workflows-docker.config.ts --output=/tmp/workflow-e2e-logs/playwright-test-results
+    run_with_log playwright npx playwright test --config playwright.vk-workflows-docker.config.ts --output=/tmp/workflow-e2e-logs/playwright-test-results ${WORKFLOW_E2E_PLAYWRIGHT_ARGS}
   '
 
 echo "ok - workflow Docker Playwright E2E"

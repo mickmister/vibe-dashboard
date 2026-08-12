@@ -378,6 +378,7 @@ describe('registerWorkflowRoutes', () => {
         launch: async () => { throw new Error('not used'); },
         completeHumanForm: async () => { throw new Error('persisted resume failed'); },
         completeAgentTurn: async () => { throw new Error('not used'); },
+        getRun: async () => null,
       },
     });
     const failed = await failingApp.request(`/dashboard/api/workflow-attention-items/${attention.attentionItemId}/complete`, {
@@ -1568,9 +1569,23 @@ describe('registerWorkflowRoutes', () => {
       return payload;
     }
 
+    const earlySelfReviewBody = JSON.stringify(vkWebhookPayload({
+      delivery_id: 'delivery-exec-dev-self-1-early',
+      workspace_id: 'workspace-a',
+      session_id: 'session-dev',
+      execution_id: 'exec-dev-self-1',
+      queue_item_id: 'queue-drt-2',
+    }));
+    const earlySelfReview = await app.request('/dashboard/api/workflow-webhooks/vk', {
+      method: 'POST',
+      headers: signedVkWebhookHeaders('secret', earlySelfReviewBody),
+      body: earlySelfReviewBody,
+    });
+    expect(earlySelfReview.status).toBe(202);
+    await expect(earlySelfReview.json()).resolves.toMatchObject({ persistedWorkflow: { applied: false, reason: 'not_persisted_workflow_turn' } });
+
     await postWebhook(0, 'exec-dev-implement-1');
     expect(queued[1]).toMatchObject({ sessionId: 'session-dev' });
-    await postWebhook(1, 'exec-dev-self-1');
     expect(queued[2]).toMatchObject({ sessionId: 'session-review' });
     await postWebhook(2, 'exec-review-changes');
     expect(queued[3]).toMatchObject({ sessionId: 'session-dev' });

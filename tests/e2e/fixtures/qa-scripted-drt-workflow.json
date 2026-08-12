@@ -1,0 +1,115 @@
+{
+  "outcomes": [
+    {
+      "prompt_contains": "Implement the requested feature",
+      "outcome": "completed",
+      "final_message": "Implemented pass one for the Docker qa-mode Dev / Review / Tester workflow.",
+      "session_id": "qa-scripted-dev-implement-1",
+      "message_id": "qa-scripted-dev-implement-1",
+      "delay_ms": 0
+    },
+    {
+      "prompt_contains": "Review your own changes",
+      "outcome": "completed",
+      "final_message": "<decision action=\"ready_for_review\"><summary>Implemented pass one</summary><concerns>Risk noted from qa-mode self-review.</concerns></decision>",
+      "session_id": "qa-scripted-dev-self-1",
+      "message_id": "qa-scripted-dev-self-1",
+      "delay_ms": 0
+    },
+    {
+      "prompt_contains": "Review the implementation",
+      "outcome": "completed",
+      "final_message": "<decision action=\"changes_requested\"><requestedChanges>Fix review issue from qa-mode.</requestedChanges><concerns>Reviewer found a representative issue.</concerns></decision>",
+      "session_id": "qa-scripted-review-changes",
+      "message_id": "qa-scripted-review-changes",
+      "delay_ms": 0
+    },
+    {
+      "prompt_contains": "Implement the requested feature",
+      "outcome": "completed",
+      "final_message": "Implemented review fixes for the Docker qa-mode Dev / Review / Tester workflow.",
+      "session_id": "qa-scripted-dev-implement-2",
+      "message_id": "qa-scripted-dev-implement-2",
+      "delay_ms": 0
+    },
+    {
+      "prompt_contains": "Review your own changes",
+      "outcome": "completed",
+      "final_message": "<decision action=\"ready_for_review\"><summary>Fixed review issue</summary><concerns>No remaining review concerns.</concerns></decision>",
+      "session_id": "qa-scripted-dev-self-2",
+      "message_id": "qa-scripted-dev-self-2",
+      "delay_ms": 0
+    },
+    {
+      "prompt_contains": "Review the implementation",
+      "outcome": "completed",
+      "final_message": "<decision action=\"approved\"><remarks>Review approves the qa-mode changes.</remarks></decision>",
+      "session_id": "qa-scripted-review-approved-1",
+      "message_id": "qa-scripted-review-approved-1",
+      "delay_ms": 0
+    },
+    {
+      "prompt_contains": "Test the feature against the request",
+      "outcome": "completed",
+      "final_message": "<decision action=\"bug_found\"><bugReport>Tester found a representative qa-mode bug.</bugReport></decision>",
+      "session_id": "qa-scripted-tester-bug",
+      "message_id": "qa-scripted-tester-bug",
+      "delay_ms": 0
+    },
+    {
+      "prompt_contains": "Implement the requested feature",
+      "outcome": "completed",
+      "final_message": "Fixed tester bug for the Docker qa-mode Dev / Review / Tester workflow.",
+      "session_id": "qa-scripted-dev-implement-3",
+      "message_id": "qa-scripted-dev-implement-3",
+      "delay_ms": 0
+    },
+    {
+      "prompt_contains": "Review your own changes",
+      "outcome": "completed",
+      "final_message": "<decision action=\"ready_for_review\"><summary>Fixed tester bug</summary><concerns>No remaining tester concerns.</concerns></decision>",
+      "session_id": "qa-scripted-dev-self-3",
+      "message_id": "qa-scripted-dev-self-3",
+      "delay_ms": 0
+    },
+    {
+      "prompt_contains": "Review the implementation",
+      "outcome": "completed",
+      "final_message": "<decision action=\"approved\"><remarks>Review still approves after tester fix.</remarks></decision>",
+      "session_id": "qa-scripted-review-approved-2",
+      "message_id": "qa-scripted-review-approved-2",
+      "delay_ms": 0
+    },
+    {
+      "prompt_contains": "Test the feature against the request",
+      "outcome": "completed",
+      "final_message": "<decision action=\"approved\"><testSummary>Acceptance passed in Docker qa-mode after loops.</testSummary></decision>",
+      "session_id": "qa-scripted-tester-approved",
+      "message_id": "qa-scripted-tester-approved",
+      "delay_ms": 0
+    },
+    {
+      "prompt_contains": "Please work on this task and provide a clear final response.",
+      "outcome": "completed",
+      "final_message": "QA scripted workflow response completed successfully.",
+      "session_id": "qa-scripted-two-agent-source",
+      "message_id": "qa-scripted-two-agent-source",
+      "delay_ms": 0
+    },
+    {
+      "prompt_contains": "Please review the source agent response below.",
+      "outcome": "completed",
+      "final_message": "QA scripted workflow response completed successfully.",
+      "session_id": "qa-scripted-two-agent-review",
+      "message_id": "qa-scripted-two-agent-review",
+      "delay_ms": 0
+    }
+  ],
+  "fallback": {
+    "outcome": "completed",
+    "final_message": "QA scripted workflow response completed successfully.",
+    "session_id": "qa-scripted-session",
+    "message_id": "qa-scripted-message",
+    "delay_ms": 0
+  }
+}

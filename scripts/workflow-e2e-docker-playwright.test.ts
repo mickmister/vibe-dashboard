@@ -31,12 +31,15 @@ describe('workflow-e2e-docker-playwright harness', () => {
     expect(dockerfile).toContain('clang');
     expect(dockerfile).toContain('--profile minimal --default-toolchain stable');
     expect(script).toContain('--env VK_MOCKED_SKIP_LOCAL_WEB_BUILD=1');
+    expect(script).toContain('--env VK_QA_SCRIPTED_OUTCOME_FILE="${VK_QA_SCRIPTED_OUTCOME_FILE:-}"');
+    expect(script).toContain('--env WORKFLOW_E2E_PLAYWRIGHT_ARGS="${WORKFLOW_E2E_PLAYWRIGHT_ARGS:-}"');
     expect(script).toContain('VK mocked local web stub');
     expect(script).toContain('find /root/.cargo/git /tmp/vk-target -name "*.lock" -delete');
     expect(script).toContain('run_with_log vk-cargo-build cargo build --features qa-mode --bin server');
     expect(script).toContain('run_with_log');
     expect(script).toContain('still running');
     expect(script).toContain('run_with_log playwright npx playwright test --config playwright.vk-workflows-docker.config.ts --output=/tmp/workflow-e2e-logs/playwright-test-results');
+    expect(script).toContain('${WORKFLOW_E2E_PLAYWRIGHT_ARGS}');
     const playwrightConfig = readFileSync(resolve('playwright.vk-workflows-docker.config.ts'), 'utf8');
     expect(playwrightConfig).toContain("trace: 'on'");
     expect(playwrightConfig).toContain("video: 'on'");

@@ -20,6 +20,7 @@ import { DbDeclarativeWorkflowDefinitionStore } from '../server/declarative-work
 import { DbWorkflowWebhookInboxStore, WorkflowWebhookWakeup } from '../server/workflow-webhook-inbox';
 import { DbWorkflowWebhookProvisioningStore } from '../server/workflow-webhook-provisioning-store';
 import { DbWorkflowDesignStore } from './plugins/workflows/server/workflowDesignStore';
+import { BUILT_IN_WORKFLOW_TEMPLATES } from './plugins/workflows/templates/builtInWorkflowTemplates';
 import { WorkflowWebhookProvisioner, shouldStartWorkflowWebhookProvisioner } from '../server/workflow-webhook-provisioner';
 import { DeclarativeWorkflowRuntime } from '../workflows/declarative/runtime';
 import { createDeclarativeWorkflowWorker, getDeclarativeWorkflowWorkerIntervalMs, shouldStartDeclarativeWorkflowWorker } from '../workflows/declarative/worker';
@@ -49,7 +50,7 @@ serverRegistry.registerServerModule((api) => {
   const declarativeWorkflowDefinitionStore = new DbDeclarativeWorkflowDefinitionStore({ getDb: async () => (await getVdDb()).db });
   const workflowWebhookInboxStore = new DbWorkflowWebhookInboxStore({ getDb: async () => (await getVdDb()).db });
   const workflowWebhookProvisioningStore = new DbWorkflowWebhookProvisioningStore({ getDb: async () => (await getVdDb()).db });
-  const workflowDesignStore = new DbWorkflowDesignStore({ getDb: async () => (await getVdDb()).db });
+  const workflowDesignStore = new DbWorkflowDesignStore({ getDb: async () => (await getVdDb()).db, templates: BUILT_IN_WORKFLOW_TEMPLATES });
   const declarativeWorkflowRuntime = new DeclarativeWorkflowRuntime({
     store: workflowOrchestrationStore,
     resolver: roleSessionResolver,

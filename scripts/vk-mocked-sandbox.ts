@@ -217,7 +217,9 @@ export function createSandboxPlan(input: {
         VK_ALLOWED_ORIGINS: vkAllowedOrigins,
         DISABLE_WORKTREE_CLEANUP: '1',
         RUST_LOG: process.env.RUST_LOG ?? 'debug',
-        VK_QA_SCRIPTED_OUTCOME: env.VK_QA_SCRIPTED_OUTCOME ?? JSON.stringify({ outcome: 'completed', final_message: 'QA scripted workflow response completed successfully.', session_id: 'qa-scripted-session', message_id: 'qa-scripted-message', delay_ms: 0 }),
+        ...(env.VK_QA_SCRIPTED_OUTCOME_FILE
+          ? { VK_QA_SCRIPTED_OUTCOME_FILE: env.VK_QA_SCRIPTED_OUTCOME_FILE }
+          : { VK_QA_SCRIPTED_OUTCOME: env.VK_QA_SCRIPTED_OUTCOME ?? JSON.stringify({ outcome: 'completed', final_message: 'QA scripted workflow response completed successfully.', session_id: 'qa-scripted-session', message_id: 'qa-scripted-message', delay_ms: 0 }) }),
       },
     },
     {

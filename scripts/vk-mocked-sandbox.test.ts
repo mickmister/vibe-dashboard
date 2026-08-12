@@ -268,6 +268,30 @@ describe('VK mocked sandbox helpers', () => {
     expect(plan.commands[0]?.cwd).toBe('/tmp/custom-vk-checkout');
   });
 
+  it('passes qa-mode scripted outcome files without overriding them with the default inline script', () => {
+    const plan = createSandboxPlan({
+      workspaceRoot: '/tmp/worktrees/example/vibe-kanban-vscode-web',
+      env: {
+        VK_QA_SCRIPTED_OUTCOME_FILE: '/tmp/qa-scripted-drt.json',
+      } as NodeJS.ProcessEnv,
+      ports: {
+        vkBackend: 4107,
+        vkFrontend: 4100,
+        vkPreviewProxy: 4106,
+        vdDashboard: 4105,
+        vdServer: 4104,
+        vdCaddy: 4101,
+      },
+      runDir: '/tmp/run',
+      caddyfile: 'mocked sandbox caddyfile',
+    });
+
+    expect(plan.commands[0]?.env).toMatchObject({
+      VK_QA_SCRIPTED_OUTCOME_FILE: '/tmp/qa-scripted-drt.json',
+    });
+    expect(plan.commands[0]?.env.VK_QA_SCRIPTED_OUTCOME).toBeUndefined();
+  });
+
   it('falls back to the sibling VK checkout when VK_CHECKOUT is blank', () => {
     const plan = createSandboxPlan({
       workspaceRoot: '/tmp/worktrees/example/vibe-kanban-vscode-web',
