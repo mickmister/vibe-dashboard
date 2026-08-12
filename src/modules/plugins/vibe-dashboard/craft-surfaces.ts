@@ -115,7 +115,7 @@ function isEphemeralPluginSurfaceTab(
 ): boolean {
   return Boolean(
     tab?.ephemeral?.kind === "craft-surface" ||
-      tab?.id.startsWith(CRAFT_SURFACE_TAB_ID_PREFIX),
+    tab?.id.startsWith(CRAFT_SURFACE_TAB_ID_PREFIX),
   );
 }
 
@@ -218,7 +218,11 @@ function getBuiltInWorkspaceTabs(tabGroup: TabGroup, origin: string): Tab[] {
     {
       id: BUILT_IN_FORMS_TAB_ID,
       title: "Forms",
-      url: buildFormsUrl(dashboardBaseOrigin, metadata.workspaceId, metadata.formsBeadId),
+      url: buildFormsUrl(
+        dashboardBaseOrigin,
+        metadata.workspaceId,
+        metadata.formsBeadId,
+      ),
       pinned: true,
     },
     {
@@ -226,6 +230,12 @@ function getBuiltInWorkspaceTabs(tabGroup: TabGroup, origin: string): Tab[] {
       title: "Workflows",
       url: buildWorkflowsUrl(dashboardBaseOrigin, metadata.workspaceId),
       pinned: true,
+      ephemeral: {
+        kind: "craft-surface",
+        pluginId: "vibe-dashboard",
+        surfaceKey: "workflows",
+        sourceKey: "built-in-workflows",
+      },
     },
   ];
 }
@@ -241,20 +251,18 @@ function getCraftSurfaceTabs(input: {
         (left.order ?? 0) - (right.order ?? 0) ||
         left.key.localeCompare(right.key),
     )
-    .map(
-      (surface): Tab => ({
-        id: getCraftSurfaceTabId(input.tabGroup.id, surface.key),
-        title: surface.defaultTitle ?? surface.title,
-        url: expandCraftSurfaceUrl(surface.urlTemplate, input.origin),
-        pinned: true,
-        ephemeral: {
-          kind: "craft-surface",
-          pluginId: surface.pluginId,
-          surfaceKey: surface.key,
-          sourceKey: surface.sourceKey,
-        },
-      }),
-    );
+    .map((surface): Tab => ({
+      id: getCraftSurfaceTabId(input.tabGroup.id, surface.key),
+      title: surface.defaultTitle ?? surface.title,
+      url: expandCraftSurfaceUrl(surface.urlTemplate, input.origin),
+      pinned: true,
+      ephemeral: {
+        kind: "craft-surface",
+        pluginId: surface.pluginId,
+        surfaceKey: surface.key,
+        sourceKey: surface.sourceKey,
+      },
+    }));
 }
 
 function getBuiltInWorkspacePairs(
@@ -476,7 +484,11 @@ function buildWorkflowsUrl(baseOrigin: string, workspaceId: string): string {
   return `${baseOrigin}/dashboard/workflows?${params.toString()}`;
 }
 
-function buildFormsUrl(baseOrigin: string, workspaceId: string, beadId?: string): string {
+function buildFormsUrl(
+  baseOrigin: string,
+  workspaceId: string,
+  beadId?: string,
+): string {
   const params = new URLSearchParams({ workspace: workspaceId });
   if (beadId) params.set("bead", beadId);
   return `${baseOrigin}/dashboard/forms?${params.toString()}`;

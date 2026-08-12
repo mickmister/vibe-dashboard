@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  BUILT_IN_WORKFLOWS_TAB_ID,
   createEffectiveWorkspaceWithCraftSurfaces,
   filterEphemeralCraftSurfaceActiveItems,
   isEphemeralCraftSurfaceTab,
@@ -86,13 +87,33 @@ describe("dynamic Craft surfaces", () => {
         "https://vd.example.test/?folder=%2Fhome%2Fvkuser%2Frepos%2Fapp",
       ],
       ["beads", "Beads", "https://beads-web.vd.example.test"],
-      ["forms", "Forms", "https://vd.example.test/dashboard/forms?workspace=workspace_1"],
-      ["workflows", "Workflows", "https://vd.example.test/dashboard/workflows?workspaceId=workspace_1"],
+      [
+        "forms",
+        "Forms",
+        "https://vd.example.test/dashboard/forms?workspace=workspace_1",
+      ],
+      [
+        "workflows",
+        "Workflows",
+        "https://vd.example.test/dashboard/workflows?workspaceId=workspace_1",
+      ],
     ]);
     expect(effective.tabGroups[0]!.pairs).toEqual([
       { id: "agent+code", tabIds: ["agent", "code"], ratios: [50, 50] },
       { id: "agent+beads", tabIds: ["agent", "beads"], ratios: [50, 50] },
     ]);
+    const workflowsTab = effective.tabGroups[0]!.tabs.find(
+      (tab) => tab.id === BUILT_IN_WORKFLOWS_TAB_ID,
+    );
+    expect(workflowsTab?.ephemeral).toEqual({
+      kind: "craft-surface",
+      pluginId: "vibe-dashboard",
+      surfaceKey: "workflows",
+      sourceKey: "built-in-workflows",
+    });
+    expect(workflowsTab?.url).toBe(
+      "https://vd.example.test/dashboard/workflows?workspaceId=workspace_1",
+    );
   });
 
   it("strips port-prefixed subdomains from Agent and Code built-in workspace tab URLs", () => {
@@ -187,7 +208,9 @@ describe("dynamic Craft surfaces", () => {
 
     expect(
       effective.tabGroups[0]!.tabs.find((tab) => tab.id === "forms")?.url,
-    ).toBe("https://vd.example.test/dashboard/forms?workspace=workspace_1&bead=vkvw-123");
+    ).toBe(
+      "https://vd.example.test/dashboard/forms?workspace=workspace_1&bead=vkvw-123",
+    );
   });
 
   it("derives built-in workspace tabs from the current localhost origin", () => {
@@ -222,8 +245,16 @@ describe("dynamic Craft surfaces", () => {
         "http://localhost:3001/?folder=%2Fhome%2Fvkuser%2Frepos%2Fapp",
       ],
       ["beads", "Beads", "http://beads-web.localhost:3001"],
-      ["forms", "Forms", "http://localhost:3001/dashboard/forms?workspace=workspace_1"],
-      ["workflows", "Workflows", "http://localhost:3001/dashboard/workflows?workspaceId=workspace_1"],
+      [
+        "forms",
+        "Forms",
+        "http://localhost:3001/dashboard/forms?workspace=workspace_1",
+      ],
+      [
+        "workflows",
+        "Workflows",
+        "http://localhost:3001/dashboard/workflows?workspaceId=workspace_1",
+      ],
     ]);
   });
 
@@ -261,8 +292,16 @@ describe("dynamic Craft surfaces", () => {
           "http://localhost:4100/?folder=%2Fhome%2Fvkuser%2Frepos%2Fapp",
         ],
         ["beads", "Beads", "http://beads-web.localhost:4101"],
-        ["forms", "Forms", "http://localhost:4101/dashboard/forms?workspace=workspace_1"],
-        ["workflows", "Workflows", "http://localhost:4101/dashboard/workflows?workspaceId=workspace_1"],
+        [
+          "forms",
+          "Forms",
+          "http://localhost:4101/dashboard/forms?workspace=workspace_1",
+        ],
+        [
+          "workflows",
+          "Workflows",
+          "http://localhost:4101/dashboard/workflows?workspaceId=workspace_1",
+        ],
       ]);
     } finally {
       vi.unstubAllEnvs();
@@ -545,8 +584,7 @@ describe("dynamic Craft surfaces", () => {
 
     expect(
       effective.tabGroups[0]!.tabs.filter(
-        (tab) =>
-          tab.id === "craft-surface:craft_1:app.example.notes/notes",
+        (tab) => tab.id === "craft-surface:craft_1:app.example.notes/notes",
       ),
     ).toHaveLength(1);
   });

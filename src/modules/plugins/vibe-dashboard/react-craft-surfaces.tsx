@@ -1,0 +1,100 @@
+import React from "react";
+import type { Tab, TabGroup } from "../../../types";
+import { WorkspaceWorkflowsPage } from "../workflows/components/WorkspaceWorkflowsPage";
+import {
+  BUILT_IN_WORKFLOWS_TAB_ID,
+  getBuiltInWorkspaceMetadata,
+} from "./craft-surfaces";
+
+export interface ReactCraftSurfaceTarget {
+  kind: "react";
+  pluginId: string;
+  surfaceKey: string;
+  props: Record<string, string>;
+}
+
+type ReactCraftSurfaceComponent = (
+  props: Record<string, string>,
+) => React.ReactElement;
+
+const FIRST_PARTY_REACT_SURFACES: Record<string, ReactCraftSurfaceComponent> = {
+  "vibe-dashboard/workflows": (props) => (
+    <WorkspaceWorkflowsPage workspaceId={props.workspaceId ?? ""} embedded />
+  ),
+};
+
+export function getReactCraftSurfaceTarget(
+  tab: Tab,
+  tabGroup: Pick<TabGroup, "tabs" | "workspace">,
+): ReactCraftSurfaceTarget | null {
+  const workspace = getBuiltInWorkspaceMetadata(tabGroup);
+  if (tab.id === BUILT_IN_WORKFLOWS_TAB_ID && workspace?.workspaceId) {
+    return {
+      kind: "react",
+      pluginId: "vibe-dashboard",
+      surfaceKey: "workflows",
+      props: { workspaceId: workspace.workspaceId },
+    };
+  }
+
+  if (tab.ephemeral?.kind === "craft-surface") {
+    const key = `${tab.ephemeral.pluginId}/${tab.ephemeral.surfaceKey}`;
+    if (FIRST_PARTY_REACT_SURFACES[key]) {
+      return {
+        kind: "react",
+        pluginId: tab.ephemeral.pluginId,
+        surfaceKey: tab.ephemeral.surfaceKey,
+        props: workspace?.workspaceId
+          ? { workspaceId: workspace.workspaceId }
+          : {},
+      };
+    }
+  }
+
+  return null;
+}
+
+export function hasReactCraftSurface(
+  target: Pick<ReactCraftSurfaceTarget, "pluginId" | "surfaceKey">,
+): boolean {
+  return Boolean(
+    FIRST_PARTY_REACT_SURFACES[`${target.pluginId}/${target.surfaceKey}`],
+  );
+}
+
+export function ReactCraftSurfaceHost({
+  target,
+}: {
+  target: ReactCraftSurfaceTarget;
+}): React.ReactElement {
+  const Component =
+    FIRST_PARTY_REACT_SURFACES[`${target.pluginId}/${target.surfaceKey}`];
+  if (!Component) return <UnknownReactCraftSurface target={target} />;
+  return (
+    <div
+      className="h-full min-h-0 bg-neutral-950"
+      data-testid={`react-craft-surface:${target.pluginId}/${target.surfaceKey}`}
+    >
+      <Component {...target.props} />
+    </div>
+  );
+}
+
+function UnknownReactCraftSurface({
+  target,
+}: {
+  target: ReactCraftSurfaceTarget;
+}) {
+  return (
+    <div className="flex h-full items-center justify-center bg-neutral-950 p-6 text-center text-sm text-neutral-400">
+      <div>
+        <p className="font-medium text-neutral-200">
+          React surface unavailable
+        </p>
+        <p className="mt-2">
+          {target.pluginId}/{target.surfaceKey}
+        </p>
+      </div>
+    </div>
+  );
+}
