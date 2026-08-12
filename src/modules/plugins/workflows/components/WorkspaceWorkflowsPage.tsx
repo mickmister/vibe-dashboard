@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import {
+  batchLaunchWorkspaceWorkflow,
   fetchWorkflowLaunchOptions,
   fetchWorkspaceWorkflowsHome,
   launchWorkspaceWorkflow,
@@ -11,6 +12,7 @@ import {
   type WorkspaceWorkflowInputSummary,
   type WorkspaceWorkflowsHomeModel,
   type WorkspaceWorkflowAttentionSummary,
+  type WorkspaceWorkflowBatchSummary,
   type WorkspaceWorkflowRunSummary,
   type WorkspaceWorkflowSummary,
 } from '../client/workflowsHomeApi';
@@ -52,6 +54,7 @@ export function WorkspaceWorkflowsHomeView({ home, loading, error, onRefresh, on
   onHomeUpdated?: (home: WorkspaceWorkflowsHomeModel) => void;
 }): React.ReactElement {
   const [launchWorkflow, setLaunchWorkflow] = useState<WorkspaceWorkflowSummary | null>(null);
+  const [batchWorkflow, setBatchWorkflow] = useState<WorkspaceWorkflowSummary | null>(null);
   return (
     <main className="min-h-screen bg-zinc-950 p-6 text-zinc-100">
       <div className="mx-auto max-w-6xl space-y-5">
@@ -70,7 +73,11 @@ export function WorkspaceWorkflowsHomeView({ home, loading, error, onRefresh, on
         </Section>
 
         <Section title="Available workflows">
-          {home?.availableWorkflows.length ? <div className="grid gap-3 md:grid-cols-2">{home.availableWorkflows.map((workflow) => <WorkflowCard key={`${workflow.source}:${workflow.id}`} workflow={workflow} workspaceId={home.workspaceId} onRun={() => setLaunchWorkflow(workflow)} onUsed={(updated) => onHomeUpdated?.(updated)} />)}</div> : <EmptyState text="No workflows are available yet." />}
+          {home?.availableWorkflows.length ? <div className="grid gap-3 md:grid-cols-2">{home.availableWorkflows.map((workflow) => <WorkflowCard key={`${workflow.source}:${workflow.id}`} workflow={workflow} workspaceId={home.workspaceId} onRun={() => setLaunchWorkflow(workflow)} onBatch={() => setBatchWorkflow(workflow)} onUsed={(updated) => onHomeUpdated?.(updated)} />)}</div> : <EmptyState text="No workflows are available yet." />}
+        </Section>
+
+        <Section title="Recent batches">
+          {home?.recentBatches.length ? <div className="space-y-3">{home.recentBatches.map((batch) => <BatchRow key={batch.batchId} batch={batch} />)}</div> : <EmptyState text="No workflow batches in this workspace yet." />}
         </Section>
 
         <Section title="Recent runs">
@@ -88,6 +95,17 @@ export function WorkspaceWorkflowsHomeView({ home, loading, error, onRefresh, on
           }}
         />
       ) : null}
+      {home && batchWorkflow ? (
+        <BatchRunWorkflowDialog
+          workspaceId={home.workspaceId}
+          workflow={batchWorkflow}
+          onClose={() => setBatchWorkflow(null)}
+          onQueued={(updated) => {
+            onHomeUpdated?.(updated);
+            setBatchWorkflow(null);
+          }}
+        />
+      ) : null}
     </main>
   );
 }
@@ -96,7 +114,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   return <section className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-5"><h2 className="text-lg font-semibold">{title}</h2><div className="mt-4">{children}</div></section>;
 }
 
-function WorkflowCard({ workflow, workspaceId, onRun, onUsed }: { workflow: WorkspaceWorkflowSummary; workspaceId: string; onRun: () => void; onUsed?: (home: WorkspaceWorkflowsHomeModel) => void }) {
+function WorkflowCard({ workflow, workspaceId, onRun, onBatch, onUsed }: { workflow: WorkspaceWorkflowSummary; workspaceId: string; onRun: () => void; onBatch: () => void; onUsed?: (home: WorkspaceWorkflowsHomeModel) => void }) {
   const [usingTemplate, setUsingTemplate] = useState(false);
   const [useError, setUseError] = useState<string | null>(null);
   const handleUseTemplate = async () => {
@@ -125,6 +143,7 @@ function WorkflowCard({ workflow, workspaceId, onRun, onUsed }: { workflow: Work
       {useError ? <p role="alert" className="mt-3 text-sm text-amber-200">{useError}</p> : null}
       <div className="mt-4 flex flex-wrap gap-2">
         {workflow.canRun ? <button className="rounded-md bg-cyan-500 px-3 py-2 text-sm font-medium text-zinc-950 hover:bg-cyan-400" onClick={onRun}>Run</button> : null}
+        {workflow.canRun ? <button className="rounded-md border border-cyan-700 px-3 py-2 text-sm text-cyan-100 hover:bg-cyan-950/40" onClick={onBatch}>Batch run</button> : null}
         {workflow.source === 'template' && workflow.status === 'ready' ? <button className="rounded-md border border-cyan-700 px-3 py-2 text-sm text-cyan-100 hover:bg-cyan-950/40 disabled:opacity-50" onClick={handleUseTemplate} disabled={usingTemplate}>{usingTemplate ? 'Using…' : 'Use template'}</button> : null}
         {workflow.source === 'published_design' ? <a className="rounded-md border border-zinc-700 px-3 py-2 text-sm hover:bg-zinc-800" href={`/dashboard/workflows/editor/${encodeURIComponent(workflow.id)}`}>Edit graph</a> : null}
       </div>
@@ -269,6 +288,68 @@ function RunWorkflowDialog({ workspaceId, workflow, onClose, onLaunched }: {
   );
 }
 
+
+function BatchRunWorkflowDialog({ workspaceId, workflow, onClose, onQueued }: {
+  workspaceId: string;
+  workflow: WorkspaceWorkflowSummary;
+  onClose: () => void;
+  onQueued: (home: WorkspaceWorkflowsHomeModel) => void;
+}) {
+  const [itemsText, setItemsText] = useState('{"featureRequest":"First item"}\n{"featureRequest":"Second item"}');
+  const [options, setOptions] = useState<WorkflowLaunchOptions | null>(null);
+  const [sessionId, setSessionId] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    fetchWorkflowLaunchOptions(workspaceId, workflow.id, workflow.version).then((loaded) => {
+      if (!active) return;
+      setOptions(loaded);
+      setSessionId(loaded.sessions[0]?.sessionId ?? '');
+    }).catch((caught) => { if (active) setError(caught instanceof Error ? caught.message : String(caught)); });
+    return () => { active = false; };
+  }, [workspaceId, workflow.id, workflow.version]);
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setError(null);
+    let parsedItems: Array<{ inputs: Record<string, unknown> }> = [];
+    try {
+      parsedItems = itemsText.split(/\n+/).map((line) => line.trim()).filter(Boolean).map((line) => ({ inputs: JSON.parse(line) as Record<string, unknown> }));
+    } catch {
+      setError('Each batch line must be a JSON object.');
+      return;
+    }
+    if (!parsedItems.length) { setError('Add at least one batch item.'); return; }
+    const roles = options?.workflow.roles ?? workflow.roles;
+    const roleBindings = Object.fromEntries(roles.map((role) => [role.id, { mode: 'existing' as const, sessionId }]));
+    if (!sessionId) { setError('Choose a session for this batch.'); return; }
+    setSubmitting(true);
+    try {
+      const result = await batchLaunchWorkspaceWorkflow({ workspaceId, designId: workflow.id, version: workflow.version, items: parsedItems, roleBindings });
+      if (result.home) onQueued(result.home);
+      else onClose();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true" aria-label={`Batch run ${workflow.title}`}>
+      <form onSubmit={submit} className="w-full max-w-2xl rounded-xl border border-zinc-700 bg-zinc-950 p-5 shadow-2xl">
+        <div className="flex items-start justify-between gap-4"><div><div className="text-xs uppercase tracking-wide text-cyan-300">Batch run</div><h2 className="mt-1 text-xl font-semibold">{workflow.title}</h2></div><button type="button" className="rounded-md border border-zinc-700 px-3 py-2 text-sm" onClick={onClose}>Close</button></div>
+        {error ? <div role="alert" className="mt-4 rounded-md border border-amber-900 bg-amber-950/30 p-3 text-sm text-amber-100">{error}</div> : null}
+        <label className="mt-5 block"><span className="text-sm font-medium">Batch items</span><textarea aria-label="Batch items" className="mt-2 min-h-40 w-full rounded-md border border-zinc-700 bg-zinc-900 p-3 font-mono text-sm" value={itemsText} onChange={(event) => setItemsText(event.target.value)} /></label>
+        <label className="mt-4 block"><span className="text-sm font-medium">Session for roles</span><select aria-label="Batch session" className="mt-2 w-full rounded-md border border-zinc-700 bg-zinc-950 p-2 text-sm" value={sessionId} onChange={(event) => setSessionId(event.target.value)}><option value="">Select a session</option>{(options?.sessions ?? []).map((session) => <option key={session.sessionId} value={session.sessionId}>{session.name || session.sessionId}</option>)}</select></label>
+        <div className="mt-6 flex justify-end gap-3"><button type="button" className="rounded-md border border-zinc-700 px-3 py-2 text-sm" onClick={onClose}>Cancel</button><button type="submit" className="rounded-md bg-cyan-500 px-3 py-2 text-sm font-medium text-zinc-950 disabled:opacity-60" disabled={submitting}>{submitting ? 'Queueing…' : 'Queue batch'}</button></div>
+      </form>
+    </div>
+  );
+}
+
 function WorkflowInputField({ input, value, error, onChange }: { input: WorkspaceWorkflowInputSummary; value: string; error?: string; onChange: (value: string) => void }) {
   return (
     <label className="block">
@@ -278,6 +359,14 @@ function WorkflowInputField({ input, value, error, onChange }: { input: Workspac
       {error ? <p className="mt-1 text-sm text-amber-200">{error}</p> : null}
     </label>
   );
+}
+
+
+function BatchRow({ batch }: { batch: WorkspaceWorkflowBatchSummary }) {
+  const classes = "rounded-lg border border-zinc-800 bg-zinc-950 p-4";
+  return <div className={classes}>
+    <div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-semibold">{batch.workflowName}</h3><p className="mt-1 text-sm text-zinc-400">{batch.counts.completed} complete · {batch.counts.running} running · {batch.counts.pending} pending · {batch.counts.failed + batch.counts.blocked + batch.counts.cancelled} errors</p></div><StatusPill label={humanBatchStatus(batch.status)} tone={batch.status === 'completed' ? 'emerald' : batch.status === 'failed' ? 'amber' : 'cyan'} /></div>
+  </div>;
 }
 
 function RunRow({ run }: { run: WorkspaceWorkflowRunSummary }) {
@@ -318,6 +407,13 @@ function StatusPill({ label, tone }: { label: string; tone: 'emerald' | 'cyan' |
     red: 'border-red-800 bg-red-950/40 text-red-200',
   }[tone];
   return <span className={`rounded-full border px-2.5 py-1 text-xs ${classes}`}>{label}</span>;
+}
+
+function humanBatchStatus(status: string): string {
+  if (status === 'completed') return 'Complete';
+  if (status === 'failed') return 'Finished with errors';
+  if (status === 'cancelled') return 'Cancelled';
+  return 'Running';
 }
 
 function humanRunStatus(status: string): string {
