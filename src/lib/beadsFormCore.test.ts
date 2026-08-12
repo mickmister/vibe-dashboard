@@ -358,6 +358,32 @@ describe('BeadsForm core', () => {
     });
   });
 
+  it('keeps choice default provenance out of normalized plain boolean JSON', () => {
+    const form = {
+      questions: [{
+        type: 'choices' as const,
+        id: 'priority',
+        title: 'Priority',
+        description: 'Choose priorities.',
+        choices: [
+          { id: 'storage', label: 'Storage', defaultValue: true },
+          { id: 'visual_polish', label: 'Visual polish', defaultValue: false },
+          { id: 'copy_result', label: 'Copy result' },
+        ],
+      }],
+    };
+
+    expect(normalizeSubmittedValues(form, {
+      priority: ['storage', 'copy_result'],
+    })).toEqual({
+      priority: {
+        storage: true,
+        visual_polish: false,
+        copy_result: true,
+      },
+    });
+  });
+
   it('keeps raw checkbox groups as arrays when no standard questions are available', () => {
     const form = {
       id: 'raw',

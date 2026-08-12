@@ -14,6 +14,16 @@ describe('BeadsForm submit success helpers', () => {
     }, null, 2));
   });
 
+  it('copies plain normalized booleans without choice provenance metadata', () => {
+    const text = normalizedSubmittedResultJson({
+      priority: { storage: true, visual_polish: false },
+    });
+
+    expect(text).toBe('{\n  "priority": {\n    "storage": true,\n    "visual_polish": false\n  }\n}');
+    expect(text).not.toContain('__beadsform_provenance');
+    expect(text).not.toContain('"source"');
+  });
+
   it('copies normalized submitted response JSON after successful persistence', async () => {
     const writeText = vi.fn<Clipboard['writeText']>(async () => undefined);
 

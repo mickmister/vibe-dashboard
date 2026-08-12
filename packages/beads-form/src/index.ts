@@ -31,6 +31,8 @@ export type ChoiceQuestionChoice = {
   id: string;
   label: string;
   description?: string;
+  /** Preselects this choice while still marking it as an author-provided default in the UI. */
+  defaultValue?: boolean;
   /** Marks this choice as recommended and explains why. Preferred over boolean markers so humans get the rationale. */
   is_recommended_reason?: string;
 };
@@ -404,6 +406,9 @@ function compileChoicesQuestion(question: ChoicesQuestion, controls: BeadsFormCo
     const recommended = recommendationReason
       ? '<span class="beads-form-recommended" aria-label="Recommended choice">Recommended</span>'
       : '';
+    const defaultBadge = choice.defaultValue === true
+      ? '<span class="beads-form-default" aria-label="Default selected choice">Default</span>'
+      : '';
     const recommendation = recommendationReason
       ? `<p class="beads-form-recommended-reason"><span class="beads-form-recommended-reason-label">Why recommended:</span> ${renderInlineMarkdown(recommendationReason)}</p>`
       : '';
@@ -417,7 +422,7 @@ function compileChoicesQuestion(question: ChoicesQuestion, controls: BeadsFormCo
 
     return [
       '<div class="beads-form-choice">',
-      `<label for="${attr(inputId)}"><input id="${attr(inputId)}" name="${attr(question.id)}" type="checkbox" value="${attr(choice.id)}"> ${escapeHtml(choice.label)}${recommended ? ` ${recommended}` : ''}</label>`,
+      `<label for="${attr(inputId)}"><input id="${attr(inputId)}" name="${attr(question.id)}" type="checkbox" value="${attr(choice.id)}"${choice.defaultValue === true ? ' checked' : ''}> ${escapeHtml(choice.label)}${defaultBadge ? ` ${defaultBadge}` : ''}${recommended ? ` ${recommended}` : ''}</label>`,
       choiceDescription,
       recommendation,
       choiceNotes,

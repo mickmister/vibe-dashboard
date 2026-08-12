@@ -50,6 +50,40 @@ describe('@vibe-dashboard/beads-form', () => {
     ]);
   });
 
+  it('renders default true choices prechecked with a distinct default badge', () => {
+    const compiled = compileBeadsForm(defineBeadsForm({
+      id: 'default_choice_review',
+      goal: 'Verify choice defaults are visible without changing JSON shape.',
+      title: 'Default choice review',
+      questions: [
+        buildChoicesQuestion({
+          id: 'priority',
+          title: 'Priority',
+          description: 'Choose the next priority.',
+          choices: [
+            {
+              id: 'storage',
+              label: 'Storage resilience',
+              defaultValue: true,
+              is_recommended_reason: 'Already blocking review.',
+            },
+            {
+              id: 'visual_polish',
+              label: 'Visual polish',
+              defaultValue: false,
+            },
+          ],
+        }),
+      ],
+    }));
+
+    expect(compiled.html).toContain('name="priority" type="checkbox" value="storage" checked');
+    expect(compiled.html).toContain('<span class="beads-form-default" aria-label="Default selected choice">Default</span>');
+    expect(compiled.html).toContain('<span class="beads-form-recommended" aria-label="Recommended choice">Recommended</span>');
+    expect(compiled.html).not.toContain('value="visual_polish" checked');
+    expect(compiled.html.match(/class="beads-form-default"/g)).toHaveLength(1);
+  });
+
   it('treats stale note and multiple-choice flags as always enabled for compatibility', () => {
     const compiled = compileBeadsForm(defineBeadsForm({
       id: 'legacy_flags',

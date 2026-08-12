@@ -106,7 +106,8 @@ textarea {
   margin-right: 0.5rem;
 }
 
-.beadsform-root .beads-form-recommended {
+.beadsform-root .beads-form-recommended,
+.beadsform-root .beads-form-default {
   display: inline-block;
   margin-left: 0.35rem;
   border-radius: 999px;
@@ -117,6 +118,11 @@ textarea {
   font-weight: 800;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+}
+
+.beadsform-root .beads-form-default {
+  background: #dbeafe;
+  color: #1d4ed8;
 }
 
 .beadsform-root .beads-form-recommended-reason {

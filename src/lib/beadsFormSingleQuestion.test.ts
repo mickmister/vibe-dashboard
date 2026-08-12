@@ -353,7 +353,7 @@ describe('BeadsForm single-question mode', () => {
           <fieldset>
             <legend>Scope choice</legend>
             <div class="beads-form-choice">
-              <label for="scope_fix"><input id="scope_fix" name="scope" type="checkbox" value="fix" checked> Fix the bug</label>
+              <label for="scope_fix"><input id="scope_fix" name="scope" type="checkbox" value="fix" checked> Fix the bug <span class="beads-form-default" aria-label="Default selected choice">Default</span></label>
               <textarea name="scope_fix_more_info">Only the regression</textarea>
             </div>
             <div class="beads-form-choice">
@@ -388,6 +388,7 @@ describe('BeadsForm single-question mode', () => {
     expect(Array.from(document.querySelectorAll<HTMLFieldSetElement>('.beadsform-single-question-item')).every((question) => question.hidden)).toBe(true);
     expect(review.textContent).toContain('Scope choice');
     expect(review.textContent).toContain('Selected choices: Fix the bug');
+    expect(review.textContent).not.toContain('Selected choices: Fix the bug Default');
     expect(review.textContent).toContain('Note for Fix the bug: Only the regression');
     expect(review.textContent).toContain('Question notes: Keep it small');
     expect(review.textContent).toContain('Implementation notes');

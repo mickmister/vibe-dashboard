@@ -376,8 +376,13 @@ function reviewRowsForChoices(question: HTMLFieldSetElement, choices: HTMLElemen
 }
 
 function choiceLabel(choice: HTMLElement): string {
-  const label = choice.querySelector('label')?.textContent?.replace(/\s+/g, ' ').trim() ?? 'choice';
-  return label.replace(/\s*Recommended\s*$/, '').trim() || 'choice';
+  const label = choice.querySelector('label');
+  if (!label) return 'choice';
+  const copy = label.cloneNode(true) as HTMLElement;
+  for (const badge of Array.from(copy.querySelectorAll('.beads-form-default, .beads-form-recommended'))) {
+    badge.remove();
+  }
+  return copy.textContent?.replace(/\s+/g, ' ').trim() || 'choice';
 }
 
 function isQuestionNotesControl(control: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement): boolean {

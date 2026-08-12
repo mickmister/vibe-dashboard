@@ -144,6 +144,21 @@ describe('BeadsForm preview state helpers', () => {
     expect(form.querySelector('textarea')?.disabled).toBe(true);
   });
 
+  it('lets restored drafts clear compiler-provided default checked choices', () => {
+    document.body.innerHTML = `
+      <form>
+        <input name="priority" type="checkbox" value="storage" checked>
+        <input name="priority" type="checkbox" value="copy_result">
+      </form>
+    `;
+    const form = document.querySelector('form')!;
+
+    applyValuesToForm(form, { priority: { storage: false, copy_result: true } });
+
+    const choices = Array.from(form.querySelectorAll<HTMLInputElement>('input[name="priority"]'));
+    expect(choices.map((choice) => choice.checked)).toEqual([false, true]);
+  });
+
   it('strips only the generated form header from selected preview html', () => {
     expect(stripCompiledFormHeader('<form><header><h2>Title</h2><p>Desc</p></header><fieldset></fieldset></form>'))
       .toBe('<form><fieldset></fieldset></form>');
