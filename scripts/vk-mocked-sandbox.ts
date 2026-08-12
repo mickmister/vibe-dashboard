@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
+import { assertUsableVkCheckout } from './e2e-vk-mocked-sandbox-fixtures.ts';
 
 export interface SandboxPorts {
   vkBackend: number;
@@ -164,6 +165,7 @@ export function createSandboxPlan(input: {
     VK_MOCKED_VD_SERVER_PORT: String(input.ports.vdServer),
     VK_MOCKED_CADDY_PORT: String(input.ports.vdCaddy),
     CADDY_PLUGINS_CADDY: join(runDir, 'plugins.caddy'),
+    CARGO_TARGET_DIR: join(runDir, 'vk-target'),
   };
 
   const vkAllowedOrigins = [
@@ -412,13 +414,14 @@ async function main(): Promise<void> {
   });
   await writeSandboxFiles(plan);
 
+  if (!existsSync(plan.paths.vkRoot)) {
+    throw new Error(`VK repo not found at ${plan.paths.vkRoot}`);
+  }
+  await assertUsableVkCheckout(plan.paths.vkRoot);
+
   if (mode === 'prepare') {
     printPlan(plan);
     return;
-  }
-
-  if (!existsSync(plan.paths.vkRoot)) {
-    throw new Error(`VK repo not found at ${plan.paths.vkRoot}`);
   }
 
   printPlan(plan);

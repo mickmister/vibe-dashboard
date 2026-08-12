@@ -103,6 +103,8 @@ ENV PATH=${PNPM_HOME}:${PATH}
 RUN apt-get update && apt-get install -y \
     build-essential \
     python3 \
+    pkg-config \
+    libssl-dev \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -137,6 +139,8 @@ RUN apt-get update && apt-get install -y \
     git \
     build-essential \
     python3 \
+    pkg-config \
+    libssl-dev \
     sqlite3 \
     zip \
     libgtk-3-dev \

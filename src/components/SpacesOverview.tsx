@@ -380,6 +380,7 @@ function WorkspaceRow({
           </button>
         )}
 
+
         {tabGroupNav ? (
           <button
             onClick={tabGroupNav.onNavigate}

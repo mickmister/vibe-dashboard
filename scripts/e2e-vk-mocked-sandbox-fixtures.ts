@@ -33,8 +33,6 @@ type Manifest = {
 const execFileAsync = promisify(execFile);
 
 const repoRoot = process.cwd();
-const workspaceRoot = path.resolve(repoRoot, '..');
-const vkRoot = path.join(workspaceRoot, 'Vktest');
 const fixtureRoot = path.join(
   repoRoot,
   'tests/e2e/fixtures/vk-mocked-sandbox',
@@ -42,6 +40,7 @@ const fixtureRoot = path.join(
 const canonicalRepoPath = '/home/vkuser/e2e/repos/basic-seeded-repo';
 const defaultVdDbPath = path.join(repoRoot, 'data/kv.db');
 const vdDbPath = path.resolve(process.env.SQLITE_DATABASE_FILE ?? defaultVdDbPath);
+const vkRoot = resolveVkMockedSandboxVkRoot(repoRoot, process.env);
 const vkDevAssetsPath = path.join(vkRoot, 'dev_assets');
 const vkDbPath = path.join(vkDevAssetsPath, 'db.v2.sqlite');
 const vkSessionLogsPath = path.join(vkDevAssetsPath, 'sessions');
@@ -100,6 +99,40 @@ async function exists(targetPath: string): Promise<boolean> {
     return true;
   } catch {
     return false;
+  }
+}
+
+export function resolveVkMockedSandboxVkRoot(
+  currentRepoRoot: string,
+  env: Record<string, string | undefined> = process.env,
+): string {
+  const currentWorkspaceRoot = path.resolve(currentRepoRoot, '..');
+  const configuredVkCheckout = env.VK_CHECKOUT?.trim();
+  return path.resolve(currentWorkspaceRoot, configuredVkCheckout || 'Vktest');
+}
+
+export async function assertUsableVkCheckout(targetVkRoot: string): Promise<void> {
+  const requiredFiles = [
+    'Cargo.toml',
+    'package.json',
+    'crates/server/Cargo.toml',
+    'packages/local-web/package.json',
+  ];
+  const missingFiles: string[] = [];
+  for (const relativePath of requiredFiles) {
+    if (!(await exists(path.join(targetVkRoot, relativePath)))) {
+      missingFiles.push(relativePath);
+    }
+  }
+
+  if (missingFiles.length) {
+    throw new Error(
+      [
+        `VK mocked sandbox requires a usable Vktest checkout at ${targetVkRoot}.`,
+        `Missing: ${missingFiles.join(', ')}`,
+        'Set VK_CHECKOUT to a full vibe-kanban checkout or populate the sibling Vktest checkout before reset/start.',
+      ].join('\n'),
+    );
   }
 }
 
@@ -272,6 +305,7 @@ async function resetCommonState() {
 
 async function resetVariant(variant: Variant, force: boolean) {
   await assertSandboxStopped(force);
+  await assertUsableVkCheckout(vkRoot);
   await resetCommonState();
   await mkdir(path.dirname(vdDbPath), { recursive: true });
   await mkdir(vkDevAssetsPath, { recursive: true });
@@ -307,6 +341,7 @@ async function resetVariant(variant: Variant, force: boolean) {
 
 async function snapshotVariant(variant: Variant, force: boolean) {
   await assertSandboxStopped(force);
+  await assertUsableVkCheckout(vkRoot);
   const fixtureDir = path.join(fixtureRoot, variant);
   await removeIfExists(fixtureDir);
   await mkdir(path.join(fixtureDir, 'vd'), { recursive: true });
@@ -376,6 +411,76 @@ async function sqliteValue(dbPath: string, key: string): Promise<string> {
   return stdout;
 }
 
+export function extractVdWorkspaceIdsFromSerializedState(
+  serializedState: string,
+): string[] {
+  return Array.from(
+    new Set(
+      Array.from(
+        serializedState.matchAll(
+          /"workspaceId"\s*:\s*"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"/gi,
+        ),
+      ).flatMap((match) => (match[1] ? [match[1].toLowerCase()] : [])),
+    ),
+  ).sort();
+}
+
+function uuidToSqliteHex(uuid: string): string {
+  return uuid.replaceAll('-', '').toLowerCase();
+}
+
+async function sqliteScalar(dbPath: string, query: string): Promise<string> {
+  const { stdout } = await execFileAsync('sqlite3', [dbPath, query]);
+  return stdout.trim();
+}
+
+export async function validateBasicSeededWorkspaceRepoAlignment(input: {
+  vdDbPath: string;
+  vkDbPath: string;
+  repoPath: string;
+}): Promise<string[]> {
+  const workspaceState = await sqliteValue(
+    input.vdDbPath,
+    'engine|module|workspace|state.persistent|workspace',
+  );
+  const sessionsState = await sqliteValue(
+    input.vdDbPath,
+    'engine|module|workspace|state.persistent|workspace-sessions',
+  );
+  const workspaceIds = extractVdWorkspaceIdsFromSerializedState(
+    `${workspaceState}\n${sessionsState}`,
+  );
+
+  if (workspaceIds.length === 0) {
+    throw new Error('VD fixture does not contain a workspace-backed craft workspaceId.');
+  }
+
+  for (const workspaceId of workspaceIds) {
+    const workspaceHex = uuidToSqliteHex(workspaceId);
+    const workspaceCount = await sqliteScalar(
+      input.vkDbPath,
+      `select count(*) from workspaces where lower(hex(id))=${JSON.stringify(workspaceHex)};`,
+    );
+    if (workspaceCount !== '1') {
+      throw new Error(
+        `VK fixture does not contain VD craft workspace ${workspaceId}.`,
+      );
+    }
+
+    const repoCount = await sqliteScalar(
+      input.vkDbPath,
+      `select count(*) from workspace_repos wr join repos r on r.id=wr.repo_id where lower(hex(wr.workspace_id))=${JSON.stringify(workspaceHex)} and r.path=${JSON.stringify(input.repoPath)};`,
+    );
+    if (repoCount !== '1') {
+      throw new Error(
+        `VK fixture workspace ${workspaceId} is not linked to repo path ${input.repoPath}.`,
+      );
+    }
+  }
+
+  return workspaceIds;
+}
+
 async function validateVariant(variant: Variant) {
   const manifestPath = path.join(fixtureRoot, variant, 'manifest.json');
   const manifest = await readJson<Manifest>(manifestPath);
@@ -425,6 +530,12 @@ async function validateVariant(variant: Variant) {
     if (repoCount.trim() !== '1') {
       throw new Error(`VK fixture does not contain repo path ${canonicalRepoPath}`);
     }
+
+    await validateBasicSeededWorkspaceRepoAlignment({
+      vdDbPath: fixtureVdDb,
+      vkDbPath: fixtureVkDb,
+      repoPath: canonicalRepoPath,
+    });
   }
 
   console.log(`Validated VK mocked sandbox fixture: ${variant}`);

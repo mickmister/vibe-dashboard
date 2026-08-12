@@ -1209,6 +1209,7 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
     WorkspaceRoute,
   );
 
+
   moduleAPI.registerRoute(
     "/dashboard/admin/plugins",
     { hideApplicationShell: true },

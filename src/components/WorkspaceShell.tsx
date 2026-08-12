@@ -2403,6 +2403,7 @@ export function WorkspaceShell({
             onDragOver={handleDragOver}
             onDrop={handleDrop}
             workspace={effectiveWorkspace}
+            settingsMenus={Object.values(pluginRegistry.settingsMenus)}
             showAddressBar={showAddressBar}
             savedSessions={savedSessions}
             currentSessionId={currentSessionId}

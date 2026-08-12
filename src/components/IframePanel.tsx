@@ -4,9 +4,11 @@ import type { TabGroup, Tab } from '../types';
 import type { WorkspaceState, SavedWorkspaceSession } from '../types';
 import { AppLoadingScreen } from './AppLoadingScreen';
 import { SpacesOverview } from './SpacesOverview';
+import { CraftSettingsPanel } from './CraftSettingsPanel';
 import { hasSameBaseOrigin } from '../lib/originTrust';
 import { getPluginIframePolicy, getPluginIframePostMessageTargetOrigin, parsePluginInternalUrl } from '../modules/plugins/vibe-dashboard/runtime';
 import { getRegisteredPluginIframePolicy, resolvePluginInternalRouteIframeSrc } from '../modules/plugins/vibe-dashboard/registry';
+import type { RegisteredSettingsMenuContribution } from '../modules/plugins/vibe-dashboard/types';
 
 const INTERNAL_URL_PREFIX = 'internal://';
 const CADDY_PORT = process.env.CADDY_PORT || '';
@@ -20,6 +22,7 @@ interface IframePanelProps {
   activeItemId: string;
   onUpdatePairRatios: (pairId: string, ratios: number[]) => void;
   workspace?: WorkspaceState;
+  settingsMenus?: RegisteredSettingsMenuContribution[];
   savedSessions?: SavedWorkspaceSession[];
   currentSessionId?: string;
   onResumeSession?: (sessionId: string) => void;
@@ -976,6 +979,7 @@ export function IframePanel({
   activeItemId,
   onUpdatePairRatios,
   workspace,
+  settingsMenus,
   savedSessions,
   currentSessionId,
   onResumeSession,
@@ -1087,7 +1091,9 @@ export function IframePanel({
             errorState={errorState}
             activationShieldState={activationShieldState}
             retryTab={retryTab}
+            tabGroup={tabGroup}
             {...(workspace ? { workspace } : {})}
+            {...(settingsMenus ? { settingsMenus } : {})}
             {...(savedSessions ? { savedSessions } : {})}
             {...(currentSessionId ? { currentSessionId } : {})}
             {...(onResumeSession ? { onResumeSession } : {})}
@@ -1198,7 +1204,9 @@ function SingleTabView({
   errorState,
   activationShieldState,
   retryTab,
+  tabGroup,
   workspace,
+  settingsMenus,
   savedSessions,
   currentSessionId,
   onResumeSession,
@@ -1214,7 +1222,9 @@ function SingleTabView({
   errorState: Map<string, boolean>;
   activationShieldState: Map<string, boolean>;
   retryTab: (tabId: string) => void;
+  tabGroup: TabGroup;
   workspace?: WorkspaceState;
+  settingsMenus?: RegisteredSettingsMenuContribution[];
   savedSessions?: SavedWorkspaceSession[];
   currentSessionId?: string;
   onResumeSession?: (sessionId: string) => void;
@@ -1233,6 +1243,15 @@ function SingleTabView({
   // Check if this is an internal URL that should render a special component
   if (target.kind === 'internal') {
     const { internalPath } = target;
+
+    if (internalPath === 'settings') {
+      return (
+        <CraftSettingsPanel
+          tabGroup={tabGroup}
+          settingsMenus={settingsMenus || []}
+        />
+      );
+    }
 
     if (
       internalPath === 'spaces-overview' &&

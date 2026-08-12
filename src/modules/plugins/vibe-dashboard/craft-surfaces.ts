@@ -14,6 +14,7 @@ export const BUILT_IN_AGENT_TAB_ID = "agent";
 export const BUILT_IN_CODE_TAB_ID = "code";
 export const BUILT_IN_BEADS_TAB_ID = "beads";
 export const BUILT_IN_FORMS_TAB_ID = "forms";
+export const BUILT_IN_SETTINGS_TAB_ID = "settings";
 export const BUILT_IN_AGENT_CODE_PAIR_ID = "agent+code";
 export const BUILT_IN_AGENT_BEADS_PAIR_ID = "agent+beads";
 
@@ -22,6 +23,7 @@ const BUILT_IN_WORKSPACE_TAB_IDS = new Set([
   BUILT_IN_CODE_TAB_ID,
   BUILT_IN_BEADS_TAB_ID,
   BUILT_IN_FORMS_TAB_ID,
+  BUILT_IN_SETTINGS_TAB_ID,
 ]);
 const BUILT_IN_WORKSPACE_PAIR_IDS = new Set([
   BUILT_IN_AGENT_CODE_PAIR_ID,
@@ -217,6 +219,12 @@ function getBuiltInWorkspaceTabs(tabGroup: TabGroup, origin: string): Tab[] {
       id: BUILT_IN_FORMS_TAB_ID,
       title: "Forms",
       url: buildFormsUrl(dashboardBaseOrigin, metadata.workspaceId, metadata.formsBeadId),
+      pinned: true,
+    },
+    {
+      id: BUILT_IN_SETTINGS_TAB_ID,
+      title: "Settings",
+      url: "internal://settings",
       pinned: true,
     },
   ];
@@ -419,7 +427,8 @@ function isGeneratedWorkspaceTab(
     isAgentTab(tab) ||
     isCodeTab(tab) ||
     isBeadsTab(tab) ||
-    isFormsTab(tab)
+    isFormsTab(tab) ||
+    isSettingsTab(tab)
   );
 }
 
@@ -550,6 +559,10 @@ function isFormsTab(tab: Pick<Tab, "id" | "title" | "url">): boolean {
     tab.id === BUILT_IN_FORMS_TAB_ID ||
     tab.title.trim().toLowerCase() === "forms"
   );
+}
+
+function isSettingsTab(tab: Pick<Tab, "id" | "title" | "url">): boolean {
+  return tab.id === BUILT_IN_SETTINGS_TAB_ID || tab.url === "internal://settings";
 }
 
 function isIpHostname(hostname: string): boolean {

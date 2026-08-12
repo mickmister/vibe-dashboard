@@ -12,7 +12,13 @@ import {
   writeSandboxFiles,
   type PortAllocator,
 } from './vk-mocked-sandbox';
-import { isSandboxRuntimeProcessLine } from './e2e-vk-mocked-sandbox-fixtures';
+import {
+  assertUsableVkCheckout,
+  extractVdWorkspaceIdsFromSerializedState,
+  isSandboxRuntimeProcessLine,
+  resolveVkMockedSandboxVkRoot,
+  validateBasicSeededWorkspaceRepoAlignment,
+} from './e2e-vk-mocked-sandbox-fixtures';
 
 describe('VK mocked sandbox helpers', () => {
   it('finds the first available port at or above the requested start', async () => {
@@ -206,6 +212,7 @@ describe('VK mocked sandbox helpers', () => {
       args: ['run', '--features', 'qa-mode', '--bin', 'server'],
       env: {
         BACKEND_PORT: '4107',
+        CARGO_TARGET_DIR: '/tmp/run/vk-target',
         FRONTEND_PORT: '4101',
         PREVIEW_PROXY_PORT: '4106',
       },
@@ -307,6 +314,73 @@ describe('VK mocked sandbox helpers', () => {
     });
 
     expect(plan.paths.vkRoot).toBe('/tmp/worktrees/example/Vktest');
+  });
+
+  it('resolves fixture reset checkout paths the same way as sandbox planning', () => {
+    expect(
+      resolveVkMockedSandboxVkRoot('/tmp/worktrees/example/vibe-kanban-vscode-web', {
+        VK_CHECKOUT: '  ',
+      }),
+    ).toBe('/tmp/worktrees/example/Vktest');
+    expect(
+      resolveVkMockedSandboxVkRoot('/tmp/worktrees/example/vibe-kanban-vscode-web', {
+        VK_CHECKOUT: '/tmp/custom-vk-checkout',
+      }),
+    ).toBe('/tmp/custom-vk-checkout');
+  });
+
+  it('rejects incomplete sibling VK checkouts before reset/start', async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'vk-mocked-sandbox-vk-root-'));
+    const vkRoot = join(workspaceRoot, 'Vktest');
+    try {
+      await mkdir(join(vkRoot, 'dev_assets'), { recursive: true });
+
+      await expect(assertUsableVkCheckout(vkRoot)).rejects.toThrow(
+        'VK mocked sandbox requires a usable Vktest checkout',
+      );
+
+      await mkdir(join(vkRoot, 'crates/server'), { recursive: true });
+      await mkdir(join(vkRoot, 'packages/local-web'), { recursive: true });
+      await writeFile(join(vkRoot, 'Cargo.toml'), '[workspace]\n');
+      await writeFile(join(vkRoot, 'package.json'), '{}\n');
+      await writeFile(join(vkRoot, 'crates/server/Cargo.toml'), '[package]\nname = "server"\nversion = "0.0.0"\n');
+      await writeFile(join(vkRoot, 'packages/local-web/package.json'), '{}\n');
+
+      await expect(assertUsableVkCheckout(vkRoot)).resolves.toBeUndefined();
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('extracts workspace-backed craft workspace ids without duplicates', () => {
+    expect(
+      extractVdWorkspaceIdsFromSerializedState(
+        [
+          '{"workspaceId":"dbf348b1-fa80-4d09-bf17-a24ed338871f"}',
+          '{"workspaceId":"dbf348b1-fa80-4d09-bf17-a24ed338871f"}',
+          '{"workspaceId":"9a9295aa-cc9a-4b6d-a8de-6ef9333a36c1"}',
+        ].join('\n'),
+      ),
+    ).toEqual([
+      '9a9295aa-cc9a-4b6d-a8de-6ef9333a36c1',
+      'dbf348b1-fa80-4d09-bf17-a24ed338871f',
+    ]);
+  });
+
+  it('validates basic-seeded VD workspace ids map to VK workspace repos', async () => {
+    await expect(
+      validateBasicSeededWorkspaceRepoAlignment({
+        vdDbPath: join(
+          process.cwd(),
+          'tests/e2e/fixtures/vk-mocked-sandbox/basic-seeded/vd/kv.db',
+        ),
+        vkDbPath: join(
+          process.cwd(),
+          'tests/e2e/fixtures/vk-mocked-sandbox/basic-seeded/vk/dev_assets/db.v2.sqlite',
+        ),
+        repoPath: '/home/vkuser/e2e/repos/basic-seeded-repo',
+      }),
+    ).resolves.toEqual(['dbf348b1-fa80-4d09-bf17-a24ed338871f']);
   });
 
   it('skips the VK local-web build when prebuilt assets are available', async () => {

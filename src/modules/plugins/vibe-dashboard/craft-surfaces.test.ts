@@ -54,7 +54,7 @@ const surfaces: RegisteredCraftSurfaceContribution[] = [
 ];
 
 describe("dynamic Craft surfaces", () => {
-  it("derives Agent, Code, Beads, Forms, and built-in split pairs from Craft workspace metadata", () => {
+  it("derives Agent, Code, Beads, Forms, Settings, and built-in split pairs from Craft workspace metadata", () => {
     const effective = createEffectiveWorkspaceWithCraftSurfaces({
       workspace: {
         ...workspace,
@@ -87,6 +87,7 @@ describe("dynamic Craft surfaces", () => {
       ],
       ["beads", "Beads", "https://beads-web.vd.example.test"],
       ["forms", "Forms", "https://vd.example.test/dashboard/forms?workspace=workspace_1"],
+      ["settings", "Settings", "internal://settings"],
     ]);
     expect(effective.tabGroups[0]!.pairs).toEqual([
       { id: "agent+code", tabIds: ["agent", "code"], ratios: [50, 50] },
@@ -222,6 +223,7 @@ describe("dynamic Craft surfaces", () => {
       ],
       ["beads", "Beads", "http://beads-web.localhost:3001"],
       ["forms", "Forms", "http://localhost:3001/dashboard/forms?workspace=workspace_1"],
+      ["settings", "Settings", "internal://settings"],
     ]);
   });
 
@@ -260,6 +262,7 @@ describe("dynamic Craft surfaces", () => {
         ],
         ["beads", "Beads", "http://beads-web.localhost:4101"],
         ["forms", "Forms", "http://localhost:4101/dashboard/forms?workspace=workspace_1"],
+        ["settings", "Settings", "internal://settings"],
       ]);
     } finally {
       vi.unstubAllEnvs();
@@ -424,6 +427,25 @@ describe("dynamic Craft surfaces", () => {
     ]);
   });
 
+  it("does not add built-in Forms or Settings tabs to non-workspace Crafts", () => {
+    const effective = createEffectiveWorkspaceWithCraftSurfaces({
+      workspace,
+      craftSurfaces: [],
+      origin: "https://vd.example.test",
+    });
+
+    expect(
+      effective.tabGroups.flatMap((tabGroup) =>
+        tabGroup.tabs.filter((tab) => tab.id === "forms" || tab.id === "settings"),
+      ),
+    ).toEqual([]);
+  });
+
+  it("marks built-in Forms and Settings tabs as ephemeral for sidebar and persistence filtering", () => {
+    expect(isEphemeralCraftSurfaceTab({ id: "forms" })).toBe(true);
+    expect(isEphemeralCraftSurfaceTab({ id: "settings" })).toBe(true);
+  });
+
   it("migrates old persisted Agent and Code tabs into Craft workspace metadata", () => {
     const migrated = migrateWorkspaceBuiltInTabs({
       spaces: [
@@ -548,13 +570,27 @@ describe("dynamic Craft surfaces", () => {
     ).toHaveLength(1);
   });
 
-  it("strips ephemeral placeholders and pairs before workspace state can be persisted", () => {
+  it("strips ephemeral placeholders, built-in Forms/Settings tabs, and pairs before workspace state can be persisted", () => {
     const effective = createEffectiveWorkspaceWithCraftSurfaces({
-      workspace,
+      workspace: {
+        ...workspace,
+        tabGroups: [
+          {
+            ...workspace.tabGroups[0]!,
+            workspace: {
+              workspaceId: "workspace_1",
+              workspaceDir: "/home/vkuser/repos/app",
+            },
+          },
+          workspace.tabGroups[1]!,
+        ],
+      },
       craftSurfaces: surfaces,
       origin: "https://vd.example.test",
     });
     const syntheticTabId = "craft-surface:craft_1:app.excalidraw.canvas/canvas";
+    const formsTabId = "forms";
+    const settingsTabId = "settings";
     const pollutedWorkspace: WorkspaceState = {
       ...effective,
       tabGroups: effective.tabGroups.map((tabGroup) =>
@@ -565,6 +601,16 @@ describe("dynamic Craft surfaces", () => {
                 {
                   id: "pair_polluted",
                   tabIds: ["tab_existing", syntheticTabId],
+                  ratios: [50, 50],
+                },
+                {
+                  id: "pair_forms_polluted",
+                  tabIds: ["tab_existing", formsTabId],
+                  ratios: [50, 50],
+                },
+                {
+                  id: "pair_settings_polluted",
+                  tabIds: ["tab_existing", settingsTabId],
                   ratios: [50, 50],
                 },
               ],
@@ -581,7 +627,19 @@ describe("dynamic Craft surfaces", () => {
     ).toBe(true);
     expect(
       stripEphemeralCraftSurfaceTabsFromWorkspace(pollutedWorkspace),
-    ).toEqual(workspace);
+    ).toEqual({
+      ...workspace,
+      tabGroups: [
+        {
+          ...workspace.tabGroups[0]!,
+          workspace: {
+            workspaceId: "workspace_1",
+            workspaceDir: "/home/vkuser/repos/app",
+          },
+        },
+        workspace.tabGroups[1]!,
+      ],
+    });
   });
 
   it("drops ephemeral active item selections when a Craft surface is uninstalled", () => {

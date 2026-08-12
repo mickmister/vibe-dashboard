@@ -7,6 +7,7 @@ import type {
   SavedWorkspaceSession,
 } from '../types';
 import type { WorkspaceActions, SessionActions } from './WorkspaceShell';
+import type { RegisteredSettingsMenuContribution } from '../modules/plugins/vibe-dashboard/types';
 import { BUILT_IN_AGENT_TAB_ID } from '../modules/plugins/vibe-dashboard/craft-surfaces';
 
 interface UnifiedTabViewProps {
@@ -16,6 +17,7 @@ interface UnifiedTabViewProps {
   sessionActions: SessionActions;
   disableSplitViews?: boolean;
   workspace: WorkspaceState;
+  settingsMenus: RegisteredSettingsMenuContribution[];
   showAddressBar: boolean;
   savedSessions: SavedWorkspaceSession[];
   currentSessionId: string;
@@ -39,6 +41,7 @@ export function UnifiedTabView({
   sessionActions,
   disableSplitViews,
   workspace,
+  settingsMenus,
   showAddressBar,
   savedSessions,
   currentSessionId,
@@ -87,6 +90,7 @@ export function UnifiedTabView({
               })
             }
             workspace={workspace}
+            settingsMenus={settingsMenus}
             savedSessions={savedSessions}
             currentSessionId={currentSessionId}
             onResumeSession={onResumeSession}
