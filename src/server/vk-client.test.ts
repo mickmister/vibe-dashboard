@@ -257,7 +257,10 @@ describe("VibeKanbanServerClient", () => {
           },
         });
       }
-      if (url === "http://vk.local/api/sessions/session-1/latest-response?afterExecutionProcessId=exec-before&afterCompletedAt=2026-08-04T00%3A00%3A00.000Z") {
+      if (
+        url ===
+        "http://vk.local/api/sessions/session-1/latest-response?afterExecutionProcessId=exec-before&afterCompletedAt=2026-08-04T00%3A00%3A00.000Z"
+      ) {
         return jsonResponse({
           success: true,
           data: {
@@ -280,7 +283,9 @@ describe("VibeKanbanServerClient", () => {
           },
         });
       }
-      if (url === "http://vk.local/api/execution-processes/exec-after/repo-states") {
+      if (
+        url === "http://vk.local/api/execution-processes/exec-after/repo-states"
+      ) {
         return jsonResponse({
           success: true,
           data: [
@@ -297,7 +302,10 @@ describe("VibeKanbanServerClient", () => {
           ],
         });
       }
-      if (url === "http://vk.local/api/execution-processes/exec-after/final-message") {
+      if (
+        url ===
+        "http://vk.local/api/execution-processes/exec-after/final-message"
+      ) {
         return jsonResponse({
           success: true,
           data: {
@@ -343,12 +351,16 @@ describe("VibeKanbanServerClient", () => {
       prompt_truncated: false,
       prompt_source_kind: "coding_agent_turn_prompt",
     });
-    await expect(client.getExecutionProcessFinalMessage("exec-after")).resolves.toMatchObject({
+    await expect(
+      client.getExecutionProcessFinalMessage("exec-after"),
+    ).resolves.toMatchObject({
       execution_process_id: "exec-after",
       content: "done",
       prompt_preview: "bounded prompt",
     });
-    await expect(client.getExecutionProcessRepoStates("exec-after")).resolves.toEqual([
+    await expect(
+      client.getExecutionProcessRepoStates("exec-after"),
+    ).resolves.toEqual([
       expect.objectContaining({
         execution_process_id: "exec-after",
         repo_id: "repo-1",
@@ -356,6 +368,55 @@ describe("VibeKanbanServerClient", () => {
         after_head_commit: "after",
       }),
     ]);
+  });
+
+  it("sends workflow provenance metadata with queued follow-ups", async () => {
+    const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
+      expect(url).toBe("http://vk.local/api/sessions/session-1/queue");
+      expect(JSON.parse(String(init?.body))).toMatchObject({
+        message: "Review this",
+        source: "workflow",
+        provenance: {
+          kind: "workflow",
+          label: "Workflow automation",
+          workflow_run_id: "run-1",
+          workflow_name: "Dev Review Tester",
+          workflow_design_id: "design-drt",
+          workflow_version: 2,
+        },
+      });
+      return jsonResponse({
+        success: true,
+        data: {
+          queued_item: {
+            id: "queue-workflow",
+            session_id: "session-1",
+            workspace_id: "ws1",
+            status: "queued",
+            source: "workflow",
+            priority: 60,
+            data: { message: "Review this", session_command: null },
+          },
+          status: { count: 1, message: null, messages: [], status: "queued" },
+        },
+      });
+    });
+    const client = new VibeKanbanServerClient({
+      baseUrl: "http://vk.local/api",
+      fetch: fetchImpl,
+    });
+
+    await client.queueFollowUp("session-1", "Review this", {
+      source: "workflow",
+      provenance: {
+        kind: "workflow",
+        label: "Workflow automation",
+        workflow_run_id: "run-1",
+        workflow_name: "Dev Review Tester",
+        workflow_design_id: "design-drt",
+        workflow_version: 2,
+      },
+    });
   });
 
   it("can queue system follow-up messages for guardrail traffic", async () => {
@@ -394,7 +455,6 @@ describe("VibeKanbanServerClient", () => {
     });
   });
 
-
   it("upserts generic VK webhook subscriptions without leaking response secrets", async () => {
     const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
       expect(url).toBe("http://vk.local/api/webhook-subscriptions");
@@ -405,7 +465,11 @@ describe("VibeKanbanServerClient", () => {
         upsert_key: "vd.workflow_wakeups.v1",
         url: "http://127.0.0.1:3109/dashboard/api/workflow-webhooks/vk",
         enabled: true,
-        event_filters: ["execution.completed", "execution.failed", "execution.killed"],
+        event_filters: [
+          "execution.completed",
+          "execution.failed",
+          "execution.killed",
+        ],
         signing_secret: "secret",
         allow_external_url: false,
       });
@@ -419,7 +483,11 @@ describe("VibeKanbanServerClient", () => {
             upsert_key: "vd.workflow_wakeups.v1",
             url: "http://127.0.0.1:3109/dashboard/api/workflow-webhooks/vk",
             enabled: true,
-            event_filters: ["execution.completed", "execution.failed", "execution.killed"],
+            event_filters: [
+              "execution.completed",
+              "execution.failed",
+              "execution.killed",
+            ],
             signing_secret_set: true,
             created_at: "2026-08-08T00:00:00Z",
             updated_at: "2026-08-08T00:00:00Z",
@@ -427,18 +495,30 @@ describe("VibeKanbanServerClient", () => {
         },
       });
     });
-    const client = new VibeKanbanServerClient({ baseUrl: "http://vk.local/api", fetch: fetchImpl });
+    const client = new VibeKanbanServerClient({
+      baseUrl: "http://vk.local/api",
+      fetch: fetchImpl,
+    });
 
-    await expect(client.createOrUpsertWebhookSubscription({
-      id: null,
-      name: "VD workflow wakeups",
-      upsert_key: "vd.workflow_wakeups.v1",
-      url: "http://127.0.0.1:3109/dashboard/api/workflow-webhooks/vk",
-      enabled: true,
-      event_filters: ["execution.completed", "execution.failed", "execution.killed"],
-      signing_secret: "secret",
-      allow_external_url: false,
-    })).resolves.toMatchObject({ created: true, subscription: { id: "sub-1", signing_secret_set: true } });
+    await expect(
+      client.createOrUpsertWebhookSubscription({
+        id: null,
+        name: "VD workflow wakeups",
+        upsert_key: "vd.workflow_wakeups.v1",
+        url: "http://127.0.0.1:3109/dashboard/api/workflow-webhooks/vk",
+        enabled: true,
+        event_filters: [
+          "execution.completed",
+          "execution.failed",
+          "execution.killed",
+        ],
+        signing_secret: "secret",
+        allow_external_url: false,
+      }),
+    ).resolves.toMatchObject({
+      created: true,
+      subscription: { id: "sub-1", signing_secret_set: true },
+    });
   });
 
   it("throws VkApiError with status and body for failed HTTP responses", async () => {

@@ -292,6 +292,9 @@ test.describe("Workspace Workflows tab shell", () => {
     await expect(
       page.getByRole("heading", { name: "Dev Review Tester run" }),
     ).toBeVisible();
+    await expect(page.getByLabel("Automation provenance")).toContainText(
+      "Dev Review Tester run workflow v1",
+    );
     await expect(page.getByLabel("Run summary")).toContainText("In progress");
     await expect(page.getByLabel("Run summary")).toContainText("Reviewer");
     await expect(page.getByLabel("Run summary")).toContainText(
@@ -985,6 +988,12 @@ function runStoryFixture() {
       },
     ],
     attention: null,
+    provenance: {
+      label: "Dev Review Tester run workflow v1",
+      workflowName: "Dev Review Tester run",
+      workflowDesignId: "dev-review-tester",
+      workflowVersion: 1,
+    },
   };
 }
 

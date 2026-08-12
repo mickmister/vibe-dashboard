@@ -1,94 +1,317 @@
-import { describe, expect, it } from 'vitest';
-import { normalizeWorkflowDefinitionV1, type WorkflowRuntimeSnapshot } from '@vibe-dashboard/workflow-core';
-import { initVdDb } from '../../../../server/database';
-import { DbWorkflowDesignStore } from './workflowDesignStore';
-import { buildPersistedWorkflowPresentationModel } from './persistedWorkflowPresentationReadModel';
+import { describe, expect, it } from "vitest";
+import {
+  normalizeWorkflowDefinitionV1,
+  type WorkflowRuntimeSnapshot,
+} from "@vibe-dashboard/workflow-core";
+import { initVdDb } from "../../../../server/database";
+import { DbWorkflowDesignStore } from "./workflowDesignStore";
+import { buildPersistedWorkflowPresentationModel } from "./persistedWorkflowPresentationReadModel";
 
-const decisionResponse = { format: 'xml' as const, schema: { format: 'xsd' as const, source: 'state_actions' as const }, invalidXmlRetry: { maxAttempts: 1, prompt: 'engine_default_with_validation_errors' as const, onExhausted: 'blocked' as const }, storeRawXml: true, storeParsedFields: true, unknownFields: 'reject_unless_allowed_by_result_contract' as const };
+const decisionResponse = {
+  format: "xml" as const,
+  schema: { format: "xsd" as const, source: "state_actions" as const },
+  invalidXmlRetry: {
+    maxAttempts: 1,
+    prompt: "engine_default_with_validation_errors" as const,
+    onExhausted: "blocked" as const,
+  },
+  storeRawXml: true,
+  storeParsedFields: true,
+  unknownFields: "reject_unless_allowed_by_result_contract" as const,
+};
 
-describe('buildPersistedWorkflowPresentationModel', () => {
-  it('TEST_CASE_M105_1A-F tells the workflow run story without default debug transport terms', async () => {
-    const handle = await initVdDb({ path: ':memory:' });
+describe("buildPersistedWorkflowPresentationModel", () => {
+  it("TEST_CASE_M105_1A-F tells the workflow run story without default debug transport terms", async () => {
+    const handle = await initVdDb({ path: ":memory:" });
     try {
-      const designStore = new DbWorkflowDesignStore({ db: handle.db, now: () => 10 });
-      await designStore.createDesign({ designId: 'design.story', draftId: 'draft.story', name: 'Dev Review Tester', definition: definition() });
-      await designStore.publishDraft('draft.story');
-      await designStore.createRunSnapshot({ runSnapshotId: 'snapshot.story', designId: 'design.story', version: 1, workspaceId: 'workspace-a', runInput: { featureRequest: 'Build run story' }, roleBindings: {} });
-      const model = normalizeWorkflowDefinitionV1(definition(), { workflowId: 'design.story@1' });
+      const designStore = new DbWorkflowDesignStore({
+        db: handle.db,
+        now: () => 10,
+      });
+      await designStore.createDesign({
+        designId: "design.story",
+        draftId: "draft.story",
+        name: "Dev Review Tester",
+        definition: definition(),
+      });
+      await designStore.publishDraft("draft.story");
+      await designStore.createRunSnapshot({
+        runSnapshotId: "snapshot.story",
+        designId: "design.story",
+        version: 1,
+        workspaceId: "workspace-a",
+        runInput: { featureRequest: "Build run story" },
+        roleBindings: {},
+      });
+      const model = normalizeWorkflowDefinitionV1(definition(), {
+        workflowId: "design.story@1",
+      });
       const snapshot: WorkflowRuntimeSnapshot = {
-        instanceId: 'run.story',
-        workflowId: 'design.story@1',
-        status: 'blocked',
-        currentState: 'review',
+        instanceId: "run.story",
+        workflowId: "design.story@1",
+        status: "blocked",
+        currentState: "review",
         currentStepIndex: 0,
-        visitId: 'visit-review',
-        inputs: { featureRequest: 'Build run story' },
-        waitingFor: { kind: 'agent_turn', state: 'review', stepId: 'review_code', turnId: 'turn-review-2' },
-        latestTransition: { visitId: 'visit-dev-loop', fromState: 'review', toState: 'dev', action: 'changes_requested', responseRef: 'response-review-1', parsed: { remarks: 'Needs tests' } },
-        blockedReason: { code: 'WORKFLOW_DECISION_RETRY_EXHAUSTED', path: 'states.review', message: 'Review response stayed invalid after retry.' },
+        visitId: "visit-review",
+        inputs: { featureRequest: "Build run story" },
+        waitingFor: {
+          kind: "agent_turn",
+          state: "review",
+          stepId: "review_code",
+          turnId: "turn-review-2",
+        },
+        latestTransition: {
+          visitId: "visit-dev-loop",
+          fromState: "review",
+          toState: "dev",
+          action: "changes_requested",
+          responseRef: "response-review-1",
+          parsed: { remarks: "Needs tests" },
+        },
+        blockedReason: {
+          code: "WORKFLOW_DECISION_RETRY_EXHAUSTED",
+          path: "states.review",
+          message: "Review response stayed invalid after retry.",
+        },
         history: [
-          { kind: 'workflow_started', at: 1, state: 'dev', visitId: 'visit-dev' },
-          { kind: 'agent_turn_planned', at: 2, state: 'dev', stepId: 'implement', turnId: 'turn-dev-1' },
-          { kind: 'agent_turn_completed', at: 3, state: 'dev', stepId: 'implement', turnId: 'turn-dev-1', responseRef: 'response-dev-1' },
-          { kind: 'state_transitioned', at: 4, transition: { visitId: 'visit-dev', fromState: 'dev', toState: 'review', action: 'ready_for_review', responseRef: 'response-dev-1', rawXml: '<decision action="ready_for_review" />' }, nextVisitId: 'visit-review' },
-          { kind: 'agent_turn_planned', at: 5, state: 'review', stepId: 'review_code', turnId: 'turn-review-1' },
-          { kind: 'agent_turn_completed', at: 6, state: 'review', stepId: 'review_code', turnId: 'turn-review-1', responseRef: 'response-review-1' },
-          { kind: 'state_transitioned', at: 7, transition: { visitId: 'visit-review', fromState: 'review', toState: 'dev', action: 'changes_requested', responseRef: 'response-review-1', parsed: { remarks: 'Needs tests' } }, nextVisitId: 'visit-dev-loop' },
-          { kind: 'human_form_planned', at: 8, state: 'dev', stepId: 'acceptance_form', turnId: 'turn-form', title: 'Answer acceptance questions' },
-          { kind: 'human_form_completed', at: 9, state: 'dev', stepId: 'acceptance_form', turnId: 'turn-form', responseRef: 'form-response', submission: { approved: true } },
-          { kind: 'workflow_call_planned', at: 10, state: 'dev', stepId: 'call_child', turnId: 'turn-call', childRunId: 'run.child', childDesignId: 'design.child', childVersion: 1 },
-          { kind: 'workflow_call_completed', at: 11, state: 'dev', stepId: 'call_child', turnId: 'turn-call', childRunId: 'run.child', childStatus: 'completed', responseRef: 'run.child', outputRef: 'workflow-run://run.child/output', statusSummary: 'completed' },
-          { kind: 'decision_validation_failed', at: 12, state: 'review', stepId: 'review_code', turnId: 'turn-review-2', responseRef: 'bad-response', retryAttempt: 1, errors: [{ code: 'WORKFLOW_DECISION_VALIDATION_FAILED', path: '$', message: 'XML response must include an action' }] },
-          { kind: 'workflow_blocked', at: 13, reason: { code: 'WORKFLOW_DECISION_RETRY_EXHAUSTED', path: 'states.review', message: 'Review response stayed invalid after retry.' } },
+          {
+            kind: "workflow_started",
+            at: 1,
+            state: "dev",
+            visitId: "visit-dev",
+          },
+          {
+            kind: "agent_turn_planned",
+            at: 2,
+            state: "dev",
+            stepId: "implement",
+            turnId: "turn-dev-1",
+          },
+          {
+            kind: "agent_turn_completed",
+            at: 3,
+            state: "dev",
+            stepId: "implement",
+            turnId: "turn-dev-1",
+            responseRef: "response-dev-1",
+          },
+          {
+            kind: "state_transitioned",
+            at: 4,
+            transition: {
+              visitId: "visit-dev",
+              fromState: "dev",
+              toState: "review",
+              action: "ready_for_review",
+              responseRef: "response-dev-1",
+              rawXml: '<decision action="ready_for_review" />',
+            },
+            nextVisitId: "visit-review",
+          },
+          {
+            kind: "agent_turn_planned",
+            at: 5,
+            state: "review",
+            stepId: "review_code",
+            turnId: "turn-review-1",
+          },
+          {
+            kind: "agent_turn_completed",
+            at: 6,
+            state: "review",
+            stepId: "review_code",
+            turnId: "turn-review-1",
+            responseRef: "response-review-1",
+          },
+          {
+            kind: "state_transitioned",
+            at: 7,
+            transition: {
+              visitId: "visit-review",
+              fromState: "review",
+              toState: "dev",
+              action: "changes_requested",
+              responseRef: "response-review-1",
+              parsed: { remarks: "Needs tests" },
+            },
+            nextVisitId: "visit-dev-loop",
+          },
+          {
+            kind: "human_form_planned",
+            at: 8,
+            state: "dev",
+            stepId: "acceptance_form",
+            turnId: "turn-form",
+            title: "Answer acceptance questions",
+          },
+          {
+            kind: "human_form_completed",
+            at: 9,
+            state: "dev",
+            stepId: "acceptance_form",
+            turnId: "turn-form",
+            responseRef: "form-response",
+            submission: { approved: true },
+          },
+          {
+            kind: "workflow_call_planned",
+            at: 10,
+            state: "dev",
+            stepId: "call_child",
+            turnId: "turn-call",
+            childRunId: "run.child",
+            childDesignId: "design.child",
+            childVersion: 1,
+          },
+          {
+            kind: "workflow_call_completed",
+            at: 11,
+            state: "dev",
+            stepId: "call_child",
+            turnId: "turn-call",
+            childRunId: "run.child",
+            childStatus: "completed",
+            responseRef: "run.child",
+            outputRef: "workflow-run://run.child/output",
+            statusSummary: "completed",
+          },
+          {
+            kind: "decision_validation_failed",
+            at: 12,
+            state: "review",
+            stepId: "review_code",
+            turnId: "turn-review-2",
+            responseRef: "bad-response",
+            retryAttempt: 1,
+            errors: [
+              {
+                code: "WORKFLOW_DECISION_VALIDATION_FAILED",
+                path: "$",
+                message: "XML response must include an action",
+              },
+            ],
+          },
+          {
+            kind: "workflow_blocked",
+            at: 13,
+            reason: {
+              code: "WORKFLOW_DECISION_RETRY_EXHAUSTED",
+              path: "states.review",
+              message: "Review response stayed invalid after retry.",
+            },
+          },
         ],
         createdAt: 1,
         updatedAt: 13,
       };
-      await handle.db.insertInto('WorkflowPersistedRun').values({
-        runId: 'run.story',
-        runSnapshotId: 'snapshot.story',
-        designId: 'design.story',
-        designVersion: 1,
-        workspaceId: 'workspace-a',
-        status: 'blocked',
-        coreModelJson: JSON.stringify(model),
-        coreSnapshotJson: JSON.stringify(snapshot),
-        roleBindingsJson: '{}',
-        pendingEffectJson: null,
-        queuedTurnsJson: JSON.stringify({ 'turn-dev-1': { role: 'dev', sessionId: 'session-dev' }, 'turn-review-1': { role: 'review', sessionId: 'session-review' }, 'turn-review-2': { role: 'review', sessionId: 'session-review' } }),
-        eventsJson: JSON.stringify([{ kind: 'agent_turn_queued', at: 2, data: { turnId: 'turn-dev-1', promptPreview: 'Implement the feature' } }, { kind: 'form_artifact_created', at: 14, data: { artifactRef: 'beads-form://artifact-1' } }]),
-        errorJson: null,
-        createdAt: 1,
-        updatedAt: 13,
-      }).execute();
+      await handle.db
+        .insertInto("WorkflowPersistedRun")
+        .values({
+          runId: "run.story",
+          runSnapshotId: "snapshot.story",
+          designId: "design.story",
+          designVersion: 1,
+          workspaceId: "workspace-a",
+          status: "blocked",
+          coreModelJson: JSON.stringify(model),
+          coreSnapshotJson: JSON.stringify(snapshot),
+          roleBindingsJson: "{}",
+          pendingEffectJson: null,
+          queuedTurnsJson: JSON.stringify({
+            "turn-dev-1": { role: "dev", sessionId: "session-dev" },
+            "turn-review-1": { role: "review", sessionId: "session-review" },
+            "turn-review-2": { role: "review", sessionId: "session-review" },
+          }),
+          eventsJson: JSON.stringify([
+            {
+              kind: "agent_turn_queued",
+              at: 2,
+              data: {
+                turnId: "turn-dev-1",
+                promptPreview: "Implement the feature",
+              },
+            },
+            {
+              kind: "form_artifact_created",
+              at: 14,
+              data: { artifactRef: "beads-form://artifact-1" },
+            },
+          ]),
+          errorJson: null,
+          createdAt: 1,
+          updatedAt: 13,
+        })
+        .execute();
 
-      const presentation = await buildPersistedWorkflowPresentationModel({ db: handle.db, runId: 'run.story' });
+      const presentation = await buildPersistedWorkflowPresentationModel({
+        db: handle.db,
+        runId: "run.story",
+      });
 
       expect(presentation).toMatchObject({
-        workflowName: 'Dev Review Tester',
-        status: 'failed',
-        summary: expect.objectContaining({ currentOwner: 'Review', currentState: 'Review', currentStep: 'Review Code', waitingReason: 'Review response stayed invalid after retry.' }),
-        callTree: [expect.objectContaining({ childRunId: 'run.child', childUrl: '/dashboard/workflows/run.child', outputRef: 'workflow-run://run.child/output' })],
-        outputs: expect.arrayContaining([expect.objectContaining({ kind: 'form_artifact' }), expect.objectContaining({ kind: 'workflow_call_output' }), expect.objectContaining({ kind: 'error' })]),
+        workflowName: "Dev Review Tester",
+        status: "failed",
+        provenance: {
+          label: "Dev Review Tester workflow v1",
+          workflowName: "Dev Review Tester",
+          workflowDesignId: "design.story",
+          workflowVersion: 1,
+        },
+        summary: expect.objectContaining({
+          currentOwner: "Review",
+          currentState: "Review",
+          currentStep: "Review Code",
+          waitingReason: "Review response stayed invalid after retry.",
+        }),
+        callTree: [
+          expect.objectContaining({
+            childRunId: "run.child",
+            childUrl: "/dashboard/workflows/run.child",
+            outputRef: "workflow-run://run.child/output",
+          }),
+        ],
+        outputs: expect.arrayContaining([
+          expect.objectContaining({ kind: "form_artifact" }),
+          expect.objectContaining({ kind: "workflow_call_output" }),
+          expect.objectContaining({ kind: "error" }),
+        ]),
       });
-      expect(presentation?.timeline).toEqual(expect.arrayContaining([
-        expect.objectContaining({ kind: 'agent_turn', role: 'Dev', status: 'Complete' }),
-        expect.objectContaining({ kind: 'decision', title: 'Decision: Changes Requested' }),
-        expect.objectContaining({ kind: 'human_form', status: 'Answered' }),
-        expect.objectContaining({ kind: 'workflow_call', status: 'Complete' }),
-        expect.objectContaining({ kind: 'retry', title: 'Decision retry requested' }),
-        expect.objectContaining({ kind: 'blocked', title: 'Workflow needs attention' }),
-      ]));
+      expect(presentation?.timeline).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            kind: "agent_turn",
+            role: "Dev",
+            status: "Complete",
+          }),
+          expect.objectContaining({
+            kind: "decision",
+            title: "Decision: Changes Requested",
+          }),
+          expect.objectContaining({ kind: "human_form", status: "Answered" }),
+          expect.objectContaining({
+            kind: "workflow_call",
+            status: "Complete",
+          }),
+          expect.objectContaining({
+            kind: "retry",
+            title: "Decision retry requested",
+          }),
+          expect.objectContaining({
+            kind: "blocked",
+            title: "Workflow needs attention",
+          }),
+        ]),
+      );
       const rendered = JSON.stringify(presentation);
-      expect(rendered).toContain('Action: Ready for review');
-      expect(rendered).toContain('Remarks: Needs tests');
-      expect(rendered).not.toContain('webhook');
-      expect(rendered).not.toContain('queue item');
-      expect(rendered).not.toContain('<decision');
-      expect(rendered).not.toContain('rawXml');
-      expect(rendered).not.toContain('response-dev');
-      expect(rendered).not.toContain('response-review');
-      expect(rendered).not.toContain('responseRef');
+      expect(rendered).toContain("Action: Ready for review");
+      expect(rendered).toContain("Remarks: Needs tests");
+      expect(rendered).not.toContain("webhook");
+      expect(rendered).not.toContain("queue item");
+      expect(rendered).not.toContain("<decision");
+      expect(rendered).not.toContain("rawXml");
+      expect(rendered).not.toContain("response-dev");
+      expect(rendered).not.toContain("response-review");
+      expect(rendered).not.toContain("responseRef");
     } finally {
       await handle.db.destroy();
       handle.sqlite.close();
@@ -99,13 +322,45 @@ describe('buildPersistedWorkflowPresentationModel', () => {
 function definition() {
   return {
     schemaVersion: 1,
-    name: 'Dev Review Tester',
-    inputs: { featureRequest: { type: 'markdown', required: true } },
-    roles: { dev: { label: 'Dev' }, review: { label: 'Review' } },
-    initialState: 'dev',
+    name: "Dev Review Tester",
+    inputs: { featureRequest: { type: "markdown", required: true } },
+    roles: { dev: { label: "Dev" }, review: { label: "Review" } },
+    initialState: "dev",
     states: {
-      dev: { owner: 'dev', steps: [{ id: 'implement', type: 'agent_turn', turnType: 'decision', prompt: { template: 'Implement' }, response: decisionResponse }], actions: { ready_for_review: { label: 'Ready for review', targetState: 'review' } } },
-      review: { owner: 'review', steps: [{ id: 'review_code', type: 'agent_turn', turnType: 'decision', prompt: { template: 'Review' }, response: decisionResponse }], actions: { approved: { label: 'Approved', targetState: 'done' }, changes_requested: { label: 'Changes requested', targetState: 'dev' } } },
+      dev: {
+        owner: "dev",
+        steps: [
+          {
+            id: "implement",
+            type: "agent_turn",
+            turnType: "decision",
+            prompt: { template: "Implement" },
+            response: decisionResponse,
+          },
+        ],
+        actions: {
+          ready_for_review: {
+            label: "Ready for review",
+            targetState: "review",
+          },
+        },
+      },
+      review: {
+        owner: "review",
+        steps: [
+          {
+            id: "review_code",
+            type: "agent_turn",
+            turnType: "decision",
+            prompt: { template: "Review" },
+            response: decisionResponse,
+          },
+        ],
+        actions: {
+          approved: { label: "Approved", targetState: "done" },
+          changes_requested: { label: "Changes requested", targetState: "dev" },
+        },
+      },
       done: { terminal: true },
     },
   };

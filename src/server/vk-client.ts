@@ -1,13 +1,13 @@
 export type Executor =
-  | 'CLAUDE_CODE'
-  | 'CODEX'
-  | 'GEMINI'
-  | 'AMP'
-  | 'CURSOR_AGENT'
-  | 'COPILOT'
-  | 'DROID'
-  | 'OPENCODE'
-  | 'QWEN_CODE';
+  | "CLAUDE_CODE"
+  | "CODEX"
+  | "GEMINI"
+  | "AMP"
+  | "CURSOR_AGENT"
+  | "COPILOT"
+  | "DROID"
+  | "OPENCODE"
+  | "QWEN_CODE";
 
 export interface Workspace {
   id: string;
@@ -41,7 +41,7 @@ export interface Session {
 export interface ExecutionProcess {
   id: string;
   session_id: string;
-  status: 'running' | 'completed' | 'failed' | 'killed';
+  status: "running" | "completed" | "failed" | "killed";
   created_at?: string;
   started_at?: string;
   completed_at?: string | null;
@@ -56,7 +56,7 @@ export interface AgentResponse {
   execution_process_id: string;
   session_id: string;
   workspace_id: string;
-  status: ExecutionProcess['status'];
+  status: ExecutionProcess["status"];
   completed_at: string | null;
   coding_agent_turn_id: string | null;
   agent_session_id: string | null;
@@ -64,11 +64,11 @@ export interface AgentResponse {
   content: string | null;
   truncated: boolean;
   max_chars: number;
-  source_kind: 'coding_agent_turn_summary';
+  source_kind: "coding_agent_turn_summary";
   prompt_preview: string | null;
   prompt_truncated: boolean;
   prompt_max_chars: number;
-  prompt_source_kind: 'coding_agent_turn_prompt';
+  prompt_source_kind: "coding_agent_turn_prompt";
 }
 
 export interface ExecutionProcessRepoState {
@@ -82,12 +82,13 @@ export interface ExecutionProcessRepoState {
   updated_at: string;
 }
 
-export type ActivitySessionStatus = 'idle' | 'queued' | 'running' | 'callback_waiting';
+export type ActivitySessionStatus =
+  "idle" | "queued" | "running" | "callback_waiting";
 
 export interface ActivityExecutionProcess {
   execution_process_id: string;
   run_reason: string;
-  status: ExecutionProcess['status'];
+  status: ExecutionProcess["status"];
   started_at: string;
   updated_at: string;
 }
@@ -143,10 +144,19 @@ export interface QueueStatus {
   count: number;
   message: QueuedMessage | null;
   messages: QueuedMessage[];
-  status: 'empty' | 'queued';
+  status: "empty" | "queued";
 }
 
-export type QueueFollowUpSource = 'from_user' | 'workflow' | 'agent' | 'system';
+export type QueueFollowUpSource = "from_user" | "workflow" | "agent" | "system";
+
+export interface QueueFollowUpProvenance {
+  kind: "user" | "workflow" | "agent" | "system";
+  label: string;
+  workflow_run_id?: string | null;
+  workflow_name?: string | null;
+  workflow_design_id?: string | null;
+  workflow_version?: number | null;
+}
 
 export interface QueueFollowUpResponse {
   queued_item: QueuedMessage;
@@ -157,8 +167,15 @@ export interface QueuedMessage {
   id: string;
   session_id: string;
   workspace_id: string;
-  status: 'queued' | 'leased' | 'starting' | 'running' | 'completed' | 'failed' | 'cancelled';
-  source: 'from_user' | 'workflow' | 'agent' | 'system';
+  status:
+    | "queued"
+    | "leased"
+    | "starting"
+    | "running"
+    | "completed"
+    | "failed"
+    | "cancelled";
+  source: "from_user" | "workflow" | "agent" | "system";
   priority: number | bigint;
   data: { message: string; session_command?: unknown | null };
 }
@@ -197,7 +214,6 @@ export interface UpsertWebhookSubscriptionResponse {
   created: boolean;
 }
 
-
 interface ApiEnvelope<T> {
   success: boolean;
   data: T;
@@ -224,7 +240,7 @@ export class VkApiError extends Error {
     errorData?: unknown;
   }) {
     super(args.message);
-    this.name = 'VkApiError';
+    this.name = "VkApiError";
     this.status = args.status;
     this.bodyText = args.bodyText;
     this.errorData = args.errorData;
@@ -234,9 +250,10 @@ export class VkApiError extends Error {
 export function resolveVibeApiBaseUrl(
   env: Record<string, string | undefined> = process.env,
 ): string {
-  const configured = env.VIBE_API_URL || env.VK_API_URL || 'http://localhost:3007';
-  const withoutTrailingSlash = configured.replace(/\/+$/, '');
-  if (withoutTrailingSlash.endsWith('/api')) {
+  const configured =
+    env.VIBE_API_URL || env.VK_API_URL || "http://localhost:3007";
+  const withoutTrailingSlash = configured.replace(/\/+$/, "");
+  if (withoutTrailingSlash.endsWith("/api")) {
     return withoutTrailingSlash;
   }
   return `${withoutTrailingSlash}/api`;
@@ -247,12 +264,15 @@ export class VibeKanbanServerClient {
   private readonly fetchImpl: FetchLike;
 
   constructor(options: VibeKanbanServerClientOptions = {}) {
-    this.baseUrl = (options.baseUrl ?? resolveVibeApiBaseUrl()).replace(/\/+$/, '');
+    this.baseUrl = (options.baseUrl ?? resolveVibeApiBaseUrl()).replace(
+      /\/+$/,
+      "",
+    );
     this.fetchImpl = options.fetch ?? fetch;
   }
 
   getWorkspaces(): Promise<Workspace[]> {
-    return this.get('/workspaces');
+    return this.get("/workspaces");
   }
 
   getWorkspace(workspaceId: string): Promise<Workspace> {
@@ -264,7 +284,9 @@ export class VibeKanbanServerClient {
   }
 
   getSessions(workspaceId: string): Promise<Session[]> {
-    return this.get(`/sessions?workspace_id=${encodeURIComponent(workspaceId)}`);
+    return this.get(
+      `/sessions?workspace_id=${encodeURIComponent(workspaceId)}`,
+    );
   }
 
   getSession(sessionId: string): Promise<Session> {
@@ -272,7 +294,7 @@ export class VibeKanbanServerClient {
   }
 
   createSession(body: CreateSessionBody): Promise<Session> {
-    return this.post('/sessions', body);
+    return this.post("/sessions", body);
   }
 
   getExecutionProcess(processId: string): Promise<ExecutionProcess> {
@@ -280,39 +302,57 @@ export class VibeKanbanServerClient {
   }
 
   getExecutionProcessFinalMessage(processId: string): Promise<AgentResponse> {
-    return this.get(`/execution-processes/${encodeURIComponent(processId)}/final-message`);
+    return this.get(
+      `/execution-processes/${encodeURIComponent(processId)}/final-message`,
+    );
   }
 
-  getExecutionProcessRepoStates(processId: string): Promise<ExecutionProcessRepoState[]> {
-    return this.get(`/execution-processes/${encodeURIComponent(processId)}/repo-states`);
+  getExecutionProcessRepoStates(
+    processId: string,
+  ): Promise<ExecutionProcessRepoState[]> {
+    return this.get(
+      `/execution-processes/${encodeURIComponent(processId)}/repo-states`,
+    );
   }
 
-  getSessionLatestResponse(sessionId: string, cursor: LatestResponseCursor = {}): Promise<AgentResponse | null> {
+  getSessionLatestResponse(
+    sessionId: string,
+    cursor: LatestResponseCursor = {},
+  ): Promise<AgentResponse | null> {
     const params = new URLSearchParams();
-    if (cursor.afterExecutionProcessId) params.set('afterExecutionProcessId', cursor.afterExecutionProcessId);
-    if (cursor.afterCompletedAt) params.set('afterCompletedAt', cursor.afterCompletedAt);
-    const suffix = params.toString() ? `?${params.toString()}` : '';
-    return this.get(`/sessions/${encodeURIComponent(sessionId)}/latest-response${suffix}`);
+    if (cursor.afterExecutionProcessId)
+      params.set("afterExecutionProcessId", cursor.afterExecutionProcessId);
+    if (cursor.afterCompletedAt)
+      params.set("afterCompletedAt", cursor.afterCompletedAt);
+    const suffix = params.toString() ? `?${params.toString()}` : "";
+    return this.get(
+      `/sessions/${encodeURIComponent(sessionId)}/latest-response${suffix}`,
+    );
   }
 
   getActivitySnapshot(): Promise<ActivitySnapshot> {
-    return this.get('/activity');
+    return this.get("/activity");
   }
 
   async stopExecutionProcess(processId: string): Promise<void> {
-    await this.post(`/execution-processes/${encodeURIComponent(processId)}/stop`, {});
+    await this.post(
+      `/execution-processes/${encodeURIComponent(processId)}/stop`,
+      {},
+    );
   }
 
   async checkHealth(): Promise<void> {
-    await this.get('/health');
+    await this.get("/health");
   }
 
   async getInfo(): Promise<unknown> {
-    return this.get('/info');
+    return this.get("/info");
   }
 
-  createOrUpsertWebhookSubscription(body: CreateWebhookSubscriptionBody): Promise<UpsertWebhookSubscriptionResponse> {
-    return this.post('/webhook-subscriptions', body);
+  createOrUpsertWebhookSubscription(
+    body: CreateWebhookSubscriptionBody,
+  ): Promise<UpsertWebhookSubscriptionResponse> {
+    return this.post("/webhook-subscriptions", body);
   }
 
   async sendFollowUp(
@@ -335,11 +375,15 @@ export class VibeKanbanServerClient {
   queueFollowUp(
     sessionId: string,
     prompt: string,
-    options: { source?: QueueFollowUpSource } = {},
+    options: {
+      source?: QueueFollowUpSource;
+      provenance?: QueueFollowUpProvenance;
+    } = {},
   ): Promise<QueueFollowUpResponse> {
     return this.post(`/sessions/${encodeURIComponent(sessionId)}/queue`, {
       message: prompt,
-      source: options.source ?? 'workflow',
+      source: options.source ?? "workflow",
+      provenance: options.provenance,
     });
   }
 
@@ -349,7 +393,7 @@ export class VibeKanbanServerClient {
 
   private post<T>(path: string, body: unknown): Promise<T> {
     return this.request<T>(path, {
-      method: 'POST',
+      method: "POST",
       body: JSON.stringify(body),
     });
   }
@@ -358,7 +402,7 @@ export class VibeKanbanServerClient {
     const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
       ...init,
       headers: {
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
         ...init?.headers,
       },
     });
@@ -386,7 +430,8 @@ export class VibeKanbanServerClient {
 
     if (!envelope.success) {
       throw new VkApiError({
-        message: envelope.message || `VK API ${path} returned unsuccessful response`,
+        message:
+          envelope.message || `VK API ${path} returned unsuccessful response`,
         status: response.status,
         bodyText,
         errorData: envelope.error_data,
@@ -399,9 +444,11 @@ export class VibeKanbanServerClient {
 
 export function selectLatestSession(sessions: Session[]): Session | null {
   if (sessions.length === 0) return null;
-  return [...sessions].sort(
-    (a, b) => parseTimestamp(b.created_at) - parseTimestamp(a.created_at),
-  )[0] ?? null;
+  return (
+    [...sessions].sort(
+      (a, b) => parseTimestamp(b.created_at) - parseTimestamp(a.created_at),
+    )[0] ?? null
+  );
 }
 
 function parseTimestamp(value: string): number {
