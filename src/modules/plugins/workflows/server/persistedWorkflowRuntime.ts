@@ -567,7 +567,7 @@ export class PersistedWorkflowRuntimeService {
           detailsUrl: input.detailsUrl ?? null,
         }),
       ],
-      "github_ci_watch_completed",
+      null,
     );
     await this.resumeParentsIfTerminal(persisted);
     return { applied: true, reason: "applied", run: persisted };
@@ -608,12 +608,16 @@ export class PersistedWorkflowRuntimeService {
     advanced: WorkflowAdvanceResult,
     observation: { turnId: string; responseRef: string },
     extraEvents: PersistedWorkflowRuntimeEvent[] = [],
-    observedKind: PersistedWorkflowRuntimeEvent["kind"] = "agent_turn_observed",
+    observedKind: PersistedWorkflowRuntimeEvent["kind"] | null = "agent_turn_observed",
   ): Promise<PersistedWorkflowRunReadModel> {
-    const observed = event(observedKind, this.now(), {
-      turnId: observation.turnId,
-      responseRef: observation.responseRef,
-    });
+    const observed = observedKind
+      ? [
+          event(observedKind, this.now(), {
+            turnId: observation.turnId,
+            responseRef: observation.responseRef,
+          }),
+        ]
+      : [];
     const statusChanged =
       previous.coreSnapshot.status !== advanced.snapshot.status
         ? [
@@ -641,7 +645,7 @@ export class PersistedWorkflowRuntimeService {
       previous,
       nextSnapshot,
       formArtifact.effect ?? advanced.effect,
-      [...extraEvents, observed, ...formArtifact.events, ...nextStatusChanged],
+      [...extraEvents, ...observed, ...formArtifact.events, ...nextStatusChanged],
     );
     if (formArtifact.effect?.kind === "none") return withObservation;
     if (advanced.effect.kind === "send_agent_turn") {

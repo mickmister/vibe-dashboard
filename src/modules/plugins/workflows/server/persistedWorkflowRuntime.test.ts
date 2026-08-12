@@ -3,7 +3,8 @@ import { initVdDb, type VdDbHandle } from '../../../../server/database';
 import { DbWorkflowOrchestrationStore } from '../../../../server/workflow-orchestration-store';
 import { DbWorkflowDesignStore } from './workflowDesignStore';
 import { BUILT_IN_WORKFLOW_TEMPLATES } from '../templates/builtInWorkflowTemplates';
-import { PersistedWorkflowRuntimeError, PersistedWorkflowRuntimeService, type WorkflowQueueAgentTurnRequest } from './persistedWorkflowRuntime';
+import { GitHubCiPollBackoffError, GitHubCiWaitPoller, type GitHubCiStatusClient } from './githubCiWaitPoller';
+import { PersistedWorkflowRuntimeError, PersistedWorkflowRuntimeService, type GitHubCiWatchProvider, type WorkflowQueueAgentTurnRequest } from './persistedWorkflowRuntime';
 
 const handles: VdDbHandle[] = [];
 
@@ -422,6 +423,123 @@ describe('PersistedWorkflowRuntimeService M93', () => {
       issues: expect.arrayContaining([expect.objectContaining({ path: 'states.parent.steps.0.workflow.designId' })]),
     });
   });
+
+  it('TEST_CASE_M111_1A-B starts a GitHub CI watch and poller resumes on success', async () => {
+    const started: Parameters<GitHubCiWatchProvider['startWatch']>[0][] = [];
+    const { runtime, queued, handle } = await createRuntime({
+      githubCiWatchProvider: {
+        async startWatch(request) {
+          started.push(request);
+          return { watchRef: `github-ci-watch://${request.turnId}` };
+        },
+      },
+    });
+    await publishWorkflow('design.ci', makeGithubCiWorkflow());
+    await runtime.launch({
+      runId: 'run-ci',
+      runSnapshotId: 'snapshot-ci',
+      designId: 'design.ci',
+      workspaceId: 'workspace-a',
+      inputs: {},
+      roleBindings: { dev: { sessionId: 'session-dev' }, review: { sessionId: 'session-review' } },
+    });
+    const waiting = await runtime.completeAgentTurn({
+      runId: 'run-ci',
+      turnId: queuedAt(queued, 0).turnId,
+      responseRef: 'exec-ci',
+      finalResponseText: '<decision action="waitForCi"><summary>Pushed branch</summary><ciRunId>123</ciRunId><repo>acme/repo</repo></decision>',
+    });
+    expect(waiting.run.coreSnapshot.waitingFor).toMatchObject({ kind: 'github_ci', ciRunId: '123', repo: 'acme/repo' });
+    expect(started).toEqual([expect.objectContaining({ runId: 'run-ci', ciRunId: '123', repo: 'acme/repo' })]);
+
+    const poller = new GitHubCiWaitPoller({
+      db: handle.db,
+      runtime,
+      client: {
+        async readStatus() {
+          return { state: 'completed', conclusion: 'success', summary: 'CI passed', detailsUrl: 'https://github.example/runs/123' };
+        },
+      },
+      now: () => 10_000,
+    });
+    await expect(poller.pollOnce()).resolves.toEqual({ checked: 1, completed: 1, backedOff: 0 });
+    const completed = await runtime.getRun('run-ci');
+    expect(completed?.coreSnapshot.currentState).toBe('review');
+    expect(completed?.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'github_ci_watch_started', data: expect.objectContaining({ watchRef: 'github-ci-watch://id-3' }) }),
+      expect.objectContaining({ kind: 'github_ci_watch_completed' }),
+    ]));
+    expect(queuedAt(queued, 1)).toMatchObject({ role: 'review', stepId: 'review' });
+  });
+
+  it('TEST_CASE_M111_1C-E handles failed CI, stale completions, and poll backoff', async () => {
+    const { runtime, queued, handle } = await createRuntime({
+      githubCiWatchProvider: { async startWatch(request) { return { watchRef: `github-ci-watch://${request.turnId}` }; } },
+    });
+    await publishWorkflow('design.ci.failure', makeGithubCiWorkflow());
+    await runtime.launch({
+      runId: 'run-ci-failure',
+      runSnapshotId: 'snapshot-ci-failure',
+      designId: 'design.ci.failure',
+      workspaceId: 'workspace-a',
+      inputs: {},
+      roleBindings: { dev: { sessionId: 'session-dev' }, review: { sessionId: 'session-review' } },
+    });
+    const waiting = await runtime.completeAgentTurn({
+      runId: 'run-ci-failure',
+      turnId: queuedAt(queued, 0).turnId,
+      responseRef: 'exec-ci',
+      finalResponseText: '<decision action="waitForCi"><summary>Pushed branch</summary><ciRunId>999</ciRunId></decision>',
+    });
+    const stale = await runtime.completeGithubCiWatch({
+      runId: 'run-ci-failure',
+      turnId: 'wrong-turn',
+      responseRef: 'github-ci:wrong',
+      status: 'success',
+    });
+    expect(stale).toMatchObject({ applied: false, reason: 'stale' });
+    expect(stale.run.coreSnapshot.waitingFor).toMatchObject({ kind: 'github_ci', turnId: waiting.run.coreSnapshot.waitingFor?.turnId });
+
+    const failed = await runtime.completeGithubCiWatch({
+      runId: 'run-ci-failure',
+      turnId: String(waiting.run.coreSnapshot.waitingFor?.turnId),
+      responseRef: 'github-ci:failure',
+      status: 'failure',
+      statusSummary: 'Lint failed',
+    });
+    expect(failed.run.status).toBe('blocked');
+    expect(failed.run.coreSnapshot.blockedReason).toMatchObject({ code: 'WORKFLOW_GITHUB_CI_FAILED', message: 'GitHub CI failure: Lint failed' });
+
+    await runtime.launch({
+      runId: 'run-ci-backoff',
+      runSnapshotId: 'snapshot-ci-backoff',
+      designId: 'design.ci.failure',
+      workspaceId: 'workspace-a',
+      inputs: {},
+      roleBindings: { dev: { sessionId: 'session-dev' }, review: { sessionId: 'session-review' } },
+    });
+    await runtime.completeAgentTurn({
+      runId: 'run-ci-backoff',
+      turnId: queuedAt(queued, 1).turnId,
+      responseRef: 'exec-ci-backoff',
+      finalResponseText: '<decision action="waitForCi"><summary>Pushed branch</summary><ciRunId>888</ciRunId></decision>',
+    });
+    let now = 20_000;
+    const poller = new GitHubCiWaitPoller({
+      db: handle.db,
+      runtime,
+      client: { async readStatus() { throw new GitHubCiPollBackoffError('GitHub API rate limited', 30_000); } },
+      now: () => now,
+    });
+    expect(await poller.pollOnce()).toMatchObject({ checked: 1, backedOff: 1 });
+    expect(await poller.pollOnce()).toMatchObject({ checked: 0, backedOff: 1 });
+    now += 31_000;
+    expect(await poller.pollOnce()).toMatchObject({ checked: 1, backedOff: 1 });
+    const backedOffRun = await runtime.getRun('run-ci-backoff');
+    expect(backedOffRun?.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'github_ci_watch_poll_error', data: expect.objectContaining({ error: expect.objectContaining({ message: 'GitHub API rate limited', retryAfterMs: 30_000 }) }) }),
+    ]));
+  });
 });
 
 let designStore: DbWorkflowDesignStore;
@@ -441,7 +559,7 @@ function promptText(definition: unknown): string {
   return (dev.steps[0] as { prompt?: { template?: string } } | undefined)?.prompt?.template ?? '';
 }
 
-async function createRuntime(options: { withAttention?: boolean; templates?: ConstructorParameters<typeof DbWorkflowDesignStore>[0]['templates'] } = {}) {
+async function createRuntime(options: { withAttention?: boolean; templates?: ConstructorParameters<typeof DbWorkflowDesignStore>[0]['templates']; githubCiWatchProvider?: GitHubCiWatchProvider } = {}) {
   const handle = await initVdDb({ path: ':memory:' });
   handles.push(handle);
   designStore = new DbWorkflowDesignStore({ db: handle.db, now: (() => { let value = 1_000; return () => value++; })(), templates: options.templates });
@@ -464,6 +582,7 @@ async function createRuntime(options: { withAttention?: boolean; templates?: Con
     designStore,
     queue,
     orchestrationStore: options.withAttention ? orchestrationStore : undefined,
+    githubCiWatchProvider: options.githubCiWatchProvider,
     now: (() => { let value = 2_000; return () => value++; })(),
     createId: () => `id-${id++}`,
   });
@@ -632,6 +751,43 @@ function makeParentWorkflowCallWorkflow(childDesignId: string) {
           },
         ],
         actions: { done: { targetState: 'done', result: { fields: { summary: { type: 'markdown' } }, unknownFields: 'reject' } } },
+      },
+      done: { terminal: true },
+    },
+  };
+}
+
+function makeGithubCiWorkflow() {
+  return {
+    schemaVersion: 1,
+    name: 'github-ci-workflow',
+    roles: { dev: { label: 'Dev' }, review: { label: 'Review' } },
+    initialState: 'dev',
+    states: {
+      dev: {
+        owner: 'dev',
+        steps: [{ id: 'selfReview', type: 'agent_turn', turnType: 'decision', prompt: { template: 'Push and report CI run' }, response: decisionResponsePolicy(1) }],
+        actions: {
+          waitForCi: {
+            label: 'Wait for CI',
+            targetState: 'review',
+            result: {
+              fields: {
+                summary: { type: 'markdown' },
+                ciRunId: { type: 'string' },
+                repo: { type: 'string' },
+              },
+              required: ['summary', 'ciRunId'],
+              unknownFields: 'reject',
+            },
+            waitFor: { provider: 'github_ci', runIdField: 'ciRunId', repoField: 'repo' },
+          },
+        },
+      },
+      review: {
+        owner: 'review',
+        steps: [{ id: 'review', type: 'agent_turn', turnType: 'decision', prompt: { template: 'Review after CI: {{transition.parsed.ciSummary}}' }, response: decisionResponsePolicy(1) }],
+        actions: { approved: { targetState: 'done', result: { fields: { notes: { type: 'markdown' } }, unknownFields: 'reject' } } },
       },
       done: { terminal: true },
     },

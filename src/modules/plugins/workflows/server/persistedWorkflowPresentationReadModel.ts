@@ -463,6 +463,8 @@ function waitingReason(kind: string): string {
     return "Waiting for you to submit the requested form.";
   if (kind === "workflow_call")
     return "Waiting for a child workflow to finish.";
+  if (kind === "github_ci")
+    return "Waiting for GitHub CI to finish.";
   return "Waiting to continue.";
 }
 
@@ -470,6 +472,8 @@ function nextActionForWait(kind: string): string {
   if (kind === "human_form") return "Answer the form to resume the workflow.";
   if (kind === "workflow_call")
     return "The parent workflow resumes when the child workflow completes.";
+  if (kind === "github_ci")
+    return "The workflow resumes when GitHub CI finishes.";
   return "The workflow resumes when the agent turn completes.";
 }
 

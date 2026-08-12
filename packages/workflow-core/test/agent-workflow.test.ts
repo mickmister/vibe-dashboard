@@ -450,6 +450,133 @@ describe('agent workflow V1 normalization', () => {
     ]));
   });
 
+  it('TEST_CASE_M111_1A-D waits for GitHub CI after an enabled action and resumes idempotently', () => {
+    const def = makeDefinition();
+    activeAuthoredState(def, 'devImplementing').steps = [activeAuthoredState(def, 'devImplementing').steps[1]!];
+    activeAuthoredState(def, 'devImplementing').actions.readyForReview = {
+      label: 'Wait for CI',
+      targetState: 'reviewing',
+      result: {
+        fields: {
+          summary: { type: 'markdown' },
+          ciRunId: { type: 'string' },
+          repo: { type: 'string' },
+        },
+        required: ['summary', 'ciRunId'],
+      },
+      waitFor: {
+        provider: 'github_ci',
+        runIdField: 'ciRunId',
+        repoField: 'repo',
+      },
+    };
+    const model = normalizeWorkflowDefinitionV1(def);
+    const initial = createInitialWorkflowSnapshot(model, {
+      instanceId: 'ci-run',
+      inputs: {},
+      now: clock(1_000),
+      createId: ids('visit-ci'),
+    });
+    const plannedAgent = planNextWorkflowEffect(model, initial, {
+      now: clock(2_000),
+      createId: ids('agent-turn'),
+      validator,
+    });
+    const waitingForCi = advanceWorkflow(model, plannedAgent.snapshot, {
+      kind: 'agent_turn_completed',
+      turnId: 'agent-turn',
+      responseRef: 'response-ci-request',
+      finalResponseText: 'ci',
+    }, {
+      now: clock(3_000),
+      createId: ids('ci-watch-turn'),
+      validator: {
+        validate: () => ({
+          valid: true,
+          action: 'readyForReview',
+          rawXml: '<decision action="readyForReview"><summary>Pushed</summary><ciRunId>12345</ciRunId><repo>acme/repo</repo></decision>',
+          parsed: { summary: 'Pushed', ciRunId: '12345', repo: 'acme/repo' },
+        }),
+      },
+    });
+
+    expect(waitingForCi.effect).toMatchObject({
+      kind: 'start_github_ci_watch',
+      turnId: 'ci-watch-turn',
+      ciRunId: '12345',
+      repo: 'acme/repo',
+    });
+    expect(waitingForCi.snapshot.waitingFor).toMatchObject({ kind: 'github_ci', turnId: 'ci-watch-turn', action: 'readyForReview' });
+    expect(waitingForCi.snapshot.currentState).toBe('devImplementing');
+
+    const stale = advanceWorkflow(model, waitingForCi.snapshot, {
+      kind: 'github_ci_completed',
+      turnId: 'wrong-watch',
+      responseRef: 'github-ci:wrong',
+      status: 'success',
+    }, {
+      now: clock(3_500),
+      createId: ids('unused'),
+      validator,
+    });
+    expect(stale).toMatchObject({ effect: { kind: 'none' }, ignored: { code: 'WORKFLOW_STALE_OBSERVATION' } });
+    expect(stale.snapshot).toBe(waitingForCi.snapshot);
+
+    const completed = advanceWorkflow(model, waitingForCi.snapshot, {
+      kind: 'github_ci_completed',
+      turnId: 'ci-watch-turn',
+      responseRef: 'github-ci:ci-watch-turn',
+      status: 'success',
+      statusSummary: 'All checks passed',
+      detailsUrl: 'https://github.example/checks/12345',
+    }, {
+      now: clock(4_000),
+      createId: ids('review-visit', 'review-turn'),
+      validator,
+    });
+    expect(completed.snapshot.currentState).toBe('reviewing');
+    expect(completed.effect).toMatchObject({ kind: 'send_agent_turn', role: 'review' });
+    expect(completed.snapshot.history).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'github_ci_wait_completed', status: 'success', statusSummary: 'All checks passed' }),
+    ]));
+  });
+
+  it('TEST_CASE_M111_1C blocks when GitHub CI fails', () => {
+    const def = makeDefinition();
+    activeAuthoredState(def, 'devImplementing').steps = [activeAuthoredState(def, 'devImplementing').steps[1]!];
+    activeAuthoredState(def, 'devImplementing').actions.readyForReview = {
+      targetState: 'reviewing',
+      result: { fields: { ciRunId: { type: 'string' } }, required: ['ciRunId'] },
+      waitFor: { provider: 'github_ci' },
+    };
+    const model = normalizeWorkflowDefinitionV1(def);
+    const initial = createInitialWorkflowSnapshot(model, { instanceId: 'ci-fail', inputs: {}, now: clock(1), createId: ids('visit') });
+    const plannedAgent = planNextWorkflowEffect(model, initial, { now: clock(2), createId: ids('agent'), validator });
+    const waitingForCi = advanceWorkflow(model, plannedAgent.snapshot, {
+      kind: 'agent_turn_completed',
+      turnId: 'agent',
+      responseRef: 'response-ci',
+      finalResponseText: 'ci',
+    }, {
+      now: clock(3),
+      createId: ids('ci-turn'),
+      validator: { validate: () => ({ valid: true, action: 'readyForReview', parsed: { ciRunId: '9' } }) },
+    });
+    const failed = advanceWorkflow(model, waitingForCi.snapshot, {
+      kind: 'github_ci_completed',
+      turnId: 'ci-turn',
+      responseRef: 'github-ci:ci-turn',
+      status: 'failure',
+      statusSummary: 'Unit tests failed',
+    }, {
+      now: clock(4),
+      createId: ids('unused'),
+      validator,
+    });
+    expect(failed.snapshot.status).toBe('blocked');
+    expect(failed.snapshot.blockedReason).toMatchObject({ code: 'WORKFLOW_GITHUB_CI_FAILED', message: 'GitHub CI failure: Unit tests failed' });
+  });
+
   it('TEST_CASE_M83_1B enforces strict active-state decision invariants', () => {
     const invalidState = (state: unknown, path: string) => {
       expectDefinitionError(

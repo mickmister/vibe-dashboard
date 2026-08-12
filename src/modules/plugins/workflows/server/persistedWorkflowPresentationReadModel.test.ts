@@ -317,6 +317,104 @@ describe("buildPersistedWorkflowPresentationModel", () => {
       handle.sqlite.close();
     }
   });
+
+  it("TEST_CASE_M111_1F shows waiting-on-CI and final CI result without webhook wording", async () => {
+    const handle = await initVdDb({ path: ":memory:" });
+    try {
+      const designStore = new DbWorkflowDesignStore({
+        db: handle.db,
+        now: () => 10,
+      });
+      await designStore.createDesign({
+        designId: "design.ci",
+        draftId: "draft.ci",
+        name: "CI workflow",
+        definition: definition(),
+      });
+      await designStore.publishDraft("draft.ci");
+      await designStore.createRunSnapshot({
+        runSnapshotId: "snapshot.ci",
+        designId: "design.ci",
+        version: 1,
+        workspaceId: "workspace-a",
+        runInput: { featureRequest: "Wait for CI" },
+        roleBindings: {},
+      });
+      const model = normalizeWorkflowDefinitionV1(definition(), {
+        workflowId: "design.ci@1",
+      });
+      const snapshot: WorkflowRuntimeSnapshot = {
+        instanceId: "run.ci",
+        workflowId: "design.ci@1",
+        status: "running",
+        currentState: "dev",
+        currentStepIndex: 0,
+        visitId: "visit-ci",
+        inputs: { featureRequest: "Wait for CI" },
+        waitingFor: {
+          kind: "github_ci",
+          state: "dev",
+          stepId: "implement",
+          turnId: "ci-turn",
+          action: "ready_for_review",
+          targetState: "review",
+          ciRunId: "123",
+          repo: "acme/repo",
+          sha: "abc123",
+        },
+        latestTransition: {
+          visitId: "visit-ci",
+          fromState: "dev",
+          toState: "review",
+          action: "ready_for_review",
+          responseRef: "response-dev",
+          parsed: { summary: "Pushed code", ciRunId: "123" },
+        },
+        history: [
+          { kind: "workflow_started", at: 1, state: "dev", visitId: "visit-ci" },
+          { kind: "agent_turn_planned", at: 2, state: "dev", stepId: "implement", turnId: "turn-dev" },
+          { kind: "agent_turn_completed", at: 3, state: "dev", stepId: "implement", turnId: "turn-dev", responseRef: "response-dev" },
+          { kind: "github_ci_wait_planned", at: 4, state: "dev", stepId: "implement", turnId: "ci-turn", action: "ready_for_review", targetState: "review", ciRunId: "123", repo: "acme/repo", sha: "abc123" },
+        ],
+        createdAt: 1,
+        updatedAt: 4,
+      };
+      await handle.db.insertInto("WorkflowPersistedRun").values({
+        runId: "run.ci",
+        runSnapshotId: "snapshot.ci",
+        designId: "design.ci",
+        designVersion: 1,
+        workspaceId: "workspace-a",
+        status: "running",
+        coreModelJson: JSON.stringify(model),
+        coreSnapshotJson: JSON.stringify(snapshot),
+        roleBindingsJson: "{}",
+        pendingEffectJson: null,
+        queuedTurnsJson: "{}",
+        eventsJson: JSON.stringify([{ kind: "github_ci_watch_poll_error", at: 5, data: { turnId: "ci-turn", error: { message: "GitHub API rate limited", retryAfterMs: 30000 } } }]),
+        errorJson: null,
+        createdAt: 1,
+        updatedAt: 5,
+      }).execute();
+      const presentation = await buildPersistedWorkflowPresentationModel({ db: handle.db, runId: "run.ci" });
+      expect(presentation?.summary?.waitingReason).toBe("Waiting for GitHub CI to finish.");
+      expect(presentation?.timeline).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          kind: "github_ci",
+          title: "Wait for CI",
+          status: "Waiting",
+          responseUnavailable: expect.stringContaining("GitHub API rate limited"),
+        }),
+      ]));
+      const rendered = JSON.stringify(presentation);
+      expect(rendered).toContain("GitHub CI");
+      expect(rendered).not.toContain("webhook");
+      expect(rendered).not.toContain("rawXml");
+    } finally {
+      await handle.db.destroy();
+      handle.sqlite.close();
+    }
+  });
 });
 
 function definition() {
