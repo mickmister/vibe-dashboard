@@ -260,6 +260,35 @@ export function registerWorkflowRoutes(
     }
   });
 
+  hono.post('/dashboard/api/workflow-designs', async (c) => {
+    const body = asRecord(await readJsonBody(c.req.raw));
+    const name = asString(body?.name)?.trim();
+    const definition = body?.definition;
+    const sourceDesignId = asString(body?.sourceDesignId)?.trim();
+    const shouldPublish = body?.publish === true;
+    if (!name) return c.json({ error: 'workflow_name_required', message: 'Workflow name is required' }, 400);
+    if (!sourceDesignId && (!definition || typeof definition !== 'object')) return c.json({ error: 'workflow_definition_required', message: 'Workflow definition is required' }, 400);
+    const db = options.workflowHomeDb ?? (await getVdDb()).db;
+    const designStore = options.workflowDesignStore ?? new DbWorkflowDesignStore({ db, templates: BUILT_IN_WORKFLOW_TEMPLATES });
+    try {
+      const designId = asString(body?.designId) ?? `workflow-design-${randomUUID()}`;
+      const draftId = asString(body?.draftId) ?? `workflow-draft-${randomUUID()}`;
+      const description = asString(body?.description) ?? null;
+      const created = sourceDesignId
+        ? await designStore.duplicateDesign({ sourceDesignId, designId, draftId, name, description })
+        : await designStore.createDesign({ designId, draftId, name, description, definition, source: 'user' });
+      const version = shouldPublish ? await designStore.publishDraft(created.draft.draftId) : null;
+      const editor = await buildWorkflowDesignEditorModel(designStore, created.design.designId);
+      const home = asString(body?.workspaceId)
+        ? await buildWorkspaceWorkflowsHomeModel({ db, designStore, orchestrationStore: options.workflowOrchestrationStore, workspaceId: asString(body?.workspaceId)! })
+        : undefined;
+      return c.json({ design: await designStore.getDesign(created.design.designId), draft: await designStore.getDraft(created.draft.draftId), version, editor, home }, 201);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return c.json({ error: 'workflow_design_create_failed', message }, 400);
+    }
+  });
+
   hono.post('/dashboard/api/workflow-design-drafts/:draftId/publish', async (c) => {
     const draftId = c.req.param('draftId')?.trim();
     if (!draftId) return c.json({ error: 'workflow_draft_required', message: 'Workflow draft is required' }, 400);

@@ -12,6 +12,33 @@ export interface WorkflowDesignEditorModel {
   validationIssues: WorkflowConfigIssue[];
 }
 
+export interface CreateWorkflowDesignRequest {
+  workspaceId?: string;
+  name: string;
+  description?: string | null;
+  definition?: AgentWorkflowDefinitionV1;
+  sourceDesignId?: string | null;
+  publish?: boolean;
+}
+
+export interface CreateWorkflowDesignResponse {
+  design: { designId: string; name: string; latestPublishedVersion: number | null };
+  draft: { draftId: string; designId: string } | null;
+  version: { designId: string; version: number } | null;
+  editor: WorkflowDesignEditorModel;
+}
+
+export async function createWorkflowDesign(request: CreateWorkflowDesignRequest): Promise<CreateWorkflowDesignResponse> {
+  const response = await fetch('/dashboard/api/workflow-designs', {
+    method: 'POST',
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+  });
+  const payload = await response.json().catch(() => ({})) as CreateWorkflowDesignResponse & { error?: string; message?: string };
+  if (response.ok && payload.design && payload.editor) return payload;
+  throw new Error(payload.message || payload.error || `Failed to create workflow design: ${response.status}`);
+}
+
 export async function fetchWorkflowDesignEditor(designId: string): Promise<WorkflowDesignEditorModel> {
   const response = await fetch(`/dashboard/api/workflow-designs/${encodeURIComponent(designId)}/editor`, { headers: { Accept: 'application/json' } });
   const payload = await response.json().catch(() => ({})) as { editor?: WorkflowDesignEditorModel; error?: string; message?: string };
