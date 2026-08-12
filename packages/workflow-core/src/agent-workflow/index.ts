@@ -31,6 +31,14 @@ export type WorkflowActionResultContractV1 = {
   unknownFields?: 'reject' | 'preserve';
 };
 
+export type GitHubCiWaitActionV1 = {
+  provider: 'github_ci';
+  runIdField?: string;
+  checkRunIdField?: string;
+  repoField?: string;
+  shaField?: string;
+};
+
 export type WorkflowActionV1 = {
   label?: string;
   description?: string;
@@ -39,6 +47,7 @@ export type WorkflowActionV1 = {
   handoff?: {
     prompt?: PromptTemplateRef;
   };
+  waitFor?: GitHubCiWaitActionV1;
 };
 
 export type DecisionResponsePolicyV1 = {
@@ -185,12 +194,18 @@ export type WorkflowRuntimeSnapshot = {
   visitId: string;
   inputs: Record<string, unknown>;
   waitingFor?: {
-    kind: 'agent_turn' | 'human_form' | 'workflow_call';
+    kind: 'agent_turn' | 'human_form' | 'workflow_call' | 'github_ci';
     state: WorkflowStateId;
     stepId: WorkflowStepId;
     turnId: string;
     retryAttempt?: number;
     childRunId?: string;
+    action?: WorkflowActionId;
+    targetState?: WorkflowStateId;
+    ciRunId?: string;
+    checkRunId?: string;
+    repo?: string;
+    sha?: string;
   };
   latestTransition?: WorkflowTransitionRecord;
   history: WorkflowHistoryEntry[];
@@ -275,6 +290,32 @@ export type WorkflowHistoryEntry =
       statusSummary: string;
     }
   | {
+      kind: 'github_ci_wait_planned';
+      at: number;
+      state: WorkflowStateId;
+      stepId: WorkflowStepId;
+      turnId: string;
+      action: WorkflowActionId;
+      targetState: WorkflowStateId;
+      ciRunId?: string;
+      checkRunId?: string;
+      repo?: string;
+      sha?: string;
+    }
+  | {
+      kind: 'github_ci_wait_completed';
+      at: number;
+      state: WorkflowStateId;
+      stepId: WorkflowStepId;
+      turnId: string;
+      action: WorkflowActionId;
+      targetState: WorkflowStateId;
+      responseRef: string;
+      status: GitHubCiCompletionStatus;
+      statusSummary: string;
+      detailsUrl?: string;
+    }
+  | {
       kind: 'decision_validation_failed';
       at: number;
       state: WorkflowStateId;
@@ -308,7 +349,11 @@ export type WorkflowRuntimeIssue = {
     | 'WORKFLOW_DECISION_VALIDATOR_REQUIRED'
     | 'WORKFLOW_CALL_CHILD_BLOCKED'
     | 'WORKFLOW_CALL_CHILD_FAILED'
-    | 'WORKFLOW_CALL_CHILD_CANCELLED';
+    | 'WORKFLOW_CALL_CHILD_CANCELLED'
+    | 'WORKFLOW_GITHUB_CI_INVALID_REFERENCE'
+    | 'WORKFLOW_GITHUB_CI_FAILED'
+    | 'WORKFLOW_GITHUB_CI_CANCELLED'
+    | 'WORKFLOW_GITHUB_CI_TIMED_OUT';
   path: string;
   message: string;
 };
@@ -337,7 +382,18 @@ export interface WorkflowCallObservation {
   statusSummary?: string;
 }
 
-export type WorkflowObservation = AgentTurnObservation | HumanFormObservation | WorkflowCallObservation;
+export type GitHubCiCompletionStatus = 'success' | 'failure' | 'cancelled' | 'timed_out';
+
+export interface GitHubCiObservation {
+  kind: 'github_ci_completed';
+  turnId: string;
+  responseRef: string;
+  status: GitHubCiCompletionStatus;
+  statusSummary?: string;
+  detailsUrl?: string;
+}
+
+export type WorkflowObservation = AgentTurnObservation | HumanFormObservation | WorkflowCallObservation | GitHubCiObservation;
 
 export type WorkflowPlanEffect =
   | {
@@ -366,6 +422,18 @@ export type WorkflowPlanEffect =
       workflow: WorkflowCallStepV1['workflow'];
       args: Record<string, unknown>;
       roleBindings?: WorkflowCallStepV1['roleBindings'];
+    }
+  | {
+      kind: 'start_github_ci_watch';
+      state: WorkflowStateId;
+      stepId: WorkflowStepId;
+      turnId: string;
+      action: WorkflowActionId;
+      targetState: WorkflowStateId;
+      ciRunId?: string;
+      checkRunId?: string;
+      repo?: string;
+      sha?: string;
     }
   | { kind: 'none' };
 
@@ -527,7 +595,7 @@ export function normalizeWorkflowDefinitionV1(
             issues.push(issue('WORKFLOW_CONFIG_INVALID_ACTIVE_STATE', path, 'action must be an object'));
             continue;
           }
-          assertKnownKeys(action, ['label', 'description', 'targetState', 'result', 'handoff'], path, issues);
+          assertKnownKeys(action, ['label', 'description', 'targetState', 'result', 'handoff', 'waitFor'], path, issues);
           if (typeof action.targetState !== 'string') {
             issues.push(issue('WORKFLOW_CONFIG_REQUIRED_FIELD', `${path}.targetState`, 'targetState is required'));
           } else if (isRecord(def.states) && !Object.hasOwn(def.states, action.targetState)) {
@@ -540,6 +608,7 @@ export function normalizeWorkflowDefinitionV1(
           } else if (action.handoff !== undefined) {
             issues.push(issue('WORKFLOW_CONFIG_INVALID_ACTIVE_STATE', `${path}.handoff`, 'handoff must be an object'));
           }
+          validateWaitFor(action.waitFor, `${path}.waitFor`, issues);
           normalizedActions[actionId] = cloneWithDefined({
             id: actionId,
             label: action.label,
@@ -547,6 +616,7 @@ export function normalizeWorkflowDefinitionV1(
             targetState: action.targetState,
             result: deepClone(action.result),
             handoff: deepClone(action.handoff),
+            waitFor: deepClone(action.waitFor),
           }) as NormalizedWorkflowAction;
         }
       }
@@ -783,6 +853,110 @@ export function advanceWorkflow(
     return { snapshot, effect: { kind: 'none' } };
   }
 
+  if (waitingFor.kind === 'github_ci' && observation.kind === 'github_ci_completed') {
+    const at = deps.now();
+    const statusSummary = observation.statusSummary ?? observation.status;
+    const actionId = waitingFor.action ?? '';
+    const targetState = waitingFor.targetState ?? '';
+    const completedEntry: WorkflowHistoryEntry = cloneWithDefined({
+      kind: 'github_ci_wait_completed' as const,
+      at,
+      state: waitingFor.state,
+      stepId: waitingFor.stepId,
+      turnId: observation.turnId,
+      action: actionId,
+      targetState,
+      responseRef: observation.responseRef,
+      status: observation.status,
+      statusSummary,
+      detailsUrl: observation.detailsUrl,
+    });
+    if (observation.status !== 'success') {
+      const code = observation.status === 'failure'
+        ? 'WORKFLOW_GITHUB_CI_FAILED'
+        : observation.status === 'cancelled'
+          ? 'WORKFLOW_GITHUB_CI_CANCELLED'
+          : 'WORKFLOW_GITHUB_CI_TIMED_OUT';
+      const reason: WorkflowRuntimeIssue = {
+        code,
+        path: `states.${waitingFor.state}.actions.${actionId}.waitFor`,
+        message: `GitHub CI ${observation.status}: ${statusSummary}`,
+      };
+      return {
+        snapshot: {
+          ...snapshot,
+          status: 'blocked',
+          waitingFor: undefined,
+          blockedReason: reason,
+          history: [...snapshot.history, completedEntry, { kind: 'workflow_blocked', at, reason }],
+          updatedAt: at,
+        },
+        effect: { kind: 'none' },
+      };
+    }
+    const action = state.actions[actionId];
+    const target = targetState ? model.states[targetState] : undefined;
+    if (!action || !target) {
+      return {
+        snapshot,
+        effect: { kind: 'none' },
+        ignored: {
+          code: 'WORKFLOW_STALE_OBSERVATION',
+          path: 'observation.turnId',
+          message: 'GitHub CI completion does not match an active workflow action',
+        },
+      };
+    }
+    const transition: WorkflowTransitionRecord = {
+      visitId: snapshot.visitId,
+      fromState: snapshot.currentState,
+      toState: target.id,
+      action: action.id,
+      responseRef: observation.responseRef,
+      parsed: cloneWithDefined({
+        ciStatus: observation.status,
+        ciSummary: statusSummary,
+        detailsUrl: observation.detailsUrl,
+      }),
+    };
+    const history: WorkflowHistoryEntry[] = [
+      ...snapshot.history,
+      completedEntry,
+      { kind: 'state_transitioned', at, transition },
+    ];
+    if (target.terminal) {
+      return {
+        snapshot: {
+          ...snapshot,
+          status: 'completed',
+          currentState: target.id,
+          currentStepIndex: 0,
+          waitingFor: undefined,
+          latestTransition: transition,
+          history,
+          updatedAt: at,
+        },
+        effect: { kind: 'none' },
+      };
+    }
+    const nextVisitId = deps.createId();
+    const transitioned: WorkflowRuntimeSnapshot = {
+      ...snapshot,
+      currentState: target.id,
+      currentStepIndex: 0,
+      visitId: nextVisitId,
+      waitingFor: undefined,
+      latestTransition: transition,
+      history: [
+        ...history.slice(0, -1),
+        { kind: 'state_transitioned', at, transition, nextVisitId },
+      ],
+      updatedAt: at,
+    };
+    const { snapshot: plannedSnapshot, effect } = planNextWorkflowEffect(model, transitioned, deps);
+    return { snapshot: plannedSnapshot, effect };
+  }
+
   if (step.type === 'human_form' && observation.kind === 'human_form_completed') {
     const at = deps.now();
     const advanced: WorkflowRuntimeSnapshot = {
@@ -936,6 +1110,74 @@ export function advanceWorkflow(
     );
   }
   const transition = buildTransition(snapshot, observation, action, validation, step);
+  if (action.waitFor?.provider === 'github_ci') {
+    const wait = extractGithubCiWait(action, validation.parsed ?? {});
+    if (!wait.ciRunId && !wait.checkRunId) {
+      return handleInvalidDecision(
+        snapshot,
+        state,
+        step,
+        observation,
+        [
+          {
+            code: 'WORKFLOW_GITHUB_CI_INVALID_REFERENCE',
+            path: `states.${state.id}.actions.${action.id}.waitFor`,
+            message: 'GitHub CI wait action requires a CI run id or check run id in the decision result',
+          },
+        ],
+        at,
+        completedEntry,
+        deps,
+      );
+    }
+    const waitTurnId = deps.createId();
+    const waitEntry: WorkflowHistoryEntry = cloneWithDefined({
+      kind: 'github_ci_wait_planned' as const,
+      at,
+      state: state.id,
+      stepId: step.id,
+      turnId: waitTurnId,
+      action: action.id,
+      targetState: action.targetState,
+      ciRunId: wait.ciRunId,
+      checkRunId: wait.checkRunId,
+      repo: wait.repo,
+      sha: wait.sha,
+    });
+    const planned: WorkflowRuntimeSnapshot = {
+      ...snapshot,
+      waitingFor: cloneWithDefined({
+        kind: 'github_ci' as const,
+        state: state.id,
+        stepId: step.id,
+        turnId: waitTurnId,
+        action: action.id,
+        targetState: action.targetState,
+        ciRunId: wait.ciRunId,
+        checkRunId: wait.checkRunId,
+        repo: wait.repo,
+        sha: wait.sha,
+      }),
+      latestTransition: transition,
+      history: [...snapshot.history, completedEntry, waitEntry],
+      updatedAt: at,
+    };
+    return {
+      snapshot: planned,
+      effect: cloneWithDefined({
+        kind: 'start_github_ci_watch' as const,
+        state: state.id,
+        stepId: step.id,
+        turnId: waitTurnId,
+        action: action.id,
+        targetState: action.targetState,
+        ciRunId: wait.ciRunId,
+        checkRunId: wait.checkRunId,
+        repo: wait.repo,
+        sha: wait.sha,
+      }),
+    };
+  }
   const transitionedAt = at;
   const history: WorkflowHistoryEntry[] = [
     ...snapshot.history,
@@ -1165,6 +1407,23 @@ function buildTransition(
     });
   }
   return transitionBase;
+}
+
+function extractGithubCiWait(
+  action: NormalizedWorkflowAction,
+  parsed: Record<string, unknown>,
+): { ciRunId?: string; checkRunId?: string; repo?: string; sha?: string } {
+  const waitFor = action.waitFor;
+  const readString = (fieldName: string | undefined, fallback: string): string | undefined => {
+    const value = parsed[fieldName ?? fallback];
+    return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+  };
+  return cloneWithDefined({
+    ciRunId: readString(waitFor?.runIdField, 'ciRunId'),
+    checkRunId: readString(waitFor?.checkRunIdField, 'checkRunId'),
+    repo: readString(waitFor?.repoField, 'repo'),
+    sha: readString(waitFor?.shaField, 'sha'),
+  });
 }
 
 function validateDecisionResultFields(
@@ -1489,6 +1748,23 @@ function validateResultContract(value: unknown, path: string, issues: WorkflowCo
           issues.push(issue('WORKFLOW_CONFIG_INVALID_REFERENCE', `${path}.required.${index}`, 'required field must reference result.fields'));
         }
       }
+    }
+  }
+}
+
+function validateWaitFor(value: unknown, path: string, issues: WorkflowConfigIssue[]) {
+  if (value === undefined) return;
+  if (!isRecord(value)) {
+    issues.push(issue('WORKFLOW_CONFIG_INVALID_ACTIVE_STATE', path, 'waitFor must be an object'));
+    return;
+  }
+  assertKnownKeys(value, ['provider', 'runIdField', 'checkRunIdField', 'repoField', 'shaField'], path, issues);
+  if (value.provider !== 'github_ci') {
+    issues.push(issue('WORKFLOW_CONFIG_INVALID_ACTIVE_STATE', `${path}.provider`, 'waitFor provider must be github_ci'));
+  }
+  for (const field of ['runIdField', 'checkRunIdField', 'repoField', 'shaField'] as const) {
+    if (value[field] !== undefined && (typeof value[field] !== 'string' || !value[field].trim())) {
+      issues.push(issue('WORKFLOW_CONFIG_INVALID_ACTIVE_STATE', `${path}.${field}`, `${field} must be a non-empty string`));
     }
   }
 }

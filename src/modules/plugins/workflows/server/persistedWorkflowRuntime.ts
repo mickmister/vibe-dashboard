@@ -11,6 +11,7 @@ import {
   type AgentTurnObservation,
   type DecisionResponseValidator,
   type DecisionValidationResult,
+  type GitHubCiCompletionStatus,
   type HumanFormObservation,
   type NormalizedAgentWorkflowModel,
   type NormalizedWorkflowAction,
@@ -75,6 +76,10 @@ export interface PersistedWorkflowRuntimeEvent {
     | "human_form_submitted"
     | "workflow_call_started"
     | "workflow_call_completed"
+    | "github_ci_watch_started"
+    | "github_ci_watch_completed"
+    | "github_ci_watch_poll_error"
+    | "github_ci_watch_provider_missing"
     | "observation_ignored"
     | "workflow_status_changed"
     | "queue_failed"
@@ -82,6 +87,19 @@ export interface PersistedWorkflowRuntimeEvent {
     | "form_artifact_failed";
   at: number;
   data: Record<string, unknown>;
+}
+
+export interface GitHubCiWatchProvider {
+  startWatch(request: {
+    runId: string;
+    workspaceId: string;
+    turnId: string;
+    action: string;
+    ciRunId?: string;
+    checkRunId?: string;
+    repo?: string;
+    sha?: string;
+  }): Promise<{ watchRef: string }>;
 }
 
 export interface PersistedWorkflowRunReadModel {
@@ -133,6 +151,7 @@ export class PersistedWorkflowRuntimeService {
   private readonly validator: DecisionResponseValidator;
   private readonly orchestrationStore?: DbWorkflowOrchestrationStore;
   private readonly extensionRegistry: WorkflowExtensionRegistry;
+  private readonly githubCiWatchProvider?: GitHubCiWatchProvider;
 
   constructor(options: {
     db: Kysely<DB>;
@@ -140,6 +159,7 @@ export class PersistedWorkflowRuntimeService {
     queue: PersistedWorkflowRuntimeQueue;
     orchestrationStore?: DbWorkflowOrchestrationStore;
     extensionRegistry?: WorkflowExtensionRegistry;
+    githubCiWatchProvider?: GitHubCiWatchProvider;
     now?: () => number;
     createId?: () => string;
     validator?: DecisionResponseValidator;
@@ -158,6 +178,7 @@ export class PersistedWorkflowRuntimeService {
     this.orchestrationStore = options.orchestrationStore;
     this.extensionRegistry =
       options.extensionRegistry ?? createDefaultWorkflowExtensionRegistry();
+    this.githubCiWatchProvider = options.githubCiWatchProvider;
   }
 
   async launch(input: {
@@ -260,6 +281,12 @@ export class PersistedWorkflowRuntimeService {
         run.pendingEffect?.kind === "start_workflow_call"
       ) {
         return this.startWorkflowCallEffect(run, run.pendingEffect);
+      }
+      if (
+        run.coreSnapshot.waitingFor.kind === "github_ci" &&
+        run.pendingEffect?.kind === "start_github_ci_watch"
+      ) {
+        return this.startGithubCiWatchEffect(run, run.pendingEffect);
       }
       if (run.coreSnapshot.waitingFor.kind === "human_form") {
         const state = run.coreModel.states[run.coreSnapshot.waitingFor.state];
@@ -477,6 +504,96 @@ export class PersistedWorkflowRuntimeService {
     return { applied: true, reason: "applied", run: persisted };
   }
 
+  async completeGithubCiWatch(input: {
+    runId: string;
+    turnId: string;
+    responseRef: string;
+    status: GitHubCiCompletionStatus;
+    statusSummary?: string;
+    detailsUrl?: string;
+  }): Promise<{
+    applied: boolean;
+    reason: "applied" | "duplicate" | "stale" | "terminal";
+    run: PersistedWorkflowRunReadModel;
+  }> {
+    const run = await this.getRequiredRun(input.runId);
+    if (run.coreSnapshot.status !== "running")
+      return { applied: false, reason: "terminal", run };
+    if (
+      run.coreSnapshot.history.some(
+        (entry) =>
+          entry.kind === "github_ci_wait_completed" &&
+          entry.turnId === input.turnId,
+      )
+    ) {
+      return { applied: false, reason: "duplicate", run };
+    }
+    const advanced = advanceWorkflow(
+      run.coreModel,
+      run.coreSnapshot,
+      {
+        kind: "github_ci_completed",
+        turnId: input.turnId,
+        responseRef: input.responseRef,
+        status: input.status,
+        statusSummary: input.statusSummary,
+        detailsUrl: input.detailsUrl,
+      },
+      this.deps(),
+    );
+    if (advanced.ignored) {
+      const ignoredRun = await this.updateRun(
+        run,
+        run.coreSnapshot,
+        run.pendingEffect,
+        [
+          event("observation_ignored", this.now(), {
+            turnId: input.turnId,
+            reason: advanced.ignored,
+          }),
+        ],
+      );
+      return { applied: false, reason: "stale", run: ignoredRun };
+    }
+    const persisted = await this.persistAdvanceResult(
+      run,
+      advanced,
+      { turnId: input.turnId, responseRef: input.responseRef },
+      [
+        event("github_ci_watch_completed", this.now(), {
+          turnId: input.turnId,
+          status: input.status,
+          statusSummary: input.statusSummary ?? input.status,
+          detailsUrl: input.detailsUrl ?? null,
+        }),
+      ],
+      "github_ci_watch_completed",
+    );
+    await this.resumeParentsIfTerminal(persisted);
+    return { applied: true, reason: "applied", run: persisted };
+  }
+
+  async recordGithubCiWatchPollError(input: {
+    runId: string;
+    turnId: string;
+    error: { name: string; message: string; retryAfterMs?: number };
+  }): Promise<PersistedWorkflowRunReadModel> {
+    const run = await this.getRequiredRun(input.runId);
+    if (
+      run.coreSnapshot.status !== "running" ||
+      run.coreSnapshot.waitingFor?.kind !== "github_ci" ||
+      run.coreSnapshot.waitingFor.turnId !== input.turnId
+    ) {
+      return run;
+    }
+    return this.updateRun(run, run.coreSnapshot, run.pendingEffect, [
+      event("github_ci_watch_poll_error", this.now(), {
+        turnId: input.turnId,
+        error: input.error,
+      }),
+    ]);
+  }
+
   async getRun(runId: string): Promise<PersistedWorkflowRunReadModel | null> {
     const row = await this.db
       .selectFrom("WorkflowPersistedRun")
@@ -534,6 +651,8 @@ export class PersistedWorkflowRuntimeService {
       return this.createHumanFormEffect(withObservation, advanced.effect);
     if (advanced.effect.kind === "start_workflow_call")
       return this.startWorkflowCallEffect(withObservation, advanced.effect);
+    if (advanced.effect.kind === "start_github_ci_watch")
+      return this.startGithubCiWatchEffect(withObservation, advanced.effect);
     return withObservation;
   }
 
@@ -619,7 +738,70 @@ export class PersistedWorkflowRuntimeService {
       return this.createHumanFormEffect(planned, effect);
     if (effect.kind === "start_workflow_call")
       return this.startWorkflowCallEffect(planned, effect);
+    if (effect.kind === "start_github_ci_watch")
+      return this.startGithubCiWatchEffect(planned, effect);
     return planned;
+  }
+
+  private async startGithubCiWatchEffect(
+    run: PersistedWorkflowRunReadModel,
+    effect: Extract<WorkflowPlanEffect, { kind: "start_github_ci_watch" }>,
+  ): Promise<PersistedWorkflowRunReadModel> {
+    const existingStart = run.events.find(
+      (entry) =>
+        entry.kind === "github_ci_watch_started" &&
+        entry.data.turnId === effect.turnId,
+    );
+    if (existingStart) return run;
+    if (!this.githubCiWatchProvider) {
+      const reason: WorkflowRuntimeIssue = {
+        code: "WORKFLOW_DECISION_VALIDATION_FAILED",
+        path: `states.${effect.state}.actions.${effect.action}.waitFor`,
+        message: "GitHub CI wait provider is not configured",
+      };
+      const failedSnapshot: WorkflowRuntimeSnapshot = {
+        ...run.coreSnapshot,
+        status: "blocked",
+        waitingFor: undefined,
+        blockedReason: reason,
+        history: [
+          ...run.coreSnapshot.history,
+          { kind: "workflow_blocked", at: this.now(), reason },
+        ],
+        updatedAt: this.now(),
+      };
+      return this.updateRun(run, failedSnapshot, { kind: "none" }, [
+        event("github_ci_watch_provider_missing", this.now(), {
+          turnId: effect.turnId,
+          action: effect.action,
+        }),
+        event("workflow_status_changed", this.now(), {
+          from: run.coreSnapshot.status,
+          to: "blocked",
+        }),
+      ]);
+    }
+    const started = await this.githubCiWatchProvider.startWatch({
+      runId: run.runId,
+      workspaceId: run.workspaceId,
+      turnId: effect.turnId,
+      action: effect.action,
+      ciRunId: effect.ciRunId,
+      checkRunId: effect.checkRunId,
+      repo: effect.repo,
+      sha: effect.sha,
+    });
+    return this.updateRun(run, run.coreSnapshot, effect, [
+      event("github_ci_watch_started", this.now(), {
+        turnId: effect.turnId,
+        action: effect.action,
+        watchRef: started.watchRef,
+        ciRunId: effect.ciRunId ?? null,
+        checkRunId: effect.checkRunId ?? null,
+        repo: effect.repo ?? null,
+        sha: effect.sha ?? null,
+      }),
+    ]);
   }
 
   private async startWorkflowCallEffect(
