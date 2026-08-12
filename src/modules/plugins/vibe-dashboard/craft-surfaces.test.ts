@@ -186,7 +186,7 @@ describe("dynamic Craft surfaces", () => {
 
     expect(
       effective.tabGroups[0]!.tabs.find((tab) => tab.id === "forms")?.url,
-    ).toBe("https://vd.example.test/dashboard/forms?workspace=workspace_1&bead=vkvw-123");
+    ).toBe("https://vd.example.test/dashboard/forms?workspace=workspace_1&dir=%2Fhome%2Fvkuser%2Frepos%2Fapp&bead=vkvw-123");
   });
 
   it("derives built-in workspace tabs from the current localhost origin", () => {

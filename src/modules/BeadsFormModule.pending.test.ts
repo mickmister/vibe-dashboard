@@ -35,4 +35,12 @@ describe('BeadsForm pending queue UI source', () => {
     expect(source).toContain('clipboardStatus: pendingCopy.status');
     expect(source).toContain('void copyNormalizedSubmittedResultJson(navigator.clipboard, result.values).then((copyResult) => {');
   });
+
+  it('prefers direct selected-bead loading when URL has both workspace and dir', async () => {
+    const source = await readFile(new URL('./BeadsFormModule.tsx', import.meta.url), 'utf8');
+
+    expect(source).toContain('const shouldUseDirectSelectedLoad = !!dir && !!beadId;');
+    expect(source).toContain('shouldUseDirectSelectedLoad\n          ? await directResult(actions.loadBeadForms)\n          : await (await actions.loadWorkspaceForms(workspaceInput))');
+    expect(source).toContain('shouldUseDirectSelectedLoad\n            ? await directResult(actions.refreshBeadForms)\n            : await (await actions.refreshWorkspaceForms(workspaceInput))');
+  });
 });

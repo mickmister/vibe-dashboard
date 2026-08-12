@@ -486,9 +486,9 @@ describe('beads-form CLI helpers', () => {
       beadId: 'bd-1',
       formId: 'review',
       appendedQuestionIds: ['review_risk'],
-      url: '/dashboard/forms?workspace=workspace-1&bead=bd-1&form=review',
+      url: '/dashboard/forms?workspace=workspace-1&dir=%2Frepo&bead=bd-1&form=review',
       urls: {
-        workspace: '/dashboard/forms?workspace=workspace-1&bead=bd-1&form=review',
+        workspace: '/dashboard/forms?workspace=workspace-1&dir=%2Frepo&bead=bd-1&form=review',
         dir: '/dashboard/forms?dir=%2Frepo&bead=bd-1&form=review',
       },
     });
@@ -549,14 +549,14 @@ describe('beads-form CLI helpers', () => {
     });
   });
 
-  it('builds workspace URLs when known and dir URLs otherwise', () => {
+  it('builds selected URLs with workspace context and direct repo identity', () => {
     expect(buildFillOutUrl({
       dir: '/repo',
       beadId: 'bd-1',
       formId: 'review',
       workspaceId: 'workspace-1',
       origin: 'https://example.test/',
-    })).toBe('https://example.test/dashboard/forms?workspace=workspace-1&bead=bd-1&form=review');
+    })).toBe('https://example.test/dashboard/forms?workspace=workspace-1&dir=%2Frepo&bead=bd-1&form=review');
     expect(buildFillOutUrl({ dir: '/repo', beadId: 'bd-1', formId: 'review' })).toBe('/dashboard/forms?dir=%2Frepo&bead=bd-1&form=review');
     expect(buildFillOutUrls({
       dir: '/repo',
@@ -564,7 +564,7 @@ describe('beads-form CLI helpers', () => {
       formId: 'review',
       workspaceId: 'workspace-1',
     })).toEqual({
-      workspace: '/dashboard/forms?workspace=workspace-1&bead=bd-1&form=review',
+      workspace: '/dashboard/forms?workspace=workspace-1&dir=%2Frepo&bead=bd-1&form=review',
       dir: '/dashboard/forms?dir=%2Frepo&bead=bd-1&form=review',
     });
     expect(buildFillOutUrls({ dir: '/repo', beadId: 'bd-1', formId: 'review' })).toEqual({
@@ -599,9 +599,9 @@ describe('beads-form CLI helpers', () => {
 
     expect(result.forms[0]).toMatchObject({
       id: 'review',
-      url: '/dashboard/forms?workspace=workspace-1&bead=bd-1&form=review',
+      url: '/dashboard/forms?workspace=workspace-1&dir=%2Frepo&bead=bd-1&form=review',
       urls: {
-        workspace: '/dashboard/forms?workspace=workspace-1&bead=bd-1&form=review',
+        workspace: '/dashboard/forms?workspace=workspace-1&dir=%2Frepo&bead=bd-1&form=review',
         dir: '/dashboard/forms?dir=%2Frepo&bead=bd-1&form=review',
       },
     });

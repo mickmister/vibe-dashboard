@@ -834,9 +834,8 @@ export function buildFillOutUrl(args: {
   const params = new URLSearchParams();
   if (args.workspaceId) {
     params.set('workspace', args.workspaceId);
-  } else {
-    params.set('dir', resolve(args.dir));
   }
+  params.set('dir', resolve(args.dir));
   params.set('bead', args.beadId);
   params.set('form', args.formId);
   const path = `/dashboard/forms?${params.toString()}`;

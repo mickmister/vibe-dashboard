@@ -208,7 +208,7 @@ function getBuiltInWorkspaceTabs(tabGroup: TabGroup, origin: string): Tab[] {
     {
       id: BUILT_IN_FORMS_TAB_ID,
       title: "Forms",
-      url: buildFormsUrl(baseOrigin, metadata.workspaceId, metadata.formsBeadId),
+      url: buildFormsUrl(baseOrigin, metadata.workspaceId, metadata.workspaceDir, metadata.formsBeadId),
       pinned: true,
     },
   ];
@@ -431,9 +431,12 @@ function buildWorkspaceTabUrl(baseOrigin: string, workspaceId: string): string {
   return `${baseOrigin}/workspaces/${workspaceId}`;
 }
 
-function buildFormsUrl(baseOrigin: string, workspaceId: string, beadId?: string): string {
+function buildFormsUrl(baseOrigin: string, workspaceId: string, workspaceDir: string, beadId?: string): string {
   const params = new URLSearchParams({ workspace: workspaceId });
-  if (beadId) params.set("bead", beadId);
+  if (beadId) {
+    params.set("dir", workspaceDir);
+    params.set("bead", beadId);
+  }
   return `${baseOrigin}/dashboard/forms?${params.toString()}`;
 }
 
