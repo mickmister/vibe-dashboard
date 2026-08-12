@@ -226,6 +226,35 @@ describe('registerWorkflowRoutes', () => {
     expect(JSON.parse(runRow.roleBindingsJson)).toMatchObject({ dev: { sessionId: 'session-dev' }, review: { sessionId: 'session-review' } });
   });
 
+  it('TEST_CASE_M107_1B/C/E creates, duplicates, and publishes wizard workflow designs', async () => {
+    const handle = await initVdDb({ path: ':memory:' });
+    dbHandles.push(handle);
+    const app = new Hono();
+    const designStore = new DbWorkflowDesignStore({ db: handle.db });
+    await designStore.createDesign({ designId: 'design-source-wizard', draftId: 'draft-source-wizard', name: 'Source Wizard', definition: routeLaunchDefinition() });
+    await designStore.publishDraft('draft-source-wizard');
+    registerWorkflowRoutes(app, { registry: createWorkflowRegistry(), workflowHomeDb: handle.db, workflowDesignStore: designStore });
+
+    const blank = await app.request('/dashboard/api/workflow-designs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Wizard Blank', description: 'Created in wizard', publish: false, definition: routeLaunchDefinition() }),
+    });
+    expect(blank.status).toBe(201);
+    const blankPayload = await blank.json() as { design: any; draft: any; version: any; editor: any };
+    expect(blankPayload).toMatchObject({ design: { name: 'Wizard Blank', latestPublishedVersion: null }, draft: { designId: blankPayload.design.designId }, version: null, editor: { validationStatus: 'valid' } });
+
+    const duplicate = await app.request('/dashboard/api/workflow-designs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Wizard Duplicate', sourceDesignId: 'design-source-wizard', publish: true }),
+    });
+    expect(duplicate.status).toBe(201);
+    const duplicatePayload = await duplicate.json() as { design: any; version: any; editor: any };
+    expect(duplicatePayload).toMatchObject({ design: { name: 'Wizard Duplicate', latestPublishedVersion: 1 }, version: { version: 1 }, editor: { validationStatus: 'valid' } });
+    expect(await designStore.getVersion(duplicatePayload.design.designId, 1)).toMatchObject({ version: 1 });
+  });
+
   it('TEST_CASE_M100_1A batch launch creates pending items, per-item errors, and respects route capacity', async () => {
     const handle = await initVdDb({ path: ':memory:' });
     dbHandles.push(handle);

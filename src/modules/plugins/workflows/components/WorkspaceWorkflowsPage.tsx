@@ -65,7 +65,7 @@ export function WorkspaceWorkflowsHomeView({ home, loading, error, onRefresh, on
             <div className="text-xs uppercase tracking-wide text-cyan-300">Workspace</div>
             <h1 className="mt-1 text-2xl font-semibold">Workflows</h1>
           </div>
-          <button className="rounded-md border border-zinc-700 px-3 py-2 text-sm hover:bg-zinc-800 disabled:opacity-50" onClick={onRefresh} disabled={loading}>{loading ? 'Refreshing…' : 'Refresh'}</button>
+          <div className="flex flex-wrap gap-2"><a className="rounded-md bg-cyan-500 px-3 py-2 text-sm font-medium text-zinc-950 hover:bg-cyan-400" href={`/dashboard/workflows/new?workspaceId=${encodeURIComponent(home?.workspaceId ?? '')}`}>Create workflow</a><button className="rounded-md border border-zinc-700 px-3 py-2 text-sm hover:bg-zinc-800 disabled:opacity-50" onClick={onRefresh} disabled={loading}>{loading ? 'Refreshing…' : 'Refresh'}</button></div>
         </header>
 
         {error ? <div role="alert" className="rounded-lg border border-amber-900 bg-amber-950/30 p-4 text-sm text-amber-100">{error}</div> : null}

@@ -19,7 +19,7 @@ export function buildSimpleWorkflowDefinition(draft: WorkflowWizardDraft): Agent
   return {
     schemaVersion: 1,
     name: draft.name.trim() || 'Untitled workflow',
-    description: draft.purpose.trim() || null,
+    ...(draft.purpose.trim() ? { description: draft.purpose.trim() } : {}),
     inputs: { [inputId]: { type: 'markdown', required: true } },
     roles: { [roleId]: { label: draft.roleLabel.trim() || 'Agent' } },
     initialState: 'work',

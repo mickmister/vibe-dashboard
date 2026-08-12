@@ -11,6 +11,7 @@ import { AgentTeamsDashboard } from "../components/AgentTeamsDashboard";
 import { WorkflowPresentationPage } from "../components/WorkflowPresentationPage";
 import { WorkspaceWorkflowsPage } from "./plugins/workflows/components/WorkspaceWorkflowsPage";
 import { WorkflowBatchDetailPage } from "./plugins/workflows/components/WorkflowBatchDetailPage";
+import { WorkflowCreationWizardPage } from "./plugins/workflows/components/WorkflowCreationWizardPage";
 import { WorkflowGraphEditorPage } from "./plugins/workflows/components/WorkflowGraphEditorPage";
 import { useSessionWorkspaceNav } from "../sessionState";
 import type { NewSessionInitialSelection } from "../sessionState";
@@ -1230,6 +1231,12 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
     "/dashboard/workflows",
     { hideApplicationShell: true },
     WorkspaceWorkflowsPage,
+  );
+
+  moduleAPI.registerRoute(
+    "/dashboard/workflows/new",
+    { hideApplicationShell: true },
+    WorkflowCreationWizardPage,
   );
 
   moduleAPI.registerRoute(

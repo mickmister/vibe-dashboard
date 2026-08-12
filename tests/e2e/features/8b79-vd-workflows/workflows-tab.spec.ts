@@ -18,6 +18,10 @@
  * - TEST_CASE_M106_1C
  * - TEST_CASE_M106_1D
  * - TEST_CASE_M106_1E
+ * - TEST_CASE_M107_1A
+ * - TEST_CASE_M107_1C
+ * - TEST_CASE_M107_1E
+ * - TEST_CASE_M107_1F
  */
 import { expect, test } from 'playwright/test';
 
@@ -194,6 +198,40 @@ test.describe('Workspace Workflows tab shell', () => {
     await expect(page.getByText('This item will start when workspace capacity is available.')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Retry' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Cancel' })).toHaveCount(0);
+    for (const term of forbiddenTerms) {
+      await expect(page.getByText(term, { exact: false })).toHaveCount(0);
+    }
+  });
+
+  test('creates and publishes a simple workflow through the wizard', async ({ page }) => {
+    await page.route('**/dashboard/api/workflows/home?**', async (route) => {
+      await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ home: homeFixture(false) }) });
+    });
+    await page.route('**/dashboard/api/workflow-designs', async (route) => {
+      const body = route.request().postDataJSON();
+      expect(body).toMatchObject({ workspaceId: 'workspace-e2e', name: 'Wizard Smoke Workflow', publish: true });
+      expect(body.definition.states.work.steps[0].type).toBe('agent_turn');
+      expect(JSON.stringify(body.definition)).not.toContain('fire_and_forget');
+      await route.fulfill({
+        contentType: 'application/json',
+        status: 201,
+        body: JSON.stringify({ design: { designId: 'design-wizard-smoke', name: 'Wizard Smoke Workflow', latestPublishedVersion: 1 }, draft: { draftId: 'draft-wizard-smoke', designId: 'design-wizard-smoke' }, version: { designId: 'design-wizard-smoke', version: 1 }, editor: { designId: 'design-wizard-smoke', name: 'Wizard Smoke Workflow', description: null, draftId: 'draft-wizard-smoke', version: 1, readonly: false, definition: body.definition, validationStatus: 'valid', validationIssues: [] } }),
+      });
+    });
+
+    await page.goto('/dashboard/workflows?workspaceId=workspace-e2e');
+    await page.locator('a[href="/dashboard/workflows/new?workspaceId=workspace-e2e"]').click();
+    await expect(page.getByRole('heading', { name: 'Create workflow' })).toBeVisible();
+    await expect(page.getByText('Blank simple workflow')).toBeVisible();
+    await expect(page.getByText('Review graph')).toBeVisible();
+    await page.getByLabel('Workflow name').fill('Wizard Smoke Workflow');
+    await page.getByLabel('Purpose').fill('Create a simple workflow through the wizard.');
+    await expect(page.getByText('Done')).toBeVisible();
+    await expect(page.getByText('Continue working')).toBeVisible();
+    await page.getByRole('button', { name: 'Save & publish' }).click();
+    await expect(page.getByLabel('Wizard result')).toContainText('Published v1');
+    await expect(page.locator('a[href="/dashboard/workflows/editor/design-wizard-smoke"]', { hasText: 'Open graph editor' })).toBeVisible();
+    await expect(page.locator('a[href="/dashboard/workflows?workspaceId=workspace-e2e"]', { hasText: 'Run from Workflows tab' })).toBeVisible();
     for (const term of forbiddenTerms) {
       await expect(page.getByText(term, { exact: false })).toHaveCount(0);
     }

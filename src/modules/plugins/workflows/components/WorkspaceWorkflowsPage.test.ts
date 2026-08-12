@@ -13,6 +13,8 @@ describe('WorkspaceWorkflowsHomeView', () => {
     expect(html).toContain('h-screen');
     expect(html).toContain('overflow-y-auto');
     expect(html).toContain('Workflows');
+    expect(html).toContain('Create workflow');
+    expect(html).toContain('href="/dashboard/workflows/new?workspaceId=workspace-a"');
     expect(html).toContain('Your workflows');
     expect(html).toContain('Starter templates');
     expect(html).toContain('Recent batches');
