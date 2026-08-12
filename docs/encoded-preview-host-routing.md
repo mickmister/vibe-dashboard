@@ -40,10 +40,10 @@ grammar.
 2. The Worker resolves the customer part to the canonical customer hostname and
    forwards traffic through the customer tunnel.
 3. The Worker preserves the original encoded hostname in `X-Vibe-Requested-Host`
-   and sends a shared secret in `X-Vibe-Preview-Secret`.
+   for the private-sandbox V1 deployment.
 4. The custom Caddy `vk_preview_resolver` handler reads the requested hostname
-   from `X-Vibe-Requested-Host` only when the shared secret matches. Otherwise,
-   it ignores forwarded host headers and uses the actual request `Host`.
+   from `X-Vibe-Requested-Host` when present. Otherwise, it ignores generic
+   forwarded host headers and uses the actual request `Host`.
 5. If the hostname matches the preview syntax, Caddy calls the local resolver API.
 6. The resolver returns `ready` with an upstream, `starting`, `not_found`,
    `capacity_full`, or `failed`/`unavailable`.
@@ -62,7 +62,10 @@ Backend and Worker code must be deployed with the same grammar:
   the canonical customer runtime.
 - The Worker must parse or preserve the full encoded preview host, route it to
   the matching canonical customer runtime, and forward the original host in
-  `X-Vibe-Requested-Host` on the trusted Worker path.
+  `X-Vibe-Requested-Host`. V1 intentionally does not use a requested-host
+  shared secret because the deployment is limited to the private/Cloudflare
+  Access-protected sandbox. The proper per-customer/runtime secret model is
+  tracked separately.
 
 ## Resolver API
 
@@ -110,23 +113,17 @@ When proxying a ready preview upstream, Caddy forwards preview metadata headers:
 - `X-Vibe-Preview-Slot`
 - `X-Vibe-Preview-Customer`
 
-## Trusted Worker header
+## Requested-host header trust model
 
 Direct clients can set arbitrary `X-Forwarded-Host` or `X-Vibe-Requested-Host`
-headers, so Caddy must not use those headers as routing authority unless the
-request came through the trusted Worker/proxy path. By default, the handler only
-uses `Host`.
+headers. For V1, Preview URLs are limited to the private/Cloudflare
+Access-protected sandbox, so Caddy accepts `X-Vibe-Requested-Host` as the Worker
+preserved-host signal and still ignores generic `X-Forwarded-Host`.
 
-To enable the Worker canonical-host path, configure the same secret in both the
-Worker and Caddy:
+Worker request to Caddy:
 
-- Worker request to Caddy:
-  - `X-Vibe-Requested-Host: {workspaceToken}-{repoSlug}-{slotSlug}-{customerSlug}.vibedashboard.dev`
-  - `X-Vibe-Preview-Secret: <shared secret>`
-- Caddy environment:
-  - `PREVIEW_REQUESTED_HOST_SECRET=<shared secret>`
+- `X-Vibe-Requested-Host: {workspaceToken}-{repoSlug}-{slotSlug}-{customerSlug}.vibedashboard.dev`
 
-Advanced deployments may override the header names with
-`PREVIEW_REQUESTED_HOST_HEADER` and `PREVIEW_REQUESTED_HOST_SECRET_HEADER`, or
-the equivalent Caddyfile options `trusted_requested_host_header`,
-`trusted_requested_host_secret_header`, and `trusted_requested_host_secret`.
+Advanced deployments may override the requested-host header name with
+`PREVIEW_REQUESTED_HOST_HEADER` or the equivalent Caddyfile option
+`trusted_requested_host_header`.

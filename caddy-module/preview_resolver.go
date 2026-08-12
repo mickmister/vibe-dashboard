@@ -3,7 +3,6 @@ package vibekanbanplugins
 import (
 	"bytes"
 	"context"
-	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"html"
@@ -25,19 +24,16 @@ import (
 
 const defaultPreviewResolverTimeout = 2 * time.Second
 const defaultTrustedRequestedHostHeader = "X-Vibe-Requested-Host"
-const defaultTrustedRequestedHostSecretHeader = "X-Vibe-Preview-Secret"
 
 var encodedPreviewLabelPattern = regexp.MustCompile(`^([a-f0-9]{16})-([a-z0-9]{1,18})-([a-z0-9]{1,10})-([a-z0-9]{1,16})$`)
 
 // PreviewResolver routes encoded preview hostnames through a local resolver API.
 type PreviewResolver struct {
-	ResolverURL                      string         `json:"resolver_url,omitempty"`
-	StartupPage                      string         `json:"startup_page,omitempty"`
-	BaseDomain                       string         `json:"base_domain,omitempty"`
-	TrustedRequestedHostHeader       string         `json:"trusted_requested_host_header,omitempty"`
-	TrustedRequestedHostSecretHeader string         `json:"trusted_requested_host_secret_header,omitempty"`
-	TrustedRequestedHostSecret       string         `json:"trusted_requested_host_secret,omitempty"`
-	Timeout                          caddy.Duration `json:"timeout,omitempty"`
+	ResolverURL                string         `json:"resolver_url,omitempty"`
+	StartupPage                string         `json:"startup_page,omitempty"`
+	BaseDomain                 string         `json:"base_domain,omitempty"`
+	TrustedRequestedHostHeader string         `json:"trusted_requested_host_header,omitempty"`
+	Timeout                    caddy.Duration `json:"timeout,omitempty"`
 
 	logger *zap.Logger
 	client *http.Client
@@ -92,15 +88,6 @@ func (p *PreviewResolver) Provision(ctx caddy.Context) error {
 		strings.TrimSpace(os.Getenv("PREVIEW_REQUESTED_HOST_HEADER")),
 		defaultTrustedRequestedHostHeader,
 	)
-	p.TrustedRequestedHostSecretHeader = firstNonEmpty(
-		strings.TrimSpace(p.TrustedRequestedHostSecretHeader),
-		strings.TrimSpace(os.Getenv("PREVIEW_REQUESTED_HOST_SECRET_HEADER")),
-		defaultTrustedRequestedHostSecretHeader,
-	)
-	p.TrustedRequestedHostSecret = strings.TrimSpace(firstNonEmpty(
-		p.TrustedRequestedHostSecret,
-		os.Getenv("PREVIEW_REQUESTED_HOST_SECRET"),
-	))
 	timeout := time.Duration(p.Timeout)
 	if timeout <= 0 {
 		timeout = defaultPreviewResolverTimeout
@@ -171,14 +158,6 @@ func parsePreviewResolverCaddyfile(h httpcaddyfile.Helper) (caddyhttp.Middleware
 				if !h.Args(&p.TrustedRequestedHostHeader) {
 					return nil, h.ArgErr()
 				}
-			case "trusted_requested_host_secret_header":
-				if !h.Args(&p.TrustedRequestedHostSecretHeader) {
-					return nil, h.ArgErr()
-				}
-			case "trusted_requested_host_secret":
-				if !h.Args(&p.TrustedRequestedHostSecret) {
-					return nil, h.ArgErr()
-				}
 			case "timeout":
 				var raw string
 				if !h.Args(&raw) {
@@ -198,26 +177,14 @@ func parsePreviewResolverCaddyfile(h httpcaddyfile.Helper) (caddyhttp.Middleware
 }
 
 func (p *PreviewResolver) previewRequestedHost(r *http.Request) string {
-	if p.trustsRequestedHostHeader(r) {
-		requestedHostHeader := firstNonEmpty(
-			strings.TrimSpace(p.TrustedRequestedHostHeader),
-			defaultTrustedRequestedHostHeader,
-		)
-		if value := firstForwardedHost(r.Header.Get(requestedHostHeader)); value != "" {
-			return normalizePreviewHost(value)
-		}
+	requestedHostHeader := firstNonEmpty(
+		strings.TrimSpace(p.TrustedRequestedHostHeader),
+		defaultTrustedRequestedHostHeader,
+	)
+	if value := firstForwardedHost(r.Header.Get(requestedHostHeader)); value != "" {
+		return normalizePreviewHost(value)
 	}
 	return normalizePreviewHost(r.Host)
-}
-
-func (p *PreviewResolver) trustsRequestedHostHeader(r *http.Request) bool {
-	secret := strings.TrimSpace(p.TrustedRequestedHostSecret)
-	if secret == "" {
-		return false
-	}
-	secretHeader := firstNonEmpty(strings.TrimSpace(p.TrustedRequestedHostSecretHeader), defaultTrustedRequestedHostSecretHeader)
-	presented := strings.TrimSpace(r.Header.Get(secretHeader))
-	return subtle.ConstantTimeCompare([]byte(presented), []byte(secret)) == 1
 }
 
 func firstForwardedHost(value string) string {

@@ -61,7 +61,7 @@ func TestParseEncodedPreviewHostRejectsInvalidHosts(t *testing.T) {
 	}
 }
 
-func TestPreviewResolverUsesTrustedRequestedHostHeaderAndEnsuresOnlyDocumentNavigations(t *testing.T) {
+func TestPreviewResolverUsesRequestedHostHeaderAndEnsuresOnlyDocumentNavigations(t *testing.T) {
 	var got previewResolveRequest
 	resolver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
@@ -76,13 +76,11 @@ func TestPreviewResolverUsesTrustedRequestedHostHeaderAndEnsuresOnlyDocumentNavi
 		ResolverURL:                resolver.URL,
 		BaseDomain:                 "vibedashboard.dev",
 		TrustedRequestedHostHeader: defaultTrustedRequestedHostHeader,
-		TrustedRequestedHostSecret: "test-secret",
 		client:                     resolver.Client(),
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "https://mickmister.vibedashboard.dev/", nil)
 	req.Header.Set("X-Vibe-Requested-Host", "0123456789abcdef-vibekanban-web-mickmister.vibedashboard.dev")
-	req.Header.Set(defaultTrustedRequestedHostSecretHeader, "test-secret")
 	req.Header.Set("Sec-Fetch-Mode", "navigate")
 	rec := httptest.NewRecorder()
 
@@ -100,26 +98,35 @@ func TestPreviewResolverUsesTrustedRequestedHostHeaderAndEnsuresOnlyDocumentNavi
 	}
 }
 
-func TestPreviewResolverIgnoresUntrustedRequestedHostHeader(t *testing.T) {
+func TestPreviewResolverUsesRequestedHostHeaderWithoutSharedSecret(t *testing.T) {
+	var got previewResolveRequest
+	resolver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatalf("decode resolver request: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"starting"}`))
+	}))
+	defer resolver.Close()
+
 	handler := &PreviewResolver{
-		ResolverURL:                "http://127.0.0.1:1/resolve",
+		ResolverURL:                resolver.URL,
 		BaseDomain:                 "vibedashboard.dev",
 		TrustedRequestedHostHeader: defaultTrustedRequestedHostHeader,
-		TrustedRequestedHostSecret: "test-secret",
-		client:                     http.DefaultClient,
+		client:                     resolver.Client(),
 	}
 	req := httptest.NewRequest(http.MethodGet, "https://mickmister.vibedashboard.dev/", nil)
 	req.Header.Set("X-Vibe-Requested-Host", "0123456789abcdef-vibekanban-web-mickmister.vibedashboard.dev")
 	rec := httptest.NewRecorder()
 
 	if err := handler.ServeHTTP(rec, req, caddyhttp.HandlerFunc(func(w http.ResponseWriter, r *http.Request) error {
-		_, _ = w.Write([]byte("next"))
+		t.Fatal("next handler should not run")
 		return nil
 	})); err != nil {
 		t.Fatalf("ServeHTTP returned error: %v", err)
 	}
-	if rec.Body.String() != "next" {
-		t.Fatalf("expected untrusted requested-host header to fall through, got %q", rec.Body.String())
+	if got.Host != "0123456789abcdef-vibekanban-web-mickmister.vibedashboard.dev" {
+		t.Fatalf("expected requested-host header to be used without shared secret, got %+v", got)
 	}
 }
 
