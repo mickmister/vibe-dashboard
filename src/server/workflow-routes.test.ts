@@ -1061,12 +1061,13 @@ describe('registerWorkflowRoutes', () => {
     expect(response.status).toBe(200);
     const body = await response.json() as { presentation: any };
     expect(body.presentation).toMatchObject({ workflowName: 'Dev / Review / Tester', status: 'completed', originalTask: 'Build presentation for persisted runs' });
-    expect(body.presentation.timeline.map((item: any) => item.role)).toEqual(['Dev', 'Dev', 'Review', 'Tester']);
+    expect(body.presentation.timeline.filter((item: any) => item.kind === 'agent_turn').map((item: any) => item.role)).toEqual(['Dev', 'Dev', 'Review', 'Tester']);
+    expect(body.presentation.timeline.map((item: any) => item.kind)).toEqual(expect.arrayContaining(['decision']));
     expect(body.presentation.timeline[0]).toMatchObject({ title: 'Implement turn', status: 'Complete' });
     expect(body.presentation.timeline[0].initialMessage.text).toContain('Implement the requested feature');
     expect(body.presentation.timeline[1].finalResponse.text).toContain('ready_for_review');
-    expect(body.presentation.timeline[2].finalResponse.text).toContain('approved');
-    expect(body.presentation.timeline[3].finalResponse.text).toContain('Passed');
+    expect(body.presentation.timeline.find((item: any) => item.id === queued[2].turnId).finalResponse.text).toContain('approved');
+    expect(body.presentation.timeline.find((item: any) => item.id === queued[3].turnId).finalResponse.text).toContain('Passed');
   });
 
   it('exposes a clean workflow presentation read model', async () => {
@@ -1725,7 +1726,8 @@ describe('registerWorkflowRoutes', () => {
     expect(presentation.status).toBe(200);
     const presentationJson = await presentation.json() as { presentation: any };
     expect(presentationJson.presentation).toMatchObject({ workflowName: 'Dev / Review / Tester', status: 'completed' });
-    expect(presentationJson.presentation.timeline.map((item: any) => item.role)).toEqual(['Dev', 'Dev', 'Review', 'Dev', 'Dev', 'Review', 'Tester', 'Dev', 'Dev', 'Review', 'Tester']);
+    expect(presentationJson.presentation.timeline.filter((item: any) => item.kind === 'agent_turn').map((item: any) => item.role)).toEqual(['Dev', 'Dev', 'Review', 'Dev', 'Dev', 'Review', 'Tester', 'Dev', 'Dev', 'Review', 'Tester']);
+    expect(presentationJson.presentation.timeline.map((item: any) => item.kind)).toEqual(expect.arrayContaining(['decision']));
     expect(presentationJson.presentation.timeline.at(-1).finalResponse.text).toContain('Acceptance passed');
   });
 

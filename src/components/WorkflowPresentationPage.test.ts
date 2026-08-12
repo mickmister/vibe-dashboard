@@ -29,6 +29,15 @@ describe('WorkflowPresentationView', () => {
     expect(html).toContain('h-screen');
     expect(html).toContain('overflow-y-auto');
     expect(html).toContain('Two agent review round');
+    expect(html).toContain('Run summary');
+    expect(html).toContain('Who has the ball');
+    expect(html).toContain('Reviewer');
+    expect(html).toContain('Waiting for reviewer response.');
+    expect(html).toContain('Next: The workflow resumes when the agent turn completes.');
+    expect(html).toContain('Child workflows');
+    expect(html).toContain('Open child run');
+    expect(html).toContain('Outputs and artifacts');
+    expect(html).toContain('Final summary');
     expect(html).toContain('Original task');
     expect(html).toContain('Build the clean workflow page');
     expect(html).toContain('Timeline');
@@ -38,6 +47,7 @@ describe('WorkflowPresentationView', () => {
     expect(html).toContain('Final response');
     expect(html).toContain('Implemented the UI.');
     expect(html).toContain('Reviewed and approved.');
+    expect(html).toContain('agent turn');
     expect(html).toContain('Open Implementer session');
     expect(html).toContain('Open Reviewer session');
     for (const term of forbiddenDebugTerms) {
@@ -106,11 +116,17 @@ function presentationFixture(): WorkflowPresentationModel {
     startedAt: 1,
     updatedAt: 2,
     completedAt: 2,
+    summary: { statusLabel: 'In progress', currentOwner: 'Reviewer', currentState: 'Review', currentStep: 'Review turn', waitingReason: 'Waiting for reviewer response.', nextAction: 'The workflow resumes when the agent turn completes.' },
+    callTree: [{ turnId: 'call-child', label: 'Child workflow', status: 'completed', childRunId: 'child-run', childUrl: '/dashboard/workflows/child-run', waitingReason: null, outputRef: 'workflow-run://child-run/output' }],
+    outputs: [{ id: 'summary', label: 'Final summary', value: 'Workflow completed.', kind: 'summary' }],
     attention: null,
     timeline: [
       {
         id: 'implementer',
         role: 'Implementer',
+        kind: 'agent_turn',
+        state: 'Implement',
+        step: 'Implementation turn',
         title: 'Implementation turn',
         status: 'Complete',
         session: { label: 'Implementer session', workspaceId: 'ws-1', sessionId: 'session-1' },
@@ -122,6 +138,9 @@ function presentationFixture(): WorkflowPresentationModel {
       {
         id: 'reviewer',
         role: 'Reviewer',
+        kind: 'agent_turn',
+        state: 'Review',
+        step: 'Review turn',
         title: 'Review turn',
         status: 'Complete',
         session: { label: 'Reviewer session', workspaceId: 'ws-2', sessionId: 'session-2' },

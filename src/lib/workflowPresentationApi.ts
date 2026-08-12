@@ -8,8 +8,20 @@ export interface WorkflowPresentationModel {
   startedAt: number;
   updatedAt: number;
   completedAt: number | null;
+  summary?: WorkflowPresentationSummary;
   timeline: WorkflowPresentationTimelineItem[];
+  callTree?: WorkflowPresentationCallTreeItem[];
+  outputs?: WorkflowPresentationOutputItem[];
   attention: WorkflowPresentationAttention | null;
+}
+
+export interface WorkflowPresentationSummary {
+  statusLabel: string;
+  currentOwner: string | null;
+  currentState: string | null;
+  currentStep: string | null;
+  waitingReason: string | null;
+  nextAction: string | null;
 }
 
 export interface WorkflowPresentationTimelineItem {
@@ -17,11 +29,33 @@ export interface WorkflowPresentationTimelineItem {
   role: string;
   title: string;
   status: string;
+  kind?: 'agent_turn' | 'decision' | 'human_form' | 'workflow_call' | 'artifact' | 'blocked' | 'retry';
+  state?: string | null;
+  step?: string | null;
+  action?: string | null;
+  isLoop?: boolean;
   session: { label: string; workspaceId: string | null; sessionId: string | null } | null;
   initialMessage: PresentationText | null;
   finalResponse: PresentationText | null;
   responseUnavailable: string | null;
   commits: PresentationCommitRange[];
+}
+
+export interface WorkflowPresentationCallTreeItem {
+  turnId: string;
+  label: string;
+  status: string;
+  childRunId: string;
+  childUrl: string | null;
+  waitingReason: string | null;
+  outputRef: string | null;
+}
+
+export interface WorkflowPresentationOutputItem {
+  id: string;
+  label: string;
+  value: string;
+  kind: 'summary' | 'form_artifact' | 'workflow_call_output' | 'error';
 }
 
 export interface PresentationText {

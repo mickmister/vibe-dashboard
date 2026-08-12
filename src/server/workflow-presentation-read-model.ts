@@ -2,6 +2,7 @@ import type { AgentResponse, VibeKanbanServerClient } from './vk-client';
 import type {
   DbWorkflowOrchestrationStore,
   WorkflowAttentionItemReadModel,
+  WorkflowInstanceReadModel,
   WorkflowStepStateReadModel,
 } from './workflow-orchestration-store';
 
@@ -15,8 +16,20 @@ export interface WorkflowPresentationModel {
   startedAt: number;
   updatedAt: number;
   completedAt: number | null;
+  summary?: WorkflowPresentationSummary;
   timeline: WorkflowPresentationTimelineItem[];
+  callTree?: WorkflowPresentationCallTreeItem[];
+  outputs?: WorkflowPresentationOutputItem[];
   attention: WorkflowPresentationAttention | null;
+}
+
+export interface WorkflowPresentationSummary {
+  statusLabel: string;
+  currentOwner: string | null;
+  currentState: string | null;
+  currentStep: string | null;
+  waitingReason: string | null;
+  nextAction: string | null;
 }
 
 export interface WorkflowPresentationTimelineItem {
@@ -24,11 +37,33 @@ export interface WorkflowPresentationTimelineItem {
   role: string;
   title: string;
   status: string;
+  kind?: 'agent_turn' | 'decision' | 'human_form' | 'workflow_call' | 'artifact' | 'blocked' | 'retry';
+  state?: string | null;
+  step?: string | null;
+  action?: string | null;
+  isLoop?: boolean;
   session: { label: string; workspaceId: string | null; sessionId: string | null } | null;
   initialMessage: PresentationText | null;
   finalResponse: PresentationText | null;
   responseUnavailable: string | null;
   commits: PresentationCommitRange[];
+}
+
+export interface WorkflowPresentationCallTreeItem {
+  turnId: string;
+  label: string;
+  status: string;
+  childRunId: string;
+  childUrl: string | null;
+  waitingReason: string | null;
+  outputRef: string | null;
+}
+
+export interface WorkflowPresentationOutputItem {
+  id: string;
+  label: string;
+  value: string;
+  kind: 'summary' | 'form_artifact' | 'workflow_call_output' | 'error';
 }
 
 export interface PresentationText {
@@ -94,6 +129,7 @@ export async function buildWorkflowPresentationModel(args: {
     timeline.push({
       id: 'human-attention',
       role: 'User',
+      kind: 'human_form',
       title: latestAttention.title,
       status: latestAttention.status === 'active' ? 'Waiting for you' : latestAttention.status === 'resolved' ? 'Answered' : 'Closed',
       session: null,
@@ -113,7 +149,10 @@ export async function buildWorkflowPresentationModel(args: {
     startedAt: instance.createdAt,
     updatedAt: instance.updatedAt,
     completedAt: instance.status === 'completed' ? instance.updatedAt : null,
+    summary: buildLegacySummary(instance, steps, activeAttention),
     timeline,
+    outputs: buildLegacyOutputs(instance, latestAttention),
+    callTree: [],
     attention: latestAttention ? {
       title: latestAttention.title,
       description: latestAttention.description,
@@ -121,6 +160,41 @@ export async function buildWorkflowPresentationModel(args: {
       status: latestAttention.status,
     } : null,
   };
+}
+
+function buildLegacySummary(instance: WorkflowInstanceReadModel, steps: WorkflowStepStateReadModel[], activeAttention: WorkflowAttentionItemReadModel | null) {
+  const currentStep = instance.currentStepId ?? steps.find((step) => step.status === 'waiting' || step.status === 'running')?.stepKey ?? null;
+  const current = currentStep ? steps.find((step) => step.stepKey === currentStep) : null;
+  const waitingReason = activeAttention ? `Waiting for you: ${activeAttention.title}` : current?.status === 'waiting' ? `${labelFromId(current.stepKey)} is waiting to continue.` : instance.status === 'failed' ? errorMessage(instance.error) : null;
+  return {
+    statusLabel: cleanStepStatus(instance.status),
+    currentOwner: activeAttention ? 'User' : ownerFromLegacyStep(currentStep),
+    currentState: null,
+    currentStep: currentStep ? labelFromId(currentStep) : null,
+    waitingReason,
+    nextAction: activeAttention ? 'Answer the requested form to continue.' : instance.status === 'completed' ? 'Workflow is complete.' : currentStep ? 'Wait for the current step to finish.' : null,
+  };
+}
+
+function buildLegacyOutputs(instance: WorkflowInstanceReadModel, attention: WorkflowAttentionItemReadModel | null) {
+  const outputs = [];
+  if (instance.status === 'completed') outputs.push({ id: 'summary', label: 'Final summary', value: 'Workflow completed.', kind: 'summary' as const });
+  if (attention?.resolution) outputs.push({ id: 'human-form', label: 'Human form answer', value: summarizeHumanResolution(attention.resolution), kind: 'form_artifact' as const });
+  if (instance.error) outputs.push({ id: 'error', label: 'Needs attention', value: errorMessage(instance.error), kind: 'error' as const });
+  return outputs;
+}
+
+function ownerFromLegacyStep(step: string | null): string | null {
+  if (!step) return null;
+  if (step.includes('review')) return 'Reviewer';
+  if (step.includes('source') || step.includes('implement')) return 'Implementer';
+  if (step.includes('human') || step.includes('approval')) return 'User';
+  return 'Workflow';
+}
+
+function errorMessage(value: unknown): string {
+  const record = asRecord(value);
+  return stringFrom(record?.message) ?? stringFrom(record?.error) ?? (value ? String(value) : 'Workflow needs attention.');
 }
 
 async function buildAgentTurnItem(args: {
@@ -158,6 +232,9 @@ async function buildAgentTurnItem(args: {
     id: args.role.toLowerCase(),
     role: args.role,
     title: args.role === 'Implementer' ? 'Implementation turn' : 'Review turn',
+    kind: 'agent_turn',
+    state: null,
+    step: args.waitStep?.stepKey ?? args.queueStep?.stepKey ?? null,
     status: cleanStepStatus(args.waitStep?.status ?? args.queueStep?.status ?? 'pending'),
     session: sessionId ? { label: `${args.role} session`, workspaceId, sessionId } : null,
     initialMessage,
@@ -243,6 +320,10 @@ function cleanStepStatus(status: string): string {
 
 function humanizeWorkflowId(value: string): string {
   return value.split(/[-_]/g).filter(Boolean).map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`).join(' ');
+}
+
+function labelFromId(value: string): string {
+  return value.replace(/[_-]+/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function shortCommit(value: string | null): string | null {

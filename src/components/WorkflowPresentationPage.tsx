@@ -75,6 +75,7 @@ export function WorkflowPresentationView({ presentation, error, loading, onRefre
             </div>
             <button className="rounded-md border border-zinc-700 px-3 py-2 text-sm hover:bg-zinc-800 disabled:opacity-50" onClick={onRefresh} disabled={loading}>{loading ? 'Refreshing…' : 'Refresh'}</button>
           </div>
+          {presentation.summary ? <RunSummary summary={presentation.summary} /> : null}
           {presentation.originalTask ? (
             <section className="mt-5 rounded-lg border border-zinc-800 bg-zinc-950 p-4">
               <h2 className="text-sm font-medium text-zinc-200">Original task</h2>
@@ -93,6 +94,10 @@ export function WorkflowPresentationView({ presentation, error, loading, onRefre
           </section>
         ) : null}
 
+        {presentation.callTree?.length ? <CallTree items={presentation.callTree} /> : null}
+
+        {presentation.outputs?.length ? <OutputsSection outputs={presentation.outputs} /> : null}
+
         <section className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-5">
           <h2 className="text-lg font-semibold">Timeline</h2>
           <div className="mt-4 space-y-4">
@@ -103,14 +108,56 @@ export function WorkflowPresentationView({ presentation, error, loading, onRefre
   );
 }
 
+function RunSummary({ summary }: { summary: NonNullable<WorkflowPresentationModel['summary']> }) {
+  return (
+    <section className="mt-5 rounded-lg border border-cyan-900/60 bg-cyan-950/20 p-4" aria-label="Run summary">
+      <div className="grid gap-3 text-sm md:grid-cols-2">
+        <SummaryField label="Status" value={summary.statusLabel} />
+        <SummaryField label="Who has the ball" value={summary.currentOwner ?? 'Workflow'} />
+        <SummaryField label="Current state" value={summary.currentState ?? 'Not started'} />
+        <SummaryField label="Current step" value={summary.currentStep ?? 'Not started'} />
+      </div>
+      {summary.waitingReason ? <p className="mt-3 rounded-md border border-amber-900 bg-amber-950/30 p-3 text-sm text-amber-100">{summary.waitingReason}</p> : null}
+      {summary.nextAction ? <p className="mt-3 text-sm text-cyan-100">Next: {summary.nextAction}</p> : null}
+    </section>
+  );
+}
+
+function SummaryField({ label, value }: { label: string; value: string }) {
+  return <div><div className="text-xs uppercase tracking-wide text-zinc-500">{label}</div><div className="mt-1 font-medium text-zinc-100">{value}</div></div>;
+}
+
+function CallTree({ items }: { items: NonNullable<WorkflowPresentationModel['callTree']> }) {
+  return (
+    <section className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-5">
+      <h2 className="text-lg font-semibold">Child workflows</h2>
+      <div className="mt-4 space-y-3">
+        {items.map((item) => <div key={item.turnId} className="rounded-lg border border-zinc-800 bg-zinc-950 p-4"><div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-semibold">{item.label}</h3>{item.waitingReason ? <p className="mt-1 text-sm text-amber-100">{item.waitingReason}</p> : null}</div><StatusPill label={callStatusLabel(item.status)} tone={item.status === 'completed' ? 'emerald' : item.status === 'failed' || item.status === 'blocked' ? 'red' : 'cyan'} /></div>{item.outputRef ? <p className="mt-2 text-sm text-zinc-300">Output recorded.</p> : null}{item.childUrl ? <a className="mt-3 inline-block rounded-md border border-cyan-900 px-3 py-2 text-sm text-cyan-200 hover:bg-cyan-950/40" href={item.childUrl}>Open child run</a> : null}</div>)}
+      </div>
+    </section>
+  );
+}
+
+function OutputsSection({ outputs }: { outputs: NonNullable<WorkflowPresentationModel['outputs']> }) {
+  return (
+    <section className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-5">
+      <h2 className="text-lg font-semibold">Outputs and artifacts</h2>
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
+        {outputs.map((output) => <article key={output.id} className="rounded-lg border border-zinc-800 bg-zinc-950 p-4"><div className="text-xs uppercase tracking-wide text-zinc-500">{output.kind.replace(/_/g, ' ')}</div><h3 className="mt-1 font-semibold">{output.label}</h3><p className="mt-2 whitespace-pre-wrap text-sm text-zinc-200">{output.value}</p></article>)}
+      </div>
+    </section>
+  );
+}
+
 function TurnCard({ item }: { item: WorkflowPresentationTimelineItem }) {
   const sessionHref = item.session ? buildVkSessionUrl({ workspaceId: item.session.workspaceId, sessionId: item.session.sessionId }) : null;
   return (
     <article className="rounded-lg border border-zinc-800 bg-zinc-950 p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <div className="text-xs uppercase tracking-wide text-zinc-500">{item.role}</div>
+          <div className="flex flex-wrap items-center gap-2"><span className="text-xs uppercase tracking-wide text-zinc-500">{item.role}</span>{item.kind ? <span className="rounded border border-zinc-700 px-2 py-0.5 text-xs text-zinc-400">{item.kind.replace(/_/g, ' ')}</span> : null}{item.isLoop ? <span className="rounded border border-amber-800 px-2 py-0.5 text-xs text-amber-200">Loop</span> : null}</div>
           <h3 className="mt-1 font-semibold text-zinc-100">{item.title}</h3>
+          {item.state || item.step ? <p className="mt-1 text-xs text-zinc-500">{[item.state, item.step].filter(Boolean).join(' · ')}</p> : null}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <StatusPill label={item.status} tone={item.status === 'Complete' || item.status === 'Answered' ? 'emerald' : item.status === 'Waiting' || item.status === 'Waiting for you' ? 'amber' : 'zinc'} />
@@ -167,6 +214,14 @@ function statusLabel(status: WorkflowPresentationModel['status']): string {
     case 'paused': return 'Paused';
     default: return 'Starting';
   }
+}
+
+function callStatusLabel(status: string): string {
+  if (status === 'completed') return 'Complete';
+  if (status === 'running') return 'In progress';
+  if (status === 'blocked' || status === 'failed') return 'Needs attention';
+  if (status === 'cancelled') return 'Closed';
+  return status.replace(/[_-]+/g, ' ');
 }
 
 function statusTone(status: WorkflowPresentationModel['status']): 'emerald' | 'cyan' | 'amber' | 'red' | 'zinc' {

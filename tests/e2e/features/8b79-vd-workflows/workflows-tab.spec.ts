@@ -10,6 +10,9 @@
  * - TEST_CASE_M98_1A
  * - TEST_CASE_M98_2A
  * - TEST_CASE_M100_1A
+ * - TEST_CASE_M105_1A
+ * - TEST_CASE_M105_1D
+ * - TEST_CASE_M105_1F
  */
 import { expect, test } from 'playwright/test';
 
@@ -86,6 +89,33 @@ test.describe('Workspace Workflows tab shell', () => {
 
     await expect(page.getByLabel('Launch result')).toContainText('Workflow launched');
     await expect(page.locator('a[href="/dashboard/workflows/run-launched"]', { hasText: 'Open run page' })).toBeVisible();
+    for (const term of forbiddenTerms) {
+      await expect(page.getByText(term, { exact: false })).toHaveCount(0);
+    }
+  });
+
+  test('renders clean run monitoring story without transport details', async ({ page }) => {
+    await page.route('**/dashboard/api/workflow-instances/run-story/presentation', async (route) => {
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({ presentation: runStoryFixture() }),
+      });
+    });
+
+    await page.goto('/dashboard/workflows/run-story');
+
+    await expect(page.getByRole('heading', { name: 'Dev Review Tester run' })).toBeVisible();
+    await expect(page.getByLabel('Run summary')).toContainText('In progress');
+    await expect(page.getByLabel('Run summary')).toContainText('Reviewer');
+    await expect(page.getByLabel('Run summary')).toContainText('Waiting for Review response.');
+    await expect(page.getByLabel('Run summary')).toContainText('The workflow resumes when the child workflow completes.');
+    await expect(page.getByRole('heading', { name: 'Timeline' })).toBeVisible();
+    await expect(page.getByText('Loop')).toBeVisible();
+    await expect(page.getByText('Reviewer asked for changes.')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Child workflows' })).toBeVisible();
+    await expect(page.locator('a[href="/dashboard/workflows/child-run"]', { hasText: 'Open child run' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Outputs and artifacts' })).toBeVisible();
+    await expect(page.getByText('workflow-run://child-run/output')).toBeVisible();
     for (const term of forbiddenTerms) {
       await expect(page.getByText(term, { exact: false })).toHaveCount(0);
     }
@@ -242,6 +272,36 @@ function homeFixture(launched: boolean, usedTemplate = false, batchQueued = fals
       { attentionItemId: 'attention-clean', title: 'Answer planning questions', description: 'Please fill out the form.', workflowName: 'Feature workflow run', createdAt: 3, detailUrl: '/dashboard/workflows/legacy-clean' },
     ],
     recentBatches: batchQueued ? [batchFixture()] : [],
+  };
+}
+
+function runStoryFixture() {
+  return {
+    instanceId: 'run-story',
+    workflowId: 'dev-review-tester',
+    workflowName: 'Dev Review Tester run',
+    status: 'running',
+    humanStatus: 'not_needed',
+    originalTask: 'Build a readable workflow page',
+    startedAt: 1,
+    updatedAt: 5,
+    completedAt: null,
+    summary: {
+      statusLabel: 'In progress',
+      currentOwner: 'Reviewer',
+      currentState: 'Review',
+      currentStep: 'Review turn',
+      waitingReason: 'Waiting for Review response.',
+      nextAction: 'The workflow resumes when the child workflow completes.',
+    },
+    timeline: [
+      { id: 'dev-1', role: 'Dev', title: 'Implementation turn', status: 'Completed', kind: 'agent_turn', state: 'Dev', step: 'Implement', session: null, initialMessage: { text: 'Implement the feature.', truncated: false, maxChars: null }, finalResponse: { text: 'Implementation complete.', truncated: false, maxChars: null }, responseUnavailable: null, commits: [] },
+      { id: 'decision-1', role: 'Workflow', title: 'Request changes', status: 'Completed', kind: 'decision', state: 'Review', step: 'Review turn', action: 'changes_requested', isLoop: true, session: null, initialMessage: null, finalResponse: { text: 'Reviewer asked for changes.', truncated: false, maxChars: null }, responseUnavailable: null, commits: [] },
+      { id: 'call-child', role: 'Workflow', title: 'Run child workflow', status: 'Waiting', kind: 'workflow_call', state: 'Review', step: 'Call acceptance workflow', session: null, initialMessage: { text: 'Started child workflow Child acceptance.', truncated: false, maxChars: null }, finalResponse: null, responseUnavailable: 'Waiting for child workflow.', commits: [] },
+    ],
+    callTree: [{ turnId: 'call-child', label: 'Child acceptance', status: 'running', childRunId: 'child-run', childUrl: '/dashboard/workflows/child-run', waitingReason: 'Parent is waiting for this child workflow.', outputRef: 'workflow-run://child-run/output' }],
+    outputs: [{ id: 'child-output', label: 'Child workflow output', value: 'workflow-run://child-run/output', kind: 'workflow_call_output' }],
+    attention: null,
   };
 }
 
