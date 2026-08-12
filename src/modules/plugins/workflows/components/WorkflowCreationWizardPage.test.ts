@@ -29,6 +29,35 @@ describe('WorkflowCreationWizardView', () => {
     expect(html).toContain('Graph editor remains available');
     for (const term of forbiddenTerms) expect(html).not.toContain(term);
   });
+
+  it('does not show the blank work graph for starter template copies', () => {
+    const html = renderToStaticMarkup(React.createElement(WorkflowCreationWizardView, {
+      workspaceId: 'workspace-a',
+      userWorkflows: [workflow('design-drt', 'Dev Review Tester')],
+      starterTemplates: [workflow('built-in/dev-review-tester', 'Dev / Review / Tester')],
+      initialDraft: { sourceMode: 'starter', sourceId: 'built-in/dev-review-tester', name: 'Dev / Review / Tester copy', purpose: 'Workflow description', inputId: 'featureRequest', roleId: 'agent', roleLabel: 'Agent', stageLabel: 'Do the work', publish: false },
+    }));
+    expect(html).toContain('This will create a copy from the selected starter template.');
+    expect(html).toContain('The copied workflow keeps the selected workflow structure.');
+    expect(html).toContain('Open the graph editor after creation');
+    expect(html).not.toContain('2 states · 2 actions');
+    expect(html).not.toContain('work → done');
+    expect(html).not.toContain('decide: agent_turn');
+  });
+
+  it('does not show the blank work graph for duplicate workflow copies', () => {
+    const html = renderToStaticMarkup(React.createElement(WorkflowCreationWizardView, {
+      workspaceId: 'workspace-a',
+      userWorkflows: [workflow('design-drt', 'Dev Review Tester')],
+      starterTemplates: [workflow('built-in/dev-review-tester', 'Dev / Review / Tester')],
+      initialDraft: { sourceMode: 'duplicate', sourceId: 'design-drt', name: 'Dev Review Tester copy', purpose: 'Workflow description', inputId: 'featureRequest', roleId: 'agent', roleLabel: 'Agent', stageLabel: 'Do the work', publish: false },
+    }));
+    expect(html).toContain('This will duplicate the selected workflow design.');
+    expect(html).toContain('Existing sessions and runs are not copied.');
+    expect(html).not.toContain('2 states · 2 actions');
+    expect(html).not.toContain('work → done');
+    expect(html).not.toContain('decide: agent_turn');
+  });
 });
 
 function workflow(id: string, title: string): WorkspaceWorkflowSummary {

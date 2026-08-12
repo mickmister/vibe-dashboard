@@ -29,14 +29,16 @@ export function WorkflowCreationWizardPage(): React.ReactElement {
   return <WorkflowCreationWizardView workspaceId={workspaceId} userWorkflows={home?.userWorkflows ?? []} starterTemplates={home?.starterTemplates ?? []} loadError={loadError} />;
 }
 
-export function WorkflowCreationWizardView({ workspaceId, userWorkflows, starterTemplates, loadError }: { workspaceId: string; userWorkflows: WorkspaceWorkflowSummary[]; starterTemplates: WorkspaceWorkflowSummary[]; loadError?: string | null }): React.ReactElement {
-  const [draft, setDraft] = useState<WorkflowWizardDraft>(initialDraft);
+export function WorkflowCreationWizardView({ workspaceId, userWorkflows, starterTemplates, loadError, initialDraft: initialDraftOverride }: { workspaceId: string; userWorkflows: WorkspaceWorkflowSummary[]; starterTemplates: WorkspaceWorkflowSummary[]; loadError?: string | null; initialDraft?: WorkflowWizardDraft }): React.ReactElement {
+  const [draft, setDraft] = useState<WorkflowWizardDraft>(initialDraftOverride ?? initialDraft);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<{ designId: string; draftId: string | null; version: number | null } | null>(null);
   const [error, setError] = useState<string | null>(loadError ?? null);
-  const graph = useMemo(() => buildWizardGraphPreview(draft), [draft]);
+  useEffect(() => { setError(loadError ?? null); }, [loadError]);
+  const graph = useMemo(() => draft.sourceMode === 'blank' ? buildWizardGraphPreview(draft) : null, [draft]);
   const selectedStarter = starterTemplates.find((item) => item.id === draft.sourceId);
   const selectedExisting = userWorkflows.find((item) => item.id === draft.sourceId);
+  const selectedSource = selectedStarter ?? selectedExisting;
 
   const update = <K extends keyof WorkflowWizardDraft>(key: K, value: WorkflowWizardDraft[K]) => setDraft((current) => ({ ...current, [key]: value }));
   const selectSource = (mode: WorkflowWizardDraft['sourceMode'], sourceId: string | null) => {
@@ -117,9 +119,19 @@ export function WorkflowCreationWizardView({ workspaceId, userWorkflows, starter
         <aside className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-5">
           <div className="text-xs uppercase tracking-wide text-cyan-300">Step 7</div>
           <h2 className="mt-1 text-lg font-semibold">Review graph</h2>
-          <p className="mt-1 text-sm text-zinc-400">{graph.nodes.length} states · {graph.edges.length} actions</p>
-          <div className="mt-4 space-y-3">{graph.nodes.map((node) => <div key={node.id} className="rounded-lg border border-zinc-800 bg-zinc-950 p-3"><div className="font-medium">{node.label}{node.terminal ? ' (terminal)' : ''}</div>{node.ownerLabel ? <div className="text-xs text-zinc-500">Owner: {node.ownerLabel}</div> : null}{node.steps.map((step) => <div key={step.id} className="mt-2 text-xs text-zinc-300">{step.id}: {step.type}</div>)}</div>)}</div>
-          <div className="mt-4 space-y-2">{graph.edges.map((edge) => <div key={edge.id} className="text-sm text-zinc-300">{edge.source} → {edge.target}: {edge.label}</div>)}</div>
+          {graph ? (
+            <>
+              <p className="mt-1 text-sm text-zinc-400">{graph.nodes.length} states · {graph.edges.length} actions</p>
+              <div className="mt-4 space-y-3">{graph.nodes.map((node) => <div key={node.id} className="rounded-lg border border-zinc-800 bg-zinc-950 p-3"><div className="font-medium">{node.label}{node.terminal ? ' (terminal)' : ''}</div>{node.ownerLabel ? <div className="text-xs text-zinc-500">Owner: {node.ownerLabel}</div> : null}{node.steps.map((step) => <div key={step.id} className="mt-2 text-xs text-zinc-300">{step.id}: {step.type}</div>)}</div>)}</div>
+              <div className="mt-4 space-y-2">{graph.edges.map((edge) => <div key={edge.id} className="text-sm text-zinc-300">{edge.source} → {edge.target}: {edge.label}</div>)}</div>
+            </>
+          ) : (
+            <div className="mt-4 rounded-lg border border-zinc-800 bg-zinc-950 p-4">
+              <h3 className="font-medium">{selectedSource?.title ?? 'Selected workflow copy'}</h3>
+              <p className="mt-2 text-sm text-zinc-300">{draft.sourceMode === 'starter' ? 'This will create a copy from the selected starter template.' : 'This will duplicate the selected workflow design.'}</p>
+              <p className="mt-2 text-sm text-zinc-400">The copied workflow keeps the selected workflow structure. Open the graph editor after creation to review and edit its actual states, steps, and transitions.</p>
+            </div>
+          )}
         </aside>
       </section>
     </StandaloneDashboardPage>
