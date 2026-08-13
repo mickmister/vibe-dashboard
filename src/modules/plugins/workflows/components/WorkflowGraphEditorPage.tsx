@@ -133,7 +133,8 @@ export function WorkflowGraphEditorView({ editor, definition, assets, onDefiniti
             nodes={flowNodes}
             edges={flowEdges}
             fitView
-            fitViewOptions={{ padding: 0.08 }}
+            fitViewOptions={{ padding: 0.12 }}
+            minZoom={0.85}
             edgeTypes={workflowEdgeTypes}
             nodesDraggable
             nodesConnectable={false}

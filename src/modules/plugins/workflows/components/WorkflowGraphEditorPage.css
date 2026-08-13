@@ -89,11 +89,11 @@
   position: absolute;
   z-index: 20;
   display: flex;
-  max-width: 18rem;
+  max-width: 12rem;
   min-width: 6rem;
   flex-direction: column;
   gap: 0.125rem;
-  padding: 0.4rem 0.65rem;
+  padding: 0.48rem 0.7rem;
   border: 1px solid #0e7490;
   border-radius: 0.65rem;
   background: rgba(15, 23, 42, 0.96);
@@ -123,9 +123,9 @@
 .workflow-action-edge-label__action {
   display: block;
   overflow-wrap: anywhere;
-  font-size: 0.78rem;
+  font-size: 0.92rem;
   font-weight: 800;
-  line-height: 1.15rem;
+  line-height: 1.2rem;
   color: #f8fafc;
 }
 
