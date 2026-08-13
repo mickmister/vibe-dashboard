@@ -267,6 +267,17 @@ export function WorkflowGraphEditorView({
     setSelectedEdgeId(edgeId);
   };
 
+  const addRole = () => {
+    const roleId = nextRoleId(definition.roles);
+    onDefinitionChange({
+      ...definition,
+      roles: { ...definition.roles, [roleId]: { label: "New role" } },
+    });
+    setSelectedRoleId(roleId);
+    setSelectedNodeId("");
+    setSelectedEdgeId("");
+  };
+
   return (
     <section className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_24rem]">
       <div className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900/60">
@@ -341,6 +352,7 @@ export function WorkflowGraphEditorView({
           onSelectRole={selectRole}
           onSelectState={selectState}
           onSelectEdge={selectEdge}
+          onAddRole={addRole}
         />
         <DesignDetails definition={definition} onChange={onDefinitionChange} />
         <ValidationPanel issues={issues} />
@@ -375,6 +387,7 @@ export function WorkflowOutlineNavigator({
   onSelectRole,
   onSelectState,
   onSelectEdge,
+  onAddRole,
 }: {
   definition: AgentWorkflowDefinitionV1;
   nodes: WorkflowGraphNodeModel[];
@@ -385,6 +398,7 @@ export function WorkflowOutlineNavigator({
   onSelectRole: (roleId: string) => void;
   onSelectState: (stateId: string) => void;
   onSelectEdge: (edgeId: string) => void;
+  onAddRole: () => void;
 }) {
   const roleEntries = Object.entries(definition.roles);
   const selectedRole =
@@ -441,11 +455,10 @@ export function WorkflowOutlineNavigator({
           })}
           <button
             type="button"
-            disabled
-            title="Role creation will be added after state assignment editing is supported."
-            className="w-full rounded-lg border border-dashed border-zinc-700 px-3 py-2 text-left text-sm text-zinc-500 opacity-70"
+            onClick={onAddRole}
+            className="w-full rounded-lg border border-dashed border-zinc-700 px-3 py-2 text-left text-sm text-cyan-200 hover:border-cyan-500 hover:bg-cyan-950/20"
           >
-            + Add Role <span className="text-xs">(coming soon)</span>
+            + Add Role
           </button>
         </div>
       </div>
@@ -534,6 +547,16 @@ export function WorkflowOutlineNavigator({
       </div>
     </section>
   );
+}
+
+function nextRoleId(roles: AgentWorkflowDefinitionV1["roles"]) {
+  let index = Object.keys(roles).length + 1;
+  let roleId = `role_${index}`;
+  while (roles[roleId]) {
+    index += 1;
+    roleId = `role_${index}`;
+  }
+  return roleId;
 }
 
 function DesignDetails({

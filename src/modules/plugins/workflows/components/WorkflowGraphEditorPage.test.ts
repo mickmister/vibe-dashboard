@@ -242,7 +242,6 @@ describe("WorkflowGraphEditorView prompt and skill picker", () => {
     expect(html).toContain("Workflow outline");
     expect(html).toContain("Roles → states → transitions");
     expect(html).toContain("+ Add Role");
-    expect(html).toContain("(coming soon)");
     expect(html).toContain("dev · 1 state");
     expect(html).toContain("done: dev → done");
     expect(html).toContain("Prompt and skill snippets");
@@ -262,7 +261,9 @@ describe("WorkflowGraphEditorView prompt and skill picker", () => {
     expect(html).toContain("JSON diagnostics");
     expect(html).toContain("Selected state");
     expect(html).toContain("Transitions / actions");
-    expect(html).not.toContain("Selected action");
+    expect(html).toContain("Selected action");
+    expect(html).toContain("Transition");
+    expect(html).toContain("Result fields");
     expect(html).toContain('aria-readonly="true"');
     expect(html).not.toContain("prompt refs</span><input");
   });
@@ -297,7 +298,6 @@ describe("WorkflowGraphEditorView prompt and skill picker", () => {
     expect(html).toContain("Approved");
     expect(html).toContain("approved: review → done");
     expect(html).toContain("+ Add Role");
-    expect(html).toContain("(coming soon)");
   });
 });
 

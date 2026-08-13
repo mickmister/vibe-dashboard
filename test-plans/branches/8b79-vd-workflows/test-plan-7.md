@@ -441,6 +441,7 @@ M114 depends on M115/M116 for durable lane details. Until lanes exist:
 - No implicit secret inheritance from user shell/session.
 - No command step that directly mutates workflow state.
 - No UI retry/cancel controls until separately designed and tested.
+- No runtime feature flag or hidden command executor in this docs-only milestone.
 
 ## Future implementation plan
 
