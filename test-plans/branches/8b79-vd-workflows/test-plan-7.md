@@ -617,6 +617,10 @@ Validation:
 - Duplicate wakeup does not duplicate execution.
 - Secret redaction is verified in presentation JSON and rendered UI.
 
+## M114 deliverable status
+
+This document is the M114 deliverable. It is intentionally a planning artifact: future milestones must add implementation code and tests before any command step can execute.
+
 ## Reviewer handoff guidance
 
 Reviewer should verify:
