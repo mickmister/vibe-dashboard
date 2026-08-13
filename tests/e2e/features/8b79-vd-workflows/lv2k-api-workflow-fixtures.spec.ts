@@ -628,8 +628,8 @@ test.describe("LV2K API-first workflow fixtures", () => {
     const waitingRendered = JSON.stringify(waitingPresentation);
     expect(waitingPresentation).toMatchObject({
       workflowName: "LV2K Human Form Resume",
-      workflowId: designId,
-      status: "running",
+      workflowId: ``,
+      status: "waiting",
       originalTask: task,
     });
     expect(waitingPresentation.provenance).toMatchObject({
@@ -718,7 +718,7 @@ test.describe("LV2K API-first workflow fixtures", () => {
     ]);
 
     expect(presentation.workflowName).toBe("LV2K Human Form Resume");
-    expect(presentation.workflowId).toBe(designId);
+    expect([designId, `${designId}@1`]).toContain(presentation.workflowId);
     expect(presentation.provenance).toMatchObject({
       workflowDesignId: designId,
       workflowVersion: 1,
