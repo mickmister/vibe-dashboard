@@ -32,6 +32,42 @@ This plan adds an E2E strategy for **each current workflow fixture** and a
 scripted VK loopback harness so tests exercise realistic message boundaries
 without depending on nondeterministic LLM output.
 
+## Updated direction: API-first real-server E2E, then browser creation E2E
+
+The desired full workflow E2E should eventually start where a user starts:
+
+1. create or configure the workflow in the browser,
+2. publish it,
+3. run it,
+4. observe VK/scripted executor responses,
+5. verify final workflow results in the product UI.
+
+That should **not** be the first implementation slice. The first reliable slice
+should run against the real VD/VK server harness but avoid the workflow creation
+UI:
+
+1. start the normal Docker/qa-mode VD+VK environment,
+2. load or create workflow definitions through HTTP APIs using checked-in JSON
+   fixtures,
+3. publish those definitions through HTTP,
+4. launch workflows through HTTP,
+5. drive scripted VK responses at the real queue/session/message boundary,
+6. verify run state, timeline, parsed XML results, and presentation read models
+   through HTTP,
+7. only then add browser assertions around the already-working run and,
+   finally, browser workflow creation/configuration coverage.
+
+This sequencing gives us confidence in the real runtime/integration path before
+we add UI brittleness. It also makes failures easier to diagnose: API/runtime
+bugs are separated from form/wizard/editor locator bugs.
+
+Existing precedent: `tests/e2e/features/8b79-vd-workflows/dev-review-tester-workflow.spec.ts`
+already runs a literal Docker qa-mode DRT workflow by using HTTP to copy the
+built-in DRT template, launch it, wait for persisted presentation completion,
+and then inspect the browser run page. The next work should generalize that
+pattern across the current fixture set and make the XML/message-boundary
+assertions explicit.
+
 ## Non-goals
 
 - Do not require a real LLM model for deterministic CI.
@@ -504,12 +540,16 @@ Use browser E2E for product surfaces, not every scanner detail:
 
 ## Proposed implementation sequence
 
-### LV2K-A — Fixture registry and test harness design
+### LV2K-A — Fixture registry and API-first coverage map
 
 Scope:
 
 - Add a registry that maps current fixtures to required E2E coverage.
 - Add docs/comments for which fixtures are runtime-capable vs UI-only.
+- Define the HTTP setup contract for creating/publishing each runtime-capable
+  fixture against a real running VD server.
+- Reuse the existing Docker qa-mode DRT API-first pattern rather than starting
+  with browser workflow authoring.
 - No runtime behavior change.
 
 Validation:
@@ -517,55 +557,86 @@ Validation:
 - Fixture registry unit test.
 - `npm run check-types`.
 
-### LV2K-B — Fake VK loopback server/client harness
+### LV2K-B — API-first real-server fixture E2E harness
 
 Scope:
 
-- Build deterministic fake VK HTTP server or in-process client harness.
-- Exercise actual VD VK client/scanner boundary, not direct runtime completion.
+- Start the normal VD/VK qa-mode server harness.
+- Load/create workflow JSON definitions through HTTP.
+- Publish designs through HTTP.
+- Launch runs through HTTP.
+- Verify initial queued turns and run state through HTTP.
+- Keep browser closed except for optional final presentation smoke.
 
 Validation:
 
-- Server tests for queue -> latest-response -> scanner classification.
-- Verify request/response shapes match current VK client expectations.
+- One passing API-first E2E for simple agent workflow.
+- One passing API-first E2E for DRT, building on the existing
+  `dev-review-tester-workflow.spec.ts` pattern.
+- `git diff --check`.
 
-### LV2K-C — Simple + DRT loopback E2E
+### LV2K-C — Scripted VK XML message-boundary loopback
 
 Scope:
 
-- Launch simple and DRT workflows through persisted runtime/API.
-- Script XML responses through fake VK latest-response path.
-- Verify queued prompts, parsed fields, loops, completion, presentation.
+- Drive responses through the real VK queue/session/latest-response or qa-mode
+  scripted executor boundary.
+- Use realistic message bodies containing prose and XML/code-fenced XML.
+- Avoid direct `runtime.completeAgentTurn()` in this layer.
+- Verify scanner/poller observes the real message body and advances the run.
 
 Validation:
 
-- Integration tests.
-- Optional browser run-page assertion for final DRT timeline.
+- Simple workflow XML completion from actual message text.
+- DRT multi-role loop from actual message text.
+- Invalid XML retry at the message boundary.
 
-### LV2K-D — Human form + workflow call loopback E2E
+### LV2K-D — HTTP verification for all runtime-capable fixtures
 
 Scope:
 
 - Human form attention/submission plus agent XML resume.
 - Parent/child workflow-call launch/wait/resume with stale child check.
+- GitHub CI wait from XML fields plus fake/scripted CI poll result.
+- Batch item launch feeding the same runtime path where practical.
 
 Validation:
 
-- Integration tests plus browser presentation assertions.
+- HTTP assertions for run status, timeline, outputs, call tree, attention, batch
+  detail, and no raw transport/debug terms in presentation read models.
 
-### LV2K-E — GitHub CI wait loopback E2E
+### LV2K-E — Browser run-result assertions after API-first success
 
 Scope:
 
-- Agent XML creates CI wait from actual message body.
-- Fake GitHub CI poller pending/success/failure.
-- Review turn resumes after success.
+- For workflows already proven through API-first E2E, open the browser run page
+  and centralized Workflows page.
+- Verify user-visible results, timeline, current/complete state, and links.
+- Do not create workflows through the browser yet.
 
 Validation:
 
-- Integration tests plus browser presentation assertion.
+- Browser assertions for completed simple/DRT/CI-wait run pages.
+- Existing forbidden debug-term assertions.
 
-### LV2K-F — Browser/Storybook fixture parity pass
+### LV2K-F — Browser workflow creation/configuration E2E
+
+Scope:
+
+- Use the workflow creation wizard/editor UI to create at least the simple
+  workflow first.
+- Later add browser creation/configuration coverage for DRT-like workflows,
+  prompt/skill refs, human form, workflow call, and CI wait as those UI paths
+  become authorable enough.
+- Then run the browser-created workflow through the same API/VK loopback path.
+
+Validation:
+
+- Browser creates, publishes, launches, and verifies a simple workflow.
+- Browser-authored definition matches the fixture/runtime expectations.
+- No unsupported authoring controls are exposed.
+
+### LV2K-G — Browser/Storybook fixture parity pass
 
 Scope:
 
@@ -620,3 +691,90 @@ git diff --check
 
 If browser-visible fixture coverage changed, tester should also run the relevant
 Docker Playwright or Storybook walkthrough command and save artifacts.
+
+## Discussion form: LV2K E2E sequencing and harness decisions
+
+Use these questions before implementing LV2K-A/B.
+
+### 1. What should the first executable LV2K slice prove?
+
+- **API-first real-server simple + DRT workflows (Recommended)** — Use real
+  VD/VK qa-mode server, create/publish JSON workflows via HTTP, launch via HTTP,
+  and verify persisted presentation via HTTP.
+- **Only fixture registry first** — Lower risk, but does not close the real E2E
+  confidence gap yet.
+- **Browser creation first** — Closest to the final user journey, but likely
+  mixes UI-authoring failures with runtime/VK integration failures too early.
+
+### 2. How should JSON workflows be loaded in API-first E2E?
+
+- **Use existing create-design/template HTTP APIs where possible (Recommended)**
+  — Stays close to product paths and reuses validation/publish behavior.
+- **Add a dedicated test-only fixture import API** — Cleaner test setup, but adds
+  test-only surface area and must be gated carefully.
+- **Seed DB directly before server start** — Fast, but bypasses HTTP and publish
+  validation.
+
+### 3. What should simulate VK agent responses?
+
+- **QA-mode scripted executor/latest-response boundary (Recommended if feasible)**
+  — Best match for real queue/session/message behavior without real LLMs.
+- **Fake VK HTTP server** — Deterministic and focused, but may diverge from VK if
+  endpoint shapes drift.
+- **Direct runtime completion calls** — Useful unit/integration coverage, but not
+  sufficient for this E2E milestone.
+
+### 4. What XML message shapes are required in the first slice?
+
+- **Prose-wrapped XML and fenced XML (Recommended)** — Captures common real model
+  formatting without creating a huge corpus immediately.
+- **Raw XML only** — Simpler but lower confidence.
+- **Full corpus immediately** — Includes malformed/unknown/missing/multiple huge
+  outputs; strongest but larger.
+
+### 5. What should be verified through HTTP before browser assertions?
+
+- **Run presentation/read-model status, timeline, parsed fields, outputs, and no
+  debug terms (Recommended)** — Direct and stable.
+- **Database rows/events directly** — Useful for diagnostics but less product-like.
+- **Only final status** — Too shallow for this branch’s workflow guarantees.
+
+### 6. Which fixture should follow DRT in real loopback priority?
+
+- **GitHub CI wait (Recommended)** — M111 is important and depends on parsed XML
+  fields plus poller behavior.
+- **Human form** — Important UX path, but half of the flow is VD form submission.
+- **Workflow call** — Important durable parent/child path, but more setup.
+- **Batch** — Useful once single-run loopback is stable.
+
+### 7. When should browser workflow creation enter the E2E?
+
+- **After API-first simple/DRT/CI loopback passes (Recommended)** — Separates
+  runtime confidence from UI authoring confidence.
+- **Immediately after simple API-first passes** — Faster user-journey coverage,
+  but may slow runtime test stabilization.
+- **Much later** — Keeps E2E stable but delays the actual full user journey.
+
+### 8. Should the browser creation E2E start with wizard or graph editor?
+
+- **Wizard simple workflow first (Recommended)** — Most product-facing and
+  already has basic browser coverage.
+- **Graph editor first** — More powerful but higher locator/layout brittleness.
+- **Template copy first** — Fast path for DRT, but does not prove custom workflow
+  creation.
+
+### 9. How much Docker/browser validation should be required per LV2K slice?
+
+- **Docker for API-first loopback and any browser-visible slice (Recommended)** —
+  Strongest confidence.
+- **Docker only for final browser creation slice** — Faster iteration, but less
+  confidence in runtime harness changes.
+- **Host-only until final tester pass** — Fastest, most environment-sensitive.
+
+### 10. Should LV2K update the current Playwright spec or add new specs?
+
+- **Add dedicated workflow-fixture-loopback specs (Recommended)** — Keeps mocked
+  UI tests separate from real-server/runtime E2E.
+- **Extend `workflows-tab.spec.ts`** — Fewer files, but mixes mocked UI and
+  real-server loopback concerns.
+- **One spec per fixture** — Clear but may be too many slow tests.
