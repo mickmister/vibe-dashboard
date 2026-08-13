@@ -164,6 +164,58 @@ export function githubCiWaitWorkflowDefinition(): AgentWorkflowDefinitionV1 {
   } as AgentWorkflowDefinitionV1;
 }
 
+export function denseTransitionWorkflowDefinition(): AgentWorkflowDefinitionV1 {
+  return {
+    schemaVersion: 1,
+    name: 'Dense transition visibility',
+    description: 'Stress fixture for long transition labels, loops, and parallel review paths.',
+    inputs: { featureRequest: { type: 'markdown', required: true } },
+    roles: {
+      dev: { label: 'Dev' },
+      review: { label: 'Review' },
+      tester: { label: 'Tester' },
+      security: { label: 'Security' },
+    },
+    initialState: 'dev',
+    states: {
+      dev: {
+        owner: 'dev',
+        steps: [
+          { id: 'implement', type: 'agent_turn', turnType: 'non_decision', prompt: withRefs('Implement {{inputs.featureRequest}}.', [{ kind: 'prompt', id: 'prompt.drt.dev.implement', version: 1 }]) },
+          { id: 'self_review', type: 'agent_turn', turnType: 'decision', prompt: withRefs('Self-review and choose the next action.', [{ kind: 'prompt', id: 'prompt.drt.dev.self-review', version: 1 }]), response: decisionResponse },
+        ],
+        actions: { ready_for_multi_review: { label: 'Ready for multi-review with CI evidence', targetState: 'review', result: { fields: { summary: { type: 'markdown' }, ciRunId: { type: 'string' } }, required: ['summary'], unknownFields: 'reject' } } },
+      },
+      review: {
+        owner: 'review',
+        steps: [{ id: 'review', type: 'agent_turn', turnType: 'decision', prompt: withRefs('Review the implementation.', [{ kind: 'prompt', id: 'prompt.drt.review', version: 1 }]), response: decisionResponse }],
+        actions: {
+          approved_for_testing: { label: 'Approved for tester validation', targetState: 'tester', result: { fields: { remarks: { type: 'markdown' } }, unknownFields: 'reject' } },
+          needs_security_review: { label: 'Needs security review before testing', targetState: 'security', result: { fields: { concerns: { type: 'markdown' } }, unknownFields: 'reject' } },
+          changes_requested: { label: 'Request changes from developer', targetState: 'dev', result: { fields: { requestedChanges: { type: 'markdown' } }, required: ['requestedChanges'], unknownFields: 'reject' } },
+        },
+      },
+      security: {
+        owner: 'security',
+        steps: [{ id: 'security_review', type: 'agent_turn', turnType: 'decision', prompt: { template: 'Review security implications.' }, response: decisionResponse }],
+        actions: {
+          security_ok: { label: 'Security ok; send to tester', targetState: 'tester' },
+          security_changes: { label: 'Security changes required', targetState: 'dev' },
+        },
+      },
+      tester: {
+        owner: 'tester',
+        steps: [{ id: 'test', type: 'agent_turn', turnType: 'decision', prompt: withRefs('Test the implementation.', [{ kind: 'prompt', id: 'prompt.drt.tester', version: 1 }]), response: decisionResponse }],
+        actions: {
+          approved: { label: 'Tester approved final result', targetState: 'done', result: { fields: { testSummary: { type: 'markdown' } }, unknownFields: 'reject' } },
+          bug_found: { label: 'Bug found; return to developer', targetState: 'dev', result: { fields: { bugReport: { type: 'markdown' } }, required: ['bugReport'], unknownFields: 'reject' } },
+        },
+      },
+      done: { terminal: true },
+    },
+  };
+}
+
 export function invalidWorkflowDefinition(): AgentWorkflowDefinitionV1 {
   const definition = simpleAgentWorkflowDefinition();
   definition.name = 'Invalid workflow example';
@@ -259,6 +311,7 @@ export const workflowStoryMatrix = [
   { surface: 'Graph', story: 'Human form', status: 'possible today', notes: 'Human step is supported and visible.' },
   { surface: 'Graph', story: 'Blocking workflow call', status: 'possible today', notes: 'Blocking call step is executable.' },
   { surface: 'Graph', story: 'GitHub CI wait', status: 'possible today', notes: 'Represented as a wait action edge/action.' },
+  { surface: 'Graph', story: 'Dense transition visibility', status: 'possible today', notes: 'Stress fixture for long labels and loops after M113B.' },
   { surface: 'Run presentation', story: 'Waiting on CI', status: 'possible today', notes: 'Uses read-model-shaped fixture.' },
   { surface: 'Run presentation', story: 'Completed run with CI result', status: 'possible today', notes: 'Uses read-model-shaped fixture.' },
   { surface: 'Workflows home', story: 'Workspace overview', status: 'possible today', notes: 'Pure home read-model fixture.' },
