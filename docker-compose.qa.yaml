@@ -4,7 +4,7 @@ services:
     pull_policy: always
 
     ports:
-      - "${QA_HOST_PORT:?QA_HOST_PORT is required for a QA slot}:${CADDY_PORT:-3001}"
+      - "${QA_HOST_PORT:?QA_HOST_PORT is required for a QA slot}:3001"
     mem_limit: ${DEV_CONTAINER_MEM_LIMIT:-14g}
     mem_reservation: ${DEV_CONTAINER_MEM_RESERVATION:-12g}
 
