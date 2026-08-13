@@ -26,6 +26,9 @@ and UI flow, not real model-provider behavior.
 - Caddy uses the checked-in repo `Caddyfile`. The sandbox writes a prepared copy
   to `$SANDBOX_RUN_DIR/Caddyfile` after selecting ports/env, plus an empty
   `$SANDBOX_RUN_DIR/plugins.caddy` stub for plugin imports.
+- CI-release mode adds a generated Caddy route for VK release frontend assets
+  under `/assets/*` before VD/Vite's asset handler. Source mode keeps VD-first
+  `/assets` handling and serves VK source-mode assets from `/vk-static`.
 
 This setup intentionally prioritizes prod-like same-origin iframe behavior over
 VK frontend hot module replacement.
@@ -246,8 +249,9 @@ curl -sS "$VD_URL/workspaces" | grep /vk-static/assets
 
 # VK built JS is served by the VK backend through Caddy. Source mode should use
 # /vk-static. CI-release mode may serve embedded release assets through the
-# release binary's normal asset paths; Caddy is expected to route those through
-# the VK backend fallback.
+# release binary's normal asset paths; generated CI-release Caddy config routes
+# matching /assets/*.js/CSS/Wasm/static assets to the VK backend before VD's
+# HTML fallback.
 ASSET_PATH="$(curl -sS "$VD_URL/workspaces" | grep -o '/vk-static/assets/[^"]*\.js' | head -1)"
 if [ -n "$ASSET_PATH" ]; then
   curl -I "$VD_URL$ASSET_PATH"

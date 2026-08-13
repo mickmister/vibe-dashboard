@@ -64,6 +64,7 @@ const DEFAULT_VK_GH_REPO = 'mickmister/vibe-kanban';
 const DEFAULT_VK_GH_WORKFLOW = 'Release Binaries';
 const DEFAULT_VK_GH_ARTIFACT_NAME = 'release-assets-linux-x64';
 const DEFAULT_VK_GH_ARCHIVE_NAME = 'vibe-kanban-linux-x64.tar.gz';
+const VIBE_DASHBOARD_CADDY_MARKER = '# Vibe Dashboard app';
 
 const execFileAsync = promisify(execFile);
 
@@ -102,6 +103,44 @@ function ciReleaseArtifactRoot(
   releaseRunId: string,
 ): string {
   return join(vdRoot, '.vk-mocked-sandbox', 'vk-release-assets', targetSha, releaseRunId);
+}
+
+function caddyfileWithCiReleaseAssetRouting(caddyfile: string): string {
+  const markerMatch = caddyfile.match(
+    new RegExp(`^([ \\t]*)${VIBE_DASHBOARD_CADDY_MARKER}$`, 'm'),
+  );
+  if (!markerMatch) {
+    throw new Error(
+      `Cannot add CI-release VK asset routing: Caddyfile is missing marker "${VIBE_DASHBOARD_CADDY_MARKER}".`,
+    );
+  }
+
+  const indent = markerMatch[1] ?? '';
+  const indented = (line: string) => (line ? `${indent}${line}` : '');
+  const releaseAssetRouting = [
+    '# VK release binary frontend assets. Release builds embed VK local-web',
+    '# with normal /assets/... URLs, so CI-release sandbox mode must send',
+    '# these module/static asset requests to VK before VD/Vite can serve',
+    '# its HTML fallback with text/html.',
+    '@vk_release_assets {',
+    '\tpath_regexp vk_release_assets ^/assets/.+\\.(js|css|wasm|mjs|map|json|png|jpe?g|svg|webp|ico|woff2?)$',
+    '}',
+    '',
+    'handle @vk_release_assets {',
+    '\tvk_rewrite',
+    '\treverse_proxy localhost:{$BACKEND_PORT:3007} {',
+    '\t\theader_up Host {upstream_hostport}',
+    '\t\theader_up Upgrade {http.request.header.Upgrade}',
+    '\t\theader_up Connection {http.request.header.Connection}',
+    '\t\theader_up Accept-Encoding identity',
+    '\t}',
+    '}',
+    '',
+  ]
+    .map(indented)
+    .join('\n');
+
+  return caddyfile.replace(markerMatch[0], `${releaseAssetRouting}${markerMatch[0]}`);
 }
 
 function ciReleaseArtifactFromEnv(
@@ -503,6 +542,9 @@ export function createSandboxPlan(input: {
   const runDir = resolve(
     input.runDir ?? join(vdRoot, '.vk-mocked-sandbox', 'current'),
   );
+  const caddyfile = ciReleaseArtifact
+    ? caddyfileWithCiReleaseAssetRouting(input.caddyfile)
+    : input.caddyfile;
   const vdUrl = `http://localhost:${input.ports.vdCaddy}`;
   const vkFrontendUrl = vdUrl;
 
@@ -664,7 +706,7 @@ export function createSandboxPlan(input: {
     paths: { workspaceRoot, vdRoot, vkRoot, runDir },
     urls: { vd: vdUrl, vkFrontend: vkFrontendUrl },
     env: commonEnv,
-    caddyfile: input.caddyfile,
+    caddyfile,
     setupCommands,
     commands,
   };

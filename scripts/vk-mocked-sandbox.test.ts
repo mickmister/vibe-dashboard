@@ -271,6 +271,16 @@ describe('VK mocked sandbox helpers', () => {
   });
 
   it('plans release-asset VK without local VK builds and enables runtime QA mode', () => {
+    const caddyfile = [
+      '# VK built frontend assets for the same-origin mocked sandbox.',
+      'handle_path /vk-static/* {',
+      '  reverse_proxy localhost:{$BACKEND_PORT:3007}',
+      '}',
+      '# Vibe Dashboard app',
+      '@vibe_dashboard_assets {',
+      '  path /assets/*',
+      '}',
+    ].join('\n');
     const plan = createSandboxPlan({
       workspaceRoot: '/tmp/worktrees/example/vibe-kanban-vscode-web',
       env: {
@@ -288,7 +298,7 @@ describe('VK mocked sandbox helpers', () => {
         vdCaddy: 4101,
       },
       runDir: '/tmp/run',
-      caddyfile: 'mocked sandbox caddyfile',
+      caddyfile,
     });
 
     const artifactRoot =
@@ -326,6 +336,43 @@ describe('VK mocked sandbox helpers', () => {
         QA_MODE: '1',
       },
     });
+    expect(plan.caddyfile).toContain('@vk_release_assets');
+    expect(plan.caddyfile).toContain(
+      'path_regexp vk_release_assets ^/assets/.+\\.(js|css|wasm|mjs|map|json|png|jpe?g|svg|webp|ico|woff2?)$',
+    );
+    expect(plan.caddyfile).toContain('handle @vk_release_assets');
+    expect(plan.caddyfile.indexOf('handle @vk_release_assets')).toBeLessThan(
+      plan.caddyfile.indexOf('@vibe_dashboard_assets'),
+    );
+  });
+
+  it('does not add release /assets routing to source-mode sandbox plans', () => {
+    const caddyfile = [
+      '# VK built frontend assets for the same-origin mocked sandbox.',
+      'handle_path /vk-static/* {',
+      '  reverse_proxy localhost:{$BACKEND_PORT:3007}',
+      '}',
+      '# Vibe Dashboard app',
+      '@vibe_dashboard_assets {',
+      '  path /assets/*',
+      '}',
+    ].join('\n');
+    const plan = createSandboxPlan({
+      workspaceRoot: '/tmp/worktrees/example/vibe-kanban-vscode-web',
+      ports: {
+        vkBackend: 4107,
+        vkFrontend: 4100,
+        vkPreviewProxy: 4106,
+        vdDashboard: 4105,
+        vdServer: 4104,
+        vdCaddy: 4101,
+      },
+      runDir: '/tmp/run',
+      caddyfile,
+    });
+
+    expect(plan.caddyfile).toBe(caddyfile);
+    expect(plan.caddyfile).not.toContain('@vk_release_assets');
   });
 
   it('requires an exact SHA for release-asset VK planning', () => {
