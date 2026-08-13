@@ -458,7 +458,10 @@ test.describe("LV2K API-first workflow fixtures", () => {
     expect(presentation.summary?.nextAction ?? "").toContain(
       "Review the invalid response",
     );
-    expect(markerCounts).toEqual({ "LV2K_STEP:invalid_xml_decide": 1 });
+    // Retry prompts intentionally render the original step prompt and append
+    // validation guidance, so the stable LV2K marker appears once for the
+    // initial turn and once for the retry turn.
+    expect(markerCounts).toEqual({ "LV2K_STEP:invalid_xml_decide": 2 });
     expect(presentation.timeline).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
