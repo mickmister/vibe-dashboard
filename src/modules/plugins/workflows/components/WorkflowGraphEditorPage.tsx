@@ -133,7 +133,7 @@ export function WorkflowGraphEditorView({ editor, definition, assets, onDefiniti
             nodes={flowNodes}
             edges={flowEdges}
             fitView
-            fitViewOptions={{ padding: 0.2 }}
+            fitViewOptions={{ padding: 0.08 }}
             edgeTypes={workflowEdgeTypes}
             nodesDraggable
             nodesConnectable={false}
@@ -472,8 +472,8 @@ function layoutGraphNodes(nodes: WorkflowGraphNodeModel[], edges: WorkflowGraphE
   const positions = new Map<string, { x: number; y: number }>();
   for (const [rank, group] of groups) {
     const ordered = [...group].sort((a, b) => Number(a.terminal) - Number(b.terminal) || a.id.localeCompare(b.id));
-    const startY = -((ordered.length - 1) * 220) / 2;
-    ordered.forEach((node, index) => positions.set(node.id, { x: rank * 380, y: startY + index * 220 }));
+    const startY = -((ordered.length - 1) * 180) / 2;
+    ordered.forEach((node, index) => positions.set(node.id, { x: rank * 260, y: startY + index * 180 }));
   }
   return positions;
 }

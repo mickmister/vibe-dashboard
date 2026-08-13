@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { layoutWorkflowGraph, toFlowEdges, toFlowNodes } from './WorkflowGraphEditorPage';
 import type { WorkflowGraphEdgeModel, WorkflowGraphNodeModel } from './graph/workflowGraphModel';
@@ -41,6 +43,19 @@ describe('WorkflowGraphEditorPage graph appearance', () => {
       className: 'workflow-graph-edge workflow-loop-edge',
       style: { stroke: '#f59e0b', strokeWidth: 2.5 },
     });
+  });
+
+  it('defines dark readable CSS for custom EdgeLabelRenderer action labels', () => {
+    const css = readFileSync(join(process.cwd(), 'src/modules/plugins/workflows/components/WorkflowGraphEditorPage.css'), 'utf8');
+
+    expect(css).toContain('.workflow-action-edge-label');
+    expect(css).toContain('background: rgba(15, 23, 42, 0.96)');
+    expect(css).toContain('border: 1px solid #0e7490');
+    expect(css).toContain('pointer-events: all');
+    expect(css).toContain('overflow-wrap: anywhere');
+    expect(css).toContain('.workflow-action-edge-label--selected');
+    expect(css).toContain('.workflow-action-edge-label__action');
+    expect(css).toContain('.workflow-action-edge-label__id');
   });
 
   it('lays out cyclic review workflows with horizontal spacing and reverse edge labels', () => {

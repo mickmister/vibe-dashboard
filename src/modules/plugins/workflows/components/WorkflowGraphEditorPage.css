@@ -85,3 +85,58 @@
   border: 1px solid #1e293b;
   border-radius: 0.75rem;
 }
+.workflow-action-edge-label {
+  position: absolute;
+  z-index: 20;
+  display: flex;
+  max-width: 18rem;
+  min-width: 6rem;
+  flex-direction: column;
+  gap: 0.125rem;
+  padding: 0.4rem 0.65rem;
+  border: 1px solid #0e7490;
+  border-radius: 0.65rem;
+  background: rgba(15, 23, 42, 0.96);
+  box-shadow: 0 16px 34px rgba(2, 6, 23, 0.52), 0 0 0 1px rgba(14, 116, 144, 0.25);
+  color: #f8fafc;
+  text-align: center;
+  pointer-events: all;
+  cursor: pointer;
+  user-select: none;
+  transition: border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease, background 120ms ease;
+}
+
+.workflow-action-edge-label:hover,
+.workflow-action-edge-label:focus-visible {
+  border-color: #67e8f9;
+  background: rgba(8, 47, 73, 0.98);
+  box-shadow: 0 0 0 3px rgba(103, 232, 249, 0.25), 0 18px 38px rgba(2, 6, 23, 0.58);
+  outline: none;
+}
+
+.workflow-action-edge-label--selected {
+  border-color: #22d3ee;
+  background: rgba(8, 47, 73, 0.98);
+  box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.34), 0 18px 38px rgba(2, 6, 23, 0.62);
+}
+
+.workflow-action-edge-label__action {
+  display: block;
+  overflow-wrap: anywhere;
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1.15rem;
+  color: #f8fafc;
+}
+
+.workflow-action-edge-label__id {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.66rem;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  color: #a5f3fc;
+  opacity: 0.86;
+}
