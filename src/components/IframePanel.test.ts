@@ -140,6 +140,39 @@ describe('iframe reveal behavior', () => {
     });
   });
 
+  it('routes PreviewServer craft tabs to an in-process React surface', () => {
+    const target = __iframePanelTestUtils.getTabRenderTargetForTest(
+      {
+        id: 'craft-surface:craft_workspace:dev.mickmister.preview-server/run-configs',
+        title: 'PreviewServer',
+        url: 'internal://preview-run-configs',
+        ephemeral: {
+          kind: 'craft-surface',
+          pluginId: 'dev.mickmister.preview-server',
+          surfaceKey: 'dev.mickmister.preview-server/run-configs',
+          sourceKey: 'run-configs',
+        },
+      },
+      {
+        tabs: [],
+        workspace: {
+          workspaceId: 'workspace-e2e',
+          workspaceDir: '/work/repo',
+        },
+      },
+    );
+
+    expect(target).toEqual({
+      kind: 'react-surface',
+      target: {
+        kind: 'react',
+        pluginId: 'dev.mickmister.preview-server',
+        surfaceKey: 'dev.mickmister.preview-server/run-configs',
+        props: { workspaceId: 'workspace-e2e' },
+      },
+    });
+  });
+
   it('clears first-activation tracking when an iframe is removed', () => {
     __iframePanelTestUtils.addRetainedIframeForTest('craft_workspace:agent');
     __iframePanelTestUtils.setActivatedIframeKeys(['craft_workspace:agent', 'craft_workspace:code']);
