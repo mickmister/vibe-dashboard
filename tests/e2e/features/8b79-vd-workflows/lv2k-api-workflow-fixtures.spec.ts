@@ -34,8 +34,10 @@ const forbiddenPresentationTerms = [
 type Workspace = { id: string; name?: string | null; branch?: string | null };
 type Presentation = {
   workflowName: string;
+  workflowId: string;
   status: string;
   originalTask: string | null;
+  provenance?: { workflowDesignId?: string | null; workflowVersion?: number | null } | null;
   timeline: Array<{
     role: string;
     title: string;
@@ -96,8 +98,15 @@ test.describe('LV2K API-first workflow fixtures', () => {
       },
     });
     const launchBody = await expectJsonOk(launched, 201, 'launch LV2K workflow');
-    expect(launchBody.run).toMatchObject({ designId, status: expect.any(String) });
-    expect(launchBody.run.runId).toEqual(expect.stringContaining('workflow-run-'));
+    // The launch response is intentionally a product run summary, not a full
+    // persisted run row. Verify workflow identity through the presentation
+    // read model below, where workflow/provenance belongs.
+    expect(launchBody.run).toMatchObject({
+      runId: expect.stringContaining('workflow-run-'),
+      workspaceId: workspace.id,
+      status: expect.any(String),
+      detailUrl: expect.stringContaining('/dashboard/workflows/'),
+    });
 
     const presentation = await waitForPersistedPresentationCompleted(request, launchBody.run.runId);
     const renderedPresentation = JSON.stringify(presentation);
@@ -106,6 +115,8 @@ test.describe('LV2K API-first workflow fixtures', () => {
       .filter((text) => text.includes('LV2K_STEP:simple_decide'));
 
     expect(presentation.workflowName).toBe('LV2K Simple Agent Decision');
+    expect(presentation.workflowId).toBe(designId);
+    expect(presentation.provenance).toMatchObject({ workflowDesignId: designId, workflowVersion: 1 });
     expect(presentation.originalTask).toBe(task);
     expect(presentation.timeline.map((item) => item.role)).toContain('Implementer');
     expect(queuedPromptMarkers).toHaveLength(1);
