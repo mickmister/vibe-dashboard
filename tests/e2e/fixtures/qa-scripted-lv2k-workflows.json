@@ -73,6 +73,7 @@
       "delay_ms": 0
     },
     {
+      "prompt_contains": "LV2K_STEP:invalid_xml_decide",
       "outcome": "completed",
       "final_message": "<decision action=\"unknown_action\"><summary>This action should be rejected after retry.</summary></decision>",
       "session_id": "qa-scripted-lv2k-invalid-exhausted",
