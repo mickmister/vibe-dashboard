@@ -428,7 +428,7 @@ function WorkflowActionEdge(props: EdgeProps): React.ReactElement {
           onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); data?.onSelect?.(id); } }}
         >
           <span className="workflow-action-edge-label__action">{label}</span>
-          {data?.waitFor ? <span className="workflow-action-edge-label__id">wait · {data.waitFor.provider}</span> : null}
+          {data?.waitFor ? <span className="workflow-action-edge-label__id">wait · {data.waitFor.provider}</span> : <span className="workflow-action-edge-label__id">{data?.actionId}</span>}
         </div>
       </EdgeLabelRenderer>
     </>
