@@ -12,6 +12,9 @@ describe('WorkspaceWorkflowsHomeView', () => {
     expect(html).toContain('data-testid="standalone-dashboard-page"');
     expect(html).toContain('h-screen');
     expect(html).toContain('overflow-y-auto');
+    expect(html).toContain('Workspace workflow center');
+    expect(html).toContain('Create, run, and monitor workflows for');
+    expect(html).toContain('workspace-a');
     expect(html).toContain('Workflows');
     expect(html).toContain('Create workflow');
     expect(html).toContain('href="/dashboard/workflows/new?workspaceId=workspace-a"');
@@ -20,6 +23,13 @@ describe('WorkspaceWorkflowsHomeView', () => {
     expect(html).toContain('Recent batches');
     expect(html).toContain('Recent runs');
     expect(html).toContain('Needs your input');
+    expect(html).toContain('Workflow dashboard summary');
+    expect(html).toContain('Items waiting on you');
+    expect(html).toContain('Active runs');
+    expect(html).toContain('Running, waiting, or blocked');
+    expect(html).toContain('Running now. Open the run page to see who has the next step.');
+    expect(html).toContain('Needs attention before the workflow can continue.');
+    expect(html).toContain('The workflow resumes after you submit the requested input.');
     expect(html).toContain('Dev Review Tester');
     expect(html).toContain('Run');
     expect(html).toContain('Batch run');
@@ -29,6 +39,7 @@ describe('WorkspaceWorkflowsHomeView', () => {
     expect(html).toContain('Starter template');
     expect(html).toContain('Create form from agent');
     expect(html).toContain('Feature workflow run');
+    expect(html).toContain('Blocked workflow run');
     expect(html).toContain('1 complete · 1 running · 2 pending · 1 errors');
     expect(html).toContain('Open batch details');
     expect(html).toContain('href="/dashboard/workflow-batches/batch-a"');
@@ -37,6 +48,7 @@ describe('WorkspaceWorkflowsHomeView', () => {
     expect(html).toContain('Batch item 2 is missing required workflow fields.');
     expect(html).toContain('featureRequest: This field is required.');
     expect(html).not.toContain('href="/dashboard/workflows/run-a"');
+    expect(html).toContain('href="/dashboard/workflows/run-blocked"');
     expect(html).toContain('href="/dashboard/workflows/legacy-attention"');
     for (const term of forbiddenTerms) expect(html).not.toContain(term);
   });
@@ -48,6 +60,7 @@ describe('WorkspaceWorkflowsHomeView', () => {
     expect(html).toContain('No workflow batches in this workspace yet.');
     expect(html).toContain('No workflow runs in this workspace yet.');
     expect(html).toContain('Nothing needs your input right now.');
+    expect(html).toContain('No active workflow runs right now. Start a workflow or open a recent run to review history.');
     expect(html).toContain('Workspace is required.');
     for (const term of forbiddenTerms) expect(html).not.toContain(term);
   });
@@ -81,6 +94,8 @@ function fixture(): WorkspaceWorkflowsHomeModel {
     ],
     recentRuns: [
       { runId: 'run-a', workflowName: 'Feature workflow run', status: 'running', startedAt: 1, updatedAt: 2, detailUrl: null },
+      { runId: 'run-blocked', workflowName: 'Blocked workflow run', status: 'blocked', startedAt: 2, updatedAt: 3, detailUrl: '/dashboard/workflows/run-blocked' },
+      { runId: 'run-complete', workflowName: 'Completed workflow run', status: 'completed', startedAt: 1, updatedAt: 4, detailUrl: '/dashboard/workflows/run-complete' },
     ],
     recentBatches: [
       {

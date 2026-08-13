@@ -123,6 +123,16 @@ test.describe("Workspace Workflows tab shell", () => {
     await expect(
       page.getByRole("heading", { name: "Workflows", exact: true }),
     ).toBeVisible();
+    await expect(page.getByText("Workspace workflow center")).toBeVisible();
+    await expect(page.getByText("Create, run, and monitor workflows for")).toBeVisible();
+    await expect(page.getByLabel("Workflow dashboard summary")).toContainText("Needs input");
+    await expect(page.getByLabel("Workflow dashboard summary")).toContainText("Active runs");
+    await expect(
+      page.getByRole("heading", { name: "Active runs" }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("Running now. Open the run page to see who has the next step."),
+    ).toBeVisible();
     await expect(
       page.getByRole("heading", { name: "Your workflows" }),
     ).toBeVisible();
@@ -154,6 +164,9 @@ test.describe("Workspace Workflows tab shell", () => {
       page.locator('a[href="/dashboard/workflows/legacy-clean"]'),
     ).toBeVisible();
     await expect(page.getByText("Answer planning questions")).toBeVisible();
+    await expect(
+      page.getByText("The workflow resumes after you submit the requested input."),
+    ).toBeVisible();
     await expect(
       page.locator('a[href="/dashboard/workflows/run-clean"]'),
     ).toHaveCount(0);

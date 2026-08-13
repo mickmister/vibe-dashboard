@@ -90,32 +90,48 @@ export function WorkspaceWorkflowsHomeView({
     useState<WorkspaceWorkflowSummary | null>(null);
   const [batchWorkflow, setBatchWorkflow] =
     useState<WorkspaceWorkflowSummary | null>(null);
+  const activeRuns = useMemo(
+    () => (home?.recentRuns ?? []).filter(isActiveRun),
+    [home?.recentRuns],
+  );
+  const summary = useMemo(() => workflowDashboardSummary(home, activeRuns), [home, activeRuns]);
   return (
     <StandaloneDashboardPage
       className={embedded ? "h-full" : ""}
       contentClassName="mx-auto max-w-6xl space-y-5"
     >
-      <header className="flex flex-wrap items-start justify-between gap-4 rounded-xl border border-zinc-800 bg-zinc-900/60 p-5">
-        <div>
-          <div className="text-xs uppercase tracking-wide text-cyan-300">
-            Workspace
+      <header className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-5">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <div className="text-xs uppercase tracking-wide text-cyan-300">
+              Workspace workflow center
+            </div>
+            <h1 className="mt-1 text-2xl font-semibold">Workflows</h1>
+            <p className="mt-2 max-w-3xl text-sm text-zinc-300">
+              Create, run, and monitor workflows for {home?.workspaceId ? <span className="font-medium text-zinc-100">{home.workspaceId}</span> : "this workspace"}.
+            </p>
           </div>
-          <h1 className="mt-1 text-2xl font-semibold">Workflows</h1>
+          <div className="flex flex-wrap gap-2">
+            <a
+              className="rounded-md bg-cyan-500 px-3 py-2 text-sm font-medium text-zinc-950 hover:bg-cyan-400"
+              href={`/dashboard/workflows/new?workspaceId=${encodeURIComponent(home?.workspaceId ?? "")}`}
+            >
+              Create workflow
+            </a>
+            <button
+              className="rounded-md border border-zinc-700 px-3 py-2 text-sm hover:bg-zinc-800 disabled:opacity-50"
+              onClick={onRefresh}
+              disabled={loading}
+            >
+              {loading ? "Refreshing…" : "Refresh"}
+            </button>
+          </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <a
-            className="rounded-md bg-cyan-500 px-3 py-2 text-sm font-medium text-zinc-950 hover:bg-cyan-400"
-            href={`/dashboard/workflows/new?workspaceId=${encodeURIComponent(home?.workspaceId ?? "")}`}
-          >
-            Create workflow
-          </a>
-          <button
-            className="rounded-md border border-zinc-700 px-3 py-2 text-sm hover:bg-zinc-800 disabled:opacity-50"
-            onClick={onRefresh}
-            disabled={loading}
-          >
-            {loading ? "Refreshing…" : "Refresh"}
-          </button>
+        <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4" aria-label="Workflow dashboard summary">
+          <SummaryTile label="Needs input" value={summary.needsInput} detail="Items waiting on you" tone={summary.needsInput > 0 ? "amber" : "zinc"} />
+          <SummaryTile label="Active runs" value={summary.activeRuns} detail="Running, waiting, or blocked" tone={summary.activeRuns > 0 ? "cyan" : "zinc"} />
+          <SummaryTile label="Your workflows" value={summary.userWorkflows} detail="Drafts and published designs" tone="emerald" />
+          <SummaryTile label="Starter templates" value={summary.starterTemplates} detail="Copy and customize" tone="cyan" />
         </div>
       </header>
 
@@ -128,6 +144,12 @@ export function WorkspaceWorkflowsHomeView({
         </div>
       ) : null}
 
+      {loading ? (
+        <div className="rounded-lg border border-cyan-900 bg-cyan-950/20 p-4 text-sm text-cyan-100">
+          Loading workflow dashboard…
+        </div>
+      ) : null}
+
       <Section title="Needs your input">
         {home?.needsInput.length ? (
           <div className="grid gap-3 md:grid-cols-2">
@@ -137,6 +159,21 @@ export function WorkspaceWorkflowsHomeView({
           </div>
         ) : (
           <EmptyState text="Nothing needs your input right now." />
+        )}
+      </Section>
+
+      <Section
+        title="Active runs"
+        description="Runs currently moving, waiting for someone, or needing attention in this workspace."
+      >
+        {activeRuns.length ? (
+          <div className="space-y-3">
+            {activeRuns.map((run) => (
+              <ActiveRunRow key={run.runId} run={run} />
+            ))}
+          </div>
+        ) : (
+          <EmptyState text="No active workflow runs right now. Start a workflow or open a recent run to review history." />
         )}
       </Section>
 
@@ -229,6 +266,45 @@ export function WorkspaceWorkflowsHomeView({
         />
       ) : null}
     </StandaloneDashboardPage>
+  );
+}
+
+function workflowDashboardSummary(home: WorkspaceWorkflowsHomeModel | null, activeRuns: WorkspaceWorkflowRunSummary[]) {
+  return {
+    needsInput: home?.needsInput.length ?? 0,
+    activeRuns: activeRuns.length,
+    userWorkflows: home?.userWorkflows.length ?? 0,
+    starterTemplates: home?.starterTemplates.length ?? 0,
+  };
+}
+
+function isActiveRun(run: WorkspaceWorkflowRunSummary): boolean {
+  return !["completed", "failed", "cancelled"].includes(run.status);
+}
+
+function SummaryTile({
+  label,
+  value,
+  detail,
+  tone,
+}: {
+  label: string;
+  value: number;
+  detail: string;
+  tone: "emerald" | "cyan" | "amber" | "zinc";
+}) {
+  const classes = {
+    emerald: "border-emerald-900 bg-emerald-950/20 text-emerald-100",
+    cyan: "border-cyan-900 bg-cyan-950/20 text-cyan-100",
+    amber: "border-amber-900 bg-amber-950/30 text-amber-100",
+    zinc: "border-zinc-800 bg-zinc-950/70 text-zinc-100",
+  }[tone];
+  return (
+    <div className={`rounded-lg border p-4 ${classes}`}>
+      <div className="text-2xl font-semibold">{value}</div>
+      <div className="mt-1 text-sm font-medium">{label}</div>
+      <div className="mt-1 text-xs opacity-75">{detail}</div>
+    </div>
   );
 }
 
@@ -1216,6 +1292,46 @@ function BatchItemRow({
   );
 }
 
+function ActiveRunRow({ run }: { run: WorkspaceWorkflowRunSummary }) {
+  const body = (
+    <>
+      <div>
+        <h3 className="font-semibold">{run.workflowName}</h3>
+        <p className="mt-1 text-sm text-zinc-300">
+          {activeRunExplanation(run)}
+        </p>
+        <p className="mt-1 text-xs text-zinc-500">
+          Updated {formatTime(run.updatedAt)}
+        </p>
+      </div>
+      <StatusPill label={humanRunStatus(run.status)} tone={runStatusTone(run.status)} />
+    </>
+  );
+  const classes =
+    "flex flex-wrap items-center justify-between gap-3 rounded-lg border border-cyan-900/70 bg-cyan-950/10 p-4";
+  return run.detailUrl ? (
+    <a className={`${classes} hover:border-cyan-600`} href={run.detailUrl}>
+      {body}
+    </a>
+  ) : (
+    <div className={classes}>{body}</div>
+  );
+}
+
+function activeRunExplanation(run: WorkspaceWorkflowRunSummary): string {
+  if (run.status === "blocked") return "Needs attention before the workflow can continue.";
+  if (run.status === "waiting") return "Waiting for the next response or result before continuing.";
+  if (run.status === "running") return "Running now. Open the run page to see who has the next step.";
+  return "In progress. Open the run page to see what happens next.";
+}
+
+function runStatusTone(status: string): "emerald" | "cyan" | "amber" | "red" {
+  if (status === "completed") return "emerald";
+  if (status === "blocked") return "amber";
+  if (status === "failed") return "red";
+  return "cyan";
+}
+
 function RunRow({ run }: { run: WorkspaceWorkflowRunSummary }) {
   const body = (
     <>
@@ -1225,18 +1341,7 @@ function RunRow({ run }: { run: WorkspaceWorkflowRunSummary }) {
           Updated {formatTime(run.updatedAt)}
         </p>
       </div>
-      <StatusPill
-        label={humanRunStatus(run.status)}
-        tone={
-          run.status === "completed"
-            ? "emerald"
-            : run.status === "blocked"
-              ? "amber"
-              : run.status === "failed"
-                ? "red"
-                : "cyan"
-        }
-      />
+      <StatusPill label={humanRunStatus(run.status)} tone={runStatusTone(run.status)} />
     </>
   );
   const classes =
@@ -1261,6 +1366,7 @@ function AttentionCard({ item }: { item: WorkspaceWorkflowAttentionSummary }) {
         <p className="mt-2 text-sm text-amber-50">{item.description}</p>
       ) : null}
       <p className="mt-3 text-xs text-amber-200">{item.workflowName}</p>
+      <p className="mt-1 text-xs text-amber-100/80">The workflow resumes after you submit the requested input.</p>
     </article>
   );
   return item.detailUrl ? (
