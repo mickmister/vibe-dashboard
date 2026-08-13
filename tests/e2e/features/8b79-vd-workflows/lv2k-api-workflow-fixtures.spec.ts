@@ -5,7 +5,7 @@
  *
  * This spec intentionally uses only public VD HTTP APIs for workflow setup and
  * launch. It does not seed the DB and it does not call runtime.completeAgentTurn;
- * VK qa-mode produces the final message at the real queued-turn/message boundary.
+ * VK qa-mode produces the final XML message at the real queued-turn/message boundary.
  */
 import { promises as fs } from 'node:fs';
 import { createRequire } from 'node:module';

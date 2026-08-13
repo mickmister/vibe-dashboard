@@ -3,7 +3,7 @@
     {
       "prompt_contains": "LV2K_STEP:simple_decide",
       "outcome": "completed",
-      "final_message": "LV2K scripted executor completed the simple workflow.\n\n<decision action=\"done\"><summary>Finished simple task through real VK qa-mode XML loopback.</summary></decision>",
+      "final_message": "<decision action=\"done\"><summary>Finished simple task through real VK qa-mode XML loopback.</summary></decision>",
       "session_id": "qa-scripted-lv2k-simple",
       "message_id": "qa-scripted-lv2k-simple",
       "delay_ms": 0
