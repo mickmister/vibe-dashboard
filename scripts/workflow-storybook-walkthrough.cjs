@@ -39,11 +39,11 @@ async function main() {
       await pause(page, pauseMs);
       const before = path.join(screenshotDir, `${safeName(storyId)}-top.png`);
       await page.screenshot({ path: before, fullPage: false });
-      await scrollStoryToBottom(page, storyId);
+      const scroll = await scrollStoryToBottom(page, storyId);
       await pause(page, pauseMs);
       const after = path.join(screenshotDir, `${safeName(storyId)}-bottom.png`);
-      await page.screenshot({ path: after, fullPage: true });
-      visited.push({ storyId, before, after });
+      await page.screenshot({ path: after, fullPage: false });
+      visited.push({ storyId, before, after, scroll });
     }
   } finally {
     await context.close();
@@ -106,18 +106,48 @@ async function waitForStoryContent(page, storyId) {
 }
 
 async function scrollStoryToBottom(page, storyId) {
-  await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+  await page.evaluate(() => {
+    const target = document.querySelector('[data-workflow-story-scroll-root]') || document.scrollingElement || document.documentElement;
+    target.scrollTo({ top: 0, behavior: 'instant' });
+  });
   await pause(page, 400);
   let lastY = -1;
-  for (let i = 0; i < 40; i += 1) {
-    const metrics = await page.evaluate(() => ({ y: window.scrollY, max: Math.max(0, document.documentElement.scrollHeight - window.innerHeight) }));
+  let metrics = await scrollMetrics(page);
+  for (let i = 0; i < 80; i += 1) {
+    metrics = await scrollMetrics(page);
     if (metrics.y >= metrics.max || metrics.y === lastY) break;
     lastY = metrics.y;
-    await page.evaluate((step) => window.scrollBy({ top: step, behavior: 'smooth' }), scrollStep);
+    await page.evaluate((step) => {
+      const target = document.querySelector('[data-workflow-story-scroll-root]') || document.scrollingElement || document.documentElement;
+      target.scrollBy({ top: step, behavior: 'smooth' });
+    }, scrollStep);
     await pause(page, Math.max(700, Math.floor(pauseMs / 2)));
+  }
+  metrics = await scrollMetrics(page);
+  if (metrics.max > 0 && metrics.y < metrics.max - 8) {
+    throw new Error(`Story ${storyId} did not scroll to the bottom: y=${metrics.y}, max=${metrics.max}, target=${metrics.target}`);
   }
   // Keep graph labels/details visible even when graph stories are shorter than the viewport.
   if (storyId.includes('graph')) await pause(page, pauseMs);
+  return metrics;
+}
+
+async function scrollMetrics(page) {
+  return page.evaluate(() => {
+    const target = document.querySelector('[data-workflow-story-scroll-root]') || document.scrollingElement || document.documentElement;
+    const isWindow = target === document.scrollingElement || target === document.documentElement || target === document.body;
+    const y = isWindow ? window.scrollY : target.scrollTop;
+    const max = isWindow
+      ? Math.max(0, document.documentElement.scrollHeight - window.innerHeight)
+      : Math.max(0, target.scrollHeight - target.clientHeight);
+    return {
+      target: isWindow ? 'window' : 'workflow-story-scroll-root',
+      y: Math.ceil(y),
+      max: Math.ceil(max),
+      scrollHeight: isWindow ? document.documentElement.scrollHeight : target.scrollHeight,
+      clientHeight: isWindow ? window.innerHeight : target.clientHeight,
+    };
+  });
 }
 
 async function pause(page, ms) {

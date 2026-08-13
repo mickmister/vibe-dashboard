@@ -12,7 +12,11 @@ export function WorkflowStoryFrame({
   height?: string;
 }): React.ReactElement {
   return (
-    <div className="min-h-screen bg-slate-950 p-6 text-zinc-100" style={{ minHeight: height }}>
+    <div
+      className="h-screen overflow-y-auto overscroll-contain bg-slate-950 p-6 text-zinc-100"
+      data-workflow-story-scroll-root
+      style={{ minHeight: height }}
+    >
       {title || description ? (
         <header className="mx-auto mb-5 max-w-7xl rounded-xl border border-slate-800 bg-slate-900/70 p-4">
           {title ? <h1 className="text-xl font-semibold text-zinc-50">{title}</h1> : null}
