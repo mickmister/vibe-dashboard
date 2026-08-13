@@ -97,7 +97,7 @@ export async function buildWorkspaceWorkflowsHomeModel(args: {
     listUserWorkflows(designStore),
     listStarterTemplates(designStore),
     listRecentRuns(args.db, args.workspaceId, args.recentRunLimit ?? 10),
-    listNeedsInput(args.orchestrationStore, args.workspaceId),
+    listNeedsInput(args.db, args.orchestrationStore, args.workspaceId),
     listRecentBatches(args.db, designStore, args.workspaceId),
   ]);
   return { workspaceId: args.workspaceId, userWorkflows, starterTemplates, recentRuns, needsInput, recentBatches };
@@ -242,6 +242,7 @@ async function listRecentRuns(db: Kysely<DB>, workspaceId: string, limit: number
 }
 
 async function listNeedsInput(
+  db: Kysely<DB>,
   orchestrationStore: DbWorkflowOrchestrationStore | undefined,
   workspaceId: string,
 ): Promise<WorkspaceWorkflowAttentionSummary[]> {
@@ -254,13 +255,28 @@ async function listNeedsInput(
         attentionItemId: item.attentionItemId,
         title: item.title,
         description: item.description,
-        workflowName: item.workflowId,
+        workflowName: await attentionWorkflowName(db, item),
         createdAt: item.createdAt,
         detailUrl: item.presentationUrl,
       });
     }
   }
   return scoped.sort((left, right) => right.createdAt - left.createdAt);
+}
+
+async function attentionWorkflowName(
+  db: Kysely<DB>,
+  item: WorkflowAttentionItemReadModel,
+): Promise<string> {
+  const run = await db.selectFrom('WorkflowPersistedRun')
+    .select(['coreModelJson'])
+    .where('runId', '=', item.instanceId)
+    .executeTakeFirst();
+  if (run) {
+    const model = parseRecord(run.coreModelJson);
+    if (typeof model.name === 'string' && model.name.trim()) return model.name;
+  }
+  return item.workflowId;
 }
 
 async function attentionBelongsToWorkspace(

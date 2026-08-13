@@ -25,8 +25,8 @@ describe('buildWorkspaceWorkflowsHomeModel', () => {
     await designStore.createDesign({ designId: 'design.draft', draftId: 'draft.only', name: 'Planning Workflow Draft', definition: validDefinition('Planning Workflow Draft') });
     await seedPersistedRun(handle, designStore, { runId: 'run-workspace-a', workspaceId: 'workspace-a', workflowName: 'Workspace A run', updatedAt: 20 });
     await seedPersistedRun(handle, designStore, { runId: 'run-workspace-b', workspaceId: 'workspace-b', workflowName: 'Workspace B run', updatedAt: 30 });
-    await seedAttention(orchestrationStore, 'attention-a', 'workspace-a');
-    await seedAttention(orchestrationStore, 'attention-b', 'workspace-b');
+    await seedAttention(orchestrationStore, 'attention-a', 'workspace-a', 'run-workspace-a');
+    await seedAttention(orchestrationStore, 'attention-b', 'workspace-b', 'run-workspace-b');
 
     const home = await buildWorkspaceWorkflowsHomeModel({ db: handle.db, designStore, orchestrationStore, workspaceId: 'workspace-a' });
 
@@ -36,7 +36,7 @@ describe('buildWorkspaceWorkflowsHomeModel', () => {
     expect(home.userWorkflows.find((workflow) => workflow.id === 'design.draft')).toMatchObject({ source: 'published_design', status: 'unavailable', version: null, canRun: false, unavailableReason: 'Publish this workflow before running it.' });
     expect(home.starterTemplates[0]).toMatchObject({ source: 'template', canRun: false });
     expect(home.recentRuns).toEqual([{ runId: 'run-workspace-a', workflowName: 'Workspace A run', status: 'running', startedAt: 10, updatedAt: 20, detailUrl: '/dashboard/workflows/run-workspace-a' }]);
-    expect(home.needsInput).toMatchObject([{ attentionItemId: 'attention-a', title: 'Answer planning questions' }]);
+    expect(home.needsInput).toMatchObject([{ attentionItemId: 'attention-a', title: 'Answer planning questions', workflowName: 'Workspace A run' }]);
     expect(JSON.stringify(home)).not.toContain('workspace-b');
   });
 });
@@ -62,8 +62,7 @@ async function seedPersistedRun(handle: VdDbHandle, designStore: DbWorkflowDesig
   }).execute();
 }
 
-async function seedAttention(store: DbWorkflowOrchestrationStore, attentionItemId: string, workspaceId: string) {
-  const instanceId = `instance-${attentionItemId}`;
+async function seedAttention(store: DbWorkflowOrchestrationStore, attentionItemId: string, workspaceId: string, instanceId = `instance-${attentionItemId}`) {
   const stepStateId = `step-${attentionItemId}`;
   await store.createInstance({ instanceId, workflowId: 'Feature workflow run', trigger: 'manual', input: { workspaceId }, state: {} });
   await store.startInstance(instanceId, { currentStepId: 'human' });
