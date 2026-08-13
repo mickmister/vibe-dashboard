@@ -149,7 +149,7 @@ describe('WorkflowGraphEditorView prompt and skill picker', () => {
     expect(html).toContain('Roles → states → transitions');
     expect(html).toContain('+ Add Role');
     expect(html).toContain('dev · 1 state');
-    expect(html).toContain('action: dev → done');
+    expect(html).toContain('done: dev → done');
     expect(html).toContain('Prompt and skill snippets');
     expect(html).toContain('Dev instructions');
     expect(html).toContain('v1 · Built-in');
