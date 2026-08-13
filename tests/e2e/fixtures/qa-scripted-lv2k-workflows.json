@@ -78,6 +78,14 @@
       "session_id": "qa-scripted-lv2k-invalid-exhausted",
       "message_id": "qa-scripted-lv2k-invalid-exhausted",
       "delay_ms": 0
+    },
+    {
+      "prompt_contains": "LV2K_STEP:human_after_approval",
+      "outcome": "completed",
+      "final_message": "<decision action=\"done\"><summary>Completed LV2K human form workflow after approval.</summary></decision>",
+      "session_id": "qa-scripted-lv2k-human-after-approval",
+      "message_id": "qa-scripted-lv2k-human-after-approval",
+      "delay_ms": 0
     }
   ]
 }

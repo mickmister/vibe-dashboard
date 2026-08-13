@@ -27,10 +27,10 @@
     {
       "id": "human-form-beads-form",
       "testCaseId": "TEST_CASE_LV2K_2C",
-      "workflowDefinition": "pending",
-      "scriptedOutcome": "pending",
-      "verification": "HTTP attention/form resume and presentation",
-      "status": "later"
+      "workflowDefinition": "tests/e2e/fixtures/lv2k-human-form.workflow.json",
+      "scriptedOutcome": "tests/e2e/fixtures/qa-scripted-lv2k-workflows.json",
+      "verification": "HTTP attention item, completion route, and presentation endpoint",
+      "status": "implemented"
     },
     {
       "id": "blocking-workflow-call",

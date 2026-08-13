@@ -4,6 +4,7 @@
  * - TEST_CASE_LV2K_2A
  * - TEST_CASE_LV2K_2B
  * - TEST_CASE_LV2K_2F
+ * - TEST_CASE_LV2K_2C
  *
  * This spec intentionally uses only public VD HTTP APIs for workflow setup and
  * launch. It does not seed the DB and it does not call runtime.completeAgentTurn;
@@ -26,6 +27,8 @@ const drtWorkflowDefinition =
   require("../../fixtures/lv2k-dev-review-tester.workflow.json") as any;
 const invalidXmlWorkflowDefinition =
   require("../../fixtures/lv2k-invalid-xml-blocked.workflow.json") as any;
+const humanFormWorkflowDefinition =
+  require("../../fixtures/lv2k-human-form.workflow.json") as any;
 const lv2kScriptedOutcomes =
   require("../../fixtures/qa-scripted-lv2k-workflows.json") as {
     outcomes: Array<{ prompt_contains?: string; final_message?: string }>;
@@ -70,10 +73,24 @@ type Presentation = {
   timeline: Array<{
     role: string;
     title: string;
+    kind?: string;
     status: string;
     initialMessage: { text: string } | null;
     finalResponse: { text: string } | null;
+    responseUnavailable?: string | null;
   }>;
+};
+
+type AttentionItem = {
+  attentionItemId: string;
+  instanceId: string;
+  status: string;
+  title: string;
+  description: string | null;
+  stateVisitId: string;
+  formRef: string | null;
+  formSchema: unknown;
+  presentationUrl: string | null;
 };
 
 test.describe("LV2K API-first workflow fixtures", () => {
@@ -518,6 +535,250 @@ test.describe("LV2K API-first workflow fixtures", () => {
           : null,
     });
   });
+
+  test("TEST_CASE_LV2K_2C creates human form attention, resumes via HTTP, and completes after VK XML", async ({
+    request,
+  }, testInfo) => {
+    test.setTimeout(600_000);
+
+    await expectDashboardHealth(request);
+    await expectProvisionedWebhook(request);
+    const workspace = await firstWorkspace(request);
+
+    const unique = Date.now();
+    const designId = `lv2k-human-form-design-${unique}`;
+    const draftId = `lv2k-human-form-draft-${unique}`;
+    const task = `LV2K human form API fixture task ${unique}`;
+
+    const created = await request.post(url("/dashboard/api/workflow-designs"), {
+      data: {
+        workspaceId: workspace.id,
+        designId,
+        draftId,
+        name: humanFormWorkflowDefinition.name,
+        description: humanFormWorkflowDefinition.description,
+        definition: humanFormWorkflowDefinition,
+        publish: true,
+      },
+    });
+    const createBody = await expectJsonOk(
+      created,
+      201,
+      "create/publish LV2K human form workflow design",
+    );
+    expect(createBody).toMatchObject({
+      design: { designId, latestPublishedVersion: 1 },
+      draft: { draftId, designId },
+      version: { designId, version: 1 },
+      editor: { designId, validationStatus: "valid" },
+    });
+
+    const launched = await request.post(
+      url("/dashboard/api/workflows/launch"),
+      {
+        data: {
+          workspaceId: workspace.id,
+          designId,
+          version: 1,
+          inputs: { featureRequest: task },
+          additionalInstructions:
+            "LV2K human form E2E should wait for human approval, resume, then complete from scripted VK XML.",
+          roleBindings: {
+            dev: { mode: "create_or_reuse", name: `lv2k-human-dev-${unique}` },
+          },
+        },
+      },
+    );
+    const launchBody = await expectJsonOk(
+      launched,
+      201,
+      "launch LV2K human form workflow",
+    );
+    expect(launchBody.run).toMatchObject({
+      runId: expect.stringContaining("workflow-run-"),
+      workspaceId: workspace.id,
+      status: expect.any(String),
+      detailUrl: expect.stringContaining("/dashboard/workflows/"),
+    });
+
+    const waitingPresentation = await waitForPersistedPresentationMatching(
+      request,
+      launchBody.run.runId,
+      (presentation) =>
+        presentation.timeline.some(
+          (item) =>
+            item.kind === "human_form" && item.status === "Waiting for you",
+        ),
+      "LV2K human form workflow should wait for a product attention item",
+    );
+    const waitingRendered = JSON.stringify(waitingPresentation);
+    expect(waitingPresentation).toMatchObject({
+      workflowName: "LV2K Human Form Resume",
+      workflowId: designId,
+      status: "running",
+      originalTask: task,
+    });
+    expect(waitingPresentation.provenance).toMatchObject({
+      workflowDesignId: designId,
+      workflowVersion: 1,
+    });
+    expect(waitingPresentation.timeline).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "human_form",
+          title: "Approve LV2K implementation plan",
+          status: "Waiting for you",
+          responseUnavailable: "Waiting for your answer.",
+        }),
+      ]),
+    );
+    for (const forbidden of forbiddenPresentationTerms) {
+      expect(waitingRendered).not.toContain(forbidden);
+    }
+
+    const activeAttention = await waitForActiveAttention(
+      request,
+      launchBody.run.runId,
+    );
+    expect(activeAttention).toMatchObject({
+      status: "active",
+      title: "Approve LV2K implementation plan",
+      description: "Review the LV2K plan before the Dev agent continues.",
+      presentationUrl: `/dashboard/workflows/${launchBody.run.runId}`,
+    });
+    expect(activeAttention.formRef ?? "").toContain("beads-form://workflow/");
+    expect(JSON.stringify(activeAttention.formSchema)).toContain("approved");
+    expect(JSON.stringify(activeAttention.formSchema)).toContain("remarks");
+
+    const homeWithAttention = await expectJsonOk(
+      await request.get(
+        url(
+          `/dashboard/api/workflows/home?workspaceId=${encodeURIComponent(workspace.id)}`,
+        ),
+      ),
+      200,
+      "load workflows home with LV2K human attention",
+    );
+    expect(homeWithAttention.home.needsInput).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          attentionItemId: activeAttention.attentionItemId,
+          title: "Approve LV2K implementation plan",
+          workflowName: "LV2K Human Form Resume",
+        }),
+      ]),
+    );
+
+    const completion = await request.post(
+      url(
+        `/dashboard/api/workflow-attention-items/${encodeURIComponent(activeAttention.attentionItemId)}/complete`,
+      ),
+      {
+        data: {
+          stateVisitId: activeAttention.stateVisitId,
+          submission: { approved: true, remarks: "Ship it from LV2K." },
+        },
+      },
+    );
+    const completionBody = await expectJsonOk(
+      completion,
+      200,
+      "complete LV2K human attention via HTTP",
+    );
+    expect(completionBody).toMatchObject({
+      result: {
+        applied: true,
+        reason: "applied",
+        attention: { status: "resolved" },
+      },
+    });
+
+    const presentation = await waitForPersistedPresentationCompleted(
+      request,
+      launchBody.run.runId,
+      "LV2K human form workflow should complete after HTTP form submission and VK XML decision",
+    );
+    const renderedPresentation = JSON.stringify(presentation);
+    const markerCounts = countQueuedPromptMarkers(presentation, [
+      "LV2K_STEP:human_after_approval",
+    ]);
+
+    expect(presentation.workflowName).toBe("LV2K Human Form Resume");
+    expect(presentation.workflowId).toBe(designId);
+    expect(presentation.provenance).toMatchObject({
+      workflowDesignId: designId,
+      workflowVersion: 1,
+    });
+    expect(presentation.originalTask).toBe(task);
+    expect(markerCounts).toEqual({ "LV2K_STEP:human_after_approval": 1 });
+    expect(presentation.timeline).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "human_form",
+          title: "Approve LV2K implementation plan",
+          status: "Answered",
+          finalResponse: expect.objectContaining({
+            text: expect.stringContaining("approved: true"),
+          }),
+        }),
+        expect.objectContaining({
+          kind: "agent_turn",
+          role: "Dev",
+          status: "Complete",
+        }),
+        expect.objectContaining({
+          kind: "decision",
+          title: "Decision: Done",
+        }),
+      ]),
+    );
+    expect(renderedPresentation).toContain("remarks: Ship it from LV2K.");
+    expect(renderedPresentation).toContain(
+      "Completed LV2K human form workflow after approval.",
+    );
+    for (const forbidden of forbiddenPresentationTerms) {
+      expect(renderedPresentation).not.toContain(forbidden);
+    }
+
+    await writeLv2kArtifact(testInfo, "lv2k-human-form-api-artifacts", {
+      testCaseId: "TEST_CASE_LV2K_2C",
+      fixtureMatrix: fixtureMatrix.fixtures,
+      workflowSetup: {
+        route: "POST /dashboard/api/workflow-designs",
+        designId,
+        draftId,
+        version: 1,
+        usedDbSeeding: false,
+        usedImportRoute: false,
+      },
+      launch: {
+        route: "POST /dashboard/api/workflows/launch",
+        runId: launchBody.run.runId,
+        workspaceId: workspace.id,
+      },
+      humanAttention: {
+        listRoute:
+          "GET /dashboard/api/workflow-attention-items?status=active&instanceId=:runId",
+        completeRoute:
+          "POST /dashboard/api/workflow-attention-items/:attentionItemId/complete",
+        attentionItemId: activeAttention.attentionItemId,
+        formRef: activeAttention.formRef,
+        submission: { approved: true, remarks: "Ship it from LV2K." },
+      },
+      vkQaMode: {
+        scriptedOutcomeFile: process.env.VK_QA_SCRIPTED_OUTCOME_FILE,
+        promptContains: "LV2K_STEP:human_after_approval",
+        scriptedXmlResponseBody: scriptedMessageFor(
+          "LV2K_STEP:human_after_approval",
+        ),
+        usedDirectRuntimeCompletion: false,
+      },
+      queuedPromptMarkers: markerCounts,
+      waitingPresentation,
+      completedPresentation: presentation,
+      forbiddenPresentationTerms,
+    });
+  });
 });
 
 function url(path: string) {
@@ -642,6 +903,60 @@ async function waitForPersistedPresentationStatus(
     )
     .toBe(expectedStatus);
   return last!;
+}
+
+async function waitForPersistedPresentationMatching(
+  request: APIRequestContext,
+  runId: string,
+  predicate: (presentation: Presentation) => boolean,
+  message: string,
+): Promise<Presentation> {
+  let last: Presentation | null = null;
+  await expect
+    .poll(
+      async () => {
+        const response = await request.get(
+          url(
+            `/dashboard/api/workflow-instances/${encodeURIComponent(runId)}/presentation`,
+          ),
+        );
+        if (!response.ok()) return false;
+        const body = (await response.json()) as { presentation: Presentation };
+        last = body.presentation;
+        return predicate(last);
+      },
+      { timeout: 240_000, intervals: [1_000, 2_000, 5_000], message },
+    )
+    .toBe(true);
+  return last!;
+}
+
+async function waitForActiveAttention(
+  request: APIRequestContext,
+  runId: string,
+): Promise<AttentionItem> {
+  let item: AttentionItem | null = null;
+  await expect
+    .poll(
+      async () => {
+        const response = await request.get(
+          url(
+            `/dashboard/api/workflow-attention-items?status=active&instanceId=${encodeURIComponent(runId)}&limit=5`,
+          ),
+        );
+        if (!response.ok()) return null;
+        const body = (await response.json()) as { items?: AttentionItem[] };
+        item = body.items?.[0] ?? null;
+        return item?.attentionItemId ?? null;
+      },
+      {
+        timeout: 120_000,
+        intervals: [1_000, 2_000, 5_000],
+        message: "LV2K human form active attention item should be available",
+      },
+    )
+    .not.toBeNull();
+  return item!;
 }
 
 function scriptedMessageFor(promptContains: string): string {
