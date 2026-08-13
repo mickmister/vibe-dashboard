@@ -558,6 +558,8 @@ execution implementation.
 
 **Type:** Design/ADR/test-plan only.
 
+**Detailed plan:** [`./test-plan-8.md`](./test-plan-8.md).
+
 **Goal:** Design isolated workspace/worktree lanes so workflow milestones can run
 without agents stepping on the same working tree.
 
