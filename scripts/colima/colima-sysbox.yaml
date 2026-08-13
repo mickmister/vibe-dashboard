@@ -32,7 +32,9 @@ provision:
       SYSBOX_SHA256_AMD64="9d6d5484f980d0a17f86c492c1262015c2afb66280bdb97215b79fde6a0261c5"
       SYSBOX_SHA256_ARM64="04ca894ae0b53f0fa54eaacc173ce40363c9a95ea5450f773716a84ef650a69b"
 
-      if docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -q 'sysbox-runc'; then
+      # Colima/Lima treats provision scripts as Go templates, so avoid Docker
+      # CLI Go-template syntax here (for example `docker info --format ...`).
+      if docker info 2>/dev/null | grep -q 'sysbox-runc'; then
         exit 0
       fi
 
@@ -56,10 +58,22 @@ provision:
           ;;
       esac
 
-      pkg="/tmp/sysbox-ce_${SYSBOX_VERSION}.linux_${pkg_arch}.deb"
-      curl -fL -o "$pkg" "https://github.com/nestybox/sysbox/releases/download/v${SYSBOX_VERSION}/sysbox-ce_${SYSBOX_VERSION}.linux_${pkg_arch}.deb"
-      echo "${pkg_sha}  ${pkg}" | sha256sum -c -
-      apt-get install -y "$pkg"
-      rm -f "$pkg"
+      if ! dpkg -s sysbox-ce >/dev/null 2>&1; then
+        pkg="/tmp/sysbox-ce_${SYSBOX_VERSION}.linux_${pkg_arch}.deb"
+        curl -fL -o "$pkg" "https://github.com/nestybox/sysbox/releases/download/v${SYSBOX_VERSION}/sysbox-ce_${SYSBOX_VERSION}.linux_${pkg_arch}.deb"
+        echo "${pkg_sha}  ${pkg}" | sha256sum -c -
+        apt-get install -y "$pkg"
+        rm -f "$pkg"
+      fi
 
+      mkdir -p /etc/docker
+      if [ -s /etc/docker/daemon.json ]; then
+        jq '.runtimes = (.runtimes // {}) | .runtimes["sysbox-runc"] = {"path":"/usr/bin/sysbox-runc"}' \
+          /etc/docker/daemon.json > /etc/docker/daemon.json.tmp
+      else
+        jq -n '{"runtimes":{"sysbox-runc":{"path":"/usr/bin/sysbox-runc"}}}' > /etc/docker/daemon.json.tmp
+      fi
+      mv /etc/docker/daemon.json.tmp /etc/docker/daemon.json
+
+      systemctl restart sysbox || true
       systemctl restart docker

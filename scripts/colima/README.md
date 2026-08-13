@@ -12,7 +12,7 @@ brew install colima docker
 
 The setup script creates/updates the Colima profile `vd-sysbox`, switches Docker
 to context `colima-vd-sysbox`, installs Sysbox in the Linux VM, and verifies that
-`sysbox-runc` can launch a container.
+`sysbox-runc` can launch a container. The setup script also runs the guest installer after `colima start` because Colima may rewrite Docker daemon settings during startup.
 
 Override the profile name if needed:
 

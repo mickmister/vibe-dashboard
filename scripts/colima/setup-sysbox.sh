@@ -31,6 +31,9 @@ context="colima-${profile}"
 log "Switching Docker context to ${context}..."
 docker context use "$context" >/dev/null
 
+log "Installing/registering Sysbox inside Colima profile '${profile}'..."
+colima ssh --profile "$profile" -- sudo bash -s < "${script_dir}/install-sysbox-guest.sh"
+
 log "Verifying sysbox-runc is registered..."
 if ! docker info --format '{{json .Runtimes}}' | grep -q 'sysbox-runc'; then
   cat >&2 <<EOF2
