@@ -1,0 +1,52 @@
+{
+  "fixtures": [
+    {
+      "id": "simple-one-agent-decision",
+      "testCaseId": "TEST_CASE_LV2K_2A",
+      "workflowDefinition": "tests/e2e/fixtures/lv2k-simple-agent-decision.workflow.json",
+      "scriptedOutcome": "tests/e2e/fixtures/qa-scripted-lv2k-simple-workflow.json",
+      "verification": "HTTP presentation endpoint",
+      "status": "implemented"
+    },
+    {
+      "id": "dev-review-tester",
+      "testCaseId": "TEST_CASE_LV2K_2B",
+      "workflowDefinition": "pending: inline-prompt JSON fixture",
+      "scriptedOutcome": "tests/e2e/fixtures/qa-scripted-drt-workflow.json",
+      "verification": "HTTP presentation endpoint, then browser run page",
+      "status": "next_lv2k_sub_slice"
+    },
+    {
+      "id": "invalid-xml-blocked",
+      "testCaseId": "TEST_CASE_LV2K_2F",
+      "workflowDefinition": "pending",
+      "scriptedOutcome": "pending",
+      "verification": "HTTP retry/blocked presentation",
+      "status": "later"
+    },
+    {
+      "id": "human-form-beads-form",
+      "testCaseId": "TEST_CASE_LV2K_2C",
+      "workflowDefinition": "pending",
+      "scriptedOutcome": "pending",
+      "verification": "HTTP attention/form resume and presentation",
+      "status": "later"
+    },
+    {
+      "id": "blocking-workflow-call",
+      "testCaseId": "TEST_CASE_LV2K_2D",
+      "workflowDefinition": "pending",
+      "scriptedOutcome": "pending",
+      "verification": "HTTP parent/child presentation",
+      "status": "later"
+    },
+    {
+      "id": "github-ci-wait",
+      "testCaseId": "TEST_CASE_LV2K_2E",
+      "workflowDefinition": "pending",
+      "scriptedOutcome": "pending",
+      "verification": "HTTP CI wait presentation with mocked poll result",
+      "status": "later"
+    }
+  ]
+}
