@@ -113,12 +113,25 @@ When proxying a ready preview upstream, Caddy forwards preview metadata headers:
 - `X-Vibe-Preview-Slot`
 - `X-Vibe-Preview-Customer`
 
+Before setting those canonical metadata headers, Caddy removes inbound
+`Forwarded`, `X-Forwarded-Host`, `X-Vibe-Requested-Host`, and
+`X-Vibe-Preview-*` headers so preview apps cannot receive spoofed preview
+metadata from clients.
+
 ## Requested-host header trust model
 
 Direct clients can set arbitrary `X-Forwarded-Host` or `X-Vibe-Requested-Host`
 headers. For V1, Preview URLs are limited to the private/Cloudflare
 Access-protected sandbox, so Caddy accepts `X-Vibe-Requested-Host` as the Worker
 preserved-host signal and still ignores generic `X-Forwarded-Host`.
+
+Release guard: do not deploy this no-secret requested-host mode on a public or
+direct-origin path. The customer runtime/Caddy ingress must be reachable only
+through the private/Cloudflare Access-protected sandbox routing boundary until
+`vkvw-murh — Design proper per-customer Preview URL secret seeding` (or an
+equivalent platform attestation design) is implemented. If a deployment can
+receive public direct-origin traffic, requested-host trust must be disabled or
+replaced with stronger attestation before release.
 
 Worker request to Caddy:
 

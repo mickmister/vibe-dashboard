@@ -180,6 +180,10 @@ func TestPreviewResolverProxiesReadyUpstreamWithPreviewHeaders(t *testing.T) {
 	var repoSlug string
 	var slotSlug string
 	var customerSlug string
+	var forwarded string
+	var forwardedHost string
+	var spoofedPreviewSecret string
+	var spoofedPreviewWorkspaceID string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		upstreamHost = r.Host
 		requestedHost = r.Header.Get("X-Vibe-Requested-Host")
@@ -187,6 +191,10 @@ func TestPreviewResolverProxiesReadyUpstreamWithPreviewHeaders(t *testing.T) {
 		repoSlug = r.Header.Get("X-Vibe-Preview-Repo")
 		slotSlug = r.Header.Get("X-Vibe-Preview-Slot")
 		customerSlug = r.Header.Get("X-Vibe-Preview-Customer")
+		forwarded = r.Header.Get("Forwarded")
+		forwardedHost = r.Header.Get("X-Forwarded-Host")
+		spoofedPreviewSecret = r.Header.Get("X-Vibe-Preview-Secret")
+		spoofedPreviewWorkspaceID = r.Header.Get("X-Vibe-Preview-Workspace-Id")
 		_, _ = w.Write([]byte("preview ok"))
 	}))
 	defer upstream.Close()
@@ -202,6 +210,11 @@ func TestPreviewResolverProxiesReadyUpstreamWithPreviewHeaders(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "https://0123456789abcdef-vibekanban-web-mickmister.vibedashboard.dev/ws", nil)
 	req.Header.Set("Upgrade", "websocket")
 	req.Header.Set("Connection", "Upgrade")
+	req.Header.Set("Forwarded", "host=spoof.example.com")
+	req.Header.Set("X-Forwarded-Host", "spoof.example.com")
+	req.Header.Set("X-Vibe-Requested-Host", "0123456789abcdef-vibekanban-web-mickmister.vibedashboard.dev")
+	req.Header.Set("X-Vibe-Preview-Secret", "spoof-secret")
+	req.Header.Set("X-Vibe-Preview-Workspace-Id", "workspace-spoof")
 	rec := httptest.NewRecorder()
 	if err := handler.ServeHTTP(rec, req, caddyhttp.HandlerFunc(func(w http.ResponseWriter, r *http.Request) error { t.Fatal("next handler should not run"); return nil })); err != nil {
 		t.Fatalf("ServeHTTP returned error: %v", err)
@@ -214,6 +227,9 @@ func TestPreviewResolverProxiesReadyUpstreamWithPreviewHeaders(t *testing.T) {
 	}
 	if workspaceToken != "0123456789abcdef" || repoSlug != "vibekanban" || slotSlug != "web" || customerSlug != "mickmister" {
 		t.Fatalf("unexpected preview metadata headers: workspace=%q repo=%q slot=%q customer=%q", workspaceToken, repoSlug, slotSlug, customerSlug)
+	}
+	if forwarded != "" || forwardedHost != "" || spoofedPreviewSecret != "" || spoofedPreviewWorkspaceID != "" {
+		t.Fatalf("expected spoofable proxy/preview headers to be scrubbed, forwarded=%q forwardedHost=%q previewSecret=%q previewWorkspaceId=%q", forwarded, forwardedHost, spoofedPreviewSecret, spoofedPreviewWorkspaceID)
 	}
 }
 

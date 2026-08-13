@@ -299,6 +299,7 @@ func (p *PreviewResolver) proxyPreview(w http.ResponseWriter, r *http.Request, m
 	proxy.Director = func(out *http.Request) {
 		baseDirector(out)
 		out.Host = target.Host
+		scrubPreviewProxyHeaders(out.Header)
 		out.Header.Set("X-Vibe-Requested-Host", match.Host)
 		out.Header.Set("X-Vibe-Preview-Workspace-Token", match.WorkspaceToken)
 		out.Header.Set("X-Vibe-Preview-Repo", match.RepoSlug)
@@ -313,6 +314,17 @@ func (p *PreviewResolver) proxyPreview(w http.ResponseWriter, r *http.Request, m
 	}
 	proxy.ServeHTTP(w, r)
 	return nil
+}
+
+func scrubPreviewProxyHeaders(header http.Header) {
+	header.Del("Forwarded")
+	header.Del("X-Forwarded-Host")
+	header.Del("X-Vibe-Requested-Host")
+	for name := range header {
+		if strings.HasPrefix(strings.ToLower(name), "x-vibe-preview-") {
+			header.Del(name)
+		}
+	}
 }
 
 func (p *PreviewResolver) writePreviewStarting(w http.ResponseWriter, r *http.Request) {
