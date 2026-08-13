@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { layoutWorkflowGraph, toFlowEdges, toFlowNodes } from './WorkflowGraphEditorPage';
+import { layoutWorkflowGraph, toFlowEdges, toFlowNodes, WorkflowOutlineNavigator } from './WorkflowGraphEditorPage';
 import type { WorkflowGraphEdgeModel, WorkflowGraphNodeModel } from './graph/workflowGraphModel';
 
 describe('WorkflowGraphEditorPage graph appearance', () => {
@@ -129,6 +129,7 @@ function node(patch: Partial<WorkflowGraphNodeModel>): WorkflowGraphNodeModel {
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { WorkflowGraphEditorView } from './WorkflowGraphEditorPage';
+import { workflowDefinitionToGraph } from './graph/workflowGraphModel';
 import type { AgentWorkflowDefinitionV1 } from '@vibe-dashboard/workflow-core';
 
 describe('WorkflowGraphEditorView prompt and skill picker', () => {
@@ -148,6 +149,7 @@ describe('WorkflowGraphEditorView prompt and skill picker', () => {
     expect(html).toContain('Workflow outline');
     expect(html).toContain('Roles → states → transitions');
     expect(html).toContain('+ Add Role');
+    expect(html).toContain('(coming soon)');
     expect(html).toContain('dev · 1 state');
     expect(html).toContain('done: dev → done');
     expect(html).toContain('Prompt and skill snippets');
@@ -159,13 +161,44 @@ describe('WorkflowGraphEditorView prompt and skill picker', () => {
     expect(html).toContain('Selected: prompt:prompt.dev.instructions@1, skill:skill.missing@1');
     expect(html).toContain('Missing prompt or skill refs: skill:skill.missing@1');
     expect(html).toContain('JSON diagnostics');
-    expect(html).toContain('Selected action');
-    expect(html).toContain('Transition');
-    expect(html).toContain('Result fields');
-    expect(html).toContain('summary');
+    expect(html).toContain('Selected state');
+    expect(html).toContain('Transitions / actions');
+    expect(html).not.toContain('Selected action');
     expect(html).toContain('aria-readonly="true"');
     expect(html).not.toContain('prompt refs</span><input');
   });
+
+  it('TEST_CASE_8ABA navigates role to state to action in the outline wizard', () => {
+    const definition = wizardDefinition();
+    const graph = workflowDefinitionToGraph(definition);
+    const html = renderToStaticMarkup(React.createElement(WorkflowOutlineNavigator, {
+      definition,
+      nodes: graph.nodes,
+      edges: graph.edges,
+      selectedRoleId: 'review',
+      selectedNodeId: 'review',
+      selectedEdgeId: 'review:changes_requested',
+      onSelectRole: () => {},
+      onSelectState: () => {},
+      onSelectEdge: () => {},
+    }));
+
+    expect(html).toContain('Workflow outline');
+    expect(html).toContain('Dev');
+    expect(html).toContain('dev · 1 state');
+    expect(html).toContain('Review');
+    expect(html).toContain('review · 1 state');
+    expect(html).toContain('Selected state');
+    expect(html).toContain('review · owned by Review');
+    expect(html).toContain('Transitions / actions');
+    expect(html).toContain('Request changes');
+    expect(html).toContain('changes_requested: review → dev');
+    expect(html).toContain('Approved');
+    expect(html).toContain('approved: review → done');
+    expect(html).toContain('+ Add Role');
+    expect(html).toContain('(coming soon)');
+  });
+
 });
 
 function promptDefinition(): AgentWorkflowDefinitionV1 {
@@ -180,6 +213,33 @@ function promptDefinition(): AgentWorkflowDefinitionV1 {
         owner: 'dev',
         steps: [{ id: 'decide', type: 'agent_turn', turnType: 'decision', prompt: { template: 'Do work', refs: [{ kind: 'prompt', id: 'prompt.dev.instructions', version: 1 }, { kind: 'skill', id: 'skill.missing', version: 1 }] } as any, response: { format: 'xml', schema: { format: 'xsd', source: 'state_actions' }, invalidXmlRetry: { maxAttempts: 1, prompt: 'engine_default_with_validation_errors', onExhausted: 'blocked' }, storeRawXml: true, storeParsedFields: true, unknownFields: 'reject_unless_allowed_by_result_contract' } }],
         actions: { done: { label: 'Done', targetState: 'done', result: { fields: { summary: { type: 'markdown' } }, required: ['summary'], unknownFields: 'reject' } } },
+      },
+      done: { terminal: true },
+    },
+  };
+}
+
+
+function wizardDefinition(): AgentWorkflowDefinitionV1 {
+  return {
+    schemaVersion: 1,
+    name: 'Wizard workflow',
+    inputs: { featureRequest: { type: 'markdown', required: true } },
+    roles: { dev: { label: 'Dev' }, review: { label: 'Review' } },
+    initialState: 'dev',
+    states: {
+      dev: {
+        owner: 'dev',
+        steps: [{ id: 'self_review', type: 'agent_turn', turnType: 'decision', prompt: { template: 'Dev decide' }, response: { format: 'xml', schema: { format: 'xsd', source: 'state_actions' }, invalidXmlRetry: { maxAttempts: 1, prompt: 'engine_default_with_validation_errors', onExhausted: 'blocked' }, storeRawXml: true, storeParsedFields: true, unknownFields: 'reject_unless_allowed_by_result_contract' } }],
+        actions: { ready: { label: 'Ready', targetState: 'review' } },
+      },
+      review: {
+        owner: 'review',
+        steps: [{ id: 'review', type: 'agent_turn', turnType: 'decision', prompt: { template: 'Review decide' }, response: { format: 'xml', schema: { format: 'xsd', source: 'state_actions' }, invalidXmlRetry: { maxAttempts: 1, prompt: 'engine_default_with_validation_errors', onExhausted: 'blocked' }, storeRawXml: true, storeParsedFields: true, unknownFields: 'reject_unless_allowed_by_result_contract' } }],
+        actions: {
+          changes_requested: { label: 'Request changes', targetState: 'dev', result: { fields: { requestedChanges: { type: 'markdown' } }, required: ['requestedChanges'], unknownFields: 'reject' } },
+          approved: { label: 'Approved', targetState: 'done' },
+        },
       },
       done: { terminal: true },
     },
