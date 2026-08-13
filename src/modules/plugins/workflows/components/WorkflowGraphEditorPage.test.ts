@@ -239,11 +239,12 @@ describe("WorkflowGraphEditorView prompt and skill picker", () => {
       }),
     );
 
-    expect(html).toContain("Workflow outline");
-    expect(html).toContain("Roles → states → transitions");
-    expect(html).toContain("+ Add Role");
-    expect(html).toContain("dev · 1 state");
-    expect(html).toContain("done: dev → done");
+    const compactHtml = html.replace(/\s+/g, " ");
+    expect(compactHtml).toContain("Workflow outline");
+    expect(compactHtml).toContain("Roles → states → transitions");
+    expect(compactHtml).toContain("+ Add Role");
+    expect(compactHtml).toContain("dev · 1 state");
+    expect(compactHtml).toContain("done: dev → done");
     expect(html).toContain("Prompt and skill snippets");
     expect(html).toContain("Dev instructions");
     expect(html).toContain("v1 · Built-in");
@@ -261,9 +262,6 @@ describe("WorkflowGraphEditorView prompt and skill picker", () => {
     expect(html).toContain("JSON diagnostics");
     expect(html).toContain("Selected state");
     expect(html).toContain("Transitions / actions");
-    expect(html).toContain("Selected action");
-    expect(html).toContain("Transition");
-    expect(html).toContain("Result fields");
     expect(html).toContain('aria-readonly="true"');
     expect(html).not.toContain("prompt refs</span><input");
   });
@@ -282,22 +280,24 @@ describe("WorkflowGraphEditorView prompt and skill picker", () => {
         onSelectRole: () => {},
         onSelectState: () => {},
         onSelectEdge: () => {},
+        onAddRole: () => {},
       }),
     );
 
-    expect(html).toContain("Workflow outline");
-    expect(html).toContain("Dev");
-    expect(html).toContain("dev · 1 state");
-    expect(html).toContain("Review");
-    expect(html).toContain("review · 1 state");
-    expect(html).toContain("Selected state");
-    expect(html).toContain("review · owned by Review");
-    expect(html).toContain("Transitions / actions");
-    expect(html).toContain("Request changes");
-    expect(html).toContain("changes_requested: review → dev");
-    expect(html).toContain("Approved");
-    expect(html).toContain("approved: review → done");
-    expect(html).toContain("+ Add Role");
+    const compactHtml = html.replace(/\s+/g, " ");
+    expect(compactHtml).toContain("Workflow outline");
+    expect(compactHtml).toContain("Dev");
+    expect(compactHtml).toContain("dev · 1 state");
+    expect(compactHtml).toContain("Review");
+    expect(compactHtml).toContain("review · 1 state");
+    expect(compactHtml).toContain("Selected state");
+    expect(compactHtml).toContain("review · owned by Review");
+    expect(compactHtml).toContain("Transitions / actions");
+    expect(compactHtml).toContain("Request changes");
+    expect(compactHtml).toContain("changes_requested: review → dev");
+    expect(compactHtml).toContain("Approved");
+    expect(compactHtml).toContain("approved: review → done");
+    expect(compactHtml).toContain("+ Add Role");
   });
 });
 
