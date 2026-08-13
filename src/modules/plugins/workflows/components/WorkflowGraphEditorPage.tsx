@@ -98,6 +98,8 @@ export function WorkflowGraphEditorView({ editor, definition, assets, onDefiniti
 }): React.ReactElement {
   const graph = useMemo(() => workflowDefinitionToGraph(definition), [definition]);
   const issues = useMemo(() => validateWorkflowGraph(definition), [definition]);
+  const roleEntries = Object.entries(definition.roles);
+  const [selectedRoleId, setSelectedRoleId] = useState(roleEntries[0]?.[0] ?? '');
   const [selectedNodeId, setSelectedNodeId] = useState(graph.nodes[0]?.id ?? '');
   const [selectedEdgeId, setSelectedEdgeId] = useState(graph.edges[0]?.id ?? '');
   const selectedNode = graph.nodes.find((node) => node.id === selectedNodeId) ?? graph.nodes[0] ?? null;
@@ -111,11 +113,36 @@ export function WorkflowGraphEditorView({ editor, definition, assets, onDefiniti
     setFlowNodes(layoutedNodes);
   }, [layoutedNodes, setFlowNodes]);
 
+  useEffect(() => {
+    if (selectedRoleId && definition.roles[selectedRoleId]) return;
+    setSelectedRoleId(roleEntries[0]?.[0] ?? '');
+  }, [definition.roles, roleEntries, selectedRoleId]);
+
   const updateEdge = (edgeId: string, edit: { actionLabel?: string; targetState?: string }) => {
     onDefinitionChange(applyWorkflowGraphActionEdit(definition, edgeId, edit));
   };
 
   const resetLayout = () => setFlowNodes(layoutedNodes);
+
+  const selectRole = (roleId: string) => {
+    setSelectedRoleId(roleId);
+    const firstRoleState = graph.nodes.find((node) => node.ownerRoleId === roleId);
+    if (firstRoleState) {
+      setSelectedNodeId(firstRoleState.id);
+      setSelectedEdgeId(graph.edges.find((edge) => edge.source === firstRoleState.id)?.id ?? '');
+    }
+  };
+
+  const selectState = (stateId: string) => {
+    setSelectedNodeId(stateId);
+    setSelectedEdgeId(graph.edges.find((edge) => edge.source === stateId)?.id ?? '');
+  };
+
+  const addRole = () => {
+    const roleId = nextRoleId(definition.roles);
+    onDefinitionChange({ ...definition, roles: { ...definition.roles, [roleId]: { label: 'New role' } } });
+    setSelectedRoleId(roleId);
+  };
 
   return (
     <section className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_24rem]">
@@ -150,6 +177,18 @@ export function WorkflowGraphEditorView({ editor, definition, assets, onDefiniti
       </div>
       <aside className="space-y-4">
         {saveMessage ? <div className="rounded-lg border border-emerald-800 bg-emerald-950/30 p-3 text-sm text-emerald-100">{saveMessage}</div> : null}
+        <WorkflowOutlineNavigator
+          definition={definition}
+          nodes={graph.nodes}
+          edges={graph.edges}
+          selectedRoleId={selectedRoleId}
+          selectedNodeId={selectedNodeId}
+          selectedEdgeId={selectedEdgeId}
+          onSelectRole={selectRole}
+          onSelectState={selectState}
+          onSelectEdge={setSelectedEdgeId}
+          onAddRole={addRole}
+        />
         <DesignDetails definition={definition} onChange={onDefinitionChange} />
         <ValidationPanel issues={issues} />
         {selectedEdge ? <EdgeEditor edge={selectedEdge} states={graph.nodes} onChange={updateEdge} /> : null}
@@ -158,6 +197,91 @@ export function WorkflowGraphEditorView({ editor, definition, assets, onDefiniti
       </aside>
     </section>
   );
+}
+
+
+function WorkflowOutlineNavigator({ definition, nodes, edges, selectedRoleId, selectedNodeId, selectedEdgeId, onSelectRole, onSelectState, onSelectEdge, onAddRole }: {
+  definition: AgentWorkflowDefinitionV1;
+  nodes: WorkflowGraphNodeModel[];
+  edges: WorkflowGraphEdgeModel[];
+  selectedRoleId: string;
+  selectedNodeId: string;
+  selectedEdgeId: string;
+  onSelectRole: (roleId: string) => void;
+  onSelectState: (stateId: string) => void;
+  onSelectEdge: (edgeId: string) => void;
+  onAddRole: () => void;
+}) {
+  const roleEntries = Object.entries(definition.roles);
+  const selectedRole = selectedRoleId && definition.roles[selectedRoleId] ? selectedRoleId : roleEntries[0]?.[0] ?? '';
+  const roleStates = nodes.filter((node) => node.ownerRoleId === selectedRole);
+  const selectedState = roleStates.find((node) => node.id === selectedNodeId) ?? roleStates[0] ?? nodes.find((node) => node.id === selectedNodeId) ?? null;
+  const stateActions = selectedState ? edges.filter((edge) => edge.source === selectedState.id) : [];
+
+  return (
+    <section className="rounded-xl border border-cyan-900/60 bg-slate-950/80 p-4" aria-label="Workflow outline wizard">
+      <div className="text-xs uppercase tracking-wide text-cyan-300">Workflow outline</div>
+      <h2 className="mt-1 font-semibold">Roles → states → transitions</h2>
+      <p className="mt-1 text-xs text-zinc-400">Choose a role, then inspect its states and outgoing actions.</p>
+
+      <div className="mt-4">
+        <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Roles</div>
+        <div className="mt-2 space-y-2">
+          {roleEntries.map(([roleId, role]) => {
+            const active = roleId === selectedRole;
+            const stateCount = nodes.filter((node) => node.ownerRoleId === roleId).length;
+            return (
+              <button key={roleId} type="button" aria-pressed={active} onClick={() => onSelectRole(roleId)} className={`w-full rounded-lg border px-3 py-2 text-left text-sm ${active ? 'border-cyan-500 bg-cyan-950/40 text-cyan-50' : 'border-zinc-800 bg-zinc-900/70 text-zinc-200 hover:border-zinc-600'}`}>
+                <span className="font-medium">{role.label ?? roleId}</span>
+                <span className="ml-2 text-xs text-zinc-400">{roleId} · {stateCount} {stateCount === 1 ? 'state' : 'states'}</span>
+              </button>
+            );
+          })}
+          <button type="button" onClick={onAddRole} className="w-full rounded-lg border border-dashed border-zinc-700 px-3 py-2 text-left text-sm text-cyan-200 hover:border-cyan-500 hover:bg-cyan-950/20">+ Add Role</button>
+        </div>
+      </div>
+
+      <div className="mt-4">
+        <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">States</div>
+        <div className="mt-2 space-y-2">
+          {roleStates.length > 0 ? roleStates.map((node) => {
+            const active = node.id === selectedNodeId;
+            return (
+              <button key={node.id} type="button" aria-pressed={active} onClick={() => onSelectState(node.id)} className={`w-full rounded-lg border px-3 py-2 text-left text-sm ${active ? 'border-emerald-500 bg-emerald-950/30 text-emerald-50' : 'border-zinc-800 bg-zinc-900/70 text-zinc-200 hover:border-zinc-600'}`}>
+                <span className="font-medium">{node.label}</span>
+                <span className="ml-2 text-xs text-zinc-400">{node.id}</span>
+              </button>
+            );
+          }) : <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-3 text-sm text-zinc-400">No states are assigned to this role yet.</div>}
+        </div>
+      </div>
+
+      <div className="mt-4">
+        <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Transitions / actions</div>
+        <div className="mt-2 space-y-2">
+          {stateActions.length > 0 ? stateActions.map((edge) => {
+            const active = edge.id === selectedEdgeId;
+            return (
+              <button key={edge.id} type="button" aria-pressed={active} onClick={() => onSelectEdge(edge.id)} className={`w-full rounded-lg border px-3 py-2 text-left text-sm ${active ? 'border-violet-500 bg-violet-950/30 text-violet-50' : 'border-zinc-800 bg-zinc-900/70 text-zinc-200 hover:border-zinc-600'}`}>
+                <span className="font-medium">{edge.label}</span>
+                <span className="block text-xs text-zinc-400">{edge.actionId}: {edge.source} → {edge.target}</span>
+              </button>
+            );
+          }) : <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-3 text-sm text-zinc-400">{selectedState?.terminal ? 'Terminal states do not have outgoing actions.' : 'No outgoing transitions for this state yet.'}</div>}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function nextRoleId(roles: AgentWorkflowDefinitionV1['roles']) {
+  let index = Object.keys(roles).length + 1;
+  let roleId = `role_${index}`;
+  while (roles[roleId]) {
+    index += 1;
+    roleId = `role_${index}`;
+  }
+  return roleId;
 }
 
 function DesignDetails({ definition, onChange }: { definition: AgentWorkflowDefinitionV1; onChange: (definition: AgentWorkflowDefinitionV1) => void }) {
