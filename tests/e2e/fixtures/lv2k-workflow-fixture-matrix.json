@@ -19,10 +19,10 @@
     {
       "id": "invalid-xml-blocked",
       "testCaseId": "TEST_CASE_LV2K_2F",
-      "workflowDefinition": "pending",
-      "scriptedOutcome": "pending",
-      "verification": "HTTP retry/blocked presentation",
-      "status": "later"
+      "workflowDefinition": "tests/e2e/fixtures/lv2k-invalid-xml-blocked.workflow.json",
+      "scriptedOutcome": "tests/e2e/fixtures/qa-scripted-lv2k-workflows.json",
+      "verification": "HTTP retry/blocked presentation endpoint",
+      "status": "implemented"
     },
     {
       "id": "human-form-beads-form",

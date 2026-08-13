@@ -46,7 +46,11 @@
           "response": {
             "format": "xml",
             "schema": { "format": "xsd", "source": "state_actions" },
-            "invalidXmlRetry": { "maxAttempts": 1, "prompt": "engine_default_with_validation_errors", "onExhausted": "blocked" },
+            "invalidXmlRetry": {
+              "maxAttempts": 1,
+              "prompt": "engine_default_with_validation_errors",
+              "onExhausted": "blocked"
+            },
             "storeRawXml": true,
             "rawXmlMaxChars": 20000,
             "storeParsedFields": true,
@@ -82,7 +86,11 @@
           "response": {
             "format": "xml",
             "schema": { "format": "xsd", "source": "state_actions" },
-            "invalidXmlRetry": { "maxAttempts": 1, "prompt": "engine_default_with_validation_errors", "onExhausted": "blocked" },
+            "invalidXmlRetry": {
+              "maxAttempts": 1,
+              "prompt": "engine_default_with_validation_errors",
+              "onExhausted": "blocked"
+            },
             "storeRawXml": true,
             "rawXmlMaxChars": 20000,
             "storeParsedFields": true,
@@ -128,7 +136,11 @@
           "response": {
             "format": "xml",
             "schema": { "format": "xsd", "source": "state_actions" },
-            "invalidXmlRetry": { "maxAttempts": 1, "prompt": "engine_default_with_validation_errors", "onExhausted": "blocked" },
+            "invalidXmlRetry": {
+              "maxAttempts": 1,
+              "prompt": "engine_default_with_validation_errors",
+              "onExhausted": "blocked"
+            },
             "storeRawXml": true,
             "rawXmlMaxChars": 20000,
             "storeParsedFields": true,

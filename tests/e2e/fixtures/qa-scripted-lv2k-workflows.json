@@ -63,6 +63,21 @@
       "session_id": "qa-scripted-lv2k-drt-tester-approved",
       "message_id": "qa-scripted-lv2k-drt-tester-approved",
       "delay_ms": 0
+    },
+    {
+      "prompt_contains": "LV2K_STEP:invalid_xml_decide",
+      "outcome": "completed",
+      "final_message": "not xml from LV2K qa-mode",
+      "session_id": "qa-scripted-lv2k-invalid-first",
+      "message_id": "qa-scripted-lv2k-invalid-first",
+      "delay_ms": 0
+    },
+    {
+      "outcome": "completed",
+      "final_message": "<decision action=\"unknown_action\"><summary>This action should be rejected after retry.</summary></decision>",
+      "session_id": "qa-scripted-lv2k-invalid-exhausted",
+      "message_id": "qa-scripted-lv2k-invalid-exhausted",
+      "delay_ms": 0
     }
   ]
 }
