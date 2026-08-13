@@ -450,6 +450,28 @@ textarea {
   margin: 0 0 0.75rem;
 }
 
+.beadsform-root .beadsform-single-question-progress[hidden] {
+  display: none;
+}
+
+.beadsform-root .beadsform-single-question-progress-toggle {
+  justify-self: start;
+  width: fit-content;
+  margin: -0.25rem 0 0.75rem;
+  border: 1px solid #3f3f46;
+  border-radius: 999px;
+  background: #18181b;
+  color: #d4d4d8;
+  padding: 0.35rem 0.7rem;
+  font-size: 0.85rem;
+}
+
+.beadsform-root .beadsform-single-question-progress-toggle:hover,
+.beadsform-root .beadsform-single-question-progress-toggle:focus-visible {
+  border-color: #60a5fa;
+  color: #f4f4f5;
+}
+
 .beadsform-root .beadsform-single-question-item {
   margin-top: 0;
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.28);

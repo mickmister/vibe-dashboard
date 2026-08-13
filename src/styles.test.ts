@@ -26,6 +26,8 @@ describe('BeadsForm styles', () => {
     expect(css).toMatch(/\.beadsform-root \.beadsform-single-question-controls--top\s*\{[^}]*margin-top:\s*0[^}]*margin-bottom:\s*1rem/s);
     expect(css).toMatch(/\.beadsform-root \.beadsform-single-question-notes\s*\{[^}]*display:\s*block[^}]*position:\s*static[^}]*margin:\s*0 0 1rem/s);
     expect(css).toMatch(/\.beadsform-root \.beadsform-single-question-master-notes\s*\{[^}]*display:\s*block/s);
+    expect(css).toMatch(/\.beadsform-root \.beadsform-single-question-progress\[hidden\]\s*\{[^}]*display:\s*none/s);
+    expect(css).toMatch(/\.beadsform-root \.beadsform-single-question-progress-toggle\s*\{[^}]*border-radius:\s*999px/s);
     expect(css).not.toMatch(/\.beadsform-root \.beadsform-single-question-layout\s*\{[^}]*display:\s*grid/s);
     expect(css).not.toMatch(/\.beadsform-root \.beadsform-single-question-notes\s*\{[^}]*position:\s*sticky/s);
   });
