@@ -67,15 +67,15 @@ The product question for this phase is:
 
 ## Definitions and IA decisions
 
-| Object | Meaning | Scope | Normal product location |
-| --- | --- | --- | --- |
-| Starter template | Checked-in catalog template that can be copied/customized | Global | Centralized page and Workflows tab starter section |
-| Workflow design draft | Mutable DB design/draft a user can edit | Global | Your workflows / draft cards / editor |
-| Published workflow version | Immutable runnable version of a design | Global | Run modal, workflow details, provenance |
-| Workflow run | Workspace-specific execution of a published version | Workspace | Active/recent runs and run details |
-| Attention item | Human input needed to resume a run | Workspace | Needs input feed and run details |
-| Batch | Queue of run launch requests | Workspace | Recent batches and batch detail |
-| Diagnostics | Raw details for debugging | Global/workspace depending on object | Collapsed advanced sections or old routes |
+| Object                     | Meaning                                                   | Scope                                | Normal product location                            |
+| -------------------------- | --------------------------------------------------------- | ------------------------------------ | -------------------------------------------------- |
+| Starter template           | Checked-in catalog template that can be copied/customized | Global                               | Centralized page and Workflows tab starter section |
+| Workflow design draft      | Mutable DB design/draft a user can edit                   | Global                               | Your workflows / draft cards / editor              |
+| Published workflow version | Immutable runnable version of a design                    | Global                               | Run modal, workflow details, provenance            |
+| Workflow run               | Workspace-specific execution of a published version       | Workspace                            | Active/recent runs and run details                 |
+| Attention item             | Human input needed to resume a run                        | Workspace                            | Needs input feed and run details                   |
+| Batch                      | Queue of run launch requests                              | Workspace                            | Recent batches and batch detail                    |
+| Diagnostics                | Raw details for debugging                                 | Global/workspace depending on object | Collapsed advanced sections or old routes          |
 
 ## Centralized workflow page plan
 
@@ -121,21 +121,21 @@ The page should have a left-to-right product story:
 
 ### UI-only vs runtime-dependent classification
 
-| Follow-up | UI-only/read-model | Core/runtime/plugin dependent | Notes |
-| --- | --- | --- | --- |
-| Centralized product page shell | Yes | No | Can compose existing read models first. |
-| Better page IA and empty states | Yes | No | Product copy and component work. |
-| Wizard right-pane navigation | Mostly | No new core | Uses existing supported schema. |
-| Graph layout/readability | Mostly | No core | May add layout metadata to drafts later. |
-| Movable node persistence | UI/store | No core | Store draft layout separately from canonical runtime config. |
-| Run storytelling gaps | Read-model | Maybe | Only add runtime events if current history lacks product facts. |
-| Batch details v3 | Read-model | Maybe | Retry/cancel deferred. |
-| CI wait presentation polish | Read-model/UI | Existing plugin | No new CI primitive required. |
-| Command-step safety | No | Yes/design first | M114. |
-| Sub-workspace lanes | No | Yes/design then foundation | M115/M116. |
-| Bead-driven meta-workflow | UI/runtime | Yes | M118 depends on safe command/lane decisions. |
-| Branch push UX | UI/integration | Maybe VK/VD integration | M119 deferred behind lane decisions. |
-| Scheduled workflow/jobs | No | Yes/design first | M120. |
+| Follow-up                       | UI-only/read-model | Core/runtime/plugin dependent | Notes                                                           |
+| ------------------------------- | ------------------ | ----------------------------- | --------------------------------------------------------------- |
+| Centralized product page shell  | Yes                | No                            | Can compose existing read models first.                         |
+| Better page IA and empty states | Yes                | No                            | Product copy and component work.                                |
+| Wizard right-pane navigation    | Mostly             | No new core                   | Uses existing supported schema.                                 |
+| Graph layout/readability        | Mostly             | No core                       | May add layout metadata to drafts later.                        |
+| Movable node persistence        | UI/store           | No core                       | Store draft layout separately from canonical runtime config.    |
+| Run storytelling gaps           | Read-model         | Maybe                         | Only add runtime events if current history lacks product facts. |
+| Batch details v3                | Read-model         | Maybe                         | Retry/cancel deferred.                                          |
+| CI wait presentation polish     | Read-model/UI      | Existing plugin               | No new CI primitive required.                                   |
+| Command-step safety             | No                 | Yes/design first              | M114.                                                           |
+| Sub-workspace lanes             | No                 | Yes/design then foundation    | M115/M116.                                                      |
+| Bead-driven meta-workflow       | UI/runtime         | Yes                           | M118 depends on safe command/lane decisions.                    |
+| Branch push UX                  | UI/integration     | Maybe VK/VD integration       | M119 deferred behind lane decisions.                            |
+| Scheduled workflow/jobs         | No                 | Yes/design first              | M120.                                                           |
 
 ## Graph/editor audit
 
@@ -534,6 +534,8 @@ roles to states to transitions/actions.
 
 ### M114 — Command-step safety design for workflow automation
 
+Detailed plan: [`./test-plan-7.md`](./test-plan-7.md).
+
 **Type:** Design/ADR/test-plan only.
 
 **Goal:** Decide how workflow command/bash steps can exist safely before any
@@ -666,19 +668,19 @@ commands without surprising users.
 
 ## Browser/E2E expectations by follow-up
 
-| Milestone | Browser-visible? | Expected browser validation |
-| --- | --- | --- |
-| M113 | No, docs-only | None beyond manual docs review. |
-| M113A | Yes | Playwright central page smoke and forbidden debug term checks. |
-| M113B | Yes | Storybook screenshot/video plus graph editor Playwright smoke. |
-| M113C | Yes | Playwright editor navigation/edit smoke. |
-| M114 | No | Docs-only. |
-| M115 | No | Docs-only. |
-| M116 | Maybe | Add Playwright only if lane UI lands. |
-| M117 | Maybe | Add Playwright if command output/status is visible in run page. |
-| M118 | Yes if prototype exposed | Playwright/qa-mode if practical, otherwise documented lower-level validation. |
-| M119 | Yes | Playwright branch push UX smoke. |
-| M120 | No | Docs-only. |
+| Milestone | Browser-visible?         | Expected browser validation                                                   |
+| --------- | ------------------------ | ----------------------------------------------------------------------------- |
+| M113      | No, docs-only            | None beyond manual docs review.                                               |
+| M113A     | Yes                      | Playwright central page smoke and forbidden debug term checks.                |
+| M113B     | Yes                      | Storybook screenshot/video plus graph editor Playwright smoke.                |
+| M113C     | Yes                      | Playwright editor navigation/edit smoke.                                      |
+| M114      | No                       | Docs-only.                                                                    |
+| M115      | No                       | Docs-only.                                                                    |
+| M116      | Maybe                    | Add Playwright only if lane UI lands.                                         |
+| M117      | Maybe                    | Add Playwright if command output/status is visible in run page.               |
+| M118      | Yes if prototype exposed | Playwright/qa-mode if practical, otherwise documented lower-level validation. |
+| M119      | Yes                      | Playwright branch push UX smoke.                                              |
+| M120      | No                       | Docs-only.                                                                    |
 
 ## Review/tester handoff guidance
 
