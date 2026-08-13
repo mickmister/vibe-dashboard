@@ -7,6 +7,7 @@ import { WorkflowGraphEditorView } from '../components/WorkflowGraphEditorPage';
 import { validateWorkflowGraph } from '../components/graph/workflowGraphModel';
 import {
   completedWorkflowPresentationFixture,
+  denseTransitionWorkflowDefinition,
   devReviewTesterWorkflowDefinition,
   githubCiWaitWorkflowDefinition,
   humanFormWorkflowDefinition,
@@ -22,12 +23,13 @@ import {
 
 describe('workflow Storybook fixtures', () => {
   it('M112 validates representative graph definitions and records future story matrix gaps', () => {
-    for (const definition of [simpleAgentWorkflowDefinition(), devReviewTesterWorkflowDefinition(), humanFormWorkflowDefinition(), workflowCallDefinition(), githubCiWaitWorkflowDefinition()]) {
+    for (const definition of [simpleAgentWorkflowDefinition(), devReviewTesterWorkflowDefinition(), humanFormWorkflowDefinition(), workflowCallDefinition(), githubCiWaitWorkflowDefinition(), denseTransitionWorkflowDefinition()]) {
       expect(validateWorkflowGraph(definition)).toEqual([]);
     }
     expect(validateWorkflowGraph(invalidWorkflowDefinition())).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'WORKFLOW_GRAPH_CORE_INVALID' })]));
     expect(workflowStoryMatrix).toEqual(expect.arrayContaining([
       expect.objectContaining({ surface: 'Graph', story: 'GitHub CI wait', status: 'possible today' }),
+      expect.objectContaining({ surface: 'Graph', story: 'Dense transition visibility', status: 'possible today' }),
       expect.objectContaining({ surface: 'Wizard/editor interactions', status: 'needs more work' }),
       expect.objectContaining({ surface: 'Centralized workflow page', status: 'concept only' }),
     ]));
