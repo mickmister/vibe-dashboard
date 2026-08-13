@@ -30,6 +30,9 @@ export interface WorkflowGraphEdgeModel {
   actionId: string;
   label: string;
   description: string | null;
+  resultFields: Array<{ name: string; type: string; required: boolean; multiple: boolean; description: string | null }>;
+  handoffPrompt: string | null;
+  waitFor: { provider: string; fields: Array<{ label: string; value: string }> } | null;
 }
 
 export interface WorkflowGraphModel {
@@ -81,6 +84,9 @@ export function workflowDefinitionToGraph(definition: AgentWorkflowDefinitionV1)
         actionId,
         label: action.label ?? labelFromId(actionId),
         description: action.description ?? null,
+        resultFields: summarizeResultFields(action),
+        handoffPrompt: summarizePrompt((action as { handoff?: { prompt?: unknown } }).handoff?.prompt),
+        waitFor: summarizeWaitFor((action as { waitFor?: unknown }).waitFor),
       });
     }
   }
@@ -159,9 +165,9 @@ function getStateSteps(state: AuthoredWorkflowStateV1): WorkflowStepV1[] {
   return Array.isArray(steps) ? steps as WorkflowStepV1[] : [];
 }
 
-function getStateActions(state: AuthoredWorkflowStateV1): Record<string, { targetState: string; label?: string; description?: string }> {
+function getStateActions(state: AuthoredWorkflowStateV1): Record<string, { targetState: string; label?: string; description?: string; result?: unknown; handoff?: unknown; waitFor?: unknown }> {
   const actions = (state as { actions?: unknown }).actions;
-  return actions && typeof actions === 'object' && !Array.isArray(actions) ? actions as Record<string, { targetState: string; label?: string; description?: string }> : {};
+  return actions && typeof actions === 'object' && !Array.isArray(actions) ? actions as Record<string, { targetState: string; label?: string; description?: string; result?: unknown; handoff?: unknown; waitFor?: unknown }> : {};
 }
 
 function isTerminalState(state: AuthoredWorkflowStateV1): state is { terminal: true } {
@@ -207,6 +213,40 @@ function summarizeRefs(refs: unknown): string[] {
     if (typeof record.id !== 'string') return null;
     return `${typeof record.kind === 'string' ? record.kind : 'asset'}:${record.id}${typeof record.version === 'number' ? `@${record.version}` : ''}`;
   }).filter((value): value is string => Boolean(value));
+}
+
+function summarizePrompt(prompt: unknown): string | null {
+  if (!prompt || typeof prompt !== 'object') return null;
+  const template = (prompt as { template?: unknown }).template;
+  return typeof template === 'string' && template.trim() ? template : null;
+}
+
+function summarizeResultFields(action: { result?: unknown }): WorkflowGraphEdgeModel['resultFields'] {
+  const result = action.result;
+  if (!result || typeof result !== 'object' || Array.isArray(result)) return [];
+  const fields = (result as { fields?: unknown }).fields;
+  const required = new Set(Array.isArray((result as { required?: unknown }).required) ? (result as { required: unknown[] }).required.filter((item): item is string => typeof item === 'string') : []);
+  if (!fields || typeof fields !== 'object' || Array.isArray(fields)) return [];
+  return Object.entries(fields).map(([name, rawSpec]) => {
+    const spec = rawSpec && typeof rawSpec === 'object' && !Array.isArray(rawSpec) ? rawSpec as { type?: unknown; multiple?: unknown; description?: unknown } : {};
+    return {
+      name,
+      type: typeof spec.type === 'string' ? spec.type : 'unknown',
+      required: required.has(name),
+      multiple: spec.multiple === true,
+      description: typeof spec.description === 'string' ? spec.description : null,
+    };
+  });
+}
+
+function summarizeWaitFor(waitFor: unknown): WorkflowGraphEdgeModel['waitFor'] {
+  if (!waitFor || typeof waitFor !== 'object' || Array.isArray(waitFor)) return null;
+  const record = waitFor as Record<string, unknown>;
+  const provider = typeof record.provider === 'string' ? record.provider : 'unknown';
+  const fields = ['runIdField', 'checkRunIdField', 'repoField', 'shaField']
+    .filter((key) => typeof record[key] === 'string' && String(record[key]).trim())
+    .map((key) => ({ label: labelFromId(key.replace(/Field$/u, '')), value: String(record[key]) }));
+  return { provider, fields };
 }
 
 function reachableStates(definition: AgentWorkflowDefinitionV1, start: string): Set<string> {
@@ -278,7 +318,7 @@ function decodeEdgeId(edgeId: string): { stateId: string; actionId: string } | n
 }
 
 function labelFromId(id: string): string {
-  return id.replace(/[_-]+/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
+  return id.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function deepClone<T>(value: T): T {

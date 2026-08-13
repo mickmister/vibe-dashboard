@@ -24,14 +24,14 @@ describe('WorkflowGraphEditorPage graph appearance', () => {
 
   it('uses readable dark edge labels and a distinct loop treatment', () => {
     const edges = toFlowEdges([
-      { id: 'dev:ready', source: 'dev', target: 'review', actionId: 'ready', label: 'Ready', description: null },
-      { id: 'dev:continue', source: 'dev', target: 'dev', actionId: 'continue', label: 'Keep working', description: null },
+      edge({ id: 'dev:ready', source: 'dev', target: 'review', actionId: 'ready', label: 'Ready' }),
+      edge({ id: 'dev:continue', source: 'dev', target: 'dev', actionId: 'continue', label: 'Keep working' }),
     ]);
 
     expect(edges[0]).toMatchObject({
       className: 'workflow-graph-edge',
       style: { stroke: '#38bdf8', strokeWidth: 2 },
-      labelStyle: expect.objectContaining({ fill: '#e0f2fe' }),
+      labelStyle: expect.objectContaining({ fill: '#e0f2fe', fontSize: 13 }),
       labelBgStyle: expect.objectContaining({ fill: '#0f172a' }),
     });
     expect(edges[1]).toMatchObject({
@@ -41,6 +41,21 @@ describe('WorkflowGraphEditorPage graph appearance', () => {
     });
   });
 });
+
+function edge(patch: Partial<WorkflowGraphEdgeModel>): WorkflowGraphEdgeModel {
+  return {
+    id: 'state:action',
+    source: 'state',
+    target: 'done',
+    actionId: 'action',
+    label: 'Action',
+    description: null,
+    resultFields: [],
+    handoffPrompt: null,
+    waitFor: null,
+    ...patch,
+  };
+}
 
 function node(patch: Partial<WorkflowGraphNodeModel>): WorkflowGraphNodeModel {
   return {
@@ -83,6 +98,10 @@ describe('WorkflowGraphEditorView prompt and skill picker', () => {
     expect(html).toContain('Selected: prompt:prompt.dev.instructions@1, skill:skill.missing@1');
     expect(html).toContain('Missing prompt or skill refs: skill:skill.missing@1');
     expect(html).toContain('JSON diagnostics');
+    expect(html).toContain('Selected action');
+    expect(html).toContain('Transition');
+    expect(html).toContain('Result fields');
+    expect(html).toContain('summary');
     expect(html).toContain('aria-readonly="true"');
     expect(html).not.toContain('prompt refs</span><input');
   });
@@ -99,7 +118,7 @@ function promptDefinition(): AgentWorkflowDefinitionV1 {
       dev: {
         owner: 'dev',
         steps: [{ id: 'decide', type: 'agent_turn', turnType: 'decision', prompt: { template: 'Do work', refs: [{ kind: 'prompt', id: 'prompt.dev.instructions', version: 1 }, { kind: 'skill', id: 'skill.missing', version: 1 }] } as any, response: { format: 'xml', schema: { format: 'xsd', source: 'state_actions' }, invalidXmlRetry: { maxAttempts: 1, prompt: 'engine_default_with_validation_errors', onExhausted: 'blocked' }, storeRawXml: true, storeParsedFields: true, unknownFields: 'reject_unless_allowed_by_result_contract' } }],
-        actions: { done: { label: 'Done', targetState: 'done' } },
+        actions: { done: { label: 'Done', targetState: 'done', result: { fields: { summary: { type: 'markdown' } }, required: ['summary'], unknownFields: 'reject' } } },
       },
       done: { terminal: true },
     },

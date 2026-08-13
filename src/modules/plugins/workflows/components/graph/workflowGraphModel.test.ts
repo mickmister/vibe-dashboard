@@ -22,6 +22,42 @@ describe('workflow graph model', () => {
     expect(validateWorkflowGraph(devReviewTesterFixture())).toEqual([]);
   });
 
+  it('summarizes selected transition result fields, handoff prompts, and wait providers for graph details', () => {
+    const definition = devReviewTesterFixture();
+    const dev = definition.states.dev;
+    if (!dev || 'terminal' in dev) throw new Error('expected active dev state');
+    dev.actions.ready_for_review = {
+      label: 'Wait for CI',
+      description: 'Pause until CI passes before review.',
+      targetState: 'review',
+      result: {
+        fields: {
+          summary: { type: 'markdown', description: 'What changed.' },
+          ciRunId: { type: 'string' },
+        },
+        required: ['summary', 'ciRunId'],
+        unknownFields: 'reject',
+      },
+      handoff: { prompt: { template: 'Review {{transition.parsed.summary}} after CI.' } },
+      waitFor: { provider: 'github_ci', runIdField: 'ciRunId', repoField: 'repo', shaField: 'sha' },
+    };
+
+    const edge = workflowDefinitionToGraph(definition).edges.find((candidate) => candidate.actionId === 'ready_for_review');
+
+    expect(edge).toMatchObject({
+      description: 'Pause until CI passes before review.',
+      resultFields: [
+        { name: 'summary', type: 'markdown', required: true, multiple: false, description: 'What changed.' },
+        { name: 'ciRunId', type: 'string', required: true, multiple: false, description: null },
+      ],
+      handoffPrompt: 'Review {{transition.parsed.summary}} after CI.',
+      waitFor: {
+        provider: 'github_ci',
+        fields: expect.arrayContaining([{ label: 'Run Id', value: 'ciRunId' }]),
+      },
+    });
+  });
+
   it('accepts built-in prompt-ref templates in graph editor validation without requiring inline prompt templates', () => {
     const drt = BUILT_IN_WORKFLOW_TEMPLATES.find((template) => template.templateId === 'built-in/dev-review-tester');
     expect(drt).toBeTruthy();

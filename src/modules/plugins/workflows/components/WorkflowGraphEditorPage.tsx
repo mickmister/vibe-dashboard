@@ -260,10 +260,16 @@ function sourceLabel(source: string): string {
 }
 
 function EdgeEditor({ edge, states, onChange }: { edge: WorkflowGraphEdgeModel; states: WorkflowGraphNodeModel[]; onChange: (edgeId: string, edit: { actionLabel?: string; targetState?: string }) => void }) {
+  const source = states.find((state) => state.id === edge.source);
+  const target = states.find((state) => state.id === edge.target);
   return (
     <section className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
       <div className="text-xs uppercase tracking-wide text-cyan-300">Selected action</div>
       <h2 className="mt-1 text-lg font-semibold">{edge.actionId}</h2>
+      <dl className="mt-3 grid gap-2 rounded-lg border border-zinc-800 bg-zinc-950 p-3 text-sm">
+        <div><dt className="text-zinc-500">Transition</dt><dd className="font-medium text-zinc-100">{source?.label ?? edge.source} → {target?.label ?? edge.target}</dd></div>
+        {edge.description ? <div><dt className="text-zinc-500">Description</dt><dd className="text-zinc-200">{edge.description}</dd></div> : null}
+      </dl>
       <label className="mt-3 block text-sm">
         <span className="font-medium">Action label</span>
         <input className="mt-2 w-full rounded-md border border-zinc-700 bg-zinc-950 p-2" value={edge.label} onChange={(event) => onChange(edge.id, { actionLabel: event.target.value })} />
@@ -275,6 +281,40 @@ function EdgeEditor({ edge, states, onChange }: { edge: WorkflowGraphEdgeModel; 
           {states.map((state) => <option key={state.id} value={state.id}>{state.label}</option>)}
         </select>
       </label>
+      {edge.waitFor ? (
+        <section className="mt-4 rounded-lg border border-cyan-900 bg-cyan-950/20 p-3 text-sm">
+          <h3 className="font-medium text-cyan-100">Wait action</h3>
+          <p className="mt-1 text-cyan-200">Provider: {edge.waitFor.provider}</p>
+          {edge.waitFor.fields.length ? (
+            <dl className="mt-2 space-y-1 text-xs">
+              {edge.waitFor.fields.map((field) => <div key={field.label} className="flex justify-between gap-3"><dt className="text-cyan-300">{field.label}</dt><dd className="text-cyan-50">{field.value}</dd></div>)}
+            </dl>
+          ) : null}
+        </section>
+      ) : null}
+      {edge.resultFields.length ? (
+        <section className="mt-4 rounded-lg border border-zinc-800 bg-zinc-950 p-3">
+          <h3 className="text-sm font-medium">Result fields</h3>
+          <ul className="mt-2 space-y-2">
+            {edge.resultFields.map((field) => (
+              <li key={field.name} className="rounded border border-zinc-800 bg-zinc-900/60 p-2 text-xs">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium text-zinc-100">{field.name}</span>
+                  <span className="rounded border border-zinc-700 px-1.5 py-0.5 text-zinc-400">{field.type}{field.multiple ? '[]' : ''}</span>
+                  {field.required ? <span className="rounded border border-amber-800 px-1.5 py-0.5 text-amber-200">required</span> : null}
+                </div>
+                {field.description ? <p className="mt-1 text-zinc-400">{field.description}</p> : null}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+      {edge.handoffPrompt ? (
+        <section className="mt-4 rounded-lg border border-zinc-800 bg-zinc-950 p-3">
+          <h3 className="text-sm font-medium">Handoff prompt</h3>
+          <p className="mt-2 whitespace-pre-wrap text-xs text-zinc-300">{edge.handoffPrompt}</p>
+        </section>
+      ) : null}
     </section>
   );
 }
@@ -325,9 +365,9 @@ export function toFlowEdges(edges: WorkflowGraphEdgeModel[]): Edge[] {
       className: loop ? 'workflow-graph-edge workflow-loop-edge' : 'workflow-graph-edge',
       style: { stroke: color, strokeWidth: loop ? 2.5 : 2 },
       markerEnd: { type: MarkerType.ArrowClosed, color },
-      labelStyle: { fill: '#e0f2fe', fontWeight: 700 },
+      labelStyle: { fill: '#e0f2fe', fontWeight: 800, fontSize: 13 },
       labelBgStyle: { fill: '#0f172a', fillOpacity: 0.95 },
-      labelBgPadding: [8, 4],
+      labelBgPadding: [10, 6],
       labelBgBorderRadius: 6,
     };
   });
