@@ -911,7 +911,9 @@ export function WorkspaceShell({
   };
 
   const handleOpenCreateWorkspaceTab = async () => {
-    const result = await actions.ensureCreateWorkspaceTab();
+    const result = await actions.createCreateWorkspaceCraft({
+      label: "Create Workspace",
+    });
     if (!result) return;
 
     sessionActions.selectSessionTab(

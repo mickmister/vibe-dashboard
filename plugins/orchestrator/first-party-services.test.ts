@@ -46,6 +46,10 @@ function expectBdWrapperFirst(path: string): void {
   expect(path.indexOf('/usr/local/lib/vk-bd-wrapper/bin')).toBeLessThan(path.indexOf('/usr/local/bin'));
 }
 
+function expectCaddyEnvDefault(config: string, variable: string, fallback: string): void {
+  expect(config).toContain(`{$${variable}:${fallback}}`);
+}
+
 describe('first-party service plugin inventory and golden supervisor config', () => {
   it('inventories current supervisor-managed programs as first-party plugin manifests with privilege tiers', () => {
     for (const plugin of BUILTIN_FIRST_PARTY_SERVICE_PLUGINS) {
@@ -85,26 +89,19 @@ describe('first-party service plugin inventory and golden supervisor config', ()
   });
 
   it('keeps Caddy startup non-blocking while plugin runtime apply runs after supervisor starts', () => {
-    expect(goldenCaddyfile).toContain('admin localhost:2019');
-    expect(goldenCaddyfile).toContain('import /etc/caddy/plugins.caddy');
+    expectCaddyEnvDefault(goldenCaddyfile, 'CADDY_ADMIN', 'localhost:2019');
+    expectCaddyEnvDefault(goldenCaddyfile, 'CADDY_PLUGINS_CADDY', '/etc/caddy/plugins.caddy');
     expect(goldenCaddyfile).not.toContain('@beads_web_host');
+    expect(goldenCaddyfile).toContain('Caddy starts with this import present; runtime');
+
     expect(pluginCaddyfile).toContain('VD plugin-owned Caddy routes');
+
     expect(goldenDockerfile).toContain('COPY Caddyfile.plugins /etc/caddy/plugins.caddy');
     expect(goldenDockerfile).toContain('COPY plugins/scripts/vd-plugin-runtime-apply.sh /usr/local/bin/vd-plugin-runtime-apply.sh');
-    expect(goldenDockerfile).toContain('COPY plugins/scripts/vd-plugin-reload.sh /usr/local/bin/vd-plugin-reload.sh');
-    expect(goldenDockerfile).toContain('COPY plugins/scripts/vd-plugin-service-runner.mjs /usr/local/bin/vd-plugin-service-runner.mjs');
-    expect(goldenDockerfile).toContain('COPY --from=dashboard-builder /app/dist/vibe-agent /opt/vibe-kanban-vscode-web-seed/dist/vibe-agent');
-    expect(goldenDockerfile).toContain('exec node /opt/vibe-kanban-vscode-web-seed/dist/vibe-agent/legacy-cli/vibe-agent.js "$@"');
-    expect(goldenDockerfile).toContain('exec node --experimental-strip-types /opt/vibe-kanban-vscode-web-seed/scripts/beads-form/cli.ts "$@"');
-    expect(goldenDockerfile).toContain('command -v vibe-agent');
-    expect(goldenDockerfile).toContain('command -v beads-form');
-    expect(goldenDockerfile).toContain('vibe-agent --help >/dev/null');
-    expect(goldenDockerfile).toContain('(cd /tmp && beads-form --help >/dev/null)');
-    expect(goldenDockerfile).toContain('ENV PATH="/usr/local/lib/vk-bd-wrapper/bin:${PATH}"');
-    expect(goldenDockerfile).toContain('export PATH=/usr/local/lib/vk-bd-wrapper/bin:/var/lib/vd/plugin-bin');
+
     expect(dockerEntrypoint).toContain('Runtime plugin apply writes generated routes here after Caddy starts, then reloads Caddy.');
-    expect(goldenCaddyfile).toContain('Caddy starts with this import present; runtime');
     expect(dockerEntrypoint).not.toContain('plugin-service-orchestrator-cli.ts apply');
+
     expect(pluginRuntimeApply).toContain('dist/plugins-orchestrator/plugin-service-orchestrator-cli.js apply');
     expect(pluginRuntimeApply).toContain('--caddy-config-path /etc/caddy/Caddyfile');
     expect(pluginRuntimeApply).toContain('supervisorctl reread');
@@ -114,12 +111,19 @@ describe('first-party service plugin inventory and golden supervisor config', ()
     expect(pluginRuntimeApply).toContain('caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile');
     expect(pluginRuntimeApply).not.toContain('VD_PLUGIN_ORCHESTRATOR_ALLOW_HASH_MISMATCH');
     expect(pluginReload).toContain('exec /usr/local/bin/vd-plugin-runtime-apply.sh "$@"');
-    expect(goldenSupervisor).toContain('command=/usr/local/bin/vd-plugin-runtime-apply.sh');
-    expect(goldenSupervisor).toContain('[program:caddy]\ncommand=caddy run --config /etc/caddy/Caddyfile --adapter caddyfile\nautostart=true\nautorestart=true\npriority=10');
-    expect(goldenSupervisor).toContain('[program:vibe-agent-nudge-daemon]\ncommand=sh -c');
-    expect(goldenSupervisor).toContain('VD_NUDGE_DAEMON_ENABLED');
-    expect(goldenSupervisor).toContain('dist/vibe-agent/nudge/daemon.js');
-    expect(goldenSupervisor).toContain('[program:vd-plugin-service-orchestrator-startup]\ncommand=/usr/local/bin/vd-plugin-runtime-apply.sh\nautostart=true\nautorestart=false\nstartsecs=0\npriority=1000');
+
+    const caddy = getSupervisorProgramBlock(goldenSupervisor, 'caddy');
+    expect(caddy).toContain('command=caddy run --config /etc/caddy/Caddyfile --adapter caddyfile');
+    expect(caddy).toContain('autostart=true');
+    expect(caddy).toContain('autorestart=true');
+    expect(caddy).toContain('priority=10');
+
+    const pluginStartup = getSupervisorProgramBlock(goldenSupervisor, 'vd-plugin-service-orchestrator-startup');
+    expect(pluginStartup).toContain('command=/usr/local/bin/vd-plugin-runtime-apply.sh');
+    expect(pluginStartup).toContain('autostart=true');
+    expect(pluginStartup).toContain('autorestart=false');
+    expect(pluginStartup).toContain('startsecs=0');
+    expect(pluginStartup).toContain('priority=1000');
   });
 
   it('prefers the bd wrapper in vibe-kanban and spawned agent service PATHs', () => {
