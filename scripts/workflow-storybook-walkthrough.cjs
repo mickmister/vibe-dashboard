@@ -66,7 +66,7 @@ async function main() {
 
 async function openStory(page, storyId) {
   const url = `${baseUrl}/iframe?id=${encodeURIComponent(storyId)}&viewMode=story`;
-  const response = await page.goto(url, { waitUntil: 'domcontentloaded' });
+  const response = await gotoStoryWithRetry(page, url);
   if (response && response.status() >= 400) {
     throw new Error(`Story ${storyId} returned HTTP ${response.status()} from ${url}. Is Storybook running with the latest stories?`);
   }
@@ -75,6 +75,16 @@ async function openStory(page, storyId) {
     throw new Error(`Story ${storyId} was not found at ${url}. Restart/rebuild the Storybook server so it includes the current workflow stories.`);
   }
   await waitForStoryContent(page, storyId);
+}
+
+async function gotoStoryWithRetry(page, url) {
+  let lastResponse = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (attempt > 0) await page.waitForTimeout(750);
+    lastResponse = await page.goto(url, { waitUntil: 'domcontentloaded' });
+    if (!lastResponse || lastResponse.status() < 400) return lastResponse;
+  }
+  return lastResponse;
 }
 
 async function listWorkflowStories(page) {
