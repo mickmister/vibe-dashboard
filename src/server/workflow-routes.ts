@@ -1109,6 +1109,15 @@ export function registerWorkflowRoutes(
     "/dashboard/api/workflow-instances/:instanceId/presentation",
     async (c) => {
       const instanceId = c.req.param("instanceId");
+      const db = options.workflowHomeDb ?? (await getVdDb()).db;
+      const persistedPresentation =
+        await buildPersistedWorkflowPresentationModel({
+          db,
+          runId: instanceId,
+        });
+      if (persistedPresentation)
+        return c.json({ presentation: persistedPresentation });
+
       const store = options.workflowOrchestrationStore;
       if (store) {
         const presentation = await buildWorkflowPresentationModel({
@@ -1118,21 +1127,13 @@ export function registerWorkflowRoutes(
         });
         if (presentation) return c.json({ presentation });
       }
-      const db = options.workflowHomeDb ?? (await getVdDb()).db;
-      const persistedPresentation =
-        await buildPersistedWorkflowPresentationModel({
-          db,
-          runId: instanceId,
-        });
-      if (!persistedPresentation)
-        return c.json(
-          {
-            error: "workflow_presentation_not_found",
-            message: "Workflow not found",
-          },
-          404,
-        );
-      return c.json({ presentation: persistedPresentation });
+      return c.json(
+        {
+          error: "workflow_presentation_not_found",
+          message: "Workflow not found",
+        },
+        404,
+      );
     },
   );
 
@@ -1866,9 +1867,7 @@ function validateLaunchInputs(
   return errors;
 }
 
-function parseWorkflowLaunchRequest(
-  record: Record<string, unknown> | null,
-):
+function parseWorkflowLaunchRequest(record: Record<string, unknown> | null):
   | { ok: true; request: WorkflowLaunchRequest }
   | {
       ok: false;
