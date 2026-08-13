@@ -45,6 +45,16 @@ describe('WorkflowGraphEditorPage graph appearance', () => {
     });
   });
 
+  it('does not render the workflow graph minimap preview', () => {
+    const source = readFileSync(join(process.cwd(), 'src/modules/plugins/workflows/components/WorkflowGraphEditorPage.tsx'), 'utf8');
+    const css = readFileSync(join(process.cwd(), 'src/modules/plugins/workflows/components/WorkflowGraphEditorPage.css'), 'utf8');
+
+    expect(source).not.toContain('MiniMap');
+    expect(source).not.toContain('<MiniMap');
+    expect(source).toContain('<Controls />');
+    expect(css).not.toContain('react-flow__minimap');
+  });
+
   it('defines dark readable CSS for custom EdgeLabelRenderer action labels', () => {
     const css = readFileSync(join(process.cwd(), 'src/modules/plugins/workflows/components/WorkflowGraphEditorPage.css'), 'utf8');
 

@@ -80,11 +80,6 @@
   fill: currentColor;
 }
 
-.workflow-graph-canvas .react-flow__minimap {
-  background: #020617;
-  border: 1px solid #1e293b;
-  border-radius: 0.75rem;
-}
 .workflow-action-edge-label {
   position: absolute;
   z-index: 20;

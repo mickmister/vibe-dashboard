@@ -3,7 +3,7 @@ import './WorkflowGraphEditorPage.css';
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router';
-import { Background, BaseEdge, Controls, EdgeLabelRenderer, MarkerType, MiniMap, Position, ReactFlow, getBezierPath, useNodesState, type Edge, type EdgeProps, type Node } from '@xyflow/react';
+import { Background, BaseEdge, Controls, EdgeLabelRenderer, MarkerType, Position, ReactFlow, getBezierPath, useNodesState, type Edge, type EdgeProps, type Node } from '@xyflow/react';
 import type { AgentWorkflowDefinitionV1, WorkflowStepV1 } from '@vibe-dashboard/workflow-core';
 import { fetchWorkflowDesignEditor, publishWorkflowDesignDraft, saveWorkflowDesignDraft, type WorkflowDesignEditorModel } from '../client/workflowDesignEditorApi';
 import { fetchWorkflowAssets, type WorkflowAssetPickerItem, type WorkflowAssetsModel } from '../client/workflowAssetsApi';
@@ -144,7 +144,6 @@ export function WorkflowGraphEditorView({ editor, definition, assets, onDefiniti
             onEdgeClick={(_, edge) => setSelectedEdgeId(edge.id)}
           >
             <Background />
-            <MiniMap />
             <Controls />
           </ReactFlow>
         </div>
