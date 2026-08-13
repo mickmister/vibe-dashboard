@@ -36,6 +36,25 @@ The design decision for M114 is:
 > arbitrary shell execution is not part of the first executable command-step
 > implementation.
 
+## Coordinator-owned review note
+
+This test plan is the coordinator-owned M114 acceptance document. Earlier agent
+discussion and implementation notes were used as input, but this document is the
+source of truth for what M114 accepts and what M117 must test before command
+execution can ship.
+
+The key product decision is deliberately conservative:
+
+- **M114 does not authorize executable command steps.**
+- **M117 may only implement provider-mediated, bounded command steps after this
+  safety plan is reviewed.**
+- **Write-capable commands must wait for lane/workspace isolation decisions from
+  M115/M116 unless a later user decision explicitly narrows that risk.**
+
+If later implementation pressure conflicts with this plan, the implementation
+must stop and update this document/test plan first rather than silently adding a
+runtime escape hatch.
+
 ## M114 recommendations at a glance
 
 1. Add command execution as a typed workflow extension provider, not as generic
