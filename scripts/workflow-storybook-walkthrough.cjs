@@ -11,7 +11,9 @@ const DEFAULT_STORIES = [
 
 const baseUrl = (process.env.STORYBOOK_URL || process.env.STORYBOOK_BASE_URL || 'http://localhost:6006').replace(/\/$/u, '');
 const outDir = process.env.WORKFLOW_STORYBOOK_ARTIFACT_DIR || '/tmp/vd-workflow-m112-storybook-artifacts';
-const storyIds = process.argv.slice(2).filter(Boolean).length ? process.argv.slice(2).filter(Boolean) : DEFAULT_STORIES;
+const rawArgs = process.argv.slice(2).filter(Boolean);
+const captureAllWorkflowStories = rawArgs.includes('--all');
+const explicitStoryIds = rawArgs.filter((arg) => arg !== '--all');
 const pauseMs = Number(process.env.WORKFLOW_STORYBOOK_PAUSE_MS || 1400);
 const scrollStep = Number(process.env.WORKFLOW_STORYBOOK_SCROLL_STEP || 420);
 const viewport = {
@@ -29,6 +31,7 @@ async function main() {
   const browser = await chromium.launch();
   const context = await browser.newContext({ viewport, recordVideo: { dir: videoDir, size: viewport } });
   const page = await context.newPage();
+  const storyIds = captureAllWorkflowStories ? await listWorkflowStories(page) : explicitStoryIds.length ? explicitStoryIds : DEFAULT_STORIES;
   const visited = [];
   try {
     for (const storyId of storyIds) {
@@ -62,8 +65,24 @@ async function main() {
 
 async function openStory(page, storyId) {
   const url = `${baseUrl}/iframe?id=${encodeURIComponent(storyId)}&viewMode=story`;
-  await page.goto(url, { waitUntil: 'domcontentloaded' });
+  const response = await page.goto(url, { waitUntil: 'domcontentloaded' });
+  if (response && response.status() >= 400) {
+    throw new Error(`Story ${storyId} returned HTTP ${response.status()} from ${url}. Is Storybook running with the latest stories?`);
+  }
+  const earlyText = await page.locator('body').innerText().catch(() => '');
+  if (earlyText.trim() === 'Not Found') {
+    throw new Error(`Story ${storyId} was not found at ${url}. Restart/rebuild the Storybook server so it includes the current workflow stories.`);
+  }
   await waitForStoryContent(page, storyId);
+}
+
+async function listWorkflowStories(page) {
+  const response = await page.goto(`${baseUrl}/index.json`, { waitUntil: 'domcontentloaded' });
+  if (!response?.ok()) throw new Error(`Unable to read Storybook index.json from ${baseUrl}`);
+  const index = JSON.parse(await page.locator('body').innerText());
+  return Object.values(index.entries || {})
+    .filter((entry) => entry.type === 'story' && String(entry.id).startsWith('workflows-'))
+    .map((entry) => entry.id);
 }
 
 async function waitForStoryContent(page, storyId) {

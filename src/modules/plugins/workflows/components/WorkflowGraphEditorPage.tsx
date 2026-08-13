@@ -142,8 +142,8 @@ export function WorkflowGraphEditorView({ editor, definition, assets, onDefiniti
         {saveMessage ? <div className="rounded-lg border border-emerald-800 bg-emerald-950/30 p-3 text-sm text-emerald-100">{saveMessage}</div> : null}
         <DesignDetails definition={definition} onChange={onDefinitionChange} />
         <ValidationPanel issues={issues} />
-        {selectedNode ? <NodeDetails node={selectedNode} definition={definition} assets={assets ?? { prompts: [], skills: [] }} onChange={onDefinitionChange} /> : null}
         {selectedEdge ? <EdgeEditor edge={selectedEdge} states={graph.nodes} onChange={updateEdge} /> : null}
+        {selectedNode ? <NodeDetails node={selectedNode} definition={definition} assets={assets ?? { prompts: [], skills: [] }} onChange={onDefinitionChange} /> : null}
         <JsonDiagnostics definition={definition} />
       </aside>
     </section>
