@@ -195,7 +195,7 @@ test.describe("LV2K API-first workflow fixtures", () => {
       .filter((text) => text.includes("LV2K_STEP:simple_decide"));
 
     expect(presentation.workflowName).toBe("LV2K Simple Agent Decision");
-    expect(presentation.workflowId).toBe(designId);
+    expect(presentation.workflowId).toBe(`${designId}@1`);
     expect(presentation.provenance).toMatchObject({
       workflowDesignId: designId,
       workflowVersion: 1,
@@ -328,7 +328,7 @@ test.describe("LV2K API-first workflow fixtures", () => {
     ]);
 
     expect(presentation.workflowName).toBe("LV2K Dev / Review / Tester");
-    expect(presentation.workflowId).toBe(designId);
+    expect(presentation.workflowId).toBe(`${designId}@1`);
     expect(presentation.provenance).toMatchObject({
       workflowDesignId: designId,
       workflowVersion: 1,
@@ -473,7 +473,7 @@ test.describe("LV2K API-first workflow fixtures", () => {
     ]);
 
     expect(presentation.workflowName).toBe("LV2K Invalid XML Blocked");
-    expect(presentation.workflowId).toBe(designId);
+    expect(presentation.workflowId).toBe(`${designId}@1`);
     expect(presentation.provenance).toMatchObject({
       workflowDesignId: designId,
       workflowVersion: 1,
