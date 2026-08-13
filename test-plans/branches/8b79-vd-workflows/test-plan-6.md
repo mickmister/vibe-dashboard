@@ -12,6 +12,32 @@ Related context:
 - `src/modules/plugins/workflows/fixtures/workflowStoryFixtures.ts` — current typed Storybook/workflow fixtures.
 - `tests/e2e/features/8b79-vd-workflows/workflows-tab.spec.ts` — current browser E2E coverage, mostly API-mocked UI.
 
+
+## Decisions from `workflow_fixture_e2e_strategy_v2`
+
+The user completed the LV2K strategy form on August 13, 2026. Implement LV2K in this order:
+
+1. **First slice: API real-server E2E.** Start real Docker/qa-mode VD + VK, load workflow JSON through VD HTTP, publish/launch through HTTP, let VK qa-mode scripted responses complete turns, and verify through VD HTTP read models.
+2. **JSON loading boundary: existing VD HTTP API.** Prefer `POST /dashboard/api/workflow-designs` with `publish: true`; do not DB-seed or add a new import route unless the existing API proves insufficient.
+3. **First workflows: simple, then DRT.** Prove a one-agent XML completion first, then add Dev / Review / Tester handoff/loop coverage.
+4. **Prompt strategy: inline prompt markers.** Use `prompt.template` strings with stable markers such as `LV2K_STEP:self_review` for deterministic scripted matching. Maintain a matrix of fixture features/expected assertions as coverage expands.
+5. **VK scripted matching: existing `prompt_contains`.** Use current qa-mode matching with stable markers first; harden to role/session/step matching only if this flakes.
+6. **First verification: HTTP presentation.** Poll `/dashboard/api/workflow-instances/:runId/presentation` and assert status, timeline, parsed result content, and absence of debug/transport terms. Add Workflows home and browser run-page verification after this is stable.
+7. **Browser creation timing: after API stability.** The eventual full E2E should create the workflow in the browser, run it, and verify results, but only after API-based execution E2E is reliable.
+8. **Later coverage:** include Beads-form plugin/human-form path after the initial simple + DRT API E2E succeeds.
+
+### Fixture/assertion matrix to maintain
+
+| Fixture/path | Include in first slice? | Required assertions | Later additions |
+| --- | --- | --- | --- |
+| Simple one-agent decision | Yes | JSON design created/published through HTTP; launch succeeds; VK scripted message contains XML decision; presentation completes with parsed summary; no debug terms. | Code-fenced XML/prose-wrapped XML variants. |
+| Dev / Review / Tester | Yes, after simple | Multi-role sessions; Dev -> Review handoff; at least one review loop; Tester completion; timeline shows roles/actions; parsed fields drive handoff. | Longer loop matrix and prompt-ref variant. |
+| Invalid XML / blocked | No | N/A | Retry prompt queued; exhaustion blocks with product error at VK message boundary. |
+| Human form / Beads-form | No | N/A | Attention/form submission resumes workflow; Beads-form plugin artifact/schema path covered. |
+| Workflow call | No | N/A | Parent waits for exact child run; stale/wrong child completion ignored; call tree visible. |
+| GitHub CI wait | No | N/A | XML CI fields create wait; fake CI poll success/failure; no webhook dependency. |
+| Workflows home / browser run page | No for first slice | N/A | Add after HTTP presentation assertion is stable. |
+
 ## Purpose
 
 Current workflow coverage is strong in two separate layers:
