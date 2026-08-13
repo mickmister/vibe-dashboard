@@ -5,6 +5,7 @@ const { chromium } = require('playwright');
 
 const DEFAULT_STORIES = [
   'workflows-graph--git-hub-ci-wait-action',
+  'workflows-graph--dense-transition-visibility',
   'workflows-run-presentation--waiting-on-git-hub-ci',
   'workflows-home--workspace-overview',
 ];

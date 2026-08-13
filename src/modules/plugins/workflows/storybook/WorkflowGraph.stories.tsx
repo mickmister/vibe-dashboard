@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import type { AgentWorkflowDefinitionV1 } from '@vibe-dashboard/workflow-core';
 import { WorkflowGraphEditorView } from '../components/WorkflowGraphEditorPage';
 import {
+  denseTransitionWorkflowDefinition,
   devReviewTesterWorkflowDefinition,
   githubCiWaitWorkflowDefinition,
   humanFormWorkflowDefinition,
@@ -64,6 +65,14 @@ export const GitHubCiWaitAction: Story = {
   },
 };
 
+export const DenseTransitionVisibility: Story = {
+  args: {
+    title: 'Dense transition visibility',
+    description: 'Stress story for M113B: long labels, back edges, and multiple review paths should remain readable at default zoom.',
+    definition: denseTransitionWorkflowDefinition(),
+  },
+};
+
 export const InvalidDefinition: Story = {
   args: {
     title: 'Invalid workflow definition',
@@ -81,6 +90,7 @@ export const DarkModeVisualQa: Story = {
     >
       <div className="space-y-5">
         <GraphStory title="Dev / Review / Tester dark mode" definition={devReviewTesterWorkflowDefinition()} />
+        <GraphStory title="Dense transition visibility" definition={denseTransitionWorkflowDefinition()} />
         <StorybookVisualQaNotes
           items={[
             { label: 'Dark graph canvas', status: 'covered', note: 'Canvas uses slate/zinc surfaces and graph nodes use dark blue/slate styling.' },
