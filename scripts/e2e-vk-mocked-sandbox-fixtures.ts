@@ -50,7 +50,7 @@ const sandboxPlanPath = path.join(
   '.vk-mocked-sandbox/current/plan.json',
 );
 const sandboxProcessPattern =
-  'vk-mocked-sandbox|vk-backend-qa|vd-dashboard|VK_MOCKED_SANDBOX';
+  'vk-mocked-sandbox|vk-backend-qa|vk-backend-ci-release|vd-dashboard|VK_MOCKED_SANDBOX|vk-release-assets';
 
 const generatedVkDevAssetFiles = [
   'db.v2.sqlite',

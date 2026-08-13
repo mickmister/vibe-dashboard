@@ -43,6 +43,9 @@ describe('VK mocked sandbox helpers', () => {
       '1234 node --experimental-strip-types scripts/vk-mocked-sandbox.ts start',
     )).toBe(true);
     expect(isSandboxRuntimeProcessLine('5678 cargo run --features qa-mode --bin server vk-backend-qa')).toBe(true);
+    expect(isSandboxRuntimeProcessLine(
+      '6789 /tmp/workspace/vibe-kanban-vscode-web/.vk-mocked-sandbox/vk-release-assets/ff79144e3842e5454ffc36b5546a1336ab4da993/31655931916/extracted/vibe-kanban',
+    )).toBe(true);
   });
 
   it('uses explicit env port overrides when present', async () => {
@@ -263,6 +266,87 @@ describe('VK mocked sandbox helpers', () => {
       command: 'cargo',
       args: ['run', '--features', 'qa-mode', '--bin', 'server'],
     });
+  });
+
+  it('plans release-asset VK without local VK builds and enables runtime QA mode', () => {
+    const plan = createSandboxPlan({
+      workspaceRoot: '/tmp/worktrees/example/vibe-kanban-vscode-web',
+      env: {
+        VK_MOCKED_VK_BACKEND: 'ci-release',
+        VK_MOCKED_RELEASE_SHA:
+          'ff79144e3842e5454ffc36b5546a1336ab4da993',
+        VK_MOCKED_RELEASE_RUN_ID: '31655931916',
+      } as NodeJS.ProcessEnv,
+      ports: {
+        vkBackend: 4107,
+        vkFrontend: 4100,
+        vkPreviewProxy: 4106,
+        vdDashboard: 4105,
+        vdServer: 4104,
+        vdCaddy: 4101,
+      },
+      runDir: '/tmp/run',
+      caddyfile: 'mocked sandbox caddyfile',
+    });
+
+    const artifactRoot =
+      '/tmp/worktrees/example/vibe-kanban-vscode-web/.vk-mocked-sandbox/vk-release-assets/ff79144e3842e5454ffc36b5546a1336ab4da993/31655931916';
+
+    expect(plan.setupCommands.map((command) => command.name)).toEqual([
+      'vk-download-release-artifact',
+    ]);
+    expect(plan.setupCommands[0]).toMatchObject({
+      cwd: '/tmp/worktrees/example/vibe-kanban-vscode-web',
+      command: 'node',
+      args: [
+        '--experimental-strip-types',
+        'scripts/vk-mocked-sandbox.ts',
+        'download-ci-release',
+      ],
+      env: {
+        VK_MOCKED_RELEASE_SHA:
+          'ff79144e3842e5454ffc36b5546a1336ab4da993',
+        VK_MOCKED_RELEASE_RUN_ID: '31655931916',
+        VK_MOCKED_RELEASE_CACHE_DIR: artifactRoot,
+      },
+    });
+    expect(plan.commands[0]).toMatchObject({
+      name: 'vk-backend-ci-release',
+      cwd: '/tmp/worktrees/example/Vktest',
+      command: `${artifactRoot}/extracted/vibe-kanban`,
+      args: [],
+      env: {
+        BACKEND_PORT: '4107',
+        FRONTEND_PORT: '4101',
+        PREVIEW_PROXY_PORT: '4106',
+        VK_ALLOWED_ORIGINS: 'http://localhost:4101,http://localhost:4105',
+        VK_QA_MODE: '1',
+        QA_MODE: '1',
+      },
+    });
+  });
+
+  it('requires an exact SHA for release-asset VK planning', () => {
+    expect(() =>
+      createSandboxPlan({
+        workspaceRoot: '/tmp/worktrees/example/vibe-kanban-vscode-web',
+        env: {
+          VK_MOCKED_VK_BACKEND: 'ci-release',
+          VK_MOCKED_RELEASE_SHA: 'HEAD',
+          VK_MOCKED_RELEASE_RUN_ID: '31655931916',
+        } as NodeJS.ProcessEnv,
+        ports: {
+          vkBackend: 4107,
+          vkFrontend: 4100,
+          vkPreviewProxy: 4106,
+          vdDashboard: 4105,
+          vdServer: 4104,
+          vdCaddy: 4101,
+        },
+        runDir: '/tmp/run',
+        caddyfile: 'mocked sandbox caddyfile',
+      }),
+    ).toThrow('VK_MOCKED_RELEASE_SHA must be a full 40-character commit SHA');
   });
 
   it('uses an explicit VK checkout path when provided', () => {
