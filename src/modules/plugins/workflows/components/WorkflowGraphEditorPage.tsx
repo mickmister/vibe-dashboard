@@ -195,7 +195,9 @@ export function WorkflowGraphEditorView({
   const [selectedNodeId, setSelectedNodeId] = useState(
     graph.nodes[0]?.id ?? "",
   );
-  const [selectedEdgeId, setSelectedEdgeId] = useState("");
+  const [selectedEdgeId, setSelectedEdgeId] = useState(
+    graph.edges[0]?.id ?? "",
+  );
   const selectedNode =
     graph.nodes.find((node) => node.id === selectedNodeId) ?? null;
   const selectedEdge =
