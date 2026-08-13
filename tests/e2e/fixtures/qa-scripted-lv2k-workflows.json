@@ -1,0 +1,68 @@
+{
+  "outcomes": [
+    {
+      "prompt_contains": "LV2K_STEP:simple_decide",
+      "outcome": "completed",
+      "final_message": "<decision action=\"done\"><summary>Finished simple task through real VK qa-mode XML loopback.</summary></decision>",
+      "session_id": "qa-scripted-lv2k-simple",
+      "message_id": "qa-scripted-lv2k-simple",
+      "delay_ms": 0
+    },
+    {
+      "prompt_contains": "LV2K_STEP:drt_dev_implement",
+      "outcome": "completed",
+      "final_message": "LV2K DRT Dev implemented pass one.",
+      "session_id": "qa-scripted-lv2k-drt-dev-implement-1",
+      "message_id": "qa-scripted-lv2k-drt-dev-implement-1",
+      "delay_ms": 0
+    },
+    {
+      "prompt_contains": "LV2K_STEP:drt_dev_self_review",
+      "outcome": "completed",
+      "final_message": "<decision action=\"ready_for_review\"><summary>Implemented pass one for LV2K DRT.</summary><concerns>Need reviewer eyes on edge cases.</concerns></decision>",
+      "session_id": "qa-scripted-lv2k-drt-dev-self-1",
+      "message_id": "qa-scripted-lv2k-drt-dev-self-1",
+      "delay_ms": 0
+    },
+    {
+      "prompt_contains": "LV2K_STEP:drt_review",
+      "outcome": "completed",
+      "final_message": "<decision action=\"changes_requested\"><requestedChanges>Fix the LV2K review issue before testing.</requestedChanges><concerns>Review found a representative gap.</concerns></decision>",
+      "session_id": "qa-scripted-lv2k-drt-review-changes",
+      "message_id": "qa-scripted-lv2k-drt-review-changes",
+      "delay_ms": 0
+    },
+    {
+      "prompt_contains": "LV2K_STEP:drt_dev_implement",
+      "outcome": "completed",
+      "final_message": "LV2K DRT Dev implemented requested review changes.",
+      "session_id": "qa-scripted-lv2k-drt-dev-implement-2",
+      "message_id": "qa-scripted-lv2k-drt-dev-implement-2",
+      "delay_ms": 0
+    },
+    {
+      "prompt_contains": "LV2K_STEP:drt_dev_self_review",
+      "outcome": "completed",
+      "final_message": "<decision action=\"ready_for_review\"><summary>Fixed the LV2K review issue.</summary><concerns>No remaining known concerns.</concerns></decision>",
+      "session_id": "qa-scripted-lv2k-drt-dev-self-2",
+      "message_id": "qa-scripted-lv2k-drt-dev-self-2",
+      "delay_ms": 0
+    },
+    {
+      "prompt_contains": "LV2K_STEP:drt_review",
+      "outcome": "completed",
+      "final_message": "<decision action=\"approved\"><remarks>Review approves the LV2K DRT changes after the loop.</remarks></decision>",
+      "session_id": "qa-scripted-lv2k-drt-review-approved",
+      "message_id": "qa-scripted-lv2k-drt-review-approved",
+      "delay_ms": 0
+    },
+    {
+      "prompt_contains": "LV2K_STEP:drt_tester",
+      "outcome": "completed",
+      "final_message": "<decision action=\"approved\"><testSummary>Tester approves the LV2K DRT workflow after the review loop.</testSummary></decision>",
+      "session_id": "qa-scripted-lv2k-drt-tester-approved",
+      "message_id": "qa-scripted-lv2k-drt-tester-approved",
+      "delay_ms": 0
+    }
+  ]
+}

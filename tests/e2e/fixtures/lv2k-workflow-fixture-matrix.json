@@ -4,17 +4,17 @@
       "id": "simple-one-agent-decision",
       "testCaseId": "TEST_CASE_LV2K_2A",
       "workflowDefinition": "tests/e2e/fixtures/lv2k-simple-agent-decision.workflow.json",
-      "scriptedOutcome": "tests/e2e/fixtures/qa-scripted-lv2k-simple-workflow.json",
+      "scriptedOutcome": "tests/e2e/fixtures/qa-scripted-lv2k-workflows.json",
       "verification": "HTTP presentation endpoint",
       "status": "implemented"
     },
     {
       "id": "dev-review-tester",
       "testCaseId": "TEST_CASE_LV2K_2B",
-      "workflowDefinition": "pending: inline-prompt JSON fixture",
-      "scriptedOutcome": "tests/e2e/fixtures/qa-scripted-drt-workflow.json",
-      "verification": "HTTP presentation endpoint, then browser run page",
-      "status": "next_lv2k_sub_slice"
+      "workflowDefinition": "tests/e2e/fixtures/lv2k-dev-review-tester.workflow.json",
+      "scriptedOutcome": "tests/e2e/fixtures/qa-scripted-lv2k-workflows.json",
+      "verification": "HTTP presentation endpoint",
+      "status": "implemented"
     },
     {
       "id": "invalid-xml-blocked",
