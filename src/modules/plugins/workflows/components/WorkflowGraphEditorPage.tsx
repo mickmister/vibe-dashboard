@@ -3,7 +3,7 @@ import './WorkflowGraphEditorPage.css';
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router';
-import { Background, Controls, MarkerType, MiniMap, ReactFlow, type Edge, type Node } from '@xyflow/react';
+import { Background, BaseEdge, Controls, EdgeLabelRenderer, MarkerType, MiniMap, Position, ReactFlow, getBezierPath, useNodesState, type Edge, type EdgeProps, type Node } from '@xyflow/react';
 import type { AgentWorkflowDefinitionV1, WorkflowStepV1 } from '@vibe-dashboard/workflow-core';
 import { fetchWorkflowDesignEditor, publishWorkflowDesignDraft, saveWorkflowDesignDraft, type WorkflowDesignEditorModel } from '../client/workflowDesignEditorApi';
 import { fetchWorkflowAssets, type WorkflowAssetPickerItem, type WorkflowAssetsModel } from '../client/workflowAssetsApi';
@@ -102,13 +102,20 @@ export function WorkflowGraphEditorView({ editor, definition, assets, onDefiniti
   const [selectedEdgeId, setSelectedEdgeId] = useState(graph.edges[0]?.id ?? '');
   const selectedNode = graph.nodes.find((node) => node.id === selectedNodeId) ?? graph.nodes[0] ?? null;
   const selectedEdge = graph.edges.find((edge) => edge.id === selectedEdgeId) ?? null;
-  const flowNodes = useMemo(() => toFlowNodes(graph.nodes), [graph.nodes]);
-  const flowEdges = useMemo(() => toFlowEdges(graph.edges), [graph.edges]);
+  const layoutedNodes = useMemo(() => toFlowNodes(graph.nodes, graph.edges), [graph.nodes, graph.edges]);
+  const [flowNodes, setFlowNodes, onNodesChange] = useNodesState(layoutedNodes);
+  const flowEdges = useMemo(() => toFlowEdges(graph.edges, selectedEdgeId, graph.nodes, setSelectedEdgeId), [graph.edges, selectedEdgeId, graph.nodes]);
   const canSave = Boolean(editor?.draftId) && issues.length === 0;
+
+  useEffect(() => {
+    setFlowNodes(layoutedNodes);
+  }, [layoutedNodes, setFlowNodes]);
 
   const updateEdge = (edgeId: string, edit: { actionLabel?: string; targetState?: string }) => {
     onDefinitionChange(applyWorkflowGraphActionEdit(definition, edgeId, edit));
   };
+
+  const resetLayout = () => setFlowNodes(layoutedNodes);
 
   return (
     <section className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_24rem]">
@@ -116,9 +123,9 @@ export function WorkflowGraphEditorView({ editor, definition, assets, onDefiniti
         <div className="flex items-center justify-between gap-3 border-b border-zinc-800 p-4">
           <div>
             <h2 className="font-semibold">Graph</h2>
-            <p className="text-sm text-zinc-400">States are nodes. Decision actions are labeled edges.</p>
+            <p className="text-sm text-zinc-400">States are nodes. Decision actions are labeled edges. Drag states to inspect dense graphs; reset restores auto-layout.</p>
           </div>
-          <div className="flex gap-2"><button className="rounded-md border border-zinc-700 px-3 py-2 text-sm disabled:opacity-50" disabled={!canSave} onClick={onSave}>Save draft</button><button className="rounded-md bg-cyan-500 px-3 py-2 text-sm font-medium text-zinc-950 disabled:opacity-50" disabled={!canSave || publishing} onClick={onPublish}>{publishing ? 'Publishing…' : 'Publish'}</button></div>
+          <div className="flex flex-wrap justify-end gap-2"><button className="rounded-md border border-zinc-700 px-3 py-2 text-sm" onClick={resetLayout}>Reset layout</button><button className="rounded-md border border-zinc-700 px-3 py-2 text-sm disabled:opacity-50" disabled={!canSave} onClick={onSave}>Save draft</button><button className="rounded-md bg-cyan-500 px-3 py-2 text-sm font-medium text-zinc-950 disabled:opacity-50" disabled={!canSave || publishing} onClick={onPublish}>{publishing ? 'Publishing…' : 'Publish'}</button></div>
         </div>
         <div className="h-[34rem] bg-slate-950" data-testid="workflow-react-flow-canvas">
           <ReactFlow
@@ -126,9 +133,12 @@ export function WorkflowGraphEditorView({ editor, definition, assets, onDefiniti
             nodes={flowNodes}
             edges={flowEdges}
             fitView
-            nodesDraggable={false}
+            fitViewOptions={{ padding: 0.2 }}
+            edgeTypes={workflowEdgeTypes}
+            nodesDraggable
             nodesConnectable={false}
             elementsSelectable
+            onNodesChange={onNodesChange}
             onNodeClick={(_, node) => setSelectedNodeId(node.id)}
             onEdgeClick={(_, edge) => setSelectedEdgeId(edge.id)}
           >
@@ -337,14 +347,29 @@ function JsonDiagnostics({ definition }: { definition: AgentWorkflowDefinitionV1
   );
 }
 
-export function toFlowNodes(nodes: WorkflowGraphNodeModel[]): Node[] {
-  return nodes.map((node, index) => {
+const workflowEdgeTypes = { workflowAction: WorkflowActionEdge };
+
+type WorkflowActionEdgeData = {
+  label: string;
+  actionId: string;
+  waitFor: WorkflowGraphEdgeModel['waitFor'];
+  labelOffset: number;
+  reverse: boolean;
+  selfLoop: boolean;
+  onSelect?: (edgeId: string) => void;
+};
+
+export function toFlowNodes(nodes: WorkflowGraphNodeModel[], edges: WorkflowGraphEdgeModel[] = []): Node[] {
+  const positions = layoutGraphNodes(nodes, edges);
+  return nodes.map((node) => {
     const classes = ['workflow-state-node'];
     if (node.initial) classes.push('workflow-initial-node');
     if (node.terminal) classes.push('workflow-terminal-node');
     return {
       id: node.id,
-      position: { x: (index % 3) * 280, y: Math.floor(index / 3) * 180 },
+      position: positions.get(node.id) ?? { x: 0, y: 0 },
+      sourcePosition: Position.Right,
+      targetPosition: Position.Left,
       data: { label: `${node.initial ? 'Start · ' : ''}${node.label}${node.terminal ? ' · Done' : ''}` },
       className: classes.join(' '),
       style: node.terminal ? terminalNodeStyle : stateNodeStyle,
@@ -352,25 +377,137 @@ export function toFlowNodes(nodes: WorkflowGraphNodeModel[]): Node[] {
   });
 }
 
-export function toFlowEdges(edges: WorkflowGraphEdgeModel[]): Edge[] {
+export function toFlowEdges(edges: WorkflowGraphEdgeModel[], selectedEdgeId?: string, nodes: WorkflowGraphNodeModel[] = [], onSelect?: (edgeId: string) => void): Edge[] {
+  const nodePositions = layoutGraphNodes(nodes, edges);
+  const pairCounts = new Map<string, number>();
+  const pairIndex = new Map<string, number>();
+  for (const edge of edges) pairCounts.set(edgePairKey(edge), (pairCounts.get(edgePairKey(edge)) ?? 0) + 1);
   return edges.map((edge) => {
     const loop = edge.source === edge.target;
-    const color = loop ? '#f59e0b' : '#38bdf8';
+    const reverse = isReverseEdge(edge, nodePositions);
+    const key = edgePairKey(edge);
+    const index = pairIndex.get(key) ?? 0;
+    pairIndex.set(key, index + 1);
+    const total = pairCounts.get(key) ?? 1;
+    const labelOffset = (index - (total - 1) / 2) * 36;
+    const color = loop ? '#f59e0b' : reverse ? '#a78bfa' : '#38bdf8';
     return {
       id: edge.id,
       source: edge.source,
       target: edge.target,
-      label: edge.label,
+      type: 'workflowAction',
       animated: loop,
-      className: loop ? 'workflow-graph-edge workflow-loop-edge' : 'workflow-graph-edge',
-      style: { stroke: color, strokeWidth: loop ? 2.5 : 2 },
+      selected: selectedEdgeId === edge.id,
+      className: loop ? 'workflow-graph-edge workflow-loop-edge' : reverse ? 'workflow-graph-edge workflow-reverse-edge' : 'workflow-graph-edge',
+      style: { stroke: color, strokeWidth: loop ? 2.5 : 2.25 },
       markerEnd: { type: MarkerType.ArrowClosed, color },
-      labelStyle: { fill: '#e0f2fe', fontWeight: 800, fontSize: 13 },
-      labelBgStyle: { fill: '#0f172a', fillOpacity: 0.95 },
-      labelBgPadding: [10, 6],
-      labelBgBorderRadius: 6,
+      interactionWidth: 28,
+      zIndex: selectedEdgeId === edge.id ? 30 : 15,
+      data: { label: edge.label, actionId: edge.actionId, waitFor: edge.waitFor, labelOffset, reverse, selfLoop: loop, onSelect } satisfies WorkflowActionEdgeData,
     };
   });
+}
+
+function WorkflowActionEdge(props: EdgeProps): React.ReactElement {
+  const { id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, markerEnd, style, selected } = props;
+  const data = props.data as WorkflowActionEdgeData | undefined;
+  const label = data?.label ?? id;
+  const { path, labelX, labelY } = edgePathWithReadableLabel({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, labelOffset: data?.labelOffset ?? 0, selfLoop: data?.selfLoop === true, reverse: data?.reverse === true });
+  return (
+    <>
+      <BaseEdge id={id} path={path} markerEnd={markerEnd} style={style} interactionWidth={28} />
+      <EdgeLabelRenderer>
+        <div
+          className={`workflow-action-edge-label nopan ${selected ? 'workflow-action-edge-label--selected' : ''}`}
+          role="button"
+          tabIndex={0}
+          style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)` }}
+          title={label}
+          onClick={(event) => { event.stopPropagation(); data?.onSelect?.(id); }}
+          onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); data?.onSelect?.(id); } }}
+        >
+          <span className="workflow-action-edge-label__action">{label}</span>
+          {data?.waitFor ? <span className="workflow-action-edge-label__id">wait · {data.waitFor.provider}</span> : <span className="workflow-action-edge-label__id">{data?.actionId}</span>}
+        </div>
+      </EdgeLabelRenderer>
+    </>
+  );
+}
+
+function edgePathWithReadableLabel({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, labelOffset, selfLoop, reverse }: {
+  sourceX: number;
+  sourceY: number;
+  targetX: number;
+  targetY: number;
+  sourcePosition: Position;
+  targetPosition: Position;
+  labelOffset: number;
+  selfLoop: boolean;
+  reverse: boolean;
+}): { path: string; labelX: number; labelY: number } {
+  if (selfLoop) {
+    const loopWidth = 110;
+    const loopHeight = 84 + Math.abs(labelOffset);
+    return { path: `M ${sourceX} ${sourceY} C ${sourceX + loopWidth} ${sourceY - loopHeight}, ${targetX + loopWidth} ${targetY + loopHeight}, ${targetX} ${targetY}`, labelX: sourceX + loopWidth + 8, labelY: sourceY + labelOffset };
+  }
+  if (reverse) {
+    const midY = Math.max(sourceY, targetY) + 132 + Math.abs(labelOffset);
+    return { path: `M ${sourceX} ${sourceY} C ${sourceX} ${midY}, ${targetX} ${midY}, ${targetX} ${targetY}`, labelX: (sourceX + targetX) / 2, labelY: midY + labelOffset };
+  }
+  const [path, labelX, labelY] = getBezierPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, curvature: 0.22 });
+  return { path, labelX, labelY: labelY - 34 + labelOffset };
+}
+
+export function layoutWorkflowGraph(nodes: WorkflowGraphNodeModel[], edges: WorkflowGraphEdgeModel[]): Record<string, { x: number; y: number }> {
+  return Object.fromEntries(layoutGraphNodes(nodes, edges));
+}
+
+function layoutGraphNodes(nodes: WorkflowGraphNodeModel[], edges: WorkflowGraphEdgeModel[]): Map<string, { x: number; y: number }> {
+  const ranks = computeRanks(nodes, edges);
+  const groups = new Map<number, WorkflowGraphNodeModel[]>();
+  for (const node of nodes) {
+    const rank = ranks.get(node.id) ?? 0;
+    groups.set(rank, [...(groups.get(rank) ?? []), node]);
+  }
+  const positions = new Map<string, { x: number; y: number }>();
+  for (const [rank, group] of groups) {
+    const ordered = [...group].sort((a, b) => Number(a.terminal) - Number(b.terminal) || a.id.localeCompare(b.id));
+    const startY = -((ordered.length - 1) * 220) / 2;
+    ordered.forEach((node, index) => positions.set(node.id, { x: rank * 380, y: startY + index * 220 }));
+  }
+  return positions;
+}
+
+function computeRanks(nodes: WorkflowGraphNodeModel[], edges: WorkflowGraphEdgeModel[]): Map<string, number> {
+  const nodeIds = new Set(nodes.map((node) => node.id));
+  const ranks = new Map<string, number>();
+  const initial = nodes.find((node) => node.initial)?.id ?? nodes[0]?.id;
+  if (!initial) return ranks;
+  ranks.set(initial, 0);
+  for (let pass = 0; pass < nodes.length + edges.length; pass += 1) {
+    let changed = false;
+    for (const edge of edges) {
+      if (!nodeIds.has(edge.source) || !nodeIds.has(edge.target) || edge.source === edge.target) continue;
+      const sourceRank = ranks.get(edge.source);
+      if (sourceRank == null || ranks.has(edge.target)) continue;
+      ranks.set(edge.target, sourceRank + 1);
+      changed = true;
+    }
+    if (!changed) break;
+  }
+  nodes.forEach((node, index) => { if (!ranks.has(node.id)) ranks.set(node.id, Math.floor(index / 2)); });
+  return ranks;
+}
+
+function isReverseEdge(edge: WorkflowGraphEdgeModel, nodePositions: Map<string, { x: number; y: number }>): boolean {
+  if (edge.source === edge.target) return false;
+  const source = nodePositions.get(edge.source);
+  const target = nodePositions.get(edge.target);
+  return Boolean(source && target && target.x < source.x);
+}
+
+function edgePairKey(edge: WorkflowGraphEdgeModel): string {
+  return `${edge.source}->${edge.target}`;
 }
 
 const stateNodeStyle: React.CSSProperties = {

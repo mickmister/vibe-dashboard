@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { toFlowEdges, toFlowNodes } from './WorkflowGraphEditorPage';
+import { layoutWorkflowGraph, toFlowEdges, toFlowNodes } from './WorkflowGraphEditorPage';
 import type { WorkflowGraphEdgeModel, WorkflowGraphNodeModel } from './graph/workflowGraphModel';
 
 describe('WorkflowGraphEditorPage graph appearance', () => {
@@ -30,14 +30,45 @@ describe('WorkflowGraphEditorPage graph appearance', () => {
 
     expect(edges[0]).toMatchObject({
       className: 'workflow-graph-edge',
-      style: { stroke: '#38bdf8', strokeWidth: 2 },
-      labelStyle: expect.objectContaining({ fill: '#e0f2fe', fontSize: 13 }),
-      labelBgStyle: expect.objectContaining({ fill: '#0f172a' }),
+      type: 'workflowAction',
+      interactionWidth: 28,
+      zIndex: 15,
+      style: { stroke: '#38bdf8', strokeWidth: 2.25 },
+      data: expect.objectContaining({ label: 'Ready', actionId: 'ready', labelOffset: 0 }),
     });
     expect(edges[1]).toMatchObject({
       animated: true,
       className: 'workflow-graph-edge workflow-loop-edge',
       style: { stroke: '#f59e0b', strokeWidth: 2.5 },
+    });
+  });
+
+  it('lays out cyclic review workflows with horizontal spacing and reverse edge labels', () => {
+    const nodes = [
+      node({ id: 'dev', label: 'Dev', initial: true }),
+      node({ id: 'review', label: 'Review' }),
+      node({ id: 'tester', label: 'Tester' }),
+      node({ id: 'done', label: 'Done', terminal: true }),
+    ];
+    const graphEdges = [
+      edge({ id: 'dev:ready', source: 'dev', target: 'review' }),
+      edge({ id: 'review:approved', source: 'review', target: 'tester' }),
+      edge({ id: 'review:changes', source: 'review', target: 'dev', actionId: 'changes', label: 'Request changes' }),
+      edge({ id: 'tester:approved', source: 'tester', target: 'done' }),
+      edge({ id: 'tester:bug', source: 'tester', target: 'dev' }),
+    ];
+
+    const positions = layoutWorkflowGraph(nodes, graphEdges);
+    expect(positions.dev).toEqual({ x: 0, y: 0 });
+    expect(positions.review?.x).toBeGreaterThan(positions.dev!.x);
+    expect(positions.tester?.x).toBeGreaterThan(positions.review!.x);
+    expect(positions.done?.x).toBeGreaterThan(positions.tester!.x);
+
+    const reverseEdge = toFlowEdges(graphEdges, undefined, nodes).find((candidate) => candidate.id === 'review:changes');
+    expect(reverseEdge).toMatchObject({
+      className: 'workflow-graph-edge workflow-reverse-edge',
+      style: { stroke: '#a78bfa', strokeWidth: 2.25 },
+      data: expect.objectContaining({ reverse: true, label: 'Request changes' }),
     });
   });
 });
