@@ -336,6 +336,8 @@ describe('VK mocked sandbox helpers', () => {
         QA_MODE: '1',
       },
     });
+    expect(plan.commands[0]?.env.XDG_CONFIG_HOME).toBe('/tmp/run/xdg-config');
+    expect(plan.commands[0]?.env.XDG_DATA_HOME).toBe('/tmp/run/xdg-data');
     expect(plan.caddyfile).toContain('@vk_release_assets');
     expect(plan.caddyfile).toContain(
       'path_regexp vk_release_assets ^/assets/.+\\.(js|css|wasm|mjs|map|json|png|jpe?g|svg|webp|ico|woff2?)$',

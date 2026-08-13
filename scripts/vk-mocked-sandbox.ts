@@ -643,6 +643,8 @@ export function createSandboxPlan(input: {
           PREVIEW_PROXY_PORT: String(input.ports.vkPreviewProxy),
           VK_ALLOWED_ORIGINS: vkAllowedOrigins,
           DISABLE_WORKTREE_CLEANUP: '1',
+          XDG_CONFIG_HOME: join(runDir, 'xdg-config'),
+          XDG_DATA_HOME: join(runDir, 'xdg-data'),
           VK_QA_MODE: '1',
           QA_MODE: '1',
           RUST_LOG: process.env.RUST_LOG ?? 'debug',
