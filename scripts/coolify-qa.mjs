@@ -191,7 +191,7 @@ async function deploy(args) {
   await updateDescription(uuid, args);
   const envs = {
     VKVD_IMAGE_VERSION: args['image-tag'],
-    CADDY_PORT: args['host-port'],
+    CADDY_PORT: '3001',
     QA_SLOT_ID: `slot-${args.slot}`,
     QA_HOST_PORT: args['host-port'],
     SUDO_PASSWORD: args['sudo-password'] ?? `qa-slot-${args.slot}`,
