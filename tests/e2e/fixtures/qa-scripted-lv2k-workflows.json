@@ -86,6 +86,22 @@
       "session_id": "qa-scripted-lv2k-human-after-approval",
       "message_id": "qa-scripted-lv2k-human-after-approval",
       "delay_ms": 0
+    },
+    {
+      "prompt_contains": "LV2K_STEP:workflow_call_child",
+      "outcome": "completed",
+      "final_message": "<decision action=\"done\"><summary>Child workflow completed the LV2K blocking call review.</summary></decision>",
+      "session_id": "qa-scripted-lv2k-workflow-call-child",
+      "message_id": "qa-scripted-lv2k-workflow-call-child",
+      "delay_ms": 0
+    },
+    {
+      "prompt_contains": "LV2K_STEP:workflow_call_parent_after_child",
+      "outcome": "completed",
+      "final_message": "<decision action=\"done\"><summary>Parent completed after expected child workflow call result.</summary></decision>",
+      "session_id": "qa-scripted-lv2k-workflow-call-parent",
+      "message_id": "qa-scripted-lv2k-workflow-call-parent",
+      "delay_ms": 0
     }
   ]
 }

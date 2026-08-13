@@ -5,6 +5,7 @@
  * - TEST_CASE_LV2K_2B
  * - TEST_CASE_LV2K_2F
  * - TEST_CASE_LV2K_2C
+ * - TEST_CASE_LV2K_2D
  *
  * This spec intentionally uses only public VD HTTP APIs for workflow setup and
  * launch. It does not seed the DB and it does not call runtime.completeAgentTurn;
@@ -29,6 +30,10 @@ const invalidXmlWorkflowDefinition =
   require("../../fixtures/lv2k-invalid-xml-blocked.workflow.json") as any;
 const humanFormWorkflowDefinition =
   require("../../fixtures/lv2k-human-form.workflow.json") as any;
+const workflowCallChildDefinition =
+  require("../../fixtures/lv2k-workflow-call-child.workflow.json") as any;
+const workflowCallParentDefinition =
+  require("../../fixtures/lv2k-workflow-call-parent.workflow.json") as any;
 const lv2kScriptedOutcomes =
   require("../../fixtures/qa-scripted-lv2k-workflows.json") as {
     outcomes: Array<{ prompt_contains?: string; final_message?: string }>;
@@ -66,6 +71,15 @@ type Presentation = {
     nextAction?: string | null;
   } | null;
   outputs?: Array<{ kind: string; label: string; value: string }> | null;
+  callTree?: Array<{
+    turnId: string;
+    label: string;
+    status: string;
+    childRunId: string;
+    childUrl: string | null;
+    waitingReason: string | null;
+    outputRef: string | null;
+  }> | null;
   provenance?: {
     workflowDesignId?: string | null;
     workflowVersion?: number | null;
@@ -779,6 +793,274 @@ test.describe("LV2K API-first workflow fixtures", () => {
       forbiddenPresentationTerms,
     });
   });
+
+  test("TEST_CASE_LV2K_2D loads parent/child workflows and completes a blocking workflow_call through HTTP read models", async ({
+    request,
+  }, testInfo) => {
+    test.setTimeout(600_000);
+
+    await expectDashboardHealth(request);
+    await expectProvisionedWebhook(request);
+    const workspace = await firstWorkspace(request);
+
+    const unique = Date.now();
+    const childDesignId = `lv2k-workflow-call-child-design-${unique}`;
+    const childDraftId = `lv2k-workflow-call-child-draft-${unique}`;
+    const parentDesignId = `lv2k-workflow-call-parent-design-${unique}`;
+    const parentDraftId = `lv2k-workflow-call-parent-draft-${unique}`;
+    const task = `LV2K blocking workflow call API fixture task ${unique}`;
+    const parentDefinition = workflowDefinitionWithChildDesignId(
+      workflowCallParentDefinition,
+      childDesignId,
+    );
+
+    const childCreated = await request.post(
+      url("/dashboard/api/workflow-designs"),
+      {
+        data: {
+          workspaceId: workspace.id,
+          designId: childDesignId,
+          draftId: childDraftId,
+          name: workflowCallChildDefinition.name,
+          description: workflowCallChildDefinition.description,
+          definition: workflowCallChildDefinition,
+          publish: true,
+        },
+      },
+    );
+    const childCreateBody = await expectJsonOk(
+      childCreated,
+      201,
+      "create/publish LV2K child workflow design",
+    );
+    expect(childCreateBody).toMatchObject({
+      design: { designId: childDesignId, latestPublishedVersion: 1 },
+      draft: { draftId: childDraftId, designId: childDesignId },
+      version: { designId: childDesignId, version: 1 },
+      editor: { designId: childDesignId, validationStatus: "valid" },
+    });
+
+    const parentCreated = await request.post(
+      url("/dashboard/api/workflow-designs"),
+      {
+        data: {
+          workspaceId: workspace.id,
+          designId: parentDesignId,
+          draftId: parentDraftId,
+          name: parentDefinition.name,
+          description: parentDefinition.description,
+          definition: parentDefinition,
+          publish: true,
+        },
+      },
+    );
+    const parentCreateBody = await expectJsonOk(
+      parentCreated,
+      201,
+      "create/publish LV2K parent workflow design",
+    );
+    expect(parentCreateBody).toMatchObject({
+      design: { designId: parentDesignId, latestPublishedVersion: 1 },
+      draft: { draftId: parentDraftId, designId: parentDesignId },
+      version: { designId: parentDesignId, version: 1 },
+      editor: { designId: parentDesignId, validationStatus: "valid" },
+    });
+
+    const launched = await request.post(
+      url("/dashboard/api/workflows/launch"),
+      {
+        data: {
+          workspaceId: workspace.id,
+          designId: parentDesignId,
+          version: 1,
+          inputs: { featureRequest: task },
+          additionalInstructions:
+            "LV2K workflow-call E2E should launch a blocking child workflow, wait, then resume the parent.",
+          roleBindings: {
+            dev: {
+              mode: "create_or_reuse",
+              name: `lv2k-workflow-call-dev-${unique}`,
+            },
+          },
+        },
+      },
+    );
+    const launchBody = await expectJsonOk(
+      launched,
+      201,
+      "launch LV2K parent workflow-call workflow",
+    );
+    expect(launchBody.run).toMatchObject({
+      runId: expect.stringContaining("workflow-run-"),
+      workspaceId: workspace.id,
+      status: expect.any(String),
+      detailUrl: expect.stringContaining("/dashboard/workflows/"),
+    });
+
+    const waitingParent = await waitForPersistedPresentationMatching(
+      request,
+      launchBody.run.runId,
+      (presentation) =>
+        (presentation.callTree ?? []).some(
+          (item) =>
+            item.status === "running" &&
+            item.waitingReason ===
+              "Parent is waiting for this child workflow to finish.",
+        ),
+      "LV2K parent workflow should expose waiting child workflow call",
+    );
+    const waitingCall = firstCallTreeItem(waitingParent);
+    expect(waitingCall).toMatchObject({
+      status: "running",
+      childUrl: expect.stringContaining("/dashboard/workflows/"),
+      waitingReason: "Parent is waiting for this child workflow to finish.",
+    });
+    expect(waitingCall.childRunId).toContain(launchBody.run.runId);
+    expect(waitingParent.summary).toMatchObject({
+      waitingReason: "Waiting for a child workflow to finish.",
+      nextAction:
+        "The parent workflow resumes when the child workflow completes.",
+    });
+
+    const childPresentation = await waitForPersistedPresentationCompleted(
+      request,
+      waitingCall.childRunId,
+      "LV2K child workflow should complete through qa-mode VK XML",
+    );
+    expect(childPresentation).toMatchObject({
+      workflowName: "LV2K Child Review Workflow",
+      workflowId: childDesignId,
+      status: "completed",
+      originalTask: task,
+    });
+    expect(childPresentation.provenance).toMatchObject({
+      workflowDesignId: childDesignId,
+      workflowVersion: 1,
+    });
+    expect(JSON.stringify(childPresentation)).toContain(
+      "Child workflow completed the LV2K blocking call review.",
+    );
+
+    const presentation = await waitForPersistedPresentationCompleted(
+      request,
+      launchBody.run.runId,
+      "LV2K parent workflow should resume after expected child completion",
+    );
+    const renderedPresentation = JSON.stringify(presentation);
+    const markerCounts = countQueuedPromptMarkers(presentation, [
+      "LV2K_STEP:workflow_call_parent_after_child",
+    ]);
+    const childMarkerCounts = countQueuedPromptMarkers(childPresentation, [
+      "LV2K_STEP:workflow_call_child",
+    ]);
+
+    expect(presentation.workflowName).toBe(
+      "LV2K Parent Blocking Workflow Call",
+    );
+    expect(presentation.workflowId).toBe(parentDesignId);
+    expect(presentation.provenance).toMatchObject({
+      workflowDesignId: parentDesignId,
+      workflowVersion: 1,
+    });
+    expect(presentation.originalTask).toBe(task);
+    expect(markerCounts).toEqual({
+      "LV2K_STEP:workflow_call_parent_after_child": 1,
+    });
+    expect(childMarkerCounts).toEqual({ "LV2K_STEP:workflow_call_child": 1 });
+    expect(presentation.callTree).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          childRunId: waitingCall.childRunId,
+          childUrl: `/dashboard/workflows/${waitingCall.childRunId}`,
+          status: "completed",
+          waitingReason: null,
+          outputRef: expect.stringContaining(waitingCall.childRunId),
+        }),
+      ]),
+    );
+    expect(presentation.timeline).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "workflow_call",
+          title: expect.stringContaining("Call"),
+          status: "Complete",
+          finalResponse: expect.objectContaining({
+            text: expect.stringContaining("completed"),
+          }),
+        }),
+        expect.objectContaining({
+          kind: "agent_turn",
+          role: "Dev",
+          status: "Complete",
+          initialMessage: expect.objectContaining({
+            text: expect.stringContaining(
+              "LV2K_STEP:workflow_call_parent_after_child",
+            ),
+          }),
+        }),
+        expect.objectContaining({
+          kind: "decision",
+          title: "Decision: Done",
+        }),
+      ]),
+    );
+    expect(presentation.outputs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "workflow_call_output",
+          label: expect.stringContaining("output"),
+          value: expect.stringContaining(waitingCall.childRunId),
+        }),
+      ]),
+    );
+    expect(renderedPresentation).toContain(
+      "Parent completed after expected child workflow call result.",
+    );
+    for (const forbidden of forbiddenPresentationTerms) {
+      expect(renderedPresentation).not.toContain(forbidden);
+      expect(JSON.stringify(childPresentation)).not.toContain(forbidden);
+    }
+
+    await writeLv2kArtifact(testInfo, "lv2k-workflow-call-api-artifacts", {
+      testCaseId: "TEST_CASE_LV2K_2D",
+      fixtureMatrix: fixtureMatrix.fixtures,
+      workflowSetup: {
+        route: "POST /dashboard/api/workflow-designs",
+        childDesignId,
+        childDraftId,
+        parentDesignId,
+        parentDraftId,
+        version: 1,
+        usedDbSeeding: false,
+        usedImportRoute: false,
+      },
+      launch: {
+        route: "POST /dashboard/api/workflows/launch",
+        parentRunId: launchBody.run.runId,
+        childRunId: waitingCall.childRunId,
+        workspaceId: workspace.id,
+      },
+      vkQaMode: {
+        scriptedOutcomeFile: process.env.VK_QA_SCRIPTED_OUTCOME_FILE,
+        promptContains: [
+          "LV2K_STEP:workflow_call_child",
+          "LV2K_STEP:workflow_call_parent_after_child",
+        ],
+        scriptedXmlResponseBodies: [
+          scriptedMessageFor("LV2K_STEP:workflow_call_child"),
+          scriptedMessageFor("LV2K_STEP:workflow_call_parent_after_child"),
+        ],
+        usedDirectRuntimeCompletion: false,
+      },
+      queuedPromptMarkers: { parent: markerCounts, child: childMarkerCounts },
+      waitingParentPresentation: waitingParent,
+      childPresentation,
+      completedParentPresentation: presentation,
+      staleWrongChildCoverage:
+        "HTTP API does not expose an observation injection route; mismatched childRunId stale/no-op is covered by workflow-core and persisted runtime M99 regressions while this fixture verifies the expected child path through real VD/VK HTTP boundaries.",
+      forbiddenPresentationTerms,
+    });
+  });
 });
 
 function url(path: string) {
@@ -957,6 +1239,21 @@ async function waitForActiveAttention(
     )
     .not.toBeNull();
   return item!;
+}
+
+function firstCallTreeItem(presentation: Presentation) {
+  const item = presentation.callTree?.[0];
+  if (!item) throw new Error("Expected workflow presentation callTree item");
+  return item;
+}
+
+function workflowDefinitionWithChildDesignId(
+  definition: any,
+  childDesignId: string,
+) {
+  const cloned = JSON.parse(JSON.stringify(definition));
+  cloned.states.parent.steps[0].workflow.designId = childDesignId;
+  return cloned;
 }
 
 function scriptedMessageFor(promptContains: string): string {

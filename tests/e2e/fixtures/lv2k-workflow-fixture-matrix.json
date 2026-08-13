@@ -35,10 +35,13 @@
     {
       "id": "blocking-workflow-call",
       "testCaseId": "TEST_CASE_LV2K_2D",
-      "workflowDefinition": "pending",
-      "scriptedOutcome": "pending",
-      "verification": "HTTP parent/child presentation",
-      "status": "later"
+      "workflowDefinition": [
+        "tests/e2e/fixtures/lv2k-workflow-call-child.workflow.json",
+        "tests/e2e/fixtures/lv2k-workflow-call-parent.workflow.json"
+      ],
+      "scriptedOutcome": "tests/e2e/fixtures/qa-scripted-lv2k-workflows.json",
+      "verification": "HTTP parent/child presentation endpoints",
+      "status": "implemented"
     },
     {
       "id": "github-ci-wait",
