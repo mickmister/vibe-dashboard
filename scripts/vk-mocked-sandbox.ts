@@ -313,7 +313,28 @@ async function verifyManifestIfAvailable(
   }
 }
 
-async function downloadCiReleaseArtifactFromEnv(
+async function verifyCiReleaseArtifactFiles(input: {
+  artifactDir: string;
+  archiveName: string;
+  targetSha: string;
+}): Promise<void> {
+  const archivePath = join(input.artifactDir, input.archiveName);
+  const checksumPath = `${archivePath}.sha256`;
+  const manifestPath = join(input.artifactDir, 'manifest.json');
+
+  if (!(await fileExists(archivePath))) {
+    throw new Error(`Release artifact is missing expected archive ${archivePath}.`);
+  }
+  if (!(await fileExists(checksumPath))) {
+    throw new Error(`Release artifact is missing checksum file ${checksumPath}.`);
+  }
+  await verifyManifestIfAvailable(manifestPath, input.targetSha);
+  await execText('sha256sum', ['-c', `${input.archiveName}.sha256`], {
+    cwd: input.artifactDir,
+  });
+}
+
+export async function downloadCiReleaseArtifactFromEnv(
   vdRoot: string,
   env: NodeJS.ProcessEnv,
 ): Promise<CiReleaseArtifact> {
@@ -333,11 +354,10 @@ async function downloadCiReleaseArtifactFromEnv(
   const artifactDir = join(artifactRoot, artifactName);
   const extractDir = join(artifactRoot, 'extracted');
   const archivePath = join(artifactDir, archiveName);
-  const checksumPath = `${archivePath}.sha256`;
-  const manifestPath = join(artifactDir, 'manifest.json');
   const binaryPath = join(extractDir, 'vibe-kanban');
 
   if (await fileExists(binaryPath)) {
+    await verifyCiReleaseArtifactFiles({ artifactDir, archiveName, targetSha });
     await chmod(binaryPath, 0o755);
     return { targetSha, releaseRunId, artifactRoot, binaryPath };
   }
@@ -365,13 +385,7 @@ async function downloadCiReleaseArtifactFromEnv(
   if (!(await fileExists(archivePath))) {
     throw new Error(`Downloaded artifact is missing expected archive ${archivePath}.`);
   }
-  if (!(await fileExists(checksumPath))) {
-    throw new Error(`Downloaded artifact is missing checksum file ${checksumPath}.`);
-  }
-  await verifyManifestIfAvailable(manifestPath, targetSha);
-  await execText('sha256sum', ['-c', archiveName + '.sha256'], {
-    cwd: artifactDir,
-  });
+  await verifyCiReleaseArtifactFiles({ artifactDir, archiveName, targetSha });
   await execText('tar', ['-xzf', archivePath, '-C', extractDir]);
 
   if (!(await fileExists(binaryPath))) {
@@ -478,6 +492,14 @@ export function createSandboxPlan(input: {
   const configuredVkCheckout = env.VK_CHECKOUT?.trim();
   const vkRoot = resolve(workspaceRoot, configuredVkCheckout || 'Vktest');
   const ciReleaseArtifact = ciReleaseArtifactFromEnv(vdRoot, env);
+  if (ciReleaseArtifact && env.VK_MOCKED_PREBUILD_BACKEND === '1') {
+    throw new Error(
+      [
+        'VK_MOCKED_PREBUILD_BACKEND is not supported in ci-release mode because it would locally build VK.',
+        'Unset VK_MOCKED_PREBUILD_BACKEND or use npm run dev:vk-mocked-sandbox for source mode.',
+      ].join(' '),
+    );
+  }
   const runDir = resolve(
     input.runDir ?? join(vdRoot, '.vk-mocked-sandbox', 'current'),
   );

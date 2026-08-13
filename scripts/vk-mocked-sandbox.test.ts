@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { createHash } from 'node:crypto';
 
 import {
   allocatePorts,
   childProcessSignalTarget,
   createSandboxPlan,
+  downloadCiReleaseArtifactFromEnv,
   findFreePort,
   loadSandboxCaddyfile,
   writeSandboxFiles,
@@ -347,6 +349,93 @@ describe('VK mocked sandbox helpers', () => {
         caddyfile: 'mocked sandbox caddyfile',
       }),
     ).toThrow('VK_MOCKED_RELEASE_SHA must be a full 40-character commit SHA');
+  });
+
+  it('rejects stale source prebuild env in release-asset VK planning', () => {
+    expect(() =>
+      createSandboxPlan({
+        workspaceRoot: '/tmp/worktrees/example/vibe-kanban-vscode-web',
+        env: {
+          VK_MOCKED_VK_BACKEND: 'ci-release',
+          VK_MOCKED_RELEASE_SHA:
+            'ff79144e3842e5454ffc36b5546a1336ab4da993',
+          VK_MOCKED_RELEASE_RUN_ID: '31655931916',
+          VK_MOCKED_PREBUILD_BACKEND: '1',
+        } as NodeJS.ProcessEnv,
+        ports: {
+          vkBackend: 4107,
+          vkFrontend: 4100,
+          vkPreviewProxy: 4106,
+          vdDashboard: 4105,
+          vdServer: 4104,
+          vdCaddy: 4101,
+        },
+        runDir: '/tmp/run',
+        caddyfile: 'mocked sandbox caddyfile',
+      }),
+    ).toThrow('VK_MOCKED_PREBUILD_BACKEND is not supported in ci-release mode');
+  });
+
+  it('verifies cached release artifact manifest and checksum before using binary', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'vk-mocked-sandbox-cache-'));
+    const binDir = join(root, 'bin');
+    const artifactRoot = join(
+      root,
+      '.vk-mocked-sandbox/vk-release-assets/ff79144e3842e5454ffc36b5546a1336ab4da993/31655931916',
+    );
+    const artifactDir = join(artifactRoot, 'release-assets-linux-x64');
+    const extractDir = join(artifactRoot, 'extracted');
+    const archiveName = 'vibe-kanban-linux-x64.tar.gz';
+    const archiveContents = 'cached archive';
+    const archiveSha = createHash('sha256').update(archiveContents).digest('hex');
+    const originalPath = process.env.PATH;
+
+    try {
+      await mkdir(binDir, { recursive: true });
+      await mkdir(artifactDir, { recursive: true });
+      await mkdir(extractDir, { recursive: true });
+      await writeFile(
+        join(binDir, 'gh'),
+        [
+          '#!/usr/bin/env bash',
+          'if [ "$1 $2" = "run view" ]; then',
+          '  printf \'{"headSha":"ff79144e3842e5454ffc36b5546a1336ab4da993","status":"completed","conclusion":"success","workflowName":"Release Binaries"}\\n\'',
+          '  exit 0',
+          'fi',
+          'echo "unexpected gh call: $*" >&2',
+          'exit 2',
+          '',
+        ].join('\n'),
+      );
+      await chmod(join(binDir, 'gh'), 0o755);
+      await writeFile(join(artifactDir, archiveName), archiveContents);
+      await writeFile(
+        join(artifactDir, `${archiveName}.sha256`),
+        `${archiveSha}  ${archiveName}\n`,
+      );
+      await writeFile(
+        join(artifactDir, 'manifest.json'),
+        JSON.stringify({
+          schema_version: 1,
+          vk_sha: 'not-the-requested-commit',
+        }),
+      );
+      await writeFile(join(extractDir, 'vibe-kanban'), '#!/usr/bin/env bash\n');
+      await chmod(join(extractDir, 'vibe-kanban'), 0o755);
+
+      process.env.PATH = `${binDir}:${originalPath ?? ''}`;
+      await expect(
+        downloadCiReleaseArtifactFromEnv(root, {
+          VK_MOCKED_RELEASE_SHA:
+            'ff79144e3842e5454ffc36b5546a1336ab4da993',
+          VK_MOCKED_RELEASE_RUN_ID: '31655931916',
+          VK_MOCKED_RELEASE_CACHE_DIR: artifactRoot,
+        } as NodeJS.ProcessEnv),
+      ).rejects.toThrow('Release manifest commit mismatch');
+    } finally {
+      process.env.PATH = originalPath;
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it('uses an explicit VK checkout path when provided', () => {
