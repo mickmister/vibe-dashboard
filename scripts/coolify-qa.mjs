@@ -201,6 +201,7 @@ async function deploy(args) {
     ENABLE_VIBE_KANBAN: 'true',
     MEMORY_WATCHDOG_ENABLED: 'false',
     ENABLE_TAILSCALE: 'false',
+    TAILSCALE_HOSTNAME: `vkdev-qa-slot-${args.slot}`,
   };
   if (args['dry-run']) {
     console.log(JSON.stringify({ action: 'deploy', uuid, imageRef, envs }, null, 2));
