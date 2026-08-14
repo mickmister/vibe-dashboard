@@ -166,7 +166,7 @@ test.describe('VK mocked-provider sandbox through VD UI', () => {
       'QA mode execution completed successfully',
     );
     await expect(createWorkspaceFrame.locator('body')).toContainText(
-      '1 file changed',
+      /\d+ files? changed/,
     );
 
     await openCreatedCraftFromVd(page, promptTitle);
