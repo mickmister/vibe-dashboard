@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { Kysely, Selectable } from 'kysely';
+import type { Insertable, Kysely, Selectable } from 'kysely';
 import type {
   DB,
   WorkspaceLane,
@@ -194,7 +194,7 @@ export class DbWorkspaceLaneStore {
       updatedAt: now,
       archivedAt: input.status === 'archived' ? now : null,
       lastActiveRunId: null,
-    } satisfies WorkspaceLane;
+    } satisfies Insertable<WorkspaceLane>;
     if (!MUTABLE_STATUSES.includes(row.status)) throw new LaneStoreError('lane_invalid_status', `Lane status ${row.status} is not supported.`);
     const db = await this.getDb();
     const existingId = await db.selectFrom('WorkspaceLane').select('laneId').where('laneId', '=', laneId).executeTakeFirst();
@@ -267,7 +267,7 @@ export class DbWorkspaceLaneStore {
       roleBindingsJson: JSON.stringify(input.roleBindings ?? {}),
       createdAt: now,
       updatedAt: now,
-    } satisfies WorkspaceLaneBinding;
+    } satisfies Insertable<WorkspaceLaneBinding>;
     await db.insertInto('WorkspaceLaneBinding').values(row).execute();
     await db.updateTable('WorkspaceLane').set({ updatedAt: now, lastActiveRunId: input.bindingType === 'workflow_run' ? input.bindingKey : lane.lastActiveRunId }).where('laneId', '=', lane.laneId).execute();
     await this.audit(lane.laneId, lane.parentWorkspaceId, 'lane_bound', 'Lane binding recorded.', { bindingType: row.bindingType, bindingKey: row.bindingKey, accessMode: row.accessMode });
@@ -316,7 +316,7 @@ export class DbWorkspaceLaneStore {
       metadataJson: JSON.stringify(input.metadata ?? {}),
       createdAt: now,
       updatedAt: now,
-    } satisfies WorkspaceLaneCapacityLease;
+    } satisfies Insertable<WorkspaceLaneCapacityLease>;
     await (await this.getDb()).insertInto('WorkspaceLaneCapacityLease').values(row).execute();
     await this.audit(lane.laneId, lane.parentWorkspaceId, 'write_token_acquired', 'Write capacity acquired.', { leaseId: row.leaseId, ownerId: row.ownerId, expiresAt: row.expiresAt });
     return { status: 'held', activeLeaseId: row.leaseId, ownerId: row.ownerId, acquiredAt: row.acquiredAt, expiresAt: row.expiresAt, reason: 'Write capacity acquired.', recoveryPolicy: 'manual_release_or_owner_fenced_reclaim', leaseId: row.leaseId };
@@ -425,7 +425,7 @@ export class DbWorkspaceLaneStore {
       sourceBranch: row.sourceBranch,
       workingBranch: row.workingBranch,
       worktree: { status: row.worktreeStatus, summary: row.worktreeSummaryJson ? parseRecord(row.worktreeSummaryJson) : null, display: worktreeDisplay(row.worktreeStatus) },
-      capacity,
+      capacity: { write: capacity },
       boundRunIds,
       boundBeadIds,
       bindings,
