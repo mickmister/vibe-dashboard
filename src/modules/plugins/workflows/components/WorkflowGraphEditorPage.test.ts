@@ -244,6 +244,7 @@ describe("WorkflowGraphEditorView prompt and skill picker", () => {
     expect(compactHtml).toContain("Roles → states → transitions");
     expect(compactHtml).toContain("+ Add Role");
     expect(compactHtml).toContain("dev · 1 state");
+    expect(compactHtml).toContain("Executor CODEX · Model gpt-5-codex");
     expect(compactHtml).toContain("done: dev → done");
     expect(html).toContain("Prompt and skill snippets");
     expect(html).toContain("Dev instructions");
@@ -262,6 +263,10 @@ describe("WorkflowGraphEditorView prompt and skill picker", () => {
     expect(html).toContain("JSON diagnostics");
     expect(html).toContain("Selected state");
     expect(html).toContain("Transitions / actions");
+    expect(html).toContain("Executor preference");
+    expect(html).toContain("Codex");
+    expect(html).toContain("Model preference");
+    expect(html).toContain("gpt-5-codex");
     expect(html).toContain('aria-readonly="true"');
     expect(html).not.toContain("prompt refs</span><input");
   });
@@ -306,7 +311,16 @@ function promptDefinition(): AgentWorkflowDefinitionV1 {
     schemaVersion: 1,
     name: "Workflow A",
     inputs: { featureRequest: { type: "markdown", required: true } },
-    roles: { dev: { label: "Dev" } },
+    roles: {
+      dev: {
+        label: "Dev",
+        executorPreference: {
+          executorType: "CODEX",
+          model: "gpt-5-codex",
+          mode: "preferred",
+        },
+      },
+    },
     initialState: "dev",
     states: {
       dev: {

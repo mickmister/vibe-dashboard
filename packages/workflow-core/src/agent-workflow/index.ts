@@ -10,17 +10,82 @@ export type WorkflowInputSpec = {
   description?: string;
 };
 
+export type WorkflowExecutorType =
+  | "AMP"
+  | "CLAUDE_CODE"
+  | "CODEX"
+  | "COPILOT"
+  | "CURSOR_AGENT"
+  | "DROID"
+  | "GEMINI"
+  | "OPENCODE"
+  | "QWEN_CODE";
+
+export type WorkflowRoleExecutorPreferenceV1 = {
+  executorType: WorkflowExecutorType;
+  model?: string;
+  mode?: "preferred";
+};
+
 export type WorkflowRoleDefinition = {
   label?: string;
   description?: string;
   executorPreference?: WorkflowRoleExecutorPreferenceV1;
 };
 
-export type WorkflowRoleExecutorPreferenceV1 = {
-  executorType?: string;
-  model?: string;
-  mode?: "preferred";
+export const WORKFLOW_EXECUTOR_MODEL_OPTIONS: Record<
+  WorkflowExecutorType,
+  { label: string; models: string[] }
+> = {
+  AMP: { label: "Amp", models: ["recommended", "default"] },
+  CLAUDE_CODE: {
+    label: "Claude Code",
+    models: [
+      "recommended",
+      "default",
+      "claude-sonnet-4",
+      "claude-opus-4",
+      "claude-3-7-sonnet",
+      "claude-sonnet-4-20250514",
+      "claude-opus-4-1-20250805",
+    ],
+  },
+  CODEX: {
+    label: "Codex",
+    models: [
+      "recommended",
+      "default",
+      "gpt-5",
+      "gpt-5-codex",
+      "gpt-5-mini",
+      "o3",
+      "o4-mini",
+    ],
+  },
+  COPILOT: { label: "Copilot", models: ["recommended", "default"] },
+  CURSOR_AGENT: { label: "Cursor Agent", models: ["recommended", "default"] },
+  DROID: { label: "Droid", models: ["recommended", "default"] },
+  GEMINI: {
+    label: "Gemini",
+    models: ["recommended", "default", "gemini-2.5-pro", "gemini-2.5-flash"],
+  },
+  OPENCODE: { label: "OpenCode", models: ["recommended", "default"] },
+  QWEN_CODE: { label: "Qwen Code", models: ["recommended", "default"] },
 };
+
+export const WORKFLOW_EXECUTOR_TYPES = Object.keys(
+  WORKFLOW_EXECUTOR_MODEL_OPTIONS,
+) as WorkflowExecutorType[];
+
+export const WORKFLOW_ROLE_EXECUTOR_OPTIONS = WORKFLOW_EXECUTOR_TYPES;
+
+export const WORKFLOW_ROLE_MODEL_OPTIONS = Array.from(
+  new Set(
+    Object.values(WORKFLOW_EXECUTOR_MODEL_OPTIONS).flatMap(
+      (option) => option.models,
+    ),
+  ),
+);
 
 export type PromptTemplateRef = {
   template: string;
@@ -548,7 +613,7 @@ export function normalizeWorkflowDefinitionV1(
         `roles.${roleId}`,
         issues,
       );
-      validateRoleExecutorPreference(
+      const executorPreference = validateRoleExecutorPreference(
         role.executorPreference,
         `roles.${roleId}.executorPreference`,
         issues,
@@ -557,7 +622,7 @@ export function normalizeWorkflowDefinitionV1(
         id: roleId,
         label: role.label,
         description: role.description,
-        executorPreference: deepClone(role.executorPreference),
+        executorPreference,
       });
     }
   }
@@ -1968,8 +2033,8 @@ function validateRoleExecutorPreference(
   value: unknown,
   path: string,
   issues: WorkflowConfigIssue[],
-) {
-  if (value === undefined) return;
+): WorkflowRoleExecutorPreferenceV1 | undefined {
+  if (value === undefined) return undefined;
   if (!isRecord(value)) {
     issues.push(
       issue(
@@ -1978,34 +2043,24 @@ function validateRoleExecutorPreference(
         "executorPreference must be an object",
       ),
     );
-    return;
+    return undefined;
   }
   assertKnownKeys(value, ["executorType", "model", "mode"], path, issues);
+  const executorType = value.executorType;
   if (
-    value.executorType !== undefined &&
-    (typeof value.executorType !== "string" || !value.executorType.trim())
+    typeof executorType !== "string" ||
+    !Object.hasOwn(WORKFLOW_EXECUTOR_MODEL_OPTIONS, executorType)
   ) {
     issues.push(
       issue(
         "WORKFLOW_CONFIG_INVALID_ACTIVE_STATE",
         `${path}.executorType`,
-        "executorType must be a non-empty string",
+        "must be a supported VK executor type",
       ),
     );
   }
-  if (
-    value.model !== undefined &&
-    (typeof value.model !== "string" || !value.model.trim())
-  ) {
-    issues.push(
-      issue(
-        "WORKFLOW_CONFIG_INVALID_ACTIVE_STATE",
-        `${path}.model`,
-        "model must be a non-empty string",
-      ),
-    );
-  }
-  if (value.mode !== undefined && value.mode !== "preferred") {
+  const mode = typeof value.mode === "string" ? value.mode : "preferred";
+  if (mode !== "preferred") {
     issues.push(
       issue(
         "WORKFLOW_CONFIG_INVALID_ACTIVE_STATE",
@@ -2014,6 +2069,45 @@ function validateRoleExecutorPreference(
       ),
     );
   }
+  const model = value.model;
+  if (model !== undefined) {
+    if (typeof model !== "string" || !model.trim()) {
+      issues.push(
+        issue(
+          "WORKFLOW_CONFIG_INVALID_ACTIVE_STATE",
+          `${path}.model`,
+          "must be a supported model id or alias",
+        ),
+      );
+    } else if (
+      typeof executorType === "string" &&
+      Object.hasOwn(WORKFLOW_EXECUTOR_MODEL_OPTIONS, executorType) &&
+      !WORKFLOW_EXECUTOR_MODEL_OPTIONS[
+        executorType as WorkflowExecutorType
+      ].models.includes(model)
+    ) {
+      issues.push(
+        issue(
+          "WORKFLOW_CONFIG_INVALID_ACTIVE_STATE",
+          `${path}.model`,
+          `must be supported for ${executorType}`,
+        ),
+      );
+    }
+  }
+  if (
+    typeof executorType !== "string" ||
+    !Object.hasOwn(WORKFLOW_EXECUTOR_MODEL_OPTIONS, executorType) ||
+    mode !== "preferred" ||
+    (model !== undefined && typeof model !== "string")
+  ) {
+    return undefined;
+  }
+  return cloneWithDefined({
+    executorType: executorType as WorkflowExecutorType,
+    model,
+    mode: "preferred" as const,
+  });
 }
 
 function validatePrompt(

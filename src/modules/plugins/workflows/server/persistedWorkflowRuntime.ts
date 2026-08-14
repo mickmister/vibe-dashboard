@@ -127,7 +127,12 @@ export interface PersistedWorkflowRunReadModel {
   pendingEffect: WorkflowPlanEffect | null;
   queuedTurns: Record<
     string,
-    WorkflowQueueAgentTurnResult & { role: string; sessionId: string }
+    WorkflowQueueAgentTurnResult & {
+      role: string;
+      sessionId: string;
+      executorType?: string | null;
+      model?: string | null;
+    }
   >;
   events: PersistedWorkflowRuntimeEvent[];
   error: unknown | null;
@@ -624,7 +629,8 @@ export class PersistedWorkflowRuntimeService {
     advanced: WorkflowAdvanceResult,
     observation: { turnId: string; responseRef: string },
     extraEvents: PersistedWorkflowRuntimeEvent[] = [],
-    observedKind: PersistedWorkflowRuntimeEvent["kind"] | null = "agent_turn_observed",
+    observedKind:
+      PersistedWorkflowRuntimeEvent["kind"] | null = "agent_turn_observed",
   ): Promise<PersistedWorkflowRunReadModel> {
     const observed = observedKind
       ? [
@@ -661,7 +667,12 @@ export class PersistedWorkflowRuntimeService {
       previous,
       nextSnapshot,
       formArtifact.effect ?? advanced.effect,
-      [...extraEvents, ...observed, ...formArtifact.events, ...nextStatusChanged],
+      [
+        ...extraEvents,
+        ...observed,
+        ...formArtifact.events,
+        ...nextStatusChanged,
+      ],
     );
     if (formArtifact.effect?.kind === "none") return withObservation;
     if (advanced.effect.kind === "send_agent_turn") {
@@ -1026,6 +1037,8 @@ export class PersistedWorkflowRuntimeService {
           ...queued,
           role: effect.role,
           sessionId: binding.sessionId,
+          executorType: binding.executorType ?? null,
+          model: binding.model ?? null,
         },
       };
       return this.updateRun(
@@ -1335,12 +1348,13 @@ function resolveRuntimeRoleBindings(
       ...binding,
       sessionId: binding?.sessionId ?? "",
       workspaceId: binding?.workspaceId,
-      executorType:
-        binding?.executorType ?? preference?.executorType ?? null,
+      executorType: binding?.executorType ?? preference?.executorType ?? null,
       model: binding?.model ?? preference?.model ?? null,
       preferenceMode:
         binding?.preferenceMode ?? preference?.mode ?? "preferred",
-      preferenceSource: binding?.preferenceSource ?? (preference ? "role_default" : "workspace_default"),
+      preferenceSource:
+        binding?.preferenceSource ??
+        (preference ? "role_default" : "workspace_default"),
     };
   }
   for (const [roleId, binding] of Object.entries(input)) {

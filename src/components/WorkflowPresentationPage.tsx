@@ -216,6 +216,17 @@ function ProvenanceBanner({
       {detail ? (
         <p className="mt-1 text-xs text-cyan-200">Workflow: {detail}</p>
       ) : null}
+      {provenance.roles?.length ? (
+        <ul className="mt-3 space-y-1 text-xs text-cyan-100">
+          {provenance.roles.map((role) => (
+            <li key={role.roleId}>
+              <span className="font-medium">{role.roleLabel}</span>:{" "}
+              {role.executorType ?? "Default executor"}
+              {role.model ? ` · ${role.model}` : " · recommended model"}
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </section>
   );
 }

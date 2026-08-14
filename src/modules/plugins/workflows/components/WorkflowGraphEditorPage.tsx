@@ -22,6 +22,10 @@ import type {
   WorkflowStepV1,
 } from "@vibe-dashboard/workflow-core";
 import {
+  WORKFLOW_EXECUTOR_MODEL_OPTIONS,
+  WORKFLOW_EXECUTOR_TYPES,
+} from "@vibe-dashboard/workflow-core";
+import {
   fetchWorkflowDesignEditor,
   publishWorkflowDesignDraft,
   saveWorkflowDesignDraft,
@@ -597,24 +601,104 @@ function DesignDetails({
       </label>
       <h3 className="mt-4 font-medium">Roles</h3>
       <div className="mt-2 space-y-2">
-        {Object.entries(definition.roles).map(([roleId, role]) => (
-          <label key={roleId} className="block text-sm">
-            <span className="font-medium">{roleId} label</span>
-            <input
-              className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 p-2"
-              value={role.label ?? roleId}
-              onChange={(event) =>
-                onChange({
-                  ...definition,
-                  roles: {
-                    ...definition.roles,
-                    [roleId]: { ...role, label: event.target.value },
-                  },
-                })
-              }
-            />
-          </label>
-        ))}
+        {Object.entries(definition.roles).map(([roleId, role]) => {
+          const executorType = role.executorPreference?.executorType ?? "";
+          const modelOptions = executorType
+            ? (WORKFLOW_EXECUTOR_MODEL_OPTIONS[executorType]?.models ?? [])
+            : [];
+          return (
+            <div
+              key={roleId}
+              className="rounded-lg border border-zinc-800 bg-zinc-950/70 p-3"
+            >
+              <label className="block text-sm">
+                <span className="font-medium">{roleId} label</span>
+                <input
+                  className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 p-2"
+                  value={role.label ?? roleId}
+                  onChange={(event) =>
+                    onChange({
+                      ...definition,
+                      roles: {
+                        ...definition.roles,
+                        [roleId]: { ...role, label: event.target.value },
+                      },
+                    })
+                  }
+                />
+              </label>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <label className="block text-sm">
+                  <span className="font-medium">Executor preference</span>
+                  <select
+                    aria-label={`${roleId} executor preference`}
+                    className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 p-2"
+                    value={executorType}
+                    onChange={(event) => {
+                      const nextExecutor = event.target.value;
+                      onChange({
+                        ...definition,
+                        roles: {
+                          ...definition.roles,
+                          [roleId]: {
+                            ...role,
+                            executorPreference: nextExecutor
+                              ? {
+                                  executorType: nextExecutor as never,
+                                  model: "recommended",
+                                  mode: "preferred",
+                                }
+                              : undefined,
+                          },
+                        },
+                      });
+                    }}
+                  >
+                    <option value="">Workspace default</option>
+                    {WORKFLOW_EXECUTOR_TYPES.map((executor) => (
+                      <option key={executor} value={executor}>
+                        {WORKFLOW_EXECUTOR_MODEL_OPTIONS[executor].label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block text-sm">
+                  <span className="font-medium">Model preference</span>
+                  <select
+                    aria-label={`${roleId} model preference`}
+                    className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 p-2 disabled:opacity-60"
+                    value={role.executorPreference?.model ?? "recommended"}
+                    disabled={!executorType}
+                    onChange={(event) =>
+                      onChange({
+                        ...definition,
+                        roles: {
+                          ...definition.roles,
+                          [roleId]: {
+                            ...role,
+                            executorPreference: executorType
+                              ? {
+                                  executorType,
+                                  model: event.target.value,
+                                  mode: "preferred",
+                                }
+                              : undefined,
+                          },
+                        },
+                      })
+                    }
+                  >
+                    {modelOptions.map((model) => (
+                      <option key={model} value={model}>
+                        {model}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </section>
   );

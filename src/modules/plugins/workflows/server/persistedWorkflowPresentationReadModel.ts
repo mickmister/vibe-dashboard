@@ -26,9 +26,23 @@ export async function buildPersistedWorkflowPresentationModel(args: {
   const model = JSON.parse(row.coreModelJson) as NormalizedAgentWorkflowModel;
   const snapshot = JSON.parse(row.coreSnapshotJson) as WorkflowRuntimeSnapshot;
   const events = JSON.parse(row.eventsJson) as PersistedWorkflowRuntimeEvent[];
+  const roleBindings = JSON.parse(row.roleBindingsJson) as Record<
+    string,
+    {
+      sessionId?: string | null;
+      executorType?: string | null;
+      executor?: string | null;
+      model?: string | null;
+    }
+  >;
   const queued = JSON.parse(row.queuedTurnsJson) as Record<
     string,
-    { role: string; sessionId: string }
+    {
+      role: string;
+      sessionId: string;
+      executorType?: string | null;
+      model?: string | null;
+    }
   >;
   const timeline = buildTimeline({
     model,
@@ -66,6 +80,18 @@ export async function buildPersistedWorkflowPresentationModel(args: {
       workflowName: model.name ?? null,
       workflowDesignId: row.designId,
       workflowVersion: row.designVersion,
+      roles: Object.entries(model.roles).map(([roleId, role]) => ({
+        roleId,
+        roleLabel: role.label ?? roleId,
+        sessionId: roleBindings[roleId]?.sessionId ?? null,
+        executorType:
+          roleBindings[roleId]?.executorType ??
+          roleBindings[roleId]?.executor ??
+          role.executorPreference?.executorType ??
+          null,
+        model:
+          roleBindings[roleId]?.model ?? role.executorPreference?.model ?? null,
+      })),
     },
   };
 }
@@ -74,7 +100,15 @@ function buildTimeline(args: {
   model: NormalizedAgentWorkflowModel;
   snapshot: WorkflowRuntimeSnapshot;
   events: PersistedWorkflowRuntimeEvent[];
-  queued: Record<string, { role: string; sessionId: string }>;
+  queued: Record<
+    string,
+    {
+      role: string;
+      sessionId: string;
+      executorType?: string | null;
+      model?: string | null;
+    }
+  >;
   workspaceId: string;
 }): WorkflowPresentationTimelineItem[] {
   const timeline: WorkflowPresentationTimelineItem[] = [];
@@ -107,7 +141,11 @@ function buildTimeline(args: {
         status: complete ? "Complete" : "Waiting",
         session: args.queued[entry.turnId]?.sessionId
           ? {
-              label: `${roleLabel(args.model, roleId)} session`,
+              label: sessionLabel(
+                roleLabel(args.model, roleId),
+                args.queued[entry.turnId]?.executorType,
+                args.queued[entry.turnId]?.model,
+              ),
               workspaceId: args.workspaceId,
               sessionId: args.queued[entry.turnId]!.sessionId,
             }
@@ -255,7 +293,9 @@ function buildTimeline(args: {
         (candidate) =>
           candidate.kind === "github_ci_wait_completed" &&
           candidate.turnId === entry.turnId,
-      ) as { status: string; statusSummary: string; detailsUrl?: string } | undefined;
+      ) as
+        | { status: string; statusSummary: string; detailsUrl?: string }
+        | undefined;
       const pollError = [...args.events]
         .reverse()
         .find(
@@ -280,12 +320,15 @@ function buildTimeline(args: {
           : "Waiting",
         session: null,
         initialMessage: {
-          text: [
-            entry.repo ? `Repository: ${entry.repo}` : "",
-            entry.sha ? `Commit: ${entry.sha}` : "",
-            entry.ciRunId ? `Run: ${entry.ciRunId}` : "",
-            entry.checkRunId ? `Check: ${entry.checkRunId}` : "",
-          ].filter(Boolean).join("\n") || "Started GitHub CI watch.",
+          text:
+            [
+              entry.repo ? `Repository: ${entry.repo}` : "",
+              entry.sha ? `Commit: ${entry.sha}` : "",
+              entry.ciRunId ? `Run: ${entry.ciRunId}` : "",
+              entry.checkRunId ? `Check: ${entry.checkRunId}` : "",
+            ]
+              .filter(Boolean)
+              .join("\n") || "Started GitHub CI watch.",
           truncated: false,
           maxChars: null,
         },
@@ -294,7 +337,9 @@ function buildTimeline(args: {
               text: [
                 complete.statusSummary,
                 complete.detailsUrl ? `Details: ${complete.detailsUrl}` : "",
-              ].filter(Boolean).join("\n"),
+              ]
+                .filter(Boolean)
+                .join("\n"),
               truncated: false,
               maxChars: null,
             }
@@ -463,8 +508,7 @@ function waitingReason(kind: string): string {
     return "Waiting for you to submit the requested form.";
   if (kind === "workflow_call")
     return "Waiting for a child workflow to finish.";
-  if (kind === "github_ci")
-    return "Waiting for GitHub CI to finish.";
+  if (kind === "github_ci") return "Waiting for GitHub CI to finish.";
   return "Waiting to continue.";
 }
 
@@ -534,6 +578,17 @@ function roleLabel(
   roleId: string,
 ): string {
   return model.roles[roleId]?.label ?? labelFromId(roleId);
+}
+
+function sessionLabel(
+  role: string,
+  executorType?: string | null,
+  model?: string | null,
+): string {
+  const details = [executorType, model].filter(Boolean);
+  return details.length
+    ? `${role} session · ${details.join(" · ")}`
+    : `${role} session`;
 }
 
 function actionLabel(

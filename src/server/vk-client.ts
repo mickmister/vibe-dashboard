@@ -33,6 +33,7 @@ export interface Session {
   id: string;
   workspace_id: string;
   executor: Executor;
+  model?: string | null;
   name?: string | null;
   created_at: string;
   updated_at: string;

@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import type { Hono } from "hono";
 import type { Kysely } from "kysely";
 import {
+  WORKFLOW_EXECUTOR_MODEL_OPTIONS,
+  WORKFLOW_EXECUTOR_TYPES,
   runWorkflow,
   WorkflowNotFoundError,
   type AgentWorkflowDefinitionV1,
@@ -166,7 +168,14 @@ export function registerWorkflowRoutes(
           400,
         );
       const sessions = await listLaunchSessions(options, workspaceId);
-      return c.json({ options: { workspaceId, workflow, sessions } });
+      return c.json({
+        options: {
+          workspaceId,
+          workflow,
+          sessions,
+          executorOptions: listWorkflowExecutorOptions(),
+        },
+      });
     } catch (error) {
       return c.json(
         {
@@ -1759,7 +1768,9 @@ function summarizeLaunchRoles(definition: unknown) {
   const roleRecord = asRecord(roles) ?? {};
   return Object.entries(roleRecord).map(([id, spec]) => {
     const record = asRecord(spec) ?? {};
-    const preference = normalizeRoleExecutorPreference(record.executorPreference);
+    const preference = normalizeRoleExecutorPreference(
+      record.executorPreference,
+    );
     return {
       id,
       label: asString(record.label) ?? id,
@@ -1784,7 +1795,13 @@ function normalizeRoleExecutorPreference(value: unknown): {
 }
 
 function resolveRolePreference(
-  role: { executorPreference?: { executorType: string | null; model: string | null; mode: "preferred" } | null },
+  role: {
+    executorPreference?: {
+      executorType: string | null;
+      model: string | null;
+      mode: "preferred";
+    } | null;
+  },
   binding: WorkflowLaunchRoleBindingRequest,
 ): {
   executorType: string | null;
@@ -1797,28 +1814,42 @@ function resolveRolePreference(
   return {
     executorType: bindingExecutor || rolePreference?.executorType || null,
     model: bindingModel || rolePreference?.model || null,
-    source: bindingExecutor || bindingModel ? "launch_override" : rolePreference ? "role_default" : "workspace_default",
+    source:
+      bindingExecutor || bindingModel
+        ? "launch_override"
+        : rolePreference
+          ? "role_default"
+          : "workspace_default",
   };
 }
 
-const SUPPORTED_VK_EXECUTORS: Executor[] = [
-  "CLAUDE_CODE",
-  "CODEX",
-  "GEMINI",
-  "AMP",
-  "CURSOR_AGENT",
-  "COPILOT",
-  "DROID",
-  "OPENCODE",
-  "QWEN_CODE",
-];
-
 function normalizeVkExecutor(value: string | null): Executor | null {
   if (!value) return null;
-  const normalized = value.trim().toUpperCase().replace(/[-\s]+/g, "_");
-  return SUPPORTED_VK_EXECUTORS.includes(normalized as Executor)
+  const normalized = value
+    .trim()
+    .toUpperCase()
+    .replace(/[-\s]+/g, "_");
+  return WORKFLOW_EXECUTOR_TYPES.includes(normalized as never)
     ? (normalized as Executor)
     : null;
+}
+
+function modelMatchesExecutor(
+  executorType: Executor | null,
+  model: string | null,
+): boolean {
+  if (!model || !executorType) return true;
+  return (
+    WORKFLOW_EXECUTOR_MODEL_OPTIONS[executorType]?.models.includes(model) ??
+    false
+  );
+}
+
+function listWorkflowExecutorOptions() {
+  return WORKFLOW_EXECUTOR_TYPES.map((executorType) => {
+    const option = WORKFLOW_EXECUTOR_MODEL_OPTIONS[executorType];
+    return { executorType, label: option.label, models: option.models };
+  });
 }
 
 async function listLaunchSessions(
@@ -1831,6 +1862,7 @@ async function listLaunchSessions(
     sessionId: session.id,
     name: session.name ?? null,
     executor: session.executor,
+    model: session.model ?? null,
     workspaceId: session.workspace_id,
   }));
 }
@@ -1841,7 +1873,18 @@ async function resolveLaunchRoleBindings(
   workflow: Awaited<ReturnType<typeof buildLaunchWorkflowSummary>>,
   requested: Record<string, WorkflowLaunchRoleBindingRequest>,
 ) {
-  const result: Record<string, { sessionId: string; workspaceId: string; executorType: string | null; model: string | null; preferenceMode: "preferred"; preferenceSource: "role_default" | "launch_override" | "workspace_default" }> = {};
+  const result: Record<
+    string,
+    {
+      sessionId: string;
+      workspaceId: string;
+      executorType: string | null;
+      model: string | null;
+      preferenceMode: "preferred";
+      preferenceSource:
+        "role_default" | "launch_override" | "workspace_default";
+    }
+  > = {};
   for (const role of workflow.roles) {
     const binding = requested[role.id];
     if (!binding)
@@ -1855,6 +1898,12 @@ async function resolveLaunchRoleBindings(
       throw new WorkflowLaunchFieldError(
         `role.${role.id}.executorType`,
         `${role.label} uses unsupported executor ${preference.executorType}.`,
+      );
+    }
+    if (!modelMatchesExecutor(expectedExecutor, preference.model)) {
+      throw new WorkflowLaunchFieldError(
+        `role.${role.id}.model`,
+        `${role.label} uses unsupported model ${preference.model} for ${expectedExecutor}.`,
       );
     }
     if (binding.mode === "existing") {
@@ -1875,6 +1924,15 @@ async function resolveLaunchRoleBindings(
           throw new WorkflowLaunchFieldError(
             `role.${role.id}.executorType`,
             `${role.label} session uses ${session.executor}, but workflow prefers ${expectedExecutor}. Choose or create a compatible session.`,
+          );
+        if (
+          preference.model &&
+          session.model &&
+          session.model !== preference.model
+        )
+          throw new WorkflowLaunchFieldError(
+            `role.${role.id}.model`,
+            `${role.label} session uses model ${session.model}, but workflow prefers ${preference.model}. Choose or create a compatible session.`,
           );
       }
       result[role.id] = {
@@ -1901,7 +1959,14 @@ async function resolveLaunchRoleBindings(
           (left, right) =>
             Date.parse(right.updated_at) - Date.parse(left.updated_at),
         )
-        .find((session) => session.name === name && (!expectedExecutor || session.executor === expectedExecutor));
+        .find(
+          (session) =>
+            session.name === name &&
+            (!expectedExecutor || session.executor === expectedExecutor) &&
+            (!preference.model ||
+              !session.model ||
+              session.model === preference.model),
+        );
       const session =
         reusable ??
         (await options.vkClient.createSession({
@@ -2045,8 +2110,18 @@ function normalizeRoleBindings(
       record.mode === "create_or_reuse" ? "create_or_reuse" : "existing";
     bindings[roleId] =
       mode === "existing"
-        ? { mode, sessionId: asString(record.sessionId) }
-        : { mode, name: asString(record.name) };
+        ? {
+            mode,
+            sessionId: asString(record.sessionId),
+            executorType: asString(record.executorType),
+            model: asString(record.model),
+          }
+        : {
+            mode,
+            name: asString(record.name),
+            executorType: asString(record.executorType),
+            model: asString(record.model),
+          };
   }
   return bindings;
 }

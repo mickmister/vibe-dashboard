@@ -95,7 +95,10 @@ export function WorkspaceWorkflowsHomeView({
     () => (home?.recentRuns ?? []).filter(isActiveRun),
     [home?.recentRuns],
   );
-  const summary = useMemo(() => workflowDashboardSummary(home, activeRuns), [home, activeRuns]);
+  const summary = useMemo(
+    () => workflowDashboardSummary(home, activeRuns),
+    [home, activeRuns],
+  );
   return (
     <StandaloneDashboardPage
       className={embedded ? "h-full" : ""}
@@ -109,7 +112,15 @@ export function WorkspaceWorkflowsHomeView({
             </div>
             <h1 className="mt-1 text-2xl font-semibold">Workflows</h1>
             <p className="mt-2 max-w-3xl text-sm text-zinc-300">
-              Create, run, and monitor workflows for {home?.workspaceId ? <span className="font-medium text-zinc-100">{home.workspaceId}</span> : "this workspace"}.
+              Create, run, and monitor workflows for{" "}
+              {home?.workspaceId ? (
+                <span className="font-medium text-zinc-100">
+                  {home.workspaceId}
+                </span>
+              ) : (
+                "this workspace"
+              )}
+              .
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -128,11 +139,34 @@ export function WorkspaceWorkflowsHomeView({
             </button>
           </div>
         </div>
-        <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4" aria-label="Workflow dashboard summary">
-          <SummaryTile label="Needs input" value={summary.needsInput} detail="Items waiting on you" tone={summary.needsInput > 0 ? "amber" : "zinc"} />
-          <SummaryTile label="Active runs" value={summary.activeRuns} detail="Running, waiting, or blocked" tone={summary.activeRuns > 0 ? "cyan" : "zinc"} />
-          <SummaryTile label="Your workflows" value={summary.userWorkflows} detail="Drafts and published designs" tone="emerald" />
-          <SummaryTile label="Starter templates" value={summary.starterTemplates} detail="Copy and customize" tone="cyan" />
+        <div
+          className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4"
+          aria-label="Workflow dashboard summary"
+        >
+          <SummaryTile
+            label="Needs input"
+            value={summary.needsInput}
+            detail="Items waiting on you"
+            tone={summary.needsInput > 0 ? "amber" : "zinc"}
+          />
+          <SummaryTile
+            label="Active runs"
+            value={summary.activeRuns}
+            detail="Running, waiting, or blocked"
+            tone={summary.activeRuns > 0 ? "cyan" : "zinc"}
+          />
+          <SummaryTile
+            label="Your workflows"
+            value={summary.userWorkflows}
+            detail="Drafts and published designs"
+            tone="emerald"
+          />
+          <SummaryTile
+            label="Starter templates"
+            value={summary.starterTemplates}
+            detail="Copy and customize"
+            tone="cyan"
+          />
         </div>
       </header>
 
@@ -270,7 +304,10 @@ export function WorkspaceWorkflowsHomeView({
   );
 }
 
-function workflowDashboardSummary(home: WorkspaceWorkflowsHomeModel | null, activeRuns: WorkspaceWorkflowRunSummary[]) {
+function workflowDashboardSummary(
+  home: WorkspaceWorkflowsHomeModel | null,
+  activeRuns: WorkspaceWorkflowRunSummary[],
+) {
   return {
     needsInput: home?.needsInput.length ?? 0,
     activeRuns: activeRuns.length,
@@ -472,6 +509,10 @@ function RunWorkflowDialog({
   const [newSessionNames, setNewSessionNames] = useState<
     Record<string, string>
   >({});
+  const [roleExecutorTypes, setRoleExecutorTypes] = useState<
+    Record<string, string>
+  >({});
+  const [roleModels, setRoleModels] = useState<Record<string, string>>({});
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -492,7 +533,11 @@ function RunWorkflowDialog({
         const modes: Record<string, "existing" | "create_or_reuse"> = {};
         const names: Record<string, string> = {};
         const existing: Record<string, string> = {};
+        const executorTypes: Record<string, string> = {};
+        const models: Record<string, string> = {};
         for (const role of loaded.workflow.roles) {
+          executorTypes[role.id] = role.executorPreference?.executorType || "CODEX";
+          models[role.id] = role.executorPreference?.model || "recommended";
           const matchingSession = loaded.sessions.find(
             (session) =>
               normalizeName(session.name) === normalizeName(role.label) &&
@@ -505,6 +550,8 @@ function RunWorkflowDialog({
         setRoleModes(modes);
         setExistingSessions(existing);
         setNewSessionNames(names);
+        setRoleExecutorTypes(executorTypes);
+        setRoleModels(models);
       })
       .catch((caught) => {
         if (active)
@@ -534,6 +581,10 @@ function RunWorkflowDialog({
           return {
             role,
             text: `Create or reuse “${newSessionNames[role.id]?.trim() || role.label}”`,
+            executorSummary: executorSummary(
+              roleExecutorTypes[role.id],
+              roleModels[role.id],
+            ),
             warning: null as string | null,
           };
         const session = options?.sessions.find(
@@ -543,13 +594,17 @@ function RunWorkflowDialog({
           session && session.workspaceId !== workspaceId
             ? `${role.label} session belongs to another workspace.`
             : session && !sessionMatchesRolePreference(session, role)
-              ? `${role.label} session uses ${session.executor}, but the workflow prefers ${role.executorPreference?.executorType}.`
-            : null;
+              ? `${role.label} session uses ${formatSessionExecutorModel(session)}, but the workflow prefers ${formatRoleExecutorPreference(role)}.`
+              : null;
         return {
           role,
           text: session
             ? session.name || session.sessionId
             : "No session selected",
+          executorSummary: executorSummary(
+            session?.executor ?? roleExecutorTypes[role.id],
+            session?.model ?? roleModels[role.id],
+          ),
           warning,
         };
       }),
@@ -558,6 +613,8 @@ function RunWorkflowDialog({
       launchRoles,
       newSessionNames,
       options?.sessions,
+      roleExecutorTypes,
+      roleModels,
       roleModes,
       workspaceId,
     ],
@@ -592,10 +649,20 @@ function RunWorkflowDialog({
         const sessionId = existingSessions[role.id];
         if (!sessionId)
           nextErrors[`role.${role.id}`] = `Choose a session for ${role.label}.`;
-        roleBindings[role.id] = { mode, sessionId: sessionId ?? "" };
+        roleBindings[role.id] = {
+          mode,
+          sessionId: sessionId ?? "",
+          executorType: roleExecutorTypes[role.id] || undefined,
+          model: roleModels[role.id] || undefined,
+        };
       } else {
         const name = newSessionNames[role.id]?.trim() || role.label;
-        roleBindings[role.id] = { mode, name };
+        roleBindings[role.id] = {
+          mode,
+          name,
+          executorType: roleExecutorTypes[role.id] || undefined,
+          model: roleModels[role.id] || undefined,
+        };
       }
     }
     setFieldErrors(nextErrors);
@@ -764,6 +831,10 @@ function RunWorkflowDialog({
                         {selected?.text}
                       </span>
                     </div>
+                    <div className="mt-2 text-xs text-cyan-200">
+                      Executor/model:{" "}
+                      {selected?.executorSummary ?? "Codex · recommended"}
+                    </div>
                     <p className="mt-1 text-xs text-zinc-400">
                       {formatRoleExecutorPreference(role)}
                     </p>
@@ -815,7 +886,8 @@ function RunWorkflowDialog({
                             key={session.sessionId}
                             value={session.sessionId}
                           >
-                            {session.name || session.sessionId}
+                            {session.name || session.sessionId} ·{" "}
+                            {formatSessionExecutorModel(session)}
                           </option>
                         ))}
                       </select>
@@ -832,6 +904,67 @@ function RunWorkflowDialog({
                         }
                       />
                     )}
+                    <div className="mt-3 grid gap-3 md:grid-cols-2">
+                      <label className="block text-xs text-zinc-400">
+                        Executor
+                        <select
+                          aria-label={`${role.label} executor`}
+                          className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 p-2 text-sm text-zinc-100"
+                          value={roleExecutorTypes[role.id] ?? "CODEX"}
+                          onChange={(event) => {
+                            const nextExecutor = event.target.value;
+                            const firstModel =
+                              options?.executorOptions?.find(
+                                (option) =>
+                                  option.executorType === nextExecutor,
+                              )?.models[0] ?? "recommended";
+                            setRoleExecutorTypes((current) => ({
+                              ...current,
+                              [role.id]: nextExecutor,
+                            }));
+                            setRoleModels((current) => ({
+                              ...current,
+                              [role.id]: firstModel,
+                            }));
+                          }}
+                        >
+                          {(options?.executorOptions ?? []).map((option) => (
+                            <option
+                              key={option.executorType}
+                              value={option.executorType}
+                            >
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="block text-xs text-zinc-400">
+                        Model
+                        <select
+                          aria-label={`${role.label} model`}
+                          className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 p-2 text-sm text-zinc-100"
+                          value={roleModels[role.id] ?? "recommended"}
+                          onChange={(event) =>
+                            setRoleModels((current) => ({
+                              ...current,
+                              [role.id]: event.target.value,
+                            }))
+                          }
+                        >
+                          {(
+                            options?.executorOptions?.find(
+                              (option) =>
+                                option.executorType ===
+                                (roleExecutorTypes[role.id] ?? "CODEX"),
+                            )?.models ?? ["recommended", "default"]
+                          ).map((model) => (
+                            <option key={model} value={model}>
+                              {model}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
                     {selected?.warning ? (
                       <p role="alert" className="mt-2 text-sm text-amber-200">
                         {selected.warning}
@@ -1044,6 +1177,7 @@ export function LaunchSummary({
   selectedSessions: Array<{
     role: { id: string; label: string };
     text: string;
+    executorSummary?: string;
     warning: string | null;
   }>;
 }) {
@@ -1099,6 +1233,11 @@ export function LaunchSummary({
             <li key={entry.role.id}>
               <span className="text-zinc-500">{entry.role.label}:</span>{" "}
               {entry.text}
+              {entry.executorSummary ? (
+                <span className="ml-2 text-cyan-200">
+                  {entry.executorSummary}
+                </span>
+              ) : null}
               {entry.warning ? (
                 <span className="ml-2 text-amber-200">{entry.warning}</span>
               ) : null}
@@ -1159,6 +1298,12 @@ export function LaunchSuccess({
       </div>
     </section>
   );
+}
+
+function executorSummary(executorType?: string | null, model?: string | null) {
+  return [executorType || "CODEX", model || "recommended"]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 function emptyClientLaunchSummary() {
@@ -1311,7 +1456,10 @@ function ActiveRunRow({ run }: { run: WorkspaceWorkflowRunSummary }) {
           Updated {formatTime(run.updatedAt)}
         </p>
       </div>
-      <StatusPill label={humanRunStatus(run.status)} tone={runStatusTone(run.status)} />
+      <StatusPill
+        label={humanRunStatus(run.status)}
+        tone={runStatusTone(run.status)}
+      />
     </>
   );
   const classes =
@@ -1326,9 +1474,12 @@ function ActiveRunRow({ run }: { run: WorkspaceWorkflowRunSummary }) {
 }
 
 function activeRunExplanation(run: WorkspaceWorkflowRunSummary): string {
-  if (run.status === "blocked") return "Needs attention before the workflow can continue.";
-  if (run.status === "waiting") return "Waiting for the next response or result before continuing.";
-  if (run.status === "running") return "Running now. Open the run page to see who has the next step.";
+  if (run.status === "blocked")
+    return "Needs attention before the workflow can continue.";
+  if (run.status === "waiting")
+    return "Waiting for the next response or result before continuing.";
+  if (run.status === "running")
+    return "Running now. Open the run page to see who has the next step.";
   return "In progress. Open the run page to see what happens next.";
 }
 
@@ -1348,7 +1499,10 @@ function RunRow({ run }: { run: WorkspaceWorkflowRunSummary }) {
           Updated {formatTime(run.updatedAt)}
         </p>
       </div>
-      <StatusPill label={humanRunStatus(run.status)} tone={runStatusTone(run.status)} />
+      <StatusPill
+        label={humanRunStatus(run.status)}
+        tone={runStatusTone(run.status)}
+      />
     </>
   );
   const classes =
@@ -1373,7 +1527,9 @@ function AttentionCard({ item }: { item: WorkspaceWorkflowAttentionSummary }) {
         <p className="mt-2 text-sm text-amber-50">{item.description}</p>
       ) : null}
       <p className="mt-3 text-xs text-amber-200">{item.workflowName}</p>
-      <p className="mt-1 text-xs text-amber-100/80">The workflow resumes after you submit the requested input.</p>
+      <p className="mt-1 text-xs text-amber-100/80">
+        The workflow resumes after you submit the requested input.
+      </p>
     </article>
   );
   return item.detailUrl ? (
@@ -1438,24 +1594,44 @@ function humanRunStatus(status: string): string {
   return "Running";
 }
 
-function formatRoleExecutorPreference(role: WorkspaceWorkflowRoleSummary): string {
+function formatRoleExecutorPreference(
+  role: WorkspaceWorkflowRoleSummary,
+): string {
   const preference = role.executorPreference;
   if (!preference?.executorType && !preference?.model) {
     return "Executor/model: workspace default";
   }
   const parts = [
-    preference.executorType ? `Executor ${preference.executorType}` : "Default executor",
+    preference.executorType
+      ? `Executor ${preference.executorType}`
+      : "Default executor",
     preference.model ? `Model ${preference.model}` : "default model",
   ];
   return parts.join(" · ");
 }
 
+function formatSessionExecutorModel(session: {
+  executor: string;
+  model?: string | null;
+}): string {
+  return session.model
+    ? `${session.executor} · ${session.model}`
+    : session.executor;
+}
+
 function sessionMatchesRolePreference(
-  session: { executor: string },
+  session: { executor: string; model?: string | null },
   role: WorkspaceWorkflowRoleSummary,
 ): boolean {
-  const preferred = role.executorPreference?.executorType?.trim().toUpperCase().replace(/[-\s]+/g, "_");
-  return !preferred || session.executor === preferred;
+  const preferred = role.executorPreference?.executorType
+    ?.trim()
+    .toUpperCase()
+    .replace(/[-\s]+/g, "_");
+  const preferredModel = role.executorPreference?.model?.trim();
+  return (
+    (!preferred || session.executor === preferred) &&
+    (!preferredModel || !session.model || session.model === preferredModel)
+  );
 }
 
 function formatTime(value: number): string {

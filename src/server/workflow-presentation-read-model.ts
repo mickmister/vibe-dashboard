@@ -36,6 +36,13 @@ export interface WorkflowPresentationProvenance {
   workflowName: string | null;
   workflowDesignId: string | null;
   workflowVersion: number | null;
+  roles?: Array<{
+    roleId: string;
+    roleLabel: string;
+    sessionId: string | null;
+    executorType: string | null;
+    model: string | null;
+  }>;
 }
 
 export interface WorkflowPresentationSummary {

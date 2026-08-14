@@ -21,6 +21,7 @@ import { DbWorkflowDesignStore } from "../modules/plugins/workflows/server/workf
 import { BUILT_IN_WORKFLOW_TEMPLATES } from "../modules/plugins/workflows/templates/builtInWorkflowTemplates";
 import { PersistedWorkflowRuntimeService } from "../modules/plugins/workflows/server/persistedWorkflowRuntime";
 import { validateWorkflowGraph } from "../modules/plugins/workflows/components/graph/workflowGraphModel";
+import type { Session } from "./vk-client";
 
 describe("registerWorkflowRoutes", () => {
   const dbHandles: VdDbHandle[] = [];
@@ -410,6 +411,182 @@ describe("registerWorkflowRoutes", () => {
     expect(JSON.parse(runRow.roleBindingsJson)).toMatchObject({
       dev: { sessionId: "session-dev" },
       review: { sessionId: "session-review" },
+    });
+  });
+
+  it("TEST_CASE_SEBL_1B/1C resolves executor/model preferences into session creation, run snapshot, and queued provenance", async () => {
+    const handle = await initVdDb({ path: ":memory:" });
+    dbHandles.push(handle);
+    const app = new Hono();
+    const designStore = new DbWorkflowDesignStore({ db: handle.db });
+    const definition = routeLaunchDefinition();
+    (definition.roles.dev as { executorPreference?: unknown }).executorPreference = {
+      executorType: "CLAUDE_CODE",
+      model: "recommended",
+      mode: "preferred",
+    };
+    await designStore.createDesign({
+      designId: "design-executor-model",
+      draftId: "draft-executor-model",
+      name: "Executor Model Workflow",
+      definition,
+    });
+    await designStore.publishDraft("draft-executor-model");
+    const sessions = [vkSession("session-review", "workspace-a", "Review")];
+    const createdSessions: unknown[] = [];
+    const queued: Array<{ sessionId: string; prompt: string; provenance: unknown }> = [];
+    registerWorkflowRoutes(app, {
+      registry: createWorkflowRegistry(),
+      workflowHomeDb: handle.db,
+      workflowDesignStore: designStore,
+      vkClient: {
+        getSessions: async () => sessions,
+        getSession: async (sessionId) => {
+          const session = sessions.find((candidate) => candidate.id === sessionId);
+          if (!session) throw new Error("session not found");
+          return session;
+        },
+        createSession: async (body) => {
+          createdSessions.push(body);
+          const session = {
+            ...vkSession("session-dev-created", body.workspace_id, body.name ?? null),
+            executor: body.executor,
+          };
+          sessions.push(session);
+          return session;
+        },
+        queueFollowUp: async (sessionId, prompt, options) => {
+          queued.push({ sessionId, prompt, provenance: options?.provenance });
+          return {
+            queued_item: {
+              id: `queue-${queued.length}`,
+              session_id: sessionId,
+              workspace_id: "workspace-a",
+              status: "queued",
+              source: "workflow",
+              priority: 0,
+              data: { message: prompt },
+            },
+            status: { count: 1, message: null, messages: [], status: "queued" },
+          };
+        },
+      },
+    });
+
+    const optionsResponse = await app.request(
+      "/dashboard/api/workflows/launch-options?workspaceId=workspace-a&designId=design-executor-model",
+    );
+    expect(optionsResponse.status).toBe(200);
+    await expect(optionsResponse.json()).resolves.toMatchObject({
+      options: {
+        workflow: {
+          roles: expect.arrayContaining([
+            expect.objectContaining({
+              id: "dev",
+              executorPreference: {
+                executorType: "CLAUDE_CODE",
+                model: "recommended",
+                mode: "preferred",
+              },
+            }),
+          ]),
+        },
+      },
+    });
+
+    const launched = await app.request("/dashboard/api/workflows/launch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        workspaceId: "workspace-a",
+        designId: "design-executor-model",
+        inputs: { featureRequest: "Use preferred executor" },
+        roleBindings: {
+          dev: { mode: "create_or_reuse", name: "Dev" },
+          review: { mode: "existing", sessionId: "session-review" },
+        },
+      }),
+    });
+
+    expect(launched.status).toBe(201);
+    expect(createdSessions).toContainEqual({
+      workspace_id: "workspace-a",
+      executor: "CLAUDE_CODE",
+      name: "Dev",
+      model: "recommended",
+    });
+    expect(queued[0]).toMatchObject({
+      sessionId: "session-dev-created",
+      provenance: {
+        workflow_role_id: "dev",
+        workflow_role_executor: "CLAUDE_CODE",
+        workflow_role_model: "recommended",
+      },
+    });
+    const runRow = await handle.db
+      .selectFrom("WorkflowPersistedRun")
+      .selectAll()
+      .executeTakeFirstOrThrow();
+    expect(JSON.parse(runRow.roleBindingsJson)).toMatchObject({
+      dev: {
+        sessionId: "session-dev-created",
+        executorType: "CLAUDE_CODE",
+        model: "recommended",
+        preferenceSource: "role_default",
+      },
+    });
+  });
+
+  it("TEST_CASE_SEBL_1C rejects existing sessions whose executor conflicts with the role preference", async () => {
+    const handle = await initVdDb({ path: ":memory:" });
+    dbHandles.push(handle);
+    const app = new Hono();
+    const designStore = new DbWorkflowDesignStore({ db: handle.db });
+    const definition = routeLaunchDefinition();
+    (definition.roles.dev as { executorPreference?: unknown }).executorPreference = {
+      executorType: "CLAUDE_CODE",
+      mode: "preferred",
+    };
+    await designStore.createDesign({
+      designId: "design-executor-mismatch",
+      draftId: "draft-executor-mismatch",
+      name: "Executor Mismatch Workflow",
+      definition,
+    });
+    await designStore.publishDraft("draft-executor-mismatch");
+    const sessions = [
+      vkSession("session-dev-codex", "workspace-a", "Dev"),
+      vkSession("session-review", "workspace-a", "Review"),
+    ];
+    registerWorkflowRoutes(app, {
+      registry: createWorkflowRegistry(),
+      workflowHomeDb: handle.db,
+      workflowDesignStore: designStore,
+      vkClient: {
+        getSessions: async () => sessions,
+        getSession: async (sessionId) => sessions.find((session) => session.id === sessionId)!,
+      },
+    });
+
+    const response = await app.request("/dashboard/api/workflows/launch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        workspaceId: "workspace-a",
+        designId: "design-executor-mismatch",
+        inputs: { featureRequest: "Mismatch" },
+        roleBindings: {
+          dev: { mode: "existing", sessionId: "session-dev-codex" },
+          review: { mode: "existing", sessionId: "session-review" },
+        },
+      }),
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      fieldErrors: {
+        "role.dev.executorType": expect.stringContaining("session uses CODEX"),
+      },
     });
   });
 
@@ -3458,7 +3635,7 @@ function routeHumanFormDefinition() {
   };
 }
 
-function vkSession(id: string, workspaceId: string, name: string | null) {
+function vkSession(id: string, workspaceId: string, name: string | null): Session {
   return {
     id,
     workspace_id: workspaceId,

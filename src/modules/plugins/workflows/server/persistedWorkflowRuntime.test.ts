@@ -101,6 +101,59 @@ describe('PersistedWorkflowRuntimeService M93', () => {
     expect(failed.events.map((entry) => entry.kind)).toContain('queue_failed');
   });
 
+  it('TEST_CASE_SEBL_1B snapshots role executor/model preferences and queues them with agent turns', async () => {
+    const { runtime, queued } = await createRuntime();
+    const definition = makeTwoStateWorkflow();
+    (definition.roles.dev as { executorPreference?: unknown }).executorPreference = {
+      executorType: 'CODEX',
+      model: 'recommended',
+      mode: 'preferred',
+    };
+    await publishWorkflow('design.executor-model', definition);
+
+    const launched = await runtime.launch({
+      runId: 'run-executor-model',
+      runSnapshotId: 'snapshot-executor-model',
+      designId: 'design.executor-model',
+      workspaceId: 'workspace-a',
+      inputs: {},
+      roleBindings: { dev: { sessionId: 'session-dev' }, review: { sessionId: 'session-review' } },
+    });
+
+    expect(launched.roleBindings.dev).toMatchObject({
+      sessionId: 'session-dev',
+      executorType: 'CODEX',
+      model: 'recommended',
+      preferenceMode: 'preferred',
+      preferenceSource: 'role_default',
+    });
+    expect(launched.roleBindings.review).toMatchObject({
+      sessionId: 'session-review',
+      executorType: null,
+      model: null,
+      preferenceSource: 'workspace_default',
+    });
+    expect(queuedAt(queued, 0)).toMatchObject({
+      role: 'dev',
+      sessionId: 'session-dev',
+      executorPreference: {
+        executorType: 'CODEX',
+        model: 'recommended',
+        mode: 'preferred',
+      },
+      provenance: {
+        workflow_role_id: 'dev',
+        workflow_role_executor: 'CODEX',
+        workflow_role_model: 'recommended',
+      },
+    });
+    expect(launched.events.find((entry) => entry.kind === 'agent_turn_queued')?.data).toMatchObject({
+      role: 'dev',
+      executorType: 'CODEX',
+      model: 'recommended',
+    });
+  });
+
   it('TEST_CASE_M93_1B handles XML retry, blocked state, loops, same-state visits, and stale observations', async () => {
     const { runtime, queued } = await createRuntime();
     await publishWorkflow('design.loop', makeLoopWorkflow());
