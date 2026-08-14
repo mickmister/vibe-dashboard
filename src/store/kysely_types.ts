@@ -459,7 +459,78 @@ export interface WorkflowPersistedRun {
   updatedAt: number;
 }
 
+
+export type WorkspaceLaneStatus = 'planned' | 'ready' | 'active' | 'paused' | 'blocked' | 'completed' | 'archived';
+export type WorkspaceLaneWorktreeStatus = 'pending' | 'clean' | 'dirty' | 'unknown';
+export type WorkspaceLaneBindingType = 'workflow_run' | 'workflow_instance' | 'bead' | 'milestone';
+export type WorkspaceLaneAccessMode = 'read' | 'write';
+export type WorkspaceLaneCapacityLeaseStatus = 'active' | 'released' | 'stale' | 'reclaimed';
+
+export interface WorkspaceLane {
+  laneId: string;
+  parentWorkspaceId: string;
+  name: string;
+  purpose: string;
+  status: WorkspaceLaneStatus;
+  sourceBranch: string;
+  workingBranch: NullableString;
+  worktreePath: NullableString;
+  worktreeStatus: WorkspaceLaneWorktreeStatus;
+  worktreeSummaryJson: NullableString;
+  createdByJson: string;
+  cleanupPolicyJson: string;
+  createdAt: number;
+  updatedAt: number;
+  archivedAt: NullableNumber;
+  lastActiveRunId: NullableString;
+}
+
+export interface WorkspaceLaneBinding {
+  bindingId: string;
+  laneId: string;
+  parentWorkspaceId: string;
+  bindingType: WorkspaceLaneBindingType;
+  bindingKey: string;
+  reason: NullableString;
+  accessMode: WorkspaceLaneAccessMode;
+  roleBindingsJson: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface WorkspaceLaneCapacityLease {
+  leaseId: string;
+  laneId: string;
+  parentWorkspaceId: string;
+  mode: 'write';
+  ownerId: string;
+  status: WorkspaceLaneCapacityLeaseStatus;
+  acquiredAt: number;
+  expiresAt: NullableNumber;
+  releasedAt: NullableNumber;
+  releaseReason: NullableString;
+  recoveryReason: NullableString;
+  metadataJson: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface WorkspaceLaneAuditEvent {
+  auditId: string;
+  laneId: string;
+  parentWorkspaceId: string;
+  eventType: string;
+  actorId: NullableString;
+  message: string;
+  dataJson: string;
+  createdAt: number;
+}
+
 export interface DB {
+  WorkspaceLane: WorkspaceLane;
+  WorkspaceLaneBinding: WorkspaceLaneBinding;
+  WorkspaceLaneCapacityLease: WorkspaceLaneCapacityLease;
+  WorkspaceLaneAuditEvent: WorkspaceLaneAuditEvent;
   WorkflowDesign: WorkflowDesign;
   WorkflowDesignDraft: WorkflowDesignDraft;
   WorkflowDesignVersion: WorkflowDesignVersion;

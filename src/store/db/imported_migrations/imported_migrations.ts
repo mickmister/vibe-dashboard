@@ -12,6 +12,7 @@ import { migration as workflowAttentionItemsMigration } from '../migrations/2026
 import { migration as workflowDesignLibraryMigration } from '../migrations/20260811010000_workflow_design_library/migration';
 import { migration as workflowPersistedRunsMigration } from '../migrations/20260811020000_workflow_persisted_runs/migration';
 import { migration as workflowBatchesMigration } from '../migrations/20260811030000_workflow_batches/migration';
+import { migration as workspaceLanesMigration } from '../migrations/20260814000000_workspace_lanes/migration';
 
 export const migrations = [
   {
@@ -69,5 +70,9 @@ export const migrations = [
   {
     name: '20260811030000_workflow_batches',
     migration: workflowBatchesMigration,
+  },
+  {
+    name: '20260814000000_workspace_lanes',
+    migration: workspaceLanesMigration,
   },
 ];
