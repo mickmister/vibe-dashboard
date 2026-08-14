@@ -87,6 +87,8 @@ Recommended semantics:
 - `mode` starts as `preferred`, not `hard-required`, unless launch UX clearly
   handles unavailable models.
 - Run snapshot records resolved executor/model actually used.
+- Resolved executor/model must be propagated to VK session creation/reuse and the
+  queued agent-turn path, not merely stored in UI/read models.
 - Presentation shows product-readable executor/model summary when useful and
   diagnostics-only raw ids when necessary.
 
@@ -124,7 +126,19 @@ Expected:
 - Run snapshot records resolved executor/model per role.
 - Presentation/provenance can show what was used.
 
-#### TEST_CASE_SEBL_1C — Session binding remains clear
+#### TEST_CASE_SEBL_1C — Resolved executor/model reaches VK execution path
+
+Expected:
+
+- New session creation receives the resolved executor/model for the role.
+- Existing-session reuse enforces the mismatch policy instead of silently using a
+  different executor/model.
+- Queued agent turns carry or resolve the selected executor/model consistently.
+- Workflows without executor/model preferences continue to use backward-compatible
+  defaults.
+- Tests prove this at the API/runtime boundary, not only in editor/launch UI.
+
+#### TEST_CASE_SEBL_1D — Session binding remains clear
 
 Expected:
 
@@ -134,7 +148,7 @@ Expected:
 - Mismatch blocks or warns according to product policy.
 - UI avoids raw provider ids as primary labels.
 
-#### TEST_CASE_SEBL_1D — UI is discoverable but not noisy
+#### TEST_CASE_SEBL_1E — UI is discoverable but not noisy
 
 Expected:
 
@@ -244,7 +258,17 @@ Expected stories:
 - dense sub-bead hierarchy,
 - dark-mode constrained layout.
 
-#### TEST_CASE_CKOV_1E — M118 can reuse the read model
+#### TEST_CASE_CKOV_1E — Empty, stale, and partial data states are safe
+
+Expected:
+
+- No spike selected shows an empty state with next action.
+- Bead API unavailable shows retry/error product copy without crashing.
+- Partial/stale bead data shows last-known status and freshness indicator where
+  available.
+- Missing linked workflow runs degrade gracefully.
+
+#### TEST_CASE_CKOV_1F — M118 can reuse the read model
 
 Expected:
 

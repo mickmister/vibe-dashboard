@@ -222,6 +222,10 @@ First implementation policy:
 6. Parallel lanes must have separate lane ids and worktree ownership.
 7. If lane worktree status is dirty/unknown, new write work should block until
    the user or automation policy resolves it.
+8. If a worker crashes or loses ownership while holding a write token, the lane
+   must have an explicit stale-token recovery policy before another writer is
+   allowed to proceed. The first implementation may require manual recovery, but
+   it must not silently leak capacity forever or grant overlapping write tokens.
 
 The first lane foundation can support conservative capacity only. Smarter
 scheduling can come later.
@@ -372,6 +376,7 @@ Expected:
 - Plan explains how a workflow run chooses or binds a lane.
 - Plan explains why parallel write work requires separate lanes.
 - Plan defines blocked/dirty/conflict recovery expectations.
+- Plan requires a stale/orphan write-token recovery policy for crashed workers.
 
 ### TEST_CASE_M115_1C — Branch/worktree/session model is specified
 
@@ -409,6 +414,7 @@ M116 should use this design to add implementation tests. Recommended matrix:
 | Store/API | Create, list, read, update status, close/archive lane linked to parent workspace. |
 | Parent relation | Sub-workspace has parent reference and appears in parent lane read model. |
 | Capacity | Cannot acquire two write tokens for same lane; read-only capacity policy is explicit. |
+| Capacity recovery | Stale/orphan write token after crash is visible and recoverable without granting overlapping writes. |
 | Binding | Workflow run/bead can bind to lane; binding cannot silently change during run. |
 | UI/read model | Parent workspace shows active lane status/product labels. |
 | Session binding | Role-to-session binding records lane context. |

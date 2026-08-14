@@ -117,7 +117,19 @@ Expected:
 - Releasing or completing the first token allows another write token.
 - Capacity release is idempotent on duplicate completion/wakeup.
 
-#### TEST_CASE_M116_1C — Workflow/bead binding is durable
+#### TEST_CASE_M116_1C — Stale/orphan write-token recovery is safe
+
+Expected:
+
+- If a worker crashes or loses ownership while holding a write token, the lane
+  reports a stale/orphan capacity state instead of allowing overlapping writes.
+- Recovery requires a documented policy: manual release, lease timeout, or
+  owner-fenced reclaim.
+- Reclaim/release is audited and idempotent.
+- A stale-token recovery test proves new work cannot start until recovery policy
+  has run.
+
+#### TEST_CASE_M116_1D — Workflow/bead binding is durable
 
 Expected:
 
@@ -126,7 +138,7 @@ Expected:
 - Binding cannot silently switch during a run.
 - Presentation/read model shows the lane label and parent workspace breadcrumb.
 
-#### TEST_CASE_M116_1D — Parent overview is product-readable
+#### TEST_CASE_M116_1E — Parent overview is product-readable
 
 Expected:
 
@@ -135,7 +147,7 @@ Expected:
 - It does not expose raw worktree paths/internal queue ids in normal view.
 - Blocked/dirty/unknown lane states have actionable text.
 
-#### TEST_CASE_M116_1E — M117/M118 dependency contract is usable
+#### TEST_CASE_M116_1F — M117/M118 dependency contract is usable
 
 Expected:
 
@@ -269,7 +281,10 @@ In scope for first prototype:
 - Launch one child workflow or workflow step per bead sequentially.
 - Wait for child completion or human approval.
 - Pause/resume the parent meta-workflow.
-- Append notes/results to beads through typed mutation only.
+- Append notes/results to beads through typed mutation only. The append-note
+  operation should be a separate typed bead provider/API for M118 unless the
+  M117 provider registry intentionally hosts non-command typed providers; it must
+  not be implemented as raw shell/`bd` execution.
 - Show meta-workflow status on run page and roadmap/progress UI if available.
 
 Out of scope for first prototype:
@@ -282,7 +297,17 @@ Out of scope for first prototype:
 
 ### Acceptance cases
 
-#### TEST_CASE_M118_1A — Ordered beads execute sequentially
+#### TEST_CASE_M118_1A — Invalid bead selections fail before launch
+
+Expected:
+
+- Duplicate bead ids are rejected or deduplicated with explicit product copy.
+- Inaccessible beads fail validation with stable errors.
+- Removed/archived beads fail validation or are skipped only through an explicit
+  user-visible policy.
+- No child workflow or bead mutation starts when selection validation fails.
+
+#### TEST_CASE_M118_1B — Ordered beads execute sequentially
 
 Expected:
 
@@ -292,7 +317,7 @@ Expected:
 - Bead C does not start until B reaches terminal/approved state.
 - Progress read model shows current bead and completed prior beads.
 
-#### TEST_CASE_M118_1B — Pause/resume is durable and product-visible
+#### TEST_CASE_M118_1C — Pause/resume is durable and product-visible
 
 Expected:
 
@@ -301,7 +326,7 @@ Expected:
 - Restart/catch-up preserves current index and completed bead results.
 - Run page explains why it is paused or waiting.
 
-#### TEST_CASE_M118_1C — Result notes are typed and safe
+#### TEST_CASE_M118_1D — Result notes are typed and safe
 
 Expected:
 
@@ -310,7 +335,7 @@ Expected:
 - Duplicate wakeup does not append duplicate notes.
 - Note provenance identifies workflow run and lane/workspace context.
 
-#### TEST_CASE_M118_1D — Failure does not corrupt prior beads
+#### TEST_CASE_M118_1E — Failure does not corrupt prior beads
 
 Expected:
 
@@ -318,7 +343,7 @@ Expected:
 - Bead C is not started.
 - Presentation and roadmap/progress UI show blocked bead and next action.
 
-#### TEST_CASE_M118_1E — Workspace/lane conflicts are avoided
+#### TEST_CASE_M118_1F — Workspace/lane conflicts are avoided
 
 Expected:
 
