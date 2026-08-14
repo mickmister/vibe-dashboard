@@ -318,10 +318,23 @@ async function openSidebarIfNeeded(page: Page) {
 }
 
 async function closeSidebarOverlayIfPresent(page: Page) {
-  const overlay = page.getByRole('button', { name: 'Close sidebar overlay' });
-  if (await overlay.isVisible().catch(() => false)) {
-    await overlay.evaluate((button) => (button as HTMLButtonElement).click());
-  }
+  await page.evaluate(() => {
+    const overlay = Array.from(
+      document.querySelectorAll<HTMLButtonElement>(
+        'button[aria-label="Close sidebar overlay"]',
+      ),
+    ).find((button) => {
+      const rect = button.getBoundingClientRect();
+      const style = window.getComputedStyle(button);
+      return (
+        rect.width > 0 &&
+        rect.height > 0 &&
+        style.display !== 'none' &&
+        style.visibility !== 'hidden'
+      );
+    });
+    overlay?.click();
+  });
 }
 
 async function clickMenuItem(page: Page, name: string) {
