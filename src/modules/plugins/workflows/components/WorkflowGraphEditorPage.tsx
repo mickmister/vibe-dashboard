@@ -1367,6 +1367,19 @@ function edgePairKey(edge: WorkflowGraphEdgeModel): string {
   return `${edge.source}->${edge.target}`;
 }
 
+function formatEditorRolePreference(
+  role: AgentWorkflowDefinitionV1["roles"][string],
+): string {
+  const preference = role.executorPreference;
+  if (!preference?.executorType && !preference?.model) {
+    return "Executor/model: workspace default";
+  }
+  return [
+    preference.executorType ? `Executor ${preference.executorType}` : "Default executor",
+    preference.model ? `Model ${preference.model}` : "default model",
+  ].join(" · ");
+}
+
 const stateNodeStyle: React.CSSProperties = {
   background: "#0f172a",
   border: "1px solid #2563eb",
