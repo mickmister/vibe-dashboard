@@ -1,0 +1,110 @@
+services:
+  code-vibe:
+    image: ghcr.io/mickmister/vk-vd:${VKVD_IMAGE_VERSION:-latest}
+    pull_policy: always
+
+    ports:
+      - "${QA_HOST_PORT:?QA_HOST_PORT is required for a QA slot}:3001"
+    mem_limit: ${DEV_CONTAINER_MEM_LIMIT:-14g}
+    mem_reservation: ${DEV_CONTAINER_MEM_RESERVATION:-12g}
+
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    devices:
+      - /dev/net/tun:/dev/net/tun
+
+    environment:
+      QA_SLOT_ID: ${QA_SLOT_ID:?QA_SLOT_ID is required for a QA slot}
+      QA_HOST_PORT: ${QA_HOST_PORT:?QA_HOST_PORT is required for a QA slot}
+      VKVD_IMAGE_VERSION: ${VKVD_IMAGE_VERSION:-latest}
+
+      CADDY_PORT: ${CADDY_PORT:-3001}
+      PROXY_DOMAIN: ${PROXY_DOMAIN:-localhost}
+      BACKEND_PORT: ${BACKEND_PORT:-3007}
+      DASHBOARD_PORT: ${DASHBOARD_PORT:-3005}
+      CODE_PORT: ${CODE_PORT:-3008}
+      XDG_CONFIG_HOME: /home/vkuser/.config
+
+      CODE_PASSWORD: ${CODE_PASSWORD:-__unset__}
+      SUDO_PASSWORD: ${SUDO_PASSWORD}
+      ENABLE_VIBE_KANBAN: ${ENABLE_VIBE_KANBAN:-true}
+
+      ENABLE_TAILSCALE: ${ENABLE_TAILSCALE:-false}
+      TAILSCALE_AUTHKEY: ${TAILSCALE_AUTHKEY:-}
+      TAILSCALE_HOSTNAME: ${TAILSCALE_HOSTNAME:-vkdev-${QA_SLOT_ID}}
+
+      MEMORY_WATCHDOG_ENABLED: ${MEMORY_WATCHDOG_ENABLED:-false}
+      MEMORY_WATCHDOG_MATTERMOST_WEBHOOK_URL: ${MEMORY_WATCHDOG_MATTERMOST_WEBHOOK_URL:-}
+      MEMORY_WATCHDOG_PROCESS_THRESHOLD_MB: ${MEMORY_WATCHDOG_PROCESS_THRESHOLD_MB:-4096}
+      MEMORY_WATCHDOG_TOTAL_THRESHOLD_PERCENT: ${MEMORY_WATCHDOG_TOTAL_THRESHOLD_PERCENT:-60}
+
+      VK_SHARED_API_BASE: ${VK_SHARED_API_BASE:-}
+      VK_ALLOWED_ORIGINS: ${VK_ALLOWED_ORIGINS:-}
+      VK_PERF_TRACING: ${VK_PERF_TRACING:-}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: ${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-}
+      OTEL_RESOURCE_ATTRIBUTES: ${OTEL_RESOURCE_ATTRIBUTES:-}
+      VK_WS_POLL_TRACING: ${VK_WS_POLL_TRACING:-}
+
+      VK_DISABLE_EXECUTOR_PRELOAD: ${VK_DISABLE_EXECUTOR_PRELOAD:-false}
+      VK_DISABLE_RELAY_STARTUP: ${VK_DISABLE_RELAY_STARTUP:-false}
+      VK_DISABLE_STARTUP_BACKFILLS: ${VK_DISABLE_STARTUP_BACKFILLS:-false}
+      VK_DISABLE_BACKFILL_BEFORE_HEAD_COMMITS: ${VK_DISABLE_BACKFILL_BEFORE_HEAD_COMMITS:-false}
+      VK_DISABLE_BACKFILL_REPO_NAMES: ${VK_DISABLE_BACKFILL_REPO_NAMES:-false}
+      VK_STARTUP_DIAGNOSTICS_INTERVAL_MS: ${VK_STARTUP_DIAGNOSTICS_INTERVAL_MS:-}
+      VK_STARTUP_DIAGNOSTICS_DURATION_SECONDS: ${VK_STARTUP_DIAGNOSTICS_DURATION_SECONDS:-}
+
+      GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
+
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - vibe-kanban-repos:/home/vkuser/repos
+      - vibe-kanban-data:/home/vkuser/.local/share/vibe-kanban
+      - vibe-kanban-worktrees:/var/tmp/vibe-kanban/worktrees
+      - vibe-dashboard-data:/home/vkuser/.local/share/vibe-dashboard-runtime/data
+      - vibe-dashboard-plugin-data:/var/lib/vd
+      - code-server-data:/home/vkuser/.local/share/code-server
+      - claude-data:/home/vkuser/.claude
+      - codex-data:/home/vkuser/.codex
+      - gh-config:/home/vkuser/.config/gh
+      - git-config:/home/vkuser/.config/git
+      - npm-cache:/home/vkuser/.npm
+      - npm-global:/home/vkuser/.npm-global
+      - pnpm-store:/home/vkuser/.local/share/pnpm
+      - tailscale-state:/var/lib/tailscale
+      - bosun-data:/home/vkuser/bosun
+
+volumes:
+  vibe-kanban-repos:
+    name: vkvd-qa-${QA_SLOT_ID:?QA_SLOT_ID is required}-vibe-kanban-repos
+  vibe-kanban-data:
+    name: vkvd-qa-${QA_SLOT_ID:?QA_SLOT_ID is required}-vibe-kanban-data
+  vibe-kanban-worktrees:
+    name: vkvd-qa-${QA_SLOT_ID:?QA_SLOT_ID is required}-vibe-kanban-worktrees
+  vibe-dashboard-data:
+    name: vkvd-qa-${QA_SLOT_ID:?QA_SLOT_ID is required}-vibe-dashboard-data
+  vibe-dashboard-plugin-data:
+    name: vkvd-qa-${QA_SLOT_ID:?QA_SLOT_ID is required}-vibe-dashboard-plugin-data
+  code-server-data:
+    name: vkvd-qa-${QA_SLOT_ID:?QA_SLOT_ID is required}-code-server-data
+  claude-data:
+    name: vkvd-qa-${QA_SLOT_ID:?QA_SLOT_ID is required}-claude-data
+  codex-data:
+    name: vkvd-qa-${QA_SLOT_ID:?QA_SLOT_ID is required}-codex-data
+  gh-config:
+    name: vkvd-qa-${QA_SLOT_ID:?QA_SLOT_ID is required}-gh-config
+  git-config:
+    name: vkvd-qa-${QA_SLOT_ID:?QA_SLOT_ID is required}-git-config
+  npm-cache:
+    name: vkvd-qa-${QA_SLOT_ID:?QA_SLOT_ID is required}-npm-cache
+  npm-global:
+    name: vkvd-qa-${QA_SLOT_ID:?QA_SLOT_ID is required}-npm-global
+  pnpm-store:
+    name: vkvd-qa-${QA_SLOT_ID:?QA_SLOT_ID is required}-pnpm-store
+  tailscale-state:
+    name: vkvd-qa-${QA_SLOT_ID:?QA_SLOT_ID is required}-tailscale-state
+  bosun-data:
+    name: vkvd-qa-${QA_SLOT_ID:?QA_SLOT_ID is required}-bosun-data
