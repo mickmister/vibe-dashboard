@@ -29,7 +29,12 @@ if ! dpkg -s sysbox-ce >/dev/null 2>&1; then
   pkg="/tmp/sysbox-ce_${SYSBOX_VERSION}.linux_${pkg_arch}.deb"
   curl -fL -o "$pkg" "https://github.com/nestybox/sysbox/releases/download/v${SYSBOX_VERSION}/sysbox-ce_${SYSBOX_VERSION}.linux_${pkg_arch}.deb"
   echo "${pkg_sha}  ${pkg}" | sha256sum -c -
-  apt-get install -y "$pkg"
+  if ! apt-get install -y "$pkg"; then
+    # Sysbox's postinst restarts Docker. On fresh Colima boots Docker can hit
+    # systemd's start-limit during provisioning; clear it and let dpkg finish.
+    systemctl reset-failed docker || true
+    dpkg --configure -a
+  fi
   rm -f "$pkg"
 fi
 
@@ -45,6 +50,7 @@ fi
 mv /etc/docker/daemon.json.tmp /etc/docker/daemon.json
 
 systemctl restart sysbox || true
+systemctl reset-failed docker || true
 systemctl restart docker
 
 docker info | grep -q 'sysbox-runc'
