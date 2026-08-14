@@ -578,6 +578,8 @@ without agents stepping on the same working tree.
 
 **Type:** Runtime/store/API foundation.
 
+**Detailed plan:** [`./test-plan-9.md`](./test-plan-9.md).
+
 **Goal:** Implement the smallest durable lane model needed before command steps
 and meta-workflows use it.
 
@@ -596,6 +598,8 @@ if browser-visible, `npm run check-types`, `git diff --check`.
 ### M117 — Safe workflow command-step provider
 
 **Type:** Runtime/plugin implementation.
+
+**Detailed plan:** [`./test-plan-9.md`](./test-plan-9.md).
 
 **Goal:** Add the first safe executable command provider using the M114 safety
 model and M116 lane foundation.
@@ -616,6 +620,8 @@ Playwright if UI-visible, `npm run check-types`, `git diff --check`.
 ### M118 — Bead-driven meta-workflow sequential pause/resume prototype
 
 **Type:** Workflow template/runtime integration prototype.
+
+**Detailed plan:** [`./test-plan-9.md`](./test-plan-9.md).
 
 **Goal:** Let workflow runs coordinate bead-driven work in a sequential,
 pause/resume-friendly way without requiring an orchestrator agent.
