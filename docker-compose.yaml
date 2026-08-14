@@ -96,6 +96,8 @@ services:
       - claude-data:/home/vkuser/.claude
       # Persist Codex CLI/IDE auth cache (~/.codex/auth.json)
       - codex-data:/home/vkuser/.codex
+      # Persist agent skills/configuration
+      - agents-data:/home/vkuser/.agents
       # Persist GitHub CLI authentication
       - gh-config:/home/vkuser/.config/gh
       # Persist Git global config (user.name, user.email, etc.)
@@ -208,6 +210,7 @@ volumes:
   vibe-dashboard-plugin-data:
   code-server-data:
   claude-data:
+  agents-data:
   gh-config:
   git-config:
   codex-data:
