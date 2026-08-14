@@ -596,11 +596,7 @@ async function validateWorkspaceRepo(
     return await options.validateWorkspaceRepo(input);
   }
   const client = new VibeKanbanServerClient();
-  const workspaces = await client.getWorkspaces();
-  const workspace = workspaces.find((candidate) => candidate.id === input.workspaceId);
-  if (!workspace) {
-    throw new Error('workspace_not_found');
-  }
+  const workspace = await client.getWorkspace(input.workspaceId);
   const repos = await client.getWorkspaceRepos(input.workspaceId);
   if (!repos.some((repo) => repo.id === input.repoId)) {
     throw new Error('repo_not_in_workspace');

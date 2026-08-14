@@ -5,7 +5,7 @@ import { join, relative, resolve } from 'node:path';
 import { EventEmitter } from 'node:events';
 
 import { Hono } from 'hono';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { encodeVardashVarlockPathSegment, registerVardashRoutes } from './api';
 import { VardashLaunchRunner, type VardashChildProcess, type VardashProcessSpawnOptions, type VardashProcessSpawner } from './launch';
@@ -16,6 +16,7 @@ const stores: SqlcipherVardashStore[] = [];
 afterEach(async () => {
   await Promise.all(stores.map((store) => store.close()));
   stores.length = 0;
+  vi.unstubAllGlobals();
 });
 
 async function createApi(options: Parameters<typeof registerVardashRoutes>[1] = {}) {
@@ -401,6 +402,76 @@ describe('vardash API boundary', () => {
         },
       ],
     });
+  });
+
+  it('default workspace validation uses direct workspace lookup so qa-mode hidden workspace lists still load panels', async () => {
+    const calls: string[] = [];
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
+      const url = String(input);
+      calls.push(url);
+      if (url === 'http://localhost:3007/api/workspaces') {
+        return Response.json({ success: true, data: [] });
+      }
+      if (url === 'http://localhost:3007/api/workspaces/ws-hidden') {
+        return Response.json({
+          success: true,
+          data: {
+            id: 'ws-hidden',
+            task_id: null,
+            container_ref: null,
+            branch: 'vk/ws-hidden',
+            agent_working_dir: '/workspace/repo-a',
+            created_at: '2026-08-14T00:00:00.000Z',
+            updated_at: '2026-08-14T00:00:00.000Z',
+            archived: false,
+            pinned: false,
+            name: 'Hidden qa-mode workspace',
+          },
+        });
+      }
+      if (url === 'http://localhost:3007/api/workspaces/ws-hidden/repos') {
+        return Response.json({
+          success: true,
+          data: [
+            {
+              id: 'repo-a',
+              name: 'basic-seeded-repo',
+              display_name: 'basic-seeded-repo',
+              target_branch: 'main',
+            },
+          ],
+        });
+      }
+      return new Response('not found', { status: 404 });
+    });
+
+    const { app, store } = await createApi({ validateWorkspaceRepo: undefined });
+    await store.upsertRepoProcessDefinition({
+      repoId: 'repo-a',
+      name: 'Dev server',
+      command: 'npm run dev',
+      isDefault: true,
+    });
+
+    const overview = await app.request('/dashboard/api/vardash/workspaces/ws-hidden/repos/repo-a/env-overview');
+    const processes = await app.request('/dashboard/api/vardash/workspaces/ws-hidden/repos/repo-a/process-definitions');
+    const readiness = await app.request('/dashboard/api/vardash/workspaces/ws-hidden/repos/repo-a/launch/readiness');
+
+    expect(overview.status).toBe(200);
+    expect(processes.status).toBe(200);
+    expect(readiness.status).toBe(200);
+    expect(await overview.json()).toMatchObject({ repoId: 'repo-a', workspaceId: 'ws-hidden' });
+    expect(await processes.json()).toMatchObject({
+      processes: [{ name: 'Dev server' }],
+    });
+    expect(await readiness.json()).toMatchObject({
+      workspaceId: 'ws-hidden',
+      repoId: 'repo-a',
+      launch: { repoRootResolved: true },
+    });
+    expect(calls).not.toContain('http://localhost:3007/api/workspaces');
+    expect(calls).toContain('http://localhost:3007/api/workspaces/ws-hidden');
+    expect(calls).toContain('http://localhost:3007/api/workspaces/ws-hidden/repos');
   });
 
   it('returns metadata-only launch readiness after workspace/repo/process ownership validation', async () => {
