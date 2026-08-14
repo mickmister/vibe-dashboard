@@ -210,6 +210,7 @@ textarea {
   flex-wrap: wrap;
   gap: 0.75rem;
   margin: 1.5rem 0 0;
+  width: 100%;
   max-width: 56rem;
 }
 
@@ -550,11 +551,17 @@ textarea {
 
   .beadsform-root .beads-form-submit-actions {
     flex-direction: column;
+    align-items: stretch;
+    max-width: 100%;
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 
   .beadsform-root .beads-form-submit-actions button {
+    box-sizing: border-box;
+    max-width: 100%;
     width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
 
   .beadsform-root .beadsform-single-question-layout {

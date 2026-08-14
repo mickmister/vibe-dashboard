@@ -14,6 +14,8 @@ describe('BeadsForm styles', () => {
     expect(css).toMatch(/\.beadsform-root\s*\{[^}]*padding:\s*2rem 2rem calc\(8rem \+ env\(safe-area-inset-bottom,\s*0px\)\)/s);
     expect(css).toMatch(/@media \(max-width:\s*640px\)[\s\S]*\.beadsform-root\s*\{[^}]*padding:\s*1rem 1rem calc\(10rem \+ env\(safe-area-inset-bottom,\s*0px\)\)/);
     expect(css).toMatch(/\.beadsform-root \.beads-form-submit-actions\s*\{[^}]*padding-bottom:\s*env\(safe-area-inset-bottom,\s*0px\)/s);
+    expect(css).toMatch(/@media \(max-width:\s*640px\)[\s\S]*\.beadsform-root \.beads-form-submit-actions\s*\{[^}]*flex-direction:\s*column[^}]*align-items:\s*stretch[^}]*max-width:\s*100%/);
+    expect(css).toMatch(/@media \(max-width:\s*640px\)[\s\S]*\.beadsform-root \.beads-form-submit-actions button\s*\{[^}]*box-sizing:\s*border-box[^}]*max-width:\s*100%[^}]*width:\s*100%[^}]*white-space:\s*normal[^}]*overflow-wrap:\s*anywhere/s);
   });
 
   it('lays out single-question mode as a centered wide column with notes above the question', async () => {

@@ -480,6 +480,33 @@ describe('BeadsForm single-question mode', () => {
     expect(document.querySelector<HTMLElement>('.beads-form-submit-actions')?.hidden).toBe(false);
   });
 
+  it('keeps final review submit actions at the bottom of the wizard review flow', () => {
+    document.body.innerHTML = `
+      <div id="host">
+        <form>
+          <fieldset><legend>First</legend><input name="first" value="ok" required></fieldset>
+          <fieldset><legend>Second</legend><input name="second" value="ok" required></fieldset>
+          <div class="beads-form-submit-actions" role="group" aria-label="Submit intent">
+            <p>Choose how to submit.</p>
+            <button name="allow_code_file_changes" type="submit" value="true">Submit and allow implementation for the selected next milestone</button>
+            <button name="allow_code_file_changes" type="submit" value="false">Submit for planning only; no code/file changes</button>
+          </div>
+        </form>
+      </div>
+    `;
+    initializeSingleQuestionMode(document.querySelector('#host')!);
+
+    document.querySelectorAll<HTMLButtonElement>('.beadsform-single-question-list-button')[2]!.click();
+
+    const review = document.querySelector<HTMLElement>('.beadsform-single-question-review')!;
+    const submitActions = document.querySelector<HTMLElement>('.beads-form-submit-actions')!;
+    expect(review.hidden).toBe(false);
+    expect(submitActions.hidden).toBe(false);
+    expect(submitActions.parentElement).toBe(review);
+    expect(review.lastElementChild).toBe(submitActions);
+    expect(Array.from(submitActions.querySelectorAll<HTMLButtonElement>('button')).map((button) => button.value)).toEqual(['true', 'false']);
+  });
+
   it('preserves review state in the URL and allows submit from review', () => {
     window.history.pushState(null, '', '/dashboard/forms?dir=%2Frepo&bead=bd-1&form=review');
     document.body.innerHTML = `
