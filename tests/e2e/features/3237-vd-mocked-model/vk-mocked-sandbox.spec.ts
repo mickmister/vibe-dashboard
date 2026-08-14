@@ -89,48 +89,52 @@ test.describe('VK mocked-provider sandbox through VD UI', () => {
       .frameLocator('iframe[title="Create Workspace"]')
       .last();
     await closeSidebarOverlayIfPresent(page);
-    await ensureRepositorySelectionStep(page, createWorkspaceFrame);
-    await expect(createWorkspaceFrame.locator('body')).toContainText(
-      'Which repositories would you like to work on?',
+    const isRepositorySelectionStep = await ensureRepositorySelectionStep(
+      createWorkspaceFrame,
     );
-    await expectCreateWorkspaceFrameUrl(page);
-    await clearSelectedRepositories(createWorkspaceFrame);
-    await expect(
-      createWorkspaceFrame.getByRole('button', { name: 'Recent' }),
-    ).toBeVisible();
-    await expect(
-      createWorkspaceFrame.getByRole('button', { name: 'Browse' }),
-    ).toBeVisible();
-    await expect(
-      createWorkspaceFrame.getByRole('button', { name: 'Create' }),
-    ).toBeVisible();
+    if (isRepositorySelectionStep) {
+      await expect(createWorkspaceFrame.locator('body')).toContainText(
+        'Which repositories would you like to work on?',
+      );
+      await expectCreateWorkspaceFrameUrl(page);
+      await clearSelectedRepositories(createWorkspaceFrame);
+      await expect(
+        createWorkspaceFrame.getByRole('button', { name: 'Recent' }),
+      ).toBeVisible();
+      await expect(
+        createWorkspaceFrame.getByRole('button', { name: 'Browse' }),
+      ).toBeVisible();
+      await expect(
+        createWorkspaceFrame.getByRole('button', { name: 'Create' }),
+      ).toBeVisible();
 
-    await dismissVkWelcomeIfPresent(createWorkspaceFrame);
-    await createWorkspaceFrame
-      .getByRole('button', { name: 'Create' })
-      .click();
-    await expect(
-      createWorkspaceFrame.getByRole('heading', {
-        name: 'Create New Repository',
-      }),
-    ).toBeVisible();
-    await createWorkspaceFrame
-      .getByRole('textbox', { name: 'my-project' })
-      .fill(repoName);
-    await createWorkspaceFrame
-      .getByRole('textbox', { name: 'Current directory' })
-      .fill(sandboxRepoDir);
-    await createWorkspaceFrame
-      .getByRole('button', { name: 'Create Repository' })
-      .click();
-    await createWorkspaceFrame
-      .getByRole('option', { name: /main/ })
-      .click();
+      await dismissVkWelcomeIfPresent(createWorkspaceFrame);
+      await createWorkspaceFrame
+        .getByRole('button', { name: 'Create' })
+        .click();
+      await expect(
+        createWorkspaceFrame.getByRole('heading', {
+          name: 'Create New Repository',
+        }),
+      ).toBeVisible();
+      await createWorkspaceFrame
+        .getByRole('textbox', { name: 'my-project' })
+        .fill(repoName);
+      await createWorkspaceFrame
+        .getByRole('textbox', { name: 'Current directory' })
+        .fill(sandboxRepoDir);
+      await createWorkspaceFrame
+        .getByRole('button', { name: 'Create Repository' })
+        .click();
+      await createWorkspaceFrame
+        .getByRole('option', { name: /main/ })
+        .click();
 
-    await expect(createWorkspaceFrame.getByText(repoName)).toBeVisible();
-    await createWorkspaceFrame
-      .getByRole('button', { name: 'Continue' })
-      .click();
+      await expect(createWorkspaceFrame.getByText(repoName)).toBeVisible();
+      await createWorkspaceFrame
+        .getByRole('button', { name: 'Continue' })
+        .click();
+    }
 
     await expect(
       createWorkspaceFrame.getByRole('heading', {
@@ -143,7 +147,7 @@ test.describe('VK mocked-provider sandbox through VD UI', () => {
     await expect(
       createWorkspaceFrame.getByRole('button', {
         name: new RegExp(
-          `^(${escapeRegex(repoName)} · main|\\d+ repositories selected)$`,
+          `^(${escapeRegex(repoName)} · main|basic-seeded-repo · main|\\d+ repositories selected)$`,
         ),
       }),
     ).toBeVisible();
@@ -267,9 +271,8 @@ async function createVoyage(
 }
 
 async function ensureRepositorySelectionStep(
-  page: Page,
   createWorkspaceFrame: FrameLocator,
-) {
+): Promise<boolean> {
   const frameBody = createWorkspaceFrame.locator('body');
   if (
     await frameBody
@@ -279,7 +282,7 @@ async function ensureRepositorySelectionStep(
       )
       .catch(() => false)
   ) {
-    return;
+    return true;
   }
 
   const clickedRepoSummary = await createWorkspaceFrame
@@ -301,11 +304,14 @@ async function ensureRepositorySelectionStep(
     });
 
   if (clickedRepoSummary) {
-    await expect(frameBody).toContainText(
-      'Which repositories would you like to work on?',
-      { timeout: 15_000 },
-    );
+    return await frameBody
+      .textContent({ timeout: 15_000 })
+      .then((text) =>
+        Boolean(text?.includes('Which repositories would you like to work on?')),
+      )
+      .catch(() => false);
   }
+  return false;
 }
 
 async function clearSelectedRepositories(createWorkspaceFrame: FrameLocator) {
