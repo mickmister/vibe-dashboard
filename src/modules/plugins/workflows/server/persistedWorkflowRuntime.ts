@@ -36,6 +36,10 @@ import { DbWorkflowDesignStore } from "./workflowDesignStore";
 export interface WorkflowRoleSessionBindingInput {
   sessionId: string;
   workspaceId?: string;
+  executorType?: string | null;
+  model?: string | null;
+  preferenceMode?: "preferred" | null;
+  preferenceSource?: "role_default" | "launch_override" | "workspace_default";
 }
 
 export interface WorkflowQueueAgentTurnRequest {
@@ -54,6 +58,14 @@ export interface WorkflowQueueAgentTurnRequest {
     workflow_name: string;
     workflow_design_id: string;
     workflow_version: number;
+    workflow_role_id?: string;
+    workflow_role_executor?: string | null;
+    workflow_role_model?: string | null;
+  };
+  executorPreference?: {
+    executorType: string | null;
+    model: string | null;
+    mode: "preferred";
   };
 }
 
@@ -216,7 +228,11 @@ export class PersistedWorkflowRuntimeService {
         workflowId: `${published.designId}@${published.version}`,
       },
     );
-    this.assertRoleBindings(preflightModel, input.roleBindings);
+    const resolvedRoleBindings = resolveRuntimeRoleBindings(
+      preflightModel,
+      input.roleBindings,
+    );
+    this.assertRoleBindings(preflightModel, resolvedRoleBindings);
 
     const runSnapshot = await this.designStore.createRunSnapshot({
       runSnapshotId: input.runSnapshotId,
@@ -224,7 +240,7 @@ export class PersistedWorkflowRuntimeService {
       version: requestedVersion,
       workspaceId: input.workspaceId,
       runInput: input.inputs,
-      roleBindings: input.roleBindings,
+      roleBindings: resolvedRoleBindings,
       additionalInstructions: input.additionalInstructions ?? null,
     });
     const model = normalizeWorkflowDefinitionV1(
@@ -259,7 +275,7 @@ export class PersistedWorkflowRuntimeService {
         status: initialSnapshot.status,
         coreModelJson: stableJson(model),
         coreSnapshotJson: stableJson(initialSnapshot),
-        roleBindingsJson: stableJson(input.roleBindings),
+        roleBindingsJson: stableJson(resolvedRoleBindings),
         pendingEffectJson: null,
         queuedTurnsJson: "{}",
         eventsJson: stableJson([created]),
@@ -994,6 +1010,14 @@ export class PersistedWorkflowRuntimeService {
           workflow_name: run.coreModel.name,
           workflow_design_id: run.designId,
           workflow_version: run.designVersion,
+          workflow_role_id: effect.role,
+          workflow_role_executor: binding.executorType ?? null,
+          workflow_role_model: binding.model ?? null,
+        },
+        executorPreference: {
+          executorType: binding.executorType ?? null,
+          model: binding.model ?? null,
+          mode: binding.preferenceMode ?? "preferred",
         },
       });
       const queuedTurns = {
@@ -1013,6 +1037,8 @@ export class PersistedWorkflowRuntimeService {
             turnId: effect.turnId,
             role: effect.role,
             sessionId: binding.sessionId,
+            executorType: binding.executorType ?? null,
+            model: binding.model ?? null,
             queueItemRef: queued.queueItemRef,
             promptPreview: effect.prompt.slice(0, 4096),
             promptTruncated: effect.prompt.length > 4096,
@@ -1295,6 +1321,33 @@ function mapRun(
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
+}
+
+function resolveRuntimeRoleBindings(
+  model: NormalizedAgentWorkflowModel,
+  input: Record<string, WorkflowRoleSessionBindingInput>,
+): Record<string, WorkflowRoleSessionBindingInput> {
+  const resolved: Record<string, WorkflowRoleSessionBindingInput> = {};
+  for (const [roleId, role] of Object.entries(model.roles)) {
+    const binding = input[roleId];
+    const preference = role.executorPreference;
+    resolved[roleId] = {
+      ...binding,
+      sessionId: binding?.sessionId ?? "",
+      workspaceId: binding?.workspaceId,
+      executorType:
+        binding?.executorType ?? preference?.executorType ?? null,
+      model: binding?.model ?? preference?.model ?? null,
+      preferenceMode:
+        binding?.preferenceMode ?? preference?.mode ?? "preferred",
+      preferenceSource: binding?.preferenceSource ?? (preference ? "role_default" : "workspace_default"),
+    };
+  }
+  for (const [roleId, binding] of Object.entries(input)) {
+    if (resolved[roleId]) continue;
+    resolved[roleId] = { ...binding };
+  }
+  return resolved;
 }
 
 function stableJson(value: unknown): string {

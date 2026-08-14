@@ -13,6 +13,13 @@ export type WorkflowInputSpec = {
 export type WorkflowRoleDefinition = {
   label?: string;
   description?: string;
+  executorPreference?: WorkflowRoleExecutorPreferenceV1;
+};
+
+export type WorkflowRoleExecutorPreferenceV1 = {
+  executorType?: string;
+  model?: string;
+  mode?: 'preferred';
 };
 
 export type PromptTemplateRef = {
@@ -502,8 +509,14 @@ export function normalizeWorkflowDefinitionV1(
         issues.push(issue('WORKFLOW_CONFIG_INVALID_ACTIVE_STATE', `roles.${roleId}`, 'role must be an object'));
         continue;
       }
-      assertKnownKeys(role, ['label', 'description'], `roles.${roleId}`, issues);
-      roles[roleId] = cloneWithDefined({ id: roleId, label: role.label, description: role.description });
+      assertKnownKeys(role, ['label', 'description', 'executorPreference'], `roles.${roleId}`, issues);
+      validateRoleExecutorPreference(role.executorPreference, `roles.${roleId}.executorPreference`, issues);
+      roles[roleId] = cloneWithDefined({
+        id: roleId,
+        label: role.label,
+        description: role.description,
+        executorPreference: deepClone(role.executorPreference),
+      });
     }
   }
 
@@ -1586,6 +1599,24 @@ function getActiveState(
 ): Extract<NormalizedWorkflowState, { terminal: false }> | undefined {
   const state = model.states[stateId];
   return state && !state.terminal ? state : undefined;
+}
+
+function validateRoleExecutorPreference(value: unknown, path: string, issues: WorkflowConfigIssue[]) {
+  if (value === undefined) return;
+  if (!isRecord(value)) {
+    issues.push(issue('WORKFLOW_CONFIG_INVALID_ACTIVE_STATE', path, 'executorPreference must be an object'));
+    return;
+  }
+  assertKnownKeys(value, ['executorType', 'model', 'mode'], path, issues);
+  if (value.executorType !== undefined && (typeof value.executorType !== 'string' || !value.executorType.trim())) {
+    issues.push(issue('WORKFLOW_CONFIG_INVALID_ACTIVE_STATE', `${path}.executorType`, 'executorType must be a non-empty string'));
+  }
+  if (value.model !== undefined && (typeof value.model !== 'string' || !value.model.trim())) {
+    issues.push(issue('WORKFLOW_CONFIG_INVALID_ACTIVE_STATE', `${path}.model`, 'model must be a non-empty string'));
+  }
+  if (value.mode !== undefined && value.mode !== 'preferred') {
+    issues.push(issue('WORKFLOW_CONFIG_INVALID_ACTIVE_STATE', `${path}.mode`, 'mode must be preferred'));
+  }
 }
 
 function validatePrompt(value: unknown, path: string, issues: WorkflowConfigIssue[]) {

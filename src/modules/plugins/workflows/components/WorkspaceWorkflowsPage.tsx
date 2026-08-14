@@ -12,6 +12,7 @@ import {
   type WorkflowLaunchOptions,
   type WorkflowLaunchRoleBindingRequest,
   type WorkspaceWorkflowInputSummary,
+  type WorkspaceWorkflowRoleSummary,
   type WorkspaceWorkflowsHomeModel,
   type WorkspaceWorkflowAttentionSummary,
   type WorkspaceWorkflowBatchSummary,
@@ -494,7 +495,8 @@ function RunWorkflowDialog({
         for (const role of loaded.workflow.roles) {
           const matchingSession = loaded.sessions.find(
             (session) =>
-              normalizeName(session.name) === normalizeName(role.label),
+              normalizeName(session.name) === normalizeName(role.label) &&
+              sessionMatchesRolePreference(session, role),
           );
           modes[role.id] = matchingSession ? "existing" : "create_or_reuse";
           if (matchingSession) existing[role.id] = matchingSession.sessionId;
@@ -540,6 +542,8 @@ function RunWorkflowDialog({
         const warning =
           session && session.workspaceId !== workspaceId
             ? `${role.label} session belongs to another workspace.`
+            : session && !sessionMatchesRolePreference(session, role)
+              ? `${role.label} session uses ${session.executor}, but the workflow prefers ${role.executorPreference?.executorType}.`
             : null;
         return {
           role,
@@ -760,6 +764,9 @@ function RunWorkflowDialog({
                         {selected?.text}
                       </span>
                     </div>
+                    <p className="mt-1 text-xs text-zinc-400">
+                      {formatRoleExecutorPreference(role)}
+                    </p>
                     <div className="mt-3 grid gap-3 md:grid-cols-2">
                       <label className="flex items-center gap-2 text-sm">
                         <input
@@ -1429,6 +1436,26 @@ function humanRunStatus(status: string): string {
   if (status === "failed") return "Failed";
   if (status === "cancelled") return "Cancelled";
   return "Running";
+}
+
+function formatRoleExecutorPreference(role: WorkspaceWorkflowRoleSummary): string {
+  const preference = role.executorPreference;
+  if (!preference?.executorType && !preference?.model) {
+    return "Executor/model: workspace default";
+  }
+  const parts = [
+    preference.executorType ? `Executor ${preference.executorType}` : "Default executor",
+    preference.model ? `Model ${preference.model}` : "default model",
+  ];
+  return parts.join(" · ");
+}
+
+function sessionMatchesRolePreference(
+  session: { executor: string },
+  role: WorkspaceWorkflowRoleSummary,
+): boolean {
+  const preferred = role.executorPreference?.executorType?.trim().toUpperCase().replace(/[-\s]+/g, "_");
+  return !preferred || session.executor === preferred;
 }
 
 function formatTime(value: number): string {

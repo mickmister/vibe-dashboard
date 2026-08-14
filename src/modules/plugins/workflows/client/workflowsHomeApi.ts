@@ -68,6 +68,11 @@ export interface WorkspaceWorkflowRoleSummary {
   id: string;
   label: string;
   description: string | null;
+  executorPreference?: {
+    executorType: string | null;
+    model: string | null;
+    mode: 'preferred';
+  } | null;
 }
 
 export interface WorkspaceWorkflowSummary {
@@ -124,8 +129,8 @@ export interface WorkflowLaunchOptions {
 }
 
 export type WorkflowLaunchRoleBindingRequest =
-  | { mode: 'existing'; sessionId: string }
-  | { mode: 'create_or_reuse'; name: string };
+  | { mode: 'existing'; sessionId: string; executorType?: string; model?: string }
+  | { mode: 'create_or_reuse'; name: string; executorType?: string; model?: string };
 
 export interface LaunchWorkspaceWorkflowRequest {
   workspaceId: string;

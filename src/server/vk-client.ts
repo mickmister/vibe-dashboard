@@ -156,6 +156,9 @@ export interface QueueFollowUpProvenance {
   workflow_name?: string | null;
   workflow_design_id?: string | null;
   workflow_version?: number | null;
+  workflow_role_id?: string | null;
+  workflow_role_executor?: string | null;
+  workflow_role_model?: string | null;
 }
 
 export interface QueueFollowUpResponse {
@@ -184,6 +187,7 @@ export interface CreateSessionBody {
   workspace_id: string;
   executor: Executor;
   name?: string | null;
+  model?: string | null;
 }
 
 export interface WebhookSubscriptionPublic {

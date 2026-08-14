@@ -65,6 +65,11 @@ export interface WorkspaceWorkflowRoleSummary {
   id: string;
   label: string;
   description: string | null;
+  executorPreference?: {
+    executorType: string | null;
+    model: string | null;
+    mode: 'preferred';
+  } | null;
 }
 
 export interface WorkspaceWorkflowRunSummary {
@@ -185,12 +190,23 @@ function summarizeRoles(definition: unknown): WorkspaceWorkflowRoleSummary[] {
   const roles = isRecord(definition) && isRecord(definition.roles) ? definition.roles : {};
   return Object.entries(roles).map(([id, spec]) => {
     const record = isRecord(spec) ? spec : {};
+    const executorPreference = summarizeRoleExecutorPreference(record.executorPreference);
     return {
       id,
       label: typeof record.label === 'string' ? record.label : id,
       description: typeof record.description === 'string' ? record.description : null,
+      executorPreference,
     };
   });
+}
+
+function summarizeRoleExecutorPreference(value: unknown): WorkspaceWorkflowRoleSummary['executorPreference'] {
+  if (!isRecord(value)) return null;
+  return {
+    executorType: typeof value.executorType === 'string' && value.executorType.trim() ? value.executorType.trim() : null,
+    model: typeof value.model === 'string' && value.model.trim() ? value.model.trim() : null,
+    mode: 'preferred',
+  };
 }
 
 

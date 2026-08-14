@@ -29,7 +29,7 @@ import type {
 } from "./workflow-session-scanner";
 import type { WorkflowRoleSessionResolver } from "./role-session-resolver";
 import type { DeclarativeWorkflowRuntime } from "../workflows/declarative/runtime";
-import type { VibeKanbanServerClient } from "./vk-client";
+import type { Executor, VibeKanbanServerClient } from "./vk-client";
 import { buildWorkflowPresentationModel } from "./workflow-presentation-read-model";
 import {
   BUILT_IN_DECLARATIVE_WORKFLOW_DEFINITIONS,
@@ -1588,6 +1588,8 @@ interface WorkflowLaunchRoleBindingRequest {
   mode: "existing" | "create_or_reuse";
   sessionId?: string;
   name?: string;
+  executorType?: string;
+  model?: string;
 }
 
 interface WorkflowLaunchRequest {
@@ -1757,12 +1759,66 @@ function summarizeLaunchRoles(definition: unknown) {
   const roleRecord = asRecord(roles) ?? {};
   return Object.entries(roleRecord).map(([id, spec]) => {
     const record = asRecord(spec) ?? {};
+    const preference = normalizeRoleExecutorPreference(record.executorPreference);
     return {
       id,
       label: asString(record.label) ?? id,
       description: asString(record.description) ?? null,
+      executorPreference: preference,
     };
   });
+}
+
+function normalizeRoleExecutorPreference(value: unknown): {
+  executorType: string | null;
+  model: string | null;
+  mode: "preferred";
+} | null {
+  const record = asRecord(value);
+  if (!record) return null;
+  return {
+    executorType: asString(record.executorType)?.trim() || null,
+    model: asString(record.model)?.trim() || null,
+    mode: "preferred",
+  };
+}
+
+function resolveRolePreference(
+  role: { executorPreference?: { executorType: string | null; model: string | null; mode: "preferred" } | null },
+  binding: WorkflowLaunchRoleBindingRequest,
+): {
+  executorType: string | null;
+  model: string | null;
+  source: "role_default" | "launch_override" | "workspace_default";
+} {
+  const bindingExecutor = binding.executorType?.trim();
+  const bindingModel = binding.model?.trim();
+  const rolePreference = role.executorPreference ?? null;
+  return {
+    executorType: bindingExecutor || rolePreference?.executorType || null,
+    model: bindingModel || rolePreference?.model || null,
+    source: bindingExecutor || bindingModel ? "launch_override" : rolePreference ? "role_default" : "workspace_default",
+  };
+}
+
+const SUPPORTED_VK_EXECUTORS: Executor[] = [
+  "CLAUDE_CODE",
+  "CODEX",
+  "GEMINI",
+  "AMP",
+  "CURSOR_AGENT",
+  "COPILOT",
+  "DROID",
+  "OPENCODE",
+  "QWEN_CODE",
+];
+
+function normalizeVkExecutor(value: string | null): Executor | null {
+  if (!value) return null;
+  const normalized = value.trim().toUpperCase().replace(/[-\s]+/g, "_");
+  return SUPPORTED_VK_EXECUTORS.includes(normalized as Executor)
+    ? (normalized as Executor)
+    : null;
 }
 
 async function listLaunchSessions(
@@ -1785,7 +1841,7 @@ async function resolveLaunchRoleBindings(
   workflow: Awaited<ReturnType<typeof buildLaunchWorkflowSummary>>,
   requested: Record<string, WorkflowLaunchRoleBindingRequest>,
 ) {
-  const result: Record<string, { sessionId: string; workspaceId: string }> = {};
+  const result: Record<string, { sessionId: string; workspaceId: string; executorType: string | null; model: string | null; preferenceMode: "preferred"; preferenceSource: "role_default" | "launch_override" | "workspace_default" }> = {};
   for (const role of workflow.roles) {
     const binding = requested[role.id];
     if (!binding)
@@ -1793,6 +1849,14 @@ async function resolveLaunchRoleBindings(
         `role.${role.id}`,
         `Choose a session for ${role.label}.`,
       );
+    const preference = resolveRolePreference(role, binding);
+    const expectedExecutor = normalizeVkExecutor(preference.executorType);
+    if (preference.executorType && !expectedExecutor) {
+      throw new WorkflowLaunchFieldError(
+        `role.${role.id}.executorType`,
+        `${role.label} uses unsupported executor ${preference.executorType}.`,
+      );
+    }
     if (binding.mode === "existing") {
       const sessionId = binding.sessionId?.trim();
       if (!sessionId)
@@ -1807,8 +1871,20 @@ async function resolveLaunchRoleBindings(
             `role.${role.id}`,
             `${role.label} session belongs to another workspace.`,
           );
+        if (expectedExecutor && session.executor !== expectedExecutor)
+          throw new WorkflowLaunchFieldError(
+            `role.${role.id}.executorType`,
+            `${role.label} session uses ${session.executor}, but workflow prefers ${expectedExecutor}. Choose or create a compatible session.`,
+          );
       }
-      result[role.id] = { sessionId, workspaceId };
+      result[role.id] = {
+        sessionId,
+        workspaceId,
+        executorType: expectedExecutor ?? null,
+        model: preference.model,
+        preferenceMode: "preferred",
+        preferenceSource: preference.source,
+      };
       continue;
     }
     const name = binding.name?.trim() || role.label;
@@ -1825,17 +1901,25 @@ async function resolveLaunchRoleBindings(
           (left, right) =>
             Date.parse(right.updated_at) - Date.parse(left.updated_at),
         )
-        .find((session) => session.name === name);
+        .find((session) => session.name === name && (!expectedExecutor || session.executor === expectedExecutor));
       const session =
         reusable ??
         (await options.vkClient.createSession({
           workspace_id: workspaceId,
-          executor: "CODEX",
+          executor: expectedExecutor ?? "CODEX",
           name,
+          model: preference.model,
         }));
       if (session.workspace_id !== workspaceId)
         throw new Error(`${role.label} session belongs to another workspace.`);
-      result[role.id] = { sessionId: session.id, workspaceId };
+      result[role.id] = {
+        sessionId: session.id,
+        workspaceId,
+        executorType: expectedExecutor ?? session.executor ?? null,
+        model: preference.model,
+        preferenceMode: "preferred",
+        preferenceSource: preference.source,
+      };
     } catch (error) {
       throw new WorkflowLaunchFieldError(
         `role.${role.id}`,
@@ -1986,7 +2070,16 @@ async function resolvePersistedWorkflowRuntime(
         const queued = await options.vkClient!.queueFollowUp!(
           request.sessionId,
           request.prompt,
-          { source: "workflow", provenance: request.provenance },
+          {
+            source: "workflow",
+            provenance: {
+              ...request.provenance,
+              workflow_role_id: request.role,
+              workflow_role_executor:
+                request.executorPreference?.executorType ?? null,
+              workflow_role_model: request.executorPreference?.model ?? null,
+            },
+          },
         );
         return { queueItemRef: queued.queued_item.id };
       },

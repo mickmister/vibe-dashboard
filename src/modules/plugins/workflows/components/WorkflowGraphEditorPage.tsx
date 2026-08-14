@@ -450,6 +450,9 @@ export function WorkflowOutlineNavigator({
                   {roleId} · {stateCount}{" "}
                   {stateCount === 1 ? "state" : "states"}
                 </span>
+                <span className="mt-1 block text-xs text-zinc-400">
+                  {formatEditorRolePreference(role)}
+                </span>
               </button>
             );
           })}
