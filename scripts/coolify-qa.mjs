@@ -139,12 +139,14 @@ function descriptionFor(args) {
   return parts.join(' ');
 }
 
-async function updateDescription(uuid, args) {
+async function updateApplicationConfig(uuid, args) {
   await coolify(`/api/v1/applications/${uuid}`, {
     method: 'PATCH',
     body: {
       git_branch: args.branch,
       docker_compose_location: args['compose-location'] ?? DEFAULT_COMPOSE_LOCATION,
+      ports_exposes: '3001',
+      ports_mappings: `${args['host-port']}:3001`,
       description: descriptionFor(args),
     },
   });
@@ -188,7 +190,7 @@ async function deploy(args) {
   const app = await bootstrap(args);
   const uuid = app?.uuid;
   if (!uuid) return;
-  await updateDescription(uuid, args);
+  await updateApplicationConfig(uuid, args);
   const envs = {
     VKVD_IMAGE_VERSION: args['image-tag'],
     CADDY_PORT: '3001',
