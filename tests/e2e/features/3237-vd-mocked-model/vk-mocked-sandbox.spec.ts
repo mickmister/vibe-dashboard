@@ -283,15 +283,18 @@ async function ensureRepositorySelectionStep(
   }
 
   const selectedRepoButton = createWorkspaceFrame
-    .locator('button')
-    .filter({ hasText: /· main/ })
+    .getByRole('button', {
+      name: /(?:· main|\d+ repositories selected)/,
+    })
     .first();
   if (await selectedRepoButton.isVisible({ timeout: 15_000 }).catch(() => false)) {
-    await selectedRepoButton.evaluate((button) =>
-      (button as HTMLButtonElement).click(),
+    await selectedRepoButton.evaluate(
+      (button) => (button as HTMLButtonElement).click(),
+      { timeout: 1_000 },
     );
     await expect(frameBody).toContainText(
       'Which repositories would you like to work on?',
+      { timeout: 15_000 },
     );
   }
 }
