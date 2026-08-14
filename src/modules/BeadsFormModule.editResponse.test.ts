@@ -13,5 +13,8 @@ describe('BeadsForm edit response mode source', () => {
     expect(source).toContain('}, [editResponseVersion, loaded?.selectedForm?.format, previewStateKey, selectedHtml]);');
     expect(source).toContain('}, [editResponseVersion, form, html, storageKey]);');
     expect(source).toContain('}, [editResponseVersion, form, html]);');
+    expect(source).toContain('key={`preview-form-host:${loaded.selectedForm.id}:${editResponseVersion}`}');
+    expect(source).toContain('key={`aggregate-form-host:${domPrefix}:${editResponseVersion}`}');
+    expect(source).toContain('key={`bead-form-host:${beadDraftStorageKey}:${editResponseVersion}`}');
   });
 });
