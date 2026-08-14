@@ -237,6 +237,8 @@ export function createSandboxPlan(input: {
         PORT: String(input.ports.vdDashboard),
         SERVER_PORT: String(input.ports.vdServer),
         VITE_VK_BASE_ORIGIN: vkFrontendUrl,
+        VIBE_API_URL: `http://localhost:${input.ports.vkBackend}/api`,
+        VK_API_URL: `http://localhost:${input.ports.vkBackend}/api`,
         CADDY_PORT: String(input.ports.vdCaddy),
       },
     },

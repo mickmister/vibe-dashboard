@@ -223,6 +223,8 @@ describe('VK mocked sandbox helpers', () => {
     expect(vdCommand?.env.VITE_VK_BASE_ORIGIN).toBe(
       'http://localhost:4101',
     );
+    expect(vdCommand?.env.VIBE_API_URL).toBe('http://localhost:4107/api');
+    expect(vdCommand?.env.VK_API_URL).toBe('http://localhost:4107/api');
     expect(caddyCommand?.env.XDG_CONFIG_HOME).toBe(
       '/tmp/run/xdg-config',
     );
