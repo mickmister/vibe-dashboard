@@ -124,6 +124,9 @@ test.describe("Workspace Workflows tab shell", () => {
       page.getByRole("heading", { name: "Workflows", exact: true }),
     ).toBeVisible();
     await expect(page.getByText("Workspace workflow center")).toBeVisible();
+    await expect(
+      page.locator('a[href="/dashboard/workflows/roadmap"]'),
+    ).toBeVisible();
     await expect(page.getByText("Create, run, and monitor workflows for")).toBeVisible();
     await expect(page.getByLabel("Workflow dashboard summary")).toContainText("Needs input");
     await expect(page.getByLabel("Workflow dashboard summary")).toContainText("Active runs");
@@ -170,6 +173,78 @@ test.describe("Workspace Workflows tab shell", () => {
     await expect(
       page.locator('a[href="/dashboard/workflows/run-clean"]'),
     ).toHaveCount(0);
+    for (const term of forbiddenTerms) {
+      await expect(page.getByText(term, { exact: false })).toHaveCount(0);
+    }
+  });
+
+  test("shows read-only workflow roadmap route", async ({ page }) => {
+    await page.route("**/dashboard/api/workflows/roadmap", async (route) => {
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          roadmap: {
+            spikeId: "vk/8b79-vd-workflows",
+            title: "Workflow builder and automation spike",
+            description: "Read-only workflow milestone progress.",
+            generatedAt: 1_700_000,
+            statusCounts: { complete: 1, in_progress: 1, blocked: 0, review: 1, tester: 0, remaining: 1 },
+            nextAction: "Finish CKOV implementation and send to review.",
+            stale: false,
+            source: {
+              label: "Checked-in workflow roadmap",
+              description: "Typed milestone data for this spike.",
+            },
+            milestones: [
+              {
+                beadId: "vibe-kanban-vscode-web-ehl",
+                milestone: "M90",
+                title: "Workflow design store",
+                status: "complete",
+                priority: "P2",
+                summary: "Designs and versions are in place.",
+                reviewState: "passed",
+                nextAction: null,
+                dependencies: [],
+                links: [{ label: "Open bead", href: "/beads/project?bead=vibe-kanban-vscode-web-ehl", kind: "bead" }],
+                children: [],
+              },
+              {
+                beadId: "vibe-kanban-vscode-web-ckov",
+                milestone: "CKOV",
+                title: "Workflow roadmap and multi-bead progress UI",
+                status: "in_progress",
+                priority: "P2",
+                summary: "Roadmap UI is being implemented.",
+                reviewState: "implementation",
+                nextAction: "Finish CKOV implementation and send to review.",
+                dependencies: ["SEBL"],
+                links: [{ label: "Open bead", href: "/beads/project?bead=vibe-kanban-vscode-web-ckov", kind: "bead" }],
+                children: [
+                  {
+                    beadId: "vibe-kanban-vscode-web-ckov-readmodel",
+                    title: "Typed roadmap read model",
+                    status: "in_progress",
+                    summary: "Expose milestone progress as product data.",
+                    nextAction: "Finish tests.",
+                    links: [{ label: "Open bead", href: "/beads/project?bead=vibe-kanban-vscode-web-ckov-readmodel", kind: "bead" }],
+                  },
+                ],
+              },
+            ],
+          },
+        }),
+      });
+    });
+
+    await page.goto("/dashboard/workflows/roadmap");
+
+    await expect(page.getByRole("heading", { name: "Workflow builder and automation spike" })).toBeVisible();
+    await expect(page.getByLabel("Roadmap status summary")).toContainText("Complete");
+    await expect(page.getByLabel("Roadmap status summary")).toContainText("In progress");
+    await expect(page.getByText("Workflow roadmap and multi-bead progress UI")).toBeVisible();
+    await expect(page.getByText("Typed roadmap read model")).toBeVisible();
+    await expect(page.locator('a[href="/beads/project?bead=vibe-kanban-vscode-web-ckov"]')).toBeVisible();
     for (const term of forbiddenTerms) {
       await expect(page.getByText(term, { exact: false })).toHaveCount(0);
     }

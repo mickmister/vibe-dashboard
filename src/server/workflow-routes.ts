@@ -49,6 +49,7 @@ import {
 } from "../modules/plugins/workflows/server/persistedWorkflowRuntime";
 import { BUILT_IN_WORKFLOW_TEMPLATES } from "../modules/plugins/workflows/templates/builtInWorkflowTemplates";
 import { buildPersistedWorkflowPresentationModel } from "../modules/plugins/workflows/server/persistedWorkflowPresentationReadModel";
+import { buildWorkflowRoadmapModel } from "../modules/plugins/workflows/server/workflowRoadmapReadModel";
 import {
   DEFAULT_WORKFLOW_BATCH_CAPACITY,
   WorkflowBatchSchedulerService,
@@ -117,6 +118,10 @@ export function registerWorkflowRoutes(
   options: RegisterWorkflowRoutesOptions,
 ): void {
   hono.get("/dashboard/api/workflows/health", (c) => c.json({ ok: true }));
+
+  hono.get("/dashboard/api/workflows/roadmap", (c) => {
+    return c.json({ roadmap: buildWorkflowRoadmapModel() });
+  });
 
   hono.get("/dashboard/api/workflows/home", async (c) => {
     const workspaceId = c.req.query("workspaceId")?.trim();

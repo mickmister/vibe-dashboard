@@ -1,0 +1,190 @@
+import type { Meta, StoryObj } from "@storybook/react-vite";
+import React from "react";
+import { WorkflowRoadmapView } from "../components/WorkflowRoadmapPage";
+import {
+  buildWorkflowRoadmapModel,
+  emptyWorkflowRoadmapModel,
+  type WorkflowRoadmapModel,
+} from "../server/workflowRoadmapReadModel";
+import { WorkflowStoryFrame } from "./WorkflowStoryFrame";
+
+const meta: Meta<typeof WorkflowRoadmapView> = {
+  title: "Workflows/Roadmap",
+  component: WorkflowRoadmapView,
+  parameters: { layout: "fullscreen" },
+  decorators: [
+    (Story) => (
+      <WorkflowStoryFrame
+        title="Workflow roadmap progress"
+        description="Read-only milestone progress surface for workflow spike coordination."
+      >
+        <Story />
+      </WorkflowStoryFrame>
+    ),
+  ],
+};
+
+export default meta;
+type Story = StoryObj<typeof meta>;
+
+export const ActiveMixedRoadmap: Story = {
+  args: {
+    roadmap: buildWorkflowRoadmapModel({ now: () => 1_700_000 }),
+    loading: false,
+    error: null,
+    onRefresh: () => undefined,
+    embedded: true,
+  },
+};
+
+export const EmptyRoadmap: Story = {
+  args: {
+    roadmap: emptyWorkflowRoadmapModel(1_700_000),
+    loading: false,
+    error: null,
+    onRefresh: () => undefined,
+    embedded: true,
+  },
+};
+
+export const BlockedTesterFailure: Story = {
+  args: {
+    roadmap: blockedTesterRoadmap(),
+    loading: false,
+    error: null,
+    onRefresh: () => undefined,
+    embedded: true,
+  },
+};
+
+export const CompletedSpike: Story = {
+  args: {
+    roadmap: completedRoadmap(),
+    loading: false,
+    error: null,
+    onRefresh: () => undefined,
+    embedded: true,
+  },
+};
+
+export const DenseHierarchy: Story = {
+  args: {
+    roadmap: denseRoadmap(),
+    loading: false,
+    error: null,
+    onRefresh: () => undefined,
+    embedded: true,
+  },
+};
+
+export const ProductError: Story = {
+  args: {
+    roadmap: null,
+    loading: false,
+    error: "Roadmap progress is temporarily unavailable.",
+    onRefresh: () => undefined,
+    embedded: true,
+  },
+};
+
+function blockedTesterRoadmap(): WorkflowRoadmapModel {
+  const roadmap = buildWorkflowRoadmapModel({ now: () => 1_700_000 });
+  const target = roadmap.milestones.find((item) => item.milestone === "CKOV");
+  if (target) {
+    target.status = "blocked";
+    target.reviewState = "blocked";
+    target.summary =
+      "Tester found that milestone progress did not roll up from a child bead.";
+    target.nextAction = "Fix the rollup and rerun tester validation.";
+    target.children[0] = {
+      ...target.children[0]!,
+      status: "complete",
+      nextAction: null,
+    };
+    target.children[1] = {
+      ...target.children[1]!,
+      status: "blocked",
+      summary: "Storybook visual coverage missed the blocked tester state.",
+      nextAction: "Add the missing story and send back to review.",
+    };
+  }
+  roadmap.statusCounts = recount(roadmap);
+  roadmap.nextAction = "Fix the rollup and rerun tester validation.";
+  return roadmap;
+}
+
+function completedRoadmap(): WorkflowRoadmapModel {
+  const roadmap = buildWorkflowRoadmapModel({ now: () => 1_700_000 });
+  roadmap.milestones = roadmap.milestones.map((item) => ({
+    ...item,
+    status: "complete",
+    reviewState: "passed",
+    nextAction: null,
+    children: item.children.map((child) => ({
+      ...child,
+      status: "complete",
+      nextAction: null,
+    })),
+  }));
+  roadmap.statusCounts = recount(roadmap);
+  roadmap.nextAction = null;
+  roadmap.description =
+    "All workflow builder spike milestones have passed review and tester validation.";
+  return roadmap;
+}
+
+function denseRoadmap(): WorkflowRoadmapModel {
+  const roadmap = buildWorkflowRoadmapModel({ now: () => 1_700_000 });
+  for (const item of roadmap.milestones.slice(0, 5)) {
+    item.children = [
+      ...item.children,
+      {
+        beadId: `${item.beadId}-review`,
+        title: `${item.title} review follow-up`,
+        status: "complete",
+        summary: "Review feedback was addressed in a focused fix.",
+        nextAction: null,
+        links: [
+          {
+            label: "Open bead",
+            href: `/beads/project?bead=${encodeURIComponent(`${item.beadId}-review`)}`,
+            kind: "bead",
+          },
+        ],
+      },
+      {
+        beadId: `${item.beadId}-tester`,
+        title: `${item.title} tester pass`,
+        status: "complete",
+        summary: "Independent tester artifacts were recorded.",
+        nextAction: null,
+        links: [
+          {
+            label: "Open bead",
+            href: `/beads/project?bead=${encodeURIComponent(`${item.beadId}-tester`)}`,
+            kind: "bead",
+          },
+        ],
+      },
+    ];
+  }
+  roadmap.statusCounts = recount(roadmap);
+  return roadmap;
+}
+
+function recount(roadmap: WorkflowRoadmapModel): WorkflowRoadmapModel["statusCounts"] {
+  return roadmap.milestones.reduce(
+    (counts, item) => {
+      counts[item.status] += 1;
+      return counts;
+    },
+    {
+      complete: 0,
+      in_progress: 0,
+      blocked: 0,
+      review: 0,
+      tester: 0,
+      remaining: 0,
+    },
+  );
+}

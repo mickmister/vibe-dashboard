@@ -39,6 +39,8 @@ describe("WorkspaceWorkflowsHomeView", () => {
     expect(html).toContain("workspace-a");
     expect(html).toContain("Workflows");
     expect(html).toContain("Create workflow");
+    expect(html).toContain("View roadmap");
+    expect(html).toContain('href="/dashboard/workflows/roadmap"');
     expect(html).toContain(
       'href="/dashboard/workflows/new?workspaceId=workspace-a"',
     );

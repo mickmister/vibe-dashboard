@@ -50,6 +50,44 @@ describe("registerWorkflowRoutes", () => {
     });
   });
 
+  it("TEST_CASE_CKOV_1C returns product-safe workflow roadmap read model", async () => {
+    const app = new Hono();
+    registerWorkflowRoutes(app, { registry: createWorkflowRegistry() });
+
+    const response = await app.request("/dashboard/api/workflows/roadmap");
+
+    expect(response.status).toBe(200);
+    const payload = (await response.json()) as { roadmap: unknown };
+    expect(payload).toMatchObject({
+      roadmap: {
+        spikeId: "vk/8b79-vd-workflows",
+        title: "Workflow builder and automation spike",
+        statusCounts: expect.objectContaining({
+          complete: expect.any(Number),
+          in_progress: expect.any(Number),
+          review: expect.any(Number),
+          remaining: expect.any(Number),
+        }),
+        milestones: expect.arrayContaining([
+          expect.objectContaining({
+            milestone: "CKOV",
+            beadId: "vibe-kanban-vscode-web-ckov",
+            links: [
+              expect.objectContaining({
+                label: "Open bead",
+                href: "/beads/project?bead=vibe-kanban-vscode-web-ckov",
+              }),
+            ],
+          }),
+        ]),
+      },
+    });
+    const serialized = JSON.stringify(payload);
+    expect(serialized).not.toContain("bd update");
+    expect(serialized).not.toContain("shell command");
+    expect(serialized).not.toContain("raw JSON");
+  });
+
   it("returns workspace workflows home read model scoped to workspace", async () => {
     const handle = await initVdDb({ path: ":memory:" });
     dbHandles.push(handle);
