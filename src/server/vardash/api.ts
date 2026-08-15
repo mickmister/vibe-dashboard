@@ -21,6 +21,7 @@ export interface VardashWorkspaceRepoValidationInput {
 
 export interface VardashWorkspaceRepoValidationResult {
   repoRoot?: string | null;
+  canonicalRepoId?: string;
 }
 
 export interface RegisterVardashRoutesOptions {
@@ -204,30 +205,24 @@ export function registerVardashRoutes(app: Hono, options: RegisterVardashRoutesO
   });
 
   app.post('/dashboard/api/vardash/workspaces/:workspaceId/repos/:repoId/launch', async (c) => {
-    const workspaceId = c.req.param('workspaceId');
-    const repoId = c.req.param('repoId');
-    let ownership: VardashWorkspaceRepoValidationResult | void;
-    try {
-      ownership = await validateWorkspaceRepo(options, { workspaceId, repoId });
-    } catch {
-      return c.json({ error: 'workspace_repo_forbidden' }, 403);
-    }
+    const scoped = await requireWorkspaceRepoAccess(c, options);
+    if ('response' in scoped) return scoped.response;
 
     const body = await readJson(c);
     const useVarlock = body.useVarlock === true;
     const varlockRuntime = useVarlock
-      ? await resolveVarlockRuntime(options, workspaceId, repoId).catch(() => null)
+      ? await resolveVarlockRuntime(options, scoped.workspaceId, scoped.repoId).catch(() => null)
       : null;
     if (useVarlock && !varlockRuntime) return c.json({ error: 'launch_failed' }, 409);
     const store = await getStore();
     try {
       const plan = await prepareVardashRepoProcessLaunch({
         store,
-        workspaceId,
-        repoId,
+        workspaceId: scoped.workspaceId,
+        repoId: scoped.repoId,
         processDefinitionId: readNullableString(body.processDefinitionId) ?? undefined,
         processName: readNullableString(body.processName) ?? undefined,
-        repoRoot: ownership?.repoRoot,
+        repoRoot: scoped.ownership?.repoRoot,
         baseEnv: options.launchBaseEnv,
         allowBaseEnvKeys: options.launchAllowBaseEnvKeys,
         useVarlock: varlockRuntime != null,
@@ -267,28 +262,22 @@ export function registerVardashRoutes(app: Hono, options: RegisterVardashRoutesO
   });
 
   app.get('/dashboard/api/vardash/workspaces/:workspaceId/repos/:repoId/launch/readiness', async (c) => {
-    const workspaceId = c.req.param('workspaceId');
-    const repoId = c.req.param('repoId');
     const useVarlock = c.req.query('useVarlock') === 'true';
-    let ownership: VardashWorkspaceRepoValidationResult | void;
-    try {
-      ownership = await validateWorkspaceRepo(options, { workspaceId, repoId });
-    } catch {
-      return c.json({ error: 'workspace_repo_forbidden' }, 403);
-    }
+    const scoped = await requireWorkspaceRepoAccess(c, options);
+    if ('response' in scoped) return scoped.response;
 
     const store = await getStore();
     try {
       const readiness = await getVardashLaunchReadiness({
         store,
-        workspaceId,
-        repoId,
+        workspaceId: scoped.workspaceId,
+        repoId: scoped.repoId,
         processDefinitionId: readNullableString(c.req.query('processDefinitionId')) ?? undefined,
         processName: readNullableString(c.req.query('processName')) ?? undefined,
         useVarlock,
       });
       const varlock = await getVarlockReadiness(options, useVarlock);
-      const launch = repoRootReadiness(ownership);
+      const launch = repoRootReadiness(scoped.ownership);
       return c.json({
         ...readiness,
         eligible: readiness.eligible && launch.repoRootResolved && (!useVarlock || (varlock.configured && varlock.available !== false)),
@@ -338,7 +327,7 @@ async function requireWorkspaceRepoAccess(
   const repoId = c.req.param('repoId');
   try {
     const ownership = await validateWorkspaceRepo(options, { workspaceId, repoId });
-    return { workspaceId, repoId, ownership };
+    return { workspaceId, repoId: ownership?.canonicalRepoId ?? repoId, ownership };
   } catch {
     return { response: c.json({ error: 'workspace_repo_forbidden' }, 403) };
   }
@@ -598,12 +587,19 @@ async function validateWorkspaceRepo(
   const client = new VibeKanbanServerClient();
   const workspace = await client.getWorkspace(input.workspaceId);
   const repos = await client.getWorkspaceRepos(input.workspaceId);
-  if (!repos.some((repo) => repo.id === input.repoId)) {
+  const matchingRepos = repos.filter((candidate) =>
+    candidate.id === input.repoId
+      || candidate.name === input.repoId
+      || candidate.display_name === input.repoId
+  );
+  if (matchingRepos.length !== 1) {
     throw new Error('repo_not_in_workspace');
   }
+  const repo = matchingRepos[0]!;
   if (repos.length === 1 && workspace.agent_working_dir) {
-    return { repoRoot: workspace.agent_working_dir };
+    return { repoRoot: workspace.agent_working_dir, canonicalRepoId: repo.id };
   }
+  return { canonicalRepoId: repo.id };
 }
 
 export function encodeVardashVarlockPathSegment(value: string): string {

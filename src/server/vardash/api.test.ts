@@ -453,9 +453,9 @@ describe('vardash API boundary', () => {
       isDefault: true,
     });
 
-    const overview = await app.request('/dashboard/api/vardash/workspaces/ws-hidden/repos/repo-a/env-overview');
-    const processes = await app.request('/dashboard/api/vardash/workspaces/ws-hidden/repos/repo-a/process-definitions');
-    const readiness = await app.request('/dashboard/api/vardash/workspaces/ws-hidden/repos/repo-a/launch/readiness');
+    const overview = await app.request('/dashboard/api/vardash/workspaces/ws-hidden/repos/basic-seeded-repo/env-overview');
+    const processes = await app.request('/dashboard/api/vardash/workspaces/ws-hidden/repos/basic-seeded-repo/process-definitions');
+    const readiness = await app.request('/dashboard/api/vardash/workspaces/ws-hidden/repos/basic-seeded-repo/launch/readiness');
 
     expect(overview.status).toBe(200);
     expect(processes.status).toBe(200);
