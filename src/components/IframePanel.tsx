@@ -1156,8 +1156,7 @@ function PersistentIframeLayer({
   if (activePair) {
     const pairTabs = activePair.tabIds
       .map((id) => tabGroup.tabs.find((tab) => tab.id === id))
-      .filter((tab): tab is Tab => tab != null)
-      .filter((tab) => getTabRenderTargetForTab(tab, tabGroup).kind === 'iframe');
+      .filter((tab): tab is Tab => tab != null);
 
     const separatorWidth = 4;
     const totalSeparatorWidth = Math.max(pairTabs.length - 1, 0) * separatorWidth;
@@ -1169,15 +1168,17 @@ function PersistentIframeLayer({
       const ratioFraction = ratio / totalRatio;
       const cumulativeFraction = cumulativeRatio / totalRatio;
 
-      layoutStyles.set(getIframeRetentionKey(tabGroup.id, tab.id), {
-        position: 'absolute',
-        top: 0,
-        bottom: 0,
-        left: `calc(${(cumulativeFraction * 100).toFixed(6)}% + ${(index * separatorWidth - cumulativeFraction * totalSeparatorWidth).toFixed(3)}px)`,
-        width: `calc(${(ratioFraction * 100).toFixed(6)}% - ${(ratioFraction * totalSeparatorWidth).toFixed(3)}px)`,
-        visibility: 'visible',
-        pointerEvents: 'auto',
-      });
+      if (getTabRenderTargetForTab(tab, tabGroup).kind === 'iframe') {
+        layoutStyles.set(getIframeRetentionKey(tabGroup.id, tab.id), {
+          position: 'absolute',
+          top: 0,
+          bottom: 0,
+          left: `calc(${(cumulativeFraction * 100).toFixed(6)}% + ${(index * separatorWidth - cumulativeFraction * totalSeparatorWidth).toFixed(3)}px)`,
+          width: `calc(${(ratioFraction * 100).toFixed(6)}% - ${(ratioFraction * totalSeparatorWidth).toFixed(3)}px)`,
+          visibility: 'visible',
+          pointerEvents: 'auto',
+        });
+      }
 
       cumulativeRatio += ratio;
     });
@@ -1412,6 +1413,14 @@ function PairTabView({
 
   if (target.kind === 'blocked-self-app') {
     return <BlockedSelfAppPlaceholder url={tab.url} />;
+  }
+
+  if (target.kind === 'react-surface') {
+    return (
+      <div className="relative w-full h-full pointer-events-auto bg-neutral-950">
+        <ReactCraftSurfaceHost target={target.target} />
+      </div>
+    );
   }
 
   return (

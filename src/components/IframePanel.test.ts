@@ -1,8 +1,11 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import {
   IFRAME_PORT_PREFIX_REVEAL_DELAY_MS,
   IFRAME_REVEAL_DELAY_MS,
   IFRAME_VISUAL_READY_TIMEOUT_MS,
+  IframePanel,
   __iframePanelTestUtils,
   getIframeRevealDelayMs,
   getIframeRevealStyle,
@@ -171,6 +174,55 @@ describe('iframe reveal behavior', () => {
         props: { workspaceId: 'workspace-e2e' },
       },
     });
+  });
+
+  it('renders PreviewServer React craft surfaces inside pair layouts', () => {
+    const previewTab = {
+      id: 'craft-surface:craft_workspace:dev.mickmister.preview-server/run-configs',
+      title: 'PreviewServer',
+      url: 'internal://preview-run-configs',
+      ephemeral: {
+        kind: 'craft-surface' as const,
+        pluginId: 'dev.mickmister.preview-server',
+        surfaceKey: 'dev.mickmister.preview-server/run-configs',
+        sourceKey: 'run-configs',
+      },
+    };
+    const markup = renderToStaticMarkup(
+      React.createElement(IframePanel, {
+        activeItemId: 'pair-preview-code',
+        onUpdatePairRatios: () => {},
+        tabGroup: {
+          id: 'craft_workspace',
+          label: 'Workspace',
+          order: 0,
+          tabs: [
+            previewTab,
+            {
+              id: 'code',
+              title: 'Code',
+              url: 'http://code.example.test',
+            },
+          ],
+          pairs: [
+            {
+              id: 'pair-preview-code',
+              tabIds: [previewTab.id, 'code'],
+              ratios: [50, 50],
+            },
+          ],
+          workspace: {
+            workspaceId: 'workspace-e2e',
+            workspaceDir: '/work/repo',
+          },
+        },
+      }),
+    );
+
+    expect(markup).toContain('PreviewServer');
+    expect(markup).toContain('stored run configs');
+    expect(markup).toContain('left:calc(50.000000% + 2.000px)');
+    expect(markup).toContain('width:calc(50.000000% - 2.000px)');
   });
 
   it('clears first-activation tracking when an iframe is removed', () => {
