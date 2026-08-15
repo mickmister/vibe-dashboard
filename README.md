@@ -146,6 +146,28 @@ Codex caches credentials in `~/.codex/auth.json` when configured for file-based 
 
 ## Docker-in-Docker support
 
-The container includes Docker CLI and mounts the host's Docker socket at `/var/run/docker.sock`. This allows agents to run docker commands and you to run Docker commands from within the VSCode environment.
+The workspace runs Docker inside the dev container with Sysbox instead of mounting the host Docker socket. `docker-compose.yaml` sets `runtime: sysbox-runc`, persists the inner daemon at `/var/lib/docker`, and intentionally does **not** mount `/var/run/docker.sock` from the host.
 
-**Security note:** The mounted Docker socket gives this container the ability to create and manage containers on the host. Only use this environment in trusted contexts. Remove the docker socket volume in the compose file to disable this.
+Platform notes:
+
+- Linux amd64/arm64: install Sysbox on the Docker host, then start the stack normally. Sysbox publishes amd64 and arm64 Linux packages.
+- Mac amd64/arm64: use Docker Desktop with Enhanced Container Isolation enabled. Docker Desktop uses Sysbox for user containers in that mode and ignores explicit `--runtime` flags.
+
+Preflight before starting:
+
+```bash
+# Linux: verify Docker can see the Sysbox runtime.
+docker info --format '{{json .Runtimes}}' | grep sysbox-runc
+
+# Mac: enable Docker Desktop > Settings > Hardened Docker Desktop > Enhanced Container Isolation.
+# Docker Desktop keeps the default runtime as runc, so runtime-name checks are not enough on Mac.
+```
+
+Start and smoke test before merge/release:
+
+```bash
+docker compose up -d code-vibe
+./scripts/smoke-sysbox-dind.sh
+```
+
+The entrypoint fails fast if Sysbox/ECI system-container capabilities are unavailable. Use `VKVD_ALLOW_NON_SYSBOX_RUNTIME=true` only for deliberate diagnostics; that bypass is not a supported release configuration.

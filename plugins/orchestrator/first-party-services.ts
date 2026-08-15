@@ -19,6 +19,8 @@ export interface FirstPartyServicePlugin {
   manifest: PluginManifest;
   privilegeTier: FirstPartyPrivilegeTier;
   bootCritical: boolean;
+  adminRemovable?: boolean;
+  removalBlockedReason?: string;
   supervisorPrograms: string[];
   supervisorConfig?: string;
   installStrategy: 'github-release-asset' | 'bundled-runtime-artifact' | 'apt-or-script' | 'generated-config' | 'scoped-bridge';
@@ -130,6 +132,19 @@ supervisor.rpcinterface_factory = supervisor.rpcinterface:make_main_rpcinterface
 
 [include]
 files = /etc/supervisor/conf.d/vd-generated/*.conf`;
+
+const DOCKERD_SUPERVISOR = `; inner Docker daemon (requires the outer container to run with Sysbox)
+[program:dockerd]
+command=/usr/bin/dockerd --host=unix:///var/run/docker.sock --data-root=/var/lib/docker
+autostart=true
+autorestart=true
+priority=5
+startsecs=5
+stdout_logfile=/dev/fd/1
+stdout_logfile_maxbytes=0
+stderr_logfile=/dev/fd/2
+stderr_logfile_maxbytes=0
+user=root`;
 
 const CODE_SERVER_SUPERVISOR = `; code-server
 [program:code-server]
@@ -316,6 +331,16 @@ export const BEADS_WEB_FIRST_PARTY_PLUGIN: FirstPartyServicePlugin = {
 export const BUILTIN_FIRST_PARTY_SERVICE_PLUGINS: FirstPartyServicePlugin[] = [
   {
     manifest: manifest({
+      id: 'first-party.dockerd',
+      displayName: 'Inner Docker Daemon',
+      version: 'docker-ce',
+      requestedCapabilities: { hostShell: { commands: ['dockerd', 'docker'] }, filesystem: [{ scope: 'absolute', path: '/var/lib/docker', access: 'readWrite' }], network: { mode: 'egress' } },
+      components: { services: [{ id: 'dockerd', runtime: 'supervisor', command: 'dockerd --host=unix:///var/run/docker.sock' }] },
+    }),
+    privilegeTier: 'trusted-workspace', bootCritical: false, adminRemovable: false, removalBlockedReason: 'inner Docker daemon is required for workspace Docker commands', supervisorPrograms: ['dockerd'], supervisorConfig: DOCKERD_SUPERVISOR, installStrategy: 'apt-or-script', desiredVersion: 'docker-ce', stagingRequired: true, rollbackable: true,
+  },
+  {
+    manifest: manifest({
       id: 'first-party.code-server',
       displayName: 'code-server',
       version: '4.123.0',
@@ -413,12 +438,12 @@ export function getFirstPartyAdminCapabilitySummaries(plugins: FirstPartyService
 
 export function createFirstPartyAdminPolicy(plugins: FirstPartyServicePlugin[]): Record<string, FirstPartyAdminPolicyEntry> {
   return Object.fromEntries(plugins.map((plugin) => {
-    const adminRemovable = !plugin.bootCritical;
+    const adminRemovable = plugin.adminRemovable ?? !plugin.bootCritical;
     return [plugin.manifest.id, {
       id: plugin.manifest.id,
       displayName: plugin.manifest.displayName,
       adminRemovable,
-      removalBlockedReason: adminRemovable ? undefined : 'boot-critical service required for the control plane to start',
+      removalBlockedReason: adminRemovable ? undefined : plugin.removalBlockedReason ?? 'boot-critical service required for the control plane to start',
       versionSwapAllowed: plugin.rollbackable,
       requiresStagingBeforeProduction: plugin.stagingRequired,
       rollbackable: plugin.rollbackable,
