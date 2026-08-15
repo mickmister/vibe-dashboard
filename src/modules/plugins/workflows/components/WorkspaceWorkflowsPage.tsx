@@ -536,8 +536,8 @@ function RunWorkflowDialog({
         const executorTypes: Record<string, string> = {};
         const models: Record<string, string> = {};
         for (const role of loaded.workflow.roles) {
-          executorTypes[role.id] = role.executorPreference?.executorType || "CODEX";
-          models[role.id] = role.executorPreference?.model || "recommended";
+          executorTypes[role.id] = role.executorPreference?.executorType || "";
+          models[role.id] = role.executorPreference?.model || "";
           const matchingSession = loaded.sessions.find(
             (session) =>
               normalizeName(session.name) === normalizeName(role.label) &&
@@ -582,8 +582,9 @@ function RunWorkflowDialog({
             role,
             text: `Create or reuse “${newSessionNames[role.id]?.trim() || role.label}”`,
             executorSummary: executorSummary(
-              roleExecutorTypes[role.id],
-              roleModels[role.id],
+              roleExecutorTypes[role.id] ||
+                role.executorPreference?.executorType,
+              roleModels[role.id] || role.executorPreference?.model,
             ),
             warning: null as string | null,
           };
@@ -593,18 +594,21 @@ function RunWorkflowDialog({
         const warning =
           session && session.workspaceId !== workspaceId
             ? `${role.label} session belongs to another workspace.`
-            : session && !sessionMatchesRolePreference(session, role)
-              ? `${role.label} session uses ${formatSessionExecutorModel(session)}, but the workflow prefers ${formatRoleExecutorPreference(role)}.`
+            : session &&
+                !sessionMatchesRolePreference(session, role, {
+                  executorType: roleExecutorTypes[role.id],
+                  model: roleModels[role.id],
+                })
+              ? `${role.label} session uses ${formatSessionExecutorModel(session)}, but the workflow prefers ${formatEffectiveRoleExecutorPreference(role, { executorType: roleExecutorTypes[role.id], model: roleModels[role.id] })}.`
               : null;
         return {
           role,
           text: session
             ? session.name || session.sessionId
             : "No session selected",
-          executorSummary: executorSummary(
-            session?.executor ?? roleExecutorTypes[role.id],
-            session?.model ?? roleModels[role.id],
-          ),
+          executorSummary: session
+            ? formatSessionExecutorModel(session)
+            : executorSummary(roleExecutorTypes[role.id], roleModels[role.id]),
           warning,
         };
       }),
@@ -649,20 +653,20 @@ function RunWorkflowDialog({
         const sessionId = existingSessions[role.id];
         if (!sessionId)
           nextErrors[`role.${role.id}`] = `Choose a session for ${role.label}.`;
-        roleBindings[role.id] = {
+        roleBindings[role.id] = buildLaunchRoleBinding({
           mode,
           sessionId: sessionId ?? "",
-          executorType: roleExecutorTypes[role.id] || undefined,
-          model: roleModels[role.id] || undefined,
-        };
+          executorType: roleExecutorTypes[role.id],
+          model: roleModels[role.id],
+        });
       } else {
         const name = newSessionNames[role.id]?.trim() || role.label;
-        roleBindings[role.id] = {
+        roleBindings[role.id] = buildLaunchRoleBinding({
           mode,
           name,
-          executorType: roleExecutorTypes[role.id] || undefined,
-          model: roleModels[role.id] || undefined,
-        };
+          executorType: roleExecutorTypes[role.id],
+          model: roleModels[role.id],
+        });
       }
     }
     setFieldErrors(nextErrors);
@@ -833,7 +837,7 @@ function RunWorkflowDialog({
                     </div>
                     <div className="mt-2 text-xs text-cyan-200">
                       Executor/model:{" "}
-                      {selected?.executorSummary ?? "Codex · recommended"}
+                      {selected?.executorSummary ?? "Workspace default"}
                     </div>
                     <p className="mt-1 text-xs text-zinc-400">
                       {formatRoleExecutorPreference(role)}
@@ -910,14 +914,15 @@ function RunWorkflowDialog({
                         <select
                           aria-label={`${role.label} executor`}
                           className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 p-2 text-sm text-zinc-100"
-                          value={roleExecutorTypes[role.id] ?? "CODEX"}
+                          value={roleExecutorTypes[role.id] ?? ""}
                           onChange={(event) => {
                             const nextExecutor = event.target.value;
-                            const firstModel =
-                              options?.executorOptions?.find(
-                                (option) =>
-                                  option.executorType === nextExecutor,
-                              )?.models[0] ?? "recommended";
+                            const firstModel = nextExecutor
+                              ? (options?.executorOptions?.find(
+                                  (option) =>
+                                    option.executorType === nextExecutor,
+                                )?.models[0] ?? "recommended")
+                              : "";
                             setRoleExecutorTypes((current) => ({
                               ...current,
                               [role.id]: nextExecutor,
@@ -928,6 +933,7 @@ function RunWorkflowDialog({
                             }));
                           }}
                         >
+                          <option value="">Workspace default</option>
                           {(options?.executorOptions ?? []).map((option) => (
                             <option
                               key={option.executorType}
@@ -943,7 +949,8 @@ function RunWorkflowDialog({
                         <select
                           aria-label={`${role.label} model`}
                           className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 p-2 text-sm text-zinc-100"
-                          value={roleModels[role.id] ?? "recommended"}
+                          value={roleModels[role.id] ?? ""}
+                          disabled={!roleExecutorTypes[role.id]}
                           onChange={(event) =>
                             setRoleModels((current) => ({
                               ...current,
@@ -951,12 +958,13 @@ function RunWorkflowDialog({
                             }))
                           }
                         >
+                          <option value="">Workspace default</option>
                           {(
                             options?.executorOptions?.find(
                               (option) =>
                                 option.executorType ===
-                                (roleExecutorTypes[role.id] ?? "CODEX"),
-                            )?.models ?? ["recommended", "default"]
+                                roleExecutorTypes[role.id],
+                            )?.models ?? []
                           ).map((model) => (
                             <option key={model} value={model}>
                               {model}
@@ -1300,8 +1308,42 @@ export function LaunchSuccess({
   );
 }
 
+export function buildLaunchRoleBinding(
+  args:
+    | {
+        mode: "existing";
+        sessionId: string;
+        executorType?: string | null;
+        model?: string | null;
+      }
+    | {
+        mode: "create_or_reuse";
+        name: string;
+        executorType?: string | null;
+        model?: string | null;
+      },
+): WorkflowLaunchRoleBindingRequest {
+  const executorType = args.executorType?.trim() || undefined;
+  const model = args.model?.trim() || undefined;
+  if (args.mode === "existing") {
+    return {
+      mode: args.mode,
+      sessionId: args.sessionId,
+      ...(executorType ? { executorType } : {}),
+      ...(model ? { model } : {}),
+    };
+  }
+  return {
+    mode: args.mode,
+    name: args.name,
+    ...(executorType ? { executorType } : {}),
+    ...(model ? { model } : {}),
+  };
+}
+
 function executorSummary(executorType?: string | null, model?: string | null) {
-  return [executorType || "CODEX", model || "recommended"]
+  if (!executorType && !model) return "Workspace default";
+  return [executorType || "Default executor", model || "default model"]
     .filter(Boolean)
     .join(" · ");
 }
@@ -1619,15 +1661,31 @@ function formatSessionExecutorModel(session: {
     : session.executor;
 }
 
+function formatEffectiveRoleExecutorPreference(
+  role: WorkspaceWorkflowRoleSummary,
+  override: { executorType?: string | null; model?: string | null } = {},
+): string {
+  const executorType =
+    override.executorType || role.executorPreference?.executorType;
+  const model = override.model || role.executorPreference?.model;
+  if (!executorType && !model) return "workspace default";
+  return executorSummary(executorType, model);
+}
+
 function sessionMatchesRolePreference(
   session: { executor: string; model?: string | null },
   role: WorkspaceWorkflowRoleSummary,
+  override: { executorType?: string | null; model?: string | null } = {},
 ): boolean {
-  const preferred = role.executorPreference?.executorType
+  const preferred = (
+    override.executorType || role.executorPreference?.executorType
+  )
     ?.trim()
     .toUpperCase()
     .replace(/[-\s]+/g, "_");
-  const preferredModel = role.executorPreference?.model?.trim();
+  const preferredModel = (
+    override.model || role.executorPreference?.model
+  )?.trim();
   return (
     (!preferred || session.executor === preferred) &&
     (!preferredModel || !session.model || session.model === preferredModel)

@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   LaunchSummary,
   WorkspaceWorkflowsHomeView,
+  buildLaunchRoleBinding,
 } from "./WorkspaceWorkflowsPage";
 import type { WorkspaceWorkflowsHomeModel } from "../client/workflowsHomeApi";
 
@@ -158,6 +159,30 @@ describe("WorkspaceWorkflowsHomeView", () => {
     expect(html).toContain("This workflow may call another workflow.");
     expect(html).toContain("Create or reuse");
     expect(html).toContain("Claude Code · recommended");
+  });
+  it("TEST_CASE_SEBL_1D keeps workspace default executor/model unset in launch payloads", () => {
+    expect(
+      buildLaunchRoleBinding({
+        mode: "existing",
+        sessionId: "session-gemini",
+        executorType: "",
+        model: "",
+      }),
+    ).toEqual({ mode: "existing", sessionId: "session-gemini" });
+
+    expect(
+      buildLaunchRoleBinding({
+        mode: "create_or_reuse",
+        name: "Dev",
+        executorType: "CLAUDE_CODE",
+        model: "recommended",
+      }),
+    ).toEqual({
+      mode: "create_or_reuse",
+      name: "Dev",
+      executorType: "CLAUDE_CODE",
+      model: "recommended",
+    });
   });
 });
 

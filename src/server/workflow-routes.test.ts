@@ -420,7 +420,9 @@ describe("registerWorkflowRoutes", () => {
     const app = new Hono();
     const designStore = new DbWorkflowDesignStore({ db: handle.db });
     const definition = routeLaunchDefinition();
-    (definition.roles.dev as { executorPreference?: unknown }).executorPreference = {
+    (
+      definition.roles.dev as { executorPreference?: unknown }
+    ).executorPreference = {
       executorType: "CLAUDE_CODE",
       model: "recommended",
       mode: "preferred",
@@ -434,7 +436,11 @@ describe("registerWorkflowRoutes", () => {
     await designStore.publishDraft("draft-executor-model");
     const sessions = [vkSession("session-review", "workspace-a", "Review")];
     const createdSessions: unknown[] = [];
-    const queued: Array<{ sessionId: string; prompt: string; provenance: unknown }> = [];
+    const queued: Array<{
+      sessionId: string;
+      prompt: string;
+      provenance: unknown;
+    }> = [];
     registerWorkflowRoutes(app, {
       registry: createWorkflowRegistry(),
       workflowHomeDb: handle.db,
@@ -442,14 +448,20 @@ describe("registerWorkflowRoutes", () => {
       vkClient: {
         getSessions: async () => sessions,
         getSession: async (sessionId) => {
-          const session = sessions.find((candidate) => candidate.id === sessionId);
+          const session = sessions.find(
+            (candidate) => candidate.id === sessionId,
+          );
           if (!session) throw new Error("session not found");
           return session;
         },
         createSession: async (body) => {
           createdSessions.push(body);
           const session = {
-            ...vkSession("session-dev-created", body.workspace_id, body.name ?? null),
+            ...vkSession(
+              "session-dev-created",
+              body.workspace_id,
+              body.name ?? null,
+            ),
             executor: body.executor,
           };
           sessions.push(session);
@@ -543,7 +555,9 @@ describe("registerWorkflowRoutes", () => {
     const app = new Hono();
     const designStore = new DbWorkflowDesignStore({ db: handle.db });
     const definition = routeLaunchDefinition();
-    (definition.roles.dev as { executorPreference?: unknown }).executorPreference = {
+    (
+      definition.roles.dev as { executorPreference?: unknown }
+    ).executorPreference = {
       executorType: "CLAUDE_CODE",
       mode: "preferred",
     };
@@ -564,7 +578,8 @@ describe("registerWorkflowRoutes", () => {
       workflowDesignStore: designStore,
       vkClient: {
         getSessions: async () => sessions,
-        getSession: async (sessionId) => sessions.find((session) => session.id === sessionId)!,
+        getSession: async (sessionId) =>
+          sessions.find((session) => session.id === sessionId)!,
       },
     });
 
@@ -586,6 +601,166 @@ describe("registerWorkflowRoutes", () => {
     await expect(response.json()).resolves.toMatchObject({
       fieldErrors: {
         "role.dev.executorType": expect.stringContaining("session uses CODEX"),
+      },
+    });
+  });
+
+  it("TEST_CASE_SEBL_1C keeps no-preference existing sessions backward-compatible", async () => {
+    const handle = await initVdDb({ path: ":memory:" });
+    dbHandles.push(handle);
+    const app = new Hono();
+    const designStore = new DbWorkflowDesignStore({ db: handle.db });
+    await designStore.createDesign({
+      designId: "design-no-executor-preference",
+      draftId: "draft-no-executor-preference",
+      name: "No Preference Workflow",
+      definition: routeLaunchDefinition(),
+    });
+    await designStore.publishDraft("draft-no-executor-preference");
+    const sessions = [
+      {
+        ...vkSession("session-dev-gemini", "workspace-a", "Dev"),
+        executor: "GEMINI" as const,
+        model: "gemini-2.5-pro",
+      },
+      {
+        ...vkSession("session-review-claude", "workspace-a", "Review"),
+        executor: "CLAUDE_CODE" as const,
+        model: "claude-sonnet-4",
+      },
+    ];
+    const queued: Array<{ sessionId: string; provenance: unknown }> = [];
+    registerWorkflowRoutes(app, {
+      registry: createWorkflowRegistry(),
+      workflowHomeDb: handle.db,
+      workflowDesignStore: designStore,
+      vkClient: {
+        getSessions: async () => sessions,
+        getSession: async (sessionId) => {
+          const session = sessions.find(
+            (candidate) => candidate.id === sessionId,
+          );
+          if (!session) throw new Error("session not found");
+          return session;
+        },
+        createSession: async () => {
+          throw new Error("should not create session");
+        },
+        queueFollowUp: async (sessionId, prompt, options) => {
+          queued.push({ sessionId, provenance: options?.provenance });
+          return {
+            queued_item: {
+              id: `queue-${queued.length}`,
+              session_id: sessionId,
+              workspace_id: "workspace-a",
+              status: "queued",
+              source: "workflow",
+              priority: 0,
+              data: { message: prompt },
+            },
+            status: { count: 1, message: null, messages: [], status: "queued" },
+          };
+        },
+      },
+    });
+
+    const response = await app.request("/dashboard/api/workflows/launch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        workspaceId: "workspace-a",
+        designId: "design-no-executor-preference",
+        inputs: { featureRequest: "Use existing non-Codex sessions" },
+        roleBindings: {
+          dev: { mode: "existing", sessionId: "session-dev-gemini" },
+          review: { mode: "existing", sessionId: "session-review-claude" },
+        },
+      }),
+    });
+
+    expect(response.status).toBe(201);
+    expect(queued[0]).toMatchObject({ sessionId: "session-dev-gemini" });
+    expect(queued[0]?.provenance).toMatchObject({
+      workflow_role_id: "dev",
+      workflow_role_executor: null,
+      workflow_role_model: null,
+    });
+    const runRow = await handle.db
+      .selectFrom("WorkflowPersistedRun")
+      .selectAll()
+      .executeTakeFirstOrThrow();
+    expect(JSON.parse(runRow.roleBindingsJson)).toMatchObject({
+      dev: {
+        sessionId: "session-dev-gemini",
+        executorType: null,
+        model: null,
+        preferenceSource: "workspace_default",
+      },
+      review: {
+        sessionId: "session-review-claude",
+        executorType: null,
+        model: null,
+        preferenceSource: "workspace_default",
+      },
+    });
+  });
+
+  it("TEST_CASE_SEBL_1C rejects existing sessions whose concrete model conflicts with the role preference", async () => {
+    const handle = await initVdDb({ path: ":memory:" });
+    dbHandles.push(handle);
+    const app = new Hono();
+    const designStore = new DbWorkflowDesignStore({ db: handle.db });
+    const definition = routeLaunchDefinition();
+    (
+      definition.roles.dev as { executorPreference?: unknown }
+    ).executorPreference = {
+      executorType: "CODEX",
+      model: "gpt-5-codex",
+      mode: "preferred",
+    };
+    await designStore.createDesign({
+      designId: "design-model-mismatch",
+      draftId: "draft-model-mismatch",
+      name: "Model Mismatch Workflow",
+      definition,
+    });
+    await designStore.publishDraft("draft-model-mismatch");
+    const sessions = [
+      {
+        ...vkSession("session-dev-gpt5", "workspace-a", "Dev"),
+        model: "gpt-5",
+      },
+      vkSession("session-review", "workspace-a", "Review"),
+    ];
+    registerWorkflowRoutes(app, {
+      registry: createWorkflowRegistry(),
+      workflowHomeDb: handle.db,
+      workflowDesignStore: designStore,
+      vkClient: {
+        getSessions: async () => sessions,
+        getSession: async (sessionId) =>
+          sessions.find((session) => session.id === sessionId)!,
+      },
+    });
+
+    const response = await app.request("/dashboard/api/workflows/launch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        workspaceId: "workspace-a",
+        designId: "design-model-mismatch",
+        inputs: { featureRequest: "Mismatch" },
+        roleBindings: {
+          dev: { mode: "existing", sessionId: "session-dev-gpt5" },
+          review: { mode: "existing", sessionId: "session-review" },
+        },
+      }),
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      fieldErrors: {
+        "role.dev.model": expect.stringContaining("session uses model gpt-5"),
       },
     });
   });
@@ -3635,7 +3810,11 @@ function routeHumanFormDefinition() {
   };
 }
 
-function vkSession(id: string, workspaceId: string, name: string | null): Session {
+function vkSession(
+  id: string,
+  workspaceId: string,
+  name: string | null,
+): Session {
   return {
     id,
     workspace_id: workspaceId,
