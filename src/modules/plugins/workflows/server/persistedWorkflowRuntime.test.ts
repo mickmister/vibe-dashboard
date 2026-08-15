@@ -5,6 +5,8 @@ import { DbWorkflowDesignStore } from './workflowDesignStore';
 import { BUILT_IN_WORKFLOW_TEMPLATES } from '../templates/builtInWorkflowTemplates';
 import { GitHubCiPollBackoffError, GitHubCiWaitPoller, type GitHubCiStatusClient } from './githubCiWaitPoller';
 import { PersistedWorkflowRuntimeError, PersistedWorkflowRuntimeService, type GitHubCiWatchProvider, type WorkflowQueueAgentTurnRequest } from './persistedWorkflowRuntime';
+import { DbWorkspaceLaneStore } from '../../../../server/workspace-lane-store';
+import { WorkflowCommandProviderRegistry, type WorkflowCommandProviderV1 } from '../extensions/workflowCommandProviders';
 
 const handles: VdDbHandle[] = [];
 
@@ -593,6 +595,114 @@ describe('PersistedWorkflowRuntimeService M93', () => {
       expect.objectContaining({ kind: 'github_ci_watch_poll_error', data: expect.objectContaining({ error: expect.objectContaining({ message: 'GitHub API rate limited', retryAfterMs: 30_000 }) }) }),
     ]));
   });
+
+
+  it('TEST_CASE_M117_1A/1C runs command steps through bounded provider and records audit/provenance', async () => {
+    const executions: Array<{ idempotencyKey: string; laneId: string | null }> = [];
+    const registry = new WorkflowCommandProviderRegistry();
+    registry.register(fakeCommandProvider({ executions }));
+    const { runtime } = await createRuntime({ commandProviders: registry });
+    await publishWorkflow('design.command', makeCommandWorkflow());
+
+    const launched = await runtime.launch({
+      runId: 'run-command',
+      runSnapshotId: 'snapshot-command',
+      designId: 'design.command',
+      workspaceId: 'workspace-a',
+      inputs: {},
+      roleBindings: { dev: { sessionId: 'session-dev' } },
+    });
+
+    expect(launched.coreSnapshot.waitingFor).toMatchObject({ kind: 'agent_turn', stepId: 'decide' });
+    expect(executions).toEqual([{ idempotencyKey: 'run-command:id-1:collect_status:id-2', laneId: null }]);
+    expect(launched.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'command_attempt_created', data: expect.objectContaining({ provider: 'test.command', command: 'collect_status' }) }),
+      expect.objectContaining({ kind: 'command_step_completed', data: expect.objectContaining({ summary: 'Workspace clean token=[redacted]', stdoutPreview: 'preview token=[redacted]' }) }),
+    ]));
+    expect(launched.coreSnapshot.history).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'command_step_completed', result: expect.objectContaining({ clean: true }) }),
+    ]));
+  });
+
+  it('TEST_CASE_M117_1B denies unknown provider without execution and blocks product-safely', async () => {
+    const registry = new WorkflowCommandProviderRegistry();
+    const { runtime } = await createRuntime({ commandProviders: registry });
+    await publishWorkflow('design.command.denied', makeCommandWorkflow({ provider: 'missing.command' }));
+
+    const launched = await runtime.launch({
+      runId: 'run-command-denied',
+      runSnapshotId: 'snapshot-command-denied',
+      designId: 'design.command.denied',
+      workspaceId: 'workspace-a',
+      inputs: {},
+      roleBindings: { dev: { sessionId: 'session-dev' } },
+    });
+
+    expect(launched.status).toBe('blocked');
+    expect(launched.coreSnapshot.blockedReason).toMatchObject({
+      code: 'WORKFLOW_COMMAND_DENIED',
+      message: 'unknown command provider missing.command',
+    });
+    expect(JSON.stringify(launched)).not.toContain('bash');
+    expect(JSON.stringify(launched)).not.toContain('bd ');
+    expect(JSON.stringify(launched)).not.toContain('git push');
+  });
+
+  it('TEST_CASE_M117_1D does not create duplicate command attempts on duplicate wakeups', async () => {
+    const executions: Array<{ idempotencyKey: string; laneId: string | null }> = [];
+    const registry = new WorkflowCommandProviderRegistry();
+    registry.register(fakeCommandProvider({ executions }));
+    const { runtime } = await createRuntime({ commandProviders: registry });
+    await publishWorkflow('design.command.idempotent', makeCommandWorkflow());
+
+    await runtime.launch({
+      runId: 'run-command-idempotent',
+      runSnapshotId: 'snapshot-command-idempotent',
+      designId: 'design.command.idempotent',
+      workspaceId: 'workspace-a',
+      inputs: {},
+      roleBindings: { dev: { sessionId: 'session-dev' } },
+    });
+    const rerun = await runtime.runReady('run-command-idempotent');
+
+    expect(executions).toHaveLength(1);
+    expect(rerun.events.filter((entry) => entry.kind === 'command_attempt_created')).toHaveLength(1);
+  });
+
+  it('TEST_CASE_M117_1E gates write commands on lane context and active write token', async () => {
+    const registry = new WorkflowCommandProviderRegistry();
+    const executions: Array<{ idempotencyKey: string; laneId: string | null }> = [];
+    registry.register(fakeCommandProvider({ access: 'write', executions }));
+    const { runtime, laneStore } = await createRuntime({ commandProviders: registry, withLanes: true });
+    await publishWorkflow('design.command.write', makeCommandWorkflow({ access: 'write' }));
+
+    const withoutLane = await runtime.launch({
+      runId: 'run-command-write-no-lane',
+      runSnapshotId: 'snapshot-command-write-no-lane',
+      designId: 'design.command.write',
+      workspaceId: 'workspace-a',
+      inputs: {},
+      roleBindings: { dev: { sessionId: 'session-dev' } },
+    });
+    expect(withoutLane.status).toBe('blocked');
+    expect(withoutLane.coreSnapshot.blockedReason?.message).toContain('Select a lane');
+
+    const lane = await laneStore!.createLane({ laneId: 'lane-clean', parentWorkspaceId: 'workspace-a', name: 'Clean lane', purpose: 'Command test', sourceBranch: 'main', worktreeStatus: 'clean' });
+    await laneStore!.bindLane({ parentWorkspaceId: 'workspace-a', laneId: lane.laneId, bindingType: 'workflow_run', bindingKey: 'run-command-write-lane', accessMode: 'write' });
+    await laneStore!.acquireWriteToken({ parentWorkspaceId: 'workspace-a', laneId: lane.laneId, ownerId: 'run-command-write-lane', leaseId: 'lease-write' });
+
+    const withLane = await runtime.launch({
+      runId: 'run-command-write-lane',
+      runSnapshotId: 'snapshot-command-write-lane',
+      designId: 'design.command.write',
+      workspaceId: 'workspace-a',
+      inputs: {},
+      roleBindings: { dev: { sessionId: 'session-dev' } },
+    });
+
+    expect(withLane.coreSnapshot.waitingFor).toMatchObject({ kind: 'agent_turn', stepId: 'decide' });
+    expect(executions).toEqual([{ idempotencyKey: 'run-command-write-lane:id-3:collect_status:id-4', laneId: 'lane-clean' }]);
+  });
 });
 
 let designStore: DbWorkflowDesignStore;
@@ -612,11 +722,12 @@ function promptText(definition: unknown): string {
   return (dev.steps[0] as { prompt?: { template?: string } } | undefined)?.prompt?.template ?? '';
 }
 
-async function createRuntime(options: { withAttention?: boolean; templates?: ConstructorParameters<typeof DbWorkflowDesignStore>[0]['templates']; githubCiWatchProvider?: GitHubCiWatchProvider } = {}) {
+async function createRuntime(options: { withAttention?: boolean; withLanes?: boolean; templates?: ConstructorParameters<typeof DbWorkflowDesignStore>[0]['templates']; githubCiWatchProvider?: GitHubCiWatchProvider; commandProviders?: WorkflowCommandProviderRegistry } = {}) {
   const handle = await initVdDb({ path: ':memory:' });
   handles.push(handle);
   designStore = new DbWorkflowDesignStore({ db: handle.db, now: (() => { let value = 1_000; return () => value++; })(), templates: options.templates });
   const orchestrationStore = new DbWorkflowOrchestrationStore({ db: handle.db, now: (() => { let value = 3_000; return () => value++; })() });
+  const laneStore = options.withLanes ? new DbWorkspaceLaneStore({ db: handle.db, now: (() => { let value = 4_000; return () => value++; })(), parentWorkspaceExists: (workspaceId) => workspaceId === 'workspace-a' }) : undefined;
   const queued: WorkflowQueueAgentTurnRequest[] = [];
   const queue = {
     failNext: false,
@@ -636,10 +747,12 @@ async function createRuntime(options: { withAttention?: boolean; templates?: Con
     queue,
     orchestrationStore: options.withAttention ? orchestrationStore : undefined,
     githubCiWatchProvider: options.githubCiWatchProvider,
+    commandProviders: options.commandProviders,
+    laneStore,
     now: (() => { let value = 2_000; return () => value++; })(),
     createId: () => `id-${id++}`,
   });
-  return { handle, runtime, queued, queue, orchestrationStore };
+  return { handle, runtime, queued, queue, orchestrationStore, laneStore };
 }
 
 async function publishWorkflow(designId: string, definition: unknown) {
@@ -856,5 +969,87 @@ function decisionResponsePolicy(maxAttempts: number) {
     rawXmlMaxChars: 20000,
     storeParsedFields: true,
     unknownFields: 'reject_unless_allowed_by_result_contract',
+  };
+}
+
+function makeCommandWorkflow(options: { provider?: string; access?: 'read' | 'write' } = {}) {
+  const access = options.access ?? 'read';
+  return {
+    schemaVersion: 1,
+    name: 'command-workflow',
+    roles: { dev: { label: 'Dev' } },
+    initialState: 'inspect',
+    states: {
+      inspect: {
+        owner: 'dev',
+        steps: [
+          {
+            id: 'collect_status',
+            type: 'command',
+            provider: options.provider ?? 'test.command',
+            command: 'collect_status',
+            args: { includeDiffSummary: true },
+            policy: {
+              access,
+              cwd: { mode: access === 'write' ? 'lane_root' : 'workspace_root' },
+              timeoutMs: 10_000,
+              output: { combinedMaxChars: 4_096, stdoutMaxChars: 64, stderrMaxChars: 64 },
+            },
+          },
+          {
+            id: 'decide',
+            type: 'agent_turn',
+            turnType: 'decision',
+            prompt: { template: 'Status summary: {{command.collect_status.summary}}' },
+            response: decisionResponsePolicy(1),
+          },
+        ],
+        actions: { done: { targetState: 'done' } },
+      },
+      done: { terminal: true },
+    },
+  };
+}
+
+function fakeCommandProvider(options: {
+  access?: 'read' | 'write';
+  executions: Array<{ idempotencyKey: string; laneId: string | null }>;
+}): WorkflowCommandProviderV1 {
+  const access = options.access ?? 'read';
+  return {
+    provider: 'test.command',
+    label: 'Test command provider',
+    listCommands() {
+      return [{
+        provider: 'test.command',
+        command: 'collect_status',
+        label: 'Collect status',
+        access,
+        defaultTimeoutMs: 10_000,
+        maxTimeoutMs: 30_000,
+        outputCaps: { stdoutMaxChars: 64, stderrMaxChars: 64, combinedMaxChars: 4_096 },
+        resultFields: { summary: { type: 'markdown' }, clean: { type: 'boolean' } },
+        retry: 'idempotent',
+      }];
+    },
+    validateCommand() { return []; },
+    async executeCommand(request) {
+      options.executions.push({ idempotencyKey: request.context.idempotencyKey, laneId: request.context.lane?.laneId ?? null });
+      return {
+        result: { summary: 'Workspace clean token=raw-secret', clean: true },
+        summary: 'Workspace clean token=raw-secret',
+        stdoutPreview: 'preview token=raw-secret',
+        stdoutTruncated: false,
+        provenance: {
+          provider: request.provider,
+          command: request.command,
+          access: request.policy.access,
+          idempotencyKey: request.context.idempotencyKey,
+          laneId: request.context.lane?.laneId ?? null,
+          laneLabel: request.context.lane?.label ?? null,
+          cwdMode: request.policy.cwd.mode,
+        },
+      };
+    },
   };
 }

@@ -159,6 +159,25 @@ export type HumanFormWorkflowStepV1 = {
   };
 };
 
+export type WorkflowCommandStepV1 = {
+  id: WorkflowStepId;
+  type: "command";
+  provider: string;
+  command: string;
+  args?: Record<string, unknown>;
+  policy?: {
+    access?: "read" | "write";
+    cwd?: { mode: "workspace_root" | "lane_root" };
+    timeoutMs?: number;
+    output?: {
+      stdoutMaxChars?: number;
+      stderrMaxChars?: number;
+      combinedMaxChars?: number;
+    };
+  };
+  result?: WorkflowActionResultContractV1;
+};
+
 export type WorkflowCallStepV1 = {
   id: WorkflowStepId;
   type: "workflow_call";
@@ -172,7 +191,10 @@ export type WorkflowCallStepV1 = {
 };
 
 export type WorkflowStepV1 =
-  AgentWorkflowStepV1 | HumanFormWorkflowStepV1 | WorkflowCallStepV1;
+  | AgentWorkflowStepV1
+  | HumanFormWorkflowStepV1
+  | WorkflowCallStepV1
+  | WorkflowCommandStepV1;
 
 export type AuthoredWorkflowStateV1 =
   | { terminal: true }
@@ -265,7 +287,7 @@ export type WorkflowRuntimeSnapshot = {
   visitId: string;
   inputs: Record<string, unknown>;
   waitingFor?: {
-    kind: "agent_turn" | "human_form" | "workflow_call" | "github_ci";
+    kind: "agent_turn" | "human_form" | "workflow_call" | "github_ci" | "command";
     state: WorkflowStateId;
     stepId: WorkflowStepId;
     turnId: string;
@@ -361,6 +383,29 @@ export type WorkflowHistoryEntry =
       statusSummary: string;
     }
   | {
+      kind: "command_step_planned";
+      at: number;
+      state: WorkflowStateId;
+      stepId: WorkflowStepId;
+      turnId: string;
+      provider: string;
+      command: string;
+      access: "read" | "write";
+    }
+  | {
+      kind: "command_step_completed";
+      at: number;
+      state: WorkflowStateId;
+      stepId: WorkflowStepId;
+      turnId: string;
+      responseRef: string;
+      provider: string;
+      command: string;
+      result: Record<string, unknown>;
+      summary: string;
+      artifactRef?: string;
+    }
+  | {
       kind: "github_ci_wait_planned";
       at: number;
       state: WorkflowStateId;
@@ -424,7 +469,9 @@ export type WorkflowRuntimeIssue = {
     | "WORKFLOW_GITHUB_CI_INVALID_REFERENCE"
     | "WORKFLOW_GITHUB_CI_FAILED"
     | "WORKFLOW_GITHUB_CI_CANCELLED"
-    | "WORKFLOW_GITHUB_CI_TIMED_OUT";
+    | "WORKFLOW_GITHUB_CI_TIMED_OUT"
+    | "WORKFLOW_COMMAND_DENIED"
+    | "WORKFLOW_COMMAND_FAILED";
   path: string;
   message: string;
 };
@@ -453,6 +500,17 @@ export interface WorkflowCallObservation {
   statusSummary?: string;
 }
 
+export interface WorkflowCommandObservation {
+  kind: "command_completed";
+  turnId: string;
+  responseRef: string;
+  provider: string;
+  command: string;
+  result: Record<string, unknown>;
+  summary?: string;
+  artifactRef?: string;
+}
+
 export type GitHubCiCompletionStatus =
   "success" | "failure" | "cancelled" | "timed_out";
 
@@ -469,6 +527,7 @@ export type WorkflowObservation =
   | AgentTurnObservation
   | HumanFormObservation
   | WorkflowCallObservation
+  | WorkflowCommandObservation
   | GitHubCiObservation;
 
 export type WorkflowPlanEffect =
@@ -498,6 +557,17 @@ export type WorkflowPlanEffect =
       workflow: WorkflowCallStepV1["workflow"];
       args: Record<string, unknown>;
       roleBindings?: WorkflowCallStepV1["roleBindings"];
+    }
+  | {
+      kind: "start_command";
+      state: WorkflowStateId;
+      stepId: WorkflowStepId;
+      turnId: string;
+      provider: string;
+      command: string;
+      args: Record<string, unknown>;
+      policy?: WorkflowCommandStepV1["policy"];
+      result?: WorkflowCommandStepV1["result"];
     }
   | {
       kind: "start_github_ci_watch";
@@ -801,12 +871,29 @@ export function normalizeWorkflowDefinitionV1(
                 ),
               );
             }
+          } else if (step.type === "command") {
+            assertKnownKeys(
+              step,
+              ["id", "type", "provider", "command", "args", "policy", "result"],
+              path,
+              issues,
+            );
+            validateCommandStep(step, path, issues);
+            if (index === steps.length - 1) {
+              issues.push(
+                issue(
+                  "WORKFLOW_CONFIG_INVALID_ACTIVE_STATE",
+                  path,
+                  "command step must be followed by a final decision step in V1",
+                ),
+              );
+            }
           } else {
             issues.push(
               issue(
                 "WORKFLOW_CONFIG_INVALID_STEP",
                 `${path}.type`,
-                "only agent_turn, human_form, and workflow_call are supported in V1",
+                "only agent_turn, human_form, workflow_call, and command are supported in V1",
               ),
             );
           }
@@ -1031,6 +1118,46 @@ export function planNextWorkflowEffect(
         title: step.title,
         description: step.description,
         form: deepClone(step.form),
+      },
+    };
+  }
+  if (step.type === "command") {
+    const access = step.policy?.access ?? "read";
+    const planned: WorkflowRuntimeSnapshot = {
+      ...snapshot,
+      waitingFor: {
+        kind: "command",
+        state: state.id,
+        stepId: step.id,
+        turnId,
+      },
+      history: [
+        ...snapshot.history,
+        {
+          kind: "command_step_planned",
+          at,
+          state: state.id,
+          stepId: step.id,
+          turnId,
+          provider: step.provider,
+          command: step.command,
+          access,
+        },
+      ],
+      updatedAt: at,
+    };
+    return {
+      snapshot: planned,
+      effect: {
+        kind: "start_command",
+        state: state.id,
+        stepId: step.id,
+        turnId,
+        provider: step.provider,
+        command: step.command,
+        args: deepClone(step.args ?? {}),
+        policy: deepClone(step.policy),
+        result: deepClone(step.result),
       },
     };
   }
@@ -1295,6 +1422,39 @@ export function advanceWorkflow(
           submission: deepClone(observation.submission),
         },
       ],
+      updatedAt: at,
+    };
+    const { snapshot: plannedSnapshot, effect } = planNextWorkflowEffect(
+      model,
+      advanced,
+      deps,
+    );
+    return { snapshot: plannedSnapshot, effect };
+  }
+
+  if (
+    step.type === "command" &&
+    observation.kind === "command_completed"
+  ) {
+    const at = deps.now();
+    const completedEntry: WorkflowHistoryEntry = cloneWithDefined({
+      kind: "command_step_completed" as const,
+      at,
+      state: state.id,
+      stepId: step.id,
+      turnId: observation.turnId,
+      responseRef: observation.responseRef,
+      provider: observation.provider,
+      command: observation.command,
+      result: deepClone(observation.result),
+      summary: observation.summary ?? "Command completed.",
+      artifactRef: observation.artifactRef,
+    });
+    const advanced: WorkflowRuntimeSnapshot = {
+      ...snapshot,
+      waitingFor: undefined,
+      currentStepIndex: snapshot.currentStepIndex + 1,
+      history: [...snapshot.history, completedEntry],
       updatedAt: at,
     };
     const { snapshot: plannedSnapshot, effect } = planNextWorkflowEffect(
@@ -1950,6 +2110,9 @@ function readContextValue(
   if (parts[0] === "child") {
     return readPath(readWorkflowCallResults(snapshot), parts.slice(1));
   }
+  if (parts[0] === "command") {
+    return readPath(readCommandResults(snapshot), parts.slice(1));
+  }
   return undefined;
 }
 
@@ -2008,6 +2171,24 @@ function readWorkflowCallResults(
     }
   }
   return calls;
+}
+
+function readCommandResults(
+  snapshot: WorkflowRuntimeSnapshot,
+): Record<string, Record<string, unknown>> {
+  const commands: Record<string, Record<string, unknown>> = {};
+  for (const entry of snapshot.history) {
+    if (entry.kind === "command_step_completed") {
+      commands[entry.stepId] = cloneWithDefined({
+        provider: entry.provider,
+        command: entry.command,
+        summary: entry.summary,
+        artifactRef: entry.artifactRef,
+        ...entry.result,
+      });
+    }
+  }
+  return commands;
 }
 
 function readPath(source: unknown, parts: string[]): unknown {
@@ -2130,6 +2311,151 @@ function validatePrompt(
         "template is required",
       ),
     );
+  }
+}
+
+function validateCommandStep(
+  value: Record<string, unknown>,
+  path: string,
+  issues: WorkflowConfigIssue[],
+) {
+  if (typeof value.provider !== "string" || !value.provider.trim()) {
+    issues.push(
+      issue(
+        "WORKFLOW_CONFIG_REQUIRED_FIELD",
+        `${path}.provider`,
+        "command provider is required",
+      ),
+    );
+  }
+  if (typeof value.command !== "string" || !value.command.trim()) {
+    issues.push(
+      issue(
+        "WORKFLOW_CONFIG_REQUIRED_FIELD",
+        `${path}.command`,
+        "command id is required",
+      ),
+    );
+  }
+  if (value.args !== undefined && !isRecord(value.args)) {
+    issues.push(
+      issue(
+        "WORKFLOW_CONFIG_INVALID_STEP",
+        `${path}.args`,
+        "command args must be an object",
+      ),
+    );
+  }
+  if (value.policy !== undefined) {
+    if (!isRecord(value.policy)) {
+      issues.push(
+        issue(
+          "WORKFLOW_CONFIG_INVALID_STEP",
+          `${path}.policy`,
+          "command policy must be an object",
+        ),
+      );
+    } else {
+      assertKnownKeys(
+        value.policy,
+        ["access", "cwd", "timeoutMs", "output"],
+        `${path}.policy`,
+        issues,
+      );
+      if (
+        value.policy.access !== undefined &&
+        value.policy.access !== "read" &&
+        value.policy.access !== "write"
+      ) {
+        issues.push(
+          issue(
+            "WORKFLOW_CONFIG_INVALID_STEP",
+            `${path}.policy.access`,
+            "command access must be read or write",
+          ),
+        );
+      }
+      if (
+        value.policy.timeoutMs !== undefined &&
+        (!Number.isInteger(value.policy.timeoutMs) ||
+          typeof value.policy.timeoutMs !== "number" ||
+          value.policy.timeoutMs <= 0 ||
+          value.policy.timeoutMs > 120_000)
+      ) {
+        issues.push(
+          issue(
+            "WORKFLOW_CONFIG_INVALID_STEP",
+            `${path}.policy.timeoutMs`,
+            "command timeoutMs must be a positive integer no greater than 120000",
+          ),
+        );
+      }
+      if (value.policy.cwd !== undefined) {
+        if (!isRecord(value.policy.cwd)) {
+          issues.push(
+            issue(
+              "WORKFLOW_CONFIG_INVALID_STEP",
+              `${path}.policy.cwd`,
+              "command cwd policy must be an object",
+            ),
+          );
+        } else if (
+          value.policy.cwd.mode !== "workspace_root" &&
+          value.policy.cwd.mode !== "lane_root"
+        ) {
+          issues.push(
+            issue(
+              "WORKFLOW_CONFIG_INVALID_STEP",
+              `${path}.policy.cwd.mode`,
+              "command cwd mode must be workspace_root or lane_root",
+            ),
+          );
+        }
+      }
+      if (value.policy.output !== undefined) {
+        if (!isRecord(value.policy.output)) {
+          issues.push(
+            issue(
+              "WORKFLOW_CONFIG_INVALID_STEP",
+              `${path}.policy.output`,
+              "command output policy must be an object",
+            ),
+          );
+        } else {
+          assertKnownKeys(
+            value.policy.output,
+            ["stdoutMaxChars", "stderrMaxChars", "combinedMaxChars"],
+            `${path}.policy.output`,
+            issues,
+          );
+          for (const key of [
+            "stdoutMaxChars",
+            "stderrMaxChars",
+            "combinedMaxChars",
+          ] as const) {
+            const cap = value.policy.output[key];
+            if (
+              cap !== undefined &&
+              (!Number.isInteger(cap) ||
+                typeof cap !== "number" ||
+                cap < 0 ||
+                cap > 100_000)
+            ) {
+              issues.push(
+                issue(
+                  "WORKFLOW_CONFIG_INVALID_STEP",
+                  `${path}.policy.output.${key}`,
+                  `${key} must be an integer between 0 and 100000`,
+                ),
+              );
+            }
+          }
+        }
+      }
+    }
+  }
+  if (value.result !== undefined) {
+    validateResultContract(value.result, `${path}.result`, issues);
   }
 }
 

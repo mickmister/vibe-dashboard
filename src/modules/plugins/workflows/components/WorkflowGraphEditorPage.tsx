@@ -807,6 +807,11 @@ function StepSummary({
           {step.workflowCallVersion ? `@${step.workflowCallVersion}` : ""}
         </div>
       ) : null}
+      {step.commandId ? (
+        <div className="mt-2 text-xs text-zinc-500">
+          Command: {step.commandProvider}/{step.commandId} · {step.commandAccess ?? "read"}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -817,6 +822,8 @@ function stepSubtitle(step: WorkflowGraphNodeModel["steps"][number]): string {
     return `Human form · ${step.humanFormTitle ?? "Untitled form"}`;
   if (step.type === "workflow_call")
     return `Workflow call · ${step.workflowCallMode ?? "blocking"}`;
+  if (step.type === "command")
+    return `Command · ${step.commandProvider ?? "provider"}/${step.commandId ?? "command"}`;
   return `Unsupported step · ${step.type}`;
 }
 

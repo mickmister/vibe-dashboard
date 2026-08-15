@@ -1,4 +1,5 @@
 import { createBeadsFormWorkflowArtifactRef } from '@vibe-dashboard/beads-form';
+import { createDefaultWorkflowCommandProviderRegistry } from './workflowCommandProviders';
 
 export type WorkflowExtensionIssueCode =
   | 'WORKFLOW_EXTENSION_DUPLICATE_PROVIDER'
@@ -248,6 +249,20 @@ export function createDefaultWorkflowExtensionRegistry(): WorkflowExtensionRegis
         issues.push({ code: 'WORKFLOW_EXTENSION_UNKNOWN_ARTIFACT_PROVIDER', path: `${context.path}.form.providerType`, message: 'human_form providerType must be beads_form' });
       }
       return issues;
+    },
+  });
+  registry.registerStepProvider({
+    type: 'command',
+    label: 'Command',
+    description: 'Provider-mediated bounded workflow command step.',
+    validateStep(step, context) {
+      const record = isRecord(step) ? step : {};
+      const providerId = typeof record.provider === 'string' ? record.provider : '';
+      const provider = createDefaultWorkflowCommandProviderRegistry().get(providerId);
+      if (!provider) {
+        return [{ code: 'WORKFLOW_EXTENSION_UNKNOWN_STEP_PROVIDER', path: `${context.path}.provider`, message: providerId ? `unknown command provider ${providerId}` : 'command provider is required' }];
+      }
+      return provider.validateCommand(record as never, context);
     },
   });
   registry.registerStepProvider({

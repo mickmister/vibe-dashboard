@@ -21,6 +21,9 @@ export interface WorkflowGraphStepSummary {
   workflowCallMode?: string;
   workflowCallDesignId?: string;
   workflowCallVersion?: number;
+  commandProvider?: string;
+  commandId?: string;
+  commandAccess?: string;
 }
 
 export interface WorkflowGraphEdgeModel {
@@ -128,7 +131,7 @@ export function validateWorkflowGraph(definition: AgentWorkflowDefinitionV1): Wo
     const actions = getStateActions(state);
     for (let index = 0; index < steps.length; index += 1) {
       const rawStep = steps[index] as { type?: unknown };
-      if (rawStep.type !== 'agent_turn' && rawStep.type !== 'human_form' && rawStep.type !== 'workflow_call') {
+      if (rawStep.type !== 'agent_turn' && rawStep.type !== 'human_form' && rawStep.type !== 'workflow_call' && rawStep.type !== 'command') {
         issues.push({ code: 'WORKFLOW_GRAPH_UNSUPPORTED_STEP_TYPE', path: `states.${stateId}.steps.${index}.type`, message: `Unsupported step type ${String(rawStep.type)}` });
       }
     }
@@ -175,7 +178,7 @@ function isTerminalState(state: AuthoredWorkflowStateV1): state is { terminal: t
 }
 
 function summarizeStep(step: WorkflowStepV1): WorkflowGraphStepSummary {
-  const rawStep = step as WorkflowStepV1 & { id?: unknown; type?: unknown; form?: { providerType?: unknown }; title?: unknown; mode?: unknown; workflow?: { designId?: unknown; version?: unknown } };
+  const rawStep = step as WorkflowStepV1 & { id?: unknown; type?: unknown; form?: { providerType?: unknown }; title?: unknown; mode?: unknown; workflow?: { designId?: unknown; version?: unknown }; provider?: unknown; command?: unknown; policy?: { access?: unknown } };
   const id = typeof rawStep.id === 'string' ? rawStep.id : 'unknown-step';
   if (step.type === 'agent_turn') {
     return {
@@ -193,6 +196,16 @@ function summarizeStep(step: WorkflowStepV1): WorkflowGraphStepSummary {
       workflowCallMode: step.mode,
       workflowCallDesignId: step.workflow.designId,
       workflowCallVersion: step.workflow.version,
+      promptRefs: [],
+    };
+  }
+  if (step.type === 'command') {
+    return {
+      id,
+      type: step.type,
+      commandProvider: step.provider,
+      commandId: step.command,
+      commandAccess: step.policy?.access ?? 'read',
       promptRefs: [],
     };
   }

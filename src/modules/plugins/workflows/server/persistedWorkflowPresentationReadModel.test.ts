@@ -415,6 +415,78 @@ describe("buildPersistedWorkflowPresentationModel", () => {
       handle.sqlite.close();
     }
   });
+
+
+  it("TEST_CASE_M117_1C renders command results as product-readable timeline/output", async () => {
+    const handle = await initVdDb({ path: ":memory:" });
+    try {
+      const designStore = new DbWorkflowDesignStore({ db: handle.db, now: () => 10 });
+      await designStore.createDesign({
+        designId: "design.command",
+        draftId: "draft.command",
+        name: "Command Workflow",
+        definition: definition(),
+      });
+      await designStore.publishDraft("draft.command");
+      await designStore.createRunSnapshot({
+        runSnapshotId: "snapshot.command.presentation",
+        designId: "design.command",
+        version: 1,
+        workspaceId: "workspace-a",
+        runInput: {},
+        roleBindings: {},
+      });
+      const model = normalizeWorkflowDefinitionV1(definition(), { workflowId: "design.command@1" });
+      const snapshot: WorkflowRuntimeSnapshot = {
+        instanceId: "run.command.presentation",
+        workflowId: "design.command@1",
+        status: "completed",
+        currentState: "done",
+        currentStepIndex: 0,
+        visitId: "visit-command",
+        inputs: {},
+        history: [
+          { kind: "workflow_started", at: 1, state: "dev", visitId: "visit-command" },
+          { kind: "command_step_planned", at: 2, state: "dev", stepId: "collect_status", turnId: "turn-command", provider: "first_party.command", command: "workspace_status", access: "read" },
+          { kind: "command_step_completed", at: 3, state: "dev", stepId: "collect_status", turnId: "turn-command", responseRef: "command:turn-command", provider: "first_party.command", command: "workspace_status", result: { summary: "Workspace clean", clean: true, changedFiles: 0 }, summary: "Workspace clean" },
+        ],
+        createdAt: 1,
+        updatedAt: 3,
+      };
+      await handle.db.insertInto("WorkflowPersistedRun").values({
+        runId: "run.command.presentation",
+        runSnapshotId: "snapshot.command.presentation",
+        designId: "design.command",
+        designVersion: 1,
+        workspaceId: "workspace-a",
+        status: "completed",
+        coreModelJson: JSON.stringify(model),
+        coreSnapshotJson: JSON.stringify(snapshot),
+        roleBindingsJson: "{}",
+        pendingEffectJson: null,
+        queuedTurnsJson: "{}",
+        eventsJson: JSON.stringify([{ kind: "command_step_completed", at: 3, data: { turnId: "turn-command", summary: "Workspace clean", stdoutPreview: "clean" } }]),
+        errorJson: null,
+        createdAt: 1,
+        updatedAt: 3,
+      }).execute();
+
+      const presentation = await buildPersistedWorkflowPresentationModel({ db: handle.db, runId: "run.command.presentation" });
+      expect(presentation?.timeline).toEqual(expect.arrayContaining([
+        expect.objectContaining({ kind: "command", title: "Workspace Status", status: "Complete", finalResponse: expect.objectContaining({ text: expect.stringContaining("Workspace clean") }) }),
+      ]));
+      expect(presentation?.outputs).toEqual(expect.arrayContaining([
+        expect.objectContaining({ label: "Workspace Status result", value: expect.stringContaining("Clean: true") }),
+      ]));
+      const rendered = JSON.stringify(presentation);
+      expect(rendered).not.toContain("raw XML");
+      expect(rendered).not.toContain("/Users/");
+      expect(rendered).not.toContain("bd ");
+    } finally {
+      await handle.db.destroy();
+      handle.sqlite.close();
+    }
+  });
 });
 
 function definition() {

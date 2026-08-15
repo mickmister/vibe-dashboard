@@ -16,6 +16,7 @@ import {
   type NormalizedAgentWorkflowModel,
   type NormalizedWorkflowAction,
   type WorkflowAdvanceResult,
+  type WorkflowCommandObservation,
   type WorkflowPlanEffect,
   type WorkflowRuntimeIssue,
   type WorkflowRuntimeSnapshot,
@@ -32,6 +33,17 @@ import {
   createDefaultWorkflowExtensionRegistry,
 } from "../extensions/workflowExtensionRegistry";
 import { DbWorkflowDesignStore } from "./workflowDesignStore";
+import type { DbWorkspaceLaneStore } from "../../../../server/workspace-lane-store";
+import {
+  WorkflowCommandProviderError,
+  WorkflowCommandProviderRegistry,
+  capText,
+  createDefaultWorkflowCommandProviderRegistry,
+  normalizeCommandPolicy,
+  redact,
+  validateCommandPolicyAgainstSpec,
+  type WorkflowCommandResult,
+} from "../extensions/workflowCommandProviders";
 
 export interface WorkflowRoleSessionBindingInput {
   sessionId: string;
@@ -92,6 +104,9 @@ export interface PersistedWorkflowRuntimeEvent {
     | "github_ci_watch_completed"
     | "github_ci_watch_poll_error"
     | "github_ci_watch_provider_missing"
+    | "command_attempt_created"
+    | "command_step_completed"
+    | "command_step_denied"
     | "observation_ignored"
     | "workflow_status_changed"
     | "queue_failed"
@@ -169,6 +184,8 @@ export class PersistedWorkflowRuntimeService {
   private readonly orchestrationStore?: DbWorkflowOrchestrationStore;
   private readonly extensionRegistry: WorkflowExtensionRegistry;
   private readonly githubCiWatchProvider?: GitHubCiWatchProvider;
+  private readonly commandProviders: WorkflowCommandProviderRegistry;
+  private readonly laneStore?: DbWorkspaceLaneStore;
 
   constructor(options: {
     db: Kysely<DB>;
@@ -177,6 +194,8 @@ export class PersistedWorkflowRuntimeService {
     orchestrationStore?: DbWorkflowOrchestrationStore;
     extensionRegistry?: WorkflowExtensionRegistry;
     githubCiWatchProvider?: GitHubCiWatchProvider;
+    commandProviders?: WorkflowCommandProviderRegistry;
+    laneStore?: DbWorkspaceLaneStore;
     now?: () => number;
     createId?: () => string;
     validator?: DecisionResponseValidator;
@@ -196,6 +215,9 @@ export class PersistedWorkflowRuntimeService {
     this.extensionRegistry =
       options.extensionRegistry ?? createDefaultWorkflowExtensionRegistry();
     this.githubCiWatchProvider = options.githubCiWatchProvider;
+    this.commandProviders =
+      options.commandProviders ?? createDefaultWorkflowCommandProviderRegistry();
+    this.laneStore = options.laneStore;
   }
 
   async launch(input: {
@@ -308,6 +330,12 @@ export class PersistedWorkflowRuntimeService {
         run.pendingEffect?.kind === "start_github_ci_watch"
       ) {
         return this.startGithubCiWatchEffect(run, run.pendingEffect);
+      }
+      if (
+        run.coreSnapshot.waitingFor.kind === "command" &&
+        run.pendingEffect?.kind === "start_command"
+      ) {
+        return this.startCommandEffect(run, run.pendingEffect);
       }
       if (run.coreSnapshot.waitingFor.kind === "human_form") {
         const state = run.coreModel.states[run.coreSnapshot.waitingFor.state];
@@ -684,6 +712,8 @@ export class PersistedWorkflowRuntimeService {
       return this.startWorkflowCallEffect(withObservation, advanced.effect);
     if (advanced.effect.kind === "start_github_ci_watch")
       return this.startGithubCiWatchEffect(withObservation, advanced.effect);
+    if (advanced.effect.kind === "start_command")
+      return this.startCommandEffect(withObservation, advanced.effect);
     return withObservation;
   }
 
@@ -771,7 +801,213 @@ export class PersistedWorkflowRuntimeService {
       return this.startWorkflowCallEffect(planned, effect);
     if (effect.kind === "start_github_ci_watch")
       return this.startGithubCiWatchEffect(planned, effect);
+    if (effect.kind === "start_command")
+      return this.startCommandEffect(planned, effect);
     return planned;
+  }
+
+  private async startCommandEffect(
+    run: PersistedWorkflowRunReadModel,
+    effect: Extract<WorkflowPlanEffect, { kind: "start_command" }>,
+  ): Promise<PersistedWorkflowRunReadModel> {
+    if (
+      run.coreSnapshot.history.some(
+        (entry) =>
+          entry.kind === "command_step_completed" &&
+          entry.turnId === effect.turnId,
+      )
+    ) {
+      return run;
+    }
+    const idempotencyKey = `${run.runId}:${run.coreSnapshot.visitId}:${effect.stepId}:${effect.turnId}`;
+    const attemptExists = run.events.some(
+      (entry) =>
+        entry.kind === "command_attempt_created" &&
+        entry.data.turnId === effect.turnId,
+    );
+    const withAttempt = attemptExists
+      ? run
+      : await this.updateRun(run, run.coreSnapshot, effect, [
+          event("command_attempt_created", this.now(), {
+            turnId: effect.turnId,
+            provider: effect.provider,
+            command: effect.command,
+            access: effect.policy?.access ?? "read",
+            idempotencyKey,
+          }),
+        ]);
+    try {
+      const result = sanitizeCommandResult(
+        await this.executeCommandEffect(
+          withAttempt,
+          effect,
+          idempotencyKey,
+        ),
+        effect,
+      );
+      const observation: WorkflowCommandObservation = {
+        kind: "command_completed",
+        turnId: effect.turnId,
+        responseRef: result.artifactRef ?? `command:${effect.turnId}`,
+        provider: effect.provider,
+        command: effect.command,
+        result: result.result,
+        summary: result.summary,
+        artifactRef: result.artifactRef,
+      };
+      const advanced = advanceWorkflow(
+        withAttempt.coreModel,
+        withAttempt.coreSnapshot,
+        observation,
+        this.deps(),
+      );
+      if (advanced.ignored) return withAttempt;
+      return this.persistAdvanceResult(
+        withAttempt,
+        advanced,
+        { turnId: effect.turnId, responseRef: observation.responseRef },
+        [
+          event("command_step_completed", this.now(), {
+            turnId: effect.turnId,
+            provider: effect.provider,
+            command: effect.command,
+            summary: result.summary,
+            artifactRef: result.artifactRef ?? null,
+            stdoutPreview: result.stdoutPreview ?? null,
+            stdoutTruncated: result.stdoutTruncated === true,
+            stderrPreview: result.stderrPreview ?? null,
+            stderrTruncated: result.stderrTruncated === true,
+            provenance: result.provenance,
+          }),
+        ],
+        null,
+      );
+    } catch (error) {
+      return this.blockCommandEffect(withAttempt, effect, normalizeCommandError(error));
+    }
+  }
+
+  private async executeCommandEffect(
+    run: PersistedWorkflowRunReadModel,
+    effect: Extract<WorkflowPlanEffect, { kind: "start_command" }>,
+    idempotencyKey: string,
+  ): Promise<WorkflowCommandResult> {
+    const provider = this.commandProviders.get(effect.provider);
+    if (!provider) {
+      throw new WorkflowCommandProviderError({
+        code: "WORKFLOW_COMMAND_UNKNOWN_PROVIDER",
+        path: `states.${effect.state}.steps.${effect.stepId}.provider`,
+        message: `unknown command provider ${effect.provider}`,
+      });
+    }
+    const spec = provider
+      .listCommands()
+      .find((candidate) => candidate.command === effect.command);
+    if (!spec) {
+      throw new WorkflowCommandProviderError({
+        code: "WORKFLOW_COMMAND_UNKNOWN_ACTION",
+        path: `states.${effect.state}.steps.${effect.stepId}.command`,
+        message: `unknown command ${effect.command} for provider ${effect.provider}`,
+      });
+    }
+    const policy = normalizeCommandPolicy(effect, spec);
+    validateCommandPolicyAgainstSpec({
+      provider: effect.provider,
+      command: effect.command,
+      policy,
+      spec,
+      path: `states.${effect.state}.steps.${effect.stepId}`,
+    });
+    const lane = await this.resolveCommandLane(run, policy.access);
+    if (policy.access === "write") {
+      if (!lane) {
+        throw new WorkflowCommandProviderError({
+          code: "WORKFLOW_COMMAND_DENIED",
+          path: `states.${effect.state}.steps.${effect.stepId}.policy.access`,
+          message: "Write-capable command requires a selected workflow lane.",
+          productMessage: "Select a lane with write capacity before running this command.",
+        });
+      }
+      if (lane.capacity.write.status !== "held") {
+        throw new WorkflowCommandProviderError({
+          code: "WORKFLOW_COMMAND_DENIED",
+          path: `states.${effect.state}.steps.${effect.stepId}.policy.access`,
+          message: `Lane write capacity is ${lane.capacity.write.status}.`,
+          productMessage: lane.nextAction,
+        });
+      }
+    }
+    return provider.executeCommand({
+      provider: effect.provider,
+      command: effect.command,
+      args: effect.args,
+      policy,
+      context: {
+        runId: run.runId,
+        workspaceId: run.workspaceId,
+        stateId: effect.state,
+        stepId: effect.stepId,
+        turnId: effect.turnId,
+        idempotencyKey,
+        lane,
+        writeToken: lane?.capacity.write.activeLeaseId
+          ? {
+              leaseId: lane.capacity.write.activeLeaseId,
+              ownerId: lane.capacity.write.ownerId ?? "workflow",
+            }
+          : null,
+      },
+    });
+  }
+
+  private async resolveCommandLane(
+    run: PersistedWorkflowRunReadModel,
+    access: "read" | "write",
+  ) {
+    if (!this.laneStore) return null;
+    const binding = await this.laneStore.getBinding("workflow_run", run.runId);
+    if (!binding) return null;
+    return this.laneStore.getLane(binding.parentWorkspaceId, binding.laneId);
+  }
+
+  private async blockCommandEffect(
+    run: PersistedWorkflowRunReadModel,
+    effect: Extract<WorkflowPlanEffect, { kind: "start_command" }>,
+    error: WorkflowCommandProviderError,
+  ): Promise<PersistedWorkflowRunReadModel> {
+    const reason: WorkflowRuntimeIssue = {
+      code:
+        error.code === "WORKFLOW_COMMAND_FAILED"
+          ? "WORKFLOW_COMMAND_FAILED"
+          : "WORKFLOW_COMMAND_DENIED",
+      path: error.path,
+      message: error.productMessage,
+    };
+    const blockedSnapshot: WorkflowRuntimeSnapshot = {
+      ...run.coreSnapshot,
+      status: "blocked",
+      waitingFor: undefined,
+      blockedReason: reason,
+      history: [
+        ...run.coreSnapshot.history,
+        { kind: "workflow_blocked", at: this.now(), reason },
+      ],
+      updatedAt: this.now(),
+    };
+    return this.updateRun(run, blockedSnapshot, { kind: "none" }, [
+      event("command_step_denied", this.now(), {
+        turnId: effect.turnId,
+        provider: effect.provider,
+        command: effect.command,
+        code: error.code,
+        message: error.productMessage,
+        retryable: error.retryable,
+      }),
+      event("workflow_status_changed", this.now(), {
+        from: run.coreSnapshot.status,
+        to: "blocked",
+      }),
+    ]);
   }
 
   private async startGithubCiWatchEffect(
@@ -1372,6 +1608,47 @@ function normalizeError(error: unknown): { name: string; message: string } {
   if (error instanceof Error)
     return { name: error.name, message: error.message };
   return { name: "NonErrorThrown", message: String(error) };
+}
+
+function sanitizeCommandResult(
+  result: WorkflowCommandResult,
+  effect: Extract<WorkflowPlanEffect, { kind: "start_command" }>,
+): WorkflowCommandResult {
+  const stdoutCap = effect.policy?.output?.stdoutMaxChars ?? 4_096;
+  const stderrCap = effect.policy?.output?.stderrMaxChars ?? 1_024;
+  const stdout = result.stdoutPreview
+    ? capText(redact(result.stdoutPreview), stdoutCap)
+    : null;
+  const stderr = result.stderrPreview
+    ? capText(redact(result.stderrPreview), stderrCap)
+    : null;
+  const sanitizedResult = Object.fromEntries(
+    Object.entries(result.result).map(([key, value]) => [
+      key,
+      typeof value === "string" ? redact(value) : value,
+    ]),
+  );
+  return {
+    ...result,
+    result: sanitizedResult,
+    summary: redact(result.summary),
+    stdoutPreview: stdout?.text,
+    stderrPreview: stderr?.text,
+    stdoutTruncated: result.stdoutTruncated === true || stdout?.truncated === true,
+    stderrTruncated: result.stderrTruncated === true || stderr?.truncated === true,
+  };
+}
+
+function normalizeCommandError(error: unknown): WorkflowCommandProviderError {
+  if (error instanceof WorkflowCommandProviderError) return error;
+  const normalized = normalizeError(error);
+  return new WorkflowCommandProviderError({
+    code: "WORKFLOW_COMMAND_FAILED",
+    path: "command",
+    message: normalized.message,
+    productMessage: "The command provider failed before completing safely.",
+    retryable: false,
+  });
 }
 
 function childOutputRef(childRunId: string): string {

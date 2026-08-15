@@ -1440,3 +1440,129 @@ describe("agent workflow V1 advancement", () => {
     expect(validTyped.snapshot.status).toBe("completed");
   });
 });
+
+describe("M117 command workflow steps", () => {
+  it("TEST_CASE_M117_1A plans command effects and exposes typed command result context", () => {
+    const model = normalizeWorkflowDefinitionV1(makeCommandDefinition(), {
+      workflowId: "command-workflow",
+    });
+    const snapshot = createInitialWorkflowSnapshot(model, {
+      instanceId: "run-command",
+      inputs: {},
+      now: () => 1,
+      createId: () => "visit-1",
+    });
+    const planned = planNextWorkflowEffect(model, snapshot, {
+      now: () => 2,
+      createId: () => "turn-command",
+    });
+
+    expect(planned.effect).toMatchObject({
+      kind: "start_command",
+      provider: "first_party.command",
+      command: "workspace_status",
+      args: { includeDiffSummary: true },
+    });
+    expect(planned.snapshot.waitingFor).toMatchObject({
+      kind: "command",
+      turnId: "turn-command",
+    });
+
+    const advanced = advanceWorkflow(
+      model,
+      planned.snapshot,
+      {
+        kind: "command_completed",
+        turnId: "turn-command",
+        responseRef: "command-result-1",
+        provider: "first_party.command",
+        command: "workspace_status",
+        result: {
+          summary: "Workspace clean",
+          clean: true,
+          changedFiles: 0,
+        },
+        summary: "Workspace clean",
+      },
+      { now: () => 3, createId: () => "turn-decision" },
+    );
+
+    expect(advanced.effect).toMatchObject({
+      kind: "send_agent_turn",
+      prompt: expect.stringContaining("Workspace clean"),
+    });
+    expect(advanced.snapshot.history).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "command_step_completed",
+          result: expect.objectContaining({ clean: true }),
+        }),
+      ]),
+    );
+  });
+
+  it("TEST_CASE_M117_1B rejects unsafe command config before runtime", () => {
+    const definition = makeCommandDefinition();
+    const state = activeAuthoredState(definition, "inspect");
+    const step = state.steps[0] as any;
+    step.policy = {
+      access: "shell",
+      cwd: { mode: "../../repo" },
+      timeoutMs: 999_999,
+      output: { combinedMaxChars: 999_999 },
+    };
+
+    expectDefinitionError(
+      () => normalizeWorkflowDefinitionV1(definition, { workflowId: "bad" }),
+      "WORKFLOW_CONFIG_INVALID_STEP",
+      "states.inspect.steps.0.policy.access",
+    );
+  });
+});
+
+function makeCommandDefinition(): AgentWorkflowDefinitionV1 {
+  return {
+    schemaVersion: 1,
+    name: "command-core",
+    roles: { dev: { label: "Dev" } },
+    initialState: "inspect",
+    states: {
+      inspect: {
+        owner: "dev",
+        steps: [
+          {
+            id: "collect_status",
+            type: "command",
+            provider: "first_party.command",
+            command: "workspace_status",
+            args: { includeDiffSummary: true },
+            policy: {
+              access: "read",
+              cwd: { mode: "workspace_root" },
+              timeoutMs: 10_000,
+              output: { combinedMaxChars: 4_096 },
+            },
+            result: {
+              fields: {
+                summary: { type: "markdown" },
+                clean: { type: "boolean" },
+                changedFiles: { type: "number" },
+              },
+              required: ["summary", "clean"],
+              unknownFields: "preserve",
+            },
+          },
+          {
+            id: "decide",
+            type: "agent_turn",
+            turnType: "decision",
+            prompt: { template: "Status: {{command.collect_status.summary}}" },
+            response: decisionPolicy(),
+          },
+        ],
+        actions: { done: { targetState: "done" } },
+      },
+      done: { terminal: true },
+    },
+  } as AgentWorkflowDefinitionV1;
+}

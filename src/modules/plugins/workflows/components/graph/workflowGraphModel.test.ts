@@ -117,6 +117,31 @@ describe('workflow graph model', () => {
     expect(workflowDefinitionToGraph(unsupported).nodes.find((node) => node.id === 'dev')?.steps.at(-1)).toMatchObject({ id: 'unknown-step', type: 'unsupported_step' });
   });
 
+  it('TEST_CASE_M117_1A shows executable command steps as supported graph steps', () => {
+    const definition = devReviewTesterFixture();
+    const dev = definition.states.dev;
+    if (!dev || 'terminal' in dev) throw new Error('expected active dev state');
+    dev.steps = [
+      {
+        id: 'collect_status',
+        type: 'command',
+        provider: 'first_party.command',
+        command: 'workspace_status',
+        policy: { access: 'read', cwd: { mode: 'workspace_root' } },
+      } as any,
+      dev.steps[1]!,
+    ];
+    const graph = workflowDefinitionToGraph(definition);
+    expect(graph.nodes.find((node) => node.id === 'dev')?.steps[0]).toMatchObject({
+      id: 'collect_status',
+      type: 'command',
+      commandProvider: 'first_party.command',
+      commandId: 'workspace_status',
+      commandAccess: 'read',
+    });
+    expect(validateWorkflowGraph(definition)).toEqual([]);
+  });
+
   it('TEST_CASE_M99_1A shows executable blocking workflow calls as supported graph steps', () => {
     const definition = devReviewTesterFixture();
     const dev = definition.states.dev;

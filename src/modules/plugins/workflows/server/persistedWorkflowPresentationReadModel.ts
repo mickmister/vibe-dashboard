@@ -251,6 +251,40 @@ function buildTimeline(args: {
         responseUnavailable: complete ? null : "Waiting for your answer.",
         commits: [],
       });
+    } else if (entry.kind === "command_step_planned") {
+      const complete = args.snapshot.history.find(
+        (candidate) =>
+          candidate.kind === "command_step_completed" &&
+          candidate.turnId === entry.turnId,
+      ) as
+        | { summary: string; artifactRef?: string; result: Record<string, unknown> }
+        | undefined;
+      timeline.push({
+        id: entry.turnId,
+        role: "Workflow",
+        title: labelFromId(entry.command),
+        kind: "command",
+        state: labelFromId(entry.state),
+        step: labelFromId(entry.stepId),
+        status: complete ? "Complete" : "Waiting",
+        session: null,
+        initialMessage: {
+          text: `${labelFromId(entry.provider)} will run ${labelFromId(entry.command)} with ${entry.access} access.`,
+          truncated: false,
+          maxChars: null,
+        },
+        finalResponse: complete
+          ? {
+              text: commandResultText(complete),
+              truncated: false,
+              maxChars: null,
+            }
+          : null,
+        responseUnavailable: complete
+          ? null
+          : "Waiting for the bounded command provider to finish.",
+        commits: [],
+      });
     } else if (entry.kind === "workflow_call_planned") {
       const complete = args.snapshot.history.find(
         (candidate) =>
@@ -491,6 +525,16 @@ function buildOutputs(
           : String(event.data.error),
       kind: event.kind === "form_artifact_created" ? "form_artifact" : "error",
     });
+  for (const entry of snapshot.history.filter(
+    (candidate) => candidate.kind === "command_step_completed",
+  )) {
+    outputs.push({
+      id: `command-${entry.turnId}`,
+      label: `${labelFromId(entry.command)} result`,
+      value: commandResultText(entry),
+      kind: "summary",
+    });
+  }
   for (const call of calls.filter((entry) => entry.outputRef))
     outputs.push({
       id: `call-${call.turnId}`,
@@ -501,6 +545,21 @@ function buildOutputs(
   return outputs;
 }
 
+function commandResultText(input: {
+  summary: string;
+  artifactRef?: string;
+  result: Record<string, unknown>;
+}): string {
+  const lines = [input.summary];
+  for (const [key, value] of Object.entries(input.result)) {
+    if (key === "summary") continue;
+    if (value === undefined || value === null || value === "") continue;
+    lines.push(`${labelFromId(key)}: ${String(value)}`);
+  }
+  if (input.artifactRef) lines.push(`Artifact: ${input.artifactRef}`);
+  return lines.join("\n");
+}
+
 function waitingReason(kind: string): string {
   if (kind === "agent_turn")
     return "Waiting for the assigned agent to respond.";
@@ -508,6 +567,8 @@ function waitingReason(kind: string): string {
     return "Waiting for you to submit the requested form.";
   if (kind === "workflow_call")
     return "Waiting for a child workflow to finish.";
+  if (kind === "command")
+    return "Waiting for a bounded command provider to finish.";
   if (kind === "github_ci") return "Waiting for GitHub CI to finish.";
   return "Waiting to continue.";
 }
@@ -516,6 +577,8 @@ function nextActionForWait(kind: string): string {
   if (kind === "human_form") return "Answer the form to resume the workflow.";
   if (kind === "workflow_call")
     return "The parent workflow resumes when the child workflow completes.";
+  if (kind === "command")
+    return "The workflow resumes when the bounded command provider returns a typed result.";
   if (kind === "github_ci")
     return "The workflow resumes when GitHub CI finishes.";
   return "The workflow resumes when the agent turn completes.";

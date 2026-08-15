@@ -64,6 +64,7 @@ export interface WorkflowPresentationTimelineItem {
     | "decision"
     | "human_form"
     | "workflow_call"
+    | "command"
     | "github_ci"
     | "artifact"
     | "blocked"
