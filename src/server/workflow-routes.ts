@@ -42,7 +42,10 @@ import { normalizeDeclarativeWorkflowDefinition } from "../workflows/declarative
 import type { DbDeclarativeWorkflowDefinitionStore } from "./declarative-workflow-definition-store";
 import type { DbWorkflowWebhookProvisioningStore } from "./workflow-webhook-provisioning-store";
 import { buildWorkspaceWorkflowsHomeModel } from "../modules/plugins/workflows/server/workflowsHomeReadModel";
-import { DbWorkflowDesignStore } from "../modules/plugins/workflows/server/workflowDesignStore";
+import {
+  DbWorkflowDesignStore,
+  WorkflowDesignValidationError,
+} from "../modules/plugins/workflows/server/workflowDesignStore";
 import {
   PersistedWorkflowRuntimeService,
   type PersistedWorkflowRunReadModel,
@@ -609,6 +612,16 @@ export function registerWorkflowRoutes(
         201,
       );
     } catch (error) {
+      if (error instanceof WorkflowDesignValidationError) {
+        return c.json(
+          {
+            error: "workflow_design_create_failed",
+            message: error.message,
+            issues: error.issues,
+          },
+          400,
+        );
+      }
       const message = error instanceof Error ? error.message : String(error);
       return c.json({ error: "workflow_design_create_failed", message }, 400);
     }
@@ -641,6 +654,16 @@ export function registerWorkflowRoutes(
         );
         return c.json({ version, editor });
       } catch (error) {
+        if (error instanceof WorkflowDesignValidationError) {
+          return c.json(
+            {
+              error: "workflow_publish_failed",
+              message: error.message,
+              issues: error.issues,
+            },
+            400,
+          );
+        }
         const message = error instanceof Error ? error.message : String(error);
         return c.json({ error: "workflow_publish_failed", message }, 400);
       }

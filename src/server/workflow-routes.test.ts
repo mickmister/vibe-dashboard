@@ -922,6 +922,70 @@ describe("registerWorkflowRoutes", () => {
     ).toMatchObject({ version: 1 });
   });
 
+  it("TEST_CASE_M117_1B rejects unknown command providers and commands through publish routes", async () => {
+    const handle = await initVdDb({ path: ":memory:" });
+    dbHandles.push(handle);
+    const app = new Hono();
+    const designStore = new DbWorkflowDesignStore({ db: handle.db });
+    registerWorkflowRoutes(app, {
+      registry: createWorkflowRegistry(),
+      workflowHomeDb: handle.db,
+      workflowDesignStore: designStore,
+    });
+
+    const unknownProvider = await app.request("/dashboard/api/workflow-designs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        designId: "design-route-unknown-provider",
+        draftId: "draft-route-unknown-provider",
+        name: "Unknown provider",
+        publish: true,
+        definition: routeCommandDefinition({ provider: "unknown.command", command: "workspace_status" }),
+      }),
+    });
+    expect(unknownProvider.status).toBe(400);
+    await expect(unknownProvider.json()).resolves.toMatchObject({
+      error: "workflow_design_create_failed",
+      issues: [expect.objectContaining({ path: "states.inspect.steps.0.provider" })],
+    });
+    await expect(designStore.getDraft("draft-route-unknown-provider")).resolves.toMatchObject({
+      validationStatus: "invalid",
+      validationIssues: [
+        expect.objectContaining({
+          path: "states.inspect.steps.0.provider",
+          message: "unknown command provider unknown.command",
+        }),
+      ],
+    });
+
+    const unknownCommand = await app.request("/dashboard/api/workflow-designs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        designId: "design-route-unknown-command",
+        draftId: "draft-route-unknown-command",
+        name: "Unknown command",
+        publish: true,
+        definition: routeCommandDefinition({ provider: "first_party.command", command: "shell" }),
+      }),
+    });
+    expect(unknownCommand.status).toBe(400);
+    await expect(unknownCommand.json()).resolves.toMatchObject({
+      error: "workflow_design_create_failed",
+      issues: [expect.objectContaining({ path: "states.inspect.steps.0.command" })],
+    });
+    await expect(designStore.getDraft("draft-route-unknown-command")).resolves.toMatchObject({
+      validationStatus: "invalid",
+      validationIssues: [
+        expect.objectContaining({
+          path: "states.inspect.steps.0.command",
+          message: "unsupported first-party command shell",
+        }),
+      ],
+    });
+  });
+
   it("TEST_CASE_M100_1A batch launch creates pending items, per-item errors, and respects route capacity", async () => {
     const handle = await initVdDb({ path: ":memory:" });
     dbHandles.push(handle);
@@ -3782,6 +3846,55 @@ function routeLaunchDefinition() {
             type: "agent_turn",
             turnType: "decision",
             prompt: { template: "Decide {{inputs.featureRequest}}" },
+            response: {
+              format: "xml",
+              schema: { format: "xsd", source: "state_actions" },
+              invalidXmlRetry: {
+                maxAttempts: 1,
+                prompt: "engine_default_with_validation_errors",
+                onExhausted: "blocked",
+              },
+              storeRawXml: true,
+              storeParsedFields: true,
+              unknownFields: "reject_unless_allowed_by_result_contract",
+            },
+          },
+        ],
+        actions: { done: { targetState: "done" } },
+      },
+      done: { terminal: true },
+    },
+  };
+}
+
+function routeCommandDefinition(options: { provider: string; command: string }) {
+  return {
+    schemaVersion: 1,
+    name: "Command Workflow",
+    roles: { dev: { label: "Dev" } },
+    initialState: "inspect",
+    states: {
+      inspect: {
+        owner: "dev",
+        steps: [
+          {
+            id: "collect_status",
+            type: "command",
+            provider: options.provider,
+            command: options.command,
+            args: { includeDiffSummary: true },
+            policy: {
+              access: "read",
+              cwd: { mode: "workspace_root" },
+              timeoutMs: 10_000,
+              output: { stdoutMaxChars: 64, stderrMaxChars: 64, combinedMaxChars: 4_096 },
+            },
+          },
+          {
+            id: "decide",
+            type: "agent_turn",
+            turnType: "decision",
+            prompt: { template: "Review command result." },
             response: {
               format: "xml",
               schema: { format: "xsd", source: "state_actions" },

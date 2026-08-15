@@ -837,14 +837,12 @@ export class PersistedWorkflowRuntimeService {
           }),
         ]);
     try {
-      const result = sanitizeCommandResult(
-        await this.executeCommandEffect(
-          withAttempt,
-          effect,
-          idempotencyKey,
-        ),
+      const executed = await this.executeCommandEffect(
+        withAttempt,
         effect,
+        idempotencyKey,
       );
+      const result = sanitizeCommandResult(executed.result, executed.policy);
       const observation: WorkflowCommandObservation = {
         kind: "command_completed",
         turnId: effect.turnId,
@@ -891,7 +889,10 @@ export class PersistedWorkflowRuntimeService {
     run: PersistedWorkflowRunReadModel,
     effect: Extract<WorkflowPlanEffect, { kind: "start_command" }>,
     idempotencyKey: string,
-  ): Promise<WorkflowCommandResult> {
+  ): Promise<{
+    result: WorkflowCommandResult;
+    policy: ReturnType<typeof normalizeCommandPolicy>;
+  }> {
     const provider = this.commandProviders.get(effect.provider);
     if (!provider) {
       throw new WorkflowCommandProviderError({
@@ -937,7 +938,7 @@ export class PersistedWorkflowRuntimeService {
         });
       }
     }
-    return provider.executeCommand({
+    const result = await provider.executeCommand({
       provider: effect.provider,
       command: effect.command,
       args: effect.args,
@@ -958,6 +959,7 @@ export class PersistedWorkflowRuntimeService {
           : null,
       },
     });
+    return { result, policy };
   }
 
   private async resolveCommandLane(
@@ -1612,16 +1614,23 @@ function normalizeError(error: unknown): { name: string; message: string } {
 
 function sanitizeCommandResult(
   result: WorkflowCommandResult,
-  effect: Extract<WorkflowPlanEffect, { kind: "start_command" }>,
+  policy: ReturnType<typeof normalizeCommandPolicy>,
 ): WorkflowCommandResult {
-  const stdoutCap = effect.policy?.output?.stdoutMaxChars ?? 4_096;
-  const stderrCap = effect.policy?.output?.stderrMaxChars ?? 1_024;
+  const stdoutCap = policy.output.stdoutMaxChars;
+  const stderrCap = policy.output.stderrMaxChars;
   const stdout = result.stdoutPreview
     ? capText(redact(result.stdoutPreview), stdoutCap)
     : null;
   const stderr = result.stderrPreview
     ? capText(redact(result.stderrPreview), stderrCap)
     : null;
+  const combined = enforceCombinedOutputCap({
+    stdoutText: stdout?.text,
+    stderrText: stderr?.text,
+    stdoutTruncated: result.stdoutTruncated === true || stdout?.truncated === true,
+    stderrTruncated: result.stderrTruncated === true || stderr?.truncated === true,
+    combinedMaxChars: policy.output.combinedMaxChars,
+  });
   const sanitizedResult = Object.fromEntries(
     Object.entries(result.result).map(([key, value]) => [
       key,
@@ -1632,10 +1641,38 @@ function sanitizeCommandResult(
     ...result,
     result: sanitizedResult,
     summary: redact(result.summary),
-    stdoutPreview: stdout?.text,
-    stderrPreview: stderr?.text,
-    stdoutTruncated: result.stdoutTruncated === true || stdout?.truncated === true,
-    stderrTruncated: result.stderrTruncated === true || stderr?.truncated === true,
+    stdoutPreview: combined.stdoutText,
+    stderrPreview: combined.stderrText,
+    stdoutTruncated: combined.stdoutTruncated,
+    stderrTruncated: combined.stderrTruncated,
+  };
+}
+
+function enforceCombinedOutputCap(args: {
+  stdoutText?: string;
+  stderrText?: string;
+  stdoutTruncated: boolean;
+  stderrTruncated: boolean;
+  combinedMaxChars: number;
+}): { stdoutText?: string; stderrText?: string; stdoutTruncated: boolean; stderrTruncated: boolean } {
+  const stdoutLength = args.stdoutText?.length ?? 0;
+  const stderrLength = args.stderrText?.length ?? 0;
+  if (stdoutLength + stderrLength <= args.combinedMaxChars) {
+    return {
+      stdoutText: args.stdoutText,
+      stderrText: args.stderrText,
+      stdoutTruncated: args.stdoutTruncated,
+      stderrTruncated: args.stderrTruncated,
+    };
+  }
+
+  const stdoutAllowed = Math.min(stdoutLength, args.combinedMaxChars);
+  const stderrAllowed = Math.max(0, args.combinedMaxChars - stdoutAllowed);
+  return {
+    stdoutText: args.stdoutText?.slice(0, stdoutAllowed),
+    stderrText: args.stderrText?.slice(0, stderrAllowed),
+    stdoutTruncated: args.stdoutTruncated || stdoutLength > stdoutAllowed,
+    stderrTruncated: args.stderrTruncated || stderrLength > stderrAllowed,
   };
 }
 

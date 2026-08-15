@@ -305,12 +305,18 @@ export function validateCommandPolicyAgainstSpec(args: {
       message: `${args.provider}/${args.command} timeout is over the provider limit`,
     });
   }
-  if (args.policy.output.combinedMaxChars > args.spec.outputCaps.combinedMaxChars) {
-    throw new WorkflowCommandProviderError({
-      code: "WORKFLOW_COMMAND_DENIED",
-      path: `${args.path}.policy.output.combinedMaxChars`,
-      message: `${args.provider}/${args.command} output cap is over the provider limit`,
-    });
+  for (const key of [
+    "stdoutMaxChars",
+    "stderrMaxChars",
+    "combinedMaxChars",
+  ] as const) {
+    if (args.policy.output[key] > args.spec.outputCaps[key]) {
+      throw new WorkflowCommandProviderError({
+        code: "WORKFLOW_COMMAND_DENIED",
+        path: `${args.path}.policy.output.${key}`,
+        message: `${args.provider}/${args.command} ${key} is over the provider limit`,
+      });
+    }
   }
 }
 

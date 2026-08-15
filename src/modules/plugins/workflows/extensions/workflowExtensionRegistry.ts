@@ -1,5 +1,5 @@
 import { createBeadsFormWorkflowArtifactRef } from '@vibe-dashboard/beads-form';
-import { createDefaultWorkflowCommandProviderRegistry } from './workflowCommandProviders';
+import { createDefaultWorkflowCommandProviderRegistry, type WorkflowCommandProviderRegistry } from './workflowCommandProviders';
 
 export type WorkflowExtensionIssueCode =
   | 'WORKFLOW_EXTENSION_DUPLICATE_PROVIDER'
@@ -227,8 +227,9 @@ export class WorkflowExtensionRegistry {
   }
 }
 
-export function createDefaultWorkflowExtensionRegistry(): WorkflowExtensionRegistry {
+export function createDefaultWorkflowExtensionRegistry(options: { commandProviders?: WorkflowCommandProviderRegistry } = {}): WorkflowExtensionRegistry {
   const registry = new WorkflowExtensionRegistry();
+  const commandProviders = options.commandProviders ?? createDefaultWorkflowCommandProviderRegistry();
   registry.registerStepProvider({
     type: 'agent_turn',
     label: 'Agent turn',
@@ -258,7 +259,7 @@ export function createDefaultWorkflowExtensionRegistry(): WorkflowExtensionRegis
     validateStep(step, context) {
       const record = isRecord(step) ? step : {};
       const providerId = typeof record.provider === 'string' ? record.provider : '';
-      const provider = createDefaultWorkflowCommandProviderRegistry().get(providerId);
+      const provider = commandProviders.get(providerId);
       if (!provider) {
         return [{ code: 'WORKFLOW_EXTENSION_UNKNOWN_STEP_PROVIDER', path: `${context.path}.provider`, message: providerId ? `unknown command provider ${providerId}` : 'command provider is required' }];
       }

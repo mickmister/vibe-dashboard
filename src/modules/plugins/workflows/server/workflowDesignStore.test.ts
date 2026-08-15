@@ -55,6 +55,45 @@ describe('DbWorkflowDesignStore M91 foundation', () => {
     expect(draft?.validationIssues.map((issue) => issue.path)).toContain('initialState');
   });
 
+  it('TEST_CASE_M117_1B rejects unknown command providers and commands at publish', async () => {
+    const { store } = await createStore();
+    await store.createDesign({
+      designId: 'design.unknown-command-provider',
+      draftId: 'draft.unknown-command-provider',
+      name: 'Unknown command provider workflow',
+      definition: commandWorkflowDefinition({ provider: 'unknown.command', command: 'workspace_status' }),
+    });
+    await expect(store.publishDraft('draft.unknown-command-provider')).rejects.toBeInstanceOf(WorkflowDesignValidationError);
+    await expect(store.getDraft('draft.unknown-command-provider')).resolves.toMatchObject({
+      validationStatus: 'invalid',
+      validationIssues: [
+        expect.objectContaining({
+          code: 'WORKFLOW_CONFIG_INVALID_STEP',
+          path: 'states.inspect.steps.0.provider',
+          message: 'unknown command provider unknown.command',
+        }),
+      ],
+    });
+
+    await store.createDesign({
+      designId: 'design.unknown-command-id',
+      draftId: 'draft.unknown-command-id',
+      name: 'Unknown command id workflow',
+      definition: commandWorkflowDefinition({ provider: 'first_party.command', command: 'shell' }),
+    });
+    await expect(store.publishDraft('draft.unknown-command-id')).rejects.toBeInstanceOf(WorkflowDesignValidationError);
+    await expect(store.getDraft('draft.unknown-command-id')).resolves.toMatchObject({
+      validationStatus: 'invalid',
+      validationIssues: [
+        expect.objectContaining({
+          code: 'WORKFLOW_CONFIG_INVALID_STEP',
+          path: 'states.inspect.steps.0.command',
+          message: 'unsupported first-party command shell',
+        }),
+      ],
+    });
+  });
+
   it('TEST_CASE_M91_1B keeps checked-in templates as catalog entries until Use/Duplicate materializes DB records', async () => {
     const { store } = await createStore({ templates: BUILT_IN_WORKFLOW_TEMPLATES });
 
@@ -377,6 +416,44 @@ function workflowDefinition(name: string, extraPrompt = 'Implement with the shar
         actions: {
           approve: { targetState: 'done' },
         },
+      },
+      done: { terminal: true },
+    },
+  };
+}
+
+function commandWorkflowDefinition(options: { provider: string; command: string }) {
+  return {
+    schemaVersion: 1,
+    name: 'command-workflow',
+    roles: { dev: { label: 'Dev' } },
+    initialState: 'inspect',
+    states: {
+      inspect: {
+        owner: 'dev',
+        steps: [
+          {
+            id: 'collect_status',
+            type: 'command',
+            provider: options.provider,
+            command: options.command,
+            args: { includeDiffSummary: true },
+            policy: {
+              access: 'read',
+              cwd: { mode: 'workspace_root' },
+              timeoutMs: 10_000,
+              output: { stdoutMaxChars: 64, stderrMaxChars: 64, combinedMaxChars: 4_096 },
+            },
+          },
+          {
+            id: 'decide',
+            type: 'agent_turn',
+            turnType: 'decision',
+            prompt: { template: 'Review command result.' },
+            response: decisionResponsePolicy(),
+          },
+        ],
+        actions: { done: { targetState: 'done' } },
       },
       done: { terminal: true },
     },

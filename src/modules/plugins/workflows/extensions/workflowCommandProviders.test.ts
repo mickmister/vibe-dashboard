@@ -76,20 +76,26 @@ describe("workflow command providers", () => {
     ]);
 
     const spec = provider.listCommands()[0]!;
-    expect(() =>
-      validateCommandPolicyAgainstSpec({
-        provider: spec.provider,
-        command: spec.command,
-        spec,
-        policy: {
-          access: "read",
-          cwd: { mode: "workspace_root" },
-          timeoutMs: spec.maxTimeoutMs + 1,
-          output: spec.outputCaps,
-        },
-        path: "states.inspect.steps.0",
-      }),
-    ).toThrow(WorkflowCommandProviderError);
+    for (const policy of [
+      { timeoutMs: spec.maxTimeoutMs + 1, output: spec.outputCaps },
+      { timeoutMs: spec.maxTimeoutMs, output: { ...spec.outputCaps, stdoutMaxChars: spec.outputCaps.stdoutMaxChars + 1 } },
+      { timeoutMs: spec.maxTimeoutMs, output: { ...spec.outputCaps, stderrMaxChars: spec.outputCaps.stderrMaxChars + 1 } },
+      { timeoutMs: spec.maxTimeoutMs, output: { ...spec.outputCaps, combinedMaxChars: spec.outputCaps.combinedMaxChars + 1 } },
+    ]) {
+      expect(() =>
+        validateCommandPolicyAgainstSpec({
+          provider: spec.provider,
+          command: spec.command,
+          spec,
+          policy: {
+            access: "read",
+            cwd: { mode: "workspace_root" },
+            ...policy,
+          },
+          path: "states.inspect.steps.0",
+        }),
+      ).toThrow(WorkflowCommandProviderError);
+    }
   });
 
   it("TEST_CASE_M117_1C redacts common secret and host-path patterns", () => {

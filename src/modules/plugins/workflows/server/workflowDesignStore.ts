@@ -6,6 +6,7 @@ import {
   type AgentWorkflowDefinitionV1,
   type WorkflowConfigIssue,
 } from '@vibe-dashboard/workflow-core';
+import { createDefaultWorkflowExtensionRegistry, type WorkflowExtensionRegistry } from '../extensions/workflowExtensionRegistry';
 import type {
   DB,
   WorkflowDesign,
@@ -177,12 +178,14 @@ export class DbWorkflowDesignStore {
   private readonly getDb: () => Promise<Kysely<DB>> | Kysely<DB>;
   private readonly now: () => number;
   private readonly templates: WorkflowTemplateCatalogEntry[];
+  private readonly extensionRegistry: WorkflowExtensionRegistry;
 
-  constructor(options: { db?: Kysely<DB>; getDb?: () => Promise<Kysely<DB>> | Kysely<DB>; now?: () => number; templates?: WorkflowTemplateCatalogEntry[] }) {
+  constructor(options: { db?: Kysely<DB>; getDb?: () => Promise<Kysely<DB>> | Kysely<DB>; now?: () => number; templates?: WorkflowTemplateCatalogEntry[]; extensionRegistry?: WorkflowExtensionRegistry }) {
     if (!options.db && !options.getDb) throw new Error('DbWorkflowDesignStore requires db or getDb');
     this.getDb = options.getDb ?? (() => options.db!);
     this.now = options.now ?? Date.now;
     this.templates = options.templates ?? [];
+    this.extensionRegistry = options.extensionRegistry ?? createDefaultWorkflowExtensionRegistry();
   }
 
   listTemplateCatalog(): WorkflowTemplateCatalogEntry[] {
@@ -316,6 +319,7 @@ export class DbWorkflowDesignStore {
     const resolved = await this.resolveDefinition(draft.definition, {});
     const issues = [
       ...validateResolvedDefinition(resolved.definition),
+      ...validateExtensionProviders(resolved.definition, this.extensionRegistry),
       ...await validateWorkflowCallReferences(db, resolved.definition),
     ];
     if (issues.length) {
@@ -495,7 +499,7 @@ export class DbWorkflowDesignStore {
   private async validateTemplateEntry(template: WorkflowTemplateCatalogEntry): Promise<{ issues: WorkflowConfigIssue[] }> {
     try {
       const resolved = await this.resolveDefinition(template.definition, { assetOverrides: buildTemplateAssetOverrides(template) });
-      return { issues: validateResolvedDefinition(resolved.definition) };
+      return { issues: [...validateResolvedDefinition(resolved.definition), ...validateExtensionProviders(resolved.definition, this.extensionRegistry)] };
     } catch (error) {
       if (error instanceof WorkflowDesignValidationError) return { issues: error.issues };
       throw error;
@@ -550,6 +554,7 @@ export class DbWorkflowDesignStore {
       return {
         issues: [
           ...validateResolvedDefinition(resolved.definition),
+          ...validateExtensionProviders(resolved.definition, this.extensionRegistry),
           ...await validateWorkflowCallReferences(db, resolved.definition),
         ],
       };
@@ -721,6 +726,21 @@ function validateResolvedDefinition(definition: unknown): WorkflowConfigIssue[] 
     if (error instanceof WorkflowDefinitionError) return error.issues;
     throw error;
   }
+}
+
+
+function validateExtensionProviders(definition: unknown, registry: WorkflowExtensionRegistry): WorkflowConfigIssue[] {
+  return registry
+    .validateWorkflowConfig(definition)
+    .map((issue) => ({
+      code: issue.code === 'WORKFLOW_EXTENSION_UNKNOWN_STEP_PROVIDER'
+        ? 'WORKFLOW_CONFIG_INVALID_STEP'
+        : issue.code === 'WORKFLOW_EXTENSION_UNKNOWN_ARTIFACT_PROVIDER'
+          ? 'WORKFLOW_CONFIG_INVALID_REFERENCE'
+          : 'WORKFLOW_CONFIG_INVALID_STEP',
+      path: issue.path,
+      message: issue.message,
+    } satisfies WorkflowConfigIssue));
 }
 
 async function validateWorkflowCallReferences(
