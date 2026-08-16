@@ -439,6 +439,59 @@ export interface WorkflowBatchItem {
   completedAt: NullableNumber;
 }
 
+
+
+export type WorkflowMetaRunStatus = 'pending' | 'running' | 'paused' | 'blocked' | 'completed' | 'failed' | 'cancelled';
+export type WorkflowMetaRunItemStatus = 'pending' | 'running' | 'paused' | 'completed' | 'blocked' | 'failed' | 'skipped';
+
+export interface WorkflowMetaRun {
+  metaRunId: string;
+  parentWorkspaceId: string;
+  laneId: NullableString;
+  status: WorkflowMetaRunStatus;
+  currentIndex: number;
+  childWorkflowDesignId: NullableString;
+  title: string;
+  summary: NullableString;
+  pauseRequested: number;
+  blockedReasonJson: NullableString;
+  resultSummaryJson: string;
+  provenanceJson: string;
+  createdAt: number;
+  updatedAt: number;
+  startedAt: NullableNumber;
+  completedAt: NullableNumber;
+}
+
+export interface WorkflowMetaRunItem {
+  itemId: string;
+  metaRunId: string;
+  beadId: string;
+  itemIndex: number;
+  title: string;
+  beadStatus: string;
+  status: WorkflowMetaRunItemStatus;
+  childRunId: NullableString;
+  resultJson: NullableString;
+  noteRef: NullableString;
+  errorJson: NullableString;
+  provenanceJson: string;
+  createdAt: number;
+  updatedAt: number;
+  startedAt: NullableNumber;
+  completedAt: NullableNumber;
+}
+
+export interface WorkflowMetaRunEvent {
+  eventId: string;
+  metaRunId: string;
+  itemId: NullableString;
+  kind: string;
+  message: string;
+  dataJson: string;
+  createdAt: number;
+}
+
 export type WorkflowPersistedRunStatus = 'running' | 'completed' | 'blocked' | 'failed' | 'cancelled';
 
 export interface WorkflowPersistedRun {
@@ -538,6 +591,9 @@ export interface DB {
   WorkflowSkillAsset: WorkflowSkillAsset;
   WorkflowDesignRunSnapshot: WorkflowDesignRunSnapshot;
   WorkflowPersistedRun: WorkflowPersistedRun;
+  WorkflowMetaRun: WorkflowMetaRun;
+  WorkflowMetaRunItem: WorkflowMetaRunItem;
+  WorkflowMetaRunEvent: WorkflowMetaRunEvent;
   WorkflowBatch: WorkflowBatch;
   WorkflowBatchItem: WorkflowBatchItem;
   DeclarativeWorkflowDefinition: DeclarativeWorkflowDefinitionRow;
