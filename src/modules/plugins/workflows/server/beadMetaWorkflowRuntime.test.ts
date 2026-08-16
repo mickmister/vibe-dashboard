@@ -50,15 +50,53 @@ describe('BeadMetaWorkflowRuntime M118', () => {
   it('TEST_CASE_M118_1B executes ordered beads sequentially with one active child at a time', async () => {
     const { runtime, childStarts } = await createRuntime({ beads: [bead('A'), bead('B'), bead('C')] });
 
-    const launched = await runtime.createRun({ metaRunId: 'meta-sequential', parentWorkspaceId: 'workspace-a', beadIds: ['A', 'B', 'C'] });
-    expect(launched).toMatchObject({ status: 'running', currentIndex: 0, progress: { total: 3, completed: 0, running: 1, pending: 2 } });
+    const launched = await runtime.createRun({ metaRunId: 'meta-sequential', parentWorkspaceId: 'workspace-a', beadIds: ['A', 'B', 'C'], childWorkflowDesignId: 'design.child' });
+    expect(launched).toMatchObject({ status: 'running', currentIndex: 0, childWorkflowDesignId: 'design.child', progress: { total: 3, completed: 0, running: 1, pending: 2 } });
     expect(launched.currentItem).toMatchObject({ beadId: 'A', status: 'running', childRunId: 'child-meta-sequential-0' });
     expect(childStarts.map((start) => start.beadId)).toEqual(['A']);
+    expect(childStarts[0]).toMatchObject({
+      childWorkflowDesignId: 'design.child',
+      childRunId: 'child-meta-sequential-0',
+      idempotencyKey: 'meta-run:meta-sequential:item:meta-sequential:item:0:child',
+    });
 
     const afterA = await runtime.completeChild({ metaRunId: 'meta-sequential', itemId: launched.currentItem!.itemId, childRunId: 'child-meta-sequential-0', summary: 'A done' });
     expect(afterA).toMatchObject({ status: 'running', currentIndex: 1, progress: { completed: 1, running: 1, pending: 1 } });
     expect(afterA.currentItem).toMatchObject({ beadId: 'B', status: 'running', childRunId: 'child-meta-sequential-1' });
     expect(childStarts.map((start) => start.beadId)).toEqual(['A', 'B']);
+  });
+
+  it('TEST_CASE_M118_1B durably claims a child launch before side effects so duplicate resumes do not start duplicates', async () => {
+    const handle = await initVdDb({ path: ':memory:' });
+    handles.push(handle);
+    const childStarts: ChildStartRecord[] = [];
+    const childRunner: MetaWorkflowChildRunner = {
+      async startChild(input) {
+        childStarts.push({
+          beadId: input.bead.beadId,
+          itemId: input.itemId,
+          childRunId: input.childRunId,
+          childWorkflowDesignId: input.childWorkflowDesignId ?? null,
+          idempotencyKey: input.idempotencyKey,
+        });
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        return { childRunId: input.childRunId };
+      },
+    };
+    const runtime = buildRuntime(handle, { beads: [bead('A'), bead('B')], childRunner });
+    await runtime.createRun({ metaRunId: 'meta-race', parentWorkspaceId: 'workspace-a', beadIds: ['A', 'B'], childWorkflowDesignId: 'design.child', autoStart: false });
+
+    const [first, second] = await Promise.all([
+      runtime.resumeRun('meta-race'),
+      runtime.resumeRun('meta-race'),
+    ]);
+    const final = await runtime.getRun('meta-race');
+
+    expect(childStarts).toHaveLength(1);
+    expect(childStarts[0]).toMatchObject({ beadId: 'A', childRunId: 'child-meta-race-0', childWorkflowDesignId: 'design.child' });
+    expect([first, second, final].map((run) => run.progress.running)).toEqual([1, 1, 1]);
+    expect(final.items.filter((item) => item.status === 'running')).toHaveLength(1);
+    expect(final.items[1]).toMatchObject({ beadId: 'B', status: 'pending', childRunId: null });
   });
 
   it('TEST_CASE_M118_1C pauses durably between beads and resumes at the correct bead', async () => {
@@ -123,24 +161,29 @@ describe('BeadMetaWorkflowRuntime M118', () => {
 async function createRuntime(options: { beads: BeadReadModel[] }) {
   const handle = await initVdDb({ path: ':memory:' });
   handles.push(handle);
-  const childStarts: Array<{ beadId: string; itemId: string; childRunId: string }> = [];
+  const childStarts: ChildStartRecord[] = [];
   const noteWrites: Array<{ beadId: string; idempotencyKey: string; provenance: unknown }> = [];
   const runtime = buildRuntime(handle, { beads: options.beads, childStarts, noteWrites });
   return { handle, runtime, childStarts, noteWrites };
 }
 
-function buildRuntime(handle: VdDbHandle, options: { beads: BeadReadModel[]; childStarts?: Array<{ beadId: string; itemId: string; childRunId: string }>; noteWrites?: Array<{ beadId: string; idempotencyKey: string; provenance: unknown }>; laneStore?: DbWorkspaceLaneStore }) {
+function buildRuntime(handle: VdDbHandle, options: { beads: BeadReadModel[]; childStarts?: ChildStartRecord[]; noteWrites?: Array<{ beadId: string; idempotencyKey: string; provenance: unknown }>; laneStore?: DbWorkspaceLaneStore; childRunner?: MetaWorkflowChildRunner }) {
   const beadProvider: BeadMetadataProvider = {
     async readBeads(beadIds) {
       const byId = new Map(options.beads.map((item) => [item.beadId, item]));
       return beadIds.map((id) => byId.get(id)).filter(Boolean) as BeadReadModel[];
     },
   };
-  const childRunner: MetaWorkflowChildRunner = {
+  const childRunner: MetaWorkflowChildRunner = options.childRunner ?? {
     async startChild(input) {
-      const childRunId = `child-${input.metaRunId}-${input.bead.beadId === 'A' ? 0 : input.bead.beadId === 'B' ? 1 : 2}`;
-      options.childStarts?.push({ beadId: input.bead.beadId, itemId: input.itemId, childRunId });
-      return { childRunId, artifactRefs: [`workflow-run://${childRunId}`] };
+      options.childStarts?.push({
+        beadId: input.bead.beadId,
+        itemId: input.itemId,
+        childRunId: input.childRunId,
+        childWorkflowDesignId: input.childWorkflowDesignId ?? null,
+        idempotencyKey: input.idempotencyKey,
+      });
+      return { childRunId: input.childRunId, artifactRefs: [`workflow-run://${input.childRunId}`] };
     },
   };
   const noteWriter: BeadResultNoteWriter = {
@@ -159,6 +202,8 @@ function buildRuntime(handle: VdDbHandle, options: { beads: BeadReadModel[]; chi
     createId: (() => { let value = 1; return () => `id-${value++}`; })(),
   });
 }
+
+type ChildStartRecord = { beadId: string; itemId: string; childRunId: string; childWorkflowDesignId: string | null; idempotencyKey: string };
 
 function bead(beadId: string, options: Partial<BeadReadModel> = {}): BeadReadModel {
   return {
