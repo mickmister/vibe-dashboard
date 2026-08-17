@@ -45,10 +45,10 @@ The human response on `vibe-kanban-vscode-web-qwzp` sets the next tranche as:
 8. **M119B placement:** implement live roadmap/progress provider after M119A and
    before browser meta-workflow UX.
 9. **M119C bead selection:** support live search/select and CKOV roadmap
-   selection, default-scoped to beads that carry this workspace id metadata. Do
-   not lead with paste-only selection. Beads missing workspace metadata are
-   excluded/rejected by default unless a later explicit cross-workspace mode is
-   approved.
+   selection. Default search/listing is scoped to beads that carry this workspace
+   id metadata and should surface parent issues rather than sub-issues by
+   default. The UI should also provide filters for beads with no workspace
+   metadata and beads from other workspaces.
 10. **`olou`:** narrow/rename toward approved typed workflow providers only; do
     not implement generic bash in this branch.
 11. **Physical lanes/worktrees:** defer production physical lifecycle until after
@@ -127,7 +127,10 @@ Expected:
 - Exact child workflow design/version is pinned at meta-run creation.
 - Missing/unpublished/wrong-workspace child workflow is rejected before launch.
 - Duplicate bead ids fail with stable validation issues.
-- Missing, inaccessible, removed, archived, wrong-workspace, or missing-workspace-metadata beads fail before launch.
+- Missing, inaccessible, removed, or archived beads fail before launch.
+- Wrong-workspace and no-workspace beads are allowed only when explicitly
+  selected/validated through typed provider filtering; default selection favors
+  current-workspace parent beads.
 - The created run has durable ordered items and a product-readable read model.
 
 #### TEST_CASE_M119A_1B — Launch one real child workflow at a time
@@ -337,9 +340,10 @@ Out of scope:
 Expected:
 
 - User can open a new meta-workflow screen.
-- User can search/select beads from the typed provider, default-filtered to beads
-  with this workspace id metadata; missing workspace metadata is excluded by
-  default.
+- User can search/select beads from the typed provider, default-filtered to
+  parent beads with this workspace id metadata.
+- User can switch filters to include no-workspace beads or other-workspace beads
+  with clear labels/warnings.
 - User can also start a selection from CKOV roadmap context.
 - User can reorder selected beads and remove duplicates.
 - Duplicate/inaccessible/removed/wrong-workspace beads are rejected in UI before
