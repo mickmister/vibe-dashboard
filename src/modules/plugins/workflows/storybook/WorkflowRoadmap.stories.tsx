@@ -135,7 +135,7 @@ function liveMixedRoadmap(): WorkflowRoadmapModel {
     ckov.reviewState = "passed";
     ckov.summary = "Live bead status shows CKOV completed after review and tester pass.";
     ckov.nextAction = null;
-    ckov.links.push({ label: "Meta-run completed", href: "/dashboard/workflows/meta-runs/meta-storybook-live", kind: "workflow_run" });
+    ckov.links.push({ label: "Child workflow completed", href: "/dashboard/workflows/child-storybook-live", kind: "workflow_run" });
   }
   const sebl = roadmap.milestones.find((item) => item.milestone === "SEBL");
   if (sebl) {

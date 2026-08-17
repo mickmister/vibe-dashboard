@@ -59,12 +59,12 @@ describe("WorkflowRoadmapView", () => {
           return {
             partial: true,
             updatedAt: 54,
-            warnings: ["Some bead details are temporarily unavailable."],
+            warnings: ["Some bead details are temporarily unavailable.", "bd show leaked /Users/example/private webhook queue item"],
             beads: [{ beadId: "vibe-kanban-vscode-web-ckov", status: "closed", summary: "Live done.", url: "/beads/project?bead=vibe-kanban-vscode-web-ckov" }],
           };
         },
         async listMetaRuns() {
-          return [{ metaRunId: "meta-component", status: "completed", items: [{ beadId: "vibe-kanban-vscode-web-ckov", status: "completed" }] }];
+          return [{ metaRunId: "meta-component", status: "completed", items: [{ beadId: "vibe-kanban-vscode-web-ckov", status: "completed", childRunId: "child-component" }] }];
         },
       },
     });
@@ -82,7 +82,11 @@ describe("WorkflowRoadmapView", () => {
     expect(html).toContain("component-live");
     expect(html).toContain("Top-level milestones");
     expect(html).toContain("Some bead details are temporarily unavailable.");
-    expect(html).toContain('/dashboard/workflows/meta-runs/meta-component');
+    expect(html).toContain("workflow action");
+    expect(html).toContain('/dashboard/workflows/child-component');
+    expect(html).not.toContain("bd show");
+    expect(html).not.toContain("/Users/");
+    expect(html).not.toContain("queue item");
     for (const term of forbiddenTerms) expect(html).not.toContain(term);
   });
 

@@ -106,7 +106,7 @@ describe("registerWorkflowRoutes", () => {
           };
         },
         async listMetaRuns() {
-          return [{ metaRunId: "meta-route-live", status: "running", items: [{ beadId: "vibe-kanban-vscode-web-ckov", status: "running" }] }];
+          return [{ metaRunId: "meta-route-live", status: "running", items: [{ beadId: "vibe-kanban-vscode-web-ckov", status: "running", childRunId: "child-route-live" }] }];
         },
       },
     });
@@ -119,7 +119,7 @@ describe("registerWorkflowRoutes", () => {
     expect(payload.roadmap.milestones).toEqual(expect.arrayContaining([expect.objectContaining({
       beadId: "vibe-kanban-vscode-web-ckov",
       status: "complete",
-      links: expect.arrayContaining([expect.objectContaining({ href: "/dashboard/workflows/meta-runs/meta-route-live" })]),
+      links: expect.arrayContaining([expect.objectContaining({ href: "/dashboard/workflows/child-route-live" })]),
     })]));
     expect(JSON.stringify(payload)).not.toContain("queue item");
     expect(JSON.stringify(payload)).not.toContain("webhook");

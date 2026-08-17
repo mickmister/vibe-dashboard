@@ -83,6 +83,7 @@ describe("workflowRoadmapReadModel", () => {
           expect(beadIds).toContain("vibe-kanban-vscode-web-ckov");
           return {
             updatedAt: 1_799_999,
+            warnings: ["bd show leaked /Users/example/private webhook queue item"],
             beads: [
               {
                 beadId: "vibe-kanban-vscode-web-ckov",
@@ -123,7 +124,7 @@ describe("workflowRoadmapReadModel", () => {
         title: "Live roadmap provider",
         status: "complete",
         reviewState: "passed",
-        links: expect.arrayContaining([expect.objectContaining({ href: "/dashboard/workflows/meta-runs/meta-live", kind: "workflow_run" })]),
+        links: expect.arrayContaining([expect.objectContaining({ href: "/dashboard/workflows/child-live", kind: "workflow_run" })]),
       }),
       expect.objectContaining({
         beadId: "vibe-kanban-vscode-web-sebl",
@@ -135,6 +136,9 @@ describe("workflowRoadmapReadModel", () => {
     const serialized = JSON.stringify(roadmap);
     expect(serialized).not.toContain("file://");
     expect(serialized).not.toContain("/Users/");
+    expect(serialized).toContain("workflow action");
+    expect(serialized).not.toContain("bd show");
+    expect(serialized).not.toContain("webhook");
     expect(serialized).not.toContain("queue item");
   });
 

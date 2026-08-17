@@ -326,7 +326,7 @@ export async function buildLiveWorkflowRoadmapModel(options: { now?: () => numbe
     applyLiveBeads(milestones, live.beads);
     applyLiveMetaRuns(milestones, metaRuns);
     const missingCount = beadIds.filter((id) => !live.beads.some((bead) => bead.beadId === id)).length;
-    const warnings = [...(live.warnings ?? [])];
+    const warnings = sanitizeWarnings(live.warnings);
     if (missingCount > 0) warnings.push(`${missingCount} roadmap beads were not returned by the live provider; static context is shown for those items.`);
     const freshness = live.stale ? "stale" : live.partial || missingCount > 0 ? "partial" : "live";
     return baseRoadmapModel({
@@ -428,24 +428,25 @@ function applyLiveBeads(milestones: WorkflowRoadmapMilestone[], beads: LiveRoadm
 }
 
 function applyLiveMetaRuns(milestones: WorkflowRoadmapMilestone[], metaRuns: LiveRoadmapMetaRun[]): void {
-  const byBead = new Map<string, LiveRoadmapMetaRun[]>();
+  const byBead = new Map<string, Array<{ run: LiveRoadmapMetaRun; item: LiveRoadmapMetaRun["items"][number] }>>();
   for (const run of metaRuns) {
     for (const item of run.items) {
       const list = byBead.get(item.beadId) ?? [];
-      list.push(run);
+      list.push({ run, item });
       byBead.set(item.beadId, list);
     }
   }
   for (const milestone of milestones) {
-    appendMetaRunLinks(milestone.links, byBead.get(milestone.beadId));
-    for (const childItem of milestone.children) appendMetaRunLinks(childItem.links, byBead.get(childItem.beadId));
+    appendSupportedRunLinks(milestone.links, byBead.get(milestone.beadId));
+    for (const childItem of milestone.children) appendSupportedRunLinks(childItem.links, byBead.get(childItem.beadId));
   }
 }
 
-function appendMetaRunLinks(links: WorkflowRoadmapLink[], runs: LiveRoadmapMetaRun[] | undefined): void {
-  for (const run of runs ?? []) {
-    const href = `/dashboard/workflows/meta-runs/${encodeURIComponent(run.metaRunId)}`;
-    links.push({ label: `Meta-run ${statusLabelForLink(run.status)}`, href, kind: "workflow_run" });
+function appendSupportedRunLinks(links: WorkflowRoadmapLink[], runs: Array<{ run: LiveRoadmapMetaRun; item: LiveRoadmapMetaRun["items"][number] }> | undefined): void {
+  for (const { run, item } of runs ?? []) {
+    if (!item.childRunId) continue;
+    const href = `/dashboard/workflows/${encodeURIComponent(item.childRunId)}`;
+    links.push({ label: `Child workflow ${statusLabelForLink(run.status)}`, href, kind: "workflow_run" });
   }
   const safe = productSafeLinks(links);
   links.splice(0, links.length, ...safe);
@@ -488,6 +489,13 @@ function latestMetaRunUpdatedAt(runs: LiveRoadmapMetaRun[]): number | null {
 function cleanText(value: string | null | undefined): string | null {
   const cleaned = value?.trim();
   return cleaned ? scrubProductText(cleaned).slice(0, 500) : null;
+}
+
+function sanitizeWarnings(warnings: string[] | undefined): string[] {
+  return (warnings ?? [])
+    .map((warning) => scrubProductText(String(warning)).slice(0, 500).trim())
+    .filter(Boolean)
+    .slice(0, 5);
 }
 
 function statusLabelForLink(status: LiveRoadmapMetaRun["status"]): string {
