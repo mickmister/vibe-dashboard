@@ -54,6 +54,7 @@ test.describe("M120C browser workflow creation and run", () => {
     test.setTimeout(600_000);
 
     await expectDashboardHealth(request);
+    await expectProvisionedWebhook(request);
     const workspace = await firstWorkspace(request);
     const unique = Date.now();
     const workflowName = `M120C Browser Workflow ${unique}`;
@@ -150,6 +151,15 @@ async function expectDashboardHealth(request: APIRequestContext) {
     if (!response.ok()) return null;
     return await response.json().catch(() => null) as { ok?: boolean } | null;
   }, { timeout: 120_000, message: "dashboard workflow health should return JSON" }).toEqual({ ok: true });
+}
+
+async function expectProvisionedWebhook(request: APIRequestContext) {
+  await expect.poll(async () => {
+    const response = await request.get(url("/dashboard/api/workflow-webhooks/provisioning"));
+    if (!response.ok()) return null;
+    const body = await response.json().catch(() => null) as { state?: { status?: string } | null } | null;
+    return body?.state?.status ?? null;
+  }, { timeout: 60_000, intervals: [1_000, 2_000, 5_000], message: "VD should self-provision VK terminal execution webhook before browser launch" }).toBe("provisioned");
 }
 
 async function firstWorkspace(request: APIRequestContext): Promise<Workspace> {
