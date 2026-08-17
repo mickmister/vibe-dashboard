@@ -29,6 +29,7 @@ import {
   writePreviewSubmission,
 } from '../lib/beadsFormPreviewState';
 import { rewriteFolderPreviewMediaRefs } from '../lib/beadsFormPreviewMedia';
+import { normalizeBeadsFormQueryId } from '../lib/beadsFormUrl';
 import { initializeSingleQuestionMode } from '../lib/beadsFormSingleQuestion';
 import { initializeCompactMoreInfo, refreshCompactMoreInfoState } from '../lib/beadsFormMoreInfo';
 
@@ -204,7 +205,7 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
 } }) {
   const [params] = useSearchParams();
   const folder = params.get('folder') ?? '';
-  const formId = params.get('form') ?? undefined;
+  const formId = normalizeBeadsFormQueryId(params.get('form'));
   const [loaded, setLoaded] = useState<LoadPreviewFormsResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -501,7 +502,7 @@ function BeadsFormRoute({ actions }: { actions: {
   const dir = params.get('dir') ?? '';
   const parentDir = params.get('parentDir') ?? '';
   const beadId = params.get('bead') ?? '';
-  const formId = params.get('form') ?? undefined;
+  const formId = normalizeBeadsFormQueryId(params.get('form'));
   const includeOtherWorkspaces = params.get('scope') === 'all';
   const returnTo = params.get('returnTo') ?? '';
   const [loaded, setLoaded] = useState<LoadWorkspaceFormsResult | null>(null);

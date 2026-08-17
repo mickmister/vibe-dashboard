@@ -5,7 +5,7 @@ ARG VK_BRANCH=main
 ARG VK_COMMIT=
 ARG VK_RUNTIME_SOURCE=github
 ARG CODEX_RELEASE_REPO=mickmister/codex
-ARG CODEX_RELEASE_TAG=codex-cli-assets-555694bb4817b3edfa8e70e5391c26c14777759b
+ARG CODEX_RELEASE_TAG=codex-cli-assets-dc198b6aa9597a0b82a7488d2d2777933ad01329
 ARG CODEX_RELEASE_ASSET=
 
 FROM alpine:3.19 AS vk-runtime-downloader
@@ -320,7 +320,7 @@ RUN set -eux; \
     npm config set fetch-retries 5; \
     npm config set fetch-retry-mintimeout 20000; \
     npm config set fetch-retry-maxtimeout 120000; \
-    npm_packages="@anthropic-ai/claude-code pnpm opencode-ai gitnexus agent-browser"; \
+    npm_packages="@anthropic-ai/claude-code pnpm opencode-ai gitnexus"; \
     install_codex_npm=1; \
     if [ -n "${CODEX_RELEASE_TAG}" ]; then \
       install_codex_npm=0; \
