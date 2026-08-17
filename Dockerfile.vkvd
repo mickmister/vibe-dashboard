@@ -419,11 +419,14 @@ RUN command -v vibe-agent && \
     vk --help >/dev/null && \
     (cd /tmp && beads-form --help >/dev/null)
 
-# Copy packaged vibe-dashboard runtime artifacts to their final runtime path
-RUN mkdir -p /home/vkuser/.local/share/vibe-dashboard-runtime
-COPY --from=dashboard-builder /app/package.json /home/vkuser/.local/share/vibe-dashboard-runtime/package.json
-COPY --from=dashboard-builder /app/node_modules /home/vkuser/.local/share/vibe-dashboard-runtime/node_modules
-COPY --from=dashboard-builder /app/dist /home/vkuser/.local/share/vibe-dashboard-runtime/dist
+# Copy packaged vibe-dashboard runtime artifacts to their final runtime path with
+# final ownership set at build time. Startup must not recursively chown this tree:
+# node_modules/dist are large image-layer directories and metadata mutation is slow.
+RUN mkdir -p /home/vkuser/.local/share/vibe-dashboard-runtime/data && \
+    chown vkuser:vkuser /home/vkuser/.local/share/vibe-dashboard-runtime /home/vkuser/.local/share/vibe-dashboard-runtime/data
+COPY --chown=vkuser:vkuser --from=dashboard-builder /app/package.json /home/vkuser/.local/share/vibe-dashboard-runtime/package.json
+COPY --chown=vkuser:vkuser --from=dashboard-builder /app/node_modules /home/vkuser/.local/share/vibe-dashboard-runtime/node_modules
+COPY --chown=vkuser:vkuser --from=dashboard-builder /app/dist /home/vkuser/.local/share/vibe-dashboard-runtime/dist
 
 # Copy entrypoint script that fixes docker group GID at runtime
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
