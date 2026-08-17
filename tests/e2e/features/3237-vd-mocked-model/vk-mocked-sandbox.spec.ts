@@ -193,10 +193,10 @@ test.describe('VK mocked-provider sandbox through VD UI', () => {
       page.getByRole('menuitem', { name: 'Switch Voyage' }),
     ).toBeVisible();
 
-    await clickMenuItem(page, 'New Craft');
-    await expectCreateWorkspaceFrameUrl(page);
-    await page.getByRole('button', { name: 'Voyage actions' }).last().click();
     await clickMenuItem(page, 'Open Craft');
+    await expect(
+      page.getByRole('heading', { name: 'Open VK Workspace' }),
+    ).toBeVisible();
     await page
       .getByRole('textbox', { name: 'Search workspaces...' })
       .fill(promptTitle);
@@ -224,6 +224,11 @@ test.describe('VK mocked-provider sandbox through VD UI', () => {
       fullPage: true,
       path: test.info().outputPath('final-vd-agent-followup.png'),
     });
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.getByRole('button', { name: 'Voyage actions' }).last().click();
+    await clickMenuItem(page, 'New Craft');
+    await expectCreateWorkspaceFrameUrl(page);
   });
 });
 
