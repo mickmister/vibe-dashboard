@@ -44,6 +44,9 @@ describe('PersistedWorkflowRuntimeService M93', () => {
     expect(afterNonDecision.applied).toBe(true);
     expect(queued).toHaveLength(2);
     expect(queuedAt(queued, 1)).toMatchObject({ role: 'dev', stepId: 'selfReview' });
+    expect(queuedAt(queued, 1).prompt).toContain('Expected XML response spec:');
+    expect(queuedAt(queued, 1).prompt).toContain('action="readyForReview"');
+    expect(queuedAt(queued, 1).prompt).toContain('<summary>...</summary>: required markdown');
 
     const afterDevDecision = await runtime.completeAgentTurn({
       runId: 'run-1',
@@ -55,6 +58,8 @@ describe('PersistedWorkflowRuntimeService M93', () => {
     expect(queued).toHaveLength(3);
     expect(queuedAt(queued, 2)).toMatchObject({ role: 'review', sessionId: 'session-review', stepId: 'review' });
     expect(queuedAt(queued, 2).prompt).toContain('Implemented generically');
+    expect(queuedAt(queued, 2).prompt).toContain('Expected XML response spec:');
+    expect(queuedAt(queued, 2).prompt).toContain('action="approved"');
 
     const duplicate = await runtime.completeAgentTurn({
       runId: 'run-1',
@@ -174,6 +179,8 @@ describe('PersistedWorkflowRuntimeService M93', () => {
     expect(firstInvalid.run.status).toBe('running');
     expect(queued).toHaveLength(2);
     expect(queuedAt(queued, 1).prompt).toContain('response must be XML');
+    expect(queuedAt(queued, 1).prompt).toContain('Expected XML response spec:');
+    expect(queuedAt(queued, 1).prompt).toContain('action="continueEditing"');
 
     const looped = await runtime.completeAgentTurn({
       runId: 'run-loop',
@@ -219,6 +226,8 @@ describe('PersistedWorkflowRuntimeService M93', () => {
 
     await runtime.completeAgentTurn({ runId: 'run-drt', turnId: queuedAt(queued, 0).turnId, responseRef: 'dev-implement-1' });
     expect(queuedAt(queued, 1)).toMatchObject({ role: 'dev', stepId: 'self_review' });
+    expect(queuedAt(queued, 1).prompt).toContain('Expected XML response spec:');
+    expect(queuedAt(queued, 1).prompt).toContain('action="ready_for_review"');
     await runtime.completeAgentTurn({ runId: 'run-drt', turnId: queuedAt(queued, 1).turnId, responseRef: 'dev-self-review-1', finalResponseText: '<decision action="ready_for_review"><summary>Implemented pass one</summary><concerns>Risk noted</concerns></decision>' });
     expect(queuedAt(queued, 2)).toMatchObject({ role: 'review', sessionId: 'session-review', stepId: 'review' });
 
@@ -442,6 +451,8 @@ describe('PersistedWorkflowRuntimeService M93', () => {
     expect(queuedAt(queued, 1)).toMatchObject({ runId: 'run-parent', stepId: 'parent_decide' });
     expect(queuedAt(queued, 1).prompt).toContain('Child status: completed');
     expect(queuedAt(queued, 1).prompt).toContain('workflow-run://run-parent-id-2/output');
+    expect(queuedAt(queued, 1).prompt).toContain('Expected XML response spec:');
+    expect(queuedAt(queued, 1).prompt).toContain('action="done"');
 
     const duplicate = await runtime.completeWorkflowCall({
       runId: 'run-parent',
