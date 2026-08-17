@@ -2,6 +2,7 @@ import type { Kysely, Selectable } from "kysely";
 import {
   compileBeadsForm,
   createBeadsFormWorkflowArtifactRef,
+  parseBeadsFormXml,
 } from "@vibe-dashboard/beads-form";
 import {
   advanceWorkflow,
@@ -732,9 +733,7 @@ export class PersistedWorkflowRuntimeService {
     if (typeof rawFormSchema !== "string" || !rawFormSchema.trim())
       return { snapshot, events: [] };
     try {
-      const form = JSON.parse(rawFormSchema) as Parameters<
-        typeof compileBeadsForm
-      >[0];
+      const form = parseWorkflowBeadsFormSchema(rawFormSchema);
       assertStandardBeadsForm(form);
       const compiled = compileBeadsForm(form);
       const ref = createBeadsFormWorkflowArtifactRef({
@@ -1535,6 +1534,13 @@ function assertStandardBeadsForm(
     throw new Error("form title is required");
   if (!Array.isArray(record.questions) || record.questions.length === 0)
     throw new Error("form questions must be non-empty");
+}
+
+
+function parseWorkflowBeadsFormSchema(rawFormSchema: string): Parameters<typeof compileBeadsForm>[0] {
+  const trimmed = rawFormSchema.trim();
+  if (trimmed.startsWith("<")) return parseBeadsFormXml(trimmed);
+  return JSON.parse(trimmed) as Parameters<typeof compileBeadsForm>[0];
 }
 
 function event(

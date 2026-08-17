@@ -1833,6 +1833,10 @@ function renderDecisionResponseXsd(
     lines.push(...renderActionDecisionType(action, index));
   });
 
+  if (actions.some(actionUsesBeadsFormProviderSchema)) {
+    lines.push(...renderBeadsFormProviderXsdTypes());
+  }
+
   lines.push('  <xs:complexType name="InvalidDecisionActionType">');
   lines.push('    <xs:sequence/>');
   lines.push('    <xs:attribute name="action" type="DecisionActionName" use="required"/>');
@@ -1859,7 +1863,7 @@ function renderActionDecisionType(action: NormalizedWorkflowAction, index: numbe
 
   for (const [fieldName, spec] of fields) {
     lines.push(
-      `      <xs:element name="${escapeXmlAttribute(fieldName)}" type="${xsdScalarType(spec.type)}" minOccurs="${required.has(fieldName) ? 1 : 0}" maxOccurs="${spec.multiple ? "unbounded" : 1}"/>`,
+      ...renderResultFieldXsdElement(fieldName, spec, required.has(fieldName)),
     );
   }
 
@@ -1886,6 +1890,73 @@ function renderActionDecisionType(action: NormalizedWorkflowAction, index: numbe
   );
   lines.push('  </xs:complexType>');
   return lines;
+}
+
+
+function actionUsesBeadsFormProviderSchema(action: NormalizedWorkflowAction): boolean {
+  return Boolean(action.result?.fields?.formSchema);
+}
+
+function renderResultFieldXsdElement(
+  fieldName: string,
+  spec: ResultFieldSpec,
+  required: boolean,
+): string[] {
+  const minOccurs = required ? 1 : 0;
+  const maxOccurs = spec.multiple ? "unbounded" : 1;
+  if (fieldName === "formSchema") {
+    return [
+      `      <xs:element name="${escapeXmlAttribute(fieldName)}" minOccurs="${minOccurs}" maxOccurs="${maxOccurs}">`,
+      '        <xs:complexType>',
+      '          <xs:sequence>',
+      '            <xs:element name="beadsForm" type="BeadsFormType" minOccurs="1" maxOccurs="1"/>',
+      '          </xs:sequence>',
+      '        </xs:complexType>',
+      '      </xs:element>',
+    ];
+  }
+  return [
+    `      <xs:element name="${escapeXmlAttribute(fieldName)}" type="${xsdScalarType(spec.type)}" minOccurs="${minOccurs}" maxOccurs="${maxOccurs}"/>`,
+  ];
+}
+
+function renderBeadsFormProviderXsdTypes(): string[] {
+  return [
+    '  <xs:complexType name="BeadsFormType">',
+    '    <xs:sequence>',
+    '      <xs:element name="title" type="xs:string" minOccurs="1" maxOccurs="1"/>',
+    '      <xs:element name="description" type="xs:string" minOccurs="0" maxOccurs="1"/>',
+    '      <xs:element name="question" type="BeadsFormQuestionType" minOccurs="1" maxOccurs="unbounded"/>',
+    '    </xs:sequence>',
+    '    <xs:attribute name="id" type="xs:NCName" use="required"/>',
+    '  </xs:complexType>',
+    '  <xs:complexType name="BeadsFormQuestionType">',
+    '    <xs:sequence>',
+    '      <xs:element name="title" type="xs:string" minOccurs="1" maxOccurs="1"/>',
+    '      <xs:element name="description" type="xs:string" minOccurs="0" maxOccurs="1"/>',
+    '      <xs:element name="choice" type="BeadsFormChoiceType" minOccurs="0" maxOccurs="unbounded"/>',
+    '    </xs:sequence>',
+    '    <xs:attribute name="id" type="xs:NCName" use="required"/>',
+    '    <xs:attribute name="type" type="BeadsFormQuestionKind" use="required"/>',
+    '    <xs:attribute name="required" type="xs:boolean" use="optional"/>',
+    '  </xs:complexType>',
+    '  <xs:complexType name="BeadsFormChoiceType">',
+    '    <xs:sequence>',
+    '      <xs:element name="label" type="xs:string" minOccurs="1" maxOccurs="1"/>',
+    '      <xs:element name="description" type="xs:string" minOccurs="0" maxOccurs="1"/>',
+    '      <xs:element name="pros" type="xs:string" minOccurs="0" maxOccurs="1"/>',
+    '      <xs:element name="cons" type="xs:string" minOccurs="0" maxOccurs="1"/>',
+    '    </xs:sequence>',
+    '    <xs:attribute name="id" type="xs:NCName" use="required"/>',
+    '  </xs:complexType>',
+    '  <xs:simpleType name="BeadsFormQuestionKind">',
+    '    <xs:restriction base="xs:string">',
+    '      <xs:enumeration value="choices"/>',
+    '      <xs:enumeration value="text"/>',
+    '      <xs:enumeration value="textarea"/>',
+    '    </xs:restriction>',
+    '  </xs:simpleType>',
+  ];
 }
 
 function githubCiWaitFields(waitFor: GitHubCiWaitActionV1): string[] {

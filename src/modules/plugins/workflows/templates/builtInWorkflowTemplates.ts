@@ -80,10 +80,10 @@ export const BUILT_IN_WORKFLOW_TEMPLATES: WorkflowTemplateCatalogEntry[] = [
     name: 'Create form from agent',
     description: 'Small workflow that asks an agent to draft a beads-form-compatible form schema from a request.',
     promptAssets: [
-      { promptAssetId: 'prompt.create-form.agent', version: 1, source: 'built_in', name: 'Create form prompt', bodyMarkdown: 'Create a beads-form-compatible form schema for {{inputs.formRequest}}. Return XML with formSchema and artifactRef fields for review.' },
+      { promptAssetId: 'prompt.create-form.agent', version: 1, source: 'built_in', name: 'Create form prompt', bodyMarkdown: 'Create a beads-form XML schema for {{inputs.formRequest}}. Return a workflow decision XML response with <formSchema><beadsForm>...</beadsForm></formSchema>, artifactRef, and summary fields. Use markdown child elements or CDATA for descriptions/pros/cons; do not encode formSchema as JSON.' },
     ],
     skillAssets: [
-      { skillAssetId: 'skill.beads-form.schema', version: 1, source: 'built_in', name: 'Beads-form schema skill', bodyMarkdown: 'Represent forms as reviewable JSON schema-like objects compatible with beads-form. Include labels, required fields, and field types.' },
+      { skillAssetId: 'skill.beads-form.schema', version: 1, source: 'built_in', name: 'Beads-form schema skill', bodyMarkdown: 'Represent forms as beads-form XML: <beadsForm id="..."><title>...</title><description><![CDATA[markdown]]></description><question id="..." type="choices|text|textarea" required="true|false"><title>...</title><description><![CDATA[markdown]]></description><choice id="..."><label>...</label><pros><![CDATA[markdown]]></pros><cons><![CDATA[markdown]]></cons></choice></question></beadsForm>. Use child text or CDATA for markdown, not JSON.' },
       { skillAssetId: 'skill.workflow.xml-decision', version: 1, source: 'built_in', name: 'Workflow XML decision skill', bodyMarkdown: 'Return your final workflow decision as XML matching the current state actions. Markdown content belongs inside child elements or CDATA.' },
     ],
     definition: {
@@ -103,7 +103,7 @@ export const BUILT_IN_WORKFLOW_TEMPLATES: WorkflowTemplateCatalogEntry[] = [
               targetState: 'done',
               result: {
                 fields: {
-                  formSchema: { type: 'markdown', description: 'The supported beads-form schema JSON or markdown representation.' },
+                  formSchema: { type: 'markdown', description: 'The supported beads-form provider XML using a nested <beadsForm> schema.' },
                   artifactRef: { type: 'string', description: 'Durable form artifact/reference if available.' },
                   summary: { type: 'markdown' },
                 },

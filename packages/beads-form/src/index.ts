@@ -439,3 +439,109 @@ export function createBeadsFormWorkflowArtifactRef(input: BeadsFormWorkflowArtif
     },
   };
 }
+
+export function parseBeadsFormXml(xml: string): StandardBeadsForm {
+  const root = matchElement(xml.trim(), 'beadsForm');
+  if (!root) throw new Error('beads-form XML must include a beadsForm root element');
+  const id = readRequiredAttr(root.attrs, 'id', 'beadsForm.id');
+  const title = readRequiredChildText(root.body, 'title', 'beadsForm.title');
+  const description = readOptionalChildText(root.body, 'description');
+  const questions = matchElements(root.body, 'question').map((question, index): BeadsFormQuestion => {
+    const questionId = readRequiredAttr(question.attrs, 'id', `question ${index + 1}.id`);
+    const type = readRequiredAttr(question.attrs, 'type', `question ${questionId}.type`);
+    const required = readBooleanAttr(question.attrs, 'required');
+    const base = {
+      id: questionId,
+      title: readRequiredChildText(question.body, 'title', `question ${questionId}.title`),
+      description: readOptionalChildText(question.body, 'description') ?? '',
+      ...(required === undefined ? {} : { required }),
+    };
+    if (type === 'choices') {
+      const choices = matchElements(question.body, 'choice').map((choice, choiceIndex): ChoiceQuestionChoice => {
+        const choiceId = readRequiredAttr(choice.attrs, 'id', `question ${questionId} choice ${choiceIndex + 1}.id`);
+        const descriptionParts = [
+          readOptionalChildText(choice.body, 'description'),
+          markdownSection('Pros', readOptionalChildText(choice.body, 'pros')),
+          markdownSection('Cons', readOptionalChildText(choice.body, 'cons')),
+        ].filter((part): part is string => Boolean(part && part.trim()));
+        const pros = readOptionalChildText(choice.body, 'pros');
+        return {
+          id: choiceId,
+          label: readRequiredChildText(choice.body, 'label', `choice ${choiceId}.label`),
+          ...(descriptionParts.length ? { description: descriptionParts.join('\n\n') } : {}),
+          ...(pros?.trim() ? { is_recommended_reason: pros } : {}),
+        };
+      });
+      return { ...base, type: 'choices', choices };
+    }
+    if (type === 'text' || type === 'textarea') return { ...base, type };
+    throw new Error(`question ${questionId}.type must be choices, text, or textarea`);
+  });
+  return { format: 'standard', id, title, ...(description ? { description } : {}), questions };
+}
+
+type XmlElementMatch = { attrs: string; body: string };
+
+function matchElement(xml: string, tag: string): XmlElementMatch | null {
+  const pattern = new RegExp(`<${tag}\\b([^>]*)>([\\s\\S]*?)<\\/${tag}>`, 'iu');
+  const match = xml.match(pattern);
+  return match ? { attrs: match[1] ?? '', body: match[2] ?? '' } : null;
+}
+
+function matchElements(xml: string, tag: string): XmlElementMatch[] {
+  const pattern = new RegExp(`<${tag}\\b([^>]*)>([\\s\\S]*?)<\\/${tag}>`, 'giu');
+  const matches: XmlElementMatch[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(xml)) !== null) matches.push({ attrs: match[1] ?? '', body: match[2] ?? '' });
+  return matches;
+}
+
+function readRequiredAttr(attrs: string, name: string, label: string): string {
+  const value = readAttr(attrs, name);
+  if (!value) throw new Error(`${label} is required`);
+  return value;
+}
+
+function readAttr(attrs: string, name: string): string | null {
+  const pattern = new RegExp(`\\b${name}=["']([^"']*)["']`, 'iu');
+  const value = attrs.match(pattern)?.[1]?.trim();
+  return value ? decodeXmlText(value) : null;
+}
+
+function readBooleanAttr(attrs: string, name: string): boolean | undefined {
+  const value = readAttr(attrs, name);
+  if (value == null) return undefined;
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  throw new Error(`${name} must be true or false`);
+}
+
+function readRequiredChildText(xml: string, tag: string, label: string): string {
+  const value = readOptionalChildText(xml, tag);
+  if (!value?.trim()) throw new Error(`${label} is required`);
+  return value;
+}
+
+function readOptionalChildText(xml: string, tag: string): string | undefined {
+  const element = matchElement(xml, tag);
+  if (!element) return undefined;
+  return decodeXmlText(stripCdataSections(element.body).trim());
+}
+
+function stripCdataSections(value: string): string {
+  return value.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/gu, (_match, body: string) => body);
+}
+
+function decodeXmlText(value: string): string {
+  return value
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, '&');
+}
+
+function markdownSection(label: string, value: string | undefined): string | null {
+  if (!value?.trim()) return null;
+  return `**${label}:**\n${value.trim()}`;
+}

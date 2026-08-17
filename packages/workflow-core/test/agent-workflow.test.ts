@@ -506,6 +506,37 @@ describe("agent workflow V1 normalization", () => {
     expect(spec).not.toContain("Allowed action names and result fields");
     expect(spec).not.toContain("- Root tag");
   });
+
+  it("TEST_CASE_Z7R1_1A renders beads-form provider XML schema for formSchema result fields", () => {
+    const definition = makeDefinition();
+    activeAuthoredState(definition, "devImplementing").actions.readyForReview!.result = {
+      fields: {
+        formSchema: { type: "markdown" },
+        summary: { type: "markdown" },
+      },
+      required: ["formSchema"],
+      unknownFields: "reject",
+    };
+    const model = normalizeWorkflowDefinitionV1(definition);
+    const snapshot = createInitialWorkflowSnapshot(model, {
+      instanceId: "instance-form-xsd",
+      inputs: { featureRequest: "Build form XML" },
+      now: clock(1_000),
+      createId: ids("visit-form-xsd"),
+    });
+    const state = activeNormalizedState(model.states.devImplementing);
+    const step = state.steps.find((candidate): candidate is AgentWorkflowStepV1 => candidate.type === "agent_turn" && candidate.turnType === "decision")!;
+    const spec = renderExpectedXmlResponseSpec(model, snapshot, step);
+
+    expect(spec).toContain('<xs:element name="formSchema" minOccurs="1" maxOccurs="1">');
+    expect(spec).toContain('<xs:element name="beadsForm" type="BeadsFormType" minOccurs="1" maxOccurs="1"/>');
+    expect(spec).toContain('<xs:complexType name="BeadsFormType">');
+    expect(spec).toContain('<xs:element name="question" type="BeadsFormQuestionType" minOccurs="1" maxOccurs="unbounded"/>');
+    expect(spec).toContain('<xs:element name="pros" type="xs:string" minOccurs="0" maxOccurs="1"/>');
+    expect(spec).toContain('<xs:element name="cons" type="xs:string" minOccurs="0" maxOccurs="1"/>');
+    expect(spec).toContain('<xs:enumeration value="choices"/>');
+    expect(spec).not.toContain('<xs:element name="formSchema" type="xs:string"');
+  });
   it("TEST_CASE_S7OW_1B rejects XML-unsafe response identifiers before XSD generation", () => {
     expectDefinitionError(
       () => {

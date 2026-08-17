@@ -274,10 +274,16 @@ describe('PersistedWorkflowRuntimeService M93', () => {
     });
 
     expect(queuedAt(queued, 0)).toMatchObject({ role: 'form_author', stepId: 'draft_form' });
-    expect(queuedAt(queued, 0).prompt).toContain('beads-form-compatible form schema');
+    expect(queuedAt(queued, 0).prompt).toContain('beads-form XML schema');
     expect(queuedAt(queued, 0).prompt).toContain('Expected XML Schema (XSD):');
     expect(queuedAt(queued, 0).prompt).toContain('<xs:enumeration value="form_created"/>');
-    expect(queuedAt(queued, 0).prompt).toContain('<xs:element name="formSchema" type="xs:string" minOccurs="1" maxOccurs="1"/>');
+    expect(queuedAt(queued, 0).prompt).toContain('<xs:element name="formSchema" minOccurs="1" maxOccurs="1">');
+    expect(queuedAt(queued, 0).prompt).toContain('<xs:element name="beadsForm" type="BeadsFormType" minOccurs="1" maxOccurs="1"/>');
+    expect(queuedAt(queued, 0).prompt).toContain('<xs:complexType name="BeadsFormType">');
+    expect(queuedAt(queued, 0).prompt).toContain('<xs:element name="pros" type="xs:string" minOccurs="0" maxOccurs="1"/>');
+    expect(queuedAt(queued, 0).prompt).toContain('<xs:element name="cons" type="xs:string" minOccurs="0" maxOccurs="1"/>');
+    expect(queuedAt(queued, 0).prompt).not.toContain('JSON schema-like');
+    expect(queuedAt(queued, 0).prompt).not.toContain('schema JSON');
     expect(queuedAt(queued, 0).prompt).toContain('<xs:element name="artifactRef" type="xs:string" minOccurs="0" maxOccurs="1"/>');
     expect(queuedAt(queued, 0).prompt).toContain('<xs:element name="summary" type="xs:string" minOccurs="0" maxOccurs="1"/>');
     expect(queuedAt(queued, 0).prompt).not.toContain('Allowed action names and result fields');
@@ -285,11 +291,12 @@ describe('PersistedWorkflowRuntimeService M93', () => {
       runId: 'run-create-form',
       turnId: queuedAt(queued, 0).turnId,
       responseRef: 'form-response',
-      finalResponseText: '<decision action="form_created"><formSchema><![CDATA[{"format":"standard","id":"reviewerConcerns","title":"Reviewer concerns","questions":[{"id":"concerns","type":"textarea","title":"Concerns","description":"What concerns should be reviewed?","required":true}]}]]></formSchema><artifactRef>beads-form://draft/reviewer-concerns</artifactRef><summary>Created concern form</summary></decision>',
+      finalResponseText: '<decision action="form_created"><formSchema><beadsForm id="reviewerConcerns"><title>Reviewer concerns</title><description><![CDATA[Collect reviewer concerns.]]></description><question id="concerns" type="textarea" required="true"><title>Concerns</title><description><![CDATA[What concerns should be reviewed?]]></description></question></beadsForm></formSchema><artifactRef>beads-form://draft/reviewer-concerns</artifactRef><summary>Created concern form</summary></decision>',
     });
 
     expect(completed.run.status).toBe('completed');
     expect(completed.run.coreSnapshot.latestTransition).toMatchObject({ action: 'form_created', parsed: { artifactRef: 'beads-form://draft/reviewer-concerns', summary: 'Created concern form' } });
+    expect(completed.run.coreSnapshot.latestTransition?.parsed?.formSchema).toContain('<beadsForm');
     expect(completed.run.coreSnapshot.latestTransition?.parsed?.formSchema).toContain('concerns');
     expect(completed.run.events).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'form_artifact_created', data: expect.objectContaining({ artifactRef: 'beads-form://draft/reviewer-concerns' }) })]));
   });
@@ -312,7 +319,7 @@ describe('PersistedWorkflowRuntimeService M93', () => {
       runId: 'run-create-form-invalid',
       turnId: queuedAt(queued, 0).turnId,
       responseRef: 'bad-form-response',
-      finalResponseText: '<decision action="form_created"><formSchema><![CDATA[{"format":"standard","id":"bad","title":"Bad form","questions":[]}]]></formSchema></decision>',
+      finalResponseText: '<decision action="form_created"><formSchema><beadsForm id="bad"><title>Bad form</title></beadsForm></formSchema></decision>',
     });
 
     expect(failed.run.status).toBe('failed');

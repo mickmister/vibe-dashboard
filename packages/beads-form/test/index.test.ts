@@ -8,6 +8,7 @@ import {
   compileBeadsForm,
   createBeadsFormWorkflowArtifactRef,
   defineBeadsForm,
+  parseBeadsFormXml,
 } from '../src/index';
 
 describe('@vibe-dashboard/beads-form', () => {
@@ -286,4 +287,55 @@ describe('@vibe-dashboard/beads-form', () => {
     expect(compiled.html).not.toContain('class="beads-form-recommended"');
     expect(compiled.html).not.toContain('class="beads-form-recommended-reason"');
   });
+
+  it('parses workflow beads-form XML with markdown choices into standard form schema', () => {
+    const form = parseBeadsFormXml(`
+      <beadsForm id="planning_review">
+        <title>Planning Review</title>
+        <description><![CDATA[Markdown **description**]]></description>
+        <question id="entry_point" type="choices" required="true">
+          <title>Entry point</title>
+          <description><![CDATA[Question markdown]]></description>
+          <choice id="forms_tab">
+            <label>Open in Forms tab</label>
+            <pros><![CDATA[Fast and **focused**]]></pros>
+            <cons><![CDATA[Needs a visible tab.]]></cons>
+          </choice>
+        </question>
+        <question id="notes" type="textarea" required="false">
+          <title>Notes</title>
+          <description><![CDATA[Free-form notes]]></description>
+        </question>
+      </beadsForm>
+    `);
+
+    expect(form).toMatchObject({
+      format: 'standard',
+      id: 'planning_review',
+      title: 'Planning Review',
+      description: 'Markdown **description**',
+      questions: [
+        expect.objectContaining({
+          id: 'entry_point',
+          type: 'choices',
+          required: true,
+          choices: [expect.objectContaining({
+            id: 'forms_tab',
+            label: 'Open in Forms tab',
+            is_recommended_reason: 'Fast and **focused**',
+          })],
+        }),
+        expect.objectContaining({ id: 'notes', type: 'textarea', required: false }),
+      ],
+    });
+    expect((form.questions[0] as any).choices[0].description).toContain('**Pros:**');
+    expect((form.questions[0] as any).choices[0].description).toContain('**Cons:**');
+    expect(compileBeadsForm(form).html).toContain('Open in Forms tab');
+  });
+
+  it('rejects invalid workflow beads-form XML', () => {
+    expect(() => parseBeadsFormXml('<beadsForm><title>Missing id</title></beadsForm>')).toThrow('beadsForm.id is required');
+    expect(() => parseBeadsFormXml('<beadsForm id="bad"><title>Bad</title><question id="q" type="unsupported"><title>Q</title></question></beadsForm>')).toThrow('must be choices, text, or textarea');
+  });
+
 });
