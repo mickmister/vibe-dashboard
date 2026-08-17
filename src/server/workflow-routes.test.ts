@@ -922,6 +922,189 @@ describe("registerWorkflowRoutes", () => {
     ).toMatchObject({ version: 1 });
   });
 
+  it("TEST_CASE_M119A_1A-F creates, resumes, observes, and reads sequential bead meta-runs", async () => {
+    const handle = await initVdDb({ path: ":memory:" });
+    dbHandles.push(handle);
+    const app = new Hono();
+    const designStore = new DbWorkflowDesignStore({ db: handle.db });
+    await designStore.createDesign({
+      designId: "design-meta-child",
+      draftId: "draft-meta-child",
+      name: "Meta child",
+      definition: routeValidDefinition(),
+    });
+    await designStore.publishDraft("draft-meta-child");
+    const queued: Array<{ runId: string; turnId: string; prompt: string }> = [];
+    const persistedWorkflowRuntime = new PersistedWorkflowRuntimeService({
+      db: handle.db,
+      designStore,
+      queue: {
+        async queueAgentTurn(request) {
+          queued.push({ runId: request.runId, turnId: request.turnId, prompt: request.prompt });
+          return { queueItemRef: `queue://${request.turnId}` };
+        },
+      },
+      createId: (() => { let value = 1; return () => `id-${value++}`; })(),
+      now: (() => { let value = 10_000; return () => value++; })(),
+    });
+    const noteWrites: Array<{ beadId: string; idempotencyKey: string }> = [];
+    registerWorkflowRoutes(app, {
+      registry: createWorkflowRegistry(),
+      workflowHomeDb: handle.db,
+      workflowDesignStore: designStore,
+      persistedWorkflowRuntime,
+      metaWorkflowBeadProvider: {
+        async readBeads(beadIds) {
+          return beadIds
+            .filter((beadId) => beadId !== "missing")
+            .map((beadId) => ({
+              beadId,
+              title: `${beadId} title`,
+              status: beadId === "archived" ? "archived" as const : "open" as const,
+              workspaceId: beadId === "other" ? "workspace-b" : "workspace-a",
+              accessible: beadId !== "hidden",
+              url: `/beads/project?bead=${encodeURIComponent(beadId)}`,
+            }));
+        },
+      },
+      metaWorkflowNoteWriter: {
+        async appendResultNote(input) {
+          noteWrites.push({ beadId: input.beadId, idempotencyKey: input.idempotencyKey });
+          if (input.beadId === "note-fails") throw new Error("note writer unavailable");
+          return { noteRef: `note://${input.beadId}/${encodeURIComponent(input.idempotencyKey)}` };
+        },
+      },
+    });
+
+    const invalid = await app.request("/dashboard/api/workflows/meta-runs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        workspaceId: "workspace-a",
+        beadIds: ["A", "A", "hidden", "archived", "missing", "other"],
+        childWorkflow: { designId: "design-meta-child", version: 1 },
+        roleBindings: { dev: { sessionId: "session-dev" } },
+      }),
+    });
+    expect(invalid.status).toBe(400);
+    await expect(invalid.json()).resolves.toMatchObject({
+      error: "META_WORKFLOW_INVALID_SELECTION",
+      issues: expect.arrayContaining([
+        expect.objectContaining({ code: "META_WORKFLOW_DUPLICATE_BEAD" }),
+        expect.objectContaining({ message: "Bead hidden is not accessible." }),
+        expect.objectContaining({ message: "Bead archived is archived." }),
+        expect.objectContaining({ message: "Bead missing was not found." }),
+        expect.objectContaining({ message: "Bead other is not in this workspace." }),
+      ]),
+    });
+    expect(queued).toEqual([]);
+
+    const created = await app.request("/dashboard/api/workflows/meta-runs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        metaRunId: "meta-route",
+        workspaceId: "workspace-a",
+        beadIds: ["A", "B"],
+        childWorkflow: { designId: "design-meta-child", version: 1 },
+        roleBindings: { dev: { sessionId: "session-dev" } },
+      }),
+    });
+    expect(created.status).toBe(201);
+    const createdBody = await created.json() as { metaRun: any };
+    expect(createdBody.metaRun).toMatchObject({
+      metaRunId: "meta-route",
+      status: "running",
+      childWorkflowDesignId: "design-meta-child",
+      childWorkflowDesignVersion: 1,
+      currentItem: { beadId: "A", childRunId: "child-meta-route-0" },
+      progress: { running: 1, pending: 1 },
+    });
+    expect(queued).toHaveLength(1);
+    const firstQueued = queued[0]!;
+    expect(firstQueued).toMatchObject({ runId: "child-meta-route-0" });
+    expect(firstQueued.prompt).not.toContain("coordinator");
+    expect(firstQueued.prompt).not.toContain("bd ");
+
+    const duplicateResume = await app.request("/dashboard/api/workflows/meta-runs/meta-route/resume", { method: "POST" });
+    expect(duplicateResume.status).toBe(200);
+    expect(queued).toHaveLength(1);
+
+    const child = await persistedWorkflowRuntime.completeAgentTurn({
+      runId: "child-meta-route-0",
+      turnId: firstQueued.turnId,
+      responseRef: "response-a",
+      finalResponseText: '<decision action="done"><summary>A completed</summary></decision>',
+    });
+    expect(child.run.status).toBe("completed");
+
+    const stale = await app.request("/dashboard/api/workflows/meta-runs/meta-route/observe-child", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ itemId: createdBody.metaRun.currentItem.itemId, childRunId: "wrong-child" }),
+    });
+    expect(stale.status).toBe(200);
+    await expect(stale.json()).resolves.toMatchObject({ observed: { applied: false, reason: "stale" } });
+
+    const observed = await app.request("/dashboard/api/workflows/meta-runs/meta-route/observe-child", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ itemId: createdBody.metaRun.currentItem.itemId, childRunId: "child-meta-route-0" }),
+    });
+    expect(observed.status).toBe(200);
+    const observedBody = await observed.json() as { observed: { run: any } };
+    expect(observedBody.observed.run).toMatchObject({
+      status: "running",
+      currentItem: { beadId: "B", childRunId: "child-meta-route-1" },
+      progress: { completed: 1, running: 1, pending: 0 },
+    });
+    expect(noteWrites).toEqual([{ beadId: "A", idempotencyKey: "meta-run:meta-route:item:meta-route:item:0:result-note" }]);
+    expect(queued.map((item) => item.runId)).toEqual(["child-meta-route-0", "child-meta-route-1"]);
+
+    const noteFailure = await app.request("/dashboard/api/workflows/meta-runs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        metaRunId: "meta-note-failure",
+        workspaceId: "workspace-a",
+        beadIds: ["note-fails"],
+        childWorkflow: { designId: "design-meta-child", version: 1 },
+        roleBindings: { dev: { sessionId: "session-dev" } },
+      }),
+    });
+    expect(noteFailure.status).toBe(201);
+    const noteFailureBody = await noteFailure.json() as { metaRun: any };
+    const noteFailureQueue = queued.find((item) => item.runId === "child-meta-note-failure-0")!;
+    await persistedWorkflowRuntime.completeAgentTurn({
+      runId: "child-meta-note-failure-0",
+      turnId: noteFailureQueue.turnId,
+      responseRef: "response-note-failure",
+      finalResponseText: '<decision action="done"><summary>Note writer should block</summary></decision>',
+    });
+    const noteFailureObserved = await app.request("/dashboard/api/workflows/meta-runs/meta-note-failure/observe-child", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ itemId: noteFailureBody.metaRun.currentItem.itemId, childRunId: "child-meta-note-failure-0" }),
+    });
+    expect(noteFailureObserved.status).toBe(200);
+    await expect(noteFailureObserved.json()).resolves.toMatchObject({
+      observed: {
+        applied: true,
+        run: {
+          status: "blocked",
+          blockedReason: { code: "result_note_write_failed", message: "note writer unavailable" },
+          currentItem: { beadId: "note-fails", status: "blocked" },
+        },
+      },
+    });
+
+    const list = await app.request("/dashboard/api/workflows/meta-runs?workspaceId=workspace-a");
+    expect(list.status).toBe(200);
+    await expect(list.json()).resolves.toMatchObject({
+      metaRuns: expect.arrayContaining([expect.objectContaining({ metaRunId: "meta-route", progress: expect.objectContaining({ completed: 1 }) })]),
+    });
+  });
+
   it("TEST_CASE_M117_1B rejects unknown command providers and commands through publish routes", async () => {
     const handle = await initVdDb({ path: ":memory:" });
     dbHandles.push(handle);
@@ -3817,7 +4000,12 @@ function routeValidDefinition() {
             },
           },
         ],
-        actions: { done: { targetState: "done" } },
+        actions: {
+          done: {
+            targetState: "done",
+            result: { fields: { summary: { type: "markdown" } }, required: ["summary"] },
+          },
+        },
       },
       done: { terminal: true },
     },

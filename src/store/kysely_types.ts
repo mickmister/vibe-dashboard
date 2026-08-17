@@ -451,6 +451,8 @@ export interface WorkflowMetaRun {
   status: WorkflowMetaRunStatus;
   currentIndex: number;
   childWorkflowDesignId: NullableString;
+  childWorkflowDesignVersion: NullableNumber;
+  childRoleBindingsJson: string;
   title: string;
   summary: NullableString;
   pauseRequested: number;

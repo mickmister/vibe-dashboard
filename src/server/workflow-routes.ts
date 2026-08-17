@@ -54,6 +54,14 @@ import { BUILT_IN_WORKFLOW_TEMPLATES } from "../modules/plugins/workflows/templa
 import { buildPersistedWorkflowPresentationModel } from "../modules/plugins/workflows/server/persistedWorkflowPresentationReadModel";
 import { buildWorkflowRoadmapModel } from "../modules/plugins/workflows/server/workflowRoadmapReadModel";
 import {
+  BeadMetaWorkflowError,
+  BeadMetaWorkflowRuntime,
+  type BeadMetadataProvider,
+  type BeadResultNoteWriter,
+  type MetaWorkflowChildRunReader,
+  type MetaWorkflowChildRunner,
+} from "../modules/plugins/workflows/server/beadMetaWorkflowRuntime";
+import {
   DEFAULT_WORKFLOW_BATCH_CAPACITY,
   WorkflowBatchSchedulerService,
   type WorkflowBatchCapacitySnapshot,
@@ -93,6 +101,8 @@ export interface RegisterWorkflowRoutesOptions {
     PersistedWorkflowRuntimeService,
     "launch" | "completeHumanForm" | "completeAgentTurn" | "getRun"
   >;
+  metaWorkflowBeadProvider?: BeadMetadataProvider;
+  metaWorkflowNoteWriter?: BeadResultNoteWriter;
   workflowBatchCapacity?: Partial<typeof DEFAULT_WORKFLOW_BATCH_CAPACITY>;
   vkClient?: Partial<
     Pick<
@@ -141,6 +151,98 @@ export function registerWorkflowRoutes(
       workspaceId,
     });
     return c.json({ home });
+  });
+
+
+  hono.post("/dashboard/api/workflows/meta-runs", async (c) => {
+    const body = asRecord(await readJsonBody(c.req.raw));
+    const workspaceId = asString(body?.workspaceId)?.trim();
+    const beadIds = Array.isArray(body?.beadIds) ? body.beadIds.filter((item): item is string => typeof item === "string") : [];
+    const childWorkflow = asRecord(body?.childWorkflow);
+    const childDesignId = asString(childWorkflow?.designId)?.trim();
+    const childVersion = typeof childWorkflow?.version === 'number' ? childWorkflow.version : parsePositiveInteger(typeof childWorkflow?.version === 'string' ? childWorkflow.version : null);
+    if (!workspaceId) return c.json({ error: "workspace_id_required", message: "Workspace is required" }, 400);
+    if (!childDesignId) return c.json({ error: "child_workflow_required", message: "Child workflow is required" }, 400);
+    if (!options.metaWorkflowBeadProvider) return c.json({ error: "bead_provider_not_configured", message: "Bead metadata provider is not configured." }, 503);
+    const db = options.workflowHomeDb ?? (await getVdDb()).db;
+    const designStore = options.workflowDesignStore ?? new DbWorkflowDesignStore({ db, templates: BUILT_IN_WORKFLOW_TEMPLATES });
+    const runtime = await resolvePersistedWorkflowRuntime(options, db, designStore);
+    if (!runtime) return c.json({ error: "workflow_runtime_not_configured", message: "Workflow launch is not configured." }, 503);
+    try {
+      const workflow = await buildLaunchWorkflowSummary(designStore, childDesignId, childVersion ?? undefined);
+      if (!workflow.canRun || workflow.version == null) return c.json({ error: "child_workflow_unavailable", message: workflow.unavailableReason ?? "Child workflow is not published." }, 400);
+      const roleBindings = await resolveLaunchRoleBindings(options, workspaceId, workflow, normalizeRoleBindings(asRecord(body?.roleBindings) ?? {}));
+      const metaRuntime = createRouteMetaWorkflowRuntime({ db, beadProvider: options.metaWorkflowBeadProvider, noteWriter: options.metaWorkflowNoteWriter, persistedRuntime: runtime });
+      const metaRun = await metaRuntime.createRun({
+        metaRunId: asString(body?.metaRunId) ?? `workflow-meta-run-${randomUUID()}`,
+        parentWorkspaceId: workspaceId,
+        beadIds,
+        title: asString(body?.title) ?? undefined,
+        summary: asString(body?.summary) ?? null,
+        childWorkflowDesignId: childDesignId,
+        childWorkflowDesignVersion: workflow.version,
+        childRoleBindings: roleBindings,
+        autoStart: body?.autoStart !== false,
+      });
+      return c.json({ metaRun }, 201);
+    } catch (error) {
+      return handleMetaWorkflowRouteError(c, error, "workflow_meta_run_create_failed");
+    }
+  });
+
+  hono.get("/dashboard/api/workflows/meta-runs", async (c) => {
+    const workspaceId = c.req.query("workspaceId")?.trim();
+    if (!workspaceId) return c.json({ error: "workspace_id_required", message: "Workspace is required" }, 400);
+    if (!options.metaWorkflowBeadProvider) return c.json({ error: "bead_provider_not_configured", message: "Bead metadata provider is not configured." }, 503);
+    const db = options.workflowHomeDb ?? (await getVdDb()).db;
+    const runtime = createRouteMetaWorkflowRuntime({ db, beadProvider: options.metaWorkflowBeadProvider, noteWriter: options.metaWorkflowNoteWriter, persistedRuntime: options.persistedWorkflowRuntime });
+    const runs = await runtime.listRuns(workspaceId, parsePositiveInteger(c.req.query("limit") ?? null) ?? 50);
+    return c.json({ metaRuns: runs });
+  });
+
+  hono.get("/dashboard/api/workflows/meta-runs/:metaRunId", async (c) => {
+    const metaRunId = c.req.param("metaRunId")?.trim();
+    if (!metaRunId) return c.json({ error: "meta_run_required", message: "Meta-workflow run is required" }, 400);
+    if (!options.metaWorkflowBeadProvider) return c.json({ error: "bead_provider_not_configured", message: "Bead metadata provider is not configured." }, 503);
+    const db = options.workflowHomeDb ?? (await getVdDb()).db;
+    const runtime = createRouteMetaWorkflowRuntime({ db, beadProvider: options.metaWorkflowBeadProvider, noteWriter: options.metaWorkflowNoteWriter, persistedRuntime: options.persistedWorkflowRuntime });
+    try { return c.json({ metaRun: await runtime.getRun(metaRunId) }); }
+    catch (error) { return handleMetaWorkflowRouteError(c, error, "workflow_meta_run_read_failed"); }
+  });
+
+  hono.post("/dashboard/api/workflows/meta-runs/:metaRunId/pause", async (c) => {
+    const metaRunId = c.req.param("metaRunId")?.trim();
+    if (!metaRunId) return c.json({ error: "meta_run_required", message: "Meta-workflow run is required" }, 400);
+    if (!options.metaWorkflowBeadProvider) return c.json({ error: "bead_provider_not_configured", message: "Bead metadata provider is not configured." }, 503);
+    const db = options.workflowHomeDb ?? (await getVdDb()).db;
+    const runtime = createRouteMetaWorkflowRuntime({ db, beadProvider: options.metaWorkflowBeadProvider, noteWriter: options.metaWorkflowNoteWriter, persistedRuntime: options.persistedWorkflowRuntime });
+    try { return c.json({ metaRun: await runtime.requestPause(metaRunId) }); }
+    catch (error) { return handleMetaWorkflowRouteError(c, error, "workflow_meta_run_pause_failed"); }
+  });
+
+  hono.post("/dashboard/api/workflows/meta-runs/:metaRunId/resume", async (c) => {
+    const metaRunId = c.req.param("metaRunId")?.trim();
+    if (!metaRunId) return c.json({ error: "meta_run_required", message: "Meta-workflow run is required" }, 400);
+    if (!options.metaWorkflowBeadProvider) return c.json({ error: "bead_provider_not_configured", message: "Bead metadata provider is not configured." }, 503);
+    const db = options.workflowHomeDb ?? (await getVdDb()).db;
+    const designStore = options.workflowDesignStore ?? new DbWorkflowDesignStore({ db, templates: BUILT_IN_WORKFLOW_TEMPLATES });
+    const persistedRuntime = await resolvePersistedWorkflowRuntime(options, db, designStore);
+    const runtime = createRouteMetaWorkflowRuntime({ db, beadProvider: options.metaWorkflowBeadProvider, noteWriter: options.metaWorkflowNoteWriter, persistedRuntime });
+    try { return c.json({ metaRun: await runtime.resumeRun(metaRunId) }); }
+    catch (error) { return handleMetaWorkflowRouteError(c, error, "workflow_meta_run_resume_failed"); }
+  });
+
+  hono.post("/dashboard/api/workflows/meta-runs/:metaRunId/observe-child", async (c) => {
+    const metaRunId = c.req.param("metaRunId")?.trim();
+    const body = asRecord(await readJsonBody(c.req.raw));
+    if (!metaRunId) return c.json({ error: "meta_run_required", message: "Meta-workflow run is required" }, 400);
+    if (!options.metaWorkflowBeadProvider) return c.json({ error: "bead_provider_not_configured", message: "Bead metadata provider is not configured." }, 503);
+    const db = options.workflowHomeDb ?? (await getVdDb()).db;
+    const runtime = createRouteMetaWorkflowRuntime({ db, beadProvider: options.metaWorkflowBeadProvider, noteWriter: options.metaWorkflowNoteWriter, persistedRuntime: options.persistedWorkflowRuntime });
+    try {
+      const observed = await runtime.observeChildRun({ metaRunId, itemId: asString(body?.itemId) ?? "", childRunId: asString(body?.childRunId) ?? "" });
+      return c.json({ observed });
+    } catch (error) { return handleMetaWorkflowRouteError(c, error, "workflow_meta_run_observe_failed"); }
   });
 
   hono.get("/dashboard/api/workflows/launch-options", async (c) => {
@@ -2042,6 +2144,77 @@ function validateLaunchInputs(
     }
   }
   return errors;
+}
+
+
+function createRouteMetaWorkflowRuntime(args: {
+  db: Kysely<DB>;
+  beadProvider: BeadMetadataProvider;
+  noteWriter?: BeadResultNoteWriter;
+  persistedRuntime?: Pick<PersistedWorkflowRuntimeService, "launch" | "getRun"> | null;
+}): BeadMetaWorkflowRuntime {
+  return new BeadMetaWorkflowRuntime({
+    db: args.db,
+    beadProvider: args.beadProvider,
+    noteWriter: args.noteWriter,
+    childRunner: createPersistedMetaWorkflowChildRunner(args.persistedRuntime),
+    childRunReader: createPersistedMetaWorkflowChildRunReader(args.persistedRuntime),
+  });
+}
+
+function createPersistedMetaWorkflowChildRunner(
+  runtime: Pick<PersistedWorkflowRuntimeService, "launch" | "getRun"> | null | undefined,
+): MetaWorkflowChildRunner {
+  return {
+    async startChild(input) {
+      if (!runtime) throw new Error("Persisted workflow runtime is not configured for meta-workflow child launch.");
+      const existing = await runtime.getRun(input.childRunId);
+      if (existing) return { childRunId: existing.runId, artifactRefs: [`workflow-run://${existing.runId}`] };
+      if (!input.childWorkflowDesignId || !input.childWorkflowDesignVersion) throw new Error("Pinned child workflow design/version is required.");
+      await runtime.launch({
+        runId: input.childRunId,
+        runSnapshotId: `${input.childRunId}:snapshot`,
+        designId: input.childWorkflowDesignId,
+        version: input.childWorkflowDesignVersion,
+        workspaceId: input.parentWorkspaceId,
+        inputs: {
+          beadId: input.bead.beadId,
+          metaRunId: input.metaRunId,
+          itemId: input.itemId,
+          childRunId: input.childRunId,
+          childWorkflowDesignId: input.childWorkflowDesignId,
+          childWorkflowDesignVersion: input.childWorkflowDesignVersion,
+          laneId: input.lane.provenance.laneId,
+        },
+        roleBindings: input.childRoleBindings as never,
+      });
+      return { childRunId: input.childRunId, artifactRefs: [`workflow-run://${input.childRunId}`] };
+    },
+  };
+}
+
+function createPersistedMetaWorkflowChildRunReader(
+  runtime: Pick<PersistedWorkflowRuntimeService, "getRun"> | null | undefined,
+): MetaWorkflowChildRunReader | undefined {
+  if (!runtime) return undefined;
+  return {
+    async getRun(runId) {
+      const run = await runtime.getRun(runId);
+      if (!run) return null;
+      const transition = run.coreSnapshot.latestTransition;
+      const summary = typeof transition?.parsed?.summary === "string"
+        ? transition.parsed.summary
+        : `Child workflow ${run.status}.`;
+      return { runId: run.runId, status: run.status, summary, artifactRefs: [`workflow-run://${run.runId}`] };
+    },
+  };
+}
+
+function handleMetaWorkflowRouteError(c: { json: (value: unknown, status?: number) => Response }, error: unknown, fallbackCode: string): Response {
+  if (error instanceof BeadMetaWorkflowError) {
+    return c.json({ error: error.code, message: error.message, issues: error.issues }, error.status);
+  }
+  return c.json({ error: fallbackCode, message: error instanceof Error ? error.message : String(error) }, 400);
 }
 
 function parseWorkflowLaunchRequest(record: Record<string, unknown> | null):

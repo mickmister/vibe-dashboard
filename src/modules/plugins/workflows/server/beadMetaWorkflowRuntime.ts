@@ -45,6 +45,7 @@ export interface BeadReadModel {
   beadId: string;
   title: string;
   status: 'open' | 'in_progress' | 'review' | 'blocked' | 'closed' | 'archived' | 'removed';
+  workspaceId?: string | null;
   accessible: boolean;
   labels?: string[];
   url?: string | null;
@@ -71,9 +72,15 @@ export interface MetaWorkflowChildRunner {
     parentWorkspaceId: string;
     lane: SelectedLaneWorkspaceContext;
     childWorkflowDesignId?: string | null;
+    childWorkflowDesignVersion?: number | null;
+    childRoleBindings: Record<string, unknown>;
     childRunId: string;
     idempotencyKey: string;
   }): Promise<{ childRunId?: string; artifactRefs?: string[] }>;
+}
+
+export interface MetaWorkflowChildRunReader {
+  getRun(runId: string): Promise<{ runId: string; status: 'running' | 'completed' | 'blocked' | 'failed' | 'cancelled'; summary?: string | null; artifactRefs?: string[] } | null>;
 }
 
 export interface MetaWorkflowProvenance {
@@ -107,6 +114,8 @@ export interface BeadMetaWorkflowRunReadModel {
   status: WorkflowMetaRunStatus;
   currentIndex: number;
   childWorkflowDesignId: string | null;
+  childWorkflowDesignVersion: number | null;
+  childRoleBindings: Record<string, unknown>;
   title: string;
   summary: string | null;
   currentItem: BeadMetaWorkflowItemReadModel | null;
@@ -135,6 +144,7 @@ export class BeadMetaWorkflowRuntime {
   private readonly beads: BeadMetadataProvider;
   private readonly notes: BeadResultNoteWriter;
   private readonly childRunner: MetaWorkflowChildRunner;
+  private readonly childRunReader?: MetaWorkflowChildRunReader;
   private readonly laneStore?: DbWorkspaceLaneStore;
 
   constructor(options: {
@@ -143,6 +153,7 @@ export class BeadMetaWorkflowRuntime {
     beadProvider: BeadMetadataProvider;
     noteWriter?: BeadResultNoteWriter;
     childRunner?: MetaWorkflowChildRunner;
+    childRunReader?: MetaWorkflowChildRunReader;
     laneStore?: DbWorkspaceLaneStore;
     now?: () => number;
     createId?: () => string;
@@ -152,6 +163,7 @@ export class BeadMetaWorkflowRuntime {
     this.beads = options.beadProvider;
     this.notes = options.noteWriter ?? new InMemorySafeNoteWriter();
     this.childRunner = options.childRunner ?? new DeterministicChildRunner();
+    this.childRunReader = options.childRunReader;
     this.laneStore = options.laneStore;
     this.now = options.now ?? Date.now;
     this.createId = options.createId ?? randomUUID;
@@ -164,16 +176,28 @@ export class BeadMetaWorkflowRuntime {
     title?: string;
     summary?: string | null;
     childWorkflowDesignId?: string | null;
+    childWorkflowDesignVersion?: number;
+    childRoleBindings?: Record<string, unknown>;
     laneId?: string | null;
     accessMode?: 'read' | 'write';
     autoStart?: boolean;
   }): Promise<BeadMetaWorkflowRunReadModel> {
     const parentWorkspaceId = cleanRequired(input.parentWorkspaceId, 'parentWorkspaceId');
     const metaRunId = input.metaRunId?.trim() || this.createId();
-    const issues = validateBeadSelection(input.beadIds);
-    if (issues.length) throw new BeadMetaWorkflowError('META_WORKFLOW_INVALID_SELECTION', 'Bead selection is invalid.', { issues });
+    const selectionIssues = validateBeadSelection(input.beadIds);
+    const fatalSelectionIssues = selectionIssues.filter((issue) => issue.code !== 'META_WORKFLOW_DUPLICATE_BEAD');
+    if (fatalSelectionIssues.length) throw new BeadMetaWorkflowError('META_WORKFLOW_INVALID_SELECTION', 'Bead selection is invalid.', { issues: selectionIssues });
 
-    const beads = await this.readAndValidateBeads(input.beadIds);
+    let beads: BeadReadModel[];
+    try {
+      beads = await this.readAndValidateBeads(input.beadIds, parentWorkspaceId);
+    } catch (error) {
+      if (error instanceof BeadMetaWorkflowError && selectionIssues.length) {
+        throw new BeadMetaWorkflowError('META_WORKFLOW_INVALID_SELECTION', 'Bead selection is invalid.', { issues: [...selectionIssues, ...error.issues], status: error.status });
+      }
+      throw error;
+    }
+    if (selectionIssues.length) throw new BeadMetaWorkflowError('META_WORKFLOW_INVALID_SELECTION', 'Bead selection is invalid.', { issues: selectionIssues });
     const lane = await this.resolveLane({ parentWorkspaceId, laneId: input.laneId ?? null, accessMode: input.accessMode ?? 'read' });
     const now = this.now();
     const provenance: MetaWorkflowProvenance = { metaRunId, parentWorkspaceId, laneId: lane.provenance.laneId, laneLabel: lane.laneLabel, source: 'bead_meta_workflow' };
@@ -186,6 +210,8 @@ export class BeadMetaWorkflowRuntime {
         status: 'pending',
         currentIndex: 0,
         childWorkflowDesignId: input.childWorkflowDesignId ?? null,
+        childWorkflowDesignVersion: input.childWorkflowDesignVersion ?? null,
+        childRoleBindingsJson: stableJson(input.childRoleBindings ?? {}),
         title: cleanOptional(input.title) ?? `Meta-workflow for ${beads.length} bead${beads.length === 1 ? '' : 's'}`,
         summary: cleanOptional(input.summary) ?? null,
         pauseRequested: 0,
@@ -241,12 +267,27 @@ export class BeadMetaWorkflowRuntime {
     if (run.status === 'completed' || run.status === 'cancelled') return run;
     const running = run.items.find((item) => item.status === 'running');
     if (running) {
+      const observed = await this.observeChildRun({ metaRunId, itemId: running.itemId, childRunId: running.childRunId ?? '' });
+      if (observed.reason === 'applied') return observed.run;
       await (await this.getDb()).updateTable('WorkflowMetaRun').set({ status: 'running', pauseRequested: 0, updatedAt: this.now() }).where('metaRunId', '=', metaRunId).execute();
       return this.getRun(metaRunId);
     }
     const next = run.items.find((item) => item.status === 'pending');
     if (!next) return this.completeRun(metaRunId);
     return this.startItem(metaRunId, next.itemId);
+  }
+
+  async observeChildRun(input: { metaRunId: string; itemId: string; childRunId: string }): Promise<{ applied: boolean; reason: 'applied' | 'running' | 'stale' | 'missing_reader'; run: BeadMetaWorkflowRunReadModel }> {
+    const run = await this.getRequiredRun(input.metaRunId);
+    const item = run.items.find((candidate) => candidate.itemId === input.itemId);
+    if (!item || item.status !== 'running' || item.childRunId !== input.childRunId) return { applied: false, reason: 'stale', run };
+    if (!this.childRunReader) return { applied: false, reason: 'missing_reader', run };
+    const child = await this.childRunReader.getRun(input.childRunId);
+    if (!child || child.status === 'running') return { applied: false, reason: 'running', run };
+    if (child.status === 'completed') {
+      return { applied: true, reason: 'applied', run: await this.completeChild({ metaRunId: input.metaRunId, itemId: input.itemId, childRunId: input.childRunId, summary: child.summary ?? `Child workflow ${child.runId} completed.`, artifactRefs: child.artifactRefs ?? [`workflow-run://${child.runId}`] }) };
+    }
+    return { applied: true, reason: 'applied', run: await this.failChild({ metaRunId: input.metaRunId, itemId: input.itemId, childRunId: input.childRunId, message: child.summary ?? `Child workflow ${child.runId} ${child.status}.`, code: `child_workflow_${child.status}` }) };
   }
 
   async completeChild(input: { metaRunId: string; itemId: string; childRunId: string; summary: string; artifactRefs?: string[] }): Promise<BeadMetaWorkflowRunReadModel> {
@@ -258,12 +299,17 @@ export class BeadMetaWorkflowRuntime {
 
     const provenance = run.provenance;
     const safeSummary = cleanRequired(input.summary, 'summary').slice(0, 4000);
-    const note = await this.notes.appendResultNote({
-      beadId: item.beadId,
-      bodyMarkdown: `Workflow result for ${item.beadId}:\n\n${safeSummary}`,
-      idempotencyKey: `meta-run:${run.metaRunId}:item:${item.itemId}:result-note`,
-      provenance,
-    });
+    let note: { noteRef: string };
+    try {
+      note = await this.notes.appendResultNote({
+        beadId: item.beadId,
+        bodyMarkdown: `Workflow result for ${item.beadId}:\n\n${safeSummary}`,
+        idempotencyKey: `meta-run:${run.metaRunId}:item:${item.itemId}:result-note`,
+        provenance,
+      });
+    } catch (error) {
+      return this.blockResultNoteFailure({ run, item, childRunId: input.childRunId, error });
+    }
     const now = this.now();
     const result = { summary: safeSummary, artifactRefs: input.artifactRefs ?? [], childRunId: input.childRunId };
     const db = await this.getDb();
@@ -299,6 +345,12 @@ export class BeadMetaWorkflowRuntime {
     return this.getRun(run.metaRunId);
   }
 
+  async listRuns(parentWorkspaceId: string, limit = 50): Promise<BeadMetaWorkflowRunReadModel[]> {
+    const db = await this.getDb();
+    const rows = await db.selectFrom('WorkflowMetaRun').select('metaRunId').where('parentWorkspaceId', '=', parentWorkspaceId).orderBy('updatedAt', 'desc').limit(limit).execute();
+    return Promise.all(rows.map((row) => this.getRun(row.metaRunId)));
+  }
+
   async getRun(metaRunId: string): Promise<BeadMetaWorkflowRunReadModel> {
     const db = await this.getDb();
     const run = await db.selectFrom('WorkflowMetaRun').selectAll().where('metaRunId', '=', metaRunId).executeTakeFirst();
@@ -331,22 +383,40 @@ export class BeadMetaWorkflowRuntime {
     if (!claimed) return this.getRun(run.metaRunId);
 
     try {
-      const child = await this.childRunner.startChild({
+      const existingChild = this.childRunReader ? await this.childRunReader.getRun(childRunId) : null;
+      const child = existingChild
+        ? { childRunId: existingChild.runId, artifactRefs: existingChild.artifactRefs ?? [`workflow-run://${existingChild.runId}`] }
+        : await this.childRunner.startChild({
         metaRunId: run.metaRunId,
         itemId: item.itemId,
         bead: { beadId: item.beadId, title: item.title, status: item.beadStatus as BeadReadModel['status'], accessible: true },
         parentWorkspaceId: run.parentWorkspaceId,
         lane,
         childWorkflowDesignId: run.childWorkflowDesignId,
+        childWorkflowDesignVersion: run.childWorkflowDesignVersion,
+        childRoleBindings: run.childRoleBindings,
         childRunId,
         idempotencyKey,
       });
-      await insertEvent(db, { eventId: this.createId(), metaRunId: run.metaRunId, itemId: item.itemId, kind: 'meta_run_item_started', message: `Started ${item.beadId}.`, data: { beadId: item.beadId, childRunId: child.childRunId ?? childRunId, artifactRefs: child.artifactRefs ?? [], childWorkflowDesignId: run.childWorkflowDesignId }, now: this.now() });
+      await insertEvent(db, { eventId: this.createId(), metaRunId: run.metaRunId, itemId: item.itemId, kind: 'meta_run_item_started', message: `Started ${item.beadId}.`, data: { beadId: item.beadId, childRunId: child.childRunId ?? childRunId, artifactRefs: child.artifactRefs ?? [], childWorkflowDesignId: run.childWorkflowDesignId, childWorkflowDesignVersion: run.childWorkflowDesignVersion }, now: this.now() });
     } catch (error) {
       const failed = await this.failClaimedItem({ run, item, childRunId, error });
       return failed;
     }
     return this.getRun(run.metaRunId);
+  }
+
+  private async blockResultNoteFailure(input: { run: BeadMetaWorkflowRunReadModel; item: BeadMetaWorkflowItemReadModel; childRunId: string; error: unknown }): Promise<BeadMetaWorkflowRunReadModel> {
+    const message = input.error instanceof Error ? input.error.message : String(input.error);
+    const productError: ProductSafeError = { code: 'result_note_write_failed', message: scrubProductText(message), path: `items.${input.item.index}.resultNote` };
+    const now = this.now();
+    const db = await this.getDb();
+    await db.transaction().execute(async (trx) => {
+      await trx.updateTable('WorkflowMetaRunItem').set({ status: 'blocked', errorJson: stableJson(productError), updatedAt: now, completedAt: now }).where('itemId', '=', input.item.itemId).where('childRunId', '=', input.childRunId).execute();
+      await trx.updateTable('WorkflowMetaRun').set({ status: 'blocked', blockedReasonJson: stableJson(productError), currentIndex: input.item.index, updatedAt: now }).where('metaRunId', '=', input.run.metaRunId).execute();
+      await insertEvent(trx, { eventId: this.createId(), metaRunId: input.run.metaRunId, itemId: input.item.itemId, kind: 'meta_run_result_note_blocked', message: `Blocked while recording the result for ${input.item.beadId}.`, data: { beadId: input.item.beadId, childRunId: input.childRunId, error: productError }, now });
+    });
+    return this.getRun(input.run.metaRunId);
   }
 
   private async failClaimedItem(input: { run: BeadMetaWorkflowRunReadModel; item: BeadMetaWorkflowItemReadModel; childRunId: string; error: unknown }): Promise<BeadMetaWorkflowRunReadModel> {
@@ -379,7 +449,7 @@ export class BeadMetaWorkflowRuntime {
     return row?.pauseRequested === 1;
   }
 
-  private async readAndValidateBeads(beadIds: string[]): Promise<BeadReadModel[]> {
+  private async readAndValidateBeads(beadIds: string[], parentWorkspaceId?: string): Promise<BeadReadModel[]> {
     const beads = await this.beads.readBeads(beadIds);
     const byId = new Map(beads.map((bead) => [bead.beadId, bead]));
     const issues: BeadMetaWorkflowIssue[] = [];
@@ -389,6 +459,7 @@ export class BeadMetaWorkflowRuntime {
         issues.push({ code: 'META_WORKFLOW_BEAD_REMOVED', path: `beadIds.${index}`, message: `Bead ${beadId} was not found.` });
         return null;
       }
+      if (parentWorkspaceId && bead.workspaceId !== undefined && bead.workspaceId !== parentWorkspaceId) issues.push({ code: 'META_WORKFLOW_BEAD_INACCESSIBLE', path: `beadIds.${index}`, message: `Bead ${beadId} is not in this workspace.` });
       if (!bead.accessible) issues.push({ code: 'META_WORKFLOW_BEAD_INACCESSIBLE', path: `beadIds.${index}`, message: `Bead ${beadId} is not accessible.` });
       if (bead.status === 'archived') issues.push({ code: 'META_WORKFLOW_BEAD_ARCHIVED', path: `beadIds.${index}`, message: `Bead ${beadId} is archived.` });
       if (bead.status === 'removed') issues.push({ code: 'META_WORKFLOW_BEAD_REMOVED', path: `beadIds.${index}`, message: `Bead ${beadId} was removed.` });
@@ -494,6 +565,8 @@ function mapRun(run: Selectable<WorkflowMetaRun>, items: Selectable<WorkflowMeta
     status: run.status,
     currentIndex: run.currentIndex,
     childWorkflowDesignId: run.childWorkflowDesignId,
+    childWorkflowDesignVersion: run.childWorkflowDesignVersion,
+    childRoleBindings: parseJson<Record<string, unknown>>(run.childRoleBindingsJson),
     title: run.title,
     summary: run.summary,
     currentItem,

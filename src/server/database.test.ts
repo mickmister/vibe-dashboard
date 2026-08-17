@@ -41,6 +41,7 @@ describe('VD database', () => {
         '20260811030000_workflow_batches',
         '20260814000000_workspace_lanes',
         '20260815000000_workflow_meta_runs',
+        '20260817000000_workflow_meta_run_child_bindings',
       ]);
       const tables = await sql<{ name: string }>`
         SELECT name FROM sqlite_master
