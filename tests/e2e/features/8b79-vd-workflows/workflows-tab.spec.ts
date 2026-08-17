@@ -29,6 +29,7 @@
  * - TEST_CASE_M108_1E
  * - TEST_CASE_M109_1A
  * - TEST_CASE_M109_1B
+ * - TEST_CASE_M120C_1D
  */
 import { expect, test } from "playwright/test";
 
@@ -345,6 +346,10 @@ test.describe("Workspace Workflows tab shell", () => {
           review: { mode: "create_or_reuse", name: "Review" },
         },
       });
+      expect(body.roleBindings.dev).not.toHaveProperty("executorType");
+      expect(body.roleBindings.dev).not.toHaveProperty("model");
+      expect(body.roleBindings.review).not.toHaveProperty("executorType");
+      expect(body.roleBindings.review).not.toHaveProperty("model");
       launched = true;
       await route.fulfill({
         contentType: "application/json",
