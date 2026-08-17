@@ -8,6 +8,7 @@ import {
   type BeadReadModel,
   type BeadResultNoteWriter,
   type MetaWorkflowChildRunner,
+  type MetaWorkflowChildRunReader,
 } from './beadMetaWorkflowRuntime';
 
 const handles: VdDbHandle[] = [];
@@ -99,6 +100,52 @@ describe('BeadMetaWorkflowRuntime M118', () => {
     expect(final.items[1]).toMatchObject({ beadId: 'B', status: 'pending', childRunId: null });
   });
 
+  it('TEST_CASE_M119A_1E retries a claimed-but-unlaunched child with the same deterministic identifiers', async () => {
+    const handle = await initVdDb({ path: ':memory:' });
+    handles.push(handle);
+    const childStarts: ChildStartRecord[] = [];
+    const launchedChildRuns = new Set<string>();
+    const childRunner: MetaWorkflowChildRunner = {
+      async startChild(input) {
+        childStarts.push({
+          beadId: input.bead.beadId,
+          itemId: input.itemId,
+          childRunId: input.childRunId,
+          childWorkflowDesignId: input.childWorkflowDesignId ?? null,
+          idempotencyKey: input.idempotencyKey,
+        });
+        launchedChildRuns.add(input.childRunId);
+        return { childRunId: input.childRunId, artifactRefs: [`workflow-run://${input.childRunId}`] };
+      },
+    };
+    const childRunReader: MetaWorkflowChildRunReader = {
+      async getRun(runId) {
+        return launchedChildRuns.has(runId)
+          ? { runId, status: 'running', artifactRefs: [`workflow-run://${runId}`] }
+          : null;
+      },
+    };
+    const runtime = buildRuntime(handle, { beads: [bead('A'), bead('B')], childRunner, childRunReader, childStarts });
+    await runtime.createRun({ metaRunId: 'meta-crash-window', parentWorkspaceId: 'workspace-a', beadIds: ['A', 'B'], childWorkflowDesignId: 'design.child', childWorkflowDesignVersion: 3, autoStart: false });
+
+    await handle.db.updateTable('WorkflowMetaRunItem').set({ status: 'running', childRunId: 'child-meta-crash-window-0', startedAt: 2_000, updatedAt: 2_000 }).where('itemId', '=', 'meta-crash-window:item:0').execute();
+    await handle.db.updateTable('WorkflowMetaRun').set({ status: 'running', currentIndex: 0, startedAt: 2_000, updatedAt: 2_000 }).where('metaRunId', '=', 'meta-crash-window').execute();
+
+    const recovered = await runtime.resumeRun('meta-crash-window');
+    expect(recovered).toMatchObject({ status: 'running', currentItem: { beadId: 'A', childRunId: 'child-meta-crash-window-0' } });
+    expect(childStarts).toEqual([expect.objectContaining({
+      beadId: 'A',
+      childRunId: 'child-meta-crash-window-0',
+      childWorkflowDesignId: 'design.child',
+      idempotencyKey: 'meta-run:meta-crash-window:item:meta-crash-window:item:0:child',
+    })]);
+
+    await runtime.resumeRun('meta-crash-window');
+    expect(childStarts).toHaveLength(1);
+    const events = recovered.events.map((event) => event.kind);
+    expect(events).toContain('meta_run_item_launch_recovered');
+  });
+
   it('TEST_CASE_M118_1C pauses durably between beads and resumes at the correct bead', async () => {
     const { runtime, childStarts, handle } = await createRuntime({ beads: [bead('A'), bead('B')] });
     const launched = await runtime.createRun({ metaRunId: 'meta-pause', parentWorkspaceId: 'workspace-a', beadIds: ['A', 'B'] });
@@ -167,7 +214,7 @@ async function createRuntime(options: { beads: BeadReadModel[] }) {
   return { handle, runtime, childStarts, noteWrites };
 }
 
-function buildRuntime(handle: VdDbHandle, options: { beads: BeadReadModel[]; childStarts?: ChildStartRecord[]; noteWrites?: Array<{ beadId: string; idempotencyKey: string; provenance: unknown }>; laneStore?: DbWorkspaceLaneStore; childRunner?: MetaWorkflowChildRunner }) {
+function buildRuntime(handle: VdDbHandle, options: { beads: BeadReadModel[]; childStarts?: ChildStartRecord[]; noteWrites?: Array<{ beadId: string; idempotencyKey: string; provenance: unknown }>; laneStore?: DbWorkspaceLaneStore; childRunner?: MetaWorkflowChildRunner; childRunReader?: MetaWorkflowChildRunReader }) {
   const beadProvider: BeadMetadataProvider = {
     async readBeads(beadIds) {
       const byId = new Map(options.beads.map((item) => [item.beadId, item]));
@@ -196,6 +243,7 @@ function buildRuntime(handle: VdDbHandle, options: { beads: BeadReadModel[]; chi
     db: handle.db,
     beadProvider,
     childRunner,
+    childRunReader: options.childRunReader,
     noteWriter,
     laneStore: options.laneStore,
     now: (() => { let value = 1_000; return () => value++; })(),

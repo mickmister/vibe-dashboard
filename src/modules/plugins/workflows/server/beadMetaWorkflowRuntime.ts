@@ -269,6 +269,7 @@ export class BeadMetaWorkflowRuntime {
     if (running) {
       const observed = await this.observeChildRun({ metaRunId, itemId: running.itemId, childRunId: running.childRunId ?? '' });
       if (observed.reason === 'applied') return observed.run;
+      if (observed.reason === 'missing_child') return this.retryClaimedChildLaunch(metaRunId, running.itemId);
       await (await this.getDb()).updateTable('WorkflowMetaRun').set({ status: 'running', pauseRequested: 0, updatedAt: this.now() }).where('metaRunId', '=', metaRunId).execute();
       return this.getRun(metaRunId);
     }
@@ -277,13 +278,14 @@ export class BeadMetaWorkflowRuntime {
     return this.startItem(metaRunId, next.itemId);
   }
 
-  async observeChildRun(input: { metaRunId: string; itemId: string; childRunId: string }): Promise<{ applied: boolean; reason: 'applied' | 'running' | 'stale' | 'missing_reader'; run: BeadMetaWorkflowRunReadModel }> {
+  async observeChildRun(input: { metaRunId: string; itemId: string; childRunId: string }): Promise<{ applied: boolean; reason: 'applied' | 'running' | 'stale' | 'missing_reader' | 'missing_child'; run: BeadMetaWorkflowRunReadModel }> {
     const run = await this.getRequiredRun(input.metaRunId);
     const item = run.items.find((candidate) => candidate.itemId === input.itemId);
     if (!item || item.status !== 'running' || item.childRunId !== input.childRunId) return { applied: false, reason: 'stale', run };
     if (!this.childRunReader) return { applied: false, reason: 'missing_reader', run };
     const child = await this.childRunReader.getRun(input.childRunId);
-    if (!child || child.status === 'running') return { applied: false, reason: 'running', run };
+    if (!child) return { applied: false, reason: 'missing_child', run };
+    if (child.status === 'running') return { applied: false, reason: 'running', run };
     if (child.status === 'completed') {
       return { applied: true, reason: 'applied', run: await this.completeChild({ metaRunId: input.metaRunId, itemId: input.itemId, childRunId: input.childRunId, summary: child.summary ?? `Child workflow ${child.runId} completed.`, artifactRefs: child.artifactRefs ?? [`workflow-run://${child.runId}`] }) };
     }
@@ -365,7 +367,6 @@ export class BeadMetaWorkflowRuntime {
     if (run.items.some((item) => item.status === 'running')) return run;
     const item = run.items.find((candidate) => candidate.itemId === itemId && candidate.status === 'pending');
     if (!item) return run;
-    const lane = await this.resolveLane({ parentWorkspaceId: run.parentWorkspaceId, laneId: run.laneId, accessMode: 'read' });
     const childRunId = childRunIdFor(run.metaRunId, item.index);
     const idempotencyKey = `meta-run:${run.metaRunId}:item:${item.itemId}:child`;
     const now = this.now();
@@ -381,29 +382,48 @@ export class BeadMetaWorkflowRuntime {
       return true;
     });
     if (!claimed) return this.getRun(run.metaRunId);
+    return this.launchClaimedChild({ run, item, childRunId, eventKind: 'meta_run_item_started', recovered: false });
+  }
 
+  private async retryClaimedChildLaunch(metaRunId: string, itemId: string): Promise<BeadMetaWorkflowRunReadModel> {
+    const run = await this.getRequiredRun(metaRunId);
+    const item = run.items.find((candidate) => candidate.itemId === itemId);
+    if (!item || item.status !== 'running' || !item.childRunId) return run;
+    return this.launchClaimedChild({ run, item, childRunId: item.childRunId, eventKind: 'meta_run_item_launch_recovered', recovered: true });
+  }
+
+  private async launchClaimedChild(input: { run: BeadMetaWorkflowRunReadModel; item: BeadMetaWorkflowItemReadModel; childRunId: string; eventKind: string; recovered: boolean }): Promise<BeadMetaWorkflowRunReadModel> {
+    const idempotencyKey = `meta-run:${input.run.metaRunId}:item:${input.item.itemId}:child`;
     try {
-      const existingChild = this.childRunReader ? await this.childRunReader.getRun(childRunId) : null;
+      const lane = await this.resolveLane({ parentWorkspaceId: input.run.parentWorkspaceId, laneId: input.run.laneId, accessMode: 'read' });
+      const existingChild = this.childRunReader ? await this.childRunReader.getRun(input.childRunId) : null;
       const child = existingChild
         ? { childRunId: existingChild.runId, artifactRefs: existingChild.artifactRefs ?? [`workflow-run://${existingChild.runId}`] }
         : await this.childRunner.startChild({
-        metaRunId: run.metaRunId,
-        itemId: item.itemId,
-        bead: { beadId: item.beadId, title: item.title, status: item.beadStatus as BeadReadModel['status'], accessible: true },
-        parentWorkspaceId: run.parentWorkspaceId,
-        lane,
-        childWorkflowDesignId: run.childWorkflowDesignId,
-        childWorkflowDesignVersion: run.childWorkflowDesignVersion,
-        childRoleBindings: run.childRoleBindings,
-        childRunId,
-        idempotencyKey,
+          metaRunId: input.run.metaRunId,
+          itemId: input.item.itemId,
+          bead: { beadId: input.item.beadId, title: input.item.title, status: input.item.beadStatus as BeadReadModel['status'], accessible: true },
+          parentWorkspaceId: input.run.parentWorkspaceId,
+          lane,
+          childWorkflowDesignId: input.run.childWorkflowDesignId,
+          childWorkflowDesignVersion: input.run.childWorkflowDesignVersion,
+          childRoleBindings: input.run.childRoleBindings,
+          childRunId: input.childRunId,
+          idempotencyKey,
+        });
+      await insertEvent(await this.getDb(), {
+        eventId: this.createId(),
+        metaRunId: input.run.metaRunId,
+        itemId: input.item.itemId,
+        kind: input.eventKind,
+        message: input.recovered ? `Recovered child workflow launch for ${input.item.beadId}.` : `Started ${input.item.beadId}.`,
+        data: { beadId: input.item.beadId, childRunId: child.childRunId ?? input.childRunId, artifactRefs: child.artifactRefs ?? [], childWorkflowDesignId: input.run.childWorkflowDesignId, childWorkflowDesignVersion: input.run.childWorkflowDesignVersion, idempotencyKey, recovered: input.recovered },
+        now: this.now(),
       });
-      await insertEvent(db, { eventId: this.createId(), metaRunId: run.metaRunId, itemId: item.itemId, kind: 'meta_run_item_started', message: `Started ${item.beadId}.`, data: { beadId: item.beadId, childRunId: child.childRunId ?? childRunId, artifactRefs: child.artifactRefs ?? [], childWorkflowDesignId: run.childWorkflowDesignId, childWorkflowDesignVersion: run.childWorkflowDesignVersion }, now: this.now() });
     } catch (error) {
-      const failed = await this.failClaimedItem({ run, item, childRunId, error });
-      return failed;
+      return this.failClaimedItem({ run: input.run, item: input.item, childRunId: input.childRunId, error });
     }
-    return this.getRun(run.metaRunId);
+    return this.getRun(input.run.metaRunId);
   }
 
   private async blockResultNoteFailure(input: { run: BeadMetaWorkflowRunReadModel; item: BeadMetaWorkflowItemReadModel; childRunId: string; error: unknown }): Promise<BeadMetaWorkflowRunReadModel> {
