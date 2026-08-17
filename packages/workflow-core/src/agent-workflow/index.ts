@@ -923,6 +923,7 @@ export function normalizeWorkflowDefinitionV1(
       if (isRecord(actions)) {
         for (const [actionId, action] of Object.entries(actions)) {
           const path = `states.${stateId}.actions.${actionId}`;
+          validateXmlNameIdentifier(actionId, path, "action id", issues);
           if (!isRecord(action)) {
             issues.push(
               issue(
@@ -1813,11 +1814,11 @@ function renderDecisionResponseXsd(
     '  <xs:element name="decision">',
   ];
 
-  for (const action of actions) {
+  actions.forEach((action, index) => {
     lines.push(
-      `    <xs:alternative test="@action=&apos;${escapeXmlAttribute(action.id)}&apos;" type="${xsdActionTypeName(action.id)}"/>`,
+      `    <xs:alternative test="@action=&apos;${escapeXmlAttribute(action.id)}&apos;" type="${xsdActionTypeName(action.id, index)}"/>`,
     );
-  }
+  });
   lines.push('    <xs:alternative type="InvalidDecisionActionType"/>');
   lines.push('  </xs:element>');
   lines.push('  <xs:simpleType name="DecisionActionName">');
@@ -1828,9 +1829,9 @@ function renderDecisionResponseXsd(
   lines.push('    </xs:restriction>');
   lines.push('  </xs:simpleType>');
 
-  for (const action of actions) {
-    lines.push(...renderActionDecisionType(action));
-  }
+  actions.forEach((action, index) => {
+    lines.push(...renderActionDecisionType(action, index));
+  });
 
   lines.push('  <xs:complexType name="InvalidDecisionActionType">');
   lines.push('    <xs:sequence/>');
@@ -1840,12 +1841,12 @@ function renderDecisionResponseXsd(
   return lines.join("\n");
 }
 
-function renderActionDecisionType(action: NormalizedWorkflowAction): string[] {
+function renderActionDecisionType(action: NormalizedWorkflowAction, index: number): string[] {
   const result = action.result ?? { fields: {}, unknownFields: "reject" as const };
   const fields = Object.entries(result.fields ?? {});
   const required = new Set(result.required ?? []);
   const lines: string[] = [
-    `  <xs:complexType name="${xsdActionTypeName(action.id)}">`,
+    `  <xs:complexType name="${xsdActionTypeName(action.id, index)}">`,
   ];
 
   if (result.unknownFields === "preserve") {
@@ -1901,11 +1902,11 @@ function xsdScalarType(type: ResultFieldSpec["type"]): string {
   return "xs:string";
 }
 
-function xsdActionTypeName(actionId: string): string {
+function xsdActionTypeName(actionId: string, index: number): string {
   const cleaned = actionId
     .replace(/[^A-Za-z0-9_.-]+/g, "_")
     .replace(/^[^A-Za-z_]+/, "_");
-  return `${cleaned || "action"}DecisionType`;
+  return `Action${index + 1}_${cleaned || "action"}DecisionType`;
 }
 
 function escapeXmlAttribute(value: string): string {
@@ -3025,6 +3026,7 @@ function validateResultContract(
   }
   for (const [fieldName, field] of Object.entries(value.fields)) {
     const fieldPath = `${path}.fields.${fieldName}`;
+    validateXmlNameIdentifier(fieldName, fieldPath, "result field name", issues);
     if (!isRecord(field)) {
       issues.push(
         issue(
@@ -3138,17 +3140,18 @@ function validateWaitFor(
     "repoField",
     "shaField",
   ] as const) {
-    if (
-      value[field] !== undefined &&
-      (typeof value[field] !== "string" || !value[field].trim())
-    ) {
-      issues.push(
-        issue(
-          "WORKFLOW_CONFIG_INVALID_ACTIVE_STATE",
-          `${path}.${field}`,
-          `${field} must be a non-empty string`,
-        ),
-      );
+    if (value[field] !== undefined) {
+      if (typeof value[field] !== "string" || !value[field].trim()) {
+        issues.push(
+          issue(
+            "WORKFLOW_CONFIG_INVALID_ACTIVE_STATE",
+            `${path}.${field}`,
+            `${field} must be a non-empty string`,
+          ),
+        );
+      } else {
+        validateXmlNameIdentifier(value[field], `${path}.${field}`, field, issues);
+      }
     }
   }
 }
@@ -3161,6 +3164,25 @@ function requireField(
 ) {
   if (record[key] === undefined) {
     issues.push(issue("WORKFLOW_CONFIG_REQUIRED_FIELD", path, "is required"));
+  }
+}
+
+const XML_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_.-]*$/;
+
+function validateXmlNameIdentifier(
+  value: string,
+  path: string,
+  label: string,
+  issues: WorkflowConfigIssue[],
+) {
+  if (!XML_NAME_PATTERN.test(value)) {
+    issues.push(
+      issue(
+        "WORKFLOW_CONFIG_INVALID_ACTIVE_STATE",
+        path,
+        `${label} must match ${XML_NAME_PATTERN.source} for XML response schema generation`,
+      ),
+    );
   }
 }
 

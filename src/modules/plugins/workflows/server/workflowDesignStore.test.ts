@@ -163,6 +163,29 @@ describe('DbWorkflowDesignStore M91 foundation', () => {
     expect(draft?.validationIssues.map((issue) => issue.path)).toContain('initialState');
   });
 
+  it('TEST_CASE_S7OW_1B rejects XML-unsafe response identifiers at publish', async () => {
+    const { store } = await createStore();
+    const definition = workflowDefinition('xml-unsafe');
+    (definition.states.dev as any).steps[0].prompt = { template: 'Prompt without asset refs.' };
+    (definition.states.dev as any).actions.readyForReview.result.fields['bad field'] = { type: 'markdown' };
+    (definition.states.dev as any).actions.readyForReview.waitFor = { provider: 'github_ci', runIdField: 'ci:run' };
+    await store.createDesign({
+      designId: 'design.xml-unsafe',
+      draftId: 'draft.xml-unsafe',
+      name: 'XML unsafe workflow',
+      definition,
+    });
+
+    await expect(store.publishDraft('draft.xml-unsafe')).rejects.toBeInstanceOf(WorkflowDesignValidationError);
+    await expect(store.getDraft('draft.xml-unsafe')).resolves.toMatchObject({
+      validationStatus: 'invalid',
+      validationIssues: expect.arrayContaining([
+        expect.objectContaining({ path: 'states.dev.actions.readyForReview.result.fields.bad field' }),
+        expect.objectContaining({ path: 'states.dev.actions.readyForReview.waitFor.runIdField' }),
+      ]),
+    });
+  });
+
   it('TEST_CASE_M117_1B rejects unknown command providers and commands at publish', async () => {
     const { store } = await createStore();
     await store.createDesign({

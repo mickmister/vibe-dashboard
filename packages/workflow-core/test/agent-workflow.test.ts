@@ -496,6 +496,8 @@ describe("agent workflow V1 normalization", () => {
     expect(spec).toContain("Expected XML Schema (XSD):");
     expect(spec).toContain('<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"');
     expect(spec).toContain('<xs:element name="decision">');
+    expect(spec).toContain('<xs:alternative test="@action=&apos;readyForReview&apos;" type="Action1_readyForReviewDecisionType"/>');
+    expect(spec).toContain('<xs:alternative test="@action=&apos;continueEditing&apos;" type="Action2_continueEditingDecisionType"/>');
     expect(spec).toContain('<xs:enumeration value="readyForReview"/>');
     expect(spec).toContain('<xs:enumeration value="continueEditing"/>');
     expect(spec).toContain('<xs:element name="summary" type="xs:string" minOccurs="1" maxOccurs="1"/>');
@@ -504,6 +506,47 @@ describe("agent workflow V1 normalization", () => {
     expect(spec).not.toContain("Allowed action names and result fields");
     expect(spec).not.toContain("- Root tag");
   });
+  it("TEST_CASE_S7OW_1B rejects XML-unsafe response identifiers before XSD generation", () => {
+    expectDefinitionError(
+      () => {
+        const invalid = makeDefinition();
+        activeAuthoredState(invalid, "devImplementing").actions["bad action"] = {
+          targetState: "reviewing",
+        };
+        return normalizeWorkflowDefinitionV1(invalid);
+      },
+      "WORKFLOW_CONFIG_INVALID_ACTIVE_STATE",
+      "states.devImplementing.actions.bad action",
+    );
+
+    expectDefinitionError(
+      () => {
+        const invalid = makeDefinition();
+        activeAuthoredState(invalid, "devImplementing").actions.readyForReview!.result = {
+          fields: { "bad field": { type: "markdown" } },
+          required: ["bad field"],
+          unknownFields: "reject",
+        };
+        return normalizeWorkflowDefinitionV1(invalid);
+      },
+      "WORKFLOW_CONFIG_INVALID_ACTIVE_STATE",
+      "states.devImplementing.actions.readyForReview.result.fields.bad field",
+    );
+
+    expectDefinitionError(
+      () => {
+        const invalid = makeDefinition();
+        activeAuthoredState(invalid, "devImplementing").actions.readyForReview!.waitFor = {
+          provider: "github_ci",
+          runIdField: "ci:run",
+        };
+        return normalizeWorkflowDefinitionV1(invalid);
+      },
+      "WORKFLOW_CONFIG_INVALID_ACTIVE_STATE",
+      "states.devImplementing.actions.readyForReview.waitFor.runIdField",
+    );
+  });
+
 
   it("TEST_CASE_M99_1A normalizes and advances blocking workflow_call steps", () => {
     const def = makeDefinition();
