@@ -213,7 +213,7 @@ export function registerWorkflowRoutes(
         childRoleBindings: roleBindings,
         autoStart: body?.autoStart !== false,
       });
-      return c.json({ metaRun }, 201);
+      return c.json({ metaRun: sanitizeMetaWorkflowRunForRoute(metaRun) }, 201);
     } catch (error) {
       return handleMetaWorkflowRouteError(c, error, "workflow_meta_run_create_failed");
     }
@@ -226,7 +226,7 @@ export function registerWorkflowRoutes(
     const db = options.workflowHomeDb ?? (await getVdDb()).db;
     const runtime = createRouteMetaWorkflowRuntime({ db, beadProvider: options.metaWorkflowBeadProvider, noteWriter: options.metaWorkflowNoteWriter, persistedRuntime: options.persistedWorkflowRuntime });
     const runs = await runtime.listRuns(workspaceId, parsePositiveInteger(c.req.query("limit") ?? null) ?? 50);
-    return c.json({ metaRuns: runs });
+    return c.json({ metaRuns: runs.map(sanitizeMetaWorkflowRunForRoute) });
   });
 
   hono.get("/dashboard/api/workflows/meta-runs/:metaRunId", async (c) => {
@@ -235,7 +235,7 @@ export function registerWorkflowRoutes(
     if (!options.metaWorkflowBeadProvider) return c.json({ error: "bead_provider_not_configured", message: "Bead metadata provider is not configured." }, 503);
     const db = options.workflowHomeDb ?? (await getVdDb()).db;
     const runtime = createRouteMetaWorkflowRuntime({ db, beadProvider: options.metaWorkflowBeadProvider, noteWriter: options.metaWorkflowNoteWriter, persistedRuntime: options.persistedWorkflowRuntime });
-    try { return c.json({ metaRun: await runtime.getRun(metaRunId) }); }
+    try { return c.json({ metaRun: sanitizeMetaWorkflowRunForRoute(await runtime.getRun(metaRunId)) }); }
     catch (error) { return handleMetaWorkflowRouteError(c, error, "workflow_meta_run_read_failed"); }
   });
 
@@ -245,7 +245,7 @@ export function registerWorkflowRoutes(
     if (!options.metaWorkflowBeadProvider) return c.json({ error: "bead_provider_not_configured", message: "Bead metadata provider is not configured." }, 503);
     const db = options.workflowHomeDb ?? (await getVdDb()).db;
     const runtime = createRouteMetaWorkflowRuntime({ db, beadProvider: options.metaWorkflowBeadProvider, noteWriter: options.metaWorkflowNoteWriter, persistedRuntime: options.persistedWorkflowRuntime });
-    try { return c.json({ metaRun: await runtime.requestPause(metaRunId) }); }
+    try { return c.json({ metaRun: sanitizeMetaWorkflowRunForRoute(await runtime.requestPause(metaRunId)) }); }
     catch (error) { return handleMetaWorkflowRouteError(c, error, "workflow_meta_run_pause_failed"); }
   });
 
@@ -257,7 +257,7 @@ export function registerWorkflowRoutes(
     const designStore = options.workflowDesignStore ?? new DbWorkflowDesignStore({ db, templates: BUILT_IN_WORKFLOW_TEMPLATES });
     const persistedRuntime = await resolvePersistedWorkflowRuntime(options, db, designStore);
     const runtime = createRouteMetaWorkflowRuntime({ db, beadProvider: options.metaWorkflowBeadProvider, noteWriter: options.metaWorkflowNoteWriter, persistedRuntime });
-    try { return c.json({ metaRun: await runtime.resumeRun(metaRunId) }); }
+    try { return c.json({ metaRun: sanitizeMetaWorkflowRunForRoute(await runtime.resumeRun(metaRunId)) }); }
     catch (error) { return handleMetaWorkflowRouteError(c, error, "workflow_meta_run_resume_failed"); }
   });
 
@@ -270,7 +270,7 @@ export function registerWorkflowRoutes(
     const runtime = createRouteMetaWorkflowRuntime({ db, beadProvider: options.metaWorkflowBeadProvider, noteWriter: options.metaWorkflowNoteWriter, persistedRuntime: options.persistedWorkflowRuntime });
     try {
       const observed = await runtime.observeChildRun({ metaRunId, itemId: asString(body?.itemId) ?? "", childRunId: asString(body?.childRunId) ?? "" });
-      return c.json({ observed });
+      return c.json({ observed: { ...observed, run: sanitizeMetaWorkflowRunForRoute(observed.run) } });
     } catch (error) { return handleMetaWorkflowRouteError(c, error, "workflow_meta_run_observe_failed"); }
   });
 
@@ -2176,6 +2176,69 @@ function validateLaunchInputs(
 }
 
 
+
+function sanitizeMetaWorkflowRunForRoute<T>(run: T): T {
+  const record = asRecord(run);
+  if (!record) return run;
+  return {
+    ...record,
+    title: scrubWorkflowProductText(asString(record.title) ?? ""),
+    summary: record.summary == null ? null : scrubWorkflowProductText(String(record.summary)),
+    nextAction: scrubWorkflowProductText(asString(record.nextAction) ?? ""),
+    blockedReason: sanitizeMetaWorkflowError(record.blockedReason),
+    currentItem: sanitizeMetaWorkflowItem(record.currentItem),
+    items: Array.isArray(record.items) ? record.items.map(sanitizeMetaWorkflowItem) : [],
+    events: Array.isArray(record.events) ? record.events.map((event) => sanitizeMetaWorkflowEvent(event)) : [],
+  } as T;
+}
+
+function sanitizeMetaWorkflowItem(value: unknown): unknown {
+  const record = asRecord(value);
+  if (!record) return value;
+  return {
+    ...record,
+    beadId: scrubWorkflowProductText(asString(record.beadId) ?? ""),
+    title: scrubWorkflowProductText(asString(record.title) ?? ""),
+    beadStatus: scrubWorkflowProductText(asString(record.beadStatus) ?? ""),
+    status: scrubWorkflowProductText(asString(record.status) ?? ""),
+    result: sanitizeWorkflowProductData(record.result),
+    error: sanitizeMetaWorkflowError(record.error),
+  };
+}
+
+function sanitizeMetaWorkflowEvent(value: unknown): unknown {
+  const record = asRecord(value);
+  if (!record) return value;
+  return {
+    ...record,
+    message: scrubWorkflowProductText(asString(record.message) ?? ""),
+    data: sanitizeWorkflowProductData(record.data),
+  };
+}
+
+function sanitizeMetaWorkflowError(value: unknown): unknown {
+  const record = asRecord(value);
+  if (!record) return value ?? null;
+  return {
+    ...record,
+    code: scrubWorkflowProductText(asString(record.code) ?? ""),
+    message: scrubWorkflowProductText(asString(record.message) ?? ""),
+    path: record.path == null ? undefined : scrubWorkflowProductText(String(record.path)),
+  };
+}
+
+function sanitizeWorkflowProductData(value: unknown, depth = 0): unknown {
+  if (typeof value === "string") return scrubWorkflowProductText(value);
+  if (value == null || typeof value !== "object") return value;
+  if (depth >= 4) return "[redacted-nested-data]";
+  if (Array.isArray(value)) return value.slice(0, 25).map((item) => sanitizeWorkflowProductData(item, depth + 1));
+  const record = asRecord(value);
+  if (!record) return null;
+  return Object.fromEntries(
+    Object.entries(record).slice(0, 50).map(([key, item]) => [scrubWorkflowProductText(key), sanitizeWorkflowProductData(item, depth + 1)]),
+  );
+}
+
 function parseMetaBeadScope(value: string | undefined): 'current_workspace' | 'no_workspace' | 'other_workspaces' {
   if (value === 'no_workspace' || value === 'other_workspaces') return value;
   return 'current_workspace';
@@ -2184,9 +2247,12 @@ function parseMetaBeadScope(value: string | undefined): 'current_workspace' | 'n
 function scrubWorkflowProductText(value: string): string {
   return value
     .replace(/\bbd\s+[^\n]*/giu, "workflow action")
+    .replace(/\bshell\b/giu, "workflow action")
     .replace(/\bgit\s+[^\n]*/giu, "version control action")
     .replace(/\bwebhook\b/giu, "workflow update")
     .replace(/\bqueue[-_ ]?item\b/giu, "workflow item")
+    .replace(/\bWorkflowStepState\b/g, "workflow step")
+    .replace(/\brunReady\b/g, "workflow wakeup")
     .replace(/\/Users\/[^\s]+/gu, "[redacted-home]")
     .slice(0, 500);
 }

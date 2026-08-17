@@ -1103,7 +1103,7 @@ describe("registerWorkflowRoutes", () => {
       runId: "child-meta-route-0",
       turnId: firstQueued.turnId,
       responseRef: "response-a",
-      finalResponseText: '<decision action="done"><summary>A completed</summary></decision>',
+      finalResponseText: '<decision action="done"><summary>A completed bd show /Users/example/private webhook queue item shell git status WorkflowStepState runReady</summary></decision>',
     });
     expect(child.run.status).toBe("completed");
 
@@ -1127,6 +1127,14 @@ describe("registerWorkflowRoutes", () => {
       currentItem: { beadId: "B", childRunId: "child-meta-route-1" },
       progress: { completed: 1, running: 1, pending: 0 },
     });
+    const observedSerialized = JSON.stringify(observedBody);
+    expect(observedSerialized).toContain("A completed workflow action");
+    expect(observedSerialized).not.toContain("bd show");
+    expect(observedSerialized).not.toContain("/Users/");
+    expect(observedSerialized).not.toContain("webhook");
+    expect(observedSerialized).not.toContain("queue item");
+    expect(observedSerialized).not.toContain("WorkflowStepState");
+    expect(observedSerialized).not.toContain("runReady");
     expect(noteWrites).toEqual([{ beadId: "A", idempotencyKey: "meta-run:meta-route:item:meta-route:item:0:result-note" }]);
     expect(queued.map((item) => item.runId)).toEqual(["child-meta-route-0", "child-meta-route-1"]);
 
@@ -1169,9 +1177,15 @@ describe("registerWorkflowRoutes", () => {
 
     const list = await app.request("/dashboard/api/workflows/meta-runs?workspaceId=workspace-a");
     expect(list.status).toBe(200);
-    await expect(list.json()).resolves.toMatchObject({
+    const listPayload = await list.json();
+    expect(listPayload).toMatchObject({
       metaRuns: expect.arrayContaining([expect.objectContaining({ metaRunId: "meta-route", progress: expect.objectContaining({ completed: 1 }) })]),
     });
+    const listSerialized = JSON.stringify(listPayload);
+    expect(listSerialized).not.toContain("bd show");
+    expect(listSerialized).not.toContain("/Users/");
+    expect(listSerialized).not.toContain("webhook");
+    expect(listSerialized).not.toContain("queue item");
   });
 
   it("TEST_CASE_M117_1B rejects unknown command providers and commands through publish routes", async () => {
