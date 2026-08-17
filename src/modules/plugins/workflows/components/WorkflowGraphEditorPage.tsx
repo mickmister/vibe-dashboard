@@ -173,6 +173,18 @@ export function WorkflowGraphEditorPage(): React.ReactElement {
   );
 }
 
+type WorkflowEditorEditTarget =
+  | { kind: "design"; id: "design" }
+  | { kind: "role"; id: string }
+  | { kind: "state"; id: string }
+  | { kind: "action"; id: string };
+
+type WorkflowEditorInitialSelection = {
+  roleId?: string;
+  stateId?: string;
+  edgeId?: string;
+};
+
 export function WorkflowGraphEditorView({
   editor,
   definition,
@@ -182,6 +194,8 @@ export function WorkflowGraphEditorView({
   onPublish,
   publishing,
   saveMessage,
+  initialSelection,
+  initialEditTarget = null,
 }: {
   editor: WorkflowDesignEditorModel | null;
   definition: AgentWorkflowDefinitionV1;
@@ -191,6 +205,8 @@ export function WorkflowGraphEditorView({
   onPublish: () => void;
   publishing?: boolean;
   saveMessage?: string | null;
+  initialSelection?: WorkflowEditorInitialSelection;
+  initialEditTarget?: WorkflowEditorEditTarget | null;
 }): React.ReactElement {
   const graph = useMemo(
     () => workflowDefinitionToGraph(definition),
@@ -199,18 +215,22 @@ export function WorkflowGraphEditorView({
   const issues = useMemo(() => validateWorkflowGraph(definition), [definition]);
   const roleEntries = Object.entries(definition.roles);
   const [selectedRoleId, setSelectedRoleId] = useState(
-    roleEntries[0]?.[0] ?? "",
+    initialSelection?.roleId ?? roleEntries[0]?.[0] ?? "",
   );
   const [selectedNodeId, setSelectedNodeId] = useState(
-    graph.nodes[0]?.id ?? "",
+    initialSelection?.stateId ?? "",
   );
   const [selectedEdgeId, setSelectedEdgeId] = useState(
-    graph.edges[0]?.id ?? "",
+    initialSelection?.edgeId ?? "",
+  );
+  const [editTarget, setEditTarget] = useState<WorkflowEditorEditTarget | null>(
+    initialEditTarget,
   );
   const selectedNode =
     graph.nodes.find((node) => node.id === selectedNodeId) ?? null;
   const selectedEdge =
     graph.edges.find((edge) => edge.id === selectedEdgeId) ?? null;
+  const selectedRole = selectedRoleId ? definition.roles[selectedRoleId] : null;
   const layoutedNodes = useMemo(
     () => toFlowNodes(graph.nodes, graph.edges),
     [graph.nodes, graph.edges],
@@ -228,6 +248,7 @@ export function WorkflowGraphEditorView({
           setSelectedNodeId(edge.source);
         }
         setSelectedEdgeId(edgeId);
+        setEditTarget(null);
       }),
     [graph.edges, selectedEdgeId, graph.nodes],
   );
@@ -263,6 +284,7 @@ export function WorkflowGraphEditorView({
     setSelectedRoleId(roleId);
     setSelectedNodeId("");
     setSelectedEdgeId("");
+    setEditTarget(null);
   };
 
   const selectState = (stateId: string) => {
@@ -270,6 +292,7 @@ export function WorkflowGraphEditorView({
     if (node?.ownerRoleId) setSelectedRoleId(node.ownerRoleId);
     setSelectedNodeId(stateId);
     setSelectedEdgeId("");
+    setEditTarget(null);
   };
 
   const selectEdge = (edgeId: string) => {
@@ -282,6 +305,7 @@ export function WorkflowGraphEditorView({
       setSelectedNodeId(edge.source);
     }
     setSelectedEdgeId(edgeId);
+    setEditTarget(null);
   };
 
   const addRole = () => {
@@ -293,6 +317,7 @@ export function WorkflowGraphEditorView({
     setSelectedRoleId(roleId);
     setSelectedNodeId("");
     setSelectedEdgeId("");
+    setEditTarget({ kind: "role", id: roleId });
   };
 
   return (
@@ -371,12 +396,33 @@ export function WorkflowGraphEditorView({
           onSelectEdge={selectEdge}
           onAddRole={addRole}
         />
-        <DesignDetails definition={definition} onChange={onDefinitionChange} />
+        <DesignDetails
+          definition={definition}
+          editing={editTarget?.kind === "design"}
+          onEdit={() => setEditTarget({ kind: "design", id: "design" })}
+          onDone={() => setEditTarget(null)}
+          onChange={onDefinitionChange}
+        />
+        {selectedRole ? (
+          <RoleDetails
+            roleId={selectedRoleId}
+            role={selectedRole}
+            stateCount={graph.nodes.filter((node) => node.ownerRoleId === selectedRoleId).length}
+            definition={definition}
+            editing={editTarget?.kind === "role" && editTarget.id === selectedRoleId}
+            onEdit={() => setEditTarget({ kind: "role", id: selectedRoleId })}
+            onDone={() => setEditTarget(null)}
+            onChange={onDefinitionChange}
+          />
+        ) : null}
         <ValidationPanel issues={issues} />
         {selectedEdge ? (
           <EdgeEditor
             edge={selectedEdge}
             states={graph.nodes}
+            editing={editTarget?.kind === "action" && editTarget.id === selectedEdge.id}
+            onEdit={() => setEditTarget({ kind: "action", id: selectedEdge.id })}
+            onDone={() => setEditTarget(null)}
             onChange={updateEdge}
           />
         ) : null}
@@ -385,6 +431,9 @@ export function WorkflowGraphEditorView({
             node={selectedNode}
             definition={definition}
             assets={assets ?? { prompts: [], skills: [] }}
+            editing={editTarget?.kind === "state" && editTarget.id === selectedNode.id}
+            onEdit={() => setEditTarget({ kind: "state", id: selectedNode.id })}
+            onDone={() => setEditTarget(null)}
             onChange={onDefinitionChange}
             onPromptChange={updatePrompt}
           />
@@ -582,14 +631,54 @@ function nextRoleId(roles: AgentWorkflowDefinitionV1["roles"]) {
 
 function DesignDetails({
   definition,
+  editing,
+  onEdit,
+  onDone,
   onChange,
 }: {
   definition: AgentWorkflowDefinitionV1;
+  editing: boolean;
+  onEdit: () => void;
+  onDone: () => void;
   onChange: (definition: AgentWorkflowDefinitionV1) => void;
 }) {
+  if (!editing) {
+    return (
+      <section className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="font-semibold">Design details</h2>
+            <p className="mt-2 text-sm text-zinc-300">{definition.name}</p>
+            {definition.description ? (
+              <p className="mt-1 text-xs text-zinc-500">
+                {definition.description}
+              </p>
+            ) : null}
+          </div>
+          <button
+            type="button"
+            className="rounded-md border border-zinc-700 px-3 py-1.5 text-sm text-cyan-100 hover:border-cyan-500"
+            onClick={onEdit}
+          >
+            Edit design
+          </button>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
-      <h2 className="font-semibold">Design details</h2>
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="font-semibold">Edit design details</h2>
+        <button
+          type="button"
+          className="rounded-md border border-zinc-700 px-3 py-1.5 text-sm"
+          onClick={onDone}
+        >
+          Done
+        </button>
+      </div>
       <label className="mt-3 block text-sm">
         <span className="font-medium">Workflow name</span>
         <input
@@ -613,106 +702,165 @@ function DesignDetails({
           }
         />
       </label>
-      <h3 className="mt-4 font-medium">Roles</h3>
-      <div className="mt-2 space-y-2">
-        {Object.entries(definition.roles).map(([roleId, role]) => {
-          const executorType = role.executorPreference?.executorType ?? "";
-          const modelOptions = executorType
-            ? (WORKFLOW_EXECUTOR_MODEL_OPTIONS[executorType]?.models ?? [])
-            : [];
-          return (
-            <div
-              key={roleId}
-              className="rounded-lg border border-zinc-800 bg-zinc-950/70 p-3"
-            >
-              <label className="block text-sm">
-                <span className="font-medium">{roleId} label</span>
-                <input
-                  className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 p-2"
-                  value={role.label ?? roleId}
-                  onChange={(event) =>
-                    onChange({
-                      ...definition,
-                      roles: {
-                        ...definition.roles,
-                        [roleId]: { ...role, label: event.target.value },
-                      },
-                    })
-                  }
-                />
-              </label>
-              <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                <label className="block text-sm">
-                  <span className="font-medium">Executor preference</span>
-                  <select
-                    aria-label={`${roleId} executor preference`}
-                    className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 p-2"
-                    value={executorType}
-                    onChange={(event) => {
-                      const nextExecutor = event.target.value;
-                      onChange({
-                        ...definition,
-                        roles: {
-                          ...definition.roles,
-                          [roleId]: {
-                            ...role,
-                            executorPreference: nextExecutor
-                              ? {
-                                  executorType: nextExecutor as never,
-                                  model: "recommended",
-                                  mode: "preferred",
-                                }
-                              : undefined,
-                          },
-                        },
-                      });
-                    }}
-                  >
-                    <option value="">Workspace default</option>
-                    {WORKFLOW_EXECUTOR_TYPES.map((executor) => (
-                      <option key={executor} value={executor}>
-                        {WORKFLOW_EXECUTOR_MODEL_OPTIONS[executor].label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="block text-sm">
-                  <span className="font-medium">Model preference</span>
-                  <select
-                    aria-label={`${roleId} model preference`}
-                    className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 p-2 disabled:opacity-60"
-                    value={role.executorPreference?.model ?? "recommended"}
-                    disabled={!executorType}
-                    onChange={(event) =>
-                      onChange({
-                        ...definition,
-                        roles: {
-                          ...definition.roles,
-                          [roleId]: {
-                            ...role,
-                            executorPreference: executorType
-                              ? {
-                                  executorType,
-                                  model: event.target.value,
-                                  mode: "preferred",
-                                }
-                              : undefined,
-                          },
-                        },
-                      })
-                    }
-                  >
-                    {modelOptions.map((model) => (
-                      <option key={model} value={model}>
-                        {model}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
+    </section>
+  );
+}
+
+function RoleDetails({
+  roleId,
+  role,
+  stateCount,
+  definition,
+  editing,
+  onEdit,
+  onDone,
+  onChange,
+}: {
+  roleId: string;
+  role: AgentWorkflowDefinitionV1["roles"][string];
+  stateCount: number;
+  definition: AgentWorkflowDefinitionV1;
+  editing: boolean;
+  onEdit: () => void;
+  onDone: () => void;
+  onChange: (definition: AgentWorkflowDefinitionV1) => void;
+}) {
+  const executorType = role.executorPreference?.executorType ?? "";
+  const modelOptions = executorType
+    ? (WORKFLOW_EXECUTOR_MODEL_OPTIONS[executorType]?.models ?? [])
+    : [];
+
+  if (!editing) {
+    return (
+      <section className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="text-xs uppercase tracking-wide text-cyan-300">
+              Selected role
             </div>
-          );
-        })}
+            <h2 className="mt-1 text-lg font-semibold">
+              {role.label ?? roleId}
+            </h2>
+            <p className="mt-1 text-xs text-zinc-400">
+              {roleId} · {stateCount} {stateCount === 1 ? "state" : "states"}
+            </p>
+            <p className="mt-1 text-xs text-zinc-500">
+              {formatEditorRolePreference(role)}
+            </p>
+          </div>
+          <button
+            type="button"
+            className="rounded-md border border-zinc-700 px-3 py-1.5 text-sm text-cyan-100 hover:border-cyan-500"
+            onClick={onEdit}
+          >
+            Edit role
+          </button>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="rounded-xl border border-cyan-900/60 bg-slate-950/80 p-4">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="text-xs uppercase tracking-wide text-cyan-300">
+            Editing role
+          </div>
+          <h2 className="mt-1 text-lg font-semibold">{roleId}</h2>
+        </div>
+        <button
+          type="button"
+          className="rounded-md border border-zinc-700 px-3 py-1.5 text-sm"
+          onClick={onDone}
+        >
+          Done
+        </button>
+      </div>
+      <label className="mt-3 block text-sm">
+        <span className="font-medium">{roleId} label</span>
+        <input
+          className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 p-2"
+          value={role.label ?? roleId}
+          onChange={(event) =>
+            onChange({
+              ...definition,
+              roles: {
+                ...definition.roles,
+                [roleId]: { ...role, label: event.target.value },
+              },
+            })
+          }
+        />
+      </label>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <label className="block text-sm">
+          <span className="font-medium">Executor preference</span>
+          <select
+            aria-label={`${roleId} executor preference`}
+            className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 p-2"
+            value={executorType}
+            onChange={(event) => {
+              const nextExecutor = event.target.value;
+              onChange({
+                ...definition,
+                roles: {
+                  ...definition.roles,
+                  [roleId]: {
+                    ...role,
+                    executorPreference: nextExecutor
+                      ? {
+                          executorType: nextExecutor as never,
+                          model: "recommended",
+                          mode: "preferred",
+                        }
+                      : undefined,
+                  },
+                },
+              });
+            }}
+          >
+            <option value="">Workspace default</option>
+            {WORKFLOW_EXECUTOR_TYPES.map((executor) => (
+              <option key={executor} value={executor}>
+                {WORKFLOW_EXECUTOR_MODEL_OPTIONS[executor].label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="block text-sm">
+          <span className="font-medium">Model preference</span>
+          <select
+            aria-label={`${roleId} model preference`}
+            className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 p-2 disabled:opacity-60"
+            value={role.executorPreference?.model ?? "recommended"}
+            disabled={!executorType}
+            onChange={(event) =>
+              onChange({
+                ...definition,
+                roles: {
+                  ...definition.roles,
+                  [roleId]: {
+                    ...role,
+                    executorPreference: executorType
+                      ? {
+                          executorType,
+                          model: event.target.value,
+                          mode: "preferred",
+                        }
+                      : undefined,
+                  },
+                },
+              })
+            }
+          >
+            {modelOptions.map((model) => (
+              <option key={model} value={model}>
+                {model}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
     </section>
   );
@@ -722,12 +870,18 @@ function NodeDetails({
   node,
   definition,
   assets,
+  editing,
+  onEdit,
+  onDone,
   onChange,
   onPromptChange,
 }: {
   node: WorkflowGraphNodeModel;
   definition: AgentWorkflowDefinitionV1;
   assets: WorkflowAssetsModel;
+  editing: boolean;
+  onEdit: () => void;
+  onDone: () => void;
   onChange: (definition: AgentWorkflowDefinitionV1) => void;
   onPromptChange: (stateId: string, stepId: string, edit: { promptTemplate?: string }) => void;
 }) {
@@ -736,7 +890,16 @@ function NodeDetails({
       <div className="text-xs uppercase tracking-wide text-cyan-300">
         Selected state
       </div>
-      <h2 className="mt-1 text-lg font-semibold">{node.label}</h2>
+      <div className="flex items-start justify-between gap-3">
+        <h2 className="mt-1 text-lg font-semibold">{node.label}</h2>
+        <button
+          type="button"
+          className="rounded-md border border-zinc-700 px-3 py-1.5 text-sm text-cyan-100 hover:border-cyan-500"
+          onClick={editing ? onDone : onEdit}
+        >
+          {editing ? "Done" : "Edit state"}
+        </button>
+      </div>
       <dl className="mt-3 space-y-2 text-sm">
         <div>
           <dt className="text-zinc-500">Owner role</dt>
@@ -764,6 +927,7 @@ function NodeDetails({
                 definition={definition}
                 assets={assets}
                 stateId={node.id}
+                editing={editing}
                 onChange={onChange}
                 onPromptChange={onPromptChange}
               />
@@ -782,6 +946,7 @@ function StepSummary({
   definition,
   assets,
   stateId,
+  editing,
   onChange,
   onPromptChange,
 }: {
@@ -789,6 +954,7 @@ function StepSummary({
   definition: AgentWorkflowDefinitionV1;
   assets: WorkflowAssetsModel;
   stateId: string;
+  editing: boolean;
   onChange: (definition: AgentWorkflowDefinitionV1) => void;
   onPromptChange: (stateId: string, stepId: string, edit: { promptTemplate?: string }) => void;
 }) {
@@ -804,7 +970,7 @@ function StepSummary({
           Selected refs: {step.promptRefs.join(", ")}
         </div>
       ) : null}
-      {step.type === "agent_turn" ? (
+      {step.type === "agent_turn" && editing ? (
         <PromptAuthoringEditor
           definition={definition}
           assets={assets}
@@ -814,6 +980,10 @@ function StepSummary({
           onPromptTemplateChange={(template) => onPromptChange(stateId, step.id, { promptTemplate: template })}
           onChange={onChange}
         />
+      ) : step.type === "agent_turn" ? (
+        <div className="mt-2 rounded border border-zinc-800 bg-zinc-900/50 p-2 text-xs text-zinc-500">
+          Prompt and skill editing is available after pressing Edit state.
+        </div>
       ) : null}
       {step.humanFormProvider ? (
         <div className="mt-2 text-xs text-zinc-500">
@@ -1199,10 +1369,16 @@ function formatUnknownAssetRef(ref: unknown): string {
 function EdgeEditor({
   edge,
   states,
+  editing,
+  onEdit,
+  onDone,
   onChange,
 }: {
   edge: WorkflowGraphEdgeModel;
   states: WorkflowGraphNodeModel[];
+  editing: boolean;
+  onEdit: () => void;
+  onDone: () => void;
   onChange: (
     edgeId: string,
     edit: { actionLabel?: string; targetState?: string; handoffPrompt?: string },
@@ -1215,7 +1391,16 @@ function EdgeEditor({
       <div className="text-xs uppercase tracking-wide text-cyan-300">
         Selected action
       </div>
-      <h2 className="mt-1 text-lg font-semibold">{edge.actionId}</h2>
+      <div className="flex items-start justify-between gap-3">
+        <h2 className="mt-1 text-lg font-semibold">{edge.actionId}</h2>
+        <button
+          type="button"
+          className="rounded-md border border-zinc-700 px-3 py-1.5 text-sm text-cyan-100 hover:border-cyan-500"
+          onClick={editing ? onDone : onEdit}
+        >
+          {editing ? "Done" : "Edit action"}
+        </button>
+      </div>
       <dl className="mt-3 grid gap-2 rounded-lg border border-zinc-800 bg-zinc-950 p-3 text-sm">
         <div>
           <dt className="text-zinc-500">Transition</dt>
@@ -1230,33 +1415,42 @@ function EdgeEditor({
           </div>
         ) : null}
       </dl>
-      <label className="mt-3 block text-sm">
-        <span className="font-medium">Action label</span>
-        <input
-          className="mt-2 w-full rounded-md border border-zinc-700 bg-zinc-950 p-2"
-          value={edge.label}
-          onChange={(event) =>
-            onChange(edge.id, { actionLabel: event.target.value })
-          }
-        />
-      </label>
-      <label className="mt-3 block text-sm">
-        <span className="font-medium">Target state</span>
-        <select
-          className="mt-2 w-full rounded-md border border-zinc-700 bg-zinc-950 p-2"
-          value={edge.target}
-          onChange={(event) =>
-            onChange(edge.id, { targetState: event.target.value })
-          }
-        >
-          <option value="">Choose a target</option>
-          {states.map((state) => (
-            <option key={state.id} value={state.id}>
-              {state.label}
-            </option>
-          ))}
-        </select>
-      </label>
+      {editing ? (
+        <>
+          <label className="mt-3 block text-sm">
+            <span className="font-medium">Action label</span>
+            <input
+              className="mt-2 w-full rounded-md border border-zinc-700 bg-zinc-950 p-2"
+              value={edge.label}
+              onChange={(event) =>
+                onChange(edge.id, { actionLabel: event.target.value })
+              }
+            />
+          </label>
+          <label className="mt-3 block text-sm">
+            <span className="font-medium">Target state</span>
+            <select
+              className="mt-2 w-full rounded-md border border-zinc-700 bg-zinc-950 p-2"
+              value={edge.target}
+              onChange={(event) =>
+                onChange(edge.id, { targetState: event.target.value })
+              }
+            >
+              <option value="">Choose a target</option>
+              {states.map((state) => (
+                <option key={state.id} value={state.id}>
+                  {state.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </>
+      ) : (
+        <div className="mt-3 rounded border border-zinc-800 bg-zinc-950 p-3 text-sm text-zinc-300">
+          Press Edit action to change the action label, target state, or handoff
+          prompt.
+        </div>
+      )}
       {edge.waitFor ? (
         <section className="mt-4 rounded-lg border border-cyan-900 bg-cyan-950/20 p-3 text-sm">
           <h3 className="font-medium text-cyan-100">Wait action</h3>
@@ -1314,19 +1508,21 @@ function EdgeEditor({
           </p>
         </section>
       ) : null}
-      <label className="mt-4 block text-sm">
-        <span className="font-medium">Handoff prompt</span>
-        <span className="mt-1 block text-xs text-zinc-500">
-          Optional transition context available to the target state's next prompt. This is not a separate queued message.
-        </span>
-        <textarea
-          aria-label={`${edge.actionId} handoff prompt`}
-          className="mt-2 min-h-24 w-full rounded-md border border-zinc-700 bg-zinc-950 p-2"
-          value={edge.handoffPrompt ?? ""}
-          placeholder="Example: Review {{transition.parsed.summary}}"
-          onChange={(event) => onChange(edge.id, { handoffPrompt: event.target.value })}
-        />
-      </label>
+      {editing ? (
+        <label className="mt-4 block text-sm">
+          <span className="font-medium">Handoff prompt</span>
+          <span className="mt-1 block text-xs text-zinc-500">
+            Optional transition context available to the target state's next prompt. This is not a separate queued message.
+          </span>
+          <textarea
+            aria-label={`${edge.actionId} handoff prompt`}
+            className="mt-2 min-h-24 w-full rounded-md border border-zinc-700 bg-zinc-950 p-2"
+            value={edge.handoffPrompt ?? ""}
+            placeholder="Example: Review {{transition.parsed.summary}}"
+            onChange={(event) => onChange(edge.id, { handoffPrompt: event.target.value })}
+          />
+        </label>
+      ) : null}
     </section>
   );
 }

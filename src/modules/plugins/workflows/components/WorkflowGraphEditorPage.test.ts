@@ -245,7 +245,71 @@ describe("WorkflowGraphEditorView prompt and skill picker", () => {
     expect(compactHtml).toContain("+ Add Role");
     expect(compactHtml).toContain("dev · 1 state");
     expect(compactHtml).toContain("Executor CODEX · Model gpt-5-codex");
-    expect(compactHtml).toContain("done: dev → done");
+    expect(compactHtml).toContain("Choose a state to see its outgoing transitions.");
+    expect(html).toContain("Edit design");
+    expect(html).toContain("Selected role");
+    expect(html).toContain("Edit role");
+    expect(html).toContain("JSON diagnostics");
+    expect(html).toContain('aria-readonly="true"');
+    expect(html).not.toContain("Prompt authoring");
+    expect(html).not.toContain("Step prompt");
+    expect(html).not.toContain("Prompt and skill snippets");
+    expect(html).not.toContain("Executor preference");
+    expect(html).not.toContain("Model preference");
+    expect(html).not.toContain("<input");
+    expect(html).not.toContain("<textarea");
+    expect(html).not.toContain("<select");
+    expect(html).not.toContain("webhook");
+    expect(html).not.toContain("queue item");
+  });
+
+  it("TEST_CASE_ZJCB_8 shows prompt and skill authoring only after editing the selected state", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(WorkflowGraphEditorView, {
+        editor: {
+          designId: "design-a",
+          name: "Workflow A",
+          description: null,
+          draftId: "draft-a",
+          version: 1,
+          readonly: false,
+          definition: promptDefinition(),
+          validationStatus: "valid",
+          validationIssues: [],
+        },
+        definition: promptDefinition(),
+        assets: {
+          prompts: [
+            {
+              kind: "prompt",
+              id: "prompt.dev.instructions",
+              version: 1,
+              name: "Dev instructions",
+              description: "Implementation prompt",
+              source: "built_in",
+              preview: "Implement carefully.",
+            },
+          ],
+          skills: [
+            {
+              kind: "skill",
+              id: "skill.testing.notes",
+              version: 2,
+              name: "Testing notes",
+              description: "Markdown only",
+              source: "user",
+              preview: "Write focused tests.",
+            },
+          ],
+        },
+        initialSelection: { roleId: "dev", stateId: "dev" },
+        initialEditTarget: { kind: "state", id: "dev" },
+        onDefinitionChange: () => {},
+        onSave: () => {},
+        onPublish: () => {},
+      }),
+    );
+
     expect(html).toContain("Prompt authoring");
     expect(html).toContain("Role: Dev · State: dev · Step: decide");
     expect(html).toContain("Step prompt");
@@ -260,23 +324,11 @@ describe("WorkflowGraphEditorView prompt and skill picker", () => {
     expect(html).toContain("Testing notes");
     expect(html).toContain("v2 · User");
     expect(html).toContain(
-      "Skills are markdown instruction snippets, not executable tools.",
-    );
-    expect(html).toContain(
       "Selected: prompt:prompt.dev.instructions@1, skill:skill.missing@1",
     );
     expect(html).toContain(
       "Missing prompt or skill refs: skill:skill.missing@1",
     );
-    expect(html).toContain("JSON diagnostics");
-    expect(html).toContain("Selected state");
-    expect(html).toContain("Transitions / actions");
-    expect(html).toContain("Executor preference");
-    expect(html).toContain("Codex");
-    expect(html).toContain("Model preference");
-    expect(html).toContain("gpt-5-codex");
-    expect(html).toContain('aria-readonly="true"');
-    expect(html).not.toContain("prompt refs</span><input");
     expect(html).not.toContain("webhook");
     expect(html).not.toContain("queue item");
   });
@@ -301,6 +353,92 @@ describe("WorkflowGraphEditorView prompt and skill picker", () => {
     expect(preview.missingRefs).toEqual(["skill:skill.missing@1"]);
     expect(preview.text).not.toContain("webhook");
     expect(preview.text).not.toContain("queue item");
+  });
+
+  it("TEST_CASE_ZJCB_8 keeps role preferences read-only until the selected role is edited", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(WorkflowGraphEditorView, {
+        editor: null,
+        definition: promptDefinition(),
+        assets: { prompts: [], skills: [] },
+        initialSelection: { roleId: "dev" },
+        initialEditTarget: { kind: "role", id: "dev" },
+        onDefinitionChange: () => {},
+        onSave: () => {},
+        onPublish: () => {},
+      }),
+    );
+
+    expect(html).toContain("Editing role");
+    expect(html).toContain("dev label");
+    expect(html).toContain("Executor preference");
+    expect(html).toContain("Model preference");
+    expect(html).toContain("gpt-5-codex");
+  });
+
+  it("TEST_CASE_ZJCB_8 focuses a newly added role in edit mode shape", () => {
+    const definition = {
+      ...promptDefinition(),
+      roles: {
+        ...promptDefinition().roles,
+        role_2: { label: "New role" },
+      },
+    };
+    const html = renderToStaticMarkup(
+      React.createElement(WorkflowGraphEditorView, {
+        editor: null,
+        definition,
+        assets: { prompts: [], skills: [] },
+        initialSelection: { roleId: "role_2" },
+        initialEditTarget: { kind: "role", id: "role_2" },
+        onDefinitionChange: () => {},
+        onSave: () => {},
+        onPublish: () => {},
+      }),
+    );
+
+    expect(html).toContain("Editing role");
+    expect(html).toContain("role_2 label");
+    expect(html).toContain('value="New role"');
+    expect(html).toContain("No states are assigned to this role yet.");
+  });
+
+  it("TEST_CASE_ZJCB_8 shows action inputs only in action edit mode", () => {
+    const definition = wizardDefinition();
+    const graph = workflowDefinitionToGraph(definition);
+    const readyEdge = graph.edges.find((edge) => edge.actionId === "ready");
+    if (!readyEdge) throw new Error("ready edge fixture missing");
+
+    const inspectHtml = renderToStaticMarkup(
+      React.createElement(WorkflowGraphEditorView, {
+        editor: null,
+        definition,
+        assets: { prompts: [], skills: [] },
+        initialSelection: { roleId: "dev", stateId: "dev", edgeId: readyEdge.id },
+        onDefinitionChange: () => {},
+        onSave: () => {},
+        onPublish: () => {},
+      }),
+    );
+    expect(inspectHtml).toContain("Edit action");
+    expect(inspectHtml).not.toContain("Action label</span><input");
+    expect(inspectHtml).not.toContain("Target state</span><select");
+
+    const editHtml = renderToStaticMarkup(
+      React.createElement(WorkflowGraphEditorView, {
+        editor: null,
+        definition,
+        assets: { prompts: [], skills: [] },
+        initialSelection: { roleId: "dev", stateId: "dev", edgeId: readyEdge.id },
+        initialEditTarget: { kind: "action", id: readyEdge.id },
+        onDefinitionChange: () => {},
+        onSave: () => {},
+        onPublish: () => {},
+      }),
+    );
+    expect(editHtml).toContain("Action label");
+    expect(editHtml).toContain("Target state");
+    expect(editHtml).toContain("Handoff prompt");
   });
 
   it("TEST_CASE_8ABA navigates role to state to action in the outline wizard", () => {
