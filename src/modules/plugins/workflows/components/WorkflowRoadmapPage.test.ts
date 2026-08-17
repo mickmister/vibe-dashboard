@@ -28,6 +28,7 @@ describe("WorkflowRoadmapView", () => {
         loading: false,
         error: null,
         onRefresh: () => undefined,
+        filters: { status: "all", showCompleted: true },
       }),
     );
 
@@ -49,6 +50,24 @@ describe("WorkflowRoadmapView", () => {
     expect(html).not.toContain("Start meta-workflow from roadmap");
     expect(html).not.toContain("/dashboard/workflows/meta-runs?source=roadmap");
     for (const term of forbiddenTerms) expect(html).not.toContain(term);
+  });
+
+  it("filters completed items by default and provides URL-addressable filter controls", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(WorkflowRoadmapView, {
+        roadmap: buildWorkflowRoadmapModel({ now: () => 1_700_000 }),
+        loading: false,
+        error: null,
+        onRefresh: () => undefined,
+        filterHref: (next) => `/dashboard/workflows/roadmap?${new URLSearchParams(Object.entries(next).filter((entry): entry is [string, string] => typeof entry[1] === "string")).toString()}`,
+      }),
+    );
+
+    expect(html).toContain("Completed milestones are hidden by default.");
+    expect(html).toContain("Showing 4 of 20 milestones");
+    expect(html).toContain("Show completed");
+    expect(html).toContain("roadmapStatus=blocked");
+    expect(html).not.toContain("Workflow design store and prompt/skill library");
   });
 
   it("TEST_CASE_M119B_1B/1C renders live provider freshness, warnings, and safe run links", async () => {
@@ -76,6 +95,7 @@ describe("WorkflowRoadmapView", () => {
         loading: false,
         error: null,
         onRefresh: () => undefined,
+        filters: { status: "all", showCompleted: true },
       }),
     );
 

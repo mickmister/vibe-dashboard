@@ -96,6 +96,7 @@ export function WorkspaceWorkflowsHomeView({
   const [batchWorkflow, setBatchWorkflow] =
     useState<WorkspaceWorkflowSummary | null>(null);
   const [showCreateLane, setShowCreateLane] = useState(false);
+  const isGlobalHome = !home?.workspaceId;
   const activeRuns = useMemo(
     () => (home?.recentRuns ?? []).filter(isActiveRun),
     [home?.recentRuns],
@@ -259,7 +260,7 @@ export function WorkspaceWorkflowsHomeView({
         {activeRuns.length ? (
           <div className="space-y-3">
             {activeRuns.map((run) => (
-              <ActiveRunRow key={run.runId} run={run} />
+              <ActiveRunRow key={run.runId} run={run} showWorkspace={isGlobalHome} />
             ))}
           </div>
         ) : (
@@ -327,7 +328,7 @@ export function WorkspaceWorkflowsHomeView({
         {home?.recentRuns.length ? (
           <div className="space-y-3">
             {home.recentRuns.map((run) => (
-              <RunRow key={run.runId} run={run} />
+              <RunRow key={run.runId} run={run} showWorkspace={isGlobalHome} />
             ))}
           </div>
         ) : (
@@ -1592,7 +1593,7 @@ function BatchItemRow({
   );
 }
 
-function ActiveRunRow({ run }: { run: WorkspaceWorkflowRunSummary }) {
+function ActiveRunRow({ run, showWorkspace = false }: { run: WorkspaceWorkflowRunSummary; showWorkspace?: boolean }) {
   const body = (
     <>
       <div>
@@ -1601,6 +1602,7 @@ function ActiveRunRow({ run }: { run: WorkspaceWorkflowRunSummary }) {
           {activeRunExplanation(run)}
         </p>
         <p className="mt-1 text-xs text-zinc-500">
+          {showWorkspace ? <>Workspace {run.workspaceId} · </> : null}
           Updated {formatTime(run.updatedAt)}
         </p>
       </div>
@@ -1638,12 +1640,13 @@ function runStatusTone(status: string): "emerald" | "cyan" | "amber" | "red" {
   return "cyan";
 }
 
-function RunRow({ run }: { run: WorkspaceWorkflowRunSummary }) {
+function RunRow({ run, showWorkspace = false }: { run: WorkspaceWorkflowRunSummary; showWorkspace?: boolean }) {
   const body = (
     <>
       <div>
         <h3 className="font-semibold">{run.workflowName}</h3>
         <p className="mt-1 text-sm text-zinc-400">
+          {showWorkspace ? <>Workspace {run.workspaceId} · </> : null}
           Updated {formatTime(run.updatedAt)}
         </p>
       </div>

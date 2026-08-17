@@ -90,6 +90,7 @@ export interface WorkspaceWorkflowRoleSummary {
 export interface WorkspaceWorkflowRunSummary {
   runId: string;
   workflowName: string;
+  workspaceId: string;
   status: string;
   startedAt: number;
   updatedAt: number;
@@ -369,7 +370,7 @@ async function listRecentRuns(
 ): Promise<WorkspaceWorkflowRunSummary[]> {
   const rows = await db
     .selectFrom("WorkflowPersistedRun")
-    .select(["runId", "coreModelJson", "status", "createdAt", "updatedAt"])
+    .select(["runId", "workspaceId", "coreModelJson", "status", "createdAt", "updatedAt"])
     .$if(Boolean(workspaceId), (qb) => qb.where("workspaceId", "=", workspaceId!))
     .orderBy("updatedAt", "desc")
     .limit(limit)
@@ -378,6 +379,7 @@ async function listRecentRuns(
     const model = parseRecord(row.coreModelJson);
     return {
       runId: row.runId,
+      workspaceId: row.workspaceId,
       workflowName:
         typeof model.name === "string" ? model.name : "Workflow run",
       status: row.status,

@@ -84,8 +84,8 @@ function denseWorkflowsHomeFixture() {
   ];
   home.recentRuns = [
     ...home.recentRuns,
-    { runId: 'run-blocked', workflowName: 'CI wait release workflow', status: 'blocked', startedAt: 1_100, updatedAt: 1_800, detailUrl: '/dashboard/workflows/run-blocked' },
-    { runId: 'run-waiting', workflowName: 'Dev / Review / Tester copy', status: 'waiting', startedAt: 1_200, updatedAt: 1_900, detailUrl: '/dashboard/workflows/run-waiting' },
+    { runId: 'run-blocked', workflowName: 'CI wait release workflow', workspaceId: 'workspace-a', status: 'blocked', startedAt: 1_100, updatedAt: 1_800, detailUrl: '/dashboard/workflows/run-blocked' },
+    { runId: 'run-waiting', workflowName: 'Dev / Review / Tester copy', workspaceId: 'workspace-a', status: 'waiting', startedAt: 1_200, updatedAt: 1_900, detailUrl: '/dashboard/workflows/run-waiting' },
   ];
   return home;
 }

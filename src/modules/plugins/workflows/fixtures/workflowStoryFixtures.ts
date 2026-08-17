@@ -264,8 +264,8 @@ export function workflowsHomeFixture(): WorkspaceWorkflowsHomeModel {
     ],
     needsInput: [{ attentionItemId: 'attention-plan', title: 'Approve implementation plan', description: 'Review the generated plan before Dev continues.', workflowName: 'Dev / Review / Tester', createdAt: 1_000, detailUrl: '/dashboard/workflows/run-human' }],
     recentRuns: [
-      { runId: 'run-ci', workflowName: 'Wait for GitHub CI', status: 'running', startedAt: 1_000, updatedAt: 1_500, detailUrl: '/dashboard/workflows/run-ci' },
-      { runId: 'run-drt', workflowName: 'Dev / Review / Tester', status: 'completed', startedAt: 500, updatedAt: 900, detailUrl: '/dashboard/workflows/run-drt' },
+      { runId: 'run-ci', workflowName: 'Wait for GitHub CI', workspaceId: 'workspace-storybook', status: 'running', startedAt: 1_000, updatedAt: 1_500, detailUrl: '/dashboard/workflows/run-ci' },
+      { runId: 'run-drt', workflowName: 'Dev / Review / Tester', workspaceId: 'workspace-storybook', status: 'completed', startedAt: 500, updatedAt: 900, detailUrl: '/dashboard/workflows/run-drt' },
     ],
     recentBatches: [{ batchId: 'batch-story', workflowName: 'Dev / Review / Tester', status: 'running', counts: { total: 5, pending: 2, running: 1, completed: 1, blocked: 0, failed: 1, cancelled: 0 }, items: [{ batchItemId: 'batch-story-1', itemIndex: 1, status: 'failed', runId: null, error: { code: 'missing_input', message: 'Line 2 is missing featureRequest.', fieldErrors: { featureRequest: 'This field is required.' } } }], updatedAt: 1_600, detailUrl: '/dashboard/workflow-batches/batch-story' }],
   };

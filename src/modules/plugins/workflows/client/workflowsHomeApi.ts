@@ -171,6 +171,7 @@ export interface WorkspaceWorkflowLaunchSummary {
 export interface WorkspaceWorkflowRunSummary {
   runId: string;
   workflowName: string;
+  workspaceId: string;
   status: string;
   startedAt: number;
   updatedAt: number;

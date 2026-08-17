@@ -39,6 +39,8 @@ export function WorkflowRoadmapPage(): React.ReactElement {
       error={error}
       onRefresh={() => void load()}
       backHref={workflowRouteHref("/dashboard/workflows", searchParams)}
+      filters={roadmapFiltersFromSearch(searchParams)}
+      filterHref={(next) => workflowRouteHref("/dashboard/workflows/roadmap", searchParams, next)}
     />
   );
 }
@@ -49,6 +51,8 @@ export function WorkflowRoadmapView({
   error,
   onRefresh,
   backHref = "/dashboard/workflows",
+  filters = defaultRoadmapFilters(),
+  filterHref = () => "#",
   embedded = false,
 }: {
   roadmap: WorkflowRoadmapModel | null;
@@ -56,12 +60,20 @@ export function WorkflowRoadmapView({
   error: string | null;
   onRefresh: () => void;
   backHref?: string;
+  filters?: RoadmapFilterState;
+  filterHref?: (next: Record<string, string | null>) => string;
   embedded?: boolean;
 }): React.ReactElement {
-  const grouped = useMemo(
-    () => groupMilestones(roadmap?.milestones ?? []),
-    [roadmap?.milestones],
+  const visibleMilestones = useMemo(
+    () => filterMilestones(roadmap?.milestones ?? [], filters),
+    [roadmap?.milestones, filters.status, filters.showCompleted],
   );
+  const grouped = useMemo(
+    () => groupMilestones(visibleMilestones),
+    [visibleMilestones],
+  );
+  const totalMilestones = roadmap?.milestones.length ?? 0;
+  const completedHidden = Boolean(roadmap && !filters.showCompleted && roadmap.statusCounts.complete > 0);
   return (
     <StandaloneDashboardPage
       className={embedded ? "h-full" : ""}
@@ -101,36 +113,12 @@ export function WorkflowRoadmapView({
           className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-6"
           aria-label="Roadmap status summary"
         >
-          <RoadmapMetric
-            label="Complete"
-            value={roadmap?.statusCounts.complete ?? 0}
-            tone="emerald"
-          />
-          <RoadmapMetric
-            label="In progress"
-            value={roadmap?.statusCounts.in_progress ?? 0}
-            tone="cyan"
-          />
-          <RoadmapMetric
-            label="Review"
-            value={roadmap?.statusCounts.review ?? 0}
-            tone="violet"
-          />
-          <RoadmapMetric
-            label="Tester"
-            value={roadmap?.statusCounts.tester ?? 0}
-            tone="amber"
-          />
-          <RoadmapMetric
-            label="Blocked"
-            value={roadmap?.statusCounts.blocked ?? 0}
-            tone="rose"
-          />
-          <RoadmapMetric
-            label="Remaining"
-            value={roadmap?.statusCounts.remaining ?? 0}
-            tone="zinc"
-          />
+          <RoadmapMetric label="Complete" value={roadmap?.statusCounts.complete ?? 0} tone="emerald" href={filterHref({ roadmapStatus: "complete", showCompleted: "1" })} selected={filters.status === "complete"} />
+          <RoadmapMetric label="In progress" value={roadmap?.statusCounts.in_progress ?? 0} tone="cyan" href={filterHref({ roadmapStatus: "in_progress" })} selected={filters.status === "in_progress"} />
+          <RoadmapMetric label="Review" value={roadmap?.statusCounts.review ?? 0} tone="violet" href={filterHref({ roadmapStatus: "review" })} selected={filters.status === "review"} />
+          <RoadmapMetric label="Tester" value={roadmap?.statusCounts.tester ?? 0} tone="amber" href={filterHref({ roadmapStatus: "tester" })} selected={filters.status === "tester"} />
+          <RoadmapMetric label="Blocked" value={roadmap?.statusCounts.blocked ?? 0} tone="rose" href={filterHref({ roadmapStatus: "blocked" })} selected={filters.status === "blocked"} />
+          <RoadmapMetric label="Remaining" value={roadmap?.statusCounts.remaining ?? 0} tone="zinc" href={filterHref({ roadmapStatus: "remaining" })} selected={filters.status === "remaining"} />
         </div>
       </header>
 
@@ -148,9 +136,26 @@ export function WorkflowRoadmapView({
         </div>
       ) : null}
 
+      {roadmap ? (
+        <section className="rounded-xl border border-slate-800 bg-slate-900/70 p-4" aria-label="Roadmap filters">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="text-xs uppercase tracking-wide text-cyan-300">Filters</div>
+              <p className="mt-1 text-sm text-zinc-300">Showing {visibleMilestones.length} of {totalMilestones} milestones. Counts above are total top-level milestones.</p>
+              {completedHidden ? <p className="mt-1 text-xs text-zinc-500">Completed milestones are hidden by default.</p> : null}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <a className={filterButtonClass(filters.status === "all" && !filters.showCompleted)} href={filterHref({ roadmapStatus: null, showCompleted: null })}>Active first</a>
+              <a className={filterButtonClass(filters.showCompleted)} href={filterHref({ showCompleted: filters.showCompleted ? null : "1" })}>{filters.showCompleted ? "Hide completed" : "Show completed"}</a>
+              {filters.status !== "all" ? <a className={filterButtonClass(false)} href={filterHref({ roadmapStatus: null })}>Reset status</a> : null}
+            </div>
+          </div>
+        </section>
+      ) : null}
+
       {roadmap && roadmap.milestones.length === 0 ? (
         <section className="rounded-xl border border-slate-800 bg-slate-900/70 p-5">
-          <h2 className="font-semibold">No roadmap selected</h2>
+          <h2 className="font-semibold">{roadmap.source.freshness === "error" ? "Roadmap unavailable" : "No roadmap selected"}</h2>
           <p className="mt-2 text-sm text-zinc-400">
             {roadmap.nextAction ??
               "Choose a workflow spike to see milestone progress."}
@@ -173,7 +178,10 @@ export function WorkflowRoadmapView({
       {roadmap ? (
         <section className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_18rem]">
           <div className="space-y-3" aria-label="Workflow milestone list">
-            {roadmap.milestones.map((milestone, index) => (
+            {visibleMilestones.length === 0 && roadmap.milestones.length > 0 ? (
+              <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-5 text-sm text-zinc-300">No roadmap items match the selected filters.</div>
+            ) : null}
+            {visibleMilestones.map((milestone, index) => (
               <MilestoneCard
                 key={milestone.beadId}
                 milestone={milestone}
@@ -381,17 +389,23 @@ function RoadmapMetric({
   label,
   value,
   tone,
+  href,
+  selected = false,
 }: {
   label: string;
   value: number;
   tone: "emerald" | "cyan" | "violet" | "amber" | "rose" | "zinc";
+  href?: string;
+  selected?: boolean;
 }): React.ReactElement {
-  return (
-    <div className={`rounded-lg border p-3 ${toneClasses(tone)}`}>
+  const body = (
+    <>
       <div className="text-xs uppercase tracking-wide opacity-80">{label}</div>
       <div className="mt-1 text-2xl font-semibold">{value}</div>
-    </div>
+    </>
   );
+  const classes = `block rounded-lg border p-3 ${toneClasses(tone)} ${selected ? "ring-2 ring-cyan-300" : ""}`;
+  return href ? <a className={classes} href={href} aria-current={selected ? "true" : undefined}>{body}</a> : <div className={classes}>{body}</div>;
 }
 
 function StatusPill({
@@ -476,6 +490,50 @@ function toneClasses(
 function formatTime(value: number): string {
   if (!Number.isFinite(value)) return "recently";
   return new Date(value).toLocaleString();
+}
+
+type RoadmapStatusFilter = WorkflowRoadmapItemStatus | "all";
+
+interface RoadmapFilterState {
+  status: RoadmapStatusFilter;
+  showCompleted: boolean;
+}
+
+function defaultRoadmapFilters(): RoadmapFilterState {
+  return { status: "all", showCompleted: false };
+}
+
+function roadmapFiltersFromSearch(params: URLSearchParams): RoadmapFilterState {
+  const status = params.get("roadmapStatus");
+  return {
+    status: isRoadmapStatus(status) ? status : "all",
+    showCompleted: params.get("showCompleted") === "1",
+  };
+}
+
+function filterMilestones(
+  milestones: WorkflowRoadmapMilestone[],
+  filters: RoadmapFilterState,
+): WorkflowRoadmapMilestone[] {
+  return milestones
+    .filter((milestone) => filters.showCompleted || milestone.status !== "complete")
+    .filter((milestone) => filters.status === "all" || milestone.status === filters.status)
+    .sort((left, right) => roadmapSortRank(left.status) - roadmapSortRank(right.status));
+}
+
+function roadmapSortRank(status: WorkflowRoadmapItemStatus): number {
+  if (status === "blocked") return 0;
+  if (status === "in_progress" || status === "review" || status === "tester") return 1;
+  if (status === "remaining") return 2;
+  return 3;
+}
+
+function isRoadmapStatus(value: string | null): value is WorkflowRoadmapItemStatus {
+  return value === "complete" || value === "in_progress" || value === "blocked" || value === "review" || value === "tester" || value === "remaining";
+}
+
+function filterButtonClass(selected: boolean): string {
+  return `rounded-md border px-3 py-2 text-sm ${selected ? "border-cyan-500 bg-cyan-950/50 text-cyan-100" : "border-zinc-700 text-zinc-100 hover:bg-zinc-800"}`;
 }
 
 function freshnessLabel(value: WorkflowRoadmapModel["source"]["freshness"]): string {

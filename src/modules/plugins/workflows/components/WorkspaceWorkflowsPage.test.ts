@@ -120,7 +120,16 @@ describe("WorkspaceWorkflowsHomeView", () => {
 
 
   it("renders global workflows home without workspace-required dead end", () => {
-    const globalHome = { ...fixture(), workspaceId: null, lanes: null, needsInput: [] };
+    const globalHome = {
+      ...fixture(),
+      workspaceId: null,
+      lanes: null,
+      needsInput: [],
+      recentRuns: fixture().recentRuns.map((run, index) => ({
+        ...run,
+        workspaceId: index === 0 ? "workspace-b" : "workspace-a",
+      })),
+    };
     const routeParams = new URLSearchParams("voyage=v1&workspaceId=workspace-a&filter=active");
     routeParams.delete("workspaceId");
     const html = renderToStaticMarkup(
@@ -137,6 +146,8 @@ describe("WorkspaceWorkflowsHomeView", () => {
     expect(html).toContain("Choose workspace to run");
     expect(html).toContain("Choose workspace to create lane");
     expect(html).toContain("Choose workspace for meta-workflows");
+    expect(html).toContain("Workspace workspace-b");
+    expect(html).toContain("Workspace workspace-a");
     expect(html).not.toContain('href="/dashboard/workflows/meta-runs"');
     expect(html).toContain('href="/dashboard/workflows/roadmap?voyage=v1&amp;filter=active"');
     expect(html).not.toContain('/beads/project');
@@ -311,6 +322,7 @@ function fixture(): WorkspaceWorkflowsHomeModel {
       {
         runId: "run-a",
         workflowName: "Feature workflow run",
+        workspaceId: "workspace-a",
         status: "running",
         startedAt: 1,
         updatedAt: 2,
@@ -319,6 +331,7 @@ function fixture(): WorkspaceWorkflowsHomeModel {
       {
         runId: "run-blocked",
         workflowName: "Blocked workflow run",
+        workspaceId: "workspace-a",
         status: "blocked",
         startedAt: 2,
         updatedAt: 3,
@@ -327,6 +340,7 @@ function fixture(): WorkspaceWorkflowsHomeModel {
       {
         runId: "run-complete",
         workflowName: "Completed workflow run",
+        workspaceId: "workspace-a",
         status: "completed",
         startedAt: 1,
         updatedAt: 4,

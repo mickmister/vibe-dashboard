@@ -308,6 +308,33 @@ describe("registerWorkflowRoutes", () => {
         updatedAt: 2,
       })
       .execute();
+    await designStore.createRunSnapshot({
+      runSnapshotId: "snapshot-home-b",
+      designId: "design-home",
+      workspaceId: "workspace-b",
+      runInput: {},
+      roleBindings: {},
+    });
+    await handle.db
+      .insertInto("WorkflowPersistedRun")
+      .values({
+        runId: "run-home-b",
+        runSnapshotId: "snapshot-home-b",
+        designId: "design-home",
+        designVersion: 1,
+        workspaceId: "workspace-b",
+        status: "running",
+        coreModelJson: JSON.stringify({ name: "Other Workspace Workflow" }),
+        coreSnapshotJson: "{}",
+        roleBindingsJson: "{}",
+        pendingEffectJson: null,
+        queuedTurnsJson: "{}",
+        eventsJson: "[]",
+        errorJson: null,
+        createdAt: 3,
+        updatedAt: 4,
+      })
+      .execute();
     registerWorkflowRoutes(app, {
       registry: createWorkflowRegistry(),
       workflowHomeDb: handle.db,
@@ -342,7 +369,10 @@ describe("registerWorkflowRoutes", () => {
       home: {
         workspaceId: null,
         userWorkflows: [{ id: "design-home", title: "Home Workflow", status: "ready" }],
-        recentRuns: [{ runId: "run-home-a", workflowName: "Home Workflow" }],
+        recentRuns: [
+          { runId: "run-home-b", workflowName: "Other Workspace Workflow", workspaceId: "workspace-b" },
+          { runId: "run-home-a", workflowName: "Home Workflow", workspaceId: "workspace-a" },
+        ],
         needsInput: [],
       },
     });

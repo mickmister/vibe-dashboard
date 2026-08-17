@@ -35,9 +35,17 @@ describe('buildWorkspaceWorkflowsHomeModel', () => {
     expect(home.userWorkflows.find((workflow) => workflow.id === 'design.dev-review')).toMatchObject({ source: 'published_design', status: 'ready', version: 1, canRun: true, launchSummary: { firstStateId: 'dev', firstActorRoleId: 'dev', firstActorLabel: 'Dev', mayNeedHumanInput: false, mayCallWorkflows: false } });
     expect(home.userWorkflows.find((workflow) => workflow.id === 'design.draft')).toMatchObject({ source: 'published_design', status: 'unavailable', version: null, canRun: false, unavailableReason: 'Publish this workflow before running it.' });
     expect(home.starterTemplates[0]).toMatchObject({ source: 'template', canRun: false });
-    expect(home.recentRuns).toEqual([{ runId: 'run-workspace-a', workflowName: 'Workspace A run', status: 'running', startedAt: 10, updatedAt: 20, detailUrl: '/dashboard/workflows/run-workspace-a' }]);
+    expect(home.recentRuns).toEqual([{ runId: 'run-workspace-a', workflowName: 'Workspace A run', workspaceId: 'workspace-a', status: 'running', startedAt: 10, updatedAt: 20, detailUrl: '/dashboard/workflows/run-workspace-a' }]);
     expect(home.needsInput).toMatchObject([{ attentionItemId: 'attention-a', title: 'Answer planning questions', workflowName: 'Workspace A run' }]);
     expect(JSON.stringify(home)).not.toContain('workspace-b');
+
+    const globalHome = await buildWorkspaceWorkflowsHomeModel({ db: handle.db, designStore, orchestrationStore, workspaceId: null });
+    expect(globalHome.workspaceId).toBeNull();
+    expect(globalHome.recentRuns.map((run) => [run.runId, run.workspaceId])).toEqual([
+      ['run-workspace-b', 'workspace-b'],
+      ['run-workspace-a', 'workspace-a'],
+    ]);
+    expect(globalHome.needsInput).toEqual([]);
   });
 });
 
