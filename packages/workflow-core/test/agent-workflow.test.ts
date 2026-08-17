@@ -534,6 +534,12 @@ describe("agent workflow V1 normalization", () => {
     expect(
       advanced.effect.kind === "send_agent_turn" ? advanced.effect.prompt : "",
     ).toContain("Choose next action");
+    expect(
+      advanced.effect.kind === "send_agent_turn" ? advanced.effect.prompt : "",
+    ).toContain("Expected XML response spec:");
+    expect(
+      advanced.effect.kind === "send_agent_turn" ? advanced.effect.prompt : "",
+    ).toContain('action="readyForReview"');
     expect(advanced.snapshot.history).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -604,8 +610,16 @@ describe("agent workflow V1 normalization", () => {
     expect(advanced.effect).toMatchObject({
       kind: "send_agent_turn",
       stepId: "decide",
-      prompt: "Approved: true",
     });
+    expect(
+      advanced.effect.kind === "send_agent_turn" && advanced.effect.prompt,
+    ).toEqual(expect.stringContaining("Approved: true"));
+    expect(
+      advanced.effect.kind === "send_agent_turn" && advanced.effect.prompt,
+    ).toEqual(expect.stringContaining("Expected XML response spec:"));
+    expect(
+      advanced.effect.kind === "send_agent_turn" && advanced.effect.prompt,
+    ).toEqual(expect.stringContaining('action="done"'));
     expect(advanced.snapshot.history).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -998,6 +1012,18 @@ describe("agent workflow V1 advancement", () => {
       stepId: "selfReview",
       turnId: "turn_2",
     });
+    expect(
+      afterNonDecision.effect.kind === "send_agent_turn" &&
+        afterNonDecision.effect.prompt,
+    ).toEqual(expect.stringContaining("Expected XML response spec:"));
+    expect(
+      afterNonDecision.effect.kind === "send_agent_turn" &&
+        afterNonDecision.effect.prompt,
+    ).toEqual(expect.stringContaining('action="readyForReview"'));
+    expect(
+      afterNonDecision.effect.kind === "send_agent_turn" &&
+        afterNonDecision.effect.prompt,
+    ).toEqual(expect.stringContaining("<summary>...</summary>: required markdown"));
     expect(afterNonDecision.snapshot.currentStepIndex).toBe(1);
     expect(afterNonDecision.snapshot.history).toContainEqual(
       expect.objectContaining({
@@ -1036,8 +1062,27 @@ describe("agent workflow V1 advancement", () => {
       kind: "send_agent_turn",
       role: "review",
       stepId: "reviewDecision",
-      prompt: "Review handoff Dev handoff: Implemented long summary",
     });
+    expect(
+      afterDecision.effect.kind === "send_agent_turn" &&
+        afterDecision.effect.prompt,
+    ).toEqual(
+      expect.stringContaining(
+        "Review handoff Dev handoff: Implemented long summary",
+      ),
+    );
+    expect(
+      afterDecision.effect.kind === "send_agent_turn" &&
+        afterDecision.effect.prompt,
+    ).toEqual(expect.stringContaining("Expected XML response spec:"));
+    expect(
+      afterDecision.effect.kind === "send_agent_turn" &&
+        afterDecision.effect.prompt,
+    ).toEqual(expect.stringContaining('action="changesRequested"'));
+    expect(
+      afterDecision.effect.kind === "send_agent_turn" &&
+        afterDecision.effect.prompt,
+    ).toEqual(expect.stringContaining("<requiredChanges>...</requiredChanges>"));
 
     const stale = advanceWorkflow(
       model,
@@ -1159,6 +1204,14 @@ describe("agent workflow V1 advancement", () => {
       firstInvalid.effect.kind === "send_agent_turn" &&
         firstInvalid.effect.prompt,
     ).toContain("Malformed XML");
+    expect(
+      firstInvalid.effect.kind === "send_agent_turn" &&
+        firstInvalid.effect.prompt,
+    ).toContain("Expected XML response spec:");
+    expect(
+      firstInvalid.effect.kind === "send_agent_turn" &&
+        firstInvalid.effect.prompt,
+    ).toContain('action="continueEditing"');
 
     const secondInvalid = advanceWorkflow(
       model,

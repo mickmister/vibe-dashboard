@@ -1572,6 +1572,7 @@ export function advanceWorkflow(
   const validation = validateDecision(model, state, step, observation, deps);
   if (!validation.valid) {
     return handleInvalidDecision(
+      model,
       snapshot,
       state,
       step,
@@ -1586,6 +1587,7 @@ export function advanceWorkflow(
   const action = state.actions[validation.action];
   if (!action) {
     return handleInvalidDecision(
+      model,
       snapshot,
       state,
       step,
@@ -1605,6 +1607,7 @@ export function advanceWorkflow(
   const target = model.states[action.targetState];
   if (!target) {
     return handleInvalidDecision(
+      model,
       snapshot,
       state,
       step,
@@ -1632,6 +1635,7 @@ export function advanceWorkflow(
     const wait = extractGithubCiWait(action, validation.parsed ?? {});
     if (!wait.ciRunId && !wait.checkRunId) {
       return handleInvalidDecision(
+        model,
         snapshot,
         state,
         step,
@@ -1746,7 +1750,7 @@ export function advanceWorkflow(
 }
 
 export function renderWorkflowPrompt(
-  _model: NormalizedAgentWorkflowModel,
+  model: NormalizedAgentWorkflowModel,
   snapshot: WorkflowRuntimeSnapshot,
   step: AgentWorkflowStepV1,
   extra: { validationErrors?: WorkflowRuntimeIssue[] } = {},
@@ -1759,6 +1763,11 @@ export function renderWorkflowPrompt(
     },
   );
 
+  const xmlSpec = renderExpectedXmlResponseSpec(model, snapshot, step);
+  if (xmlSpec) {
+    rendered += `\n\n${xmlSpec}`;
+  }
+
   if (extra.validationErrors?.length) {
     rendered += `\n\nYour previous XML response did not match the workflow contract. Fix these validation errors and return the XML again:\n${extra.validationErrors
       .map((error) => `- ${error.code} at ${error.path}: ${error.message}`)
@@ -1766,6 +1775,81 @@ export function renderWorkflowPrompt(
   }
 
   return rendered;
+}
+
+export function renderExpectedXmlResponseSpec(
+  model: NormalizedAgentWorkflowModel,
+  snapshot: WorkflowRuntimeSnapshot,
+  step: AgentWorkflowStepV1,
+): string | null {
+  if (step.turnType !== "decision" || !step.response) return null;
+  const state = model.states[snapshot.waitingFor?.state ?? snapshot.currentState];
+  if (!state || state.terminal) return null;
+
+  const actionSpecs = Object.values(state.actions).map((action) => {
+    const result = action.result ?? { fields: {}, unknownFields: "reject" };
+    const fields = Object.entries(result.fields ?? {});
+    const required = new Set(result.required ?? []);
+    const fieldLines = fields.length
+      ? fields.map(([fieldName, spec]) => {
+          const tag = `<${fieldName}>...</${fieldName}>`;
+          const type = `${spec.multiple ? "array of " : ""}${spec.type}`;
+          const requiredText = required.has(fieldName)
+            ? "required"
+            : "optional";
+          return `    - ${tag}: ${requiredText} ${type}`;
+        })
+      : ["    - no result child elements are expected"];
+    const unknownFields =
+      result.unknownFields === "preserve"
+        ? "unknown child elements may be preserved"
+        : "unknown child elements are rejected";
+    const waitFor =
+      action.waitFor?.provider === "github_ci"
+        ? [
+            "    - GitHub CI wait data must include one of:",
+            `      - <${action.waitFor.runIdField ?? "ciRunId"}>...</${action.waitFor.runIdField ?? "ciRunId"}>`,
+            `      - <${action.waitFor.checkRunIdField ?? "checkRunId"}>...</${action.waitFor.checkRunIdField ?? "checkRunId"}>`,
+          ]
+        : [];
+    return [
+      `  - action="${action.id}"${action.label ? ` (${action.label})` : ""}`,
+      action.description ? `    - ${action.description}` : null,
+      `    - targetState: ${action.targetState}`,
+      ...fieldLines,
+      ...waitFor,
+      `    - ${unknownFields}`,
+    ].filter((line): line is string => Boolean(line));
+  });
+
+  const exampleAction = Object.values(state.actions)[0];
+  const example = exampleAction
+    ? renderXmlDecisionExample(exampleAction)
+    : '<decision action="ACTION_NAME" />';
+
+  return [
+    "Expected XML response spec:",
+    "- Return exactly one XML document.",
+    "- Root tag: <decision>.",
+    "- Required root attribute: action.",
+    "- Allowed action names and result fields:",
+    ...actionSpecs.flat(),
+    "- Allowed child tags: only the result fields listed for the selected action.",
+    "- Markdown text is allowed inside child elements; use CDATA when that keeps markdown readable.",
+    `- Example: ${example}`,
+  ].join("\n");
+}
+
+function renderXmlDecisionExample(action: NormalizedWorkflowAction): string {
+  const fields = Object.entries(action.result?.fields ?? {});
+  if (!fields.length) return `<decision action="${action.id}" />`;
+  const required = new Set(action.result?.required ?? []);
+  const selectedFields = fields.filter(([field]) => required.has(field));
+  const exampleFields = selectedFields.length ? selectedFields : fields.slice(0, 1);
+  const children = exampleFields
+    .map(([field]) => `<${field}>...</${field}>`)
+    .join("");
+  return `<decision action="${action.id}">${children}</decision>`;
 }
 
 function validateDecision(
@@ -1825,6 +1909,7 @@ function validateDecision(
 }
 
 function handleInvalidDecision(
+  model: NormalizedAgentWorkflowModel,
   snapshot: WorkflowRuntimeSnapshot,
   state: Extract<NormalizedWorkflowState, { terminal: false }>,
   step: AgentWorkflowStepV1,
@@ -1908,12 +1993,9 @@ function handleInvalidDecision(
       state: state.id,
       stepId: step.id,
       turnId: retryTurnId,
-      prompt: renderWorkflowPrompt(
-        {} as NormalizedAgentWorkflowModel,
-        retrySnapshot,
-        step,
-        { validationErrors: errors },
-      ),
+      prompt: renderWorkflowPrompt(model, retrySnapshot, step, {
+        validationErrors: errors,
+      }),
     },
   };
 }
