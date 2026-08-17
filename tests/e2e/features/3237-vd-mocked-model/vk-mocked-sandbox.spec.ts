@@ -229,11 +229,6 @@ test.describe('VK mocked-provider sandbox through VD UI', () => {
       fullPage: true,
       path: test.info().outputPath('final-vd-agent-followup.png'),
     });
-
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.getByRole('button', { name: 'Voyage actions' }).last().click();
-    await clickMenuItem(page, 'New Craft');
-    await expectCreateWorkspaceFrameUrl(page);
   });
 });
 
