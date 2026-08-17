@@ -69,6 +69,46 @@ textarea {
 .beadsform-root h3,
 .beadsform-root legend {
   color: #fafafa;
+  line-height: 1.15;
+}
+
+.beadsform-root h1,
+.beadsform-root h2 {
+  margin: 0 0 0.65rem;
+  font-size: clamp(1.5rem, 3vw, 2.35rem);
+  letter-spacing: -0.03em;
+}
+
+.beadsform-root h3 {
+  margin: 1rem 0 0.45rem;
+  font-size: 1.15rem;
+}
+
+.beadsform-root h4,
+.beadsform-root legend {
+  margin: 0 0 0.45rem;
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.beadsform-root p,
+.beadsform-root li {
+  line-height: 1.65;
+}
+
+.beadsform-root a {
+  color: #bfdbfe;
+  text-decoration: underline;
+  text-underline-offset: 0.16em;
+}
+
+.beadsform-root code {
+  border: 1px solid #3f3f46;
+  border-radius: 0.35rem;
+  background: #18181b;
+  color: #e0f2fe;
+  padding: 0.08rem 0.28rem;
+  font-size: 0.92em;
 }
 
 .beadsform-root > header,
@@ -151,10 +191,12 @@ textarea {
 .beadsform-root .beads-form-goal {
   color: #d4d4d8;
   font-size: 1rem;
+  margin: 0 0 0.7rem;
 }
 
 .beadsform-root .beads-form-description {
   color: #d4d4d8;
+  max-width: 68ch;
 }
 
 .beadsform-root .beads-form-description-preview {
@@ -162,9 +204,33 @@ textarea {
 }
 
 .beadsform-root .beads-form-description-details > summary {
+  width: fit-content;
+  border: 1px solid #3f3f46;
+  border-radius: 999px;
   color: #bfdbfe;
   cursor: pointer;
   font-weight: 700;
+  list-style: none;
+  padding: 0.35rem 0.75rem;
+}
+
+.beadsform-root .beads-form-description-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.beadsform-root .beads-form-description-details[open] {
+  margin-top: 0.75rem;
+}
+
+.beadsform-root .beads-form-description-details[open] .beads-form-description-toggle-show,
+.beadsform-root .beads-form-description-details:not([open]) .beads-form-description-toggle-hide {
+  display: none;
+}
+
+.beadsform-root .beads-form-description-full {
+  margin-top: 0.9rem;
+  border-left: 2px solid #3f3f46;
+  padding-left: 0.9rem;
 }
 
 .beadsform-root textarea,
@@ -362,11 +428,56 @@ textarea {
   font-size: 0.75rem;
 }
 
+.beadsform-root .beadsform-page-chrome {
+  margin-bottom: 1rem;
+}
+
+.beadsform-root .beadsform-page-chrome--compact {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.beadsform-root .beadsform-context-details > summary {
+  width: fit-content;
+  color: #cbd5e1;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.beadsform-root .beadsform-context-details-body {
+  margin-top: 0.65rem;
+  max-width: 64ch;
+  color: #a1a1aa;
+}
+
+.beadsform-root .beadsform-context-details-body p {
+  margin: 0.35rem 0;
+}
+
+.beadsform-root .beadsform-all-forms-link {
+  flex: 0 0 auto;
+  border: 1px solid #3f3f46;
+  border-radius: 999px;
+  padding: 0.45rem 0.8rem;
+  color: #e5e7eb;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
 .beadsform-root .beadsform-heading-row {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 1rem;
+}
+
+.beadsform-root .beadsform-form-nav-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 0.4rem;
+  min-height: 0.1rem;
 }
 
 .beadsform-root .beadsform-pending-list {
@@ -413,7 +524,7 @@ textarea {
   align-items: stretch;
   width: 100%;
   max-width: 72rem;
-  margin: 1.5rem auto;
+  margin: 0.85rem auto 1.5rem;
 }
 
 .beadsform-root .beadsform-single-question-list {
@@ -527,14 +638,27 @@ textarea {
 }
 
 .beadsform-root .beadsform-single-question-notes {
-  display: block;
+  display: grid;
+  gap: 0.75rem;
   position: static;
   width: 100%;
   margin: 0 0 1rem;
   border: 1px solid #3f3f46;
   border-radius: 0.75rem;
-  padding: 1rem;
+  padding: 0.75rem;
   background: #111113;
+}
+
+.beadsform-root .beadsform-single-question-notes-toggle {
+  justify-self: start;
+  border-radius: 999px;
+  padding: 0.4rem 0.8rem;
+  font-size: 0.9rem;
+}
+
+.beadsform-root .beadsform-single-question-notes-toggle.has-value {
+  border-color: #60a5fa;
+  background: #1e3a8a;
 }
 
 .beadsform-root .beadsform-single-question-master-notes {
@@ -566,7 +690,7 @@ textarea {
 
   .beadsform-root .beadsform-single-question-layout {
     flex-direction: column;
-    margin: 1rem auto;
+    margin: 0.65rem auto 1rem;
   }
 
   .beadsform-root .beadsform-single-question-list {

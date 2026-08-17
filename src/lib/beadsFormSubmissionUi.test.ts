@@ -12,23 +12,32 @@ describe('BeadsForm submission UI preservation', () => {
     document.body.innerHTML = `
       <div id="host">
         <form>
-          <fieldset><legend>First question</legend><input name="first"></fieldset>
-          <fieldset><legend>Second question</legend><textarea name="second"></textarea></fieldset>
-          <div class="beads-form-submit-actions"><button type="submit">Submit</button></div>
-        </form>
+        <fieldset><legend>First question</legend><input name="first"></fieldset>
+        <fieldset><legend>Second question</legend><textarea name="second"></textarea></fieldset>
+        <fieldset><legend>Additional Notes</legend><textarea name="additional_notes"></textarea></fieldset>
+        <div class="beads-form-submit-actions"><button type="submit">Submit</button></div>
+      </form>
       </div>
     `;
 
-    preserveSubmittedFormDom(document.querySelector<HTMLElement>('#host'), { first: 'saved first', second: 'saved second' }, {
+    preserveSubmittedFormDom(document.querySelector<HTMLElement>('#host'), {
+      first: 'saved first',
+      second: 'saved second',
+      additional_notes: 'saved global notes',
+    }, {
       lock: true,
       singleQuestionMode: true,
     });
 
     expect(document.querySelector('.beadsform-single-question-progress')?.textContent).toBe('Question 2 of 2');
-    expect(document.querySelectorAll<HTMLFieldSetElement>('fieldset')[0]!.hidden).toBe(true);
-    expect(document.querySelectorAll<HTMLFieldSetElement>('fieldset')[1]!.hidden).toBe(false);
+    const questions = document.querySelectorAll<HTMLFieldSetElement>('.beadsform-single-question-item');
+    expect(questions[0]!.hidden).toBe(true);
+    expect(questions[1]!.hidden).toBe(false);
     expect(document.querySelector<HTMLInputElement>('input[name="first"]')?.value).toBe('saved first');
     expect(document.querySelector<HTMLTextAreaElement>('textarea[name="second"]')?.value).toBe('saved second');
+    expect(document.querySelector<HTMLTextAreaElement>('textarea[name="additional_notes"]')?.value).toBe('saved global notes');
+    expect(document.querySelector<HTMLFieldSetElement>('[data-beadsform-master-notes="true"]')?.hidden).toBe(false);
+    expect(document.querySelector<HTMLButtonElement>('.beadsform-single-question-notes-toggle')?.getAttribute('aria-expanded')).toBe('true');
     expect(document.querySelector<HTMLButtonElement>('.beads-form-submit-actions button')?.disabled).toBe(true);
     expect(document.querySelector<HTMLInputElement>('input[name="first"]')?.disabled).toBe(true);
   });

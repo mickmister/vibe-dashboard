@@ -23,10 +23,11 @@ describe('BeadsForm styles', () => {
 
     expect(css).toMatch(/\.beadsform-root > header,\s*\.beadsform-root form,\s*\.beadsform-root section\s*\{[^}]*width:\s*100%[^}]*max-width:\s*72rem[^}]*margin-left:\s*auto[^}]*margin-right:\s*auto/s);
     expect(css).toMatch(/\.beadsform-root \.beadsform-single-question-form\s*\{[^}]*max-width:\s*80rem[^}]*margin:\s*0 auto/s);
-    expect(css).toMatch(/\.beadsform-root \.beadsform-single-question-layout\s*\{[^}]*display:\s*flex[^}]*flex-direction:\s*column[^}]*max-width:\s*72rem[^}]*margin:\s*1\.5rem auto/s);
+    expect(css).toMatch(/\.beadsform-root \.beadsform-single-question-layout\s*\{[^}]*display:\s*flex[^}]*flex-direction:\s*column[^}]*max-width:\s*72rem[^}]*margin:\s*0\.85rem auto 1\.5rem/s);
     expect(css).toMatch(/\.beadsform-root \.beadsform-single-question-main\s*\{[^}]*max-width:\s*72rem[^}]*margin:\s*0 auto/s);
     expect(css).toMatch(/\.beadsform-root \.beadsform-single-question-controls--top\s*\{[^}]*margin-top:\s*0[^}]*margin-bottom:\s*1rem/s);
-    expect(css).toMatch(/\.beadsform-root \.beadsform-single-question-notes\s*\{[^}]*display:\s*block[^}]*position:\s*static[^}]*margin:\s*0 0 1rem/s);
+    expect(css).toMatch(/\.beadsform-root \.beadsform-single-question-notes\s*\{[^}]*display:\s*grid[^}]*position:\s*static[^}]*margin:\s*0 0 1rem/s);
+    expect(css).toMatch(/\.beadsform-root \.beadsform-single-question-notes-toggle\s*\{[^}]*border-radius:\s*999px/s);
     expect(css).toMatch(/\.beadsform-root \.beadsform-single-question-master-notes\s*\{[^}]*display:\s*block/s);
     expect(css).toMatch(/\.beadsform-root \.beadsform-single-question-progress\[hidden\]\s*\{[^}]*display:\s*none/s);
     expect(css).toMatch(/\.beadsform-root \.beadsform-single-question-progress-toggle\s*\{[^}]*border-radius:\s*999px/s);
@@ -54,5 +55,15 @@ describe('BeadsForm styles', () => {
 
     expect(css).toMatch(/\.beadsform-root \.beads-form-recommended-reason\s*\{[^}]*color:\s*#bbf7d0/s);
     expect(css).toMatch(/\.beadsform-root \.beads-form-recommended-reason-label\s*\{[^}]*font-weight:\s*700/s);
+  });
+
+  it('styles compact page chrome and polished Markdown description details', async () => {
+    const css = await readFile(new URL('./styles.css', import.meta.url), 'utf8');
+
+    expect(css).toMatch(/\.beadsform-root h1,\s*\.beadsform-root h2\s*\{[^}]*font-size:\s*clamp\(1\.5rem,\s*3vw,\s*2\.35rem\)/s);
+    expect(css).toMatch(/\.beadsform-root \.beads-form-description-details > summary\s*\{[^}]*border-radius:\s*999px/s);
+    expect(css).toMatch(/\.beadsform-root \.beads-form-description-details\[open\] \.beads-form-description-toggle-show,\s*\.beadsform-root \.beads-form-description-details:not\(\[open\]\) \.beads-form-description-toggle-hide\s*\{[^}]*display:\s*none/s);
+    expect(css).toMatch(/\.beadsform-root \.beadsform-page-chrome--compact\s*\{[^}]*display:\s*flex[^}]*justify-content:\s*space-between/s);
+    expect(css).toMatch(/\.beadsform-root \.beadsform-all-forms-link\s*\{[^}]*white-space:\s*nowrap/s);
   });
 });

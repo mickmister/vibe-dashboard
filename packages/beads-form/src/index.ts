@@ -203,12 +203,72 @@ function renderInlineMarkdown(input: string): string {
 }
 
 function renderMarkdown(value: string): string {
-  return value
-    .split(/\n{2,}/)
-    .map((paragraph) => paragraph.trim())
-    .filter(Boolean)
-    .map((paragraph) => `<p>${renderInlineMarkdown(paragraph).replace(/\n/g, '<br>')}</p>`)
-    .join('');
+  const blocks: string[] = [];
+  const lines = value.replace(/\r\n?/g, '\n').split('\n');
+  let paragraph: string[] = [];
+  let listItems: string[] = [];
+  let codeLines: string[] | null = null;
+
+  const flushParagraph = () => {
+    if (paragraph.length === 0) return;
+    blocks.push(`<p>${renderInlineMarkdown(paragraph.join('\n').trim()).replace(/\n/g, '<br>')}</p>`);
+    paragraph = [];
+  };
+  const flushList = () => {
+    if (listItems.length === 0) return;
+    blocks.push(`<ul>${listItems.map((item) => `<li>${renderInlineMarkdown(item)}</li>`).join('')}</ul>`);
+    listItems = [];
+  };
+
+  for (const line of lines) {
+    if (codeLines) {
+      if (/^```/.test(line.trim())) {
+        blocks.push(`<pre><code>${escapeHtml(codeLines.join('\n'))}</code></pre>`);
+        codeLines = null;
+      } else {
+        codeLines.push(line);
+      }
+      continue;
+    }
+
+    if (/^```/.test(line.trim())) {
+      flushParagraph();
+      flushList();
+      codeLines = [];
+      continue;
+    }
+
+    if (!line.trim()) {
+      flushParagraph();
+      flushList();
+      continue;
+    }
+
+    const heading = /^(#{1,5})\s+(.+)$/.exec(line);
+    if (heading) {
+      flushParagraph();
+      flushList();
+      const level = Math.min(6, heading[1]!.length + 1);
+      blocks.push(`<h${level}>${renderInlineMarkdown(heading[2]!.trim())}</h${level}>`);
+      continue;
+    }
+
+    const listItem = /^\s*[-*]\s+(.+)$/.exec(line);
+    if (listItem) {
+      flushParagraph();
+      listItems.push(listItem[1]!.trim());
+      continue;
+    }
+
+    flushList();
+    paragraph.push(line);
+  }
+
+  if (codeLines) blocks.push(`<pre><code>${escapeHtml(codeLines.join('\n'))}</code></pre>`);
+  flushParagraph();
+  flushList();
+
+  return blocks.join('');
 }
 
 function notesName(questionId: string): string {
@@ -300,8 +360,8 @@ function compileFormDescription(description: string): string {
     '<div class="beads-form-description beads-form-description--truncated">',
     `<p class="beads-form-description-preview">${renderInlineMarkdown(truncateMarkdownText(description))}</p>`,
     '<details class="beads-form-description-details">',
-    '<summary>Show more</summary>',
-    renderMarkdown(description),
+    '<summary><span class="beads-form-description-toggle-show">Show more</span><span class="beads-form-description-toggle-hide">Show less</span></summary>',
+    `<div class="beads-form-description-full">${renderMarkdown(description)}</div>`,
     '</details>',
     '</div>',
   ].join('');

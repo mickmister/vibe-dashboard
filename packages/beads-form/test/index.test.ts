@@ -427,9 +427,53 @@ describe('@vibe-dashboard/beads-form', () => {
     }));
 
     expect(compiled.html).toContain('beads-form-description--truncated');
-    expect(compiled.html).toContain('<summary>Show more</summary>');
+    expect(compiled.html).toContain('class="beads-form-description-toggle-show">Show more</span>');
+    expect(compiled.html).toContain('class="beads-form-description-toggle-hide">Show less</span>');
     expect(compiled.html).toContain('<strong>important context</strong>');
     expect(compiled.html).toContain('This final sentence should only appear in the expanded full description.');
+  });
+
+  it('renders safe Markdown block hierarchy while escaping raw HTML and event handlers', () => {
+    const compiled = compileBeadsForm(defineBeadsForm({
+      id: 'markdown_blocks',
+      goal: 'Review **safe Markdown** only.',
+      title: 'Markdown hierarchy',
+      description: [
+        '## Context heading',
+        '',
+        'A paragraph with **bold**, *italic*, `inline code`, and [docs](/docs).',
+        '',
+        '- First point',
+        '- Second point with <img src=x onerror=bad()>',
+        '',
+        '```ts',
+        'const unsafe = "<script>alert(1)</script>";',
+        '```',
+      ].join('\n'),
+      questions: [
+        buildTextareaQuestion({
+          id: 'notes',
+          title: 'Notes',
+          description: [
+            '### Question heading',
+            '',
+            'Use this for <button onclick=bad()>context</button>.',
+          ].join('\n'),
+        }),
+      ],
+    }));
+
+    expect(compiled.html).toContain('<h3>Context heading</h3>');
+    expect(compiled.html).toContain('<strong>bold</strong>');
+    expect(compiled.html).toContain('<em>italic</em>');
+    expect(compiled.html).toContain('<code>inline code</code>');
+    expect(compiled.html).toContain('<a href="/docs" rel="noopener noreferrer">docs</a>');
+    expect(compiled.html).toContain('<ul><li>First point</li><li>Second point with &lt;img src=x onerror=bad()&gt;</li></ul>');
+    expect(compiled.html).toContain('<pre><code>const unsafe = &quot;&lt;script&gt;alert(1)&lt;/script&gt;&quot;;</code></pre>');
+    expect(compiled.html).toContain('<h4>Question heading</h4>');
+    expect(compiled.html).not.toContain('<script>');
+    expect(compiled.html).not.toContain('<button onclick');
+    expect(compiled.html).not.toContain('<img src=x');
   });
 
   it('renders safe Markdown descriptions and recommendation reasons', () => {

@@ -32,6 +32,24 @@ export function prehideInactiveSingleQuestionItems(
   return document.body.innerHTML;
 }
 
+export function refreshSingleQuestionAdditionalNotes(host: ParentNode): void {
+  for (const masterNotes of Array.from(host.querySelectorAll<HTMLFieldSetElement>('[data-beadsform-master-notes="true"]'))) {
+    const panel = masterNotes.closest<HTMLElement>('.beadsform-single-question-notes');
+    const toggle = panel?.querySelector<HTMLButtonElement>('.beadsform-single-question-notes-toggle');
+    if (!toggle) continue;
+    const hasValue = Array.from(masterNotes.querySelectorAll<HTMLTextAreaElement>('textarea'))
+      .some((textarea) => textarea.value.trim().length > 0);
+    if (hasValue) {
+      masterNotes.hidden = false;
+      masterNotes.removeAttribute('hidden');
+      toggle.textContent = 'Hide notes';
+      toggle.setAttribute('aria-expanded', 'true');
+      toggle.setAttribute('aria-label', 'Hide global Additional Notes');
+    }
+    toggle.classList.toggle('has-value', hasValue);
+  }
+}
+
 export function initializeSingleQuestionMode(host: ParentNode, options: { urlState?: boolean } = {}): SingleQuestionModeCleanup {
   const form = host.querySelector('form');
   if (!form || form.dataset.beadsformSingleQuestion === 'true') return () => undefined;
@@ -79,6 +97,11 @@ export function initializeSingleQuestionMode(host: ParentNode, options: { urlSta
   const notesPanel = document.createElement('aside');
   notesPanel.className = 'beadsform-single-question-notes';
   notesPanel.setAttribute('aria-label', 'Additional notes');
+  const notesToggle = button('Add notes');
+  notesToggle.className = 'beadsform-single-question-notes-toggle';
+  notesToggle.setAttribute('aria-controls', 'beadsform-additional-notes');
+  notesToggle.setAttribute('aria-expanded', 'false');
+  notesToggle.setAttribute('aria-label', 'Add global Additional Notes');
 
   const reviewPanel = document.createElement('section');
   reviewPanel.className = 'beadsform-single-question-review';
@@ -111,16 +134,18 @@ export function initializeSingleQuestionMode(host: ParentNode, options: { urlSta
   questionList.append(reviewListButton);
   if (masterNotes) {
     masterNotes.classList.add('beadsform-single-question-master-notes');
-    masterNotes.hidden = false;
-    masterNotes.removeAttribute('hidden');
+    masterNotes.id ||= 'beadsform-additional-notes';
     masterNotes.setAttribute('data-beadsform-master-notes', 'true');
     for (const textarea of Array.from(masterNotes.querySelectorAll('textarea'))) {
       textarea.hidden = false;
       textarea.removeAttribute('hidden');
+      textarea.addEventListener('input', updateNotesToggleState);
+      textarea.addEventListener('change', updateNotesToggleState);
     }
     notesPanel.hidden = false;
     notesPanel.removeAttribute('hidden');
-    notesPanel.append(masterNotes);
+    notesPanel.append(notesToggle, masterNotes);
+    setNotesExpanded(masterNotesHasValue());
   }
   main.append(reviewPanel);
   main.append(bottomControls.container);
@@ -312,6 +337,10 @@ export function initializeSingleQuestionMode(host: ParentNode, options: { urlSta
     middleProgressRevealed = !middleProgressRevealed;
     render();
   });
+  notesToggle.addEventListener('click', () => {
+    if (!masterNotes) return;
+    setNotesExpanded(masterNotes.hidden);
+  });
   form.addEventListener('submit', handleSubmit, true);
   if (useUrlState) window.addEventListener('popstate', handlePopState);
   render();
@@ -323,6 +352,29 @@ export function initializeSingleQuestionMode(host: ParentNode, options: { urlSta
     form.classList.remove('beadsform-single-question-form');
     delete form.dataset.beadsformSingleQuestion;
   };
+
+  function masterNotesHasValue(): boolean {
+    if (!masterNotes) return false;
+    return Array.from(masterNotes.querySelectorAll<HTMLTextAreaElement>('textarea'))
+      .some((textarea) => textarea.value.trim().length > 0);
+  }
+
+  function setNotesExpanded(expanded: boolean): void {
+    if (!masterNotes) return;
+    masterNotes.hidden = !expanded;
+    if (expanded) masterNotes.removeAttribute('hidden');
+    notesToggle.textContent = expanded ? 'Hide notes' : 'Add notes';
+    notesToggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+    notesToggle.setAttribute('aria-label', expanded ? 'Hide global Additional Notes' : 'Add global Additional Notes');
+    notesToggle.classList.toggle('has-value', masterNotesHasValue());
+  }
+
+  function updateNotesToggleState(): void {
+    if (!masterNotes) return;
+    const hasValue = masterNotesHasValue();
+    if (hasValue && masterNotes.hidden) setNotesExpanded(true);
+    notesToggle.classList.toggle('has-value', hasValue);
+  }
 }
 
 function initialStepIndexFromUrl(questionCount: number): number {

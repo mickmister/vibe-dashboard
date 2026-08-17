@@ -25,7 +25,6 @@ import {
   setFormFieldsReadOnly,
   setSubmitButtonsDisabled,
   startPreviewEdit,
-  stripCompiledFormHeader,
   writePreviewDraft,
   writePreviewSubmission,
 } from '../lib/beadsFormPreviewState';
@@ -492,6 +491,31 @@ function BeadsFormLoadingPage({ title, description }: { title: string; descripti
   );
 }
 
+function BeadsFormSelectedChrome({
+  label,
+  allFormsHref,
+  children,
+}: {
+  label: string;
+  allFormsHref?: string;
+  children?: React.ReactNode;
+}) {
+  return (
+    <header className="beadsform-page-chrome beadsform-page-chrome--compact">
+      <div>
+        <p className="beadsform-eyebrow">{label}</p>
+        {children ? (
+          <details className="beadsform-context-details">
+            <summary>Bead context</summary>
+            <div className="beadsform-context-details-body">{children}</div>
+          </details>
+        ) : null}
+      </div>
+      {allFormsHref ? <a className="beadsform-all-forms-link" href={allFormsHref}>All forms</a> : null}
+    </header>
+  );
+}
+
 function BeadsFormPreviewRoute({ actions }: { actions: {
   loadPreviewForms: (input: LoadPreviewFormsInput) => MaybeNestedPromise<LoadPreviewFormsResult>;
   submitPreviewForm: (input: SubmitPreviewFormInput) => MaybeNestedPromise<SubmitPreviewFormResult>;
@@ -545,8 +569,7 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
   const selectedHtml = useMemo(() => {
     if (!loaded?.selectedForm) return '';
     const sanitized = sanitizeBeadsFormHtml(rewriteFolderPreviewMediaRefs(loaded.selectedForm.html, loaded.folder));
-    const withoutHeader = loaded.selectedForm.format === 'standard' ? stripCompiledFormHeader(sanitized) : sanitized;
-    return wizardSafeFormHtml(loaded.selectedForm, withoutHeader);
+    return wizardSafeFormHtml(loaded.selectedForm, sanitized);
   }, [loaded?.folder, loaded?.selectedForm]);
 
   const previewStateKey = useMemo(() => {
@@ -688,14 +711,12 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
       ) : null}
       {loaded?.selectedForm && !submitResult ? (
         <section>
-          <header className="beadsform-heading-row">
-            <div>
-              <p className="beadsform-eyebrow">Forms preview</p>
-              <h1>{loaded.selectedForm.title}</h1>
-              {loaded.selectedForm.description ? <p>{loaded.selectedForm.description}</p> : null}
-            </div>
-            <a href={previewFormUrl({ folder: loaded.folder })}>All forms</a>
-          </header>
+          <BeadsFormSelectedChrome
+            label="Forms preview"
+            allFormsHref={previewFormUrl({ folder: loaded.folder })}
+          >
+            <p>Preview folder: <code>{loaded.folder}</code></p>
+          </BeadsFormSelectedChrome>
           <div
             key={`preview-form-host:${loaded.selectedForm.id}:${editResponseVersion}`}
             ref={formHostRef}
@@ -1007,15 +1028,18 @@ function AggregateBeadsFormCard({ item, submitBeadForm }: {
 
   return (
     <article className={`beadsform-aggregate-card${status.status === 'submitting' ? ' is-submitting' : ''}`} aria-busy={status.status === 'submitting'}>
-      <header className="beadsform-heading-row">
+      <header className="beadsform-page-chrome beadsform-page-chrome--compact">
         <div>
           <p className="beadsform-eyebrow">{item.ref.beadId} / {item.ref.formId}</p>
-          <h2>{form?.title ?? item.ref.formId}</h2>
-          {form?.description ? <p>{form.description}</p> : null}
-          {item.bead?.title ? <p>Bead: {item.bead.title}</p> : null}
-          <p><code>{item.ref.dir}</code></p>
+          <details className="beadsform-context-details">
+            <summary>Bead context</summary>
+            <div className="beadsform-context-details-body">
+              {item.bead?.title ? <p>Bead: {item.bead.title}</p> : null}
+              <p>Repo: <code>{item.ref.dir}</code></p>
+            </div>
+          </details>
         </div>
-        <a href={formViewUrl({ dir: item.ref.dir, beadId: item.ref.beadId, formId: item.ref.formId })}>Open alone</a>
+        <a className="beadsform-all-forms-link" href={formViewUrl({ dir: item.ref.dir, beadId: item.ref.beadId, formId: item.ref.formId })}>Open alone</a>
       </header>
       {item.error ? <p role="alert" className="beadsform-error">{item.error}</p> : null}
       {form && status.status !== 'success' ? (
@@ -1382,9 +1406,29 @@ function BeadsFormRoute({ actions, pendingQueueSentinel }: { actions: {
   return (
     <div className={`beadsform-root beadsform-page${submitting ? ' is-submitting' : ''}`} aria-busy={submitting}>
       <header>
-        <p className="beadsform-eyebrow">Forms</p>
-        <h1>{bead ? `${bead.id}: ${bead.title ?? 'Untitled bead'}` : 'Workspace forms'}</h1>
-        {bead?.description ? <p>{bead.description}</p> : null}
+        {selectedForm ? (
+          <div className="beadsform-page-chrome beadsform-page-chrome--compact">
+            <div>
+              <p className="beadsform-eyebrow">Forms</p>
+              {bead ? (
+                <details className="beadsform-context-details">
+                  <summary>Bead context</summary>
+                  <div className="beadsform-context-details-body">
+                    <p><strong>{bead.id}</strong>{bead.title ? <>: {bead.title}</> : null}</p>
+                    {bead.description ? <p>{bead.description}</p> : null}
+                    {selected?.beadRepoDir ? <p>Repo: <code>{selected.beadRepoDir}</code></p> : null}
+                  </div>
+                </details>
+              ) : null}
+            </div>
+          </div>
+        ) : (
+          <>
+            <p className="beadsform-eyebrow">Forms</p>
+            <h1>{bead ? `${bead.id}: ${bead.title ?? 'Untitled bead'}` : 'Workspace forms'}</h1>
+            {bead?.description ? <p>{bead.description}</p> : null}
+          </>
+        )}
       </header>
 
       {!selected ? (
@@ -1452,12 +1496,10 @@ function BeadsFormRoute({ actions, pendingQueueSentinel }: { actions: {
         </SubmitSuccessSummary>
       ) : (
         <section>
-          <div className="beadsform-heading-row">
-            <div>
-              <h2>{selectedForm.title}</h2>
-              {selectedForm.description ? <p>{selectedForm.description}</p> : null}
-            </div>
-            {forms.length > 1 ? <a href={formViewUrl({ workspaceId, dir: selected.beadRepoDir, beadId, includeOtherWorkspaces })}>All forms</a> : null}
+          <div className="beadsform-form-nav-row">
+            {forms.length > 1 ? (
+              <a className="beadsform-all-forms-link" href={formViewUrl({ workspaceId, dir: selected.beadRepoDir, beadId, includeOtherWorkspaces })}>All forms</a>
+            ) : null}
           </div>
           {submittedLocked && !submitResult ? (
             <div className="beadsform-warning" role="status">

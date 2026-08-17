@@ -317,7 +317,7 @@ describe('BeadsForm single-question mode', () => {
     expect(document.querySelectorAll<HTMLFieldSetElement>('fieldset')[1]!.hidden).toBe(true);
   });
 
-  it('keeps Additional Notes visible above progress and active question after compact more-info initializes', () => {
+  it('collapses empty Additional Notes behind a toggle above progress without changing active-only mode', () => {
     document.body.innerHTML = `
       <div id="host">
         <form>
@@ -337,15 +337,49 @@ describe('BeadsForm single-question mode', () => {
     const textarea = document.querySelector<HTMLTextAreaElement>('#additional_notes')!;
     const progress = document.querySelector<HTMLElement>('.beadsform-single-question-progress')!;
 
+    const toggle = document.querySelector<HTMLButtonElement>('.beadsform-single-question-notes-toggle')!;
+
     expect(notesPanel.hidden).toBe(false);
-    expect(masterNotes.hidden).toBe(false);
+    expect(toggle.textContent).toBe('Add notes');
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(toggle.getAttribute('aria-label')).toBe('Add global Additional Notes');
+    expect(masterNotes.hidden).toBe(true);
     expect(textarea.hidden).toBe(false);
     expect(document.querySelector('.beadsform-single-question-notes #additional_notes')).toBeTruthy();
     expect(document.querySelector('.beadsform-single-question-progress-toggle')?.previousElementSibling).toBe(notesPanel);
     expect(progress.previousElementSibling?.className).toBe('beadsform-single-question-progress-toggle');
     expect(progress.nextElementSibling?.textContent).toContain('First');
+    expect(Array.from(document.querySelectorAll<HTMLFieldSetElement>('.beadsform-single-question-item')).filter((question) => !question.hidden)).toHaveLength(1);
     expect(document.querySelectorAll('.beads-form-more-info-toggle')).toHaveLength(2);
     expect(document.querySelector<HTMLTextAreaElement>('#first_more_info')?.hidden).toBe(false);
+
+    toggle.click();
+
+    expect(toggle.textContent).toBe('Hide notes');
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    expect(masterNotes.hidden).toBe(false);
+  });
+
+  it('expands Additional Notes when a draft or submitted value is restored', () => {
+    document.body.innerHTML = `
+      <div id="host">
+        <form>
+          <fieldset><legend>First</legend><input name="first"></fieldset>
+          <fieldset><legend>Second</legend><input name="second"></fieldset>
+          <fieldset hidden><legend>Additional Notes</legend><textarea id="additional_notes" name="additional_notes" hidden>Saved context</textarea></fieldset>
+        </form>
+      </div>
+    `;
+
+    initializeSingleQuestionMode(document.querySelector('#host')!);
+
+    const toggle = document.querySelector<HTMLButtonElement>('.beadsform-single-question-notes-toggle')!;
+    const masterNotes = document.querySelector<HTMLFieldSetElement>('[data-beadsform-master-notes="true"]')!;
+    expect(toggle.textContent).toBe('Hide notes');
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    expect(toggle.classList.contains('has-value')).toBe(true);
+    expect(masterNotes.hidden).toBe(false);
+    expect(document.querySelector<HTMLTextAreaElement>('#additional_notes')?.value).toBe('Saved context');
   });
 
   it('does not allow question-list jumps to skip an invalid intermediate question', () => {
