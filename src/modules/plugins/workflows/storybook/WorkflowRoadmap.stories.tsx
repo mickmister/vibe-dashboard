@@ -57,12 +57,48 @@ export const StaleLiveProvider: Story = {
   },
 };
 
-export const ProviderErrorFallback: Story = {
+export const ProviderUnavailableNoStaticFallback: Story = {
   args: {
-    roadmap: providerErrorRoadmap(),
+    roadmap: providerUnavailableRoadmap(),
     loading: false,
     error: null,
     onRefresh: () => undefined,
+    embedded: true,
+  },
+};
+
+
+export const FilteredBlockedOnly: Story = {
+  args: {
+    roadmap: blockedTesterRoadmap(),
+    loading: false,
+    error: null,
+    onRefresh: () => undefined,
+    filters: { status: "blocked", showCompleted: false },
+    filterHref: (next: Record<string, string | null>) => `?${new URLSearchParams(Object.entries(next).filter((entry): entry is [string, string] => entry[1] != null))}`,
+    embedded: true,
+  },
+};
+
+export const CompletedHiddenByDefault: Story = {
+  args: {
+    roadmap: completedRoadmap(),
+    loading: false,
+    error: null,
+    onRefresh: () => undefined,
+    filters: { status: "all", showCompleted: false },
+    embedded: true,
+  },
+};
+
+export const WorkspaceScopedQueueEnabled: Story = {
+  args: {
+    roadmap: liveMixedRoadmap(),
+    loading: false,
+    error: null,
+    onRefresh: () => undefined,
+    workspaceId: "workspace-storybook",
+    queueHref: (beadIds: string[]) => `/dashboard/workflows/meta-runs?workspaceId=workspace-storybook&roadmapBeads=${beadIds.join(",")}`,
     embedded: true,
   },
 };
@@ -161,12 +197,12 @@ function staleLiveRoadmap(): WorkflowRoadmapModel {
   return roadmap;
 }
 
-function providerErrorRoadmap(): WorkflowRoadmapModel {
-  const roadmap = buildWorkflowRoadmapModel({ now: () => 1_700_000 });
+function providerUnavailableRoadmap(): WorkflowRoadmapModel {
+  const roadmap = emptyWorkflowRoadmapModel(1_700_000);
   roadmap.stale = true;
   roadmap.source = {
     label: "Live typed bead provider unavailable",
-    description: "Static fallback is shown until the provider recovers.",
+    description: "Product routes show an unavailable state instead of static/demo milestone fallback data.",
     providerId: "storybook-live-beads",
     freshness: "error",
     updatedAt: null,
@@ -237,7 +273,7 @@ function denseRoadmap(): WorkflowRoadmapModel {
         links: [
           {
             label: "Open bead",
-            href: `/beads/project?bead=${encodeURIComponent(`${item.beadId}-review`)}`,
+            href: `/dashboard/workflows/roadmap?storyBead=${encodeURIComponent(`${item.beadId}-review`)}`,
             kind: "bead",
           },
         ],
@@ -251,7 +287,7 @@ function denseRoadmap(): WorkflowRoadmapModel {
         links: [
           {
             label: "Open bead",
-            href: `/beads/project?bead=${encodeURIComponent(`${item.beadId}-tester`)}`,
+            href: `/dashboard/workflows/roadmap?storyBead=${encodeURIComponent(`${item.beadId}-tester`)}`,
             kind: "bead",
           },
         ],

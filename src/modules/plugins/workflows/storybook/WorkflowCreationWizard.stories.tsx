@@ -1,0 +1,92 @@
+import type { Meta, StoryObj } from '@storybook/react-vite';
+import React from 'react';
+import { WorkflowCreationWizardView } from '../components/WorkflowCreationWizardPage';
+import { workflowsHomeFixture } from '../fixtures/workflowStoryFixtures';
+import { WorkflowStoryFrame } from './WorkflowStoryFrame';
+
+const home = workflowsHomeFixture();
+
+const meta: Meta<typeof WorkflowCreationWizardView> = {
+  title: 'Workflows/Creation Wizard',
+  component: WorkflowCreationWizardView,
+  parameters: { layout: 'fullscreen' },
+  decorators: [
+    (Story) => (
+      <WorkflowStoryFrame
+        title="Workflow creation wizard"
+        description="Storybook-only fixtures for wizard-first creation, template duplication, blank workflow preview, and product error states."
+      >
+        <Story />
+      </WorkflowStoryFrame>
+    ),
+  ],
+};
+
+export default meta;
+type Story = StoryObj<typeof meta>;
+
+export const BlankSimpleWorkflow: Story = {
+  args: {
+    workspaceId: home.workspaceId ?? 'workspace-storybook',
+    userWorkflows: home.userWorkflows,
+    starterTemplates: home.starterTemplates,
+    initialDraft: {
+      sourceMode: 'blank',
+      sourceId: null,
+      name: 'Storybook simple workflow',
+      purpose: 'Create a minimal agent workflow from the browser wizard.',
+      inputId: 'featureRequest',
+      roleId: 'agent',
+      roleLabel: 'Agent',
+      stageLabel: 'Work',
+      publish: true,
+    },
+  },
+};
+
+export const StarterTemplateCopy: Story = {
+  args: {
+    workspaceId: home.workspaceId ?? 'workspace-storybook',
+    userWorkflows: home.userWorkflows,
+    starterTemplates: home.starterTemplates,
+    initialDraft: {
+      sourceMode: 'starter',
+      sourceId: 'built-in/dev-review-tester',
+      name: 'Dev / Review / Tester copy',
+      purpose: 'Customize the three-role starter after creating the copy.',
+      inputId: 'featureRequest',
+      roleId: 'dev',
+      roleLabel: 'Dev',
+      stageLabel: 'Implement',
+      publish: false,
+    },
+  },
+};
+
+export const DuplicateExistingWorkflow: Story = {
+  args: {
+    workspaceId: home.workspaceId ?? 'workspace-storybook',
+    userWorkflows: home.userWorkflows,
+    starterTemplates: home.starterTemplates,
+    initialDraft: {
+      sourceMode: 'duplicate',
+      sourceId: 'design-ci-wait',
+      name: 'CI wait workflow copy',
+      purpose: 'Duplicate a published design without copying sessions or runs.',
+      inputId: 'featureRequest',
+      roleId: 'dev',
+      roleLabel: 'Dev',
+      stageLabel: 'Push and report CI',
+      publish: false,
+    },
+  },
+};
+
+export const LoadErrorState: Story = {
+  args: {
+    workspaceId: 'workspace-storybook',
+    userWorkflows: [],
+    starterTemplates: [],
+    loadError: 'Workflow templates are temporarily unavailable.',
+  },
+};
