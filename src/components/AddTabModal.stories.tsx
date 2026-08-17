@@ -1,12 +1,61 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { AddTabModal } from './AddTabModal';
 import { AddVKWorkspaceModalView, type WorkspaceOption } from './dialogs/AddVKWorkspaceModal';
+import type {
+  TabGroupFactoryContribution,
+  TabPresetContribution,
+} from '../modules/plugins/vibe-dashboard/types';
 import {
   storybookRepoBranches,
   storybookVKWorkspaces,
   storybookWorkspace,
 } from '../stories/fixtures';
 
+const storybookTabPresets: TabPresetContribution[] = [
+  {
+    key: 'code-server/editor',
+    title: 'Code Server',
+    description: 'VS Code editor with custom folder path',
+    mode: 'urlPrompt',
+    urlTemplate: '{{origin}}/?folder=',
+    defaultTitle: 'Code Server',
+    order: 20,
+  },
+  {
+    key: 'vibe-dashboard/home',
+    title: 'Vibe Dashboard',
+    description: 'Open the dashboard home view',
+    mode: 'immediate',
+    urlTemplate: '{{origin}}/',
+    order: 30,
+  },
+];
+
+const storybookTabGroupFactories: TabGroupFactoryContribution[] = [
+  {
+    key: 'app-development/open-existing-workspace',
+    title: 'Open Existing Workspace',
+    description: 'Add workspace with Agent + Code split view',
+    launchMode: 'vk-workspace',
+    order: 10,
+    workspaceComposition: {
+      primaryTabKey: 'agent',
+      defaultPairTabKeys: ['agent', 'code'],
+      tabs: [
+        {
+          key: 'agent',
+          title: 'Agent',
+          urlTemplate: '{{origin}}/workspaces/{{workspaceId}}',
+        },
+        {
+          key: 'code',
+          title: 'Code',
+          urlTemplate: '{{origin}}/?folder={{containerRef}}',
+        },
+      ],
+    },
+  },
+];
 
 const workspaceOptions: WorkspaceOption[] = storybookVKWorkspaces.map((workspace) => ({
   ...workspace,
@@ -29,6 +78,8 @@ const meta: Meta<typeof AddTabModal> = {
     pendingWorkspaceId: null,
     isActionPending: false,
     actionError: null,
+    tabPresets: storybookTabPresets,
+    tabGroupFactories: storybookTabGroupFactories,
     onClose: () => console.info('close add tab'),
     onAdd: (title, url) => console.info('add view', { title, url }),
     onAddTabGroup: (label) => console.info('add craft', label),

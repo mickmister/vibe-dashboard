@@ -40,9 +40,9 @@ Caddy forwards `port-<port>.*` subdomains to `localhost:<port>` inside the conta
 | Variable | Default | Notes |
 | --- | --- | --- |
 | `CADDY_PORT` | `3001` | Main Caddy entrypoint host port. |
-| `BACKEND_PORT` | `3007` | Backend port exposed inside container env. |
-| `DASHBOARD_PORT` | `3005` | Dashboard port exposed inside container env. |
-| `CODE_PORT` | `3008` | `code-server` port exposed inside container env. |
+| `BACKEND_PORT` | `3007` | Backend service port inside the container. Not published directly by compose. |
+| `DASHBOARD_PORT` | `3005` | Dashboard service port inside the container. Not published directly by compose. |
+| `CODE_PORT` | `3008` | `code-server` service port inside the container. Not published directly by compose. |
 
 #### Optional auth/system
 
@@ -58,6 +58,66 @@ Caddy forwards `port-<port>.*` subdomains to `localhost:<port>` inside the conta
 | `TAILSCALE_AUTHKEY` | empty | Tailscale auth key. |
 | `TAILSCALE_HOSTNAME` | `vkdev` | Tailscale node hostname. |
 | `VK_ALLOWED_ORIGINS` | empty | Optional backend CORS allowlist. |
+
+#### Optional Vibe Kanban performance tracing / SigNoz
+
+Tracing is disabled by default. To export Vibe Kanban performance spans from
+the container to self-hosted SigNoz, set `VK_PERF_TRACING=1` and point the
+sibling OpenTelemetry Collector at the SigNoz collector endpoint reachable from
+this Docker network:
+
+```bash
+VK_PERF_TRACING=1
+# VK and spawned Codex/tool processes use this Compose-local collector by default.
+OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+# Forward from the sibling collector to self-hosted SigNoz over OTLP/HTTP.
+# Use the OTLP HTTP base endpoint; do not include /v1/traces here.
+SIGNOZ_OTLP_HTTP_ENDPOINT=http://signoz-otel-collector:4318
+OTEL_SERVICE_NAME=vibe-kanban-backend
+OTEL_RESOURCE_ATTRIBUTES=service.version=local-compose
+```
+
+The `otel-collector` service listens internally on OTLP/HTTP `4318` and
+OTLP/gRPC `4317`, batches spans, and forwards them over OTLP/HTTP. Set
+`SIGNOZ_OTLP_HTTP_ENDPOINT` to the OTLP HTTP base endpoint, such as
+`http://host:4318`; the collector exporter appends signal paths like
+`/v1/traces`. In
+Docker/Coolify, `localhost` and `127.0.0.1` refer to the current container, not
+the SigNoz host/container, so use the SigNoz collector hostname or service URL
+reachable from the `code-vibe` and `otel-collector` containers.
+
+Direct OTEL overrides still work: set `OTEL_EXPORTER_OTLP_ENDPOINT` or
+`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` to bypass the sibling collector. For SigNoz
+Cloud, `OTEL_EXPORTER_OTLP_HEADERS` may be needed for auth; it is usually
+unnecessary for a local/self-hosted collector.
+`VK_WS_POLL_TRACING=1` enables extra noisy WebSocket poll tracing and is not
+normally needed.
+
+#### Optional noVNC/Chromium sidecar
+
+The browser sidecar is opt-in. Start it alongside the plugin with:
+
+```bash
+COMPOSE_PROFILES=novnc ENABLE_NOVNC_PLUGIN=true docker compose up
+```
+
+The noVNC UI and Chromium CDP ports are bound to localhost only. Chromium intentionally binds CDP to loopback inside the sidecar; the `novnc-cdp` bridge exposes it to the Compose network and localhost-published host port. Set `NOVNC_USER` and `NOVNC_PASSWORD` if you want browser UI auth.
+
+Smoke-check CDP from the host and from `code-vibe`:
+
+```bash
+curl -fsS http://127.0.0.1:${NOVNC_CDP_PORT:-9223}/json/version
+docker compose --profile novnc exec code-vibe curl -fsS http://novnc:9222/json/version
+```
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `NOVNC_UI_PORT` | `3090` | Host localhost port for the noVNC web UI. |
+| `NOVNC_CDP_PORT` | `9223` | Host localhost port for Chromium DevTools Protocol. |
+| `NOVNC_USER` | empty | Optional noVNC UI username. |
+| `NOVNC_PASSWORD` | empty | Optional noVNC UI password. |
+| `NOVNC_IMAGE` | `lscr.io/linuxserver/chromium:latest` | Browser sidecar image. |
+
 
 ## GitHub auth
 
