@@ -17,6 +17,42 @@ These follow-ups should be tackled in separate beads/milestones and should keep
 the same safety posture: typed providers, product-safe read models, durable
 state, and no raw shell/`bd`/`git` exposure unless explicitly re-approved.
 
+
+## Decisions from `workflow_remaining_productization_decisions`
+
+The human response on `vibe-kanban-vscode-web-qwzp` sets the next tranche as:
+
+1. **M119A → M119B → M119C**. Implement real API/server meta-workflow
+   integration first, then live roadmap/progress data, then browser
+   meta-workflow UX.
+2. **M119A scope:** include create/read/pause/resume APIs, typed bead metadata
+   provider, real persisted child workflow launch, and typed idempotent result
+   note writer.
+3. **Child workflow versioning:** pin exact child workflow design/version at
+   meta-run creation.
+4. **Child workflow inputs:** pass only minimal ids/context: bead id, meta-run
+   id, item id, child run id, pinned child design/version, and optional lane id.
+   Do **not** inject extra coordinator notes or side-channel task guidance into
+   direct agent messages; task-specific context belongs in the bead itself and
+   child workflows may fetch bead content through typed providers when needed.
+5. **Bead provider boundary:** typed API/store provider only; no direct `bd` CLI
+   shell-out.
+6. **Bead result mutation:** allow one product-safe idempotent append/update
+   result note with caps, redaction, and provenance.
+7. **Crash recovery:** retry child launch with the same deterministic child run id
+   and idempotency key.
+8. **M119B placement:** implement live roadmap/progress provider after M119A and
+   before browser meta-workflow UX.
+9. **M119C bead selection:** support live search/select and CKOV roadmap
+   selection, default-scoped to beads that carry this workspace id metadata. Do
+   not lead with paste-only selection.
+10. **`olou`:** narrow/rename toward approved typed workflow providers only; do
+    not implement generic bash in this branch.
+11. **Physical lanes/worktrees:** defer production physical lifecycle until after
+    M119A/B/C.
+12. **Browser workflow creation E2E:** track `vibe-kanban-vscode-web-4a5a`
+    for browser E2E coverage of UI-related branch work soon after M119A.
+
 ## Related completed foundations
 
 - `vibe-kanban-vscode-web-tqhk` — M116 Sub-workspace lane foundation.
@@ -63,9 +99,11 @@ to the right bead/run summaries, and lets me monitor what remains.
 In scope:
 
 - Product API to create/read/pause/resume a sequential meta-workflow run.
-- Real bead metadata read provider using typed interfaces.
+- Real bead metadata read provider using typed API/store interfaces only.
 - Real child workflow launch integration for the active bead.
-- Product-safe result/note provider for completed child runs.
+- Exact child workflow design/version pinned at meta-run creation.
+- Minimal child input contract: bead id, metaRunId, itemId, childRunId, pinned child design/version, and optional lane id only.
+- Product-safe idempotent append/update result-note provider for completed child runs.
 - Read model that CKOV or a future meta-run page can consume.
 - Idempotent child launch and idempotent result recording.
 
@@ -73,7 +111,7 @@ Out of scope:
 
 - Parallel bead execution.
 - Branch push / merge automation.
-- Raw `bd` command execution.
+- Raw `bd` command execution or direct CLI shell-out.
 - Arbitrary shell command steps.
 
 ### Acceptance cases
@@ -83,8 +121,10 @@ Out of scope:
 Expected:
 
 - API accepts an ordered bead list and child workflow design/version.
+- Exact child workflow design/version is pinned at meta-run creation.
+- Missing/unpublished/wrong-workspace child workflow is rejected before launch.
 - Duplicate bead ids fail with stable validation issues.
-- Missing, inaccessible, removed, or archived beads fail before launch.
+- Missing, inaccessible, removed, archived, or wrong-workspace beads fail before launch.
 - The created run has durable ordered items and a product-readable read model.
 
 #### TEST_CASE_M119A_1B — Launch one real child workflow at a time
@@ -92,8 +132,11 @@ Expected:
 Expected:
 
 - Starting/resuming a meta-run launches only the first pending bead child.
-- Child input includes bead id, title, description/notes summary, parent
-  meta-run id, item id, and lane context when applicable.
+- Child input includes only minimal ids/context: bead id, metaRunId, itemId,
+  childRunId, pinned child design/version, and optional lane id.
+- No extra coordinator/task notes are injected into direct agent messages; task
+  details must live in the bead or be fetched through typed providers by the
+  child workflow.
 - Exactly one child is active at a time.
 - Duplicate wakeups/resumes do not launch duplicate children.
 
@@ -103,8 +146,11 @@ Expected:
 
 - Completed child run records summary, status, artifacts, and provenance on the
   meta-run item.
-- Typed bead note/result provider appends or updates the bead idempotently.
+- Typed bead note/result provider appends or updates one product-safe result
+  note idempotently; no broader label/status/dependency mutation occurs.
 - Replaying the same completion does not duplicate notes or advance twice.
+- If note append/update fails after child completion, the item blocks before
+  advancing with a product-safe retry/next-action state.
 - Meta-run advances to the next bead after recording the result.
 
 #### TEST_CASE_M119A_1D — Child failure blocks product-safely
@@ -117,7 +163,18 @@ Expected:
 - Previously completed bead results remain intact.
 - Resume/retry behavior is explicit and idempotent.
 
-#### TEST_CASE_M119A_1E — CKOV consumes live meta-run progress
+#### TEST_CASE_M119A_1E — Child completion and crash recovery are safe
+
+Expected:
+
+- Parent accepts completion only for the expected `itemId + childRunId`.
+- Wrong/stale child completion is a no-op or stable rejection and does not
+  advance the run.
+- If process restarts after durable child claim but before launch confirmation,
+  catch-up retries launch with the same childRunId/idempotencyKey.
+- Duplicate resume/wakeup after restart does not create duplicate children.
+
+#### TEST_CASE_M119A_1F — CKOV consumes live meta-run progress
 
 Expected:
 
@@ -158,17 +215,18 @@ snapshot.
 
 In scope:
 
-- Typed live bead/progress provider.
+- Typed live bead/progress provider scoped by workspace id metadata.
 - Live review/tester bead rollups.
 - Live workflow/meta-run links and artifact summaries.
 - Stale/error/partial-data handling.
 - Clear distinction between planned milestones and completed validated work.
+- Freshness timestamp/provider identity and explicit static-fallback labeling.
 
 Out of scope:
 
 - Mutating bead status from roadmap UI.
 - Starting workflows from roadmap UI unless separately approved.
-- Raw `bd` command execution.
+- Raw `bd` command execution or direct CLI shell-out.
 
 ### Acceptance cases
 
@@ -178,14 +236,19 @@ Expected:
 
 - Roadmap read model fetches live bead status through a typed provider.
 - Top-level and child bead statuses match provider data.
+- Live status wins over static plan when they conflict; static plan remains
+  contextual.
 - Closed/review/tester/blocked state rolls up predictably.
+- Status-count semantics state whether counts are top-level milestones or all
+  child beads.
 
 #### TEST_CASE_M119B_1B — Partial and stale data are safe
 
 Expected:
 
 - Provider unavailable state shows product error and retry guidance.
-- Partial bead data shows best-effort progress plus stale/freshness indicator.
+- Partial bead data shows best-effort progress plus stale/freshness indicator
+  with provider identity and last-updated timestamp.
 - Unknown artifacts or run links degrade gracefully.
 
 #### TEST_CASE_M119B_1C — Live artifact/run links are product-safe
@@ -238,7 +301,9 @@ workflow.
 
 In scope:
 
-- Browser UI to select beads and order them.
+- Browser UI to search/select beads and order them, default-scoped to current
+  workspace id metadata.
+- CKOV roadmap selection entry point for roadmap-scoped bead sets.
 - Child workflow picker.
 - Start/pause/resume controls using typed meta-run APIs.
 - Per-bead progress and child run links.
@@ -258,8 +323,12 @@ Out of scope:
 Expected:
 
 - User can open a new meta-workflow screen.
-- User can select beads, reorder them, and remove duplicates.
-- Duplicate/inaccessible/removed beads are rejected in UI before start.
+- User can search/select beads from the typed provider, default-filtered to beads
+  with this workspace id metadata.
+- User can also start a selection from CKOV roadmap context.
+- User can reorder selected beads and remove duplicates.
+- Duplicate/inaccessible/removed/wrong-workspace beads are rejected in UI before
+  start.
 - User can choose a child workflow.
 
 #### TEST_CASE_M119C_1B — Monitor sequential progress
@@ -390,7 +459,7 @@ Plus:
 
 ---
 
-## M120B — Safe command provider expansion / `olou` narrowing
+## M120B — Typed command provider expansion / `olou` narrowing
 
 Primary bead: `vibe-kanban-vscode-web-olou`
 
@@ -409,7 +478,7 @@ Before implementation, decide whether to:
 2. Create a separate, explicitly approved shell-provider design with stronger
    sandbox/security review.
 
-Recommended for this branch: **typed providers only**.
+Decision: **typed providers only** for this branch. `olou` should be renamed or narrowed away from generic bash before implementation. Any shell-like provider requires a separate future threat model, sandbox design, permission model, and negative E2E plan.
 
 ### Scope if narrowed to typed providers
 
@@ -489,6 +558,8 @@ Plus:
 ## M120C — Browser workflow creation E2E
 
 Related feature: LV2K follow-up
+
+Primary bead: `vibe-kanban-vscode-web-4a5a` — Browser E2E coverage for workflow UI branch
 
 ### User story
 
@@ -713,10 +784,12 @@ Plus:
    workflows.
 2. M119B live roadmap/progress provider so CKOV reflects real work.
 3. M119C browser UX for meta-workflow create/monitor.
-4. M120A production lane/worktree integration for mutating providers.
-5. M120B narrow/decide `olou` typed providers versus explicit shell-provider
-   design.
-6. M120C browser workflow creation E2E.
+4. M120C browser workflow creation E2E for UI-related branch work soon after
+   M119A/B contracts are stable.
+5. M120A production lane/worktree integration for mutating providers after
+   M119A/B/C.
+6. M120B typed provider expansion / `olou` narrowing; generic bash remains out
+   of scope unless separately re-approved.
 7. M120D SEBL polish/live VK capabilities.
 8. M120E graph/layout hardening as complexity demands.
 
