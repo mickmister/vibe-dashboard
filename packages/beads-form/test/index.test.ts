@@ -225,6 +225,49 @@ describe('@vibe-dashboard/beads-form', () => {
     ]);
   });
 
+  it('does not add a nested optional-context textarea to global Additional Notes', () => {
+    const compiled = compileBeadsForm(defineBeadsForm({
+      id: 'global_additional_notes',
+      goal: 'Collect a decision with one global notes field.',
+      title: 'Global additional notes',
+      questions: [
+        buildChoicesQuestion({
+          id: 'decision',
+          title: 'Decision',
+          description: 'Choose the implementation path.',
+          choices: [
+            { id: 'ship', label: 'Ship' },
+            { id: 'wait', label: 'Wait' },
+          ],
+        }),
+        buildTextareaQuestion({
+          id: 'additional_notes',
+          title: 'Additional Notes',
+          description: 'Optional global context for the whole form.',
+        }),
+      ],
+    }));
+
+    const textareaNames = Array.from(compiled.html.matchAll(/<textarea\b[^>]*name="([^"]+)"/g), (match) => match[1]);
+    expect(textareaNames).toEqual([
+      'decision_ship_more_info',
+      'decision_wait_more_info',
+      'decision_more_info',
+      'additional_notes',
+    ]);
+    expect(compiled.html).toContain('name="additional_notes"');
+    expect(compiled.html).not.toContain('name="additional_notes_more_info"');
+    expect(compiled.controls.map((control) => control.name)).toEqual([
+      ALLOW_CODE_FILE_CHANGES_FIELD,
+      'decision',
+      'decision_ship_more_info',
+      'decision',
+      'decision_wait_more_info',
+      'decision_more_info',
+      'additional_notes',
+    ]);
+  });
+
   it('allows hiding or customizing the code/file-change submit actions', () => {
     const hidden = compileBeadsForm(defineBeadsForm({
       id: 'hidden_permission',

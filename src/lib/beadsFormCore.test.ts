@@ -420,6 +420,38 @@ describe('BeadsForm core', () => {
     });
   });
 
+  it('normalizes global Additional Notes without requiring a nested more-info field', () => {
+    const form = getBeadsForms({
+      beadForms: {
+        forms: [{
+          format: 'standard',
+          id: 'global_additional_notes',
+          goal: 'Collect a decision with one global notes field.',
+          title: 'Global additional notes',
+          questions: [{
+            type: 'textarea',
+            id: 'additional_notes',
+            title: 'Additional Notes',
+            description: 'Optional global context for the whole form.',
+          }],
+        }],
+      },
+    })[0]!;
+
+    expect(form.html).toContain('name="additional_notes"');
+    expect(form.html).not.toContain('name="additional_notes_more_info"');
+    expect(form.controls?.map((control) => control.name)).toEqual([
+      ALLOW_CODE_FILE_CHANGES_FIELD,
+      'additional_notes',
+    ]);
+    expect(normalizeSubmittedValues(form, {
+      additional_notes: 'Please keep this concise.',
+    })).toEqual({
+      additional_notes: 'Please keep this concise.',
+      [ALLOW_CODE_FILE_CHANGES_FIELD]: false,
+    });
+  });
+
   it('keeps raw checkbox groups as arrays when no standard questions are available', () => {
     const form = {
       id: 'raw',

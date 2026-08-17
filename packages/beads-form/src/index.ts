@@ -397,6 +397,13 @@ function compileQuestion(question: BeadsFormQuestion, controls: BeadsFormControl
   return compileTextQuestion(question, controls);
 }
 
+function isGlobalAdditionalNotesQuestion(question: TextQuestion): boolean {
+  const normalizedTitle = question.title.trim().toLowerCase();
+  return question.id === 'additional_notes'
+    || question.id === 'overall_more_info'
+    || normalizedTitle === 'additional notes';
+}
+
 function compileChoicesQuestion(question: ChoicesQuestion, controls: BeadsFormControl[]): string {
   if (question.choices.length === 0) throw new Error(`choices question ${question.id} must have at least one choice`);
   validateChoiceGroups(question);
@@ -547,13 +554,15 @@ function compileTextQuestion(question: TextQuestion, controls: BeadsFormControl[
   const input = question.type === 'textarea'
     ? `<textarea id="${attr(controlId)}" name="${attr(question.id)}" rows="${DEFAULT_TEXTAREA_ROWS}"${question.required ? ' required' : ''}${question.placeholder ? ` placeholder="${attr(question.placeholder)}"` : ''}></textarea>`
     : `<input id="${attr(controlId)}" name="${attr(question.id)}" type="text"${question.required ? ' required' : ''}${question.placeholder ? ` placeholder="${attr(question.placeholder)}"` : ''}>`;
-  const questionNotes = compileNotesTextarea({
-    id: notesName(question.id),
-    name: notesName(question.id),
-    ariaLabel: `More info for ${question.title}`,
-    rows: DEFAULT_TEXTAREA_ROWS,
-    controls,
-  });
+  const questionNotes = isGlobalAdditionalNotesQuestion(question)
+    ? ''
+    : compileNotesTextarea({
+      id: notesName(question.id),
+      name: notesName(question.id),
+      ariaLabel: `More info for ${question.title}`,
+      rows: DEFAULT_TEXTAREA_ROWS,
+      controls,
+    });
 
   return [
     '<fieldset>',

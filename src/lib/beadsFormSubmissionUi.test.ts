@@ -49,6 +49,7 @@ describe('BeadsForm submission UI preservation', () => {
       <form>
         <fieldset><legend>First question</legend><input name="first"></fieldset>
         <fieldset><legend>Second question</legend><textarea name="second"></textarea></fieldset>
+        <fieldset><legend>Additional Notes</legend><textarea name="additional_notes"></textarea></fieldset>
         <div class="beads-form-submit-actions"><button type="submit">Submit</button></div>
       </form>
     `;
@@ -57,14 +58,22 @@ describe('BeadsForm submission UI preservation', () => {
 
     initializeSingleQuestionMode(host);
     const lockedForm = host.querySelector('form')!;
-    applyValuesToForm(lockedForm, { first: 'saved first', second: 'saved second' });
+    applyValuesToForm(lockedForm, {
+      first: 'saved first',
+      second: 'saved second',
+      additional_notes: 'saved global notes',
+    });
     setSubmitButtonsDisabled(lockedForm, true);
     setFormFieldsReadOnly(lockedForm, true);
     expect(host.querySelectorAll('.beadsform-single-question-controls')).toHaveLength(2);
 
     host.innerHTML = rawFormHtml;
     const editingForm = host.querySelector('form')!;
-    applyValuesToForm(editingForm, { first: 'saved first', second: 'saved second' });
+    applyValuesToForm(editingForm, {
+      first: 'saved first',
+      second: 'saved second',
+      additional_notes: 'saved global notes',
+    });
     setSubmitButtonsDisabled(editingForm, false);
     setFormFieldsReadOnly(editingForm, false);
     initializeSingleQuestionMode(host);
@@ -75,9 +84,12 @@ describe('BeadsForm submission UI preservation', () => {
     expect(questions[1]!.hidden).toBe(true);
     expect(host.querySelectorAll('form > fieldset')).toHaveLength(0);
     expect(host.querySelectorAll('.beadsform-single-question-controls')).toHaveLength(2);
+    expect(host.querySelector('.beadsform-single-question-notes textarea[name="additional_notes"]')).toBeTruthy();
     expect(host.querySelector<HTMLInputElement>('input[name="first"]')?.value).toBe('saved first');
     expect(host.querySelector<HTMLTextAreaElement>('textarea[name="second"]')?.value).toBe('saved second');
+    expect(host.querySelector<HTMLTextAreaElement>('textarea[name="additional_notes"]')?.value).toBe('saved global notes');
     expect(host.querySelector<HTMLInputElement>('input[name="first"]')?.disabled).toBe(false);
+    expect(host.querySelector<HTMLTextAreaElement>('textarea[name="additional_notes"]')?.disabled).toBe(false);
 
     host.querySelector<HTMLButtonElement>('.beadsform-single-question-controls--top button:nth-child(2)')!.click();
     expect(questions[0]!.hidden).toBe(true);
