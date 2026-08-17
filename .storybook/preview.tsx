@@ -1,6 +1,7 @@
 import type { Decorator, Preview } from '@storybook/react-vite';
 import { HeroUIProvider } from '@heroui/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import type { ReactNode } from 'react';
 import { useState } from 'react';
 import '../src/styles';
 
@@ -8,7 +9,11 @@ if (typeof document !== 'undefined') {
   document.documentElement.classList.add('dark');
 }
 
-const withAppProviders: Decorator = (Story) => {
+function StorybookAppProviders({
+  children,
+}: {
+  children: ReactNode;
+}) {
   const [queryClient] = useState(
     () =>
       new QueryClient({
@@ -31,10 +36,18 @@ const withAppProviders: Decorator = (Story) => {
           className="dark min-h-screen bg-neutral-950 text-neutral-100"
           style={{ minHeight: '100vh' }}
         >
-          <Story />
+          {children}
         </div>
       </HeroUIProvider>
     </QueryClientProvider>
+  );
+}
+
+const withAppProviders: Decorator = (Story) => {
+  return (
+    <StorybookAppProviders>
+      <Story />
+    </StorybookAppProviders>
   );
 };
 
