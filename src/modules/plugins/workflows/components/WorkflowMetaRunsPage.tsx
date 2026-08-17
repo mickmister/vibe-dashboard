@@ -86,7 +86,7 @@ export function WorkflowMetaRunsPage({ workspaceId: workspaceIdOverride, embedde
         roleBindings,
       });
       setRuns((current) => [created.metaRun, ...current.filter((run) => run.metaRunId !== created.metaRun.metaRunId)]);
-      setStatus(`Started ${created.metaRun.title}.`);
+      setStatus(`Started ${safeText(created.metaRun.title)}.`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     }
@@ -147,8 +147,8 @@ export function WorkflowMetaRunsView(props: {
           </div>
         </div>
       </header>
-      {props.error ? <div role="alert" className="rounded-lg border border-rose-900 bg-rose-950/30 p-4 text-sm text-rose-100">{props.error}</div> : null}
-      {props.status ? <div className="rounded-lg border border-cyan-900 bg-cyan-950/30 p-4 text-sm text-cyan-100">{props.status}</div> : null}
+      {props.error ? <div role="alert" className="rounded-lg border border-rose-900 bg-rose-950/30 p-4 text-sm text-rose-100">{safeText(props.error)}</div> : null}
+      {props.status ? <div className="rounded-lg border border-cyan-900 bg-cyan-950/30 p-4 text-sm text-cyan-100">{safeText(props.status)}</div> : null}
       <section className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_24rem]">
         <div className="space-y-5">
           <Panel title="Find beads" description="Current workspace beads are shown by default. Include no-workspace or other-workspace beads only when intentional.">
@@ -162,7 +162,7 @@ export function WorkflowMetaRunsView(props: {
               <button className="rounded-md border border-cyan-800 px-3 py-2 text-sm text-cyan-100" onClick={props.onSearch}>Search</button>
             </div>
             {props.scope !== "current_workspace" ? <p className="mt-2 text-xs text-amber-200">This filter can include beads outside the default workspace scope. Review each bead before starting.</p> : null}
-            {props.unavailableReason ? <p className="mt-2 text-sm text-amber-200">{props.unavailableReason}</p> : null}
+            {props.unavailableReason ? <p className="mt-2 text-sm text-amber-200">{safeText(props.unavailableReason)}</p> : null}
             <div className="mt-3 grid gap-2 md:grid-cols-2">
               {props.beads.map((bead) => <BeadResult key={bead.beadId} bead={bead} onAdd={() => props.addBead(bead)} />)}
               {!props.beads.length ? <p className="text-sm text-zinc-400">No beads found for this filter.</p> : null}
@@ -174,12 +174,12 @@ export function WorkflowMetaRunsView(props: {
         </div>
         <aside className="space-y-5">
           <Panel title="Selected bead order" description="The child workflow runs against one bead at a time in this order.">
-            <ol className="space-y-2">{props.selected.map((bead, index) => <li key={`${bead.beadId}:${index}`} className="rounded-lg border border-slate-800 bg-slate-950 p-3"><div className="flex items-start justify-between gap-2"><div><div className="text-xs text-zinc-500">{index + 1}</div><div className="font-medium text-zinc-100">{bead.title}</div><div className="text-xs text-zinc-500">{bead.beadId}</div>{props.duplicateIds.includes(bead.beadId) ? <div className="mt-1 text-xs text-rose-200">Duplicate bead selected. Remove one copy before starting.</div> : null}</div><div className="flex gap-1"><button aria-label={`Move ${bead.beadId} up`} onClick={() => props.moveBead(index, -1)} className="rounded border border-slate-700 px-2 text-xs">Up</button><button aria-label={`Move ${bead.beadId} down`} onClick={() => props.moveBead(index, 1)} className="rounded border border-slate-700 px-2 text-xs">Down</button><button aria-label={`Remove ${bead.beadId}`} onClick={() => props.removeBead(index)} className="rounded border border-rose-800 px-2 text-xs text-rose-200">Remove</button></div></div></li>)}{!props.selected.length ? <li className="text-sm text-zinc-400">Add beads from search results.</li> : null}</ol>
+            <ol className="space-y-2">{props.selected.map((bead, index) => <li key={`${bead.beadId}:${index}`} className="rounded-lg border border-slate-800 bg-slate-950 p-3"><div className="flex items-start justify-between gap-2"><div><div className="text-xs text-zinc-500">{index + 1}</div><div className="font-medium text-zinc-100">{safeText(bead.title)}</div><div className="text-xs text-zinc-500">{safeText(bead.beadId)}</div>{props.duplicateIds.includes(bead.beadId) ? <div className="mt-1 text-xs text-rose-200">Duplicate bead selected. Remove one copy before starting.</div> : null}</div><div className="flex gap-1"><button aria-label={safeAria(`Move ${bead.beadId} up`)} onClick={() => props.moveBead(index, -1)} className="rounded border border-slate-700 px-2 text-xs">Up</button><button aria-label={safeAria(`Move ${bead.beadId} down`)} onClick={() => props.moveBead(index, 1)} className="rounded border border-slate-700 px-2 text-xs">Down</button><button aria-label={safeAria(`Remove ${bead.beadId}`)} onClick={() => props.removeBead(index)} className="rounded border border-rose-800 px-2 text-xs text-rose-200">Remove</button></div></div></li>)}{!props.selected.length ? <li className="text-sm text-zinc-400">Add beads from search results.</li> : null}</ol>
           </Panel>
           <Panel title="Child workflow" description="A published workflow version is pinned when this meta-workflow starts.">
             <select aria-label="Child workflow" value={props.childWorkflowId} onChange={(event) => props.setChildWorkflowId(event.target.value)} className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm">
               <option value="">Choose workflow</option>
-              {props.workflows.map((workflow) => <option key={workflow.id} value={workflow.id}>{workflow.title}{workflow.version ? ` v${workflow.version}` : ""}</option>)}
+              {props.workflows.map((workflow) => <option key={workflow.id} value={workflow.id}>{safeText(workflow.title)}{workflow.version ? ` v${workflow.version}` : ""}</option>)}
             </select>
             <button className="mt-3 w-full rounded-md bg-cyan-500 px-3 py-2 text-sm font-medium text-zinc-950 disabled:opacity-50" disabled={!props.canStart} onClick={props.onStart}>Start sequential meta-workflow</button>
             {!props.canStart ? <p className="mt-2 text-xs text-zinc-400">Select at least one non-duplicate bead and a published child workflow.</p> : null}
@@ -195,14 +195,31 @@ function Panel({ title, description, children }: { title: string; description: s
 }
 
 function BeadResult({ bead, onAdd }: { bead: MetaWorkflowBeadSummary; onAdd: () => void }): React.ReactElement {
-  return <article className="rounded-lg border border-slate-800 bg-slate-950 p-3"><div className="flex items-start justify-between gap-3"><div><h3 className="font-medium text-zinc-100">{bead.title}</h3><p className="text-xs text-zinc-500">{bead.beadId}</p><p className="mt-1 text-xs text-zinc-400">{bead.workspaceId ? `Workspace ${bead.workspaceId}` : "No workspace metadata"} · {bead.status}</p>{!bead.accessible ? <p className="mt-1 text-xs text-rose-200">Unavailable to this workflow.</p> : null}</div><button className="rounded-md border border-cyan-800 px-2 py-1 text-xs text-cyan-100 disabled:opacity-50" disabled={!bead.accessible || bead.status === "archived" || bead.status === "removed"} onClick={onAdd}>Add</button></div></article>;
+  return <article className="rounded-lg border border-slate-800 bg-slate-950 p-3"><div className="flex items-start justify-between gap-3"><div><h3 className="font-medium text-zinc-100">{safeText(bead.title)}</h3><p className="text-xs text-zinc-500">{safeText(bead.beadId)}</p><p className="mt-1 text-xs text-zinc-400">{bead.workspaceId ? `Workspace ${safeText(bead.workspaceId)}` : "No workspace metadata"} · {safeText(bead.status)}</p>{!bead.accessible ? <p className="mt-1 text-xs text-rose-200">Unavailable to this workflow.</p> : null}</div><button className="rounded-md border border-cyan-800 px-2 py-1 text-xs text-cyan-100 disabled:opacity-50" disabled={!bead.accessible || bead.status === "archived" || bead.status === "removed"} onClick={onAdd}>Add</button></div></article>;
 }
 
 function MetaRunCard({ run, onPause, onResume }: { run: MetaWorkflowRunModel; onPause: () => void; onResume: () => void }): React.ReactElement {
   const canPause = run.status === "running";
   const canResume = run.status === "paused";
-  return <article className="rounded-lg border border-slate-800 bg-slate-950 p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="font-semibold text-zinc-100">{run.title}</h3><p className="mt-1 text-sm text-zinc-400">{run.nextAction}</p>{run.blockedReason ? <p className="mt-2 text-sm text-rose-200">Blocked: {run.blockedReason.message}</p> : null}</div><div className="flex gap-2"><StatusPill status={run.status} /><button className="rounded border border-slate-700 px-2 py-1 text-xs disabled:opacity-50" disabled={!canPause} onClick={onPause}>Pause</button><button className="rounded border border-cyan-800 px-2 py-1 text-xs text-cyan-100 disabled:opacity-50" disabled={!canResume} onClick={onResume}>Resume</button></div></div><div className="mt-3 grid gap-2 md:grid-cols-5"><Metric label="Completed" value={run.progress.completed} /><Metric label="Active" value={run.progress.running} /><Metric label="Pending" value={run.progress.pending} /><Metric label="Blocked" value={run.progress.blocked} /><Metric label="Total" value={run.progress.total} /></div><ol className="mt-3 space-y-2">{run.items.map((item) => <li key={item.itemId} className="rounded border border-slate-800 bg-slate-900 p-2 text-sm"><div className="flex flex-wrap items-center justify-between gap-2"><span>{item.index + 1}. {item.title}</span><StatusPill status={item.status} /></div>{typeof item.result?.summary === "string" ? <p className="mt-1 text-zinc-300">{item.result.summary}</p> : null}{item.error ? <p className="mt-1 text-rose-200">{item.error.message}</p> : null}{item.childRunId ? <a className="mt-1 inline-block text-xs text-cyan-200" href={`/dashboard/workflows/${encodeURIComponent(item.childRunId)}`}>Open child workflow</a> : null}</li>)}</ol></article>;
+  return <article className="rounded-lg border border-slate-800 bg-slate-950 p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="font-semibold text-zinc-100">{safeText(run.title)}</h3><p className="mt-1 text-sm text-zinc-400">{safeText(run.nextAction)}</p>{run.blockedReason ? <p className="mt-2 text-sm text-rose-200">Blocked: {safeText(run.blockedReason.message)}</p> : null}</div><div className="flex gap-2"><StatusPill status={run.status} /><button className="rounded border border-slate-700 px-2 py-1 text-xs disabled:opacity-50" disabled={!canPause} onClick={onPause}>Pause</button><button className="rounded border border-cyan-800 px-2 py-1 text-xs text-cyan-100 disabled:opacity-50" disabled={!canResume} onClick={onResume}>Resume</button></div></div><div className="mt-3 grid gap-2 md:grid-cols-5"><Metric label="Completed" value={run.progress.completed} /><Metric label="Active" value={run.progress.running} /><Metric label="Pending" value={run.progress.pending} /><Metric label="Blocked" value={run.progress.blocked} /><Metric label="Total" value={run.progress.total} /></div><ol className="mt-3 space-y-2">{run.items.map((item) => <li key={item.itemId} className="rounded border border-slate-800 bg-slate-900 p-2 text-sm"><div className="flex flex-wrap items-center justify-between gap-2"><span>{item.index + 1}. {safeText(item.title)}</span><StatusPill status={item.status} /></div>{typeof item.result?.summary === "string" ? <p className="mt-1 text-zinc-300">{safeText(item.result.summary)}</p> : null}{item.error ? <p className="mt-1 text-rose-200">{safeText(item.error.message)}</p> : null}{item.childRunId ? <a className="mt-1 inline-block text-xs text-cyan-200" href={`/dashboard/workflows/${encodeURIComponent(item.childRunId)}`}>Open child workflow</a> : null}</li>)}</ol></article>;
 }
 
 function Metric({ label, value }: { label: string; value: number }): React.ReactElement { return <div className="rounded border border-slate-800 bg-slate-900 p-2"><div className="text-xs text-zinc-500">{label}</div><div className="text-lg font-semibold">{value}</div></div>; }
-function StatusPill({ status }: { status: string }): React.ReactElement { return <span className="rounded-full border border-slate-700 px-2 py-1 text-xs text-zinc-200">{status}</span>; }
+function StatusPill({ status }: { status: string }): React.ReactElement { return <span className="rounded-full border border-slate-700 px-2 py-1 text-xs text-zinc-200">{safeText(status)}</span>; }
+
+function safeAria(value: string): string {
+  return safeText(value, 120);
+}
+
+function safeText(value: unknown, maxLength = 500): string {
+  return String(value ?? "")
+    .replace(/\bbd\s+[^\n]*/giu, "workflow action")
+    .replace(/\bshell\b/giu, "workflow action")
+    .replace(/\bgit\s+[^\n]*/giu, "version control action")
+    .replace(/\bwebhook\b/giu, "workflow update")
+    .replace(/\bqueue[-_ ]?item\b/giu, "workflow item")
+    .replace(/\bWorkflowStepState\b/g, "workflow step")
+    .replace(/\brunReady\b/g, "workflow wakeup")
+    .replace(/\/Users\/[^\s]+/gu, "[redacted-home]")
+    .slice(0, maxLength);
+}

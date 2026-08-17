@@ -80,12 +80,6 @@ export function WorkflowRoadmapView({
             >
               Back to Workflows
             </a>
-            <a
-              className="rounded-md border border-zinc-700 px-3 py-2 text-sm text-zinc-100 hover:bg-zinc-800"
-              href="/dashboard/workflows/meta-runs?source=roadmap"
-            >
-              Start meta-workflow from roadmap
-            </a>
             <button
               type="button"
               onClick={onRefresh}

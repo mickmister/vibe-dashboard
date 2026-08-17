@@ -46,6 +46,8 @@ describe("WorkflowRoadmapView", () => {
     expect(html).toContain("Implementation in progress");
     expect(html).toContain("Open bead");
     expect(html).toContain("/beads/project?bead=vibe-kanban-vscode-web-ckov");
+    expect(html).not.toContain("Start meta-workflow from roadmap");
+    expect(html).not.toContain("/dashboard/workflows/meta-runs?source=roadmap");
     for (const term of forbiddenTerms) expect(html).not.toContain(term);
   });
 
