@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentWorkflowDefinitionV1 } from '@vibe-dashboard/workflow-core';
-import { applyWorkflowGraphActionEdit, validateWorkflowGraph, workflowDefinitionToGraph } from './workflowGraphModel';
+import { applyWorkflowGraphActionEdit, applyWorkflowGraphPromptEdit, validateWorkflowGraph, workflowDefinitionToGraph } from './workflowGraphModel';
 import { BUILT_IN_WORKFLOW_TEMPLATES } from '../../templates/builtInWorkflowTemplates';
 
 describe('workflow graph model', () => {
@@ -80,6 +80,28 @@ describe('workflow graph model', () => {
     if ('terminal' in review) throw new Error('expected active state');
     expect(review.actions.changes_requested).toMatchObject({ label: 'Needs fixes', targetState: 'tester' });
     expect(validateWorkflowGraph(edited)).toEqual([]);
+  });
+
+  it('TEST_CASE_I7XF edits step prompts and action handoff prompts through canonical domain JSON', () => {
+    const promptEdited = applyWorkflowGraphPromptEdit(devReviewTesterFixture(), 'dev', 'self_review', { promptTemplate: 'Self-review with {{inputs.featureRequest}} and be specific.' });
+    const dev = promptEdited.states.dev;
+    if (!dev || 'terminal' in dev) throw new Error('expected active state');
+    expect(dev.steps.find((step) => step.id === 'self_review')).toMatchObject({
+      prompt: { template: 'Self-review with {{inputs.featureRequest}} and be specific.' },
+    });
+    expect(validateWorkflowGraph(promptEdited)).toEqual([]);
+
+    const handoffEdited = applyWorkflowGraphActionEdit(promptEdited, 'dev:ready_for_review', { handoffPrompt: 'Review {{transition.parsed.summary}} carefully.' });
+    const handoffDev = handoffEdited.states.dev;
+    if (!handoffDev || 'terminal' in handoffDev) throw new Error('expected active state');
+    expect(handoffDev.actions.ready_for_review?.handoff).toEqual({
+      prompt: { template: 'Review {{transition.parsed.summary}} carefully.' },
+    });
+
+    const handoffCleared = applyWorkflowGraphActionEdit(handoffEdited, 'dev:ready_for_review', { handoffPrompt: '   ' });
+    const clearedDev = handoffCleared.states.dev;
+    if (!clearedDev || 'terminal' in clearedDev) throw new Error('expected active state');
+    expect(clearedDev.actions.ready_for_review?.handoff).toBeUndefined();
   });
 
   it('TEST_CASE_M97_1B reports invalid graph edits before save or run', () => {

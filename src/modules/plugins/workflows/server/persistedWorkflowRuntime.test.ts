@@ -326,6 +326,7 @@ describe('PersistedWorkflowRuntimeService M93', () => {
 
     expect(queuedAt(queued, 0).prompt).toContain('First saved prompt.');
     expect(queuedAt(queued, 0).prompt).toContain('Second saved prompt.');
+    expect(queuedAt(queued, 0).prompt).toContain('Inline prompt for Compose prompts.');
     expect(queuedAt(queued, 0).prompt).toContain('Additional instructions for this run:\nKeep this run small.');
     const snapshot = await designStore.getRunSnapshot('snapshot-prompts');
     expect(snapshot?.resolvedPromptSnapshot.assets.map((asset) => asset.id)).toEqual(['prompt.one', 'prompt.two']);

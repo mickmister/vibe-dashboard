@@ -18,10 +18,14 @@ import {
   type Node,
 } from "@xyflow/react";
 import type {
+  AgentWorkflowStepV1,
   AgentWorkflowDefinitionV1,
+  WorkflowRuntimeSnapshot,
   WorkflowStepV1,
 } from "@vibe-dashboard/workflow-core";
 import {
+  normalizeWorkflowDefinitionV1,
+  renderExpectedXmlResponseSpec,
   WORKFLOW_EXECUTOR_MODEL_OPTIONS,
   WORKFLOW_EXECUTOR_TYPES,
 } from "@vibe-dashboard/workflow-core";
@@ -39,6 +43,7 @@ import {
 import { StandaloneDashboardPage } from "../../../../components/StandaloneDashboardPage";
 import {
   applyWorkflowGraphActionEdit,
+  applyWorkflowGraphPromptEdit,
   validateWorkflowGraph,
   workflowDefinitionToGraph,
   type WorkflowGraphEdgeModel,
@@ -239,9 +244,17 @@ export function WorkflowGraphEditorView({
 
   const updateEdge = (
     edgeId: string,
-    edit: { actionLabel?: string; targetState?: string },
+    edit: { actionLabel?: string; targetState?: string; handoffPrompt?: string },
   ) => {
     onDefinitionChange(applyWorkflowGraphActionEdit(definition, edgeId, edit));
+  };
+
+  const updatePrompt = (
+    stateId: string,
+    stepId: string,
+    edit: { promptTemplate?: string },
+  ) => {
+    onDefinitionChange(applyWorkflowGraphPromptEdit(definition, stateId, stepId, edit));
   };
 
   const resetLayout = () => setFlowNodes(layoutedNodes);
@@ -373,6 +386,7 @@ export function WorkflowGraphEditorView({
             definition={definition}
             assets={assets ?? { prompts: [], skills: [] }}
             onChange={onDefinitionChange}
+            onPromptChange={updatePrompt}
           />
         ) : null}
         <JsonDiagnostics definition={definition} />
@@ -709,11 +723,13 @@ function NodeDetails({
   definition,
   assets,
   onChange,
+  onPromptChange,
 }: {
   node: WorkflowGraphNodeModel;
   definition: AgentWorkflowDefinitionV1;
   assets: WorkflowAssetsModel;
   onChange: (definition: AgentWorkflowDefinitionV1) => void;
+  onPromptChange: (stateId: string, stepId: string, edit: { promptTemplate?: string }) => void;
 }) {
   return (
     <section className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
@@ -749,6 +765,7 @@ function NodeDetails({
                 assets={assets}
                 stateId={node.id}
                 onChange={onChange}
+                onPromptChange={onPromptChange}
               />
             </li>
           ))}
@@ -766,33 +783,35 @@ function StepSummary({
   assets,
   stateId,
   onChange,
+  onPromptChange,
 }: {
   step: WorkflowGraphNodeModel["steps"][number];
   definition: AgentWorkflowDefinitionV1;
   assets: WorkflowAssetsModel;
   stateId: string;
   onChange: (definition: AgentWorkflowDefinitionV1) => void;
+  onPromptChange: (stateId: string, stepId: string, edit: { promptTemplate?: string }) => void;
 }) {
+  const state = definition.states[stateId];
+  const roleId = state && !("terminal" in state) && typeof state.owner === "string" ? state.owner : null;
+  const roleLabel = roleId ? definition.roles[roleId]?.label ?? roleId : null;
   return (
     <div>
       <div className="font-medium">{step.id}</div>
       <div className="mt-1 text-zinc-400">{stepSubtitle(step)}</div>
-      {step.promptTemplate ? (
-        <div className="mt-2 text-xs text-zinc-500">
-          Prompt: {step.promptTemplate}
-        </div>
-      ) : null}
       {step.promptRefs.length ? (
         <div className="mt-2 text-xs text-zinc-500">
           Selected refs: {step.promptRefs.join(", ")}
         </div>
       ) : null}
       {step.type === "agent_turn" ? (
-        <PromptRefsEditor
+        <PromptAuthoringEditor
           definition={definition}
           assets={assets}
           stateId={stateId}
           stepId={step.id}
+          roleLabel={roleLabel}
+          onPromptTemplateChange={(template) => onPromptChange(stateId, step.id, { promptTemplate: template })}
           onChange={onChange}
         />
       ) : null}
@@ -825,6 +844,77 @@ function stepSubtitle(step: WorkflowGraphNodeModel["steps"][number]): string {
   if (step.type === "command")
     return `Command · ${step.commandProvider ?? "provider"}/${step.commandId ?? "command"}`;
   return `Unsupported step · ${step.type}`;
+}
+
+function PromptAuthoringEditor({
+  definition,
+  assets,
+  stateId,
+  stepId,
+  roleLabel,
+  onPromptTemplateChange,
+  onChange,
+}: {
+  definition: AgentWorkflowDefinitionV1;
+  assets: WorkflowAssetsModel;
+  stateId: string;
+  stepId: string;
+  roleLabel: string | null;
+  onPromptTemplateChange: (template: string) => void;
+  onChange: (definition: AgentWorkflowDefinitionV1) => void;
+}) {
+  const state = definition.states[stateId];
+  if (!state || "terminal" in state) return null;
+  const step = state.steps.find((candidate) => candidate.id === stepId) as
+    | (WorkflowStepV1 & { prompt?: { template?: string; refs?: Array<{ kind: string; id: string; version?: number }> } })
+    | undefined;
+  if (!step || step.type !== "agent_turn") return null;
+  const preview = renderEditorPromptPreview({ definition, assets, stateId, stepId });
+  const usage = [
+    roleLabel ? `Role: ${roleLabel}` : null,
+    `State: ${stateId}`,
+    `Step: ${stepId}`,
+    step.turnType === "decision" ? "Decision response" : "Regular turn",
+  ].filter(Boolean).join(" · ");
+
+  return (
+    <section className="mt-3 space-y-3 rounded-lg border border-cyan-900/60 bg-slate-950/80 p-3" aria-label={`${stepId} prompt authoring`}>
+      <div>
+        <h4 className="text-sm font-semibold text-cyan-100">Prompt authoring</h4>
+        <p className="mt-1 text-xs text-zinc-400">{usage}</p>
+      </div>
+      <label className="block text-sm">
+        <span className="font-medium text-zinc-200">Step prompt</span>
+        <textarea
+          aria-label={`${stepId} step prompt`}
+          className="mt-2 min-h-28 w-full rounded-md border border-zinc-700 bg-zinc-950 p-2 text-sm text-zinc-100"
+          value={step.prompt?.template ?? ""}
+          placeholder="Tell this role what to do in this workflow state."
+          onChange={(event) => onPromptTemplateChange(event.target.value)}
+        />
+      </label>
+      <PromptRefsEditor definition={definition} assets={assets} stateId={stateId} stepId={stepId} onChange={onChange} />
+      <section className="rounded-md border border-zinc-800 bg-zinc-950 p-3" aria-label={`${stepId} final prompt preview`}>
+        <div className="flex items-center justify-between gap-3">
+          <h4 className="text-sm font-medium text-zinc-200">Final prompt preview</h4>
+          {preview.xmlSpec ? (
+            <span className="rounded border border-cyan-900 bg-cyan-950/30 px-2 py-0.5 text-xs text-cyan-100">XML contract generated</span>
+          ) : null}
+        </div>
+        <p className="mt-1 text-xs text-zinc-500">
+          The XML response spec is generated by the workflow actions. You do not normally need to write it by hand.
+        </p>
+        {preview.missingRefs.length ? (
+          <div className="mt-2 rounded border border-amber-900 bg-amber-950/30 p-2 text-xs text-amber-100">
+            Preview is missing refs: {preview.missingRefs.join(", ")}
+          </div>
+        ) : null}
+        <pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap rounded border border-zinc-800 bg-black/40 p-3 text-xs text-zinc-200">
+          {preview.text}
+        </pre>
+      </section>
+    </section>
+  );
 }
 
 function PromptRefsEditor({
@@ -886,7 +976,11 @@ function PromptRefsEditor({
       (candidate) => candidate.id === stepId,
     ) as (WorkflowStepV1 & { prompt?: { refs?: unknown[] } }) | undefined;
     if (!nextStep || nextStep.type !== "agent_turn") return;
-    nextStep.prompt = { ...nextStep.prompt, refs } as typeof nextStep.prompt;
+    nextStep.prompt = {
+      ...nextStep.prompt,
+      template: nextStep.prompt?.template ?? "",
+      refs,
+    } as typeof nextStep.prompt;
     onChange(next);
   };
   return (
@@ -1006,6 +1100,102 @@ function sourceLabel(source: string): string {
   return source;
 }
 
+export function renderEditorPromptPreview({
+  definition,
+  assets,
+  stateId,
+  stepId,
+}: {
+  definition: AgentWorkflowDefinitionV1;
+  assets: WorkflowAssetsModel;
+  stateId: string;
+  stepId: string;
+}): { text: string; xmlSpec: string | null; missingRefs: string[] } {
+  const state = definition.states[stateId];
+  if (!state || "terminal" in state) return { text: "Choose an agent step to preview the prompt.", xmlSpec: null, missingRefs: [] };
+  const step = state.steps.find((candidate) => candidate.id === stepId) as
+    | (WorkflowStepV1 & { prompt?: { template?: string; refs?: Array<{ kind: string; id: string; version?: number }> } })
+    | undefined;
+  if (!step || step.type !== "agent_turn") return { text: "Choose an agent step to preview the prompt.", xmlSpec: null, missingRefs: [] };
+
+  const refs = step.prompt?.refs ?? [];
+  const allAssets = [...assets.prompts, ...assets.skills];
+  const assetLines: string[] = [];
+  const missingRefs: string[] = [];
+  for (const ref of refs) {
+    const asset = allAssets.find((candidate) => candidate.kind === ref.kind && candidate.id === ref.id && (ref.version == null || candidate.version === ref.version));
+    if (!asset) {
+      missingRefs.push(formatAssetRef(ref));
+      continue;
+    }
+    assetLines.push([
+      `### ${asset.kind === "skill" ? "Skill" : "Prompt"}: ${asset.name}`,
+      `${formatAssetRef(asset)} · ${sourceLabel(asset.source)}`,
+      asset.preview,
+    ].join("\n"));
+  }
+
+  const xmlSpec = renderEditorXmlSpec(definition, stateId, stepId);
+  const sections = [
+    assetLines.length ? assetLines.join("\n\n") : null,
+    step.prompt?.template?.trim() || "(No step prompt written yet.)",
+    xmlSpec,
+  ].filter((section): section is string => Boolean(section));
+
+  return { text: sections.join("\n\n"), xmlSpec, missingRefs };
+}
+
+function renderEditorXmlSpec(definition: AgentWorkflowDefinitionV1, stateId: string, stepId: string): string | null {
+  try {
+    const model = normalizeWorkflowDefinitionV1(definitionWithPromptPlaceholders(definition), { workflowId: "workflow-editor-preview" });
+    const state = model.states[stateId];
+    if (!state || state.terminal) return null;
+    const step = state.steps.find((candidate) => candidate.id === stepId) as AgentWorkflowStepV1 | undefined;
+    if (!step) return null;
+    const snapshot: WorkflowRuntimeSnapshot = {
+      instanceId: "workflow-editor-preview",
+      workflowId: model.workflowId,
+      status: "running",
+      currentState: stateId,
+      currentStepIndex: state.steps.findIndex((candidate) => candidate.id === stepId),
+      visitId: "workflow-editor-preview",
+      inputs: {},
+      waitingFor: { kind: "agent_turn", state: stateId, stepId, turnId: "workflow-editor-preview" },
+      history: [],
+      createdAt: 0,
+      updatedAt: 0,
+    };
+    return renderExpectedXmlResponseSpec(model, snapshot, step);
+  } catch {
+    return null;
+  }
+}
+
+function definitionWithPromptPlaceholders(definition: AgentWorkflowDefinitionV1): AgentWorkflowDefinitionV1 {
+  const clone = JSON.parse(JSON.stringify(definition)) as AgentWorkflowDefinitionV1;
+  for (const state of Object.values(clone.states)) {
+    if ("terminal" in state) continue;
+    for (const step of state.steps) {
+      if (step.type !== "agent_turn") continue;
+      const prompt = step.prompt as { template?: string; refs?: unknown[] };
+      if (!prompt.template?.trim()) {
+        const labels = Array.isArray(prompt.refs) ? prompt.refs.map(formatUnknownAssetRef).join(", ") : "";
+        prompt.template = labels ? `Prompt refs: ${labels}` : "Prompt";
+      }
+      delete prompt.refs;
+    }
+  }
+  return clone;
+}
+
+function formatUnknownAssetRef(ref: unknown): string {
+  if (!ref || typeof ref !== "object") return "asset";
+  const record = ref as { kind?: unknown; id?: unknown; version?: unknown };
+  const kind = typeof record.kind === "string" ? record.kind : "asset";
+  const id = typeof record.id === "string" ? record.id : "unknown";
+  return `${kind}:${id}${typeof record.version === "number" ? `@${record.version}` : ""}`;
+}
+
 function EdgeEditor({
   edge,
   states,
@@ -1015,7 +1205,7 @@ function EdgeEditor({
   states: WorkflowGraphNodeModel[];
   onChange: (
     edgeId: string,
-    edit: { actionLabel?: string; targetState?: string },
+    edit: { actionLabel?: string; targetState?: string; handoffPrompt?: string },
   ) => void;
 }) {
   const source = states.find((state) => state.id === edge.source);
@@ -1124,6 +1314,19 @@ function EdgeEditor({
           </p>
         </section>
       ) : null}
+      <label className="mt-4 block text-sm">
+        <span className="font-medium">Handoff prompt</span>
+        <span className="mt-1 block text-xs text-zinc-500">
+          Optional transition context available to the target state's next prompt. This is not a separate queued message.
+        </span>
+        <textarea
+          aria-label={`${edge.actionId} handoff prompt`}
+          className="mt-2 min-h-24 w-full rounded-md border border-zinc-700 bg-zinc-950 p-2"
+          value={edge.handoffPrompt ?? ""}
+          placeholder="Example: Review {{transition.parsed.summary}}"
+          onChange={(event) => onChange(edge.id, { handoffPrompt: event.target.value })}
+        />
+      </label>
     </section>
   );
 }

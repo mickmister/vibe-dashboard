@@ -58,6 +58,11 @@ export interface WorkflowGraphValidationIssue {
 export interface WorkflowGraphEdit {
   actionLabel?: string;
   targetState?: string;
+  handoffPrompt?: string;
+}
+
+export interface WorkflowGraphPromptEdit {
+  promptTemplate?: string;
 }
 
 export function workflowDefinitionToGraph(definition: AgentWorkflowDefinitionV1): WorkflowGraphModel {
@@ -108,6 +113,30 @@ export function applyWorkflowGraphActionEdit(definition: AgentWorkflowDefinition
     getStateActions(state)[actionId]!.label = label || undefined;
   }
   if (edit.targetState !== undefined) getStateActions(state)[actionId]!.targetState = edit.targetState;
+  if (edit.handoffPrompt !== undefined) {
+    const template = edit.handoffPrompt.trim();
+    const action = getStateActions(state)[actionId]!;
+    if (template) {
+      action.handoff = { ...(action.handoff as object), prompt: { template } };
+    } else if (action.handoff && typeof action.handoff === 'object' && !Array.isArray(action.handoff)) {
+      const handoff = { ...(action.handoff as Record<string, unknown>) };
+      delete handoff.prompt;
+      if (Object.keys(handoff).length > 0) action.handoff = handoff;
+      else delete action.handoff;
+    }
+  }
+  return next;
+}
+
+export function applyWorkflowGraphPromptEdit(definition: AgentWorkflowDefinitionV1, stateId: string, stepId: string, edit: WorkflowGraphPromptEdit): AgentWorkflowDefinitionV1 {
+  const next = deepClone(definition);
+  const state = next.states[stateId];
+  if (!state || isTerminalState(state)) return next;
+  const step = getStateSteps(state).find((candidate) => candidate.id === stepId);
+  if (!step || step.type !== 'agent_turn') return next;
+  if (edit.promptTemplate !== undefined) {
+    step.prompt = { ...step.prompt, template: edit.promptTemplate };
+  }
   return next;
 }
 
