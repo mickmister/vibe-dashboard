@@ -58,6 +58,7 @@ test.describe("M120C browser workflow creation and run", () => {
     const unique = Date.now();
     const workflowName = `M120C Browser Workflow ${unique}`;
     const task = `Run M120C browser-created workflow ${unique}`;
+    const sessionName = `M120C Agent ${unique}`;
 
     await page.goto(`/dashboard/workflows?workspaceId=${encodeURIComponent(workspace.id)}`);
     await expect(page.getByRole("heading", { name: "Workflows", exact: true })).toBeVisible();
@@ -88,6 +89,7 @@ test.describe("M120C browser workflow creation and run", () => {
     await expect(dialog.getByLabel("Agent model")).toHaveValue("");
     await expect(dialog.getByText("Workspace default").first()).toBeVisible();
     await dialog.getByRole("button", { name: "Create sessions for all roles" }).click();
+    await dialog.getByLabel("Agent session name").fill(sessionName);
     await dialog.getByLabel("featureRequest *").fill(task);
     await dialog.getByLabel("Additional instructions for this run").fill("M120C browser creation E2E uses VK qa-mode scripted XML.");
 
@@ -96,7 +98,7 @@ test.describe("M120C browser workflow creation and run", () => {
     await dialog.getByRole("button", { name: "Launch workflow" }).click();
     const [launchRequest, launchResponse] = await Promise.all([launchRequestPromise, launchResponsePromise]);
     const launchPayload = JSON.parse(launchRequest.postData() ?? "{}") as { roleBindings?: Record<string, Record<string, unknown>> };
-    expect(launchPayload.roleBindings?.agent).toMatchObject({ mode: "create_or_reuse", name: "Agent" });
+    expect(launchPayload.roleBindings?.agent).toMatchObject({ mode: "create_or_reuse", name: sessionName });
     expect(launchPayload.roleBindings?.agent).not.toHaveProperty("executorType");
     expect(launchPayload.roleBindings?.agent).not.toHaveProperty("model");
     const launchBody = await launchResponse.json() as { run?: { runId?: string; detailUrl?: string } };
