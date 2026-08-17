@@ -187,6 +187,35 @@ export function WorkflowRoadmapView({
                 Generated {formatTime(roadmap.generatedAt)}
                 {roadmap.stale ? " · may be stale" : ""}
               </p>
+              <dl className="mt-3 space-y-1 text-xs text-zinc-400">
+                <div className="flex justify-between gap-3">
+                  <dt>Freshness</dt>
+                  <dd className="text-zinc-200">{freshnessLabel(roadmap.source.freshness)}</dd>
+                </div>
+                {roadmap.source.providerId ? (
+                  <div className="flex justify-between gap-3">
+                    <dt>Provider</dt>
+                    <dd className="break-all text-zinc-200">{roadmap.source.providerId}</dd>
+                  </div>
+                ) : null}
+                <div className="flex justify-between gap-3">
+                  <dt>Counts</dt>
+                  <dd className="text-zinc-200">Top-level milestones</dd>
+                </div>
+                {roadmap.source.updatedAt ? (
+                  <div className="flex justify-between gap-3">
+                    <dt>Updated</dt>
+                    <dd className="text-zinc-200">{formatTime(roadmap.source.updatedAt)}</dd>
+                  </div>
+                ) : null}
+              </dl>
+              {roadmap.source.warnings.length ? (
+                <ul className="mt-3 space-y-1 text-xs text-amber-200">
+                  {roadmap.source.warnings.map((warning) => (
+                    <li key={warning}>{warning}</li>
+                  ))}
+                </ul>
+              ) : null}
             </section>
             <section className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
               <div className="text-xs uppercase tracking-wide text-zinc-500">
@@ -440,4 +469,12 @@ function toneClasses(
 function formatTime(value: number): string {
   if (!Number.isFinite(value)) return "recently";
   return new Date(value).toLocaleString();
+}
+
+function freshnessLabel(value: WorkflowRoadmapModel["source"]["freshness"]): string {
+  if (value === "live") return "Live";
+  if (value === "partial") return "Partial live data";
+  if (value === "stale") return "Stale live data";
+  if (value === "error") return "Static fallback after provider error";
+  return "Static fallback";
 }

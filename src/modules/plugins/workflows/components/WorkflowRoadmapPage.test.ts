@@ -2,6 +2,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import {
+  buildLiveWorkflowRoadmapModel,
   buildWorkflowRoadmapModel,
   emptyWorkflowRoadmapModel,
 } from "../server/workflowRoadmapReadModel";
@@ -45,6 +46,43 @@ describe("WorkflowRoadmapView", () => {
     expect(html).toContain("Implementation in progress");
     expect(html).toContain("Open bead");
     expect(html).toContain("/beads/project?bead=vibe-kanban-vscode-web-ckov");
+    for (const term of forbiddenTerms) expect(html).not.toContain(term);
+  });
+
+  it("TEST_CASE_M119B_1B/1C renders live provider freshness, warnings, and safe run links", async () => {
+    const roadmap = await buildLiveWorkflowRoadmapModel({
+      now: () => 55,
+      provider: {
+        providerId: "component-live",
+        label: "Component live beads",
+        async readBeads() {
+          return {
+            partial: true,
+            updatedAt: 54,
+            warnings: ["Some bead details are temporarily unavailable."],
+            beads: [{ beadId: "vibe-kanban-vscode-web-ckov", status: "closed", summary: "Live done.", url: "/beads/project?bead=vibe-kanban-vscode-web-ckov" }],
+          };
+        },
+        async listMetaRuns() {
+          return [{ metaRunId: "meta-component", status: "completed", items: [{ beadId: "vibe-kanban-vscode-web-ckov", status: "completed" }] }];
+        },
+      },
+    });
+    const html = renderToStaticMarkup(
+      React.createElement(WorkflowRoadmapView, {
+        roadmap,
+        loading: false,
+        error: null,
+        onRefresh: () => undefined,
+      }),
+    );
+
+    expect(html).toContain("Component live beads");
+    expect(html).toContain("Partial live data");
+    expect(html).toContain("component-live");
+    expect(html).toContain("Top-level milestones");
+    expect(html).toContain("Some bead details are temporarily unavailable.");
+    expect(html).toContain('/dashboard/workflows/meta-runs/meta-component');
     for (const term of forbiddenTerms) expect(html).not.toContain(term);
   });
 

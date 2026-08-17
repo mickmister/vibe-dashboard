@@ -52,7 +52,7 @@ import {
 } from "../modules/plugins/workflows/server/persistedWorkflowRuntime";
 import { BUILT_IN_WORKFLOW_TEMPLATES } from "../modules/plugins/workflows/templates/builtInWorkflowTemplates";
 import { buildPersistedWorkflowPresentationModel } from "../modules/plugins/workflows/server/persistedWorkflowPresentationReadModel";
-import { buildWorkflowRoadmapModel } from "../modules/plugins/workflows/server/workflowRoadmapReadModel";
+import { buildLiveWorkflowRoadmapModel, type WorkflowRoadmapLiveProvider } from "../modules/plugins/workflows/server/workflowRoadmapReadModel";
 import {
   BeadMetaWorkflowError,
   BeadMetaWorkflowRuntime,
@@ -103,6 +103,7 @@ export interface RegisterWorkflowRoutesOptions {
   >;
   metaWorkflowBeadProvider?: BeadMetadataProvider;
   metaWorkflowNoteWriter?: BeadResultNoteWriter;
+  workflowRoadmapLiveProvider?: WorkflowRoadmapLiveProvider;
   workflowBatchCapacity?: Partial<typeof DEFAULT_WORKFLOW_BATCH_CAPACITY>;
   vkClient?: Partial<
     Pick<
@@ -132,8 +133,12 @@ export function registerWorkflowRoutes(
 ): void {
   hono.get("/dashboard/api/workflows/health", (c) => c.json({ ok: true }));
 
-  hono.get("/dashboard/api/workflows/roadmap", (c) => {
-    return c.json({ roadmap: buildWorkflowRoadmapModel() });
+  hono.get("/dashboard/api/workflows/roadmap", async (c) => {
+    const roadmap = await buildLiveWorkflowRoadmapModel({
+      workspaceId: c.req.query("workspaceId")?.trim() || undefined,
+      provider: options.workflowRoadmapLiveProvider,
+    });
+    return c.json({ roadmap });
   });
 
   hono.get("/dashboard/api/workflows/home", async (c) => {

@@ -48,6 +48,11 @@ export interface WorkflowRoadmapModel {
   source: {
     label: string;
     description: string;
+    providerId?: string;
+    freshness: "live" | "partial" | "stale" | "error" | "static";
+    updatedAt: number | null;
+    statusCountScope: "top_level_milestones";
+    warnings: string[];
   };
 }
 

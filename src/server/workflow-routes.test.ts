@@ -88,6 +88,43 @@ describe("registerWorkflowRoutes", () => {
     expect(serialized).not.toContain("raw JSON");
   });
 
+  it("TEST_CASE_M119B_1A returns live workflow roadmap data when provider is configured", async () => {
+    const app = new Hono();
+    registerWorkflowRoutes(app, {
+      registry: createWorkflowRegistry(),
+      workflowRoadmapLiveProvider: {
+        providerId: "route-live-provider",
+        label: "Route live beads",
+        async readBeads(beadIds, context) {
+          expect(context.workspaceId).toBe("workspace-a");
+          return {
+            updatedAt: 12_345,
+            partial: true,
+            beads: beadIds.includes("vibe-kanban-vscode-web-ckov")
+              ? [{ beadId: "vibe-kanban-vscode-web-ckov", status: "closed", summary: "Live route data closed CKOV.", url: "/beads/project?bead=vibe-kanban-vscode-web-ckov" }]
+              : [],
+          };
+        },
+        async listMetaRuns() {
+          return [{ metaRunId: "meta-route-live", status: "running", items: [{ beadId: "vibe-kanban-vscode-web-ckov", status: "running" }] }];
+        },
+      },
+    });
+
+    const response = await app.request("/dashboard/api/workflows/roadmap?workspaceId=workspace-a");
+
+    expect(response.status).toBe(200);
+    const payload = (await response.json()) as { roadmap: any };
+    expect(payload.roadmap.source).toMatchObject({ providerId: "route-live-provider", freshness: "partial", updatedAt: 12_345 });
+    expect(payload.roadmap.milestones).toEqual(expect.arrayContaining([expect.objectContaining({
+      beadId: "vibe-kanban-vscode-web-ckov",
+      status: "complete",
+      links: expect.arrayContaining([expect.objectContaining({ href: "/dashboard/workflows/meta-runs/meta-route-live" })]),
+    })]));
+    expect(JSON.stringify(payload)).not.toContain("queue item");
+    expect(JSON.stringify(payload)).not.toContain("webhook");
+  });
+
   it("returns workspace workflows home read model scoped to workspace", async () => {
     const handle = await initVdDb({ path: ":memory:" });
     dbHandles.push(handle);

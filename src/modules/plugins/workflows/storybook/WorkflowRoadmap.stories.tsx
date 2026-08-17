@@ -37,6 +37,36 @@ export const ActiveMixedRoadmap: Story = {
   },
 };
 
+export const LiveMixedProvider: Story = {
+  args: {
+    roadmap: liveMixedRoadmap(),
+    loading: false,
+    error: null,
+    onRefresh: () => undefined,
+    embedded: true,
+  },
+};
+
+export const StaleLiveProvider: Story = {
+  args: {
+    roadmap: staleLiveRoadmap(),
+    loading: false,
+    error: null,
+    onRefresh: () => undefined,
+    embedded: true,
+  },
+};
+
+export const ProviderErrorFallback: Story = {
+  args: {
+    roadmap: providerErrorRoadmap(),
+    loading: false,
+    error: null,
+    onRefresh: () => undefined,
+    embedded: true,
+  },
+};
+
 export const EmptyRoadmap: Story = {
   args: {
     roadmap: emptyWorkflowRoadmapModel(1_700_000),
@@ -86,6 +116,66 @@ export const ProductError: Story = {
     embedded: true,
   },
 };
+
+function liveMixedRoadmap(): WorkflowRoadmapModel {
+  const roadmap = buildWorkflowRoadmapModel({ now: () => 1_700_000 });
+  roadmap.source = {
+    label: "Live typed bead provider",
+    description: "Read-only live bead and meta-run progress. No bead mutation or command execution.",
+    providerId: "storybook-live-beads",
+    freshness: "live",
+    updatedAt: 1_699_990,
+    statusCountScope: "top_level_milestones",
+    warnings: [],
+  };
+  roadmap.stale = false;
+  const ckov = roadmap.milestones.find((item) => item.milestone === "CKOV");
+  if (ckov) {
+    ckov.status = "complete";
+    ckov.reviewState = "passed";
+    ckov.summary = "Live bead status shows CKOV completed after review and tester pass.";
+    ckov.nextAction = null;
+    ckov.links.push({ label: "Meta-run completed", href: "/dashboard/workflows/meta-runs/meta-storybook-live", kind: "workflow_run" });
+  }
+  const sebl = roadmap.milestones.find((item) => item.milestone === "SEBL");
+  if (sebl) {
+    sebl.status = "blocked";
+    sebl.reviewState = "blocked";
+    sebl.summary = "Live provider reports one blocker needing a focused fix.";
+    sebl.nextAction = "Fix the live blocker and refresh provider status.";
+  }
+  roadmap.statusCounts = recount(roadmap);
+  roadmap.nextAction = "Fix the live blocker and refresh provider status.";
+  return roadmap;
+}
+
+function staleLiveRoadmap(): WorkflowRoadmapModel {
+  const roadmap = liveMixedRoadmap();
+  roadmap.stale = true;
+  roadmap.source = {
+    ...roadmap.source,
+    freshness: "stale",
+    updatedAt: 1_650_000,
+    warnings: ["Live provider data is older than the freshness window; refresh before making coordination decisions."],
+  };
+  return roadmap;
+}
+
+function providerErrorRoadmap(): WorkflowRoadmapModel {
+  const roadmap = buildWorkflowRoadmapModel({ now: () => 1_700_000 });
+  roadmap.stale = true;
+  roadmap.source = {
+    label: "Live typed bead provider unavailable",
+    description: "Static fallback is shown until the provider recovers.",
+    providerId: "storybook-live-beads",
+    freshness: "error",
+    updatedAt: null,
+    statusCountScope: "top_level_milestones",
+    warnings: ["Provider timed out while reading bead status."],
+  };
+  roadmap.nextAction = "Live roadmap progress is temporarily unavailable. Refresh after the provider recovers.";
+  return roadmap;
+}
 
 function blockedTesterRoadmap(): WorkflowRoadmapModel {
   const roadmap = buildWorkflowRoadmapModel({ now: () => 1_700_000 });

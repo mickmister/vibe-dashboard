@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildLiveWorkflowRoadmapModel,
   buildWorkflowRoadmapModel,
   emptyWorkflowRoadmapModel,
 } from "./workflowRoadmapReadModel";
@@ -68,6 +69,99 @@ describe("workflowRoadmapReadModel", () => {
     expect(JSON.stringify(roadmap)).not.toContain("bd ");
     expect(JSON.stringify(roadmap)).not.toContain("sqlite");
     expect(JSON.stringify(roadmap)).not.toContain("shell command");
+  });
+
+  it("TEST_CASE_M119B_1A/1C overlays live bead status and meta-run links product-safely", async () => {
+    const roadmap = await buildLiveWorkflowRoadmapModel({
+      now: () => 1_800_000,
+      workspaceId: "workspace-a",
+      provider: {
+        providerId: "typed-bead-provider",
+        label: "Live beads",
+        description: "Typed bead store provider.",
+        async readBeads(beadIds) {
+          expect(beadIds).toContain("vibe-kanban-vscode-web-ckov");
+          return {
+            updatedAt: 1_799_999,
+            beads: [
+              {
+                beadId: "vibe-kanban-vscode-web-ckov",
+                title: "Live roadmap provider",
+                status: "closed",
+                summary: "Validated live provider status wins over static in-progress state.",
+                workspaceId: "workspace-a",
+                url: "/beads/project?bead=vibe-kanban-vscode-web-ckov",
+              },
+              {
+                beadId: "vibe-kanban-vscode-web-sebl",
+                status: "blocked",
+                summary: "Live blocker should override static review state.",
+                workspaceId: "workspace-a",
+                url: "file:///Users/example/private",
+              },
+            ],
+          };
+        },
+        async listMetaRuns() {
+          return [
+            {
+              metaRunId: "meta-live",
+              status: "running",
+              updatedAt: 1_799_998,
+              items: [{ beadId: "vibe-kanban-vscode-web-ckov", status: "running", childRunId: "child-live" }],
+            },
+          ];
+        },
+      },
+    });
+
+    expect(roadmap.source).toMatchObject({ providerId: "typed-bead-provider", freshness: "partial", updatedAt: 1_799_999, statusCountScope: "top_level_milestones" });
+    expect(roadmap.statusCounts.complete).toBeGreaterThan(10);
+    expect(roadmap.milestones).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        beadId: "vibe-kanban-vscode-web-ckov",
+        title: "Live roadmap provider",
+        status: "complete",
+        reviewState: "passed",
+        links: expect.arrayContaining([expect.objectContaining({ href: "/dashboard/workflows/meta-runs/meta-live", kind: "workflow_run" })]),
+      }),
+      expect.objectContaining({
+        beadId: "vibe-kanban-vscode-web-sebl",
+        status: "blocked",
+        reviewState: "blocked",
+        links: [],
+      }),
+    ]));
+    const serialized = JSON.stringify(roadmap);
+    expect(serialized).not.toContain("file://");
+    expect(serialized).not.toContain("/Users/");
+    expect(serialized).not.toContain("queue item");
+  });
+
+  it("TEST_CASE_M119B_1B/1D returns safe static fallback when live provider fails", async () => {
+    const roadmap = await buildLiveWorkflowRoadmapModel({
+      now: () => 2_000_000,
+      provider: {
+        providerId: "failing-provider",
+        label: "Failing live beads",
+        async readBeads() {
+          throw new Error("bd show failed at /Users/example/private");
+        },
+      },
+    });
+
+    expect(roadmap).toMatchObject({
+      stale: true,
+      source: {
+        providerId: "failing-provider",
+        freshness: "error",
+        warnings: ["workflow action"],
+      },
+      nextAction: "Live roadmap progress is temporarily unavailable. Refresh after the provider recovers.",
+    });
+    expect(roadmap.milestones.length).toBeGreaterThan(0);
+    expect(JSON.stringify(roadmap)).not.toContain("bd show");
+    expect(JSON.stringify(roadmap)).not.toContain("/Users/");
   });
 
   it("TEST_CASE_CKOV_1E returns a safe empty roadmap", () => {
