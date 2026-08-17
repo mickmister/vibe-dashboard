@@ -51,6 +51,10 @@ if [[ -z "${WORKFLOW_E2E_PLAYWRIGHT_IMAGE:-}" ]]; then
 fi
 
 cleanup() {
+  if docker ps -a --format '{{.Names}}' | grep -Fxq "${container_name}"; then
+    mkdir -p "${log_dir}"
+    docker cp "${container_name}:/tmp/workflow-e2e-logs/." "${log_dir}/" >/dev/null 2>&1 || true
+  fi
   if [[ "${keep_container}" == "1" ]]; then
     echo "Leaving workflow E2E container running for debugging: ${container_name}" >&2
     return

@@ -13,6 +13,7 @@ describe('workflowWizardModel', () => {
     const graph = buildWizardGraphPreview(draft);
     expect(graph.nodes.map((node) => node.id)).toEqual(['work', 'done']);
     expect(graph.edges.map((edge) => edge.label)).toEqual(['Done', 'Continue working']);
+    expect((definition.states.work as any).actions.done.result).toMatchObject({ fields: { summary: { type: 'markdown' } }, required: ['summary'] });
   });
 
   it('TEST_CASE_M107_1D emits only supported executable step types', () => {

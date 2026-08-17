@@ -80,8 +80,9 @@ test.describe("M120C browser workflow creation and run", () => {
     await expect(workflowCard).toContainText("Published v1");
     await workflowCard.getByRole("button", { name: "Run", exact: true }).click();
 
-    const dialog = page.getByRole("dialog");
-    await expect(dialog.getByRole("heading", { name: "Run workflow" })).toBeVisible();
+    const dialog = page.getByRole("dialog", { name: `Run ${workflowName}` });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText("Run workflow")).toBeVisible();
     await expect(dialog.getByLabel("Launch summary")).toContainText(`${workflowName} · Published v1`);
     await expect(dialog.getByLabel("Agent executor")).toHaveValue("");
     await expect(dialog.getByLabel("Agent model")).toHaveValue("");
@@ -117,9 +118,9 @@ test.describe("M120C browser workflow creation and run", () => {
 
     await page.reload();
     await expect(page.getByRole("heading", { name: workflowName })).toBeVisible();
-    await expect(page.getByLabel("Run summary")).toContainText("Completed");
+    await expect(page.getByLabel("Run summary")).toContainText("Complete");
     await expect(page.getByRole("heading", { name: "Timeline" })).toBeVisible();
-    await expect(page.getByText(finalSummary)).toBeVisible();
+    await expect(page.getByText(finalSummary).first()).toBeVisible();
     for (const term of forbiddenTerms) {
       await expect(page.getByText(term, { exact: false })).toHaveCount(0);
     }

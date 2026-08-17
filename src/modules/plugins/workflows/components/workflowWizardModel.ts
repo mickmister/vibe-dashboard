@@ -36,7 +36,7 @@ export function buildSimpleWorkflowDefinition(draft: WorkflowWizardDraft): Agent
           },
         ],
         actions: {
-          done: { label: 'Done', targetState: 'done' },
+          done: { label: 'Done', targetState: 'done', result: { fields: { summary: { type: 'markdown' } }, required: ['summary'], unknownFields: 'reject' } },
           continue_working: { label: 'Continue working', targetState: 'work' },
         },
       },
