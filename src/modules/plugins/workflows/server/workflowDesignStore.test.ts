@@ -61,6 +61,28 @@ describe('DbWorkflowDesignStore M91 foundation', () => {
       promptMarkdown: 'Newer role prompt that should not affect v1 links.',
       skillRefs: [],
     });
+    const originalV1 = await store.getRoleTemplate('role.dev.implementer', 1);
+    await expect(store.createRoleTemplate({
+      roleTemplateId: 'role.dev.implementer',
+      version: 1,
+      source: 'user',
+      name: 'Mutated implementer',
+      promptMarkdown: 'This rewrite must not persist.',
+      skillRefs: [],
+      executorPreference: { executorType: 'GEMINI', model: 'recommended', mode: 'preferred' },
+    })).rejects.toMatchObject({
+      issues: [expect.objectContaining({
+        code: 'WORKFLOW_CONFIG_INVALID_REFERENCE',
+        path: 'roleTemplates.role.dev.implementer.version',
+        message: 'role template role.dev.implementer@1 already exists; create a new version instead',
+      })],
+    });
+    await expect(store.getRoleTemplate('role.dev.implementer', 1)).resolves.toMatchObject({
+      promptMarkdown: 'Shared implementer role instructions.',
+      skillRefs: [{ kind: 'skill', id: 'skill.testing.notes', version: 1 }],
+      executorPreference: { executorType: 'CODEX', model: 'gpt-5-codex', mode: 'preferred' },
+      contentHash: originalV1?.contentHash,
+    });
 
     const definition = workflowDefinition('role-template-link');
     (definition.roles.dev as any) = {

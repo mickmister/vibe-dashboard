@@ -294,8 +294,17 @@ export class DbWorkflowDesignStore {
     const db = await this.getDb();
     const now = this.now();
     const version = input.version ?? 1;
-    await this.upsertRoleTemplate(db, input, now);
-    return this.getRequiredRoleTemplate(input.roleTemplateId, version);
+    const normalized = normalizeCreateRoleTemplateInput(input);
+    const existing = await this.getRoleTemplate(normalized.roleTemplateId, version);
+    if (existing) {
+      throw new WorkflowDesignValidationError([{
+        code: 'WORKFLOW_CONFIG_INVALID_REFERENCE',
+        path: `roleTemplates.${normalized.roleTemplateId}.version`,
+        message: `role template ${normalized.roleTemplateId}@${version} already exists; create a new version instead`,
+      }]);
+    }
+    await this.insertRoleTemplate(db, normalized, now);
+    return this.getRequiredRoleTemplate(normalized.roleTemplateId, version);
   }
 
   async getRoleTemplate(roleTemplateId: string, version?: number): Promise<WorkflowRoleTemplateReadModel | null> {
@@ -558,7 +567,7 @@ export class DbWorkflowDesignStore {
     })).execute();
   }
 
-  private async upsertRoleTemplate(db: WorkflowDesignDb, input: CreateWorkflowRoleTemplateInput, now: number): Promise<void> {
+  private async insertRoleTemplate(db: WorkflowDesignDb, input: CreateWorkflowRoleTemplateInput, now: number): Promise<void> {
     const version = input.version ?? 1;
     const skillRefs = input.skillRefs ?? [];
     for (const [index, ref] of skillRefs.entries()) {
@@ -580,17 +589,7 @@ export class DbWorkflowDesignStore {
       contentHash,
       createdAt: now,
       updatedAt: now,
-    }).onConflict((oc) => oc.columns(['roleTemplateId', 'version']).doUpdateSet({
-      source: input.source ?? 'user',
-      name: input.name,
-      description: input.description ?? null,
-      promptMarkdown: input.promptMarkdown,
-      skillRefsJson: stableJson(skillRefs),
-      executorPreferenceJson: input.executorPreference ? stableJson(input.executorPreference) : null,
-      active: input.active === false ? 0 : 1,
-      contentHash,
-      updatedAt: now,
-    })).execute();
+    }).execute();
   }
 
   private async validateTemplateEntry(template: WorkflowTemplateCatalogEntry): Promise<{ issues: WorkflowConfigIssue[] }> {
@@ -901,6 +900,34 @@ async function validateWorkflowCallReferences(
 
 function mapDesign(row: Selectable<WorkflowDesign>): WorkflowDesignReadModel {
   return { ...row };
+}
+
+function normalizeCreateRoleTemplateInput(input: CreateWorkflowRoleTemplateInput): CreateWorkflowRoleTemplateInput {
+  const roleTemplateId = input.roleTemplateId.trim();
+  const name = input.name.trim();
+  const promptMarkdown = input.promptMarkdown.trim();
+  const issues: WorkflowConfigIssue[] = [];
+  if (!roleTemplateId) {
+    issues.push({ code: 'WORKFLOW_CONFIG_REQUIRED_FIELD', path: 'roleTemplates.roleTemplateId', message: 'role template id is required' });
+  }
+  if (!name) {
+    issues.push({ code: 'WORKFLOW_CONFIG_REQUIRED_FIELD', path: `roleTemplates.${roleTemplateId || 'new'}.name`, message: 'role template name is required' });
+  }
+  if (!promptMarkdown) {
+    issues.push({ code: 'WORKFLOW_CONFIG_REQUIRED_FIELD', path: `roleTemplates.${roleTemplateId || 'new'}.promptMarkdown`, message: 'role template prompt is required' });
+  }
+  if (input.version != null && (!Number.isInteger(input.version) || input.version < 1)) {
+    issues.push({ code: 'WORKFLOW_CONFIG_INVALID_REFERENCE', path: `roleTemplates.${roleTemplateId || 'new'}.version`, message: 'role template version must be a positive integer' });
+  }
+  if (issues.length) throw new WorkflowDesignValidationError(issues);
+  return {
+    ...input,
+    roleTemplateId,
+    name,
+    description: input.description?.trim() || null,
+    promptMarkdown,
+    skillRefs: input.skillRefs ?? [],
+  };
 }
 
 function mapDraft(row: Selectable<WorkflowDesignDraft>): WorkflowDesignDraftReadModel {

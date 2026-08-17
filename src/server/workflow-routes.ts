@@ -602,6 +602,16 @@ export function registerWorkflowRoutes(
       });
       return c.json({ roleTemplate: created });
     } catch (error) {
+      if (error instanceof WorkflowDesignValidationError) {
+        return c.json(
+          {
+            error: "workflow_role_template_invalid",
+            message: "Workflow role template is invalid",
+            issues: error.issues,
+          },
+          400,
+        );
+      }
       return c.json(
         {
           error: "workflow_role_template_create_failed",

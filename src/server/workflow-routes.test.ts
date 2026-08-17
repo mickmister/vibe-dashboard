@@ -1150,6 +1150,52 @@ describe("registerWorkflowRoutes", () => {
         }),
       ],
     });
+
+    const duplicate = await app.request("/dashboard/api/workflow-role-templates", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        roleTemplateId: "role.dev.implementer",
+        version: 1,
+        name: "Rewrite",
+        promptMarkdown: "This must not replace v1.",
+      }),
+    });
+    expect(duplicate.status).toBe(400);
+    await expect(duplicate.json()).resolves.toMatchObject({
+      error: "workflow_role_template_invalid",
+      issues: [
+        expect.objectContaining({
+          code: "WORKFLOW_CONFIG_INVALID_REFERENCE",
+          path: "roleTemplates.role.dev.implementer.version",
+        }),
+      ],
+    });
+    await expect(designStore.getRoleTemplate("role.dev.implementer", 1)).resolves.toMatchObject({
+      promptMarkdown: "Shared implementer instructions.",
+      executorPreference: { executorType: "CODEX", model: "gpt-5-codex", mode: "preferred" },
+    });
+
+    const invalid = await app.request("/dashboard/api/workflow-role-templates", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        roleTemplateId: "   ",
+        version: 0,
+        name: "   ",
+        promptMarkdown: "   ",
+      }),
+    });
+    expect(invalid.status).toBe(400);
+    await expect(invalid.json()).resolves.toMatchObject({
+      error: "workflow_role_template_invalid",
+      issues: expect.arrayContaining([
+        expect.objectContaining({ path: "roleTemplates.roleTemplateId" }),
+        expect.objectContaining({ path: "roleTemplates.new.name" }),
+        expect.objectContaining({ path: "roleTemplates.new.promptMarkdown" }),
+        expect.objectContaining({ path: "roleTemplates.new.version" }),
+      ]),
+    });
   });
 
   it("TEST_CASE_M107_1B/C/E creates, duplicates, and publishes wizard workflow designs", async () => {
