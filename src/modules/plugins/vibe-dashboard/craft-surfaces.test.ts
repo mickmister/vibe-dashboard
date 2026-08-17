@@ -91,6 +91,7 @@ describe("dynamic Craft surfaces", () => {
     expect(effective.tabGroups[0]!.pairs).toEqual([
       { id: "agent+code", tabIds: ["agent", "code"], ratios: [50, 50] },
       { id: "agent+beads", tabIds: ["agent", "beads"], ratios: [50, 50] },
+      { id: "agent+forms", tabIds: ["agent", "forms"], ratios: [50, 50] },
     ]);
   });
 
@@ -187,6 +188,11 @@ describe("dynamic Craft surfaces", () => {
     expect(
       effective.tabGroups[0]!.tabs.find((tab) => tab.id === "forms")?.url,
     ).toBe("https://vd.example.test/dashboard/forms?workspace=workspace_1&dir=%2Fhome%2Fvkuser%2Frepos%2Fapp&bead=vkvw-123");
+    expect(effective.tabGroups[0]!.pairs).toContainEqual({
+      id: "agent+forms",
+      tabIds: ["agent", "forms"],
+      ratios: [50, 50],
+    });
   });
 
   it("derives built-in workspace tabs from the current localhost origin", () => {
@@ -566,6 +572,74 @@ describe("dynamic Craft surfaces", () => {
         craft_1: "craft-surface:craft_1:app.excalidraw.canvas/canvas",
       }),
     ).toEqual({});
+  });
+
+  it("keeps Agent plus Forms as an effective active item without persisting built-in refs", () => {
+    const effective = createEffectiveWorkspaceWithCraftSurfaces({
+      workspace: {
+        ...workspace,
+        tabGroups: [
+          {
+            id: "craft_workspace",
+            label: "Workspace Craft",
+            workspace: {
+              workspaceId: "workspace_1",
+              workspaceDir: "/home/vkuser/repos/app",
+              formsBeadId: "vkvw-123",
+            },
+            tabs: [],
+            pairs: [],
+            order: 0,
+          },
+        ],
+      },
+      craftSurfaces: [],
+      origin: "https://vd.example.test",
+    });
+    const session: SavedWorkspaceSession = {
+      id: "session-1",
+      slug: "test-session",
+      name: "Test Session",
+      createdAt: "2026-06-15T00:00:00.000Z",
+      updatedAt: "2026-06-15T00:00:00.000Z",
+      activeSpaceId: "space_home",
+      activeTabGroupId: "craft_workspace",
+      activeVoyageEntryId: "ve_craft_workspace",
+      voyageEntries: [
+        {
+          id: "ve_craft_workspace",
+          tabGroupId: "craft_workspace",
+          viewIds: ["agent", "forms"],
+        },
+      ],
+      activeItemsByVoyageEntryId: {
+        ve_craft_workspace: "agent+forms",
+      },
+      visitedTabGroupIds: ["craft_workspace"],
+    };
+
+    expect(effective.tabGroups[0]!.pairs).toContainEqual({
+      id: "agent+forms",
+      tabIds: ["agent", "forms"],
+      ratios: [50, 50],
+    });
+    expect(
+      filterEphemeralCraftSurfaceActiveItems(effective, {
+        craft_workspace: "agent+forms",
+      }),
+    ).toEqual({ craft_workspace: "agent+forms" });
+    expect(
+      stripEphemeralCraftSurfaceSessionRefs({ workspace: effective, session }),
+    ).toEqual({
+      voyageEntries: [
+        {
+          id: "ve_craft_workspace",
+          tabGroupId: "craft_workspace",
+          viewIds: [],
+        },
+      ],
+      activeItemsByVoyageEntryId: {},
+    });
   });
 
   it("strips ephemeral placeholders from session active items and voyage view ids", () => {
