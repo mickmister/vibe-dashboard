@@ -347,7 +347,19 @@ async function clickLocatorInViewport(page: Page, locator: Locator) {
     }
   }
 
-  await locator.first().click();
+  for (let index = 0; index < count; index += 1) {
+    const candidate = locator.nth(index);
+    if (await candidate.isVisible().catch(() => false)) {
+      await candidate.evaluate((element) =>
+        (element as HTMLButtonElement).click(),
+      );
+      return;
+    }
+  }
+
+  await locator.first().evaluate((element) =>
+    (element as HTMLButtonElement).click(),
+  );
 }
 
 async function expectCreateWorkspaceFrameUrl(page: Page) {
