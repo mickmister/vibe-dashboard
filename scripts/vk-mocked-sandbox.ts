@@ -1,7 +1,7 @@
 import { createServer } from 'node:net';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
 
@@ -67,6 +67,15 @@ function appendNodeOption(existingOptions: string | undefined, option: string): 
   if (!trimmedOptions) return option;
   if (trimmedOptions.includes(option)) return trimmedOptions;
   return `${trimmedOptions} ${option}`;
+}
+
+function normalizeQaScriptedOutcomeFile(
+  value: string | undefined,
+  vdRoot: string,
+): string | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) return undefined;
+  return isAbsolute(trimmed) ? trimmed : resolve(vdRoot, trimmed);
 }
 
 export async function isTcpPortAvailable(port: number): Promise<boolean> {
@@ -172,6 +181,10 @@ export function createSandboxPlan(input: {
     vdUrl,
     `http://localhost:${input.ports.vdDashboard}`,
   ].join(',');
+  const qaScriptedOutcomeFile = normalizeQaScriptedOutcomeFile(
+    env.VK_QA_SCRIPTED_OUTCOME_FILE,
+    vdRoot,
+  );
 
   const canUsePrebuiltLocalWeb =
     env.VK_MOCKED_SKIP_LOCAL_WEB_BUILD === '1' &&
@@ -217,8 +230,8 @@ export function createSandboxPlan(input: {
         VK_ALLOWED_ORIGINS: vkAllowedOrigins,
         DISABLE_WORKTREE_CLEANUP: '1',
         RUST_LOG: process.env.RUST_LOG ?? 'debug',
-        ...(env.VK_QA_SCRIPTED_OUTCOME_FILE
-          ? { VK_QA_SCRIPTED_OUTCOME_FILE: env.VK_QA_SCRIPTED_OUTCOME_FILE }
+        ...(qaScriptedOutcomeFile
+          ? { VK_QA_SCRIPTED_OUTCOME_FILE: qaScriptedOutcomeFile }
           : { VK_QA_SCRIPTED_OUTCOME: env.VK_QA_SCRIPTED_OUTCOME ?? JSON.stringify({ outcome: 'completed', final_message: 'QA scripted workflow response completed successfully.', session_id: 'qa-scripted-session', message_id: 'qa-scripted-message', delay_ms: 0 }) }),
       },
     },

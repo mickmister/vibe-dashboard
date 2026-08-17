@@ -22,6 +22,10 @@ log_dir="${WORKFLOW_E2E_LOG_DIR:-${TMPDIR:-/tmp}/vd-workflow-e2e-logs-${containe
 cargo_target_volume="${WORKFLOW_E2E_CARGO_TARGET_VOLUME:-vd-workflow-e2e-vk-target-${cache_key}}"
 cargo_registry_volume="${WORKFLOW_E2E_CARGO_REGISTRY_VOLUME:-vd-workflow-e2e-cargo-registry-${cache_key}}"
 cargo_git_volume="${WORKFLOW_E2E_CARGO_GIT_VOLUME:-vd-workflow-e2e-cargo-git-${cache_key}}"
+container_qa_scripted_outcome_file="${VK_QA_SCRIPTED_OUTCOME_FILE:-}"
+if [[ -n "${container_qa_scripted_outcome_file}" && "${container_qa_scripted_outcome_file}" != /* ]]; then
+  container_qa_scripted_outcome_file="/workspace/vibe-kanban-vscode-web/${container_qa_scripted_outcome_file#./}"
+fi
 
 if ! command -v docker >/dev/null 2>&1; then
   echo "docker is required for workflow Playwright E2E" >&2
@@ -101,7 +105,7 @@ docker exec \
   --env VK_MOCKED_CADDY_PORT=50005 \
   --env VK_MOCKED_CADDYFILE=Caddyfile.workflow-e2e \
   --env VK_MOCKED_SKIP_LOCAL_WEB_BUILD=1 \
-  --env VK_QA_SCRIPTED_OUTCOME_FILE="${VK_QA_SCRIPTED_OUTCOME_FILE:-}" \
+  --env VK_QA_SCRIPTED_OUTCOME_FILE="${container_qa_scripted_outcome_file}" \
   --env WORKFLOW_E2E_PLAYWRIGHT_ARGS="${WORKFLOW_E2E_PLAYWRIGHT_ARGS:-}" \
   "${container_name}" bash -lc '
     set -euo pipefail
@@ -141,6 +145,10 @@ docker exec \
       --exclude dev_assets \
       -cf - . | tar -C /workspace/vibe-kanban -xf -
     cd /workspace/vibe-kanban-vscode-web
+    if [[ -n "${VK_QA_SCRIPTED_OUTCOME_FILE:-}" && ! -f "${VK_QA_SCRIPTED_OUTCOME_FILE}" ]]; then
+      echo "VK_QA_SCRIPTED_OUTCOME_FILE does not exist inside Docker: ${VK_QA_SCRIPTED_OUTCOME_FILE}" >&2
+      exit 1
+    fi
     run_with_log vd-pnpm-install pnpm install --frozen-lockfile --child-concurrency=1 --network-concurrency=4
     cd /workspace/vibe-kanban
     run_with_log vk-pnpm-install pnpm install --frozen-lockfile --child-concurrency=1 --network-concurrency=4

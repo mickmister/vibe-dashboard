@@ -31,7 +31,9 @@ describe('workflow-e2e-docker-playwright harness', () => {
     expect(dockerfile).toContain('clang');
     expect(dockerfile).toContain('--profile minimal --default-toolchain stable');
     expect(script).toContain('--env VK_MOCKED_SKIP_LOCAL_WEB_BUILD=1');
-    expect(script).toContain('--env VK_QA_SCRIPTED_OUTCOME_FILE="${VK_QA_SCRIPTED_OUTCOME_FILE:-}"');
+    expect(script).toContain('container_qa_scripted_outcome_file="/workspace/vibe-kanban-vscode-web/${container_qa_scripted_outcome_file#./}"');
+    expect(script).toContain('--env VK_QA_SCRIPTED_OUTCOME_FILE="${container_qa_scripted_outcome_file}"');
+    expect(script).toContain('VK_QA_SCRIPTED_OUTCOME_FILE does not exist inside Docker');
     expect(script).toContain('--env WORKFLOW_E2E_PLAYWRIGHT_ARGS="${WORKFLOW_E2E_PLAYWRIGHT_ARGS:-}"');
     expect(script).toContain('VK mocked local web stub');
     expect(script).toContain('find /root/.cargo/git /tmp/vk-target -name "*.lock" -delete');
