@@ -40,12 +40,15 @@ The human response on `vibe-kanban-vscode-web-qwzp` sets the next tranche as:
 6. **Bead result mutation:** allow one product-safe idempotent append/update
    result note with caps, redaction, and provenance.
 7. **Crash recovery:** retry child launch with the same deterministic child run id
-   and idempotency key.
+   and idempotency key; if that child already exists, reuse/observe it rather
+   than creating another child.
 8. **M119B placement:** implement live roadmap/progress provider after M119A and
    before browser meta-workflow UX.
 9. **M119C bead selection:** support live search/select and CKOV roadmap
    selection, default-scoped to beads that carry this workspace id metadata. Do
-   not lead with paste-only selection.
+   not lead with paste-only selection. Beads missing workspace metadata are
+   excluded/rejected by default unless a later explicit cross-workspace mode is
+   approved.
 10. **`olou`:** narrow/rename toward approved typed workflow providers only; do
     not implement generic bash in this branch.
 11. **Physical lanes/worktrees:** defer production physical lifecycle until after
@@ -124,7 +127,7 @@ Expected:
 - Exact child workflow design/version is pinned at meta-run creation.
 - Missing/unpublished/wrong-workspace child workflow is rejected before launch.
 - Duplicate bead ids fail with stable validation issues.
-- Missing, inaccessible, removed, archived, or wrong-workspace beads fail before launch.
+- Missing, inaccessible, removed, archived, wrong-workspace, or missing-workspace-metadata beads fail before launch.
 - The created run has durable ordered items and a product-readable read model.
 
 #### TEST_CASE_M119A_1B — Launch one real child workflow at a time
@@ -149,8 +152,11 @@ Expected:
 - Typed bead note/result provider appends or updates one product-safe result
   note idempotently; no broader label/status/dependency mutation occurs.
 - Replaying the same completion does not duplicate notes or advance twice.
+- Result-note writes use one deterministic note key per `metaRunId:itemId`;
+  replay updates or no-ops the same note rather than appending another note.
 - If note append/update fails after child completion, the item blocks before
-  advancing with a product-safe retry/next-action state.
+  advancing with a product-safe retry/next-action state, and retry uses the same
+  deterministic note key.
 - Meta-run advances to the next bead after recording the result.
 
 #### TEST_CASE_M119A_1D — Child failure blocks product-safely
@@ -167,20 +173,28 @@ Expected:
 
 Expected:
 
-- Parent accepts completion only for the expected `itemId + childRunId`.
+- Parent observes child terminal/blocked state through the persisted workflow
+  runtime/store/event/read-model seam, not browser UI or presentation text.
+- Parent accepts completion only for the expected `metaRunId + itemId + childRunId`.
 - Wrong/stale child completion is a no-op or stable rejection and does not
   advance the run.
 - If process restarts after durable child claim but before launch confirmation,
   catch-up retries launch with the same childRunId/idempotencyKey.
+- If a child run already exists for that childRunId/idempotencyKey, catch-up
+  reuses/observes the existing child instead of creating a second child.
 - Duplicate resume/wakeup after restart does not create duplicate children.
 
-#### TEST_CASE_M119A_1F — CKOV consumes live meta-run progress
+#### TEST_CASE_M119A_1F — Meta-run progress read model is CKOV-compatible
 
 Expected:
 
-- Roadmap/progress UI can show current bead index, completed/pending/blocked
-  bead counts, child run links, and latest tester/review state from live data.
-- If bead provider is unavailable, CKOV shows stale/error state without crashing.
+- M119A exposes a meta-run progress read model with current bead index,
+  completed/pending/blocked bead counts, child run links, and latest result
+  summaries.
+- The read model is compatible with CKOV consumption, but actual CKOV rendering
+  of live data belongs to M119B.
+- Provider unavailable/partial states are represented in the read model without
+  crashing.
 
 ### Validation
 
@@ -324,7 +338,8 @@ Expected:
 
 - User can open a new meta-workflow screen.
 - User can search/select beads from the typed provider, default-filtered to beads
-  with this workspace id metadata.
+  with this workspace id metadata; missing workspace metadata is excluded by
+  default.
 - User can also start a selection from CKOV roadmap context.
 - User can reorder selected beads and remove duplicates.
 - Duplicate/inaccessible/removed/wrong-workspace beads are rejected in UI before
