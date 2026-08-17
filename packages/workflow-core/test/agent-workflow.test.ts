@@ -5,6 +5,7 @@ import {
   createInitialWorkflowSnapshot,
   normalizeWorkflowDefinitionV1,
   planNextWorkflowEffect,
+  renderExpectedXmlResponseSpec,
   type AgentWorkflowDefinitionV1,
   type AgentWorkflowStepV1,
   type DecisionResponseValidator,
@@ -473,6 +474,37 @@ describe("agent workflow V1 normalization", () => {
     );
   });
 
+
+  it("TEST_CASE_S7OW_1A renders real XSD for decision response actions and result fields", () => {
+    const definition = makeDefinition();
+    activeAuthoredState(definition, "devImplementing").actions.continueEditing!.result = {
+      fields: { reason: { type: "markdown" } },
+      required: ["reason"],
+      unknownFields: "preserve",
+    };
+    const model = normalizeWorkflowDefinitionV1(definition);
+    const snapshot = createInitialWorkflowSnapshot(model, {
+      instanceId: "instance-xsd",
+      inputs: { featureRequest: "Build XSD prompts" },
+      now: clock(1_000),
+      createId: ids("visit-xsd"),
+    });
+    const state = activeNormalizedState(model.states.devImplementing);
+    const step = state.steps.find((candidate): candidate is AgentWorkflowStepV1 => candidate.type === "agent_turn" && candidate.turnType === "decision")!;
+    const spec = renderExpectedXmlResponseSpec(model, snapshot, step);
+
+    expect(spec).toContain("Expected XML Schema (XSD):");
+    expect(spec).toContain('<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"');
+    expect(spec).toContain('<xs:element name="decision">');
+    expect(spec).toContain('<xs:enumeration value="readyForReview"/>');
+    expect(spec).toContain('<xs:enumeration value="continueEditing"/>');
+    expect(spec).toContain('<xs:element name="summary" type="xs:string" minOccurs="1" maxOccurs="1"/>');
+    expect(spec).toContain('<xs:element name="concerns" type="xs:string" minOccurs="0" maxOccurs="unbounded"/>');
+    expect(spec).toContain('<xs:openContent mode="interleave">');
+    expect(spec).not.toContain("Allowed action names and result fields");
+    expect(spec).not.toContain("- Root tag");
+  });
+
   it("TEST_CASE_M99_1A normalizes and advances blocking workflow_call steps", () => {
     const def = makeDefinition();
     activeAuthoredState(def, "devImplementing").steps = [
@@ -564,10 +596,10 @@ describe("agent workflow V1 normalization", () => {
     ).toContain("Choose next action");
     expect(
       advanced.effect.kind === "send_agent_turn" ? advanced.effect.prompt : "",
-    ).toContain("Expected XML response spec:");
+    ).toContain("Expected XML Schema (XSD):");
     expect(
       advanced.effect.kind === "send_agent_turn" ? advanced.effect.prompt : "",
-    ).toContain('action="readyForReview"');
+    ).toContain('fixed="readyForReview"');
     expect(advanced.snapshot.history).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -644,10 +676,10 @@ describe("agent workflow V1 normalization", () => {
     ).toEqual(expect.stringContaining("Approved: true"));
     expect(
       advanced.effect.kind === "send_agent_turn" && advanced.effect.prompt,
-    ).toEqual(expect.stringContaining("Expected XML response spec:"));
+    ).toEqual(expect.stringContaining("Expected XML Schema (XSD):"));
     expect(
       advanced.effect.kind === "send_agent_turn" && advanced.effect.prompt,
-    ).toEqual(expect.stringContaining('action="done"'));
+    ).toEqual(expect.stringContaining('fixed="done"'));
     expect(advanced.snapshot.history).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -1043,15 +1075,15 @@ describe("agent workflow V1 advancement", () => {
     expect(
       afterNonDecision.effect.kind === "send_agent_turn" &&
         afterNonDecision.effect.prompt,
-    ).toEqual(expect.stringContaining("Expected XML response spec:"));
+    ).toEqual(expect.stringContaining("Expected XML Schema (XSD):"));
     expect(
       afterNonDecision.effect.kind === "send_agent_turn" &&
         afterNonDecision.effect.prompt,
-    ).toEqual(expect.stringContaining('action="readyForReview"'));
+    ).toEqual(expect.stringContaining('fixed="readyForReview"'));
     expect(
       afterNonDecision.effect.kind === "send_agent_turn" &&
         afterNonDecision.effect.prompt,
-    ).toEqual(expect.stringContaining("<summary>...</summary>: required markdown"));
+    ).toEqual(expect.stringContaining('<xs:element name="summary" type="xs:string" minOccurs="1" maxOccurs="1"/>'));
     expect(afterNonDecision.snapshot.currentStepIndex).toBe(1);
     expect(afterNonDecision.snapshot.history).toContainEqual(
       expect.objectContaining({
@@ -1102,15 +1134,15 @@ describe("agent workflow V1 advancement", () => {
     expect(
       afterDecision.effect.kind === "send_agent_turn" &&
         afterDecision.effect.prompt,
-    ).toEqual(expect.stringContaining("Expected XML response spec:"));
+    ).toEqual(expect.stringContaining("Expected XML Schema (XSD):"));
     expect(
       afterDecision.effect.kind === "send_agent_turn" &&
         afterDecision.effect.prompt,
-    ).toEqual(expect.stringContaining('action="changesRequested"'));
+    ).toEqual(expect.stringContaining('fixed="changesRequested"'));
     expect(
       afterDecision.effect.kind === "send_agent_turn" &&
         afterDecision.effect.prompt,
-    ).toEqual(expect.stringContaining("<requiredChanges>...</requiredChanges>"));
+    ).toEqual(expect.stringContaining('<xs:element name="requiredChanges" type="xs:string" minOccurs="1" maxOccurs="1"/>'));
 
     const stale = advanceWorkflow(
       model,
@@ -1235,11 +1267,11 @@ describe("agent workflow V1 advancement", () => {
     expect(
       firstInvalid.effect.kind === "send_agent_turn" &&
         firstInvalid.effect.prompt,
-    ).toContain("Expected XML response spec:");
+    ).toContain("Expected XML Schema (XSD):");
     expect(
       firstInvalid.effect.kind === "send_agent_turn" &&
         firstInvalid.effect.prompt,
-    ).toContain('action="continueEditing"');
+    ).toContain('fixed="continueEditing"');
 
     const secondInvalid = advanceWorkflow(
       model,

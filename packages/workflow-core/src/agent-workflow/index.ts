@@ -1779,7 +1779,7 @@ export function renderWorkflowPrompt(
 
   if (extra.validationErrors?.length) {
     rendered += `\n\nYour previous XML response did not match the workflow contract. Fix these validation errors and return the XML again:\n${extra.validationErrors
-      .map((error) => `- ${error.code} at ${error.path}: ${error.message}`)
+      .map((error) => `${error.code} at ${error.path}: ${error.message}`)
       .join("\n")}`;
   }
 
@@ -1795,70 +1795,126 @@ export function renderExpectedXmlResponseSpec(
   const state = model.states[snapshot.waitingFor?.state ?? snapshot.currentState];
   if (!state || state.terminal) return null;
 
-  const actionSpecs = Object.values(state.actions).map((action) => {
-    const result = action.result ?? { fields: {}, unknownFields: "reject" };
-    const fields = Object.entries(result.fields ?? {});
-    const required = new Set(result.required ?? []);
-    const fieldLines = fields.length
-      ? fields.map(([fieldName, spec]) => {
-          const tag = `<${fieldName}>...</${fieldName}>`;
-          const type = `${spec.multiple ? "array of " : ""}${spec.type}`;
-          const requiredText = required.has(fieldName)
-            ? "required"
-            : "optional";
-          return `    - ${tag}: ${requiredText} ${type}`;
-        })
-      : ["    - no result child elements are expected"];
-    const unknownFields =
-      result.unknownFields === "preserve"
-        ? "unknown child elements may be preserved"
-        : "unknown child elements are rejected";
-    const waitFor =
-      action.waitFor?.provider === "github_ci"
-        ? [
-            "    - GitHub CI wait data must include one of:",
-            `      - <${action.waitFor.runIdField ?? "ciRunId"}>...</${action.waitFor.runIdField ?? "ciRunId"}>`,
-            `      - <${action.waitFor.checkRunIdField ?? "checkRunId"}>...</${action.waitFor.checkRunIdField ?? "checkRunId"}>`,
-          ]
-        : [];
-    return [
-      `  - action="${action.id}"${action.label ? ` (${action.label})` : ""}`,
-      action.description ? `    - ${action.description}` : null,
-      `    - targetState: ${action.targetState}`,
-      ...fieldLines,
-      ...waitFor,
-      `    - ${unknownFields}`,
-    ].filter((line): line is string => Boolean(line));
-  });
-
-  const exampleAction = Object.values(state.actions)[0];
-  const example = exampleAction
-    ? renderXmlDecisionExample(exampleAction)
-    : '<decision action="ACTION_NAME" />';
-
   return [
-    "Expected XML response spec:",
-    "- Return exactly one XML document.",
-    "- Root tag: <decision>.",
-    "- Required root attribute: action.",
-    "- Allowed action names and result fields:",
-    ...actionSpecs.flat(),
-    "- Allowed child tags: only the result fields listed for the selected action.",
-    "- Markdown text is allowed inside child elements; use CDATA when that keeps markdown readable.",
-    `- Example: ${example}`,
+    "Expected XML Schema (XSD):",
+    "```xml",
+    renderDecisionResponseXsd(state),
+    "```",
   ].join("\n");
 }
 
-function renderXmlDecisionExample(action: NormalizedWorkflowAction): string {
-  const fields = Object.entries(action.result?.fields ?? {});
-  if (!fields.length) return `<decision action="${action.id}" />`;
-  const required = new Set(action.result?.required ?? []);
-  const selectedFields = fields.filter(([field]) => required.has(field));
-  const exampleFields = selectedFields.length ? selectedFields : fields.slice(0, 1);
-  const children = exampleFields
-    .map(([field]) => `<${field}>...</${field}>`)
-    .join("");
-  return `<decision action="${action.id}">${children}</decision>`;
+function renderDecisionResponseXsd(
+  state: Extract<NormalizedWorkflowState, { terminal: false }>,
+): string {
+  const actions = Object.values(state.actions);
+  const lines: string[] = [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" elementFormDefault="qualified" version="1.1">',
+    '  <xs:element name="decision">',
+  ];
+
+  for (const action of actions) {
+    lines.push(
+      `    <xs:alternative test="@action=&apos;${escapeXmlAttribute(action.id)}&apos;" type="${xsdActionTypeName(action.id)}"/>`,
+    );
+  }
+  lines.push('    <xs:alternative type="InvalidDecisionActionType"/>');
+  lines.push('  </xs:element>');
+  lines.push('  <xs:simpleType name="DecisionActionName">');
+  lines.push('    <xs:restriction base="xs:string">');
+  for (const action of actions) {
+    lines.push(`      <xs:enumeration value="${escapeXmlAttribute(action.id)}"/>`);
+  }
+  lines.push('    </xs:restriction>');
+  lines.push('  </xs:simpleType>');
+
+  for (const action of actions) {
+    lines.push(...renderActionDecisionType(action));
+  }
+
+  lines.push('  <xs:complexType name="InvalidDecisionActionType">');
+  lines.push('    <xs:sequence/>');
+  lines.push('    <xs:attribute name="action" type="DecisionActionName" use="required"/>');
+  lines.push('  </xs:complexType>');
+  lines.push('</xs:schema>');
+  return lines.join("\n");
+}
+
+function renderActionDecisionType(action: NormalizedWorkflowAction): string[] {
+  const result = action.result ?? { fields: {}, unknownFields: "reject" as const };
+  const fields = Object.entries(result.fields ?? {});
+  const required = new Set(result.required ?? []);
+  const lines: string[] = [
+    `  <xs:complexType name="${xsdActionTypeName(action.id)}">`,
+  ];
+
+  if (result.unknownFields === "preserve") {
+    lines.push('    <xs:openContent mode="interleave">');
+    lines.push('      <xs:any namespace="##any" processContents="lax"/>');
+    lines.push('    </xs:openContent>');
+  }
+
+  lines.push('    <xs:sequence>');
+
+  for (const [fieldName, spec] of fields) {
+    lines.push(
+      `      <xs:element name="${escapeXmlAttribute(fieldName)}" type="${xsdScalarType(spec.type)}" minOccurs="${required.has(fieldName) ? 1 : 0}" maxOccurs="${spec.multiple ? "unbounded" : 1}"/>`,
+    );
+  }
+
+  const waitForFields = action.waitFor?.provider === "github_ci"
+    ? githubCiWaitFields(action.waitFor).filter((fieldName) => !result.fields?.[fieldName])
+    : [];
+  if (waitForFields.length === 1) {
+    lines.push(
+      `      <xs:element name="${escapeXmlAttribute(waitForFields[0]!)}" type="xs:string" minOccurs="1" maxOccurs="1"/>`,
+    );
+  } else if (waitForFields.length > 1) {
+    lines.push('      <xs:choice minOccurs="1" maxOccurs="1">');
+    for (const fieldName of waitForFields) {
+      lines.push(
+        `        <xs:element name="${escapeXmlAttribute(fieldName)}" type="xs:string"/>`,
+      );
+    }
+    lines.push('      </xs:choice>');
+  }
+
+  lines.push('    </xs:sequence>');
+  lines.push(
+    `    <xs:attribute name="action" type="DecisionActionName" use="required" fixed="${escapeXmlAttribute(action.id)}"/>`,
+  );
+  lines.push('  </xs:complexType>');
+  return lines;
+}
+
+function githubCiWaitFields(waitFor: GitHubCiWaitActionV1): string[] {
+  const fields = [
+    waitFor.runIdField ?? "ciRunId",
+    waitFor.checkRunIdField ?? "checkRunId",
+  ];
+  return Array.from(new Set(fields.filter(Boolean)));
+}
+
+function xsdScalarType(type: ResultFieldSpec["type"]): string {
+  if (type === "number") return "xs:decimal";
+  if (type === "boolean") return "xs:boolean";
+  return "xs:string";
+}
+
+function xsdActionTypeName(actionId: string): string {
+  const cleaned = actionId
+    .replace(/[^A-Za-z0-9_.-]+/g, "_")
+    .replace(/^[^A-Za-z_]+/, "_");
+  return `${cleaned || "action"}DecisionType`;
+}
+
+function escapeXmlAttribute(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 function validateDecision(

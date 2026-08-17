@@ -44,9 +44,13 @@ describe('PersistedWorkflowRuntimeService M93', () => {
     expect(afterNonDecision.applied).toBe(true);
     expect(queued).toHaveLength(2);
     expect(queuedAt(queued, 1)).toMatchObject({ role: 'dev', stepId: 'selfReview' });
-    expect(queuedAt(queued, 1).prompt).toContain('Expected XML response spec:');
-    expect(queuedAt(queued, 1).prompt).toContain('action="readyForReview"');
-    expect(queuedAt(queued, 1).prompt).toContain('<summary>...</summary>: required markdown');
+    expect(queuedAt(queued, 1).prompt).toContain('Expected XML Schema (XSD):');
+    expect(queuedAt(queued, 1).prompt).toContain('<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"');
+    expect(queuedAt(queued, 1).prompt).toContain('<xs:element name="decision">');
+    expect(queuedAt(queued, 1).prompt).toContain('<xs:enumeration value="readyForReview"/>');
+    expect(queuedAt(queued, 1).prompt).toContain('fixed="readyForReview"');
+    expect(queuedAt(queued, 1).prompt).toContain('<xs:element name="summary" type="xs:string" minOccurs="1" maxOccurs="1"/>');
+    expect(queuedAt(queued, 1).prompt).not.toContain('Expected XML response spec:');
 
     const afterDevDecision = await runtime.completeAgentTurn({
       runId: 'run-1',
@@ -58,8 +62,8 @@ describe('PersistedWorkflowRuntimeService M93', () => {
     expect(queued).toHaveLength(3);
     expect(queuedAt(queued, 2)).toMatchObject({ role: 'review', sessionId: 'session-review', stepId: 'review' });
     expect(queuedAt(queued, 2).prompt).toContain('Implemented generically');
-    expect(queuedAt(queued, 2).prompt).toContain('Expected XML response spec:');
-    expect(queuedAt(queued, 2).prompt).toContain('action="approved"');
+    expect(queuedAt(queued, 2).prompt).toContain('Expected XML Schema (XSD):');
+    expect(queuedAt(queued, 2).prompt).toContain('fixed="approved"');
 
     const duplicate = await runtime.completeAgentTurn({
       runId: 'run-1',
@@ -179,8 +183,11 @@ describe('PersistedWorkflowRuntimeService M93', () => {
     expect(firstInvalid.run.status).toBe('running');
     expect(queued).toHaveLength(2);
     expect(queuedAt(queued, 1).prompt).toContain('response must be XML');
-    expect(queuedAt(queued, 1).prompt).toContain('Expected XML response spec:');
-    expect(queuedAt(queued, 1).prompt).toContain('action="continueEditing"');
+    expect(queuedAt(queued, 1).prompt).toContain('WORKFLOW_DECISION_VALIDATION_FAILED at $: response must be XML');
+    expect(queuedAt(queued, 1).prompt).not.toContain('- WORKFLOW_DECISION_VALIDATION_FAILED');
+    expect(queuedAt(queued, 1).prompt).toContain('Expected XML Schema (XSD):');
+    expect(queuedAt(queued, 1).prompt).toContain('<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"');
+    expect(queuedAt(queued, 1).prompt).toContain('fixed="continueEditing"');
 
     const looped = await runtime.completeAgentTurn({
       runId: 'run-loop',
@@ -226,8 +233,8 @@ describe('PersistedWorkflowRuntimeService M93', () => {
 
     await runtime.completeAgentTurn({ runId: 'run-drt', turnId: queuedAt(queued, 0).turnId, responseRef: 'dev-implement-1' });
     expect(queuedAt(queued, 1)).toMatchObject({ role: 'dev', stepId: 'self_review' });
-    expect(queuedAt(queued, 1).prompt).toContain('Expected XML response spec:');
-    expect(queuedAt(queued, 1).prompt).toContain('action="ready_for_review"');
+    expect(queuedAt(queued, 1).prompt).toContain('Expected XML Schema (XSD):');
+    expect(queuedAt(queued, 1).prompt).toContain('fixed="ready_for_review"');
     await runtime.completeAgentTurn({ runId: 'run-drt', turnId: queuedAt(queued, 1).turnId, responseRef: 'dev-self-review-1', finalResponseText: '<decision action="ready_for_review"><summary>Implemented pass one</summary><concerns>Risk noted</concerns></decision>' });
     expect(queuedAt(queued, 2)).toMatchObject({ role: 'review', sessionId: 'session-review', stepId: 'review' });
 
@@ -268,6 +275,12 @@ describe('PersistedWorkflowRuntimeService M93', () => {
 
     expect(queuedAt(queued, 0)).toMatchObject({ role: 'form_author', stepId: 'draft_form' });
     expect(queuedAt(queued, 0).prompt).toContain('beads-form-compatible form schema');
+    expect(queuedAt(queued, 0).prompt).toContain('Expected XML Schema (XSD):');
+    expect(queuedAt(queued, 0).prompt).toContain('<xs:enumeration value="form_created"/>');
+    expect(queuedAt(queued, 0).prompt).toContain('<xs:element name="formSchema" type="xs:string" minOccurs="1" maxOccurs="1"/>');
+    expect(queuedAt(queued, 0).prompt).toContain('<xs:element name="artifactRef" type="xs:string" minOccurs="0" maxOccurs="1"/>');
+    expect(queuedAt(queued, 0).prompt).toContain('<xs:element name="summary" type="xs:string" minOccurs="0" maxOccurs="1"/>');
+    expect(queuedAt(queued, 0).prompt).not.toContain('Allowed action names and result fields');
     const completed = await runtime.completeAgentTurn({
       runId: 'run-create-form',
       turnId: queuedAt(queued, 0).turnId,
@@ -452,8 +465,8 @@ describe('PersistedWorkflowRuntimeService M93', () => {
     expect(queuedAt(queued, 1)).toMatchObject({ runId: 'run-parent', stepId: 'parent_decide' });
     expect(queuedAt(queued, 1).prompt).toContain('Child status: completed');
     expect(queuedAt(queued, 1).prompt).toContain('workflow-run://run-parent-id-2/output');
-    expect(queuedAt(queued, 1).prompt).toContain('Expected XML response spec:');
-    expect(queuedAt(queued, 1).prompt).toContain('action="done"');
+    expect(queuedAt(queued, 1).prompt).toContain('Expected XML Schema (XSD):');
+    expect(queuedAt(queued, 1).prompt).toContain('fixed="done"');
 
     const duplicate = await runtime.completeWorkflowCall({
       runId: 'run-parent',
