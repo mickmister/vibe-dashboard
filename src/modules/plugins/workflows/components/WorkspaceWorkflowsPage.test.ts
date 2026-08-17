@@ -136,6 +136,8 @@ describe("WorkspaceWorkflowsHomeView", () => {
     expect(html).not.toContain("Workspace is required");
     expect(html).toContain("Choose workspace to run");
     expect(html).toContain("Choose workspace to create lane");
+    expect(html).toContain("Choose workspace for meta-workflows");
+    expect(html).not.toContain('href="/dashboard/workflows/meta-runs"');
     expect(html).toContain('href="/dashboard/workflows/roadmap?voyage=v1&amp;filter=active"');
     expect(html).not.toContain('/beads/project');
     for (const term of forbiddenTerms) expect(html).not.toContain(term);

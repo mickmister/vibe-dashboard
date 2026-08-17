@@ -135,12 +135,21 @@ export function WorkspaceWorkflowsHomeView({
             >
               View roadmap
             </a>
-            <a
-              className="rounded-md border border-zinc-700 px-3 py-2 text-sm text-zinc-100 hover:bg-zinc-800"
-              href={workflowRouteHref("/dashboard/workflows/meta-runs", routeParams, { workspaceId: home?.workspaceId ?? null })}
-            >
-              Meta-workflows
-            </a>
+            {home?.workspaceId ? (
+              <a
+                className="rounded-md border border-zinc-700 px-3 py-2 text-sm text-zinc-100 hover:bg-zinc-800"
+                href={workflowRouteHref("/dashboard/workflows/meta-runs", routeParams, { workspaceId: home.workspaceId })}
+              >
+                Meta-workflows
+              </a>
+            ) : (
+              <span
+                className="rounded-md border border-zinc-800 px-3 py-2 text-sm text-zinc-500"
+                title="Choose a workspace before starting meta-workflows."
+              >
+                Choose workspace for meta-workflows
+              </span>
+            )}
             <a
               className="rounded-md bg-cyan-500 px-3 py-2 text-sm font-medium text-zinc-950 hover:bg-cyan-400"
               href={workflowRouteHref("/dashboard/workflows/new", routeParams, { workspaceId: home?.workspaceId ?? null })}
