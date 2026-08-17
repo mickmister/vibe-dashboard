@@ -62,10 +62,8 @@ describe("workflowRoadmapReadModel", () => {
       ...item.children.flatMap((child) => child.links),
     ]);
 
-    expect(allLinks.length).toBeGreaterThan(0);
-    expect(allLinks.every((link) => link.href.startsWith("/beads/project?bead="))).toBe(
-      true,
-    );
+    expect(allLinks.every((link) => link.href.startsWith("/dashboard/workflows/") || link.href.startsWith("/docs/"))).toBe(true);
+    expect(JSON.stringify(roadmap)).not.toContain("/beads/project");
     expect(JSON.stringify(roadmap)).not.toContain("bd ");
     expect(JSON.stringify(roadmap)).not.toContain("sqlite");
     expect(JSON.stringify(roadmap)).not.toContain("shell command");
@@ -117,7 +115,7 @@ describe("workflowRoadmapReadModel", () => {
     });
 
     expect(roadmap.source).toMatchObject({ providerId: "typed-bead-provider", freshness: "partial", updatedAt: 1_799_999, statusCountScope: "top_level_milestones" });
-    expect(roadmap.statusCounts.complete).toBeGreaterThan(10);
+    expect(roadmap.statusCounts.complete).toBe(1);
     expect(roadmap.milestones).toEqual(expect.arrayContaining([
       expect.objectContaining({
         beadId: "vibe-kanban-vscode-web-ckov",
@@ -161,9 +159,9 @@ describe("workflowRoadmapReadModel", () => {
         freshness: "error",
         warnings: ["workflow action"],
       },
-      nextAction: "Live roadmap progress is temporarily unavailable. Refresh after the provider recovers.",
+      nextAction: "Refresh after the live bead provider recovers.",
     });
-    expect(roadmap.milestones.length).toBeGreaterThan(0);
+    expect(roadmap.milestones).toEqual([]);
     expect(JSON.stringify(roadmap)).not.toContain("bd show");
     expect(JSON.stringify(roadmap)).not.toContain("/Users/");
   });

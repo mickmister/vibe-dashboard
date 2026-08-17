@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 import { buildVkSessionUrl } from "../../../../utils/origin";
+import { workflowRouteHref } from "./workflowRouteContext";
 import { StandaloneDashboardPage } from "../../../../components/StandaloneDashboardPage";
 import {
   batchLaunchWorkspaceWorkflow,
@@ -27,9 +28,11 @@ import {
 export function WorkspaceWorkflowsPage({
   workspaceId: workspaceIdOverride,
   embedded = false,
+  routeParams,
 }: {
   workspaceId?: string;
   embedded?: boolean;
+  routeParams?: URLSearchParams;
   navigate?: (routeName: string) => void;
 }): React.ReactElement {
   const [params] = useSearchParams();
@@ -43,15 +46,10 @@ export function WorkspaceWorkflowsPage({
   const [error, setError] = useState<string | null>(null);
 
   const load = async () => {
-    if (!workspaceId) {
-      setError("Workspace is required.");
-      setLoading(false);
-      return;
-    }
     setLoading(true);
     setError(null);
     try {
-      setHome(await fetchWorkspaceWorkflowsHome(workspaceId));
+      setHome(await fetchWorkspaceWorkflowsHome(workspaceId || null));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     } finally {
@@ -71,6 +69,7 @@ export function WorkspaceWorkflowsPage({
       onRefresh={() => void load()}
       onHomeUpdated={setHome}
       embedded={embedded}
+      routeParams={params}
     />
   );
 }
@@ -82,6 +81,7 @@ export function WorkspaceWorkflowsHomeView({
   onRefresh,
   onHomeUpdated,
   embedded = false,
+  routeParams,
 }: {
   home: WorkspaceWorkflowsHomeModel | null;
   loading: boolean;
@@ -89,6 +89,7 @@ export function WorkspaceWorkflowsHomeView({
   onRefresh: () => void;
   onHomeUpdated?: (home: WorkspaceWorkflowsHomeModel) => void;
   embedded?: boolean;
+  routeParams?: URLSearchParams;
 }): React.ReactElement {
   const [launchWorkflow, setLaunchWorkflow] =
     useState<WorkspaceWorkflowSummary | null>(null);
@@ -122,7 +123,7 @@ export function WorkspaceWorkflowsHomeView({
                   {home.workspaceId}
                 </span>
               ) : (
-                "this workspace"
+                "all workspaces"
               )}
               .
             </p>
@@ -130,19 +131,19 @@ export function WorkspaceWorkflowsHomeView({
           <div className="flex flex-wrap gap-2">
             <a
               className="rounded-md border border-zinc-700 px-3 py-2 text-sm text-zinc-100 hover:bg-zinc-800"
-              href="/dashboard/workflows/roadmap"
+              href={workflowRouteHref("/dashboard/workflows/roadmap", routeParams)}
             >
               View roadmap
             </a>
             <a
               className="rounded-md border border-zinc-700 px-3 py-2 text-sm text-zinc-100 hover:bg-zinc-800"
-              href={`/dashboard/workflows/meta-runs?workspaceId=${encodeURIComponent(home?.workspaceId ?? "")}`}
+              href={workflowRouteHref("/dashboard/workflows/meta-runs", routeParams, { workspaceId: home?.workspaceId ?? null })}
             >
               Meta-workflows
             </a>
             <a
               className="rounded-md bg-cyan-500 px-3 py-2 text-sm font-medium text-zinc-950 hover:bg-cyan-400"
-              href={`/dashboard/workflows/new?workspaceId=${encodeURIComponent(home?.workspaceId ?? "")}`}
+              href={workflowRouteHref("/dashboard/workflows/new", routeParams, { workspaceId: home?.workspaceId ?? null })}
             >
               Create workflow
             </a>
@@ -202,7 +203,7 @@ export function WorkspaceWorkflowsHomeView({
       ) : null}
 
       <Section
-        title="Workspace lanes"
+        title={home?.workspaceId ? "Workspace lanes" : "Workspace lanes"}
         description="Optional isolated lanes for workflow and bead work. Host paths stay hidden; lane capacity explains when write work can start."
       >
         <div className="mb-3 flex items-center justify-between gap-3">
@@ -214,8 +215,9 @@ export function WorkspaceWorkflowsHomeView({
             type="button"
             className="rounded-md border border-cyan-700 px-3 py-2 text-sm text-cyan-100 hover:bg-cyan-950/40"
             onClick={() => setShowCreateLane(true)}
+            disabled={!home?.workspaceId}
           >
-            Create lane
+            {home?.workspaceId ? "Create lane" : "Choose workspace to create lane"}
           </button>
         </div>
         {home?.lanes?.lanes.length ? (
@@ -243,7 +245,7 @@ export function WorkspaceWorkflowsHomeView({
 
       <Section
         title="Active runs"
-        description="Runs currently moving, waiting for someone, or needing attention in this workspace."
+        description={home?.workspaceId ? "Runs currently moving, waiting for someone, or needing attention in this workspace." : "Runs currently moving, waiting, or completed across all workspaces."}
       >
         {activeRuns.length ? (
           <div className="space-y-3">
@@ -266,7 +268,7 @@ export function WorkspaceWorkflowsHomeView({
               <WorkflowCard
                 key={`user:${workflow.id}`}
                 workflow={workflow}
-                workspaceId={home.workspaceId}
+                workspaceId={home.workspaceId ?? ""}
                 onRun={() => setLaunchWorkflow(workflow)}
                 onBatch={() => setBatchWorkflow(workflow)}
                 onUsed={(updated) => onHomeUpdated?.(updated)}
@@ -288,7 +290,7 @@ export function WorkspaceWorkflowsHomeView({
               <WorkflowCard
                 key={`starter:${workflow.id}`}
                 workflow={workflow}
-                workspaceId={home.workspaceId}
+                workspaceId={home.workspaceId ?? ""}
                 onRun={() => setLaunchWorkflow(workflow)}
                 onBatch={() => setBatchWorkflow(workflow)}
                 onUsed={(updated) => onHomeUpdated?.(updated)}
@@ -325,7 +327,7 @@ export function WorkspaceWorkflowsHomeView({
       </Section>
       {home && launchWorkflow ? (
         <RunWorkflowDialog
-          workspaceId={home.workspaceId}
+          workspaceId={home.workspaceId ?? ""}
           workflow={launchWorkflow}
           onClose={() => setLaunchWorkflow(null)}
           lanes={home.lanes}
@@ -336,7 +338,7 @@ export function WorkspaceWorkflowsHomeView({
       ) : null}
       {home && showCreateLane ? (
         <CreateLaneDialog
-          workspaceId={home.workspaceId}
+          workspaceId={home.workspaceId ?? ""}
           onClose={() => setShowCreateLane(false)}
           onCreated={() => {
             setShowCreateLane(false);
@@ -346,7 +348,7 @@ export function WorkspaceWorkflowsHomeView({
       ) : null}
       {home && batchWorkflow ? (
         <BatchRunWorkflowDialog
-          workspaceId={home.workspaceId}
+          workspaceId={home.workspaceId ?? ""}
           workflow={batchWorkflow}
           onClose={() => setBatchWorkflow(null)}
           onQueued={(updated) => {
@@ -429,14 +431,19 @@ function WorkflowCard({
   onUsed,
 }: {
   workflow: WorkspaceWorkflowSummary;
-  workspaceId: string;
+  workspaceId: string | null;
   onRun: () => void;
   onBatch: () => void;
   onUsed?: (home: WorkspaceWorkflowsHomeModel) => void;
 }) {
   const [usingTemplate, setUsingTemplate] = useState(false);
   const [useError, setUseError] = useState<string | null>(null);
+  const hasWorkspace = Boolean(workspaceId);
   const handleUseTemplate = async () => {
+    if (!workspaceId) {
+      setUseError("Choose a workspace before copying this workflow.");
+      return;
+    }
     setUsingTemplate(true);
     setUseError(null);
     try {
@@ -482,16 +489,20 @@ function WorkflowCard({
       <div className="mt-4 flex flex-wrap gap-2">
         {workflow.canRun ? (
           <button
-            className="rounded-md bg-cyan-500 px-3 py-2 text-sm font-medium text-zinc-950 hover:bg-cyan-400"
+            className="rounded-md bg-cyan-500 px-3 py-2 text-sm font-medium text-zinc-950 hover:bg-cyan-400 disabled:opacity-50"
             onClick={onRun}
+            disabled={!hasWorkspace}
+            title={hasWorkspace ? undefined : "Choose a workspace before running this workflow."}
           >
-            Run
+            {hasWorkspace ? "Run" : "Choose workspace to run"}
           </button>
         ) : null}
         {workflow.canRun ? (
           <button
-            className="rounded-md border border-cyan-700 px-3 py-2 text-sm text-cyan-100 hover:bg-cyan-950/40"
+            className="rounded-md border border-cyan-700 px-3 py-2 text-sm text-cyan-100 hover:bg-cyan-950/40 disabled:opacity-50"
             onClick={onBatch}
+            disabled={!hasWorkspace}
+            title={hasWorkspace ? undefined : "Choose a workspace before batch running this workflow."}
           >
             Batch run
           </button>
@@ -508,7 +519,7 @@ function WorkflowCard({
         {workflow.source === "published_design" ? (
           <a
             className="rounded-md border border-zinc-700 px-3 py-2 text-sm hover:bg-zinc-800"
-            href={`/dashboard/workflows/editor/${encodeURIComponent(workflow.id)}`}
+            href={workflowRouteHref(`/dashboard/workflows/editor/${encodeURIComponent(workflow.id)}`, undefined, { workspaceId: workspaceId ?? null })}
           >
             Edit
           </a>

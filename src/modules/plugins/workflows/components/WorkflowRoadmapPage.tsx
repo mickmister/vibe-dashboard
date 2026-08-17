@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router";
 import { StandaloneDashboardPage } from "../../../../components/StandaloneDashboardPage";
 import {
   fetchWorkflowRoadmap,
@@ -6,8 +7,11 @@ import {
   type WorkflowRoadmapMilestone,
   type WorkflowRoadmapModel,
 } from "../client/workflowRoadmapApi";
+import { workflowRouteHref } from "./workflowRouteContext";
 
 export function WorkflowRoadmapPage(): React.ReactElement {
+  const [searchParams] = useSearchParams();
+  const searchKey = searchParams.toString();
   const [roadmap, setRoadmap] = useState<WorkflowRoadmapModel | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -16,7 +20,7 @@ export function WorkflowRoadmapPage(): React.ReactElement {
     setLoading(true);
     setError(null);
     try {
-      setRoadmap(await fetchWorkflowRoadmap());
+      setRoadmap(await fetchWorkflowRoadmap(searchParams));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     } finally {
@@ -26,7 +30,7 @@ export function WorkflowRoadmapPage(): React.ReactElement {
 
   useEffect(() => {
     void load();
-  }, []);
+  }, [searchKey]);
 
   return (
     <WorkflowRoadmapView
@@ -34,6 +38,7 @@ export function WorkflowRoadmapPage(): React.ReactElement {
       loading={loading}
       error={error}
       onRefresh={() => void load()}
+      backHref={workflowRouteHref("/dashboard/workflows", searchParams)}
     />
   );
 }
@@ -43,12 +48,14 @@ export function WorkflowRoadmapView({
   loading,
   error,
   onRefresh,
+  backHref = "/dashboard/workflows",
   embedded = false,
 }: {
   roadmap: WorkflowRoadmapModel | null;
   loading: boolean;
   error: string | null;
   onRefresh: () => void;
+  backHref?: string;
   embedded?: boolean;
 }): React.ReactElement {
   const grouped = useMemo(
@@ -76,7 +83,7 @@ export function WorkflowRoadmapView({
           <div className="flex flex-wrap gap-2">
             <a
               className="rounded-md border border-zinc-700 px-3 py-2 text-sm text-zinc-100 hover:bg-zinc-800"
-              href="/dashboard/workflows"
+              href={backHref}
             >
               Back to Workflows
             </a>
@@ -135,7 +142,7 @@ export function WorkflowRoadmapView({
           {error}
         </div>
       ) : null}
-      {loading ? (
+      {loading && !roadmap ? (
         <div className="rounded-lg border border-cyan-900 bg-cyan-950/20 p-4 text-sm text-cyan-100">
           Loading workflow roadmap…
         </div>
@@ -475,6 +482,6 @@ function freshnessLabel(value: WorkflowRoadmapModel["source"]["freshness"]): str
   if (value === "live") return "Live";
   if (value === "partial") return "Partial live data";
   if (value === "stale") return "Stale live data";
-  if (value === "error") return "Static fallback after provider error";
-  return "Static fallback";
+  if (value === "error") return "Unavailable";
+  return "Demo fixture";
 }

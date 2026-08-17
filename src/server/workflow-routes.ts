@@ -314,12 +314,7 @@ export function registerWorkflowRoutes(
   });
 
   hono.get("/dashboard/api/workflows/home", async (c) => {
-    const workspaceId = c.req.query("workspaceId")?.trim();
-    if (!workspaceId)
-      return c.json(
-        { error: "workspace_id_required", message: "Workspace is required" },
-        400,
-      );
+    const workspaceId = c.req.query("workspaceId")?.trim() || null;
     const db = options.workflowHomeDb ?? (await getVdDb()).db;
     const home = await buildWorkspaceWorkflowsHomeModel({
       db,
@@ -348,7 +343,7 @@ export function registerWorkflowRoutes(
         workspaceId: bead.workspaceId ?? null,
         accessible: bead.accessible,
         labels: bead.labels ?? [],
-        url: bead.url?.startsWith("/beads/project?bead=") ? bead.url : `/beads/project?bead=${encodeURIComponent(bead.beadId)}`,
+        url: null,
       })), unavailableReason: null });
     } catch (error) {
       return c.json({ beads: [], unavailableReason: scrubWorkflowProductText(error instanceof Error ? error.message : String(error)) });

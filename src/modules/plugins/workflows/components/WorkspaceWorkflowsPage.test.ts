@@ -69,7 +69,7 @@ describe("WorkspaceWorkflowsHomeView", () => {
     expect(html).toContain("Batch run");
     expect(html).toContain("Create copy");
     expect(html).toContain("Edit");
-    expect(html).toContain('href="/dashboard/workflows/editor/design-drt"');
+    expect(html).toContain('href="/dashboard/workflows/editor/design-drt?workspaceId=workspace-a"');
     expect(html).toContain("Starter template");
     expect(html).toContain("Create form from agent");
     expect(html).toContain("Feature workflow run");
@@ -115,6 +115,29 @@ describe("WorkspaceWorkflowsHomeView", () => {
       "No active workflow runs right now. Start a workflow or open a recent run to review history.",
     );
     expect(html).toContain("Workspace is required.");
+    for (const term of forbiddenTerms) expect(html).not.toContain(term);
+  });
+
+
+  it("renders global workflows home without workspace-required dead end", () => {
+    const globalHome = { ...fixture(), workspaceId: null, lanes: null, needsInput: [] };
+    const routeParams = new URLSearchParams("voyage=v1&workspaceId=workspace-a&filter=active");
+    routeParams.delete("workspaceId");
+    const html = renderToStaticMarkup(
+      React.createElement(WorkspaceWorkflowsHomeView, {
+        home: globalHome,
+        loading: false,
+        error: null,
+        onRefresh: () => {},
+        routeParams,
+      }),
+    );
+    expect(html).toContain("all workspaces");
+    expect(html).not.toContain("Workspace is required");
+    expect(html).toContain("Choose workspace to run");
+    expect(html).toContain("Choose workspace to create lane");
+    expect(html).toContain('href="/dashboard/workflows/roadmap?voyage=v1&amp;filter=active"');
+    expect(html).not.toContain('/beads/project');
     for (const term of forbiddenTerms) expect(html).not.toContain(term);
   });
 

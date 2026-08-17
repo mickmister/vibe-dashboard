@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 import { StandaloneDashboardPage } from "../../../../components/StandaloneDashboardPage";
 import { fetchWorkspaceWorkflowsHome, type WorkspaceWorkflowSummary } from "../client/workflowsHomeApi";
+import { workflowRouteHref } from "./workflowRouteContext";
 import {
   createMetaWorkflowRun,
   fetchMetaWorkflowRuns,
@@ -15,6 +16,7 @@ import {
 export function WorkflowMetaRunsPage({ workspaceId: workspaceIdOverride, embedded = false }: { workspaceId?: string; embedded?: boolean; navigate?: unknown }): React.ReactElement {
   const [params] = useSearchParams();
   const workspaceId = workspaceIdOverride || params.get("workspaceId") || params.get("workspace") || "";
+  const routeParams = params;
   const [workflows, setWorkflows] = useState<WorkspaceWorkflowSummary[]>([]);
   const [runs, setRuns] = useState<MetaWorkflowRunModel[]>([]);
   const [beads, setBeads] = useState<MetaWorkflowBeadSummary[]>([]);
@@ -101,7 +103,7 @@ export function WorkflowMetaRunsPage({ workspaceId: workspaceIdOverride, embedde
     setRuns((current) => [updated, ...current.filter((run) => run.metaRunId !== runId)]);
   };
 
-  return <WorkflowMetaRunsView {...{ workspaceId, workflows, runs, beads, selected, query, scope, childWorkflowId, unavailableReason, status, error, loading, embedded, duplicateIds, canStart, setQuery, setScope, setChildWorkflowId, addBead, removeBead, moveBead, onSearch: load, onStart: start, onRefresh: load, onPause: pause, onResume: resume }} />;
+  return <WorkflowMetaRunsView {...{ workspaceId, workflows, runs, beads, selected, query, scope, childWorkflowId, unavailableReason, status, error, loading, embedded, duplicateIds, canStart, setQuery, setScope, setChildWorkflowId, addBead, removeBead, moveBead, onSearch: load, onStart: start, onRefresh: load, onPause: pause, onResume: resume }} roadmapHref={workflowRouteHref("/dashboard/workflows/roadmap", routeParams, { workspaceId: workspaceId || null })} />;
 }
 
 export function WorkflowMetaRunsView(props: {
@@ -131,6 +133,7 @@ export function WorkflowMetaRunsView(props: {
   onRefresh: () => void;
   onPause: (runId: string) => void;
   onResume: (runId: string) => void;
+  roadmapHref?: string;
 }): React.ReactElement {
   return (
     <StandaloneDashboardPage className={props.embedded ? "h-full" : ""} contentClassName="mx-auto max-w-7xl space-y-5">
@@ -142,7 +145,7 @@ export function WorkflowMetaRunsView(props: {
             <p className="mt-2 max-w-3xl text-sm text-zinc-300">Select ordered beads for {props.workspaceId || "this workspace"}, choose a child workflow, then monitor one active bead at a time.</p>
           </div>
           <div className="flex gap-2">
-            <a className="rounded-md border border-zinc-700 px-3 py-2 text-sm hover:bg-zinc-800" href="/dashboard/workflows/roadmap">Start from roadmap</a>
+            <a className="rounded-md border border-zinc-700 px-3 py-2 text-sm hover:bg-zinc-800" href={props.roadmapHref ?? "/dashboard/workflows/roadmap"}>Start from roadmap</a>
             <button className="rounded-md border border-zinc-700 px-3 py-2 text-sm hover:bg-zinc-800" onClick={props.onRefresh} disabled={props.loading}>{props.loading ? "Refreshing…" : "Refresh"}</button>
           </div>
         </div>

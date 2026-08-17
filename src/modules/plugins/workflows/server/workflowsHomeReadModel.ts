@@ -16,7 +16,7 @@ import type {
 } from "../../../../server/workspace-lane-store";
 
 export interface WorkspaceWorkflowsHomeModel {
-  workspaceId: string;
+  workspaceId: string | null;
   userWorkflows: WorkspaceWorkflowSummary[];
   starterTemplates: WorkspaceWorkflowSummary[];
   recentRuns: WorkspaceWorkflowRunSummary[];
@@ -109,7 +109,7 @@ export async function buildWorkspaceWorkflowsHomeModel(args: {
   db: Kysely<DB>;
   designStore?: DbWorkflowDesignStore;
   orchestrationStore?: DbWorkflowOrchestrationStore;
-  workspaceId: string;
+  workspaceId?: string | null;
   recentRunLimit?: number;
   laneStore?: DbWorkspaceLaneStore;
 }): Promise<WorkspaceWorkflowsHomeModel> {
@@ -129,15 +129,15 @@ export async function buildWorkspaceWorkflowsHomeModel(args: {
   ] = await Promise.all([
     listUserWorkflows(designStore),
     listStarterTemplates(designStore),
-    listRecentRuns(args.db, args.workspaceId, args.recentRunLimit ?? 10),
-    listNeedsInput(args.db, args.orchestrationStore, args.workspaceId),
-    listRecentBatches(args.db, designStore, args.workspaceId),
-    args.laneStore
+    listRecentRuns(args.db, args.workspaceId ?? null, args.recentRunLimit ?? 10),
+    args.workspaceId ? listNeedsInput(args.db, args.orchestrationStore, args.workspaceId) : Promise.resolve([]),
+    listRecentBatches(args.db, designStore, args.workspaceId ?? null),
+    args.workspaceId && args.laneStore
       ? args.laneStore.buildParentOverview(args.workspaceId)
       : Promise.resolve(null),
   ]);
   return {
-    workspaceId: args.workspaceId,
+    workspaceId: args.workspaceId ?? null,
     userWorkflows,
     starterTemplates,
     recentRuns,
@@ -307,7 +307,7 @@ function summarizeRoleExecutorPreference(
 async function listRecentBatches(
   db: Kysely<DB>,
   designStore: DbWorkflowDesignStore,
-  workspaceId: string,
+  workspaceId: string | null,
 ): Promise<WorkspaceWorkflowBatchSummary[]> {
   const scheduler = new WorkflowBatchSchedulerService({
     db,
@@ -318,7 +318,7 @@ async function listRecentBatches(
       },
     },
   });
-  const batches = await scheduler.listBatches(workspaceId, 5);
+  const batches = await listBatchReadModels(db, workspaceId, scheduler, 5);
   return Promise.all(
     batches.map(async (batch) => {
       const design = await designStore.getDesign(batch.designId);
@@ -341,15 +341,36 @@ async function listRecentBatches(
   );
 }
 
+async function listBatchReadModels(
+  db: Kysely<DB>,
+  workspaceId: string | null,
+  scheduler: WorkflowBatchSchedulerService,
+  limit: number,
+): Promise<WorkflowBatchReadModel[]> {
+  if (workspaceId) return scheduler.listBatches(workspaceId, limit);
+  const rows = await db
+    .selectFrom("WorkflowBatch")
+    .select(["batchId"])
+    .orderBy("updatedAt", "desc")
+    .limit(limit)
+    .execute();
+  const batches: WorkflowBatchReadModel[] = [];
+  for (const row of rows) {
+    const batch = await scheduler.getBatch(row.batchId);
+    if (batch) batches.push(batch);
+  }
+  return batches;
+}
+
 async function listRecentRuns(
   db: Kysely<DB>,
-  workspaceId: string,
+  workspaceId: string | null,
   limit: number,
 ): Promise<WorkspaceWorkflowRunSummary[]> {
   const rows = await db
     .selectFrom("WorkflowPersistedRun")
     .select(["runId", "coreModelJson", "status", "createdAt", "updatedAt"])
-    .where("workspaceId", "=", workspaceId)
+    .$if(Boolean(workspaceId), (qb) => qb.where("workspaceId", "=", workspaceId!))
     .orderBy("updatedAt", "desc")
     .limit(limit)
     .execute();

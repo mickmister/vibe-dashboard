@@ -56,8 +56,12 @@ export interface WorkflowRoadmapModel {
   };
 }
 
-export async function fetchWorkflowRoadmap(): Promise<WorkflowRoadmapModel> {
-  const response = await fetch("/dashboard/api/workflows/roadmap", {
+export async function fetchWorkflowRoadmap(query?: URLSearchParams): Promise<WorkflowRoadmapModel> {
+  const params = new URLSearchParams();
+  const workspaceId = query?.get("workspaceId") || query?.get("workspace") || "";
+  if (workspaceId) params.set("workspaceId", workspaceId);
+  const url = params.toString() ? `/dashboard/api/workflows/roadmap?${params.toString()}` : "/dashboard/api/workflows/roadmap";
+  const response = await fetch(url, {
     headers: { Accept: "application/json" },
   });
   const payload = (await response.json().catch(() => ({}))) as {

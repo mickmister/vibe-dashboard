@@ -1,5 +1,5 @@
 export interface WorkspaceWorkflowsHomeModel {
-  workspaceId: string;
+  workspaceId: string | null;
   userWorkflows: WorkspaceWorkflowSummary[];
   starterTemplates: WorkspaceWorkflowSummary[];
   recentRuns: WorkspaceWorkflowRunSummary[];
@@ -300,11 +300,13 @@ export class WorkflowApiError extends Error {
 }
 
 export async function fetchWorkspaceWorkflowsHome(
-  workspaceId: string,
+  workspaceId?: string | null,
 ): Promise<WorkspaceWorkflowsHomeModel> {
-  const params = new URLSearchParams({ workspaceId });
+  const params = new URLSearchParams();
+  if (workspaceId) params.set("workspaceId", workspaceId);
+  const query = params.toString();
   const response = await fetch(
-    `/dashboard/api/workflows/home?${params.toString()}`,
+    query ? `/dashboard/api/workflows/home?${query}` : "/dashboard/api/workflows/home",
     { headers: { Accept: "application/json" } },
   );
   const payload = (await response.json().catch(() => ({}))) as {

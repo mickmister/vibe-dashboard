@@ -301,13 +301,13 @@ export function buildWorkflowRoadmapModel(
     milestones,
     stale: false,
     source: {
-      label: "Checked-in workflow roadmap",
+      label: "Demo workflow roadmap",
       description:
-        "Static typed milestone data curated from test plans and review/tester-approved bead history. No command execution or bead mutations are used.",
+        "Static roadmap fixture for Storybook and tests only. Product routes use a typed live bead provider or an unavailable state.",
       freshness: "static",
       updatedAt: null,
       statusCountScope: "top_level_milestones",
-      warnings: ["Static fallback: live bead provider is not configured."],
+      warnings: ["Demo fixture data; not shown by normal product routes."],
     },
   });
 }
@@ -315,19 +315,38 @@ export function buildWorkflowRoadmapModel(
 export async function buildLiveWorkflowRoadmapModel(options: { now?: () => number; workspaceId?: string; provider?: WorkflowRoadmapLiveProvider | null } = {}): Promise<WorkflowRoadmapModel> {
   const generatedAt = options.now?.() ?? Date.now();
   const provider = options.provider;
-  if (!provider) return buildWorkflowRoadmapModel({ now: () => generatedAt });
-  const milestones = deepClone(CURRENT_SPIKE_MILESTONES);
-  const beadIds = collectRoadmapBeadIds(milestones);
+  if (!provider) {
+    return unavailableRoadmapModel({
+      generatedAt,
+      reason: "Live bead provider is not configured.",
+      nextAction: "Configure the live bead provider to view roadmap progress.",
+    });
+  }
+  const templateMilestones = deepClone(CURRENT_SPIKE_MILESTONES);
+  const beadIds = collectRoadmapBeadIds(templateMilestones);
   try {
     const [live, metaRuns] = await Promise.all([
       provider.readBeads(beadIds, { workspaceId: options.workspaceId }),
       provider.listMetaRuns?.({ workspaceId: options.workspaceId }) ?? Promise.resolve([]),
     ]);
+    const liveIds = new Set(live.beads.map((bead) => bead.beadId));
+    const milestones = filterMilestonesWithLiveData(templateMilestones, liveIds);
     applyLiveBeads(milestones, live.beads);
     applyLiveMetaRuns(milestones, metaRuns);
-    const missingCount = beadIds.filter((id) => !live.beads.some((bead) => bead.beadId === id)).length;
+    const missingCount = beadIds.filter((id) => !liveIds.has(id)).length;
     const warnings = sanitizeWarnings(live.warnings);
-    if (missingCount > 0) warnings.push(`${missingCount} roadmap beads were not returned by the live provider; static context is shown for those items.`);
+    if (missingCount > 0) warnings.push(`${missingCount} roadmap beads were not returned by the live provider.`);
+    if (!milestones.length) {
+      return unavailableRoadmapModel({
+        generatedAt,
+        provider,
+        reason: "The live bead provider did not return roadmap beads.",
+        warnings,
+        freshness: live.stale ? "stale" : "partial",
+        updatedAt: live.updatedAt ?? latestMetaRunUpdatedAt(metaRuns),
+        nextAction: "Refresh after bead data is available for this roadmap.",
+      });
+    }
     const freshness = live.stale ? "stale" : live.partial || missingCount > 0 ? "partial" : "live";
     return baseRoadmapModel({
       generatedAt,
@@ -344,19 +363,13 @@ export async function buildLiveWorkflowRoadmapModel(options: { now?: () => numbe
       },
     });
   } catch (error) {
-    const fallback = buildWorkflowRoadmapModel({ now: () => generatedAt });
-    fallback.stale = true;
-    fallback.source = {
-      label: `${provider.label} unavailable`,
-      description: "Live roadmap provider failed. Static fallback is shown until the provider recovers.",
-      providerId: provider.providerId,
-      freshness: "error",
-      updatedAt: null,
-      statusCountScope: "top_level_milestones",
+    return unavailableRoadmapModel({
+      generatedAt,
+      provider,
+      reason: "Live roadmap progress is temporarily unavailable.",
       warnings: [scrubProductText(error instanceof Error ? error.message : String(error))],
-    };
-    fallback.nextAction = "Live roadmap progress is temporarily unavailable. Refresh after the provider recovers.";
-    return fallback;
+      nextAction: "Refresh after the live bead provider recovers.",
+    });
   }
 }
 
@@ -383,6 +396,45 @@ export function emptyWorkflowRoadmapModel(
   };
 }
 
+
+function unavailableRoadmapModel(input: {
+  generatedAt: number;
+  reason: string;
+  nextAction: string;
+  provider?: WorkflowRoadmapLiveProvider;
+  warnings?: string[];
+  freshness?: "partial" | "stale" | "error";
+  updatedAt?: number | null;
+}): WorkflowRoadmapModel {
+  const model = baseRoadmapModel({
+    generatedAt: input.generatedAt,
+    milestones: [],
+    stale: true,
+    source: {
+      label: input.provider ? `${input.provider.label} unavailable` : "Live roadmap unavailable",
+      description: input.provider?.description ?? input.reason,
+      providerId: input.provider?.providerId,
+      freshness: input.freshness ?? "error",
+      updatedAt: input.updatedAt ?? null,
+      statusCountScope: "top_level_milestones",
+      warnings: sanitizeWarnings(input.warnings ?? [input.reason]),
+    },
+  });
+  model.nextAction = input.nextAction;
+  return model;
+}
+
+function filterMilestonesWithLiveData(
+  milestones: WorkflowRoadmapMilestone[],
+  liveIds: Set<string>,
+): WorkflowRoadmapMilestone[] {
+  return milestones
+    .map((milestone) => ({
+      ...milestone,
+      children: milestone.children.filter((childItem) => liveIds.has(childItem.beadId)),
+    }))
+    .filter((milestone) => liveIds.has(milestone.beadId) || milestone.children.length > 0);
+}
 
 function baseRoadmapModel(input: { generatedAt: number; milestones: WorkflowRoadmapMilestone[]; stale: boolean; source: WorkflowRoadmapModel["source"] }): WorkflowRoadmapModel {
   return {
@@ -413,7 +465,7 @@ function applyLiveBeads(milestones: WorkflowRoadmapMilestone[], beads: LiveRoadm
       milestone.reviewState = mapReviewState(milestone.status);
       milestone.summary = cleanText(live.summary) ?? milestone.summary;
       milestone.nextAction = milestone.status === "complete" ? null : defaultNextAction(milestone.status);
-      milestone.links = productSafeLinks([{ label: "Open bead", href: live.url ?? beadUrl(live.beadId), kind: "bead" }]);
+      milestone.links = productSafeLinks(live.url ? [{ label: "Open bead", href: live.url, kind: "bead" }] : []);
     }
     for (const childItem of milestone.children) {
       const childLive = byId.get(childItem.beadId);
@@ -422,7 +474,7 @@ function applyLiveBeads(milestones: WorkflowRoadmapMilestone[], beads: LiveRoadm
       childItem.status = mapLiveStatus(childLive);
       childItem.summary = cleanText(childLive.summary) ?? childItem.summary;
       childItem.nextAction = childItem.status === "complete" ? null : defaultNextAction(childItem.status);
-      childItem.links = productSafeLinks([{ label: "Open bead", href: childLive.url ?? beadUrl(childLive.beadId), kind: "bead" }]);
+      childItem.links = productSafeLinks(childLive.url ? [{ label: "Open bead", href: childLive.url, kind: "bead" }] : []);
     }
   }
 }
@@ -455,7 +507,7 @@ function appendSupportedRunLinks(links: WorkflowRoadmapLink[], runs: Array<{ run
 function productSafeLinks(links: WorkflowRoadmapLink[]): WorkflowRoadmapLink[] {
   const seen = new Set<string>();
   return links.filter((link) => {
-    const safe = link.href.startsWith("/beads/project?bead=") || link.href.startsWith("/dashboard/workflows/") || link.href.startsWith("/docs/");
+    const safe = link.href.startsWith("/dashboard/workflows/") || link.href.startsWith("/docs/");
     const key = `${link.kind}:${link.href}`;
     if (!safe || seen.has(key)) return false;
     seen.add(key);
@@ -530,7 +582,7 @@ function milestone(
     reviewState,
     nextAction: status === "complete" ? null : defaultNextAction(status),
     dependencies: [],
-    links: [{ label: "Open bead", href: beadUrl(beadId), kind: "bead" }],
+    links: [],
     children: childBeadIds.map((childBeadId) =>
       child(
         childBeadId,
@@ -556,12 +608,8 @@ function child(
     status,
     summary,
     nextAction,
-    links: [{ label: "Open bead", href: beadUrl(beadId), kind: "bead" }],
+    links: [],
   };
-}
-
-function beadUrl(beadId: string): string {
-  return `/beads/project?bead=${encodeURIComponent(beadId)}`;
 }
 
 function countStatuses(

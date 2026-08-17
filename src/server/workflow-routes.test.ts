@@ -189,26 +189,11 @@ describe("registerWorkflowRoutes", () => {
       roadmap: {
         spikeId: "vk/8b79-vd-workflows",
         title: "Workflow builder and automation spike",
-        statusCounts: expect.objectContaining({
-          complete: expect.any(Number),
-          in_progress: expect.any(Number),
-          review: expect.any(Number),
-          remaining: expect.any(Number),
-        }),
-        milestones: expect.arrayContaining([
-          expect.objectContaining({
-            milestone: "CKOV",
-            beadId: "vibe-kanban-vscode-web-ckov",
-            links: [
-              expect.objectContaining({
-                label: "Open bead",
-                href: "/beads/project?bead=vibe-kanban-vscode-web-ckov",
-              }),
-            ],
-          }),
-        ]),
+        source: expect.objectContaining({ freshness: "error" }),
+        milestones: [],
       },
     });
+    expect(JSON.stringify(payload)).not.toContain("/beads/project");
     const serialized = JSON.stringify(payload);
     expect(serialized).not.toContain("bd update");
     expect(serialized).not.toContain("shell command");
@@ -347,6 +332,17 @@ describe("registerWorkflowRoutes", () => {
             detailUrl: "/dashboard/workflows/run-home-a",
           },
         ],
+        needsInput: [],
+      },
+    });
+
+    const globalResponse = await app.request("/dashboard/api/workflows/home");
+    expect(globalResponse.status).toBe(200);
+    await expect(globalResponse.json()).resolves.toMatchObject({
+      home: {
+        workspaceId: null,
+        userWorkflows: [{ id: "design-home", title: "Home Workflow", status: "ready" }],
+        recentRuns: [{ runId: "run-home-a", workflowName: "Home Workflow" }],
         needsInput: [],
       },
     });

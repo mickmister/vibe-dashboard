@@ -27,6 +27,7 @@ import { DeclarativeWorkflowRuntime } from '../workflows/declarative/runtime';
 import { createDeclarativeWorkflowWorker, getDeclarativeWorkflowWorkerIntervalMs, shouldStartDeclarativeWorkflowWorker } from '../workflows/declarative/worker';
 import { workflowRegistry } from '../workflows/registry';
 import type { CachedRepoAlias } from '../workflows/github-ci';
+import { createBdWorkflowProviders } from './plugins/workflows/server/bdBeadWorkflowProvider';
 
 const execFileAsync = promisify(execFile);
 const reposRoot = process.env.VK_REPOS_ROOT || join(process.env.HOME || '/home/vkuser', 'repos');
@@ -53,6 +54,7 @@ serverRegistry.registerServerModule((api) => {
   const workflowWebhookProvisioningStore = new DbWorkflowWebhookProvisioningStore({ getDb: async () => (await getVdDb()).db });
   const workflowDesignStore = new DbWorkflowDesignStore({ getDb: async () => (await getVdDb()).db, templates: BUILT_IN_WORKFLOW_TEMPLATES });
   const workspaceLaneStore = new DbWorkspaceLaneStore({ getDb: async () => (await getVdDb()).db });
+  const workflowBeadProviders = createBdWorkflowProviders();
   const declarativeWorkflowRuntime = new DeclarativeWorkflowRuntime({
     store: workflowOrchestrationStore,
     resolver: roleSessionResolver,
@@ -105,6 +107,8 @@ serverRegistry.registerServerModule((api) => {
     workflowWebhookProvisioningStore,
     workflowDesignStore,
     workspaceLaneStore,
+    metaWorkflowBeadProvider: workflowBeadProviders.beadProvider,
+    workflowRoadmapLiveProvider: workflowBeadProviders.roadmapProvider,
     vkClient,
   });
   registerPluginAssetRoutes(api.hono, { installRoot: pluginInstallRoot });
