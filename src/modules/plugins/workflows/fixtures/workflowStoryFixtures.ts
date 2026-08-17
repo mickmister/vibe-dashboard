@@ -32,6 +32,9 @@ export const workflowStoryAssets: WorkflowAssetsModel = {
     { kind: 'skill', id: 'skill.workflow.xml-decision', version: 1, name: 'Workflow XML decision skill', description: 'Use final XML for workflow actions.', source: 'built_in', preview: 'Return XML matching the current state actions.' },
     { kind: 'skill', id: 'skill.beads-form.schema', version: 1, name: 'Beads-form schema skill', description: 'Markdown form authoring guidance.', source: 'built_in', preview: 'Represent forms as beads-form-compatible schemas.' },
   ],
+  roleTemplates: [
+    { id: 'role.template.dev', version: 1, name: 'Reusable Dev role', description: 'Shared implementation instructions.', source: 'user', promptPreview: 'Implement carefully and summarize risks.', skillRefs: [{ kind: 'skill', id: 'skill.workflow.xml-decision', version: 1 }], executorPreference: { executorType: 'CODEX', model: 'gpt-5-codex', mode: 'preferred' }, active: true },
+  ],
 };
 
 export function simpleAgentWorkflowDefinition(): AgentWorkflowDefinitionV1 {

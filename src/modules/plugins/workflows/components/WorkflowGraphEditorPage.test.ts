@@ -399,6 +399,48 @@ describe("WorkflowGraphEditorView prompt and skill picker", () => {
     expect(preview.text).not.toContain("queue item");
   });
 
+  it("TEST_CASE_ZJCB_9 shows and edits linked shared role templates", () => {
+    const definition = promptDefinition();
+    definition.roles.dev = {
+      ...definition.roles.dev,
+      templateRef: { templateId: "role.dev.implementer", version: 1 },
+    };
+    const html = renderToStaticMarkup(
+      React.createElement(WorkflowGraphEditorView, {
+        editor: null,
+        definition,
+        assets: {
+          prompts: [],
+          skills: [],
+          roleTemplates: [
+            {
+              id: "role.dev.implementer",
+              version: 1,
+              name: "Implementer",
+              description: "Reusable implementation role",
+              source: "user",
+              promptPreview: "Shared implementer instructions.",
+              skillRefs: [{ kind: "skill", id: "skill.testing.notes", version: 1 }],
+              executorPreference: { executorType: "CODEX", model: "gpt-5-codex", mode: "preferred" },
+              active: true,
+            },
+          ],
+        },
+        initialSelection: { roleId: "dev" },
+        initialEditTarget: { kind: "role", id: "dev" },
+        onDefinitionChange: () => {},
+        onSave: () => {},
+        onPublish: () => {},
+      }),
+    );
+
+    expect(html).toContain("Shared role template");
+    expect(html).toContain("Implementer v1");
+    expect(html).toContain("Shared implementer instructions.");
+    expect(html).toContain("Skills: skill:skill.testing.notes@1");
+    expect(html).toContain("Template changes publish as new versions");
+  });
+
   it("TEST_CASE_ZJCB_8 keeps role preferences read-only until the selected role is edited", () => {
     const html = renderToStaticMarkup(
       React.createElement(WorkflowGraphEditorView, {

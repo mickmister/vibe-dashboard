@@ -374,6 +374,7 @@ export function WorkflowGraphEditorView({
             role={selectedRole}
             stateCount={graph.nodes.filter((node) => node.ownerRoleId === selectedRoleId).length}
             definition={definition}
+            assets={assets ?? { prompts: [], skills: [], roleTemplates: [] }}
             editing={editTarget?.kind === "role" && editTarget.id === selectedRoleId}
             onEdit={() => setEditTarget({ kind: "role", id: selectedRoleId })}
             onDone={() => setEditTarget(null)}
@@ -755,6 +756,7 @@ function RoleDetails({
   role,
   stateCount,
   definition,
+  assets,
   editing,
   onEdit,
   onDone,
@@ -764,6 +766,7 @@ function RoleDetails({
   role: AgentWorkflowDefinitionV1["roles"][string];
   stateCount: number;
   definition: AgentWorkflowDefinitionV1;
+  assets: WorkflowAssetsModel;
   editing: boolean;
   onEdit: () => void;
   onDone: () => void;
@@ -773,6 +776,13 @@ function RoleDetails({
   const modelOptions = executorType
     ? (WORKFLOW_EXECUTOR_MODEL_OPTIONS[executorType]?.models ?? [])
     : [];
+  const linkedTemplate = role.templateRef
+    ? assets.roleTemplates?.find(
+        (template) =>
+          template.id === role.templateRef?.templateId &&
+          template.version === role.templateRef?.version,
+      )
+    : null;
 
   if (!editing) {
     return (
@@ -790,6 +800,13 @@ function RoleDetails({
             </p>
             <p className="mt-1 text-xs text-zinc-500">
               {formatEditorRolePreference(role)}
+            </p>
+            <p className="mt-1 text-xs text-zinc-500">
+              {linkedTemplate
+                ? `Role template: ${linkedTemplate.name} v${linkedTemplate.version}`
+                : role.templateRef
+                  ? `Role template unavailable: ${role.templateRef.templateId}@${role.templateRef.version}`
+                  : "Role template: none"}
             </p>
           </div>
           <button
@@ -837,6 +854,13 @@ function RoleDetails({
           }
         />
       </label>
+      <RoleTemplateSelector
+        roleId={roleId}
+        role={role}
+        definition={definition}
+        assets={assets}
+        onChange={onChange}
+      />
       <div className="mt-3 grid gap-3 sm:grid-cols-2">
         <label className="block text-sm">
           <span className="font-medium">Executor preference</span>
@@ -906,6 +930,100 @@ function RoleDetails({
           </select>
         </label>
       </div>
+    </section>
+  );
+}
+
+function RoleTemplateSelector({
+  roleId,
+  role,
+  definition,
+  assets,
+  onChange,
+}: {
+  roleId: string;
+  role: AgentWorkflowDefinitionV1["roles"][string];
+  definition: AgentWorkflowDefinitionV1;
+  assets: WorkflowAssetsModel;
+  onChange: (definition: AgentWorkflowDefinitionV1) => void;
+}) {
+  const templates = assets.roleTemplates ?? [];
+  const selectedKey = role.templateRef
+    ? `${role.templateRef.templateId}@${role.templateRef.version}`
+    : "";
+  const selected = templates.find(
+    (template) => `${template.id}@${template.version}` === selectedKey,
+  );
+  const changeTemplate = (value: string) => {
+    const nextRole = { ...role } as AgentWorkflowDefinitionV1["roles"][string];
+    if (!value) {
+      delete nextRole.templateRef;
+    } else {
+      const template = templates.find(
+        (candidate) => `${candidate.id}@${candidate.version}` === value,
+      );
+      if (!template) return;
+      nextRole.templateRef = { templateId: template.id, version: template.version };
+      if (!nextRole.executorPreference && template.executorPreference) {
+        nextRole.executorPreference = {
+          executorType: template.executorPreference.executorType as never,
+          model: template.executorPreference.model,
+          mode: "preferred",
+        };
+      }
+    }
+    onChange({
+      ...definition,
+      roles: { ...definition.roles, [roleId]: nextRole },
+    });
+  };
+
+  return (
+    <section className="mt-3 rounded-lg border border-zinc-800 bg-zinc-950/70 p-3">
+      <label className="block text-sm">
+        <span className="font-medium">Shared role template</span>
+        <select
+          aria-label={`${roleId} shared role template`}
+          className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 p-2"
+          value={selectedKey}
+          onChange={(event) => changeTemplate(event.target.value)}
+        >
+          <option value="">No shared role template</option>
+          {templates.map((template) => (
+            <option key={`${template.id}@${template.version}`} value={`${template.id}@${template.version}`} disabled={!template.active}>
+              {template.name} v{template.version} · {sourceLabel(template.source)}
+            </option>
+          ))}
+        </select>
+      </label>
+      {role.templateRef && !selected ? (
+        <div className="mt-2 rounded border border-amber-900 bg-amber-950/30 p-2 text-xs text-amber-100">
+          Linked role template is unavailable: {role.templateRef.templateId}@{role.templateRef.version}
+        </div>
+      ) : null}
+      {selected ? (
+        <div className="mt-3 rounded border border-cyan-900/60 bg-cyan-950/20 p-3 text-xs text-cyan-50">
+          <div className="font-medium">{selected.name} v{selected.version}</div>
+          {selected.description ? (
+            <p className="mt-1 text-cyan-100">{selected.description}</p>
+          ) : null}
+          <p className="mt-2 whitespace-pre-wrap text-cyan-100">
+            {selected.promptPreview}
+          </p>
+          {selected.skillRefs.length ? (
+            <p className="mt-2 text-cyan-200">
+              Skills: {selected.skillRefs.map(formatAssetRef).join(", ")}
+            </p>
+          ) : null}
+          <p className="mt-2 text-cyan-200">
+            Template changes publish as new versions; this workflow links the selected version.
+          </p>
+        </div>
+      ) : templates.length ? null : (
+        <div className="mt-2 rounded border border-dashed border-zinc-800 p-2 text-xs text-zinc-500">
+          No shared role templates are available yet.
+        </div>
+      )}
     </section>
   );
 }

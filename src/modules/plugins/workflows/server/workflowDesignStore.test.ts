@@ -40,6 +40,92 @@ describe('DbWorkflowDesignStore M91 foundation', () => {
     await expect(store.replacePublishedVersionDefinition()).rejects.toThrow(/immutable/i);
   });
 
+  it('TEST_CASE_ZJCB_9 links published workflows to immutable role template versions and resolves prompts', async () => {
+    const { store } = await createStore();
+    await seedPromptAssets(store);
+    await store.createRoleTemplate({
+      roleTemplateId: 'role.dev.implementer',
+      version: 1,
+      source: 'user',
+      name: 'Implementer',
+      description: 'Reusable implementation role',
+      promptMarkdown: 'Shared implementer role instructions.',
+      skillRefs: [{ kind: 'skill', id: 'skill.testing.notes', version: 1 }],
+      executorPreference: { executorType: 'CODEX', model: 'gpt-5-codex', mode: 'preferred' },
+    });
+    await store.createRoleTemplate({
+      roleTemplateId: 'role.dev.implementer',
+      version: 2,
+      source: 'user',
+      name: 'Implementer v2',
+      promptMarkdown: 'Newer role prompt that should not affect v1 links.',
+      skillRefs: [],
+    });
+
+    const definition = workflowDefinition('role-template-link');
+    (definition.roles.dev as any) = {
+      ...definition.roles.dev,
+      templateRef: { templateId: 'role.dev.implementer', version: 1 },
+    };
+    await store.createDesign({
+      designId: 'design.role-template',
+      draftId: 'draft.role-template',
+      name: 'Role template workflow',
+      definition,
+    });
+
+    const published = await store.publishDraft('draft.role-template');
+    const promptText = published.resolvedPromptSnapshot.prompts.find((prompt) => prompt.path === 'states.dev.steps.0.prompt')?.text ?? '';
+    expect(published.resolvedDefinition.roles.dev).toMatchObject({
+      templateRef: { templateId: 'role.dev.implementer', version: 1 },
+      executorPreference: { executorType: 'CODEX', model: 'gpt-5-codex' },
+    });
+    expect(published.resolvedPromptSnapshot.roleTemplates).toEqual([
+      expect.objectContaining({ roleId: 'dev', templateId: 'role.dev.implementer', version: 1, name: 'Implementer' }),
+    ]);
+    expect(promptText).toContain('Shared implementer role instructions.');
+    expect(promptText).toContain('Testing shared skill body.');
+    expect(promptText).toContain('Implement with the shared prompt.');
+    expect(promptText).not.toContain('Newer role prompt');
+
+    const snapshot = await store.createRunSnapshot({
+      runSnapshotId: 'run-snapshot-role-template',
+      designId: 'design.role-template',
+      version: 1,
+      workspaceId: 'workspace-a',
+      runInput: {},
+      roleBindings: {},
+    });
+    expect(snapshot.resolvedPromptSnapshot.roleTemplates?.[0]).toMatchObject({ templateId: 'role.dev.implementer', version: 1 });
+  });
+
+  it('TEST_CASE_ZJCB_9 rejects missing role template links before publish', async () => {
+    const { store } = await createStore();
+    await seedPromptAssets(store);
+    const definition = workflowDefinition('missing-role-template');
+    (definition.roles.dev as any) = {
+      ...definition.roles.dev,
+      templateRef: { templateId: 'role.missing', version: 1 },
+    };
+    await store.createDesign({
+      designId: 'design.missing-role-template',
+      draftId: 'draft.missing-role-template',
+      name: 'Missing role template workflow',
+      definition,
+    });
+    await expect(store.publishDraft('draft.missing-role-template')).rejects.toBeInstanceOf(WorkflowDesignValidationError);
+    await expect(store.getDraft('draft.missing-role-template')).resolves.toMatchObject({
+      validationStatus: 'invalid',
+      validationIssues: [
+        expect.objectContaining({
+          code: 'WORKFLOW_CONFIG_INVALID_REFERENCE',
+          path: 'roles.dev.templateRef',
+          message: 'role template role.missing@1 is unavailable',
+        }),
+      ],
+    });
+  });
+
   it('TEST_CASE_M91_1A rejects invalid drafts at publish with stable validation issues', async () => {
     const { store } = await createStore();
     await store.createDesign({

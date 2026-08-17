@@ -394,6 +394,21 @@ export interface WorkflowSkillAsset {
   updatedAt: number;
 }
 
+export interface WorkflowRoleTemplate {
+  roleTemplateId: string;
+  version: number;
+  source: WorkflowLibraryRecordSource;
+  name: string;
+  description: NullableString;
+  promptMarkdown: string;
+  skillRefsJson: string;
+  executorPreferenceJson: NullableString;
+  active: number;
+  contentHash: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface WorkflowDesignRunSnapshot {
   runSnapshotId: string;
   designId: string;
@@ -590,6 +605,7 @@ export interface DB {
   WorkflowDesignDraft: WorkflowDesignDraft;
   WorkflowDesignVersion: WorkflowDesignVersion;
   WorkflowPromptAsset: WorkflowPromptAsset;
+  WorkflowRoleTemplate: WorkflowRoleTemplate;
   WorkflowSkillAsset: WorkflowSkillAsset;
   WorkflowDesignRunSnapshot: WorkflowDesignRunSnapshot;
   WorkflowPersistedRun: WorkflowPersistedRun;

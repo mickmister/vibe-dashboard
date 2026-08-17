@@ -88,6 +88,17 @@ export const CompactContextualGraphCollapsed: Story = {
   },
 };
 
+export const LinkedRoleTemplateEditor: Story = {
+  args: {
+    title: 'Linked shared role template',
+    description: 'ZJCB Slice 5: role editor shows reusable role template version, prompt preview, skills, and versioning copy.',
+    definition: linkedRoleTemplateDefinition(),
+    initialGraphOpen: false,
+    initialSelection: { roleId: 'dev' },
+    initialEditTarget: { kind: 'role', id: 'dev' },
+  },
+};
+
 export const InvalidDefinition: Story = {
   args: {
     title: 'Invalid workflow definition',
@@ -120,7 +131,7 @@ export const DarkModeVisualQa: Story = {
   ),
 };
 
-function GraphStory({ title, description, definition, initialGraphOpen = false }: { title: string; description?: string; definition: AgentWorkflowDefinitionV1; initialGraphOpen?: boolean }): React.ReactElement {
+function GraphStory({ title, description, definition, initialGraphOpen = false, initialSelection, initialEditTarget }: { title: string; description?: string; definition: AgentWorkflowDefinitionV1; initialGraphOpen?: boolean; initialSelection?: { roleId?: string; stateId?: string; edgeId?: string }; initialEditTarget?: { kind: 'design' | 'role' | 'state' | 'action'; id: string } }): React.ReactElement {
   const [currentDefinition, setCurrentDefinition] = useState(definition);
   return (
     <WorkflowStoryFrame title={title} description={description} height="46rem">
@@ -132,7 +143,18 @@ function GraphStory({ title, description, definition, initialGraphOpen = false }
         onSave={() => undefined}
         onPublish={() => undefined}
         initialGraphOpen={initialGraphOpen}
+        initialSelection={initialSelection}
+        initialEditTarget={initialEditTarget as never}
       />
     </WorkflowStoryFrame>
   );
+}
+
+function linkedRoleTemplateDefinition(): AgentWorkflowDefinitionV1 {
+  const definition = devReviewTesterWorkflowDefinition();
+  definition.roles.dev = {
+    ...definition.roles.dev,
+    templateRef: { templateId: 'role.template.dev', version: 1 },
+  };
+  return definition;
 }

@@ -445,6 +445,34 @@ describe("agent workflow V1 normalization", () => {
     );
   });
 
+  it("TEST_CASE_ZJCB_9 preserves role template version refs and validates shape", () => {
+    const definition = makeDefinition();
+    definition.roles.dev = {
+      ...definition.roles.dev,
+      templateRef: { templateId: "role.dev.implementer", version: 1 },
+    };
+
+    const model = normalizeWorkflowDefinitionV1(definition);
+
+    expect(model.roles.dev!.templateRef).toEqual({
+      templateId: "role.dev.implementer",
+      version: 1,
+    });
+
+    expectDefinitionError(
+      () => {
+        const invalid: any = makeDefinition();
+        invalid.roles.dev = {
+          ...invalid.roles.dev,
+          templateRef: { templateId: "", version: 0 },
+        };
+        return normalizeWorkflowDefinitionV1(invalid);
+      },
+      "WORKFLOW_CONFIG_INVALID_ACTIVE_STATE",
+      "roles.dev.templateRef.templateId",
+    );
+  });
+
   it("TEST_CASE_M99_1A normalizes and advances blocking workflow_call steps", () => {
     const def = makeDefinition();
     activeAuthoredState(def, "devImplementing").steps = [

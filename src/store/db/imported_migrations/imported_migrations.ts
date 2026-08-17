@@ -15,6 +15,7 @@ import { migration as workflowBatchesMigration } from '../migrations/20260811030
 import { migration as workspaceLanesMigration } from '../migrations/20260814000000_workspace_lanes/migration';
 import { migration as workflowMetaRunsMigration } from '../migrations/20260815000000_workflow_meta_runs/migration';
 import { migration as workflowMetaRunChildBindingsMigration } from '../migrations/20260817000000_workflow_meta_run_child_bindings/migration';
+import { migration as workflowRoleTemplatesMigration } from '../migrations/20260817001000_workflow_role_templates/migration';
 
 export const migrations = [
   {
@@ -84,5 +85,9 @@ export const migrations = [
   {
     name: '20260817000000_workflow_meta_run_child_bindings',
     migration: workflowMetaRunChildBindingsMigration,
+  },
+  {
+    name: '20260817001000_workflow_role_templates',
+    migration: workflowRoleTemplatesMigration,
   },
 ];

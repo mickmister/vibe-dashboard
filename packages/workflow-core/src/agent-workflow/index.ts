@@ -31,6 +31,10 @@ export type WorkflowRoleDefinition = {
   label?: string;
   description?: string;
   executorPreference?: WorkflowRoleExecutorPreferenceV1;
+  templateRef?: {
+    templateId: string;
+    version: number;
+  };
 };
 
 export const WORKFLOW_EXECUTOR_MODEL_OPTIONS: Record<
@@ -679,7 +683,7 @@ export function normalizeWorkflowDefinitionV1(
       }
       assertKnownKeys(
         role,
-        ["label", "description", "executorPreference"],
+        ["label", "description", "executorPreference", "templateRef"],
         `roles.${roleId}`,
         issues,
       );
@@ -693,6 +697,11 @@ export function normalizeWorkflowDefinitionV1(
         label: role.label,
         description: role.description,
         executorPreference,
+        templateRef: normalizeRoleTemplateRef(
+          role.templateRef,
+          `roles.${roleId}.templateRef`,
+          issues,
+        ),
       });
     }
   }
@@ -2371,6 +2380,49 @@ function validateRoleExecutorPreference(
     model,
     mode: "preferred" as const,
   });
+}
+
+function normalizeRoleTemplateRef(
+  value: unknown,
+  path: string,
+  issues: WorkflowConfigIssue[],
+): WorkflowRoleDefinition["templateRef"] | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) {
+    issues.push(
+      issue(
+        "WORKFLOW_CONFIG_INVALID_ACTIVE_STATE",
+        path,
+        "templateRef must be an object",
+      ),
+    );
+    return undefined;
+  }
+  assertKnownKeys(value, ["templateId", "version"], path, issues);
+  const templateId = value.templateId;
+  const version = value.version;
+  if (typeof templateId !== "string" || !templateId.trim()) {
+    issues.push(
+      issue(
+        "WORKFLOW_CONFIG_INVALID_ACTIVE_STATE",
+        `${path}.templateId`,
+        "templateId is required",
+      ),
+    );
+  }
+  if (!Number.isInteger(version) || Number(version) < 1) {
+    issues.push(
+      issue(
+        "WORKFLOW_CONFIG_INVALID_ACTIVE_STATE",
+        `${path}.version`,
+        "version must be a positive integer",
+      ),
+    );
+  }
+  if (typeof templateId !== "string" || !templateId.trim() || !Number.isInteger(version) || Number(version) < 1) {
+    return undefined;
+  }
+  return { templateId, version: Number(version) };
 }
 
 function validatePrompt(

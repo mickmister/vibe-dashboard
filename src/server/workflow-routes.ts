@@ -534,9 +534,10 @@ export function registerWorkflowRoutes(
       options.workflowDesignStore ??
       new DbWorkflowDesignStore({ db, templates: BUILT_IN_WORKFLOW_TEMPLATES });
     const limit = parsePositiveInteger(c.req.query("limit") ?? null) ?? 100;
-    const [prompts, skills] = await Promise.all([
+    const [prompts, skills, roleTemplates] = await Promise.all([
       designStore.listPromptAssets(limit),
       designStore.listSkillAssets(limit),
+      designStore.listRoleTemplates(limit),
     ]);
     return c.json({
       prompts: prompts.map((asset) => ({
@@ -557,7 +558,58 @@ export function registerWorkflowRoutes(
         source: asset.source,
         preview: asset.bodyMarkdown.slice(0, 240),
       })),
+      roleTemplates: roleTemplates.map((template) => ({
+        id: template.roleTemplateId,
+        version: template.version,
+        name: template.name,
+        description: template.description,
+        source: template.source,
+        promptPreview: template.promptMarkdown.slice(0, 240),
+        skillRefs: template.skillRefs,
+        executorPreference: template.executorPreference,
+        active: template.active,
+      })),
     });
+  });
+
+  hono.post("/dashboard/api/workflow-role-templates", async (c) => {
+    const body = asRecord(await readJsonBody(c.req.raw));
+    const name = asString(body?.name);
+    const promptMarkdown = asString(body?.promptMarkdown);
+    if (!name || !promptMarkdown)
+      return c.json(
+        {
+          error: "workflow_role_template_required",
+          message: "Role template name and prompt are required",
+        },
+        400,
+      );
+    const db = options.workflowHomeDb ?? (await getVdDb()).db;
+    const designStore =
+      options.workflowDesignStore ??
+      new DbWorkflowDesignStore({ db, templates: BUILT_IN_WORKFLOW_TEMPLATES });
+    try {
+      const created = await designStore.createRoleTemplate({
+        roleTemplateId:
+          asString(body?.roleTemplateId) ?? `workflow-role-${randomUUID()}`,
+        version: typeof body?.version === "number" ? body.version : parsePositiveInteger(typeof body?.version === "string" ? body.version : null) ?? 1,
+        source: "user",
+        name,
+        description: asString(body?.description) ?? null,
+        promptMarkdown,
+        skillRefs: Array.isArray(body?.skillRefs) ? body.skillRefs as never : [],
+        executorPreference: asRecord(body?.executorPreference) as never,
+      });
+      return c.json({ roleTemplate: created });
+    } catch (error) {
+      return c.json(
+        {
+          error: "workflow_role_template_create_failed",
+          message: error instanceof Error ? error.message : String(error),
+        },
+        400,
+      );
+    }
   });
 
   hono.post("/dashboard/api/workflows/batches", async (c) => {

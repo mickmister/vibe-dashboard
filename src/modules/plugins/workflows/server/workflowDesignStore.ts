@@ -15,6 +15,7 @@ import type {
   WorkflowDesignVersion,
   WorkflowLibraryRecordSource,
   WorkflowPromptAsset,
+  WorkflowRoleTemplate,
   WorkflowSkillAsset,
 } from '../../../../store/kysely_types';
 
@@ -148,6 +149,38 @@ export interface CreateWorkflowSkillAssetInput {
   bodyMarkdown: string;
 }
 
+export interface WorkflowRoleTemplateRef {
+  templateId: string;
+  version?: number;
+}
+
+export interface WorkflowRoleTemplateReadModel {
+  roleTemplateId: string;
+  version: number;
+  source: WorkflowLibraryRecordSource;
+  name: string;
+  description: string | null;
+  promptMarkdown: string;
+  skillRefs: WorkflowAssetRef[];
+  executorPreference: AgentWorkflowDefinitionV1['roles'][string]['executorPreference'] | null;
+  active: boolean;
+  contentHash: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface CreateWorkflowRoleTemplateInput {
+  roleTemplateId: string;
+  version?: number;
+  source?: WorkflowLibraryRecordSource;
+  name: string;
+  description?: string | null;
+  promptMarkdown: string;
+  skillRefs?: WorkflowAssetRef[];
+  executorPreference?: AgentWorkflowDefinitionV1['roles'][string]['executorPreference'] | null;
+  active?: boolean;
+}
+
 export interface WorkflowResolvedPromptSnapshot {
   assets: Array<{
     kind: WorkflowAssetRefKind;
@@ -161,6 +194,13 @@ export interface WorkflowResolvedPromptSnapshot {
     path: string;
     text: string;
     assetRefs: WorkflowAssetRef[];
+  }>;
+  roleTemplates?: Array<{
+    roleId: string;
+    templateId: string;
+    version: number;
+    name: string;
+    contentHash: string;
   }>;
 }
 
@@ -248,6 +288,28 @@ export class DbWorkflowDesignStore {
     const db = await this.getDb();
     const rows = await db.selectFrom('WorkflowSkillAsset').selectAll().orderBy('updatedAt', 'desc').limit(limit).execute();
     return rows.map(mapSkillAsset);
+  }
+
+  async createRoleTemplate(input: CreateWorkflowRoleTemplateInput): Promise<WorkflowRoleTemplateReadModel> {
+    const db = await this.getDb();
+    const now = this.now();
+    const version = input.version ?? 1;
+    await this.upsertRoleTemplate(db, input, now);
+    return this.getRequiredRoleTemplate(input.roleTemplateId, version);
+  }
+
+  async getRoleTemplate(roleTemplateId: string, version?: number): Promise<WorkflowRoleTemplateReadModel | null> {
+    const db = await this.getDb();
+    let query = db.selectFrom('WorkflowRoleTemplate').selectAll().where('roleTemplateId', '=', roleTemplateId);
+    if (version != null) query = query.where('version', '=', version);
+    const row = await query.orderBy('version', 'desc').executeTakeFirst();
+    return row ? mapRoleTemplate(row) : null;
+  }
+
+  async listRoleTemplates(limit = 100): Promise<WorkflowRoleTemplateReadModel[]> {
+    const db = await this.getDb();
+    const rows = await db.selectFrom('WorkflowRoleTemplate').selectAll().orderBy('updatedAt', 'desc').limit(limit).execute();
+    return rows.map(mapRoleTemplate);
   }
 
   async createDesign(input: { designId: string; name: string; description?: string | null; source?: WorkflowLibraryRecordSource; draftId: string; definition: unknown; baseVersion?: number | null }): Promise<{ design: WorkflowDesignReadModel; draft: WorkflowDesignDraftReadModel }> {
@@ -496,6 +558,41 @@ export class DbWorkflowDesignStore {
     })).execute();
   }
 
+  private async upsertRoleTemplate(db: WorkflowDesignDb, input: CreateWorkflowRoleTemplateInput, now: number): Promise<void> {
+    const version = input.version ?? 1;
+    const skillRefs = input.skillRefs ?? [];
+    for (const [index, ref] of skillRefs.entries()) {
+      if (ref.kind !== 'skill' || !ref.id) {
+        throw new WorkflowDesignValidationError([{ code: 'WORKFLOW_CONFIG_INVALID_REFERENCE', path: `roleTemplates.${input.roleTemplateId}.skillRefs.${index}`, message: 'role template skill refs must reference skill assets' }]);
+      }
+    }
+    const contentHash = sha256(stableJson({ promptMarkdown: input.promptMarkdown, skillRefs, executorPreference: input.executorPreference ?? null }));
+    await db.insertInto('WorkflowRoleTemplate').values({
+      roleTemplateId: input.roleTemplateId,
+      version,
+      source: input.source ?? 'user',
+      name: input.name,
+      description: input.description ?? null,
+      promptMarkdown: input.promptMarkdown,
+      skillRefsJson: stableJson(skillRefs),
+      executorPreferenceJson: input.executorPreference ? stableJson(input.executorPreference) : null,
+      active: input.active === false ? 0 : 1,
+      contentHash,
+      createdAt: now,
+      updatedAt: now,
+    }).onConflict((oc) => oc.columns(['roleTemplateId', 'version']).doUpdateSet({
+      source: input.source ?? 'user',
+      name: input.name,
+      description: input.description ?? null,
+      promptMarkdown: input.promptMarkdown,
+      skillRefsJson: stableJson(skillRefs),
+      executorPreferenceJson: input.executorPreference ? stableJson(input.executorPreference) : null,
+      active: input.active === false ? 0 : 1,
+      contentHash,
+      updatedAt: now,
+    })).execute();
+  }
+
   private async validateTemplateEntry(template: WorkflowTemplateCatalogEntry): Promise<{ issues: WorkflowConfigIssue[] }> {
     try {
       const resolved = await this.resolveDefinition(template.definition, { assetOverrides: buildTemplateAssetOverrides(template) });
@@ -536,6 +633,12 @@ export class DbWorkflowDesignStore {
     return asset;
   }
 
+  private async getRequiredRoleTemplate(roleTemplateId: string, version: number): Promise<WorkflowRoleTemplateReadModel> {
+    const template = await this.getRoleTemplate(roleTemplateId, version);
+    if (!template) throw new Error(`Workflow role template ${roleTemplateId}@${version} not found`);
+    return template;
+  }
+
   private async getRequiredRunSnapshot(runSnapshotId: string): Promise<WorkflowDesignRunSnapshotReadModel> {
     const snapshot = await this.getRunSnapshot(runSnapshotId);
     if (!snapshot) throw new Error(`Workflow design run snapshot ${runSnapshotId} not found`);
@@ -567,12 +670,40 @@ export class DbWorkflowDesignStore {
   private async resolveDefinition(definition: unknown, options: { additionalInstructions?: string | null; assetOverrides?: Map<string, ResolvedWorkflowAsset> }): Promise<{ definition: AgentWorkflowDefinitionV1; promptSnapshot: WorkflowResolvedPromptSnapshot }> {
     const cloned = deepClone(definition) as Record<string, unknown>;
     const snapshot: WorkflowResolvedPromptSnapshot = { assets: [], prompts: [] };
+    const roleTemplatePrompts = new Map<string, string>();
+    const roles = isRecord(cloned.roles) ? cloned.roles : {};
+    for (const [roleId, role] of Object.entries(roles)) {
+      if (!isRecord(role) || !isRecord(role.templateRef)) continue;
+      const templateId = role.templateRef.templateId;
+      const version = role.templateRef.version;
+      if (typeof templateId !== 'string' || !Number.isInteger(version)) continue;
+      const template = await this.getRoleTemplate(templateId, Number(version));
+      if (!template || !template.active) {
+        throw new WorkflowDesignValidationError([{ code: 'WORKFLOW_CONFIG_INVALID_REFERENCE', path: `roles.${roleId}.templateRef`, message: `role template ${templateId}@${version} is unavailable` }]);
+      }
+      const resolvedTemplatePrompt = await this.resolvePromptComposition(
+        { template: template.promptMarkdown, refs: template.skillRefs },
+        `roles.${roleId}.templateRef`,
+        snapshot,
+        options,
+      ) as { template?: string };
+      roleTemplatePrompts.set(roleId, resolvedTemplatePrompt.template ?? template.promptMarkdown);
+      if (!role.executorPreference && template.executorPreference) role.executorPreference = template.executorPreference;
+      snapshot.roleTemplates = [
+        ...(snapshot.roleTemplates ?? []),
+        { roleId, templateId: template.roleTemplateId, version: template.version, name: template.name, contentHash: template.contentHash },
+      ];
+    }
     const states = isRecord(cloned.states) ? cloned.states : {};
     for (const [stateId, state] of Object.entries(states)) {
       if (!isRecord(state) || state.terminal === true || !Array.isArray(state.steps)) continue;
+      const roleTemplatePrompt = typeof state.owner === 'string' ? roleTemplatePrompts.get(state.owner) : undefined;
       for (let index = 0; index < state.steps.length; index += 1) {
         const step = state.steps[index];
         if (!isRecord(step)) continue;
+        if (roleTemplatePrompt && isRecord(step.prompt)) {
+          step.prompt = prependRoleTemplatePrompt(step.prompt, roleTemplatePrompt);
+        }
         if (step.prompt !== undefined) {
           step.prompt = await this.resolvePromptComposition(step.prompt, `states.${stateId}.steps.${index}.prompt`, snapshot, options);
         }
@@ -828,6 +959,23 @@ function mapSkillAsset(row: Selectable<WorkflowSkillAsset>): WorkflowSkillAssetR
   };
 }
 
+function mapRoleTemplate(row: Selectable<WorkflowRoleTemplate>): WorkflowRoleTemplateReadModel {
+  return {
+    roleTemplateId: row.roleTemplateId,
+    version: row.version,
+    source: row.source,
+    name: row.name,
+    description: row.description,
+    promptMarkdown: row.promptMarkdown,
+    skillRefs: JSON.parse(row.skillRefsJson) as WorkflowAssetRef[],
+    executorPreference: row.executorPreferenceJson ? JSON.parse(row.executorPreferenceJson) as WorkflowRoleTemplateReadModel['executorPreference'] : null,
+    active: row.active === 1,
+    contentHash: row.contentHash,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
 function mapRunSnapshot(row: Selectable<WorkflowDesignRunSnapshot>): WorkflowDesignRunSnapshotReadModel {
   return {
     runSnapshotId: row.runSnapshotId,
@@ -840,6 +988,16 @@ function mapRunSnapshot(row: Selectable<WorkflowDesignRunSnapshot>): WorkflowDes
     resolvedDefinition: JSON.parse(row.resolvedDefinitionJson) as AgentWorkflowDefinitionV1,
     resolvedPromptSnapshot: JSON.parse(row.resolvedPromptSnapshotJson) as WorkflowResolvedPromptSnapshot,
     createdAt: row.createdAt,
+  };
+}
+
+function prependRoleTemplatePrompt(prompt: Record<string, unknown>, roleTemplatePrompt: string): Record<string, unknown> {
+  return {
+    ...prompt,
+    template: [roleTemplatePrompt, typeof prompt.template === 'string' ? prompt.template : '']
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .join('\n\n'),
   };
 }
 

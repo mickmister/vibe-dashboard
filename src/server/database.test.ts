@@ -42,6 +42,7 @@ describe('VD database', () => {
         '20260814000000_workspace_lanes',
         '20260815000000_workflow_meta_runs',
         '20260817000000_workflow_meta_run_child_bindings',
+        '20260817001000_workflow_role_templates',
       ]);
       const tables = await sql<{ name: string }>`
         SELECT name FROM sqlite_master
@@ -52,7 +53,7 @@ describe('VD database', () => {
           'DeclarativeWorkflowDefinition', 'WorkflowWebhookInbox',
           'WorkflowWebhookProvisioningState', 'WorkflowAttentionItem',
           'WorkflowDesign', 'WorkflowDesignDraft', 'WorkflowDesignVersion',
-          'WorkflowPromptAsset', 'WorkflowSkillAsset', 'WorkflowDesignRunSnapshot',
+          'WorkflowPromptAsset', 'WorkflowRoleTemplate', 'WorkflowSkillAsset', 'WorkflowDesignRunSnapshot',
           'WorkflowPersistedRun', 'WorkflowBatch', 'WorkflowBatchItem',
           'WorkspaceLane', 'WorkspaceLaneBinding', 'WorkspaceLaneCapacityLease',
           'WorkspaceLaneAuditEvent', 'WorkflowMetaRun', 'WorkflowMetaRunItem',
@@ -80,6 +81,7 @@ describe('VD database', () => {
         'WorkflowPersistedRun',
         'WorkflowPromptAsset',
         'WorkflowRoleSessionBinding',
+        'WorkflowRoleTemplate',
         'WorkflowRun',
         'WorkflowRunEvent',
         'WorkflowScopedTrigger',

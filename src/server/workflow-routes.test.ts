@@ -1100,6 +1100,16 @@ describe("registerWorkflowRoutes", () => {
       bodyMarkdown: "Write focused tests.",
       source: "user",
     });
+    await designStore.createRoleTemplate({
+      roleTemplateId: "role.dev.implementer",
+      version: 1,
+      name: "Implementer",
+      description: "Reusable role",
+      promptMarkdown: "Shared implementer instructions.",
+      skillRefs: [{ kind: "skill", id: "skill.testing.notes", version: 2 }],
+      executorPreference: { executorType: "CODEX", model: "gpt-5-codex", mode: "preferred" },
+      source: "user",
+    });
     registerWorkflowRoutes(app, {
       registry: createWorkflowRegistry(),
       workflowHomeDb: handle.db,
@@ -1126,6 +1136,17 @@ describe("registerWorkflowRoutes", () => {
           version: 2,
           source: "user",
           preview: "Write focused tests.",
+        }),
+      ],
+      roleTemplates: [
+        expect.objectContaining({
+          id: "role.dev.implementer",
+          version: 1,
+          name: "Implementer",
+          source: "user",
+          promptPreview: "Shared implementer instructions.",
+          skillRefs: [{ kind: "skill", id: "skill.testing.notes", version: 2 }],
+          executorPreference: { executorType: "CODEX", model: "gpt-5-codex", mode: "preferred" },
         }),
       ],
     });
