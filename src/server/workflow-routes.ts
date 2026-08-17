@@ -158,6 +158,30 @@ export function registerWorkflowRoutes(
     return c.json({ home });
   });
 
+  hono.get("/dashboard/api/workflows/meta-beads", async (c) => {
+    const workspaceId = c.req.query("workspaceId")?.trim();
+    const scope = parseMetaBeadScope(c.req.query("scope"));
+    const query = c.req.query("q")?.trim();
+    if (!workspaceId) return c.json({ error: "workspace_id_required", message: "Workspace is required" }, 400);
+    if (!options.metaWorkflowBeadProvider?.searchBeads) {
+      return c.json({ beads: [], unavailableReason: "Bead search provider is not configured." });
+    }
+    try {
+      const beads = await options.metaWorkflowBeadProvider.searchBeads({ workspaceId, query, scope, limit: parsePositiveInteger(c.req.query("limit") ?? null) ?? 25 });
+      return c.json({ beads: beads.map((bead) => ({
+        beadId: bead.beadId,
+        title: scrubWorkflowProductText(bead.title),
+        status: bead.status,
+        workspaceId: bead.workspaceId ?? null,
+        accessible: bead.accessible,
+        labels: bead.labels ?? [],
+        url: bead.url?.startsWith("/beads/project?bead=") ? bead.url : `/beads/project?bead=${encodeURIComponent(bead.beadId)}`,
+      })), unavailableReason: null });
+    } catch (error) {
+      return c.json({ beads: [], unavailableReason: scrubWorkflowProductText(error instanceof Error ? error.message : String(error)) });
+    }
+  });
+
 
   hono.post("/dashboard/api/workflows/meta-runs", async (c) => {
     const body = asRecord(await readJsonBody(c.req.raw));
@@ -2151,6 +2175,21 @@ function validateLaunchInputs(
   return errors;
 }
 
+
+function parseMetaBeadScope(value: string | undefined): 'current_workspace' | 'no_workspace' | 'other_workspaces' {
+  if (value === 'no_workspace' || value === 'other_workspaces') return value;
+  return 'current_workspace';
+}
+
+function scrubWorkflowProductText(value: string): string {
+  return value
+    .replace(/\bbd\s+[^\n]*/giu, "workflow action")
+    .replace(/\bgit\s+[^\n]*/giu, "version control action")
+    .replace(/\bwebhook\b/giu, "workflow update")
+    .replace(/\bqueue[-_ ]?item\b/giu, "workflow item")
+    .replace(/\/Users\/[^\s]+/gu, "[redacted-home]")
+    .slice(0, 500);
+}
 
 function createRouteMetaWorkflowRuntime(args: {
   db: Kysely<DB>;

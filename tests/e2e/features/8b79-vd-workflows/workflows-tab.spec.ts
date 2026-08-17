@@ -250,6 +250,46 @@ test.describe("Workspace Workflows tab shell", () => {
     }
   });
 
+  test("shows meta-workflow browser create and monitor route", async ({ page }) => {
+    await page.route("**/dashboard/api/workflows/home?**", async (route) => {
+      const home = homeFixture(false);
+      await route.fulfill({ contentType: "application/json", body: JSON.stringify({ home }) });
+    });
+    await page.route("**/dashboard/api/workflows/meta-beads?**", async (route) => {
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          unavailableReason: null,
+          beads: [
+            { beadId: "A", title: "A title", status: "open", workspaceId: "workspace-a", accessible: true, labels: ["workflow"], url: "/beads/project?bead=A" },
+            { beadId: "B", title: "B title", status: "open", workspaceId: null, accessible: true, labels: [], url: "/beads/project?bead=B" },
+          ],
+        }),
+      });
+    });
+    await page.route("**/dashboard/api/workflows/meta-runs?**", async (route) => {
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ metaRuns: [metaRunFixture()] }),
+      });
+    });
+
+    await page.goto("/dashboard/workflows/meta-runs?workspaceId=workspace-a");
+
+    await expect(page.getByRole("heading", { name: "Meta-workflows" })).toBeVisible();
+    await expect(page.getByLabel("Bead filter")).toBeVisible();
+    await expect(page.getByText("Current workspace parent beads")).toBeVisible();
+    await expect(page.getByText("A title")).toBeVisible();
+    await expect(page.getByText("Selected bead order")).toBeVisible();
+    await expect(page.getByLabel("Child workflow")).toBeVisible();
+    await expect(page.getByText("Monitor meta-workflows")).toBeVisible();
+    await expect(page.getByText("Waiting for B to complete before starting the next bead.")).toBeVisible();
+    await expect(page.locator('a[href="/dashboard/workflows/child-b"]')).toBeVisible();
+    for (const term of forbiddenTerms) {
+      await expect(page.getByText(term, { exact: false })).toHaveCount(0);
+    }
+  });
+
   test("launches a workflow with required input validation and runtime session binding", async ({
     page,
   }) => {
@@ -887,6 +927,30 @@ test.describe("Workspace Workflows tab shell", () => {
     expect(bodyText).not.toContain("workflow_call");
   });
 });
+
+function metaRunFixture() {
+  return {
+    metaRunId: "meta-browser",
+    parentWorkspaceId: "workspace-a",
+    laneId: null,
+    status: "running",
+    currentIndex: 1,
+    childWorkflowDesignId: "design-drt",
+    childWorkflowDesignVersion: 1,
+    title: "Browser meta workflow",
+    summary: null,
+    currentItem: null,
+    progress: { total: 2, completed: 1, pending: 0, running: 1, blocked: 0 },
+    nextAction: "Waiting for B to complete before starting the next bead.",
+    blockedReason: null,
+    createdAt: 1,
+    updatedAt: 2,
+    items: [
+      { itemId: "i-a", beadId: "A", title: "A title", beadStatus: "open", index: 0, status: "completed", childRunId: "child-a", noteRef: "note-a", result: { summary: "A complete" }, error: null, startedAt: 1, completedAt: 2 },
+      { itemId: "i-b", beadId: "B", title: "B title", beadStatus: "open", index: 1, status: "running", childRunId: "child-b", noteRef: null, result: null, error: null, startedAt: 3, completedAt: null },
+    ],
+  };
+}
 
 function homeFixture(
   launched: boolean,

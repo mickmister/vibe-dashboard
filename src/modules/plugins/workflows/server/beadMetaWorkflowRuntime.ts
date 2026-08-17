@@ -53,6 +53,7 @@ export interface BeadReadModel {
 
 export interface BeadMetadataProvider {
   readBeads(beadIds: string[]): Promise<BeadReadModel[]>;
+  searchBeads?(input: { workspaceId: string; query?: string; scope: 'current_workspace' | 'no_workspace' | 'other_workspaces'; limit?: number }): Promise<BeadReadModel[]>;
 }
 
 export interface BeadResultNoteWriter {

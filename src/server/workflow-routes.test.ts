@@ -125,6 +125,38 @@ describe("registerWorkflowRoutes", () => {
     expect(JSON.stringify(payload)).not.toContain("webhook");
   });
 
+  it("TEST_CASE_M119C_1A searches meta-workflow beads through typed provider", async () => {
+    const app = new Hono();
+    const scopes: string[] = [];
+    registerWorkflowRoutes(app, {
+      registry: createWorkflowRegistry(),
+      metaWorkflowBeadProvider: {
+        async readBeads() { return []; },
+        async searchBeads(input) {
+          scopes.push(input.scope);
+          return [
+            { beadId: "A", title: "A title", status: "open", workspaceId: input.scope === "no_workspace" ? null : input.workspaceId, accessible: true, url: "/beads/project?bead=A" },
+            { beadId: "unsafe", title: "bd show /Users/example/private webhook queue item", status: "open", workspaceId: input.workspaceId, accessible: true, url: "file:///Users/example/private" },
+          ];
+        },
+      },
+    });
+
+    const response = await app.request("/dashboard/api/workflows/meta-beads?workspaceId=workspace-a&scope=no_workspace&q=roadmap");
+
+    expect(response.status).toBe(200);
+    const payload = await response.json() as { beads: any[]; unavailableReason: string | null };
+    expect(scopes).toEqual(["no_workspace"]);
+    expect(payload.unavailableReason).toBeNull();
+    expect(payload.beads).toEqual(expect.arrayContaining([expect.objectContaining({ beadId: "A", workspaceId: null })]));
+    const serialized = JSON.stringify(payload);
+    expect(serialized).not.toContain("bd show");
+    expect(serialized).not.toContain("/Users/");
+    expect(serialized).not.toContain("webhook");
+    expect(serialized).not.toContain("queue item");
+    expect(serialized).not.toContain("file://");
+  });
+
   it("returns workspace workflows home read model scoped to workspace", async () => {
     const handle = await initVdDb({ path: ":memory:" });
     dbHandles.push(handle);

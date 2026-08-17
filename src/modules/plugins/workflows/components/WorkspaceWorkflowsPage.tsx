@@ -131,6 +131,12 @@ export function WorkspaceWorkflowsHomeView({
               View roadmap
             </a>
             <a
+              className="rounded-md border border-zinc-700 px-3 py-2 text-sm text-zinc-100 hover:bg-zinc-800"
+              href={`/dashboard/workflows/meta-runs?workspaceId=${encodeURIComponent(home?.workspaceId ?? "")}`}
+            >
+              Meta-workflows
+            </a>
+            <a
               className="rounded-md bg-cyan-500 px-3 py-2 text-sm font-medium text-zinc-950 hover:bg-cyan-400"
               href={`/dashboard/workflows/new?workspaceId=${encodeURIComponent(home?.workspaceId ?? "")}`}
             >
