@@ -464,12 +464,12 @@ export function parseBeadsFormXml(xml: string): StandardBeadsForm {
           markdownSection('Pros', readOptionalChildText(choice.body, 'pros')),
           markdownSection('Cons', readOptionalChildText(choice.body, 'cons')),
         ].filter((part): part is string => Boolean(part && part.trim()));
-        const pros = readOptionalChildText(choice.body, 'pros');
+        const recommendedReason = readOptionalChildText(choice.body, 'recommendedReason');
         return {
           id: choiceId,
           label: readRequiredChildText(choice.body, 'label', `choice ${choiceId}.label`),
           ...(descriptionParts.length ? { description: descriptionParts.join('\n\n') } : {}),
-          ...(pros?.trim() ? { is_recommended_reason: pros } : {}),
+          ...(recommendedReason?.trim() ? { is_recommended_reason: recommendedReason } : {}),
         };
       });
       return { ...base, type: 'choices', choices };

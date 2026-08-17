@@ -322,7 +322,6 @@ describe('@vibe-dashboard/beads-form', () => {
           choices: [expect.objectContaining({
             id: 'forms_tab',
             label: 'Open in Forms tab',
-            is_recommended_reason: 'Fast and **focused**',
           })],
         }),
         expect.objectContaining({ id: 'notes', type: 'textarea', required: false }),
@@ -330,7 +329,31 @@ describe('@vibe-dashboard/beads-form', () => {
     });
     expect((form.questions[0] as any).choices[0].description).toContain('**Pros:**');
     expect((form.questions[0] as any).choices[0].description).toContain('**Cons:**');
+    expect((form.questions[0] as any).choices[0].is_recommended_reason).toBeUndefined();
     expect(compileBeadsForm(form).html).toContain('Open in Forms tab');
+    expect(compileBeadsForm(form).html).not.toContain('beads-form-recommended');
+  });
+
+  it('only maps explicit workflow XML recommendedReason to recommendation metadata', () => {
+    const form = parseBeadsFormXml(`
+      <beadsForm id="planning_review">
+        <title>Planning Review</title>
+        <question id="entry_point" type="choices" required="true">
+          <title>Entry point</title>
+          <choice id="forms_tab">
+            <label>Open in Forms tab</label>
+            <pros>Good fit for review.</pros>
+            <recommendedReason><![CDATA[Best default for the current workflow.]]></recommendedReason>
+          </choice>
+        </question>
+      </beadsForm>
+    `);
+
+    expect((form.questions[0] as any).choices[0]).toMatchObject({
+      description: '**Pros:**\nGood fit for review.',
+      is_recommended_reason: 'Best default for the current workflow.',
+    });
+    expect(compileBeadsForm(form).html).toContain('beads-form-recommended');
   });
 
   it('rejects invalid workflow beads-form XML', () => {

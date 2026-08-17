@@ -534,6 +534,9 @@ describe("agent workflow V1 normalization", () => {
     expect(spec).toContain('<xs:element name="question" type="BeadsFormQuestionType" minOccurs="1" maxOccurs="unbounded"/>');
     expect(spec).toContain('<xs:element name="pros" type="xs:string" minOccurs="0" maxOccurs="1"/>');
     expect(spec).toContain('<xs:element name="cons" type="xs:string" minOccurs="0" maxOccurs="1"/>');
+    expect(spec).toContain('<xs:element name="recommendedReason" type="xs:string" minOccurs="0" maxOccurs="1"/>');
+    expect(spec).toContain('<xs:attribute name="id" type="BeadsFormIdentifier" use="required"/>');
+    expect(spec).toContain('<xs:pattern value="[A-Za-z][A-Za-z0-9_-]*"/>');
     expect(spec).toContain('<xs:enumeration value="choices"/>');
     expect(spec).not.toContain('<xs:element name="formSchema" type="xs:string"');
   });
