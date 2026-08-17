@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  buildWorkflowGraphFocusContext,
   layoutWorkflowGraph,
   toFlowEdges,
   toFlowNodes,
@@ -116,6 +117,45 @@ describe("WorkflowGraphEditorPage graph appearance", () => {
     expect(css).toContain(".workflow-action-edge-label--selected");
     expect(css).toContain(".workflow-action-edge-label__action");
     expect(css).toContain(".workflow-action-edge-label__id");
+  });
+
+  it("builds contextual graph focus for role, state, and action drill-in", () => {
+    const graph = workflowDefinitionToGraph(wizardDefinition());
+
+    const roleFocus = buildWorkflowGraphFocusContext({
+      nodes: graph.nodes,
+      edges: graph.edges,
+      selectedRoleId: "review",
+    });
+    expect(roleFocus.title).toBe("Role review");
+    expect(roleFocus.nodes.map((node) => node.id)).toEqual(
+      expect.arrayContaining(["dev", "review", "done"]),
+    );
+    expect(roleFocus.edges.map((edge) => edge.actionId)).toEqual(
+      expect.arrayContaining(["ready", "changes_requested", "approved"]),
+    );
+
+    const stateFocus = buildWorkflowGraphFocusContext({
+      nodes: graph.nodes,
+      edges: graph.edges,
+      selectedNodeId: "review",
+    });
+    expect(stateFocus.title).toBe("State Review");
+    expect(stateFocus.description).toContain("Selected state");
+    expect(stateFocus.edges.map((edge) => edge.actionId)).toEqual(
+      expect.arrayContaining(["ready", "changes_requested", "approved"]),
+    );
+
+    const changes = graph.edges.find((edge) => edge.actionId === "changes_requested");
+    if (!changes) throw new Error("changes edge fixture missing");
+    const actionFocus = buildWorkflowGraphFocusContext({
+      nodes: graph.nodes,
+      edges: graph.edges,
+      selectedEdgeId: changes.id,
+    });
+    expect(actionFocus.title).toBe("Action Request changes");
+    expect(actionFocus.nodes.map((node) => node.id).sort()).toEqual(["dev", "review"]);
+    expect(actionFocus.edges).toEqual([changes]);
   });
 
   it("lays out cyclic review workflows with horizontal spacing and reverse edge labels", () => {
@@ -240,6 +280,10 @@ describe("WorkflowGraphEditorView prompt and skill picker", () => {
     );
 
     const compactHtml = html.replace(/\s+/g, " ");
+    expect(compactHtml).toContain("Context graph");
+    expect(compactHtml).toContain("Graph preview is collapsed.");
+    expect(compactHtml).toContain("Show graph");
+    expect(compactHtml).not.toContain("workflow-react-flow-canvas");
     expect(compactHtml).toContain("Workflow outline");
     expect(compactHtml).toContain("Roles → states → transitions");
     expect(compactHtml).toContain("+ Add Role");
@@ -439,6 +483,32 @@ describe("WorkflowGraphEditorView prompt and skill picker", () => {
     expect(editHtml).toContain("Action label");
     expect(editHtml).toContain("Target state");
     expect(editHtml).toContain("Handoff prompt");
+  });
+
+  it("TEST_CASE_ZJCB_10 expands a compact graph synchronized to selected state/action", () => {
+    const definition = wizardDefinition();
+    const graph = workflowDefinitionToGraph(definition);
+    const changes = graph.edges.find((edge) => edge.actionId === "changes_requested");
+    if (!changes) throw new Error("changes edge fixture missing");
+    const html = renderToStaticMarkup(
+      React.createElement(WorkflowGraphEditorView, {
+        editor: null,
+        definition,
+        assets: { prompts: [], skills: [] },
+        initialGraphOpen: true,
+        initialSelection: { roleId: "review", stateId: "review", edgeId: changes.id },
+        onDefinitionChange: () => {},
+        onSave: () => {},
+        onPublish: () => {},
+      }),
+    );
+
+    expect(html).toContain("Context graph");
+    expect(html).toContain("Action Request changes");
+    expect(html).toContain("review → dev");
+    expect(html).toContain("Hide graph");
+    expect(html).toContain("workflow-react-flow-canvas");
+    expect(html).toContain("Edit action");
   });
 
   it("TEST_CASE_8ABA navigates role to state to action in the outline wizard", () => {

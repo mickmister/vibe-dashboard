@@ -859,10 +859,11 @@ test.describe("Workspace Workflows tab shell", () => {
     await expect(page.getByTestId("standalone-dashboard-page")).toHaveClass(
       /overflow-y-auto/,
     );
+    await expect(page.getByText("Graph preview is collapsed.")).toBeVisible();
+    await expect(page.getByTestId("workflow-react-flow-canvas")).toHaveCount(0);
+    await page.getByRole("button", { name: "Show graph" }).click();
     await expect(page.getByTestId("workflow-react-flow-canvas")).toBeVisible();
-    await expect(
-      page.getByText("States are nodes. Decision actions are labeled edges."),
-    ).toBeVisible();
+    await expect(page.getByText(/Role dev:/)).toBeVisible();
     await expect(
       page.locator(".react-flow__node.workflow-state-node").first(),
     ).toHaveCSS("background-color", "rgb(15, 23, 42)");
@@ -873,6 +874,8 @@ test.describe("Workspace Workflows tab shell", () => {
       page.locator(".react-flow__edge.workflow-loop-edge"),
     ).toHaveCount(1);
     const details = page.locator("aside");
+    await details.getByRole("button", { name: /Dev dev · 1 state/ }).click();
+    await details.getByRole("button", { name: /Dev dev/ }).click();
     await expect(details.getByText("Owner role")).toBeVisible();
     await expect(
       details.getByRole("heading", { name: "Dev", exact: true }),
@@ -881,6 +884,7 @@ test.describe("Workspace Workflows tab shell", () => {
     await expect(
       details.getByText("self_review", { exact: true }),
     ).toBeVisible();
+    await details.getByRole("button", { name: "Edit state" }).click();
     const implementPicker = details.locator(
       'section[aria-label="implement prompt and skill picker"]',
     );
@@ -904,13 +908,19 @@ test.describe("Workspace Workflows tab shell", () => {
       implementPicker.getByText("Raw JSON remains diagnostics-only."),
     ).toBeVisible();
     await expect(page.getByText("Ready to save.")).toBeVisible();
-    await page.getByLabel("Workflow name").fill("Dev Review Tester Copy");
-    await page.getByLabel("dev label").fill("Implementer");
     await implementPicker.getByLabel("prompt:prompt.dev.implement@1").uncheck();
     await implementPicker
       .getByLabel("prompt:prompt.drt.dev.implement@1")
       .check();
+    await page.getByRole("button", { name: "Edit design" }).click();
+    await page.getByLabel("Workflow name").fill("Dev Review Tester Copy");
+    await page.getByRole("button", { name: "Done" }).first().click();
+    await page.getByRole("button", { name: "Edit role" }).click();
+    await page.getByLabel("dev label").fill("Implementer");
+    await page.getByRole("button", { name: "Done" }).first().click();
 
+    await details.getByRole("button", { name: /Ready for review/ }).click();
+    await details.getByRole("button", { name: "Edit action" }).click();
     await page.getByLabel("Target state").selectOption("");
     await expect(
       page.getByText("Choose an existing target state."),

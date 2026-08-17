@@ -185,6 +185,13 @@ type WorkflowEditorInitialSelection = {
   edgeId?: string;
 };
 
+export type WorkflowGraphFocusContext = {
+  title: string;
+  description: string;
+  nodes: WorkflowGraphNodeModel[];
+  edges: WorkflowGraphEdgeModel[];
+};
+
 export function WorkflowGraphEditorView({
   editor,
   definition,
@@ -196,6 +203,7 @@ export function WorkflowGraphEditorView({
   saveMessage,
   initialSelection,
   initialEditTarget = null,
+  initialGraphOpen = false,
 }: {
   editor: WorkflowDesignEditorModel | null;
   definition: AgentWorkflowDefinitionV1;
@@ -207,6 +215,7 @@ export function WorkflowGraphEditorView({
   saveMessage?: string | null;
   initialSelection?: WorkflowEditorInitialSelection;
   initialEditTarget?: WorkflowEditorEditTarget | null;
+  initialGraphOpen?: boolean;
 }): React.ReactElement {
   const graph = useMemo(
     () => workflowDefinitionToGraph(definition),
@@ -226,19 +235,31 @@ export function WorkflowGraphEditorView({
   const [editTarget, setEditTarget] = useState<WorkflowEditorEditTarget | null>(
     initialEditTarget,
   );
+  const [graphOpen, setGraphOpen] = useState(initialGraphOpen);
   const selectedNode =
     graph.nodes.find((node) => node.id === selectedNodeId) ?? null;
   const selectedEdge =
     graph.edges.find((edge) => edge.id === selectedEdgeId) ?? null;
   const selectedRole = selectedRoleId ? definition.roles[selectedRoleId] : null;
+  const graphFocus = useMemo(
+    () =>
+      buildWorkflowGraphFocusContext({
+        nodes: graph.nodes,
+        edges: graph.edges,
+        selectedRoleId,
+        selectedNodeId,
+        selectedEdgeId,
+      }),
+    [graph.nodes, graph.edges, selectedRoleId, selectedNodeId, selectedEdgeId],
+  );
   const layoutedNodes = useMemo(
-    () => toFlowNodes(graph.nodes, graph.edges),
-    [graph.nodes, graph.edges],
+    () => toFlowNodes(graphFocus.nodes, graphFocus.edges),
+    [graphFocus.nodes, graphFocus.edges],
   );
   const [flowNodes, setFlowNodes, onNodesChange] = useNodesState(layoutedNodes);
   const flowEdges = useMemo(
     () =>
-      toFlowEdges(graph.edges, selectedEdgeId, graph.nodes, (edgeId) => {
+      toFlowEdges(graphFocus.edges, selectedEdgeId, graphFocus.nodes, (edgeId) => {
         const edge = graph.edges.find((candidate) => candidate.id === edgeId);
         if (edge) {
           const source = graph.nodes.find(
@@ -250,7 +271,7 @@ export function WorkflowGraphEditorView({
         setSelectedEdgeId(edgeId);
         setEditTarget(null);
       }),
-    [graph.edges, selectedEdgeId, graph.nodes],
+    [graph.edges, selectedEdgeId, graph.nodes, graphFocus.edges, graphFocus.nodes],
   );
   const canSave = Boolean(editor?.draftId) && issues.length === 0;
 
@@ -321,64 +342,8 @@ export function WorkflowGraphEditorView({
   };
 
   return (
-    <section className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_24rem]">
-      <div className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900/60">
-        <div className="flex items-center justify-between gap-3 border-b border-zinc-800 p-4">
-          <div>
-            <h2 className="font-semibold">Graph</h2>
-            <p className="text-sm text-zinc-400">
-              States are nodes. Decision actions are labeled edges. Drag states
-              to inspect dense graphs; reset restores auto-layout.
-            </p>
-          </div>
-          <div className="flex flex-wrap justify-end gap-2">
-            <button
-              className="rounded-md border border-zinc-700 px-3 py-2 text-sm"
-              onClick={resetLayout}
-            >
-              Reset layout
-            </button>
-            <button
-              className="rounded-md border border-zinc-700 px-3 py-2 text-sm disabled:opacity-50"
-              disabled={!canSave}
-              onClick={onSave}
-            >
-              Save draft
-            </button>
-            <button
-              className="rounded-md bg-cyan-500 px-3 py-2 text-sm font-medium text-zinc-950 disabled:opacity-50"
-              disabled={!canSave || publishing}
-              onClick={onPublish}
-            >
-              {publishing ? "Publishing…" : "Publish"}
-            </button>
-          </div>
-        </div>
-        <div
-          className="h-[34rem] bg-slate-950"
-          data-testid="workflow-react-flow-canvas"
-        >
-          <ReactFlow
-            className="workflow-graph-canvas"
-            nodes={flowNodes}
-            edges={flowEdges}
-            fitView
-            fitViewOptions={{ padding: 0.12 }}
-            minZoom={0.85}
-            edgeTypes={workflowEdgeTypes}
-            nodesDraggable
-            nodesConnectable={false}
-            elementsSelectable
-            onNodesChange={onNodesChange}
-            onNodeClick={(_, node) => selectState(node.id)}
-            onEdgeClick={(_, edge) => selectEdge(edge.id)}
-          >
-            <Background />
-            <Controls />
-          </ReactFlow>
-        </div>
-      </div>
-      <aside className="space-y-4">
+    <section className="grid gap-5 lg:grid-cols-[minmax(0,28rem)_minmax(0,1fr)]">
+      <aside className="space-y-4 lg:order-first">
         {saveMessage ? (
           <div className="rounded-lg border border-emerald-800 bg-emerald-950/30 p-3 text-sm text-emerald-100">
             {saveMessage}
@@ -440,6 +405,85 @@ export function WorkflowGraphEditorView({
         ) : null}
         <JsonDiagnostics definition={definition} />
       </aside>
+      <div className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900/60 lg:sticky lg:top-4 lg:self-start">
+        <div className="flex items-center justify-between gap-3 border-b border-zinc-800 p-4">
+          <div>
+            <h2 className="font-semibold">Context graph</h2>
+            <p className="text-sm text-zinc-400">
+              {graphFocus.title}: {graphFocus.description}
+            </p>
+          </div>
+          <div className="flex flex-wrap justify-end gap-2">
+            <button
+              className="rounded-md border border-zinc-700 px-3 py-2 text-sm"
+              onClick={() => setGraphOpen((open) => !open)}
+              aria-expanded={graphOpen}
+              aria-controls="workflow-context-graph"
+            >
+              {graphOpen ? "Hide graph" : "Show graph"}
+            </button>
+            <button
+              className="rounded-md border border-zinc-700 px-3 py-2 text-sm"
+              onClick={resetLayout}
+              disabled={!graphOpen}
+            >
+              Reset layout
+            </button>
+            <button
+              className="rounded-md border border-zinc-700 px-3 py-2 text-sm disabled:opacity-50"
+              disabled={!canSave}
+              onClick={onSave}
+            >
+              Save draft
+            </button>
+            <button
+              className="rounded-md bg-cyan-500 px-3 py-2 text-sm font-medium text-zinc-950 disabled:opacity-50"
+              disabled={!canSave || publishing}
+              onClick={onPublish}
+            >
+              {publishing ? "Publishing…" : "Publish"}
+            </button>
+          </div>
+        </div>
+        {graphOpen ? (
+          <div
+            id="workflow-context-graph"
+            className="h-[24rem] bg-slate-950"
+            data-testid="workflow-react-flow-canvas"
+          >
+            <ReactFlow
+              className="workflow-graph-canvas"
+              nodes={flowNodes}
+              edges={flowEdges}
+              fitView
+              fitViewOptions={{ padding: 0.2 }}
+              minZoom={0.85}
+              edgeTypes={workflowEdgeTypes}
+              nodesDraggable
+              nodesConnectable={false}
+              elementsSelectable
+              onNodesChange={onNodesChange}
+              onNodeClick={(_, node) => selectState(node.id)}
+              onEdgeClick={(_, edge) => selectEdge(edge.id)}
+            >
+              <Background />
+              <Controls />
+            </ReactFlow>
+          </div>
+        ) : (
+          <div className="space-y-2 bg-slate-950 p-4 text-sm text-zinc-300">
+            <p>
+              Graph preview is collapsed. The outline on the left is the primary editor.
+            </p>
+            <p className="text-xs text-zinc-500">
+              Showing {graphFocus.nodes.length}{" "}
+              {graphFocus.nodes.length === 1 ? "state" : "states"} and{" "}
+              {graphFocus.edges.length}{" "}
+              {graphFocus.edges.length === 1 ? "transition" : "transitions"} when expanded.
+            </p>
+          </div>
+        )}
+      </div>
     </section>
   );
 }
@@ -1584,6 +1628,88 @@ type WorkflowActionEdgeData = {
   selfLoop: boolean;
   onSelect?: (edgeId: string) => void;
 };
+
+export function buildWorkflowGraphFocusContext({
+  nodes,
+  edges,
+  selectedRoleId,
+  selectedNodeId,
+  selectedEdgeId,
+}: {
+  nodes: WorkflowGraphNodeModel[];
+  edges: WorkflowGraphEdgeModel[];
+  selectedRoleId?: string;
+  selectedNodeId?: string;
+  selectedEdgeId?: string;
+}): WorkflowGraphFocusContext {
+  const selectedEdge = selectedEdgeId
+    ? edges.find((edge) => edge.id === selectedEdgeId)
+    : null;
+  if (selectedEdge) {
+    const nodeIds = new Set([selectedEdge.source, selectedEdge.target]);
+    return {
+      title: `Action ${selectedEdge.label}`,
+      description: `${selectedEdge.source} → ${selectedEdge.target}`,
+      nodes: nodes.filter((node) => nodeIds.has(node.id)),
+      edges: [selectedEdge],
+    };
+  }
+
+  const selectedNode = selectedNodeId
+    ? nodes.find((node) => node.id === selectedNodeId)
+    : null;
+  if (selectedNode) {
+    const connectedEdges = edges.filter(
+      (edge) => edge.source === selectedNode.id || edge.target === selectedNode.id,
+    );
+    const nodeIds = new Set([
+      selectedNode.id,
+      ...connectedEdges.map((edge) => edge.source),
+      ...connectedEdges.map((edge) => edge.target),
+    ]);
+    return {
+      title: `State ${selectedNode.label}`,
+      description: selectedNode.terminal
+        ? "Terminal completion state."
+        : "Selected state with incoming and outgoing transitions.",
+      nodes: nodes.filter((node) => nodeIds.has(node.id)),
+      edges: connectedEdges,
+    };
+  }
+
+  if (selectedRoleId) {
+    const ownedNodeIds = new Set(
+      nodes
+        .filter((node) => node.ownerRoleId === selectedRoleId)
+        .map((node) => node.id),
+    );
+    const roleEdges = edges.filter(
+      (edge) => ownedNodeIds.has(edge.source) || ownedNodeIds.has(edge.target),
+    );
+    const visibleNodeIds = new Set([
+      ...ownedNodeIds,
+      ...roleEdges.map((edge) => edge.source),
+      ...roleEdges.map((edge) => edge.target),
+    ]);
+    return {
+      title: `Role ${selectedRoleId}`,
+      description: ownedNodeIds.size
+        ? "States owned by this role plus directly connected transitions."
+        : "No states are assigned to this role yet.",
+      nodes: nodes.filter((node) => visibleNodeIds.has(node.id)),
+      edges: roleEdges.filter(
+        (edge) => visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target),
+      ),
+    };
+  }
+
+  return {
+    title: "Workflow",
+    description: "All states and transitions.",
+    nodes,
+    edges,
+  };
+}
 
 export function toFlowNodes(
   nodes: WorkflowGraphNodeModel[],

@@ -63,8 +63,11 @@ describe('workflow Storybook fixtures', () => {
       onDefinitionChange: () => {},
       onSave: () => {},
       onPublish: () => {},
+      initialGraphOpen: true,
+      initialSelection: { roleId: 'dev', stateId: 'dev' },
+      initialEditTarget: { kind: 'state', id: 'dev' },
     }));
-    expect(html).toContain('Graph');
+    expect(html).toContain('Context graph');
     expect(html).toContain('Wait for CI');
     expect(html).toContain('Prompt and skill snippets');
     expect(html).toContain('CI wait prompt');
