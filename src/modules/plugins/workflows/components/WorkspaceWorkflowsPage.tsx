@@ -4,6 +4,7 @@ import { buildVkSessionUrl } from "../../../../utils/origin";
 import { StandaloneDashboardPage } from "../../../../components/StandaloneDashboardPage";
 import {
   batchLaunchWorkspaceWorkflow,
+  createWorkspaceLane,
   fetchWorkflowLaunchOptions,
   fetchWorkspaceWorkflowsHome,
   launchWorkspaceWorkflow,
@@ -17,6 +18,8 @@ import {
   type WorkspaceWorkflowAttentionSummary,
   type WorkspaceWorkflowBatchSummary,
   type WorkspaceWorkflowRunSummary,
+  type WorkspaceLaneOverviewModel,
+  type WorkspaceLaneSummary,
   type WorkspaceWorkflowSummary,
   type LaunchWorkspaceWorkflowResponse,
 } from "../client/workflowsHomeApi";
@@ -91,6 +94,7 @@ export function WorkspaceWorkflowsHomeView({
     useState<WorkspaceWorkflowSummary | null>(null);
   const [batchWorkflow, setBatchWorkflow] =
     useState<WorkspaceWorkflowSummary | null>(null);
+  const [showCreateLane, setShowCreateLane] = useState(false);
   const activeRuns = useMemo(
     () => (home?.recentRuns ?? []).filter(isActiveRun),
     [home?.recentRuns],
@@ -197,6 +201,34 @@ export function WorkspaceWorkflowsHomeView({
         </div>
       ) : null}
 
+      <Section
+        title="Workspace lanes"
+        description="Optional isolated lanes for workflow and bead work. Host paths stay hidden; lane capacity explains when write work can start."
+      >
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <p className="text-sm text-zinc-400">
+            {home?.lanes?.nextAction ??
+              "Create a lane when isolated workflow work is needed."}
+          </p>
+          <button
+            type="button"
+            className="rounded-md border border-cyan-700 px-3 py-2 text-sm text-cyan-100 hover:bg-cyan-950/40"
+            onClick={() => setShowCreateLane(true)}
+          >
+            Create lane
+          </button>
+        </div>
+        {home?.lanes?.lanes.length ? (
+          <div className="grid gap-3 md:grid-cols-2">
+            {home.lanes.lanes.map((lane) => (
+              <LaneCard key={lane.laneId} lane={lane} />
+            ))}
+          </div>
+        ) : (
+          <EmptyState text="No isolated workflow lanes yet." />
+        )}
+      </Section>
+
       <Section title="Needs your input">
         {home?.needsInput.length ? (
           <div className="grid gap-3 md:grid-cols-2">
@@ -296,8 +328,19 @@ export function WorkspaceWorkflowsHomeView({
           workspaceId={home.workspaceId}
           workflow={launchWorkflow}
           onClose={() => setLaunchWorkflow(null)}
+          lanes={home.lanes}
           onLaunched={(updated) => {
             onHomeUpdated?.(updated);
+          }}
+        />
+      ) : null}
+      {home && showCreateLane ? (
+        <CreateLaneDialog
+          workspaceId={home.workspaceId}
+          onClose={() => setShowCreateLane(false)}
+          onCreated={() => {
+            setShowCreateLane(false);
+            onRefresh();
           }}
         />
       ) : null}
@@ -502,10 +545,12 @@ function RunWorkflowDialog({
   workspaceId,
   workflow,
   onClose,
+  lanes,
   onLaunched,
 }: {
   workspaceId: string;
   workflow: WorkspaceWorkflowSummary;
+  lanes: WorkspaceLaneOverviewModel | null;
   onClose: () => void;
   onLaunched: (home: WorkspaceWorkflowsHomeModel) => void;
 }) {
@@ -525,6 +570,7 @@ function RunWorkflowDialog({
     Record<string, string>
   >({});
   const [roleModels, setRoleModels] = useState<Record<string, string>>({});
+  const [selectedLaneId, setSelectedLaneId] = useState("");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -697,6 +743,7 @@ function RunWorkflowDialog({
         inputs,
         additionalInstructions: additionalInstructions.trim() || null,
         roleBindings,
+        laneId: selectedLaneId || null,
       });
       setLaunched(launched.run);
       if (launched.home) onLaunched(launched.home);
@@ -812,6 +859,33 @@ function RunWorkflowDialog({
               <p className="mt-1 text-xs text-zinc-500">
                 Applies only to this run. It will not change the workflow design
                 or future runs.
+              </p>
+            </label>
+
+            <label className="block">
+              <span className="text-sm font-medium">
+                Isolated workflow lane
+              </span>
+              <select
+                className="mt-2 w-full rounded-md border border-zinc-700 bg-zinc-950 p-2 text-sm"
+                value={selectedLaneId}
+                onChange={(event) => setSelectedLaneId(event.target.value)}
+                aria-label="Workflow lane"
+              >
+                <option value="">No lane selected</option>
+                {(lanes?.lanes ?? [])
+                  .filter((lane) => lane.status !== "archived")
+                  .map((lane) => (
+                    <option key={lane.laneId} value={lane.laneId}>
+                      {lane.label} · {lane.status} · write{" "}
+                      {lane.capacity.write.status}
+                    </option>
+                  ))}
+              </select>
+              <p className="mt-1 text-xs text-zinc-500">
+                Select a lane when this workflow will use write-capable typed
+                providers. Host paths are hidden; write capacity is checked by
+                the provider.
               </p>
             </label>
 
@@ -1599,6 +1673,170 @@ function EmptyState({ text }: { text: string }) {
   return (
     <div className="rounded-lg border border-dashed border-zinc-800 bg-zinc-950 p-6 text-sm text-zinc-400">
       {text}
+    </div>
+  );
+}
+
+function LaneCard({ lane }: { lane: WorkspaceLaneSummary }) {
+  const write = lane.capacity.write;
+  return (
+    <article className="rounded-lg border border-zinc-800 bg-zinc-950 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-xs uppercase tracking-wide text-cyan-300">
+            Isolated lane
+          </div>
+          <h3 className="mt-1 font-semibold text-zinc-100">{lane.label}</h3>
+          <p className="mt-1 text-sm text-zinc-400">{lane.purpose}</p>
+        </div>
+        <StatusPill
+          label={lane.status}
+          tone={
+            lane.status === "blocked"
+              ? "amber"
+              : lane.status === "archived"
+                ? "red"
+                : "cyan"
+          }
+        />
+      </div>
+      <dl className="mt-4 grid gap-2 text-xs text-zinc-300 sm:grid-cols-2">
+        <div>
+          <dt className="text-zinc-500">Worktree</dt>
+          <dd>{lane.worktree.display}</dd>
+        </div>
+        <div>
+          <dt className="text-zinc-500">Write capacity</dt>
+          <dd>
+            {write.status === "held"
+              ? `Held by ${write.ownerId ?? "workflow"}`
+              : write.status}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-zinc-500">Source branch</dt>
+          <dd>{lane.sourceBranch}</dd>
+        </div>
+        <div>
+          <dt className="text-zinc-500">Bindings</dt>
+          <dd>{lane.boundRunIds.length + lane.boundBeadIds.length}</dd>
+        </div>
+      </dl>
+      <p className="mt-3 text-xs text-zinc-500">{lane.nextAction}</p>
+    </article>
+  );
+}
+
+function CreateLaneDialog({
+  workspaceId,
+  onClose,
+  onCreated,
+}: {
+  workspaceId: string;
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const [name, setName] = useState("");
+  const [purpose, setPurpose] = useState("");
+  const [sourceBranch, setSourceBranch] = useState("main");
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setError(null);
+    setSubmitting(true);
+    try {
+      await createWorkspaceLane({ workspaceId, name, purpose, sourceBranch });
+      onCreated();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Create workflow lane"
+    >
+      <form
+        onSubmit={submit}
+        className="w-full max-w-lg rounded-xl border border-zinc-700 bg-zinc-950 p-5 shadow-2xl"
+      >
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="text-xs uppercase tracking-wide text-cyan-300">
+              Lane
+            </div>
+            <h2 className="mt-1 text-xl font-semibold">
+              Create workflow lane
+            </h2>
+            <p className="mt-2 text-sm text-zinc-400">
+              Create an isolated lane record for workflow or bead work. Host
+              paths are not shown or selected here.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="rounded-md border border-zinc-700 px-3 py-1 text-sm"
+            onClick={onClose}
+          >
+            Close
+          </button>
+        </div>
+        <div className="mt-5 space-y-4">
+          <label className="block text-sm">
+            Lane name
+            <input
+              className="mt-2 w-full rounded-md border border-zinc-700 bg-zinc-900 p-2"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              required
+            />
+          </label>
+          <label className="block text-sm">
+            Purpose
+            <textarea
+              className="mt-2 min-h-20 w-full rounded-md border border-zinc-700 bg-zinc-900 p-2"
+              value={purpose}
+              onChange={(event) => setPurpose(event.target.value)}
+              required
+            />
+          </label>
+          <label className="block text-sm">
+            Source branch
+            <input
+              className="mt-2 w-full rounded-md border border-zinc-700 bg-zinc-900 p-2"
+              value={sourceBranch}
+              onChange={(event) => setSourceBranch(event.target.value)}
+              required
+            />
+          </label>
+        </div>
+        {error ? (
+          <p role="alert" className="mt-3 text-sm text-amber-200">
+            {error}
+          </p>
+        ) : null}
+        <div className="mt-5 flex justify-end gap-2">
+          <button
+            type="button"
+            className="rounded-md border border-zinc-700 px-3 py-2 text-sm"
+            onClick={onClose}
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            className="rounded-md bg-cyan-500 px-3 py-2 text-sm font-medium text-zinc-950 disabled:opacity-50"
+            disabled={submitting}
+          >
+            {submitting ? "Creating…" : "Create lane"}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }

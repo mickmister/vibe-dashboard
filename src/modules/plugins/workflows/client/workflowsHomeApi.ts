@@ -5,6 +5,53 @@ export interface WorkspaceWorkflowsHomeModel {
   recentRuns: WorkspaceWorkflowRunSummary[];
   needsInput: WorkspaceWorkflowAttentionSummary[];
   recentBatches: WorkspaceWorkflowBatchSummary[];
+  lanes: WorkspaceLaneOverviewModel | null;
+}
+
+export interface WorkspaceLaneOverviewModel {
+  parentWorkspaceId: string;
+  lanes: WorkspaceLaneSummary[];
+  counts: Record<string, number>;
+  activeWriteLanes: number;
+  nextAction: string;
+}
+
+export interface WorkspaceLaneSummary {
+  laneId: string;
+  parentWorkspaceId: string;
+  name: string;
+  purpose: string;
+  label: string;
+  breadcrumb: string;
+  status: string;
+  sourceBranch: string;
+  workingBranch: string | null;
+  worktree: {
+    status: string;
+    display: string;
+    summary: Record<string, unknown> | null;
+  };
+  capacity: {
+    write: {
+      status: string;
+      activeLeaseId: string | null;
+      ownerId: string | null;
+      reason: string | null;
+    };
+  };
+  boundRunIds: string[];
+  boundBeadIds: string[];
+  nextAction: string;
+  createdAt: number;
+  updatedAt: number;
+  archivedAt: number | null;
+}
+
+export interface CreateWorkspaceLaneRequest {
+  workspaceId: string;
+  name: string;
+  purpose: string;
+  sourceBranch?: string;
 }
 
 export interface WorkspaceWorkflowBatchSummary {
@@ -181,6 +228,7 @@ export interface LaunchWorkspaceWorkflowRequest {
   inputs: Record<string, unknown>;
   additionalInstructions?: string | null;
   roleBindings: Record<string, WorkflowLaunchRoleBindingRequest>;
+  laneId?: string | null;
 }
 
 export interface BatchLaunchWorkspaceWorkflowRequest {
@@ -225,6 +273,20 @@ export interface LaunchWorkspaceWorkflowResponse {
 export interface BatchLaunchWorkspaceWorkflowResponse {
   batch: WorkspaceWorkflowBatchSummary;
   home?: WorkspaceWorkflowsHomeModel;
+}
+
+
+export async function createWorkspaceLane(
+  request: CreateWorkspaceLaneRequest,
+): Promise<WorkspaceLaneSummary> {
+  const response = await fetch("/dashboard/api/workspace-lanes", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify(request),
+  });
+  const payload = (await response.json().catch(() => ({}))) as { lane?: WorkspaceLaneSummary; message?: string; error?: string };
+  if (response.ok && payload.lane) return payload.lane;
+  throw new Error(payload.message || payload.error || `Failed to create lane: ${response.status}`);
 }
 
 export class WorkflowApiError extends Error {

@@ -10,6 +10,10 @@ import {
   WorkflowBatchSchedulerService,
   type WorkflowBatchReadModel,
 } from "./workflowBatchScheduler";
+import type {
+  DbWorkspaceLaneStore,
+  ParentLaneOverviewModel,
+} from "../../../../server/workspace-lane-store";
 
 export interface WorkspaceWorkflowsHomeModel {
   workspaceId: string;
@@ -18,6 +22,7 @@ export interface WorkspaceWorkflowsHomeModel {
   recentRuns: WorkspaceWorkflowRunSummary[];
   needsInput: WorkspaceWorkflowAttentionSummary[];
   recentBatches: WorkspaceWorkflowBatchSummary[];
+  lanes: ParentLaneOverviewModel | null;
 }
 
 export interface WorkspaceWorkflowBatchSummary {
@@ -106,6 +111,7 @@ export async function buildWorkspaceWorkflowsHomeModel(args: {
   orchestrationStore?: DbWorkflowOrchestrationStore;
   workspaceId: string;
   recentRunLimit?: number;
+  laneStore?: DbWorkspaceLaneStore;
 }): Promise<WorkspaceWorkflowsHomeModel> {
   const designStore =
     args.designStore ??
@@ -119,12 +125,16 @@ export async function buildWorkspaceWorkflowsHomeModel(args: {
     recentRuns,
     needsInput,
     recentBatches,
+    lanes,
   ] = await Promise.all([
     listUserWorkflows(designStore),
     listStarterTemplates(designStore),
     listRecentRuns(args.db, args.workspaceId, args.recentRunLimit ?? 10),
     listNeedsInput(args.db, args.orchestrationStore, args.workspaceId),
     listRecentBatches(args.db, designStore, args.workspaceId),
+    args.laneStore
+      ? args.laneStore.buildParentOverview(args.workspaceId)
+      : Promise.resolve(null),
   ]);
   return {
     workspaceId: args.workspaceId,
@@ -133,6 +143,7 @@ export async function buildWorkspaceWorkflowsHomeModel(args: {
     recentRuns,
     needsInput,
     recentBatches,
+    lanes,
   };
 }
 

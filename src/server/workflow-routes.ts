@@ -69,6 +69,7 @@ import {
 } from "../modules/plugins/workflows/server/workflowBatchScheduler";
 import { getVdDb } from "./database";
 import type { DB } from "../store/kysely_types";
+import { DbWorkspaceLaneStore, LaneStoreError } from "./workspace-lane-store";
 import {
   parseVkWorkflowWebhookPayload,
   verifyVkWebhookSignature,
@@ -105,6 +106,7 @@ export interface RegisterWorkflowRoutesOptions {
   metaWorkflowNoteWriter?: BeadResultNoteWriter;
   workflowRoadmapLiveProvider?: WorkflowRoadmapLiveProvider;
   workflowBatchCapacity?: Partial<typeof DEFAULT_WORKFLOW_BATCH_CAPACITY>;
+  workspaceLaneStore?: DbWorkspaceLaneStore;
   vkClient?: Partial<
     Pick<
       VibeKanbanServerClient,
@@ -133,6 +135,176 @@ export function registerWorkflowRoutes(
 ): void {
   hono.get("/dashboard/api/workflows/health", (c) => c.json({ ok: true }));
 
+  hono.get("/dashboard/api/workspace-lanes", async (c) => {
+    const parentWorkspaceId =
+      c.req.query("workspaceId")?.trim() ||
+      c.req.query("parentWorkspaceId")?.trim();
+    if (!parentWorkspaceId)
+      return c.json(
+        { error: "workspace_id_required", message: "Workspace is required." },
+        400,
+      );
+    const laneStore = await resolveWorkspaceLaneStore(options);
+    const overview = await laneStore.buildParentOverview(parentWorkspaceId);
+    return c.json({ overview });
+  });
+
+  hono.post("/dashboard/api/workspace-lanes", async (c) => {
+    const laneStore = await resolveWorkspaceLaneStore(options);
+    const body = asRecord(await readJsonBody(c.req.raw));
+    try {
+      const lane = await laneStore.createLane({
+        parentWorkspaceId:
+          asString(body?.parentWorkspaceId)?.trim() ||
+          asString(body?.workspaceId)?.trim() ||
+          "",
+        name: asString(body?.name)?.trim() || "",
+        purpose: asString(body?.purpose)?.trim() || "",
+        sourceBranch: asString(body?.sourceBranch)?.trim() || "main",
+        workingBranch: asString(body?.workingBranch)?.trim() || null,
+        worktreeStatus:
+          parseLaneWorktreeStatus(asString(body?.worktreeStatus)) ?? "clean",
+        createdBy: { type: "workflow_ui" },
+      });
+      return c.json({ lane }, 201);
+    } catch (error) {
+      return laneErrorResponse(c, error);
+    }
+  });
+
+  hono.post("/dashboard/api/workspace-lanes/:laneId/archive", async (c) => {
+    const laneStore = await resolveWorkspaceLaneStore(options);
+    const body = asRecord(await readJsonBody(c.req.raw));
+    const parentWorkspaceId =
+      asString(body?.parentWorkspaceId)?.trim() ||
+      asString(body?.workspaceId)?.trim() ||
+      "";
+    try {
+      const lane = await laneStore.archiveLane(
+        parentWorkspaceId,
+        c.req.param("laneId"),
+      );
+      return c.json({ lane });
+    } catch (error) {
+      return laneErrorResponse(c, error);
+    }
+  });
+
+  hono.post("/dashboard/api/workspace-lanes/:laneId/cleanup", async (c) => {
+    const laneStore = await resolveWorkspaceLaneStore(options);
+    const body = asRecord(await readJsonBody(c.req.raw));
+    const parentWorkspaceId =
+      asString(body?.parentWorkspaceId)?.trim() ||
+      asString(body?.workspaceId)?.trim() ||
+      "";
+    try {
+      const lane = await laneStore.explicitCleanup(
+        parentWorkspaceId,
+        c.req.param("laneId"),
+        {
+          reason:
+            asString(body?.reason)?.trim() ||
+            "Explicit workflow lane cleanup request.",
+          actorId: asString(body?.actorId)?.trim() || null,
+        },
+      );
+      const audit = await laneStore.listAuditEvents(
+        parentWorkspaceId,
+        c.req.param("laneId"),
+      );
+      return c.json({ lane, audit });
+    } catch (error) {
+      return laneErrorResponse(c, error);
+    }
+  });
+
+  hono.post("/dashboard/api/workspace-lanes/:laneId/write-token", async (c) => {
+    const laneStore = await resolveWorkspaceLaneStore(options);
+    const body = asRecord(await readJsonBody(c.req.raw));
+    const parentWorkspaceId =
+      asString(body?.parentWorkspaceId)?.trim() ||
+      asString(body?.workspaceId)?.trim() ||
+      "";
+    try {
+      const write = await laneStore.acquireWriteToken({
+        parentWorkspaceId,
+        laneId: c.req.param("laneId"),
+        ownerId: asString(body?.ownerId)?.trim() || "workflow-operator",
+        leaseId: asString(body?.leaseId)?.trim() || undefined,
+        leaseDurationMs:
+          typeof body?.leaseDurationMs === "number"
+            ? body.leaseDurationMs
+            : null,
+      });
+      const lane = await laneStore.getLane(
+        parentWorkspaceId,
+        c.req.param("laneId"),
+      );
+      return c.json({ write, lane });
+    } catch (error) {
+      return laneErrorResponse(c, error);
+    }
+  });
+
+  hono.post(
+    "/dashboard/api/workspace-lanes/:laneId/write-token/release",
+    async (c) => {
+      const laneStore = await resolveWorkspaceLaneStore(options);
+      const body = asRecord(await readJsonBody(c.req.raw));
+      const parentWorkspaceId =
+        asString(body?.parentWorkspaceId)?.trim() ||
+        asString(body?.workspaceId)?.trim() ||
+        "";
+      try {
+        const write = await laneStore.releaseWriteToken(
+          parentWorkspaceId,
+          c.req.param("laneId"),
+          asString(body?.leaseId)?.trim() || "",
+          asString(body?.reason)?.trim() || "released",
+        );
+        const lane = await laneStore.getLane(
+          parentWorkspaceId,
+          c.req.param("laneId"),
+        );
+        return c.json({ write, lane });
+      } catch (error) {
+        return laneErrorResponse(c, error);
+      }
+    },
+  );
+
+  hono.post(
+    "/dashboard/api/workspace-lanes/:laneId/write-token/recover",
+    async (c) => {
+      const laneStore = await resolveWorkspaceLaneStore(options);
+      const body = asRecord(await readJsonBody(c.req.raw));
+      const parentWorkspaceId =
+        asString(body?.parentWorkspaceId)?.trim() ||
+        asString(body?.workspaceId)?.trim() ||
+        "";
+      try {
+        const write = await laneStore.recoverStaleWriteToken(
+          parentWorkspaceId,
+          c.req.param("laneId"),
+          {
+            leaseId: asString(body?.leaseId)?.trim() || undefined,
+            actorId: asString(body?.actorId)?.trim() || null,
+            reason:
+              asString(body?.reason)?.trim() ||
+              "Explicit stale write capacity recovery.",
+          },
+        );
+        const lane = await laneStore.getLane(
+          parentWorkspaceId,
+          c.req.param("laneId"),
+        );
+        return c.json({ write, lane });
+      } catch (error) {
+        return laneErrorResponse(c, error);
+      }
+    },
+  );
+
   hono.get("/dashboard/api/workflows/roadmap", async (c) => {
     const roadmap = await buildLiveWorkflowRoadmapModel({
       workspaceId: c.req.query("workspaceId")?.trim() || undefined,
@@ -154,6 +326,7 @@ export function registerWorkflowRoutes(
       designStore: options.workflowDesignStore,
       orchestrationStore: options.workflowOrchestrationStore,
       workspaceId,
+      laneStore: options.workspaceLaneStore,
     });
     return c.json({ home });
   });
@@ -442,6 +615,7 @@ export function registerWorkflowRoutes(
         designStore,
         orchestrationStore: options.workflowOrchestrationStore,
         workspaceId: parsed.request.workspaceId,
+        laneStore: options.workspaceLaneStore,
       });
       return c.json(
         { batch: summarizeWorkflowBatch(batch, workflow.title), home },
@@ -574,8 +748,21 @@ export function registerWorkflowRoutes(
           },
           503,
         );
+      const runId = `workflow-run-${randomUUID()}`;
+      if (parsed.request.laneId) {
+        const laneStore = await resolveWorkspaceLaneStore(options);
+        await laneStore.bindLane({
+          parentWorkspaceId: parsed.request.workspaceId,
+          laneId: parsed.request.laneId,
+          bindingType: "workflow_run",
+          bindingKey: runId,
+          accessMode: "write",
+          reason: "Workflow launch selected this lane.",
+          roleBindings,
+        });
+      }
       let run = await runtime.launch({
-        runId: `workflow-run-${randomUUID()}`,
+        runId,
         runSnapshotId: `workflow-run-snapshot-${randomUUID()}`,
         designId: parsed.request.designId,
         version: workflow.version ?? undefined,
@@ -595,6 +782,7 @@ export function registerWorkflowRoutes(
         designStore,
         orchestrationStore: options.workflowOrchestrationStore,
         workspaceId: parsed.request.workspaceId,
+        laneStore: options.workspaceLaneStore,
       });
       return c.json({ run: summarizePersistedRun(run), home }, 201);
     } catch (error) {
@@ -652,6 +840,7 @@ export function registerWorkflowRoutes(
             designStore,
             orchestrationStore: options.workflowOrchestrationStore,
             workspaceId: asString(body?.workspaceId)!,
+            laneStore: options.workspaceLaneStore,
           })
         : undefined;
       return c.json(
@@ -730,6 +919,7 @@ export function registerWorkflowRoutes(
             designStore,
             orchestrationStore: options.workflowOrchestrationStore,
             workspaceId: asString(body?.workspaceId)!,
+            laneStore: options.workspaceLaneStore,
           })
         : undefined;
       return c.json(
@@ -1767,6 +1957,7 @@ interface WorkflowLaunchRequest {
   inputs: Record<string, unknown>;
   additionalInstructions: string | null;
   roleBindings: Record<string, WorkflowLaunchRoleBindingRequest>;
+  laneId: string | null;
 }
 
 interface WorkflowBatchLaunchRequest {
@@ -2361,6 +2552,7 @@ function parseWorkflowLaunchRequest(record: Record<string, unknown> | null):
       additionalInstructions:
         asString(record?.additionalInstructions)?.trim() || null,
       roleBindings: normalizeRoleBindings(roleBindings),
+      laneId: asString(record?.laneId)?.trim() || null,
     },
   };
 }
@@ -2451,6 +2643,7 @@ async function resolvePersistedWorkflowRuntime(
     db,
     designStore,
     orchestrationStore: options.workflowOrchestrationStore,
+    laneStore: options.workspaceLaneStore,
     queue: {
       queueAgentTurn: async (request) => {
         const queued = await options.vkClient!.queueFollowUp!(
@@ -2471,6 +2664,42 @@ async function resolvePersistedWorkflowRuntime(
       },
     },
   });
+}
+
+
+async function resolveWorkspaceLaneStore(
+  options: RegisterWorkflowRoutesOptions,
+): Promise<DbWorkspaceLaneStore> {
+  if (options.workspaceLaneStore) return options.workspaceLaneStore;
+  const db = options.workflowHomeDb ?? (await getVdDb()).db;
+  return new DbWorkspaceLaneStore({ db });
+}
+
+function parseLaneWorktreeStatus(value: string | undefined) {
+  return value === "pending" ||
+    value === "clean" ||
+    value === "dirty" ||
+    value === "unknown"
+    ? value
+    : null;
+}
+
+function laneErrorResponse(
+  c: { json: (body: unknown, status?: 400 | 404 | 409) => Response },
+  error: unknown,
+): Response {
+  if (error instanceof LaneStoreError) {
+    const status =
+      error.status === 404 || error.status === 409 ? error.status : 400;
+    return c.json({ error: error.code, message: error.message }, status);
+  }
+  return c.json(
+    {
+      error: "lane_operation_failed",
+      message: error instanceof Error ? error.message : String(error),
+    },
+    400,
+  );
 }
 
 interface PersistedWorkflowWebhookCompletion {

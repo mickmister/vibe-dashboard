@@ -98,6 +98,17 @@ export interface LaneProvenance {
   selectedWorkspaceId: string;
 }
 
+export interface LaneAuditEventReadModel {
+  auditId: string;
+  laneId: string;
+  parentWorkspaceId: string;
+  eventType: string;
+  actorId: string | null;
+  message: string;
+  data: Record<string, unknown>;
+  createdAt: number;
+}
+
 export interface ParentLaneOverviewModel {
   parentWorkspaceId: string;
   lanes: LaneReadModel[];
@@ -245,6 +256,84 @@ export class DbWorkspaceLaneStore {
 
   async archiveLane(parentWorkspaceId: string, laneId: string): Promise<LaneReadModel> {
     return this.updateLaneStatus(parentWorkspaceId, laneId, 'archived');
+  }
+
+  async markLaneWorktreeStatus(
+    parentWorkspaceId: string,
+    laneId: string,
+    worktreeStatus: WorkspaceLaneWorktreeStatus,
+    summary: Record<string, unknown> | null = null,
+  ): Promise<LaneReadModel> {
+    const lane = await this.requireMutableLane(parentWorkspaceId, laneId);
+    const now = this.now();
+    await (await this.getDb()).updateTable('WorkspaceLane').set({
+      worktreeStatus,
+      worktreeSummaryJson: summary ? JSON.stringify(summary) : null,
+      updatedAt: now,
+    }).where('laneId', '=', lane.laneId).execute();
+    await this.audit(
+      lane.laneId,
+      lane.parentWorkspaceId,
+      'lane_worktree_status_updated',
+      `Lane worktree marked ${worktreeStatus}.`,
+      { worktreeStatus },
+    );
+    return this.getLane(parentWorkspaceId, laneId) as Promise<LaneReadModel>;
+  }
+
+  async explicitCleanup(
+    parentWorkspaceId: string,
+    laneId: string,
+    input: { actorId?: string | null; reason: string },
+  ): Promise<LaneReadModel> {
+    const lane = await this.assertLaneParent(parentWorkspaceId, laneId);
+    if (!FINAL_STATUSES.includes(lane.status))
+      throw new LaneStoreError(
+        'lane_invalid_status',
+        'Only completed or archived lanes can be cleaned up in this slice.',
+        409,
+      );
+    const active = await this.activeLease(laneId);
+    if (active)
+      throw new LaneStoreError(
+        'lane_capacity_conflict',
+        'Release active write capacity before cleaning up this lane.',
+        409,
+      );
+    await this.audit(
+      laneId,
+      parentWorkspaceId,
+      'lane_cleanup_requested',
+      'Lane cleanup requested explicitly.',
+      { reason: input.reason, cleanupMode: 'audit_only' },
+      input.actorId ?? null,
+    );
+    return this.getLane(parentWorkspaceId, laneId) as Promise<LaneReadModel>;
+  }
+
+  async listAuditEvents(
+    parentWorkspaceId: string,
+    laneId: string,
+    limit = 50,
+  ): Promise<LaneAuditEventReadModel[]> {
+    await this.assertLaneParent(parentWorkspaceId, laneId);
+    const rows = await (await this.getDb())
+      .selectFrom('WorkspaceLaneAuditEvent')
+      .selectAll()
+      .where('laneId', '=', laneId)
+      .orderBy('createdAt', 'desc')
+      .limit(Math.min(Math.max(limit, 1), 200))
+      .execute();
+    return rows.map((row) => ({
+      auditId: row.auditId,
+      laneId: row.laneId,
+      parentWorkspaceId: row.parentWorkspaceId,
+      eventType: row.eventType,
+      actorId: row.actorId,
+      message: row.message,
+      data: parseRecord(row.dataJson),
+      createdAt: row.createdAt,
+    }));
   }
 
   async bindLane(input: BindLaneInput): Promise<LaneBindingReadModel> {

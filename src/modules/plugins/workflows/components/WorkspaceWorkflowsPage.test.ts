@@ -49,6 +49,10 @@ describe("WorkspaceWorkflowsHomeView", () => {
     expect(html).toContain("Recent batches");
     expect(html).toContain("Recent runs");
     expect(html).toContain("Needs your input");
+    expect(html).toContain("Workspace lanes");
+    expect(html).toContain("Feature lane");
+    expect(html).toContain("Ready for isolated workflow work.");
+    expect(html).not.toContain("/Users/");
     expect(html).toContain("Workflow dashboard summary");
     expect(html).toContain("Items waiting on you");
     expect(html).toContain("Active runs");
@@ -88,6 +92,7 @@ describe("WorkspaceWorkflowsHomeView", () => {
       React.createElement(WorkspaceWorkflowsHomeView, {
         home: {
           workspaceId: "workspace-a",
+          lanes: null,
           userWorkflows: [],
           starterTemplates: [],
           recentRuns: [],
@@ -191,6 +196,33 @@ describe("WorkspaceWorkflowsHomeView", () => {
 function fixture(): WorkspaceWorkflowsHomeModel {
   return {
     workspaceId: "workspace-a",
+    lanes: {
+      parentWorkspaceId: "workspace-a",
+      lanes: [
+        {
+          laneId: "lane-a",
+          parentWorkspaceId: "workspace-a",
+          name: "Feature lane",
+          purpose: "Isolated workflow work",
+          label: "Feature lane",
+          breadcrumb: "workspace-a / Feature lane",
+          status: "ready",
+          sourceBranch: "main",
+          workingBranch: "workflow/feature-lane",
+          worktree: { status: "clean", display: "Clean worktree", summary: null },
+          capacity: { write: { status: "available", activeLeaseId: null, ownerId: null, reason: null } },
+          boundRunIds: [],
+          boundBeadIds: [],
+          nextAction: "Ready for isolated workflow work.",
+          createdAt: 1,
+          updatedAt: 2,
+          archivedAt: null,
+        },
+      ],
+      counts: { ready: 1 },
+      activeWriteLanes: 0,
+      nextAction: "One lane is ready for workflow work.",
+    },
     userWorkflows: [
       {
         id: "design-drt",

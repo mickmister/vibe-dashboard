@@ -244,6 +244,15 @@ export function workflowEditorFixture(definition: AgentWorkflowDefinitionV1, pat
 export function workflowsHomeFixture(): WorkspaceWorkflowsHomeModel {
   return {
     workspaceId: 'workspace-storybook',
+    lanes: {
+      parentWorkspaceId: 'workspace-storybook',
+      lanes: [
+        { laneId: 'lane-story', parentWorkspaceId: 'workspace-storybook', name: 'Story lane', purpose: 'Isolated Storybook workflow work.', label: 'Story lane', breadcrumb: 'workspace-storybook / Story lane', status: 'ready', sourceBranch: 'main', workingBranch: 'workflow/story-lane', worktree: { status: 'clean', display: 'Clean worktree', summary: null }, capacity: { write: { status: 'available', activeLeaseId: null, ownerId: null, reason: null } }, boundRunIds: [], boundBeadIds: [], nextAction: 'Ready for isolated workflow work.', createdAt: 1_000, updatedAt: 1_000, archivedAt: null },
+      ],
+      counts: { ready: 1 },
+      activeWriteLanes: 0,
+      nextAction: 'One lane is ready for workflow work.',
+    },
     userWorkflows: [
       { id: 'design-drt', title: 'Dev / Review / Tester', description: 'Your published three-agent workflow.', source: 'published_design', status: 'ready', version: 3, unavailableReason: null, canRun: true, inputs: [{ id: 'featureRequest', type: 'markdown', required: true, description: 'Feature request or task to implement.' }], roles: [{ id: 'dev', label: 'Dev', description: null }, { id: 'review', label: 'Review', description: null }, { id: 'tester', label: 'Tester', description: null }], launchSummary: { firstStateId: 'dev', firstActorRoleId: 'dev', firstActorLabel: 'Dev', mayNeedHumanInput: true, mayCallWorkflows: true } },
       { id: 'design-ci-wait', title: 'Wait for GitHub CI', description: 'Push, wait for CI, then review.', source: 'published_design', status: 'ready', version: 1, unavailableReason: null, canRun: true, inputs: [{ id: 'featureRequest', type: 'markdown', required: true, description: null }], roles: [{ id: 'dev', label: 'Dev', description: null }, { id: 'review', label: 'Review', description: null }] },

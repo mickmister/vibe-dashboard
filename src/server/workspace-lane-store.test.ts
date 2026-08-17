@@ -129,6 +129,38 @@ describe('DbWorkspaceLaneStore', () => {
     await expect(store.getSelectedLaneWorkspaceContext({ parentWorkspaceId: 'workspace-a', accessMode: 'read' })).resolves.toMatchObject({ workspaceId: 'workspace-a', laneId: null, cwdMode: 'parent_workspace', allowsWrites: true });
     await expect(store.getSelectedLaneWorkspaceContext({ parentWorkspaceId: 'workspace-a', accessMode: 'write' })).resolves.toMatchObject({ workspaceId: 'workspace-a', laneId: null, cwdMode: 'parent_workspace', allowsWrites: false });
   });
+
+
+  it('TEST_CASE_M120A_1A/1D supports explicit lane cleanup as audited product action only', async () => {
+    const { store } = await setupLaneStore();
+    await store.createLane({ laneId: 'lane-cleanup', parentWorkspaceId: 'workspace-a', name: 'Cleanup lane', purpose: 'Cleanup audit', sourceBranch: 'main', worktreeStatus: 'clean', status: 'completed', worktreePath: '/Users/private/worktree' });
+
+    const cleaned = await store.explicitCleanup('workspace-a', 'lane-cleanup', { actorId: 'operator', reason: 'Milestone complete' });
+    expect(cleaned).toMatchObject({ laneId: 'lane-cleanup', status: 'completed' });
+    expect(JSON.stringify(cleaned)).not.toContain('/Users/private/worktree');
+    const audit = await store.listAuditEvents('workspace-a', 'lane-cleanup');
+    expect(audit).toEqual(expect.arrayContaining([
+      expect.objectContaining({ eventType: 'lane_cleanup_requested', actorId: 'operator', data: expect.objectContaining({ reason: 'Milestone complete', cleanupMode: 'audit_only' }) }),
+    ]));
+
+    await store.createLane({ laneId: 'lane-running', parentWorkspaceId: 'workspace-a', name: 'Running lane', purpose: 'Cannot cleanup', sourceBranch: 'main', worktreeStatus: 'clean', status: 'active' });
+    await expectLaneError(store.explicitCleanup('workspace-a', 'lane-running', { reason: 'too soon' }), 'lane_invalid_status');
+
+    await store.createLane({ laneId: 'lane-held', parentWorkspaceId: 'workspace-a', name: 'Held lane', purpose: 'Cleanup capacity', sourceBranch: 'main', worktreeStatus: 'clean', status: 'completed' });
+    await store.acquireWriteToken({ parentWorkspaceId: 'workspace-a', laneId: 'lane-held', leaseId: 'lease-held', ownerId: 'writer' });
+    await expectLaneError(store.explicitCleanup('workspace-a', 'lane-held', { reason: 'active writer' }), 'lane_capacity_conflict');
+  });
+
+  it('TEST_CASE_M120A_1C blocks dirty and unknown lane writes until explicit status recovery', async () => {
+    const { store } = await setupLaneStore();
+    await store.createLane({ laneId: 'lane-unknown', parentWorkspaceId: 'workspace-a', name: 'Unknown lane', purpose: 'Recovery', sourceBranch: 'main', worktreeStatus: 'unknown', status: 'blocked' });
+
+    await expectLaneError(store.acquireWriteToken({ parentWorkspaceId: 'workspace-a', laneId: 'lane-unknown', ownerId: 'writer' }), 'lane_write_blocked');
+    await expect(store.markLaneWorktreeStatus('workspace-a', 'lane-unknown', 'clean', { inspectedBy: 'operator' })).resolves.toMatchObject({ worktree: { status: 'clean' } });
+    await expect(store.acquireWriteToken({ parentWorkspaceId: 'workspace-a', laneId: 'lane-unknown', leaseId: 'lease-clean', ownerId: 'writer' })).resolves.toMatchObject({ status: 'held', activeLeaseId: 'lease-clean' });
+    const audit = await store.listAuditEvents('workspace-a', 'lane-unknown');
+    expect(audit.map((event) => event.eventType)).toContain('lane_worktree_status_updated');
+  });
 });
 
 async function setupLaneStore(clock: { now: number } = { now: 1_000 }) {

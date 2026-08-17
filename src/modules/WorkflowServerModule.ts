@@ -14,6 +14,7 @@ import { WorkflowActivityScanner } from '../server/workflow-session-scanner';
 import { WorkflowScopedTriggerSatisfier } from '../server/workflow-scoped-trigger-satisfier';
 import { VibeKanbanServerClient } from '../server/vk-client';
 import { WorkflowRoleSessionResolver } from '../server/role-session-resolver';
+import { DbWorkspaceLaneStore } from '../server/workspace-lane-store';
 import { DbResponsePipeStore } from '../server/response-pipe-store';
 import { ResponsePipeService } from '../server/response-pipe-service';
 import { DbDeclarativeWorkflowDefinitionStore } from '../server/declarative-workflow-definition-store';
@@ -51,6 +52,7 @@ serverRegistry.registerServerModule((api) => {
   const workflowWebhookInboxStore = new DbWorkflowWebhookInboxStore({ getDb: async () => (await getVdDb()).db });
   const workflowWebhookProvisioningStore = new DbWorkflowWebhookProvisioningStore({ getDb: async () => (await getVdDb()).db });
   const workflowDesignStore = new DbWorkflowDesignStore({ getDb: async () => (await getVdDb()).db, templates: BUILT_IN_WORKFLOW_TEMPLATES });
+  const workspaceLaneStore = new DbWorkspaceLaneStore({ getDb: async () => (await getVdDb()).db });
   const declarativeWorkflowRuntime = new DeclarativeWorkflowRuntime({
     store: workflowOrchestrationStore,
     resolver: roleSessionResolver,
@@ -102,6 +104,7 @@ serverRegistry.registerServerModule((api) => {
     workflowWebhookWakeup,
     workflowWebhookProvisioningStore,
     workflowDesignStore,
+    workspaceLaneStore,
     vkClient,
   });
   registerPluginAssetRoutes(api.hono, { installRoot: pluginInstallRoot });

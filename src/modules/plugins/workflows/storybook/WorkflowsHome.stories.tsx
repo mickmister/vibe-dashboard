@@ -45,7 +45,7 @@ export const DenseWorkspaceDashboard: Story = {
 
 export const EmptyWorkspace: Story = {
   args: {
-    home: { workspaceId: 'workspace-empty', userWorkflows: [], starterTemplates: [], needsInput: [], recentRuns: [], recentBatches: [] },
+    home: { workspaceId: 'workspace-empty', lanes: null, userWorkflows: [], starterTemplates: [], needsInput: [], recentRuns: [], recentBatches: [] },
     loading: false,
     error: null,
     onRefresh: () => undefined,

@@ -10,6 +10,7 @@ import { initVdDb, type VdDbHandle } from "./database";
 import { DbWorkflowRunRecorder } from "./workflow-run-recorder";
 import { DbWorkflowRunReader } from "./workflow-run-store";
 import { DbWorkflowOrchestrationStore } from "./workflow-orchestration-store";
+import { DbWorkspaceLaneStore } from "./workspace-lane-store";
 import { DbDeclarativeWorkflowDefinitionStore } from "./declarative-workflow-definition-store";
 import {
   DbWorkflowWebhookInboxStore,
@@ -48,6 +49,132 @@ describe("registerWorkflowRoutes", () => {
     await expectJson(app, "/dashboard/api/workflows", 200, {
       workflows: [{ id: "example", trigger: "manual" }],
     });
+  });
+
+
+
+  it("TEST_CASE_M120A_1A exposes lane overview and creation without raw host paths", async () => {
+    const handle = await initVdDb({ path: ":memory:" });
+    dbHandles.push(handle);
+    const laneStore = new DbWorkspaceLaneStore({
+      db: handle.db,
+      now: () => 1_000,
+      parentWorkspaceExists: (workspaceId) => workspaceId === "workspace-a",
+    });
+    await laneStore.createLane({
+      laneId: "lane-hidden-path",
+      parentWorkspaceId: "workspace-a",
+      name: "Hidden path lane",
+      purpose: "Product safe lane display",
+      sourceBranch: "main",
+      worktreePath: "/Users/secret/worktree",
+      worktreeStatus: "clean",
+      status: "ready",
+    });
+    const app = new Hono();
+    registerWorkflowRoutes(app, { registry: createWorkflowRegistry(), workspaceLaneStore: laneStore });
+
+    const overviewResponse = await app.request("/dashboard/api/workspace-lanes?workspaceId=workspace-a");
+    expect(overviewResponse.status).toBe(200);
+    const overviewPayload = await overviewResponse.json();
+    expect(overviewPayload.overview.parentWorkspaceId).toBe("workspace-a");
+    expect(overviewPayload.overview.lanes).toEqual(expect.arrayContaining([expect.objectContaining({ laneId: "lane-hidden-path", purpose: "Product safe lane display", capacity: { write: expect.objectContaining({ status: "available" }) } })]));
+    expect(JSON.stringify(overviewPayload)).not.toContain("/Users/secret/worktree");
+
+    const createResponse = await app.request("/dashboard/api/workspace-lanes", {
+      method: "POST",
+      body: JSON.stringify({ workspaceId: "workspace-a", name: "New isolated lane", purpose: "Workflow work", sourceBranch: "main" }),
+    });
+    expect(createResponse.status).toBe(201);
+    await expect(createResponse.json()).resolves.toMatchObject({ lane: { parentWorkspaceId: "workspace-a", name: "New isolated lane", worktree: { display: expect.any(String) } } });
+  });
+
+  it("TEST_CASE_M120A_1B/1C exposes write token gating, idempotent release, and recovery through typed lane APIs", async () => {
+    const clock = { now: 1_000 };
+    const handle = await initVdDb({ path: ":memory:" });
+    dbHandles.push(handle);
+    const laneStore = new DbWorkspaceLaneStore({
+      db: handle.db,
+      now: () => clock.now,
+      parentWorkspaceExists: (workspaceId) => workspaceId === "workspace-a",
+    });
+    await laneStore.createLane({ laneId: "lane-api", parentWorkspaceId: "workspace-a", name: "API lane", purpose: "Write capacity", sourceBranch: "main", worktreeStatus: "clean", status: "ready" });
+    const app = new Hono();
+    registerWorkflowRoutes(app, { registry: createWorkflowRegistry(), workspaceLaneStore: laneStore });
+
+    const acquire = await app.request("/dashboard/api/workspace-lanes/lane-api/write-token", {
+      method: "POST",
+      body: JSON.stringify({ workspaceId: "workspace-a", ownerId: "writer-1", leaseId: "lease-1", leaseDurationMs: 5 }),
+    });
+    expect(acquire.status).toBe(200);
+    await expect(acquire.json()).resolves.toMatchObject({ write: { status: "held", activeLeaseId: "lease-1" } });
+
+    const conflict = await app.request("/dashboard/api/workspace-lanes/lane-api/write-token", {
+      method: "POST",
+      body: JSON.stringify({ workspaceId: "workspace-a", ownerId: "writer-2", leaseId: "lease-2" }),
+    });
+    expect(conflict.status).toBe(409);
+    await expect(conflict.json()).resolves.toMatchObject({ error: "lane_capacity_conflict" });
+
+    const release = await app.request("/dashboard/api/workspace-lanes/lane-api/write-token/release", {
+      method: "POST",
+      body: JSON.stringify({ workspaceId: "workspace-a", leaseId: "lease-1", reason: "done" }),
+    });
+    expect(release.status).toBe(200);
+    const releaseAgain = await app.request("/dashboard/api/workspace-lanes/lane-api/write-token/release", {
+      method: "POST",
+      body: JSON.stringify({ workspaceId: "workspace-a", leaseId: "lease-1", reason: "duplicate" }),
+    });
+    expect(releaseAgain.status).toBe(200);
+    await expect(releaseAgain.json()).resolves.toMatchObject({ write: { status: "available" } });
+
+    await app.request("/dashboard/api/workspace-lanes/lane-api/write-token", {
+      method: "POST",
+      body: JSON.stringify({ workspaceId: "workspace-a", ownerId: "writer-3", leaseId: "lease-expired", leaseDurationMs: 5 }),
+    });
+    clock.now = 2_000;
+    const stale = await app.request("/dashboard/api/workspace-lanes/lane-api/write-token", {
+      method: "POST",
+      body: JSON.stringify({ workspaceId: "workspace-a", ownerId: "writer-4", leaseId: "lease-new" }),
+    });
+    expect(stale.status).toBe(409);
+    await expect(stale.json()).resolves.toMatchObject({ error: "lane_capacity_stale_or_orphan" });
+    const recover = await app.request("/dashboard/api/workspace-lanes/lane-api/write-token/recover", {
+      method: "POST",
+      body: JSON.stringify({ workspaceId: "workspace-a", leaseId: "lease-expired", actorId: "operator", reason: "worker crashed" }),
+    });
+    expect(recover.status).toBe(200);
+    await expect(recover.json()).resolves.toMatchObject({ write: { status: "available" } });
+  });
+
+  it("TEST_CASE_M120A_1D refuses cleanup for active lanes and audits explicit cleanup", async () => {
+    const handle = await initVdDb({ path: ":memory:" });
+    dbHandles.push(handle);
+    const laneStore = new DbWorkspaceLaneStore({
+      db: handle.db,
+      now: () => 1_000,
+      parentWorkspaceExists: (workspaceId) => workspaceId === "workspace-a",
+    });
+    await laneStore.createLane({ laneId: "lane-active-cleanup", parentWorkspaceId: "workspace-a", name: "Active cleanup", purpose: "No cleanup", sourceBranch: "main", worktreeStatus: "clean", status: "active" });
+    await laneStore.createLane({ laneId: "lane-complete-cleanup", parentWorkspaceId: "workspace-a", name: "Complete cleanup", purpose: "Audit cleanup", sourceBranch: "main", worktreeStatus: "clean", status: "completed" });
+    const app = new Hono();
+    registerWorkflowRoutes(app, { registry: createWorkflowRegistry(), workspaceLaneStore: laneStore });
+
+    const activeCleanup = await app.request("/dashboard/api/workspace-lanes/lane-active-cleanup/cleanup", {
+      method: "POST",
+      body: JSON.stringify({ workspaceId: "workspace-a", reason: "too soon", actorId: "operator" }),
+    });
+    expect(activeCleanup.status).toBe(409);
+    await expect(activeCleanup.json()).resolves.toMatchObject({ error: "lane_invalid_status" });
+
+    const cleanup = await app.request("/dashboard/api/workspace-lanes/lane-complete-cleanup/cleanup", {
+      method: "POST",
+      body: JSON.stringify({ workspaceId: "workspace-a", reason: "done", actorId: "operator" }),
+    });
+    expect(cleanup.status).toBe(200);
+    const payload = await cleanup.json();
+    expect(payload.lane).toMatchObject({ laneId: "lane-complete-cleanup", status: "completed" });
+    expect(payload.audit).toEqual(expect.arrayContaining([expect.objectContaining({ eventType: "lane_cleanup_requested", actorId: "operator" })]));
   });
 
   it("TEST_CASE_CKOV_1C returns product-safe workflow roadmap read model", async () => {
@@ -385,6 +512,7 @@ describe("registerWorkflowRoutes", () => {
     dbHandles.push(handle);
     const app = new Hono();
     const designStore = new DbWorkflowDesignStore({ db: handle.db });
+    const laneStore = new DbWorkspaceLaneStore({ db: handle.db });
     await designStore.createDesign({
       designId: "design-launch",
       draftId: "draft-launch",
@@ -392,6 +520,15 @@ describe("registerWorkflowRoutes", () => {
       definition: routeLaunchDefinition(),
     });
     await designStore.publishDraft("draft-launch");
+    await laneStore.createLane({
+      laneId: "lane-launch",
+      parentWorkspaceId: "workspace-a",
+      name: "Launch lane",
+      purpose: "Selected during workflow launch",
+      sourceBranch: "main",
+      worktreeStatus: "clean",
+      status: "ready",
+    });
     const sessions = [
       vkSession("session-dev", "workspace-a", "Dev"),
       vkSession("session-review", "workspace-a", "Review"),
@@ -401,6 +538,7 @@ describe("registerWorkflowRoutes", () => {
       registry: createWorkflowRegistry(),
       workflowHomeDb: handle.db,
       workflowDesignStore: designStore,
+      workspaceLaneStore: laneStore,
       vkClient: {
         getSessions: async () => sessions,
         getSession: async (sessionId) => {
@@ -487,6 +625,7 @@ describe("registerWorkflowRoutes", () => {
         designId: "design-launch",
         inputs: { featureRequest: "Build launch flow" },
         additionalInstructions: "Keep it clean.",
+        laneId: "lane-launch",
         roleBindings: {
           dev: { mode: "existing", sessionId: "session-dev" },
           review: { mode: "existing", sessionId: "session-review" },
@@ -518,6 +657,13 @@ describe("registerWorkflowRoutes", () => {
     expect(JSON.parse(runRow.roleBindingsJson)).toMatchObject({
       dev: { sessionId: "session-dev" },
       review: { sessionId: "session-review" },
+    });
+    await expect(
+      laneStore.getBinding("workflow_run", payload.run.runId),
+    ).resolves.toMatchObject({
+      laneId: "lane-launch",
+      accessMode: "write",
+      reason: "Workflow launch selected this lane.",
     });
   });
 
