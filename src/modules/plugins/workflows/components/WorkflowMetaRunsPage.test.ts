@@ -89,7 +89,9 @@ describe("WorkflowMetaRunsView", () => {
       error: "WorkflowStepState runReady bd show error",
       loading: false,
       duplicateIds: ["A"],
+      invalidSelected: [hostileBead],
       canStart: false,
+      confirming: false,
       setQuery: vi.fn(),
       setScope: vi.fn(),
       setChildWorkflowId: vi.fn(),
@@ -97,7 +99,8 @@ describe("WorkflowMetaRunsView", () => {
       removeBead: vi.fn(),
       moveBead: vi.fn(),
       onSearch: vi.fn(),
-      onStart: vi.fn(),
+      onReviewStart: vi.fn(),
+      onConfirmStart: vi.fn(),
       onRefresh: vi.fn(),
       onPause: vi.fn(),
       onResume: vi.fn(),
@@ -110,7 +113,7 @@ describe("WorkflowMetaRunsView", () => {
     expect(html).toContain("This filter can include beads outside the default workspace scope");
     expect(html).toContain("Duplicate bead selected");
     expect(html).toContain("Child workflow");
-    expect(html).toContain("Start sequential meta-workflow");
+    expect(html).toContain("Review queue summary");
     expect(html).toContain("Monitor meta-workflows");
     expect(html).toContain("A completed via workflow action");
     expect(html).toContain("[redacted-home]");
@@ -134,4 +137,43 @@ describe("WorkflowMetaRunsView", () => {
     expect(rendered).not.toContain("WorkflowStepState");
     expect(rendered).not.toContain("runReady");
   });
+  it("renders a confirmation summary before starting selected roadmap beads", () => {
+    const props = {
+      workspaceId: "workspace-a",
+      workflows: [workflow],
+      runs: [],
+      beads: [],
+      selected: [beadA, beadB],
+      query: "",
+      scope: "current_workspace" as const,
+      childWorkflowId: "design-child",
+      unavailableReason: null,
+      status: null,
+      error: null,
+      loading: false,
+      duplicateIds: [],
+      invalidSelected: [],
+      canStart: true,
+      confirming: true,
+      setQuery: vi.fn(),
+      setScope: vi.fn(),
+      setChildWorkflowId: vi.fn(),
+      addBead: vi.fn(),
+      removeBead: vi.fn(),
+      moveBead: vi.fn(),
+      onSearch: vi.fn(),
+      onReviewStart: vi.fn(),
+      onConfirmStart: vi.fn(),
+      onRefresh: vi.fn(),
+      onPause: vi.fn(),
+      onResume: vi.fn(),
+    };
+    const html = renderToStaticMarkup(React.createElement(WorkflowMetaRunsView, props));
+
+    expect(html).toContain("Confirm sequential meta-workflow");
+    expect(html).toContain("Workspace workspace-a · 2 beads · Child workflow");
+    expect(html).toContain("Payload includes only bead ids in order, workspace id, and the pinned child workflow/version.");
+    expect(html).toContain("Confirm and start");
+  });
+
 });

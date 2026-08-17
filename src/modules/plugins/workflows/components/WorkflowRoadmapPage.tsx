@@ -6,12 +6,14 @@ import {
   type WorkflowRoadmapItemStatus,
   type WorkflowRoadmapMilestone,
   type WorkflowRoadmapModel,
+  type WorkflowRoadmapSubBead,
 } from "../client/workflowRoadmapApi";
 import { workflowRouteHref } from "./workflowRouteContext";
 
 export function WorkflowRoadmapPage(): React.ReactElement {
   const [searchParams] = useSearchParams();
   const searchKey = searchParams.toString();
+  const workspaceId = searchParams.get("workspaceId") || searchParams.get("workspace") || "";
   const [roadmap, setRoadmap] = useState<WorkflowRoadmapModel | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -41,6 +43,8 @@ export function WorkflowRoadmapPage(): React.ReactElement {
       backHref={workflowRouteHref("/dashboard/workflows", searchParams)}
       filters={roadmapFiltersFromSearch(searchParams)}
       filterHref={(next) => workflowRouteHref("/dashboard/workflows/roadmap", searchParams, next)}
+      queueHref={(beadIds) => workflowRouteHref("/dashboard/workflows/meta-runs", searchParams, { workspaceId: workspaceId || null, roadmapBeads: beadIds.length ? beadIds.join(",") : null })}
+      workspaceId={workspaceId || null}
     />
   );
 }
@@ -53,6 +57,8 @@ export function WorkflowRoadmapView({
   backHref = "/dashboard/workflows",
   filters = defaultRoadmapFilters(),
   filterHref = () => "#",
+  queueHref = () => "#",
+  workspaceId = null,
   embedded = false,
 }: {
   roadmap: WorkflowRoadmapModel | null;
@@ -62,6 +68,8 @@ export function WorkflowRoadmapView({
   backHref?: string;
   filters?: RoadmapFilterState;
   filterHref?: (next: Record<string, string | null>) => string;
+  queueHref?: (beadIds: string[]) => string;
+  workspaceId?: string | null;
   embedded?: boolean;
 }): React.ReactElement {
   const visibleMilestones = useMemo(
@@ -74,6 +82,15 @@ export function WorkflowRoadmapView({
   );
   const totalMilestones = roadmap?.milestones.length ?? 0;
   const completedHidden = Boolean(roadmap && !filters.showCompleted && roadmap.statusCounts.complete > 0);
+  const [selectedBeadIds, setSelectedBeadIds] = useState<string[]>([]);
+  const selectableBeadIds = useMemo(() => collectSelectableBeadIds(visibleMilestones), [visibleMilestones]);
+  const orderedSelectedBeadIds = useMemo(
+    () => selectableBeadIds.filter((beadId) => selectedBeadIds.includes(beadId)),
+    [selectableBeadIds, selectedBeadIds],
+  );
+  const toggleBead = (beadId: string) => {
+    setSelectedBeadIds((current) => current.includes(beadId) ? current.filter((id) => id !== beadId) : [...current, beadId]);
+  };
   return (
     <StandaloneDashboardPage
       className={embedded ? "h-full" : ""}
@@ -153,6 +170,24 @@ export function WorkflowRoadmapView({
         </section>
       ) : null}
 
+      {roadmap ? (
+        <section className="rounded-xl border border-slate-800 bg-slate-900/70 p-4" aria-label="Queue selected roadmap beads">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="text-xs uppercase tracking-wide text-cyan-300">Meta-workflow queue</div>
+              <p className="mt-1 text-sm text-zinc-300">Select roadmap beads below, then queue them as a sequential meta-workflow.</p>
+              {orderedSelectedBeadIds.length ? <p className="mt-1 text-xs text-zinc-500">Selected {orderedSelectedBeadIds.length} beads in roadmap order.</p> : <p className="mt-1 text-xs text-zinc-500">No beads selected yet.</p>}
+              {!workspaceId ? <p className="mt-1 text-xs text-amber-200">Choose a workspace before queueing selected roadmap beads. Creating a new sub-workspace from here is deferred.</p> : null}
+            </div>
+            {workspaceId && orderedSelectedBeadIds.length ? (
+              <a className="rounded-md bg-cyan-500 px-3 py-2 text-sm font-medium text-zinc-950 hover:bg-cyan-400" href={queueHref(orderedSelectedBeadIds)}>Review and queue selected</a>
+            ) : (
+              <span className="rounded-md border border-zinc-800 px-3 py-2 text-sm text-zinc-500">{workspaceId ? "Select beads to queue" : "Choose workspace to queue"}</span>
+            )}
+          </div>
+        </section>
+      ) : null}
+
       {roadmap && roadmap.milestones.length === 0 ? (
         <section className="rounded-xl border border-slate-800 bg-slate-900/70 p-5">
           <h2 className="font-semibold">{roadmap.source.freshness === "error" ? "Roadmap unavailable" : "No roadmap selected"}</h2>
@@ -186,6 +221,8 @@ export function WorkflowRoadmapView({
                 key={milestone.beadId}
                 milestone={milestone}
                 index={index}
+                selectedBeadIds={selectedBeadIds}
+                onToggleBead={toggleBead}
               />
             ))}
           </div>
@@ -262,9 +299,13 @@ export function WorkflowRoadmapView({
 function MilestoneCard({
   milestone,
   index,
+  selectedBeadIds,
+  onToggleBead,
 }: {
   milestone: WorkflowRoadmapMilestone;
   index: number;
+  selectedBeadIds: string[];
+  onToggleBead: (beadId: string) => void;
 }): React.ReactElement {
   return (
     <details
@@ -277,9 +318,13 @@ function MilestoneCard({
             <div className="text-xs uppercase tracking-wide text-zinc-500">
               {String(index + 1).padStart(2, "0")} · {milestone.milestone}
             </div>
-            <h2 className="mt-1 text-lg font-semibold text-zinc-50">
-              {milestone.title}
-            </h2>
+            <div className="mt-1 flex items-center gap-2">
+              <input aria-label={`Select ${milestone.title}`} type="checkbox" checked={selectedBeadIds.includes(milestone.beadId)} disabled={!canQueueRoadmapItem(milestone)} onChange={() => onToggleBead(milestone.beadId)} />
+              <h2 className="text-lg font-semibold text-zinc-50">
+                {milestone.title}
+              </h2>
+            </div>
+            {!canQueueRoadmapItem(milestone) ? <p className="mt-1 text-xs text-zinc-500">Completed or unavailable beads are not queued from the roadmap.</p> : null}
             <p className="mt-1 text-sm text-zinc-300">{milestone.summary}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -318,7 +363,7 @@ function MilestoneCard({
                   className="rounded-lg border border-slate-800 bg-slate-950 p-3"
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <h3 className="font-medium text-zinc-100">{child.title}</h3>
+                    <label className="flex items-center gap-2 font-medium text-zinc-100"><input aria-label={`Select ${child.title}`} type="checkbox" checked={selectedBeadIds.includes(child.beadId)} disabled={!canQueueRoadmapItem(child)} onChange={() => onToggleBead(child.beadId)} />{child.title}</label>
                     <StatusPill status={child.status} compact />
                   </div>
                   <p className="mt-1 text-sm text-zinc-400">{child.summary}</p>
@@ -490,6 +535,21 @@ function toneClasses(
 function formatTime(value: number): string {
   if (!Number.isFinite(value)) return "recently";
   return new Date(value).toLocaleString();
+}
+
+function collectSelectableBeadIds(milestones: WorkflowRoadmapMilestone[]): string[] {
+  const ids: string[] = [];
+  for (const milestone of milestones) {
+    if (canQueueRoadmapItem(milestone)) ids.push(milestone.beadId);
+    for (const childItem of milestone.children) {
+      if (canQueueRoadmapItem(childItem)) ids.push(childItem.beadId);
+    }
+  }
+  return ids;
+}
+
+function canQueueRoadmapItem(item: Pick<WorkflowRoadmapMilestone, "status"> | WorkflowRoadmapSubBead): boolean {
+  return item.status !== "complete" && item.status !== "blocked";
 }
 
 type RoadmapStatusFilter = WorkflowRoadmapItemStatus | "all";

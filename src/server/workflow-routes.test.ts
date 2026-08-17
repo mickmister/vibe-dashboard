@@ -269,6 +269,41 @@ describe("registerWorkflowRoutes", () => {
     expect(serialized).not.toContain("file://");
   });
 
+  it("TEST_CASE_ZJCB_5 loads selected roadmap beads for meta-workflow queueing", async () => {
+    const app = new Hono();
+    const readIds: string[][] = [];
+    registerWorkflowRoutes(app, {
+      registry: createWorkflowRegistry(),
+      metaWorkflowBeadProvider: {
+        async readBeads(beadIds) {
+          readIds.push(beadIds);
+          return beadIds.map((beadId) => ({
+            beadId,
+            title: `Roadmap ${beadId} bd show /Users/example/private webhook queue item`,
+            status: beadId === "done" ? "closed" : "open",
+            workspaceId: "workspace-a",
+            accessible: beadId !== "hidden",
+            url: "/beads/project?bead=dead",
+          }));
+        },
+      },
+    });
+
+    const response = await app.request("/dashboard/api/workflows/meta-beads/selected?workspaceId=workspace-a&beadIds=A,done,A");
+
+    expect(response.status).toBe(200);
+    const payload = await response.json() as { beads: any[]; unavailableReason: string | null };
+    expect(readIds).toEqual([["A", "done"]]);
+    expect(payload.beads.map((bead) => bead.beadId)).toEqual(["A", "done", "A"]);
+    expect(payload.beads[1]).toMatchObject({ status: "closed", accessible: true });
+    const serialized = JSON.stringify(payload);
+    expect(serialized).not.toContain("bd show");
+    expect(serialized).not.toContain("/Users/");
+    expect(serialized).not.toContain("webhook");
+    expect(serialized).not.toContain("queue item");
+    expect(serialized).not.toContain("/beads/project");
+  });
+
   it("returns workspace workflows home read model scoped to workspace", async () => {
     const handle = await initVdDb({ path: ":memory:" });
     dbHandles.push(handle);

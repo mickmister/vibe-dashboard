@@ -57,6 +57,18 @@ export async function searchMetaWorkflowBeads(input: {
   throw new Error(payload.message || payload.error || `Failed to search beads: ${response.status}`);
 }
 
+export async function fetchMetaWorkflowBeadsByIds(input: {
+  workspaceId: string;
+  beadIds: string[];
+}): Promise<{ beads: MetaWorkflowBeadSummary[]; unavailableReason: string | null }> {
+  const params = new URLSearchParams({ workspaceId: input.workspaceId });
+  if (input.beadIds.length) params.set("beadIds", input.beadIds.join(","));
+  const response = await fetch(`/dashboard/api/workflows/meta-beads/selected?${params.toString()}`, { headers: { Accept: "application/json" } });
+  const payload = await response.json().catch(() => ({})) as { beads?: MetaWorkflowBeadSummary[]; unavailableReason?: string | null; message?: string; error?: string };
+  if (response.ok) return { beads: payload.beads ?? [], unavailableReason: payload.unavailableReason ?? null };
+  throw new Error(payload.message || payload.error || `Failed to load selected beads: ${response.status}`);
+}
+
 export async function fetchMetaWorkflowRuns(workspaceId: string): Promise<MetaWorkflowRunModel[]> {
   const params = new URLSearchParams({ workspaceId });
   const response = await fetch(`/dashboard/api/workflows/meta-runs?${params.toString()}`, { headers: { Accept: "application/json" } });

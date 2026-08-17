@@ -66,8 +66,28 @@ describe("WorkflowRoadmapView", () => {
     expect(html).toContain("Completed milestones are hidden by default.");
     expect(html).toContain("Showing 4 of 20 milestones");
     expect(html).toContain("Show completed");
+    expect(html).toContain("Meta-workflow queue");
+    expect(html).toContain("Choose a workspace before queueing selected roadmap beads");
     expect(html).toContain("roadmapStatus=blocked");
     expect(html).not.toContain("Workflow design store and prompt/skill library");
+  });
+
+  it("shows roadmap meta-workflow queue affordance without dead links", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(WorkflowRoadmapView, {
+        roadmap: buildWorkflowRoadmapModel({ now: () => 1_700_000 }),
+        loading: false,
+        error: null,
+        onRefresh: () => undefined,
+        workspaceId: "workspace-a",
+        queueHref: (ids) => `/dashboard/workflows/meta-runs?workspaceId=workspace-a&roadmapBeads=${ids.join(",")}`,
+      }),
+    );
+
+    expect(html).toContain("Select roadmap beads below");
+    expect(html).toContain("Select beads to queue");
+    expect(html).toContain("Select Workflow roadmap and multi-bead progress UI");
+    expect(html).not.toContain("/beads/project");
   });
 
   it("TEST_CASE_M119B_1B/1C renders live provider freshness, warnings, and safe run links", async () => {

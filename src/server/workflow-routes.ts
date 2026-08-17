@@ -351,6 +351,40 @@ export function registerWorkflowRoutes(
   });
 
 
+
+  hono.get("/dashboard/api/workflows/meta-beads/selected", async (c) => {
+    const workspaceId = c.req.query("workspaceId")?.trim();
+    const beadIds = (c.req.query("beadIds") ?? "")
+      .split(",")
+      .map((id) => id.trim())
+      .filter(Boolean);
+    if (!workspaceId) return c.json({ error: "workspace_id_required", message: "Workspace is required" }, 400);
+    if (!beadIds.length) return c.json({ beads: [], unavailableReason: "No roadmap beads were selected." });
+    if (!options.metaWorkflowBeadProvider) {
+      return c.json({ beads: [], unavailableReason: "Bead metadata provider is not configured." });
+    }
+    try {
+      const beads = await options.metaWorkflowBeadProvider.readBeads(Array.from(new Set(beadIds)));
+      const byId = new Map(beads.map((bead) => [bead.beadId, bead]));
+      const ordered = beadIds.map((beadId) => byId.get(beadId)).filter((bead): bead is NonNullable<typeof bead> => Boolean(bead));
+      const missing = beadIds.filter((beadId) => !byId.has(beadId));
+      return c.json({
+        beads: ordered.map((bead) => ({
+          beadId: bead.beadId,
+          title: scrubWorkflowProductText(bead.title),
+          status: bead.status,
+          workspaceId: bead.workspaceId ?? null,
+          accessible: bead.accessible,
+          labels: bead.labels ?? [],
+          url: null,
+        })),
+        unavailableReason: missing.length ? `${missing.length} selected roadmap beads could not be loaded.` : null,
+      });
+    } catch (error) {
+      return c.json({ beads: [], unavailableReason: scrubWorkflowProductText(error instanceof Error ? error.message : String(error)) });
+    }
+  });
+
   hono.post("/dashboard/api/workflows/meta-runs", async (c) => {
     const body = asRecord(await readJsonBody(c.req.raw));
     const workspaceId = asString(body?.workspaceId)?.trim();

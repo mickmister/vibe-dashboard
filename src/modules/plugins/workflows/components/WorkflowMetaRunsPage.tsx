@@ -5,6 +5,7 @@ import { fetchWorkspaceWorkflowsHome, type WorkspaceWorkflowSummary } from "../c
 import { workflowRouteHref } from "./workflowRouteContext";
 import {
   createMetaWorkflowRun,
+  fetchMetaWorkflowBeadsByIds,
   fetchMetaWorkflowRuns,
   pauseMetaWorkflowRun,
   resumeMetaWorkflowRun,
@@ -28,6 +29,7 @@ export function WorkflowMetaRunsPage({ workspaceId: workspaceIdOverride, embedde
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [confirming, setConfirming] = useState(false);
 
   const load = async () => {
     if (!workspaceId) {
@@ -38,16 +40,22 @@ export function WorkflowMetaRunsPage({ workspaceId: workspaceIdOverride, embedde
     setLoading(true);
     setError(null);
     try {
-      const [home, metaRuns, search] = await Promise.all([
+      const roadmapBeadIds = parseSelectedRoadmapBeads(params.get("roadmapBeads"));
+      const [home, metaRuns, search, preselected] = await Promise.all([
         fetchWorkspaceWorkflowsHome(workspaceId),
         fetchMetaWorkflowRuns(workspaceId).catch(() => []),
         searchMetaWorkflowBeads({ workspaceId, query, scope }),
+        roadmapBeadIds.length ? fetchMetaWorkflowBeadsByIds({ workspaceId, beadIds: roadmapBeadIds }) : Promise.resolve({ beads: [] as MetaWorkflowBeadSummary[], unavailableReason: null }),
       ]);
       const runnable = [...home.userWorkflows, ...home.starterTemplates].filter((workflow) => workflow.canRun && workflow.version != null);
       setWorkflows(runnable);
       setRuns(metaRuns);
       setBeads(search.beads);
-      setUnavailableReason(search.unavailableReason);
+      setUnavailableReason(preselected.unavailableReason ?? search.unavailableReason);
+      if (preselected.beads.length) {
+        setSelected(dedupeBeads(preselected.beads));
+        setConfirming(false);
+      }
       if (!childWorkflowId && runnable[0]) setChildWorkflowId(runnable[0].id);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
@@ -61,10 +69,17 @@ export function WorkflowMetaRunsPage({ workspaceId: workspaceIdOverride, embedde
   const selectedIds = useMemo(() => selected.map((bead) => bead.beadId), [selected]);
   const duplicateIds = useMemo(() => selectedIds.filter((id, index) => selectedIds.indexOf(id) !== index), [selectedIds]);
   const childWorkflow = workflows.find((workflow) => workflow.id === childWorkflowId) ?? null;
-  const canStart = Boolean(workspaceId && childWorkflow?.version != null && selected.length > 0 && duplicateIds.length === 0);
+  const invalidSelected = useMemo(() => selected.filter(isUnsupportedMetaBead), [selected]);
+  const canStart = Boolean(workspaceId && childWorkflow?.version != null && selected.length > 0 && duplicateIds.length === 0 && invalidSelected.length === 0);
 
-  const addBead = (bead: MetaWorkflowBeadSummary) => setSelected((current) => [...current, bead]);
-  const removeBead = (index: number) => setSelected((current) => current.filter((_, i) => i !== index));
+  const addBead = (bead: MetaWorkflowBeadSummary) => {
+    setConfirming(false);
+    setSelected((current) => [...current, bead]);
+  };
+  const removeBead = (index: number) => {
+    setConfirming(false);
+    setSelected((current) => current.filter((_, i) => i !== index));
+  };
   const moveBead = (index: number, delta: number) => setSelected((current) => {
     const next = [...current];
     const target = index + delta;
@@ -75,8 +90,12 @@ export function WorkflowMetaRunsPage({ workspaceId: workspaceIdOverride, embedde
     return next;
   });
 
+  const reviewStart = () => {
+    if (canStart) setConfirming(true);
+  };
+
   const start = async () => {
-    if (!childWorkflow || !canStart) return;
+    if (!childWorkflow || !canStart || !confirming) return;
     setStatus("Starting meta-workflow…");
     setError(null);
     try {
@@ -89,6 +108,7 @@ export function WorkflowMetaRunsPage({ workspaceId: workspaceIdOverride, embedde
       });
       setRuns((current) => [created.metaRun, ...current.filter((run) => run.metaRunId !== created.metaRun.metaRunId)]);
       setStatus(`Started ${safeText(created.metaRun.title)}.`);
+      setConfirming(false);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     }
@@ -103,7 +123,7 @@ export function WorkflowMetaRunsPage({ workspaceId: workspaceIdOverride, embedde
     setRuns((current) => [updated, ...current.filter((run) => run.metaRunId !== runId)]);
   };
 
-  return <WorkflowMetaRunsView {...{ workspaceId, workflows, runs, beads, selected, query, scope, childWorkflowId, unavailableReason, status, error, loading, embedded, duplicateIds, canStart, setQuery, setScope, setChildWorkflowId, addBead, removeBead, moveBead, onSearch: load, onStart: start, onRefresh: load, onPause: pause, onResume: resume }} roadmapHref={workflowRouteHref("/dashboard/workflows/roadmap", routeParams, { workspaceId: workspaceId || null })} />;
+  return <WorkflowMetaRunsView {...{ workspaceId, workflows, runs, beads, selected, query, scope, childWorkflowId, unavailableReason, status, error, loading, embedded, duplicateIds, invalidSelected, canStart, confirming, setQuery, setScope, setChildWorkflowId, addBead, removeBead, moveBead, onSearch: load, onReviewStart: reviewStart, onConfirmStart: start, onRefresh: load, onPause: pause, onResume: resume }} roadmapHref={workflowRouteHref("/dashboard/workflows/roadmap", routeParams, { workspaceId: workspaceId || null })} />;
 }
 
 export function WorkflowMetaRunsView(props: {
@@ -121,7 +141,9 @@ export function WorkflowMetaRunsView(props: {
   loading: boolean;
   embedded?: boolean;
   duplicateIds: string[];
+  invalidSelected?: MetaWorkflowBeadSummary[];
   canStart: boolean;
+  confirming?: boolean;
   setQuery: (value: string) => void;
   setScope: (value: "current_workspace" | "no_workspace" | "other_workspaces") => void;
   setChildWorkflowId: (value: string) => void;
@@ -129,7 +151,8 @@ export function WorkflowMetaRunsView(props: {
   removeBead: (index: number) => void;
   moveBead: (index: number, delta: number) => void;
   onSearch: () => void;
-  onStart: () => void;
+  onReviewStart?: () => void;
+  onConfirmStart?: () => void;
   onRefresh: () => void;
   onPause: (runId: string) => void;
   onResume: (runId: string) => void;
@@ -184,8 +207,10 @@ export function WorkflowMetaRunsView(props: {
               <option value="">Choose workflow</option>
               {props.workflows.map((workflow) => <option key={workflow.id} value={workflow.id}>{safeText(workflow.title)}{workflow.version ? ` v${workflow.version}` : ""}</option>)}
             </select>
-            <button className="mt-3 w-full rounded-md bg-cyan-500 px-3 py-2 text-sm font-medium text-zinc-950 disabled:opacity-50" disabled={!props.canStart} onClick={props.onStart}>Start sequential meta-workflow</button>
-            {!props.canStart ? <p className="mt-2 text-xs text-zinc-400">Select at least one non-duplicate bead and a published child workflow.</p> : null}
+            {props.invalidSelected?.length ? <p className="mt-2 text-xs text-rose-200">Remove completed, archived, removed, or inaccessible beads before queueing.</p> : null}
+            <button className="mt-3 w-full rounded-md bg-cyan-500 px-3 py-2 text-sm font-medium text-zinc-950 disabled:opacity-50" disabled={!props.canStart} onClick={props.onReviewStart}>Review queue summary</button>
+            {!props.canStart ? <p className="mt-2 text-xs text-zinc-400">Select at least one non-duplicate active bead and a published child workflow.</p> : null}
+            {props.confirming ? <div className="mt-3 rounded-lg border border-cyan-900 bg-cyan-950/30 p-3 text-sm text-cyan-50"><div className="font-medium">Confirm sequential meta-workflow</div><p className="mt-1">Workspace {safeText(props.workspaceId)} · {props.selected.length} beads · {safeText(props.workflows.find((workflow) => workflow.id === props.childWorkflowId)?.title ?? "Child workflow")}</p><p className="mt-1 text-xs text-cyan-100/80">Payload includes only bead ids in order, workspace id, and the pinned child workflow/version.</p><button className="mt-3 w-full rounded-md border border-cyan-600 px-3 py-2 text-sm text-cyan-100" onClick={props.onConfirmStart}>Confirm and start</button></div> : null}
           </Panel>
         </aside>
       </section>
@@ -209,6 +234,25 @@ function MetaRunCard({ run, onPause, onResume }: { run: MetaWorkflowRunModel; on
 
 function Metric({ label, value }: { label: string; value: number }): React.ReactElement { return <div className="rounded border border-slate-800 bg-slate-900 p-2"><div className="text-xs text-zinc-500">{label}</div><div className="text-lg font-semibold">{value}</div></div>; }
 function StatusPill({ status }: { status: string }): React.ReactElement { return <span className="rounded-full border border-slate-700 px-2 py-1 text-xs text-zinc-200">{safeText(status)}</span>; }
+
+function parseSelectedRoadmapBeads(value: string | null): string[] {
+  return Array.from(new Set((value ?? "").split(",").map((id) => id.trim()).filter(Boolean))).slice(0, 50);
+}
+
+function dedupeBeads(beads: MetaWorkflowBeadSummary[]): MetaWorkflowBeadSummary[] {
+  const seen = new Set<string>();
+  const result: MetaWorkflowBeadSummary[] = [];
+  for (const bead of beads) {
+    if (seen.has(bead.beadId)) continue;
+    seen.add(bead.beadId);
+    result.push(bead);
+  }
+  return result;
+}
+
+function isUnsupportedMetaBead(bead: MetaWorkflowBeadSummary): boolean {
+  return !bead.accessible || bead.status === "archived" || bead.status === "removed" || bead.status === "closed";
+}
 
 function safeAria(value: string): string {
   return safeText(value, 120);
