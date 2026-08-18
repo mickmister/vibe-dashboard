@@ -3,7 +3,7 @@ import "./WorkflowGraphEditorPage.css";
 
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router";
-import { IconArrowLeft, IconCheck, IconPencil } from "@tabler/icons-react";
+import { IconArrowLeft, IconCheck, IconPencil, IconTrash } from "@tabler/icons-react";
 import {
   Background,
   BaseEdge,
@@ -139,10 +139,10 @@ export function WorkflowGraphEditorPage(): React.ReactElement {
           Workflow builder
         </div>
         <h1 className="mt-1 text-2xl font-semibold">
-          {editor?.name ?? "Workflow graph"}
+          {definition?.name ?? editor?.name ?? "Workflow graph"}
         </h1>
-        {editor?.description ? (
-          <p className="mt-2 text-sm text-zinc-300">{editor.description}</p>
+        {(definition?.description ?? editor?.description) ? (
+          <p className="mt-2 text-sm text-zinc-300">{definition?.description ?? editor?.description}</p>
         ) : null}
       </header>
       {loading ? (
@@ -239,12 +239,21 @@ export function WorkflowGraphEditorView({
   const [editTarget, setEditTarget] = useState<WorkflowEditorEditTarget | null>(
     initialEditTarget,
   );
+  const [editorNotice, setEditorNotice] = useState<string | null>(null);
   void _initialGraphOpen;
   const selectedNode =
     graph.nodes.find((node) => node.id === selectedNodeId) ?? null;
   const selectedEdge =
     graph.edges.find((edge) => edge.id === selectedEdgeId) ?? null;
   const selectedRole = selectedRoleId ? definition.roles[selectedRoleId] : null;
+  const promptPreviewContext = useMemo(
+    () => buildSelectedPromptPreviewContext({
+      definition,
+      assets: assets ?? { prompts: [], skills: [], roleTemplates: [] },
+      selectedStateId: selectedEdge?.source ?? selectedNodeId,
+    }),
+    [definition, assets, selectedEdge?.source, selectedNodeId],
+  );
   const graphFocus = useMemo(
     () =>
       buildWorkflowEditorGraphFocusContext({
@@ -346,11 +355,57 @@ export function WorkflowGraphEditorView({
       ...definition,
       roles: { ...definition.roles, [roleId]: { label: "New role" } },
     });
+    setEditorNotice(null);
     setSelectedRoleId(roleId);
     setSelectedNodeId("");
     setSelectedEdgeId("");
     setWizardLevel("role");
     setEditTarget({ kind: "role", id: roleId });
+  };
+
+  const removeRole = (roleId: string) => {
+    const result = removeWorkflowRoleDraft(definition, roleId);
+    if (!result.ok) {
+      setEditorNotice(result.message);
+      return;
+    }
+    if (!confirmEditorRemoval(`Remove role ${roleId}? This only changes the draft workflow.`)) return;
+    onDefinitionChange(result.definition);
+    setEditorNotice(`Removed role ${roleId}.`);
+    setSelectedRoleId("");
+    setSelectedNodeId("");
+    setSelectedEdgeId("");
+    setWizardLevel("landing");
+    setEditTarget(null);
+  };
+
+  const removeState = (stateId: string) => {
+    const result = removeWorkflowStateDraft(definition, stateId);
+    if (!result.ok) {
+      setEditorNotice(result.message);
+      return;
+    }
+    if (!confirmEditorRemoval(`Remove state ${stateId}? Its outgoing actions will also be removed from the draft.`)) return;
+    onDefinitionChange(result.definition);
+    setEditorNotice(`Removed state ${stateId}.`);
+    setSelectedNodeId("");
+    setSelectedEdgeId("");
+    setWizardLevel(selectedRoleId ? "role" : "landing");
+    setEditTarget(null);
+  };
+
+  const removeAction = (edge: WorkflowGraphEdgeModel) => {
+    const result = removeWorkflowActionDraft(definition, edge.source, edge.actionId);
+    if (!result.ok) {
+      setEditorNotice(result.message);
+      return;
+    }
+    if (!confirmEditorRemoval(`Remove action ${edge.actionId}? This removes the transition from ${edge.source}.`)) return;
+    onDefinitionChange(result.definition);
+    setEditorNotice(`Removed action ${edge.actionId}.`);
+    setSelectedEdgeId("");
+    setWizardLevel("state");
+    setEditTarget(null);
   };
 
   const goBack = () => {
@@ -377,6 +432,11 @@ export function WorkflowGraphEditorView({
         {saveMessage ? (
           <div className="rounded-lg border border-emerald-800 bg-emerald-950/30 p-3 text-sm text-emerald-100">
             {saveMessage}
+          </div>
+        ) : null}
+        {editorNotice ? (
+          <div className="rounded-lg border border-amber-900 bg-amber-950/30 p-3 text-sm text-amber-100">
+            {editorNotice}
           </div>
         ) : null}
         <WorkflowDetails
@@ -406,6 +466,9 @@ export function WorkflowGraphEditorView({
           onEditRole={() => selectedRoleId && setEditTarget({ kind: "role", id: selectedRoleId })}
           onEditState={() => selectedNode && setEditTarget({ kind: "state", id: selectedNode.id })}
           onEditAction={() => selectedEdge && setEditTarget({ kind: "action", id: selectedEdge.id })}
+          onRemoveRole={removeRole}
+          onRemoveState={removeState}
+          onRemoveAction={removeAction}
           onDone={() => setEditTarget(null)}
           onDefinitionChange={onDefinitionChange}
           onEdgeChange={updateEdge}
@@ -475,6 +538,7 @@ export function WorkflowGraphEditorView({
             <Controls />
           </ReactFlow>
         </div>
+        <PromptPreviewPanel preview={promptPreviewContext} />
       </div>
     </section>
   );
@@ -501,6 +565,9 @@ function WorkflowWizardPanel({
   onEditRole,
   onEditState,
   onEditAction,
+  onRemoveRole,
+  onRemoveState,
+  onRemoveAction,
   onDone,
   onDefinitionChange,
   onEdgeChange,
@@ -525,6 +592,9 @@ function WorkflowWizardPanel({
   onEditRole: () => void;
   onEditState: () => void;
   onEditAction: () => void;
+  onRemoveRole: (roleId: string) => void;
+  onRemoveState: (stateId: string) => void;
+  onRemoveAction: (edge: WorkflowGraphEdgeModel) => void;
   onDone: () => void;
   onDefinitionChange: (definition: AgentWorkflowDefinitionV1) => void;
   onEdgeChange: (edgeId: string, edit: { actionLabel?: string; targetState?: string; handoffPrompt?: string }) => void;
@@ -570,10 +640,11 @@ function WorkflowWizardPanel({
           assets={assets}
           editing={editTarget?.kind === "role" && editTarget.id === selectedRoleId}
           onEdit={onEditRole}
+          onRemove={() => onRemoveRole(selectedRoleId)}
           onDone={onDone}
           onChange={onDefinitionChange}
         />
-        <section className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
+        <section className="border-t border-zinc-800 pt-4">
           <h3 className="font-medium">States for this role</h3>
           <div className="mt-3 space-y-2">
             {roleStates.length ? roleStates.map((node) => (
@@ -598,11 +669,12 @@ function WorkflowWizardPanel({
           assets={assets}
           editing={editTarget?.kind === "state" && editTarget.id === selectedNode.id}
           onEdit={onEditState}
+          onRemove={() => onRemoveState(selectedNode.id)}
           onDone={onDone}
           onChange={onDefinitionChange}
           onPromptChange={onPromptChange}
         />
-        <section className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
+        <section className="border-t border-zinc-800 pt-4">
           <h3 className="font-medium">Transitions / actions</h3>
           <div className="mt-3 space-y-2">
             {stateActions.length ? stateActions.map((edge) => (
@@ -626,6 +698,7 @@ function WorkflowWizardPanel({
           states={nodes}
           editing={editTarget?.kind === "action" && editTarget.id === selectedEdge.id}
           onEdit={onEditAction}
+          onRemove={() => onRemoveAction(selectedEdge)}
           onDone={onDone}
           onChange={onEdgeChange}
         />
@@ -925,6 +998,7 @@ function RoleDetails({
   assets,
   editing,
   onEdit,
+  onRemove,
   onDone,
   onChange,
 }: {
@@ -935,6 +1009,7 @@ function RoleDetails({
   assets: WorkflowAssetsModel;
   editing: boolean;
   onEdit: () => void;
+  onRemove: () => void;
   onDone: () => void;
   onChange: (definition: AgentWorkflowDefinitionV1) => void;
 }) {
@@ -952,7 +1027,7 @@ function RoleDetails({
 
   if (!editing) {
     return (
-      <section className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
+      <section className="border-t border-zinc-800 pt-4">
         <div className="flex items-start justify-between gap-3">
           <div>
             <div className="text-xs uppercase tracking-wide text-cyan-300">
@@ -990,7 +1065,7 @@ function RoleDetails({
   }
 
   return (
-    <section className="rounded-xl border border-cyan-900/60 bg-slate-950/80 p-4">
+    <section className="border-t border-cyan-900/60 pt-4">
       <div className="flex items-center justify-between gap-3">
         <div>
           <div className="text-xs uppercase tracking-wide text-cyan-300">
@@ -1100,6 +1175,17 @@ function RoleDetails({
           </select>
         </label>
       </div>
+      <div className="mt-4 border-t border-zinc-800 pt-3">
+        <button
+          type="button"
+          className="inline-flex items-center gap-2 rounded-md border border-rose-900 px-3 py-2 text-sm text-rose-100 hover:border-rose-500"
+          onClick={onRemove}
+        >
+          <IconTrash size={16} aria-hidden="true" />
+          Remove role
+        </button>
+        <p className="mt-2 text-xs text-zinc-500">Roles with owned states are blocked unless those states are removed or reassigned first.</p>
+      </div>
     </section>
   );
 }
@@ -1204,6 +1290,7 @@ function NodeDetails({
   assets,
   editing,
   onEdit,
+  onRemove,
   onDone,
   onChange,
   onPromptChange,
@@ -1213,12 +1300,13 @@ function NodeDetails({
   assets: WorkflowAssetsModel;
   editing: boolean;
   onEdit: () => void;
+  onRemove: () => void;
   onDone: () => void;
   onChange: (definition: AgentWorkflowDefinitionV1) => void;
   onPromptChange: (stateId: string, stepId: string, edit: { promptTemplate?: string }) => void;
 }) {
   return (
-    <section className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
+    <section className="border-t border-zinc-800 pt-4">
       <div className="text-xs uppercase tracking-wide text-cyan-300">
         Selected state
       </div>
@@ -1271,6 +1359,19 @@ function NodeDetails({
       ) : (
         <p className="mt-2 text-sm text-zinc-400">No steps in this state.</p>
       )}
+      {editing ? (
+        <div className="mt-4 border-t border-zinc-800 pt-3">
+          <button
+            type="button"
+            className="inline-flex items-center gap-2 rounded-md border border-rose-900 px-3 py-2 text-sm text-rose-100 hover:border-rose-500"
+            onClick={onRemove}
+          >
+            <IconTrash size={16} aria-hidden="true" />
+            Remove state
+          </button>
+          <p className="mt-2 text-xs text-zinc-500">Initial states and states targeted by other actions are blocked from removal.</p>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -1373,7 +1474,6 @@ function PromptAuthoringEditor({
     | (WorkflowStepV1 & { prompt?: { template?: string; refs?: Array<{ kind: string; id: string; version?: number }> } })
     | undefined;
   if (!step || step.type !== "agent_turn") return null;
-  const preview = renderEditorPromptPreview({ definition, assets, stateId, stepId });
   const usage = [
     roleLabel ? `Role: ${roleLabel}` : null,
     `State: ${stateId}`,
@@ -1398,25 +1498,6 @@ function PromptAuthoringEditor({
         />
       </label>
       <PromptRefsEditor definition={definition} assets={assets} stateId={stateId} stepId={stepId} onChange={onChange} />
-      <section className="rounded-md border border-zinc-800 bg-zinc-950 p-3" aria-label={`${stepId} final prompt preview`}>
-        <div className="flex items-center justify-between gap-3">
-          <h4 className="text-sm font-medium text-zinc-200">Final prompt preview</h4>
-          {preview.xmlSpec ? (
-            <span className="rounded border border-cyan-900 bg-cyan-950/30 px-2 py-0.5 text-xs text-cyan-100">XML contract generated</span>
-          ) : null}
-        </div>
-        <p className="mt-1 text-xs text-zinc-500">
-          The XML response spec is generated by the workflow actions. You do not normally need to write it by hand.
-        </p>
-        {preview.missingRefs.length ? (
-          <div className="mt-2 rounded border border-amber-900 bg-amber-950/30 p-2 text-xs text-amber-100">
-            Preview is missing refs: {preview.missingRefs.join(", ")}
-          </div>
-        ) : null}
-        <pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap rounded border border-zinc-800 bg-black/40 p-3 text-xs text-zinc-200">
-          {preview.text}
-        </pre>
-      </section>
     </section>
   );
 }
@@ -1723,11 +1804,143 @@ function formatUnknownAssetRef(ref: unknown): string {
   return `${kind}:${id}${typeof record.version === "number" ? `@${record.version}` : ""}`;
 }
 
+type WorkflowEditorMutationResult =
+  | { ok: true; definition: AgentWorkflowDefinitionV1; message: string }
+  | { ok: false; definition: AgentWorkflowDefinitionV1; message: string };
+
+export function removeWorkflowRoleDraft(definition: AgentWorkflowDefinitionV1, roleId: string): WorkflowEditorMutationResult {
+  if (!definition.roles[roleId]) {
+    return { ok: false, definition, message: `Role ${roleId} does not exist.` };
+  }
+  const ownedStates = Object.entries(definition.states)
+    .filter(([, state]) => !("terminal" in state) && (state as { owner?: unknown }).owner === roleId)
+    .map(([stateId]) => stateId);
+  if (ownedStates.length) {
+    return { ok: false, definition, message: `Role ${roleId} owns ${ownedStates.length} state${ownedStates.length === 1 ? "" : "s"}. Remove or reassign those states first.` };
+  }
+  const next = deepCloneWorkflowDefinition(definition);
+  delete next.roles[roleId];
+  return { ok: true, definition: next, message: `Removed role ${roleId}.` };
+}
+
+export function removeWorkflowStateDraft(definition: AgentWorkflowDefinitionV1, stateId: string): WorkflowEditorMutationResult {
+  if (!definition.states[stateId]) {
+    return { ok: false, definition, message: `State ${stateId} does not exist.` };
+  }
+  if (definition.initialState === stateId) {
+    return { ok: false, definition, message: `State ${stateId} is the initial state and cannot be removed.` };
+  }
+  const inbound = Object.entries(definition.states).flatMap(([sourceStateId, state]) => {
+    if ("terminal" in state) return [];
+    const actions = (state as { actions?: Record<string, { targetState?: string }> }).actions ?? {};
+    return Object.entries(actions)
+      .filter(([, action]) => action.targetState === stateId)
+      .map(([actionId]) => `${sourceStateId}.${actionId}`);
+  });
+  if (inbound.length) {
+    return { ok: false, definition, message: `State ${stateId} is still targeted by ${inbound.length} action${inbound.length === 1 ? "" : "s"}. Remove those transitions first.` };
+  }
+  const next = deepCloneWorkflowDefinition(definition);
+  delete next.states[stateId];
+  return { ok: true, definition: next, message: `Removed state ${stateId}.` };
+}
+
+export function removeWorkflowActionDraft(definition: AgentWorkflowDefinitionV1, stateId: string, actionId: string): WorkflowEditorMutationResult {
+  const state = definition.states[stateId];
+  if (!state || "terminal" in state) {
+    return { ok: false, definition, message: `State ${stateId} does not have removable actions.` };
+  }
+  const actions = (state as { actions?: Record<string, unknown> }).actions ?? {};
+  if (!actions[actionId]) {
+    return { ok: false, definition, message: `Action ${actionId} does not exist on state ${stateId}.` };
+  }
+  const next = deepCloneWorkflowDefinition(definition);
+  const nextState = next.states[stateId] as { actions?: Record<string, unknown> };
+  if (nextState.actions) delete nextState.actions[actionId];
+  return { ok: true, definition: next, message: `Removed action ${actionId}.` };
+}
+
+function deepCloneWorkflowDefinition(definition: AgentWorkflowDefinitionV1): AgentWorkflowDefinitionV1 {
+  return JSON.parse(JSON.stringify(definition)) as AgentWorkflowDefinitionV1;
+}
+
+function confirmEditorRemoval(message: string): boolean {
+  if (typeof window === "undefined" || typeof window.confirm !== "function") return true;
+  return window.confirm(message);
+}
+
+type SelectedPromptPreviewContext = {
+  stateId: string | null;
+  stepId: string | null;
+  roleLabel: string | null;
+  preview: ReturnType<typeof renderEditorPromptPreview> | null;
+};
+
+function buildSelectedPromptPreviewContext({
+  definition,
+  assets,
+  selectedStateId,
+}: {
+  definition: AgentWorkflowDefinitionV1;
+  assets: WorkflowAssetsModel;
+  selectedStateId: string;
+}): SelectedPromptPreviewContext {
+  if (!selectedStateId) return { stateId: null, stepId: null, roleLabel: null, preview: null };
+  const state = definition.states[selectedStateId];
+  if (!state || "terminal" in state) return { stateId: selectedStateId, stepId: null, roleLabel: null, preview: null };
+  const step = state.steps.find((candidate) => candidate.type === "agent_turn" && candidate.turnType === "decision")
+    ?? state.steps.find((candidate) => candidate.type === "agent_turn");
+  if (!step || step.type !== "agent_turn") return { stateId: selectedStateId, stepId: null, roleLabel: null, preview: null };
+  const roleId = typeof state.owner === "string" ? state.owner : null;
+  return {
+    stateId: selectedStateId,
+    stepId: step.id,
+    roleLabel: roleId ? definition.roles[roleId]?.label ?? roleId : null,
+    preview: renderEditorPromptPreview({ definition, assets, stateId: selectedStateId, stepId: step.id }),
+  };
+}
+
+function PromptPreviewPanel({ preview }: { preview: SelectedPromptPreviewContext }) {
+  return (
+    <section className="border-t border-zinc-800 bg-slate-950/70 p-4" aria-label="Selected final prompt preview">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-zinc-100">Final prompt preview</h3>
+          <p className="mt-1 text-xs text-zinc-500">
+            {preview.preview
+              ? `${preview.roleLabel ? `${preview.roleLabel} · ` : ""}State ${preview.stateId} · Step ${preview.stepId}`
+              : "Select an agent state to preview the composed prompt."}
+          </p>
+        </div>
+        {preview.preview?.xmlSpec ? (
+          <span className="rounded border border-cyan-900 bg-cyan-950/30 px-2 py-0.5 text-xs text-cyan-100">XML contract generated</span>
+        ) : null}
+      </div>
+      {preview.preview ? (
+        <>
+          <p className="mt-2 text-xs text-zinc-500">
+            The XML response spec is generated by the workflow actions. You do not normally need to write it by hand.
+          </p>
+          {preview.preview.missingRefs.length ? (
+            <div className="mt-2 rounded border border-amber-900 bg-amber-950/30 p-2 text-xs text-amber-100">
+              Preview is missing refs: {preview.preview.missingRefs.join(", ")}
+            </div>
+          ) : null}
+          <pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap rounded border border-zinc-800 bg-black/40 p-3 text-xs text-zinc-200">
+            {preview.preview.text}
+          </pre>
+        </>
+      ) : null}
+    </section>
+  );
+}
+
 function EdgeEditor({
   edge,
   states,
   editing,
   onEdit,
+  onRemove,
   onDone,
   onChange,
 }: {
@@ -1735,6 +1948,7 @@ function EdgeEditor({
   states: WorkflowGraphNodeModel[];
   editing: boolean;
   onEdit: () => void;
+  onRemove: () => void;
   onDone: () => void;
   onChange: (
     edgeId: string,
@@ -1744,7 +1958,7 @@ function EdgeEditor({
   const source = states.find((state) => state.id === edge.source);
   const target = states.find((state) => state.id === edge.target);
   return (
-    <section className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
+    <section className="border-t border-zinc-800 pt-4">
       <div className="text-xs uppercase tracking-wide text-cyan-300">
         Selected action
       </div>
@@ -1863,19 +2077,31 @@ function EdgeEditor({
         </section>
       ) : null}
       {editing ? (
-        <label className="mt-4 block text-sm">
-          <span className="font-medium">Handoff prompt</span>
-          <span className="mt-1 block text-xs text-zinc-500">
-            Optional transition context available to the target state's next prompt. This is not a separate queued message.
-          </span>
-          <textarea
-            aria-label={`${edge.actionId} handoff prompt`}
-            className="mt-2 min-h-24 w-full rounded-md border border-zinc-700 bg-zinc-950 p-2"
-            value={edge.handoffPrompt ?? ""}
-            placeholder="Example: Review {{transition.parsed.summary}}"
-            onChange={(event) => onChange(edge.id, { handoffPrompt: event.target.value })}
-          />
-        </label>
+        <>
+          <label className="mt-4 block text-sm">
+            <span className="font-medium">Handoff prompt</span>
+            <span className="mt-1 block text-xs text-zinc-500">
+              Optional transition context available to the target state's next prompt. This is not a separate queued message.
+            </span>
+            <textarea
+              aria-label={`${edge.actionId} handoff prompt`}
+              className="mt-2 min-h-24 w-full rounded-md border border-zinc-700 bg-zinc-950 p-2"
+              value={edge.handoffPrompt ?? ""}
+              placeholder="Example: Review {{transition.parsed.summary}}"
+              onChange={(event) => onChange(edge.id, { handoffPrompt: event.target.value })}
+            />
+          </label>
+          <div className="mt-4 border-t border-zinc-800 pt-3">
+            <button
+              type="button"
+              className="inline-flex items-center gap-2 rounded-md border border-rose-900 px-3 py-2 text-sm text-rose-100 hover:border-rose-500"
+              onClick={onRemove}
+            >
+              <IconTrash size={16} aria-hidden="true" />
+              Remove action
+            </button>
+          </div>
+        </>
       ) : null}
     </section>
   );

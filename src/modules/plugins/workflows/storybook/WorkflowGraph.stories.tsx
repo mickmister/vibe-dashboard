@@ -123,6 +123,16 @@ export const WorkflowDetailsEditing: Story = {
   },
 };
 
+export const ActionEditRemoveControls: Story = {
+  args: {
+    title: 'Action edit and remove controls',
+    description: 'FUH7: selected action edit mode includes safe remove controls while prompt preview lives near the graph.',
+    definition: devReviewTesterWorkflowDefinition(),
+    initialSelection: { roleId: 'review', stateId: 'review', edgeId: 'review:changes_requested' },
+    initialEditTarget: { kind: 'action', id: 'review:changes_requested' },
+  },
+};
+
 export const LinkedRoleTemplateEditor: Story = {
   args: {
     title: 'Linked shared role template',

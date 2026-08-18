@@ -229,7 +229,7 @@ function node(patch: Partial<WorkflowGraphNodeModel>): WorkflowGraphNodeModel {
 
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { buildWorkflowEditorGraphFocusContext, renderEditorPromptPreview, renderEditorResponseXsd, WorkflowGraphEditorView } from "./WorkflowGraphEditorPage";
+import { buildWorkflowEditorGraphFocusContext, removeWorkflowActionDraft, removeWorkflowRoleDraft, removeWorkflowStateDraft, renderEditorPromptPreview, renderEditorResponseXsd, WorkflowGraphEditorView } from "./WorkflowGraphEditorPage";
 import { workflowDefinitionToGraph } from "./graph/workflowGraphModel";
 import type { AgentWorkflowDefinitionV1 } from "@vibe-dashboard/workflow-core";
 
@@ -748,6 +748,93 @@ describe("WorkflowGraphEditorView prompt and skill picker", () => {
     expect(source).toContain("candidate.id === edge.id)) selectEdge(edge.id)");
   });
 
+  it("TEST_CASE_FUH7_1 shows workflow identity instead of source template identity", () => {
+    const definition = {
+      ...promptDefinition(),
+      name: "Copied customer review workflow",
+      description: "Workflow-specific draft description",
+    };
+    const html = renderToStaticMarkup(
+      React.createElement(WorkflowGraphEditorView, {
+        editor: {
+          designId: "design-from-template",
+          name: "Built-in Dev Review Tester template",
+          description: "Template description should not be prominent",
+          draftId: "draft-template",
+          version: 1,
+          readonly: false,
+          definition,
+          validationStatus: "valid",
+          validationIssues: [],
+        },
+        definition,
+        assets: { prompts: [], skills: [] },
+        onDefinitionChange: () => {},
+        onSave: () => {},
+        onPublish: () => {},
+      }),
+    );
+
+    expect(html).toContain("Copied customer review workflow");
+    expect(html).toContain("Workflow-specific draft description");
+    expect(html).not.toContain("Built-in Dev Review Tester template");
+    expect(html).not.toContain("Template description should not be prominent");
+  });
+
+  it("TEST_CASE_FUH7_3 renders final prompt preview near the graph rather than inside prompt authoring", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(WorkflowGraphEditorView, {
+        editor: null,
+        definition: promptDefinition(),
+        assets: { prompts: [], skills: [] },
+        initialSelection: { roleId: "dev", stateId: "dev" },
+        initialEditTarget: { kind: "state", id: "dev" },
+        onDefinitionChange: () => {},
+        onSave: () => {},
+        onPublish: () => {},
+      }),
+    );
+    const graphIndex = html.indexOf("workflow-react-flow-canvas");
+    const previewIndex = html.indexOf("Selected final prompt preview");
+    expect(graphIndex).toBeGreaterThan(-1);
+    expect(previewIndex).toBeGreaterThan(graphIndex);
+    expect(html).toContain("Final prompt preview");
+    expect(html).toContain("State dev · Step decide");
+    expect(html).toContain("XML contract generated");
+    expect(html).toContain("Prompt authoring");
+  });
+
+  it("TEST_CASE_FUH7_4 safely removes draft roles, states, and actions while blocking unsafe deletes", () => {
+    const definition = removableDefinition();
+
+    const roleBlocked = removeWorkflowRoleDraft(definition, "dev");
+    expect(roleBlocked.ok).toBe(false);
+    expect(roleBlocked.message).toContain("owns 1 state");
+
+    const roleRemoved = removeWorkflowRoleDraft(definition, "unused");
+    expect(roleRemoved.ok).toBe(true);
+    if (!roleRemoved.ok) throw new Error("role should remove");
+    expect(roleRemoved.definition.roles.unused).toBeUndefined();
+
+    const initialBlocked = removeWorkflowStateDraft(definition, "dev");
+    expect(initialBlocked.ok).toBe(false);
+    expect(initialBlocked.message).toContain("initial state");
+
+    const targetBlocked = removeWorkflowStateDraft(definition, "done");
+    expect(targetBlocked.ok).toBe(false);
+    expect(targetBlocked.message).toContain("targeted");
+
+    const stateRemoved = removeWorkflowStateDraft(definition, "orphan");
+    expect(stateRemoved.ok).toBe(true);
+    if (!stateRemoved.ok) throw new Error("state should remove");
+    expect(stateRemoved.definition.states.orphan).toBeUndefined();
+
+    const actionRemoved = removeWorkflowActionDraft(definition, "dev", "ready");
+    expect(actionRemoved.ok).toBe(true);
+    if (!actionRemoved.ok) throw new Error("action should remove");
+    expect((actionRemoved.definition.states.dev as any).actions.ready).toBeUndefined();
+  });
+
   it("TEST_CASE_8ABA navigates role to state to action in the outline wizard", () => {
     const definition = wizardDefinition();
     const graph = workflowDefinitionToGraph(definition);
@@ -902,6 +989,20 @@ function promptDefinition(): AgentWorkflowDefinitionV1 {
         },
       },
       done: { terminal: true },
+    },
+  };
+}
+
+function removableDefinition(): AgentWorkflowDefinitionV1 {
+  return {
+    ...wizardDefinition(),
+    roles: {
+      ...wizardDefinition().roles,
+      unused: { label: "Unused" },
+    },
+    states: {
+      ...wizardDefinition().states,
+      orphan: { terminal: true },
     },
   };
 }
