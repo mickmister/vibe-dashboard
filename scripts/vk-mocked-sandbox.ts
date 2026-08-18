@@ -546,12 +546,14 @@ export function createSandboxPlan(input: {
     ? caddyfileWithCiReleaseAssetRouting(input.caddyfile)
     : input.caddyfile;
   const vdUrl = `http://localhost:${input.ports.vdCaddy}`;
-  const vkFrontendUrl = vdUrl;
+  const publicOrigin = getConfiguredPublicOrigin(env);
+  const browserOrigin = publicOrigin ?? vdUrl;
+  const vkFrontendUrl = browserOrigin;
 
   const commonEnv = {
     VK_MOCKED_SANDBOX: '1',
     VK_MOCKED_SANDBOX_RUN_DIR: runDir,
-    VK_MOCKED_VD_URL: vdUrl,
+    VK_MOCKED_VD_URL: browserOrigin,
     VK_MOCKED_VK_FRONTEND_URL: vkFrontendUrl,
     VK_MOCKED_BACKEND_PORT: String(input.ports.vkBackend),
     VK_MOCKED_FRONTEND_PORT: String(input.ports.vkFrontend),
@@ -564,6 +566,7 @@ export function createSandboxPlan(input: {
 
   const vkAllowedOrigins = [
     vdUrl,
+    ...(publicOrigin ? [publicOrigin] : []),
     `http://localhost:${input.ports.vdDashboard}`,
   ].join(',');
 
@@ -706,12 +709,23 @@ export function createSandboxPlan(input: {
   return {
     ports: input.ports,
     paths: { workspaceRoot, vdRoot, vkRoot, runDir },
-    urls: { vd: vdUrl, vkFrontend: vkFrontendUrl },
+    urls: { vd: browserOrigin, vkFrontend: vkFrontendUrl },
     env: commonEnv,
     caddyfile,
     setupCommands,
     commands,
   };
+}
+
+function getConfiguredPublicOrigin(env: NodeJS.ProcessEnv): string | null {
+  const raw = env.VK_MOCKED_PUBLIC_ORIGIN?.trim();
+  if (!raw) return null;
+
+  try {
+    return new URL(raw).origin;
+  } catch {
+    throw new Error(`VK_MOCKED_PUBLIC_ORIGIN must be a valid absolute URL origin, got ${raw}`);
+  }
 }
 
 export async function writeSandboxFiles(plan: SandboxPlan): Promise<void> {

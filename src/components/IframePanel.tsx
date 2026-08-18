@@ -7,6 +7,11 @@ import { SpacesOverview } from './SpacesOverview';
 import { hasSameBaseOrigin } from '../lib/originTrust';
 import { getPluginIframePolicy, getPluginIframePostMessageTargetOrigin, parsePluginInternalUrl } from '../modules/plugins/vibe-dashboard/runtime';
 import { getRegisteredPluginIframePolicy, resolvePluginInternalRouteIframeSrc } from '../modules/plugins/vibe-dashboard/registry';
+import {
+  getReactCraftSurfaceTarget,
+  ReactCraftSurfaceHost,
+  type ReactCraftSurfaceTarget,
+} from '../modules/plugins/vibe-dashboard/react-craft-surfaces';
 
 const INTERNAL_URL_PREFIX = 'internal://';
 const CADDY_PORT = process.env.CADDY_PORT || '';
@@ -53,10 +58,12 @@ type IframeEntry = {
 type TabRenderTarget =
   | { kind: 'internal'; internalPath: string }
   | { kind: 'blocked-self-app' }
+  | { kind: 'react-surface'; target: ReactCraftSurfaceTarget }
   | { kind: 'iframe'; iframeSrc: string };
 
 type RetainedIframeTab = {
   tab: Tab;
+  tabGroup: TabGroup;
   iframeKey: string;
 };
 
@@ -462,6 +469,20 @@ function isSelfAppOrigin(origin: string): boolean {
   }
 }
 
+function getTabRenderTargetForTab(
+  tab: Tab,
+  tabGroup?: Pick<TabGroup, 'tabs' | 'workspace'>,
+): TabRenderTarget {
+  const reactSurface = tabGroup
+    ? getReactCraftSurfaceTarget(tab, tabGroup)
+    : null;
+  if (reactSurface) {
+    return { kind: 'react-surface', target: reactSurface };
+  }
+
+  return getTabRenderTarget(tab.url);
+}
+
 function getTabRenderTarget(url: string): TabRenderTarget {
   if (url.startsWith(INTERNAL_URL_PREFIX)) {
     const pluginIframeSrc = resolvePluginInternalRouteIframeSrc({
@@ -500,7 +521,7 @@ function getOrCreateIframe(retainedTab: RetainedIframeTab): IframeEntry {
     normalizeIframeEntry(existing);
     return existing;
   }
-  const target = getTabRenderTarget(tab.url);
+  const target = getTabRenderTargetForTab(tab, retainedTab.tabGroup);
 
   const container = document.createElement('div');
   container.style.width = '100%';
@@ -583,6 +604,12 @@ export const __iframePanelTestUtils = {
   },
   getActivatedIframeKeys() {
     return Array.from(activatedIframeKeys);
+  },
+  getTabRenderTargetForTest(
+    tab: Tab,
+    tabGroup?: Pick<TabGroup, 'tabs' | 'workspace'>,
+  ) {
+    return getTabRenderTargetForTab(tab, tabGroup);
   },
   addRetainedIframeForTest(iframeKey: string) {
     const container = typeof document === 'undefined'
@@ -770,7 +797,7 @@ function useImperativeIframes(
       const entry = iframeStore.get(retainedTab.iframeKey);
       const tab = retainedTab.tab;
       if (!entry) continue;
-      const target = getTabRenderTarget(tab.url);
+      const target = getTabRenderTargetForTab(tab, retainedTab.tabGroup);
 
       if (target.kind !== 'iframe') {
         if (entry.iframe.src !== 'about:blank') {
@@ -1003,18 +1030,20 @@ export function IframePanel({
 
   const visibleIframeTabs = tabGroup.tabs.filter((tab) => {
     if (!visibleTabIds.has(tab.id)) return false;
-    return getTabRenderTarget(tab.url).kind === 'iframe';
+    return getTabRenderTargetForTab(tab, tabGroup).kind === 'iframe';
   });
 
   const visibleRetainedIframeTabs = visibleIframeTabs.map((tab): RetainedIframeTab => ({
     tab,
+    tabGroup,
     iframeKey: getIframeRetentionKey(tabGroup.id, tab.id),
   }));
   const allKnownIframeTabs = workspace?.tabGroups.flatMap((group) =>
     group.tabs
-      .filter((tab) => getTabRenderTarget(tab.url).kind === 'iframe')
+      .filter((tab) => getTabRenderTargetForTab(tab, group).kind === 'iframe')
       .map((tab): RetainedIframeTab => ({
         tab,
+        tabGroup: group,
         iframeKey: getIframeRetentionKey(group.id, tab.id),
       })),
   );
@@ -1082,6 +1111,7 @@ export function IframePanel({
       ) : activeTab ? (
           <SingleTabView
             activeTab={activeTab}
+            tabGroup={tabGroup}
             activeIframeKey={activeIframeKey ?? activeTab.id}
             loadingState={loadingState}
             errorState={errorState}
@@ -1126,8 +1156,7 @@ function PersistentIframeLayer({
   if (activePair) {
     const pairTabs = activePair.tabIds
       .map((id) => tabGroup.tabs.find((tab) => tab.id === id))
-      .filter((tab): tab is Tab => tab != null)
-      .filter((tab) => getTabRenderTarget(tab.url).kind === 'iframe');
+      .filter((tab): tab is Tab => tab != null);
 
     const separatorWidth = 4;
     const totalSeparatorWidth = Math.max(pairTabs.length - 1, 0) * separatorWidth;
@@ -1139,19 +1168,21 @@ function PersistentIframeLayer({
       const ratioFraction = ratio / totalRatio;
       const cumulativeFraction = cumulativeRatio / totalRatio;
 
-      layoutStyles.set(getIframeRetentionKey(tabGroup.id, tab.id), {
-        position: 'absolute',
-        top: 0,
-        bottom: 0,
-        left: `calc(${(cumulativeFraction * 100).toFixed(6)}% + ${(index * separatorWidth - cumulativeFraction * totalSeparatorWidth).toFixed(3)}px)`,
-        width: `calc(${(ratioFraction * 100).toFixed(6)}% - ${(ratioFraction * totalSeparatorWidth).toFixed(3)}px)`,
-        visibility: 'visible',
-        pointerEvents: 'auto',
-      });
+      if (getTabRenderTargetForTab(tab, tabGroup).kind === 'iframe') {
+        layoutStyles.set(getIframeRetentionKey(tabGroup.id, tab.id), {
+          position: 'absolute',
+          top: 0,
+          bottom: 0,
+          left: `calc(${(cumulativeFraction * 100).toFixed(6)}% + ${(index * separatorWidth - cumulativeFraction * totalSeparatorWidth).toFixed(3)}px)`,
+          width: `calc(${(ratioFraction * 100).toFixed(6)}% - ${(ratioFraction * totalSeparatorWidth).toFixed(3)}px)`,
+          visibility: 'visible',
+          pointerEvents: 'auto',
+        });
+      }
 
       cumulativeRatio += ratio;
     });
-  } else if (activeTab && getTabRenderTarget(activeTab.url).kind === 'iframe') {
+  } else if (activeTab && getTabRenderTargetForTab(activeTab, tabGroup).kind === 'iframe') {
     layoutStyles.set(getIframeRetentionKey(tabGroup.id, activeTab.id), {
       position: 'absolute',
       inset: 0,
@@ -1193,6 +1224,7 @@ function PersistentIframeLayer({
 
 function SingleTabView({
   activeTab,
+  tabGroup,
   activeIframeKey,
   loadingState,
   errorState,
@@ -1209,6 +1241,7 @@ function SingleTabView({
   onOpenVKWorkspace,
 }: {
   activeTab: Tab;
+  tabGroup: TabGroup;
   activeIframeKey: string;
   loadingState: Map<string, boolean>;
   errorState: Map<string, boolean>;
@@ -1227,7 +1260,7 @@ function SingleTabView({
   const isLoaded = loadingState.get(activeIframeKey) ?? false;
   const hasError = errorState.get(activeIframeKey) ?? false;
   const isActivationShielded = activationShieldState.get(activeIframeKey) ?? false;
-  const target = getTabRenderTarget(activeTab.url);
+  const target = getTabRenderTargetForTab(activeTab, tabGroup);
   const shouldShowLoadingOverlay = shouldShowIframeLoadingOverlay(isLoaded, isActivationShielded);
 
   // Check if this is an internal URL that should render a special component
@@ -1270,6 +1303,17 @@ function SingleTabView({
 
   if (target.kind === 'blocked-self-app') {
     return <BlockedSelfAppPlaceholder url={activeTab.url} />;
+  }
+
+  if (target.kind === 'react-surface') {
+    return (
+      <div
+        className="absolute inset-x-0 top-0 md:bottom-0 z-10 pointer-events-auto"
+        style={MOBILE_VIEWPORT_INSET_STYLE}
+      >
+        <ReactCraftSurfaceHost target={target.target} />
+      </div>
+    );
   }
 
   return (
@@ -1329,6 +1373,7 @@ function PairView({
             <Panel id={tab.id} defaultSize={percentages[i]} minSize={10} className="pointer-events-none">
               <PairTabView
                 tab={tab}
+                tabGroup={tabGroup}
                 iframeKey={iframeKey}
                 isLoaded={isLoaded}
                 hasError={hasError}
@@ -1348,6 +1393,7 @@ function PairView({
 
 function PairTabView({
   tab,
+  tabGroup,
   iframeKey,
   isLoaded,
   hasError,
@@ -1355,17 +1401,26 @@ function PairTabView({
   retryTab,
 }: {
   tab: Tab;
+  tabGroup: TabGroup;
   iframeKey: string;
   isLoaded: boolean;
   hasError: boolean;
   isActivationShielded: boolean;
   retryTab: (tabId: string) => void;
 }) {
-  const target = getTabRenderTarget(tab.url);
+  const target = getTabRenderTargetForTab(tab, tabGroup);
   const shouldShowLoadingOverlay = shouldShowIframeLoadingOverlay(isLoaded, isActivationShielded);
 
   if (target.kind === 'blocked-self-app') {
     return <BlockedSelfAppPlaceholder url={tab.url} />;
+  }
+
+  if (target.kind === 'react-surface') {
+    return (
+      <div className="relative w-full h-full pointer-events-auto bg-neutral-950">
+        <ReactCraftSurfaceHost target={target.target} />
+      </div>
+    );
   }
 
   return (

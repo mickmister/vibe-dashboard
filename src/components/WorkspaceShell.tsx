@@ -911,15 +911,24 @@ export function WorkspaceShell({
   };
 
   const handleOpenCreateWorkspaceTab = async () => {
+    const originSessionId = currentSessionId;
+    setVoyagePlusMenuOpen(false);
+    setWorkspaceSearchOpen(false);
+    setVoyageSwitcherOpen(false);
+    closeNewVoyagePrompt();
+
     const result = await actions.createCreateWorkspaceCraft({
       label: "Create Workspace",
     });
     if (!result) return;
 
-    sessionActions.selectSessionTab(
-      result.spaceId,
-      result.tabGroupId,
-      result.tabId,
+    await addOrSelectCraftInCurrentVoyage(
+      {
+        spaceId: result.spaceId,
+        tabGroupId: result.tabGroupId,
+        tabId: result.tabId,
+      },
+      originSessionId,
     );
   };
 

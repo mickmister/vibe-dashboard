@@ -194,6 +194,7 @@ test.describe('VK mocked-provider sandbox through VD UI', () => {
     ).toBeVisible();
 
     await clickMenuItem(page, 'New Craft');
+    await expectMobileNewCraftNavigationSettled(page);
     await expectCreateWorkspaceFrameUrl(page);
     await page.getByRole('button', { name: 'Voyage actions' }).last().click();
     await clickMenuItem(page, 'Open Craft');
@@ -327,7 +328,17 @@ async function closeSidebarOverlayIfPresent(page: Page) {
 async function clickMenuItem(page: Page, name: string) {
   const menuItem = page.getByRole('menuitem', { name });
   await expect(menuItem).toBeVisible();
-  await menuItem.evaluate((element) => (element as HTMLButtonElement).click());
+  await menuItem.click();
+}
+
+async function expectMobileNewCraftNavigationSettled(page: Page) {
+  await expect(
+    page.getByText('Name this voyage, then choose how you want to start it.'),
+  ).toBeHidden();
+  await expect(page.getByRole('menuitem', { name: 'New Craft' })).toBeHidden();
+  await expect(
+    page.locator('iframe[title="Create Workspace"]').last(),
+  ).toBeVisible();
 }
 
 async function clickLocatorInViewport(page: Page, locator: Locator) {
