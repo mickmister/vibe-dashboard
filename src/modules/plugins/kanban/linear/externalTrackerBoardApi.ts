@@ -22,6 +22,9 @@ export interface ExternalLinearBoardDiagnosticsDto {
   customViewId?: string;
   customViewName?: string;
   customViewLayout?: string;
+  customViewGrouping?: string;
+  customViewSubGrouping?: string;
+  customViewGroupingFidelity?: 'full' | 'partial' | 'none' | 'unknown';
   cycleIdentifier?: string;
   cycleId?: string;
   cycleName?: string;

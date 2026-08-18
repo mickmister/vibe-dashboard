@@ -183,6 +183,78 @@ describe('ExternalLinearBoardContent', () => {
     expect(screen.getByRole('button', { name: 'Open Workspace' })).toBeTruthy();
   });
 
+  it('renders Linear custom view list mode with workflow groups and opens the issue drawer from a list row', () => {
+    const listView: ExternalLinearBoardViewDto = {
+      ...boardView,
+      viewMode: 'list',
+      board: { ...boardView.board, id: 'jamtools:customView:triage', name: 'Linear triage list', type: 'customView' },
+      cards: [
+        { ...boardView.cards[0]!, id: 'issue-1', key: 'VD-1', title: 'First list issue', rank: 0 },
+        { ...boardView.cards[0]!, id: 'issue-2', key: 'VD-2', title: 'Second list issue', statusId: 'started', statusName: 'In Progress', columnId: 'started', rank: 1 },
+      ],
+      list: {
+        fidelity: 'full',
+        grouping: 'workflowState',
+        sections: [
+          { id: 'todo', title: 'Todo', issueKeys: ['VD-1'], metadata: { grouping: 'workflowState' } },
+          { id: 'started', title: 'In Progress', issueKeys: ['VD-2'], metadata: { grouping: 'workflowState' } },
+        ],
+      },
+      pagination: { pageCount: 1, issueCount: 2, maxResults: 50 },
+      diagnostics: {
+        authSource: 'api_key',
+        linearMode: 'customView',
+        locatorViewKind: 'customView',
+        workspaceSlug: 'jamtools',
+        customViewId: 'triage',
+        customViewLayout: 'list',
+        customViewGrouping: 'workflowState',
+        customViewGroupingFidelity: 'full',
+        issueCount: 2,
+      },
+    };
+    renderBoard(listView);
+
+    expect(screen.getByRole('list', { name: 'External Kanban list' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Todo' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'In Progress' })).toBeTruthy();
+    expect(screen.getByText('First list issue')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /VD-2.*Second list issue/s }));
+
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).getByRole('heading', { name: 'Second list issue' })).toBeTruthy();
+  });
+
+  it('renders exact Linear list issues with a partial grouping diagnostic', () => {
+    const partialListView: ExternalLinearBoardViewDto = {
+      ...boardView,
+      viewMode: 'list',
+      board: { ...boardView.board, id: 'jamtools:customView:labels', name: 'Label grouped list', type: 'customView' },
+      list: {
+        fidelity: 'partial',
+        grouping: 'label',
+        sections: [],
+        reason: 'Linear grouping "label" is not fully mirrored; issues are shown in provider order.',
+      },
+      diagnostics: {
+        authSource: 'api_key',
+        linearMode: 'customView',
+        locatorViewKind: 'customView',
+        workspaceSlug: 'jamtools',
+        customViewId: 'labels',
+        customViewLayout: 'list',
+        customViewGrouping: 'label',
+        customViewGroupingFidelity: 'partial',
+        issueCount: 1,
+      },
+    };
+    renderBoard(partialListView);
+
+    expect(screen.getByText('Grouping not fully mirrored')).toBeTruthy();
+    expect(screen.getByText('Linear grouping "label" is not fully mirrored; issues are shown in provider order.')).toBeTruthy();
+    expect(screen.getByText('Build Linear provider')).toBeTruthy();
+  });
+
   it('opens an in-app issue drawer instead of requiring Linear navigation', () => {
     renderBoard();
 

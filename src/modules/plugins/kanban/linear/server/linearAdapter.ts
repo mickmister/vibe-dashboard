@@ -1,4 +1,10 @@
-import type { ExternalKanbanBoardViewDto, ExternalKanbanCardDto, ExternalKanbanColumnDto } from '../../boardTypes';
+import type {
+  ExternalKanbanBoardViewDto,
+  ExternalKanbanCardDto,
+  ExternalKanbanColumnDto,
+  ExternalKanbanListDto,
+  ExternalKanbanSwimlaneFidelity,
+} from '../../boardTypes';
 import type { LinearExternalViewLocator } from '../externalViewUrl';
 import type { LinearApiKeyAuthConfig } from './config';
 
@@ -23,6 +29,9 @@ export interface ExternalLinearBoardDiagnostics {
   customViewId?: string;
   customViewName?: string;
   customViewLayout?: string;
+  customViewGrouping?: string;
+  customViewSubGrouping?: string;
+  customViewGroupingFidelity?: ExternalKanbanSwimlaneFidelity;
   cycleIdentifier?: string;
   cycleId?: string;
   cycleName?: string;
@@ -528,10 +537,16 @@ function buildBoardView({
   const columns = columnsFromStates(relevantStates, issues);
   const fallbackColumn = columns[0] ?? { id: 'linear-status-unknown', title: 'No status', statusIds: [] };
   const cards = issues.map((issue, index) => cardFromIssue(issue, index, fallbackColumn.id));
+  const customViewLayout = normalizeLayoutPreference(customView?.viewPreferencesValues?.layout);
+  const customViewGrouping = normalizePreferenceValue(customView?.viewPreferencesValues?.issueGrouping);
+  const customViewSubGrouping = normalizePreferenceValue(customView?.viewPreferencesValues?.issueSubGrouping);
+  const list = mode === 'customView' && customViewLayout === 'list'
+    ? buildCustomViewList({ cards, columns, grouping: customViewGrouping, subGrouping: customViewSubGrouping })
+    : undefined;
 
   return {
     provider: 'linear',
-    viewMode: mode === 'issue' ? 'issue' : 'board',
+    viewMode: mode === 'issue' ? 'issue' : list ? 'list' : 'board',
     sourceUrl: locator.originalUrl,
     siteHostname: `linear.app/${locator.workspaceSlug}`,
     resource: {
@@ -549,6 +564,7 @@ function buildBoardView({
     columns,
     cards,
     swimlanes: { fidelity: 'none', lanes: [] },
+    ...(list ? { list } : {}),
     pagination: { pageCount, issueCount: issues.length, maxResults },
     diagnostics: {
       authSource: 'api_key',
@@ -560,6 +576,9 @@ function buildBoardView({
       ...(locator.customViewId ? { customViewId: locator.customViewId } : {}),
       ...(customView?.name ? { customViewName: customView.name } : {}),
       ...(customView?.viewPreferencesValues?.layout ? { customViewLayout: customView.viewPreferencesValues.layout } : {}),
+      ...(customViewGrouping ? { customViewGrouping } : {}),
+      ...(customViewSubGrouping ? { customViewSubGrouping } : {}),
+      ...(list ? { customViewGroupingFidelity: list.fidelity } : {}),
       ...(locator.cycleIdentifier ? { cycleIdentifier: locator.cycleIdentifier } : {}),
       ...(cycle?.id ? { cycleId: cycle.id } : {}),
       ...(cycle?.name ? { cycleName: cycle.name } : {}),
@@ -568,6 +587,80 @@ function buildBoardView({
       issueCount: issues.length,
     },
   };
+}
+
+function buildCustomViewList({
+  cards,
+  columns,
+  grouping,
+  subGrouping,
+}: {
+  cards: ExternalKanbanCardDto[];
+  columns: ExternalKanbanColumnDto[];
+  grouping?: string;
+  subGrouping?: string;
+}): ExternalKanbanListDto {
+  const normalizedGrouping = normalizeLinearGrouping(grouping);
+  const hasUnsupportedSubGrouping = Boolean(subGrouping && !isNoneGrouping(subGrouping));
+  if (!normalizedGrouping || isNoneGrouping(normalizedGrouping)) {
+    return {
+      fidelity: hasUnsupportedSubGrouping ? 'partial' : 'none',
+      sections: [],
+      ...(grouping ? { grouping } : {}),
+      ...(hasUnsupportedSubGrouping ? { reason: `Linear subgrouping "${subGrouping}" is not fully mirrored; issues are shown in provider order.` } : {}),
+    };
+  }
+
+  if (isWorkflowStateGrouping(normalizedGrouping)) {
+    const sections = columns
+      .map((column) => ({
+        id: column.id,
+        title: column.title,
+        issueKeys: cards.filter((card) => card.columnId === column.id || (!card.columnId && card.statusId && column.statusIds.includes(card.statusId))).map((card) => card.key),
+        metadata: { grouping: 'workflowState' },
+      }))
+      .filter((section) => section.issueKeys.length > 0);
+    return {
+      fidelity: hasUnsupportedSubGrouping ? 'partial' : 'full',
+      grouping: 'workflowState',
+      sections,
+      ...(hasUnsupportedSubGrouping ? { reason: `Linear subgrouping "${subGrouping}" is not fully mirrored; primary workflow state groups are shown.` } : {}),
+    };
+  }
+
+  return {
+    fidelity: 'partial',
+    grouping: grouping ?? normalizedGrouping,
+    sections: [],
+    reason: `Linear grouping "${grouping ?? normalizedGrouping}" is not fully mirrored; issues are shown in provider order.`,
+  };
+}
+
+function normalizePreferenceValue(value: string | null | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed || undefined;
+}
+
+function normalizeLayoutPreference(value: string | null | undefined): string | undefined {
+  return normalizePreferenceValue(value)?.toLowerCase();
+}
+
+function normalizeLinearGrouping(grouping: string | undefined): string | undefined {
+  if (!grouping) return undefined;
+  const normalized = grouping.trim();
+  if (!normalized) return undefined;
+  const compact = normalized.replace(/[\s_-]/g, '').toLowerCase();
+  if (['workflowstate', 'workflow', 'state', 'status'].includes(compact)) return 'workflowState';
+  if (['none', 'nogrouping'].includes(compact)) return 'none';
+  return normalized;
+}
+
+function isWorkflowStateGrouping(grouping: string): boolean {
+  return grouping === 'workflowState';
+}
+
+function isNoneGrouping(grouping: string): boolean {
+  return grouping.toLowerCase() === 'none';
 }
 
 function statesForIssues(states: LinearWorkflowState[], issues: LinearIssue[], locator: LinearExternalViewLocator): LinearWorkflowState[] {

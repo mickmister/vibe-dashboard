@@ -213,6 +213,84 @@ describe('fetchLinearBoardView', () => {
     });
   });
 
+  it('marks Linear custom views with list layout as provider-neutral list views grouped by workflow state', async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({
+      data: {
+        customView: {
+          id: 'custom-view-1',
+          name: 'Reported by me',
+          slugId: 'reported-by-me-c10a8b8b98c26',
+          modelName: 'Issue',
+          viewPreferencesValues: { layout: 'list', issueGrouping: 'workflowState', issueSubGrouping: 'none' },
+          issues: {
+            nodes: [
+              issue({ id: 'issue-1', identifier: 'VD-1', title: 'Todo issue', state: { id: 'state-todo', name: 'Todo', type: 'unstarted', position: 10 } }),
+              issue({ id: 'issue-2', identifier: 'VD-2', title: 'Started issue', state: { id: 'state-started', name: 'In Progress', type: 'started', position: 20 } }),
+            ],
+            pageInfo: { hasNextPage: false, endCursor: null },
+          },
+        },
+        workflowStates,
+      },
+    }), { headers: { 'content-type': 'application/json' } })) as unknown as typeof fetch;
+
+    const result = await fetchLinearBoardView({ locator: customViewLocator, auth, fetchImpl });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.boardView.viewMode).toBe('list');
+    expect(result.boardView.list).toEqual({
+      fidelity: 'full',
+      grouping: 'workflowState',
+      sections: [
+        { id: 'state-todo', title: 'Todo', issueKeys: ['VD-1'], metadata: { grouping: 'workflowState' } },
+        { id: 'state-started', title: 'In Progress', issueKeys: ['VD-2'], metadata: { grouping: 'workflowState' } },
+      ],
+    });
+    expect(result.boardView.diagnostics).toMatchObject({
+      customViewLayout: 'list',
+      customViewGrouping: 'workflowState',
+      customViewSubGrouping: 'none',
+      customViewGroupingFidelity: 'full',
+    });
+  });
+
+  it('renders exact Linear custom view issues with partial fidelity for unsupported grouping', async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({
+      data: {
+        customView: {
+          id: 'custom-view-1',
+          name: 'Reported by me',
+          slugId: 'reported-by-me-c10a8b8b98c26',
+          modelName: 'Issue',
+          viewPreferencesValues: { layout: 'list', issueGrouping: 'label', issueSubGrouping: 'none' },
+          issues: {
+            nodes: [issue({ id: 'issue-1', identifier: 'VD-1', title: 'Exact issue' })],
+            pageInfo: { hasNextPage: false, endCursor: null },
+          },
+        },
+        workflowStates,
+      },
+    }), { headers: { 'content-type': 'application/json' } })) as unknown as typeof fetch;
+
+    const result = await fetchLinearBoardView({ locator: customViewLocator, auth, fetchImpl });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.boardView.viewMode).toBe('list');
+    expect(result.boardView.cards.map((card) => card.key)).toEqual(['VD-1']);
+    expect(result.boardView.list).toMatchObject({
+      fidelity: 'partial',
+      grouping: 'label',
+      sections: [],
+      reason: expect.stringContaining('not fully mirrored'),
+    });
+    expect(result.boardView.diagnostics).toMatchObject({
+      customViewGrouping: 'label',
+      customViewGroupingFidelity: 'partial',
+    });
+  });
+
   it('rejects Linear custom views that are not issue board/list views', async () => {
     const fetchImpl = vi.fn(async () => new Response(JSON.stringify({
       data: {

@@ -93,6 +93,87 @@ export const EmptyLinearView: Story = {
   },
 };
 
+export const CustomViewList: Story = {
+  args: {
+    boardView: {
+      ...fullCircleInspiredBoard,
+      viewMode: 'list',
+      sourceUrl: 'https://linear.app/jamtools/view/linear-provider-triage',
+      board: { id: 'jamtools:customView:linear-provider-triage', name: 'Linear provider triage', type: 'customView' },
+      list: {
+        fidelity: 'full',
+        grouping: 'workflowState',
+        sections: [
+          { id: 'todo', title: 'Todo', issueKeys: ['VD-101'], metadata: { grouping: 'workflowState' } },
+          { id: 'started', title: 'In Progress', issueKeys: ['VD-102'], metadata: { grouping: 'workflowState' } },
+          { id: 'done', title: 'Done', issueKeys: ['VD-103'], metadata: { grouping: 'workflowState' } },
+        ],
+      },
+      diagnostics: {
+        authSource: 'api_key',
+        linearMode: 'customView',
+        locatorViewKind: 'customView',
+        workspaceSlug: 'jamtools',
+        customViewId: 'linear-provider-triage',
+        customViewName: 'Linear provider triage',
+        customViewLayout: 'list',
+        customViewGrouping: 'workflowState',
+        customViewGroupingFidelity: 'full',
+        issueCount: 3,
+      },
+    },
+  },
+};
+
+export const CustomViewListPartialGrouping: Story = {
+  args: {
+    boardView: {
+      ...fullCircleInspiredBoard,
+      viewMode: 'list',
+      sourceUrl: 'https://linear.app/jamtools/view/label-grouped-provider-work',
+      board: { id: 'jamtools:customView:label-grouped-provider-work', name: 'Label grouped provider work', type: 'customView' },
+      list: {
+        fidelity: 'partial',
+        grouping: 'label',
+        sections: [],
+        reason: 'Linear grouping "label" is not fully mirrored; issues are shown in provider order.',
+      },
+      diagnostics: {
+        authSource: 'api_key',
+        linearMode: 'customView',
+        locatorViewKind: 'customView',
+        workspaceSlug: 'jamtools',
+        customViewId: 'label-grouped-provider-work',
+        customViewName: 'Label grouped provider work',
+        customViewLayout: 'list',
+        customViewGrouping: 'label',
+        customViewGroupingFidelity: 'partial',
+        issueCount: 3,
+      },
+    },
+  },
+};
+
+export const CustomViewBoard: Story = {
+  args: {
+    boardView: {
+      ...fullCircleInspiredBoard,
+      sourceUrl: 'https://linear.app/jamtools/view/linear-provider-board',
+      board: { id: 'jamtools:customView:linear-provider-board', name: 'Linear provider board', type: 'customView' },
+      diagnostics: {
+        authSource: 'api_key',
+        linearMode: 'customView',
+        locatorViewKind: 'customView',
+        workspaceSlug: 'jamtools',
+        customViewId: 'linear-provider-board',
+        customViewName: 'Linear provider board',
+        customViewLayout: 'board',
+        issueCount: 3,
+      },
+    },
+  },
+};
+
 export const SingleIssuePage: Story = {
   args: {
     boardView: {

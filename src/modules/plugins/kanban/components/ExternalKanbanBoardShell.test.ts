@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { ExternalKanbanBoardShell, ExternalKanbanColumns, ExternalKanbanSingleIssuePage } from './ExternalKanbanBoardShell';
+import { ExternalKanbanBoardShell, ExternalKanbanColumns, ExternalKanbanList, ExternalKanbanSingleIssuePage } from './ExternalKanbanBoardShell';
 import type { ExternalKanbanBoardViewDto, ExternalKanbanCardDto, ExternalKanbanColumnDto } from '../boardTypes';
 
 const columns: ExternalKanbanColumnDto[] = [
@@ -113,6 +113,47 @@ describe('ExternalKanbanBoardShell', () => {
     expect(html).toContain('Unmapped');
     expect(html).toContain('Visible unmatched issue');
     expect(html).not.toContain('No visible');
+  });
+
+  it('renders provider-neutral list sections while preserving provider card order', () => {
+    const listCards: ExternalKanbanCardDto[] = [
+      { ...cards[0]!, id: 'issue-2', key: 'EXT-2', title: 'Second in provider order', rank: 1 },
+      { ...cards[0]!, id: 'issue-1', key: 'EXT-1', title: 'First in provider order', rank: 0 },
+    ];
+    const html = renderToStaticMarkup(
+      React.createElement(ExternalKanbanList, {
+        list: {
+          fidelity: 'full',
+          sections: [{ id: 'todo', title: 'Todo', issueKeys: ['EXT-1', 'EXT-2'] }],
+          grouping: 'workflowState',
+        },
+        cards: listCards,
+        renderCard: (card) => React.createElement('article', null, card.title),
+      }),
+    );
+
+    expect(html).toContain('External Kanban list');
+    expect(html).toContain('Todo');
+    expect(html.indexOf('First in provider order')).toBeLessThan(html.indexOf('Second in provider order'));
+  });
+
+  it('renders exact list issues with a partial-fidelity diagnostic when grouping is not fully mirrored', () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ExternalKanbanList, {
+        list: {
+          fidelity: 'partial',
+          sections: [],
+          grouping: 'unsupportedGrouping',
+          reason: 'Linear grouping is not fully mirrored; issues are shown in provider order.',
+        },
+        cards,
+        renderCard: (card) => React.createElement('article', null, card.title),
+      }),
+    );
+
+    expect(html).toContain('Grouping not fully mirrored');
+    expect(html).toContain('Linear grouping is not fully mirrored');
+    expect(html).toContain('Shared Kanban shell');
   });
 
   it('renders a provider-neutral full-page single issue view with tasks and workspace actions', () => {

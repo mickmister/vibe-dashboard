@@ -75,6 +75,21 @@ export interface ExternalKanbanSwimlanesDto {
   reason?: string;
 }
 
+export interface ExternalKanbanListSectionDto {
+  id: string;
+  title: string;
+  issueKeys: string[];
+  metadata?: Record<string, unknown>;
+}
+
+export interface ExternalKanbanListDto {
+  fidelity: ExternalKanbanSwimlaneFidelity;
+  sections: ExternalKanbanListSectionDto[];
+  grouping?: string;
+  ordering?: string;
+  reason?: string;
+}
+
 export interface ExternalKanbanBoardViewDto<
   Provider extends ExternalIssueProvider = ExternalIssueProvider,
   Resource = {
@@ -100,6 +115,7 @@ export interface ExternalKanbanBoardViewDto<
   columns: ExternalKanbanColumnDto[];
   cards: ExternalKanbanCardDto[];
   swimlanes: ExternalKanbanSwimlanesDto;
+  list?: ExternalKanbanListDto;
   pagination: {
     pageCount: number;
     issueCount: number;

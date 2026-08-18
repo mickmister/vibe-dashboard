@@ -1,6 +1,13 @@
 import React from 'react';
 import { Button, Chip } from '@heroui/react';
-import type { ExternalKanbanBoardViewDto, ExternalKanbanCardDto, ExternalKanbanColumnDto, ExternalKanbanRelatedWorkspaceDto } from '../boardTypes';
+import type {
+  ExternalKanbanBoardViewDto,
+  ExternalKanbanCardDto,
+  ExternalKanbanColumnDto,
+  ExternalKanbanListDto,
+  ExternalKanbanListSectionDto,
+  ExternalKanbanRelatedWorkspaceDto,
+} from '../boardTypes';
 
 export function ExternalKanbanBoardShell({
   children,
@@ -52,6 +59,56 @@ export function ExternalKanbanColumns({
           </section>
         );
       })}
+    </div>
+  );
+}
+
+export function ExternalKanbanList({
+  list,
+  cards,
+  renderCard,
+  emptyLabel = 'No issues',
+}: {
+  list?: ExternalKanbanListDto;
+  cards: ExternalKanbanCardDto[];
+  renderCard: (card: ExternalKanbanCardDto) => React.ReactNode;
+  emptyLabel?: string;
+}) {
+  const orderedCards = sortCardsByProviderOrder(cards);
+  const renderedIssueKeys = new Set<string>();
+  const renderedSections = list?.sections ?? [];
+  const showGroupingDiagnostic = list?.fidelity === 'partial' || list?.fidelity === 'unknown';
+
+  return (
+    <div className="space-y-4" role="list" aria-label="External Kanban list">
+      {showGroupingDiagnostic ? (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-100">
+          <div className="font-medium">Grouping not fully mirrored</div>
+          {list?.reason ? <div className="mt-1 text-amber-100/80">{list.reason}</div> : null}
+        </div>
+      ) : null}
+      {orderedCards.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-neutral-800 p-4 text-sm text-neutral-500">{emptyLabel}</div>
+      ) : null}
+      {renderedSections.length > 0 ? (
+        <>
+          {renderedSections.map((section) => {
+            const sectionCards = cardsForListSection(orderedCards, section);
+            sectionCards.forEach((card) => renderedIssueKeys.add(card.key));
+            return (
+              <ExternalKanbanListSection key={section.id} section={section} cards={sectionCards} renderCard={renderCard} emptyLabel={emptyLabel} />
+            );
+          })}
+          <ExternalKanbanUnassignedListSection
+            cards={orderedCards.filter((card) => !renderedIssueKeys.has(card.key))}
+            renderCard={renderCard}
+          />
+        </>
+      ) : (
+        <div className="space-y-2">
+          {orderedCards.map((card) => <React.Fragment key={card.id}>{renderCard(card)}</React.Fragment>)}
+        </div>
+      )}
     </div>
   );
 }
@@ -180,6 +237,61 @@ export function ExternalKanbanSingleIssuePage({
       </div>
     </main>
   );
+}
+
+function ExternalKanbanListSection({
+  section,
+  cards,
+  renderCard,
+  emptyLabel,
+}: {
+  section: ExternalKanbanListSectionDto;
+  cards: ExternalKanbanCardDto[];
+  renderCard: (card: ExternalKanbanCardDto) => React.ReactNode;
+  emptyLabel: string;
+}) {
+  return (
+    <section className="rounded-xl border border-neutral-800 bg-neutral-900/70">
+      <div className="flex items-center justify-between border-b border-neutral-800 px-4 py-3">
+        <h3 className="text-sm font-semibold text-neutral-100">{section.title}</h3>
+        <Chip size="sm" variant="flat" className="bg-neutral-800 text-neutral-300">{cards.length}</Chip>
+      </div>
+      <div className="space-y-2 p-3">
+        {cards.length === 0 ? <div className="rounded-lg border border-dashed border-neutral-800 p-3 text-sm text-neutral-500">{emptyLabel}</div> : null}
+        {cards.map((card) => <React.Fragment key={card.id}>{renderCard(card)}</React.Fragment>)}
+      </div>
+    </section>
+  );
+}
+
+function ExternalKanbanUnassignedListSection({
+  cards,
+  renderCard,
+}: {
+  cards: ExternalKanbanCardDto[];
+  renderCard: (card: ExternalKanbanCardDto) => React.ReactNode;
+}) {
+  if (cards.length === 0) return null;
+  return (
+    <section className="rounded-xl border border-neutral-800 bg-neutral-900/70">
+      <div className="flex items-center justify-between border-b border-neutral-800 px-4 py-3">
+        <h3 className="text-sm font-semibold text-neutral-100">Other issues</h3>
+        <Chip size="sm" variant="flat" className="bg-neutral-800 text-neutral-300">{cards.length}</Chip>
+      </div>
+      <div className="space-y-2 p-3">
+        {cards.map((card) => <React.Fragment key={card.id}>{renderCard(card)}</React.Fragment>)}
+      </div>
+    </section>
+  );
+}
+
+function cardsForListSection(cards: ExternalKanbanCardDto[], section: ExternalKanbanListSectionDto): ExternalKanbanCardDto[] {
+  const issueKeys = new Set(section.issueKeys);
+  return cards.filter((card) => issueKeys.has(card.key));
+}
+
+function sortCardsByProviderOrder(cards: ExternalKanbanCardDto[]): ExternalKanbanCardDto[] {
+  return [...cards].sort((left, right) => left.rank - right.rank || left.key.localeCompare(right.key));
 }
 
 function withImplicitUnmappedColumn(columns: ExternalKanbanColumnDto[], cards: ExternalKanbanCardDto[]): ExternalKanbanColumnDto[] {

@@ -5,7 +5,7 @@ import type { LinearExternalViewLocator } from '../externalViewUrl';
 import { fetchExternalLinearBoardView } from '../externalTrackerBoardApi';
 import type { ExternalLinearBoardApiResponse, ExternalLinearBoardViewDto } from '../externalTrackerBoardApi';
 import type { ExternalKanbanCardDto, ExternalKanbanColumnDto, ExternalKanbanRelatedWorkspaceDto } from '../../boardTypes';
-import { ExternalKanbanBoardShell, ExternalKanbanColumns, ExternalKanbanSingleIssuePage } from '../../components/ExternalKanbanBoardShell';
+import { ExternalKanbanBoardShell, ExternalKanbanColumns, ExternalKanbanList, ExternalKanbanSingleIssuePage } from '../../components/ExternalKanbanBoardShell';
 import { ExternalWorkspaceCreateDialog } from '../../components/ExternalWorkspaceCreateDialog';
 
 export function ExternalLinearBoardRoute({ locator }: { locator: LinearExternalViewLocator }) {
@@ -140,7 +140,7 @@ export function ExternalLinearBoardContent({ boardView }: { boardView: ExternalL
       sidePanel={sidePanel}
       overlays={(
         <ExternalLinearIssueDrawer
-          boardView={boardView}
+          boardView={displayBoardView}
           card={selectedCard}
           canGoPrevious={selectedIndex > 0}
           canGoNext={selectedIndex >= 0 && selectedIndex < sortedCards.length - 1}
@@ -152,13 +152,19 @@ export function ExternalLinearBoardContent({ boardView }: { boardView: ExternalL
       )}
     >
       <main className="min-w-0 p-4 sm:p-6">
-        <ExternalLinearBoardHeader boardView={boardView} />
-        {boardView.cards.length === 0 ? (
+        <ExternalLinearBoardHeader boardView={displayBoardView} />
+        {displayBoardView.cards.length === 0 ? (
           <ExternalLinearMessage title="No visible Linear issues" message="Linear returned 0 issues for this view." action="Open the Linear URL to verify filters and API key access." compact />
+        ) : displayBoardView.viewMode === 'list' ? (
+          <ExternalLinearIssueList
+            boardView={displayBoardView}
+            onSelectCard={(card) => setSelectedCardId(card.id)}
+            onOpenWorkspacePanel={(workspace) => setSidePanelWorkspaceId(workspace.workspaceId)}
+          />
         ) : (
           <ExternalLinearKanbanColumns
-            columns={normalizeColumns(boardView)}
-            cards={boardView.cards}
+            columns={normalizeColumns(displayBoardView)}
+            cards={displayBoardView.cards}
             onSelectCard={(card) => setSelectedCardId(card.id)}
             onOpenWorkspacePanel={(workspace) => setSidePanelWorkspaceId(workspace.workspaceId)}
           />
@@ -204,6 +210,30 @@ function ExternalLinearKanbanColumns({
   );
 }
 
+function ExternalLinearIssueList({
+  boardView,
+  onSelectCard,
+  onOpenWorkspacePanel,
+}: {
+  boardView: ExternalLinearBoardViewDto;
+  onSelectCard: (card: ExternalKanbanCardDto) => void;
+  onOpenWorkspacePanel: (workspace: ExternalKanbanRelatedWorkspaceDto) => void;
+}) {
+  return (
+    <ExternalKanbanList
+      list={boardView.list}
+      cards={boardView.cards}
+      renderCard={(card) => (
+        <ExternalLinearListRow
+          card={card}
+          onSelect={onSelectCard}
+          onOpenWorkspacePanel={onOpenWorkspacePanel}
+        />
+      )}
+    />
+  );
+}
+
 function ExternalLinearCard({
   card,
   onSelect,
@@ -238,6 +268,59 @@ function ExternalLinearCard({
         {taskCount > 0 ? <span>{taskCount} {taskCount === 1 ? 'task' : 'tasks'}</span> : null}
       </div>
       <div className="mt-3">
+        {workspace ? (
+          <Button
+            size="sm"
+            variant="flat"
+            onClick={(event) => {
+              event.stopPropagation();
+              onOpenWorkspacePanel(workspace);
+            }}
+          >
+            Open Workspace
+          </Button>
+        ) : (
+          <Chip size="sm" variant="flat" className="bg-neutral-800 text-neutral-400">No workspace</Chip>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ExternalLinearListRow({
+  card,
+  onSelect,
+  onOpenWorkspacePanel,
+}: {
+  card: ExternalKanbanCardDto;
+  onSelect: (card: ExternalKanbanCardDto) => void;
+  onOpenWorkspacePanel: (workspace: ExternalKanbanRelatedWorkspaceDto) => void;
+}) {
+  const taskCount = card.relatedBeads?.length ?? 0;
+  const workspace = card.relatedWorkspaces?.[0];
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      className="flex w-full flex-col gap-3 rounded-xl border border-neutral-800 bg-neutral-950 p-3 text-left transition hover:border-purple-500/60 focus:outline-none focus:ring-2 focus:ring-purple-400 sm:flex-row sm:items-center sm:justify-between"
+      onClick={() => onSelect(card)}
+      onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return;
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onSelect(card);
+        }
+      }}
+    >
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="font-mono text-xs font-semibold text-purple-200">{card.key}</span>
+          {card.statusName ? <Chip size="sm" variant="flat" className="bg-neutral-800 text-neutral-300">{card.statusName}</Chip> : null}
+          {taskCount > 0 ? <span className="text-xs text-neutral-400">{taskCount} {taskCount === 1 ? 'task' : 'tasks'}</span> : null}
+        </div>
+        <p className="mt-1 truncate text-sm font-medium text-neutral-100">{card.title}</p>
+      </div>
+      <div className="shrink-0">
         {workspace ? (
           <Button
             size="sm"
