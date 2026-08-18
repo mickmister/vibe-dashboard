@@ -550,6 +550,7 @@ export function registerWorkflowRoutes(
         description: asset.description,
         source: asset.source,
         preview: asset.bodyMarkdown.slice(0, 240),
+        bodyMarkdown: asset.bodyMarkdown,
       })),
       skills: skills.map((asset) => ({
         kind: "skill",
@@ -559,6 +560,7 @@ export function registerWorkflowRoutes(
         description: asset.description,
         source: asset.source,
         preview: asset.bodyMarkdown.slice(0, 240),
+        bodyMarkdown: asset.bodyMarkdown,
       })),
       roleTemplates: roleTemplates.map((template) => ({
         id: template.roleTemplateId,

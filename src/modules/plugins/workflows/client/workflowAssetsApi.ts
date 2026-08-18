@@ -6,6 +6,7 @@ export interface WorkflowAssetPickerItem {
   description: string | null;
   source: string;
   preview: string;
+  bodyMarkdown?: string;
 }
 
 export interface WorkflowAssetsModel {
