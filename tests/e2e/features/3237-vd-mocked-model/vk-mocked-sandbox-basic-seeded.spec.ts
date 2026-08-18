@@ -46,10 +46,6 @@ test.describe('VK mocked-provider basic-seeded fixture', () => {
 
     const agentFrame = page.frameLocator('iframe[title="Agent"]').first();
     await expect(agentFrame.locator('body')).toContainText(manifest.craftTitle);
-    await expect(agentFrame.locator('body')).toContainText(
-      'QA mode execution completed successfully',
-      { timeout: 60_000 },
-    );
 
     await agentFrame
       .getByRole('textbox', { name: 'Markdown editor' })
@@ -126,7 +122,7 @@ async function sendFollowUpThroughVkApi(page: Page, followUp: string) {
       data: {
         prompt: followUp,
         executor_config: {
-          executor: 'QA_MOCK',
+          executor: 'CODEX',
           permission_policy: 'AUTO',
         },
         retry_process_id: null,

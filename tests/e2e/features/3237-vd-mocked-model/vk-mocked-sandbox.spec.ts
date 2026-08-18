@@ -432,7 +432,7 @@ async function sendFollowUpThroughVkApi(page: Page, followUp: string) {
       data: {
         prompt: followUp,
         executor_config: {
-          executor: 'QA_MOCK',
+          executor: 'CODEX',
           permission_policy: 'AUTO',
         },
         retry_process_id: null,
