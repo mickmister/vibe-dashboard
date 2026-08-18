@@ -15,6 +15,7 @@ import { WorkflowCreationWizardPage } from "./plugins/workflows/components/Workf
 import { WorkflowGraphEditorPage } from "./plugins/workflows/components/WorkflowGraphEditorPage";
 import { WorkflowRoadmapPage } from "./plugins/workflows/components/WorkflowRoadmapPage";
 import { WorkflowMetaRunsPage } from "./plugins/workflows/components/WorkflowMetaRunsPage";
+import { WorkflowLibraryPage } from "./plugins/workflows/components/WorkflowLibraryPage";
 import { useSessionWorkspaceNav } from "../sessionState";
 import type { NewSessionInitialSelection } from "../sessionState";
 import { resolveWorkspaceContainerRef } from "../lib/vkWorkspaceOpen";
@@ -1250,6 +1251,12 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
     "/dashboard/workflows/roadmap",
     { hideApplicationShell: true },
     WorkflowRoadmapPage,
+  );
+
+  moduleAPI.registerRoute(
+    "/dashboard/workflows/library",
+    { hideApplicationShell: true },
+    WorkflowLibraryPage,
   );
 
   moduleAPI.registerRoute(

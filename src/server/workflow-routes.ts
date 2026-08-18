@@ -576,6 +576,66 @@ export function registerWorkflowRoutes(
     });
   });
 
+  hono.post("/dashboard/api/workflow-prompt-assets", async (c) => {
+    const body = asRecord(await readJsonBody(c.req.raw));
+    const db = options.workflowHomeDb ?? (await getVdDb()).db;
+    const designStore =
+      options.workflowDesignStore ??
+      new DbWorkflowDesignStore({ db, templates: BUILT_IN_WORKFLOW_TEMPLATES });
+    try {
+      const created = await designStore.createPromptAsset({
+        promptAssetId: asString(body?.promptAssetId) ?? `workflow-prompt-${randomUUID()}`,
+        version: typeof body?.version === "number" ? body.version : parsePositiveInteger(typeof body?.version === "string" ? body.version : null) ?? 1,
+        source: "user",
+        name: asString(body?.name) ?? "",
+        description: asString(body?.description) ?? null,
+        bodyMarkdown: asString(body?.bodyMarkdown) ?? "",
+      });
+      return c.json({ promptAsset: {
+        kind: "prompt",
+        id: created.promptAssetId,
+        version: created.version,
+        name: created.name,
+        description: created.description,
+        source: created.source,
+        preview: created.bodyMarkdown.slice(0, 240),
+        bodyMarkdown: created.bodyMarkdown,
+      } }, 201);
+    } catch (error) {
+      return handleWorkflowLibraryCreateError(c, error, "workflow_prompt_asset_invalid", "Workflow prompt asset is invalid");
+    }
+  });
+
+  hono.post("/dashboard/api/workflow-skill-assets", async (c) => {
+    const body = asRecord(await readJsonBody(c.req.raw));
+    const db = options.workflowHomeDb ?? (await getVdDb()).db;
+    const designStore =
+      options.workflowDesignStore ??
+      new DbWorkflowDesignStore({ db, templates: BUILT_IN_WORKFLOW_TEMPLATES });
+    try {
+      const created = await designStore.createSkillAsset({
+        skillAssetId: asString(body?.skillAssetId) ?? `workflow-skill-${randomUUID()}`,
+        version: typeof body?.version === "number" ? body.version : parsePositiveInteger(typeof body?.version === "string" ? body.version : null) ?? 1,
+        source: "user",
+        name: asString(body?.name) ?? "",
+        description: asString(body?.description) ?? null,
+        bodyMarkdown: asString(body?.bodyMarkdown) ?? "",
+      });
+      return c.json({ skillAsset: {
+        kind: "skill",
+        id: created.skillAssetId,
+        version: created.version,
+        name: created.name,
+        description: created.description,
+        source: created.source,
+        preview: created.bodyMarkdown.slice(0, 240),
+        bodyMarkdown: created.bodyMarkdown,
+      } }, 201);
+    } catch (error) {
+      return handleWorkflowLibraryCreateError(c, error, "workflow_skill_asset_invalid", "Workflow skill asset is invalid");
+    }
+  });
+
   hono.post("/dashboard/api/workflow-role-templates", async (c) => {
     const body = asRecord(await readJsonBody(c.req.raw));
     const name = asString(body?.name);
@@ -2036,6 +2096,13 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 function asString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
+}
+
+function handleWorkflowLibraryCreateError(c: { json: (value: unknown, status?: number) => Response }, error: unknown, code: string, message: string): Response {
+  if (error instanceof WorkflowDesignValidationError) {
+    return c.json({ error: code, message, issues: error.issues }, 400);
+  }
+  return c.json({ error: code, message: error instanceof Error ? error.message : String(error) }, 400);
 }
 
 function parseStringList(value: unknown): string[] {

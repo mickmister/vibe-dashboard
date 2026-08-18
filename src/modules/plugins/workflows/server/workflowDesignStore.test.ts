@@ -359,11 +359,15 @@ describe('DbWorkflowDesignStore M91 foundation', () => {
       { kind: 'skill', id: 'skill.testing.notes', version: 1, bodyMarkdown: 'Skill asset version one.' },
     ]);
 
-    await seedPromptAssets(store, {
+    await expect(seedPromptAssets(store, {
       promptVersion: 1,
       skillVersion: 1,
       promptBody: 'Prompt asset version one edited after publish.',
       skillBody: 'Skill asset version one edited after publish.',
+    })).rejects.toMatchObject({
+      issues: expect.arrayContaining([
+        expect.objectContaining({ path: 'promptAssets.prompt.dev.instructions.version' }),
+      ]),
     });
 
     const runSnapshot = await store.createRunSnapshot({

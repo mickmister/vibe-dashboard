@@ -40,7 +40,9 @@ describe("WorkspaceWorkflowsHomeView", () => {
     expect(html).toContain("Workflows");
     expect(html).toContain("Create workflow");
     expect(html).toContain("View roadmap");
+    expect(html).toContain("Library");
     expect(html).toContain('href="/dashboard/workflows/roadmap"');
+    expect(html).toContain('href="/dashboard/workflows/library"');
     expect(html).toContain(
       'href="/dashboard/workflows/new?workspaceId=workspace-a"',
     );
@@ -150,6 +152,7 @@ describe("WorkspaceWorkflowsHomeView", () => {
     expect(html).toContain("Workspace workspace-a");
     expect(html).not.toContain('href="/dashboard/workflows/meta-runs"');
     expect(html).toContain('href="/dashboard/workflows/roadmap?voyage=v1&amp;filter=active"');
+    expect(html).toContain('href="/dashboard/workflows/library?voyage=v1&amp;filter=active"');
     expect(html).not.toContain('/beads/project');
     for (const term of forbiddenTerms) expect(html).not.toContain(term);
   });

@@ -2,7 +2,7 @@ import "@xyflow/react/dist/style.css";
 import "./WorkflowGraphEditorPage.css";
 
 import React, { useEffect, useMemo, useState } from "react";
-import { useParams } from "react-router";
+import { useParams, useSearchParams } from "react-router";
 import { IconArrowLeft, IconCheck, IconPencil, IconTrash } from "@tabler/icons-react";
 import {
   Background,
@@ -52,9 +52,11 @@ import {
   type WorkflowGraphNodeModel,
   type WorkflowGraphValidationIssue,
 } from "./graph/workflowGraphModel";
+import { workflowRouteHref } from "./workflowRouteContext";
 
 export function WorkflowGraphEditorPage(): React.ReactElement {
   const { designId } = useParams();
+  const [searchParams] = useSearchParams();
   const [editor, setEditor] = useState<WorkflowDesignEditorModel | null>(null);
   const [definition, setDefinition] =
     useState<AgentWorkflowDefinitionV1 | null>(null);
@@ -136,8 +138,13 @@ export function WorkflowGraphEditorPage(): React.ReactElement {
   return (
     <StandaloneDashboardPage contentClassName="mx-auto max-w-7xl space-y-5">
       <header className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-5">
-        <div className="text-xs uppercase tracking-wide text-cyan-300">
-          Workflow builder
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="text-xs uppercase tracking-wide text-cyan-300">
+              Workflow builder
+            </div>
+          </div>
+          <a className="rounded-md border border-zinc-700 px-3 py-2 text-sm text-zinc-100 hover:bg-zinc-800" href={workflowRouteHref("/dashboard/workflows/library", searchParams)}>Library</a>
         </div>
         <h1 className="mt-1 text-2xl font-semibold">
           {definition?.name ?? editor?.name ?? "Workflow graph"}

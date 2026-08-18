@@ -1172,6 +1172,45 @@ describe("registerWorkflowRoutes", () => {
       ],
     });
 
+    const promptCreated = await app.request("/dashboard/api/workflow-prompt-assets", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        promptAssetId: "prompt.review.security",
+        version: 1,
+        name: "Security review prompt",
+        bodyMarkdown: "Review security implications.",
+      }),
+    });
+    expect(promptCreated.status).toBe(201);
+    await expect(promptCreated.json()).resolves.toMatchObject({ promptAsset: { id: "prompt.review.security", version: 1, bodyMarkdown: "Review security implications." } });
+    const promptDuplicate = await app.request("/dashboard/api/workflow-prompt-assets", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        promptAssetId: "prompt.review.security",
+        version: 1,
+        name: "Mutated security review prompt",
+        bodyMarkdown: "This rewrite must not persist.",
+      }),
+    });
+    expect(promptDuplicate.status).toBe(400);
+    await expect(promptDuplicate.json()).resolves.toMatchObject({ error: "workflow_prompt_asset_invalid", issues: [expect.objectContaining({ path: "promptAssets.prompt.review.security.version" })] });
+    await expect(designStore.getPromptAsset("prompt.review.security", 1)).resolves.toMatchObject({ bodyMarkdown: "Review security implications." });
+
+    const skillCreated = await app.request("/dashboard/api/workflow-skill-assets", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        skillAssetId: "skill.review.security",
+        version: 1,
+        name: "Security review skill",
+        bodyMarkdown: "Check auth, data exposure, and rollback risk.",
+      }),
+    });
+    expect(skillCreated.status).toBe(201);
+    await expect(skillCreated.json()).resolves.toMatchObject({ skillAsset: { id: "skill.review.security", version: 1, bodyMarkdown: "Check auth, data exposure, and rollback risk." } });
+
     const duplicate = await app.request("/dashboard/api/workflow-role-templates", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

@@ -137,6 +137,12 @@ export function WorkspaceWorkflowsHomeView({
             >
               View roadmap
             </a>
+            <a
+              className="rounded-md border border-zinc-700 px-3 py-2 text-sm text-zinc-100 hover:bg-zinc-800"
+              href={workflowRouteHref("/dashboard/workflows/library", routeParams)}
+            >
+              Library
+            </a>
             {home?.workspaceId ? (
               <a
                 className="rounded-md border border-zinc-700 px-3 py-2 text-sm text-zinc-100 hover:bg-zinc-800"

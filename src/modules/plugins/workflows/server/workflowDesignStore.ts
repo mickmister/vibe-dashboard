@@ -249,17 +249,27 @@ export class DbWorkflowDesignStore {
   async createPromptAsset(input: CreateWorkflowPromptAssetInput): Promise<WorkflowPromptAssetReadModel> {
     const db = await this.getDb();
     const now = this.now();
-    const version = input.version ?? 1;
-    await this.upsertPromptAsset(db, input, now);
-    return this.getRequiredPromptAsset(input.promptAssetId, version);
+    const normalized = normalizeCreatePromptAssetInput(input);
+    const version = normalized.version ?? 1;
+    const existing = await this.getPromptAsset(normalized.promptAssetId, version);
+    if (existing) {
+      throw new WorkflowDesignValidationError([{ code: 'WORKFLOW_CONFIG_INVALID_REFERENCE', path: `promptAssets.${normalized.promptAssetId}.version`, message: `prompt asset ${normalized.promptAssetId}@${version} already exists; create a new version instead` }]);
+    }
+    await this.upsertPromptAsset(db, normalized, now);
+    return this.getRequiredPromptAsset(normalized.promptAssetId, version);
   }
 
   async createSkillAsset(input: CreateWorkflowSkillAssetInput): Promise<WorkflowSkillAssetReadModel> {
     const db = await this.getDb();
     const now = this.now();
-    const version = input.version ?? 1;
-    await this.upsertSkillAsset(db, input, now);
-    return this.getRequiredSkillAsset(input.skillAssetId, version);
+    const normalized = normalizeCreateSkillAssetInput(input);
+    const version = normalized.version ?? 1;
+    const existing = await this.getSkillAsset(normalized.skillAssetId, version);
+    if (existing) {
+      throw new WorkflowDesignValidationError([{ code: 'WORKFLOW_CONFIG_INVALID_REFERENCE', path: `skillAssets.${normalized.skillAssetId}.version`, message: `skill asset ${normalized.skillAssetId}@${version} already exists; create a new version instead` }]);
+    }
+    await this.upsertSkillAsset(db, normalized, now);
+    return this.getRequiredSkillAsset(normalized.skillAssetId, version);
   }
 
   async getPromptAsset(promptAssetId: string, version?: number): Promise<WorkflowPromptAssetReadModel | null> {
@@ -900,6 +910,34 @@ async function validateWorkflowCallReferences(
 
 function mapDesign(row: Selectable<WorkflowDesign>): WorkflowDesignReadModel {
   return { ...row };
+}
+
+function normalizeCreatePromptAssetInput(input: CreateWorkflowPromptAssetInput): CreateWorkflowPromptAssetInput {
+  const promptAssetId = input.promptAssetId?.trim();
+  const name = input.name?.trim();
+  const bodyMarkdown = input.bodyMarkdown?.trim();
+  const version = input.version ?? 1;
+  const issues: WorkflowConfigIssue[] = [];
+  if (!promptAssetId) issues.push({ code: 'WORKFLOW_CONFIG_INVALID_REFERENCE', path: 'promptAssets.promptAssetId', message: 'prompt asset id is required' });
+  if (!name) issues.push({ code: 'WORKFLOW_CONFIG_INVALID_REFERENCE', path: 'promptAssets.new.name', message: 'prompt asset name is required' });
+  if (!bodyMarkdown) issues.push({ code: 'WORKFLOW_CONFIG_INVALID_REFERENCE', path: 'promptAssets.new.bodyMarkdown', message: 'prompt markdown is required' });
+  if (!Number.isInteger(version) || version < 1) issues.push({ code: 'WORKFLOW_CONFIG_INVALID_REFERENCE', path: 'promptAssets.new.version', message: 'prompt asset version must be a positive integer' });
+  if (issues.length) throw new WorkflowDesignValidationError(issues);
+  return { ...input, promptAssetId, name, bodyMarkdown, version, description: input.description?.trim() || null };
+}
+
+function normalizeCreateSkillAssetInput(input: CreateWorkflowSkillAssetInput): CreateWorkflowSkillAssetInput {
+  const skillAssetId = input.skillAssetId?.trim();
+  const name = input.name?.trim();
+  const bodyMarkdown = input.bodyMarkdown?.trim();
+  const version = input.version ?? 1;
+  const issues: WorkflowConfigIssue[] = [];
+  if (!skillAssetId) issues.push({ code: 'WORKFLOW_CONFIG_INVALID_REFERENCE', path: 'skillAssets.skillAssetId', message: 'skill asset id is required' });
+  if (!name) issues.push({ code: 'WORKFLOW_CONFIG_INVALID_REFERENCE', path: 'skillAssets.new.name', message: 'skill name is required' });
+  if (!bodyMarkdown) issues.push({ code: 'WORKFLOW_CONFIG_INVALID_REFERENCE', path: 'skillAssets.new.bodyMarkdown', message: 'skill markdown is required' });
+  if (!Number.isInteger(version) || version < 1) issues.push({ code: 'WORKFLOW_CONFIG_INVALID_REFERENCE', path: 'skillAssets.new.version', message: 'skill asset version must be a positive integer' });
+  if (issues.length) throw new WorkflowDesignValidationError(issues);
+  return { ...input, skillAssetId, name, bodyMarkdown, version, description: input.description?.trim() || null };
 }
 
 function normalizeCreateRoleTemplateInput(input: CreateWorkflowRoleTemplateInput): CreateWorkflowRoleTemplateInput {
