@@ -358,7 +358,9 @@ async function clickLocatorInViewport(page: Page, locator: Locator) {
     }
   }
 
-  await locator.first().click();
+  await locator
+    .first()
+    .evaluate((element) => (element as HTMLButtonElement).click());
 }
 
 async function expectCreateWorkspaceFrameUrl(page: Page) {
