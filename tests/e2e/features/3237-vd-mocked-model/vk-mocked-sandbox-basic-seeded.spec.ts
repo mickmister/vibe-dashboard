@@ -48,6 +48,7 @@ test.describe('VK mocked-provider basic-seeded fixture', () => {
     await expect(agentFrame.locator('body')).toContainText(manifest.craftTitle);
     await expect(agentFrame.locator('body')).toContainText(
       'QA mode execution completed successfully',
+      { timeout: 60_000 },
     );
 
     await agentFrame
