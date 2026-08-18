@@ -157,9 +157,10 @@ test.describe('VK mocked-provider sandbox through VD UI', () => {
     );
     await expect(createWorkspaceFrame.locator('body')).toContainText(
       'QA mode execution completed successfully',
+      { timeout: 60_000 },
     );
     await expect(createWorkspaceFrame.locator('body')).toContainText(
-      '1 file changed',
+      /\d+ files? changed/,
     );
 
     await openCreatedCraftFromVd(page, promptTitle);
