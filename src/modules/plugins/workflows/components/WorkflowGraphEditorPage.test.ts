@@ -229,7 +229,7 @@ function node(patch: Partial<WorkflowGraphNodeModel>): WorkflowGraphNodeModel {
 
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { buildWorkflowEditorGraphFocusContext, removeWorkflowActionDraft, removeWorkflowRoleDraft, removeWorkflowStateDraft, renderEditorPromptPreview, renderEditorResponseXsd, WorkflowGraphEditorView } from "./WorkflowGraphEditorPage";
+import { buildSelectedPromptPreviewContext, buildWorkflowEditorGraphFocusContext, removeWorkflowActionDraft, removeWorkflowRoleDraft, removeWorkflowStateDraft, renderEditorPromptPreview, renderEditorResponseXsd, WorkflowGraphEditorView } from "./WorkflowGraphEditorPage";
 import { workflowDefinitionToGraph } from "./graph/workflowGraphModel";
 import type { AgentWorkflowDefinitionV1 } from "@vibe-dashboard/workflow-core";
 
@@ -418,6 +418,44 @@ describe("WorkflowGraphEditorView prompt and skill picker", () => {
     expect(preview.text).toContain("vibe-kanban-vscode-web-2yle: Carry bead context (open)");
     expect(preview.text.indexOf("## Task context")).toBeLessThan(preview.text.indexOf("Expected XML Schema (XSD):"));
     expect(preview.text).not.toContain("(No step prompt written yet.)");
+  });
+
+  it("TEST_CASE_2YLE_1D exposes a visible final prompt preview step selector and changes preview by step", () => {
+    const definition = multiStepPromptDefinition();
+    const html = renderToStaticMarkup(
+      React.createElement(WorkflowGraphEditorView, {
+        editor: null,
+        definition,
+        assets: { prompts: [], skills: [] },
+        initialSelection: { roleId: "dev", stateId: "dev" },
+        onDefinitionChange: () => {},
+        onSave: () => {},
+        onPublish: () => {},
+      }),
+    );
+
+    expect(html).toContain("Preview step");
+    expect(html).toContain("Select final prompt preview step");
+    expect(html).toContain("implement · non_decision");
+    expect(html).toContain("decide · decision");
+
+    const defaultPreview = buildSelectedPromptPreviewContext({
+      definition,
+      assets: { prompts: [], skills: [] },
+      selectedStateId: "dev",
+    });
+    const implementPreview = buildSelectedPromptPreviewContext({
+      definition,
+      assets: { prompts: [], skills: [] },
+      selectedStateId: "dev",
+      selectedStepId: "implement",
+    });
+
+    expect(defaultPreview.stepId).toBe("decide");
+    expect(defaultPreview.preview?.text).toContain("Decide next action");
+    expect(implementPreview.stepId).toBe("implement");
+    expect(implementPreview.preview?.text).toContain("Implement the task");
+    expect(implementPreview.preview?.text).not.toContain("Decide next action");
   });
 
 
@@ -1009,6 +1047,22 @@ function promptDefinition(): AgentWorkflowDefinitionV1 {
       done: { terminal: true },
     },
   };
+}
+
+function multiStepPromptDefinition(): AgentWorkflowDefinitionV1 {
+  const definition = promptDefinition();
+  const dev = definition.states.dev;
+  if (dev && !("terminal" in dev)) {
+    const decisionStep = dev.steps[0]!;
+    dev.steps = [
+      { id: "implement", type: "agent_turn", turnType: "non_decision", prompt: { template: "Implement the task" } } as any,
+      {
+        ...decisionStep,
+        prompt: { ...(decisionStep as any).prompt, template: "Decide next action" } as any,
+      } as any,
+    ];
+  }
+  return definition;
 }
 
 function removableDefinition(): AgentWorkflowDefinitionV1 {
