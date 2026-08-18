@@ -86,6 +86,21 @@ describe('DbWorkflowDesignStore M91 foundation', () => {
       contentHash: originalV1?.contentHash,
     });
 
+
+    await expect(store.createRoleTemplate({
+      roleTemplateId: 'role.bad.pinned',
+      version: 1,
+      source: 'user',
+      name: 'Bad pinned role',
+      promptMarkdown: 'Prompt',
+      promptRefs: [{ kind: 'prompt', id: 'prompt.dev.instructions', versionMode: 'pinned' }],
+    })).rejects.toMatchObject({
+      issues: [expect.objectContaining({
+        code: 'WORKFLOW_CONFIG_INVALID_REFERENCE',
+        path: 'roleTemplates.new.promptRefs.0.version',
+      })],
+    });
+
     const definition = workflowDefinition('role-template-link');
     (definition.roles.dev as any) = {
       ...definition.roles.dev,
@@ -132,6 +147,17 @@ describe('DbWorkflowDesignStore M91 foundation', () => {
     const runRolePrompt = snapshot.resolvedPromptSnapshot.prompts.find((prompt) => prompt.path === 'states.dev.steps.0.prompt')?.text ?? '';
     expect(runRolePrompt).toContain('Prompt asset version two for latest refs.');
     expect(snapshot.resolvedPromptSnapshot.roleTemplates?.[0]).toMatchObject({ templateId: 'role.dev.implementer', version: 1 });
+
+    await store.createPromptAsset({
+      promptAssetId: 'prompt.dev.instructions',
+      version: 3,
+      name: 'Dev instructions v3',
+      bodyMarkdown: 'Prompt asset version three after run snapshot.',
+    });
+    const pinnedSnapshot = await store.getRunSnapshot('run-snapshot-role-template');
+    const pinnedPrompt = pinnedSnapshot?.resolvedPromptSnapshot.prompts.find((prompt) => prompt.path === 'states.dev.steps.0.prompt')?.text ?? '';
+    expect(pinnedPrompt).toContain('Prompt asset version two for latest refs.');
+    expect(pinnedPrompt).not.toContain('Prompt asset version three after run snapshot.');
   });
 
   it('TEST_CASE_ZJCB_9 rejects missing role template links before publish', async () => {

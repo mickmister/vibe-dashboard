@@ -997,17 +997,23 @@ function normalizeCreateRoleTemplateInput(input: CreateWorkflowRoleTemplateInput
 function normalizeRoleTemplateRefs(refs: WorkflowAssetRef[], kind: WorkflowAssetRefKind): WorkflowAssetRef[] {
   const seen = new Set<string>();
   const normalized: WorkflowAssetRef[] = [];
-  for (const ref of refs) {
+  const issues: WorkflowConfigIssue[] = [];
+  for (const [index, ref] of refs.entries()) {
     if (ref.kind !== kind) continue;
     const id = ref.id.trim();
     if (!id) continue;
     const versionMode = ref.versionMode === 'pinned' || ref.version != null ? 'pinned' : 'latest';
     const version = versionMode === 'pinned' ? ref.version : undefined;
+    if (versionMode === 'pinned' && (!Number.isInteger(version) || version == null || version < 1)) {
+      issues.push({ code: 'WORKFLOW_CONFIG_INVALID_REFERENCE', path: `roleTemplates.new.${kind}Refs.${index}.version`, message: `${kind} attachment pinned version must be a positive integer` });
+      continue;
+    }
     const key = `${kind}:${id}`;
     if (seen.has(key)) continue;
     seen.add(key);
     normalized.push({ kind, id, versionMode, version });
   }
+  if (issues.length) throw new WorkflowDesignValidationError(issues);
   return normalized;
 }
 
@@ -1116,6 +1122,7 @@ function readAssetRef(value: unknown): WorkflowAssetRef | null {
   if (typeof value.id !== 'string') return null;
   const version = typeof value.version === 'number' ? value.version : undefined;
   const versionMode = value.versionMode === 'latest' || value.versionMode === 'pinned' ? value.versionMode : (version == null ? 'latest' : 'pinned');
+  if (versionMode === 'pinned' && (!Number.isInteger(version) || version == null || version < 1)) return null;
   return { kind: value.kind, id: value.id, version: versionMode === 'pinned' ? version : undefined, versionMode };
 }
 

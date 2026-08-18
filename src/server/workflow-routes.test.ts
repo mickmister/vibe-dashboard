@@ -1213,6 +1213,30 @@ describe("registerWorkflowRoutes", () => {
     expect(skillCreated.status).toBe(201);
     await expect(skillCreated.json()).resolves.toMatchObject({ skillAsset: { id: "skill.review.security", version: 1, bodyMarkdown: "Check auth, data exposure, and rollback risk." } });
 
+
+
+    const pinnedRole = await app.request("/dashboard/api/workflow-role-templates", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        roleTemplateId: "role.review.security",
+        version: 1,
+        name: "Security reviewer",
+        promptMarkdown: "Review carefully.",
+        promptRefs: [{ kind: "prompt", id: "prompt.review.security", versionMode: "pinned", version: 1 }],
+        skillRefs: [{ kind: "skill", id: "skill.review.security", versionMode: "latest" }],
+        executorPreference: { executorType: "CODEX", model: "gpt-5-codex", mode: "preferred" },
+      }),
+    });
+    expect(pinnedRole.status).toBe(200);
+    await expect(pinnedRole.json()).resolves.toMatchObject({
+      roleTemplate: {
+        roleTemplateId: "role.review.security",
+        promptRefs: [expect.objectContaining({ kind: "prompt", id: "prompt.review.security", versionMode: "pinned", version: 1 })],
+        skillRefs: [expect.objectContaining({ kind: "skill", id: "skill.review.security", versionMode: "latest" })],
+      },
+    });
+
     const duplicate = await app.request("/dashboard/api/workflow-role-templates", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1236,6 +1260,25 @@ describe("registerWorkflowRoutes", () => {
     await expect(designStore.getRoleTemplate("role.dev.implementer", 1)).resolves.toMatchObject({
       promptMarkdown: "Shared implementer instructions.",
       executorPreference: { executorType: "CODEX", model: "gpt-5-codex", mode: "preferred" },
+    });
+
+
+
+    const missingPinnedVersion = await app.request("/dashboard/api/workflow-role-templates", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        roleTemplateId: "role.bad.pinned",
+        version: 1,
+        name: "Bad pinned role",
+        promptMarkdown: "Prompt",
+        promptRefs: [{ kind: "prompt", id: "prompt.dev.instructions", versionMode: "pinned" }],
+      }),
+    });
+    expect(missingPinnedVersion.status).toBe(400);
+    await expect(missingPinnedVersion.json()).resolves.toMatchObject({
+      error: "workflow_role_template_invalid",
+      issues: [expect.objectContaining({ path: "roleTemplates.new.promptRefs.0.version" })],
     });
 
     const invalid = await app.request("/dashboard/api/workflow-role-templates", {

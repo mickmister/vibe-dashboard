@@ -277,18 +277,32 @@ function AssetAttachmentPicker({ title, kind, assets, selected, onChange }: { ti
       <input aria-label={`Search ${title}`} className="mt-2 w-full rounded-md border border-zinc-700 bg-zinc-950 p-2 text-sm" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search available assets" />
       <div className="mt-3 space-y-2" aria-label={`Selected ${title}`}>
         {selected.length ? selected.map((ref, index) => {
-          const asset = assets.find((candidate) => candidate.id === ref.id && (ref.version == null || candidate.version === ref.version)) ?? assets.find((candidate) => candidate.id === ref.id);
+          const versions = versionsForAsset(assets, ref.id);
+          const latestAsset = versions[0];
+          const pinnedAsset = ref.version != null ? versions.find((candidate) => candidate.version === ref.version) : undefined;
+          const asset = pinnedAsset ?? latestAsset ?? assets.find((candidate) => candidate.id === ref.id);
+          const mode = ref.versionMode ?? (ref.version == null ? "latest" : "pinned");
           return (
             <div key={attachmentKey(ref)} className="flex flex-wrap items-center justify-between gap-2 rounded border border-cyan-900/60 bg-cyan-950/20 p-2 text-xs">
-              <span>• {asset?.name ?? ref.id} · {kind === "prompt" ? "Prompt" : "Skill"} · {asset ? sourceLabel(asset.source) : "Unavailable"} · {ref.versionMode === "pinned" ? `Pinned v${ref.version ?? asset?.version ?? "?"}` : "Use latest version"}</span>
+              <span>• {asset?.name ?? ref.id} · {kind === "prompt" ? "Prompt" : "Skill"} · {asset ? sourceLabel(asset.source) : "Unavailable"} · {mode === "pinned" ? `Pinned v${ref.version ?? "?"}` : "Use latest version"}</span>
               <div className="flex items-center gap-2">
-                <select aria-label={`${ref.id} version mode`} className="rounded border border-zinc-700 bg-zinc-950 p-1" value={ref.versionMode ?? (ref.version == null ? "latest" : "pinned")} onChange={(event) => {
-                  const mode = event.target.value === "pinned" ? "pinned" : "latest";
-                  onChange(selected.map((current, currentIndex) => currentIndex === index ? { ...current, versionMode: mode, version: mode === "pinned" ? (current.version ?? asset?.version) : undefined } : current));
+                <select aria-label={`${ref.id} version mode`} className="rounded border border-zinc-700 bg-zinc-950 p-1" value={mode} onChange={(event) => {
+                  const nextMode = event.target.value === "pinned" ? "pinned" : "latest";
+                  const defaultPinnedVersion = ref.version ?? latestAsset?.version;
+                  onChange(selected.map((current, currentIndex) => currentIndex === index ? { ...current, versionMode: nextMode, version: nextMode === "pinned" ? defaultPinnedVersion : undefined } : current));
                 }}>
                   <option value="latest">Use latest</option>
                   <option value="pinned">Pin version</option>
                 </select>
+                {mode === "pinned" ? (
+                  <select aria-label={`${ref.id} pinned version`} className="rounded border border-zinc-700 bg-zinc-950 p-1" value={ref.version ?? ""} onChange={(event) => {
+                    const nextVersion = Number(event.target.value);
+                    onChange(selected.map((current, currentIndex) => currentIndex === index ? { ...current, versionMode: "pinned", version: Number.isInteger(nextVersion) ? nextVersion : undefined } : current));
+                  }}>
+                    <option value="">Choose version</option>
+                    {versions.map((candidate) => <option key={candidate.version} value={candidate.version}>v{candidate.version}</option>)}
+                  </select>
+                ) : null}
                 <button type="button" className="rounded border border-zinc-700 px-2 py-1 text-zinc-100" onClick={() => onChange(selected.filter((_, currentIndex) => currentIndex !== index))}>Remove</button>
               </div>
             </div>
@@ -338,6 +352,10 @@ function LibraryForm({ title, idLabel, bodyLabel, idPlaceholder, source, extra, 
       <button className="mt-4 rounded-md bg-cyan-500 px-3 py-2 text-sm font-medium text-zinc-950" type="submit">Publish version</button>
     </form>
   );
+}
+
+function versionsForAsset(assets: WorkflowAssetPickerItem[], id: string): WorkflowAssetPickerItem[] {
+  return assets.filter((asset) => asset.id === id).sort((a, b) => b.version - a.version);
 }
 
 function attachmentKey(ref: WorkflowAssetAttachmentRef): string {

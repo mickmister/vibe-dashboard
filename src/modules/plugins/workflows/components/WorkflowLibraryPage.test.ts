@@ -8,8 +8,14 @@ describe("WorkflowLibraryView", () => {
     const html = renderToStaticMarkup(
       React.createElement(WorkflowLibraryView, {
         assets: {
-          prompts: [{ kind: "prompt", id: "prompt.review.security", version: 1, name: "Security review", description: "Review behavior", source: "user", preview: "Review auth and data exposure.", bodyMarkdown: "Review auth and data exposure." }],
-          skills: [{ kind: "skill", id: "skill.testing.focused", version: 2, name: "Focused testing", description: "Markdown only", source: "user", preview: "Write focused tests.", bodyMarkdown: "Write focused tests." }],
+          prompts: [
+            { kind: "prompt", id: "prompt.review.security", version: 2, name: "Security review v2", description: "Review behavior", source: "user", preview: "Review auth and data exposure v2.", bodyMarkdown: "Review auth and data exposure v2." },
+            { kind: "prompt", id: "prompt.review.security", version: 1, name: "Security review", description: "Review behavior", source: "user", preview: "Review auth and data exposure.", bodyMarkdown: "Review auth and data exposure." },
+          ],
+          skills: [
+            { kind: "skill", id: "skill.testing.focused", version: 2, name: "Focused testing", description: "Markdown only", source: "user", preview: "Write focused tests.", bodyMarkdown: "Write focused tests." },
+            { kind: "skill", id: "skill.testing.focused", version: 1, name: "Focused testing v1", description: "Markdown only", source: "user", preview: "Write focused tests v1.", bodyMarkdown: "Write focused tests v1." },
+          ],
           roleTemplates: [{ id: "role.review.security", version: 3, name: "Security reviewer", description: "Second review agent type", source: "user", promptPreview: "Review for security risk.", promptRefs: [{ kind: "prompt", id: "prompt.review.security", versionMode: "latest" }], skillRefs: [{ kind: "skill", id: "skill.testing.focused", version: 2, versionMode: "pinned" }], executorPreference: { executorType: "CODEX", model: "gpt-5-codex", mode: "preferred" }, active: true }],
         },
       }),
@@ -56,10 +62,16 @@ describe("WorkflowLibraryView", () => {
   it("TEST_CASE_9TU7_1C renders role-template asset pickers, selected lists, latest/pinned modes, and executor defaults", () => {
     const html = renderToStaticMarkup(
       React.createElement(WorkflowLibraryView, {
-        initialMode: { kind: "role", source: { id: "role.review.security", version: 1, name: "Security reviewer", description: null, source: "user", promptPreview: "Review for security.", promptMarkdown: "Review for security in depth.", promptRefs: [{ kind: "prompt", id: "prompt.review.security", versionMode: "latest" }], skillRefs: [{ kind: "skill", id: "skill.testing.focused", version: 2, versionMode: "pinned" }], executorPreference: { executorType: "CODEX", model: "gpt-5-codex", mode: "preferred" }, active: true } },
+        initialMode: { kind: "role", source: { id: "role.review.security", version: 1, name: "Security reviewer", description: null, source: "user", promptPreview: "Review for security.", promptMarkdown: "Review for security in depth.", promptRefs: [{ kind: "prompt", id: "prompt.review.security", version: 1, versionMode: "pinned" }], skillRefs: [{ kind: "skill", id: "skill.testing.focused", version: 2, versionMode: "pinned" }], executorPreference: { executorType: "CODEX", model: "gpt-5-codex", mode: "preferred" }, active: true } },
         assets: {
-          prompts: [{ kind: "prompt", id: "prompt.review.security", version: 1, name: "Security review", description: "Review behavior", source: "user", preview: "Review auth and data exposure.", bodyMarkdown: "Review auth and data exposure." }],
-          skills: [{ kind: "skill", id: "skill.testing.focused", version: 2, name: "Focused testing", description: "Markdown only", source: "user", preview: "Write focused tests.", bodyMarkdown: "Write focused tests." }],
+          prompts: [
+            { kind: "prompt", id: "prompt.review.security", version: 2, name: "Security review v2", description: "Review behavior", source: "user", preview: "Review auth and data exposure v2.", bodyMarkdown: "Review auth and data exposure v2." },
+            { kind: "prompt", id: "prompt.review.security", version: 1, name: "Security review", description: "Review behavior", source: "user", preview: "Review auth and data exposure.", bodyMarkdown: "Review auth and data exposure." },
+          ],
+          skills: [
+            { kind: "skill", id: "skill.testing.focused", version: 2, name: "Focused testing", description: "Markdown only", source: "user", preview: "Write focused tests.", bodyMarkdown: "Write focused tests." },
+            { kind: "skill", id: "skill.testing.focused", version: 1, name: "Focused testing v1", description: "Markdown only", source: "user", preview: "Write focused tests v1.", bodyMarkdown: "Write focused tests v1." },
+          ],
           roleTemplates: [],
         },
       }),
@@ -70,8 +82,11 @@ describe("WorkflowLibraryView", () => {
     expect(html).toContain("Skill snippets picker");
     expect(html).toContain("Selected Prompt assets");
     expect(html).toContain("Selected Skill snippets");
-    expect(html).toContain("Use latest version");
+    expect(html).toContain("Use latest");
     expect(html).toContain("Pinned v2");
+    expect(html).toContain('aria-label="prompt.review.security pinned version"');
+    expect(html).toContain('value="1"');
+    expect(html).toContain('value="2"');
     expect(html).toContain("Remove");
     expect(html).toContain("Default executor");
     expect(html).toContain("Default model");
