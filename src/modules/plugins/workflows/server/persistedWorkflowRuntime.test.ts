@@ -232,6 +232,7 @@ describe('PersistedWorkflowRuntimeService M93', () => {
     expect(queuedAt(queued, 1).prompt).toContain('Expected XML Schema (XSD):');
     expect(queuedAt(queued, 1).prompt).toContain('<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"');
     expect(queuedAt(queued, 1).prompt).toContain('fixed="continueEditing"');
+    expectAgentPromptNoAssetRefClutter(queuedAt(queued, 1).prompt);
 
     const looped = await runtime.completeAgentTurn({
       runId: 'run-loop',
@@ -273,6 +274,7 @@ describe('PersistedWorkflowRuntimeService M93', () => {
 
     expect(launched.coreModel.name).toBe('Dev / Review / Tester');
     expect(queuedAt(queued, 0)).toMatchObject({ role: 'dev', stepId: 'implement' });
+    expectAgentPromptNoAssetRefClutter(queuedAt(queued, 0).prompt);
     expect(queuedAt(queued, 0).prompt).toContain('Implement the requested feature');
 
     await runtime.completeAgentTurn({ runId: 'run-drt', turnId: queuedAt(queued, 0).turnId, responseRef: 'dev-implement-1' });
@@ -358,6 +360,9 @@ describe('PersistedWorkflowRuntimeService M93', () => {
       inputs: { formRequest: 'Collect reviewer concerns' },
       roleBindings: { form_author: { sessionId: 'session-form-author' } },
     });
+
+    expectAgentPromptNoAssetRefClutter(queuedAt(queued, 0).prompt);
+    expect(queuedAt(queued, 0).prompt).toContain('<xs:complexType name="BeadsFormType">');
 
     const failed = await runtime.completeAgentTurn({
       runId: 'run-create-form-invalid',
@@ -815,6 +820,24 @@ function queuedAt(queued: WorkflowQueueAgentTurnRequest[], index: number): Workf
   const request = queued[index];
   if (!request) throw new Error(`Expected queued request at index ${index}`);
   return request;
+}
+
+function expectAgentPromptNoAssetRefClutter(prompt: string): void {
+  for (const forbidden of [
+    'prompt:prompt.',
+    'skill:skill.',
+    '@1 · Built-in',
+    '@2 · User',
+    'Built-in',
+    'contentHash',
+    'webhook',
+    'queue item',
+    '/Users/',
+    'bd ',
+    'shell',
+  ]) {
+    expect(prompt).not.toContain(forbidden);
+  }
 }
 
 function promptText(definition: unknown): string {

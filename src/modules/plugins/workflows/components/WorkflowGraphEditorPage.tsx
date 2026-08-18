@@ -1727,11 +1727,8 @@ export function renderEditorPromptPreview({
       missingRefs.push(formatAssetRef(ref));
       continue;
     }
-    assetLines.push([
-      `### ${asset.kind === "skill" ? "Skill" : "Prompt"}: ${asset.name}`,
-      `${formatAssetRef(asset)} · ${sourceLabel(asset.source)}`,
-      asset.preview,
-    ].join("\n"));
+    const assetText = "bodyMarkdown" in asset && typeof asset.bodyMarkdown === "string" ? asset.bodyMarkdown : asset.preview;
+    if (assetText.trim()) assetLines.push(assetText.trim());
   }
 
   const xmlSpec = renderEditorXmlSpec(definition, stateId, stepId);

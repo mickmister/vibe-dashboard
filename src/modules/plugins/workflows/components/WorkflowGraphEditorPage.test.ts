@@ -386,14 +386,18 @@ describe("WorkflowGraphEditorView prompt and skill picker", () => {
       stateId: "dev",
       stepId: "decide",
       assets: {
-        prompts: [{ kind: "prompt", id: "prompt.dev.instructions", version: 1, name: "Dev instructions", description: "Implementation prompt", source: "built_in", preview: "Implement carefully." }],
-        skills: [{ kind: "skill", id: "skill.testing.notes", version: 2, name: "Testing notes", description: "Markdown only", source: "user", preview: "Write focused tests." }],
+        prompts: [{ kind: "prompt", id: "prompt.dev.instructions", version: 1, name: "Dev instructions", description: "Implementation prompt", source: "built_in", preview: "Implement carefully.", bodyMarkdown: "Implement carefully from the saved prompt body." }],
+        skills: [{ kind: "skill", id: "skill.testing.notes", version: 2, name: "Testing notes", description: "Markdown only", source: "user", preview: "Write tests.", bodyMarkdown: "Write focused tests from the saved skill body." }],
       },
     });
 
-    expect(preview.text).toContain("Prompt: Dev instructions");
-    expect(preview.text).toContain("Implement carefully.");
+    expect(preview.text).toContain("Implement carefully from the saved prompt body.");
+    expect(preview.text).toContain("Write focused tests from the saved skill body.");
     expect(preview.text).toContain("Do work");
+    expect(preview.text).not.toContain("prompt:prompt.dev.instructions@1");
+    expect(preview.text).not.toContain("skill:skill.testing.notes@2");
+    expect(preview.text).not.toContain("Built-in");
+    expect(preview.text).not.toContain("contentHash");
     expect(preview.text).toContain("## Task context (sample bead context for preview)");
     expect(preview.text).toContain("vibe-kanban-vscode-web-example: Example workflow task");
     expect(preview.text).toContain("Expected XML Schema (XSD):");
