@@ -201,6 +201,8 @@ describe('VK mocked sandbox helpers', () => {
         BACKEND_PORT: '4107',
         FRONTEND_PORT: '4101',
         PREVIEW_PROXY_PORT: '4106',
+        VK_QA_MODE: '1',
+        QA_MODE: '1',
       },
     });
     expect(plan.setupCommands[0]?.env.NODE_OPTIONS).toContain(

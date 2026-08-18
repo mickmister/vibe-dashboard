@@ -562,6 +562,8 @@ export function createSandboxPlan(input: {
     VK_MOCKED_VD_SERVER_PORT: String(input.ports.vdServer),
     VK_MOCKED_CADDY_PORT: String(input.ports.vdCaddy),
     CADDY_PLUGINS_CADDY: join(runDir, 'plugins.caddy'),
+    VK_QA_MODE: '1',
+    QA_MODE: '1',
   };
 
   const vkAllowedOrigins = [
@@ -648,8 +650,6 @@ export function createSandboxPlan(input: {
           DISABLE_WORKTREE_CLEANUP: '1',
           XDG_CONFIG_HOME: join(runDir, 'xdg-config'),
           XDG_DATA_HOME: join(runDir, 'xdg-data'),
-          VK_QA_MODE: '1',
-          QA_MODE: '1',
           RUST_LOG: process.env.RUST_LOG ?? 'debug',
         },
       }
