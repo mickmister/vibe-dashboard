@@ -380,6 +380,7 @@ describe('PersistedWorkflowRuntimeService M93', () => {
     const { runtime, queued } = await createRuntime();
     await designStore.createPromptAsset({ promptAssetId: 'prompt.one', version: 1, name: 'Prompt one', bodyMarkdown: 'First saved prompt.' });
     await designStore.createPromptAsset({ promptAssetId: 'prompt.two', version: 1, name: 'Prompt two', bodyMarkdown: 'Second saved prompt.' });
+    await designStore.createSkillAsset({ skillAssetId: 'skill.one', version: 1, name: 'Skill one', bodyMarkdown: 'Skill instructions body.' });
     await designStore.createDesign({ designId: 'design.prompts', draftId: 'draft.prompts', name: 'Prompt workflow', definition: makePromptWorkflow() });
     await designStore.publishDraft('draft.prompts');
 
@@ -395,13 +396,51 @@ describe('PersistedWorkflowRuntimeService M93', () => {
 
     expect(queuedAt(queued, 0).prompt).toContain('First saved prompt.');
     expect(queuedAt(queued, 0).prompt).toContain('Second saved prompt.');
+    expect(queuedAt(queued, 0).prompt).toContain('Skill instructions body.');
     expect(queuedAt(queued, 0).prompt).toContain('Inline prompt for Compose prompts.');
     expect(queuedAt(queued, 0).prompt).toContain('Additional instructions for this run:\nKeep this run small.');
+    expectAgentPromptNoAssetRefClutter(queuedAt(queued, 0).prompt);
     const snapshot = await designStore.getRunSnapshot('snapshot-prompts');
-    expect(snapshot?.resolvedPromptSnapshot.assets.map((asset) => asset.id)).toEqual(['prompt.one', 'prompt.two']);
+    expect(snapshot?.resolvedPromptSnapshot.assets.map((asset) => asset.id)).toEqual(['prompt.one', 'prompt.two', 'skill.one']);
     expect(promptText(snapshot?.resolvedDefinition)).toContain('Keep this run small.');
     const publishedVersion = await designStore.getVersion('design.prompts', 1);
     expect(promptText(publishedVersion?.resolvedDefinition)).not.toContain('Keep this run small.');
+  });
+
+
+  it('TEST_CASE_SCIR_1A queues linked role-template prompt content without asset reference labels', async () => {
+    const { runtime, queued } = await createRuntime();
+    await designStore.createSkillAsset({ skillAssetId: 'skill.role.shared', version: 1, name: 'Shared role skill', bodyMarkdown: 'Shared role skill body.' });
+    await designStore.createRoleTemplate({
+      roleTemplateId: 'role.dev.shared',
+      version: 1,
+      name: 'Shared Dev',
+      promptMarkdown: 'Shared role prompt body.',
+      skillRefs: [{ kind: 'skill', id: 'skill.role.shared', version: 1 }],
+    });
+    await designStore.createPromptAsset({ promptAssetId: 'prompt.one', version: 1, name: 'Prompt one', bodyMarkdown: 'First saved prompt.' });
+    await designStore.createPromptAsset({ promptAssetId: 'prompt.two', version: 1, name: 'Prompt two', bodyMarkdown: 'Second saved prompt.' });
+    await designStore.createSkillAsset({ skillAssetId: 'skill.one', version: 1, name: 'Skill one', bodyMarkdown: 'Skill instructions body.' });
+    const definition = makePromptWorkflow();
+    (definition.roles.dev as any).templateRef = { templateId: 'role.dev.shared', version: 1 };
+    await designStore.createDesign({ designId: 'design.role-template-prompt', draftId: 'draft.role-template-prompt', name: 'Role template prompt workflow', definition });
+    await designStore.publishDraft('draft.role-template-prompt');
+
+    await runtime.launch({
+      runId: 'run-role-template-prompt',
+      runSnapshotId: 'snapshot-role-template-prompt',
+      designId: 'design.role-template-prompt',
+      workspaceId: 'workspace-a',
+      inputs: { featureRequest: 'Compose role template prompt' },
+      roleBindings: { dev: { sessionId: 'session-dev' } },
+    });
+
+    expect(queuedAt(queued, 0).prompt).toContain('Shared role prompt body.');
+    expect(queuedAt(queued, 0).prompt).toContain('Shared role skill body.');
+    expect(queuedAt(queued, 0).prompt).toContain('Inline prompt for Compose role template prompt.');
+    expectAgentPromptNoAssetRefClutter(queuedAt(queued, 0).prompt);
+    const snapshot = await designStore.getRunSnapshot('snapshot-role-template-prompt');
+    expect(snapshot?.resolvedPromptSnapshot.roleTemplates?.[0]).toMatchObject({ roleId: 'dev', templateId: 'role.dev.shared', version: 1 });
   });
 
   it('TEST_CASE_M96_1A creates durable human form attention and resumes after one valid submission', async () => {
@@ -958,7 +997,7 @@ function makePromptWorkflow() {
           id: 'decide',
           type: 'agent_turn',
           turnType: 'decision',
-          prompt: { refs: [{ kind: 'prompt', id: 'prompt.one', version: 1 }, { kind: 'prompt', id: 'prompt.two', version: 1 }], template: 'Inline prompt for {{inputs.featureRequest}}.' },
+          prompt: { refs: [{ kind: 'prompt', id: 'prompt.one', version: 1 }, { kind: 'prompt', id: 'prompt.two', version: 1 }, { kind: 'skill', id: 'skill.one', version: 1 }], template: 'Inline prompt for {{inputs.featureRequest}}.' },
           response: decisionResponsePolicy(1),
         }],
         actions: { done: { targetState: 'done' } },
