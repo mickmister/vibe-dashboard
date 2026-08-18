@@ -54,6 +54,8 @@ describe("workflowPromptContext", () => {
     expect(prompt).toContain("LV2K_STEP:implement");
     expect(prompt).toContain("## Task context");
     expect(prompt).toContain("bead-a: Always include the title (open)");
+    expect(prompt).toContain("Use the task context above and any explicitly available typed bead tools");
+    expect(prompt).not.toContain("beads CLI");
     expect(prompt.indexOf("## Task context")).toBeLessThan(prompt.indexOf("Expected XML Schema (XSD):"));
   });
 });

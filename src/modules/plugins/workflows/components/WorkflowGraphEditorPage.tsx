@@ -241,19 +241,22 @@ export function WorkflowGraphEditorView({
     initialEditTarget,
   );
   const [editorNotice, setEditorNotice] = useState<string | null>(null);
+  const [selectedPromptPreviewStepId, setSelectedPromptPreviewStepId] = useState("");
   void _initialGraphOpen;
   const selectedNode =
     graph.nodes.find((node) => node.id === selectedNodeId) ?? null;
   const selectedEdge =
     graph.edges.find((edge) => edge.id === selectedEdgeId) ?? null;
   const selectedRole = selectedRoleId ? definition.roles[selectedRoleId] : null;
+  const selectedPromptPreviewStateId = selectedEdge?.source ?? selectedNodeId;
   const promptPreviewContext = useMemo(
     () => buildSelectedPromptPreviewContext({
       definition,
       assets: assets ?? { prompts: [], skills: [], roleTemplates: [] },
-      selectedStateId: selectedEdge?.source ?? selectedNodeId,
+      selectedStateId: selectedPromptPreviewStateId,
+      selectedStepId: selectedPromptPreviewStepId,
     }),
-    [definition, assets, selectedEdge?.source, selectedNodeId],
+    [definition, assets, selectedPromptPreviewStateId, selectedPromptPreviewStepId],
   );
   const graphFocus = useMemo(
     () =>
@@ -301,6 +304,10 @@ export function WorkflowGraphEditorView({
     setSelectedRoleId("");
     setWizardLevel("landing");
   }, [definition.roles, roleEntries, selectedRoleId]);
+
+  useEffect(() => {
+    setSelectedPromptPreviewStepId("");
+  }, [selectedPromptPreviewStateId]);
 
   const updateEdge = (
     edgeId: string,
@@ -539,7 +546,11 @@ export function WorkflowGraphEditorView({
             <Controls />
           </ReactFlow>
         </div>
-        <PromptPreviewPanel preview={promptPreviewContext} />
+        <PromptPreviewPanel
+          preview={promptPreviewContext}
+          selectedStepId={promptPreviewContext.stepId ?? ""}
+          onSelectStep={setSelectedPromptPreviewStepId}
+        />
       </div>
     </section>
   );
@@ -1873,38 +1884,49 @@ function confirmEditorRemoval(message: string): boolean {
   return window.confirm(message);
 }
 
+type PromptPreviewStepOption = { id: string; label: string; turnType: string };
+
 type SelectedPromptPreviewContext = {
   stateId: string | null;
   stepId: string | null;
   roleLabel: string | null;
+  steps: PromptPreviewStepOption[];
   preview: ReturnType<typeof renderEditorPromptPreview> | null;
 };
 
-function buildSelectedPromptPreviewContext({
+export function buildSelectedPromptPreviewContext({
   definition,
   assets,
   selectedStateId,
+  selectedStepId,
 }: {
   definition: AgentWorkflowDefinitionV1;
   assets: WorkflowAssetsModel;
   selectedStateId: string;
+  selectedStepId?: string;
 }): SelectedPromptPreviewContext {
-  if (!selectedStateId) return { stateId: null, stepId: null, roleLabel: null, preview: null };
+  if (!selectedStateId) return { stateId: null, stepId: null, roleLabel: null, steps: [], preview: null };
   const state = definition.states[selectedStateId];
-  if (!state || "terminal" in state) return { stateId: selectedStateId, stepId: null, roleLabel: null, preview: null };
-  const step = state.steps.find((candidate) => candidate.type === "agent_turn" && candidate.turnType === "decision")
+  if (!state || "terminal" in state) return { stateId: selectedStateId, stepId: null, roleLabel: null, steps: [], preview: null };
+  const steps = state.steps
+    .filter((candidate) => candidate.type === "agent_turn")
+    .map((step) => ({ id: step.id, label: step.id, turnType: step.turnType }));
+  const selected = selectedStepId ? state.steps.find((candidate) => candidate.id === selectedStepId && candidate.type === "agent_turn") : null;
+  const step = selected
+    ?? state.steps.find((candidate) => candidate.type === "agent_turn" && candidate.turnType === "decision")
     ?? state.steps.find((candidate) => candidate.type === "agent_turn");
-  if (!step || step.type !== "agent_turn") return { stateId: selectedStateId, stepId: null, roleLabel: null, preview: null };
+  if (!step || step.type !== "agent_turn") return { stateId: selectedStateId, stepId: null, roleLabel: null, steps, preview: null };
   const roleId = typeof state.owner === "string" ? state.owner : null;
   return {
     stateId: selectedStateId,
     stepId: step.id,
     roleLabel: roleId ? definition.roles[roleId]?.label ?? roleId : null,
+    steps,
     preview: renderEditorPromptPreview({ definition, assets, stateId: selectedStateId, stepId: step.id }),
   };
 }
 
-function PromptPreviewPanel({ preview }: { preview: SelectedPromptPreviewContext }) {
+function PromptPreviewPanel({ preview, selectedStepId, onSelectStep }: { preview: SelectedPromptPreviewContext; selectedStepId: string; onSelectStep: (stepId: string) => void }) {
   return (
     <section className="border-t border-zinc-800 bg-slate-950/70 p-4" aria-label="Selected final prompt preview">
       <div className="flex items-center justify-between gap-3">
@@ -1920,6 +1942,21 @@ function PromptPreviewPanel({ preview }: { preview: SelectedPromptPreviewContext
           <span className="rounded border border-cyan-900 bg-cyan-950/30 px-2 py-0.5 text-xs text-cyan-100">XML contract generated</span>
         ) : null}
       </div>
+      {preview.steps.length > 1 ? (
+        <label className="mt-3 block text-xs text-zinc-400">
+          Preview step
+          <select
+            className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 p-2 text-sm text-zinc-100"
+            value={selectedStepId}
+            onChange={(event) => onSelectStep(event.target.value)}
+            aria-label="Select final prompt preview step"
+          >
+            {preview.steps.map((step) => (
+              <option key={step.id} value={step.id}>{step.label} · {step.turnType}</option>
+            ))}
+          </select>
+        </label>
+      ) : null}
       {preview.preview ? (
         <>
           <p className="mt-2 text-xs text-zinc-500">

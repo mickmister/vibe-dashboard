@@ -138,8 +138,10 @@ describe('PersistedWorkflowRuntimeService M93', () => {
 
     expect(queuedAt(queued, 0).prompt).toContain('## Task context');
     expect(queuedAt(queued, 0).prompt).toContain('vibe-kanban-vscode-web-2yle: Initial bead title');
-    expect(queuedAt(queued, 0).prompt).toContain('Use the available typed bead tools or beads CLI');
-    expect(queuedAt(queued, 0).prompt).not.toContain('/Users/');
+    expect(queuedAt(queued, 0).prompt).toContain('Use the task context above and any explicitly available typed bead tools');
+    for (const forbidden of ['bd ', 'beads CLI', 'shell', '/Users/', 'webhook', 'queue item']) {
+      expect(queuedAt(queued, 0).prompt).not.toContain(forbidden);
+    }
 
     await runtime.completeAgentTurn({ runId: 'run-bead-context', turnId: queuedAt(queued, 0).turnId, responseRef: 'exec-implement' });
     expect(queuedAt(queued, 1).prompt).toContain('vibe-kanban-vscode-web-2yle: Updated bead title');

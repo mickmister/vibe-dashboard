@@ -103,7 +103,7 @@ export function renderWorkflowBeadContextSection(context?: WorkflowBeadPromptCon
     context.sample ? '## Task context (sample bead context for preview)' : '## Task context',
     ...lines,
     context.unavailableReason ? `- Bead details note: ${scrubPromptContextText(context.unavailableReason)}` : null,
-    'Use the available typed bead tools or beads CLI to read full bead details when needed.',
+    'Use the task context above and any explicitly available typed bead tools to inspect more details when needed.',
   ].filter((line): line is string => Boolean(line)).join('\n');
 }
 
