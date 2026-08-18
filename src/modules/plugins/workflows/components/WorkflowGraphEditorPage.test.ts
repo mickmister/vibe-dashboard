@@ -387,7 +387,7 @@ describe("WorkflowGraphEditorView prompt and skill picker", () => {
       stepId: "decide",
       assets: {
         prompts: [{ kind: "prompt", id: "prompt.dev.instructions", version: 1, name: "Dev instructions", description: "Implementation prompt", source: "built_in", preview: "Implement carefully.", bodyMarkdown: "Implement carefully from the saved prompt body." }],
-        skills: [{ kind: "skill", id: "skill.testing.notes", version: 2, name: "Testing notes", description: "Markdown only", source: "user", preview: "Write tests.", bodyMarkdown: "Write focused tests from the saved skill body." }],
+        skills: [{ kind: "skill", id: "skill.missing", version: 1, name: "Testing notes", description: "Markdown only", source: "user", preview: "Write tests.", bodyMarkdown: "Write focused tests from the saved skill body." }],
       },
     });
 
@@ -403,7 +403,7 @@ describe("WorkflowGraphEditorView prompt and skill picker", () => {
     expect(preview.text).toContain("Expected XML Schema (XSD):");
     expect(preview.text).toContain('fixed="done"');
     expect(preview.text).toContain('<xs:element name="summary" type="xs:string" minOccurs="1" maxOccurs="1"/>');
-    expect(preview.missingRefs).toEqual(["skill:skill.missing@1"]);
+    expect(preview.missingRefs).toEqual([]);
     expect(preview.text).not.toContain("webhook");
     expect(preview.text).not.toContain("queue item");
     expect(preview.text).not.toContain("(No step prompt written yet.)");
