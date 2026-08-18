@@ -569,6 +569,8 @@ export function registerWorkflowRoutes(
         description: template.description,
         source: template.source,
         promptPreview: template.promptMarkdown.slice(0, 240),
+        promptMarkdown: template.promptMarkdown,
+        promptRefs: template.promptRefs,
         skillRefs: template.skillRefs,
         executorPreference: template.executorPreference,
         active: template.active,
@@ -661,6 +663,7 @@ export function registerWorkflowRoutes(
         name,
         description: asString(body?.description) ?? null,
         promptMarkdown,
+        promptRefs: Array.isArray(body?.promptRefs) ? body.promptRefs as never : [],
         skillRefs: Array.isArray(body?.skillRefs) ? body.skillRefs as never : [],
         executorPreference: asRecord(body?.executorPreference) as never,
       });

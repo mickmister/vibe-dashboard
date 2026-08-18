@@ -50,7 +50,8 @@ describe('DbWorkflowDesignStore M91 foundation', () => {
       name: 'Implementer',
       description: 'Reusable implementation role',
       promptMarkdown: 'Shared implementer role instructions.',
-      skillRefs: [{ kind: 'skill', id: 'skill.testing.notes', version: 1 }],
+      promptRefs: [{ kind: 'prompt', id: 'prompt.dev.instructions', versionMode: 'latest' }, { kind: 'prompt', id: 'prompt.dev.instructions', version: 1, versionMode: 'pinned' }],
+      skillRefs: [{ kind: 'skill', id: 'skill.testing.notes', version: 1, versionMode: 'pinned' }, { kind: 'skill', id: 'skill.testing.notes', versionMode: 'latest' }],
       executorPreference: { executorType: 'CODEX', model: 'gpt-5-codex', mode: 'preferred' },
     });
     await store.createRoleTemplate({
@@ -79,7 +80,8 @@ describe('DbWorkflowDesignStore M91 foundation', () => {
     });
     await expect(store.getRoleTemplate('role.dev.implementer', 1)).resolves.toMatchObject({
       promptMarkdown: 'Shared implementer role instructions.',
-      skillRefs: [{ kind: 'skill', id: 'skill.testing.notes', version: 1 }],
+      promptRefs: [{ kind: 'prompt', id: 'prompt.dev.instructions', versionMode: 'latest' }],
+      skillRefs: [{ kind: 'skill', id: 'skill.testing.notes', version: 1, versionMode: 'pinned' }],
       executorPreference: { executorType: 'CODEX', model: 'gpt-5-codex', mode: 'preferred' },
       contentHash: originalV1?.contentHash,
     });
@@ -105,10 +107,19 @@ describe('DbWorkflowDesignStore M91 foundation', () => {
     expect(published.resolvedPromptSnapshot.roleTemplates).toEqual([
       expect.objectContaining({ roleId: 'dev', templateId: 'role.dev.implementer', version: 1, name: 'Implementer' }),
     ]);
-    expect(promptText).toContain('Shared implementer role instructions.');
+    expect(promptText.indexOf('Prompt asset version one.')).toBeLessThan(promptText.indexOf('Testing shared skill body.'));
+    expect(promptText.indexOf('Testing shared skill body.')).toBeLessThan(promptText.indexOf('Shared implementer role instructions.'));
+    expect(promptText.indexOf('Shared implementer role instructions.')).toBeLessThan(promptText.indexOf('Implement with the shared prompt.'));
     expect(promptText).toContain('Testing shared skill body.');
     expect(promptText).toContain('Implement with the shared prompt.');
     expect(promptText).not.toContain('Newer role prompt');
+
+    await store.createPromptAsset({
+      promptAssetId: 'prompt.dev.instructions',
+      version: 2,
+      name: 'Dev instructions v2',
+      bodyMarkdown: 'Prompt asset version two for latest refs.',
+    });
 
     const snapshot = await store.createRunSnapshot({
       runSnapshotId: 'run-snapshot-role-template',
@@ -118,6 +129,8 @@ describe('DbWorkflowDesignStore M91 foundation', () => {
       runInput: {},
       roleBindings: {},
     });
+    const runRolePrompt = snapshot.resolvedPromptSnapshot.prompts.find((prompt) => prompt.path === 'states.dev.steps.0.prompt')?.text ?? '';
+    expect(runRolePrompt).toContain('Prompt asset version two for latest refs.');
     expect(snapshot.resolvedPromptSnapshot.roleTemplates?.[0]).toMatchObject({ templateId: 'role.dev.implementer', version: 1 });
   });
 

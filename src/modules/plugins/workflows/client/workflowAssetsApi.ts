@@ -15,6 +15,13 @@ export interface WorkflowAssetsModel {
   roleTemplates?: WorkflowRoleTemplatePickerItem[];
 }
 
+export interface WorkflowAssetAttachmentRef {
+  kind: 'prompt' | 'skill';
+  id: string;
+  version?: number;
+  versionMode?: 'latest' | 'pinned';
+}
+
 export interface WorkflowRoleTemplatePickerItem {
   id: string;
   version: number;
@@ -22,7 +29,9 @@ export interface WorkflowRoleTemplatePickerItem {
   description: string | null;
   source: string;
   promptPreview: string;
-  skillRefs: Array<{ kind: 'skill'; id: string; version?: number }>;
+  promptMarkdown?: string;
+  promptRefs?: WorkflowAssetAttachmentRef[];
+  skillRefs: WorkflowAssetAttachmentRef[];
   executorPreference: { executorType: string; model?: string; mode?: string } | null;
   active: boolean;
 }
@@ -57,7 +66,8 @@ export interface CreateWorkflowRoleTemplateRequest {
   name: string;
   description?: string | null;
   promptMarkdown: string;
-  skillRefs?: Array<{ kind: 'skill'; id: string; version?: number }>;
+  promptRefs?: WorkflowAssetAttachmentRef[];
+  skillRefs?: WorkflowAssetAttachmentRef[];
   executorPreference?: { executorType: string; model?: string; mode?: string } | null;
 }
 

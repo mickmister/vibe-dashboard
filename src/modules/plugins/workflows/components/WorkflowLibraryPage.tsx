@@ -1,16 +1,27 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
+import { WORKFLOW_EXECUTOR_MODEL_OPTIONS, WORKFLOW_EXECUTOR_TYPES } from "@vibe-dashboard/workflow-core";
 import { StandaloneDashboardPage } from "../../../../components/StandaloneDashboardPage";
 import {
   createWorkflowPromptAsset,
   createWorkflowRoleTemplate,
   createWorkflowSkillAsset,
   fetchWorkflowAssets,
+  type WorkflowAssetAttachmentRef,
   type WorkflowAssetPickerItem,
   type WorkflowAssetsModel,
   type WorkflowRoleTemplatePickerItem,
 } from "../client/workflowAssetsApi";
 import { workflowRouteHref } from "./workflowRouteContext";
+
+type LibraryEditMode =
+  | { kind: "none" }
+  | { kind: "prompt"; source?: WorkflowAssetPickerItem }
+  | { kind: "skill"; source?: WorkflowAssetPickerItem }
+  | { kind: "role"; source?: WorkflowRoleTemplatePickerItem };
+
+type LibraryAssetRequest = { promptAssetId?: string; skillAssetId?: string; version?: number; name: string; description?: string | null; bodyMarkdown: string };
+type LibraryRoleRequest = { roleTemplateId?: string; version?: number; name: string; description?: string | null; promptMarkdown: string; promptRefs?: WorkflowAssetAttachmentRef[]; skillRefs?: WorkflowAssetAttachmentRef[]; executorPreference?: { executorType: string; model?: string; mode?: string } | null };
 
 export function WorkflowLibraryPage(): React.ReactElement {
   const [searchParams] = useSearchParams();
@@ -69,6 +80,7 @@ export function WorkflowLibraryView({
   message = null,
   onRefresh,
   backHref = "/dashboard/workflows",
+  initialMode = { kind: "none" },
   onCreatePrompt,
   onCreateSkill,
   onCreateRoleTemplate,
@@ -79,10 +91,13 @@ export function WorkflowLibraryView({
   message?: string | null;
   onRefresh?: () => void;
   backHref?: string;
+  initialMode?: LibraryEditMode;
   onCreatePrompt?: (request: { promptAssetId?: string; version?: number; name: string; description?: string | null; bodyMarkdown: string }) => void | Promise<void>;
   onCreateSkill?: (request: { skillAssetId?: string; version?: number; name: string; description?: string | null; bodyMarkdown: string }) => void | Promise<void>;
-  onCreateRoleTemplate?: (request: { roleTemplateId?: string; version?: number; name: string; description?: string | null; promptMarkdown: string; skillRefs?: Array<{ kind: "skill"; id: string; version?: number }> }) => void | Promise<void>;
+  onCreateRoleTemplate?: (request: LibraryRoleRequest) => void | Promise<void>;
 }): React.ReactElement {
+  const [mode, setMode] = useState<LibraryEditMode>(initialMode);
+  const roleTemplates = assets.roleTemplates ?? [];
   return (
     <StandaloneDashboardPage>
       <main className="mx-auto flex w-full max-w-7xl flex-col gap-5 p-6 text-zinc-100" aria-label="Workflow library">
@@ -105,33 +120,41 @@ export function WorkflowLibraryView({
         {message ? <div className="rounded-lg border border-emerald-900 bg-emerald-950/30 p-4 text-sm text-emerald-100">{message}</div> : null}
 
         <section className="grid gap-4 xl:grid-cols-3">
-          <LibraryColumn title="Role templates" empty="No reusable role templates yet." description="Reusable role behavior: instructions, markdown skill refs, and executor/model defaults.">
-            {(assets.roleTemplates ?? []).map((template) => <RoleTemplateCard key={`${template.id}:${template.version}`} template={template} />)}
+          <LibraryColumn title="Role templates" empty="No reusable role templates yet." description="Reusable role behavior: prompt assets, markdown skill refs, base instructions, and executor/model defaults." action={<button className="rounded-md bg-cyan-500 px-3 py-1.5 text-sm font-medium text-zinc-950" type="button" onClick={() => setMode({ kind: "role" })}>New Role Template</button>}>
+            {roleTemplates.map((template) => <RoleTemplateCard key={`${template.id}:${template.version}`} template={template} onEdit={() => setMode({ kind: "role", source: template })} />)}
           </LibraryColumn>
-          <LibraryColumn title="Prompt assets" empty="No prompt assets yet." description="Reusable prompt blocks for workflow agent steps.">
-            {assets.prompts.map((asset) => <AssetCard key={`${asset.id}:${asset.version}`} asset={asset} />)}
+          <LibraryColumn title="Prompt assets" empty="No prompt assets yet." description="Reusable prompt blocks for workflow role templates and agent steps." action={<button className="rounded-md bg-cyan-500 px-3 py-1.5 text-sm font-medium text-zinc-950" type="button" onClick={() => setMode({ kind: "prompt" })}>New Prompt</button>}>
+            {assets.prompts.map((asset) => <AssetCard key={`${asset.id}:${asset.version}`} asset={asset} onEdit={() => setMode({ kind: "prompt", source: asset })} />)}
           </LibraryColumn>
-          <LibraryColumn title="Skill snippets" empty="No markdown skill snippets yet." description="Instruction snippets only; these are not executable providers.">
-            {assets.skills.map((asset) => <AssetCard key={`${asset.id}:${asset.version}`} asset={asset} />)}
+          <LibraryColumn title="Skill snippets" empty="No markdown skill snippets yet." description="Instruction snippets only; these are not executable providers." action={<button className="rounded-md bg-cyan-500 px-3 py-1.5 text-sm font-medium text-zinc-950" type="button" onClick={() => setMode({ kind: "skill" })}>New Skill</button>}>
+            {assets.skills.map((asset) => <AssetCard key={`${asset.id}:${asset.version}`} asset={asset} onEdit={() => setMode({ kind: "skill", source: asset })} />)}
           </LibraryColumn>
         </section>
 
-        <section className="grid gap-4 xl:grid-cols-3" aria-label="Create workflow library versions">
-          <PromptAssetForm onSubmit={onCreatePrompt} />
-          <SkillAssetForm onSubmit={onCreateSkill} />
-          <RoleTemplateForm skills={assets.skills} onSubmit={onCreateRoleTemplate} />
-        </section>
+        {mode.kind === "none" ? (
+          <section className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4 text-sm text-zinc-400" aria-label="Workflow library next action">
+            Choose New or Edit as new version to change reusable workflow behavior. Existing published versions stay read-only.
+          </section>
+        ) : null}
+        {mode.kind === "prompt" ? <PromptAssetForm source={mode.source} onCancel={() => setMode({ kind: "none" })} onSubmit={(request) => onCreatePrompt?.(request)} /> : null}
+        {mode.kind === "skill" ? <SkillAssetForm source={mode.source} onCancel={() => setMode({ kind: "none" })} onSubmit={(request) => onCreateSkill?.(request)} /> : null}
+        {mode.kind === "role" ? <RoleTemplateForm assets={assets} source={mode.source} onCancel={() => setMode({ kind: "none" })} onSubmit={(request) => onCreateRoleTemplate?.(request)} /> : null}
       </main>
     </StandaloneDashboardPage>
   );
 }
 
-function LibraryColumn({ title, description, empty, children }: { title: string; description: string; empty: string; children: React.ReactNode }): React.ReactElement {
+function LibraryColumn({ title, description, empty, action, children }: { title: string; description: string; empty: string; action: React.ReactNode; children: React.ReactNode }): React.ReactElement {
   const childArray = React.Children.toArray(children);
   return (
     <section className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-4" aria-label={title}>
-      <h2 className="text-lg font-semibold">{title}</h2>
-      <p className="mt-1 text-sm text-zinc-500">{description}</p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold">{title}</h2>
+          <p className="mt-1 text-sm text-zinc-500">{description}</p>
+        </div>
+        {action}
+      </div>
       <div className="mt-4 space-y-3">
         {childArray.length ? childArray : <p className="rounded border border-dashed border-zinc-800 p-3 text-sm text-zinc-500">{empty}</p>}
       </div>
@@ -139,7 +162,7 @@ function LibraryColumn({ title, description, empty, children }: { title: string;
   );
 }
 
-function AssetCard({ asset }: { asset: WorkflowAssetPickerItem }): React.ReactElement {
+function AssetCard({ asset, onEdit }: { asset: WorkflowAssetPickerItem; onEdit?: () => void }): React.ReactElement {
   return (
     <article className="rounded-lg border border-zinc-800 bg-slate-950/70 p-3">
       <div className="flex items-center justify-between gap-2">
@@ -149,11 +172,12 @@ function AssetCard({ asset }: { asset: WorkflowAssetPickerItem }): React.ReactEl
       <p className="mt-1 text-xs text-zinc-500">{asset.kind === "skill" ? "Skill snippet" : "Prompt asset"} · {sourceLabel(asset.source)}</p>
       {asset.description ? <p className="mt-2 text-sm text-zinc-400">{safeText(asset.description)}</p> : null}
       <p className="mt-2 line-clamp-4 whitespace-pre-wrap text-sm text-zinc-300">{safeText(asset.preview)}</p>
+      <button className="mt-3 rounded-md border border-zinc-700 px-2 py-1 text-xs text-cyan-100 hover:border-cyan-500" type="button" onClick={onEdit}>Edit as new version</button>
     </article>
   );
 }
 
-function RoleTemplateCard({ template }: { template: WorkflowRoleTemplatePickerItem }): React.ReactElement {
+function RoleTemplateCard({ template, onEdit }: { template: WorkflowRoleTemplatePickerItem; onEdit?: () => void }): React.ReactElement {
   return (
     <article className="rounded-lg border border-zinc-800 bg-slate-950/70 p-3">
       <div className="flex items-center justify-between gap-2">
@@ -163,53 +187,149 @@ function RoleTemplateCard({ template }: { template: WorkflowRoleTemplatePickerIt
       <p className="mt-1 text-xs text-zinc-500">Role template · {sourceLabel(template.source)}{template.active ? "" : " · Inactive"}</p>
       {template.description ? <p className="mt-2 text-sm text-zinc-400">{safeText(template.description)}</p> : null}
       <p className="mt-2 line-clamp-4 whitespace-pre-wrap text-sm text-zinc-300">{safeText(template.promptPreview)}</p>
-      {template.skillRefs.length ? <p className="mt-2 text-xs text-zinc-500">Skills: {template.skillRefs.map((ref) => `${ref.id}${ref.version ? `@${ref.version}` : ""}`).join(", ")}</p> : null}
-      {template.executorPreference ? <p className="mt-1 text-xs text-zinc-500">Default executor: {template.executorPreference.executorType}{template.executorPreference.model ? ` · ${template.executorPreference.model}` : ""}</p> : null}
+      {template.promptRefs?.length ? <p className="mt-2 text-xs text-zinc-500">Prompts: {template.promptRefs.map(formatAttachmentRef).join(", ")}</p> : null}
+      {template.skillRefs.length ? <p className="mt-2 text-xs text-zinc-500">Skills: {template.skillRefs.map(formatAttachmentRef).join(", ")}</p> : null}
+      {template.executorPreference ? <p className="mt-1 text-xs text-zinc-500">Default executor: {template.executorPreference.executorType}{template.executorPreference.model ? ` · ${template.executorPreference.model}` : ""}</p> : <p className="mt-1 text-xs text-zinc-500">Default executor: workspace default</p>}
+      <button className="mt-3 rounded-md border border-zinc-700 px-2 py-1 text-xs text-cyan-100 hover:border-cyan-500" type="button" onClick={onEdit}>Edit as new version</button>
     </article>
   );
 }
 
-function PromptAssetForm({ onSubmit }: { onSubmit?: (request: { promptAssetId?: string; version?: number; name: string; description?: string | null; bodyMarkdown: string }) => void | Promise<void> }): React.ReactElement {
-  return <LibraryForm title="Publish prompt asset" idLabel="Prompt id" bodyLabel="Prompt markdown" idPlaceholder="prompt.review.security" onSubmit={(value) => onSubmit?.({ promptAssetId: value.id, version: value.version, name: value.name, description: value.description, bodyMarkdown: value.body })} />;
+function PromptAssetForm({ source, onCancel, onSubmit }: { source?: WorkflowAssetPickerItem; onCancel: () => void; onSubmit?: (request: { promptAssetId?: string; version?: number; name: string; description?: string | null; bodyMarkdown: string }) => void | Promise<void> }): React.ReactElement {
+  return <LibraryForm title={source ? "Edit prompt as new version" : "New prompt asset"} idLabel="Prompt id" bodyLabel="Prompt markdown" idPlaceholder="prompt.review.security" source={source} onCancel={onCancel} onSubmit={(value) => onSubmit?.({ promptAssetId: value.id, version: value.version, name: value.name, description: value.description, bodyMarkdown: value.body })} />;
 }
 
-function SkillAssetForm({ onSubmit }: { onSubmit?: (request: { skillAssetId?: string; version?: number; name: string; description?: string | null; bodyMarkdown: string }) => void | Promise<void> }): React.ReactElement {
-  return <LibraryForm title="Publish skill snippet" idLabel="Skill id" bodyLabel="Skill markdown" idPlaceholder="skill.review.accessibility" onSubmit={(value) => onSubmit?.({ skillAssetId: value.id, version: value.version, name: value.name, description: value.description, bodyMarkdown: value.body })} />;
+function SkillAssetForm({ source, onCancel, onSubmit }: { source?: WorkflowAssetPickerItem; onCancel: () => void; onSubmit?: (request: { skillAssetId?: string; version?: number; name: string; description?: string | null; bodyMarkdown: string }) => void | Promise<void> }): React.ReactElement {
+  return <LibraryForm title={source ? "Edit skill as new version" : "New skill snippet"} idLabel="Skill id" bodyLabel="Skill markdown" idPlaceholder="skill.review.accessibility" source={source} onCancel={onCancel} onSubmit={(value) => onSubmit?.({ skillAssetId: value.id, version: value.version, name: value.name, description: value.description, bodyMarkdown: value.body })} />;
 }
 
-function RoleTemplateForm({ skills, onSubmit }: { skills: WorkflowAssetPickerItem[]; onSubmit?: (request: { roleTemplateId?: string; version?: number; name: string; description?: string | null; promptMarkdown: string; skillRefs?: Array<{ kind: "skill"; id: string; version?: number }> }) => void | Promise<void> }): React.ReactElement {
-  const [skillRefs, setSkillRefs] = useState("");
+function RoleTemplateForm({ assets, source, onCancel, onSubmit }: { assets: WorkflowAssetsModel; source?: WorkflowRoleTemplatePickerItem; onCancel: () => void; onSubmit?: (request: LibraryRoleRequest) => void | Promise<void> }): React.ReactElement {
+  const initialPromptRefs = source?.promptRefs ?? [];
+  const initialSkillRefs = source?.skillRefs ?? [];
+  const [promptRefs, setPromptRefs] = useState<WorkflowAssetAttachmentRef[]>(initialPromptRefs);
+  const [skillRefs, setSkillRefs] = useState<WorkflowAssetAttachmentRef[]>(initialSkillRefs);
+  const [executorType, setExecutorType] = useState(source?.executorPreference?.executorType ?? "");
+  const [model, setModel] = useState(source?.executorPreference?.model ?? "");
+  const models = executorType ? (WORKFLOW_EXECUTOR_MODEL_OPTIONS[executorType as keyof typeof WORKFLOW_EXECUTOR_MODEL_OPTIONS]?.models ?? []) : [];
+  const extra = (
+    <div className="space-y-4">
+      <AssetAttachmentPicker title="Prompt assets" kind="prompt" assets={assets.prompts} selected={promptRefs} onChange={setPromptRefs} />
+      <AssetAttachmentPicker title="Skill snippets" kind="skill" assets={assets.skills} selected={skillRefs} onChange={setSkillRefs} />
+      <div className="grid gap-3 md:grid-cols-2">
+        <label className="block text-sm text-zinc-300">
+          Default executor
+          <select className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 p-2 text-sm" value={executorType} onChange={(event) => { setExecutorType(event.target.value); setModel(""); }}>
+            <option value="">Workspace default</option>
+            {WORKFLOW_EXECUTOR_TYPES.map((executor) => <option key={executor} value={executor}>{WORKFLOW_EXECUTOR_MODEL_OPTIONS[executor].label}</option>)}
+          </select>
+        </label>
+        <label className="block text-sm text-zinc-300">
+          Default model
+          <select className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 p-2 text-sm" value={model} disabled={!executorType} onChange={(event) => setModel(event.target.value)}>
+            <option value="">Executor default</option>
+            {models.map((modelOption) => <option key={modelOption} value={modelOption}>{modelOption}</option>)}
+          </select>
+        </label>
+      </div>
+    </div>
+  );
   return (
     <LibraryForm
-      title="Publish role template"
+      title={source ? "Edit role template as new version" : "New role template"}
       idLabel="Role template id"
-      bodyLabel="Role prompt markdown"
+      bodyLabel="Base role instructions"
       idPlaceholder="role.review.security"
-      extra={(
-        <label className="block text-sm text-zinc-300">
-          Skill refs
-          <input className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 p-2 text-sm" value={skillRefs} onChange={(event) => setSkillRefs(event.target.value)} placeholder="skill.review.security@1, skill.testing" />
-          <span className="mt-1 block text-xs text-zinc-500">Available snippets: {skills.length ? skills.map((skill) => `${skill.id}@${skill.version}`).join(", ") : "none yet"}</span>
-        </label>
-      )}
-      onSubmit={(value) => onSubmit?.({ roleTemplateId: value.id, version: value.version, name: value.name, description: value.description, promptMarkdown: value.body, skillRefs: parseSkillRefs(skillRefs) })}
+      source={source ? { kind: "prompt", id: source.id, version: source.version, name: source.name, description: source.description, source: source.source, preview: source.promptPreview, bodyMarkdown: source.promptMarkdown ?? source.promptPreview } : undefined}
+      extra={extra}
+      onCancel={onCancel}
+      onSubmit={(value) => onSubmit?.({
+        roleTemplateId: value.id,
+        version: value.version,
+        name: value.name,
+        description: value.description,
+        promptMarkdown: value.body,
+        promptRefs,
+        skillRefs,
+        executorPreference: executorType ? { executorType, model: model || undefined, mode: "preferred" } : null,
+      })}
     />
   );
 }
 
-function LibraryForm({ title, idLabel, bodyLabel, idPlaceholder, extra, onSubmit }: { title: string; idLabel: string; bodyLabel: string; idPlaceholder: string; extra?: React.ReactNode; onSubmit?: (value: { id: string; version: number; name: string; description: string | null; body: string }) => void | Promise<void> }): React.ReactElement {
-  const [id, setId] = useState("");
-  const [version, setVersion] = useState("1");
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [body, setBody] = useState("");
+function AssetAttachmentPicker({ title, kind, assets, selected, onChange }: { title: string; kind: "prompt" | "skill"; assets: WorkflowAssetPickerItem[]; selected: WorkflowAssetAttachmentRef[]; onChange: (refs: WorkflowAssetAttachmentRef[]) => void }): React.ReactElement {
+  const [query, setQuery] = useState("");
+  const filtered = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    return assets.filter((asset) => !needle || `${asset.name} ${asset.id} ${asset.description ?? ""}`.toLowerCase().includes(needle));
+  }, [assets, query]);
+  const selectedKeys = new Set(selected.map((ref) => attachmentKey(ref)));
+  const add = (asset: WorkflowAssetPickerItem) => {
+    const ref: WorkflowAssetAttachmentRef = { kind, id: asset.id, versionMode: "latest" };
+    if (selected.some((existing) => existing.kind === ref.kind && existing.id === ref.id)) return;
+    onChange([...selected, ref]);
+  };
   return (
-    <form className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-4" aria-label={title} onSubmit={(event) => { event.preventDefault(); void onSubmit?.({ id, version: Number(version) || 1, name, description: description || null, body }); }}>
-      <h2 className="font-semibold">{title}</h2>
-      <p className="mt-1 text-xs text-zinc-500">Draft in this form, then publish an immutable version. To edit later, publish the next version.</p>
+    <section className="rounded-lg border border-zinc-800 bg-zinc-950/60 p-3" aria-label={`${title} picker`}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-sm font-medium text-zinc-200">{title}</h3>
+        <span className="text-xs text-zinc-500">Latest version is the default.</span>
+      </div>
+      <input aria-label={`Search ${title}`} className="mt-2 w-full rounded-md border border-zinc-700 bg-zinc-950 p-2 text-sm" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search available assets" />
+      <div className="mt-3 space-y-2" aria-label={`Selected ${title}`}>
+        {selected.length ? selected.map((ref, index) => {
+          const asset = assets.find((candidate) => candidate.id === ref.id && (ref.version == null || candidate.version === ref.version)) ?? assets.find((candidate) => candidate.id === ref.id);
+          return (
+            <div key={attachmentKey(ref)} className="flex flex-wrap items-center justify-between gap-2 rounded border border-cyan-900/60 bg-cyan-950/20 p-2 text-xs">
+              <span>• {asset?.name ?? ref.id} · {kind === "prompt" ? "Prompt" : "Skill"} · {asset ? sourceLabel(asset.source) : "Unavailable"} · {ref.versionMode === "pinned" ? `Pinned v${ref.version ?? asset?.version ?? "?"}` : "Use latest version"}</span>
+              <div className="flex items-center gap-2">
+                <select aria-label={`${ref.id} version mode`} className="rounded border border-zinc-700 bg-zinc-950 p-1" value={ref.versionMode ?? (ref.version == null ? "latest" : "pinned")} onChange={(event) => {
+                  const mode = event.target.value === "pinned" ? "pinned" : "latest";
+                  onChange(selected.map((current, currentIndex) => currentIndex === index ? { ...current, versionMode: mode, version: mode === "pinned" ? (current.version ?? asset?.version) : undefined } : current));
+                }}>
+                  <option value="latest">Use latest</option>
+                  <option value="pinned">Pin version</option>
+                </select>
+                <button type="button" className="rounded border border-zinc-700 px-2 py-1 text-zinc-100" onClick={() => onChange(selected.filter((_, currentIndex) => currentIndex !== index))}>Remove</button>
+              </div>
+            </div>
+          );
+        }) : <p className="text-xs text-zinc-500">No {title.toLowerCase()} selected.</p>}
+      </div>
+      <div className="mt-3 max-h-44 overflow-auto space-y-2" aria-label={`Available ${title}`}>
+        {filtered.length ? filtered.map((asset) => {
+          const key = `${kind}:${asset.id}`;
+          const alreadySelected = Array.from(selectedKeys).some((selectedKey) => selectedKey.startsWith(`${kind}:${asset.id}:`));
+          return (
+            <button key={`${asset.id}:${asset.version}`} type="button" disabled={alreadySelected} onClick={() => add(asset)} className="block w-full rounded border border-zinc-800 bg-zinc-950 p-2 text-left text-xs text-zinc-300 hover:border-cyan-700 disabled:cursor-not-allowed disabled:opacity-50">
+              <span className="font-medium text-zinc-100">{asset.name}</span> <span className="text-zinc-500">v{asset.version} · {sourceLabel(asset.source)}</span>
+              <span className="block text-zinc-500">{safeText(asset.preview)}</span>
+              {alreadySelected ? <span className="mt-1 block text-cyan-200">Already selected</span> : <span className="mt-1 block text-cyan-200">Add {key}</span>}
+            </button>
+          );
+        }) : <p className="rounded border border-dashed border-zinc-800 p-2 text-xs text-zinc-500">No matching assets.</p>}
+      </div>
+    </section>
+  );
+}
+
+function LibraryForm({ title, idLabel, bodyLabel, idPlaceholder, source, extra, onCancel, onSubmit }: { title: string; idLabel: string; bodyLabel: string; idPlaceholder: string; source?: WorkflowAssetPickerItem; extra?: React.ReactNode; onCancel: () => void; onSubmit?: (value: { id: string; version: number; name: string; description: string | null; body: string }) => void | Promise<void> }): React.ReactElement {
+  const [id, setId] = useState(source?.id ?? "");
+  const [version, setVersion] = useState(String((source?.version ?? 0) + 1 || 1));
+  const [name, setName] = useState(source?.name ?? "");
+  const [description, setDescription] = useState(source?.description ?? "");
+  const [body, setBody] = useState(source?.bodyMarkdown ?? source?.preview ?? "");
+  return (
+    <form className="rounded-xl border border-cyan-900/60 bg-slate-950/80 p-4" aria-label={title} onSubmit={(event) => { event.preventDefault(); void onSubmit?.({ id, version: Number(version) || 1, name, description: description || null, body }); }}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="font-semibold">{title}</h2>
+          <p className="mt-1 text-xs text-zinc-500">Make all changes here, then save once to publish one immutable version. Existing versions remain read-only.</p>
+        </div>
+        <button className="rounded-md border border-zinc-700 px-3 py-2 text-sm" type="button" onClick={onCancel}>Cancel</button>
+      </div>
       <div className="mt-4 space-y-3">
-        <label className="block text-sm text-zinc-300">{idLabel}<input className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 p-2 text-sm" value={id} onChange={(event) => setId(event.target.value)} placeholder={idPlaceholder} /></label>
-        <label className="block text-sm text-zinc-300">Version<input className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 p-2 text-sm" type="number" min={1} value={version} onChange={(event) => setVersion(event.target.value)} /></label>
+        <label className="block text-sm text-zinc-300">{idLabel}<input className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 p-2 text-sm" value={id} onChange={(event) => setId(event.target.value)} placeholder={idPlaceholder} readOnly={Boolean(source)} /></label>
+        <label className="block text-sm text-zinc-300">New version<input className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 p-2 text-sm" type="number" min={1} value={version} onChange={(event) => setVersion(event.target.value)} /></label>
         <label className="block text-sm text-zinc-300">Name<input className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 p-2 text-sm" value={name} onChange={(event) => setName(event.target.value)} /></label>
         <label className="block text-sm text-zinc-300">Description<input className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 p-2 text-sm" value={description} onChange={(event) => setDescription(event.target.value)} /></label>
         {extra}
@@ -220,11 +340,12 @@ function LibraryForm({ title, idLabel, bodyLabel, idPlaceholder, extra, onSubmit
   );
 }
 
-function parseSkillRefs(value: string): Array<{ kind: "skill"; id: string; version?: number }> {
-  return value.split(/[,\n]/u).map((entry) => entry.trim()).filter(Boolean).map((entry) => {
-    const [id, version] = entry.split("@");
-    return { kind: "skill", id: id ?? entry, version: version ? Number(version) || undefined : undefined };
-  });
+function attachmentKey(ref: WorkflowAssetAttachmentRef): string {
+  return `${ref.kind}:${ref.id}:${ref.versionMode ?? (ref.version == null ? "latest" : "pinned")}:${ref.version ?? "latest"}`;
+}
+
+function formatAttachmentRef(ref: WorkflowAssetAttachmentRef): string {
+  return `${ref.id} (${ref.versionMode === "pinned" || ref.version != null ? `v${ref.version ?? "?"}` : "latest"})`;
 }
 
 function sourceLabel(source: string): string {

@@ -25,6 +25,7 @@ export interface WorkflowAssetRef {
   kind: WorkflowAssetRefKind;
   id: string;
   version?: number;
+  versionMode?: 'latest' | 'pinned';
 }
 
 export interface WorkflowPromptComposition {
@@ -161,6 +162,7 @@ export interface WorkflowRoleTemplateReadModel {
   name: string;
   description: string | null;
   promptMarkdown: string;
+  promptRefs: WorkflowAssetRef[];
   skillRefs: WorkflowAssetRef[];
   executorPreference: AgentWorkflowDefinitionV1['roles'][string]['executorPreference'] | null;
   active: boolean;
@@ -176,6 +178,7 @@ export interface CreateWorkflowRoleTemplateInput {
   name: string;
   description?: string | null;
   promptMarkdown: string;
+  promptRefs?: WorkflowAssetRef[];
   skillRefs?: WorkflowAssetRef[];
   executorPreference?: AgentWorkflowDefinitionV1['roles'][string]['executorPreference'] | null;
   active?: boolean;
@@ -303,8 +306,9 @@ export class DbWorkflowDesignStore {
   async createRoleTemplate(input: CreateWorkflowRoleTemplateInput): Promise<WorkflowRoleTemplateReadModel> {
     const db = await this.getDb();
     const now = this.now();
-    const version = input.version ?? 1;
     const normalized = normalizeCreateRoleTemplateInput(input);
+    const version = normalized.version ?? 1;
+    await this.validateRoleTemplateAssetRefs(normalized);
     const existing = await this.getRoleTemplate(normalized.roleTemplateId, version);
     if (existing) {
       throw new WorkflowDesignValidationError([{
@@ -454,8 +458,9 @@ export class DbWorkflowDesignStore {
     if (version == null) throw new Error(`Workflow design ${input.designId} has no published version`);
     const published = await this.getRequiredVersion(input.designId, version);
     const additionalInstructions = input.additionalInstructions?.trim() || null;
-    const runResolvedDefinition = appendAdditionalInstructionsToDefinition(published.resolvedDefinition, additionalInstructions);
-    const runPromptSnapshot = appendAdditionalInstructionsToPromptSnapshot(published.resolvedPromptSnapshot, additionalInstructions);
+    const runResolved = await this.resolveDefinition(published.definition, { additionalInstructions });
+    const runResolvedDefinition = runResolved.definition;
+    const runPromptSnapshot = runResolved.promptSnapshot;
     const now = this.now();
     await db.insertInto('WorkflowDesignRunSnapshot').values({
       runSnapshotId: input.runSnapshotId,
@@ -577,15 +582,35 @@ export class DbWorkflowDesignStore {
     })).execute();
   }
 
+  private async validateRoleTemplateAssetRefs(input: CreateWorkflowRoleTemplateInput): Promise<void> {
+    const issues: WorkflowConfigIssue[] = [];
+    for (const [index, ref] of (input.promptRefs ?? []).entries()) {
+      const asset = await this.getPromptAsset(ref.id, ref.version);
+      if (!asset) issues.push({ code: 'WORKFLOW_CONFIG_INVALID_REFERENCE', path: `roleTemplates.${input.roleTemplateId}.promptRefs.${index}`, message: `unknown prompt asset ${ref.id}${ref.version ? `@${ref.version}` : ''}` });
+    }
+    for (const [index, ref] of (input.skillRefs ?? []).entries()) {
+      const asset = await this.getSkillAsset(ref.id, ref.version);
+      if (!asset) issues.push({ code: 'WORKFLOW_CONFIG_INVALID_REFERENCE', path: `roleTemplates.${input.roleTemplateId}.skillRefs.${index}`, message: `unknown skill asset ${ref.id}${ref.version ? `@${ref.version}` : ''}` });
+    }
+    if (issues.length) throw new WorkflowDesignValidationError(issues);
+  }
+
   private async insertRoleTemplate(db: WorkflowDesignDb, input: CreateWorkflowRoleTemplateInput, now: number): Promise<void> {
     const version = input.version ?? 1;
+    const promptRefs = input.promptRefs ?? [];
     const skillRefs = input.skillRefs ?? [];
+    for (const [index, ref] of promptRefs.entries()) {
+      if (ref.kind !== 'prompt' || !ref.id) {
+        throw new WorkflowDesignValidationError([{ code: 'WORKFLOW_CONFIG_INVALID_REFERENCE', path: `roleTemplates.${input.roleTemplateId}.promptRefs.${index}`, message: 'role template prompt refs must reference prompt assets' }]);
+      }
+    }
     for (const [index, ref] of skillRefs.entries()) {
       if (ref.kind !== 'skill' || !ref.id) {
         throw new WorkflowDesignValidationError([{ code: 'WORKFLOW_CONFIG_INVALID_REFERENCE', path: `roleTemplates.${input.roleTemplateId}.skillRefs.${index}`, message: 'role template skill refs must reference skill assets' }]);
       }
     }
-    const contentHash = sha256(stableJson({ promptMarkdown: input.promptMarkdown, skillRefs, executorPreference: input.executorPreference ?? null }));
+    const assetRefs = [...promptRefs, ...skillRefs];
+    const contentHash = sha256(stableJson({ promptMarkdown: input.promptMarkdown, promptRefs, skillRefs, executorPreference: input.executorPreference ?? null }));
     await db.insertInto('WorkflowRoleTemplate').values({
       roleTemplateId: input.roleTemplateId,
       version,
@@ -593,7 +618,7 @@ export class DbWorkflowDesignStore {
       name: input.name,
       description: input.description ?? null,
       promptMarkdown: input.promptMarkdown,
-      skillRefsJson: stableJson(skillRefs),
+      skillRefsJson: stableJson(assetRefs),
       executorPreferenceJson: input.executorPreference ? stableJson(input.executorPreference) : null,
       active: input.active === false ? 0 : 1,
       contentHash,
@@ -691,7 +716,7 @@ export class DbWorkflowDesignStore {
         throw new WorkflowDesignValidationError([{ code: 'WORKFLOW_CONFIG_INVALID_REFERENCE', path: `roles.${roleId}.templateRef`, message: `role template ${templateId}@${version} is unavailable` }]);
       }
       const resolvedTemplatePrompt = await this.resolvePromptComposition(
-        { template: template.promptMarkdown, refs: template.skillRefs },
+        { template: template.promptMarkdown, refs: [...template.promptRefs, ...template.skillRefs] },
         `roles.${roleId}.templateRef`,
         snapshot,
         options,
@@ -964,8 +989,26 @@ function normalizeCreateRoleTemplateInput(input: CreateWorkflowRoleTemplateInput
     name,
     description: input.description?.trim() || null,
     promptMarkdown,
-    skillRefs: input.skillRefs ?? [],
+    promptRefs: normalizeRoleTemplateRefs(input.promptRefs ?? [], 'prompt'),
+    skillRefs: normalizeRoleTemplateRefs(input.skillRefs ?? [], 'skill'),
   };
+}
+
+function normalizeRoleTemplateRefs(refs: WorkflowAssetRef[], kind: WorkflowAssetRefKind): WorkflowAssetRef[] {
+  const seen = new Set<string>();
+  const normalized: WorkflowAssetRef[] = [];
+  for (const ref of refs) {
+    if (ref.kind !== kind) continue;
+    const id = ref.id.trim();
+    if (!id) continue;
+    const versionMode = ref.versionMode === 'pinned' || ref.version != null ? 'pinned' : 'latest';
+    const version = versionMode === 'pinned' ? ref.version : undefined;
+    const key = `${kind}:${id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    normalized.push({ kind, id, versionMode, version });
+  }
+  return normalized;
 }
 
 function mapDraft(row: Selectable<WorkflowDesignDraft>): WorkflowDesignDraftReadModel {
@@ -1032,7 +1075,8 @@ function mapRoleTemplate(row: Selectable<WorkflowRoleTemplate>): WorkflowRoleTem
     name: row.name,
     description: row.description,
     promptMarkdown: row.promptMarkdown,
-    skillRefs: JSON.parse(row.skillRefsJson) as WorkflowAssetRef[],
+    promptRefs: (JSON.parse(row.skillRefsJson) as WorkflowAssetRef[]).filter((ref) => ref.kind === 'prompt'),
+    skillRefs: (JSON.parse(row.skillRefsJson) as WorkflowAssetRef[]).filter((ref) => ref.kind === 'skill'),
     executorPreference: row.executorPreferenceJson ? JSON.parse(row.executorPreferenceJson) as WorkflowRoleTemplateReadModel['executorPreference'] : null,
     active: row.active === 1,
     contentHash: row.contentHash,
@@ -1070,7 +1114,9 @@ function readAssetRef(value: unknown): WorkflowAssetRef | null {
   if (!isRecord(value)) return null;
   if (value.kind !== 'prompt' && value.kind !== 'skill') return null;
   if (typeof value.id !== 'string') return null;
-  return { kind: value.kind, id: value.id, version: typeof value.version === 'number' ? value.version : undefined };
+  const version = typeof value.version === 'number' ? value.version : undefined;
+  const versionMode = value.versionMode === 'latest' || value.versionMode === 'pinned' ? value.versionMode : (version == null ? 'latest' : 'pinned');
+  return { kind: value.kind, id: value.id, version: versionMode === 'pinned' ? version : undefined, versionMode };
 }
 
 
