@@ -229,7 +229,7 @@ function node(patch: Partial<WorkflowGraphNodeModel>): WorkflowGraphNodeModel {
 
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { renderEditorPromptPreview, renderEditorResponseXsd, WorkflowGraphEditorView } from "./WorkflowGraphEditorPage";
+import { buildWorkflowEditorGraphFocusContext, renderEditorPromptPreview, renderEditorResponseXsd, WorkflowGraphEditorView } from "./WorkflowGraphEditorPage";
 import { workflowDefinitionToGraph } from "./graph/workflowGraphModel";
 import type { AgentWorkflowDefinitionV1 } from "@vibe-dashboard/workflow-core";
 
@@ -281,18 +281,21 @@ describe("WorkflowGraphEditorView prompt and skill picker", () => {
 
     const compactHtml = html.replace(/\s+/g, " ");
     expect(compactHtml).toContain("Context graph");
-    expect(compactHtml).toContain("Graph preview is collapsed.");
-    expect(compactHtml).toContain("Show graph");
-    expect(compactHtml).not.toContain("workflow-react-flow-canvas");
-    expect(compactHtml).toContain("Workflow outline");
-    expect(compactHtml).toContain("Roles → states → transitions");
+    expect(compactHtml).toContain("workflow-react-flow-canvas");
+    expect(compactHtml).not.toContain("Graph preview is collapsed.");
+    expect(compactHtml).not.toContain("Show graph");
+    expect(compactHtml).not.toContain("Hide graph");
+    expect(compactHtml).toContain("Workflow wizard");
+    expect(compactHtml).toContain("Workflow details");
+    expect(compactHtml).toContain("Roles");
+    expect(compactHtml).not.toContain("Roles → states → transitions");
     expect(compactHtml).toContain("+ Add Role");
     expect(compactHtml).toContain("dev · 1 state");
     expect(compactHtml).toContain("Executor CODEX · Model gpt-5-codex");
-    expect(compactHtml).toContain("Choose a state to see its outgoing transitions.");
-    expect(html).toContain("Edit design");
-    expect(html).toContain("Selected role");
-    expect(html).toContain("Edit role");
+    expect(compactHtml).not.toContain("Choose a role, then inspect its states and outgoing actions.");
+    expect(html).toContain("Edit workflow details");
+    expect(html).not.toContain("Selected role");
+    expect(html).not.toContain("Edit role");
     expect(html).toContain("JSON diagnostics");
     expect(html).toContain('aria-readonly="true"');
     expect(html).not.toContain("Prompt authoring");
@@ -622,9 +625,127 @@ describe("WorkflowGraphEditorView prompt and skill picker", () => {
     expect(html).toContain("Context graph");
     expect(html).toContain("Action Request changes");
     expect(html).toContain("review → dev");
-    expect(html).toContain("Hide graph");
+    expect(html).not.toContain("Hide graph");
+    expect(html).not.toContain("Show graph");
     expect(html).toContain("workflow-react-flow-canvas");
-    expect(html).toContain("Edit action");
+    expect(html).toContain("Action selected");
+    expect(html).toContain("Edit action changes_requested");
+  });
+
+
+  it("TEST_CASE_XJNZ_1A renders role/state/action wizard levels without noisy copy", () => {
+    const roleHtml = renderToStaticMarkup(
+      React.createElement(WorkflowGraphEditorView, {
+        editor: null,
+        definition: wizardDefinition(),
+        assets: { prompts: [], skills: [] },
+        initialSelection: { roleId: "review" },
+        onDefinitionChange: () => {},
+        onSave: () => {},
+        onPublish: () => {},
+      }),
+    );
+    expect(roleHtml).toContain("Role selected");
+    expect(roleHtml).toContain("States for this role");
+    expect(roleHtml).toContain('aria-label="Back"');
+    expect(roleHtml).not.toContain("Roles → states → transitions");
+
+    const stateHtml = renderToStaticMarkup(
+      React.createElement(WorkflowGraphEditorView, {
+        editor: null,
+        definition: wizardDefinition(),
+        assets: { prompts: [], skills: [] },
+        initialSelection: { roleId: "review", stateId: "review" },
+        onDefinitionChange: () => {},
+        onSave: () => {},
+        onPublish: () => {},
+      }),
+    );
+    expect(stateHtml).toContain("State selected");
+    expect(stateHtml).toContain("Transitions / actions");
+    expect(stateHtml).not.toContain("Press Edit action to change");
+
+    const graph = workflowDefinitionToGraph(wizardDefinition());
+    const changes = graph.edges.find((edge) => edge.actionId === "changes_requested");
+    if (!changes) throw new Error("changes edge fixture missing");
+    const actionHtml = renderToStaticMarkup(
+      React.createElement(WorkflowGraphEditorView, {
+        editor: null,
+        definition: wizardDefinition(),
+        assets: { prompts: [], skills: [] },
+        initialSelection: { roleId: "review", stateId: "review", edgeId: changes.id },
+        onDefinitionChange: () => {},
+        onSave: () => {},
+        onPublish: () => {},
+      }),
+    );
+    expect(actionHtml).toContain("Action selected");
+    expect(actionHtml).toContain("Request changes · review → dev");
+    expect(actionHtml).not.toContain("Press Edit action to change");
+  });
+
+  it("TEST_CASE_XJNZ_1B filters graph structurally by wizard level", () => {
+    const definition = wizardDefinition();
+    const graph = workflowDefinitionToGraph(definition);
+    const landing = buildWorkflowEditorGraphFocusContext({ definition, nodes: graph.nodes, edges: graph.edges, wizardLevel: "landing" });
+    expect(landing.nodes.map((node) => node.id)).toEqual(expect.arrayContaining(["role:dev", "role:review", "terminal:done"]));
+    expect(landing.nodes.map((node) => node.id)).not.toContain("dev");
+
+    const role = buildWorkflowEditorGraphFocusContext({ definition, nodes: graph.nodes, edges: graph.edges, wizardLevel: "role", selectedRoleId: "review" });
+    expect(role.nodes.map((node) => node.id)).toEqual(["review"]);
+
+    const state = buildWorkflowEditorGraphFocusContext({ definition, nodes: graph.nodes, edges: graph.edges, wizardLevel: "state", selectedNodeId: "review" });
+    expect(state.nodes.map((node) => node.id)).toEqual(expect.arrayContaining(["review", "dev", "done"]));
+    expect(state.edges.map((edge) => edge.actionId)).toEqual(expect.arrayContaining(["changes_requested", "approved"]));
+
+    const changes = graph.edges.find((edge) => edge.actionId === "changes_requested")!;
+    const action = buildWorkflowEditorGraphFocusContext({ definition, nodes: graph.nodes, edges: graph.edges, wizardLevel: "action", selectedEdgeId: changes.id });
+    expect(action.nodes.map((node) => node.id).sort()).toEqual(["dev", "review"]);
+    expect(action.edges).toEqual([changes]);
+  });
+
+  it("TEST_CASE_XJNZ_1C keeps workflow details compact until explicit edit and wires graph clicks to wizard selection", () => {
+    const inspectHtml = renderToStaticMarkup(
+      React.createElement(WorkflowGraphEditorView, {
+        editor: null,
+        definition: wizardDefinition(),
+        assets: { prompts: [], skills: [] },
+        onDefinitionChange: () => {},
+        onSave: () => {},
+        onPublish: () => {},
+      }),
+    );
+    expect(inspectHtml).toContain("Workflow details");
+    expect(inspectHtml).toContain("Edit workflow details");
+    expect(inspectHtml).not.toContain("Edit workflow details</h2>");
+    expect(inspectHtml).not.toContain("Workflow name</span><input");
+    expect(inspectHtml).not.toContain("Description</span><textarea");
+
+    const editHtml = renderToStaticMarkup(
+      React.createElement(WorkflowGraphEditorView, {
+        editor: null,
+        definition: wizardDefinition(),
+        assets: { prompts: [], skills: [] },
+        initialEditTarget: { kind: "design", id: "design" },
+        onDefinitionChange: () => {},
+        onSave: () => {},
+        onPublish: () => {},
+      }),
+    );
+    expect(editHtml).toContain("Edit workflow details</h2>");
+    expect(editHtml).toContain("Workflow name");
+    expect(editHtml).toContain("Description");
+
+    const source = readFileSync(
+      join(
+        process.cwd(),
+        "src/modules/plugins/workflows/components/WorkflowGraphEditorPage.tsx",
+      ),
+      "utf8",
+    );
+    expect(source).toContain('if (node.id.startsWith("role:")) selectRole');
+    expect(source).toContain('else if (!node.id.startsWith("terminal:")) selectState');
+    expect(source).toContain("candidate.id === edge.id)) selectEdge(edge.id)");
   });
 
   it("TEST_CASE_8ABA navigates role to state to action in the outline wizard", () => {

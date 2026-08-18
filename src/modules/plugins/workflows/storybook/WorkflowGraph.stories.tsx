@@ -79,12 +79,47 @@ export const DenseTransitionVisibility: Story = {
   },
 };
 
-export const CompactContextualGraphCollapsed: Story = {
+export const ProgressiveEditorLanding: Story = {
   args: {
-    title: 'Compact contextual graph collapsed',
-    description: 'ZJCB Slice 4: editor starts with the progressive outline as primary and graph preview collapsed.',
+    title: 'Progressive editor landing',
+    description: 'XJNZ: workflow details and roles list are primary while the graph stays visible as role-level context.',
     definition: devReviewTesterWorkflowDefinition(),
-    initialGraphOpen: false,
+  },
+};
+
+export const ProgressiveEditorRoleSelected: Story = {
+  args: {
+    title: 'Progressive editor role selected',
+    description: 'XJNZ: selected-role wizard view with strict graph context for that role.',
+    definition: devReviewTesterWorkflowDefinition(),
+    initialSelection: { roleId: 'review' },
+  },
+};
+
+export const ProgressiveEditorStateSelected: Story = {
+  args: {
+    title: 'Progressive editor state selected',
+    description: 'XJNZ: selected state shows outgoing actions and the graph narrows to that state context.',
+    definition: devReviewTesterWorkflowDefinition(),
+    initialSelection: { roleId: 'review', stateId: 'review' },
+  },
+};
+
+export const ProgressiveEditorActionSelected: Story = {
+  args: {
+    title: 'Progressive editor action selected',
+    description: 'XJNZ: selected transition shows action details and a minimal source-to-target graph.',
+    definition: devReviewTesterWorkflowDefinition(),
+    initialSelection: { roleId: 'review', stateId: 'review', edgeId: 'review:changes_requested' },
+  },
+};
+
+export const WorkflowDetailsEditing: Story = {
+  args: {
+    title: 'Workflow details editing',
+    description: 'XJNZ: title and description edit mode is compact and explicit.',
+    definition: devReviewTesterWorkflowDefinition(),
+    initialEditTarget: { kind: 'design', id: 'design' },
   },
 };
 
@@ -93,7 +128,7 @@ export const LinkedRoleTemplateEditor: Story = {
     title: 'Linked shared role template',
     description: 'ZJCB Slice 5: role editor shows reusable role template version, prompt preview, skills, and versioning copy.',
     definition: linkedRoleTemplateDefinition(),
-    initialGraphOpen: false,
+    initialGraphOpen: true,
     initialSelection: { roleId: 'dev' },
     initialEditTarget: { kind: 'role', id: 'dev' },
   },

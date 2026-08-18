@@ -3,6 +3,7 @@ import "./WorkflowGraphEditorPage.css";
 
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router";
+import { IconArrowLeft, IconCheck, IconPencil } from "@tabler/icons-react";
 import {
   Background,
   BaseEdge,
@@ -185,6 +186,8 @@ type WorkflowEditorInitialSelection = {
   edgeId?: string;
 };
 
+export type WorkflowWizardLevel = "landing" | "role" | "state" | "action";
+
 export type WorkflowGraphFocusContext = {
   title: string;
   description: string;
@@ -203,7 +206,7 @@ export function WorkflowGraphEditorView({
   saveMessage,
   initialSelection,
   initialEditTarget = null,
-  initialGraphOpen = false,
+  initialGraphOpen: _initialGraphOpen = true,
 }: {
   editor: WorkflowDesignEditorModel | null;
   definition: AgentWorkflowDefinitionV1;
@@ -223,8 +226,9 @@ export function WorkflowGraphEditorView({
   );
   const issues = useMemo(() => validateWorkflowGraph(definition), [definition]);
   const roleEntries = Object.entries(definition.roles);
+  const [wizardLevel, setWizardLevel] = useState<WorkflowWizardLevel>(initialSelection?.edgeId ? "action" : initialSelection?.stateId ? "state" : initialSelection?.roleId ? "role" : "landing");
   const [selectedRoleId, setSelectedRoleId] = useState(
-    initialSelection?.roleId ?? roleEntries[0]?.[0] ?? "",
+    initialSelection?.roleId ?? "",
   );
   const [selectedNodeId, setSelectedNodeId] = useState(
     initialSelection?.stateId ?? "",
@@ -235,7 +239,7 @@ export function WorkflowGraphEditorView({
   const [editTarget, setEditTarget] = useState<WorkflowEditorEditTarget | null>(
     initialEditTarget,
   );
-  const [graphOpen, setGraphOpen] = useState(initialGraphOpen);
+  void _initialGraphOpen;
   const selectedNode =
     graph.nodes.find((node) => node.id === selectedNodeId) ?? null;
   const selectedEdge =
@@ -243,14 +247,16 @@ export function WorkflowGraphEditorView({
   const selectedRole = selectedRoleId ? definition.roles[selectedRoleId] : null;
   const graphFocus = useMemo(
     () =>
-      buildWorkflowGraphFocusContext({
+      buildWorkflowEditorGraphFocusContext({
+        definition,
         nodes: graph.nodes,
         edges: graph.edges,
+        wizardLevel,
         selectedRoleId,
         selectedNodeId,
         selectedEdgeId,
       }),
-    [graph.nodes, graph.edges, selectedRoleId, selectedNodeId, selectedEdgeId],
+    [definition, graph.nodes, graph.edges, wizardLevel, selectedRoleId, selectedNodeId, selectedEdgeId],
   );
   const layoutedNodes = useMemo(
     () => toFlowNodes(graphFocus.nodes, graphFocus.edges),
@@ -267,8 +273,9 @@ export function WorkflowGraphEditorView({
           );
           if (source?.ownerRoleId) setSelectedRoleId(source.ownerRoleId);
           setSelectedNodeId(edge.source);
+          setSelectedEdgeId(edgeId);
+          setWizardLevel("action");
         }
-        setSelectedEdgeId(edgeId);
         setEditTarget(null);
       }),
     [graph.edges, selectedEdgeId, graph.nodes, graphFocus.edges, graphFocus.nodes],
@@ -280,8 +287,9 @@ export function WorkflowGraphEditorView({
   }, [layoutedNodes, setFlowNodes]);
 
   useEffect(() => {
-    if (selectedRoleId && definition.roles[selectedRoleId]) return;
-    setSelectedRoleId(roleEntries[0]?.[0] ?? "");
+    if (!selectedRoleId || definition.roles[selectedRoleId]) return;
+    setSelectedRoleId("");
+    setWizardLevel("landing");
   }, [definition.roles, roleEntries, selectedRoleId]);
 
   const updateEdge = (
@@ -305,6 +313,7 @@ export function WorkflowGraphEditorView({
     setSelectedRoleId(roleId);
     setSelectedNodeId("");
     setSelectedEdgeId("");
+    setWizardLevel("role");
     setEditTarget(null);
   };
 
@@ -313,6 +322,7 @@ export function WorkflowGraphEditorView({
     if (node?.ownerRoleId) setSelectedRoleId(node.ownerRoleId);
     setSelectedNodeId(stateId);
     setSelectedEdgeId("");
+    setWizardLevel("state");
     setEditTarget(null);
   };
 
@@ -324,6 +334,7 @@ export function WorkflowGraphEditorView({
       );
       if (source?.ownerRoleId) setSelectedRoleId(source.ownerRoleId);
       setSelectedNodeId(edge.source);
+      setWizardLevel("action");
     }
     setSelectedEdgeId(edgeId);
     setEditTarget(null);
@@ -338,7 +349,26 @@ export function WorkflowGraphEditorView({
     setSelectedRoleId(roleId);
     setSelectedNodeId("");
     setSelectedEdgeId("");
+    setWizardLevel("role");
     setEditTarget({ kind: "role", id: roleId });
+  };
+
+  const goBack = () => {
+    setEditTarget(null);
+    if (wizardLevel === "action") {
+      setSelectedEdgeId("");
+      setWizardLevel("state");
+      return;
+    }
+    if (wizardLevel === "state") {
+      setSelectedNodeId("");
+      setWizardLevel("role");
+      return;
+    }
+    if (wizardLevel === "role") {
+      setSelectedRoleId("");
+      setWizardLevel("landing");
+    }
   };
 
   return (
@@ -349,61 +379,39 @@ export function WorkflowGraphEditorView({
             {saveMessage}
           </div>
         ) : null}
-        <WorkflowOutlineNavigator
-          definition={definition}
-          nodes={graph.nodes}
-          edges={graph.edges}
-          selectedRoleId={selectedRoleId}
-          selectedNodeId={selectedNodeId}
-          selectedEdgeId={selectedEdgeId}
-          onSelectRole={selectRole}
-          onSelectState={selectState}
-          onSelectEdge={selectEdge}
-          onAddRole={addRole}
-        />
-        <DesignDetails
+        <WorkflowDetails
           definition={definition}
           editing={editTarget?.kind === "design"}
           onEdit={() => setEditTarget({ kind: "design", id: "design" })}
           onDone={() => setEditTarget(null)}
           onChange={onDefinitionChange}
         />
-        {selectedRole ? (
-          <RoleDetails
-            roleId={selectedRoleId}
-            role={selectedRole}
-            stateCount={graph.nodes.filter((node) => node.ownerRoleId === selectedRoleId).length}
-            definition={definition}
-            assets={assets ?? { prompts: [], skills: [], roleTemplates: [] }}
-            editing={editTarget?.kind === "role" && editTarget.id === selectedRoleId}
-            onEdit={() => setEditTarget({ kind: "role", id: selectedRoleId })}
-            onDone={() => setEditTarget(null)}
-            onChange={onDefinitionChange}
-          />
-        ) : null}
+        <WorkflowWizardPanel
+          definition={definition}
+          nodes={graph.nodes}
+          edges={graph.edges}
+          level={wizardLevel}
+          selectedRoleId={selectedRoleId}
+          selectedNode={selectedNode}
+          selectedEdge={selectedEdge}
+          selectedEdgeId={selectedEdgeId}
+          selectedRole={selectedRole ?? null}
+          assets={assets ?? { prompts: [], skills: [], roleTemplates: [] }}
+          editTarget={editTarget}
+          onBack={goBack}
+          onSelectRole={selectRole}
+          onSelectState={selectState}
+          onSelectEdge={selectEdge}
+          onAddRole={addRole}
+          onEditRole={() => selectedRoleId && setEditTarget({ kind: "role", id: selectedRoleId })}
+          onEditState={() => selectedNode && setEditTarget({ kind: "state", id: selectedNode.id })}
+          onEditAction={() => selectedEdge && setEditTarget({ kind: "action", id: selectedEdge.id })}
+          onDone={() => setEditTarget(null)}
+          onDefinitionChange={onDefinitionChange}
+          onEdgeChange={updateEdge}
+          onPromptChange={updatePrompt}
+        />
         <ValidationPanel issues={issues} />
-        {selectedEdge ? (
-          <EdgeEditor
-            edge={selectedEdge}
-            states={graph.nodes}
-            editing={editTarget?.kind === "action" && editTarget.id === selectedEdge.id}
-            onEdit={() => setEditTarget({ kind: "action", id: selectedEdge.id })}
-            onDone={() => setEditTarget(null)}
-            onChange={updateEdge}
-          />
-        ) : null}
-        {selectedNode ? (
-          <NodeDetails
-            node={selectedNode}
-            definition={definition}
-            assets={assets ?? { prompts: [], skills: [] }}
-            editing={editTarget?.kind === "state" && editTarget.id === selectedNode.id}
-            onEdit={() => setEditTarget({ kind: "state", id: selectedNode.id })}
-            onDone={() => setEditTarget(null)}
-            onChange={onDefinitionChange}
-            onPromptChange={updatePrompt}
-          />
-        ) : null}
         <XsdDiagnostics definition={definition} selectedStateId={selectedNodeId} selectedEdge={selectedEdge} />
         <JsonDiagnostics definition={definition} />
       </aside>
@@ -418,16 +426,7 @@ export function WorkflowGraphEditorView({
           <div className="flex flex-wrap justify-end gap-2">
             <button
               className="rounded-md border border-zinc-700 px-3 py-2 text-sm"
-              onClick={() => setGraphOpen((open) => !open)}
-              aria-expanded={graphOpen}
-              aria-controls="workflow-context-graph"
-            >
-              {graphOpen ? "Hide graph" : "Show graph"}
-            </button>
-            <button
-              className="rounded-md border border-zinc-700 px-3 py-2 text-sm"
               onClick={resetLayout}
-              disabled={!graphOpen}
             >
               Reset layout
             </button>
@@ -447,46 +446,211 @@ export function WorkflowGraphEditorView({
             </button>
           </div>
         </div>
-        {graphOpen ? (
-          <div
-            id="workflow-context-graph"
-            className="h-[24rem] bg-slate-950"
-            data-testid="workflow-react-flow-canvas"
+        <div
+          id="workflow-context-graph"
+          className="h-[24rem] bg-slate-950"
+          data-testid="workflow-react-flow-canvas"
+        >
+          <ReactFlow
+            className="workflow-graph-canvas"
+            nodes={flowNodes}
+            edges={flowEdges}
+            fitView
+            fitViewOptions={{ padding: 0.2 }}
+            minZoom={0.85}
+            edgeTypes={workflowEdgeTypes}
+            nodesDraggable
+            nodesConnectable={false}
+            elementsSelectable
+            onNodesChange={onNodesChange}
+            onNodeClick={(_, node) => {
+              if (node.id.startsWith("role:")) selectRole(node.id.slice("role:".length));
+              else if (!node.id.startsWith("terminal:")) selectState(node.id);
+            }}
+            onEdgeClick={(_, edge) => {
+              if (graph.edges.some((candidate) => candidate.id === edge.id)) selectEdge(edge.id);
+            }}
           >
-            <ReactFlow
-              className="workflow-graph-canvas"
-              nodes={flowNodes}
-              edges={flowEdges}
-              fitView
-              fitViewOptions={{ padding: 0.2 }}
-              minZoom={0.85}
-              edgeTypes={workflowEdgeTypes}
-              nodesDraggable
-              nodesConnectable={false}
-              elementsSelectable
-              onNodesChange={onNodesChange}
-              onNodeClick={(_, node) => selectState(node.id)}
-              onEdgeClick={(_, edge) => selectEdge(edge.id)}
-            >
-              <Background />
-              <Controls />
-            </ReactFlow>
-          </div>
-        ) : (
-          <div className="space-y-2 bg-slate-950 p-4 text-sm text-zinc-300">
-            <p>
-              Graph preview is collapsed. The outline on the left is the primary editor.
-            </p>
-            <p className="text-xs text-zinc-500">
-              Showing {graphFocus.nodes.length}{" "}
-              {graphFocus.nodes.length === 1 ? "state" : "states"} and{" "}
-              {graphFocus.edges.length}{" "}
-              {graphFocus.edges.length === 1 ? "transition" : "transitions"} when expanded.
-            </p>
-          </div>
-        )}
+            <Background />
+            <Controls />
+          </ReactFlow>
+        </div>
       </div>
     </section>
+  );
+}
+
+
+function WorkflowWizardPanel({
+  definition,
+  nodes,
+  edges,
+  level,
+  selectedRoleId,
+  selectedNode,
+  selectedEdge,
+  selectedEdgeId,
+  selectedRole,
+  assets,
+  editTarget,
+  onBack,
+  onSelectRole,
+  onSelectState,
+  onSelectEdge,
+  onAddRole,
+  onEditRole,
+  onEditState,
+  onEditAction,
+  onDone,
+  onDefinitionChange,
+  onEdgeChange,
+  onPromptChange,
+}: {
+  definition: AgentWorkflowDefinitionV1;
+  nodes: WorkflowGraphNodeModel[];
+  edges: WorkflowGraphEdgeModel[];
+  level: WorkflowWizardLevel;
+  selectedRoleId: string;
+  selectedNode: WorkflowGraphNodeModel | null;
+  selectedEdge: WorkflowGraphEdgeModel | null;
+  selectedEdgeId: string;
+  selectedRole: AgentWorkflowDefinitionV1["roles"][string] | null;
+  assets: WorkflowAssetsModel;
+  editTarget: WorkflowEditorEditTarget | null;
+  onBack: () => void;
+  onSelectRole: (roleId: string) => void;
+  onSelectState: (stateId: string) => void;
+  onSelectEdge: (edgeId: string) => void;
+  onAddRole: () => void;
+  onEditRole: () => void;
+  onEditState: () => void;
+  onEditAction: () => void;
+  onDone: () => void;
+  onDefinitionChange: (definition: AgentWorkflowDefinitionV1) => void;
+  onEdgeChange: (edgeId: string, edit: { actionLabel?: string; targetState?: string; handoffPrompt?: string }) => void;
+  onPromptChange: (stateId: string, stepId: string, edit: { promptTemplate?: string }) => void;
+}) {
+  const roleEntries = Object.entries(definition.roles);
+  const roleStates = selectedRoleId ? nodes.filter((node) => node.ownerRoleId === selectedRoleId) : [];
+  const stateActions = selectedNode ? edges.filter((edge) => edge.source === selectedNode.id) : [];
+
+  if (level === "landing") {
+    return (
+      <section className="rounded-xl border border-cyan-900/60 bg-slate-950/80 p-4" aria-label="Workflow wizard roles">
+        <div className="text-xs uppercase tracking-wide text-cyan-300">Workflow wizard</div>
+        <h2 className="mt-1 font-semibold">Roles</h2>
+        <div className="mt-4 space-y-2">
+          {roleEntries.map(([roleId, role]) => {
+            const stateCount = nodes.filter((node) => node.ownerRoleId === roleId).length;
+            return (
+              <button key={roleId} type="button" onClick={() => onSelectRole(roleId)} className="w-full rounded-lg border border-zinc-800 bg-zinc-900/70 px-3 py-2 text-left text-sm text-zinc-200 hover:border-cyan-500 hover:bg-cyan-950/20">
+                <span className="font-medium">{role.label ?? roleId}</span>
+                <span className="ml-2 text-xs text-zinc-400">{roleId} · {stateCount} {stateCount === 1 ? "state" : "states"}</span>
+                <span className="mt-1 block text-xs text-zinc-400">{formatEditorRolePreference(role)}</span>
+              </button>
+            );
+          })}
+          <button type="button" onClick={onAddRole} className="w-full rounded-lg border border-dashed border-zinc-700 px-3 py-2 text-left text-sm text-cyan-200 hover:border-cyan-500 hover:bg-cyan-950/20">
+            + Add Role
+          </button>
+        </div>
+      </section>
+    );
+  }
+
+  if (level === "role" && selectedRole && selectedRoleId) {
+    return (
+      <section className="space-y-4 rounded-xl border border-cyan-900/60 bg-slate-950/80 p-4" aria-label="Selected role wizard view">
+        <WizardHeader title="Role selected" subtitle={selectedRole.label ?? selectedRoleId} onBack={onBack} />
+        <RoleDetails
+          roleId={selectedRoleId}
+          role={selectedRole}
+          stateCount={roleStates.length}
+          definition={definition}
+          assets={assets}
+          editing={editTarget?.kind === "role" && editTarget.id === selectedRoleId}
+          onEdit={onEditRole}
+          onDone={onDone}
+          onChange={onDefinitionChange}
+        />
+        <section className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
+          <h3 className="font-medium">States for this role</h3>
+          <div className="mt-3 space-y-2">
+            {roleStates.length ? roleStates.map((node) => (
+              <button key={node.id} type="button" onClick={() => onSelectState(node.id)} className="w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-left text-sm hover:border-emerald-500">
+                <span className="font-medium">{node.label}</span>
+                <span className="ml-2 text-xs text-zinc-400">{node.id}</span>
+              </button>
+            )) : <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-3 text-sm text-zinc-400">No states are assigned to this role yet.</div>}
+          </div>
+        </section>
+      </section>
+    );
+  }
+
+  if (level === "state" && selectedNode) {
+    return (
+      <section className="space-y-4 rounded-xl border border-cyan-900/60 bg-slate-950/80 p-4" aria-label="Selected state wizard view">
+        <WizardHeader title="State selected" subtitle={selectedNode.label} onBack={onBack} />
+        <NodeDetails
+          node={selectedNode}
+          definition={definition}
+          assets={assets}
+          editing={editTarget?.kind === "state" && editTarget.id === selectedNode.id}
+          onEdit={onEditState}
+          onDone={onDone}
+          onChange={onDefinitionChange}
+          onPromptChange={onPromptChange}
+        />
+        <section className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
+          <h3 className="font-medium">Transitions / actions</h3>
+          <div className="mt-3 space-y-2">
+            {stateActions.length ? stateActions.map((edge) => (
+              <button key={edge.id} type="button" onClick={() => onSelectEdge(edge.id)} className={`w-full rounded-lg border px-3 py-2 text-left text-sm ${edge.id === selectedEdgeId ? "border-violet-500 bg-violet-950/30" : "border-zinc-800 bg-zinc-950 hover:border-violet-500"}`}>
+                <span className="font-medium">{edge.label}</span>
+                <span className="block text-xs text-zinc-400">{edge.actionId}: {edge.source} → {edge.target}</span>
+              </button>
+            )) : <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-3 text-sm text-zinc-400">{selectedNode.terminal ? "Terminal states do not have outgoing actions." : "No outgoing transitions for this state yet."}</div>}
+          </div>
+        </section>
+      </section>
+    );
+  }
+
+  if (level === "action" && selectedEdge) {
+    return (
+      <section className="space-y-4 rounded-xl border border-cyan-900/60 bg-slate-950/80 p-4" aria-label="Selected action wizard view">
+        <WizardHeader title="Action selected" subtitle={`${selectedEdge.label} · ${selectedEdge.source} → ${selectedEdge.target}`} onBack={onBack} />
+        <EdgeEditor
+          edge={selectedEdge}
+          states={nodes}
+          editing={editTarget?.kind === "action" && editTarget.id === selectedEdge.id}
+          onEdit={onEditAction}
+          onDone={onDone}
+          onChange={onEdgeChange}
+        />
+      </section>
+    );
+  }
+
+  return (
+    <section className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 text-sm text-zinc-400">
+      Select a workflow role to continue.
+    </section>
+  );
+}
+
+function WizardHeader({ title, subtitle, onBack }: { title: string; subtitle: string; onBack: () => void }) {
+  return (
+    <header className="flex items-start gap-3">
+      <button type="button" onClick={onBack} className="rounded-md border border-zinc-700 p-2 text-cyan-100 hover:border-cyan-500" aria-label="Back">
+        <IconArrowLeft size={16} aria-hidden="true" />
+      </button>
+      <div>
+        <div className="text-xs uppercase tracking-wide text-cyan-300">{title}</div>
+        <h2 className="mt-1 text-lg font-semibold">{subtitle}</h2>
+      </div>
+    </header>
   );
 }
 
@@ -535,10 +699,7 @@ export function WorkflowOutlineNavigator({
       <div className="text-xs uppercase tracking-wide text-cyan-300">
         Workflow outline
       </div>
-      <h2 className="mt-1 font-semibold">Roles → states → transitions</h2>
-      <p className="mt-1 text-xs text-zinc-400">
-        Choose a role, then inspect its states and outgoing actions.
-      </p>
+      <h2 className="mt-1 font-semibold">Roles</h2>
 
       <div className="mt-4">
         <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
@@ -675,7 +836,7 @@ function nextRoleId(roles: AgentWorkflowDefinitionV1["roles"]) {
   return roleId;
 }
 
-function DesignDetails({
+function WorkflowDetails({
   definition,
   editing,
   onEdit,
@@ -693,8 +854,8 @@ function DesignDetails({
       <section className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h2 className="font-semibold">Design details</h2>
-            <p className="mt-2 text-sm text-zinc-300">{definition.name}</p>
+            <div className="text-xs uppercase tracking-wide text-cyan-300">Workflow details</div>
+            <h2 className="mt-1 text-lg font-semibold">{definition.name}</h2>
             {definition.description ? (
               <p className="mt-1 text-xs text-zinc-500">
                 {definition.description}
@@ -703,10 +864,12 @@ function DesignDetails({
           </div>
           <button
             type="button"
-            className="rounded-md border border-zinc-700 px-3 py-1.5 text-sm text-cyan-100 hover:border-cyan-500"
+            className="rounded-md border border-zinc-700 p-2 text-cyan-100 hover:border-cyan-500"
             onClick={onEdit}
+            aria-label="Edit workflow details"
+            title="Edit workflow details"
           >
-            Edit design
+            <IconPencil size={16} aria-hidden="true" />
           </button>
         </div>
       </section>
@@ -716,13 +879,15 @@ function DesignDetails({
   return (
     <section className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="font-semibold">Edit design details</h2>
+        <h2 className="font-semibold">Edit workflow details</h2>
         <button
           type="button"
-          className="rounded-md border border-zinc-700 px-3 py-1.5 text-sm"
+          className="rounded-md border border-zinc-700 p-2 text-emerald-100"
           onClick={onDone}
+          aria-label="Done editing workflow details"
+          title="Done"
         >
-          Done
+          <IconCheck size={16} aria-hidden="true" />
         </button>
       </div>
       <label className="mt-3 block text-sm">
@@ -812,10 +977,12 @@ function RoleDetails({
           </div>
           <button
             type="button"
-            className="rounded-md border border-zinc-700 px-3 py-1.5 text-sm text-cyan-100 hover:border-cyan-500"
+            className="rounded-md border border-zinc-700 p-2 text-cyan-100 hover:border-cyan-500"
             onClick={onEdit}
+            aria-label={`Edit role ${roleId}`}
+            title="Edit role"
           >
-            Edit role
+            <IconPencil size={16} aria-hidden="true" />
           </button>
         </div>
       </section>
@@ -833,10 +1000,12 @@ function RoleDetails({
         </div>
         <button
           type="button"
-          className="rounded-md border border-zinc-700 px-3 py-1.5 text-sm"
+          className="rounded-md border border-zinc-700 p-2 text-emerald-100"
           onClick={onDone}
+          aria-label={`Done editing role ${roleId}`}
+          title="Done"
         >
-          Done
+          <IconCheck size={16} aria-hidden="true" />
         </button>
       </div>
       <label className="mt-3 block text-sm">
@@ -1057,10 +1226,12 @@ function NodeDetails({
         <h2 className="mt-1 text-lg font-semibold">{node.label}</h2>
         <button
           type="button"
-          className="rounded-md border border-zinc-700 px-3 py-1.5 text-sm text-cyan-100 hover:border-cyan-500"
+          className="rounded-md border border-zinc-700 p-2 text-cyan-100 hover:border-cyan-500"
           onClick={editing ? onDone : onEdit}
+          aria-label={editing ? `Done editing state ${node.id}` : `Edit state ${node.id}`}
+          title={editing ? "Done" : "Edit state"}
         >
-          {editing ? "Done" : "Edit state"}
+          {editing ? <IconCheck size={16} aria-hidden="true" /> : <IconPencil size={16} aria-hidden="true" />}
         </button>
       </div>
       <dl className="mt-3 space-y-2 text-sm">
@@ -1145,7 +1316,7 @@ function StepSummary({
         />
       ) : step.type === "agent_turn" ? (
         <div className="mt-2 rounded border border-zinc-800 bg-zinc-900/50 p-2 text-xs text-zinc-500">
-          Prompt and skill editing is available after pressing Edit state.
+          Prompt and skill editing is available in state edit mode.
         </div>
       ) : null}
       {step.humanFormProvider ? (
@@ -1581,10 +1752,12 @@ function EdgeEditor({
         <h2 className="mt-1 text-lg font-semibold">{edge.actionId}</h2>
         <button
           type="button"
-          className="rounded-md border border-zinc-700 px-3 py-1.5 text-sm text-cyan-100 hover:border-cyan-500"
+          className="rounded-md border border-zinc-700 p-2 text-cyan-100 hover:border-cyan-500"
           onClick={editing ? onDone : onEdit}
+          aria-label={editing ? `Done editing action ${edge.actionId}` : `Edit action ${edge.actionId}`}
+          title={editing ? "Done" : "Edit action"}
         >
-          {editing ? "Done" : "Edit action"}
+          {editing ? <IconCheck size={16} aria-hidden="true" /> : <IconPencil size={16} aria-hidden="true" />}
         </button>
       </div>
       <dl className="mt-3 grid gap-2 rounded-lg border border-zinc-800 bg-zinc-950 p-3 text-sm">
@@ -1631,12 +1804,7 @@ function EdgeEditor({
             </select>
           </label>
         </>
-      ) : (
-        <div className="mt-3 rounded border border-zinc-800 bg-zinc-950 p-3 text-sm text-zinc-300">
-          Press Edit action to change the action label, target state, or handoff
-          prompt.
-        </div>
-      )}
+      ) : null}
       {edge.waitFor ? (
         <section className="mt-4 rounded-lg border border-cyan-900 bg-cyan-950/20 p-3 text-sm">
           <h3 className="font-medium text-cyan-100">Wait action</h3>
@@ -1814,6 +1982,119 @@ type WorkflowActionEdgeData = {
   selfLoop: boolean;
   onSelect?: (edgeId: string) => void;
 };
+
+
+export function buildWorkflowEditorGraphFocusContext({
+  definition,
+  nodes,
+  edges,
+  wizardLevel,
+  selectedRoleId,
+  selectedNodeId,
+  selectedEdgeId,
+}: {
+  definition: AgentWorkflowDefinitionV1;
+  nodes: WorkflowGraphNodeModel[];
+  edges: WorkflowGraphEdgeModel[];
+  wizardLevel: WorkflowWizardLevel;
+  selectedRoleId?: string;
+  selectedNodeId?: string;
+  selectedEdgeId?: string;
+}): WorkflowGraphFocusContext {
+  if (wizardLevel === "landing") {
+    return buildRoleLevelGraphContext(definition, nodes, edges);
+  }
+
+  if (wizardLevel === "action" && selectedEdgeId) {
+    const selectedEdge = edges.find((edge) => edge.id === selectedEdgeId);
+    if (selectedEdge) {
+      const nodeIds = new Set([selectedEdge.source, selectedEdge.target]);
+      return {
+        title: `Action ${selectedEdge.label}`,
+        description: `${selectedEdge.source} → ${selectedEdge.target}`,
+        nodes: nodes.filter((node) => nodeIds.has(node.id)),
+        edges: [selectedEdge],
+      };
+    }
+  }
+
+  if (wizardLevel === "state" && selectedNodeId) {
+    const selectedNode = nodes.find((node) => node.id === selectedNodeId);
+    if (selectedNode) {
+      const outgoing = edges.filter((edge) => edge.source === selectedNode.id);
+      const nodeIds = new Set([selectedNode.id, ...outgoing.map((edge) => edge.target)]);
+      return {
+        title: `State ${selectedNode.label}`,
+        description: selectedNode.terminal ? "Terminal completion state." : "Selected state and its outgoing actions.",
+        nodes: nodes.filter((node) => nodeIds.has(node.id)),
+        edges: outgoing,
+      };
+    }
+  }
+
+  if (wizardLevel === "role" && selectedRoleId) {
+    const owned = nodes.filter((node) => node.ownerRoleId === selectedRoleId);
+    const ownedIds = new Set(owned.map((node) => node.id));
+    const roleEdges = edges.filter((edge) => ownedIds.has(edge.source) && ownedIds.has(edge.target));
+    return {
+      title: `Role ${definition.roles[selectedRoleId]?.label ?? selectedRoleId}`,
+      description: owned.length ? "States owned by the selected role." : "No states are assigned to this role yet.",
+      nodes: owned,
+      edges: roleEdges,
+    };
+  }
+
+  return buildRoleLevelGraphContext(definition, nodes, edges);
+}
+
+function buildRoleLevelGraphContext(
+  definition: AgentWorkflowDefinitionV1,
+  nodes: WorkflowGraphNodeModel[],
+  edges: WorkflowGraphEdgeModel[],
+): WorkflowGraphFocusContext {
+  const roleNodes: WorkflowGraphNodeModel[] = Object.entries(definition.roles).map(([roleId, role], index) => ({
+    id: `role:${roleId}`,
+    label: role.label ?? roleId,
+    ownerRoleId: roleId,
+    ownerLabel: role.label ?? roleId,
+    terminal: false,
+    initial: index === 0,
+    steps: [],
+  }));
+  const terminalTargets = nodes.filter((node) => node.terminal && edges.some((edge) => edge.target === node.id));
+  const terminalNodes: WorkflowGraphNodeModel[] = terminalTargets.map((node) => ({
+    ...node,
+    id: `terminal:${node.id}`,
+  }));
+  const terminalIds = new Set(terminalTargets.map((node) => node.id));
+  const roleEdges = new Map<string, WorkflowGraphEdgeModel>();
+  for (const edge of edges) {
+    const source = nodes.find((node) => node.id === edge.source);
+    const target = nodes.find((node) => node.id === edge.target);
+    const sourceId = source?.ownerRoleId ? `role:${source.ownerRoleId}` : source?.terminal ? `terminal:${source.id}` : null;
+    const targetId = target?.ownerRoleId ? `role:${target.ownerRoleId}` : terminalIds.has(edge.target) ? `terminal:${edge.target}` : null;
+    if (!sourceId || !targetId || sourceId === targetId) continue;
+    const id = `role-edge:${sourceId}:${targetId}`;
+    if (roleEdges.has(id)) continue;
+    roleEdges.set(id, {
+      id,
+      source: sourceId,
+      target: targetId,
+      actionId: "role_transition",
+      label: "handoff",
+      description: null,
+      resultFields: [],
+      handoffPrompt: null,
+      waitFor: null,
+    });
+  }
+  return {
+    title: "Workflow roles",
+    description: "Roles and cross-role handoffs.",
+    nodes: [...roleNodes, ...terminalNodes],
+    edges: [...roleEdges.values()],
+  };
+}
 
 export function buildWorkflowGraphFocusContext({
   nodes,
