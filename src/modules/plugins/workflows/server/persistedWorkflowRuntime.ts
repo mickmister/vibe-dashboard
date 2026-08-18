@@ -35,6 +35,12 @@ import {
 } from "../extensions/workflowExtensionRegistry";
 import { DbWorkflowDesignStore } from "./workflowDesignStore";
 import type { DbWorkspaceLaneStore } from "../../../../server/workspace-lane-store";
+import type { BeadMetadataProvider } from "./beadMetaWorkflowRuntime";
+import {
+  composeWorkflowAgentPrompt,
+  resolveWorkflowBeadPromptContext,
+  withWorkflowBeadContextInput,
+} from "../shared/workflowPromptContext";
 import {
   WorkflowCommandProviderError,
   WorkflowCommandProviderRegistry,
@@ -187,6 +193,7 @@ export class PersistedWorkflowRuntimeService {
   private readonly githubCiWatchProvider?: GitHubCiWatchProvider;
   private readonly commandProviders: WorkflowCommandProviderRegistry;
   private readonly laneStore?: DbWorkspaceLaneStore;
+  private readonly beadProvider?: BeadMetadataProvider;
 
   constructor(options: {
     db: Kysely<DB>;
@@ -197,6 +204,7 @@ export class PersistedWorkflowRuntimeService {
     githubCiWatchProvider?: GitHubCiWatchProvider;
     commandProviders?: WorkflowCommandProviderRegistry;
     laneStore?: DbWorkspaceLaneStore;
+    beadProvider?: BeadMetadataProvider;
     now?: () => number;
     createId?: () => string;
     validator?: DecisionResponseValidator;
@@ -219,6 +227,7 @@ export class PersistedWorkflowRuntimeService {
     this.commandProviders =
       options.commandProviders ?? createDefaultWorkflowCommandProviderRegistry();
     this.laneStore = options.laneStore;
+    this.beadProvider = options.beadProvider;
   }
 
   async launch(input: {
@@ -230,6 +239,7 @@ export class PersistedWorkflowRuntimeService {
     inputs: Record<string, unknown>;
     additionalInstructions?: string | null;
     roleBindings: Record<string, WorkflowRoleSessionBindingInput>;
+    beadIds?: string[];
   }): Promise<PersistedWorkflowRunReadModel> {
     const requestedDesign = await this.designStore.getDesign(input.designId);
     const requestedVersion =
@@ -261,13 +271,16 @@ export class PersistedWorkflowRuntimeService {
       input.roleBindings,
     );
     this.assertRoleBindings(preflightModel, resolvedRoleBindings);
+    const runInputs = input.beadIds?.length
+      ? withWorkflowBeadContextInput(input.inputs, input.beadIds)
+      : input.inputs;
 
     const runSnapshot = await this.designStore.createRunSnapshot({
       runSnapshotId: input.runSnapshotId,
       designId: input.designId,
       version: requestedVersion,
       workspaceId: input.workspaceId,
-      runInput: input.inputs,
+      runInput: runInputs,
       roleBindings: resolvedRoleBindings,
       additionalInstructions: input.additionalInstructions ?? null,
     });
@@ -280,7 +293,7 @@ export class PersistedWorkflowRuntimeService {
 
     const initialSnapshot = createInitialWorkflowSnapshot(model, {
       instanceId: input.runId,
-      inputs: input.inputs,
+      inputs: runInputs,
       now: this.now,
       createId: this.createId,
     });
@@ -1242,6 +1255,14 @@ export class PersistedWorkflowRuntimeService {
         `missing session binding for role ${effect.role}`,
       );
     try {
+      const beadContext = await resolveWorkflowBeadPromptContext({
+        inputs: run.coreSnapshot.inputs,
+        provider: this.beadProvider,
+      });
+      const prompt = composeWorkflowAgentPrompt({
+        basePrompt: effect.prompt,
+        beadContext,
+      });
       const queued = await this.queue.queueAgentTurn({
         runId: run.runId,
         workspaceId: run.workspaceId,
@@ -1250,7 +1271,7 @@ export class PersistedWorkflowRuntimeService {
         state: effect.state,
         stepId: effect.stepId,
         turnId: effect.turnId,
-        prompt: effect.prompt,
+        prompt,
         provenance: {
           kind: "workflow",
           label: "Workflow automation",
@@ -1290,8 +1311,9 @@ export class PersistedWorkflowRuntimeService {
             executorType: binding.executorType ?? null,
             model: binding.model ?? null,
             queueItemRef: queued.queueItemRef,
-            promptPreview: effect.prompt.slice(0, 4096),
-            promptTruncated: effect.prompt.length > 4096,
+            promptPreview: prompt.slice(0, 4096),
+            promptTruncated: prompt.length > 4096,
+            beadIds: beadContext?.beadIds ?? [],
           }),
         ],
         queuedTurns,

@@ -389,6 +389,7 @@ export function registerWorkflowRoutes(
     const body = asRecord(await readJsonBody(c.req.raw));
     const workspaceId = asString(body?.workspaceId)?.trim();
     const beadIds = Array.isArray(body?.beadIds) ? body.beadIds.filter((item): item is string => typeof item === "string") : [];
+    const beadGroups = parseBeadGroups(body?.beadGroups);
     const childWorkflow = asRecord(body?.childWorkflow);
     const childDesignId = asString(childWorkflow?.designId)?.trim();
     const childVersion = typeof childWorkflow?.version === 'number' ? childWorkflow.version : parsePositiveInteger(typeof childWorkflow?.version === 'string' ? childWorkflow.version : null);
@@ -407,7 +408,8 @@ export function registerWorkflowRoutes(
       const metaRun = await metaRuntime.createRun({
         metaRunId: asString(body?.metaRunId) ?? `workflow-meta-run-${randomUUID()}`,
         parentWorkspaceId: workspaceId,
-        beadIds,
+        beadIds: beadGroups.length ? beadGroups.flat() : beadIds,
+        beadGroups: beadGroups.length ? beadGroups : undefined,
         title: asString(body?.title) ?? undefined,
         summary: asString(body?.summary) ?? null,
         childWorkflowDesignId: childDesignId,
@@ -861,6 +863,7 @@ export function registerWorkflowRoutes(
         inputs: parsed.request.inputs,
         additionalInstructions: parsed.request.additionalInstructions,
         roleBindings,
+        beadIds: parsed.request.beadIds,
       });
       run = await catchUpPersistedWorkflowCompletedTurns(
         options,
@@ -2033,6 +2036,27 @@ function asString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
+function parseStringList(value: unknown): string[] {
+  const raw = Array.isArray(value) ? value : typeof value === "string" ? value.split(/[\n,]+/u) : [];
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const item of raw) {
+    if (typeof item !== "string") continue;
+    const text = item.trim();
+    if (!text || seen.has(text)) continue;
+    seen.add(text);
+    result.push(text);
+  }
+  return result;
+}
+
+function parseBeadGroups(value: unknown): string[][] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((group) => Array.isArray(group) ? parseStringList(group) : typeof group === "string" ? parseStringList(group) : [])
+    .filter((group) => group.length > 0);
+}
+
 interface WorkflowLaunchRoleBindingRequest {
   mode: "existing" | "create_or_reuse";
   sessionId?: string;
@@ -2049,6 +2073,7 @@ interface WorkflowLaunchRequest {
   additionalInstructions: string | null;
   roleBindings: Record<string, WorkflowLaunchRoleBindingRequest>;
   laneId: string | null;
+  beadIds: string[];
 }
 
 interface WorkflowBatchLaunchRequest {
@@ -2571,6 +2596,7 @@ function createPersistedMetaWorkflowChildRunner(
         workspaceId: input.parentWorkspaceId,
         inputs: {
           beadId: input.bead.beadId,
+          beadIds: input.beadGroup?.map((bead) => bead.beadId) ?? [input.bead.beadId],
           metaRunId: input.metaRunId,
           itemId: input.itemId,
           childRunId: input.childRunId,
@@ -2622,6 +2648,7 @@ function parseWorkflowLaunchRequest(record: Record<string, unknown> | null):
   const designId = asString(record?.designId)?.trim();
   const inputs = asRecord(record?.inputs) ?? {};
   const roleBindings = asRecord(record?.roleBindings) ?? {};
+  const beadIds = parseStringList(record?.beadIds);
   const fieldErrors: Record<string, string> = {};
   if (!workspaceId) fieldErrors.workspaceId = "Workspace is required.";
   if (!designId) fieldErrors.designId = "Workflow is required.";
@@ -2644,6 +2671,7 @@ function parseWorkflowLaunchRequest(record: Record<string, unknown> | null):
         asString(record?.additionalInstructions)?.trim() || null,
       roleBindings: normalizeRoleBindings(roleBindings),
       laneId: asString(record?.laneId)?.trim() || null,
+      beadIds,
     },
   };
 }
@@ -2735,6 +2763,7 @@ async function resolvePersistedWorkflowRuntime(
     designStore,
     orchestrationStore: options.workflowOrchestrationStore,
     laneStore: options.workspaceLaneStore,
+    beadProvider: options.metaWorkflowBeadProvider,
     queue: {
       queueAgentTurn: async (request) => {
         const queued = await options.vkClient!.queueFollowUp!(

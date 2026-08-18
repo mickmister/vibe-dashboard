@@ -67,6 +67,40 @@ describe('BeadMetaWorkflowRuntime M118', () => {
     expect(childStarts.map((start) => start.beadId)).toEqual(['A', 'B']);
   });
 
+
+
+  it('TEST_CASE_2YLE_1B propagates grouped beads to each sequential child workflow item', async () => {
+    const { runtime, childStarts } = await createRuntime({ beads: [bead('A'), bead('B'), bead('C')] });
+
+    const launched = await runtime.createRun({
+      metaRunId: 'meta-groups',
+      parentWorkspaceId: 'workspace-a',
+      beadIds: [],
+      beadGroups: [['A', 'B'], ['C']],
+      childWorkflowDesignId: 'design.child',
+    });
+
+    expect(launched.progress.total).toBe(2);
+    expect(launched.items[0]).toMatchObject({ beadId: 'A', title: 'A title + 1 more', status: 'running' });
+    expect(launched.items[0]?.provenance).toMatchObject({ beadIds: ['A', 'B'], beadTitles: ['A title', 'B title'] });
+    expect(childStarts).toEqual([
+      expect.objectContaining({ beadId: 'A', beadGroupIds: ['A', 'B'], childRunId: 'child-meta-groups-0' }),
+    ]);
+
+    const afterFirstGroup = await runtime.completeChild({
+      metaRunId: 'meta-groups',
+      itemId: launched.currentItem!.itemId,
+      childRunId: 'child-meta-groups-0',
+      summary: 'First bead group complete',
+    });
+
+    expect(afterFirstGroup.currentItem).toMatchObject({ beadId: 'C', status: 'running' });
+    expect(childStarts).toEqual([
+      expect.objectContaining({ beadGroupIds: ['A', 'B'] }),
+      expect.objectContaining({ beadId: 'C', beadGroupIds: ['C'], childRunId: 'child-meta-groups-1' }),
+    ]);
+  });
+
   it('TEST_CASE_M118_1B durably claims a child launch before side effects so duplicate resumes do not start duplicates', async () => {
     const handle = await initVdDb({ path: ':memory:' });
     handles.push(handle);
@@ -229,6 +263,7 @@ function buildRuntime(handle: VdDbHandle, options: { beads: BeadReadModel[]; chi
         childRunId: input.childRunId,
         childWorkflowDesignId: input.childWorkflowDesignId ?? null,
         idempotencyKey: input.idempotencyKey,
+        beadGroupIds: input.beadGroup?.map((entry) => entry.beadId) ?? [input.bead.beadId],
       });
       return { childRunId: input.childRunId, artifactRefs: [`workflow-run://${input.childRunId}`] };
     },
@@ -251,7 +286,7 @@ function buildRuntime(handle: VdDbHandle, options: { beads: BeadReadModel[]; chi
   });
 }
 
-type ChildStartRecord = { beadId: string; itemId: string; childRunId: string; childWorkflowDesignId: string | null; idempotencyKey: string };
+type ChildStartRecord = { beadId: string; itemId: string; childRunId: string; childWorkflowDesignId: string | null; idempotencyKey: string; beadGroupIds?: string[] };
 
 function bead(beadId: string, options: Partial<BeadReadModel> = {}): BeadReadModel {
   return {

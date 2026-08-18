@@ -600,6 +600,18 @@ describe("registerWorkflowRoutes", () => {
       workflowHomeDb: handle.db,
       workflowDesignStore: designStore,
       workspaceLaneStore: laneStore,
+      metaWorkflowBeadProvider: {
+        async readBeads(beadIds) {
+          return beadIds.map((beadId) => ({
+            beadId,
+            title: beadId === "vibe-kanban-vscode-web-2yle" ? "Carry bead context" : beadId,
+            status: "open",
+            accessible: true,
+            labels: ["workflow"],
+            workspaceId: "workspace-a",
+          }));
+        },
+      },
       vkClient: {
         getSessions: async () => sessions,
         getSession: async (sessionId) => {
@@ -687,6 +699,7 @@ describe("registerWorkflowRoutes", () => {
         inputs: { featureRequest: "Build launch flow" },
         additionalInstructions: "Keep it clean.",
         laneId: "lane-launch",
+        beadIds: ["vibe-kanban-vscode-web-2yle", "vibe-kanban-vscode-web-2yle"],
         roleBindings: {
           dev: { mode: "existing", sessionId: "session-dev" },
           review: { mode: "existing", sessionId: "session-review" },
@@ -708,6 +721,9 @@ describe("registerWorkflowRoutes", () => {
     });
     expect(payload.home.recentRuns[0].detailUrl).toBe(payload.run.detailUrl);
     expect(queued).toMatchObject([{ sessionId: "session-dev" }]);
+    expect(queued[0]?.prompt).toContain("## Task context");
+    expect(queued[0]?.prompt).toContain("vibe-kanban-vscode-web-2yle: Carry bead context");
+    expect(queued[0]?.prompt).toContain("Expected XML Schema (XSD):");
     expect(
       JSON.stringify(await designStore.getDesign("design-launch")),
     ).not.toContain("session-dev");
@@ -719,6 +735,11 @@ describe("registerWorkflowRoutes", () => {
       dev: { sessionId: "session-dev" },
       review: { sessionId: "session-review" },
     });
+    const snapshotRow = await handle.db
+      .selectFrom("WorkflowDesignRunSnapshot")
+      .selectAll()
+      .executeTakeFirstOrThrow();
+    expect(JSON.parse(snapshotRow.runInputJson)).toMatchObject({ workflowContext: { beadIds: ["vibe-kanban-vscode-web-2yle"] } });
     await expect(
       laneStore.getBinding("workflow_run", payload.run.runId),
     ).resolves.toMatchObject({

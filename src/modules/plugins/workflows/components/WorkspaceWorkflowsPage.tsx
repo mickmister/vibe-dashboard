@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router";
 import { buildVkSessionUrl } from "../../../../utils/origin";
 import { workflowRouteHref } from "./workflowRouteContext";
 import { StandaloneDashboardPage } from "../../../../components/StandaloneDashboardPage";
+import { searchMetaWorkflowBeads, type MetaWorkflowBeadSummary } from "../client/metaWorkflowApi";
 import {
   batchLaunchWorkspaceWorkflow,
   createWorkspaceLane,
@@ -592,6 +593,10 @@ function RunWorkflowDialog({
   >({});
   const [roleModels, setRoleModels] = useState<Record<string, string>>({});
   const [selectedLaneId, setSelectedLaneId] = useState("");
+  const [selectedBeads, setSelectedBeads] = useState<MetaWorkflowBeadSummary[]>([]);
+  const [beadQuery, setBeadQuery] = useState("");
+  const [beadResults, setBeadResults] = useState<MetaWorkflowBeadSummary[]>([]);
+  const [beadSearchMessage, setBeadSearchMessage] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -642,6 +647,30 @@ function RunWorkflowDialog({
       active = false;
     };
   }, [workspaceId, workflow.id, workflow.version]);
+
+  useEffect(() => {
+    if (!beadQuery.trim()) {
+      setBeadResults([]);
+      setBeadSearchMessage(null);
+      return;
+    }
+    let active = true;
+    const timer = window.setTimeout(() => {
+      searchMetaWorkflowBeads({ workspaceId, query: beadQuery, scope: "current_workspace" })
+        .then((result) => {
+          if (!active) return;
+          setBeadResults(result.beads);
+          setBeadSearchMessage(result.unavailableReason);
+        })
+        .catch((caught) => {
+          if (active) setBeadSearchMessage(caught instanceof Error ? caught.message : String(caught));
+        });
+    }, 150);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [beadQuery, workspaceId]);
 
   const launchWorkflowModel = options?.workflow ?? workflow;
   const launchInputs = useMemo(
@@ -765,6 +794,7 @@ function RunWorkflowDialog({
         additionalInstructions: additionalInstructions.trim() || null,
         roleBindings,
         laneId: selectedLaneId || null,
+        beadIds: selectedBeads.map((bead) => bead.beadId),
       });
       setLaunched(launched.run);
       if (launched.home) onLaunched(launched.home);
@@ -882,6 +912,60 @@ function RunWorkflowDialog({
                 or future runs.
               </p>
             </label>
+
+            <section className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-4" aria-label="Workflow bead context picker">
+              <h3 className="text-sm font-medium">Task beads</h3>
+              <p className="mt-1 text-xs text-zinc-500">
+                Pick one or more beads to pass as task context to every workflow state. Agents receive a minimal bead summary and can read details when needed.
+              </p>
+              {selectedBeads.length ? (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {selectedBeads.map((bead) => (
+                    <button
+                      key={bead.beadId}
+                      type="button"
+                      className="rounded-full border border-cyan-900 bg-cyan-950/30 px-3 py-1 text-xs text-cyan-100"
+                      onClick={() => setSelectedBeads((current) => current.filter((entry) => entry.beadId !== bead.beadId))}
+                      aria-label={`Remove bead ${bead.beadId}`}
+                    >
+                      {bead.title} · {bead.beadId} ×
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-3 text-xs text-zinc-500">No beads selected for this run.</p>
+              )}
+              <label className="mt-3 block text-xs text-zinc-400">
+                Search current workspace beads
+                <input
+                  className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 p-2 text-sm text-zinc-100"
+                  value={beadQuery}
+                  onChange={(event) => setBeadQuery(event.target.value)}
+                  placeholder="Search by bead title or id"
+                  aria-label="Search beads for workflow context"
+                />
+              </label>
+              {beadSearchMessage ? <p className="mt-2 text-xs text-amber-200">{beadSearchMessage}</p> : null}
+              {beadResults.length ? (
+                <div className="mt-2 max-h-36 overflow-auto rounded border border-zinc-800">
+                  {beadResults.map((bead) => {
+                    const selected = selectedBeads.some((entry) => entry.beadId === bead.beadId);
+                    return (
+                      <button
+                        key={bead.beadId}
+                        type="button"
+                        className="block w-full border-b border-zinc-800 px-3 py-2 text-left text-xs hover:bg-zinc-800 disabled:opacity-60"
+                        disabled={selected || !bead.accessible}
+                        onClick={() => setSelectedBeads((current) => [...current, bead])}
+                      >
+                        <span className="font-medium text-zinc-100">{bead.title}</span>
+                        <span className="ml-2 text-zinc-500">{bead.beadId} · {bead.status}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </section>
 
             <label className="block">
               <span className="text-sm font-medium">

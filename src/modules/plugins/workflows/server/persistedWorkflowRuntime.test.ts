@@ -113,6 +113,48 @@ describe('PersistedWorkflowRuntimeService M93', () => {
     expect(failed.events.map((entry) => entry.kind)).toContain('queue_failed');
   });
 
+
+  it('TEST_CASE_2YLE_1A refreshes bead context before each agent turn and preserves it across transitions', async () => {
+    let readCount = 0;
+    const { runtime, queued } = await createRuntime({
+      beadProvider: {
+        async readBeads(beadIds) {
+          readCount += 1;
+          return beadIds.map((beadId) => ({ beadId, title: readCount === 1 ? 'Initial bead title' : 'Updated bead title', status: 'open', accessible: true, labels: ['workflow'] }));
+        },
+      },
+    });
+    await publishWorkflow('design.bead-context', makeTwoStateWorkflow());
+
+    await runtime.launch({
+      runId: 'run-bead-context',
+      runSnapshotId: 'snapshot-bead-context',
+      designId: 'design.bead-context',
+      workspaceId: 'workspace-a',
+      inputs: { featureRequest: 'Use bead context' },
+      beadIds: ['vibe-kanban-vscode-web-2yle'],
+      roleBindings: { dev: { sessionId: 'session-dev' }, review: { sessionId: 'session-review' } },
+    });
+
+    expect(queuedAt(queued, 0).prompt).toContain('## Task context');
+    expect(queuedAt(queued, 0).prompt).toContain('vibe-kanban-vscode-web-2yle: Initial bead title');
+    expect(queuedAt(queued, 0).prompt).toContain('Use the available typed bead tools or beads CLI');
+    expect(queuedAt(queued, 0).prompt).not.toContain('/Users/');
+
+    await runtime.completeAgentTurn({ runId: 'run-bead-context', turnId: queuedAt(queued, 0).turnId, responseRef: 'exec-implement' });
+    expect(queuedAt(queued, 1).prompt).toContain('vibe-kanban-vscode-web-2yle: Updated bead title');
+    expect(queuedAt(queued, 1).prompt.indexOf('## Task context')).toBeLessThan(queuedAt(queued, 1).prompt.indexOf('Expected XML Schema (XSD):'));
+
+    await runtime.completeAgentTurn({
+      runId: 'run-bead-context',
+      turnId: queuedAt(queued, 1).turnId,
+      responseRef: 'exec-self-review',
+      finalResponseText: '<decision action="readyForReview"><summary>Ready</summary></decision>',
+    });
+    expect(queuedAt(queued, 2).prompt).toContain('vibe-kanban-vscode-web-2yle: Updated bead title');
+    expect(readCount).toBeGreaterThanOrEqual(3);
+  });
+
   it('TEST_CASE_SEBL_1B snapshots role executor/model preferences and queues them with agent turns', async () => {
     const { runtime, queued } = await createRuntime();
     const definition = makeTwoStateWorkflow();
@@ -781,7 +823,7 @@ function promptText(definition: unknown): string {
   return (dev.steps[0] as { prompt?: { template?: string } } | undefined)?.prompt?.template ?? '';
 }
 
-async function createRuntime(options: { withAttention?: boolean; withLanes?: boolean; templates?: ConstructorParameters<typeof DbWorkflowDesignStore>[0]['templates']; githubCiWatchProvider?: GitHubCiWatchProvider; commandProviders?: WorkflowCommandProviderRegistry } = {}) {
+async function createRuntime(options: { withAttention?: boolean; withLanes?: boolean; templates?: ConstructorParameters<typeof DbWorkflowDesignStore>[0]['templates']; githubCiWatchProvider?: GitHubCiWatchProvider; commandProviders?: WorkflowCommandProviderRegistry; beadProvider?: { readBeads(beadIds: string[]): Promise<Array<{ beadId: string; title: string; status: 'open' | 'in_progress' | 'review' | 'blocked' | 'closed' | 'archived' | 'removed'; accessible: boolean; labels?: string[]; workspaceId?: string | null }>> } } = {}) {
   const handle = await initVdDb({ path: ':memory:' });
   handles.push(handle);
   designStore = new DbWorkflowDesignStore({
@@ -813,6 +855,7 @@ async function createRuntime(options: { withAttention?: boolean; withLanes?: boo
     githubCiWatchProvider: options.githubCiWatchProvider,
     commandProviders: options.commandProviders,
     laneStore,
+    beadProvider: options.beadProvider,
     now: (() => { let value = 2_000; return () => value++; })(),
     createId: () => `id-${id++}`,
   });

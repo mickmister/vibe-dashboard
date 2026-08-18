@@ -42,6 +42,7 @@ import {
   type WorkflowAssetsModel,
 } from "../client/workflowAssetsApi";
 import { StandaloneDashboardPage } from "../../../../components/StandaloneDashboardPage";
+import { composeWorkflowAgentPrompt, sampleWorkflowBeadPromptContext, type WorkflowBeadPromptContext } from "../shared/workflowPromptContext";
 import {
   applyWorkflowGraphActionEdit,
   applyWorkflowGraphPromptEdit,
@@ -1690,11 +1691,13 @@ export function renderEditorPromptPreview({
   assets,
   stateId,
   stepId,
+  beadContext = sampleWorkflowBeadPromptContext(),
 }: {
   definition: AgentWorkflowDefinitionV1;
   assets: WorkflowAssetsModel;
   stateId: string;
   stepId: string;
+  beadContext?: WorkflowBeadPromptContext | null;
 }): { text: string; xmlSpec: string | null; missingRefs: string[] } {
   const state = definition.states[stateId];
   if (!state || "terminal" in state) return { text: "Choose an agent step to preview the prompt.", xmlSpec: null, missingRefs: [] };
@@ -1723,11 +1726,12 @@ export function renderEditorPromptPreview({
   const xmlSpec = renderEditorXmlSpec(definition, stateId, stepId);
   const sections = [
     assetLines.length ? assetLines.join("\n\n") : null,
-    step.prompt?.template?.trim() || "(No step prompt written yet.)",
+    step.prompt?.template?.trim() || null,
     xmlSpec,
   ].filter((section): section is string => Boolean(section));
+  const basePrompt = sections.join("\n\n");
 
-  return { text: sections.join("\n\n"), xmlSpec, missingRefs };
+  return { text: composeWorkflowAgentPrompt({ basePrompt, beadContext }), xmlSpec, missingRefs };
 }
 
 function renderEditorXmlSpec(definition: AgentWorkflowDefinitionV1, stateId: string, stepId: string): string | null {

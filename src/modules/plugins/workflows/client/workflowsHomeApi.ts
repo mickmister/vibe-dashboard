@@ -230,6 +230,7 @@ export interface LaunchWorkspaceWorkflowRequest {
   additionalInstructions?: string | null;
   roleBindings: Record<string, WorkflowLaunchRoleBindingRequest>;
   laneId?: string | null;
+  beadIds?: string[];
 }
 
 export interface BatchLaunchWorkspaceWorkflowRequest {

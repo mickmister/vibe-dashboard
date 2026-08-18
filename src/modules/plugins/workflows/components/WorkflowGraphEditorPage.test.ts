@@ -394,12 +394,30 @@ describe("WorkflowGraphEditorView prompt and skill picker", () => {
     expect(preview.text).toContain("Prompt: Dev instructions");
     expect(preview.text).toContain("Implement carefully.");
     expect(preview.text).toContain("Do work");
+    expect(preview.text).toContain("## Task context (sample bead context for preview)");
+    expect(preview.text).toContain("vibe-kanban-vscode-web-example: Example workflow task");
     expect(preview.text).toContain("Expected XML Schema (XSD):");
     expect(preview.text).toContain('fixed="done"');
     expect(preview.text).toContain('<xs:element name="summary" type="xs:string" minOccurs="1" maxOccurs="1"/>');
     expect(preview.missingRefs).toEqual(["skill:skill.missing@1"]);
     expect(preview.text).not.toContain("webhook");
     expect(preview.text).not.toContain("queue item");
+    expect(preview.text).not.toContain("(No step prompt written yet.)");
+  });
+
+  it("TEST_CASE_2YLE_1C composes final prompt previews with selected-step bead context parity", () => {
+    const preview = renderEditorPromptPreview({
+      definition: promptDefinition(),
+      stateId: "dev",
+      stepId: "decide",
+      assets: { prompts: [], skills: [] },
+      beadContext: { beadIds: ["vibe-kanban-vscode-web-2yle"], beads: [{ beadId: "vibe-kanban-vscode-web-2yle", title: "Carry bead context", status: "open" }] },
+    });
+
+    expect(preview.text).toContain("Do work");
+    expect(preview.text).toContain("vibe-kanban-vscode-web-2yle: Carry bead context (open)");
+    expect(preview.text.indexOf("## Task context")).toBeLessThan(preview.text.indexOf("Expected XML Schema (XSD):"));
+    expect(preview.text).not.toContain("(No step prompt written yet.)");
   });
 
 

@@ -70,6 +70,7 @@ export interface MetaWorkflowChildRunner {
     metaRunId: string;
     itemId: string;
     bead: BeadReadModel;
+    beadGroup?: BeadReadModel[];
     parentWorkspaceId: string;
     lane: SelectedLaneWorkspaceContext;
     childWorkflowDesignId?: string | null;
@@ -174,6 +175,7 @@ export class BeadMetaWorkflowRuntime {
     metaRunId?: string;
     parentWorkspaceId: string;
     beadIds: string[];
+    beadGroups?: string[][];
     title?: string;
     summary?: string | null;
     childWorkflowDesignId?: string | null;
@@ -185,13 +187,15 @@ export class BeadMetaWorkflowRuntime {
   }): Promise<BeadMetaWorkflowRunReadModel> {
     const parentWorkspaceId = cleanRequired(input.parentWorkspaceId, 'parentWorkspaceId');
     const metaRunId = input.metaRunId?.trim() || this.createId();
-    const selectionIssues = validateBeadSelection(input.beadIds);
+    const beadGroups = normalizeBeadGroups(input.beadGroups, input.beadIds);
+    const flatBeadIds = beadGroups.flat();
+    const selectionIssues = validateBeadSelection(flatBeadIds);
     const fatalSelectionIssues = selectionIssues.filter((issue) => issue.code !== 'META_WORKFLOW_DUPLICATE_BEAD');
     if (fatalSelectionIssues.length) throw new BeadMetaWorkflowError('META_WORKFLOW_INVALID_SELECTION', 'Bead selection is invalid.', { issues: selectionIssues });
 
     let beads: BeadReadModel[];
     try {
-      beads = await this.readAndValidateBeads(input.beadIds, parentWorkspaceId);
+      beads = await this.readAndValidateBeads(flatBeadIds, parentWorkspaceId);
     } catch (error) {
       if (error instanceof BeadMetaWorkflowError && selectionIssues.length) {
         throw new BeadMetaWorkflowError('META_WORKFLOW_INVALID_SELECTION', 'Bead selection is invalid.', { issues: [...selectionIssues, ...error.issues], status: error.status });
@@ -199,6 +203,8 @@ export class BeadMetaWorkflowRuntime {
       throw error;
     }
     if (selectionIssues.length) throw new BeadMetaWorkflowError('META_WORKFLOW_INVALID_SELECTION', 'Bead selection is invalid.', { issues: selectionIssues });
+    const beadById = new Map(beads.map((bead) => [bead.beadId, bead]));
+    const beadGroupRecords = beadGroups.map((group) => group.map((beadId) => beadById.get(beadId)).filter((bead): bead is BeadReadModel => Boolean(bead)));
     const lane = await this.resolveLane({ parentWorkspaceId, laneId: input.laneId ?? null, accessMode: input.accessMode ?? 'read' });
     const now = this.now();
     const provenance: MetaWorkflowProvenance = { metaRunId, parentWorkspaceId, laneId: lane.provenance.laneId, laneLabel: lane.laneLabel, source: 'bead_meta_workflow' };
@@ -225,27 +231,28 @@ export class BeadMetaWorkflowRuntime {
         completedAt: null,
       } satisfies Insertable<WorkflowMetaRun>).execute();
 
-      for (const [index, bead] of beads.entries()) {
+      for (const [index, group] of beadGroupRecords.entries()) {
+        const bead = group[0]!;
         await trx.insertInto('WorkflowMetaRunItem').values({
           itemId: `${metaRunId}:item:${index}`,
           metaRunId,
           beadId: bead.beadId,
           itemIndex: index,
-          title: bead.title,
+          title: group.length === 1 ? bead.title : `${bead.title} + ${group.length - 1} more`,
           beadStatus: bead.status,
           status: 'pending',
           childRunId: null,
           resultJson: null,
           noteRef: null,
           errorJson: null,
-          provenanceJson: stableJson({ beadId: bead.beadId, beadUrl: bead.url ?? null, labels: bead.labels ?? [] }),
+          provenanceJson: stableJson({ beadId: bead.beadId, beadIds: group.map((entry) => entry.beadId), beadTitles: group.map((entry) => entry.title), beadUrl: bead.url ?? null, labels: bead.labels ?? [] }),
           createdAt: now,
           updatedAt: now,
           startedAt: null,
           completedAt: null,
         } satisfies Insertable<WorkflowMetaRunItem>).execute();
       }
-      await insertEvent(trx, { eventId: this.createId(), metaRunId, itemId: null, kind: 'meta_run_created', message: `Created ordered run for ${beads.length} beads.`, data: { beadIds: beads.map((bead) => bead.beadId), laneId: lane.provenance.laneId }, now });
+      await insertEvent(trx, { eventId: this.createId(), metaRunId, itemId: null, kind: 'meta_run_created', message: `Created ordered run for ${beadGroupRecords.length} bead group${beadGroupRecords.length === 1 ? '' : 's'}.`, data: { beadIds: flatBeadIds, beadGroups, laneId: lane.provenance.laneId }, now });
     });
 
     if (input.autoStart !== false) return this.resumeRun(metaRunId);
@@ -404,6 +411,7 @@ export class BeadMetaWorkflowRuntime {
           metaRunId: input.run.metaRunId,
           itemId: input.item.itemId,
           bead: { beadId: input.item.beadId, title: input.item.title, status: input.item.beadStatus as BeadReadModel['status'], accessible: true },
+          beadGroup: beadGroupFromItem(input.item),
           parentWorkspaceId: input.run.parentWorkspaceId,
           lane,
           childWorkflowDesignId: input.run.childWorkflowDesignId,
@@ -518,6 +526,22 @@ export class BeadMetaWorkflowRuntime {
       throw error;
     }
   }
+}
+
+function normalizeBeadGroups(beadGroups: string[][] | undefined, beadIds: string[]): string[][] {
+  const rawGroups = Array.isArray(beadGroups) && beadGroups.length
+    ? beadGroups
+    : beadIds.map((beadId) => [beadId]);
+  return rawGroups
+    .map((group) => group.filter((item): item is string => typeof item === 'string').map((item) => item.trim()).filter(Boolean))
+    .filter((group) => group.length > 0);
+}
+
+function beadGroupFromItem(item: BeadMetaWorkflowItemReadModel): BeadReadModel[] {
+  const provenance = item.provenance as { beadIds?: unknown; beadTitles?: unknown };
+  const ids = Array.isArray(provenance.beadIds) ? provenance.beadIds.filter((id): id is string => typeof id === 'string') : [item.beadId];
+  const titles = Array.isArray(provenance.beadTitles) ? provenance.beadTitles.filter((title): title is string => typeof title === 'string') : [];
+  return ids.map((beadId, index) => ({ beadId, title: titles[index] ?? beadId, status: index === 0 ? item.beadStatus as BeadReadModel['status'] : 'open', accessible: true }));
 }
 
 class DeterministicChildRunner implements MetaWorkflowChildRunner {
