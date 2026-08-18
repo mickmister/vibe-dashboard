@@ -1792,16 +1792,25 @@ export function renderExpectedXmlResponseSpec(
   snapshot: WorkflowRuntimeSnapshot,
   step: AgentWorkflowStepV1,
 ): string | null {
-  if (step.turnType !== "decision" || !step.response) return null;
-  const state = model.states[snapshot.waitingFor?.state ?? snapshot.currentState];
-  if (!state || state.terminal) return null;
-
+  const xsd = renderExpectedXmlResponseXsd(model, snapshot, step);
+  if (!xsd) return null;
   return [
     "Expected XML Schema (XSD):",
     "```xml",
-    renderDecisionResponseXsd(state),
+    xsd,
     "```",
   ].join("\n");
+}
+
+export function renderExpectedXmlResponseXsd(
+  model: NormalizedAgentWorkflowModel,
+  snapshot: WorkflowRuntimeSnapshot,
+  step: AgentWorkflowStepV1,
+): string | null {
+  if (step.turnType !== "decision" || !step.response) return null;
+  const state = model.states[snapshot.waitingFor?.state ?? snapshot.currentState];
+  if (!state || state.terminal) return null;
+  return renderDecisionResponseXsd(state);
 }
 
 function renderDecisionResponseXsd(

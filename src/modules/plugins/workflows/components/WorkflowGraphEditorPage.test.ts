@@ -229,7 +229,7 @@ function node(patch: Partial<WorkflowGraphNodeModel>): WorkflowGraphNodeModel {
 
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { renderEditorPromptPreview, WorkflowGraphEditorView } from "./WorkflowGraphEditorPage";
+import { renderEditorPromptPreview, renderEditorResponseXsd, WorkflowGraphEditorView } from "./WorkflowGraphEditorPage";
 import { workflowDefinitionToGraph } from "./graph/workflowGraphModel";
 import type { AgentWorkflowDefinitionV1 } from "@vibe-dashboard/workflow-core";
 
@@ -397,6 +397,80 @@ describe("WorkflowGraphEditorView prompt and skill picker", () => {
     expect(preview.missingRefs).toEqual(["skill:skill.missing@1"]);
     expect(preview.text).not.toContain("webhook");
     expect(preview.text).not.toContain("queue item");
+  });
+
+
+  it("TEST_CASE_NZEK_1A shows read-only generated XSD diagnostics for selected decision state", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(WorkflowGraphEditorView, {
+        editor: null,
+        definition: promptDefinition(),
+        assets: { prompts: [], skills: [] },
+        initialSelection: { roleId: "dev", stateId: "dev" },
+        onDefinitionChange: () => {},
+        onSave: () => {},
+        onPublish: () => {},
+      }),
+    );
+
+    expect(html).toContain("Generated response XSD diagnostics");
+    expect(html).toContain("State dev · decision step decide");
+    expect(html).toContain("Read-only generated XSD");
+    expect(html).toContain("readonly");
+    expect(html).toContain("Generated workflow response XSD");
+    expect(html).toContain("&lt;xs:schema");
+    expect(html).toContain("&lt;xs:enumeration value=&quot;done&quot;/&gt;");
+    expect(html).toContain("&lt;xs:element name=&quot;summary&quot; type=&quot;xs:string&quot; minOccurs=&quot;1&quot; maxOccurs=&quot;1&quot;/&gt;");
+    expect(html).not.toContain("Expected XML Schema (XSD):&lt;/textarea");
+  });
+
+  it("TEST_CASE_NZEK_1B shows beads-form provider XSD for create-form workflow diagnostics", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(WorkflowGraphEditorView, {
+        editor: null,
+        definition: createFormDefinition(),
+        assets: { prompts: [], skills: [] },
+        initialSelection: { roleId: "form_author", stateId: "create_form" },
+        onDefinitionChange: () => {},
+        onSave: () => {},
+        onPublish: () => {},
+      }),
+    );
+
+    expect(html).toContain("State create_form · decision step draft_form");
+    expect(html).toContain("&lt;xs:element name=&quot;formSchema&quot; minOccurs=&quot;1&quot; maxOccurs=&quot;1&quot;&gt;");
+    expect(html).toContain("&lt;xs:complexType name=&quot;BeadsFormType&quot;&gt;");
+    expect(html).toContain("&lt;xs:element name=&quot;pros&quot; type=&quot;xs:string&quot; minOccurs=&quot;0&quot; maxOccurs=&quot;1&quot;/&gt;");
+    expect(html).toContain("&lt;xs:element name=&quot;recommendedReason&quot; type=&quot;xs:string&quot; minOccurs=&quot;0&quot; maxOccurs=&quot;1&quot;/&gt;");
+    expect(html).not.toContain("&lt;xs:element name=&quot;formSchema&quot; type=&quot;xs:string&quot;");
+  });
+
+  it("TEST_CASE_NZEK_1C updates generated XSD with state selection and reports non-decision unavailable", () => {
+    const review = renderEditorResponseXsd(wizardDefinition(), "review");
+    expect(review.xsd).toContain('<xs:enumeration value="changes_requested"/>');
+    expect(review.xsd).toContain('<xs:element name="requestedChanges" type="xs:string" minOccurs="1" maxOccurs="1"/>');
+    expect(review.xsd).not.toContain('<xs:enumeration value="ready"/>');
+
+    const dev = renderEditorResponseXsd(wizardDefinition(), "dev");
+    expect(dev.xsd).toContain('<xs:enumeration value="ready"/>');
+    expect(dev.xsd).not.toContain('<xs:enumeration value="changes_requested"/>');
+
+    const nonDecision = renderEditorResponseXsd(nonDecisionDefinition(), "dev", "implement");
+    expect(nonDecision.xsd).toBeNull();
+    expect(nonDecision.message).toContain("available only for decision agent turns");
+  });
+
+  it("TEST_CASE_NZEK_1D uses the same XSD in editor diagnostics and final prompt preview", () => {
+    const diagnostics = renderEditorResponseXsd(promptDefinition(), "dev", "decide");
+    const preview = renderEditorPromptPreview({
+      definition: promptDefinition(),
+      stateId: "dev",
+      stepId: "decide",
+      assets: { prompts: [], skills: [] },
+    });
+
+    expect(diagnostics.xsd).toBeTruthy();
+    expect(preview.xmlSpec).toContain(diagnostics.xsd!);
   });
 
   it("TEST_CASE_ZJCB_9 shows and edits linked shared role templates", () => {
@@ -587,6 +661,67 @@ describe("WorkflowGraphEditorView prompt and skill picker", () => {
     expect(compactHtml).toContain("+ Add Role");
   });
 });
+
+
+function createFormDefinition(): AgentWorkflowDefinitionV1 {
+  return {
+    schemaVersion: 1,
+    name: "Create form from agent",
+    inputs: { formRequest: { type: "markdown", required: true } },
+    roles: { form_author: { label: "Form author" } },
+    initialState: "create_form",
+    states: {
+      create_form: {
+        owner: "form_author",
+        steps: [{ id: "draft_form", type: "agent_turn", turnType: "decision", prompt: { template: "Create a form" }, response: decisionResponse() }],
+        actions: {
+          form_created: {
+            label: "Form created",
+            targetState: "done",
+            result: {
+              fields: {
+                formSchema: { type: "markdown" },
+                artifactRef: { type: "string" },
+                summary: { type: "markdown" },
+              },
+              required: ["formSchema"],
+              unknownFields: "reject",
+            },
+          },
+        },
+      },
+      done: { terminal: true },
+    },
+  };
+}
+
+function nonDecisionDefinition(): AgentWorkflowDefinitionV1 {
+  const definition = promptDefinition();
+  definition.states.dev = {
+    owner: "dev",
+    steps: [
+      { id: "implement", type: "agent_turn", turnType: "non_decision", prompt: { template: "Implement" } },
+      ...((definition.states.dev as any).steps),
+    ],
+    actions: (definition.states.dev as any).actions,
+  } as any;
+  return definition;
+}
+
+function decisionResponse() {
+  return {
+    format: "xml" as const,
+    schema: { format: "xsd" as const, source: "state_actions" as const },
+    invalidXmlRetry: {
+      maxAttempts: 1,
+      prompt: "engine_default_with_validation_errors" as const,
+      onExhausted: "blocked" as const,
+    },
+    storeRawXml: true,
+    storeParsedFields: true,
+    unknownFields: "reject_unless_allowed_by_result_contract" as const,
+  };
+}
 
 function promptDefinition(): AgentWorkflowDefinitionV1 {
   return {

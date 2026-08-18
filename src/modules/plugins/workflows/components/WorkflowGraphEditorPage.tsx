@@ -25,7 +25,7 @@ import type {
 } from "@vibe-dashboard/workflow-core";
 import {
   normalizeWorkflowDefinitionV1,
-  renderExpectedXmlResponseSpec,
+  renderExpectedXmlResponseXsd,
   WORKFLOW_EXECUTOR_MODEL_OPTIONS,
   WORKFLOW_EXECUTOR_TYPES,
 } from "@vibe-dashboard/workflow-core";
@@ -404,6 +404,7 @@ export function WorkflowGraphEditorView({
             onPromptChange={updatePrompt}
           />
         ) : null}
+        <XsdDiagnostics definition={definition} selectedStateId={selectedNodeId} selectedEdge={selectedEdge} />
         <JsonDiagnostics definition={definition} />
       </aside>
       <div className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900/60 lg:sticky lg:top-4 lg:self-start">
@@ -1478,28 +1479,51 @@ export function renderEditorPromptPreview({
 }
 
 function renderEditorXmlSpec(definition: AgentWorkflowDefinitionV1, stateId: string, stepId: string): string | null {
+  const context = buildEditorXsdContext(definition, stateId, stepId);
+  if (!context.xsd) return null;
+  return [
+    "Expected XML Schema (XSD):",
+    "```xml",
+    context.xsd,
+    "```",
+  ].join("\n");
+}
+
+export function renderEditorResponseXsd(definition: AgentWorkflowDefinitionV1, stateId: string, stepId?: string): { xsd: string | null; message: string; stepId: string | null } {
+  const context = buildEditorXsdContext(definition, stateId, stepId);
+  return { xsd: context.xsd, message: context.message, stepId: context.stepId };
+}
+
+function buildEditorXsdContext(definition: AgentWorkflowDefinitionV1, stateId: string, stepId?: string): { xsd: string | null; message: string; stepId: string | null } {
+  if (!stateId) return { xsd: null, message: "Choose a workflow state with a decision step to inspect generated XSD.", stepId: null };
   try {
     const model = normalizeWorkflowDefinitionV1(definitionWithPromptPlaceholders(definition), { workflowId: "workflow-editor-preview" });
     const state = model.states[stateId];
-    if (!state || state.terminal) return null;
-    const step = state.steps.find((candidate) => candidate.id === stepId) as AgentWorkflowStepV1 | undefined;
-    if (!step) return null;
+    if (!state || state.terminal) return { xsd: null, message: "Generated XSD is unavailable for terminal or missing states.", stepId: null };
+    const step = (stepId
+      ? state.steps.find((candidate) => candidate.id === stepId)
+      : state.steps.find((candidate) => candidate.type === "agent_turn" && candidate.turnType === "decision")) as AgentWorkflowStepV1 | undefined;
+    if (!step || step.type !== "agent_turn" || step.turnType !== "decision") {
+      return { xsd: null, message: "Generated XSD is available only for decision agent turns.", stepId: step?.id ?? null };
+    }
+    const stepIndex = state.steps.findIndex((candidate) => candidate.id === step.id);
     const snapshot: WorkflowRuntimeSnapshot = {
       instanceId: "workflow-editor-preview",
       workflowId: model.workflowId,
       status: "running",
       currentState: stateId,
-      currentStepIndex: state.steps.findIndex((candidate) => candidate.id === stepId),
+      currentStepIndex: stepIndex,
       visitId: "workflow-editor-preview",
       inputs: {},
-      waitingFor: { kind: "agent_turn", state: stateId, stepId, turnId: "workflow-editor-preview" },
+      waitingFor: { kind: "agent_turn", state: stateId, stepId: step.id, turnId: "workflow-editor-preview" },
       history: [],
       createdAt: 0,
       updatedAt: 0,
     };
-    return renderExpectedXmlResponseSpec(model, snapshot, step);
+    const xsd = renderExpectedXmlResponseXsd(model, snapshot, step);
+    return { xsd, message: xsd ? "Generated XSD matches the response contract appended to agent prompts." : "Generated XSD is unavailable for this selection.", stepId: step.id };
   } catch {
-    return null;
+    return { xsd: null, message: "Generated XSD is unavailable until the workflow definition is valid enough to normalize.", stepId: null };
   }
 }
 
@@ -1712,6 +1736,50 @@ function ValidationPanel({
         <p className="mt-2 text-sm text-emerald-200">Ready to save.</p>
       )}
     </section>
+  );
+}
+
+
+function XsdDiagnostics({
+  definition,
+  selectedStateId,
+  selectedEdge,
+}: {
+  definition: AgentWorkflowDefinitionV1;
+  selectedStateId: string;
+  selectedEdge: WorkflowGraphEdgeModel | null;
+}) {
+  const stateId = selectedEdge?.source ?? selectedStateId;
+  const diagnostics = renderEditorResponseXsd(definition, stateId);
+  const textareaId = `workflow-xsd-diagnostics-${stateId || "none"}`;
+  return (
+    <details className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
+      <summary className="cursor-pointer text-sm font-medium">
+        Generated response XSD diagnostics
+      </summary>
+      <p className="mt-2 text-xs text-zinc-500">
+        {stateId ? `State ${stateId}${diagnostics.stepId ? ` · decision step ${diagnostics.stepId}` : ""}` : "No state selected"}
+      </p>
+      {diagnostics.xsd ? (
+        <>
+          <label htmlFor={textareaId} className="mt-3 block text-xs font-medium text-zinc-400">
+            Read-only generated XSD
+          </label>
+          <textarea
+            id={textareaId}
+            className="mt-2 h-72 w-full resize-y rounded-lg border border-zinc-800 bg-zinc-950 p-3 font-mono text-xs text-zinc-300"
+            aria-label="Generated workflow response XSD"
+            readOnly
+            value={diagnostics.xsd}
+          />
+          <p className="mt-2 text-xs text-zinc-500">{diagnostics.message}</p>
+        </>
+      ) : (
+        <p className="mt-3 rounded-lg border border-zinc-800 bg-zinc-950 p-3 text-sm text-zinc-400">
+          {diagnostics.message}
+        </p>
+      )}
+    </details>
   );
 }
 
