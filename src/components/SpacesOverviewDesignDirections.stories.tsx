@@ -182,6 +182,33 @@ export const EnterpriseProductivity: Story = {
   },
 };
 
+export const FocusStack: Story = {
+  parameters: {
+    controls: {
+      disable: true,
+    },
+  },
+  render: () => <FocusStackConcept />,
+};
+
+export const KanbanDesk: Story = {
+  parameters: {
+    controls: {
+      disable: true,
+    },
+  },
+  render: () => <KanbanDeskConcept />,
+};
+
+export const VoyageMap: Story = {
+  parameters: {
+    controls: {
+      disable: true,
+    },
+  },
+  render: () => <VoyageMapConcept />,
+};
+
 function DashboardConcept({
   direction,
   colorScheme = 'direction',
@@ -285,6 +312,264 @@ function DashboardConcept({
                 </div>
               ))}
             </div>
+          </section>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function FocusStackConcept() {
+  return (
+    <main className="h-[100dvh] overflow-y-auto overflow-x-hidden bg-[#101214] p-5 text-zinc-100 md:p-8">
+      <section className="mx-auto grid max-w-[1380px] gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="grid min-h-[calc(100dvh-4rem)] gap-5">
+          <header className="flex items-center justify-between gap-4 border-b border-zinc-800 pb-4">
+            <div>
+              <p className="text-xs font-medium text-emerald-300">Home</p>
+              <h1 className="mt-2 text-5xl font-semibold tracking-[-0.055em] text-white md:text-7xl">
+                Focus stack
+              </h1>
+            </div>
+            <div className="flex gap-2">
+              <button className="rounded-lg border border-zinc-700 px-4 py-2 text-sm text-zinc-200">
+                Go Home
+              </button>
+              <button className="rounded-lg bg-emerald-300 px-4 py-2 text-sm font-semibold text-zinc-950">
+                New Voyage
+              </button>
+            </div>
+          </header>
+
+          <div className="grid gap-4 md:grid-cols-[1.35fr_0.65fr]">
+            <section className="rounded-3xl border border-emerald-300/20 bg-emerald-300/[0.055] p-6 shadow-[0_28px_90px_rgb(16_185_129_/_0.10)]">
+              <p className="text-sm text-emerald-200">Now</p>
+              <h2 className="mt-6 max-w-2xl text-4xl font-semibold tracking-[-0.045em]">
+                Auth bug fix
+              </h2>
+              <div className="mt-8 grid gap-3 md:grid-cols-3">
+                {[
+                  ['Approval', 'waiting'],
+                  ['Server', 'running'],
+                  ['PR', 'open'],
+                ].map(([label, value]) => (
+                  <article
+                    key={label}
+                    className="rounded-2xl border border-white/10 bg-black/20 p-4"
+                  >
+                    <p className="text-xs text-zinc-500">{label}</p>
+                    <p className="mt-3 text-lg font-semibold">{value}</p>
+                  </article>
+                ))}
+              </div>
+            </section>
+
+            <section className="rounded-3xl border border-zinc-800 bg-zinc-950/40 p-5">
+              <p className="text-sm text-zinc-400">Next</p>
+              <div className="mt-5 grid gap-3">
+                {['Review diff', 'Open craft', 'Stop stale server'].map((item) => (
+                  <button
+                    key={item}
+                    className="rounded-2xl border border-zinc-800 bg-zinc-900/70 px-4 py-4 text-left text-sm text-zinc-100"
+                  >
+                    {item}
+                  </button>
+                ))}
+              </div>
+            </section>
+          </div>
+
+          <section className="grid gap-4 md:grid-cols-3">
+            {[
+              ['Mine with approvals', '3'],
+              ['Workflow blocked', '1'],
+              ['Running servers', '2'],
+            ].map(([label, value]) => (
+              <article key={label} className="border-t border-zinc-800 pt-4">
+                <p className="font-mono text-4xl tracking-[-0.04em] text-white">
+                  {value}
+                </p>
+                <p className="mt-2 text-sm text-zinc-500">{label}</p>
+              </article>
+            ))}
+          </section>
+        </div>
+
+        <aside className="grid content-start gap-3 rounded-3xl border border-zinc-800 bg-zinc-950/50 p-4">
+          {['Current launch', 'Design review', 'Clean browser session'].map(
+            (voyage, index) => (
+              <button
+                key={voyage}
+                className={`rounded-2xl px-4 py-4 text-left text-sm ${
+                  index === 0
+                    ? 'bg-emerald-300 text-zinc-950'
+                    : 'bg-zinc-900/70 text-zinc-400'
+                }`}
+              >
+                {voyage}
+              </button>
+            ),
+          )}
+        </aside>
+      </section>
+    </main>
+  );
+}
+
+function KanbanDeskConcept() {
+  const columns: Array<{ column: string; cards: string[] }> = [
+    { column: 'Now', cards: ['Auth bug fix', 'Kanban polish'] },
+    { column: 'Next', cards: ['Docs refresh', 'Workflow form'] },
+    { column: 'Later', cards: ['Skin tokens', 'Saved filters'] },
+  ];
+
+  return (
+    <main className="h-[100dvh] overflow-y-auto overflow-x-hidden bg-[#f4f6f8] p-4 text-slate-950 md:p-7">
+      <section className="mx-auto max-w-[1480px]">
+        <header className="mb-5 flex flex-wrap items-end justify-between gap-4 rounded-2xl bg-white p-5 shadow-[0_18px_60px_rgb(15_23_42_/_0.08)]">
+          <div>
+            <p className="text-xs font-semibold text-slate-500">Today</p>
+            <h1 className="mt-2 text-4xl font-semibold tracking-[-0.045em] md:text-6xl">
+              Kanban desk
+            </h1>
+          </div>
+          <div className="flex gap-2">
+            {['Go Home', 'New Voyage'].map((action, index) => (
+              <button
+                key={action}
+                className={`rounded-xl px-4 py-2 text-sm font-semibold ${
+                  index === 0
+                    ? 'border border-slate-300 bg-white text-slate-800'
+                    : 'bg-slate-950 text-white'
+                }`}
+              >
+                {action}
+              </button>
+            ))}
+          </div>
+        </header>
+
+        <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
+          <section className="grid gap-4 md:grid-cols-3">
+            {columns.map(({ column, cards }) => (
+              <article key={column} className="rounded-2xl bg-white p-4 shadow-sm">
+                <div className="mb-4 flex items-center justify-between">
+                  <h2 className="text-sm font-semibold">{column}</h2>
+                  <span className="font-mono text-xs text-slate-400">
+                    {cards.length}
+                  </span>
+                </div>
+                <div className="grid gap-3">
+                  {cards.map((card, index) => (
+                    <div
+                      key={card}
+                      className={`rounded-2xl border p-4 ${
+                        index === 0
+                          ? 'border-blue-200 bg-blue-50'
+                          : 'border-slate-200 bg-slate-50'
+                      }`}
+                    >
+                      <p className="text-sm font-medium">{card}</p>
+                      <p className="mt-5 text-xs text-slate-500">
+                        {index === 0 ? 'active' : 'queued'}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </article>
+            ))}
+          </section>
+
+          <aside className="grid content-start gap-4">
+            <section className="rounded-2xl bg-slate-950 p-5 text-white">
+              <p className="text-sm text-blue-200">Filters</p>
+              <div className="mt-4 flex flex-wrap gap-2">
+                {['Mine', 'PR open', 'Blocked', 'Server on'].map((filter) => (
+                  <button
+                    key={filter}
+                    className="rounded-lg bg-white/10 px-3 py-2 text-xs text-white"
+                  >
+                    {filter}
+                  </button>
+                ))}
+              </div>
+            </section>
+            <section className="rounded-2xl bg-white p-5 shadow-sm">
+              <p className="text-sm font-semibold">Workflow queue</p>
+              <div className="mt-4 grid gap-3 text-sm">
+                {['Review requested', 'CI running', 'Form waiting'].map((row) => (
+                  <div key={row} className="flex justify-between gap-4">
+                    <span>{row}</span>
+                    <span className="text-slate-400">open</span>
+                  </div>
+                ))}
+              </div>
+            </section>
+          </aside>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function VoyageMapConcept() {
+  return (
+    <main className="h-[100dvh] overflow-y-auto overflow-x-hidden bg-[#0b0d12] p-5 text-zinc-100 md:p-8">
+      <section className="mx-auto max-w-[1460px]">
+        <header className="mb-6 flex flex-wrap items-center justify-between gap-4">
+          <h1 className="text-4xl font-semibold tracking-[-0.05em] md:text-6xl">
+            Voyage map
+          </h1>
+          <div className="flex gap-2">
+            <button className="rounded-full border border-white/15 px-4 py-2 text-sm">
+              Go Home
+            </button>
+            <button className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-zinc-950">
+              New Voyage
+            </button>
+          </div>
+        </header>
+
+        <div className="grid gap-5 lg:grid-cols-[320px_minmax(0,1fr)]">
+          <aside className="grid content-start gap-3">
+            {[
+              ['Current launch', '3 craft'],
+              ['Design review', '1 craft'],
+              ['Clean session', 'empty'],
+            ].map(([name, count], index) => (
+              <button
+                key={name}
+                className={`rounded-3xl border p-5 text-left ${
+                  index === 0
+                    ? 'border-violet-300/30 bg-violet-300/10'
+                    : 'border-white/10 bg-white/[0.045]'
+                }`}
+              >
+                <span className="block text-sm font-medium">{name}</span>
+                <span className="mt-2 block text-xs text-zinc-500">{count}</span>
+              </button>
+            ))}
+          </aside>
+
+          <section className="relative min-h-[680px] overflow-hidden rounded-[2rem] border border-white/10 bg-[radial-gradient(circle_at_50%_45%,rgb(167_139_250_/_0.18),transparent_30%),linear-gradient(135deg,rgb(255_255_255_/_0.09),rgb(255_255_255_/_0.025))] p-6">
+            <div className="absolute left-[8%] top-[14%] h-36 w-36 rounded-full border border-violet-200/30 bg-violet-200/10 p-5">
+              <p className="text-sm font-medium">Auth bug fix</p>
+              <p className="mt-2 text-xs text-zinc-400">approval</p>
+            </div>
+            <div className="absolute right-[12%] top-[20%] h-44 w-44 rounded-full border border-cyan-200/25 bg-cyan-200/10 p-6">
+              <p className="text-sm font-medium">Kanban polish</p>
+              <p className="mt-2 text-xs text-zinc-400">review</p>
+            </div>
+            <div className="absolute bottom-[18%] left-[30%] h-48 w-48 rounded-full border border-emerald-200/25 bg-emerald-200/10 p-6">
+              <p className="text-sm font-medium">Docs refresh</p>
+              <p className="mt-2 text-xs text-zinc-400">resume</p>
+            </div>
+            <div className="absolute bottom-[14%] right-[16%] h-28 w-28 rounded-full border border-white/15 bg-white/5 p-5">
+              <p className="text-sm font-medium">Skin tokens</p>
+              <p className="mt-2 text-xs text-zinc-400">next</p>
+            </div>
+            <div className="absolute left-1/2 top-1/2 h-px w-[72%] -translate-x-1/2 rotate-[-18deg] bg-white/10" />
+            <div className="absolute left-1/2 top-1/2 h-px w-[62%] -translate-x-1/2 rotate-[24deg] bg-white/10" />
           </section>
         </div>
       </section>
