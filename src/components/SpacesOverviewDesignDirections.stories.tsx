@@ -347,16 +347,13 @@ function FocusStackConcept() {
               <h2 className="mt-6 max-w-2xl text-4xl font-semibold tracking-[-0.045em]">
                 Auth bug fix
               </h2>
-              <div className="mt-8 grid gap-3 md:grid-cols-3">
+              <div className="mt-8 grid gap-5 md:grid-cols-3">
                 {[
                   ['Approval', 'waiting'],
                   ['Server', 'running'],
                   ['PR', 'open'],
                 ].map(([label, value]) => (
-                  <article
-                    key={label}
-                    className="rounded-2xl border border-white/10 bg-black/20 p-4"
-                  >
+                  <article key={label} className="border-t border-white/10 pt-4">
                     <p className="text-xs text-zinc-500">{label}</p>
                     <p className="mt-3 text-lg font-semibold">{value}</p>
                   </article>
@@ -366,11 +363,11 @@ function FocusStackConcept() {
 
             <section className="rounded-3xl border border-zinc-800 bg-zinc-950/40 p-5">
               <p className="text-sm text-zinc-400">Next</p>
-              <div className="mt-5 grid gap-3">
+              <div className="mt-5 divide-y divide-zinc-800">
                 {['Review diff', 'Open craft', 'Stop stale server'].map((item) => (
                   <button
                     key={item}
-                    className="rounded-2xl border border-zinc-800 bg-zinc-900/70 px-4 py-4 text-left text-sm text-zinc-100"
+                    className="block w-full px-1 py-4 text-left text-sm text-zinc-100 transition hover:text-emerald-200 active:translate-y-px"
                   >
                     {item}
                   </button>
@@ -395,15 +392,15 @@ function FocusStackConcept() {
           </section>
         </div>
 
-        <aside className="grid content-start gap-3 rounded-3xl border border-zinc-800 bg-zinc-950/50 p-4">
+        <aside className="grid content-start rounded-3xl border border-zinc-800 bg-zinc-950/50 p-4">
           {['Current launch', 'Design review', 'Clean browser session'].map(
             (voyage, index) => (
               <button
                 key={voyage}
-                className={`rounded-2xl px-4 py-4 text-left text-sm ${
+                className={`border-b border-zinc-800/70 px-2 py-4 text-left text-sm last:border-b-0 ${
                   index === 0
-                    ? 'bg-emerald-300 text-zinc-950'
-                    : 'bg-zinc-900/70 text-zinc-400'
+                    ? 'text-emerald-200'
+                    : 'text-zinc-400'
                 }`}
               >
                 {voyage}
@@ -459,18 +456,18 @@ function KanbanDeskConcept() {
                     {cards.length}
                   </span>
                 </div>
-                <div className="grid gap-3">
+                <div className="divide-y divide-slate-200">
                   {cards.map((card, index) => (
                     <div
                       key={card}
-                      className={`rounded-2xl border p-4 ${
+                      className={`py-4 ${
                         index === 0
-                          ? 'border-blue-200 bg-blue-50'
-                          : 'border-slate-200 bg-slate-50'
+                          ? 'border-l-2 border-blue-600 pl-3'
+                          : 'border-l-2 border-transparent pl-3'
                       }`}
                     >
                       <p className="text-sm font-medium">{card}</p>
-                      <p className="mt-5 text-xs text-slate-500">
+                      <p className="mt-3 text-xs text-slate-500">
                         {index === 0 ? 'active' : 'queued'}
                       </p>
                     </div>
@@ -487,7 +484,7 @@ function KanbanDeskConcept() {
                 {['Mine', 'PR open', 'Blocked', 'Server on'].map((filter) => (
                   <button
                     key={filter}
-                    className="rounded-lg bg-white/10 px-3 py-2 text-xs text-white"
+                    className="rounded-md border border-white/15 px-3 py-2 text-xs text-white transition hover:border-blue-200"
                   >
                     {filter}
                   </button>
@@ -531,7 +528,7 @@ function VoyageMapConcept() {
         </header>
 
         <div className="grid gap-5 lg:grid-cols-[320px_minmax(0,1fr)]">
-          <aside className="grid content-start gap-3">
+          <aside className="grid content-start rounded-3xl border border-white/10 bg-white/[0.035] p-3">
             {[
               ['Current launch', '3 craft'],
               ['Design review', '1 craft'],
@@ -539,10 +536,10 @@ function VoyageMapConcept() {
             ].map(([name, count], index) => (
               <button
                 key={name}
-                className={`rounded-3xl border p-5 text-left ${
+                className={`border-b border-white/10 p-4 text-left last:border-b-0 ${
                   index === 0
-                    ? 'border-violet-300/30 bg-violet-300/10'
-                    : 'border-white/10 bg-white/[0.045]'
+                    ? 'text-violet-100'
+                    : 'text-zinc-400'
                 }`}
               >
                 <span className="block text-sm font-medium">{name}</span>
@@ -711,12 +708,12 @@ function getTheme(direction: DesignDirection): DashboardConceptTheme {
     heroCopy:
       'mt-3 max-w-[58ch] text-sm leading-6 opacity-72 md:text-[15px]',
     heroActionStack: 'flex flex-wrap items-center gap-2 md:justify-end',
-    focusGrid: 'mt-6 grid gap-3 md:grid-cols-3',
+    focusGrid: 'mt-6 grid gap-5 md:grid-cols-3',
     voyageList: 'mt-4 grid gap-2',
     voyageMark: 'mt-1 h-2 w-2 rounded-full bg-current opacity-70',
-    workList: 'mt-4 grid gap-3',
+    workList: 'mt-4 divide-y divide-current/10',
     filterList: 'mt-4 flex flex-wrap gap-2',
-    workflowList: 'mt-4 grid gap-2',
+    workflowList: 'mt-4 divide-y divide-current/10',
     workRowTop: 'flex items-start justify-between gap-3',
     workRowBottom:
       'mt-4 flex items-center justify-between gap-3 text-xs opacity-78',
@@ -759,19 +756,19 @@ function getTheme(direction: DesignDirection): DashboardConceptTheme {
       secondaryButton:
         'rounded-md border border-zinc-600 bg-zinc-900/80 px-4 py-2 text-sm font-medium text-zinc-100 transition hover:border-sky-400/60 active:translate-y-px',
       focusTile:
-        'rounded-lg border border-zinc-700/70 bg-zinc-950/36 p-4',
+        'border-t border-zinc-700/70 pt-4',
       focusValue:
         'mt-5 font-mono text-4xl font-semibold tracking-[-0.05em] text-white',
       workRow:
-        'rounded-lg border border-zinc-700/60 bg-zinc-950/34 p-4',
+        'py-4 first:pt-0 last:pb-0',
       filterPill:
         'rounded-md border border-zinc-700 bg-zinc-950/44 px-3 py-2 text-xs font-medium text-zinc-300 transition hover:border-sky-400/60 hover:text-white active:translate-y-px',
       workflowRow:
-        'flex items-center justify-between gap-4 rounded-lg border border-zinc-700/50 bg-zinc-950/30 px-3 py-3',
+        'flex items-center justify-between gap-4 py-3 first:pt-0 last:pb-0',
       voyageItem:
-        'flex w-full items-start gap-3 rounded-lg border border-transparent px-3 py-3 text-left text-zinc-400 transition hover:border-zinc-700 hover:bg-zinc-950/30 active:translate-y-px',
+        'flex w-full items-start gap-3 border-l-2 border-transparent px-3 py-3 text-left text-zinc-400 transition hover:border-zinc-700 hover:text-zinc-100 active:translate-y-px',
       voyageItemActive:
-        'flex w-full items-start gap-3 rounded-lg border border-sky-400/35 bg-sky-400/10 px-3 py-3 text-left text-sky-100 shadow-[inset_3px_0_0_rgb(56_189_248)]',
+        'flex w-full items-start gap-3 border-l-2 border-sky-400 px-3 py-3 text-left text-sky-100',
       rowTitle: 'block text-sm font-medium text-current',
       rowMeta: 'mt-1 block text-xs leading-5 opacity-58',
       timeText: 'shrink-0 font-mono text-xs opacity-50',
@@ -810,18 +807,18 @@ function getTheme(direction: DesignDirection): DashboardConceptTheme {
         'rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 active:translate-y-px',
       secondaryButton:
         'rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-800 transition hover:border-cyan-600 active:translate-y-px',
-      focusTile: 'rounded-2xl border border-slate-200 bg-slate-50 p-4',
+      focusTile: 'border-t border-slate-200 pt-4',
       focusValue:
         'mt-5 font-mono text-4xl font-semibold tracking-[-0.05em] text-slate-950',
-      workRow: 'rounded-2xl border border-slate-200 bg-slate-50 p-4',
+      workRow: 'py-4 first:pt-0 last:pb-0',
       filterPill:
         'rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-700 transition hover:border-cyan-600 hover:text-slate-950 active:translate-y-px',
       workflowRow:
-        'flex items-center justify-between gap-4 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3',
+        'flex items-center justify-between gap-4 py-3 first:pt-0 last:pb-0',
       voyageItem:
-        'flex w-full items-start gap-3 rounded-xl border border-transparent px-3 py-3 text-left text-slate-500 transition hover:border-slate-200 hover:bg-slate-50 active:translate-y-px',
+        'flex w-full items-start gap-3 border-l-2 border-transparent px-3 py-3 text-left text-slate-500 transition hover:border-slate-300 hover:text-slate-900 active:translate-y-px',
       voyageItemActive:
-        'flex w-full items-start gap-3 rounded-xl border border-cyan-500/30 bg-cyan-50 px-3 py-3 text-left text-cyan-950 shadow-[inset_3px_0_0_rgb(8_145_178)]',
+        'flex w-full items-start gap-3 border-l-2 border-cyan-600 px-3 py-3 text-left text-cyan-950',
       rowTitle: 'block text-sm font-medium text-current',
       rowMeta: 'mt-1 block text-xs leading-5 opacity-62',
       timeText: 'shrink-0 font-mono text-xs opacity-52',
@@ -861,19 +858,19 @@ function getTheme(direction: DesignDirection): DashboardConceptTheme {
       secondaryButton:
         'rounded-full border border-white/14 bg-white/[0.06] px-4 py-2 text-sm font-medium text-zinc-100 transition hover:border-cyan-200/50 active:translate-y-px',
       focusTile:
-        'rounded-[1rem] border border-white/10 bg-black/24 p-4 shadow-[inset_0_1px_0_rgb(255_255_255_/_0.08)]',
+        'border-t border-white/10 pt-4',
       focusValue:
         'mt-5 font-mono text-4xl font-semibold tracking-[-0.05em] text-white',
       workRow:
-        'rounded-[1rem] border border-white/10 bg-black/24 p-4 shadow-[inset_0_1px_0_rgb(255_255_255_/_0.07)]',
+        'py-4 first:pt-0 last:pb-0',
       filterPill:
         'rounded-full border border-white/10 bg-white/[0.05] px-3 py-2 text-xs font-medium text-zinc-300 transition hover:border-cyan-200/50 hover:text-white active:translate-y-px',
       workflowRow:
-        'flex items-center justify-between gap-4 rounded-[1rem] border border-white/10 bg-black/22 px-3 py-3',
+        'flex items-center justify-between gap-4 py-3 first:pt-0 last:pb-0',
       voyageItem:
-        'flex w-full items-start gap-3 rounded-[1rem] border border-transparent px-3 py-3 text-left text-zinc-400 transition hover:border-white/10 hover:bg-white/[0.045] active:translate-y-px',
+        'flex w-full items-start gap-3 border-l-2 border-transparent px-3 py-3 text-left text-zinc-400 transition hover:border-white/25 hover:text-white active:translate-y-px',
       voyageItemActive:
-        'flex w-full items-start gap-3 rounded-[1rem] border border-cyan-200/25 bg-cyan-200/10 px-3 py-3 text-left text-cyan-50 shadow-[inset_0_0_0_1px_rgb(103_232_249_/_0.12)]',
+        'flex w-full items-start gap-3 border-l-2 border-cyan-200 px-3 py-3 text-left text-cyan-50',
       rowTitle: 'block text-sm font-medium text-current',
       rowMeta: 'mt-1 block text-xs leading-5 opacity-58',
       timeText: 'shrink-0 font-mono text-xs opacity-50',
@@ -909,18 +906,18 @@ function getTheme(direction: DesignDirection): DashboardConceptTheme {
         'rounded-sm bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 active:translate-y-px',
       secondaryButton:
         'rounded-sm border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-800 transition hover:border-blue-700 active:translate-y-px',
-      focusTile: 'border border-slate-200 bg-slate-50 p-4',
+      focusTile: 'border-t border-slate-200 pt-4',
       focusValue:
         'mt-5 font-mono text-4xl font-semibold tracking-[-0.05em] text-slate-950',
-      workRow: 'border border-slate-200 bg-slate-50 p-4',
+      workRow: 'py-4 first:pt-0 last:pb-0',
       filterPill:
         'rounded-sm border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:border-blue-700 hover:text-slate-950 active:translate-y-px',
       workflowRow:
-        'flex items-center justify-between gap-4 border border-slate-200 bg-slate-50 px-3 py-3',
+        'flex items-center justify-between gap-4 py-3 first:pt-0 last:pb-0',
       voyageItem:
-        'flex w-full items-start gap-3 border border-transparent px-3 py-3 text-left text-slate-500 transition hover:border-slate-200 hover:bg-slate-50 active:translate-y-px',
+        'flex w-full items-start gap-3 border-l-2 border-transparent px-3 py-3 text-left text-slate-500 transition hover:border-slate-300 hover:text-slate-900 active:translate-y-px',
       voyageItemActive:
-        'flex w-full items-start gap-3 border border-blue-700/20 bg-blue-50 px-3 py-3 text-left text-blue-950 shadow-[inset_3px_0_0_rgb(29_78_216)]',
+        'flex w-full items-start gap-3 border-l-2 border-blue-700 px-3 py-3 text-left text-blue-950',
       rowTitle: 'block text-sm font-medium text-current',
       rowMeta: 'mt-1 block text-xs leading-5 opacity-62',
       timeText: 'shrink-0 font-mono text-xs opacity-52',
