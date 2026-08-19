@@ -305,6 +305,48 @@ describe('PersistedWorkflowRuntimeService M93', () => {
     expect(completed.run.events.filter((entry) => entry.kind === 'agent_turn_queued')).toHaveLength(11);
   });
 
+  it('TEST_CASE_9R50 loops Dev self-review back to implementation when more work is needed', async () => {
+    const { runtime, queued } = await createRuntime({ templates: BUILT_IN_WORKFLOW_TEMPLATES });
+    await designStore.useTemplate({ templateId: 'built-in/dev-review-tester', designId: 'design.drt.self-loop', draftId: 'draft.drt.self-loop' });
+    await designStore.publishDraft('draft.drt.self-loop');
+
+    await runtime.launch({
+      runId: 'run-drt-self-loop',
+      runSnapshotId: 'snapshot-drt-self-loop',
+      designId: 'design.drt.self-loop',
+      workspaceId: 'workspace-a',
+      inputs: { featureRequest: 'Build and self-review before review' },
+      roleBindings: { dev: { sessionId: 'session-dev' }, review: { sessionId: 'session-review' }, tester: { sessionId: 'session-tester' } },
+    });
+
+    expect(queuedAt(queued, 0)).toMatchObject({ role: 'dev', stepId: 'implement' });
+    await runtime.completeAgentTurn({ runId: 'run-drt-self-loop', turnId: queuedAt(queued, 0).turnId, responseRef: 'dev-implement-before-self-review' });
+
+    const selfReviewTurn = queuedAt(queued, 1);
+    expect(selfReviewTurn).toMatchObject({ role: 'dev', stepId: 'self_review' });
+    expectAgentPromptNoAssetRefClutter(selfReviewTurn.prompt);
+    expect(selfReviewTurn.prompt).toContain('without making code changes during this self-review step');
+    expect(selfReviewTurn.prompt).toContain('wait for the next workflow instruction before making fixes');
+    expect(selfReviewTurn.prompt).toContain('fixed="ready_for_review"');
+    expect(selfReviewTurn.prompt).toContain('fixed="needs_more_work"');
+    expect(selfReviewTurn.prompt).toContain('<xs:enumeration value="ready_for_review"/>');
+    expect(selfReviewTurn.prompt).toContain('<xs:enumeration value="needs_more_work"/>');
+    expect(selfReviewTurn.prompt).toContain('name="concerns"');
+    expect(selfReviewTurn.prompt).toContain('name="fixPlan"');
+
+    await runtime.completeAgentTurn({
+      runId: 'run-drt-self-loop',
+      turnId: selfReviewTurn.turnId,
+      responseRef: 'dev-self-review-needs-work',
+      finalResponseText: '<decision action="needs_more_work"><concerns>Found a gap.</concerns><fixPlan>Patch the gap and rerun focused tests.</fixPlan></decision>',
+    });
+    expect(queuedAt(queued, 2)).toMatchObject({ role: 'dev', stepId: 'implement' });
+    expectAgentPromptNoAssetRefClutter(queuedAt(queued, 2).prompt);
+
+    await runtime.completeAgentTurn({ runId: 'run-drt-self-loop', turnId: queuedAt(queued, 2).turnId, responseRef: 'dev-implement-after-self-review' });
+    expect(queuedAt(queued, 3)).toMatchObject({ role: 'dev', stepId: 'self_review' });
+  });
+
   it('TEST_CASE_M98_2A runs Create form from agent template and stores structured form result fields', async () => {
     const { runtime, queued } = await createRuntime({ templates: BUILT_IN_WORKFLOW_TEMPLATES });
     await designStore.useTemplate({ templateId: 'built-in/create-form-from-agent', designId: 'design.create-form.runtime', draftId: 'draft.create-form.runtime' });

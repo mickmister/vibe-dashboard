@@ -23,7 +23,7 @@ type PromptWithRefs = { template: string; refs?: Array<{ kind: 'prompt' | 'skill
 export const workflowStoryAssets: WorkflowAssetsModel = {
   prompts: [
     { kind: 'prompt', id: 'prompt.drt.dev.implement', version: 1, name: 'Dev implementation prompt', description: 'Implement the requested feature.', source: 'built_in', preview: 'Implement {{inputs.featureRequest}} and note tests.' },
-    { kind: 'prompt', id: 'prompt.drt.dev.self-review', version: 1, name: 'Dev self-review prompt', description: 'Required Dev self-review.', source: 'built_in', preview: 'Review your changes and choose the next workflow action.' },
+    { kind: 'prompt', id: 'prompt.drt.dev.self-review', version: 1, name: 'Dev self-review prompt', description: 'Required Dev self-review.', source: 'built_in', preview: 'Review without code changes and choose ready_for_review or needs_more_work.' },
     { kind: 'prompt', id: 'prompt.drt.review', version: 1, name: 'Reviewer prompt', description: 'Review implementation and concerns.', source: 'built_in', preview: 'Approve or request changes with markdown remarks.' },
     { kind: 'prompt', id: 'prompt.drt.tester', version: 1, name: 'Tester prompt', description: 'Test the implementation.', source: 'built_in', preview: 'Approve, report a bug, or explain why it is not testable.' },
     { kind: 'prompt', id: 'prompt.ci.wait', version: 1, name: 'CI wait prompt', description: 'Ask the agent to push and report CI.', source: 'user', preview: 'Push the branch and return the CI run id.' },
@@ -75,7 +75,10 @@ export function devReviewTesterWorkflowDefinition(): AgentWorkflowDefinitionV1 {
           { id: 'implement', type: 'agent_turn', turnType: 'non_decision', prompt: withRefs('Implement {{inputs.featureRequest}}.', [{ kind: 'prompt', id: 'prompt.drt.dev.implement', version: 1 }]) },
           { id: 'self_review', type: 'agent_turn', turnType: 'decision', prompt: withRefs('Self-review and choose the next action.', [{ kind: 'prompt', id: 'prompt.drt.dev.self-review', version: 1 }, { kind: 'skill', id: 'skill.workflow.xml-decision', version: 1 }]), response: decisionResponse },
         ],
-        actions: { ready_for_review: { label: 'Ready for review', targetState: 'review', result: { fields: { summary: { type: 'markdown' }, concerns: { type: 'markdown' } }, required: ['summary'], unknownFields: 'reject' } } },
+        actions: {
+          ready_for_review: { label: 'Ready for review', targetState: 'review', result: { fields: { summary: { type: 'markdown' }, concerns: { type: 'markdown' } }, required: ['summary'], unknownFields: 'reject' } },
+          needs_more_work: { label: 'Needs more work', targetState: 'dev', result: { fields: { concerns: { type: 'markdown' }, fixPlan: { type: 'markdown' } }, required: ['concerns', 'fixPlan'], unknownFields: 'reject' } },
+        },
       },
       review: {
         owner: 'review',

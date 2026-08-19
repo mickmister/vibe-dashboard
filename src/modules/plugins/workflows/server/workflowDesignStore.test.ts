@@ -363,12 +363,16 @@ describe('DbWorkflowDesignStore M91 foundation', () => {
     expect(drt.draft.definition).toMatchObject({
       roles: { dev: { label: 'Dev' }, review: { label: 'Review' }, tester: { label: 'Tester' } },
       states: {
-        dev: { steps: [{ id: 'implement' }, { id: 'self_review', turnType: 'decision' }] },
+        dev: { steps: [{ id: 'implement' }, { id: 'self_review', turnType: 'decision' }], actions: { ready_for_review: { targetState: 'review' }, needs_more_work: { targetState: 'dev' } } },
         review: { actions: { changes_requested: { targetState: 'dev' } } },
         tester: { actions: { bug_found: { targetState: 'dev' }, not_testable: { targetState: 'dev' }, approved: { targetState: 'done' } } },
       },
     });
-    await expect(store.publishDraft('draft.drt')).resolves.toMatchObject({ designId: 'design.drt', version: 1 });
+    const publishedDrt = await store.publishDraft('draft.drt');
+    expect(publishedDrt).toMatchObject({ designId: 'design.drt', version: 1 });
+    const devSelfReviewPrompt = JSON.stringify(publishedDrt.resolvedDefinition.states.dev);
+    expect(devSelfReviewPrompt).toContain('without making code changes during this self-review step');
+    expect(devSelfReviewPrompt).toContain('wait for the next workflow instruction before making fixes');
 
     const form = await store.useTemplate({ templateId: 'built-in/create-form-from-agent', designId: 'design.form', draftId: 'draft.form' });
     expect(form.draft.definition).toMatchObject({

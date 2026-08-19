@@ -21,7 +21,7 @@ export const BUILT_IN_WORKFLOW_TEMPLATES: WorkflowTemplateCatalogEntry[] = [
     description: 'Generic three-role feature workflow with Dev implementation plus self-review, Review approval/change loop, and Tester acceptance loop.',
     promptAssets: [
       { promptAssetId: 'prompt.drt.dev.implement', version: 1, source: 'built_in', name: 'Dev implementation prompt', bodyMarkdown: 'Implement the requested feature from {{inputs.featureRequest}}. Keep notes on tests and risks.' },
-      { promptAssetId: 'prompt.drt.dev.self-review', version: 1, source: 'built_in', name: 'Dev self-review prompt', bodyMarkdown: 'Review your own changes. Return XML choosing ready_for_review when the work is ready, with markdown concerns if any.' },
+      { promptAssetId: 'prompt.drt.dev.self-review', version: 1, source: 'built_in', name: 'Dev self-review prompt', bodyMarkdown: 'Review your own changes without making code changes during this self-review step. Return only the workflow decision XML: choose ready_for_review when the work is ready, or needs_more_work when you found concerns that need another implementation pass. If you choose needs_more_work, include markdown concerns and an actionable fix plan. After returning the decision XML, wait for the next workflow instruction before making fixes.' },
       { promptAssetId: 'prompt.drt.review', version: 1, source: 'built_in', name: 'Reviewer prompt', bodyMarkdown: 'Review the implementation and Dev self-review concerns. Approve or request changes with clear markdown remarks.' },
       { promptAssetId: 'prompt.drt.tester', version: 1, source: 'built_in', name: 'Tester prompt', bodyMarkdown: 'Test the feature against the request and review approval. Approve, report a bug, or explain why the work is not testable.' },
     ],
@@ -51,6 +51,11 @@ export const BUILT_IN_WORKFLOW_TEMPLATES: WorkflowTemplateCatalogEntry[] = [
               label: 'Ready for review',
               targetState: 'review',
               result: { fields: { summary: { type: 'markdown' }, concerns: { type: 'markdown' } }, required: ['summary'], unknownFields: 'reject' },
+            },
+            needs_more_work: {
+              label: 'Needs more work',
+              targetState: 'dev',
+              result: { fields: { concerns: { type: 'markdown' }, fixPlan: { type: 'markdown' } }, required: ['concerns', 'fixPlan'], unknownFields: 'reject' },
             },
           },
         },
