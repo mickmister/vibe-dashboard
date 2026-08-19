@@ -88,6 +88,9 @@ try {
     'VKWorkspace',
     'ExternalIssueWorkspaceLink',
     'ExternalRepoProjectMapping',
+    'ExternalKanbanProvider',
+    'ExternalKanbanSavedView',
+    'BeadWorkspaceLink',
     'Migration',
   ];
   const missing = requiredTables.filter((tableName) => !tableNames.has(tableName));
@@ -95,10 +98,18 @@ try {
     throw new Error(`Missing migrated tables: ${missing.join(', ')}`);
   }
 
-  db.close();
-  if (migrationNames.length !== 4) {
-    throw new Error(`Expected 4 external integration migrations, found ${migrationNames.length}`);
+  const providers = db.prepare('SELECT id FROM "ExternalKanbanProvider" ORDER BY id').all().map((row) => row.id);
+  for (const providerId of ['beads', 'github', 'jira', 'linear']) {
+    if (!providers.includes(providerId)) {
+      throw new Error(`Missing seeded ExternalKanbanProvider row: ${providerId}`);
+    }
   }
+
+  if (migrationNames.length !== 5) {
+    throw new Error(`Expected 5 external integration migrations, found ${migrationNames.length}`);
+  }
+
+  db.close();
 
   console.log(`External integrations DB smoke passed (${migrationNames.length} migrations applied)`);
 } finally {

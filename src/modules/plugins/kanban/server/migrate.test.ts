@@ -43,6 +43,7 @@ describe('external integrations migrations', () => {
         '20260702010000_external_issue_workspace_mappings',
         '20260702020000_external_repo_project_mappings',
         '20260804220000_external_repo_project_mapping_site_scope',
+        '20260819010000_beads_kanban_saved_views',
       ]);
       expect(second).toEqual([]);
 
@@ -61,8 +62,18 @@ describe('external integrations migrations', () => {
         'VKWorkspace',
         'ExternalIssueWorkspaceLink',
         'ExternalRepoProjectMapping',
+        'ExternalKanbanProvider',
+        'ExternalKanbanSavedView',
+        'BeadWorkspaceLink',
         'Migration',
       ]));
+
+      const providers = await db
+        .selectFrom('ExternalKanbanProvider')
+        .select('id')
+        .orderBy('id')
+        .execute();
+      expect(providers.map((provider) => provider.id)).toEqual(['beads', 'github', 'jira', 'linear']);
     } finally {
       await db.destroy();
       sqlite.close();
@@ -169,7 +180,10 @@ describe('external integrations migrations', () => {
       await db.deleteFrom('ExternalRepoProjectMapping').execute();
 
       const applied = await migrateExternalIntegrationsDb(db);
-      expect(applied).toEqual(['20260804220000_external_repo_project_mapping_site_scope']);
+      expect(applied).toEqual([
+        '20260804220000_external_repo_project_mapping_site_scope',
+        '20260819010000_beads_kanban_saved_views',
+      ]);
 
       await db.insertInto('ExternalRepoProjectMapping').values([
         {
@@ -204,6 +218,97 @@ describe('external integrations migrations', () => {
         issueTypeName: 'Task',
         metadataJson: null,
       }).execute()).rejects.toThrow();
+    } finally {
+      await db.destroy();
+      sqlite.close();
+    }
+  });
+
+  it('creates saved Beads Kanban views and explicit bead workspace links without read-time seeding', async () => {
+    const sqlite = new Database(':memory:');
+    const db = new Kysely<DB>({ dialect: new SqliteDialect({ database: sqlite }) });
+
+    try {
+      await migrateExternalIntegrationsDb(db);
+
+      await db.insertInto('ExternalKanbanSavedView').values({
+        id: 'view-beads-default',
+        providerId: 'beads',
+        name: 'Default Beads workflow',
+        scopeType: 'repo',
+        sourceDirectory: '/repos/vibe-kanban-vscode-web',
+        repoId: 'repo-vd',
+        repoName: 'vibe-kanban-vscode-web',
+        viewMode: 'board',
+        filterRulesJson: '{"version":1,"rule":null}',
+        columnRulesJson: '{"version":1,"columns":[]}',
+        swimlaneRulesJson: null,
+        settingsJson: '{"showCompleted":false}',
+      }).execute();
+
+      await db.insertInto('BeadWorkspaceLink').values({
+        id: 'bead-workspace-link-1',
+        beadId: 'vkvw-hifa.12',
+        sourceDirectory: '/repos/vibe-kanban-vscode-web',
+        repoId: 'repo-vd',
+        workspaceId: 'workspace-1',
+        isPrimary: 1,
+        linkSource: 'test',
+        metadataJson: null,
+      }).execute();
+
+      await expect(db.insertInto('BeadWorkspaceLink').values({
+        id: 'bead-workspace-link-duplicate',
+        beadId: 'vkvw-hifa.12',
+        sourceDirectory: '/repos/vibe-kanban-vscode-web',
+        repoId: 'repo-vd',
+        workspaceId: 'workspace-1',
+        isPrimary: 0,
+        linkSource: 'test',
+        metadataJson: null,
+      }).execute()).rejects.toThrow();
+    } finally {
+      await db.destroy();
+      sqlite.close();
+    }
+  });
+
+  it('upgrades existing DBs by adding Beads Kanban saved view tables and provider seed rows', async () => {
+    const sqlite = new Database(':memory:');
+    const db = new Kysely<DB>({ dialect: new SqliteDialect({ database: sqlite }) });
+
+    try {
+      sqlite.exec('CREATE TABLE IF NOT EXISTS "Migration" ("id" INTEGER PRIMARY KEY AUTOINCREMENT, "name" TEXT NOT NULL UNIQUE, "createdAt" TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)');
+
+      for (const migration of migrations.slice(0, 4)) {
+        await executeSqlMigration(db, migration.migration);
+        await db.insertInto('Migration').values({ name: migration.name }).execute();
+      }
+
+      const applied = await migrateExternalIntegrationsDb(db);
+      expect(applied).toEqual(['20260819010000_beads_kanban_saved_views']);
+
+      const providers = await db
+        .selectFrom('ExternalKanbanProvider')
+        .select('id')
+        .orderBy('id')
+        .execute();
+      expect(providers.map((provider) => provider.id)).toEqual(['beads', 'github', 'jira', 'linear']);
+
+      await expect(db.insertInto('ExternalKanbanSavedView').values({
+        id: 'upgrade-view',
+        providerId: 'beads',
+        name: 'Upgrade view',
+        scopeType: 'repo',
+        sourceDirectory: '/repos/vibe-kanban-vscode-web',
+        repoId: null,
+        repoName: null,
+        viewMode: 'board',
+        filterRulesJson: '{"version":1,"rule":null}',
+        columnRulesJson: '{"version":1,"columns":[]}',
+        swimlaneRulesJson: null,
+        settingsJson: null,
+      }).execute()).resolves.toBeDefined();
     } finally {
       await db.destroy();
       sqlite.close();

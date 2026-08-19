@@ -3,5 +3,6 @@ import './code-server/module';
 import './vibe-kanban/module';
 import './app-development/module';
 import './kanban/module';
+import './kanban/beads/module';
 import './kanban/jira/module';
 import './kanban/linear/module';

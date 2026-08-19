@@ -99,6 +99,45 @@ export interface ExternalRepoProjectMapping {
   updatedAt: Generated<Timestamp>;
 }
 
+export interface ExternalKanbanProvider {
+  id: string;
+  displayName: string;
+  kind: string;
+  capabilitiesJson: string | null;
+  createdAt: Generated<Timestamp>;
+  updatedAt: Generated<Timestamp>;
+}
+
+export interface ExternalKanbanSavedView {
+  id: string;
+  providerId: string;
+  name: string;
+  scopeType: string;
+  sourceDirectory: string | null;
+  repoId: string | null;
+  repoName: string | null;
+  viewMode: string;
+  filterRulesJson: string;
+  columnRulesJson: string;
+  swimlaneRulesJson: string | null;
+  settingsJson: string | null;
+  createdAt: Generated<Timestamp>;
+  updatedAt: Generated<Timestamp>;
+}
+
+export interface BeadWorkspaceLink {
+  id: string;
+  beadId: string;
+  sourceDirectory: string;
+  repoId: string | null;
+  workspaceId: string;
+  isPrimary: SqliteBoolean;
+  linkSource: string;
+  metadataJson: string | null;
+  createdAt: Generated<Timestamp>;
+  updatedAt: Generated<Timestamp>;
+}
+
 export interface ExternalIssueWorkspaceLink {
   id: string;
   externalIssueId: string;
@@ -124,6 +163,9 @@ export interface DB {
   ExternalProviderConnection: ExternalProviderConnection;
   ExternalIssue: ExternalIssue;
   ExternalRepoProjectMapping: ExternalRepoProjectMapping;
+  ExternalKanbanProvider: ExternalKanbanProvider;
+  ExternalKanbanSavedView: ExternalKanbanSavedView;
+  BeadWorkspaceLink: BeadWorkspaceLink;
   VKWorkspace: VKWorkspace;
   ExternalIssueWorkspaceLink: ExternalIssueWorkspaceLink;
   Migration: Migration;

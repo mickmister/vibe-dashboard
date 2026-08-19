@@ -91,7 +91,7 @@ export interface ExternalKanbanListDto {
 }
 
 export interface ExternalKanbanBoardViewDto<
-  Provider extends ExternalIssueProvider = ExternalIssueProvider,
+  Provider extends string = ExternalIssueProvider,
   Resource = {
     id: string;
     name: string;
@@ -132,6 +132,6 @@ export interface ExternalTrackerApiErrorDto {
   details?: Record<string, unknown>;
 }
 
-export type ExternalKanbanBoardApiResponse<BoardView extends ExternalKanbanBoardViewDto = ExternalKanbanBoardViewDto> =
+export type ExternalKanbanBoardApiResponse<BoardView extends ExternalKanbanBoardViewDto<string, any, any> = ExternalKanbanBoardViewDto> =
   | { ok: true; boardView: BoardView }
   | { ok: false; error: ExternalTrackerApiErrorDto };

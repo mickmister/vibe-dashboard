@@ -161,3 +161,57 @@ model ExternalRepoProjectMapping {
   @@unique([repoId, provider, siteHostname])
   @@index([provider, siteHostname, projectKey])
 }
+
+model ExternalKanbanProvider {
+  id               String   @id
+  displayName      String
+  kind             String
+  capabilitiesJson String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  savedViews ExternalKanbanSavedView[]
+
+  @@index([kind])
+}
+
+model ExternalKanbanSavedView {
+  id                 String   @id
+  providerId         String
+  name               String
+  scopeType          String
+  sourceDirectory    String?
+  repoId             String?
+  repoName           String?
+  viewMode           String
+  filterRulesJson    String
+  columnRulesJson    String
+  swimlaneRulesJson  String?
+  settingsJson       String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  provider ExternalKanbanProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  @@index([providerId])
+  @@index([scopeType, repoId])
+  @@index([sourceDirectory])
+}
+
+model BeadWorkspaceLink {
+  id              String   @id
+  beadId          String
+  sourceDirectory String
+  repoId          String?
+  workspaceId     String
+  isPrimary       Boolean  @default(false)
+  linkSource      String
+  metadataJson    String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([sourceDirectory, beadId, workspaceId])
+  @@index([sourceDirectory, beadId])
+  @@index([workspaceId])
+  @@index([repoId])
+}
