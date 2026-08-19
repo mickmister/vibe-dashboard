@@ -22,6 +22,18 @@ type DesignDirection =
   | 'premium'
   | 'enterprise';
 
+type ColorScheme = 'direction' | DesignDirection;
+type FontStyle = 'interfaceSans' | 'terminalMono' | 'compactSans' | 'largeDisplay';
+
+type DashboardConceptArgs = {
+  direction: DesignDirection;
+  colorScheme: ColorScheme;
+  fontStyle: FontStyle;
+  eyebrow: string;
+  title: string;
+  subtitle: string;
+};
+
 type DashboardConceptTheme = Record<string, string>;
 
 const focusCards: FocusCard[] = [
@@ -80,8 +92,42 @@ const savedFilters = [
   'Kanban review lane',
 ];
 
-const meta: Meta = {
+const meta: Meta<typeof DashboardConcept> = {
   title: 'Design Directions/Spaces Overview',
+  component: DashboardConcept,
+  args: {
+    colorScheme: 'direction',
+    fontStyle: 'interfaceSans',
+  },
+  argTypes: {
+    colorScheme: {
+      control: 'select',
+      options: ['direction', 'vscode', 'light', 'premium', 'enterprise'],
+      description:
+        'Preview a different skin/color scheme while keeping the selected concept copy.',
+    },
+    fontStyle: {
+      control: 'select',
+      options: ['interfaceSans', 'terminalMono', 'compactSans', 'largeDisplay'],
+      description: 'Preview the dashboard concept with alternate typography styles.',
+    },
+    direction: {
+      control: 'select',
+      options: ['vscode', 'light', 'premium', 'enterprise'],
+      table: {
+        disable: true,
+      },
+    },
+    eyebrow: {
+      control: 'text',
+    },
+    title: {
+      control: 'text',
+    },
+    subtitle: {
+      control: 'text',
+    },
+  },
   parameters: {
     layout: 'fullscreen',
     docs: {
@@ -97,61 +143,55 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const VSCodeAdjacentDark: Story = {
-  render: () => (
-    <DashboardConcept
-      direction="vscode"
-      eyebrow="VS Code adjacent"
-      title="Start with the work that matters"
-      subtitle="A calmer home for resuming voyages, triaging active work, and opening the next craft."
-    />
-  ),
+  args: {
+    direction: 'vscode',
+    eyebrow: 'VS Code adjacent',
+    title: 'Start with the work that matters',
+    subtitle:
+      'A calmer home for resuming voyages, triaging active work, and opening the next craft.',
+  },
 };
 
 export const LightAutoReady: Story = {
-  render: () => (
-    <DashboardConcept
-      direction="light"
-      eyebrow="Light and auto mode ready"
-      title="Good morning, pick up the thread"
-      subtitle="The same information architecture expressed with tokenized surfaces that can move between light, dark, and user skins."
-    />
-  ),
+  args: {
+    direction: 'light',
+    eyebrow: 'Light and auto mode ready',
+    title: 'Good morning, pick up the thread',
+    subtitle:
+      'The same information architecture expressed with tokenized surfaces that can move between light, dark, and user skins.',
+  },
 };
 
 export const PremiumCommandCenter: Story = {
-  render: () => (
-    <DashboardConcept
-      direction="premium"
-      eyebrow="Command center"
-      title="One desk for voyages, filters, and workflows"
-      subtitle="A denser cockpit for engineers who want the whole day in view without turning the home page into a feed."
-    />
-  ),
+  args: {
+    direction: 'premium',
+    eyebrow: 'Command center',
+    title: 'One desk for voyages, filters, and workflows',
+    subtitle:
+      'A denser cockpit for engineers who want the whole day in view without turning the home page into a feed.',
+  },
 };
 
 export const EnterpriseProductivity: Story = {
-  render: () => (
-    <DashboardConcept
-      direction="enterprise"
-      eyebrow="Enterprise productivity"
-      title="Clear queues for team-managed work"
-      subtitle="A restrained dashboard direction for organizations that need readable status, predictable controls, and saved operating views."
-    />
-  ),
+  args: {
+    direction: 'enterprise',
+    eyebrow: 'Enterprise productivity',
+    title: 'Clear queues for team-managed work',
+    subtitle:
+      'A restrained dashboard direction for organizations that need readable status, predictable controls, and saved operating views.',
+  },
 };
 
 function DashboardConcept({
   direction,
+  colorScheme = 'direction',
+  fontStyle = 'interfaceSans',
   eyebrow,
   title,
   subtitle,
-}: {
-  direction: DesignDirection;
-  eyebrow: string;
-  title: string;
-  subtitle: string;
-}) {
-  const theme = getTheme(direction);
+}: DashboardConceptArgs) {
+  const resolvedScheme = colorScheme === 'direction' ? direction : colorScheme;
+  const theme = applyFontStyle(getTheme(resolvedScheme), fontStyle);
 
   return (
     <main className={theme.page}>
@@ -333,6 +373,51 @@ function ToneDot({ tone }: { tone: Tone }) {
   return <span className={`h-2.5 w-2.5 rounded-full ${toneClass}`} />;
 }
 
+function applyFontStyle(
+  theme: DashboardConceptTheme,
+  fontStyle: FontStyle,
+): DashboardConceptTheme {
+  const titleClass = theme.title ?? '';
+  const heroTitleClass = theme.heroTitle ?? '';
+
+  const fontStyles: Record<FontStyle, Record<string, string>> = {
+    interfaceSans: {
+      page: `${theme.page} font-sans`,
+    },
+    terminalMono: {
+      page: `${theme.page} font-mono`,
+      eyebrow: `${theme.eyebrow} font-mono tracking-[0.08em]`,
+      title: `${theme.title} font-mono tracking-[-0.06em]`,
+      heroTitle: `${theme.heroTitle} font-mono`,
+      rowTitle: `${theme.rowTitle} font-mono text-[13px]`,
+      primaryButton: `${theme.primaryButton} font-mono`,
+      secondaryButton: `${theme.secondaryButton} font-mono`,
+      filterPill: `${theme.filterPill} font-mono`,
+    },
+    compactSans: {
+      page: `${theme.page} font-sans`,
+      title: titleClass
+        .replace('md:text-7xl', 'md:text-6xl')
+        .replace('md:text-6xl', 'md:text-5xl'),
+      subtitle: `${theme.subtitle} max-w-xl`,
+      heroTitle: heroTitleClass.replace('md:text-4xl', 'md:text-3xl'),
+      rowTitle: `${theme.rowTitle} text-[13px]`,
+      rowMeta: `${theme.rowMeta} text-[11px] leading-4`,
+    },
+    largeDisplay: {
+      page: `${theme.page} font-sans`,
+      title: `${theme.title} md:text-7xl`,
+      heroTitle: `${theme.heroTitle} md:text-5xl`,
+      eyebrow: `${theme.eyebrow} tracking-[0.02em]`,
+    },
+  };
+
+  return {
+    ...theme,
+    ...fontStyles[fontStyle],
+  };
+}
+
 function getTheme(direction: DesignDirection): DashboardConceptTheme {
   const shared = {
     panelHeader:
@@ -356,7 +441,7 @@ function getTheme(direction: DesignDirection): DashboardConceptTheme {
 
   const variants: Record<DesignDirection, Record<string, string>> = {
     vscode: {
-      page: 'relative min-h-[100dvh] overflow-hidden bg-[#0d1117] p-4 text-zinc-100 md:p-8',
+      page: 'relative h-[100dvh] overflow-y-auto overflow-x-hidden bg-[#0d1117] p-4 text-zinc-100 md:p-8',
       backdrop:
         'pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_8%,rgb(14_165_233_/_0.16),transparent_34%),linear-gradient(180deg,rgb(255_255_255_/_0.035),transparent_32%)]',
       shell: 'relative mx-auto max-w-[1440px]',
@@ -407,7 +492,7 @@ function getTheme(direction: DesignDirection): DashboardConceptTheme {
       timeText: 'shrink-0 font-mono text-xs opacity-50',
     },
     light: {
-      page: 'relative min-h-[100dvh] overflow-hidden bg-[#eef3f7] p-4 text-slate-950 md:p-8',
+      page: 'relative h-[100dvh] overflow-y-auto overflow-x-hidden bg-[#eef3f7] p-4 text-slate-950 md:p-8',
       backdrop:
         'pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_72%_0%,rgb(14_116_144_/_0.12),transparent_30%),linear-gradient(135deg,rgb(255_255_255_/_0.9),transparent_52%)]',
       shell: 'relative mx-auto max-w-[1440px]',
@@ -457,7 +542,7 @@ function getTheme(direction: DesignDirection): DashboardConceptTheme {
       timeText: 'shrink-0 font-mono text-xs opacity-52',
     },
     premium: {
-      page: 'relative min-h-[100dvh] overflow-hidden bg-[#090b10] p-4 text-zinc-100 md:p-8',
+      page: 'relative h-[100dvh] overflow-y-auto overflow-x-hidden bg-[#090b10] p-4 text-zinc-100 md:p-8',
       backdrop:
         'pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_-8%,rgb(34_211_238_/_0.16),transparent_32%),radial-gradient(circle_at_85%_30%,rgb(16_185_129_/_0.10),transparent_28%),linear-gradient(180deg,rgb(255_255_255_/_0.05),transparent_36%)]',
       shell:
@@ -509,7 +594,7 @@ function getTheme(direction: DesignDirection): DashboardConceptTheme {
       timeText: 'shrink-0 font-mono text-xs opacity-50',
     },
     enterprise: {
-      page: 'relative min-h-[100dvh] overflow-hidden bg-[#f5f7fb] p-4 text-slate-950 md:p-8',
+      page: 'relative h-[100dvh] overflow-y-auto overflow-x-hidden bg-[#f5f7fb] p-4 text-slate-950 md:p-8',
       backdrop:
         'pointer-events-none absolute inset-0 bg-[linear-gradient(90deg,rgb(37_99_235_/_0.08),transparent_35%),linear-gradient(180deg,white,transparent_48%)]',
       shell: 'relative mx-auto max-w-[1440px]',
