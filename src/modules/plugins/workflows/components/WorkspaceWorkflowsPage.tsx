@@ -1,9 +1,10 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import { buildVkSessionUrl } from "../../../../utils/origin";
 import { workflowRouteHref } from "./workflowRouteContext";
 import { StandaloneDashboardPage } from "../../../../components/StandaloneDashboardPage";
 import { searchMetaWorkflowBeads, type MetaWorkflowBeadSummary } from "../client/metaWorkflowApi";
+import { fetchMetaWorkflowRuns, type MetaWorkflowRunModel } from "../client/metaWorkflowApi";
 import {
   batchLaunchWorkspaceWorkflow,
   createWorkspaceLane,
@@ -26,11 +27,14 @@ import {
   type LaunchWorkspaceWorkflowResponse,
 } from "../client/workflowsHomeApi";
 import {
+  buildMetaWorkflowTerminalNotification,
   buildWorkflowRunTerminalNotification,
   disableBrowserWorkflowNotifications,
   getBrowserWorkflowNotificationState,
+  markBrowserWorkflowNotificationsSeen,
   maybeNotifyBrowserWorkflowTerminal,
   requestBrowserWorkflowNotifications,
+  type WorkflowNotificationPayload,
   type BrowserWorkflowNotificationState,
 } from "../extensions/workflowNotifications";
 
@@ -183,6 +187,7 @@ export function WorkspaceWorkflowsHomeView({
         </div>
         <WorkflowBrowserNotificationControl
           runs={home?.recentRuns ?? []}
+          workspaceId={home?.workspaceId ?? null}
           onRefresh={onRefresh}
         />
         <div
@@ -392,38 +397,62 @@ export function WorkspaceWorkflowsHomeView({
 
 function WorkflowBrowserNotificationControl({
   runs,
+  workspaceId,
   onRefresh,
 }: {
   runs: WorkspaceWorkflowRunSummary[];
+  workspaceId: string | null;
   onRefresh: () => void;
 }): React.ReactElement {
   const [state, setState] = useState<BrowserWorkflowNotificationState>(() =>
     getBrowserWorkflowNotificationState(),
   );
+  const [metaRuns, setMetaRuns] = useState<MetaWorkflowRunModel[]>([]);
+  const seededVisibleTerminals = useRef(false);
+
+  const terminalPayloads = useMemo(
+    () => buildVisibleTerminalNotificationPayloads(runs, metaRuns),
+    [runs, metaRuns],
+  );
+
+  const refreshMetaRuns = () => {
+    if (!workspaceId) {
+      setMetaRuns([]);
+      return;
+    }
+    void fetchMetaWorkflowRuns(workspaceId)
+      .then(setMetaRuns)
+      .catch(() => setMetaRuns([]));
+  };
 
   useEffect(() => {
     setState(getBrowserWorkflowNotificationState());
-  }, []);
+    refreshMetaRuns();
+  }, [workspaceId]);
 
   useEffect(() => {
-    if (!state.enabled) return;
-    for (const run of runs) {
-      const payload = buildWorkflowRunTerminalNotification({
-        runId: run.runId,
-        workflowName: run.workflowName,
-        workspaceId: run.workspaceId,
-        status: run.status,
-        now: Date.now(),
-      });
-      if (payload) maybeNotifyBrowserWorkflowTerminal(payload);
+    if (!state.enabled) {
+      seededVisibleTerminals.current = false;
+      return;
     }
-  }, [runs, state.enabled]);
+    if (!seededVisibleTerminals.current) {
+      markBrowserWorkflowNotificationsSeen(terminalPayloads);
+      seededVisibleTerminals.current = true;
+      return;
+    }
+    for (const payload of terminalPayloads) {
+      maybeNotifyBrowserWorkflowTerminal(payload);
+    }
+  }, [terminalPayloads, state.enabled]);
 
   useEffect(() => {
     if (!state.enabled) return;
-    const interval = window.setInterval(onRefresh, 30_000);
+    const interval = window.setInterval(() => {
+      onRefresh();
+      refreshMetaRuns();
+    }, 30_000);
     return () => window.clearInterval(interval);
-  }, [onRefresh, state.enabled]);
+  }, [onRefresh, state.enabled, workspaceId]);
 
   const canRequest = state.supported && state.permission !== "denied";
   return (
@@ -447,7 +476,7 @@ function WorkflowBrowserNotificationControl({
             className="rounded-md border border-cyan-700 px-3 py-2 text-xs text-cyan-100 hover:bg-cyan-950/40 disabled:cursor-not-allowed disabled:opacity-50"
             disabled={!canRequest}
             onClick={() => {
-              void requestBrowserWorkflowNotifications().then(setState);
+              void requestBrowserWorkflowNotifications({ suppressExisting: terminalPayloads }).then(setState);
             }}
           >
             Enable
@@ -456,6 +485,30 @@ function WorkflowBrowserNotificationControl({
       </div>
     </div>
   );
+}
+
+function buildVisibleTerminalNotificationPayloads(
+  runs: WorkspaceWorkflowRunSummary[],
+  metaRuns: MetaWorkflowRunModel[],
+): WorkflowNotificationPayload[] {
+  const now = Date.now();
+  return [
+    ...runs.map((run) => buildWorkflowRunTerminalNotification({
+      runId: run.runId,
+      workflowName: run.workflowName,
+      workspaceId: run.workspaceId,
+      status: run.status,
+      now,
+    })),
+    ...metaRuns.map((run) => buildMetaWorkflowTerminalNotification({
+      metaRunId: run.metaRunId,
+      title: run.title,
+      parentWorkspaceId: run.parentWorkspaceId,
+      status: run.status,
+      blockedReason: run.blockedReason,
+      now,
+    })),
+  ].filter((payload): payload is WorkflowNotificationPayload => Boolean(payload));
 }
 
 function workflowDashboardSummary(

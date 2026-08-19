@@ -205,11 +205,24 @@ export function getBrowserWorkflowNotificationState(): BrowserWorkflowNotificati
   };
 }
 
-export async function requestBrowserWorkflowNotifications(): Promise<BrowserWorkflowNotificationState> {
+export async function requestBrowserWorkflowNotifications(options: { suppressExisting?: WorkflowNotificationPayload[] } = {}): Promise<BrowserWorkflowNotificationState> {
   if (typeof window === 'undefined' || typeof Notification === 'undefined') return getBrowserWorkflowNotificationState();
   const permission = Notification.permission === 'default' ? await Notification.requestPermission() : Notification.permission;
   window.localStorage.setItem(BROWSER_WORKFLOW_NOTIFICATION_ENABLED_KEY, permission === 'granted' ? 'true' : 'false');
+  if (permission === 'granted' && options.suppressExisting?.length) {
+    markBrowserWorkflowNotificationsSeen(options.suppressExisting);
+  }
   return getBrowserWorkflowNotificationState();
+}
+
+export function markBrowserWorkflowNotificationsSeen(payloads: WorkflowNotificationPayload[]): void {
+  if (typeof window === 'undefined') return;
+  const seenRaw = window.localStorage.getItem(BROWSER_WORKFLOW_NOTIFICATION_SEEN_KEY) || '{}';
+  const seen = safeParseRecord(seenRaw);
+  for (const payload of payloads) {
+    seen[`${payload.notificationId}:${payload.status}`] = Date.now();
+  }
+  window.localStorage.setItem(BROWSER_WORKFLOW_NOTIFICATION_SEEN_KEY, JSON.stringify(seen));
 }
 
 export function disableBrowserWorkflowNotifications(): BrowserWorkflowNotificationState {
