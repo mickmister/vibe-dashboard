@@ -24,7 +24,7 @@
     "storybook": "npm run build-storybook && npm run serve-storybook",
     "storybook:dev": "storybook dev -p $PORT",
     "build-storybook": "storybook build",
-    "serve-storybook": "serve storybook-static -l $PORT",
+    "serve-storybook": "serve storybook-static -l $PORT -c ../.storybook/serve.json",
     "validate:caddy": "node --experimental-strip-types scripts/validate-plugin-caddy.ts",
     "test:container-runtime": "vitest run --config vitest.server.config.ts plugins/orchestrator/container-runtime.test.ts",
     "test:first-party-services": "vitest run --config vitest.server.config.ts plugins/orchestrator/first-party-services.test.ts",
