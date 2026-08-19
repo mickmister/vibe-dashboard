@@ -147,10 +147,10 @@ async function fetchRawBeadsSnapshot(options: FetchBeadsBoardOptions): Promise<R
   const runBd = options.runBd ?? defaultRunBd;
   const [exportResult, statusesResult] = await Promise.all([
     runBd(['-C', options.sourceDirectory, 'export'], { timeoutMs: BEADS_COMMAND_TIMEOUT_MS }),
-    runBd(['-C', options.sourceDirectory, 'statuses'], { timeoutMs: BEADS_COMMAND_TIMEOUT_MS }).catch(() => undefined),
+    fetchBdStatuses(runBd, options.sourceDirectory),
   ]);
   const beads = parseBeadsExport(exportResult.stdout);
-  const statuses = statusesResult ? parseBdStatuses(statusesResult.stdout) : statusesFromExport(beads);
+  const statuses = statusesResult ?? statusesFromExport(beads);
   return {
     beads,
     statuses: statuses.length > 0 ? statuses : statusesFromExport(beads),
@@ -223,10 +223,34 @@ function parseBeadsExport(stdout: string): ExportedBead[] {
     .filter((bead) => typeof bead.id === 'string' && bead.id.length > 0);
 }
 
+async function fetchBdStatuses(runBd: RunBdCommand, sourceDirectory: string): Promise<BeadsStatus[] | undefined> {
+  const jsonResult = await runBd(['-C', sourceDirectory, 'statuses', '--json'], { timeoutMs: BEADS_COMMAND_TIMEOUT_MS }).catch(() => undefined);
+  const jsonStatuses = jsonResult ? parseBdStatusesJson(jsonResult.stdout) : [];
+  if (jsonStatuses.length > 0) return jsonStatuses;
+
+  const textResult = await runBd(['-C', sourceDirectory, 'statuses'], { timeoutMs: BEADS_COMMAND_TIMEOUT_MS }).catch(() => undefined);
+  const textStatuses = textResult ? parseBdStatuses(textResult.stdout) : [];
+  return textStatuses.length > 0 ? textStatuses : undefined;
+}
+
+export function parseBdStatusesJson(stdout: string): BeadsStatus[] {
+  try {
+    const parsed = JSON.parse(stdout) as unknown;
+    if (!isPlainObject(parsed)) return [];
+    const statuses = [
+      ...statusesFromJsonArray(parsed.built_in_statuses),
+      ...statusesFromJsonArray(parsed.custom_statuses),
+    ];
+    return uniqueStatuses(statuses);
+  } catch {
+    return [];
+  }
+}
+
 export function parseBdStatuses(stdout: string): BeadsStatus[] {
   const statuses: BeadsStatus[] = [];
   for (const line of stdout.split(/\r?\n/)) {
-    const match = line.match(/^\s*[○●]?\s*([A-Za-z0-9_.-]+)\s+\[([^\]]+)\]/);
+    const match = line.match(/^\s*\S+\s+([A-Za-z0-9_.-]+)\s+\[([^\]]+)\]/u);
     if (!match) continue;
     const statusId = match[1]!;
     statuses.push({
@@ -235,7 +259,7 @@ export function parseBdStatuses(stdout: string): BeadsStatus[] {
       category: match[2]!.trim(),
     });
   }
-  return statuses;
+  return uniqueStatuses(statuses);
 }
 
 function statusesFromExport(beads: ExportedBead[]): BeadsStatus[] {
@@ -310,4 +334,31 @@ function ageDays(value: string | undefined): number | undefined {
   const timestamp = Date.parse(value);
   if (!Number.isFinite(timestamp)) return undefined;
   return Math.max(0, Math.floor((Date.now() - timestamp) / 86_400_000));
+}
+
+function statusesFromJsonArray(value: unknown): BeadsStatus[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    if (!isPlainObject(entry) || typeof entry.name !== 'string') return [];
+    return [{
+      id: normalizeStatusId(entry.name),
+      title: humanizeStatus(entry.name),
+      category: typeof entry.category === 'string' ? entry.category.trim() : undefined,
+    }];
+  });
+}
+
+function uniqueStatuses(statuses: BeadsStatus[]): BeadsStatus[] {
+  const seen = new Set<string>();
+  const unique: BeadsStatus[] = [];
+  for (const status of statuses) {
+    if (!status.id || seen.has(status.id)) continue;
+    seen.add(status.id);
+    unique.push(status);
+  }
+  return unique;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && Object.getPrototypeOf(value) === Object.prototype;
 }
