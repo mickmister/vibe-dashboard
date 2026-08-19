@@ -250,6 +250,33 @@ export function maybeNotifyBrowserWorkflowTerminal(payload: WorkflowNotification
   return true;
 }
 
+export interface BrowserWorkflowNotificationBaseline {
+  seededSourceKey: string | null;
+}
+
+export function processBrowserWorkflowNotificationPayloads(input: {
+  enabled: boolean;
+  dataReady: boolean;
+  sourceKey: string;
+  payloads: WorkflowNotificationPayload[];
+  baseline: BrowserWorkflowNotificationBaseline;
+  markSeen: (payloads: WorkflowNotificationPayload[]) => void;
+  notify: (payload: WorkflowNotificationPayload) => boolean;
+}): "disabled" | "waiting_for_data" | "seeded_baseline" | "notified" {
+  if (!input.enabled) {
+    input.baseline.seededSourceKey = null;
+    return "disabled";
+  }
+  if (!input.dataReady) return "waiting_for_data";
+  if (input.baseline.seededSourceKey !== input.sourceKey) {
+    input.markSeen(input.payloads);
+    input.baseline.seededSourceKey = input.sourceKey;
+    return "seeded_baseline";
+  }
+  for (const payload of input.payloads) input.notify(payload);
+  return "notified";
+}
+
 function safeParseRecord(raw: string): Record<string, unknown> {
   try {
     const parsed = JSON.parse(raw);

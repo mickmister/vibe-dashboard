@@ -33,7 +33,9 @@ import {
   getBrowserWorkflowNotificationState,
   markBrowserWorkflowNotificationsSeen,
   maybeNotifyBrowserWorkflowTerminal,
+  processBrowserWorkflowNotificationPayloads,
   requestBrowserWorkflowNotifications,
+  type BrowserWorkflowNotificationBaseline,
   type WorkflowNotificationPayload,
   type BrowserWorkflowNotificationState,
 } from "../extensions/workflowNotifications";
@@ -188,6 +190,7 @@ export function WorkspaceWorkflowsHomeView({
         <WorkflowBrowserNotificationControl
           runs={home?.recentRuns ?? []}
           workspaceId={home?.workspaceId ?? null}
+          homeReady={!loading && Boolean(home)}
           onRefresh={onRefresh}
         />
         <div
@@ -398,17 +401,20 @@ export function WorkspaceWorkflowsHomeView({
 function WorkflowBrowserNotificationControl({
   runs,
   workspaceId,
+  homeReady,
   onRefresh,
 }: {
   runs: WorkspaceWorkflowRunSummary[];
   workspaceId: string | null;
+  homeReady: boolean;
   onRefresh: () => void;
 }): React.ReactElement {
   const [state, setState] = useState<BrowserWorkflowNotificationState>(() =>
     getBrowserWorkflowNotificationState(),
   );
   const [metaRuns, setMetaRuns] = useState<MetaWorkflowRunModel[]>([]);
-  const seededVisibleTerminals = useRef(false);
+  const [metaRunsReady, setMetaRunsReady] = useState(!workspaceId);
+  const baseline = useRef<BrowserWorkflowNotificationBaseline>({ seededSourceKey: null });
 
   const terminalPayloads = useMemo(
     () => buildVisibleTerminalNotificationPayloads(runs, metaRuns),
@@ -418,11 +424,19 @@ function WorkflowBrowserNotificationControl({
   const refreshMetaRuns = () => {
     if (!workspaceId) {
       setMetaRuns([]);
+      setMetaRunsReady(true);
       return;
     }
+    setMetaRunsReady(false);
     void fetchMetaWorkflowRuns(workspaceId)
-      .then(setMetaRuns)
-      .catch(() => setMetaRuns([]));
+      .then((runs) => {
+        setMetaRuns(runs);
+        setMetaRunsReady(true);
+      })
+      .catch(() => {
+        setMetaRuns([]);
+        setMetaRunsReady(true);
+      });
   };
 
   useEffect(() => {
@@ -431,19 +445,16 @@ function WorkflowBrowserNotificationControl({
   }, [workspaceId]);
 
   useEffect(() => {
-    if (!state.enabled) {
-      seededVisibleTerminals.current = false;
-      return;
-    }
-    if (!seededVisibleTerminals.current) {
-      markBrowserWorkflowNotificationsSeen(terminalPayloads);
-      seededVisibleTerminals.current = true;
-      return;
-    }
-    for (const payload of terminalPayloads) {
-      maybeNotifyBrowserWorkflowTerminal(payload);
-    }
-  }, [terminalPayloads, state.enabled]);
+    processBrowserWorkflowNotificationPayloads({
+      enabled: state.enabled,
+      dataReady: homeReady && metaRunsReady,
+      sourceKey: workspaceId ?? "global",
+      payloads: terminalPayloads,
+      baseline: baseline.current,
+      markSeen: markBrowserWorkflowNotificationsSeen,
+      notify: maybeNotifyBrowserWorkflowTerminal,
+    });
+  }, [homeReady, metaRunsReady, terminalPayloads, state.enabled, workspaceId]);
 
   useEffect(() => {
     if (!state.enabled) return;

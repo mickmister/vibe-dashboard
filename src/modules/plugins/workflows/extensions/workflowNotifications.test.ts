@@ -5,6 +5,7 @@ import {
   buildWorkflowRunTerminalNotification,
   getBrowserWorkflowNotificationState,
   maybeNotifyBrowserWorkflowTerminal,
+  processBrowserWorkflowNotificationPayloads,
   requestBrowserWorkflowNotifications,
   shouldNotifyWorkflowRun,
 } from './workflowNotifications';
@@ -82,6 +83,70 @@ describe('workflow notification providers 7XWL', () => {
     await requestBrowserWorkflowNotifications();
     expect(rejected.requestPermission).toHaveBeenCalledTimes(1);
     expect(getBrowserWorkflowNotificationState()).toMatchObject({ permission: 'denied', enabled: false });
+  });
+
+  it('does not seed an empty baseline before page read models finish loading', () => {
+    const baseline = { seededSourceKey: null as string | null };
+    const historical = buildWorkflowRunTerminalNotification({
+      runId: 'run-historical',
+      workflowName: 'Historical flow',
+      workspaceId: 'workspace-a',
+      status: 'completed',
+      now: 1,
+    })!;
+    const seen = new Set<string>();
+    const keyFor = (payload: typeof historical) => `${payload.notificationId}:${payload.status}`;
+    const markSeen = vi.fn((payloads: typeof historical[]) => {
+      for (const payload of payloads) seen.add(keyFor(payload));
+    });
+    const notify = vi.fn((payload: typeof historical) => {
+      if (seen.has(keyFor(payload))) return false;
+      seen.add(keyFor(payload));
+      return true;
+    });
+
+    expect(processBrowserWorkflowNotificationPayloads({
+      enabled: true,
+      dataReady: false,
+      sourceKey: 'workspace-a',
+      payloads: [],
+      baseline,
+      markSeen,
+      notify,
+    })).toBe('waiting_for_data');
+    expect(baseline.seededSourceKey).toBeNull();
+
+    expect(processBrowserWorkflowNotificationPayloads({
+      enabled: true,
+      dataReady: true,
+      sourceKey: 'workspace-a',
+      payloads: [historical],
+      baseline,
+      markSeen,
+      notify,
+    })).toBe('seeded_baseline');
+    expect(markSeen).toHaveBeenCalledWith([historical]);
+    expect(notify).not.toHaveBeenCalled();
+
+    const fresh = buildMetaWorkflowTerminalNotification({
+      metaRunId: 'meta-fresh',
+      title: 'Fresh meta-workflow',
+      parentWorkspaceId: 'workspace-a',
+      status: 'completed',
+      now: 2,
+    })!;
+    expect(processBrowserWorkflowNotificationPayloads({
+      enabled: true,
+      dataReady: true,
+      sourceKey: 'workspace-a',
+      payloads: [historical, fresh],
+      baseline,
+      markSeen,
+      notify,
+    })).toBe('notified');
+    expect(notify).toHaveBeenCalledWith(historical);
+    expect(notify).toHaveBeenCalledWith(fresh);
+    expect(notify.mock.results.map((result) => result.value)).toEqual([false, true]);
   });
 });
 
