@@ -67,6 +67,7 @@ import {
   type WorkflowBatchCapacitySnapshot,
   type WorkflowBatchReadModel,
 } from "../modules/plugins/workflows/server/workflowBatchScheduler";
+import type { WorkflowNotificationProvider } from "../modules/plugins/workflows/extensions/workflowNotifications";
 import { getVdDb } from "./database";
 import type { DB } from "../store/kysely_types";
 import { DbWorkspaceLaneStore, LaneStoreError } from "./workspace-lane-store";
@@ -105,6 +106,7 @@ export interface RegisterWorkflowRoutesOptions {
   metaWorkflowBeadProvider?: BeadMetadataProvider;
   metaWorkflowNoteWriter?: BeadResultNoteWriter;
   workflowRoadmapLiveProvider?: WorkflowRoadmapLiveProvider;
+  workflowNotificationProvider?: WorkflowNotificationProvider;
   workflowBatchCapacity?: Partial<typeof DEFAULT_WORKFLOW_BATCH_CAPACITY>;
   workspaceLaneStore?: DbWorkspaceLaneStore;
   vkClient?: Partial<
@@ -404,7 +406,7 @@ export function registerWorkflowRoutes(
       const workflow = await buildLaunchWorkflowSummary(designStore, childDesignId, childVersion ?? undefined);
       if (!workflow.canRun || workflow.version == null) return c.json({ error: "child_workflow_unavailable", message: workflow.unavailableReason ?? "Child workflow is not published." }, 400);
       const roleBindings = await resolveLaunchRoleBindings(options, workspaceId, workflow, normalizeRoleBindings(asRecord(body?.roleBindings) ?? {}));
-      const metaRuntime = createRouteMetaWorkflowRuntime({ db, beadProvider: options.metaWorkflowBeadProvider, noteWriter: options.metaWorkflowNoteWriter, persistedRuntime: runtime });
+      const metaRuntime = createRouteMetaWorkflowRuntime({ db, beadProvider: options.metaWorkflowBeadProvider, noteWriter: options.metaWorkflowNoteWriter, persistedRuntime: runtime, notificationProvider: options.workflowNotificationProvider });
       const metaRun = await metaRuntime.createRun({
         metaRunId: asString(body?.metaRunId) ?? `workflow-meta-run-${randomUUID()}`,
         parentWorkspaceId: workspaceId,
@@ -428,7 +430,7 @@ export function registerWorkflowRoutes(
     if (!workspaceId) return c.json({ error: "workspace_id_required", message: "Workspace is required" }, 400);
     if (!options.metaWorkflowBeadProvider) return c.json({ error: "bead_provider_not_configured", message: "Bead metadata provider is not configured." }, 503);
     const db = options.workflowHomeDb ?? (await getVdDb()).db;
-    const runtime = createRouteMetaWorkflowRuntime({ db, beadProvider: options.metaWorkflowBeadProvider, noteWriter: options.metaWorkflowNoteWriter, persistedRuntime: options.persistedWorkflowRuntime });
+    const runtime = createRouteMetaWorkflowRuntime({ db, beadProvider: options.metaWorkflowBeadProvider, noteWriter: options.metaWorkflowNoteWriter, persistedRuntime: options.persistedWorkflowRuntime, notificationProvider: options.workflowNotificationProvider });
     const runs = await runtime.listRuns(workspaceId, parsePositiveInteger(c.req.query("limit") ?? null) ?? 50);
     return c.json({ metaRuns: runs.map(sanitizeMetaWorkflowRunForRoute) });
   });
@@ -438,7 +440,7 @@ export function registerWorkflowRoutes(
     if (!metaRunId) return c.json({ error: "meta_run_required", message: "Meta-workflow run is required" }, 400);
     if (!options.metaWorkflowBeadProvider) return c.json({ error: "bead_provider_not_configured", message: "Bead metadata provider is not configured." }, 503);
     const db = options.workflowHomeDb ?? (await getVdDb()).db;
-    const runtime = createRouteMetaWorkflowRuntime({ db, beadProvider: options.metaWorkflowBeadProvider, noteWriter: options.metaWorkflowNoteWriter, persistedRuntime: options.persistedWorkflowRuntime });
+    const runtime = createRouteMetaWorkflowRuntime({ db, beadProvider: options.metaWorkflowBeadProvider, noteWriter: options.metaWorkflowNoteWriter, persistedRuntime: options.persistedWorkflowRuntime, notificationProvider: options.workflowNotificationProvider });
     try { return c.json({ metaRun: sanitizeMetaWorkflowRunForRoute(await runtime.getRun(metaRunId)) }); }
     catch (error) { return handleMetaWorkflowRouteError(c, error, "workflow_meta_run_read_failed"); }
   });
@@ -448,7 +450,7 @@ export function registerWorkflowRoutes(
     if (!metaRunId) return c.json({ error: "meta_run_required", message: "Meta-workflow run is required" }, 400);
     if (!options.metaWorkflowBeadProvider) return c.json({ error: "bead_provider_not_configured", message: "Bead metadata provider is not configured." }, 503);
     const db = options.workflowHomeDb ?? (await getVdDb()).db;
-    const runtime = createRouteMetaWorkflowRuntime({ db, beadProvider: options.metaWorkflowBeadProvider, noteWriter: options.metaWorkflowNoteWriter, persistedRuntime: options.persistedWorkflowRuntime });
+    const runtime = createRouteMetaWorkflowRuntime({ db, beadProvider: options.metaWorkflowBeadProvider, noteWriter: options.metaWorkflowNoteWriter, persistedRuntime: options.persistedWorkflowRuntime, notificationProvider: options.workflowNotificationProvider });
     try { return c.json({ metaRun: sanitizeMetaWorkflowRunForRoute(await runtime.requestPause(metaRunId)) }); }
     catch (error) { return handleMetaWorkflowRouteError(c, error, "workflow_meta_run_pause_failed"); }
   });
@@ -460,7 +462,7 @@ export function registerWorkflowRoutes(
     const db = options.workflowHomeDb ?? (await getVdDb()).db;
     const designStore = options.workflowDesignStore ?? new DbWorkflowDesignStore({ db, templates: BUILT_IN_WORKFLOW_TEMPLATES });
     const persistedRuntime = await resolvePersistedWorkflowRuntime(options, db, designStore);
-    const runtime = createRouteMetaWorkflowRuntime({ db, beadProvider: options.metaWorkflowBeadProvider, noteWriter: options.metaWorkflowNoteWriter, persistedRuntime });
+    const runtime = createRouteMetaWorkflowRuntime({ db, beadProvider: options.metaWorkflowBeadProvider, noteWriter: options.metaWorkflowNoteWriter, persistedRuntime, notificationProvider: options.workflowNotificationProvider });
     try { return c.json({ metaRun: sanitizeMetaWorkflowRunForRoute(await runtime.resumeRun(metaRunId)) }); }
     catch (error) { return handleMetaWorkflowRouteError(c, error, "workflow_meta_run_resume_failed"); }
   });
@@ -471,7 +473,7 @@ export function registerWorkflowRoutes(
     if (!metaRunId) return c.json({ error: "meta_run_required", message: "Meta-workflow run is required" }, 400);
     if (!options.metaWorkflowBeadProvider) return c.json({ error: "bead_provider_not_configured", message: "Bead metadata provider is not configured." }, 503);
     const db = options.workflowHomeDb ?? (await getVdDb()).db;
-    const runtime = createRouteMetaWorkflowRuntime({ db, beadProvider: options.metaWorkflowBeadProvider, noteWriter: options.metaWorkflowNoteWriter, persistedRuntime: options.persistedWorkflowRuntime });
+    const runtime = createRouteMetaWorkflowRuntime({ db, beadProvider: options.metaWorkflowBeadProvider, noteWriter: options.metaWorkflowNoteWriter, persistedRuntime: options.persistedWorkflowRuntime, notificationProvider: options.workflowNotificationProvider });
     try {
       const observed = await runtime.observeChildRun({ metaRunId, itemId: asString(body?.itemId) ?? "", childRunId: asString(body?.childRunId) ?? "" });
       return c.json({ observed: { ...observed, run: sanitizeMetaWorkflowRunForRoute(observed.run) } });
@@ -2641,6 +2643,7 @@ function createRouteMetaWorkflowRuntime(args: {
   beadProvider: BeadMetadataProvider;
   noteWriter?: BeadResultNoteWriter;
   persistedRuntime?: Pick<PersistedWorkflowRuntimeService, "launch" | "getRun"> | null;
+  notificationProvider?: WorkflowNotificationProvider;
 }): BeadMetaWorkflowRuntime {
   return new BeadMetaWorkflowRuntime({
     db: args.db,
@@ -2648,6 +2651,7 @@ function createRouteMetaWorkflowRuntime(args: {
     noteWriter: args.noteWriter,
     childRunner: createPersistedMetaWorkflowChildRunner(args.persistedRuntime),
     childRunReader: createPersistedMetaWorkflowChildRunReader(args.persistedRuntime),
+    notificationProvider: args.notificationProvider,
   });
 }
 
@@ -2836,6 +2840,7 @@ async function resolvePersistedWorkflowRuntime(
     orchestrationStore: options.workflowOrchestrationStore,
     laneStore: options.workspaceLaneStore,
     beadProvider: options.metaWorkflowBeadProvider,
+    notificationProvider: options.workflowNotificationProvider,
     queue: {
       queueAgentTurn: async (request) => {
         const queued = await options.vkClient!.queueFollowUp!(

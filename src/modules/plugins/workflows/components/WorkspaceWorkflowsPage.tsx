@@ -25,6 +25,14 @@ import {
   type WorkspaceWorkflowSummary,
   type LaunchWorkspaceWorkflowResponse,
 } from "../client/workflowsHomeApi";
+import {
+  buildWorkflowRunTerminalNotification,
+  disableBrowserWorkflowNotifications,
+  getBrowserWorkflowNotificationState,
+  maybeNotifyBrowserWorkflowTerminal,
+  requestBrowserWorkflowNotifications,
+  type BrowserWorkflowNotificationState,
+} from "../extensions/workflowNotifications";
 
 export function WorkspaceWorkflowsPage({
   workspaceId: workspaceIdOverride,
@@ -173,6 +181,10 @@ export function WorkspaceWorkflowsHomeView({
             </button>
           </div>
         </div>
+        <WorkflowBrowserNotificationControl
+          runs={home?.recentRuns ?? []}
+          onRefresh={onRefresh}
+        />
         <div
           className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4"
           aria-label="Workflow dashboard summary"
@@ -375,6 +387,74 @@ export function WorkspaceWorkflowsHomeView({
         />
       ) : null}
     </StandaloneDashboardPage>
+  );
+}
+
+function WorkflowBrowserNotificationControl({
+  runs,
+  onRefresh,
+}: {
+  runs: WorkspaceWorkflowRunSummary[];
+  onRefresh: () => void;
+}): React.ReactElement {
+  const [state, setState] = useState<BrowserWorkflowNotificationState>(() =>
+    getBrowserWorkflowNotificationState(),
+  );
+
+  useEffect(() => {
+    setState(getBrowserWorkflowNotificationState());
+  }, []);
+
+  useEffect(() => {
+    if (!state.enabled) return;
+    for (const run of runs) {
+      const payload = buildWorkflowRunTerminalNotification({
+        runId: run.runId,
+        workflowName: run.workflowName,
+        workspaceId: run.workspaceId,
+        status: run.status,
+        now: Date.now(),
+      });
+      if (payload) maybeNotifyBrowserWorkflowTerminal(payload);
+    }
+  }, [runs, state.enabled]);
+
+  useEffect(() => {
+    if (!state.enabled) return;
+    const interval = window.setInterval(onRefresh, 30_000);
+    return () => window.clearInterval(interval);
+  }, [onRefresh, state.enabled]);
+
+  const canRequest = state.supported && state.permission !== "denied";
+  return (
+    <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-zinc-800 bg-zinc-950/50 px-4 py-3 text-sm">
+      <div>
+        <div className="font-medium text-zinc-100">Browser notifications</div>
+        <div className="mt-1 text-xs text-zinc-400">{state.message}</div>
+      </div>
+      <div className="flex gap-2">
+        {state.enabled ? (
+          <button
+            type="button"
+            className="rounded-md border border-zinc-700 px-3 py-2 text-xs text-zinc-200 hover:bg-zinc-900"
+            onClick={() => setState(disableBrowserWorkflowNotifications())}
+          >
+            Turn off
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="rounded-md border border-cyan-700 px-3 py-2 text-xs text-cyan-100 hover:bg-cyan-950/40 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={!canRequest}
+            onClick={() => {
+              void requestBrowserWorkflowNotifications().then(setState);
+            }}
+          >
+            Enable
+          </button>
+        )}
+      </div>
+    </div>
   );
 }
 

@@ -9,6 +9,7 @@ import type {
   WorkflowMetaRunStatus,
 } from '../../../../store/kysely_types';
 import { DbWorkspaceLaneStore, LaneStoreError, type SelectedLaneWorkspaceContext } from '../../../../server/workspace-lane-store';
+import { buildMetaWorkflowTerminalNotification, type WorkflowNotificationProvider } from '../extensions/workflowNotifications';
 
 export type BeadMetaWorkflowIssueCode =
   | 'META_WORKFLOW_INVALID_SELECTION'
@@ -148,6 +149,7 @@ export class BeadMetaWorkflowRuntime {
   private readonly childRunner: MetaWorkflowChildRunner;
   private readonly childRunReader?: MetaWorkflowChildRunReader;
   private readonly laneStore?: DbWorkspaceLaneStore;
+  private readonly notificationProvider?: WorkflowNotificationProvider;
 
   constructor(options: {
     db?: Kysely<DB>;
@@ -157,6 +159,7 @@ export class BeadMetaWorkflowRuntime {
     childRunner?: MetaWorkflowChildRunner;
     childRunReader?: MetaWorkflowChildRunReader;
     laneStore?: DbWorkspaceLaneStore;
+    notificationProvider?: WorkflowNotificationProvider;
     now?: () => number;
     createId?: () => string;
   }) {
@@ -167,6 +170,7 @@ export class BeadMetaWorkflowRuntime {
     this.childRunner = options.childRunner ?? new DeterministicChildRunner();
     this.childRunReader = options.childRunReader;
     this.laneStore = options.laneStore;
+    this.notificationProvider = options.notificationProvider;
     this.now = options.now ?? Date.now;
     this.createId = options.createId ?? randomUUID;
   }
@@ -352,7 +356,9 @@ export class BeadMetaWorkflowRuntime {
       await trx.updateTable('WorkflowMetaRun').set({ status: 'blocked', blockedReasonJson: stableJson(error), currentIndex: item.index, updatedAt: now }).where('metaRunId', '=', run.metaRunId).execute();
       await insertEvent(trx, { eventId: this.createId(), metaRunId: run.metaRunId, itemId: item.itemId, kind: 'meta_run_item_blocked', message: `Blocked on ${item.beadId}.`, data: { beadId: item.beadId, error }, now });
     });
-    return this.getRun(run.metaRunId);
+    const next = await this.getRun(run.metaRunId);
+    await this.notifyTerminalMetaRun(run, next);
+    return next;
   }
 
   async listRuns(parentWorkspaceId: string, limit = 50): Promise<BeadMetaWorkflowRunReadModel[]> {
@@ -445,7 +451,9 @@ export class BeadMetaWorkflowRuntime {
       await trx.updateTable('WorkflowMetaRun').set({ status: 'blocked', blockedReasonJson: stableJson(productError), currentIndex: input.item.index, updatedAt: now }).where('metaRunId', '=', input.run.metaRunId).execute();
       await insertEvent(trx, { eventId: this.createId(), metaRunId: input.run.metaRunId, itemId: input.item.itemId, kind: 'meta_run_result_note_blocked', message: `Blocked while recording the result for ${input.item.beadId}.`, data: { beadId: input.item.beadId, childRunId: input.childRunId, error: productError }, now });
     });
-    return this.getRun(input.run.metaRunId);
+    const next = await this.getRun(input.run.metaRunId);
+    await this.notifyTerminalMetaRun(input.run, next);
+    return next;
   }
 
   private async failClaimedItem(input: { run: BeadMetaWorkflowRunReadModel; item: BeadMetaWorkflowItemReadModel; childRunId: string; error: unknown }): Promise<BeadMetaWorkflowRunReadModel> {
@@ -458,7 +466,9 @@ export class BeadMetaWorkflowRuntime {
       await trx.updateTable('WorkflowMetaRun').set({ status: 'blocked', blockedReasonJson: stableJson(productError), currentIndex: input.item.index, updatedAt: now }).where('metaRunId', '=', input.run.metaRunId).execute();
       await insertEvent(trx, { eventId: this.createId(), metaRunId: input.run.metaRunId, itemId: input.item.itemId, kind: 'meta_run_item_blocked', message: `Blocked on ${input.item.beadId}.`, data: { beadId: input.item.beadId, error: productError }, now });
     });
-    return this.getRun(input.run.metaRunId);
+    const next = await this.getRun(input.run.metaRunId);
+    await this.notifyTerminalMetaRun(input.run, next);
+    return next;
   }
 
   private async completeRun(metaRunId: string): Promise<BeadMetaWorkflowRunReadModel> {
@@ -466,7 +476,30 @@ export class BeadMetaWorkflowRuntime {
     const now = this.now();
     const summaries = run.items.filter((item) => item.status === 'completed').map((item) => ({ beadId: item.beadId, result: item.result, noteRef: item.noteRef }));
     await (await this.getDb()).updateTable('WorkflowMetaRun').set({ status: 'completed', currentIndex: run.items.length, resultSummaryJson: stableJson(summaries), updatedAt: now, completedAt: now }).where('metaRunId', '=', metaRunId).execute();
-    return this.getRun(metaRunId);
+    const next = await this.getRun(metaRunId);
+    await this.notifyTerminalMetaRun(run, next);
+    return next;
+  }
+
+  private async notifyTerminalMetaRun(previous: BeadMetaWorkflowRunReadModel, next: BeadMetaWorkflowRunReadModel): Promise<void> {
+    const provider = this.notificationProvider;
+    if (!provider?.isEnabled()) return;
+    if (previous.status === next.status) return;
+    const payload = buildMetaWorkflowTerminalNotification({
+      metaRunId: next.metaRunId,
+      title: next.title,
+      parentWorkspaceId: next.parentWorkspaceId,
+      status: next.status,
+      blockedReason: next.blockedReason,
+      now: this.now(),
+      channel: provider.channel,
+    });
+    if (!payload) return;
+    try {
+      await provider.notify(payload);
+    } catch {
+      // Notifications are best-effort and must not change meta-workflow state.
+    }
   }
 
   private async getRequiredRun(metaRunId: string): Promise<BeadMetaWorkflowRunReadModel> {

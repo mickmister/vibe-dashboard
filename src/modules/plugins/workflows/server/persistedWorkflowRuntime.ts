@@ -51,6 +51,11 @@ import {
   validateCommandPolicyAgainstSpec,
   type WorkflowCommandResult,
 } from "../extensions/workflowCommandProviders";
+import {
+  buildWorkflowRunTerminalNotification,
+  shouldNotifyWorkflowRun,
+  type WorkflowNotificationProvider,
+} from "../extensions/workflowNotifications";
 
 export interface WorkflowRoleSessionBindingInput {
   sessionId: string;
@@ -194,6 +199,7 @@ export class PersistedWorkflowRuntimeService {
   private readonly commandProviders: WorkflowCommandProviderRegistry;
   private readonly laneStore?: DbWorkspaceLaneStore;
   private readonly beadProvider?: BeadMetadataProvider;
+  private readonly notificationProvider?: WorkflowNotificationProvider;
 
   constructor(options: {
     db: Kysely<DB>;
@@ -205,6 +211,7 @@ export class PersistedWorkflowRuntimeService {
     commandProviders?: WorkflowCommandProviderRegistry;
     laneStore?: DbWorkspaceLaneStore;
     beadProvider?: BeadMetadataProvider;
+    notificationProvider?: WorkflowNotificationProvider;
     now?: () => number;
     createId?: () => string;
     validator?: DecisionResponseValidator;
@@ -228,6 +235,7 @@ export class PersistedWorkflowRuntimeService {
       options.commandProviders ?? createDefaultWorkflowCommandProviderRegistry();
     this.laneStore = options.laneStore;
     this.beadProvider = options.beadProvider;
+    this.notificationProvider = options.notificationProvider;
   }
 
   async launch(input: {
@@ -1369,7 +1377,42 @@ export class PersistedWorkflowRuntimeService {
       })
       .where("runId", "=", previous.runId)
       .execute();
-    return this.getRequiredRun(previous.runId);
+    const next = await this.getRequiredRun(previous.runId);
+    await this.notifyTerminalStatusChange(previous, next);
+    return next;
+  }
+
+  private async notifyTerminalStatusChange(
+    previous: PersistedWorkflowRunReadModel,
+    next: PersistedWorkflowRunReadModel,
+  ): Promise<void> {
+    const provider = this.notificationProvider;
+    if (!provider?.isEnabled()) return;
+    if (
+      !shouldNotifyWorkflowRun({
+        previousStatus: previous.status,
+        nextStatus: next.status,
+        runInputs: next.coreSnapshot.inputs,
+      })
+    ) {
+      return;
+    }
+    const payload = buildWorkflowRunTerminalNotification({
+      runId: next.runId,
+      workflowName: next.coreModel.name,
+      workspaceId: next.workspaceId,
+      status: next.status,
+      blockedReason: next.coreSnapshot.blockedReason ?? null,
+      now: this.now(),
+      channel: provider.channel,
+    });
+    if (!payload) return;
+    try {
+      await provider.notify(payload);
+    } catch {
+      // Notification delivery is best-effort and must not make a completed or
+      // blocked workflow look incomplete to the runtime.
+    }
   }
 
   private async getRequiredRun(

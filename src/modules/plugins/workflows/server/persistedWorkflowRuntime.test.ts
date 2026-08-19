@@ -8,6 +8,7 @@ import { PersistedWorkflowRuntimeError, PersistedWorkflowRuntimeService, type Gi
 import { DbWorkspaceLaneStore } from '../../../../server/workspace-lane-store';
 import { WorkflowCommandProviderRegistry, type WorkflowCommandProviderV1 } from '../extensions/workflowCommandProviders';
 import { createDefaultWorkflowExtensionRegistry } from '../extensions/workflowExtensionRegistry';
+import { InMemoryWorkflowNotificationProvider, type WorkflowNotificationProvider } from '../extensions/workflowNotifications';
 
 const handles: VdDbHandle[] = [];
 
@@ -111,6 +112,65 @@ describe('PersistedWorkflowRuntimeService M93', () => {
     expect(failed.status).toBe('failed');
     expect(failed.error).toMatchObject({ message: 'VK queue unavailable' });
     expect(failed.events.map((entry) => entry.kind)).toContain('queue_failed');
+  });
+
+  it('TEST_CASE_7XWL notifies on workflow completion/failure and suppresses meta-workflow child spam', async () => {
+    const notifications = new InMemoryWorkflowNotificationProvider();
+    const { runtime, queued, queue } = await createRuntime({ notificationProvider: notifications });
+    await publishWorkflow('design.notifications', makeTwoStateWorkflow());
+
+    await runtime.launch({
+      runId: 'run-notify-complete',
+      runSnapshotId: 'snapshot-notify-complete',
+      designId: 'design.notifications',
+      workspaceId: 'workspace-a',
+      inputs: {},
+      roleBindings: { dev: { sessionId: 'session-dev' }, review: { sessionId: 'session-review' } },
+    });
+    await runtime.completeAgentTurn({ runId: 'run-notify-complete', turnId: queuedAt(queued, 0).turnId, responseRef: 'dev-implement' });
+    await runtime.completeAgentTurn({ runId: 'run-notify-complete', turnId: queuedAt(queued, 1).turnId, responseRef: 'dev-ready', finalResponseText: '<decision action="readyForReview"><summary>Ready</summary></decision>' });
+    await runtime.completeAgentTurn({ runId: 'run-notify-complete', turnId: queuedAt(queued, 2).turnId, responseRef: 'review-approved', finalResponseText: '<decision action="approved"><notes>Looks good</notes></decision>' });
+
+    expect(notifications.notifications).toEqual([
+      expect.objectContaining({
+        subjectKind: 'workflow_run',
+        subjectId: 'run-notify-complete',
+        status: 'completed',
+        title: 'generic-two-state completed',
+        link: '/dashboard/workflows/run-notify-complete?workspaceId=workspace-a',
+      }),
+    ]);
+
+    queue.failNext = true;
+    await runtime.launch({
+      runId: 'run-notify-failed',
+      runSnapshotId: 'snapshot-notify-failed',
+      designId: 'design.notifications',
+      workspaceId: 'workspace-a',
+      inputs: {},
+      roleBindings: { dev: { sessionId: 'session-dev' }, review: { sessionId: 'session-review' } },
+    });
+    expect(notifications.notifications.at(-1)).toMatchObject({
+      subjectId: 'run-notify-failed',
+      status: 'failed',
+      title: 'generic-two-state needs attention',
+    });
+    expect(JSON.stringify(notifications.notifications)).not.toMatch(/webhook|queue item|\/Users\/|bd show|raw XML|WorkflowStepState/i);
+
+    const beforeChild = notifications.notifications.length;
+    await runtime.launch({
+      runId: 'child-meta-run-0',
+      runSnapshotId: 'snapshot-child-meta-run-0',
+      designId: 'design.notifications',
+      workspaceId: 'workspace-a',
+      inputs: { metaRunId: 'meta-parent', itemId: 'meta-parent:item:0', childRunId: 'child-meta-run-0' },
+      roleBindings: { dev: { sessionId: 'session-dev' }, review: { sessionId: 'session-review' } },
+    });
+    const childOffset = queued.length - 1;
+    await runtime.completeAgentTurn({ runId: 'child-meta-run-0', turnId: queuedAt(queued, childOffset).turnId, responseRef: 'child-dev-implement' });
+    await runtime.completeAgentTurn({ runId: 'child-meta-run-0', turnId: queuedAt(queued, childOffset + 1).turnId, responseRef: 'child-dev-ready', finalResponseText: '<decision action="readyForReview"><summary>Ready</summary></decision>' });
+    await runtime.completeAgentTurn({ runId: 'child-meta-run-0', turnId: queuedAt(queued, childOffset + 2).turnId, responseRef: 'child-review-approved', finalResponseText: '<decision action="approved"><notes>Looks good</notes></decision>' });
+    expect(notifications.notifications).toHaveLength(beforeChild);
   });
 
 
@@ -929,7 +989,7 @@ function promptText(definition: unknown): string {
   return (dev.steps[0] as { prompt?: { template?: string } } | undefined)?.prompt?.template ?? '';
 }
 
-async function createRuntime(options: { withAttention?: boolean; withLanes?: boolean; templates?: ConstructorParameters<typeof DbWorkflowDesignStore>[0]['templates']; githubCiWatchProvider?: GitHubCiWatchProvider; commandProviders?: WorkflowCommandProviderRegistry; beadProvider?: { readBeads(beadIds: string[]): Promise<Array<{ beadId: string; title: string; status: 'open' | 'in_progress' | 'review' | 'blocked' | 'closed' | 'archived' | 'removed'; accessible: boolean; labels?: string[]; workspaceId?: string | null }>> } } = {}) {
+async function createRuntime(options: { withAttention?: boolean; withLanes?: boolean; templates?: ConstructorParameters<typeof DbWorkflowDesignStore>[0]['templates']; githubCiWatchProvider?: GitHubCiWatchProvider; commandProviders?: WorkflowCommandProviderRegistry; notificationProvider?: WorkflowNotificationProvider; beadProvider?: { readBeads(beadIds: string[]): Promise<Array<{ beadId: string; title: string; status: 'open' | 'in_progress' | 'review' | 'blocked' | 'closed' | 'archived' | 'removed'; accessible: boolean; labels?: string[]; workspaceId?: string | null }>> } } = {}) {
   const handle = await initVdDb({ path: ':memory:' });
   handles.push(handle);
   designStore = new DbWorkflowDesignStore({
@@ -962,6 +1022,7 @@ async function createRuntime(options: { withAttention?: boolean; withLanes?: boo
     commandProviders: options.commandProviders,
     laneStore,
     beadProvider: options.beadProvider,
+    notificationProvider: options.notificationProvider,
     now: (() => { let value = 2_000; return () => value++; })(),
     createId: () => `id-${id++}`,
   });

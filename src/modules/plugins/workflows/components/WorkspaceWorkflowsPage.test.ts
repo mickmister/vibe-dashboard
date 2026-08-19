@@ -56,6 +56,9 @@ describe("WorkspaceWorkflowsHomeView", () => {
     expect(html).toContain("Ready for isolated workflow work.");
     expect(html).not.toContain("/Users/");
     expect(html).toContain("Workflow dashboard summary");
+    expect(html).toContain("Browser notifications");
+    expect(html).toContain("Browser notifications are unavailable in this environment.");
+    expect(html).toContain("Enable");
     expect(html).toContain("Items waiting on you");
     expect(html).toContain("Active runs");
     expect(html).toContain("Running, waiting, or blocked");

@@ -10,6 +10,7 @@ import {
   type MetaWorkflowChildRunner,
   type MetaWorkflowChildRunReader,
 } from './beadMetaWorkflowRuntime';
+import { InMemoryWorkflowNotificationProvider, type WorkflowNotificationProvider } from '../extensions/workflowNotifications';
 
 const handles: VdDbHandle[] = [];
 
@@ -237,18 +238,62 @@ describe('BeadMetaWorkflowRuntime M118', () => {
       issues: [expect.objectContaining({ code: 'META_WORKFLOW_LANE_CONFLICT', path: 'laneId' })],
     });
   });
+
+  it('TEST_CASE_7XWL notifies once for parent meta-workflow terminal outcomes only', async () => {
+    const notifications = new InMemoryWorkflowNotificationProvider();
+    const { runtime, childStarts } = await createRuntime({ beads: [bead('A'), bead('B')], notificationProvider: notifications });
+
+    const launched = await runtime.createRun({ metaRunId: 'meta-notify', parentWorkspaceId: 'workspace-a', beadIds: ['A', 'B'], title: 'Roadmap sprint', childWorkflowDesignId: 'design.child' });
+    expect(childStarts).toHaveLength(1);
+    expect(notifications.notifications).toEqual([]);
+
+    const afterA = await runtime.completeChild({ metaRunId: 'meta-notify', itemId: launched.currentItem!.itemId, childRunId: 'child-meta-notify-0', summary: 'A done via /Users/me/project and bd show A' });
+    expect(afterA.status).toBe('running');
+    expect(childStarts).toHaveLength(2);
+    expect(notifications.notifications).toEqual([]);
+
+    await runtime.completeChild({ metaRunId: 'meta-notify', itemId: afterA.currentItem!.itemId, childRunId: 'child-meta-notify-1', summary: 'B done' });
+    expect(notifications.notifications).toEqual([
+      expect.objectContaining({
+        subjectKind: 'meta_workflow_run',
+        subjectId: 'meta-notify',
+        status: 'completed',
+        title: 'Roadmap sprint completed',
+        link: '/dashboard/workflows/meta-runs?workspaceId=workspace-a&metaRunId=meta-notify',
+      }),
+    ]);
+
+    const blockedHandle = await initVdDb({ path: ':memory:' });
+    handles.push(blockedHandle);
+    const blockedNotifications = new InMemoryWorkflowNotificationProvider();
+    const blockedRuntime = buildRuntime(blockedHandle, {
+      beads: [bead('C')],
+      notificationProvider: blockedNotifications,
+      childRunner: {
+        async startChild() {
+          throw new Error('launch failed from /Users/me using bd show C through webhook queue item');
+        },
+      },
+    });
+    const blocked = await blockedRuntime.createRun({ metaRunId: 'meta-notify-blocked', parentWorkspaceId: 'workspace-a', beadIds: ['C'], title: 'Blocked roadmap' });
+    expect(blocked.status).toBe('blocked');
+    expect(blockedNotifications.notifications).toEqual([
+      expect.objectContaining({ subjectKind: 'meta_workflow_run', subjectId: 'meta-notify-blocked', status: 'blocked' }),
+    ]);
+    expect(JSON.stringify(blockedNotifications.notifications)).not.toMatch(/\/Users\/|bd show|webhook|queue item/i);
+  });
 });
 
-async function createRuntime(options: { beads: BeadReadModel[] }) {
+async function createRuntime(options: { beads: BeadReadModel[]; notificationProvider?: WorkflowNotificationProvider }) {
   const handle = await initVdDb({ path: ':memory:' });
   handles.push(handle);
   const childStarts: ChildStartRecord[] = [];
   const noteWrites: Array<{ beadId: string; idempotencyKey: string; provenance: unknown }> = [];
-  const runtime = buildRuntime(handle, { beads: options.beads, childStarts, noteWrites });
+  const runtime = buildRuntime(handle, { beads: options.beads, childStarts, noteWrites, notificationProvider: options.notificationProvider });
   return { handle, runtime, childStarts, noteWrites };
 }
 
-function buildRuntime(handle: VdDbHandle, options: { beads: BeadReadModel[]; childStarts?: ChildStartRecord[]; noteWrites?: Array<{ beadId: string; idempotencyKey: string; provenance: unknown }>; laneStore?: DbWorkspaceLaneStore; childRunner?: MetaWorkflowChildRunner; childRunReader?: MetaWorkflowChildRunReader }) {
+function buildRuntime(handle: VdDbHandle, options: { beads: BeadReadModel[]; childStarts?: ChildStartRecord[]; noteWrites?: Array<{ beadId: string; idempotencyKey: string; provenance: unknown }>; laneStore?: DbWorkspaceLaneStore; childRunner?: MetaWorkflowChildRunner; childRunReader?: MetaWorkflowChildRunReader; notificationProvider?: WorkflowNotificationProvider }) {
   const beadProvider: BeadMetadataProvider = {
     async readBeads(beadIds) {
       const byId = new Map(options.beads.map((item) => [item.beadId, item]));
@@ -281,6 +326,7 @@ function buildRuntime(handle: VdDbHandle, options: { beads: BeadReadModel[]; chi
     childRunReader: options.childRunReader,
     noteWriter,
     laneStore: options.laneStore,
+    notificationProvider: options.notificationProvider,
     now: (() => { let value = 1_000; return () => value++; })(),
     createId: (() => { let value = 1; return () => `id-${value++}`; })(),
   });
