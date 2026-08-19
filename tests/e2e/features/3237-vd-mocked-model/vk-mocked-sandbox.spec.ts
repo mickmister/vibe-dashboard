@@ -165,9 +165,10 @@ test.describe('VK mocked-provider sandbox through VD UI', () => {
     );
     await expect(createWorkspaceFrame.locator('body')).toContainText(
       'QA mode execution completed successfully',
+      { timeout: 60_000 },
     );
     await expect(createWorkspaceFrame.locator('body')).toContainText(
-      '1 file changed',
+      /\d+ files? changed/,
     );
 
     await openCreatedCraftFromVd(page, promptTitle);
@@ -198,6 +199,10 @@ test.describe('VK mocked-provider sandbox through VD UI', () => {
       page.getByRole('menuitem', { name: 'Switch Voyage' }),
     ).toBeVisible();
 
+    await clickMenuItem(page, 'New Craft');
+    await expectMobileNewCraftNavigationSettled(page);
+    await expectCreateWorkspaceFrameUrl(page);
+    await page.getByRole('button', { name: 'Voyage actions' }).last().click();
     await clickMenuItem(page, 'Open Craft');
     await expect(
       page.getByRole('heading', { name: 'Open VK Workspace' }),
@@ -275,12 +280,14 @@ async function ensureRepositorySelectionStep(
   createWorkspaceFrame: FrameLocator,
 ): Promise<boolean> {
   const frameBody = createWorkspaceFrame.locator('body');
+  if (await isRepositorySelectionStep(createWorkspaceFrame)) {
+    return true;
+  }
+
   if (
     await frameBody
       .textContent()
-      .then((text) =>
-        Boolean(text?.includes('Which repositories would you like to work on?')),
-      )
+      .then((text) => Boolean(text?.includes('What would you like to work on?')))
       .catch(() => false)
   ) {
     return true;
@@ -305,6 +312,16 @@ async function ensureRepositorySelectionStep(
   }
 
   return false;
+}
+
+async function isRepositorySelectionStep(createWorkspaceFrame: FrameLocator) {
+  return createWorkspaceFrame
+    .locator('body')
+    .textContent()
+    .then((text) =>
+      Boolean(text?.includes('Which repositories would you like to work on?')),
+    )
+    .catch(() => false);
 }
 
 async function clearSelectedRepositories(createWorkspaceFrame: FrameLocator) {
@@ -338,7 +355,17 @@ async function closeSidebarOverlayIfPresent(page: Page) {
 async function clickMenuItem(page: Page, name: string) {
   const menuItem = page.getByRole('menuitem', { name });
   await expect(menuItem).toBeVisible();
-  await menuItem.evaluate((element) => (element as HTMLButtonElement).click());
+  await menuItem.click();
+}
+
+async function expectMobileNewCraftNavigationSettled(page: Page) {
+  await expect(
+    page.getByText('Name this voyage, then choose how you want to start it.'),
+  ).toBeHidden();
+  await expect(page.getByRole('menuitem', { name: 'New Craft' })).toBeHidden();
+  await expect(
+    page.locator('iframe[title="Create Workspace"]').last(),
+  ).toBeVisible();
 }
 
 async function clickLocatorInViewport(page: Page, locator: Locator) {

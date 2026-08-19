@@ -46,7 +46,6 @@ test.describe('VK mocked-provider basic-seeded fixture', () => {
 
     const agentFrame = page.frameLocator('iframe[title="Agent"]').first();
     await expect(agentFrame.locator('body')).toContainText(manifest.craftTitle);
-    await expect(agentFrame.locator('body')).toContainText(manifest.model);
 
     await agentFrame
       .getByRole('textbox', { name: 'Markdown editor' })

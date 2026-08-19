@@ -201,6 +201,8 @@ describe('VK mocked sandbox helpers', () => {
         BACKEND_PORT: '4107',
         FRONTEND_PORT: '4101',
         PREVIEW_PROXY_PORT: '4106',
+        VK_QA_MODE: '1',
+        QA_MODE: '1',
       },
     });
     expect(plan.setupCommands[0]?.env.NODE_OPTIONS).toContain(
@@ -235,6 +237,39 @@ describe('VK mocked sandbox helpers', () => {
       CADDY_PLUGINS_CADDY: '/tmp/run/plugins.caddy',
     });
     expect(plan.env.CADDY_PLUGINS_CADDY).toBe('/tmp/run/plugins.caddy');
+  });
+
+  it('uses a configured public origin for browser-facing same-origin URLs', () => {
+    const plan = createSandboxPlan({
+      workspaceRoot: '/tmp/worktrees/example/vibe-kanban-vscode-web',
+      env: {
+        VK_MOCKED_PUBLIC_ORIGIN: 'https://port-4101.jamtools.dev/some/path',
+      } as NodeJS.ProcessEnv,
+      ports: {
+        vkBackend: 4107,
+        vkFrontend: 4100,
+        vkPreviewProxy: 4106,
+        vdDashboard: 4105,
+        vdServer: 4104,
+        vdCaddy: 4101,
+      },
+      runDir: '/tmp/run',
+      caddyfile: 'mocked sandbox caddyfile',
+    });
+
+    expect(plan.urls).toEqual({
+      vd: 'https://port-4101.jamtools.dev',
+      vkFrontend: 'https://port-4101.jamtools.dev',
+    });
+    expect(plan.env.VK_MOCKED_VD_URL).toBe('https://port-4101.jamtools.dev');
+    expect(plan.env.VK_MOCKED_VK_FRONTEND_URL).toBe('https://port-4101.jamtools.dev');
+    const vdCommand = plan.commands.find((command) => command.name === 'vd-dashboard');
+    const vkCommand = plan.commands.find((command) => command.name === 'vk-backend-qa');
+
+    expect(vdCommand?.env.VITE_VK_BASE_ORIGIN).toBe('https://port-4101.jamtools.dev');
+    expect(vkCommand?.env.VK_ALLOWED_ORIGINS).toBe(
+      'http://localhost:4101,https://port-4101.jamtools.dev,http://localhost:4105',
+    );
   });
 
   it('can plan CI backend prebuild separately from Playwright readiness waiting', () => {
