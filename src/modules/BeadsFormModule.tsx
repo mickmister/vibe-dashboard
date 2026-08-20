@@ -867,24 +867,41 @@ function BeadsFormPendingQueue({ actions, parentDir, pendingQueueSentinel }: {
         <>
           {refreshing ? <p className="beadsform-refresh-notice" role="status">Checking for updates…</p> : null}
           {refreshNotice ? <p className="beadsform-refresh-notice" role="status">{refreshNotice}</p> : null}
-          {pending.entries.length === 0 ? <p>No pending BeadsForms found.</p> : (
-            <section>
+          {pending.entries.length === 0 ? (
+            <section className="beadsform-pending-empty" aria-live="polite">
+              <h2>Inbox clear</h2>
+              <p>No pending BeadsForms found. New forms will appear here after agents attach them.</p>
+            </section>
+          ) : (
+            <section aria-label="Pending BeadsForms inbox">
               <ul className="beadsform-pending-list">
                 {pending.entries.map((entry) => (
                   <li key={`${entry.repoDir}:${entry.bead.id}:${entry.form.id}`}>
                     <article className="beadsform-pending-card">
-                      <p className="beadsform-eyebrow">{entry.repoName}</p>
-                      <h3>{entry.form.title}</h3>
-                      {entry.form.description ? <p>{entry.form.description}</p> : null}
-                      <p>
-                        Bead <strong>{entry.bead.id}</strong>
-                        {entry.bead.title ? <> — {entry.bead.title}</> : null}
-                      </p>
-                      {entry.bead.updatedAt || entry.bead.createdAt ? (
-                        <p>{entry.bead.updatedAt ? 'Updated' : 'Created'} {formatPendingEntryDate(entry.bead.updatedAt ?? entry.bead.createdAt)}</p>
-                      ) : null}
-                      <p><code>{entry.repoDir}</code></p>
-                      <a href={formViewUrl({ dir: entry.repoDir, beadId: entry.bead.id, formId: entry.form.id })}>Fill out form</a>
+                      <div className="beadsform-pending-card-main">
+                        <p className="beadsform-pending-repo">{entry.repoName}</p>
+                        <h2 className="beadsform-pending-title">
+                          <a href={formViewUrl({ dir: entry.repoDir, beadId: entry.bead.id, formId: entry.form.id })}>{entry.form.title}</a>
+                        </h2>
+                        {entry.form.description ? <p className="beadsform-pending-description">{entry.form.description}</p> : null}
+                        <dl className="beadsform-pending-meta" aria-label={`Context for ${entry.form.title}`}>
+                          <div>
+                            <dt>Bead</dt>
+                            <dd><code>{entry.bead.id}</code>{entry.bead.title ? <> · {entry.bead.title}</> : null}</dd>
+                          </div>
+                          <div>
+                            <dt>Repo</dt>
+                            <dd>{entry.repoName}</dd>
+                          </div>
+                          {entry.bead.updatedAt || entry.bead.createdAt ? (
+                            <div>
+                              <dt>{entry.bead.updatedAt ? 'Updated' : 'Created'}</dt>
+                              <dd>{formatPendingEntryDate(entry.bead.updatedAt ?? entry.bead.createdAt)}</dd>
+                            </div>
+                          ) : null}
+                        </dl>
+                      </div>
+                      <a className="beadsform-pending-action" href={formViewUrl({ dir: entry.repoDir, beadId: entry.bead.id, formId: entry.form.id })}>Fill out form</a>
                     </article>
                   </li>
                 ))}

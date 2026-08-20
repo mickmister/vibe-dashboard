@@ -66,4 +66,15 @@ describe('BeadsForm styles', () => {
     expect(css).toMatch(/\.beadsform-root \.beadsform-page-chrome--compact\s*\{[^}]*display:\s*flex[^}]*justify-content:\s*space-between/s);
     expect(css).toMatch(/\.beadsform-root \.beadsform-all-forms-link\s*\{[^}]*white-space:\s*nowrap/s);
   });
+
+  it('styles pending BeadsForm rows as compact mobile-safe inbox items', async () => {
+    const css = await readFile(new URL('./styles.css', import.meta.url), 'utf8');
+
+    expect(css).toMatch(/\.beadsform-root \.beadsform-pending-card\s*\{[^}]*display:\s*grid[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\) auto/s);
+    expect(css).toMatch(/\.beadsform-root \.beadsform-pending-title\s*\{[^}]*font-size:\s*1\.05rem/s);
+    expect(css).toMatch(/\.beadsform-root \.beadsform-pending-meta\s*\{[^}]*display:\s*flex[^}]*flex-wrap:\s*wrap/s);
+    expect(css).toMatch(/\.beadsform-root \.beadsform-pending-action\s*\{[^}]*white-space:\s*nowrap/s);
+    expect(css).toMatch(/@media \(max-width:\s*640px\)[\s\S]*\.beadsform-root \.beadsform-pending-card\s*\{[^}]*grid-template-columns:\s*1fr/s);
+    expect(css).toMatch(/@media \(max-width:\s*640px\)[\s\S]*\.beadsform-root \.beadsform-pending-action\s*\{[^}]*min-height:\s*44px/s);
+  });
 });

@@ -53,4 +53,18 @@ describe('BeadsForm pending queue UI source', () => {
     expect(source).toContain('const fresh = await (await actions.refreshPendingForms(input));');
     expect(source).toContain('if (!pendingRef.current) return;');
   });
+
+  it('renders pending Forms tab entries as compact semantic inbox rows', async () => {
+    const source = await readFile(new URL('./BeadsFormModule.tsx', import.meta.url), 'utf8');
+
+    expect(source).toContain('aria-label="Pending BeadsForms inbox"');
+    expect(source).toContain('className="beadsform-pending-card-main"');
+    expect(source).toContain('className="beadsform-pending-title"');
+    expect(source).toContain('className="beadsform-pending-meta"');
+    expect(source).toContain('className="beadsform-pending-action"');
+    expect(source).toContain('<dt>Bead</dt>');
+    expect(source).toContain('<dt>Repo</dt>');
+    expect(source).toContain('Inbox clear');
+    expect(source).not.toContain('workspaceId}</p>');
+  });
 });
