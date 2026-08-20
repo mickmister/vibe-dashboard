@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { Hono } from 'hono';
 import type { Kysely } from 'kysely';
 import type { DB } from '../../../../../store/kysely_types';
+import { isValidVdWorkspaceId } from '../../../../../lib/vdWorkspaceLinks';
 import { fetchBeadsBoardView, type FetchBeadsBoardOptions } from './beadsAdapter';
 import { getBeadWorkspaceLinksForBeads, upsertBeadWorkspaceLink } from './beadWorkspaceLinks';
 
@@ -82,7 +83,7 @@ function isBeadWorkspaceLinkRequest(value: unknown): value is {
   if (!isPlainObject(value)) return false;
   if (!isNonEmptyString(value.beadId)) return false;
   if (!isNonEmptyString(value.sourceDirectory)) return false;
-  if (!isNonEmptyString(value.workspaceId)) return false;
+  if (!isNonEmptyString(value.workspaceId) || !isValidVdWorkspaceId(value.workspaceId)) return false;
   if ('id' in value && value.id !== undefined && !isNonEmptyString(value.id)) return false;
   if ('repoId' in value && value.repoId !== undefined && value.repoId !== null && !isNonEmptyString(value.repoId)) return false;
   if ('isPrimary' in value && value.isPrimary !== undefined && typeof value.isPrimary !== 'boolean') return false;

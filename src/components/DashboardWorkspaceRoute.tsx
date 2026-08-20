@@ -15,34 +15,42 @@ import { buildExistingVdWorkspaceDashboardPath, findSavedVoyageForVdWorkspaceRou
 
 const dashboardWorkspaceRouteMessages = defineMessages({
   openingWorkspace: {
+    id: 'dashboardWorkspaceRoute.openingWorkspace',
     defaultMessage: 'Opening workspace',
     description: 'Title shown while a shared VD workspace link is opening.',
   },
   workspaceLinkUnavailable: {
+    id: 'dashboardWorkspaceRoute.workspaceLinkUnavailable',
     defaultMessage: 'Workspace link unavailable',
     description: 'Title shown when a shared VD workspace link cannot be opened.',
   },
   openingStatus: {
+    id: 'dashboardWorkspaceRoute.openingStatus',
     defaultMessage: 'Opening VK workspace…',
     description: 'Status text shown while loading a shared VK workspace link.',
   },
   invalidLink: {
+    id: 'dashboardWorkspaceRoute.invalidLink',
     defaultMessage: 'This VD workspace link is invalid.',
     description: 'Error shown when a shared VD workspace link has an invalid workspace identifier.',
   },
   missingFactory: {
+    id: 'dashboardWorkspaceRoute.missingFactory',
     defaultMessage: 'VD could not find a workspace view factory for this link.',
     description: 'Error shown when no workspace view factory can open a shared VD workspace link.',
   },
   detailsLoadFailed: {
+    id: 'dashboardWorkspaceRoute.detailsLoadFailed',
     defaultMessage: 'VD could not load VK workspace details for this link.',
     description: 'Error shown when workspace metadata cannot be loaded for a shared VD workspace link.',
   },
   workspaceNotFound: {
+    id: 'dashboardWorkspaceRoute.workspaceNotFound',
     defaultMessage: 'This VK workspace could not be found or is archived.',
     description: 'Error shown when a shared VK workspace link points to a missing or archived workspace.',
   },
   openFailed: {
+    id: 'dashboardWorkspaceRoute.openFailed',
     defaultMessage: 'VD could not open this VK workspace link.',
     description: 'Error shown when creating a saved dashboard session from a shared VK workspace link fails.',
   },
@@ -178,6 +186,7 @@ export function DashboardWorkspaceRoute() {
       <div className="max-w-md rounded-2xl border border-neutral-800 bg-neutral-900 p-6 shadow-2xl">
         <div className="text-xs font-semibold uppercase tracking-[0.2em] text-neutral-500">
           <FormattedMessage
+            id="dashboardWorkspaceRoute.eyebrow"
             defaultMessage="VD workspace link"
             description="Eyebrow label for a shared VD workspace link status page."
           />
@@ -197,6 +206,7 @@ export function DashboardWorkspaceRoute() {
             onClick={() => navigate('/dashboard', { replace: true })}
           >
             <FormattedMessage
+              id="dashboardWorkspaceRoute.goToDashboard"
               defaultMessage="Go to dashboard"
               description="Button label that returns users from a failed shared workspace link to the dashboard."
             />
