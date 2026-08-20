@@ -84,4 +84,25 @@ describe('registerBeadsBoardRoutes', () => {
       { workspaceId: 'workspace-1', displayName: 'VD workspace', isPrimary: true, metadata: { displayName: 'VD workspace' } },
     ]);
   });
+
+  it('rejects invalid workspace ids before writing Beads workspace links', async () => {
+    const app = new Hono();
+    registerBeadsBoardRoutes(app, {
+      db,
+      fetchBeadsBoardView: vi.fn(async () => ({ ok: true as const, boardView: boardView() })),
+    });
+
+    const response = await app.request('/dashboard/api/kanban/beads/workspace-links', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        beadId: 'vkvw-1',
+        sourceDirectory: '/repos/vd',
+        workspaceId: '../not-valid',
+      }),
+    });
+
+    expect(response.status).toBe(400);
+    await expect(db.selectFrom('BeadWorkspaceLink').selectAll().execute()).resolves.toEqual([]);
+  });
 });
