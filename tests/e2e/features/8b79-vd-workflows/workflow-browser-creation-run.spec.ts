@@ -59,19 +59,19 @@ test.describe("M120C browser workflow creation and run", () => {
     const unique = Date.now();
     const workflowName = `M120C Browser Workflow ${unique}`;
     const task = `Run M120C browser-created workflow ${unique}`;
-    const sessionName = `M120C Agent ${unique}`;
+    const sessionName = `M120C Implementer ${unique}`;
 
     await page.goto(`/dashboard/workflows?workspaceId=${encodeURIComponent(workspace.id)}`);
     await expect(page.getByRole("heading", { name: "Workflows", exact: true })).toBeVisible();
     await page.locator(`a[href="/dashboard/workflows/new?workspaceId=${encodeURIComponent(workspace.id)}"]`).click();
 
     await expect(page.getByRole("heading", { name: "Create workflow" })).toBeVisible();
+    await page.getByLabel("Starter template").selectOption("built-in/simple-agent-decision");
     await page.getByLabel("Workflow name").fill(workflowName);
-    await page.getByLabel("Purpose").fill("Browser E2E creates, publishes, launches, and verifies this workflow.");
-    await page.getByLabel("First stage label").fill(promptMarker);
+    await page.getByLabel("Purpose").fill("Browser E2E creates, publishes, launches, and verifies this workflow from a starter template copy.");
     const graphPreview = page.locator("aside").filter({ hasText: "Review graph" });
-    await expect(graphPreview.getByText("work → done: Done", { exact: true })).toBeVisible();
-    await expect(graphPreview.getByText("work → work: Continue working", { exact: true })).toBeVisible();
+    await expect(graphPreview.getByText("This will create a copy from the selected starter template.")).toBeVisible();
+    await expect(graphPreview.getByText("The copied workflow keeps the selected workflow structure.")).toBeVisible();
 
     await page.getByRole("button", { name: "Save & publish" }).click();
     await expect(page.getByLabel("Wizard result")).toContainText("Published v1");
@@ -86,22 +86,22 @@ test.describe("M120C browser workflow creation and run", () => {
     await expect(dialog).toBeVisible();
     await expect(dialog.getByText("Run workflow")).toBeVisible();
     await expect(dialog.getByLabel("Launch summary")).toContainText(`${workflowName} · Published v1`);
-    await expect(dialog.getByLabel("Agent executor")).toHaveValue("");
-    await expect(dialog.getByLabel("Agent model")).toHaveValue("");
+    await expect(dialog.getByLabel("Implementer executor")).toHaveValue("");
+    await expect(dialog.getByLabel("Implementer model")).toHaveValue("");
     await expect(dialog.getByText("Workspace default").first()).toBeVisible();
     await dialog.getByRole("button", { name: "Create sessions for all roles" }).click();
-    await dialog.getByLabel("Agent session name").fill(sessionName);
+    await dialog.getByLabel("Implementer session name").fill(sessionName);
     await dialog.getByLabel("featureRequest *").fill(task);
-    await dialog.getByLabel("Additional instructions for this run").fill("M120C browser creation E2E uses VK qa-mode scripted XML.");
+    await dialog.getByLabel("Additional instructions for this run").fill(`M120C browser creation E2E uses VK qa-mode scripted XML. ${promptMarker}`);
 
     const launchRequestPromise = page.waitForRequest((browserRequest) => browserRequest.url().endsWith("/dashboard/api/workflows/launch") && browserRequest.method() === "POST");
     const launchResponsePromise = page.waitForResponse((response) => response.url().endsWith("/dashboard/api/workflows/launch") && response.request().method() === "POST");
     await dialog.getByRole("button", { name: "Launch workflow" }).click();
     const [launchRequest, launchResponse] = await Promise.all([launchRequestPromise, launchResponsePromise]);
     const launchPayload = JSON.parse(launchRequest.postData() ?? "{}") as { roleBindings?: Record<string, Record<string, unknown>> };
-    expect(launchPayload.roleBindings?.agent).toMatchObject({ mode: "create_or_reuse", name: sessionName });
-    expect(launchPayload.roleBindings?.agent).not.toHaveProperty("executorType");
-    expect(launchPayload.roleBindings?.agent).not.toHaveProperty("model");
+    expect(launchPayload.roleBindings?.implementer).toMatchObject({ mode: "create_or_reuse", name: sessionName });
+    expect(launchPayload.roleBindings?.implementer).not.toHaveProperty("executorType");
+    expect(launchPayload.roleBindings?.implementer).not.toHaveProperty("model");
     const launchBody = await launchResponse.json() as { run?: { runId?: string; detailUrl?: string } };
     expect(launchResponse.status(), JSON.stringify(launchBody)).toBe(201);
     const runId = launchBody.run?.runId;

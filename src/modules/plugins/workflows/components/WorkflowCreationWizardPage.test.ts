@@ -16,13 +16,6 @@ describe('WorkflowCreationWizardView', () => {
     expect(html).toContain('Starter template');
     expect(html).toContain('Duplicate existing');
     expect(html).toContain('Name and purpose');
-    expect(html).toContain('Inputs');
-    expect(html).toContain('Roles');
-    expect(html).toContain('Stages and supported steps');
-    expect(html).toContain('Agent turn');
-    expect(html).toContain('Human form');
-    expect(html).toContain('Blocking workflow call');
-    expect(html).toContain('Decisions and loops');
     expect(html).toContain('Review graph');
     expect(html).toContain('Save draft');
     expect(html).toContain('Save &amp; publish');
@@ -39,7 +32,7 @@ describe('WorkflowCreationWizardView', () => {
       workspaceId: 'workspace-a',
       userWorkflows: [workflow('design-drt', 'Dev Review Tester')],
       starterTemplates: [workflow('built-in/dev-review-tester', 'Dev / Review / Tester')],
-      initialDraft: { sourceMode: 'starter', sourceId: 'built-in/dev-review-tester', name: 'Dev / Review / Tester copy', purpose: 'Workflow description', inputId: 'featureRequest', roleId: 'agent', roleLabel: 'Agent', stageLabel: 'Do the work', publish: false },
+      initialDraft: { sourceMode: 'starter', sourceId: 'built-in/dev-review-tester', name: 'Dev / Review / Tester copy', purpose: 'Workflow description', publish: false },
     }));
     expect(html).toContain('This will create a copy from the selected starter template.');
     expect(html).toContain('The copied workflow keeps the selected workflow structure.');
@@ -54,7 +47,7 @@ describe('WorkflowCreationWizardView', () => {
       workspaceId: 'workspace-a',
       userWorkflows: [workflow('design-drt', 'Dev Review Tester')],
       starterTemplates: [workflow('built-in/dev-review-tester', 'Dev / Review / Tester')],
-      initialDraft: { sourceMode: 'duplicate', sourceId: 'design-drt', name: 'Dev Review Tester copy', purpose: 'Workflow description', inputId: 'featureRequest', roleId: 'agent', roleLabel: 'Agent', stageLabel: 'Do the work', publish: false },
+      initialDraft: { sourceMode: 'duplicate', sourceId: 'design-drt', name: 'Dev Review Tester copy', purpose: 'Workflow description', publish: false },
     }));
     expect(html).toContain('This will duplicate the selected workflow design.');
     expect(html).toContain('Existing sessions and runs are not copied.');

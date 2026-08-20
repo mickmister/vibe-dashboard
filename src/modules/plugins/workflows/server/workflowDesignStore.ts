@@ -389,7 +389,11 @@ export class DbWorkflowDesignStore {
         name: input.name ?? template.name,
         description: input.description ?? template.description ?? null,
         source: 'user',
-        definition: deepClone(template.definition),
+        definition: definitionWithWorkflowIdentity(
+          template.definition,
+          input.name ?? template.name,
+          input.description ?? template.description ?? null,
+        ),
         baseVersion: null,
         validationIssues: [],
         now,
@@ -446,7 +450,7 @@ export class DbWorkflowDesignStore {
       name: input.name,
       description: input.description ?? source.description,
       source: 'user',
-      definition: deepClone(definition),
+      definition: definitionWithWorkflowIdentity(definition, input.name, input.description ?? source.description),
       baseVersion: null,
     });
   }
@@ -891,6 +895,15 @@ function validateResolvedDefinition(definition: unknown): WorkflowConfigIssue[] 
     if (error instanceof WorkflowDefinitionError) return error.issues;
     throw error;
   }
+}
+
+function definitionWithWorkflowIdentity(definition: unknown, name: string, description?: string | null): unknown {
+  const cloned = deepClone(definition);
+  if (!isRecord(cloned)) return cloned;
+  cloned.name = name;
+  if (description && description.trim()) cloned.description = description;
+  else delete cloned.description;
+  return cloned;
 }
 
 

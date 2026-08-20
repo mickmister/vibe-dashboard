@@ -6,10 +6,6 @@ export interface WorkflowWizardDraft {
   sourceId: string | null;
   name: string;
   purpose: string;
-  inputId: string;
-  roleId: string;
-  roleLabel: string;
-  stageLabel: string;
   publish: boolean;
 }
 

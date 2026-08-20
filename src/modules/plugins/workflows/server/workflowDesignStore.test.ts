@@ -229,6 +229,7 @@ describe('DbWorkflowDesignStore M91 foundation', () => {
       latestPublishedVersion: null,
     });
     expect(copied.draft.definition).toMatchObject({
+      name: 'Duplicate copy',
       roles: {
         dev: expect.objectContaining({
           templateRef: { templateId: 'role.dev.implementer', version: 1 },
@@ -338,6 +339,7 @@ describe('DbWorkflowDesignStore M91 foundation', () => {
 
     expect(used.design).toMatchObject({ designId: 'design.from-template', source: 'user', name: 'My simple workflow' });
     expect(used.draft.validationStatus).toBe('valid');
+    expect(used.draft.definition).toMatchObject({ name: 'My simple workflow' });
     expect(await store.getPromptAsset('prompt.simple-agent.instructions', 1)).toMatchObject({ source: 'built_in' });
     expect(await store.getSkillAsset('skill.workflow.markdown-response', 1)).toMatchObject({ source: 'built_in' });
     await expect(store.publishDraft('draft.from-template')).resolves.toMatchObject({ version: 1 });
@@ -349,6 +351,7 @@ describe('DbWorkflowDesignStore M91 foundation', () => {
       name: 'My simple workflow copy',
     });
     expect(duplicate.design).toMatchObject({ source: 'user', currentDraftId: 'draft.from-template-copy' });
+    expect(duplicate.draft.definition).toMatchObject({ name: 'My simple workflow copy' });
     expect(JSON.stringify(duplicate.draft.definition)).not.toContain('session');
     expect(await store.listDesigns()).toHaveLength(2);
   });

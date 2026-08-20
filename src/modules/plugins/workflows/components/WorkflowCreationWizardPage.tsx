@@ -10,10 +10,6 @@ const initialDraft: WorkflowWizardDraft = {
   sourceId: null,
   name: 'New workflow',
   purpose: 'Describe what this workflow should accomplish.',
-  inputId: 'featureRequest',
-  roleId: 'agent',
-  roleLabel: 'Agent',
-  stageLabel: 'Do the work',
   publish: false,
 };
 
@@ -70,7 +66,7 @@ export function WorkflowCreationWizardView({ workspaceId, userWorkflows, starter
       <header className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-5">
         <div className="text-xs uppercase tracking-wide text-cyan-300">Workflow wizard</div>
         <h1 className="mt-1 text-2xl font-semibold">Create workflow</h1>
-        <p className="mt-2 text-sm text-zinc-400">Start from a template, duplicate an existing design, or create a simple supported workflow. Graph editor remains available for advanced edits.</p>
+        <p className="mt-2 text-sm text-zinc-400">Start from a starter template, duplicate an existing design, or create an empty draft. Graph editor remains available for advanced edits.</p>
       </header>
       {error ? <div role="alert" className="rounded-lg border border-amber-900 bg-amber-950/30 p-4 text-sm text-amber-100">{error}</div> : null}
       {result ? <ResultPanel result={result} workspaceId={workspaceId} published={result.version != null} /> : null}
@@ -92,23 +88,18 @@ export function WorkflowCreationWizardView({ workspaceId, userWorkflows, starter
             <TextArea label="Purpose" value={draft.purpose} onChange={(value) => update('purpose', value)} />
           </WizardStep>
 
-          <WizardStep number="3" title="Inputs">
-            <TextInput label="Suggested first input id" value={draft.inputId} onChange={(value) => update('inputId', value)} disabled={draft.sourceMode !== 'blank'} />
-            <p className="mt-2 text-xs text-zinc-500">Blank drafts start empty. Add inputs later in the graph editor before publishing. Template inputs can be edited after creating a draft copy.</p>
-          </WizardStep>
-
-          <WizardStep number="4" title="Roles">
-            <div className="grid gap-3 md:grid-cols-2"><TextInput label="Role id" value={draft.roleId} onChange={(value) => update('roleId', value)} disabled={draft.sourceMode !== 'blank'} /><TextInput label="Role label" value={draft.roleLabel} onChange={(value) => update('roleLabel', value)} disabled={draft.sourceMode !== 'blank'} /></div>
-          </WizardStep>
-
-          <WizardStep number="5" title="Stages and supported steps">
-            <TextInput label="First stage label" value={draft.stageLabel} onChange={(value) => update('stageLabel', value)} disabled={draft.sourceMode !== 'blank'} />
-            <div className="mt-3 grid gap-3 md:grid-cols-3"><StepType label="Agent turn" state="Available" /><StepType label="Human form" state="Available in editor for supported providers" /><StepType label="Blocking workflow call" state="Available after choosing a child workflow in advanced edit" /></div>
-            <p className="mt-2 text-xs text-zinc-500">Unsupported workflow call modes, batch controls, and marketplace/plugin controls are hidden.</p>
-          </WizardStep>
-
-          <WizardStep number="6" title="Decisions and loops">
-            <p className="text-sm text-zinc-300">Blank drafts start without actions or transitions. Add decisions and loops in the graph editor. Template decisions can be adjusted after creating an editable draft copy.</p>
+          <WizardStep number="3" title={draft.sourceMode === 'blank' ? 'Blank draft contents' : 'Copied workflow contents'}>
+            {draft.sourceMode === 'blank' ? (
+              <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-4 text-sm text-zinc-300">
+                <p>This creates an empty draft with no roles, states, inputs, steps, actions, or transitions.</p>
+                <p className="mt-2 text-zinc-500">Use the graph editor to add the workflow structure before publishing or running it.</p>
+              </div>
+            ) : (
+              <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-4 text-sm text-zinc-300">
+                <p>{draft.sourceMode === 'starter' ? 'The starter template is copied into a new editable workflow design.' : 'The selected workflow design is duplicated into a new editable draft.'}</p>
+                <p className="mt-2 text-zinc-500">Role templates, prompt refs, and skill refs stay linked. Runs, sessions, history, and library assets are not copied.</p>
+              </div>
+            )}
           </WizardStep>
 
           <WizardStep number="8" title="Save lifecycle">
@@ -157,10 +148,6 @@ function TextInput({ label, value, onChange, disabled = false }: { label: string
 
 function TextArea({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
   return <label className="block"><span className="text-sm font-medium">{label}</span><textarea className="mt-2 min-h-20 w-full rounded-md border border-zinc-700 bg-zinc-900 p-3 text-sm" value={value} onChange={(event) => onChange(event.target.value)} /></label>;
-}
-
-function StepType({ label, state }: { label: string; state: string }) {
-  return <div className="rounded-md border border-zinc-800 bg-zinc-950 p-3"><div className="font-medium">{label}</div><div className="mt-1 text-xs text-zinc-400">{state}</div></div>;
 }
 
 function ResultPanel({ result, workspaceId, published }: { result: { designId: string; draftId: string | null; version: number | null }; workspaceId: string; published: boolean }) {

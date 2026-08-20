@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { validateWorkflowGraph } from './graph/workflowGraphModel';
 import { buildBlankWorkflowDefinition, buildWizardGraphPreview } from './workflowWizardModel';
 
-const draft = { sourceMode: 'blank' as const, sourceId: null, name: 'Wizard workflow', purpose: 'Practice TDD', inputId: 'featureRequest', roleId: 'dev', roleLabel: 'Dev', stageLabel: 'Implement', publish: false };
+const draft = { sourceMode: 'blank' as const, sourceId: null, name: 'Wizard workflow', purpose: 'Practice TDD', publish: false };
 
 describe('workflowWizardModel', () => {
   it('TEST_CASE_NQGV_1A creates a true empty blank draft definition', () => {

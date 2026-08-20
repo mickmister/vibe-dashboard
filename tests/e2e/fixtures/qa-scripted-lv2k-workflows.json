@@ -107,7 +107,7 @@
     {
       "prompt_contains": "LV2K_STEP:m120c_browser_create",
       "outcome": "completed",
-      "final_message": "<decision action=\"done\"><summary>Browser-created workflow completed through VK qa-mode.</summary></decision>",
+      "final_message": "<decision action=\"complete\"><summary>Browser-created workflow completed through VK qa-mode.</summary></decision>",
       "session_id": "qa-scripted-m120c-browser-create",
       "message_id": "qa-scripted-m120c-browser-create",
       "delay_ms": 0
