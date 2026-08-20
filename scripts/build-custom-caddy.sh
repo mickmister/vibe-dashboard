@@ -21,8 +21,29 @@ mkdir -p "$(dirname "$output_path")"
 module_dir="$(cd "$module_dir" && pwd)"
 output_path="$(cd "$(dirname "$output_path")" && pwd)/$(basename "$output_path")"
 
+run_with_retries() {
+  local max_attempts="${1:?max attempts required}"
+  shift
+
+  local attempt=1
+  while true; do
+    if "$@"; then
+      return 0
+    fi
+
+    if [ "$attempt" -ge "$max_attempts" ]; then
+      echo "command failed after ${attempt} attempts: $*" >&2
+      return 1
+    fi
+
+    echo "command failed on attempt ${attempt}/${max_attempts}; retrying in $((attempt * 5))s: $*" >&2
+    sleep "$((attempt * 5))"
+    attempt=$((attempt + 1))
+  done
+}
+
 cd "$module_dir"
-CGO_ENABLED=0 xcaddy build "$caddy_version" \
+run_with_retries 3 env CGO_ENABLED=0 xcaddy build "$caddy_version" \
   --output "$output_path" \
   --with "$module_import=."
 chmod +x "$output_path"
