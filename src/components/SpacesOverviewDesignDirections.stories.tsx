@@ -209,6 +209,33 @@ export const VoyageMap: Story = {
   render: () => <VoyageMapConcept />,
 };
 
+export const MobileActionFeed: Story = {
+  parameters: {
+    controls: {
+      disable: true,
+    },
+  },
+  render: () => <MobileActionFeedConcept />,
+};
+
+export const MobileVoyageTabs: Story = {
+  parameters: {
+    controls: {
+      disable: true,
+    },
+  },
+  render: () => <MobileVoyageTabsConcept />,
+};
+
+export const MobileQueueSheet: Story = {
+  parameters: {
+    controls: {
+      disable: true,
+    },
+  },
+  render: () => <MobileQueueSheetConcept />,
+};
+
 function DashboardConcept({
   direction,
   colorScheme = 'direction',
@@ -568,6 +595,235 @@ function VoyageMapConcept() {
             <div className="absolute left-1/2 top-1/2 h-px w-[72%] -translate-x-1/2 rotate-[-18deg] bg-white/10" />
             <div className="absolute left-1/2 top-1/2 h-px w-[62%] -translate-x-1/2 rotate-[24deg] bg-white/10" />
           </section>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function MobileActionFeedConcept() {
+  return (
+    <main className="h-[100dvh] overflow-y-auto overflow-x-hidden bg-[#0d1117] text-zinc-100">
+      <section className="mx-auto flex min-h-[100dvh] max-w-[430px] flex-col px-4 pb-[calc(5.75rem+env(safe-area-inset-bottom))] pt-[calc(1rem+env(safe-area-inset-top))]">
+        <header className="border-b border-sky-400/15 pb-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold text-sky-300">Home</p>
+              <h1 className="mt-1 text-3xl font-semibold tracking-[-0.045em]">
+                Today
+              </h1>
+            </div>
+            <button className="min-h-11 rounded-lg border border-zinc-700 px-4 text-sm text-zinc-100">
+              Go Home
+            </button>
+          </div>
+        </header>
+
+        <section className="mt-5 rounded-3xl border border-sky-400/20 bg-[#111827] p-5">
+          <p className="text-sm text-sky-200">Current launch</p>
+          <h2 className="mt-3 text-3xl font-semibold tracking-[-0.04em]">
+            Auth bug fix
+          </h2>
+          <div className="mt-5 flex gap-2">
+            <button className="min-h-12 flex-1 rounded-xl bg-sky-400 px-4 text-sm font-semibold text-slate-950">
+              Open craft
+            </button>
+            <button className="min-h-12 rounded-xl border border-zinc-700 px-4 text-sm text-zinc-100">
+              Carry over
+            </button>
+          </div>
+        </section>
+
+        <section className="mt-5">
+          <div className="flex items-center justify-between text-xs text-zinc-500">
+            <span>Next actions</span>
+            <span>3 open</span>
+          </div>
+          <div className="mt-3 divide-y divide-zinc-800 border-y border-zinc-800">
+            {[
+              ['Approval', 'Waiting for approval'],
+              ['CI', 'Running'],
+              ['Agent', 'Unread turn'],
+            ].map(([label, status]) => (
+              <button
+                key={label}
+                className="flex min-h-16 w-full items-center justify-between gap-4 py-3 text-left"
+              >
+                <span>
+                  <span className="block text-base font-medium">{label}</span>
+                  <span className="mt-1 block text-sm text-zinc-500">{status}</span>
+                </span>
+                <span className="text-sm text-sky-300">Open</span>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <section className="mt-5">
+          <div className="flex flex-wrap gap-2">
+            {['Mine', 'PR open', 'Blocked', 'Server on'].map((filter) => (
+              <button
+                key={filter}
+                className="min-h-11 rounded-lg border border-zinc-700 px-3 text-sm text-zinc-200"
+              >
+                {filter}
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <nav className="fixed inset-x-0 bottom-0 border-t border-zinc-800 bg-[#0d1117]/95 px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur">
+          <div className="mx-auto flex max-w-[430px] gap-2">
+            <button className="min-h-12 flex-1 rounded-xl border border-zinc-700 text-sm text-zinc-100">
+              Voyages
+            </button>
+            <button className="min-h-12 flex-1 rounded-xl bg-sky-400 text-sm font-semibold text-slate-950">
+              New Voyage
+            </button>
+          </div>
+        </nav>
+      </section>
+    </main>
+  );
+}
+
+function MobileVoyageTabsConcept() {
+  return (
+    <main className="h-[100dvh] overflow-y-auto overflow-x-hidden bg-[#f4f7fb] text-slate-950">
+      <section className="mx-auto min-h-[100dvh] max-w-[430px] px-4 pb-8 pt-[calc(1rem+env(safe-area-inset-top))]">
+        <header className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold text-cyan-700">Voyages</p>
+            <h1 className="mt-1 text-3xl font-semibold tracking-[-0.045em]">
+              Pick scope
+            </h1>
+          </div>
+          <button className="min-h-11 rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white">
+            New Voyage
+          </button>
+        </header>
+
+        <nav className="mt-5 flex gap-2 overflow-x-auto pb-1">
+          {['Current', 'Design', 'Clean'].map((voyage, index) => (
+            <button
+              key={voyage}
+              className={`min-h-11 shrink-0 rounded-xl px-4 text-sm font-medium ${
+                index === 0
+                  ? 'bg-slate-950 text-white'
+                  : 'border border-slate-300 bg-white text-slate-700'
+              }`}
+            >
+              {voyage}
+            </button>
+          ))}
+        </nav>
+
+        <section className="mt-5 rounded-3xl border border-white bg-white p-5 shadow-[0_18px_60px_rgb(15_23_42_/_0.08)]">
+          <p className="text-sm text-slate-500">Current launch</p>
+          <h2 className="mt-3 text-3xl font-semibold tracking-[-0.04em]">
+            Resume work
+          </h2>
+          <div className="mt-5 grid grid-cols-3 gap-3 border-t border-slate-200 pt-4">
+            {[
+              ['3', 'Needs'],
+              ['2', 'Running'],
+              ['5', 'Filters'],
+            ].map(([value, label]) => (
+              <div key={label}>
+                <p className="font-mono text-2xl font-semibold">{value}</p>
+                <p className="mt-1 text-xs text-slate-500">{label}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="mt-5">
+          <div className="flex items-center justify-between text-xs font-medium text-slate-500">
+            <span>Queue</span>
+            <span>sorted</span>
+          </div>
+          <div className="mt-3 divide-y divide-slate-200 border-y border-slate-200">
+            {workItems.map((item) => (
+              <button
+                key={item.title}
+                className="flex min-h-16 w-full items-center justify-between gap-4 py-3 text-left"
+              >
+                <span>
+                  <span className="block text-base font-medium">{item.title}</span>
+                  <span className="mt-1 block text-sm text-slate-500">
+                    {item.status}
+                  </span>
+                </span>
+                <span className="text-sm text-cyan-700">Open</span>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <button className="mt-5 min-h-12 w-full rounded-xl border border-slate-300 bg-white text-sm font-semibold text-slate-800">
+          Go Home
+        </button>
+      </section>
+    </main>
+  );
+}
+
+function MobileQueueSheetConcept() {
+  return (
+    <main className="h-[100dvh] overflow-y-auto overflow-x-hidden bg-[#090b10] text-zinc-100">
+      <section className="mx-auto flex min-h-[100dvh] max-w-[430px] flex-col px-4 pb-5 pt-[calc(1rem+env(safe-area-inset-top))]">
+        <header className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold text-emerald-300">Workflows</p>
+            <h1 className="mt-1 text-3xl font-semibold tracking-[-0.045em]">
+              Queue sheet
+            </h1>
+          </div>
+          <button className="min-h-11 rounded-xl border border-white/15 px-4 text-sm text-zinc-100">
+            Go Home
+          </button>
+        </header>
+
+        <section className="mt-5 rounded-[1.75rem] border border-emerald-300/20 bg-emerald-300/[0.06] p-5">
+          <p className="text-sm text-emerald-200">Next</p>
+          <h2 className="mt-3 text-3xl font-semibold tracking-[-0.04em]">
+            Review diff
+          </h2>
+          <button className="mt-5 min-h-12 w-full rounded-xl bg-emerald-300 text-sm font-semibold text-zinc-950">
+            Open active craft
+          </button>
+        </section>
+
+        <section className="mt-5 flex-1 rounded-[1.75rem] border border-white/10 bg-white/[0.035] p-5">
+          <div className="flex items-center justify-between text-xs text-zinc-500">
+            <span>Workflow queue</span>
+            <span>3 rows</span>
+          </div>
+          <div className="mt-4 divide-y divide-white/10">
+            {workflowRows.map(([name, status, time]) => (
+              <button
+                key={name}
+                className="flex min-h-16 w-full items-center justify-between gap-4 py-3 text-left"
+              >
+                <span>
+                  <span className="block text-base font-medium">{name}</span>
+                  <span className="mt-1 block text-sm text-zinc-500">{status}</span>
+                </span>
+                <span className="shrink-0 font-mono text-xs text-zinc-500">
+                  {time}
+                </span>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <button className="min-h-12 rounded-xl border border-white/15 text-sm text-zinc-100">
+            Filters
+          </button>
+          <button className="min-h-12 rounded-xl bg-white text-sm font-semibold text-zinc-950">
+            New Voyage
+          </button>
         </div>
       </section>
     </main>
