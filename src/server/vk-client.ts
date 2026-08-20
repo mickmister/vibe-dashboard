@@ -336,10 +336,6 @@ export class VibeKanbanServerClient {
     return this.get('/repos');
   }
 
-  registerRepo(body: { path: string; display_name?: string }): Promise<Repo> {
-    return this.post('/repos', body);
-  }
-
   listDirectory(path: string): Promise<DirectoryListResponse> {
     return this.get(`/filesystem/directory?path=${encodeURIComponent(path)}`);
   }
