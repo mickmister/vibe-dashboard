@@ -263,6 +263,42 @@ export const MobileSavedViews: Story = {
   render: () => <MobileSavedViewsConcept />,
 };
 
+export const ModernDarkDesk: Story = {
+  parameters: {
+    controls: {
+      disable: true,
+    },
+  },
+  render: () => <ModernDarkDeskConcept />,
+};
+
+export const ModernDarkBento: Story = {
+  parameters: {
+    controls: {
+      disable: true,
+    },
+  },
+  render: () => <ModernDarkBentoConcept />,
+};
+
+export const EnterpriseLightOps: Story = {
+  parameters: {
+    controls: {
+      disable: true,
+    },
+  },
+  render: () => <EnterpriseLightOpsConcept />,
+};
+
+export const EnterpriseLightCommand: Story = {
+  parameters: {
+    controls: {
+      disable: true,
+    },
+  },
+  render: () => <EnterpriseLightCommandConcept />,
+};
+
 function DashboardConcept({
   direction,
   colorScheme = 'direction',
@@ -1071,6 +1107,415 @@ function MobileSavedViewsConcept() {
         <button className="mt-5 min-h-12 w-full rounded-xl bg-white text-sm font-semibold text-zinc-950">
           New Voyage
         </button>
+      </section>
+    </main>
+  );
+}
+
+function ModernDarkDeskConcept() {
+  return (
+    <main className="relative h-[100dvh] overflow-y-auto overflow-x-hidden bg-[radial-gradient(ellipse_at_top,#101025_0%,#050506_48%,#020203_100%)] p-4 text-[#EDEDEF] md:p-8">
+      <div className="pointer-events-none absolute left-1/2 top-[-34rem] h-[62rem] w-[76rem] -translate-x-1/2 rounded-full bg-[#5E6AD2]/20 blur-[140px]" />
+      <div className="pointer-events-none absolute right-[-14rem] top-56 h-[34rem] w-[34rem] rounded-full bg-cyan-400/10 blur-[110px]" />
+      <section className="relative mx-auto max-w-[1480px]">
+        <header className="flex flex-wrap items-end justify-between gap-4 border-b border-white/[0.06] pb-5">
+          <div>
+            <p className="font-mono text-xs font-semibold tracking-[0.18em] text-[#8A8F98]">
+              MODERN DARK
+            </p>
+            <h1 className="mt-3 max-w-4xl bg-gradient-to-b from-white via-white/95 to-white/65 bg-clip-text text-5xl font-semibold tracking-[-0.055em] text-transparent md:text-7xl">
+              Developer desk
+            </h1>
+          </div>
+          <div className="flex gap-2">
+            <button className="min-h-11 rounded-lg bg-white/[0.05] px-4 text-sm font-medium text-[#EDEDEF] shadow-[inset_0_1px_0_0_rgba(255,255,255,0.1)]">
+              Go Home
+            </button>
+            <button className="min-h-11 rounded-lg bg-[#5E6AD2] px-4 text-sm font-semibold text-white shadow-[0_0_0_1px_rgba(94,106,210,0.5),0_4px_18px_rgba(94,106,210,0.3),inset_0_1px_0_0_rgba(255,255,255,0.2)]">
+              New Voyage
+            </button>
+          </div>
+        </header>
+
+        <div className="mt-6 grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)_360px]">
+          <aside className="rounded-2xl border border-white/[0.06] bg-white/[0.035] p-5 shadow-[0_0_0_1px_rgba(255,255,255,0.04),0_20px_70px_rgba(0,0,0,0.34)]">
+            <p className="text-sm font-medium text-[#EDEDEF]">Voyages</p>
+            <div className="mt-5 divide-y divide-white/[0.06]">
+              {['Current launch', 'Design review', 'Clean session'].map(
+                (voyage, index) => (
+                  <button
+                    key={voyage}
+                    className={`flex min-h-14 w-full items-center justify-between py-3 text-left text-sm ${
+                      index === 0 ? 'text-white' : 'text-[#8A8F98]'
+                    }`}
+                  >
+                    <span>{voyage}</span>
+                    <span className="h-2 w-2 rounded-full bg-[#5E6AD2]" />
+                  </button>
+                ),
+              )}
+            </div>
+          </aside>
+
+          <section className="rounded-2xl border border-[#5E6AD2]/30 bg-gradient-to-b from-white/[0.08] to-white/[0.02] p-6 shadow-[0_0_0_1px_rgba(255,255,255,0.06),0_24px_90px_rgba(0,0,0,0.42),0_0_90px_rgba(94,106,210,0.12)]">
+            <p className="font-mono text-xs tracking-[0.16em] text-[#8A8F98]">
+              ACTIVE CRAFT
+            </p>
+            <div className="mt-8 grid gap-5 md:grid-cols-[1fr_auto] md:items-end">
+              <div>
+                <h2 className="text-4xl font-semibold tracking-[-0.045em] md:text-6xl">
+                  Auth bug fix
+                </h2>
+                <p className="mt-4 max-w-2xl text-base leading-7 text-[#8A8F98]">
+                  Approval, CI, saved views, and workflow handoffs stay attached
+                  to the active voyage.
+                </p>
+              </div>
+              <button className="min-h-12 rounded-lg bg-[#5E6AD2] px-5 text-sm font-semibold text-white shadow-[0_0_0_1px_rgba(94,106,210,0.5),0_4px_18px_rgba(94,106,210,0.3)]">
+                Open active craft
+              </button>
+            </div>
+
+            <div className="mt-10 grid gap-5 md:grid-cols-3">
+              {[
+                ['Needs attention', '3', 'approval, CI, unread turn'],
+                ['Running', '2', 'servers ready'],
+                ['Saved filters', '5', 'weekly work views'],
+              ].map(([label, value, detail]) => (
+                <article key={label} className="border-t border-white/[0.08] pt-4">
+                  <p className="text-sm text-[#8A8F98]">{label}</p>
+                  <p className="mt-3 font-mono text-4xl font-semibold">{value}</p>
+                  <p className="mt-2 text-xs text-[#8A8F98]">{detail}</p>
+                </article>
+              ))}
+            </div>
+          </section>
+
+          <aside className="rounded-2xl border border-white/[0.06] bg-white/[0.035] p-5 shadow-[0_0_0_1px_rgba(255,255,255,0.04),0_20px_70px_rgba(0,0,0,0.34)]">
+            <p className="text-sm font-medium">Workflow queue</p>
+            <div className="mt-5 divide-y divide-white/[0.06]">
+              {workflowRows.map(([name, status, time]) => (
+                <button
+                  key={name}
+                  className="flex min-h-16 w-full items-center justify-between gap-4 py-3 text-left"
+                >
+                  <span>
+                    <span className="block text-sm font-medium">{name}</span>
+                    <span className="mt-1 block text-xs text-[#8A8F98]">
+                      {status}
+                    </span>
+                  </span>
+                  <span className="font-mono text-xs text-[#8A8F98]">{time}</span>
+                </button>
+              ))}
+            </div>
+          </aside>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function ModernDarkBentoConcept() {
+  return (
+    <main className="relative h-[100dvh] overflow-y-auto overflow-x-hidden bg-[#050506] p-4 text-[#EDEDEF] md:p-8">
+      <div className="pointer-events-none absolute left-[-18rem] top-[-10rem] h-[48rem] w-[48rem] rounded-full bg-[#5E6AD2]/20 blur-[130px]" />
+      <div className="pointer-events-none absolute bottom-[-18rem] right-[-10rem] h-[44rem] w-[44rem] rounded-full bg-blue-500/10 blur-[120px]" />
+      <section className="relative mx-auto max-w-[1480px]">
+        <header className="mb-5 grid gap-4 md:grid-cols-[1fr_auto] md:items-end">
+          <div>
+            <p className="font-mono text-xs tracking-[0.18em] text-[#8A8F98]">
+              BENTO
+            </p>
+            <h1 className="mt-3 max-w-4xl text-5xl font-semibold tracking-[-0.055em] md:text-7xl">
+              Work constellation
+            </h1>
+          </div>
+          <div className="flex gap-2">
+            <button className="min-h-11 rounded-lg bg-white/[0.05] px-4 text-sm text-[#EDEDEF]">
+              Go Home
+            </button>
+            <button className="min-h-11 rounded-lg bg-[#5E6AD2] px-4 text-sm font-semibold text-white shadow-[0_0_40px_rgba(94,106,210,0.22)]">
+              New Voyage
+            </button>
+          </div>
+        </header>
+
+        <div className="grid auto-rows-[160px] gap-4 md:grid-cols-6">
+          <section className="rounded-2xl border border-white/[0.06] bg-gradient-to-b from-white/[0.08] to-white/[0.02] p-6 shadow-[0_0_0_1px_rgba(255,255,255,0.05),0_20px_80px_rgba(0,0,0,0.38)] md:col-span-4 md:row-span-2">
+            <p className="text-sm text-[#8A8F98]">Current launch</p>
+            <h2 className="mt-8 text-5xl font-semibold tracking-[-0.055em]">
+              Resume without widening scope
+            </h2>
+            <div className="mt-8 flex flex-wrap gap-2">
+              {['Auth bug fix', 'Approval', 'CI running', 'Unread turn'].map(
+                (item) => (
+                  <span
+                    key={item}
+                    className="rounded-full border border-[#5E6AD2]/30 px-3 py-2 text-xs text-[#EDEDEF]"
+                  >
+                    {item}
+                  </span>
+                ),
+              )}
+            </div>
+          </section>
+
+          {[
+            ['Needs', '3', 'approval queue'],
+            ['Servers', '2', 'ready to open'],
+            ['Views', '5', 'saved filters'],
+            ['Workflows', '3', 'runs and forms'],
+          ].map(([label, value, detail]) => (
+            <article
+              key={label}
+              className="rounded-2xl border border-white/[0.06] bg-white/[0.035] p-5 shadow-[0_0_0_1px_rgba(255,255,255,0.04),0_18px_70px_rgba(0,0,0,0.32)] md:col-span-2"
+            >
+              <p className="text-sm text-[#8A8F98]">{label}</p>
+              <p className="mt-4 font-mono text-4xl font-semibold">{value}</p>
+              <p className="mt-2 text-xs text-[#8A8F98]">{detail}</p>
+            </article>
+          ))}
+
+          <section className="rounded-2xl border border-white/[0.06] bg-white/[0.035] p-5 md:col-span-3 md:row-span-2">
+            <p className="text-sm font-medium">Priority work</p>
+            <div className="mt-4 divide-y divide-white/[0.06]">
+              {workItems.map((item) => (
+                <button
+                  key={item.title}
+                  className="flex min-h-16 w-full items-center justify-between gap-4 py-3 text-left"
+                >
+                  <span>
+                    <span className="block text-sm font-medium">{item.title}</span>
+                    <span className="mt-1 block text-xs text-[#8A8F98]">
+                      {item.status}
+                    </span>
+                  </span>
+                  <span className="text-sm text-[#5E6AD2]">Open</span>
+                </button>
+              ))}
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-white/[0.06] bg-white/[0.035] p-5 md:col-span-3 md:row-span-2">
+            <p className="text-sm font-medium">Saved filters</p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {savedFilters.map((filter) => (
+                <button
+                  key={filter}
+                  className="min-h-10 rounded-lg bg-white/[0.05] px-3 text-xs text-[#EDEDEF]"
+                >
+                  {filter}
+                </button>
+              ))}
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function EnterpriseLightOpsConcept() {
+  return (
+    <main className="relative h-[100dvh] overflow-y-auto overflow-x-hidden bg-[#F8FAFC] p-4 text-slate-950 md:p-8">
+      <div className="pointer-events-none absolute right-[-10rem] top-[-12rem] h-[34rem] w-[34rem] rounded-full bg-indigo-200/50 blur-3xl" />
+      <div className="pointer-events-none absolute bottom-[-16rem] left-[-10rem] h-[32rem] w-[32rem] rounded-full bg-violet-200/40 blur-3xl" />
+      <section className="relative mx-auto max-w-[1440px]">
+        <header className="rounded-3xl border border-slate-100 bg-white p-6 shadow-[0_4px_20px_-2px_rgba(79,70,229,0.10)]">
+          <div className="grid gap-5 md:grid-cols-[1fr_auto] md:items-end">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-indigo-600">
+                Enterprise light
+              </p>
+              <h1 className="mt-3 max-w-4xl text-5xl font-extrabold tracking-[-0.045em] md:text-7xl">
+                Morning operations
+              </h1>
+              <p className="mt-3 max-w-2xl text-base leading-7 text-slate-500">
+                A warm, structured command page for teams that need readable
+                ownership, queue status, and low-risk handoff controls.
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <button className="min-h-11 rounded-full border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700">
+                Go Home
+              </button>
+              <button className="min-h-11 rounded-full bg-gradient-to-r from-indigo-600 to-violet-600 px-4 text-sm font-semibold text-white shadow-[0_4px_14px_0_rgba(79,70,229,0.30)]">
+                New Voyage
+              </button>
+            </div>
+          </div>
+        </header>
+
+        <div className="mt-5 grid gap-5 lg:grid-cols-[1fr_360px]">
+          <section className="rounded-3xl border border-slate-100 bg-white p-6 shadow-[0_4px_20px_-2px_rgba(79,70,229,0.10)]">
+            <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 pb-5">
+              <div>
+                <p className="text-sm font-semibold text-slate-500">
+                  Current voyage
+                </p>
+                <h2 className="mt-2 text-4xl font-bold tracking-[-0.04em]">
+                  Current launch
+                </h2>
+              </div>
+              <button className="min-h-11 rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white">
+                Open active craft
+              </button>
+            </div>
+            <div className="divide-y divide-slate-200">
+              {workItems.map((item) => (
+                <button
+                  key={item.title}
+                  className="flex min-h-20 w-full items-center justify-between gap-4 py-4 text-left"
+                >
+                  <span>
+                    <span className="block text-base font-semibold">
+                      {item.title}
+                    </span>
+                    <span className="mt-1 block text-sm text-slate-500">
+                      {item.meta}
+                    </span>
+                  </span>
+                  <span className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-700">
+                    {item.status}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </section>
+
+          <aside className="grid content-start gap-5">
+            <section className="rounded-3xl border border-slate-100 bg-white p-5 shadow-[0_4px_20px_-2px_rgba(79,70,229,0.10)]">
+              <p className="text-sm font-semibold text-slate-500">Saved views</p>
+              <div className="mt-4 flex flex-wrap gap-2">
+                {savedFilters.map((filter, index) => (
+                  <button
+                    key={filter}
+                    className={`min-h-10 rounded-full px-3 text-xs font-semibold ${
+                      index === 0
+                        ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white'
+                        : 'border border-slate-200 bg-white text-slate-700'
+                    }`}
+                  >
+                    {filter}
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            <section className="rounded-3xl border border-slate-100 bg-white p-5 shadow-[0_4px_20px_-2px_rgba(79,70,229,0.10)]">
+              <p className="text-sm font-semibold text-slate-500">Workflow queue</p>
+              <div className="mt-4 divide-y divide-slate-200">
+                {workflowRows.map(([name, status]) => (
+                  <div key={name} className="flex justify-between gap-4 py-3">
+                    <span className="text-sm font-medium">{name}</span>
+                    <span className="text-sm text-slate-500">{status}</span>
+                  </div>
+                ))}
+              </div>
+            </section>
+          </aside>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function EnterpriseLightCommandConcept() {
+  return (
+    <main className="relative h-[100dvh] overflow-y-auto overflow-x-hidden bg-gradient-to-br from-slate-50 via-white to-indigo-50 p-4 text-slate-950 md:p-8">
+      <section className="relative mx-auto max-w-[1440px]">
+        <header className="grid gap-5 md:grid-cols-[minmax(0,0.9fr)_minmax(420px,0.6fr)] md:items-center">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.16em] text-indigo-600">
+              Command review
+            </p>
+            <h1 className="mt-3 max-w-4xl text-5xl font-extrabold tracking-[-0.045em] md:text-7xl">
+              Workday launchpad
+            </h1>
+            <p className="mt-4 max-w-2xl text-base leading-7 text-slate-500">
+              A brighter operating page for people who trust saved views more
+              than sidebars.
+            </p>
+            <div className="mt-6 flex flex-wrap gap-2">
+              <button className="min-h-11 rounded-full bg-gradient-to-r from-indigo-600 to-violet-600 px-5 text-sm font-semibold text-white shadow-[0_4px_14px_0_rgba(79,70,229,0.30)]">
+                Open active craft
+              </button>
+              <button className="min-h-11 rounded-full border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-700">
+                Go Home
+              </button>
+            </div>
+          </div>
+
+          <aside
+            className="rounded-3xl border border-slate-100 bg-white p-6 shadow-[0_18px_50px_-16px_rgba(79,70,229,0.30)]"
+            style={{ transform: 'perspective(1800px) rotateY(-5deg)' }}
+          >
+            <p className="text-sm font-semibold text-slate-500">Active voyage</p>
+            <h2 className="mt-3 text-4xl font-bold tracking-[-0.04em]">
+              Current launch
+            </h2>
+            <div className="mt-6 grid grid-cols-3 gap-4 border-t border-slate-200 pt-5">
+              {[
+                ['3', 'Needs'],
+                ['2', 'Servers'],
+                ['5', 'Views'],
+              ].map(([value, label]) => (
+                <div key={label}>
+                  <p className="font-mono text-3xl font-semibold text-indigo-700">
+                    {value}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">{label}</p>
+                </div>
+              ))}
+            </div>
+          </aside>
+        </header>
+
+        <div className="mt-8 grid gap-5 lg:grid-cols-[320px_minmax(0,1fr)]">
+          <aside className="rounded-3xl border border-slate-100 bg-white p-5 shadow-[0_4px_20px_-2px_rgba(79,70,229,0.10)]">
+            <p className="text-sm font-semibold text-slate-500">Voyages</p>
+            <div className="mt-4 divide-y divide-slate-200">
+              {['Current launch', 'Design review', 'Clean browser session'].map(
+                (voyage, index) => (
+                  <button
+                    key={voyage}
+                    className={`flex min-h-14 w-full items-center justify-between py-3 text-left text-sm ${
+                      index === 0 ? 'font-semibold text-indigo-700' : 'text-slate-600'
+                    }`}
+                  >
+                    {voyage}
+                    <span>{index === 0 ? 'active' : 'open'}</span>
+                  </button>
+                ),
+              )}
+            </div>
+          </aside>
+
+          <section className="rounded-3xl border border-slate-100 bg-white p-5 shadow-[0_4px_20px_-2px_rgba(79,70,229,0.10)]">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm font-semibold text-slate-500">Kanban lane</p>
+              <button className="min-h-10 rounded-full border border-slate-200 px-3 text-xs font-semibold text-slate-700">
+                New Voyage
+              </button>
+            </div>
+            <div className="mt-4 grid gap-4 md:grid-cols-3">
+              {[
+                ['Now', 'Auth bug fix', 'Waiting for approval'],
+                ['Next', 'Kanban polish', 'Open craft'],
+                ['Later', 'Skin tokens', 'Saved filter'],
+              ].map(([column, title, detail]) => (
+                <article key={column} className="border-t border-slate-200 pt-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-indigo-600">
+                    {column}
+                  </p>
+                  <h3 className="mt-4 text-xl font-bold">{title}</h3>
+                  <p className="mt-2 text-sm text-slate-500">{detail}</p>
+                </article>
+              ))}
+            </div>
+          </section>
+        </div>
       </section>
     </main>
   );
