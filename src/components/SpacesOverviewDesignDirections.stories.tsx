@@ -236,6 +236,33 @@ export const MobileQueueSheet: Story = {
   render: () => <MobileQueueSheetConcept />,
 };
 
+export const MobileThumbDock: Story = {
+  parameters: {
+    controls: {
+      disable: true,
+    },
+  },
+  render: () => <MobileThumbDockConcept />,
+};
+
+export const MobileDrilldownSheet: Story = {
+  parameters: {
+    controls: {
+      disable: true,
+    },
+  },
+  render: () => <MobileDrilldownSheetConcept />,
+};
+
+export const MobileSavedViews: Story = {
+  parameters: {
+    controls: {
+      disable: true,
+    },
+  },
+  render: () => <MobileSavedViewsConcept />,
+};
+
 function DashboardConcept({
   direction,
   colorScheme = 'direction',
@@ -825,6 +852,225 @@ function MobileQueueSheetConcept() {
             New Voyage
           </button>
         </div>
+      </section>
+    </main>
+  );
+}
+
+function MobileThumbDockConcept() {
+  return (
+    <main className="h-[100dvh] overflow-y-auto overflow-x-hidden bg-[#0b1020] text-zinc-100">
+      <section className="mx-auto min-h-[100dvh] max-w-[430px] px-4 pb-[calc(5.75rem+env(safe-area-inset-bottom))] pt-[calc(1rem+env(safe-area-inset-top))]">
+        <header className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold text-cyan-300">Dock</p>
+            <h1 className="mt-1 text-3xl font-semibold tracking-[-0.045em]">
+              Start point
+            </h1>
+          </div>
+          <button className="min-h-11 rounded-xl border border-white/15 px-4 text-sm text-zinc-100">
+            Go Home
+          </button>
+        </header>
+
+        <section className="mt-5 border-y border-white/10 py-5">
+          <p className="text-sm text-zinc-500">Current launch</p>
+          <h2 className="mt-3 text-4xl font-semibold tracking-[-0.05em]">
+            Open craft
+          </h2>
+          <div className="mt-5 flex items-center justify-between gap-4">
+            <span className="text-sm text-zinc-500">Auth bug fix</span>
+            <span className="rounded-full bg-amber-300 px-3 py-1 text-xs font-semibold text-zinc-950">
+              approval
+            </span>
+          </div>
+        </section>
+
+        <section className="mt-5">
+          <div className="grid grid-cols-3 gap-4">
+            {[
+              ['3', 'Needs'],
+              ['2', 'Servers'],
+              ['1', 'Blocked'],
+            ].map(([value, label]) => (
+              <div key={label} className="border-t border-white/10 pt-3">
+                <p className="font-mono text-3xl font-semibold">{value}</p>
+                <p className="mt-1 text-xs text-zinc-500">{label}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="mt-6">
+          <div className="flex items-center justify-between text-xs text-zinc-500">
+            <span>Thumb actions</span>
+            <span>ready</span>
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            {['Review diff', 'Open craft', 'Carry over', 'Stop server'].map(
+              (action) => (
+                <button
+                  key={action}
+                  className="min-h-14 rounded-xl border border-white/10 bg-white/[0.035] px-3 text-sm text-zinc-100"
+                >
+                  {action}
+                </button>
+              ),
+            )}
+          </div>
+        </section>
+
+        <nav className="fixed inset-x-0 bottom-0 border-t border-white/10 bg-[#0b1020]/95 px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur">
+          <div className="mx-auto grid max-w-[430px] grid-cols-4 gap-2">
+            {['Home', 'Views', 'Queue', 'New'].map((item, index) => (
+              <button
+                key={item}
+                className={`min-h-12 rounded-xl text-xs font-semibold ${
+                  index === 0
+                    ? 'bg-cyan-300 text-slate-950'
+                    : 'border border-white/10 text-zinc-300'
+                }`}
+              >
+                {item}
+              </button>
+            ))}
+          </div>
+        </nav>
+      </section>
+    </main>
+  );
+}
+
+function MobileDrilldownSheetConcept() {
+  return (
+    <main className="h-[100dvh] overflow-y-auto overflow-x-hidden bg-[#f7f3ec] text-stone-950">
+      <section className="mx-auto flex min-h-[100dvh] max-w-[430px] flex-col px-4 pb-5 pt-[calc(1rem+env(safe-area-inset-top))]">
+        <header className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold text-stone-500">Review</p>
+            <h1 className="mt-1 text-3xl font-semibold tracking-[-0.045em]">
+              Drilldown
+            </h1>
+          </div>
+          <button className="min-h-11 rounded-xl bg-stone-950 px-4 text-sm font-semibold text-white">
+            New Voyage
+          </button>
+        </header>
+
+        <section className="mt-5 flex-1 rounded-[1.75rem] bg-white p-5 shadow-[0_18px_60px_rgb(68_64_60_/_0.10)]">
+          <div className="flex items-center justify-between border-b border-stone-200 pb-4">
+            <div>
+              <p className="text-sm text-stone-500">Selected</p>
+              <h2 className="mt-1 text-3xl font-semibold tracking-[-0.04em]">
+                Kanban polish
+              </h2>
+            </div>
+            <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-800">
+              review
+            </span>
+          </div>
+
+          <div className="divide-y divide-stone-200">
+            {[
+              ['Branch', 'vk/story-auth-bug'],
+              ['Filter', 'Mine in review'],
+              ['Workflow', 'Design review'],
+            ].map(([label, value]) => (
+              <button
+                key={label}
+                className="flex min-h-16 w-full items-center justify-between gap-4 py-3 text-left"
+              >
+                <span className="text-sm text-stone-500">{label}</span>
+                <span className="text-right text-base font-medium">{value}</span>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <section className="mt-4 rounded-[1.5rem] border border-stone-300 bg-stone-950 p-4 text-white">
+          <div className="flex items-center justify-between text-xs text-stone-400">
+            <span>Next step</span>
+            <span>1 min</span>
+          </div>
+          <button className="mt-3 min-h-12 w-full rounded-xl bg-white text-sm font-semibold text-stone-950">
+            Open selected craft
+          </button>
+        </section>
+
+        <button className="mt-3 min-h-12 w-full rounded-xl border border-stone-300 bg-white text-sm font-semibold text-stone-800">
+          Go Home
+        </button>
+      </section>
+    </main>
+  );
+}
+
+function MobileSavedViewsConcept() {
+  return (
+    <main className="h-[100dvh] overflow-y-auto overflow-x-hidden bg-[#111315] text-zinc-100">
+      <section className="mx-auto min-h-[100dvh] max-w-[430px] px-4 pb-7 pt-[calc(1rem+env(safe-area-inset-top))]">
+        <header className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold text-lime-300">Views</p>
+            <h1 className="mt-1 text-3xl font-semibold tracking-[-0.045em]">
+              Saved stack
+            </h1>
+          </div>
+          <button className="min-h-11 rounded-xl border border-zinc-700 px-4 text-sm text-zinc-100">
+            Go Home
+          </button>
+        </header>
+
+        <nav className="mt-5 flex gap-2 overflow-x-auto pb-1">
+          {savedFilters.map((filter, index) => (
+            <button
+              key={filter}
+              className={`min-h-11 shrink-0 rounded-xl px-4 text-sm ${
+                index === 0
+                  ? 'bg-lime-300 font-semibold text-zinc-950'
+                  : 'border border-zinc-700 text-zinc-300'
+              }`}
+            >
+              {filter}
+            </button>
+          ))}
+        </nav>
+
+        <section className="mt-5 rounded-[1.75rem] border border-lime-300/20 bg-lime-300/[0.06] p-5">
+          <p className="text-sm text-lime-200">Mine with approvals</p>
+          <h2 className="mt-3 text-3xl font-semibold tracking-[-0.04em]">
+            3 waiting
+          </h2>
+          <button className="mt-5 min-h-12 w-full rounded-xl bg-lime-300 text-sm font-semibold text-zinc-950">
+            Open filter
+          </button>
+        </section>
+
+        <section className="mt-5">
+          <div className="flex items-center justify-between text-xs text-zinc-500">
+            <span>Matching work</span>
+            <span>latest first</span>
+          </div>
+          <div className="mt-3 divide-y divide-zinc-800 border-y border-zinc-800">
+            {[
+              ['Auth bug fix', 'approval'],
+              ['Docs refresh', 'resume'],
+              ['Human approval workflow', 'blocked'],
+            ].map(([title, state]) => (
+              <button
+                key={title}
+                className="flex min-h-16 w-full items-center justify-between gap-4 py-3 text-left"
+              >
+                <span className="text-base font-medium">{title}</span>
+                <span className="text-sm text-lime-300">{state}</span>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <button className="mt-5 min-h-12 w-full rounded-xl bg-white text-sm font-semibold text-zinc-950">
+          New Voyage
+        </button>
       </section>
     </main>
   );
