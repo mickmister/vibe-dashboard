@@ -2,14 +2,6 @@ name: Publish VK/VD Image to GHCR
 
 on:
   push:
-    branches:
-      - main
-  pull_request:
-    types:
-      - opened
-      - synchronize
-      - reopened
-      - labeled
   repository_dispatch:
     types:
       - vk-release-assets-ready
@@ -52,6 +44,8 @@ jobs:
       vk_commit: ${{ steps.resolve.outputs.vk_commit }}
       vk_short_commit: ${{ steps.resolve.outputs.vk_short_commit }}
       vk_repo_url: ${{ steps.resolve.outputs.vk_repo_url }}
+      vd_ref: ${{ steps.resolve.outputs.vd_ref }}
+      vd_commit: ${{ steps.resolve.outputs.vd_commit }}
       vd_short_commit: ${{ steps.resolve.outputs.vd_short_commit }}
       publish_latest: ${{ steps.resolve.outputs.publish_latest }}
     steps:
@@ -108,6 +102,8 @@ jobs:
       output: image
       push: true
       context: .
+      source-ref: ${{ needs.resolve-vk-ref.outputs.vd_ref }}
+      source-checksum: ${{ needs.resolve-vk-ref.outputs.vd_commit }}
       file: ./Dockerfile.vkvd
       platforms: linux/amd64,linux/arm64
       build-args: |

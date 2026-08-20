@@ -136,7 +136,15 @@ output="$(run_resolver \
   REPOSITORY_DISPATCH_VK_SOURCE_REF_NAME=feature/sync)"
 assert_equals "feature/sync" "$(read_output "$output" vd_branch)" "dispatch selects same-named VD branch"
 assert_equals "$vd_feature_sha" "$(read_output "$output" vd_commit)" "dispatch resolves same-named VD commit"
+assert_equals "matching_vk_source_branch" "$(read_output "$output" vd_resolution_source)" "dispatch records same-named VD branch resolution source"
 assert_equals "$vk_feature_sha" "$(read_output "$output" vk_commit)" "dispatch preserves VK asset SHA"
+
+output="$(run_resolver \
+  GITHUB_EVENT_NAME=repository_dispatch \
+  REPOSITORY_DISPATCH_VK_REF="$vk_feature_sha" \
+  REPOSITORY_DISPATCH_VK_SOURCE_REF_NAME=feature/sync)"
+assert_equals "feature/sync" "$(read_output "$output" vd_branch)" "dispatch selects same-named VD branch from source ref name"
+assert_equals "$vd_feature_sha" "$(read_output "$output" vd_commit)" "dispatch resolves same-named VD commit from source ref name"
 
 output="$(run_resolver \
   GITHUB_EVENT_NAME=repository_dispatch \
@@ -145,6 +153,7 @@ output="$(run_resolver \
   REPOSITORY_DISPATCH_VK_SOURCE_REF_NAME=feature/vk-only)"
 assert_equals "main" "$(read_output "$output" vd_branch)" "dispatch falls back to VD main when matching branch is absent"
 assert_equals "$vd_main_sha" "$(read_output "$output" vd_commit)" "dispatch fallback resolves VD main commit"
+assert_equals "fallback_default_branch" "$(read_output "$output" vd_resolution_source)" "dispatch records VD fallback resolution source"
 
 output="$(run_resolver \
   GITHUB_EVENT_NAME=repository_dispatch \
