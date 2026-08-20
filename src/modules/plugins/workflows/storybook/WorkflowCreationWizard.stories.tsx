@@ -14,7 +14,7 @@ const meta: Meta<typeof WorkflowCreationWizardView> = {
     (Story) => (
       <WorkflowStoryFrame
         title="Workflow creation wizard"
-        description="Storybook-only fixtures for wizard-first creation, template duplication, blank workflow preview, and product error states."
+        description="Storybook-only fixtures for wizard-first creation, starter duplication, true blank draft creation, and product error states."
       >
         <Story />
       </WorkflowStoryFrame>
@@ -25,7 +25,7 @@ const meta: Meta<typeof WorkflowCreationWizardView> = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const BlankSimpleWorkflow: Story = {
+export const TrueBlankWorkflowDraft: Story = {
   args: {
     workspaceId: home.workspaceId ?? 'workspace-storybook',
     userWorkflows: home.userWorkflows,
@@ -33,8 +33,8 @@ export const BlankSimpleWorkflow: Story = {
     initialDraft: {
       sourceMode: 'blank',
       sourceId: null,
-      name: 'Storybook simple workflow',
-      purpose: 'Create a minimal agent workflow from the browser wizard.',
+      name: 'Storybook blank workflow',
+      purpose: 'Start with an empty draft and add roles, states, and actions in the editor.',
       inputId: 'featureRequest',
       roleId: 'agent',
       roleLabel: 'Agent',

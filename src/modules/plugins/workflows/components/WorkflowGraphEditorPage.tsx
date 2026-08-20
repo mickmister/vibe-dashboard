@@ -300,7 +300,8 @@ export function WorkflowGraphEditorView({
       }),
     [graph.edges, selectedEdgeId, graph.nodes, graphFocus.edges, graphFocus.nodes],
   );
-  const canSave = Boolean(editor?.draftId) && issues.length === 0;
+  const canSaveDraft = Boolean(editor?.draftId);
+  const canPublish = canSaveDraft && issues.length === 0;
 
   useEffect(() => {
     setFlowNodes(layoutedNodes);
@@ -510,14 +511,14 @@ export function WorkflowGraphEditorView({
             </button>
             <button
               className="rounded-md border border-zinc-700 px-3 py-2 text-sm disabled:opacity-50"
-              disabled={!canSave}
+              disabled={!canSaveDraft}
               onClick={onSave}
             >
               Save draft
             </button>
             <button
               className="rounded-md bg-cyan-500 px-3 py-2 text-sm font-medium text-zinc-950 disabled:opacity-50"
-              disabled={!canSave || publishing}
+              disabled={!canPublish || publishing}
               onClick={onPublish}
             >
               {publishing ? "Publishing…" : "Publish"}

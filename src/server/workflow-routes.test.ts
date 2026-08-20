@@ -1303,7 +1303,7 @@ describe("registerWorkflowRoutes", () => {
     });
   });
 
-  it("TEST_CASE_M107_1B/C/E creates, duplicates, and publishes wizard workflow designs", async () => {
+  it("TEST_CASE_NQGV_1A-E creates empty drafts, duplicates designs, and blocks invalid publish", async () => {
     const handle = await initVdDb({ path: ":memory:" });
     dbHandles.push(handle);
     const app = new Hono();
@@ -1328,7 +1328,15 @@ describe("registerWorkflowRoutes", () => {
         name: "Wizard Blank",
         description: "Created in wizard",
         publish: false,
-        definition: routeLaunchDefinition(),
+        definition: {
+          schemaVersion: 1,
+          name: "Wizard Blank",
+          description: "Created in wizard",
+          inputs: {},
+          roles: {},
+          initialState: "",
+          states: {},
+        },
       }),
     });
     expect(blank.status).toBe(201);
@@ -1342,7 +1350,21 @@ describe("registerWorkflowRoutes", () => {
       design: { name: "Wizard Blank", latestPublishedVersion: null },
       draft: { designId: blankPayload.design.designId },
       version: null,
-      editor: { validationStatus: "valid" },
+      editor: { validationStatus: "invalid", validationIssues: expect.arrayContaining([expect.objectContaining({ path: "initialState" })]) },
+    });
+    expect(blankPayload.editor.definition).toMatchObject({
+      inputs: {},
+      roles: {},
+      states: {},
+    });
+    const publishBlank = await app.request(
+      `/dashboard/api/workflow-design-drafts/${encodeURIComponent(blankPayload.draft.draftId)}/publish`,
+      { method: "POST" },
+    );
+    expect(publishBlank.status).toBe(400);
+    await expect(publishBlank.json()).resolves.toMatchObject({
+      error: "workflow_publish_failed",
+      issues: expect.arrayContaining([expect.objectContaining({ path: "initialState" })]),
     });
 
     const duplicate = await app.request("/dashboard/api/workflow-designs", {

@@ -7,11 +7,12 @@ import type { WorkspaceWorkflowSummary } from '../client/workflowsHomeApi';
 const forbiddenTerms = ['webhook', 'HMAC', 'queue item', 'trigger', 'delivery ID', 'execution process ID', 'runReady', 'raw JSON', 'raw XML', 'fire-and-forget', 'terminal handoff'];
 
 describe('WorkflowCreationWizardView', () => {
-  it('TEST_CASE_M107_1A-F renders wizard-first creation with lifecycle and graph preview', () => {
+  it('TEST_CASE_NQGV_1A renders creation entry points with true blank draft copy', () => {
     const html = renderToStaticMarkup(React.createElement(WorkflowCreationWizardView, { workspaceId: 'workspace-a', userWorkflows: [workflow('design-drt', 'Dev Review Tester')], starterTemplates: [workflow('built-in/dev-review-tester', 'Dev / Review / Tester')] }));
     expect(html).toContain('Create workflow');
     expect(html).toContain('Choose a starting point');
-    expect(html).toContain('Blank simple workflow');
+    expect(html).toContain('Blank workflow draft');
+    expect(html).toContain('Start truly empty: no roles, states, or actions yet.');
     expect(html).toContain('Starter template');
     expect(html).toContain('Duplicate existing');
     expect(html).toContain('Name and purpose');
@@ -25,8 +26,11 @@ describe('WorkflowCreationWizardView', () => {
     expect(html).toContain('Review graph');
     expect(html).toContain('Save draft');
     expect(html).toContain('Save &amp; publish');
-    expect(html).toContain('Drafts are editable but not runnable');
+    expect(html).toContain('Blank drafts must be completed in the editor before publishing.');
+    expect(html).toContain('Drafts may be incomplete while editing');
+    expect(html).toContain('Publish is blocked until validation passes');
     expect(html).toContain('Graph editor remains available');
+    expect(html).toContain('0 states · 0 actions');
     for (const term of forbiddenTerms) expect(html).not.toContain(term);
   });
 

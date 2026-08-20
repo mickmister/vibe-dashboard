@@ -234,6 +234,49 @@ import { workflowDefinitionToGraph } from "./graph/workflowGraphModel";
 import type { AgentWorkflowDefinitionV1 } from "@vibe-dashboard/workflow-core";
 
 describe("WorkflowGraphEditorView prompt and skill picker", () => {
+  it("TEST_CASE_NQGV_1C renders true empty invalid drafts without crashing and allows save", () => {
+    const definition = {
+      schemaVersion: 1,
+      name: "Blank workflow",
+      description: "Empty draft",
+      inputs: {},
+      roles: {},
+      initialState: "",
+      states: {},
+    } as AgentWorkflowDefinitionV1;
+    const html = renderToStaticMarkup(
+      React.createElement(WorkflowGraphEditorView, {
+        editor: {
+          designId: "design-blank",
+          name: "Blank workflow",
+          description: "Empty draft",
+          draftId: "draft-blank",
+          version: null,
+          readonly: false,
+          definition,
+          validationStatus: "invalid",
+          validationIssues: [],
+        },
+        definition,
+        assets: { prompts: [], skills: [] },
+        onDefinitionChange: () => {},
+        onSave: () => {},
+        onPublish: () => {},
+      }),
+    );
+
+    expect(html).toContain("Workflow details");
+    expect(html).toContain("Roles");
+    expect(html).toContain("+ Add Role");
+    expect(html).toContain("Context graph");
+    expect(html).toContain("Save draft");
+    expect(html).toContain("Publish");
+    expect(html).toContain("disabled=\"\"");
+    expect(html).not.toContain("Cannot read");
+    expect(html).not.toContain("raw JSON");
+    expect(html).not.toContain("queue item");
+  });
+
   it("TEST_CASE_M108_1A-E renders picker assets, selected refs, missing refs, and view-only JSON diagnostics", () => {
     const html = renderToStaticMarkup(
       React.createElement(WorkflowGraphEditorView, {

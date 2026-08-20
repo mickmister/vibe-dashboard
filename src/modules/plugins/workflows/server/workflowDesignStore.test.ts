@@ -202,6 +202,58 @@ describe('DbWorkflowDesignStore M91 foundation', () => {
     expect(draft?.validationIssues.map((issue) => issue.path)).toContain('initialState');
   });
 
+  it('TEST_CASE_NQGV_1B duplicates design definitions without copying runs or library assets', async () => {
+    const { store } = await createStore();
+    await seedPromptAssets(store);
+    const sourceDefinition = workflowDefinition('duplicate-source');
+    (sourceDefinition.roles.dev as any).templateRef = { templateId: 'role.dev.implementer', version: 1 };
+    await store.createDesign({
+      designId: 'design.duplicate-source',
+      draftId: 'draft.duplicate-source',
+      name: 'Duplicate source',
+      definition: sourceDefinition,
+    });
+
+    const beforePrompts = await store.listPromptAssets();
+    const beforeSkills = await store.listSkillAssets();
+    const copied = await store.duplicateDesign({
+      sourceDesignId: 'design.duplicate-source',
+      designId: 'design.duplicate-copy',
+      draftId: 'draft.duplicate-copy',
+      name: 'Duplicate copy',
+    });
+
+    expect(copied.design).toMatchObject({
+      designId: 'design.duplicate-copy',
+      name: 'Duplicate copy',
+      latestPublishedVersion: null,
+    });
+    expect(copied.draft.definition).toMatchObject({
+      roles: {
+        dev: expect.objectContaining({
+          templateRef: { templateId: 'role.dev.implementer', version: 1 },
+        }),
+      },
+      states: {
+        dev: expect.objectContaining({
+          steps: [
+            expect.objectContaining({
+              prompt: expect.objectContaining({
+                refs: [
+                  { kind: 'prompt', id: 'prompt.dev.instructions', version: 1 },
+                  { kind: 'skill', id: 'skill.testing.notes', version: 1 },
+                ],
+              }),
+            }),
+          ],
+        }),
+      },
+    });
+    await expect(store.listPromptAssets()).resolves.toHaveLength(beforePrompts.length);
+    await expect(store.listSkillAssets()).resolves.toHaveLength(beforeSkills.length);
+    await expect(store.getRunSnapshot('design.duplicate-copy')).resolves.toBeNull();
+  });
+
   it('TEST_CASE_S7OW_1B rejects XML-unsafe response identifiers at publish', async () => {
     const { store } = await createStore();
     const definition = workflowDefinition('xml-unsafe');

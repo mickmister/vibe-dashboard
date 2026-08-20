@@ -604,7 +604,7 @@ test.describe("Workspace Workflows tab shell", () => {
     }
   });
 
-  test("creates and publishes a simple workflow through the wizard", async ({
+  test("creates a true empty blank workflow draft through the wizard", async ({
     page,
   }) => {
     await page.route("**/dashboard/api/workflows/home?**", async (route) => {
@@ -618,9 +618,14 @@ test.describe("Workspace Workflows tab shell", () => {
       expect(body).toMatchObject({
         workspaceId: "workspace-e2e",
         name: "Wizard Smoke Workflow",
-        publish: true,
+        publish: false,
       });
-      expect(body.definition.states.work.steps[0].type).toBe("agent_turn");
+      expect(body.definition).toMatchObject({
+        inputs: {},
+        roles: {},
+        initialState: "",
+        states: {},
+      });
       expect(JSON.stringify(body.definition)).not.toContain("fire_and_forget");
       await route.fulfill({
         contentType: "application/json",
@@ -629,23 +634,29 @@ test.describe("Workspace Workflows tab shell", () => {
           design: {
             designId: "design-wizard-smoke",
             name: "Wizard Smoke Workflow",
-            latestPublishedVersion: 1,
+            latestPublishedVersion: null,
           },
           draft: {
             draftId: "draft-wizard-smoke",
             designId: "design-wizard-smoke",
           },
-          version: { designId: "design-wizard-smoke", version: 1 },
+          version: null,
           editor: {
             designId: "design-wizard-smoke",
             name: "Wizard Smoke Workflow",
             description: null,
             draftId: "draft-wizard-smoke",
-            version: 1,
+            version: null,
             readonly: false,
             definition: body.definition,
-            validationStatus: "valid",
-            validationIssues: [],
+            validationStatus: "invalid",
+            validationIssues: [
+              {
+                code: "WORKFLOW_CONFIG_INVALID_STATE",
+                path: "initialState",
+                message: "Add an initial state before publishing.",
+              },
+            ],
           },
         }),
       });
@@ -658,24 +669,23 @@ test.describe("Workspace Workflows tab shell", () => {
     await expect(
       page.getByRole("heading", { name: "Create workflow" }),
     ).toBeVisible();
-    await expect(page.getByText("Blank simple workflow")).toBeVisible();
+    await expect(page.getByText("Blank workflow draft")).toBeVisible();
+    await expect(
+      page.getByText("Start truly empty: no roles, states, or actions yet."),
+    ).toBeVisible();
     await expect(page.getByText("Review graph")).toBeVisible();
     await page.getByLabel("Workflow name").fill("Wizard Smoke Workflow");
     await page
       .getByLabel("Purpose")
-      .fill("Create a simple workflow through the wizard.");
+      .fill("Create a blank draft through the wizard.");
     const graphPreview = page
       .locator("aside")
       .filter({ hasText: "Review graph" });
-    await expect(
-      graphPreview.getByText("work → done: Done", { exact: true }),
-    ).toBeVisible();
-    await expect(
-      graphPreview.getByText("work → work: Continue working", { exact: true }),
-    ).toBeVisible();
-    await page.getByRole("button", { name: "Save & publish" }).click();
+    await expect(graphPreview.getByText("0 states · 0 actions")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Save & publish" })).toBeDisabled();
+    await page.getByRole("button", { name: "Save draft" }).click();
     await expect(page.getByLabel("Wizard result")).toContainText(
-      "Published v1",
+      "Saved as draft",
     );
     await expect(
       page.locator(
@@ -683,11 +693,7 @@ test.describe("Workspace Workflows tab shell", () => {
         { hasText: "Open graph editor" },
       ),
     ).toBeVisible();
-    await expect(
-      page.locator('a[href="/dashboard/workflows?workspaceId=workspace-e2e"]', {
-        hasText: "Run from Workflows tab",
-      }),
-    ).toBeVisible();
+    await expect(page.getByText("Published v1")).toHaveCount(0);
     for (const term of forbiddenTerms) {
       await expect(page.getByText(term, { exact: false })).toHaveCount(0);
     }

@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router';
 import { StandaloneDashboardPage } from '../../../../components/StandaloneDashboardPage';
 import { fetchWorkspaceWorkflowsHome, useWorkflowTemplate, type WorkspaceWorkflowSummary } from '../client/workflowsHomeApi';
 import { createWorkflowDesign } from '../client/workflowDesignEditorApi';
-import { buildSimpleWorkflowDefinition, buildWizardGraphPreview, type WorkflowWizardDraft } from './workflowWizardModel';
+import { buildBlankWorkflowDefinition, buildWizardGraphPreview, type WorkflowWizardDraft } from './workflowWizardModel';
 
 const initialDraft: WorkflowWizardDraft = {
   sourceMode: 'blank',
@@ -39,6 +39,7 @@ export function WorkflowCreationWizardView({ workspaceId, userWorkflows, starter
   const selectedStarter = starterTemplates.find((item) => item.id === draft.sourceId);
   const selectedExisting = userWorkflows.find((item) => item.id === draft.sourceId);
   const selectedSource = selectedStarter ?? selectedExisting;
+  const canPublishFromWizard = draft.sourceMode !== 'blank';
 
   const update = <K extends keyof WorkflowWizardDraft>(key: K, value: WorkflowWizardDraft[K]) => setDraft((current) => ({ ...current, [key]: value }));
   const selectSource = (mode: WorkflowWizardDraft['sourceMode'], sourceId: string | null) => {
@@ -54,7 +55,7 @@ export function WorkflowCreationWizardView({ workspaceId, userWorkflows, starter
         const used = await useWorkflowTemplate({ templateId: draft.sourceId, workspaceId, name: draft.name, publish });
         setResult({ designId: used.design.designId, draftId: used.draft?.draftId ?? null, version: used.version?.version ?? null });
       } else {
-        const created = await createWorkflowDesign({ workspaceId, name: draft.name, description: draft.purpose, sourceDesignId: draft.sourceMode === 'duplicate' ? draft.sourceId : null, definition: draft.sourceMode === 'blank' ? buildSimpleWorkflowDefinition(draft) : undefined, publish });
+        const created = await createWorkflowDesign({ workspaceId, name: draft.name, description: draft.purpose, sourceDesignId: draft.sourceMode === 'duplicate' ? draft.sourceId : null, definition: draft.sourceMode === 'blank' ? buildBlankWorkflowDefinition(draft) : undefined, publish });
         setResult({ designId: created.design.designId, draftId: created.draft?.draftId ?? null, version: created.version?.version ?? null });
       }
     } catch (caught) {
@@ -78,7 +79,7 @@ export function WorkflowCreationWizardView({ workspaceId, userWorkflows, starter
         <div className="space-y-4">
           <WizardStep number="1" title="Choose a starting point">
             <div className="grid gap-3 md:grid-cols-3">
-              <SourceButton active={draft.sourceMode === 'blank'} title="Blank simple workflow" description="One agent decision state with a completion loop." onClick={() => selectSource('blank', null)} />
+              <SourceButton active={draft.sourceMode === 'blank'} title="Blank workflow draft" description="Start truly empty: no roles, states, or actions yet." onClick={() => selectSource('blank', null)} />
               <SourceSelect label="Starter template" value={draft.sourceMode === 'starter' ? draft.sourceId ?? '' : ''} options={starterTemplates} onChange={(value) => selectSource('starter', value)} />
               <SourceSelect label="Duplicate existing" value={draft.sourceMode === 'duplicate' ? draft.sourceId ?? '' : ''} options={userWorkflows} onChange={(value) => selectSource('duplicate', value)} />
             </div>
@@ -92,8 +93,8 @@ export function WorkflowCreationWizardView({ workspaceId, userWorkflows, starter
           </WizardStep>
 
           <WizardStep number="3" title="Inputs">
-            <TextInput label="Required input id" value={draft.inputId} onChange={(value) => update('inputId', value)} disabled={draft.sourceMode !== 'blank'} />
-            <p className="mt-2 text-xs text-zinc-500">Blank workflows start with one required markdown input. Template inputs can be edited later in the graph editor.</p>
+            <TextInput label="Suggested first input id" value={draft.inputId} onChange={(value) => update('inputId', value)} disabled={draft.sourceMode !== 'blank'} />
+            <p className="mt-2 text-xs text-zinc-500">Blank drafts start empty. Add inputs later in the graph editor before publishing. Template inputs can be edited after creating a draft copy.</p>
           </WizardStep>
 
           <WizardStep number="4" title="Roles">
@@ -107,12 +108,12 @@ export function WorkflowCreationWizardView({ workspaceId, userWorkflows, starter
           </WizardStep>
 
           <WizardStep number="6" title="Decisions and loops">
-            <p className="text-sm text-zinc-300">Blank workflows include two actions: <strong>Done</strong> to finish and <strong>Continue working</strong> to loop back to the same state. Template decisions can be adjusted in the graph editor.</p>
+            <p className="text-sm text-zinc-300">Blank drafts start without actions or transitions. Add decisions and loops in the graph editor. Template decisions can be adjusted after creating an editable draft copy.</p>
           </WizardStep>
 
           <WizardStep number="8" title="Save lifecycle">
-            <div className="flex flex-wrap gap-3"><button className="rounded-md border border-zinc-700 px-3 py-2 text-sm hover:bg-zinc-800 disabled:opacity-60" disabled={submitting || !draft.name.trim()} onClick={() => void save(false)}>Save draft</button><button className="rounded-md bg-cyan-500 px-3 py-2 text-sm font-medium text-zinc-950 disabled:opacity-60" disabled={submitting || !draft.name.trim()} onClick={() => void save(true)}>Save & publish</button></div>
-            <p className="mt-2 text-xs text-zinc-500">Drafts are editable but not runnable. Published versions are immutable and runnable from the Workflows tab.</p>
+            <div className="flex flex-wrap gap-3"><button className="rounded-md border border-zinc-700 px-3 py-2 text-sm hover:bg-zinc-800 disabled:opacity-60" disabled={submitting || !draft.name.trim()} onClick={() => void save(false)}>Save draft</button><button className="rounded-md bg-cyan-500 px-3 py-2 text-sm font-medium text-zinc-950 disabled:opacity-60" disabled={submitting || !draft.name.trim() || !canPublishFromWizard} title={canPublishFromWizard ? undefined : 'Blank drafts must be completed in the editor before publishing.'} onClick={() => void save(true)}>Save & publish</button></div>
+            <p className="mt-2 text-xs text-zinc-500">Drafts may be incomplete while editing, but they are not runnable. Publish is blocked until validation passes. Published versions are immutable and runnable from the Workflows tab.</p>
           </WizardStep>
         </div>
 
