@@ -3,19 +3,27 @@ import type { Hono } from 'hono';
 import type { Kysely } from 'kysely';
 import type { DB } from '../../../../../store/kysely_types';
 import { isValidVdWorkspaceId } from '../../../../../lib/vdWorkspaceLinks';
+import { VibeKanbanServerClient } from '../../../../../server/vk-client';
 import { fetchBeadsBoardView, type FetchBeadsBoardOptions } from './beadsAdapter';
 import { getBeadWorkspaceLinksForBeads, upsertBeadWorkspaceLink } from './beadWorkspaceLinks';
+import type { ExternalKanbanRelatedWorkspaceDto } from '../../boardTypes';
 
 export type FetchBeadsBoardView = typeof fetchBeadsBoardView;
+
+export interface BeadsWorkspaceResolver {
+  listActiveWorkspaceIds: () => Promise<Set<string>>;
+}
 
 export function registerBeadsBoardRoutes(
   hono: Hono,
   options: {
     db: Kysely<DB>;
     fetchBeadsBoardView?: FetchBeadsBoardView;
+    workspaceResolver?: BeadsWorkspaceResolver;
   },
 ): void {
   const fetchBoard = options.fetchBeadsBoardView ?? fetchBeadsBoardView;
+  const workspaceResolver = options.workspaceResolver ?? createVkWorkspaceResolver();
 
   hono.get('/dashboard/api/kanban/beads/board', async (c) => {
     const sourceDirectory = c.req.query('sourceDirectory')?.trim() || process.cwd();
@@ -33,9 +41,10 @@ export function registerBeadsBoardRoutes(
       sourceDirectory,
       beadIds: result.boardView.cards.map((card) => card.key),
     });
+    const resolvedWorkspaceIds = await resolveActiveWorkspaceIds(workspaceResolver, links);
     const cards = result.boardView.cards.map((card) => ({
       ...card,
-      relatedWorkspaces: links.get(card.key),
+      relatedWorkspaces: filterResolvedWorkspaces(links.get(card.key), resolvedWorkspaceIds),
     }));
     return c.json({ ok: true, boardView: { ...result.boardView, cards } });
   });
@@ -49,6 +58,18 @@ export function registerBeadsBoardRoutes(
           code: 'invalid_bead_workspace_link_request',
           message: 'The Beads workspace link request is invalid.',
           userAction: 'Choose a bead and workspace, then try again.',
+        },
+      }, 400);
+    }
+
+    const resolvedWorkspaceIds = await workspaceResolver.listActiveWorkspaceIds().catch(() => new Set<string>());
+    if (!resolvedWorkspaceIds.has(body.workspaceId)) {
+      return c.json({
+        ok: false,
+        error: {
+          code: 'bead_workspace_unresolved',
+          message: 'The selected VK workspace could not be found.',
+          userAction: 'Choose an active VK workspace and try again.',
         },
       }, 400);
     }
@@ -68,6 +89,35 @@ export function registerBeadsBoardRoutes(
     });
     return c.json({ ok: true });
   });
+}
+
+function createVkWorkspaceResolver(): BeadsWorkspaceResolver {
+  const vkClient = new VibeKanbanServerClient();
+  return {
+    listActiveWorkspaceIds: async () => new Set(
+      (await vkClient.getWorkspaces())
+        .filter((workspace) => !workspace.archived)
+        .map((workspace) => workspace.id),
+    ),
+  };
+}
+
+async function resolveActiveWorkspaceIds(
+  workspaceResolver: BeadsWorkspaceResolver,
+  links: Map<string, ExternalKanbanRelatedWorkspaceDto[]>,
+): Promise<Set<string> | undefined> {
+  const hasLinks = [...links.values()].some((workspaces) => workspaces.length > 0);
+  if (!hasLinks) return undefined;
+  return workspaceResolver.listActiveWorkspaceIds().catch(() => new Set<string>());
+}
+
+function filterResolvedWorkspaces(
+  workspaces: ExternalKanbanRelatedWorkspaceDto[] | undefined,
+  resolvedWorkspaceIds: Set<string> | undefined,
+): ExternalKanbanRelatedWorkspaceDto[] | undefined {
+  if (!workspaces) return undefined;
+  if (!resolvedWorkspaceIds) return workspaces;
+  return workspaces.filter((workspace) => resolvedWorkspaceIds.has(workspace.workspaceId));
 }
 
 function isBeadWorkspaceLinkRequest(value: unknown): value is {

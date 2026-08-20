@@ -39,11 +39,16 @@ function boardView(): BeadsBoardView {
 }
 
 describe('registerBeadsBoardRoutes', () => {
+  const workspaceResolver = {
+    listActiveWorkspaceIds: vi.fn(async () => new Set(['workspace-1'])),
+  };
+
   it('reads Beads boards without creating workspace links', async () => {
     const app = new Hono();
     registerBeadsBoardRoutes(app, {
       db,
       fetchBeadsBoardView: vi.fn(async () => ({ ok: true as const, boardView: boardView() })),
+      workspaceResolver,
     });
 
     const response = await app.request('/dashboard/api/kanban/beads/board?sourceDirectory=%2Frepos%2Fvd');
@@ -60,6 +65,7 @@ describe('registerBeadsBoardRoutes', () => {
     registerBeadsBoardRoutes(app, {
       db,
       fetchBeadsBoardView: vi.fn(async () => ({ ok: true as const, boardView: boardView() })),
+      workspaceResolver,
     });
 
     const linkResponse = await app.request('/dashboard/api/kanban/beads/workspace-links', {
@@ -90,6 +96,7 @@ describe('registerBeadsBoardRoutes', () => {
     registerBeadsBoardRoutes(app, {
       db,
       fetchBeadsBoardView: vi.fn(async () => ({ ok: true as const, boardView: boardView() })),
+      workspaceResolver,
     });
 
     const response = await app.request('/dashboard/api/kanban/beads/workspace-links', {
@@ -104,5 +111,69 @@ describe('registerBeadsBoardRoutes', () => {
 
     expect(response.status).toBe(400);
     await expect(db.selectFrom('BeadWorkspaceLink').selectAll().execute()).resolves.toEqual([]);
+  });
+
+  it('rejects syntactically valid unresolved workspace ids before writing links', async () => {
+    const app = new Hono();
+    registerBeadsBoardRoutes(app, {
+      db,
+      fetchBeadsBoardView: vi.fn(async () => ({ ok: true as const, boardView: boardView() })),
+      workspaceResolver,
+    });
+
+    const response = await app.request('/dashboard/api/kanban/beads/workspace-links', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        beadId: 'vkvw-1',
+        sourceDirectory: '/repos/vd',
+        workspaceId: 'tester-workspace-vkvw-hifa-12-2',
+      }),
+    });
+    const json = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(json.error.code).toBe('bead_workspace_unresolved');
+    await expect(db.selectFrom('BeadWorkspaceLink').selectAll().execute()).resolves.toEqual([]);
+  });
+
+  it('suppresses stored unresolved workspace links from board decoration without mutating rows', async () => {
+    await db.insertInto('BeadWorkspaceLink').values([
+      {
+        id: 'link-valid',
+        beadId: 'vkvw-1',
+        sourceDirectory: '/repos/vd',
+        repoId: null,
+        workspaceId: 'workspace-1',
+        isPrimary: 1,
+        linkSource: 'test',
+        metadataJson: JSON.stringify({ displayName: 'VD workspace' }),
+      },
+      {
+        id: 'link-stale',
+        beadId: 'vkvw-1',
+        sourceDirectory: '/repos/vd',
+        repoId: null,
+        workspaceId: 'tester-workspace-vkvw-hifa-12-2',
+        isPrimary: 0,
+        linkSource: 'test',
+        metadataJson: JSON.stringify({ displayName: 'Stale workspace' }),
+      },
+    ]).execute();
+    const app = new Hono();
+    registerBeadsBoardRoutes(app, {
+      db,
+      fetchBeadsBoardView: vi.fn(async () => ({ ok: true as const, boardView: boardView() })),
+      workspaceResolver,
+    });
+
+    const response = await app.request('/dashboard/api/kanban/beads/board?sourceDirectory=%2Frepos%2Fvd');
+    const json = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(json.boardView.cards[0].relatedWorkspaces).toEqual([
+      { workspaceId: 'workspace-1', displayName: 'VD workspace', isPrimary: true, metadata: { displayName: 'VD workspace' } },
+    ]);
+    await expect(db.selectFrom('BeadWorkspaceLink').selectAll().execute()).resolves.toHaveLength(2);
   });
 });
