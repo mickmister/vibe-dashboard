@@ -41,6 +41,26 @@ function boardView(): ExternalLinearBoardView {
 }
 
 describe('registerLinearBoardRoutes', () => {
+  it('registers routes without opening the database until a request needs decoration', async () => {
+    const app = new Hono();
+    const getDb = vi.fn(async () => db);
+    const fetchLinearBoardView = vi.fn(async () => ({ ok: true as const, boardView: boardView() }));
+
+    registerLinearBoardRoutes(app, {
+      db: getDb,
+      fetchLinearBoardView,
+      linearAuth: { kind: 'api_key', apiKey: 'secret', apiUrl: 'https://api.linear.test/graphql' },
+      beads: { runBd: vi.fn(async () => ({ stdout: '' })) },
+    });
+
+    expect(getDb).not.toHaveBeenCalled();
+
+    const response = await app.request('/dashboard/api/external-trackers/linear/board?external_view_url=https%3A%2F%2Flinear.app%2Fjamtools%2Fteam%2FVD%2Fall');
+
+    expect(response.status).toBe(200);
+    expect(getDb).toHaveBeenCalledTimes(1);
+  });
+
   it('fetches and decorates a Linear board through shared Kanban decoration', async () => {
     await upsertExternalIssueWorkspaceMapping(db, {
       externalIssue: { provider: 'linear', key: 'VD-1', id: 'issue-1', url: 'https://linear.app/jamtools/issue/VD-1/linear-issue', site: 'linear.app/jamtools' },

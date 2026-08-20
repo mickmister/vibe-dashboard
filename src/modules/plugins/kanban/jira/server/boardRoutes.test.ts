@@ -113,6 +113,24 @@ describe('external Jira board routes', () => {
     });
   });
 
+  it('registers routes without opening the database before the first request', async () => {
+    const app = new Hono();
+    const getDb = vi.fn(async () => db);
+
+    registerExternalTrackerBoardRoutes(app, {
+      auth: createAuthService(null),
+      db: getDb,
+      fetchJiraBoardView: vi.fn() as unknown as FetchJiraBoardView,
+    });
+
+    expect(getDb).not.toHaveBeenCalled();
+
+    const response = await app.request(`/dashboard/api/external-trackers/jira/board?external_view_url=${encodeURIComponent(jiraBoardUrl)}`);
+
+    expect(response.status).toBe(401);
+    expect(getDb).toHaveBeenCalledTimes(1);
+  });
+
   it('requires an authenticated user before loading a Jira board', async () => {
     const app = new Hono();
     const adapter = vi.fn() as unknown as FetchJiraBoardView;
