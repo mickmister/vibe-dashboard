@@ -188,7 +188,12 @@ test.describe('VK mocked-provider sandbox through VD UI', () => {
     ).toBeVisible();
 
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.getByRole('button', { name: 'Voyage actions' }).last().click();
+    await closeSidebarIfOpen(page);
+    const mobileVoyageActions = page
+      .getByRole('button', { name: 'Voyage actions' })
+      .last();
+    await expect(mobileVoyageActions).toBeVisible();
+    await mobileVoyageActions.click();
     await expect(
       page.getByRole('menuitem', { name: 'New Craft' }),
     ).toBeVisible();
@@ -290,7 +295,7 @@ async function ensureRepositorySelectionStep(
       .then((text) => Boolean(text?.includes('What would you like to work on?')))
       .catch(() => false)
   ) {
-    return true;
+    return false;
   }
 
   const selectedRepoButton = createWorkspaceFrame
@@ -349,6 +354,13 @@ async function closeSidebarOverlayIfPresent(page: Page) {
   const overlay = page.getByRole('button', { name: 'Close sidebar overlay' });
   if (await overlay.isVisible().catch(() => false)) {
     await overlay.evaluate((button) => (button as HTMLButtonElement).click());
+  }
+}
+
+async function closeSidebarIfOpen(page: Page) {
+  const closeButton = page.getByRole('button', { name: 'Close sidebar' });
+  if (await closeButton.isVisible().catch(() => false)) {
+    await closeButton.evaluate((button) => (button as HTMLButtonElement).click());
   }
 }
 
