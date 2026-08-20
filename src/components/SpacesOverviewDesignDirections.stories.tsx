@@ -299,6 +299,42 @@ export const EnterpriseLightCommand: Story = {
   render: () => <EnterpriseLightCommandConcept />,
 };
 
+export const MobileModernDarkDesk: Story = {
+  parameters: {
+    controls: {
+      disable: true,
+    },
+  },
+  render: () => <MobileModernDarkDeskConcept />,
+};
+
+export const MobileModernDarkConstellation: Story = {
+  parameters: {
+    controls: {
+      disable: true,
+    },
+  },
+  render: () => <MobileModernDarkConstellationConcept />,
+};
+
+export const MobileEnterpriseLightOps: Story = {
+  parameters: {
+    controls: {
+      disable: true,
+    },
+  },
+  render: () => <MobileEnterpriseLightOpsConcept />,
+};
+
+export const MobileEnterpriseLightLaunchpad: Story = {
+  parameters: {
+    controls: {
+      disable: true,
+    },
+  },
+  render: () => <MobileEnterpriseLightLaunchpadConcept />,
+};
+
 function DashboardConcept({
   direction,
   colorScheme = 'direction',
@@ -1516,6 +1552,333 @@ function EnterpriseLightCommandConcept() {
             </div>
           </section>
         </div>
+      </section>
+    </main>
+  );
+}
+
+function MobileModernDarkDeskConcept() {
+  return (
+    <main className="relative h-[100dvh] overflow-y-auto overflow-x-hidden bg-[radial-gradient(ellipse_at_top,#101025_0%,#050506_52%,#020203_100%)] text-[#EDEDEF]">
+      <div className="pointer-events-none absolute left-[-12rem] top-[-18rem] h-[36rem] w-[36rem] rounded-full bg-[#5E6AD2]/24 blur-[110px]" />
+      <section className="relative mx-auto min-h-[100dvh] max-w-[430px] px-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] pt-[calc(1rem+env(safe-area-inset-top))]">
+        <header className="flex items-start justify-between gap-3 border-b border-white/[0.06] pb-4">
+          <div>
+            <p className="font-mono text-xs font-semibold tracking-[0.18em] text-[#8A8F98]">
+              DARK
+            </p>
+            <h1 className="mt-2 bg-gradient-to-b from-white via-white/95 to-white/65 bg-clip-text text-4xl font-semibold tracking-[-0.055em] text-transparent">
+              Developer desk
+            </h1>
+          </div>
+          <button className="min-h-11 rounded-lg bg-white/[0.05] px-4 text-sm text-[#EDEDEF] shadow-[inset_0_1px_0_0_rgba(255,255,255,0.1)]">
+            Go Home
+          </button>
+        </header>
+
+        <section className="mt-5 rounded-2xl border border-[#5E6AD2]/30 bg-gradient-to-b from-white/[0.08] to-white/[0.02] p-5 shadow-[0_0_0_1px_rgba(255,255,255,0.06),0_20px_70px_rgba(0,0,0,0.42),0_0_70px_rgba(94,106,210,0.12)]">
+          <p className="font-mono text-xs tracking-[0.16em] text-[#8A8F98]">
+            ACTIVE CRAFT
+          </p>
+          <h2 className="mt-5 text-4xl font-semibold tracking-[-0.05em]">
+            Auth bug fix
+          </h2>
+          <p className="mt-3 text-sm leading-6 text-[#8A8F98]">
+            Approval, CI, and unread agent turn stay in one scope.
+          </p>
+          <button className="mt-5 min-h-12 w-full rounded-lg bg-[#5E6AD2] text-sm font-semibold text-white shadow-[0_0_0_1px_rgba(94,106,210,0.5),0_4px_18px_rgba(94,106,210,0.3)]">
+            Open active craft
+          </button>
+        </section>
+
+        <section className="mt-5 grid grid-cols-3 gap-4">
+          {[
+            ['3', 'Needs'],
+            ['2', 'Servers'],
+            ['5', 'Views'],
+          ].map(([value, label]) => (
+            <div key={label} className="border-t border-white/[0.08] pt-3">
+              <p className="font-mono text-3xl font-semibold">{value}</p>
+              <p className="mt-1 text-xs text-[#8A8F98]">{label}</p>
+            </div>
+          ))}
+        </section>
+
+        <section className="mt-6">
+          <div className="flex items-center justify-between text-xs text-[#8A8F98]">
+            <span>Workflow queue</span>
+            <span>3 rows</span>
+          </div>
+          <div className="mt-3 divide-y divide-white/[0.06] border-y border-white/[0.06]">
+            {workflowRows.map(([name, status]) => (
+              <button
+                key={name}
+                className="flex min-h-16 w-full items-center justify-between gap-4 py-3 text-left"
+              >
+                <span>
+                  <span className="block text-base font-medium">{name}</span>
+                  <span className="mt-1 block text-sm text-[#8A8F98]">
+                    {status}
+                  </span>
+                </span>
+                <span className="text-sm text-[#6872D9]">Open</span>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <nav className="fixed inset-x-0 bottom-0 border-t border-white/[0.06] bg-[#050506]/95 px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur-xl">
+          <div className="mx-auto grid max-w-[430px] grid-cols-2 gap-2">
+            <button className="min-h-12 rounded-lg bg-white/[0.05] text-sm text-[#EDEDEF]">
+              Voyages
+            </button>
+            <button className="min-h-12 rounded-lg bg-[#5E6AD2] text-sm font-semibold text-white">
+              New Voyage
+            </button>
+          </div>
+        </nav>
+      </section>
+    </main>
+  );
+}
+
+function MobileModernDarkConstellationConcept() {
+  return (
+    <main className="relative h-[100dvh] overflow-y-auto overflow-x-hidden bg-[#050506] text-[#EDEDEF]">
+      <div className="pointer-events-none absolute right-[-15rem] top-[-12rem] h-[34rem] w-[34rem] rounded-full bg-blue-500/14 blur-[110px]" />
+      <section className="relative mx-auto min-h-[100dvh] max-w-[430px] px-4 pb-7 pt-[calc(1rem+env(safe-area-inset-top))]">
+        <header className="flex items-center justify-between gap-3">
+          <div>
+            <p className="font-mono text-xs tracking-[0.18em] text-[#8A8F98]">
+              BENTO
+            </p>
+            <h1 className="mt-2 text-4xl font-semibold tracking-[-0.055em]">
+              Work map
+            </h1>
+          </div>
+          <button className="min-h-11 rounded-lg bg-white/[0.05] px-4 text-sm text-[#EDEDEF]">
+            Go Home
+          </button>
+        </header>
+
+        <section className="mt-5 rounded-2xl border border-white/[0.06] bg-gradient-to-b from-white/[0.08] to-white/[0.02] p-5 shadow-[0_20px_80px_rgba(0,0,0,0.38)]">
+          <p className="text-sm text-[#8A8F98]">Current launch</p>
+          <h2 className="mt-4 text-3xl font-semibold tracking-[-0.05em]">
+            Resume without widening scope
+          </h2>
+          <div className="mt-5 flex flex-wrap gap-2">
+            {['Auth bug fix', 'Approval', 'CI running'].map((item) => (
+              <span
+                key={item}
+                className="rounded-full border border-[#5E6AD2]/30 px-3 py-2 text-xs"
+              >
+                {item}
+              </span>
+            ))}
+          </div>
+        </section>
+
+        <section className="mt-4 grid grid-cols-2 gap-3">
+          {[
+            ['Needs', '3', 'approval queue'],
+            ['Servers', '2', 'ready to open'],
+            ['Views', '5', 'saved filters'],
+            ['Workflows', '3', 'runs and forms'],
+          ].map(([label, value, detail]) => (
+            <article
+              key={label}
+              className="rounded-2xl border border-white/[0.06] bg-white/[0.035] p-4"
+            >
+              <p className="text-xs text-[#8A8F98]">{label}</p>
+              <p className="mt-3 font-mono text-3xl font-semibold">{value}</p>
+              <p className="mt-1 text-xs text-[#8A8F98]">{detail}</p>
+            </article>
+          ))}
+        </section>
+
+        <section className="mt-5">
+          <div className="flex items-center justify-between text-xs text-[#8A8F98]">
+            <span>Priority work</span>
+            <span>sorted</span>
+          </div>
+          <div className="mt-3 divide-y divide-white/[0.06] border-y border-white/[0.06]">
+            {workItems.map((item) => (
+              <button
+                key={item.title}
+                className="flex min-h-16 w-full items-center justify-between gap-4 py-3 text-left"
+              >
+                <span>
+                  <span className="block text-base font-medium">{item.title}</span>
+                  <span className="mt-1 block text-sm text-[#8A8F98]">
+                    {item.status}
+                  </span>
+                </span>
+                <span className="text-sm text-[#6872D9]">Open</span>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <button className="mt-5 min-h-12 w-full rounded-lg bg-[#5E6AD2] text-sm font-semibold text-white">
+          New Voyage
+        </button>
+      </section>
+    </main>
+  );
+}
+
+function MobileEnterpriseLightOpsConcept() {
+  return (
+    <main className="relative h-[100dvh] overflow-y-auto overflow-x-hidden bg-[#F8FAFC] text-slate-950">
+      <div className="pointer-events-none absolute right-[-12rem] top-[-12rem] h-[28rem] w-[28rem] rounded-full bg-indigo-200/60 blur-3xl" />
+      <section className="relative mx-auto min-h-[100dvh] max-w-[430px] px-4 pb-7 pt-[calc(1rem+env(safe-area-inset-top))]">
+        <header className="rounded-3xl border border-slate-100 bg-white p-5 shadow-[0_4px_20px_-2px_rgba(79,70,229,0.10)]">
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-indigo-600">
+            Enterprise light
+          </p>
+          <div className="mt-3 flex items-start justify-between gap-3">
+            <h1 className="text-4xl font-extrabold tracking-[-0.045em]">
+              Morning ops
+            </h1>
+            <button className="min-h-11 rounded-full border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700">
+              Go Home
+            </button>
+          </div>
+        </header>
+
+        <section className="mt-5 rounded-3xl border border-slate-100 bg-white p-5 shadow-[0_4px_20px_-2px_rgba(79,70,229,0.10)]">
+          <p className="text-sm font-semibold text-slate-500">Current voyage</p>
+          <h2 className="mt-3 text-3xl font-bold tracking-[-0.04em]">
+            Current launch
+          </h2>
+          <button className="mt-5 min-h-12 w-full rounded-xl bg-slate-950 text-sm font-semibold text-white">
+            Open active craft
+          </button>
+        </section>
+
+        <section className="mt-5">
+          <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
+            <span>Priority work</span>
+            <span>team view</span>
+          </div>
+          <div className="mt-3 divide-y divide-slate-200 border-y border-slate-200">
+            {workItems.map((item) => (
+              <button
+                key={item.title}
+                className="flex min-h-16 w-full items-center justify-between gap-3 py-3 text-left"
+              >
+                <span>
+                  <span className="block text-base font-semibold">{item.title}</span>
+                  <span className="mt-1 block text-sm text-slate-500">
+                    {item.status}
+                  </span>
+                </span>
+                <span className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-700">
+                  Open
+                </span>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <section className="mt-5">
+          <p className="text-xs font-semibold text-slate-500">Saved views</p>
+          <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+            {savedFilters.map((filter, index) => (
+              <button
+                key={filter}
+                className={`min-h-11 shrink-0 rounded-full px-4 text-sm font-semibold ${
+                  index === 0
+                    ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white'
+                    : 'border border-slate-200 bg-white text-slate-700'
+                }`}
+              >
+                {filter}
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <button className="mt-5 min-h-12 w-full rounded-full bg-gradient-to-r from-indigo-600 to-violet-600 text-sm font-semibold text-white shadow-[0_4px_14px_0_rgba(79,70,229,0.30)]">
+          New Voyage
+        </button>
+      </section>
+    </main>
+  );
+}
+
+function MobileEnterpriseLightLaunchpadConcept() {
+  return (
+    <main className="relative h-[100dvh] overflow-y-auto overflow-x-hidden bg-gradient-to-br from-slate-50 via-white to-indigo-50 text-slate-950">
+      <section className="mx-auto min-h-[100dvh] max-w-[430px] px-4 pb-7 pt-[calc(1rem+env(safe-area-inset-top))]">
+        <header>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-indigo-600">
+            Command review
+          </p>
+          <h1 className="mt-2 text-4xl font-extrabold tracking-[-0.045em]">
+            Workday launchpad
+          </h1>
+          <div className="mt-5 grid grid-cols-2 gap-2">
+            <button className="min-h-12 rounded-full bg-gradient-to-r from-indigo-600 to-violet-600 text-sm font-semibold text-white shadow-[0_4px_14px_0_rgba(79,70,229,0.30)]">
+              Open craft
+            </button>
+            <button className="min-h-12 rounded-full border border-slate-200 bg-white text-sm font-semibold text-slate-700">
+              Go Home
+            </button>
+          </div>
+        </header>
+
+        <section className="mt-5 rounded-3xl border border-slate-100 bg-white p-5 shadow-[0_18px_50px_-16px_rgba(79,70,229,0.30)]">
+          <p className="text-sm font-semibold text-slate-500">Active voyage</p>
+          <h2 className="mt-3 text-3xl font-bold tracking-[-0.04em]">
+            Current launch
+          </h2>
+          <div className="mt-5 grid grid-cols-3 gap-4 border-t border-slate-200 pt-4">
+            {[
+              ['3', 'Needs'],
+              ['2', 'Servers'],
+              ['5', 'Views'],
+            ].map(([value, label]) => (
+              <div key={label}>
+                <p className="font-mono text-3xl font-semibold text-indigo-700">
+                  {value}
+                </p>
+                <p className="mt-1 text-xs text-slate-500">{label}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="mt-5 rounded-3xl border border-slate-100 bg-white p-5 shadow-[0_4px_20px_-2px_rgba(79,70,229,0.10)]">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-semibold text-slate-500">Kanban lane</p>
+            <button className="min-h-10 rounded-full border border-slate-200 px-3 text-xs font-semibold text-slate-700">
+              New Voyage
+            </button>
+          </div>
+          <div className="mt-4 divide-y divide-slate-200">
+            {[
+              ['Now', 'Auth bug fix', 'Waiting for approval'],
+              ['Next', 'Kanban polish', 'Open craft'],
+              ['Later', 'Skin tokens', 'Saved filter'],
+            ].map(([column, title, detail]) => (
+              <button
+                key={column}
+                className="grid min-h-16 w-full grid-cols-[56px_minmax(0,1fr)] items-center gap-3 py-3 text-left"
+              >
+                <span className="text-xs font-semibold uppercase tracking-[0.12em] text-indigo-600">
+                  {column}
+                </span>
+                <span>
+                  <span className="block text-base font-semibold">{title}</span>
+                  <span className="mt-1 block text-sm text-slate-500">
+                    {detail}
+                  </span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </section>
       </section>
     </main>
   );
