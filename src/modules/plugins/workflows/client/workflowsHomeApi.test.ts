@@ -45,7 +45,7 @@ describe('workflows home API client', () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ design: { designId: 'design-drt', name: 'Dev / Review / Tester', latestPublishedVersion: 1 }, draft: { draftId: 'draft-drt', designId: 'design-drt' }, version: { designId: 'design-drt', version: 1 }, home: { workspaceId: 'workspace-a', userWorkflows: [], starterTemplates: [], recentRuns: [], needsInput: [], recentBatches: [] } }), { status: 201, headers: { 'Content-Type': 'application/json' } })) as unknown as typeof fetch;
     vi.stubGlobal('fetch', fetchMock);
 
-    await expect(useWorkflowTemplate({ templateId: 'built-in/dev-review-tester', workspaceId: 'workspace-a' })).resolves.toMatchObject({ version: { version: 1 } });
-    expect(fetchMock).toHaveBeenCalledWith('/dashboard/api/workflow-templates/built-in%2Fdev-review-tester/use', expect.objectContaining({ method: 'POST', body: JSON.stringify({ workspaceId: 'workspace-a', name: undefined, publish: true }) }));
+    await expect(useWorkflowTemplate({ templateId: 'built-in/dev-review-tester', workspaceId: 'workspace-a', name: 'DRT copy', description: 'Edited purpose' })).resolves.toMatchObject({ version: { version: 1 } });
+    expect(fetchMock).toHaveBeenCalledWith('/dashboard/api/workflow-templates/built-in%2Fdev-review-tester/use', expect.objectContaining({ method: 'POST', body: JSON.stringify({ workspaceId: 'workspace-a', name: 'DRT copy', description: 'Edited purpose', publish: true }) }));
   });
 });

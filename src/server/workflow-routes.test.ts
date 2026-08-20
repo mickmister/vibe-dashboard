@@ -520,6 +520,8 @@ describe("registerWorkflowRoutes", () => {
           workspaceId: "workspace-a",
           designId: "design.drt.route",
           draftId: "draft.drt.route",
+          name: "Custom DRT copy",
+          description: "Edited DRT purpose from wizard",
           publish: true,
         }),
       },
@@ -527,8 +529,8 @@ describe("registerWorkflowRoutes", () => {
 
     expect(used.status).toBe(201);
     await expect(used.json()).resolves.toMatchObject({
-      design: { designId: "design.drt.route", latestPublishedVersion: 1 },
-      draft: { draftId: "draft.drt.route", validationStatus: "valid" },
+      design: { designId: "design.drt.route", name: "Custom DRT copy", description: "Edited DRT purpose from wizard", latestPublishedVersion: 1 },
+      draft: { draftId: "draft.drt.route", validationStatus: "valid", definition: expect.objectContaining({ name: "Custom DRT copy", description: "Edited DRT purpose from wizard" }) },
       version: { designId: "design.drt.route", version: 1 },
       home: {
         userWorkflows: expect.arrayContaining([
@@ -543,6 +545,8 @@ describe("registerWorkflowRoutes", () => {
     });
     expect(await designStore.getVersion("design.drt.route", 1)).toMatchObject({
       resolvedDefinition: {
+        name: "Custom DRT copy",
+        description: "Edited DRT purpose from wizard",
         states: {
           dev: { steps: [{ id: "implement" }, { id: "self_review" }] },
         },

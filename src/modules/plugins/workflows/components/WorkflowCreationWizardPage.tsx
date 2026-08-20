@@ -48,7 +48,7 @@ export function WorkflowCreationWizardView({ workspaceId, userWorkflows, starter
     setError(null);
     try {
       if (draft.sourceMode === 'starter' && draft.sourceId) {
-        const used = await useWorkflowTemplate({ templateId: draft.sourceId, workspaceId, name: draft.name, publish });
+        const used = await useWorkflowTemplate({ templateId: draft.sourceId, workspaceId, name: draft.name, description: draft.purpose, publish });
         setResult({ designId: used.design.designId, draftId: used.draft?.draftId ?? null, version: used.version?.version ?? null });
       } else {
         const created = await createWorkflowDesign({ workspaceId, name: draft.name, description: draft.purpose, sourceDesignId: draft.sourceMode === 'duplicate' ? draft.sourceId : null, definition: draft.sourceMode === 'blank' ? buildBlankWorkflowDefinition(draft) : undefined, publish });

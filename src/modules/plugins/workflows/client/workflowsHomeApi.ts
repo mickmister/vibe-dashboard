@@ -248,6 +248,7 @@ export interface UseWorkflowTemplateRequest {
   templateId: string;
   workspaceId?: string;
   name?: string;
+  description?: string | null;
   publish?: boolean;
 }
 
@@ -430,6 +431,7 @@ export async function useWorkflowTemplate(
       body: JSON.stringify({
         workspaceId: request.workspaceId,
         name: request.name,
+        description: request.description,
         publish: request.publish ?? true,
       }),
     },

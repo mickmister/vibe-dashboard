@@ -335,11 +335,12 @@ describe('DbWorkflowDesignStore M91 foundation', () => {
       designId: 'design.from-template',
       draftId: 'draft.from-template',
       name: 'My simple workflow',
+      description: 'Edited starter purpose',
     });
 
-    expect(used.design).toMatchObject({ designId: 'design.from-template', source: 'user', name: 'My simple workflow' });
+    expect(used.design).toMatchObject({ designId: 'design.from-template', source: 'user', name: 'My simple workflow', description: 'Edited starter purpose' });
     expect(used.draft.validationStatus).toBe('valid');
-    expect(used.draft.definition).toMatchObject({ name: 'My simple workflow' });
+    expect(used.draft.definition).toMatchObject({ name: 'My simple workflow', description: 'Edited starter purpose' });
     expect(await store.getPromptAsset('prompt.simple-agent.instructions', 1)).toMatchObject({ source: 'built_in' });
     expect(await store.getSkillAsset('skill.workflow.markdown-response', 1)).toMatchObject({ source: 'built_in' });
     await expect(store.publishDraft('draft.from-template')).resolves.toMatchObject({ version: 1 });
