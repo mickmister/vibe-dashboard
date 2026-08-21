@@ -82,7 +82,7 @@ describe("buildPersistedWorkflowPresentationModel", () => {
         blockedReason: {
           code: "WORKFLOW_DECISION_RETRY_EXHAUSTED",
           path: "states.review",
-          message: "Review response stayed invalid after retry.",
+          message: "Review response stayed invalid after retry with raw XML, trigger delivery ID, execution process ID, provider diagnostics, response-dev-1, artifactRef, /tmp/secret.",
         },
         history: [
           {
@@ -162,7 +162,7 @@ describe("buildPersistedWorkflowPresentationModel", () => {
             stepId: "acceptance_form",
             turnId: "turn-form",
             responseRef: "form-response",
-            submission: { approved: true },
+            submission: { approved: true, notes: "Used bd show and shell output from /tmp/form" },
           },
           {
             kind: "workflow_call_planned",
@@ -198,7 +198,7 @@ describe("buildPersistedWorkflowPresentationModel", () => {
               {
                 code: "WORKFLOW_DECISION_VALIDATION_FAILED",
                 path: "$",
-                message: "XML response must include an action",
+                message: "raw XML response must include an action; see /Users/me/project and queue item id",
               },
             ],
           },
@@ -208,7 +208,7 @@ describe("buildPersistedWorkflowPresentationModel", () => {
             reason: {
               code: "WORKFLOW_DECISION_RETRY_EXHAUSTED",
               path: "states.review",
-              message: "Review response stayed invalid after retry.",
+              message: "Review response stayed invalid after retry with webhook queue-item HMAC raw JSON WorkflowStepState runReady /private/var/db responseRef.",
             },
           },
         ],
@@ -239,7 +239,7 @@ describe("buildPersistedWorkflowPresentationModel", () => {
               at: 2,
               data: {
                 turnId: "turn-dev-1",
-                promptPreview: "Implement the feature",
+                promptPreview: "Implement the feature\n\nExpected XML Schema (XSD):\n<xs:schema xmlns:xs=\"http://www.w3.org/2001/XMLSchema\"><xs:element name=\"decision\" /></xs:schema>\nraw XML webhook queue_item /tmp/secret",
               },
             },
             {
@@ -272,7 +272,7 @@ describe("buildPersistedWorkflowPresentationModel", () => {
           currentOwner: "Review",
           currentState: "Review",
           currentStep: "Review Code",
-          waitingReason: "Review response stayed invalid after retry.",
+          waitingReason: expect.stringContaining("Review response stayed invalid after retry"),
         }),
         callTree: [
           expect.objectContaining({
@@ -324,15 +324,35 @@ describe("buildPersistedWorkflowPresentationModel", () => {
       expect(rendered).toContain("Dev self-reviewed");
       expect(rendered).toContain("Review requested changes");
       expect(rendered).toContain("Clean run story page");
+      expect(rendered).toContain("Structured response contract included in the agent prompt.");
       expect(rendered).toContain("Remarks: Needs tests");
-      expect(rendered).not.toContain("webhook");
-      expect(rendered).not.toContain("queue item");
-      expect(rendered).not.toContain("workflow-run://");
-      expect(rendered).not.toContain("<decision");
-      expect(rendered).not.toContain("rawXml");
-      expect(rendered).not.toContain("response-dev");
-      expect(rendered).not.toContain("response-review");
-      expect(rendered).not.toContain("responseRef");
+      for (const term of [
+        "<xs:schema",
+        "raw XML",
+        "raw JSON",
+        "queue item",
+        "queue_item",
+        "queue-item",
+        "webhook",
+        "trigger",
+        "delivery ID",
+        "execution process ID",
+        "provider diagnostics",
+        "WorkflowStepState",
+        "runReady",
+        "/Users/",
+        "/tmp/",
+        "/private/var/",
+        "response-dev",
+        "responseRef",
+        "artifactRef",
+        "workflow-run://",
+        "beads-form://",
+        "bd show",
+        "shell output",
+      ]) {
+        expect(rendered).not.toContain(term);
+      }
     } finally {
       await handle.db.destroy();
       handle.sqlite.close();
@@ -412,7 +432,7 @@ describe("buildPersistedWorkflowPresentationModel", () => {
         roleBindingsJson: "{}",
         pendingEffectJson: null,
         queuedTurnsJson: "{}",
-        eventsJson: JSON.stringify([{ kind: "github_ci_watch_poll_error", at: 5, data: { turnId: "ci-turn", error: { message: "GitHub API rate limited", retryAfterMs: 30000 } } }]),
+        eventsJson: JSON.stringify([{ kind: "github_ci_watch_poll_error", at: 5, data: { turnId: "ci-turn", error: { message: "GitHub API rate limited via webhook trigger delivery ID /tmp/ci", retryAfterMs: 30000 } } }]),
         errorJson: null,
         createdAt: 1,
         updatedAt: 5,
@@ -430,7 +450,52 @@ describe("buildPersistedWorkflowPresentationModel", () => {
       const rendered = JSON.stringify(presentation);
       expect(rendered).toContain("GitHub CI");
       expect(rendered).not.toContain("webhook");
+      expect(rendered).not.toContain("trigger");
+      expect(rendered).not.toContain("delivery ID");
+      expect(rendered).not.toContain("/tmp/");
       expect(rendered).not.toContain("rawXml");
+
+      const completedSnapshot: WorkflowRuntimeSnapshot = {
+        ...snapshot,
+        status: "completed",
+        waitingFor: undefined,
+        currentState: "done",
+        history: [
+          ...snapshot.history,
+          {
+            kind: "github_ci_wait_completed",
+            at: 6,
+            state: "dev",
+            stepId: "implement",
+            turnId: "ci-turn",
+            action: "ready_for_review",
+            targetState: "review",
+            responseRef: "response-ci",
+            status: "success",
+            statusSummary:
+              "Passed with raw JSON provider diagnostics and execution process ID.",
+            detailsUrl: "file:///tmp/ci-details",
+          },
+        ],
+        updatedAt: 6,
+      };
+      await handle.db
+        .updateTable("WorkflowPersistedRun")
+        .set({
+          status: "completed",
+          coreSnapshotJson: JSON.stringify(completedSnapshot),
+          updatedAt: 6,
+        })
+        .where("runId", "=", "run.ci")
+        .execute();
+      const completedPresentation = await buildPersistedWorkflowPresentationModel({ db: handle.db, runId: "run.ci" });
+      const completedRendered = JSON.stringify(completedPresentation);
+      expect(completedRendered).toContain("GitHub CI finished");
+      expect(completedRendered).toContain("Passed with response details provider status");
+      expect(completedRendered).not.toContain("raw JSON");
+      expect(completedRendered).not.toContain("provider diagnostics");
+      expect(completedRendered).not.toContain("execution process ID");
+      expect(completedRendered).not.toContain("/tmp/");
     } finally {
       await handle.db.destroy();
       handle.sqlite.close();

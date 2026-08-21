@@ -14,10 +14,17 @@ const forbiddenDebugTerms = [
   "WorkflowStepState",
   "runReady",
   "raw JSON",
+  "raw XML",
   "<decision",
+  "<xs:schema",
   "rawXml",
   "responseRef",
   "response-dev",
+  "artifactRef",
+  "provider diagnostics",
+  "/Users/",
+  "/tmp/",
+  "/private/var/",
 ];
 
 describe("WorkflowPresentationView", () => {

@@ -130,7 +130,7 @@ function buildTimeline(args: {
       );
       const promptPreview =
         typeof queueEvent?.data.promptPreview === "string"
-          ? queueEvent.data.promptPreview
+          ? cleanPromptPreview(queueEvent.data.promptPreview)
           : null;
       timeline.push({
         id: entry.turnId,
@@ -198,7 +198,9 @@ function buildTimeline(args: {
         session: null,
         initialMessage: null,
         finalResponse: {
-          text: entry.errors.map((issue) => issue.message).join("\n"),
+          text: entry.errors
+            .map((issue) => productSafeText(issue.message))
+            .join("\n"),
           truncated: false,
           maxChars: null,
         },
@@ -217,7 +219,7 @@ function buildTimeline(args: {
         session: null,
         initialMessage: null,
         finalResponse: {
-          text: entry.reason.message,
+          text: productSafeText(entry.reason.message),
           truncated: false,
           maxChars: null,
         },
@@ -243,7 +245,10 @@ function buildTimeline(args: {
         finalResponse: complete
           ? {
               text: Object.entries(complete.submission)
-                .map(([key, value]) => `${key}: ${String(value)}`)
+                .map(
+                  ([key, value]) =>
+                    `${labelFromId(key)}: ${formatResultValue(value)}`,
+                )
                 .join("\n"),
               truncated: false,
               maxChars: null,
@@ -302,7 +307,7 @@ function buildTimeline(args: {
         status: complete ? "Complete" : "Waiting",
         session: null,
         initialMessage: {
-          text: `Started child workflow ${entry.childDesignId}${entry.childVersion ? ` v${entry.childVersion}` : ""}.`,
+          text: `Started child workflow${entry.childVersion ? ` v${entry.childVersion}` : ""}.`,
           truncated: false,
           maxChars: null,
         },
@@ -339,7 +344,7 @@ function buildTimeline(args: {
             event.data.turnId === entry.turnId,
         );
       const waitingCopy = pollError
-        ? `Waiting for GitHub CI. Last polling problem: ${String((pollError.data.error as { message?: unknown } | undefined)?.message ?? "GitHub polling is backing off.")}`
+        ? `Waiting for GitHub CI. Last polling problem: ${productSafeText(String((pollError.data.error as { message?: unknown } | undefined)?.message ?? "GitHub polling is backing off."), 180)}`
         : "Waiting for GitHub CI to finish.";
       timeline.push({
         id: entry.turnId,
@@ -357,10 +362,10 @@ function buildTimeline(args: {
         initialMessage: {
           text:
             [
-              entry.repo ? `Repository: ${entry.repo}` : "",
-              entry.sha ? `Commit: ${entry.sha}` : "",
-              entry.ciRunId ? `Run: ${entry.ciRunId}` : "",
-              entry.checkRunId ? `Check: ${entry.checkRunId}` : "",
+              entry.repo ? `Repository: ${productSafeText(entry.repo, 120)}` : "",
+              entry.sha ? `Commit: ${productSafeText(entry.sha, 80)}` : "",
+              entry.ciRunId ? `Run: ${productSafeText(entry.ciRunId, 80)}` : "",
+              entry.checkRunId ? `Check: ${productSafeText(entry.checkRunId, 80)}` : "",
             ]
               .filter(Boolean)
               .join("\n") || "Started GitHub CI watch.",
@@ -370,8 +375,8 @@ function buildTimeline(args: {
         finalResponse: complete
           ? {
               text: [
-                complete.statusSummary,
-                complete.detailsUrl ? `Details: ${complete.detailsUrl}` : "",
+                productSafeText(complete.statusSummary),
+                complete.detailsUrl ? `Details: ${productSafeText(complete.detailsUrl, 180)}` : "",
               ]
                 .filter(Boolean)
                 .join("\n"),
@@ -642,20 +647,47 @@ function uniqueStrings(values: string[]): string[] {
   );
 }
 
+
+function cleanPromptPreview(value: string): string {
+  const withoutGeneratedContract = (
+    (value.split(/Expected XML Schema \(XSD\):/u)[0] ?? "").split(
+      /<xs:schema\b/iu,
+    )[0] ?? ""
+  ).trim();
+  const cleaned = productSafeText(withoutGeneratedContract || value, 1200);
+  if (/Expected XML Schema \(XSD\):|<xs:schema\b/iu.test(value)) {
+    return [cleaned, "Structured response contract included in the agent prompt."]
+      .filter(Boolean)
+      .join("\n\n");
+  }
+  return cleaned;
+}
+
 function productSafeText(value: string, maxChars = 500): string {
   return value
+    .replace(/<xs:schema\b[\s\S]*?(?:<\/xs:schema>|$)/giu, "structured response contract")
+    .replace(/<decision\b/gi, "decision")
+    .replace(/\braw\s+XML\b/gi, "response contract")
+    .replace(/\braw\s+JSON\b/gi, "response details")
+    .replace(/\brawXml\b/gi, "response details")
+    .replace(/\brawJson\b/gi, "response details")
+    .replace(/\bresponseRef\b/gi, "response")
+    .replace(/\bresponse[-_][A-Za-z0-9_.:-]+\b/gi, "response")
+    .replace(/\bartifactRef\b/gi, "artifact")
+    .replace(/\b(?:workflow-run|beads-form|command):\/\/[^\s]+/gi, "artifact")
     .replace(/\bwebhook\b/gi, "workflow callback")
-    .replace(/\bqueue item\b/gi, "workflow work")
+    .replace(/\bqueue[ _-]?item(?:\s+id)?\b/gi, "workflow work")
+    .replace(/\btrigger(?:\s+id)?\b/gi, "workflow event")
+    .replace(/\bdelivery(?:\s+id)?\b/gi, "message delivery")
+    .replace(/\bexecution\s+process\s+id\b/gi, "workflow process")
+    .replace(/\bprovider diagnostics?\b/gi, "provider status")
+    .replace(/\bHMAC\b/gi, "signature")
+    .replace(/\bWorkflowStepState\b/g, "workflow step")
+    .replace(/\brunReady\b/g, "workflow ready")
     .replace(/\bbd\s+\w+/gi, "workflow tool")
     .replace(/\bgit\s+\w+/gi, "version control action")
     .replace(/\bshell\b/gi, "workflow action")
-    .replace(/\bHMAC\b/g, "signature")
-    .replace(/\bWorkflowStepState\b/g, "workflow step")
-    .replace(/\brunReady\b/g, "workflow ready")
-    .replace(/\brawXml\b/g, "response details")
-    .replace(/\bresponseRef\b/g, "response")
-    .replace(/<decision\b/gi, "decision")
-    .replace(/\/Users\/[^\s]+/g, "local path")
+    .replace(/(?:\/Users|\/tmp|\/private\/var)\/[^\s)]+/g, "local path")
     .slice(0, maxChars);
 }
 
