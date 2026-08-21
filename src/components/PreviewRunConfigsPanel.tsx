@@ -87,6 +87,10 @@ export function PreviewRunConfigsPanel({
     () => runConfigs.filter((runConfig) => runConfig.repo_id === selectedRepoId),
     [runConfigs, selectedRepoId],
   );
+  const matchingRunConfig = useMemo(
+    () => selectedRepoRunConfigs.find((runConfig) => runConfig.slug === runForm.slug.trim()),
+    [runForm.slug, selectedRepoRunConfigs],
+  );
   const hasSelectedRepo = Boolean(selectedRepoId);
 
   async function upsertRunConfig() {
@@ -96,21 +100,23 @@ export function PreviewRunConfigsPanel({
     }
     setMessage(null);
     setError(null);
+    const slug = runForm.slug.trim();
     const response = await fetch(`/internal/preview/workspaces/${encodeURIComponent(workspaceId)}/run-configs`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
+        id: matchingRunConfig?.id,
         repo_id: selectedRepoId,
-        slug: runForm.slug,
+        slug,
         name: runForm.name,
         command: runForm.command,
         kind: runForm.kind,
         enabled: true,
       }),
     });
-    if (!response.ok) throw new Error(await response.text());
+    if (!response.ok) throw new Error(await responseErrorMessage(response, 'Preview run config save failed'));
     const created = await response.json() as RunConfig;
-    setMessage(`Saved run config ${created.slug}`);
+    setMessage(`${matchingRunConfig ? 'Updated' : 'Saved'} run config ${created.slug}`);
     setSlotForm((current) => ({
       ...current,
       runConfigId: created.id,
@@ -138,7 +144,7 @@ export function PreviewRunConfigsPanel({
         enabled: true,
       }),
     });
-    if (!response.ok) throw new Error(await response.text());
+    if (!response.ok) throw new Error(await responseErrorMessage(response, 'Preview slot save failed'));
     const created = await response.json() as PreviewSlot;
     setMessage(`Saved preview slot ${created.slot_slug}`);
     await refresh();
@@ -156,7 +162,7 @@ export function PreviewRunConfigsPanel({
     setMessage(null);
     setError(null);
     const response = await fetch(url, { method: 'POST' });
-    if (!response.ok) throw new Error(await response.text());
+    if (!response.ok) throw new Error(await responseErrorMessage(response, 'Preview action failed'));
     setMessage(successMessage);
     await refresh();
   }
@@ -177,7 +183,7 @@ export function PreviewRunConfigsPanel({
     const response = await fetch(
       `/internal/preview/workspaces/${encodeURIComponent(workspaceId)}/preview-slots/${encodeURIComponent(previewSlotId)}/url?${params}`,
     );
-    if (!response.ok) throw new Error(await response.text());
+    if (!response.ok) throw new Error(await responseErrorMessage(response, 'Preview URL generation failed'));
     const result = await response.json() as { url: string };
     window.open(result.url, '_blank', 'noopener,noreferrer');
     setMessage(result.url);
@@ -224,7 +230,10 @@ export function PreviewRunConfigsPanel({
         </section>
 
         <section className="rounded-lg border border-neutral-800 bg-neutral-900/70 p-4">
-          <h2 className="font-medium">Create stored run config</h2>
+          <h2 className="font-medium">Create or update stored run config</h2>
+          <p className="mt-1 text-sm text-neutral-400">
+            Saving a slug that already exists for the selected repository updates that run config.
+          </p>
           <div className="mt-3 grid gap-3 md:grid-cols-2">
             <TextInput label="Slug" value={runForm.slug} onChange={(slug) => setRunForm((current) => ({ ...current, slug }))} />
             <TextInput label="Name" value={runForm.name} onChange={(name) => setRunForm((current) => ({ ...current, name }))} />
@@ -242,6 +251,11 @@ export function PreviewRunConfigsPanel({
             </label>
           </div>
           <TextArea label="Command" value={runForm.command} onChange={(command) => setRunForm((current) => ({ ...current, command }))} />
+          {matchingRunConfig ? (
+            <p className="mt-2 text-xs text-neutral-500">
+              Saving will update existing run config <code>{matchingRunConfig.id}</code>.
+            </p>
+          ) : null}
           <button
             disabled={!hasSelectedRepo}
             className="mt-3 rounded bg-blue-600 px-3 py-2 text-sm font-medium hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400"
@@ -375,4 +389,17 @@ function formatRepoLabel(repo: RepoWithBranch): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+async function responseErrorMessage(response: Response, fallback: string): Promise<string> {
+  const text = await response.text();
+  if (!text) return fallback;
+  try {
+    const parsed = JSON.parse(text) as { message?: unknown; error?: unknown };
+    if (typeof parsed.message === 'string' && parsed.message) return parsed.message;
+    if (typeof parsed.error === 'string' && parsed.error) return parsed.error;
+  } catch {
+    // Fall through to the plain response body below.
+  }
+  return text;
 }

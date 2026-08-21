@@ -88,6 +88,97 @@ describe('PreviewRunConfigsPanel', () => {
     });
   });
 
+  it('updates an existing run config when saving a matching selected repo and slug', async () => {
+    const requests: Array<{ url: string; init?: RequestInit; body?: unknown }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      requests.push({
+        url,
+        init,
+        body: init?.body ? JSON.parse(String(init.body)) : undefined,
+      });
+
+      if (url === '/internal/preview/workspaces/ws-update/repos') {
+        return jsonResponse([
+          { id: 'repo-alpha', name: 'alpha', display_name: 'Alpha App', target_branch: 'main' },
+        ]);
+      }
+      if (url === '/internal/preview/workspaces/ws-update/run-configs' && init?.method === 'POST') {
+        return jsonResponse({
+          id: 'rc-existing',
+          ...(init.body ? JSON.parse(String(init.body)) : {}),
+          created_at: '',
+          updated_at: '',
+        });
+      }
+      if (url === '/internal/preview/workspaces/ws-update/run-configs') {
+        return jsonResponse({
+          run_configs: [
+            {
+              id: 'rc-existing',
+              repo_id: 'repo-alpha',
+              slug: 'web',
+              name: 'Original Web',
+              command: 'npm run dev',
+              kind: 'long_running',
+              enabled: true,
+              created_at: '',
+              updated_at: '',
+            },
+          ],
+          preview_slots: [],
+          preview_url_parts: [],
+        });
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    }));
+
+    render(React.createElement(PreviewRunConfigsPanel, { workspaceId: 'ws-update' }));
+
+    await screen.findByText('Original Web');
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Updated Web' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save run config' }));
+
+    await waitFor(() => {
+      expect(requests).toContainEqual(expect.objectContaining({
+        url: '/internal/preview/workspaces/ws-update/run-configs',
+        init: expect.objectContaining({ method: 'POST' }),
+        body: expect.objectContaining({
+          id: 'rc-existing',
+          repo_id: 'repo-alpha',
+          slug: 'web',
+          name: 'Updated Web',
+        }),
+      }));
+    });
+  });
+
+  it('shows a readable error when the backend rejects a duplicate run config save', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === '/internal/preview/workspaces/ws-duplicate/repos') {
+        return jsonResponse([
+          { id: 'repo-alpha', name: 'alpha', display_name: 'Alpha App', target_branch: 'main' },
+        ]);
+      }
+      if (url === '/internal/preview/workspaces/ws-duplicate/run-configs' && init?.method === 'POST') {
+        return jsonResponse({ message: 'Run config slug web already exists.' }, 409);
+      }
+      if (url === '/internal/preview/workspaces/ws-duplicate/run-configs') {
+        return jsonResponse({ run_configs: [], preview_slots: [], preview_url_parts: [] });
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    }));
+
+    render(React.createElement(PreviewRunConfigsPanel, { workspaceId: 'ws-duplicate' }));
+
+    await screen.findByText(/Using repo ID/);
+    fireEvent.click(screen.getByRole('button', { name: 'Save run config' }));
+
+    expect(await screen.findByText('Run config slug web already exists.')).toBeTruthy();
+    expect(screen.queryByText(/"message"/)).toBeNull();
+  });
+
   it('shows a clear empty state and disables creation when the workspace has no repos', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
@@ -106,9 +197,9 @@ describe('PreviewRunConfigsPanel', () => {
   });
 });
 
-function jsonResponse(body: unknown): Response {
+function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
-    status: 200,
+    status,
     headers: { 'content-type': 'application/json' },
   });
 }
