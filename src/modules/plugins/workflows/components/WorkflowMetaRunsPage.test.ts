@@ -116,17 +116,21 @@ describe("WorkflowMetaRunsView", () => {
     expect(html).toContain("Review queue summary");
     expect(html).toContain("Monitor meta-workflows");
     expect(html).toContain("A completed via workflow action");
-    expect(html).toContain("[redacted-home]");
+    expect(html).toContain("[redacted-path]");
     expect(html).toContain("workflow update");
     expect(html).toContain("workflow item");
     expect(html).toContain("workflow step");
     expect(html).toContain("workflow wakeup");
     expect(html).toContain('/dashboard/workflows/child-b');
+    expect(html).toContain("Meta-workflow progress overview");
+    expect(html).toContain("Current item");
+    expect(html).toContain("Meta-workflow item progress");
+    expect(html).toContain("Open child run story");
     expect(html).toContain("Pause");
     expect(html).toContain("Resume");
     expect(html).toContain("workflow action");
     expect(html).toContain("version control action");
-    expect(html).toContain("[redacted-home]");
+    expect(html).toContain("[redacted-path]");
     const rendered = JSON.stringify(html);
     expect(rendered).not.toContain("bd show");
     expect(rendered).not.toContain("shell");
@@ -134,6 +138,8 @@ describe("WorkflowMetaRunsView", () => {
     expect(rendered).not.toContain("webhook");
     expect(rendered).not.toContain("queue item");
     expect(rendered).not.toContain("/Users/");
+    expect(rendered).not.toContain("/tmp/");
+    expect(rendered).not.toContain("/private/var/");
     expect(rendered).not.toContain("WorkflowStepState");
     expect(rendered).not.toContain("runReady");
   });
@@ -175,5 +181,46 @@ describe("WorkflowMetaRunsView", () => {
     expect(html).toContain("Payload includes only bead ids in order, workspace id, and the pinned child workflow/version.");
     expect(html).toContain("Confirm and start");
   });
+
+  it("renders empty meta-run monitoring safely and preserves route context for child run links", () => {
+    const routeParams = new URLSearchParams("workspaceId=workspace-a&voyage=v1");
+    const props = {
+      workspaceId: "workspace-a",
+      workflows: [workflow],
+      runs: [run],
+      beads: [],
+      selected: [],
+      query: "",
+      scope: "current_workspace" as const,
+      childWorkflowId: "design-child",
+      unavailableReason: null,
+      status: null,
+      error: null,
+      loading: false,
+      duplicateIds: [],
+      invalidSelected: [],
+      canStart: false,
+      setQuery: vi.fn(),
+      setScope: vi.fn(),
+      setChildWorkflowId: vi.fn(),
+      addBead: vi.fn(),
+      removeBead: vi.fn(),
+      moveBead: vi.fn(),
+      onSearch: vi.fn(),
+      onReviewStart: vi.fn(),
+      onConfirmStart: vi.fn(),
+      onRefresh: vi.fn(),
+      onPause: vi.fn(),
+      onResume: vi.fn(),
+      routeParams,
+    };
+    const html = renderToStaticMarkup(React.createElement(WorkflowMetaRunsView, props));
+    expect(html).toContain('/dashboard/workflows/child-a?workspaceId=workspace-a&amp;voyage=v1');
+
+    const emptyHtml = renderToStaticMarkup(React.createElement(WorkflowMetaRunsView, { ...props, runs: [] }));
+    expect(emptyHtml).toContain('No meta-workflows yet.');
+    expect(emptyHtml).toContain('No beads found for this filter.');
+  });
+
 
 });
