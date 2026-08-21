@@ -23,7 +23,12 @@ type DesignDirection =
   | 'enterprise';
 
 type ColorScheme = 'direction' | DesignDirection;
-type FontStyle = 'interfaceSans' | 'terminalMono' | 'compactSans' | 'largeDisplay';
+type FontStyle =
+  | 'interfaceSans'
+  | 'ibmPlexSans'
+  | 'terminalMono'
+  | 'compactSans'
+  | 'largeDisplay';
 
 type DashboardConceptArgs = {
   direction: DesignDirection;
@@ -34,7 +39,9 @@ type DashboardConceptArgs = {
   subtitle: string;
 };
 
-type DashboardConceptTheme = Record<string, string>;
+type DashboardConceptTheme = Record<string, string> & {
+  pageStyle?: string;
+};
 
 const focusCards: FocusCard[] = [
   {
@@ -108,7 +115,13 @@ const meta: Meta<typeof DashboardConcept> = {
     },
     fontStyle: {
       control: 'select',
-      options: ['interfaceSans', 'terminalMono', 'compactSans', 'largeDisplay'],
+      options: [
+        'interfaceSans',
+        'ibmPlexSans',
+        'terminalMono',
+        'compactSans',
+        'largeDisplay',
+      ],
       description: 'Preview the dashboard concept with alternate typography styles.',
     },
     direction: {
@@ -356,7 +369,10 @@ function DashboardConcept({
   const theme = applyFontStyle(getTheme(resolvedScheme), fontStyle);
 
   return (
-    <main className={theme.page}>
+    <main
+      className={theme.page}
+      style={theme.pageStyle ? { fontFamily: theme.pageStyle } : undefined}
+    >
       <div className={theme.backdrop} />
       <section className={theme.shell}>
         <header className={theme.header}>
@@ -1738,7 +1754,12 @@ function MobileModernDarkConstellationConcept() {
 
 function MobileModernDarkPurpleCardsConcept() {
   return (
-    <main className="h-[100dvh] overflow-y-auto overflow-x-hidden bg-[#050506] text-[#F4F1FF]">
+    <main
+      className="h-[100dvh] overflow-y-auto overflow-x-hidden bg-[#050506] text-[#F4F1FF]"
+      style={{
+        fontFamily: 'IBM Plex Sans, "Noto Emoji", sans-serif',
+      }}
+    >
       <section className="mx-auto min-h-[100dvh] max-w-[430px] px-4 pb-7 pt-[calc(1rem+env(safe-area-inset-top))]">
         <header className="flex items-center justify-between gap-3">
           <div>
@@ -2072,6 +2093,10 @@ function applyFontStyle(
   const fontStyles: Record<FontStyle, Record<string, string>> = {
     interfaceSans: {
       page: `${theme.page} font-sans`,
+    },
+    ibmPlexSans: {
+      page: `${theme.page} font-sans`,
+      pageStyle: 'IBM Plex Sans, "Noto Emoji", sans-serif',
     },
     terminalMono: {
       page: `${theme.page} font-mono`,
