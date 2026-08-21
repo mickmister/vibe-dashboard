@@ -29,6 +29,7 @@ type FontStyle =
   | 'terminalMono'
   | 'compactSans'
   | 'largeDisplay';
+type MobileFontFamily = 'previous' | 'ibmPlexSans';
 
 type DashboardConceptArgs = {
   direction: DesignDirection;
@@ -37,6 +38,7 @@ type DashboardConceptArgs = {
   eyebrow: string;
   title: string;
   subtitle: string;
+  mobileFontFamily?: MobileFontFamily;
 };
 
 type DashboardConceptTheme = Record<string, string> & {
@@ -139,6 +141,11 @@ const meta: Meta<typeof DashboardConcept> = {
     },
     subtitle: {
       control: 'text',
+    },
+    mobileFontFamily: {
+      table: {
+        disable: true,
+      },
     },
   },
   parameters: {
@@ -333,10 +340,25 @@ export const MobileModernDarkConstellation: Story = {
 export const MobileModernDarkPurpleCards: Story = {
   parameters: {
     controls: {
-      disable: true,
+      include: ['mobileFontFamily'],
     },
   },
-  render: () => <MobileModernDarkPurpleCardsConcept />,
+  args: {
+    mobileFontFamily: 'ibmPlexSans',
+  },
+  argTypes: {
+    mobileFontFamily: {
+      control: 'radio',
+      options: ['previous', 'ibmPlexSans'],
+      description:
+        'Compare the previous app font stack against IBM Plex Sans with Noto Emoji fallback.',
+    },
+  },
+  render: (args) => (
+    <MobileModernDarkPurpleCardsConcept
+      mobileFontFamily={args.mobileFontFamily ?? 'ibmPlexSans'}
+    />
+  ),
 };
 
 export const MobileEnterpriseLightOps: Story = {
@@ -1752,13 +1774,20 @@ function MobileModernDarkConstellationConcept() {
   );
 }
 
-function MobileModernDarkPurpleCardsConcept() {
+function MobileModernDarkPurpleCardsConcept({
+  mobileFontFamily = 'ibmPlexSans',
+}: {
+  mobileFontFamily?: MobileFontFamily;
+}) {
+  const fontFamilyStyle =
+    mobileFontFamily === 'ibmPlexSans'
+      ? { fontFamily: 'IBM Plex Sans, "Noto Emoji", sans-serif' }
+      : undefined;
+
   return (
     <main
       className="h-[100dvh] overflow-y-auto overflow-x-hidden bg-[#050506] text-[#F4F1FF]"
-      style={{
-        fontFamily: 'IBM Plex Sans, "Noto Emoji", sans-serif',
-      }}
+      style={fontFamilyStyle}
     >
       <section className="mx-auto min-h-[100dvh] max-w-[430px] px-4 pb-7 pt-[calc(1rem+env(safe-area-inset-top))]">
         <header className="flex items-center justify-between gap-3">
