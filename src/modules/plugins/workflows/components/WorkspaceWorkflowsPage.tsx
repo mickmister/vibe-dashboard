@@ -147,13 +147,13 @@ export function WorkspaceWorkflowsHomeView({
           <div className="flex flex-wrap gap-2">
             <a
               className="rounded-md border border-zinc-700 px-3 py-2 text-sm text-zinc-100 hover:bg-zinc-800"
-              href={workflowRouteHref("/dashboard/workflows/roadmap", routeParams)}
+              href={workflowRouteHref("/dashboard/workflows/roadmap", routeParams, { workspaceId: home?.workspaceId ?? null })}
             >
-              View roadmap
+              Choose beads
             </a>
             <a
               className="rounded-md border border-zinc-700 px-3 py-2 text-sm text-zinc-100 hover:bg-zinc-800"
-              href={workflowRouteHref("/dashboard/workflows/library", routeParams)}
+              href={workflowRouteHref("/dashboard/workflows/library", routeParams, { workspaceId: home?.workspaceId ?? null })}
             >
               Library
             </a>
@@ -240,35 +240,62 @@ export function WorkspaceWorkflowsHomeView({
       ) : null}
 
       <Section
-        title={home?.workspaceId ? "Workspace lanes" : "Workspace lanes"}
-        description="Optional isolated lanes for workflow and bead work. Host paths stay hidden; lane capacity explains when write work can start."
+        title="Start work"
+        description="Choose the next work mode: create a workflow, run one workflow, run over beads, or queue a Batch run."
       >
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <p className="text-sm text-zinc-400">
-            {home?.lanes?.nextAction ??
-              "Create a lane when isolated workflow work is needed."}
-          </p>
-          <button
-            type="button"
-            className="rounded-md border border-cyan-700 px-3 py-2 text-sm text-cyan-100 hover:bg-cyan-950/40"
-            onClick={() => setShowCreateLane(true)}
-            disabled={!home?.workspaceId}
-          >
-            {home?.workspaceId ? "Create lane" : "Choose workspace to create lane"}
-          </button>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <ActionCard
+            title="Create workflow"
+            description="Start blank, copy a Starter template, or duplicate one of Your workflows."
+            href={workflowRouteHref("/dashboard/workflows/new", routeParams, {
+              workspaceId: home?.workspaceId ?? null,
+            })}
+            cta="Create workflow"
+            primary
+          />
+          <ActionCard
+            title="Run existing workflow"
+            description={
+              home?.workspaceId
+                ? "Pick a published workflow below and launch it in this workspace."
+                : "Choose a workspace before launching a workflow."
+            }
+            anchor="manage-workflows"
+            cta={home?.workspaceId ? "Choose workflow" : "Choose workspace first"}
+            disabled={!home?.workspaceId || !home?.userWorkflows.some((workflow) => workflow.canRun)}
+          />
+          {home?.workspaceId ? (
+            <ActionCard
+              title="Run over beads"
+              description="Choose beads and start a sequential meta-workflow for this workspace."
+              href={workflowRouteHref("/dashboard/workflows/meta-runs", routeParams, {
+                workspaceId: home.workspaceId,
+              })}
+              cta="Choose beads"
+            />
+          ) : (
+            <ActionCard
+              title="Run over beads"
+              description="Choose a workspace before starting a meta-workflow over beads."
+              cta="Choose workspace first"
+              disabled
+            />
+          )}
+          <ActionCard
+            title="Batch run"
+            description={
+              home?.workspaceId
+                ? "Use Batch run on a workflow card to queue multiple inputs."
+                : "Choose a workspace before queueing a Batch run."
+            }
+            anchor="manage-workflows"
+            cta={home?.workspaceId ? "Find workflow" : "Choose workspace first"}
+            disabled={!home?.workspaceId || !home?.userWorkflows.some((workflow) => workflow.canRun)}
+          />
         </div>
-        {home?.lanes?.lanes.length ? (
-          <div className="grid gap-3 md:grid-cols-2">
-            {home.lanes.lanes.map((lane) => (
-              <LaneCard key={lane.laneId} lane={lane} />
-            ))}
-          </div>
-        ) : (
-          <EmptyState text="No isolated workflow lanes yet." />
-        )}
       </Section>
 
-      <Section title="Needs your input">
+      <Section title="Needs attention" description="Things waiting on you or blocked before work can continue.">
         {home?.needsInput.length ? (
           <div className="grid gap-3 md:grid-cols-2">
             {home.needsInput.map((item) => (
@@ -276,91 +303,180 @@ export function WorkspaceWorkflowsHomeView({
             ))}
           </div>
         ) : (
-          <EmptyState text="Nothing needs your input right now." />
+          <EmptyState text="Nothing needs your attention right now." />
         )}
       </Section>
 
       <Section
-        title="Active runs"
-        description={home?.workspaceId ? "Runs currently moving, waiting for someone, or needing attention in this workspace." : "Runs currently moving, waiting, or completed across all workspaces."}
+        title="In progress"
+        description={home?.workspaceId ? "Runs currently moving, waiting for someone, or needing attention in this workspace." : "Runs currently moving, waiting, or recently finished across all workspaces."}
       >
-        {activeRuns.length ? (
-          <div className="space-y-3">
-            {activeRuns.map((run) => (
-              <ActiveRunRow key={run.runId} run={run} showWorkspace={isGlobalHome} />
-            ))}
+        <div className="space-y-5">
+          <div>
+            <h3 className="text-sm font-medium text-zinc-200">Active workflow runs</h3>
+            <div className="mt-3">
+              {activeRuns.length ? (
+                <div className="space-y-3">
+                  {activeRuns.map((run) => (
+                    <ActiveRunRow key={run.runId} run={run} showWorkspace={isGlobalHome} />
+                  ))}
+                </div>
+              ) : (
+                <EmptyState text="No active workflow runs right now. Start a workflow or open a recent run to review history." />
+              )}
+            </div>
           </div>
-        ) : (
-          <EmptyState text="No active workflow runs right now. Start a workflow or open a recent run to review history." />
-        )}
+          <div>
+            <h3 className="text-sm font-medium text-zinc-200">Recent runs</h3>
+            <div className="mt-3">
+              {home?.recentRuns.length ? (
+                <div className="space-y-3">
+                  {home.recentRuns.map((run) => (
+                    <RunRow key={run.runId} run={run} showWorkspace={isGlobalHome} />
+                  ))}
+                </div>
+              ) : (
+                <EmptyState text={home?.workspaceId ? "No workflow runs in this workspace yet." : "No workflow runs are available yet."} />
+              )}
+            </div>
+          </div>
+          <div>
+            <h3 className="text-sm font-medium text-zinc-200">Recent Batch runs</h3>
+            <div className="mt-3">
+              {home?.recentBatches.length ? (
+                <div className="space-y-3">
+                  {home.recentBatches.map((batch) => (
+                    <BatchRow key={batch.batchId} batch={batch} />
+                  ))}
+                </div>
+              ) : (
+                <EmptyState text={home?.workspaceId ? "No Batch runs in this workspace yet." : "No Batch runs are available yet."} />
+              )}
+            </div>
+          </div>
+        </div>
       </Section>
 
       <Section
-        title="Your workflows"
-        description="Designs you have created, copied, customized, or published."
+        title="Manage workflows"
+        description="Run, duplicate, edit, publish, and manage reusable workflow assets."
       >
-        {home?.userWorkflows.length ? (
-          <div className="grid gap-3 md:grid-cols-2">
-            {home.userWorkflows.map((workflow) => (
-              <WorkflowCard
-                key={`user:${workflow.id}`}
-                workflow={workflow}
-                workspaceId={home.workspaceId ?? ""}
-                onRun={() => setLaunchWorkflow(workflow)}
-                onBatch={() => setBatchWorkflow(workflow)}
-                onUsed={(updated) => onHomeUpdated?.(updated)}
-              />
-            ))}
+        <div id="manage-workflows" className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+          <div>
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div>
+                <h3 className="font-semibold text-zinc-100">Your workflows</h3>
+                <p className="mt-1 text-sm text-zinc-400">Drafts and published versions you can run, edit, or duplicate.</p>
+              </div>
+              <a
+                className="rounded-md border border-zinc-700 px-3 py-2 text-sm text-zinc-100 hover:bg-zinc-800"
+                href={workflowRouteHref("/dashboard/workflows/library", routeParams)}
+              >
+                Library
+              </a>
+            </div>
+            {home?.userWorkflows.length ? (
+              <div className="grid gap-3">
+                {home.userWorkflows.map((workflow) => (
+                  <WorkflowCard
+                    key={`user:${workflow.id}`}
+                    workflow={workflow}
+                    workspaceId={home.workspaceId ?? ""}
+                    routeParams={routeParams}
+                    onRun={() => setLaunchWorkflow(workflow)}
+                    onBatch={() => setBatchWorkflow(workflow)}
+                    onUsed={(updated) => onHomeUpdated?.(updated)}
+                  />
+                ))}
+              </div>
+            ) : (
+              <EmptyState text="No workflows yet. Create a copy from a Starter template or create an empty draft." />
+            )}
           </div>
-        ) : (
-          <EmptyState text="No workflows yet. Create a copy from a starter template to make your first workflow." />
-        )}
+          <div>
+            <h3 className="font-semibold text-zinc-100">Starter templates</h3>
+            <p className="mt-1 text-sm text-zinc-400">Immutable starting points. Create a copy before editing or running.</p>
+            <div className="mt-3">
+              {home?.starterTemplates.length ? (
+                <div className="grid gap-3">
+                  {home.starterTemplates.map((workflow) => (
+                    <WorkflowCard
+                      key={`starter:${workflow.id}`}
+                      workflow={workflow}
+                      workspaceId={home.workspaceId ?? ""}
+                      routeParams={routeParams}
+                      onRun={() => setLaunchWorkflow(workflow)}
+                      onBatch={() => setBatchWorkflow(workflow)}
+                      onUsed={(updated) => onHomeUpdated?.(updated)}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <EmptyState text="No Starter templates are available right now." />
+              )}
+            </div>
+          </div>
+        </div>
       </Section>
 
       <Section
-        title="Starter templates"
-        description="Starting points you can copy and customize before running."
+        title="Advanced/admin"
+        description="Secondary workflow tools for roadmap planning, isolated lanes, and diagnostics."
       >
-        {home?.starterTemplates.length ? (
-          <div className="grid gap-3 md:grid-cols-2">
-            {home.starterTemplates.map((workflow) => (
-              <WorkflowCard
-                key={`starter:${workflow.id}`}
-                workflow={workflow}
-                workspaceId={home.workspaceId ?? ""}
-                onRun={() => setLaunchWorkflow(workflow)}
-                onBatch={() => setBatchWorkflow(workflow)}
-                onUsed={(updated) => onHomeUpdated?.(updated)}
-              />
-            ))}
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+          <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-4">
+            <h3 className="font-semibold text-zinc-100">Run over beads / roadmap</h3>
+            <p className="mt-2 text-sm text-zinc-400">Use the roadmap to choose beads, then start a meta-workflow from the supported workspace route.</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <a
+                className="rounded-md border border-zinc-700 px-3 py-2 text-sm text-zinc-100 hover:bg-zinc-800"
+                href={workflowRouteHref("/dashboard/workflows/roadmap", routeParams, { workspaceId: home?.workspaceId ?? null })}
+              >
+                Choose beads on roadmap
+              </a>
+              {home?.workspaceId ? (
+                <a
+                  className="rounded-md border border-zinc-700 px-3 py-2 text-sm text-zinc-100 hover:bg-zinc-800"
+                  href={workflowRouteHref("/dashboard/workflows/meta-runs", routeParams, { workspaceId: home.workspaceId })}
+                >
+                  Meta-workflows
+                </a>
+              ) : (
+                <span className="rounded-md border border-zinc-800 px-3 py-2 text-sm text-zinc-500">Choose workspace for meta-workflows</span>
+              )}
+            </div>
           </div>
-        ) : (
-          <EmptyState text="No starter templates are available right now." />
-        )}
-      </Section>
-
-      <Section title="Recent batches">
-        {home?.recentBatches.length ? (
-          <div className="space-y-3">
-            {home.recentBatches.map((batch) => (
-              <BatchRow key={batch.batchId} batch={batch} />
-            ))}
+          <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="font-semibold text-zinc-100">Workspace lanes</h3>
+                <p className="mt-2 text-sm text-zinc-400">Optional isolated lanes for workflow and bead work. Host paths stay hidden; lane capacity explains when write work can start.</p>
+              </div>
+              <button
+                type="button"
+                className="rounded-md border border-cyan-700 px-3 py-2 text-sm text-cyan-100 hover:bg-cyan-950/40 disabled:cursor-not-allowed disabled:opacity-50"
+                onClick={() => setShowCreateLane(true)}
+                disabled={!home?.workspaceId}
+              >
+                {home?.workspaceId ? "Create lane" : "Choose workspace to create lane"}
+              </button>
+            </div>
+            <p className="mt-3 text-sm text-zinc-400">
+              {home?.lanes?.nextAction ?? "Create a lane when isolated workflow work is needed."}
+            </p>
+            <div className="mt-3">
+              {home?.lanes?.lanes.length ? (
+                <div className="grid gap-3">
+                  {home.lanes.lanes.map((lane) => (
+                    <LaneCard key={lane.laneId} lane={lane} />
+                  ))}
+                </div>
+              ) : (
+                <EmptyState text="No isolated workflow lanes yet." />
+              )}
+            </div>
           </div>
-        ) : (
-          <EmptyState text="No workflow batches in this workspace yet." />
-        )}
-      </Section>
-
-      <Section title="Recent runs">
-        {home?.recentRuns.length ? (
-          <div className="space-y-3">
-            {home.recentRuns.map((run) => (
-              <RunRow key={run.runId} run={run} showWorkspace={isGlobalHome} />
-            ))}
-          </div>
-        ) : (
-          <EmptyState text="No workflow runs in this workspace yet." />
-        )}
+        </div>
       </Section>
       {home && launchWorkflow ? (
         <RunWorkflowDialog
@@ -396,6 +512,52 @@ export function WorkspaceWorkflowsHomeView({
       ) : null}
     </StandaloneDashboardPage>
   );
+}
+
+
+function ActionCard({
+  title,
+  description,
+  cta,
+  href,
+  anchor,
+  disabled = false,
+  primary = false,
+}: {
+  title: string;
+  description: string;
+  cta: string;
+  href?: string;
+  anchor?: string;
+  disabled?: boolean;
+  primary?: boolean;
+}): React.ReactElement {
+  const className = primary
+    ? "rounded-lg border border-cyan-700 bg-cyan-950/30 p-4"
+    : "rounded-lg border border-zinc-800 bg-zinc-950 p-4";
+  const ctaClass = primary
+    ? "mt-4 inline-flex rounded-md bg-cyan-500 px-3 py-2 text-sm font-medium text-zinc-950 hover:bg-cyan-400"
+    : "mt-4 inline-flex rounded-md border border-zinc-700 px-3 py-2 text-sm text-zinc-100 hover:bg-zinc-800";
+  const body = (
+    <>
+      <h3 className="font-semibold text-zinc-100">{title}</h3>
+      <p className="mt-2 text-sm text-zinc-400">{description}</p>
+      {disabled ? (
+        <span className="mt-4 inline-flex rounded-md border border-zinc-800 px-3 py-2 text-sm text-zinc-500">
+          {cta}
+        </span>
+      ) : href ? (
+        <a className={ctaClass} href={href}>
+          {cta}
+        </a>
+      ) : anchor ? (
+        <a className={ctaClass} href={`#${anchor}`}>
+          {cta}
+        </a>
+      ) : null}
+    </>
+  );
+  return <article className={className}>{body}</article>;
 }
 
 function WorkflowBrowserNotificationControl({
@@ -587,12 +749,14 @@ function Section({
 function WorkflowCard({
   workflow,
   workspaceId,
+  routeParams,
   onRun,
   onBatch,
   onUsed,
 }: {
   workflow: WorkspaceWorkflowSummary;
   workspaceId: string | null;
+  routeParams?: URLSearchParams;
   onRun: () => void;
   onBatch: () => void;
   onUsed?: (home: WorkspaceWorkflowsHomeModel) => void;
@@ -678,12 +842,24 @@ function WorkflowCard({
           </button>
         ) : null}
         {workflow.source === "published_design" ? (
-          <a
-            className="rounded-md border border-zinc-700 px-3 py-2 text-sm hover:bg-zinc-800"
-            href={workflowRouteHref(`/dashboard/workflows/editor/${encodeURIComponent(workflow.id)}`, undefined, { workspaceId: workspaceId ?? null })}
-          >
-            Edit
-          </a>
+          <>
+            <a
+              className="rounded-md border border-zinc-700 px-3 py-2 text-sm hover:bg-zinc-800"
+              href={workflowRouteHref("/dashboard/workflows/new", routeParams, {
+                workspaceId: workspaceId ?? null,
+                sourceMode: "duplicate",
+                sourceId: workflow.id,
+              })}
+            >
+              Duplicate
+            </a>
+            <a
+              className="rounded-md border border-zinc-700 px-3 py-2 text-sm hover:bg-zinc-800"
+              href={workflowRouteHref(`/dashboard/workflows/editor/${encodeURIComponent(workflow.id)}`, routeParams, { workspaceId: workspaceId ?? null })}
+            >
+              Edit
+            </a>
+          </>
         ) : null}
       </div>
     </article>

@@ -39,18 +39,18 @@ describe("WorkspaceWorkflowsHomeView", () => {
     expect(html).toContain("workspace-a");
     expect(html).toContain("Workflows");
     expect(html).toContain("Create workflow");
-    expect(html).toContain("View roadmap");
+    expect(html).toContain("Choose beads");
     expect(html).toContain("Library");
-    expect(html).toContain('href="/dashboard/workflows/roadmap"');
-    expect(html).toContain('href="/dashboard/workflows/library"');
+    expect(html).toContain('href="/dashboard/workflows/roadmap?workspaceId=workspace-a"');
+    expect(html).toContain('href="/dashboard/workflows/library?workspaceId=workspace-a"');
     expect(html).toContain(
       'href="/dashboard/workflows/new?workspaceId=workspace-a"',
     );
     expect(html).toContain("Your workflows");
     expect(html).toContain("Starter templates");
-    expect(html).toContain("Recent batches");
+    expect(html).toContain("Recent Batch runs");
     expect(html).toContain("Recent runs");
-    expect(html).toContain("Needs your input");
+    expect(html).toContain("Needs attention");
     expect(html).toContain("Workspace lanes");
     expect(html).toContain("Feature lane");
     expect(html).toContain("Ready for isolated workflow work.");
@@ -73,7 +73,9 @@ describe("WorkspaceWorkflowsHomeView", () => {
     expect(html).toContain("Run");
     expect(html).toContain("Batch run");
     expect(html).toContain("Create copy");
+    expect(html).toContain("Duplicate");
     expect(html).toContain("Edit");
+    expect(html).toContain('href="/dashboard/workflows/new?workspaceId=workspace-a&amp;sourceMode=duplicate&amp;sourceId=design-drt"');
     expect(html).toContain('href="/dashboard/workflows/editor/design-drt?workspaceId=workspace-a"');
     expect(html).toContain("Starter template");
     expect(html).toContain("Create form from agent");
@@ -110,12 +112,12 @@ describe("WorkspaceWorkflowsHomeView", () => {
       }),
     );
     expect(html).toContain(
-      "No workflows yet. Create a copy from a starter template to make your first workflow.",
+      "No workflows yet. Create a copy from a Starter template or create an empty draft.",
     );
-    expect(html).toContain("No starter templates are available right now.");
-    expect(html).toContain("No workflow batches in this workspace yet.");
+    expect(html).toContain("No Starter templates are available right now.");
+    expect(html).toContain("No Batch runs in this workspace yet.");
     expect(html).toContain("No workflow runs in this workspace yet.");
-    expect(html).toContain("Nothing needs your input right now.");
+    expect(html).toContain("Nothing needs your attention right now.");
     expect(html).toContain(
       "No active workflow runs right now. Start a workflow or open a recent run to review history.",
     );

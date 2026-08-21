@@ -22,7 +22,14 @@ export function WorkflowCreationWizardPage(): React.ReactElement {
     if (!workspaceId) return;
     fetchWorkspaceWorkflowsHome(workspaceId).then(setHome).catch((error) => setLoadError(error instanceof Error ? error.message : String(error)));
   }, [workspaceId]);
-  return <WorkflowCreationWizardView workspaceId={workspaceId} userWorkflows={home?.userWorkflows ?? []} starterTemplates={home?.starterTemplates ?? []} loadError={loadError} />;
+  const sourceMode = params.get('sourceMode');
+  const sourceId = params.get('sourceId');
+  const initial = sourceMode === 'duplicate' && sourceId
+    ? { ...initialDraft, sourceMode: 'duplicate' as const, sourceId }
+    : sourceMode === 'starter' && sourceId
+      ? { ...initialDraft, sourceMode: 'starter' as const, sourceId }
+      : undefined;
+  return <WorkflowCreationWizardView workspaceId={workspaceId} userWorkflows={home?.userWorkflows ?? []} starterTemplates={home?.starterTemplates ?? []} loadError={loadError} initialDraft={initial} />;
 }
 
 export function WorkflowCreationWizardView({ workspaceId, userWorkflows, starterTemplates, loadError, initialDraft: initialDraftOverride }: { workspaceId: string; userWorkflows: WorkspaceWorkflowSummary[]; starterTemplates: WorkspaceWorkflowSummary[]; loadError?: string | null; initialDraft?: WorkflowWizardDraft }): React.ReactElement {
@@ -35,6 +42,15 @@ export function WorkflowCreationWizardView({ workspaceId, userWorkflows, starter
   const selectedStarter = starterTemplates.find((item) => item.id === draft.sourceId);
   const selectedExisting = userWorkflows.find((item) => item.id === draft.sourceId);
   const selectedSource = selectedStarter ?? selectedExisting;
+  useEffect(() => {
+    if (!selectedSource) return;
+    if (draft.name !== initialDraft.name) return;
+    setDraft((current) => ({
+      ...current,
+      name: `${selectedSource.title} copy`,
+      purpose: selectedSource.description ?? current.purpose,
+    }));
+  }, [selectedSource?.id]);
   const canPublishFromWizard = draft.sourceMode !== 'blank';
 
   const update = <K extends keyof WorkflowWizardDraft>(key: K, value: WorkflowWizardDraft[K]) => setDraft((current) => ({ ...current, [key]: value }));
