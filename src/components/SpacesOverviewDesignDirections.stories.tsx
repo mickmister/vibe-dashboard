@@ -317,6 +317,15 @@ export const MobileModernDarkConstellation: Story = {
   render: () => <MobileModernDarkConstellationConcept />,
 };
 
+export const MobileModernDarkPurpleCards: Story = {
+  parameters: {
+    controls: {
+      disable: true,
+    },
+  },
+  render: () => <MobileModernDarkPurpleCardsConcept />,
+};
+
 export const MobileEnterpriseLightOps: Story = {
   parameters: {
     controls: {
@@ -1720,6 +1729,94 @@ function MobileModernDarkConstellationConcept() {
         </section>
 
         <button className="mt-5 min-h-12 w-full rounded-lg bg-[#5E6AD2] text-sm font-semibold text-white">
+          New Voyage
+        </button>
+      </section>
+    </main>
+  );
+}
+
+function MobileModernDarkPurpleCardsConcept() {
+  return (
+    <main className="h-[100dvh] overflow-y-auto overflow-x-hidden bg-[#050506] text-[#F4F1FF]">
+      <section className="mx-auto min-h-[100dvh] max-w-[430px] px-4 pb-7 pt-[calc(1rem+env(safe-area-inset-top))]">
+        <header className="flex items-center justify-between gap-3">
+          <div>
+            <p className="font-mono text-xs tracking-[0.18em] text-[#A59BC8]">
+              BENTO
+            </p>
+            <h1 className="mt-2 text-4xl font-semibold tracking-[-0.055em]">
+              Work map
+            </h1>
+          </div>
+          <button className="min-h-11 rounded-lg border border-[#4B3A76] bg-[#211735] px-4 text-sm text-[#F4F1FF]">
+            Go Home
+          </button>
+        </header>
+
+        <section className="mt-5 rounded-2xl border border-[#6F58A8] bg-[#211735] p-5 shadow-[0_18px_44px_rgba(0,0,0,0.34)]">
+          <p className="text-sm text-[#C4B8E8]">Current launch</p>
+          <h2 className="mt-4 text-3xl font-semibold tracking-[-0.05em]">
+            Resume without widening scope
+          </h2>
+          <div className="mt-5 flex flex-wrap gap-2">
+            {['Auth bug fix', 'Approval', 'CI running'].map((item) => (
+              <span
+                key={item}
+                className="rounded-full border border-[#7D65BA] bg-[#2B1F43] px-3 py-2 text-xs text-[#EEE8FF]"
+              >
+                {item}
+              </span>
+            ))}
+          </div>
+        </section>
+
+        <section className="mt-4 grid grid-cols-2 gap-3">
+          {[
+            ['Needs', '3', 'approval queue'],
+            ['Servers', '2', 'ready to open'],
+            ['Views', '5', 'saved filters'],
+            ['Workflows', '3', 'runs and forms'],
+          ].map(([label, value, detail]) => (
+            <article
+              key={label}
+              className="rounded-2xl border border-[#594584] bg-[#1B132C] p-4 shadow-[0_10px_26px_rgba(0,0,0,0.24)]"
+            >
+              <p className="text-xs text-[#B8ABD9]">{label}</p>
+              <p className="mt-3 font-mono text-3xl font-semibold text-[#F7F2FF]">
+                {value}
+              </p>
+              <p className="mt-1 text-xs text-[#B8ABD9]">{detail}</p>
+            </article>
+          ))}
+        </section>
+
+        <section className="mt-5">
+          <div className="flex items-center justify-between text-xs text-[#A59BC8]">
+            <span>Priority work</span>
+            <span>sorted</span>
+          </div>
+          <div className="mt-3 divide-y divide-[#3A2B5D] rounded-2xl border border-[#4B3A76] bg-[#171024]">
+            {workItems.map((item) => (
+              <button
+                key={item.title}
+                className="flex min-h-16 w-full items-center justify-between gap-4 px-4 py-3 text-left"
+              >
+                <span>
+                  <span className="block text-base font-medium text-[#F4F1FF]">
+                    {item.title}
+                  </span>
+                  <span className="mt-1 block text-sm text-[#B8ABD9]">
+                    {item.status}
+                  </span>
+                </span>
+                <span className="text-sm text-[#B9A7FF]">Open</span>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <button className="mt-5 min-h-12 w-full rounded-lg bg-[#6F58A8] text-sm font-semibold text-white shadow-[0_10px_26px_rgba(0,0,0,0.28)]">
           New Voyage
         </button>
       </section>
