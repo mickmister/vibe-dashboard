@@ -39,6 +39,7 @@ springboard.registerSplashScreen(AppLoadingScreen);
 
 import springboard from "springboard";
 import type { WorkspaceState, SavedWorkspaceSession } from "../types";
+import { DEFAULT_FLOW_MODE_TYPE } from "../types";
 import { useModule } from "../hooks/useModule";
 
 const URL_PARSE_BASE = "https://workspace.local";
@@ -361,6 +362,25 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
         actions.touchTabGroup({ tabGroupId: sessionNav.activeTabGroupId });
       }
     }, [actions, dashboardVoyage.status, sessionNav.activeTabGroupId]);
+
+    useEffect(() => {
+      if (dashboardVoyage.status !== "resolved") return;
+      if (!activeSavedSession) return;
+      const persistedFlowModeType =
+        activeSavedSession.flowModeType ?? DEFAULT_FLOW_MODE_TYPE;
+      if (persistedFlowModeType === sessionNav.flowModeType) return;
+
+      void actions.updateSavedSessionFlowModeType({
+        sessionId: activeSavedSession.id,
+        flowModeType: sessionNav.flowModeType,
+      });
+    }, [
+      actions,
+      activeSavedSession?.flowModeType,
+      activeSavedSession?.id,
+      dashboardVoyage.status,
+      sessionNav.flowModeType,
+    ]);
 
     // Sync URL to match canonical voyage/craft/views query params
     useEffect(() => {
@@ -781,6 +801,7 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
         }
         return;
       },
+      setFlowModeType: sessionNav.setFlowModeType,
     };
 
     // Wrap actions that need session parameters

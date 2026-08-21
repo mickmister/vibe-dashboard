@@ -36,7 +36,11 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: vk-vd-publish-${{ github.event_name == 'repository_dispatch' && github.event.client_payload.vk_source_ref || github.event_name == 'pull_request' && format('refs/heads/{0}', github.event.pull_request.head.ref) || github.ref }}
+  # Non-main branch pushes include the head SHA so stale reruns from older
+  # commits cannot cancel the current branch-head publish. Main pushes and VK
+  # release dispatches still serialize by ref/source. PR label deploy probes use
+  # the PR head ref and do not cancel in-progress publish work.
+  group: vk-vd-publish-${{ github.event_name }}-${{ github.event_name == 'push' && github.ref != 'refs/heads/main' && github.sha || github.event_name == 'repository_dispatch' && github.event.client_payload.vk_source_ref || github.event_name == 'pull_request' && format('refs/heads/{0}', github.event.pull_request.head.ref) || github.ref }}
   cancel-in-progress: ${{ github.event_name != 'pull_request' }}
 
 jobs:
@@ -88,15 +92,24 @@ jobs:
           used_asset_fallback=false
 
           manifest_url="https://github.com/mickmister/vibe-kanban/releases/download/vk-assets-${vk_commit}/manifest.json"
-          if [[ "${GITHUB_EVENT_NAME}" == "push" && "$VK_BRANCH_INPUT" == "main" ]] && ! curl -fsI "$manifest_url" >/dev/null; then
-            echo "::notice::VK release assets for $vk_commit are not available yet; using the latest published vk-assets release for this VD branch image."
-            latest_assets_tag="$(
-              curl -fsSL "https://api.github.com/repos/mickmister/vibe-kanban/releases?per_page=100" \
-                | python3 -c 'import json,sys; releases=[r for r in json.load(sys.stdin) if r.get("tag_name", "").startswith("vk-assets-")]; releases.sort(key=lambda r: r.get("published_at") or r.get("created_at") or "", reverse=True); print(releases[0]["tag_name"] if releases else "")'
-            )"
+          manifest_mode="$(python3 -c 'import json,sys,urllib.request; request=urllib.request.Request(sys.argv[1], headers={"User-Agent":"vibe-dashboard-vk-assets-resolver"}); print(json.load(urllib.request.urlopen(request, timeout=10)).get("mode", ""))' "$manifest_url" 2>/dev/null || true)"
+          if [[ "${GITHUB_EVENT_NAME}" == "push" && "$VK_BRANCH_INPUT" == "main" && "$manifest_mode" != "linux-container-runtime" ]]; then
+            echo "::notice::Compatible VK release assets for $vk_commit are not available yet (mode: ${manifest_mode:-unavailable}); using the latest published linux-container-runtime vk-assets release for this VD branch image."
+            releases_json="$workdir/vk-releases.json"
+            curl -fsSL "https://api.github.com/repos/mickmister/vibe-kanban/releases?per_page=100" -o "$releases_json"
+            latest_assets_tag=""
+            while read -r candidate_tag; do
+              manifest_url="https://github.com/mickmister/vibe-kanban/releases/download/${candidate_tag}/manifest.json"
+              manifest_mode="$(python3 -c 'import json,sys,urllib.request; request=urllib.request.Request(sys.argv[1], headers={"User-Agent":"vibe-dashboard-vk-assets-resolver"}); print(json.load(urllib.request.urlopen(request, timeout=10)).get("mode", ""))' "$manifest_url" 2>/dev/null || true)"
+              if [[ "$manifest_mode" == "linux-container-runtime" ]]; then
+                latest_assets_tag="$candidate_tag"
+                break
+              fi
+              echo "Skipping $candidate_tag because manifest mode is ${manifest_mode:-unavailable}."
+            done < <(python3 -c 'import json,sys; releases=[r for r in json.load(open(sys.argv[1], encoding="utf-8")) if r.get("tag_name", "").startswith("vk-assets-")]; releases.sort(key=lambda r: r.get("published_at") or r.get("created_at") or "", reverse=True); print("\n".join(r["tag_name"] for r in releases))' "$releases_json")
 
             if [[ -z "$latest_assets_tag" ]]; then
-              echo "No published vk-assets release found to use as a fallback." >&2
+              echo "No published linux-container-runtime vk-assets release found to use as a fallback." >&2
               exit 1
             fi
 
@@ -188,7 +201,8 @@ jobs:
         VK_COMMIT=${{ needs.resolve-vk-ref.outputs.vk_commit }}
         VK_REPO_URL=${{ needs.resolve-vk-ref.outputs.vk_repo_url }}
       cache: true
-      cache-scope: vk-vd-multiarch
+      # Use a signed cache namespace so BuildKit does not import legacy unsigned GHA cache entries.
+      cache-scope: vk-vd-multiarch-signed
       sign: false
       meta-images: ghcr.io/${{ github.repository_owner }}/vk-vd
       meta-tags: |

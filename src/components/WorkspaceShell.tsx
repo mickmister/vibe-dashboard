@@ -10,7 +10,9 @@ import {
   AddVKWorkspaceModal,
   prefetchVKWorkspaceSearchResults,
 } from "./dialogs/AddVKWorkspaceModal";
+import { vkClient } from "../lib/vk-client";
 import type {
+  FlowModeType,
   WorkspaceState,
   TabGroup,
   SavedWorkspaceSession,
@@ -45,6 +47,15 @@ const MOBILE_TAB_EMOJI_CHOICES = [
   "🛰️",
 ];
 const VOYAGE_SWITCH_THROTTLE_MS = 1000;
+
+type VkMessageSubmittedEventDetail = {
+  source: "vibe-kanban";
+  version: 1;
+  event: "workspace:message-submitted";
+  workspaceId: string;
+  sessionId?: string;
+  isNewSessionMode: boolean;
+};
 
 function isReservedVoyageName(name: string): boolean {
   return name.trim().toLowerCase() === "home";
@@ -232,6 +243,7 @@ export type SessionActions = {
   removeTabGroupFromSession: (tabGroupId: string) => void;
   reorderVoyageEntries: (sourceEntryId: string, targetEntryId: string) => void;
   reorderSessionTabGroups: (sourceId: string, targetId: string) => void;
+  setFlowModeType: (flowModeType: FlowModeType) => void;
 };
 
 interface WorkspaceShellProps {
@@ -322,6 +334,69 @@ type OpenCraftMutationContext = {
   operationId: string;
   originSessionId: string;
 };
+
+function extractWorkspaceIdFromUrl(value: string): string | null {
+  try {
+    const parsed = new URL(value, window.location.origin);
+    const match = parsed.pathname.match(/\/workspaces\/([^/?#]+)/);
+    return match?.[1] ? decodeURIComponent(match[1]) : null;
+  } catch {
+    const match = value.match(/\/workspaces\/([^/?#]+)/);
+    return match?.[1] ? decodeURIComponent(match[1]) : null;
+  }
+}
+
+function findAgentViewInCraft(tabGroup: TabGroup): {
+  tabId: string;
+  workspaceId: string;
+} | null {
+  for (const tab of tabGroup.tabs) {
+    const workspaceId = extractWorkspaceIdFromUrl(tab.url);
+    if (workspaceId) {
+      return { tabId: tab.id, workspaceId };
+    }
+  }
+
+  return null;
+}
+
+type AutoAdvanceCandidate = {
+  entry: VoyageEntry;
+  tabGroup: TabGroup;
+  space: WorkspaceState["spaces"][number];
+  agentView: { tabId: string; workspaceId: string };
+};
+
+function chooseAutoAdvanceCraft(
+  idleCandidates: AutoAdvanceCandidate[],
+  voyageEntries: VoyageEntry[],
+  activeVoyageEntryId: string,
+  flowModeType: FlowModeType,
+): AutoAdvanceCandidate | null {
+  if (flowModeType === "static" || idleCandidates.length === 0) {
+    return null;
+  }
+
+  if (flowModeType === "priority") {
+    return idleCandidates[0] ?? null;
+  }
+
+  const idleCandidateByEntryId = new Map(
+    idleCandidates.map((candidate) => [candidate.entry.id, candidate]),
+  );
+  const activeIndex = voyageEntries.findIndex(
+    (entry) => entry.id === activeVoyageEntryId,
+  );
+  const startIndex = activeIndex === -1 ? 0 : activeIndex + 1;
+
+  for (let offset = 0; offset < voyageEntries.length; offset += 1) {
+    const entry = voyageEntries[(startIndex + offset) % voyageEntries.length];
+    const candidate = entry ? idleCandidateByEntryId.get(entry.id) : undefined;
+    if (candidate) return candidate;
+  }
+
+  return null;
+}
 
 export function WorkspaceShell({
   workspace,
@@ -853,6 +928,102 @@ export function WorkspaceShell({
   useEffect(() => {
     void prefetchVKWorkspaceSearchResults();
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const handleMessageSubmitted = (event: Event) => {
+      const detail = (event as CustomEvent<VkMessageSubmittedEventDetail>)
+        .detail;
+      if (
+        !detail ||
+        detail.source !== "vibe-kanban" ||
+        detail.event !== "workspace:message-submitted"
+      ) {
+        return;
+      }
+
+      void (async () => {
+        try {
+          if (session.flowModeType === "static") return;
+
+          const candidates = session.voyageEntries
+            .map((entry) => {
+              const tabGroup = workspace.tabGroups.find(
+                (candidate) => candidate.id === entry.tabGroupId,
+              );
+              if (!tabGroup) return null;
+
+              const agentView = findAgentViewInCraft(tabGroup);
+              if (!agentView || agentView.workspaceId === detail.workspaceId) {
+                return null;
+              }
+
+              const space = workspace.spaces.find((candidate) =>
+                candidate.tabGroupIds.includes(tabGroup.id),
+              );
+              if (!space) return null;
+
+              return { entry, tabGroup, space, agentView };
+            })
+            .filter(
+              (candidate): candidate is AutoAdvanceCandidate =>
+                candidate != null,
+            );
+
+          if (candidates.length === 0) return;
+
+          const summaries = await vkClient.getWorkspaceSummaries(false);
+          if (cancelled) return;
+
+          const summaryByWorkspaceId = new Map(
+            summaries.summaries.map((summary) => [
+              summary.workspace_id,
+              summary,
+            ]),
+          );
+          const idleCandidates = candidates.filter(({ agentView }) => {
+            const summary = summaryByWorkspaceId.get(agentView.workspaceId);
+            return (
+              summary != null && summary.latest_process_status !== "running"
+            );
+          });
+          const nextAvailableCraft = chooseAutoAdvanceCraft(
+            idleCandidates,
+            session.voyageEntries,
+            session.activeVoyageEntryId,
+            session.flowModeType,
+          );
+
+          if (!nextAvailableCraft) return;
+
+          sessionActions.selectSessionTab(
+            nextAvailableCraft.space.id,
+            nextAvailableCraft.tabGroup.id,
+            nextAvailableCraft.agentView.tabId,
+          );
+        } catch (error) {
+          console.warn(
+            "Failed to advance to an idle craft after VK message submission",
+            error,
+          );
+        }
+      })();
+    };
+
+    window.addEventListener("vk:message-submitted", handleMessageSubmitted);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("vk:message-submitted", handleMessageSubmitted);
+    };
+  }, [
+    session.activeVoyageEntryId,
+    session.flowModeType,
+    session.voyageEntries,
+    sessionActions,
+    workspace.spaces,
+    workspace.tabGroups,
+  ]);
 
   useEffect(() => {
     if (!pendingWorkspaceSelection) return;
@@ -2149,6 +2320,7 @@ export function WorkspaceShell({
           activeVoyageEntryId={session.activeVoyageEntryId}
           savedSessions={savedSessions}
           currentSessionId={currentSessionId}
+          flowModeType={session.flowModeType}
           onRequestClose={() => setIsSidebarOpen(false)}
           onSelectTabGroup={(tabGroupId) => {
             const space = effectiveWorkspace.spaces.find((entry) =>
@@ -2228,6 +2400,7 @@ export function WorkspaceShell({
           onRenameSession={(sessionId, name) => {
             sessionActions.renameSession(sessionId, name);
           }}
+          onSetFlowModeType={sessionActions.setFlowModeType}
         />
       </div>
 
@@ -2399,6 +2572,7 @@ export function WorkspaceShell({
             }}
             onNavigateToTabGroup={handleNavigateToWorkspaceTabGroup}
             onOpenVKWorkspace={handleWorkspaceSearchAddToSpace}
+            onOpenHostSidebar={() => setIsSidebarOpen(true)}
           />
         )}
         {!isPendingOpenCraftActive && expandedSessionTabGroup && (

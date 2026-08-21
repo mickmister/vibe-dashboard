@@ -8,6 +8,7 @@ import React, {
 import { Button, Input } from '@heroui/react';
 import { isEphemeralCraftSurfaceTab } from '../modules/plugins/vibe-dashboard/craft-surfaces';
 import type {
+  FlowModeType,
   WorkspaceState,
   Space,
   TabGroup,
@@ -30,6 +31,7 @@ interface SidebarProps {
   activeVoyageEntryId: string;
   savedSessions: SavedWorkspaceSession[];
   currentSessionId: string;
+  flowModeType: FlowModeType;
   onRequestClose?: () => void;
   onSelectTabGroup: (tabGroupId: string) => void;
   onSelectTab: (tabGroupId: string, tabId: string) => void;
@@ -61,6 +63,7 @@ interface SidebarProps {
   onResumeSession: (sessionId: string) => void;
   onStartNewSession: () => void;
   onRenameSession: (sessionId: string, name: string) => void;
+  onSetFlowModeType: (flowModeType: FlowModeType) => void;
 }
 
 const SPACE_ICONS: Record<string, string> = {
@@ -81,6 +84,7 @@ export function Sidebar({
   activeVoyageEntryId,
   savedSessions,
   currentSessionId,
+  flowModeType,
   onRequestClose,
   onSelectTabGroup,
   onSelectTab,
@@ -107,6 +111,7 @@ export function Sidebar({
   onResumeSession,
   onStartNewSession,
   onRenameSession,
+  onSetFlowModeType,
 }: SidebarProps) {
   const [view, setView] = useState<'groups' | 'spaces'>('groups');
   const [adding, setAdding] = useState(false);
@@ -761,6 +766,26 @@ export function Sidebar({
                       )}
                     </div>
                   )}
+                </div>
+                <div className="px-3 py-2 rounded-lg bg-neutral-800/40">
+                  <label className="block text-[10px] uppercase tracking-wide text-neutral-500 mb-1">
+                    Flow Mode Type
+                  </label>
+                  <select
+                    value={flowModeType}
+                    onChange={(event) =>
+                      onSetFlowModeType(event.target.value as FlowModeType)
+                    }
+                    className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-xs text-neutral-100 outline-none transition-colors hover:border-neutral-600 focus:border-primary-500"
+                    aria-label="Flow Mode Type"
+                  >
+                    <option value="round-robin">Round robin</option>
+                    <option value="priority">Priority</option>
+                    <option value="static">Static</option>
+                  </select>
+                  <p className="mt-1 text-[11px] leading-4 text-neutral-500">
+                    Controls where this voyage goes after sending a VK message.
+                  </p>
                 </div>
                 <Button
                   size="sm"

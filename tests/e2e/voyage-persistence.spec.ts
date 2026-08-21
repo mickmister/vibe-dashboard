@@ -812,6 +812,8 @@ test.describe('voyage persistence', () => {
   });
 
   test('restores the selected duplicate craft entry by voyageEntryId after reload', async ({ page }) => {
+    await waitForKvApi(page.request);
+
     const runId = Date.now().toString(36);
     const craftLabel = `Duplicate Craft ${runId}`;
     const voyageId = `session_duplicate_${runId}`;

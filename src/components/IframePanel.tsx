@@ -5,6 +5,7 @@ import type { WorkspaceState, SavedWorkspaceSession } from '../types';
 import { AppLoadingScreen } from './AppLoadingScreen';
 import { SpacesOverview } from './SpacesOverview';
 import { hasSameBaseOrigin } from '../lib/originTrust';
+import { vkClient } from '../lib/vk-client';
 import { getPluginIframePolicy, getPluginIframePostMessageTargetOrigin, parsePluginInternalUrl } from '../modules/plugins/vibe-dashboard/runtime';
 import { getRegisteredPluginIframePolicy, resolvePluginInternalRouteIframeSrc } from '../modules/plugins/vibe-dashboard/registry';
 
@@ -28,6 +29,7 @@ interface IframePanelProps {
   onStartNewSession?: () => void;
   onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void | Promise<void>;
   onOpenVKWorkspace?: (taskAttemptId: string, name: string, containerRef: string, spaceId: string) => void | Promise<void>;
+  onOpenHostSidebar?: () => void;
 }
 
 /**
@@ -54,6 +56,30 @@ type RetainedIframeTab = {
   tab: Tab;
   iframeKey: string;
 };
+
+type VibeKanbanIframeMessage =
+  | {
+      source: 'vibe-kanban';
+      version: 1;
+      event: 'workspace:navigate';
+      workspaceId: string;
+      destinationKind: string;
+      hostId?: string;
+    }
+  | {
+      source: 'vibe-kanban';
+      version: 1;
+      event: 'workspace:message-submitted';
+      workspaceId: string;
+      sessionId?: string;
+      isNewSessionMode: boolean;
+    }
+  | {
+      source: 'vibe-kanban';
+      version: 1;
+      event: 'host:open-sidebar';
+      requestId: string;
+    };
 
 let iframeStore: Map<string, IframeEntry> = new Map();
 let retainedSessionId: string | null = null;
@@ -424,6 +450,95 @@ export function hasKnownIframeMessageSource(source: MessageEventSource | null): 
   );
 }
 
+function isVibeKanbanIframeMessage(
+  value: unknown,
+): value is VibeKanbanIframeMessage {
+  if (!value || typeof value !== 'object') return false;
+  const data = value as Record<string, unknown>;
+
+  if (data.source !== 'vibe-kanban' || data.version !== 1) {
+    return false;
+  }
+
+  if (data.event === 'host:open-sidebar') {
+    return typeof data.requestId === 'string';
+  }
+
+  return (
+    typeof data.workspaceId === 'string' &&
+    (data.event === 'workspace:navigate' ||
+      data.event === 'workspace:message-submitted')
+  );
+}
+
+function isMessageFromMountedIframe(
+  source: MessageEventSource | null,
+  tabs: RetainedIframeTab[],
+): boolean {
+  if (!source) return false;
+
+  return tabs.some((retainedTab) => {
+    const entry = iframeStore.get(retainedTab.iframeKey);
+    return entry?.iframe.contentWindow === source;
+  });
+}
+
+function findWorkspaceTabGroup(
+  workspace: WorkspaceState | undefined,
+  workspaceId: string,
+): { spaceId: string; tabGroupId: string } | null {
+  if (!workspace) return null;
+
+  for (const space of workspace.spaces) {
+    for (const tabGroupId of space.tabGroupIds) {
+      const tabGroup = workspace.tabGroups.find((tg) => tg.id === tabGroupId);
+      if (
+        tabGroup?.tabs.some((tab) => {
+          try {
+            const parsed = new URL(tab.url, window.location.origin);
+            const match = parsed.pathname.match(/\/workspaces\/([^/?#]+)/);
+            return match?.[1] === workspaceId;
+          } catch {
+            return tab.url.includes(`/workspaces/${workspaceId}`);
+          }
+        })
+      ) {
+        return { spaceId: space.id, tabGroupId };
+      }
+    }
+  }
+
+  return null;
+}
+
+function findTabGroupSpaceId(
+  workspace: WorkspaceState | undefined,
+  tabGroupId: string,
+): string | null {
+  return (
+    workspace?.spaces.find((space) => space.tabGroupIds.includes(tabGroupId))
+      ?.id ?? null
+  );
+}
+
+function acknowledgeHostSidebarOpen(event: MessageEvent, requestId: string) {
+  if (!event.source || !('postMessage' in event.source)) return;
+
+  try {
+    (event.source as WindowProxy).postMessage(
+      {
+        source: 'vibe-dashboard',
+        version: 1,
+        event: 'host:open-sidebar:ack',
+        requestId,
+      },
+      event.origin === 'null' ? '*' : event.origin,
+    );
+  } catch (error) {
+    console.warn('Failed to acknowledge VK host sidebar request', error);
+  }
+}
+
 function getIframeRetentionKey(tabGroupId: string, tabId: string): string {
   return `${tabGroupId}:${tabId}`;
 }
@@ -702,7 +817,9 @@ export function IframePanel({
   onStartNewSession,
   onNavigateToTabGroup,
   onOpenVKWorkspace,
+  onOpenHostSidebar,
 }: IframePanelProps) {
+  const pendingWorkspaceOpensRef = useRef<Set<string>>(new Set());
   const activeTab = tabGroup.tabs.find(
     (t) => t.id === activeItemId
   );
@@ -749,6 +866,85 @@ export function IframePanel({
     visibleIframeKeys,
     allKnownIframeKeys,
   );
+
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (
+        !isVibeKanbanIframeMessage(event.data) ||
+        !hasSameBaseOrigin(event.origin, window.location.origin) ||
+        !isMessageFromMountedIframe(event.source, retainedTabs)
+      ) {
+        return;
+      }
+
+      if (event.data.event === 'host:open-sidebar') {
+        if (!onOpenHostSidebar) return;
+
+        onOpenHostSidebar();
+        acknowledgeHostSidebarOpen(event, event.data.requestId);
+        return;
+      }
+
+      if (event.data.event === 'workspace:message-submitted') {
+        window.dispatchEvent(
+          new CustomEvent('vk:message-submitted', {
+            detail: event.data,
+          }),
+        );
+        return;
+      }
+
+      if (!onNavigateToTabGroup) return;
+
+      const { workspaceId } = event.data;
+      const existingLocation = findWorkspaceTabGroup(workspace, workspaceId);
+      if (existingLocation) {
+        onNavigateToTabGroup(
+          existingLocation.spaceId,
+          existingLocation.tabGroupId,
+        );
+        return;
+      }
+
+      if (
+        !onOpenVKWorkspace ||
+        pendingWorkspaceOpensRef.current.has(workspaceId)
+      ) {
+        return;
+      }
+
+      const activeSpaceId = findTabGroupSpaceId(workspace, tabGroup.id);
+      if (!activeSpaceId) return;
+
+      pendingWorkspaceOpensRef.current.add(workspaceId);
+      void (async () => {
+        try {
+          await vkClient.getWorkspaceBranchStatus(workspaceId);
+          const workspaceRecord = await vkClient.getWorkspace(workspaceId);
+          await onOpenVKWorkspace(
+            workspaceId,
+            workspaceRecord.name || 'Untitled Workspace',
+            workspaceRecord.container_ref || '',
+            activeSpaceId,
+          );
+        } catch (error) {
+          console.warn('Failed to open VK workspace from iframe message', error);
+        } finally {
+          pendingWorkspaceOpensRef.current.delete(workspaceId);
+        }
+      })();
+    };
+
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [
+    onNavigateToTabGroup,
+    onOpenVKWorkspace,
+    onOpenHostSidebar,
+    retainedTabs,
+    tabGroup.id,
+    workspace,
+  ]);
 
   return (
     <div className="w-full h-full relative">

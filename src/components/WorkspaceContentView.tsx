@@ -27,6 +27,7 @@ interface WorkspaceContentViewProps {
     containerRef: string,
     spaceId: string,
   ) => Promise<void>;
+  onOpenHostSidebar: () => void;
 }
 
 export function WorkspaceContentView({
@@ -48,6 +49,7 @@ export function WorkspaceContentView({
   onStartNewSession,
   onNavigateToTabGroup,
   onOpenVKWorkspace,
+  onOpenHostSidebar,
 }: WorkspaceContentViewProps) {
   if (activeTabGroups.length === 0) {
     return (
@@ -76,6 +78,7 @@ export function WorkspaceContentView({
       onStartNewSession={onStartNewSession}
       onNavigateToTabGroup={onNavigateToTabGroup}
       onOpenVKWorkspace={onOpenVKWorkspace}
+      onOpenHostSidebar={onOpenHostSidebar}
     />
   );
 }

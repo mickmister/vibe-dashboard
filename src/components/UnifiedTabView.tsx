@@ -29,6 +29,7 @@ interface UnifiedTabViewProps {
     containerRef: string,
     spaceId: string,
   ) => Promise<void>;
+  onOpenHostSidebar: () => void;
 }
 
 export function UnifiedTabView({
@@ -47,6 +48,7 @@ export function UnifiedTabView({
   onStartNewSession,
   onNavigateToTabGroup,
   onOpenVKWorkspace,
+  onOpenHostSidebar,
 }: UnifiedTabViewProps) {
   const activeTabGroup = tabGroups.find((tg) => tg.id === activeTabGroupId);
   const activeItemId = activeTabGroup
@@ -94,6 +96,7 @@ export function UnifiedTabView({
             onStartNewSession={onStartNewSession}
             onNavigateToTabGroup={onNavigateToTabGroup}
             onOpenVKWorkspace={onOpenVKWorkspace}
+            onOpenHostSidebar={onOpenHostSidebar}
           />
         ) : (
           <div className="flex-1 flex items-center justify-center text-neutral-500">

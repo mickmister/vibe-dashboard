@@ -1,4 +1,5 @@
 import type {
+  FlowModeType,
   SavedWorkspaceSession,
   SavedWorkspaceSessionState,
   SavedWorkspaceSessionV1,
@@ -6,6 +7,7 @@ import type {
   VoyageEntry,
   WorkspaceState,
 } from '../types';
+import { DEFAULT_FLOW_MODE_TYPE } from '../types';
 import { buildVoyageSlug } from './voyageUrl';
 
 type SavedWorkspaceSessionState_v1 = {
@@ -30,6 +32,71 @@ export function createSavedWorkspaceSessionState(
     version: SAVED_WORKSPACE_SESSION_STATE_VERSION,
     data,
   };
+}
+
+export function upsertSavedWorkspaceSessionState(
+  state: SavedWorkspaceSessionState | SavedWorkspaceSessionState_v1 | unknown,
+  session: SavedWorkspaceSession,
+): SavedWorkspaceSessionState {
+  const name = session.name?.trim();
+  const sessions = getSavedWorkspaceSessions(state).map((entry) => ({
+    ...entry,
+  }));
+
+  if (
+    !name ||
+    name.toLowerCase() === 'home' ||
+    !session.activeTabGroupId ||
+    !(session.voyageEntries?.length)
+  ) {
+    return createSavedWorkspaceSessionState(sessions);
+  }
+
+  const existing = sessions.find((entry) => entry.id === session.id);
+  const slug = buildVoyageSlug(name, session.id);
+
+  if (existing) {
+    existing.slug = slug;
+    existing.name = name;
+    existing.updatedAt = session.updatedAt;
+    existing.activeVoyageEntryId = session.activeVoyageEntryId;
+    existing.voyageEntries = session.voyageEntries;
+    existing.activeSpaceId = session.activeSpaceId;
+    existing.activeTabGroupId = session.activeTabGroupId;
+    existing.activeItemsByVoyageEntryId = session.activeItemsByVoyageEntryId;
+    existing.visitedTabGroupIds = session.visitedTabGroupIds;
+    existing.flowModeType = session.flowModeType;
+    return createSavedWorkspaceSessionState(sessions);
+  }
+
+  sessions.unshift({ ...session, slug, name });
+  return createSavedWorkspaceSessionState(sessions);
+}
+
+export function updateSavedWorkspaceSessionFlowModeState(
+  state: SavedWorkspaceSessionState | SavedWorkspaceSessionState_v1 | unknown,
+  args: {
+    sessionId: string;
+    flowModeType: FlowModeType;
+    updatedAt: string;
+  },
+): SavedWorkspaceSessionState {
+  const sessions = getSavedWorkspaceSessions(state).map((entry) => ({
+    ...entry,
+  }));
+  const existing = sessions.find((entry) => entry.id === args.sessionId);
+  if (!existing) {
+    return createSavedWorkspaceSessionState(sessions);
+  }
+
+  const currentFlowModeType = existing.flowModeType ?? DEFAULT_FLOW_MODE_TYPE;
+  if (currentFlowModeType === args.flowModeType) {
+    return createSavedWorkspaceSessionState(sessions);
+  }
+
+  existing.flowModeType = args.flowModeType;
+  existing.updatedAt = args.updatedAt;
+  return createSavedWorkspaceSessionState(sessions);
 }
 
 export function getSavedWorkspaceSessions(

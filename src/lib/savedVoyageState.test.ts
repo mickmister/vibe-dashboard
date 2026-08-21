@@ -5,6 +5,8 @@ import {
   isSavedWorkspaceSessionStateMigrated,
   migrateSavedWorkspaceSessionState,
   migrateSavedWorkspaceSessionStateWithCleanup,
+  updateSavedWorkspaceSessionFlowModeState,
+  upsertSavedWorkspaceSessionState,
 } from './savedVoyageState';
 import type { SavedWorkspaceSession, SavedWorkspaceSessionV1 } from '../types';
 
@@ -232,5 +234,101 @@ describe('savedVoyageState migration', () => {
       version: 3,
       data: [duplicateNewer],
     });
+  });
+});
+
+describe('saved voyage upsert', () => {
+  it('updates an existing voyage and persists flow mode', () => {
+    const existing = { ...session('a'), name: 'Existing' };
+    const updated = {
+      ...existing,
+      name: 'Updated',
+      flowModeType: 'priority' as const,
+    };
+
+    expect(
+      upsertSavedWorkspaceSessionState(
+        createSavedWorkspaceSessionState([existing]),
+        updated,
+      ),
+    ).toEqual({
+      version: 3,
+      data: [{ ...updated, slug: 'updated-a' }],
+    });
+  });
+
+  it('adds a new voyage with flow mode before existing voyages', () => {
+    const existing = { ...session('a'), name: 'Existing' };
+    const added = {
+      ...session('b'),
+      name: 'Added',
+      flowModeType: 'static' as const,
+    };
+
+    expect(
+      upsertSavedWorkspaceSessionState(
+        createSavedWorkspaceSessionState([existing]),
+        added,
+      ),
+    ).toEqual({
+      version: 3,
+      data: [{ ...added, slug: 'added-b' }, existing],
+    });
+  });
+});
+
+describe('saved voyage flow mode patch', () => {
+  it('patches only flow mode and preserves current voyage entry state', () => {
+    const current = {
+      ...session('a'),
+      name: 'Current',
+      updatedAt: '2026-06-02T00:00:00.000Z',
+      activeVoyageEntryId: 've_tg_2',
+      voyageEntries: [
+        { id: 've_tg_1', tabGroupId: 'tg_1', viewIds: ['tab_1'] },
+        { id: 've_tg_2', tabGroupId: 'tg_2', viewIds: ['tab_2'] },
+      ],
+      activeTabGroupId: 'tg_2',
+      activeItemsByVoyageEntryId: {
+        ve_tg_1: 'tab_1',
+        ve_tg_2: 'tab_2',
+      },
+      visitedTabGroupIds: ['tg_1', 'tg_2'],
+    };
+
+    expect(
+      updateSavedWorkspaceSessionFlowModeState(
+        createSavedWorkspaceSessionState([current]),
+        {
+          sessionId: current.id,
+          flowModeType: 'priority',
+          updatedAt: '2026-06-03T00:00:00.000Z',
+        },
+      ),
+    ).toEqual({
+      version: 3,
+      data: [
+        {
+          ...current,
+          flowModeType: 'priority',
+          updatedAt: '2026-06-03T00:00:00.000Z',
+        },
+      ],
+    });
+  });
+
+  it('does not persist the default flow mode over legacy undefined state', () => {
+    const legacyDefault = { ...session('a'), name: 'Legacy default' };
+
+    expect(
+      updateSavedWorkspaceSessionFlowModeState(
+        createSavedWorkspaceSessionState([legacyDefault]),
+        {
+          sessionId: legacyDefault.id,
+          flowModeType: 'round-robin',
+          updatedAt: '2026-06-03T00:00:00.000Z',
+        },
+      ),
+    ).toEqual(createSavedWorkspaceSessionState([legacyDefault]));
   });
 });
