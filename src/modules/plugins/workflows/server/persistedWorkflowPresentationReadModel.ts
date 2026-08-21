@@ -72,6 +72,7 @@ export async function buildPersistedWorkflowPresentationModel(args: {
     callTree,
     outputs,
     attention: null,
+    beadContext: buildBeadContext(snapshot.inputs),
     provenance: {
       label:
         model.name && row.designVersion
@@ -134,7 +135,7 @@ function buildTimeline(args: {
       timeline.push({
         id: entry.turnId,
         role: roleLabel(args.model, roleId),
-        title: `${labelFromId(entry.stepId)} turn`,
+        title: agentTurnTitle(args.model, entry.state, entry.stepId, complete ? "complete" : "waiting"),
         kind: "agent_turn",
         state: labelFromId(entry.state),
         step: labelFromId(entry.stepId),
@@ -168,8 +169,8 @@ function buildTimeline(args: {
     } else if (entry.kind === "state_transitioned") {
       timeline.push({
         id: `decision-${entry.at}-${entry.transition.fromState}-${entry.transition.action}`,
-        role: "Workflow",
-        title: `Decision: ${labelFromId(entry.transition.action)}`,
+        role: roleLabel(args.model, roleForState(args.model, entry.transition.fromState)),
+        title: decisionStoryTitle(args.model, entry.transition),
         kind: "decision",
         state: `${labelFromId(entry.transition.fromState)} → ${labelFromId(entry.transition.toState)}`,
         step: null,
@@ -231,8 +232,8 @@ function buildTimeline(args: {
       ) as { submission: Record<string, unknown> } | undefined;
       timeline.push({
         id: entry.turnId,
-        role: "User",
-        title: entry.title,
+        role: "You",
+        title: `Human input requested: ${entry.title}`,
         kind: "human_form",
         state: labelFromId(entry.state),
         step: labelFromId(entry.stepId),
@@ -294,7 +295,7 @@ function buildTimeline(args: {
       timeline.push({
         id: entry.turnId,
         role: "Workflow",
-        title: `Call ${labelFromId(entry.childDesignId)}`,
+        title: complete ? "Child workflow completed" : "Waiting for child workflow",
         kind: "workflow_call",
         state: labelFromId(entry.state),
         step: labelFromId(entry.stepId),
@@ -309,7 +310,7 @@ function buildTimeline(args: {
           ? {
               text: [
                 complete.statusSummary,
-                complete.outputRef ? `Output: ${complete.outputRef}` : "",
+                complete.outputRef ? "Child workflow output recorded." : "",
               ]
                 .filter(Boolean)
                 .join("\n"),
@@ -343,7 +344,7 @@ function buildTimeline(args: {
       timeline.push({
         id: entry.turnId,
         role: "GitHub CI",
-        title: "Wait for CI",
+        title: complete ? "GitHub CI finished" : "Waiting for GitHub CI",
         kind: "github_ci",
         state: labelFromId(entry.state),
         step: labelFromId(entry.stepId),
@@ -405,8 +406,8 @@ function buildTimeline(args: {
       finalResponse: {
         text:
           artifact.kind === "form_artifact_created"
-            ? `Form artifact: ${String(artifact.data.artifactRef)}`
-            : `Invalid form schema: ${String(artifact.data.error)}`,
+            ? "Form artifact created."
+            : `Form artifact problem: ${productSafeText(String(artifact.data.error))}`,
         truncated: false,
         maxChars: null,
       },
@@ -442,7 +443,7 @@ function buildSummary(
         ? labelFromId(currentStep.id)
         : null,
     waitingReason: blocked
-      ? blocked.message
+      ? productSafeText(blocked.message)
       : waiting
         ? waitingReason(waiting.kind)
         : status === "completed"
@@ -456,6 +457,55 @@ function buildSummary(
           ? "Workflow is complete."
           : "The workflow will continue automatically.",
   };
+}
+
+
+function agentTurnTitle(
+  model: NormalizedAgentWorkflowModel,
+  stateId: string,
+  stepId: string,
+  status: "complete" | "waiting",
+): string {
+  const role = roleLabel(model, roleForState(model, stateId));
+  const step = labelFromId(stepId);
+  const text = `${stateId} ${stepId}`.toLowerCase();
+  if (text.includes("self") && text.includes("review"))
+    return status === "complete"
+      ? `${role} self-reviewed`
+      : `${role} is self-reviewing`;
+  if (text.includes("implement") || text.includes("dev"))
+    return status === "complete"
+      ? `${role} implemented`
+      : `${role} is implementing`;
+  if (text.includes("test"))
+    return status === "complete" ? `${role} tested` : `${role} is testing`;
+  if (text.includes("review"))
+    return status === "complete" ? `${role} reviewed` : `${role} is reviewing`;
+  return status === "complete" ? `${role} responded` : `${role} is working`;
+}
+
+function decisionStoryTitle(
+  model: NormalizedAgentWorkflowModel,
+  transition: WorkflowTransitionSummary & { toState?: string },
+): string {
+  const role = roleLabel(model, roleForState(model, transition.fromState));
+  const action = transition.action.toLowerCase();
+  if (action === "ready_for_review") return `${role} self-reviewed`;
+  if (action.includes("changes_requested") || action.includes("request_changes"))
+    return `${role} requested changes`;
+  if (action.includes("needs_more_work") || action.includes("continue_editing"))
+    return `${role} needs more work`;
+  if (action.includes("bug_found") || action.includes("failed"))
+    return `${role} found a bug`;
+  if (action.includes("approved") || action === "approve")
+    return `${role} approved`;
+  if (action.includes("done") || action.includes("complete"))
+    return `${role} completed`;
+  return `${role} decided ${actionLabel(
+    model,
+    transition.fromState,
+    transition.action,
+  )}`;
 }
 
 function buildCallTree(
@@ -480,7 +530,7 @@ function buildCallTree(
         waitingReason: complete
           ? null
           : "Parent is waiting for this child workflow to finish.",
-        outputRef: complete?.outputRef ?? null,
+        outputRef: complete?.outputRef ? "recorded" : null,
       };
     });
 }
@@ -505,7 +555,7 @@ function buildOutputs(
     outputs.push({
       id: "blocked",
       label: "Needs attention",
-      value: snapshot.blockedReason.message,
+      value: productSafeText(snapshot.blockedReason.message),
       kind: "error",
     });
   for (const event of events.filter(
@@ -521,8 +571,8 @@ function buildOutputs(
           : "Form artifact problem",
       value:
         event.kind === "form_artifact_created"
-          ? String(event.data.artifactRef)
-          : String(event.data.error),
+          ? "Form artifact created."
+          : productSafeText(String(event.data.error)),
       kind: event.kind === "form_artifact_created" ? "form_artifact" : "error",
     });
   for (const entry of snapshot.history.filter(
@@ -539,10 +589,74 @@ function buildOutputs(
     outputs.push({
       id: `call-${call.turnId}`,
       label: `${call.label} output`,
-      value: call.outputRef!,
+      value: "Child workflow output recorded.",
       kind: "workflow_call_output",
     });
   return outputs;
+}
+
+
+function buildBeadContext(inputs: Record<string, unknown>) {
+  const ids = uniqueStrings([
+    ...stringArray((inputs as Record<string, unknown>).beadIds),
+    ...stringArray((inputs as Record<string, unknown>).beadId),
+    ...stringArray(asRecord(inputs.workflowContext)?.beadIds),
+    ...stringArray(asRecord(inputs.workflowContext)?.beadId),
+  ]);
+  if (!ids.length) return [];
+  const titlesById = new Map<string, string>();
+  const contextBeads = asRecord(inputs.workflowContext)?.beads;
+  if (Array.isArray(contextBeads)) {
+    for (const bead of contextBeads) {
+      const record = asRecord(bead);
+      if (
+        typeof record?.beadId === "string" &&
+        typeof record.title === "string"
+      ) {
+        titlesById.set(record.beadId, productSafeText(record.title, 160));
+      }
+    }
+  }
+  return ids.map((beadId) => ({
+    beadId: productSafeText(beadId, 120),
+    title: titlesById.get(beadId) ?? productSafeText(beadId, 120),
+    status: null,
+  }));
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function stringArray(value: unknown): string[] {
+  if (Array.isArray(value))
+    return value.filter((item): item is string => typeof item === "string");
+  return typeof value === "string" ? [value] : [];
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return Array.from(
+    new Set(values.map((value) => value.trim()).filter(Boolean)),
+  );
+}
+
+function productSafeText(value: string, maxChars = 500): string {
+  return value
+    .replace(/\bwebhook\b/gi, "workflow callback")
+    .replace(/\bqueue item\b/gi, "workflow work")
+    .replace(/\bbd\s+\w+/gi, "workflow tool")
+    .replace(/\bgit\s+\w+/gi, "version control action")
+    .replace(/\bshell\b/gi, "workflow action")
+    .replace(/\bHMAC\b/g, "signature")
+    .replace(/\bWorkflowStepState\b/g, "workflow step")
+    .replace(/\brunReady\b/g, "workflow ready")
+    .replace(/\brawXml\b/g, "response details")
+    .replace(/\bresponseRef\b/g, "response")
+    .replace(/<decision\b/gi, "decision")
+    .replace(/\/Users\/[^\s]+/g, "local path")
+    .slice(0, maxChars);
 }
 
 function commandResultText(input: {
@@ -550,13 +664,13 @@ function commandResultText(input: {
   artifactRef?: string;
   result: Record<string, unknown>;
 }): string {
-  const lines = [input.summary];
+  const lines = [productSafeText(input.summary)];
   for (const [key, value] of Object.entries(input.result)) {
     if (key === "summary") continue;
     if (value === undefined || value === null || value === "") continue;
-    lines.push(`${labelFromId(key)}: ${String(value)}`);
+    lines.push(`${labelFromId(key)}: ${productSafeText(String(value))}`);
   }
-  if (input.artifactRef) lines.push(`Artifact: ${input.artifactRef}`);
+  if (input.artifactRef) lines.push("Artifact recorded.");
   return lines.join("\n");
 }
 
@@ -666,7 +780,7 @@ function actionLabel(
 }
 
 function formatResultValue(value: unknown): string {
-  if (typeof value === "string") return value;
+  if (typeof value === "string") return productSafeText(value);
   if (typeof value === "number" || typeof value === "boolean")
     return String(value);
   if (Array.isArray(value)) return value.map(formatResultValue).join(", ");

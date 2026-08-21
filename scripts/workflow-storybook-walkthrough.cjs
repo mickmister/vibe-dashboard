@@ -107,7 +107,7 @@ async function waitForStoryContent(page, storyId) {
       const text = root.textContent || '';
       if (!text.trim()) return false;
       if (storyId.includes('graph')) return Boolean(document.querySelector('[data-testid="workflow-react-flow-canvas"]')) && text.includes('Graph');
-      if (storyId.includes('run-presentation')) return text.includes('Timeline') || text.includes('Workflow not found');
+      if (storyId.includes('run-presentation')) return text.includes('Run story') || text.includes('Workflow not found');
       if (storyId.includes('home')) return text.includes('Your workflows') || text.includes('No workflows yet');
       return true;
     },

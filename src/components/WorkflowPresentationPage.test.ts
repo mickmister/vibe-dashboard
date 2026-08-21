@@ -9,7 +9,7 @@ const forbiddenDebugTerms = [
   "HMAC",
   "delivery id",
   "trigger id",
-  "queue item id",
+  "queue item",
   "execution process id",
   "WorkflowStepState",
   "runReady",
@@ -35,6 +35,7 @@ describe("WorkflowPresentationView", () => {
     expect(html).toContain("h-screen");
     expect(html).toContain("overflow-y-auto");
     expect(html).toContain("Two agent review round");
+    expect(html).toContain("Workflow story at a glance");
     expect(html).toContain("Run summary");
     expect(html).toContain("Started by automation");
     expect(html).toContain("Two agent review round workflow v2");
@@ -44,20 +45,22 @@ describe("WorkflowPresentationView", () => {
     expect(html).toContain(
       "Next: The workflow resumes when the agent turn completes.",
     );
-    expect(html).toContain("Child workflows");
+    expect(html).toContain("Child workflow story");
     expect(html).toContain("Open child run");
-    expect(html).toContain("Outputs and artifacts");
+    expect(html).toContain("Result and artifacts");
     expect(html).toContain("Final summary");
+    expect(html).toContain("Task context");
+    expect(html).toContain("Clean trusted workflow run story page");
     expect(html).toContain("Original task");
     expect(html).toContain("Build the clean workflow page");
-    expect(html).toContain("Timeline");
+    expect(html).toContain("Run story");
     expect(html).toContain("Implementer");
     expect(html).toContain("Reviewer");
-    expect(html).toContain("Initial message");
-    expect(html).toContain("Final response");
+    expect(html).toContain("What was sent");
+    expect(html).toContain("What came back");
     expect(html).toContain("Implemented the UI.");
     expect(html).toContain("Reviewed and approved.");
-    expect(html).toContain("agent turn");
+    expect(html).toContain("Agent work");
     expect(html).toContain("Open Implementer session");
     expect(html).toContain("Open Reviewer session");
     for (const term of forbiddenDebugTerms) {
@@ -147,6 +150,13 @@ function presentationFixture(): WorkflowPresentationModel {
     status: "completed",
     humanStatus: "not_needed",
     originalTask: "Build the clean workflow page",
+    beadContext: [
+      {
+        beadId: "vibe-kanban-vscode-web-erf2",
+        title: "Clean trusted workflow run story page",
+        status: "open",
+      },
+    ],
     startedAt: 1,
     updatedAt: 2,
     completedAt: 2,

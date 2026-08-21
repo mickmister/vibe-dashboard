@@ -40,7 +40,7 @@ describe("buildPersistedWorkflowPresentationModel", () => {
         designId: "design.story",
         version: 1,
         workspaceId: "workspace-a",
-        runInput: { featureRequest: "Build run story" },
+        runInput: { featureRequest: "Build run story", workflowContext: { beadIds: ["vibe-kanban-vscode-web-erf2"], beads: [{ beadId: "vibe-kanban-vscode-web-erf2", title: "Clean run story page" }] } },
         roleBindings: {},
       });
       const model = normalizeWorkflowDefinitionV1(definition(), {
@@ -53,7 +53,18 @@ describe("buildPersistedWorkflowPresentationModel", () => {
         currentState: "review",
         currentStepIndex: 0,
         visitId: "visit-review",
-        inputs: { featureRequest: "Build run story" },
+        inputs: {
+          featureRequest: "Build run story",
+          workflowContext: {
+            beadIds: ["vibe-kanban-vscode-web-erf2"],
+            beads: [
+              {
+                beadId: "vibe-kanban-vscode-web-erf2",
+                title: "Clean run story page",
+              },
+            ],
+          },
+        },
         waitingFor: {
           kind: "agent_turn",
           state: "review",
@@ -172,7 +183,7 @@ describe("buildPersistedWorkflowPresentationModel", () => {
             childRunId: "run.child",
             childStatus: "completed",
             responseRef: "run.child",
-            outputRef: "workflow-run://run.child/output",
+            outputRef: "recorded",
             statusSummary: "completed",
           },
           {
@@ -267,7 +278,13 @@ describe("buildPersistedWorkflowPresentationModel", () => {
           expect.objectContaining({
             childRunId: "run.child",
             childUrl: "/dashboard/workflows/run.child",
-            outputRef: "workflow-run://run.child/output",
+            outputRef: "recorded",
+          }),
+        ],
+        beadContext: [
+          expect.objectContaining({
+            beadId: "vibe-kanban-vscode-web-erf2",
+            title: "Clean run story page",
           }),
         ],
         outputs: expect.arrayContaining([
@@ -285,7 +302,7 @@ describe("buildPersistedWorkflowPresentationModel", () => {
           }),
           expect.objectContaining({
             kind: "decision",
-            title: "Decision: Changes Requested",
+            title: "Review requested changes",
           }),
           expect.objectContaining({ kind: "human_form", status: "Answered" }),
           expect.objectContaining({
@@ -304,9 +321,13 @@ describe("buildPersistedWorkflowPresentationModel", () => {
       );
       const rendered = JSON.stringify(presentation);
       expect(rendered).toContain("Action: Ready for review");
+      expect(rendered).toContain("Dev self-reviewed");
+      expect(rendered).toContain("Review requested changes");
+      expect(rendered).toContain("Clean run story page");
       expect(rendered).toContain("Remarks: Needs tests");
       expect(rendered).not.toContain("webhook");
       expect(rendered).not.toContain("queue item");
+      expect(rendered).not.toContain("workflow-run://");
       expect(rendered).not.toContain("<decision");
       expect(rendered).not.toContain("rawXml");
       expect(rendered).not.toContain("response-dev");
@@ -401,7 +422,7 @@ describe("buildPersistedWorkflowPresentationModel", () => {
       expect(presentation?.timeline).toEqual(expect.arrayContaining([
         expect.objectContaining({
           kind: "github_ci",
-          title: "Wait for CI",
+          title: "Waiting for GitHub CI",
           status: "Waiting",
           responseUnavailable: expect.stringContaining("GitHub API rate limited"),
         }),

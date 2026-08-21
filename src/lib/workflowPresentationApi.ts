@@ -21,6 +21,13 @@ export interface WorkflowPresentationModel {
   outputs?: WorkflowPresentationOutputItem[];
   attention: WorkflowPresentationAttention | null;
   provenance?: WorkflowPresentationProvenance | null;
+  beadContext?: WorkflowPresentationBeadContextItem[];
+}
+
+export interface WorkflowPresentationBeadContextItem {
+  beadId: string;
+  title: string;
+  status?: string | null;
 }
 
 export interface WorkflowPresentationProvenance {
@@ -56,6 +63,7 @@ export interface WorkflowPresentationTimelineItem {
     | "decision"
     | "human_form"
     | "workflow_call"
+    | "command"
     | "github_ci"
     | "artifact"
     | "blocked"

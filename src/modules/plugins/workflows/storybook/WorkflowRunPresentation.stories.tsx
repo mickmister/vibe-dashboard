@@ -67,6 +67,25 @@ export const BlockedInvalidXmlRetry: Story = {
   },
 };
 
+
+export const DevReviewTesterLoopWithBeadContext: Story = {
+  args: {
+    presentation: drtLoopWithBeadContextFixture(),
+    loading: false,
+    error: null,
+    onRefresh: () => undefined,
+  },
+};
+
+export const CompletedWithoutBeadContext: Story = {
+  args: {
+    presentation: completedWorkflowPresentationFixture(),
+    loading: false,
+    error: null,
+    onRefresh: () => undefined,
+  },
+};
+
 export const ProductErrorState: Story = {
   args: {
     presentation: null,
@@ -76,6 +95,29 @@ export const ProductErrorState: Story = {
   },
 };
 
+
+
+function drtLoopWithBeadContextFixture(): WorkflowPresentationModel {
+  const model = completedWorkflowPresentationFixture();
+  return {
+    ...model,
+    instanceId: 'run-drt-loop-beads',
+    workflowName: 'Dev / Review / Tester',
+    originalTask: 'Ship the workflow run page story.',
+    beadContext: [
+      { beadId: 'vibe-kanban-vscode-web-erf2', title: 'Clean trusted workflow run story page', status: 'in progress' },
+      { beadId: 'vibe-kanban-vscode-web-npv', title: 'Overall Workflows IA recommendation', status: 'closed' },
+    ],
+    timeline: [
+      { id: 'dev-implement-1', role: 'Dev', title: 'Dev implemented', kind: 'agent_turn', state: 'Dev', step: 'Implement', status: 'Complete', session: { label: 'Dev session', workspaceId: 'workspace-storybook', sessionId: 'session-dev' }, initialMessage: { text: 'Implement the run story page.', truncated: false, maxChars: null }, finalResponse: { text: 'Implemented the first version.', truncated: false, maxChars: null }, responseUnavailable: null, commits: [] },
+      { id: 'dev-self-review-1', role: 'Dev', title: 'Dev self-reviewed', kind: 'decision', state: 'Dev → Review', step: 'Self review', action: 'Ready for review', status: 'Complete', session: null, initialMessage: null, finalResponse: { text: 'Action: Ready for review\nSummary: Ready for reviewer.', truncated: false, maxChars: null }, responseUnavailable: null, commits: [] },
+      { id: 'review-changes', role: 'Review', title: 'Review requested changes', kind: 'decision', state: 'Review → Dev', step: 'Review', action: 'Request changes', status: 'Complete', isLoop: true, session: null, initialMessage: null, finalResponse: { text: 'Requested changes: clarify waiting state.', truncated: false, maxChars: null }, responseUnavailable: null, commits: [] },
+      { id: 'dev-implement-2', role: 'Dev', title: 'Dev revised', kind: 'agent_turn', state: 'Dev', step: 'Implement', status: 'Complete', session: { label: 'Dev session', workspaceId: 'workspace-storybook', sessionId: 'session-dev' }, initialMessage: { text: 'Revise based on review requested changes.', truncated: false, maxChars: null }, finalResponse: { text: 'Revised the waiting state copy.', truncated: false, maxChars: null }, responseUnavailable: null, commits: [] },
+      { id: 'review-approved', role: 'Review', title: 'Review approved', kind: 'decision', state: 'Review → Tester', step: 'Review', action: 'Approved', status: 'Complete', session: null, initialMessage: null, finalResponse: { text: 'Remarks: approved.', truncated: false, maxChars: null }, responseUnavailable: null, commits: [] },
+      { id: 'tester-approved', role: 'Tester', title: 'Tester approved', kind: 'decision', state: 'Tester → Done', step: 'Test', action: 'Approved', status: 'Complete', session: null, initialMessage: null, finalResponse: { text: 'Test summary: all checks passed.', truncated: false, maxChars: null }, responseUnavailable: null, commits: [] },
+    ],
+  };
+}
 
 function waitingHumanFormPresentationFixture(): WorkflowPresentationModel {
   const model = completedWorkflowPresentationFixture();

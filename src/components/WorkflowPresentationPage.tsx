@@ -127,8 +127,12 @@ export function WorkflowPresentationView({
         {presentation.provenance ? (
           <ProvenanceBanner provenance={presentation.provenance} />
         ) : null}
+        <StoryAtAGlance presentation={presentation} />
         {presentation.summary ? (
           <RunSummary summary={presentation.summary} />
+        ) : null}
+        {presentation.beadContext?.length ? (
+          <TaskContextSection beads={presentation.beadContext} />
         ) : null}
         {presentation.originalTask ? (
           <section className="mt-5 rounded-lg border border-zinc-800 bg-zinc-950 p-4">
@@ -178,7 +182,7 @@ export function WorkflowPresentationView({
       ) : null}
 
       <section className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-5">
-        <h2 className="text-lg font-semibold">Timeline</h2>
+        <h2 className="text-lg font-semibold">Run story</h2>
         <div className="mt-4 space-y-4">
           {presentation.timeline.length ? (
             presentation.timeline.map((item) => (
@@ -190,6 +194,60 @@ export function WorkflowPresentationView({
         </div>
       </section>
     </StandaloneDashboardPage>
+  );
+}
+
+
+function StoryAtAGlance({
+  presentation,
+}: {
+  presentation: WorkflowPresentationModel;
+}) {
+  const finalResult = presentation.outputs?.find((output) => output.kind === "summary");
+  const waiting = presentation.summary?.waitingReason;
+  return (
+    <section
+      className="mt-5 grid gap-3 text-sm md:grid-cols-3"
+      aria-label="Workflow story at a glance"
+    >
+      <article className="rounded-lg border border-zinc-800 bg-zinc-950 p-4">
+        <div className="text-xs uppercase tracking-wide text-zinc-500">What ran</div>
+        <p className="mt-1 font-medium text-zinc-100">{presentation.workflowName}</p>
+      </article>
+      <article className="rounded-lg border border-zinc-800 bg-zinc-950 p-4">
+        <div className="text-xs uppercase tracking-wide text-zinc-500">What is happening</div>
+        <p className="mt-1 font-medium text-zinc-100">
+          {waiting ?? presentation.summary?.nextAction ?? statusLabel(presentation.status)}
+        </p>
+      </article>
+      <article className="rounded-lg border border-zinc-800 bg-zinc-950 p-4">
+        <div className="text-xs uppercase tracking-wide text-zinc-500">Result</div>
+        <p className="mt-1 font-medium text-zinc-100">
+          {finalResult?.value ?? (presentation.completedAt ? "Workflow completed." : "Result pending.")}
+        </p>
+      </article>
+    </section>
+  );
+}
+
+function TaskContextSection({
+  beads,
+}: {
+  beads: NonNullable<WorkflowPresentationModel["beadContext"]>;
+}) {
+  return (
+    <section className="mt-5 rounded-lg border border-zinc-800 bg-zinc-950 p-4">
+      <h2 className="text-sm font-medium text-zinc-200">Task context</h2>
+      <ul className="mt-2 space-y-1 text-sm text-zinc-100">
+        {beads.map((bead) => (
+          <li key={bead.beadId}>
+            <span className="font-medium">{bead.title || bead.beadId}</span>
+            <span className="text-zinc-400"> · {bead.beadId}</span>
+            {bead.status ? <span className="text-zinc-400"> · {bead.status}</span> : null}
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -248,11 +306,11 @@ function RunSummary({
           value={summary.currentOwner ?? "Workflow"}
         />
         <SummaryField
-          label="Current state"
+          label="Current stage"
           value={summary.currentState ?? "Not started"}
         />
         <SummaryField
-          label="Current step"
+          label="Current step or decision"
           value={summary.currentStep ?? "Not started"}
         />
       </div>
@@ -286,7 +344,7 @@ function CallTree({
 }) {
   return (
     <section className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-5">
-      <h2 className="text-lg font-semibold">Child workflows</h2>
+      <h2 className="text-lg font-semibold">Child workflow story</h2>
       <div className="mt-4 space-y-3">
         {items.map((item) => (
           <div
@@ -338,7 +396,7 @@ function OutputsSection({
 }) {
   return (
     <section className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-5">
-      <h2 className="text-lg font-semibold">Outputs and artifacts</h2>
+      <h2 className="text-lg font-semibold">Result and artifacts</h2>
       <div className="mt-4 grid gap-3 md:grid-cols-2">
         {outputs.map((output) => (
           <article
@@ -346,7 +404,7 @@ function OutputsSection({
             className="rounded-lg border border-zinc-800 bg-zinc-950 p-4"
           >
             <div className="text-xs uppercase tracking-wide text-zinc-500">
-              {output.kind.replace(/_/g, " ")}
+              {outputKindLabel(output.kind)}
             </div>
             <h3 className="mt-1 font-semibold">{output.label}</h3>
             <p className="mt-2 whitespace-pre-wrap text-sm text-zinc-200">
@@ -357,6 +415,14 @@ function OutputsSection({
       </div>
     </section>
   );
+}
+
+
+function outputKindLabel(kind: "summary" | "form_artifact" | "workflow_call_output" | "error"): string {
+  if (kind === "form_artifact") return "Form artifact";
+  if (kind === "workflow_call_output") return "Child workflow output";
+  if (kind === "error") return "Needs attention";
+  return "Summary";
 }
 
 function TurnCard({ item }: { item: WorkflowPresentationTimelineItem }) {
@@ -376,7 +442,7 @@ function TurnCard({ item }: { item: WorkflowPresentationTimelineItem }) {
             </span>
             {item.kind ? (
               <span className="rounded border border-zinc-700 px-2 py-0.5 text-xs text-zinc-400">
-                {item.kind.replace(/_/g, " ")}
+                {kindLabel(item.kind)}
               </span>
             ) : null}
             {item.isLoop ? (
@@ -388,7 +454,9 @@ function TurnCard({ item }: { item: WorkflowPresentationTimelineItem }) {
           <h3 className="mt-1 font-semibold text-zinc-100">{item.title}</h3>
           {item.state || item.step ? (
             <p className="mt-1 text-xs text-zinc-500">
-              {[item.state, item.step].filter(Boolean).join(" · ")}
+              {[item.state ? `Stage: ${item.state}` : null, item.step ? `Step: ${item.step}` : null]
+                .filter(Boolean)
+                .join(" · ")}
             </p>
           ) : null}
         </div>
@@ -417,14 +485,14 @@ function TurnCard({ item }: { item: WorkflowPresentationTimelineItem }) {
       </div>
       <div className="mt-4 grid gap-3 lg:grid-cols-2">
         <TextBlock
-          title="Initial message"
+          title="What was sent"
           text={item.initialMessage}
-          empty="Initial message unavailable."
+          empty="Message unavailable."
         />
         <TextBlock
-          title="Final response"
+          title="What came back"
           text={item.finalResponse}
-          empty={item.responseUnavailable ?? "Final response unavailable."}
+          empty={item.responseUnavailable ?? "Response unavailable."}
         />
       </div>
       {item.commits.length ? (
@@ -478,6 +546,32 @@ function TextBlock({
       ) : null}
     </section>
   );
+}
+
+
+function kindLabel(kind: NonNullable<WorkflowPresentationTimelineItem["kind"]>): string {
+  switch (kind) {
+    case "agent_turn":
+      return "Agent work";
+    case "decision":
+      return "Decision";
+    case "human_form":
+      return "Human input";
+    case "workflow_call":
+      return "Child workflow";
+    case "github_ci":
+      return "GitHub CI";
+    case "command":
+      return "Workflow action";
+    case "artifact":
+      return "Artifact";
+    case "blocked":
+      return "Needs attention";
+    case "retry":
+      return "Retry";
+    default:
+      return "Event";
+  }
 }
 
 function StatusPill({
