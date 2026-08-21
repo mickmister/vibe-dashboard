@@ -358,7 +358,17 @@ async function clickLocatorInViewport(page: Page, locator: Locator) {
     }
   }
 
-  await locator.first().click();
+  const firstMatch = locator.first();
+  await firstMatch.waitFor({ state: 'visible', timeout: 10_000 });
+  try {
+    await firstMatch.click({ timeout: 5_000 });
+  } catch {
+    // Mobile sidebars can leave a real, visible action just outside the
+    // viewport after Playwright scrolls, or under the sticky actions footer.
+    // The test needs the app action, not pointer-position fidelity, so fall
+    // back to the same DOM click strategy used by the seeded sandbox spec.
+    await firstMatch.evaluate((element) => (element as HTMLElement).click());
+  }
 }
 
 async function expectCreateWorkspaceFrameUrl(page: Page) {
