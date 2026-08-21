@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import type {
   PreviewSlot,
+  RepoWithBranch,
   RunConfig,
   RunConfigKind,
   WorkspaceRunConfigsResponse,
@@ -14,18 +15,18 @@ export function PreviewRunConfigsPanel({
   workspaceId: string;
 }) {
   const [data, setData] = useState<WorkspaceRunConfigsResponse | null>(null);
+  const [workspaceRepos, setWorkspaceRepos] = useState<RepoWithBranch[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [customerSlug, setCustomerSlug] = useState('preview');
+  const [selectedRepoId, setSelectedRepoId] = useState('');
   const [runForm, setRunForm] = useState({
-    repoId: '',
     slug: 'web',
     name: 'Web',
     command: 'npm run dev',
     kind: 'long_running' as RunConfigKind,
   });
   const [slotForm, setSlotForm] = useState({
-    repoId: '',
     runConfigId: '',
     slotSlug: 'web',
     title: 'Web',
@@ -33,10 +34,16 @@ export function PreviewRunConfigsPanel({
 
   const refresh = useCallback(async () => {
     setError(null);
-    const response = await fetch(`/internal/preview/workspaces/${encodeURIComponent(workspaceId)}/run-configs`);
-    if (!response.ok) throw new Error(await response.text());
-    const next = await response.json() as WorkspaceRunConfigsResponse;
+    const [runConfigsResponse, reposResponse] = await Promise.all([
+      fetch(`/internal/preview/workspaces/${encodeURIComponent(workspaceId)}/run-configs`),
+      fetch(`/internal/preview/workspaces/${encodeURIComponent(workspaceId)}/repos`),
+    ]);
+    if (!runConfigsResponse.ok) throw new Error(await runConfigsResponse.text());
+    if (!reposResponse.ok) throw new Error(await reposResponse.text());
+    const next = await runConfigsResponse.json() as WorkspaceRunConfigsResponse;
+    const nextRepos = await reposResponse.json() as RepoWithBranch[];
     setData(next);
+    setWorkspaceRepos(nextRepos);
   }, [workspaceId]);
 
   useEffect(() => {
@@ -44,34 +51,56 @@ export function PreviewRunConfigsPanel({
   }, [refresh]);
 
   useEffect(() => {
-    const firstRunConfig = data?.run_configs[0];
-    const firstSlot = data?.preview_slots[0];
-    setRunForm((current) => ({
-      ...current,
-      repoId: current.repoId || firstRunConfig?.repo_id || firstSlot?.repo_id || '',
-    }));
+    if (!workspaceRepos.length) {
+      setSelectedRepoId('');
+      return;
+    }
+    setSelectedRepoId((current) =>
+      current && workspaceRepos.some((repo) => repo.id === current)
+        ? current
+        : workspaceRepos[0]!.id,
+    );
+  }, [workspaceRepos]);
+
+  useEffect(() => {
+    const repoRunConfigs = selectedRepoId
+      ? (data?.run_configs ?? []).filter((runConfig) => runConfig.repo_id === selectedRepoId)
+      : [];
+    const firstRunConfig = repoRunConfigs[0];
     setSlotForm((current) => ({
       ...current,
-      repoId: current.repoId || firstSlot?.repo_id || firstRunConfig?.repo_id || '',
-      runConfigId: current.runConfigId || firstSlot?.run_config_id || firstRunConfig?.id || '',
+      runConfigId:
+        current.runConfigId && repoRunConfigs.some((runConfig) => runConfig.id === current.runConfigId)
+          ? current.runConfigId
+          : firstRunConfig?.id || '',
     }));
-  }, [data]);
+  }, [data, selectedRepoId]);
 
-  const repos = useMemo<RepoOption[]>(() => {
-    const labels = new Map<string, string>();
-    for (const runConfig of data?.run_configs ?? []) labels.set(runConfig.repo_id, runConfig.repo_id);
-    for (const slot of data?.preview_slots ?? []) labels.set(slot.repo_id, slot.repo_id);
-    return Array.from(labels, ([id, label]) => ({ id, label }));
-  }, [data]);
+  const repoOptions = useMemo<RepoOption[]>(
+    () => workspaceRepos.map((repo) => ({ id: repo.id, label: formatRepoLabel(repo) })),
+    [workspaceRepos],
+  );
+  const runConfigs = data?.run_configs ?? [];
+  const previewSlots = data?.preview_slots ?? [];
+  const selectedRepo = workspaceRepos.find((repo) => repo.id === selectedRepoId);
+  const selectedRepoRunConfigs = useMemo(
+    () => runConfigs.filter((runConfig) => runConfig.repo_id === selectedRepoId),
+    [runConfigs, selectedRepoId],
+  );
+  const hasSelectedRepo = Boolean(selectedRepoId);
 
   async function upsertRunConfig() {
+    if (!selectedRepoId) {
+      setError('Select a repository before saving a run config.');
+      return;
+    }
     setMessage(null);
     setError(null);
     const response = await fetch(`/internal/preview/workspaces/${encodeURIComponent(workspaceId)}/run-configs`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        repo_id: runForm.repoId,
+        repo_id: selectedRepoId,
         slug: runForm.slug,
         name: runForm.name,
         command: runForm.command,
@@ -84,7 +113,6 @@ export function PreviewRunConfigsPanel({
     setMessage(`Saved run config ${created.slug}`);
     setSlotForm((current) => ({
       ...current,
-      repoId: created.repo_id,
       runConfigId: created.id,
       slotSlug: current.slotSlug || created.slug.slice(0, 10),
       title: current.title || created.name,
@@ -93,13 +121,17 @@ export function PreviewRunConfigsPanel({
   }
 
   async function upsertPreviewSlot() {
+    if (!selectedRepoId) {
+      setError('Select a repository before saving a preview slot.');
+      return;
+    }
     setMessage(null);
     setError(null);
     const response = await fetch(`/internal/preview/workspaces/${encodeURIComponent(workspaceId)}/preview-slots`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        repo_id: slotForm.repoId,
+        repo_id: selectedRepoId,
         run_config_id: slotForm.runConfigId,
         slot_slug: slotForm.slotSlug,
         title: slotForm.title,
@@ -151,9 +183,6 @@ export function PreviewRunConfigsPanel({
     setMessage(result.url);
   }
 
-  const runConfigs = data?.run_configs ?? [];
-  const previewSlots = data?.preview_slots ?? [];
-
   return (
     <div className="h-full overflow-auto bg-neutral-950 text-neutral-100 p-6">
       <div className="mx-auto max-w-5xl space-y-6">
@@ -166,11 +195,37 @@ export function PreviewRunConfigsPanel({
 
         {error ? <Notice tone="error">{error}</Notice> : null}
         {message ? <Notice tone="info">{message}</Notice> : null}
+        {workspaceRepos.length === 0 ? (
+          <Notice tone="info">
+            No repositories are available for this workspace yet. Add or open a workspace repo before creating PreviewServer run configs or preview slots.
+          </Notice>
+        ) : null}
+
+        <section className="rounded-lg border border-neutral-800 bg-neutral-900/70 p-4">
+          <h2 className="font-medium">Repository</h2>
+          <p className="mt-1 text-sm text-neutral-400">
+            PreviewServer will use the selected workspace repo internally for new run configs and preview slots.
+          </p>
+          <div className="mt-3 max-w-xl">
+            <SelectInput
+              label="Repository"
+              value={selectedRepoId}
+              options={repoOptions}
+              disabled={repoOptions.length === 0}
+              onChange={setSelectedRepoId}
+            />
+            {selectedRepo ? (
+              <p className="mt-2 text-xs text-neutral-500">
+                Using repo ID <code>{selectedRepo.id}</code>
+                {selectedRepo.target_branch ? ` · ${selectedRepo.target_branch}` : ''}
+              </p>
+            ) : null}
+          </div>
+        </section>
 
         <section className="rounded-lg border border-neutral-800 bg-neutral-900/70 p-4">
           <h2 className="font-medium">Create stored run config</h2>
           <div className="mt-3 grid gap-3 md:grid-cols-2">
-            <TextInput label="Repo ID" value={runForm.repoId} onChange={(repoId) => setRunForm((current) => ({ ...current, repoId }))} />
             <TextInput label="Slug" value={runForm.slug} onChange={(slug) => setRunForm((current) => ({ ...current, slug }))} />
             <TextInput label="Name" value={runForm.name} onChange={(name) => setRunForm((current) => ({ ...current, name }))} />
             <label className="text-sm">
@@ -187,7 +242,11 @@ export function PreviewRunConfigsPanel({
             </label>
           </div>
           <TextArea label="Command" value={runForm.command} onChange={(command) => setRunForm((current) => ({ ...current, command }))} />
-          <button className="mt-3 rounded bg-blue-600 px-3 py-2 text-sm font-medium hover:bg-blue-500" onClick={() => void upsertRunConfig().catch((err) => setError(errorMessage(err)))}>
+          <button
+            disabled={!hasSelectedRepo}
+            className="mt-3 rounded bg-blue-600 px-3 py-2 text-sm font-medium hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400"
+            onClick={() => void upsertRunConfig().catch((err) => setError(errorMessage(err)))}
+          >
             Save run config
           </button>
         </section>
@@ -195,12 +254,24 @@ export function PreviewRunConfigsPanel({
         <section className="rounded-lg border border-neutral-800 bg-neutral-900/70 p-4">
           <h2 className="font-medium">Create preview slot</h2>
           <div className="mt-3 grid gap-3 md:grid-cols-2">
-            <TextInput label="Repo ID" value={slotForm.repoId} onChange={(repoId) => setSlotForm((current) => ({ ...current, repoId }))} />
-            <SelectInput label="Run config" value={slotForm.runConfigId} options={runConfigs.map((item) => ({ id: item.id, label: `${item.name} (${item.slug})` }))} onChange={(runConfigId) => setSlotForm((current) => ({ ...current, runConfigId }))} />
+            <SelectInput
+              label="Run config"
+              value={slotForm.runConfigId}
+              options={selectedRepoRunConfigs.map((item) => ({ id: item.id, label: `${item.name} (${item.slug})` }))}
+              disabled={!hasSelectedRepo || selectedRepoRunConfigs.length === 0}
+              onChange={(runConfigId) => setSlotForm((current) => ({ ...current, runConfigId }))}
+            />
             <TextInput label="Slot slug" value={slotForm.slotSlug} onChange={(slotSlug) => setSlotForm((current) => ({ ...current, slotSlug }))} />
             <TextInput label="Title" value={slotForm.title} onChange={(title) => setSlotForm((current) => ({ ...current, title }))} />
           </div>
-          <button className="mt-3 rounded bg-blue-600 px-3 py-2 text-sm font-medium hover:bg-blue-500" onClick={() => void upsertPreviewSlot().catch((err) => setError(errorMessage(err)))}>
+          {hasSelectedRepo && selectedRepoRunConfigs.length === 0 ? (
+            <p className="mt-2 text-xs text-neutral-500">Create a run config for the selected repository before creating a preview slot.</p>
+          ) : null}
+          <button
+            disabled={!hasSelectedRepo || !slotForm.runConfigId}
+            className="mt-3 rounded bg-blue-600 px-3 py-2 text-sm font-medium hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400"
+            onClick={() => void upsertPreviewSlot().catch((err) => setError(errorMessage(err)))}
+          >
             Save preview slot
           </button>
         </section>
@@ -248,11 +319,6 @@ export function PreviewRunConfigsPanel({
           </div>
         </section>
 
-        {repos.length === 0 ? (
-          <p className="text-xs text-neutral-500">
-            Tip: repo IDs appear after at least one run config or preview slot exists. Agents can also call the HTTP API directly.
-          </p>
-        ) : null}
       </div>
     </div>
   );
@@ -267,11 +333,11 @@ function TextInput({ label, value, onChange }: { label: string; value: string; o
   );
 }
 
-function SelectInput({ label, value, options, onChange }: { label: string; value: string; options: RepoOption[]; onChange: (value: string) => void }) {
+function SelectInput({ label, value, options, disabled = false, onChange }: { label: string; value: string; options: RepoOption[]; disabled?: boolean; onChange: (value: string) => void }) {
   return (
     <label className="text-sm">
       <span className="block text-neutral-300">{label}</span>
-      <select className="mt-1 w-full rounded border border-neutral-700 bg-neutral-950 p-2 text-neutral-100" value={value} onChange={(event) => onChange(event.target.value)}>
+      <select className="mt-1 w-full rounded border border-neutral-700 bg-neutral-950 p-2 text-neutral-100 disabled:cursor-not-allowed disabled:text-neutral-500" value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)}>
         <option value="">Select…</option>
         {options.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
       </select>
@@ -298,6 +364,13 @@ function Notice({ tone, children }: { tone: 'error' | 'info'; children: React.Re
 
 function ListEmpty<T>({ items, label }: { items: T[]; label: string }) {
   return items.length === 0 ? <p className="mt-3 text-sm text-neutral-500">{label}</p> : null;
+}
+
+function formatRepoLabel(repo: RepoWithBranch): string {
+  const displayName = repo.display_name || repo.name || repo.id;
+  return repo.target_branch
+    ? `${displayName} (${repo.target_branch})`
+    : displayName;
 }
 
 function errorMessage(error: unknown): string {

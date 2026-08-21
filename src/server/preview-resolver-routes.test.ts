@@ -77,6 +77,9 @@ describe('registerPreviewResolverRoutes', () => {
   it('proxies run config declaration and canonical URL generation routes', async () => {
     const client = {
       ...routeClient,
+      getWorkspaceRepos: vi.fn(async () => [
+        { id: 'repo1', name: 'vibe-kanban', display_name: 'Vibe Kanban', target_branch: 'feature/x' },
+      ]),
       getRunConfigs: vi.fn(async () => ({
         run_configs: [],
         preview_slots: [],
@@ -98,6 +101,7 @@ describe('registerPreviewResolverRoutes', () => {
     registerPreviewResolverRoutes(app, { vkClient: client });
 
     await app.request('/internal/preview/workspaces/ws1/run-configs');
+    const reposResponse = await app.request('/internal/preview/workspaces/ws1/repos');
     await app.request('/internal/preview/workspaces/ws1/run-configs', {
       method: 'POST',
       body: JSON.stringify({
@@ -124,6 +128,7 @@ describe('registerPreviewResolverRoutes', () => {
     );
 
     expect(client.getRunConfigs).toHaveBeenCalledWith('ws1');
+    expect(client.getWorkspaceRepos).toHaveBeenCalledWith('ws1');
     expect(client.upsertRunConfig).toHaveBeenCalledWith('ws1', expect.objectContaining({ slug: 'web' }));
     expect(client.upsertPreviewSlot).toHaveBeenCalledWith('ws1', expect.objectContaining({ slot_slug: 'web' }));
     expect(client.getPreviewSlotUrl).toHaveBeenCalledWith('ws1', 'slot1', {
@@ -133,6 +138,9 @@ describe('registerPreviewResolverRoutes', () => {
     await expect(urlResponse.json()).resolves.toMatchObject({
       url: 'https://0123456789abcdef-vibekanban-web-mickmister.vibedashboard.dev/',
     });
+    await expect(reposResponse.json()).resolves.toEqual([
+      { id: 'repo1', name: 'vibe-kanban', display_name: 'Vibe Kanban', target_branch: 'feature/x' },
+    ]);
   });
 
   it('rewrites generated Preview URLs to localhost subdomains for local Caddy mode', async () => {

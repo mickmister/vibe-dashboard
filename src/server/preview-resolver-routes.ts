@@ -5,6 +5,7 @@ import {
   type PreviewSlotUrlResponse,
   type PreviewResolveRequest,
   type PreviewResolveResponse,
+  type RepoWithBranch,
   type RunConfig,
   type RunConfigStartResponse,
   type UpsertPreviewSlot,
@@ -16,6 +17,7 @@ export interface RegisterPreviewResolverRoutesOptions {
   vkClient?: Pick<VibeKanbanServerClient, 'resolvePreview'> & Partial<Pick<
     VibeKanbanServerClient,
     | 'getRunConfigs'
+    | 'getWorkspaceRepos'
     | 'upsertRunConfig'
     | 'upsertPreviewSlot'
     | 'startRunConfig'
@@ -70,6 +72,17 @@ export function registerPreviewResolverRoutes(
     } catch (error) {
       console.warn('Preview run config list failed', error);
       return c.json({ message: 'Preview run config backend is unavailable' }, 502);
+    }
+  });
+
+  app.get('/internal/preview/workspaces/:workspaceId/repos', async (c) => {
+    const workspaceId = c.req.param('workspaceId');
+    try {
+      const response: RepoWithBranch[] = await vkClient.getWorkspaceRepos!(workspaceId);
+      return c.json(response, 200);
+    } catch (error) {
+      console.warn('Preview repo list failed', error);
+      return c.json({ message: 'Preview repo backend is unavailable' }, 502);
     }
   });
 
