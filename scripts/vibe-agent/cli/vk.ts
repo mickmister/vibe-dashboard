@@ -6,7 +6,7 @@ import { fileURLToPath } from 'url';
 import {
   buildLocalPreviewUrl,
   normalizeLocalCaddyStartOptions,
-  readLocalCaddyState,
+  readLocalCaddyStatus,
   startLocalPreviewCaddy,
   stopLocalPreviewCaddy,
 } from './preview-local-caddy.js';
@@ -936,7 +936,7 @@ async function commandPreviewUrlLocalCaddy(positional: string[], flags: FlagMap)
         caddyPort: getFlagString(flags, 'caddy-port'),
         dashboardPort: getFlagString(flags, 'dashboard-port'),
         caddyBin: getFlagString(flags, 'caddy-bin'),
-        caddyfile: getFlagString(flags, 'caddyfile'),
+        readinessTimeoutMs: getFlagString(flags, 'readiness-timeout-ms'),
       });
       const state = await startLocalPreviewCaddy(options);
       if (flags.json === true) {
@@ -961,13 +961,18 @@ async function commandPreviewUrlLocalCaddy(positional: string[], flags: FlagMap)
     }
 
     case 'status': {
-      const state = await readLocalCaddyState();
+      const status = await readLocalCaddyStatus();
+      const state = status.state;
       if (flags.json === true) {
-        console.log(JSON.stringify(state ?? {}, null, 2));
+        console.log(JSON.stringify(status, null, 2));
         return;
       }
       if (!state) {
         console.log('No local PreviewServer Caddy state found.');
+        return;
+      }
+      if (status.stale) {
+        console.log(`Stale local PreviewServer Caddy state removed for PID ${state.pid}.`);
         return;
       }
       console.log(`Local PreviewServer Caddy: ${state.url}`);
@@ -977,7 +982,7 @@ async function commandPreviewUrlLocalCaddy(positional: string[], flags: FlagMap)
     }
 
     default:
-      console.error('Usage: vk preview-url local-caddy <start|stop|status> [--caddy-port <port>] [--dashboard-port <port>] [--backend-port <port>] [--json]');
+      console.error('Usage: vk preview-url local-caddy <start|stop|status> [--caddy-port <port>] [--dashboard-port <port>] [--backend-port <port>] [--readiness-timeout-ms <ms>] [--json]');
       process.exit(1);
   }
 }

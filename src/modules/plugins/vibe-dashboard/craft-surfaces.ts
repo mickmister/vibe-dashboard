@@ -298,6 +298,10 @@ export function isEphemeralCraftSurfaceTabId(tabId: string): boolean {
   );
 }
 
+export function isRuntimeCraftSurfaceTabId(tabId: string): boolean {
+  return tabId.startsWith(CRAFT_SURFACE_TAB_ID_PREFIX);
+}
+
 export function tabGroupHasEphemeralCraftSurfaceTab(
   tabGroup: TabGroup,
   tabId: string,
@@ -403,6 +407,51 @@ export function stripEphemeralCraftSurfaceSessionRefs(input: {
   return { voyageEntries, activeItemsByVoyageEntryId };
 }
 
+export function sanitizeRuntimeCraftSurfaceSavedSessionRefs(input: {
+  workspace: WorkspaceState;
+  session: SavedWorkspaceSession;
+}): SavedWorkspaceSession {
+  const tabGroupsById = new Map(
+    input.workspace.tabGroups.map((tabGroup) => [tabGroup.id, tabGroup]),
+  );
+  const voyageEntries = input.session.voyageEntries.map((entry) => {
+    const tabGroup = tabGroupsById.get(entry.tabGroupId);
+    const persistentViewIds = sanitizeRuntimeViewIdsForSavedVoyageEntry(
+      tabGroup,
+      entry.viewIds,
+    );
+    return {
+      ...entry,
+      viewIds: persistentViewIds.length
+        ? persistentViewIds
+        : getDefaultPersistentViewIdsForSavedVoyage(tabGroup),
+    };
+  });
+  const entriesById = new Map(voyageEntries.map((entry) => [entry.id, entry]));
+  const activeItemsByVoyageEntryId = Object.fromEntries(
+    Object.entries(input.session.activeItemsByVoyageEntryId ?? {}).flatMap(
+      ([entryId, itemId]) => {
+        const entry = entriesById.get(entryId);
+        if (!entry) return [];
+        if (!isRuntimeCraftSurfaceTabId(itemId)) {
+          return [[entryId, itemId]];
+        }
+        const fallbackItemId = getDefaultActiveItemIdForSavedVoyageEntry(
+          tabGroupsById.get(entry.tabGroupId),
+          entry.viewIds,
+        );
+        return fallbackItemId ? [[entryId, fallbackItemId]] : [];
+      },
+    ),
+  );
+
+  return {
+    ...input.session,
+    voyageEntries,
+    activeItemsByVoyageEntryId,
+  };
+}
+
 export function isBuiltInWorkspaceTabId(tabId: string): boolean {
   return BUILT_IN_WORKSPACE_TAB_IDS.has(tabId);
 }
@@ -421,6 +470,63 @@ function isGeneratedWorkspaceTab(
     isBeadsTab(tab) ||
     isFormsTab(tab)
   );
+}
+
+function sanitizeRuntimeViewIdsForSavedVoyageEntry(
+  tabGroup: TabGroup | undefined,
+  viewIds: string[],
+): string[] {
+  if (!tabGroup) return [];
+  const persistentTabIds = getPersistentSavedVoyageTabIds(tabGroup);
+  return viewIds.filter(
+    (viewId) =>
+      !isRuntimeCraftSurfaceTabId(viewId) && persistentTabIds.has(viewId),
+  );
+}
+
+function getDefaultPersistentViewIdsForSavedVoyage(
+  tabGroup: TabGroup | undefined,
+): string[] {
+  if (!tabGroup) return [];
+  if (tabGroup.workspace?.workspaceId) return [BUILT_IN_AGENT_TAB_ID];
+  const persistentTabId = tabGroup.tabs.find(
+    (tab) => !isRuntimeCraftSurfaceTabId(tab.id),
+  )?.id;
+  if (persistentTabId) return [persistentTabId];
+  const persistentPair = tabGroup.pairs.find((pair) =>
+    pair.tabIds.every((tabId) => !isRuntimeCraftSurfaceTabId(tabId)),
+  );
+  return persistentPair?.tabIds ? [...persistentPair.tabIds] : [];
+}
+
+function getDefaultActiveItemIdForSavedVoyageEntry(
+  tabGroup: TabGroup | undefined,
+  viewIds: string[],
+): string {
+  if (!tabGroup) return viewIds[0] ?? "";
+  if (viewIds.length > 1) {
+    const pair = tabGroup.pairs.find(
+      (entry) =>
+        entry.tabIds.length === viewIds.length &&
+        entry.tabIds.every((tabId, index) => tabId === viewIds[index]),
+    );
+    if (pair && !isRuntimeCraftSurfaceTabId(pair.id)) return pair.id;
+  }
+  return viewIds[0] ?? "";
+}
+
+function getPersistentSavedVoyageTabIds(tabGroup: TabGroup): Set<string> {
+  const persistentTabIds = new Set(
+    tabGroup.tabs
+      .filter((tab) => !isRuntimeCraftSurfaceTabId(tab.id))
+      .map((tab) => tab.id),
+  );
+  if (tabGroup.workspace?.workspaceId) {
+    for (const tabId of BUILT_IN_WORKSPACE_TAB_IDS) {
+      persistentTabIds.add(tabId);
+    }
+  }
+  return persistentTabIds;
 }
 
 function getBuiltInWorkspaceBaseOrigin(

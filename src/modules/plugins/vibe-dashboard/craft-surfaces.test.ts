@@ -3,6 +3,7 @@ import {
   createEffectiveWorkspaceWithCraftSurfaces,
   filterEphemeralCraftSurfaceActiveItems,
   isEphemeralCraftSurfaceTab,
+  sanitizeRuntimeCraftSurfaceSavedSessionRefs,
   stripEphemeralCraftSurfaceSessionRefs,
   stripEphemeralCraftSurfaceTabsFromWorkspace,
   tabGroupHasEphemeralCraftSurfaceTab,
@@ -647,5 +648,130 @@ describe("dynamic Craft surfaces", () => {
       ],
       activeItemsByVoyageEntryId: {},
     });
+  });
+
+  it("sanitizes saved Voyage persistence without removing built-in workspace views", () => {
+    const runtimeTabId =
+      "craft-surface:craft_workspace:dev.mickmister.preview-server/run-configs";
+    const rawWorkspace: WorkspaceState = {
+      spaces: [
+        {
+          id: "space_home",
+          name: "Home",
+          icon: "home",
+          tabGroupIds: ["craft_workspace"],
+        },
+      ],
+      tabGroups: [
+        {
+          id: "craft_workspace",
+          label: "Workspace Craft",
+          workspace: {
+            workspaceId: "workspace_1",
+            workspaceDir: "/home/vkuser/repos/app",
+          },
+          tabs: [],
+          pairs: [],
+          order: 0,
+        },
+      ],
+      nextId: 1,
+    };
+    const pollutedSession: SavedWorkspaceSession = {
+      id: "session-1",
+      slug: "test-session",
+      name: "Test Session",
+      createdAt: "2026-06-15T00:00:00.000Z",
+      updatedAt: "2026-06-15T00:00:00.000Z",
+      activeSpaceId: "space_home",
+      activeTabGroupId: "craft_workspace",
+      activeVoyageEntryId: "ve_craft_workspace",
+      voyageEntries: [
+        {
+          id: "ve_craft_workspace",
+          tabGroupId: "craft_workspace",
+          viewIds: [runtimeTabId],
+        },
+      ],
+      activeItemsByVoyageEntryId: { ve_craft_workspace: runtimeTabId },
+      visitedTabGroupIds: ["craft_workspace"],
+    };
+
+    expect(
+      sanitizeRuntimeCraftSurfaceSavedSessionRefs({
+        workspace: rawWorkspace,
+        session: pollutedSession,
+      }),
+    ).toMatchObject({
+      voyageEntries: [
+        {
+          id: "ve_craft_workspace",
+          tabGroupId: "craft_workspace",
+          viewIds: ["agent"],
+        },
+      ],
+      activeItemsByVoyageEntryId: { ve_craft_workspace: "agent" },
+    });
+  });
+
+  it("sanitizes split runtime plus iframe selections before saving Voyages", () => {
+    const runtimeTabId =
+      "craft-surface:craft_workspace:dev.mickmister.preview-server/run-configs";
+    const rawWorkspace: WorkspaceState = {
+      spaces: [
+        {
+          id: "space_home",
+          name: "Home",
+          icon: "home",
+          tabGroupIds: ["craft_workspace"],
+        },
+      ],
+      tabGroups: [
+        {
+          id: "craft_workspace",
+          label: "Workspace Craft",
+          workspace: {
+            workspaceId: "workspace_1",
+            workspaceDir: "/home/vkuser/repos/app",
+          },
+          tabs: [{ id: "custom_tab", title: "Custom", url: "/" }],
+          pairs: [],
+          order: 0,
+        },
+      ],
+      nextId: 1,
+    };
+    const pollutedSession: SavedWorkspaceSession = {
+      id: "session-1",
+      slug: "test-session",
+      name: "Test Session",
+      createdAt: "2026-06-15T00:00:00.000Z",
+      updatedAt: "2026-06-15T00:00:00.000Z",
+      activeSpaceId: "space_home",
+      activeTabGroupId: "craft_workspace",
+      activeVoyageEntryId: "ve_craft_workspace",
+      voyageEntries: [
+        {
+          id: "ve_craft_workspace",
+          tabGroupId: "craft_workspace",
+          viewIds: [runtimeTabId, "agent"],
+        },
+      ],
+      activeItemsByVoyageEntryId: { ve_craft_workspace: runtimeTabId },
+      visitedTabGroupIds: ["craft_workspace"],
+    };
+
+    expect(
+      sanitizeRuntimeCraftSurfaceSavedSessionRefs({
+        workspace: rawWorkspace,
+        session: pollutedSession,
+      }).voyageEntries[0]!.viewIds,
+    ).toEqual(["agent"]);
+    expect(
+      sanitizeRuntimeCraftSurfaceSavedSessionRefs({
+        workspace: rawWorkspace,
+        session: pollutedSession,
+      }).activeItemsByVoyageEntryId,
+    ).toEqual({ ve_craft_workspace: "agent" });
   });
 });

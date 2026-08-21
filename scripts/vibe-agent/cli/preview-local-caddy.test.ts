@@ -3,7 +3,9 @@ import {
   buildLocalCaddyDashboardUrl,
   buildLocalCaddyEnv,
   buildLocalPreviewUrl,
+  getLocalCaddyOptionMismatches,
   normalizeLocalCaddyStartOptions,
+  renderLocalPreviewCaddyfile,
 } from './preview-local-caddy.js';
 
 describe('preview-local-caddy', () => {
@@ -53,6 +55,7 @@ describe('preview-local-caddy', () => {
       caddyPort: 55743,
       dashboardPort: 3005,
       baseDomain: 'localhost',
+      readinessTimeoutMs: 5000,
     });
   });
 
@@ -60,5 +63,36 @@ describe('preview-local-caddy', () => {
     expect(buildLocalCaddyDashboardUrl(55743)).toBe(
       'http://localhost:55743/?previewLocalCaddy=1',
     );
+  });
+
+  it('renders a local-only Caddyfile bound to loopback', () => {
+    const caddyfile = renderLocalPreviewCaddyfile();
+
+    expect(caddyfile).toContain('http://127.0.0.1:{$CADDY_PORT:3001}');
+    expect(caddyfile).not.toContain('\n:{$CADDY_PORT');
+    expect(caddyfile).toContain('vk_preview_resolver');
+    expect(caddyfile).toContain('resolver_url {$PREVIEW_RESOLVER_URL}');
+    expect(caddyfile).toContain('base_domain {$PREVIEW_BASE_DOMAIN:localhost}');
+  });
+
+  it('detects option mismatches before reusing a running local Caddy process', () => {
+    expect(
+      getLocalCaddyOptionMismatches(
+        {
+          backendPort: 3007,
+          caddyPort: 3001,
+          dashboardPort: 3005,
+          baseDomain: 'localhost',
+          caddyBin: 'caddy',
+        },
+        {
+          backendPort: 3007,
+          caddyPort: 55743,
+          dashboardPort: 3005,
+          baseDomain: 'localhost',
+          caddyBin: 'caddy',
+        },
+      ),
+    ).toEqual(['caddyPort=3001 (requested 55743)']);
   });
 });
