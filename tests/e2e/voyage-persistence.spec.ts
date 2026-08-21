@@ -615,11 +615,11 @@ test.describe('voyage persistence', () => {
 
     await page.evaluate(
       (cachedUrl) => localStorage.setItem('workspace-last-dashboard-url', cachedUrl),
-      `/dashboard?from_gh_url=https%3A%2F%2Fexample.invalid&voyage=${voyageASlug}`,
+      `/dashboard?referrer_url=https%3A%2F%2Fexample.invalid&voyage=${voyageASlug}`,
     );
     await page.goto('/');
     await expectUrlVoyageToken(page, voyageAId, [voyageAId, voyageBId]);
-    await expect(page).not.toHaveURL(/from_gh_url/);
+    await expect(page).not.toHaveURL(/referrer_url/);
     await expect
       .poll(async () => page.evaluate(() => localStorage.getItem('workspace-last-dashboard-url')))
       .toMatch(/^\/\?voyage=/);
@@ -681,7 +681,7 @@ test.describe('voyage persistence', () => {
 
     await openVoyageSwitcher(page);
     await expect(page.getByRole('button', { name: voyageName }).first()).toBeVisible();
-    await page.getByRole('button', { name: 'Go Home' }).click();
+    await page.getByRole('button', { name: 'Go Home', exact: true }).click();
 
     await expect(page.getByRole('heading', { name: 'All Voyages' })).toBeVisible();
     await expect(page.getByText(voyageName).first()).toBeVisible();

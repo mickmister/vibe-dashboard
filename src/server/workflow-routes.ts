@@ -7,12 +7,32 @@ import {
 } from '@vibe-dashboard/workflow-core';
 import { verifyGitHubWebhookSignature } from './github-signature';
 import type { CachedRepoAlias } from '../workflows/github-ci';
+import {
+  GithubIssueWorkspaceMapStore,
+  type GithubIssueIdentity,
+} from './github-issue-workspace-map';
+import {
+  ensureGithubRepoRegistered,
+  GithubRepoProvisioningError,
+  type EnsureGithubRepoOptions,
+} from './github-repo-provisioning';
+import {
+  findBranchesContainingCommit,
+  GitBranchLookupError,
+  type FindBranchesContainingCommitOptions,
+} from './git-branches';
+import { VibeKanbanServerClient } from './vk-client';
 
 export interface RegisterWorkflowRoutesOptions {
   registry: WorkflowRegistry;
   runOptions?: RunWorkflowOptions;
   githubWebhookSecret?: string;
   repoAliasCache?: RepoAliasCache;
+  githubRepoProvisioning?: EnsureGithubRepoOptions;
+  githubBranchLookup?: FindBranchesContainingCommitOptions & {
+    vkClient?: Pick<VibeKanbanServerClient, 'getRepos'>;
+  };
+  githubIssueWorkspaceMap?: GithubIssueWorkspaceMapStore;
 }
 
 export interface RepoAliasCache {
@@ -36,13 +56,151 @@ export function registerWorkflowRoutes(
     });
   });
 
+  const issueWorkspaceMap =
+    options.githubIssueWorkspaceMap ?? new GithubIssueWorkspaceMapStore();
+
+  hono.get(
+    '/dashboard/api/github/issue-workspaces/:owner/:repo/:number',
+    async (c) => {
+      const identity = parseIssueIdentityParams(c.req.param());
+      if (!identity) {
+        return c.json(
+          {
+            error: 'A valid GitHub issue owner, repo, and number are required',
+          },
+          400,
+        );
+      }
+
+      const mapping = await issueWorkspaceMap.get(identity);
+      return c.json({ mapping });
+    },
+  );
+
+  hono.put(
+    '/dashboard/api/github/issue-workspaces/:owner/:repo/:number',
+    async (c) => {
+      const identity = parseIssueIdentityParams(c.req.param());
+      if (!identity) {
+        return c.json(
+          {
+            error: 'A valid GitHub issue owner, repo, and number are required',
+          },
+          400,
+        );
+      }
+
+      const body = asRecord(await readJsonBody(c.req.raw));
+      const workspaceId = asString(body?.workspaceId);
+      const branch = asString(body?.branch);
+      if (!(workspaceId && branch)) {
+        return c.json({ error: 'workspaceId and branch are required' }, 400);
+      }
+
+      const mapping = await issueWorkspaceMap.upsert({
+        identity,
+        workspaceId,
+        branch,
+      });
+      return c.json({ mapping });
+    },
+  );
+
+  hono.delete(
+    '/dashboard/api/github/issue-workspaces/:owner/:repo/:number',
+    async (c) => {
+      const identity = parseIssueIdentityParams(c.req.param());
+      if (!identity) {
+        return c.json(
+          {
+            error: 'A valid GitHub issue owner, repo, and number are required',
+          },
+          400,
+        );
+      }
+
+      const deleted = await issueWorkspaceMap.delete(identity);
+      return c.json({ deleted });
+    },
+  );
+
+  hono.get(
+    '/dashboard/api/github/repos/:repoId/branches-containing/:commit',
+    async (c) => {
+      try {
+        const repoId = c.req.param('repoId');
+        const commit = c.req.param('commit');
+        const vkClient =
+          options.githubBranchLookup?.vkClient ?? new VibeKanbanServerClient();
+        const repos = await vkClient.getRepos();
+        const repo = repos.find((entry) => entry.id === repoId);
+        if (!repo) {
+          return c.json(
+            { error: `VK repository ${repoId} was not found.` },
+            404,
+          );
+        }
+
+        const branches = await findBranchesContainingCommit(repo.path, commit, {
+          execFile: options.githubBranchLookup?.execFile,
+        });
+        return c.json({ branches });
+      } catch (error) {
+        if (error instanceof GitBranchLookupError) {
+          return c.json(
+            { error: error.message },
+            error.status === 400 ? 400 : 500,
+          );
+        }
+        console.error('GitHub branch lookup route failed', error);
+        return c.json(
+          { error: 'Internal GitHub branch lookup route error' },
+          500,
+        );
+      }
+    },
+  );
+
+  hono.post('/dashboard/api/github/ensure-repo', async (c) => {
+    try {
+      const body = await readJsonBody(c.req.raw);
+      const repoUrl = asString(asRecord(body)?.repoUrl);
+      if (!repoUrl) {
+        return c.json({ error: 'repoUrl is required' }, 400);
+      }
+
+      const result = await ensureGithubRepoRegistered(
+        { repoUrl },
+        options.githubRepoProvisioning,
+      );
+      return c.json({
+        repo: result.repo,
+        path: result.path,
+        cloned: result.cloned,
+        refreshed: result.refreshed,
+        registered: result.registered,
+      });
+    } catch (error) {
+      if (error instanceof GithubRepoProvisioningError) {
+        const status = error.status === 400 ? 400 : 500;
+        return c.json({ error: error.message }, status);
+      }
+      console.error('GitHub repo provisioning route failed', error);
+      return c.json(
+        { error: 'Internal GitHub repo provisioning route error' },
+        500,
+      );
+    }
+  });
+
   hono.post('/dashboard/api/webhooks/github', async (c) => {
     try {
       const event = c.req.header('X-GitHub-Event') || '';
       const rawBody = await c.req.raw.text();
       const signatureResult = verifyGitHubWebhookSignature({
         body: rawBody,
-        secret: options.githubWebhookSecret ?? process.env.GITHUB_WEBHOOK_SECRET,
+        secret:
+          options.githubWebhookSecret ?? process.env.GITHUB_WEBHOOK_SECRET,
         signature: c.req.header('X-Hub-Signature-256'),
       });
       if (!signatureResult.ok) {
@@ -78,7 +236,10 @@ export function registerWorkflowRoutes(
       }
 
       console.error('GitHub webhook workflow route failed', error);
-      return c.json({ error: 'Internal GitHub webhook workflow route error' }, 500);
+      return c.json(
+        { error: 'Internal GitHub webhook workflow route error' },
+        500,
+      );
     }
   });
 
@@ -126,7 +287,9 @@ async function runGitHubCiFailureWorkflow(args: {
     return firstRun;
   }
 
-  const refreshedRepoAliases = await refreshCachedRepoAliases(args.options.repoAliasCache);
+  const refreshedRepoAliases = await refreshCachedRepoAliases(
+    args.options.repoAliasCache,
+  );
   if (!refreshedRepoAliases) {
     return firstRun;
   }
@@ -176,11 +339,37 @@ function summarizeGitHubWebhookPayload(payload: unknown): Record<string, unknown
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
+  return value && typeof value === 'object'
+    ? (value as Record<string, unknown>)
+    : null;
 }
 
 function asString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
+}
+
+function parseIssueIdentityParams(params: {
+  owner?: string;
+  repo?: string;
+  number?: string;
+}): GithubIssueIdentity | null {
+  const owner = params.owner?.trim().toLowerCase();
+  const repo = params.repo
+    ?.trim()
+    .replace(/\.git$/i, '')
+    .toLowerCase();
+  const number = Number(params.number);
+
+  if (!(owner && repo && Number.isInteger(number) && number > 0)) {
+    return null;
+  }
+
+  return {
+    owner,
+    repo,
+    number,
+    normalizedIssueUrl: `https://github.com/${owner}/${repo}/issues/${number}`,
+  };
 }
 
 async function getCachedRepoAliases(

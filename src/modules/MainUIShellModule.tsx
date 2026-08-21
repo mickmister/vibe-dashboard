@@ -20,6 +20,11 @@ import {
   setStoredLastDashboardUrl,
   shortIdTokenMatches,
 } from "../lib/voyageUrl";
+import {
+  ExternalKanbanDashboardRoute,
+  hasExternalViewQueryParam,
+} from "./plugins/kanban/ExternalKanbanRoute";
+import { DashboardWorkspaceRoute } from "../components/DashboardWorkspaceRoute";
 import { resolveDashboardVoyage } from "../lib/voyageSession";
 import { getSavedWorkspaceSessions } from "../lib/savedVoyageState";
 import { getRenderedPairViewIds } from "../lib/renderedWorkspaceSelection";
@@ -29,8 +34,17 @@ import {
   type PluginAdminStatus,
 } from "../lib/pluginAdminApi";
 import { usePluginRegistry } from "./plugins/vibe-dashboard/registry";
-import type { ResolvedWorkspaceComposition } from "./plugins/vibe-dashboard/workspace-composition";
+import {
+  resolveWorkspaceFactoryComposition,
+  type ResolvedWorkspaceComposition,
+} from "./plugins/vibe-dashboard/workspace-composition";
 import { createEffectiveWorkspaceWithCraftSurfaces } from "./plugins/vibe-dashboard/craft-surfaces";
+import {
+  OpenFromGitHub,
+  hasOpenFromGitHubParam,
+} from "./OpenFromGitHub";
+import { hasGithubExternalViewUrl } from "../lib/openFromGithub";
+import { VibeIntlProvider } from "../i18n";
 
 // Ensure dark class is on the document root so portaled elements (modals, popovers)
 // inherit dark mode styles
@@ -150,6 +164,17 @@ function resolveQueryCraftSelection(
 }
 
 springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
+  const DashboardRoute = () => {
+    const location = useLocation();
+    if (
+      hasExternalViewQueryParam(location.search) &&
+      !hasGithubExternalViewUrl(location.search)
+    ) {
+      return <ExternalKanbanDashboardRoute search={location.search} />;
+    }
+    return <WorkspaceRoute />;
+  };
+
   // Shared route component with canonical voyage query-param support
   const WorkspaceRoute = () => {
     const workspaceModule = useModule("workspace");
@@ -364,6 +389,9 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
 
     // Sync URL to match canonical voyage/craft/views query params
     useEffect(() => {
+      if (hasOpenFromGitHubParam(location.search)) {
+        return;
+      }
       if (dashboardVoyage.status !== "resolved") return;
       if (!activeSavedSession) return;
 
@@ -783,6 +811,34 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
       },
     };
 
+    const resolveDefaultVKWorkspaceComposition = (args: {
+      workspaceId: string;
+      name: string;
+      containerRef: string;
+    }): ResolvedWorkspaceComposition => {
+      const factory = Object.values(pluginRegistryState.tabGroupFactories)
+        .filter((candidate) => candidate.launchMode === "vk-workspace")
+        .sort(
+          (left, right) =>
+            (left.order ?? 0) - (right.order ?? 0) ||
+            left.key.localeCompare(right.key),
+        )[0];
+
+      if (!factory) {
+        throw new Error("No VK workspace factory is registered");
+      }
+
+      return resolveWorkspaceFactoryComposition({
+        factory,
+        context: {
+          origin: typeof window === "undefined" ? "" : window.location.origin,
+          workspaceId: args.workspaceId,
+          workspaceName: args.name,
+          containerRef: args.containerRef,
+        },
+      });
+    };
+
     // Wrap actions that need session parameters
     const wrappedActions = {
       ...actions,
@@ -838,13 +894,20 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
         name: string;
         containerRef: string;
         activeSpaceId: string;
-        composition: ResolvedWorkspaceComposition;
+        composition?: ResolvedWorkspaceComposition;
       }) => {
         const containerRef = await resolveWorkspaceContainerRef(
           args.taskAttemptId,
           args.containerRef,
         );
-        return actions.addVKWorkspace({ ...args, containerRef });
+        const composition =
+          args.composition ??
+          resolveDefaultVKWorkspaceComposition({
+            workspaceId: args.taskAttemptId,
+            name: args.name,
+            containerRef,
+          });
+        return actions.addVKWorkspace({ ...args, containerRef, composition });
       },
       createSavedSessionForVKWorkspace: async (args: {
         voyageName: string;
@@ -914,8 +977,8 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
             viewTokens: undefined,
           }),
           { replace: true },
-        );
-      };
+      );
+    };
 
       return (
         <div className="dark w-screen h-screen fixed inset-0 bg-neutral-950 text-neutral-100 flex items-center justify-center p-6">
@@ -1036,6 +1099,21 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
             currentSessionId={browserSessionId}
           />
         </div>
+        <OpenFromGitHub
+          workspace={workspace}
+          savedVoyages={savedVoyages}
+          addSpace={async (args) => await actions.addSpace(args)}
+          deleteTabGroup={async (args) => await actions.deleteTabGroup(args)}
+          addVKWorkspace={wrappedActions.addVKWorkspace}
+          selectSessionTabGroup={sessionActions.selectSessionTabGroup}
+          selectSessionTab={sessionActions.selectSessionTab}
+          createSavedSessionForSelection={async (args) =>
+            await actions.createSavedSessionForSelection(args)
+          }
+          addSelectionToSavedSession={async (args) =>
+            await actions.addSelectionToSavedSession(args)
+          }
+        />
       </>
     );
   };
@@ -1199,14 +1277,20 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
 
   // Root is the canonical dashboard route so PWA installs/bookmarks start from
   // a stable app-home path while query params carry Voyage navigation state.
-  moduleAPI.registerRoute("/", { hideApplicationShell: true }, WorkspaceRoute);
+  moduleAPI.registerRoute("/", { hideApplicationShell: true }, DashboardRoute);
 
   // Compatibility dashboard route. It renders the same app and canonical URL
   // sync redirects Voyage links back to root with the query params intact.
   moduleAPI.registerRoute(
     "/dashboard",
     { hideApplicationShell: true },
-    WorkspaceRoute,
+    DashboardRoute,
+  );
+
+  moduleAPI.registerRoute(
+    "/dashboard/workspaces/:workspaceId",
+    { hideApplicationShell: true },
+    DashboardWorkspaceRoute,
   );
 
   moduleAPI.registerRoute(
@@ -1219,7 +1303,9 @@ springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
     Provider: (props: React.PropsWithChildren) => {
       return (
         <QueryClientProvider client={queryClient}>
-          <HeroUIProvider>{props.children}</HeroUIProvider>
+          <VibeIntlProvider>
+            <HeroUIProvider>{props.children}</HeroUIProvider>
+          </VibeIntlProvider>
         </QueryClientProvider>
       );
     },
