@@ -68,11 +68,16 @@ describe('preview-local-caddy', () => {
   it('renders a local-only Caddyfile bound to loopback', () => {
     const caddyfile = renderLocalPreviewCaddyfile();
 
-    expect(caddyfile).toContain('http://127.0.0.1:{$CADDY_PORT:3001}');
-    expect(caddyfile).not.toContain('\n:{$CADDY_PORT');
+    expect(caddyfile).toContain('http://:{$CADDY_PORT:3001}');
+    expect(caddyfile).toContain('\tbind 127.0.0.1');
+    expect(caddyfile).not.toContain('http://127.0.0.1:{$CADDY_PORT');
     expect(caddyfile).toContain('vk_preview_resolver');
     expect(caddyfile).toContain('resolver_url {$PREVIEW_RESOLVER_URL}');
     expect(caddyfile).toContain('base_domain {$PREVIEW_BASE_DOMAIN:localhost}');
+    expect(caddyfile).toContain('@vibe_dashboard_assets');
+    expect(caddyfile).toContain('@vk_workspace_assets');
+    expect(caddyfile).toContain('handle_response @wrapper_asset_error');
+    expect(caddyfile).toContain('handle /internal/preview/*');
   });
 
   it('detects option mismatches before reusing a running local Caddy process', () => {

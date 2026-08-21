@@ -85,7 +85,9 @@ export function renderLocalPreviewCaddyfile(): string {
 \tauto_https off
 }
 
-http://127.0.0.1:{\$CADDY_PORT:3001} {
+http://:{\$CADDY_PORT:3001} {
+\tbind 127.0.0.1
+
 \tlog {
 \t\toutput file {\$CADDY_ACCESS_LOG:/tmp/vk-preview-local-caddy-access.log}
 \t}
@@ -112,9 +114,46 @@ http://127.0.0.1:{\$CADDY_PORT:3001} {
 \t\treverse_proxy 127.0.0.1:{\$DASHBOARD_PORT:3005}
 \t}
 
-\t@vite_assets path /@vite/* /@fs/* /node_modules/* /src/* /assets/* /dashboard/* /favicon.ico
-\thandle @vite_assets {
+\t# PreviewServer VD routes are served by the dashboard Springboard server.
+\thandle /internal/preview/* {
 \t\treverse_proxy 127.0.0.1:{\$DASHBOARD_PORT:3005}
+\t}
+
+\t@vk_workspace_assets {
+\t\tpath /assets/*
+\t\theader_regexp workspace_referer Referer /workspaces/
+\t}
+\thandle @vk_workspace_assets {
+\t\treverse_proxy 127.0.0.1:{\$BACKEND_PORT:3007}
+\t}
+
+\t@vibe_dashboard_assets {
+\t\tpath /.springboard/*
+\t\tpath /node_modules/*
+\t\tpath /packages/*
+\t\tpath /src/*
+\t\tpath /@vite/*
+\t\tpath /@id/*
+\t\tpath /@react-refresh
+\t\tpath /@fs/*
+\t\tpath /assets/*
+\t\tpath /dashboard/*
+\t\tpath /favicon.ico
+\t}
+\thandle @vibe_dashboard_assets {
+\t\t@asset_path path /assets/*
+\t\thandle @asset_path {
+\t\t\treverse_proxy 127.0.0.1:{\$DASHBOARD_PORT:3005} {
+\t\t\t\t@wrapper_asset_error status 404 502
+\t\t\t\thandle_response @wrapper_asset_error {
+\t\t\t\t\treverse_proxy 127.0.0.1:{\$BACKEND_PORT:3007}
+\t\t\t\t}
+\t\t\t}
+\t\t}
+
+\t\thandle {
+\t\t\treverse_proxy 127.0.0.1:{\$DASHBOARD_PORT:3005}
+\t\t}
 \t}
 
 \thandle_path /vk-api/* {
