@@ -43,6 +43,7 @@ import {
   OpenFromGitHub,
   hasOpenFromGitHubParam,
 } from "./OpenFromGitHub";
+import { hasGithubExternalViewUrl } from "../lib/openFromGithub";
 import { VibeIntlProvider } from "../i18n";
 
 // Ensure dark class is on the document root so portaled elements (modals, popovers)
@@ -165,7 +166,10 @@ function resolveQueryCraftSelection(
 springboard.registerModule("MainUIShell", {}, async (moduleAPI) => {
   const DashboardRoute = () => {
     const location = useLocation();
-    if (hasExternalViewQueryParam(location.search)) {
+    if (
+      hasExternalViewQueryParam(location.search) &&
+      !hasGithubExternalViewUrl(location.search)
+    ) {
       return <ExternalKanbanDashboardRoute search={location.search} />;
     }
     return <WorkspaceRoute />;

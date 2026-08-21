@@ -4,6 +4,7 @@ import {
   findOpenWorkspaceLocation,
   findWorkspaceIdForPr,
   getOpenFromGithubUrl,
+  hasGithubExternalViewUrl,
   normalizeGithubIssueUrl,
   normalizeGithubRepoIdentity,
   parseGithubIssueUrl,
@@ -24,6 +25,25 @@ describe("openFromGithub", () => {
     expect(
       removeOpenFromGithubParam(`?voyage=abc&external_view_url=${encoded}`),
     ).toBe("?voyage=abc");
+  });
+
+  it("classifies GitHub external_view_url values for dashboard routing", () => {
+    expect(
+      hasGithubExternalViewUrl(
+        `?external_view_url=${encodeURIComponent("https://github.com/Owner/Repo")}`,
+      ),
+    ).toBe(true);
+    expect(
+      hasGithubExternalViewUrl(
+        `?external_view_url=${encodeURIComponent("https://github.com/owner/repo/pull/123")}`,
+      ),
+    ).toBe(true);
+    expect(
+      hasGithubExternalViewUrl(
+        `?external_view_url=${encodeURIComponent("https://linear.app/team/issue/VD-1")}`,
+      ),
+    ).toBe(false);
+    expect(hasGithubExternalViewUrl("?voyage=abc")).toBe(false);
   });
 
   it("parses GitHub pull request URLs and rejects other URL shapes", () => {

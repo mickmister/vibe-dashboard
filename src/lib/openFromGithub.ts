@@ -74,6 +74,11 @@ export function removeOpenFromGithubParam(search: string): string {
   return next ? `?${next}` : "";
 }
 
+export function hasGithubExternalViewUrl(search: string): boolean {
+  const requestedUrl = getOpenFromGithubUrl(search);
+  return requestedUrl ? parseGithubOpenUrl(requestedUrl) !== null : false;
+}
+
 export function parseGithubPrUrl(value: string): ParsedGithubPrUrl | null {
   const parsed = parseGithubNumberedUrl(value, "pull");
   if (!parsed) return null;
