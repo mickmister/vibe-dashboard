@@ -130,6 +130,45 @@ func TestPreviewResolverUsesRequestedHostHeaderWithoutSharedSecret(t *testing.T)
 	}
 }
 
+func TestPreviewResolverRoutesLocalhostSubdomainPreviewHosts(t *testing.T) {
+	var got previewResolveRequest
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("local-preview-ok"))
+	}))
+	defer upstream.Close()
+
+	resolver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatalf("decode resolver request: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"ready","upstream":` + strconvQuote(upstream.URL) + `}`))
+	}))
+	defer resolver.Close()
+
+	handler := &PreviewResolver{ResolverURL: resolver.URL, BaseDomain: "localhost", client: resolver.Client()}
+	req := httptest.NewRequest(http.MethodGet, "http://0123456789abcdef-vibekanban-web-preview.localhost:55743/", nil)
+	rec := httptest.NewRecorder()
+
+	if err := handler.ServeHTTP(rec, req, caddyhttp.HandlerFunc(func(w http.ResponseWriter, r *http.Request) error {
+		t.Fatal("next handler should not run")
+		return nil
+	})); err != nil {
+		t.Fatalf("ServeHTTP returned error: %v", err)
+	}
+
+	if rec.Code != http.StatusOK || rec.Body.String() != "local-preview-ok" {
+		t.Fatalf("unexpected local proxy response %d %q", rec.Code, rec.Body.String())
+	}
+	if got.Host != "0123456789abcdef-vibekanban-web-preview.localhost" ||
+		got.WorkspaceToken != "0123456789abcdef" ||
+		got.RepoSlug != "vibekanban" ||
+		got.SlotSlug != "web" ||
+		got.CustomerSlug != "preview" {
+		t.Fatalf("unexpected resolver request: %+v", got)
+	}
+}
+
 func TestPreviewResolverIgnoresForwardedHostHeader(t *testing.T) {
 	handler := &PreviewResolver{ResolverURL: "http://127.0.0.1:1/resolve", BaseDomain: "vibedashboard.dev", client: http.DefaultClient}
 	req := httptest.NewRequest(http.MethodGet, "https://mickmister.vibedashboard.dev/", nil)

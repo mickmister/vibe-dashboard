@@ -134,4 +134,34 @@ describe('registerPreviewResolverRoutes', () => {
       url: 'https://0123456789abcdef-vibekanban-web-mickmister.vibedashboard.dev/',
     });
   });
+
+  it('rewrites generated Preview URLs to localhost subdomains for local Caddy mode', async () => {
+    const client = {
+      resolvePreview: vi.fn(),
+      getPreviewSlotUrl: vi.fn(async () => ({
+        previewSlotId: 'slot1',
+        workspaceToken: '0123456789abcdef',
+        repoSlug: 'vibekanban',
+        slotSlug: 'web',
+        customerSlug: 'preview',
+        host: '0123456789abcdef-vibekanban-web-preview.localhost',
+        url: 'https://0123456789abcdef-vibekanban-web-preview.localhost/',
+      })),
+    };
+    const app = new Hono();
+    registerPreviewResolverRoutes(app, { vkClient: client });
+
+    const response = await app.request(
+      '/internal/preview/workspaces/ws1/preview-slots/slot1/url?customerSlug=preview&baseDomain=localhost&localOrigin=http%3A%2F%2Flocalhost%3A55743',
+    );
+
+    expect(client.getPreviewSlotUrl).toHaveBeenCalledWith('ws1', 'slot1', {
+      customerSlug: 'preview',
+      baseDomain: 'localhost',
+    });
+    await expect(response.json()).resolves.toMatchObject({
+      host: '0123456789abcdef-vibekanban-web-preview.localhost',
+      url: 'http://0123456789abcdef-vibekanban-web-preview.localhost:55743/',
+    });
+  });
 });

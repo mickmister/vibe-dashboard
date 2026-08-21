@@ -4,6 +4,13 @@
 
 import { fileURLToPath } from 'url';
 import {
+  buildLocalPreviewUrl,
+  normalizeLocalCaddyStartOptions,
+  readLocalCaddyState,
+  startLocalPreviewCaddy,
+  stopLocalPreviewCaddy,
+} from './preview-local-caddy.js';
+import {
   VKService,
   type PreviewSlot,
   type PullRequestDetail,
@@ -804,21 +811,41 @@ async function commandPreviewUrl(positional: string[], flags: FlagMap) {
     case 'url': {
       const workspaceId = requireWorkspaceId(
         positional[1],
-        'Usage: vk preview-url url <workspace-id> <preview-slot-id> --customer <customer-slug> [--base-domain <domain>] [--json]',
+        'Usage: vk preview-url url <workspace-id> <preview-slot-id> --customer <customer-slug> [--base-domain <domain>] [--local-caddy-port <port>] [--json]',
       );
       const previewSlotId = positional[2] ?? getFlagString(flags, 'slot-id') ?? getFlagString(flags, 'preview-slot-id');
       const customerSlug = getFlagString(flags, 'customer') ?? getFlagString(flags, 'customer-slug');
-      const baseDomain = getFlagString(flags, 'base-domain');
+      const localCaddyPort = getFlagString(flags, 'local-caddy-port');
+      const parsedLocalCaddyPort = localCaddyPort ? Number(localCaddyPort) : undefined;
+      if (
+        parsedLocalCaddyPort !== undefined &&
+        (!Number.isInteger(parsedLocalCaddyPort) || parsedLocalCaddyPort < 1 || parsedLocalCaddyPort > 65535)
+      ) {
+        throw new Error(`Invalid --local-caddy-port: ${localCaddyPort}`);
+      }
+      const baseDomain = localCaddyPort ? 'localhost' : getFlagString(flags, 'base-domain');
       if (!previewSlotId || !customerSlug) {
-        console.error('Usage: vk preview-url url <workspace-id> <preview-slot-id> --customer <customer-slug> [--base-domain <domain>] [--json]');
+        console.error('Usage: vk preview-url url <workspace-id> <preview-slot-id> --customer <customer-slug> [--base-domain <domain>] [--local-caddy-port <port>] [--json]');
         process.exit(1);
       }
       const response = await service.getPreviewSlotUrl(workspaceId, previewSlotId, { customerSlug, baseDomain });
+      const output = parsedLocalCaddyPort
+        ? {
+            ...response,
+            url: buildLocalPreviewUrl(response, parsedLocalCaddyPort),
+            localCaddyPort: parsedLocalCaddyPort,
+          }
+        : response;
       if (flags.json === true) {
-        console.log(JSON.stringify(response, null, 2));
+        console.log(JSON.stringify(output, null, 2));
         return;
       }
-      console.log(response.url);
+      console.log(output.url);
+      break;
+    }
+
+    case 'local-caddy': {
+      await commandPreviewUrlLocalCaddy(positional.slice(1), flags);
       break;
     }
 
@@ -888,15 +915,75 @@ async function commandPreviewUrl(positional: string[], flags: FlagMap) {
     }
 
     default:
-      console.error('Usage: vk preview-url <list|upsert-run-config|upsert-slot|url|start-run-config|start-slot|logs|stop> ...');
+      console.error('Usage: vk preview-url <list|upsert-run-config|upsert-slot|url|start-run-config|start-slot|logs|stop|local-caddy> ...');
       console.error('Examples:');
       console.error('  vk preview-url list <workspace-id> [--json]');
       console.error('  vk preview-url upsert-run-config <workspace-id> --repo <repo-id> --slug web --name Web --command "npm run dev"');
       console.error('  vk preview-url upsert-slot <workspace-id> --repo <repo-id> --run-config <run-config-id> --slot web --title Web');
       console.error('  vk preview-url url <workspace-id> <preview-slot-id> --customer <customer-slug>');
+      console.error('  vk preview-url local-caddy start --dashboard-port 3005 --caddy-port 3001');
       console.error('  vk preview-url start-slot <workspace-id> <preview-slot-id> [--json]');
       process.exit(1);
   }
+}
+
+async function commandPreviewUrlLocalCaddy(positional: string[], flags: FlagMap) {
+  const subcommand = positional[0];
+  switch (subcommand) {
+    case 'start': {
+      const options = normalizeLocalCaddyStartOptions({
+        backendPort: getFlagString(flags, 'backend-port'),
+        caddyPort: getFlagString(flags, 'caddy-port'),
+        dashboardPort: getFlagString(flags, 'dashboard-port'),
+        caddyBin: getFlagString(flags, 'caddy-bin'),
+        caddyfile: getFlagString(flags, 'caddyfile'),
+      });
+      const state = await startLocalPreviewCaddy(options);
+      if (flags.json === true) {
+        console.log(JSON.stringify(state, null, 2));
+        return;
+      }
+      console.log(`Local PreviewServer Caddy is running at ${state.url}`);
+      console.log(`Preview URL base domain: ${state.baseDomain}`);
+      console.log(`Resolver: ${buildPreviewResolverUrlForDisplay(state.dashboardPort)}`);
+      console.log(`PID: ${state.pid}`);
+      break;
+    }
+
+    case 'stop': {
+      const state = await stopLocalPreviewCaddy();
+      if (flags.json === true) {
+        console.log(JSON.stringify(state ?? {}, null, 2));
+        return;
+      }
+      console.log(state ? `Stopped local PreviewServer Caddy PID ${state.pid}` : 'No local PreviewServer Caddy state found.');
+      break;
+    }
+
+    case 'status': {
+      const state = await readLocalCaddyState();
+      if (flags.json === true) {
+        console.log(JSON.stringify(state ?? {}, null, 2));
+        return;
+      }
+      if (!state) {
+        console.log('No local PreviewServer Caddy state found.');
+        return;
+      }
+      console.log(`Local PreviewServer Caddy: ${state.url}`);
+      console.log(`PID: ${state.pid}`);
+      console.log(`Resolver: ${buildPreviewResolverUrlForDisplay(state.dashboardPort)}`);
+      break;
+    }
+
+    default:
+      console.error('Usage: vk preview-url local-caddy <start|stop|status> [--caddy-port <port>] [--dashboard-port <port>] [--backend-port <port>] [--json]');
+      process.exit(1);
+  }
+}
+
+function buildPreviewResolverUrlForDisplay(dashboardPort: number): string {
+  return `http://127.0.0.1:${dashboardPort}/internal/preview/resolve`;
 }
 
 async function commandSessions(workspaceId: string) {
@@ -1147,6 +1234,7 @@ function printHelp() {
   console.log('  preview-url upsert-slot <workspace-id> --repo <repo> --run-config <id> --slot <slug> --title <title>');
   console.log('  preview-url start-run-config <workspace-id> <run-config-id> [--json]');
   console.log('  preview-url start-slot <workspace-id> <preview-slot-id> [--json]');
+  console.log('  preview-url local-caddy start [--caddy-port <port>] [--dashboard-port <port>]  Start localhost Preview URL Caddy front door');
   console.log('  preview-url logs <process-id> [--json]     Fetch raw preview process logs');
   console.log('  preview-url stop <process-id>              Stop a preview process');
   console.log('  create-session <workspace-id> <executor>   Create new session');

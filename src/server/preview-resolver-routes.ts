@@ -128,14 +128,48 @@ export function registerPreviewResolverRoutes(
     const previewSlotId = c.req.param('previewSlotId');
     const customerSlug = c.req.query('customerSlug') || '';
     const baseDomain = c.req.query('baseDomain') || undefined;
+    const localOrigin = c.req.query('localOrigin') || undefined;
     try {
       const response = await vkClient.getPreviewSlotUrl!(workspaceId, previewSlotId, { customerSlug, baseDomain });
-      return c.json(response, 200);
+      return c.json(
+        rewritePreviewUrlForLocalCaddy(response, { baseDomain, localOrigin }),
+        200,
+      );
     } catch (error) {
       console.warn('Preview slot URL generation failed', error);
       return c.json({ message: error instanceof Error ? error.message : 'Preview slot URL generation failed' }, 502);
     }
   });
+}
+
+function rewritePreviewUrlForLocalCaddy(
+  response: PreviewSlotUrlResponse,
+  options: { baseDomain?: string; localOrigin?: string },
+): PreviewSlotUrlResponse {
+  if (options.baseDomain !== 'localhost' || !options.localOrigin) {
+    return response;
+  }
+
+  let origin: URL;
+  try {
+    origin = new URL(options.localOrigin);
+  } catch {
+    return response;
+  }
+
+  if (
+    origin.protocol !== 'http:' ||
+    origin.hostname !== 'localhost' ||
+    !origin.port ||
+    !response.host.endsWith('.localhost')
+  ) {
+    return response;
+  }
+
+  return {
+    ...response,
+    url: `http://${response.host}:${origin.port}/`,
+  };
 }
 
 async function parseJson<T>(request: Request): Promise<{ ok: true; value: T } | { ok: false; message: string }> {

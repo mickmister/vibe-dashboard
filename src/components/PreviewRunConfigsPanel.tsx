@@ -133,6 +133,15 @@ export function PreviewRunConfigsPanel({
     setMessage(null);
     setError(null);
     const params = new URLSearchParams({ customerSlug });
+    if (
+      typeof window !== 'undefined' &&
+      window.location.protocol === 'http:' &&
+      window.location.hostname === 'localhost' &&
+      new URLSearchParams(window.location.search).get('previewLocalCaddy') === '1'
+    ) {
+      params.set('baseDomain', 'localhost');
+      params.set('localOrigin', window.location.origin);
+    }
     const response = await fetch(
       `/internal/preview/workspaces/${encodeURIComponent(workspaceId)}/preview-slots/${encodeURIComponent(previewSlotId)}/url?${params}`,
     );
