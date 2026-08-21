@@ -111,7 +111,7 @@ function renderOpenFromGithub(
 ) {
   return renderOpenFromGithubAt(
     workspace,
-    `/dashboard?voyage=abc&open_from_github=${encodeURIComponent(githubUrl)}`,
+    `/dashboard?voyage=abc&external_view_url=${encodeURIComponent(githubUrl)}`,
     savedVoyages,
   );
 }
@@ -284,7 +284,7 @@ describe("OpenFromGitHub", () => {
     const { queryByText, latestLocation, props } =
       renderOpenFromGithubWithLocation(
         workspaceWithOpenTab,
-        `/dashboard?open_from_github=${githubUrl}&voyage=arbitrary`,
+        `/dashboard?external_view_url=${githubUrl}&voyage=arbitrary`,
         savedVoyages,
       );
 
@@ -292,7 +292,7 @@ describe("OpenFromGitHub", () => {
       const location = latestLocation();
       expect(location).toContain("voyage=existing-voyage");
       expect(location).toContain("craft=existing-workspace");
-      expect(location).not.toContain("open_from_github");
+      expect(location).not.toContain("external_view_url");
     });
     expect(queryByText("Open existing PR workspace?")).toBeNull();
     expect(props.selectSessionTabGroup).not.toHaveBeenCalled();
@@ -343,7 +343,7 @@ describe("OpenFromGitHub", () => {
     const { findByText, latestLocation, props } =
       renderOpenFromGithubWithLocation(
         workspaceWithOpenTab,
-        `/dashboard?open_from_github=${githubUrl}&voyage=arbitrary`,
+        `/dashboard?external_view_url=${githubUrl}&voyage=arbitrary`,
         savedVoyages,
       );
 
@@ -354,7 +354,7 @@ describe("OpenFromGitHub", () => {
     await waitFor(() => {
       const location = latestLocation();
       expect(location).toContain("voyage=older-voyage");
-      expect(location).not.toContain("open_from_github");
+      expect(location).not.toContain("external_view_url");
     });
     expect(props.selectSessionTabGroup).not.toHaveBeenCalled();
   });
@@ -414,7 +414,7 @@ describe("OpenFromGitHub", () => {
     const { findByText, latestLocation, props } =
       renderOpenFromGithubWithLocation(
         workspaceWithOpenTab,
-        `/dashboard?open_from_github=${githubUrl}&voyage=arbitrary`,
+        `/dashboard?external_view_url=${githubUrl}&voyage=arbitrary`,
         savedVoyages,
       );
     props.addSelectionToSavedSession.mockResolvedValue(updatedVoyage);
@@ -430,7 +430,7 @@ describe("OpenFromGitHub", () => {
         voyageEntryId: "ve-other",
       });
       expect(latestLocation()).toContain("voyage=recent-voyage");
-      expect(latestLocation()).not.toContain("open_from_github");
+      expect(latestLocation()).not.toContain("external_view_url");
     });
   });
 
@@ -471,7 +471,7 @@ describe("OpenFromGitHub", () => {
     const { findByPlaceholderText, findByText, latestLocation, props } =
       renderOpenFromGithubWithLocation(
         workspaceWithOpenTab,
-        `/dashboard?open_from_github=${githubUrl}&voyage=arbitrary`,
+        `/dashboard?external_view_url=${githubUrl}&voyage=arbitrary`,
         [],
       );
     props.createSavedSessionForSelection.mockResolvedValue(savedVoyage);
@@ -489,11 +489,11 @@ describe("OpenFromGitHub", () => {
         tabGroupId: "tg-existing",
       });
       expect(latestLocation()).toContain("voyage=created-voyage");
-      expect(latestLocation()).not.toContain("open_from_github");
+      expect(latestLocation()).not.toContain("external_view_url");
     });
   });
 
-  it("cleans only open_from_github after selecting an already-open workspace", async () => {
+  it("cleans only external_view_url after selecting an already-open workspace", async () => {
     vi.mocked(vkClient.getPrInfo).mockResolvedValue({
       number: 7,
       url: "https://github.com/owner/repo/pull/7",
@@ -525,12 +525,12 @@ describe("OpenFromGitHub", () => {
     );
     const { latestLocation, props } = renderOpenFromGithubWithLocation(
       workspaceWithOpenTab,
-      `/dashboard?utm=keep&open_from_github=${githubUrl}&voyage=abc`,
+      `/dashboard?utm=keep&external_view_url=${githubUrl}&voyage=abc`,
     );
 
     await waitFor(() => {
       const search = new URL(latestLocation(), "https://vd.test").searchParams;
-      expect(search.get("open_from_github")).toBeNull();
+      expect(search.get("external_view_url")).toBeNull();
       expect(search.get("utm")).toBe("keep");
       expect(search.get("voyage")).toBe("a-a");
     });
@@ -550,10 +550,10 @@ describe("OpenFromGitHub", () => {
     expect(vkClient.ensureGithubRepo).not.toHaveBeenCalled();
   });
 
-  it("cleans only open_from_github after an unsupported URL error", async () => {
+  it("cleans only external_view_url after an unsupported URL error", async () => {
     const { findByText, latestLocation } = renderOpenFromGithubWithLocation(
       emptyWorkspace,
-      `/dashboard?utm=keep&open_from_github=${encodeURIComponent(
+      `/dashboard?utm=keep&external_view_url=${encodeURIComponent(
         "https://example.com/nope",
       )}&voyage=abc`,
     );
@@ -561,7 +561,7 @@ describe("OpenFromGitHub", () => {
     await findByText("Unsupported GitHub URL");
     await waitFor(() => {
       const search = new URL(latestLocation(), "https://vd.test").searchParams;
-      expect(search.get("open_from_github")).toBeNull();
+      expect(search.get("external_view_url")).toBeNull();
       expect(search.get("utm")).toBe("keep");
       expect(search.get("voyage")).toBe("abc");
     });
@@ -577,14 +577,14 @@ describe("OpenFromGitHub", () => {
     const { findByText, latestLocation, props } =
       renderOpenFromGithubWithLocation(
         emptyWorkspace,
-        `/dashboard?utm=keep&open_from_github=${githubUrl}&voyage=abc`,
+        `/dashboard?utm=keep&external_view_url=${githubUrl}&voyage=abc`,
       );
 
     fireEvent.click(await findByText("Cancel"));
 
     await waitFor(() => {
       const search = new URL(latestLocation(), "https://vd.test").searchParams;
-      expect(search.get("open_from_github")).toBeNull();
+      expect(search.get("external_view_url")).toBeNull();
       expect(search.get("utm")).toBe("keep");
       expect(search.get("voyage")).toBe("abc");
     });
@@ -701,6 +701,62 @@ describe("OpenFromGitHub", () => {
           path: "src",
         }),
       );
+    });
+  });
+
+  it("opens a GitHub repo root URL from the matched remote default branch", async () => {
+    vi.mocked(vkClient.getRepos).mockResolvedValue([
+      {
+        id: "repo-1",
+        name: "repo",
+        display_name: "Repo",
+        default_target_branch: "origin/main",
+      },
+    ]);
+    vi.mocked(vkClient.getRepoRemotes).mockResolvedValue([
+      { name: "origin", url: "https://github.com/owner/repo.git" },
+    ]);
+    vi.mocked(vkClient.getRepoBranches).mockResolvedValue([
+      {
+        name: "origin/main",
+        is_current: false,
+        is_remote: true,
+        last_commit_date: "2026-06-22T00:00:00Z",
+      },
+    ]);
+    vi.mocked(vkClient.createWorkspaceFromTreeBlob).mockResolvedValue({
+      workspace: {
+        id: "ws-root",
+        task_id: "task-root",
+        container_ref: "/tmp/ws-root",
+        branch: "vk/root",
+        agent_working_dir: null,
+        created_at: "2026-06-22T00:00:00Z",
+        updated_at: "2026-06-22T00:00:00Z",
+        archived: false,
+        pinned: false,
+        name: "Repo",
+      },
+    });
+
+    const { findByText } = renderOpenFromGithub(
+      emptyWorkspace,
+      "https://github.com/owner/repo",
+    );
+
+    await findByText(/V1 creates a new VK workspace branch from origin\/main/);
+    fireEvent.click(await findByText("A"));
+
+    await waitFor(() => {
+      expect(vkClient.createWorkspaceFromTreeBlob).toHaveBeenCalledWith({
+        repo_id: "repo-1",
+        target_branch: "origin/main",
+        normalized_url: "https://github.com/owner/repo",
+        ref: "main",
+        kind: "tree",
+        path: null,
+        permalink_commit: null,
+      });
     });
   });
 

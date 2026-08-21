@@ -14,15 +14,15 @@ import {
 import type { WorkspaceState } from "../types";
 
 describe("openFromGithub", () => {
-  it("reads and removes only the open_from_github query param", () => {
+  it("reads and removes only the external_view_url query param", () => {
     const encoded = encodeURIComponent(
       "https://github.com/Owner/Repo/pull/123",
     );
     expect(
-      getOpenFromGithubUrl(`?voyage=abc&open_from_github=${encoded}`),
+      getOpenFromGithubUrl(`?voyage=abc&external_view_url=${encoded}`),
     ).toBe("https://github.com/Owner/Repo/pull/123");
     expect(
-      removeOpenFromGithubParam(`?voyage=abc&open_from_github=${encoded}`),
+      removeOpenFromGithubParam(`?voyage=abc&external_view_url=${encoded}`),
     ).toBe("?voyage=abc");
   });
 
@@ -162,6 +162,15 @@ describe("openFromGithub", () => {
 
 describe("openFromGithub tree/blob", () => {
   it("parses tree and blob URLs", () => {
+    expect(parseGithubOpenUrl("https://github.com/Owner/Repo")).toMatchObject({
+      type: "tree-blob",
+      target: {
+        kind: "tree",
+        normalizedRepo: "owner/repo",
+        segments: [],
+        normalizedUrl: "https://github.com/owner/repo",
+      },
+    });
     expect(
       parseGithubOpenUrl("https://github.com/Owner/Repo/tree/feature/demo/src"),
     ).toMatchObject({

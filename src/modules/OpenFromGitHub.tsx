@@ -953,6 +953,38 @@ export function OpenFromGitHub({
     }
     if (isCancelled()) return;
 
+    if (target.kind === "tree" && target.segments.length === 0) {
+      const preferredBranch = selectPreferredRemoteBranch(
+        branches.map((branch) => branch.name),
+        match.repo.default_target_branch,
+        match.remote.name,
+      );
+      if (preferredBranch) {
+        setDialog({
+          type: "choose-space",
+          target: {
+            type: "create-tree-blob",
+            match,
+            target: {
+              kind: "tree",
+              owner: target.owner,
+              repo: target.repo,
+              normalizedRepo: target.normalizedRepo,
+              ref: getGithubRefForTargetBranchName(
+                preferredBranch,
+                match.remote.name,
+              ),
+              path: null,
+              normalizedUrl: target.normalizedUrl,
+              permalinkCommit: null,
+            },
+            targetBranch: preferredBranch,
+          },
+        });
+        return;
+      }
+    }
+
     const branchResult = resolveGithubTreeBlobBranch(
       target,
       branches,
@@ -1068,7 +1100,7 @@ export function OpenFromGitHub({
           type: "error",
           title: "Unsupported GitHub URL",
           message:
-            "Only GitHub pull request, issue, tree, and blob URLs are supported for open_from_github.",
+            "Only GitHub pull request, issue, repo root, tree, and blob URLs are supported for external_view_url.",
         });
         clearParam();
         return;
@@ -1342,9 +1374,18 @@ function formatVoyageTimestamp(value: string): string {
 
 class StaleOpenFromGithubRunError extends Error {
   constructor() {
-    super("Stale open_from_github run");
+    super("Stale external_view_url run");
     this.name = "StaleOpenFromGithubRunError";
   }
+}
+
+function getGithubRefForTargetBranchName(
+  branchName: string,
+  remoteName: string,
+): string {
+  return branchName.startsWith(`${remoteName}/`)
+    ? branchName.slice(remoteName.length + 1)
+    : branchName;
 }
 
 function isSameOpenTarget(

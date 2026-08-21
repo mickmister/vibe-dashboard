@@ -7,7 +7,7 @@ import type {
 } from "./vk-client";
 import type { WorkspaceState } from "../types";
 
-export const OPEN_FROM_GITHUB_PARAM = "open_from_github";
+export const EXTERNAL_VIEW_URL_PARAM = "external_view_url";
 
 export interface ParsedGithubPrUrl {
   owner: string;
@@ -63,13 +63,13 @@ export interface OpenWorkspaceLocation {
 
 export function getOpenFromGithubUrl(search: string): string | null {
   const params = new URLSearchParams(search);
-  const value = params.get(OPEN_FROM_GITHUB_PARAM)?.trim();
+  const value = params.get(EXTERNAL_VIEW_URL_PARAM)?.trim();
   return value || null;
 }
 
 export function removeOpenFromGithubParam(search: string): string {
   const params = new URLSearchParams(search);
-  params.delete(OPEN_FROM_GITHUB_PARAM);
+  params.delete(EXTERNAL_VIEW_URL_PARAM);
   const next = params.toString();
   return next ? `?${next}` : "";
 }
@@ -109,10 +109,48 @@ export function parseGithubOpenUrl(value: string): ParsedGithubOpenUrl | null {
   const issue = parseGithubIssueUrl(value);
   if (issue) return { type: "issue", issue };
 
+  const repoRoot = parseGithubRepoRootUrl(value);
+  if (repoRoot) return { type: "tree-blob", target: repoRoot };
+
   const target = parseGithubTreeBlobUrl(value);
   if (target) return { type: "tree-blob", target };
 
   return null;
+}
+
+export function parseGithubRepoRootUrl(
+  value: string,
+): ParsedGithubTreeBlobUrl | null {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return null;
+  }
+
+  if (url.hostname.toLowerCase() !== "github.com") {
+    return null;
+  }
+
+  const parts = url.pathname.split("/").filter(Boolean);
+  if (parts.length !== 2) {
+    return null;
+  }
+
+  const [owner, repo] = parts;
+  if (!(owner && repo)) {
+    return null;
+  }
+
+  const normalizedRepo = normalizeRepoParts(owner, repo);
+  return {
+    kind: "tree",
+    owner,
+    repo,
+    normalizedRepo,
+    segments: [],
+    normalizedUrl: `https://github.com/${normalizedRepo}`,
+  };
 }
 
 export function parseGithubTreeBlobUrl(
