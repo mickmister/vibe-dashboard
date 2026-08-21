@@ -3,14 +3,17 @@ import {
   buildCanonicalDashboardPath,
   buildCraftParam,
   buildSavedVoyageDashboardPath,
+  buildViewParamForTab,
   buildViewParam,
   buildVoyageParam,
   buildVoyageSlug,
+  getRuntimeCraftSurfaceViewToken,
   getShortIdToken,
   getStoredLastDashboardUrl,
   parseCraftParam,
   parseViewParam,
   parseViewsParam,
+  resolveViewIdsFromViewParam,
   setStoredLastDashboardUrl,
 } from './voyageUrl';
 import type { Craft, SavedWorkspaceSession, VoyageEntry, WorkspaceState } from '../types';
@@ -82,6 +85,104 @@ describe('voyageUrl', () => {
       'agent-left-left_1',
     );
     expect(parseViewParam('agent-left-left_1')).toBe('left_1');
+  });
+
+  it('builds stable runtime craft-surface view tokens without short-id suffix collisions', () => {
+    const previewSurface = {
+      id: 'craft-surface:craft_1:dev.mickmister.preview-server/run-configs',
+      title: 'PreviewServer',
+      url: 'internal://preview-run-configs',
+      ephemeral: {
+        kind: 'craft-surface',
+        pluginId: 'dev.mickmister.preview-server',
+        surfaceKey: 'dev.mickmister.preview-server/run-configs',
+        sourceKey: 'run-configs',
+      },
+    } satisfies Craft['tabs'][number];
+    const otherConfigsSurface = {
+      id: 'craft-surface:craft_1:dev.example.other/run-configs',
+      title: 'Other Configs',
+      url: 'internal://other-configs',
+      ephemeral: {
+        kind: 'craft-surface',
+        pluginId: 'dev.example.other',
+        surfaceKey: 'dev.example.other/run-configs',
+        sourceKey: 'run-configs',
+      },
+    } satisfies Craft['tabs'][number];
+
+    expect(getRuntimeCraftSurfaceViewToken(previewSurface)).toBe(
+      'runtime:dev.mickmister.preview-server/run-configs',
+    );
+    expect(buildViewParamForTab(previewSurface, [
+      previewSurface,
+      otherConfigsSurface,
+    ])).toBe('runtime:dev.mickmister.preview-server/run-configs');
+    expect(buildViewParamForTab(otherConfigsSurface, [
+      previewSurface,
+      otherConfigsSurface,
+    ])).toBe('runtime:dev.example.other/run-configs');
+  });
+
+  it('resolves mixed runtime and iframe views from stable view tokens', () => {
+    const tabs = [
+      { id: 'agent', title: 'Agent', url: '/workspaces/ws1' },
+      {
+        id: 'craft-surface:craft_1:dev.mickmister.preview-server/run-configs',
+        title: 'PreviewServer',
+        url: 'internal://preview-run-configs',
+        ephemeral: {
+          kind: 'craft-surface',
+          pluginId: 'dev.mickmister.preview-server',
+          surfaceKey: 'dev.mickmister.preview-server/run-configs',
+          sourceKey: 'run-configs',
+        },
+      },
+    ] satisfies Craft['tabs'];
+
+    expect(
+      resolveViewIdsFromViewParam(
+        tabs,
+        [
+          buildViewParamForTab(tabs[1]!, tabs),
+          buildViewParamForTab(tabs[0]!, tabs),
+        ].join(','),
+      ),
+    ).toEqual([
+      'craft-surface:craft_1:dev.mickmister.preview-server/run-configs',
+      'agent',
+    ]);
+  });
+
+  it('does not resolve runtime craft surfaces from ambiguous legacy suffixes', () => {
+    const tabs = [
+      {
+        id: 'craft-surface:craft_1:dev.mickmister.preview-server/run-configs',
+        title: 'PreviewServer',
+        url: 'internal://preview-run-configs',
+        ephemeral: {
+          kind: 'craft-surface',
+          pluginId: 'dev.mickmister.preview-server',
+          surfaceKey: 'dev.mickmister.preview-server/run-configs',
+          sourceKey: 'run-configs',
+        },
+      },
+      {
+        id: 'craft-surface:craft_1:dev.example.other/run-configs',
+        title: 'Other Configs',
+        url: 'internal://other-configs',
+        ephemeral: {
+          kind: 'craft-surface',
+          pluginId: 'dev.example.other',
+          surfaceKey: 'dev.example.other/run-configs',
+          sourceKey: 'run-configs',
+        },
+      },
+    ] satisfies Craft['tabs'];
+
+    expect(resolveViewIdsFromViewParam(tabs, 'previewserver-configs')).toEqual(
+      [],
+    );
   });
 
   it('preserves unknown dashboard query params while replacing voyage-owned params', () => {
@@ -159,6 +260,71 @@ describe('voyageUrl', () => {
     ).toBe(
       '/?from_gh_url=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fpull%2F1&voyage=focused-abc&craft=workspace-42-42&views=code-2',
     );
+  });
+
+  it('builds saved-voyage URLs with runtime view tokens without persisting runtime views', () => {
+    const runtimeTabId =
+      'craft-surface:tg_workspace_42:dev.mickmister.preview-server/run-configs';
+    const workspace = {
+      spaces: [],
+      nextId: 0,
+      tabGroups: [
+        {
+          id: 'tg_workspace_42',
+          label: 'Workspace',
+          tabs: [
+            { id: 'agent', title: 'Agent', url: '/workspaces/ws1' },
+            {
+              id: runtimeTabId,
+              title: 'PreviewServer',
+              url: 'internal://preview-run-configs',
+              ephemeral: {
+                kind: 'craft-surface',
+                pluginId: 'dev.mickmister.preview-server',
+                surfaceKey: 'dev.mickmister.preview-server/run-configs',
+                sourceKey: 'run-configs',
+              },
+            },
+          ],
+          pairs: [],
+          order: 0,
+        },
+      ],
+    } satisfies WorkspaceState;
+    const session = {
+      id: 'session_abc',
+      slug: 'focused-session_abc',
+      name: 'Focused',
+      createdAt: '2026-06-11T00:00:00.000Z',
+      updatedAt: '2026-06-11T00:00:00.000Z',
+      activeVoyageEntryId: 've_tg_workspace_42',
+      voyageEntries: [
+        {
+          id: 've_tg_workspace_42',
+          tabGroupId: 'tg_workspace_42',
+          viewIds: ['agent'],
+        },
+      ],
+      activeSpaceId: 'space_1',
+      activeTabGroupId: 'tg_workspace_42',
+      activeItemsByVoyageEntryId: { ve_tg_workspace_42: 'agent' },
+      visitedTabGroupIds: ['tg_workspace_42'],
+    } satisfies SavedWorkspaceSession;
+
+    expect(
+      buildSavedVoyageDashboardPath({
+        currentSearch: '?voyage=old&craft=old&views=old',
+        workspace,
+        session,
+        savedSessions: [session],
+        voyageEntryId: 've_tg_workspace_42',
+        viewIds: [runtimeTabId, 'agent'],
+      }),
+    ).toBe(
+      '/?voyage=focused-abc&craft=workspace-42-42&views=runtime%3Adev.mickmister.preview-server%2Frun-configs%2Cagent-agent',
+    );
+
+    expect(session.voyageEntries[0]!.viewIds).toEqual(['agent']);
   });
 
   it('stores only canonical root Voyage URLs with a voyage param as resume hints', () => {
