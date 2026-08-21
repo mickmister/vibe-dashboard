@@ -207,6 +207,7 @@ test.describe('VK mocked-provider sandbox through VD UI', () => {
     await clickMenuItem(page, 'New Craft');
     await expectMobileNewCraftNavigationSettled(page);
     await expectCreateWorkspaceFrameUrl(page);
+    await closeSidebarIfOpen(page);
     await page.getByRole('button', { name: 'Voyage actions' }).last().click();
     await clickMenuItem(page, 'Open Craft');
     await expect(
@@ -367,7 +368,7 @@ async function closeSidebarIfOpen(page: Page) {
 async function clickMenuItem(page: Page, name: string) {
   const menuItem = page.getByRole('menuitem', { name });
   await expect(menuItem).toBeVisible();
-  await menuItem.click();
+  await menuItem.evaluate((item) => (item as HTMLButtonElement).click());
 }
 
 async function expectMobileNewCraftNavigationSettled(page: Page) {
