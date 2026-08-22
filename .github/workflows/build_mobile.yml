@@ -3,8 +3,6 @@ name: build_mobile
 on:
   pull_request:
   push:
-    tags:
-      - 'v*'
   workflow_dispatch:
     inputs:
       platform:

@@ -1,7 +1,7 @@
 name: mobile_android_e2e
 
 on:
-  push:
+  # push:
   workflow_dispatch:
 
 jobs:
