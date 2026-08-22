@@ -58,14 +58,14 @@ describe('BeadsForm single-question mode', () => {
     expect(Array.from(document.querySelector('.beadsform-single-question-main')!.children).map((child) => child.className)).toEqual([
       'beadsform-single-question-controls beadsform-single-question-controls--top',
       'beadsform-single-question-notes',
-      'beadsform-single-question-progress-toggle',
       'beadsform-single-question-progress',
       'beadsform-single-question-item',
       'beadsform-single-question-item',
       'beadsform-single-question-review',
+      'beadsform-single-question-direct-submit',
       'beadsform-single-question-controls beadsform-single-question-controls--bottom',
     ]);
-    expect(document.querySelector('.beadsform-single-question-progress')?.previousElementSibling?.className).toBe('beadsform-single-question-progress-toggle');
+    expect(document.querySelector('.beadsform-single-question-progress')?.previousElementSibling?.className).toBe('beadsform-single-question-notes');
     expect(document.querySelector('.beadsform-single-question-progress')?.nextElementSibling?.textContent).toContain('First question');
     expect(document.querySelectorAll('.beadsform-single-question-controls')).toHaveLength(2);
     expect(document.querySelector('.beadsform-single-question-controls--top')?.getAttribute('role')).toBe('group');
@@ -80,7 +80,8 @@ describe('BeadsForm single-question mode', () => {
     expect(document.querySelector('.beadsform-single-question-progress')?.textContent).toBe('Question 2 of 2');
     expect(questionItems[0]!.hidden).toBe(true);
     expect(questionItems[1]!.hidden).toBe(false);
-    expect(document.querySelector<HTMLElement>('.beads-form-submit-actions')?.hidden).toBe(true);
+    expect(document.querySelector<HTMLElement>('.beads-form-submit-actions')?.hidden).toBe(false);
+    expect(document.querySelector<HTMLElement>('.beads-form-submit-actions')?.parentElement?.className).toBe('beadsform-single-question-direct-submit');
     expect(Array.from(document.querySelectorAll<HTMLButtonElement>('.beadsform-single-question-controls button:nth-child(2)')).every((button) => !button.hidden && button.textContent === 'Review answers')).toBe(true);
 
     document.querySelectorAll<HTMLButtonElement>('.beadsform-single-question-controls button')[1]!.click();
@@ -90,7 +91,7 @@ describe('BeadsForm single-question mode', () => {
     expect(document.querySelector<HTMLElement>('.beads-form-submit-actions')?.hidden).toBe(false);
   });
 
-  it('shows progress on first and last questions while hiding middle progress behind an accessible toggle', () => {
+  it('shows progress on every question without a show/hide progress toggle', () => {
     document.body.innerHTML = `
       <div id="host">
         <form>
@@ -104,36 +105,19 @@ describe('BeadsForm single-question mode', () => {
     initializeSingleQuestionMode(document.querySelector('#host')!);
 
     const progress = document.querySelector<HTMLElement>('.beadsform-single-question-progress')!;
-    const toggle = document.querySelector<HTMLButtonElement>('.beadsform-single-question-progress-toggle')!;
     expect(progress.textContent).toBe('Question 1 of 3');
     expect(progress.hidden).toBe(false);
-    expect(toggle.hidden).toBe(true);
+    expect(document.querySelector('.beadsform-single-question-progress-toggle')).toBeNull();
 
     document.querySelectorAll<HTMLButtonElement>('.beadsform-single-question-controls button')[1]!.click();
 
     expect(progress.textContent).toBe('Question 2 of 3');
-    expect(progress.hidden).toBe(true);
-    expect(toggle.hidden).toBe(false);
-    expect(toggle.textContent).toBe('Show progress');
-    expect(toggle.getAttribute('aria-label')).toBe('Show question progress');
-    expect(toggle.getAttribute('aria-expanded')).toBe('false');
-    expect(toggle.getAttribute('aria-controls')).toBe(progress.id);
-
-    toggle.click();
     expect(progress.hidden).toBe(false);
-    expect(toggle.textContent).toBe('Hide progress');
-    expect(toggle.getAttribute('aria-label')).toBe('Hide question progress');
-    expect(toggle.getAttribute('aria-expanded')).toBe('true');
-
-    toggle.click();
-    expect(progress.hidden).toBe(true);
-    expect(toggle.getAttribute('aria-expanded')).toBe('false');
 
     document.querySelectorAll<HTMLButtonElement>('.beadsform-single-question-controls button')[1]!.click();
 
     expect(progress.textContent).toBe('Question 3 of 3');
     expect(progress.hidden).toBe(false);
-    expect(toggle.hidden).toBe(true);
   });
 
   it('keeps top and bottom navigation controls synchronized', () => {
@@ -221,7 +205,7 @@ describe('BeadsForm single-question mode', () => {
     expect(document.querySelector('.beadsform-single-question-progress')?.textContent).toBe('Question 1 of 2');
   });
 
-  it('scrolls the active question content into view below the progress toggle when navigation changes the active question', () => {
+  it('scrolls the active question content into view when navigation changes the active question', () => {
     document.body.innerHTML = `
       <div id="host">
         <form>
@@ -346,8 +330,7 @@ describe('BeadsForm single-question mode', () => {
     expect(masterNotes.hidden).toBe(true);
     expect(textarea.hidden).toBe(false);
     expect(document.querySelector('.beadsform-single-question-notes #additional_notes')).toBeTruthy();
-    expect(document.querySelector('.beadsform-single-question-progress-toggle')?.previousElementSibling).toBe(notesPanel);
-    expect(progress.previousElementSibling?.className).toBe('beadsform-single-question-progress-toggle');
+    expect(progress.previousElementSibling).toBe(notesPanel);
     expect(progress.nextElementSibling?.textContent).toContain('First');
     expect(Array.from(document.querySelectorAll<HTMLFieldSetElement>('.beadsform-single-question-item')).filter((question) => !question.hidden)).toHaveLength(1);
     expect(document.querySelectorAll('.beads-form-more-info-toggle')).toHaveLength(2);
@@ -491,7 +474,7 @@ describe('BeadsForm single-question mode', () => {
     expect(document.querySelector<HTMLElement>('.beads-form-submit-actions')?.hidden).toBe(true);
   });
 
-  it('routes submit attempts to review after valid questions instead of submitting from the final question', () => {
+  it('allows direct submit from the final question without requiring review', () => {
     document.body.innerHTML = `
       <div id="host">
         <form>
@@ -508,10 +491,11 @@ describe('BeadsForm single-question mode', () => {
     const submitEvent = new SubmitEvent('submit', { bubbles: true, cancelable: true });
     const notCancelled = form.dispatchEvent(submitEvent);
 
-    expect(notCancelled).toBe(false);
-    expect(document.querySelector('.beadsform-single-question-progress')?.textContent).toBe('Review answers');
-    expect(document.querySelector<HTMLElement>('.beadsform-single-question-review')?.hidden).toBe(false);
+    expect(notCancelled).toBe(true);
+    expect(document.querySelector('.beadsform-single-question-progress')?.textContent).toBe('Question 2 of 2');
+    expect(document.querySelector<HTMLElement>('.beadsform-single-question-review')?.hidden).toBe(true);
     expect(document.querySelector<HTMLElement>('.beads-form-submit-actions')?.hidden).toBe(false);
+    expect(document.querySelector<HTMLElement>('.beads-form-submit-actions')?.parentElement?.className).toBe('beadsform-single-question-direct-submit');
   });
 
   it('keeps final review submit actions at the bottom of the wizard review flow', () => {

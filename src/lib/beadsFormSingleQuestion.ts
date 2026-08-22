@@ -82,12 +82,6 @@ export function initializeSingleQuestionMode(host: ParentNode, options: { urlSta
   progress.className = 'beadsform-single-question-progress';
   progress.setAttribute('aria-live', 'polite');
 
-  const progressToggle = button('Show progress');
-  progressToggle.className = 'beadsform-single-question-progress-toggle';
-  progressToggle.setAttribute('aria-controls', progress.id);
-  progressToggle.setAttribute('aria-expanded', 'false');
-  progressToggle.hidden = true;
-
   const topControls = navigationControls('top');
   const bottomControls = navigationControls('bottom');
   const previousButtons = [topControls.previous, bottomControls.previous];
@@ -113,7 +107,7 @@ export function initializeSingleQuestionMode(host: ParentNode, options: { urlSta
   layout.append(questionList, main);
   main.append(topControls.container);
   if (masterNotes) main.append(notesPanel);
-  main.append(progressToggle, progress);
+  main.append(progress);
 
   questions.forEach((question, index) => {
     question.classList.add('beadsform-single-question-item');
@@ -148,15 +142,18 @@ export function initializeSingleQuestionMode(host: ParentNode, options: { urlSta
     setNotesExpanded(masterNotesHasValue());
   }
   main.append(reviewPanel);
+  const directSubmitPanel = document.createElement('div');
+  directSubmitPanel.className = 'beadsform-single-question-direct-submit';
+  directSubmitPanel.hidden = true;
+  main.append(directSubmitPanel);
   main.append(bottomControls.container);
 
   let activeIndex = useUrlState ? initialStepIndexFromUrl(questions.length) : 0;
   const listButtons = Array.from(questionList.querySelectorAll<HTMLButtonElement>('button'));
   const submitActions = form.querySelector<HTMLElement>('.beads-form-submit-actions');
-  let middleProgressRevealed = false;
   if (submitActions) {
     submitActions.hidden = true;
-    reviewPanel.append(submitActions);
+    directSubmitPanel.append(submitActions);
   }
 
   function render(options: { scrollToQuestion?: boolean } = {}) {
@@ -171,12 +168,7 @@ export function initializeSingleQuestionMode(host: ParentNode, options: { urlSta
     reviewPanel.hidden = !reviewing;
     if (reviewing) renderReviewSummary();
     progress.textContent = reviewing ? 'Review answers' : `Question ${activeIndex + 1} of ${questions.length}`;
-    const middleQuestion = !reviewing && activeIndex > 0 && activeIndex < questions.length - 1;
-    progressToggle.hidden = !middleQuestion;
-    progressToggle.textContent = middleProgressRevealed ? 'Hide progress' : 'Show progress';
-    progressToggle.setAttribute('aria-label', middleProgressRevealed ? 'Hide question progress' : 'Show question progress');
-    progressToggle.setAttribute('aria-expanded', middleProgressRevealed ? 'true' : 'false');
-    progress.hidden = middleQuestion && !middleProgressRevealed;
+    progress.hidden = false;
     previousButtons.forEach((previous) => {
       previous.disabled = activeIndex === 0;
     });
@@ -184,8 +176,15 @@ export function initializeSingleQuestionMode(host: ParentNode, options: { urlSta
       next.hidden = reviewing;
       next.textContent = activeIndex === questions.length - 1 ? 'Review answers' : 'Next';
     });
+    const finalQuestion = activeIndex === questions.length - 1;
+    directSubmitPanel.hidden = reviewing || !finalQuestion || !submitActions;
     if (submitActions) {
-      submitActions.hidden = !reviewing;
+      submitActions.hidden = !(reviewing || finalQuestion);
+      if (reviewing) {
+        reviewPanel.append(submitActions);
+      } else if (finalQuestion) {
+        directSubmitPanel.append(submitActions);
+      }
     }
     if (options.scrollToQuestion) scrollActiveQuestionIntoView();
   }
@@ -220,7 +219,6 @@ export function initializeSingleQuestionMode(host: ParentNode, options: { urlSta
   function goTo(index: number) {
     const target = Math.max(0, Math.min(index, reviewIndex));
     const startingIndex = activeIndex;
-    if (target !== activeIndex) middleProgressRevealed = false;
     if (target > activeIndex) {
       for (let current = activeIndex; current < target; current += 1) {
         if (current >= questions.length) break;
@@ -239,13 +237,12 @@ export function initializeSingleQuestionMode(host: ParentNode, options: { urlSta
 
   function handleSubmit(event: SubmitEvent) {
     const invalidIndex = firstInvalidQuestionIndex();
-    if (invalidIndex < 0 && activeIndex === reviewIndex) return;
+    if (invalidIndex < 0 && (activeIndex === reviewIndex || activeIndex === questions.length - 1)) return;
 
     event.preventDefault();
     event.stopImmediatePropagation();
     const startingIndex = activeIndex;
     activeIndex = invalidIndex >= 0 ? invalidIndex : reviewIndex;
-    if (activeIndex !== startingIndex) middleProgressRevealed = false;
     render({ scrollToQuestion: activeIndex !== startingIndex });
     if (useUrlState && activeIndex !== startingIndex) writeStepIndexToUrl(activeIndex, 'replace', questions.length);
     if (invalidIndex >= 0) questionIsValid(invalidIndex);
@@ -255,7 +252,6 @@ export function initializeSingleQuestionMode(host: ParentNode, options: { urlSta
     const nextIndex = initialStepIndexFromUrl(questions.length);
     if (nextIndex === activeIndex) return;
     activeIndex = nextIndex;
-    middleProgressRevealed = false;
     render();
   }
 
@@ -332,10 +328,6 @@ export function initializeSingleQuestionMode(host: ParentNode, options: { urlSta
   });
   nextButtons.forEach((next) => {
     next.addEventListener('click', () => goTo(activeIndex + 1));
-  });
-  progressToggle.addEventListener('click', () => {
-    middleProgressRevealed = !middleProgressRevealed;
-    render();
   });
   notesToggle.addEventListener('click', () => {
     if (!masterNotes) return;
