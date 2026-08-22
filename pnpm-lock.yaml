@@ -138,6 +138,9 @@ importers:
 
   apps/mobile:
     dependencies:
+      '@assistant-ui/react-native':
+        specifier: 0.1.38
+        version: 0.1.38(@types/react@19.2.14)(immer@11.1.4)(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0))(react@19.0.0)(use-sync-external-store@1.6.0(react@19.0.0))
       '@react-native-async-storage/async-storage':
         specifier: 2.1.2
         version: 2.1.2(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0))
@@ -194,6 +197,58 @@ packages:
 
   '@adobe/css-tools@4.4.4':
     resolution: {integrity: sha512-Elp+iwUx5rN5+Y8xLt5/GRoG20WGoDCQ/1Fb+1LiGtvwbDavuSk0jhD/eZdckHAuzcDzccnkv+rEjyWfRx18gg==}
+
+  '@assistant-ui/core@0.3.15':
+    resolution: {integrity: sha512-pCeVhMmzK4xFbahtRtvjlGXDxycsvl1plgiD0M5ZyABm+QxINGnBO5GEz1hqDHQVjKlCIJDNj15PlFSkuFnidA==}
+    peerDependencies:
+      '@assistant-ui/store': ^0.3.0
+      '@assistant-ui/tap': ^0.9.0
+      '@types/react': '*'
+      assistant-cloud: ^0.1.31
+      react: ^18 || ^19
+      zustand: ^5.0.11
+    peerDependenciesMeta:
+      '@types/react':
+        optional: true
+      assistant-cloud:
+        optional: true
+      react:
+        optional: true
+      zustand:
+        optional: true
+
+  '@assistant-ui/react-native@0.1.38':
+    resolution: {integrity: sha512-Gr9ZEJcFi7bvyFdZuWoSIoTewooy9TehD32/W+wOOa+yWMZmbcmPe4eJIJ6wqrrvEFBCE1E+cJJnSj5cb6/y5g==}
+    peerDependencies:
+      '@types/react': '*'
+      react: ^18 || ^19
+      react-native: '*'
+    peerDependenciesMeta:
+      '@types/react':
+        optional: true
+
+  '@assistant-ui/store@0.3.10':
+    resolution: {integrity: sha512-QSFgodFt/daEjyaY09WdahNewsGPtAeY+DkSb2LM2rPN6634h13R1vJQvCtyWK5YsI5WXgzgbsctzgpIQLU0qw==}
+    peerDependencies:
+      '@assistant-ui/tap': ^0.9.12
+      '@types/react': '*'
+      react: ^18 || ^19
+    peerDependenciesMeta:
+      '@types/react':
+        optional: true
+      react:
+        optional: true
+
+  '@assistant-ui/tap@0.9.14':
+    resolution: {integrity: sha512-L/ZyXLQb51/d+/5xlXaP1197PF94EO/Ji+/CBWTjuEbsU1+8dzXCHVNO9GCFQvyG02OiOVitfbRksipMVzdrnA==}
+    peerDependencies:
+      '@types/react': '*'
+      react: ^18 || ^19
+    peerDependenciesMeta:
+      '@types/react':
+        optional: true
+      react:
+        optional: true
 
   '@babel/code-frame@7.10.4':
     resolution: {integrity: sha512-vG6SvB6oYEhvgisZNFRmRCUkLz11c7rp+tbNTynGqc6mS1d5ATd/sGyV6W0KZZnXRKMTzZDRgQT3Ou9jhpAfUg==}
@@ -3005,6 +3060,17 @@ packages:
     resolution: {integrity: sha512-Izi8RQcffqCeNVgFigKli1ssklIbpHnCYc6AknXGYoB6grJqyeby7jv12JUQgmTAnIDnbck1uxksT4dzN3PWBA==}
     engines: {node: '>=12'}
 
+  assistant-stream@0.3.39:
+    resolution: {integrity: sha512-Ad28saCwQxqaB69w4WNaS3uW5OW5BgTYnzTfbgFnz1CPXZjcWFsMrHhcJUpR4+lfYPTNal0oHEb47VUZH4Zz1g==}
+    peerDependencies:
+      ioredis: ^5.10.1 || ^6.0.0
+      redis: ^5.12.1
+    peerDependenciesMeta:
+      ioredis:
+        optional: true
+      redis:
+        optional: true
+
   ast-types@0.16.1:
     resolution: {integrity: sha512-6t10qk83GOG8p0vKmaCr8eiilZwO171AvbROMtvvNiwrTly62t+7XkA8RdIIVbpMhCASAsxgAzdRSwh6nw/5Dg==}
     engines: {node: '>=4'}
@@ -4611,6 +4677,11 @@ packages:
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
     hasBin: true
 
+  nanoid@6.0.1:
+    resolution: {integrity: sha512-3wVS3i51pE2pi1k5FFL/95BGfVS0kSsvDVuGXHOtxox/TywUmtgq+3qiTOTbs9J7KfHaXPiN171k/A6dBnaXFw==}
+    engines: {node: ^22 || ^24 || >=26}
+    hasBin: true
+
   napi-build-utils@2.0.0:
     resolution: {integrity: sha512-GEbrYkbfF7MoNaoh2iGG84Mnf/WZfB0GdGEsM8wz7Expx/LlWf5U8t9nvJKXSp3qr5IsEbK04cBGhol/KwOsWA==}
 
@@ -5119,6 +5190,9 @@ packages:
 
   scroll-into-view-if-needed@3.0.10:
     resolution: {integrity: sha512-t44QCeDKAPf1mtQH3fYpWz8IM/DyvHLjs8wUvvwMYxk5moOqCzrMSxK6HQVD0QVmVjXFavoFIPRVrMuJPKAvtg==}
+
+  secure-json-parse@4.1.0:
+    resolution: {integrity: sha512-l4KnYfEyqYJxDwlNVyRfO2E4NTHfMKAWdUuA8J0yve2Dz/E/PdBepY03RvyJpssIpRFwJoCD55wA+mEDs6ByWA==}
 
   semver@6.3.1:
     resolution: {integrity: sha512-BR7VvDCVHO+q2xBEWskxS6DJE1qRnb7DxzUrogb71CWoSficBxYsiAGd+Kl0mmq/MprG9yArRkyrQxTO6XjMzA==}
@@ -5873,11 +5947,73 @@ packages:
   zod@3.25.76:
     resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
 
+  zustand@5.0.15:
+    resolution: {integrity: sha512-MpSEjRiBkA9crSYeOUH32rJC7SVqAbm0Fqcqge/bUi2PPoLcBWKOsG+C8mevmpr8TwXHBVkChbbJiyvkE+i/3A==}
+    engines: {node: '>=12.20.0'}
+    peerDependencies:
+      '@types/react': '>=18.0.0'
+      immer: '>=9.0.6'
+      react: '>=18.0.0'
+      use-sync-external-store: '>=1.2.0'
+    peerDependenciesMeta:
+      '@types/react':
+        optional: true
+      immer:
+        optional: true
+      react:
+        optional: true
+      use-sync-external-store:
+        optional: true
+
 snapshots:
 
   '@0no-co/graphql.web@1.2.0': {}
 
   '@adobe/css-tools@4.4.4': {}
+
+  '@assistant-ui/core@0.3.15(@assistant-ui/store@0.3.10(@assistant-ui/tap@0.9.14(@types/react@19.2.14)(react@19.0.0))(@types/react@19.2.14)(react@19.0.0))(@assistant-ui/tap@0.9.14(@types/react@19.2.14)(react@19.0.0))(@types/react@19.2.14)(react@19.0.0)(zustand@5.0.15(@types/react@19.2.14)(immer@11.1.4)(react@19.0.0)(use-sync-external-store@1.6.0(react@19.0.0)))':
+    dependencies:
+      '@assistant-ui/store': 0.3.10(@assistant-ui/tap@0.9.14(@types/react@19.2.14)(react@19.0.0))(@types/react@19.2.14)(react@19.0.0)
+      '@assistant-ui/tap': 0.9.14(@types/react@19.2.14)(react@19.0.0)
+      assistant-stream: 0.3.39
+      nanoid: 6.0.1
+    optionalDependencies:
+      '@types/react': 19.2.14
+      react: 19.0.0
+      zustand: 5.0.15(@types/react@19.2.14)(immer@11.1.4)(react@19.0.0)(use-sync-external-store@1.6.0(react@19.0.0))
+    transitivePeerDependencies:
+      - ioredis
+      - redis
+
+  '@assistant-ui/react-native@0.1.38(@types/react@19.2.14)(immer@11.1.4)(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0))(react@19.0.0)(use-sync-external-store@1.6.0(react@19.0.0))':
+    dependencies:
+      '@assistant-ui/core': 0.3.15(@assistant-ui/store@0.3.10(@assistant-ui/tap@0.9.14(@types/react@19.2.14)(react@19.0.0))(@types/react@19.2.14)(react@19.0.0))(@assistant-ui/tap@0.9.14(@types/react@19.2.14)(react@19.0.0))(@types/react@19.2.14)(react@19.0.0)(zustand@5.0.15(@types/react@19.2.14)(immer@11.1.4)(react@19.0.0)(use-sync-external-store@1.6.0(react@19.0.0)))
+      '@assistant-ui/store': 0.3.10(@assistant-ui/tap@0.9.14(@types/react@19.2.14)(react@19.0.0))(@types/react@19.2.14)(react@19.0.0)
+      '@assistant-ui/tap': 0.9.14(@types/react@19.2.14)(react@19.0.0)
+      assistant-stream: 0.3.39
+      react: 19.0.0
+      react-native: 0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0)
+      zustand: 5.0.15(@types/react@19.2.14)(immer@11.1.4)(react@19.0.0)(use-sync-external-store@1.6.0(react@19.0.0))
+    optionalDependencies:
+      '@types/react': 19.2.14
+    transitivePeerDependencies:
+      - assistant-cloud
+      - immer
+      - ioredis
+      - redis
+      - use-sync-external-store
+
+  '@assistant-ui/store@0.3.10(@assistant-ui/tap@0.9.14(@types/react@19.2.14)(react@19.0.0))(@types/react@19.2.14)(react@19.0.0)':
+    dependencies:
+      '@assistant-ui/tap': 0.9.14(@types/react@19.2.14)(react@19.0.0)
+    optionalDependencies:
+      '@types/react': 19.2.14
+      react: 19.0.0
+
+  '@assistant-ui/tap@0.9.14(@types/react@19.2.14)(react@19.0.0)':
+    optionalDependencies:
+      '@types/react': 19.2.14
+      react: 19.0.0
 
   '@babel/code-frame@7.10.4':
     dependencies:
@@ -6861,7 +6997,7 @@ snapshots:
       '@expo/json-file': 10.0.14
       '@react-native/normalize-colors': 0.81.5
       debug: 4.4.3
-      expo: 53.0.27(@babel/core@7.29.0)(@expo/dom-webview@55.0.6)(react-native-webview@13.16.1(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.4))(react@19.2.4))(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.4))(react@19.2.4)
+      expo: 53.0.27(@babel/core@7.29.0)(@expo/dom-webview@55.0.6)(react-native-webview@13.16.1(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0))(react@19.0.0))(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0))(react@19.0.0)
       resolve-from: 5.0.0
       semver: 7.7.4
       xml2js: 0.6.0
@@ -10048,6 +10184,12 @@ snapshots:
 
   assertion-error@2.0.1: {}
 
+  assistant-stream@0.3.39:
+    dependencies:
+      '@standard-schema/spec': 1.1.0
+      nanoid: 6.0.1
+      secure-json-parse: 4.1.0
+
   ast-types@0.16.1:
     dependencies:
       tslib: 2.8.1
@@ -10737,7 +10879,7 @@ snapshots:
 
   expo-application@6.1.5(expo@53.0.27):
     dependencies:
-      expo: 53.0.27(@babel/core@7.29.0)(@expo/dom-webview@55.0.6)(react-native-webview@13.16.1(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.4))(react@19.2.4))(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.4))(react@19.2.4)
+      expo: 53.0.27(@babel/core@7.29.0)(@expo/dom-webview@55.0.6)(react-native-webview@13.16.1(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0))(react@19.0.0))(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0))(react@19.0.0)
     optional: true
 
   expo-asset@11.1.7(expo@53.0.27)(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0))(react@19.0.0):
@@ -10811,12 +10953,12 @@ snapshots:
   expo-crypto@14.1.5(expo@53.0.27):
     dependencies:
       base64-js: 1.5.1
-      expo: 53.0.27(@babel/core@7.29.0)(@expo/dom-webview@55.0.6)(react-native-webview@13.16.1(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.4))(react@19.2.4))(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.4))(react@19.2.4)
+      expo: 53.0.27(@babel/core@7.29.0)(@expo/dom-webview@55.0.6)(react-native-webview@13.16.1(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0))(react@19.0.0))(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0))(react@19.0.0)
     optional: true
 
   expo-device@7.1.4(expo@53.0.27):
     dependencies:
-      expo: 53.0.27(@babel/core@7.29.0)(@expo/dom-webview@55.0.6)(react-native-webview@13.16.1(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.4))(react@19.2.4))(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.4))(react@19.2.4)
+      expo: 53.0.27(@babel/core@7.29.0)(@expo/dom-webview@55.0.6)(react-native-webview@13.16.1(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0))(react@19.0.0))(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0))(react@19.0.0)
       ua-parser-js: 0.7.41
     optional: true
 
@@ -10935,7 +11077,7 @@ snapshots:
   expo-splash-screen@31.0.13(expo@53.0.27)(typescript@5.9.3):
     dependencies:
       '@expo/prebuild-config': 54.0.8(expo@53.0.27)(typescript@5.9.3)
-      expo: 53.0.27(@babel/core@7.29.0)(@expo/dom-webview@55.0.6)(react-native-webview@13.16.1(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.4))(react@19.2.4))(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.4))(react@19.2.4)
+      expo: 53.0.27(@babel/core@7.29.0)(@expo/dom-webview@55.0.6)(react-native-webview@13.16.1(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0))(react@19.0.0))(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0))(react@19.0.0)
     transitivePeerDependencies:
       - supports-color
       - typescript
@@ -11930,6 +12072,8 @@ snapshots:
 
   nanoid@3.3.11: {}
 
+  nanoid@6.0.1: {}
+
   napi-build-utils@2.0.0: {}
 
   negotiator@0.6.3: {}
@@ -12575,6 +12719,8 @@ snapshots:
     dependencies:
       compute-scroll-into-view: 3.1.1
 
+  secure-json-parse@4.1.0: {}
+
   semver@6.3.1: {}
 
   semver@7.7.4: {}
@@ -13092,6 +13238,11 @@ snapshots:
     optionalDependencies:
       '@types/react': 19.2.14
 
+  use-sync-external-store@1.6.0(react@19.0.0):
+    dependencies:
+      react: 19.0.0
+    optional: true
+
   use-sync-external-store@1.6.0(react@19.2.4):
     dependencies:
       react: 19.2.4
@@ -13287,3 +13438,10 @@ snapshots:
 
   zod@3.25.76:
     optional: true
+
+  zustand@5.0.15(@types/react@19.2.14)(immer@11.1.4)(react@19.0.0)(use-sync-external-store@1.6.0(react@19.0.0)):
+    optionalDependencies:
+      '@types/react': 19.2.14
+      immer: 11.1.4
+      react: 19.0.0
+      use-sync-external-store: 1.6.0(react@19.0.0)

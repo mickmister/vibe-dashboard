@@ -13,6 +13,7 @@
     "eas-build-post-install": "cd ../.. && pnpm run mobile:prepare"
   },
   "dependencies": {
+    "@assistant-ui/react-native": "0.1.38",
     "@react-native-async-storage/async-storage": "2.1.2",
     "expo": "~53.0.25",
     "expo-asset": "~11.1.7",
