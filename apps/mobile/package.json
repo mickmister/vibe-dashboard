@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
+    "check-types": "tsc --noEmit",
     "dev": "expo start",
     "start": "EXPO_APP_PROFILE=local expo start --clear",
     "android": "[ ! -d android ] && (expo prebuild || exit 1); pnpm run eas-build-post-install && EXPO_APP_PROFILE=local expo run:android",

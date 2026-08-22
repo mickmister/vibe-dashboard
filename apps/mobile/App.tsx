@@ -1,5 +1,5 @@
 import React, { useRef } from 'react';
-import { StatusBar, StyleSheet } from 'react-native';
+import { StatusBar, StyleSheet, View, Text } from 'react-native';
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
@@ -34,6 +34,20 @@ export default function App() {
     remoteRpc,
   });
 
+  return MobileMain(sbInitResult);
+
+  // return WebviewMain(sbInitResult, onMessageFromRN);
+}
+
+const MobileMain = (_sbInitResult: ReturnType<typeof useAndInitializeSpringboardEngine>) => {
+  return (
+    <View>
+      <Text>{'Hello'}</Text>
+    </View>
+  );
+};
+
+const WebviewMain = (sbInitResult: ReturnType<typeof useAndInitializeSpringboardEngine>, onMessageFromRN: ReturnType<typeof useRef<((message: string) => void) | null>>) => {
   const content = !sbInitResult?.engine || !sbInitResult?.handleMessageFromWebview
     ? null
     : (
@@ -53,7 +67,7 @@ export default function App() {
       />
     );
 
-  return (
+    return (
     <SafeAreaProvider>
       <SafeAreaView style={styles.container}>
         <StatusBar hidden />
