@@ -52,7 +52,7 @@ jobs:
         uses: jamtools/releases/.github/actions/build_mobile_eas@dev
         with:
           local: ${{ github.event_name == 'pull_request' && 'true' || github.ref_type == 'tag' && 'false' || !inputs.run_on_eas }}
-          platform: ${{ github.event_name == 'pull_request' && 'android' || github.ref_type == 'tag' && 'ios' || inputs.platform }}
+          platform: ${{ github.event_name == 'pull_request' && 'android' || github.ref_type == 'tag' && 'ios' || inputs.platform || 'android' }}
           profile: ${{ github.event_name == 'pull_request' && 'preview' || github.ref_type == 'tag' && 'preview' || inputs.profile || 'preview' }}
           submit: ${{ github.event_name == 'pull_request' && 'false' || github.ref_type == 'tag' && 'false' || inputs.submit || false }}
           output_logs: ${{ github.event_name == 'pull_request' && 'false' || inputs.output_eas_build_to_logs || false }}
@@ -60,7 +60,7 @@ jobs:
           build_command: pnpm run mobile:prepare
           mobile_directory: apps/mobile
           prebuild_command: npx expo prebuild
-          site_url: ${{ github.event_name == 'pull_request' && 'https://staging.vibekanban.app' || github.ref_type == 'tag' && 'https://vibekanban.app' || inputs.site_url }}
+          site_url: ${{ github.event_name == 'pull_request' && 'https://staging.vibekanban.app' || github.ref_type == 'tag' && 'https://vibekanban.app' || inputs.site_url || 'https://staging.vibekanban.app' }}
           expo-token: ${{ secrets.EXPO_TOKEN }}
           asc_app_id: ${{ secrets.ASC_APP_ID }}
           discord_webhook_url: ${{ secrets.DISCORD_APP_BUILDS_WEBHOOK_URL }}
