@@ -74,20 +74,22 @@ export const ChatViewPage = () => {
 
 const ChatHeader = () => (
   <View style={styles.header}>
-    <View style={styles.headerStatusDot} />
+    <View style={styles.headerMark}>
+      <Text style={styles.headerMarkText}>V</Text>
+    </View>
     <View style={styles.headerCopy}>
       <Text style={styles.headerTitle}>Vibe chat</Text>
-      <Text style={styles.headerSubtitle}>Local echo mode</Text>
+      <Text style={styles.headerSubtitle}>Native assistant workspace</Text>
     </View>
   </View>
 );
 
 const EmptyThread = () => (
   <View style={styles.emptyState}>
-    <Text style={styles.emptyEyebrow}>Ready when you are</Text>
-    <Text style={styles.emptyTitle}>Start a native chat</Text>
+    <Text style={styles.emptyEyebrow}>Local echo mode</Text>
+    <Text style={styles.emptyTitle}>What should Vibe work on?</Text>
     <Text style={styles.emptyDescription}>
-      This screen is powered by assistant-ui React Native primitives. For now, the assistant repeats your message back locally.
+      Send a prompt to exercise the native assistant thread. Your message stays centered in a workspace card, and the agent response mirrors it locally for now.
     </Text>
   </View>
 );
@@ -96,45 +98,83 @@ const ChatMessage = ({ message }: { message: ThreadMessage }) => {
   const isUser = message.role === 'user';
 
   return (
-    <MessagePrimitive.Root
-      style={[
-        styles.messageRow,
-        isUser ? styles.userMessageRow : styles.assistantMessageRow,
-      ]}
-    >
-      <View style={[styles.messageBubble, isUser ? styles.userBubble : styles.assistantBubble]}>
-        <Text style={[styles.messageLabel, isUser ? styles.userLabel : styles.assistantLabel]}>
-          {isUser ? 'You' : 'Assistant'}
-        </Text>
-        <MessagePrimitive.Content
-          renderText={({ part }) => (
-            <Text style={[styles.messageText, isUser ? styles.userMessageText : styles.assistantMessageText]}>
-              {part.text}
-            </Text>
-          )}
-          renderReasoning={({ part }) => (
-            <Text style={styles.secondaryMessageText}>{part.text}</Text>
-          )}
-          renderToolCall={({ part }) => (
-            <Text style={styles.secondaryMessageText}>Tool call: {part.toolName}</Text>
-          )}
-          renderData={({ part }) => (
-            <Text style={styles.secondaryMessageText}>Data: {part.name}</Text>
-          )}
-          renderFile={({ part }) => (
-            <Text style={styles.secondaryMessageText}>File: {part.filename ?? part.mimeType}</Text>
-          )}
-          renderImage={() => (
-            <Text style={styles.secondaryMessageText}>Image attachment</Text>
-          )}
-          renderSource={({ part }) => (
-            <Text style={styles.secondaryMessageText}>Source: {part.title ?? part.id}</Text>
-          )}
-        />
+    <MessagePrimitive.Root style={styles.messageRow}>
+      <View style={styles.messageColumn}>
+        {isUser ? <UserMessageCard /> : <AssistantMessageBlock />}
       </View>
     </MessagePrimitive.Root>
   );
 };
+
+const UserMessageCard = () => (
+  <View style={styles.userCard}>
+    <View style={styles.cardHeader}>
+      <Text style={styles.cardKicker}>You</Text>
+      <View style={styles.userCardPill}>
+        <Text style={styles.userCardPillText}>Prompt</Text>
+      </View>
+    </View>
+    <MessagePrimitive.Content
+      renderText={({ part }) => (
+        <Text style={styles.userMessageText}>
+          {part.text}
+        </Text>
+      )}
+      renderReasoning={({ part }) => (
+        <Text style={styles.userSecondaryMessageText}>{part.text}</Text>
+      )}
+      renderToolCall={({ part }) => (
+        <Text style={styles.userSecondaryMessageText}>Tool call: {part.toolName}</Text>
+      )}
+      renderData={({ part }) => (
+        <Text style={styles.userSecondaryMessageText}>Data: {part.name}</Text>
+      )}
+      renderFile={({ part }) => (
+        <Text style={styles.userSecondaryMessageText}>File: {part.filename ?? part.mimeType}</Text>
+      )}
+      renderImage={() => (
+        <Text style={styles.userSecondaryMessageText}>Image attachment</Text>
+      )}
+      renderSource={({ part }) => (
+        <Text style={styles.userSecondaryMessageText}>Source: {part.title ?? part.id}</Text>
+      )}
+    />
+  </View>
+);
+
+const AssistantMessageBlock = () => (
+  <View style={styles.assistantBlock}>
+    <View style={styles.assistantRule} />
+    <View style={styles.assistantContent}>
+      <Text style={styles.assistantLabel}>Vibe</Text>
+      <MessagePrimitive.Content
+        renderText={({ part }) => (
+          <Text style={styles.assistantMessageText}>
+            {part.text}
+          </Text>
+        )}
+        renderReasoning={({ part }) => (
+          <Text style={styles.secondaryMessageText}>{part.text}</Text>
+        )}
+        renderToolCall={({ part }) => (
+          <Text style={styles.secondaryMessageText}>Tool call: {part.toolName}</Text>
+        )}
+        renderData={({ part }) => (
+          <Text style={styles.secondaryMessageText}>Data: {part.name}</Text>
+        )}
+        renderFile={({ part }) => (
+          <Text style={styles.secondaryMessageText}>File: {part.filename ?? part.mimeType}</Text>
+        )}
+        renderImage={() => (
+          <Text style={styles.secondaryMessageText}>Image attachment</Text>
+        )}
+        renderSource={({ part }) => (
+          <Text style={styles.secondaryMessageText}>Source: {part.title ?? part.id}</Text>
+        )}
+      />
+    </View>
+  </View>
+);
 
 const RunningIndicator = () => {
   const isRunning = useAuiState((state) => state.thread.isRunning);
@@ -143,25 +183,28 @@ const RunningIndicator = () => {
 
   return (
     <View style={styles.runningIndicator}>
-      <Text style={styles.runningIndicatorText}>Assistant is responding…</Text>
+      <View style={styles.runningDot} />
+      <Text style={styles.runningIndicatorText}>Vibe is working…</Text>
     </View>
   );
 };
 
 const ChatComposer = () => (
-  <ComposerPrimitive.Root style={styles.composerRoot}>
-    <ComposerPrimitive.Input
-      accessibilityLabel="Message input"
-      multiline
-      placeholder="Message Vibe…"
-      placeholderTextColor="#7c8798"
-      returnKeyType="send"
-      style={styles.composerInput}
-      submitMode="none"
-      textAlignVertical="top"
-    />
-    <SendButton />
-  </ComposerPrimitive.Root>
+  <View style={styles.composerShell}>
+    <ComposerPrimitive.Root style={styles.composerRoot}>
+      <ComposerPrimitive.Input
+        accessibilityLabel="Message input"
+        multiline
+        placeholder="Ask Vibe to do something…"
+        placeholderTextColor="#78828f"
+        returnKeyType="send"
+        style={styles.composerInput}
+        submitMode="none"
+        textAlignVertical="top"
+      />
+      <SendButton />
+    </ComposerPrimitive.Root>
+  </View>
 );
 
 const SendButton = () => {
@@ -188,188 +231,257 @@ const styles = StyleSheet.create({
   },
   page: {
     flex: 1,
-    backgroundColor: '#0d1117',
+    backgroundColor: '#f4f1ea',
   },
   header: {
-    minHeight: 64,
-    paddingHorizontal: 20,
-    paddingVertical: 14,
+    minHeight: 66,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#202938',
-    backgroundColor: '#111827',
+    borderBottomColor: '#ded8ce',
+    backgroundColor: '#fbfaf7',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
   },
-  headerStatusDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: '#35d07f',
+  headerMark: {
+    width: 40,
+    height: 40,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#1c1b18',
+  },
+  headerMarkText: {
+    color: '#f8f4ec',
+    fontSize: 18,
+    fontWeight: '800',
   },
   headerCopy: {
     flex: 1,
   },
   headerTitle: {
-    color: '#f8fafc',
+    color: '#1f2933',
     fontSize: 18,
-    fontWeight: '700',
+    fontWeight: '800',
   },
   headerSubtitle: {
-    color: '#94a3b8',
+    color: '#69727d',
     fontSize: 13,
     marginTop: 2,
   },
   threadBody: {
     flex: 1,
-    backgroundColor: '#0d1117',
+    backgroundColor: '#f4f1ea',
   },
   messageList: {
     flexGrow: 1,
-    paddingHorizontal: 16,
-    paddingBottom: 16,
-    paddingTop: 20,
-    gap: 12,
+    paddingHorizontal: 14,
+    paddingBottom: 22,
+    paddingTop: 18,
+    gap: 18,
   },
   messages: {
     flex: 1,
   },
   emptyState: {
-    marginHorizontal: 20,
-    marginTop: 56,
-    padding: 20,
-    borderRadius: 24,
+    width: '100%',
+    maxWidth: 560,
+    alignSelf: 'center',
+    marginTop: 52,
+    padding: 22,
+    borderRadius: 26,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: '#263142',
-    backgroundColor: '#131a25',
+    borderColor: '#ddd5ca',
+    backgroundColor: '#fbfaf7',
   },
   emptyEyebrow: {
-    color: '#38bdf8',
-    fontSize: 13,
-    fontWeight: '700',
-    letterSpacing: 0.3,
+    color: '#8b5f2b',
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.5,
     textTransform: 'uppercase',
   },
   emptyTitle: {
-    color: '#f8fafc',
-    fontSize: 24,
+    color: '#20242a',
+    fontSize: 25,
     fontWeight: '800',
+    lineHeight: 31,
     marginTop: 10,
   },
   emptyDescription: {
-    color: '#a7b1c2',
+    color: '#5f6873',
     fontSize: 16,
-    lineHeight: 23,
+    lineHeight: 24,
     marginTop: 10,
   },
   messageRow: {
     width: '100%',
   },
-  userMessageRow: {
-    alignItems: 'flex-end',
+  messageColumn: {
+    width: '100%',
+    maxWidth: 640,
+    alignSelf: 'center',
   },
-  assistantMessageRow: {
-    alignItems: 'flex-start',
-  },
-  messageBubble: {
-    maxWidth: '86%',
+  userCard: {
     borderRadius: 22,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  userBubble: {
-    backgroundColor: '#2563eb',
-    borderBottomRightRadius: 8,
-  },
-  assistantBubble: {
-    backgroundColor: '#182231',
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: '#263142',
-    borderBottomLeftRadius: 8,
+    borderColor: '#d9cfc1',
+    backgroundColor: '#fffdf8',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    shadowColor: '#362c1f',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.08,
+    shadowRadius: 18,
+    elevation: 2,
   },
-  messageLabel: {
+  cardHeader: {
+    minHeight: 24,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginBottom: 8,
+  },
+  cardKicker: {
+    color: '#7a6652',
     fontSize: 12,
-    fontWeight: '700',
-    marginBottom: 4,
+    fontWeight: '800',
+    letterSpacing: 0.4,
     textTransform: 'uppercase',
   },
-  userLabel: {
-    color: '#bfdbfe',
+  userCardPill: {
+    minHeight: 24,
+    borderRadius: 999,
+    backgroundColor: '#efe7db',
+    paddingHorizontal: 10,
+    justifyContent: 'center',
   },
-  assistantLabel: {
-    color: '#7dd3fc',
-  },
-  messageText: {
-    fontSize: 16,
-    lineHeight: 22,
+  userCardPillText: {
+    color: '#72502c',
+    fontSize: 12,
+    fontWeight: '800',
   },
   userMessageText: {
-    color: '#ffffff',
+    color: '#252a31',
+    fontSize: 16,
+    lineHeight: 24,
+    fontWeight: '500',
+  },
+  userSecondaryMessageText: {
+    color: '#837568',
+    fontSize: 15,
+    lineHeight: 22,
+  },
+  assistantBlock: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    paddingHorizontal: 4,
+  },
+  assistantRule: {
+    width: 3,
+    minHeight: 42,
+    borderRadius: 999,
+    backgroundColor: '#c7b79f',
+    marginTop: 4,
+  },
+  assistantContent: {
+    flex: 1,
+    paddingRight: 4,
+  },
+  assistantLabel: {
+    color: '#78644d',
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.4,
+    marginBottom: 6,
+    textTransform: 'uppercase',
   },
   assistantMessageText: {
-    color: '#e5edf7',
+    color: '#2d333b',
+    fontSize: 16,
+    lineHeight: 25,
   },
   secondaryMessageText: {
-    color: '#a7b1c2',
+    color: '#7b8794',
     fontSize: 15,
-    lineHeight: 21,
+    lineHeight: 22,
   },
   runningIndicator: {
-    alignSelf: 'flex-start',
-    marginHorizontal: 16,
-    marginBottom: 8,
-    borderRadius: 999,
-    backgroundColor: '#172033',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    alignSelf: 'center',
+    width: '100%',
+    maxWidth: 640,
+    minHeight: 44,
+    marginBottom: 10,
+    paddingHorizontal: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  runningDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#9b6b34',
   },
   runningIndicatorText: {
-    color: '#9fb0c7',
-    fontSize: 13,
+    color: '#7a6652',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  composerShell: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#ded8ce',
+    backgroundColor: '#fbfaf7',
+    paddingHorizontal: 12,
+    paddingBottom: 12,
+    paddingTop: 10,
   },
   composerRoot: {
+    width: '100%',
+    maxWidth: 640,
+    minHeight: 60,
+    alignSelf: 'center',
     flexDirection: 'row',
     alignItems: 'flex-end',
     gap: 10,
-    paddingHorizontal: 14,
-    paddingBottom: 14,
-    paddingTop: 12,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: '#202938',
-    backgroundColor: '#111827',
+    borderRadius: 24,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#d7cec0',
+    backgroundColor: '#ffffff',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
   },
   composerInput: {
     flex: 1,
-    minHeight: 48,
+    minHeight: 44,
     maxHeight: 132,
-    borderRadius: 18,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: '#2a3547',
-    backgroundColor: '#0d1117',
-    color: '#f8fafc',
+    color: '#1f2933',
     fontSize: 16,
-    lineHeight: 22,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    lineHeight: 23,
+    paddingHorizontal: 4,
+    paddingVertical: 10,
   },
   sendButton: {
     minWidth: 64,
-    minHeight: 48,
-    borderRadius: 18,
+    minHeight: 44,
+    borderRadius: 17,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#38bdf8',
+    backgroundColor: '#1f2933',
     paddingHorizontal: 14,
   },
   sendButtonDisabled: {
-    opacity: 0.42,
+    backgroundColor: '#d7d0c6',
   },
   sendButtonPressed: {
     opacity: 0.78,
   },
   sendButtonText: {
-    color: '#06111f',
-    fontSize: 16,
+    color: '#fffaf0',
+    fontSize: 15,
     fontWeight: '800',
   },
 });
