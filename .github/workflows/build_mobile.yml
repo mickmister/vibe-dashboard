@@ -53,7 +53,7 @@ jobs:
         with:
           local: ${{ github.event_name == 'pull_request' && 'true' || github.ref_type == 'tag' && 'false' || !inputs.run_on_eas }}
           platform: ${{ github.event_name == 'pull_request' && 'android' || github.ref_type == 'tag' && 'ios' || inputs.platform }}
-          profile: ${{ github.event_name == 'pull_request' && 'preview' || github.ref_type == 'tag' && 'preview' || inputs.profile }}
+          profile: ${{ github.event_name == 'pull_request' && 'preview' || github.ref_type == 'tag' && 'preview' || inputs.profile || 'preview' }}
           submit: ${{ github.event_name == 'pull_request' && 'false' || github.ref_type == 'tag' && 'false' || inputs.submit || false }}
           output_logs: ${{ github.event_name == 'pull_request' && 'false' || inputs.output_eas_build_to_logs || false }}
           install_command: pnpm install --frozen-lockfile
