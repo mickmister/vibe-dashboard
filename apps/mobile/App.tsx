@@ -1,5 +1,5 @@
-import React, { useRef } from 'react';
-import { StatusBar, StyleSheet, View, Text } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { StatusBar, StyleSheet } from 'react-native';
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
@@ -12,6 +12,7 @@ import {
   useAndInitializeSpringboardEngine,
 } from 'springboard/platforms/react-native/entrypoints/rn_app_springboard_entrypoint';
 
+import { ChatViewPage } from './ChatViewPage';
 import initializeRNSpringboardEngine from './app/entrypoints/rn_init_module';
 
 const DATA_HOST = process.env.EXPO_PUBLIC_SITE_URL || 'http://127.0.0.1:1337';
@@ -34,16 +35,23 @@ export default function App() {
     remoteRpc,
   });
 
-  return MobileMain(sbInitResult);
+  return <MobileMain sbInitResult={sbInitResult} />;
 
   // return WebviewMain(sbInitResult, onMessageFromRN);
 }
 
-const MobileMain = (_sbInitResult: ReturnType<typeof useAndInitializeSpringboardEngine>) => {
+const MobileMain = (_props: { sbInitResult: ReturnType<typeof useAndInitializeSpringboardEngine> }) => {
+  useEffect(() => {
+    void SplashScreen.hideAsync();
+  }, []);
+
   return (
-    <View>
-      <Text>{'Hello'}</Text>
-    </View>
+    <SafeAreaProvider>
+      <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="light-content" />
+        <ChatViewPage />
+      </SafeAreaView>
+    </SafeAreaProvider>
   );
 };
 
@@ -67,7 +75,7 @@ const WebviewMain = (sbInitResult: ReturnType<typeof useAndInitializeSpringboard
       />
     );
 
-    return (
+  return (
     <SafeAreaProvider>
       <SafeAreaView style={styles.container}>
         <StatusBar hidden />
@@ -79,13 +87,10 @@ const WebviewMain = (sbInitResult: ReturnType<typeof useAndInitializeSpringboard
       </SafeAreaView>
     </SafeAreaProvider>
   );
-}
+};
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
-  },
-  webview: {
     flex: 1,
   },
 });
