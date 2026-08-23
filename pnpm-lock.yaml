@@ -141,6 +141,9 @@ importers:
       '@assistant-ui/react-native':
         specifier: 0.1.38
         version: 0.1.38(@types/react@19.2.14)(assistant-cloud@0.1.31)(immer@11.1.4)(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0))(react@19.0.0)(use-sync-external-store@1.6.0(react@19.0.0))
+      '@expo/vector-icons':
+        specifier: ^14.1.0
+        version: 14.1.0(expo-font@13.3.2(expo@53.0.27)(react@19.0.0))(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0))(react@19.0.0)
       '@react-native-async-storage/async-storage':
         specifier: 2.1.2
         version: 2.1.2(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0))
@@ -153,15 +156,30 @@ importers:
       expo-asset:
         specifier: ~11.1.7
         version: 11.1.7(expo@53.0.27)(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0))(react@19.0.0)
+      expo-clipboard:
+        specifier: ~7.1.5
+        version: 7.1.5(expo@53.0.27)(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0))(react@19.0.0)
       expo-constants:
         specifier: ~17.1.8
         version: 17.1.8(expo@53.0.27)(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0))
       expo-file-system:
         specifier: ~18.1.11
         version: 18.1.11(expo@53.0.27)(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0))
+      expo-haptics:
+        specifier: ~14.1.4
+        version: 14.1.4(expo@53.0.27)
+      expo-image:
+        specifier: ~2.4.1
+        version: 2.4.1(expo@53.0.27)(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0))(react@19.0.0)
+      expo-image-picker:
+        specifier: ~16.1.4
+        version: 16.1.4(expo@53.0.27)
       expo-splash-screen:
         specifier: ^31.0.13
         version: 31.0.13(expo@53.0.27)(typescript@5.9.3)
+      expo-symbols:
+        specifier: ~0.4.5
+        version: 0.4.5(expo@53.0.27)(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0))
       expo-updates:
         specifier: ~0.28.18
         version: 0.28.18(expo@53.0.27)(react@19.0.0)
@@ -3739,6 +3757,13 @@ packages:
       react: '*'
       react-native: '*'
 
+  expo-clipboard@7.1.5:
+    resolution: {integrity: sha512-TCANUGOxouoJXxKBW5ASJl2WlmQLGpuZGemDCL2fO5ZMl57DGTypUmagb0CVUFxDl0yAtFIcESd78UsF9o64aw==}
+    peerDependencies:
+      expo: '*'
+      react: '*'
+      react-native: '*'
+
   expo-constants@17.1.8:
     resolution: {integrity: sha512-sOCeMN/BWLA7hBP6lMwoEQzFNgTopk6YY03sBAmwT216IHyL54TjNseg8CRU1IQQ/+qinJ2fYWCl7blx2TiNcA==}
     peerDependencies:
@@ -3769,6 +3794,32 @@ packages:
     peerDependencies:
       expo: '*'
       react: '*'
+
+  expo-haptics@14.1.4:
+    resolution: {integrity: sha512-QZdE3NMX74rTuIl82I+n12XGwpDWKb8zfs5EpwsnGi/D/n7O2Jd4tO5ivH+muEG/OCJOMq5aeaVDqqaQOhTkcA==}
+    peerDependencies:
+      expo: '*'
+
+  expo-image-loader@5.1.0:
+    resolution: {integrity: sha512-sEBx3zDQIODWbB5JwzE7ZL5FJD+DK3LVLWBVJy6VzsqIA6nDEnSFnsnWyCfCTSvbGigMATs1lgkC2nz3Jpve1Q==}
+    peerDependencies:
+      expo: '*'
+
+  expo-image-picker@16.1.4:
+    resolution: {integrity: sha512-bTmmxtw1AohUT+HxEBn2vYwdeOrj1CLpMXKjvi9FKSoSbpcarT4xxI0z7YyGwDGHbrJqyyic3I9TTdP2J2b4YA==}
+    peerDependencies:
+      expo: '*'
+
+  expo-image@2.4.1:
+    resolution: {integrity: sha512-yHp0Cy4ylOYyLR21CcH6i70DeRyLRPc0yAIPFPn4BT/BpkJNaX5QMXDppcHa58t4WI3Bb8QRJRLuAQaeCtDF8A==}
+    peerDependencies:
+      expo: '*'
+      react: '*'
+      react-native: '*'
+      react-native-web: '*'
+    peerDependenciesMeta:
+      react-native-web:
+        optional: true
 
   expo-json-utils@0.15.0:
     resolution: {integrity: sha512-duRT6oGl80IDzH2LD2yEFWNwGIC2WkozsB6HF3cDYNoNNdUvFk6uN3YiwsTsqVM/D0z6LEAQ01/SlYvN+Fw0JQ==}
@@ -3811,6 +3862,12 @@ packages:
 
   expo-structured-headers@4.1.0:
     resolution: {integrity: sha512-2X+aUNzC/qaw7/WyUhrVHNDB0uQ5rE12XA2H/rJXaAiYQSuOeU90ladaN0IJYV9I2XlhYrjXLktLXWbO7zgbag==}
+
+  expo-symbols@0.4.5:
+    resolution: {integrity: sha512-ZbgvJfACPfWaJxJrUd0YzDmH9X0Ci7vb5m0/ZpDz/tnF1vQJlkovvpFEHLUmCDSLIN7/fNK8t696KSpzfm8/kg==}
+    peerDependencies:
+      expo: '*'
+      react-native: '*'
 
   expo-updates-interface@1.1.0:
     resolution: {integrity: sha512-DeB+fRe0hUDPZhpJ4X4bFMAItatFBUPjw/TVSbJsaf3Exeami+2qbbJhWkcTMoYHOB73nOIcaYcWXYJnCJXO0w==}
@@ -5238,6 +5295,10 @@ packages:
 
   setprototypeof@1.2.0:
     resolution: {integrity: sha512-E5LDX7Wrp85Kil5bhZv46j8jOeboKq5JMmYM3gVGdGH8xFpPWXUMsNrlODCrkoxMEeNi/XZIwuRvY4XNwYMJpw==}
+
+  sf-symbols-typescript@2.2.0:
+    resolution: {integrity: sha512-TPbeg0b7ylrswdGCji8FRGFAKuqbpQlLbL8SOle3j1iHSs5Ob5mhvMAxWN2UItOjgALAB5Zp3fmMfj8mbWvXKw==}
+    engines: {node: '>=10'}
 
   shebang-command@2.0.0:
     resolution: {integrity: sha512-kHxr2zZpYtdmrN1qDjrrX/Z1rR1kG8Dx+gkpK1G4eXmvXswmcE1hTWBWYUzlraYw1/yZp6YuDY77YtvbN0dmDA==}
@@ -10946,6 +11007,12 @@ snapshots:
       - supports-color
     optional: true
 
+  expo-clipboard@7.1.5(expo@53.0.27)(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0))(react@19.0.0):
+    dependencies:
+      expo: 53.0.27(@babel/core@7.29.0)(@expo/dom-webview@55.0.6)(react-native-webview@13.16.1(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0))(react@19.0.0))(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0))(react@19.0.0)
+      react: 19.0.0
+      react-native: 0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0)
+
   expo-constants@17.1.8(expo@53.0.27)(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0)):
     dependencies:
       '@expo/config': 11.0.13
@@ -10999,6 +11066,25 @@ snapshots:
       expo: 53.0.27(@babel/core@7.29.0)(@expo/dom-webview@55.0.6)(react-native-webview@13.16.1(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.4))(react@19.2.4))(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.4))(react@19.2.4)
       fontfaceobserver: 2.3.0
       react: 19.2.4
+
+  expo-haptics@14.1.4(expo@53.0.27):
+    dependencies:
+      expo: 53.0.27(@babel/core@7.29.0)(@expo/dom-webview@55.0.6)(react-native-webview@13.16.1(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0))(react@19.0.0))(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0))(react@19.0.0)
+
+  expo-image-loader@5.1.0(expo@53.0.27):
+    dependencies:
+      expo: 53.0.27(@babel/core@7.29.0)(@expo/dom-webview@55.0.6)(react-native-webview@13.16.1(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0))(react@19.0.0))(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0))(react@19.0.0)
+
+  expo-image-picker@16.1.4(expo@53.0.27):
+    dependencies:
+      expo: 53.0.27(@babel/core@7.29.0)(@expo/dom-webview@55.0.6)(react-native-webview@13.16.1(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0))(react@19.0.0))(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0))(react@19.0.0)
+      expo-image-loader: 5.1.0(expo@53.0.27)
+
+  expo-image@2.4.1(expo@53.0.27)(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0))(react@19.0.0):
+    dependencies:
+      expo: 53.0.27(@babel/core@7.29.0)(@expo/dom-webview@55.0.6)(react-native-webview@13.16.1(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0))(react@19.0.0))(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0))(react@19.0.0)
+      react: 19.0.0
+      react-native: 0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0)
 
   expo-json-utils@0.15.0: {}
 
@@ -11097,6 +11183,12 @@ snapshots:
       - typescript
 
   expo-structured-headers@4.1.0: {}
+
+  expo-symbols@0.4.5(expo@53.0.27)(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0)):
+    dependencies:
+      expo: 53.0.27(@babel/core@7.29.0)(@expo/dom-webview@55.0.6)(react-native-webview@13.16.1(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0))(react@19.0.0))(react-native@0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0))(react@19.0.0)
+      react-native: 0.79.5(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0)
+      sf-symbols-typescript: 2.2.0
 
   expo-updates-interface@1.1.0(expo@53.0.27):
     dependencies:
@@ -12807,6 +12899,8 @@ snapshots:
     optional: true
 
   setprototypeof@1.2.0: {}
+
+  sf-symbols-typescript@2.2.0: {}
 
   shebang-command@2.0.0:
     dependencies:
