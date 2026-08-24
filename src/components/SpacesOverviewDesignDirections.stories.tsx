@@ -1889,6 +1889,11 @@ function WorkdayRadarConcept() {
     ['Tests', '24m', 'top-[50%] left-[18%]'],
     ['Review', '1h', 'top-[67%] left-[68%]'],
   ];
+  const lanes = [
+    ['Now', 'Auth bug fix', 'Waiting for approval', 'Open craft'],
+    ['Next', 'Kanban polish', 'Saved filter review', 'Open lane'],
+    ['Watch', 'Docs refresh', 'Workflow ready', 'Open run'],
+  ];
 
   return (
     <main className="h-[100dvh] overflow-y-auto overflow-x-clip bg-[#F3EEE2] text-[#17140F] [font-family:'IBM_Plex_Sans','Noto_Emoji',sans-serif]">
@@ -1910,11 +1915,16 @@ function WorkdayRadarConcept() {
         }
       `}</style>
 
-      <section className="mx-auto grid min-h-[100dvh] w-full max-w-[1440px] grid-cols-1 content-between gap-8 bg-[#F3EEE2] px-4 py-4 sm:px-8 md:px-10 lg:grid-cols-[minmax(0,0.9fr)_minmax(420px,1.1fr)] lg:px-12 lg:py-10">
-        <header className="workday-radar-enter flex min-h-12 items-center justify-between gap-3 border-b border-[#17140F] pb-3 [animation:workday-radar-rise_520ms_cubic-bezier(0.16,1,0.3,1)_both] lg:col-span-2">
-          <p className="font-mono text-xs font-semibold tracking-[0.08em]">
-            Redesign 2
-          </p>
+      <section className="mx-auto grid min-h-[100dvh] w-full max-w-[1440px] grid-cols-1 gap-4 bg-[#F3EEE2] px-4 py-4 sm:px-8 md:px-10 lg:grid-cols-[260px_minmax(0,1fr)_340px] lg:px-8 lg:py-6">
+        <header className="workday-radar-enter flex min-h-12 items-center justify-between gap-3 border-b border-[#17140F] pb-3 [animation:workday-radar-rise_520ms_cubic-bezier(0.16,1,0.3,1)_both] lg:col-span-3">
+          <div>
+            <p className="font-mono text-xs font-semibold tracking-[0.08em]">
+              Redesign 2
+            </p>
+            <h1 className="mt-1 text-2xl font-black tracking-[-0.04em]">
+              Workday radar
+            </h1>
+          </div>
           <div className="flex items-center gap-2">
             <button className="min-h-11 rounded-none border border-[#17140F] bg-transparent px-4 text-sm font-semibold">
               Go Home
@@ -1925,67 +1935,93 @@ function WorkdayRadarConcept() {
           </div>
         </header>
 
-        <section className="workday-radar-enter flex flex-col justify-between gap-8 [animation:workday-radar-rise_620ms_cubic-bezier(0.16,1,0.3,1)_90ms_both]">
-          <div>
-            <p className="max-w-[34ch] text-base leading-7 text-[#6B604F]">
-              Start narrow. Resume the active voyage, then clear the closest
-              blockers without reopening yesterday.
-            </p>
-            <h1 className="mt-6 max-w-[8ch] text-[clamp(4.5rem,19vw,13rem)] font-black leading-[0.78] tracking-[-0.08em]">
-              Work
-              <br />
-              Day
-            </h1>
-          </div>
+        <section className="workday-radar-enter grid gap-3 border border-[#17140F] bg-[#E6DAC2] p-3 shadow-[4px_4px_0_#17140F] [animation:workday-radar-rise_620ms_cubic-bezier(0.16,1,0.3,1)_90ms_both] lg:row-span-2">
+          <p className="font-mono text-xs font-semibold tracking-[0.08em] text-[#6B604F]">
+            Saved filters
+          </p>
+          {savedFilters.map((filter, index) => (
+            <button
+              key={filter}
+              className={`min-h-11 border border-[#17140F] px-3 text-left text-sm font-semibold ${
+                index === 0
+                  ? 'bg-[#C24A2E] text-[#F3EEE2]'
+                  : 'bg-[#F8F3E8] text-[#17140F]'
+              }`}
+            >
+              {filter}
+            </button>
+          ))}
 
-          <section className="border-y border-[#17140F] py-4">
-            <div className="grid grid-cols-3 divide-x divide-[#17140F]">
-              {[
-                ['03', 'needs'],
-                ['02', 'servers'],
-                ['05', 'views'],
-              ].map(([value, label]) => (
-                <div key={label} className="px-3 first:pl-0 last:pr-0">
-                  <p className="font-mono text-3xl font-semibold tracking-[-0.05em]">
-                    {value}
-                  </p>
-                  <p className="mt-1 text-xs tracking-[0.08em] text-[#6B604F]">
-                    {label}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </section>
+          <div className="mt-2 border-t border-[#17140F] pt-3">
+            <p className="font-mono text-xs font-semibold tracking-[0.08em] text-[#6B604F]">
+              Session scope
+            </p>
+            <p className="mt-2 text-sm leading-6 text-[#4E4638]">
+              Keep today focused on approval, tests, review, and open craft
+              state.
+            </p>
+          </div>
         </section>
 
-        <section className="workday-radar-enter grid gap-5 [animation:workday-radar-rise_720ms_cubic-bezier(0.16,1,0.3,1)_160ms_both]">
-          <div className="relative mx-auto aspect-square w-full max-w-[520px] border border-[#17140F] bg-[#E6DAC2]">
-            <div className="absolute inset-[9%] rounded-full border border-[#17140F]" />
-            <div className="absolute inset-[24%] rounded-full border border-[#17140F]" />
-            <div className="absolute left-1/2 top-0 h-full border-l border-[#17140F]" />
-            <div className="absolute left-0 top-1/2 w-full border-t border-[#17140F]" />
-            <div className="workday-radar-sweep absolute left-1/2 top-[5%] h-[45%] origin-bottom border-l-2 border-[#C24A2E] [animation:workday-radar-sweep_9s_linear_infinite]" />
-            <div className="absolute left-1/2 top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 bg-[#17140F]" />
+        <section className="workday-radar-enter grid gap-4 [animation:workday-radar-rise_720ms_cubic-bezier(0.16,1,0.3,1)_160ms_both]">
+          <section className="grid gap-3 border border-[#17140F] bg-[#17140F] p-3 text-[#F3EEE2] shadow-[4px_4px_0_#C24A2E] md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
+            <div>
+              <p className="font-mono text-xs tracking-[0.08em] text-[#CDBF9F]">
+                Active voyage
+              </p>
+              <h2 className="mt-1 text-3xl font-black tracking-[-0.045em]">
+                Auth bug fix
+              </h2>
+              <p className="mt-2 text-sm leading-6 text-[#CDBF9F]">
+                Approval pending. Tests running. Review thread unread.
+              </p>
+            </div>
+            <button className="min-h-11 border border-[#F3EEE2] bg-[#F3EEE2] px-4 text-sm font-semibold text-[#17140F]">
+              Open active craft
+            </button>
+          </section>
 
-            {radarItems.map(([label, time, position]) => (
-              <button
+          <section className="grid grid-cols-3 border-y border-[#17140F] py-3">
+            {[
+              ['03', 'needs'],
+              ['02', 'servers'],
+              ['05', 'views'],
+            ].map(([value, label]) => (
+              <div
                 key={label}
-                className={`absolute min-h-11 -translate-x-1/2 -translate-y-1/2 border border-[#17140F] bg-[#F3EEE2] px-3 text-left shadow-[6px_6px_0_#17140F] ${position}`}
+                className="border-r border-[#17140F] px-3 first:pl-0 last:border-r-0 last:pr-0"
               >
-                <span className="block text-sm font-bold">{label}</span>
-                <span className="block font-mono text-xs text-[#C24A2E]">
-                  {time}
+                <p className="font-mono text-3xl font-semibold tracking-[-0.05em]">
+                  {value}
+                </p>
+                <p className="mt-1 text-xs tracking-[0.08em] text-[#6B604F]">
+                  {label}
+                </p>
+              </div>
+            ))}
+          </section>
+
+          <section className="grid gap-2 lg:grid-cols-3">
+            {lanes.map(([lane, title, status, action]) => (
+              <button
+                key={lane}
+                className="grid min-h-28 border border-[#17140F] bg-[#F8F3E8] p-3 text-left shadow-[4px_4px_0_#17140F]"
+              >
+                <span className="font-mono text-xs font-semibold text-[#C24A2E]">
+                  {lane}
+                </span>
+                <span className="mt-3 block text-lg font-black tracking-[-0.03em]">
+                  {title}
+                </span>
+                <span className="mt-1 block text-sm text-[#6B604F]">
+                  {status}
+                </span>
+                <span className="mt-4 text-sm font-semibold text-[#C24A2E]">
+                  {action}
                 </span>
               </button>
             ))}
-
-            <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between border border-[#17140F] bg-[#17140F] px-3 py-2 text-[#F3EEE2]">
-              <span className="font-mono text-xs tracking-[0.08em]">
-                Active voyage
-              </span>
-              <span className="text-sm font-semibold">Auth bug fix</span>
-            </div>
-          </div>
+          </section>
 
           <section className="grid gap-2">
             {workItems.map((item, index) => (
@@ -2010,20 +2046,57 @@ function WorkdayRadarConcept() {
           </section>
         </section>
 
-        <footer className="workday-radar-enter flex gap-2 overflow-x-auto border-t border-[#17140F] pt-3 [animation:workday-radar-rise_720ms_cubic-bezier(0.16,1,0.3,1)_220ms_both] lg:col-span-2">
-          {savedFilters.map((filter, index) => (
-            <button
-              key={filter}
-              className={`min-h-11 shrink-0 border border-[#17140F] px-4 text-sm font-semibold ${
-                index === 0
-                  ? 'bg-[#C24A2E] text-[#F3EEE2]'
-                  : 'bg-transparent text-[#17140F]'
-              }`}
-            >
-              {filter}
-            </button>
-          ))}
-        </footer>
+        <aside className="workday-radar-enter grid gap-4 [animation:workday-radar-rise_720ms_cubic-bezier(0.16,1,0.3,1)_220ms_both]">
+          <div className="relative aspect-square w-full border border-[#17140F] bg-[#E6DAC2] shadow-[4px_4px_0_#17140F]">
+            <div className="absolute inset-[9%] rounded-full border border-[#17140F]" />
+            <div className="absolute inset-[24%] rounded-full border border-[#17140F]" />
+            <div className="absolute left-1/2 top-0 h-full border-l border-[#17140F]" />
+            <div className="absolute left-0 top-1/2 w-full border-t border-[#17140F]" />
+            <div className="workday-radar-sweep absolute left-1/2 top-[5%] h-[45%] origin-bottom border-l-2 border-[#C24A2E] [animation:workday-radar-sweep_9s_linear_infinite]" />
+            <div className="absolute left-1/2 top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 bg-[#17140F]" />
+
+            {radarItems.map(([label, time, position]) => (
+              <button
+                key={label}
+                className={`absolute min-h-11 -translate-x-1/2 -translate-y-1/2 border border-[#17140F] bg-[#F3EEE2] px-3 text-left shadow-[6px_6px_0_#17140F] ${position}`}
+              >
+                <span className="block text-sm font-bold">{label}</span>
+                <span className="block font-mono text-xs text-[#C24A2E]">
+                  {time}
+                </span>
+              </button>
+            ))}
+
+            <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between border border-[#17140F] bg-[#17140F] px-3 py-2 text-[#F3EEE2]">
+              <span className="font-mono text-xs tracking-[0.08em]">
+                Radar
+              </span>
+              <span className="text-sm font-semibold">3 blockers</span>
+            </div>
+          </div>
+
+          <section className="border border-[#17140F] bg-[#F8F3E8] p-4 shadow-[4px_4px_0_#17140F]">
+            <p className="font-mono text-xs font-semibold tracking-[0.08em] text-[#6B604F]">
+              Workflow queue
+            </p>
+            <div className="mt-3 divide-y divide-[#17140F]">
+              {workflowRows.map(([name, status, time]) => (
+                <button
+                  key={name}
+                  className="grid min-h-14 w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 py-2 text-left"
+                >
+                  <span>
+                    <span className="block text-sm font-bold">{name}</span>
+                    <span className="mt-1 block text-xs text-[#6B604F]">
+                      {status}
+                    </span>
+                  </span>
+                  <span className="font-mono text-xs text-[#C24A2E]">{time}</span>
+                </button>
+              ))}
+            </div>
+          </section>
+        </aside>
       </section>
     </main>
   );
