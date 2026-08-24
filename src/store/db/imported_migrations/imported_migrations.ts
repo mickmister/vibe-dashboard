@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 import { migration as workflowRunsMigration } from '../migrations/20260722000000_workflow_runs/migration';
 import { migration as workflowRunIndexesMigration } from '../migrations/20260722010000_workflow_run_indexes/migration';
 import { migration as workflowOrchestrationMigration } from '../migrations/20260731000000_workflow_orchestration/migration';
@@ -91,3 +92,18 @@ export const migrations = [
     migration: workflowRoleTemplatesMigration,
   },
 ];
+=======
+import _20260702000000_external_integrations from '../migrations/20260702000000_external_integrations/migration';
+import _20260702010000_external_issue_workspace_mappings from '../migrations/20260702010000_external_issue_workspace_mappings/migration';
+import _20260702020000_external_repo_project_mappings from '../migrations/20260702020000_external_repo_project_mappings/migration';
+import _20260804220000_external_repo_project_mapping_site_scope from '../migrations/20260804220000_external_repo_project_mapping_site_scope/migration';
+
+export const databaseVersion = 4;
+
+export const migrations = [
+  { name: '20260702000000_external_integrations', migration: _20260702000000_external_integrations },
+  { name: '20260702010000_external_issue_workspace_mappings', migration: _20260702010000_external_issue_workspace_mappings },
+  { name: '20260702020000_external_repo_project_mappings', migration: _20260702020000_external_repo_project_mappings },
+  { name: '20260804220000_external_repo_project_mapping_site_scope', migration: _20260804220000_external_repo_project_mapping_site_scope },
+] as const;
+>>>>>>> 2bb8b1ac2d3718c24c2fa760347adbe94aeea19b

@@ -133,6 +133,16 @@ describe('first-party service plugin inventory and golden supervisor config', ()
     expect(goldenDockerfile).toContain('export PATH=/usr/local/lib/vk-bd-wrapper/bin:/var/lib/vd/plugin-bin');
   });
 
+  it('pins the Beads CLI Docker install to the known-good recovery release', () => {
+    expect(goldenDockerfile).toContain('ARG BEADS_VERSION=v1.2.2');
+    expect(goldenDockerfile).toContain('release_base_url="https://github.com/gastownhall/beads/releases/download/${BEADS_VERSION}"');
+    expect(goldenDockerfile).toContain('archive_name="beads_${BEADS_VERSION#v}_linux_${beads_arch}.tar.gz"');
+    expect(goldenDockerfile).toContain('sha256sum -c -');
+    expect(goldenDockerfile).toContain('bd version | grep -F "${BEADS_VERSION#v}"');
+    expect(goldenDockerfile).not.toContain('gastownhall/beads/main/scripts/install.sh');
+    expect(goldenDockerfile).not.toContain('raw.githubusercontent.com/gastownhall/beads/${BEADS_VERSION}/scripts/install.sh');
+  });
+
   it('builds and exposes the BeadsForm CLI as a global Docker command', () => {
     expect(rootPackageJson.scripts['build:beads-form']).toBe('pnpm --filter @vibe-dashboard/beads-form build');
     expect(rootPackageJson.scripts.build).toMatch(/^npm run build:beads-form && /);

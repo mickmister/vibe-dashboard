@@ -206,6 +206,91 @@ export interface RawLogEntry {
   content: string;
 }
 
+export type RunConfigKind = 'long_running' | 'one_shot' | 'test';
+
+export interface RunConfig {
+  id: string;
+  repo_id: string;
+  slug: string;
+  name: string;
+  command: string;
+  working_dir?: string | null;
+  kind: RunConfigKind;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UpsertRunConfig {
+  id?: string | null;
+  repo_id: string;
+  slug: string;
+  name: string;
+  command: string;
+  working_dir?: string | null;
+  kind: RunConfigKind;
+  enabled?: boolean;
+}
+
+export interface PreviewSlot {
+  id: string;
+  repo_id: string;
+  run_config_id: string;
+  slot_slug: string;
+  title: string;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UpsertPreviewSlot {
+  id?: string | null;
+  repo_id: string;
+  run_config_id: string;
+  slot_slug: string;
+  title: string;
+  enabled?: boolean;
+}
+
+export interface PreviewSlotUrlParts {
+  previewSlotId: string;
+  workspaceToken: string;
+  repoSlug: string;
+  slotSlug: string;
+}
+
+export interface WorkspaceRunConfigsResponse {
+  run_configs: RunConfig[];
+  preview_slots: PreviewSlot[];
+  preview_url_parts: PreviewSlotUrlParts[];
+}
+
+export interface PreviewProcessLink {
+  id: string;
+  workspace_id: string;
+  repo_id: string;
+  run_config_id: string;
+  preview_slot_id?: string | null;
+  execution_process_id: string;
+  assigned_port: number;
+  status_snapshot: 'starting' | 'ready' | 'failed' | 'stopped';
+  started_at: string;
+  updated_at: string;
+  ended_at?: string | null;
+}
+
+export interface RunConfigStartResponse {
+  execution_process: ExecutionProcess;
+  preview_process_link: PreviewProcessLink;
+  upstream: string;
+}
+
+export interface PreviewSlotUrlResponse extends PreviewSlotUrlParts {
+  customerSlug: string;
+  host: string;
+  url: string;
+}
+
 export interface ConversationEntry {
   content?: {
     entry_type?: {
@@ -487,6 +572,55 @@ export class VKService {
     return processes
       .filter(process => process.run_reason === 'devserver' && process.status === 'running')
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  }
+
+  // Preview URL run configs
+  async getRunConfigs(workspaceId: string): Promise<WorkspaceRunConfigsResponse> {
+    const response = await fetch(config.endpoints.runConfigs(workspaceId));
+    return this.parseApiResponse<WorkspaceRunConfigsResponse>(response, 'fetch preview run configs');
+  }
+
+  async upsertRunConfig(workspaceId: string, body: UpsertRunConfig): Promise<RunConfig> {
+    const response = await fetch(config.endpoints.runConfigs(workspaceId), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    return this.parseApiResponse<RunConfig>(response, 'upsert run config');
+  }
+
+  async upsertPreviewSlot(workspaceId: string, body: UpsertPreviewSlot): Promise<PreviewSlot> {
+    const response = await fetch(config.endpoints.previewSlots(workspaceId), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    return this.parseApiResponse<PreviewSlot>(response, 'upsert preview slot');
+  }
+
+  async startRunConfig(workspaceId: string, runConfigId: string): Promise<RunConfigStartResponse> {
+    const response = await fetch(config.endpoints.startRunConfig(workspaceId, runConfigId), {
+      method: 'POST',
+    });
+    return this.parseApiResponse<RunConfigStartResponse>(response, 'start run config');
+  }
+
+  async startPreviewSlot(workspaceId: string, previewSlotId: string): Promise<RunConfigStartResponse> {
+    const response = await fetch(config.endpoints.startPreviewSlot(workspaceId, previewSlotId), {
+      method: 'POST',
+    });
+    return this.parseApiResponse<RunConfigStartResponse>(response, 'start preview slot');
+  }
+
+  async getPreviewSlotUrl(
+    workspaceId: string,
+    previewSlotId: string,
+    args: { customerSlug: string; baseDomain?: string },
+  ): Promise<PreviewSlotUrlResponse> {
+    const query = new URLSearchParams({ customerSlug: args.customerSlug });
+    if (args.baseDomain) query.set('baseDomain', args.baseDomain);
+    const response = await fetch(config.endpoints.previewSlotUrl(workspaceId, previewSlotId, query.toString()));
+    return this.parseApiResponse<PreviewSlotUrlResponse>(response, 'fetch preview slot URL');
   }
 
   async fetchRawLogs(processId: string, timeoutMs = 2000): Promise<RawLogEntry[]> {

@@ -11,7 +11,7 @@ export type Executor =
 
 export interface Workspace {
   id: string;
-  task_id: string;
+  task_id: string | null;
   container_ref: string | null;
   branch: string;
   agent_working_dir: string | null;
@@ -27,6 +27,74 @@ export interface RepoWithBranch {
   name: string;
   display_name: string;
   target_branch: string;
+}
+
+export interface WorkspaceSummary {
+  workspace_id: string;
+  latest_session_id?: string | null;
+  files_changed: number | null;
+  lines_added: number | null;
+  lines_removed: number | null;
+}
+
+export interface WorkspaceSummaryResponse {
+  summaries: WorkspaceSummary[];
+}
+
+export interface Repo {
+  id: string;
+  path: string;
+  name: string;
+  display_name: string;
+  default_target_branch?: string | null;
+}
+
+export interface DirectoryEntry {
+  name: string;
+  path: string;
+  is_directory: boolean;
+  is_git_repo: boolean;
+  last_modified: string | null;
+}
+
+export interface DirectoryListResponse {
+  entries: DirectoryEntry[];
+  current_path: string;
+}
+
+export interface GitBranch {
+  name: string;
+  is_current: boolean;
+  is_remote: boolean;
+  last_commit_date: string | null;
+}
+
+export interface ExecutorConfig {
+  executor: Executor;
+  variant?: string | null;
+  model_id?: string | null;
+  agent_id?: string | null;
+  reasoning_id?: string | null;
+  permission_policy?: string | null;
+}
+
+export interface UserSystemInfo {
+  config?: { executor_profile?: ExecutorConfig | null };
+  executors?: Partial<Record<Executor, unknown>>;
+}
+
+export interface CreateAndStartWorkspaceRequest {
+  name: string | null;
+  repos: Array<{ repo_id: string; target_branch: string }>;
+  linked_issue: { remote_project_id: string; issue_id: string } | null;
+  executor_config: ExecutorConfig;
+  prompt: string;
+  attachment_ids: string[] | null;
+}
+
+export interface CreateAndStartWorkspaceResponse {
+  workspace: Workspace;
+  execution_process: ExecutionProcess;
 }
 
 export interface Session {
@@ -53,6 +121,7 @@ export interface ExecutionProcess {
   executor_action?: unknown;
 }
 
+<<<<<<< HEAD
 export interface AgentResponse {
   execution_process_id: string;
   session_id: string;
@@ -79,10 +148,42 @@ export interface ExecutionProcessRepoState {
   before_head_commit: string | null;
   after_head_commit: string | null;
   merge_commit: string | null;
+=======
+export interface PreviewResolveRequest {
+  host: string;
+  workspaceToken: string;
+  repoSlug: string;
+  slotSlug: string;
+  customerSlug: string;
+  ensure: boolean;
+  method: string;
+  path: string;
+}
+
+export interface PreviewResolveResponse {
+  status: 'ready' | 'starting' | 'not_found' | 'capacity_full' | 'failed' | 'unavailable' | 'error';
+  upstream?: string | null;
+  message?: string | null;
+  executionProcessId?: string | null;
+}
+
+export type RunConfigKind = 'long_running' | 'one_shot' | 'test';
+
+export interface RunConfig {
+  id: string;
+  repo_id: string;
+  slug: string;
+  name: string;
+  command: string;
+  working_dir?: string | null;
+  kind: RunConfigKind;
+  enabled: boolean;
+>>>>>>> 2bb8b1ac2d3718c24c2fa760347adbe94aeea19b
   created_at: string;
   updated_at: string;
 }
 
+<<<<<<< HEAD
 export type ActivitySessionStatus =
   "idle" | "queued" | "running" | "callback_waiting";
 
@@ -182,6 +283,76 @@ export interface QueuedMessage {
   source: "from_user" | "workflow" | "agent" | "system";
   priority: number | bigint;
   data: { message: string; session_command?: unknown | null };
+=======
+export interface UpsertRunConfig {
+  id?: string | null;
+  repo_id: string;
+  slug: string;
+  name: string;
+  command: string;
+  working_dir?: string | null;
+  kind: RunConfigKind;
+  enabled?: boolean;
+}
+
+export interface PreviewSlot {
+  id: string;
+  repo_id: string;
+  run_config_id: string;
+  slot_slug: string;
+  title: string;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UpsertPreviewSlot {
+  id?: string | null;
+  repo_id: string;
+  run_config_id: string;
+  slot_slug: string;
+  title: string;
+  enabled?: boolean;
+}
+
+export interface PreviewProcessLink {
+  id: string;
+  workspace_id: string;
+  repo_id: string;
+  run_config_id: string;
+  preview_slot_id?: string | null;
+  execution_process_id: string;
+  assigned_port: number;
+  status_snapshot: 'starting' | 'ready' | 'failed' | 'stopped';
+  started_at: string;
+  updated_at: string;
+  ended_at?: string | null;
+}
+
+export interface RunConfigStartResponse {
+  execution_process: ExecutionProcess;
+  preview_process_link: PreviewProcessLink;
+  upstream: string;
+}
+
+export interface PreviewSlotUrlParts {
+  previewSlotId: string;
+  workspaceToken: string;
+  repoSlug: string;
+  slotSlug: string;
+}
+
+export interface WorkspaceRunConfigsResponse {
+  run_configs: RunConfig[];
+  preview_slots: PreviewSlot[];
+  preview_url_parts: PreviewSlotUrlParts[];
+}
+
+export interface PreviewSlotUrlResponse extends PreviewSlotUrlParts {
+  customerSlug: string;
+  host: string;
+  url: string;
+>>>>>>> 2bb8b1ac2d3718c24c2fa760347adbe94aeea19b
 }
 
 export interface CreateSessionBody {
@@ -288,6 +459,10 @@ export class VibeKanbanServerClient {
     return this.get(`/workspaces/${encodeURIComponent(workspaceId)}/repos`);
   }
 
+  getWorkspaceSummaries(archived: boolean): Promise<WorkspaceSummaryResponse> {
+    return this.post('/workspaces/summaries', { archived });
+  }
+
   getSessions(workspaceId: string): Promise<Session[]> {
     return this.get(
       `/sessions?workspace_id=${encodeURIComponent(workspaceId)}`,
@@ -300,6 +475,30 @@ export class VibeKanbanServerClient {
 
   createSession(body: CreateSessionBody): Promise<Session> {
     return this.post("/sessions", body);
+  }
+
+  getInfo(): Promise<UserSystemInfo> {
+    return this.get('/info');
+  }
+
+  listRepos(): Promise<Repo[]> {
+    return this.get('/repos');
+  }
+
+  registerRepo(body: { path: string; display_name?: string }): Promise<Repo> {
+    return this.post('/repos', body);
+  }
+
+  listDirectory(path: string): Promise<DirectoryListResponse> {
+    return this.get(`/filesystem/directory?path=${encodeURIComponent(path)}`);
+  }
+
+  getRepoBranches(repoId: string): Promise<GitBranch[]> {
+    return this.get(`/repos/${encodeURIComponent(repoId)}/branches`);
+  }
+
+  createAndStartWorkspace(body: CreateAndStartWorkspaceRequest): Promise<CreateAndStartWorkspaceResponse> {
+    return this.post('/workspaces/start', body);
   }
 
   getExecutionProcess(processId: string): Promise<ExecutionProcess> {
@@ -350,6 +549,7 @@ export class VibeKanbanServerClient {
     await this.get("/health");
   }
 
+<<<<<<< HEAD
   async getInfo(): Promise<unknown> {
     return this.get("/info");
   }
@@ -358,6 +558,48 @@ export class VibeKanbanServerClient {
     body: CreateWebhookSubscriptionBody,
   ): Promise<UpsertWebhookSubscriptionResponse> {
     return this.post("/webhook-subscriptions", body);
+=======
+  resolvePreview(request: PreviewResolveRequest): Promise<PreviewResolveResponse> {
+    return this.post('/preview/resolve', request);
+  }
+
+  getRunConfigs(workspaceId: string): Promise<WorkspaceRunConfigsResponse> {
+    return this.get(`/workspaces/${encodeURIComponent(workspaceId)}/execution/run-configs`);
+  }
+
+  upsertRunConfig(workspaceId: string, body: UpsertRunConfig): Promise<RunConfig> {
+    return this.post(`/workspaces/${encodeURIComponent(workspaceId)}/execution/run-configs`, body);
+  }
+
+  upsertPreviewSlot(workspaceId: string, body: UpsertPreviewSlot): Promise<PreviewSlot> {
+    return this.post(`/workspaces/${encodeURIComponent(workspaceId)}/execution/preview-slots`, body);
+  }
+
+  startRunConfig(workspaceId: string, runConfigId: string): Promise<RunConfigStartResponse> {
+    return this.post(
+      `/workspaces/${encodeURIComponent(workspaceId)}/execution/run-configs/${encodeURIComponent(runConfigId)}/start`,
+      {},
+    );
+  }
+
+  startPreviewSlot(workspaceId: string, previewSlotId: string): Promise<RunConfigStartResponse> {
+    return this.post(
+      `/workspaces/${encodeURIComponent(workspaceId)}/execution/preview-slots/${encodeURIComponent(previewSlotId)}/start`,
+      {},
+    );
+  }
+
+  getPreviewSlotUrl(
+    workspaceId: string,
+    previewSlotId: string,
+    args: { customerSlug: string; baseDomain?: string },
+  ): Promise<PreviewSlotUrlResponse> {
+    const params = new URLSearchParams({ customerSlug: args.customerSlug });
+    if (args.baseDomain) params.set('baseDomain', args.baseDomain);
+    return this.get(
+      `/workspaces/${encodeURIComponent(workspaceId)}/execution/preview-slots/${encodeURIComponent(previewSlotId)}/url?${params}`,
+    );
+>>>>>>> 2bb8b1ac2d3718c24c2fa760347adbe94aeea19b
   }
 
   async sendFollowUp(

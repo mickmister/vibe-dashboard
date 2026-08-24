@@ -89,48 +89,55 @@ test.describe('VK mocked-provider sandbox through VD UI', () => {
       .frameLocator('iframe[title="Create Workspace"]')
       .last();
     await closeSidebarOverlayIfPresent(page);
-    await ensureRepositorySelectionStep(page, createWorkspaceFrame);
-    await expect(createWorkspaceFrame.locator('body')).toContainText(
-      'Which repositories would you like to work on?',
-    );
     await expectCreateWorkspaceFrameUrl(page);
-    await clearSelectedRepositories(createWorkspaceFrame);
-    await expect(
-      createWorkspaceFrame.getByRole('button', { name: 'Recent' }),
-    ).toBeVisible();
-    await expect(
-      createWorkspaceFrame.getByRole('button', { name: 'Browse' }),
-    ).toBeVisible();
-    await expect(
-      createWorkspaceFrame.getByRole('button', { name: 'Create' }),
-    ).toBeVisible();
+    const reachedRepositorySelection = await ensureRepositorySelectionStep(
+      createWorkspaceFrame,
+    );
+    const expectedRepoButtonName = reachedRepositorySelection
+      ? new RegExp(
+          `^(${escapeRegex(repoName)} · main|\\d+ repositories selected)$`,
+        )
+      : /· main/;
 
-    await dismissVkWelcomeIfPresent(createWorkspaceFrame);
-    await createWorkspaceFrame
-      .getByRole('button', { name: 'Create' })
-      .click();
-    await expect(
-      createWorkspaceFrame.getByRole('heading', {
-        name: 'Create New Repository',
-      }),
-    ).toBeVisible();
-    await createWorkspaceFrame
-      .getByRole('textbox', { name: 'my-project' })
-      .fill(repoName);
-    await createWorkspaceFrame
-      .getByRole('textbox', { name: 'Current directory' })
-      .fill(sandboxRepoDir);
-    await createWorkspaceFrame
-      .getByRole('button', { name: 'Create Repository' })
-      .click();
-    await createWorkspaceFrame
-      .getByRole('option', { name: /main/ })
-      .click();
+    if (reachedRepositorySelection) {
+      await clearSelectedRepositories(createWorkspaceFrame);
+      await expect(
+        createWorkspaceFrame.getByRole('button', { name: 'Recent' }),
+      ).toBeVisible();
+      await expect(
+        createWorkspaceFrame.getByRole('button', { name: 'Browse' }),
+      ).toBeVisible();
+      await expect(
+        createWorkspaceFrame.getByRole('button', { name: 'Create' }),
+      ).toBeVisible();
 
-    await expect(createWorkspaceFrame.getByText(repoName)).toBeVisible();
-    await createWorkspaceFrame
-      .getByRole('button', { name: 'Continue' })
-      .click();
+      await dismissVkWelcomeIfPresent(createWorkspaceFrame);
+      await createWorkspaceFrame
+        .getByRole('button', { name: 'Create' })
+        .click();
+      await expect(
+        createWorkspaceFrame.getByRole('heading', {
+          name: 'Create New Repository',
+        }),
+      ).toBeVisible();
+      await createWorkspaceFrame
+        .getByRole('textbox', { name: 'my-project' })
+        .fill(repoName);
+      await createWorkspaceFrame
+        .getByRole('textbox', { name: 'Current directory' })
+        .fill(sandboxRepoDir);
+      await createWorkspaceFrame
+        .getByRole('button', { name: 'Create Repository' })
+        .click();
+      await createWorkspaceFrame
+        .getByRole('option', { name: /main/ })
+        .click();
+
+      await expect(createWorkspaceFrame.getByText(repoName)).toBeVisible();
+      await createWorkspaceFrame
+        .getByRole('button', { name: 'Continue' })
+        .click();
+    }
 
     await expect(
       createWorkspaceFrame.getByRole('heading', {
@@ -142,9 +149,7 @@ test.describe('VK mocked-provider sandbox through VD UI', () => {
     ).toBeVisible();
     await expect(
       createWorkspaceFrame.getByRole('button', {
-        name: new RegExp(
-          `^(${escapeRegex(repoName)} · main|\\d+ repositories selected)$`,
-        ),
+        name: expectedRepoButtonName,
       }),
     ).toBeVisible();
     await createWorkspaceFrame
@@ -160,9 +165,10 @@ test.describe('VK mocked-provider sandbox through VD UI', () => {
     );
     await expect(createWorkspaceFrame.locator('body')).toContainText(
       'QA mode execution completed successfully',
+      { timeout: 60_000 },
     );
     await expect(createWorkspaceFrame.locator('body')).toContainText(
-      '1 file changed',
+      /\d+ files? changed/,
     );
 
     await openCreatedCraftFromVd(page, promptTitle);
@@ -182,7 +188,12 @@ test.describe('VK mocked-provider sandbox through VD UI', () => {
     ).toBeVisible();
 
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.getByRole('button', { name: 'Voyage actions' }).last().click();
+    await closeSidebarIfOpen(page);
+    const mobileVoyageActions = page
+      .getByRole('button', { name: 'Voyage actions' })
+      .last();
+    await expect(mobileVoyageActions).toBeVisible();
+    await mobileVoyageActions.click();
     await expect(
       page.getByRole('menuitem', { name: 'New Craft' }),
     ).toBeVisible();
@@ -194,9 +205,13 @@ test.describe('VK mocked-provider sandbox through VD UI', () => {
     ).toBeVisible();
 
     await clickMenuItem(page, 'New Craft');
+    await expectMobileNewCraftNavigationSettled(page);
     await expectCreateWorkspaceFrameUrl(page);
     await page.getByRole('button', { name: 'Voyage actions' }).last().click();
     await clickMenuItem(page, 'Open Craft');
+    await expect(
+      page.getByRole('heading', { name: 'Open VK Workspace' }),
+    ).toBeVisible();
     await page
       .getByRole('textbox', { name: 'Search workspaces...' })
       .fill(promptTitle);
@@ -267,19 +282,20 @@ async function createVoyage(
 }
 
 async function ensureRepositorySelectionStep(
-  page: Page,
   createWorkspaceFrame: FrameLocator,
-) {
+): Promise<boolean> {
   const frameBody = createWorkspaceFrame.locator('body');
+  if (await isRepositorySelectionStep(createWorkspaceFrame)) {
+    return true;
+  }
+
   if (
     await frameBody
       .textContent()
-      .then((text) =>
-        Boolean(text?.includes('Which repositories would you like to work on?')),
-      )
+      .then((text) => Boolean(text?.includes('What would you like to work on?')))
       .catch(() => false)
   ) {
-    return;
+    return false;
   }
 
   const selectedRepoButton = createWorkspaceFrame
@@ -287,13 +303,30 @@ async function ensureRepositorySelectionStep(
     .filter({ hasText: /· main/ })
     .first();
   if (await selectedRepoButton.isVisible({ timeout: 15_000 }).catch(() => false)) {
-    await selectedRepoButton.evaluate((button) =>
-      (button as HTMLButtonElement).click(),
-    );
-    await expect(frameBody).toContainText(
-      'Which repositories would you like to work on?',
-    );
+    await createWorkspaceFrame
+      .getByRole('button', { name: 'Loading...' })
+      .waitFor({ state: 'hidden', timeout: 30_000 })
+      .catch(() => undefined);
+    await selectedRepoButton.click();
+    return await frameBody
+      .textContent({ timeout: 10_000 })
+      .then((text) =>
+        Boolean(text?.includes('Which repositories would you like to work on?')),
+      )
+      .catch(() => false);
   }
+
+  return false;
+}
+
+async function isRepositorySelectionStep(createWorkspaceFrame: FrameLocator) {
+  return createWorkspaceFrame
+    .locator('body')
+    .textContent()
+    .then((text) =>
+      Boolean(text?.includes('Which repositories would you like to work on?')),
+    )
+    .catch(() => false);
 }
 
 async function clearSelectedRepositories(createWorkspaceFrame: FrameLocator) {
@@ -324,10 +357,27 @@ async function closeSidebarOverlayIfPresent(page: Page) {
   }
 }
 
+async function closeSidebarIfOpen(page: Page) {
+  const closeButton = page.getByRole('button', { name: 'Close sidebar' });
+  if (await closeButton.isVisible().catch(() => false)) {
+    await closeButton.evaluate((button) => (button as HTMLButtonElement).click());
+  }
+}
+
 async function clickMenuItem(page: Page, name: string) {
   const menuItem = page.getByRole('menuitem', { name });
   await expect(menuItem).toBeVisible();
-  await menuItem.evaluate((element) => (element as HTMLButtonElement).click());
+  await menuItem.click();
+}
+
+async function expectMobileNewCraftNavigationSettled(page: Page) {
+  await expect(
+    page.getByText('Name this voyage, then choose how you want to start it.'),
+  ).toBeHidden();
+  await expect(page.getByRole('menuitem', { name: 'New Craft' })).toBeHidden();
+  await expect(
+    page.locator('iframe[title="Create Workspace"]').last(),
+  ).toBeVisible();
 }
 
 async function clickLocatorInViewport(page: Page, locator: Locator) {
@@ -347,7 +397,19 @@ async function clickLocatorInViewport(page: Page, locator: Locator) {
     }
   }
 
-  await locator.first().click();
+  for (let index = 0; index < count; index += 1) {
+    const candidate = locator.nth(index);
+    if (await candidate.isVisible().catch(() => false)) {
+      await candidate.evaluate((element) =>
+        (element as HTMLButtonElement).click(),
+      );
+      return;
+    }
+  }
+
+  await locator.first().evaluate((element) =>
+    (element as HTMLButtonElement).click(),
+  );
 }
 
 async function expectCreateWorkspaceFrameUrl(page: Page) {

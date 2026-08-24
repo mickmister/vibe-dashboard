@@ -50,7 +50,7 @@ const sandboxPlanPath = path.join(
   '.vk-mocked-sandbox/current/plan.json',
 );
 const sandboxProcessPattern =
-  'vk-mocked-sandbox|vk-backend-qa|vd-dashboard|VK_MOCKED_SANDBOX';
+  'vk-mocked-sandbox|vk-backend-qa|vk-backend-ci-release|vd-dashboard|VK_MOCKED_SANDBOX|vk-release-assets';
 
 const generatedVkDevAssetFiles = [
   'db.v2.sqlite',
@@ -129,6 +129,16 @@ async function sandboxPorts(): Promise<number[]> {
   return Object.values(plan.ports ?? {}).filter((port) => Number.isInteger(port));
 }
 
+export function isSandboxRuntimeProcessLine(line: string): boolean {
+  return Boolean(line.trim()) &&
+    !line.includes('pgrep -af') &&
+    !line.includes('e2e-vk-mocked-sandbox-fixtures.ts') &&
+    !line.includes('e2e:vk-mocked-sandbox:') &&
+    !line.includes('test:e2e:vk-mocked-sandbox') &&
+    !line.includes('playwright.vk-mocked-sandbox.config.ts') &&
+    !line.includes('ci-run-vk-mocked-sandbox-e2e.sh');
+}
+
 async function runningSandboxProcesses(): Promise<string[]> {
   try {
     const { stdout } = await execFileAsync('pgrep', [
@@ -138,11 +148,7 @@ async function runningSandboxProcesses(): Promise<string[]> {
     return stdout
       .split('\n')
       .map((line) => line.trim())
-      .filter((line) => line && !line.includes('pgrep -af'))
-      .filter((line) => !line.includes('e2e-vk-mocked-sandbox-fixtures.ts'))
-      .filter((line) => !line.includes('e2e:vk-mocked-sandbox:'))
-      .filter((line) => !line.includes('test:e2e:vk-mocked-sandbox'))
-      .filter((line) => !line.includes('playwright.vk-mocked-sandbox.config.ts'));
+      .filter(isSandboxRuntimeProcessLine);
   } catch {
     return [];
   }
@@ -431,7 +437,9 @@ async function main() {
   if (command === 'validate') await validateVariant(variant);
 }
 
-main().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.stack : String(error));
-  process.exitCode = 1;
-});
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main().catch((error: unknown) => {
+    console.error(error instanceof Error ? error.stack : String(error));
+    process.exitCode = 1;
+  });
+}

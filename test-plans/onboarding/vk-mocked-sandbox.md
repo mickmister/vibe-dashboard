@@ -14,14 +14,21 @@ and UI flow, not real model-provider behavior.
 - VD and VK iframes use the same browser origin, for example
   `http://localhost:50005`.
 - VD runs in Vite dev mode behind Caddy.
-- VK backend runs as `cargo run --features qa-mode --bin server`.
-- VK frontend is built once before services start, using Vite base
+- Default/source-mode VK backend runs as
+  `cargo run --features qa-mode --bin server`.
+- CI-release mode runs the downloaded `vibe-kanban` release binary with
+  runtime `VK_QA_MODE=1`/`QA_MODE=1`; it does not locally build VK Rust or VK
+  frontend assets.
+- Default/source-mode VK frontend is built once before services start, using Vite base
   `/vk-static/`, then served by the VK backend through Caddy.
 - VK frontend assets load from `/vk-static/assets/...`; VD assets continue to
   use VD's normal `/assets/...` routing.
 - Caddy uses the checked-in repo `Caddyfile`. The sandbox writes a prepared copy
   to `$SANDBOX_RUN_DIR/Caddyfile` after selecting ports/env, plus an empty
   `$SANDBOX_RUN_DIR/plugins.caddy` stub for plugin imports.
+- CI-release mode adds a generated Caddy route for VK release frontend assets
+  under `/assets/*` before VD/Vite's asset handler. Source mode keeps VD-first
+  `/assets` handling and serves VK source-mode assets from `/vk-static`.
 
 This setup intentionally prioritizes prod-like same-origin iframe behavior over
 VK frontend hot module replacement.
@@ -79,6 +86,28 @@ To preview the plan without starting the servers:
 npm run prepare:vk-mocked-sandbox
 ```
 
+When validating VD against a VK release artifact from CI, use the CI-release
+convenience commands instead. They require an exact VK commit SHA and a
+successful `Release Binaries` run. They fail with source-mode guidance if no
+matching release exists and never fall back to local VK builds automatically.
+
+```bash
+VK_MOCKED_RELEASE_SHA=ff79144e3842e5454ffc36b5546a1336ab4da993 \
+VK_MOCKED_RELEASE_RUN_ID=31655931916 \
+npm run prepare:vk-mocked-sandbox:ci-release
+
+VK_MOCKED_RELEASE_SHA=ff79144e3842e5454ffc36b5546a1336ab4da993 \
+VK_MOCKED_RELEASE_RUN_ID=31655931916 \
+npm run dev:vk-mocked-sandbox:ci-release
+```
+
+If `VK_MOCKED_RELEASE_RUN_ID` is omitted, the command asks GitHub for the most
+recent `Release Binaries` run matching `VK_MOCKED_RELEASE_SHA`. The downloaded
+artifact is cached under
+`$VD_CHECKOUT/.vk-mocked-sandbox/vk-release-assets/<sha>/<run-id>`, which is
+ignored by git. The release archive checksum is verified; `manifest.json` is
+also checked when the artifact includes it.
+
 Record the printed:
 
 - VD URL
@@ -88,7 +117,8 @@ Record the printed:
 ## Preconditions
 
 - `VD_CHECKOUT` is checked out at the target branch.
-- `VK_CHECKOUT` exists.
+- `VK_CHECKOUT` exists. CI-release mode still uses this checkout as VK's working
+  directory/data location, but does not build or execute VK from source.
 - Node/pnpm dependencies are installed for VD and VK.
 - VK Rust dependencies are installed.
 - Caddy is installed and available on `PATH`.
@@ -194,6 +224,12 @@ is `VK_CHECKOUT` in this sandbox.
 | `VK_MOCKED_VD_DASHBOARD_PORT` | Explicit VD Vite port. |
 | `VK_MOCKED_VD_SERVER_PORT` | Explicit VD server port. |
 | `VK_MOCKED_CADDY_PORT` | Explicit front-door Caddy port. |
+| `VK_MOCKED_VK_BACKEND` | Set to `ci-release` through `npm run *:vk-mocked-sandbox:ci-release` to run VK from a CI release artifact instead of local source. |
+| `VK_MOCKED_RELEASE_SHA` | Required for CI-release mode; full 40-character VK commit SHA. |
+| `VK_MOCKED_RELEASE_RUN_ID` | Optional CI-release mode override for the `Release Binaries` GitHub Actions run ID. Example smoke run: `31655931916` for `ff79144e3842e5454ffc36b5546a1336ab4da993`. |
+| `VK_MOCKED_GH_REPO` | CI-release mode GitHub repo; defaults to `mickmister/vibe-kanban`. |
+| `VK_MOCKED_GH_ARTIFACT_NAME` | CI-release mode artifact name; defaults to `release-assets-linux-x64`. |
+| `VK_MOCKED_GH_ARCHIVE_NAME` | CI-release mode archive name; defaults to `vibe-kanban-linux-x64.tar.gz`. |
 | `RUST_LOG` | VK backend log level; defaults to `debug` in the sandbox. |
 
 Explicit port overrides must be unique. The sandbox rejects duplicate explicit
@@ -211,9 +247,18 @@ curl -I "$VD_URL"
 # /vk-static assets.
 curl -sS "$VD_URL/workspaces" | grep /vk-static/assets
 
-# VK built JS is served by the VK backend through Caddy.
+# VK built JS is served by the VK backend through Caddy. Source mode should use
+# /vk-static. CI-release mode may serve embedded release assets through the
+# release binary's normal asset paths; generated CI-release Caddy config routes
+# matching /assets/*.js/CSS/Wasm/static assets to the VK backend before VD's
+# HTML fallback.
 ASSET_PATH="$(curl -sS "$VD_URL/workspaces" | grep -o '/vk-static/assets/[^"]*\.js' | head -1)"
-curl -I "$VD_URL$ASSET_PATH"
+if [ -n "$ASSET_PATH" ]; then
+  curl -I "$VD_URL$ASSET_PATH"
+else
+  RELEASE_ASSET_PATH="$(curl -sS "$VD_URL/workspaces" | grep -o '/assets/[^"]*\.js' | head -1)"
+  curl -I "$VD_URL$RELEASE_ASSET_PATH"
+fi
 ```
 
 Expected same-origin shape:
