@@ -32,7 +32,7 @@ describe('vibe-agent workflow CLI foundation', () => {
   it('parses repeated inputs/beads and defaults workspace from VK_WORKSPACE_ID', () => {
     process.env.VK_WORKSPACE_ID = 'workspace-env';
     const flags = parseWorkflowCliFlags(['--input', 'role=review', '--input=request=Review this', '--bead', 'bead-a', '--bead=bead-b', '--json']);
-    expect(flags).toEqual({ json: true, inputs: { role: 'review', request: 'Review this' }, beadIds: ['bead-a', 'bead-b'] });
+    expect(flags).toEqual({ json: true, inputs: { role: 'review', request: 'Review this' }, beadIds: ['bead-a', 'bead-b'], positionals: [] });
     expect(resolveWorkflowWorkspace(flags, { required: true })).toBe('workspace-env');
   });
 
@@ -66,6 +66,23 @@ describe('vibe-agent workflow CLI foundation', () => {
     expect(scrubbed).not.toContain('git status');
     expect(scrubbed).not.toContain('runReady');
     expect(scrubbed).not.toContain('WorkflowStepState');
+  });
+
+
+
+  it('supports flags before the workflow ref and validates starter inputs before materializing', async () => {
+    process.env.VK_WORKSPACE_ID = 'workspace-a';
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.endsWith('/dashboard/api/workflows/home?workspaceId=workspace-a')) return json({ home: { workspaceId: 'workspace-a', userWorkflows: [], starterTemplates: [workflow('built-in/ask-teammate', 'Ask teammate', 'template')] } });
+      throw new Error(`unexpected fetch ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const lines = captureConsole();
+    await workflowCommand(['run', '--workspace', 'workspace-a', 'ask-teammate', '--input', 'role=review', '--json']);
+    expect(process.exitCode).toBe(1);
+    expect(JSON.parse(lines.join('\n'))).toMatchObject({ ok: false, error: expect.stringContaining('request') });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain('/dashboard/api/workflows/home');
   });
 
   it('runs a starter teammate workflow through HTTP APIs and detaches with JSON output', async () => {

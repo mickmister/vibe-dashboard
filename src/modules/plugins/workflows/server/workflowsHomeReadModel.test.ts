@@ -3,6 +3,7 @@ import { initVdDb, type VdDbHandle } from '../../../../server/database';
 import { DbWorkflowOrchestrationStore } from '../../../../server/workflow-orchestration-store';
 import { DbWorkflowDesignStore } from './workflowDesignStore';
 import { buildWorkspaceWorkflowsHomeModel } from './workflowsHomeReadModel';
+import { BUILT_IN_WORKFLOW_TEMPLATES } from '../templates/builtInWorkflowTemplates';
 
 const handles: VdDbHandle[] = [];
 
@@ -47,6 +48,32 @@ describe('buildWorkspaceWorkflowsHomeModel', () => {
     ]);
     expect(globalHome.needsInput).toEqual([]);
   });
+
+
+  it('includes built-in starter template inputs and roles for CLI discovery before materialization', async () => {
+    const handle = await initVdDb({ path: ':memory:' });
+    handles.push(handle);
+    const designStore = new DbWorkflowDesignStore({ db: handle.db, templates: BUILT_IN_WORKFLOW_TEMPLATES });
+
+    const home = await buildWorkspaceWorkflowsHomeModel({ db: handle.db, designStore, workspaceId: 'workspace-a' });
+    const askTeammate = home.starterTemplates.find((workflow) => workflow.id === 'built-in/ask-teammate');
+
+    expect(askTeammate).toMatchObject({
+      title: 'Ask teammate',
+      source: 'template',
+      status: 'ready',
+      canRun: false,
+      roles: [{ id: 'teammate', label: 'Teammate' }],
+      launchSummary: { firstStateId: 'ask_teammate', firstActorRoleId: 'teammate', firstActorLabel: 'Teammate' },
+    });
+    expect(askTeammate?.inputs).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'role', required: true }),
+      expect.objectContaining({ id: 'request', required: true }),
+      expect.objectContaining({ id: 'successCriteria', required: false }),
+      expect.objectContaining({ id: 'urgency', required: false }),
+    ]));
+  });
+
 });
 
 async function seedPersistedRun(handle: VdDbHandle, designStore: DbWorkflowDesignStore, input: { runId: string; workspaceId: string; workflowName: string; updatedAt: number }) {

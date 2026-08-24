@@ -195,9 +195,18 @@ async function listStarterTemplates(
       version: null,
       unavailableReason: template.unavailableReason,
       canRun: false,
-      inputs: [],
-      roles: [],
-      launchSummary: emptyLaunchSummary(),
+      inputs:
+        template.validationStatus === "valid"
+          ? summarizeInputs(template.definition)
+          : [],
+      roles:
+        template.validationStatus === "valid"
+          ? summarizeRoles(template.definition)
+          : [],
+      launchSummary:
+        template.validationStatus === "valid"
+          ? summarizeLaunchSummary(template.definition)
+          : emptyLaunchSummary(),
     }))
     .sort((left, right) => left.title.localeCompare(right.title));
 }

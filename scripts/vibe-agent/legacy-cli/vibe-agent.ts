@@ -2585,9 +2585,9 @@ async function workflowList(args: string[]): Promise<void> {
 }
 
 async function workflowShow(args: string[], inputsOnly: boolean): Promise<void> {
-  const workflowRef = args.find((arg) => !arg.startsWith('--'));
+  const flags = parseWorkflowCliFlags(args);
+  const workflowRef = flags.positionals[0];
   if (!workflowRef) throw new Error(`Usage: vibe-agent workflow ${inputsOnly ? 'inputs' : 'show'} <workflow> [--json]`);
-  const flags = parseWorkflowCliFlags(args.filter((arg) => arg !== workflowRef));
   const workspaceId = resolveWorkflowWorkspace(flags, { required: false });
   const home = await fetchWorkflowCliHome(workspaceId);
   const resolved = resolveWorkflowReference(workflowRef, workflowCliCatalog(home));
@@ -2616,9 +2616,9 @@ async function workflowShow(args: string[], inputsOnly: boolean): Promise<void> 
 }
 
 async function workflowRun(args: string[]): Promise<void> {
-  const workflowRef = args.find((arg) => !arg.startsWith('--'));
+  const flags = parseWorkflowCliFlags(args);
+  const workflowRef = flags.positionals[0];
   if (!workflowRef) throw new Error('Usage: vibe-agent workflow run <workflow> --input key=value [--bead id] [--json]');
-  const flags = parseWorkflowCliFlags(args.filter((arg) => arg !== workflowRef));
   const workspaceId = resolveWorkflowWorkspace(flags, { required: true }) as string;
   const home = await fetchWorkflowCliHome(workspaceId);
   const resolved = resolveWorkflowReference(workflowRef, workflowCliCatalog(home));
@@ -2666,9 +2666,9 @@ async function workflowRun(args: string[]): Promise<void> {
 }
 
 async function workflowStatus(args: string[], resultOnly: boolean): Promise<void> {
-  const runId = args.find((arg) => !arg.startsWith('--'));
+  const flags = parseWorkflowCliFlags(args);
+  const runId = flags.positionals[0];
   if (!runId) throw new Error(`Usage: vibe-agent workflow ${resultOnly ? 'result' : 'status'} <run-id> [--json]`);
-  const flags = parseWorkflowCliFlags(args.filter((arg) => arg !== runId));
   const presentation = await fetchWorkflowCliPresentation(runId);
   const finalOutputs = (presentation.outputs ?? []).filter((output) => output.kind === 'summary' || output.kind === 'error' || output.kind === 'workflow_call_output' || output.kind === 'form_artifact');
   const output = {
@@ -2812,10 +2812,11 @@ interface WorkflowCliParsedFlags {
   workspaceId?: string;
   inputs: Record<string, unknown>;
   beadIds: string[];
+  positionals: string[];
 }
 
 export function parseWorkflowCliFlags(args: string[]): WorkflowCliParsedFlags {
-  const result: WorkflowCliParsedFlags = { json: false, inputs: {}, beadIds: [] };
+  const result: WorkflowCliParsedFlags = { json: false, inputs: {}, beadIds: [], positionals: [] };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i] ?? '';
     const readValue = (flag: string): string => {
@@ -2837,6 +2838,7 @@ export function parseWorkflowCliFlags(args: string[]): WorkflowCliParsedFlags {
       continue;
     }
     if (arg.startsWith('--')) throw new Error(`Unknown workflow option: ${arg}`);
+    result.positionals.push(arg);
   }
   return result;
 }
