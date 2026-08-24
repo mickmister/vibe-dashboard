@@ -14,7 +14,7 @@ Use the standard JSON/helper format from `@vibe-dashboard/beads-form`. Do not ha
 ## Agent roles
 
 - **Form-making agent:** writes or updates form definitions using the helpers below.
-- **Orchestrating agent:** gives the human a preview or bead-backed URL, reads the normalized JSON response, and follows its constraints.
+- **Orchestrating agent:** gives the human a preview or bead-backed URL, reads the copied BeadsForm XML handoff, and follows its constraints. Bead storage and internal normalization remain structured JSON.
 
 If the response includes `"allow_code_file_changes": false`, agents must keep code/file operations read-only. Discussion, analysis, planning, and non-code metadata operations can continue.
 
@@ -107,7 +107,8 @@ const metadataPatch = buildBeadsFormMetadata([form]);
 - Descriptions support safe Markdown such as `**bold**`, `*emphasis*`, `` `code` ``, and safe links. Raw HTML in descriptions is escaped.
 - Standard choice questions normalize as per-option booleans, for example
   `"preview_flow_result": { "loaded_successfully": true, "json_copy_worked": false }`.
-- Empty optional text fields, including empty `*_more_info` fields, are omitted from copied JSON.
+- Submitted success screens copy/display a BeadsForm XML handoff by default so Markdown-heavy answers remain readable in plain text. The XML is derived from normalized values: choice maps become `<choiceGroup>` / `<choice selected="true|false" />`, text and Markdown answers become `<answer type="markdown">`, per-choice/per-question notes become `<note>`, and global Additional Notes become `<additionalNotes>`. XML text is escaped, not raw HTML.
+- Empty optional text fields, including empty `*_more_info` fields, are omitted before handoff output is generated.
 
 ## Folder preview workflow
 
@@ -154,9 +155,9 @@ Use folder mode for low-friction testing before attaching forms to beads.
    The command validates the folder, starts the existing Springboard/Vite dev server, and prints the exact preview URL with the folder path encoded. It sets `BEADS_FORM_DISABLE_HMR=1` by default so Vite does not push HMR/full-reload updates into an open form; manual browser refresh still loads the latest code. Set `BEADS_FORM_DISABLE_HMR=0` only when you want normal dev-server auto-reload behavior.
    To force a port, set `BEADS_FORM_PREVIEW_PORT=<port>`.
 
-4. The preview page lists all `.json` forms in the folder. Submitting a form copies normalized JSON only to the clipboard and displays it on screen. It does not update beads.
+4. The preview page lists all `.json` forms in the folder. Submitting a form copies the BeadsForm XML handoff to the clipboard and displays it on screen. It does not update beads.
 
-5. The orchestrating agent should paste/read that JSON exactly. If `allow_code_file_changes` is `false`, keep code/file operations read-only.
+5. The orchestrating agent should paste/read that XML handoff exactly. If `allow_code_file_changes` is `false`, keep code/file operations read-only.
 
 ### Media galleries in folder preview
 

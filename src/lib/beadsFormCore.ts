@@ -8,6 +8,7 @@ import {
   type StandardBeadsForm,
   type StoredBeadsForm,
 } from '../../packages/beads-form/src/index.ts';
+import { beadsFormSubmissionXml } from './beadsFormSubmissionHandoff';
 
 export { ALLOW_CODE_FILE_CHANGES_FIELD };
 
@@ -435,8 +436,12 @@ export function buildAgentResultMessage(args: {
   return [
     `Filled out form "${args.form.title}" (${args.form.id}) for bead ${args.beadId}.`,
     '',
-    'Normalized response JSON:',
-    JSON.stringify(args.values, null, 2),
+    'BeadsForm XML handoff:',
+    beadsFormSubmissionXml({
+      beadId: args.beadId,
+      formId: args.form.id,
+      values: args.values,
+    }),
     '',
     'The bead may have a review label now. Remove that label after processing the form response.',
   ].join('\n');

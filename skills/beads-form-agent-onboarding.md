@@ -137,11 +137,11 @@ Accepted append input shapes are a direct question array, `{ "questions": [...] 
 
 Send the direct form URL and ask them to submit. After submission:
 
-- Read/process the normalized JSON answer.
+- Read/process the copied BeadsForm XML handoff. It is the default human/agent handoff format so Markdown-heavy answers stay readable; internal bead storage still preserves structured normalized JSON.
 - Remove `needs-agent-review` from the bead after processing, if present.
 - When messaging another agent about the response, include:
   - the raw DSL JSON,
-  - the raw normalized answers JSON,
+  - the raw BeadsForm XML handoff,
   - `Please use 'vibe-agent full_summary' to catch up.`
 
 If multiple agents created separate forms and the user should answer them from one page, use the aggregate route with repeated direct refs:
