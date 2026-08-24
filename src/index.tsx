@@ -35,12 +35,9 @@ import "./modules/MainUIShellModule";
 // @platform "node"
 import "./modules/ObservabilityServerModule";
 import "./modules/WorkflowServerModule";
-<<<<<<< HEAD
 import "./server/vk-proxy";
-=======
 import "./modules/plugins/kanban/jira/serverModule";
 import "./modules/plugins/kanban/linear/serverModule";
->>>>>>> 2bb8b1ac2d3718c24c2fa760347adbe94aeea19b
 // @platform end
 
 import "./modules/BeadsFormModule";

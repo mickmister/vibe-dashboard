@@ -1,13 +1,8 @@
 import { createServer } from 'node:net';
 import { access, chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-<<<<<<< HEAD
 import { isAbsolute, join, resolve } from 'node:path';
-import { spawn, type ChildProcess } from 'node:child_process';
-=======
-import { join, resolve } from 'node:path';
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
->>>>>>> 2bb8b1ac2d3718c24c2fa760347adbe94aeea19b
 import { once } from 'node:events';
 import { promisify } from 'node:util';
 
@@ -62,7 +57,6 @@ export interface PortAllocator {
 const DEFAULT_PORT_START = 50_000;
 const MAX_PORT = 65_535;
 const SANDBOX_CADDYFILE_NAME = 'Caddyfile';
-const SANDBOX_CADDYFILE_ENV = 'VK_MOCKED_CADDYFILE';
 const CHILD_SHUTDOWN_TIMEOUT_MS = 5_000;
 const CI_RELEASE_BACKEND_MODE = 'ci-release';
 const FULL_SHA_PATTERN = /^[0-9a-f]{40}$/i;
@@ -91,7 +85,7 @@ function appendNodeOption(existingOptions: string | undefined, option: string): 
   return `${trimmedOptions} ${option}`;
 }
 
-<<<<<<< HEAD
+
 function normalizeQaScriptedOutcomeFile(
   value: string | undefined,
   vdRoot: string,
@@ -99,7 +93,8 @@ function normalizeQaScriptedOutcomeFile(
   const trimmed = value?.trim();
   if (!trimmed) return undefined;
   return isAbsolute(trimmed) ? trimmed : resolve(vdRoot, trimmed);
-=======
+}
+
 function requireFullCommitSha(value: string, envName = 'VK_MOCKED_RELEASE_SHA'): string {
   const sha = value.trim();
   if (!FULL_SHA_PATTERN.test(sha)) {
@@ -465,7 +460,6 @@ async function resolveCiReleaseArtifact(
     artifactRoot,
     binaryPath: join(artifactRoot, 'extracted', 'vibe-kanban'),
   };
->>>>>>> 2bb8b1ac2d3718c24c2fa760347adbe94aeea19b
 }
 
 export async function isTcpPortAvailable(port: number): Promise<boolean> {
@@ -530,9 +524,8 @@ export async function allocatePorts(
   };
 }
 
-export async function loadSandboxCaddyfile(vdRoot: string, env: NodeJS.ProcessEnv = process.env): Promise<string> {
-  const configured = env[SANDBOX_CADDYFILE_ENV]?.trim() || SANDBOX_CADDYFILE_NAME;
-  return await readFile(join(vdRoot, configured), 'utf8');
+export async function loadSandboxCaddyfile(vdRoot: string): Promise<string> {
+  return await readFile(join(vdRoot, SANDBOX_CADDYFILE_NAME), 'utf8');
 }
 
 export function createSandboxPlan(input: {
@@ -592,6 +585,19 @@ export function createSandboxPlan(input: {
     env.VK_QA_SCRIPTED_OUTCOME_FILE,
     vdRoot,
   );
+  const qaScriptedOutcomeEnv: Record<string, string> = qaScriptedOutcomeFile
+    ? { VK_QA_SCRIPTED_OUTCOME_FILE: qaScriptedOutcomeFile }
+    : {
+        VK_QA_SCRIPTED_OUTCOME:
+          env.VK_QA_SCRIPTED_OUTCOME ??
+          JSON.stringify({
+            outcome: 'completed',
+            final_message: 'QA scripted workflow response completed successfully.',
+            session_id: 'qa-scripted-session',
+            message_id: 'qa-scripted-message',
+            delay_ms: 0,
+          }),
+      };
 
   const canUsePrebuiltLocalWeb =
     Boolean(ciReleaseArtifact) ||
@@ -672,13 +678,14 @@ export function createSandboxPlan(input: {
           XDG_CONFIG_HOME: join(runDir, 'xdg-config'),
           XDG_DATA_HOME: join(runDir, 'xdg-data'),
           RUST_LOG: process.env.RUST_LOG ?? 'debug',
+          ...qaScriptedOutcomeEnv,
         },
       }
     : {
       name: 'vk-backend-qa',
       cwd: vkRoot,
       command: 'cargo',
-      args: ['run', '--quiet', '--features', 'qa-mode', '--bin', 'server'],
+      args: ['run', '--features', 'qa-mode', '--bin', 'server'],
       env: {
         ...commonEnv,
         HOST: '127.0.0.1',
@@ -689,9 +696,7 @@ export function createSandboxPlan(input: {
         VK_ALLOWED_ORIGINS: vkAllowedOrigins,
         DISABLE_WORKTREE_CLEANUP: '1',
         RUST_LOG: process.env.RUST_LOG ?? 'debug',
-        ...(qaScriptedOutcomeFile
-          ? { VK_QA_SCRIPTED_OUTCOME_FILE: qaScriptedOutcomeFile }
-          : { VK_QA_SCRIPTED_OUTCOME: env.VK_QA_SCRIPTED_OUTCOME ?? JSON.stringify({ outcome: 'completed', final_message: 'QA scripted workflow response completed successfully.', session_id: 'qa-scripted-session', message_id: 'qa-scripted-message', delay_ms: 0 }) }),
+        ...qaScriptedOutcomeEnv,
       },
     };
 
@@ -707,10 +712,7 @@ export function createSandboxPlan(input: {
         PORT: String(input.ports.vdDashboard),
         SERVER_PORT: String(input.ports.vdServer),
         VITE_VK_BASE_ORIGIN: vkFrontendUrl,
-        VIBE_API_URL: `http://127.0.0.1:${input.ports.vkBackend}/api`,
-        VK_API_URL: `http://127.0.0.1:${input.ports.vkBackend}/api`,
         CADDY_PORT: String(input.ports.vdCaddy),
-        VD_WORKFLOW_WEBHOOK_PORT: String(input.ports.vdCaddy),
       },
     },
     {
@@ -724,7 +726,6 @@ export function createSandboxPlan(input: {
         XDG_DATA_HOME: join(runDir, 'xdg-data'),
         CADDY_ADMIN: 'off',
         CADDY_PORT: String(input.ports.vdCaddy),
-        VD_SERVER_PORT: String(input.ports.vdServer),
         DASHBOARD_PORT: String(input.ports.vdDashboard),
         BACKEND_PORT: String(input.ports.vkBackend),
         CODE_PORT: String(input.ports.vkPreviewProxy),

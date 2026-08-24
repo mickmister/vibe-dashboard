@@ -1,11 +1,6 @@
 import { describe, expect, it } from 'vitest';
-<<<<<<< HEAD
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
-=======
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
->>>>>>> 2bb8b1ac2d3718c24c2fa760347adbe94aeea19b
+import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
 
@@ -158,18 +153,6 @@ describe('VK mocked sandbox helpers', () => {
     );
   });
 
-  it('can load an explicit Caddyfile for Docker workflow E2E without custom plugins', async () => {
-    const caddyfile = await loadSandboxCaddyfile(process.cwd(), {
-      VK_MOCKED_CADDYFILE: 'Caddyfile.workflow-e2e',
-    } as NodeJS.ProcessEnv);
-
-    expect(caddyfile).toContain('handle /dashboard/api/*');
-    expect(caddyfile).toContain('reverse_proxy localhost:{$DASHBOARD_PORT:3005}');
-    expect(caddyfile).toContain('handle_path /vk-api/*');
-    expect(caddyfile).not.toContain('vk_rewrite');
-    expect(caddyfile).not.toContain('import {$CADDY_PLUGINS_CADDY');
-  });
-
   it('plans qa-mode VK, VD dev, and Caddy commands with matching env', () => {
     const plan = createSandboxPlan({
       workspaceRoot: '/tmp/worktrees/example/vibe-kanban-vscode-web',
@@ -227,12 +210,11 @@ describe('VK mocked sandbox helpers', () => {
     );
     expect(plan.commands[0]).toMatchObject({
       command: 'cargo',
-      args: ['run', '--quiet', '--features', 'qa-mode', '--bin', 'server'],
+      args: ['run', '--features', 'qa-mode', '--bin', 'server'],
       env: {
         BACKEND_PORT: '4107',
         FRONTEND_PORT: '4101',
         PREVIEW_PROXY_PORT: '4106',
-        VK_QA_SCRIPTED_OUTCOME: JSON.stringify({ outcome: 'completed', final_message: 'QA scripted workflow response completed successfully.', session_id: 'qa-scripted-session', message_id: 'qa-scripted-message', delay_ms: 0 }),
       },
     });
     const vdCommand = plan.commands.find((command) => command.name === 'vd-dashboard');
@@ -241,9 +223,6 @@ describe('VK mocked sandbox helpers', () => {
     expect(vdCommand?.env.VITE_VK_BASE_ORIGIN).toBe(
       'http://localhost:4101',
     );
-    expect(vdCommand?.env.VD_WORKFLOW_WEBHOOK_PORT).toBe('4101');
-    expect(vdCommand?.env.VIBE_API_URL).toBe('http://127.0.0.1:4107/api');
-    expect(vdCommand?.env.VK_API_URL).toBe('http://127.0.0.1:4107/api');
     expect(caddyCommand?.env.XDG_CONFIG_HOME).toBe(
       '/tmp/run/xdg-config',
     );
@@ -255,19 +234,11 @@ describe('VK mocked sandbox helpers', () => {
       BACKEND_PORT: '4107',
       CODE_PORT: '4106',
       CADDY_ACCESS_LOG: '/tmp/run/access.log',
-      VD_SERVER_PORT: '4104',
       CADDY_PLUGINS_CADDY: '/tmp/run/plugins.caddy',
     });
     expect(plan.env.CADDY_PLUGINS_CADDY).toBe('/tmp/run/plugins.caddy');
   });
 
-<<<<<<< HEAD
-  it('fixture reset honors explicit VK checkout path for Docker-copied worktrees', async () => {
-    const source = await readFile(resolve('scripts/e2e-vk-mocked-sandbox-fixtures.ts'), 'utf8');
-
-    expect(source).toContain('process.env.VK_CHECKOUT');
-    expect(source).toContain("path.resolve(process.env.VK_CHECKOUT ?? path.join(workspaceRoot, 'Vktest'))");
-=======
   it('uses a configured public origin for browser-facing same-origin URLs', () => {
     const plan = createSandboxPlan({
       workspaceRoot: '/tmp/worktrees/example/vibe-kanban-vscode-web',
@@ -299,6 +270,32 @@ describe('VK mocked sandbox helpers', () => {
     expect(vkCommand?.env.VK_ALLOWED_ORIGINS).toBe(
       'http://localhost:4101,https://port-4101.jamtools.dev,http://localhost:4105',
     );
+  });
+
+
+  it('normalizes relative VK scripted outcome fixture paths into the VK backend env', () => {
+    const plan = createSandboxPlan({
+      workspaceRoot: '/tmp/worktrees/example/vibe-kanban-vscode-web',
+      env: {
+        VK_QA_SCRIPTED_OUTCOME_FILE: 'tests/e2e/fixtures/qa-scripted.json',
+      } as NodeJS.ProcessEnv,
+      ports: {
+        vkBackend: 4107,
+        vkFrontend: 4100,
+        vkPreviewProxy: 4106,
+        vdDashboard: 4105,
+        vdServer: 4104,
+        vdCaddy: 4101,
+      },
+      runDir: '/tmp/run',
+      caddyfile: 'mocked sandbox caddyfile',
+    });
+
+    const vkCommand = plan.commands.find((command) => command.name === 'vk-backend-qa');
+    expect(vkCommand?.env.VK_QA_SCRIPTED_OUTCOME_FILE).toBe(
+      resolve('/tmp/worktrees/example/vibe-kanban-vscode-web', 'tests/e2e/fixtures/qa-scripted.json'),
+    );
+    expect(vkCommand?.env.VK_QA_SCRIPTED_OUTCOME).toBeUndefined();
   });
 
   it('can plan CI backend prebuild separately from Playwright readiness waiting', () => {
@@ -549,7 +546,6 @@ describe('VK mocked sandbox helpers', () => {
       process.env.PATH = originalPath;
       await rm(root, { recursive: true, force: true });
     }
->>>>>>> 2bb8b1ac2d3718c24c2fa760347adbe94aeea19b
   });
 
   it('uses an explicit VK checkout path when provided', () => {
@@ -573,55 +569,6 @@ describe('VK mocked sandbox helpers', () => {
     expect(plan.paths.vkRoot).toBe('/tmp/custom-vk-checkout');
     expect(plan.setupCommands[0]?.cwd).toBe('/tmp/custom-vk-checkout');
     expect(plan.commands[0]?.cwd).toBe('/tmp/custom-vk-checkout');
-  });
-
-  it('passes qa-mode scripted outcome files without overriding them with the default inline script', () => {
-    const plan = createSandboxPlan({
-      workspaceRoot: '/tmp/worktrees/example/vibe-kanban-vscode-web',
-      env: {
-        VK_QA_SCRIPTED_OUTCOME_FILE: '/tmp/qa-scripted-drt.json',
-      } as NodeJS.ProcessEnv,
-      ports: {
-        vkBackend: 4107,
-        vkFrontend: 4100,
-        vkPreviewProxy: 4106,
-        vdDashboard: 4105,
-        vdServer: 4104,
-        vdCaddy: 4101,
-      },
-      runDir: '/tmp/run',
-      caddyfile: 'mocked sandbox caddyfile',
-    });
-
-    expect(plan.commands[0]?.env).toMatchObject({
-      VK_QA_SCRIPTED_OUTCOME_FILE: '/tmp/qa-scripted-drt.json',
-    });
-    expect(plan.commands[0]?.env.VK_QA_SCRIPTED_OUTCOME).toBeUndefined();
-  });
-
-  it('resolves relative qa-mode scripted outcome files from the VD checkout root', () => {
-    const plan = createSandboxPlan({
-      workspaceRoot: '/tmp/worktrees/example/vibe-kanban-vscode-web',
-      env: {
-        VK_QA_SCRIPTED_OUTCOME_FILE: 'tests/e2e/fixtures/qa-scripted-lv2k-workflows.json',
-      } as NodeJS.ProcessEnv,
-      ports: {
-        vkBackend: 4107,
-        vkFrontend: 4100,
-        vkPreviewProxy: 4106,
-        vdDashboard: 4105,
-        vdServer: 4104,
-        vdCaddy: 4101,
-      },
-      runDir: '/tmp/run',
-      caddyfile: 'mocked sandbox caddyfile',
-    });
-
-    expect(plan.commands[0]?.env).toMatchObject({
-      VK_QA_SCRIPTED_OUTCOME_FILE:
-        '/tmp/worktrees/example/vibe-kanban-vscode-web/tests/e2e/fixtures/qa-scripted-lv2k-workflows.json',
-    });
-    expect(plan.commands[0]?.env.VK_QA_SCRIPTED_OUTCOME).toBeUndefined();
   });
 
   it('falls back to the sibling VK checkout when VK_CHECKOUT is blank', () => {

@@ -1,27 +1,3 @@
-<<<<<<< HEAD
-import React, {
-  useRef,
-  useEffect,
-  useState,
-  useCallback,
-  useLayoutEffect,
-} from "react";
-import { Group, Panel, Separator } from "react-resizable-panels";
-import type { TabGroup, Tab } from "../types";
-import type { WorkspaceState, SavedWorkspaceSession } from "../types";
-import { AppLoadingScreen } from "./AppLoadingScreen";
-import { SpacesOverview } from "./SpacesOverview";
-import { hasSameBaseOrigin } from "../lib/originTrust";
-import {
-  getPluginIframePolicy,
-  getPluginIframePostMessageTargetOrigin,
-  parsePluginInternalUrl,
-} from "../modules/plugins/vibe-dashboard/runtime";
-import {
-  getRegisteredPluginIframePolicy,
-  resolvePluginInternalRouteIframeSrc,
-} from "../modules/plugins/vibe-dashboard/registry";
-=======
 import React, { useRef, useEffect, useState, useCallback, useLayoutEffect } from 'react';
 import { Group, Panel, Separator } from 'react-resizable-panels';
 import type { TabGroup, Tab } from '../types';
@@ -31,22 +7,17 @@ import { SpacesOverview } from './SpacesOverview';
 import { hasSameBaseOrigin } from '../lib/originTrust';
 import { getPluginIframePolicy, getPluginIframePostMessageTargetOrigin, parsePluginInternalUrl } from '../modules/plugins/vibe-dashboard/runtime';
 import { getRegisteredPluginIframePolicy, resolvePluginInternalRouteIframeSrc } from '../modules/plugins/vibe-dashboard/registry';
->>>>>>> 2bb8b1ac2d3718c24c2fa760347adbe94aeea19b
 import {
   getReactCraftSurfaceTarget,
   ReactCraftSurfaceHost,
   type ReactCraftSurfaceTarget,
-<<<<<<< HEAD
-} from "../modules/plugins/vibe-dashboard/react-craft-surfaces";
-=======
 } from '../modules/plugins/vibe-dashboard/react-craft-surfaces';
->>>>>>> 2bb8b1ac2d3718c24c2fa760347adbe94aeea19b
 
-const INTERNAL_URL_PREFIX = "internal://";
-const CADDY_PORT = process.env.CADDY_PORT || "";
+const INTERNAL_URL_PREFIX = 'internal://';
+const CADDY_PORT = process.env.CADDY_PORT || '';
 
 const MOBILE_VIEWPORT_INSET_STYLE = {
-  bottom: "var(--mobile-footer-offset)",
+  bottom: 'var(--mobile-footer-offset)',
 };
 
 export type IframeRenderMode = 'real' | 'placeholder' | 'disabled';
@@ -65,20 +36,9 @@ interface IframePanelProps {
   onRenameSession?: (sessionId: string, name: string) => void;
   onDeleteSession?: (sessionId: string) => void;
   onStartNewSession?: () => void;
-  onNavigateToTabGroup?: (
-    spaceId: string,
-    tabGroupId: string,
-  ) => void | Promise<void>;
-  onOpenVKWorkspace?: (
-    taskAttemptId: string,
-    name: string,
-    containerRef: string,
-    spaceId: string,
-  ) => void | Promise<void>;
-  onBeadReferenceClick?: (
-    agentTabId: string,
-    beadId: string,
-  ) => void | Promise<void>;
+  onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void | Promise<void>;
+  onOpenVKWorkspace?: (taskAttemptId: string, name: string, containerRef: string, spaceId: string) => void | Promise<void>;
+  onBeadReferenceClick?: (agentTabId: string, beadId: string) => void | Promise<void>;
   onBeadFormSubmitted?: (formsTabId: string) => void | Promise<void>;
 }
 
@@ -101,17 +61,10 @@ type IframeEntry = {
 };
 
 type TabRenderTarget =
-<<<<<<< HEAD
-  | { kind: "internal"; internalPath: string }
-  | { kind: "blocked-self-app" }
-  | { kind: "react-surface"; target: ReactCraftSurfaceTarget }
-  | { kind: "iframe"; iframeSrc: string };
-=======
   | { kind: 'internal'; internalPath: string }
   | { kind: 'blocked-self-app' }
   | { kind: 'react-surface'; target: ReactCraftSurfaceTarget }
   | { kind: 'iframe'; iframeSrc: string };
->>>>>>> 2bb8b1ac2d3718c24c2fa760347adbe94aeea19b
 
 type RetainedIframeTab = {
   tab: Tab;
@@ -173,15 +126,14 @@ function applyIframePolicy(iframe: HTMLIFrameElement, iframeSrc: string) {
   });
 
   if (pluginPolicy.isPluginFrontendAsset) {
-    iframe.setAttribute("sandbox", pluginPolicy.sandbox);
-    iframe.setAttribute("allow", pluginPolicy.allow);
+    iframe.setAttribute('sandbox', pluginPolicy.sandbox);
+    iframe.setAttribute('allow', pluginPolicy.allow);
     iframe.dataset.pluginEventOrigin = pluginPolicy.targetOrigin;
-    iframe.dataset.pluginPostMessageTargetOrigin =
-      getPluginIframePostMessageTargetOrigin(pluginPolicy);
+    iframe.dataset.pluginPostMessageTargetOrigin = getPluginIframePostMessageTargetOrigin(pluginPolicy);
     if (pluginPolicy.requiresSeparateOriginForSameOriginStorage) {
-      iframe.dataset.pluginSameOriginStorageBlocked = "true";
+      iframe.dataset.pluginSameOriginStorageBlocked = 'true';
       console.warn(
-        "Plugin iframe requested allow-same-origin on the host origin; keeping the iframe opaque until a separate plugin origin is configured.",
+        'Plugin iframe requested allow-same-origin on the host origin; keeping the iframe opaque until a separate plugin origin is configured.',
         { iframeSrc },
       );
     } else {
@@ -199,14 +151,14 @@ function applyIframePolicy(iframe: HTMLIFrameElement, iframeSrc: string) {
   })();
 
   iframe.setAttribute(
-    "sandbox",
+    'sandbox',
     trusted
-      ? "allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
-      : "allow-scripts allow-forms allow-popups allow-modals",
+      ? 'allow-scripts allow-same-origin allow-forms allow-popups allow-modals'
+      : 'allow-scripts allow-forms allow-popups allow-modals',
   );
   iframe.setAttribute(
-    "allow",
-    trusted ? "clipboard-read; clipboard-write; fullscreen" : "fullscreen",
+    'allow',
+    trusted ? 'clipboard-read; clipboard-write; fullscreen' : 'fullscreen',
   );
 }
 
@@ -229,12 +181,8 @@ function resetIframeLoadReadiness(entry: IframeEntry) {
   entry.loadToken += 1;
 }
 
-export function getIframeRevealDelayMs(
-  host = typeof window === "undefined" ? "" : window.location.host,
-): number {
-  return /^port-\d+\./.test(host)
-    ? IFRAME_PORT_PREFIX_REVEAL_DELAY_MS
-    : IFRAME_REVEAL_DELAY_MS;
+export function getIframeRevealDelayMs(host = typeof window === 'undefined' ? '' : window.location.host): number {
+  return /^port-\d+\./.test(host) ? IFRAME_PORT_PREFIX_REVEAL_DELAY_MS : IFRAME_REVEAL_DELAY_MS;
 }
 
 function markIframeReadyToShow(
@@ -242,11 +190,7 @@ function markIframeReadyToShow(
   expectedLoadToken: number,
   delayMs = getIframeRevealDelayMs(),
 ) {
-  if (
-    entry.loadToken !== expectedLoadToken ||
-    entry.readyToShow ||
-    entry.revealDelayTimeoutId != null
-  ) {
+  if (entry.loadToken !== expectedLoadToken || entry.readyToShow || entry.revealDelayTimeoutId != null) {
     return;
   }
 
@@ -261,34 +205,27 @@ function markIframeReadyToShow(
   }, delayMs);
 }
 
-export function getIframeRevealStyle(
-  readyToShow: boolean,
-): React.CSSProperties {
+export function getIframeRevealStyle(readyToShow: boolean): React.CSSProperties {
   return {
     opacity: readyToShow ? 1 : 0,
-    pointerEvents: readyToShow ? "auto" : "none",
-    transition: readyToShow ? "opacity 120ms ease-out" : "none",
+    pointerEvents: readyToShow ? 'auto' : 'none',
+    transition: readyToShow ? 'opacity 120ms ease-out' : 'none',
   };
 }
 
-export function shouldShowIframeLoadingOverlay(
-  isLoaded: boolean,
-  activationShielded: boolean,
-): boolean {
+export function shouldShowIframeLoadingOverlay(isLoaded: boolean, activationShielded: boolean): boolean {
   return !isLoaded || activationShielded;
 }
 
 function hasNonBlankElementBackground(element: Element, view: Window): boolean {
-  return !isBlankIframeBackgroundColor(
-    view.getComputedStyle(element).backgroundColor,
-  );
+  return !isBlankIframeBackgroundColor(view.getComputedStyle(element).backgroundColor);
 }
 
 function isVisiblySizedElement(element: Element, view: Window): boolean {
   const style = view.getComputedStyle(element);
   if (
-    style.display === "none" ||
-    style.visibility === "hidden" ||
+    style.display === 'none' ||
+    style.visibility === 'hidden' ||
     Number(style.opacity) <= 0
   ) {
     return false;
@@ -298,10 +235,7 @@ function isVisiblySizedElement(element: Element, view: Window): boolean {
   return rect.width > 0 && rect.height > 0;
 }
 
-function addElementAndAncestors(
-  candidates: Set<Element>,
-  element: Element | null,
-) {
+function addElementAndAncestors(candidates: Set<Element>, element: Element | null) {
   let current = element;
   while (current) {
     candidates.add(current);
@@ -314,10 +248,7 @@ function getViewportSampleElements(doc: Document): Element[] {
   if (!view) return [];
 
   const width = Math.max(doc.documentElement.clientWidth, view.innerWidth || 0);
-  const height = Math.max(
-    doc.documentElement.clientHeight,
-    view.innerHeight || 0,
-  );
+  const height = Math.max(doc.documentElement.clientHeight, view.innerHeight || 0);
   if (width <= 0 || height <= 0) return [];
 
   const points = [
@@ -329,14 +260,8 @@ function getViewportSampleElements(doc: Document): Element[] {
   ];
 
   return points.flatMap((point) => {
-    const x = Math.min(
-      Math.max(Math.round(width * point.x), 0),
-      Math.max(width - 1, 0),
-    );
-    const y = Math.min(
-      Math.max(Math.round(height * point.y), 0),
-      Math.max(height - 1, 0),
-    );
+    const x = Math.min(Math.max(Math.round(width * point.x), 0), Math.max(width - 1, 0));
+    const y = Math.min(Math.max(Math.round(height * point.y), 0), Math.max(height - 1, 0));
     const element = doc.elementFromPoint(x, y);
     return element ? [element] : [];
   });
@@ -351,13 +276,7 @@ function hasVisibleNonBlankBackground(doc: Document, view: Window): boolean {
     addElementAndAncestors(candidates, element);
   }
 
-  for (const selector of [
-    "#root",
-    '[role="application"]',
-    "main",
-    ".monaco-workbench",
-    ".editor-container",
-  ]) {
+  for (const selector of ['#root', '[role="application"]', 'main', '.monaco-workbench', '.editor-container']) {
     const element = doc.querySelector(selector);
     if (element) {
       addElementAndAncestors(candidates, element);
@@ -365,38 +284,37 @@ function hasVisibleNonBlankBackground(doc: Document, view: Window): boolean {
   }
 
   return Array.from(candidates).some(
-    (element) =>
-      isVisiblySizedElement(element, view) &&
-      hasNonBlankElementBackground(element, view),
+    (element) => isVisiblySizedElement(element, view) && hasNonBlankElementBackground(element, view),
   );
 }
 
 function hasVisibleTextContent(doc: Document, view: Window): boolean {
   if (!(doc.body && isVisiblySizedElement(doc.body, view))) return false;
-  const text = doc.body?.innerText || doc.body?.textContent || "";
+  const text = doc.body?.innerText || doc.body?.textContent || '';
   return text.trim().length > 0;
 }
 
 export function hasVisualReadyBackground(doc: Document): boolean {
   const view = doc.defaultView;
-  if (!(view && doc.readyState === "complete")) return false;
+  if (!(view && doc.readyState === 'complete')) return false;
 
   return Boolean(
-    hasVisibleNonBlankBackground(doc, view) || hasVisibleTextContent(doc, view),
+    hasVisibleNonBlankBackground(doc, view) ||
+    hasVisibleTextContent(doc, view)
   );
 }
 
 export function isBlankIframeBackgroundColor(backgroundColor: string): boolean {
   const normalized = backgroundColor.trim().toLowerCase();
   return (
-    normalized === "" ||
-    normalized === "transparent" ||
-    normalized === "white" ||
-    normalized === "#fff" ||
-    normalized === "#ffffff" ||
-    normalized === "rgb(255, 255, 255)" ||
-    normalized === "rgba(255, 255, 255, 1)" ||
-    normalized === "rgba(0, 0, 0, 0)"
+    normalized === '' ||
+    normalized === 'transparent' ||
+    normalized === 'white' ||
+    normalized === '#fff' ||
+    normalized === '#ffffff' ||
+    normalized === 'rgb(255, 255, 255)' ||
+    normalized === 'rgba(255, 255, 255, 1)' ||
+    normalized === 'rgba(0, 0, 0, 0)'
   );
 }
 
@@ -477,7 +395,7 @@ function getIframeResolutionOrigin(url: string): string {
     return `${protocol}//${formatHostnameForOrigin(hostname)}:${CADDY_PORT}`;
   }
 
-  if (!url.startsWith("/")) {
+  if (!url.startsWith('/')) {
     return window.location.origin;
   }
 
@@ -491,7 +409,7 @@ function getIframeResolutionOrigin(url: string): string {
 }
 
 function hasExplicitOrigin(url: string): boolean {
-  if (url.startsWith("//")) {
+  if (url.startsWith('//')) {
     return true;
   }
 
@@ -504,50 +422,44 @@ function hasExplicitOrigin(url: string): boolean {
 }
 
 function isIpAddress(hostname: string): boolean {
-  const normalizedHostname = hostname.replace(/^\[(.*)]$/, "$1");
+  const normalizedHostname = hostname.replace(/^\[(.*)]$/, '$1');
 
-  if (normalizedHostname === "localhost") {
+  if (normalizedHostname === 'localhost') {
     return false;
   }
 
   if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(normalizedHostname)) {
-    return normalizedHostname.split(".").every((segment) => {
+    return normalizedHostname.split('.').every((segment) => {
       const value = Number(segment);
       return Number.isInteger(value) && value >= 0 && value <= 255;
     });
   }
 
-  return normalizedHostname.includes(":");
+  return normalizedHostname.includes(':');
 }
 
 function formatHostnameForOrigin(hostname: string): string {
-  if (hostname.includes(":") && !hostname.startsWith("[")) {
+  if (hostname.includes(':') && !hostname.startsWith('[')) {
     return `[${hostname}]`;
   }
 
   return hostname;
 }
 
-function isSelfAppPath(
-  pathname: string,
-  searchParams: URLSearchParams,
-): boolean {
-  if (
-    pathname === "/dashboard/forms" ||
-    pathname.startsWith("/dashboard/workflows")
-  ) {
+function isSelfAppPath(pathname: string, searchParams: URLSearchParams): boolean {
+  if (pathname === '/dashboard/forms') {
     return false;
   }
 
-  if (pathname === "/dashboard" || pathname.startsWith("/dashboard/")) {
+  if (pathname === '/dashboard' || pathname.startsWith('/dashboard/')) {
     return true;
   }
 
-  if (pathname !== "/") {
+  if (pathname !== '/') {
     return false;
   }
 
-  return !searchParams.has("folder");
+  return !searchParams.has('folder');
 }
 
 function isSelfAppOrigin(origin: string): boolean {
@@ -556,7 +468,7 @@ function isSelfAppOrigin(origin: string): boolean {
   }
 
   try {
-    return origin === new URL(getIframeResolutionOrigin("/")).origin;
+    return origin === new URL(getIframeResolutionOrigin('/')).origin;
   } catch {
     return false;
   }
@@ -564,21 +476,13 @@ function isSelfAppOrigin(origin: string): boolean {
 
 function getTabRenderTargetForTab(
   tab: Tab,
-<<<<<<< HEAD
-  tabGroup?: Pick<TabGroup, "tabs" | "workspace">,
-=======
   tabGroup?: Pick<TabGroup, 'tabs' | 'workspace'>,
->>>>>>> 2bb8b1ac2d3718c24c2fa760347adbe94aeea19b
 ): TabRenderTarget {
   const reactSurface = tabGroup
     ? getReactCraftSurfaceTarget(tab, tabGroup)
     : null;
   if (reactSurface) {
-<<<<<<< HEAD
-    return { kind: "react-surface", target: reactSurface };
-=======
     return { kind: 'react-surface', target: reactSurface };
->>>>>>> 2bb8b1ac2d3718c24c2fa760347adbe94aeea19b
   }
 
   return getTabRenderTarget(tab.url);
@@ -591,11 +495,11 @@ function getTabRenderTarget(url: string): TabRenderTarget {
       origin: window.location.origin,
     });
     if (pluginIframeSrc) {
-      return { kind: "iframe", iframeSrc: pluginIframeSrc };
+      return { kind: 'iframe', iframeSrc: pluginIframeSrc };
     }
 
     return {
-      kind: "internal",
+      kind: 'internal',
       internalPath: url.slice(INTERNAL_URL_PREFIX.length),
     };
   }
@@ -606,12 +510,12 @@ function getTabRenderTarget(url: string): TabRenderTarget {
       isSelfAppOrigin(resolvedUrl.origin) &&
       isSelfAppPath(resolvedUrl.pathname, resolvedUrl.searchParams)
     ) {
-      return { kind: "blocked-self-app" };
+      return { kind: 'blocked-self-app' };
     }
 
-    return { kind: "iframe", iframeSrc: resolvedUrl.href };
+    return { kind: 'iframe', iframeSrc: resolvedUrl.href };
   } catch {
-    return { kind: "iframe", iframeSrc: url };
+    return { kind: 'iframe', iframeSrc: url };
   }
 }
 
@@ -624,23 +528,23 @@ function getOrCreateIframe(retainedTab: RetainedIframeTab): IframeEntry {
   }
   const target = getTabRenderTargetForTab(tab, retainedTab.tabGroup);
 
-  const container = document.createElement("div");
-  container.style.width = "100%";
-  container.style.height = "100%";
-  container.style.position = "absolute";
-  container.style.inset = "0";
+  const container = document.createElement('div');
+  container.style.width = '100%';
+  container.style.height = '100%';
+  container.style.position = 'absolute';
+  container.style.inset = '0';
 
-  const iframe = document.createElement("iframe");
+  const iframe = document.createElement('iframe');
   iframe.title = tab.title;
-  iframe.className = "w-full h-full border-0";
-  iframe.setAttribute("role", "region");
+  iframe.className = 'w-full h-full border-0';
+  iframe.setAttribute('role', 'region');
 
   const entry: IframeEntry = {
     iframe,
     container,
-    loaded: target.kind !== "iframe",
-    contentReady: target.kind !== "iframe",
-    readyToShow: target.kind !== "iframe",
+    loaded: target.kind !== 'iframe',
+    contentReady: target.kind !== 'iframe',
+    readyToShow: target.kind !== 'iframe',
     loadError: false,
     lastAccessedAt: Date.now(),
     listeners: new Set(),
@@ -648,14 +552,14 @@ function getOrCreateIframe(retainedTab: RetainedIframeTab): IframeEntry {
     loadToken: 0,
   };
 
-  iframe.addEventListener("load", () => {
+  iframe.addEventListener('load', () => {
     const currentLoadToken = entry.loadToken;
     entry.loaded = true;
 
     waitForIframeVisualReadiness(iframe, entry, currentLoadToken);
   });
 
-  iframe.addEventListener("error", () => {
+  iframe.addEventListener('error', () => {
     clearIframeRevealDelay(entry);
     entry.loadError = true;
     entry.loaded = true;
@@ -663,7 +567,7 @@ function getOrCreateIframe(retainedTab: RetainedIframeTab): IframeEntry {
     markIframeReadyToShowImmediately(entry);
   });
 
-  if (target.kind === "iframe") {
+  if (target.kind === 'iframe') {
     applyIframePolicy(iframe, target.iframeSrc);
     iframe.src = target.iframeSrc;
   }
@@ -708,24 +612,18 @@ export const __iframePanelTestUtils = {
   },
   getTabRenderTargetForTest(
     tab: Tab,
-<<<<<<< HEAD
-    tabGroup?: Pick<TabGroup, "tabs" | "workspace">,
-=======
     tabGroup?: Pick<TabGroup, 'tabs' | 'workspace'>,
->>>>>>> 2bb8b1ac2d3718c24c2fa760347adbe94aeea19b
   ) {
     return getTabRenderTargetForTab(tab, tabGroup);
   },
   addRetainedIframeForTest(iframeKey: string) {
-    const container =
-      typeof document === "undefined"
-        ? ({ remove() {} } as HTMLDivElement)
-        : document.createElement("div");
-    const iframe =
-      typeof document === "undefined"
-        ? ({} as HTMLIFrameElement)
-        : document.createElement("iframe");
-    if (typeof document !== "undefined") {
+    const container = typeof document === 'undefined'
+      ? ({ remove() {} } as HTMLDivElement)
+      : document.createElement('div');
+    const iframe = typeof document === 'undefined'
+      ? ({} as HTMLIFrameElement)
+      : document.createElement('iframe');
+    if (typeof document !== 'undefined') {
       container.appendChild(iframe);
     }
     iframeStore.set(iframeKey, {
@@ -750,75 +648,64 @@ export const __iframePanelTestUtils = {
   },
 };
 
-export function hasKnownIframeMessageSource(
-  source: MessageEventSource | null,
-): boolean {
+export function hasKnownIframeMessageSource(source: MessageEventSource | null): boolean {
   if (!source) return false;
   return Array.from(iframeStore.values()).some(
     (entry) => entry.iframe.contentWindow === source,
   );
 }
 
-function findTabIdForMessageSource(
-  source: MessageEventSource | null,
-): string | null {
+function findTabIdForMessageSource(source: MessageEventSource | null): string | null {
   if (!source) return null;
   for (const [iframeKey, entry] of iframeStore.entries()) {
     if (entry.iframe.contentWindow === source) {
-      return iframeKey.split(":").at(-1) ?? null;
+      return iframeKey.split(':').at(-1) ?? null;
     }
   }
   return null;
 }
 
 function isBeadReferenceClickMessage(data: unknown): data is {
-  type: "vk:bead-reference-clicked";
+  type: 'vk:bead-reference-clicked';
   beadId: string;
 } {
-  if (!data || typeof data !== "object") return false;
+  if (!data || typeof data !== 'object') return false;
   const message = data as { type?: unknown; beadId?: unknown };
   return (
-    message.type === "vk:bead-reference-clicked" &&
-    typeof message.beadId === "string" &&
+    message.type === 'vk:bead-reference-clicked' &&
+    typeof message.beadId === 'string' &&
     /^[A-Za-z][A-Za-z0-9_]*-[A-Za-z0-9][A-Za-z0-9._-]*$/.test(message.beadId)
   );
 }
 
 function isBeadFormSubmittedMessage(data: unknown): data is {
-  type: "vk:bead-form-submitted";
+  type: 'vk:bead-form-submitted';
 } {
-  if (!data || typeof data !== "object") return false;
+  if (!data || typeof data !== 'object') return false;
   const message = data as { type?: unknown };
-  return message.type === "vk:bead-form-submitted";
+  return message.type === 'vk:bead-form-submitted';
 }
 
 function getIframeRetentionKey(tabGroupId: string, tabId: string): string {
   return `${tabGroupId}:${tabId}`;
 }
 
-const useIsomorphicLayoutEffect =
-  typeof window === "undefined" ? useEffect : useLayoutEffect;
+const useIsomorphicLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect;
 
 function useIframeActivationShield(
   tabs: RetainedIframeTab[],
   visibleIframeKeys: Set<string>,
 ) {
-  const [activationShieldState, setActivationShieldState] = useState<
-    Map<string, boolean>
-  >(new Map());
-  const activationTimeoutIdsRef = useRef<
-    Map<string, ReturnType<typeof setTimeout>>
-  >(new Map());
+  const [activationShieldState, setActivationShieldState] = useState<Map<string, boolean>>(new Map());
+  const activationTimeoutIdsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const visibleActivationSignature = tabs
     .filter((retainedTab) => visibleIframeKeys.has(retainedTab.iframeKey))
     .map((retainedTab) => `${retainedTab.iframeKey}:${retainedTab.tab.id}`)
-    .join("|");
+    .join('|');
 
   useEffect(() => {
     return () => {
-      activationTimeoutIdsRef.current.forEach((timeoutId) =>
-        clearTimeout(timeoutId),
-      );
+      activationTimeoutIdsRef.current.forEach((timeoutId) => clearTimeout(timeoutId));
       activationTimeoutIdsRef.current.clear();
     };
   }, []);
@@ -869,10 +756,7 @@ function useImperativeIframes(
     for (const retainedTab of tabs) {
       const entry = iframeStore.get(retainedTab.iframeKey);
       // Already-mounted iframes that have completed their reveal delay should show immediately.
-      initial.set(
-        retainedTab.iframeKey,
-        entry ? isIframeReadyToShow(entry) : false,
-      );
+      initial.set(retainedTab.iframeKey, entry ? isIframeReadyToShow(entry) : false);
     }
     return initial;
   });
@@ -920,9 +804,9 @@ function useImperativeIframes(
       if (!entry) continue;
       const target = getTabRenderTargetForTab(tab, retainedTab.tabGroup);
 
-      if (target.kind !== "iframe") {
-        if (entry.iframe.src !== "about:blank") {
-          entry.iframe.src = "about:blank";
+      if (target.kind !== 'iframe') {
+        if (entry.iframe.src !== 'about:blank') {
+          entry.iframe.src = 'about:blank';
         }
         clearIframeRevealDelay(entry);
         entry.loaded = true;
@@ -998,10 +882,7 @@ function useImperativeIframes(
         );
       });
 
-    while (
-      retainedTabIds.size > MAX_RETAINED_IFRAMES &&
-      evictableIds.length > 0
-    ) {
+    while (retainedTabIds.size > MAX_RETAINED_IFRAMES && evictableIds.length > 0) {
       const tabId = evictableIds.shift();
       if (!tabId) break;
       removeIframe(tabId);
@@ -1064,33 +945,26 @@ function useImperativeIframes(
     return () => unsubs.forEach((fn) => fn());
   }, [tabs]);
 
-  const retryTab = useCallback(
-    (tabId: string) => {
-      const iframeKey =
-        tabs.find(
-          (item) =>
-            visibleIframeKeys.has(item.iframeKey) && item.tab.id === tabId,
-        )?.iframeKey ??
-        tabs.find((item) => item.tab.id === tabId)?.iframeKey ??
-        tabId;
-      const entry = iframeStore.get(iframeKey);
-      if (!entry) return;
-      resetIframeLoadReadiness(entry);
-      entry.lastAccessedAt = Date.now();
-      entry.iframe.src = entry.iframe.src; // reload
-      setLoadingState((prev) => {
-        const next = new Map(prev);
-        next.set(iframeKey, false);
-        return next;
-      });
-      setErrorState((prev) => {
-        const next = new Map(prev);
-        next.set(iframeKey, false);
-        return next;
-      });
-    },
-    [tabs, visibleIframeKeys],
-  );
+  const retryTab = useCallback((tabId: string) => {
+    const iframeKey = tabs.find((item) => visibleIframeKeys.has(item.iframeKey) && item.tab.id === tabId)?.iframeKey
+      ?? tabs.find((item) => item.tab.id === tabId)?.iframeKey
+      ?? tabId;
+    const entry = iframeStore.get(iframeKey);
+    if (!entry) return;
+    resetIframeLoadReadiness(entry);
+    entry.lastAccessedAt = Date.now();
+    entry.iframe.src = entry.iframe.src; // reload
+    setLoadingState((prev) => {
+      const next = new Map(prev);
+      next.set(iframeKey, false);
+      return next;
+    });
+    setErrorState((prev) => {
+      const next = new Map(prev);
+      next.set(iframeKey, false);
+      return next;
+    });
+  }, [tabs, visibleIframeKeys]);
 
   return { loadingState, errorState, retryTab, storeVersion };
 }
@@ -1100,13 +974,7 @@ function useImperativeIframes(
  * The iframe is appended via useEffect, not rendered by React,
  * so it survives HMR and re-renders.
  */
-function IframeHost({
-  iframeKey,
-  storeVersion,
-}: {
-  iframeKey: string;
-  storeVersion: number;
-}) {
+function IframeHost({ iframeKey, storeVersion }: { iframeKey: string; storeVersion: number }) {
   const hostRef = useRef<HTMLDivElement>(null);
 
   useIsomorphicLayoutEffect(() => {
@@ -1130,7 +998,9 @@ function IframeHost({
     };
   }, [iframeKey]);
 
-  return <div ref={hostRef} className="w-full h-full relative" />;
+  return (
+    <div ref={hostRef} className="w-full h-full relative" />
+  );
 }
 
 export function IframePanel({
@@ -1151,8 +1021,12 @@ export function IframePanel({
   onBeadReferenceClick,
   onBeadFormSubmitted,
 }: IframePanelProps) {
-  const activeTab = tabGroup.tabs.find((t) => t.id === activeItemId);
-  const activePair = tabGroup.pairs.find((p) => p.id === activeItemId);
+  const activeTab = tabGroup.tabs.find(
+    (t) => t.id === activeItemId
+  );
+  const activePair = tabGroup.pairs.find(
+    (p) => p.id === activeItemId
+  );
 
   const visibleTabIds = new Set<string>();
   if (activePair) {
@@ -1185,21 +1059,6 @@ export function IframePanel({
 
   const visibleIframeTabs = tabGroup.tabs.filter((tab) => {
     if (!visibleTabIds.has(tab.id)) return false;
-<<<<<<< HEAD
-    return getTabRenderTargetForTab(tab, tabGroup).kind === "iframe";
-  });
-
-  const visibleRetainedIframeTabs = visibleIframeTabs.map(
-    (tab): RetainedIframeTab => ({
-      tab,
-      tabGroup,
-      iframeKey: getIframeRetentionKey(tabGroup.id, tab.id),
-    }),
-  );
-  const allKnownIframeTabs = workspace?.tabGroups.flatMap((group) =>
-    group.tabs
-      .filter((tab) => getTabRenderTargetForTab(tab, group).kind === "iframe")
-=======
     return getTabRenderTargetForTab(tab, tabGroup).kind === 'iframe';
   });
 
@@ -1211,50 +1070,35 @@ export function IframePanel({
   const allKnownIframeTabs = workspace?.tabGroups.flatMap((group) =>
     group.tabs
       .filter((tab) => getTabRenderTargetForTab(tab, group).kind === 'iframe')
->>>>>>> 2bb8b1ac2d3718c24c2fa760347adbe94aeea19b
       .map((tab): RetainedIframeTab => ({
         tab,
         tabGroup: group,
         iframeKey: getIframeRetentionKey(group.id, tab.id),
       })),
   );
-  const visibleIframeKeys = new Set(
-    visibleRetainedIframeTabs.map((item) => item.iframeKey),
-  );
-  const activeIframeKey = activeTab
-    ? getIframeRetentionKey(tabGroup.id, activeTab.id)
-    : null;
+  const visibleIframeKeys = new Set(visibleRetainedIframeTabs.map((item) => item.iframeKey));
+  const activeIframeKey = activeTab ? getIframeRetentionKey(tabGroup.id, activeTab.id) : null;
   const retainedTabs =
     allKnownIframeTabs?.filter(
-      (item) =>
-        retainedTabIds.has(item.iframeKey) ||
-        visibleIframeKeys.has(item.iframeKey),
+      (item) => retainedTabIds.has(item.iframeKey) || visibleIframeKeys.has(item.iframeKey),
     ) ?? visibleRetainedIframeTabs;
   const allKnownIframeKeys = allKnownIframeTabs
     ? new Set(allKnownIframeTabs.map((item) => item.iframeKey))
     : undefined;
 
-  const activationShieldState = useIframeActivationShield(
+  const activationShieldState = useIframeActivationShield(retainedTabs, visibleIframeKeys);
+  const { loadingState, errorState, retryTab, storeVersion } = useImperativeIframes(
+    currentSessionId,
     retainedTabs,
     visibleIframeKeys,
+    allKnownIframeKeys,
   );
-  const { loadingState, errorState, retryTab, storeVersion } =
-    useImperativeIframes(
-      currentSessionId,
-      retainedTabs,
-      visibleIframeKeys,
-      allKnownIframeKeys,
-    );
 
   useEffect(() => {
     if (!onBeadReferenceClick && !onBeadFormSubmitted) return;
 
     const handleMessage = (event: MessageEvent) => {
-      if (
-        !isBeadReferenceClickMessage(event.data) &&
-        !isBeadFormSubmittedMessage(event.data)
-      )
-        return;
+      if (!isBeadReferenceClickMessage(event.data) && !isBeadFormSubmittedMessage(event.data)) return;
 
       const sourceTabId = findTabIdForMessageSource(event.source);
       if (!sourceTabId) return;
@@ -1268,8 +1112,8 @@ export function IframePanel({
       void onBeadFormSubmitted?.(sourceTabId);
     };
 
-    window.addEventListener("message", handleMessage);
-    return () => window.removeEventListener("message", handleMessage);
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
   }, [onBeadFormSubmitted, onBeadReferenceClick, tabGroup.tabs]);
 
   return (
@@ -1294,26 +1138,6 @@ export function IframePanel({
           onUpdatePairRatios={onUpdatePairRatios}
         />
       ) : activeTab ? (
-<<<<<<< HEAD
-        <SingleTabView
-          activeTab={activeTab}
-          tabGroup={tabGroup}
-          activeIframeKey={activeIframeKey ?? activeTab.id}
-          loadingState={loadingState}
-          errorState={errorState}
-          activationShieldState={activationShieldState}
-          retryTab={retryTab}
-          {...(workspace ? { workspace } : {})}
-          {...(savedSessions ? { savedSessions } : {})}
-          {...(currentSessionId ? { currentSessionId } : {})}
-          {...(onResumeSession ? { onResumeSession } : {})}
-          {...(onRenameSession ? { onRenameSession } : {})}
-          {...(onDeleteSession ? { onDeleteSession } : {})}
-          {...(onStartNewSession ? { onStartNewSession } : {})}
-          {...(onNavigateToTabGroup ? { onNavigateToTabGroup } : {})}
-          {...(onOpenVKWorkspace ? { onOpenVKWorkspace } : {})}
-        />
-=======
           <SingleTabView
             activeTab={activeTab}
             tabGroup={tabGroup}
@@ -1332,7 +1156,6 @@ export function IframePanel({
             {...(onNavigateToTabGroup ? { onNavigateToTabGroup } : {})}
             {...(onOpenVKWorkspace ? { onOpenVKWorkspace } : {})}
           />
->>>>>>> 2bb8b1ac2d3718c24c2fa760347adbe94aeea19b
       ) : (
         <EmptyView />
       )}
@@ -1597,20 +1420,11 @@ function PersistentIframeLayer({
   if (activePair) {
     const pairTabs = activePair.tabIds
       .map((id) => tabGroup.tabs.find((tab) => tab.id === id))
-<<<<<<< HEAD
-      .filter((tab): tab is Tab => tab != null)
-      .filter(
-        (tab) => getTabRenderTargetForTab(tab, tabGroup).kind === "iframe",
-      );
-=======
       .filter((tab): tab is Tab => tab != null);
->>>>>>> 2bb8b1ac2d3718c24c2fa760347adbe94aeea19b
 
     const separatorWidth = 4;
-    const totalSeparatorWidth =
-      Math.max(pairTabs.length - 1, 0) * separatorWidth;
-    const totalRatio =
-      activePair.ratios.reduce((sum, ratio) => sum + ratio, 0) || 1;
+    const totalSeparatorWidth = Math.max(pairTabs.length - 1, 0) * separatorWidth;
+    const totalRatio = activePair.ratios.reduce((sum, ratio) => sum + ratio, 0) || 1;
     let cumulativeRatio = 0;
 
     pairTabs.forEach((tab, index) => {
@@ -1618,24 +1432,6 @@ function PersistentIframeLayer({
       const ratioFraction = ratio / totalRatio;
       const cumulativeFraction = cumulativeRatio / totalRatio;
 
-<<<<<<< HEAD
-      layoutStyles.set(getIframeRetentionKey(tabGroup.id, tab.id), {
-        position: "absolute",
-        top: 0,
-        bottom: 0,
-        left: `calc(${(cumulativeFraction * 100).toFixed(6)}% + ${(index * separatorWidth - cumulativeFraction * totalSeparatorWidth).toFixed(3)}px)`,
-        width: `calc(${(ratioFraction * 100).toFixed(6)}% - ${(ratioFraction * totalSeparatorWidth).toFixed(3)}px)`,
-        visibility: "visible",
-        pointerEvents: "auto",
-      });
-
-      cumulativeRatio += ratio;
-    });
-  } else if (
-    activeTab &&
-    getTabRenderTargetForTab(activeTab, tabGroup).kind === "iframe"
-  ) {
-=======
       if (getTabRenderTargetForTab(tab, tabGroup).kind === 'iframe') {
         layoutStyles.set(getIframeRetentionKey(tabGroup.id, tab.id), {
           position: 'absolute',
@@ -1651,12 +1447,11 @@ function PersistentIframeLayer({
       cumulativeRatio += ratio;
     });
   } else if (activeTab && getTabRenderTargetForTab(activeTab, tabGroup).kind === 'iframe') {
->>>>>>> 2bb8b1ac2d3718c24c2fa760347adbe94aeea19b
     layoutStyles.set(getIframeRetentionKey(tabGroup.id, activeTab.id), {
-      position: "absolute",
+      position: 'absolute',
       inset: 0,
-      visibility: "visible",
-      pointerEvents: "auto",
+      visibility: 'visible',
+      pointerEvents: 'auto',
     });
   }
 
@@ -1667,9 +1462,7 @@ function PersistentIframeLayer({
     >
       {retainedTabs.map(({ tab, iframeKey }) => {
         const activeStyle = layoutStyles.get(iframeKey);
-        const readyToShow =
-          (loadingState.get(iframeKey) ?? false) &&
-          !(activationShieldState.get(iframeKey) ?? false);
+        const readyToShow = (loadingState.get(iframeKey) ?? false) && !(activationShieldState.get(iframeKey) ?? false);
         return (
           <div
             key={iframeKey}
@@ -1678,10 +1471,10 @@ function PersistentIframeLayer({
               activeStyle
                 ? { ...activeStyle, ...getIframeRevealStyle(readyToShow) }
                 : {
-                    position: "absolute",
+                    position: 'absolute',
                     inset: 0,
-                    visibility: "hidden",
-                    pointerEvents: "none",
+                    visibility: 'hidden',
+                    pointerEvents: 'none',
                   }
             }
           >
@@ -1725,39 +1518,21 @@ function SingleTabView({
   onRenameSession?: (sessionId: string, name: string) => void;
   onDeleteSession?: (sessionId: string) => void;
   onStartNewSession?: () => void;
-  onNavigateToTabGroup?: (
-    spaceId: string,
-    tabGroupId: string,
-  ) => void | Promise<void>;
-  onOpenVKWorkspace?: (
-    taskAttemptId: string,
-    name: string,
-    containerRef: string,
-    spaceId: string,
-  ) => void | Promise<void>;
+  onNavigateToTabGroup?: (spaceId: string, tabGroupId: string) => void | Promise<void>;
+  onOpenVKWorkspace?: (taskAttemptId: string, name: string, containerRef: string, spaceId: string) => void | Promise<void>;
 }) {
   const isLoaded = loadingState.get(activeIframeKey) ?? false;
   const hasError = errorState.get(activeIframeKey) ?? false;
-<<<<<<< HEAD
-  const isActivationShielded =
-    activationShieldState.get(activeIframeKey) ?? false;
-  const target = getTabRenderTargetForTab(activeTab, tabGroup);
-  const shouldShowLoadingOverlay = shouldShowIframeLoadingOverlay(
-    isLoaded,
-    isActivationShielded,
-  );
-=======
   const isActivationShielded = activationShieldState.get(activeIframeKey) ?? false;
   const target = getTabRenderTargetForTab(activeTab, tabGroup);
   const shouldShowLoadingOverlay = shouldShowIframeLoadingOverlay(isLoaded, isActivationShielded);
->>>>>>> 2bb8b1ac2d3718c24c2fa760347adbe94aeea19b
 
   // Check if this is an internal URL that should render a special component
-  if (target.kind === "internal") {
+  if (target.kind === 'internal') {
     const { internalPath } = target;
 
     if (
-      internalPath === "spaces-overview" &&
+      internalPath === 'spaces-overview' &&
       workspace &&
       onNavigateToTabGroup &&
       onResumeSession &&
@@ -1784,29 +1559,13 @@ function SingleTabView({
 
     const pluginRoute = parsePluginInternalUrl(activeTab.url);
     if (pluginRoute) {
-      return (
-        <PluginInternalRoutePlaceholder
-          pluginId={pluginRoute.pluginId}
-          routePath={pluginRoute.routePath}
-        />
-      );
+      return <PluginInternalRoutePlaceholder pluginId={pluginRoute.pluginId} routePath={pluginRoute.routePath} />;
     }
 
     return <UnknownInternalRoutePlaceholder url={activeTab.url} />;
   }
 
-  if (target.kind === "react-surface") {
-    return (
-      <div
-        className="absolute inset-x-0 top-0 md:bottom-0 z-10 pointer-events-auto"
-        style={MOBILE_VIEWPORT_INSET_STYLE}
-      >
-        <ReactCraftSurfaceHost target={target.target} />
-      </div>
-    );
-  }
-
-  if (target.kind === "blocked-self-app") {
+  if (target.kind === 'blocked-self-app') {
     return <BlockedSelfAppPlaceholder url={activeTab.url} />;
   }
 
@@ -1822,15 +1581,9 @@ function SingleTabView({
   }
 
   return (
-    <div
-      className="absolute inset-x-0 top-0 md:bottom-0 pointer-events-none"
-      style={MOBILE_VIEWPORT_INSET_STYLE}
-    >
+    <div className="absolute inset-x-0 top-0 md:bottom-0 pointer-events-none" style={MOBILE_VIEWPORT_INSET_STYLE}>
       {hasError ? (
-        <ErrorOverlay
-          url={activeTab.url}
-          onRetry={() => retryTab(activeTab.id)}
-        />
+        <ErrorOverlay url={activeTab.url} onRetry={() => retryTab(activeTab.id)} />
       ) : shouldShowLoadingOverlay ? (
         <AppLoadingScreen className="absolute inset-0 z-30" />
       ) : null}
@@ -1877,17 +1630,11 @@ function PairView({
         const iframeKey = getIframeRetentionKey(tabGroup.id, tab.id);
         const isLoaded = loadingState.get(iframeKey) ?? false;
         const hasError = errorState.get(iframeKey) ?? false;
-        const isActivationShielded =
-          activationShieldState.get(iframeKey) ?? false;
+        const isActivationShielded = activationShieldState.get(iframeKey) ?? false;
 
         return (
           <React.Fragment key={tab.id}>
-            <Panel
-              id={tab.id}
-              defaultSize={percentages[i]}
-              minSize={10}
-              className="pointer-events-none"
-            >
+            <Panel id={tab.id} defaultSize={percentages[i]} minSize={10} className="pointer-events-none">
               <PairTabView
                 tab={tab}
                 tabGroup={tabGroup}
@@ -1926,24 +1673,9 @@ function PairTabView({
   retryTab: (tabId: string) => void;
 }) {
   const target = getTabRenderTargetForTab(tab, tabGroup);
-<<<<<<< HEAD
-  const shouldShowLoadingOverlay = shouldShowIframeLoadingOverlay(
-    isLoaded,
-    isActivationShielded,
-  );
-=======
   const shouldShowLoadingOverlay = shouldShowIframeLoadingOverlay(isLoaded, isActivationShielded);
->>>>>>> 2bb8b1ac2d3718c24c2fa760347adbe94aeea19b
 
-  if (target.kind === "react-surface") {
-    return (
-      <div className="relative h-full w-full pointer-events-auto">
-        <ReactCraftSurfaceHost target={target.target} />
-      </div>
-    );
-  }
-
-  if (target.kind === "blocked-self-app") {
+  if (target.kind === 'blocked-self-app') {
     return <BlockedSelfAppPlaceholder url={tab.url} />;
   }
 
@@ -1968,35 +1700,19 @@ function PairTabView({
 
 function EmptyView() {
   return (
-    <div
-      className="absolute inset-x-0 top-0 md:bottom-0 flex items-center justify-center text-neutral-500"
-      style={MOBILE_VIEWPORT_INSET_STYLE}
-    >
+    <div className="absolute inset-x-0 top-0 md:bottom-0 flex items-center justify-center text-neutral-500" style={MOBILE_VIEWPORT_INSET_STYLE}>
       <p>No tab selected. Click + to add a tab.</p>
     </div>
   );
 }
 
-function PluginInternalRoutePlaceholder({
-  pluginId,
-  routePath,
-}: {
-  pluginId: string;
-  routePath: string;
-}) {
+function PluginInternalRoutePlaceholder({ pluginId, routePath }: { pluginId: string; routePath: string }) {
   return (
     <div className="flex-1 h-full bg-neutral-950 text-neutral-400 flex items-center justify-center">
       <div className="max-w-md px-6 text-center">
-        <p className="text-sm font-medium text-neutral-200">
-          Plugin route unavailable
-        </p>
-        <p className="mt-2 text-xs">
-          This plugin-owned route is not active in the host registry yet.
-        </p>
-        <p className="mt-2 text-xs break-all">
-          {pluginId}
-          {routePath}
-        </p>
+        <p className="text-sm font-medium text-neutral-200">Plugin route unavailable</p>
+        <p className="mt-2 text-xs">This plugin-owned route is not active in the host registry yet.</p>
+        <p className="mt-2 text-xs break-all">{pluginId}{routePath}</p>
       </div>
     </div>
   );
@@ -2006,9 +1722,7 @@ function UnknownInternalRoutePlaceholder({ url }: { url: string }) {
   return (
     <div className="flex-1 h-full bg-neutral-950 text-neutral-400 flex items-center justify-center">
       <div className="max-w-md px-6 text-center">
-        <p className="text-sm font-medium text-neutral-200">
-          Unknown internal route
-        </p>
+        <p className="text-sm font-medium text-neutral-200">Unknown internal route</p>
         <p className="mt-2 text-xs break-all">{url}</p>
       </div>
     </div>
@@ -2033,24 +1747,12 @@ function ErrorOverlay({ url, onRetry }: { url: string; onRetry: () => void }) {
     <div className="absolute inset-0 bg-neutral-950 flex items-center justify-center z-10 pointer-events-auto">
       <div className="flex flex-col items-center gap-4 max-w-md px-6 text-center">
         <div className="w-10 h-10 rounded-full bg-red-500/15 flex items-center justify-center">
-          <svg
-            className="w-5 h-5 text-red-400"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"
-            />
+          <svg className="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
           </svg>
         </div>
         <div>
-          <p className="text-neutral-300 text-sm font-medium mb-1">
-            Failed to load
-          </p>
+          <p className="text-neutral-300 text-sm font-medium mb-1">Failed to load</p>
           <p className="text-neutral-500 text-xs break-all">{url}</p>
         </div>
         <button

@@ -66,13 +66,10 @@
     "vk:batch-hotswap-gh": "bash scripts/vk-batch-stage-gh-artifact.sh",
     "vk:batch-rollback": "bash scripts/vk-batch-stage-rollback.sh",
     "build:beads-form": "pnpm --filter @vibe-dashboard/beads-form build",
-<<<<<<< HEAD
+    "coolify:qa": "node scripts/coolify-qa.mjs",
     "test:e2e:vk-workflows-docker": "bash scripts/workflow-e2e-docker-playwright.sh",
     "test:e2e:vk-workflows": "playwright test --config playwright.vk-workflows-docker.config.ts",
     "storybook:workflow-walkthrough": "node scripts/workflow-storybook-walkthrough.cjs"
-=======
-    "coolify:qa": "node scripts/coolify-qa.mjs"
->>>>>>> 2bb8b1ac2d3718c24c2fa760347adbe94aeea19b
   },
   "dependencies": {
     "@heroui/react": "^2.8.9",
@@ -84,16 +81,9 @@
     "@tabler/icons-react": "^3.44.0",
     "@tailwindcss/vite": "^4.1.18",
     "@tanstack/react-query": "^5.101.0",
-<<<<<<< HEAD
-    "@vibe-dashboard/beads-form": "workspace:*",
-    "@vibe-dashboard/workflow-core": "workspace:*",
-    "@vitejs/plugin-react": "^5.1.4",
-    "@xyflow/react": "^12.11.2",
-=======
     "@vibe-dashboard/workflow-core": "workspace:*",
     "@vitejs/plugin-react": "^5.1.4",
     "better-auth": "^1.6.23",
->>>>>>> 2bb8b1ac2d3718c24c2fa760347adbe94aeea19b
     "better-sqlite3": "^12.6.2",
     "crossws": "^0.4.4",
     "dompurify": "^3.4.11",
@@ -108,12 +98,9 @@
     "react-router": "^7.13.0",
     "rxjs": "^7.8.2",
     "springboard": "0.0.1-dev-jamapp-16",
-<<<<<<< HEAD
-    "tailwindcss": "^4.1.18"
-=======
     "tailwindcss": "^4.1.18",
-    "@vibe-dashboard/beads-form": "workspace:*"
->>>>>>> 2bb8b1ac2d3718c24c2fa760347adbe94aeea19b
+    "@vibe-dashboard/beads-form": "workspace:*",
+    "@xyflow/react": "^12.11.2"
   },
   "devDependencies": {
     "@better-auth/cli": "^1.4.21",
@@ -147,7 +134,9 @@
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.65.0",
     "vite": "^7.3.1",
-    "vitest": "^4.0.18"
+    "vitest": "^4.0.18",
+    "@storybook/blocks": "^8.6.14",
+    "@storybook/test": "^8.6.15"
   },
   "bin": {
     "vibe-agent": "./bin/vibe-agent",

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
+import { useMutation } from "@tanstack/react-query";
 import type {
   WorkspaceState,
   TabGroup,
@@ -1233,7 +1234,6 @@ export function SpacesOverview({
   onOpenVKWorkspace,
 }: SpacesOverviewProps) {
   const { workspaces, repos, loading, error, refetch } = useVKDashboardData();
-<<<<<<< HEAD
   const { snapshot: activitySnapshot, error: activityError } = useVKActivityData();
   const [selectedRepoId, setSelectedRepoId] = useState<string | null>(null);
   const [page, setPage] = useState(0);
@@ -1281,11 +1281,6 @@ export function SpacesOverview({
     return map;
   }, [workspace.tabGroups, workspaceNameById]);
   const activityByWorkspaceId = useMemo(() => buildWorkspaceActivityMap(activitySnapshot), [activitySnapshot]);
-=======
-  const [stoppingDevServerIds, setStoppingDevServerIds] = useState<Set<string>>(
-    new Set(),
-  );
->>>>>>> 2bb8b1ac2d3718c24c2fa760347adbe94aeea19b
 
   const handleStopDevServer = useCallback(
     async (workspaceId: string) => {
@@ -1453,6 +1448,11 @@ export function SpacesOverviewView({
     }
     return map;
   }, [workspace.tabGroups, workspaceNameById]);
+  const { snapshot: activitySnapshot, error: activityError } = useVKActivityData();
+  const activityByWorkspaceId = useMemo(
+    () => buildWorkspaceActivityMap(activitySnapshot),
+    [activitySnapshot],
+  );
 
   const openSpacePickerForWorkspace = (targetWorkspace: DashboardWorkspace) => {
     setOpenCraftActionError(null);

@@ -121,7 +121,6 @@ export interface ExecutionProcess {
   executor_action?: unknown;
 }
 
-<<<<<<< HEAD
 export interface AgentResponse {
   execution_process_id: string;
   session_id: string;
@@ -148,7 +147,10 @@ export interface ExecutionProcessRepoState {
   before_head_commit: string | null;
   after_head_commit: string | null;
   merge_commit: string | null;
-=======
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface PreviewResolveRequest {
   host: string;
   workspaceToken: string;
@@ -178,12 +180,10 @@ export interface RunConfig {
   working_dir?: string | null;
   kind: RunConfigKind;
   enabled: boolean;
->>>>>>> 2bb8b1ac2d3718c24c2fa760347adbe94aeea19b
   created_at: string;
   updated_at: string;
 }
 
-<<<<<<< HEAD
 export type ActivitySessionStatus =
   "idle" | "queued" | "running" | "callback_waiting";
 
@@ -282,8 +282,9 @@ export interface QueuedMessage {
     | "cancelled";
   source: "from_user" | "workflow" | "agent" | "system";
   priority: number | bigint;
-  data: { message: string; session_command?: unknown | null };
-=======
+  data: { message: string; session_command?: unknown | null; provenance?: QueueFollowUpProvenance | null };
+}
+
 export interface UpsertRunConfig {
   id?: string | null;
   repo_id: string;
@@ -352,7 +353,6 @@ export interface PreviewSlotUrlResponse extends PreviewSlotUrlParts {
   customerSlug: string;
   host: string;
   url: string;
->>>>>>> 2bb8b1ac2d3718c24c2fa760347adbe94aeea19b
 }
 
 export interface CreateSessionBody {
@@ -549,16 +549,12 @@ export class VibeKanbanServerClient {
     await this.get("/health");
   }
 
-<<<<<<< HEAD
-  async getInfo(): Promise<unknown> {
-    return this.get("/info");
-  }
-
   createOrUpsertWebhookSubscription(
     body: CreateWebhookSubscriptionBody,
   ): Promise<UpsertWebhookSubscriptionResponse> {
     return this.post("/webhook-subscriptions", body);
-=======
+  }
+
   resolvePreview(request: PreviewResolveRequest): Promise<PreviewResolveResponse> {
     return this.post('/preview/resolve', request);
   }
@@ -599,7 +595,6 @@ export class VibeKanbanServerClient {
     return this.get(
       `/workspaces/${encodeURIComponent(workspaceId)}/execution/preview-slots/${encodeURIComponent(previewSlotId)}/url?${params}`,
     );
->>>>>>> 2bb8b1ac2d3718c24c2fa760347adbe94aeea19b
   }
 
   async sendFollowUp(

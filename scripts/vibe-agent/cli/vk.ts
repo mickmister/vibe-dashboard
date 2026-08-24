@@ -3,10 +3,7 @@
 // Manages workspaces, sessions, and read-only inspection commands
 
 import { fileURLToPath } from 'url';
-<<<<<<< HEAD
 import { readFileSync } from 'node:fs';
-import { VKService, type PullRequestDetail, type WorkspaceRepoInput } from './vk-service.js';
-=======
 import {
   VKService,
   type PreviewSlot,
@@ -16,7 +13,6 @@ import {
   type RunConfigStartResponse,
   type WorkspaceRepoInput,
 } from './vk-service.js';
->>>>>>> 2bb8b1ac2d3718c24c2fa760347adbe94aeea19b
 import { config, type Executor } from './vk-config.js';
 
 const service = new VKService();

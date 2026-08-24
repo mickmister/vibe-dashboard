@@ -1,51 +1,5 @@
 import type { ColumnType, Generated } from 'kysely';
 
-<<<<<<< HEAD
-export type NullableNumber = ColumnType<number | null, number | null | undefined, number | null | undefined>;
-export type NullableString = ColumnType<string | null, string | null | undefined, string | null | undefined>;
-
-export type WorkflowWebhookProvisioningStatus = 'pending' | 'provisioned' | 'retrying' | 'failed';
-
-export interface WorkflowWebhookProvisioningState {
-  stateKey: string;
-  secret: string;
-  vkSubscriptionId: NullableString;
-  upsertKey: string;
-  targetUrl: string;
-  status: WorkflowWebhookProvisioningStatus;
-  attemptCount: number;
-  lastAttemptAt: NullableNumber;
-  lastSuccessAt: NullableNumber;
-  lastErrorJson: NullableString;
-  createdAt: number;
-  updatedAt: number;
-}
-
-export type WorkflowWebhookInboxStatus = 'received' | 'processed' | 'failed';
-
-export interface WorkflowWebhookInbox {
-  inboxId: string;
-  source: string;
-  deliveryId: NullableString;
-  dedupeKey: string;
-  eventType: string;
-  eventStatus: NullableString;
-  workspaceId: NullableString;
-  sessionId: NullableString;
-  executionProcessId: NullableString;
-  queueItemId: NullableString;
-  payloadJson: string;
-  payloadHash: string;
-  signatureHeader: NullableString;
-  timestampHeader: NullableString;
-  receivedAt: number;
-  duplicateOfInboxId: NullableString;
-  processedAt: NullableNumber;
-  status: WorkflowWebhookInboxStatus;
-  errorJson: NullableString;
-  createdAt: number;
-  updatedAt: number;
-=======
 export type Timestamp = ColumnType<Date, Date | string, Date | string>;
 export type NullableTimestamp = ColumnType<Date | null, Date | string | null | undefined, Date | string | null | undefined>;
 export type SqliteBoolean = ColumnType<boolean, boolean | number, boolean | number>;
@@ -154,7 +108,54 @@ export interface ExternalIssueWorkspaceLink {
   metadataJson: string | null;
   createdAt: Generated<Timestamp>;
   updatedAt: Generated<Timestamp>;
->>>>>>> 2bb8b1ac2d3718c24c2fa760347adbe94aeea19b
+}
+
+
+
+export type NullableNumber = ColumnType<number | null, number | null | undefined, number | null | undefined>;
+export type NullableString = ColumnType<string | null, string | null | undefined, string | null | undefined>;
+
+export type WorkflowWebhookProvisioningStatus = 'pending' | 'provisioned' | 'retrying' | 'failed';
+
+export interface WorkflowWebhookProvisioningState {
+  stateKey: string;
+  secret: string;
+  vkSubscriptionId: NullableString;
+  upsertKey: string;
+  targetUrl: string;
+  status: WorkflowWebhookProvisioningStatus;
+  attemptCount: number;
+  lastAttemptAt: NullableNumber;
+  lastSuccessAt: NullableNumber;
+  lastErrorJson: NullableString;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export type WorkflowWebhookInboxStatus = 'received' | 'processed' | 'failed';
+
+export interface WorkflowWebhookInbox {
+  inboxId: string;
+  source: string;
+  deliveryId: NullableString;
+  dedupeKey: string;
+  eventType: string;
+  eventStatus: NullableString;
+  workspaceId: NullableString;
+  sessionId: NullableString;
+  executionProcessId: NullableString;
+  queueItemId: NullableString;
+  payloadJson: string;
+  payloadHash: string;
+  signatureHeader: NullableString;
+  timestampHeader: NullableString;
+  receivedAt: number;
+  duplicateOfInboxId: NullableString;
+  processedAt: NullableNumber;
+  status: WorkflowWebhookInboxStatus;
+  errorJson: NullableString;
+  createdAt: number;
+  updatedAt: number;
 }
 
 export interface Migration {
@@ -163,7 +164,6 @@ export interface Migration {
   createdAt: Generated<string>;
 }
 
-<<<<<<< HEAD
 export type DeclarativeWorkflowDefinitionStatus = 'active' | 'disabled';
 
 export interface DeclarativeWorkflowDefinitionRow {
@@ -709,6 +709,16 @@ export interface WorkspaceLaneAuditEvent {
 }
 
 export interface DB {
+  BetterAuthUser: BetterAuthUser;
+  BetterAuthSession: BetterAuthSession;
+  BetterAuthAccount: BetterAuthAccount;
+  BetterAuthVerification: BetterAuthVerification;
+  ExternalProviderConnection: ExternalProviderConnection;
+  ExternalIssue: ExternalIssue;
+  ExternalRepoProjectMapping: ExternalRepoProjectMapping;
+  VKWorkspace: VKWorkspace;
+  ExternalIssueWorkspaceLink: ExternalIssueWorkspaceLink;
+  Migration: Migration;
   WorkspaceLane: WorkspaceLane;
   WorkspaceLaneBinding: WorkspaceLaneBinding;
   WorkspaceLaneCapacityLease: WorkspaceLaneCapacityLease;
@@ -727,7 +737,6 @@ export interface DB {
   WorkflowBatch: WorkflowBatch;
   WorkflowBatchItem: WorkflowBatchItem;
   DeclarativeWorkflowDefinition: DeclarativeWorkflowDefinitionRow;
-  Migration: Migration;
   ResponseCollection: ResponseCollection;
   ResponsePipeDelivery: ResponsePipeDelivery;
   WorkflowFactoryWorkItem: WorkflowFactoryWorkItem;
@@ -741,17 +750,4 @@ export interface DB {
   WorkflowExternalWait: WorkflowExternalWait;
   WorkflowWebhookInbox: WorkflowWebhookInbox;
   WorkflowWebhookProvisioningState: WorkflowWebhookProvisioningState;
-=======
-export interface DB {
-  BetterAuthUser: BetterAuthUser;
-  BetterAuthSession: BetterAuthSession;
-  BetterAuthAccount: BetterAuthAccount;
-  BetterAuthVerification: BetterAuthVerification;
-  ExternalProviderConnection: ExternalProviderConnection;
-  ExternalIssue: ExternalIssue;
-  ExternalRepoProjectMapping: ExternalRepoProjectMapping;
-  VKWorkspace: VKWorkspace;
-  ExternalIssueWorkspaceLink: ExternalIssueWorkspaceLink;
-  Migration: Migration;
->>>>>>> 2bb8b1ac2d3718c24c2fa760347adbe94aeea19b
 }
