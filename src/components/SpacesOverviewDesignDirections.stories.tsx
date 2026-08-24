@@ -361,6 +361,15 @@ export const MobileModernDarkPurpleCards: Story = {
   ),
 };
 
+export const WorkdayRadar: Story = {
+  parameters: {
+    controls: {
+      disable: true,
+    },
+  },
+  render: () => <WorkdayRadarConcept />,
+};
+
 export const MobileEnterpriseLightOps: Story = {
   parameters: {
     controls: {
@@ -1869,6 +1878,152 @@ function MobileModernDarkPurpleCardsConcept({
         <button className="mt-5 min-h-12 w-full rounded-lg bg-[#6F58A8] text-sm font-semibold text-white shadow-[0_10px_26px_rgba(0,0,0,0.28)]">
           New Voyage
         </button>
+      </section>
+    </main>
+  );
+}
+
+function WorkdayRadarConcept() {
+  const radarItems = [
+    ['Approval', '12m', 'top-[18%] left-[55%]'],
+    ['CI', '24m', 'top-[50%] left-[18%]'],
+    ['Review', '1h', 'top-[67%] left-[68%]'],
+  ];
+
+  return (
+    <main className="h-[100dvh] overflow-y-auto overflow-x-clip bg-[#F3EEE2] text-[#17140F] [font-family:'IBM_Plex_Sans','Noto_Emoji',sans-serif]">
+      <style>{`
+        @keyframes workday-radar-rise {
+          from { opacity: 0; transform: translateY(18px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes workday-radar-sweep {
+          to { transform: rotate(360deg); }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .workday-radar-enter,
+          .workday-radar-sweep {
+            animation: none !important;
+          }
+        }
+      `}</style>
+
+      <section className="mx-auto grid min-h-[100dvh] w-full max-w-[1440px] grid-cols-1 content-between gap-8 bg-[#F3EEE2] px-4 py-4 sm:px-8 md:px-10 lg:grid-cols-[minmax(0,0.9fr)_minmax(420px,1.1fr)] lg:px-12 lg:py-10">
+        <header className="workday-radar-enter flex min-h-12 items-center justify-between gap-3 border-b border-[#17140F] pb-3 [animation:workday-radar-rise_520ms_cubic-bezier(0.16,1,0.3,1)_both] lg:col-span-2">
+          <p className="font-mono text-xs font-semibold uppercase tracking-[0.22em]">
+            VD Redesign 2
+          </p>
+          <div className="flex items-center gap-2">
+            <button className="min-h-11 rounded-none border border-[#17140F] bg-transparent px-4 text-sm font-semibold">
+              Go Home
+            </button>
+            <button className="min-h-11 rounded-none bg-[#17140F] px-4 text-sm font-semibold text-[#F3EEE2]">
+              New Voyage
+            </button>
+          </div>
+        </header>
+
+        <section className="workday-radar-enter flex flex-col justify-between gap-8 [animation:workday-radar-rise_620ms_cubic-bezier(0.16,1,0.3,1)_90ms_both]">
+          <div>
+            <p className="max-w-[34ch] text-base leading-7 text-[#6B604F]">
+              Start narrow. Resume the active voyage, then clear the closest
+              blockers without reopening yesterday.
+            </p>
+            <h1 className="mt-6 max-w-[8ch] text-[clamp(4.5rem,19vw,13rem)] font-black uppercase leading-[0.78] tracking-[-0.08em]">
+              Work
+              <br />
+              Day
+            </h1>
+          </div>
+
+          <section className="border-y border-[#17140F] py-4">
+            <div className="grid grid-cols-3 divide-x divide-[#17140F]">
+              {[
+                ['03', 'needs'],
+                ['02', 'servers'],
+                ['05', 'views'],
+              ].map(([value, label]) => (
+                <div key={label} className="px-3 first:pl-0 last:pr-0">
+                  <p className="font-mono text-3xl font-semibold tracking-[-0.05em]">
+                    {value}
+                  </p>
+                  <p className="mt-1 text-xs uppercase tracking-[0.16em] text-[#6B604F]">
+                    {label}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </section>
+        </section>
+
+        <section className="workday-radar-enter grid gap-5 [animation:workday-radar-rise_720ms_cubic-bezier(0.16,1,0.3,1)_160ms_both]">
+          <div className="relative mx-auto aspect-square w-full max-w-[520px] border border-[#17140F] bg-[#E6DAC2]">
+            <div className="absolute inset-[9%] rounded-full border border-[#17140F]" />
+            <div className="absolute inset-[24%] rounded-full border border-[#17140F]" />
+            <div className="absolute left-1/2 top-0 h-full border-l border-[#17140F]" />
+            <div className="absolute left-0 top-1/2 w-full border-t border-[#17140F]" />
+            <div className="workday-radar-sweep absolute left-1/2 top-[5%] h-[45%] origin-bottom border-l-2 border-[#C24A2E] [animation:workday-radar-sweep_9s_linear_infinite]" />
+            <div className="absolute left-1/2 top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 bg-[#17140F]" />
+
+            {radarItems.map(([label, time, position]) => (
+              <button
+                key={label}
+                className={`absolute min-h-11 -translate-x-1/2 -translate-y-1/2 border border-[#17140F] bg-[#F3EEE2] px-3 text-left shadow-[6px_6px_0_#17140F] ${position}`}
+              >
+                <span className="block text-sm font-bold">{label}</span>
+                <span className="block font-mono text-xs text-[#C24A2E]">
+                  {time}
+                </span>
+              </button>
+            ))}
+
+            <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between border border-[#17140F] bg-[#17140F] px-3 py-2 text-[#F3EEE2]">
+              <span className="font-mono text-xs uppercase tracking-[0.16em]">
+                Active voyage
+              </span>
+              <span className="text-sm font-semibold">Auth bug fix</span>
+            </div>
+          </div>
+
+          <section className="grid gap-2">
+            {workItems.map((item, index) => (
+              <button
+                key={item.title}
+                className="grid min-h-16 grid-cols-[44px_minmax(0,1fr)_auto] items-center gap-3 border border-[#17140F] bg-[#F8F3E8] px-3 text-left shadow-[4px_4px_0_#17140F]"
+              >
+                <span className="font-mono text-lg font-semibold">
+                  0{index + 1}
+                </span>
+                <span>
+                  <span className="block text-base font-bold">{item.title}</span>
+                  <span className="mt-1 block text-sm text-[#6B604F]">
+                    {item.status}
+                  </span>
+                </span>
+                <span className="border-l border-[#17140F] pl-3 text-sm font-semibold text-[#C24A2E]">
+                  Open
+                </span>
+              </button>
+            ))}
+          </section>
+        </section>
+
+        <footer className="workday-radar-enter flex gap-2 overflow-x-auto border-t border-[#17140F] pt-3 [animation:workday-radar-rise_720ms_cubic-bezier(0.16,1,0.3,1)_220ms_both] lg:col-span-2">
+          {savedFilters.map((filter, index) => (
+            <button
+              key={filter}
+              className={`min-h-11 shrink-0 border border-[#17140F] px-4 text-sm font-semibold ${
+                index === 0
+                  ? 'bg-[#C24A2E] text-[#F3EEE2]'
+                  : 'bg-transparent text-[#17140F]'
+              }`}
+            >
+              {filter}
+            </button>
+          ))}
+        </footer>
       </section>
     </main>
   );
