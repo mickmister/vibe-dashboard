@@ -15,6 +15,61 @@ const decisionResponse = {
 };
 
 export const BUILT_IN_WORKFLOW_TEMPLATES: WorkflowTemplateCatalogEntry[] = [
+
+  {
+    templateId: 'built-in/ask-teammate',
+    name: 'Ask teammate',
+    description: 'Generic one-role workflow for requesting one teammate response through workflow coordination.',
+    promptAssets: [
+      {
+        promptAssetId: 'prompt.ask-teammate.request',
+        version: 1,
+        source: 'built_in',
+        name: 'Ask teammate request prompt',
+        bodyMarkdown: 'Respond as the requested teammate role: {{inputs.role}}. Request: {{inputs.request}}. Success criteria: {{inputs.successCriteria}}. Urgency: {{inputs.urgency}}. Return a concise workflow decision XML response with your response summary and any follow-up needed.',
+      },
+    ],
+    skillAssets: [
+      { skillAssetId: 'skill.workflow.xml-decision', version: 1, source: 'built_in', name: 'Workflow XML decision skill', bodyMarkdown: 'Return your final workflow decision as XML matching the current state actions. Markdown content belongs inside child elements or CDATA.' },
+    ],
+    definition: {
+      schemaVersion: 1,
+      name: 'Ask teammate',
+      description: 'Ask one teammate for a response, then finish with the response captured in the workflow result.',
+      inputs: {
+        role: { type: 'string', required: true, description: 'Teammate role to respond as, such as review, tester, ux, or engine.' },
+        request: { type: 'markdown', required: true, description: 'What the teammate should respond to.' },
+        successCriteria: { type: 'markdown', required: false, description: 'Optional criteria for a useful response.' },
+        urgency: { type: 'string', required: false, description: 'Optional urgency label such as normal or high.' },
+      },
+      roles: {
+        teammate: { label: 'Teammate', description: 'Responds to the request as the requested teammate role.' },
+      },
+      initialState: 'ask_teammate',
+      states: {
+        ask_teammate: {
+          owner: 'teammate',
+          steps: [{ id: 'respond', type: 'agent_turn', turnType: 'decision', prompt: { refs: [{ kind: 'prompt', id: 'prompt.ask-teammate.request', version: 1 }, { kind: 'skill', id: 'skill.workflow.xml-decision', version: 1 }] }, response: decisionResponse }],
+          actions: {
+            responded: {
+              label: 'Responded',
+              targetState: 'done',
+              result: {
+                fields: {
+                  summary: { type: 'markdown', description: 'Short summary of the teammate response.' },
+                  response: { type: 'markdown', description: 'Full teammate response.' },
+                  followUp: { type: 'markdown', description: 'Optional follow-up or next action.' },
+                },
+                required: ['summary', 'response'],
+                unknownFields: 'reject',
+              },
+            },
+          },
+        },
+        done: { terminal: true },
+      },
+    },
+  },
   {
     templateId: 'built-in/dev-review-tester',
     name: 'Dev / Review / Tester',
