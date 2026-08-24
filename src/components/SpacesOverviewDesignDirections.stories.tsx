@@ -1886,7 +1886,7 @@ function MobileModernDarkPurpleCardsConcept({
 function WorkdayRadarConcept() {
   const radarItems = [
     ['Approval', '12m', 'top-[18%] left-[55%]'],
-    ['CI', '24m', 'top-[50%] left-[18%]'],
+    ['Tests', '24m', 'top-[50%] left-[18%]'],
     ['Review', '1h', 'top-[67%] left-[68%]'],
   ];
 
@@ -1912,8 +1912,8 @@ function WorkdayRadarConcept() {
 
       <section className="mx-auto grid min-h-[100dvh] w-full max-w-[1440px] grid-cols-1 content-between gap-8 bg-[#F3EEE2] px-4 py-4 sm:px-8 md:px-10 lg:grid-cols-[minmax(0,0.9fr)_minmax(420px,1.1fr)] lg:px-12 lg:py-10">
         <header className="workday-radar-enter flex min-h-12 items-center justify-between gap-3 border-b border-[#17140F] pb-3 [animation:workday-radar-rise_520ms_cubic-bezier(0.16,1,0.3,1)_both] lg:col-span-2">
-          <p className="font-mono text-xs font-semibold uppercase tracking-[0.22em]">
-            VD Redesign 2
+          <p className="font-mono text-xs font-semibold tracking-[0.08em]">
+            Redesign 2
           </p>
           <div className="flex items-center gap-2">
             <button className="min-h-11 rounded-none border border-[#17140F] bg-transparent px-4 text-sm font-semibold">
@@ -1931,7 +1931,7 @@ function WorkdayRadarConcept() {
               Start narrow. Resume the active voyage, then clear the closest
               blockers without reopening yesterday.
             </p>
-            <h1 className="mt-6 max-w-[8ch] text-[clamp(4.5rem,19vw,13rem)] font-black uppercase leading-[0.78] tracking-[-0.08em]">
+            <h1 className="mt-6 max-w-[8ch] text-[clamp(4.5rem,19vw,13rem)] font-black leading-[0.78] tracking-[-0.08em]">
               Work
               <br />
               Day
@@ -1949,7 +1949,7 @@ function WorkdayRadarConcept() {
                   <p className="font-mono text-3xl font-semibold tracking-[-0.05em]">
                     {value}
                   </p>
-                  <p className="mt-1 text-xs uppercase tracking-[0.16em] text-[#6B604F]">
+                  <p className="mt-1 text-xs tracking-[0.08em] text-[#6B604F]">
                     {label}
                   </p>
                 </div>
@@ -1980,7 +1980,7 @@ function WorkdayRadarConcept() {
             ))}
 
             <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between border border-[#17140F] bg-[#17140F] px-3 py-2 text-[#F3EEE2]">
-              <span className="font-mono text-xs uppercase tracking-[0.16em]">
+              <span className="font-mono text-xs tracking-[0.08em]">
                 Active voyage
               </span>
               <span className="text-sm font-semibold">Auth bug fix</span>
