@@ -71,6 +71,11 @@ export interface ExecutionProcess {
   executor_action?: unknown;
 }
 
+export interface RawLogEntry {
+  type: 'STDOUT' | 'STDERR';
+  content: string;
+}
+
 export interface PreviewResolveRequest {
   host: string;
   workspaceToken: string;
@@ -187,10 +192,16 @@ interface ApiEnvelope<T> {
 }
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
+type WebSocketLike = {
+  close: () => void;
+  addEventListener: (type: 'message' | 'error', listener: (event: { data?: unknown }) => void) => void;
+};
+type WebSocketFactory = (url: string) => WebSocketLike;
 
 export interface VibeKanbanServerClientOptions {
   baseUrl?: string;
   fetch?: FetchLike;
+  webSocketFactory?: WebSocketFactory;
 }
 
 export class VkApiError extends Error {
@@ -226,10 +237,12 @@ export function resolveVibeApiBaseUrl(
 export class VibeKanbanServerClient {
   private readonly baseUrl: string;
   private readonly fetchImpl: FetchLike;
+  private readonly webSocketFactory?: WebSocketFactory;
 
   constructor(options: VibeKanbanServerClientOptions = {}) {
     this.baseUrl = (options.baseUrl ?? resolveVibeApiBaseUrl()).replace(/\/+$/, '');
     this.fetchImpl = options.fetch ?? fetch;
+    this.webSocketFactory = options.webSocketFactory;
   }
 
   getWorkspaces(): Promise<Workspace[]> {
@@ -267,6 +280,83 @@ export class VibeKanbanServerClient {
 
   async stopExecutionProcess(processId: string): Promise<void> {
     await this.post(`/execution-processes/${encodeURIComponent(processId)}/stop`, {});
+  }
+
+  fetchRawExecutionLogs(
+    processId: string,
+    options: { timeoutMs?: number; maxEntries?: number } = {},
+  ): Promise<RawLogEntry[]> {
+    const timeoutMs = clampInteger(options.timeoutMs ?? 1500, 100, 10_000);
+    const maxEntries = clampInteger(options.maxEntries ?? 200, 1, 1_000);
+    const webSocketFactory = this.webSocketFactory ?? defaultWebSocketFactory();
+    const url = `${this.baseUrl.replace(/^http/i, 'ws')}/execution-processes/${encodeURIComponent(processId)}/raw-logs/ws`;
+
+    return new Promise((resolve, reject) => {
+      const logs: RawLogEntry[] = [];
+      let settled = false;
+      let ws: WebSocketLike | null = null;
+      const finish = (result: RawLogEntry[]) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        try {
+          ws?.close();
+        } catch {
+          // Ignore close errors after the log request has already succeeded.
+        }
+        resolve(result.slice(-maxEntries));
+      };
+      const fail = (error: unknown) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        try {
+          ws?.close();
+        } catch {
+          // Ignore close errors while surfacing the original failure.
+        }
+        reject(error);
+      };
+      const timeout = setTimeout(() => finish(logs), timeoutMs);
+
+      try {
+        ws = webSocketFactory(url);
+      } catch (error) {
+        clearTimeout(timeout);
+        reject(error);
+        return;
+      }
+
+      ws.addEventListener('message', (event) => {
+        try {
+          const message = JSON.parse(String(event.data ?? '{}')) as {
+            JsonPatch?: Array<{ value?: { type?: unknown; content?: unknown } }>;
+            Ready?: unknown;
+            finished?: unknown;
+          };
+          for (const op of message.JsonPatch ?? []) {
+            const value = op.value;
+            if (
+              (value?.type === 'STDOUT' || value?.type === 'STDERR') &&
+              typeof value.content === 'string'
+            ) {
+              logs.push({ type: value.type, content: value.content });
+            }
+          }
+          if (message.Ready !== undefined || message.finished === true) {
+            finish(logs);
+          }
+        } catch (error) {
+          fail(error);
+        }
+      });
+      ws.addEventListener('error', (event) => {
+        fail(new VkApiError({
+          message: `VK execution log stream failed for process ${processId}`,
+          errorData: event,
+        }));
+      });
+    });
   }
 
   async checkHealth(): Promise<void> {
@@ -399,4 +489,17 @@ export function selectLatestSession(sessions: Session[]): Session | null {
 function parseTimestamp(value: string): number {
   const parsed = new Date(value).getTime();
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function clampInteger(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.min(max, Math.max(min, Math.trunc(value)));
+}
+
+function defaultWebSocketFactory(): WebSocketFactory {
+  const WebSocketConstructor = globalThis.WebSocket;
+  if (!WebSocketConstructor) {
+    throw new VkApiError({ message: 'VK execution log stream is unavailable in this runtime' });
+  }
+  return (url) => new WebSocketConstructor(url);
 }

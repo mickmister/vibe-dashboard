@@ -148,6 +148,46 @@ describe('VibeKanbanServerClient', () => {
     await expect(client.getInfo()).resolves.toEqual({ version: 'test' });
   });
 
+  it('fetches bounded raw execution logs from the existing VK websocket API', async () => {
+    const openedUrls: string[] = [];
+    const client = new VibeKanbanServerClient({
+      baseUrl: 'http://vk.local/api',
+      fetch: async () => jsonResponse({ success: true, data: null }),
+      webSocketFactory: (url) => {
+        openedUrls.push(url);
+        const listeners: Record<string, Array<(event: { data?: unknown }) => void>> = {};
+        queueMicrotask(() => {
+          listeners.message?.forEach((listener) => listener({
+            data: JSON.stringify({
+              JsonPatch: [
+                { value: { type: 'STDOUT', content: 'one\n' } },
+                { value: { type: 'STDERR', content: 'two\n' } },
+                { value: { type: 'IGNORED', content: 'nope\n' } },
+              ],
+            }),
+          }));
+          listeners.message?.forEach((listener) => listener({
+            data: JSON.stringify({ Ready: {} }),
+          }));
+        });
+        return {
+          close: vi.fn(),
+          addEventListener: (type, listener) => {
+            listeners[type] ??= [];
+            listeners[type]!.push(listener);
+          },
+        };
+      },
+    });
+
+    await expect(client.fetchRawExecutionLogs('process-1', { timeoutMs: 100, maxEntries: 1 })).resolves.toEqual([
+      { type: 'STDERR', content: 'two\n' },
+    ]);
+    expect(openedUrls).toEqual([
+      'ws://vk.local/api/execution-processes/process-1/raw-logs/ws',
+    ]);
+  });
+
   it('throws VkApiError with status and body for failed HTTP responses', async () => {
     const client = new VibeKanbanServerClient({
       baseUrl: 'http://vk.local/api',

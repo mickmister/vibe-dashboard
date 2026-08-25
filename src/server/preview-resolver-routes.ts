@@ -18,11 +18,14 @@ export interface RegisterPreviewResolverRoutesOptions {
     VibeKanbanServerClient,
     | 'getRunConfigs'
     | 'getWorkspaceRepos'
+    | 'getExecutionProcess'
+    | 'getSession'
     | 'upsertRunConfig'
     | 'upsertPreviewSlot'
     | 'startRunConfig'
     | 'startPreviewSlot'
     | 'getPreviewSlotUrl'
+    | 'fetchRawExecutionLogs'
   >>;
 }
 
@@ -83,6 +86,25 @@ export function registerPreviewResolverRoutes(
     } catch (error) {
       console.warn('Preview repo list failed', error);
       return c.json({ message: 'Preview repo backend is unavailable' }, 502);
+    }
+  });
+
+  app.get('/internal/preview/workspaces/:workspaceId/execution-processes/:processId/logs', async (c) => {
+    const workspaceId = c.req.param('workspaceId');
+    const processId = c.req.param('processId');
+    const timeoutMs = parseBoundedInteger(c.req.query('timeoutMs'), 1500, 100, 10_000);
+    const maxEntries = parseBoundedInteger(c.req.query('maxEntries'), 200, 1, 1_000);
+    try {
+      const process = await vkClient.getExecutionProcess!(processId);
+      const session = await vkClient.getSession!(process.session_id);
+      if (session.workspace_id !== workspaceId) {
+        return c.json({ message: 'No PreviewServer logs found for this workspace process.' }, 404);
+      }
+      const logs = await vkClient.fetchRawExecutionLogs!(processId, { timeoutMs, maxEntries });
+      return c.json({ process_id: processId, logs }, 200);
+    } catch (error) {
+      console.warn('Preview process logs failed', error);
+      return c.json({ message: error instanceof Error ? error.message : 'Preview process logs failed' }, 502);
     }
   });
 
@@ -207,6 +229,17 @@ function validatePreviewResolveRequest(payload: PreviewResolveRequest): string |
     return 'Invalid preview customer slug';
   }
   return null;
+}
+
+function parseBoundedInteger(
+  value: string | undefined,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
+  const parsed = value ? Number(value) : fallback;
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(max, Math.max(min, Math.trunc(parsed)));
 }
 
 function normalizeResolveResponse(response: PreviewResolveResponse): PreviewResolveResponse {

@@ -1,13 +1,20 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import type {
   PreviewSlot,
+  RawLogEntry,
   RepoWithBranch,
   RunConfig,
   RunConfigKind,
+  RunConfigStartResponse,
   WorkspaceRunConfigsResponse,
 } from '../server/vk-client';
 
 type RepoOption = { id: string; label: string };
+type LogPanelState =
+  | { status: 'no-process' }
+  | { status: 'loading'; processId: string }
+  | { status: 'loaded'; processId: string; logs: RawLogEntry[] }
+  | { status: 'error'; processId: string; message: string };
 
 export function PreviewRunConfigsPanel({
   workspaceId,
@@ -18,6 +25,9 @@ export function PreviewRunConfigsPanel({
   const [workspaceRepos, setWorkspaceRepos] = useState<RepoWithBranch[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [runConfigProcessIds, setRunConfigProcessIds] = useState<Record<string, string>>({});
+  const [previewSlotProcessIds, setPreviewSlotProcessIds] = useState<Record<string, string>>({});
+  const [logPanels, setLogPanels] = useState<Record<string, LogPanelState>>({});
   const [customerSlug, setCustomerSlug] = useState('preview');
   const [selectedRepoId, setSelectedRepoId] = useState('');
   const [runForm, setRunForm] = useState({
@@ -151,20 +161,67 @@ export function PreviewRunConfigsPanel({
   }
 
   async function startRunConfig(runConfigId: string) {
-    await action(`/internal/preview/workspaces/${encodeURIComponent(workspaceId)}/run-configs/${encodeURIComponent(runConfigId)}/start`, 'Started run config');
+    const result = await postAction<RunConfigStartResponse>(
+      `/internal/preview/workspaces/${encodeURIComponent(workspaceId)}/run-configs/${encodeURIComponent(runConfigId)}/start`,
+    );
+    setRunConfigProcessIds((current) => ({
+      ...current,
+      [runConfigId]: result.execution_process.id,
+    }));
+    setMessage(`Started run config process ${result.execution_process.id}`);
+    await refresh();
   }
 
   async function startPreviewSlot(previewSlotId: string) {
-    await action(`/internal/preview/workspaces/${encodeURIComponent(workspaceId)}/preview-slots/${encodeURIComponent(previewSlotId)}/start`, 'Started preview slot');
+    const result = await postAction<RunConfigStartResponse>(
+      `/internal/preview/workspaces/${encodeURIComponent(workspaceId)}/preview-slots/${encodeURIComponent(previewSlotId)}/start`,
+    );
+    setPreviewSlotProcessIds((current) => ({
+      ...current,
+      [previewSlotId]: result.execution_process.id,
+    }));
+    setMessage(`Started preview slot process ${result.execution_process.id}`);
+    await refresh();
   }
 
-  async function action(url: string, successMessage: string) {
+  async function postAction<T>(url: string): Promise<T> {
     setMessage(null);
     setError(null);
     const response = await fetch(url, { method: 'POST' });
     if (!response.ok) throw new Error(await responseErrorMessage(response, 'Preview action failed'));
-    setMessage(successMessage);
-    await refresh();
+    return await response.json() as T;
+  }
+
+  async function showLogs(logKey: string, processId: string | undefined) {
+    if (!processId) {
+      setLogPanels((current) => ({ ...current, [logKey]: { status: 'no-process' } }));
+      return;
+    }
+    setLogPanels((current) => ({ ...current, [logKey]: { status: 'loading', processId } }));
+    const response = await fetch(
+      `/internal/preview/workspaces/${encodeURIComponent(workspaceId)}/execution-processes/${encodeURIComponent(processId)}/logs?timeoutMs=1500&maxEntries=200`,
+    );
+    if (!response.ok) {
+      throw new Error(await responseErrorMessage(response, 'Preview process logs failed'));
+    }
+    const result = await response.json() as { logs?: RawLogEntry[] };
+    setLogPanels((current) => ({
+      ...current,
+      [logKey]: { status: 'loaded', processId, logs: result.logs ?? [] },
+    }));
+  }
+
+  function showLogsWithErrorBoundary(logKey: string, processId: string | undefined) {
+    void showLogs(logKey, processId).catch((err) => {
+      setLogPanels((current) => ({
+        ...current,
+        [logKey]: {
+          status: 'error',
+          processId: processId ?? '',
+          message: errorMessage(err),
+        },
+      }));
+    });
   }
 
   async function openPreviewSlot(previewSlotId: string) {
@@ -309,7 +366,9 @@ export function PreviewRunConfigsPanel({
                 <div className="flex gap-2">
                   <button className="rounded border border-neutral-700 px-3 py-1 text-sm" onClick={() => void startPreviewSlot(slot.id).catch((err) => setError(errorMessage(err)))}>Start</button>
                   <button className="rounded border border-neutral-700 px-3 py-1 text-sm" onClick={() => void openPreviewSlot(slot.id).catch((err) => setError(errorMessage(err)))}>Open URL</button>
+                  <button className="rounded border border-neutral-700 px-3 py-1 text-sm" aria-label={`Show logs for preview slot ${slot.title}`} onClick={() => showLogsWithErrorBoundary(`slot:${slot.id}`, previewSlotProcessIds[slot.id])}>Logs</button>
                 </div>
+                <LogPanel state={logPanels[`slot:${slot.id}`]} />
               </div>
             ))}
           </div>
@@ -325,9 +384,15 @@ export function PreviewRunConfigsPanel({
                   <div className="font-medium">{runConfig.name} <span className="text-neutral-500">/{runConfig.slug}</span></div>
                   <code className="text-xs text-neutral-400">{runConfig.command}</code>
                 </div>
-                <button className="rounded border border-neutral-700 px-3 py-1 text-sm" onClick={() => void startRunConfig(runConfig.id).catch((err) => setError(errorMessage(err)))}>
-                  Run on demand
-                </button>
+                <div className="flex gap-2">
+                  <button className="rounded border border-neutral-700 px-3 py-1 text-sm" onClick={() => void startRunConfig(runConfig.id).catch((err) => setError(errorMessage(err)))}>
+                    Run on demand
+                  </button>
+                  <button className="rounded border border-neutral-700 px-3 py-1 text-sm" aria-label={`Show logs for run config ${runConfig.name}`} onClick={() => showLogsWithErrorBoundary(`run:${runConfig.id}`, runConfigProcessIds[runConfig.id])}>
+                    Logs
+                  </button>
+                </div>
+                <LogPanel state={logPanels[`run:${runConfig.id}`]} />
               </div>
             ))}
           </div>
@@ -373,6 +438,46 @@ function Notice({ tone, children }: { tone: 'error' | 'info'; children: React.Re
     <div className={tone === 'error' ? 'rounded border border-red-800 bg-red-950/50 p-3 text-sm text-red-100' : 'rounded border border-blue-800 bg-blue-950/50 p-3 text-sm text-blue-100'}>
       {children}
     </div>
+  );
+}
+
+function LogPanel({ state }: { state: LogPanelState | undefined }) {
+  if (!state) return null;
+  if (state.status === 'no-process') {
+    return (
+      <div className="w-full rounded border border-neutral-800 bg-neutral-950 p-3 text-sm text-neutral-400">
+        No process has been started from this PreviewServer panel yet. Start this item, then click Logs again.
+      </div>
+    );
+  }
+  if (state.status === 'loading') {
+    return (
+      <div className="w-full rounded border border-neutral-800 bg-neutral-950 p-3 text-sm text-neutral-400">
+        Loading recent logs for process <code>{state.processId}</code>…
+      </div>
+    );
+  }
+  if (state.status === 'error') {
+    return (
+      <div className="w-full rounded border border-red-800 bg-red-950/40 p-3 text-sm text-red-100">
+        {state.message || 'Preview process logs failed'}
+      </div>
+    );
+  }
+  if (state.logs.length === 0) {
+    return (
+      <div className="w-full rounded border border-neutral-800 bg-neutral-950 p-3 text-sm text-neutral-400">
+        No logs were available for process <code>{state.processId}</code> yet.
+      </div>
+    );
+  }
+  return (
+    <pre className="w-full max-h-80 overflow-auto whitespace-pre-wrap rounded border border-neutral-800 bg-black p-3 text-xs leading-5 text-neutral-100">
+      {state.logs.map((entry, index) => {
+        const prefix = entry.type === 'STDERR' ? '[stderr] ' : '';
+        return `${index > 0 ? '\n' : ''}${prefix}${entry.content}`;
+      })}
+    </pre>
   );
 }
 

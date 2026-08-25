@@ -172,4 +172,73 @@ describe('registerPreviewResolverRoutes', () => {
       url: 'http://0123456789abcdef-vibekanban-web-preview.localhost:55743/',
     });
   });
+
+  it('fetches process logs only for processes linked to the requested workspace', async () => {
+    const client = {
+      resolvePreview: vi.fn(),
+      getExecutionProcess: vi.fn(async () => ({
+        id: 'process-1',
+        session_id: 'session-1',
+        status: 'running' as const,
+      })),
+      getSession: vi.fn(async () => ({
+        id: 'session-1',
+        workspace_id: 'ws1',
+        executor: 'CODEX' as const,
+        created_at: '',
+        updated_at: '',
+      })),
+      fetchRawExecutionLogs: vi.fn(async () => [
+        { type: 'STDOUT' as const, content: 'preview ready\n' },
+      ]),
+    };
+    const app = new Hono();
+    registerPreviewResolverRoutes(app, { vkClient: client });
+
+    const response = await app.request(
+      '/internal/preview/workspaces/ws1/execution-processes/process-1/logs?timeoutMs=25&maxEntries=5',
+    );
+
+    await expect(response.json()).resolves.toEqual({
+      process_id: 'process-1',
+      logs: [{ type: 'STDOUT', content: 'preview ready\n' }],
+    });
+    expect(client.getExecutionProcess).toHaveBeenCalledWith('process-1');
+    expect(client.getSession).toHaveBeenCalledWith('session-1');
+    expect(client.fetchRawExecutionLogs).toHaveBeenCalledWith('process-1', {
+      timeoutMs: 100,
+      maxEntries: 5,
+    });
+  });
+
+  it('does not fetch logs when the process session belongs to another workspace', async () => {
+    const client = {
+      resolvePreview: vi.fn(),
+      getExecutionProcess: vi.fn(async () => ({
+        id: 'process-1',
+        session_id: 'session-1',
+        status: 'running' as const,
+      })),
+      getSession: vi.fn(async () => ({
+        id: 'session-1',
+        workspace_id: 'other-workspace',
+        executor: 'CODEX' as const,
+        created_at: '',
+        updated_at: '',
+      })),
+      fetchRawExecutionLogs: vi.fn(),
+    };
+    const app = new Hono();
+    registerPreviewResolverRoutes(app, { vkClient: client });
+
+    const response = await app.request(
+      '/internal/preview/workspaces/ws1/execution-processes/process-1/logs',
+    );
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toMatchObject({
+      message: 'No PreviewServer logs found for this workspace process.',
+    });
+    expect(client.fetchRawExecutionLogs).not.toHaveBeenCalled();
+  });
 });
