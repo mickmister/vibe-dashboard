@@ -48,6 +48,8 @@ export type SubmitBeadsFormResult = {
   beadId: string;
   formId: string;
   values: JsonObject;
+  submittedAt: string;
+  submittedBy: string;
   prettySummary: string;
   metadata: JsonObject;
   reviewLabel: string;
@@ -397,9 +399,11 @@ export class BeadsClient {
     if (validationErrors.length > 0) throw new Error(validationErrors.join('\n'));
 
     const prettySummary = buildPrettySummary(form, input.values);
+    const submittedAt = this.now().toISOString();
+    const submittedBy = this.actor;
     const metadata = withBeadsFormsSummary(appendBeadsFormResponse(bead.metadata, form.id, {
-      submittedBy: this.actor,
-      submittedAt: this.now().toISOString(),
+      submittedBy,
+      submittedAt,
       values: input.values,
       prettySummary,
     }));
@@ -417,6 +421,8 @@ export class BeadsClient {
       beadId: input.beadId,
       formId: input.formId,
       values: input.values,
+      submittedAt,
+      submittedBy,
       prettySummary,
       metadata,
       reviewLabel: this.reviewLabel,

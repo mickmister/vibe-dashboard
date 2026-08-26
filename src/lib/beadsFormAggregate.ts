@@ -10,6 +10,8 @@ export type AggregateSubmitStatus =
   | {
     status: 'success';
     values: Record<string, unknown>;
+    submittedAt: string;
+    submittedBy: string;
     warnings: string[];
     clipboardStatus: 'pending' | 'copied' | 'failed' | 'unavailable';
     clipboardText: string;

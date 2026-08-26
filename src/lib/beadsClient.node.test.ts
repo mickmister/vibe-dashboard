@@ -96,12 +96,27 @@ describe('BeadsClient', () => {
       if (args[0] === '--readonly' && args[1] === 'list') return { stdout: beadJson(reviewMetadata), stderr: '' };
       return { stdout: '', stderr: '' };
     });
-    const client = new BeadsClient({ execFile: exec, now: () => new Date('2026-06-29T00:00:00Z') });
+    const client = new BeadsClient({
+      execFile: exec,
+      now: () => new Date('2026-06-29T00:00:00Z'),
+      actor: 'reviewer',
+    });
 
     const result = await client.submitForm({ dir: '/repo', beadId: 'beads-web-biu', formId: 'review', values: { comment: 'LGTM' } });
 
+    expect(result.submittedAt).toBe('2026-06-29T00:00:00.000Z');
+    expect(result.submittedBy).toBe('reviewer');
     expect(result.prettySummary).toContain('- comment: LGTM');
     expect(result.warnings).toEqual([]);
+    expect(result.metadata.beadFormResponses).toMatchObject({
+      responsesByFormId: {
+        review: [{
+          submittedAt: '2026-06-29T00:00:00.000Z',
+          submittedBy: 'reviewer',
+          values: { comment: 'LGTM' },
+        }],
+      },
+    });
     expect(result.metadata.beadFormsSummary).toEqual({
       hasForms: true,
       hasPendingAnswer: false,

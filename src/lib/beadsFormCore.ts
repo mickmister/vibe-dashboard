@@ -432,6 +432,8 @@ export function buildAgentResultMessage(args: {
   beadId: string;
   form: Pick<BeadsFormDefinition, 'id' | 'title'>;
   values: JsonObject;
+  submittedAt?: string;
+  submittedBy?: string;
 }): string {
   return [
     `Filled out form "${args.form.title}" (${args.form.id}) for bead ${args.beadId}.`,
@@ -440,6 +442,8 @@ export function buildAgentResultMessage(args: {
     beadsFormSubmissionXml({
       beadId: args.beadId,
       formId: args.form.id,
+      ...(args.submittedAt ? { submittedAt: args.submittedAt } : {}),
+      ...(args.submittedBy ? { submittedBy: args.submittedBy } : {}),
       values: args.values,
     }),
     '',

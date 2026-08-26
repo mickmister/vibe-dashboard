@@ -19,6 +19,8 @@ describe('BeadsForm pending queue UI source', () => {
 
     expect(source).toContain('copySubmittedResultHandoffXml(navigator.clipboard, result.values');
     expect(source).toContain('pendingSubmittedResultHandoffCopy(result.values');
+    expect(source).toContain('submittedAt: result.submittedAt');
+    expect(source).toContain('submittedBy: result.submittedBy');
     expect(source).toContain('Copying BeadsForm XML handoff…');
     expect(source).toContain('BeadsForm XML handoff');
     expect(source).toContain('Clipboard copy is unavailable. Use the manual XML handoff field below.');
@@ -33,6 +35,8 @@ describe('BeadsForm pending queue UI source', () => {
 
     expect(source).not.toContain('await copySubmittedResultHandoffXml');
     expect(source).toContain('clipboardStatus: pendingCopy.status');
+    expect(source).toContain('submittedAt: status.submittedAt');
+    expect(source).toContain('submittedBy: status.submittedBy');
     expect(source).toContain('void copySubmittedResultHandoffXml(navigator.clipboard, result.values, handoffMetadata).then((copyResult) => {');
   });
 

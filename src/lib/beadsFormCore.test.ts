@@ -516,11 +516,15 @@ describe('BeadsForm core', () => {
       beadId: 'beads-web-biu',
       form: { id: 'mvp', title: 'MVP Questions' },
       values: { render_mvp: ['direct_sanitized_html'], decision: { approve: true, defer: false } },
+      submittedAt: '2026-06-29T00:00:00.000Z',
+      submittedBy: 'reviewer',
     });
 
     expect(text).toContain('BeadsForm XML handoff:');
     expect(text).toContain('<beadId>beads-web-biu</beadId>');
     expect(text).toContain('<formId>mvp</formId>');
+    expect(text).toContain('<submittedAt>2026-06-29T00:00:00.000Z</submittedAt>');
+    expect(text).toContain('<submittedBy>reviewer</submittedBy>');
     expect(text).toContain('<choice id="approve" selected="true" />');
     expect(text).toContain('Remove that label after processing');
   });

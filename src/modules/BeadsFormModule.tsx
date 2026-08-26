@@ -138,6 +138,8 @@ type SubmitFormResult = {
   beadId: string;
   formId: string;
   values: JsonObject;
+  submittedAt: string;
+  submittedBy: string;
   prettySummary: string;
   agentMessage: string;
   reviewLabel: string;
@@ -1022,11 +1024,18 @@ function AggregateBeadsFormCard({ item, submitBeadForm }: {
       });
       submittedLockedRef.current = true;
       setSubmittedLocked(true);
-      const handoffMetadata = { beadId: item.ref.beadId, formId: form.id };
+      const handoffMetadata = {
+        beadId: item.ref.beadId,
+        formId: form.id,
+        submittedAt: result.submittedAt,
+        submittedBy: result.submittedBy,
+      };
       const pendingCopy = pendingSubmittedResultHandoffCopy(result.values, handoffMetadata);
       setStatus({
         status: 'success',
         values: result.values,
+        submittedAt: result.submittedAt,
+        submittedBy: result.submittedBy,
         warnings: result.warnings,
         clipboardStatus: pendingCopy.status,
         clipboardText: pendingCopy.text,
@@ -1095,7 +1104,12 @@ function AggregateBeadsFormCard({ item, submitBeadForm }: {
             ...(status.clipboardWarning ? { warning: status.clipboardWarning } : {}),
           }}
           values={status.values}
-          handoffMetadata={{ beadId: item.ref.beadId, formId: item.ref.formId }}
+          handoffMetadata={{
+            beadId: item.ref.beadId,
+            formId: item.ref.formId,
+            submittedAt: status.submittedAt,
+            submittedBy: status.submittedBy,
+          }}
           warnings={status.warnings}
           onEdit={handleEditResponse}
         />
@@ -1388,7 +1402,12 @@ function BeadsFormRoute({ actions, pendingQueueSentinel }: { actions: {
       });
       submittedLockedRef.current = true;
       setSubmittedLocked(true);
-      const handoffMetadata = { beadId, formId: loaded.selected.selectedForm.id };
+      const handoffMetadata = {
+        beadId,
+        formId: loaded.selected.selectedForm.id,
+        submittedAt: result.submittedAt,
+        submittedBy: result.submittedBy,
+      };
       setClipboardResult(pendingSubmittedResultHandoffCopy(result.values, handoffMetadata));
       setSubmitResult(result);
       void copySubmittedResultHandoffXml(navigator.clipboard, result.values, handoffMetadata).then(setClipboardResult);
@@ -1512,7 +1531,12 @@ function BeadsFormRoute({ actions, pendingQueueSentinel }: { actions: {
           title="BeadsForm submitted"
           clipboardResult={clipboardResult}
           values={submitResult.values}
-          handoffMetadata={{ beadId, formId: submitResult.formId }}
+          handoffMetadata={{
+            beadId,
+            formId: submitResult.formId,
+            submittedAt: submitResult.submittedAt,
+            submittedBy: submitResult.submittedBy,
+          }}
           warnings={submitResult.warnings}
           onEdit={handleEditBeadResponse}
         >
@@ -1628,8 +1652,16 @@ springboard.registerModule(
           beadId: input.beadId,
           formId: input.formId,
           values: input.values,
+          submittedAt: result.submittedAt,
+          submittedBy: result.submittedBy,
           prettySummary: result.prettySummary,
-          agentMessage: buildAgentResultMessage({ beadId: input.beadId, form, values: input.values }),
+          agentMessage: buildAgentResultMessage({
+            beadId: input.beadId,
+            form,
+            values: input.values,
+            submittedAt: result.submittedAt,
+            submittedBy: result.submittedBy,
+          }),
           reviewLabel: result.reviewLabel,
           warnings: result.warnings,
         };
