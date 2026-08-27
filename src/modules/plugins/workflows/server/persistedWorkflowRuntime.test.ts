@@ -377,8 +377,10 @@ describe('PersistedWorkflowRuntimeService M93', () => {
     expect(queuedAt(queued, 1).prompt).toContain('fixed="ready_for_review"');
     await runtime.completeAgentTurn({ runId: 'run-drt', turnId: queuedAt(queued, 1).turnId, responseRef: 'dev-self-review-1', finalResponseText: '<decision action="ready_for_review"><summary>Implemented pass one</summary><concerns>Risk noted</concerns></decision>' });
     expect(queuedAt(queued, 2)).toMatchObject({ role: 'review', sessionId: 'session-review', stepId: 'review' });
+    expect(queuedAt(queued, 2).prompt).toContain('<xs:element name="requestedChangesForm" minOccurs="1" maxOccurs="1">');
+    expect(queuedAt(queued, 2).prompt).toContain('Each requested change must be one choices question');
 
-    await runtime.completeAgentTurn({ runId: 'run-drt', turnId: queuedAt(queued, 2).turnId, responseRef: 'review-changes', finalResponseText: '<decision action="changes_requested"><requestedChanges>Fix review issue</requestedChanges><concerns>Concern</concerns></decision>' });
+    await runtime.completeAgentTurn({ runId: 'run-drt', turnId: queuedAt(queued, 2).turnId, responseRef: 'review-changes', finalResponseText: '<decision action="changes_requested"><requestedChangesForm><beadsForm id="reviewChanges"><title>Review changes</title><description><![CDATA[Structured review feedback.]]></description><question id="fixPersistence" type="choices" required="true"><title>Fix persistence issue</title><description><![CDATA[The implementation needs a persistence fix.]]></description><choice id="updateStore"><label>Update store</label><description><![CDATA[**Pros**\n- Keeps existing model.\n\n**Cons**\n- Requires focused regression tests.]]></description></choice></question></beadsForm></requestedChangesForm><summary>Review requested structured changes.</summary></decision>' });
     expect(queuedAt(queued, 3)).toMatchObject({ role: 'dev', stepId: 'implement' });
 
     await runtime.completeAgentTurn({ runId: 'run-drt', turnId: queuedAt(queued, 3).turnId, responseRef: 'dev-implement-2' });
@@ -397,6 +399,45 @@ describe('PersistedWorkflowRuntimeService M93', () => {
     expect(completed.run.status).toBe('completed');
     expect(completed.run.coreSnapshot.currentState).toBe('done');
     expect(completed.run.events.filter((entry) => entry.kind === 'agent_turn_queued')).toHaveLength(11);
+  });
+
+
+  it('TEST_CASE_9NL3_1B retries then blocks invalid DRT requestedChangesForm XML', async () => {
+    const { runtime, queued } = await createRuntime({ templates: BUILT_IN_WORKFLOW_TEMPLATES });
+    await designStore.useTemplate({ templateId: 'built-in/dev-review-tester', designId: 'design.drt.invalid-form', draftId: 'draft.drt.invalid-form' });
+    await designStore.publishDraft('draft.drt.invalid-form');
+    await runtime.launch({
+      runId: 'run-drt-invalid-form',
+      runSnapshotId: 'snapshot-drt-invalid-form',
+      designId: 'design.drt.invalid-form',
+      workspaceId: 'workspace-a',
+      inputs: { featureRequest: 'Build structured review changes' },
+      roleBindings: { dev: { sessionId: 'session-dev' }, review: { sessionId: 'session-review' }, tester: { sessionId: 'session-tester' } },
+    });
+
+    await runtime.completeAgentTurn({ runId: 'run-drt-invalid-form', turnId: queuedAt(queued, 0).turnId, responseRef: 'dev-implement-1' });
+    await runtime.completeAgentTurn({ runId: 'run-drt-invalid-form', turnId: queuedAt(queued, 1).turnId, responseRef: 'dev-self-review-1', finalResponseText: '<decision action="ready_for_review"><summary>Implemented</summary></decision>' });
+    expect(queuedAt(queued, 2).prompt).toContain('<xs:element name="requestedChangesForm" minOccurs="1" maxOccurs="1">');
+
+    const retried = await runtime.completeAgentTurn({
+      runId: 'run-drt-invalid-form',
+      turnId: queuedAt(queued, 2).turnId,
+      responseRef: 'bad-requested-changes-form-1',
+      finalResponseText: '<decision action="changes_requested"><summary>Needs changes</summary><requestedChangesForm><beadsForm id="bad"><title>Bad changes</title></beadsForm></requestedChangesForm></decision>',
+    });
+
+    expect(retried.run.status).toBe('running');
+    expect(queuedAt(queued, 3).prompt).toContain('Invalid beads-form XML in requestedChangesForm');
+
+    const blocked = await runtime.completeAgentTurn({
+      runId: 'run-drt-invalid-form',
+      turnId: queuedAt(queued, 3).turnId,
+      responseRef: 'bad-requested-changes-form-2',
+      finalResponseText: '<decision action="changes_requested"><summary>Needs changes</summary><requestedChangesForm><beadsForm id="bad"><title>Bad changes</title></beadsForm></requestedChangesForm></decision>',
+    });
+
+    expect(blocked.run.status).toBe('blocked');
+    expect(blocked.run.coreSnapshot.blockedReason).toMatchObject({ code: 'WORKFLOW_DECISION_RETRY_EXHAUSTED' });
   });
 
   it('TEST_CASE_9R50 loops Dev self-review back to implementation when more work is needed', async () => {
@@ -484,7 +525,7 @@ describe('PersistedWorkflowRuntimeService M93', () => {
   });
 
 
-  it('TEST_CASE_M98_2A fails Create form from agent when the XML contains invalid beads-form schema', async () => {
+  it('TEST_CASE_M98_2A retries and blocks Create form from agent when the XML contains invalid beads-form schema', async () => {
     const { runtime, queued } = await createRuntime({ templates: BUILT_IN_WORKFLOW_TEMPLATES });
     await designStore.useTemplate({ templateId: 'built-in/create-form-from-agent', designId: 'design.create-form.invalid', draftId: 'draft.create-form.invalid' });
     await designStore.publishDraft('draft.create-form.invalid');
@@ -500,16 +541,25 @@ describe('PersistedWorkflowRuntimeService M93', () => {
     expectAgentPromptNoAssetRefClutter(queuedAt(queued, 0).prompt);
     expect(queuedAt(queued, 0).prompt).toContain('<xs:complexType name="BeadsFormType">');
 
-    const failed = await runtime.completeAgentTurn({
+    const retried = await runtime.completeAgentTurn({
       runId: 'run-create-form-invalid',
       turnId: queuedAt(queued, 0).turnId,
       responseRef: 'bad-form-response',
       finalResponseText: '<decision action="form_created"><formSchema><beadsForm id="bad"><title>Bad form</title></beadsForm></formSchema></decision>',
     });
 
-    expect(failed.run.status).toBe('failed');
-    expect(failed.run.coreSnapshot.blockedReason).toMatchObject({ path: 'latestTransition.parsed.formSchema' });
-    expect(failed.run.events).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'form_artifact_failed' })]));
+    expect(retried.run.status).toBe('running');
+    expect(queuedAt(queued, 1).prompt).toContain('Invalid beads-form XML in formSchema');
+
+    const blocked = await runtime.completeAgentTurn({
+      runId: 'run-create-form-invalid',
+      turnId: queuedAt(queued, 1).turnId,
+      responseRef: 'bad-form-response-2',
+      finalResponseText: '<decision action="form_created"><formSchema><beadsForm id="bad"><title>Bad form</title></beadsForm></formSchema></decision>',
+    });
+
+    expect(blocked.run.status).toBe('blocked');
+    expect(blocked.run.coreSnapshot.blockedReason).toMatchObject({ code: 'WORKFLOW_DECISION_RETRY_EXHAUSTED' });
   });
 
   it('TEST_CASE_M93_1C preserves prompt composition and additional run remark in queued prompt and snapshot', async () => {

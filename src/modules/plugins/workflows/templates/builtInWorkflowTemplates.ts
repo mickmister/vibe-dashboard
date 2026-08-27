@@ -77,7 +77,7 @@ export const BUILT_IN_WORKFLOW_TEMPLATES: WorkflowTemplateCatalogEntry[] = [
     promptAssets: [
       { promptAssetId: 'prompt.drt.dev.implement', version: 1, source: 'built_in', name: 'Dev implementation prompt', bodyMarkdown: 'Implement the requested feature from {{inputs.featureRequest}}. Keep notes on tests and risks.' },
       { promptAssetId: 'prompt.drt.dev.self-review', version: 1, source: 'built_in', name: 'Dev self-review prompt', bodyMarkdown: 'Review your own changes without making code changes during this self-review step. Return only the workflow decision XML: choose ready_for_review when the work is ready, or needs_more_work when you found concerns that need another implementation pass. If you choose needs_more_work, include markdown concerns and an actionable fix plan. After returning the decision XML, wait for the next workflow instruction before making fixes.' },
-      { promptAssetId: 'prompt.drt.review', version: 1, source: 'built_in', name: 'Reviewer prompt', bodyMarkdown: 'Review the implementation and Dev self-review concerns. Approve or request changes with clear markdown remarks.' },
+      { promptAssetId: 'prompt.drt.review', version: 1, source: 'built_in', name: 'Reviewer prompt', bodyMarkdown: 'Review the implementation and Dev self-review concerns. If requesting changes, return a requestedChangesForm beads-form XML payload: each requested change is one choices question; each possible solution is one choice; put Markdown **Pros** and **Cons** sections inside each choice description.' },
       { promptAssetId: 'prompt.drt.tester', version: 1, source: 'built_in', name: 'Tester prompt', bodyMarkdown: 'Test the feature against the request and review approval. Approve, report a bug, or explain why the work is not testable.' },
     ],
     skillAssets: [
@@ -119,7 +119,7 @@ export const BUILT_IN_WORKFLOW_TEMPLATES: WorkflowTemplateCatalogEntry[] = [
           steps: [{ id: 'review', type: 'agent_turn', turnType: 'decision', prompt: { refs: [{ kind: 'prompt', id: 'prompt.drt.review', version: 1 }, { kind: 'skill', id: 'skill.workflow.xml-decision', version: 1 }] }, response: decisionResponse }],
           actions: {
             approved: { label: 'Approved', targetState: 'tester', result: { fields: { remarks: { type: 'markdown' } }, unknownFields: 'reject' } },
-            changes_requested: { label: 'Request changes', targetState: 'dev', result: { fields: { concerns: { type: 'markdown' }, requestedChanges: { type: 'markdown' } }, required: ['requestedChanges'], unknownFields: 'reject' } },
+            changes_requested: { label: 'Request changes', targetState: 'dev', result: { fields: { summary: { type: 'markdown' }, requestedChangesForm: { type: 'markdown', provider: 'beads_form', providerSchema: 'requested_changes_form', description: 'A beads-form XML payload. Each requested change must be one choices question. Each potential solution must be one choice. Include Markdown **Pros** and **Cons** sections inside each choice description; do not use separate pros or cons elements for this workflow.' } }, required: ['summary', 'requestedChangesForm'], unknownFields: 'reject' } },
           },
         },
         tester: {

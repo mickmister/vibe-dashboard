@@ -3927,7 +3927,7 @@ describe("registerWorkflowRoutes", () => {
       "exec-dev-self-1":
         '<decision action="ready_for_review"><summary>Implemented pass one</summary><concerns>Risk noted</concerns></decision>',
       "exec-review-changes":
-        '<decision action="changes_requested"><requestedChanges>Fix review issue</requestedChanges><concerns>Concern</concerns></decision>',
+        '<decision action="changes_requested"><requestedChangesForm><beadsForm id="reviewChanges"><title>Review changes</title><description><![CDATA[Structured review feedback.]]></description><question id="fixPersistence" type="choices" required="true"><title>Fix persistence issue</title><description><![CDATA[The implementation needs a persistence fix.]]></description><choice id="updateStore"><label>Update store</label><description><![CDATA[**Pros**\n- Keeps existing model.\n\n**Cons**\n- Requires focused regression tests.]]></description></choice></question></beadsForm></requestedChangesForm><summary>Review requested structured changes.</summary></decision>',
       "exec-dev-implement-2": "Implemented review fixes.",
       "exec-dev-self-2":
         '<decision action="ready_for_review"><summary>Fixed review issue</summary></decision>',

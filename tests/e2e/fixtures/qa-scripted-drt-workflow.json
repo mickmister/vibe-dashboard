@@ -19,7 +19,7 @@
     {
       "prompt_contains": "Review the implementation",
       "outcome": "completed",
-      "final_message": "<decision action=\"changes_requested\"><requestedChanges>Fix review issue from qa-mode.</requestedChanges><concerns>Reviewer found a representative issue.</concerns></decision>",
+      "final_message": "<decision action=\"changes_requested\"><requestedChangesForm><beadsForm id=\"reviewChanges\"><title>Review changes</title><description><![CDATA[Structured review feedback.]]></description><question id=\"fixPersistence\" type=\"choices\" required=\"true\"><title>Fix persistence issue</title><description><![CDATA[The implementation needs a persistence fix.]]></description><choice id=\"updateStore\"><label>Update store</label><description><![CDATA[**Pros** - Keeps existing model. **Cons** - Requires focused regression tests.]]></description></choice></question></beadsForm></requestedChangesForm><summary>Review requested structured changes.</summary></decision>",
       "session_id": "qa-scripted-review-changes",
       "message_id": "qa-scripted-review-changes",
       "delay_ms": 0

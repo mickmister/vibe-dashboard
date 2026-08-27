@@ -786,7 +786,7 @@ function transitionText(
   );
   for (const [key, value] of Object.entries(transition.parsed ?? {})) {
     if (key === "action" || key === "rawXml" || key === "responseRef") continue;
-    lines.push(`${labelFromId(key)}: ${formatResultValue(value)}`);
+    lines.push(`${resultFieldLabel(key)}: ${formatResultValue(value)}`);
   }
   return { text: lines.join("\n"), truncated: false, maxChars: null };
 }
@@ -828,8 +828,16 @@ function actionLabel(
     : labelFromId(actionId);
 }
 
+function resultFieldLabel(key: string): string {
+  if (key === "requestedChangesForm") return "Requested changes form";
+  return labelFromId(key);
+}
+
 function formatResultValue(value: unknown): string {
-  if (typeof value === "string") return productSafeText(value);
+  if (typeof value === "string") {
+    if (/<\s*beadsForm\b/iu.test(value)) return "Structured form recorded.";
+    return productSafeText(value);
+  }
   if (typeof value === "number" || typeof value === "boolean")
     return String(value);
   if (Array.isArray(value)) return value.map(formatResultValue).join(", ");

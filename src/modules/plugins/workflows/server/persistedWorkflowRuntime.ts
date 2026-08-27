@@ -1598,6 +1598,13 @@ export class SimpleWorkflowXmlDecisionValidator implements DecisionResponseValid
     if (!action) return invalidXml("XML response must include an action");
     const parsed = readSimpleFields(text);
     delete parsed.action;
+    const selectedAction = args.actions[action];
+    if (selectedAction) {
+      const providerValidation = validateProviderResultFields(selectedAction, parsed);
+      if (providerValidation.length > 0) {
+        return { valid: false, errors: providerValidation };
+      }
+    }
     const unknownFields = Object.keys(parsed).filter(
       (key) =>
         !Object.values(args.actions).some(
@@ -1606,6 +1613,41 @@ export class SimpleWorkflowXmlDecisionValidator implements DecisionResponseValid
     );
     return { valid: true, action, rawXml: text, parsed, unknownFields };
   }
+}
+
+function validateProviderResultFields(
+  action: NormalizedWorkflowAction,
+  parsed: Record<string, unknown>,
+): WorkflowRuntimeIssue[] {
+  const issues: WorkflowRuntimeIssue[] = [];
+  for (const [fieldName, spec] of Object.entries(action.result?.fields ?? {})) {
+    if (fieldName !== "formSchema" && spec.provider !== "beads_form") continue;
+    const value = parsed[fieldName];
+    if (value === undefined) continue;
+    const values = Array.isArray(value) ? value : [value];
+    for (const [index, candidate] of values.entries()) {
+      if (typeof candidate !== "string" || !candidate.trim()) {
+        issues.push({
+          code: "WORKFLOW_DECISION_FIELD_TYPE_MISMATCH",
+          path: `result.${fieldName}${Array.isArray(value) ? `.${index}` : ""}`,
+          message: `result field ${fieldName} must contain beads-form XML`,
+        });
+        continue;
+      }
+      try {
+        const form = parseWorkflowBeadsFormSchema(candidate);
+        assertStandardBeadsForm(form);
+        compileBeadsForm(form);
+      } catch (error) {
+        issues.push({
+          code: "WORKFLOW_DECISION_VALIDATION_FAILED",
+          path: `result.${fieldName}${Array.isArray(value) ? `.${index}` : ""}`,
+          message: `Invalid beads-form XML in ${fieldName}: ${error instanceof Error ? error.message : String(error)}`,
+        });
+      }
+    }
+  }
+  return issues;
 }
 
 function readAction(xml: string): string | null {

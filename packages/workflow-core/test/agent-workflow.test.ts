@@ -540,6 +540,42 @@ describe("agent workflow V1 normalization", () => {
     expect(spec).toContain('<xs:enumeration value="choices"/>');
     expect(spec).not.toContain('<xs:element name="formSchema" type="xs:string"');
   });
+
+
+  it("TEST_CASE_9NL3_1A renders beads-form provider XML schema for generic action result fields", () => {
+    const definition = makeDefinition();
+    activeAuthoredState(definition, "devImplementing").actions.readyForReview!.result = {
+      fields: {
+        summary: { type: "markdown" },
+        requestedChangesForm: {
+          type: "markdown",
+          provider: "beads_form",
+          providerSchema: "requested_changes_form",
+          description: "Each requested change is a choices question; each solution choice description includes Markdown Pros and Cons sections.",
+        },
+      },
+      required: ["summary", "requestedChangesForm"],
+      unknownFields: "reject",
+    };
+    const model = normalizeWorkflowDefinitionV1(definition);
+    const snapshot = createInitialWorkflowSnapshot(model, {
+      instanceId: "instance-requested-changes-form-xsd",
+      inputs: { featureRequest: "Build form XML" },
+      now: clock(1_000),
+      createId: ids("visit-requested-changes-form-xsd"),
+    });
+    const state = activeNormalizedState(model.states.devImplementing);
+    const step = state.steps.find((candidate): candidate is AgentWorkflowStepV1 => candidate.type === "agent_turn" && candidate.turnType === "decision")!;
+    const spec = renderExpectedXmlResponseSpec(model, snapshot, step);
+
+    expect(spec).toContain('<xs:element name="requestedChangesForm" minOccurs="1" maxOccurs="1">');
+    expect(spec).toContain("Each requested change is a choices question");
+    expect(spec).toContain('<xs:element name="beadsForm" type="BeadsFormRequestedChangesType" minOccurs="1" maxOccurs="1"/>');
+    expect(spec).toContain('<xs:complexType name="BeadsFormRequestedChangesType">');
+    expect(spec).toContain('<xs:attribute name="type" use="required" fixed="choices"/>');
+    expect(spec).not.toContain('<xs:element name="requestedChangesForm" type="xs:string"');
+  });
+
   it("TEST_CASE_S7OW_1B rejects XML-unsafe response identifiers before XSD generation", () => {
     expectDefinitionError(
       () => {

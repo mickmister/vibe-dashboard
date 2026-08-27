@@ -77,7 +77,7 @@ describe("buildPersistedWorkflowPresentationModel", () => {
           toState: "dev",
           action: "changes_requested",
           responseRef: "response-review-1",
-          parsed: { remarks: "Needs tests" },
+          parsed: { remarks: "Needs tests", requestedChangesForm: "<beadsForm id=\"reviewChanges\"><title>Review changes</title><question id=\"fix\" type=\"choices\"><title>Fix issue</title><choice id=\"update\"><label>Update store</label><description><![CDATA[**Pros** keep model\n\n**Cons** needs tests]]></description></choice></question></beadsForm>" },
         },
         blockedReason: {
           code: "WORKFLOW_DECISION_RETRY_EXHAUSTED",
@@ -143,7 +143,7 @@ describe("buildPersistedWorkflowPresentationModel", () => {
               toState: "dev",
               action: "changes_requested",
               responseRef: "response-review-1",
-              parsed: { remarks: "Needs tests" },
+              parsed: { remarks: "Needs tests", requestedChangesForm: "<beadsForm id=\"reviewChanges\"><title>Review changes</title><question id=\"fix\" type=\"choices\"><title>Fix issue</title><choice id=\"update\"><label>Update store</label><description><![CDATA[**Pros** keep model\n\n**Cons** needs tests]]></description></choice></question></beadsForm>" },
             },
             nextVisitId: "visit-dev-loop",
           },
@@ -326,6 +326,8 @@ describe("buildPersistedWorkflowPresentationModel", () => {
       expect(rendered).toContain("Clean run story page");
       expect(rendered).toContain("Structured response contract included in the agent prompt.");
       expect(rendered).toContain("Remarks: Needs tests");
+      expect(rendered).toContain("Requested changes form: Structured form recorded.");
+      expect(rendered).not.toContain("<beadsForm");
       for (const term of [
         "<xs:schema",
         "raw XML",

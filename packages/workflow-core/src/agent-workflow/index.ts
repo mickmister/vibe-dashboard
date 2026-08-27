@@ -99,6 +99,8 @@ export type ResultFieldSpec = {
   type: "string" | "markdown" | "number" | "boolean";
   multiple?: boolean;
   description?: string;
+  provider?: "beads_form";
+  providerSchema?: "default" | "requested_changes_form";
 };
 
 export type WorkflowActionResultContractV1 = {
@@ -1903,7 +1905,9 @@ function renderActionDecisionType(action: NormalizedWorkflowAction, index: numbe
 
 
 function actionUsesBeadsFormProviderSchema(action: NormalizedWorkflowAction): boolean {
-  return Boolean(action.result?.fields?.formSchema);
+  return Object.entries(action.result?.fields ?? {}).some(
+    ([fieldName, spec]) => fieldName === "formSchema" || spec.provider === "beads_form",
+  );
 }
 
 function renderResultFieldXsdElement(
@@ -1913,16 +1917,27 @@ function renderResultFieldXsdElement(
 ): string[] {
   const minOccurs = required ? 1 : 0;
   const maxOccurs = spec.multiple ? "unbounded" : 1;
-  if (fieldName === "formSchema") {
-    return [
+  if (fieldName === "formSchema" || spec.provider === "beads_form") {
+    const beadsFormType = spec.providerSchema === "requested_changes_form"
+      ? "BeadsFormRequestedChangesType"
+      : "BeadsFormType";
+    const lines = [
       `      <xs:element name="${escapeXmlAttribute(fieldName)}" minOccurs="${minOccurs}" maxOccurs="${maxOccurs}">`,
+    ];
+    if (spec.description?.trim()) {
+      lines.push('        <xs:annotation>');
+      lines.push(`          <xs:documentation>${escapeXmlText(spec.description.trim())}</xs:documentation>`);
+      lines.push('        </xs:annotation>');
+    }
+    lines.push(
       '        <xs:complexType>',
       '          <xs:sequence>',
-      '            <xs:element name="beadsForm" type="BeadsFormType" minOccurs="1" maxOccurs="1"/>',
+      `            <xs:element name="beadsForm" type="${beadsFormType}" minOccurs="1" maxOccurs="1"/>`,
       '          </xs:sequence>',
       '        </xs:complexType>',
       '      </xs:element>',
-    ];
+    );
+    return lines;
   }
   return [
     `      <xs:element name="${escapeXmlAttribute(fieldName)}" type="${xsdScalarType(spec.type)}" minOccurs="${minOccurs}" maxOccurs="${maxOccurs}"/>`,
@@ -1931,6 +1946,32 @@ function renderResultFieldXsdElement(
 
 function renderBeadsFormProviderXsdTypes(): string[] {
   return [
+    '  <xs:complexType name="BeadsFormRequestedChangesType">',
+    '    <xs:sequence>',
+    '      <xs:element name="title" type="xs:string" minOccurs="1" maxOccurs="1"/>',
+    '      <xs:element name="description" type="xs:string" minOccurs="0" maxOccurs="1"/>',
+    '      <xs:element name="question" type="BeadsFormRequestedChangeQuestionType" minOccurs="1" maxOccurs="unbounded"/>',
+    '    </xs:sequence>',
+    '    <xs:attribute name="id" type="BeadsFormIdentifier" use="required"/>',
+    '  </xs:complexType>',
+    '  <xs:complexType name="BeadsFormRequestedChangeQuestionType">',
+    '    <xs:sequence>',
+    '      <xs:element name="title" type="xs:string" minOccurs="1" maxOccurs="1"/>',
+    '      <xs:element name="description" type="xs:string" minOccurs="0" maxOccurs="1"/>',
+    '      <xs:element name="choice" type="BeadsFormRequestedChangeChoiceType" minOccurs="1" maxOccurs="unbounded"/>',
+    '    </xs:sequence>',
+    '    <xs:attribute name="id" type="BeadsFormIdentifier" use="required"/>',
+    '    <xs:attribute name="type" use="required" fixed="choices"/>',
+    '    <xs:attribute name="required" type="xs:boolean" use="optional"/>',
+    '  </xs:complexType>',
+    '  <xs:complexType name="BeadsFormRequestedChangeChoiceType">',
+    '    <xs:sequence>',
+    '      <xs:element name="label" type="xs:string" minOccurs="1" maxOccurs="1"/>',
+    '      <xs:element name="description" type="xs:string" minOccurs="1" maxOccurs="1"/>',
+    '      <xs:element name="recommendedReason" type="xs:string" minOccurs="0" maxOccurs="1"/>',
+    '    </xs:sequence>',
+    '    <xs:attribute name="id" type="BeadsFormIdentifier" use="required"/>',
+    '  </xs:complexType>',
     '  <xs:complexType name="BeadsFormType">',
     '    <xs:sequence>',
     '      <xs:element name="title" type="xs:string" minOccurs="1" maxOccurs="1"/>',
@@ -1993,6 +2034,13 @@ function xsdActionTypeName(actionId: string, index: number): string {
     .replace(/[^A-Za-z0-9_.-]+/g, "_")
     .replace(/^[^A-Za-z_]+/, "_");
   return `Action${index + 1}_${cleaned || "action"}DecisionType`;
+}
+
+function escapeXmlText(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 function escapeXmlAttribute(value: string): string {
@@ -3125,7 +3173,7 @@ function validateResultContract(
     }
     assertKnownKeys(
       field,
-      ["type", "multiple", "description"],
+      ["type", "multiple", "description", "provider", "providerSchema"],
       fieldPath,
       issues,
     );
@@ -3135,6 +3183,46 @@ function validateResultContract(
           "WORKFLOW_CONFIG_INVALID_ACTIVE_STATE",
           `${fieldPath}.type`,
           "field type must be string, markdown, number, or boolean",
+        ),
+      );
+    }
+    if (field.provider !== undefined && field.provider !== "beads_form") {
+      issues.push(
+        issue(
+          "WORKFLOW_CONFIG_INVALID_ACTIVE_STATE",
+          `${fieldPath}.provider`,
+          "field provider must be beads_form",
+        ),
+      );
+    }
+    if (
+      field.providerSchema !== undefined &&
+      field.providerSchema !== "default" &&
+      field.providerSchema !== "requested_changes_form"
+    ) {
+      issues.push(
+        issue(
+          "WORKFLOW_CONFIG_INVALID_ACTIVE_STATE",
+          `${fieldPath}.providerSchema`,
+          "field providerSchema must be default or requested_changes_form",
+        ),
+      );
+    }
+    if (field.providerSchema !== undefined && field.provider !== "beads_form") {
+      issues.push(
+        issue(
+          "WORKFLOW_CONFIG_INVALID_ACTIVE_STATE",
+          `${fieldPath}.providerSchema`,
+          "field providerSchema requires beads_form provider",
+        ),
+      );
+    }
+    if (field.provider === "beads_form" && field.type !== "markdown" && field.type !== "string") {
+      issues.push(
+        issue(
+          "WORKFLOW_CONFIG_INVALID_ACTIVE_STATE",
+          `${fieldPath}.provider`,
+          "beads_form result fields must use string or markdown type",
         ),
       );
     }

@@ -61,32 +61,22 @@ test.describe('Docker qa-mode Dev / Review / Tester persisted workflow', () => {
     const presentation = await waitForPersistedPresentationCompleted(page.request, launchBody.run.runId);
     expect(presentation.workflowName).toBe('Dev / Review / Tester');
     expect(presentation.originalTask).toBe(task);
-    expect(presentation.timeline.map((item) => item.role)).toEqual([
-      'Dev',
-      'Dev',
-      'Review',
-      'Dev',
-      'Dev',
-      'Review',
-      'Tester',
-      'Dev',
-      'Dev',
-      'Review',
-      'Tester',
-    ]);
-    expect(presentation.timeline[2]?.finalResponse?.text).toContain('changes_requested');
-    expect(presentation.timeline[6]?.finalResponse?.text).toContain('bug_found');
-    expect(presentation.timeline.at(-1)?.finalResponse?.text).toContain('Acceptance passed in Docker qa-mode after loops.');
+    const renderedPresentation = JSON.stringify(presentation);
+    expect(renderedPresentation).toContain('Review requested changes; Dev will revise');
+    expect(renderedPresentation).toContain('Requested changes form: Structured form recorded.');
+    expect(renderedPresentation).toContain('Tester found a bug; Dev will revise');
+    expect(renderedPresentation).toContain('Acceptance passed in Docker qa-mode after loops.');
+    expect(renderedPresentation).not.toContain('<beadsForm');
 
     await page.goto(`/dashboard/workflows/${encodeURIComponent(launchBody.run.runId)}`);
     await expect(page.getByRole('heading', { name: 'Dev / Review / Tester' })).toBeVisible();
     const originalTaskSection = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Original task' }) });
     await expect(originalTaskSection.getByText(task, { exact: true })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Timeline' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Run story' })).toBeVisible();
     await expect(page.getByText('Dev').first()).toBeVisible();
     await expect(page.getByText('Review').first()).toBeVisible();
     await expect(page.getByText('Tester').first()).toBeVisible();
-    await expect(page.getByText('Fix review issue from qa-mode.')).toBeVisible();
+    await expect(page.getByText('Structured form recorded.').first()).toBeVisible();
     await expect(page.getByText('Tester found a representative qa-mode bug.')).toBeVisible();
     await expect(page.getByText('Acceptance passed in Docker qa-mode after loops.')).toBeVisible();
 

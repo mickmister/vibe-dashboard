@@ -85,7 +85,7 @@ export function devReviewTesterWorkflowDefinition(): AgentWorkflowDefinitionV1 {
         steps: [{ id: 'review', type: 'agent_turn', turnType: 'decision', prompt: withRefs('Review the implementation.', [{ kind: 'prompt', id: 'prompt.drt.review', version: 1 }, { kind: 'skill', id: 'skill.workflow.xml-decision', version: 1 }]), response: decisionResponse }],
         actions: {
           approved: { label: 'Approved', targetState: 'tester', result: { fields: { remarks: { type: 'markdown' } }, unknownFields: 'reject' } },
-          changes_requested: { label: 'Request changes', targetState: 'dev', result: { fields: { requestedChanges: { type: 'markdown' } }, required: ['requestedChanges'], unknownFields: 'reject' } },
+          changes_requested: { label: 'Request changes', targetState: 'dev', result: { fields: { summary: { type: 'markdown' }, requestedChangesForm: { type: 'markdown', provider: 'beads_form', providerSchema: 'requested_changes_form', description: 'A beads-form XML payload. Each requested change is a choices question; each solution is a choice; choice descriptions include Markdown Pros and Cons sections.' } }, required: ['summary', 'requestedChangesForm'], unknownFields: 'reject' } },
         },
       },
       tester: {
@@ -198,7 +198,7 @@ export function denseTransitionWorkflowDefinition(): AgentWorkflowDefinitionV1 {
         actions: {
           approved_for_testing: { label: 'Approved for tester validation', targetState: 'tester', result: { fields: { remarks: { type: 'markdown' } }, unknownFields: 'reject' } },
           needs_security_review: { label: 'Needs security review before testing', targetState: 'security', result: { fields: { concerns: { type: 'markdown' } }, unknownFields: 'reject' } },
-          changes_requested: { label: 'Request changes from developer', targetState: 'dev', result: { fields: { requestedChanges: { type: 'markdown' } }, required: ['requestedChanges'], unknownFields: 'reject' } },
+          changes_requested: { label: 'Request changes from developer', targetState: 'dev', result: { fields: { summary: { type: 'markdown' }, requestedChangesForm: { type: 'markdown', provider: 'beads_form', providerSchema: 'requested_changes_form', description: 'A beads-form XML payload. Each requested change is a choices question; each solution is a choice; choice descriptions include Markdown Pros and Cons sections.' } }, required: ['summary', 'requestedChangesForm'], unknownFields: 'reject' } },
         },
       },
       security: {

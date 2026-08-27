@@ -554,7 +554,8 @@ describe("WorkflowGraphEditorView prompt and skill picker", () => {
   it("TEST_CASE_NZEK_1C updates generated XSD with state selection and reports non-decision unavailable", () => {
     const review = renderEditorResponseXsd(wizardDefinition(), "review");
     expect(review.xsd).toContain('<xs:enumeration value="changes_requested"/>');
-    expect(review.xsd).toContain('<xs:element name="requestedChanges" type="xs:string" minOccurs="1" maxOccurs="1"/>');
+    expect(review.xsd).toContain('<xs:element name="requestedChangesForm" minOccurs="1" maxOccurs="1">');
+    expect(review.xsd).toContain('<xs:element name="beadsForm" type="BeadsFormRequestedChangesType" minOccurs="1" maxOccurs="1"/>');
     expect(review.xsd).not.toContain('<xs:enumeration value="ready"/>');
 
     const dev = renderEditorResponseXsd(wizardDefinition(), "dev");
@@ -1185,8 +1186,8 @@ function wizardDefinition(): AgentWorkflowDefinitionV1 {
             label: "Request changes",
             targetState: "dev",
             result: {
-              fields: { requestedChanges: { type: "markdown" } },
-              required: ["requestedChanges"],
+              fields: { requestedChangesForm: { type: "markdown", provider: "beads_form", providerSchema: "requested_changes_form" } },
+              required: ["requestedChangesForm"],
               unknownFields: "reject",
             },
           },
