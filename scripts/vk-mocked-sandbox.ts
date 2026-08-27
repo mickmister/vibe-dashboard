@@ -1,7 +1,7 @@
 import { createServer } from 'node:net';
 import { access, chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { isAbsolute, join, resolve } from 'node:path';
+import { isAbsolute, join, resolve, sep } from 'node:path';
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
 import { promisify } from 'node:util';
@@ -57,6 +57,13 @@ export interface PortAllocator {
 const DEFAULT_PORT_START = 50_000;
 const MAX_PORT = 65_535;
 const SANDBOX_CADDYFILE_NAME = 'Caddyfile';
+export const EMPTY_PLUGIN_CADDY_STUB = `# VD plugin-owned Caddy routes.
+# Safe no-op route used when no plugins expose HTTP services.
+@vd_no_plugin_routes path /__vd-no-plugin-routes__
+handle @vd_no_plugin_routes {
+	respond "No plugin routes are configured." 404
+}
+`;
 const CHILD_SHUTDOWN_TIMEOUT_MS = 5_000;
 const CI_RELEASE_BACKEND_MODE = 'ci-release';
 const FULL_SHA_PATTERN = /^[0-9a-f]{40}$/i;
@@ -524,8 +531,13 @@ export async function allocatePorts(
   };
 }
 
-export async function loadSandboxCaddyfile(vdRoot: string): Promise<string> {
-  return await readFile(join(vdRoot, SANDBOX_CADDYFILE_NAME), 'utf8');
+export async function loadSandboxCaddyfile(vdRoot: string, env: NodeJS.ProcessEnv = process.env): Promise<string> {
+  const configured = env.VK_MOCKED_CADDYFILE?.trim() || SANDBOX_CADDYFILE_NAME;
+  const caddyfilePath = resolve(vdRoot, configured);
+  if (!caddyfilePath.startsWith(resolve(vdRoot) + sep) && caddyfilePath !== resolve(vdRoot)) {
+    throw new Error('VK_MOCKED_CADDYFILE must resolve inside the VD checkout.');
+  }
+  return await readFile(caddyfilePath, 'utf8');
 }
 
 export function createSandboxPlan(input: {
@@ -760,7 +772,7 @@ function getConfiguredPublicOrigin(env: NodeJS.ProcessEnv): string | null {
 export async function writeSandboxFiles(plan: SandboxPlan): Promise<void> {
   await mkdir(plan.paths.runDir, { recursive: true });
   await writeFile(join(plan.paths.runDir, 'Caddyfile'), plan.caddyfile);
-  await writeFile(join(plan.paths.runDir, 'plugins.caddy'), '');
+  await writeFile(join(plan.paths.runDir, 'plugins.caddy'), EMPTY_PLUGIN_CADDY_STUB);
   await writeFile(
     join(plan.paths.runDir, 'env.sh'),
     Object.entries(plan.env)
@@ -900,7 +912,7 @@ async function main(): Promise<void> {
   const ports = await allocatePorts();
   const workspaceRoot = resolve(process.cwd(), '..');
   const vdRoot = resolve(workspaceRoot, 'vibe-kanban-vscode-web');
-  const caddyfile = await loadSandboxCaddyfile(vdRoot);
+  const caddyfile = await loadSandboxCaddyfile(vdRoot, process.env);
   const configuredVkCheckout = process.env.VK_CHECKOUT?.trim();
   const vkRoot = resolve(workspaceRoot, configuredVkCheckout || 'Vktest');
   let env = process.env;

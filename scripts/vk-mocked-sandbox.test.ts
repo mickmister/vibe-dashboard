@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -8,6 +10,7 @@ import {
   allocatePorts,
   childProcessSignalTarget,
   createSandboxPlan,
+  EMPTY_PLUGIN_CADDY_STUB,
   downloadCiReleaseArtifactFromEnv,
   findFreePort,
   loadSandboxCaddyfile,
@@ -15,6 +18,8 @@ import {
   type PortAllocator,
 } from './vk-mocked-sandbox';
 import { isSandboxRuntimeProcessLine } from './e2e-vk-mocked-sandbox-fixtures';
+
+const execFileAsync = promisify(execFile);
 
 describe('VK mocked sandbox helpers', () => {
   it('finds the first available port at or above the requested start', async () => {
@@ -132,6 +137,16 @@ describe('VK mocked sandbox helpers', () => {
     ).rejects.toThrow(
       'VK_MOCKED_FRONTEND_PORT must not duplicate VK_MOCKED_BACKEND_PORT',
     );
+  });
+
+  it('loads alternate mocked-sandbox Caddyfile from VK_MOCKED_CADDYFILE', async () => {
+    const caddyfile = await loadSandboxCaddyfile(process.cwd(), {
+      VK_MOCKED_CADDYFILE: 'Caddyfile.workflow-e2e',
+    } as NodeJS.ProcessEnv);
+
+    expect(caddyfile).not.toContain('vk_preview_resolver');
+    expect(caddyfile).toContain('handle_path /vk-api/*');
+    await expect(loadSandboxCaddyfile(process.cwd(), { VK_MOCKED_CADDYFILE: '../Caddyfile' } as NodeJS.ProcessEnv)).rejects.toThrow('inside the VD checkout');
   });
 
   it('loads the committed Caddy front door with /vk-api routed to VK backend', async () => {
@@ -663,9 +678,12 @@ describe('VK mocked sandbox helpers', () => {
 
       await writeSandboxFiles(plan);
 
-      await expect(readFile(join(runDir, 'plugins.caddy'), 'utf8')).resolves.toBe(
-        '',
-      );
+      const pluginCaddy = await readFile(join(runDir, 'plugins.caddy'), 'utf8');
+      expect(pluginCaddy).toBe(EMPTY_PLUGIN_CADDY_STUB);
+      expect(pluginCaddy.trim()).not.toBe('');
+      const wrapperCaddyfile = join(runDir, 'Caddyfile.test');
+      await writeFile(wrapperCaddyfile, `:0 {\n\timport ${join(runDir, 'plugins.caddy')}\n}\n`);
+      await expect(execFileAsync('caddy', ['adapt', '--config', wrapperCaddyfile, '--adapter', 'caddyfile'])).resolves.toBeTruthy();
       await expect(readFile(join(runDir, 'env.sh'), 'utf8')).resolves.toContain(
         `export CADDY_PLUGINS_CADDY="${join(runDir, 'plugins.caddy')}"`,
       );
