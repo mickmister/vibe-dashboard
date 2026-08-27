@@ -252,6 +252,50 @@ textarea {
   resize: vertical;
 }
 
+.beadsform-root textarea.beadsform-markdown-source-hidden {
+  display: none;
+}
+
+.beadsform-root .beadsform-markdown-editor-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin: 0.45rem 0 0.65rem;
+}
+
+.beadsform-root .beadsform-markdown-editor-toolbar[hidden] {
+  display: none;
+}
+
+.beadsform-root .beadsform-markdown-editor-tab {
+  border-radius: 999px;
+  padding: 0.4rem 0.75rem;
+  font-size: 0.85rem;
+}
+
+.beadsform-root .beadsform-markdown-editor-tab.is-active {
+  border-color: #60a5fa;
+  background: #1e3a8a;
+}
+
+.beadsform-root .beadsform-markdown-editor-hint {
+  color: #a1a1aa;
+  font-size: 0.82rem;
+}
+
+.beadsform-root .beadsform-markdown-preview {
+  min-height: 8rem;
+  border: 1px solid #3f3f46;
+  border-radius: 0.75rem;
+  background: #111113;
+  padding: 0.85rem;
+}
+
+.beadsform-root .beadsform-markdown-preview[hidden] {
+  display: none;
+}
+
 .beadsform-root button,
 .beadsform-root input[type="submit"] {
   border: 1px solid #71717a;

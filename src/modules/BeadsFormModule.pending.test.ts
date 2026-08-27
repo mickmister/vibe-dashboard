@@ -30,6 +30,15 @@ describe('BeadsForm pending queue UI source', () => {
     expect(source).not.toContain('Normalized submitted response JSON');
   });
 
+  it('initializes Markdown textarea previews through the shared selected-form paths', async () => {
+    const source = await readFile(new URL('./BeadsFormModule.tsx', import.meta.url), 'utf8');
+
+    expect(source).toContain('initializeMarkdownTextareaEditors(host);');
+    expect(source).toContain('refreshMarkdownTextareaEditors(host);');
+    expect(source).toContain('initializeMarkdownTextareaEditors(element);');
+    expect(source).toContain('refreshMarkdownTextareaEditors(element);');
+  });
+
   it('sets aggregate success before awaiting clipboard completion', async () => {
     const source = await readFile(new URL('./BeadsFormModule.tsx', import.meta.url), 'utf8');
 

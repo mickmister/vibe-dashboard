@@ -32,6 +32,7 @@ import { rewriteFolderPreviewMediaRefs } from '../lib/beadsFormPreviewMedia';
 import { shouldHydrateRefreshedWorkspaceForms } from '../lib/beadsFormRefreshState';
 import { initializeSingleQuestionMode, prehideInactiveSingleQuestionItems } from '../lib/beadsFormSingleQuestion';
 import { initializeCompactMoreInfo, refreshCompactMoreInfoState } from '../lib/beadsFormMoreInfo';
+import { initializeMarkdownTextareaEditors, refreshMarkdownTextareaEditors } from '../lib/beadsFormMarkdownEditor';
 import { preserveSubmittedFormDom } from '../lib/beadsFormSubmissionUi';
 import {
   copySubmittedResultHandoffXml,
@@ -594,6 +595,8 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
     }
     initializeCompactMoreInfo(host);
     refreshCompactMoreInfoState(host);
+    initializeMarkdownTextareaEditors(host);
+    refreshMarkdownTextareaEditors(host);
 
     const locked = submittedLockedRef.current || (!!snapshot.latest && !snapshot.editing);
     submittedLockedRef.current = locked;
@@ -620,6 +623,8 @@ function BeadsFormPreviewRoute({ actions }: { actions: {
     if (!host || !loaded?.selectedForm) return;
     initializeCompactMoreInfo(host);
     refreshCompactMoreInfoState(host);
+    initializeMarkdownTextareaEditors(host);
+    refreshMarkdownTextareaEditors(host);
   }, [loaded?.selectedForm, selectedHtml]);
 
   React.useEffect(() => {
@@ -969,6 +974,8 @@ function AggregateBeadsFormCard({ item, submitBeadForm }: {
     if (host) {
       initializeCompactMoreInfo(host);
       refreshCompactMoreInfoState(host);
+      initializeMarkdownTextareaEditors(host);
+      refreshMarkdownTextareaEditors(host);
     }
   }, [editResponseVersion, form, html, storageKey]);
 
@@ -978,6 +985,8 @@ function AggregateBeadsFormCard({ item, submitBeadForm }: {
     if (form.format === 'standard') initializeSingleQuestionMode(element, { urlState: false });
     initializeCompactMoreInfo(element);
     refreshCompactMoreInfoState(element);
+    initializeMarkdownTextareaEditors(element);
+    refreshMarkdownTextareaEditors(element);
   }, [editResponseVersion, form, html]);
 
   const handleDraftChange = () => {
@@ -1321,6 +1330,8 @@ function BeadsFormRoute({ actions, pendingQueueSentinel }: { actions: {
     if (host) {
       initializeCompactMoreInfo(host);
       refreshCompactMoreInfoState(host);
+      initializeMarkdownTextareaEditors(host);
+      refreshMarkdownTextareaEditors(host);
     }
     const locked = submittedLockedRef.current || (!!(backendValues ?? snapshot.latest) && !snapshot.editing);
     submittedLockedRef.current = locked;
@@ -1341,6 +1352,8 @@ function BeadsFormRoute({ actions, pendingQueueSentinel }: { actions: {
     if (!host || !loaded?.selected?.selectedForm) return;
     initializeCompactMoreInfo(host);
     refreshCompactMoreInfoState(host);
+    initializeMarkdownTextareaEditors(host);
+    refreshMarkdownTextareaEditors(host);
   }, [loaded?.selected?.selectedForm, selectedHtml]);
 
   React.useEffect(() => {

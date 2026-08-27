@@ -91,6 +91,7 @@ function keepTextareaVisible(textarea: HTMLTextAreaElement): void {
 function setTextareaOpen(textarea: HTMLTextAreaElement, open: boolean): void {
   textarea.hidden = !open;
   buttonForTextarea(textarea)?.setAttribute('aria-expanded', String(open));
+  textarea.dispatchEvent(new Event('beadsform:textarea-visibility-change'));
 }
 
 function updateButtonState(textarea: HTMLTextAreaElement): void {
