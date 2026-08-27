@@ -21,6 +21,7 @@ workflow_vk_ref="${WORKFLOW_VK_REF:-}"
 repository_dispatch_vk_ref="${REPOSITORY_DISPATCH_VK_REF:-}"
 repository_dispatch_vk_source_ref="${REPOSITORY_DISPATCH_VK_SOURCE_REF:-}"
 repository_dispatch_vk_source_ref_name="${REPOSITORY_DISPATCH_VK_SOURCE_REF_NAME:-}"
+vk_asset_fallback_policy="${VK_ASSET_FALLBACK_POLICY:-fallback-default-branch-only}"
 
 die() {
   echo "::error::$*" >&2
@@ -220,11 +221,15 @@ resolve_asset_fallback_if_needed() {
     return 0
   fi
 
-  if [[ "$event_name" != "push" || "$vk_branch" != "$default_branch" || -z "$vk_commit" ]]; then
+  if [[ -z "$vk_commit" ]]; then
     return 0
   fi
 
   if vk_assets_exist "$vk_commit"; then
+    return 0
+  fi
+
+  if [[ "$vk_resolution_source" != "fallback_default_branch" && "$vk_asset_fallback_policy" != "allow-matching-branch-fallback" ]]; then
     return 0
   fi
 
