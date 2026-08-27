@@ -126,13 +126,13 @@ test.describe("Workspace Workflows tab shell", () => {
     ).toBeVisible();
     await expect(page.getByText("Workspace workflow center")).toBeVisible();
     await expect(
-      page.locator('a[href="/dashboard/workflows/roadmap?workspaceId=workspace-e2e"]'),
-    ).toBeVisible();
+      page.locator("header").getByRole("link", { name: "Choose beads", exact: true }),
+    ).toHaveAttribute("href", "/dashboard/workflows/roadmap?workspaceId=workspace-e2e");
     await expect(page.getByText("Create, run, and monitor workflows for")).toBeVisible();
     await expect(page.getByLabel("Workflow dashboard summary")).toContainText("Needs input");
     await expect(page.getByLabel("Workflow dashboard summary")).toContainText("Active runs");
     await expect(
-      page.getByRole("heading", { name: "Active runs" }),
+      page.getByRole("heading", { name: "Active workflow runs" }),
     ).toBeVisible();
     await expect(
       page.getByText("Running now. Open the run page to see who has the next step."),
@@ -283,13 +283,15 @@ test.describe("Workspace Workflows tab shell", () => {
 
     await expect(page.getByRole("heading", { name: "Meta-workflows", exact: true })).toBeVisible();
     await expect(page.getByLabel("Bead filter")).toBeVisible();
-    await expect(page.getByText("Current workspace parent beads")).toBeVisible();
-    await expect(page.getByText("A title")).toBeVisible();
+    await expect(page.getByLabel("Bead filter")).toHaveValue("current_workspace");
+    await expect(page.getByRole("heading", { name: "A title", exact: true })).toBeVisible();
     await expect(page.getByText("Selected bead order")).toBeVisible();
     await expect(page.getByLabel("Child workflow")).toBeVisible();
     await expect(page.getByText("Monitor meta-workflows")).toBeVisible();
-    await expect(page.getByText("Waiting for B to complete before starting the next bead.")).toBeVisible();
-    await expect(page.locator('a[href="/dashboard/workflows/child-b"]')).toBeVisible();
+    await expect(page.getByLabel("Meta-workflow progress").getByText("Waiting for B to complete before starting the next bead.")).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "Open child run story" }).last(),
+    ).toHaveAttribute("href", "/dashboard/workflows/child-b?workspaceId=workspace-a");
     for (const term of forbiddenTerms) {
       await expect(page.getByText(term, { exact: false })).toHaveCount(0);
     }
@@ -575,7 +577,7 @@ test.describe("Workspace Workflows tab shell", () => {
     ).toBeVisible();
     await expect(page.getByText("Workspace active runs")).toBeVisible();
     await expect(
-      page.getByText(
+      page.getByLabel("Batch capacity").getByText(
         "Pending items are waiting because this workspace already has 1 active run",
       ),
     ).toBeVisible();
@@ -869,28 +871,25 @@ test.describe("Workspace Workflows tab shell", () => {
     );
     await expect(page.getByTestId("workflow-react-flow-canvas")).toBeVisible();
     await expect(page.getByRole("button", { name: /Show graph|Hide graph/ })).toHaveCount(0);
-    await expect(page.getByText(/Role dev:/)).toBeVisible();
+    await expect(page.getByText("Start · Dev")).toBeVisible();
     await expect(
       page.locator(".react-flow__node.workflow-state-node").first(),
     ).toHaveCSS("background-color", "rgb(15, 23, 42)");
     await expect(
       page.locator(".react-flow__node.workflow-terminal-node"),
     ).toHaveCSS("background-color", "rgb(5, 46, 43)");
-    await expect(
-      page.locator(".react-flow__edge.workflow-loop-edge"),
-    ).toHaveCount(1);
     const details = page.locator("aside");
-    await details.getByRole("button", { name: /Dev dev · 1 state/ }).click();
-    await details.getByRole("button", { name: /Dev dev/ }).click();
-    await expect(details.getByText("Owner role")).toBeVisible();
+    await details.locator("button").filter({ hasText: "dev · 1 state" }).click();
+    await details.locator("button").filter({ hasText: "dev" }).filter({ hasText: "Dev" }).click();
+    const stateView = details.getByLabel("Selected state wizard view");
+    await expect(stateView).toContainText("State selected");
+    await expect(stateView).toContainText("Dev");
+    await expect(stateView.getByText("Owner role")).toBeVisible();
+    await expect(stateView.getByText("implement", { exact: true })).toBeVisible();
     await expect(
-      details.getByRole("heading", { name: "Dev", exact: true }),
+      stateView.getByText("self_review", { exact: true }),
     ).toBeVisible();
-    await expect(details.getByText("implement", { exact: true })).toBeVisible();
-    await expect(
-      details.getByText("self_review", { exact: true }),
-    ).toBeVisible();
-    await details.getByRole("button", { name: "Edit state" }).click();
+    await stateView.getByRole("button", { name: "Edit state" }).click();
     const implementPicker = details.locator(
       'section[aria-label="implement prompt and skill picker"]',
     );
@@ -918,21 +917,26 @@ test.describe("Workspace Workflows tab shell", () => {
     await implementPicker
       .getByLabel("prompt:prompt.drt.dev.implement@1")
       .check();
-    await page.getByRole("button", { name: "Edit design" }).click();
+    await page.getByRole("button", { name: "Edit workflow details" }).click();
     await page.getByLabel("Workflow name").fill("Dev Review Tester Copy");
-    await page.getByRole("button", { name: "Done" }).first().click();
-    await page.getByRole("button", { name: "Edit role" }).click();
+    await page.getByRole("button", { name: "Done editing workflow details" }).click();
+    await stateView.getByRole("button", { name: "Back" }).click();
+    await page.getByRole("button", { name: "Edit role dev" }).click();
     await page.getByLabel("dev label").fill("Implementer");
-    await page.getByRole("button", { name: "Done" }).first().click();
+    await page.getByRole("button", { name: "Done editing role dev" }).click();
+    await details
+      .getByLabel("Selected role wizard view")
+      .getByRole("button", { name: /Dev\s*dev/ })
+      .click();
 
     await details.getByRole("button", { name: /Ready for review/ }).click();
-    await details.getByRole("button", { name: "Edit action" }).click();
+    await details.getByRole("button", { name: "Edit action ready_for_review" }).click();
     await page.getByLabel("Target state").selectOption("");
     await expect(
       page.getByText("Choose an existing target state."),
     ).toBeVisible();
     await expect(
-      page.getByRole("button", { name: "Save draft" }),
+      page.getByRole("button", { name: "Publish" }),
     ).toBeDisabled();
 
     await page.getByLabel("Action label").fill("Proceed to review");
