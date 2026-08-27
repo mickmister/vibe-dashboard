@@ -77,8 +77,8 @@ test.describe('Docker qa-mode Dev / Review / Tester persisted workflow', () => {
     await expect(page.getByText('Review').first()).toBeVisible();
     await expect(page.getByText('Tester').first()).toBeVisible();
     await expect(page.getByText('Structured form recorded.').first()).toBeVisible();
-    await expect(page.getByText('Tester found a representative qa-mode bug.')).toBeVisible();
-    await expect(page.getByText('Acceptance passed in Docker qa-mode after loops.')).toBeVisible();
+    await expect(page.getByText('Tester found a representative qa-mode bug.').first()).toBeVisible();
+    await expect(page.getByText('Acceptance passed in Docker qa-mode after loops.').first()).toBeVisible();
 
     await page.goto(`/dashboard/workflows?workspaceId=${encodeURIComponent(workspace.id)}`);
     await expect(page.getByRole('heading', { name: 'Workflows', exact: true })).toBeVisible();
