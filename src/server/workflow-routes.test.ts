@@ -553,6 +553,26 @@ describe("registerWorkflowRoutes", () => {
       },
     });
 
+    const bodyTemplateUse = await app.request(
+      "/dashboard/api/workflow-templates/use",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          templateId: "built-in/ask-teammate",
+          workspaceId: "workspace-a",
+          designId: "design.ask.body.route",
+          draftId: "draft.ask.body.route",
+          publish: true,
+        }),
+      },
+    );
+    expect(bodyTemplateUse.status).toBe(201);
+    await expect(bodyTemplateUse.json()).resolves.toMatchObject({
+      design: { designId: "design.ask.body.route", latestPublishedVersion: 1 },
+      version: { designId: "design.ask.body.route", version: 1 },
+    });
+
     const editor = await app.request(
       "/dashboard/api/workflow-designs/design.drt.route/editor",
     );

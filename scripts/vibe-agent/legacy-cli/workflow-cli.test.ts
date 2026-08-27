@@ -107,7 +107,10 @@ describe('vibe-agent workflow CLI foundation', () => {
     process.env.VK_SESSION_ID = 'caller-session';
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
       if (url.endsWith('/dashboard/api/workflows/home?workspaceId=workspace-a')) return json({ home: { workspaceId: 'workspace-a', userWorkflows: [], starterTemplates: [workflow('built-in/ask-teammate', 'Ask teammate', 'template')] } });
-      if (url.endsWith('/dashboard/api/workflow-templates/built-in%2Fask-teammate/use')) return json({ design: { designId: 'design-ask', name: 'Ask teammate', latestPublishedVersion: 1 }, version: { version: 1 } }, 201);
+      if (url.endsWith('/dashboard/api/workflow-templates/use')) {
+        expect(JSON.parse(String(init?.body))).toMatchObject({ templateId: 'built-in/ask-teammate', workspaceId: 'workspace-a', publish: true });
+        return json({ design: { designId: 'design-ask', name: 'Ask teammate', latestPublishedVersion: 1 }, version: { version: 1 } }, 201);
+      }
       if (url.endsWith('/dashboard/api/workflows/launch-options?workspaceId=workspace-a&designId=design-ask&version=1')) return json({ options: { workspaceId: 'workspace-a', workflow: { ...workflow('design-ask', 'Ask teammate'), version: 1, roles: [{ id: 'teammate', label: 'Teammate' }] }, sessions: [] } });
       if (url.endsWith('/dashboard/api/workflows/launch')) {
         const body = JSON.parse(String(init?.body));

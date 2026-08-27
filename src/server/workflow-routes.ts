@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Hono } from "hono";
+import type { Context, Hono } from "hono";
 import type { Kysely } from "kysely";
 import {
   WORKFLOW_EXECUTOR_MODEL_OPTIONS,
@@ -969,10 +969,9 @@ export function registerWorkflowRoutes(
     }
   });
 
-  hono.post("/dashboard/api/workflow-templates/:templateId/use", async (c) => {
-    const templateId = decodeURIComponent(
-      c.req.param("templateId") ?? "",
-    ).trim();
+  const useWorkflowTemplate = async (c: Context, templateIdFromPath?: string) => {
+    const body = asRecord(await readJsonBody(c.req.raw));
+    const templateId = (templateIdFromPath ?? asString(body?.templateId) ?? "").trim();
     if (!templateId)
       return c.json(
         {
@@ -981,7 +980,6 @@ export function registerWorkflowRoutes(
         },
         400,
       );
-    const body = asRecord(await readJsonBody(c.req.raw));
     const db = options.workflowHomeDb ?? (await getVdDb()).db;
     const designStore =
       options.workflowDesignStore ??
@@ -1024,7 +1022,18 @@ export function registerWorkflowRoutes(
       const message = error instanceof Error ? error.message : String(error);
       return c.json({ error: "workflow_template_use_failed", message }, 400);
     }
-  });
+  };
+
+  hono.post("/dashboard/api/workflow-templates/use", (c) =>
+    useWorkflowTemplate(c),
+  );
+
+  hono.post("/dashboard/api/workflow-templates/:templateId/use", (c) =>
+    useWorkflowTemplate(
+      c,
+      decodeURIComponent(c.req.param("templateId") ?? ""),
+    ),
+  );
 
   hono.post("/dashboard/api/workflow-designs", async (c) => {
     const body = asRecord(await readJsonBody(c.req.raw));

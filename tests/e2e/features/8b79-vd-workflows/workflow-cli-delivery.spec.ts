@@ -8,7 +8,7 @@
  */
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { expect, test, type APIRequestContext } from 'playwright/test';
+import { expect, test, type APIRequestContext, type TestInfo } from 'playwright/test';
 
 const execFileAsync = promisify(execFile);
 const sandboxUrl = process.env.VK_MOCKED_SANDBOX_URL ?? 'http://127.0.0.1:50005';
@@ -28,15 +28,15 @@ test.describe('NKYC workflow CLI delivery proof', () => {
     const callerSessionId = await firstSessionIdForWorkspace(request, workspace.id);
     const unique = Date.now();
 
-    await execFileAsync('npm', ['run', 'build:vibe-agent-cli'], { cwd: process.cwd(), timeout: 120_000 });
-    const run = await execFileAsync('node', [
+    await execWorkflowCli(testInfo, 'build-vibe-agent-cli', 'npm', ['run', 'build:vibe-agent-cli'], { cwd: process.cwd(), timeout: 120_000 });
+    const run = await execWorkflowCli(testInfo, 'nkyc-cli-run', 'node', [
       'bin/vibe-agent',
       'workflow',
       'run',
       'ask-teammate',
       '--workspace', workspace.id,
       '--input', 'role=reviewer',
-      '--input', `request=NKYC_STEP:ask_teammate Please answer delivery proof ${unique}`,
+      '--input', `request=NKYC_STEP:ask_teammate Please answer workflow proof ${unique}`,
       '--input', 'successCriteria=Return the deterministic response.',
       '--caller-session', callerSessionId,
       '--json',
@@ -45,8 +45,6 @@ test.describe('NKYC workflow CLI delivery proof', () => {
       env: { ...process.env, VIBE_API_URL: sandboxUrl, VK_WORKSPACE_ID: workspace.id, VK_SESSION_ID: callerSessionId },
       timeout: 120_000,
     });
-    await testInfo.attach('nkyc-cli-run-stdout.json', { body: run.stdout, contentType: 'application/json' });
-    await testInfo.attach('nkyc-cli-run-stderr.txt', { body: run.stderr || '', contentType: 'text/plain' });
     expect(run.stderr).toBe('');
     const launched = JSON.parse(run.stdout) as { runId: string; runUrl: string; nextAction: string; completionResponse?: { expected?: boolean } };
     expect(launched.runId).toContain('workflow-run-');
@@ -59,27 +57,60 @@ test.describe('NKYC workflow CLI delivery proof', () => {
     expect(JSON.stringify(presentation)).toContain('CLI teammate response completed');
     expect(JSON.stringify(presentation)).not.toMatch(forbidden);
 
-    const result = await execFileAsync('node', ['bin/vibe-agent', 'workflow', 'result', launched.runId, '--json'], {
+    const result = await execWorkflowCli(testInfo, 'nkyc-cli-result', 'node', ['bin/vibe-agent', 'workflow', 'result', launched.runId, '--json'], {
       cwd: process.cwd(),
       env: { ...process.env, VIBE_API_URL: sandboxUrl, VK_WORKSPACE_ID: workspace.id, VK_SESSION_ID: callerSessionId },
       timeout: 60_000,
     });
-    await testInfo.attach('nkyc-cli-result-stdout.json', { body: result.stdout, contentType: 'application/json' });
     const resultJson = JSON.parse(result.stdout) as { status: string; finalResult: unknown[] };
     expect(resultJson.status).toBe('completed');
     expect(JSON.stringify(resultJson)).not.toMatch(forbidden);
 
-    await expect.poll(async () => {
-      const activity = await request.get(new URL('/vk-api/activity', sandboxUrl).toString());
-      if (!activity.ok()) return '';
-      return JSON.stringify(await activity.json());
-    }, { timeout: 120_000, intervals: [1_000, 2_000, 5_000] }).toContain(callerSessionId);
+    const callerResponse = await pollCallerLatestResponse(request, callerSessionId);
+    await testInfo.attach('nkyc-caller-latest-response.json', { body: JSON.stringify(callerResponse, null, 2), contentType: 'application/json' });
+    expect(JSON.stringify(callerResponse)).toContain('Workflow completion response received by caller session.');
+    expect(JSON.stringify(callerResponse)).not.toMatch(forbidden);
   });
 });
 
+async function execWorkflowCli(
+  testInfo: TestInfo,
+  label: string,
+  command: string,
+  args: string[],
+  options: Parameters<typeof execFile>[2],
+): Promise<{ stdout: string; stderr: string }> {
+  try {
+    const result = await execFileAsync(command, args, options);
+    const stdout = String(result.stdout ?? '');
+    const stderr = String(result.stderr ?? '');
+    await testInfo.attach(`${label}-stdout.txt`, { body: stdout, contentType: 'text/plain' });
+    await testInfo.attach(`${label}-stderr.txt`, { body: stderr, contentType: 'text/plain' });
+    return { stdout, stderr };
+  } catch (error) {
+    const failure = error as Error & { stdout?: string; stderr?: string; code?: number | string | null };
+    await testInfo.attach(`${label}-stdout.txt`, { body: failure.stdout || '', contentType: 'text/plain' });
+    await testInfo.attach(`${label}-stderr.txt`, { body: failure.stderr || '', contentType: 'text/plain' });
+    throw new Error([
+      `${label} failed${failure.code === undefined || failure.code === null ? '' : ` with code ${failure.code}`}.`,
+      `Command: ${command} ${args.join(' ')}`,
+      'stdout:',
+      failure.stdout || '(empty)',
+      'stderr:',
+      failure.stderr || '(empty)',
+    ].join('\n'));
+  }
+}
+
 async function expectDashboardHealth(request: APIRequestContext) {
-  const response = await request.get(new URL('/dashboard/api/workflows/health', sandboxUrl).toString());
-  expect(response.ok(), await response.text()).toBe(true);
+  await expect.poll(async () => {
+    const response = await request.get(new URL('/dashboard/api/workflows/health', sandboxUrl).toString(), { headers: { Accept: 'application/json' } });
+    if (!response.ok()) return `http-${response.status()}`;
+    const contentType = response.headers()['content-type'] ?? '';
+    if (!contentType.includes('application/json')) return 'non-json';
+    const body = await response.json() as { ok?: boolean };
+    return body.ok === true ? 'ready' : 'not-ready';
+  }, { timeout: 120_000, intervals: [500, 1_000, 2_000] }).toBe('ready');
 }
 
 async function firstWorkspace(request: APIRequestContext): Promise<{ id: string }> {
@@ -100,10 +131,22 @@ async function firstSessionIdForWorkspace(request: APIRequestContext, workspaceI
   return sessionId;
 }
 
+async function pollCallerLatestResponse(request: APIRequestContext, sessionId: string): Promise<unknown> {
+  let last: unknown = null;
+  await expect.poll(async () => {
+    const response = await request.get(new URL(`/vk-api/sessions/${encodeURIComponent(sessionId)}/latest-response`, sandboxUrl).toString(), { headers: { Accept: 'application/json' } });
+    if (!response.ok()) return `http-${response.status()}`;
+    const body = await response.json() as { data?: { content?: string | null } | null };
+    last = body.data ?? null;
+    return body.data?.content ?? 'pending';
+  }, { timeout: 120_000, intervals: [1_000, 2_000, 5_000] }).toContain('Workflow completion response received by caller session.');
+  return last;
+}
+
 async function pollPresentation(request: APIRequestContext, runId: string, status: string): Promise<unknown> {
   let last: unknown = null;
   await expect.poll(async () => {
-    const response = await request.get(new URL(`/dashboard/api/workflow-instances/${encodeURIComponent(runId)}/presentation`, sandboxUrl).toString());
+    const response = await request.get(new URL(`/dashboard/api/workflow-instances/${encodeURIComponent(runId)}/presentation`, sandboxUrl).toString(), { headers: { Accept: 'application/json' } });
     if (!response.ok()) return `http-${response.status()}`;
     const body = await response.json() as { presentation?: { status?: string } };
     last = body.presentation ?? null;

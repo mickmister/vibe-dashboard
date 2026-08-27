@@ -2744,9 +2744,9 @@ async function fetchWorkflowCliPresentation(runId: string): Promise<WorkflowCliP
 }
 
 async function materializeWorkflowTemplateForCli(workflow: WorkflowCliSummary, workspaceId: string): Promise<WorkflowCliSummary> {
-  const response = await dashboardRequest(`/dashboard/api/workflow-templates/${encodeURIComponent(workflow.id)}/use`, {
+  const response = await dashboardRequest('/dashboard/api/workflow-templates/use', {
     method: 'POST',
-    body: JSON.stringify({ workspaceId, name: workflow.title, description: workflow.description ?? null, publish: true }),
+    body: JSON.stringify({ templateId: workflow.id, workspaceId, name: workflow.title, description: workflow.description ?? null, publish: true }),
   }) as { design?: { designId: string; name: string; latestPublishedVersion: number | null }, version?: { version: number } };
   const designId = response.design?.designId;
   if (!designId) throw new Error('Workflow starter copy did not return a design id.');
@@ -3011,15 +3011,25 @@ function readWorkflowJson(value: string): unknown {
 
 async function dashboardRequest(pathname: string, init: RequestInit = {}): Promise<unknown> {
   const base = config.BASE_URL.replace(/\/+$/, '');
-  const response = await fetch(`${base}${pathname}`, {
+  const url = `${base}${pathname}`;
+  const response = await fetch(url, {
     ...init,
-    headers: { 'Content-Type': 'application/json', ...init.headers },
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json', ...init.headers },
   });
   const text = await response.text();
-  const parsed = text ? JSON.parse(text) as unknown : null;
+  let parsed: unknown = null;
+  if (text) {
+    try {
+      parsed = JSON.parse(text) as unknown;
+    } catch {
+      const preview = productSafeWorkflowCliText(text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(), 240);
+      throw new Error(`Workflow API returned a non-JSON response (${response.status}) for ${pathname}: ${preview || 'empty response'}`);
+    }
+  }
   if (!response.ok) {
-    const message = parsed && typeof parsed === 'object' && 'error' in parsed ? String((parsed as { error: unknown }).error) : text;
-    throw new Error(`Workflow API failed (${response.status}): ${message}`);
+    const record = parsed && typeof parsed === 'object' ? parsed as { error?: unknown; message?: unknown } : null;
+    const message = record?.message ?? record?.error ?? text;
+    throw new Error(`Workflow API failed (${response.status}) for ${pathname}: ${String(message)}`);
   }
   return parsed;
 }

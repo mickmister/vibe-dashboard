@@ -3,7 +3,7 @@
     {
       "prompt_contains": "NKYC_STEP:ask_teammate",
       "outcome": "completed",
-      "final_message": "<decision action=\"responded\"><summary>CLI teammate response completed through qa-mode.</summary><response>The workflow CLI delivery proof received a deterministic teammate response.</response><followUp>None.</followUp></decision>",
+      "final_message": "<decision action=\"responded\"><summary>CLI teammate response completed through qa-mode.</summary><response>The workflow CLI proof received a deterministic teammate response.</response><followUp>None.</followUp></decision>",
       "session_id": "qa-scripted-nkyc-ask-teammate",
       "message_id": "qa-scripted-nkyc-ask-teammate",
       "delay_ms": 0
