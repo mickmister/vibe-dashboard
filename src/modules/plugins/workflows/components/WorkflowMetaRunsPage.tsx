@@ -210,8 +210,8 @@ export function WorkflowMetaRunsView(props: {
               <option value="">Choose workflow</option>
               {props.workflows.map((workflow) => <option key={workflow.id} value={workflow.id}>{safeWorkflowText(workflow.title)}{workflow.version ? ` v${workflow.version}` : ""}</option>)}
             </select>
-            {props.invalidSelected?.length ? <p className="mt-2 text-xs text-rose-200">Remove completed, archived, removed, or inaccessible beads before queueing.</p> : null}
-            <button className="mt-3 w-full rounded-md bg-cyan-500 px-3 py-2 text-sm font-medium text-zinc-950 disabled:opacity-50" disabled={!props.canStart} onClick={props.onReviewStart}>Review queue summary</button>
+            {props.invalidSelected?.length ? <p className="mt-2 text-xs text-rose-200">Remove completed, archived, removed, or inaccessible beads before starting.</p> : null}
+            <button className="mt-3 w-full rounded-md bg-cyan-500 px-3 py-2 text-sm font-medium text-zinc-950 disabled:opacity-50" disabled={!props.canStart} onClick={props.onReviewStart}>Review start summary</button>
             {!props.canStart ? <p className="mt-2 text-xs text-zinc-400">Select at least one non-duplicate active bead and a published child workflow.</p> : null}
             {props.confirming ? <div className="mt-3 rounded-lg border border-cyan-900 bg-cyan-950/30 p-3 text-sm text-cyan-50"><div className="font-medium">Confirm sequential meta-workflow</div><p className="mt-1">Workspace {safeWorkflowText(props.workspaceId)} · {props.selected.length} beads · {safeWorkflowText(props.workflows.find((workflow) => workflow.id === props.childWorkflowId)?.title ?? "Child workflow")}</p><p className="mt-1 text-xs text-cyan-100/80">Payload includes only bead ids in order, workspace id, and the pinned child workflow/version.</p><button className="mt-3 w-full rounded-md border border-cyan-600 px-3 py-2 text-sm text-cyan-100" onClick={props.onConfirmStart}>Confirm and start</button></div> : null}
           </Panel>

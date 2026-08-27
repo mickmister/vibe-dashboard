@@ -45,6 +45,7 @@ import { buildWorkspaceWorkflowsHomeModel } from "../modules/plugins/workflows/s
 import {
   DbWorkflowDesignStore,
   WorkflowDesignValidationError,
+  type WorkflowRoleTemplateReadModel,
 } from "../modules/plugins/workflows/server/workflowDesignStore";
 import {
   PersistedWorkflowRuntimeService,
@@ -570,19 +571,7 @@ export function registerWorkflowRoutes(
         preview: asset.bodyMarkdown.slice(0, 240),
         bodyMarkdown: asset.bodyMarkdown,
       })),
-      roleTemplates: roleTemplates.map((template) => ({
-        id: template.roleTemplateId,
-        version: template.version,
-        name: template.name,
-        description: template.description,
-        source: template.source,
-        promptPreview: template.promptMarkdown.slice(0, 240),
-        promptMarkdown: template.promptMarkdown,
-        promptRefs: template.promptRefs,
-        skillRefs: template.skillRefs,
-        executorPreference: template.executorPreference,
-        active: template.active,
-      })),
+      roleTemplates: roleTemplates.map(mapWorkflowRoleTemplateAssetForApi),
     });
   });
 
@@ -675,7 +664,7 @@ export function registerWorkflowRoutes(
         skillRefs: Array.isArray(body?.skillRefs) ? body.skillRefs as never : [],
         executorPreference: asRecord(body?.executorPreference) as never,
       });
-      return c.json({ roleTemplate: created });
+      return c.json({ roleTemplate: mapWorkflowRoleTemplateAssetForApi(created) }, 201);
     } catch (error) {
       if (error instanceof WorkflowDesignValidationError) {
         return c.json(
@@ -2113,6 +2102,22 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object"
     ? (value as Record<string, unknown>)
     : null;
+}
+
+function mapWorkflowRoleTemplateAssetForApi(template: WorkflowRoleTemplateReadModel) {
+  return {
+    id: template.roleTemplateId,
+    version: template.version,
+    name: template.name,
+    description: template.description,
+    source: template.source,
+    promptPreview: template.promptMarkdown.slice(0, 240),
+    promptMarkdown: template.promptMarkdown,
+    promptRefs: template.promptRefs,
+    skillRefs: template.skillRefs,
+    executorPreference: template.executorPreference,
+    active: template.active,
+  };
 }
 
 function asString(value: unknown): string | undefined {

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { StandaloneDashboardPage } from '../../../../components/StandaloneDashboardPage';
+import { workflowRouteHref } from './workflowRouteContext';
 import { fetchWorkspaceWorkflowsHome, useWorkflowTemplate, type WorkspaceWorkflowSummary } from '../client/workflowsHomeApi';
 import { createWorkflowDesign } from '../client/workflowDesignEditorApi';
 import { buildBlankWorkflowDefinition, buildWizardGraphPreview, type WorkflowWizardDraft } from './workflowWizardModel';
@@ -29,10 +30,10 @@ export function WorkflowCreationWizardPage(): React.ReactElement {
     : sourceMode === 'starter' && sourceId
       ? { ...initialDraft, sourceMode: 'starter' as const, sourceId }
       : undefined;
-  return <WorkflowCreationWizardView workspaceId={workspaceId} userWorkflows={home?.userWorkflows ?? []} starterTemplates={home?.starterTemplates ?? []} loadError={loadError} initialDraft={initial} />;
+  return <WorkflowCreationWizardView workspaceId={workspaceId} userWorkflows={home?.userWorkflows ?? []} starterTemplates={home?.starterTemplates ?? []} loadError={loadError} initialDraft={initial} routeParams={params} />;
 }
 
-export function WorkflowCreationWizardView({ workspaceId, userWorkflows, starterTemplates, loadError, initialDraft: initialDraftOverride }: { workspaceId: string; userWorkflows: WorkspaceWorkflowSummary[]; starterTemplates: WorkspaceWorkflowSummary[]; loadError?: string | null; initialDraft?: WorkflowWizardDraft }): React.ReactElement {
+export function WorkflowCreationWizardView({ workspaceId, userWorkflows, starterTemplates, loadError, initialDraft: initialDraftOverride, routeParams }: { workspaceId: string; userWorkflows: WorkspaceWorkflowSummary[]; starterTemplates: WorkspaceWorkflowSummary[]; loadError?: string | null; initialDraft?: WorkflowWizardDraft; routeParams?: URLSearchParams }): React.ReactElement {
   const [draft, setDraft] = useState<WorkflowWizardDraft>(initialDraftOverride ?? initialDraft);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<{ designId: string; draftId: string | null; version: number | null } | null>(null);
@@ -85,7 +86,7 @@ export function WorkflowCreationWizardView({ workspaceId, userWorkflows, starter
         <p className="mt-2 text-sm text-zinc-400">Start from a starter template, duplicate an existing design, or create an empty draft. Graph editor remains available for advanced edits.</p>
       </header>
       {error ? <div role="alert" className="rounded-lg border border-amber-900 bg-amber-950/30 p-4 text-sm text-amber-100">{error}</div> : null}
-      {result ? <ResultPanel result={result} workspaceId={workspaceId} published={result.version != null} /> : null}
+      {result ? <ResultPanel result={result} workspaceId={workspaceId} published={result.version != null} routeParams={routeParams} /> : null}
 
       <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
         <div className="space-y-4">
@@ -166,6 +167,8 @@ function TextArea({ label, value, onChange }: { label: string; value: string; on
   return <label className="block"><span className="text-sm font-medium">{label}</span><textarea className="mt-2 min-h-20 w-full rounded-md border border-zinc-700 bg-zinc-900 p-3 text-sm" value={value} onChange={(event) => onChange(event.target.value)} /></label>;
 }
 
-function ResultPanel({ result, workspaceId, published }: { result: { designId: string; draftId: string | null; version: number | null }; workspaceId: string; published: boolean }) {
-  return <section aria-label="Wizard result" className="rounded-xl border border-emerald-900 bg-emerald-950/20 p-5"><h2 className="font-semibold text-emerald-100">Workflow saved</h2><p className="mt-2 text-sm text-emerald-50">{published ? `Published v${result.version}. This workflow is runnable from the Workflows tab.` : 'Saved as draft. Publish it before running.'}</p><div className="mt-3 flex flex-wrap gap-3"><a className="rounded-md border border-emerald-800 px-3 py-2 text-sm text-emerald-100 hover:bg-emerald-950/40" href={`/dashboard/workflows/editor/${result.designId}`}>Open graph editor</a><a className="rounded-md border border-cyan-900 px-3 py-2 text-sm text-cyan-200 hover:bg-cyan-950/40" href={`/dashboard/workflows?workspaceId=${encodeURIComponent(workspaceId)}`}>{published ? 'Run from Workflows tab' : 'Back to Workflows tab'}</a></div></section>;
+export function ResultPanel({ result, workspaceId, published, routeParams }: { result: { designId: string; draftId: string | null; version: number | null }; workspaceId: string; published: boolean; routeParams?: URLSearchParams }) {
+  const context = routeParams ?? new URLSearchParams();
+  const workspaceParam = workspaceId || context.get('workspaceId') || context.get('workspace') || null;
+  return <section aria-label="Wizard result" className="rounded-xl border border-emerald-900 bg-emerald-950/20 p-5"><h2 className="font-semibold text-emerald-100">Workflow saved</h2><p className="mt-2 text-sm text-emerald-50">{published ? `Published v${result.version}. This workflow is runnable from the Workflows tab.` : 'Saved as draft. Publish it before running.'}</p><div className="mt-3 flex flex-wrap gap-3"><a className="rounded-md border border-emerald-800 px-3 py-2 text-sm text-emerald-100 hover:bg-emerald-950/40" href={workflowRouteHref(`/dashboard/workflows/editor/${encodeURIComponent(result.designId)}`, context, { workspaceId: workspaceParam })}>Open graph editor</a><a className="rounded-md border border-cyan-900 px-3 py-2 text-sm text-cyan-200 hover:bg-cyan-950/40" href={workflowRouteHref('/dashboard/workflows', context, { workspaceId: workspaceParam })}>{published ? 'Run from Workflows tab' : 'Back to Workflows tab'}</a></div></section>;
 }

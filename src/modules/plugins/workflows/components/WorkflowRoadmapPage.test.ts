@@ -66,8 +66,8 @@ describe("WorkflowRoadmapView", () => {
     expect(html).toContain("Completed milestones are hidden by default.");
     expect(html).toContain("Showing 4 of 20 milestones");
     expect(html).toContain("Show completed");
-    expect(html).toContain("Meta-workflow queue");
-    expect(html).toContain("Choose a workspace before queueing selected roadmap beads");
+    expect(html).toContain("Meta-workflow start list");
+    expect(html).toContain("Choose a workspace before starting selected roadmap beads");
     expect(html).toContain("roadmapStatus=blocked");
     expect(html).not.toContain("Workflow design store and prompt/skill library");
   });
@@ -85,7 +85,7 @@ describe("WorkflowRoadmapView", () => {
     );
 
     expect(html).toContain("Select roadmap beads below");
-    expect(html).toContain("Select beads to queue");
+    expect(html).toContain("Select beads to start");
     expect(html).toContain("Select Workflow roadmap and multi-bead progress UI");
     expect(html).not.toContain("/beads/project");
   });

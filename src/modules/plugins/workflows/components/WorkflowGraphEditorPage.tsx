@@ -2127,7 +2127,7 @@ function EdgeEditor({
           <label className="mt-4 block text-sm">
             <span className="font-medium">Handoff prompt</span>
             <span className="mt-1 block text-xs text-zinc-500">
-              Optional transition context available to the target state's next prompt. This is not a separate queued message.
+              Optional transition context available to the target state's next prompt. This is not a separate agent message.
             </span>
             <textarea
               aria-label={`${edge.actionId} handoff prompt`}

@@ -1012,9 +1012,23 @@ function normalizeRoleTemplateRefs(refs: WorkflowAssetRef[], kind: WorkflowAsset
   const normalized: WorkflowAssetRef[] = [];
   const issues: WorkflowConfigIssue[] = [];
   for (const [index, ref] of refs.entries()) {
-    if (ref.kind !== kind) continue;
+    if (ref.kind !== kind) {
+      issues.push({
+        code: 'WORKFLOW_CONFIG_INVALID_REFERENCE',
+        path: `roleTemplates.new.${kind}Refs.${index}.kind`,
+        message: `${kind} attachments must reference ${kind} assets`,
+      });
+      continue;
+    }
     const id = ref.id.trim();
-    if (!id) continue;
+    if (!id) {
+      issues.push({
+        code: 'WORKFLOW_CONFIG_REQUIRED_FIELD',
+        path: `roleTemplates.new.${kind}Refs.${index}.id`,
+        message: `${kind} attachment id is required`,
+      });
+      continue;
+    }
     const versionMode = ref.versionMode === 'pinned' || ref.version != null ? 'pinned' : 'latest';
     const version = versionMode === 'pinned' ? ref.version : undefined;
     if (versionMode === 'pinned' && (!Number.isInteger(version) || version == null || version < 1)) {

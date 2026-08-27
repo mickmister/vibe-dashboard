@@ -51,8 +51,6 @@ describe("registerWorkflowRoutes", () => {
     });
   });
 
-
-
   it("TEST_CASE_M120A_1A exposes lane overview and creation without raw host paths", async () => {
     const handle = await initVdDb({ path: ":memory:" });
     dbHandles.push(handle);
@@ -1238,8 +1236,6 @@ describe("registerWorkflowRoutes", () => {
     expect(skillCreated.status).toBe(201);
     await expect(skillCreated.json()).resolves.toMatchObject({ skillAsset: { id: "skill.review.security", version: 1, bodyMarkdown: "Check auth, data exposure, and rollback risk." } });
 
-
-
     const pinnedRole = await app.request("/dashboard/api/workflow-role-templates", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1253,10 +1249,12 @@ describe("registerWorkflowRoutes", () => {
         executorPreference: { executorType: "CODEX", model: "gpt-5-codex", mode: "preferred" },
       }),
     });
-    expect(pinnedRole.status).toBe(200);
+    expect(pinnedRole.status).toBe(201);
     await expect(pinnedRole.json()).resolves.toMatchObject({
       roleTemplate: {
-        roleTemplateId: "role.review.security",
+        id: "role.review.security",
+        version: 1,
+        promptPreview: "Review carefully.",
         promptRefs: [expect.objectContaining({ kind: "prompt", id: "prompt.review.security", versionMode: "pinned", version: 1 })],
         skillRefs: [expect.objectContaining({ kind: "skill", id: "skill.review.security", versionMode: "latest" })],
       },
@@ -1287,7 +1285,48 @@ describe("registerWorkflowRoutes", () => {
       executorPreference: { executorType: "CODEX", model: "gpt-5-codex", mode: "preferred" },
     });
 
+    const wrongKindPromptRef = await app.request("/dashboard/api/workflow-role-templates", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        roleTemplateId: "role.bad.kind",
+        version: 1,
+        name: "Bad kind role",
+        promptMarkdown: "Prompt",
+        promptRefs: [{ kind: "skill", id: "skill.review.security", versionMode: "latest" }],
+      }),
+    });
+    expect(wrongKindPromptRef.status).toBe(400);
+    await expect(wrongKindPromptRef.json()).resolves.toMatchObject({
+      error: "workflow_role_template_invalid",
+      issues: [expect.objectContaining({
+        code: "WORKFLOW_CONFIG_INVALID_REFERENCE",
+        path: "roleTemplates.new.promptRefs.0.kind",
+        message: "prompt attachments must reference prompt assets",
+      })],
+    });
 
+
+    const wrongKindSkillRef = await app.request("/dashboard/api/workflow-role-templates", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        roleTemplateId: "role.bad.skill.kind",
+        version: 1,
+        name: "Bad skill kind role",
+        promptMarkdown: "Prompt",
+        skillRefs: [{ kind: "prompt", id: "prompt.review.security", versionMode: "latest" }],
+      }),
+    });
+    expect(wrongKindSkillRef.status).toBe(400);
+    await expect(wrongKindSkillRef.json()).resolves.toMatchObject({
+      error: "workflow_role_template_invalid",
+      issues: [expect.objectContaining({
+        code: "WORKFLOW_CONFIG_INVALID_REFERENCE",
+        path: "roleTemplates.new.skillRefs.0.kind",
+        message: "skill attachments must reference skill assets",
+      })],
+    });
 
     const missingPinnedVersion = await app.request("/dashboard/api/workflow-role-templates", {
       method: "POST",

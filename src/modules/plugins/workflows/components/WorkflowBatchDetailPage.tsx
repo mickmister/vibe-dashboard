@@ -69,7 +69,7 @@ export function WorkflowBatchDetailView({ batch, loading, error, onRefresh, rout
             eyebrow="Batch run"
             title={batch.workflowName}
             status={batch.status}
-            description={batch.capacity.explanation ?? 'Batch run progress across queued workflow items.'}
+            description={batch.capacity.explanation ?? 'Batch run progress across workflow items waiting to start.'}
             counts={progressCounts}
             currentItem={currentItem}
           />

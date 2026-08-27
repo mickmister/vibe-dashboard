@@ -86,7 +86,6 @@ describe('DbWorkflowDesignStore M91 foundation', () => {
       contentHash: originalV1?.contentHash,
     });
 
-
     await expect(store.createRoleTemplate({
       roleTemplateId: 'role.bad.pinned',
       version: 1,
@@ -98,6 +97,37 @@ describe('DbWorkflowDesignStore M91 foundation', () => {
       issues: [expect.objectContaining({
         code: 'WORKFLOW_CONFIG_INVALID_REFERENCE',
         path: 'roleTemplates.new.promptRefs.0.version',
+      })],
+    });
+
+    await expect(store.createRoleTemplate({
+      roleTemplateId: 'role.bad.kind',
+      version: 1,
+      source: 'user',
+      name: 'Bad kind role',
+      promptMarkdown: 'Prompt',
+      promptRefs: [{ kind: 'skill', id: 'skill.testing.notes', versionMode: 'latest' }],
+    })).rejects.toMatchObject({
+      issues: [expect.objectContaining({
+        code: 'WORKFLOW_CONFIG_INVALID_REFERENCE',
+        path: 'roleTemplates.new.promptRefs.0.kind',
+        message: 'prompt attachments must reference prompt assets',
+      })],
+    });
+
+
+    await expect(store.createRoleTemplate({
+      roleTemplateId: 'role.bad.skill.kind',
+      version: 1,
+      source: 'user',
+      name: 'Bad skill kind role',
+      promptMarkdown: 'Prompt',
+      skillRefs: [{ kind: 'prompt', id: 'prompt.dev.instructions', versionMode: 'latest' }],
+    })).rejects.toMatchObject({
+      issues: [expect.objectContaining({
+        code: 'WORKFLOW_CONFIG_INVALID_REFERENCE',
+        path: 'roleTemplates.new.skillRefs.0.kind',
+        message: 'skill attachments must reference skill assets',
       })],
     });
 
@@ -357,7 +387,6 @@ describe('DbWorkflowDesignStore M91 foundation', () => {
     expect(await store.listDesigns()).toHaveLength(2);
   });
 
-
   it('TEST_CASE_M91_1B marks invalid checked-in templates unavailable and does not leave partial DB records', async () => {
     const invalidTemplate = invalidBuiltInTemplate();
     const { store } = await createStore({ templates: [invalidTemplate] });
@@ -404,8 +433,6 @@ describe('DbWorkflowDesignStore M91 foundation', () => {
     await expect(store.getPromptAsset('prompt.simple-agent.instructions', 1)).resolves.toBeNull();
     await expect(store.getSkillAsset('skill.workflow.markdown-response', 1)).resolves.toBeNull();
   });
-
-
 
   it('TEST_CASE_M98_1A and TEST_CASE_M98_2A catalog built-ins materialize as publishable real workflow designs', async () => {
     const { store } = await createStore({ templates: BUILT_IN_WORKFLOW_TEMPLATES });
@@ -550,7 +577,6 @@ async function seedPromptAssets(
     bodyMarkdown: options.skillBody ?? 'Testing shared skill body.',
   });
 }
-
 
 function invalidBuiltInTemplate(): WorkflowTemplateCatalogEntry {
   return {

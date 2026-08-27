@@ -171,18 +171,18 @@ export function WorkflowRoadmapView({
       ) : null}
 
       {roadmap ? (
-        <section className="rounded-xl border border-slate-800 bg-slate-900/70 p-4" aria-label="Queue selected roadmap beads">
+        <section className="rounded-xl border border-slate-800 bg-slate-900/70 p-4" aria-label="Start selected roadmap beads">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <div className="text-xs uppercase tracking-wide text-cyan-300">Meta-workflow queue</div>
-              <p className="mt-1 text-sm text-zinc-300">Select roadmap beads below, then queue them as a sequential meta-workflow.</p>
+              <div className="text-xs uppercase tracking-wide text-cyan-300">Meta-workflow start list</div>
+              <p className="mt-1 text-sm text-zinc-300">Select roadmap beads below, then start them as a sequential meta-workflow.</p>
               {orderedSelectedBeadIds.length ? <p className="mt-1 text-xs text-zinc-500">Selected {orderedSelectedBeadIds.length} beads in roadmap order.</p> : <p className="mt-1 text-xs text-zinc-500">No beads selected yet.</p>}
-              {!workspaceId ? <p className="mt-1 text-xs text-amber-200">Choose a workspace before queueing selected roadmap beads. Creating a new sub-workspace from here is deferred.</p> : null}
+              {!workspaceId ? <p className="mt-1 text-xs text-amber-200">Choose a workspace before starting selected roadmap beads. Creating a new sub-workspace from here is deferred.</p> : null}
             </div>
             {workspaceId && orderedSelectedBeadIds.length ? (
-              <a className="rounded-md bg-cyan-500 px-3 py-2 text-sm font-medium text-zinc-950 hover:bg-cyan-400" href={queueHref(orderedSelectedBeadIds)}>Review and queue selected</a>
+              <a className="rounded-md bg-cyan-500 px-3 py-2 text-sm font-medium text-zinc-950 hover:bg-cyan-400" href={queueHref(orderedSelectedBeadIds)}>Review and start selected</a>
             ) : (
-              <span className="rounded-md border border-zinc-800 px-3 py-2 text-sm text-zinc-500">{workspaceId ? "Select beads to queue" : "Choose workspace to queue"}</span>
+              <span className="rounded-md border border-zinc-800 px-3 py-2 text-sm text-zinc-500">{workspaceId ? "Select beads to start" : "Choose workspace to start"}</span>
             )}
           </div>
         </section>
@@ -324,7 +324,7 @@ function MilestoneCard({
                 {milestone.title}
               </h2>
             </div>
-            {!canQueueRoadmapItem(milestone) ? <p className="mt-1 text-xs text-zinc-500">Completed or unavailable beads are not queued from the roadmap.</p> : null}
+            {!canQueueRoadmapItem(milestone) ? <p className="mt-1 text-xs text-zinc-500">Completed or unavailable beads are not started from the roadmap.</p> : null}
             <p className="mt-1 text-sm text-zinc-300">{milestone.summary}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">

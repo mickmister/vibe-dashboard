@@ -241,7 +241,7 @@ export function WorkspaceWorkflowsHomeView({
 
       <Section
         title="Start work"
-        description="Choose the next work mode: create a workflow, run one workflow, run over beads, or queue a Batch run."
+        description="Choose the next work mode: create a workflow, run one workflow, run over beads, or start a Batch run."
       >
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <ActionCard
@@ -285,8 +285,8 @@ export function WorkspaceWorkflowsHomeView({
             title="Batch run"
             description={
               home?.workspaceId
-                ? "Use Batch run on a workflow card to queue multiple inputs."
-                : "Choose a workspace before queueing a Batch run."
+                ? "Use Batch run on a workflow card to start multiple inputs."
+                : "Choose a workspace before starting a Batch run."
             }
             anchor="manage-workflows"
             cta={home?.workspaceId ? "Find workflow" : "Choose workspace first"}
@@ -370,7 +370,9 @@ export function WorkspaceWorkflowsHomeView({
               </div>
               <a
                 className="rounded-md border border-zinc-700 px-3 py-2 text-sm text-zinc-100 hover:bg-zinc-800"
-                href={workflowRouteHref("/dashboard/workflows/library", routeParams)}
+                href={workflowRouteHref("/dashboard/workflows/library", routeParams, {
+                  workspaceId: home?.workspaceId ?? null,
+                })}
               >
                 Library
               </a>
@@ -834,11 +836,16 @@ function WorkflowCard({
         ) : null}
         {workflow.source === "template" && workflow.status === "ready" ? (
           <button
-            className="rounded-md border border-cyan-700 px-3 py-2 text-sm text-cyan-100 hover:bg-cyan-950/40 disabled:opacity-50"
+            className="rounded-md border border-cyan-700 px-3 py-2 text-sm text-cyan-100 hover:bg-cyan-950/40 disabled:cursor-not-allowed disabled:opacity-50"
             onClick={handleUseTemplate}
-            disabled={usingTemplate}
+            disabled={usingTemplate || !hasWorkspace}
+            title={hasWorkspace ? undefined : "Choose a workspace before creating an editable copy."}
           >
-            {usingTemplate ? "Creating copy…" : "Create copy"}
+            {usingTemplate
+              ? "Creating copy…"
+              : hasWorkspace
+                ? "Create copy"
+                : "Choose workspace to copy"}
           </button>
         ) : null}
         {workflow.source === "published_design" ? (
@@ -1684,7 +1691,7 @@ function BatchRunWorkflowDialog({
             className="rounded-md bg-cyan-500 px-3 py-2 text-sm font-medium text-zinc-950 disabled:opacity-60"
             disabled={submitting}
           >
-            {submitting ? "Queueing…" : "Queue batch"}
+            {submitting ? "Starting…" : "Start Batch run"}
           </button>
         </div>
       </form>

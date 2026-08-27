@@ -153,6 +153,8 @@ describe("WorkspaceWorkflowsHomeView", () => {
     expect(html).toContain("Choose workspace to run");
     expect(html).toContain("Choose workspace to create lane");
     expect(html).toContain("Choose workspace for meta-workflows");
+    expect(html).toContain("Choose workspace to copy");
+    expect(html).not.toContain(">Create copy</button>");
     expect(html).toContain("Workspace workspace-b");
     expect(html).toContain("Workspace workspace-a");
     expect(html).not.toContain('href="/dashboard/workflows/meta-runs"');

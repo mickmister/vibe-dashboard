@@ -113,7 +113,7 @@ describe("WorkflowMetaRunsView", () => {
     expect(html).toContain("This filter can include beads outside the default workspace scope");
     expect(html).toContain("Duplicate bead selected");
     expect(html).toContain("Child workflow");
-    expect(html).toContain("Review queue summary");
+    expect(html).toContain("Review start summary");
     expect(html).toContain("Monitor meta-workflows");
     expect(html).toContain("A completed via workflow action");
     expect(html).toContain("[redacted-path]");

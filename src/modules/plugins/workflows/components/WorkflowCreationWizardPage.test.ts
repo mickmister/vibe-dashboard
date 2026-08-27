@@ -1,7 +1,7 @@
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { WorkflowCreationWizardView } from './WorkflowCreationWizardPage';
+import { ResultPanel, WorkflowCreationWizardView } from './WorkflowCreationWizardPage';
 import type { WorkspaceWorkflowSummary } from '../client/workflowsHomeApi';
 
 const forbiddenTerms = ['webhook', 'HMAC', 'queue item', 'trigger', 'delivery ID', 'execution process ID', 'runReady', 'raw JSON', 'raw XML', 'fire-and-forget', 'terminal handoff'];
@@ -55,6 +55,18 @@ describe('WorkflowCreationWizardView', () => {
     expect(html).not.toContain('work → done');
     expect(html).not.toContain('decide: agent_turn');
   });
+
+  it('preserves workflow route context in wizard result links', () => {
+    const html = renderToStaticMarkup(React.createElement(ResultPanel, {
+      result: { designId: 'design-created', draftId: 'draft-created', version: 1 },
+      workspaceId: 'workspace-a',
+      published: true,
+      routeParams: new URLSearchParams('workspaceId=workspace-a&voyage=voyage-1&craft=craft-1&filter=active'),
+    }));
+    expect(html).toContain('href="/dashboard/workflows/editor/design-created?workspaceId=workspace-a&amp;voyage=voyage-1&amp;craft=craft-1&amp;filter=active"');
+    expect(html).toContain('href="/dashboard/workflows?workspaceId=workspace-a&amp;voyage=voyage-1&amp;craft=craft-1&amp;filter=active"');
+  });
+
 });
 
 function workflow(id: string, title: string): WorkspaceWorkflowSummary {

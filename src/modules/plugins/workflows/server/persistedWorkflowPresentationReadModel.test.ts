@@ -302,7 +302,7 @@ describe("buildPersistedWorkflowPresentationModel", () => {
           }),
           expect.objectContaining({
             kind: "decision",
-            title: "Review requested changes",
+            title: "Review requested changes; Dev will revise",
           }),
           expect.objectContaining({ kind: "human_form", status: "Answered" }),
           expect.objectContaining({
@@ -322,7 +322,7 @@ describe("buildPersistedWorkflowPresentationModel", () => {
       const rendered = JSON.stringify(presentation);
       expect(rendered).toContain("Action: Ready for review");
       expect(rendered).toContain("Dev self-reviewed");
-      expect(rendered).toContain("Review requested changes");
+      expect(rendered).toContain("Review requested changes; Dev will revise");
       expect(rendered).toContain("Clean run story page");
       expect(rendered).toContain("Structured response contract included in the agent prompt.");
       expect(rendered).toContain("Remarks: Needs tests");

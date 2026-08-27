@@ -494,23 +494,40 @@ function decisionStoryTitle(
   transition: WorkflowTransitionSummary & { toState?: string },
 ): string {
   const role = roleLabel(model, roleForState(model, transition.fromState));
+  const targetRoleId = transition.toState
+    ? roleForState(model, transition.toState)
+    : roleForState(model, transition.fromState);
+  const targetRole = roleLabel(model, targetRoleId);
+  const hasHumanNextRole = targetRoleId !== "workflow" && targetRole !== role;
+  const nextRoleSuffix = hasHumanNextRole ? `; ${targetRole} is next` : "";
   const action = transition.action.toLowerCase();
-  if (action === "ready_for_review") return `${role} self-reviewed`;
+  if (action === "ready_for_review")
+    return hasHumanNextRole
+      ? `${role} self-reviewed; ${targetRole} will review`
+      : `${role} self-reviewed`;
   if (action.includes("changes_requested") || action.includes("request_changes"))
-    return `${role} requested changes`;
+    return hasHumanNextRole
+      ? `${role} requested changes; ${targetRole} will revise`
+      : `${role} requested changes`;
   if (action.includes("needs_more_work") || action.includes("continue_editing"))
-    return `${role} needs more work`;
+    return hasHumanNextRole
+      ? `${role} needs more work; ${targetRole} will revise`
+      : `${role} needs more work before review`;
   if (action.includes("bug_found") || action.includes("failed"))
-    return `${role} found a bug`;
+    return hasHumanNextRole
+      ? `${role} found a bug; ${targetRole} will revise`
+      : `${role} found a bug`;
   if (action.includes("approved") || action === "approve")
-    return `${role} approved`;
+    return hasHumanNextRole
+      ? `${role} approved; ${targetRole} is next`
+      : `${role} approved`;
   if (action.includes("done") || action.includes("complete"))
-    return `${role} completed`;
+    return `${role} completed${nextRoleSuffix}`;
   return `${role} decided ${actionLabel(
     model,
     transition.fromState,
     transition.action,
-  )}`;
+  )}${nextRoleSuffix}`;
 }
 
 function buildCallTree(
