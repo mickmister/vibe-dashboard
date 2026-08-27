@@ -126,7 +126,7 @@ test.describe("Workspace Workflows tab shell", () => {
     ).toBeVisible();
     await expect(page.getByText("Workspace workflow center")).toBeVisible();
     await expect(
-      page.locator('a[href="/dashboard/workflows/roadmap"]'),
+      page.locator('a[href="/dashboard/workflows/roadmap?workspaceId=workspace-e2e"]'),
     ).toBeVisible();
     await expect(page.getByText("Create, run, and monitor workflows for")).toBeVisible();
     await expect(page.getByLabel("Workflow dashboard summary")).toContainText("Needs input");
@@ -180,7 +180,7 @@ test.describe("Workspace Workflows tab shell", () => {
   });
 
   test("shows read-only workflow roadmap route", async ({ page }) => {
-    await page.route("**/dashboard/api/workflows/roadmap", async (route) => {
+    await page.route("**/dashboard/api/workflows/roadmap**", async (route) => {
       await route.fulfill({
         contentType: "application/json",
         body: JSON.stringify({
@@ -195,6 +195,10 @@ test.describe("Workspace Workflows tab shell", () => {
             source: {
               label: "Checked-in workflow roadmap",
               description: "Typed milestone data for this spike.",
+              providerId: "e2e-roadmap",
+              freshness: "live",
+              updatedAt: 1_700_000,
+              warnings: [],
             },
             milestones: [
               {
@@ -207,7 +211,7 @@ test.describe("Workspace Workflows tab shell", () => {
                 reviewState: "passed",
                 nextAction: null,
                 dependencies: [],
-                links: [{ label: "Open bead", href: "/beads/project?bead=vibe-kanban-vscode-web-ehl", kind: "bead" }],
+                links: [],
                 children: [],
               },
               {
@@ -220,7 +224,7 @@ test.describe("Workspace Workflows tab shell", () => {
                 reviewState: "implementation",
                 nextAction: "Finish CKOV implementation and send to review.",
                 dependencies: ["SEBL"],
-                links: [{ label: "Open bead", href: "/beads/project?bead=vibe-kanban-vscode-web-ckov", kind: "bead" }],
+                links: [],
                 children: [
                   {
                     beadId: "vibe-kanban-vscode-web-ckov-readmodel",
@@ -228,7 +232,7 @@ test.describe("Workspace Workflows tab shell", () => {
                     status: "in_progress",
                     summary: "Expose milestone progress as product data.",
                     nextAction: "Finish tests.",
-                    links: [{ label: "Open bead", href: "/beads/project?bead=vibe-kanban-vscode-web-ckov-readmodel", kind: "bead" }],
+                    links: [],
                   },
                 ],
               },
@@ -245,7 +249,7 @@ test.describe("Workspace Workflows tab shell", () => {
     await expect(page.getByLabel("Roadmap status summary")).toContainText("In progress");
     await expect(page.getByText("Workflow roadmap and multi-bead progress UI")).toBeVisible();
     await expect(page.getByText("Typed roadmap read model")).toBeVisible();
-    await expect(page.locator('a[href="/beads/project?bead=vibe-kanban-vscode-web-ckov"]')).toBeVisible();
+    await expect(page.locator('a[href^="/beads/project"]')).toHaveCount(0);
     for (const term of forbiddenTerms) {
       await expect(page.getByText(term, { exact: false })).toHaveCount(0);
     }
@@ -277,7 +281,7 @@ test.describe("Workspace Workflows tab shell", () => {
 
     await page.goto("/dashboard/workflows/meta-runs?workspaceId=workspace-a");
 
-    await expect(page.getByRole("heading", { name: "Meta-workflows" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Meta-workflows", exact: true })).toBeVisible();
     await expect(page.getByLabel("Bead filter")).toBeVisible();
     await expect(page.getByText("Current workspace parent beads")).toBeVisible();
     await expect(page.getByText("A title")).toBeVisible();
@@ -436,11 +440,11 @@ test.describe("Workspace Workflows tab shell", () => {
     await expect(page.getByLabel("Run summary")).toContainText(
       "The workflow resumes when the child workflow completes.",
     );
-    await expect(page.getByRole("heading", { name: "Timeline" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Run story" })).toBeVisible();
     await expect(page.getByText("Loop")).toBeVisible();
     await expect(page.getByText("Reviewer asked for changes.")).toBeVisible();
     await expect(
-      page.getByRole("heading", { name: "Child workflows" }),
+      page.getByRole("heading", { name: "Child workflow story" }),
     ).toBeVisible();
     await expect(
       page.locator('a[href="/dashboard/workflows/child-run"]', {
@@ -448,7 +452,7 @@ test.describe("Workspace Workflows tab shell", () => {
       }),
     ).toBeVisible();
     await expect(
-      page.getByRole("heading", { name: "Outputs and artifacts" }),
+      page.getByRole("heading", { name: "Result and artifacts" }),
     ).toBeVisible();
     await expect(
       page.getByText("workflow-run://child-run/output"),
@@ -458,7 +462,7 @@ test.describe("Workspace Workflows tab shell", () => {
     }
   });
 
-  test("queues a batch run and shows per-item errors", async ({ page }) => {
+  test("starts a batch run and shows per-item errors", async ({ page }) => {
     let batchQueued = false;
     await page.route("**/dashboard/api/workflows/home?**", async (route) => {
       await route.fulfill({
@@ -526,7 +530,7 @@ test.describe("Workspace Workflows tab shell", () => {
       .getByLabel("Batch items")
       .fill('{\"featureRequest\":\"One\"}\n{}');
     await page.getByLabel("Batch session").selectOption("session-dev");
-    await page.getByRole("button", { name: "Queue batch" }).click();
+    await page.getByRole("button", { name: "Start Batch run" }).click();
 
     await expect(
       page.getByText("1 complete · 1 running · 1 pending · 1 errors"),
@@ -564,7 +568,7 @@ test.describe("Workspace Workflows tab shell", () => {
 
     await page.goto("/dashboard/workflow-batches/batch-e2e");
     await expect(
-      page.getByRole("heading", { name: "Dev Review Tester" }),
+      page.getByRole("heading", { name: "Dev Review Tester", exact: true }).first(),
     ).toBeVisible();
     await expect(
       page.getByText("1 complete · 1 running · 1 pending · 1 failed/blocked"),
@@ -663,9 +667,7 @@ test.describe("Workspace Workflows tab shell", () => {
     });
 
     await page.goto("/dashboard/workflows?workspaceId=workspace-e2e");
-    await page
-      .locator('a[href="/dashboard/workflows/new?workspaceId=workspace-e2e"]')
-      .click();
+    await page.getByRole("link", { name: "Create workflow", exact: true }).first().click();
     await expect(
       page.getByRole("heading", { name: "Create workflow" }),
     ).toBeVisible();
@@ -689,7 +691,7 @@ test.describe("Workspace Workflows tab shell", () => {
     );
     await expect(
       page.locator(
-        'a[href="/dashboard/workflows/editor/design-wizard-smoke"]',
+        'a[href="/dashboard/workflows/editor/design-wizard-smoke?workspaceId=workspace-e2e"]',
         { hasText: "Open graph editor" },
       ),
     ).toBeVisible();
@@ -744,7 +746,7 @@ test.describe("Workspace Workflows tab shell", () => {
       .getByRole("button", { name: "Create copy" })
       .click();
     await expect(
-      page.locator('a[href="/dashboard/workflows/editor/design-drt-used"]'),
+      page.locator('a[href="/dashboard/workflows/editor/design-drt-used?workspaceId=workspace-e2e"]'),
     ).toBeVisible();
     await expect(
       page
@@ -857,7 +859,7 @@ test.describe("Workspace Workflows tab shell", () => {
     await page.goto("/dashboard/workflows/editor/design-dev-review-tester");
 
     await expect(
-      page.getByRole("heading", { name: "Dev Review Tester" }),
+      page.getByRole("heading", { name: "Dev Review Tester", exact: true }).first(),
     ).toBeVisible();
     await expect(page.getByTestId("standalone-dashboard-page")).toHaveClass(
       /h-screen/,
@@ -865,10 +867,8 @@ test.describe("Workspace Workflows tab shell", () => {
     await expect(page.getByTestId("standalone-dashboard-page")).toHaveClass(
       /overflow-y-auto/,
     );
-    await expect(page.getByText("Graph preview is collapsed.")).toBeVisible();
-    await expect(page.getByTestId("workflow-react-flow-canvas")).toHaveCount(0);
-    await page.getByRole("button", { name: "Show graph" }).click();
     await expect(page.getByTestId("workflow-react-flow-canvas")).toBeVisible();
+    await expect(page.getByRole("button", { name: /Show graph|Hide graph/ })).toHaveCount(0);
     await expect(page.getByText(/Role dev:/)).toBeVisible();
     await expect(
       page.locator(".react-flow__node.workflow-state-node").first(),
