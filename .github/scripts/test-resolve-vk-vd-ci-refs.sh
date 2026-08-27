@@ -171,6 +171,24 @@ assert_equals "feature/sync" "$(read_output "$output" vk_branch)" "pull request 
 assert_equals "$vk_feature_sha" "$(read_output "$output" vk_commit)" "pull request resolves same-named VK commit"
 assert_equals "vk-${vk_feature_sha:0:7}-vd-${vd_feature_sha:0:7}" "$(read_output "$output" deploy_image_tag)" "pull request uses coordinated deploy tag"
 
+output="$(run_resolver_with_asset_probe \
+  GITHUB_EVENT_NAME=pull_request \
+  PR_NUMBER=44 \
+  PR_HEAD_REF=feature/sync \
+  PR_HEAD_SHA="$vd_feature_sha" \
+  ASSET_PRESENT_SHA="$vk_feature_sha")"
+assert_equals "$vk_feature_sha" "$(read_output "$output" vk_commit)" "pull request matching VK branch waits for exact assets"
+
+assert_fails \
+  "pull request matching VK branch does not fall back while exact assets are pending" \
+  run_resolver_with_asset_probe \
+    GITHUB_EVENT_NAME=pull_request \
+    PR_NUMBER=44 \
+    PR_HEAD_REF=feature/sync \
+    PR_HEAD_SHA="$vd_feature_sha" \
+    ASSET_PRESENT_SHA="" \
+    LATEST_ASSET_SHA="$vk_main_sha"
+
 output="$(run_resolver \
   GITHUB_EVENT_NAME=pull_request \
   PR_NUMBER=45 \
@@ -260,6 +278,16 @@ assert_equals "feature/sync" "$(read_output "$output" vd_branch)" "dispatch sele
 assert_equals "$vd_feature_sha" "$(read_output "$output" vd_commit)" "dispatch resolves same-named VD commit"
 assert_equals "matching_vk_source_branch" "$(read_output "$output" vd_resolution_source)" "dispatch records same-named VD branch resolution source"
 assert_equals "$vk_feature_sha" "$(read_output "$output" vk_commit)" "dispatch preserves VK asset SHA"
+
+assert_fails \
+  "repository dispatch waits for exact dispatched VK SHA when assets are pending" \
+  run_resolver_with_asset_probe \
+    GITHUB_EVENT_NAME=repository_dispatch \
+    REPOSITORY_DISPATCH_VK_REF="$vk_feature_sha" \
+    REPOSITORY_DISPATCH_VK_SOURCE_REF=refs/heads/feature/sync \
+    REPOSITORY_DISPATCH_VK_SOURCE_REF_NAME=feature/sync \
+    ASSET_PRESENT_SHA="" \
+    LATEST_ASSET_SHA="$vk_main_sha"
 
 output="$(run_resolver_with_asset_probe \
   GITHUB_EVENT_NAME=repository_dispatch \

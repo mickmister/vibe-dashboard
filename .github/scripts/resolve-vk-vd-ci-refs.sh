@@ -142,6 +142,9 @@ resolve_vk() {
 
   case "$event_name" in
     pull_request)
+      # Primary coordinated image path for VD-only or paired VK/VD work:
+      # VD PRs resolve a same-named VK branch when it exists, then wait for
+      # that exact VK commit's vk-assets-<sha> release before publishing.
       local candidate_branch="$vd_branch"
       if [[ -n "$(remote_head_sha "$vk_repo_url" "$candidate_branch")" ]]; then
         vk_branch="$candidate_branch"
@@ -152,14 +155,24 @@ resolve_vk() {
       fi
       ;;
     workflow_dispatch)
+      # Manual escape hatch: callers provide an exact VK branch/tag/SHA and the
+      # workflow waits for that exact asset. Do not silently substitute fallback
+      # assets for explicit operator intent.
       vk_branch="${workflow_vk_ref:-main}"
       vk_resolution_source="workflow_dispatch_input"
       ;;
     repository_dispatch)
+      # Follow-up rebuild path from VK release-assets-ready. VK is already
+      # settled by the dispatched SHA; VD resolves a same-named branch when
+      # present, otherwise the default VD branch, then still validates the exact
+      # dispatched VK assets before publishing.
       vk_branch="${repository_dispatch_vk_ref:-main}"
       vk_resolution_source="repository_dispatch_payload"
       ;;
     push)
+      # Primary coordinated image path for pushed VD branches. Prefer a
+      # same-named VK branch and wait for its exact assets so a paired branch
+      # push cannot publish with stale fallback VK assets while VK is building.
       local candidate_branch="$vd_branch"
       if [[ -n "$(remote_head_sha "$vk_repo_url" "$candidate_branch")" ]]; then
         vk_branch="$candidate_branch"
