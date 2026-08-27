@@ -64,7 +64,7 @@ resolve_remote_ref_to_sha() {
     rm -rf "$tmpdir"
     return 1
   }
-  git -C "$tmpdir" rev-parse FETCH_HEAD
+  git -C "$tmpdir" rev-parse 'FETCH_HEAD^{commit}'
   rm -rf "$tmpdir"
 }
 
@@ -110,10 +110,26 @@ resolve_vd() {
     push)
       [[ -n "$event_ref_name" ]] || die "GITHUB_REF_NAME is required for push events"
       [[ -n "$event_sha" ]] || die "GITHUB_SHA is required for push events"
-      vd_branch="$event_ref_name"
-      vd_ref="${event_ref:-$(head_ref "$vd_branch")}"
-      vd_commit="$event_sha"
-      vd_resolution_source="push_ref"
+      if [[ "$event_ref" == refs/tags/* ]]; then
+        # Main release path: pushing a tag at current VD main publishes latest
+        # and deploys the resolved VK/VD image. Keep this intentionally narrow
+        # so arbitrary branch tags cannot become production releases.
+        vd_branch="$default_branch"
+        vd_ref="$event_ref"
+        vd_commit="$(resolve_remote_ref_to_sha "$vd_repo_url" "$vd_ref")" \
+          || die "Unable to resolve VD release tag: ${vd_ref}"
+        local vd_default_commit
+        vd_default_commit="$(remote_head_sha "$vd_repo_url" "$default_branch")"
+        [[ -n "$vd_default_commit" ]] || die "Could not resolve VD ${default_branch}"
+        [[ "$vd_commit" == "$vd_default_commit" ]] \
+          || die "Release tag ${vd_ref} points to ${vd_commit}, but ${default_branch} is ${vd_default_commit}. Move the tag to current ${default_branch} before publishing latest."
+        vd_resolution_source="tag_on_default_branch"
+      else
+        vd_branch="$event_ref_name"
+        vd_ref="${event_ref:-$(head_ref "$vd_branch")}"
+        vd_commit="$event_sha"
+        vd_resolution_source="push_ref"
+      fi
       ;;
     workflow_dispatch)
       if [[ -n "$event_ref_name" ]]; then

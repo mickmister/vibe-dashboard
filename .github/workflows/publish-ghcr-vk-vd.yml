@@ -144,6 +144,7 @@ jobs:
           EVENT_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           EVENT_PR_NUMBER: ${{ needs.resolve-vk-ref.outputs.pr_number }}
           GITHUB_TOKEN: ${{ github.token }}
+          PUBLISH_LATEST: ${{ needs.resolve-vk-ref.outputs.publish_latest }}
         run: |
           set -euo pipefail
 
@@ -154,10 +155,19 @@ jobs:
 
           pr_number=""
           built_pr_head_sha=""
+          deploy_release_tag=false
 
           if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
             pr_number="$EVENT_PR_NUMBER"
             built_pr_head_sha="$EVENT_PR_HEAD_SHA"
+          elif [[ "${GITHUB_EVENT_NAME}" == "push" && "${GITHUB_REF:-}" == refs/tags/* ]]; then
+            if [[ "$PUBLISH_LATEST" != "true" ]]; then
+              echo "::error::Tag push ${GITHUB_REF} did not resolve to a latest-publishable main release."
+              exit 1
+            fi
+
+            deploy_release_tag=true
+            echo "::notice::Deploying main release tag ${GITHUB_REF} using image ${DEPLOY_IMAGE_TAG}."
           elif [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
             associated_prs_json="$(
               curl \
@@ -186,61 +196,63 @@ jobs:
             exit 0
           fi
 
-          if [[ -z "$pr_number" ]]; then
+          if [[ "$deploy_release_tag" != "true" && -z "$pr_number" ]]; then
             echo "::error::PR number was not resolved."
             exit 1
           fi
 
-          if [[ -z "$built_pr_head_sha" ]]; then
+          if [[ "$deploy_release_tag" != "true" && -z "$built_pr_head_sha" ]]; then
             echo "::error::PR head SHA was not resolved."
             exit 1
           fi
 
-          current_pr_json="$(
-            curl \
-              --fail-with-body \
-              --show-error \
-              --silent \
-              --retry 5 \
-              --retry-delay 5 \
-              --retry-all-errors \
-              "https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${pr_number}" \
-              --header "Authorization: Bearer $GITHUB_TOKEN" \
-              --header "Accept: application/vnd.github+json" \
-              --header "X-GitHub-Api-Version: 2022-11-28"
-          )"
+          if [[ "$deploy_release_tag" != "true" ]]; then
+            current_pr_json="$(
+              curl \
+                --fail-with-body \
+                --show-error \
+                --silent \
+                --retry 5 \
+                --retry-delay 5 \
+                --retry-all-errors \
+                "https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${pr_number}" \
+                --header "Authorization: Bearer $GITHUB_TOKEN" \
+                --header "Accept: application/vnd.github+json" \
+                --header "X-GitHub-Api-Version: 2022-11-28"
+            )"
 
-          current_pr_head_sha="$(python3 -c 'import json, sys; print(json.load(sys.stdin)["head"]["sha"])' <<< "$current_pr_json")"
+            current_pr_head_sha="$(python3 -c 'import json, sys; print(json.load(sys.stdin)["head"]["sha"])' <<< "$current_pr_json")"
 
-          if [[ "$current_pr_head_sha" != "$built_pr_head_sha" ]]; then
-            if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
-              echo "::error::PR #${pr_number} is not at the labeled head anymore. Labeled ${built_pr_head_sha}, but current PR head is ${current_pr_head_sha}. Re-add coolify-deploy to deploy the latest PR head."
-              exit 1
+            if [[ "$current_pr_head_sha" != "$built_pr_head_sha" ]]; then
+              if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
+                echo "::error::PR #${pr_number} is not at the labeled head anymore. Labeled ${built_pr_head_sha}, but current PR head is ${current_pr_head_sha}. Re-add coolify-deploy to deploy the latest PR head."
+                exit 1
+              fi
+
+              echo "::notice::PR #${pr_number} moved after this image was published. Published ${built_pr_head_sha}, but current PR head is ${current_pr_head_sha}; skipping stale Coolify deployment."
+              exit 0
             fi
 
-            echo "::notice::PR #${pr_number} moved after this image was published. Published ${built_pr_head_sha}, but current PR head is ${current_pr_head_sha}; skipping stale Coolify deployment."
-            exit 0
-          fi
+            issue_json="$(
+              curl \
+                --fail-with-body \
+                --show-error \
+                --silent \
+                --retry 5 \
+                --retry-delay 5 \
+                --retry-all-errors \
+                "https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${pr_number}" \
+                --header "Authorization: Bearer $GITHUB_TOKEN" \
+                --header "Accept: application/vnd.github+json" \
+                --header "X-GitHub-Api-Version: 2022-11-28"
+            )"
 
-          issue_json="$(
-            curl \
-              --fail-with-body \
-              --show-error \
-              --silent \
-              --retry 5 \
-              --retry-delay 5 \
-              --retry-all-errors \
-              "https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${pr_number}" \
-              --header "Authorization: Bearer $GITHUB_TOKEN" \
-              --header "Accept: application/vnd.github+json" \
-              --header "X-GitHub-Api-Version: 2022-11-28"
-          )"
+            has_deploy_label="$(python3 -c 'import json, sys; issue=json.load(sys.stdin); print("true" if any(label.get("name") == "coolify-deploy" for label in issue.get("labels", [])) else "false")' <<< "$issue_json")"
 
-          has_deploy_label="$(python3 -c 'import json, sys; issue=json.load(sys.stdin); print("true" if any(label.get("name") == "coolify-deploy" for label in issue.get("labels", [])) else "false")' <<< "$issue_json")"
-
-          if [[ "$has_deploy_label" != "true" ]]; then
-            echo "::notice::PR #${pr_number} no longer has the coolify-deploy label; skipping Coolify deployment."
-            exit 0
+            if [[ "$has_deploy_label" != "true" ]]; then
+              echo "::notice::PR #${pr_number} no longer has the coolify-deploy label; skipping Coolify deployment."
+              exit 0
+            fi
           fi
 
           image_ref="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/vk-vd:${DEPLOY_IMAGE_TAG}"
@@ -363,19 +375,23 @@ jobs:
             --header "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
             --header "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET"
 
-          echo "Coolify main deployment webhook notified for PR #${pr_number} using image tag ${DEPLOY_IMAGE_TAG}."
+          if [[ "$deploy_release_tag" == "true" ]]; then
+            echo "Coolify main deployment webhook notified for release tag ${GITHUB_REF} using image tag ${DEPLOY_IMAGE_TAG}."
+          else
+            echo "Coolify main deployment webhook notified for PR #${pr_number} using image tag ${DEPLOY_IMAGE_TAG}."
 
-          curl \
-            --fail-with-body \
-            --show-error \
-            --silent \
-            --retry 5 \
-            --retry-delay 5 \
-            --retry-all-errors \
-            --request DELETE \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${pr_number}/labels/coolify-deploy" \
-            --header "Authorization: Bearer $GITHUB_TOKEN" \
-            --header "Accept: application/vnd.github+json" \
-            --header "X-GitHub-Api-Version: 2022-11-28"
+            curl \
+              --fail-with-body \
+              --show-error \
+              --silent \
+              --retry 5 \
+              --retry-delay 5 \
+              --retry-all-errors \
+              --request DELETE \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${pr_number}/labels/coolify-deploy" \
+              --header "Authorization: Bearer $GITHUB_TOKEN" \
+              --header "Accept: application/vnd.github+json" \
+              --header "X-GitHub-Api-Version: 2022-11-28"
 
-          echo "Removed coolify-deploy label from PR #${pr_number}."
+            echo "Removed coolify-deploy label from PR #${pr_number}."
+          fi

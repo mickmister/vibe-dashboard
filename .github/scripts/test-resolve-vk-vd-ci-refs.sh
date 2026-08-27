@@ -154,6 +154,9 @@ chmod +x "$fakebin/curl" "$fakebin/sleep"
 add_branch_commit "$vd_work" "feature/sync" "vd-feature.txt" "vd feature"
 add_branch_commit "$vk_work" "feature/sync" "vk-feature.txt" "vk feature"
 add_branch_commit "$vd_work" "feature/vd-only" "vd-only.txt" "vd only"
+git -C "$vd_work" tag v-main-release main
+git -C "$vd_work" tag v-feature-release feature/vd-only
+git -C "$vd_work" push --quiet origin v-main-release v-feature-release
 
 vd_feature_sha="$(git -C "$vd_work" rev-parse feature/sync)"
 vd_only_sha="$(git -C "$vd_work" rev-parse feature/vd-only)"
@@ -257,6 +260,29 @@ output="$(run_resolver_with_asset_probe \
   LATEST_ASSET_SHA="$vk_feature_sha")"
 assert_equals "latest_assets_fallback" "$(read_output "$output" vk_resolution_source)" "push falls back to latest assets only when no matching VK branch exists"
 assert_equals "$vk_feature_sha" "$(read_output "$output" vk_commit)" "no matching VK branch fallback uses latest asset SHA"
+
+output="$(run_resolver_with_asset_probe \
+  GITHUB_EVENT_NAME=push \
+  GITHUB_REF=refs/tags/v-main-release \
+  GITHUB_REF_NAME=v-main-release \
+  GITHUB_SHA="$vd_main_sha" \
+  ASSET_PRESENT_SHA="$vk_main_sha")"
+assert_equals "main" "$(read_output "$output" vd_branch)" "main tag push resolves VD default branch"
+assert_equals "refs/tags/v-main-release" "$(read_output "$output" vd_ref)" "main tag push keeps VD tag ref"
+assert_equals "$vd_main_sha" "$(read_output "$output" vd_commit)" "main tag push resolves tag commit"
+assert_equals "tag_on_default_branch" "$(read_output "$output" vd_resolution_source)" "main tag push records release resolution source"
+assert_equals "$vk_main_sha" "$(read_output "$output" vk_commit)" "main tag push resolves VK main commit"
+assert_equals "true" "$(read_output "$output" publish_latest)" "main tag push publishes latest"
+assert_equals "vk-${vk_main_sha:0:7}-vd-${vd_main_sha:0:7}" "$(read_output "$output" deploy_image_tag)" "main tag push uses immutable deploy tag"
+
+assert_fails \
+  "non-main tag push cannot publish latest" \
+  run_resolver_with_asset_probe \
+    GITHUB_EVENT_NAME=push \
+    GITHUB_REF=refs/tags/v-feature-release \
+    GITHUB_REF_NAME=v-feature-release \
+    GITHUB_SHA="$vd_only_sha" \
+    ASSET_PRESENT_SHA="$vk_main_sha"
 
 assert_fails \
   "workflow_dispatch exact SHA does not fall back to latest assets" \
