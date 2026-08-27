@@ -440,6 +440,68 @@ describe('PersistedWorkflowRuntimeService M93', () => {
     expect(blocked.run.coreSnapshot.blockedReason).toMatchObject({ code: 'WORKFLOW_DECISION_RETRY_EXHAUSTED' });
   });
 
+
+  it.each([
+    {
+      name: 'non-choice question',
+      expected: 'must be a choices question',
+      xml: '<beadsForm id="badType"><title>Bad type</title><question id="fix" type="textarea" required="true"><title>Fix issue</title><description><![CDATA[Describe the fix.]]></description></question></beadsForm>',
+    },
+    {
+      name: 'choices question without choices',
+      expected: 'must have at least one choice',
+      xml: '<beadsForm id="noChoices"><title>No choices</title><question id="fix" type="choices" required="true"><title>Fix issue</title><description><![CDATA[Pick a fix.]]></description></question></beadsForm>',
+    },
+    {
+      name: 'choice without markdown description',
+      expected: 'must include a markdown description with Pros and Cons',
+      xml: '<beadsForm id="emptyChoiceDescription"><title>Empty choice description</title><question id="fix" type="choices" required="true"><title>Fix issue</title><description><![CDATA[Pick a fix.]]></description><choice id="update"><label>Update code</label></choice></question></beadsForm>',
+    },
+    {
+      name: 'pros/cons child elements',
+      expected: 'not pros or cons elements',
+      xml: '<beadsForm id="prosConsChildren"><title>Pros cons children</title><question id="fix" type="choices" required="true"><title>Fix issue</title><description><![CDATA[Pick a fix.]]></description><choice id="update"><label>Update code</label><description><![CDATA[Use this approach.]]></description><pros><![CDATA[Easy to read.]]></pros><cons><![CDATA[Still needs tests.]]></cons></choice></question></beadsForm>',
+    },
+  ])('TEST_CASE_9NL3_1B rejects requestedChangesForm with $name and retries then blocks', async ({ xml, expected }) => {
+    const { runtime, queued } = await createRuntime({ templates: BUILT_IN_WORKFLOW_TEMPLATES });
+    await designStore.useTemplate({ templateId: 'built-in/dev-review-tester', designId: `design.drt.invalid-specific-${expected.replace(/\W+/g, '-')}`, draftId: `draft.drt.invalid-specific-${expected.replace(/\W+/g, '-')}` });
+    await designStore.publishDraft(`draft.drt.invalid-specific-${expected.replace(/\W+/g, '-')}`);
+    const runId = `run-drt-invalid-specific-${expected.replace(/\W+/g, '-')}`;
+    await runtime.launch({
+      runId,
+      runSnapshotId: `snapshot-${runId}`,
+      designId: `design.drt.invalid-specific-${expected.replace(/\W+/g, '-')}`,
+      workspaceId: 'workspace-a',
+      inputs: { featureRequest: 'Build requested changes schema validation' },
+      roleBindings: { dev: { sessionId: 'session-dev' }, review: { sessionId: 'session-review' }, tester: { sessionId: 'session-tester' } },
+    });
+
+    await runtime.completeAgentTurn({ runId, turnId: queuedAt(queued, 0).turnId, responseRef: `${runId}-dev-implement` });
+    await runtime.completeAgentTurn({ runId, turnId: queuedAt(queued, 1).turnId, responseRef: `${runId}-dev-self-review`, finalResponseText: '<decision action="ready_for_review"><summary>Implemented</summary></decision>' });
+    const invalidDecision = `<decision action="changes_requested"><summary>Needs changes</summary><requestedChangesForm>${xml}</requestedChangesForm></decision>`;
+
+    const retried = await runtime.completeAgentTurn({
+      runId,
+      turnId: queuedAt(queued, 2).turnId,
+      responseRef: `${runId}-bad-1`,
+      finalResponseText: invalidDecision,
+    });
+
+    expect(retried.run.status).toBe('running');
+    expect(queuedAt(queued, 3).prompt).toContain('Invalid beads-form XML in requestedChangesForm');
+    expect(queuedAt(queued, 3).prompt).toContain(expected);
+
+    const blocked = await runtime.completeAgentTurn({
+      runId,
+      turnId: queuedAt(queued, 3).turnId,
+      responseRef: `${runId}-bad-2`,
+      finalResponseText: invalidDecision,
+    });
+
+    expect(blocked.run.status).toBe('blocked');
+    expect(blocked.run.coreSnapshot.blockedReason).toMatchObject({ code: 'WORKFLOW_DECISION_RETRY_EXHAUSTED' });
+  });
+
   it('TEST_CASE_9R50 loops Dev self-review back to implementation when more work is needed', async () => {
     const { runtime, queued } = await createRuntime({ templates: BUILT_IN_WORKFLOW_TEMPLATES });
     await designStore.useTemplate({ templateId: 'built-in/dev-review-tester', designId: 'design.drt.self-loop', draftId: 'draft.drt.self-loop' });

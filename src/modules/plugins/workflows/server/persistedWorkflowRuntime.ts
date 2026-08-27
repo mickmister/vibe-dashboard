@@ -1638,6 +1638,9 @@ function validateProviderResultFields(
         const form = parseWorkflowBeadsFormSchema(candidate);
         assertStandardBeadsForm(form);
         compileBeadsForm(form);
+        if (spec.providerSchema === "requested_changes_form") {
+          assertRequestedChangesFormSchema(candidate, form);
+        }
       } catch (error) {
         issues.push({
           code: "WORKFLOW_DECISION_VALIDATION_FAILED",
@@ -1703,6 +1706,39 @@ function assertStandardBeadsForm(
     throw new Error("form questions must be non-empty");
 }
 
+function assertRequestedChangesFormSchema(
+  rawXml: string,
+  form: Parameters<typeof compileBeadsForm>[0],
+): void {
+  const trimmed = rawXml.trim();
+  if (!trimmed.startsWith("<")) {
+    throw new Error("requested changes form must be beads-form XML");
+  }
+  if (/<\/?(?:pros|cons)\b/iu.test(trimmed)) {
+    throw new Error(
+      "requested changes form choices must put Pros and Cons markdown inside choice descriptions, not pros or cons elements",
+    );
+  }
+  for (const question of form.questions) {
+    if (question.type !== "choices") {
+      throw new Error(
+        `requested changes question ${question.id} must be a choices question`,
+      );
+    }
+    if (!question.choices.length) {
+      throw new Error(
+        `requested changes question ${question.id} must include at least one solution choice`,
+      );
+    }
+    for (const choice of question.choices) {
+      if (!choice.description?.trim()) {
+        throw new Error(
+          `requested changes choice ${choice.id} for question ${question.id} must include a markdown description with Pros and Cons`,
+        );
+      }
+    }
+  }
+}
 
 function parseWorkflowBeadsFormSchema(rawFormSchema: string): Parameters<typeof compileBeadsForm>[0] {
   const trimmed = rawFormSchema.trim();
