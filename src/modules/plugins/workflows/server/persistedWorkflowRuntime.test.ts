@@ -9,6 +9,7 @@ import { DbWorkspaceLaneStore } from '../../../../server/workspace-lane-store';
 import { WorkflowCommandProviderRegistry, type WorkflowCommandProviderV1 } from '../extensions/workflowCommandProviders';
 import { createDefaultWorkflowExtensionRegistry } from '../extensions/workflowExtensionRegistry';
 import { InMemoryWorkflowNotificationProvider, type WorkflowNotificationProvider } from '../extensions/workflowNotifications';
+import type { WorkflowCompletionResponseInput, WorkflowCompletionResponseProvider } from './workflowCompletionResponse';
 
 const handles: VdDbHandle[] = [];
 
@@ -171,6 +172,39 @@ describe('PersistedWorkflowRuntimeService M93', () => {
     await runtime.completeAgentTurn({ runId: 'child-meta-run-0', turnId: queuedAt(queued, childOffset + 1).turnId, responseRef: 'child-dev-ready', finalResponseText: '<decision action="readyForReview"><summary>Ready</summary></decision>' });
     await runtime.completeAgentTurn({ runId: 'child-meta-run-0', turnId: queuedAt(queued, childOffset + 2).turnId, responseRef: 'child-review-approved', finalResponseText: '<decision action="approved"><notes>Looks good</notes></decision>' });
     expect(notifications.notifications).toHaveLength(beforeChild);
+  });
+
+
+  it('TEST_CASE_NKYC_1A delivers a completion response to the caller session exactly on terminal transition', async () => {
+    const completions = new InMemoryCompletionResponseProvider();
+    const { runtime, queued } = await createRuntime({ completionResponseProvider: completions });
+    await publishWorkflow('design.callback', makeTwoStateWorkflow());
+
+    await runtime.launch({
+      runId: 'run-callback',
+      runSnapshotId: 'snapshot-callback',
+      designId: 'design.callback',
+      workspaceId: 'workspace-a',
+      inputs: { task: 'Ask teammate for feedback' },
+      roleBindings: { dev: { sessionId: 'session-dev' }, review: { sessionId: 'session-review' } },
+      completionResponse: { sessionId: 'caller-session', source: 'vibe-agent-cli' },
+    });
+    expect(completions.deliveries).toHaveLength(0);
+
+    await runtime.completeAgentTurn({ runId: 'run-callback', turnId: queuedAt(queued, 0).turnId, responseRef: 'dev-implement' });
+    await runtime.completeAgentTurn({ runId: 'run-callback', turnId: queuedAt(queued, 1).turnId, responseRef: 'dev-ready', finalResponseText: '<decision action="readyForReview"><summary>Ready</summary></decision>' });
+    await runtime.completeAgentTurn({ runId: 'run-callback', turnId: queuedAt(queued, 2).turnId, responseRef: 'review-approved', finalResponseText: '<decision action="approved"><notes>Looks good</notes></decision>' });
+
+    expect(completions.deliveries).toHaveLength(1);
+    expect(completions.deliveries[0]).toMatchObject({
+      target: { sessionId: 'caller-session', source: 'vibe-agent-cli' },
+      runUrl: '/dashboard/workflows/run-callback?workspaceId=workspace-a',
+    });
+
+    await runtime.completeAgentTurn({ runId: 'run-callback', turnId: queuedAt(queued, 2).turnId, responseRef: 'duplicate', finalResponseText: '<decision action="approved"><notes>Duplicate</notes></decision>' });
+    expect(completions.deliveries).toHaveLength(1);
+    await expect(runtime.getRun('run-callback')).resolves.toMatchObject({ events: expect.arrayContaining([expect.objectContaining({ kind: 'completion_response_queued', data: expect.objectContaining({ targetSessionId: 'caller-session' }) })]) });
+    expect(JSON.stringify(completions.deliveries)).not.toMatch(/raw XML|raw JSON|prompt:|skill:|contentHash|webhook|queue item|trigger|delivery|HMAC|\/Users\/|bd show|shell|git /i);
   });
 
 
@@ -989,7 +1023,22 @@ function promptText(definition: unknown): string {
   return (dev.steps[0] as { prompt?: { template?: string } } | undefined)?.prompt?.template ?? '';
 }
 
-async function createRuntime(options: { withAttention?: boolean; withLanes?: boolean; templates?: ConstructorParameters<typeof DbWorkflowDesignStore>[0]['templates']; githubCiWatchProvider?: GitHubCiWatchProvider; commandProviders?: WorkflowCommandProviderRegistry; notificationProvider?: WorkflowNotificationProvider; beadProvider?: { readBeads(beadIds: string[]): Promise<Array<{ beadId: string; title: string; status: 'open' | 'in_progress' | 'review' | 'blocked' | 'closed' | 'archived' | 'removed'; accessible: boolean; labels?: string[]; workspaceId?: string | null }>> } } = {}) {
+
+class InMemoryCompletionResponseProvider implements WorkflowCompletionResponseProvider {
+  readonly providerType = 'in_memory_completion_response';
+  readonly deliveries: WorkflowCompletionResponseInput[] = [];
+
+  isEnabled(): boolean {
+    return true;
+  }
+
+  async deliver(input: WorkflowCompletionResponseInput): Promise<{ deliveredRef?: string }> {
+    this.deliveries.push(input);
+    return { deliveredRef: `completion:${input.run.runId}` };
+  }
+}
+
+async function createRuntime(options: { withAttention?: boolean; withLanes?: boolean; templates?: ConstructorParameters<typeof DbWorkflowDesignStore>[0]['templates']; githubCiWatchProvider?: GitHubCiWatchProvider; commandProviders?: WorkflowCommandProviderRegistry; notificationProvider?: WorkflowNotificationProvider; completionResponseProvider?: WorkflowCompletionResponseProvider; beadProvider?: { readBeads(beadIds: string[]): Promise<Array<{ beadId: string; title: string; status: 'open' | 'in_progress' | 'review' | 'blocked' | 'closed' | 'archived' | 'removed'; accessible: boolean; labels?: string[]; workspaceId?: string | null }>> } } = {}) {
   const handle = await initVdDb({ path: ':memory:' });
   handles.push(handle);
   designStore = new DbWorkflowDesignStore({
@@ -1023,6 +1072,7 @@ async function createRuntime(options: { withAttention?: boolean; withLanes?: boo
     laneStore,
     beadProvider: options.beadProvider,
     notificationProvider: options.notificationProvider,
+    completionResponseProvider: options.completionResponseProvider,
     now: (() => { let value = 2_000; return () => value++; })(),
     createId: () => `id-${id++}`,
   });

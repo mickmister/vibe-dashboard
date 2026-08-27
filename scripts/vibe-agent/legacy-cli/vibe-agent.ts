@@ -2092,6 +2092,11 @@ Commands:
     --workspace <id>            Workspace id; defaults from VK_WORKSPACE_ID
     --input key=value           Runtime input (repeatable)
     --bead <id>                 Bead context id (repeatable; defaults from VK_BEAD_ID)
+    --role-session role=id      Bind a workflow role to an existing VK session
+    --role-executor role=type   Optional executor override for a role binding
+    --role-model role=model     Optional model override for a role binding
+    --caller-session <id>       Session that should receive completion response
+    --no-caller-response        Do not queue a completion response back to caller
     --json                      Output as JSON
 
   workflow status <run-id>      Read clean workflow run status
@@ -2506,6 +2511,11 @@ interface WorkflowRunCliOptions {
   json: boolean;
 }
 
+interface WorkflowCliRoleOverride {
+  roleId: string;
+  value: string;
+}
+
 interface WorkflowResolution {
   workflow: WorkflowCliSummary;
   alias: string;
@@ -2628,7 +2638,7 @@ async function workflowRun(args: string[]): Promise<void> {
     ? await materializeWorkflowTemplateForCli(resolved.workflow, workspaceId)
     : resolved.workflow;
   const launchOptions = await fetchWorkflowCliLaunchOptions(workspaceId, launchWorkflow.id, launchWorkflow.version ?? undefined);
-  const roleBindings = Object.fromEntries((launchOptions.workflow.roles ?? []).map((role) => [role.id, { mode: 'create_or_reuse', name: role.label || role.id }]));
+  const roleBindings = buildWorkflowCliRoleBindings(launchOptions.workflow, flags);
   const body = {
     workspaceId,
     designId: launchWorkflow.id,
@@ -2636,6 +2646,7 @@ async function workflowRun(args: string[]): Promise<void> {
     inputs: flags.inputs,
     roleBindings,
     beadIds,
+    completionResponse: flags.callerSessionId ? { sessionId: flags.callerSessionId, source: 'vibe-agent-cli' } : undefined,
   };
   const launched = await dashboardRequest('/dashboard/api/workflows/launch', { method: 'POST', body: JSON.stringify(body) }) as { run?: { runId: string; status: string; detailUrl?: string | null } };
   const run = launched.run;
@@ -2649,7 +2660,10 @@ async function workflowRun(args: string[]): Promise<void> {
     workflow: { id: launchWorkflow.id, requested: resolved.workflow.id, alias: resolved.alias, title: launchWorkflow.title, version: launchWorkflow.version ?? null },
     beadIds,
     runUrl,
-    nextAction: 'Request sent. End this turn; the workflow response will arrive later through workflow coordination.',
+    completionResponse: flags.callerSessionId ? { sessionId: flags.callerSessionId, expected: true } : { expected: false, reason: 'No caller session was detected.' },
+    nextAction: flags.callerSessionId
+      ? 'Request sent. End this turn; the workflow response will arrive later in this session through workflow coordination.'
+      : 'Request sent. End this turn; inspect the workflow later with vibe-agent workflow result <run-id>.' ,
   };
   if (flags.json) {
     console.log(JSON.stringify(output, null, 2));
@@ -2662,7 +2676,11 @@ async function workflowRun(args: string[]): Promise<void> {
   if (beadIds.length) console.log(`Beads: ${beadIds.map((id) => productSafeWorkflowCliText(id)).join(', ')}`);
   console.log(`Open: ${runUrl}`);
   console.log('');
-  console.log('Request sent. End this turn; the workflow response will arrive later through workflow coordination.');
+  if (flags.callerSessionId) {
+    console.log('Request sent. End this turn; the workflow response will arrive later in this session through workflow coordination.');
+  } else {
+    console.log('Request sent. End this turn; inspect the workflow later with vibe-agent workflow result <run-id>.');
+  }
 }
 
 async function workflowStatus(args: string[], resultOnly: boolean): Promise<void> {
@@ -2812,11 +2830,15 @@ interface WorkflowCliParsedFlags {
   workspaceId?: string;
   inputs: Record<string, unknown>;
   beadIds: string[];
+  callerSessionId: string | null;
+  roleSessions: WorkflowCliRoleOverride[];
+  roleExecutors: WorkflowCliRoleOverride[];
+  roleModels: WorkflowCliRoleOverride[];
   positionals: string[];
 }
 
 export function parseWorkflowCliFlags(args: string[]): WorkflowCliParsedFlags {
-  const result: WorkflowCliParsedFlags = { json: false, inputs: {}, beadIds: [], positionals: [] };
+  const result: WorkflowCliParsedFlags = { json: false, inputs: {}, beadIds: [], callerSessionId: detectWorkflowCallerSessionId(), roleSessions: [], roleExecutors: [], roleModels: [], positionals: [] };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i] ?? '';
     const readValue = (flag: string): string => {
@@ -2830,6 +2852,11 @@ export function parseWorkflowCliFlags(args: string[]): WorkflowCliParsedFlags {
     if (arg === '--json') { result.json = true; continue; }
     if (arg === '--workspace' || arg === '--workspace-id' || arg.startsWith('--workspace=') || arg.startsWith('--workspace-id=')) { result.workspaceId = readValue(arg.startsWith('--workspace-id') ? '--workspace-id' : '--workspace'); continue; }
     if (arg === '--bead' || arg.startsWith('--bead=')) { result.beadIds.push(readValue('--bead')); continue; }
+    if (arg === '--caller-session' || arg.startsWith('--caller-session=')) { result.callerSessionId = readValue('--caller-session'); continue; }
+    if (arg === '--no-caller-response') { result.callerSessionId = null; continue; }
+    if (arg === '--role-session' || arg.startsWith('--role-session=')) { result.roleSessions.push(parseRoleValueFlag(readValue('--role-session'), '--role-session')); continue; }
+    if (arg === '--role-executor' || arg.startsWith('--role-executor=')) { result.roleExecutors.push(parseRoleValueFlag(readValue('--role-executor'), '--role-executor')); continue; }
+    if (arg === '--role-model' || arg.startsWith('--role-model=')) { result.roleModels.push(parseRoleValueFlag(readValue('--role-model'), '--role-model')); continue; }
     if (arg === '--input' || arg.startsWith('--input=')) {
       const raw = readValue('--input');
       const eq = raw.indexOf('=');
@@ -2841,6 +2868,40 @@ export function parseWorkflowCliFlags(args: string[]): WorkflowCliParsedFlags {
     result.positionals.push(arg);
   }
   return result;
+}
+
+
+function buildWorkflowCliRoleBindings(workflow: WorkflowCliSummary, flags: WorkflowCliParsedFlags): Record<string, Record<string, unknown>> {
+  const roles = workflow.roles ?? [];
+  const roleIds = new Set(roles.map((role) => role.id));
+  const bindings = Object.fromEntries(roles.map((role) => [role.id, { mode: 'create_or_reuse', name: role.label || role.id } as Record<string, unknown>]));
+  for (const binding of flags.roleSessions) {
+    assertWorkflowRoleExists(roleIds, binding.roleId, '--role-session');
+    bindings[binding.roleId] = { ...(bindings[binding.roleId] ?? {}), mode: 'existing', sessionId: binding.value };
+  }
+  for (const override of flags.roleExecutors) {
+    assertWorkflowRoleExists(roleIds, override.roleId, '--role-executor');
+    bindings[override.roleId] = { ...(bindings[override.roleId] ?? {}), executorType: override.value };
+  }
+  for (const override of flags.roleModels) {
+    assertWorkflowRoleExists(roleIds, override.roleId, '--role-model');
+    bindings[override.roleId] = { ...(bindings[override.roleId] ?? {}), model: override.value };
+  }
+  return bindings;
+}
+
+function assertWorkflowRoleExists(roleIds: Set<string>, roleId: string, flag: string): void {
+  if (!roleIds.has(roleId)) throw new Error(`${flag} references unknown workflow role: ${roleId}`);
+}
+
+function parseRoleValueFlag(raw: string, flag: string): WorkflowCliRoleOverride {
+  const eq = raw.indexOf('=');
+  if (eq <= 0 || eq === raw.length - 1) throw new Error(`${flag} must use role=value`);
+  return { roleId: raw.slice(0, eq), value: raw.slice(eq + 1) };
+}
+
+function detectWorkflowCallerSessionId(): string | null {
+  return process.env.VK_SESSION_ID || process.env.VIBE_AGENT_SESSION_ID || null;
 }
 
 export function resolveWorkflowWorkspace(flags: Pick<WorkflowCliParsedFlags, 'workspaceId'>, options: { required: boolean }): string | null {

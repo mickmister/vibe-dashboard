@@ -56,6 +56,12 @@ import {
   shouldNotifyWorkflowRun,
   type WorkflowNotificationProvider,
 } from "../extensions/workflowNotifications";
+import {
+  getWorkflowCompletionResponseTarget,
+  withWorkflowCompletionResponseInput,
+  type WorkflowCompletionResponseProvider,
+  type WorkflowCompletionResponseTarget,
+} from "./workflowCompletionResponse";
 
 export interface WorkflowRoleSessionBindingInput {
   sessionId: string;
@@ -121,6 +127,8 @@ export interface PersistedWorkflowRuntimeEvent {
     | "command_step_denied"
     | "observation_ignored"
     | "workflow_status_changed"
+    | "completion_response_queued"
+    | "completion_response_failed"
     | "queue_failed"
     | "form_artifact_created"
     | "form_artifact_failed";
@@ -200,6 +208,7 @@ export class PersistedWorkflowRuntimeService {
   private readonly laneStore?: DbWorkspaceLaneStore;
   private readonly beadProvider?: BeadMetadataProvider;
   private readonly notificationProvider?: WorkflowNotificationProvider;
+  private readonly completionResponseProvider?: WorkflowCompletionResponseProvider;
 
   constructor(options: {
     db: Kysely<DB>;
@@ -212,6 +221,7 @@ export class PersistedWorkflowRuntimeService {
     laneStore?: DbWorkspaceLaneStore;
     beadProvider?: BeadMetadataProvider;
     notificationProvider?: WorkflowNotificationProvider;
+    completionResponseProvider?: WorkflowCompletionResponseProvider;
     now?: () => number;
     createId?: () => string;
     validator?: DecisionResponseValidator;
@@ -236,6 +246,7 @@ export class PersistedWorkflowRuntimeService {
     this.laneStore = options.laneStore;
     this.beadProvider = options.beadProvider;
     this.notificationProvider = options.notificationProvider;
+    this.completionResponseProvider = options.completionResponseProvider;
   }
 
   async launch(input: {
@@ -248,6 +259,7 @@ export class PersistedWorkflowRuntimeService {
     additionalInstructions?: string | null;
     roleBindings: Record<string, WorkflowRoleSessionBindingInput>;
     beadIds?: string[];
+    completionResponse?: WorkflowCompletionResponseTarget | null;
   }): Promise<PersistedWorkflowRunReadModel> {
     const requestedDesign = await this.designStore.getDesign(input.designId);
     const requestedVersion =
@@ -279,9 +291,10 @@ export class PersistedWorkflowRuntimeService {
       input.roleBindings,
     );
     this.assertRoleBindings(preflightModel, resolvedRoleBindings);
-    const runInputs = input.beadIds?.length
+    const beadInputs = input.beadIds?.length
       ? withWorkflowBeadContextInput(input.inputs, input.beadIds)
       : input.inputs;
+    const runInputs = withWorkflowCompletionResponseInput(beadInputs, input.completionResponse ?? null);
 
     const runSnapshot = await this.designStore.createRunSnapshot({
       runSnapshotId: input.runSnapshotId,
@@ -1379,6 +1392,7 @@ export class PersistedWorkflowRuntimeService {
       .execute();
     const next = await this.getRequiredRun(previous.runId);
     await this.notifyTerminalStatusChange(previous, next);
+    await this.deliverCompletionResponse(previous, next);
     return next;
   }
 
@@ -1413,6 +1427,52 @@ export class PersistedWorkflowRuntimeService {
       // Notification delivery is best-effort and must not make a completed or
       // blocked workflow look incomplete to the runtime.
     }
+  }
+
+
+  private async deliverCompletionResponse(
+    previous: PersistedWorkflowRunReadModel,
+    next: PersistedWorkflowRunReadModel,
+  ): Promise<void> {
+    const provider = this.completionResponseProvider;
+    if (!provider?.isEnabled()) return;
+    if (previous.status === next.status) return;
+    if (next.status !== "completed" && next.status !== "failed" && next.status !== "blocked") return;
+    const target = getWorkflowCompletionResponseTarget(next.coreSnapshot.inputs);
+    if (!target) return;
+    try {
+      await provider.deliver({
+        target,
+        run: next,
+        runUrl: `/dashboard/workflows/${encodeURIComponent(next.runId)}?workspaceId=${encodeURIComponent(next.workspaceId)}`,
+      });
+      await this.appendCompletionResponseEvent(next, "completion_response_queued", {
+        targetSessionId: target.sessionId,
+        source: target.source,
+      });
+    } catch (error) {
+      await this.appendCompletionResponseEvent(next, "completion_response_failed", {
+        targetSessionId: target.sessionId,
+        source: target.source,
+        message: normalizeError(error).message,
+      });
+      // Completion responses are coordination side effects. A delivery failure
+      // must not roll back a terminal workflow state; callers can still inspect
+      // the run through workflow status/result commands.
+    }
+  }
+
+  private async appendCompletionResponseEvent(
+    run: PersistedWorkflowRunReadModel,
+    kind: "completion_response_queued" | "completion_response_failed",
+    data: Record<string, unknown>,
+  ): Promise<void> {
+    const events = [...run.events, event(kind, this.now(), data)];
+    await this.db
+      .updateTable("WorkflowPersistedRun")
+      .set({ eventsJson: stableJson(events), updatedAt: this.now() })
+      .where("runId", "=", run.runId)
+      .execute();
   }
 
   private async getRequiredRun(

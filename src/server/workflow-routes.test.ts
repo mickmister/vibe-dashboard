@@ -704,6 +704,7 @@ describe("registerWorkflowRoutes", () => {
         additionalInstructions: "Keep it clean.",
         laneId: "lane-launch",
         beadIds: ["vibe-kanban-vscode-web-2yle", "vibe-kanban-vscode-web-2yle"],
+        completionResponse: { sessionId: "caller-session", source: "vibe-agent-cli" },
         roleBindings: {
           dev: { mode: "existing", sessionId: "session-dev" },
           review: { mode: "existing", sessionId: "session-review" },
@@ -743,7 +744,7 @@ describe("registerWorkflowRoutes", () => {
       .selectFrom("WorkflowDesignRunSnapshot")
       .selectAll()
       .executeTakeFirstOrThrow();
-    expect(JSON.parse(snapshotRow.runInputJson)).toMatchObject({ workflowContext: { beadIds: ["vibe-kanban-vscode-web-2yle"] } });
+    expect(JSON.parse(snapshotRow.runInputJson)).toMatchObject({ workflowContext: { beadIds: ["vibe-kanban-vscode-web-2yle"], completionResponse: { sessionId: "caller-session", source: "vibe-agent-cli" } } });
     await expect(
       laneStore.getBinding("workflow_run", payload.run.runId),
     ).resolves.toMatchObject({
@@ -3085,7 +3086,7 @@ describe("registerWorkflowRoutes", () => {
       expect.arrayContaining(["decision"]),
     );
     expect(body.presentation.timeline[0]).toMatchObject({
-      title: "Implement turn",
+      title: "Dev implemented",
       status: "Complete",
     });
     expect(body.presentation.timeline[0].initialMessage.text).toContain(

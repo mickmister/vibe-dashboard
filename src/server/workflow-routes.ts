@@ -68,6 +68,11 @@ import {
   type WorkflowBatchReadModel,
 } from "../modules/plugins/workflows/server/workflowBatchScheduler";
 import type { WorkflowNotificationProvider } from "../modules/plugins/workflows/extensions/workflowNotifications";
+import {
+  VkWorkflowCompletionResponseProvider,
+  type WorkflowCompletionResponseProvider,
+  type WorkflowCompletionResponseTarget,
+} from "../modules/plugins/workflows/server/workflowCompletionResponse";
 import { getVdDb } from "./database";
 import type { DB } from "../store/kysely_types";
 import { DbWorkspaceLaneStore, LaneStoreError } from "./workspace-lane-store";
@@ -107,6 +112,7 @@ export interface RegisterWorkflowRoutesOptions {
   metaWorkflowNoteWriter?: BeadResultNoteWriter;
   workflowRoadmapLiveProvider?: WorkflowRoadmapLiveProvider;
   workflowNotificationProvider?: WorkflowNotificationProvider;
+  workflowCompletionResponseProvider?: WorkflowCompletionResponseProvider;
   workflowBatchCapacity?: Partial<typeof DEFAULT_WORKFLOW_BATCH_CAPACITY>;
   workspaceLaneStore?: DbWorkspaceLaneStore;
   vkClient?: Partial<
@@ -931,6 +937,7 @@ export function registerWorkflowRoutes(
         additionalInstructions: parsed.request.additionalInstructions,
         roleBindings,
         beadIds: parsed.request.beadIds,
+        completionResponse: parsed.request.completionResponse,
       });
       run = await catchUpPersistedWorkflowCompletedTurns(
         options,
@@ -2148,6 +2155,7 @@ interface WorkflowLaunchRequest {
   roleBindings: Record<string, WorkflowLaunchRoleBindingRequest>;
   laneId: string | null;
   beadIds: string[];
+  completionResponse: WorkflowCompletionResponseTarget | null;
 }
 
 interface WorkflowBatchLaunchRequest {
@@ -2748,7 +2756,19 @@ function parseWorkflowLaunchRequest(record: Record<string, unknown> | null):
       roleBindings: normalizeRoleBindings(roleBindings),
       laneId: asString(record?.laneId)?.trim() || null,
       beadIds,
+      completionResponse: parseCompletionResponse(record?.completionResponse),
     },
+  };
+}
+
+
+function parseCompletionResponse(value: unknown): WorkflowCompletionResponseTarget | null {
+  const record = asRecord(value);
+  const sessionId = asString(record?.sessionId)?.trim();
+  if (!sessionId) return null;
+  return {
+    sessionId,
+    source: record?.source === "workflow-api" ? "workflow-api" : "vibe-agent-cli",
   };
 }
 
@@ -2841,6 +2861,12 @@ async function resolvePersistedWorkflowRuntime(
     laneStore: options.workspaceLaneStore,
     beadProvider: options.metaWorkflowBeadProvider,
     notificationProvider: options.workflowNotificationProvider,
+    completionResponseProvider:
+      options.workflowCompletionResponseProvider ??
+      new VkWorkflowCompletionResponseProvider({
+        queueFollowUp: (sessionId, prompt, queueOptions) =>
+          options.vkClient!.queueFollowUp!(sessionId, prompt, queueOptions),
+      }),
     queue: {
       queueAgentTurn: async (request) => {
         const queued = await options.vkClient!.queueFollowUp!(

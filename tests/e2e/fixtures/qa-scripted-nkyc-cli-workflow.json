@@ -1,0 +1,20 @@
+{
+  "outcomes": [
+    {
+      "prompt_contains": "NKYC_STEP:ask_teammate",
+      "outcome": "completed",
+      "final_message": "<decision action=\"responded\"><summary>CLI teammate response completed through qa-mode.</summary><response>The workflow CLI delivery proof received a deterministic teammate response.</response><followUp>None.</followUp></decision>",
+      "session_id": "qa-scripted-nkyc-ask-teammate",
+      "message_id": "qa-scripted-nkyc-ask-teammate",
+      "delay_ms": 0
+    },
+    {
+      "prompt_contains": "Ask teammate completed",
+      "outcome": "completed",
+      "final_message": "Workflow completion response received by caller session.",
+      "session_id": "qa-scripted-nkyc-caller-response",
+      "message_id": "qa-scripted-nkyc-caller-response",
+      "delay_ms": 0
+    }
+  ]
+}
