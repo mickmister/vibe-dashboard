@@ -8,7 +8,7 @@ import {
   type StandardBeadsForm,
   type StoredBeadsForm,
 } from '../../packages/beads-form/src/index.ts';
-import { beadsFormSubmissionXml } from './beadsFormSubmissionHandoff';
+import { beadsFormSubmissionXml } from './beadsFormSubmissionHandoff.ts';
 
 export { ALLOW_CODE_FILE_CHANGES_FIELD };
 
@@ -388,7 +388,7 @@ export function sanitizeBeadsFormHtml(html: string): string {
       const name = attr.name.toLowerCase();
       const value = attr.value.trim().toLowerCase();
       if (name.startsWith('on')) element.removeAttribute(attr.name);
-      if (name === 'href' && !(value.startsWith('#') || value.startsWith('/') || value.startsWith('mailto:'))) {
+      if (name === 'href' && !(value.startsWith('#') || value.startsWith('/') || value.startsWith('mailto:') || value.startsWith('http://') || value.startsWith('https://'))) {
         element.removeAttribute(attr.name);
       }
       if ((name === 'src' || name === 'poster') && !isSafeMediaReference(attr.value)) {

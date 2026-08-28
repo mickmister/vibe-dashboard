@@ -52,6 +52,14 @@ describe('BeadsForm styles', () => {
     expect(css).toMatch(/\.beadsform-root \.beadsform-markdown-preview\s*\{[^}]*min-height:\s*8rem[^}]*border:\s*1px solid #3f3f46/s);
   });
 
+  it('styles rich attachment and code snippet context blocks', async () => {
+    const css = await readFile(new URL('./styles.css', import.meta.url), 'utf8');
+
+    expect(css).toMatch(/\.beadsform-root \.beads-form-attachment-block,\s*\.beadsform-root \.beads-form-code-snippet\s*\{[^}]*display:\s*grid[^}]*border:\s*1px solid #3f3f46/s);
+    expect(css).toMatch(/\.beadsform-root \.beads-form-attachment-link,\s*\.beadsform-root \.beads-form-code-snippet-link\s*\{[^}]*color:\s*#93c5fd/s);
+    expect(css).toMatch(/\.beadsform-root \.beads-form-code-snippet-source\s*\{[^}]*color:\s*#d4d4d8/s);
+  });
+
   it('styles BeadsForm loading states as centered cards', async () => {
     const css = await readFile(new URL('./styles.css', import.meta.url), 'utf8');
 

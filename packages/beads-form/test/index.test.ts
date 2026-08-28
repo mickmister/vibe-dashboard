@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   ALLOW_CODE_FILE_CHANGES_FIELD,
+  buildAttachmentList,
   buildBeadsFormMetadata,
   buildChoicesQuestion,
+  buildCodeSnippetRef,
   buildMediaGallery,
+  buildMarkdownAttachment,
   buildTextareaQuestion,
   compileBeadsForm,
   defineBeadsForm,
@@ -349,6 +352,98 @@ describe('@vibe-dashboard/beads-form', () => {
       'preferred_candidate_candidate_b_more_info',
       'preferred_candidate_more_info',
     ]);
+  });
+
+  it('compiles ref-only markdown attachments, arbitrary attachment lists, and code snippet permalinks', () => {
+    const compiled = compileBeadsForm(defineBeadsForm({
+      id: 'rich_context',
+      goal: 'Review referenced artifacts without inlining file contents.',
+      title: 'Rich context',
+      content: [
+        buildMarkdownAttachment({
+          id: 'decision_doc',
+          title: 'Decision doc',
+          description: 'Read the **Markdown** attachment.',
+          ref: 'attachment://docs/decision.md',
+          label: 'decision.md',
+        }),
+        buildAttachmentList({
+          id: 'supporting_files',
+          title: 'Supporting files',
+          description: 'Refs only.',
+          items: [
+            { id: 'movie', label: 'Demo video', ref: 'attachment://media/demo.webm', mediaType: 'video' },
+            { id: 'logs', label: 'Raw logs', ref: 'attachment://logs/output.txt', mediaType: 'file', description: 'Optional raw artifact.' },
+          ],
+        }),
+        buildCodeSnippetRef({
+          id: 'callsite',
+          title: 'Relevant code',
+          description: 'Inspect the callsite.',
+          path: 'src/lib/example.ts',
+          commit: 'abc1234',
+          startLine: 10,
+          endLine: 18,
+          url: 'https://example.test/repo/blob/abc1234/src/lib/example.ts#L10-L18',
+        }),
+      ],
+      questions: [
+        buildTextareaQuestion({
+          id: 'notes',
+          title: 'Notes',
+          description: 'Respond in Markdown.',
+        }),
+      ],
+    }));
+
+    expect(compiled.html).toContain('class="beads-form-attachment-block beads-form-markdown-attachment"');
+    expect(compiled.html).toContain('href="attachment://docs/decision.md"');
+    expect(compiled.html).toContain('<strong>Markdown</strong>');
+    expect(compiled.html).toContain('beads-form-attachment-list');
+    expect(compiled.html).toContain('href="attachment://media/demo.webm"');
+    expect(compiled.html).toContain('href="attachment://logs/output.txt"');
+    expect(compiled.html).toContain('class="beads-form-code-snippet"');
+    expect(compiled.html).toContain('<code>src/lib/example.ts</code> at <code>abc1234</code>, lines 10-18');
+    expect(compiled.html).toContain('Open permalink');
+    const metadata = buildBeadsFormMetadata([compiled]);
+    expect(JSON.stringify(metadata.beadForms.forms[0])).toContain('attachment://docs/decision.md');
+    expect(JSON.stringify(metadata.beadForms.forms[0])).toContain('"path":"src/lib/example.ts"');
+    expect(JSON.stringify(metadata.beadForms.forms[0])).not.toContain('<form>');
+    expect(JSON.stringify(metadata.beadForms.forms[0])).not.toContain('"controls"');
+  });
+
+  it('rejects invalid code snippet refs', () => {
+    expect(() => compileBeadsForm(defineBeadsForm({
+      id: 'bad_snippet',
+      goal: 'Reject unsafe refs.',
+      title: 'Bad snippet',
+      content: [
+        buildCodeSnippetRef({
+          id: 'callsite',
+          title: 'Relevant code',
+          path: 'src/lib/example.ts',
+          commit: 'not-a-hash',
+          startLine: 1,
+        }),
+      ],
+      questions: [buildTextareaQuestion({ id: 'notes', title: 'Notes', description: 'Notes.' })],
+    }))).toThrow('commit must be a 7-64 character hex hash');
+
+    expect(() => compileBeadsForm(defineBeadsForm({
+      id: 'traversal_snippet',
+      goal: 'Reject unsafe refs.',
+      title: 'Traversal snippet',
+      content: [
+        buildCodeSnippetRef({
+          id: 'callsite',
+          title: 'Relevant code',
+          path: '../secret.ts',
+          commit: 'abc1234',
+          startLine: 1,
+        }),
+      ],
+      questions: [buildTextareaQuestion({ id: 'notes', title: 'Notes', description: 'Notes.' })],
+    }))).toThrow('path must be repo-relative');
   });
 
   it('stores bead metadata as DSL-only while runtime compilation escapes HTML', () => {

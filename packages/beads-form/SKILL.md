@@ -23,9 +23,12 @@ If the response includes `"allow_code_file_changes": false`, agents must keep co
 ```ts
 import {
   ALLOW_CODE_FILE_CHANGES_FIELD,
+  buildAttachmentList,
   buildBeadsFormMetadata,
   buildChoicesQuestion,
+  buildCodeSnippetRef,
   buildMediaGallery,
+  buildMarkdownAttachment,
   buildTextQuestion,
   buildTextareaQuestion,
   compileBeadsForm,
@@ -56,6 +59,21 @@ const form = defineBeadsForm({
         { id: 'candidate_a', type: 'image', src: 'attachments/candidate-a.png', alt: 'Candidate A screenshot', caption: 'Candidate A' },
         { id: 'candidate_b', type: 'video', src: 'attachment://candidate-b.webm', poster: 'attachments/candidate-b.png', caption: 'Candidate B recording' },
       ],
+    }),
+    buildMarkdownAttachment({
+      id: 'decision_doc',
+      title: 'Decision doc',
+      ref: 'attachment://docs/decision.md',
+      label: 'decision.md',
+    }),
+    buildCodeSnippetRef({
+      id: 'callsite',
+      title: 'Relevant callsite',
+      path: 'src/lib/beadsFormCore.ts',
+      commit: 'abc1234',
+      startLine: 10,
+      endLine: 18,
+      url: 'https://example.test/repo/blob/abc1234/src/lib/beadsFormCore.ts#L10-L18',
     }),
   ],
   questions: [
@@ -96,7 +114,7 @@ const metadataPatch = buildBeadsFormMetadata([form]);
 - Choice questions are always rendered as checkboxes. For tangential either/or subsets inside a larger checkbox question, use `choiceGroups` instead of radios. A group has `id`, optional `title`/`description`, `choiceIds`, `mode: "any" | "atMostOne" | "exactlyOne"`, and optional `defaultChoiceId`. Use `atMostOne` when zero-or-one choice is valid and `exactlyOne` when one checkbox in the group must remain selected, often with a `none_of_the_above` or `no_preference` default choice. Keep unrelated supplemental choices ungrouped so they remain normal multiple checkboxes.
 - Per-choice textareas and per-question textareas are always included. Do not add note-inclusion flags.
 - Standard forms include two submit actions by default: one that sets `allow_code_file_changes` to `true`, and one that sets it to `false`. If the normalized response has this field as `false`, do not edit code or files.
-- Use `content: [buildMediaGallery(...)]` for local screenshot/video review blocks. Prefer folder-relative refs like `attachments/candidate-a.png` or attachment-style refs like `attachment://candidate-b.webm`.
+- Use `content` blocks for ref-backed rich context. `buildMediaGallery(...)` covers image/video refs, `buildMarkdownAttachment(...)` covers Markdown-file refs, `buildAttachmentList(...)` covers arbitrary artifacts, and `buildCodeSnippetRef(...)` covers repo source permalinks with path/commit/line metadata. Bead-backed local artifacts must use `attachment://...` refs and live under `.beads/attachments/`; folder preview may also use folder-relative refs like `attachments/candidate-a.png`.
 - Use stable lowercase ids with letters, numbers, `_`, or `-`; start ids with a letter.
 - Choice ids become submitted values.
 - Question ids become submitted field names.

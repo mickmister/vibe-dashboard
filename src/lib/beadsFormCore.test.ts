@@ -492,7 +492,7 @@ describe('BeadsForm core', () => {
         <textarea id="comment" name="comment" required rows="5"></textarea>
         <input id="approved" name="decision" type="checkbox" value="approved" checked>
         <select id="priority" name="priority"><option value="p1" selected>P1</option></select>
-        <a href="https://evil.example">external</a>
+        <a href="https://docs.example">external</a>
         <a href="/safe">safe</a>
       </form>
     `);
@@ -501,6 +501,7 @@ describe('BeadsForm core', () => {
     expect(html).not.toContain('<object');
     expect(html).not.toContain('<embed');
     expect(html).not.toContain('https://evil.example');
+    expect(html).toContain('href="https://docs.example"');
     expect(html).toContain('<img src="attachments/safe.png" alt="Safe">');
     expect(html).toContain('<video src="attachment://demo.webm" poster="screenshots/demo.png" controls=""></video>');
     expect(html).not.toContain('data:video');

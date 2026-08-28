@@ -296,6 +296,36 @@ textarea {
   display: none;
 }
 
+.beadsform-root .beads-form-attachment-block,
+.beadsform-root .beads-form-code-snippet {
+  display: grid;
+  gap: 0.75rem;
+  border: 1px solid #3f3f46;
+  border-radius: 1rem;
+  background: #111113;
+  padding: 1rem;
+}
+
+.beadsform-root .beads-form-attachment-block ul {
+  display: grid;
+  gap: 0.65rem;
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.beadsform-root .beads-form-attachment-link,
+.beadsform-root .beads-form-code-snippet-link {
+  width: fit-content;
+  color: #93c5fd;
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}
+
+.beadsform-root .beads-form-code-snippet-source {
+  color: #d4d4d8;
+  margin: 0;
+}
+
 .beadsform-root button,
 .beadsform-root input[type="submit"] {
   border: 1px solid #71717a;

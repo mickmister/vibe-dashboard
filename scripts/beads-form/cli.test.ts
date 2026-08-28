@@ -201,7 +201,7 @@ describe('beads-form CLI helpers', () => {
     expect(() => parseFormsJsonForAttach(JSON.stringify({
       ...standardForm,
       content: [{ ...standardForm.content[0], items: [{ id: 'local', type: 'image', src: 'attachments/local.png' }] }],
-    }))).toThrow('uses local media');
+    }))).toThrow('bead-backed attachments support http(s) or attachment:// refs only');
     expect(() => parseFormsJsonForAttach(JSON.stringify({
       id: 'raw_img',
       title: 'Raw image',
@@ -691,13 +691,37 @@ describe('beads-form CLI helpers', () => {
   });
 
   it('builds JSON-first show output with all responses, semantic fields, and media refs', () => {
-    const form = {
-      ...parseFormsJsonForAttach(JSON.stringify(standardForm))[0]!,
-      responses: [
-        { submittedBy: 'user', submittedAt: '2026-07-14T00:00:00Z', values: { decision: { approve: true } } },
-        { submittedBy: 'user', submittedAt: '2026-07-14T00:01:00Z', values: { decision: { approve: false } } },
+    const form = parseFormsJsonForAttach(JSON.stringify({
+      ...standardForm,
+      content: [
+        ...standardForm.content,
+        {
+          type: 'markdown-attachment',
+          id: 'decision_doc',
+          title: 'Decision doc',
+          ref: 'attachment://docs/decision.md',
+        },
+        {
+          type: 'attachments',
+          id: 'supporting_files',
+          title: 'Supporting files',
+          items: [{ id: 'logs', label: 'Logs', ref: 'attachment://logs/output.txt', mediaType: 'file' }],
+        },
+        {
+          type: 'code-snippet',
+          id: 'callsite',
+          title: 'Callsite',
+          path: 'src/index.ts',
+          commit: 'abc1234',
+          startLine: 4,
+          endLine: 8,
+        },
       ],
-    };
+    }))[0]!;
+    form.responses = [
+      { submittedBy: 'user', submittedAt: '2026-07-14T00:00:00Z', values: { decision: { approve: true } } },
+      { submittedBy: 'user', submittedAt: '2026-07-14T00:01:00Z', values: { decision: { approve: false } } },
+    ];
 
     const withoutHtml = buildShowResult({ bead: { id: 'bd-1', title: 'Bead' }, form });
     expect(withoutHtml.responseCount).toBe(2);
@@ -706,11 +730,45 @@ describe('beads-form CLI helpers', () => {
     expect(withoutHtml.form.questions).toEqual(standardForm.questions);
     expect(withoutHtml.form).not.toHaveProperty('html');
     expect(withoutHtml.form).not.toHaveProperty('controls');
-    expect(withoutHtml.mediaRefs).toEqual([{ galleryId: 'gallery', itemId: 'shot', type: 'image', src: 'https://example.test/shot.png', caption: 'Shot' }]);
+    expect(withoutHtml.mediaRefs).toEqual([
+      { galleryId: 'gallery', itemId: 'shot', type: 'image', src: 'https://example.test/shot.png', caption: 'Shot' },
+      { blockId: 'decision_doc', type: 'markdown', ref: 'attachment://docs/decision.md' },
+      { blockId: 'supporting_files', itemId: 'logs', type: 'file', ref: 'attachment://logs/output.txt' },
+      { blockId: 'callsite', type: 'code-snippet', path: 'src/index.ts', commit: 'abc1234', startLine: 4, endLine: 8 },
+    ]);
 
     const second = buildShowResult({ bead: { id: 'bd-1' }, form });
     expect(second.form).not.toHaveProperty('html');
     expect(second.form).not.toHaveProperty('controls');
+  });
+
+  it('allows bead-backed attachment refs while rejecting unsafe local refs', () => {
+    expect(() => parseFormsJsonForAttach(JSON.stringify({
+      ...standardForm,
+      content: [{
+        type: 'markdown-attachment',
+        id: 'local_doc',
+        title: 'Local doc',
+        ref: 'docs/decision.md',
+      }],
+    }))).toThrow('bead-backed attachments support http(s) or attachment:// refs only');
+
+    const form = parseFormsJsonForAttach(JSON.stringify({
+      ...standardForm,
+      content: [{
+        type: 'attachments',
+        id: 'refs',
+        title: 'Refs',
+        items: [{ id: 'doc', label: 'Doc', ref: 'attachment://docs/decision.md', mediaType: 'markdown' }],
+      }],
+    }))[0]!;
+
+    expect(form.content).toEqual([{
+      type: 'attachments',
+      id: 'refs',
+      title: 'Refs',
+      items: [{ id: 'doc', label: 'Doc', ref: 'attachment://docs/decision.md', mediaType: 'markdown' }],
+    }]);
   });
 
   it('shows legacy missing-goal standard forms while stripping stale generated fields', async () => {

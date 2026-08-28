@@ -28,7 +28,7 @@ import {
   writePreviewDraft,
   writePreviewSubmission,
 } from '../lib/beadsFormPreviewState';
-import { rewriteFolderPreviewMediaRefs } from '../lib/beadsFormPreviewMedia';
+import { rewriteBeadBackedAttachmentRefs, rewriteFolderPreviewMediaRefs } from '../lib/beadsFormPreviewMedia';
 import { shouldHydrateRefreshedWorkspaceForms } from '../lib/beadsFormRefreshState';
 import { initializeSingleQuestionMode, prehideInactiveSingleQuestionItems } from '../lib/beadsFormSingleQuestion';
 import { initializeCompactMoreInfo, refreshCompactMoreInfoState } from '../lib/beadsFormMoreInfo';
@@ -941,10 +941,10 @@ function AggregateBeadsFormCard({ item, submitBeadForm }: {
   const html = useMemo(() => (
     form ? wizardSafeFormHtml(
       form,
-      namespaceAggregateFormHtml(sanitizeBeadsFormHtml(form.html), domPrefix),
+      namespaceAggregateFormHtml(sanitizeBeadsFormHtml(rewriteBeadBackedAttachmentRefs(form.html, item.beadRepoDir ?? item.ref.dir)), domPrefix),
       { urlState: false },
     ) : ''
-  ), [domPrefix, form]);
+  ), [domPrefix, form, item.beadRepoDir, item.ref.dir]);
   const storageKey = useMemo(() => {
     if (!form || !item.beadRepoDir) return '';
     return beadFormStorageKey({
@@ -1302,9 +1302,9 @@ function BeadsFormRoute({ actions, pendingQueueSentinel }: { actions: {
     if (!loaded?.selected?.selectedForm) return '';
     return wizardSafeFormHtml(
       loaded.selected.selectedForm,
-      sanitizeBeadsFormHtml(loaded.selected.selectedForm.html),
+      sanitizeBeadsFormHtml(rewriteBeadBackedAttachmentRefs(loaded.selected.selectedForm.html, loaded.selected.beadRepoDir)),
     );
-  }, [loaded?.selected?.selectedForm]);
+  }, [loaded?.selected?.beadRepoDir, loaded?.selected?.selectedForm]);
 
   const beadDraftStorageKey = useMemo(() => {
     if (!loaded?.selected?.selectedForm || !beadId) return '';

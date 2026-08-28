@@ -39,6 +39,13 @@ describe('BeadsForm pending queue UI source', () => {
     expect(source).toContain('refreshMarkdownTextareaEditors(element);');
   });
 
+  it('rewrites bead-backed attachment refs before sanitizing selected and aggregate forms', async () => {
+    const source = await readFile(new URL('./BeadsFormModule.tsx', import.meta.url), 'utf8');
+
+    expect(source).toContain('rewriteBeadBackedAttachmentRefs(form.html, item.beadRepoDir ?? item.ref.dir)');
+    expect(source).toContain('rewriteBeadBackedAttachmentRefs(loaded.selected.selectedForm.html, loaded.selected.beadRepoDir)');
+  });
+
   it('sets aggregate success before awaiting clipboard completion', async () => {
     const source = await readFile(new URL('./BeadsFormModule.tsx', import.meta.url), 'utf8');
 

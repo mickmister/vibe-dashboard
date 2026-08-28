@@ -179,13 +179,19 @@ export type ShowForm = {
 };
 
 export type ShowMediaRef = {
-  galleryId: string;
-  itemId: string;
-  type: 'image' | 'video';
-  src: string;
+  galleryId?: string;
+  blockId?: string;
+  itemId?: string;
+  type: 'image' | 'video' | 'markdown' | 'file' | 'code-snippet';
+  src?: string;
+  ref?: string;
   poster?: string;
   caption?: string;
   alt?: string;
+  path?: string;
+  commit?: string;
+  startLine?: number;
+  endLine?: number;
 };
 
 export type PendingFormsCliResult = {
@@ -583,10 +589,10 @@ function assertUniqueFormIds(forms: BeadsFormDefinition[]): void {
 
 function assertNoLocalBeadBackedMediaRefs(form: BeadsFormDefinition): void {
   for (const ref of collectMediaRefs(form)) {
-    for (const [field, value] of Object.entries({ src: ref.src, poster: ref.poster })) {
+    for (const [field, value] of Object.entries({ src: ref.src, ref: ref.ref, poster: ref.poster })) {
       if (typeof value !== 'string' || !value) continue;
       if (isLocalMediaRef(value)) {
-        throw new Error(`Form ${form.id} uses local media ${field} "${value}"; bead-backed media only supports non-local refs for now`);
+        throw new Error(`Form ${form.id} uses local attachment ${field} "${value}"; bead-backed attachments support http(s) or attachment:// refs only`);
       }
     }
   }
@@ -1021,16 +1027,44 @@ export async function scanPendingBeadsForms(input: {
 export function collectMediaRefs(form: Pick<BeadsFormDefinition, 'content'>): ShowMediaRef[] {
   const refs: ShowMediaRef[] = [];
   for (const block of form.content ?? []) {
-    if (block.type !== 'media-gallery') continue;
-    for (const item of block.items) {
+    if (block.type === 'media-gallery') {
+      for (const item of block.items) {
+        refs.push({
+          galleryId: block.id,
+          itemId: item.id,
+          type: item.type,
+          src: item.src,
+          ...(item.poster ? { poster: item.poster } : {}),
+          ...(item.caption ? { caption: item.caption } : {}),
+          ...(item.alt ? { alt: item.alt } : {}),
+        });
+      }
+    }
+    if (block.type === 'markdown-attachment') {
       refs.push({
-        galleryId: block.id,
-        itemId: item.id,
-        type: item.type,
-        src: item.src,
-        ...(item.poster ? { poster: item.poster } : {}),
-        ...(item.caption ? { caption: item.caption } : {}),
-        ...(item.alt ? { alt: item.alt } : {}),
+        blockId: block.id,
+        type: 'markdown',
+        ref: block.ref,
+      });
+    }
+    if (block.type === 'attachments') {
+      for (const item of block.items) {
+        refs.push({
+          blockId: block.id,
+          itemId: item.id,
+          type: item.mediaType ?? 'file',
+          ref: item.ref,
+        });
+      }
+    }
+    if (block.type === 'code-snippet') {
+      refs.push({
+        blockId: block.id,
+        type: 'code-snippet',
+        path: block.path,
+        commit: block.commit,
+        startLine: block.startLine,
+        ...(block.endLine ? { endLine: block.endLine } : {}),
       });
     }
   }

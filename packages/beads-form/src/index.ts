@@ -87,7 +87,48 @@ export type MediaGalleryBlock = {
   items: MediaGalleryItem[];
 };
 
-export type BeadsFormContentBlock = MediaGalleryBlock;
+export type MarkdownAttachmentBlock = {
+  type: 'markdown-attachment';
+  id: string;
+  title: string;
+  description?: string;
+  ref: string;
+  label?: string;
+};
+
+export type AttachmentListItem = {
+  id: string;
+  ref: string;
+  label: string;
+  description?: string;
+  mediaType?: 'markdown' | 'image' | 'video' | 'file';
+};
+
+export type AttachmentListBlock = {
+  type: 'attachments';
+  id: string;
+  title: string;
+  description?: string;
+  items: AttachmentListItem[];
+};
+
+export type CodeSnippetRefBlock = {
+  type: 'code-snippet';
+  id: string;
+  title: string;
+  description?: string;
+  path: string;
+  commit: string;
+  startLine: number;
+  endLine?: number;
+  url?: string;
+};
+
+export type BeadsFormContentBlock =
+  | MediaGalleryBlock
+  | MarkdownAttachmentBlock
+  | AttachmentListBlock
+  | CodeSnippetRefBlock;
 
 export type StandardBeadsForm = {
   format: 'standard';
@@ -299,6 +340,18 @@ export function buildMediaGallery(input: Omit<MediaGalleryBlock, 'type'>): Media
   return { ...input, type: 'media-gallery' };
 }
 
+export function buildMarkdownAttachment(input: Omit<MarkdownAttachmentBlock, 'type'>): MarkdownAttachmentBlock {
+  return { ...input, type: 'markdown-attachment' };
+}
+
+export function buildAttachmentList(input: Omit<AttachmentListBlock, 'type'>): AttachmentListBlock {
+  return { ...input, type: 'attachments' };
+}
+
+export function buildCodeSnippetRef(input: Omit<CodeSnippetRefBlock, 'type'>): CodeSnippetRefBlock {
+  return { ...input, type: 'code-snippet' };
+}
+
 export function defineBeadsForm(input: Omit<StandardBeadsForm, 'format'>): StandardBeadsForm {
   return { ...input, format: 'standard' };
 }
@@ -421,6 +474,9 @@ function compileSubmitActions(
 function compileContentBlock(block: BeadsFormContentBlock): string {
   assertIdentifier(block.id, 'content.id');
   if (block.type === 'media-gallery') return compileMediaGallery(block);
+  if (block.type === 'markdown-attachment') return compileMarkdownAttachment(block);
+  if (block.type === 'attachments') return compileAttachmentList(block);
+  if (block.type === 'code-snippet') return compileCodeSnippetRef(block);
   return '';
 }
 
@@ -449,6 +505,71 @@ function compileMediaGallery(block: MediaGalleryBlock): string {
     '</div>',
     '</section>',
   ].join('');
+}
+
+function compileMarkdownAttachment(block: MarkdownAttachmentBlock): string {
+  const description = block.description ? renderMarkdown(block.description) : '';
+  return [
+    `<section id="${attr(block.id)}" class="beads-form-attachment-block beads-form-markdown-attachment" aria-labelledby="${attr(block.id)}_title">`,
+    `<h3 id="${attr(block.id)}_title">${escapeHtml(block.title)}</h3>`,
+    description,
+    `<a class="beads-form-attachment-link" href="${attr(block.ref)}" rel="noopener noreferrer">${escapeHtml(block.label ?? block.ref)}</a>`,
+    '</section>',
+  ].join('');
+}
+
+function compileAttachmentList(block: AttachmentListBlock): string {
+  if (block.items.length === 0) throw new Error(`attachment list ${block.id} must have at least one item`);
+  const description = block.description ? renderMarkdown(block.description) : '';
+  const items = block.items.map((item) => {
+    assertIdentifier(item.id, `attachment item id for ${block.id}`);
+    return [
+      `<li class="beads-form-attachment-item beads-form-attachment-item--${attr(item.mediaType ?? 'file')}">`,
+      `<a class="beads-form-attachment-link" href="${attr(item.ref)}" rel="noopener noreferrer">${escapeHtml(item.label)}</a>`,
+      item.description ? renderMarkdown(item.description) : '',
+      '</li>',
+    ].join('');
+  }).join('');
+  return [
+    `<section id="${attr(block.id)}" class="beads-form-attachment-block beads-form-attachment-list" aria-labelledby="${attr(block.id)}_title">`,
+    `<h3 id="${attr(block.id)}_title">${escapeHtml(block.title)}</h3>`,
+    description,
+    `<ul>${items}</ul>`,
+    '</section>',
+  ].join('');
+}
+
+function compileCodeSnippetRef(block: CodeSnippetRefBlock): string {
+  validateCodeSnippetRef(block);
+  const description = block.description ? renderMarkdown(block.description) : '';
+  const lineLabel = block.endLine && block.endLine !== block.startLine
+    ? `lines ${block.startLine}-${block.endLine}`
+    : `line ${block.startLine}`;
+  const source = `${block.path}@${block.commit} ${lineLabel}`;
+  const link = block.url && safeHref(block.url)
+    ? `<a class="beads-form-code-snippet-link" href="${attr(block.url)}" rel="noopener noreferrer">Open permalink</a>`
+    : '';
+  return [
+    `<section id="${attr(block.id)}" class="beads-form-code-snippet" aria-labelledby="${attr(block.id)}_title">`,
+    `<h3 id="${attr(block.id)}_title">${escapeHtml(block.title)}</h3>`,
+    description,
+    `<p class="beads-form-code-snippet-source"><code>${escapeHtml(block.path)}</code> at <code>${escapeHtml(block.commit)}</code>, ${escapeHtml(lineLabel)}</p>`,
+    `<pre><code>${escapeHtml(source)}</code></pre>`,
+    link,
+    '</section>',
+  ].join('');
+}
+
+function validateCodeSnippetRef(block: CodeSnippetRefBlock): void {
+  if (!block.path.trim()) throw new Error(`code snippet ${block.id} path is required`);
+  if (block.path.startsWith('/') || block.path.split(/[\\/]+/).includes('..')) {
+    throw new Error(`code snippet ${block.id} path must be repo-relative and must not traverse directories`);
+  }
+  if (!/^[0-9a-f]{7,64}$/i.test(block.commit)) throw new Error(`code snippet ${block.id} commit must be a 7-64 character hex hash`);
+  if (!Number.isInteger(block.startLine) || block.startLine < 1) throw new Error(`code snippet ${block.id} startLine must be a positive integer`);
+  if (block.endLine !== undefined && (!Number.isInteger(block.endLine) || block.endLine < block.startLine)) {
+    throw new Error(`code snippet ${block.id} endLine must be greater than or equal to startLine`);
+  }
 }
 
 function compileQuestion(question: BeadsFormQuestion, controls: BeadsFormControl[]): string {
