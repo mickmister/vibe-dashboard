@@ -29,7 +29,12 @@ describe("WorkflowLibraryView", () => {
     expect(html).toContain("New Role Template");
     expect(html).toContain("New Prompt");
     expect(html).toContain("New Skill");
-    expect(html).toContain("Edit as new version");
+    expect(html).toContain("Edit latest as new version");
+    expect(html).toContain("Version history");
+    expect(html).toContain("Use latest follows the newest published version when a new run snapshot is created. Pinned references keep the selected version.");
+    expect(html).toContain("Role template links can use latest for future runs or pin an exact version for deterministic published workflows.");
+    expect(html).toContain("Copy from v1");
+    expect(html).toContain("Copy from v2");
     expect(html).toContain("Security reviewer");
     expect(html).toContain("Prompts: prompt.review.security (latest)");
     expect(html).toContain("Skills: skill.testing.focused (v2)");
@@ -91,6 +96,38 @@ describe("WorkflowLibraryView", () => {
     expect(html).toContain("Default executor");
     expect(html).toContain("Default model");
     expect(html).toContain("Review for security in depth.");
+  });
+
+
+  it("TEST_CASE_OXU5_1A groups version history and exposes copy-from-version affordances", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(WorkflowLibraryView, {
+        assets: {
+          prompts: [
+            { kind: "prompt", id: "prompt.review.product", version: 2, name: "Product review", description: "Newer", source: "user", preview: "Review product clarity v2.", bodyMarkdown: "Review product clarity v2." },
+            { kind: "prompt", id: "prompt.review.product", version: 1, name: "Product review", description: "Older", source: "user", preview: "Review product clarity v1.", bodyMarkdown: "Review product clarity v1." },
+          ],
+          skills: [
+            { kind: "skill", id: "skill.forms", version: 2, name: "Forms", description: null, source: "user", preview: "Use form conventions v2.", bodyMarkdown: "Use form conventions v2." },
+            { kind: "skill", id: "skill.forms", version: 1, name: "Forms", description: null, source: "user", preview: "Use form conventions v1.", bodyMarkdown: "Use form conventions v1." },
+          ],
+          roleTemplates: [
+            { id: "role.review.product", version: 2, name: "Product reviewer", description: null, source: "user", promptPreview: "Review UX v2.", promptMarkdown: "Review UX v2.", promptRefs: [{ kind: "prompt", id: "prompt.review.product", versionMode: "latest" }], skillRefs: [], executorPreference: null, active: true },
+            { id: "role.review.product", version: 1, name: "Product reviewer", description: null, source: "user", promptPreview: "Review UX v1.", promptMarkdown: "Review UX v1.", promptRefs: [{ kind: "prompt", id: "prompt.review.product", version: 1, versionMode: "pinned" }], skillRefs: [], executorPreference: null, active: true },
+          ],
+        },
+      }),
+    );
+
+    expect(html).toContain("Latest v2");
+    expect(html).toContain("Version history (2)");
+    expect(html).toContain("Copy from v1");
+    expect(html).toContain("Copy from v2");
+    expect(html).toContain("Use latest follows the newest published version when a new run snapshot is created. Pinned references keep the selected version.");
+    expect(html).toContain("Role template links can use latest for future runs or pin an exact version for deterministic published workflows.");
+    expect(html).not.toContain("/Users/");
+    expect(html).not.toContain("/tmp/");
+    expect(html).not.toContain("queue item");
   });
 
 });

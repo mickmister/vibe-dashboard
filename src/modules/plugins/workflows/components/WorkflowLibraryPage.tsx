@@ -98,6 +98,9 @@ export function WorkflowLibraryView({
 }): React.ReactElement {
   const [mode, setMode] = useState<LibraryEditMode>(initialMode);
   const roleTemplates = assets.roleTemplates ?? [];
+  const promptGroups = groupAssetVersions(assets.prompts);
+  const skillGroups = groupAssetVersions(assets.skills);
+  const roleTemplateGroups = groupRoleTemplateVersions(roleTemplates);
   return (
     <StandaloneDashboardPage>
       <main className="mx-auto flex w-full max-w-7xl flex-col gap-5 p-6 text-zinc-100" aria-label="Workflow library">
@@ -121,13 +124,13 @@ export function WorkflowLibraryView({
 
         <section className="grid gap-4 xl:grid-cols-3">
           <LibraryColumn title="Role templates" empty="No reusable role templates yet." description="Reusable role behavior: prompt assets, markdown skill refs, base instructions, and executor/model defaults." action={<button className="rounded-md bg-cyan-500 px-3 py-1.5 text-sm font-medium text-zinc-950" type="button" onClick={() => setMode({ kind: "role" })}>New Role Template</button>}>
-            {roleTemplates.map((template) => <RoleTemplateCard key={`${template.id}:${template.version}`} template={template} onEdit={() => setMode({ kind: "role", source: template })} />)}
+            {roleTemplateGroups.map((group) => <RoleTemplateVersionGroup key={group.id} group={group} onEdit={(template) => setMode({ kind: "role", source: template })} />)}
           </LibraryColumn>
           <LibraryColumn title="Prompt assets" empty="No prompt assets yet." description="Reusable prompt blocks for workflow role templates and agent steps." action={<button className="rounded-md bg-cyan-500 px-3 py-1.5 text-sm font-medium text-zinc-950" type="button" onClick={() => setMode({ kind: "prompt" })}>New Prompt</button>}>
-            {assets.prompts.map((asset) => <AssetCard key={`${asset.id}:${asset.version}`} asset={asset} onEdit={() => setMode({ kind: "prompt", source: asset })} />)}
+            {promptGroups.map((group) => <AssetVersionGroup key={group.id} group={group} onEdit={(asset) => setMode({ kind: "prompt", source: asset })} />)}
           </LibraryColumn>
           <LibraryColumn title="Skill snippets" empty="No markdown skill snippets yet." description="Instruction snippets only; these are not executable providers." action={<button className="rounded-md bg-cyan-500 px-3 py-1.5 text-sm font-medium text-zinc-950" type="button" onClick={() => setMode({ kind: "skill" })}>New Skill</button>}>
-            {assets.skills.map((asset) => <AssetCard key={`${asset.id}:${asset.version}`} asset={asset} onEdit={() => setMode({ kind: "skill", source: asset })} />)}
+            {skillGroups.map((group) => <AssetVersionGroup key={group.id} group={group} onEdit={(asset) => setMode({ kind: "skill", source: asset })} />)}
           </LibraryColumn>
         </section>
 
@@ -162,35 +165,76 @@ function LibraryColumn({ title, description, empty, action, children }: { title:
   );
 }
 
-function AssetCard({ asset, onEdit }: { asset: WorkflowAssetPickerItem; onEdit?: () => void }): React.ReactElement {
+type VersionGroup<T extends { id: string; version: number }> = {
+  id: string;
+  latest: T;
+  versions: T[];
+};
+
+function AssetVersionGroup({ group, onEdit }: { group: VersionGroup<WorkflowAssetPickerItem>; onEdit?: (asset: WorkflowAssetPickerItem) => void }): React.ReactElement {
+  const asset = group.latest;
+  const assetKind = asset.kind === "skill" ? "Skill snippet" : "Prompt asset";
   return (
     <article className="rounded-lg border border-zinc-800 bg-slate-950/70 p-3">
       <div className="flex items-center justify-between gap-2">
         <h3 className="font-medium">{asset.name}</h3>
-        <span className="rounded border border-zinc-700 px-2 py-0.5 text-xs text-zinc-300">v{asset.version}</span>
+        <span className="rounded border border-cyan-800 bg-cyan-950/40 px-2 py-0.5 text-xs text-cyan-100">Latest v{asset.version}</span>
       </div>
-      <p className="mt-1 text-xs text-zinc-500">{asset.kind === "skill" ? "Skill snippet" : "Prompt asset"} · {sourceLabel(asset.source)}</p>
+      <p className="mt-1 text-xs text-zinc-500">{assetKind} · {sourceLabel(asset.source)}</p>
+      <p className="mt-2 text-xs text-cyan-200">Use latest follows the newest published version when a new run snapshot is created. Pinned references keep the selected version.</p>
       {asset.description ? <p className="mt-2 text-sm text-zinc-400">{safeText(asset.description)}</p> : null}
       <p className="mt-2 line-clamp-4 whitespace-pre-wrap text-sm text-zinc-300">{safeText(asset.preview)}</p>
-      <button className="mt-3 rounded-md border border-zinc-700 px-2 py-1 text-xs text-cyan-100 hover:border-cyan-500" type="button" onClick={onEdit}>Edit as new version</button>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button className="rounded-md border border-zinc-700 px-2 py-1 text-xs text-cyan-100 hover:border-cyan-500" type="button" onClick={() => onEdit?.(asset)}>Edit latest as new version</button>
+      </div>
+      <details className="mt-3 rounded-md border border-zinc-800 bg-zinc-950/50 p-2">
+        <summary className="cursor-pointer text-xs font-medium text-zinc-300">Version history ({group.versions.length})</summary>
+        <div className="mt-2 space-y-2" aria-label={`${asset.name} version history`}>
+          {group.versions.map((version) => (
+            <div key={`${version.id}:${version.version}`} className="rounded border border-zinc-800 bg-zinc-950 p-2 text-xs text-zinc-400">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span><strong className="text-zinc-200">v{version.version}</strong>{version.version === asset.version ? " · Latest" : ""} · {sourceLabel(version.source)}</span>
+                <button className="rounded border border-zinc-700 px-2 py-1 text-cyan-100 hover:border-cyan-500" type="button" onClick={() => onEdit?.(version)}>Copy from v{version.version}</button>
+              </div>
+              <p className="mt-1 line-clamp-2 whitespace-pre-wrap">{safeText(version.preview)}</p>
+            </div>
+          ))}
+        </div>
+      </details>
     </article>
   );
 }
 
-function RoleTemplateCard({ template, onEdit }: { template: WorkflowRoleTemplatePickerItem; onEdit?: () => void }): React.ReactElement {
+function RoleTemplateVersionGroup({ group, onEdit }: { group: VersionGroup<WorkflowRoleTemplatePickerItem>; onEdit?: (template: WorkflowRoleTemplatePickerItem) => void }): React.ReactElement {
+  const template = group.latest;
   return (
     <article className="rounded-lg border border-zinc-800 bg-slate-950/70 p-3">
       <div className="flex items-center justify-between gap-2">
         <h3 className="font-medium">{template.name}</h3>
-        <span className="rounded border border-zinc-700 px-2 py-0.5 text-xs text-zinc-300">v{template.version}</span>
+        <span className="rounded border border-cyan-800 bg-cyan-950/40 px-2 py-0.5 text-xs text-cyan-100">Latest v{template.version}</span>
       </div>
       <p className="mt-1 text-xs text-zinc-500">Role template · {sourceLabel(template.source)}{template.active ? "" : " · Inactive"}</p>
+      <p className="mt-2 text-xs text-cyan-200">Role template links can use latest for future runs or pin an exact version for deterministic published workflows.</p>
       {template.description ? <p className="mt-2 text-sm text-zinc-400">{safeText(template.description)}</p> : null}
       <p className="mt-2 line-clamp-4 whitespace-pre-wrap text-sm text-zinc-300">{safeText(template.promptPreview)}</p>
       {template.promptRefs?.length ? <p className="mt-2 text-xs text-zinc-500">Prompts: {template.promptRefs.map(formatAttachmentRef).join(", ")}</p> : null}
       {template.skillRefs.length ? <p className="mt-2 text-xs text-zinc-500">Skills: {template.skillRefs.map(formatAttachmentRef).join(", ")}</p> : null}
       {template.executorPreference ? <p className="mt-1 text-xs text-zinc-500">Default executor: {template.executorPreference.executorType}{template.executorPreference.model ? ` · ${template.executorPreference.model}` : ""}</p> : <p className="mt-1 text-xs text-zinc-500">Default executor: workspace default</p>}
-      <button className="mt-3 rounded-md border border-zinc-700 px-2 py-1 text-xs text-cyan-100 hover:border-cyan-500" type="button" onClick={onEdit}>Edit as new version</button>
+      <button className="mt-3 rounded-md border border-zinc-700 px-2 py-1 text-xs text-cyan-100 hover:border-cyan-500" type="button" onClick={() => onEdit?.(template)}>Edit latest as new version</button>
+      <details className="mt-3 rounded-md border border-zinc-800 bg-zinc-950/50 p-2">
+        <summary className="cursor-pointer text-xs font-medium text-zinc-300">Version history ({group.versions.length})</summary>
+        <div className="mt-2 space-y-2" aria-label={`${template.name} version history`}>
+          {group.versions.map((version) => (
+            <div key={`${version.id}:${version.version}`} className="rounded border border-zinc-800 bg-zinc-950 p-2 text-xs text-zinc-400">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span><strong className="text-zinc-200">v{version.version}</strong>{version.version === template.version ? " · Latest" : ""} · {sourceLabel(version.source)}</span>
+                <button className="rounded border border-zinc-700 px-2 py-1 text-cyan-100 hover:border-cyan-500" type="button" onClick={() => onEdit?.(version)}>Copy from v{version.version}</button>
+              </div>
+              <p className="mt-1 line-clamp-2 whitespace-pre-wrap">{safeText(version.promptPreview)}</p>
+            </div>
+          ))}
+        </div>
+      </details>
     </article>
   );
 }
@@ -354,6 +398,25 @@ function LibraryForm({ title, idLabel, bodyLabel, idPlaceholder, source, extra, 
   );
 }
 
+function groupAssetVersions(assets: WorkflowAssetPickerItem[]): Array<VersionGroup<WorkflowAssetPickerItem>> {
+  return groupVersions(assets);
+}
+
+function groupRoleTemplateVersions(templates: WorkflowRoleTemplatePickerItem[]): Array<VersionGroup<WorkflowRoleTemplatePickerItem>> {
+  return groupVersions(templates);
+}
+
+function groupVersions<T extends { id: string; version: number; name: string }>(items: T[]): Array<VersionGroup<T>> {
+  const groups = new Map<string, T[]>();
+  for (const item of items) groups.set(item.id, [...(groups.get(item.id) ?? []), item]);
+  return Array.from(groups.entries())
+    .map(([id, versions]) => {
+      const sorted = [...versions].sort((a, b) => b.version - a.version);
+      return { id, latest: sorted[0]!, versions: sorted };
+    })
+    .sort((a, b) => a.latest.name.localeCompare(b.latest.name));
+}
+
 function versionsForAsset(assets: WorkflowAssetPickerItem[], id: string): WorkflowAssetPickerItem[] {
   return assets.filter((asset) => asset.id === id).sort((a, b) => b.version - a.version);
 }
@@ -375,9 +438,11 @@ function sourceLabel(source: string): string {
 
 function safeText(value: string): string {
   return value
-    .replace(/\/Users\/[^\s]+/gu, "[redacted-home]")
+    .replace(/\/(?:Users|tmp|private\/var)\/[^\s]+/giu, "[redacted-path]")
     .replace(/\bbd\s+[^\n]*/giu, "workflow command")
+    .replace(/\bgit\s+[^\n]*/giu, "workflow action")
     .replace(/\bshell\b/giu, "workflow action")
     .replace(/\bwebhook\b/giu, "workflow update")
-    .replace(/\bqueue[-_ ]?item\b/giu, "workflow item");
+    .replace(/\bqueue[-_ ]?item\b/giu, "workflow item")
+    .replace(/\bprovider diagnostics?\b/giu, "provider status");
 }

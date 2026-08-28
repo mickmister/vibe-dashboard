@@ -3,14 +3,17 @@ import { WorkflowLibraryView } from '../components/WorkflowLibraryPage';
 
 const populatedAssets = {
   prompts: [
+    { kind: 'prompt' as const, id: 'prompt.review.security', version: 2, name: 'Security review prompt', description: 'A reusable review behavior prompt.', source: 'user', preview: 'Review auth, data exposure, rollback, and abuse cases with the latest checklist.', bodyMarkdown: 'Review auth, data exposure, rollback, and abuse cases with the latest checklist.' },
     { kind: 'prompt' as const, id: 'prompt.review.security', version: 1, name: 'Security review prompt', description: 'A reusable review behavior prompt.', source: 'user', preview: 'Review auth, data exposure, rollback, and abuse cases.', bodyMarkdown: 'Review auth, data exposure, rollback, and abuse cases.' },
     { kind: 'prompt' as const, id: 'prompt.review.product', version: 2, name: 'Product review prompt', description: 'A product-focused reviewer prompt.', source: 'user', preview: 'Review user value, edge cases, and clarity.', bodyMarkdown: 'Review user value, edge cases, and clarity.' },
   ],
   skills: [
+    { kind: 'skill' as const, id: 'skill.testing.focused', version: 2, name: 'Focused testing', description: 'Markdown-only testing guidance.', source: 'user', preview: 'Write focused tests and call out untested paths with acceptance IDs.', bodyMarkdown: 'Write focused tests and call out untested paths with acceptance IDs.' },
     { kind: 'skill' as const, id: 'skill.testing.focused', version: 1, name: 'Focused testing', description: 'Markdown-only testing guidance.', source: 'user', preview: 'Write focused tests and call out untested paths.', bodyMarkdown: 'Write focused tests and call out untested paths.' },
   ],
   roleTemplates: [
-    { id: 'role.review.security', version: 1, name: 'Security reviewer', description: 'A second review agent type with security-focused behavior.', source: 'user', promptPreview: 'Review for security risks and summarize concerns.', promptMarkdown: 'Review for security risks and summarize concerns.', promptRefs: [{ kind: 'prompt' as const, id: 'prompt.review.security', versionMode: 'latest' as const }], skillRefs: [{ kind: 'skill' as const, id: 'skill.testing.focused', version: 1, versionMode: 'pinned' as const }], executorPreference: { executorType: 'CODEX', model: 'gpt-5-codex', mode: 'preferred' }, active: true },
+    { id: 'role.review.security', version: 2, name: 'Security reviewer', description: 'A second review agent type with security-focused behavior.', source: 'user', promptPreview: 'Review for security risks and summarize concerns with the latest checklist.', promptMarkdown: 'Review for security risks and summarize concerns with the latest checklist.', promptRefs: [{ kind: 'prompt' as const, id: 'prompt.review.security', versionMode: 'latest' as const }], skillRefs: [{ kind: 'skill' as const, id: 'skill.testing.focused', version: 1, versionMode: 'pinned' as const }], executorPreference: { executorType: 'CODEX', model: 'gpt-5-codex', mode: 'preferred' }, active: true },
+    { id: 'role.review.security', version: 1, name: 'Security reviewer', description: 'A second review agent type with security-focused behavior.', source: 'user', promptPreview: 'Review for security risks and summarize concerns.', promptMarkdown: 'Review for security risks and summarize concerns.', promptRefs: [{ kind: 'prompt' as const, id: 'prompt.review.security', version: 1, versionMode: 'pinned' as const }], skillRefs: [{ kind: 'skill' as const, id: 'skill.testing.focused', version: 1, versionMode: 'pinned' as const }], executorPreference: { executorType: 'CODEX', model: 'gpt-5-codex', mode: 'preferred' }, active: true },
   ],
 };
 
@@ -41,4 +44,8 @@ export const EditingRoleTemplate: Story = {
 
 export const EditingPromptAsNewVersion: Story = {
   args: { assets: populatedAssets, initialMode: { kind: 'prompt', source: populatedAssets.prompts[0] } },
+};
+
+export const VersionHistory: Story = {
+  args: { assets: populatedAssets },
 };
