@@ -21,12 +21,14 @@ test.describe('NKYC workflow CLI delivery proof', () => {
     `NKYC CLI fixture requires VK_QA_SCRIPTED_OUTCOME_FILE pointing at ${requiredScriptFile}.`,
   );
 
-  test('TEST_CASE_NKYC_1A launches Ask teammate through CLI and delivers completion back to caller session', async ({ request }, testInfo) => {
+  test('TEST_CASE_NKYC_1A launches Ask teammate through CLI and delivers completion back to caller session with activity smoke', async ({ request, page }, testInfo) => {
     test.setTimeout(600_000);
     await expectDashboardHealth(request);
     const workspace = await firstWorkspace(request);
     const callerSessionId = await firstSessionIdForWorkspace(request, workspace.id);
     const unique = Date.now();
+    const activityWs = await startActivityWebSocketCapture(page, workspace.id, callerSessionId);
+    await testInfo.attach('uiid-activity-ws-initial.json', { body: JSON.stringify(await activityWs.events(), null, 2), contentType: 'application/json' });
 
     await execWorkflowCli(testInfo, 'build-vibe-agent-cli', 'npm', ['run', 'build:vibe-agent-cli'], { cwd: process.cwd(), timeout: 120_000 });
     const run = await execWorkflowCli(testInfo, 'nkyc-cli-run', 'node', [
@@ -70,8 +72,84 @@ test.describe('NKYC workflow CLI delivery proof', () => {
     await testInfo.attach('nkyc-caller-latest-response.json', { body: JSON.stringify(callerResponse, null, 2), contentType: 'application/json' });
     expect(JSON.stringify(callerResponse)).toContain('Workflow completion response received by caller session.');
     expect(JSON.stringify(callerResponse)).not.toMatch(forbidden);
+
+    const activitySnapshot = await pollActivityCallback(request, workspace.id, callerSessionId, launched.runId, 'delivered');
+    await testInfo.attach('uiid-activity-v1-snapshot.json', { body: JSON.stringify(activitySnapshot, null, 2), contentType: 'application/json' });
+    expect(JSON.stringify(activitySnapshot)).not.toMatch(forbidden);
+
+    const wsEvents = await activityWs.waitForCallback(launched.runId, 'delivered');
+    await testInfo.attach('uiid-activity-ws-events.json', { body: JSON.stringify(wsEvents, null, 2), contentType: 'application/json' });
+    expect(JSON.stringify(wsEvents)).not.toMatch(forbidden);
+    expect(countActivityCallbacks(wsEvents, launched.runId)).toBe(1);
+
+    const legacyWsEvents = await captureLegacyActivityWs(page);
+    await testInfo.attach('uiid-legacy-activity-ws-events.json', { body: JSON.stringify(legacyWsEvents, null, 2), contentType: 'application/json' });
+    expect(legacyWsEvents.length).toBeGreaterThan(0);
   });
 });
+
+type ActivityCapture = {
+  events: () => Promise<unknown[]>;
+  waitForCallback: (runId: string, status: string) => Promise<unknown[]>;
+};
+
+async function startActivityWebSocketCapture(page: import('playwright/test').Page, workspaceId: string, sessionId: string): Promise<ActivityCapture> {
+  if (page.url() === 'about:blank') {
+    await page.goto(sandboxUrl, { waitUntil: 'domcontentloaded' });
+  }
+  const wsUrl = new URL(`/vk-api/activity/v1/ws?workspace_id=${encodeURIComponent(workspaceId)}&session_id=${encodeURIComponent(sessionId)}`, sandboxUrl);
+  wsUrl.protocol = wsUrl.protocol === 'https:' ? 'wss:' : 'ws:';
+  await page.evaluate((url) => {
+    const target = window as typeof window & { __workflowActivityEvents?: unknown[]; __workflowActivitySocket?: WebSocket };
+    target.__workflowActivityEvents = [];
+    target.__workflowActivitySocket?.close();
+    const socket = new WebSocket(url);
+    target.__workflowActivitySocket = socket;
+    socket.addEventListener('message', (event) => {
+      try {
+        target.__workflowActivityEvents?.push(JSON.parse(String(event.data)));
+      } catch {
+        target.__workflowActivityEvents?.push({ raw: String(event.data) });
+      }
+    });
+  }, wsUrl.toString());
+
+  await expect.poll(async () => {
+    const events = await page.evaluate(() => (window as typeof window & { __workflowActivityEvents?: unknown[] }).__workflowActivityEvents ?? []);
+    return events.some((event) => JSON.stringify(event).includes('"event_type":"snapshot"')) ? 'snapshot' : 'waiting';
+  }, { timeout: 30_000, intervals: [250, 500, 1_000] }).toBe('snapshot');
+
+  return {
+    events: () => page.evaluate(() => (window as typeof window & { __workflowActivityEvents?: unknown[] }).__workflowActivityEvents ?? []),
+    waitForCallback: async (runId: string, status: string) => {
+      await expect.poll(async () => {
+        const events = await page.evaluate(() => (window as typeof window & { __workflowActivityEvents?: unknown[] }).__workflowActivityEvents ?? []);
+        return activityEventsHaveCallback(events, runId, status) ? status : 'waiting';
+      }, { timeout: 60_000, intervals: [500, 1_000, 2_000] }).toBe(status);
+      return page.evaluate(() => (window as typeof window & { __workflowActivityEvents?: unknown[] }).__workflowActivityEvents ?? []);
+    },
+  };
+}
+
+async function captureLegacyActivityWs(page: import('playwright/test').Page): Promise<unknown[]> {
+  const wsUrl = new URL('/vk-api/activity/ws', sandboxUrl);
+  wsUrl.protocol = wsUrl.protocol === 'https:' ? 'wss:' : 'ws:';
+  await page.evaluate((url) => {
+    const target = window as typeof window & { __legacyActivityEvents?: unknown[]; __legacyActivitySocket?: WebSocket };
+    target.__legacyActivityEvents = [];
+    target.__legacyActivitySocket?.close();
+    const socket = new WebSocket(url);
+    target.__legacyActivitySocket = socket;
+    socket.addEventListener('message', (event) => {
+      target.__legacyActivityEvents?.push(String(event.data));
+    });
+  }, wsUrl.toString());
+  await expect.poll(async () => {
+    const events = await page.evaluate(() => (window as typeof window & { __legacyActivityEvents?: unknown[] }).__legacyActivityEvents ?? []);
+    return events.length;
+  }, { timeout: 30_000, intervals: [250, 500, 1_000] }).toBeGreaterThan(0);
+  return page.evaluate(() => (window as typeof window & { __legacyActivityEvents?: unknown[] }).__legacyActivityEvents ?? []);
+}
 
 async function execWorkflowCli(
   testInfo: TestInfo,
@@ -153,4 +231,48 @@ async function pollPresentation(request: APIRequestContext, runId: string, statu
     return body.presentation?.status ?? 'missing';
   }, { timeout: 240_000, intervals: [1_000, 2_000, 5_000] }).toBe(status);
   return last;
+}
+
+
+async function pollActivityCallback(request: APIRequestContext, workspaceId: string, sessionId: string, runId: string, status: string): Promise<unknown> {
+  let last: unknown = null;
+  await expect.poll(async () => {
+    const response = await request.get(new URL(`/vk-api/activity/v1?workspace_id=${encodeURIComponent(workspaceId)}&session_id=${encodeURIComponent(sessionId)}`, sandboxUrl).toString(), { headers: { Accept: 'application/json' } });
+    if (!response.ok()) return `http-${response.status()}`;
+    const body = await response.json() as { data?: unknown };
+    last = body.data ?? null;
+    return activityEventsHaveCallback([body.data], runId, status) ? status : 'waiting';
+  }, { timeout: 120_000, intervals: [1_000, 2_000, 5_000] }).toBe(status);
+  return last;
+}
+
+function activityEventsHaveCallback(events: unknown[], runId: string, status: string): boolean {
+  return extractActivityCallbacks(events, runId).some((callback) => callback.status === status);
+}
+
+function countActivityCallbacks(events: unknown[], runId: string): number {
+  const ids = new Set(extractActivityCallbacks(events, runId).map((callback) => callback.callback_id));
+  return ids.size;
+}
+
+function extractActivityCallbacks(events: unknown[], runId: string): Array<{ callback_id: string; status: string }> {
+  const callbacks: Array<{ callback_id: string; status: string }> = [];
+  for (const event of events) {
+    collectCallbacks(event, runId, callbacks);
+  }
+  return callbacks;
+}
+
+function collectCallbacks(value: unknown, runId: string, callbacks: Array<{ callback_id: string; status: string }>) {
+  if (!value || typeof value !== 'object') return;
+  if (Array.isArray(value)) {
+    for (const item of value) collectCallbacks(item, runId, callbacks);
+    return;
+  }
+  const record = value as Record<string, unknown>;
+  const workflow = record.workflow as Record<string, unknown> | undefined;
+  if (typeof record.callback_id === 'string' && typeof record.status === 'string' && workflow?.run_id === runId) {
+    callbacks.push({ callback_id: record.callback_id, status: record.status });
+  }
+  for (const child of Object.values(record)) collectCallbacks(child, runId, callbacks);
 }
